@@ -89,7 +89,9 @@ async function defaultNativeHelperBundleSource(): Promise<Uint8Array> {
     splitting: false,
     target: 'bun'
   });
-  if (!result.success || result.outputs.length !== 1) throw executionError('preparation');
+  if (!result.success || result.outputs.length !== 1) {
+    throw executionError('preparation', undefined, undefined, 'native-helper-build');
+  }
   return new Uint8Array(await result.outputs[0].arrayBuffer());
 }
 
@@ -102,7 +104,7 @@ function createNativeHelperBundleLoader(source: NativeHelperBundleSource): Nativ
         const bytes = await source();
         const text = new TextDecoder().decode(bytes);
         if (bytes.byteLength === 0 || /(?:from|import\s*\()\s*["'][^"']+\.ts["']/u.test(text)) {
-          throw executionError('preparation');
+          throw executionError('preparation', undefined, undefined, 'native-helper-build');
         }
         return bytes;
       })();
@@ -119,8 +121,12 @@ function createNativeHelperBundleLoader(source: NativeHelperBundleSource): Nativ
 
 const nativeHelperBundleLoader = createNativeHelperBundleLoader(defaultNativeHelperBundleSource);
 
-function buildNativeHelperBundle(): Promise<Uint8Array> {
-  return nativeHelperBundleLoader.build();
+async function buildNativeHelperBundle(): Promise<Uint8Array> {
+  try {
+    return await nativeHelperBundleLoader.build();
+  } catch (error) {
+    throw normalizeExecutionError(error, 'preparation', 'native-helper-build');
+  }
 }
 
 /** Test-only isolated cache factory; never re-exported from a product facade. */
@@ -351,6 +357,20 @@ export type WindowsAppContainerExecutionPhase =
   | 'timeout'
   | 'cleanup';
 
+export type WindowsAppContainerPreparationSubstage =
+  | 'native-helper-build'
+  | 'native-helper-materialization'
+  | 'native-helper-invocation'
+  | 'native-helper-protocol'
+  | 'native-helper-diagnostic'
+  | 'native-receipt'
+  | 'sid-derivation'
+  | 'profile-creation'
+  | 'owner-publication'
+  | 'runtime-identity'
+  | 'system-directory'
+  | 'unknown';
+
 export type WindowsAppContainerHostToolStage =
   | 'acl-grant'
   | 'acl-remove'
@@ -391,6 +411,21 @@ const WINDOWS_APPCONTAINER_EXECUTION_PHASES = new Set<WindowsAppContainerExecuti
   WINDOWS_APPCONTAINER_EXECUTION_PHASE_VALUES
 );
 
+const WINDOWS_APPCONTAINER_PREPARATION_SUBSTAGES = new Set<WindowsAppContainerPreparationSubstage>([
+  'native-helper-build',
+  'native-helper-materialization',
+  'native-helper-invocation',
+  'native-helper-protocol',
+  'native-helper-diagnostic',
+  'native-receipt',
+  'sid-derivation',
+  'profile-creation',
+  'owner-publication',
+  'runtime-identity',
+  'system-directory',
+  'unknown'
+]);
+
 function isWindowsDword(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= MAX_WINDOWS_DWORD;
 }
@@ -408,13 +443,65 @@ export type WindowsAppContainerNativeReceiptClass =
   | 'invalid'
   | 'read-error';
 
+export type WindowsAppContainerNativeHelperExitClass = 'zero' | 'nonzero' | 'invalid';
+
 export type WindowsAppContainerNativeHelperObservation = Readonly<{
   readonly mode: WindowsAppContainerNativeHelperMode;
-  readonly helperExit: number;
+  readonly exitClass: WindowsAppContainerNativeHelperExitClass;
   readonly diagnosticStream: 'empty' | 'present';
   readonly protocol: WindowsAppContainerNativeHelperProtocolClass;
   readonly nativeReceipt: WindowsAppContainerNativeReceiptClass;
 }>;
+
+const WINDOWS_APPCONTAINER_NATIVE_HELPER_MODES = new Set<WindowsAppContainerNativeHelperMode>([
+  'derive', 'create-profile', 'execute'
+]);
+const WINDOWS_APPCONTAINER_NATIVE_HELPER_EXIT_CLASSES =
+  new Set<WindowsAppContainerNativeHelperExitClass>(['zero', 'nonzero', 'invalid']);
+const WINDOWS_APPCONTAINER_NATIVE_HELPER_DIAGNOSTICS = new Set(['empty', 'present'] as const);
+const WINDOWS_APPCONTAINER_NATIVE_HELPER_PROTOCOL_CLASSES =
+  new Set<WindowsAppContainerNativeHelperProtocolClass>(['ok', 'declared-failure', 'invalid']);
+const WINDOWS_APPCONTAINER_NATIVE_RECEIPT_CLASSES =
+  new Set<WindowsAppContainerNativeReceiptClass>([
+    'not-applicable', 'absent', 'exit-code', 'declared-failure', 'invalid', 'read-error'
+  ]);
+
+function canonicalPreparationSubstage(
+  value: unknown
+): WindowsAppContainerPreparationSubstage {
+  return typeof value === 'string' && WINDOWS_APPCONTAINER_PREPARATION_SUBSTAGES.has(
+    value as WindowsAppContainerPreparationSubstage
+  )
+    ? value as WindowsAppContainerPreparationSubstage
+    : 'unknown';
+}
+
+function canonicalNativeHelperObservation(
+  value: unknown
+): WindowsAppContainerNativeHelperObservation | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (!WINDOWS_APPCONTAINER_NATIVE_HELPER_MODES.has(
+    record.mode as WindowsAppContainerNativeHelperMode
+  ) || !WINDOWS_APPCONTAINER_NATIVE_HELPER_EXIT_CLASSES.has(
+    record.exitClass as WindowsAppContainerNativeHelperExitClass
+  ) || !WINDOWS_APPCONTAINER_NATIVE_HELPER_DIAGNOSTICS.has(
+    record.diagnosticStream as 'empty' | 'present'
+  ) || !WINDOWS_APPCONTAINER_NATIVE_HELPER_PROTOCOL_CLASSES.has(
+    record.protocol as WindowsAppContainerNativeHelperProtocolClass
+  ) || !WINDOWS_APPCONTAINER_NATIVE_RECEIPT_CLASSES.has(
+    record.nativeReceipt as WindowsAppContainerNativeReceiptClass
+  )) {
+    return undefined;
+  }
+  return Object.freeze({
+    mode: record.mode as WindowsAppContainerNativeHelperMode,
+    exitClass: record.exitClass as WindowsAppContainerNativeHelperExitClass,
+    diagnosticStream: record.diagnosticStream as 'empty' | 'present',
+    protocol: record.protocol as WindowsAppContainerNativeHelperProtocolClass,
+    nativeReceipt: record.nativeReceipt as WindowsAppContainerNativeReceiptClass
+  });
+}
 
 export type WindowsAppContainerProbeStage =
   | 'capability'
@@ -484,14 +571,22 @@ export class WindowsAppContainerCapabilityUnavailableError extends Error {
 
 export class WindowsAppContainerExecutionError extends Error {
   public readonly code = 'VERIFY-APPCONTAINER-EXECUTION' as const;
+  public readonly preparationSubstage?: WindowsAppContainerPreparationSubstage;
+  public readonly nativeHelperObservation?: WindowsAppContainerNativeHelperObservation;
 
   constructor(
     public readonly phase: WindowsAppContainerExecutionPhase,
     public readonly nativeCode?: number,
-    public readonly hostToolFailure?: WindowsAppContainerHostToolFailure
+    public readonly hostToolFailure?: WindowsAppContainerHostToolFailure,
+    preparationSubstage?: WindowsAppContainerPreparationSubstage,
+    nativeHelperObservation?: WindowsAppContainerNativeHelperObservation
   ) {
     super(`Windows AppContainer isolated execution failed during ${phase}`);
     this.name = 'WindowsAppContainerExecutionError';
+    this.preparationSubstage = phase === 'preparation'
+      ? canonicalPreparationSubstage(preparationSubstage)
+      : undefined;
+    this.nativeHelperObservation = canonicalNativeHelperObservation(nativeHelperObservation);
   }
 }
 
@@ -606,13 +701,17 @@ export function encodeWindowsAppContainerNativeFailure(
     (error.nativeCode !== undefined && !isWindowsDword(error.nativeCode))) {
     return encodeWindowsAppContainerNativeHelperWireValue({
       status: 'failed',
-      phase: 'preparation'
+      phase: 'preparation',
+      substage: 'unknown'
     });
   }
   return encodeWindowsAppContainerNativeHelperWireValue({
     status: 'failed',
     phase: error.phase,
-    ...(error.nativeCode === undefined ? {} : { nativeCode: error.nativeCode })
+    ...(error.nativeCode === undefined ? {} : { nativeCode: error.nativeCode }),
+    ...(error.phase === 'preparation'
+      ? { substage: canonicalPreparationSubstage(error.preparationSubstage) }
+      : {})
   });
 }
 
@@ -624,7 +723,7 @@ export function encodeWindowsAppContainerNativeDerivedSid(
   appContainerSid: string
 ): WindowsAppContainerNativeHelperWirePayload {
   if (!WINDOWS_APPCONTAINER_SID_PATTERN.test(appContainerSid)) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'sid-derivation');
   }
   return encodeWindowsAppContainerNativeHelperWireValue({ status: 'ok', appContainerSid });
 }
@@ -705,20 +804,68 @@ function associatedProbeCleanupFaults(
 function executionError(
   phase: WindowsAppContainerExecutionPhase,
   nativeCode?: number,
-  hostToolFailure?: WindowsAppContainerHostToolFailure
+  hostToolFailure?: WindowsAppContainerHostToolFailure,
+  preparationSubstage?: WindowsAppContainerPreparationSubstage,
+  nativeHelperObservation?: WindowsAppContainerNativeHelperObservation
 ): WindowsAppContainerExecutionError {
-  return new WindowsAppContainerExecutionError(phase, nativeCode, hostToolFailure);
+  return new WindowsAppContainerExecutionError(
+    phase,
+    nativeCode,
+    hostToolFailure,
+    preparationSubstage,
+    nativeHelperObservation
+  );
 }
 
 function normalizeExecutionError(
   error: unknown,
-  fallback: WindowsAppContainerExecutionPhase
+  fallback: WindowsAppContainerExecutionPhase,
+  fallbackPreparationSubstage: WindowsAppContainerPreparationSubstage = 'unknown'
 ): WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError {
-  if (error instanceof WindowsAppContainerCapabilityUnavailableError ||
-    error instanceof WindowsAppContainerExecutionError) {
+  if (error instanceof WindowsAppContainerCapabilityUnavailableError) {
     return error;
   }
-  return executionError(fallback);
+  if (error instanceof WindowsAppContainerExecutionError) {
+    if (fallback === 'preparation' && fallbackPreparationSubstage !== 'unknown' &&
+      error.phase === 'preparation' && error.preparationSubstage === 'unknown') {
+      const observation = error.nativeHelperObservation ?? nativeHelperObservations.get(error);
+      const normalized = executionError(
+        error.phase,
+        error.nativeCode,
+        error.hostToolFailure,
+        fallbackPreparationSubstage,
+        observation
+      );
+      if (observation) nativeHelperObservations.set(normalized, observation);
+      return normalized;
+    }
+    return error;
+  }
+  return executionError(
+    fallback,
+    undefined,
+    undefined,
+    fallback === 'preparation' ? fallbackPreparationSubstage : undefined
+  );
+}
+
+async function runPreparationStep<T>(
+  substage: Exclude<WindowsAppContainerPreparationSubstage, 'unknown'>,
+  operation: () => Promise<T> | T
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw normalizeExecutionError(error, 'preparation', substage);
+  }
+}
+
+/** Pure test seam for the fail-closed unknown preparation normalization boundary. */
+export function normalizeWindowsAppContainerPreparationErrorForTests(
+  error: unknown,
+  substage: WindowsAppContainerPreparationSubstage = 'unknown'
+): WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError {
+  return normalizeExecutionError(error, 'preparation', substage);
 }
 
 export function windowsAppContainerCapability(): WindowsAppContainerCapability {
@@ -934,7 +1081,7 @@ async function materializeRuntime(
   const sourceExecutable = process.execPath;
   const sourceMetadata = await lstat(sourceExecutable);
   if (!sourceMetadata.isFile() || sourceMetadata.isSymbolicLink()) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'runtime-identity');
   }
   const executablePath = path.join(runtimeRoot, RUNTIME_EXECUTABLE_NAME);
   await commitFence();
@@ -943,7 +1090,7 @@ async function materializeRuntime(
   if (!copiedMetadata.isFile() || copiedMetadata.isSymbolicLink() || Number(copiedMetadata.nlink) !== 1 ||
     (String(sourceMetadata.dev) === String(copiedMetadata.dev) &&
       String(sourceMetadata.ino) === String(copiedMetadata.ino))) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'runtime-identity');
   }
 
   const configRelativePath = path.join(RUNTIME_DIRECTORY_NAME, RUNTIME_CONFIG_NAME);
@@ -994,10 +1141,14 @@ function prepareMaterializedExecution(
 }
 
 function sidBytesToString(bytes: Buffer): string {
-  if (bytes.byteLength < 8) throw executionError('preparation');
+  if (bytes.byteLength < 8) {
+    throw executionError('preparation', undefined, undefined, 'sid-derivation');
+  }
   const revision = bytes.readUInt8(0);
   const subAuthorityCount = bytes.readUInt8(1);
-  if (bytes.byteLength !== 8 + subAuthorityCount * 4) throw executionError('preparation');
+  if (bytes.byteLength !== 8 + subAuthorityCount * 4) {
+    throw executionError('preparation', undefined, undefined, 'sid-derivation');
+  }
   let identifierAuthority = 0n;
   for (let index = 2; index < 8; index += 1) {
     identifierAuthority = (identifierAuthority << 8n) | BigInt(bytes[index]!);
@@ -1167,11 +1318,17 @@ function sidPointerToString(
   advapi32: Awaited<ReturnType<typeof openAppContainerAdvapi32>>,
   toBuffer: BunFfiToBuffer
 ): string {
-  if (advapi32.symbols.IsValidSid(sidPointer) === 0) throw executionError('preparation');
+  if (advapi32.symbols.IsValidSid(sidPointer) === 0) {
+    throw executionError('preparation', undefined, undefined, 'sid-derivation');
+  }
   const sidLength = advapi32.symbols.GetLengthSid(sidPointer);
-  if (sidLength < 8 || sidLength > MAXIMUM_SID_BYTES) throw executionError('preparation');
+  if (sidLength < 8 || sidLength > MAXIMUM_SID_BYTES) {
+    throw executionError('preparation', undefined, undefined, 'sid-derivation');
+  }
   const sid = sidBytesToString(Buffer.from(toBuffer(sidPointer, 0, sidLength)));
-  if (!/^S-1-15-2-(?:[0-9]+-){6}[0-9]+$/u.test(sid)) throw executionError('preparation');
+  if (!/^S-1-15-2-(?:[0-9]+-){6}[0-9]+$/u.test(sid)) {
+    throw executionError('preparation', undefined, undefined, 'sid-derivation');
+  }
   return sid;
 }
 
@@ -1189,9 +1346,13 @@ async function deriveAppContainerSidPointer(
       windowsWide(appContainerName),
       sidHolder
     );
-    if (result < 0) throw executionError('preparation', result);
+    if (result < 0) {
+      throw executionError('preparation', result, undefined, 'sid-derivation');
+    }
     const sidPointer = read.ptr(ptr(sidHolder)) as Pointer;
-    if (!sidPointer) throw executionError('preparation');
+    if (!sidPointer) {
+      throw executionError('preparation', undefined, undefined, 'sid-derivation');
+    }
     // Bun 1.3.6 can corrupt the process while FreeSid releases an FFI-returned
     // AppContainer SID. Every caller is a short-lived native helper, so the OS
     // reclaims this allocation at helper exit.
@@ -1232,10 +1393,12 @@ async function createAppContainerProfile(
       0,
       sidHolder
     );
-    if (result < 0) throw executionError('preparation', result);
+    if (result < 0) {
+      throw executionError('preparation', result, undefined, 'profile-creation');
+    }
     const sidPointer = read.ptr(ptr(sidHolder)) as Pointer;
     if (!sidPointer || sidPointerToString(sidPointer, advapi32, toBuffer) !== expectedSid) {
-      throw executionError('preparation');
+      throw executionError('preparation', undefined, undefined, 'profile-creation');
     }
   } catch (error) {
     if (error instanceof WindowsAppContainerExecutionError) throw error;
@@ -1261,7 +1424,9 @@ async function windowsSystemDirectory(): Promise<string> {
     const capacity = 32_768;
     const output = Buffer.alloc(capacity * 2);
     const length = kernel32.symbols.GetSystemDirectoryW(output, capacity);
-    if (length === 0 || length >= capacity) throw executionError('preparation');
+    if (length === 0 || length >= capacity) {
+      throw executionError('preparation', undefined, undefined, 'system-directory');
+    }
     return output.subarray(0, length * 2).toString('utf16le');
   } catch (error) {
     if (error instanceof WindowsAppContainerExecutionError) throw error;
@@ -1586,7 +1751,7 @@ async function durablePublishOwnerFile(
 ): Promise<void> {
   await commitFence();
   if (await pathExists(ownerPath) || await pathExists(pendingPath)) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
   await durableCreateFile(pendingPath, contents, commitFence);
   await testHooks.afterPendingDurableBeforeRename?.();
@@ -1601,7 +1766,7 @@ async function durablePublishOwnerFile(
   ]);
   if (!metadata.isFile() || metadata.isSymbolicLink() || Number(metadata.nlink) !== 1 ||
     canonicalContents !== contents) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
 }
 
@@ -1618,7 +1783,7 @@ async function materializeHostBunRuntime(
   ]);
   if (!processRootMetadata.isDirectory() || processRootMetadata.isSymbolicLink() ||
     foldedWindowsPath(canonicalProcessRoot) !== foldedWindowsPath(processRoot)) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'native-helper-materialization');
   }
 
   const configRoot = path.join(stagingRoot, HOST_BUN_CONFIG_RELATIVE_ROOT);
@@ -1629,7 +1794,7 @@ async function materializeHostBunRuntime(
     ]);
     if (!metadata.isDirectory() || metadata.isSymbolicLink() ||
       foldedWindowsPath(canonicalRoot) !== foldedWindowsPath(configRoot)) {
-      throw executionError('preparation');
+      throw executionError('preparation', undefined, undefined, 'native-helper-materialization');
     }
     await commitFence();
     await rm(configRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
@@ -1642,7 +1807,7 @@ async function materializeHostBunRuntime(
   ]);
   if (!configRootMetadata.isDirectory() || configRootMetadata.isSymbolicLink() ||
     foldedWindowsPath(canonicalConfigRoot) !== foldedWindowsPath(configRoot)) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'native-helper-materialization');
   }
 
   const configPath = path.join(configRoot, RUNTIME_CONFIG_NAME);
@@ -1659,7 +1824,7 @@ async function materializeHostBunRuntime(
   if (!configMetadata.isFile() || configMetadata.isSymbolicLink() || Number(configMetadata.nlink) !== 1 ||
     foldedWindowsPath(canonicalConfigPath) !== foldedWindowsPath(configPath) ||
     configContents !== ISOLATED_BUN_CONFIG_CONTENT) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'native-helper-materialization');
   }
   const [helperMetadata, canonicalHelperPath, materializedHelper] = await Promise.all([
     lstat(helperPath),
@@ -1670,7 +1835,7 @@ async function materializeHostBunRuntime(
     foldedWindowsPath(canonicalHelperPath) !== foldedWindowsPath(helperPath) ||
     createHash('sha256').update(materializedHelper).digest('hex') !==
       createHash('sha256').update(helperBundle).digest('hex')) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'native-helper-materialization');
   }
   return { configPath, helperPath };
 }
@@ -1702,7 +1867,13 @@ async function runHostBunCommand(
   timeoutMs: number | undefined,
   encodedRequest: string
 ) {
-  const { configPath, helperPath } = await materializeHostBunRuntime(stagingRoot, commitFence);
+  let materialized: Awaited<ReturnType<typeof materializeHostBunRuntime>>;
+  try {
+    materialized = await materializeHostBunRuntime(stagingRoot, commitFence);
+  } catch (error) {
+    throw normalizeExecutionError(error, 'preparation', 'native-helper-materialization');
+  }
+  const { configPath, helperPath } = materialized;
   let result: Awaited<ReturnType<typeof runCommand>> | undefined;
   let primaryError: WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError | undefined;
   const controller = new AbortController();
@@ -1748,7 +1919,10 @@ async function runHostBunCommand(
     if (monitorError) throw monitorError;
     await commitFence();
   } catch (error) {
-    primaryError = normalizeExecutionError(monitorError ?? error, 'preparation');
+    primaryError = normalizeExecutionError(monitorError ?? error,
+      'preparation',
+      'native-helper-invocation'
+    );
   }
   let cleanupError: WindowsAppContainerCapabilityUnavailableError | WindowsAppContainerExecutionError | undefined;
   try {
@@ -1761,7 +1935,9 @@ async function runHostBunCommand(
     throw primaryError;
   }
   if (cleanupError) throw cleanupError;
-  if (!result) throw executionError('preparation');
+  if (!result) {
+    throw executionError('preparation', undefined, undefined, 'native-helper-invocation');
+  }
   return result;
 }
 
@@ -2267,6 +2443,7 @@ type DecodedNativeHelperOutput =
 type DecodedNativeFailure = Readonly<{
   phase: WindowsAppContainerExecutionPhase;
   nativeCode: number | null;
+  preparationSubstage: WindowsAppContainerPreparationSubstage | null;
 }>;
 
 type DecodedNativeReceipt =
@@ -2286,15 +2463,28 @@ function decodeNativeFailureRecord(value: unknown): DecodedNativeFailure | undef
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   if (record.status !== 'failed') return undefined;
-  const expectedKeys = ['phase', 'status', ...(record.nativeCode === undefined ? [] : ['nativeCode'])].sort();
+  const preparationSubstage = record.phase === 'preparation'
+    ? canonicalPreparationSubstage(record.substage)
+    : null;
+  const expectedKeys = [
+    'phase',
+    'status',
+    ...(record.nativeCode === undefined ? [] : ['nativeCode']),
+    ...(record.phase === 'preparation' ? ['substage'] : [])
+  ].sort();
   if (!exactObjectKeys(record, expectedKeys) ||
     !WINDOWS_APPCONTAINER_EXECUTION_PHASES.has(record.phase as WindowsAppContainerExecutionPhase) ||
+    (record.phase === 'preparation' &&
+      (!WINDOWS_APPCONTAINER_PREPARATION_SUBSTAGES.has(
+        record.substage as WindowsAppContainerPreparationSubstage
+      ) || preparationSubstage !== record.substage)) ||
     (record.nativeCode !== undefined && !isWindowsDword(record.nativeCode))) {
     return undefined;
   }
   return Object.freeze({
     phase: record.phase as WindowsAppContainerExecutionPhase,
-    nativeCode: record.nativeCode === undefined ? null : Number(record.nativeCode)
+    nativeCode: record.nativeCode === undefined ? null : Number(record.nativeCode),
+    preparationSubstage
   });
 }
 
@@ -2435,7 +2625,7 @@ function projectNativeHelperObservation(
 ): WindowsAppContainerNativeHelperObservation {
   return Object.freeze({
     mode,
-    helperExit: exitCode,
+    exitClass: !isWindowsDword(exitCode) ? 'invalid' : exitCode === 0 ? 'zero' : 'nonzero',
     diagnosticStream: diagnosticStreamPresent ? 'present' : 'empty',
     protocol: protocol.classification,
     nativeReceipt: nativeReceipt.classification
@@ -2480,33 +2670,63 @@ function settleNativeHelperInvocation(
   );
   try {
     if (diagnosticStreamPresent || protocol.classification === 'invalid') {
-      throw executionError('preparation');
+      throw executionError(
+        'preparation',
+        undefined,
+        undefined,
+        diagnosticStreamPresent ? 'native-helper-diagnostic' : 'native-helper-protocol',
+        observation
+      );
     }
     if (protocol.classification === 'declared-failure') {
       throw executionError(
         protocol.failure.phase,
-        protocol.failure.nativeCode ?? undefined
+        protocol.failure.nativeCode ?? undefined,
+        undefined,
+        protocol.failure.preparationSubstage ?? undefined,
+        observation
       );
     }
     if (mode === 'execute') {
       if (nativeReceipt.classification === 'declared-failure') {
         throw executionError(
           nativeReceipt.failure.phase,
-          nativeReceipt.failure.nativeCode ?? undefined
+          nativeReceipt.failure.nativeCode ?? undefined,
+          undefined,
+          nativeReceipt.failure.preparationSubstage ?? undefined,
+          observation
         );
       }
-      if (nativeReceipt.classification !== 'exit-code') throw executionError('wait');
+      if (nativeReceipt.classification !== 'exit-code') {
+        throw executionError('wait', undefined, undefined, undefined, observation);
+      }
       return nativeReceipt.result;
     }
-    if (nativeReceipt.classification !== 'not-applicable') throw executionError('preparation');
+    if (nativeReceipt.classification !== 'not-applicable') {
+      throw executionError(
+        'preparation', undefined, undefined, 'native-receipt', observation
+      );
+    }
     if (mode === 'derive') {
-      if (!protocol.appContainerSid) throw executionError('preparation');
+      if (!protocol.appContainerSid) {
+        throw executionError(
+          'preparation', undefined, undefined, 'native-helper-protocol', observation
+        );
+      }
       return protocol.appContainerSid;
     }
     return undefined;
   } catch (error) {
     if (error instanceof Error) nativeHelperObservations.set(error, observation);
     throw error;
+  }
+}
+
+function encodeNativeHelperRequestForHost(value: unknown): string {
+  try {
+    return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  } catch (error) {
+    throw normalizeExecutionError(error, 'preparation', 'native-helper-invocation');
   }
 }
 
@@ -2534,7 +2754,7 @@ async function invokeNativeHelper(
   commitFence: () => Promise<void>,
   timeoutMs: number | undefined
 ): Promise<void | WindowsAppContainerExecutionResult> {
-  const serialized = Buffer.from(JSON.stringify({ mode, request: helperRequest }), 'utf8').toString('base64url');
+  const serialized = encodeNativeHelperRequestForHost({ mode, request: helperRequest });
   const result = await runHostBunCommand(
     stagingRoot,
     environment,
@@ -2542,9 +2762,14 @@ async function invokeNativeHelper(
     timeoutMs,
     serialized
   );
-  const nativeReceipt = mode === 'execute'
-    ? await readNativeReceipt(helperRequest.nativeResultPath, commitFence)
-    : Object.freeze({ classification: 'not-applicable' as const });
+  let nativeReceipt: DecodedNativeReceipt;
+  try {
+    nativeReceipt = mode === 'execute'
+      ? await readNativeReceipt(helperRequest.nativeResultPath, commitFence)
+      : Object.freeze({ classification: 'not-applicable' as const });
+  } catch (error) {
+    throw normalizeExecutionError(error, 'preparation', 'native-receipt');
+  }
   if (mode === 'execute') {
     return settleNativeHelperInvocation(
       'execute',
@@ -2602,10 +2827,10 @@ async function deriveAppContainerSidViaHelper(
   environment: Readonly<Record<string, string>>,
   commitFence: () => Promise<void>
 ): Promise<string> {
-  const serialized = Buffer.from(JSON.stringify({
+  const serialized = encodeNativeHelperRequestForHost({
     mode: 'derive',
     request: { appContainerName }
-  }), 'utf8').toString('base64url');
+  });
   const result = await runHostBunCommand(
     stagingRoot,
     environment,
@@ -2635,17 +2860,17 @@ export async function createWindowsAppContainerProfileForNativeHelper(
   await commitFence();
   const validated = await validateExecutionRequest(execution);
   validateAndSortEnvironment(execution.environment, validated.stagingRoot);
-  await assertRecoveryOwner(
+  await runPreparationStep('owner-publication', () => assertRecoveryOwner(
     request.owner,
     validated,
     execution.workspaceWriteLease,
     request.nativeResultPath
-  );
-  await createAppContainerProfile(
+  ));
+  await runPreparationStep('profile-creation', () => createAppContainerProfile(
     request.owner.appContainerName,
     request.owner.appContainerSid,
     commitFence
-  );
+  ));
 }
 
 /** Native-helper-only launch. No profile, ACL, runtime, or owner cleanup occurs here. */
@@ -2661,31 +2886,39 @@ export async function runWindowsAppContainerNativeChild(
   await commitFence();
   const validated = await validateExecutionRequest(execution);
   validateAndSortEnvironment(execution.environment, validated.stagingRoot);
-  await assertRecoveryOwner(
+  await runPreparationStep('owner-publication', () => assertRecoveryOwner(
     request.owner,
     validated,
     execution.workspaceWriteLease,
     request.nativeResultPath
-  );
-  const prepared = prepareMaterializedExecution(
-    validated.stagingRoot,
-    validated.runnerRelativePath,
-    execution.runnerArguments ?? [],
-    execution.environment
-  );
-  const runtimeMetadata = await lstat(path.join(validated.stagingRoot, RUNTIME_DIRECTORY_NAME));
-  const executableMetadata = await lstat(path.join(
-    validated.stagingRoot,
-    RUNTIME_DIRECTORY_NAME,
-    RUNTIME_EXECUTABLE_NAME
   ));
-  if (!runtimeMetadata.isDirectory() || runtimeMetadata.isSymbolicLink() ||
-    !executableMetadata.isFile() || executableMetadata.isSymbolicLink() ||
-    Number(executableMetadata.nlink) !== 1) {
-    throw executionError('preparation');
+  const prepared = await runPreparationStep('runtime-identity', async () => {
+    const materialized = prepareMaterializedExecution(
+      validated.stagingRoot,
+      validated.runnerRelativePath,
+      execution.runnerArguments ?? [],
+      execution.environment
+    );
+    const runtimeMetadata = await lstat(path.join(validated.stagingRoot, RUNTIME_DIRECTORY_NAME));
+    const executableMetadata = await lstat(path.join(
+      validated.stagingRoot,
+      RUNTIME_DIRECTORY_NAME,
+      RUNTIME_EXECUTABLE_NAME
+    ));
+    if (!runtimeMetadata.isDirectory() || runtimeMetadata.isSymbolicLink() ||
+      !executableMetadata.isFile() || executableMetadata.isSymbolicLink() ||
+      Number(executableMetadata.nlink) !== 1) {
+      throw executionError('preparation', undefined, undefined, 'runtime-identity');
+    }
+    return materialized;
+  });
+  const derivedSid = await runPreparationStep(
+    'sid-derivation',
+    () => deriveAppContainerSidPointer(request.owner.appContainerName)
+  );
+  if (derivedSid.sid !== request.owner.appContainerSid) {
+    throw executionError('preparation', undefined, undefined, 'sid-derivation');
   }
-  const derivedSid = await deriveAppContainerSidPointer(request.owner.appContainerName);
-  if (derivedSid.sid !== request.owner.appContainerSid) throw executionError('preparation');
   const exitCode = await executeNativeAppContainer(
     derivedSid.sidPointer,
     prepared,
@@ -2827,7 +3060,7 @@ async function publishProvisionalOwner(
   );
   const canonical = await readProvisionalOwner(provisionalOwnerPath(transactionRoot));
   if (!canonical || JSON.stringify(canonical) !== JSON.stringify(owner)) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
 }
 
@@ -2878,7 +3111,7 @@ async function publishRecoveryOwner(
   );
   const canonical = await readRecoveryOwner(recoveryOwnerPath(transactionRoot));
   if (!canonical || JSON.stringify(canonical) !== JSON.stringify(owner)) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
 }
 
@@ -3012,12 +3245,16 @@ export async function runWindowsAppContainerChild(
     | undefined;
 
   try {
-    await publishProvisionalOwner(provisionalOwner, validated.transactionRoot, commitFence);
-    const appContainerSid = await deriveAppContainerSidViaHelper(
-      appContainerName,
-      validated.stagingRoot,
-      request.environment,
-      commitFence
+    await runPreparationStep('owner-publication', () =>
+      publishProvisionalOwner(provisionalOwner, validated.transactionRoot, commitFence));
+    const appContainerSid = await runPreparationStep(
+      'native-helper-invocation',
+      () => deriveAppContainerSidViaHelper(
+        appContainerName,
+        validated.stagingRoot,
+        request.environment,
+        commitFence
+      )
     );
     owner = Object.freeze({
       formatVersion: RECOVERY_OWNER_FORMAT_VERSION,
@@ -3029,11 +3266,18 @@ export async function runWindowsAppContainerChild(
       appContainerName,
       appContainerSid
     });
-    await publishRecoveryOwner(owner, validated.transactionRoot, commitFence);
-    await durableRemovePendingOwnerFile(provisionalOwnerPendingPath(validated.transactionRoot), commitFence);
-    await durableRemoveFile(provisionalOwnerPath(validated.transactionRoot), commitFence);
-    await materializeRuntime(validated.stagingRoot, commitFence);
-    const systemDirectory = await windowsSystemDirectory();
+    await runPreparationStep('owner-publication', () =>
+      publishRecoveryOwner(owner!, validated.transactionRoot, commitFence));
+    await runPreparationStep('owner-publication', () =>
+      durableRemovePendingOwnerFile(provisionalOwnerPendingPath(validated.transactionRoot), commitFence));
+    await runPreparationStep('owner-publication', () =>
+      durableRemoveFile(provisionalOwnerPath(validated.transactionRoot), commitFence));
+    await runPreparationStep('runtime-identity', () =>
+      materializeRuntime(validated.stagingRoot, commitFence));
+    const systemDirectory = await runPreparationStep(
+      'system-directory',
+      () => windowsSystemDirectory()
+    );
     const nativeRequest: WindowsAppContainerNativeExecutionRequest = {
       execution: {
         ...request,
@@ -3203,7 +3447,7 @@ async function publishProbeOwner(
   );
   const canonical = await readProbeOwner(probeOwnerPath(probeRoot));
   if (!canonical || JSON.stringify(canonical) !== JSON.stringify(owner)) {
-    throw executionError('preparation');
+    throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
 }
 
