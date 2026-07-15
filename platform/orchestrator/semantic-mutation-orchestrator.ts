@@ -3,13 +3,15 @@ import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
   executeSemanticMutationVerification,
-  planSemanticMutationVerificationCapabilities,
+  planSemanticMutationVerificationCapabilities
+} from '../compiler/index.ts';
+import {
   probeSemanticMutationIsolatedRuntimeCapability,
   runSemanticMutationIsolatedVerificationChild,
   SemanticMutationIsolatedVerificationUnavailableError,
   type IsolatedVerificationArtifacts,
   type SemanticMutationIsolatedVerificationFailure
-} from '../compiler/index.ts';
+} from '../compiler/verify/run-semantic-mutation-isolated-child.ts';
 import { buildWorkspaceSemanticBundle } from '../compiler/semantic-frontend.ts';
 import {
   atomicPublishSemanticMutationSource,

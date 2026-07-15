@@ -99,11 +99,6 @@ export { buildSemanticGeneratorPlan } from './semantic-plan.ts';
 export { assertIsolatedStagingTree } from './verify/assert-isolated-staging-tree.ts';
 export { buildAcceptanceCoverage } from './verify/build-acceptance-coverage.ts';
 export { createSkippedRuntimeLane } from './verify/run-runtime-verification.ts';
-export {
-  SemanticMutationIsolatedVerificationUnavailableError, probeSemanticMutationIsolatedRuntimeCapability,
-  runSemanticMutationIsolatedVerificationChild, type IsolatedVerificationArtifacts,
-  type SemanticMutationIsolatedVerificationFailure
-} from './verify/run-semantic-mutation-isolated-child.ts';
 export { isSemanticMutationStagingWorkspace } from './verify/semantic-mutation-staging-boundary.ts';
 export {
   executeSemanticMutationVerification,
