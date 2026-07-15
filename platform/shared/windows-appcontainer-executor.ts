@@ -84,6 +84,10 @@ const WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES = 1024 * 1024;
 const WINDOWS_APPCONTAINER_NATIVE_EXECUTION_DEFAULT_TIMEOUT_MS = 120_000;
 const WINDOWS_APPCONTAINER_NATIVE_HELPER_STARTUP_SETTLEMENT_ALLOWANCE_MS = 10_000;
 const WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS = 20;
+const WINDOWS_APPCONTAINER_NATIVE_JOB_SETTLEMENT_MS = 5_000;
+const WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1;
+const WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_BYTES = 48;
+const WINDOWS_JOB_OBJECT_ACTIVE_PROCESSES_OFFSET = 40;
 
 type BunFfiToBuffer = (typeof import('bun:ffi'))['toBuffer'];
 type NativeHelperBundleSource = () => Promise<Uint8Array>;
@@ -957,6 +961,14 @@ interface WindowsAppContainerNativeProcessWaitDependencies {
   readonly waitForProcess: (timeoutMs: number) => number;
 }
 
+interface WindowsAppContainerNativeJobSettlementDependencies {
+  readonly nowMs: () => number;
+  readonly terminateJob: () => boolean;
+  readonly waitForRoot: (timeoutMs: number) => number;
+  readonly queryActiveProcesses: () => number | null;
+  readonly sleep: (timeoutMs: number) => void;
+}
+
 function arbitrateWindowsAppContainerNativeExecutionDeadlines(
   requestedTimeoutMs: number | undefined
 ): WindowsAppContainerNativeExecutionDeadlines {
@@ -1016,6 +1028,37 @@ function waitForWindowsAppContainerNativeProcess(
   }
 }
 
+function settleWindowsAppContainerNativeJobAfterFailure(
+  dependencies: WindowsAppContainerNativeJobSettlementDependencies,
+  settlementMs = WINDOWS_APPCONTAINER_NATIVE_JOB_SETTLEMENT_MS
+): boolean {
+  const startedAtMs = dependencies.nowMs();
+  if (!Number.isSafeInteger(startedAtMs) || startedAtMs < 0 ||
+    !Number.isSafeInteger(settlementMs) || settlementMs <= 0 ||
+    startedAtMs > Number.MAX_SAFE_INTEGER - settlementMs || !dependencies.terminateJob()) {
+    return false;
+  }
+  const deadlineAtMs = startedAtMs + settlementMs;
+  let rootClosed = false;
+  while (true) {
+    const observedAtMs = dependencies.nowMs();
+    if (!Number.isSafeInteger(observedAtMs) || observedAtMs < startedAtMs ||
+      observedAtMs >= deadlineAtMs) return false;
+    const sliceMs = Math.min(WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS,
+      deadlineAtMs - observedAtMs);
+    if (!rootClosed) {
+      const waitResult = dependencies.waitForRoot(sliceMs);
+      if (waitResult === WAIT_OBJECT_0) rootClosed = true;
+      else if (waitResult !== WAIT_TIMEOUT) return false;
+    }
+    const activeProcesses = dependencies.queryActiveProcesses();
+    if (activeProcesses === null || !Number.isSafeInteger(activeProcesses) ||
+      activeProcesses < 0) return false;
+    if (rootClosed && activeProcesses === 0) return true;
+    if (rootClosed) dependencies.sleep(sliceMs);
+  }
+}
+
 /** Pure finite projection of the child-owned timeout and host settlement watchdog. */
 export function arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(
   requestedTimeoutMs: number | undefined
@@ -1051,6 +1094,14 @@ export function waitForWindowsAppContainerNativeProcessForTests(
     startedAtMs
   );
   waitForWindowsAppContainerNativeProcess(budget, dependencies);
+}
+
+/** Deterministic test seam for timeout cleanup of the inner AppContainer Job. */
+export function settleWindowsAppContainerNativeJobAfterFailureForTests(
+  dependencies: WindowsAppContainerNativeJobSettlementDependencies,
+  settlementMs?: number
+): boolean {
+  return settleWindowsAppContainerNativeJobAfterFailure(dependencies, settlementMs);
 }
 
 function normalizeExecutionError(
@@ -1535,6 +1586,18 @@ async function loadWindowsAppContainerKernel32() {
     TerminateProcess: {
       args: [FFIType.u64, FFIType.u32],
       returns: FFIType.i32
+    },
+    TerminateJobObject: {
+      args: [FFIType.u64, FFIType.u32],
+      returns: FFIType.i32
+    },
+    QueryInformationJobObject: {
+      args: [FFIType.u64, FFIType.i32, FFIType.ptr, FFIType.u32, FFIType.ptr],
+      returns: FFIType.i32
+    },
+    Sleep: {
+      args: [FFIType.u32],
+      returns: FFIType.void
     },
     CloseHandle: {
       args: [FFIType.u64],
@@ -2491,13 +2554,34 @@ async function executeNativeAppContainer(
   } finally {
     if (kernel32) {
       if (processHandle !== 0n && !processCompleted) {
-        kernel32.symbols.TerminateProcess(processHandle, TERMINATED_EXIT_CODE);
+        const jobAccounting = Buffer.alloc(
+          WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION_BYTES
+        );
+        const settled = jobHandle !== 0n && settleWindowsAppContainerNativeJobAfterFailure({
+          nowMs: Date.now,
+          terminateJob: () => kernel32!.symbols.TerminateJobObject(
+            jobHandle,
+            TERMINATED_EXIT_CODE
+          ) !== 0,
+          waitForRoot: (timeoutMs) => kernel32!.symbols.WaitForSingleObject(
+            processHandle,
+            timeoutMs
+          ),
+          queryActiveProcesses: () => kernel32!.symbols.QueryInformationJobObject(
+            jobHandle,
+            WINDOWS_JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION,
+            jobAccounting,
+            jobAccounting.byteLength,
+            null
+          ) === 0
+            ? null
+            : jobAccounting.readUInt32LE(WINDOWS_JOB_OBJECT_ACTIVE_PROCESSES_OFFSET),
+          sleep: (timeoutMs) => kernel32!.symbols.Sleep(timeoutMs)
+        });
+        if (!settled) kernel32.symbols.TerminateProcess(processHandle, TERMINATED_EXIT_CODE);
       }
       if (jobHandle !== 0n) {
         kernel32.symbols.CloseHandle(jobHandle);
-      }
-      if (processHandle !== 0n && !processCompleted) {
-        kernel32.symbols.WaitForSingleObject(processHandle, 1000);
       }
       if (threadHandle !== 0n) kernel32.symbols.CloseHandle(threadHandle);
       if (processHandle !== 0n) kernel32.symbols.CloseHandle(processHandle);
