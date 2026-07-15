@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-15T22:49:46.9346548+08:00",
+  "profile": "v0.4-semantic-mutation-native-helper-settlement-timed-out",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousStopRecord": "docs/evidence/v0-4-semantic-mutation-native-helper-invocation-stop-record-2026-07-15.json",
+  "implementationHead": "147efc88e98f83f43f7319f7ab45f8e40fd3fb4b",
+  "implementationTree": "909056c6c18429bbdeea719391251d75b1ff3c59",
+  "status": "stopped-on-native-helper-settlement-timed-out",
+  "mergeAllowed": false,
+  "stopReason": "The single authorized real AppContainer seam emitted the exact internal finite settlement {mode: execute, reason: timed-out} and failed during preparation/native-helper-invocation after 85.891 seconds. This replaces the previous timing-only inference with direct finite evidence. The diagnostic probe was removed, the new callback-failure workspace was retained, and no second real seam, full lane, slow lane, public vertical, or GitHub Actions run was started.",
+  "completedRepairBatch": {
+    "commit": "147efc88e98f83f43f7319f7ab45f8e40fd3fb4b",
+    "sidecarShape": {
+      "fields": [
+        "mode",
+        "reason"
+      ],
+      "storage": "process-local WeakMap keyed by Error",
+      "publicErrorExpanded": false,
+      "capabilityDiagnosticExpanded": false,
+      "facadeExpanded": false
+    },
+    "cleanupAuthority": "unchanged-independent-closed-tree-proof"
+  },
+  "focusedEvidence": {
+    "hostToolLifecycle": {
+      "status": "PASS",
+      "passed": 37,
+      "failed": 0,
+      "expectCalls": 228
+    },
+    "typecheck": {
+      "status": "PASS"
+    },
+    "authorityAndImpact": {
+      "initialWave": {
+        "passed": 40,
+        "failed": 1,
+        "failure": "PR-risk expected owners omitted auto-reference"
+      },
+      "focusedRepairSentinel": {
+        "status": "PASS",
+        "passed": 1,
+        "filtered": 8
+      }
+    },
+    "changedOnlyImports": {
+      "status": "PASS",
+      "base": "a819343b056cedf8f7949cbe7e94bc9b7b9f80ed"
+    },
+    "custodyLedger": {
+      "status": "PASS",
+      "revision": "147efc88e98f83f43f7319f7ab45f8e40fd3fb4b",
+      "custodyGitBlobs": 25,
+      "retainedRecoveryFixtureGitBlobs": 5
+    },
+    "diffCheck": {
+      "status": "PASS",
+      "base": "a819343b056cedf8f7949cbe7e94bc9b7b9f80ed"
+    }
+  },
+  "realProductionSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary$",
+      "--timeout",
+      "180000"
+    ],
+    "temporaryProbe": {
+      "scope": "test-only local catch around launch",
+      "outputFields": [
+        "mode",
+        "reason"
+      ],
+      "removedAfterRun": true,
+      "committed": false
+    },
+    "status": "FAIL",
+    "exitCode": 1,
+    "testDurationMs": 85891,
+    "suiteDurationMs": 87200,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 42,
+    "expectCallsBeforeFailure": 6,
+    "failure": {
+      "name": "WindowsAppContainerExecutionError",
+      "code": "VERIFY-APPCONTAINER-EXECUTION",
+      "phase": "preparation",
+      "preparationSubstage": "native-helper-invocation",
+      "nativeHelperObservationPresent": false,
+      "finiteSettlement": {
+        "mode": "execute",
+        "reason": "timed-out"
+      }
+    }
+  },
+  "retainedScene": {
+    "path": "D:/Project/sec/.tmp/codex-ledger-reconcile/.tmp/test-workspaces/engineering-compiler-sm3-isolated-production-bundle-uZDX62",
+    "preserved": true,
+    "previousScenePreserved": "D:/Project/sec/.tmp/codex-ledger-reconcile/.tmp/test-workspaces/engineering-compiler-sm3-isolated-production-bundle-NujebV",
+    "forcedCleanupPerformed": false
+  },
+  "stopDiscipline": {
+    "realSeamRuns": 1,
+    "secondRealSeamStarted": false,
+    "fullRunStarted": false,
+    "slowRunStarted": false,
+    "publicVerticalStarted": false,
+    "githubActionsStarted": false
+  },
+  "nextTaskEnvelope": {
+    "task": "execute-mode native-helper timeout diagnosis",
+    "currentBase": "147efc88e98f83f43f7319f7ab45f8e40fd3fb4b",
+    "goal": "Use the retained scene and the finite execute/timed-out classification to isolate the first bounded native-helper execute wait that consumes the 60-second child budget, without rerunning the real seam until a focused non-AppContainer sentinel proves the repair.",
+    "forbidden": [
+      "rerunning the real AppContainer seam before a focused sentinel proves the repair",
+      "deleting or mutating either retained workspace",
+      "persisting raw helper output, paths, argv, environment, messages, causes, stacks, SIDs, or profile names in the settlement sidecar",
+      "authorizing cleanup from settlement classification",
+      "weakening AppContainer, ACL, timeout, host-path, relocation, lease, or public diagnostic contracts",
+      "running full, slow, public vertical, or GitHub Actions lanes"
+    ]
+  }
+}
