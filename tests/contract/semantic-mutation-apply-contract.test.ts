@@ -764,7 +764,16 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.isolatedChild).toContain('frameDigest !== outcome.stdout.digest');
   expect(sources.isolatedChild).toContain('let cleanupProven = true;');
   expect(sources.isolatedChild).toContain('cleanupProven = false;');
-  expect(sources.isolatedChild).toContain('if (cleanupProven) await cleanup(processRoot);');
+  expect(sources.isolatedChild).toContain('maxRetries: 3');
+  expect(sources.isolatedChild).toContain('retryDelay: 25');
+  const runnerBuildPrimaryFailure = sources.isolatedChild.indexOf(
+    'if (primaryFailed) throw primaryError;'
+  );
+  const runnerBuildCleanupFailure = sources.isolatedChild.indexOf(
+    'if (cleanupFailed || bundle === undefined)'
+  );
+  expect(runnerBuildPrimaryFailure).toBeGreaterThan(-1);
+  expect(runnerBuildCleanupFailure).toBeGreaterThan(runnerBuildPrimaryFailure);
   expect(sources.isolatedChild).not.toContain('const sourceBundle = await readSemanticMutationIsolatedRunnerBuildOutput(');
   expect(sources.runnerBuildChild).toContain('fileURLToPath(new URL(');
   expect(sources.runnerBuildChild).toContain('if (import.meta.main)');

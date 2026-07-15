@@ -618,7 +618,12 @@ type SemanticMutationRunnerBuildObservedCommand = (
 type SemanticMutationRunnerBuildProcessRootCleanup = (processRoot: string) => Promise<void>;
 
 async function cleanupSemanticMutationRunnerBuildProcessRoot(processRoot: string): Promise<void> {
-  await rm(processRoot, { recursive: true, force: true });
+  await rm(processRoot, {
+    recursive: true,
+    force: true,
+    maxRetries: 3,
+    retryDelay: 25
+  });
 }
 
 function exactObservedRunnerBuildLifecycle(outcome: ObservedCommandOutcome): boolean {
@@ -639,7 +644,9 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
   try {
     const processRoot = await mkdtemp(path.join(tmpdir(), 'sec-sm-runner-build-'));
     let cleanupProven = true;
-    let bundle: Uint8Array;
+    let bundle: Uint8Array | undefined;
+    let primaryFailed = false;
+    let primaryError: unknown;
     try {
       await ensureIsolatedProcessDirectories(processRoot);
       const stdoutChunks: Uint8Array[] = [];
@@ -721,8 +728,21 @@ async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(
       } catch {
         throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-output-read');
       }
-    } finally {
-      if (cleanupProven) await cleanup(processRoot);
+    } catch (error) {
+      primaryFailed = true;
+      primaryError = error;
+    }
+    let cleanupFailed = false;
+    if (cleanupProven) {
+      try {
+        await cleanup(processRoot);
+      } catch {
+        cleanupFailed = true;
+      }
+    }
+    if (primaryFailed) throw primaryError;
+    if (cleanupFailed || bundle === undefined) {
+      throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');
     }
     return bundle;
   } catch (error) {
