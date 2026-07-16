@@ -5,6 +5,7 @@ import type { ObservedCommandOutcome } from './observed-process.ts';
 export type WindowsAppContainerObservedNativeHelperMode =
   | 'derive'
   | 'create-profile'
+  | 'suspended-create'
   | 'execute';
 
 export type WindowsAppContainerObservedNativeHelperSettlementRejection =

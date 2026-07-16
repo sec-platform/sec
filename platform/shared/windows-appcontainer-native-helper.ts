@@ -9,15 +9,18 @@ import {
   encodeWindowsAppContainerNativeOk,
   remainingWindowsAppContainerNativeHelperTimeout,
   runWindowsAppContainerNativeChild,
+  runWindowsAppContainerNativeSuspendedCreateForHelper,
   superviseWindowsAppContainerNativeWorkerForHelper,
   WINDOWS_APPCONTAINER_RECOVERY_CONTRACT_V1,
   type WindowsAppContainerNativeExecutionRequest,
-  type WindowsAppContainerNativeHelperWirePayload
+  type WindowsAppContainerNativeHelperWirePayload,
+  type WindowsAppContainerNativeWorkerProgressStage
 } from './windows-appcontainer-executor.ts';
 
 type NativeHelperEnvelope =
   | Readonly<{ mode: 'derive'; request: Readonly<{ appContainerName: string }> }>
   | Readonly<{ mode: 'create-profile'; request: WindowsAppContainerNativeExecutionRequest }>
+  | Readonly<{ mode: 'suspended-create'; request: WindowsAppContainerNativeExecutionRequest }>
   | Readonly<{ mode: 'execute'; request: WindowsAppContainerNativeExecutionRequest }>;
 
 interface NativeExecutionWorkerGlobal {
@@ -97,7 +100,8 @@ function decodeRequest(encoded: string | undefined): NativeHelperEnvelope {
     )) {
     return envelope as unknown as NativeHelperEnvelope;
   }
-  if ((envelope.mode === 'create-profile' || envelope.mode === 'execute') &&
+  if ((envelope.mode === 'create-profile' || envelope.mode === 'suspended-create' ||
+    envelope.mode === 'execute') &&
     exactKeys(envelope.request, [
       'execution',
       'nativeResultPath',
@@ -127,10 +131,21 @@ async function runNativeExecutionWorker(encodedRequest: unknown): Promise<void> 
   try {
     if (typeof encodedRequest !== 'string') throw new Error('invalid worker request');
     const envelope = decodeRequest(encodedRequest);
-    if (envelope.mode !== 'execute') throw new Error('invalid worker mode');
+    if (envelope.mode !== 'execute' && envelope.mode !== 'suspended-create') {
+      throw new Error('invalid worker mode');
+    }
     assertNativeResultBoundary(envelope.request);
-    const result = await runWindowsAppContainerNativeChild(envelope.request);
-    terminal = Object.freeze({ kind: 'completed', exitCode: result.exitCode });
+    if (envelope.mode === 'suspended-create') {
+      await runWindowsAppContainerNativeSuspendedCreateForHelper(
+        envelope.request,
+        (stage: Exclude<WindowsAppContainerNativeWorkerProgressStage, 'not-observed'>) =>
+          nativeExecutionWorkerGlobal.postMessage(Object.freeze({ kind: 'progress', stage }))
+      );
+      terminal = Object.freeze({ kind: 'suspended-created' });
+    } else {
+      const result = await runWindowsAppContainerNativeChild(envelope.request);
+      terminal = Object.freeze({ kind: 'completed', exitCode: result.exitCode });
+    }
   } catch (error) {
     terminal = Object.freeze({
       kind: 'failed',
@@ -149,10 +164,12 @@ function installNativeExecutionWorker(): void {
 }
 
 function superviseNativeExecution(
+  mode: 'execute' | 'suspended-create',
   encodedRequest: string,
   timeoutMs: number
 ) {
   return superviseWindowsAppContainerNativeWorkerForHelper(
+    mode,
     timeoutMs,
     (onTerminal, onFailure) => {
       const worker = new Worker(import.meta.url, { ref: true });
@@ -204,6 +221,7 @@ async function runNativeHelperMain(): Promise<void> {
     try {
       assertNativeResultBoundary(envelope.request);
       const settlement = await superviseNativeExecution(
+        envelope.mode,
         encodedRequest!,
         remainingWindowsAppContainerNativeHelperTimeout(
           envelope.request.execution.timeoutMs,
@@ -211,7 +229,7 @@ async function runNativeHelperMain(): Promise<void> {
           Date.now()
         )
       );
-      if (settlement.kind === 'completed') {
+      if (envelope.mode === 'execute' && settlement.kind === 'completed') {
         writeFileSync(
           envelope.request.nativeResultPath,
           `${JSON.stringify({ exitCode: settlement.exitCode })}\n`,
@@ -223,24 +241,38 @@ async function runNativeHelperMain(): Promise<void> {
           exitNativeHelper
         );
       }
-      writeFileSync(
-        envelope.request.nativeResultPath,
-        `${settlement.payload}\n`,
-        { flag: 'wx' }
-      );
-      return terminateNativeHelperWithOutput(settlement.payload, 1, exitNativeHelper);
+      if (envelope.mode === 'suspended-create' && settlement.kind === 'suspended-created') {
+        return terminateNativeHelperWithOutput(
+          encodeWindowsAppContainerNativeOk(),
+          0,
+          exitNativeHelper
+        );
+      }
+      if (settlement.kind === 'failed') {
+        if (envelope.mode === 'execute') {
+          writeFileSync(
+            envelope.request.nativeResultPath,
+            `${settlement.payload}\n`,
+            { flag: 'wx' }
+          );
+        }
+        return terminateNativeHelperWithOutput(settlement.payload, 1, exitNativeHelper);
+      }
+      throw new Error('invalid worker settlement');
     } catch (error) {
       const failure = encodeWindowsAppContainerNativeFailure(error);
-      try {
-        assertNativeResultBoundary(envelope.request);
-        writeFileSync(
-          envelope.request.nativeResultPath,
-          `${failure}\n`,
-          { flag: 'wx' }
-        );
-      } catch {
-        // Lease loss or an invalid result boundary leaves the exact result absent.
-        // The outer durable owner remains the sole recovery authority.
+      if (envelope.mode === 'execute') {
+        try {
+          assertNativeResultBoundary(envelope.request);
+          writeFileSync(
+            envelope.request.nativeResultPath,
+            `${failure}\n`,
+            { flag: 'wx' }
+          );
+        } catch {
+          // Lease loss or an invalid result boundary leaves the exact result absent.
+          // The outer durable owner remains the sole recovery authority.
+        }
       }
       return terminateNativeHelperWithOutput(failure, 1, exitNativeHelper);
     }

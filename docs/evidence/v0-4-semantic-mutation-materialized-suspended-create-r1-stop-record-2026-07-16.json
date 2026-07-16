@@ -1,0 +1,624 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-ledger",
+  "recordedAt": "2026-07-16T14:33:24.3495810+08:00",
+  "profile": "v0.4-semantic-mutation-materialized-suspended-create",
+  "branch": "codex/work-package-ledger-revision",
+  "worktree": "D:/Project/sec/.tmp/codex-ledger-reconcile",
+  "previousEvidence": "docs/evidence/v0-4-semantic-mutation-security-capabilities-paired-sentinel-2026-07-16.json",
+  "testedBaseHead": "9a11dec09f86babce168a303ea1dd42cd31e0ebe",
+  "testedBaseTree": "9cb03db953f85bddda4a05496856513e92d60b85",
+  "testedWorkingTreeFiles": [
+    {
+      "path": "platform/shared/windows-appcontainer-executor.ts",
+      "gitBlob": "8196f2fd759ea3b7856260654ef3baee792e9faa",
+      "committedAtTestTime": false
+    },
+    {
+      "path": "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "gitBlob": "6ce39be7d4c1026fbe5d9535e432665b59331ca7",
+      "committedAtTestTime": false
+    }
+  ],
+  "status": "r10-worker-owned-sid-also-entered-and-never-returned",
+  "mergeAllowed": true,
+  "mergeScope": "user-directed diagnostic infrastructure, bounded stop evidence, and durable-owner hardening; isolated production capability remains incomplete",
+  "capabilityComplete": false,
+  "branchClosureRequested": true,
+  "stopReason": "R10 replaced the launch helper's native SID re-derivation and process-owned pointer with a canonical 40-byte Worker-owned SID buffer encoded from the durable owner SID, while retaining every R9 CreateProcess input and attribute. CreateProcessW still emitted create-entered and no later progress before the unchanged child deadline. SID pointer provenance and pre-CreateProcess userenv or advapi FFI state are not sufficient to explain the timeout. Worker parameter discrimination is complete; the next implementation task is to remove the Worker boundary and run the canonical native builder directly in the already one-shot, host-supervised helper OS process. The user explicitly requested all current owned changes be committed, merged, and the branch closed despite the unresolved capability, so landing is limited to the diagnostic and hardening scope described above.",
+  "repairUnderTest": {
+    "scope": "Reuse the production owner, SID derivation, profile creation, runtime materialization, ACL grant, PreparedExecution, SECURITY_CAPABILITIES, HANDLE_LIST, and JOB_LIST path, then settle the suspended inner Job after CreateProcessW returns without calling ResumeThread.",
+    "productionRequestSchemaExpanded": false,
+    "nativeHelperWireProtocolExpanded": false,
+    "resumePathIntendedToRemainUnchanged": true,
+    "committed": true
+  },
+  "attemptR1": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^production materialized AppContainer inputs return from suspended CreateProcessW$",
+      "--timeout",
+      "180000"
+    ],
+    "status": "FAIL",
+    "testProcessExitCode": 1,
+    "testDurationMs": 11828,
+    "suiteDurationMs": 12860,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 43,
+    "failure": {
+      "assertion": "outer observed helper exitCode expected 0",
+      "outerObservedStatus": "exited",
+      "outerObservedExitCode": 3,
+      "declaredSentinelExitCodes": {
+        "success": 0,
+        "workerSetupFailure": 81,
+        "watchdog": 82,
+        "workerReportedFailure": 83
+      },
+      "createReturnedMarkerObserved": false,
+      "stdoutSummaryCaptured": false,
+      "stderrSummaryCaptured": false,
+      "diagnosticArtifactPreserved": false
+    }
+  },
+  "attemptR2": {
+    "testedWorkingTreeFiles": {
+      "platform/shared/windows-appcontainer-executor.ts": "8196f2fd759ea3b7856260654ef3baee792e9faa",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts": "2234de02cf75b44a60f75bff769bfb395dc68885"
+    },
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^production materialized AppContainer inputs return from suspended CreateProcessW$",
+      "--timeout",
+      "180000"
+    ],
+    "status": "FAIL",
+    "testProcessExitCode": 1,
+    "testDurationMs": 2704,
+    "suiteDurationMs": 3780,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 43,
+    "failure": {
+      "stage": "runtime-capability",
+      "expected": { "status": "available" },
+      "received": { "status": "unavailable" },
+      "opaqueDiagnosticCaptured": false,
+      "helperFileWritten": false,
+      "appContainerOwnerSetupStarted": false,
+      "createProcessEntered": false
+    },
+    "forensics": {
+      "retainedFocusedWorkspaceFound": false,
+      "persistentDiagnosticFound": false,
+      "retainedScenesReadOrModified": false
+    },
+    "preparedNextTestBlob": "f77e8557240274cb261d39823483fc7a720f0d14"
+  },
+  "attemptR3": {
+    "testedWorkingTreeFiles": {
+      "platform/shared/windows-appcontainer-executor.ts": "8196f2fd759ea3b7856260654ef3baee792e9faa",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts": "f77e8557240274cb261d39823483fc7a720f0d14"
+    },
+    "status": "FAIL",
+    "testProcessExitCode": 1,
+    "testDurationMs": 11797,
+    "suiteDurationMs": 12910,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 43,
+    "capabilityPrecondition": "available",
+    "outerObserved": {
+      "status": "exited",
+      "exitCode": 3,
+      "signal": null,
+      "stdout": {
+        "bytes": 14,
+        "digest": "sha256:f3af373aafef6a19eb3705e3a21a5c25ef5ef5a607b391196cba1c6909d8d152",
+        "meaning": "module-loaded marker only"
+      },
+      "stderr": {
+        "bytes": 1227,
+        "digest": "sha256:1907e878058fcf3074f4a29902a7ba176c8ab64733ed005d2275f2a5514ff996",
+        "observerTruncated": false
+      },
+      "treeClosed": true,
+      "forcedTerminationRequested": false
+    },
+    "boundedConclusion": "The helper bootstrap and Worker dynamic import completed. No create-returned/owned-cleanup marker was emitted and ordinary Worker failure mapping did not run, so the fatal is inside the long-lived native probe process boundary."
+  },
+  "attemptR4": {
+    "testedWorkingTreeFiles": {
+      "platform/shared/windows-appcontainer-executor.ts": "1c74588956e1b1a7d020a11ec3c9367a9f5bcf5d",
+      "platform/shared/windows-appcontainer-native-helper.ts": "54626d70e1d3a3c964192ebda1949391b392c54f",
+      "platform/shared/windows-appcontainer-native-helper-settlement.ts": "6c5f5153273ade063997b727ee0d17ffe2ec75a8",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts": "deb14e5fc5f4ffb7d203ddf63728495b45bc1884",
+      "tests/contract/semantic-mutation-apply-contract.test.ts": "904a4d9060f62f576a35ef565ef3abc796bcfc9a",
+      "tests/unit/windows-appcontainer-executor.test.ts": "dc84968ef287ebb2e53955428d14aa438cec48ab",
+      "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts": "b43a81e47001da886dbeef27732b299e20ae79b2"
+    },
+    "status": "FAIL",
+    "testProcessExitCode": 1,
+    "testDurationMs": 29672,
+    "suiteDurationMs": 30700,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 43,
+    "failure": {
+      "phase": "timeout",
+      "nativeHelperObservation": {
+        "mode": "suspended-create",
+        "exitClass": "nonzero",
+        "diagnosticStream": "empty",
+        "protocol": "declared-failure",
+        "nativeReceipt": "not-applicable"
+      }
+    },
+    "boundedConclusion": [
+      "The dedicated suspended-create mode used the one-shot native helper Worker, supervisor, finite child deadline, and outer observed tree closure.",
+      "The previous unmapped Bun root exit 3 did not recur.",
+      "No execute receipt was written or read and the observation retained nativeReceipt not-applicable.",
+      "The current evidence cannot distinguish CreateProcessW blocking from post-return inner Job settlement blocking."
+    ]
+  },
+  "attemptR5": {
+    "testedWorkingTreeFiles": {
+      "platform/shared/windows-appcontainer-executor.ts": "de1e0e43fa08d522d155b1f948e7b96368f1526d",
+      "platform/shared/windows-appcontainer-native-helper.ts": "b513dc4b7a7252b040d66ee94818d9f450a49e51",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts": "deb14e5fc5f4ffb7d203ddf63728495b45bc1884",
+      "tests/unit/windows-appcontainer-executor.test.ts": "08a426f41ab9aec172be753d1d4fd3bbe32b59a6",
+      "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts": "7661440759974e419d90cc91c3dc2be05241e4ee",
+      "tests/contract/semantic-mutation-apply-contract.test.ts": "315b2fc3126ef2c052ca30ab980321ea8b7a0d7a"
+    },
+    "status": "FAIL",
+    "testProcessExitCode": 1,
+    "testDurationMs": 29531,
+    "suiteDurationMs": 30680,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 43,
+    "failure": {
+      "phase": "timeout",
+      "nativeWorkerProgressStage": "create-entered",
+      "nativeHelperObservation": {
+        "mode": "suspended-create",
+        "exitClass": "nonzero",
+        "diagnosticStream": "empty",
+        "protocol": "declared-failure",
+        "nativeReceipt": "not-applicable"
+      }
+    },
+    "boundedConclusion": [
+      "The suspended native Worker entered the canonical CreateProcessW call.",
+      "CreateProcessW did not return before the unchanged child deadline.",
+      "No create-returned or job-settled progress was observed, so inner Job settlement was not the R4 timeout source.",
+      "The next discriminating input is lpApplicationName; generic SECURITY_CAPABILITIES evidence already proved the host executable control returns."
+    ]
+  },
+  "attemptR6": {
+    "testedWorkingTreeFiles": {
+      "platform/shared/windows-appcontainer-executor.ts": "fa45b7a1fb053bb9c15613508beb640abe5b7a55",
+      "platform/shared/windows-appcontainer-native-helper.ts": "b513dc4b7a7252b040d66ee94818d9f450a49e51",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts": "23a797b565739f30da15b8655154acbfafb96851",
+      "tests/contract/semantic-mutation-apply-contract.test.ts": "1ab56a4f8ef3a19d695ba5d407e5c16b5de03f0c",
+      "tests/unit/windows-appcontainer-executor.test.ts": "08a426f41ab9aec172be753d1d4fd3bbe32b59a6",
+      "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts": "7661440759974e419d90cc91c3dc2be05241e4ee"
+    },
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^production command environment and cwd return with host executable control$",
+      "--timeout",
+      "180000"
+    ],
+    "variable": {
+      "changed": "lpApplicationName",
+      "r5": "materialized-copied-bun",
+      "r6": "helper-host-bun",
+      "commandLineFirstToken": "materialized-copied-bun",
+      "allOtherCreateProcessInputsRetained": true
+    },
+    "status": "FAIL",
+    "testProcessExitCode": 1,
+    "testDurationMs": 29203,
+    "suiteDurationMs": 30210,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 43,
+    "failure": {
+      "phase": "timeout",
+      "nativeWorkerProgressStage": "create-entered",
+      "nativeHelperObservation": {
+        "mode": "suspended-create",
+        "exitClass": "nonzero",
+        "diagnosticStream": "empty",
+        "protocol": "declared-failure",
+        "nativeReceipt": "not-applicable"
+      }
+    },
+    "boundedConclusion": [
+      "The helper host Bun lpApplicationName did not make CreateProcessW return with the retained production command line, environment block, and current directory.",
+      "The copied materialized Bun executable path alone is not sufficient to explain the R5 timeout.",
+      "No create-returned or job-settled progress was observed, so inner Job settlement and terminal handling were not entered.",
+      "The remaining discriminating input class is the production command line, environment block, current directory, or their interaction."
+    ]
+  },
+  "attemptR7": {
+    "testedWorkingTreeFiles": {
+      "platform/shared/windows-appcontainer-executor.ts": "e901e703983a8f39c21d81dd9088961bd38d4aea",
+      "platform/shared/windows-appcontainer-native-helper.ts": "b513dc4b7a7252b040d66ee94818d9f450a49e51",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts": "18f9e34bd8edc48974d7df7daf0237ce73aa0201",
+      "tests/contract/semantic-mutation-apply-contract.test.ts": "b053adb18390c696f69802ee2e7486a3545acbbd",
+      "tests/unit/windows-appcontainer-executor.test.ts": "08a426f41ab9aec172be753d1d4fd3bbe32b59a6",
+      "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts": "7661440759974e419d90cc91c3dc2be05241e4ee"
+    },
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^host Bun application with materialized command line and environment returns from suspended CreateProcessW when lpCurrentDirectory is null$",
+      "--timeout",
+      "180000"
+    ],
+    "variable": {
+      "changedParameter": "lpCurrentDirectory",
+      "createProcessParameterIndex": 8,
+      "r6ValueClass": "materialized-staging-root",
+      "r7ValueClass": "null-inherit-helper-current-directory",
+      "inheritedDirectoryClass": "helper-volume-root",
+      "retained": {
+        "lpApplicationName": "helper-host-bun",
+        "lpCommandLine": "production-materialized",
+        "lpEnvironment": "production-materialized",
+        "securityAttributes": "unchanged",
+        "inheritHandles": "unchanged",
+        "creationFlags": "unchanged",
+        "attributeList": "unchanged",
+        "deadlinesProgressSettlementCleanup": "unchanged"
+      }
+    },
+    "status": "FAIL",
+    "testProcessExitCode": 1,
+    "testDurationMs": 29281,
+    "suiteDurationMs": 30300,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 43,
+    "failure": {
+      "phase": "timeout",
+      "nativeWorkerProgressStage": "create-entered",
+      "nativeHelperObservation": {
+        "mode": "suspended-create",
+        "exitClass": "nonzero",
+        "diagnosticStream": "empty",
+        "protocol": "declared-failure",
+        "nativeReceipt": "not-applicable"
+      }
+    },
+    "boundedConclusion": [
+      "Passing null for lpCurrentDirectory did not make CreateProcessW return while the helper host Bun application name and production materialized command line and environment remained in place.",
+      "The near-MAX_PATH staging current directory is not sufficient to explain the R6 timeout.",
+      "No create-returned or job-settled progress was observed, so inner Job settlement and terminal handling were not entered.",
+      "lpCommandLine is the next discriminator; the environment block remains the last retained input class."
+    ]
+  },
+  "attemptR8": {
+    "testedWorkingTreeFiles": {
+      "platform/shared/windows-appcontainer-executor.ts": "402bfe56b5cb162d7a36452a1f2cf9430cfdc427",
+      "platform/shared/windows-appcontainer-native-helper.ts": "b513dc4b7a7252b040d66ee94818d9f450a49e51",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts": "557147cfe2fe88b5014b766b333fc67126cfa54d",
+      "tests/contract/semantic-mutation-apply-contract.test.ts": "5cce5ea4873fb6059d4ec831ebd9450cea281b99",
+      "tests/unit/windows-appcontainer-executor.test.ts": "08a426f41ab9aec172be753d1d4fd3bbe32b59a6",
+      "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts": "7661440759974e419d90cc91c3dc2be05241e4ee"
+    },
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^host Bun application with single-token host Bun command line and production environment returns from suspended CreateProcessW with null lpCurrentDirectory$",
+      "--timeout",
+      "180000"
+    ],
+    "variable": {
+      "changedParameter": "lpCommandLine",
+      "createProcessParameterIndex": 2,
+      "r7ValueClass": "production-materialized-command-line",
+      "r8ValueClass": "single-token-quoted-helper-host-bun",
+      "writableUtf16NullTerminated": true,
+      "retained": {
+        "lpApplicationName": "helper-host-bun",
+        "lpEnvironment": "production-materialized",
+        "lpCurrentDirectory": "null-inherit-helper-volume-root",
+        "securityAttributes": "unchanged",
+        "inheritHandles": "unchanged",
+        "creationFlags": "unchanged",
+        "securityCapabilitiesHandleListJobList": "unchanged",
+        "deadlinesProgressSettlementCleanup": "unchanged"
+      }
+    },
+    "authorityProof": {
+      "contractPattern": "^writer authority, immutable journal, atomic publish/rollback CAS, and public redaction stay closed$",
+      "onlySecondCreateProcessParameterChanged": true,
+      "productionEnvironmentRetained": true,
+      "r7ApplicationAndCurrentDirectoryRetained": true
+    },
+    "status": "FAIL",
+    "discriminatorResult": "not-returned",
+    "testProcessExitCode": 1,
+    "testDurationMs": 29484,
+    "suiteDurationMs": 30480,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 43,
+    "failure": {
+      "phase": "timeout",
+      "nativeWorkerProgressStage": "create-entered",
+      "nativeHelperObservation": {
+        "mode": "suspended-create",
+        "exitClass": "nonzero",
+        "diagnosticStream": "empty",
+        "protocol": "declared-failure",
+        "nativeReceipt": "not-applicable"
+      }
+    },
+    "boundedConclusion": [
+      "A writable single-token host Bun command line did not make CreateProcessW return while the R7 host application name, null current directory, and production environment remained in place.",
+      "The production materialized command-line content is not sufficient to explain the R7 timeout.",
+      "No create-returned or job-settled progress was observed, so inner Job settlement and terminal handling were not entered.",
+      "The production environment block is the final retained PreparedExecution input discriminator."
+    ]
+  },
+  "attemptR9": {
+    "testedWorkingTreeFiles": {
+      "platform/shared/windows-appcontainer-executor.ts": "51350603fbd233683655c452239baad319981fa8",
+      "platform/shared/windows-appcontainer-native-helper.ts": "b513dc4b7a7252b040d66ee94818d9f450a49e51",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts": "3fd901800fa32ef0f3cb339e77b1597653090f45",
+      "tests/contract/semantic-mutation-apply-contract.test.ts": "8c148658bb33d84b470fee1a7636c4b77e40e256",
+      "tests/unit/windows-appcontainer-executor.test.ts": "08a426f41ab9aec172be753d1d4fd3bbe32b59a6",
+      "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts": "7661440759974e419d90cc91c3dc2be05241e4ee"
+    },
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^host Bun application and command line with inherited bounded environment return from suspended CreateProcessW with null current directory$",
+      "--timeout",
+      "180000"
+    ],
+    "variable": {
+      "changedParameter": "lpEnvironment",
+      "createProcessParameterIndex": 7,
+      "r8ValueClass": "explicit-production-materialized-unicode-environment",
+      "r9ValueClass": "null-inherit-helper-bounded-replacement-environment",
+      "helperEnvironmentMode": "replace",
+      "helperEnvironmentSource": "same-validated-request-environment",
+      "hostSecretsCopied": false,
+      "retained": {
+        "lpApplicationName": "helper-host-bun",
+        "lpCommandLine": "single-token-quoted-helper-host-bun",
+        "lpCurrentDirectory": "null-inherit-helper-volume-root",
+        "securityAttributes": "unchanged",
+        "inheritHandles": "unchanged",
+        "creationFlags": "unchanged-with-create-unicode-environment",
+        "securityCapabilitiesHandleListJobList": "unchanged",
+        "deadlinesProgressSettlementCleanup": "unchanged"
+      }
+    },
+    "authorityProof": {
+      "contractPattern": "^writer authority, immutable journal, atomic publish/rollback CAS, and public redaction stay closed$",
+      "onlySeventhCreateProcessParameterChanged": true,
+      "helperEnvironmentReplacementBoundaryFrozen": true,
+      "r8ApplicationCommandLineAndCurrentDirectoryRetained": true
+    },
+    "status": "FAIL",
+    "discriminatorResult": "not-returned",
+    "preparedExecutionEnumeration": "complete",
+    "testProcessExitCode": 1,
+    "testDurationMs": 29796,
+    "suiteDurationMs": 30940,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 43,
+    "failure": {
+      "phase": "timeout",
+      "nativeWorkerProgressStage": "create-entered",
+      "nativeHelperObservation": {
+        "mode": "suspended-create",
+        "exitClass": "nonzero",
+        "diagnosticStream": "empty",
+        "protocol": "declared-failure",
+        "nativeReceipt": "not-applicable"
+      }
+    },
+    "boundedConclusion": [
+      "Inheriting the helper's bounded replacement environment did not make CreateProcessW return while every R8 control and process attribute remained in place.",
+      "The explicit production Unicode environment block build, copy, or pointer is not sufficient to explain the R8 timeout.",
+      "No create-returned or job-settled progress was observed, so inner Job settlement and terminal handling were not entered.",
+      "PreparedExecution parameter enumeration is complete; the next boundary is SID pointer provenance and pre-CreateProcess FFI state."
+    ]
+  },
+  "attemptR10": {
+    "testedWorkingTreeFiles": {
+      "platform/shared/windows-appcontainer-executor.ts": "819583795000100ec782121e8f69d22731abd5e9",
+      "platform/shared/windows-appcontainer-native-helper.ts": "b513dc4b7a7252b040d66ee94818d9f450a49e51",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts": "56c89b78f7a51ceb84eaf59630f4cbae163b8681",
+      "tests/contract/semantic-mutation-apply-contract.test.ts": "3721411c2b6977cdf6d0cc1d8bd32de0425c44bc",
+      "tests/unit/windows-appcontainer-executor.test.ts": "fdad197de1ec10c580fb788e9e9132964f9aaff5",
+      "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts": "7661440759974e419d90cc91c3dc2be05241e4ee"
+    },
+    "argv": [
+      "bun",
+      "test",
+      "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+      "--test-name-pattern",
+      "^worker-owned AppContainer SID bytes return from suspended CreateProcessW with bounded launch controls$",
+      "--timeout",
+      "180000"
+    ],
+    "variable": {
+      "changedBoundary": "SECURITY_CAPABILITIES.AppContainerSid pointer source",
+      "r9ValueClass": "native-derived-process-owned-pointer",
+      "r10ValueClass": "Worker-owned-40-byte-buffer-encoded-from-durable-owner-SID",
+      "sourceField": "request.owner.appContainerSid",
+      "nativeSidApisInvokedInLaunchPath": [],
+      "retained": {
+        "r9LaunchControls": "unchanged",
+        "securityCapabilitiesShapeAndCount": "unchanged",
+        "handleListJobListAndOrder": "unchanged",
+        "creationFlags": "unchanged",
+        "deadlinesProgressSettlementCleanup": "unchanged"
+      }
+    },
+    "authorityProof": {
+      "sidEncoderUnit": "PASS",
+      "authoritySourceOrderContract": "PASS",
+      "typecheck": "PASS",
+      "nativeHelperRequestShapeUnchanged": true,
+      "durableCanonicalOwnerExactEqualityRequired": true,
+      "workerOwnedSidBufferPinnedInAttributePayloads": true
+    },
+    "status": "FAIL",
+    "discriminatorResult": "not-returned",
+    "testProcessExitCode": 1,
+    "testDurationMs": 30094,
+    "suiteDurationMs": 31120,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 43,
+    "failure": {
+      "phase": "timeout",
+      "nativeWorkerProgressStage": "create-entered",
+      "nativeHelperObservation": {
+        "mode": "suspended-create",
+        "exitClass": "nonzero",
+        "diagnosticStream": "empty",
+        "protocol": "declared-failure",
+        "nativeReceipt": "not-applicable"
+      }
+    },
+    "boundedConclusion": [
+      "Worker-owned canonical SID bytes removed launch-path userenv and advapi calls, native SID allocation, read.ptr pointer extraction, and native SID buffer conversion before CreateProcessW.",
+      "CreateProcessW still did not return, so SID pointer provenance and those pre-call FFI modules are not sufficient to explain the timeout.",
+      "No create-returned or job-settled progress was observed.",
+      "Worker parameter discrimination is complete; the next boundary is direct one-shot helper execution without Worker or postMessage."
+    ]
+  },
+  "focusedValidationAfterR10": {
+    "typecheck": "PASS",
+    "sidEncoderUnit": "PASS",
+    "sidEncoderUnitPassedTestCount": 1,
+    "sidEncoderUnitFilteredTestCount": 15,
+    "authoritySourceOrderContract": "PASS",
+    "authoritySourceOrderContractPassedTestCount": 1,
+    "authoritySourceOrderContractFilteredTestCount": 7,
+    "fullOrSlowLaneStarted": false
+  },
+  "focusedValidationAfterR9": {
+    "typecheck": "PASS",
+    "authoritySourceOrderContract": "PASS",
+    "authoritySourceOrderContractPassedTestCount": 1,
+    "authoritySourceOrderContractFilteredTestCount": 7,
+    "fullOrSlowLaneStarted": false
+  },
+  "focusedValidationAfterR8": {
+    "typecheck": "PASS",
+    "authoritySourceOrderContract": "PASS",
+    "authoritySourceOrderContractPassedTestCount": 1,
+    "authoritySourceOrderContractFilteredTestCount": 7,
+    "fullOrSlowLaneStarted": false
+  },
+  "focusedValidationAfterR7": {
+    "typecheck": "PASS",
+    "authoritySourceOrderContract": "PASS",
+    "authoritySourceOrderContractPassedTestCount": 1,
+    "authoritySourceOrderContractFilteredTestCount": 7,
+    "fullOrSlowLaneStarted": false
+  },
+  "focusedValidationAfterR6": {
+    "typecheck": "PASS",
+    "authoritySourceOrderContract": "PASS",
+    "authoritySourceOrderContractPassedTestCount": 1,
+    "authoritySourceOrderContractFilteredTestCount": 7,
+    "fullOrSlowLaneStarted": false
+  },
+  "focusedValidationAfterR4": {
+    "typecheck": "PASS",
+    "sourceOrderContract": "PASS",
+    "helperObservationAndWireRoundTrip": "PASS",
+    "nativeWorkerProgressSupervisor": "PASS",
+    "exactNativeHelperBundle": "PASS",
+    "fullOrSlowLaneStarted": false
+  },
+  "focusedValidationAfterR3": {
+    "typecheck": "PASS",
+    "sourceOrderContract": "PASS",
+    "helperObservationUnit": "PASS",
+    "nativeWorkerSupervisorUnit": "PASS",
+    "fullOrSlowLaneStarted": false
+  },
+  "boundedConclusion": {
+    "proven": [
+      "The R10 exact-name filter isolated one Worker-owned SID sentinel and did not run the adjacent full production AppContainer seam.",
+      "R5 through R10 all reached create-entered and did not reach create-returned before the unchanged child deadline.",
+      "PreparedExecution inputs and SID pointer provenance have been exhausted as sufficient root-cause classes.",
+      "The remaining high-information boundary is the Bun Worker realm versus direct execution in the already one-shot helper OS process."
+    ],
+    "notProven": [
+      "Whether removing the Worker boundary makes the canonical Bun FFI CreateProcessW call return.",
+      "Whether a native C or Rust launcher is required to bypass Bun FFI.",
+      "That the suspended production child was assigned to and settled through the inner Job.",
+      "That the production ResumeThread, bootstrap, runner import, protocol completion, or exact seam succeeds.",
+      "That the isolated production capability is complete; this landing is diagnostic infrastructure and hardening only."
+    ]
+  },
+  "forensics": {
+    "retainedFocusedWorkspaceFound": false,
+    "workerDiagnosticFound": false,
+    "bunCrashReportFound": false,
+    "stdoutAndStderrUnavailableReason": "runObservedCommand retained only bounded summaries in the local outcome, and the assertion stopped at exitCode before those summaries were emitted; withTempWorkspace then removed the focused workspace by default.",
+    "mostLikelyLayer": "fatal termination of the Bun root process hosting the main thread and Worker during the full owner/materialized native chain",
+    "confidence": "bounded hypothesis only"
+  },
+  "stopDiscipline": {
+    "focusedSentinelRuns": 10,
+    "secondFocusedSentinelStarted": true,
+    "exactProductionSeamStarted": false,
+    "typecheckStartedAfterFailure": false,
+    "contractTestStartedAfterFailure": false,
+    "fullRunStarted": false,
+    "slowRunStarted": false,
+    "githubActionsStarted": false
+  },
+  "nextStep": {
+    "task": "In a fresh branch from merged main, remove Worker and postMessage from the execute and suspended-create modes so the already host-supervised one-shot native helper OS process calls the canonical runWindowsAppContainerNativeChild path directly. Do not copy the native builder or add another process layer.",
+    "goal": "Distinguish Bun Worker realm or shared process state from the canonical kernel32 FFI builder. If direct one-shot Bun execution still times out, stop Bun parameter work and implement a minimal C or Rust launcher around the same request and settlement contract.",
+    "forbidden": [
+      "continuing work on codex/work-package-ledger-revision after it is merged and deleted",
+      "rerunning any R5 through R10 sentinel",
+      "copying executeNativeAppContainer or adding a second nested helper process",
+      "running the adjacent full AppContainer seam",
+      "continuing Worker parameter, SID, attribute, or launch-input enumeration",
+      "running full, slow, or GitHub Actions lanes",
+      "deleting or mutating retained forensic scenes"
+    ]
+  },
+  "invalidation": [
+    "Each attempt is valid only for its recorded working-tree blob.",
+    "The prepared diagnostic assertion is not tested by R2.",
+    "R10 did not validate the post-R10 durable-owner exact-equality hardening change; that change is covered by typecheck and authority source contract only.",
+    "The user-directed landing does not convert the failed capability sentinel into a PASS and must not be cited as production capability completion."
+  ]
+}

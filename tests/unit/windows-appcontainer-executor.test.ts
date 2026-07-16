@@ -7,6 +7,7 @@ import { relocateSemanticMutationIsolatedRunnerBundleForTests } from '../../plat
 import {
   buildWindowsAppContainerNativeHelperBundleSourceForTests,
   createWindowsAppContainerNativeHelperBundleLoaderForTests,
+  encodeWindowsAppContainerSidBytesForTests,
   encodeWindowsAppContainerNativeDerivedSid,
   encodeWindowsAppContainerNativeFailure,
   encodeWindowsAppContainerNativeOk,
@@ -276,6 +277,37 @@ test('Windows AppContainer helper observations are finite and redact protocol co
   expect(settleWindowsAppContainerNativeHelperInvocationForTests(
     'create-profile', 0, encodeWindowsAppContainerNativeOk(), false, 'not-applicable'
   )).toBeUndefined();
+  expect(settleWindowsAppContainerNativeHelperInvocationForTests(
+    'suspended-create', 0, encodeWindowsAppContainerNativeOk(), false, 'not-applicable'
+  )).toBeUndefined();
+
+  const suspendedReceiptFailure = captureFailure(() =>
+    settleWindowsAppContainerNativeHelperInvocationForTests(
+      'suspended-create', 0, encodeWindowsAppContainerNativeOk(), false, { value: { exitCode: 0 } }
+    ));
+  expect(suspendedReceiptFailure.preparationSubstage).toBe('native-receipt');
+  expect(windowsAppContainerNativeHelperObservationForTests(suspendedReceiptFailure)).toEqual({
+    mode: 'suspended-create',
+    exitClass: 'zero',
+    diagnosticStream: 'empty',
+    protocol: 'ok',
+    nativeReceipt: 'exit-code'
+  });
+
+  const suspendedTimeoutFailure = captureFailure(() =>
+    settleWindowsAppContainerNativeHelperInvocationForTests(
+      'suspended-create',
+      1,
+      encodeWindowsAppContainerNativeFailure(new WindowsAppContainerExecutionError(
+        'timeout', undefined, undefined, undefined, undefined, 'create-entered'
+      )),
+      false,
+      'not-applicable'
+    ));
+  expect(suspendedTimeoutFailure).toMatchObject({
+    phase: 'timeout',
+    nativeWorkerProgressStage: 'create-entered'
+  });
 
   const secretProtocol = 'secret-protocol-path';
   const secretReceipt = 'secret-receipt-path';
@@ -334,6 +366,27 @@ test('Windows AppContainer helper observations are finite and redact protocol co
     .toBe('{"status":"ok","appContainerSid":"S-1-15-2-1-2-3-4-5-6-7"}');
   const invalidSid = captureFailure(() => encodeWindowsAppContainerNativeDerivedSid('not-a-sid'));
   expect(invalidSid.preparationSubstage).toBe('sid-derivation');
+});
+
+test('Windows AppContainer binary SID encoder preserves the SID ABI and rejects noncanonical values', () => {
+  const sid = 'S-1-15-2-1-2-3-4-5-6-7';
+  const encoded = encodeWindowsAppContainerSidBytesForTests(sid);
+  expect(encoded.byteLength).toBe(40);
+  expect(encoded.toString('hex')).toBe(
+    '010800000000000f0200000001000000020000000300000004000000050000000600000007000000'
+  );
+  expect(encodeWindowsAppContainerSidBytesForTests(
+    'S-1-15-2-4294967295-2-3-4-5-6-7'
+  ).readUInt32LE(12)).toBe(0xffff_ffff);
+  for (const invalid of [
+    'S-1-15-2-1-2-3-4-5-6-4294967296',
+    'S-1-15-2-01-2-3-4-5-6-7',
+    'S-1-16-2-1-2-3-4-5-6-7',
+    'S-1-15-2-1-2-3-4-5-6'
+  ]) {
+    expect(() => encodeWindowsAppContainerSidBytesForTests(invalid))
+      .toThrow(WindowsAppContainerExecutionError);
+  }
 });
 
 test('Windows AppContainer preparation normalization is finite and preserves explicit evidence', () => {

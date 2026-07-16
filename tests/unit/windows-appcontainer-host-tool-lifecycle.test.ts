@@ -1722,6 +1722,7 @@ test('native worker supervisor settles exactly once across completion failure an
     }
   };
   const completed = superviseWindowsAppContainerNativeWorkerForHelper(
+    'execute',
     60_000,
     (onTerminal, onFailure) => {
       terminal = onTerminal;
@@ -1735,10 +1736,24 @@ test('native worker supervisor settles exactly once across completion failure an
   expect(await completed).toEqual({ kind: 'completed', exitCode: 44 });
   expect(clearCalls).toBe(1);
 
+  const suspendedCreated = superviseWindowsAppContainerNativeWorkerForHelper(
+    'suspended-create',
+    60_000,
+    (onMessage) => {
+      onMessage({ kind: 'progress', stage: 'create-entered' });
+      onMessage({ kind: 'progress', stage: 'create-returned' });
+      onMessage({ kind: 'progress', stage: 'job-settled' });
+      onMessage({ kind: 'suspended-created' });
+    },
+    timers
+  );
+  expect(await suspendedCreated).toEqual({ kind: 'suspended-created' });
+
   const failureWire = encodeWindowsAppContainerNativeFailure(
     new WindowsAppContainerExecutionError('timeout')
   );
   const failed = superviseWindowsAppContainerNativeWorkerForHelper(
+    'execute',
     60_000,
     (onTerminal) => onTerminal({ kind: 'failed', payload: failureWire }),
     timers
@@ -1748,6 +1763,7 @@ test('native worker supervisor settles exactly once across completion failure an
   let closeTerminal: ((value: unknown) => void) | undefined;
   let close: (() => void) | undefined;
   const closed = superviseWindowsAppContainerNativeWorkerForHelper(
+    'execute',
     60_000,
     (onTerminal, onFailure) => {
       closeTerminal = onTerminal;
@@ -1759,17 +1775,24 @@ test('native worker supervisor settles exactly once across completion failure an
   closeTerminal!({ kind: 'completed', exitCode: 0 });
   const closeError = await closed.then(() => undefined, (error: unknown) => error);
   expect(closeError).toMatchObject({ code: 'VERIFY-APPCONTAINER-UNAVAILABLE' });
-  expect(clearCalls).toBe(3);
+  expect(clearCalls).toBe(4);
 
+  let progressMessage: ((value: unknown) => void) | undefined;
   const timedOut = superviseWindowsAppContainerNativeWorkerForHelper(
+    'suspended-create',
     60_000,
-    () => undefined,
+    (onMessage) => {
+      progressMessage = onMessage;
+    },
     timers
   );
+  progressMessage!({ kind: 'progress', stage: 'create-entered' });
   timer!();
   const timeoutError = await timedOut.then(() => undefined, (error: unknown) => error);
   expect(timeoutError).toBeInstanceOf(WindowsAppContainerExecutionError);
   expect(timeoutError).toMatchObject({ phase: 'timeout' });
+  expect((timeoutError as WindowsAppContainerExecutionError).nativeWorkerProgressStage)
+    .toBe('create-entered');
   expect(remainingWindowsAppContainerNativeHelperTimeout(60_000, 1_000, 1_100))
     .toBe(59_900);
 });
