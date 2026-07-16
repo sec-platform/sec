@@ -1310,6 +1310,9 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.appContainer).toContain('CloseHandle(standardOutputHandle)');
   expect(sources.appContainer).toContain('CloseHandle(standardErrorHandle)');
   expect(sources.appContainer).toContain('attributePayloads.push(securityCapabilities)');
+  expect(sources.appContainer).toContain('attributePayloads.push(appContainerSidBytes)');
+  expect(sources.appContainer.indexOf('attributePayloads.push(appContainerSidBytes)'))
+    .toBeLessThan(sources.appContainer.indexOf('attributePayloads.push(securityCapabilities)'));
   expect(sources.appContainer).toContain('attributePayloads.push(standardHandleList)');
   expect(sources.appContainer).toContain('attributePayloads.push(jobHandleList)');
   const createInnerJob = sources.appContainer.indexOf(
@@ -1324,10 +1327,24 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   const createAppContainerProcess = sources.appContainer.indexOf(
     'kernel32.symbols.CreateProcessW('
   );
+  const createEnteredProgress = sources.appContainer.indexOf(
+    "onProgress?.('create-entered')"
+  );
+  const createReturnedProgress = sources.appContainer.indexOf(
+    "onProgress?.('create-returned')",
+    createAppContainerProcess
+  );
+  const jobSettledProgress = sources.appContainer.indexOf(
+    "onProgress?.('job-settled')",
+    createReturnedProgress
+  );
   expect(createInnerJob).toBeGreaterThan(-1);
   expect(initializeAttributeList).toBeGreaterThan(createInnerJob);
   expect(publishJobList).toBeGreaterThan(initializeAttributeList);
   expect(createAppContainerProcess).toBeGreaterThan(publishJobList);
+  expect(createEnteredProgress).toBeLessThan(createAppContainerProcess);
+  expect(createReturnedProgress).toBeGreaterThan(createAppContainerProcess);
+  expect(jobSettledProgress).toBeGreaterThan(createReturnedProgress);
   expect(sources.appContainer).not.toContain('AssignProcessToJobObject');
   expect(sources.appContainer).not.toContain('CREATE_BREAKAWAY_FROM_JOB');
   const deleteAttributeList = sources.appContainer.indexOf(
@@ -1360,7 +1377,7 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(typeStringLiteralValues(
     sources.nativeHelperSettlement,
     'WindowsAppContainerObservedNativeHelperMode'
-  )).toEqual(['derive', 'create-profile', 'execute']);
+  )).toEqual(['derive', 'create-profile', 'suspended-create', 'execute']);
   expect(typeStringLiteralValues(
     sources.nativeHelperSettlement,
     'WindowsAppContainerObservedNativeHelperSettlementRejection'
@@ -1415,7 +1432,7 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     sources.appContainer,
     'WindowsAppContainerExecutionError'
   )).toEqual([
-    'code', 'preparationSubstage', 'nativeHelperObservation',
+    'code', 'preparationSubstage', 'nativeHelperObservation', 'nativeWorkerProgressStage',
     'phase', 'nativeCode', 'hostToolFailure'
   ]);
   expect(sources.appContainer).toContain(
@@ -1455,9 +1472,23 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(sources.appContainer).toContain('probeWindowsAppContainerCapability');
   expect(sources.appContainer).toContain('rawConnect === false');
   expect(sources.appContainer).toContain('recoveryOwnerPath');
+  expect(sources.appContainer).toContain(
+    'const canonicalOwner = await readRecoveryOwner(recoveryOwnerPath(boundary.transactionRoot));'
+  );
+  expect(sources.appContainer).toContain(
+    'JSON.stringify(canonicalOwner) !== JSON.stringify(owner)'
+  );
   const createProfileHelper = sources.appContainer.indexOf("'create-profile',\n          nativeRequest");
-  const executeHelper = sources.appContainer.indexOf("'execute',\n          nativeRequest", createProfileHelper);
+  const suspendedCreateHelper = sources.appContainer.indexOf(
+    "'suspended-create',\n            nativeRequest",
+    createProfileHelper
+  );
+  const executeHelper = sources.appContainer.indexOf(
+    "'execute',\n            nativeRequest",
+    createProfileHelper
+  );
   expect(createProfileHelper).toBeGreaterThan(-1);
+  expect(suspendedCreateHelper).toBeGreaterThan(createProfileHelper);
   expect(executeHelper).toBeGreaterThan(createProfileHelper);
   expect(sources.appContainer).toContain('createWindowsAppContainerProfileForNativeHelper');
   expect(sources.appContainer).toContain('deriveWindowsAppContainerSidForNativeHelper');
@@ -1481,6 +1512,7 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(helperHardTerminate).toBeGreaterThan(-1);
   expect(helperExitFallback).toBeGreaterThan(helperHardTerminate);
   expect(sources.appContainerHelper).toContain("mode: 'create-profile'");
+  expect(sources.appContainerHelper).toContain("mode: 'suspended-create'");
   expect(sources.appContainerHelper).toContain('writeSync(1, payload)');
   expect(sources.appContainerHelper).toContain('writeFileSync(');
   expect(sources.appContainerHelper).toContain(
@@ -1502,6 +1534,10 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   expect(nativeWorker).not.toContain('writeNativeHelperOutput(');
   expect(nativeWorker).not.toContain('writeFileSync(');
   expect(nativeWorker).not.toContain('exitNativeHelper(');
+  expect(nativeWorker).toContain('runWindowsAppContainerNativeSuspendedCreateForHelper');
+  expect(nativeWorker).toContain("kind: 'suspended-created'");
+  expect(nativeWorker).toContain("kind: 'progress'");
+  expect(sources.appContainerHelper).toContain("if (envelope.mode === 'execute') {");
   expect(sources.appContainerHelper).not.toContain("mode: 'worker'");
   expect(sources.appContainerHelper).not.toContain('process.stdout.write');
   expect(sources.appContainerHelper).not.toContain('assertWorkspaceWriteLease');
@@ -1608,15 +1644,56 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
     '      waitForProcess: (timeoutMs) => kernel32!.symbols.WaitForSingleObject('
   ].join('\n'));
   const nativeChildStart = sources.appContainer.indexOf(
-    'export async function runWindowsAppContainerNativeChild('
+    'async function runWindowsAppContainerNativeChildInternal('
   );
   const nativeChildEnd = sources.appContainer.indexOf(
-    '\nexport async function cleanupWindowsAppContainerNativeOwner(',
+    '\nexport function runWindowsAppContainerNativeChild(',
     nativeChildStart
   );
   const nativeChild = sources.appContainer.slice(nativeChildStart, nativeChildEnd);
   expect(nativeChild.indexOf('const startedAtMs = Date.now();'))
     .toBeLessThan(nativeChild.indexOf('assertCapability();'));
+  expect(nativeChild).toContain(
+    '() => appContainerSidBytesFromString(request.owner.appContainerSid)'
+  );
+  expect(nativeChild).not.toContain('deriveAppContainerSidPointer(');
+  expect(sources.appContainer).toContain([
+    'const applicationName = suspendedCreateOnly',
+    '      ? windowsWide(process.execPath)',
+    '      : prepared.executablePath;'
+  ].join('\n'));
+  expect(sources.appContainer).toContain([
+    'const commandLine = suspendedCreateOnly',
+    '      ? windowsWide(quoteWindowsArgument(process.execPath))',
+    '      : prepared.commandLine;'
+  ].join('\n'));
+  expect(sources.appContainer).toContain([
+    'const environmentBlock = suspendedCreateOnly',
+    '      ? null',
+    '      : prepared.environmentBlock;'
+  ].join('\n'));
+  expect(sources.appContainer).toContain([
+    'const currentDirectory = suspendedCreateOnly',
+    '      ? null',
+    '      : prepared.currentDirectory;'
+  ].join('\n'));
+  expect(sources.appContainer).toContain([
+    'kernel32.symbols.CreateProcessW(',
+    '      applicationName,',
+    '      commandLine,',
+    '      null,',
+    '      null,',
+    '      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.inheritHandles,',
+    '      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.creationFlags,',
+    '      environmentBlock,',
+    '      currentDirectory,',
+    '      startupInfoEx,',
+    '      processInformation'
+  ].join('\n'));
+  expect(sources.appContainer).not.toContain('commandLine: windowsWide(process.execPath)');
+  expect(sources.appContainer).toContain('cwd: path.parse(stagingRoot).root');
+  expect(sources.appContainer).toContain("envMode: 'replace'");
+  expect(sources.appContainer).toContain('env: environment');
   expect(nativeChild).toContain([
     'const executionBudget = createWindowsAppContainerNativeExecutionBudget(',
     '    executionDeadlines.childTimeoutMs,',
@@ -1625,11 +1702,11 @@ test('writer authority, immutable journal, atomic publish/rollback CAS, and publ
   ].join('\n'));
   expect(sources.appContainer).toContain([
     "'execute',",
-    '          nativeRequest,',
-    '          validated.stagingRoot,',
-    '          request.environment,',
-    '          commitFence,',
-    '          executionDeadlines.hostWatchdogMs'
+    '            nativeRequest,',
+    '            validated.stagingRoot,',
+    '            request.environment,',
+    '            commitFence,',
+    '            executionDeadlines.hostWatchdogMs'
   ].join('\n'));
   expect(sources.appContainer).toContain(
     'maxObservedOutputBytes: WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES'

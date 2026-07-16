@@ -87,6 +87,7 @@ import { ensureIsolatedProcessDirectories, runCommand } from '../../platform/sha
 import { RUNTIME_DEPS_PREBOUND_BINDING_FILE } from '../../platform/shared/runtime-dependency-spec.ts';
 import {
   runWindowsAppContainerChild,
+  runWindowsAppContainerMaterializedSuspendedCreateForTests,
   WindowsAppContainerExecutionError
 } from '../../platform/shared/windows-appcontainer-executor.ts';
 import {
@@ -3022,6 +3023,50 @@ test('isolated runtime capability permits baseline bootstrap but blocks Prisma a
   }, 'engineering-compiler-sm3-isolated-capability-blockers-');
 });
 
+test.skipIf(process.platform !== 'win32')(
+  'worker-owned AppContainer SID bytes return from suspended CreateProcessW with bounded launch controls',
+  async () => {
+    await withTempWorkspace(async (root) => {
+      const startedAt = performance.now();
+      const { runtimeInputSources, stagingRoot } = await createProductionRuntimeCapabilityContext(root);
+      const capability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+        runtimeInputSources
+      });
+      expect({
+        capability,
+        diagnostic: semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests(capability)
+      }).toEqual({
+        capability: { status: 'available' },
+        diagnostic: undefined
+      });
+      const materialized = await materializeSemanticMutationIsolatedRuntime({
+        binding: capability,
+        commitFence: async () => undefined,
+        stagingWorkspaceRoot: stagingRoot
+      });
+      await assertSemanticMutationIsolatedRuntimeLaunchManifest({
+        binding: capability,
+        commitFence: async () => undefined,
+        stagingWorkspaceRoot: stagingRoot
+      });
+
+      const lease = await acquireWorkspaceWriteLease(root);
+      try {
+        await runWindowsAppContainerMaterializedSuspendedCreateForTests({
+          stagingRoot,
+          runnerRelativePath: materialized.runnerRelativePath,
+          environment: buildSemanticMutationIsolatedVerificationEnvironment(stagingRoot),
+          workspaceRoot: root,
+          workspaceWriteLease: lease.token,
+          timeoutMs: 20_000
+        });
+        expect(performance.now() - startedAt).toBeLessThan(30_000);
+      } finally {
+        await lease.release();
+      }
+    }, 'engineering-compiler-sm3-materialized-suspended-create-');
+  }
+);
 test.serial('isolated runtime capability builds a host-path-free production runner bundle and crosses the real AppContainer boundary', async () => {
   await withTempWorkspace(async (root) => {
     const { runtimeInputSources, stagingRoot } = await createProductionRuntimeCapabilityContext(root);
