@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -24,9 +24,11 @@ async function withRepository(run: (repoRoot: string) => Promise<void>): Promise
   try {
     git(repoRoot, ['init', '--quiet']);
     await mkdir(path.join(repoRoot, '.githooks'));
-    await Promise.all(managedHookNames.map((hook) => (
-      writeFile(path.join(repoRoot, '.githooks', hook), '#!/usr/bin/env sh\nexit 0\n', 'utf8')
-    )));
+    await Promise.all(managedHookNames.map(async (hook) => {
+      const hookPath = path.join(repoRoot, '.githooks', hook);
+      await writeFile(hookPath, '#!/usr/bin/env sh\nexit 0\n', 'utf8');
+      await chmod(hookPath, 0o755);
+    }));
     git(repoRoot, ['add', '.githooks']);
     for (const hook of managedHookNames) {
       git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
@@ -40,7 +42,8 @@ async function withRepository(run: (repoRoot: string) => Promise<void>): Promise
 test('hook installer configures unset and stale missing paths and is idempotent', async () => {
   await withRepository(async (repoRoot) => {
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
-    expect(git(repoRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe('.githooks');
+    expect(() => git(repoRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
+    expect(git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toBe('.githooks');
     expect(git(repoRoot, ['config', '--get', 'core.hooksPath'])).toBe('.githooks');
     expect(git(repoRoot, ['config', '--local', '--type=bool', '--get', 'extensions.worktreeConfig'])).toBe('true');
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'managed' });
@@ -50,8 +53,8 @@ test('hook installer configures unset and stale missing paths and is idempotent'
     const staleHooks = path.join(repoRoot, 'missing-hooks');
     git(repoRoot, ['config', '--local', 'core.hooksPath', staleHooks]);
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
-    expect(git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toBe(staleHooks);
-    expect(git(repoRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe('.githooks');
+    expect(git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toBe('.githooks');
+    expect(() => git(repoRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
     expect(git(repoRoot, ['config', '--get', 'core.hooksPath'])).toBe('.githooks');
   });
 });
@@ -125,7 +128,7 @@ test('hook installer lifecycle skips CI and Gitless environments while explicit 
   }
 });
 
-test('hook installer isolates linked-worktree configuration from shared stale authority', async () => {
+test('hook installer repairs shared stale authority for every linked worktree', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-hooks-linked-'));
   const repoRoot = path.join(root, 'main');
   const linkedRoot = path.join(root, 'linked');
@@ -136,9 +139,11 @@ test('hook installer isolates linked-worktree configuration from shared stale au
     git(repoRoot, ['config', 'user.name', 'SEC Tests']);
     await mkdir(path.join(repoRoot, '.githooks'));
     await writeFile(path.join(repoRoot, 'README.md'), 'fixture\n', 'utf8');
-    await Promise.all(managedHookNames.map((hook) => (
-      writeFile(path.join(repoRoot, '.githooks', hook), '#!/usr/bin/env sh\nexit 0\n', 'utf8')
-    )));
+    await Promise.all(managedHookNames.map(async (hook) => {
+      const hookPath = path.join(repoRoot, '.githooks', hook);
+      await writeFile(hookPath, '#!/usr/bin/env sh\nexit 0\n', 'utf8');
+      await chmod(hookPath, 0o755);
+    }));
     git(repoRoot, ['add', 'README.md', '.githooks']);
     for (const hook of managedHookNames) {
       git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
@@ -150,11 +155,50 @@ test('hook installer isolates linked-worktree configuration from shared stale au
 
     expect(await installGitHooks({ repoRoot: linkedRoot })).toMatchObject({ status: 'installed' });
 
-    expect(git(linkedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toBe('.githooks');
+    expect(() => git(linkedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
     expect(git(linkedRoot, ['config', '--get', 'core.hooksPath'])).toBe('.githooks');
-    expect(git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toBe(staleHooks);
-    expect(git(repoRoot, ['config', '--get', 'core.hooksPath'])).toBe(staleHooks);
-    expect(await readFile(path.join(repoRoot, '.git', 'config'), 'utf8')).not.toContain('path = .githooks');
+    expect(git(repoRoot, ['config', '--local', '--get', 'core.hooksPath'])).toBe('.githooks');
+    expect(git(repoRoot, ['config', '--get', 'core.hooksPath'])).toBe('.githooks');
+    expect(await readFile(path.join(repoRoot, '.git', 'config'), 'utf8')).toContain('hooksPath = .githooks');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('repository-common hook authority runs on a linked worktree first checkout', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-hooks-first-checkout-'));
+  const repoRoot = path.join(root, 'main');
+  const linkedRoot = path.join(root, 'linked');
+  try {
+    await mkdir(repoRoot);
+    git(repoRoot, ['init', '--quiet']);
+    git(repoRoot, ['config', 'user.email', 'tests@example.com']);
+    git(repoRoot, ['config', 'user.name', 'SEC Tests']);
+    await mkdir(path.join(repoRoot, '.githooks'));
+    await writeFile(path.join(repoRoot, 'README.md'), 'fixture\n', 'utf8');
+    await Promise.all(managedHookNames.map(async (hook) => {
+      const hookPath = path.join(repoRoot, '.githooks', hook);
+      await writeFile(
+        hookPath,
+        hook === 'post-checkout'
+          ? '#!/usr/bin/env sh\nset -eu\nprintf first-checkout > .dependency-bootstrap-marker\n'
+          : '#!/usr/bin/env sh\nexit 0\n',
+        'utf8'
+      );
+      await chmod(hookPath, 0o755);
+    }));
+    git(repoRoot, ['add', 'README.md', '.githooks']);
+    for (const hook of managedHookNames) {
+      git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
+    }
+    git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+
+    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
+    git(repoRoot, ['worktree', 'add', '--quiet', '-b', 'linked-first-checkout', linkedRoot]);
+
+    expect(await readFile(path.join(linkedRoot, '.dependency-bootstrap-marker'), 'utf8')).toBe('first-checkout');
+    expect(git(linkedRoot, ['config', '--local', '--get', 'core.hooksPath'])).toBe('.githooks');
+    expect(() => git(linkedRoot, ['config', '--worktree', '--get', 'core.hooksPath'])).toThrow();
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -166,6 +210,8 @@ test('tracked hooks bootstrap dependencies and freeze the complete candidate aut
   const preCommit = await readFile(path.join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
   const prePush = await readFile(path.join(repoRoot, '.githooks', 'pre-push'), 'utf8');
   const postCheckout = await readFile(path.join(repoRoot, '.githooks', 'post-checkout'), 'utf8');
+  const postMerge = await readFile(path.join(repoRoot, '.githooks', 'post-merge'), 'utf8');
+  const postRewrite = await readFile(path.join(repoRoot, '.githooks', 'post-rewrite'), 'utf8');
   const attributes = await readFile(path.join(repoRoot, '.gitattributes'), 'utf8');
 
   expect(agentContract).toContain('pre-commit imports:freeze');
@@ -178,7 +224,9 @@ test('tracked hooks bootstrap dependencies and freeze the complete candidate aut
   expect(prePush).toContain('bun ./platform/dev-runner.ts imports:freeze');
   expect(prePush).toContain('git diff --cached --quiet HEAD');
   expect(prePush).not.toContain('\r');
-  expect(postCheckout).toContain('bun ./platform/dev-runner.ts deps:ensure');
+  for (const dependencyHook of [postCheckout, postMerge, postRewrite]) {
+    expect(dependencyHook).toContain('bun ./platform/dev-runner.ts deps:ensure');
+  }
   expect(postCheckout).not.toContain('\r');
   expect(attributes).toContain('/.githooks/* text eol=lf');
 });
