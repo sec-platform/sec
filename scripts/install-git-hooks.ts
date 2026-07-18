@@ -50,6 +50,10 @@ function canonicalPath(value: string): string {
   return process.platform === 'win32' ? resolved.toLocaleLowerCase('en-US') : resolved;
 }
 
+function isManagedCommonSetting(configured: string): boolean {
+  return configured.replaceAll('\\', '/').replace(/^\.\//u, '') === MANAGED_HOOKS_PATH;
+}
+
 function resolveGitPath(repoRoot: string, configured: string): string {
   if (configured.length === 0) throw new Error('Git returned an empty hooks path');
   return path.isAbsolute(configured) ? path.resolve(configured) : path.resolve(repoRoot, configured);
@@ -67,6 +71,27 @@ async function firstRealHook(hooksPath: string): Promise<string | null> {
     !entry.name.endsWith('.sample') && (entry.isFile() || entry.isSymbolicLink())
   ));
   return hook ? path.join(hooksPath, hook.name) : null;
+}
+
+function worktreeRoots(repoRoot: string): readonly string[] {
+  const output = gitText(repoRoot, ['worktree', 'list', '--porcelain']);
+  if (output === null) return Object.freeze([repoRoot]);
+  return Object.freeze(output
+    .split(/\r?\n/gu)
+    .filter((line) => line.startsWith('worktree '))
+    .map((line) => path.resolve(line.slice('worktree '.length))));
+}
+
+async function firstConfiguredHookAuthority(
+  repoRoot: string,
+  configured: string
+): Promise<string | null> {
+  const candidateRoots = path.isAbsolute(configured) ? [repoRoot] : worktreeRoots(repoRoot);
+  for (const candidateRoot of candidateRoots) {
+    const configuredPath = resolveGitPath(candidateRoot, configured);
+    if (await pathExists(configuredPath)) return configuredPath;
+  }
+  return null;
 }
 
 function stoppedResult(message: string, lifecycle: boolean): GitHookInstallationResult {
@@ -114,52 +139,59 @@ export async function installGitHooks(options: {
       options.lifecycle ?? false
     );
   }
-  const configured = gitText(
-    repoRoot,
-    ['config', '--path', '--get', 'core.hooksPath'],
-    { allowMissing: true }
-  );
-  const gitHooksPath = gitText(repoRoot, ['rev-parse', '--git-path', 'hooks']);
-  if (gitHooksPath === null) throw new Error('Git hooks path is unavailable');
-  const effectiveHooksAbsolute = resolveGitPath(repoRoot, gitHooksPath);
-
-  if (configured !== null) {
-    if (
-      canonicalPath(effectiveHooksAbsolute) !== canonicalPath(managedAbsolute)
-      && await pathExists(effectiveHooksAbsolute)
-    ) {
-      return conflictResult(configured, options.lifecycle ?? false);
-    }
-  } else {
-    const realHook = await firstRealHook(effectiveHooksAbsolute);
-    if (realHook !== null) return conflictResult(realHook, options.lifecycle ?? false);
-  }
-
   const worktreeConfigEnabled = gitText(
     repoRoot,
     ['config', '--local', '--type=bool', '--get', 'extensions.worktreeConfig'],
     { allowMissing: true }
   ) === 'true';
+  const commonConfigured = gitText(
+    repoRoot,
+    ['config', '--local', '--path', '--get', 'core.hooksPath'],
+    { allowMissing: true }
+  );
   const worktreeConfigured = worktreeConfigEnabled
     ? gitText(repoRoot, ['config', '--worktree', '--path', '--get', 'core.hooksPath'], { allowMissing: true })
     : null;
+
   if (
     worktreeConfigured !== null
-    && canonicalPath(resolveGitPath(repoRoot, worktreeConfigured)) === canonicalPath(managedAbsolute)
+    && canonicalPath(resolveGitPath(repoRoot, worktreeConfigured)) !== canonicalPath(managedAbsolute)
   ) {
-    return Object.freeze({
-      status: 'managed',
-      message: `Git hooks already use worktree-local ${MANAGED_HOOKS_PATH}.`
-    });
+    const authority = await firstConfiguredHookAuthority(repoRoot, worktreeConfigured);
+    if (authority !== null) return conflictResult(authority, options.lifecycle ?? false);
   }
 
+  if (commonConfigured !== null && !isManagedCommonSetting(commonConfigured)) {
+    const authority = await firstConfiguredHookAuthority(repoRoot, commonConfigured);
+    if (authority !== null) return conflictResult(authority, options.lifecycle ?? false);
+  } else if (commonConfigured === null) {
+    const commonGitDir = gitText(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    if (commonGitDir === null) throw new Error('Git common directory is unavailable');
+    const realHook = await firstRealHook(path.join(commonGitDir, 'hooks'));
+    if (realHook !== null) return conflictResult(realHook, options.lifecycle ?? false);
+  }
+
+  const commonManaged = commonConfigured !== null && isManagedCommonSetting(commonConfigured);
+  const worktreeOverridePresent = worktreeConfigured !== null;
   if (!worktreeConfigEnabled) {
     gitText(repoRoot, ['config', '--local', 'extensions.worktreeConfig', 'true']);
   }
-  gitText(repoRoot, ['config', '--worktree', 'core.hooksPath', MANAGED_HOOKS_PATH]);
+  if (!commonManaged) {
+    gitText(repoRoot, ['config', '--local', 'core.hooksPath', MANAGED_HOOKS_PATH]);
+  }
+  if (worktreeOverridePresent) {
+    gitText(repoRoot, ['config', '--worktree', '--unset-all', 'core.hooksPath'], { allowMissing: true });
+  }
+
+  if (commonManaged && !worktreeOverridePresent) {
+    return Object.freeze({
+      status: 'managed',
+      message: `Git hooks already use repository-common ${MANAGED_HOOKS_PATH}.`
+    });
+  }
   return Object.freeze({
     status: 'installed',
-    message: `Configured worktree-local core.hooksPath=${MANAGED_HOOKS_PATH}.`
+    message: `Configured repository-common core.hooksPath=${MANAGED_HOOKS_PATH}; future worktrees inherit it before checkout.`
   });
 }
 
