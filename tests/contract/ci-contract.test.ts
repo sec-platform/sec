@@ -52,7 +52,7 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   const contract = buildCiContract();
 
   expect(contract.verificationContractRevision).toBe(CI_VERIFICATION_CONTRACT_REVISION);
-  expect(contract.verificationContractRevision).toBe('ci-verification-v5');
+  expect(contract.verificationContractRevision).toBe('ci-verification-v6');
   expect(contract.executionModel).toBe(CI_VERIFICATION_EXECUTION_MODEL);
   expect(contract.prWorkflowEvent).toBe(CI_VERIFICATION_PR_EVENT);
   expect(contract.prDispatchType).toBe(CI_VERIFICATION_PR_DISPATCH_TYPE);

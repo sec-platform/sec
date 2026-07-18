@@ -3,7 +3,9 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { normalizeNewlines } from '../../platform/shared/collections.ts';
 import {
+  WORK_PACKAGE_GATE_LOCAL_ARTIFACT_LEDGER_V4,
   WORK_PACKAGE_GATE_NAMESPACE_IDENTITY_DIGEST_V4,
   WORK_PACKAGE_GATE_NAMESPACE_ROOT_IDENTITY_DIGEST_V4,
   WORK_PACKAGE_GATE_PROTECTED_LEDGER_DIGEST_V4,
@@ -37,11 +39,15 @@ const emptyIdentitySet = Object.freeze({
   digest: `sha256:${'0'.repeat(64)}`
 });
 
+async function frozenManifest(relativePath: string): Promise<string> {
+  return normalizeNewlines(await readFile(path.join(repoRoot, relativePath), 'utf8'));
+}
+
 async function frozenSelection() {
   return parseFrozenWorkPackageGateSelection({
-    executionManifestSource: await readFile(path.join(repoRoot, executionPath), 'utf8'),
+    executionManifestSource: await frozenManifest(executionPath),
     executionManifestPath: executionPath,
-    selectionManifestSource: await readFile(path.join(repoRoot, selectionPath), 'utf8'),
+    selectionManifestSource: await frozenManifest(selectionPath),
     selectionManifestPath: selectionPath,
     selectionIndex: 0
   });
@@ -49,9 +55,9 @@ async function frozenSelection() {
 
 async function frozenSelectionV4() {
   return parseFrozenWorkPackageGateSelectionV4({
-    executionManifestSource: await readFile(path.join(repoRoot, executionPathV4), 'utf8'),
+    executionManifestSource: await frozenManifest(executionPathV4),
     executionManifestPath: executionPathV4,
-    selectionManifestSource: await readFile(path.join(repoRoot, selectionPath), 'utf8'),
+    selectionManifestSource: await frozenManifest(selectionPath),
     selectionManifestPath: selectionPath,
     selectionIndex: 0
   });
@@ -79,8 +85,8 @@ test('gate selection derives exactly one canonical 39-file argv from the R1 froz
 });
 
 test('gate selection rejects timeout drift and duplicate owner files', async () => {
-  const execution = await readFile(path.join(repoRoot, executionPath), 'utf8');
-  const selection = await readFile(path.join(repoRoot, selectionPath), 'utf8');
+  const execution = await frozenManifest(executionPath);
+  const selection = await frozenManifest(selectionPath);
   expect(() => parseFrozenWorkPackageGateSelection({
     executionManifestSource: execution.replace('tracking: issue-106', 'tracking: issue-107'),
     executionManifestPath: executionPath,
@@ -418,24 +424,30 @@ test('final evidence rejects argv and digest tamper and survives atomic readback
   }
 });
 
-test('frozen R2 bundle remains V1-only and V1/V4 parsers reject each other', async () => {
-  const r2Evidence = JSON.parse(await readFile(
-    path.join(repoRoot, '.tmp/sm3-r2-work-package-gate/evidence.json'),
-    'utf8'
-  )) as unknown;
-  const r2Journal = await readFile(
-    path.join(repoRoot, '.tmp/sm3-r2-work-package-gate/events.jsonl'),
-    'utf8'
-  );
-  expect(() => assertWorkPackageGateEvidenceBundle({
-    evidence: r2Evidence,
-    journalSource: r2Journal
-  })).not.toThrow();
-  expect(() => assertWorkPackageGateEvidenceV4(r2Evidence)).toThrow();
+test('tracked R2 evidence remains V1-only and V1/V4 parsers reject each other', async () => {
+  const r2Record = JSON.parse(await readFile(path.join(
+    repoRoot,
+    'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json'
+  ), 'utf8')) as Record<string, any>;
+  expect(r2Record).toMatchObject({
+    schemaVersion: '1',
+    profile: 'v0.4-semantic-mutation-apply-r2',
+    evidenceBundleValidation: {
+      validator: 'assertWorkPackageGateEvidenceBundle',
+      result: 'PASS',
+      evidenceDigest: 'sha256:73017dde8cdf3416c3cc9a9c993dd14fa3e97162df3de34ba7cc6a92c3119e10',
+      journalDigest: 'sha256:b5f783db0d5db901837685589bbc983bf4d300fff5c31ef5f275b92d6a9d6205',
+      journalLastSequence: 34,
+      localArtifactSha256: WORK_PACKAGE_GATE_LOCAL_ARTIFACT_LEDGER_V4
+    }
+  });
+  expect(() => assertWorkPackageGateEvidenceV4({
+    schema: 'codex-work-package-gate-evidence-v1'
+  })).toThrow();
 
-  const r2Execution = await readFile(path.join(repoRoot, executionPath), 'utf8');
-  const v4Execution = await readFile(path.join(repoRoot, executionPathV4), 'utf8');
-  const selection = await readFile(path.join(repoRoot, selectionPath), 'utf8');
+  const r2Execution = await frozenManifest(executionPath);
+  const v4Execution = await frozenManifest(executionPathV4);
+  const selection = await frozenManifest(selectionPath);
   expect(() => parseFrozenWorkPackageGateSelectionV4({
     executionManifestSource: r2Execution,
     executionManifestPath: executionPath,

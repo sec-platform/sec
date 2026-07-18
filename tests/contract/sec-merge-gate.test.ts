@@ -7,15 +7,15 @@ import ts from 'typescript';
 import { parse } from 'yaml';
 
 import {
+  CodexDevelopmentBuildVerificationInputV2,
+  CodexDevelopmentBuildVerificationPlanV1
+} from '../../platform/shared/ci-contract.ts';
+import {
   CodexDevelopmentFinalizeVerificationEvidenceV2,
   CodexDevelopmentVerificationDigest,
   CodexDevelopmentVerificationRawOutputDigest,
   type CodexDevelopmentVerificationEvidenceV2
 } from '../../platform/shared/ci-evidence-contract.ts';
-import {
-  CodexDevelopmentBuildVerificationInputV2,
-  CodexDevelopmentBuildVerificationPlanV1
-} from '../../platform/shared/ci-contract.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
 import {
   CodexDevelopmentBuildScopeAttestationV1,
@@ -113,7 +113,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: ${requiredProfile}
-ciRevision: ci-verification-v5
+ciRevision: ci-verification-v6
 tasks:
   - id: implementation
     owner: implementation-writer
@@ -192,7 +192,7 @@ function fixture(manifest = manifestSource()) {
   } as const;
   const attestation = CodexDevelopmentBuildScopeAttestationV1(scopeRequest, manifestBytes);
   const rawEvidence = CodexDevelopmentFinalizeVerificationEvidenceV2({
-    contractRevision: 'ci-verification-v5',
+    contractRevision: 'ci-verification-v6',
     kind: 'verification',
     profile: parsedManifest.requiredProfile,
     headSha: HEAD,
@@ -610,9 +610,9 @@ test('scope attestation binds the manifest profile and CI revision', () => {
 
 test('historical Work Package revisions remain parseable but cannot satisfy the current gate', () => {
   const current = fixture();
-  const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v5', 'ci-verification-v4'));
+  const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v6', 'ci-verification-v5'));
   const legacyManifest = CodexDevelopmentParseWorkPackageManifestV1(legacyBytes.toString('utf8'), MANIFEST_PATH);
-  expect(legacyManifest.ciRevision).toBe('ci-verification-v4');
+  expect(legacyManifest.ciRevision).toBe('ci-verification-v5');
 
   expect(() => CodexDevelopmentBuildScopeAttestationV1({
     ...current.scopeRequest,
