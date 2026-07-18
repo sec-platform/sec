@@ -42,7 +42,7 @@ interface ReparsePointInspector {
 
 const FILE_ATTRIBUTE_REPARSE_POINT = 0x0000_0400;
 const INVALID_FILE_ATTRIBUTES = 0xffff_ffff;
-const ISOLATION_SCAN_CONCURRENCY = 8;
+const ISOLATION_SCAN_CONCURRENCY = 64;
 
 function isolationFailure(message: string, relativePath: string): never {
   throw new CompilerError('VERIFY-ISOLATION-001', message, { relativePath });
@@ -129,7 +129,7 @@ async function runCanonicalBatches<T, R>(
   return Object.freeze(output);
 }
 
-/** Test-only scheduler seam; production filesystem concurrency remains fixed at eight. */
+/** Test-only scheduler seam; production filesystem concurrency remains fixed and bounded. */
 export function runIsolatedStagingScanBatchesForTests<T, R>(
   items: readonly T[],
   worker: (item: T, canonicalIndex: number) => Promise<R>
@@ -297,11 +297,16 @@ async function assertIsolatedStagingTreeInternal(
       if (!appContainerBoundary && foldedPath(canonicalRoot) !== foldedPath(resolvedRoot)) {
         isolationFailure('Isolated staging root realpath aliases another workspace', '.');
       }
+      // On Windows every entry is checked with GetFileAttributesW below. Once the
+      // canonical root is proven, rejecting every reparse point makes another
+      // realpath syscall per descendant redundant. POSIX still needs realpath to
+      // prove that an otherwise ordinary-looking descendant stays under the root.
+      const requireEntryRealpathProof = !appContainerBoundary && process.platform !== 'win32';
       await inspectTree(
         canonicalRoot,
         resolvedRoot,
         reparsePoints,
-        !appContainerBoundary,
+        requireEntryRealpathProof,
         testOptions?.afterInitialTraversal
       );
     };

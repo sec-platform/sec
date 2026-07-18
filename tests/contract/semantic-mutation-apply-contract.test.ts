@@ -12,9 +12,9 @@ import {
 import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
 import { semanticMutationTransactionRoot } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
 import {
-  SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE,
-  SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH
-} from '../../platform/compiler/verify/semantic-mutation-runner-build-child.ts';
+  semanticMutationIsolatedVerificationEvidenceDigest,
+  type SemanticMutationIsolatedVerificationEvidence
+} from '../../platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts';
 import { isSemanticMutationStagingWorkspace } from '../../platform/compiler/verify/semantic-mutation-staging-boundary.ts';
 import { assertSemanticMutationVerificationReportInvariant } from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
 import { applySemanticMutation } from '../../platform/orchestrator.ts';
@@ -43,14 +43,37 @@ import {
   SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION,
   SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION
 } from '../../platform/shared/verification-types.ts';
-import {
-  arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests,
-  createWindowsAppContainerNativeExecutionBudgetForTests
-} from '../../platform/shared/windows-appcontainer-executor.ts';
 import { WORKSPACE_WRITE_LEASE_TOKEN_VERSION } from '../../platform/shared/workspace-write-lease.ts';
 
 function sha256(value: unknown): string {
   return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
+function legacyPassedIsolatedVerificationEvidenceDigest(
+  evidence: Extract<SemanticMutationIsolatedVerificationEvidence, { readonly status: 'passed' }>
+): string {
+  const snapshot = evidence.artifacts.semanticBundle.snapshot.ir;
+  const generatedReport = evidence.artifacts.verificationReport;
+  return sha256({
+    domain: ['semantic-mutation-isolated-verification', 'evidence-v1'].join('-'),
+    completedStages: ['resolve', 'semantic', 'compose', 'adapt', 'verify'],
+    inputRevision: snapshot.inputRevision,
+    semanticRevision: snapshot.semanticRevision,
+    generatedArtifactRawDigests: evidence.artifacts.rawDigests,
+    report: {
+      summary: generatedReport.summary,
+      build: generatedReport.build,
+      unit: generatedReport.unit,
+      acceptance: generatedReport.acceptance,
+      policy: generatedReport.policy,
+      runtime: {
+        status: generatedReport.runtime.status,
+        build: generatedReport.runtime.build,
+        unit: generatedReport.runtime.unit,
+        acceptance: generatedReport.runtime.acceptance
+      }
+    }
+  });
 }
 
 test('semantic mutation staging layout is exactly the canonical transaction workspace', () => {
@@ -179,7 +202,7 @@ test('SM-3 freezes lease, journal, query, rollback, Pipeline proof, and Verifica
     pipelineCompletionProof: 'pipeline-completion-proof-v1',
     terminalRetention: 256,
     verificationAdapterId: 'semantic-mutation-local-verification',
-    verificationAdapterRevision: 'semantic-mutation-local-verification-v1',
+    verificationAdapterRevision: 'semantic-mutation-local-verification-v2',
     capabilityPlanRevision: 'semantic-mutation-verification-capability-plan-v1',
     verificationReportRevision: 'semantic-mutation-verification-report-v1'
   });
@@ -393,6 +416,10 @@ test('storage, query-view, Verification, and Pipeline proof interfaces retain ex
     import.meta.dir,
     '../../platform/shared/pipeline-types.ts'
   ), 'utf8');
+  const stagedProofTypes = await readFile(path.resolve(
+    import.meta.dir,
+    '../../platform/compiler/verify/staged-verification-proof.ts'
+  ), 'utf8');
 
   expect(interfaceKeys(transactionTypes, 'SemanticMutationRecoveryRecordBaseV1')).toEqual([
     'formatRevision', 'sequence', 'previousRecordRevision', 'transactionId',
@@ -454,1272 +481,124 @@ test('storage, query-view, Verification, and Pipeline proof interfaces retain ex
     'completedStages', 'completedPasses', 'verificationDigest', 'provenanceDigest',
     'explainGraphDigest', 'reviewSummaryDigest', 'localViewDigests', 'proofRevision'
   ]);
+  expect(interfaceKeys(stagedProofTypes, 'StagedVerificationProofSource')).toEqual([
+    'formatRevision'
+  ]);
+  expect(interfaceKeys(stagedProofTypes, 'StagedVerificationProofBinding')).toEqual([
+    'inputRevision', 'semanticRevision', 'planRevision', 'stagedSourceDigest',
+    'requiredVerificationDigest', 'verificationExecutionRevision', 'verificationReportDigest'
+  ]);
+  expect(interfaceKeys(stagedProofTypes, 'StagedVerificationProof')).toEqual([
+    'formatRevision', 'projectInputDigest', 'verificationArtifactDigest',
+    'rawArtifactSetDigest', 'artifactSetDigest'
+  ]);
 });
 
 test('writer authority, immutable journal, atomic publish/rollback CAS, and public redaction stay closed', async () => {
-  const root = path.resolve(import.meta.dir, '../..');
-  const sources = Object.fromEntries(await Promise.all(Object.entries({
-    compilerFacade: 'platform/compiler/index.ts',
-    blockOrchestrator: 'platform/orchestrator/block-orchestrator.ts',
-    composeOrchestrator: 'platform/orchestrator/compose-orchestrator.ts',
-    emitOrchestrator: 'platform/orchestrator/emit-orchestrator.ts',
-    orchestratorFacade: 'platform/orchestrator.ts',
-    orchestratorIndex: 'platform/orchestrator/index.ts',
-    mutationOrchestrator: 'platform/orchestrator/semantic-mutation-orchestrator.ts',
-    repairOrchestrator: 'platform/orchestrator/repair-orchestrator.ts',
-    repairWriter: 'platform/compiler/repair/build-repair-plan.ts',
-    workbenchOrchestrator: 'platform/orchestrator/workbench-orchestrator.ts',
-    viewMutationWriter: 'platform/compiler/workbench/apply-view-mutations.ts',
-    workspaceOrchestrator: 'platform/orchestrator/workspace-orchestrator.ts',
-    journal: 'platform/compiler/semantic-mutation/mutation-recovery-record.ts',
-    terminal: 'platform/compiler/semantic-mutation/mutation-terminal-record.ts',
-    transactionIdentity: 'platform/compiler/semantic-mutation/transaction-identity.ts',
-    stagedMutation: 'platform/compiler/semantic-mutation/derive-staged-mutation.ts',
-    stagingBoundary: 'platform/shared/semantic-mutation-staging-boundary.ts',
-    compilerStagingBoundary: 'platform/compiler/verify/semantic-mutation-staging-boundary.ts',
+  const paths = {
     atomicPublish: 'platform/compiler/semantic-mutation/atomic-source-publish.ts',
-    lease: 'platform/shared/workspace-write-lease.ts',
-    pipelineKernel: 'platform/shared/pipeline-kernel.ts',
-    pipelineOrchestrator: 'platform/orchestrator/pipeline-orchestrator.ts',
-    verifyOrchestrator: 'platform/orchestrator/verify-orchestrator.ts',
-    neutralIsolationCapability: 'platform/orchestrator/isolated-verification-capability.ts',
-    workbench: 'platform/orchestrator/workbench-server-v2.ts',
-    upgrade: 'platform/upgrade/upgrade-workspace.ts',
-    processRunner: 'platform/shared/process.ts',
-    observedProcess: 'platform/shared/observed-process.ts',
-    projectRuntime: 'platform/shared/project-runtime.ts',
-    runtimeVerification: 'platform/compiler/verify/run-runtime-verification.ts',
-    verifyProject: 'platform/compiler/verify/verify-project.ts',
-    verificationAdapter: 'platform/compiler/verify/semantic-mutation-verification-adapter.ts',
-    isolatedChildOutcome: 'platform/compiler/semantic-mutation/isolated-verification-child-outcome.ts',
-    isolatedChildProgress: 'platform/compiler/semantic-mutation/isolated-verification-child-progress.ts',
+    recovery: 'platform/compiler/semantic-mutation/mutation-recovery-record.ts',
     isolatedChild: 'platform/compiler/verify/run-semantic-mutation-isolated-child.ts',
-    runnerBuildChild: 'platform/compiler/verify/semantic-mutation-runner-build-child.ts',
-    runnerBuildProtocol: 'platform/compiler/verify/semantic-mutation-runner-build-protocol.ts',
-    runnerBuildSettlement: 'platform/compiler/verify/semantic-mutation-runner-build-settlement.ts',
-    isolatedRuntimeBinding: 'platform/compiler/verify/semantic-mutation-isolated-runtime-binding.ts',
-    isolatedRuntimePlan: 'platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts',
-    runtimeDependencySpec: 'platform/shared/runtime-dependency-spec.ts',
-    isolationCapability: 'platform/compiler/verify/semantic-mutation-isolation-capability.ts',
+    isolatedEvidence: 'platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts',
+    isolatedFailure: 'platform/compiler/verify/semantic-mutation-isolated-verification-failure.ts',
+    stagedProof: 'platform/compiler/verify/staged-verification-proof.ts',
+    verifyProject: 'platform/compiler/verify/verify-project.ts',
+    verifyFacade: 'platform/orchestrator/verify-orchestrator.ts',
+    pipeline: 'platform/orchestrator/pipeline-orchestrator.ts',
     isolatedRunner: 'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts',
-    stagingTree: 'platform/compiler/verify/assert-isolated-staging-tree.ts',
-    composeProject: 'platform/compiler/compose/compose-project.ts',
-    prismaMerge: 'platform/compiler/compose/merge-prisma-template.ts',
-    nativeHelperSettlement: 'platform/shared/windows-appcontainer-native-helper-settlement.ts',
-    appContainer: 'platform/shared/windows-appcontainer-executor.ts',
-    appContainerHelper: 'platform/shared/windows-appcontainer-native-helper.ts'
-  }).map(async ([name, relative]) => [
-    name,
-    (await readFile(path.join(root, relative), 'utf8')).replace(/\r\n?/gu, '\n')
-  ] as const)));
+    mutationOrchestrator: 'platform/orchestrator/semantic-mutation-orchestrator.ts',
+    productionSentinel: 'tests/integration/semantic-mutation-production-sentinel.test.ts',
+    runtimeVerification: 'platform/compiler/verify/run-runtime-verification.ts'
+  } as const;
+  const entries = await Promise.all(Object.entries(paths).map(async ([key, file]) => [
+    key,
+    await readFile(path.resolve(file), 'utf8')
+  ] as const));
+  const sources = Object.fromEntries(entries) as Record<keyof typeof paths, string>;
 
-  for (const forbiddenWriter of [
-    'composeProject', 'adaptProject', 'verifyProject',
-    'writeCiArtifactManifest', 'lockProject', 'writeExplainGraph', 'writeLocalViews',
-    'writeProvenance', 'writeReviewSummary', 'applyRepairPlan', 'writeRepairPlan',
-    'writePolicySnapshot', 'applyViewMutations', 'buildSemanticMutationVerificationExecutionRef',
-    'SemanticMutationIsolatedVerificationUnavailableError',
-    'probeSemanticMutationIsolatedRuntimeCapability',
-    'runSemanticMutationIsolatedVerificationChild',
-    'IsolatedVerificationArtifacts',
-    'SemanticMutationIsolatedVerificationFailure',
-    'SemanticMutationIsolatedCapabilityPreparationSubstage',
-    'SemanticMutationIsolatedRuntimeCapabilityDiagnostic',
-    'SEMANTIC_MUTATION_ISOLATED_CAPABILITY_PREPARATION_SUBSTAGES',
-    'buildSemanticMutationIsolatedRunnerBundleDiagnosticForTests',
-    'classifySemanticMutationIsolatedRunnerBuildForTests',
-    'readSemanticMutationIsolatedRunnerBuildFromFreshProcessForTests',
-    'classifySemanticMutationIsolatedRunnerBuildFreshProcessForTests',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_EXIT_CODES',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_MAX_BUNDLE_BYTES',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_TOKEN',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_MAGIC_BYTES',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_LENGTH_BYTES',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_FRAME_DIGEST_BYTES',
-    'semanticMutationRunnerBuildSuccessFrame',
-    'parseSemanticMutationRunnerBuildSuccessFrame',
-    'semanticMutationRunnerBuildFailureSubstage',
-    'classifySemanticMutationRunnerBuildSettlement',
-    'SemanticMutationRunnerBuildSettlementRejection',
-    'SemanticMutationRunnerBuildSettlementClassification',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_FRAME_INVALID',
-    'SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN',
-    'createFreshProductionSemanticMutationIsolatedRunnerBundleLoaderForTests',
-    'projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests',
-    'semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests'
+  expect(sources.atomicPublish).toContain('assertSemanticMutationTransactionRoot');
+  expect(sources.atomicPublish).toContain('beforeByteDigest');
+  expect(sources.atomicPublish).toContain('stagedByteDigest');
+  expect(sources.recovery).toContain('previousRecordRevision');
+  expect(sources.recovery).toContain('recordRevision');
+  expect(sources.mutationOrchestrator).toContain('buildSemanticMutationVerificationExecutionRef(report)');
+  expect(sources.mutationOrchestrator).toContain('stagedVerificationProofBinding(passedExecution, sha256(report))');
+  expect(sources.mutationOrchestrator).toContain('assertStagedVerificationProofBinding');
+
+  for (const removed of [
+    'platform/compiler/verify/semantic-mutation-runner-build-child.ts',
+    'platform/compiler/verify/semantic-mutation-runner-build-protocol.ts',
+    'platform/compiler/verify/semantic-mutation-runner-build-settlement.ts',
+    'platform/compiler/verify/semantic-mutation-staged-verification-reuse.ts'
   ]) {
-    expect(sources.compilerFacade, `public Compiler facade exports ${forbiddenWriter}`)
-      .not.toMatch(new RegExp(`export[^;]+\\b${forbiddenWriter}\\b`, 'su'));
-  }
-  for (const facade of [sources.compilerFacade, sources.orchestratorFacade, sources.orchestratorIndex]) {
-    expect(facade).not.toContain('semantic-mutation-runner-build-settlement');
-    for (const internalSettlementSymbol of [
-      'classifySemanticMutationRunnerBuildSettlement',
-      'SemanticMutationRunnerBuildSettlementRejection',
-      'SemanticMutationRunnerBuildSettlementClassification',
-      'SEMANTIC_MUTATION_RUNNER_BUILD_PROTOCOL_FRAME_INVALID',
-      'SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN',
-      'createFreshProductionSemanticMutationIsolatedRunnerBundleLoaderForTests'
-    ]) {
-      expect(facade).not.toMatch(
-        new RegExp(`export[^;]+\\b${internalSettlementSymbol}\\b`, 'su')
-      );
-    }
-  }
-  for (const facade of [sources.compilerFacade, sources.orchestratorFacade, sources.orchestratorIndex]) {
-    expect(facade).not.toContain('windows-appcontainer-native-helper-settlement');
-    for (const internalSettlementSymbol of [
-      'WindowsAppContainerObservedNativeHelperSettlementRejection',
-      'WindowsAppContainerObservedNativeHelperSettlementClassification',
-      'WindowsAppContainerObservedNativeHelperSettlement',
-      'classifyWindowsAppContainerObservedNativeHelperSettlement',
-      'bindWindowsAppContainerObservedNativeHelperSettlement',
-      'copyWindowsAppContainerObservedNativeHelperSettlement',
-      'windowsAppContainerObservedNativeHelperSettlementForTests'
-    ]) {
-      expect(facade).not.toMatch(
-        new RegExp(`export[^;]+\\b${internalSettlementSymbol}\\b`, 'su')
-      );
-    }
+    await expect(readFile(path.resolve(removed), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   }
 
-  const normalizeIndex = sources.mutationOrchestrator.indexOf('normalizeSemanticMutationRequest(input.request)');
-  const acquireIndex = sources.mutationOrchestrator.indexOf('acquireWorkspaceWriteLease(workspaceRoot)');
-  expect(normalizeIndex).toBeGreaterThan(-1);
-  expect(acquireIndex).toBeGreaterThan(normalizeIndex);
-  expect(sources.mutationOrchestrator).toContain('projectSemanticMutationRequestRecordView');
-  expect(sources.mutationOrchestrator).toContain('return terminalRecoveryOutcome(recovery)');
-  expect(sources.mutationOrchestrator).toContain('proof = compiled.completionProof');
-  for (const internalSeam of [
-    'applySemanticMutationWithAfterPreparedTestCrash',
-    'applySemanticMutationWithTestDependencies',
-    'planSemanticMutationTransactionWithTestDependencies'
-  ]) {
-    expect(sources.mutationOrchestrator).toContain(internalSeam);
-    expect(sources.orchestratorFacade).not.toContain(internalSeam);
-    expect(sources.orchestratorIndex).not.toContain(internalSeam);
-    expect(sources.compilerFacade).not.toContain(internalSeam);
-  }
+  expect(sources.isolatedChild.match(/Bun\.build\(\{/gu)).toHaveLength(1);
+  expect(sources.isolatedChild.match(/const result = await supervisor\(\{/gu)).toHaveLength(1);
+  expect(sources.isolatedChild).not.toContain('Worker(');
+  expect(sources.isolatedChild).not.toContain('runSemanticMutationIsolatedRunnerBuildFromFreshProcess');
+  expect(sources.isolatedChild).not.toContain('createHostOwnedIsolatedPlaywrightRuntimeAliases');
+  expect(sources.isolatedChild).not.toContain('cleanupHostOwnedIsolatedPlaywrightRuntimeAliases');
+  expect(sources.runtimeVerification).not.toContain('playwright-cli-loader.mjs');
+  expect(sources.runtimeVerification).not.toContain('Playwright Bun IPC');
+  expect(sources.runtimeVerification).not.toContain('cdpPort');
+  expect(sources.runtimeVerification).not.toContain('source identity changed');
+  expect(sources.productionSentinel).toContain(
+    "const enabled = process.env.SEC_RUN_SM3_PRODUCTION_SENTINEL === '1';"
+  );
+  expect(sources.productionSentinel).toContain('test.skipIf(!enabled)(');
+  expect(sources.productionSentinel).toContain(
+    "await import('../helpers/semantic-mutation-production-sentinel.ts')"
+  );
+  expect(sources.productionSentinel).not.toContain(
+    "from '../helpers/semantic-mutation-production-sentinel.ts'"
+  );
+  expect(sources.productionSentinel).not.toContain('playwright');
 
-  expect(sources.journal).toContain('handle.sync()');
-  expect(sources.journal).toContain('await rename(tempPath, finalPath)');
-  expect(sources.journal).toContain('await fsyncDirectory(directory, commitFence)');
-  expect(sources.terminal).toContain('reserveSemanticMutationTerminalSequence');
-  expect(sources.terminal).toContain('terminal-order');
-  expect(sources.transactionIdentity).toContain(
-    "const TRANSACTION_PARENT_SEGMENTS = ['.sec', 'semantic-mutation', 'v1', 'transactions'] as const"
-  );
-  expect(sources.transactionIdentity).toContain('const TRANSACTION_NAME_PATTERN = /^[0-9a-f]{64}$/u');
-  expect(sources.stagedMutation).toContain("const stagingWorkspaceRoot = path.join(transactionRoot, 'workspace')");
-  expect(sources.stagingBoundary).toContain(
-    "const STAGING_PARENT_SEGMENTS = ['.sec', 'semantic-mutation', 'v1', 'transactions'] as const"
-  );
-  expect(sources.stagingBoundary).toContain("if (path.basename(resolved) !== 'workspace') return false");
-  expect(sources.compilerStagingBoundary).toContain(
-    "export { isSemanticMutationStagingWorkspace } from '../../shared/semantic-mutation-staging-boundary.ts'"
-  );
-  expect(sources.pipelineOrchestrator).not.toContain('semantic-mutation-staging-boundary');
-  expect(sources.pipelineOrchestrator).not.toContain('isSemanticMutationStagingWorkspace');
-  expect(sources.pipelineOrchestrator).not.toContain('isolated: true');
-  expect(sources.pipelineOrchestrator).toContain(
-    'isolatedVerificationCapability?: IsolatedVerificationCapability'
-  );
+  expect(sources.stagedProof).toContain("const PROOF_FORMAT_REVISION = 'staged-verification-proof-v1'");
+  expect(sources.stagedProof).toContain('const issuedSources = new WeakMap');
+  expect(sources.stagedProof).toContain('const issuedProofs = new WeakMap');
+  expect(sources.stagedProof).toContain('source.consumed = true;');
+  expect(sources.stagedProof).toContain('state.consuming = true;');
+  expect(sources.stagedProof).toContain('state.consumed = true;');
+  expect(sources.stagedProof).toContain('state.consuming = false;');
+  expect(sources.stagedProof).toContain('projectInputDigest');
+  expect(sources.stagedProof).toContain('stagedSourceDigest');
+  expect(sources.stagedProof).toContain('verificationReportDigest');
+  expect(sources.stagedProof).toContain('requiredVerificationDigest');
+  expect(sources.stagedProof).toContain('rawArtifactSetDigest');
+  expect(sources.stagedProof).not.toContain("from '../semantic-mutation/");
+  expect(sources.stagedProof).not.toContain('run-semantic-mutation-isolated-child');
 
-  expect(sources.atomicPublish).toContain('assertSameDevice(target, transactionRoot');
-  expect(sources.atomicPublish).toContain('Live source changed during final publish CAS');
-  expect(sources.atomicPublish).toContain('Rollback CAS refused to overwrite source bytes not committed by this transaction');
-  expect(sources.atomicPublish).toContain('await operations.rename(publishTemp, target)');
-  expect(sources.atomicPublish).toContain('await operations.rename(restoreTemp, target)');
-  expect(sources.atomicPublish).toContain('{ details: safeDetails }');
-  expect(sources.atomicPublish).not.toContain('copyFile');
+  const pipelineImports = sources.pipeline.slice(0, sources.pipeline.indexOf('const PIPELINE_LEASE_MONITOR_INTERVAL_MS'));
+  expect(pipelineImports).toContain("from './verify-orchestrator.ts'");
+  expect(pipelineImports).not.toContain('semantic-mutation-staged');
+  expect(pipelineImports).not.toContain('staged-verification-proof');
+  expect(pipelineImports).not.toContain('SemanticMutation');
+  expect(sources.verifyFacade).toContain("from '../compiler/verify/staged-verification-proof.ts'");
+  expect(sources.verifyProject).toContain('consumeStagedVerificationProof');
+  expect(sources.verifyProject).toContain('revalidateStagedVerificationProof');
+  expect(sources.verifyProject).toContain('assertStagedVerificationLiveContext');
 
-  const ownerWrite = sources.lease.indexOf('await durableWriteOwner(candidate, owner, createId)');
-  const leasePublish = sources.lease.indexOf('await publishLeaseCandidateNoReplace(candidate, lease)', ownerWrite);
-  const parentFsync = sources.lease.indexOf('await fsyncDirectory(parent)', leasePublish);
-  expect(ownerWrite).toBeGreaterThan(-1);
-  expect(leasePublish).toBeGreaterThan(ownerWrite);
-  expect(parentFsync).toBeGreaterThan(leasePublish);
-  expect(sources.lease).toContain('const RENAME_NOREPLACE = 1');
-  expect(sources.lease).toContain('async function publishLeaseCandidateNoReplace');
-  expect(sources.lease).toContain("await import('bun:ffi')");
-  expect(sources.lease).toContain('library.symbols.renameat2(');
-  expect(sources.lease).toContain('const assertManagerHolder = (token: WorkspaceWriteLeaseToken)');
-  expect(sources.lease).toContain('assertActiveLease(reentrantToken)');
-  expect(sources.lease).toContain('assertManagerHolder(token);\n    await assertOwned(workspaceRoot, token)');
-  const noReplacePublish = sources.lease.indexOf('async function publishLeaseCandidateNoReplace');
-  const unsupportedPlatformGuard = sources.lease.indexOf("if (process.platform !== 'win32')", noReplacePublish);
-  const windowsRenameFallback = sources.lease.indexOf('await fs.rename(candidate, lease)', unsupportedPlatformGuard);
-  expect(unsupportedPlatformGuard).toBeGreaterThan(noReplacePublish);
-  expect(windowsRenameFallback).toBeGreaterThan(unsupportedPlatformGuard);
-  expect(sources.pipelineKernel).toContain('const commitFence = () => assertWorkspaceWriteLease(');
-  expect(sources.pipelineKernel).toContain('await commitFence();');
-  expect((sources.workbench.match(/withWorkbenchWriterLease/gu) ?? []).length).toBeGreaterThanOrEqual(3);
-  expect(sources.workspaceOrchestrator).toContain('ensureProjectBase(workspaceRoot, commitFence)');
-  expect(sources.workspaceOrchestrator).toContain('writeYaml(planPath, defaultPlan(), commitFence)');
-  expect(sources.repairOrchestrator).toContain(
-    'applyRepairPlan(workspaceRoot, plan, lock, repairPlan, commitFence)'
-  );
-  expect(sources.repairWriter).toContain('await commitFence?.();');
-  expect(sources.repairWriter).toContain('writeProvenance(workspaceRoot, lock, commitFence)');
-  expect(sources.viewMutationWriter).toContain('writeYaml(planPath, plan, commitFence)');
-  expect(sources.viewMutationWriter).toContain('writeJson(viewMutationReportPath, report, commitFence)');
-  for (const [source, minimumFences] of [
-    [sources.blockOrchestrator, 1],
-    [sources.workspaceOrchestrator, 3],
-    [sources.emitOrchestrator, 2],
-    [sources.repairOrchestrator, 5],
-    [sources.workbenchOrchestrator, 1],
-    [sources.upgrade, 10]
-  ] as const) {
-    const directFences = (source.match(/await assertWorkspaceWriteLease\(workspaceRoot, /gu) ?? []).length;
-    const localFences = (source.match(/await commitFence\(\)/gu) ?? []).length;
-    const delegatedFences = (source.match(/, commitFence\)/gu) ?? []).length;
-    expect(directFences + localFences + delegatedFences)
-      .toBeGreaterThanOrEqual(minimumFences);
-  }
-  expect(sources.upgrade).toContain('workspaceWriteLease: WorkspaceWriteLeaseToken');
-  expect(sources.mutationOrchestrator).toContain('runSemanticMutationIsolatedVerificationChild');
-  expect(sources.mutationOrchestrator).toContain('windowsAppContainerCapability().status');
-  expect(sources.mutationOrchestrator).not.toContain('probeWindowsAppContainerCapability({');
-  expect(sources.mutationOrchestrator).toContain('status: artifacts.status');
-  expect(sources.mutationOrchestrator).toContain("reason: 'isolated-verification-unavailable'");
-  expect(sources.mutationOrchestrator).toContain('isolatedVerification: isolatedVerificationFailure');
-  expect(sources.mutationOrchestrator).toContain('generatedArtifactRawDigests: artifacts.rawDigests');
-  expect(sources.mutationOrchestrator).toContain('build: generatedReport.runtime.build');
-  expect(sources.mutationOrchestrator).not.toContain("errorCode: 'isolated-child-failed'");
-  expect(sources.isolatedChild).toContain('options.appContainerRunner ?? runWindowsAppContainerChild');
-  expect(sources.isolatedChild).toContain('SemanticMutationIsolatedVerificationUnavailableError');
-  expect(sources.isolatedChild).toContain("stage: 'appcontainer-execution'");
-  expect(sources.isolatedChildOutcome).toContain(
-    "'.isolated-process/child/semantic-mutation-isolated-child-outcome-v1.json'"
-  );
-  expect(sources.isolatedChildOutcome).toContain(
-    "'.isolated-process/child/.semantic-mutation-isolated-child-outcome-v1.pending'"
-  );
-  expect(sources.isolatedChildOutcome).toContain("readonly status: 'failed'");
-  expect(sources.isolatedChildOutcome).toContain("| 'preflight'");
-  expect(sources.isolatedChildOutcome).toContain("| 'verify-all'");
-  expect(sources.isolatedChildOutcome).toContain("| 'postcondition'");
-  expect(sources.isolatedChildOutcome).toContain("new TextDecoder('utf-8', { fatal: true })");
-  expect(sources.isolatedChildOutcome).toContain("open(pendingPath, 'wx', 0o600)");
-  expect(sources.isolatedChildOutcome).toContain('await handle.sync()');
-  expect(sources.isolatedChildOutcome).toContain('await rename(pendingPath, finalPath)');
-  for (const forbidden of ['message:', 'path:', 'stdout:', 'stderr:', 'rawOutput:', 'timestamp:']) {
-    expect(sources.isolatedChildOutcome).not.toContain(forbidden);
-  }
-  expect(sources.isolatedChildProgress).toContain(
-    "'.isolated-compiler/platform/orchestrator/semantic-mutation-isolated-verification-bootstrap.mjs'"
-  );
-  expect(sources.isolatedChildProgress).toContain(
-    "'.isolated-compiler/platform/orchestrator/semantic-mutation-isolated-verification-loader.mjs'"
-  );
-  for (const checkpoint of [
-    'bootstrap-entered', 'loader-entered', 'core-import-started', 'module-entered', 'catch-armed', 'verify-all',
-    'postcondition', 'failure-caught', 'catch-tree-validated', 'outcome-publish-started'
-  ]) {
-    expect(sources.isolatedChildProgress).toContain(`'${checkpoint}'`);
-  }
-  expect(sources.isolatedChildProgress).toContain('runnerControlledFailure: 70');
-  expect(sources.isolatedChildProgress).toContain('progressPublicationFailure: 74');
-  expect(sources.isolatedChildProgress).toContain('loaderImportFailure: 75');
-  for (const removedTypeScriptAuthority of [
-    'typescriptResolutionFailure', 'typescriptEntryIdentityMismatch',
-    'typescriptEntryImportFailure', 'typescriptRuntimeFailure',
-    'typescript-resolution-failure', 'typescript-entry-identity-mismatch',
-    'typescript-entry-import-failure', 'typescript-runtime-failure',
-    'typescript-specifier-resolved', 'typescript-entry-identity-verified',
-    'typescript-imported', 'typescript-runtime-verified', 'ts-morph-imported'
-  ]) {
-    expect(sources.isolatedChildProgress).not.toContain(removedTypeScriptAuthority);
-    expect(sources.isolatedChild).not.toContain(removedTypeScriptAuthority);
-  }
-  expect(sources.isolatedChild).toContain("'loader-import-failure'");
-  expect(sources.isolatedChildProgress).toContain("open(pendingPath, 'wx', 0o600)");
-  expect(sources.isolatedChildProgress).toContain('await handle.sync()');
-  expect(sources.isolatedChildProgress).toContain('await rename(pendingPath, finalPath)');
-  expect(sources.isolatedChildProgress).toContain('await import(new URL(');
-  expect(sources.isolatedChildProgress).toContain(
-    "formatRevision: 'semantic-mutation-isolated-bundled-loader-binding-v1'"
-  );
-  expect(sources.isolatedChildProgress).toContain(
-    "executionRevision: 'semantic-mutation-bundled-core-relocation-v1'"
-  );
-  expect(sources.isolatedChildProgress).not.toContain('Bun.resolveSync');
-  expect(sources.isolatedChildProgress).not.toContain("await import('typescript')");
-  expect(sources.isolatedChildProgress).not.toContain("await import('ts-morph')");
-  const loaderCheckpoint = sources.isolatedChildProgress.indexOf("await publish('loader-entered')");
-  const coreCheckpoint = sources.isolatedChildProgress.indexOf(
-    "await publish('core-import-started')",
-    loaderCheckpoint
-  );
-  const coreImport = sources.isolatedChildProgress.indexOf('await import(new URL(', coreCheckpoint);
-  expect(loaderCheckpoint).toBeGreaterThan(-1);
-  expect(coreCheckpoint).toBeGreaterThan(loaderCheckpoint);
-  expect(coreImport).toBeGreaterThan(coreCheckpoint);
-  expect(sources.isolatedRuntimePlan).toContain('loaderBundleDigest: sha256Bytes(plan.loaderBundle)');
-  expect(sources.isolatedRuntimePlan).not.toContain('TypeScriptEntryBindingV1');
-  expect(sources.isolatedRuntimePlan).not.toContain('typeScriptEntryBinding');
-  expect(sources.isolatedRuntimePlan).not.toContain('typescript-entry-exit-algebra');
-  for (const forbidden of [
-    'readonly message', 'readonly path', 'readonly stdout', 'readonly stderr',
-    'readonly rawOutput', 'readonly timestamp'
-  ]) {
-    expect(sources.isolatedChildProgress).not.toContain(forbidden);
-  }
-  expect(sources.stagedMutation).toContain("childRelative === '.shared-deps'");
-  expect(sources.stagingTree).toContain('const ISOLATION_SCAN_CONCURRENCY = 8');
-  expect(sources.stagingTree).toContain('await Promise.allSettled(');
-  expect(sources.isolatedChildProgress).toContain('runnerStagingTreeFailure: 76');
-  expect(sources.isolatedChildProgress).toContain('runnerEnvironmentBoundaryFailure: 77');
-  expect(sources.isolatedChildProgress).toContain('runnerStagingLayoutBoundaryFailure: 78');
-  expect(sources.isolatedChildProgress).toContain("'runner-staging-tree-failure'");
-  expect(sources.isolatedRunner).toContain('SemanticMutationIsolatedStagingTreeFailure');
-  expect(sources.isolatedRunner).toContain(
-    'SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerStagingTreeFailure'
-  );
-  expect(sources.isolatedRunner).toContain(
-    'SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerEnvironmentBoundaryFailure'
-  );
-  expect(sources.isolatedRunner).toContain(
-    'SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerStagingLayoutBoundaryFailure'
-  );
-  expect(sources.isolatedRunner).toContain(
-    "let failureStage: SemanticMutationIsolatedChildFailureStage = 'preflight'"
-  );
-  const runnerVerifyAll = sources.isolatedRunner.indexOf("failureStage = 'verify-all'");
-  const runnerCompileTelemetry = sources.isolatedRunner.indexOf(
-    'const compiled = await withSemanticMutationIsolatedPhaseTelemetry(',
-    runnerVerifyAll
-  );
-  const runnerCompilePhase = sources.isolatedRunner.indexOf(
-    "'compile-workspace'",
-    runnerCompileTelemetry
-  );
-  const runnerCompile = sources.isolatedRunner.indexOf(
-    'async () => await compileWorkspace(',
-    runnerCompilePhase
-  );
-  const runnerPostcondition = sources.isolatedRunner.indexOf("failureStage = 'postcondition'", runnerCompile);
-  const runnerPostconditionCheckpoint = sources.isolatedRunner.indexOf(
-    "publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'postcondition')",
-    runnerPostcondition
-  );
-  const runnerOutcomePublishStarted = sources.isolatedRunner.indexOf(
-    "publishSemanticMutationIsolatedProgressCheckpoint(process.cwd(), 'outcome-publish-started')",
-    runnerPostconditionCheckpoint
-  );
-  const runnerPublishFailure = sources.isolatedRunner.indexOf(
-    'await publishSemanticMutationIsolatedChildOutcome(process.cwd(), outcome)',
-    runnerOutcomePublishStarted
-  );
-  expect(runnerVerifyAll).toBeGreaterThan(-1);
-  expect(runnerCompileTelemetry).toBeGreaterThan(runnerVerifyAll);
-  expect(runnerCompilePhase).toBeGreaterThan(runnerCompileTelemetry);
-  expect(runnerCompile).toBeGreaterThan(runnerCompilePhase);
-  expect(runnerPostcondition).toBeGreaterThan(runnerCompile);
-  expect(runnerPostconditionCheckpoint).toBeGreaterThan(runnerPostcondition);
-  expect(runnerOutcomePublishStarted).toBeGreaterThan(runnerPostconditionCheckpoint);
-  expect(runnerPublishFailure).toBeGreaterThan(runnerOutcomePublishStarted);
-  expect(sources.isolatedRunner).toContain(
-    "publishSemanticMutationIsolatedProgressCheckpoint(process.cwd(), 'module-entered')"
-  );
-  expect(sources.isolatedRunner).toContain(
-    "publishSemanticMutationIsolatedProgressCheckpoint(process.cwd(), 'outcome-publish-started')"
-  );
-  expect(sources.isolatedChild).toContain(
-    'const DEFAULT_RUNTIME_DEPENDENCY_SOURCES = resolveIsolatedRuntimeDependencySources();'
-  );
-  expect(sources.isolatedChild).toContain(
-    'browserCache: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.browserCache'
-  );
-  expect(sources.isolatedChild).toContain(
-    'compilerModulesRoot: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.nodeModules'
-  );
-  expect(sources.isolatedChild).toContain(
-    'dependencyModules: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.nodeModules'
-  );
-  expect(sources.runtimeDependencySpec).toContain("'ts-morph'");
-  expect(sources.isolatedChild).not.toContain("external: ['ts-morph', 'typescript']");
-  for (const runnerBuildOutcome of [
-    'runner-build-invocation',
-    'runner-build-unsuccessful',
-    'runner-build-output-count',
-    'runner-build-output-read'
-  ]) {
-    expect(sources.isolatedChild).toContain(`'${runnerBuildOutcome}'`);
-  }
-  expect(sources.isolatedChild).not.toContain(
-    "new SemanticMutationIsolatedCapabilityPreparationError('runner-build')"
-  );
-  expect(sources.isolatedChild).toContain('runObservedCommand');
-  expect(sources.isolatedChild).toContain("'--no-install',\n          '--no-env-file'");
-  expect(sources.isolatedChild).toContain("'--eval',\n          SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE");
-  expect(sources.isolatedChild).not.toContain('RUNNER_BUILD_CHILD_PATH');
-  expect(sources.isolatedChild).toContain("envMode: 'replace'");
-  expect(sources.isolatedChild).toContain('maxObservedOutputBytes: SEMANTIC_MUTATION_RUNNER_BUILD_MAX_FRAME_BYTES');
-  expect(typeLiteralKeys(
-    sources.runnerBuildSettlement,
-    'SemanticMutationRunnerBuildSettlementClassification'
-  )).toEqual([
-    ['status'],
-    ['status', 'substage'],
-    ['status', 'reason']
+  const evidenceDomain = ['semantic-mutation-isolated-verification', 'evidence-v1'].join('-');
+  expect(sources.isolatedEvidence.split(evidenceDomain)).toHaveLength(2);
+  expect(sources.isolatedEvidence).toContain("readonly status: 'passed'");
+  expect(sources.isolatedEvidence).toContain("readonly status: 'blocked'");
+  expect(sources.isolatedEvidence).not.toContain('run-semantic-mutation-isolated-child');
+  expect(sources.isolatedEvidence).toContain("from './semantic-mutation-isolated-verification-failure.ts'");
+  expect(sources.isolatedFailure).toContain('SemanticMutationIsolatedVerificationUnavailableError');
+
+  const publicFacades = await Promise.all([
+    readFile(path.resolve('platform/orchestrator.ts'), 'utf8'),
+    readFile(path.resolve('platform/compiler/index.ts'), 'utf8')
   ]);
-  const settlementRejectionStart = sources.runnerBuildSettlement.indexOf(
-    'export type SemanticMutationRunnerBuildSettlementRejection ='
-  );
-  const settlementRejectionEnd = sources.runnerBuildSettlement.indexOf(
-    '\n\nexport type SemanticMutationRunnerBuildSettlementClassification =',
-    settlementRejectionStart
-  );
-  expect(settlementRejectionStart).toBeGreaterThan(-1);
-  expect(settlementRejectionEnd).toBeGreaterThan(settlementRejectionStart);
-  expect([...sources.runnerBuildSettlement
-    .slice(settlementRejectionStart, settlementRejectionEnd)
-    .matchAll(/\| '([^']+)'/gu)]
-    .map((match) => match[1])).toEqual([
-    'execute-rejected',
-    'timed-out',
-    'not-started',
-    'closure-unproven',
-    'requested-termination',
-    'not-exited',
-    'exit-status-unproven',
-    'stdout-truncated',
-    'stderr-truncated',
-    'stdout-evidence-mismatch',
-    'stderr-evidence-mismatch',
-    'declared-failure-contaminated',
-    'unexpected-exit',
-    'protocol-frame-invalid',
-    'output-ownership-unproven'
-  ]);
-  expect(sources.runnerBuildSettlement).not.toMatch(
-    /\b(?:cleanup|cleanupProven|processRoot|rm)\b/u
-  );
-  expect(sources.runnerBuildSettlement).toContain(
-    'outcome.stdout.digest !== observedDigest(observedStdout)'
-  );
-
-  const publicRunnerBuildSubstagesStart = sources.isolatedChild.indexOf(
-    'export const SEMANTIC_MUTATION_ISOLATED_CAPABILITY_PREPARATION_SUBSTAGES = Object.freeze(['
-  );
-  const publicRunnerBuildSubstagesEnd = sources.isolatedChild.indexOf(
-    '] as const);',
-    publicRunnerBuildSubstagesStart
-  );
-  expect(publicRunnerBuildSubstagesStart).toBeGreaterThan(-1);
-  expect(publicRunnerBuildSubstagesEnd).toBeGreaterThan(publicRunnerBuildSubstagesStart);
-  expect([...sources.isolatedChild
-    .slice(publicRunnerBuildSubstagesStart, publicRunnerBuildSubstagesEnd)
-    .matchAll(/^\s+'([^']+)',?$/gmu)]
-    .map((match) => match[1])).toEqual([
-    'runner-build-root-proof',
-    'runner-build-invocation',
-    'runner-build-unsuccessful',
-    'runner-build-output-count',
-    'runner-build-output-read',
-    'runner-relocation',
-    'capability-issue',
-    'unknown'
-  ]);
-
-  const runnerBuildObserverStart = sources.isolatedChild.indexOf(
-    'function notifySemanticMutationRunnerBuildSettlement('
-  );
-  const runnerBuildObserverEnd = sources.isolatedChild.indexOf(
-    '\nasync function cleanupSemanticMutationRunnerBuildProcessRoot(',
-    runnerBuildObserverStart
-  );
-  const runnerBuildObserver = sources.isolatedChild.slice(
-    runnerBuildObserverStart,
-    runnerBuildObserverEnd
-  );
-  expect(runnerBuildObserverStart).toBeGreaterThan(-1);
-  expect(runnerBuildObserverEnd).toBeGreaterThan(runnerBuildObserverStart);
-  expect(runnerBuildObserver).toContain('try {');
-  expect(runnerBuildObserver).toContain('observe?.(classification);');
-  expect(runnerBuildObserver).toContain('} catch {');
-  expect(runnerBuildObserver).not.toMatch(/\b(?:cleanup|cleanupProven|processRoot|rm)\b/u);
-
-  const runnerBuildReaderStart = sources.isolatedChild.indexOf(
-    'async function readSemanticMutationIsolatedRunnerBuildFromFreshProcess('
-  );
-  const runnerBuildReaderEnd = sources.isolatedChild.indexOf(
-    '/** Test-only observed-process seam;',
-    runnerBuildReaderStart
-  );
-  const runnerBuildReader = sources.isolatedChild.slice(
-    runnerBuildReaderStart,
-    runnerBuildReaderEnd
-  );
-  expect(runnerBuildReaderStart).toBeGreaterThan(-1);
-  expect(runnerBuildReaderEnd).toBeGreaterThan(runnerBuildReaderStart);
-  const runnerBuildCleanupProof = runnerBuildReader.indexOf(
-    'cleanupProven = !outcome.started'
-  );
-  const runnerBuildClassification = runnerBuildReader.indexOf(
-    'const classification = classifySemanticMutationRunnerBuildSettlement(outcome, frame);'
-  );
-  expect(runnerBuildCleanupProof).toBeGreaterThan(-1);
-  expect(runnerBuildClassification).toBeGreaterThan(runnerBuildCleanupProof);
-  const runnerBuildCleanupGate = runnerBuildReader.indexOf('if (cleanupProven) {');
-  const runnerBuildPrimaryFailure = runnerBuildReader.indexOf('if (primaryFailed) {');
-  expect(runnerBuildCleanupGate).toBeGreaterThan(runnerBuildClassification);
-  expect(runnerBuildPrimaryFailure).toBeGreaterThan(runnerBuildCleanupGate);
-  const runnerBuildCleanup = runnerBuildReader.slice(
-    runnerBuildCleanupGate,
-    runnerBuildPrimaryFailure
-  );
-  expect(runnerBuildCleanup).toContain('await cleanup(processRoot);');
-  expect(runnerBuildCleanup).not.toMatch(/\b(?:classification|settlement|reason|status)\b/u);
-  const runnerBuildOwnershipGuard = runnerBuildReader.indexOf(
-    "if (cleanupFailed || bundle === undefined || settlement?.status !== 'success')"
-  );
-  const runnerBuildOwnershipRejection = runnerBuildReader.indexOf(
-    'SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN',
-    runnerBuildOwnershipGuard
-  );
-  const runnerBuildOwnershipFailure = runnerBuildReader.indexOf(
-    "throw new SemanticMutationIsolatedCapabilityPreparationError('runner-build-invocation');",
-    runnerBuildOwnershipRejection
-  );
-  const runnerBuildSuccessNotification = runnerBuildReader.indexOf([
-    'notifySemanticMutationRunnerBuildSettlement(',
-    '      observeSettlement,',
-    '      settlement',
-    '    );'
-  ].join('\n'), runnerBuildOwnershipFailure);
-  const runnerBuildReturn = runnerBuildReader.indexOf('return bundle;', runnerBuildSuccessNotification);
-  expect(runnerBuildOwnershipGuard).toBeGreaterThan(runnerBuildPrimaryFailure);
-  expect(runnerBuildOwnershipRejection).toBeGreaterThan(runnerBuildOwnershipGuard);
-  expect(runnerBuildOwnershipFailure).toBeGreaterThan(runnerBuildOwnershipRejection);
-  expect(runnerBuildSuccessNotification).toBeGreaterThan(runnerBuildOwnershipFailure);
-  expect(runnerBuildReturn).toBeGreaterThan(runnerBuildSuccessNotification);
-  expect(runnerBuildReader).not.toContain(
-    'settlement ?? SEMANTIC_MUTATION_RUNNER_BUILD_OUTPUT_OWNERSHIP_UNPROVEN'
-  );
-
-  const runnerBuildSettlementProjectionStart = sources.isolatedChild.indexOf(
-    'function runnerBuildSettlementFailureSubstage('
-  );
-  const runnerBuildSettlementProjectionEnd = sources.isolatedChild.indexOf(
-    '\nasync function readSemanticMutationIsolatedRunnerBuildFromFreshProcess(',
-    runnerBuildSettlementProjectionStart
-  );
-  const runnerBuildSettlementProjection = sources.isolatedChild.slice(
-    runnerBuildSettlementProjectionStart,
-    runnerBuildSettlementProjectionEnd
-  );
-  expect(runnerBuildSettlementProjectionStart).toBeGreaterThan(-1);
-  expect(runnerBuildSettlementProjectionEnd).toBeGreaterThan(
-    runnerBuildSettlementProjectionStart
-  );
-  expect(runnerBuildSettlementProjection).toContain("'stdout-evidence-mismatch'");
-  expect(runnerBuildSettlementProjection).toContain("'stderr-evidence-mismatch'");
-  expect(runnerBuildSettlementProjection).toContain("'protocol-frame-invalid'");
-  expect(runnerBuildSettlementProjection).toContain("? 'runner-build-output-read'");
-  expect(runnerBuildSettlementProjection).toContain(": 'runner-build-invocation';");
-  expect(runnerBuildSettlementProjection).not.toContain("'output-ownership-unproven'");
-  expect(sources.isolatedChild).toContain('let cleanupProven = true;');
-  expect(sources.isolatedChild).toContain('cleanupProven = false;');
-  expect(sources.isolatedChild).toContain('maxRetries: 3');
-  expect(sources.isolatedChild).toContain('retryDelay: 25');
-  expect(sources.isolatedChild).not.toContain('const sourceBundle = await readSemanticMutationIsolatedRunnerBuildOutput(');
-  expect(sources.runnerBuildChild).toContain(
-    'export const SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE = ['
-  );
-  expect(sources.runnerBuildChild).not.toContain('fileURLToPath');
-  expect(sources.runnerBuildChild).not.toContain('import.meta.main');
-  expect(sources.runnerBuildChild).not.toContain('process.env');
-  expect(sources.runnerBuildChild).not.toContain('console.');
-  expect(sources.runnerBuildChild).not.toContain('process.stderr');
-  expect(SEMANTIC_MUTATION_RUNNER_BUILD_ENTRY_RELATIVE_PATH).toBe(
-    'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts'
-  );
-  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE)
-    .not.toMatch(/\b(?:import|require)\b/u);
-  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE)
-    .not.toMatch(/(?:[A-Za-z]:[\\/]|file:|node_modules|import\.meta)/u);
-  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).not.toContain('Bun.spawn');
-  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).not.toContain('process.execPath');
-  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).toContain([
-    '      minify: {',
-    '        whitespace: true,',
-    '        syntax: true,',
-    '        identifiers: false',
-    '      },'
-  ].join('\n'));
-  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.match(/\bminify:/gu)).toHaveLength(1);
-  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).not.toMatch(/\bminify:\s*true\b/u);
-  expect(SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE).not.toMatch(/\bidentifiers:\s*true\b/u);
-  const runnerBuildTokenGuard = SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.indexOf(
-    'process.argv.length !== 2 || process.argv[1] !== TOKEN'
-  );
-  const runnerBuildInvocation = SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.indexOf(
-    'result = await Bun.build({'
-  );
-  const runnerBuildUnsuccessful = SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.indexOf(
-    'if (!result.success)'
-  );
-  const runnerBuildOutputCount = SEMANTIC_MUTATION_RUNNER_BUILD_CHILD_EVAL_SOURCE.indexOf(
-    'if (result.outputs.length !== 1)'
-  );
-  expect(runnerBuildTokenGuard).toBeGreaterThan(-1);
-  expect(runnerBuildInvocation).toBeGreaterThan(runnerBuildTokenGuard);
-  expect(runnerBuildUnsuccessful).toBeGreaterThan(runnerBuildInvocation);
-  expect(runnerBuildOutputCount).toBeGreaterThan(runnerBuildUnsuccessful);
-  expect(sources.runnerBuildProtocol).toContain('setBigUint64(');
-  expect(sources.runnerBuildProtocol).toContain("createHash('sha256')");
-  expect(sources.runnerBuildProtocol).toContain('timingSafeEqual(');
-  expect(sources.runnerBuildProtocol).toContain('Uint8Array.from(frame.subarray(payloadOffset))');
-  expect(sources.observedProcess).toContain('export async function runObservedCommand(');
-  expect(sources.isolatedChild).toContain('relocateIsolatedRunnerBundle(');
-  expect(sources.isolatedChild).toContain("'/node_modules/@ts-morph/common/dist'");
-  expect(sources.isolatedChild).toContain("'/node_modules/typescript/lib'");
-  expect(sources.isolatedChild).toContain('materializeSemanticMutationIsolatedRuntime({');
-  expect(sources.isolatedChild).toContain('assertSemanticMutationIsolatedRuntimeLaunchManifest({');
-  expect(sources.isolatedChild).toContain('Custom compiler registry closure is unavailable in isolated verification');
-  expect(sources.isolatedChild).not.toContain('Isolated verification requires a project baseline');
-  const isolatedBoundary = sources.isolatedRunner.indexOf(
-    '!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)'
-  );
-  const isolatedTree = sources.isolatedRunner.indexOf(
-    'await assertIsolatedStagingTree(stagingWorkspaceRoot, stagingTreeOptions)',
-    isolatedBoundary
-  );
-  const isolatedMint = sources.isolatedRunner.indexOf(
-    'const isolatedVerificationCapability = mintIsolatedVerificationCapability(stagingWorkspaceRoot)',
-    isolatedTree
-  );
-  const isolatedCompileTelemetry = sources.isolatedRunner.indexOf(
-    'const compiled = await withSemanticMutationIsolatedPhaseTelemetry(',
-    isolatedMint
-  );
-  const isolatedCompile = sources.isolatedRunner.indexOf(
-    'async () => await compileWorkspace(',
-    isolatedCompileTelemetry
-  );
-  const isolatedBaseline = sources.isolatedRunner.indexOf(
-    'const baseline = await readProjectBaseline(stagingWorkspaceRoot)',
-    isolatedCompile
-  );
-  expect(isolatedBoundary).toBeGreaterThan(-1);
-  expect(isolatedTree).toBeGreaterThan(isolatedBoundary);
-  expect(isolatedMint).toBeGreaterThan(isolatedTree);
-  expect(isolatedCompileTelemetry).toBeGreaterThan(isolatedMint);
-  expect(isolatedCompile).toBeGreaterThan(isolatedCompileTelemetry);
-  expect(isolatedBaseline).toBeGreaterThan(isolatedCompile);
-  const verifyCapabilityAssertion = sources.verifyOrchestrator.indexOf(
-    'assertIsolatedVerificationCapability(workspaceRoot, options.isolatedVerificationCapability)'
-  );
-  const isolatedVerifyProject = sources.verifyOrchestrator.indexOf(
-    'const report = await verifyProject(',
-    verifyCapabilityAssertion
-  );
-  expect(verifyCapabilityAssertion).toBeGreaterThan(-1);
-  expect(isolatedVerifyProject).toBeGreaterThan(verifyCapabilityAssertion);
-  expect(sources.isolatedRunner).toContain(
-    "{ executionBoundary: 'windows-appcontainer' as const }"
-  );
-  expect(sources.verifyOrchestrator).toContain(
-    'workspaceWriteLease: context.workspaceWriteLease'
-  );
-  expect(sources.verifyOrchestrator).toContain(
-    "? { executionBoundary: 'windows-appcontainer' as const }"
-  );
-  expect(sources.verifyProject).toContain(
-    'assertIsolatedStagingTree(workspaceRoot, options.stagingTreeOptions)'
-  );
-  expect(sources.runtimeVerification).toContain(
-    'assertIsolatedStagingTree(options.stagingWorkspaceRoot!, options.stagingTreeOptions)'
-  );
-  expect(sources.stagingTree).toContain(
-    "readonly executionBoundary?: 'windows-appcontainer'"
-  );
-  expect(sources.stagingTree).toContain('readonly workspaceWriteLease?: WorkspaceWriteLeaseToken');
-  expect(sources.stagingTree).toContain('withWorkspaceWriteLeaseControlPlaneQuiesced(');
-  expect(sources.stagingTree).toContain(
-    "process.env[ISOLATED_VERIFICATION_ENV_KEY] !== '1'"
-  );
-  expect(sources.stagingTree).toContain('!isSemanticMutationStagingWorkspace(resolvedRoot)');
-  expect(sources.pipelineOrchestrator).toContain('emitPipelineExecutionBoundary(');
-  expect(sources.pipelineOrchestrator).toContain('`pipeline-${stage}`');
-  for (const boundary of [
-    'verify-preflight',
-    'verify-fast',
-    'verify-runtime',
-    'verify-artifact-publish'
-  ]) {
-    expect(sources.verifyProject).toContain(`'${boundary}'`);
+  for (const facade of publicFacades) {
+    expect(facade).not.toContain('applySemanticMutationWithTestDependencies');
+    expect(facade).not.toContain('runSemanticMutationIsolatedVerificationChild');
+    expect(facade).not.toContain('StagedVerificationProof');
   }
-  expect(sources.isolatedRunner).toContain("event.type === 'execution-boundary'");
-  expect(sources.isolatedRunner).toContain("failureBoundary = 'pipeline-bootstrap'");
-  expect(sources.isolatedRunner).toContain("event.type === 'transaction-start'");
-  expect(sources.isolatedRunner).toContain("failureStage === 'verify-all' ? failureBoundary : undefined");
-  expect(sources.isolatedChildOutcome).toContain("record.stage !== 'verify-all'");
-  expect(sources.isolatedChild).toContain('projectChildOutcome(childOutcome.value)');
-  expect(sources.isolatedChild).not.toContain("executionBoundary: 'windows-appcontainer'");
-  const runtimeCapabilityProjectionStart = sources.isolatedChild.indexOf(
-    'function projectSemanticMutationIsolatedRuntimeCapabilitySubstage('
-  );
-  const runtimeCapabilityProjectionEnd = sources.isolatedChild.indexOf(
-    '\nfunction isolatedRuntimeCapabilityDiagnostic(',
-    runtimeCapabilityProjectionStart
-  );
-  expect(runtimeCapabilityProjectionStart).toBeGreaterThan(-1);
-  expect(runtimeCapabilityProjectionEnd).toBeGreaterThan(runtimeCapabilityProjectionStart);
-  const runtimeCapabilityProjection = sources.isolatedChild.slice(
-    runtimeCapabilityProjectionStart,
-    runtimeCapabilityProjectionEnd
-  );
-  expect(runtimeCapabilityProjection).toContain("stage: 'runtime-capability' as const");
-  expect(runtimeCapabilityProjection).toContain('runtimeCapability: Object.freeze({ substage })');
-  for (const rawField of ['cause', 'command', 'env', 'message', 'path', 'stack', 'stderr', 'stdout']) {
-    expect(runtimeCapabilityProjection).not.toMatch(new RegExp(`\\b${rawField}\\b`, 'u'));
-  }
-  expect(sources.neutralIsolationCapability).toContain(
-    'const workspaceRootsByCapability = new WeakMap<object, string>()'
-  );
-  for (const facade of [sources.compilerFacade, sources.orchestratorFacade, sources.orchestratorIndex]) {
-    expect(facade).not.toContain('mintIsolatedVerificationCapability');
-  }
-  expect(sources.isolatedRuntimePlan).toContain(
-    "export const SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT = '.isolated-compiler'"
-  );
-  expect(sources.isolatedRuntimePlan).toContain(
-    'generatedInputFile(SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH, bootstrapBundle)'
-  );
-  expect(sources.isolatedRuntimePlan).toContain(
-    'generatedInputFile(SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH, runnerBundle)'
-  );
-  expect(sources.isolatedRuntimePlan).toContain(
-    'runnerRelativePath: SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH'
-  );
-  expect(sources.isolatedRuntimePlan).toContain(
-    'const runtimePlansByBinding = new WeakMap<object, SemanticMutationIsolatedRuntimePlanV1>()'
-  );
-  expect(sources.isolatedRuntimePlan).toContain('runtimePlansByBinding.set(result, plan)');
-  expect(sources.isolatedRuntimePlan).toContain(
-    'registerSemanticMutationIsolatedRuntimePlanBinding(result)'
-  );
-  expect(sources.isolatedRuntimeBinding).toContain('const runtimeBindingRoots = new WeakSet<object>()');
-  expect(sources.isolatedRuntimeBinding).toContain('const forwardedRuntimeBindings = new WeakMap<object, object>()');
-  expect(sources.isolatedRuntimeBinding).toContain('forwardedRuntimeBindings.set(');
-  expect(sources.isolatedRuntimePlan).toContain(
-    'resolveSemanticMutationIsolatedRuntimePlanBinding(binding)'
-  );
-  expect(sources.isolationCapability).toContain(
-    'forwardSemanticMutationIsolatedRuntimePlanBinding(result, proven)'
-  );
-  expect(sources.verificationAdapter).toContain(
-    'forwardSemanticMutationIsolatedRuntimePlanBinding(isolationCapability, plan)'
-  );
-  expect(sources.isolatedRuntimePlan).toContain('readonly directories: readonly string[]');
-  expect(sources.isolatedRuntimePlan).toContain('readonly files: readonly RuntimeDestinationManifestEntryV1[]');
-  expect(sources.isolatedRuntimePlan).toContain('sourceIdentity: file.sourceIdentity');
-  expect(sources.isolatedRuntimePlan).toContain('rawDigest: file.rawDigest');
-  expect(sources.isolatedRuntimePlan).toContain('Semantic Mutation runtime source changed before materialization');
-  expect(sources.isolatedRuntimePlan).toContain('Semantic Mutation isolated runtime destination manifest is not exact');
-  expect(sources.isolatedChild).toContain("envMode: 'replace'");
-  expect(sources.isolatedChild).toContain('classifySemanticMutationIsolatedVerificationArtifactSet');
-  expect(sources.isolatedChild).not.toContain("if (result.code !== 0)");
-  const freshReportRemoval = sources.isolatedChild.indexOf('await rm(reportPath');
-  const isolatedChildSpawn = sources.isolatedChild.indexOf('const result = await supervisor({', freshReportRemoval);
-  const childOutcomeRead = sources.isolatedChild.indexOf(
-    'readChildOutcomeResult(stagingWorkspaceRoot, commitFence)',
-    isolatedChildSpawn
-  );
-  const exactArtifactRead = sources.isolatedChild.indexOf(
-    'readJsonArtifactResult(paths.verificationReportPath, commitFence)',
-    childOutcomeRead
-  );
-  expect(freshReportRemoval).toBeGreaterThan(-1);
-  expect(isolatedChildSpawn).toBeGreaterThan(freshReportRemoval);
-  expect(childOutcomeRead).toBeGreaterThan(isolatedChildSpawn);
-  expect(exactArtifactRead).toBeGreaterThan(childOutcomeRead);
-  expect(sources.isolatedChild).toContain("stage: 'child-failed-before-artifacts'");
-  expect(sources.isolatedChild).toContain("stage: 'child-terminated-without-outcome'");
-  expect(sources.isolatedChild).toContain("artifact: 'child-progress'");
-  expect(sources.isolatedChild).toContain('classifySemanticMutationIsolatedTermination(result.code)');
-  expect(sources.isolatedChild).toContain('readSemanticMutationIsolatedProgressTrace(');
-  expect(sources.isolatedChild).toContain("| 'artifact-missing'");
-  expect(sources.isolatedChild).toContain("? 'artifact-missing'");
-  expect(sources.isolatedChild).toContain("stage: 'artifact-parse'");
-  expect(sources.isolatedChild).toContain("artifact: 'child-outcome'");
-  expect(sources.isolatedChild).toContain("artifact: 'verification-set'");
-  expect(sources.verifyProject).toContain("installMode: 'prebound-only'");
-  expect(sources.runtimeVerification).toContain("installMode: 'prebound-only'");
-  expect(sources.projectRuntime).toContain("['--no-env-file', `--config=${isolatedConfigPath}`, ...bunArgs]");
-  expect(sources.projectRuntime).toContain("options.installMode === 'prebound-only'");
-  expect(sources.projectRuntime).toContain('isRuntimeDepsPreboundBinding(binding, runtimeSpec.manifestHash)');
-  expect(sources.isolatedRuntimePlan).toContain(
-    "SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT =\n  'project/node_modules'"
-  );
-  expect(sources.isolatedRuntimePlan).toContain(
-    'SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT,\n        inspector'
-  );
-  expect(sources.isolatedRuntimePlan).toContain(
-    'runCanonicalBatches(plan.files, async (file) => {'
-  );
-  expect(sources.isolatedRuntimePlan).toContain('}, input.commitFence);');
-  expect(sources.isolatedRuntimePlan).not.toContain(
-    '`${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/.shared-deps/node_modules`'
-  );
-  expect(sources.projectRuntime).not.toContain(
-    "['install', '--offline', '--no-save', '--ignore-scripts', '--backend=copyfile']"
-  );
-  expect(sources.runtimeVerification).toContain(
-    "['--no-env-file', `--config=${isolatedConfigPath!}`, '--no-install', 'run', script]"
-  );
-  expect(sources.runtimeVerification).not.toContain('...process.env,\n    [envPathKey]');
-  expect(sources.prismaMerge).toContain(
-    "const isolatedConfigPath = path.join(isolatedWritableRoot, 'bunfig.toml')"
-  );
-  expect(sources.prismaMerge).toMatch(
-    /'--no-env-file',\s*`--config=\$\{isolatedConfigPath\}`,\s*'x',\s*'--no-install',\s*'prisma@6'/u
-  );
-  expect(sources.pipelineOrchestrator).toContain(
-    'composeWorkspace(workspaceRoot, { signal: leaseSignal }, context)'
-  );
-  expect(sources.composeOrchestrator).toContain('signal: options?.signal');
-  expect(sources.composeProject).toContain('signal: options?.signal');
-  expect(sources.prismaMerge).toContain('beforeSpawn: commitFence');
-  expect(sources.prismaMerge).toContain('signal: options.signal');
-  expect(sources.stagingTree).toContain("Number(before.nlink) !== 1");
-  expect(sources.stagingTree).toContain('FILE_ATTRIBUTE_REPARSE_POINT');
-  expect(sources.processRunner).toContain("options.envMode === 'replace' ? {} : process.env");
-  expect(sources.appContainer).toContain('PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES');
-  expect(sources.appContainer).toContain('PROC_THREAD_ATTRIBUTE_HANDLE_LIST');
-  expect(sources.appContainer).toContain('PROC_THREAD_ATTRIBUTE_JOB_LIST');
-  expect(sources.appContainer).toContain('STARTF_USESTDHANDLES');
-  expect(sources.appContainer).toContain('CreateFileW');
-  expect(sources.appContainer).toContain('standardInputHandle = openNullHandle(GENERIC_READ)');
-  expect(sources.appContainer).toContain('standardOutputHandle = openNullHandle(GENERIC_WRITE)');
-  expect(sources.appContainer).toContain('standardErrorHandle = openNullHandle(GENERIC_WRITE)');
-  expect(sources.appContainer).toContain(
-    'WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.procThreadAttributeCount'
-  );
-  expect(sources.appContainer).toContain(
-    'WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.inheritHandles'
-  );
-  expect(sources.appContainer).toContain('CloseHandle(standardInputHandle)');
-  expect(sources.appContainer).toContain('CloseHandle(standardOutputHandle)');
-  expect(sources.appContainer).toContain('CloseHandle(standardErrorHandle)');
-  expect(sources.appContainer).toContain('attributePayloads.push(securityCapabilities)');
-  expect(sources.appContainer).toContain('attributePayloads.push(appContainerSidBytes)');
-  expect(sources.appContainer.indexOf('attributePayloads.push(appContainerSidBytes)'))
-    .toBeLessThan(sources.appContainer.indexOf('attributePayloads.push(securityCapabilities)'));
-  expect(sources.appContainer).toContain('attributePayloads.push(standardHandleList)');
-  expect(sources.appContainer).toContain('attributePayloads.push(jobHandleList)');
-  const createInnerJob = sources.appContainer.indexOf(
-    'jobHandle = kernel32.symbols.CreateJobObjectW(null, null)'
-  );
-  const initializeAttributeList = sources.appContainer.indexOf(
-    'kernel32.symbols.InitializeProcThreadAttributeList('
-  );
-  const publishJobList = sources.appContainer.indexOf(
-    'BigInt(PROC_THREAD_ATTRIBUTE_JOB_LIST)'
-  );
-  const createAppContainerProcess = sources.appContainer.indexOf(
-    'kernel32.symbols.CreateProcessW('
-  );
-  const createEnteredProgress = sources.appContainer.indexOf(
-    "onProgress?.('create-entered')"
-  );
-  const createReturnedProgress = sources.appContainer.indexOf(
-    "onProgress?.('create-returned')",
-    createAppContainerProcess
-  );
-  const jobSettledProgress = sources.appContainer.indexOf(
-    "onProgress?.('job-settled')",
-    createReturnedProgress
-  );
-  expect(createInnerJob).toBeGreaterThan(-1);
-  expect(initializeAttributeList).toBeGreaterThan(createInnerJob);
-  expect(publishJobList).toBeGreaterThan(initializeAttributeList);
-  expect(createAppContainerProcess).toBeGreaterThan(publishJobList);
-  expect(createEnteredProgress).toBeLessThan(createAppContainerProcess);
-  expect(createReturnedProgress).toBeGreaterThan(createAppContainerProcess);
-  expect(jobSettledProgress).toBeGreaterThan(createReturnedProgress);
-  expect(sources.appContainer).not.toContain('AssignProcessToJobObject');
-  expect(sources.appContainer).not.toContain('CREATE_BREAKAWAY_FROM_JOB');
-  const deleteAttributeList = sources.appContainer.indexOf(
-    'DeleteProcThreadAttributeList(attributeList)'
-  );
-  const pinAttributePayloads = sources.appContainer.indexOf(
-    'for (const payload of attributePayloads) void payload.byteLength',
-    deleteAttributeList
-  );
-  expect(deleteAttributeList).toBeGreaterThan(-1);
-  expect(pinAttributePayloads).toBeGreaterThan(deleteAttributeList);
-  expect(sources.appContainer).toContain(
-    "if (diagnosticStreamPresent || protocol.classification === 'invalid')"
-  );
-  expect(sources.appContainer).toContain(
-    'const nativeHelperObservations = new WeakMap<Error, WindowsAppContainerNativeHelperObservation>()'
-  );
-  expect(sources.appContainer.match(
-    /^const \w+ = new WeakMap<.*>\(\);$/gmu
-  )).toEqual([
-    'const executionCleanupFailures = new WeakMap<Error, readonly Error[]>();',
-    'const nativeHelperObservations = new WeakMap<Error, WindowsAppContainerNativeHelperObservation>();'
-  ]);
-  expect(typeLiteralKeys(
-    sources.appContainer,
-    'WindowsAppContainerNativeHelperObservation'
-  )).toEqual([[
-    'mode', 'exitClass', 'diagnosticStream', 'protocol', 'nativeReceipt'
-  ]]);
-  expect(typeStringLiteralValues(
-    sources.nativeHelperSettlement,
-    'WindowsAppContainerObservedNativeHelperMode'
-  )).toEqual(['derive', 'create-profile', 'suspended-create', 'execute']);
-  expect(typeStringLiteralValues(
-    sources.nativeHelperSettlement,
-    'WindowsAppContainerObservedNativeHelperSettlementRejection'
-  )).toEqual([
-    'timed-out',
-    'not-started',
-    'closure-unproven',
-    'requested-termination',
-    'not-exited',
-    'exit-status-unproven',
-    'stdout-truncated',
-    'stderr-truncated',
-    'stdout-evidence-mismatch',
-    'stderr-evidence-mismatch'
-  ]);
-  expect(typeLiteralKeys(
-    sources.nativeHelperSettlement,
-    'WindowsAppContainerObservedNativeHelperSettlementClassification'
-  )).toEqual([['status'], ['status', 'reason']]);
-  expect(sources.nativeHelperSettlement).toContain(
-    "Readonly<{ readonly status: 'success' }>"
-  );
-  expect(sources.nativeHelperSettlement).toContain([
-    "readonly status: 'rejected';",
-    '      readonly reason: WindowsAppContainerObservedNativeHelperSettlementRejection;'
-  ].join('\n'));
-  expect(typeLiteralKeys(
-    sources.nativeHelperSettlement,
-    'WindowsAppContainerObservedNativeHelperSettlement'
-  )).toEqual([['mode', 'reason']]);
-  expect(sources.nativeHelperSettlement).toContain(
-    'new WeakMap<Error, WindowsAppContainerObservedNativeHelperSettlement>()'
-  );
-  expect(sources.nativeHelperSettlement.match(/new WeakMap<.*>\(\)/gu)?.length).toBe(1);
-  expect(sources.nativeHelperSettlement).toContain(
-    'settlementsByError.set(error, Object.freeze({ mode, reason: classification.reason }))'
-  );
-  expect(sources.nativeHelperSettlement).toContain(
-    'if (settlement) settlementsByError.set(target, settlement)'
-  );
-  expect(sources.nativeHelperSettlement).toContain('return settlementsByError.get(error)');
-  expect(sources.appContainer).toContain(
-    'copyWindowsAppContainerObservedNativeHelperSettlement(error, normalized);'
-  );
-  expect(sources.appContainer).not.toContain(
-    'export type WindowsAppContainerObservedNativeHelperSettlement'
-  );
-  expect(sources.appContainer).not.toContain(
-    'windowsAppContainerObservedNativeHelperSettlementForTests'
-  );
-  expect(classPublicReadonlyKeys(
-    sources.appContainer,
-    'WindowsAppContainerExecutionError'
-  )).toEqual([
-    'code', 'preparationSubstage', 'nativeHelperObservation', 'nativeWorkerProgressStage',
-    'phase', 'nativeCode', 'hostToolFailure'
-  ]);
-  expect(sources.appContainer).toContain(
-    "diagnosticStream: diagnosticStreamPresent ? 'present' : 'empty'"
-  );
-  expect(sources.appContainer).toContain('nativeReceipt: nativeReceipt.classification');
-  expect(sources.appContainer).not.toContain('const controller = new AbortController()');
-  expect(sources.appContainer).not.toContain('signal: controller.signal');
-  expect(sources.appContainer).not.toContain('controller.abort()');
-  expect(sources.appContainer).not.toContain('normalizeExecutionError(monitorError ?? error,');
-  expect(sources.appContainer).toContain('WINDOWS_APPCONTAINER_NATIVE_WAIT_SLICE_MS');
-  expect(sources.appContainer).not.toContain(
-    'writeFileSync(nativeResultPath, `${JSON.stringify({ exitCode })}\\n`, { flag: \'wx\' })'
-  );
-  expect(sources.appContainer).toContain(
-    '? await readNativeReceipt(helperRequest.nativeResultPath, commitFence)'
-  );
-  expect(sources.appContainer).toContain("handle = await open(resultPath, 'r')");
-  expect(sources.appContainer).toContain('const after = await handle.stat()');
-  expect(sources.appContainer).toContain(
-    'String(after.dev) !== String(before.dev) || String(after.ino) !== String(before.ino)'
-  );
-  expect(sources.appContainer).toContain('Buffer.alloc(MAX_NATIVE_RECEIPT_BYTES + 1)');
-  expect(sources.appContainer).not.toContain("readFile(resultPath, 'utf8')");
-  expect(sources.appContainer).toContain(
-    'if (error instanceof Error) nativeHelperObservations.set(error, observation)'
-  );
-  expect(sources.appContainer).not.toContain('parseNativeResult(');
-  expect(sources.appContainer).not.toContain('observeNativeReceipt(');
-  for (const forbiddenObservationField of [
-    'readonly stdout', 'readonly stderr', 'readonly path', 'readonly message', 'readonly rawOutput'
-  ]) {
-    expect(sources.appContainer).not.toContain(forbiddenObservationField);
-  }
-  expect(sources.appContainer).not.toContain('process.stderr.write');
-  expect(sources.appContainer).toContain('JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE');
-  expect(sources.appContainer).toContain('probeWindowsAppContainerCapability');
-  expect(sources.appContainer).toContain('rawConnect === false');
-  expect(sources.appContainer).toContain('recoveryOwnerPath');
-  expect(sources.appContainer).toContain(
-    'const canonicalOwner = await readRecoveryOwner(recoveryOwnerPath(boundary.transactionRoot));'
-  );
-  expect(sources.appContainer).toContain(
-    'JSON.stringify(canonicalOwner) !== JSON.stringify(owner)'
-  );
-  const createProfileHelper = sources.appContainer.indexOf("'create-profile',\n          nativeRequest");
-  const suspendedCreateHelper = sources.appContainer.indexOf(
-    "'suspended-create',\n            nativeRequest",
-    createProfileHelper
-  );
-  const executeHelper = sources.appContainer.indexOf(
-    "'execute',\n            nativeRequest",
-    createProfileHelper
-  );
-  expect(createProfileHelper).toBeGreaterThan(-1);
-  expect(suspendedCreateHelper).toBeGreaterThan(createProfileHelper);
-  expect(executeHelper).toBeGreaterThan(createProfileHelper);
-  expect(sources.appContainer).toContain('createWindowsAppContainerProfileForNativeHelper');
-  expect(sources.appContainer).toContain('deriveWindowsAppContainerSidForNativeHelper');
-  expect(sources.appContainer).not.toContain('[sm3-native]');
-  expect(sources.appContainer).not.toContain('SEC_DEBUG_ISOLATED_RUNTIME');
-  const helperExitPreload = sources.appContainerHelper.indexOf(
-    'const exitNativeHelper = await loadNativeHelperExit()'
-  );
-  const helperProfileCreate = sources.appContainerHelper.indexOf(
-    'await createWindowsAppContainerProfileForNativeHelper(envelope.request)'
-  );
-  expect(helperExitPreload).toBeGreaterThan(-1);
-  expect(helperProfileCreate).toBeGreaterThan(helperExitPreload);
-  const helperHardTerminate = sources.appContainerHelper.indexOf(
-    'kernel32.symbols.TerminateProcess(currentProcess, exitCode)'
-  );
-  const helperExitFallback = sources.appContainerHelper.indexOf(
-    'kernel32.symbols.ExitProcess(exitCode)'
-  );
-  expect(sources.appContainerHelper).toContain('kernel32.symbols.GetCurrentProcess()');
-  expect(helperHardTerminate).toBeGreaterThan(-1);
-  expect(helperExitFallback).toBeGreaterThan(helperHardTerminate);
-  expect(sources.appContainerHelper).toContain("mode: 'create-profile'");
-  expect(sources.appContainerHelper).toContain("mode: 'suspended-create'");
-  expect(sources.appContainerHelper).toContain('writeSync(1, payload)');
-  expect(sources.appContainerHelper).toContain('writeFileSync(');
-  expect(sources.appContainerHelper).toContain(
-    'new Worker(import.meta.url, { ref: true })'
-  );
-  expect(sources.appContainerHelper).toContain(
-    'if (Bun.isMainThread) await runNativeHelperMain()'
-  );
-  const nativeWorkerStart = sources.appContainerHelper.indexOf(
-    'async function runNativeExecutionWorker('
-  );
-  const nativeWorkerEnd = sources.appContainerHelper.indexOf(
-    '\nfunction installNativeExecutionWorker()',
-    nativeWorkerStart
-  );
-  expect(nativeWorkerStart).toBeGreaterThan(-1);
-  expect(nativeWorkerEnd).toBeGreaterThan(nativeWorkerStart);
-  const nativeWorker = sources.appContainerHelper.slice(nativeWorkerStart, nativeWorkerEnd);
-  expect(nativeWorker).not.toContain('writeNativeHelperOutput(');
-  expect(nativeWorker).not.toContain('writeFileSync(');
-  expect(nativeWorker).not.toContain('exitNativeHelper(');
-  expect(nativeWorker).toContain('runWindowsAppContainerNativeSuspendedCreateForHelper');
-  expect(nativeWorker).toContain("kind: 'suspended-created'");
-  expect(nativeWorker).toContain("kind: 'progress'");
-  expect(sources.appContainerHelper).toContain("if (envelope.mode === 'execute') {");
-  expect(sources.appContainerHelper).not.toContain("mode: 'worker'");
-  expect(sources.appContainerHelper).not.toContain('process.stdout.write');
-  expect(sources.appContainerHelper).not.toContain('assertWorkspaceWriteLease');
-  expect(sources.appContainer).toContain(
-    "const HOST_BUN_CONFIG_RELATIVE_ROOT = '.sm3h'"
-  );
-  expect(sources.appContainer).toContain(
-    'await durableCreateFile(configPath, ISOLATED_BUN_CONFIG_CONTENT, commitFence)'
-  );
-  expect(sources.appContainer).toContain(
-    'if (cachedPromise) return cachedPromise'
-  );
-  expect(sources.appContainer).toContain(
-    'if (cachedPromise === cached) cachedPromise = undefined'
-  );
-  expect(sources.appContainer).toContain('entrypoints: [NATIVE_HELPER_PATH]');
-  expect(sources.appContainer).toContain('await durableCreateFile(helperPath, helperContents, commitFence)');
-  expect(sources.appContainer).toContain("Number(helperMetadata.nlink) !== 1");
-  expect(sources.appContainer).toContain(
-    'await cleanupWindowsAppContainerNativeOwner(cleanupRequest, provenAppContainerSid)'
-  );
-  expect(sources.appContainerHelper).not.toContain("mode: 'cleanup'");
-  expect(sources.appContainer).toMatch(
-    /'--no-env-file',\s*`--config=\$\{configPath\}`,\s*'--no-install',\s*helperPath,\s*encodedRequest/u
-  );
-  expect(sources.appContainer).not.toContain('[NATIVE_HELPER_PATH, serialized]');
-  expect(sources.appContainer.match(
-    /'--no-env-file',\s*'--config=' \+ bunConfigPath,\s*'--no-install'/gu
-  )?.length).toBe(2);
-  expect(sources.appContainer.match(
-    /const bunConfigPath = path\.join\(path\.dirname\(process\.execPath\), 'bunfig\.toml'\)/gu
-  )?.length).toBe(2);
-  expect(sources.appContainer).toContain('() => cleanupHostBunConfig(stagingRoot, commitFence)');
-  expect(sources.appContainer).not.toContain("import { runCommand } from './process.ts'");
-  expect(sources.appContainer).toContain('const executionRetainedOwners = new WeakSet<Error>();');
-  expect(sources.appContainer).toContain('executionRetainedOwners.has(primaryError)');
-  expect(sources.appContainer).toContain('if (!cleanupSafe) executionRetainedOwners.add(error);');
-  const settlementStart = sources.appContainer.indexOf(
-    'function settleObservedHostBunCommand('
-  );
-  const settlementEnd = sources.appContainer.indexOf(
-    '\nfunction observedDiagnosticCaptureForTests(',
-    settlementStart
-  );
-  const settlement = sources.appContainer.slice(settlementStart, settlementEnd);
-  expect(settlementStart).toBeGreaterThan(-1);
-  expect(settlementEnd).toBeGreaterThan(settlementStart);
-  expect(settlement).toContain([
-    'function settleObservedHostBunCommand(',
-    '  mode: WindowsAppContainerObservedNativeHelperMode,'
-  ].join('\n'));
-  expect(settlement).toContain([
-    'const cleanupSafe = outcome.started',
-    '    ? closedTree',
-    '    : outcome.termination.streamsDrained && outcome.termination.treeClosed;'
-  ].join('\n'));
-  expect(settlement).toContain(
-    'const classification = classifyWindowsAppContainerObservedNativeHelperSettlement('
-  );
-  expect(settlement).toContain(
-    "if (classification.status !== 'success' || outcome.exitCode === null)"
-  );
-  expect(settlement).toContain(
-    'bindWindowsAppContainerObservedNativeHelperSettlement(error, mode, rejection);'
-  );
-  expect(settlement).toContain('if (!cleanupSafe) executionRetainedOwners.add(error);');
-  const cleanupStart = settlement.indexOf('const closedTree =');
-  const classificationStart = settlement.indexOf('const classification =');
-  const cleanupAuthorization = settlement.slice(cleanupStart, classificationStart);
-  expect(cleanupStart).toBeGreaterThan(-1);
-  expect(classificationStart).toBeGreaterThan(cleanupStart);
-  expect(cleanupAuthorization).not.toContain('classification');
-  expect(cleanupAuthorization).not.toContain('reason');
-  const rejectionCreate = settlement.indexOf('const error = executionError(');
-  const sidecarBind = settlement.indexOf(
-    'bindWindowsAppContainerObservedNativeHelperSettlement(error, mode, rejection);'
-  );
-  const retentionDecision = settlement.indexOf(
-    'if (!cleanupSafe) executionRetainedOwners.add(error);'
-  );
-  const rejectionThrow = settlement.indexOf('throw error;');
-  expect(rejectionCreate).toBeGreaterThan(classificationStart);
-  expect(sidecarBind).toBeGreaterThan(rejectionCreate);
-  expect(retentionDecision).toBeGreaterThan(sidecarBind);
-  expect(rejectionThrow).toBeGreaterThan(retentionDecision);
-  expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(60_000)).toEqual({
-    childTimeoutMs: 60_000,
-    hostWatchdogMs: 70_000
-  });
-  expect(arbitrateWindowsAppContainerNativeExecutionDeadlinesForTests(undefined)).toEqual({
-    childTimeoutMs: 120_000,
-    hostWatchdogMs: 130_000
-  });
-  expect(createWindowsAppContainerNativeExecutionBudgetForTests(60_000, 1_000)).toEqual({
-    startedAtMs: 1_000,
-    timeoutMs: 60_000
-  });
-  expect(sources.appContainer).toContain(
-    'function waitForWindowsAppContainerNativeProcess('
-  );
-  expect(sources.appContainer).toContain([
-    'waitForWindowsAppContainerNativeProcess(executionBudget, {',
-    '      nowMs: Date.now,',
-    '      waitForProcess: (timeoutMs) => kernel32!.symbols.WaitForSingleObject('
-  ].join('\n'));
-  const nativeChildStart = sources.appContainer.indexOf(
-    'async function runWindowsAppContainerNativeChildInternal('
-  );
-  const nativeChildEnd = sources.appContainer.indexOf(
-    '\nexport function runWindowsAppContainerNativeChild(',
-    nativeChildStart
-  );
-  const nativeChild = sources.appContainer.slice(nativeChildStart, nativeChildEnd);
-  expect(nativeChild.indexOf('const startedAtMs = Date.now();'))
-    .toBeLessThan(nativeChild.indexOf('assertCapability();'));
-  expect(nativeChild).toContain(
-    '() => appContainerSidBytesFromString(request.owner.appContainerSid)'
-  );
-  expect(nativeChild).not.toContain('deriveAppContainerSidPointer(');
-  expect(sources.appContainer).toContain([
-    'const applicationName = suspendedCreateOnly',
-    '      ? windowsWide(process.execPath)',
-    '      : prepared.executablePath;'
-  ].join('\n'));
-  expect(sources.appContainer).toContain([
-    'const commandLine = suspendedCreateOnly',
-    '      ? windowsWide(quoteWindowsArgument(process.execPath))',
-    '      : prepared.commandLine;'
-  ].join('\n'));
-  expect(sources.appContainer).toContain([
-    'const environmentBlock = suspendedCreateOnly',
-    '      ? null',
-    '      : prepared.environmentBlock;'
-  ].join('\n'));
-  expect(sources.appContainer).toContain([
-    'const currentDirectory = suspendedCreateOnly',
-    '      ? null',
-    '      : prepared.currentDirectory;'
-  ].join('\n'));
-  expect(sources.appContainer).toContain([
-    'kernel32.symbols.CreateProcessW(',
-    '      applicationName,',
-    '      commandLine,',
-    '      null,',
-    '      null,',
-    '      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.inheritHandles,',
-    '      WINDOWS_APPCONTAINER_NATIVE_CONTRACT_V1.creationFlags,',
-    '      environmentBlock,',
-    '      currentDirectory,',
-    '      startupInfoEx,',
-    '      processInformation'
-  ].join('\n'));
-  expect(sources.appContainer).not.toContain('commandLine: windowsWide(process.execPath)');
-  expect(sources.appContainer).toContain('cwd: path.parse(stagingRoot).root');
-  expect(sources.appContainer).toContain("envMode: 'replace'");
-  expect(sources.appContainer).toContain('env: environment');
-  expect(nativeChild).toContain([
-    'const executionBudget = createWindowsAppContainerNativeExecutionBudget(',
-    '    executionDeadlines.childTimeoutMs,',
-    '    startedAtMs',
-    '  );'
-  ].join('\n'));
-  expect(sources.appContainer).toContain([
-    "'execute',",
-    '            nativeRequest,',
-    '            validated.stagingRoot,',
-    '            request.environment,',
-    '            commitFence,',
-    '            executionDeadlines.hostWatchdogMs'
-  ].join('\n'));
-  expect(sources.appContainer).toContain(
-    'maxObservedOutputBytes: WINDOWS_HOST_TOOL_OUTPUT_LIMIT_BYTES'
-  );
-  expect(sources.appContainer).toContain('whileRunning: commitFence');
-  expect(sources.appContainer).toContain(
-    'result = settleObservedHostBunCommand(mode, observed, stdoutChunks, Object.freeze({'
-  );
-  expect(sources.verificationAdapter).toContain('!exactEndpoint(input.attempted)');
-  expect(sources.verificationAdapter).toContain('JSON.stringify(input.requirements) !== JSON.stringify(requirements)');
-  expect(sources.verificationAdapter).toContain('assertSemanticMutationVerificationReportInvariant(report)');
 });
-
 test('compile-time boundaries reject lease-free Pipeline contexts and raw journal fields in public views', () => {
   const outcome = {} as SemanticMutationApplyOutcomeV1;
   const view = {} as SemanticMutationRequestRecordViewV1;
@@ -1787,4 +666,55 @@ test('SM-3 digest domains remain independently reproducible', () => {
     appId: 'app:1',
     requestId: 'request:1'
   }));
+});
+
+test('isolated Verification evidence preserves the passed projection and freezes blocked vectors', () => {
+  const passed = {
+    status: 'passed',
+    artifacts: {
+      rawDigests: {
+        acceptanceCoverage: `sha256:${'a'.repeat(64)}`,
+        policyReport: `sha256:${'b'.repeat(64)}`,
+        runtimeReport: `sha256:${'c'.repeat(64)}`,
+        verificationReport: `sha256:${'d'.repeat(64)}`
+      },
+      semanticBundle: {
+        snapshot: {
+          ir: {
+            inputRevision: `sha256:${'1'.repeat(64)}`,
+            semanticRevision: `sha256:${'2'.repeat(64)}`
+          }
+        }
+      },
+      verificationReport: {
+        summary: { status: 'passed', requestedLane: 'all', failedLanes: [] },
+        build: { status: 'passed' },
+        unit: { status: 'passed', passed: ['unit'] },
+        acceptance: { status: 'passed', passed: ['acceptance'], failed: [] },
+        policy: { status: 'skipped', violations: [] },
+        runtime: {
+          status: 'passed',
+          build: {
+            status: 'passed', passed: ['build'], failed: [], command: 'bun run build'
+          },
+          unit: {
+            status: 'passed', passed: ['unit'], failed: [], command: 'bun run test:unit'
+          },
+          acceptance: {
+            status: 'passed', passed: ['acceptance'], failed: [],
+            command: 'bun run test:acceptance'
+          }
+        }
+      }
+    }
+  } as unknown as Extract<
+    SemanticMutationIsolatedVerificationEvidence,
+    { readonly status: 'passed' }
+  >;
+  expect(semanticMutationIsolatedVerificationEvidenceDigest(passed))
+    .toBe(legacyPassedIsolatedVerificationEvidenceDigest(passed));
+  expect(semanticMutationIsolatedVerificationEvidenceDigest({
+    status: 'blocked',
+    failure: { stage: 'binding-mismatch' }
+  })).toBe('sha256:44d059c12c7caec991bf22eabc4403bef552a4c7bbc537088d13c729528b7239');
 });

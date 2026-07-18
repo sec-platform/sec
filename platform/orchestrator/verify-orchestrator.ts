@@ -2,7 +2,14 @@ import {
   buildAcceptanceCoverage,
   createSkippedRuntimeLane
 } from '../compiler/index.ts';
-import { verifyProject } from '../compiler/verify/verify-project.ts';
+import {
+  revalidateStagedVerificationProof,
+  type StagedVerificationProof
+} from '../compiler/verify/staged-verification-proof.ts';
+import {
+  assertStagedVerificationLiveContext,
+  verifyProject
+} from '../compiler/verify/verify-project.ts';
 import { writePolicySnapshot } from '../compiler/verify/write-policy-snapshot.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { formatCompilerFailure } from '../shared/errors.ts';
@@ -12,18 +19,39 @@ import { addGeneratedPaths, readLockFile } from '../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
 import { executePipelineStage } from '../shared/pipeline-kernel.ts';
 import type { PipelineExecutionContext } from '../shared/pipeline-types.ts';
+import type { CanonicalVerificationArtifactSet } from '../shared/verification-artifact-contract.ts';
 import type { VerificationLane, VerificationReport } from '../shared/verification-types.ts';
 import { assertWorkspaceWriteLease } from '../shared/workspace-write-lease.ts';
 import {
   assertIsolatedVerificationCapability,
   type IsolatedVerificationCapability
 } from './isolated-verification-capability.ts';
+export type { StagedVerificationProof };
 
 export interface VerifyWorkspaceOptions {
   readonly emitTiming?: boolean;
   readonly isolatedVerificationCapability?: IsolatedVerificationCapability;
   readonly lane?: VerificationLane;
   readonly signal?: AbortSignal;
+  readonly stagedVerificationProof?: StagedVerificationProof;
+}
+
+export async function assertStagedVerificationProofAfterPipeline(
+  workspaceRoot: string,
+  lock: LockFile,
+  artifacts: CanonicalVerificationArtifactSet,
+  proof: StagedVerificationProof
+): Promise<void> {
+  await revalidateStagedVerificationProof(
+    getWorkspacePaths(workspaceRoot).projectRoot,
+    lock,
+    proof
+  );
+  await assertStagedVerificationLiveContext(
+    workspaceRoot,
+    lock,
+    artifacts
+  );
 }
 
 async function writeBlockedVerificationSnapshot(
@@ -94,20 +122,20 @@ async function verifyWorkspaceCore(
   const beforeCommit = () => assertWorkspaceWriteLease(workspaceRoot, context.workspaceWriteLease);
   try {
     const report = await verifyProject(workspaceRoot, lock, lane, {
-      emitTiming: options.emitTiming,
+      emitTiming: isolated ? false : options.emitTiming,
       isolated,
       beforeCommit,
       ...(context.onEvent
         ? { pipelineObserver: { onEvent: context.onEvent, transactionId: context.transactionId } }
         : {}),
       signal: options.signal,
+      ...(options.stagedVerificationProof
+        ? { stagedVerificationProof: options.stagedVerificationProof }
+        : {}),
       ...(isolated
         ? {
             stagingTreeOptions: {
-              workspaceWriteLease: context.workspaceWriteLease,
-              ...(process.platform === 'win32'
-                ? { executionBoundary: 'windows-appcontainer' as const }
-                : {})
+              workspaceWriteLease: context.workspaceWriteLease
             }
           }
         : {})

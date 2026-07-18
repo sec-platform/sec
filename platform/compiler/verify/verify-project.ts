@@ -14,6 +14,7 @@ import type { PipelineEventHandler, PipelineExecutionBoundary } from '../../shar
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import { checkProjectBeforeVerify } from '../../shared/project-integrity.ts';
 import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
+import type { CanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
 import type {
   FastVerificationLaneReport,
   RuntimeVerificationLaneReport,
@@ -27,6 +28,11 @@ import {
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
+import {
+  consumeStagedVerificationProof,
+  revalidateStagedVerificationProof,
+  type StagedVerificationProof
+} from './staged-verification-proof.ts';
 import { typecheckProject } from './typecheck-project.ts';
 import { validateSlotSecurity } from './validate-slot-security.ts';
 
@@ -44,6 +50,7 @@ export interface VerifyProjectOptions {
     readonly transactionId: string;
   }>;
   readonly signal?: AbortSignal;
+  readonly stagedVerificationProof?: StagedVerificationProof;
   readonly stagingTreeOptions?: IsolatedStagingTreeOptions;
 }
 
@@ -270,6 +277,24 @@ function ensureGeneratedPaths(lock: LockFile): void {
   ]);
 }
 
+export async function assertStagedVerificationLiveContext(
+  workspaceRoot: string,
+  lock: LockFile,
+  artifacts: Pick<
+    CanonicalVerificationArtifactSet,
+    'runtimeReport' | 'policyReport' | 'acceptanceCoverage'
+  >
+): Promise<void> {
+  const [policyReport, acceptanceCoverage] = await Promise.all([
+    runPolicyGate(workspaceRoot),
+    buildAcceptanceCoverage(workspaceRoot, lock, artifacts.runtimeReport)
+  ]);
+  if (JSON.stringify(policyReport) !== JSON.stringify(artifacts.policyReport) ||
+    JSON.stringify(acceptanceCoverage) !== JSON.stringify(artifacts.acceptanceCoverage)) {
+    throw new Error('Live Verification policy or acceptance context changed after staged proof');
+  }
+}
+
 export async function verifyProject(
   workspaceRoot: string,
   lock: LockFile,
@@ -299,6 +324,40 @@ export async function verifyProject(
       skipSharedDepsWarmup: true
     });
     await assertIsolatedStagingTree(workspaceRoot, options.stagingTreeOptions);
+  }
+
+  if (options.stagedVerificationProof) {
+    if (options.isolated || lane !== 'all') {
+      throw new Error('Staged Verification proof is restricted to one live all-lane rebuild');
+    }
+    await options.beforeCommit?.();
+    const artifacts = await consumeStagedVerificationProof(
+      projectRoot,
+      lock,
+      options.stagedVerificationProof
+    );
+    await options.beforeCommit?.();
+    await assertStagedVerificationLiveContext(workspaceRoot, lock, artifacts);
+    await options.beforeCommit?.();
+    ensureGeneratedPaths(lock);
+    updateVerifyPassState(lock, artifacts.verificationReport);
+    updateVerifiedSlotTasks(lock, artifacts.verificationReport);
+    await emitVerifyBoundary(options, 'verify-artifact-publish');
+    await Promise.all([
+      writeJson(verificationReportPath, artifacts.verificationReport, options.beforeCommit),
+      writeJson(runtimeReportPath, artifacts.runtimeReport, options.beforeCommit),
+      writeJson(policyReportPath, artifacts.policyReport, options.beforeCommit),
+      writeJson(acceptanceCoveragePath, artifacts.acceptanceCoverage, options.beforeCommit),
+      writeJson(lockPath, lock, options.beforeCommit)
+    ]);
+    await revalidateStagedVerificationProof(
+      projectRoot,
+      lock,
+      options.stagedVerificationProof
+    );
+    await assertStagedVerificationLiveContext(workspaceRoot, lock, artifacts);
+    await options.beforeCommit?.();
+    return artifacts.verificationReport;
   }
 
   let fastResult: Awaited<ReturnType<typeof runFastVerification>>;

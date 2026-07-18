@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-17T09:07:47.1093207+08:00",
+  "profile": "v0.4-semantic-mutation-bounded-isolation-scan-exact",
+  "identity": "sm3-p0-exact-production-seam-bounded-isolation-scan-v1",
+  "branch": "codex/sm3-p0-local-isolated-runner",
+  "testedBase": "e07a295b5a8499c2c55c78a783e5419911aae584",
+  "testedHead": "0bc482e63d967be6e567d7e1b6254a04e8652362",
+  "status": "stopped-on-post-publish-live-rebuild-and-rollback-failure",
+  "mergeAllowed": false,
+  "capabilityComplete": false,
+  "executionManifest": {
+    "path": ".tmp/sm3-p0-exact-production-seam-bounded-isolation-scan-v1.execution.json",
+    "gitBlob": "b49920ed269b6124694ada7bed8c09e7b7f9c002",
+    "frozenAt": "2026-07-17T08:45:54.7567545+08:00",
+    "authorizedRunCount": 1,
+    "observedRunCount": 1,
+    "rerunAllowed": false
+  },
+  "previousStopEvidence": {
+    "path": "docs/evidence/v0-4-semantic-mutation-browser-closure-exact-timeout-stop-record-2026-07-17.json",
+    "gitBlob": "484280639c2335ef3a07b3dd32043d677a8df144"
+  },
+  "implementationBoundary": {
+    "languageSurface": "TypeScript and Bun only",
+    "cAdded": false,
+    "rustAdded": false,
+    "newFfiBoundaryAdded": false,
+    "existingWindowsReparseProofReused": true,
+    "dependencyAdded": false,
+    "workerAdded": false,
+    "secondRunnerAdded": false,
+    "playwrightDependencyAdded": false,
+    "playwrightTestAdded": false,
+    "testBudgetIncreased": false,
+    "appContainerClaimed": false
+  },
+  "exactPublicSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/integration/semantic-mutation-apply.test.ts",
+      "--test-name-pattern",
+      "^SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once$"
+    ],
+    "testOwnedTimeoutMs": 300000,
+    "shellTimeoutMs": 1200000,
+    "status": "FAIL",
+    "exitCode": 1,
+    "shellDurationMs": 276001,
+    "testDurationMs": 274813,
+    "timedOut": false,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 3,
+    "isolatedVerification": {
+      "runner": "verify-all",
+      "status": "passed",
+      "executionBoundary": "real Bun isolated child"
+    },
+    "postPublish": {
+      "liveRebuild": "failed-before-staged-verification-reuse",
+      "rollbackVerification": "failed",
+      "rollbackFailure": "The non-isolated rollback verification entered Playwright browser installation, attempted to download Chromium v1228, and failed with ECONNREFUSED.",
+      "terminalState": "recovery-required",
+      "terminalReason": "rollback-failed"
+    }
+  },
+  "boundedDiagnosis": {
+    "diagnosticPath": ".tmp/diagnose-staged-live-project-rebuild-diff-v1.ts",
+    "diagnosticGitBlob": "ad54c8e23bffe5e2a7535d50d0fde2c93913c95b",
+    "method": "Copy the retained passed staging workspace without runtime outputs, run one resolve-through-adapt canonical rebuild under a writer lease, and compare project input byte digests.",
+    "durationMs": 7200,
+    "changedProjectInputs": [
+      {
+        "path": "project/next-env.d.ts",
+        "isolatedRuntimeValue": "import \"./.next/types/routes.d.ts\";\n\n// NOTE: This file should not be edited\n",
+        "canonicalRebuildValue": "// NOTE: This file is managed by the compiler runtime scaffold.\n"
+      }
+    ],
+    "rootCause": "Next build legally rewrote next-env.d.ts after staged Verification. The child then captured a projectInputDigest containing that runtime side effect, while the canonical live rebuild restored the compiler-owned source. Staged Verification reuse therefore rejected byte-different inputs and the fallback live verification entered the unrelated non-isolated browser-install path.",
+    "rejectedShortcut": "Excluding next-env.d.ts from the project input digest would weaken publish binding and was not used."
+  },
+  "boundedRepair": {
+    "owner": "platform/compiler/verify/run-runtime-verification.ts",
+    "strategy": "Capture exact next-env.d.ts and tsconfig.json bytes immediately before isolated runtime commands, then restore those bytes under the canonical commit fence before the final staging-tree proof.",
+    "writeBoundary": [
+      "canonical regular file",
+      "no symbolic link, junction, or Windows reparse point",
+      "single link only",
+      "same opened file identity across the commit fence",
+      "exact byte readback after write"
+    ],
+    "projectDigestExclusionsAdded": [],
+    "focusedEvidence": {
+      "runtimeInputRestoration": "3/3 passed",
+      "sourceOrderOwnerContract": "1/1 passed with 506 assertions",
+      "typecheck": "passed",
+      "diffCheck": "passed"
+    },
+    "currentWorkingTreeBlobs": {
+      "platform/compiler/verify/run-runtime-verification.ts": "71ed497d9feed88ef6a439c2bd41957cdf7f96d9",
+      "tests/unit/runtime-verification.test.ts": "a4f160b2e410434b52ac2d714f8a56a9eb2ac2c7",
+      "tests/contract/semantic-mutation-apply-contract.test.ts": "92f6d0216093697df7a1d011bec1399a90cc9be3"
+    }
+  },
+  "proven": [
+    "The frozen exact identity ran exactly once and did not time out.",
+    "The real Bun isolated Verification completed with passed status within the unchanged 300000 ms test budget.",
+    "The failure moved downstream to staged/live project input mismatch and then a rollback failure.",
+    "The only project input difference reproduced by the bounded rebuild diagnostic was next-env.d.ts.",
+    "The TypeScript/Bun repair restores framework-owned side effects without removing either managed file from the project digest."
+  ],
+  "notProven": [
+    "A passed exact production seam after the runtime input restoration repair.",
+    "Successful staged Verification reuse, post-publish downstream rebuild, completion proof, and cleanup on the repaired blobs.",
+    "AppContainer capability completeness or full SM-3 completion."
+  ],
+  "forbidden": [
+    "rerunning sm3-p0-exact-production-seam-bounded-isolation-scan-v1",
+    "increasing the 300000 ms exact test budget",
+    "adding C, Rust, a new FFI boundary, Worker, another helper process, or another canonical builder",
+    "adding a Playwright dependency or an additional Playwright browser test",
+    "excluding next-env.d.ts or tsconfig.json from the project input digest",
+    "committing, merging, or pushing before a fresh exact PASS"
+  ],
+  "nextExactIdentity": "sm3-p0-exact-production-seam-restored-runtime-input-v1",
+  "closeout": {
+    "exactPublicSeamPassed": false,
+    "appContainerCapabilityComplete": false,
+    "sm3ExitClaimed": false,
+    "committedAfterFailure": false,
+    "mergedToMain": false,
+    "pushed": false,
+    "mainHeadUnchanged": "e07a295b5a8499c2c55c78a783e5419911aae584"
+  }
+}

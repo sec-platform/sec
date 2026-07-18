@@ -295,6 +295,7 @@ function verificationExecution(
 }
 
 test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once', async () => {
+  expect(Bun.version).toBe('1.3.6');
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot, { reset: true });
     await installPrivateBannerBlock(workspaceRoot);
@@ -373,6 +374,18 @@ test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild li
     if (applied.status !== 'terminal') throw new Error(JSON.stringify(applied));
     if (applied.result.status !== 'accepted') throw new Error(JSON.stringify(applied.result));
     expect(applied.result.status).toBe('accepted');
+    expect(applied.result.verification).toMatchObject({
+      adapterId: 'semantic-mutation-local-verification',
+      adapterRevision: 'semantic-mutation-local-verification-v2',
+      planRevision: first.planRevision,
+      attempted: first.staged,
+      stagedSourceDigest: first.sourceChanges[0].stagedByteDigest,
+      requiredVerificationDigest: semanticMutationRequiredVerificationDigest(first.requiredVerification),
+      status: 'passed'
+    });
+    expect(applied.result.verification.reportRevision).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(applied.result.verification.verificationExecutionRevision)
+      .toMatch(/^sha256:[a-f0-9]{64}$/u);
     expect(await readFile(sourcePath, 'utf8')).toContain('from: open');
 
     const sourceAfterFirstApply = await readFile(sourcePath);

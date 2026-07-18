@@ -19,6 +19,7 @@ import {
 import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../semantic-mutation/isolated-verification-phase-telemetry.ts';
+import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from './runtime-verification-invocation-contract.ts';
 import {
   registerSemanticMutationIsolatedRuntimePlanBinding,
   resolveSemanticMutationIsolatedRuntimePlanBinding
@@ -83,6 +84,7 @@ interface RuntimeDirectoryIdentityV1 {
 }
 
 interface RuntimeInputFileV1 {
+  readonly destinationMode: number | null;
   readonly destinationRelativePath: string;
   readonly rawDigest: string;
   readonly size: number;
@@ -91,6 +93,7 @@ interface RuntimeInputFileV1 {
 }
 
 interface RuntimeDestinationManifestEntryV1 {
+  readonly mode?: number;
   readonly relativePath: string;
   readonly rawDigest: string;
   readonly size: number;
@@ -104,6 +107,7 @@ interface RuntimeDestinationManifestV1 {
 interface RuntimeDestinationStructureFileV1 {
   readonly absolutePath: string;
   readonly identity: RuntimeSourceIdentityV1;
+  readonly mode: number;
   readonly relativePath: string;
   readonly size: number;
 }
@@ -384,6 +388,11 @@ async function stableFileEvidence(
   }
 }
 
+function executableDestinationMode(identity: RuntimeSourceIdentityV1): number | null {
+  const mode = Number(BigInt(identity.mode) & 0o777n);
+  return (mode & 0o111) === 0 ? null : mode;
+}
+
 async function assertCanonicalPhysicalRoot(
   sourceRoot: string,
   inspector: ReparsePointInspector,
@@ -416,6 +425,7 @@ async function captureInputFile(
     identity: evidence.identity
   }));
   return Object.freeze({
+    destinationMode: null,
     destinationRelativePath: canonicalRelativePath(destinationRelativePath),
     rawDigest: evidence.rawDigest,
     size: evidence.size,
@@ -431,7 +441,8 @@ async function captureInputTree(
   inspector: ReparsePointInspector,
   proofs: RuntimeSourceProofCollector,
   rejectHardLinks = false,
-  destinationDirectories?: Set<string>
+  destinationDirectories?: Set<string>,
+  excludeTopLevelPackageBin = false
 ): Promise<RuntimeInputFileV1[]> {
   const source = await assertCanonicalPhysicalRoot(sourceRoot, inspector, 'directory');
   proofs.roots.push(Object.freeze({
@@ -454,7 +465,12 @@ async function captureInputTree(
       }
       const absoluteChild = path.join(directory, name);
       const relativeChild = relativeDirectory ? `${relativeDirectory}/${name}` : name;
+      const destinationRelativePath = canonicalRelativePath(`${destinationRoot}/${relativeChild}`);
       const metadata = await bigintLstat(absoluteChild);
+      if (excludeTopLevelPackageBin && relativeDirectory === '' && name === '.bin') {
+        assertPhysicalMetadata(metadata, absoluteChild, inspector, 'directory');
+        continue;
+      }
       if (metadata.isDirectory()) {
         assertPhysicalMetadata(metadata, absoluteChild, inspector, 'directory');
         await visit(absoluteChild, relativeChild);
@@ -462,7 +478,8 @@ async function captureInputTree(
         assertPhysicalMetadata(metadata, absoluteChild, inspector, 'file', rejectHardLinks);
         const evidence = await stableFileEvidence(absoluteChild, inspector, false, rejectHardLinks);
         entries.push(Object.freeze({
-          destinationRelativePath: canonicalRelativePath(`${destinationRoot}/${relativeChild}`),
+          destinationMode: executableDestinationMode(evidence.identity),
+          destinationRelativePath,
           rawDigest: evidence.rawDigest,
           size: evidence.size,
           sourceAbsolutePath: path.resolve(absoluteChild),
@@ -575,6 +592,7 @@ function requiredPlaywrightExecutable(bytes: Uint8Array): string {
 function generatedInputFile(destinationRelativePath: string, bytes: Uint8Array): RuntimeInputFileV1 {
   const rawDigest = sha256Bytes(bytes);
   return Object.freeze({
+    destinationMode: null,
     destinationRelativePath: canonicalRelativePath(destinationRelativePath),
     rawDigest,
     size: bytes.byteLength,
@@ -590,6 +608,7 @@ function canonicalPlanPayload(plan: Omit<SemanticMutationIsolatedRuntimePlanV1, 
     dependencyBindingDigest: sha256Bytes(plan.dependencyBinding),
     directories: plan.directories,
     files: plan.files.map((file) => ({
+      destinationMode: file.destinationMode,
       destinationRelativePath: file.destinationRelativePath,
       rawDigest: file.rawDigest,
       size: file.size,
@@ -691,6 +710,27 @@ async function captureRuntimeSourceSnapshot(
 
     const bootstrapBundle = semanticMutationIsolatedBootstrapBytes();
     const runnerBundle = input.runnerBundle.slice();
+    const dependencyFiles = await captureInputTree(
+      input.sources.dependencyModules,
+      SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT,
+      inspector,
+      proofs,
+      false,
+      directories,
+      true
+    );
+    for (const moduleRelativePath of Object.values(RUNTIME_VERIFICATION_INVOCATION_CONTRACT)
+      .flatMap(({ moduleRelativePath }) => moduleRelativePath === null ? [] : [moduleRelativePath])) {
+      const requiredDestination = canonicalRelativePath(
+        `${SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT}/${moduleRelativePath}`
+      );
+      const requiredModule = dependencyFiles.find((file) =>
+        file.destinationRelativePath === requiredDestination);
+      if (!requiredModule || requiredModule.size === 0) {
+        throw new Error(`A required direct runtime module is unavailable: ${moduleRelativePath}`);
+      }
+    }
+
     const files: RuntimeInputFileV1[] = [
       generatedInputFile(SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH, bootstrapBundle),
       generatedInputFile(SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH, runnerBundle),
@@ -718,14 +758,7 @@ async function captureRuntimeSourceSnapshot(
         false,
         directories
       ),
-      ...await captureInputTree(
-        input.sources.dependencyModules,
-        SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT,
-        inspector,
-        proofs,
-        false,
-        directories
-      ),
+      ...dependencyFiles,
       ...browserFiles
     ];
 
@@ -807,6 +840,7 @@ async function captureRuntimeSourceSnapshot(
     const manifest = Object.freeze({
       directories: sortedDirectories,
       files: Object.freeze(sortedFiles.map((file) => Object.freeze({
+        ...(file.destinationMode === null ? {} : { mode: file.destinationMode }),
         relativePath: file.destinationRelativePath,
         rawDigest: file.rawDigest,
         size: file.size
@@ -818,6 +852,7 @@ async function captureRuntimeSourceSnapshot(
       directories: sortedDirectories,
       directoryProofs: canonicalDirectoryProofs(proofs.directories),
       files: Object.freeze(sortedFiles.map((file) => Object.freeze({
+        destinationMode: file.destinationMode,
         destinationRelativePath: file.destinationRelativePath,
         rawDigest: file.rawDigest,
         size: file.size,
@@ -971,6 +1006,7 @@ async function writeGeneratedFile(
   const handle = await open(destination, 'wx');
   try {
     await handle.writeFile(bytes);
+    if (expected.destinationMode !== null) await handle.chmod(expected.destinationMode);
   } finally {
     await handle.close();
   }
@@ -1014,6 +1050,7 @@ async function copyPlannedFile(
       }
       total += bytesRead;
     }
+    if (file.destinationMode !== null) await destinationHandle.chmod(file.destinationMode);
     const afterHandle = await sourceHandle.stat({ bigint: true }) as BigIntMetadata;
     const afterPath = await bigintLstat(file.sourceAbsolutePath);
     assertPhysicalMetadata(afterPath, file.sourceAbsolutePath, inspector, 'file');
@@ -1061,6 +1098,7 @@ async function scanDestinationStructure(
         files.push(Object.freeze({
           absolutePath: path.resolve(absoluteChild),
           identity: metadataIdentity(metadata),
+          mode: Number(BigInt(metadata.mode) & 0o777n),
           relativePath: relativeChild,
           size: Number(metadata.size)
         }));
@@ -1104,11 +1142,20 @@ function assertExactDestinationStructure(
 ): void {
   const expected = {
     directories: plan.manifest.directories,
-    files: plan.manifest.files.map((file) => ({ relativePath: file.relativePath, size: file.size }))
+    files: plan.manifest.files.map((file) => ({
+      ...(file.mode === undefined ? {} : { mode: file.mode }),
+      relativePath: file.relativePath,
+      size: file.size
+    }))
   };
+  const expectedByPath = new Map(plan.manifest.files.map((file) => [file.relativePath, file]));
   const observed = {
     directories: actual.directories,
-    files: actual.files.map((file) => ({ relativePath: file.relativePath, size: file.size }))
+    files: actual.files.map((file) => ({
+      ...(expectedByPath.get(file.relativePath)?.mode === undefined ? {} : { mode: file.mode }),
+      relativePath: file.relativePath,
+      size: file.size
+    }))
   };
   if (JSON.stringify(observed) !== JSON.stringify(expected)) {
     throw new Error('Semantic Mutation isolated runtime destination structure is not exact');
@@ -1128,6 +1175,9 @@ async function assertExactDestinationManifest(
       throw new Error('Semantic Mutation isolated runtime destination changed before launch');
     }
     return Object.freeze({
+      ...(plan.manifest.files.find((entry) => entry.relativePath === file.relativePath)?.mode === undefined
+        ? {}
+        : { mode: Number(BigInt(evidence.identity.mode) & 0o777n) }),
       relativePath: file.relativePath,
       rawDigest: evidence.rawDigest,
       size: evidence.size
@@ -1215,6 +1265,7 @@ function canonicalRuntimeSourceSnapshotPayload(
     dependencyBindingDigest: sha256Bytes(snapshot.dependencyBinding),
     directories: snapshot.directories,
     files: snapshot.files.map((file) => ({
+      destinationMode: file.destinationMode,
       destinationRelativePath: file.destinationRelativePath,
       rawDigest: file.rawDigest,
       size: file.size,

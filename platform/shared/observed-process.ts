@@ -668,6 +668,22 @@ async function spawnWindowsJobChild(
         }
         onDrained();
       };
+      const drainUntilClosed = (
+        onDrained: () => void,
+        onFailure: () => void
+      ): void => {
+        if (completed) return;
+        const drained = drainPipes();
+        if (drained.failed) {
+          onFailure();
+          return;
+        }
+        if (!drained.empty || !stdoutPipeState.eof || !stderrPipeState.eof) {
+          setTimeout(() => drainUntilClosed(onDrained, onFailure), drained.empty ? 5 : 0);
+          return;
+        }
+        onDrained();
+      };
       const failClosed = (message: string): void => {
         if (completed) return;
         terminalizing = true;
@@ -692,7 +708,10 @@ async function spawnWindowsJobChild(
       const complete = (exitCode: number | null): void => {
         if (terminalizing || completed) return;
         terminalizing = true;
-        drainUntilEmpty(
+        // The root may exit before Bun's builder workers. Wait for both
+        // inherited pipes to reach EOF, then let runObservedCommand perform
+        // the single authoritative Job accounting/closure proof.
+        drainUntilClosed(
           () => emitComplete(exitCode),
           () => failClosed('Windows observed process output drain failed')
         );
@@ -718,15 +737,6 @@ async function spawnWindowsJobChild(
           rootExitCode = kernel32.symbols.GetExitCodeProcess(processHandle, exit) === 0
             ? null
             : exit.readUInt32LE(0);
-        }
-        const activeProcesses = controller.activeProcessCount();
-        if (activeProcesses === null) {
-          failClosed('Windows observed process Job query failed');
-          return;
-        }
-        if (activeProcesses > 0) {
-          setTimeout(poll, 5);
-          return;
         }
         complete(rootExitCode);
       };
@@ -1202,6 +1212,7 @@ export async function runObservedCommand(
   let exitSignal: NodeJS.Signals | null = null;
   let settled = false;
   let trigger: ObservedCommandTrigger | undefined;
+  let settlementFenceLost = false;
   let timeoutTimer: ObservedProcessTimerHandle | undefined;
   let fenceTimer: ObservedProcessTimerHandle | undefined;
   const closeWaiters = new Set<(closed: boolean) => void>();
@@ -1306,7 +1317,9 @@ export async function runObservedCommand(
       closeWaiters.clear();
       resolve(Object.freeze({
         status,
-        ...(trigger ? { trigger } : {}),
+        ...(trigger
+          ? { trigger }
+          : settlementFenceLost ? { trigger: 'fence-lost' as const } : {}),
         started: runningChild.pid !== undefined,
         exitCode,
         signal: exitSignal,
@@ -1335,7 +1348,6 @@ export async function runObservedCommand(
       if (settled || trigger !== undefined) return;
       trigger = reason;
       if (timeoutTimer !== undefined) dependencies.clearTimer(timeoutTimer);
-      if (fenceTimer !== undefined) dependencies.clearTimer(fenceTimer);
       const deadlineAtMs = dependencies.monotonicNowMs() + terminationDeadlineMs;
       const termination = await raceWithDeadline(
         Promise.resolve().then(() => dependencies.terminateProcessTree({
@@ -1358,7 +1370,9 @@ export async function runObservedCommand(
         streamsDrained,
         treeClosed: termination?.treeClosed === true && childCloseObserved && streamsDrained
       };
-      settle(evidence.treeClosed ? reason : 'termination-unproven', evidence);
+      settle(evidence.treeClosed
+        ? settlementFenceLost ? 'fence-lost' : reason
+        : 'termination-unproven', evidence);
     };
     const observeChunk = (
       streamName: 'stdout' | 'stderr',
@@ -1394,11 +1408,16 @@ export async function runObservedCommand(
       void requestTermination('aborted');
     };
     const scheduleFence = (): void => {
-      if (!options.whileRunning || settled || trigger !== undefined) return;
+      if (!options.whileRunning || settled || settlementFenceLost) return;
       fenceTimer = dependencies.setTimer(() => {
         void Promise.resolve()
           .then(() => options.whileRunning!())
-          .then(scheduleFence, () => requestTermination('fence-lost'));
+          .then(scheduleFence, () => {
+            if (trigger === undefined) {
+              return requestTermination('fence-lost');
+            }
+            settlementFenceLost = true;
+          });
       }, fenceIntervalMs);
     };
 
@@ -1441,7 +1460,6 @@ export async function runObservedCommand(
       updateStreamsDrained();
       for (const waiter of [...closeWaiters]) waiter(true);
       if (trigger !== undefined || settled) return;
-      clearLifecycle();
       const rootPid = runningChild.pid;
       const deadlineAtMs = dependencies.monotonicNowMs() + terminationDeadlineMs;
       void raceWithDeadline(
@@ -1456,12 +1474,17 @@ export async function runObservedCommand(
         deadlineAtMs,
         dependencies
       ).then((inspection) => {
+        if (trigger !== undefined || settled) return;
         updateStreamsDrained();
         const normalized = typeof inspection === 'boolean'
           ? { treeClosed: inspection, forcedAttempted: false }
           : inspection ?? { treeClosed: false, forcedAttempted: false };
         const proven = normalized.treeClosed && streamsDrained;
-        settle(proven ? 'exited' : 'tree-unproven', {
+        if (!proven) {
+          void requestTermination('lifecycle-failed');
+          return;
+        }
+        settle(settlementFenceLost ? 'fence-lost' : 'exited', {
           requested: normalized.forcedAttempted,
           gracefulAttempted: false,
           forcedAttempted: normalized.forcedAttempted,

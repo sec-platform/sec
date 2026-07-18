@@ -25,7 +25,6 @@ import {
   addBlock,
   applySemanticMutation,
   initWorkspace,
-  planSemanticMutationTransaction,
   querySemanticMutationRequest,
   recoverSemanticMutationWorkspace,
   resolveWorkspace
@@ -33,7 +32,8 @@ import {
 import {
   applySemanticMutationWithAfterPreparedTestCrash,
   applySemanticMutationWithTestDependencies,
-  planSemanticMutationTransactionWithTestDependencies
+  planSemanticMutationTransactionWithTestDependencies,
+  recoverSemanticMutationWorkspaceWithTestDependencies
 } from '../../platform/orchestrator/semantic-mutation-orchestrator.ts';
 import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
 import type { SemanticMutationRecoveryState } from '../../platform/shared/semantic-mutation-transaction-types.ts';
@@ -161,6 +161,38 @@ const DEFAULT_MUTATION_TRANSITION: MutationTransitionFixture = Object.freeze({
 const RECOVERY_TEST_ISOLATION_CAPABILITY_PROBE = () =>
   Object.freeze({ status: 'available' as const });
 
+type RecoveryTestDependencies = Parameters<
+  typeof applySemanticMutationWithTestDependencies
+>[2];
+
+function createRecoveryTestDependencies(): RecoveryTestDependencies {
+  let staged: SemanticMutationBaseV2 | undefined;
+  return {
+    isolationCapabilityProbe: RECOVERY_TEST_ISOLATION_CAPABILITY_PROBE,
+    verify: async (derived) => {
+      staged = derived.plan.staged;
+      return buildSemanticMutationVerificationExecutionRef(
+        semanticMutationVerificationReportFixture({
+          adapterId: derived.plan.verificationAdapterId,
+          adapterRevision: derived.plan.verificationAdapterRevision,
+          planRevision: derived.plan.planRevision,
+          attempted: derived.plan.staged,
+          stagedSourceDigest: derived.plan.sourceChanges[0].stagedByteDigest,
+          requiredVerificationDigest: semanticMutationRequiredVerificationDigest(
+            derived.plan.requiredVerification
+          ),
+          status: 'passed',
+          requirements: derived.plan.requiredVerification
+        })
+      );
+    },
+    rebuildLive: async () => {
+      if (!staged) throw new Error('Recovery test verification did not bind a staged endpoint');
+      return staged;
+    }
+  };
+}
+
 async function mutationInput(
   workspaceRoot: string,
   requestId: string,
@@ -210,28 +242,11 @@ async function mutationInput(
 }
 
 async function applyAccepted(workspaceRoot: string, requestId: string) {
-  const prepared = await mutationInput(workspaceRoot, requestId);
-  const plan = await planSemanticMutationTransaction(workspaceRoot, prepared.input);
-  expect(plan.status).toBe('ready');
-  if (plan.status !== 'ready') throw new Error(JSON.stringify(plan));
-  const outcome = await applySemanticMutation(workspaceRoot, {
-    ...prepared.input,
-    expectedPlanRevision: plan.planRevision
-  });
-  expect(outcome.status).toBe('terminal');
-  if (outcome.status !== 'terminal') throw new Error(JSON.stringify(outcome));
-  expect(outcome.result.status).toBe('accepted');
-  if (outcome.result.status !== 'accepted') throw new Error(JSON.stringify(outcome.result));
-  const identity = {
-    graphId: prepared.request.graphId,
-    appId: prepared.request.appId,
-    requestId: prepared.request.requestId
-  } as const;
-  const transactionRoot = semanticMutationTransactionRoot(
+  return applyAcceptedWithTestDependencies(
     workspaceRoot,
-    semanticMutationRequestIdentityDigest(identity)
+    requestId,
+    DEFAULT_MUTATION_TRANSITION
   );
-  return { ...prepared, identity, transactionRoot, outcome };
 }
 
 async function applyAcceptedWithTestDependencies(
@@ -240,6 +255,7 @@ async function applyAcceptedWithTestDependencies(
   transition: MutationTransitionFixture
 ) {
   const prepared = await mutationInput(workspaceRoot, requestId, transition);
+  const testDependencies = createRecoveryTestDependencies();
   const plan = await planSemanticMutationTransactionWithTestDependencies(
     workspaceRoot,
     prepared.input,
@@ -248,32 +264,10 @@ async function applyAcceptedWithTestDependencies(
   expect(plan.status).toBe('ready');
   if (plan.status !== 'ready') throw new Error(JSON.stringify(plan));
 
-  let staged: SemanticMutationBaseV2 | undefined;
   const outcome = await applySemanticMutationWithTestDependencies(workspaceRoot, {
     ...prepared.input,
     expectedPlanRevision: plan.planRevision
-  }, {
-    isolationCapabilityProbe: RECOVERY_TEST_ISOLATION_CAPABILITY_PROBE,
-    verify: async (derived) => {
-      staged = derived.plan.staged;
-      return buildSemanticMutationVerificationExecutionRef(semanticMutationVerificationReportFixture({
-        adapterId: derived.plan.verificationAdapterId,
-        adapterRevision: derived.plan.verificationAdapterRevision,
-        planRevision: derived.plan.planRevision,
-        attempted: derived.plan.staged,
-        stagedSourceDigest: derived.plan.sourceChanges[0].stagedByteDigest,
-        requiredVerificationDigest: semanticMutationRequiredVerificationDigest(
-          derived.plan.requiredVerification
-        ),
-        status: 'passed',
-        requirements: derived.plan.requiredVerification
-      }));
-    },
-    rebuildLive: async () => {
-      if (!staged) throw new Error('Test verification did not bind a staged endpoint');
-      return staged;
-    }
-  });
+  }, testDependencies);
   expect(outcome.status).toBe('terminal');
   if (outcome.status !== 'terminal') throw new Error(JSON.stringify(outcome));
   expect(outcome.result.status).toBe('accepted');
@@ -287,18 +281,23 @@ async function applyAcceptedWithTestDependencies(
     workspaceRoot,
     semanticMutationRequestIdentityDigest(identity)
   );
-  return { ...prepared, identity, transactionRoot, outcome };
+  return { ...prepared, identity, testDependencies, transactionRoot, outcome };
 }
 
 async function crashAfterPrepared(workspaceRoot: string, requestId: string) {
   const prepared = await mutationInput(workspaceRoot, requestId);
-  const plan = await planSemanticMutationTransaction(workspaceRoot, prepared.input);
+  const testDependencies = createRecoveryTestDependencies();
+  const plan = await planSemanticMutationTransactionWithTestDependencies(
+    workspaceRoot,
+    prepared.input,
+    { isolationCapabilityProbe: RECOVERY_TEST_ISOLATION_CAPABILITY_PROBE }
+  );
   expect(plan.status).toBe('ready');
   if (plan.status !== 'ready') throw new Error(JSON.stringify(plan));
   await expect(applySemanticMutationWithAfterPreparedTestCrash(workspaceRoot, {
     ...prepared.input,
     expectedPlanRevision: plan.planRevision
-  })).rejects.toMatchObject({
+  }, testDependencies)).rejects.toMatchObject({
     name: 'SemanticMutationAfterPreparedTestCrash',
     code: 'SEMANTIC_MUTATION_TEST_CRASH_AFTER_PREPARED'
   });
@@ -311,7 +310,7 @@ async function crashAfterPrepared(workspaceRoot: string, requestId: string) {
     workspaceRoot,
     semanticMutationRequestIdentityDigest(identity)
   );
-  return { ...prepared, identity, transactionRoot };
+  return { ...prepared, identity, testDependencies, transactionRoot };
 }
 
 async function expectRecoveryChain(
@@ -407,31 +406,36 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
     const casWorkspace = path.join(root, 'plan-cas');
     await cp(template, casWorkspace, { recursive: true });
     const cas = await mutationInput(casWorkspace, 'request:plan-cas');
-    const casPlan = await planSemanticMutationTransaction(casWorkspace, cas.input);
-    expect(casPlan.status).toBe('ready');
+    const casTestDependencies = createRecoveryTestDependencies();
+    const casPlan = await planSemanticMutationTransactionWithTestDependencies(
+      casWorkspace,
+      cas.input,
+      { isolationCapabilityProbe: RECOVERY_TEST_ISOLATION_CAPABILITY_PROBE }
+    );
     if (casPlan.status !== 'ready') throw new Error(JSON.stringify(casPlan));
-    const rejected = await applySemanticMutation(casWorkspace, {
+    expect(casPlan.status).toBe('ready');
+    const rejected = await applySemanticMutationWithTestDependencies(casWorkspace, {
       ...cas.input,
       expectedPlanRevision: sha256('wrong-plan')
-    });
+    }, casTestDependencies);
     expect(rejected.status).toBe('terminal');
     if (rejected.status !== 'terminal') throw new Error(JSON.stringify(rejected));
     expect(rejected.result.status).toBe('rejected');
     expect(rejected.result.diagnostics.map((entry) => entry.code)).toEqual(['SEMANTIC-MUTATION-007']);
     expect(await readFile(cas.sourcePath)).toEqual(Buffer.from(cas.beforeBytes));
-    expect(await applySemanticMutation(casWorkspace, {
+    expect(await applySemanticMutationWithTestDependencies(casWorkspace, {
       ...cas.input,
       expectedPlanRevision: sha256('wrong-plan')
-    })).toEqual(rejected);
+    }, casTestDependencies)).toEqual(rejected);
     const collisionRequest = {
       ...cas.request,
       operations: [{ ...cas.request.operations[0]!, operationId: 'operation:collision' }]
     };
-    const collision = await applySemanticMutation(casWorkspace, {
+    const collision = await applySemanticMutationWithTestDependencies(casWorkspace, {
       ...cas.input,
       request: collisionRequest,
       expectedPlanRevision: casPlan.planRevision
-    });
+    }, casTestDependencies);
     expect(collision.status).toBe('request-rejected');
     if (collision.status !== 'request-rejected') throw new Error(JSON.stringify(collision));
     expect(collision.diagnostics.map((entry) => entry.code)).toEqual(['SEMANTIC-MUTATION-001']);
@@ -456,7 +460,10 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
     const prepared = await crashAfterPrepared(preparedWorkspace, 'request:prepared-crash');
     await expectRecoveryChain(prepared.transactionRoot, ['prepared']);
     expect(await readFile(prepared.sourcePath)).toEqual(Buffer.from(prepared.beforeBytes));
-    const preparedRecovery = await recoverSemanticMutationWorkspace(preparedWorkspace);
+    const preparedRecovery = await recoverSemanticMutationWorkspaceWithTestDependencies(
+      preparedWorkspace,
+      prepared.testDependencies
+    );
     expect(preparedRecovery.status).toBe('terminal');
     if (preparedRecovery.status !== 'terminal') throw new Error(JSON.stringify(preparedRecovery));
     expect(preparedRecovery.result.status).toBe('accepted');
@@ -472,7 +479,13 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
     await rm(path.join(rolledBack.transactionRoot, 'records', '000003-verified.json'));
     await expectRecoveryChain(rolledBack.transactionRoot, ['prepared', 'authoring-committed']);
     await writeFile(rolledBack.sourcePath, rolledBack.beforeBytes);
-    const rolledBackRecovery = await recoverSemanticMutationWorkspace(rolledBackWorkspace);
+    const rolledBackRecovery = await recoverSemanticMutationWorkspaceWithTestDependencies(
+      rolledBackWorkspace,
+      {
+        ...rolledBack.testDependencies,
+        rebuildLive: async () => rolledBack.input.base
+      }
+    );
     expect(rolledBackRecovery.status).toBe('terminal');
     if (rolledBackRecovery.status !== 'terminal') throw new Error(JSON.stringify(rolledBackRecovery));
     expect(rolledBackRecovery.result.status).toBe('rolled-back');
