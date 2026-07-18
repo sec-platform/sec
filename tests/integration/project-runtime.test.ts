@@ -112,6 +112,9 @@ describe('test budget and benchmark contracts', () => {
 
     expect(scripts['imports:organize']).toBe('bun ./platform/dev-runner.ts imports:organize');
     expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
+    expect(scripts['imports:staged']).toBe('bun ./platform/dev-runner.ts imports:staged');
+    expect(scripts['hooks:install']).toBe('bun ./scripts/install-git-hooks.ts');
+    expect(scripts.postinstall).toBe('bun ./scripts/install-git-hooks.ts --lifecycle');
 
     expect(scripts.depcruise).toBe('bunx --bun dependency-cruiser@17.3.10 "platform/**/*.ts" --config .dependency-cruiser.json');
     expect(scripts.jscpd).toBe('bunx --bun jscpd@4.0.9 platform/ scripts/ -o report/jscpd --reporters html,console,json --format typescript,javascript --ignore "**/node_modules/**,**/dist/**,**/*.test.ts,**/*.d.ts,**/upgrade/**,.tmp/**" --min-lines 5 --min-tokens 50 --absolute');
