@@ -454,6 +454,9 @@ jobs:
           script: |
             const fs = require('fs');
             const crypto = require('crypto');
+            const { canonicalizeGitHubArtifactMetadataV1 } = require(
+              `${process.env.GITHUB_WORKSPACE}/scripts/codex/github-artifact-metadata.cjs`
+            );
             const pullNumber = Number(process.env.PR_NUMBER);
             const pull = await github.rest.pulls.get({
               owner: context.repo.owner,
@@ -573,19 +576,16 @@ jobs:
               ) throw new Error('Work Package manifest blob identity or length is invalid.');
               const manifestHex = manifestDigest.slice('sha256:'.length);
               const checkedAt = new Date();
-              const safetyDeadline = checkedAt.getTime() + 24 * 60 * 60 * 1000;
               const permission = async (login) => (await github.rest.repos.getCollaboratorPermissionLevel({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 username: login
               })).data.permission;
-              const metadata = async (artifact, run, workflowPath) => ({
-                id: artifact.id,
-                name: artifact.name,
-                digest: artifact.digest ?? null,
-                expired: artifact.expired,
-                expiresAt: artifact.expires_at,
-                sizeInBytes: artifact.size_in_bytes,
+              const metadata = async (artifact, run, workflowPath, label) => ({
+                ...canonicalizeGitHubArtifactMetadataV1(artifact, {
+                  checkedAtMs: checkedAt.getTime(),
+                  label
+                }),
                 run: {
                   workflowId: run.workflow_id,
                   workflowPath,
@@ -633,7 +633,8 @@ jobs:
               const attestationArtifact = await metadata(
                 selectedAttestation.artifact,
                 selectedAttestation.run,
-                '.github/workflows/sec-merge-gate.yml'
+                '.github/workflows/sec-merge-gate.yml',
+                'attestation artifact'
               );
               const verificationRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
                 owner: context.repo.owner,
@@ -668,23 +669,9 @@ jobs:
               const verificationArtifact = await metadata(
                 exactVerification[0],
                 selectedVerificationRun,
-                '.github/workflows/compiler-pr-validation.yml'
+                '.github/workflows/compiler-pr-validation.yml',
+                'verification artifact'
               );
-              for (const [label, artifact] of [['attestation', attestationArtifact], ['verification', verificationArtifact]]) {
-                const expiresAt = typeof artifact.expiresAt === 'string' ? new Date(artifact.expiresAt) : null;
-                if (
-                  artifact.expired ||
-                  !artifact.digest ||
-                  !/^sha256:[0-9a-f]{64}$/.test(artifact.digest) ||
-                  !expiresAt ||
-                  !Number.isFinite(expiresAt.getTime()) ||
-                  expiresAt.toISOString() !== artifact.expiresAt ||
-                  expiresAt.getTime() < safetyDeadline ||
-                  !Number.isSafeInteger(artifact.sizeInBytes) ||
-                  artifact.sizeInBytes <= 0 ||
-                  artifact.sizeInBytes > 5_242_880
-                ) throw new Error(`${label} artifact digest, expiry, or bounded size metadata is invalid.`);
-              }
               const input = {
                 schema: 'codex-development-merge-gate-input-v1',
                 repository: repository.data.full_name,
@@ -829,6 +816,9 @@ jobs:
         with:
           script: |
             const crypto = require('crypto');
+            const { canonicalizeGitHubArtifactMetadataV1 } = require(
+              `${process.env.GITHUB_WORKSPACE}/scripts/codex/github-artifact-metadata.cjs`
+            );
             let state = 'failure';
             let description = process.env.RESOLUTION_ERROR || 'Base-side merge gate validation failed';
             try {
@@ -959,19 +949,18 @@ jobs:
                 const verificationArtifact = verificationArtifacts.filter((artifact) => (
                   artifact.id === verificationArtifactId && artifact.name === verificationName
                 ));
-                const safetyDeadline = Date.now() + 24 * 60 * 60 * 1000;
                 for (const [label, matches, expectedExpiry] of [
                   ['attestation', attestationArtifact, process.env.ATTESTATION_ARTIFACT_EXPIRES_AT],
                   ['verification', verificationArtifact, process.env.VERIFICATION_ARTIFACT_EXPIRES_AT]
                 ]) {
                   if (matches.length !== 1) throw new Error(`${label} exact artifact identity changed.`);
-                  const artifact = matches[0];
-                  const expiresAt = new Date(artifact.expires_at);
-                  if (
-                    artifact.expired || artifact.expires_at !== expectedExpiry ||
-                    !artifact.digest || !/^sha256:[0-9a-f]{64}$/.test(artifact.digest) ||
-                    !Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() < safetyDeadline
-                  ) throw new Error(`${label} artifact digest or safety lifetime changed.`);
+                  const artifact = canonicalizeGitHubArtifactMetadataV1(matches[0], {
+                    checkedAtMs: Date.now(),
+                    label: `${label} artifact`
+                  });
+                  if (artifact.expiresAt !== expectedExpiry) {
+                    throw new Error(`${label} artifact expiry instant changed.`);
+                  }
                 }
                 const trusted = (permission) => permission === 'maintain' || permission === 'admin';
                 const identities = [
