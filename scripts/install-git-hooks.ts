@@ -6,6 +6,7 @@ const MANAGED_HOOKS_PATH = '.githooks';
 const MANAGED_PRE_COMMIT = `${MANAGED_HOOKS_PATH}/pre-commit`;
 const MANAGED_HOOKS = [
   MANAGED_PRE_COMMIT,
+  `${MANAGED_HOOKS_PATH}/pre-push`,
   `${MANAGED_HOOKS_PATH}/post-checkout`,
   `${MANAGED_HOOKS_PATH}/post-merge`,
   `${MANAGED_HOOKS_PATH}/post-rewrite`

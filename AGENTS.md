@@ -27,12 +27,12 @@
 Worker 执行：
 
 ```text
-inspect → implement → focused local validation → explicit-path stage → pre-commit imports:staged → commit → Draft PR/update existing PR → Reconciliation Delta → stop
+inspect → implement → focused local validation → explicit-path stage → pre-commit imports:freeze → commit → Draft PR/update existing PR → Reconciliation Delta → stop
 ```
 
 Worker 默认 `DO NOT MERGE`，不得添加 `run-quick` / `run-full` label，不得修改其他 worker ownership，不得顺手全仓重构，也不得通过删除测试或弱化合同解决失败。
 
-`hooks:install` 仅在当前 worktree 实际包含 index mode `100755` 的 tracked `.githooks/pre-commit` 且没有其他真实 hook authority 时，以 worktree-local config 接管；不得覆盖 shared `core.hooksPath`，CI/Gitless lifecycle 只做 no-op。安装后，commit 前由 `.githooks/pre-commit` 对当前 Git index 的 staged TypeScript blobs 执行 `imports:staged`。该命令只规范化 index、从不重写工作树，并在持有真实 `index.lock` 时复核及发布完整新 index；完整暂存、partial-stage、并发修改与外部 alias 观察到的 working-tree bytes 均保持不变。Hosted `imports:check` 仍是只读 fail-closed Gate，不由 hook 替代。
+`hooks:install` 仅在当前 worktree 实际包含 index mode `100755` 的全部 tracked managed hooks 且没有其他真实 hook authority 时，以 worktree-local config 接管；不得覆盖 shared `core.hooksPath`，CI/Gitless lifecycle 只做 no-op。安装后，`.githooks/pre-commit` 唯一调用 `imports:freeze`：verification 可注入 exact full `SEC_CHANGED_BASE`，普通本地提交自动取 `HEAD` 与 `refs/remotes/origin/main` 的 merge-base，缺少 remote ref 时才退回 exact `HEAD`；选择范围始终是完整 base→candidate index TypeScript diff，不依赖实现者记忆或本轮 stage 范围。`.githooks/pre-push` 对 rebase/squash 后的最终候选重算同一 freeze；零变化才允许 push，发现漂移时只把规范化结果原子写入 index 并停止本次 push，要求提交后再推。该入口只规范化 index、从不重写工作树，并在持有真实 `index.lock` 时复核及发布完整新 index；完整暂存、partial-stage、并发修改与外部 alias 观察到的 working-tree bytes 均保持不变。Hosted `imports:check` 仍是只读 fail-closed Gate，不由 hook 替代；无效 base 直接失败，严禁退化成全仓扫描。
 
 每个 reconciliation/stop 必须返回结构化 Delta：tested head、changed files/symbols、public/authority delta、acceptance delta、focused results、reusable/invalidated evidence、new blocker 和 next ready seam；同时记录 `inspect_ms`、`implement_ms`、`focused_validation_ms`、`wait_ms`、`reconcile_ms`、`context_reload_count` 与 `duplicate_gate_count`，不得另写叙述性进度文档。
 
@@ -50,7 +50,7 @@ Worker 默认 `DO NOT MERGE`，不得添加 `run-quick` / `run-full` label，不
 只有在能力仍有效、未被取代、authority 一致、required evidence 满足、head/base 已理解、无 unresolved thread、无 REQUEST_CHANGES、无临时 probe/意外 artifact drift 时，A0 才能 merge。
 
 - 大型 integration 优先 squash 最终验证状态。
-- A0 在 rebase/squash 后冻结单一候选 commit 时，最终 `git commit --amend` 必须在命令环境显式设置 `SEC_CHANGED_BASE=<current-main-full-sha>`，使 pre-commit 对完整 base→candidate index 执行原子 import 规范化；普通提交仍只处理 staged paths。
+- 每次 commit 都由 `imports:freeze` 自动覆盖完整 base→candidate index；pre-push 对 rebase/squash 后的最终候选再做零漂移封印，不再要求 A0 记忆额外命令。verification 只有在绑定已冻结 exact base 时才显式注入 full `SEC_CHANGED_BASE`，且 organizer 必须验证它精确解析为该 commit。
 - 门禁满足后及时 merge，不为表现仍在开发继续修改正确代码。
 - 被 integration 吸收的源 PR 必须准确标为 superseded/absorbed，不得声称独立进入 `main`。
 - 完成后关闭对应 Issue/PR，删除完成使命的远端临时 branch，并重新读取新 `main`。

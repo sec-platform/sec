@@ -28,6 +28,52 @@ type RuntimePackageJson = {
   devDependencies: Record<string, string>;
 };
 
+async function installCompilerDependencyFixture(workingDirectory: string, marker: string): Promise<void> {
+  const packages = [{ name: 'commander', version: '1.0.0' }, {
+    main: 'dist/ts-morph-common.js',
+    name: '@ts-morph/common',
+    version: '1.0.0'
+  }, {
+    main: './script/mod.js',
+    name: 'code-block-writer',
+    version: '1.0.0'
+  }, {
+    main: 'dist/ts-morph.js',
+    name: 'ts-morph',
+    version: '1.0.0'
+  }, {
+    main: './lib/typescript.js',
+    name: 'typescript',
+    version: '1.0.0'
+  }];
+  for (const manifest of packages) {
+    const packageRoot = path.join(workingDirectory, 'node_modules', manifest.name);
+    await fs.mkdir(packageRoot, { recursive: true });
+    await fs.writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify(manifest)}\n`);
+    if (manifest.main) {
+      const entryPath = path.join(packageRoot, ...manifest.main.replace(/^\.\//u, '').split('/'));
+      await fs.mkdir(path.dirname(entryPath), { recursive: true });
+      await fs.writeFile(entryPath, `${marker}:${manifest.name}\n`);
+    }
+  }
+}
+
+async function writeCompilerDependencyRoot(
+  root: string,
+  lockfile = 'lock-v1\n',
+  bunVersion = '1.3.6'
+): Promise<void> {
+  await Promise.all([
+    fs.writeFile(path.join(root, 'package.json'), `${JSON.stringify({
+      packageManager: `bun@${bunVersion}`,
+      dependencies: { commander: '1.0.0' },
+      devDependencies: { 'ts-morph': '1.0.0', typescript: '1.0.0' }
+    })}\n`, 'utf8'),
+    fs.writeFile(path.join(root, 'bun.lock'), lockfile, 'utf8'),
+    fs.writeFile(path.join(root, '.bun-version'), `${bunVersion}\n`, 'utf8')
+  ]);
+}
+
 describe('shared runtime dependency installation', () => {
   test('ensureSharedDepsReady serializes concurrent installs behind one lock', async () => {
     await withTempWorkspace(async (tempRoot) => {
@@ -56,30 +102,20 @@ describe('shared runtime dependency installation', () => {
 });
 
 describe('compiler dependency installation', () => {
-  test('serializes a frozen full install and invalidates the binding when the lockfile changes', async () => {
+  test('serializes immutable generations and invalidates the binding on lockfile or runtime changes', async () => {
     await withTempWorkspace(async (tempRoot) => {
-      const packageNames = ['commander', 'typescript'];
-      await Promise.all([
-        fs.writeFile(path.join(tempRoot, 'package.json'), `${JSON.stringify({
-          packageManager: 'bun@1.3.6',
-          dependencies: { commander: '1' },
-          devDependencies: { typescript: '1' }
-        })}\n`, 'utf8'),
-        fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v1\n', 'utf8')
-      ]);
+      await writeCompilerDependencyRoot(tempRoot);
       let installCalls = 0;
       const commandRunner = async (_command: string, args: string[], options: { cwd: string }) => {
         installCalls += 1;
-        expect(args).toEqual(['install', '--frozen-lockfile']);
+        expect(args).toEqual(['install', '--frozen-lockfile', '--ignore-scripts']);
+        expect(options.cwd).not.toBe(tempRoot);
+        expect(path.basename(options.cwd)).toContain('.staging-');
         await new Promise((resolve) => setTimeout(resolve, 50));
-        await Promise.all(packageNames.map(async (packageName) => {
-          const packageRoot = path.join(options.cwd, 'node_modules', packageName);
-          await fs.mkdir(packageRoot, { recursive: true });
-          await fs.writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({ name: packageName })}\n`);
-        }));
+        await installCompilerDependencyFixture(options.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
       };
-      const options = { commandRunner, pollIntervalMs: 10 };
+      const options = { commandRunner, pollIntervalMs: 10, runtimeVersion: '1.3.6' };
 
       const first = await Promise.all([
         ensureCompilerDepsReady(options, tempRoot),
@@ -93,11 +129,134 @@ describe('compiler dependency installation', () => {
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n', 'utf8');
       expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('installed');
       expect(installCalls).toBe(2);
+      expect(await fs.readFile(path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'), 'utf8'))
+        .toBe('generation-2:typescript\n');
+
+      await expect(ensureCompilerDepsReady({ ...options, runtimeVersion: '1.3.14' }, tempRoot))
+        .rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-001' });
+      expect(installCalls).toBe(2);
+      await writeCompilerDependencyRoot(tempRoot, 'lock-v2\n', '1.3.14');
+      expect((await ensureCompilerDepsReady({ ...options, runtimeVersion: '1.3.14' }, tempRoot)).source)
+        .toBe('installed');
+      expect(installCalls).toBe(3);
+      expect(await readJson(path.join(
+        tempRoot,
+        'node_modules',
+        '.sec-compiler-deps-binding-v2.json'
+      ))).toMatchObject({
+        bunVersion: '1.3.14',
+        declaredBunVersion: '1.3.14',
+        formatVersion: 'compiler-deps-binding-v2'
+      });
     }, 'engineering-compiler-dev-deps-');
+  });
+
+  test('repairs critical direct and transitive entry corruption before developer commands load dependencies', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      const options = {
+        commandRunner: async (_command: string, _args: string[], command: { cwd: string }) => {
+          installCalls += 1;
+          await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+          return { code: 0, stdout: 'ok', stderr: '' };
+        },
+        runtimeVersion: '1.3.6'
+      };
+      await ensureCompilerDepsReady(options, tempRoot);
+      const entryPath = path.join(tempRoot, 'node_modules', '@ts-morph', 'common', 'dist', 'ts-morph-common.js');
+      await fs.writeFile(entryPath, 'corrupt\n');
+
+      expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('installed');
+      expect(installCalls).toBe(2);
+      expect(await fs.readFile(entryPath, 'utf8')).toBe('generation-2:@ts-morph/common\n');
+    }, 'engineering-compiler-dev-deps-corruption-');
+  });
+
+  test('preserves the active generation when materialization or atomic publish fails', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      const commandRunner = async (_command: string, _args: string[], command: { cwd: string }) => {
+        installCalls += 1;
+        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      await ensureCompilerDepsReady(baseOptions, tempRoot);
+      const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
+      const bindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding-v2.json');
+      const originalEntry = await fs.readFile(entryPath);
+      const originalBinding = await fs.readFile(bindingPath);
+
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      await expect(ensureCompilerDepsReady({
+        ...baseOptions,
+        commandRunner: async () => ({ code: 1, stdout: '', stderr: 'injected install failure' })
+      }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-002' });
+      expect(await fs.readFile(entryPath)).toEqual(originalEntry);
+      expect(await fs.readFile(bindingPath)).toEqual(originalBinding);
+
+      await expect(ensureCompilerDepsReady({
+        ...baseOptions,
+        testCompilerPublishHook: () => {
+          throw new Error('injected publish failure');
+        }
+      }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      expect(await fs.readFile(entryPath)).toEqual(originalEntry);
+      expect(await fs.readFile(bindingPath)).toEqual(originalBinding);
+    }, 'engineering-compiler-dev-deps-rollback-');
+  });
+
+  test('reclaims a dead compiler install owner instead of timing out future development', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      const lockPath = path.join(tempRoot, '.tmp', 'dependency-installs', 'compiler.lock');
+      await fs.mkdir(path.dirname(lockPath), { recursive: true });
+      await fs.writeFile(lockPath, `${JSON.stringify({
+        createdAt: '2026-01-01T00:00:00.000Z',
+        pid: 2_147_483_647,
+        token: 'dead-owner'
+      })}\n`);
+      let installCalls = 0;
+
+      const ready = await ensureCompilerDepsReady({
+        commandRunner: async (_command, _args, command) => {
+          installCalls += 1;
+          await installCompilerDependencyFixture(command.cwd, 'recovered');
+          return { code: 0, stdout: 'ok', stderr: '' };
+        },
+        lockTimeoutMs: 1000,
+        pollIntervalMs: 10,
+        runtimeVersion: '1.3.6'
+      }, tempRoot);
+
+      expect(ready.source).toBe('installed');
+      expect(installCalls).toBe(1);
+      await expect(fs.stat(lockPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'engineering-compiler-dev-deps-orphan-');
   });
 });
 
 describe('root package scripts', () => {
+  test('canonical Bun version is projected into package and every setup workflow', async () => {
+    const rootPackage = await readCompilerPackageJson();
+    const canonicalVersion = (await readCompilerFile('.bun-version')).trim();
+    const workflows = await Promise.all([
+      'architecture-tools.yml',
+      'compiler-pr-validation.yml',
+      'compiler-release-validation.yml',
+      'sec-merge-gate.yml'
+    ].map((fileName) => readCompilerFile(`.github/workflows/${fileName}`)));
+
+    expect(canonicalVersion).toBe('1.3.14');
+    expect(rootPackage.packageManager).toBe(`bun@${canonicalVersion}`);
+    for (const workflow of workflows) {
+      expect(workflow).toContain('bun-version-file: .bun-version');
+      expect(workflow).not.toContain('bun-version: 1.3.6');
+    }
+  });
+
   test('demo scripts follow the documented platform chain', async () => {
     const { scripts } = await readCompilerPackageJson();
 

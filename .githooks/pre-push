@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+set -eu
+
+if ! git diff --cached --quiet HEAD --; then
+  echo "Push stopped: commit or unstage the existing index changes before candidate sealing." >&2
+  exit 1
+fi
+
+bun ./platform/dev-runner.ts imports:freeze
+
+if ! git diff --cached --quiet HEAD --; then
+  echo "Push stopped: candidate imports were sealed into the index; commit them, then push again." >&2
+  exit 1
+fi

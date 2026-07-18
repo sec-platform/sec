@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { loadCanonicalBunRuntimeVersion } from './bun-runtime-version.ts';
 import { CompilerError } from './errors.ts';
 import {
   ensureDir,
@@ -51,9 +52,24 @@ export interface CompilerDepsReadyState {
   source: 'existing' | 'installed';
 }
 
+interface CompilerDependencyPackageBinding {
+  entry?: {
+    path: string;
+    sha256: string;
+  };
+  manifestSha256: string;
+  name: string;
+  version: string;
+}
+
 interface CompilerDepsBinding {
-  formatVersion: 'compiler-deps-binding-v1';
+  architecture: string;
+  bunVersion: string;
+  declaredBunVersion: string;
+  formatVersion: 'compiler-deps-binding-v2';
   manifestHash: string;
+  packages: readonly CompilerDependencyPackageBinding[];
+  platform: NodeJS.Platform;
 }
 
 export interface RuntimeDependencyInstallOptions {
@@ -65,10 +81,14 @@ export interface RuntimeDependencyInstallOptions {
   pollIntervalMs?: number;
   preferSharedCopy?: boolean;
   rematerialize?: boolean;
+  runtimeArchitecture?: string;
+  runtimePlatform?: NodeJS.Platform;
+  runtimeVersion?: string;
   sharedDepsRoot?: string;
   signal?: AbortSignal;
   skipSharedDepsWarmup?: boolean;
   sleep?: (ms: number) => Promise<void>;
+  testCompilerPublishHook?: (stage: 'active-backed-up') => void | Promise<void>;
 }
 
 function defaultSharedDepsRoot(): string {
@@ -79,23 +99,55 @@ function sortedRecord(record: Record<string, string> | undefined): Record<string
   return Object.fromEntries(Object.entries(record ?? {}).sort(([left], [right]) => left.localeCompare(right)));
 }
 
-async function compilerDependencyIdentity(root: string): Promise<{
+interface CompilerDependencyIdentity {
+  architecture: string;
+  bunVersion: string;
+  declaredBunVersion: string;
   manifestHash: string;
   packageNames: string[];
-}> {
+  packageVersions: Record<string, string>;
+  platform: NodeJS.Platform;
+}
+
+async function compilerDependencyIdentity(
+  root: string,
+  options: RuntimeDependencyInstallOptions
+): Promise<CompilerDependencyIdentity> {
   const packageJson = await readJson<RootPackageJson & { packageManager?: string }>(path.join(root, 'package.json'));
   const lockfile = await readText(path.join(root, 'bun.lock'));
   const dependencies = sortedRecord(packageJson.dependencies);
   const devDependencies = sortedRecord(packageJson.devDependencies);
+  const canonicalBunVersion = await loadCanonicalBunRuntimeVersion(root);
+  const packageManagerMatch = /^bun@([^\s]+)$/u.exec(packageJson.packageManager ?? '');
+  if (!packageManagerMatch) {
+    throw new CompilerError('IMPORT-AUTHORITY-001', 'Root packageManager must pin one Bun version exactly');
+  }
+  const runtime = {
+    architecture: options.runtimeArchitecture ?? process.arch,
+    bunVersion: options.runtimeVersion ?? process.versions.bun ?? 'unknown',
+    declaredBunVersion: packageManagerMatch[1]!,
+    platform: options.runtimePlatform ?? process.platform
+  };
+  if (runtime.bunVersion === 'unknown') {
+    throw new CompilerError('IMPORT-AUTHORITY-001', 'Compiler dependency bootstrap must run under Bun');
+  }
+  if (runtime.declaredBunVersion !== canonicalBunVersion || runtime.bunVersion !== canonicalBunVersion) {
+    throw new CompilerError(
+      'IMPORT-AUTHORITY-001',
+      `Bun runtime identity mismatch: canonical=${canonicalBunVersion}, packageManager=${runtime.declaredBunVersion}, actual=${runtime.bunVersion}`
+    );
+  }
+  const packageVersions = { ...dependencies, ...devDependencies };
   return {
+    ...runtime,
     manifestHash: crypto.createHash('sha256').update(JSON.stringify({
       dependencies,
       devDependencies,
       lockfile,
-      packageManager: packageJson.packageManager ?? null
+      runtime
     })).digest('hex'),
-    packageNames: [...new Set([...Object.keys(dependencies), ...Object.keys(devDependencies)])]
-      .sort((left, right) => left.localeCompare(right))
+    packageNames: Object.keys(packageVersions).sort((left, right) => left.localeCompare(right)),
+    packageVersions
   };
 }
 
@@ -103,21 +155,100 @@ function dependencyPackagePath(nodeModulesPath: string, packageName: string): st
   return path.join(nodeModulesPath, ...packageName.split('/'), 'package.json');
 }
 
+const criticalCompilerDependencyEntries = new Set([
+  '@ts-morph/common',
+  'code-block-writer',
+  'ts-morph',
+  'typescript'
+]);
+
+function sha256(value: Buffer | string): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function isExactPackageVersion(value: string): boolean {
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(value);
+}
+
+async function compilerDependencyPackageBinding(
+  nodeModulesPath: string,
+  packageName: string,
+  requestedVersion: string
+): Promise<CompilerDependencyPackageBinding> {
+  const packageRoot = path.dirname(dependencyPackagePath(nodeModulesPath, packageName));
+  const packageJsonPath = path.join(packageRoot, 'package.json');
+  const packageJsonBytes = await fs.readFile(packageJsonPath);
+  const manifest = JSON.parse(packageJsonBytes.toString('utf8')) as {
+    main?: unknown;
+    name?: unknown;
+    version?: unknown;
+  };
+  if (manifest.name !== packageName || typeof manifest.version !== 'string' || manifest.version.length === 0) {
+    throw new CompilerError('IMPORT-AUTHORITY-002', `Compiler dependency manifest is invalid: ${packageName}`);
+  }
+  if (isExactPackageVersion(requestedVersion) && manifest.version !== requestedVersion) {
+    throw new CompilerError(
+      'IMPORT-AUTHORITY-002',
+      `Compiler dependency version mismatch: ${packageName}@${manifest.version} != ${requestedVersion}`
+    );
+  }
+
+  let entry: CompilerDependencyPackageBinding['entry'];
+  if (criticalCompilerDependencyEntries.has(packageName)) {
+    if (typeof manifest.main !== 'string' || manifest.main.length === 0) {
+      throw new CompilerError('IMPORT-AUTHORITY-002', `Critical compiler dependency has no main entry: ${packageName}`);
+    }
+    const entryPath = manifest.main.replace(/^\.\//u, '').replace(/\\/gu, '/');
+    const absoluteEntry = path.resolve(packageRoot, ...entryPath.split('/'));
+    const relativeEntry = path.relative(packageRoot, absoluteEntry);
+    if (relativeEntry.startsWith('..') || path.isAbsolute(relativeEntry)) {
+      throw new CompilerError('IMPORT-AUTHORITY-002', `Critical compiler dependency entry escapes its package: ${packageName}`);
+    }
+    entry = {
+      path: entryPath,
+      sha256: sha256(await fs.readFile(absoluteEntry))
+    };
+  }
+
+  return {
+    ...(entry ? { entry } : {}),
+    manifestSha256: sha256(packageJsonBytes),
+    name: packageName,
+    version: manifest.version
+  };
+}
+
+async function compilerDependencyPackageBindings(
+  nodeModulesPath: string,
+  identity: CompilerDependencyIdentity
+): Promise<readonly CompilerDependencyPackageBinding[]> {
+  const packageNames = [...identity.packageNames];
+  if (identity.packageVersions['ts-morph']) {
+    packageNames.push('@ts-morph/common', 'code-block-writer');
+  }
+  return Promise.all([...new Set(packageNames)].sort().map((packageName) => compilerDependencyPackageBinding(
+    nodeModulesPath,
+    packageName,
+    identity.packageVersions[packageName] ?? '*'
+  )));
+}
+
 async function compilerDependencyTreeReady(
   nodeModulesPath: string,
   bindingPath: string,
-  expectedManifestHash: string,
-  packageNames: readonly string[]
+  identity: CompilerDependencyIdentity
 ): Promise<boolean> {
   const binding = await readJson<CompilerDepsBinding>(bindingPath).catch(() => null);
   if (
-    binding?.formatVersion !== 'compiler-deps-binding-v1' ||
-    binding.manifestHash !== expectedManifestHash
+    binding?.formatVersion !== 'compiler-deps-binding-v2' ||
+    binding.manifestHash !== identity.manifestHash ||
+    binding.bunVersion !== identity.bunVersion ||
+    binding.declaredBunVersion !== identity.declaredBunVersion ||
+    binding.platform !== identity.platform ||
+    binding.architecture !== identity.architecture
   ) return false;
-  const installed = await Promise.all(
-    packageNames.map((packageName) => pathExists(dependencyPackagePath(nodeModulesPath, packageName)))
-  );
-  return installed.every(Boolean);
+  const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity).catch(() => null);
+  return packages !== null && JSON.stringify(packages) === JSON.stringify(binding.packages);
 }
 
 function buildEnv(
@@ -200,6 +331,60 @@ function projectStampPath(projectRoot: string): string {
   return path.join(projectRoot, '.runtime-deps.stamp.json');
 }
 
+interface InstallLockOwner {
+  createdAt: string;
+  pid: number;
+  token: string;
+}
+
+function isInstallLockOwner(value: unknown): value is InstallLockOwner {
+  const owner = value as Partial<InstallLockOwner> | null;
+  return owner !== null && typeof owner === 'object' &&
+    typeof owner.createdAt === 'string' && Number.isSafeInteger(owner.pid) && (owner.pid ?? 0) > 0 &&
+    typeof owner.token === 'string' && owner.token.length > 0;
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+async function reclaimOrphanInstallLock(lockPath: string): Promise<boolean> {
+  const reclaimPath = `${lockPath}.reclaim`;
+  let reclaimHandle: FileHandle | null = null;
+  try {
+    try {
+      reclaimHandle = await fs.open(reclaimPath, 'wx');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+      throw error;
+    }
+
+    const metadata = await fs.stat(lockPath).catch(() => null);
+    if (metadata === null) return true;
+    const owner = await readJson<unknown>(lockPath).catch(() => null);
+    if (isInstallLockOwner(owner) && processIsAlive(owner.pid)) return false;
+    if (!isInstallLockOwner(owner) && Date.now() - metadata.mtimeMs < 5000) return false;
+
+    const orphanPath = `${lockPath}.orphan-${crypto.randomUUID()}`;
+    try {
+      await fs.rename(lockPath, orphanPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true;
+      throw error;
+    }
+    await fs.rm(orphanPath, { force: true });
+    return true;
+  } finally {
+    await reclaimHandle?.close().catch(() => undefined);
+    if (reclaimHandle !== null) await fs.rm(reclaimPath, { force: true }).catch(() => undefined);
+  }
+}
+
 async function withInstallLock<T>(
   lockPath: string,
   options: RuntimeDependencyInstallOptions,
@@ -209,6 +394,7 @@ async function withInstallLock<T>(
   const lockTimeoutMs = options.lockTimeoutMs ?? 300000;
   const sleep = options.sleep ?? sleepMs;
   const startTime = Date.now();
+  let owner: InstallLockOwner | null = null;
 
   await ensureDir(path.dirname(lockPath), options.beforeCommit);
 
@@ -216,17 +402,27 @@ async function withInstallLock<T>(
     let handle: FileHandle | null = null;
 
     try {
+      if (await pathExists(`${lockPath}.reclaim`)) {
+        await sleep(pollIntervalMs);
+        continue;
+      }
       await options.beforeCommit?.();
       handle = await fs.open(lockPath, 'wx');
-      const createdAt = (options.now ?? (() => new Date().toISOString()))();
+      owner = {
+        createdAt: (options.now ?? (() => new Date().toISOString()))(),
+        pid: process.pid,
+        token: crypto.randomUUID()
+      };
       await options.beforeCommit?.();
-      await handle.writeFile(formatJsonFile({ pid: process.pid, createdAt }), 'utf8');
+      await handle.writeFile(formatJsonFile(owner), 'utf8');
       break;
     } catch (error) {
       const failure = error as NodeJS.ErrnoException;
       if (failure.code !== 'EEXIST') {
         throw error;
       }
+
+      if (await reclaimOrphanInstallLock(lockPath)) continue;
 
       if (Date.now() - startTime > lockTimeoutMs) {
         throw new CompilerError('RUNTIME-DEPS-003', `Timed out waiting for install lock ${lockPath}`);
@@ -244,7 +440,10 @@ async function withInstallLock<T>(
     return await callback();
   } finally {
     await options.beforeCommit?.();
-    await fs.rm(lockPath, { force: true });
+    const currentOwner = await readJson<unknown>(lockPath).catch(() => null);
+    if (owner !== null && isInstallLockOwner(currentOwner) && currentOwner.token === owner.token) {
+      await fs.rm(lockPath, { force: true });
+    }
   }
 }
 
@@ -359,20 +558,133 @@ export async function withProjectDependencyBridge<T>(projectRoot: string, callba
   }
 }
 
+async function stageCompilerDependencyGeneration(
+  root: string,
+  identity: CompilerDependencyIdentity,
+  options: RuntimeDependencyInstallOptions
+): Promise<{ binding: CompilerDepsBinding; stagingRoot: string }> {
+  const stagingRoot = path.join(
+    root,
+    '.tmp',
+    'dependency-installs',
+    `compiler-${identity.manifestHash}.staging-${crypto.randomUUID()}`
+  );
+  await options.beforeCommit?.();
+  await fs.mkdir(stagingRoot, { recursive: true });
+  try {
+    const rootPackage = await readJson<Record<string, unknown>>(path.join(root, 'package.json'));
+    await writeJson(path.join(stagingRoot, 'package.json'), rootPackage, options.beforeCommit);
+    await options.beforeCommit?.();
+    await fs.copyFile(path.join(root, 'bun.lock'), path.join(stagingRoot, 'bun.lock'));
+    const rootBunfig = path.join(root, 'bunfig.toml');
+    if (await pathExists(rootBunfig)) {
+      await options.beforeCommit?.();
+      await fs.copyFile(rootBunfig, path.join(stagingRoot, 'bunfig.toml'));
+    }
+
+    const cacheDir = path.join(root, '.shared-deps', '.bun-cache');
+    await runBunInstall(stagingRoot, options, ['install', '--frozen-lockfile', '--ignore-scripts'], cacheDir);
+    const nodeModulesPath = path.join(stagingRoot, 'node_modules');
+    const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity);
+    const binding = {
+      architecture: identity.architecture,
+      bunVersion: identity.bunVersion,
+      declaredBunVersion: identity.declaredBunVersion,
+      formatVersion: 'compiler-deps-binding-v2',
+      manifestHash: identity.manifestHash,
+      packages,
+      platform: identity.platform
+    } satisfies CompilerDepsBinding;
+    await writeJson(
+      path.join(nodeModulesPath, '.sec-compiler-deps-binding-v2.json'),
+      binding,
+      options.beforeCommit
+    );
+    return { binding, stagingRoot };
+  } catch (error) {
+    await fs.rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
+    if (error instanceof CompilerError && error.code.startsWith('IMPORT-AUTHORITY-')) throw error;
+    const causeMessage = error instanceof CompilerError
+      ? JSON.stringify(error.details).slice(-2000)
+      : error instanceof Error ? error.message : String(error);
+    throw new CompilerError(
+      'IMPORT-AUTHORITY-002',
+      `Compiler dependency generation could not be materialized: ${causeMessage}`,
+      {
+      cause: error instanceof CompilerError ? {
+        code: error.code,
+        details: error.details,
+        message: error.message
+      } : error instanceof Error ? error.message : String(error)
+      }
+    );
+  }
+}
+
+async function retainOnlyLatestCompilerDependencyBackup(backupsRoot: string, retainedPath: string): Promise<void> {
+  const entries = await fs.readdir(backupsRoot, { withFileTypes: true }).catch(() => []);
+  await Promise.all(entries
+    .filter((entry) => entry.isDirectory() && path.join(backupsRoot, entry.name) !== retainedPath)
+    .map((entry) => fs.rm(path.join(backupsRoot, entry.name), { recursive: true, force: true }).catch(() => undefined)));
+}
+
+async function publishCompilerDependencyGeneration(
+  root: string,
+  activeNodeModulesPath: string,
+  stagingRoot: string,
+  options: RuntimeDependencyInstallOptions
+): Promise<void> {
+  const stagingNodeModulesPath = path.join(stagingRoot, 'node_modules');
+  const backupsRoot = path.join(root, '.tmp', 'dependency-installs', 'compiler-backups');
+  const backupPath = path.join(backupsRoot, `node_modules-${Date.now()}-${crypto.randomUUID()}`);
+  let activeBackedUp = false;
+  let published = false;
+  await options.beforeCommit?.();
+  await fs.mkdir(backupsRoot, { recursive: true });
+  try {
+    if (await pathExists(activeNodeModulesPath)) {
+      await options.beforeCommit?.();
+      await fs.rename(activeNodeModulesPath, backupPath);
+      activeBackedUp = true;
+      await options.testCompilerPublishHook?.('active-backed-up');
+    }
+    await options.beforeCommit?.();
+    await fs.rename(stagingNodeModulesPath, activeNodeModulesPath);
+    published = true;
+  } catch (error) {
+    let rollbackFailure: unknown;
+    if (activeBackedUp && !(await pathExists(activeNodeModulesPath))) {
+      try {
+        await fs.rename(backupPath, activeNodeModulesPath);
+      } catch (rollbackError) {
+        rollbackFailure = rollbackError;
+      }
+    }
+    throw new CompilerError('IMPORT-AUTHORITY-004', 'Compiler dependency generation publish failed', {
+      cause: error instanceof Error ? error.message : String(error),
+      rollbackFailure: rollbackFailure instanceof Error ? rollbackFailure.message : rollbackFailure
+    });
+  } finally {
+    await fs.rm(stagingRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+  if (published && activeBackedUp) {
+    await retainOnlyLatestCompilerDependencyBackup(backupsRoot, backupPath);
+  }
+}
+
 export async function ensureCompilerDepsReady(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot = compilerRoot
 ): Promise<CompilerDepsReadyState> {
   const root = path.resolve(compilerDependencyRoot);
   const nodeModulesPath = path.join(root, 'node_modules');
-  const bindingPath = path.join(nodeModulesPath, '.sec-compiler-deps-binding-v1.json');
+  const bindingPath = path.join(nodeModulesPath, '.sec-compiler-deps-binding-v2.json');
   const installLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
-  const identity = await compilerDependencyIdentity(root);
+  const identity = await compilerDependencyIdentity(root, options);
   const ready = () => compilerDependencyTreeReady(
     nodeModulesPath,
     bindingPath,
-    identity.manifestHash,
-    identity.packageNames
+    identity
   );
 
   if (await ready()) {
@@ -396,27 +708,16 @@ export async function ensureCompilerDepsReady(
       };
     }
 
-    const cacheDir = path.join(root, '.shared-deps', '.bun-cache');
-    const { packageManager } = await runBunInstall(root, options, ['install', '--frozen-lockfile'], cacheDir);
-    const missing = (await Promise.all(identity.packageNames.map(async (packageName) => ({
-      packageName,
-      installed: await pathExists(dependencyPackagePath(nodeModulesPath, packageName))
-    })))).filter(({ installed }) => !installed).map(({ packageName }) => packageName);
-    if (missing.length > 0) {
-      throw new CompilerError(
-        'RUNTIME-DEPS-001',
-        `Frozen compiler dependency install is incomplete: ${missing.join(', ')}`
-      );
+    const staged = await stageCompilerDependencyGeneration(root, identity, options);
+    await publishCompilerDependencyGeneration(root, nodeModulesPath, staged.stagingRoot, options);
+    if (!(await compilerDependencyTreeReady(nodeModulesPath, bindingPath, identity))) {
+      throw new CompilerError('IMPORT-AUTHORITY-002', 'Published compiler dependency generation failed validation');
     }
-    await writeJson(bindingPath, {
-      formatVersion: 'compiler-deps-binding-v1',
-      manifestHash: identity.manifestHash
-    } satisfies CompilerDepsBinding, options.beforeCommit);
 
     return {
       manifestHash: identity.manifestHash,
       nodeModulesPath,
-      packageManager,
+      packageManager: 'bun',
       root,
       source: 'installed'
     };

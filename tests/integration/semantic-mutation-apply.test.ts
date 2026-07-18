@@ -295,7 +295,7 @@ function verificationExecution(
 }
 
 test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once', async () => {
-  expect(Bun.version).toBe('1.3.6');
+  expect(Bun.version).toBe('1.3.14');
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot, { reset: true });
     await installPrivateBannerBlock(workspaceRoot);

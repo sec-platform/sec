@@ -142,6 +142,28 @@ test('candidate organizer derives the branch merge-base without an ambient base 
   });
 });
 
+test('candidate organizer reads configuration and project context from the index snapshot', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    const tsconfigPath = path.join(repoRoot, 'tsconfig.json');
+    const valuesPath = path.join(repoRoot, 'values.ts');
+    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    const staged = `${source('unsorted')}export const candidate = answer;\n`;
+    await writeFile(fixturePath, staged, 'utf8');
+    git(repoRoot, ['add', 'fixture.ts']);
+    await writeFile(tsconfigPath, '{ invalid unstaged config', 'utf8');
+    await writeFile(valuesPath, 'invalid unstaged project source', 'utf8');
+
+    expect(await runStagedImportOrganizer(repoRoot, {}, { candidateBase })).toBe(0);
+
+    expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(
+      `${source('sorted')}export const candidate = answer;\n`
+    ));
+    expect(await readFile(tsconfigPath, 'utf8')).toBe('{ invalid unstaged config');
+    expect(await readFile(valuesPath, 'utf8')).toBe('invalid unstaged project source');
+  });
+});
+
 test('candidate organizer requires one exact full commit identity', async () => {
   await withRepository(async (repoRoot) => {
     const head = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
