@@ -1,5 +1,5 @@
 name: compiler-pr-validation
-run-name: verify frozen PR #${{ github.event.client_payload.pull_request }} ${{ github.event.client_payload.profile }} @ ${{ github.event.client_payload.expected_head }} base ${{ github.event.client_payload.expected_base }}
+run-name: 'verify frozen PR #${{ github.event.client_payload.pull_request }} ${{ github.event.client_payload.profile }} @ ${{ github.event.client_payload.expected_head }} base ${{ github.event.client_payload.expected_base }}'
 
 on:
   repository_dispatch:
