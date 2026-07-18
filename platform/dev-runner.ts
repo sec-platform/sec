@@ -4,7 +4,7 @@ import { runAffectedTests, runContractFreeze, runFastTests, runSlowTests, runTes
 import { runTypecheck } from './dev-runner/typecheck-runner.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check|imports:organize|imports:staged|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <typecheck|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check|imports:organize|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -30,7 +30,14 @@ async function main(): Promise<void> {
   }
 
   if (target === 'imports:staged') {
-    process.exitCode = await runStagedImportOrganizer();
+    if (args.length !== 0 && (
+      args.length !== 2 || args[0] !== '--candidate-base' || !/^[0-9a-f]{40,64}$/u.test(args[1] ?? '')
+    )) usage();
+    process.exitCode = await runStagedImportOrganizer(
+      undefined,
+      undefined,
+      args.length === 0 ? {} : { candidateBase: args[1] }
+    );
     return;
   }
 

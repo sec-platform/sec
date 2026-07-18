@@ -1,4 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-bun ./platform/dev-runner.ts imports:staged
+if [ -n "${SEC_CHANGED_BASE-}" ]; then
+  bun ./platform/dev-runner.ts imports:staged --candidate-base "$SEC_CHANGED_BASE"
+else
+  bun ./platform/dev-runner.ts imports:staged
+fi

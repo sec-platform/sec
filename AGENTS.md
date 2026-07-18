@@ -50,6 +50,7 @@ Worker 默认 `DO NOT MERGE`，不得添加 `run-quick` / `run-full` label，不
 只有在能力仍有效、未被取代、authority 一致、required evidence 满足、head/base 已理解、无 unresolved thread、无 REQUEST_CHANGES、无临时 probe/意外 artifact drift 时，A0 才能 merge。
 
 - 大型 integration 优先 squash 最终验证状态。
+- A0 在 rebase/squash 后冻结单一候选 commit 时，最终 `git commit --amend` 必须在命令环境显式设置 `SEC_CHANGED_BASE=<current-main-full-sha>`，使 pre-commit 对完整 base→candidate index 执行原子 import 规范化；普通提交仍只处理 staged paths。
 - 门禁满足后及时 merge，不为表现仍在开发继续修改正确代码。
 - 被 integration 吸收的源 PR 必须准确标为 superseded/absorbed，不得声称独立进入 `main`。
 - 完成后关闭对应 Issue/PR，删除完成使命的远端临时 branch，并重新读取新 `main`。

@@ -150,12 +150,16 @@ test('hook installer isolates linked-worktree configuration from shared stale au
   }
 });
 
-test('tracked pre-commit hook delegates only to staged import normalization with LF bytes', async () => {
+test('tracked pre-commit hook selects the complete candidate when A0 binds an exact base', async () => {
   const repoRoot = path.resolve(import.meta.dir, '../..');
-  const hook = await readFile(path.join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
+  const preCommit = await readFile(path.join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
   const attributes = await readFile(path.join(repoRoot, '.gitattributes'), 'utf8');
 
-  expect(hook).toBe('#!/usr/bin/env sh\nset -eu\n\nbun ./platform/dev-runner.ts imports:staged\n');
-  expect(hook).not.toContain('\r');
+  expect(preCommit).toContain('if [ -n "${SEC_CHANGED_BASE-}" ]; then');
+  expect(preCommit).toContain(
+    'bun ./platform/dev-runner.ts imports:staged --candidate-base "$SEC_CHANGED_BASE"'
+  );
+  expect(preCommit).toContain('bun ./platform/dev-runner.ts imports:staged');
+  expect(preCommit).not.toContain('\r');
   expect(attributes).toContain('/.githooks/* text eol=lf');
 });
