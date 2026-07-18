@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -11,12 +12,24 @@ import {
   CodexDevelopmentBuildVerificationPlanV1
 } from '../../platform/shared/ci-contract.ts';
 import {
+  CodexDevelopmentSm3P0EvidencePolicyIdV1,
+  CodexDevelopmentSm3P0WorkPackageIdV1
+} from '../../platform/shared/ci-evidence-composition-policy-registry.ts';
+import {
   CodexDevelopmentFinalizeVerificationEvidenceV2,
+  CodexDevelopmentFinalizeVerificationEvidenceV3,
   CodexDevelopmentVerificationDigest,
   CodexDevelopmentVerificationRawOutputDigest,
-  type CodexDevelopmentVerificationEvidenceV2
+  type CodexDevelopmentVerificationEvidenceV2,
+  type CodexDevelopmentVerificationEvidenceV3
 } from '../../platform/shared/ci-evidence-contract.ts';
+import type {
+  CodexDevelopmentExactGitBlobBytesV1,
+  CodexDevelopmentExactGitBlobV1
+} from '../../platform/shared/ci-evidence-reuse-contract.ts';
+import { parseGitChangedRecordsOutput } from '../../platform/shared/ci-git-changed-files.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
+import { CodexDevelopmentCiVerificationMain } from '../../scripts/ci-verification.ts';
 import {
   CodexDevelopmentBuildScopeAttestationV1,
   CodexDevelopmentEvaluateMergeGateV1,
@@ -242,7 +255,7 @@ function fixture(manifest = manifestSource()) {
     }
   });
   const attestationName = `sec-scope-attestation-v1-pr-123-base-${BASE}-head-${HEAD}-manifest-${manifestDigest.slice(7)}-run-100-attempt-1`;
-  const verificationName = `sec-verification-v5-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
+  const verificationName = `sec-verification-v7-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
   const rawInput: CodexDevelopmentMergeGateInputV1 = {
     schema: 'codex-development-merge-gate-input-v1',
     repository: 'sec-platform/sec',
@@ -291,6 +304,237 @@ function fixture(manifest = manifestSource()) {
     }
   };
   return { manifestBytes, manifestBlobSha, scopeRequest, rawInput, attestation, rawEvidence, plan };
+}
+
+const P0_BASE = '01d5c45a573337bee484d6a9d2effb2a76787b86';
+const P0_HEAD = 'ab5d3a839afc1d595ae5c43437eb862cde1500c1';
+const P0_TESTED_HEAD = '514e6e401659f18ecffca19856a11354d66d05df';
+const P0_MANIFEST_PATH = `docs/work-packages/${CodexDevelopmentSm3P0WorkPackageIdV1}.md`;
+const P0_EVIDENCE_PATH =
+  'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json';
+const P0_TEST_FILES = [
+  'tests/contract/semantic-mutation-apply-contract.test.ts',
+  'tests/integration/semantic-mutation-apply.test.ts',
+  'tests/integration/semantic-mutation-production-sentinel.test.ts',
+  'tests/e2e/end-to-end.test.ts',
+  'tests/e2e/graph.test.ts',
+  'tests/e2e/local-views.test.ts',
+  'tests/e2e/pipeline.test.ts',
+  'tests/e2e/registry.test.ts',
+  'tests/e2e/semantic-runtime-contract.test.ts',
+  'tests/e2e/verification.test.ts'
+];
+
+function p0ManifestSource(schema: 'v1' | 'v2'): string {
+  const revision = schema === 'v1'
+    ? 'requiredProfile: quick\nciRevision: ci-verification-v6\n'
+    : `evidenceComposition:\n  policyId: ${CodexDevelopmentSm3P0EvidencePolicyIdV1}\n`;
+  return `---
+schema: codex-development-work-package-${schema}
+id: ${CodexDevelopmentSm3P0WorkPackageIdV1}
+tracking: issue-106
+base: "${P0_BASE}"
+manifestState: frozen
+${revision}tasks:
+  - id: sm3-p0
+    owner: sm3-writer
+    ownedPaths:
+      - docs/
+      - platform/
+      - tests/
+forbiddenPaths:
+  - .github/workflows/
+acceptance:
+  - exact-policy
+${schema === 'v1' ? 'tests:\n  - bun run typecheck\n' : ''}---
+
+# SM3 P0 merge reconciliation fixture
+`;
+}
+
+async function p0MergeFixture() {
+  const git = (args: string[], encoding: 'utf8' | 'buffer' = 'utf8') => {
+    const result = spawnSync('git', args, { encoding });
+    if (result.status !== 0) throw new Error(String(result.stderr));
+    return encoding === 'utf8' ? String(result.stdout) : new Uint8Array(result.stdout as Buffer);
+  };
+  const tree = (ref: string): Map<string, CodexDevelopmentExactGitBlobV1> => {
+    const entries = String(git(['ls-tree', '-r', '-z', '--full-tree', ref])).split('\0').filter(Boolean);
+    const result = new Map<string, CodexDevelopmentExactGitBlobV1>();
+    for (const entry of entries) {
+      const match = /^(100644|100755) blob ([0-9a-f]{40})\t(.+)$/u.exec(entry);
+      if (match) result.set(match[3]!, {
+        mode: match[1] as '100644' | '100755',
+        type: 'blob',
+        blobSha: match[2]!
+      });
+    }
+    return result;
+  };
+  const trees = new Map([
+    [P0_BASE, tree(P0_BASE)],
+    [P0_HEAD, tree(P0_HEAD)],
+    [P0_TESTED_HEAD, tree(P0_TESTED_HEAD)]
+  ]);
+  const treeIds = new Map([P0_BASE, P0_HEAD, P0_TESTED_HEAD].map((ref) => [
+    ref,
+    String(git(['rev-parse', `${ref}^{tree}`])).trim()
+  ]));
+  const gitBlob = (ref: string, repositoryPath: string): CodexDevelopmentExactGitBlobV1 | null => (
+    trees.get(ref)?.get(repositoryPath) ?? null
+  );
+  const exactBytes = (ref: string, repositoryPath: string): CodexDevelopmentExactGitBlobBytesV1 | null => {
+    const entry = gitBlob(ref, repositoryPath);
+    if (!entry) return null;
+    return {
+      ...entry,
+      bytes: git(['cat-file', 'blob', `${ref}:${repositoryPath}`], 'buffer') as Uint8Array
+    };
+  };
+  const changedRecords = parseGitChangedRecordsOutput(String(git([
+    '-c', 'core.quotepath=false', 'diff', '--name-status', '-z', '--find-renames', '--find-copies',
+    '--diff-filter=ACDMRTUXB', P0_BASE, P0_HEAD
+  ])));
+  const syntheticSource = new TextEncoder().encode(changedRecords.flatMap((record) => {
+    if (record.path.startsWith('platform/') && record.path.endsWith('.ts')) {
+      return [`import '../../${record.path}';`];
+    }
+    if (record.path.startsWith('tests/helpers/') && record.path.endsWith('.ts')) {
+      return [`import '../helpers/${record.path.slice('tests/helpers/'.length)}';`];
+    }
+    return [];
+  }).join('\n'));
+  const readGitBlob = (ref: string, repositoryPath: string): CodexDevelopmentExactGitBlobBytesV1 | null => {
+    if (ref === P0_HEAD && P0_TEST_FILES.includes(repositoryPath)) {
+      const entry = gitBlob(ref, repositoryPath);
+      return entry ? { ...entry, bytes: syntheticSource } : null;
+    }
+    return repositoryPath === P0_EVIDENCE_PATH ? exactBytes(ref, repositoryPath) : null;
+  };
+  const manifestBytes = new TextEncoder().encode(p0ManifestSource('v2'));
+  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes);
+  const manifestBlobSha = gitBlobSha(manifestBytes);
+  let rawEvidence: CodexDevelopmentVerificationEvidenceV3 | undefined;
+  let tick = 0;
+  const runnerResult = await CodexDevelopmentCiVerificationMain({
+    argv: ['--profile', 'quick', '--expected-head', P0_HEAD],
+    env: {
+      SEC_CHANGED_BASE: 'base-ref',
+      SEC_AFFECTED_TESTS_BASE: 'base-ref',
+      SEC_WORK_PACKAGE_MANIFEST_PATH: P0_MANIFEST_PATH,
+      PATH: 'C:\\trusted-bin',
+      SYSTEMROOT: 'C:\\Windows',
+      CI: 'true'
+    },
+    now: () => new Date(Date.UTC(2026, 6, 18, 0, 0, 0, tick++ * 10)),
+    gitRevision: (ref) => {
+      if (ref === 'HEAD') return P0_HEAD;
+      if (ref === 'HEAD^{tree}') return treeIds.get(P0_HEAD)!;
+      if (ref === 'HEAD^1' || ref === 'base-ref') return P0_BASE;
+      return treeIds.get(ref) ?? null;
+    },
+    trackedTreeIsClean: () => true,
+    changedRecords: () => [...changedRecords],
+    gitFiles: (ref) => ref === P0_HEAD ? [...P0_TEST_FILES] : null,
+    gitBlob,
+    readGitBlob,
+    readManifestBytes: () => manifestBytes,
+    runGate: async () => ({
+      code: 0,
+      rawOutputDigest: `sha256:${'0'.repeat(64)}`,
+      failureTail: ''
+    }),
+    writeEvidenceV3: (_file, evidence) => { rawEvidence = evidence; }
+  });
+  if (runnerResult !== 0 || !rawEvidence) throw new Error('P0 V3 fixture runner did not produce passed evidence.');
+  const scopeRequest = {
+    schema: 'codex-development-scope-attestation-request-v1',
+    repository: 'sec-platform/sec',
+    repositoryId: 1,
+    pullRequest: 113,
+    defaultBranch: 'main',
+    currentBase: P0_BASE,
+    exactHead: P0_HEAD,
+    baseRepoId: 1,
+    headRepoId: 1,
+    manifestPath: P0_MANIFEST_PATH,
+    expectedManifestDigest: manifestDigest,
+    expectedManifestBlobSha: manifestBlobSha,
+    expectedManifestByteLength: manifestBytes.byteLength,
+    eventName: 'repository_dispatch',
+    eventType: 'sec-scope-attest-v1',
+    workflowId: 10,
+    workflowPath: '.github/workflows/sec-merge-gate.yml',
+    workflowHeadSha: P0_BASE,
+    runId: 100,
+    runAttempt: 1,
+    actor: 'maintainer',
+    triggeringActor: 'maintainer',
+    actorPermission: 'maintain',
+    triggeringActorPermission: 'admin'
+  };
+  const attestation = CodexDevelopmentBuildScopeAttestationV1(scopeRequest, manifestBytes);
+  const rawInput: CodexDevelopmentMergeGateInputV1 = {
+    schema: 'codex-development-merge-gate-input-v1',
+    repository: 'sec-platform/sec',
+    repositoryId: 1,
+    pullRequest: 113,
+    body: `Summary\nWork-Package: ${P0_MANIFEST_PATH}`,
+    draft: false,
+    defaultBranch: 'main',
+    baseRepoId: 1,
+    headRepoId: 1,
+    currentBase: P0_BASE,
+    exactHead: P0_HEAD,
+    headTree: treeIds.get(P0_HEAD)!,
+    headParents: [P0_BASE],
+    aheadBy: 1,
+    behindBy: 0,
+    headOpenPullRequestCount: 1,
+    manifestPath: P0_MANIFEST_PATH,
+    manifestBlobSha,
+    manifestByteLength: manifestBytes.byteLength,
+    changedRecords: [...changedRecords],
+    checkedAt: '2026-07-18T00:01:00.000Z',
+    attestationWorkflowId: 10,
+    verificationWorkflowId: 20,
+    attestationArtifact: {
+      id: 1000,
+      name: `sec-scope-attestation-v1-pr-113-base-${P0_BASE}-head-${P0_HEAD}-manifest-${manifestDigest.slice(7)}-run-100-attempt-1`,
+      digest: `sha256:${'4'.repeat(64)}`,
+      expired: false,
+      expiresAt: EXPIRES_AT,
+      sizeInBytes: 2_048,
+      run: runMetadata({ headSha: P0_BASE })
+    },
+    verificationArtifact: {
+      id: 2000,
+      name: `sec-verification-v7-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
+      digest: `sha256:${'5'.repeat(64)}`,
+      expired: false,
+      expiresAt: EXPIRES_AT,
+      sizeInBytes: 2_048,
+      run: runMetadata({
+        workflowId: 20,
+        workflowPath: '.github/workflows/compiler-pr-validation.yml',
+        runId: 200,
+        headSha: P0_BASE
+      })
+    }
+  };
+  return {
+    manifestBytes,
+    manifestDigest,
+    manifestBlobSha,
+    rawEvidence,
+    rawInput,
+    attestation,
+    changedRecords,
+    gitBlob,
+    readGitBlob,
+    gitFiles: (ref: string) => ref === P0_HEAD ? [...P0_TEST_FILES] : null,
+    gitTree: (ref: string) => treeIds.get(ref) ?? null
+  };
 }
 
 function workflowTrustArray(
@@ -419,6 +663,53 @@ test('base-side merge gate accepts the real canonical full plan', () => {
     rawAttestation: value.attestation,
     rawEvidence: value.rawEvidence
   })).toMatchObject({ status: 'passed', requiredProfile: 'full' });
+});
+
+test('base-side V7 merge gate independently reconstructs the real P0 plan and rejects self-signed drift', async () => {
+  const value = await p0MergeFixture();
+  const evaluate = (rawEvidence: unknown, manifestBytes = value.manifestBytes) => (
+    CodexDevelopmentEvaluateMergeGateV1({
+      rawInput: value.rawInput,
+      manifestBytes,
+      rawAttestation: value.attestation,
+      rawEvidence,
+      runtime: `bun@${Bun.version}`,
+      changedRecords: () => [...value.changedRecords],
+      gitBlob: value.gitBlob,
+      readGitBlob: value.readGitBlob,
+      gitFiles: value.gitFiles,
+      gitTree: value.gitTree
+    })
+  );
+  expect(evaluate(value.rawEvidence)).toMatchObject({
+    status: 'passed',
+    requiredProfile: 'quick',
+    evidenceDigest: value.rawEvidence.evidenceDigest
+  });
+
+  const { schema: _schema, evidenceDigest: _digest, ...draft } = value.rawEvidence;
+  const driftedEvidence = CodexDevelopmentFinalizeVerificationEvidenceV3({
+    ...draft,
+    gates: draft.gates.map((gate, index) => index === 0
+      ? { ...gate, argv: [...gate.argv, '--self-signed-drift'] }
+      : gate)
+  });
+  expect(() => evaluate(driftedEvidence)).toThrow('base-recomputed composition plan');
+
+  const legacyManifestBytes = new TextEncoder().encode(p0ManifestSource('v1'));
+  const downgradedInput = {
+    ...value.rawInput,
+    manifestBlobSha: gitBlobSha(legacyManifestBytes),
+    manifestByteLength: legacyManifestBytes.byteLength
+  };
+  expect(() => CodexDevelopmentEvaluateMergeGateV1({
+    rawInput: downgradedInput,
+    manifestBytes: legacyManifestBytes,
+    rawAttestation: {},
+    rawEvidence: {},
+    changedRecords: () => [...value.changedRecords],
+    gitBlob: value.gitBlob
+  })).toThrow(`require Work Package V2 policy ${CodexDevelopmentSm3P0EvidencePolicyIdV1}`);
 });
 
 test('scope attestation and merge gate bind the raw Git blob SHA and exact byte length', () => {
@@ -743,7 +1034,7 @@ test('workflow_run planner invalidates early attempts and executes one completed
   expect(completed.statuses).toEqual([expect.objectContaining({ sha: ready.head.sha, state: 'pending' })]);
 });
 
-test('trusted workflows pin actions, revalidate TTL/base drift, and never execute PR head in merge gate', async () => {
+test('trusted workflows pin actions, revalidate drift, and only materialize candidate Git objects as data', async () => {
   const mergeWorkflow = (await readCompilerFile('.github/workflows/sec-merge-gate.yml')).replaceAll(
     '\r\n',
     '\n',
@@ -752,6 +1043,25 @@ test('trusted workflows pin actions, revalidate TTL/base drift, and never execut
     '\r\n',
     '\n',
   );
+  const releaseWorkflow = (await readCompilerFile('.github/workflows/compiler-release-validation.yml')).replaceAll(
+    '\r\n',
+    '\n',
+  );
+  const attestationJob = mergeWorkflow.slice(
+    mergeWorkflow.indexOf('  attest-scope:'),
+    mergeWorkflow.indexOf('  merge-gate:'),
+  );
+  expect(attestationJob.indexOf('- name: Checkout trusted current base')).toBeLessThan(
+    attestationJob.indexOf('- name: Resolve trusted scope attestation request'),
+  );
+  expect(attestationJob).toContain('ref: ${{ github.sha }}');
+  expect(attestationJob).not.toContain('ref: ${{ steps.attest.outputs.base }}');
+  const mergeGateJob = mergeWorkflow.slice(mergeWorkflow.indexOf('  merge-gate:'));
+  expect(mergeGateJob.indexOf('- name: Checkout trusted current base')).toBeLessThan(
+    mergeGateJob.indexOf('- name: Resolve live PR and exact trusted artifacts'),
+  );
+  expect(mergeGateJob).toContain('ref: ${{ github.sha }}');
+  expect(mergeGateJob).not.toContain('ref: ${{ steps.resolve.outputs.base }}');
   expect(mergeWorkflow).toContain("cron: '17 */6 * * *'");
   expect(mergeWorkflow).toContain('push:');
   expect(mergeWorkflow).toContain('pull_request_target:');
@@ -799,7 +1109,12 @@ test('trusted workflows pin actions, revalidate TTL/base drift, and never execut
   expect(mergeWorkflow).toContain('!Number.isSafeInteger(artifact.sizeInBytes)');
   expect(mergeWorkflow).toContain('93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5');
   expect(mergeWorkflow).toContain('d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4');
-  expect((mergeWorkflow.match(/sec-verification-v5-/gu) ?? []).length).toBe(2);
+  expect(mergeWorkflow).toContain('path: .tmp/codex/candidate');
+  expect(mergeWorkflow).toContain('fetch-depth: 2');
+  expect(mergeWorkflow).toContain('ref: 514e6e401659f18ecffca19856a11354d66d05df');
+  expect(mergeWorkflow).toContain('--candidate-git-dir .tmp/codex/candidate/.git');
+  expect(mergeWorkflow).toContain('--legacy-git-dir .tmp/codex/legacy/.git');
+  expect((mergeWorkflow.match(/sec-verification-v7-/gu) ?? []).length).toBe(2);
   expect(mergeWorkflow).not.toContain('sec-verification-v4-');
   expect(prWorkflow).toContain('repository_dispatch:');
   expect(prWorkflow).toContain('sec-verify-frozen-v1');
@@ -809,4 +1124,6 @@ test('trusted workflows pin actions, revalidate TTL/base drift, and never execut
   expect(prWorkflow).not.toContain('run-quick');
   expect(prWorkflow).not.toContain('run-full');
   expect(prWorkflow).toContain('persist-credentials: false');
+  expect(prWorkflow).toContain('`${entry.mode}:${entry.type}:${entry.sha}`');
+  expect(releaseWorkflow).toContain('`${entry.mode}:${entry.type}:${entry.sha}`');
 });

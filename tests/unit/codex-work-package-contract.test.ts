@@ -4,7 +4,9 @@ import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
   CodexDevelopmentAssertWorkPackageOwnership,
   CodexDevelopmentParseWorkPackageLocator,
+  CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentParseWorkPackageManifestV1,
+  CodexDevelopmentParseWorkPackageManifestV2,
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../scripts/codex/work-package-contract.ts';
 
@@ -34,6 +36,30 @@ tests:
 ${overrides}---
 
 # B0 Bootstrap
+`;
+}
+
+function manifestV2(overrides = ''): string {
+  return `---
+schema: codex-development-work-package-v2
+id: ci-v7-evidence-composition-bootstrap-v1
+tracking: none
+base: "${BASE}"
+manifestState: frozen
+evidenceComposition:
+  policyId: ci-v7-synthetic-composition-v1
+tasks:
+  - id: ci-v7-bootstrap
+    owner: ci-v7-writer
+    ownedPaths:
+      - platform/shared/ci-evidence-reuse-contract.ts
+forbiddenPaths:
+  - platform/compiler/
+acceptance:
+  - exact-composition
+${overrides}---
+
+# CI V7 Bootstrap
 `;
 }
 
@@ -80,6 +106,39 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
       { path: 'scripts/codex/merge-gate.ts', taskId: 'b0-bootstrap-v1', owner: 'b0-writer' }
     ]
   });
+});
+
+test('Work Package V2 exposes only one immutable evidence-composition policy reference', () => {
+  const parsed = CodexDevelopmentParseWorkPackageManifestV2(
+    manifestV2(),
+    'docs/work-packages/ci-v7-evidence-composition-bootstrap-v1.md'
+  );
+  expect(parsed).toMatchObject({
+    schema: 'codex-development-work-package-v2',
+    id: 'ci-v7-evidence-composition-bootstrap-v1',
+    evidenceComposition: { policyId: 'ci-v7-synthetic-composition-v1' }
+  });
+  expect('requiredProfile' in parsed).toBe(false);
+  expect('ciRevision' in parsed).toBe(false);
+  expect('tests' in parsed).toBe(false);
+  expect(CodexDevelopmentParseWorkPackageManifest(manifestV2())).toEqual(parsed);
+  expect(CodexDevelopmentParseWorkPackageManifest(manifest())).toEqual(
+    CodexDevelopmentParseWorkPackageManifestV1(manifest())
+  );
+});
+
+test('Work Package V2 rejects commands, exclusions, evidence claims, and unknown policy fields', () => {
+  for (const injected of [
+    '  argv: [bun, test]\n',
+    '  exclude: tests/e2e/**\n',
+    '  evidencePath: docs/evidence/candidate.json\n',
+    '  scopeIds: [fast-test:any]\n',
+    'tests:\n  - bun run typecheck\n',
+    'requiredProfile: quick\n',
+    'ciRevision: ci-verification-v7\n'
+  ]) {
+    expect(() => CodexDevelopmentParseWorkPackageManifestV2(manifestV2(injected))).toThrow();
+  }
 });
 
 test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous scope', () => {

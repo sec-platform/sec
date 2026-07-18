@@ -99,7 +99,7 @@ SEC_AFFECTED_TESTS_BASE
   最近提交范围，用于快速 affected feedback。
 ```
 
-不要只用 `HEAD^1..HEAD` 判断整个 PR 的合同风险；也不要在日常本地反馈中默认用整个长期分支 diff 选择每次 affected test。Hosted v5 在 freeze 前要求 A0 将最终状态重放为 `parent(current head) = live current base`，从结构上消除这两个范围之间的覆盖缺口。
+不要只用 `HEAD^1..HEAD` 判断整个 PR 的合同风险；也不要在日常本地反馈中默认用整个长期分支 diff 选择每次 affected test。Frozen hosted V6/V7 在 freeze 前要求 A0 将最终状态重放为 `parent(current head) = live current base`，从结构上消除这两个范围之间的覆盖缺口。
 
 ### 6.1 Frozen Hosted Verification
 
@@ -111,27 +111,33 @@ rebase current main
 → repository_dispatch: sec-scope-attest-v1
 → 等待 default-branch trusted scope attestation artifact
 → repository_dispatch: sec-verify-frozen-v1
-→ 等待 exact-head Evidence V2
+→ 等待 exact-head Evidence V2 或 composition Evidence V3
 → base-side sec/merge-gate
 ```
 
-两个 dispatch 都绑定 repository、PR、current base、exact head、manifest ordinary-blob identity、raw digest/byte length、profile 与 `ci-verification-v6`；manifest 读取必须从 exact commit tree entry 到 raw blob，禁止由 Contents API 透明解引用 symlink。Heavy runner 只有读取权限，不发布 commit status；唯一远端合并状态是由 default-branch trusted workflow 发布的 `sec/merge-gate`。Head/base/manifest 任一变化都会使 attestation、verification artifact 与 gate 失效，必须重新 freeze，禁止通过遗留 label 或旧 success 自动重跑/复用。
+两个 dispatch 都绑定 repository、PR、current base、exact head、manifest ordinary-blob identity、raw digest/byte length，以及由 manifest schema 决定的 profile/revision。Work Package V1 仍绑定 `ci-verification-v6` 与 Evidence V2；只有 base 已注册 policy 的 Work Package V2 才绑定 `ci-verification-v7` 与 Evidence V3。Manifest 读取必须从 exact commit tree entry 到 raw blob，禁止由 Contents API 透明解引用 symlink。Heavy runner 只有读取权限，不发布 commit status；唯一远端合并状态是由 default-branch trusted workflow 发布的 `sec/merge-gate`。Head/base/manifest 任一变化都会使 attestation、verification artifact 与 gate 失效，必须重新 freeze，禁止通过遗留 label 或旧 success 自动重跑/复用。
 
-### 6.2 Evidence V2 与 Merge Gate
+### 6.2 Evidence V2/V3 与 Merge Gate
 
 `CodexDevelopmentVerificationEvidenceV2` 至少绑定 exact head/tree、PR base、affected base、manifest path/raw digest、完整 argv、changed-files/input digest、运行前后 clean state、每个计划 Gate 的 `passed|failed|not-run`、duration、failure tail、raw-output SHA-256、contract revision 与 invalidation rules。未调度 Gate 必须说明原因；可捕获失败统一在 `finally` 原子写 failed evidence。缺失、损坏或过期 artifact 一律 fail closed。
 
-Work Package 由 PR body 中唯一的 `Work-Package: docs/work-packages/<id>.md` 定位。Tracked manifest 的最终状态是 `frozen`；`merge-ready` 不是 tracked phase，而是 exact-head attestation、Evidence V2、live GitHub state 与 ruleset 共同推导的外部状态。Manifest 的 task ownership 只接受 literal exact file 或尾随 `/` 的目录前缀；rename/copy 两端必须归属同一 task。
+Work Package 由 PR body 中唯一的 `Work-Package: docs/work-packages/<id>.md` 定位。Tracked manifest 的最终状态是 `frozen`；`merge-ready` 不是 tracked phase，而是 exact-head attestation、Evidence V2/V3、live GitHub state 与 ruleset 共同推导的外部状态。Manifest 的 task ownership 只接受 literal exact file 或尾随 `/` 的目录前缀；rename/copy 两端必须归属同一 task。
 
-`sec/merge-gate` 只执行 default-branch/base 代码，PR head 只经 GitHub API 作为有界数据读取。它要求 same-repository、target main、单一 open PR 对应 exact head、`H.parents = [currentBase]`、合法且已 attested 的 frozen manifest、完整 ownership、匹配 profile 的 v5 artifact、至少 24 小时剩余 artifact TTL，并在最终 success 前二次读取 live head/base/manifest。`plan-revalidation` 对选中的 Draft-only head 写 failing status 但不分配 matrix runner；共享 head 的多个 open PR 同样 failure 且不执行。每 6 小时的轻量 revalidator 只为唯一的非 Draft PR head 复查元数据并撤销陈旧 status，不 checkout head、不重跑测试。
+Evidence V3 在 V2 exact identity 之上增加 base-owned policy ID、完整 parent/refined selection digest、coverage ledger、immutable reuse binding、executed/delta disposition、sanitized child environment binding 与完整 `expected.plan`。Candidate 不能在 manifest 中提供 tests、argv、coverage 或 reuse；只允许选择一个 base 已注册的 `evidenceComposition.policyId`。受保护的 P0 transition 若提交 V1 或错误 policy，runner 与 merge gate 都必须在首个 Gate 前 fail closed。
+
+`sec/merge-gate` 只执行 default-branch/base 代码。它以只读方式 materialize exact candidate 与 legacy evidence Git objects，使用 `git diff`、`ls-tree`、`cat-file` 独立重算 changed records、test inventory、policy factory 与 composition plan，绝不执行 candidate 文件；GitHub API records 与 exact Git records 不一致即失败。它要求 same-repository、target main、单一 open PR 对应 exact head、`H.parents = [currentBase]`、合法且已 attested 的 frozen manifest、完整 ownership、匹配 profile 的 v7 artifact、至少 24 小时剩余 artifact TTL，并始终以重算得到的 `expected.plan` 校验 Evidence V3。最终 success 前仍二次读取 live head/base/manifest。`plan-revalidation` 对选中的 Draft-only head 写 failing status 但不分配 matrix runner；共享 head 的多个 open PR 同样 failure 且不执行。每 6 小时的轻量 revalidator 只为唯一的非 Draft PR head 复查元数据并撤销陈旧 status，不重跑测试。
 
 Verifier trust root（verification workflows、CI contract/selector/evidence writer、runner、merge gate、manifest parser 与依赖入口）不得由普通 PR 修改后自证通过。命中 trust root 的变化必须升级 revision 并走明确的人工 bootstrap；mandatory sentinel 只增加测试覆盖，不能替代这条信任边界。
 
+V7 trust snapshot 对每个入口绑定 `mode:type:sha`，并覆盖 affected inventory、composition policy registry、reuse contract、execution environment、revision leaf 与 verification scope inventory；只比较 `type:sha` 不足以阻止 executable-bit drift。Artifact identity 统一为 `sec-verification-v7-*`。
+
 `ci-verification-v6` 由 B2 人工 bootstrap 引入：本地 Work Package execution snapshot 必须把 tracked checkout 的实际原始字节纳入 digest 并原样复制，覆盖 Git diff 看不见的 EOL/smudge 漂移；hosted manifest 仍按 exact commit ordinary blob 的 raw digest 与 byte length 绑定，二者不得共享规范化算法。EOL 规范化只允许发生在两个 local manifest parser call site，checkpoint、journal 与其他 durable evidence read 必须保持原始字节。Affected ownership 同时把 shared observed-process lifecycle 与 optional AppContainer hardening 分离；显式 declaration 可用 `declared-only` 关闭补充性 auto-reference，但冲突 mode 必须 fail closed。这样普通 Semantic Mutation/observed-process 变更不会因反向 import 误选真实 AppContainer 测试，同时 AppContainer source 仍保留自身 hardening coverage；selector rule 文件自身只归 verification/test-impact infrastructure，不能反向选择产品 slow suites。B2 只显式接纳已冻结的 SM-3 evidence 路径，不使用候选 v6 自证；所有 v5 artifact、attestation 与 status 均不能满足 v6 gate。
+
+`ci-verification-v7` 的首个 production policy 固定服务于 `sm3-p0-local-isolated-runner-v1`。Canonical 普通 Gate 保持原样；`affected-tests` 只细化为 residual fast、一次三标题 sibling Gate 与一次显式 production delta；`impact-risk` 只执行 policy 绑定的七个精确 Bun test 文件。该计划不调用 `test:affected` aggregate、不调用 `scripts/ci-pr-risk.ts`，也不包含 Playwright。历史 production PASS 只以 `legacy-unbound-v1` baseline 进入 delta closure，不是 merge、capability 或 SM-3 exit 证明；AppContainer 状态仍保持 `capabilityComplete:false`。
 
 ### 6.3 本地 Work Package 长时 Gate 监督
 
-当 frozen Work Package 明确要求一次不可拆分、不可重复的长时 owner batch 时，本地 supervisor 可以作为观察与 containment 层，但不能冒充 hosted Evidence V2 或 `sec/merge-gate`。它必须位于既有 verifier trust root 之外，并复用独立的 bounded observed-process lifecycle；不得修改 `platform/shared/process.ts`、`scripts/codex/` 或 hosted CI revision 后自证。
+当 frozen Work Package 明确要求一次不可拆分、不可重复的长时 owner batch 时，本地 supervisor 可以作为观察与 containment 层，但不能冒充 hosted Evidence V2/V3 或 `sec/merge-gate`。它必须位于既有 verifier trust root 之外，并复用独立的 bounded observed-process lifecycle；不得修改 `platform/shared/process.ts`、`scripts/codex/` 或 hosted CI revision 后自证。
 
 原始选择只从指定的 frozen selection manifest 与 index 严格解析；execution manifest 只绑定本轮 ownership、acceptance 与 timeout，不得复制第二份 argv。Supervisor 必须保持一个 Bun test child，禁止拆分 AppContainer sub-batch、增加 per-test timeout 或在失败后追跑单测。对当前 SM3 owner batch，固定预算为：host tool `120000ms`、Bun per-test `600000ms`、combined watchdog `1800000ms`、owned residue phase `120000ms`。
 
