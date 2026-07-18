@@ -49,7 +49,10 @@ const PROTECTED_PRODUCT_TRANSITIONS: readonly ProtectedTransition[] = [
   ['platform/compiler/semantic-mutation/mutation-terminal-record.ts', 'changed', '336598e0d1bd70e125f4917e2f35c488e7353b5c', '84ab7da46680cc45777848715f7858767193371c'],
   ['platform/compiler/semantic-mutation/windows-file-attributes.ts', 'changed', 'abec8eca787299ceed093622010020678a9f1b83', '7b6ce13ea6a4bb5569ac9d86337bd96d1184991c'],
   ['platform/compiler/verify/assert-isolated-staging-tree.ts', 'changed', '14469d6be88e51712483f3b8601b11b75608e3f2', '44342eb143a1bf8d92165e5774a53e25b4d0f11f'],
+  ['platform/compiler/verify/run-runtime-verification.ts', 'changed', 'd9c8bf6e3d361146873eb54122c02873f5e8f762', '9173cd35533db0317812039eedb0ba68204846ef'],
   ['platform/compiler/verify/run-semantic-mutation-isolated-child.ts', 'changed', 'b6bd055c7bc17c9c6fd82bf6ea597bb8786a8843', '8b84e7c6eaecf97256eee127783bb6f5e5290c7b'],
+  ['platform/compiler/verify/runtime-verification-invocation-contract.ts', 'added', null, '65e4f7eee2e9ac5b1c5afe8d2dfddaaa3be06661'],
+  ['platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts', 'changed', '9b84e7da441bd95dcaef171ea1cf4cd4c1e2ee58', 'c5268e1c7288509336db0b838fc9f459fa0b9324'],
   ['platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts', 'added', null, 'dbb3272aff0600697dc387dcd419f9012e26cbf3'],
   ['platform/compiler/verify/semantic-mutation-isolated-verification-failure.ts', 'added', null, '8598b077a1804384924d3df21eda67273feb9e85'],
   ['platform/compiler/verify/semantic-mutation-runner-build-child.ts', 'removed', '7457da0016d9814948447c701cd7a240edffa418', null],
@@ -76,7 +79,8 @@ const PROTECTED_PRODUCT_TRANSITIONS: readonly ProtectedTransition[] = [
   ['tests/integration/semantic-mutation-recovery-lifecycle.test.ts', 'changed', 'c4b8c5c12843c5d6b263324b98c896de64ea2678', '67af18a132b5a506bb41c3c50d77ea082ded8327'],
   ['tests/unit/canonical-ir-identity-revision.test.ts', 'changed', '133c4061a8cc22fab9ed53c8c98afe07891d9917', 'b632b8f2be8f7b4b4dde4767fa085f62916d862f'],
   ['tests/unit/observed-process-lifecycle.test.ts', 'changed', '22f02ce94cd641b5c0060990107b183ea099b618', '19de88b52449d780e234b9443fe678e9140b6200'],
-  ['tests/unit/semantic-mutation-isolated-child-fence.test.ts', 'changed', '56c89b78f7a51ceb84eaf59630f4cbae163b8681', '86a48a04a5289d130fc406ef650eece4c2893be7']
+  ['tests/unit/runtime-verification.test.ts', 'changed', 'ad902e8d14f15f6886b147e588c6febdbea4fe6b', '8b84a253daa8fce0ae7cf770bc134e1d202fe72a'],
+  ['tests/unit/semantic-mutation-isolated-child-fence.test.ts', 'changed', '56c89b78f7a51ceb84eaf59630f4cbae163b8681', 'f3e0ee5034588021676826aa9ebba33810f4981e']
 ].map(([path, status, baseBlob, currentBlob]) => ({ path, status, baseBlob, currentBlob })) as readonly ProtectedTransition[];
 
 const ALLOWED_TRANSITION_PATHS = new Set([
