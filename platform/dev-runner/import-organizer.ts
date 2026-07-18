@@ -26,6 +26,10 @@ interface StagedImportOrganizerTestHooks {
   readonly afterIndexLock?: () => void | Promise<void>;
 }
 
+interface StagedImportSelection {
+  readonly candidateBase?: string;
+}
+
 function formatDiagnostic(diagnostic: ts.Diagnostic, projectRoot = compilerRoot): string {
   const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
   if (!diagnostic.file || diagnostic.start === undefined) {
@@ -180,9 +184,24 @@ function isTypeScriptPath(value: string): boolean {
   return /\.[cm]?tsx?$/iu.test(value);
 }
 
-function stagedTypeScriptTargets(projectRoot: string): readonly string[] {
+function resolvedCandidateBase(projectRoot: string, candidateBase: string | undefined): string | undefined {
+  if (candidateBase === undefined) return undefined;
+  if (!/^[0-9a-f]{40,64}$/u.test(candidateBase)) {
+    throw new Error('Candidate import base must be one full Git object ID');
+  }
+  const resolved = gitText(projectRoot, ['rev-parse', '--verify', `${candidateBase}^{commit}`]).trim();
+  if (resolved !== candidateBase) throw new Error('Candidate import base did not resolve exactly');
+  return resolved;
+}
+
+function stagedTypeScriptTargets(
+  projectRoot: string,
+  candidateBase: string | undefined
+): readonly string[] {
   const fields = nulFields(gitBytes(projectRoot, [
-    'diff', '--cached', '--name-status', '-z', '--diff-filter=ACMR', '--find-renames'
+    'diff', '--cached', '--name-status', '-z', '--diff-filter=ACMR', '--find-renames',
+    ...(candidateBase === undefined ? [] : [candidateBase]),
+    '--'
   ]), 'git diff --cached');
   const targets = new Set<string>();
   for (let index = 0; index < fields.length;) {
@@ -303,9 +322,10 @@ function createImportService(
 function assertIndexUnchanged(
   projectRoot: string,
   targetPaths: readonly string[],
-  selectedEntries: readonly StagedIndexEntry[]
+  selectedEntries: readonly StagedIndexEntry[],
+  candidateBase: string | undefined
 ): void {
-  const currentTargets = stagedTypeScriptTargets(projectRoot);
+  const currentTargets = stagedTypeScriptTargets(projectRoot, candidateBase);
   if (JSON.stringify(currentTargets) !== JSON.stringify(targetPaths)) {
     throw new Error('Git index changed while organizing staged TypeScript imports');
   }
@@ -320,7 +340,8 @@ async function publishStagedIndex(
   targetPaths: readonly string[],
   selectedEntries: readonly StagedIndexEntry[],
   updates: readonly StagedImportUpdate[],
-  testHooks: StagedImportOrganizerTestHooks
+  testHooks: StagedImportOrganizerTestHooks,
+  candidateBase: string | undefined
 ): Promise<void> {
   const configuredIndexPath = gitText(projectRoot, ['rev-parse', '--git-path', 'index']).trim();
   if (configuredIndexPath.length === 0) throw new Error('Git index path is unavailable');
@@ -348,7 +369,7 @@ async function publishStagedIndex(
     }
 
     await testHooks.afterIndexLock?.();
-    assertIndexUnchanged(projectRoot, targetPaths, selectedEntries);
+    assertIndexUnchanged(projectRoot, targetPaths, selectedEntries, candidateBase);
     const seed = await fs.readFile(indexPath);
     await fs.writeFile(alternateIndexPath, seed, {
       flag: 'wx',
@@ -383,9 +404,11 @@ async function publishStagedIndex(
 
 export async function runStagedImportOrganizer(
   projectRoot = compilerRoot,
-  testHooks: StagedImportOrganizerTestHooks = {}
+  testHooks: StagedImportOrganizerTestHooks = {},
+  selection: StagedImportSelection = {}
 ): Promise<number> {
-  const targetPaths = stagedTypeScriptTargets(projectRoot);
+  const candidateBase = resolvedCandidateBase(projectRoot, selection.candidateBase);
+  const targetPaths = stagedTypeScriptTargets(projectRoot, candidateBase);
   const indexEntries = readIndexEntries(projectRoot);
   const selectedEntries = selectStagedEntries(indexEntries, targetPaths);
   if (targetPaths.length === 0) {
@@ -439,10 +462,18 @@ export async function runStagedImportOrganizer(
     return 0;
   }
 
-  await publishStagedIndex(projectRoot, targetPaths, selectedEntries, updates, testHooks);
+  await publishStagedIndex(
+    projectRoot,
+    targetPaths,
+    selectedEntries,
+    updates,
+    testHooks,
+    candidateBase
+  );
 
   const fileList = updates.map((update) => `- ${update.entry.path}`).join('\n');
-  console.log(`Organized staged imports in ${updates.length} file(s); working tree unchanged:\n${fileList}`);
+  const scope = candidateBase === undefined ? 'staged' : 'candidate';
+  console.log(`Organized ${scope} imports in ${updates.length} file(s); working tree unchanged:\n${fileList}`);
   return 0;
 }
 

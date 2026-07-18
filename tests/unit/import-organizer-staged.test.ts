@@ -94,6 +94,39 @@ test('staged organizer selects pre-commit changes without rewriting a matching w
   });
 });
 
+test('candidate organizer repairs the complete amended commit diff instead of only the staged delta', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    const committed = `${source('unsorted')}export const committedChange = answer;\n`;
+    const expected = `${source('sorted')}export const committedChange = answer;\n`;
+    await writeFile(fixturePath, committed, 'utf8');
+    git(repoRoot, ['add', 'fixture.ts']);
+    git(repoRoot, ['commit', '--quiet', '-m', 'legacy candidate']);
+    await writeFile(path.join(repoRoot, 'README.md'), 'amend metadata\n', 'utf8');
+    git(repoRoot, ['add', 'README.md']);
+
+    expect(await runStagedImportOrganizer(repoRoot, {}, { candidateBase })).toBe(0);
+
+    expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
+    expect(await readFile(fixturePath)).toEqual(Buffer.from(committed));
+    expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim().split(/\r?\n/u).sort())
+      .toEqual(['README.md', 'fixture.ts']);
+    expect(await runStagedImportOrganizer(repoRoot, {}, { candidateBase })).toBe(0);
+    expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
+  });
+});
+
+test('candidate organizer requires one exact full commit identity', async () => {
+  await withRepository(async (repoRoot) => {
+    const head = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    await expect(runStagedImportOrganizer(repoRoot, {}, { candidateBase: head.slice(0, 12) }))
+      .rejects.toThrow('one full Git object ID');
+    await expect(runStagedImportOrganizer(repoRoot, {}, { candidateBase: 'f'.repeat(40) }))
+      .rejects.toThrow('git rev-parse failed');
+  });
+});
+
 test('staged organizer preserves bytes visible through an external hardlink alias', async () => {
   await withRepository(async (repoRoot) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
