@@ -29,6 +29,20 @@ const EVIDENCE_PATH =
   'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json';
 const APPLY_TEST = 'tests/integration/semantic-mutation-apply.test.ts';
 const WRAPPER_TEST = 'tests/integration/semantic-mutation-production-sentinel.test.ts';
+const RUN_RUNTIME = 'platform/compiler/verify/run-runtime-verification.ts';
+const INVOCATION_CONTRACT = 'platform/compiler/verify/runtime-verification-invocation-contract.ts';
+const RUNTIME_PLAN = 'platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
+const RUNTIME_VERIFICATION_TEST = 'tests/unit/runtime-verification.test.ts';
+const ISOLATED_CHILD_TEST = 'tests/unit/semantic-mutation-isolated-child-fence.test.ts';
+const BASE_RUN_RUNTIME_BLOB = 'd9c8bf6e3d361146873eb54122c02873f5e8f762';
+const ANTICIPATED_RUN_RUNTIME_BLOB = '9173cd35533db0317812039eedb0ba68204846ef';
+const ANTICIPATED_INVOCATION_CONTRACT_BLOB = '65e4f7eee2e9ac5b1c5afe8d2dfddaaa3be06661';
+const BASE_RUNTIME_PLAN_BLOB = '9b84e7da441bd95dcaef171ea1cf4cd4c1e2ee58';
+const ANTICIPATED_RUNTIME_PLAN_BLOB = 'c5268e1c7288509336db0b838fc9f459fa0b9324';
+const BASE_RUNTIME_VERIFICATION_TEST_BLOB = 'ad902e8d14f15f6886b147e588c6febdbea4fe6b';
+const ANTICIPATED_RUNTIME_VERIFICATION_TEST_BLOB = '8b84a253daa8fce0ae7cf770bc134e1d202fe72a';
+const BASE_ISOLATED_CHILD_TEST_BLOB = '56c89b78f7a51ceb84eaf59630f4cbae163b8681';
+const ANTICIPATED_ISOLATED_CHILD_TEST_BLOB = 'f3e0ee5034588021676826aa9ebba33810f4981e';
 const TEST_IMPACT_TEST = 'tests/contract/test-impact.test.ts';
 const PREVIOUS_TEST_IMPACT_BLOB = 'c7fe5d1e90a9ca31884cb39b873c2f564b789ea6';
 const ANTICIPATED_TEST_IMPACT_BLOB = '5d7da4f7df39bd18ba4acff5263c6166557f1459';
@@ -78,6 +92,21 @@ const TREE_IDS = new Map([
 ]);
 
 function gitBlob(ref: string, path: string): CodexDevelopmentExactGitBlobV1 | null {
+  if (ref === CURRENT && path === RUN_RUNTIME) {
+    return { blobSha: ANTICIPATED_RUN_RUNTIME_BLOB, mode: '100644', type: 'blob' };
+  }
+  if (ref === CURRENT && path === INVOCATION_CONTRACT) {
+    return { blobSha: ANTICIPATED_INVOCATION_CONTRACT_BLOB, mode: '100644', type: 'blob' };
+  }
+  if (ref === CURRENT && path === RUNTIME_PLAN) {
+    return { blobSha: ANTICIPATED_RUNTIME_PLAN_BLOB, mode: '100644', type: 'blob' };
+  }
+  if (ref === CURRENT && path === RUNTIME_VERIFICATION_TEST) {
+    return { blobSha: ANTICIPATED_RUNTIME_VERIFICATION_TEST_BLOB, mode: '100644', type: 'blob' };
+  }
+  if (ref === CURRENT && path === ISOLATED_CHILD_TEST) {
+    return { blobSha: ANTICIPATED_ISOLATED_CHILD_TEST_BLOB, mode: '100644', type: 'blob' };
+  }
   if (ref === CURRENT && path === TEST_IMPACT_TEST) {
     return { blobSha: ANTICIPATED_TEST_IMPACT_BLOB, mode: '100644', type: 'blob' };
   }
@@ -100,10 +129,16 @@ function exactBytes(ref: string, path: string): CodexDevelopmentExactGitBlobByte
   };
 }
 
-const RECORDS = parseGitChangedRecordsOutput(git([
-  '-c', 'core.quotepath=false', 'diff', '--name-status', '-z', '--find-renames', '--find-copies',
-  '--diff-filter=ACDMRTUXB', BASE, CURRENT
-], 'utf8'));
+const RECORDS = [
+  ...parseGitChangedRecordsOutput(git([
+    '-c', 'core.quotepath=false', 'diff', '--name-status', '-z', '--find-renames', '--find-copies',
+    '--diff-filter=ACDMRTUXB', BASE, CURRENT
+  ], 'utf8')),
+  { status: 'changed' as const, path: RUN_RUNTIME },
+  { status: 'added' as const, path: INVOCATION_CONTRACT },
+  { status: 'changed' as const, path: RUNTIME_PLAN },
+  { status: 'changed' as const, path: RUNTIME_VERIFICATION_TEST }
+];
 const CHANGED_FILES = [...new Set(RECORDS.flatMap((record) => (
   record.previousPath === undefined ? [record.path] : [record.previousPath, record.path]
 )))].sort();
@@ -130,7 +165,9 @@ function inventory(changedInput = 'fixture-a'): CodexDevelopmentVerificationScop
       required([
         'tests/contract/semantic-mutation-apply-contract.test.ts',
         APPLY_TEST,
-        WRAPPER_TEST
+        WRAPPER_TEST,
+        RUNTIME_VERIFICATION_TEST,
+        ISOLATED_CHILD_TEST
       ]),
       3,
       {},
@@ -174,6 +211,69 @@ test('protected P0 product transition requires its exact V2 base policy and reje
       ? { blobSha: 'f'.repeat(40), mode: '100644', type: 'blob' }
       : gitBlob(ref, path)
   })).toThrow('Git identity mismatch');
+
+  for (const [path, blobSha] of [
+    [RUN_RUNTIME, BASE_RUN_RUNTIME_BLOB],
+    [INVOCATION_CONTRACT, 'f'.repeat(40)],
+    [RUNTIME_PLAN, BASE_RUNTIME_PLAN_BLOB],
+    [RUNTIME_VERIFICATION_TEST, BASE_RUNTIME_VERIFICATION_TEST_BLOB],
+    [ISOLATED_CHILD_TEST, BASE_ISOLATED_CHILD_TEST_BLOB]
+  ] as const) {
+    expect(() => CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
+      records: RECORDS,
+      baseHead: BASE,
+      currentHead: CURRENT,
+      gitBlob: (ref, candidatePath) => ref === CURRENT && candidatePath === path
+        ? { blobSha, mode: '100644', type: 'blob' }
+        : gitBlob(ref, candidatePath)
+    })).toThrow('Git identity mismatch');
+  }
+
+  for (const [path, blobSha] of [
+    [RUN_RUNTIME, ANTICIPATED_RUN_RUNTIME_BLOB],
+    [INVOCATION_CONTRACT, ANTICIPATED_INVOCATION_CONTRACT_BLOB],
+    [RUNTIME_PLAN, ANTICIPATED_RUNTIME_PLAN_BLOB],
+    [RUNTIME_VERIFICATION_TEST, ANTICIPATED_RUNTIME_VERIFICATION_TEST_BLOB],
+    [ISOLATED_CHILD_TEST, ANTICIPATED_ISOLATED_CHILD_TEST_BLOB]
+  ] as const) {
+    for (const entry of [
+      { blobSha, mode: '100755' as const, type: 'blob' as const },
+      { blobSha, mode: '100644' as const, type: 'tree' as 'blob' }
+    ]) {
+      expect(() => CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
+        records: RECORDS,
+        baseHead: BASE,
+        currentHead: CURRENT,
+        gitBlob: (ref, candidatePath) => ref === CURRENT && candidatePath === path
+          ? entry
+          : gitBlob(ref, candidatePath)
+      })).toThrow('Git identity mismatch');
+    }
+  }
+
+  for (const path of [
+    RUN_RUNTIME,
+    INVOCATION_CONTRACT,
+    RUNTIME_PLAN,
+    RUNTIME_VERIFICATION_TEST,
+    ISOLATED_CHILD_TEST
+  ]) {
+    expect(() => CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
+      records: RECORDS.filter((record) => record.path !== path),
+      baseHead: BASE,
+      currentHead: CURRENT,
+      gitBlob
+    })).toThrow('record mismatch');
+
+    expect(CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
+      records: RECORDS,
+      baseHead: BASE,
+      currentHead: CURRENT,
+      gitBlob: (ref, candidatePath) => ref === BASE && candidatePath === path
+        ? { blobSha: 'f'.repeat(40), mode: '100644', type: 'blob' }
+        : gitBlob(ref, candidatePath)
+    })).toBeNull();
+  }
 
   expect(() => CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
     records: RECORDS,
@@ -257,6 +357,30 @@ test('live P0 policy derives candidate digests and emits only explicit direct ga
   expect(first.gates.find((gate) => gate.gateId === 'sm3-p0-production-delta')?.env).toEqual({
     SEC_RUN_SM3_PRODUCTION_SENTINEL: '1'
   });
+  expect(first.refinements.flatMap(({ scopes }) => scopes)
+    .find(({ scopeId }) => scopeId === 'sm3-p0:production-delta')?.requiredGitBlobs)
+    .toEqual(expect.arrayContaining([
+      { path: RUN_RUNTIME, blobSha: ANTICIPATED_RUN_RUNTIME_BLOB, mode: '100644', type: 'blob' },
+      {
+        path: INVOCATION_CONTRACT,
+        blobSha: ANTICIPATED_INVOCATION_CONTRACT_BLOB,
+        mode: '100644',
+        type: 'blob'
+      },
+      { path: RUNTIME_PLAN, blobSha: ANTICIPATED_RUNTIME_PLAN_BLOB, mode: '100644', type: 'blob' },
+      {
+        path: RUNTIME_VERIFICATION_TEST,
+        blobSha: ANTICIPATED_RUNTIME_VERIFICATION_TEST_BLOB,
+        mode: '100644',
+        type: 'blob'
+      },
+      {
+        path: ISOLATED_CHILD_TEST,
+        blobSha: ANTICIPATED_ISOLATED_CHILD_TEST_BLOB,
+        mode: '100644',
+        type: 'blob'
+      }
+    ]));
 
   const plan = CodexDevelopmentBuildEvidenceCompositionPlanV1({
     policyId: CodexDevelopmentSm3P0EvidencePolicyIdV1,
@@ -355,6 +479,8 @@ test('runner resolves the real P0 registry and executes its exact direct gate pl
     'tests/contract/semantic-mutation-apply-contract.test.ts',
     APPLY_TEST,
     WRAPPER_TEST,
+    RUNTIME_VERIFICATION_TEST,
+    ISOLATED_CHILD_TEST,
     ...RISK_FILES
   ];
   const syntheticTestSource = new TextEncoder().encode(RECORDS
