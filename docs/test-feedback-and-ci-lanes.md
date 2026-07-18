@@ -50,7 +50,7 @@ install frozen dependencies
 
 Quick 必须调用唯一 `test:affected` 入口，不得在 Workflow 或 CI coordinator 内重写第二套 fast selector。Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
 
-Hosted `imports:check` 保持只读、fail closed，并继续按 frozen base..HEAD changed-file contract 选择；commit hook 的 staged-index auto-fix 是本地提交边界，不能改变 hosted selector 或把修复动作带入 CI。
+Hosted `imports:check` 保持只读、fail closed，并继续按 frozen base..HEAD changed-file contract 选择。Selector precedence 固定为：`SEC_IMPORTS_CHANGED_ONLY=1` 选择 changed-only，`=0` 强制全仓审计；两者都未设置时，存在 `SEC_CHANGED_BASE` 即选择 changed-only，其次才是 pull-request CI，其他无 base 的 schedule/local 入口保持全仓。由此 repository_dispatch 提供 exact base 时不会误触全仓 baseline。Commit hook 的 staged-index auto-fix 是本地提交边界，不能把修复动作带入 CI。
 
 Affected selector 默认关注最近提交反馈。`ci-verification-v6` 的 frozen hosted head 必须是 current base 上的单一提交，因此 hosted `HEAD^1` 与 current PR base 相同；多提交增量复用必须先定义新的 prefix evidence contract，不能由 v6 猜测。
 

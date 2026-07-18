@@ -43,12 +43,21 @@ describe('import organizer selection', () => {
     expect(selectChangedImportsOnly({ SEC_IMPORTS_CHANGED_ONLY: '1' })).toBe(true);
     expect(selectChangedImportsOnly({
       SEC_IMPORTS_CHANGED_ONLY: '0',
+      SEC_CHANGED_BASE: 'abc123',
       CI: 'true',
-      GITHUB_EVENT_NAME: 'pull_request'
+      GITHUB_EVENT_NAME: 'repository_dispatch'
     })).toBe(false);
   });
 
-  test('pull request CI checks changed files while scheduled CI remains global', () => {
+  test('an explicit diff base selects changed files for repository dispatch', () => {
+    expect(selectChangedImportsOnly({
+      SEC_CHANGED_BASE: 'abc123',
+      CI: 'true',
+      GITHUB_EVENT_NAME: 'repository_dispatch'
+    })).toBe(true);
+  });
+
+  test('pull request CI checks changed files while a schedule without a base remains global', () => {
     expect(selectChangedImportsOnly({
       CI: 'true',
       GITHUB_EVENT_NAME: 'pull_request'
