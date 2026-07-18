@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 import { expect, test } from 'bun:test';
 
@@ -28,6 +29,9 @@ const EVIDENCE_PATH =
   'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json';
 const APPLY_TEST = 'tests/integration/semantic-mutation-apply.test.ts';
 const WRAPPER_TEST = 'tests/integration/semantic-mutation-production-sentinel.test.ts';
+const TEST_IMPACT_TEST = 'tests/contract/test-impact.test.ts';
+const PREVIOUS_TEST_IMPACT_BLOB = 'c7fe5d1e90a9ca31884cb39b873c2f564b789ea6';
+const ANTICIPATED_TEST_IMPACT_BLOB = '5d7da4f7df39bd18ba4acff5263c6166557f1459';
 const RISK_FILES = [
   'tests/e2e/end-to-end.test.ts',
   'tests/e2e/graph.test.ts',
@@ -74,7 +78,17 @@ const TREE_IDS = new Map([
 ]);
 
 function gitBlob(ref: string, path: string): CodexDevelopmentExactGitBlobV1 | null {
+  if (ref === CURRENT && path === TEST_IMPACT_TEST) {
+    return { blobSha: ANTICIPATED_TEST_IMPACT_BLOB, mode: '100644', type: 'blob' };
+  }
   return TREES.get(ref)?.get(path) ?? null;
+}
+
+function gitBlobDigest(bytes: Uint8Array): string {
+  return createHash('sha1')
+    .update(`blob ${bytes.byteLength}\0`)
+    .update(bytes)
+    .digest('hex');
 }
 
 function exactBytes(ref: string, path: string): CodexDevelopmentExactGitBlobBytesV1 | null {
@@ -161,12 +175,58 @@ test('protected P0 product transition requires its exact V2 base policy and reje
       : gitBlob(ref, path)
   })).toThrow('Git identity mismatch');
 
+  expect(() => CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
+    records: RECORDS,
+    baseHead: BASE,
+    currentHead: CURRENT,
+    gitBlob: (ref, path) => ref === CURRENT && path === TEST_IMPACT_TEST
+      ? { blobSha: PREVIOUS_TEST_IMPACT_BLOB, mode: '100644', type: 'blob' }
+      : gitBlob(ref, path)
+  })).toThrow('Git identity mismatch');
+
+  for (const entry of [
+    { blobSha: ANTICIPATED_TEST_IMPACT_BLOB, mode: '100755' as const, type: 'blob' as const },
+    { blobSha: ANTICIPATED_TEST_IMPACT_BLOB, mode: '100644' as const, type: 'tree' as 'blob' }
+  ]) {
+    expect(() => CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
+      records: RECORDS,
+      baseHead: BASE,
+      currentHead: CURRENT,
+      gitBlob: (ref, path) => ref === CURRENT && path === TEST_IMPACT_TEST
+        ? entry
+        : gitBlob(ref, path)
+    })).toThrow('Git identity mismatch');
+  }
+
+  expect(CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
+    records: RECORDS,
+    baseHead: BASE,
+    currentHead: CURRENT,
+    gitBlob: (ref, path) => ref === BASE && path === TEST_IMPACT_TEST
+      ? { blobSha: 'f'.repeat(40), mode: '100644', type: 'blob' }
+      : gitBlob(ref, path)
+  })).toBeNull();
+
   expect(CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
     records: RECORDS,
     baseHead: CURRENT,
     currentHead: CURRENT,
     gitBlob
   })).toBeNull();
+});
+
+test('protected P0 transition pins the one tombstone-owner correction and preserves every other byte', () => {
+  const previous = git(['cat-file', 'blob', PREVIOUS_TEST_IMPACT_BLOB], 'buffer');
+  const previousText = new TextDecoder('utf-8', { fatal: true }).decode(previous);
+  const oldAssertion = "expect(selection.owners).toEqual(['auto-reference', 'semantic-mutation']);";
+  const newAssertion = "expect(selection.owners).toEqual(['semantic-mutation']);";
+  expect(previousText.split(oldAssertion)).toHaveLength(2);
+
+  const anticipatedText = previousText.replace(oldAssertion, newAssertion);
+  const anticipated = new TextEncoder().encode(anticipatedText);
+  expect(gitBlobDigest(anticipated)).toBe(ANTICIPATED_TEST_IMPACT_BLOB);
+  expect(anticipatedText.replace(newAssertion, oldAssertion)).toBe(previousText);
+  expect(anticipatedText).toContain("expect(selection.owners).toEqual(['auto-reference', 'windows-appcontainer-hardening']);");
 });
 
 test('live P0 policy derives candidate digests and emits only explicit direct gates', () => {
