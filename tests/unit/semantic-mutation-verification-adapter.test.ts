@@ -4,16 +4,16 @@ import { expect, test } from 'bun:test';
 
 import { buildValidatedEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
 import {
-  executeSemanticMutationVerification,
-  planSemanticMutationVerificationCapabilities
-} from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
+  classifySemanticMutationIsolatedVerificationArtifactSet,
+  type SemanticMutationIsolatedVerificationArtifactSet
+} from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
 import {
   type SemanticMutationIsolationCapabilityProbeV1
 } from '../../platform/compiler/verify/semantic-mutation-isolation-capability.ts';
 import {
-  classifySemanticMutationIsolatedVerificationArtifactSet,
-  type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
+  executeSemanticMutationVerification,
+  planSemanticMutationVerificationCapabilities
+} from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
 import type { VerificationRequirementV1 } from '../../platform/shared/semantic-mutation-types.ts';
 import {
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,

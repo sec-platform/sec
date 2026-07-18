@@ -1,10 +1,10 @@
-import { expect, test, describe } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { withTempWorkspace } from '../testkit/workspace.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { mergeTailwindTheme } from '../../platform/compiler/compose/merge-tailwind-theme.ts';
-import { readJson, writeJson, pathExists, readText, writeText } from '../../platform/shared/fs.ts';
+import { pathExists, readText, writeJson, writeText } from '../../platform/shared/fs.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 describe('mergeTailwindTheme', () => {
   test('returns empty if extend json and custom css do not exist', async () => {

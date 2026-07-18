@@ -1,7 +1,7 @@
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import type { SemanticMutationBaseV2 } from '../../shared/semantic-mutation-types.ts';
 import type { SemanticMutationRequestIdentityV1 } from '../../shared/semantic-mutation-transaction-types.ts';
+import type { SemanticMutationBaseV2 } from '../../shared/semantic-mutation-types.ts';
 import { sha256 } from './canonical.ts';
 import { isSemanticMutationWindowsReparsePoint } from './windows-file-attributes.ts';
 

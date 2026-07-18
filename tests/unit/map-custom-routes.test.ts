@@ -1,11 +1,10 @@
-import { expect, test, describe } from 'bun:test';
-import fs from 'node:fs/promises';
+import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
-import { withTempWorkspace } from '../testkit/workspace.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { mapCustomRoutes } from '../../platform/compiler/compose/map-custom-routes.ts';
 import { CompilerError } from '../../platform/shared/errors.ts';
-import { pathExists, readText, writeText, ensureDir } from '../../platform/shared/fs.ts';
+import { ensureDir, pathExists, readText, writeText } from '../../platform/shared/fs.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 describe('mapCustomRoutes', () => {
   test('returns empty if source/ui/routes does not exist', async () => {

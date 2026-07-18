@@ -1,4 +1,3 @@
-import { CompilerError } from '../../shared/errors.ts';
 import type { LockFile, SlotTask } from '../../shared/lock-types.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
 import type { TaskEnvelope } from '../../shared/task-envelope-types.ts';

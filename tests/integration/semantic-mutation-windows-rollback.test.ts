@@ -5,13 +5,13 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import { assertSemanticMutationRollbackManifestInvariant } from '../../platform/compiler/index.ts';
-import { SemanticMutationContractError } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import {
   atomicPublishSemanticMutationSource,
   atomicRestoreSemanticMutationSource,
   readSemanticMutationTransactionArtifacts,
   writeSemanticMutationTransactionArtifacts
 } from '../../platform/compiler/semantic-mutation/atomic-source-publish.ts';
+import { SemanticMutationContractError } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import { semanticMutationByteDigest } from '../../platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
 import { readSemanticMutationSource } from '../../platform/compiler/semantic-mutation/source-path-boundary.ts';
 import { semanticMutationTransactionRoot } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';

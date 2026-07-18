@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
-import { 
-  prefixClassNameString, 
-  prefixCssContent, 
-  applyPrefixSandboxing 
-} from '../../platform/compiler/compose/frontend-stitching.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import {
+  applyPrefixSandboxing,
+  prefixClassNameString,
+  prefixCssContent
+} from '../../platform/compiler/compose/frontend-stitching.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('prefixClassNameString utility correctly handles classes', () => {
   // 1. 普通 Tailwind 类名
