@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { parsePrismaSchema, mergePrismaSchemas } from '../../platform/compiler/compose/merge-prisma-template.ts';
+import { mergePrismaSchemas, parsePrismaSchema } from '../../platform/compiler/compose/merge-prisma-template.ts';
 
 test('parsePrismaSchema parses models, enums, datasources, and generators', () => {
   const schema = `

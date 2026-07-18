@@ -8,10 +8,9 @@ import {
 } from '../shared/ci-git-changed-files.ts';
 import { uniqueSorted, uniqueSortedLines } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../shared/contract-freeze-contract.ts';
-import { pathExists } from '../shared/fs.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommand } from '../shared/process.ts';
-import { ensureSharedDepsReady } from '../shared/project-runtime.ts';
+import { ensureCompilerDepsReady } from '../shared/project-runtime.ts';
 import {
   getFastTestFilesSync,
   getSlowTestFilesSync,
@@ -23,7 +22,7 @@ import {
 } from '../shared/test-budget-contract.ts';
 import { formatSlowImpactNotice } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
-import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
+import { pathEnvKey } from './env-manager.ts';
 import { planFastTestProcesses } from './fast-test-policy.ts';
 
 const BUN_TEST_OPTIONS_WITH_VALUE = new Set([
@@ -241,24 +240,9 @@ type DependencyContext = {
   binPath: string;
 };
 
-async function rootDependencyContext(): Promise<DependencyContext | null> {
-  const rootNodeModules = path.join(compilerRoot, 'node_modules');
-  if (!(await pathExists(rootNodeModules))) {
-    return null;
-  }
-
-  return { binPath: path.join(rootNodeModules, '.bin') };
-}
-
 async function withTestDependencies<T>(callback: (context: DependencyContext) => Promise<T>): Promise<T> {
-  const rootContext = await rootDependencyContext();
-  if (rootContext) {
-    return callback(rootContext);
-  }
-
-  const sharedDeps = await ensureSharedDepsReady();
-  const context = { binPath: path.join(sharedDeps.nodeModulesPath, '.bin') };
-  return withRootDependencyBridge(sharedDeps.nodeModulesPath, () => callback(context));
+  const compilerDeps = await ensureCompilerDepsReady();
+  return callback({ binPath: path.join(compilerDeps.nodeModulesPath, '.bin') });
 }
 
 function pathEnv(binPath: string): NodeJS.ProcessEnv {

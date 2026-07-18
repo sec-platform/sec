@@ -5,7 +5,10 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { runStagedImportOrganizer } from '../../platform/dev-runner/import-organizer.ts';
+import {
+  runCandidateImportOrganizer,
+  runStagedImportOrganizer
+} from '../../platform/dev-runner/import-organizer.ts';
 
 function git(
   repoRoot: string,
@@ -114,6 +117,28 @@ test('candidate organizer repairs the complete amended commit diff instead of on
       .toEqual(['README.md', 'fixture.ts']);
     expect(await runStagedImportOrganizer(repoRoot, {}, { candidateBase })).toBe(0);
     expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
+  });
+});
+
+test('candidate organizer derives the branch merge-base without an ambient base variable', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
+    const committed = `${source('unsorted')}export const committedChange = answer;\n`;
+    const expected = `${source('sorted')}export const committedChange = answer;\n`;
+    await writeFile(fixturePath, committed, 'utf8');
+    git(repoRoot, ['add', 'fixture.ts']);
+    git(repoRoot, ['commit', '--quiet', '--no-verify', '-m', 'legacy candidate']);
+    await writeFile(path.join(repoRoot, 'README.md'), 'final candidate metadata\n', 'utf8');
+    git(repoRoot, ['add', 'README.md']);
+
+    expect(await runCandidateImportOrganizer(repoRoot, {}, {})).toBe(0);
+
+    expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
+    expect(await readFile(fixturePath)).toEqual(Buffer.from(committed));
+    expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim().split(/\r?\n/u).sort())
+      .toEqual(['README.md', 'fixture.ts']);
   });
 });
 

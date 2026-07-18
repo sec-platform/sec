@@ -7,6 +7,8 @@ import { expect, test } from 'bun:test';
 
 import { installGitHooks, installGitHooksMain } from '../../scripts/install-git-hooks.ts';
 
+const managedHookNames = ['pre-commit', 'post-checkout', 'post-merge', 'post-rewrite'] as const;
+
 function git(repoRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
     cwd: repoRoot,
@@ -22,9 +24,13 @@ async function withRepository(run: (repoRoot: string) => Promise<void>): Promise
   try {
     git(repoRoot, ['init', '--quiet']);
     await mkdir(path.join(repoRoot, '.githooks'));
-    await writeFile(path.join(repoRoot, '.githooks', 'pre-commit'), '#!/usr/bin/env sh\nexit 0\n', 'utf8');
-    git(repoRoot, ['add', '.githooks/pre-commit']);
-    git(repoRoot, ['update-index', '--chmod=+x', '.githooks/pre-commit']);
+    await Promise.all(managedHookNames.map((hook) => (
+      writeFile(path.join(repoRoot, '.githooks', hook), '#!/usr/bin/env sh\nexit 0\n', 'utf8')
+    )));
+    git(repoRoot, ['add', '.githooks']);
+    for (const hook of managedHookNames) {
+      git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
+    }
     await run(repoRoot);
   } finally {
     await rm(repoRoot, { recursive: true, force: true });
@@ -81,7 +87,7 @@ test('hook installer requires the tracked managed hook before configuring author
     git(repoRoot, ['rm', '--cached', '--quiet', '.githooks/pre-commit']);
     await rm(path.join(repoRoot, '.githooks', 'pre-commit'));
 
-    await expect(installGitHooks({ repoRoot })).rejects.toThrow('Tracked executable .githooks/pre-commit is unavailable');
+    await expect(installGitHooks({ repoRoot })).rejects.toThrow('Tracked executable managed hooks are unavailable');
     expect(await installGitHooks({ repoRoot, lifecycle: true })).toMatchObject({ status: 'conflict' });
     expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
   });
@@ -89,7 +95,7 @@ test('hook installer requires the tracked managed hook before configuring author
   await withRepository(async (repoRoot) => {
     git(repoRoot, ['update-index', '--chmod=-x', '.githooks/pre-commit']);
 
-    await expect(installGitHooks({ repoRoot })).rejects.toThrow('Tracked executable .githooks/pre-commit is unavailable');
+    await expect(installGitHooks({ repoRoot })).rejects.toThrow('Tracked executable managed hooks are unavailable');
     expect(await installGitHooks({ repoRoot, lifecycle: true })).toMatchObject({ status: 'conflict' });
     expect(() => git(repoRoot, ['config', '--get', 'core.hooksPath'])).toThrow();
   });
@@ -130,9 +136,13 @@ test('hook installer isolates linked-worktree configuration from shared stale au
     git(repoRoot, ['config', 'user.name', 'SEC Tests']);
     await mkdir(path.join(repoRoot, '.githooks'));
     await writeFile(path.join(repoRoot, 'README.md'), 'fixture\n', 'utf8');
-    await writeFile(path.join(repoRoot, '.githooks', 'pre-commit'), '#!/usr/bin/env sh\nexit 0\n', 'utf8');
-    git(repoRoot, ['add', 'README.md', '.githooks/pre-commit']);
-    git(repoRoot, ['update-index', '--chmod=+x', '.githooks/pre-commit']);
+    await Promise.all(managedHookNames.map((hook) => (
+      writeFile(path.join(repoRoot, '.githooks', hook), '#!/usr/bin/env sh\nexit 0\n', 'utf8')
+    )));
+    git(repoRoot, ['add', 'README.md', '.githooks']);
+    for (const hook of managedHookNames) {
+      git(repoRoot, ['update-index', '--chmod=+x', `.githooks/${hook}`]);
+    }
     git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
     const staleHooks = path.join(root, 'missing-shared-hooks');
     git(repoRoot, ['config', '--local', 'core.hooksPath', staleHooks]);
@@ -150,16 +160,16 @@ test('hook installer isolates linked-worktree configuration from shared stale au
   }
 });
 
-test('tracked pre-commit hook selects the complete candidate when A0 binds an exact base', async () => {
+test('tracked hooks bootstrap dependencies and freeze the complete candidate automatically', async () => {
   const repoRoot = path.resolve(import.meta.dir, '../..');
   const preCommit = await readFile(path.join(repoRoot, '.githooks', 'pre-commit'), 'utf8');
+  const postCheckout = await readFile(path.join(repoRoot, '.githooks', 'post-checkout'), 'utf8');
   const attributes = await readFile(path.join(repoRoot, '.gitattributes'), 'utf8');
 
-  expect(preCommit).toContain('if [ -n "${SEC_CHANGED_BASE-}" ]; then');
-  expect(preCommit).toContain(
-    'bun ./platform/dev-runner.ts imports:staged --candidate-base "$SEC_CHANGED_BASE"'
-  );
-  expect(preCommit).toContain('bun ./platform/dev-runner.ts imports:staged');
+  expect(preCommit).toContain('bun ./platform/dev-runner.ts imports:freeze');
+  expect(preCommit).not.toContain('SEC_CHANGED_BASE');
   expect(preCommit).not.toContain('\r');
+  expect(postCheckout).toContain('bun ./platform/dev-runner.ts deps:ensure');
+  expect(postCheckout).not.toContain('\r');
   expect(attributes).toContain('/.githooks/* text eol=lf');
 });

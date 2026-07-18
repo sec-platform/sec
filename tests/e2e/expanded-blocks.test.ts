@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-    adaptWorkspace,
-    verifyWorkspace
+  adaptWorkspace,
+  verifyWorkspace
 } from '../../platform/orchestrator.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';

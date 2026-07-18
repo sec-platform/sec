@@ -1,12 +1,12 @@
-import { expect, test, describe } from 'bun:test';
-import path from 'node:path';
-import { withTempWorkspace } from '../testkit/workspace.ts';
-import { checkReferenceDrift } from '../../platform/compiler/verify/check-drift.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { writeJson, writeText, ensureDir } from '../../platform/shared/fs.ts';
-import { CompilerError } from '../../platform/shared/errors.ts';
-import type { ProvenanceFile } from '../../platform/shared/provenance-types.ts';
+import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
+import path from 'node:path';
+import { checkReferenceDrift } from '../../platform/compiler/verify/check-drift.ts';
+import { CompilerError } from '../../platform/shared/errors.ts';
+import { ensureDir, writeJson, writeText } from '../../platform/shared/fs.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import type { ProvenanceFile } from '../../platform/shared/provenance-types.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function computeHash(content: string): string {
   return createHash('sha256').update(content).digest('hex');

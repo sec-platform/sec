@@ -7,10 +7,10 @@ import { relocateSemanticMutationIsolatedRunnerBundleForTests } from '../../plat
 import {
   buildWindowsAppContainerNativeHelperBundleSourceForTests,
   createWindowsAppContainerNativeHelperBundleLoaderForTests,
-  encodeWindowsAppContainerSidBytesForTests,
   encodeWindowsAppContainerNativeDerivedSid,
   encodeWindowsAppContainerNativeFailure,
   encodeWindowsAppContainerNativeOk,
+  encodeWindowsAppContainerSidBytesForTests,
   normalizeWindowsAppContainerPreparationErrorForTests,
   probeWindowsAppContainerCapabilityForTests,
   proveWindowsAppContainerNativeHelperEntryForTests,

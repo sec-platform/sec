@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ensureSharedDepsReady } from '../../platform/shared/project-runtime.ts';
+import { ensureDevDependencies } from '../../platform/dev-runner/dependency-bootstrap.ts';
 
 const STALE_DIR_THRESHOLD = 500; // 超过此数量触发清理
 const STALE_MTIME_MS = 30 * 60 * 1000; // 30 分钟未修改视为陈旧
@@ -83,10 +83,10 @@ async function cleanStaleWorkspaces(tempRoot: string): Promise<void> {
 }
 
 export default async function prewarmSharedRuntimeDeps(): Promise<void> {
-  await configureTestTempRoot();
   if (process.env.SEC_SKIP_RUNTIME_DEPS_SETUP !== '1') {
-    await ensureSharedDepsReady();
+    await ensureDevDependencies();
   }
+  await configureTestTempRoot();
 }
 
 // Bun test compat: execute immediately

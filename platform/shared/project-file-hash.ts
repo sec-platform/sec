@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { isUtf8 } from 'node:buffer';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 
 export async function calculateProjectFileHash(absolutePath: string): Promise<string | undefined> {

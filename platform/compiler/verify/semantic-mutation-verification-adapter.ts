@@ -15,12 +15,12 @@ import {
   type SemanticMutationVerificationReportV1,
   type SemanticMutationVerifyAllRunnerV1
 } from '../../shared/verification-types.ts';
+import { forwardSemanticMutationIsolatedRuntimePlanBinding } from './semantic-mutation-isolated-runtime-binding.ts';
 import {
   hasProvenSemanticMutationIsolationCapability,
   probeSemanticMutationIsolationCapability,
   type SemanticMutationIsolationCapabilityProbeV1
 } from './semantic-mutation-isolation-capability.ts';
-import { forwardSemanticMutationIsolatedRuntimePlanBinding } from './semantic-mutation-isolated-runtime-binding.ts';
 
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const SAFE_SELECTOR = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u;

@@ -1,8 +1,8 @@
-import { expect, test, describe } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
-import { withTempWorkspace } from '../testkit/workspace.ts';
 import { formatOutputFiles } from '../../platform/compiler/compose/format-output-files.ts';
 import { pathExists, readText, writeText } from '../../platform/shared/fs.ts';
+import { withTempWorkspace } from '../testkit/workspace.ts';
 
 describe('formatOutputFiles', () => {
   test('successfully formats unformatted js/ts files using Prettier', async () => {
