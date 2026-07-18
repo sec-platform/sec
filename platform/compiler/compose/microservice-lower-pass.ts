@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { loadCanonicalBunRuntimeVersion } from '../../shared/bun-runtime-version.ts';
 import { ensureDir, writeText, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { blockDirName, getWorkspacePaths } from '../../shared/paths.ts';
@@ -22,6 +23,7 @@ export async function lowerToMicroservices(
 
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const generatedPaths: string[] = [];
+  const bunRuntimeVersion = await loadCanonicalBunRuntimeVersion();
 
   for (const block of lock.resolvedBlocks) {
     const dirName = blockDirName(block.id);
@@ -131,7 +133,7 @@ export async function lowerToMicroservices(
     await ensureDir(dockerDir, commitFence);
     
     const dockerfileContent = `# @generated-dockerfile block-id:${block.id}
-FROM bun:1.3.6-alpine
+FROM bun:${bunRuntimeVersion}-alpine
 
 WORKDIR /app
 

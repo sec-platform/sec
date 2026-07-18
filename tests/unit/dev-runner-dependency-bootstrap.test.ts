@@ -4,6 +4,7 @@ import { ensureDevDependencies } from '../../platform/dev-runner/dependency-boot
 
 for (const source of ['existing', 'installed'] as const) {
   test(`dependency bootstrap exposes the manifest-bound compiler tree (${source})`, async () => {
+    const hookRoots: string[] = [];
     const result = await ensureDevDependencies({
       ensureCompilerDeps: async () => ({
         manifestHash: 'manifest-hash',
@@ -11,7 +12,10 @@ for (const source of ['existing', 'installed'] as const) {
         packageManager: 'bun',
         root: 'compiler-root',
         source
-      })
+      }),
+      ensureHooks: async (repoRoot) => {
+        hookRoots.push(repoRoot);
+      }
     });
 
     expect(result).toEqual({
@@ -19,5 +23,6 @@ for (const source of ['existing', 'installed'] as const) {
       nodeModulesPath: 'compiler-node-modules',
       source
     });
+    expect(hookRoots).toEqual(['compiler-root']);
   });
 }

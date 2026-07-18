@@ -3,6 +3,7 @@ import { lstat, open, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
+import { loadCanonicalBunRuntimeVersion } from '../../shared/bun-runtime-version.ts';
 import { listFilesRecursive, pathExists, type CommitFence } from '../../shared/fs.ts';
 import { readLockFile } from '../../shared/lock-utils.ts';
 import {
@@ -478,8 +479,6 @@ export function projectSemanticMutationIsolatedVerificationFailureForTests(
 ): SemanticMutationIsolatedVerificationFailure {
   return isolatedVerificationFailure(stage, error);
 }
-
-const CANONICAL_BUN_RUNTIME_VERSION = '1.3.6';
 
 const DEFAULT_RUNTIME_DEPENDENCY_SOURCES = resolveIsolatedRuntimeDependencySources();
 const DEFAULT_RUNTIME_INPUT_SOURCES = Object.freeze({
@@ -1148,10 +1147,11 @@ export function relocateSemanticMutationIsolatedRunnerBundleForTests(
 }
 
 async function buildIsolatedRunnerBundle(): Promise<Uint8Array> {
+  const canonicalBunRuntimeVersion = await loadCanonicalBunRuntimeVersion();
   await withCapabilityPreparationBoundary(
     'runner-build-root-proof',
     () => {
-      if (Bun.version !== CANONICAL_BUN_RUNTIME_VERSION) {
+      if (Bun.version !== canonicalBunRuntimeVersion) {
         throw new Error('Semantic Mutation isolated runner runtime version drift');
       }
     }

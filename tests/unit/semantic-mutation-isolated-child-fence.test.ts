@@ -199,15 +199,18 @@ test('isolated runner bundle has one host-process Bun build and no helper proces
   expect(end).toBeGreaterThan(start);
   const body = source.slice(start, end);
   const runtimeVersionGuard = body.indexOf(
-    "if (Bun.version !== CANONICAL_BUN_RUNTIME_VERSION)"
+    'if (Bun.version !== canonicalBunRuntimeVersion)'
   );
+  const runtimeVersionLoad = body.indexOf('await loadCanonicalBunRuntimeVersion()');
   const rootCapture = body.indexOf('captureIsolatedRuntimeBuildNodeModulesProof');
   const runnerBuild = body.indexOf('() => Bun.build({');
   expect(body).not.toContain('prepareWindowsAppContainerNativeHelperBundle');
   expect(body).not.toContain("process.platform === 'win32'");
   expect(body).not.toContain('runObservedCommand');
   expect(body.match(/Bun\.build\(\{/gu)).toHaveLength(1);
+  expect(runtimeVersionLoad).toBeGreaterThanOrEqual(0);
   expect(runtimeVersionGuard).toBeGreaterThanOrEqual(0);
+  expect(runtimeVersionGuard).toBeGreaterThan(runtimeVersionLoad);
   expect(rootCapture).toBeGreaterThan(runtimeVersionGuard);
   expect(runnerBuild).toBeGreaterThan(rootCapture);
 });

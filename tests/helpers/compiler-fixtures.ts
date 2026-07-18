@@ -17,6 +17,7 @@ export async function readCompilerFile(relativePath: string): Promise<string> {
 }
 
 interface CompilerPackage {
+  packageManager?: string;
   scripts: Record<string, string>;
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
