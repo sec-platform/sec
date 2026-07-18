@@ -312,10 +312,24 @@ const P0_TESTED_HEAD = '514e6e401659f18ecffca19856a11354d66d05df';
 const P0_MANIFEST_PATH = `docs/work-packages/${CodexDevelopmentSm3P0WorkPackageIdV1}.md`;
 const P0_EVIDENCE_PATH =
   'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json';
+const P0_RUN_RUNTIME = 'platform/compiler/verify/run-runtime-verification.ts';
+const P0_RUN_RUNTIME_BLOB = '9173cd35533db0317812039eedb0ba68204846ef';
+const P0_INVOCATION_CONTRACT = 'platform/compiler/verify/runtime-verification-invocation-contract.ts';
+const P0_INVOCATION_CONTRACT_BLOB = '65e4f7eee2e9ac5b1c5afe8d2dfddaaa3be06661';
+const P0_RUNTIME_PLAN = 'platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
+const P0_RUNTIME_PLAN_BLOB = 'c5268e1c7288509336db0b838fc9f459fa0b9324';
+const P0_RUNTIME_VERIFICATION_TEST = 'tests/unit/runtime-verification.test.ts';
+const P0_RUNTIME_VERIFICATION_TEST_BLOB = '8b84a253daa8fce0ae7cf770bc134e1d202fe72a';
+const P0_ISOLATED_CHILD_TEST = 'tests/unit/semantic-mutation-isolated-child-fence.test.ts';
+const P0_ISOLATED_CHILD_TEST_BLOB = 'f3e0ee5034588021676826aa9ebba33810f4981e';
+const P0_TEST_IMPACT = 'tests/contract/test-impact.test.ts';
+const P0_TEST_IMPACT_BLOB = '5d7da4f7df39bd18ba4acff5263c6166557f1459';
 const P0_TEST_FILES = [
   'tests/contract/semantic-mutation-apply-contract.test.ts',
   'tests/integration/semantic-mutation-apply.test.ts',
   'tests/integration/semantic-mutation-production-sentinel.test.ts',
+  P0_RUNTIME_VERIFICATION_TEST,
+  P0_ISOLATED_CHILD_TEST,
   'tests/e2e/end-to-end.test.ts',
   'tests/e2e/graph.test.ts',
   'tests/e2e/local-views.test.ts',
@@ -376,6 +390,17 @@ async function p0MergeFixture() {
     [P0_HEAD, tree(P0_HEAD)],
     [P0_TESTED_HEAD, tree(P0_TESTED_HEAD)]
   ]);
+  const anticipatedHeadTree = trees.get(P0_HEAD)!;
+  for (const [repositoryPath, blobSha] of [
+    [P0_RUN_RUNTIME, P0_RUN_RUNTIME_BLOB],
+    [P0_INVOCATION_CONTRACT, P0_INVOCATION_CONTRACT_BLOB],
+    [P0_RUNTIME_PLAN, P0_RUNTIME_PLAN_BLOB],
+    [P0_RUNTIME_VERIFICATION_TEST, P0_RUNTIME_VERIFICATION_TEST_BLOB],
+    [P0_ISOLATED_CHILD_TEST, P0_ISOLATED_CHILD_TEST_BLOB],
+    [P0_TEST_IMPACT, P0_TEST_IMPACT_BLOB]
+  ] as const) {
+    anticipatedHeadTree.set(repositoryPath, { blobSha, mode: '100644', type: 'blob' });
+  }
   const treeIds = new Map([P0_BASE, P0_HEAD, P0_TESTED_HEAD].map((ref) => [
     ref,
     String(git(['rev-parse', `${ref}^{tree}`])).trim()
@@ -391,10 +416,16 @@ async function p0MergeFixture() {
       bytes: git(['cat-file', 'blob', `${ref}:${repositoryPath}`], 'buffer') as Uint8Array
     };
   };
-  const changedRecords = parseGitChangedRecordsOutput(String(git([
+  const changedRecords = [
+    ...parseGitChangedRecordsOutput(String(git([
     '-c', 'core.quotepath=false', 'diff', '--name-status', '-z', '--find-renames', '--find-copies',
     '--diff-filter=ACDMRTUXB', P0_BASE, P0_HEAD
-  ])));
+    ]))),
+    { status: 'changed' as const, path: P0_RUN_RUNTIME },
+    { status: 'added' as const, path: P0_INVOCATION_CONTRACT },
+    { status: 'changed' as const, path: P0_RUNTIME_PLAN },
+    { status: 'changed' as const, path: P0_RUNTIME_VERIFICATION_TEST }
+  ];
   const syntheticSource = new TextEncoder().encode(changedRecords.flatMap((record) => {
     if (record.path.startsWith('platform/') && record.path.endsWith('.ts')) {
       return [`import '../../${record.path}';`];
@@ -669,6 +700,20 @@ test('base-side merge gate accepts the real canonical full plan', () => {
 
 test('base-side V7 merge gate independently reconstructs the real P0 plan and rejects self-signed drift', async () => {
   const value = await p0MergeFixture();
+  expect(value.rawEvidence.gates.map(({ id }) => id)).toEqual([
+    'sm3-p0-gate-00',
+    'sm3-p0-gate-01',
+    'sm3-p0-gate-02',
+    'sm3-p0-gate-03',
+    'sm3-p0-siblings',
+    'sm3-p0-production-delta',
+    'sm3-p0-gate-08'
+  ]);
+  expect(value.rawEvidence.gates.filter(({ id }) => id === 'sm3-p0-production-delta'))
+    .toEqual([expect.objectContaining({ disposition: 'delta' })]);
+  expect(value.rawEvidence.reusedEvidence).toEqual([
+    expect.objectContaining({ environmentBinding: 'legacy-unbound-v1' })
+  ]);
   const evaluate = (rawEvidence: unknown, manifestBytes = value.manifestBytes) => (
     CodexDevelopmentEvaluateMergeGateV1({
       rawInput: value.rawInput,
