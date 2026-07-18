@@ -47,7 +47,7 @@ install frozen dependencies
 
 Quick 必须调用唯一 `test:affected` 入口，不得在 Workflow 或 CI coordinator 内重写第二套 fast selector。Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
 
-Affected selector 默认关注最近提交反馈。`ci-verification-v5` 的 frozen hosted head 必须是 current base 上的单一提交，因此 hosted `HEAD^1` 与 current PR base 相同；多提交增量复用必须先定义新的 prefix evidence contract，不能由 v5 猜测。
+Affected selector 默认关注最近提交反馈。`ci-verification-v6` 的 frozen hosted head 必须是 current base 上的单一提交，因此 hosted `HEAD^1` 与 current PR base 相同；多提交增量复用必须先定义新的 prefix evidence contract，不能由 v6 猜测。
 
 ## 4. PR Risk
 
@@ -115,7 +115,7 @@ rebase current main
 → base-side sec/merge-gate
 ```
 
-两个 dispatch 都绑定 repository、PR、current base、exact head、manifest ordinary-blob identity、raw digest/byte length、profile 与 `ci-verification-v5`；manifest 读取必须从 exact commit tree entry 到 raw blob，禁止由 Contents API 透明解引用 symlink。Heavy runner 只有读取权限，不发布 commit status；唯一远端合并状态是由 default-branch trusted workflow 发布的 `sec/merge-gate`。Head/base/manifest 任一变化都会使 attestation、verification artifact 与 gate 失效，必须重新 freeze，禁止通过遗留 label 或旧 success 自动重跑/复用。
+两个 dispatch 都绑定 repository、PR、current base、exact head、manifest ordinary-blob identity、raw digest/byte length、profile 与 `ci-verification-v6`；manifest 读取必须从 exact commit tree entry 到 raw blob，禁止由 Contents API 透明解引用 symlink。Heavy runner 只有读取权限，不发布 commit status；唯一远端合并状态是由 default-branch trusted workflow 发布的 `sec/merge-gate`。Head/base/manifest 任一变化都会使 attestation、verification artifact 与 gate 失效，必须重新 freeze，禁止通过遗留 label 或旧 success 自动重跑/复用。
 
 ### 6.2 Evidence V2 与 Merge Gate
 
@@ -126,6 +126,8 @@ Work Package 由 PR body 中唯一的 `Work-Package: docs/work-packages/<id>.md`
 `sec/merge-gate` 只执行 default-branch/base 代码，PR head 只经 GitHub API 作为有界数据读取。它要求 same-repository、target main、单一 open PR 对应 exact head、`H.parents = [currentBase]`、合法且已 attested 的 frozen manifest、完整 ownership、匹配 profile 的 v5 artifact、至少 24 小时剩余 artifact TTL，并在最终 success 前二次读取 live head/base/manifest。`plan-revalidation` 对选中的 Draft-only head 写 failing status 但不分配 matrix runner；共享 head 的多个 open PR 同样 failure 且不执行。每 6 小时的轻量 revalidator 只为唯一的非 Draft PR head 复查元数据并撤销陈旧 status，不 checkout head、不重跑测试。
 
 Verifier trust root（verification workflows、CI contract/selector/evidence writer、runner、merge gate、manifest parser 与依赖入口）不得由普通 PR 修改后自证通过。命中 trust root 的变化必须升级 revision 并走明确的人工 bootstrap；mandatory sentinel 只增加测试覆盖，不能替代这条信任边界。
+
+`ci-verification-v6` 由 B2 人工 bootstrap 引入：本地 Work Package execution snapshot 必须把 tracked checkout 的实际原始字节纳入 digest 并原样复制，覆盖 Git diff 看不见的 EOL/smudge 漂移；hosted manifest 仍按 exact commit ordinary blob 的 raw digest 与 byte length 绑定，二者不得共享规范化算法。EOL 规范化只允许发生在两个 local manifest parser call site，checkpoint、journal 与其他 durable evidence read 必须保持原始字节。Affected ownership 同时把 shared observed-process lifecycle 与 optional AppContainer hardening 分离；显式 declaration 可用 `declared-only` 关闭补充性 auto-reference，但冲突 mode 必须 fail closed。这样普通 Semantic Mutation/observed-process 变更不会因反向 import 误选真实 AppContainer 测试，同时 AppContainer source 仍保留自身 hardening coverage；selector rule 文件自身只归 verification/test-impact infrastructure，不能反向选择产品 slow suites。B2 只显式接纳已冻结的 SM-3 evidence 路径，不使用候选 v6 自证；所有 v5 artifact、attestation 与 status 均不能满足 v6 gate。
 
 ### 6.3 本地 Work Package 长时 Gate 监督
 

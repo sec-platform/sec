@@ -541,6 +541,32 @@ async function defaultWorktreeDigest(repoRoot: string): Promise<string> {
     windowsHide: true
   });
   if (diff.status !== 0) throw new Error('Work Package gate could not snapshot tracked changes');
+  const trackedResult = spawnSync('git', ['ls-files', '-z'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: 30_000,
+    windowsHide: true
+  });
+  if (trackedResult.status !== 0) throw new Error('Work Package gate could not inventory tracked files');
+  const tracked: Array<{ path: string; size: number; digest: string }> = [];
+  for (const relativePath of trackedResult.stdout.split('\0').filter(Boolean).sort()) {
+    if (relativePath.includes('\\') || relativePath.startsWith('/') || relativePath.includes('../')) {
+      throw new Error('Work Package gate encountered a non-canonical tracked path');
+    }
+    const filePath = path.join(repoRoot, ...relativePath.split('/'));
+    if (!await defaultPathExists(filePath)) continue;
+    const metadata = await lstat(filePath);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || Number(metadata.nlink) !== 1) {
+      throw new Error('Work Package gate tracked source is not a regular file');
+    }
+    const bytes = await readFile(filePath);
+    tracked.push({
+      path: relativePath,
+      size: bytes.byteLength,
+      digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`
+    });
+  }
   const untrackedResult = spawnSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
     cwd: repoRoot,
     encoding: 'utf8',
@@ -563,6 +589,7 @@ async function defaultWorktreeDigest(repoRoot: string): Promise<string> {
   }
   return CodexDevelopmentVerificationDigest({
     trackedDiffDigest: `sha256:${createHash('sha256').update(diff.stdout).digest('hex')}`,
+    tracked,
     untracked
   });
 }
@@ -808,21 +835,21 @@ async function defaultPrepareExecutionSnapshot(
       if (diff.stdout.byteLength > 0) {
         const applied = runGitSnapshotCommand(
           snapshotRoot,
-          ['apply', '--binary', '--whitespace=nowarn', '-'],
+          ['apply', '--index', '--binary', '--whitespace=nowarn', '-'],
           { input: diff.stdout }
         );
         if (applied.status !== 0) throw new Error('Work Package gate execution snapshot apply failed');
       }
 
-      const changedTrackedResult = runGitSnapshotCommand(
+      const trackedResult = runGitSnapshotCommand(
         repoRoot,
-        ['diff', '--name-only', '-z', 'HEAD', '--', '.'],
+        ['ls-files', '-z'],
         { encoding: 'utf8' }
       );
-      if (changedTrackedResult.status !== 0 || typeof changedTrackedResult.stdout !== 'string') {
+      if (trackedResult.status !== 0 || typeof trackedResult.stdout !== 'string') {
         throw new Error('Work Package gate execution snapshot tracked inventory failed');
       }
-      for (const relativePath of changedTrackedResult.stdout.split('\0').filter(Boolean).sort()) {
+      for (const relativePath of trackedResult.stdout.split('\0').filter(Boolean).sort()) {
         if (relativePath.includes('\\') || relativePath.startsWith('/') || relativePath.includes('../')) {
           throw new Error('Work Package gate execution snapshot contains a non-canonical tracked path');
         }
@@ -2088,6 +2115,10 @@ const DEFAULT_DEPENDENCIES: WorkPackageGateDependencies = {
   afterCheckpoint: async () => undefined
 };
 
+export function workPackageGateReadTextForTests(filePath: string): Promise<string> {
+  return DEFAULT_DEPENDENCIES.readText(filePath);
+}
+
 function hasRecoveryAuthority(census: WorkPackageGateResidueCensusV4): boolean {
   return census.structure.complete && census.structure.recoveryAuthorities.count > 0 &&
     census.structure.counts.recoveryOwners + census.structure.counts.pendingOwners > 0;
@@ -3290,10 +3321,12 @@ export async function runWorkPackageGate(
       throw new Error('Work Package gate execution authority changed');
     }
   };
-  const executionManifestSource = await dependencies.readText(path.join(repoRoot, ...manifestPath.split('/')));
-  const selectionManifestSource = await dependencies.readText(
-    path.join(repoRoot, ...selectionManifestPath.split('/'))
+  const executionManifestSource = normalizeNewlines(
+    await dependencies.readText(path.join(repoRoot, ...manifestPath.split('/')))
   );
+  const selectionManifestSource = normalizeNewlines(await dependencies.readText(
+    path.join(repoRoot, ...selectionManifestPath.split('/'))
+  ));
   const selection = parseFrozenWorkPackageGateSelectionV4({
     executionManifestSource,
     executionManifestPath: manifestPath,

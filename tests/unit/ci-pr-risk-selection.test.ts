@@ -120,6 +120,14 @@ test('agent governance and frozen work-package inputs use focused owners without
   const workPackageGate = selectCiPrRiskSlowSuites([
     'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
     'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
+    'docs/evidence/v0-4-semantic-mutation-bounded-isolation-scan-exact-stop-record-2026-07-17.json',
+    'docs/evidence/v0-4-semantic-mutation-browser-closure-exact-timeout-stop-record-2026-07-17.json',
+    'docs/evidence/v0-4-semantic-mutation-local-child-exact-public-verification-2026-07-17.json',
+    'docs/evidence/v0-4-semantic-mutation-local-child-host-alias-exact-public-stop-record-2026-07-17.json',
+    'docs/evidence/v0-4-semantic-mutation-proof-reuse-exact-timeout-stop-record-2026-07-17.json',
+    'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-durable-exact-stop-record-2026-07-18.json',
+    'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json',
+    'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json',
     'tests/fixtures/work-package-gate-retained-recovery/records/000001-prepared.json',
     'tests/fixtures/work-package-gate-retained-recovery/records/000002-authoring-committed.json',
     'tests/fixtures/work-package-gate-retained-recovery/records/000003-verified.json',
@@ -158,7 +166,7 @@ test('runner build changes select only the focused verification PR-risk suite', 
   }
 });
 
-test('native-helper settlement changes resolve without slow PR-risk expansion', () => {
+test('optional AppContainer settlement changes resolve without slow PR-risk expansion', () => {
   const selection = selectCiPrRiskSlowSuites([
     'platform/shared/windows-appcontainer-native-helper-settlement.ts'
   ]);
@@ -166,7 +174,7 @@ test('native-helper settlement changes resolve without slow PR-risk expansion', 
   expect(selection.suites).toEqual([]);
   expect(selection.slowTests).toEqual([]);
   expect(selection.affectedSlowTests).toEqual([]);
-  expect(selection.owners).toEqual(['auto-reference', 'semantic-mutation']);
+  expect(selection.owners).toEqual(['auto-reference', 'windows-appcontainer-hardening']);
   expect(selection.reasons).toEqual(['ownership-impact']);
   expect(selection.resolved).toBe(true);
 });

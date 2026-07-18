@@ -5,6 +5,7 @@ import {
   resolveTestOwnership,
   selectTestsForSources
 } from '../../platform/shared/test-impact-contract.ts';
+import { resolveTestOwnershipAutoReferenceMode } from '../../platform/shared/test-ownership-contract.ts';
 
 test('test impact classifies every P0-7 source category deterministically', () => {
   expect(classifyTestImpactSource('platform/compiler/semantic-linker.ts')).toBe('typescript');
@@ -19,6 +20,38 @@ test('test impact selector includes tests that directly import changed sources',
   expect(selection.owners).toContain('auto-reference');
   expect(selection.fast).toContain('tests/contract/test-impact.test.ts');
   expect(selection.slow).not.toContain('tests/contract/test-impact.test.ts');
+});
+
+test('test ownership auto-reference mode defaults to include and rejects conflicting owners', () => {
+  const declaration = {
+    owner: 'owner-a',
+    identity: { kind: 'contract' as const, id: 'owner-a' },
+    sourceFiles: ['source.ts'],
+    fast: [],
+    slow: []
+  };
+  expect(resolveTestOwnershipAutoReferenceMode([])).toBe('include');
+  expect(resolveTestOwnershipAutoReferenceMode([declaration])).toBe('include');
+  expect(resolveTestOwnershipAutoReferenceMode([{
+    ...declaration,
+    autoReferenceMode: 'declared-only'
+  }])).toBe('declared-only');
+  expect(() => resolveTestOwnershipAutoReferenceMode([
+    declaration,
+    { ...declaration, owner: 'owner-b', autoReferenceMode: 'declared-only' }
+  ])).toThrow('conflicting auto-reference modes');
+});
+
+test('test-impact rule files remain verification infrastructure rather than product owners', () => {
+  for (const [source, productOwner] of [
+    ['platform/shared/test-impact-rules/semantic.ts', 'semantic-mutation'],
+    ['platform/shared/test-impact-rules/pipeline.ts', 'pipeline-kernel']
+  ] as const) {
+    const selection = selectTestsForSources([source]);
+    expect(selection.owners).toContain('verification-infrastructure');
+    expect(selection.owners).not.toContain(productOwner);
+    expect(selection.slow).toEqual([]);
+  }
 });
 
 test('test impact assigns focused governance and frozen work-package ownership', () => {
@@ -36,7 +69,15 @@ test('test impact assigns focused governance and frozen work-package ownership',
 
   const workPackageEvidenceSources = [
     'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
-    'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json'
+    'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
+    'docs/evidence/v0-4-semantic-mutation-bounded-isolation-scan-exact-stop-record-2026-07-17.json',
+    'docs/evidence/v0-4-semantic-mutation-browser-closure-exact-timeout-stop-record-2026-07-17.json',
+    'docs/evidence/v0-4-semantic-mutation-local-child-exact-public-verification-2026-07-17.json',
+    'docs/evidence/v0-4-semantic-mutation-local-child-host-alias-exact-public-stop-record-2026-07-17.json',
+    'docs/evidence/v0-4-semantic-mutation-proof-reuse-exact-timeout-stop-record-2026-07-17.json',
+    'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-durable-exact-stop-record-2026-07-18.json',
+    'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json',
+    'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json'
   ];
   const workPackageEvidence = selectTestsForSources(workPackageEvidenceSources);
   expect(workPackageEvidence.owners).toEqual(['work-package-gate']);
@@ -110,6 +151,10 @@ test('test impact selector owns canonical IR changes as semantic core changes', 
     'tests/integration/workspace-engineering-ir.test.ts',
     'tests/integration/semantic-core-vertical.test.ts'
   ]));
+  for (const appContainerTest of [
+    'tests/unit/windows-appcontainer-executor.test.ts',
+    'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'
+  ]) expect(selection.fast).not.toContain(appContainerTest);
 });
 
 test('test impact selector gives Fact Delta a focused owner without dedicated slow coverage', () => {
@@ -191,6 +236,10 @@ test('test impact selector gives Semantic Mutation focused fast and notice-only 
     'tests/e2e/semantic-runtime-contract.test.ts',
     'tests/e2e/verification.test.ts'
   ]);
+  for (const appContainerTest of [
+    'tests/unit/windows-appcontainer-executor.test.ts',
+    'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'
+  ]) expect(selection.fast).not.toContain(appContainerTest);
   for (const source of sourceFiles) {
     expect(resolveTestOwnership([source]).filter((entry) => entry.owner === 'semantic-mutation'))
       .toEqual([{
@@ -201,12 +250,10 @@ test('test impact selector gives Semantic Mutation focused fast and notice-only 
   }
 });
 
-test('test impact selector owns the SM-3 lease and isolated AppContainer execution boundary', () => {
+test('test impact selector owns the SM-3 lease and local isolated child boundary', () => {
   const sourceFiles = [
     'platform/shared/semantic-mutation-staging-boundary.ts',
     'platform/shared/workspace-write-lease.ts',
-    'platform/shared/windows-appcontainer-executor.ts',
-    'platform/shared/windows-appcontainer-native-helper.ts',
     'platform/compiler/verify/run-semantic-mutation-isolated-child.ts',
     'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts'
   ];
@@ -215,7 +262,6 @@ test('test impact selector owns the SM-3 lease and isolated AppContainer executi
   expect(selection.owners).toContain('semantic-mutation');
   expect(selection.fast).toEqual(expect.arrayContaining([
     'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
-    'tests/unit/windows-appcontainer-executor.test.ts',
     'tests/unit/workspace-write-lease.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts',
     'tests/integration/project-runtime.test.ts',
@@ -255,24 +301,61 @@ test('test impact selector gives runner build boundaries a focused semantic-muta
   }
 });
 
-test('test impact selector gives native-helper settlement focused non-AppContainer coverage', () => {
-  const source = 'platform/shared/windows-appcontainer-native-helper-settlement.ts';
-  const selection = selectTestsForSources([source]);
+test('test impact selector keeps Windows AppContainer as optional hardening coverage', () => {
+  const sources = [
+    'platform/shared/windows-appcontainer-native-helper-settlement.ts',
+    'platform/shared/windows-appcontainer-executor.ts',
+    'platform/shared/windows-appcontainer-native-helper.ts'
+  ];
+  const selection = selectTestsForSources(sources);
 
-  expect(selection.owners).toEqual(['auto-reference', 'semantic-mutation']);
+  expect(selection.owners).toEqual(['auto-reference', 'windows-appcontainer-hardening']);
   expect(selection.fast).toEqual([
     'tests/contract/semantic-mutation-apply-contract.test.ts',
     'tests/contract/test-impact.test.ts',
     'tests/unit/ci-pr-risk-selection.test.ts',
+    'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+    'tests/unit/windows-appcontainer-executor.test.ts',
+    'tests/unit/windows-appcontainer-hardening-static.test.ts',
     'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'
   ]);
   expect(selection.slow).toEqual([]);
-  expect(resolveTestOwnership([source]).filter((entry) => entry.owner === 'semantic-mutation'))
-    .toEqual([{
+  for (const source of sources) {
+    expect(resolveTestOwnership([source]).filter(
+      (entry) => entry.owner === 'windows-appcontainer-hardening'
+    )).toEqual([{
       source,
-      owner: 'semantic-mutation',
-      identity: { kind: 'architecture-owner', id: 'semantic-mutation' }
+      owner: 'windows-appcontainer-hardening',
+      identity: { kind: 'architecture-owner', id: 'windows-appcontainer-hardening' }
     }]);
+  }
+});
+
+test('test impact selector gives the shared observed-process lifecycle a neutral owner', () => {
+  const source = 'platform/shared/observed-process.ts';
+  const selection = selectTestsForSources([source]);
+
+  expect(selection.owners).toEqual(['observed-process-lifecycle']);
+  expect(selection.fast).toEqual([
+    'tests/contract/semantic-mutation-apply-contract.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/observed-process-lifecycle.test.ts',
+    'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+    'tests/unit/work-package-gate-execution.test.ts',
+    'tests/unit/work-package-profile-probe-diagnostic.test.ts'
+  ]);
+  expect(selection.slow).toEqual([]);
+  for (const appContainerTest of [
+    'tests/unit/windows-appcontainer-executor.test.ts',
+    'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'
+  ]) expect(selection.fast).not.toContain(appContainerTest);
+  expect(resolveTestOwnership([source]).filter(
+    (entry) => entry.owner === 'observed-process-lifecycle'
+  )).toEqual([{
+    source,
+    owner: 'observed-process-lifecycle',
+    identity: { kind: 'architecture-owner', id: 'observed-process-lifecycle' }
+  }]);
 });
 
 test('test impact selector assigns neutral isolated Verification capabilities to Pipeline ownership', () => {

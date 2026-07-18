@@ -57,7 +57,6 @@ const SEMANTIC_MUTATION_FAST_TESTS = [
   "tests/unit/semantic-mutation-apply.test.ts",
   "tests/unit/semantic-mutation-verification-adapter.test.ts",
   "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
-  "tests/unit/windows-appcontainer-executor.test.ts",
   "tests/unit/workspace-write-lease.test.ts",
   "tests/contract/semantic-mutation-contract.test.ts",
   "tests/contract/semantic-mutation-source-adapter-contract.test.ts",
@@ -88,21 +87,41 @@ const SEMANTIC_MUTATION_RUNNER_BUILD_FAST_TESTS = [
   "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
 ];
 
-const WINDOWS_APPCONTAINER_NATIVE_HELPER_SETTLEMENT_FAST_TESTS = [
-  "tests/contract/semantic-mutation-apply-contract.test.ts",
+const WINDOWS_APPCONTAINER_HARDENING_FAST_TESTS = [
   "tests/contract/test-impact.test.ts",
   "tests/unit/ci-pr-risk-selection.test.ts",
+  "tests/unit/windows-appcontainer-hardening-static.test.ts",
+  "tests/unit/windows-appcontainer-executor.test.ts",
   "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts",
+];
+
+const OBSERVED_PROCESS_LIFECYCLE_FAST_TESTS = [
+  "tests/contract/semantic-mutation-apply-contract.test.ts",
+  "tests/contract/test-impact.test.ts",
+  "tests/unit/observed-process-lifecycle.test.ts",
+  "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+  "tests/unit/work-package-gate-execution.test.ts",
+  "tests/unit/work-package-profile-probe-diagnostic.test.ts",
 ];
 
 export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
-    owner: "semantic-mutation",
-    identity: { kind: "architecture-owner", id: "semantic-mutation" },
+    owner: "observed-process-lifecycle",
+    identity: { kind: "architecture-owner", id: "observed-process-lifecycle" },
+    autoReferenceMode: "declared-only",
+    sourceFiles: ["platform/shared/observed-process.ts"],
+    fast: OBSERVED_PROCESS_LIFECYCLE_FAST_TESTS,
+    slow: [],
+  },
+  {
+    owner: "windows-appcontainer-hardening",
+    identity: { kind: "architecture-owner", id: "windows-appcontainer-hardening" },
     sourceFiles: [
       "platform/shared/windows-appcontainer-native-helper-settlement.ts",
+      "platform/shared/windows-appcontainer-executor.ts",
+      "platform/shared/windows-appcontainer-native-helper.ts",
     ],
-    fast: WINDOWS_APPCONTAINER_NATIVE_HELPER_SETTLEMENT_FAST_TESTS,
+    fast: WINDOWS_APPCONTAINER_HARDENING_FAST_TESTS,
     slow: [],
   },
   {
@@ -119,17 +138,15 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: "semantic-mutation",
     identity: { kind: "architecture-owner", id: "semantic-mutation" },
+    autoReferenceMode: "declared-only",
     sourceFiles: [
       "platform/shared/semantic-mutation-types.ts",
       "platform/shared/semantic-mutation-transaction-types.ts",
       "platform/shared/semantic-mutation-staging-boundary.ts",
       "platform/shared/workspace-write-lease.ts",
-      "platform/shared/windows-appcontainer-executor.ts",
-      "platform/shared/windows-appcontainer-native-helper.ts",
       "platform/shared/process.ts",
       "platform/shared/project-runtime.ts",
       "platform/shared/runtime-dependency-spec.ts",
-      "platform/shared/test-impact-rules/semantic.ts",
       "platform/compiler/verify/assert-isolated-staging-tree.ts",
       "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
       "platform/compiler/verify/semantic-mutation-isolated-runtime-binding.ts",

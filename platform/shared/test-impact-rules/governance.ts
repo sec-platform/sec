@@ -38,7 +38,15 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     identity: { kind: 'contract', id: 'work-package-gate' },
     sourceFiles: [
       'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
-      'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json'
+      'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
+      'docs/evidence/v0-4-semantic-mutation-bounded-isolation-scan-exact-stop-record-2026-07-17.json',
+      'docs/evidence/v0-4-semantic-mutation-browser-closure-exact-timeout-stop-record-2026-07-17.json',
+      'docs/evidence/v0-4-semantic-mutation-local-child-exact-public-verification-2026-07-17.json',
+      'docs/evidence/v0-4-semantic-mutation-local-child-host-alias-exact-public-stop-record-2026-07-17.json',
+      'docs/evidence/v0-4-semantic-mutation-proof-reuse-exact-timeout-stop-record-2026-07-17.json',
+      'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-durable-exact-stop-record-2026-07-18.json',
+      'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json',
+      'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json'
     ],
     fast: WORK_PACKAGE_EVIDENCE_FAST_TESTS,
     slow: []

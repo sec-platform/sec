@@ -1,8 +1,8 @@
 import { expect, test } from 'bun:test';
 
 import {
-  CodexDevelopmentAssertWorkPackageOwnership,
   CodexDevelopmentAssertWorkPackageChangedRecords,
+  CodexDevelopmentAssertWorkPackageOwnership,
   CodexDevelopmentParseWorkPackageLocator,
   CodexDevelopmentParseWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest
@@ -18,7 +18,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: quick
-ciRevision: ci-verification-v5
+ciRevision: ci-verification-v6
 tasks:
   - id: b0-bootstrap-v1
     owner: b0-writer
@@ -64,12 +64,12 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
     base: BASE,
     manifestState: 'frozen',
     requiredProfile: 'quick',
-    ciRevision: 'ci-verification-v5'
+    ciRevision: 'ci-verification-v6'
   });
   const historical = CodexDevelopmentParseWorkPackageManifestV1(
-    source.replace('ci-verification-v5', 'ci-verification-v4')
+    source.replace('ci-verification-v6', 'ci-verification-v5')
   );
-  expect(historical.ciRevision).toBe('ci-verification-v4');
+  expect(historical.ciRevision).toBe('ci-verification-v5');
   expect(CodexDevelopmentWorkPackageManifestDigest(source)).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(CodexDevelopmentAssertWorkPackageOwnership(parsed, [
     'platform/shared/ci-contract.ts',
@@ -94,7 +94,7 @@ test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous sco
   )).toThrow('must be frozen');
   for (const revision of ['ci-verification-v0', 'ci-verification-v05', 'ci-verification-latest']) {
     expect(() => CodexDevelopmentParseWorkPackageManifestV1(
-      manifest().replace('ci-verification-v5', revision)
+      manifest().replace('ci-verification-v6', revision)
     )).toThrow('stable positive verification revision');
   }
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(

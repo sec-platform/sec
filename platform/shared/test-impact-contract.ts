@@ -13,6 +13,7 @@ import {
   classifyTestImpactSource,
   matchesTestOwnershipDeclaration,
   resolveDeclaredTestOwnership,
+  resolveTestOwnershipAutoReferenceMode,
   type ResolvedTestOwnership,
   type TestOwnershipDeclaration
 } from './test-ownership-contract.ts';
@@ -297,17 +298,18 @@ export function selectTestsForSources(files: string[]): TestImpactSelection {
   const slow = new Set<string>();
   const owners = new Set<string>();
 
-  const referencedTests = testsReferencingSources(files);
-  if (referencedTests.length > 0) {
-    owners.add('auto-reference');
-    addAll(fast, referencedTests.filter(isFastTestFile));
-    addAll(slow, referencedTests.filter(isSlowTestFile));
-  }
-
   for (const file of files) {
     const declarations = testOwnershipDeclarations.filter((declaration) => (
       matchesTestOwnershipDeclaration(declaration, file)
     ));
+    if (resolveTestOwnershipAutoReferenceMode(declarations) === 'include') {
+      const referencedTests = testsReferencingSources([file]);
+      if (referencedTests.length > 0) {
+        owners.add('auto-reference');
+        addAll(fast, referencedTests.filter(isFastTestFile));
+        addAll(slow, referencedTests.filter(isSlowTestFile));
+      }
+    }
     for (const declaration of declarations) {
       owners.add(declaration.owner);
       addAll(fast, [...declaration.fast]);
