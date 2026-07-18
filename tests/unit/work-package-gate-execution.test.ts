@@ -21,6 +21,7 @@ import {
   workPackageGateProtectedLedgerDigestForTests,
   workPackageGateProtectedPathAuthorityForTests,
   workPackageGateR2ExecutionSnapshotOwnerAcceptedForTests,
+  workPackageGateReadTextForTests,
   workPackageGateRecoveryRecordAuthorityPathForTests,
   workPackageGateRecoveryRecordEntryPathForTests,
   workPackageGateTerminalCompletionAuthorityPathsForTests,
@@ -293,6 +294,106 @@ test('execution snapshot materializes the exact dirty tree in a detached worktre
       .toBe(await readFile(path.join(repoRoot, 'scripts', 'run-work-package-gate.ts'), 'utf8'));
   } finally {
     expect(await removeWorkPackageExecutionSnapshotForTests(repoRoot, snapshotRoot)).toBe(true);
+  }
+});
+
+test('execution snapshot binds clean tracked checkout bytes hidden by Git EOL normalization', async () => {
+  const fixtureParent = path.dirname(repoRoot);
+  const fixtureRepo = await mkdtemp(path.join(fixtureParent, 'work-package-gate-snapshot-eol-'));
+  const snapshotRoot = path.join(
+    fixtureRepo,
+    '.tmp',
+    'gate-execution-snapshots',
+    `synthetic-snapshot-${randomUUID()}`
+  );
+  const git = (args: readonly string[]) => spawnSync('git', [...args], {
+    cwd: fixtureRepo,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  try {
+    expect(git(['init']).status).toBe(0);
+    expect(git(['config', 'user.name', 'SEC Test']).status).toBe(0);
+    expect(git(['config', 'user.email', 'sec-test@example.invalid']).status).toBe(0);
+    await writeFile(path.join(fixtureRepo, '.gitignore'), '.tmp/\n', 'utf8');
+    await writeFile(path.join(fixtureRepo, '.gitattributes'), '*.txt text\n', 'utf8');
+    await writeFile(path.join(fixtureRepo, 'tracked.txt'), 'first\nsecond\n', 'utf8');
+    expect(git(['add', '.gitignore', '.gitattributes', 'tracked.txt']).status).toBe(0);
+    expect(git(['commit', '-m', 'fixture base']).status).toBe(0);
+
+    const lfDigest = await workPackageWorktreeDigestForTests(fixtureRepo);
+    await writeFile(path.join(fixtureRepo, 'tracked.txt'), 'first\r\nsecond\r\n', 'utf8');
+    expect(git(['diff', '--quiet', 'HEAD', '--', 'tracked.txt']).status).toBe(0);
+    const crlfDigest = await workPackageWorktreeDigestForTests(fixtureRepo);
+    expect(crlfDigest).not.toBe(lfDigest);
+
+    expect(await prepareWorkPackageExecutionSnapshotForTests(
+      fixtureRepo,
+      snapshotRoot,
+      git(['rev-parse', 'HEAD']).stdout.trim(),
+      git(['rev-parse', 'HEAD^{tree}']).stdout.trim(),
+      crlfDigest
+    )).toBe(crlfDigest);
+    expect(await readFile(path.join(snapshotRoot, 'tracked.txt')))
+      .toEqual(await readFile(path.join(fixtureRepo, 'tracked.txt')));
+  } finally {
+    if (await lstat(snapshotRoot).then(() => true, () => false)) {
+      expect(await removeWorkPackageExecutionSnapshotForTests(fixtureRepo, snapshotRoot)).toBe(true);
+    }
+    await rm(fixtureRepo, { recursive: true, force: true });
+  }
+});
+
+test('execution snapshot preserves staged-added identity without duplicating it as untracked', async () => {
+  const fixtureParent = path.dirname(repoRoot);
+  await mkdir(fixtureParent, { recursive: true });
+  const fixtureRepo = await mkdtemp(path.join(fixtureParent, 'work-package-gate-snapshot-index-'));
+  const snapshotRoot = path.join(
+    fixtureRepo,
+    '.tmp',
+    'gate-execution-snapshots',
+    `synthetic-snapshot-${randomUUID()}`
+  );
+  const git = (args: readonly string[]) => spawnSync('git', [...args], {
+    cwd: fixtureRepo,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  try {
+    expect(git(['init']).status).toBe(0);
+    expect(git(['config', 'user.name', 'SEC Test']).status).toBe(0);
+    expect(git(['config', 'user.email', 'sec-test@example.invalid']).status).toBe(0);
+    await writeFile(path.join(fixtureRepo, '.gitignore'), '.tmp/\n', 'utf8');
+    await writeFile(path.join(fixtureRepo, 'tracked.txt'), 'base\n', 'utf8');
+    expect(git(['add', '.gitignore', 'tracked.txt']).status).toBe(0);
+    expect(git(['commit', '-m', 'fixture base']).status).toBe(0);
+    await writeFile(path.join(fixtureRepo, 'staged-added.txt'), 'staged\n', 'utf8');
+    await writeFile(path.join(fixtureRepo, 'untracked.txt'), 'untracked\n', 'utf8');
+    expect(git(['add', 'staged-added.txt']).status).toBe(0);
+
+    const expectedDigest = await workPackageWorktreeDigestForTests(fixtureRepo);
+    expect(await prepareWorkPackageExecutionSnapshotForTests(
+      fixtureRepo,
+      snapshotRoot,
+      git(['rev-parse', 'HEAD']).stdout.trim(),
+      git(['rev-parse', 'HEAD^{tree}']).stdout.trim(),
+      expectedDigest
+    )).toBe(expectedDigest);
+    expect(spawnSync('git', ['ls-files', '--error-unmatch', 'staged-added.txt'], {
+      cwd: snapshotRoot,
+      encoding: 'utf8',
+      windowsHide: true
+    }).status).toBe(0);
+    expect(spawnSync('git', ['ls-files', '--others', '--exclude-standard'], {
+      cwd: snapshotRoot,
+      encoding: 'utf8',
+      windowsHide: true
+    }).stdout.trim()).toBe('untracked.txt');
+  } finally {
+    if (await stat(snapshotRoot).then(() => true, () => false)) {
+      expect(await removeWorkPackageExecutionSnapshotForTests(fixtureRepo, snapshotRoot)).toBe(true);
+    }
+    await rm(fixtureRepo, { recursive: true, force: true });
   }
 });
 
@@ -903,6 +1004,31 @@ test('custody ledger canonicalizes checkout CRLF while local artifacts remain by
     .not.toBe(workPackageGateProtectedLedgerDigestForTests('custody', lf));
   expect(workPackageGateProtectedLedgerDigestForTests('local-artifact', crlf))
     .not.toBe(workPackageGateProtectedLedgerDigestForTests('local-artifact', lf));
+});
+
+test('manifest parsing localizes EOL normalization while checkpoint and journal reads stay byte-exact', async () => {
+  const fixtureRoot = await mkdtemp(path.join(repoRoot, '.tmp', 'work-package-gate-raw-text-'));
+  const rawPath = path.join(fixtureRoot, 'checkpoint-or-journal.jsonl');
+  const rawSource = '{"sequence":1}\r\n{"sequence":2}\r\n';
+  try {
+    await writeFile(rawPath, rawSource, 'utf8');
+    expect(await workPackageGateReadTextForTests(rawPath)).toBe(rawSource);
+
+    const fake = fakeDependencies();
+    const readText = fake.overrides.readText!;
+    const result = await runWorkPackageGate(v4Options, {
+      ...fake.overrides,
+      readText: async (filePath) => {
+        const source = await readText(filePath);
+        return frozenManifestPaths.has(path.resolve(filePath))
+          ? source.replace(/\n/gu, '\r\n')
+          : source;
+      }
+    });
+    expect(result.evidence.status).toBe('passed');
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
 });
 
 test('dynamic protected authority additions are fatal after consuming the attempt and suppressing the side effect', async () => {

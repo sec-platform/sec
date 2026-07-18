@@ -1,7 +1,7 @@
 import { selectCiPrRiskSlowSuites } from './ci-pr-risk-selection.ts';
 import { uniqueSorted } from './collections.ts';
 
-export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v5' as const;
+export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v6' as const;
 export const CI_VERIFICATION_EXECUTION_MODEL = 'frozen-delivery-single-runner' as const;
 
 export type CiVerificationGatePhase = 'quick' | 'risk' | 'full' | 'workspace';

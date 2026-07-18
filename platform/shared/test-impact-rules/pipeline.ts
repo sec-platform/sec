@@ -9,8 +9,7 @@ export const pipelineTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'platform/shared/pipeline-pass-registry.ts',
       'platform/shared/pipeline-journal.ts',
       'platform/shared/pipeline-kernel.ts',
-      'platform/shared/pipeline-semantic-context.ts',
-      'platform/shared/test-impact-rules/pipeline.ts'
+      'platform/shared/pipeline-semantic-context.ts'
     ],
     fast: [
       'tests/unit/pipeline-pass-registry.test.ts',
