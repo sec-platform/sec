@@ -212,10 +212,12 @@ test('only explicit SM-2/SM-3 owners may import filesystem, path, YAML, or autho
   ] as const)));
   const fsOwners = Object.entries(moduleSources)
     .filter(([, source]) => source.includes("from 'node:fs"))
-    .map(([file]) => file);
+    .map(([file]) => file)
+    .sort();
   const pathOwners = Object.entries(moduleSources)
     .filter(([, source]) => source.includes("from 'node:path"))
-    .map(([file]) => file);
+    .map(([file]) => file)
+    .sort();
   const yamlOwners = Object.entries(moduleSources)
     .filter(([, source]) => source.includes("from 'yaml'"))
     .map(([file]) => file);
@@ -233,7 +235,7 @@ test('only explicit SM-2/SM-3 owners may import filesystem, path, YAML, or autho
     'source-path-boundary.ts',
     'transaction-identity.ts',
     'windows-file-attributes.ts'
-  ];
+  ].sort();
   expect(fsOwners).toEqual(filesystemOwners);
   expect(pathOwners).toEqual(filesystemOwners);
   expect(yamlOwners).toEqual(['semantic-contract-yaml-adapter.ts']);

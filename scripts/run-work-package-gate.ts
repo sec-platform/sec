@@ -285,7 +285,7 @@ async function protectedPathSnapshotDigest(paths: readonly ProtectedPathV4[]): P
       readonly dev: string;
       readonly ino: string;
       readonly kind: 'directory' | 'file';
-      readonly nlink: string;
+      readonly nlink: string | null;
       readonly contentDigest: string | null;
     };
   }> = [];
@@ -306,12 +306,18 @@ async function protectedPathSnapshotDigest(paths: readonly ProtectedPathV4[]): P
         dev: String(identity.dev),
         ino: String(identity.ino),
         kind: identity.kind,
-        nlink: String(identity.nlink),
+        nlink: identity.kind === 'file' ? String(identity.nlink) : null,
         contentDigest
       })
     }));
   }
   return CodexDevelopmentVerificationDigest(snapshot);
+}
+
+export async function workPackageGateProtectedPathSnapshotDigestForTests(
+  paths: readonly Readonly<{ path: string; required: boolean }>[]
+): Promise<string> {
+  return protectedPathSnapshotDigest(normalizeProtectedPathAuthority(paths));
 }
 
 function samePhysicalIdentity(left: PhysicalPathIdentityV4, right: PhysicalPathIdentityV4): boolean {
