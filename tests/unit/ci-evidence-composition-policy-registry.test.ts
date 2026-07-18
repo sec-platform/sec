@@ -268,7 +268,9 @@ test('runner rejects V1 and wrong-policy V2 downgrade before the first gate', as
         if (ref === 'HEAD') return CURRENT;
         if (ref === 'HEAD^{tree}') return TREE_IDS.get(CURRENT)!;
         if (ref === 'HEAD^1' || ref === 'base-ref') return BASE;
-        return TREE_IDS.get(ref) ?? null;
+        if (TREE_IDS.has(ref)) return ref;
+        const treeRef = /^(?<commit>[0-9a-f]{40})\^\{tree\}$/u.exec(ref)?.groups?.commit;
+        return treeRef ? TREE_IDS.get(treeRef) ?? null : null;
       },
       trackedTreeIsClean: () => true,
       changedRecords: () => [...RECORDS],
@@ -324,7 +326,9 @@ test('runner resolves the real P0 registry and executes its exact direct gate pl
       if (ref === 'HEAD') return CURRENT;
       if (ref === 'HEAD^{tree}') return TREE_IDS.get(CURRENT)!;
       if (ref === 'HEAD^1' || ref === 'base-ref') return BASE;
-      return TREE_IDS.get(ref) ?? null;
+      if (TREE_IDS.has(ref)) return ref;
+      const treeRef = /^(?<commit>[0-9a-f]{40})\^\{tree\}$/u.exec(ref)?.groups?.commit;
+      return treeRef ? TREE_IDS.get(treeRef) ?? null : null;
     },
     trackedTreeIsClean: () => true,
     changedRecords: () => [...RECORDS],

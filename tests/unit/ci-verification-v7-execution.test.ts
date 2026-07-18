@@ -301,8 +301,10 @@ test('V2 runner preserves canonical gates, replaces aggregate selectors, binds d
       if (ref === 'HEAD') return HEAD;
       if (ref === 'HEAD^{tree}') return TREE;
       if (ref === 'HEAD^1' || ref === 'base-ref') return BASE;
-      if (ref === HEAD) return TREE;
-      if (ref === TESTED_HEAD) return TESTED_TREE;
+      if (ref === HEAD) return HEAD;
+      if (ref === `${HEAD}^{tree}`) return TREE;
+      if (ref === TESTED_HEAD) return TESTED_HEAD;
+      if (ref === `${TESTED_HEAD}^{tree}`) return TESTED_TREE;
       return null;
     },
     trackedTreeIsClean: () => true,
@@ -403,9 +405,12 @@ test('V2 runner rejects a drifted base policy before the first subprocess spawn'
     now: () => new Date('2026-07-18T00:00:00.000Z'),
     gitRevision: (ref) => {
       if (ref === 'HEAD') return HEAD;
-      if (ref === 'HEAD^{tree}' || ref === HEAD) return TREE;
+      if (ref === 'HEAD^{tree}') return TREE;
       if (ref === 'HEAD^1' || ref === 'base-ref') return BASE;
-      if (ref === TESTED_HEAD) return TESTED_TREE;
+      if (ref === HEAD) return HEAD;
+      if (ref === `${HEAD}^{tree}`) return TREE;
+      if (ref === TESTED_HEAD) return TESTED_HEAD;
+      if (ref === `${TESTED_HEAD}^{tree}`) return TESTED_TREE;
       return null;
     },
     trackedTreeIsClean: () => true,
