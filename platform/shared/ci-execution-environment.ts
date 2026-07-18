@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export const CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1 =
-  'ci-execution-env-allowlist-v1' as const;
+  'ci-execution-env-allowlist-v2' as const;
 
 export type CodexDevelopmentCiExecutionEnvironmentBindingV1 = {
   allowlistRevision: typeof CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1;
@@ -9,12 +9,14 @@ export type CodexDevelopmentCiExecutionEnvironmentBindingV1 = {
 };
 
 const AMBIENT_KEYS = [
-  'PATH', 'SYSTEMROOT', 'WINDIR', 'HOME', 'USERPROFILE', 'TEMP', 'TMP', 'TMPDIR', 'CI'
+  'PATH', 'SYSTEMROOT', 'WINDIR', 'HOME', 'USERPROFILE', 'TEMP', 'TMP', 'TMPDIR', 'CI',
+  'SEC_CHANGED_BASE'
 ] as const;
 const FIXED_ENVIRONMENT = Object.freeze({
   LANG: 'C.UTF-8',
   LC_ALL: 'C.UTF-8',
   NO_COLOR: '1',
+  SEC_IMPORTS_CHANGED_ONLY: '1',
   TZ: 'UTC'
 });
 
@@ -46,6 +48,9 @@ export function CodexDevelopmentBuildSanitizedChildEnvironmentV1(
     const value = ambientValue(ambientEnvironment, key);
     if (value === undefined || value.length === 0) continue;
     assertEnvironmentValue(value, `CI execution ambient ${key}`);
+    if (key === 'SEC_CHANGED_BASE' && !/^[0-9a-f]{40}$/u.test(value)) {
+      throw new Error('CI execution ambient SEC_CHANGED_BASE must be an exact lowercase commit SHA.');
+    }
     environment[key] = value;
   }
   Object.assign(environment, FIXED_ENVIRONMENT);

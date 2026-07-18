@@ -11,7 +11,10 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-import { CodexDevelopmentAssertCiExecutionEnvironmentBindingV1 } from './ci-execution-environment.ts';
+import {
+  CodexDevelopmentAssertCiExecutionEnvironmentBindingV1,
+  CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1
+} from './ci-execution-environment.ts';
 
 import type {
   CodexDevelopmentEvidenceCompositionPlanV1,
@@ -438,7 +441,7 @@ function assertGateV3(value: unknown, index: number): asserts value is CodexDeve
   assertString(value.envAllowlistRevision, `${label}.envAllowlistRevision`);
   assertDigest(value.envDigest, `${label}.envDigest`);
   CodexDevelopmentAssertCiExecutionEnvironmentBindingV1({
-    allowlistRevision: value.envAllowlistRevision as 'ci-execution-env-allowlist-v1',
+    allowlistRevision: value.envAllowlistRevision as typeof CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1,
     digest: value.envDigest as string
   });
 }
