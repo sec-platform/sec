@@ -1,7 +1,11 @@
+import type { CodexDevelopmentEvidenceCompositionPlanV1 } from './ci-evidence-reuse-contract.ts';
 import { selectCiPrRiskSlowSuites } from './ci-pr-risk-selection.ts';
+import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 import { uniqueSorted } from './collections.ts';
+import type { CodexDevelopmentTestImpactSourceProviderV1 } from './test-impact-contract.ts';
 
 export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v6' as const;
+export { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 export const CI_VERIFICATION_EXECUTION_MODEL = 'frozen-delivery-single-runner' as const;
 
 export type CiVerificationGatePhase = 'quick' | 'risk' | 'full' | 'workspace';
@@ -97,10 +101,11 @@ function hasActiveDocumentationChange(files: readonly string[]): boolean {
 
 export function CodexDevelopmentBuildVerificationPlanV1(
   profile: CodexDevelopmentVerificationPlanProfileV1,
-  rawChangedFiles: readonly string[] | null
+  rawChangedFiles: readonly string[] | null,
+  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProviderV1
 ): CodexDevelopmentVerificationPlanV1 {
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFilesV1(rawChangedFiles);
-  const selection = selectCiPrRiskSlowSuites(changedFiles);
+  const selection = selectCiPrRiskSlowSuites(changedFiles, testImpactSourceProvider);
   const includeRisk = !selection.resolved || selection.suites.length > 0 || selection.slowTests.length > 0;
   const gates = profile === 'full'
     ? buildCiFullGatePlan()
@@ -144,5 +149,46 @@ export function CodexDevelopmentBuildVerificationInputV2(options: {
     files: options.changedFiles,
     selectionResolved: options.selectionResolved,
     gatePlan: options.gates.map((step) => ({ id: step.id, phase: step.phase, argv: ['bun', ...step.args] }))
+  };
+}
+
+export function CodexDevelopmentBuildVerificationInputV3(options: {
+  headSha: string | null;
+  treeSha: string | null;
+  prBaseSha: string | null;
+  affectedBaseSha: string | null;
+  manifestPath: string;
+  manifestDigest: string;
+  workPackageId: string;
+  plan: CodexDevelopmentEvidenceCompositionPlanV1;
+}): Record<string, unknown> {
+  return {
+    contractRevision: CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION,
+    profile: options.plan.requiredProfile,
+    headSha: options.headSha,
+    treeSha: options.treeSha,
+    prBaseSha: options.prBaseSha,
+    affectedBaseSha: options.affectedBaseSha,
+    manifestPath: options.manifestPath,
+    manifestDigest: options.manifestDigest,
+    workPackageId: options.workPackageId,
+    policyId: options.plan.policyId,
+    fullChangedFiles: options.plan.fullChangedFiles,
+    fullChangedInputDigest: options.plan.fullChangedInputDigest,
+    fullSelectionDigest: options.plan.fullSelectionDigest,
+    refinedSelectionDigest: options.plan.refinedSelectionDigest,
+    coverageLedger: options.plan.coverageLedger,
+    reusedEvidence: options.plan.reusedEvidence,
+    uncoveredScopes: options.plan.uncoveredScopes,
+    gatePlan: options.plan.gates.map((gate) => ({
+      order: gate.order,
+      id: gate.gateId,
+      runtime: gate.runtime,
+      disposition: gate.disposition,
+      coveredScopeIds: gate.coveredScopeIds,
+      argv: gate.argv,
+      envAllowlistRevision: gate.envAllowlistRevision,
+      envDigest: gate.envDigest
+    }))
   };
 }

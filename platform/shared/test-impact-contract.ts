@@ -249,6 +249,11 @@ function importSpecifiers(source: string, testFile: string): string[] {
   }
 }
 
+export type CodexDevelopmentTestImpactSourceProviderV1 = {
+  testFiles: readonly string[];
+  readTestSource: (testFile: string) => string | null;
+};
+
 function readTestSource(testFile: string): string | null {
   try {
     return fs.readFileSync(path.join(compilerRoot, testFile), 'utf8');
@@ -259,7 +264,14 @@ function readTestSource(testFile: string): string | null {
 
 const testImportSpecifiersCache = new Map<string, string[]>();
 
-function readTestImportSpecifiers(testFile: string): string[] {
+function readTestImportSpecifiers(
+  testFile: string,
+  provider?: CodexDevelopmentTestImpactSourceProviderV1
+): string[] {
+  if (provider) {
+    const source = provider.readTestSource(testFile);
+    return source === null ? [] : importSpecifiers(source, testFile);
+  }
   const cached = testImportSpecifiersCache.get(testFile);
   if (cached) return cached;
 
@@ -272,12 +284,15 @@ function readTestImportSpecifiers(testFile: string): string[] {
   return specifiers;
 }
 
-function testsReferencingSources(files: string[]): string[] {
+function testsReferencingSources(
+  files: string[],
+  provider?: CodexDevelopmentTestImpactSourceProviderV1
+): string[] {
   const sourceFiles = new Set(files.map(normalizeRepoPath));
   const matchedTests = new Set<string>();
 
-  for (const testFile of getTestFilesSync()) {
-    for (const specifier of readTestImportSpecifiers(testFile)) {
+  for (const testFile of provider?.testFiles ?? getTestFilesSync()) {
+    for (const specifier of readTestImportSpecifiers(testFile, provider)) {
       for (const candidate of importCandidates(testFile, specifier)) {
         if (sourceFiles.has(candidate)) {
           matchedTests.add(testFile);
@@ -293,7 +308,10 @@ export function resolveTestOwnership(files: string[]): ResolvedTestOwnership[] {
   return resolveDeclaredTestOwnership(files, testOwnershipDeclarations);
 }
 
-export function selectTestsForSources(files: string[]): TestImpactSelection {
+export function selectTestsForSources(
+  files: string[],
+  provider?: CodexDevelopmentTestImpactSourceProviderV1
+): TestImpactSelection {
   const fast = new Set<string>();
   const slow = new Set<string>();
   const owners = new Set<string>();
@@ -303,7 +321,7 @@ export function selectTestsForSources(files: string[]): TestImpactSelection {
       matchesTestOwnershipDeclaration(declaration, file)
     ));
     if (resolveTestOwnershipAutoReferenceMode(declarations) === 'include') {
-      const referencedTests = testsReferencingSources([file]);
+      const referencedTests = testsReferencingSources([file], provider);
       if (referencedTests.length > 0) {
         owners.add('auto-reference');
         addAll(fast, referencedTests.filter(isFastTestFile));

@@ -141,13 +141,18 @@ jobs:
               'docs/scripts/docs-doctor.ts',
               'package.json',
               'platform/dev-runner.ts',
+              'platform/shared/affected-test-inventory.ts',
               'platform/shared/ci-artifact-contract.ts',
               'platform/shared/ci-artifact-types.ts',
               'platform/shared/ci-contract.ts',
+              'platform/shared/ci-evidence-composition-policy-registry.ts',
               'platform/shared/ci-evidence-contract.ts',
+              'platform/shared/ci-evidence-reuse-contract.ts',
+              'platform/shared/ci-execution-environment.ts',
               'platform/shared/ci-git-changed-files.ts',
               'platform/shared/ci-pr-risk-selection.ts',
               'platform/shared/ci-verification-plan.ts',
+              'platform/shared/ci-verification-revision.ts',
               'platform/shared/collections.ts',
               'platform/shared/constants.ts',
               'platform/shared/contract-freeze-contract.ts',
@@ -161,6 +166,7 @@ jobs:
               'platform/shared/test-budget-contract.ts',
               'platform/shared/test-impact-contract.ts',
               'platform/shared/test-ownership-contract.ts',
+              'platform/shared/verification-scope-inventory.ts',
               'scripts/ci-pr-risk.ts',
               'scripts/ci-verification.ts',
               'scripts/ci-workspace-fast.ts',
@@ -183,7 +189,7 @@ jobs:
                 trustDirectories.some((directory) => entry.path.startsWith(directory)) ||
                 trustPrefixes.some((prefix) => entry.path.startsWith(prefix))
               ))
-              .map((entry) => [entry.path, `${entry.type}:${entry.sha}`])
+              .map((entry) => [entry.path, `${entry.mode}:${entry.type}:${entry.sha}`])
               .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
             if (JSON.stringify(selectTrust(headTree.data.tree)) !== JSON.stringify(selectTrust(baseTree.data.tree))) {
               throw new Error('manual-bootstrap-required: frozen head changes verifier trust-root blobs.');
@@ -226,7 +232,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sec-verification-v5-${{ steps.verification.outputs.profile }}-pr-${{ steps.verification.outputs.pull-request }}-base-${{ steps.verification.outputs.base }}-head-${{ steps.verification.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: sec-verification-v7-${{ steps.verification.outputs.profile }}-pr-${{ steps.verification.outputs.pull-request }}-base-${{ steps.verification.outputs.base }}-head-${{ steps.verification.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/ci-verification-evidence.json
           if-no-files-found: error
           retention-days: 90
