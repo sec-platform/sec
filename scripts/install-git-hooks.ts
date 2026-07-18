@@ -1,8 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { readdir, stat } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const MANAGED_HOOKS_PATH = '.githooks';
+const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v1';
 const MANAGED_PRE_COMMIT = `${MANAGED_HOOKS_PATH}/pre-commit`;
 const MANAGED_HOOKS = [
   MANAGED_PRE_COMMIT,
@@ -15,6 +17,11 @@ const MANAGED_HOOKS = [
 export interface GitHookInstallationResult {
   readonly status: 'installed' | 'managed' | 'conflict';
   readonly message: string;
+}
+
+interface ManagedHookSnapshot {
+  readonly bytes: Buffer;
+  readonly name: string;
 }
 
 function gitText(
@@ -50,8 +57,19 @@ function canonicalPath(value: string): string {
   return process.platform === 'win32' ? resolved.toLocaleLowerCase('en-US') : resolved;
 }
 
-function isManagedCommonSetting(configured: string): boolean {
+function isLegacyManagedSetting(configured: string): boolean {
   return configured.replaceAll('\\', '/').replace(/^\.\//u, '') === MANAGED_HOOKS_PATH;
+}
+
+function managedCommonRoot(commonGitDir: string): string {
+  return path.join(commonGitDir, MANAGED_COMMON_DIRECTORY);
+}
+
+function isManagedCommonSetting(configured: string, commonGitDir: string): boolean {
+  if (isLegacyManagedSetting(configured)) return true;
+  if (!path.isAbsolute(configured)) return false;
+  return canonicalPath(path.dirname(configured)) === canonicalPath(managedCommonRoot(commonGitDir))
+    && /^generation-[0-9a-f]{64}(?:-[0-9a-f-]{36})?$/u.test(path.basename(configured));
 }
 
 function resolveGitPath(repoRoot: string, configured: string): string {
@@ -106,7 +124,8 @@ function conflictResult(configured: string, lifecycle: boolean): GitHookInstalla
   );
 }
 
-async function managedHookReady(repoRoot: string): Promise<boolean> {
+async function managedHookSnapshots(repoRoot: string): Promise<readonly ManagedHookSnapshot[] | null> {
+  const snapshots: ManagedHookSnapshot[] = [];
   for (const hook of MANAGED_HOOKS) {
     const tracked = gitText(
       repoRoot,
@@ -114,11 +133,58 @@ async function managedHookReady(repoRoot: string): Promise<boolean> {
       { allowMissing: true }
     );
     const escapedHook = hook.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-    if (tracked === null || !(new RegExp(`^100755 [0-9a-f]{40,64} 0\\t${escapedHook}$`, 'u')).test(tracked)) {
-      return false;
-    }
+    const match = tracked === null
+      ? null
+      : (new RegExp(`^100755 ([0-9a-f]{40,64}) 0\\t${escapedHook}$`, 'u')).exec(tracked);
+    if (match === null) return null;
+    const sourcePath = path.join(repoRoot, ...hook.split('/'));
     try {
-      if (!(await stat(path.join(repoRoot, ...hook.split('/')))).isFile()) return false;
+      if (!(await stat(sourcePath)).isFile()) return null;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+    const bytes = await readFile(sourcePath);
+    const objectHash = match[1].length === 40 ? 'sha1' : 'sha256';
+    const workingBlob = createHash(objectHash)
+      .update(`blob ${bytes.byteLength}\0`)
+      .update(bytes)
+      .digest('hex');
+    if (workingBlob !== match[1]) return null;
+    snapshots.push(Object.freeze({
+      bytes,
+      name: path.basename(hook)
+    }));
+  }
+  return Object.freeze(snapshots);
+}
+
+function managedGenerationDigest(snapshots: readonly ManagedHookSnapshot[]): string {
+  const hash = createHash('sha256');
+  hash.update('sec-managed-hooks-v1\0');
+  for (const snapshot of snapshots) {
+    hash.update(`${snapshot.name}\0${snapshot.bytes.byteLength}\0`);
+    hash.update(snapshot.bytes);
+  }
+  return hash.digest('hex');
+}
+
+async function managedGenerationReady(
+  generationPath: string,
+  snapshots: readonly ManagedHookSnapshot[]
+): Promise<boolean> {
+  for (const snapshot of snapshots) {
+    const installedPath = path.join(generationPath, snapshot.name);
+    try {
+      const [installedStat, installedBytes] = await Promise.all([
+        stat(installedPath),
+        readFile(installedPath)
+      ]);
+      if (
+        !installedStat.isFile()
+        || !installedBytes.equals(snapshot.bytes)
+        || (process.platform !== 'win32' && (installedStat.mode & 0o111) === 0)
+      ) return false;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
       throw error;
@@ -127,18 +193,62 @@ async function managedHookReady(repoRoot: string): Promise<boolean> {
   return true;
 }
 
+async function materializeManagedGeneration(
+  commonGitDir: string,
+  snapshots: readonly ManagedHookSnapshot[],
+  preferredGeneration: string | null
+): Promise<string> {
+  const commonRoot = managedCommonRoot(commonGitDir);
+  const digest = managedGenerationDigest(snapshots);
+  const primaryGeneration = path.join(commonRoot, `generation-${digest}`);
+  if (preferredGeneration !== null && await managedGenerationReady(preferredGeneration, snapshots)) {
+    return preferredGeneration;
+  }
+  if (await managedGenerationReady(primaryGeneration, snapshots)) return primaryGeneration;
+
+  await mkdir(commonRoot, { recursive: true });
+  const stagingPath = path.join(commonRoot, `.staging-${process.pid}-${randomUUID()}`);
+  await mkdir(stagingPath);
+  try {
+    await Promise.all(snapshots.map(async (snapshot) => {
+      const installedPath = path.join(stagingPath, snapshot.name);
+      await writeFile(installedPath, snapshot.bytes, { mode: 0o755 });
+      await chmod(installedPath, 0o755);
+    }));
+
+    let publishedPath = primaryGeneration;
+    try {
+      await rename(stagingPath, publishedPath);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!['EEXIST', 'ENOTEMPTY', 'EPERM'].includes(code ?? '')) throw error;
+      if (await managedGenerationReady(primaryGeneration, snapshots)) return primaryGeneration;
+      publishedPath = `${primaryGeneration}-${randomUUID()}`;
+      await rename(stagingPath, publishedPath);
+    }
+    if (!await managedGenerationReady(publishedPath, snapshots)) {
+      throw new Error('Published repository-common Git hook generation failed validation');
+    }
+    return publishedPath;
+  } finally {
+    await rm(stagingPath, { recursive: true, force: true });
+  }
+}
+
 export async function installGitHooks(options: {
   readonly repoRoot: string;
   readonly lifecycle?: boolean;
 }): Promise<GitHookInstallationResult> {
   const repoRoot = path.resolve(options.repoRoot);
-  const managedAbsolute = path.resolve(repoRoot, MANAGED_HOOKS_PATH);
-  if (!await managedHookReady(repoRoot)) {
+  const snapshots = await managedHookSnapshots(repoRoot);
+  if (snapshots === null) {
     return stoppedResult(
-      `Tracked executable managed hooks are unavailable; Git hook authority was not changed.`,
+      `Tracked, executable, index-identical managed hooks are unavailable; Git hook authority was not changed.`,
       options.lifecycle ?? false
     );
   }
+  const commonGitDir = gitText(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (commonGitDir === null) throw new Error('Git common directory is unavailable');
   const worktreeConfigEnabled = gitText(
     repoRoot,
     ['config', '--local', '--type=bool', '--get', 'extensions.worktreeConfig'],
@@ -155,43 +265,48 @@ export async function installGitHooks(options: {
 
   if (
     worktreeConfigured !== null
-    && canonicalPath(resolveGitPath(repoRoot, worktreeConfigured)) !== canonicalPath(managedAbsolute)
+    && !isManagedCommonSetting(worktreeConfigured, commonGitDir)
   ) {
     const authority = await firstConfiguredHookAuthority(repoRoot, worktreeConfigured);
     if (authority !== null) return conflictResult(authority, options.lifecycle ?? false);
   }
 
-  if (commonConfigured !== null && !isManagedCommonSetting(commonConfigured)) {
+  if (commonConfigured !== null && !isManagedCommonSetting(commonConfigured, commonGitDir)) {
     const authority = await firstConfiguredHookAuthority(repoRoot, commonConfigured);
     if (authority !== null) return conflictResult(authority, options.lifecycle ?? false);
   } else if (commonConfigured === null) {
-    const commonGitDir = gitText(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
-    if (commonGitDir === null) throw new Error('Git common directory is unavailable');
     const realHook = await firstRealHook(path.join(commonGitDir, 'hooks'));
     if (realHook !== null) return conflictResult(realHook, options.lifecycle ?? false);
   }
 
-  const commonManaged = commonConfigured !== null && isManagedCommonSetting(commonConfigured);
+  const preferredGeneration = commonConfigured !== null
+    && !isLegacyManagedSetting(commonConfigured)
+    && isManagedCommonSetting(commonConfigured, commonGitDir)
+    ? resolveGitPath(repoRoot, commonConfigured)
+    : null;
+  const generationPath = await materializeManagedGeneration(commonGitDir, snapshots, preferredGeneration);
+  const commonMatchesGeneration = commonConfigured !== null
+    && canonicalPath(resolveGitPath(repoRoot, commonConfigured)) === canonicalPath(generationPath);
   const worktreeOverridePresent = worktreeConfigured !== null;
   if (!worktreeConfigEnabled) {
     gitText(repoRoot, ['config', '--local', 'extensions.worktreeConfig', 'true']);
   }
-  if (!commonManaged) {
-    gitText(repoRoot, ['config', '--local', 'core.hooksPath', MANAGED_HOOKS_PATH]);
+  if (!commonMatchesGeneration) {
+    gitText(repoRoot, ['config', '--local', 'core.hooksPath', generationPath]);
   }
   if (worktreeOverridePresent) {
     gitText(repoRoot, ['config', '--worktree', '--unset-all', 'core.hooksPath'], { allowMissing: true });
   }
 
-  if (commonManaged && !worktreeOverridePresent) {
+  if (commonMatchesGeneration && !worktreeOverridePresent) {
     return Object.freeze({
       status: 'managed',
-      message: `Git hooks already use repository-common ${MANAGED_HOOKS_PATH}.`
+      message: `Git hooks already use validated repository-common generation ${generationPath}.`
     });
   }
   return Object.freeze({
     status: 'installed',
-    message: `Configured repository-common core.hooksPath=${MANAGED_HOOKS_PATH}; future worktrees inherit it before checkout.`
+    message: `Configured repository-common core.hooksPath=${generationPath}; future worktrees inherit it before checkout.`
   });
 }
 
