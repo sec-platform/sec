@@ -1036,6 +1036,67 @@ test('workflow_run planner invalidates early attempts and executes one completed
   expect(completed.statuses).toEqual([expect.objectContaining({ sha: ready.head.sha, state: 'pending' })]);
 });
 
+test('workflow run names preserve complete canonical producer and lookup identities after YAML parsing', async () => {
+  const verificationTemplate = 'verify frozen PR #${{ github.event.client_payload.pull_request }} ${{ github.event.client_payload.profile }} @ ${{ github.event.client_payload.expected_head }} base ${{ github.event.client_payload.expected_base }}';
+  const attestationTemplate = '${{ github.event.action || github.event_name }} PR #${{ github.event.client_payload.pull_request }} head ${{ github.event.client_payload.expected_head }} base ${{ github.event.client_payload.expected_base }} manifest ${{ github.event.client_payload.manifest_digest }}';
+  const verificationWorkflow = parse(await readCompilerFile('.github/workflows/compiler-pr-validation.yml')) as {
+    'run-name'?: unknown;
+  };
+  const mergeWorkflow = parse(await readCompilerFile('.github/workflows/sec-merge-gate.yml')) as {
+    'run-name'?: unknown;
+  };
+  expect(verificationWorkflow['run-name']).toBe(verificationTemplate);
+  expect(mergeWorkflow['run-name']).toBe(attestationTemplate);
+
+  const ready: PlannerPull = {
+    number: 117,
+    draft: false,
+    head: { sha: '8'.repeat(40), repo: { id: 1 } },
+    base: { ref: 'main', repo: { id: 1 } }
+  };
+  const currentBase = '9'.repeat(40);
+  const renderedVerificationTitle = verificationTemplate
+    .replace('${{ github.event.client_payload.pull_request }}', String(ready.number))
+    .replace('${{ github.event.client_payload.profile }}', 'quick')
+    .replace('${{ github.event.client_payload.expected_head }}', ready.head.sha)
+    .replace('${{ github.event.client_payload.expected_base }}', currentBase);
+  expect(renderedVerificationTitle).toBe(
+    `verify frozen PR #117 quick @ ${ready.head.sha} base ${currentBase}`
+  );
+  const manifestDigest = `sha256:${'a'.repeat(64)}`;
+  const renderedAttestationTitle = attestationTemplate
+    .replace('${{ github.event.action || github.event_name }}', 'sec-scope-attest-v1')
+    .replace('${{ github.event.client_payload.pull_request }}', String(ready.number))
+    .replace('${{ github.event.client_payload.expected_head }}', ready.head.sha)
+    .replace('${{ github.event.client_payload.expected_base }}', currentBase)
+    .replace('${{ github.event.client_payload.manifest_digest }}', manifestDigest);
+  expect(renderedAttestationTitle).toBe(
+    `sec-scope-attest-v1 PR #117 head ${ready.head.sha} base ${currentBase} manifest ${manifestDigest}`
+  );
+  const accepted = await runRevalidationPlanner([ready], {
+    EVENT_NAME: 'workflow_run',
+    EVENT_TITLE: renderedVerificationTitle,
+    WORKFLOW_STATUS: 'completed'
+  });
+  expect(JSON.parse(accepted.matrix)).toEqual({ include: [{ pull_request: 117, head: ready.head.sha }] });
+  await expect(runRevalidationPlanner([ready], {
+    EVENT_NAME: 'workflow_run',
+    EVENT_TITLE: 'verify frozen PR',
+    WORKFLOW_STATUS: 'completed'
+  })).rejects.toThrow('does not carry one canonical PR/head key');
+
+  const mergeSource = await readCompilerFile('.github/workflows/sec-merge-gate.yml');
+  expect(mergeSource).toContain(
+    'const attestationTitle = `sec-scope-attest-v1 PR #${pullNumber} head ${process.env.EXACT_HEAD} base ${currentBase} manifest ${digest}`;'
+  );
+  expect(mergeSource).toContain(
+    'const verificationTitle = `verify frozen PR #${pullNumber} ${process.env.VERIFICATION_PROFILE} @ ${process.env.EXACT_HEAD} base ${currentBase}`;'
+  );
+  expect(mergeSource).toContain(
+    'new RegExp(`^verify frozen PR #${pullNumber} (quick|full) @ ${exactHead} base ${currentBase}$`)'
+  );
+});
+
 test('trusted workflows pin actions, revalidate drift, and only materialize candidate Git objects as data', async () => {
   const mergeWorkflow = (await readCompilerFile('.github/workflows/sec-merge-gate.yml')).replaceAll(
     '\r\n',
