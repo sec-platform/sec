@@ -361,6 +361,8 @@ test('runner resolves the real P0 registry and executes its exact direct gate pl
   expect(calls.some(({ argv }) => argv.includes('test:affected'))).toBe(false);
   expect(calls.some(({ argv }) => argv.includes('scripts/ci-pr-risk.ts'))).toBe(false);
   expect(calls.some(({ argv }) => argv.some((part) => /playwright/iu.test(part)))).toBe(false);
+  expect(calls.every(({ env }) => env.SEC_CHANGED_BASE === BASE)).toBe(true);
+  expect(calls.every(({ env }) => env.SEC_IMPORTS_CHANGED_ONLY === '1')).toBe(true);
   expect(calls.find(({ id }) => id === 'sm3-p0-production-delta')?.env).toMatchObject({
     SEC_RUN_SM3_PRODUCTION_SENTINEL: '1'
   });

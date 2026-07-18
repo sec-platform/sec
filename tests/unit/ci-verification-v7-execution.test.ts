@@ -14,6 +14,7 @@ import {
   type CodexDevelopmentEvidenceCompositionPolicyV1,
   type CodexDevelopmentExactGitBlobV1
 } from '../../platform/shared/ci-evidence-reuse-contract.ts';
+import { CodexDevelopmentBuildSanitizedChildEnvironmentV1 } from '../../platform/shared/ci-execution-environment.ts';
 import {
   CodexDevelopmentBuildChangedInputDigestV1,
   CodexDevelopmentBuildVerificationScopeInventoryV1
@@ -40,7 +41,8 @@ const COMPOSITION_AMBIENT_ENV: NodeJS.ProcessEnv = {
   SYSTEMROOT: 'C:\\Windows',
   HOME: 'C:\\fixture-home',
   TEMP: 'C:\\fixture-temp',
-  CI: 'true'
+  CI: 'true',
+  SEC_CHANGED_BASE: BASE
 };
 
 function gitBlobSha(bytes: Uint8Array): string {
@@ -351,9 +353,11 @@ test('V2 runner preserves canonical gates, replaces aggregate selectors, binds d
     /playwright|test:slow|--suite|ci-pr-risk/iu.test(arg)
   )))).toBe(true);
   expect(runCalls.every((call) => /^verification-/u.test(call.env.SEC_TEST_WORKSPACE_NAMESPACE ?? ''))).toBe(true);
+  expect(runCalls.every((call) => call.env.SEC_CHANGED_BASE === BASE)).toBe(true);
+  expect(runCalls.every((call) => call.env.SEC_IMPORTS_CHANGED_ONLY === '1')).toBe(true);
   const expectedBaseEnvironmentKeys = [
     'CI', 'HOME', 'LANG', 'LC_ALL', 'NO_COLOR', 'PATH', 'SEC_TEST_WORKSPACE_NAMESPACE',
-    'SYSTEMROOT', 'TEMP', 'TZ'
+    'SEC_CHANGED_BASE', 'SEC_IMPORTS_CHANGED_ONLY', 'SYSTEMROOT', 'TEMP', 'TZ'
   ];
   for (const call of runCalls) {
     const expectedKeys = call.id === 'runner-synthetic-delta'
@@ -388,6 +392,14 @@ test('changed-input digest is content-addressed across rebases while retaining e
   expect(digest('a'.repeat(40), 'c'.repeat(40))).not.toBe(
     digest('a'.repeat(40), 'c'.repeat(40), '100755')
   );
+});
+
+test('V7 sanitized environment rejects a non-exact changed base', () => {
+  expect(() => CodexDevelopmentBuildSanitizedChildEnvironmentV1(
+    { PATH: 'C:\\trusted-bin', SEC_CHANGED_BASE: 'base-ref' },
+    {},
+    'runner-fixture'
+  )).toThrow('exact lowercase commit SHA');
 });
 
 test('V2 runner rejects a drifted base policy before the first subprocess spawn', async () => {

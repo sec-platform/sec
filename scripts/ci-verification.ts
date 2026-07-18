@@ -340,6 +340,7 @@ export async function CodexDevelopmentCiVerificationMain(
   let steps: CiVerificationGateStep[] = [];
   let gates: CodexDevelopmentVerificationGateEvidenceV2[] = [];
   let compositionPlan: CodexDevelopmentEvidenceCompositionPlanV1 | null = null;
+  let compositionExecutionEnvironment: NodeJS.ProcessEnv | null = null;
   let compositionGates: CodexDevelopmentVerificationGateEvidenceV3[] = [];
   let failure: CodexDevelopmentVerificationEvidenceV2['failure'] = null;
   let exitCode = 0;
@@ -438,6 +439,7 @@ export async function CodexDevelopmentCiVerificationMain(
       });
       files = inventory.fullChangedFiles;
       selectionResolved = true;
+      compositionExecutionEnvironment = { ...env, SEC_CHANGED_BASE: prBaseSha };
       compositionPlan = CodexDevelopmentBuildEvidenceCompositionPlanV1({
         policyId: binding.manifest.evidenceComposition.policyId,
         workPackageId: binding.manifest.id,
@@ -460,7 +462,7 @@ export async function CodexDevelopmentCiVerificationMain(
             gitBlob
           })
         )),
-        executionEnvironment: env
+        executionEnvironment: compositionExecutionEnvironment
       });
       compositionGates = compositionPlan.gates.map(notRunCompositionGate);
       for (const gate of compositionPlan.gates) {
@@ -504,7 +506,14 @@ export async function CodexDevelopmentCiVerificationMain(
         console.log(`::group::SEC verification: ${gate.gateId}`);
         let result: GateProcessResult;
         try {
-          const childEnvironment = CodexDevelopmentBuildSanitizedChildEnvironmentV1(env, gate.env, gate.gateId);
+          if (!compositionExecutionEnvironment) {
+            throw new Error('CI verification V7 execution environment was not initialized.');
+          }
+          const childEnvironment = CodexDevelopmentBuildSanitizedChildEnvironmentV1(
+            compositionExecutionEnvironment,
+            gate.env,
+            gate.gateId
+          );
           if (
             childEnvironment.binding.allowlistRevision !== gate.envAllowlistRevision
             || childEnvironment.binding.digest !== gate.envDigest
