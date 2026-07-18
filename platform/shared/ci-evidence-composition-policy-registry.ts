@@ -69,7 +69,7 @@ const PROTECTED_PRODUCT_TRANSITIONS: readonly ProtectedTransition[] = [
   ['platform/shared/workspace-write-lease.ts', 'changed', '63ed67cd0c0a0d9fdf3aa73b81e3f9a82aa3468f', '57a651b0693fde3cd465d13e7d77ae7cd2a40746'],
   ['tests/contract/semantic-mutation-apply-contract.test.ts', 'changed', 'af7188a3caaa2d926391efacb6ff039b356e3c0a', 'dbdb66ae661b79b604ffc6e79dfaca2ebeaf8239'],
   ['tests/contract/test-architecture.test.ts', 'changed', '7ed7004fb996c5dd09fa4610acfb960600ca3d35', '6aebefe3fec6f0f18eda103fe04a364124729452'],
-  ['tests/contract/test-impact.test.ts', 'changed', '6e9d931a32f8e5e1e0247d1fc74a0bbda5d219fc', 'c7fe5d1e90a9ca31884cb39b873c2f564b789ea6'],
+  ['tests/contract/test-impact.test.ts', 'changed', '6e9d931a32f8e5e1e0247d1fc74a0bbda5d219fc', '5d7da4f7df39bd18ba4acff5263c6166557f1459'],
   [PRODUCTION_HELPER, 'added', null, '3b7bef28eef8c1279ed4f5d523a001e53429f47f'],
   [APPLY_TEST, 'changed', '524a994a2b02ec2e09eab0b0331e5bdbd8367892', '0d21dbf6839572d9e3e840ee9cb411ae909c9777'],
   [PRODUCTION_WRAPPER, 'added', null, 'ef528bfb6cd55287b4fd101d8841cf33d8391920'],
