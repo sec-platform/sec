@@ -431,7 +431,9 @@ async function p0MergeFixture() {
       if (ref === 'HEAD') return P0_HEAD;
       if (ref === 'HEAD^{tree}') return treeIds.get(P0_HEAD)!;
       if (ref === 'HEAD^1' || ref === 'base-ref') return P0_BASE;
-      return treeIds.get(ref) ?? null;
+      if (treeIds.has(ref)) return ref;
+      const treeRef = /^(?<commit>[0-9a-f]{40})\^\{tree\}$/u.exec(ref)?.groups?.commit;
+      return treeRef ? treeIds.get(treeRef) ?? null : null;
     },
     trackedTreeIsClean: () => true,
     changedRecords: () => [...changedRecords],

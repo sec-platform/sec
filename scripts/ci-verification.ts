@@ -448,7 +448,7 @@ export async function CodexDevelopmentCiVerificationMain(
         currentHead: headSha,
         currentTree: treeSha,
         gitBlob,
-        gitTree: gitRevision,
+        gitTree: (ref) => gitRevision(`${ref}^{tree}`),
         readEvidence: readGitBlob,
         resolvePolicy: options.resolvePolicy ?? ((policyId) => (
           CodexDevelopmentRegisteredEvidenceCompositionPolicyV1({
