@@ -10,7 +10,8 @@ import {
   workPackageProfileProbeEmptyDigestForTests
 } from '../../scripts/diagnose-work-package-profile-probe.ts';
 import {
-  runWorkPackageProfileProbe
+  runWorkPackageProfileProbe,
+  workPackageProfileProbeExecutablePaths
 } from '../../scripts/work-package-profile-probe.ts';
 
 function outcome(overrides: Partial<ObservedCommandOutcome> = {}): ObservedCommandOutcome {
@@ -78,6 +79,12 @@ test('shared profile probe preserves the frozen invocation and redacts accepted 
   expect(args[4]).toContain('reg query');
   expect(options).toMatchObject({
     cwd: String.raw`C:\Windows\System32`,
+    env: {
+      PATH: '',
+      SystemRoot: String.raw`C:\Windows`,
+      SYSTEMROOT: String.raw`C:\Windows`,
+      WINDIR: String.raw`C:\Windows`
+    },
     envMode: 'replace',
     maxObservedOutputBytes: 1024 * 1024,
     timeoutMs: 22_500,
@@ -97,6 +104,17 @@ test('shared profile probe preserves the frozen invocation and redacts accepted 
   });
   expect(JSON.stringify(result.diagnostic)).not.toContain(rawIdentity);
   expect(() => assertPersistableProfileDiagnostic(result.diagnostic)).not.toThrow();
+});
+
+test('shared profile probe builds Windows-canonical executable paths independent of the host', () => {
+  expect(workPackageProfileProbeExecutablePaths(String.raw`D:\Host\Windows`)).toEqual({
+    powershell: String.raw`D:\Host\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`,
+    reg: String.raw`D:\Host\Windows\System32\reg.exe`
+  });
+  expect(workPackageProfileProbeExecutablePaths('relative-windows-root')).toEqual({
+    powershell: String.raw`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`,
+    reg: String.raw`C:\Windows\System32\reg.exe`
+  });
 });
 
 test('shared profile probe keeps exit 7 and exit 11 as distinct path-free diagnoses', async () => {

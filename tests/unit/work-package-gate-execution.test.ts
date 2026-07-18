@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFile, link, lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, link, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { afterEach, beforeEach, expect, test } from 'bun:test';
@@ -20,6 +20,7 @@ import {
   workPackageGateProbeOutcomeAcceptedForTests,
   workPackageGateProtectedLedgerDigestForTests,
   workPackageGateProtectedPathAuthorityForTests,
+  workPackageGateProtectedPathSnapshotDigestForTests,
   workPackageGateR2ExecutionSnapshotOwnerAcceptedForTests,
   workPackageGateReadTextForTests,
   workPackageGateRecoveryRecordAuthorityPathForTests,
@@ -138,6 +139,31 @@ const syntheticFilesystemIdentityExpectation = Object.freeze({
 test('Windows namespace mutex is global across interactive and service sessions', () => {
   expect(workPackageGateNamespaceMutexNameForTests(v4RunDir))
     .toMatch(/^Global\\sec-work-package-gate-[0-9a-f]{32}-owned$/u);
+});
+
+test('protected directory snapshot ignores child link-count drift but detects path replacement', async () => {
+  const root = await mkdtemp(path.join(repoRoot, '.tmp', 'work-package-gate-directory-snapshot-'));
+  const protectedDirectory = path.join(root, 'protected');
+  const displacedDirectory = path.join(root, 'protected-original');
+  const authority = Object.freeze([
+    Object.freeze({ path: protectedDirectory, required: true })
+  ]);
+  try {
+    await mkdir(protectedDirectory);
+    const baseline = await workPackageGateProtectedPathSnapshotDigestForTests(authority);
+
+    const childDirectory = path.join(protectedDirectory, 'child');
+    await mkdir(childDirectory);
+    expect(await workPackageGateProtectedPathSnapshotDigestForTests(authority)).toBe(baseline);
+    await rm(childDirectory, { recursive: true, force: true });
+    expect(await workPackageGateProtectedPathSnapshotDigestForTests(authority)).toBe(baseline);
+
+    await rename(protectedDirectory, displacedDirectory);
+    await mkdir(protectedDirectory);
+    expect(await workPackageGateProtectedPathSnapshotDigestForTests(authority)).not.toBe(baseline);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 const fakeProtectedPathAuthority = Object.freeze([

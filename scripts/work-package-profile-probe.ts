@@ -172,11 +172,11 @@ function executablePaths(systemRoot: string): Readonly<{
   reg: string;
   systemDirectory: string;
 }> {
-  const configuredRoot = path.isAbsolute(systemRoot) ? systemRoot : String.raw`C:\Windows`;
-  const systemDirectory = path.join(configuredRoot, 'System32');
+  const configuredRoot = path.win32.isAbsolute(systemRoot) ? systemRoot : String.raw`C:\Windows`;
+  const systemDirectory = path.win32.join(configuredRoot, 'System32');
   return Object.freeze({
-    powershell: path.join(systemDirectory, 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    reg: path.join(systemDirectory, 'reg.exe'),
+    powershell: path.win32.join(systemDirectory, 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    reg: path.win32.join(systemDirectory, 'reg.exe'),
     systemDirectory
   });
 }
@@ -291,9 +291,9 @@ export async function runWorkPackageProfileProbe(
   ]);
   const env = Object.freeze({
     PATH: '',
-    SystemRoot: path.dirname(executables.systemDirectory) || dependencies.systemRoot,
-    SYSTEMROOT: path.dirname(executables.systemDirectory) || dependencies.systemRoot,
-    WINDIR: path.dirname(executables.systemDirectory) || dependencies.systemRoot
+    SystemRoot: path.win32.dirname(executables.systemDirectory) || dependencies.systemRoot,
+    SYSTEMROOT: path.win32.dirname(executables.systemDirectory) || dependencies.systemRoot,
+    WINDIR: path.win32.dirname(executables.systemDirectory) || dependencies.systemRoot
   });
   const options: ObservedCommandOptions = {
     ...(dependencies.beforeSpawn ? { beforeSpawn: dependencies.beforeSpawn } : {}),
