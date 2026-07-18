@@ -1,16 +1,23 @@
 import { expect, test } from 'bun:test';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
   buildIsolatedRuntimeEnvironment,
-  bunRunInvocation,
   captureIsolatedRuntimeBuildNodeModulesProofForTests,
+  createSkippedRuntimeLane,
   isolatedPlaywrightBrowsersPath,
   normalizeRuntimeVerificationLog,
   resolveIsolatedRuntimeDependencySourcesForTests,
-  revalidateIsolatedRuntimeBuildNodeModulesProofForTests
+  revalidateIsolatedRuntimeBuildNodeModulesProofForTests,
+  runtimeVerificationInvocation
 } from '../../platform/compiler/verify/run-runtime-verification.ts';
+import {
+  RUNTIME_VERIFICATION_INVOCATION_CONTRACT
+} from '../../platform/compiler/verify/runtime-verification-invocation-contract.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
+import { runCommand } from '../../platform/shared/process.ts';
 
 function metadata(
   identity: string,
@@ -48,15 +55,118 @@ test('runtime verification logs normalize elapsed durations', () => {
   expect(normalizeRuntimeVerificationLog('completed [1.2s]\n')).toBe('completed [duration]\n');
 });
 
-test('isolated runtime uses fixed Bun argv without auto-install', () => {
+test('runtime invocation preserves non-isolated package-script behavior', () => {
+  const projectRoot = path.resolve('runtime-project');
+  expect(runtimeVerificationInvocation('build', projectRoot)).toEqual({
+    command: 'bun',
+    args: ['run', 'build']
+  });
+  expect(runtimeVerificationInvocation('unit', projectRoot)).toEqual({
+    command: 'bun',
+    args: ['run', 'test:unit']
+  });
+  expect(runtimeVerificationInvocation('acceptance', projectRoot)).toEqual({
+    command: 'bun',
+    args: ['run', 'test:acceptance']
+  });
+  expect(createSkippedRuntimeLane()).toMatchObject({
+    build: { command: 'bun run build' },
+    unit: { command: 'bun run test:unit' },
+    acceptance: { command: 'bun run test:acceptance' }
+  });
+});
+
+test('isolated runtime invokes canonical modules with exact PATH-independent Bun argv', () => {
+  const projectRoot = path.resolve('runtime-project');
   const stagingRoot = path.resolve('isolated-staging-contract');
   const fixedConfigPath = path.join(stagingRoot, '.isolated-process', 'runtime', 'bunfig.toml');
-  expect(() => bunRunInvocation('build', true)).toThrow('requires a fixed config path');
-  expect(bunRunInvocation('build', true, fixedConfigPath)).toEqual({
+  const fixedArgs = ['--no-env-file', `--config=${fixedConfigPath}`, '--no-install'];
+  expect(() => runtimeVerificationInvocation('build', projectRoot, true)).toThrow('requires a fixed config path');
+  expect(runtimeVerificationInvocation('build', projectRoot, true, fixedConfigPath)).toEqual({
     command: process.execPath,
-    args: ['--no-env-file', `--config=${fixedConfigPath}`, '--no-install', 'run', 'build']
+    args: [
+      ...fixedArgs,
+      path.join(
+        projectRoot,
+        'node_modules',
+        ...RUNTIME_VERIFICATION_INVOCATION_CONTRACT.build.moduleRelativePath!.split('/')
+      ),
+      'build',
+      '--webpack'
+    ]
+  });
+  expect(runtimeVerificationInvocation('unit', projectRoot, true, fixedConfigPath)).toEqual({
+    command: process.execPath,
+    args: [...fixedArgs, 'test', 'tests/runtime/unit']
+  });
+  expect(runtimeVerificationInvocation('acceptance', projectRoot, true, fixedConfigPath)).toEqual({
+    command: process.execPath,
+    args: [
+      ...fixedArgs,
+      path.join(
+        projectRoot,
+        'node_modules',
+        ...RUNTIME_VERIFICATION_INVOCATION_CONTRACT.acceptance.moduleRelativePath!.split('/')
+      ),
+      'test',
+      '--config',
+      'playwright.config.ts'
+    ]
   });
   expect(path.relative(stagingRoot, fixedConfigPath).startsWith('..')).toBe(false);
+});
+
+test('isolated runtime executes direct canonical modules with an empty PATH', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-runtime-direct-modules-'));
+  try {
+    const projectRoot = path.join(root, 'project');
+    const stagingRoot = path.join(root, 'staging');
+    const fixedConfigPath = path.join(stagingRoot, '.isolated-process', 'runtime', 'bunfig.toml');
+    const nextCli = path.join(
+      projectRoot,
+      'node_modules',
+      ...RUNTIME_VERIFICATION_INVOCATION_CONTRACT.build.moduleRelativePath!.split('/')
+    );
+    const acceptanceCli = path.join(
+      projectRoot,
+      'node_modules',
+      ...RUNTIME_VERIFICATION_INVOCATION_CONTRACT.acceptance.moduleRelativePath!.split('/')
+    );
+    const outputPath = path.join(projectRoot, 'direct-module-argv.json');
+    const recorder = [
+      "import { writeFile } from 'node:fs/promises';",
+      "await writeFile('direct-module-argv.json', JSON.stringify(process.argv.slice(2)));",
+      ''
+    ].join('\n');
+    await Promise.all([
+      mkdir(path.dirname(nextCli), { recursive: true }),
+      mkdir(path.dirname(acceptanceCli), { recursive: true }),
+      mkdir(path.dirname(fixedConfigPath), { recursive: true })
+    ]);
+    await Promise.all([
+      writeFile(nextCli, recorder, 'utf8'),
+      writeFile(acceptanceCli, recorder, 'utf8'),
+      writeFile(fixedConfigPath, '# isolated runtime\n', 'utf8')
+    ]);
+    const env = buildIsolatedRuntimeEnvironment(stagingRoot);
+    expect(env.PATH).toBe('');
+
+    for (const [step, expected] of [
+      ['build', ['build', '--webpack']],
+      ['acceptance', ['test', '--config', 'playwright.config.ts']]
+    ] as const) {
+      const invocation = runtimeVerificationInvocation(step, projectRoot, true, fixedConfigPath);
+      const result = await runCommand(invocation.command, invocation.args, {
+        cwd: projectRoot,
+        env,
+        envMode: 'replace'
+      });
+      expect(result.code).toBe(0);
+      expect(JSON.parse(await readFile(outputPath, 'utf8'))).toEqual(expected);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('isolated dependency sources derive one curated pair from an external physical bridge host', () => {

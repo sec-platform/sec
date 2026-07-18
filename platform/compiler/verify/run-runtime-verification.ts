@@ -21,6 +21,10 @@ import {
   assertIsolatedStagingTree,
   type IsolatedStagingTreeOptions
 } from './assert-isolated-staging-tree.ts';
+import {
+  RUNTIME_VERIFICATION_INVOCATION_CONTRACT,
+  type RuntimeVerificationStep
+} from './runtime-verification-invocation-contract.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
 
@@ -33,28 +37,29 @@ type RuntimeVerificationOptions = {
   stagingWorkspaceRoot?: string;
 };
 
-type RuntimeVerificationStep = 'build' | 'unit' | 'acceptance';
-
-const RUNTIME_VERIFICATION_COMMANDS = {
-  build: 'bun run build',
-  unit: 'bun run test:unit',
-  acceptance: 'bun run test:acceptance'
-} satisfies Record<RuntimeVerificationStep, string>;
-
-export function bunRunInvocation(
-  script: string,
+export function runtimeVerificationInvocation(
+  step: RuntimeVerificationStep,
+  projectRoot: string,
   isolated = false,
   isolatedConfigPath?: string
 ): { command: string; args: string[] } {
   if (isolated && !isolatedConfigPath) {
     throw new Error('Isolated Bun invocation requires a fixed config path');
   }
-  return isolated
-    ? {
-        command: process.execPath,
-        args: ['--no-env-file', `--config=${isolatedConfigPath!}`, '--no-install', 'run', script]
-      }
-    : { command: 'bun', args: ['run', script] };
+  const descriptor = RUNTIME_VERIFICATION_INVOCATION_CONTRACT[step];
+  if (!isolated) {
+    return { command: 'bun', args: ['run', descriptor.packageScript] };
+  }
+
+  const fixedArgs = ['--no-env-file', `--config=${isolatedConfigPath!}`, '--no-install'];
+  const canonicalProjectRoot = path.resolve(projectRoot);
+  const moduleArg = descriptor.moduleRelativePath === null
+    ? []
+    : [path.join(canonicalProjectRoot, 'node_modules', ...descriptor.moduleRelativePath.split('/'))];
+  return {
+    command: process.execPath,
+    args: [...fixedArgs, ...moduleArg, ...descriptor.argvTail]
+  };
 }
 
 interface DependencyPathMetadata {
@@ -320,9 +325,11 @@ function createRuntimeCommandStep(command: string, code: number, files: string[]
 export function createSkippedRuntimeLane(): RuntimeVerificationLaneReport {
   return {
     status: 'skipped',
-    build: createSkippedRuntimeStep(RUNTIME_VERIFICATION_COMMANDS.build),
-    unit: createSkippedRuntimeStep(RUNTIME_VERIFICATION_COMMANDS.unit),
-    acceptance: createSkippedRuntimeStep(RUNTIME_VERIFICATION_COMMANDS.acceptance),
+    build: createSkippedRuntimeStep(RUNTIME_VERIFICATION_INVOCATION_CONTRACT.build.logicalCommandLabel),
+    unit: createSkippedRuntimeStep(RUNTIME_VERIFICATION_INVOCATION_CONTRACT.unit.logicalCommandLabel),
+    acceptance: createSkippedRuntimeStep(
+      RUNTIME_VERIFICATION_INVOCATION_CONTRACT.acceptance.logicalCommandLabel
+    ),
     logs: {
       stdout: '',
       stderr: ''
@@ -478,12 +485,16 @@ export async function runRuntimeVerification(
 
   try {
     if (mode === 'full') {
-      const buildInvocation = bunRunInvocation('build', isolated, isolatedConfigPath);
+      const buildInvocation = runtimeVerificationInvocation('build', projectRoot, isolated, isolatedConfigPath);
       const buildResult = await timed('next build', emitTiming, () =>
         withIsolatedPhaseTelemetry('next-build', () => runRuntimeCommand(buildInvocation, baseEnv))
       );
       lane.status = normalizeStatus(buildResult.code);
-      lane.build = createRuntimeCommandStep(RUNTIME_VERIFICATION_COMMANDS.build, buildResult.code, ['next build']);
+      lane.build = createRuntimeCommandStep(
+        RUNTIME_VERIFICATION_INVOCATION_CONTRACT.build.logicalCommandLabel,
+        buildResult.code,
+        ['next build']
+      );
       appendCommandOutput(lane.logs, buildResult, 'runtime-build:passed');
 
       if (buildResult.code !== 0) {
@@ -492,11 +503,15 @@ export async function runRuntimeVerification(
     }
 
     if (runtimeUnitFiles.length > 0) {
-      const unitInvocation = bunRunInvocation('test:unit', isolated, isolatedConfigPath);
+      const unitInvocation = runtimeVerificationInvocation('unit', projectRoot, isolated, isolatedConfigPath);
       const unitResult = await timed('bun unit', emitTiming, () =>
         withIsolatedPhaseTelemetry('unit', () => runRuntimeCommand(unitInvocation, baseEnv))
       );
-      lane.unit = createRuntimeCommandStep(RUNTIME_VERIFICATION_COMMANDS.unit, unitResult.code, runtimeUnitFiles);
+      lane.unit = createRuntimeCommandStep(
+        RUNTIME_VERIFICATION_INVOCATION_CONTRACT.unit.logicalCommandLabel,
+        unitResult.code,
+        runtimeUnitFiles
+      );
       appendCommandOutput(lane.logs, unitResult, `runtime-unit:passed ${runtimeUnitFiles.join(',')}`);
       lane.status = normalizeStatus(unitResult.code);
 
@@ -512,14 +527,24 @@ export async function runRuntimeVerification(
 
     if (runtimeAcceptanceFiles.length === 0) {
       lane.status = 'passed';
-      lane.acceptance = { status: 'passed', passed: [], failed: [], command: RUNTIME_VERIFICATION_COMMANDS.acceptance };
+      lane.acceptance = {
+        status: 'passed',
+        passed: [],
+        failed: [],
+        command: RUNTIME_VERIFICATION_INVOCATION_CONTRACT.acceptance.logicalCommandLabel
+      };
       return lane;
     }
 
     if (isolated) {
       if (!(await pathExists(isolatedPlaywrightBrowsersPath(options.stagingWorkspaceRoot!)))) {
         lane.logs.stderr += 'Preinstalled Playwright browser cache is unavailable\n';
-        lane.acceptance = createRuntimeStepReport('failed', [], runtimeAcceptanceFiles, RUNTIME_VERIFICATION_COMMANDS.acceptance);
+        lane.acceptance = createRuntimeStepReport(
+          'failed',
+          [],
+          runtimeAcceptanceFiles,
+          RUNTIME_VERIFICATION_INVOCATION_CONTRACT.acceptance.logicalCommandLabel
+        );
         lane.status = 'failed';
         return lane;
       }
@@ -529,14 +554,19 @@ export async function runRuntimeVerification(
       );
       appendCommandOutput(lane.logs, browserInstallResult, 'playwright-install:passed');
       if (browserInstallResult.code !== 0) {
-        lane.acceptance = createRuntimeStepReport('failed', [], runtimeAcceptanceFiles, RUNTIME_VERIFICATION_COMMANDS.acceptance);
+        lane.acceptance = createRuntimeStepReport(
+          'failed',
+          [],
+          runtimeAcceptanceFiles,
+          RUNTIME_VERIFICATION_INVOCATION_CONTRACT.acceptance.logicalCommandLabel
+        );
         lane.status = 'failed';
         return lane;
       }
     }
 
     const testPort = generatePort(projectRoot, isolated);
-    const acceptanceInvocation = bunRunInvocation('test:acceptance', isolated, isolatedConfigPath);
+    const acceptanceInvocation = runtimeVerificationInvocation('acceptance', projectRoot, isolated, isolatedConfigPath);
     const acceptanceEnv = isolated
       ? buildIsolatedRuntimeEnvironment(options.stagingWorkspaceRoot!, { TEST_PORT: String(testPort) })
       : { ...baseEnv, CI: process.env.CI ?? 'true', TEST_PORT: String(testPort) };
@@ -544,7 +574,11 @@ export async function runRuntimeVerification(
       withIsolatedPhaseTelemetry('playwright', () =>
         runRuntimeCommand(acceptanceInvocation, acceptanceEnv))
     );
-    lane.acceptance = createRuntimeCommandStep(RUNTIME_VERIFICATION_COMMANDS.acceptance, acceptanceResult.code, runtimeAcceptanceFiles);
+    lane.acceptance = createRuntimeCommandStep(
+      RUNTIME_VERIFICATION_INVOCATION_CONTRACT.acceptance.logicalCommandLabel,
+      acceptanceResult.code,
+      runtimeAcceptanceFiles
+    );
     appendCommandOutput(lane.logs, acceptanceResult, `runtime-acceptance:passed ${runtimeAcceptanceFiles.join(',')}`);
     lane.status = normalizeStatus(acceptanceResult.code);
 

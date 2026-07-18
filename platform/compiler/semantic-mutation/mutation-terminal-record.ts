@@ -19,6 +19,7 @@ import { semanticMutationResultRevision } from './semantic-mutation-result.ts';
 import {
   assertSemanticMutationTerminalOrderDirectory,
   assertSemanticMutationTransactionRoot,
+  semanticMutationJournalRoot,
   semanticMutationWorkspaceRootFromTransactionRoot,
   type SemanticMutationCommitFence
 } from './transaction-identity.ts';
@@ -134,6 +135,13 @@ function completionFileName(sequence: number): string {
   return `${sequence.toString().padStart(12, '0')}.json`;
 }
 
+function terminalOrderDirectory(transactionRoot: string): string {
+  return path.join(
+    semanticMutationJournalRoot(semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot)),
+    TERMINAL_ORDER_DIRECTORY
+  );
+}
+
 function isRetainedTerminalState(value: unknown): value is RetainedTerminalState {
   return value === 'rejected' || value === 'verified' || value === 'rolled-back';
 }
@@ -186,7 +194,6 @@ async function readSemanticMutationTerminalCompletionBySequence(
   const directory = await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
   const name = completionFileName(terminalSequence);
   let serialized: string;
-  await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
   try {
     serialized = await readFile(path.join(directory, name), 'utf8');
   } catch (error) {
@@ -258,7 +265,6 @@ async function readSemanticMutationTerminalSequenceHead(
 ): Promise<SemanticMutationTerminalSequenceHeadV1 | null> {
   const directory = await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
   let serialized: string;
-  await assertSemanticMutationTerminalOrderDirectory(transactionRoot);
   try {
     serialized = await readFile(path.join(directory, TERMINAL_SEQUENCE_HEAD_NAME), 'utf8');
   } catch (error) {
@@ -286,10 +292,7 @@ async function writeSemanticMutationTerminalSequenceHead(
   commitFence: SemanticMutationCommitFence,
   testHooks: SemanticMutationTerminalWriteTestHooks = {}
 ): Promise<void> {
-  const directory = await assertSemanticMutationTerminalOrderDirectory(
-    transactionRoot,
-    requestIdentityDigest
-  );
+  const directory = terminalOrderDirectory(transactionRoot);
   const withoutRevision = {
     formatRevision: TERMINAL_SEQUENCE_HEAD_REVISION,
     highestReservedSequence
@@ -374,10 +377,7 @@ export async function reserveSemanticMutationTerminalSequence(
   if (!digestString(requestIdentityDigest) || !isRetainedTerminalState(state)) {
     throw new Error('Semantic Mutation terminal completion identity or state is invalid');
   }
-  const directory = await assertSemanticMutationTerminalOrderDirectory(
-    transactionRoot,
-    requestIdentityDigest
-  );
+  const directory = terminalOrderDirectory(transactionRoot);
   await commitFence();
   await assertSemanticMutationTerminalOrderDirectory(transactionRoot, requestIdentityDigest);
   await mkdir(directory, { recursive: true });
@@ -559,7 +559,6 @@ export async function writeRejectedSemanticMutationTerminal(
   testHooks: SemanticMutationTerminalWriteTestHooks = {}
 ): Promise<SemanticMutationRejectedTerminalRecordV1> {
   const workspaceRoot = semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot);
-  await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot, requestIdentityDigest);
   await commitFence();
   await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot, requestIdentityDigest);
   await mkdir(transactionRoot, { recursive: true });

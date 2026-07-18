@@ -1,0 +1,65 @@
+import { createHash } from 'node:crypto';
+
+import type { VerificationReport } from '../../shared/verification-types.ts';
+import type { WorkspaceSemanticBundle } from '../semantic-frontend.ts';
+import type { SemanticMutationIsolatedVerificationFailure } from './semantic-mutation-isolated-verification-failure.ts';
+
+const ISOLATED_VERIFICATION_EVIDENCE_DOMAIN =
+  'semantic-mutation-isolated-verification-evidence-v1' as const;
+
+export interface SemanticMutationIsolatedVerificationEvidenceArtifacts {
+  readonly rawDigests: {
+    readonly acceptanceCoverage: string;
+    readonly policyReport: string;
+    readonly runtimeReport: string;
+    readonly verificationReport: string;
+  };
+  readonly semanticBundle: WorkspaceSemanticBundle;
+  readonly verificationReport: VerificationReport;
+}
+
+export type SemanticMutationIsolatedVerificationEvidence =
+  | Readonly<{
+      readonly status: 'passed';
+      readonly artifacts: SemanticMutationIsolatedVerificationEvidenceArtifacts;
+    }>
+  | Readonly<{
+      readonly status: 'blocked';
+      readonly failure?: SemanticMutationIsolatedVerificationFailure;
+    }>;
+
+export function semanticMutationIsolatedVerificationEvidenceDigest(
+  evidence: SemanticMutationIsolatedVerificationEvidence
+): string {
+  const payload = evidence.status === 'blocked'
+    ? {
+        domain: ISOLATED_VERIFICATION_EVIDENCE_DOMAIN,
+        reason: 'isolated-verification-unavailable',
+        ...(evidence.failure === undefined ? {} : { failure: evidence.failure })
+      }
+    : (() => {
+        const snapshot = evidence.artifacts.semanticBundle.snapshot.ir;
+        const generatedReport = evidence.artifacts.verificationReport;
+        return {
+          domain: ISOLATED_VERIFICATION_EVIDENCE_DOMAIN,
+          completedStages: ['resolve', 'semantic', 'compose', 'adapt', 'verify'],
+          inputRevision: snapshot.inputRevision,
+          semanticRevision: snapshot.semanticRevision,
+          generatedArtifactRawDigests: evidence.artifacts.rawDigests,
+          report: {
+            summary: generatedReport.summary,
+            build: generatedReport.build,
+            unit: generatedReport.unit,
+            acceptance: generatedReport.acceptance,
+            policy: generatedReport.policy,
+            runtime: {
+              status: generatedReport.runtime.status,
+              build: generatedReport.runtime.build,
+              unit: generatedReport.runtime.unit,
+              acceptance: generatedReport.runtime.acceptance
+            }
+          }
+        };
+      })();
+  return `sha256:${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}`;
+}

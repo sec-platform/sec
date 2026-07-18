@@ -25,6 +25,10 @@ const FILE_RENAME_FLAG_POSIX_SEMANTICS = 0x0000_0002;
 const FILE_RENAME_FLAG_IGNORE_READONLY_ATTRIBUTE = 0x0000_0040;
 const INVALID_HANDLE_VALUE = 0xffff_ffff_ffff_ffffn;
 
+type WindowsFileAttributeReader = (filePath: string) => number;
+
+let windowsFileAttributeReaderPromise: Promise<WindowsFileAttributeReader> | undefined;
+
 function windowsFileOperationError(operation: string, errorCode: number): NodeJS.ErrnoException {
   const error = new Error(`${operation} failed (Win32 ${errorCode})`) as NodeJS.ErrnoException;
   error.code = `WIN32_${errorCode}`;
@@ -128,27 +132,36 @@ function attributesFromMask(mask: number): SemanticMutationWindowsFileAttributes
   });
 }
 
+async function windowsFileAttributeReader(): Promise<WindowsFileAttributeReader> {
+  windowsFileAttributeReaderPromise ??= (async () => {
+    const { dlopen, FFIType } = await import('bun:ffi');
+    const kernel32 = dlopen('kernel32.dll', {
+      GetFileAttributesW: {
+        args: [FFIType.ptr],
+        returns: FFIType.u32
+      },
+      GetLastError: {
+        args: [],
+        returns: FFIType.u32
+      }
+    } as const);
+
+    // Directory identity checks are deliberately repeated around every
+    // security-sensitive filesystem operation. Reuse only the immutable
+    // kernel32 binding; never cache an attribute result or a path verdict.
+    return (filePath: string): number => {
+      const attributes = kernel32.symbols.GetFileAttributesW(wideWindowsPath(filePath));
+      if (attributes === INVALID_FILE_ATTRIBUTES) {
+        throw windowsFileOperationError('Reading Windows file attributes', kernel32.symbols.GetLastError());
+      }
+      return attributes;
+    };
+  })();
+  return windowsFileAttributeReaderPromise;
+}
+
 async function readWindowsFileAttributeMask(filePath: string): Promise<number> {
-  const { dlopen, FFIType } = await import('bun:ffi');
-  const kernel32 = dlopen('kernel32.dll', {
-    GetFileAttributesW: {
-      args: [FFIType.ptr],
-      returns: FFIType.u32
-    },
-    GetLastError: {
-      args: [],
-      returns: FFIType.u32
-    }
-  } as const);
-  try {
-    const attributes = kernel32.symbols.GetFileAttributesW(wideWindowsPath(filePath));
-    if (attributes === INVALID_FILE_ATTRIBUTES) {
-      throw windowsFileOperationError('Reading Windows file attributes', kernel32.symbols.GetLastError());
-    }
-    return attributes;
-  } finally {
-    kernel32.close();
-  }
+  return (await windowsFileAttributeReader())(filePath);
 }
 
 export async function readSemanticMutationWindowsFileAttributes(

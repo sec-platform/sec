@@ -35,13 +35,15 @@ export const SEMANTIC_MUTATION_ISOLATED_EXIT_CODES = Object.freeze({
   loaderImportFailure: 75,
   runnerStagingTreeFailure: 76,
   runnerEnvironmentBoundaryFailure: 77,
-  runnerStagingLayoutBoundaryFailure: 78
+  runnerStagingLayoutBoundaryFailure: 78,
+  bootstrapEnvironmentBoundaryFailure: 79
 } as const);
 
 export type SemanticMutationIsolatedTerminationClass =
   | 'zero'
   | 'runner-controlled-failure'
   | 'runner-entry-failure'
+  | 'bootstrap-environment-boundary-failure'
   | 'runner-environment-boundary-failure'
   | 'runner-staging-layout-boundary-failure'
   | 'runner-staging-tree-failure'
@@ -407,6 +409,9 @@ export function classifySemanticMutationIsolatedTermination(
   if (exitCode === SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerStagingLayoutBoundaryFailure) {
     return 'runner-staging-layout-boundary-failure';
   }
+  if (exitCode === SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.bootstrapEnvironmentBoundaryFailure) {
+    return 'bootstrap-environment-boundary-failure';
+  }
   return 'unclassified-nonzero';
 }
 
@@ -516,6 +521,20 @@ export function semanticMutationIsolatedBootstrapBytes(): Uint8Array {
   const source = [
     "const { open, rename, rm } = await import('node:fs/promises');",
     "const path = await import('node:path');",
+    "const { fileURLToPath } = await import('node:url');",
+    `const expectedBootstrapRelativePath = ${JSON.stringify(
+      SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH
+    )};`,
+    'const bootstrapPath = fileURLToPath(import.meta.url);',
+    "const stagingRoot = path.resolve(path.dirname(bootstrapPath), '../../..');",
+    'try {',
+    "  const actualRelativePath = path.relative(stagingRoot, bootstrapPath).split(path.sep).join('/');",
+    '  if (actualRelativePath !== expectedBootstrapRelativePath) throw new Error();',
+    "  process.chdir(process.platform === 'win32' ? path.toNamespacedPath(path.resolve(stagingRoot)) : path.resolve(stagingRoot));",
+    '} catch {',
+    `  process.exitCode = ${SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.bootstrapEnvironmentBoundaryFailure};`,
+    '}',
+    `if (process.exitCode !== ${SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.bootstrapEnvironmentBoundaryFailure}) {`,
     `const finalPath = path.resolve(${JSON.stringify(finalRelativePath)});`,
     `const pendingPath = path.resolve(${JSON.stringify(pendingRelativePath)});`,
     `const bytes = new TextEncoder().encode(${JSON.stringify(bytes)});`,
@@ -540,6 +559,7 @@ export function semanticMutationIsolatedBootstrapBytes(): Uint8Array {
     '}',
     `if (process.exitCode !== ${SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.progressPublicationFailure}) {`,
     `  await import(new URL(${JSON.stringify(`./${loaderFileName}`)}, import.meta.url).href);`,
+    '}',
     '}',
     ''
   ].join('\n');

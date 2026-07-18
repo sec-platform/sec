@@ -1,0 +1,139 @@
+{
+  "schemaVersion": "1",
+  "recordType": "development-stop-record",
+  "recordedAt": "2026-07-18T14:50:45.8724008+08:00",
+  "profile": "v0.4-semantic-mutation-restored-runtime-input-durable-exact",
+  "identity": "sm3-p0-exact-production-seam-restored-runtime-input-durable-v2",
+  "branch": "codex/sm3-p0-local-isolated-runner",
+  "testedBase": "e07a295b5a8499c2c55c78a783e5419911aae584",
+  "testedHead": "0bc482e63d967be6e567d7e1b6254a04e8652362",
+  "status": "stopped-on-runner-build-job-query-lifecycle-failure",
+  "mergeAllowed": false,
+  "capabilityComplete": false,
+  "executionManifest": {
+    "path": ".tmp/sm3-p0-exact-production-seam-restored-runtime-input-durable-v2.execution.json",
+    "gitBlob": "b613e199df9dd78df102d89c5993707266a85721",
+    "frozenAt": "2026-07-18T14:36:34.7894829+08:00",
+    "authorizedRunCount": 1,
+    "observedRunCount": 1,
+    "rerunAllowed": false
+  },
+  "previousExecutionEvidence": {
+    "path": "docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json",
+    "gitBlob": "017f8d767d51696730eeb1514f3d378982fe6240"
+  },
+  "durableArtifacts": {
+    "log": {
+      "path": ".tmp/sm3-p0-exact-production-seam-restored-runtime-input-durable-v2.log",
+      "gitBlob": "e6731c2c147f51346c200a0f3950882134a48baa"
+    },
+    "result": {
+      "path": ".tmp/sm3-p0-exact-production-seam-restored-runtime-input-durable-v2.result.json",
+      "gitBlob": "a657c09c76b5ea0074ab529d1640dca87598458a"
+    }
+  },
+  "exactPublicSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/integration/semantic-mutation-apply.test.ts",
+      "--test-name-pattern",
+      "^SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once$"
+    ],
+    "testOwnedTimeoutMs": 300000,
+    "shellTimeoutMs": 1200000,
+    "startedAt": "2026-07-18T14:38:15.3281849+08:00",
+    "finishedAt": "2026-07-18T14:39:36.3195233+08:00",
+    "shellDurationMs": 80985,
+    "testDurationMs": 78628,
+    "status": "FAIL",
+    "exitCode": 1,
+    "timedOut": false,
+    "passedTestCount": 0,
+    "failedTestCount": 1,
+    "filteredTestCount": 3,
+    "rejectedAt": "impact-verification",
+    "diagnostics": [
+      { "code": "SEMANTIC-MUTATION-010", "stage": "impact-verification" },
+      { "code": "SEMANTIC-MUTATION-010", "stage": "impact-verification" }
+    ],
+    "publishEntered": false
+  },
+  "environmentDrift": {
+    "observedBunVersion": "1.3.14",
+    "repositoryPackageManager": "bun@1.3.6",
+    "requiredActionsBunVersion": "1.3.6",
+    "previousRecordedEvidenceBunVersion": "1.3.6"
+  },
+  "boundedDiagnosis": {
+    "focusedCommand": "bun test tests/unit/semantic-mutation-isolated-child-fence.test.ts --test-name-pattern ^(production isolated runner build succeeds through a fresh local process|production runtime capability probe settles its fresh local runner)$ --timeout 180000",
+    "focusedResult": "1 passed, 1 failed",
+    "productionRunnerBuild": {
+      "status": "unavailable",
+      "substage": "runner-build-invocation",
+      "durationMs": 2653
+    },
+    "immediatelyFollowingFreshProbe": {
+      "status": "available",
+      "settlement": "success",
+      "durationMs": 4104
+    },
+    "rawCanonicalBuilderObservation": {
+      "bunVersion": "1.3.14",
+      "stdoutBytes": 22427496,
+      "stderrBytes": 0,
+      "settlement": { "status": "rejected", "reason": "requested-termination" },
+      "observedCommandStatus": "lifecycle-failed",
+      "observedCommandTrigger": "lifecycle-failed",
+      "childCloseObserved": true,
+      "streamsDrained": true,
+      "treeClosedAfterForcedCleanup": true,
+      "rootCause": "The canonical Bun builder produced its complete stdout frame with no stderr, but a Windows Job active-process query returned null during natural settlement. The host therefore failed closed and forced Job cleanup. The next fresh production probe settled successfully, proving a transient Job accounting query failure rather than a missing Bun builder capability."
+    }
+  },
+  "implementationBoundary": {
+    "languageSurface": "TypeScript and Bun only",
+    "cAdded": false,
+    "rustAdded": false,
+    "newFfiBoundaryAdded": false,
+    "dependencyAdded": false,
+    "workerAdded": false,
+    "secondRunnerAdded": false,
+    "playwrightDependencyAdded": false,
+    "playwrightTestAdded": false,
+    "testBudgetIncreased": false,
+    "appContainerClaimed": false
+  },
+  "nextRepair": {
+    "owner": "platform/shared/observed-process.ts",
+    "strategy": "Retry a transient Windows Job accounting query for a short fixed count. Success still requires an observed active process count of zero, closed child streams, and exact output evidence; exhausted query failures remain fail-closed.",
+    "affectedDirectCallers": 4,
+    "gitNexusRisk": "LOW",
+    "requiredFocusedEvidence": [
+      "bounded Job query retry contract",
+      "native observed-process lifecycle",
+      "production isolated runner build",
+      "production runtime capability probe",
+      "source-order owner contract",
+      "typecheck",
+      "git diff --check"
+    ],
+    "nextExactIdentity": "sm3-p0-exact-production-seam-job-query-retry-durable-v3"
+  },
+  "forbidden": [
+    "rerunning sm3-p0-exact-production-seam-restored-runtime-input-durable-v2",
+    "accepting Job closure without a successful active-process count of zero",
+    "increasing the 300000 ms exact test budget",
+    "adding C, Rust, a new FFI boundary, Worker, another helper process, Playwright, or another dependency",
+    "committing, merging, or pushing before a fresh durable exact PASS"
+  ],
+  "closeout": {
+    "exactPublicSeamPassed": false,
+    "appContainerCapabilityComplete": false,
+    "sm3ExitClaimed": false,
+    "committedAfterFailure": false,
+    "mergedToMain": false,
+    "pushed": false,
+    "mainHeadUnchanged": "e07a295b5a8499c2c55c78a783e5419911aae584"
+  }
+}

@@ -58,7 +58,11 @@ import {
   type IsolatedVerificationCapability
 } from './isolated-verification-capability.ts';
 import { runWorkspaceSemanticFrontend } from './semantic-orchestrator.ts';
-import { verifyWorkspace } from './verify-orchestrator.ts';
+import {
+  assertStagedVerificationProofAfterPipeline,
+  verifyWorkspace,
+  type StagedVerificationProof
+} from './verify-orchestrator.ts';
 import { applyWorkbenchMutations } from './workbench-orchestrator.ts';
 
 const PIPELINE_LEASE_MONITOR_INTERVAL_MS = 250;
@@ -72,6 +76,7 @@ export interface CompileWorkspaceOptions {
   applyWorkbenchMutations?: boolean;
   onEvent?: PipelineEventHandler;
   isolatedVerificationCapability?: IsolatedVerificationCapability;
+  stagedVerificationProof?: StagedVerificationProof;
   workspaceWriteLease?: WorkspaceWriteLeaseToken;
 }
 
@@ -655,10 +660,6 @@ export async function compileWorkspace(
   if (options.isolatedVerificationCapability) {
     assertIsolatedVerificationCapability(workspaceRoot, options.isolatedVerificationCapability);
   }
-  const leaseAcquireOptions = options.isolatedVerificationCapability && process.platform === 'win32'
-    ? { executionBoundary: 'windows-appcontainer' as const }
-    : undefined;
-
   await emitPipelineExecutionBoundary(
     options.onEvent,
     PIPELINE_PENDING_TRANSACTION_ID,
@@ -723,6 +724,9 @@ export async function compileWorkspace(
               {
                 lane: options.verificationLane ?? 'all',
                 signal: leaseSignal,
+                ...(options.stagedVerificationProof
+                  ? { stagedVerificationProof: options.stagedVerificationProof }
+                  : {}),
                 ...(options.isolatedVerificationCapability
                   ? { isolatedVerificationCapability: options.isolatedVerificationCapability }
                   : {})
@@ -758,6 +762,36 @@ export async function compileWorkspace(
             reviewSummary
           }
         );
+        if (options.stagedVerificationProof) {
+          await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
+          const paths = getWorkspacePaths(workspaceRoot);
+          const verificationArtifacts = {
+            verificationReport: await readCanonicalJsonArtifact<unknown>(
+              paths.verificationReportPath,
+              'Verification report'
+            ),
+            runtimeReport: await readCanonicalJsonArtifact<unknown>(
+              paths.runtimeReportPath,
+              'runtime report'
+            ),
+            policyReport: await readCanonicalJsonArtifact<unknown>(
+              paths.policyReportPath,
+              'policy report'
+            ),
+            acceptanceCoverage: await readCanonicalJsonArtifact<unknown>(
+              paths.acceptanceCoveragePath,
+              'acceptance coverage'
+            )
+          };
+          assertCanonicalVerificationArtifactSet(verificationArtifacts);
+          await assertStagedVerificationProofAfterPipeline(
+            workspaceRoot,
+            lock,
+            verificationArtifacts,
+            options.stagedVerificationProof
+          );
+          await assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
+        }
         return {
           transactionId: context.transactionId,
           completedStages,
@@ -773,5 +807,5 @@ export async function compileWorkspace(
       workspaceWriteLease
       );
     });
-  }, leaseAcquireOptions);
+  });
 }
