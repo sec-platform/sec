@@ -113,6 +113,7 @@ export function organizeImportsInSource(
 export function selectChangedImportsOnly(env: ImportSelectionEnvironment = process.env): boolean {
   if (env.SEC_IMPORTS_CHANGED_ONLY === '1') return true;
   if (env.SEC_IMPORTS_CHANGED_ONLY === '0') return false;
+  if (env.SEC_CHANGED_BASE) return true;
   return env.CI === 'true' && env.GITHUB_EVENT_NAME === 'pull_request';
 }
 
