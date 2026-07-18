@@ -92,7 +92,7 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
     SEC_EXPECTED_HEAD_SHA: '${{ steps.verification.outputs.head }}',
     SEC_WORK_PACKAGE_MANIFEST_PATH: '${{ steps.verification.outputs.manifest }}'
   });
-  expect(prWorkflowSource).toContain('sec-verification-v5-${{ steps.verification.outputs.profile }}-pr-');
+  expect(prWorkflowSource).toContain('sec-verification-v7-${{ steps.verification.outputs.profile }}-pr-');
   expect(prWorkflowSource).not.toContain('sec-verification-v4-');
   expect(prWorkflowSource).not.toContain('continue-on-error: true');
   expect(prWorkflowSource).not.toContain('statuses: write');
@@ -114,7 +114,7 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   expect(releaseCheckout.with?.['persist-credentials']).toBe(false);
   const releaseVerify = workflowStep(releaseWorkflow, 'compiler-release-verification', 'Run exact-head full verification');
   expect(releaseVerify.env?.SEC_EXPECTED_HEAD_SHA).toBe('${{ steps.verification.outputs.sha }}');
-  expect(releaseWorkflowSource).toContain('sec-verification-v5-full-release-head-');
+  expect(releaseWorkflowSource).toContain('sec-verification-v7-full-release-head-');
   expect(releaseWorkflowSource).not.toContain('sec-verification-v4-');
   expect(releaseWorkflowSource).toContain('manual-bootstrap-required');
   expect(releaseWorkflowSource).not.toContain('continue-on-error: true');

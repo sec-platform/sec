@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1",
+  "recordType": "frozen-exact-production-pass-evidence",
+  "identity": "synthetic-reused-pass-v1",
+  "status": "PASS",
+  "testedHead": "1111111111111111111111111111111111111111",
+  "testedTree": "2222222222222222222222222222222222222222",
+  "runtime": {
+    "version": "1.3.6"
+  },
+  "execution": {
+    "argv": [
+      "bun",
+      "run",
+      "test:slow",
+      "--",
+      "--suite",
+      "synthetic-reused"
+    ],
+    "rerunAllowed": false
+  }
+}

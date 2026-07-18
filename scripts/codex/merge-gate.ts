@@ -1,24 +1,54 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  CodexDevelopmentRegisteredEvidenceCompositionPolicyV1,
+  CodexDevelopmentRequiredEvidenceCompositionPolicyV1,
+  CodexDevelopmentSm3P0EvidencePolicyIdV1,
+  CodexDevelopmentSm3P0LegacyTestedHeadV1,
+  CodexDevelopmentSm3P0WorkPackageIdV1
+} from '../../platform/shared/ci-evidence-composition-policy-registry.ts';
+import {
   CodexDevelopmentAssertVerificationEvidenceV2,
+  CodexDevelopmentAssertVerificationEvidenceV3,
   CodexDevelopmentVerificationDigest,
-  type CodexDevelopmentVerificationEvidenceV2
+  type CodexDevelopmentVerificationEvidenceV2,
+  type CodexDevelopmentVerificationEvidenceV3
 } from '../../platform/shared/ci-evidence-contract.ts';
 import {
+  CodexDevelopmentBuildEvidenceCompositionPlanV1,
+  type CodexDevelopmentExactGitBlobBytesV1,
+  type CodexDevelopmentExactGitBlobV1
+} from '../../platform/shared/ci-evidence-reuse-contract.ts';
+import {
+  CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1,
+  type CodexDevelopmentCiExecutionEnvironmentBindingV1
+} from '../../platform/shared/ci-execution-environment.ts';
+import {
+  gitChangedFileDiffArgs,
+  parseGitChangedRecordsOutput,
+  type CodexDevelopmentGitChangedRecordV1
+} from '../../platform/shared/ci-git-changed-files.ts';
+import {
+  CI_VERIFICATION_CONTRACT_REVISION,
   CodexDevelopmentBuildVerificationInputV2,
   CodexDevelopmentBuildVerificationPlanV1,
-  CodexDevelopmentCanonicalChangedFilesV1,
-  CI_VERIFICATION_CONTRACT_REVISION
+  CodexDevelopmentCanonicalChangedFilesV1
 } from '../../platform/shared/ci-verification-plan.ts';
+import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-revision.ts';
+import { isTestFile } from '../../platform/shared/test-budget-contract.ts';
+import { CodexDevelopmentBuildVerificationScopeInventoryV1 } from '../../platform/shared/verification-scope-inventory.ts';
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
   CodexDevelopmentParseWorkPackageLocator,
-  CodexDevelopmentParseWorkPackageManifestV1,
+  CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest,
-  type CodexDevelopmentWorkPackageChangedRecordV1
+  CodexDevelopmentWorkPackageSchemaV1,
+  CodexDevelopmentWorkPackageSchemaV2,
+  type CodexDevelopmentWorkPackageChangedRecordV1,
+  type CodexDevelopmentWorkPackageManifest
 } from './work-package-contract.ts';
 
 export const CodexDevelopmentScopeAttestationSchemaV1 = 'codex-development-scope-attestation-v1' as const;
@@ -42,13 +72,18 @@ export const CodexDevelopmentTrustRootPathsV1 = [
   'package.json',
   'platform/dev-runner.ts',
   'platform/dev-runner/',
+  'platform/shared/affected-test-inventory.ts',
   'platform/shared/ci-artifact-contract.ts',
   'platform/shared/ci-artifact-types.ts',
   'platform/shared/ci-contract.ts',
+  'platform/shared/ci-evidence-composition-policy-registry.ts',
   'platform/shared/ci-evidence-contract.ts',
+  'platform/shared/ci-evidence-reuse-contract.ts',
+  'platform/shared/ci-execution-environment.ts',
   'platform/shared/ci-git-changed-files.ts',
   'platform/shared/ci-pr-risk-selection.ts',
   'platform/shared/ci-verification-plan.ts',
+  'platform/shared/ci-verification-revision.ts',
   'platform/shared/collections.ts',
   'platform/shared/constants.ts',
   'platform/shared/contract-freeze-contract.ts',
@@ -63,6 +98,7 @@ export const CodexDevelopmentTrustRootPathsV1 = [
   'platform/shared/test-impact-contract.ts',
   'platform/shared/test-ownership-contract.ts',
   'platform/shared/test-impact-rules/',
+  'platform/shared/verification-scope-inventory.ts',
   'scripts/ci-pr-risk.ts',
   'scripts/ci-verification.ts',
   'scripts/ci-workspace-fast.ts',
@@ -115,7 +151,9 @@ export type CodexDevelopmentScopeAttestationV1 = {
   manifestBlobSha: string;
   manifestByteLength: number;
   requiredProfile: 'quick' | 'full';
-  ciRevision: typeof CI_VERIFICATION_CONTRACT_REVISION;
+  ciRevision:
+    | typeof CI_VERIFICATION_CONTRACT_REVISION
+    | typeof CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION;
   workflowId: number;
   workflowPath: '.github/workflows/sec-merge-gate.yml';
   runId: number;
@@ -214,6 +252,28 @@ const GATE_INPUT_KEYS = [
   'attestationWorkflowId', 'verificationWorkflowId',
   'attestationArtifact', 'verificationArtifact'
 ];
+
+function manifestVerificationBinding(manifest: CodexDevelopmentWorkPackageManifest): {
+  requiredProfile: 'quick' | 'full';
+  ciRevision:
+    | typeof CI_VERIFICATION_CONTRACT_REVISION
+    | typeof CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION;
+} {
+  if (manifest.schema === CodexDevelopmentWorkPackageSchemaV1) {
+    if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
+      throw new Error('Work Package manifest CI revision is not current for V1.');
+    }
+    return { requiredProfile: manifest.requiredProfile, ciRevision: manifest.ciRevision };
+  }
+  if (
+    manifest.schema !== CodexDevelopmentWorkPackageSchemaV2
+    || manifest.id !== CodexDevelopmentSm3P0WorkPackageIdV1
+    || manifest.evidenceComposition.policyId !== CodexDevelopmentSm3P0EvidencePolicyIdV1
+  ) {
+    throw new Error('Work Package V2 manifest does not select a base-registered composition policy.');
+  }
+  return { requiredProfile: 'quick', ciRevision: CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION };
+}
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) {
@@ -354,10 +414,8 @@ export function CodexDevelopmentBuildScopeAttestationV1(
     throw new Error('Scope attestation requires maintain or admin actor and triggering actor permissions.');
   }
   const manifestSource = decodeUtf8(manifestBytes, 'Work Package manifest');
-  const manifest = CodexDevelopmentParseWorkPackageManifestV1(manifestSource, request.manifestPath);
-  if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
-    throw new Error('Scope attestation Work Package CI revision is not current.');
-  }
+  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, request.manifestPath);
+  const verificationBinding = manifestVerificationBinding(manifest);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes);
   const manifestBlobSha = gitBlobSha(manifestBytes);
   if (
@@ -380,8 +438,8 @@ export function CodexDevelopmentBuildScopeAttestationV1(
     manifestDigest,
     manifestBlobSha,
     manifestByteLength: manifestBytes.byteLength,
-    requiredProfile: manifest.requiredProfile,
-    ciRevision: manifest.ciRevision,
+    requiredProfile: verificationBinding.requiredProfile,
+    ciRevision: verificationBinding.ciRevision,
     workflowId: request.workflowId,
     workflowPath: request.workflowPath,
     runId: request.runId,
@@ -436,6 +494,16 @@ function changedRecordPaths(record: CodexDevelopmentWorkPackageChangedRecordV1):
   return record.previousPath === undefined ? [record.path] : [record.previousPath, record.path];
 }
 
+function canonicalChangedRecords(
+  records: readonly CodexDevelopmentGitChangedRecordV1[]
+): CodexDevelopmentGitChangedRecordV1[] {
+  return records.map((record) => ({ ...record })).sort((left, right) => {
+    const leftKey = `${left.previousPath ?? ''}\0${left.path}\0${left.status}`;
+    const rightKey = `${right.previousPath ?? ''}\0${right.path}\0${right.status}`;
+    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  });
+}
+
 function validateAttestation(value: unknown): CodexDevelopmentScopeAttestationV1 {
   assertObject(value, 'scope attestation');
   assertExactKeys(value, ATTESTATION_KEYS, 'scope attestation');
@@ -451,7 +519,10 @@ function validateAttestation(value: unknown): CodexDevelopmentScopeAttestationV1
   assertDigest(value.manifestDigest, 'scope attestation manifestDigest');
   assertSha(value.manifestBlobSha, 'scope attestation manifestBlobSha');
   if (value.requiredProfile !== 'quick' && value.requiredProfile !== 'full') throw new Error('Scope attestation requiredProfile is invalid.');
-  if (value.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) throw new Error('Scope attestation CI revision mismatch.');
+  if (
+    value.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION
+    && value.ciRevision !== CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION
+  ) throw new Error('Scope attestation CI revision mismatch.');
   return value as CodexDevelopmentScopeAttestationV1;
 }
 
@@ -490,6 +561,15 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
   manifestBytes: Uint8Array;
   rawAttestation: unknown;
   rawEvidence: unknown;
+  runtime?: string;
+  changedRecords?: (
+    baseHead: string,
+    currentHead: string
+  ) => CodexDevelopmentGitChangedRecordV1[] | null;
+  gitBlob?: (ref: string, file: string) => CodexDevelopmentExactGitBlobV1 | null;
+  readGitBlob?: (ref: string, file: string) => CodexDevelopmentExactGitBlobBytesV1 | null;
+  gitFiles?: (ref: string, prefix: string) => string[] | null;
+  gitTree?: (ref: string) => string | null;
 }): CodexDevelopmentMergeGateResultV1 {
   const input = validateGateInput(options.rawInput);
   if (input.draft) throw new Error('Draft pull requests cannot pass sec/merge-gate.');
@@ -505,16 +585,14 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     || input.headParents.length !== 1
     || input.headParents[0] !== input.currentBase
   ) {
-    throw new Error('CI v5 requires one exact head commit whose only parent is current base.');
+    throw new Error('Frozen verification requires one exact head commit whose only parent is current base.');
   }
   if (CodexDevelopmentParseWorkPackageLocator(input.body) !== input.manifestPath) {
     throw new Error('PR body Work Package locator does not match merge gate input.');
   }
   const manifestSource = decodeUtf8(options.manifestBytes, 'Work Package manifest');
-  const manifest = CodexDevelopmentParseWorkPackageManifestV1(manifestSource, input.manifestPath);
-  if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
-    throw new Error('Merge gate Work Package CI revision is not current.');
-  }
+  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, input.manifestPath);
+  const verificationBinding = manifestVerificationBinding(manifest);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(options.manifestBytes);
   const manifestBlobSha = gitBlobSha(options.manifestBytes);
   if (
@@ -522,13 +600,36 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     || input.manifestByteLength !== options.manifestBytes.byteLength
   ) throw new Error('Work Package manifest blob identity or byte length mismatch.');
   if (manifest.base !== input.currentBase) throw new Error('Work Package manifest base is not current base.');
-  for (const record of input.changedRecords) {
+  const independentlyResolvedRecords = options.changedRecords?.(input.currentBase, input.exactHead) ?? null;
+  if (options.changedRecords && independentlyResolvedRecords === null) {
+    throw new Error('Merge gate cannot independently resolve the exact candidate changed records.');
+  }
+  const effectiveChangedRecords = independentlyResolvedRecords ?? input.changedRecords;
+  if (
+    independentlyResolvedRecords
+    && JSON.stringify(canonicalChangedRecords(independentlyResolvedRecords))
+      !== JSON.stringify(canonicalChangedRecords(input.changedRecords))
+  ) throw new Error('Merge gate API and exact Git changed records disagree.');
+  const requiredPolicyId = options.gitBlob
+    ? CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
+      records: effectiveChangedRecords,
+      baseHead: input.currentBase,
+      currentHead: input.exactHead,
+      gitBlob: options.gitBlob
+    })
+    : null;
+  if (requiredPolicyId !== null && (
+    manifest.schema !== CodexDevelopmentWorkPackageSchemaV2
+    || manifest.id !== CodexDevelopmentSm3P0WorkPackageIdV1
+    || manifest.evidenceComposition.policyId !== requiredPolicyId
+  )) throw new Error(`Protected SM3 P0 inputs require Work Package V2 policy ${requiredPolicyId}.`);
+  for (const record of effectiveChangedRecords) {
     for (const changedPath of changedRecordPaths(record)) {
       const trustRoot = trustRootMatch(changedPath);
       if (trustRoot) throw new Error(`manual-bootstrap-required: changed verifier trust root ${trustRoot}.`);
     }
   }
-  CodexDevelopmentAssertWorkPackageChangedRecords(manifest, input.changedRecords);
+  CodexDevelopmentAssertWorkPackageChangedRecords(manifest, effectiveChangedRecords);
 
   const attestationRun = input.attestationArtifact.run;
   if (
@@ -566,8 +667,8 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     manifestDigest,
     manifestBlobSha,
     manifestByteLength: options.manifestBytes.byteLength,
-    requiredProfile: manifest.requiredProfile,
-    ciRevision: manifest.ciRevision,
+    requiredProfile: verificationBinding.requiredProfile,
+    ciRevision: verificationBinding.ciRevision,
     workflowId: attestationRun.workflowId,
     workflowPath: '.github/workflows/sec-merge-gate.yml',
     runId: attestationRun.runId,
@@ -593,8 +694,8 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     throw new Error('Verification workflow run is not exact-head trusted evidence.');
   }
   const expectedVerificationName = [
-    'sec-verification-v5',
-    manifest.requiredProfile,
+    'sec-verification-v7',
+    verificationBinding.requiredProfile,
     `pr-${input.pullRequest}`,
     `base-${input.currentBase}`,
     `head-${input.exactHead}`,
@@ -602,47 +703,137 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     `attempt-${verificationRun.runAttempt}`
   ].join('-');
   if (input.verificationArtifact.name !== expectedVerificationName) throw new Error('Verification artifact name/key mismatch.');
-  CodexDevelopmentAssertVerificationEvidenceV2(options.rawEvidence, {
-    kind: 'verification',
-    profile: manifest.requiredProfile,
-    headSha: input.exactHead,
-    treeSha: input.headTree,
-    prBaseSha: input.currentBase,
-    affectedBaseSha: input.currentBase,
-    manifestPath: input.manifestPath,
-    manifestDigest
-  }, new Date(input.checkedAt));
-  const evidence = options.rawEvidence as CodexDevelopmentVerificationEvidenceV2;
-  if (evidence.status !== 'passed') throw new Error('Verification evidence did not pass.');
   const expectedChangedFiles = CodexDevelopmentCanonicalChangedFilesV1(
-    input.changedRecords.flatMap(changedRecordPaths)
+    effectiveChangedRecords.flatMap(changedRecordPaths)
   );
-  const expectedPlan = CodexDevelopmentBuildVerificationPlanV1(manifest.requiredProfile, expectedChangedFiles);
-  if (!expectedPlan.selectionResolved || expectedPlan.gates.length === 0) {
-    throw new Error('Base-side canonical verification plan is unresolved or empty.');
-  }
-  if (JSON.stringify(evidence.changedFiles) !== JSON.stringify(expectedPlan.changedFiles)) {
-    throw new Error('Verification evidence changedFiles do not match the complete live changed-path set.');
-  }
-  const expectedGates = expectedPlan.gates.map((step) => ({ id: step.id, argv: ['bun', ...step.args] }));
-  const actualGates = evidence.gates.map((gate) => ({ id: gate.id, argv: gate.argv }));
-  if (JSON.stringify(actualGates) !== JSON.stringify(expectedGates)) {
-    throw new Error('Verification evidence gate count, order, IDs, or argv do not match the canonical plan.');
-  }
-  const expectedInputDigest = CodexDevelopmentVerificationDigest(CodexDevelopmentBuildVerificationInputV2({
-    profile: manifest.requiredProfile,
-    headSha: input.exactHead,
-    treeSha: input.headTree,
-    prBaseSha: input.currentBase,
-    affectedBaseSha: input.currentBase,
-    manifestPath: input.manifestPath,
-    manifestDigest,
-    changedFiles: expectedPlan.changedFiles,
-    selectionResolved: expectedPlan.selectionResolved,
-    gates: expectedPlan.gates
-  }));
-  if (evidence.inputDigest !== expectedInputDigest) {
-    throw new Error('Verification evidence inputDigest does not match the base-side canonical plan.');
+  let evidence: CodexDevelopmentVerificationEvidenceV2 | CodexDevelopmentVerificationEvidenceV3;
+  if (manifest.schema === CodexDevelopmentWorkPackageSchemaV1) {
+    CodexDevelopmentAssertVerificationEvidenceV2(options.rawEvidence, {
+      kind: 'verification',
+      profile: manifest.requiredProfile,
+      headSha: input.exactHead,
+      treeSha: input.headTree,
+      prBaseSha: input.currentBase,
+      affectedBaseSha: input.currentBase,
+      manifestPath: input.manifestPath,
+      manifestDigest
+    }, new Date(input.checkedAt));
+    evidence = options.rawEvidence;
+    if (evidence.status !== 'passed') throw new Error('Verification evidence did not pass.');
+    const expectedPlan = CodexDevelopmentBuildVerificationPlanV1(manifest.requiredProfile, expectedChangedFiles);
+    if (!expectedPlan.selectionResolved || expectedPlan.gates.length === 0) {
+      throw new Error('Base-side canonical verification plan is unresolved or empty.');
+    }
+    if (JSON.stringify(evidence.changedFiles) !== JSON.stringify(expectedPlan.changedFiles)) {
+      throw new Error('Verification evidence changedFiles do not match the complete live changed-path set.');
+    }
+    const expectedGates = expectedPlan.gates.map((step) => ({ id: step.id, argv: ['bun', ...step.args] }));
+    const actualGates = evidence.gates.map((gate) => ({ id: gate.id, argv: gate.argv }));
+    if (JSON.stringify(actualGates) !== JSON.stringify(expectedGates)) {
+      throw new Error('Verification evidence gate count, order, IDs, or argv do not match the canonical plan.');
+    }
+    const expectedInputDigest = CodexDevelopmentVerificationDigest(CodexDevelopmentBuildVerificationInputV2({
+      profile: manifest.requiredProfile,
+      headSha: input.exactHead,
+      treeSha: input.headTree,
+      prBaseSha: input.currentBase,
+      affectedBaseSha: input.currentBase,
+      manifestPath: input.manifestPath,
+      manifestDigest,
+      changedFiles: expectedPlan.changedFiles,
+      selectionResolved: expectedPlan.selectionResolved,
+      gates: expectedPlan.gates
+    }));
+    if (evidence.inputDigest !== expectedInputDigest) {
+      throw new Error('Verification evidence inputDigest does not match the base-side canonical plan.');
+    }
+  } else {
+    if (!options.gitBlob || !options.readGitBlob || !options.gitFiles || !options.gitTree || !options.changedRecords) {
+      throw new Error('Merge gate V7 requires independent exact candidate Git resolvers.');
+    }
+    CodexDevelopmentAssertVerificationEvidenceV3(options.rawEvidence, {
+      profile: 'quick',
+      policyId: manifest.evidenceComposition.policyId,
+      workPackageId: manifest.id,
+      headSha: input.exactHead,
+      treeSha: input.headTree,
+      prBaseSha: input.currentBase,
+      affectedBaseSha: input.currentBase,
+      manifestPath: input.manifestPath,
+      manifestDigest
+    }, new Date(input.checkedAt));
+    const preliminaryEvidence = options.rawEvidence;
+    if (preliminaryEvidence.status !== 'passed') throw new Error('Verification V3 evidence did not pass.');
+    const testFiles = options.gitFiles(input.exactHead, 'tests');
+    if (!testFiles) throw new Error('Merge gate cannot enumerate exact-head test files.');
+    const testImpactSourceProvider = {
+      testFiles: testFiles.filter(isTestFile),
+      readTestSource: (testFile: string): string | null => {
+        const entry = options.readGitBlob!(input.exactHead, testFile);
+        if (!entry) throw new Error(`Merge gate cannot read exact-head test source: ${testFile}.`);
+        try {
+          return new TextDecoder('utf-8', { fatal: true }).decode(entry.bytes);
+        } catch (error) {
+          throw new Error(`Merge gate exact-head test source is not UTF-8: ${testFile}.`, { cause: error });
+        }
+      }
+    };
+    const runtime = options.runtime ?? `bun@${Bun.version}`;
+    const inventory = CodexDevelopmentBuildVerificationScopeInventoryV1({
+      profile: 'quick',
+      changedFiles: expectedChangedFiles,
+      runtime,
+      currentHead: input.exactHead,
+      baseHead: input.currentBase,
+      changedRecords: effectiveChangedRecords,
+      gitBlob: options.gitBlob,
+      testImpactSourceProvider
+    });
+    const gateEnvironmentBindings: Record<string, CodexDevelopmentCiExecutionEnvironmentBindingV1> =
+      Object.fromEntries(preliminaryEvidence.gates.map((gate) => {
+        if (gate.envAllowlistRevision !== CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1) {
+          throw new Error(`Verification V3 gate ${gate.id} environment allowlist revision mismatch.`);
+        }
+        return [gate.id, {
+          allowlistRevision: CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1,
+          digest: gate.envDigest
+        }];
+      }));
+    const expectedPlan = CodexDevelopmentBuildEvidenceCompositionPlanV1({
+      policyId: manifest.evidenceComposition.policyId,
+      workPackageId: manifest.id,
+      ciRevision: CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION,
+      profile: 'quick',
+      inventory,
+      runtime,
+      currentHead: input.exactHead,
+      currentTree: input.headTree,
+      gitBlob: options.gitBlob,
+      gitTree: options.gitTree,
+      readEvidence: options.readGitBlob,
+      gateEnvironmentBindings,
+      resolvePolicy: (policyId) => CodexDevelopmentRegisteredEvidenceCompositionPolicyV1({
+        policyId,
+        workPackageId: manifest.id,
+        inventory,
+        runtime,
+        currentHead: input.exactHead,
+        gitBlob: options.gitBlob!
+      })
+    });
+    CodexDevelopmentAssertVerificationEvidenceV3(preliminaryEvidence, {
+      profile: 'quick',
+      policyId: manifest.evidenceComposition.policyId,
+      workPackageId: manifest.id,
+      headSha: input.exactHead,
+      treeSha: input.headTree,
+      prBaseSha: input.currentBase,
+      affectedBaseSha: input.currentBase,
+      manifestPath: input.manifestPath,
+      manifestDigest,
+      plan: expectedPlan
+    }, new Date(input.checkedAt));
+    evidence = preliminaryEvidence;
   }
   return {
     status: 'passed',
@@ -652,8 +843,75 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     currentBase: input.currentBase,
     manifestPath: input.manifestPath,
     manifestDigest,
-    requiredProfile: manifest.requiredProfile,
+    requiredProfile: verificationBinding.requiredProfile,
     evidenceDigest: evidence.evidenceDigest
+  };
+}
+
+function mergeGateGitResolvers(candidateGitDir: string, legacyGitDir: string): {
+  changedRecords: (baseHead: string, currentHead: string) => CodexDevelopmentGitChangedRecordV1[] | null;
+  gitBlob: (ref: string, file: string) => CodexDevelopmentExactGitBlobV1 | null;
+  readGitBlob: (ref: string, file: string) => CodexDevelopmentExactGitBlobBytesV1 | null;
+  gitFiles: (ref: string, prefix: string) => string[] | null;
+  gitTree: (ref: string) => string | null;
+} {
+  const candidate = path.resolve(candidateGitDir);
+  const legacy = path.resolve(legacyGitDir);
+  const gitDirectory = (ref: string): string => (
+    ref === CodexDevelopmentSm3P0LegacyTestedHeadV1 ? legacy : candidate
+  );
+  const run = (
+    gitDir: string,
+    args: string[],
+    encoding: 'utf8' | 'buffer',
+    maxBuffer = 16 * 1024 * 1024
+  ) => spawnSync('git', ['--git-dir', gitDir, ...args], { encoding, maxBuffer });
+  const gitBlob = (ref: string, file: string): CodexDevelopmentExactGitBlobV1 | null => {
+    const result = run(gitDirectory(ref), ['ls-tree', '-z', '--full-tree', ref, '--', file], 'utf8', 1_048_576);
+    if (result.status !== 0 || typeof result.stdout !== 'string' || !result.stdout.endsWith('\0')) return null;
+    const entries = result.stdout.split('\0').filter(Boolean);
+    if (entries.length !== 1) return null;
+    const match = /^(100644|100755) blob ([0-9a-f]{40})\t(.+)$/u.exec(entries[0]!);
+    if (!match || match[3] !== file) return null;
+    return { mode: match[1] as '100644' | '100755', type: 'blob', blobSha: match[2]! };
+  };
+  return {
+    changedRecords: (baseHead, currentHead) => {
+      const result = run(candidate, gitChangedFileDiffArgs(baseHead, currentHead), 'utf8');
+      if (result.status !== 0 || typeof result.stdout !== 'string') return null;
+      try {
+        return parseGitChangedRecordsOutput(result.stdout);
+      } catch {
+        return null;
+      }
+    },
+    gitBlob,
+    readGitBlob: (ref, file) => {
+      const entry = gitBlob(ref, file);
+      if (!entry) return null;
+      const result = run(gitDirectory(ref), ['cat-file', 'blob', `${ref}:${file}`], 'buffer');
+      if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
+      return { ...entry, bytes: new Uint8Array(result.stdout) };
+    },
+    gitFiles: (ref, prefix) => {
+      const result = run(
+        gitDirectory(ref),
+        ['ls-tree', '-r', '-z', '--name-only', '--full-tree', ref, '--', prefix],
+        'utf8'
+      );
+      if (
+        result.status !== 0
+        || typeof result.stdout !== 'string'
+        || (result.stdout.length > 0 && !result.stdout.endsWith('\0'))
+      ) return null;
+      return result.stdout.split('\0').filter(Boolean);
+    },
+    gitTree: (ref) => {
+      const result = run(gitDirectory(ref), ['rev-parse', `${ref}^{tree}`], 'utf8', 1_048_576);
+      if (result.status !== 0 || typeof result.stdout !== 'string') return null;
+      const value = result.stdout.trim();
+      return SHA_PATTERN.test(value) ? value : null;
+    }
   };
 }
 
@@ -695,6 +953,9 @@ async function main(): Promise<number> {
       const manifestPath = argument(argv, '--manifest');
       const attestationDirectory = argument(argv, '--attestation-dir');
       const verificationDirectory = argument(argv, '--verification-dir');
+      const candidateGitDirectory = argument(argv, '--candidate-git-dir');
+      const legacyGitDirectory = argument(argv, '--legacy-git-dir');
+      const gitResolvers = mergeGateGitResolvers(candidateGitDirectory, legacyGitDirectory);
       const rawInput = strictJson(readFileSync(inputPath, 'utf8'), 'merge gate input');
       const rawAttestation = readSingleCanonicalJsonArtifact(
         attestationDirectory,
@@ -708,7 +969,8 @@ async function main(): Promise<number> {
         rawInput,
         manifestBytes: readManifestBytes(manifestPath),
         rawAttestation,
-        rawEvidence
+        rawEvidence,
+        ...gitResolvers
       });
       console.log(JSON.stringify(result));
       return 0;

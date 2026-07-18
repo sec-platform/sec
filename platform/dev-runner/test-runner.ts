@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { CodexDevelopmentBuildAffectedTestInventoryV1 } from '../shared/affected-test-inventory.ts';
 import {
   gitChangedFileDiffArgs,
   gitUntrackedFileArgs,
@@ -20,7 +21,7 @@ import {
   slowTestSuiteFiles,
   slowTestSuiteIds
 } from '../shared/test-budget-contract.ts';
-import { formatSlowImpactNotice, isTestImpactSourceFile, selectTestsForSources } from '../shared/test-impact-contract.ts';
+import { formatSlowImpactNotice } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey, withRootDependencyBridge } from './env-manager.ts';
 import { planFastTestProcesses } from './fast-test-policy.ts';
@@ -278,15 +279,14 @@ interface AffectedTestSelection {
 async function affectedTestSelection(): Promise<AffectedTestSelection | null> {
   const files = await gitChangedFiles();
   if (!files) return null;
-  const impactSourceFiles = files.filter(isTestImpactSourceFile);
-  const impact = selectTestsForSources(impactSourceFiles);
+  const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(files);
   return {
-    tests: files.filter(isFastTestFile),
-    slowTests: files.filter(isSlowTestFile),
-    affectedTests: impact.fast.filter(isFastTestFile),
-    affectedSlowTests: impact.slow.filter(isSlowTestFile),
-    affectedOwners: impact.owners,
-    sourceChanged: impactSourceFiles.length > 0
+    tests: inventory.changedFastTests,
+    slowTests: inventory.changedSlowTests,
+    affectedTests: inventory.affectedFastTests,
+    affectedSlowTests: inventory.affectedSlowTests,
+    affectedOwners: inventory.affectedOwners,
+    sourceChanged: inventory.sourceChanged
   };
 }
 
