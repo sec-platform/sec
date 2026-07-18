@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-verification-plan.ts';
 import {
   CodexDevelopmentFinalizeVerificationEvidenceV2,
   CodexDevelopmentPrepareVerificationEvidenceTarget,
@@ -15,6 +14,7 @@ import {
 } from '../platform/shared/ci-evidence-contract.ts';
 import { gitChangedFileDiffArgs, parseGitChangedFileOutput } from '../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
+import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-verification-plan.ts';
 import { getSlowTestSuitesSync, slowTestSuiteIds } from '../platform/shared/test-budget-contract.ts';
 import {
   CodexDevelopmentParseWorkPackageManifestV1,

@@ -4,6 +4,12 @@ import path from 'node:path';
 
 const MANAGED_HOOKS_PATH = '.githooks';
 const MANAGED_PRE_COMMIT = `${MANAGED_HOOKS_PATH}/pre-commit`;
+const MANAGED_HOOKS = [
+  MANAGED_PRE_COMMIT,
+  `${MANAGED_HOOKS_PATH}/post-checkout`,
+  `${MANAGED_HOOKS_PATH}/post-merge`,
+  `${MANAGED_HOOKS_PATH}/post-rewrite`
+] as const;
 
 export interface GitHookInstallationResult {
   readonly status: 'installed' | 'managed' | 'conflict';
@@ -75,20 +81,24 @@ function conflictResult(configured: string, lifecycle: boolean): GitHookInstalla
 }
 
 async function managedHookReady(repoRoot: string): Promise<boolean> {
-  const tracked = gitText(
-    repoRoot,
-    ['ls-files', '--error-unmatch', '--stage', '--', MANAGED_PRE_COMMIT],
-    { allowMissing: true }
-  );
-  if (tracked === null || !/^100755 [0-9a-f]{40,64} 0\t\.githooks\/pre-commit$/u.test(tracked)) {
-    return false;
+  for (const hook of MANAGED_HOOKS) {
+    const tracked = gitText(
+      repoRoot,
+      ['ls-files', '--error-unmatch', '--stage', '--', hook],
+      { allowMissing: true }
+    );
+    const escapedHook = hook.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+    if (tracked === null || !(new RegExp(`^100755 [0-9a-f]{40,64} 0\\t${escapedHook}$`, 'u')).test(tracked)) {
+      return false;
+    }
+    try {
+      if (!(await stat(path.join(repoRoot, ...hook.split('/')))).isFile()) return false;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
   }
-  try {
-    return (await stat(path.join(repoRoot, ...MANAGED_PRE_COMMIT.split('/')))).isFile();
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
-    throw error;
-  }
+  return true;
 }
 
 export async function installGitHooks(options: {
@@ -99,7 +109,7 @@ export async function installGitHooks(options: {
   const managedAbsolute = path.resolve(repoRoot, MANAGED_HOOKS_PATH);
   if (!await managedHookReady(repoRoot)) {
     return stoppedResult(
-      `Tracked executable ${MANAGED_PRE_COMMIT} is unavailable; Git hook authority was not changed.`,
+      `Tracked executable managed hooks are unavailable; Git hook authority was not changed.`,
       options.lifecycle ?? false
     );
   }

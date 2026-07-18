@@ -1,4 +1,3 @@
-import { globby } from 'globby';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -71,6 +70,7 @@ export async function copyRecursive(
 
 export async function listFilesRecursive(rootDir: string): Promise<string[]> {
   if (!(await pathExists(rootDir))) return [];
+  const { globby } = await import('globby');
   return globby('**/*', { cwd: rootDir, absolute: true, dot: false, onlyFiles: true });
 }
 

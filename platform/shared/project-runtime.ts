@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -25,7 +26,8 @@ import {
   buildRuntimePackageManifest,
   isRuntimeDepsPreboundBinding,
   loadRuntimeDependencySpec,
-  RUNTIME_DEPS_PREBOUND_BINDING_FILE
+  RUNTIME_DEPS_PREBOUND_BINDING_FILE,
+  type RootPackageJson
 } from './runtime-dependency-spec.ts';
 
 export interface RuntimeDepsStamp {
@@ -38,6 +40,19 @@ export interface SharedDepsReadyState {
   packageManager: 'bun';
   root: string;
   nodeModulesPath: string;
+  manifestHash: string;
+}
+
+export interface CompilerDepsReadyState {
+  manifestHash: string;
+  nodeModulesPath: string;
+  packageManager: 'bun';
+  root: string;
+  source: 'existing' | 'installed';
+}
+
+interface CompilerDepsBinding {
+  formatVersion: 'compiler-deps-binding-v1';
   manifestHash: string;
 }
 
@@ -58,6 +73,51 @@ export interface RuntimeDependencyInstallOptions {
 
 function defaultSharedDepsRoot(): string {
   return path.join(compilerRoot, '.shared-deps');
+}
+
+function sortedRecord(record: Record<string, string> | undefined): Record<string, string> {
+  return Object.fromEntries(Object.entries(record ?? {}).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+async function compilerDependencyIdentity(root: string): Promise<{
+  manifestHash: string;
+  packageNames: string[];
+}> {
+  const packageJson = await readJson<RootPackageJson & { packageManager?: string }>(path.join(root, 'package.json'));
+  const lockfile = await readText(path.join(root, 'bun.lock'));
+  const dependencies = sortedRecord(packageJson.dependencies);
+  const devDependencies = sortedRecord(packageJson.devDependencies);
+  return {
+    manifestHash: crypto.createHash('sha256').update(JSON.stringify({
+      dependencies,
+      devDependencies,
+      lockfile,
+      packageManager: packageJson.packageManager ?? null
+    })).digest('hex'),
+    packageNames: [...new Set([...Object.keys(dependencies), ...Object.keys(devDependencies)])]
+      .sort((left, right) => left.localeCompare(right))
+  };
+}
+
+function dependencyPackagePath(nodeModulesPath: string, packageName: string): string {
+  return path.join(nodeModulesPath, ...packageName.split('/'), 'package.json');
+}
+
+async function compilerDependencyTreeReady(
+  nodeModulesPath: string,
+  bindingPath: string,
+  expectedManifestHash: string,
+  packageNames: readonly string[]
+): Promise<boolean> {
+  const binding = await readJson<CompilerDepsBinding>(bindingPath).catch(() => null);
+  if (
+    binding?.formatVersion !== 'compiler-deps-binding-v1' ||
+    binding.manifestHash !== expectedManifestHash
+  ) return false;
+  const installed = await Promise.all(
+    packageNames.map((packageName) => pathExists(dependencyPackagePath(nodeModulesPath, packageName)))
+  );
+  return installed.every(Boolean);
 }
 
 function buildEnv(
@@ -297,6 +357,70 @@ export async function withProjectDependencyBridge<T>(projectRoot: string, callba
       await fs.rm(bridgePath, { recursive: true, force: true });
     }
   }
+}
+
+export async function ensureCompilerDepsReady(
+  options: RuntimeDependencyInstallOptions = {},
+  compilerDependencyRoot = compilerRoot
+): Promise<CompilerDepsReadyState> {
+  const root = path.resolve(compilerDependencyRoot);
+  const nodeModulesPath = path.join(root, 'node_modules');
+  const bindingPath = path.join(nodeModulesPath, '.sec-compiler-deps-binding-v1.json');
+  const installLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
+  const identity = await compilerDependencyIdentity(root);
+  const ready = () => compilerDependencyTreeReady(
+    nodeModulesPath,
+    bindingPath,
+    identity.manifestHash,
+    identity.packageNames
+  );
+
+  if (await ready()) {
+    return {
+      manifestHash: identity.manifestHash,
+      nodeModulesPath,
+      packageManager: 'bun',
+      root,
+      source: 'existing'
+    };
+  }
+
+  return withInstallLock(installLockPath, options, async () => {
+    if (await ready()) {
+      return {
+        manifestHash: identity.manifestHash,
+        nodeModulesPath,
+        packageManager: 'bun' as const,
+        root,
+        source: 'existing' as const
+      };
+    }
+
+    const cacheDir = path.join(root, '.shared-deps', '.bun-cache');
+    const { packageManager } = await runBunInstall(root, options, ['install', '--frozen-lockfile'], cacheDir);
+    const missing = (await Promise.all(identity.packageNames.map(async (packageName) => ({
+      packageName,
+      installed: await pathExists(dependencyPackagePath(nodeModulesPath, packageName))
+    })))).filter(({ installed }) => !installed).map(({ packageName }) => packageName);
+    if (missing.length > 0) {
+      throw new CompilerError(
+        'RUNTIME-DEPS-001',
+        `Frozen compiler dependency install is incomplete: ${missing.join(', ')}`
+      );
+    }
+    await writeJson(bindingPath, {
+      formatVersion: 'compiler-deps-binding-v1',
+      manifestHash: identity.manifestHash
+    } satisfies CompilerDepsBinding, options.beforeCommit);
+
+    return {
+      manifestHash: identity.manifestHash,
+      nodeModulesPath,
+      packageManager,
+      root,
+      source: 'installed'
+    };
+  });
 }
 
 export async function ensureSharedDepsReady(

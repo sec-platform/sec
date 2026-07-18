@@ -194,6 +194,31 @@ function resolvedCandidateBase(projectRoot: string, candidateBase: string | unde
   return resolved;
 }
 
+function tryResolveGitCommit(projectRoot: string, args: readonly string[]): string | undefined {
+  const result = spawnSync('git', [...args], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  if (result.error || result.status !== 0) return undefined;
+  const resolved = result.stdout.trim();
+  return /^[0-9a-f]{40,64}$/u.test(resolved) ? resolved : undefined;
+}
+
+export function resolveCandidateImportBase(
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): string {
+  if (env.SEC_CHANGED_BASE) {
+    return resolvedCandidateBase(projectRoot, env.SEC_CHANGED_BASE)!;
+  }
+  return tryResolveGitCommit(projectRoot, ['merge-base', 'HEAD', 'refs/remotes/origin/main'])
+    ?? tryResolveGitCommit(projectRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])
+    ?? (() => {
+      throw new Error('Candidate import base is unavailable');
+    })();
+}
+
 function stagedTypeScriptTargets(
   projectRoot: string,
   candidateBase: string | undefined
@@ -475,6 +500,15 @@ export async function runStagedImportOrganizer(
   const scope = candidateBase === undefined ? 'staged' : 'candidate';
   console.log(`Organized ${scope} imports in ${updates.length} file(s); working tree unchanged:\n${fileList}`);
   return 0;
+}
+
+export async function runCandidateImportOrganizer(
+  projectRoot = compilerRoot,
+  testHooks: StagedImportOrganizerTestHooks = {},
+  env: ImportSelectionEnvironment = process.env
+): Promise<number> {
+  const candidateBase = resolveCandidateImportBase(projectRoot, env);
+  return runStagedImportOrganizer(projectRoot, testHooks, { candidateBase });
 }
 
 function changedTypeScriptFiles(env: ImportSelectionEnvironment = process.env): Set<string> | null {

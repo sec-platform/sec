@@ -6,6 +6,7 @@ import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { ensureProjectBase } from '../../platform/shared/project-base.ts';
 import {
+  ensureCompilerDepsReady,
   ensureProjectDependencies,
   ensureSharedDepsReady,
   readRuntimeDepsStamp,
@@ -51,6 +52,48 @@ describe('shared runtime dependency installation', () => {
         packageManager: 'bun'
       });
     }, 'engineering-compiler-shared-deps-');
+  });
+});
+
+describe('compiler dependency installation', () => {
+  test('serializes a frozen full install and invalidates the binding when the lockfile changes', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      const packageNames = ['commander', 'typescript'];
+      await Promise.all([
+        fs.writeFile(path.join(tempRoot, 'package.json'), `${JSON.stringify({
+          packageManager: 'bun@1.3.6',
+          dependencies: { commander: '1' },
+          devDependencies: { typescript: '1' }
+        })}\n`, 'utf8'),
+        fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v1\n', 'utf8')
+      ]);
+      let installCalls = 0;
+      const commandRunner = async (_command: string, args: string[], options: { cwd: string }) => {
+        installCalls += 1;
+        expect(args).toEqual(['install', '--frozen-lockfile']);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await Promise.all(packageNames.map(async (packageName) => {
+          const packageRoot = path.join(options.cwd, 'node_modules', packageName);
+          await fs.mkdir(packageRoot, { recursive: true });
+          await fs.writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({ name: packageName })}\n`);
+        }));
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+      const options = { commandRunner, pollIntervalMs: 10 };
+
+      const first = await Promise.all([
+        ensureCompilerDepsReady(options, tempRoot),
+        ensureCompilerDepsReady(options, tempRoot)
+      ]);
+
+      expect(installCalls).toBe(1);
+      expect(first.map(({ source }) => source).sort()).toEqual(['existing', 'installed']);
+      expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('existing');
+
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n', 'utf8');
+      expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('installed');
+      expect(installCalls).toBe(2);
+    }, 'engineering-compiler-dev-deps-');
   });
 });
 
@@ -112,7 +155,9 @@ describe('test budget and benchmark contracts', () => {
 
     expect(scripts['imports:organize']).toBe('bun ./platform/dev-runner.ts imports:organize');
     expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
+    expect(scripts['imports:freeze']).toBe('bun ./platform/dev-runner.ts imports:freeze');
     expect(scripts['imports:staged']).toBe('bun ./platform/dev-runner.ts imports:staged');
+    expect(scripts['deps:ensure']).toBe('bun ./platform/dev-runner.ts deps:ensure');
     expect(scripts['hooks:install']).toBe('bun ./scripts/install-git-hooks.ts');
     expect(scripts.postinstall).toBe('bun ./scripts/install-git-hooks.ts --lifecycle');
 
@@ -194,7 +239,7 @@ describe('test budget and benchmark contracts', () => {
     ]);
     expectContainsAll(setupSource, [
       "process.env.SEC_SKIP_RUNTIME_DEPS_SETUP !== '1'",
-      'ensureSharedDepsReady',
+      'ensureDevDependencies',
       'await fs.rm(lockPath, { recursive: true, force: true });'
     ]);
   });

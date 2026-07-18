@@ -26,13 +26,18 @@ bun run check:affected
 bun run test:affected
 bun run check:fast
 bun run check:full
+bun run deps:ensure
 bun run hooks:install
 bun run imports:organize
 ```
 
 `affected` 只选择相关 fast tests。开发者本地入口可以把未知映射报告为 notice；进入 hosted verification 时，changed-file 或 ownership 解析未知必须 fail closed，不得用 bounded baseline 冒充完整通过。
 
-`hooks:install` 读取 effective `core.hooksPath`；若未配置，还会审计 Git 默认 hooks 目录中的非 sample hook。配置前必须确认当前 branch 实际跟踪、工作树中存在且 index mode 为 `100755` 的 `.githooks/pre-commit`，避免 branch-without-hook 或 non-executable hook 被静默配置成无 hook。已存在的其他 hook authority 使显式安装 fail closed，package lifecycle 只提示人工集成并保留原 authority；CI 或 Gitless lifecycle 直接 no-op，显式命令仍 fail closed；缺失的陈旧路径可被 tracked hook 接管。安全接管时启用 `extensions.worktreeConfig`，且只以 `git config --worktree core.hooksPath .githooks` 写入当前 worktree，不覆盖 common config 中的 `core.hooksPath`。普通 commit 的 `pre-commit` 调用 `imports:staged`，直接读取当前 Git index 的 ACMR TypeScript ordinary blobs；A0 在 rebase/squash 后执行最终 amend 时必须把 current main 的 full SHA 作为 `SEC_CHANGED_BASE` 传给同一 hook，hook 随即改用 `imports:staged --candidate-base <full-sha>`，覆盖完整 base→candidate index diff，包括由 Git sequencer 重放但本轮没有重新 staged 的历史文件。Candidate base 必须精确解析为同一个 full commit object。所有 organizer/blob 步骤完成后获取真实 `index.lock`、持锁复核原 index，在唯一 alternate index 上执行一次 `git update-index -z --index-info`，最后以 lock rename 原子发布。两种选择都只更新 index，从不改写 working-tree bytes；partial-stage、并发工作树修改与外部 hardlink/symlink alias 观察到的字节均原样保留。
+`bunfig.toml` 禁止 Bun ambient auto-install；仓库不接受全局 cache 或相邻 worktree 替代当前 manifest 的依赖解析。`deps:ensure` 对 root `package.json` 的完整 dependency maps、`packageManager` 与 `bun.lock` 建立 digest，在 install lock 内执行一次 frozen compiler install，并把 binding 写入当前 worktree 的物理 `node_modules`；TypeScript 使用 exact pin。`.shared-deps` 继续只拥有生成项目/隔离验证所需的 runtime 子集与下载 cache，不再冒充 compiler 依赖树。dev-runner 在冷启动完成安装后只 re-enter 一次，随后所有 typecheck、test 与 import 命令直接复用同一完整依赖树。tracked `post-checkout`、`post-merge`、`post-rewrite` 在 Git 改变候选树后刷新 binding，使新 worktree 的第一次 focused test 之前已经完成依赖闭合。
+
+`hooks:install` 读取 effective `core.hooksPath`；若未配置，还会审计 Git 默认 hooks 目录中的非 sample hook。配置前必须确认当前 branch 实际跟踪、工作树中存在且 index mode 为 `100755` 的全部 managed hooks，避免 branch-without-hook 或 non-executable hook 被静默配置成残缺 authority。已存在的其他 hook authority 使显式安装 fail closed，package lifecycle 只提示人工集成并保留原 authority；CI 或 Gitless lifecycle 直接 no-op，显式命令仍 fail closed；缺失的陈旧路径可被 tracked hooks 接管。安全接管时启用 `extensions.worktreeConfig`，且只以 `git config --worktree core.hooksPath .githooks` 写入当前 worktree，不覆盖 common config 中的 `core.hooksPath`。
+
+每次 commit 的 `pre-commit` 只调用唯一 `imports:freeze`。该入口优先接受 verification 已绑定的 exact `SEC_CHANGED_BASE`；普通本地提交自动使用 `HEAD` 与 `refs/remotes/origin/main` 的 merge-base，缺少 remote ref 时才退回 exact `HEAD`。因此 rebase/squash 重放但本轮未重新 stage 的历史 TypeScript 文件仍包含在 base→candidate index diff 内，不再依赖 A0 记忆环境变量。Candidate base 必须解析为一个 full commit object。所有 organizer/blob 步骤完成后获取真实 `index.lock`、持锁复核原 index，在唯一 alternate index 上执行一次 `git update-index -z --index-info`，最后以 lock rename 原子发布；只更新 index，不改写 working-tree bytes，partial-stage、并发工作树修改与外部 hardlink/symlink alias 观察到的字节均原样保留。
 
 ## 3. PR Quick
 
