@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1",
+  "recordType": "execution-evidence-loss-record",
+  "recordedAt": "2026-07-18T14:34:57.3250434+08:00",
+  "profile": "v0.4-semantic-mutation-restored-runtime-input-exact",
+  "identity": "sm3-p0-exact-production-seam-restored-runtime-input-v1",
+  "branch": "codex/sm3-p0-local-isolated-runner",
+  "testedBase": "e07a295b5a8499c2c55c78a783e5419911aae584",
+  "testedHead": "0bc482e63d967be6e567d7e1b6254a04e8652362",
+  "status": "consumed-with-terminal-result-unavailable",
+  "mergeAllowedFromThisRecord": false,
+  "capabilityComplete": false,
+  "executionManifest": {
+    "path": ".tmp/sm3-p0-exact-production-seam-restored-runtime-input-v1.execution.json",
+    "gitBlob": "78f3348c909e85fd18a08f9767ddf285576cb92e",
+    "frozenAt": "2026-07-17T09:09:51.6321830+08:00",
+    "authorizedRunCount": 1,
+    "observedRunCount": 1,
+    "rerunAllowed": false
+  },
+  "exactPublicSeam": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/integration/semantic-mutation-apply.test.ts",
+      "--test-name-pattern",
+      "^SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once$"
+    ],
+    "testOwnedTimeoutMs": 300000,
+    "shellTimeoutMs": 1200000,
+    "startedAt": "2026-07-17T09:10:43.204+08:00",
+    "lastObservedRunningAt": "2026-07-17T09:13:23.618+08:00",
+    "sessionTurnCompletedAt": "2026-07-17T09:13:30.302+08:00",
+    "lastObservedState": "running-with-no-output",
+    "terminalExitCode": null,
+    "terminalOutput": null,
+    "passClaimed": false,
+    "failClaimed": false
+  },
+  "recoveryAudit": {
+    "auditedAt": "2026-07-18T14:34:57.3250434+08:00",
+    "sessionPath": "C:/Users/QzCrane/.codex/sessions/2026/07/16/rollout-2026-07-16T15-12-55-019f69c5-5ddb-7123-82d9-424de63a7fcb.jsonl",
+    "execCallId": "call_uQwDyqxiFwGaz7OQikROGoYa",
+    "cellId": "1706",
+    "sourcesChecked": [
+      "Codex session JSONL",
+      "Codex logs_2.sqlite for the execution interval",
+      "Codex state_5.sqlite schema and thread state",
+      "Codex process_manager state",
+      "Codex current thread terminal",
+      "Codex runtime and temporary directories",
+      "Windows user temporary directory",
+      "live Bun and descendant process census"
+    ],
+    "terminalRecordRecovered": false,
+    "matchingProcessResidue": 0,
+    "workspaceCleanupObservedAt": "2026-07-17T09:14:55+08:00",
+    "cleanupIsNotPassEvidence": true,
+    "conclusion": "The authorized execution settled and cleaned its test workspace after the owning turn ended, but the tool backend did not persist its final stdout or exit code. This record preserves the unknown result and never converts cleanup or lack of residue into a PASS."
+  },
+  "frozenWorkingTree": {
+    "sourceManifest": ".tmp/sm3-p0-exact-production-seam-restored-runtime-input-v1.execution.json",
+    "blobMismatchCountAtRecoveryAudit": 0,
+    "productCodeChangedAfterExecution": false
+  },
+  "nextExecutionContract": {
+    "identity": "sm3-p0-exact-production-seam-restored-runtime-input-durable-v2",
+    "authorizedRunCount": 1,
+    "rerunAllowed": false,
+    "reason": "Replace missing transport evidence with one fresh exact execution whose stdout, stderr, timestamps, and exit code are persisted before the shell returns.",
+    "sameExactArgv": true,
+    "sameTestOwnedTimeoutMs": 300000,
+    "productCodeChangeRequired": false,
+    "durableArtifacts": [
+      ".tmp/sm3-p0-exact-production-seam-restored-runtime-input-durable-v2.log",
+      ".tmp/sm3-p0-exact-production-seam-restored-runtime-input-durable-v2.result.json"
+    ]
+  },
+  "forbidden": [
+    "rerunning sm3-p0-exact-production-seam-restored-runtime-input-v1",
+    "claiming PASS or FAIL from workspace cleanup or process absence",
+    "increasing the 300000 ms exact test budget",
+    "adding C, Rust, a new FFI boundary, Worker, another helper process, Playwright, or another dependency",
+    "committing, merging, or pushing before a fresh durable exact PASS"
+  ],
+  "closeout": {
+    "exactPublicSeamPassed": false,
+    "appContainerCapabilityComplete": false,
+    "sm3ExitClaimed": false,
+    "committedFromUnknownResult": false,
+    "mergedToMain": false,
+    "pushed": false,
+    "mainHeadUnchanged": "e07a295b5a8499c2c55c78a783e5419911aae584"
+  }
+}

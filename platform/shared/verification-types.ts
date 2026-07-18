@@ -8,7 +8,7 @@ import type {
 export const SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID =
   'semantic-mutation-local-verification' as const;
 export const SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION =
-  'semantic-mutation-local-verification-v1' as const;
+  'semantic-mutation-local-verification-v2' as const;
 export const SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION =
   'semantic-mutation-verification-capability-plan-v1' as const;
 export const SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION =

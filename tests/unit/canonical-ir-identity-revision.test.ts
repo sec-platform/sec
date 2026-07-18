@@ -339,7 +339,7 @@ test('plan validation hard fails when app.id is absent', () => {
   expectCompilerError(() => validatePlan(normalized), 'PLAN-VALIDATION-014');
 });
 
-test('provenance and ExplainGraph artifact changes cannot feed canonical revisions', async () => {
+test.serial('provenance and ExplainGraph artifact changes cannot feed canonical revisions', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({
     blockIds: ['ticket/basic'],
     prefix: 'engineering-compiler-canonical-revision-domain-'
@@ -362,7 +362,7 @@ test('provenance and ExplainGraph artifact changes cannot feed canonical revisio
   expect(afterExplainGraph.semanticRevision).toBe(before.semanticRevision);
 }, 15_000);
 
-test('policy report materialization cannot feed canonical policy identity or revisions', async () => {
+test.serial('policy report materialization cannot feed canonical policy identity or revisions', async () => {
   const workspaceRoot = await prepareResolvedWorkspace({
     blockIds: ['ticket/basic'],
     prefix: 'engineering-compiler-policy-revision-domain-'

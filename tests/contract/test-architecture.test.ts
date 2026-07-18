@@ -195,6 +195,17 @@ test('compose-layer TS codegen uses CodeBuilder instead of template string conca
   expect(offenders).toEqual([]);
 });
 
+test('isolated Verification evidence does not depend back on its child runner', async () => {
+  const evidenceSource = await fs.readFile(
+    path.join(
+      repoRoot,
+      'platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts'
+    ),
+    'utf8'
+  );
+  expect(evidenceSource).not.toContain("from './run-semantic-mutation-isolated-child.ts'");
+});
+
 /**
  * 编译器门面契约：read-only API 通过 platform/compiler/index.ts 暴露；具有副作用的运行时
  * 不得进入 public facade，只能由拥有对应 pipeline stage 的 production owner 直接导入 canonical
@@ -217,9 +228,13 @@ const compilerInternalOwnerImportAllowlist: Readonly<Record<string, readonly str
     '../compiler/repair/build-repair-plan.ts'
   ]),
   'platform/orchestrator/semantic-mutation-orchestrator.ts': Object.freeze([
-    '../compiler/verify/run-semantic-mutation-isolated-child.ts'
+    '../compiler/verify/run-semantic-mutation-isolated-child.ts',
+    '../compiler/verify/semantic-mutation-isolated-verification-evidence.ts',
+    '../compiler/verify/semantic-mutation-isolated-verification-failure.ts',
+    '../compiler/verify/staged-verification-proof.ts'
   ]),
   'platform/orchestrator/verify-orchestrator.ts': Object.freeze([
+    '../compiler/verify/staged-verification-proof.ts',
     '../compiler/verify/verify-project.ts',
     '../compiler/verify/write-policy-snapshot.ts'
   ]),

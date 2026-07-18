@@ -68,12 +68,8 @@ async function main(): Promise<SemanticMutationIsolatedChildOutcomeV1 | null> {
   if (!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)) {
     throw new SemanticMutationIsolatedStagingLayoutBoundaryFailure();
   }
-  const stagingTreeOptions = process.platform === 'win32'
-    ? { executionBoundary: 'windows-appcontainer' as const }
-    : undefined;
-
   try {
-    await assertIsolatedStagingTree(stagingWorkspaceRoot, stagingTreeOptions);
+    await assertIsolatedStagingTree(stagingWorkspaceRoot);
   } catch {
     throw new SemanticMutationIsolatedStagingTreeFailure();
   }
@@ -120,13 +116,12 @@ async function main(): Promise<SemanticMutationIsolatedChildOutcomeV1 | null> {
       compiled.verificationReport.summary.requestedLane !== 'all') {
       throw new Error('Semantic Mutation isolated runner did not complete verify-all');
     }
-    await assertIsolatedStagingTree(stagingWorkspaceRoot, stagingTreeOptions);
     return null;
   } catch (error) {
     if (error instanceof SemanticMutationIsolatedProgressPublicationError) throw error;
     await publishSemanticMutationIsolatedProgressCheckpoint(stagingWorkspaceRoot, 'failure-caught');
     try {
-      await assertIsolatedStagingTree(stagingWorkspaceRoot, stagingTreeOptions);
+      await assertIsolatedStagingTree(stagingWorkspaceRoot);
     } catch {
       throw new SemanticMutationIsolatedCatchTreeFailure();
     }

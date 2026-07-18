@@ -284,7 +284,7 @@ test('test impact selector gives runner build boundaries a focused semantic-muta
     'platform/compiler/verify/semantic-mutation-runner-build-settlement.ts'
   ]) {
     const selection = selectTestsForSources([source]);
-    expect(selection.owners).toEqual(['auto-reference', 'semantic-mutation']);
+    expect(selection.owners).toEqual(['semantic-mutation']);
     expect(selection.fast).toEqual([
       'tests/contract/semantic-mutation-apply-contract.test.ts',
       'tests/contract/test-impact.test.ts',
@@ -311,10 +311,8 @@ test('test impact selector keeps Windows AppContainer as optional hardening cove
 
   expect(selection.owners).toEqual(['auto-reference', 'windows-appcontainer-hardening']);
   expect(selection.fast).toEqual([
-    'tests/contract/semantic-mutation-apply-contract.test.ts',
     'tests/contract/test-impact.test.ts',
     'tests/unit/ci-pr-risk-selection.test.ts',
-    'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
     'tests/unit/windows-appcontainer-executor.test.ts',
     'tests/unit/windows-appcontainer-hardening-static.test.ts',
     'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'

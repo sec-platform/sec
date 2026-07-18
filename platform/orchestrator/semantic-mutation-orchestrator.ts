@@ -49,10 +49,19 @@ import { semanticMutationRequiredVerificationDigest } from '../compiler/semantic
 import {
   probeSemanticMutationIsolatedRuntimeCapability,
   runSemanticMutationIsolatedVerificationChild,
-  SemanticMutationIsolatedVerificationUnavailableError,
-  type IsolatedVerificationArtifacts,
-  type SemanticMutationIsolatedVerificationFailure
+  type IsolatedVerificationArtifacts
 } from '../compiler/verify/run-semantic-mutation-isolated-child.ts';
+import { semanticMutationIsolatedVerificationEvidenceDigest } from '../compiler/verify/semantic-mutation-isolated-verification-evidence.ts';
+import {
+  SemanticMutationIsolatedVerificationUnavailableError,
+  type SemanticMutationIsolatedVerificationFailure
+} from '../compiler/verify/semantic-mutation-isolated-verification-failure.ts';
+import {
+  assertStagedVerificationProofBinding,
+  issueStagedVerificationProof,
+  type StagedVerificationProof,
+  type StagedVerificationProofBinding
+} from '../compiler/verify/staged-verification-proof.ts';
 import type { FactDeltaEndpointContext } from '../shared/engineering-ir-types.ts';
 import {
   type SemanticMutationApplyInputV1,
@@ -78,10 +87,10 @@ import {
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
   type SemanticMutationVerificationCapabilityPlanV1
 } from '../shared/verification-types.ts';
-import { windowsAppContainerCapability } from '../shared/windows-appcontainer-executor.ts';
 import {
   acquireWorkspaceWriteLease,
   assertWorkspaceWriteLease,
+  createWorkspaceWriteCommitFence,
   withWorkspaceWriteLease,
   WorkspaceWriteLeaseError,
   type WorkspaceWriteLeaseToken
@@ -114,8 +123,7 @@ const DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE:
     const runtime = await probeSemanticMutationIsolatedRuntimeCapability(
       request.stagingWorkspaceRoot
     );
-    if (runtime.status !== 'available') return Object.freeze({ status: 'unavailable' });
-    return windowsAppContainerCapability().status === 'available'
+    return runtime.status === 'available'
       ? runtime
       : Object.freeze({ status: 'unavailable' as const });
   };
@@ -187,7 +195,7 @@ async function fencedWorkspaceWrite<Value>(
   token: WorkspaceWriteLeaseToken,
   operation: (commitFence: SemanticMutationCommitFence) => Promise<Value>
 ): Promise<Value> {
-  const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
+  const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, token);
   await commitFence();
   return operation(commitFence);
 }
@@ -314,37 +322,11 @@ function isolatedVerificationBlockedResult(
 } {
   return {
     status: 'blocked',
-    evidenceDigest: sha256({
-      domain: 'semantic-mutation-isolated-verification-evidence-v1',
-      reason: 'isolated-verification-unavailable',
+    evidenceDigest: semanticMutationIsolatedVerificationEvidenceDigest({
+      status: 'blocked',
       ...(failure === undefined ? {} : { failure })
     })
   };
-}
-
-function isolatedVerificationEvidenceDigest(artifacts: IsolatedVerificationArtifacts): string {
-  const snapshot = artifacts.semanticBundle.snapshot.ir;
-  const generatedReport = artifacts.verificationReport;
-  return sha256({
-    domain: 'semantic-mutation-isolated-verification-evidence-v1',
-    completedStages: ['resolve', 'semantic', 'compose', 'adapt', 'verify'],
-    inputRevision: snapshot.inputRevision,
-    semanticRevision: snapshot.semanticRevision,
-    generatedArtifactRawDigests: artifacts.rawDigests,
-    report: {
-      summary: generatedReport.summary,
-      build: generatedReport.build,
-      unit: generatedReport.unit,
-      acceptance: generatedReport.acceptance,
-      policy: generatedReport.policy,
-      runtime: {
-        status: generatedReport.runtime.status,
-        build: generatedReport.runtime.build,
-        unit: generatedReport.runtime.unit,
-        acceptance: generatedReport.runtime.acceptance
-      }
-    }
-  });
 }
 
 async function runIsolatedVerification(
@@ -359,6 +341,9 @@ async function runIsolatedVerification(
     readonly recordBlockedFailure?: (
       failure: SemanticMutationIsolatedVerificationFailure
     ) => void;
+    readonly recordPassedVerificationProof?: (
+      proof: StagedVerificationProof
+    ) => void;
     readonly workspaceRoot: string;
     readonly workspaceWriteLease: WorkspaceWriteLeaseToken;
   }
@@ -366,6 +351,7 @@ async function runIsolatedVerification(
   const { commitFence, workspaceRoot, workspaceWriteLease } = leaseContext;
   await commitFence();
   const requiredDigest = semanticMutationRequiredVerificationDigest(derived.plan.requiredVerification);
+  let passedArtifacts: IsolatedVerificationArtifacts | undefined;
   const report = await executeSemanticMutationVerification({
     capabilityPlan: derived.verificationCapabilityPlan,
     requirements: derived.plan.requiredVerification,
@@ -379,7 +365,6 @@ async function runIsolatedVerification(
         derived.stagingWorkspaceRoot,
         {
           capabilityPlan: derived.verificationCapabilityPlan,
-          commitFence,
           workspaceRoot,
           workspaceWriteLease
         }
@@ -397,9 +382,13 @@ async function runIsolatedVerification(
         leaseContext.recordBlockedFailure?.(failure);
         return isolatedVerificationBlockedResult(failure);
       }
+      if (artifacts.status === 'passed') passedArtifacts = artifacts;
       return {
         status: artifacts.status,
-        evidenceDigest: isolatedVerificationEvidenceDigest(artifacts)
+        evidenceDigest: semanticMutationIsolatedVerificationEvidenceDigest({
+          status: 'passed',
+          artifacts
+        })
       };
     } catch (error) {
       const failure = error instanceof SemanticMutationIsolatedVerificationUnavailableError
@@ -410,12 +399,54 @@ async function runIsolatedVerification(
     }
   });
   await commitFence();
-  return buildSemanticMutationVerificationExecutionRef(report);
+  const execution = buildSemanticMutationVerificationExecutionRef(report);
+  if (execution.status === 'passed') {
+    if (!passedArtifacts) {
+      throw new Error('Passed isolated Verification is missing its canonical artifact set');
+    }
+    const passedExecution = Object.freeze({ ...execution, status: 'passed' as const });
+    const evidenceDigest = semanticMutationIsolatedVerificationEvidenceDigest({
+      status: 'passed',
+      artifacts: passedArtifacts
+    });
+    if (!passedArtifacts.stagedVerificationProofSource ||
+      report.status !== 'passed' || report.executions.some((candidate) =>
+        candidate.status !== 'passed' || candidate.runner !== 'verify-all' ||
+        candidate.evidenceDigest !== evidenceDigest)) {
+      throw new Error('Passed isolated Verification does not own one exact staged proof source');
+    }
+    const binding = stagedVerificationProofBinding(passedExecution, sha256(report));
+    const proof = await issueStagedVerificationProof({
+      source: passedArtifacts.stagedVerificationProofSource,
+      evidenceDigest,
+      binding
+    });
+    assertStagedVerificationProofBinding(proof, binding);
+    await commitFence();
+    leaseContext.recordPassedVerificationProof?.(proof);
+  }
+  return execution;
+}
+
+function stagedVerificationProofBinding(
+  execution: SemanticMutationVerificationExecutionRefV2 & { readonly status: 'passed' },
+  verificationReportDigest: string
+): StagedVerificationProofBinding {
+  return Object.freeze({
+    inputRevision: execution.attempted.inputRevision,
+    semanticRevision: execution.attempted.semanticRevision,
+    planRevision: execution.planRevision,
+    stagedSourceDigest: execution.stagedSourceDigest,
+    requiredVerificationDigest: execution.requiredVerificationDigest,
+    verificationExecutionRevision: execution.verificationExecutionRevision,
+    verificationReportDigest
+  });
 }
 
 async function liveRebuild(
   workspaceRoot: string,
-  token: WorkspaceWriteLeaseToken
+  token: WorkspaceWriteLeaseToken,
+  stagedVerificationProof?: StagedVerificationProof
 ): Promise<SemanticMutationBaseV2> {
   await assertWorkspaceWriteLease(workspaceRoot, token);
   const compiled = await compileWorkspace(workspaceRoot, {
@@ -423,6 +454,7 @@ async function liveRebuild(
     from: 'resolve',
     through: 'emit',
     verificationLane: 'all',
+    ...(stagedVerificationProof ? { stagedVerificationProof } : {}),
     workspaceWriteLease: token
   });
   const proof = compiled.completionProof;
@@ -586,12 +618,24 @@ async function completeCommittedMutation(
   record: SemanticMutationRecoveryRecordV1,
   token: WorkspaceWriteLeaseToken,
   dependencies: SemanticMutationCoordinatorDependencies =
-    DEFAULT_SEMANTIC_MUTATION_COORDINATOR_DEPENDENCIES
+    DEFAULT_SEMANTIC_MUTATION_COORDINATOR_DEPENDENCIES,
+  stagedVerificationProof?: StagedVerificationProof
 ): Promise<SemanticMutationInternalRecoveryOutcomeV1> {
   const plan = readyPlan(record);
+  const verifiedExecution = record.verification as
+    SemanticMutationVerificationExecutionRefV2 & { readonly status: 'passed' };
   let result: Extract<SemanticMutationResultV2, { readonly status: 'accepted' }>;
   try {
-    const accepted = await dependencies.rebuildLive(workspaceRoot, token);
+    if (stagedVerificationProof) {
+      assertStagedVerificationProofBinding(
+        stagedVerificationProof,
+        stagedVerificationProofBinding(
+          verifiedExecution,
+          stagedVerificationProof.verificationReportDigest
+        )
+      );
+    }
+    const accepted = await dependencies.rebuildLive(workspaceRoot, token, stagedVerificationProof);
     const liveSource = await readSemanticMutationSource(workspaceRoot, transactionRoot, record.relativePath);
     if (accepted.inputRevision !== plan.staged.inputRevision ||
       accepted.semanticRevision !== plan.staged.semanticRevision ||
@@ -603,7 +647,7 @@ async function completeCommittedMutation(
       transactionId: record.transactionId,
       attempted: plan.staged,
       accepted,
-      verification: record.verification as SemanticMutationVerificationExecutionRefV2 & { readonly status: 'passed' }
+      verification: verifiedExecution
     });
     if (candidate.status !== 'accepted') throw new Error('Accepted evidence did not form an accepted result');
     result = candidate;
@@ -706,7 +750,8 @@ async function recoverRecord(
   transactionRoot: string,
   record: SemanticMutationRecoveryRecordV1,
   token: WorkspaceWriteLeaseToken,
-  isolationCapabilityProbe = DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE
+  dependencies: SemanticMutationCoordinatorDependencies =
+    DEFAULT_SEMANTIC_MUTATION_COORDINATOR_DEPENDENCIES
 ): Promise<SemanticMutationInternalRecoveryOutcomeV1> {
   if (record.state === 'verified' || record.state === 'rolled-back') {
     throw new Error('Retained terminal history is not recoverable workspace authority');
@@ -724,7 +769,8 @@ async function recoverRecord(
       record,
       token,
       'concurrent-write',
-      recoveryDiagnostic('Crash recovery could not safely observe the live source')
+      recoveryDiagnostic('Crash recovery could not safely observe the live source'),
+      dependencies
     );
   }
   if (digest !== record.beforeByteDigest && digest !== record.committedByteDigest) {
@@ -734,7 +780,8 @@ async function recoverRecord(
       record,
       token,
       'concurrent-write',
-      recoveryDiagnostic('Crash recovery detected third-party source bytes')
+      recoveryDiagnostic('Crash recovery detected third-party source bytes'),
+      dependencies
     );
   }
   if (record.state === 'prepared' && digest === record.beforeByteDigest) {
@@ -751,18 +798,23 @@ async function recoverRecord(
         record,
         token,
         'rebuild-failed',
-        recoveryDiagnostic('Prepared recovery could not rebuild the live semantic workspace')
+        recoveryDiagnostic('Prepared recovery could not rebuild the live semantic workspace'),
+        dependencies
       );
     }
     try {
       await assertWorkspaceWriteLease(workspaceRoot, token);
       const base = endpointFromBundle(record.base.transactionId, bundle.snapshot);
       const derived = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
-        deriveStagedSemanticMutation(workspaceRoot, {
+        dependencies.derive(workspaceRoot, {
           request: record.request,
           base,
           authorization: record.authorization
-        }, planningAdapter(workspaceRoot, token, isolationCapabilityProbe), commitFence)
+        }, planningAdapter(
+          workspaceRoot,
+          token,
+          dependencies.isolationCapabilityProbe
+        ), commitFence)
       );
       if (derived.plan.status !== 'ready' || !derived.staged || !derived.stagingWorkspaceRoot ||
         !derived.verificationCapabilityPlan) {
@@ -779,7 +831,7 @@ async function recoverRecord(
         );
       }
       const verification = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
-        runIsolatedVerification(derived as typeof derived & {
+        dependencies.verify(derived as typeof derived & {
           readonly plan: ReadyPlan;
           readonly staged: FactDeltaEndpointContext;
           readonly stagingWorkspaceRoot: string;
@@ -790,7 +842,7 @@ async function recoverRecord(
           workspaceWriteLease: token
         })
       );
-      const artifacts = await readSemanticMutationTransactionArtifacts(transactionRoot);
+      const artifacts = await dependencies.readTransactionArtifacts(transactionRoot);
       if (!exactPreparedRecoveryBinding(record, derived, verification, artifacts)) {
         return rejectPreparedRecovery(
           workspaceRoot,
@@ -825,7 +877,7 @@ async function recoverRecord(
     }
     if (!artifactsForPublish) throw new Error('Prepared recovery lost its exact publish artifacts');
     await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
-      atomicPublishSemanticMutationSource(
+      dependencies.publishSource(
         workspaceRoot,
         transactionRoot,
         artifactsForPublish.plan,
@@ -837,7 +889,7 @@ async function recoverRecord(
   let committedRecord = record;
   if (record.state === 'prepared') {
     committedRecord = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
-      appendSemanticMutationRecoveryRecord(
+      dependencies.appendRecoveryRecord(
         transactionRoot,
         nextRecordDraft(record, 'authoring-committed'),
         commitFence
@@ -847,7 +899,7 @@ async function recoverRecord(
   if (digest === record.beforeByteDigest && record.state === 'authoring-committed') {
     let restored: SemanticMutationBaseV2;
     try {
-      restored = await liveRebuild(workspaceRoot, token);
+      restored = await dependencies.rebuildLive(workspaceRoot, token);
     } catch (error) {
       if (error instanceof WorkspaceWriteLeaseError) throw error;
       return markRecoveryRequired(
@@ -856,7 +908,8 @@ async function recoverRecord(
         record,
         token,
         'restore-validation-failed',
-        recoveryDiagnostic('Crash recovery could not validate the restored semantic endpoint')
+        recoveryDiagnostic('Crash recovery could not validate the restored semantic endpoint'),
+        dependencies
       );
     }
     const plan = readyPlan(record);
@@ -867,7 +920,8 @@ async function recoverRecord(
         record,
         token,
         'restore-validation-failed',
-        recoveryDiagnostic('Crash recovery found restored bytes but not the exact base endpoint')
+        recoveryDiagnostic('Crash recovery found restored bytes but not the exact base endpoint'),
+        dependencies
       );
     }
     const result = buildSemanticMutationResult(plan, {
@@ -879,7 +933,7 @@ async function recoverRecord(
     });
     if (result.status !== 'rolled-back') throw new Error('Restored recovery did not form rolled-back result');
     await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
-      appendSemanticMutationRecoveryRecord(
+      dependencies.appendRecoveryRecord(
         transactionRoot,
         nextRecordDraft(record, 'rolled-back', { result, diagnostics: result.diagnostics }),
         commitFence
@@ -887,7 +941,13 @@ async function recoverRecord(
     );
     return { status: 'terminal', result };
   }
-  return completeCommittedMutation(workspaceRoot, transactionRoot, committedRecord, token);
+  return completeCommittedMutation(
+    workspaceRoot,
+    transactionRoot,
+    committedRecord,
+    token,
+    dependencies
+  );
 }
 
 interface SemanticMutationRecoveryAuthoritySnapshot {
@@ -949,7 +1009,8 @@ async function inspectSemanticMutationRecoveryAuthority(
 async function recoverWithLease(
   workspaceRoot: string,
   token: WorkspaceWriteLeaseToken,
-  isolationCapabilityProbe = DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE
+  dependencies: SemanticMutationCoordinatorDependencies =
+    DEFAULT_SEMANTIC_MUTATION_COORDINATOR_DEPENDENCIES
 ): Promise<SemanticMutationInternalRecoveryOutcomeV1> {
   const { unfinished, blocked } = await inspectSemanticMutationRecoveryAuthority(workspaceRoot);
   if (blocked) return { status: 'recovery-required', record: blocked.record };
@@ -961,7 +1022,7 @@ async function recoverWithLease(
       transactionRoot,
       record,
       token,
-      isolationCapabilityProbe
+      dependencies
     );
     if (outcome.status === 'recovery-required') return outcome;
     if (outcome.status === 'terminal' &&
@@ -991,7 +1052,26 @@ export async function recoverSemanticMutationWorkspace(
     (token) => recoverWithLease(
       workspaceRoot,
       token,
-      DEFAULT_SEMANTIC_MUTATION_ISOLATION_CAPABILITY_PROBE
+      DEFAULT_SEMANTIC_MUTATION_COORDINATOR_DEPENDENCIES
+    )
+  );
+  return outcome.status === 'recovery-required'
+    ? { status: 'recovery-required', record: projectSemanticMutationRequestRecordView(outcome.record) }
+    : outcome;
+}
+
+/** Internal deterministic recovery seam. Deliberately absent from every public facade. */
+export async function recoverSemanticMutationWorkspaceWithTestDependencies(
+  workspaceRoot: string,
+  testDependencies: Partial<SemanticMutationCoordinatorDependencies>
+): Promise<SemanticMutationRecoveryOutcomeV1> {
+  const outcome = await withWorkspaceWriteLease(
+    workspaceRoot,
+    undefined,
+    (token) => recoverWithLease(
+      workspaceRoot,
+      token,
+      coordinatorDependencies(testDependencies)
     )
   );
   return outcome.status === 'recovery-required'
@@ -1080,7 +1160,7 @@ async function applySemanticMutationInternal(
     const recovery = await recoverWithLease(
       workspaceRoot,
       token,
-      dependencies.isolationCapabilityProbe
+      dependencies
     );
     if (recovery.status === 'recovery-required') {
       if (recovery.record.requestIdentityDigest === requestIdentityDigest) {
@@ -1177,6 +1257,7 @@ async function applySemanticMutationInternal(
     }
 
     let isolatedVerificationFailure: SemanticMutationIsolatedVerificationFailure | undefined;
+    let stagedVerificationProof: StagedVerificationProof | undefined;
     const verification = await fencedWorkspaceWrite(workspaceRoot, token, (commitFence) =>
       dependencies.verify(derived as typeof derived & {
         readonly plan: ReadyPlan;
@@ -1187,6 +1268,9 @@ async function applySemanticMutationInternal(
         commitFence,
         recordBlockedFailure: (failure) => {
           isolatedVerificationFailure = failure;
+        },
+        recordPassedVerificationProof: (proof) => {
+          stagedVerificationProof = proof;
         },
         workspaceRoot,
         workspaceWriteLease: token
@@ -1363,7 +1447,8 @@ async function applySemanticMutationInternal(
       transactionRoot,
       record,
       token,
-      dependencies
+      dependencies,
+      stagedVerificationProof
     );
     await fencedWorkspaceWrite(
       workspaceRoot,
@@ -1388,9 +1473,13 @@ export async function applySemanticMutation(
 /** Internal deterministic crash seam. Deliberately absent from every public façade. */
 export async function applySemanticMutationWithAfterPreparedTestCrash(
   workspaceRoot: string,
-  input: SemanticMutationApplyInputV1
+  input: SemanticMutationApplyInputV1,
+  testDependencies: Partial<SemanticMutationCoordinatorDependencies>
 ): Promise<SemanticMutationApplyOutcomeV1> {
-  return applySemanticMutationInternal(workspaceRoot, input, { testCrashPoint: 'after-prepared' });
+  return applySemanticMutationInternal(workspaceRoot, input, {
+    testCrashPoint: 'after-prepared',
+    testDependencies
+  });
 }
 
 /**

@@ -17,6 +17,13 @@ const DEFAULT_STALE_AFTER_MS = 30_000;
 const PROCESS_NONCE = randomUUID();
 const AT_FDCWD = -100;
 const RENAME_NOREPLACE = 1;
+const workspaceWriteCommitFenceBindings = new WeakMap<
+  CommitFence,
+  Readonly<{
+    workspaceRoot: string;
+    token: WorkspaceWriteLeaseToken;
+  }>
+>();
 
 export type WorkspaceWriteLeaseErrorCode =
   | 'WORKSPACE-WRITE-LEASE-001'
@@ -893,5 +900,20 @@ export function createWorkspaceWriteCommitFence(
   workspaceRoot: string,
   token: WorkspaceWriteLeaseToken
 ): CommitFence {
-  return () => assertWorkspaceWriteLease(workspaceRoot, token);
+  const canonicalWorkspaceRoot = path.resolve(workspaceRoot);
+  const commitFence = () => assertWorkspaceWriteLease(canonicalWorkspaceRoot, token);
+  workspaceWriteCommitFenceBindings.set(commitFence, Object.freeze({
+    workspaceRoot: canonicalWorkspaceRoot,
+    token
+  }));
+  return commitFence;
+}
+
+export function isCanonicalWorkspaceWriteCommitFence(
+  commitFence: CommitFence,
+  workspaceRoot: string,
+  token: WorkspaceWriteLeaseToken
+): boolean {
+  const binding = workspaceWriteCommitFenceBindings.get(commitFence);
+  return binding?.workspaceRoot === path.resolve(workspaceRoot) && binding.token === token;
 }

@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "1",
+  "recordType": "frozen-exact-production-pass-evidence",
+  "recordedAt": "2026-07-18T17:45:31.0043962+08:00",
+  "profile": "v0.4-semantic-mutation-single-job-owner-production-pass",
+  "identity": "sm3-p0-exact-production-seam-single-job-owner-durable-v4",
+  "status": "PASS",
+  "mergeAllowed": false,
+  "capabilityComplete": false,
+  "sm3ExitClaimed": false,
+  "testedBranch": "codex/sm3-p0-local-isolated-runner",
+  "testedHead": "514e6e401659f18ecffca19856a11354d66d05df",
+  "testedTree": "74e94777fe0be825121723a48b5aa41cd9bb43a8",
+  "mainBase": "e07a295b5a8499c2c55c78a783e5419911aae584",
+  "runtime": {
+    "version": "1.3.6",
+    "sha256": "2f112358f3914804d409424d3a09b248fb337e45d0aca120d56d626f259fe660",
+    "packageManagerContract": "bun@1.3.6"
+  },
+  "execution": {
+    "argv": [
+      "bun",
+      "test",
+      "tests/integration/semantic-mutation-apply.test.ts",
+      "--test-name-pattern",
+      "^SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once$",
+      "--timeout",
+      "300000"
+    ],
+    "authorizedRunCount": 1,
+    "observedRunCount": 1,
+    "rerunAllowed": false,
+    "exitCode": 0,
+    "passedTestCount": 1,
+    "filteredTestCount": 3,
+    "failedTestCount": 0,
+    "assertionCount": 26,
+    "testDurationMs": 247047,
+    "wrapperDurationMs": 248367
+  },
+  "artifacts": {
+    "executionManifest": {
+      "sha256": "c88265fd2fc490f6e83a2b64af95f93b99fb1c85679be83161ba9d46266bd4d1",
+      "gitBlob": "9680d5749c23cf28a1b4a9e37fa86bd702ec3c86",
+      "bytes": 2229
+    },
+    "log": {
+      "sha256": "3a1389989daba283caf6be42ee2194685c579a95457851c7bb12ddb8ca3e2826",
+      "gitBlob": "84e6aabf9c103f605f4e9fe0b15d626a9e1056ab",
+      "bytes": 312
+    },
+    "result": {
+      "sha256": "9b83dc44efc2093b2957665e074e3777ca00a12140771a49505437b4d9f8ad76",
+      "gitBlob": "0b0e89469df5eebbbf29d5e41f9cd53b3586bc6c",
+      "bytes": 577
+    }
+  },
+  "provedProductionSeam": [
+    "suspended child resume",
+    "isolated bootstrap",
+    "canonical runner execution",
+    "completion protocol",
+    "single Job settlement owner",
+    "bounded cleanup"
+  ],
+  "implementationBoundary": {
+    "languageSurface": "TypeScript and Bun only",
+    "cAdded": false,
+    "rustAdded": false,
+    "workerAdded": false,
+    "playwrightAdded": false,
+    "newFfiBoundaryAdded": false,
+    "secondCanonicalBuilderAdded": false
+  },
+  "postPassNonInvalidation": {
+    "head": "5696f57338107a83daba0e875c872bb10b0b7eaa",
+    "tree": "1e6a2aced5da824e48e5c16c3d804864171d27e4",
+    "range": "514e6e401659f18ecffca19856a11354d66d05df..5696f57338107a83daba0e875c872bb10b0b7eaa",
+    "changedPaths": [
+      "scripts/codex/work-package-contract.ts",
+      "scripts/run-work-package-gate.ts",
+      "tests/unit/codex-work-package-contract.test.ts",
+      "tests/unit/work-package-gate-contract.test.ts"
+    ],
+    "productionPathChanged": false,
+    "exactSeamTestChanged": false,
+    "runtimeChanged": false,
+    "conclusion": "The four later files harden gate snapshot identity only and do not invalidate the frozen production execution."
+  },
+  "integrationReplayCheck": {
+    "integrationBase": "01d5c45a573337bee484d6a9d2effb2a76787b86",
+    "checkedPlatformPathCount": 21,
+    "mismatchedPlatformPathCount": 0,
+    "comparison": "staged platform blobs before the bounded architecture-owner repair were byte-identical to testedHead",
+    "finalHeadEvidenceRule": "Any later source delta requires its own focused differential validation and must not be represented as a rerun of this identity."
+  },
+  "capabilityBoundary": "This PASS proves only the bounded production seam named above. It does not make AppContainer capabilityComplete, authorize a full SM-3 exit claim, or replace the remaining SM3-A through SM3-D obligations."
+}
