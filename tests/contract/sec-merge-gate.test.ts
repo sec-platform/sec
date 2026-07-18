@@ -1149,7 +1149,8 @@ test('trusted workflows pin actions, revalidate drift, and only materialize cand
   expect(mergeWorkflow).toContain('manifestBlobSha,');
   expect(mergeWorkflow).toContain('manifestByteLength: manifestBytes.byteLength');
   expect(mergeWorkflow).toContain('context: \'sec/merge-gate\'');
-  expect(mergeWorkflow).toContain('artifact digest, expiry, or bounded size metadata is invalid');
+  expect(mergeWorkflow).toContain('scripts/codex/github-artifact-metadata.cjs');
+  expect((mergeWorkflow.match(/canonicalizeGitHubArtifactMetadataV1/gu) ?? []).length).toBe(4);
   expect(mergeWorkflow).toContain("workflow_id: 'sec-merge-gate.yml'");
   expect(mergeWorkflow).toContain("workflow_id: 'compiler-pr-validation.yml'");
   expect(mergeWorkflow).toContain("attestationWorkflow.data.path !== '.github/workflows/sec-merge-gate.yml'");
@@ -1167,9 +1168,10 @@ test('trusted workflows pin actions, revalidate drift, and only materialize cand
   expect(mergeWorkflow).toContain(': executableSelection;');
   expect(mergeWorkflow).toContain("process.env.EVENT_NAME === 'workflow_run' && process.env.WORKFLOW_STATUS !== 'completed'");
   expect(mergeWorkflow).toContain('? []\n              : executableSelection;');
-  expect(mergeWorkflow).toContain('digest: artifact.digest ?? null');
-  expect(mergeWorkflow).toContain('expiresAt.toISOString() !== artifact.expiresAt');
-  expect(mergeWorkflow).toContain('!Number.isSafeInteger(artifact.sizeInBytes)');
+  expect(mergeWorkflow).toContain('checkedAtMs: checkedAt.getTime()');
+  expect(mergeWorkflow).toContain('checkedAtMs: Date.now()');
+  expect(mergeWorkflow).not.toContain('expiresAt.toISOString() !== artifact.expiresAt');
+  expect(mergeWorkflow).toContain('artifact.expiresAt !== expectedExpiry');
   expect(mergeWorkflow).toContain('93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5');
   expect(mergeWorkflow).toContain('d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4');
   expect(mergeWorkflow).toContain('path: .tmp/codex/candidate');
