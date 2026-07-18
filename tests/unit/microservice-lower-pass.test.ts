@@ -85,7 +85,7 @@ describe('Microservice Lowering Compiler Pass', () => {
       expect(clientContent).toContain('maxRetries = 3');
       expect(clientContent).toContain("'fallback' in options");
       expect(dockerContent).toContain('@generated-dockerfile');
-      expect(dockerContent).toContain('FROM bun:1.3.6-alpine');
+      expect(dockerContent).toContain('FROM bun:1.3.14-alpine');
     }, 'lower-micro-');
   });
 });

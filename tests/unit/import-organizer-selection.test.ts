@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
 
 import {
+  changedTypeScriptFiles,
   organizeImportsInSource,
   resolveImportDiffBase,
   selectChangedImportsOnly
@@ -80,6 +84,33 @@ describe('import organizer selection', () => {
       GITHUB_BASE_REF: 'main'
     })).toBe('origin/main');
     expect(resolveImportDiffBase({})).toBe('HEAD^1');
+  });
+
+  test('invalid changed-only bases fail closed instead of selecting the full repository', async () => {
+    const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-import-base-'));
+    try {
+      const git = (args: readonly string[]) => {
+        const result = spawnSync('git', [...args], { cwd: repoRoot, encoding: 'utf8', windowsHide: true });
+        if (result.status !== 0) throw new Error(result.stderr);
+      };
+      git(['init', '--quiet']);
+      git(['config', 'user.email', 'tests@example.com']);
+      git(['config', 'user.name', 'SEC Tests']);
+      await writeFile(path.join(repoRoot, 'fixture.ts'), 'export const fixture = true;\n');
+      git(['add', 'fixture.ts']);
+      git(['commit', '--quiet', '-m', 'initial']);
+
+      expect(() => changedTypeScriptFiles(repoRoot, { SEC_CHANGED_BASE: 'missing-base' }))
+        .toThrow('Import diff base is invalid: missing-base');
+      try {
+        changedTypeScriptFiles(repoRoot, { SEC_CHANGED_BASE: 'missing-base' });
+        throw new Error('expected invalid import base');
+      } catch (error) {
+        expect(error).toMatchObject({ code: 'IMPORT-AUTHORITY-003' });
+      }
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 

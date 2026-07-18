@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 
+import { CompilerError } from '../shared/errors.ts';
 import { compilerRoot, relativePosixPath } from '../shared/paths.ts';
 
 type ImportSelectionEnvironment = Record<string, string | undefined>;
@@ -308,6 +309,20 @@ function absoluteStagedPath(projectRoot: string, gitPath: string): string {
   return absolute;
 }
 
+async function materializeCandidateIndex(projectRoot: string): Promise<string> {
+  const snapshotsRoot = path.join(projectRoot, '.tmp', 'import-candidate-snapshots');
+  const snapshotRoot = path.join(snapshotsRoot, randomUUID());
+  await fs.mkdir(snapshotRoot, { recursive: true });
+  try {
+    const prefix = `${snapshotRoot.replace(/\\/gu, '/')}/`;
+    gitBytes(projectRoot, ['checkout-index', '--all', '--force', `--prefix=${prefix}`]);
+    return snapshotRoot;
+  } catch (error) {
+    await fs.rm(snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
 function decodeTypeScriptBlob(bytes: Buffer, gitPath: string): string {
   const source = bytes.toString('utf8');
   if (!Buffer.from(source, 'utf8').equals(bytes)) {
@@ -441,65 +456,73 @@ export async function runStagedImportOrganizer(
     return 0;
   }
 
-  const config = loadProjectConfig(projectRoot);
-  const stagedFiles = new Map<string, { version: number; content: string }>();
-  const originals = new Map<string, Buffer>();
-  for (const entry of selectedEntries) {
-    const absolutePath = absoluteStagedPath(projectRoot, entry.path);
-    const bytes = gitBytes(projectRoot, ['cat-file', 'blob', entry.objectId]);
-    originals.set(entry.path, bytes);
-    stagedFiles.set(absolutePath, {
-      version: 0,
-      content: decodeTypeScriptBlob(bytes, entry.path)
-    });
-  }
-  const projectFileNames = Object.freeze([...new Set([
-    ...config.fileNames.map((fileName) => path.resolve(fileName)),
-    ...stagedFiles.keys()
-  ])]);
-  const service = createImportService(config, projectRoot, projectFileNames, stagedFiles);
-  const updates: StagedImportUpdate[] = [];
-
-  for (const entry of selectedEntries) {
-    const absolutePath = absoluteStagedPath(projectRoot, entry.path);
-    const file = stagedFiles.get(absolutePath);
-    const originalBytes = originals.get(entry.path);
-    if (!file || !originalBytes) {
-      throw new Error(`TypeScript staged blob was not loaded: ${entry.path}`);
+  const snapshotRoot = candidateBase === undefined ? null : await materializeCandidateIndex(projectRoot);
+  const contextRoot = snapshotRoot ?? projectRoot;
+  try {
+    const config = loadProjectConfig(contextRoot);
+    const stagedFiles = new Map<string, { version: number; content: string }>();
+    const originals = new Map<string, Buffer>();
+    for (const entry of selectedEntries) {
+      const absolutePath = absoluteStagedPath(contextRoot, entry.path);
+      const bytes = gitBytes(projectRoot, ['cat-file', 'blob', entry.objectId]);
+      originals.set(entry.path, bytes);
+      stagedFiles.set(absolutePath, {
+        version: 0,
+        content: decodeTypeScriptBlob(bytes, entry.path)
+      });
     }
-    const normalized = organizeImportsInSource(service, absolutePath, file.content);
-    const normalizedBytes = Buffer.from(normalized, 'utf8');
-    if (normalizedBytes.equals(originalBytes)) continue;
-    testHooks.beforeHash?.(entry.path);
-    const normalizedObjectId = gitText(projectRoot, ['hash-object', '-w', '--stdin'], normalizedBytes).trim();
-    if (!/^[0-9a-f]{40,64}$/u.test(normalizedObjectId)) {
-      throw new Error(`git hash-object returned an invalid object ID for ${entry.path}`);
-    }
-    updates.push(Object.freeze({
-      entry,
-      normalizedBytes,
-      normalizedObjectId
-    }));
-  }
+    const projectFileNames = Object.freeze([...new Set([
+      ...config.fileNames.map((fileName) => path.resolve(fileName)),
+      ...stagedFiles.keys()
+    ])]);
+    const service = createImportService(config, contextRoot, projectFileNames, stagedFiles);
+    const updates: StagedImportUpdate[] = [];
 
-  if (updates.length === 0) {
-    console.log('Staged TypeScript imports are organized.');
+    for (const entry of selectedEntries) {
+      const absolutePath = absoluteStagedPath(contextRoot, entry.path);
+      const file = stagedFiles.get(absolutePath);
+      const originalBytes = originals.get(entry.path);
+      if (!file || !originalBytes) {
+        throw new Error(`TypeScript staged blob was not loaded: ${entry.path}`);
+      }
+      const normalized = organizeImportsInSource(service, absolutePath, file.content);
+      const normalizedBytes = Buffer.from(normalized, 'utf8');
+      if (normalizedBytes.equals(originalBytes)) continue;
+      testHooks.beforeHash?.(entry.path);
+      const normalizedObjectId = gitText(projectRoot, ['hash-object', '-w', '--stdin'], normalizedBytes).trim();
+      if (!/^[0-9a-f]{40,64}$/u.test(normalizedObjectId)) {
+        throw new Error(`git hash-object returned an invalid object ID for ${entry.path}`);
+      }
+      updates.push(Object.freeze({
+        entry,
+        normalizedBytes,
+        normalizedObjectId
+      }));
+    }
+
+    if (updates.length === 0) {
+      console.log('Staged TypeScript imports are organized.');
+      return 0;
+    }
+
+    await publishStagedIndex(
+      projectRoot,
+      targetPaths,
+      selectedEntries,
+      updates,
+      testHooks,
+      candidateBase
+    );
+
+    const fileList = updates.map((update) => `- ${update.entry.path}`).join('\n');
+    const scope = candidateBase === undefined ? 'staged' : 'candidate';
+    console.log(`Organized ${scope} imports in ${updates.length} file(s); working tree unchanged:\n${fileList}`);
     return 0;
+  } finally {
+    if (snapshotRoot !== null) {
+      await fs.rm(snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
-
-  await publishStagedIndex(
-    projectRoot,
-    targetPaths,
-    selectedEntries,
-    updates,
-    testHooks,
-    candidateBase
-  );
-
-  const fileList = updates.map((update) => `- ${update.entry.path}`).join('\n');
-  const scope = candidateBase === undefined ? 'staged' : 'candidate';
-  console.log(`Organized ${scope} imports in ${updates.length} file(s); working tree unchanged:\n${fileList}`);
-  return 0;
 }
 
 export async function runCandidateImportOrganizer(
@@ -511,14 +534,21 @@ export async function runCandidateImportOrganizer(
   return runStagedImportOrganizer(projectRoot, testHooks, { candidateBase });
 }
 
-function changedTypeScriptFiles(env: ImportSelectionEnvironment = process.env): Set<string> | null {
+export function changedTypeScriptFiles(
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): Set<string> {
   const baseRef = resolveImportDiffBase(env);
   const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
-    cwd: compilerRoot,
+    cwd: projectRoot,
     encoding: 'utf8'
   });
-  if (result.status !== 0) {
-    return null;
+  if (result.error || result.status !== 0) {
+    const detail = result.error?.message ?? result.stderr.trim();
+    throw new CompilerError('IMPORT-AUTHORITY-003', `Import diff base is invalid: ${baseRef}`, {
+      baseRef,
+      detail
+    });
   }
 
   return new Set(
@@ -535,9 +565,6 @@ function selectedFileNames(config: ts.ParsedCommandLine): string[] {
   }
 
   const changedFiles = changedTypeScriptFiles();
-  if (!changedFiles) {
-    return config.fileNames;
-  }
 
   return config.fileNames.filter((fileName) => changedFiles.has(relativePosixPath(compilerRoot, fileName)));
 }

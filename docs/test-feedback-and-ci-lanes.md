@@ -33,11 +33,11 @@ bun run imports:organize
 
 `affected` 只选择相关 fast tests。开发者本地入口可以把未知映射报告为 notice；进入 hosted verification 时，changed-file 或 ownership 解析未知必须 fail closed，不得用 bounded baseline 冒充完整通过。
 
-`bunfig.toml` 禁止 Bun ambient auto-install；仓库不接受全局 cache 或相邻 worktree 替代当前 manifest 的依赖解析。`deps:ensure` 对 root `package.json` 的完整 dependency maps、`packageManager` 与 `bun.lock` 建立 digest，在 install lock 内执行一次 frozen compiler install，并把 binding 写入当前 worktree 的物理 `node_modules`；TypeScript 使用 exact pin。`.shared-deps` 继续只拥有生成项目/隔离验证所需的 runtime 子集与下载 cache，不再冒充 compiler 依赖树。dev-runner 在冷启动完成安装后只 re-enter 一次，随后所有 typecheck、test 与 import 命令直接复用同一完整依赖树。tracked `post-checkout`、`post-merge`、`post-rewrite` 在 Git 改变候选树后刷新 binding，使新 worktree 的第一次 focused test 之前已经完成依赖闭合。
+`bunfig.toml` 禁止 Bun ambient auto-install；仓库不接受全局 cache 或相邻 worktree 替代当前 manifest 的依赖解析。`deps:ensure` 对 root `package.json` 的完整 dependency maps、`packageManager`、`bun.lock` 原始字节、实际 Bun 版本与 OS/architecture 建立 generation identity。安装只发生在同卷 staging；所有 direct package manifest 与 TypeScript/ts-morph runtime entry 摘要验证完成后才以 rename 发布，失败恢复旧树并保留一个 previous generation，绝不原地修改 active `node_modules`。TypeScript 使用 exact pin。`.shared-deps` 继续只拥有生成项目/隔离验证所需的 runtime 子集与下载 cache，不再冒充 compiler 依赖树。dev-runner 在冷启动完成安装后只 re-enter 一次，随后所有 typecheck、test 与 import 命令直接复用同一可验证依赖树。tracked `post-checkout`、`post-merge`、`post-rewrite` 在 Git 改变候选树后刷新 binding，使新 worktree 的第一次 focused test 之前已经完成依赖闭合。
 
 `hooks:install` 读取 effective `core.hooksPath`；若未配置，还会审计 Git 默认 hooks 目录中的非 sample hook。配置前必须确认当前 branch 实际跟踪、工作树中存在且 index mode 为 `100755` 的全部 managed hooks，避免 branch-without-hook 或 non-executable hook 被静默配置成残缺 authority。已存在的其他 hook authority 使显式安装 fail closed，package lifecycle 只提示人工集成并保留原 authority；CI 或 Gitless lifecycle 直接 no-op，显式命令仍 fail closed；缺失的陈旧路径可被 tracked hooks 接管。安全接管时启用 `extensions.worktreeConfig`，且只以 `git config --worktree core.hooksPath .githooks` 写入当前 worktree，不覆盖 common config 中的 `core.hooksPath`。
 
-每次 commit 的 `pre-commit` 只调用唯一 `imports:freeze`。该入口优先接受 verification 已绑定的 exact `SEC_CHANGED_BASE`；普通本地提交自动使用 `HEAD` 与 `refs/remotes/origin/main` 的 merge-base，缺少 remote ref 时才退回 exact `HEAD`。因此 rebase/squash 重放但本轮未重新 stage 的历史 TypeScript 文件仍包含在 base→candidate index diff 内，不再依赖 A0 记忆环境变量。Candidate base 必须解析为一个 full commit object。所有 organizer/blob 步骤完成后获取真实 `index.lock`、持锁复核原 index，在唯一 alternate index 上执行一次 `git update-index -z --index-info`，最后以 lock rename 原子发布；只更新 index，不改写 working-tree bytes，partial-stage、并发工作树修改与外部 hardlink/symlink alias 观察到的字节均原样保留。
+每次 commit 的 `pre-commit` 只调用唯一 `imports:freeze`。该入口优先接受 verification 已绑定的 exact `SEC_CHANGED_BASE`；普通本地提交自动使用 `HEAD` 与 `refs/remotes/origin/main` 的 merge-base，缺少 remote ref 时才退回 exact `HEAD`。Candidate base 必须解析为一个 full commit object。Organizer 把完整 index materialize 为 worktree-local snapshot，配置、target 与其他项目源码都来自 candidate index，不读取 unstaged source/config。所有 blob 步骤完成后获取真实 `index.lock`、持锁复核原 index，在唯一 alternate index 上执行一次 `git update-index -z --index-info`，最后以 lock rename 原子发布；只更新 index，不改写 working-tree bytes，partial-stage、并发工作树修改与外部 hardlink/symlink alias 观察到的字节均原样保留。`pre-push` 对 rebase/squash 后的最终候选重算同一 freeze；零变化才放行，发现漂移则把结果写入 index 并停止本次 push，避免远端 Gate 再充当 formatter。
 
 ## 3. PR Quick
 
@@ -55,7 +55,7 @@ install frozen dependencies
 
 Quick 必须调用唯一 `test:affected` 入口，不得在 Workflow 或 CI coordinator 内重写第二套 fast selector。Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
 
-Hosted `imports:check` 保持只读、fail closed，并继续按 frozen base..HEAD changed-file contract 选择。Selector precedence 固定为：`SEC_IMPORTS_CHANGED_ONLY=1` 选择 changed-only，`=0` 强制全仓审计；两者都未设置时，存在 `SEC_CHANGED_BASE` 即选择 changed-only，其次才是 pull-request CI，其他无 base 的 schedule/local 入口保持全仓。由此 repository_dispatch 提供 exact base 时不会误触全仓 baseline。Commit hook 的 staged-index auto-fix 是本地提交边界，不能把修复动作带入 CI。
+Hosted `imports:check` 保持只读、fail closed，并继续按 frozen base..HEAD changed-file contract 选择。Selector precedence 固定为：`SEC_IMPORTS_CHANGED_ONLY=1` 选择 changed-only，`=0` 强制全仓审计；两者都未设置时，存在 `SEC_CHANGED_BASE` 即选择 changed-only，其次才是 pull-request CI，其他无 base 的 schedule/local 入口保持全仓。由此 repository_dispatch 提供 exact base 时不会误触全仓 baseline。任何 diff base 缺失、缩写或不可解析都以 `IMPORT-AUTHORITY-003` 立即失败，严禁退化为全仓扫描。Commit/push hook 的 index auto-fix 是本地候选边界，不能把修复动作带入 CI。
 
 Affected selector 默认关注最近提交反馈。`ci-verification-v6` 的 frozen hosted head 必须是 current base 上的单一提交，因此 hosted `HEAD^1` 与 current PR base 相同；多提交增量复用必须先定义新的 prefix evidence contract，不能由 v6 猜测。
 
