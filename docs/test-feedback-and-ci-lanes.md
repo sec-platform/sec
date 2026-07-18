@@ -1,7 +1,7 @@
 ---
 title: 测试反馈与 CI 分层
 status: active
-last-reviewed: 2026-07-14
+last-reviewed: 2026-07-19
 ---
 
 # 测试反馈与 CI 分层
@@ -26,10 +26,13 @@ bun run check:affected
 bun run test:affected
 bun run check:fast
 bun run check:full
+bun run hooks:install
 bun run imports:organize
 ```
 
 `affected` 只选择相关 fast tests。开发者本地入口可以把未知映射报告为 notice；进入 hosted verification 时，changed-file 或 ownership 解析未知必须 fail closed，不得用 bounded baseline 冒充完整通过。
+
+`hooks:install` 读取 effective `core.hooksPath`；若未配置，还会审计 Git 默认 hooks 目录中的非 sample hook。配置前必须确认当前 branch 实际跟踪、工作树中存在且 index mode 为 `100755` 的 `.githooks/pre-commit`，避免 branch-without-hook 或 non-executable hook 被静默配置成无 hook。已存在的其他 hook authority 使显式安装 fail closed，package lifecycle 只提示人工集成并保留原 authority；CI 或 Gitless lifecycle 直接 no-op，显式命令仍 fail closed；缺失的陈旧路径可被 tracked hook 接管。安全接管时启用 `extensions.worktreeConfig`，且只以 `git config --worktree core.hooksPath .githooks` 写入当前 worktree，不覆盖 common config 中的 `core.hooksPath`。`pre-commit` 调用 `imports:staged`，直接读取当前 Git index 的 ACMR TypeScript ordinary blobs；所有 organizer/blob 步骤完成后获取真实 `index.lock`、持锁复核原 index，在唯一 alternate index 上执行一次 `git update-index -z --index-info`，最后以 lock rename 原子发布。该路径只更新 index，从不改写 working-tree bytes；partial-stage、并发工作树修改与外部 hardlink/symlink alias 观察到的字节均原样保留。
 
 ## 3. PR Quick
 
@@ -46,6 +49,8 @@ install frozen dependencies
 ```
 
 Quick 必须调用唯一 `test:affected` 入口，不得在 Workflow 或 CI coordinator 内重写第二套 fast selector。Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
+
+Hosted `imports:check` 保持只读、fail closed，并继续按 frozen base..HEAD changed-file contract 选择；commit hook 的 staged-index auto-fix 是本地提交边界，不能改变 hosted selector 或把修复动作带入 CI。
 
 Affected selector 默认关注最近提交反馈。`ci-verification-v6` 的 frozen hosted head 必须是 current base 上的单一提交，因此 hosted `HEAD^1` 与 current PR base 相同；多提交增量复用必须先定义新的 prefix evidence contract，不能由 v6 猜测。
 

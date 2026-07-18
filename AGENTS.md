@@ -27,10 +27,12 @@
 Worker 执行：
 
 ```text
-inspect → implement → focused local validation → commit → Draft PR/update existing PR → Reconciliation Delta → stop
+inspect → implement → focused local validation → explicit-path stage → pre-commit imports:staged → commit → Draft PR/update existing PR → Reconciliation Delta → stop
 ```
 
 Worker 默认 `DO NOT MERGE`，不得添加 `run-quick` / `run-full` label，不得修改其他 worker ownership，不得顺手全仓重构，也不得通过删除测试或弱化合同解决失败。
+
+`hooks:install` 仅在当前 worktree 实际包含 index mode `100755` 的 tracked `.githooks/pre-commit` 且没有其他真实 hook authority 时，以 worktree-local config 接管；不得覆盖 shared `core.hooksPath`，CI/Gitless lifecycle 只做 no-op。安装后，commit 前由 `.githooks/pre-commit` 对当前 Git index 的 staged TypeScript blobs 执行 `imports:staged`。该命令只规范化 index、从不重写工作树，并在持有真实 `index.lock` 时复核及发布完整新 index；完整暂存、partial-stage、并发修改与外部 alias 观察到的 working-tree bytes 均保持不变。Hosted `imports:check` 仍是只读 fail-closed Gate，不由 hook 替代。
 
 每个 reconciliation/stop 必须返回结构化 Delta：tested head、changed files/symbols、public/authority delta、acceptance delta、focused results、reusable/invalidated evidence、new blocker 和 next ready seam；同时记录 `inspect_ms`、`implement_ms`、`focused_validation_ms`、`wait_ms`、`reconcile_ms`、`context_reload_count` 与 `duplicate_gate_count`，不得另写叙述性进度文档。
 
