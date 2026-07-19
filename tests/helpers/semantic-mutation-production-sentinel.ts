@@ -14,6 +14,7 @@ import {
 import {
   buildSemanticMutationIsolatedVerificationEnvironment,
   createSemanticMutationIsolatedVerificationSupervisor,
+  prepareCanonicalSemanticMutationIsolatedRuntimeInputSources,
   probeSemanticMutationIsolatedRuntimeCapability,
   type SemanticMutationIsolatedRuntimeInputSources
 } from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
@@ -23,7 +24,10 @@ import {
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
 import { initWorkspace } from '../../platform/orchestrator.ts';
 import type { ObservedCommandOutcome } from '../../platform/shared/observed-process.ts';
-import { runObservedCommand } from '../../platform/shared/observed-process.ts';
+import {
+  observedCommandNativeLifecycleDiagnosticForTests,
+  runObservedCommand
+} from '../../platform/shared/observed-process.ts';
 import { compilerRoot, getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { ensureIsolatedProcessDirectories } from '../../platform/shared/process.ts';
 import { RUNTIME_DEPS_PREBOUND_BINDING_FILE } from '../../platform/shared/runtime-dependency-spec.ts';
@@ -61,96 +65,6 @@ async function writeProjectBaseline(stagingRoot: string): Promise<void> {
   }), 'utf8');
 }
 
-async function createRuntimeInputSources(
-  root: string,
-  browserCache: string
-): Promise<SemanticMutationIsolatedRuntimeInputSources> {
-  const inputRoot = path.join(root, 'runtime-inputs');
-  const compilerModulesRoot = path.join(inputRoot, 'node_modules');
-  const sources = {
-    browserCache,
-    compilerModulesRoot,
-    compilerPackage: path.join(inputRoot, 'package.json'),
-    composeTemplates: path.join(inputRoot, 'compose-templates'),
-    dependencyModules: path.join(inputRoot, 'dependency-modules'),
-    officialPolicies: path.join(inputRoot, 'official-policies'),
-    officialRegistry: path.join(inputRoot, 'official-registry')
-  } satisfies SemanticMutationIsolatedRuntimeInputSources;
-  await Promise.all([
-    mkdir(sources.composeTemplates, { recursive: true }),
-    mkdir(sources.dependencyModules, { recursive: true }),
-    mkdir(sources.officialPolicies, { recursive: true }),
-    mkdir(sources.officialRegistry, { recursive: true }),
-    mkdir(path.join(compilerModulesRoot, 'ts-morph'), { recursive: true }),
-    mkdir(path.join(compilerModulesRoot, 'typescript'), { recursive: true }),
-    mkdir(path.join(compilerModulesRoot, 'playwright-core'), { recursive: true }),
-    mkdir(path.join(
-      browserCache,
-      'chromium_headless_shell-1217',
-      'chrome-headless-shell-win64'
-    ), { recursive: true })
-  ]);
-  await Promise.all([
-    writeFile(sources.compilerPackage, JSON.stringify({
-      dependencies: { next: '1', react: '1', 'react-dom': '1', yaml: '1' },
-      devDependencies: {
-        '@playwright/test': '1', '@types/bun': '1', '@types/node': '1',
-        '@types/react': '1', '@types/react-dom': '1', 'ts-morph': '1', typescript: '1'
-      }
-    }), 'utf8'),
-    writeFile(path.join(sources.composeTemplates, 'template.txt'), 'template', 'utf8'),
-    writeFile(path.join(sources.dependencyModules, 'cache.bin'), 'cache', 'utf8'),
-    writeFile(path.join(sources.officialPolicies, 'policy.yaml'), 'policies: []', 'utf8'),
-    writeFile(path.join(sources.officialRegistry, 'registry.yaml'), 'blocks: []', 'utf8'),
-    writeFile(path.join(compilerModulesRoot, 'ts-morph', 'package.json'), JSON.stringify({
-      name: 'ts-morph', main: 'index.js', dependencies: {}
-    }), 'utf8'),
-    writeFile(path.join(compilerModulesRoot, 'ts-morph', 'index.js'), [
-      "const typescript = require('typescript');",
-      "const cacheIdentityKey = Symbol.for('sec.test.semantic-mutation.typescript-cache-identity');",
-      "const observedKey = Symbol.for('sec.test.semantic-mutation.ts-morph-cache-observed');",
-      'if (!Object.is(globalThis[cacheIdentityKey], typescript)) {',
-      "  throw new Error('fixture TypeScript cache identity mismatch in ts-morph');",
-      '}',
-      "if (globalThis[observedKey] !== undefined) throw new Error('fixture ts-morph loaded twice');",
-      'globalThis[observedKey] = typescript;',
-      'module.exports = { typescript };',
-      ''
-    ].join('\n'), 'utf8'),
-    writeFile(path.join(compilerModulesRoot, 'typescript', 'package.json'), JSON.stringify({
-      name: 'typescript', main: './index.js', dependencies: {}
-    }), 'utf8'),
-    writeFile(path.join(compilerModulesRoot, 'typescript', 'index.js'), [
-      'const SyntaxKind = { VariableStatement: 244 };',
-      "const cacheIdentityKey = Symbol.for('sec.test.semantic-mutation.typescript-cache-identity');",
-      "if (globalThis[cacheIdentityKey] !== undefined) throw new Error('fixture TypeScript loaded twice');",
-      'const typescript = {',
-      '  ScriptTarget: { Latest: 99 },',
-      '  SyntaxKind,',
-      '  createSourceFile() {',
-      '    if (!Object.is(this, globalThis[cacheIdentityKey])) {',
-      "      throw new Error('fixture TypeScript loader identity mismatch');",
-      '    }',
-      '    return { statements: [{ kind: SyntaxKind.VariableStatement }] };',
-      '  }',
-      '};',
-      'globalThis[cacheIdentityKey] = typescript;',
-      'module.exports = typescript;',
-      ''
-    ].join('\n'), 'utf8'),
-    writeFile(path.join(compilerModulesRoot, 'playwright-core', 'browsers.json'), JSON.stringify({
-      browsers: [{ name: 'chromium-headless-shell', revision: '1217' }]
-    }), 'utf8'),
-    writeFile(path.join(
-      browserCache,
-      'chromium_headless_shell-1217',
-      'chrome-headless-shell-win64',
-      'chrome-headless-shell.exe'
-    ), 'browser-executable', 'utf8')
-  ]);
-  return sources;
-}
-
 async function createProductionRuntimeCapabilityContext(root: string): Promise<Readonly<{
   readonly runtimeInputSources: SemanticMutationIsolatedRuntimeInputSources;
   readonly stagingRoot: string;
@@ -159,10 +73,10 @@ async function createProductionRuntimeCapabilityContext(root: string): Promise<R
   const browserSource = path.join(root, 'browser-source');
   await writeProjectBaseline(stagingRoot);
   await mkdir(browserSource, { recursive: true });
-  const fixtureRuntimeInputSources = await createRuntimeInputSources(root, browserSource);
-  const productionCompilerModulesRoot = path.join(compilerRoot, '.shared-deps', 'node_modules');
+  const canonicalRuntimeInputSources =
+    await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources();
   const descriptor = JSON.parse(await readFile(path.join(
-    productionCompilerModulesRoot,
+    canonicalRuntimeInputSources.compilerModulesRoot,
     'playwright-core',
     'browsers.json'
   ), 'utf8')) as {
@@ -180,10 +94,10 @@ async function createProductionRuntimeCapabilityContext(root: string): Promise<R
   await mkdir(path.dirname(browserExecutable), { recursive: true });
   await writeFile(browserExecutable, 'production-bundle-browser-fixture', 'utf8');
   return Object.freeze({
-    runtimeInputSources: {
-      ...fixtureRuntimeInputSources,
-      compilerModulesRoot: productionCompilerModulesRoot
-    },
+    runtimeInputSources: Object.freeze({
+      ...canonicalRuntimeInputSources,
+      browserCache: browserSource
+    }),
     stagingRoot
   });
 }
@@ -222,7 +136,7 @@ export async function runSemanticMutationProductionSentinel(): Promise<void> {
     );
 
     const capability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
-      browserCacheSource: runtimeInputSources.browserCache
+      runtimeInputSources
     });
     expect(capability).toEqual({ status: 'available' });
     const materialized = await materializeSemanticMutationIsolatedRuntime({
@@ -284,7 +198,10 @@ export async function runSemanticMutationProductionSentinel(): Promise<void> {
       } catch (error) {
         throw new Error(JSON.stringify({
           supervisorError: error instanceof Error ? error.message : String(error),
-          observedOutcome
+          observedOutcome,
+          nativeLifecycleDiagnostic: observedOutcome === undefined
+            ? undefined
+            : observedCommandNativeLifecycleDiagnosticForTests(observedOutcome)
         }));
       }
       expect(execution.code).toBe(SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.runnerControlledFailure);

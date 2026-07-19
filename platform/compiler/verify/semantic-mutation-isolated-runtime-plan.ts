@@ -6,6 +6,8 @@ import type { CommitFence } from '../../shared/fs.ts';
 import {
   buildRuntimeDependencySpec,
   encodeRuntimeDepsPreboundBinding,
+  isRuntimeDependencyPackageManifest,
+  RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE,
   type RootPackageJson
 } from '../../shared/runtime-dependency-spec.ts';
@@ -570,6 +572,36 @@ function assertCompilerPackageManifest(bytes: Uint8Array): void {
   }
 }
 
+async function assertRuntimeDependencyPackageClosure(
+  dependencyFiles: readonly RuntimeInputFileV1[],
+  inspector: ReparsePointInspector
+): Promise<void> {
+  for (const packageName of RUNTIME_DEPENDENCY_PACKAGE_NAMES) {
+    const relativeManifest = canonicalRelativePath(
+      `${SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT}/${packageName}/package.json`
+    );
+    const captured = dependencyFiles.find((file) =>
+      file.destinationRelativePath === relativeManifest);
+    if (!captured || captured.size === 0 || captured.sourceAbsolutePath === null) {
+      throw new Error(`A required runtime package manifest is unavailable: ${packageName}`);
+    }
+    const evidence = await stableFileEvidence(captured.sourceAbsolutePath, inspector, true);
+    if (evidence.rawDigest !== captured.rawDigest || evidence.size !== captured.size ||
+      !sameIdentity(evidence.identity, captured.sourceIdentity as RuntimeSourceIdentityV1)) {
+      throw new Error(`A required runtime package manifest changed: ${packageName}`);
+    }
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(new TextDecoder().decode(evidence.bytes!)) as unknown;
+    } catch {
+      throw new Error(`A required runtime package manifest is invalid: ${packageName}`);
+    }
+    if (!isRuntimeDependencyPackageManifest(manifest, packageName)) {
+      throw new Error(`A required runtime package identity is invalid: ${packageName}`);
+    }
+  }
+}
+
 function requiredPlaywrightExecutable(bytes: Uint8Array): string {
   const value = JSON.parse(new TextDecoder().decode(bytes)) as {
     readonly browsers?: unknown;
@@ -719,15 +751,21 @@ async function captureRuntimeSourceSnapshot(
       directories,
       true
     );
-    for (const moduleRelativePath of Object.values(RUNTIME_VERIFICATION_INVOCATION_CONTRACT)
-      .flatMap(({ moduleRelativePath }) => moduleRelativePath === null ? [] : [moduleRelativePath])) {
-      const requiredDestination = canonicalRelativePath(
-        `${SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT}/${moduleRelativePath}`
-      );
-      const requiredModule = dependencyFiles.find((file) =>
-        file.destinationRelativePath === requiredDestination);
-      if (!requiredModule || requiredModule.size === 0) {
-        throw new Error(`A required direct runtime module is unavailable: ${moduleRelativePath}`);
+    await assertRuntimeDependencyPackageClosure(dependencyFiles, inspector);
+    for (const descriptor of Object.values(RUNTIME_VERIFICATION_INVOCATION_CONTRACT)) {
+      const requiredInputs = [
+        descriptor.moduleRelativePath,
+        descriptor.packageManifest?.relativePath ?? null
+      ].filter((value) => value !== null);
+      for (const relativePath of requiredInputs) {
+        const requiredDestination = canonicalRelativePath(
+          `${SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT}/${relativePath}`
+        );
+        const requiredInput = dependencyFiles.find((file) =>
+          file.destinationRelativePath === requiredDestination);
+        if (!requiredInput || requiredInput.size === 0) {
+          throw new Error(`A required direct runtime input is unavailable: ${relativePath}`);
+        }
       }
     }
 

@@ -25,8 +25,10 @@ import {
 } from './process.ts';
 import {
   buildRuntimePackageManifest,
+  isRuntimeDependencyPackageManifest,
   isRuntimeDepsPreboundBinding,
   loadRuntimeDependencySpec,
+  RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE,
   type RootPackageJson
 } from './runtime-dependency-spec.ts';
@@ -50,6 +52,13 @@ export interface CompilerDepsReadyState {
   packageManager: 'bun';
   root: string;
   source: 'existing' | 'installed';
+}
+
+export interface DependencyAuthorityPaths {
+  readonly browserCache: string;
+  readonly compilerModulesRoot: string;
+  readonly dependencyModules: string;
+  readonly sharedDepsRoot: string;
 }
 
 interface CompilerDependencyPackageBinding {
@@ -91,8 +100,21 @@ export interface RuntimeDependencyInstallOptions {
   testCompilerPublishHook?: (stage: 'active-backed-up') => void | Promise<void>;
 }
 
+export function dependencyAuthorityPaths(
+  dependencyRoot = compilerRoot
+): Readonly<DependencyAuthorityPaths> {
+  const root = path.resolve(dependencyRoot);
+  const sharedDepsRoot = path.join(root, '.shared-deps');
+  return Object.freeze({
+    browserCache: path.join(sharedDepsRoot, '.playwright-browsers'),
+    compilerModulesRoot: path.join(root, 'node_modules'),
+    dependencyModules: path.join(sharedDepsRoot, 'node_modules'),
+    sharedDepsRoot
+  });
+}
+
 function defaultSharedDepsRoot(): string {
-  return path.join(compilerRoot, '.shared-deps');
+  return dependencyAuthorityPaths().sharedDepsRoot;
 }
 
 function sortedRecord(record: Record<string, string> | undefined): Record<string, string> {
@@ -258,7 +280,7 @@ function buildEnv(
   const envPathKey = pathEnvKey();
   const overrides = {
     ...(isolatedWritableRoot ? {} : {
-      [envPathKey]: `${path.join(compilerRoot, 'node_modules', '.bin')}${path.delimiter}${process.env[envPathKey] ?? ''}`
+      [envPathKey]: `${path.join(dependencyAuthorityPaths().compilerModulesRoot, '.bin')}${path.delimiter}${process.env[envPathKey] ?? ''}`
     }),
     ...additionalEnv
   };
@@ -273,18 +295,18 @@ function sleepMs(delayMs: number): Promise<void> {
   });
 }
 
-async function hasInstalledRuntimeDeps(nodeModulesPath: string): Promise<boolean> {
-  const nextPackagePath = path.join(nodeModulesPath, 'next', 'package.json');
-  if (!(await pathExists(nextPackagePath))) {
-    return false;
-  }
-
-  try {
-    const manifest = await readJson<{ name?: string; version?: string }>(nextPackagePath);
-    return manifest.name === 'next' && typeof manifest.version === 'string';
-  } catch {
-    return false;
-  }
+async function hasCompleteRuntimeDeps(nodeModulesPath: string): Promise<boolean> {
+  const manifests = await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
+    try {
+      return isRuntimeDependencyPackageManifest(
+        await readJson<unknown>(dependencyPackagePath(nodeModulesPath, packageName)),
+        packageName
+      );
+    } catch {
+      return false;
+    }
+  }));
+  return manifests.every(Boolean);
 }
 
 async function writeManifestIfChanged(
@@ -322,7 +344,7 @@ export async function writeRuntimeDepsStamp(
 async function isCacheReady(nodeModulesPath: string, stampPath: string, manifestHash: string): Promise<boolean> {
   const [stamp, installed] = await Promise.all([
     readRuntimeDepsStamp(stampPath),
-    hasInstalledRuntimeDeps(nodeModulesPath)
+    hasCompleteRuntimeDeps(nodeModulesPath)
   ]);
   return installed && stamp?.manifestHash === manifestHash;
 }
@@ -518,7 +540,7 @@ async function materializeIsolatedNodeModules(
   commitFence?: CommitFence
 ): Promise<void> {
   const source = path.join(sharedDepsRoot, 'node_modules');
-  if (!(await hasInstalledRuntimeDeps(source))) {
+  if (!(await hasCompleteRuntimeDeps(source))) {
     throw new CompilerError('RUNTIME-DEPS-004', 'Preinstalled dependency tree is unavailable for isolated verification');
   }
   await commitFence?.();
@@ -527,13 +549,13 @@ async function materializeIsolatedNodeModules(
 }
 
 async function resolveProjectDependencyBridgeTarget(): Promise<string> {
-  const compilerNodeModules = path.join(compilerRoot, 'node_modules');
-  if (await hasInstalledRuntimeDeps(compilerNodeModules)) {
+  const compilerNodeModules = dependencyAuthorityPaths().compilerModulesRoot;
+  if (await hasCompleteRuntimeDeps(compilerNodeModules)) {
     return compilerNodeModules;
   }
 
   const sharedNodeModules = path.join(defaultSharedDepsRoot(), 'node_modules');
-  if (await hasInstalledRuntimeDeps(sharedNodeModules)) {
+  if (await hasCompleteRuntimeDeps(sharedNodeModules)) {
     return sharedNodeModules;
   }
 
@@ -677,7 +699,7 @@ export async function ensureCompilerDepsReady(
   compilerDependencyRoot = compilerRoot
 ): Promise<CompilerDepsReadyState> {
   const root = path.resolve(compilerDependencyRoot);
-  const nodeModulesPath = path.join(root, 'node_modules');
+  const nodeModulesPath = dependencyAuthorityPaths(root).compilerModulesRoot;
   const bindingPath = path.join(nodeModulesPath, '.sec-compiler-deps-binding-v2.json');
   const installLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
   const identity = await compilerDependencyIdentity(root, options);
@@ -763,6 +785,12 @@ export async function ensureSharedDepsReady(
 
     const sharedCacheDir = path.join(sharedDepsRoot, '.bun-cache');
     const { packageManager } = await runBunInstall(sharedDepsRoot, options, ['install'], sharedCacheDir);
+    if (!(await hasCompleteRuntimeDeps(sharedNodeModulesPath))) {
+      throw new CompilerError(
+        'RUNTIME-DEPS-002',
+        'Installed shared runtime dependency generation failed complete package validation'
+      );
+    }
 
     await writeRuntimeDepsStamp(sharedStampPath, {
       manifestHash: runtimeSpec.manifestHash,
@@ -790,7 +818,7 @@ export async function ensureProjectDependencies(
     const [binding, installed] = await Promise.all([
       readJson<unknown>(path.join(nodeModulesPath, RUNTIME_DEPS_PREBOUND_BINDING_FILE))
         .catch(() => null),
-      hasInstalledRuntimeDeps(nodeModulesPath)
+      hasCompleteRuntimeDeps(nodeModulesPath)
     ]);
     await options.beforeCommit?.();
     if (!installed || !isRuntimeDepsPreboundBinding(binding, runtimeSpec.manifestHash)) {
@@ -830,8 +858,8 @@ export async function ensureProjectDependencies(
   }
 
   if (!isolated && options.skipSharedDepsWarmup === true && options.preferSharedCopy !== false) {
-    const compilerNodeModules = path.join(compilerRoot, 'node_modules');
-    if (await hasInstalledRuntimeDeps(compilerNodeModules)) {
+    const compilerNodeModules = dependencyAuthorityPaths().compilerModulesRoot;
+    if (await hasCompleteRuntimeDeps(compilerNodeModules)) {
       await options.beforeCommit?.();
       await fs.symlink(compilerNodeModules, nodeModulesPath, 'junction');
       await writeRuntimeDepsStamp(stampPath, {
@@ -846,7 +874,7 @@ export async function ensureProjectDependencies(
   if (!isolated && options.preferSharedCopy !== false) {
     const sharedStamp = await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'));
     const sharedNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
-    if (sharedStamp && (await hasInstalledRuntimeDeps(sharedNodeModulesPath))) {
+    if (sharedStamp && (await hasCompleteRuntimeDeps(sharedNodeModulesPath))) {
       try {
         await options.beforeCommit?.();
         await fs.symlink(sharedNodeModulesPath, nodeModulesPath, 'junction');

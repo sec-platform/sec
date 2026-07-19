@@ -30,6 +30,7 @@ import {
   runCommand,
   type CommandResult
 } from '../../shared/process.ts';
+import { ensureSharedDepsReady } from '../../shared/project-runtime.ts';
 import { isCanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
 import type {
   RuntimeVerificationLaneReport,
@@ -480,19 +481,24 @@ export function projectSemanticMutationIsolatedVerificationFailureForTests(
   return isolatedVerificationFailure(stage, error);
 }
 
-const DEFAULT_RUNTIME_DEPENDENCY_SOURCES = resolveIsolatedRuntimeDependencySources();
-const DEFAULT_RUNTIME_INPUT_SOURCES = Object.freeze({
-  browserCache: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.browserCache,
-  compilerModulesRoot: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.nodeModules,
-  compilerPackage: path.join(compilerRoot, 'package.json'),
-  composeTemplates: path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates'),
-  dependencyModules: DEFAULT_RUNTIME_DEPENDENCY_SOURCES.nodeModules,
-  officialPolicies: path.join(compilerRoot, 'platform', 'policies', 'official'),
-  officialRegistry: path.join(compilerRoot, 'platform', 'registry', 'official')
-} satisfies SemanticMutationIsolatedRuntimeInputSources);
+export function resolveCanonicalSemanticMutationIsolatedRuntimeInputSources(
+): SemanticMutationIsolatedRuntimeInputSources {
+  const dependencySources = resolveIsolatedRuntimeDependencySources();
+  return Object.freeze({
+    browserCache: dependencySources.browserCache,
+    compilerModulesRoot: dependencySources.compilerModulesRoot,
+    compilerPackage: path.join(compilerRoot, 'package.json'),
+    composeTemplates: path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates'),
+    dependencyModules: dependencySources.dependencyModules,
+    officialPolicies: path.join(compilerRoot, 'platform', 'policies', 'official'),
+    officialRegistry: path.join(compilerRoot, 'platform', 'registry', 'official')
+  });
+}
 
-function defaultRuntimeInputSources(): SemanticMutationIsolatedRuntimeInputSources {
-  return DEFAULT_RUNTIME_INPUT_SOURCES;
+export async function prepareCanonicalSemanticMutationIsolatedRuntimeInputSources(
+): Promise<SemanticMutationIsolatedRuntimeInputSources> {
+  await ensureSharedDepsReady();
+  return resolveCanonicalSemanticMutationIsolatedRuntimeInputSources();
 }
 
 function canonicalCompilerRegistryPath(value: unknown): string {
@@ -1075,7 +1081,7 @@ function relocateIsolatedRunnerBundle(
     })
   ]);
   const trustedBuildRoots = Object.freeze([
-    path.join(compilerRoot, 'node_modules'),
+    resolveIsolatedRuntimeDependencySources().compilerModulesRoot,
     path.resolve(provenBuildNodeModulesRoot)
   ]);
   const observedRuntimeDirectories = new Set<string>();
@@ -1352,8 +1358,8 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
     );
     const canonicalProductionProbe = browserCacheSource === undefined &&
       buildRunnerBundle === undefined && runtimeInputSources === undefined;
-    const defaults = defaultRuntimeInputSources();
-    const sources = runtimeInputSources ?? defaults;
+    const sources = runtimeInputSources ??
+      await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources();
     const browserCache = browserCacheSource ?? sources.browserCache;
     if (!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)) {
       throw new Error('Isolated verification requires a controlled staging workspace');

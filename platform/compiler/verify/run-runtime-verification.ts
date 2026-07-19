@@ -11,7 +11,10 @@ import {
   pathEnvKey,
   runCommand
 } from '../../shared/process.ts';
-import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
+import {
+  dependencyAuthorityPaths,
+  ensureProjectDependencies
+} from '../../shared/project-runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
 import {
   withSemanticMutationIsolatedPhaseTelemetry,
@@ -74,8 +77,9 @@ interface DependencyPathProbe {
 }
 
 export interface IsolatedRuntimeDependencySources {
-  readonly nodeModules: string;
   readonly browserCache: string;
+  readonly compilerModulesRoot: string;
+  readonly dependencyModules: string;
 }
 
 export interface IsolatedRuntimeBuildNodeModulesProof {
@@ -137,7 +141,7 @@ function provePhysicalNodeModulesBridgeWithProbe(
   probe: DependencyPathProbe
 ): Readonly<IsolatedRuntimeBuildNodeModulesProof> | undefined {
   try {
-    const nodeModulesBridge = path.join(root, 'node_modules');
+    const nodeModulesBridge = dependencyAuthorityPaths(root).compilerModulesRoot;
     const bridgeBefore = probe.lstat(nodeModulesBridge);
     const buildNodeModulesRoot = probe.realpath(nodeModulesBridge);
     const bridgeAfter = probe.lstat(nodeModulesBridge);
@@ -177,17 +181,23 @@ function sameBuildNodeModulesProof(
 }
 
 function stableCanonicalPhysicalDirectory(value: string, probe: DependencyPathProbe): boolean {
-  const before = probe.lstat(value);
-  if (!before.isDirectory || before.isSymbolicLink) return false;
-  const physical = probe.realpath(value);
-  const after = probe.lstat(value);
-  return sameMetadata(before, after) && foldedPath(physical) === foldedPath(value);
+  try {
+    const before = probe.lstat(value);
+    if (!before.isDirectory || before.isSymbolicLink) return false;
+    const physical = probe.realpath(value);
+    const after = probe.lstat(value);
+    return sameMetadata(before, after) && foldedPath(physical) === foldedPath(value);
+  } catch {
+    return false;
+  }
 }
 
 function fallbackDependencySources(root: string): Readonly<IsolatedRuntimeDependencySources> {
+  const authority = dependencyAuthorityPaths(root);
   return Object.freeze({
-    nodeModules: path.join(root, '.shared-deps', 'node_modules'),
-    browserCache: path.join(root, '.shared-deps', '.playwright-browsers')
+    browserCache: authority.browserCache,
+    compilerModulesRoot: authority.compilerModulesRoot,
+    dependencyModules: authority.compilerModulesRoot
   });
 }
 
@@ -205,17 +215,18 @@ function resolveIsolatedRuntimeDependencySourcesWithProbe(
     const dependencyHost = foldedPathSegment(path.basename(physicalParent)) === '.shared-deps'
       ? path.dirname(physicalParent)
       : physicalParent;
-    const sharedDependenciesRoot = path.resolve(dependencyHost, '.shared-deps');
-    const nodeModules = path.join(sharedDependenciesRoot, 'node_modules');
-    const browserCache = path.join(
-      sharedDependenciesRoot,
-      '.playwright-browsers'
-    );
-    if (!stableCanonicalPhysicalDirectory(nodeModules, probe) ||
-      !stableCanonicalPhysicalDirectory(browserCache, probe)) {
-      return fallback;
-    }
-    return Object.freeze({ nodeModules, browserCache });
+    const authority = dependencyAuthorityPaths(dependencyHost);
+    const dependencyModules = stableCanonicalPhysicalDirectory(authority.dependencyModules, probe)
+      ? authority.dependencyModules
+      : physicalNodeModules;
+    const browserCache = stableCanonicalPhysicalDirectory(authority.browserCache, probe)
+      ? authority.browserCache
+      : fallback.browserCache;
+    return Object.freeze({
+      browserCache,
+      compilerModulesRoot: physicalNodeModules,
+      dependencyModules
+    });
   } catch {
     return fallback;
   }
@@ -461,7 +472,7 @@ export async function runRuntimeVerification(
     ? buildIsolatedRuntimeEnvironment(options.stagingWorkspaceRoot!)
     : {
         ...process.env,
-        [envPathKey]: `${path.join(compilerRoot, 'node_modules', '.bin')}${path.delimiter}${process.env[envPathKey] ?? ''}`,
+        [envPathKey]: `${path.join(dependencyAuthorityPaths().compilerModulesRoot, '.bin')}${path.delimiter}${process.env[envPathKey] ?? ''}`,
         PLAYWRIGHT_BROWSERS_PATH: isolatedPlaywrightBrowsersPath()
       };
   const lane = createSkippedRuntimeLane();

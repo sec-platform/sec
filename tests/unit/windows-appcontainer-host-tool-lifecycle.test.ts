@@ -11,8 +11,10 @@ import { expect, test } from 'bun:test';
 import {
   createObservedNativeLifecycleFailureForTests,
   decodeWindowsJobActiveProcessCountForTests,
+  observedCommandNativeLifecycleDiagnosticForTests,
   registerObservedWindowsJobControllerForTests,
   runObservedCommand,
+  windowsNaturalExitSettlementDispositionForTests,
   windowsPipeFailureDispositionForTests,
   windowsWaitDispositionForTests,
   type ObservedCommandDependencies,
@@ -82,7 +84,12 @@ test('Windows native Job accounting and wait-result ABI decoders use the canonic
   expect(windowsWaitDispositionForTests(7)).toBe('failed');
   expect(windowsPipeFailureDispositionForTests(109)).toBe('eof');
   expect(windowsPipeFailureDispositionForTests(232)).toBe('eof');
+  expect(windowsPipeFailureDispositionForTests(233)).toBe('eof');
   expect(windowsPipeFailureDispositionForTests(5)).toBe('failed');
+  expect(windowsNaturalExitSettlementDispositionForTests(0, 0)).toBe('settled');
+  expect(windowsNaturalExitSettlementDispositionForTests(1, 1)).toBe('pending');
+  expect(windowsNaturalExitSettlementDispositionForTests(1, 0)).toBe('unproven');
+  expect(windowsNaturalExitSettlementDispositionForTests(null, 1)).toBe('unproven');
 });
 
 const lifecycleTermination = (
@@ -143,6 +150,7 @@ test('post-create native cleanup never hides an unproved started child as a clea
     started: true,
     termination: lifecycleTermination(false)
   });
+  expect(observedCommandNativeLifecycleDiagnosticForTests(outcome)).toBe('injected');
 });
 
 test('runtime native lifecycle failure preserves its trigger and forced cleanup evidence', async () => {
@@ -193,6 +201,82 @@ test.skipIf(process.platform !== 'win32')(
     });
     expect(outcome.termination).toMatchObject({
       requested: false,
+      childCloseObserved: true,
+      streamsDrained: true,
+      treeClosed: true
+    });
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'native controlled failure drains stderr and proves Job closure',
+  async () => {
+    const marker = 'Semantic Mutation isolated verification failed\n';
+    const exitCode = 70;
+    const outcome = await runObservedCommand(process.execPath, [
+      '--no-env-file',
+      '--no-install',
+      '-e',
+      `process.stderr.write(${JSON.stringify(marker)}); process.exitCode = ${exitCode};`
+    ], {
+      cwd: process.cwd(),
+      maxObservedOutputBytes: 512,
+      terminationDeadlineMs: 1_000,
+      terminationGraceMs: 100,
+      timeoutMs: 2_000
+    });
+
+    expect(outcome.status).toBe('exited');
+    expect(outcome.exitCode).toBe(exitCode);
+    expect(outcome.stdout.bytes).toBe(0);
+    expect(outcome.stderr).toEqual({
+      bytes: Buffer.byteLength(marker),
+      digest: `sha256:${createHash('sha256').update(marker).digest('hex')}`,
+      observerTruncated: false
+    });
+    expect(outcome.termination).toMatchObject({
+      requested: false,
+      forcedAttempted: false,
+      childCloseObserved: true,
+      streamsDrained: true,
+      treeClosed: true
+    });
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'native controlled failure waits for a short-lived inherited Bun worker',
+  async () => {
+    const marker = 'Semantic Mutation isolated verification failed\n';
+    const exitCode = 70;
+    const workerSource = 'Bun.sleepSync(250);';
+    const parentSource = [
+      `const worker = Bun.spawn([process.execPath, '-e', ${JSON.stringify(workerSource)}], {`,
+      "  stdout: 'inherit',",
+      "  stderr: 'inherit'",
+      '});',
+      'worker.unref();',
+      `process.stderr.write(${JSON.stringify(marker)});`,
+      `process.exitCode = ${exitCode};`
+    ].join('\n');
+    const outcome = await runObservedCommand(process.execPath, ['-e', parentSource], {
+      cwd: process.cwd(),
+      maxObservedOutputBytes: 512,
+      terminationDeadlineMs: 1_000,
+      terminationGraceMs: 100,
+      timeoutMs: 3_000
+    });
+
+    expect(outcome.status).toBe('exited');
+    expect(outcome.exitCode).toBe(exitCode);
+    expect(outcome.stderr).toEqual({
+      bytes: Buffer.byteLength(marker),
+      digest: `sha256:${createHash('sha256').update(marker).digest('hex')}`,
+      observerTruncated: false
+    });
+    expect(outcome.termination).toMatchObject({
+      requested: false,
+      forcedAttempted: false,
       childCloseObserved: true,
       streamsDrained: true,
       treeClosed: true
@@ -1055,7 +1139,7 @@ test('observed host tool completes before its deadline without requesting termin
   expect(terminations).toBe(0);
 });
 
-test('natural child close is not process-tree closure without an independent census proof', async () => {
+test('natural child close requests bounded termination when the independent census rejects closure', async () => {
   const child = fakeChild();
   setTimeout(() => closeChild(child), 0);
   const outcome = await runObservedCommand('host-tool.exe', [], {
@@ -1071,10 +1155,10 @@ test('natural child close is not process-tree closure without an independent cen
     }
   });
 
-  expect(outcome.status).toBe('tree-unproven');
+  expect(outcome.status).toBe('termination-unproven');
   expect(outcome.exitCode).toBe(0);
   expect(outcome.termination).toMatchObject({
-    requested: false,
+    requested: true,
     childCloseObserved: true,
     streamsDrained: true,
     treeClosed: false
