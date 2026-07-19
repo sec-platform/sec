@@ -8,6 +8,14 @@ import { expect, test } from 'bun:test';
 import { installGitHooks, installGitHooksMain } from '../../scripts/install-git-hooks.ts';
 
 const managedHookNames = ['pre-commit', 'pre-push', 'post-checkout', 'post-merge', 'post-rewrite'] as const;
+const depsEnsureCommand = 'bun ./platform/dev-runner.ts deps:ensure';
+const importsFreezeCommand = 'bun ./platform/dev-runner.ts imports:freeze';
+
+function managedHookSource(hook: typeof managedHookNames[number]): string {
+  return hook === 'pre-commit' || hook === 'pre-push'
+    ? `#!/usr/bin/env sh\nset -eu\n\n${importsFreezeCommand}\n`
+    : '#!/usr/bin/env sh\nexit 0\n';
+}
 
 function git(repoRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -22,16 +30,23 @@ function git(repoRoot: string, args: readonly string[]): string {
 function configuredManagedHooksPath(repoRoot: string): string {
   const configured = path.resolve(git(repoRoot, ['config', '--local', '--path', '--get', 'core.hooksPath']));
   const commonGitDir = path.resolve(git(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']));
-  expect(path.dirname(configured)).toBe(path.join(commonGitDir, 'sec-managed-hooks-v1'));
+  expect(path.dirname(configured)).toBe(path.join(commonGitDir, 'sec-managed-hooks-v2'));
   expect(path.basename(configured)).toMatch(/^generation-[0-9a-f]{64}(?:-[0-9a-f-]{36})?$/u);
   return configured;
 }
 
 async function expectManagedHooksMirror(repoRoot: string, configured: string): Promise<void> {
   for (const hook of managedHookNames) {
-    expect(await readFile(path.join(configured, hook))).toEqual(
-      await readFile(path.join(repoRoot, '.githooks', hook))
-    );
+    const source = await readFile(path.join(repoRoot, '.githooks', hook), 'utf8');
+    const expected = hook === 'pre-commit' || hook === 'pre-push'
+      ? source.replace(importsFreezeCommand, `${depsEnsureCommand}\n${importsFreezeCommand}`)
+      : source;
+    const installed = await readFile(path.join(configured, hook), 'utf8');
+    expect(installed).toBe(expected);
+    if (hook === 'pre-commit' || hook === 'pre-push') {
+      expect(source).not.toContain(depsEnsureCommand);
+      expect(installed.indexOf(depsEnsureCommand)).toBeLessThan(installed.indexOf(importsFreezeCommand));
+    }
   }
 }
 
@@ -42,7 +57,7 @@ async function withRepository(run: (repoRoot: string) => Promise<void>): Promise
     await mkdir(path.join(repoRoot, '.githooks'));
     await Promise.all(managedHookNames.map(async (hook) => {
       const hookPath = path.join(repoRoot, '.githooks', hook);
-      await writeFile(hookPath, '#!/usr/bin/env sh\nexit 0\n', 'utf8');
+      await writeFile(hookPath, managedHookSource(hook), 'utf8');
       await chmod(hookPath, 0o755);
     }));
     git(repoRoot, ['add', '.githooks']);
@@ -89,6 +104,31 @@ test('hook installer configures unset and stale missing paths and is idempotent'
     git(repoRoot, ['config', '--local', 'core.hooksPath', '.githooks']);
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     expect(configuredManagedHooksPath(repoRoot)).not.toBe(path.join(repoRoot, '.githooks'));
+  });
+});
+
+test('hook installer migrates an otherwise valid v1 generation to v2 authority', async () => {
+  await withRepository(async (repoRoot) => {
+    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
+    const currentGeneration = configuredManagedHooksPath(repoRoot);
+    const commonGitDir = path.resolve(git(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']));
+    const legacyGeneration = path.join(
+      commonGitDir,
+      'sec-managed-hooks-v1',
+      `generation-${'a'.repeat(64)}`
+    );
+    await mkdir(legacyGeneration, { recursive: true });
+    await Promise.all(managedHookNames.map(async (hook) => {
+      const legacyHook = path.join(legacyGeneration, hook);
+      await writeFile(legacyHook, await readFile(path.join(currentGeneration, hook)));
+      await chmod(legacyHook, 0o755);
+    }));
+    git(repoRoot, ['config', '--local', 'core.hooksPath', legacyGeneration]);
+
+    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
+    expect(configuredManagedHooksPath(repoRoot)).toBe(currentGeneration);
+    expect(path.resolve(git(repoRoot, ['config', '--get', 'core.hooksPath']))).not.toBe(legacyGeneration);
+    await expectManagedHooksMirror(repoRoot, currentGeneration);
   });
 });
 
@@ -183,7 +223,7 @@ test('hook installer repairs shared stale authority with one common generation',
     await writeFile(path.join(repoRoot, 'README.md'), 'fixture\n', 'utf8');
     await Promise.all(managedHookNames.map(async (hook) => {
       const hookPath = path.join(repoRoot, '.githooks', hook);
-      await writeFile(hookPath, '#!/usr/bin/env sh\nexit 0\n', 'utf8');
+      await writeFile(hookPath, managedHookSource(hook), 'utf8');
       await chmod(hookPath, 0o755);
     }));
     git(repoRoot, ['add', '.gitattributes', 'README.md', '.githooks']);
@@ -230,7 +270,7 @@ test('repository-common hook generation runs when an older worktree creates the 
         hookPath,
         hook === 'post-checkout'
           ? '#!/usr/bin/env sh\nset -eu\nprintf first-checkout > .dependency-bootstrap-marker\n'
-          : '#!/usr/bin/env sh\nexit 0\n',
+          : managedHookSource(hook),
         'utf8'
       );
       await chmod(hookPath, 0o755);
