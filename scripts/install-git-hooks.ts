@@ -4,7 +4,10 @@ import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'no
 import path from 'node:path';
 
 const MANAGED_HOOKS_PATH = '.githooks';
-const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v1';
+const MANAGED_COMMON_DIRECTORY = 'sec-managed-hooks-v2';
+const LEGACY_MANAGED_COMMON_DIRECTORIES = ['sec-managed-hooks-v1'] as const;
+const DEPS_ENSURE_COMMAND = 'bun ./platform/dev-runner.ts deps:ensure';
+const IMPORTS_FREEZE_COMMAND = 'bun ./platform/dev-runner.ts imports:freeze';
 const MANAGED_PRE_COMMIT = `${MANAGED_HOOKS_PATH}/pre-commit`;
 const MANAGED_HOOKS = [
   MANAGED_PRE_COMMIT,
@@ -20,7 +23,7 @@ export interface GitHookInstallationResult {
 }
 
 interface ManagedHookSnapshot {
-  readonly bytes: Buffer;
+  readonly deployedBytes: Buffer;
   readonly name: string;
 }
 
@@ -65,11 +68,20 @@ function managedCommonRoot(commonGitDir: string): string {
   return path.join(commonGitDir, MANAGED_COMMON_DIRECTORY);
 }
 
+function isCurrentManagedCommonSetting(configured: string, commonGitDir: string): boolean {
+  return path.isAbsolute(configured)
+    && canonicalPath(path.dirname(configured)) === canonicalPath(managedCommonRoot(commonGitDir))
+    && /^generation-[0-9a-f]{64}(?:-[0-9a-f-]{36})?$/u.test(path.basename(configured));
+}
+
 function isManagedCommonSetting(configured: string, commonGitDir: string): boolean {
   if (isLegacyManagedSetting(configured)) return true;
   if (!path.isAbsolute(configured)) return false;
-  return canonicalPath(path.dirname(configured)) === canonicalPath(managedCommonRoot(commonGitDir))
-    && /^generation-[0-9a-f]{64}(?:-[0-9a-f-]{36})?$/u.test(path.basename(configured));
+  return isCurrentManagedCommonSetting(configured, commonGitDir)
+    || LEGACY_MANAGED_COMMON_DIRECTORIES.some((directory) => (
+      canonicalPath(path.dirname(configured)) === canonicalPath(path.join(commonGitDir, directory))
+      && /^generation-[0-9a-f]{64}(?:-[0-9a-f-]{36})?$/u.test(path.basename(configured))
+    ));
 }
 
 function resolveGitPath(repoRoot: string, configured: string): string {
@@ -124,6 +136,19 @@ function conflictResult(configured: string, lifecycle: boolean): GitHookInstalla
   );
 }
 
+function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
+  if (name !== 'pre-commit' && name !== 'pre-push') return sourceBytes;
+  const source = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes);
+  const firstFreeze = source.indexOf(IMPORTS_FREEZE_COMMAND);
+  if (firstFreeze < 0 || firstFreeze !== source.lastIndexOf(IMPORTS_FREEZE_COMMAND)) {
+    throw new Error(`${name} must contain exactly one canonical imports:freeze command`);
+  }
+  return Buffer.from(source.replace(
+    IMPORTS_FREEZE_COMMAND,
+    `${DEPS_ENSURE_COMMAND}\n${IMPORTS_FREEZE_COMMAND}`
+  ), 'utf8');
+}
+
 async function managedHookSnapshots(repoRoot: string): Promise<readonly ManagedHookSnapshot[] | null> {
   const snapshots: ManagedHookSnapshot[] = [];
   for (const hook of MANAGED_HOOKS) {
@@ -144,16 +169,17 @@ async function managedHookSnapshots(repoRoot: string): Promise<readonly ManagedH
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw error;
     }
-    const bytes = await readFile(sourcePath);
+    const sourceBytes = await readFile(sourcePath);
     const objectHash = match[1].length === 40 ? 'sha1' : 'sha256';
     const workingBlob = createHash(objectHash)
-      .update(`blob ${bytes.byteLength}\0`)
-      .update(bytes)
+      .update(`blob ${sourceBytes.byteLength}\0`)
+      .update(sourceBytes)
       .digest('hex');
     if (workingBlob !== match[1]) return null;
+    const name = path.basename(hook);
     snapshots.push(Object.freeze({
-      bytes,
-      name: path.basename(hook)
+      deployedBytes: deployedHookBytes(name, sourceBytes),
+      name
     }));
   }
   return Object.freeze(snapshots);
@@ -161,10 +187,10 @@ async function managedHookSnapshots(repoRoot: string): Promise<readonly ManagedH
 
 function managedGenerationDigest(snapshots: readonly ManagedHookSnapshot[]): string {
   const hash = createHash('sha256');
-  hash.update('sec-managed-hooks-v1\0');
+  hash.update('sec-managed-hooks-v2\0');
   for (const snapshot of snapshots) {
-    hash.update(`${snapshot.name}\0${snapshot.bytes.byteLength}\0`);
-    hash.update(snapshot.bytes);
+    hash.update(`${snapshot.name}\0${snapshot.deployedBytes.byteLength}\0`);
+    hash.update(snapshot.deployedBytes);
   }
   return hash.digest('hex');
 }
@@ -182,7 +208,7 @@ async function managedGenerationReady(
       ]);
       if (
         !installedStat.isFile()
-        || !installedBytes.equals(snapshot.bytes)
+        || !installedBytes.equals(snapshot.deployedBytes)
         || (process.platform !== 'win32' && (installedStat.mode & 0o111) === 0)
       ) return false;
     } catch (error) {
@@ -212,7 +238,7 @@ async function materializeManagedGeneration(
   try {
     await Promise.all(snapshots.map(async (snapshot) => {
       const installedPath = path.join(stagingPath, snapshot.name);
-      await writeFile(installedPath, snapshot.bytes, { mode: 0o755 });
+      await writeFile(installedPath, snapshot.deployedBytes, { mode: 0o755 });
       await chmod(installedPath, 0o755);
     }));
 
@@ -280,8 +306,7 @@ export async function installGitHooks(options: {
   }
 
   const preferredGeneration = commonConfigured !== null
-    && !isLegacyManagedSetting(commonConfigured)
-    && isManagedCommonSetting(commonConfigured, commonGitDir)
+    && isCurrentManagedCommonSetting(commonConfigured, commonGitDir)
     ? resolveGitPath(repoRoot, commonConfigured)
     : null;
   const generationPath = await materializeManagedGeneration(commonGitDir, snapshots, preferredGeneration);
