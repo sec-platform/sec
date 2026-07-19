@@ -208,7 +208,9 @@ test('local affected runner shares canonical changed-file parsing and impact own
   expect(source).toContain('gitChangedFileDiffArgs');
   expect(source).toContain('gitUntrackedFileArgs');
   expect(source).toContain('parseGitChangedFileOutput');
-  expect(source).toContain('files.filter(isTestImpactSourceFile)');
+  expect(source).toContain("from '../shared/affected-test-inventory.ts'");
+  expect(source).toContain('CodexDevelopmentBuildAffectedTestInventoryV1(files)');
+  expect(source).not.toContain('isTestImpactSourceFile');
   expect(source).not.toContain('function impactSourceFile');
   expect(source).not.toContain("['diff', '--name-only', '--diff-filter=ACMR'");
 });

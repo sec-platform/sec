@@ -277,6 +277,27 @@ function revision(value: string): string {
   return result.stdout.trim();
 }
 
+function addHookIsolatedDetachedWorktree(snapshotRoot: string): void {
+  const result = spawnSync('git', [
+    '-c',
+    'core.hooksPath=/dev/null',
+    '-c',
+    'core.longpaths=true',
+    'worktree',
+    'add',
+    '--detach',
+    snapshotRoot,
+    revision('HEAD')
+  ], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  if (result.status !== 0) {
+    throw new Error(`Hook-isolated detached worktree creation failed: ${result.stderr.trim()}`);
+  }
+}
+
 const frozenManifestPaths = new Map([
   WORK_PACKAGE_GATE_EXECUTION_MANIFEST_PATH_V4,
   WORK_PACKAGE_GATE_SELECTION_MANIFEST_PATH
@@ -439,11 +460,7 @@ test('execution snapshot recovery reclaims an owned registered partial worktree'
       revision('HEAD^{tree}'),
       expectedDigest
     );
-    expect(spawnSync('git', ['worktree', 'add', '--detach', snapshotRoot, revision('HEAD')], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      windowsHide: true
-    }).status).toBe(0);
+    addHookIsolatedDetachedWorktree(snapshotRoot);
     await writeFile(path.join(snapshotRoot, 'partial-publication.txt'), 'partial', 'utf8');
     expect(await prepareWorkPackageExecutionSnapshotForTests(
       repoRoot,
@@ -475,11 +492,7 @@ test('execution snapshot recovery preserves foreign directory and registered wor
     )).rejects.toThrow('no durable owner authority');
     expect(await readFile(path.join(roots[0]!, 'keep.txt'), 'utf8')).toBe('preserve');
 
-    expect(spawnSync('git', ['worktree', 'add', '--detach', roots[1]!, revision('HEAD')], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      windowsHide: true
-    }).status).toBe(0);
+    addHookIsolatedDetachedWorktree(roots[1]!);
     await expect(prepareWorkPackageExecutionSnapshotForTests(
       repoRoot,
       roots[1]!,

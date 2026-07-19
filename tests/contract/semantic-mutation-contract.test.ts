@@ -376,3 +376,43 @@ test('Semantic Mutation SM-1 pure kernels and SM-2 adapter modules keep dependen
     }
   }
 });
+
+test('SM-3 production sentinel consumes the canonical split dependency-source authority', async () => {
+  const [sentinel, isolatedChild] = await Promise.all([
+    readFile(path.resolve(
+      import.meta.dir,
+      '../helpers/semantic-mutation-production-sentinel.ts'
+    ), 'utf8'),
+    readFile(path.resolve(
+      import.meta.dir,
+      '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts'
+    ), 'utf8')
+  ]);
+
+  expect(sentinel).toContain('prepareCanonicalSemanticMutationIsolatedRuntimeInputSources()');
+  expect(sentinel).toContain('runtimeInputSources\n    });');
+  expect(sentinel).toContain('...canonicalRuntimeInputSources');
+  expect(sentinel).toContain('browserCache: browserSource');
+  expect(sentinel).not.toContain('RUNTIME_VERIFICATION_INVOCATION_CONTRACT');
+  expect(sentinel).not.toContain('dependencyModules:');
+  expect(sentinel).not.toContain('resolveIsolatedRuntimeDependencySources()');
+  expect(sentinel).not.toContain("'official-registry'");
+  expect(sentinel).not.toContain("'official-policies'");
+  expect(sentinel).not.toContain("'compose-templates'");
+  expect(sentinel).not.toContain("'blocks: []'");
+  expect(sentinel).not.toContain("'policies: []'");
+  expect(sentinel).not.toContain("path.join(compilerRoot, '.shared-deps', 'node_modules')");
+  expect(isolatedChild).toContain(
+    'export function resolveCanonicalSemanticMutationIsolatedRuntimeInputSources('
+  );
+  expect(isolatedChild).toContain(
+    'await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources();'
+  );
+  expect(isolatedChild).toContain(
+    'compilerModulesRoot: dependencySources.compilerModulesRoot'
+  );
+  expect(isolatedChild).toContain(
+    'dependencyModules: dependencySources.dependencyModules'
+  );
+  expect(isolatedChild).not.toContain('const DEFAULT_RUNTIME_DEPENDENCY_SOURCES');
+});

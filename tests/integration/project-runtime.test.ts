@@ -16,6 +16,7 @@ import {
 import {
   buildRuntimeDepsPreboundBinding,
   loadRuntimeDependencySpec,
+  RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
 } from '../../platform/shared/runtime-dependency-spec.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
@@ -58,6 +59,17 @@ async function installCompilerDependencyFixture(workingDirectory: string, marker
   }
 }
 
+async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Promise<void> {
+  await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
+    const packageRoot = path.join(nodeModulesRoot, ...packageName.split('/'));
+    await fs.mkdir(packageRoot, { recursive: true });
+    await fs.writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
+      name: packageName,
+      version: '0.0.0-fixture'
+    })}\n`, 'utf8');
+  }));
+}
+
 async function writeCompilerDependencyRoot(
   root: string,
   lockfile = 'lock-v1\n',
@@ -98,6 +110,22 @@ describe('shared runtime dependency installation', () => {
         packageManager: 'bun'
       });
     }, 'engineering-compiler-shared-deps-');
+  });
+
+  test('does not publish readiness for an incomplete runtime package closure', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      const sharedDepsRoot = path.join(tempRoot, '.shared-deps');
+      await expect(ensureSharedDepsReady({
+        commandRunner: async (_command, _args, options) => {
+          await installRuntimeDeps(options.cwd);
+          await fs.rm(path.join(options.cwd, 'node_modules', 'react', 'package.json'));
+          return { code: 0, stdout: 'ok', stderr: '' };
+        },
+        sharedDepsRoot
+      })).rejects.toThrow('failed complete package validation');
+      expect(await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json')))
+        .toBeNull();
+    }, 'engineering-compiler-shared-deps-incomplete-');
   });
 });
 
@@ -691,14 +719,12 @@ describe('ensureProjectDependencies', () => {
       await ensureProjectBase(workspaceRoot);
       const { projectRoot } = getWorkspacePaths(workspaceRoot);
       const nodeModulesRoot = path.join(projectRoot, 'node_modules');
-      const nextPackageFile = path.join(nodeModulesRoot, 'next', 'package.json');
       const fillerRoot = path.join(nodeModulesRoot, 'synthetic-package');
       const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
       const runtimeSpec = await loadRuntimeDependencySpec();
-      await fs.mkdir(path.dirname(nextPackageFile), { recursive: true });
+      await installRuntimePackageManifestClosure(nodeModulesRoot);
       await fs.mkdir(fillerRoot, { recursive: true });
       await Promise.all([
-        fs.writeFile(nextPackageFile, '{"name":"next","version":"0.0.0"}\n', 'utf8'),
         fs.writeFile(bindingPath, `${JSON.stringify(buildRuntimeDepsPreboundBinding(runtimeSpec))}\n`, 'utf8'),
         ...Array.from({ length: 1024 }, (_, index) =>
           fs.writeFile(path.join(fillerRoot, `${String(index).padStart(4, '0')}.bin`), 'x', 'utf8'))
@@ -728,6 +754,35 @@ describe('ensureProjectDependencies', () => {
       expect({ dev: afterSample.dev, ino: afterSample.ino })
         .toEqual({ dev: beforeSample.dev, ino: beforeSample.ino });
     }, 'engineering-compiler-runtime-prebound-constant-work-');
+  });
+
+  test('prebound dependency readiness rejects incomplete or forged package closure', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await ensureProjectBase(workspaceRoot);
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      const nodeModulesRoot = path.join(projectRoot, 'node_modules');
+      const bindingPath = path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE);
+      const reactManifest = path.join(nodeModulesRoot, 'react', 'package.json');
+      const runtimeSpec = await loadRuntimeDependencySpec();
+      await installRuntimePackageManifestClosure(nodeModulesRoot);
+      await fs.writeFile(
+        bindingPath,
+        `${JSON.stringify(buildRuntimeDepsPreboundBinding(runtimeSpec))}\n`,
+        'utf8'
+      );
+
+      await fs.rm(reactManifest);
+      await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
+        .rejects.toThrow('Plan-bound dependency tree is unavailable');
+
+      await fs.writeFile(reactManifest, '{"name":"forged-react","version":"0.0.0"}\n', 'utf8');
+      await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
+        .rejects.toThrow('Plan-bound dependency tree is unavailable');
+
+      await fs.writeFile(reactManifest, '{"name":"react","version":"0.0.0"}\n', 'utf8');
+      await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
+        .resolves.toBeUndefined();
+    }, 'engineering-compiler-runtime-prebound-package-closure-');
   });
 
   test('prebound dependency readiness rejects stale markers without mutation or spawn', async () => {
@@ -782,12 +837,7 @@ describe('ensureProjectDependencies', () => {
       await ensureProjectBase(workspaceRoot);
       const { projectRoot } = getWorkspacePaths(workspaceRoot);
 
-      await fs.mkdir(path.join(sharedDepsRoot, 'node_modules', 'next'), { recursive: true });
-      await fs.writeFile(
-        path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json'),
-        '{\n  "name": "next",\n  "version": "0.0.0"\n}\n',
-        'utf8'
-      );
+      await installRuntimePackageManifestClosure(path.join(sharedDepsRoot, 'node_modules'));
       await writeRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'), {
         manifestHash: runtimeSpec.manifestHash,
         packageManager: 'bun',
@@ -813,12 +863,10 @@ describe('ensureProjectDependencies', () => {
   test('isolated dependency materialization fences a physical preinstalled tree without spawning', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
-      const sharedPackageFile = path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json');
       const sharedBinaryFile = path.join(sharedDepsRoot, 'node_modules', 'seed', 'cache.bin');
       await ensureProjectBase(workspaceRoot);
-      await fs.mkdir(path.dirname(sharedPackageFile), { recursive: true });
+      await installRuntimePackageManifestClosure(path.join(sharedDepsRoot, 'node_modules'));
       await fs.mkdir(path.dirname(sharedBinaryFile), { recursive: true });
-      await fs.writeFile(sharedPackageFile, '{"name":"next","version":"0.0.0"}\n', 'utf8');
       await fs.writeFile(sharedBinaryFile, new Uint8Array([0, 1, 127, 128, 255]));
       const { projectRoot } = getWorkspacePaths(workspaceRoot);
       const sequence: string[] = [];
@@ -853,10 +901,8 @@ describe('ensureProjectDependencies', () => {
   test('isolated dependency materialization stops during physical copy when its fence is lost', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const sharedDepsRoot = path.join(workspaceRoot, '.shared-deps');
-      const sharedPackageFile = path.join(sharedDepsRoot, 'node_modules', 'next', 'package.json');
       await ensureProjectBase(workspaceRoot);
-      await fs.mkdir(path.dirname(sharedPackageFile), { recursive: true });
-      await fs.writeFile(sharedPackageFile, '{"name":"next","version":"0.0.0"}\n', 'utf8');
+      await installRuntimePackageManifestClosure(path.join(sharedDepsRoot, 'node_modules'));
       const { projectRoot } = getWorkspacePaths(workspaceRoot);
       const targetModulesRoot = path.join(projectRoot, 'node_modules');
       const targetPackageFile = path.join(targetModulesRoot, 'next', 'package.json');
