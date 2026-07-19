@@ -19,6 +19,7 @@ export const FAST_TEST_PROCESS_ISOLATION_REGISTRY = [
   { file: 'tests/integration/workbench-writer-lease.test.ts', reason: 'workspace-server' },
   { file: 'tests/integration/workspace-engineering-ir.test.ts', reason: 'workspace-mutation' },
   { file: 'tests/unit/project-overview.test.ts', reason: 'workspace-overview' },
+  { file: 'tests/unit/import-organizer-staged.test.ts', reason: 'typescript-language-service-git-fixtures' },
   { file: 'tests/unit/test-runner.test.ts', reason: 'process-global-mocks' },
   { file: 'tests/unit/work-package-gate-contract.test.ts', reason: 'work-package-evidence' },
   { file: 'tests/unit/work-package-gate-execution.test.ts', reason: 'repository-worktree-mutation' },

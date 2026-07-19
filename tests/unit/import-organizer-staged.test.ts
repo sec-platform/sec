@@ -7,7 +7,9 @@ import { expect, test } from 'bun:test';
 
 import {
   runCandidateImportOrganizer,
-  runStagedImportOrganizer
+  runImportPreparation,
+  runStagedImportOrganizer,
+  workingTreeTypeScriptTargets
 } from '../../platform/dev-runner/import-organizer.ts';
 
 function git(
@@ -139,6 +141,52 @@ test('candidate organizer derives the branch merge-base without an ambient base 
     expect(await readFile(fixturePath)).toEqual(Buffer.from(committed));
     expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim().split(/\r?\n/u).sort())
       .toEqual(['README.md', 'fixture.ts']);
+  });
+});
+
+test('authoring preparation normalizes the complete committed, staged, unstaged, and untracked delta', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    const committedPath = path.join(repoRoot, 'committed.ts');
+    const stagedPath = path.join(repoRoot, 'staged.ts');
+    const untrackedPath = path.join(repoRoot, 'untracked.ts');
+    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
+
+    await writeFile(committedPath, source('unsorted'), 'utf8');
+    git(repoRoot, ['add', 'committed.ts']);
+    git(repoRoot, ['commit', '--quiet', '--no-verify', '-m', 'committed authoring delta']);
+    await writeFile(stagedPath, source('unsorted'), 'utf8');
+    git(repoRoot, ['add', 'staged.ts']);
+    await Promise.all([
+      writeFile(fixturePath, source('unsorted'), 'utf8'),
+      writeFile(untrackedPath, source('unsorted'), 'utf8')
+    ]);
+
+    expect(workingTreeTypeScriptTargets(repoRoot, {})).toEqual([
+      'committed.ts',
+      'fixture.ts',
+      'staged.ts',
+      'untracked.ts'
+    ]);
+    expect(await runImportPreparation(repoRoot, {})).toBe(0);
+
+    for (const filePath of [committedPath, fixturePath, stagedPath, untrackedPath]) {
+      expect(await readFile(filePath, 'utf8')).toBe(source('sorted'));
+    }
+    expect(await runImportPreparation(repoRoot, {})).toBe(0);
+  });
+});
+
+test('authoring preparation rejects an inexact candidate base before changing source', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    await writeFile(fixturePath, source('unsorted'), 'utf8');
+    const before = await readFile(fixturePath);
+
+    await expect(runImportPreparation(repoRoot, { SEC_CHANGED_BASE: 'abc123' }))
+      .rejects.toThrow('one full Git object ID');
+    expect(await readFile(fixturePath)).toEqual(before);
   });
 });
 

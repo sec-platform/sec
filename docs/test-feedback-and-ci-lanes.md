@@ -28,10 +28,13 @@ bun run check:fast
 bun run check:full
 bun run deps:ensure
 bun run hooks:install
+bun run imports:prepare
 bun run imports:organize
 ```
 
 `affected` 只选择相关 fast tests。开发者本地入口可以把未知映射报告为 notice；进入 hosted verification 时，changed-file 或 ownership 解析未知必须 fail closed，不得用 bounded baseline 冒充完整通过。
+
+`imports:prepare` 是本地 authoring 写边界，不是 hosted Gate。它在任何类型或测试反馈前，用唯一 TypeScript organizer 一次处理 `candidate base→HEAD`、`HEAD→index`、`index→working tree` 与未跟踪 TypeScript 路径的稳定去重并集；因此已提交候选、staged、unstaged 与新文件不会再等到只读 Gate 才首次暴露机械排序。`check:affected`、`check:fast`、`check:full` 固定先执行该入口。显式 `imports:organize` 仍用于全仓基线维护；两者不复制排序算法。使用 Git fixture 与 TypeScript Language Service 的 import lifecycle tests 固定进入 serial fast registry，避免在并发 shard 中把资源竞争误报为 5 秒用例失败；Contract Freeze runner 统一携带有界 180 秒 timeout，源码文本合同只忽略 CRLF/LF 表示差异。
 
 `bunfig.toml` 禁止 Bun ambient auto-install；仓库不接受全局 cache 或相邻 worktree 替代当前 manifest 的依赖解析。`deps:ensure` 对 root `package.json` 的完整 dependency maps、`packageManager`、`bun.lock` 原始字节、实际 Bun 版本与 OS/architecture 建立 generation identity。安装只发生在同卷 staging；所有 direct package manifest 与 TypeScript/ts-morph runtime entry 摘要验证完成后才以 rename 发布，失败恢复旧树并保留一个 previous generation，绝不原地修改 active `node_modules`。TypeScript 使用 exact pin。`.shared-deps` 继续只拥有生成项目/隔离验证所需的 runtime 子集与下载 cache，不再冒充 compiler 依赖树。dev-runner 在冷启动完成安装后只 re-enter 一次，随后所有 typecheck、test 与 import 命令直接复用同一可验证依赖树。tracked `post-checkout`、`post-merge`、`post-rewrite` 在 Git 改变候选树后刷新 binding，使新 worktree 的第一次 focused test 之前已经完成依赖闭合。
 
