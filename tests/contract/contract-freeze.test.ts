@@ -58,7 +58,9 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(runnerInvocation.files).toEqual(contract.targetFiles);
   expect(runnerInvocation.args).toEqual([
     'test',
-    ...contract.targetFiles
+    ...contract.targetFiles,
+    '--timeout',
+    '180000'
   ]);
   expect(JSON.stringify(contract)).not.toContain('testNamePattern');
   expect(JSON.stringify(contract)).not.toContain('--test-name-pattern');

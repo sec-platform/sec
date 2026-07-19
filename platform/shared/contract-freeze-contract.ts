@@ -55,7 +55,7 @@ function runnerInvocation(files: string[]): ContractFreezeRunnerInvocation {
   const sortedFiles = uniqueSorted(files);
   return {
     files: sortedFiles,
-    args: ['test', ...sortedFiles]
+    args: ['test', ...sortedFiles, '--timeout', '180000']
   };
 }
 

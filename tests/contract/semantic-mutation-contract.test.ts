@@ -390,7 +390,7 @@ test('SM-3 production sentinel consumes the canonical split dependency-source au
   ]);
 
   expect(sentinel).toContain('prepareCanonicalSemanticMutationIsolatedRuntimeInputSources()');
-  expect(sentinel).toContain('runtimeInputSources\n    });');
+  expect(sentinel.replaceAll('\r\n', '\n')).toContain('runtimeInputSources\n    });');
   expect(sentinel).toContain('...canonicalRuntimeInputSources');
   expect(sentinel).toContain('browserCache: browserSource');
   expect(sentinel).not.toContain('RUNTIME_VERIFICATION_INVOCATION_CONTRACT');

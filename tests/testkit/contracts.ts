@@ -48,6 +48,7 @@ export function expectPrFastLaneBoundary(contract: CiContract): void {
   expect(contract.prQuickLaneCommands).toContain('bun run typecheck');
   expect(contract.prQuickLaneCommands).toContain('bun run test:affected');
   expect(contract.prQuickLaneCommands).not.toContain('bun scripts/ci-pr-quick.ts');
+  expect(contract.prQuickLaneCommands).not.toContain('bun run imports:prepare');
   expect(contract.prQuickLaneCommands).not.toContain('bun run imports:organize');
   expect(contract.prQuickLaneCommands).not.toContain('bun run test:slow');
   expect(contract.prQuickLaneCommands.every((command) => !command.includes('--lane all'))).toBe(true);
@@ -65,6 +66,7 @@ export function expectFullLaneCoversSlowSuites(contract: CiContract, suiteIds: r
 }
 
 export function expectFullLaneCoversCorrectnessBackstop(contract: CiContract): void {
+  expect(contract.fullLaneCommands).not.toContain('bun run imports:prepare');
   expect(contract.fullLaneCommands).toEqual(expect.arrayContaining([
     'bun run imports:check',
     'bun run typecheck',
