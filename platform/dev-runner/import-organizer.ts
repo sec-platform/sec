@@ -185,6 +185,33 @@ function isTypeScriptPath(value: string): boolean {
   return /\.[cm]?tsx?$/iu.test(value);
 }
 
+function typeScriptTargetsFromNameStatus(bytes: Buffer, source: string): readonly string[] {
+  const fields = nulFields(bytes, source);
+  const targets = new Set<string>();
+  for (let index = 0; index < fields.length;) {
+    const status = fields[index++];
+    if (!status || !/^[ACMR][0-9]*$/u.test(status)) {
+      throw new Error(`${source} returned an invalid status record`);
+    }
+    const kind = status[0];
+    if (kind === 'C' || kind === 'R') {
+      const sourcePath = fields[index++];
+      const targetPath = fields[index++];
+      if (sourcePath === undefined || targetPath === undefined) {
+        throw new Error(`${source} returned an incomplete rename record`);
+      }
+      if (isTypeScriptPath(targetPath)) targets.add(targetPath);
+      continue;
+    }
+    const targetPath = fields[index++];
+    if (targetPath === undefined) {
+      throw new Error(`${source} returned an incomplete path record`);
+    }
+    if (isTypeScriptPath(targetPath)) targets.add(targetPath);
+  }
+  return Object.freeze([...targets].sort());
+}
+
 function resolvedCandidateBase(projectRoot: string, candidateBase: string | undefined): string | undefined {
   if (candidateBase === undefined) return undefined;
   if (!/^[0-9a-f]{40,64}$/u.test(candidateBase)) {
@@ -224,31 +251,42 @@ function stagedTypeScriptTargets(
   projectRoot: string,
   candidateBase: string | undefined
 ): readonly string[] {
-  const fields = nulFields(gitBytes(projectRoot, [
+  return typeScriptTargetsFromNameStatus(gitBytes(projectRoot, [
     'diff', '--cached', '--name-status', '-z', '--diff-filter=ACMR', '--find-renames',
     ...(candidateBase === undefined ? [] : [candidateBase]),
     '--'
   ]), 'git diff --cached');
+}
+
+export function workingTreeTypeScriptTargets(
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): readonly string[] {
+  const candidateBase = resolveCandidateImportBase(projectRoot, env);
   const targets = new Set<string>();
-  for (let index = 0; index < fields.length;) {
-    const status = fields[index++];
-    if (!status || !/^[ACMR][0-9]*$/u.test(status)) {
-      throw new Error('git diff --cached returned an invalid status record');
+  const trackedDiffs: readonly [readonly string[], string][] = [
+    [
+      ['diff', '--name-status', '-z', '--diff-filter=ACMR', '--find-renames', candidateBase, 'HEAD', '--'],
+      'git diff candidate base'
+    ],
+    [
+      ['diff', '--cached', '--name-status', '-z', '--diff-filter=ACMR', '--find-renames', 'HEAD', '--'],
+      'git diff --cached HEAD'
+    ],
+    [
+      ['diff', '--name-status', '-z', '--diff-filter=ACMR', '--find-renames', '--'],
+      'git diff working tree'
+    ]
+  ];
+  for (const [args, source] of trackedDiffs) {
+    for (const target of typeScriptTargetsFromNameStatus(gitBytes(projectRoot, args), source)) {
+      targets.add(target);
     }
-    const kind = status[0];
-    if (kind === 'C' || kind === 'R') {
-      const source = fields[index++];
-      const target = fields[index++];
-      if (source === undefined || target === undefined) {
-        throw new Error('git diff --cached returned an incomplete rename record');
-      }
-      if (isTypeScriptPath(target)) targets.add(target);
-      continue;
-    }
-    const target = fields[index++];
-    if (target === undefined) {
-      throw new Error('git diff --cached returned an incomplete path record');
-    }
+  }
+  for (const target of nulFields(
+    gitBytes(projectRoot, ['ls-files', '--others', '--exclude-standard', '-z', '--']),
+    'git ls-files --others'
+  )) {
     if (isTypeScriptPath(target)) targets.add(target);
   }
   return Object.freeze([...targets].sort());
@@ -559,22 +597,31 @@ export function changedTypeScriptFiles(
   );
 }
 
-function selectedFileNames(config: ts.ParsedCommandLine): string[] {
-  if (!selectChangedImportsOnly()) {
+function selectedFileNames(
+  config: ts.ParsedCommandLine,
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): string[] {
+  if (!selectChangedImportsOnly(env)) {
     return config.fileNames;
   }
 
-  const changedFiles = changedTypeScriptFiles();
+  const changedFiles = changedTypeScriptFiles(projectRoot, env);
 
-  return config.fileNames.filter((fileName) => changedFiles.has(relativePosixPath(compilerRoot, fileName)));
+  return config.fileNames.filter((fileName) => changedFiles.has(relativePosixPath(projectRoot, fileName)));
 }
 
-export async function runImportOrganizer(options: { check: boolean }): Promise<number> {
-  const config = loadProjectConfig();
+async function runImportOrganizerForTargets(
+  config: ts.ParsedCommandLine,
+  projectRoot: string,
+  targetFileNames: readonly string[],
+  options: { check: boolean; mode: 'check' | 'organize' | 'prepare' }
+): Promise<number> {
   const projectFileNames = config.fileNames;
-  const targetFileNames = selectedFileNames(config);
   if (targetFileNames.length === 0) {
-    console.log('No TypeScript import targets selected.');
+    console.log(options.mode === 'prepare'
+      ? 'No changed TypeScript authoring targets selected.'
+      : 'No TypeScript import targets selected.');
     return 0;
   }
 
@@ -587,7 +634,7 @@ export async function runImportOrganizer(options: { check: boolean }): Promise<n
       }
     ]))
   );
-  const service = createImportService(config, compilerRoot, projectFileNames, files);
+  const service = createImportService(config, projectRoot, projectFileNames, files);
   const changedFiles: string[] = [];
 
   for (const fileName of targetFileNames) {
@@ -601,7 +648,7 @@ export async function runImportOrganizer(options: { check: boolean }): Promise<n
       continue;
     }
 
-    changedFiles.push(relativePosixPath(compilerRoot, fileName));
+    changedFiles.push(relativePosixPath(projectRoot, fileName));
     if (!options.check) {
       await fs.writeFile(fileName, updated, 'utf8');
       file.content = updated;
@@ -620,6 +667,30 @@ export async function runImportOrganizer(options: { check: boolean }): Promise<n
     return 1;
   }
 
-  console.log(`Organized imports in ${changedFiles.length} file(s):\n${fileList}`);
+  console.log(`${options.mode === 'prepare' ? 'Prepared' : 'Organized'} imports in ${changedFiles.length} file(s):\n${fileList}`);
   return 0;
+}
+
+export async function runImportOrganizer(
+  options: { check: boolean },
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): Promise<number> {
+  const config = loadProjectConfig(projectRoot);
+  return runImportOrganizerForTargets(
+    config,
+    projectRoot,
+    selectedFileNames(config, projectRoot, env),
+    { check: options.check, mode: options.check ? 'check' : 'organize' }
+  );
+}
+
+export async function runImportPreparation(
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): Promise<number> {
+  const config = loadProjectConfig(projectRoot);
+  const targets = new Set(workingTreeTypeScriptTargets(projectRoot, env));
+  const selected = config.fileNames.filter((fileName) => targets.has(relativePosixPath(projectRoot, fileName)));
+  return runImportOrganizerForTargets(config, projectRoot, selected, { check: false, mode: 'prepare' });
 }

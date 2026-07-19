@@ -107,7 +107,8 @@ test('resource-sensitive fast tests are registered for process isolation', () =>
     'tests/integration/project-runtime.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts',
     'tests/integration/workbench-writer-lease.test.ts',
-    'tests/integration/workspace-engineering-ir.test.ts'
+    'tests/integration/workspace-engineering-ir.test.ts',
+    'tests/unit/import-organizer-staged.test.ts'
   ]));
 });
 

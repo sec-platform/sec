@@ -20,7 +20,7 @@ function reenterWithResolvedDependencies(): never {
 }
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:prepare|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -45,14 +45,20 @@ async function main(): Promise<void> {
   }
 
   if (
-    target === 'imports:check' || target === 'imports:organize' ||
+    target === 'imports:prepare' || target === 'imports:check' || target === 'imports:organize' ||
     target === 'imports:freeze' || target === 'imports:staged'
   ) {
     const {
       runCandidateImportOrganizer,
       runImportOrganizer,
+      runImportPreparation,
       runStagedImportOrganizer
     } = await import(devRunnerModuleUrl('import-organizer'));
+    if (target === 'imports:prepare') {
+      if (args.length !== 0) usage();
+      process.exitCode = await runImportPreparation();
+      return;
+    }
     if (target === 'imports:check' || target === 'imports:organize') {
       process.exitCode = await runImportOrganizer({ check: target === 'imports:check' });
       return;

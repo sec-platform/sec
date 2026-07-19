@@ -28,6 +28,7 @@
     "test:budget": "bun run sec -- test budget --json",
     "test:contract-freeze": "bun ./platform/dev-runner.ts contract-freeze",
     "test:benchmark-contract": "bun run sec -- benchmark suite --json",
+    "imports:prepare": "bun ./platform/dev-runner.ts imports:prepare",
     "imports:check": "bun ./platform/dev-runner.ts imports:check",
     "imports:organize": "bun ./platform/dev-runner.ts imports:organize",
     "imports:freeze": "bun ./platform/dev-runner.ts imports:freeze",
@@ -49,9 +50,9 @@
     "preflight": "bun run depcruise && bun run jscpd && bun run discover",
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
     "check": "bun run check:fast",
-    "check:affected": "bun run typecheck && bun run test:affected",
-    "check:fast": "bun run typecheck && bun run docs:doctor && bun run test:fast",
-    "check:full": "bun run typecheck && bun run docs:doctor && bun run test:full"
+    "check:affected": "bun run imports:prepare && bun run typecheck && bun run test:affected",
+    "check:fast": "bun run imports:prepare && bun run typecheck && bun run docs:doctor && bun run test:fast",
+    "check:full": "bun run imports:prepare && bun run typecheck && bun run docs:doctor && bun run test:full"
   },
   "dependencies": {
     "change-case": "^5.4.4",
