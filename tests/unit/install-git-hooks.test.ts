@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import path from 'node:path';
+import path, { delimiter } from 'node:path';
 
 import { expect, test } from 'bun:test';
 
@@ -10,6 +10,12 @@ import { installGitHooks, installGitHooksMain } from '../../scripts/install-git-
 const managedHookNames = ['pre-commit', 'pre-push', 'post-checkout', 'post-merge', 'post-rewrite'] as const;
 const depsEnsureCommand = 'bun ./platform/dev-runner.ts deps:ensure';
 const importsFreezeCommand = 'bun ./platform/dev-runner.ts imports:freeze';
+
+function runtimeBoundCommand(command: string): string {
+  const executable = process.platform === 'win32' ? process.execPath.replaceAll('\\', '/') : process.execPath;
+  const quoted = `'${executable.replaceAll("'", `'"'"'`)}'`;
+  return `${quoted}${command.slice('bun'.length)}`;
+}
 
 function managedHookSource(hook: typeof managedHookNames[number]): string {
   return hook === 'pre-commit' || hook === 'pre-push'
@@ -38,14 +44,19 @@ function configuredManagedHooksPath(repoRoot: string): string {
 async function expectManagedHooksMirror(repoRoot: string, configured: string): Promise<void> {
   for (const hook of managedHookNames) {
     const source = await readFile(path.join(repoRoot, '.githooks', hook), 'utf8');
-    const expected = hook === 'pre-commit' || hook === 'pre-push'
+    const injected = hook === 'pre-commit' || hook === 'pre-push'
       ? source.replace(importsFreezeCommand, `${depsEnsureCommand}\n${importsFreezeCommand}`)
       : source;
+    const expected = injected
+      .replaceAll(depsEnsureCommand, runtimeBoundCommand(depsEnsureCommand))
+      .replaceAll(importsFreezeCommand, runtimeBoundCommand(importsFreezeCommand));
     const installed = await readFile(path.join(configured, hook), 'utf8');
     expect(installed).toBe(expected);
+    expect(installed).not.toMatch(/(?:^|\n)bun \.\/platform\/dev-runner\.ts/u);
     if (hook === 'pre-commit' || hook === 'pre-push') {
       expect(source).not.toContain(depsEnsureCommand);
-      expect(installed.indexOf(depsEnsureCommand)).toBeLessThan(installed.indexOf(importsFreezeCommand));
+      expect(installed.indexOf(runtimeBoundCommand(depsEnsureCommand)))
+        .toBeLessThan(installed.indexOf(runtimeBoundCommand(importsFreezeCommand)));
     }
   }
 }
@@ -104,6 +115,46 @@ test('hook installer configures unset and stale missing paths and is idempotent'
     git(repoRoot, ['config', '--local', 'core.hooksPath', '.githooks']);
     expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
     expect(configuredManagedHooksPath(repoRoot)).not.toBe(path.join(repoRoot, '.githooks'));
+  });
+});
+
+test('managed hooks execute the installed Bun identity without inheriting its PATH entry', async () => {
+  await withRepository(async (repoRoot) => {
+    const runnerRoot = path.join(repoRoot, 'platform');
+    await mkdir(runnerRoot);
+    await writeFile(path.join(runnerRoot, 'dev-runner.ts'), [
+      "const marker = process.env.SEC_HOOK_RUNTIME_MARKER;",
+      "if (!marker) throw new Error('missing hook marker');",
+      "const command = process.argv[2]?.replace(':', '-') ?? 'missing';",
+      "await Bun.write(`${marker}.${command}`, process.execPath);",
+      ''
+    ].join('\n'), 'utf8');
+    git(repoRoot, ['add', 'platform/dev-runner.ts']);
+    git(repoRoot, ['commit', '--quiet', '-m', 'add hook runtime fixture']);
+
+    expect(await installGitHooks({ repoRoot })).toMatchObject({ status: 'installed' });
+    const marker = path.join(repoRoot, 'hook-runtime-marker');
+    await writeFile(path.join(repoRoot, 'candidate.txt'), 'candidate\n', 'utf8');
+    git(repoRoot, ['add', 'candidate.txt']);
+
+    const pathKey = Object.keys(process.env).find((key) => key.toLocaleLowerCase('en-US') === 'path') ?? 'PATH';
+    const runtimeDirectory = path.dirname(process.execPath);
+    const hookPath = (process.env[pathKey] ?? '').split(delimiter)
+      .filter((entry) => entry.length > 0 && path.resolve(entry) !== runtimeDirectory)
+      .join(delimiter);
+    const committed = spawnSync('git', ['commit', '--quiet', '-m', 'run managed hooks'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        [pathKey]: hookPath,
+        SEC_HOOK_RUNTIME_MARKER: marker
+      },
+      windowsHide: true
+    });
+    expect(committed.status).toBe(0);
+    expect(await readFile(`${marker}.deps-ensure`, 'utf8')).toBe(process.execPath);
+    expect(await readFile(`${marker}.imports-freeze`, 'utf8')).toBe(process.execPath);
   });
 });
 

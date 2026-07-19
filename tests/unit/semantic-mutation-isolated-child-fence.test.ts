@@ -60,6 +60,7 @@ import {
   projectSemanticMutationIsolatedRuntimeCapabilitySubstageForTests,
   projectSemanticMutationIsolatedVerificationFailureForTests,
   relocateSemanticMutationIsolatedRunnerBundleForTests,
+  resolveCanonicalSemanticMutationIsolatedRuntimeInputSources,
   runSemanticMutationIsolatedVerificationChild,
   semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests,
   SemanticMutationIsolatedVerificationUnavailableError,
@@ -102,7 +103,10 @@ import {
   ensureIsolatedProcessDirectories,
   runCommand
 } from '../../platform/shared/process.ts';
-import { RUNTIME_DEPS_PREBOUND_BINDING_FILE } from '../../platform/shared/runtime-dependency-spec.ts';
+import {
+  RUNTIME_DEPENDENCY_PACKAGE_NAMES,
+  RUNTIME_DEPS_PREBOUND_BINDING_FILE
+} from '../../platform/shared/runtime-dependency-spec.ts';
 import type { SemanticMutationVerificationExecutionRefV2 } from '../../platform/shared/semantic-mutation-types.ts';
 import {
   acquireWorkspaceWriteLease,
@@ -852,6 +856,21 @@ function directRuntimeModuleFixture(relativePath: string): string {
   return `export const directRuntimeModule = ${JSON.stringify(relativePath)};\n`;
 }
 
+test('canonical isolated runtime inputs keep compiler-owned sources under one authority', () => {
+  const sources = resolveCanonicalSemanticMutationIsolatedRuntimeInputSources();
+  expect(Object.isFrozen(sources)).toBe(true);
+  expect(sources).toMatchObject({
+    compilerPackage: path.join(compilerRoot, 'package.json'),
+    composeTemplates: path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates'),
+    officialPolicies: path.join(compilerRoot, 'platform', 'policies', 'official'),
+    officialRegistry: path.join(compilerRoot, 'platform', 'registry', 'official')
+  });
+});
+
+function directRuntimePackageFixture(name: string): string {
+  return `${JSON.stringify({ name, version: '0.0.0-fixture' })}\n`;
+}
+
 async function createRuntimeInputSources(
   root: string,
   browserCache: string
@@ -867,12 +886,27 @@ async function createRuntimeInputSources(
     officialPolicies: path.join(inputRoot, 'official-policies'),
     officialRegistry: path.join(inputRoot, 'official-registry')
   } satisfies SemanticMutationIsolatedRuntimeInputSources;
+  const directModulePaths = Object.values(RUNTIME_VERIFICATION_INVOCATION_CONTRACT)
+    .flatMap(({ moduleRelativePath }) => moduleRelativePath === null ? [] : [moduleRelativePath]);
+  const directPackageManifests = Object.values(RUNTIME_VERIFICATION_INVOCATION_CONTRACT)
+    .flatMap(({ packageManifest }) => packageManifest === null ? [] : [packageManifest]);
+  const runtimePackageManifests = RUNTIME_DEPENDENCY_PACKAGE_NAMES.map((name) => ({
+    name,
+    relativePath: `${name}/package.json`
+  }));
+  const packageManifests = [...new Map(
+    [...runtimePackageManifests, ...directPackageManifests]
+      .map((manifest) => [manifest.relativePath, manifest] as const)
+  ).values()];
   await Promise.all([
     mkdir(sources.composeTemplates, { recursive: true }),
     mkdir(sources.dependencyModules, { recursive: true }),
-    ...Object.values(RUNTIME_VERIFICATION_INVOCATION_CONTRACT).flatMap(({ moduleRelativePath }) =>
-      moduleRelativePath === null ? [] : [moduleRelativePath]).map((relativePath) =>
+    ...directModulePaths.map((relativePath) =>
       mkdir(path.dirname(path.join(sources.dependencyModules, ...relativePath.split('/'))), {
+        recursive: true
+      })),
+    ...packageManifests.map((manifest) =>
+      mkdir(path.dirname(path.join(sources.dependencyModules, ...manifest.relativePath.split('/'))), {
         recursive: true
       })),
     mkdir(sources.officialPolicies, { recursive: true }),
@@ -898,11 +932,16 @@ async function createRuntimeInputSources(
     }), 'utf8'),
     writeFile(path.join(sources.composeTemplates, 'template.txt'), 'template', 'utf8'),
     writeFile(path.join(sources.dependencyModules, 'cache.bin'), 'cache', 'utf8'),
-    ...Object.values(RUNTIME_VERIFICATION_INVOCATION_CONTRACT).flatMap(({ moduleRelativePath }) =>
-      moduleRelativePath === null ? [] : [moduleRelativePath]).map((relativePath) =>
+    ...directModulePaths.map((relativePath) =>
       writeFile(
         path.join(sources.dependencyModules, ...relativePath.split('/')),
         directRuntimeModuleFixture(relativePath),
+        'utf8'
+      )),
+    ...packageManifests.map((manifest) =>
+      writeFile(
+        path.join(sources.dependencyModules, ...manifest.relativePath.split('/')),
+        directRuntimePackageFixture(manifest.name),
         'utf8'
       )),
     writeFile(path.join(sources.officialPolicies, 'policy.yaml'), 'policies: []', 'utf8'),
@@ -964,45 +1003,6 @@ async function writeProjectBaseline(stagingRoot: string): Promise<void> {
   await writeFile(path.join(stagingRoot, '.sec', 'cache', 'project-baseline.json'), JSON.stringify({
     formatVersion: '1', artifacts: []
   }), 'utf8');
-}
-
-async function createProductionRuntimeCapabilityContext(root: string): Promise<Readonly<{
-  readonly runtimeInputSources: SemanticMutationIsolatedRuntimeInputSources;
-  readonly stagingRoot: string;
-}>> {
-  const stagingRoot = stagingWorkspaceRoot(root);
-  const browserSource = path.join(root, 'browser-source');
-  await writeProjectBaseline(stagingRoot);
-  await mkdir(browserSource, { recursive: true });
-  const fixtureRuntimeInputSources = await createRuntimeInputSources(root, browserSource);
-  const productionCompilerModulesRoot = path.join(
-    process.cwd(),
-    '.shared-deps',
-    'node_modules'
-  );
-  const playwrightDescriptor = JSON.parse(await readFile(path.join(
-    productionCompilerModulesRoot,
-    'playwright-core',
-    'browsers.json'
-  ), 'utf8')) as { readonly browsers: readonly { readonly name: string; readonly revision: string }[] };
-  const chromiumHeadlessShell = playwrightDescriptor.browsers.find((browser) =>
-    browser.name === 'chromium-headless-shell');
-  if (!chromiumHeadlessShell) throw new Error('production Playwright descriptor is unavailable');
-  const browserExecutable = path.join(
-    browserSource,
-    `chromium_headless_shell-${chromiumHeadlessShell.revision}`,
-    'chrome-headless-shell-win64',
-    'chrome-headless-shell.exe'
-  );
-  await mkdir(path.dirname(browserExecutable), { recursive: true });
-  await writeFile(browserExecutable, 'production-bundle-browser-fixture', 'utf8');
-  return Object.freeze({
-    runtimeInputSources: {
-      ...fixtureRuntimeInputSources,
-      compilerModulesRoot: productionCompilerModulesRoot
-    },
-    stagingRoot
-  });
 }
 
 function isolatedVerificationArtifacts(status: 'passed' | 'failed') {
@@ -2904,132 +2904,183 @@ test.skipIf(process.platform === 'win32')(
   }
 );
 
-test('runtime capability requires both exact nonempty direct module entrypoints', async () => {
-  for (const [step, relativePath] of Object.entries(
-    RUNTIME_VERIFICATION_INVOCATION_CONTRACT
-  ).flatMap(([step, { moduleRelativePath }]) =>
-    moduleRelativePath === null ? [] : [[step, moduleRelativePath] as const])) {
-    await withTempWorkspace(async (root) => {
-      const stagingRoot = stagingWorkspaceRoot(root);
-      const browserSource = path.join(root, 'browser-source');
-      await mkdir(stagingRoot, { recursive: true });
-      await writeProjectBaseline(stagingRoot);
-      const sources = await createRuntimeInputSources(root, browserSource);
-      const entrypoint = path.join(sources.dependencyModules, ...relativePath.split('/'));
+test('runtime capability requires exact nonempty direct entrypoints and package manifests', async () => {
+  for (const [step, descriptor] of Object.entries(RUNTIME_VERIFICATION_INVOCATION_CONTRACT)) {
+    const requiredInputs = [
+      ...(descriptor.moduleRelativePath === null ? [] : [{
+        kind: 'entrypoint',
+        relativePath: descriptor.moduleRelativePath,
+        restoredBytes: directRuntimeModuleFixture(descriptor.moduleRelativePath)
+      } as const]),
+      ...(descriptor.packageManifest === null ? [] : [{
+        kind: 'manifest',
+        relativePath: descriptor.packageManifest.relativePath,
+        restoredBytes: directRuntimePackageFixture(descriptor.packageManifest.name)
+      } as const])
+    ];
+    for (const input of requiredInputs) {
+      await withTempWorkspace(async (root) => {
+        const stagingRoot = stagingWorkspaceRoot(root);
+        const browserSource = path.join(root, 'browser-source');
+        await mkdir(stagingRoot, { recursive: true });
+        await writeProjectBaseline(stagingRoot);
+        const sources = await createRuntimeInputSources(root, browserSource);
+        const entrypoint = path.join(sources.dependencyModules, ...input.relativePath.split('/'));
 
-      await rm(entrypoint);
-      expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
-        buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
-        runtimeInputSources: sources
-      })).toEqual({ status: 'unavailable' });
-
-      await writeFile(entrypoint, new Uint8Array());
-      expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
-        buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
-        runtimeInputSources: sources
-      })).toEqual({ status: 'unavailable' });
-
-      await rm(entrypoint);
-      await mkdir(entrypoint);
-      expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
-        buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
-        runtimeInputSources: sources
-      })).toEqual({ status: 'unavailable' });
-
-      await rm(entrypoint, { recursive: true });
-      if (process.platform !== 'win32') {
-        const linkTarget = path.join(root, `${step}-link-target.js`);
-        await writeFile(linkTarget, 'export {};\n', 'utf8');
-        await symlink(linkTarget, entrypoint);
+        await rm(entrypoint);
         expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
           buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
           runtimeInputSources: sources
         })).toEqual({ status: 'unavailable' });
-        await rm(entrypoint);
-      }
 
-      await writeFile(entrypoint, `export const restored = ${JSON.stringify(step)};\n`, 'utf8');
-      expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
-        buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
-        runtimeInputSources: sources
-      })).toEqual({ status: 'available' });
-    }, `engineering-compiler-sm3-direct-${step}-`);
+        await writeFile(entrypoint, new Uint8Array());
+        expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+          buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
+          runtimeInputSources: sources
+        })).toEqual({ status: 'unavailable' });
+
+        await rm(entrypoint);
+        await mkdir(entrypoint);
+        expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+          buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
+          runtimeInputSources: sources
+        })).toEqual({ status: 'unavailable' });
+
+        await rm(entrypoint, { recursive: true });
+        if (process.platform !== 'win32') {
+          const linkTarget = path.join(root, `${step}-${input.kind}-link-target`);
+          await writeFile(linkTarget, 'export {};\n', 'utf8');
+          await symlink(linkTarget, entrypoint);
+          expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+            buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
+            runtimeInputSources: sources
+          })).toEqual({ status: 'unavailable' });
+          await rm(entrypoint);
+        }
+
+        await writeFile(entrypoint, input.restoredBytes, 'utf8');
+        expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+          buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
+          runtimeInputSources: sources
+        })).toEqual({ status: 'available' });
+      }, `engineering-compiler-sm3-direct-${step}-${input.kind}-`);
+    }
   }
 });
 
-test('direct runtime module identities remain bound through materialize and launch proof', async () => {
-  for (const [step, relativePath] of Object.entries(
-    RUNTIME_VERIFICATION_INVOCATION_CONTRACT
-  ).flatMap(([step, { moduleRelativePath }]) =>
-    moduleRelativePath === null ? [] : [[step, moduleRelativePath] as const])) {
-    await withTempWorkspace(async (root) => {
-      const stagingRoot = stagingWorkspaceRoot(root);
-      const browserSource = path.join(root, 'browser-source');
-      await mkdir(stagingRoot, { recursive: true });
-      await writeProjectBaseline(stagingRoot);
-      const sources = await createRuntimeInputSources(root, browserSource);
-      const entrypoint = path.join(sources.dependencyModules, ...relativePath.split('/'));
-      const capability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
-        buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
-        runtimeInputSources: sources
-      });
-      expect(capability).toEqual({ status: 'available' });
-      await writeFile(entrypoint, `export const replaced = ${JSON.stringify(step)};\n`, 'utf8');
-      await expect(materializeSemanticMutationIsolatedRuntime({
-        binding: capability,
-        commitFence: async () => undefined,
-        stagingWorkspaceRoot: stagingRoot
-      })).rejects.toThrow('runtime source changed before materialization');
-    }, `engineering-compiler-sm3-direct-source-${step}-`);
+test('runtime capability requires the complete prebound package manifest closure', async () => {
+  await withTempWorkspace(async (root) => {
+    const stagingRoot = stagingWorkspaceRoot(root);
+    const browserSource = path.join(root, 'browser-source');
+    await mkdir(stagingRoot, { recursive: true });
+    await writeProjectBaseline(stagingRoot);
+    const sources = await createRuntimeInputSources(root, browserSource);
+    const reactManifest = path.join(sources.dependencyModules, 'react', 'package.json');
 
-    await withTempWorkspace(async (root) => {
-      const stagingRoot = stagingWorkspaceRoot(root);
-      const browserSource = path.join(root, 'browser-source');
-      await mkdir(stagingRoot, { recursive: true });
-      await writeProjectBaseline(stagingRoot);
-      const sources = await createRuntimeInputSources(root, browserSource);
-      const expectedBytes = directRuntimeModuleFixture(relativePath);
-      const capability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
-        buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
-        runtimeInputSources: sources
-      });
-      expect(capability).toEqual({ status: 'available' });
-      await materializeSemanticMutationIsolatedRuntime({
-        binding: capability,
-        commitFence: async () => undefined,
-        stagingWorkspaceRoot: stagingRoot
-      });
-      const destination = path.join(
-        stagingRoot,
-        ...SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT.split('/'),
-        ...relativePath.split('/')
-      );
-      expect(await readFile(destination, 'utf8')).toBe(expectedBytes);
-      await assertSemanticMutationIsolatedRuntimeLaunchManifest({
-        binding: capability,
-        commitFence: async () => undefined,
-        stagingWorkspaceRoot: stagingRoot
-      });
+    await rm(reactManifest);
+    expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+      buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
+      runtimeInputSources: sources
+    })).toEqual({ status: 'unavailable' });
 
-      await rm(destination);
-      await expect(assertSemanticMutationIsolatedRuntimeLaunchManifest({
-        binding: capability,
-        commitFence: async () => undefined,
-        stagingWorkspaceRoot: stagingRoot
-      })).rejects.toThrow('destination structure is not exact');
-      await writeFile(destination, expectedBytes, 'utf8');
-      await assertSemanticMutationIsolatedRuntimeLaunchManifest({
-        binding: capability,
-        commitFence: async () => undefined,
-        stagingWorkspaceRoot: stagingRoot
-      });
-      await writeFile(destination, `${expectedBytes}tampered\n`, 'utf8');
-      await expect(assertSemanticMutationIsolatedRuntimeLaunchManifest({
-        binding: capability,
-        commitFence: async () => undefined,
-        stagingWorkspaceRoot: stagingRoot
-      })).rejects.toThrow('destination structure is not exact');
-    }, `engineering-compiler-sm3-direct-destination-${step}-`);
+    await writeFile(reactManifest, directRuntimePackageFixture('forged-react'), 'utf8');
+    expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+      buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
+      runtimeInputSources: sources
+    })).toEqual({ status: 'unavailable' });
+
+    await writeFile(reactManifest, directRuntimePackageFixture('react'), 'utf8');
+    expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+      buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
+      runtimeInputSources: sources
+    })).toEqual({ status: 'available' });
+  }, 'engineering-compiler-sm3-runtime-package-closure-');
+});
+
+test('direct runtime entrypoint and package identities remain bound through materialize and launch proof', async () => {
+  for (const [step, descriptor] of Object.entries(RUNTIME_VERIFICATION_INVOCATION_CONTRACT)) {
+    const requiredInputs = [
+      ...(descriptor.moduleRelativePath === null ? [] : [{
+        kind: 'entrypoint',
+        relativePath: descriptor.moduleRelativePath,
+        expectedBytes: directRuntimeModuleFixture(descriptor.moduleRelativePath)
+      } as const]),
+      ...(descriptor.packageManifest === null ? [] : [{
+        kind: 'manifest',
+        relativePath: descriptor.packageManifest.relativePath,
+        expectedBytes: directRuntimePackageFixture(descriptor.packageManifest.name)
+      } as const])
+    ];
+    for (const input of requiredInputs) {
+      await withTempWorkspace(async (root) => {
+        const stagingRoot = stagingWorkspaceRoot(root);
+        const browserSource = path.join(root, 'browser-source');
+        await mkdir(stagingRoot, { recursive: true });
+        await writeProjectBaseline(stagingRoot);
+        const sources = await createRuntimeInputSources(root, browserSource);
+        const sourceInput = path.join(sources.dependencyModules, ...input.relativePath.split('/'));
+        const capability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+          buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
+          runtimeInputSources: sources
+        });
+        expect(capability).toEqual({ status: 'available' });
+        await writeFile(sourceInput, `${input.expectedBytes}replaced\n`, 'utf8');
+        await expect(materializeSemanticMutationIsolatedRuntime({
+          binding: capability,
+          commitFence: async () => undefined,
+          stagingWorkspaceRoot: stagingRoot
+        })).rejects.toThrow('runtime source changed before materialization');
+      }, `engineering-compiler-sm3-direct-source-${step}-${input.kind}-`);
+
+      await withTempWorkspace(async (root) => {
+        const stagingRoot = stagingWorkspaceRoot(root);
+        const browserSource = path.join(root, 'browser-source');
+        await mkdir(stagingRoot, { recursive: true });
+        await writeProjectBaseline(stagingRoot);
+        const sources = await createRuntimeInputSources(root, browserSource);
+        const expectedBytes = input.expectedBytes;
+        const capability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+          buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
+          runtimeInputSources: sources
+        });
+        expect(capability).toEqual({ status: 'available' });
+        await materializeSemanticMutationIsolatedRuntime({
+          binding: capability,
+          commitFence: async () => undefined,
+          stagingWorkspaceRoot: stagingRoot
+        });
+        const destination = path.join(
+          stagingRoot,
+          ...SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT.split('/'),
+          ...input.relativePath.split('/')
+        );
+        expect(await readFile(destination, 'utf8')).toBe(expectedBytes);
+        await assertSemanticMutationIsolatedRuntimeLaunchManifest({
+          binding: capability,
+          commitFence: async () => undefined,
+          stagingWorkspaceRoot: stagingRoot
+        });
+
+        await rm(destination);
+        await expect(assertSemanticMutationIsolatedRuntimeLaunchManifest({
+          binding: capability,
+          commitFence: async () => undefined,
+          stagingWorkspaceRoot: stagingRoot
+        })).rejects.toThrow('destination structure is not exact');
+        await writeFile(destination, expectedBytes, 'utf8');
+        await assertSemanticMutationIsolatedRuntimeLaunchManifest({
+          binding: capability,
+          commitFence: async () => undefined,
+          stagingWorkspaceRoot: stagingRoot
+        });
+        await writeFile(destination, `${expectedBytes}tampered\n`, 'utf8');
+        await expect(assertSemanticMutationIsolatedRuntimeLaunchManifest({
+          binding: capability,
+          commitFence: async () => undefined,
+          stagingWorkspaceRoot: stagingRoot
+        })).rejects.toThrow('destination structure is not exact');
+      }, `engineering-compiler-sm3-direct-destination-${step}-${input.kind}-`);
+    }
   }
 });
 

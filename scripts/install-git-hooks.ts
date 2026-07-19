@@ -136,17 +136,35 @@ function conflictResult(configured: string, lifecycle: boolean): GitHookInstalla
   );
 }
 
-function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
-  if (name !== 'pre-commit' && name !== 'pre-push') return sourceBytes;
-  const source = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes);
-  const firstFreeze = source.indexOf(IMPORTS_FREEZE_COMMAND);
-  if (firstFreeze < 0 || firstFreeze !== source.lastIndexOf(IMPORTS_FREEZE_COMMAND)) {
-    throw new Error(`${name} must contain exactly one canonical imports:freeze command`);
+function shellQuotedRuntimeExecutable(executable: string): string {
+  if (executable.length === 0 || /[\0\r\n]/u.test(executable)) {
+    throw new Error('Bun runtime executable path is invalid');
   }
-  return Buffer.from(source.replace(
-    IMPORTS_FREEZE_COMMAND,
-    `${DEPS_ENSURE_COMMAND}\n${IMPORTS_FREEZE_COMMAND}`
-  ), 'utf8');
+  const shellPath = process.platform === 'win32' ? executable.replaceAll('\\', '/') : executable;
+  return `'${shellPath.replaceAll("'", `'"'"'`)}'`;
+}
+
+function bindHookCommandToRuntime(command: string, runtimeExecutable: string): string {
+  if (!command.startsWith('bun ')) throw new Error('Managed hook command must use canonical Bun syntax');
+  return `${shellQuotedRuntimeExecutable(runtimeExecutable)}${command.slice('bun'.length)}`;
+}
+
+function deployedHookBytes(name: string, sourceBytes: Buffer): Buffer {
+  const source = new TextDecoder('utf-8', { fatal: true }).decode(sourceBytes);
+  let deployed = source;
+  if (name === 'pre-commit' || name === 'pre-push') {
+    const firstFreeze = source.indexOf(IMPORTS_FREEZE_COMMAND);
+    if (firstFreeze < 0 || firstFreeze !== source.lastIndexOf(IMPORTS_FREEZE_COMMAND)) {
+      throw new Error(`${name} must contain exactly one canonical imports:freeze command`);
+    }
+    deployed = source.replace(
+      IMPORTS_FREEZE_COMMAND,
+      `${DEPS_ENSURE_COMMAND}\n${IMPORTS_FREEZE_COMMAND}`
+    );
+  }
+  return Buffer.from(deployed
+    .replaceAll(DEPS_ENSURE_COMMAND, bindHookCommandToRuntime(DEPS_ENSURE_COMMAND, process.execPath))
+    .replaceAll(IMPORTS_FREEZE_COMMAND, bindHookCommandToRuntime(IMPORTS_FREEZE_COMMAND, process.execPath)), 'utf8');
 }
 
 async function managedHookSnapshots(repoRoot: string): Promise<readonly ManagedHookSnapshot[] | null> {

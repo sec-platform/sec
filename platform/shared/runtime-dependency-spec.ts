@@ -42,6 +42,21 @@ const runtimeDevDependencyKeys = [
   'typescript'
 ] as const;
 
+export const RUNTIME_DEPENDENCY_PACKAGE_NAMES: readonly string[] = Object.freeze([
+  ...runtimeDependencyKeys,
+  ...runtimeDevDependencyKeys
+]);
+
+export function isRuntimeDependencyPackageManifest(
+  value: unknown,
+  expectedName: string
+): value is Readonly<{ readonly name: string; readonly version: string }> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const manifest = value as { readonly name?: unknown; readonly version?: unknown };
+  return manifest.name === expectedName && typeof manifest.version === 'string' &&
+    manifest.version.length > 0;
+}
+
 function resolveVersion(rootPackage: RootPackageJson, dependencyName: string): string {
   const version = rootPackage.dependencies?.[dependencyName] ?? rootPackage.devDependencies?.[dependencyName];
   if (!version) {

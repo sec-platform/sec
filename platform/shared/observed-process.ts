@@ -23,6 +23,8 @@ const WINDOWS_TERMINATED_EXIT_CODE = 0x534d_3301;
 const WINDOWS_MAX_ATTRIBUTE_LIST_BYTES = 1024 * 1024;
 const WINDOWS_ERROR_BROKEN_PIPE = 109;
 const WINDOWS_ERROR_NO_DATA = 232;
+const WINDOWS_ERROR_PIPE_NOT_CONNECTED = 233;
+const WINDOWS_NATURAL_EXIT_SETTLEMENT_MS = 5_000;
 
 export type ObservedCommandTrigger =
   | 'aborted'
@@ -65,12 +67,35 @@ export interface ObservedCommandOutcome {
   readonly termination: ObservedCommandTerminationEvidence;
 }
 
+export type ObservedNativeLifecycleDiagnostic =
+  | 'final-drain'
+  | 'injected'
+  | 'natural-settlement'
+  | 'output-drain'
+  | 'output-observation'
+  | 'post-create-cleanup'
+  | 'root-exit-code'
+  | 'root-wait';
+
+const observedNativeLifecycleDiagnostics = new WeakMap<
+  ObservedCommandOutcome,
+  ObservedNativeLifecycleDiagnostic
+>();
+
+/** Test-only bounded native lifecycle diagnostic bound to the exact outcome identity. */
+export function observedCommandNativeLifecycleDiagnosticForTests(
+  outcome: ObservedCommandOutcome
+): ObservedNativeLifecycleDiagnostic | undefined {
+  return observedNativeLifecycleDiagnostics.get(outcome);
+}
+
 class ObservedNativeLifecycleFailure extends Error {
   constructor(
     readonly status: ObservedCommandStatus,
     readonly trigger: ObservedCommandTrigger | undefined,
     readonly started: boolean,
     readonly termination: ObservedCommandTerminationEvidence,
+    readonly diagnostic: ObservedNativeLifecycleDiagnostic,
     message: string
   ) {
     super(message);
@@ -94,6 +119,7 @@ export function createObservedNativeLifecycleFailureForTests(
     vector.trigger,
     vector.started,
     Object.freeze({ ...vector.termination }),
+    'injected',
     'Injected Windows observed process lifecycle failure'
   );
 }
@@ -258,8 +284,26 @@ export function windowsWaitDispositionForTests(result: number): 'signaled' | 'pe
   return windowsWaitDisposition(result);
 }
 
+function windowsNaturalExitSettlementDisposition(
+  activeProcessCount: number | null,
+  remainingMs: number
+): 'settled' | 'pending' | 'unproven' {
+  if (activeProcessCount === 0) return 'settled';
+  if (activeProcessCount !== null && remainingMs > 0) return 'pending';
+  return 'unproven';
+}
+
+/** Test-only Job settlement decision seam. */
+export function windowsNaturalExitSettlementDispositionForTests(
+  activeProcessCount: number | null,
+  remainingMs: number
+): 'settled' | 'pending' | 'unproven' {
+  return windowsNaturalExitSettlementDisposition(activeProcessCount, remainingMs);
+}
+
 function windowsPipeFailureDisposition(errorCode: number): 'eof' | 'failed' {
-  return errorCode === WINDOWS_ERROR_BROKEN_PIPE || errorCode === WINDOWS_ERROR_NO_DATA
+  return errorCode === WINDOWS_ERROR_BROKEN_PIPE || errorCode === WINDOWS_ERROR_NO_DATA ||
+    errorCode === WINDOWS_ERROR_PIPE_NOT_CONNECTED
     ? 'eof'
     : 'failed';
 }
@@ -600,6 +644,13 @@ async function spawnWindowsJobChild(
       let terminalizing = false;
       let completed = false;
       let rootExitCode: number | null = null;
+      const readRootExitCode = (): number | null => {
+        if (rootExitCode !== null) return rootExitCode;
+        const exit = Buffer.alloc(4);
+        if (kernel32.symbols.GetExitCodeProcess(processHandle, exit) === 0) return null;
+        rootExitCode = exit.readUInt32LE(0);
+        return rootExitCode;
+      };
       const closeObservedHandles = (): void => {
         closeHandle(stdoutPipe.parent);
         closeHandle(stderrPipe.parent);
@@ -624,6 +675,7 @@ async function spawnWindowsJobChild(
         childCloseObserved: boolean,
         streamsDrained: boolean,
         treeClosed: boolean,
+        diagnostic: ObservedNativeLifecycleDiagnostic,
         message: string
       ): void => {
         if (completed) return;
@@ -648,6 +700,7 @@ async function spawnWindowsJobChild(
             streamsDrained,
             treeClosed: treeClosed && streamsDrained
           }),
+          diagnostic,
           message
         ));
         setTimeout(() => emitter.emit('close', null, null), 0);
@@ -684,9 +737,10 @@ async function spawnWindowsJobChild(
         }
         onDrained();
       };
-      const failClosed = (message: string): void => {
-        if (completed) return;
-        terminalizing = true;
+      const forceLifecycleFailure = (
+        message: string,
+        diagnostic: ObservedNativeLifecycleDiagnostic
+      ): void => {
         controller.terminate();
         const processWait = windowsWaitDisposition(
           kernel32.symbols.WaitForSingleObject(processHandle, 5_000)
@@ -697,13 +751,81 @@ async function spawnWindowsJobChild(
         controller.close();
         windowsObservedJobs.delete(emitter);
         if (!treeClosed) {
-          emitLifecycleFailure(childCloseObserved, false, false, message);
+          emitLifecycleFailure(childCloseObserved, false, false, diagnostic, message);
           return;
         }
         drainUntilEmpty(
-          () => emitLifecycleFailure(true, true, true, message),
-          () => emitLifecycleFailure(true, false, false, message)
+          () => emitLifecycleFailure(true, true, true, diagnostic, message),
+          () => emitLifecycleFailure(true, false, false, 'final-drain', message)
         );
+      };
+      const failClosed = (
+        message: string,
+        diagnostic: ObservedNativeLifecycleDiagnostic
+      ): void => {
+        if (completed) return;
+        terminalizing = true;
+        // Anonymous-pipe observation can race Bun's final handle teardown.
+        // Retry that primitive inside one finite window while independently
+        // observing the root handle and Job membership. A recovered observer
+        // resumes normal polling; a signalled root is accepted only after the
+        // Job reaches zero and a final empty drain succeeds.
+        const settlementDeadline = Date.now() + WINDOWS_NATURAL_EXIT_SETTLEMENT_MS;
+        const recoverLifecycleObservation = (): void => {
+          if (completed) return;
+          const drained = drainPipes();
+          const processWait = windowsWaitDisposition(
+            kernel32.symbols.WaitForSingleObject(processHandle, 0)
+          );
+          const remainingMs = settlementDeadline - Date.now();
+          if (processWait === 'failed') {
+            forceLifecycleFailure(message, 'root-wait');
+            return;
+          }
+          if (processWait === 'pending') {
+            if (!drained.failed) {
+              terminalizing = false;
+              setTimeout(poll, 0);
+              return;
+            }
+            if (remainingMs > 0) {
+              setTimeout(recoverLifecycleObservation, 5);
+              return;
+            }
+            forceLifecycleFailure(message, diagnostic);
+            return;
+          }
+          const exitCode = readRootExitCode();
+          if (exitCode === null) {
+            forceLifecycleFailure(message, 'root-exit-code');
+            return;
+          }
+          const disposition = windowsNaturalExitSettlementDisposition(
+            controller.activeProcessCount(),
+            remainingMs
+          );
+          if (disposition === 'pending') {
+            setTimeout(recoverLifecycleObservation, 5);
+            return;
+          }
+          if (disposition === 'settled' && drained.failed) {
+            if (remainingMs > 0) {
+              setTimeout(recoverLifecycleObservation, 5);
+            } else {
+              forceLifecycleFailure(message, 'final-drain');
+            }
+            return;
+          }
+          if (disposition === 'unproven') {
+            forceLifecycleFailure(message, 'natural-settlement');
+            return;
+          }
+          drainUntilEmpty(
+            () => emitComplete(exitCode),
+            () => forceLifecycleFailure(message, 'final-drain')
+          );
+        };
+        setTimeout(recoverLifecycleObservation, 5);
       };
       const complete = (exitCode: number | null): void => {
         if (terminalizing || completed) return;
@@ -713,14 +835,17 @@ async function spawnWindowsJobChild(
         // the single authoritative Job accounting/closure proof.
         drainUntilClosed(
           () => emitComplete(exitCode),
-          () => failClosed('Windows observed process output drain failed')
+          () => failClosed('Windows observed process output drain failed', 'output-drain')
         );
       };
       const poll = (): void => {
         if (terminalizing || completed) return;
         const drained = drainPipes();
         if (drained.failed) {
-          failClosed('Windows observed process output observation failed');
+          failClosed(
+            'Windows observed process output observation failed',
+            'output-observation'
+          );
           return;
         }
         const wait = windowsWaitDisposition(kernel32.symbols.WaitForSingleObject(processHandle, 0));
@@ -729,16 +854,10 @@ async function spawnWindowsJobChild(
           return;
         }
         if (wait === 'failed') {
-          failClosed('Windows observed process wait failed');
+          failClosed('Windows observed process wait failed', 'root-wait');
           return;
         }
-        if (rootExitCode === null) {
-          const exit = Buffer.alloc(4);
-          rootExitCode = kernel32.symbols.GetExitCodeProcess(processHandle, exit) === 0
-            ? null
-            : exit.readUInt32LE(0);
-        }
-        complete(rootExitCode);
+        complete(readRootExitCode());
       };
       setTimeout(poll, 0);
       return emitter;
@@ -786,6 +905,7 @@ async function spawnWindowsJobChild(
           streamsDrained: treeClosed,
           treeClosed
         }),
+        'post-create-cleanup',
         'Windows observed process post-create cleanup failed'
       );
     } else if (processHandle !== 0n) {
@@ -809,6 +929,7 @@ async function spawnWindowsJobChild(
           streamsDrained: treeClosed,
           treeClosed
         }),
+        'post-create-cleanup',
         'Windows observed process unassigned cleanup failed'
       );
     }
@@ -1247,7 +1368,7 @@ export async function runObservedCommand(
     error: ObservedNativeLifecycleFailure
   ): ObservedCommandOutcome => {
     trigger = error.trigger;
-    return Object.freeze({
+    const outcome = Object.freeze({
       status: error.status,
       ...(error.trigger ? { trigger: error.trigger } : {}),
       started: error.started,
@@ -1258,6 +1379,8 @@ export async function runObservedCommand(
       stderr: finalStreamEvidence(stderr),
       termination: error.termination
     });
+    observedNativeLifecycleDiagnostics.set(outcome, error.diagnostic);
+    return outcome;
   };
 
   if (options.signal?.aborted) {
@@ -1308,14 +1431,15 @@ export async function runObservedCommand(
     };
     const settle = (
       status: ObservedCommandStatus,
-      termination: ObservedCommandTerminationEvidence
+      termination: ObservedCommandTerminationEvidence,
+      nativeDiagnostic?: ObservedNativeLifecycleDiagnostic
     ): void => {
       if (settled) return;
       settled = true;
       clearLifecycle();
       for (const waiter of closeWaiters) waiter(childCloseObserved);
       closeWaiters.clear();
-      resolve(Object.freeze({
+      const outcome = Object.freeze({
         status,
         ...(trigger
           ? { trigger }
@@ -1327,7 +1451,11 @@ export async function runObservedCommand(
         stdout: finalStreamEvidence(stdout),
         stderr: finalStreamEvidence(stderr),
         termination: Object.freeze(termination)
-      }));
+      });
+      if (nativeDiagnostic !== undefined) {
+        observedNativeLifecycleDiagnostics.set(outcome, nativeDiagnostic);
+      }
+      resolve(outcome);
     };
     const waitForChildClose = (timeoutMs: number): Promise<boolean> => {
       if (childCloseObserved) return Promise.resolve(true);
@@ -1441,7 +1569,7 @@ export async function runObservedCommand(
         trigger = error.trigger;
         childCloseObserved = error.termination.childCloseObserved;
         streamsDrained = error.termination.streamsDrained;
-        settle(error.status, error.termination);
+        settle(error.status, error.termination, error.diagnostic);
         return;
       }
       settle('spawn-failed', {

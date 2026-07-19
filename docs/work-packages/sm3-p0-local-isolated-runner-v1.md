@@ -2,67 +2,46 @@
 schema: codex-development-work-package-v2
 id: sm3-p0-local-isolated-runner-v1
 tracking: issue-106
-base: 8942f6992451a2c22df3adbf2171c7dce620912c
+base: 75806415f2279106ada32b7619786e5f4f76d35a
 manifestState: frozen
 evidenceComposition:
   policyId: sm3-p0-local-isolated-runner-v1
 tasks:
-  - id: p0-local-isolated-runner
+  - id: sm3-exit-closure
     owner: a0
     ownedPaths:
       - docs/03-MVP实施计划与路线图.md
-      - docs/08-Verification、Provenance与Graph规范.md
-      - docs/14-Engineering IR与语义事实规范.md
-      - docs/evidence/v0-4-semantic-mutation-bounded-isolation-scan-exact-stop-record-2026-07-17.json
-      - docs/evidence/v0-4-semantic-mutation-browser-closure-exact-timeout-stop-record-2026-07-17.json
-      - docs/evidence/v0-4-semantic-mutation-local-child-exact-public-verification-2026-07-17.json
-      - docs/evidence/v0-4-semantic-mutation-local-child-host-alias-exact-public-stop-record-2026-07-17.json
-      - docs/evidence/v0-4-semantic-mutation-proof-reuse-exact-timeout-stop-record-2026-07-17.json
-      - docs/evidence/v0-4-semantic-mutation-restored-runtime-input-durable-exact-stop-record-2026-07-18.json
-      - docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json
-      - docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json
-      - docs/test-feedback-and-ci-lanes.md
+      - docs/evidence/v0-4-semantic-mutation-exit-closure-2026-07-19.json
+      - docs/work-packages/sm3-exit-closure-v1.md
+      - docs/work-packages/sm3-exit-closure-v2.md
+      - docs/work-packages/sm3-exit-closure-v3.md
+      - docs/work-packages/sm3-exit-closure-v4.md
+      - docs/work-packages/sm3-exit-closure-v5.md
+      - docs/work-packages/sm3-exit-closure-v6.md
+      - docs/work-packages/sm3-exit-closure-v7.md
+      - docs/work-packages/sm3-exit-closure-v8.md
       - docs/work-packages/sm3-p0-local-isolated-runner-v1.md
-      - platform/compiler/semantic-mutation/isolated-verification-child-progress.ts
-      - platform/compiler/semantic-mutation/mutation-terminal-record.ts
-      - platform/compiler/semantic-mutation/windows-file-attributes.ts
-      - platform/compiler/verify/assert-isolated-staging-tree.ts
       - platform/compiler/verify/run-runtime-verification.ts
       - platform/compiler/verify/run-semantic-mutation-isolated-child.ts
       - platform/compiler/verify/runtime-verification-invocation-contract.ts
       - platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts
-      - platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts
-      - platform/compiler/verify/semantic-mutation-isolated-verification-failure.ts
-      - platform/compiler/verify/semantic-mutation-runner-build-child.ts
-      - platform/compiler/verify/semantic-mutation-runner-build-protocol.ts
-      - platform/compiler/verify/semantic-mutation-runner-build-settlement.ts
-      - platform/compiler/verify/semantic-mutation-staged-project-input.ts
-      - platform/compiler/verify/semantic-mutation-staged-verification-reuse.ts
-      - platform/compiler/verify/staged-verification-proof.ts
-      - platform/compiler/verify/typecheck-project.ts
-      - platform/compiler/verify/validate-resolved-templates.ts
-      - platform/compiler/verify/verify-project.ts
-      - platform/orchestrator/pipeline-orchestrator.ts
-      - platform/orchestrator/semantic-mutation-isolated-verification-runner.ts
-      - platform/orchestrator/semantic-mutation-orchestrator.ts
-      - platform/orchestrator/verify-orchestrator.ts
       - platform/shared/observed-process.ts
-      - platform/shared/project-base.ts
-      - platform/shared/verification-types.ts
-      - platform/shared/workspace-write-lease.ts
-      - tests/contract/semantic-mutation-apply-contract.test.ts
-      - tests/contract/test-architecture.test.ts
-      - tests/contract/test-impact.test.ts
+      - platform/shared/project-runtime.ts
+      - platform/shared/runtime-dependency-spec.ts
+      - scripts/install-git-hooks.ts
+      - scripts/run-work-package-gate.ts
+      - tests/contract/ci-lanes.test.ts
+      - tests/contract/semantic-mutation-contract.test.ts
       - tests/helpers/semantic-mutation-production-sentinel.ts
+      - tests/integration/project-runtime-fixtures.ts
       - tests/integration/project-runtime.test.ts
-      - tests/integration/semantic-mutation-apply.test.ts
-      - tests/integration/semantic-mutation-production-sentinel.test.ts
-      - tests/integration/semantic-mutation-recovery-lifecycle.test.ts
-      - tests/unit/canonical-ir-identity-revision.test.ts
-      - tests/unit/observed-process-lifecycle.test.ts
+      - tests/unit/install-git-hooks.test.ts
       - tests/unit/runtime-verification.test.ts
       - tests/unit/semantic-mutation-isolated-child-fence.test.ts
+      - tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts
+      - tests/unit/work-package-gate-execution.test.ts
 forbiddenPaths:
+  - .github/workflows/
   - AGENTS.md
   - PLANS.md
   - README.md
@@ -70,37 +49,32 @@ forbiddenPaths:
   - bunfig.toml
   - package.json
   - tsconfig.json
-  - .github/workflows/
   - docs/04-AI自主实现执行蓝图.md
   - platform/cli/
+  - platform/orchestrator/
   - platform/policies/
   - platform/registry/
-  - platform/upgrade/
-  - platform/shared/test-impact-contract.ts
-  - platform/shared/test-impact-rules/
-  - platform/shared/test-ownership-contract.ts
   - platform/shared/windows-appcontainer-executor.ts
   - platform/shared/windows-appcontainer-native-helper.ts
-  - scripts/
+  - platform/upgrade/
   - tests/e2e/
 acceptance:
-  - "The final candidate head is one commit above the frozen base 8942f6992451a2c22df3adbf2171c7dce620912c."
-  - "The host process performs one canonical Bun.build and supervises one verifier child; no Worker, fresh helper process, or second builder remains in the execution boundary."
-  - "The implementation remains TypeScript and Bun only and adds no C, Rust, new FFI boundary, dependency, Playwright test, or browser automation surface."
-  - "The canonical invocation descriptor exclusively owns build, unit, and acceptance logical labels, direct module paths, and argv tails; durable Verification reports retain path-free bun run labels while absolute launch argv never enters durable proof."
-  - "Verification-owned generic staged proof authority is one-shot and bound to exact source, project inputs, revisions, required verification, raw artifacts, and the committed execution before live publish."
-  - "Pipeline depends only on the Verification owner facade for post-pipeline proof validation; it does not import Mutation-specific compiler internals."
-  - "The isolated Verification evidence digest owner has no import edge back to its child runner."
-  - "Observed-process keeps one Job settlement owner and proves bounded post-close cleanup without restoring a Worker boundary."
-  - "The historical production PASS is only the legacy-unbound-v1 baseline; V7 must execute the production delta exactly once and no separate production sentinel run is permitted."
-  - "AppContainer remains optional hardening with capabilityComplete false, and this Work Package does not claim full SM-3 exit."
-  - "The affected selector resolves every changed path; required evidence does not run AppContainer execution tests, Playwright, the frozen exact production seam, Full, or all-slow. One non-evidence legacy full-Pipeline probe that attempted browser bootstrap is excluded and must not be rerun."
+  - "The frozen candidate is exactly one commit above current main 75806415f2279106ada32b7619786e5f4f76d35a and every changed path has one literal owner."
+  - "The host process performs one canonical Bun.build and supervises one verifier child; no Worker, helper process, browser host alias, second builder, C, Rust, or new FFI boundary remains."
+  - "The .shared-deps runtime owner, isolated capability publication, prebound readiness, materialization, and launch proof consume one immutable 11-package manifest contract."
+  - "Every required package manifest is nonempty with its exact name and a nonempty installed version; an incomplete install never publishes a ready stamp."
+  - "Runtime resolution does not cache a missing-tree fallback, and the production sentinel provides no dependencyModules or compiler-source override."
+  - "Managed Git hook generations bind canonical commands to the installed Bun process.execPath; internal gate worktrees disable checkout hooks and enable long-path materialization."
+  - "Observed-process preserves separate root-exit, Job-settlement, final-drain, and bounded cleanup evidence and fails closed at its deadline."
+  - "V7 executes residual fast, the three deterministic SM-3 siblings, and one explicit production delta without calling the legacy aggregate, Playwright, AppContainer, Full, or all-slow."
+  - "SM3-A through SM3-D and the single coordinator integration obligations are complete; Workbench, Task Envelope, and AI consumers remain outside this package."
+  - "AppContainer remains optional hardening with capabilityComplete false and no malicious-code or network-sandbox claim."
 ---
 
-# SM-3 P0 Local Isolated Runner V2
+# SM-3 P0 Local Isolated Runner / Exit Closure V2
 
-本包把 P0 产品路径收敛为 host 进程内一次 `Bun.build()` 加一个受监督 verifier child，删除 PR 后续加入的 fresh builder helper、Worker/browser host alias 与 Mutation-specific proof reuse，并修复两个 owner 边界：Pipeline 只经 Verification façade 消费 generic one-shot staged proof，evidence digest 也不再反向依赖 child runner 类型。
+本冻结包把 SM-3 最终 exit tree 绑定到 base-owned `sm3-p0-local-isolated-runner-v1` Evidence V3 policy。产品路径保持 TypeScript / Bun：host 内唯一 `Bun.build()`、一个 verifier child、Verification-owned one-shot proof、single coordinator、bounded observed-process settlement；没有 C、Rust、新 FFI、Worker、第二 builder、Playwright 或 AppContainer 产品依赖。
 
-历史 production PASS 仍绑定 `514e6e401659f18ecffca19856a11354d66d05df`、tree `74e94777fe0be825121723a48b5aa41cd9bb43a8` 和 Bun 1.3.6，但新的 builder ownership 已使它只能作为 `legacy-unbound-v1` baseline，不能继续充当最终 seam proof。本包不重复 production sentinel、Playwright、AppContainer、Full 或 slow；V7 base-owned evidence composition policy 必须且只会运行一次 production delta，并把最终证据绑定 frozen base、exact head 和完整选择结果。
+import/runtime 由一个共享协议闭合：`.shared-deps` 持有唯一 runtime tree，11 个 package manifest 的完整性合同贯穿 install、capability、prebound readiness、materialize 与 launch。Git lifecycle hook 的部署 generation 绑定安装时 Bun identity；gate 的内部 detached worktree 不执行产品 hook，并固定 Git long-path 行为。由此依赖完整性、runtime launch 与 snapshot materialization 不再由 PATH、临时目录深度或 fixture override 决定。
 
-本包只完成 P0 产品 reconciliation，不在 V7 exact-head final seam evidence 建立前声称 blocker 已解除，也不完成 SM3-A 至 SM3-D 或改变路线图顺序。运行时升级仍是后续独立短迭代。
+V7 hosted verification 只按 base policy 运行 residual fast、三个 deterministic sibling 和一个 production delta。它不运行 legacy `test:affected` aggregate，不安装或执行 Playwright，不运行 AppContainer、Full 或 all-slow。最终路线图与 evidence 只在该 exact implementation tree 上完成退出裁决，并继续保留 `capabilityComplete:false`。

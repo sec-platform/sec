@@ -1,8 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { RUNTIME_DEPENDENCY_PACKAGE_NAMES } from '../../platform/shared/runtime-dependency-spec.ts';
 
 export async function installRuntimeDeps(cwd: string): Promise<void> {
-  const nextPackagePath = path.join(cwd, 'node_modules', 'next', 'package.json');
-  await fs.mkdir(path.dirname(nextPackagePath), { recursive: true });
-  await fs.writeFile(nextPackagePath, '{\n  "name": "next",\n  "version": "0.0.0"\n}\n', 'utf8');
+  await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
+    const packagePath = path.join(cwd, 'node_modules', ...packageName.split('/'), 'package.json');
+    await fs.mkdir(path.dirname(packagePath), { recursive: true });
+    await fs.writeFile(packagePath, `${JSON.stringify({
+      name: packageName,
+      version: '0.0.0-fixture'
+    })}\n`, 'utf8');
+  }));
 }

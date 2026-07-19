@@ -10,7 +10,7 @@ last-reviewed: 2026-07-13
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract / pure kernel、Impact Propagation canonical contract / pure kernel、Semantic Mutation canonical contract design、SM-1 pure kernels 与 SM-2 source adapter / edit-plan boundary 均已完成，当前唯一 active next 是 SM-3 isolated apply coordinator。
+**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract / pure kernel、Impact Propagation canonical contract / pure kernel、Semantic Mutation canonical contract design、SM-1 pure kernels、SM-2 source adapter / edit-plan boundary 与 SM-3 isolated apply coordinator 均已完成，当前唯一 active next 是 SM-4 product adapters and Task Envelope reconciliation。
 
 当前真实形态：
 
@@ -435,7 +435,7 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 ## 13. v0.4：Semantic Operations
 
-状态：**ACTIVE NEXT（SM-3 isolated apply coordinator）**。
+状态：**ACTIVE NEXT（SM-4 product adapters and Task Envelope reconciliation）**。
 
 只有 v0.3 完成后进入：
 
@@ -505,8 +505,8 @@ FD-2 的 docs-only verification、frozen review 与失效边界记录在 `docs/e
 | SM-0 | canonical contract design | **COMPLETED** | `docs/14` 已冻结 request/plan/result v2、单一首版 operation registry、source ownership、restricted expectation、diagnostic precedence、transaction/CAS/rollback/recovery 与 Verification ownership；`00/09/11/12` 只保留各自 owner 摘要 |
 | SM-1 | pure request/plan/result kernels | **COMPLETED** | 纯 normalization、condition/expectation matcher、plan/result invariant 与 Contract Freeze 已落地；没有 Workspace IO、source adapter、consumer 或 live apply |
 | SM-2 | source adapter and edit-plan boundary | **COMPLETED** | 固定 authoring index、真实 loaded provenance、唯一 writable owner resolver、固定 allowlist path、realpath/reparse policy、deterministic edit plan、byte CAS 与 rollback manifest 已落地 |
-| SM-3 | isolated apply coordinator | **ACTIVE NEXT** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 落地 |
-| SM-4 | product adapters and Task Envelope reconciliation | **BLOCKED BY SM-3** | Workbench 先迁移为 v2 caller；AI Task Envelope v2 随后只提供 trusted authorization minimum |
+| SM-3 | isolated apply coordinator | **COMPLETED** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 与 exact production seam 已满足退出条件 |
+| SM-4 | product adapters and Task Envelope reconciliation | **ACTIVE NEXT** | Workbench 先迁移为 v2 caller；AI Task Envelope v2 随后只提供 trusted authorization minimum |
 
 ### SM-0 退出审查与 SM-1 implementation contract
 
@@ -555,6 +555,16 @@ Source boundary 已冻结 canonical POSIX lexical containment、realpath、symli
 - **Acceptance**：真实child-process lease contention/orphan recovery；dry-run/apply plan revision稳定且lease内重算；publish前所有failure保持live bytes/derivatives不变；publish后mismatch执行committed-digest CAS rollback并精确恢复base；第三方write/restore/rebuild/journal失败进入durable recovery-required；exact replay不二次apply；四种terminal lifecycle、record chain、retention/query、diagnostic脱敏与early-stage call-count均有deterministic vectors。
 - **Required evidence**：完整实现后一次focused owner batch；独立frozen review集中关闭blocker；冻结implementation head后只运行一次canonical affected、完整Contract Freeze、changed-only imports/typecheck，以及selector实际要求的slow batch。默认风险簇为`e2e-graph`、`e2e-local-views`、`e2e-ticket-semantic-vertical`、`e2e-verify-lock`；若generic Pipeline seam使selector增加pipeline suites，则同批追加。复用未被blob交集失效的full-fast、其余slow、workspace/reference与GitHub Actions旧证据，不重复全矩阵。
 - **Reconciliation point**：SM-3 merge后从新main重算SM-4；不得在本包提前迁移Workbench或对齐AI Task Envelope。
+
+### SM-3 退出审查
+
+SM-3 已闭合唯一 isolated apply coordinator：generic cross-process writer lease 与 Pipeline exact reentrant token、retained isolated transaction、lease 内 fresh replan 与 base/source/plan CAS、same-volume staging/backup、staged canonical rebuild、actual Fact Delta / expectation / Impact、Verification-owned requirement union 与一次 isolated `verify-all`、atomic publish、live downstream rebuild、completion proof、committed-digest rollback，以及 immutable generation journal / replay / query / 256 terminal retention / durable recovery-required 均由 canonical owner 实现。Workbench、CLI、AI 与 Task Envelope consumer 仍未接入，继续属于 SM-4。
+
+import/runtime 根因也已作为工程协议闭合：`.shared-deps` 是唯一 runtime dependency owner；11 个 dependency/devDependency package manifest 由同一冻结列表驱动 shared install、capability publication、prebound readiness、copy 与 launch proof，逐项要求非空 manifest、精确 `name` 与非空 installed `version`，不完整安装不发布 ready stamp。解析器不再缓存依赖树尚未就绪时的错误 fallback；production sentinel 不再覆盖 `dependencyModules` 或复制 compiler-owned source。Git lifecycle hook 的 deployed generation 绑定当前 `process.execPath`，内部 gate snapshot 则禁用 checkout hook并固定 Git long-path materialization，因此 import 准备不再依赖调用方 PATH、临时目录深度或隐式 worktree side effect。
+
+退出证据绑定 exact implementation head `53709496e6d0195f764612905420de025f8f443d` 与 tree `c9d929b05bdfc7598eb0cc634e0dfed238b5ab91`。唯一新 production identity 在 `bf702a5036dc4f32242c57b50b5fbc472b8fd66c` / tree `b43a7367021ef2e1e4ab8f44f4c67e03a76171fc` 运行一次并以 1/1 PASS、0 fail、约 130.7 秒证明 canonical import/runtime closure、single builder、resume、bootstrap、runner、controlled failure、Job settlement 与 cleanup；其后只变化 CI/snapshot/hook verification infrastructure，production 与 sentinel blobs 未变，因此不重跑该 identity。组合证据还包括 Windows lifecycle 45/45、三个 deterministic apply siblings 3/3、Contract Freeze 124/124、V7 residual base 的 321 个未受影响 PASS 加 V8 exact owner 43/43、typecheck、changed-only imports 与 patch hygiene。完整命令、head/tree/blob、失败身份退役、证据复用与失效规则位于 `docs/evidence/v0-4-semantic-mutation-exit-closure-2026-07-19.json`。
+
+SM-3 状态因此更新为 **COMPLETED**。Windows AppContainer 仍是 optional hardening，`capabilityComplete:false`；本退出不宣称恶意代码或网络安全沙箱能力。下一 reconciliation point 是从合并后的新 `main` 重算 SM-4：先迁移 Workbench Semantic Mutation v2，再对齐 Task Envelope v2；公共 DTO、路由 schema、canonical authorization payload 与排序算法保持单写者，不在此处提前混入 AI Semantic Operator。
 
 ## 14. 后续阶段
 
@@ -627,7 +637,9 @@ v0.4 SM-1 pure request/plan/result kernels                  COMPLETED
   ↓
 v0.4 SM-2 source adapter and edit-plan boundary             COMPLETED
   ↓
-v0.4 SM-3 isolated apply coordinator                         ACTIVE NEXT
+v0.4 SM-3 isolated apply coordinator                         COMPLETED
+  ↓
+v0.4 SM-4 product adapters and Task Envelope reconciliation ACTIVE NEXT
 ```
 
 P0-7 是 v0.3 最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。v0.3 exit review 只组合与裁决仍有效证据，不重跑 full-fast、25-suite slow matrix、workspace chain 或 GitHub Actions。完整命令、duration、原始 batch JSON 与复用规则见验证账本。

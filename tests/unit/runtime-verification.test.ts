@@ -169,29 +169,33 @@ test('isolated runtime executes direct canonical modules with an empty PATH', as
   }
 });
 
-test('isolated dependency sources derive one curated pair from an external physical bridge host', () => {
+test('isolated dependency sources split compiler generation from an external runtime host', () => {
   const worktreeRoot = path.resolve('external-worktree');
   const dependencyHost = path.resolve('dependency-host');
   const bridge = path.join(worktreeRoot, 'node_modules');
   const physicalBridgeTarget = path.join(dependencyHost, 'node_modules');
-  const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
+  const dependencyModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
   const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
   const result = resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
     realpaths: {
       [bridge]: physicalBridgeTarget,
       [physicalBridgeTarget]: physicalBridgeTarget,
-      [nodeModules]: nodeModules,
+      [dependencyModules]: dependencyModules,
       [browserCache]: browserCache
     },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
       [physicalBridgeTarget]: metadata('physical-modules'),
-      [nodeModules]: metadata('modules'),
+      [dependencyModules]: metadata('modules'),
       [browserCache]: metadata('cache')
     }
   }));
 
-  expect(result).toEqual({ nodeModules, browserCache });
+  expect(result).toEqual({
+    browserCache,
+    compilerModulesRoot: physicalBridgeTarget,
+    dependencyModules
+  });
   expect(Object.isFrozen(result)).toBe(true);
 });
 
@@ -199,63 +203,93 @@ test('isolated dependency sources unwrap a shared-deps node_modules target exact
   const worktreeRoot = path.resolve('shared-deps-worktree');
   const dependencyHost = path.resolve('shared-deps-host');
   const bridge = path.join(worktreeRoot, 'node_modules');
-  const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
+  const dependencyModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
   const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
   expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
-    realpaths: { [bridge]: nodeModules, [nodeModules]: nodeModules, [browserCache]: browserCache },
+    realpaths: {
+      [bridge]: dependencyModules,
+      [dependencyModules]: dependencyModules,
+      [browserCache]: browserCache
+    },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
-      [nodeModules]: metadata('modules'),
+      [dependencyModules]: metadata('modules'),
       [browserCache]: metadata('cache')
     }
-  }))).toEqual({ nodeModules, browserCache });
+  }))).toEqual({
+    browserCache,
+    compilerModulesRoot: dependencyModules,
+    dependencyModules
+  });
 });
 
-test('isolated dependency sources reject an aliased node_modules and fall back as one local pair', () => {
+test('isolated dependency sources reuse the proven compiler generation when shared runtime is cold', () => {
+  const worktreeRoot = path.resolve('cold-runtime-worktree');
+  const dependencyHost = path.resolve('cold-runtime-host');
+  const bridge = path.join(worktreeRoot, 'node_modules');
+  const physicalBridgeTarget = path.join(dependencyHost, 'node_modules');
+  expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
+    realpaths: {
+      [bridge]: physicalBridgeTarget,
+      [physicalBridgeTarget]: physicalBridgeTarget
+    },
+    metadata: {
+      [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
+      [physicalBridgeTarget]: metadata('physical-modules')
+    }
+  }))).toEqual({
+    browserCache: path.join(worktreeRoot, '.shared-deps', '.playwright-browsers'),
+    compilerModulesRoot: physicalBridgeTarget,
+    dependencyModules: physicalBridgeTarget
+  });
+});
+
+test('isolated dependency sources reject aliased runtime modules and reuse the compiler generation', () => {
   const worktreeRoot = path.resolve('fallback-worktree');
   const dependencyHost = path.resolve('aliased-dependency-host');
   const bridge = path.join(worktreeRoot, 'node_modules');
   const physicalBridgeTarget = path.join(dependencyHost, 'node_modules');
-  const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
+  const dependencyModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
   const aliasedNodeModules = path.join(path.resolve('elsewhere'), 'node_modules');
   const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
   expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
     realpaths: {
       [bridge]: physicalBridgeTarget,
       [physicalBridgeTarget]: physicalBridgeTarget,
-      [nodeModules]: aliasedNodeModules,
+      [dependencyModules]: aliasedNodeModules,
       [browserCache]: browserCache
     },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
       [physicalBridgeTarget]: metadata('physical-modules'),
-      [nodeModules]: metadata('modules'),
+      [dependencyModules]: metadata('modules'),
       [browserCache]: metadata('cache')
     }
   }))).toEqual({
-    nodeModules: path.join(worktreeRoot, '.shared-deps', 'node_modules'),
-    browserCache: path.join(worktreeRoot, '.shared-deps', '.playwright-browsers')
+    browserCache,
+    compilerModulesRoot: physicalBridgeTarget,
+    dependencyModules: physicalBridgeTarget
   });
 });
 
-test('isolated dependency sources reject unstable node_modules identity as one local pair', () => {
+test('isolated dependency sources reject unstable runtime identity and reuse the compiler generation', () => {
   const worktreeRoot = path.resolve('unstable-modules-worktree');
   const dependencyHost = path.resolve('unstable-modules-host');
   const bridge = path.join(worktreeRoot, 'node_modules');
   const physicalBridgeTarget = path.join(dependencyHost, 'node_modules');
-  const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
+  const dependencyModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
   const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
   const stableProbe = pathProbe({
     realpaths: {
       [bridge]: physicalBridgeTarget,
       [physicalBridgeTarget]: physicalBridgeTarget,
-      [nodeModules]: nodeModules,
+      [dependencyModules]: dependencyModules,
       [browserCache]: browserCache
     },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
       [physicalBridgeTarget]: metadata('physical-modules'),
-      [nodeModules]: metadata('modules-before'),
+      [dependencyModules]: metadata('modules-before'),
       [browserCache]: metadata('cache')
     }
   });
@@ -263,42 +297,44 @@ test('isolated dependency sources reject unstable node_modules identity as one l
   const result = resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, {
     ...stableProbe,
     lstat(value: string) {
-      if (value !== nodeModules) return stableProbe.lstat(value);
+      if (value !== dependencyModules) return stableProbe.lstat(value);
       nodeModulesReads += 1;
       return metadata(nodeModulesReads === 1 ? 'modules-before' : 'modules-after');
     }
   });
 
   expect(result).toEqual({
-    nodeModules: path.join(worktreeRoot, '.shared-deps', 'node_modules'),
-    browserCache: path.join(worktreeRoot, '.shared-deps', '.playwright-browsers')
+    browserCache,
+    compilerModulesRoot: physicalBridgeTarget,
+    dependencyModules: physicalBridgeTarget
   });
 });
 
-test('isolated dependency sources reject an aliased cache and fall back as one local pair', () => {
+test('isolated dependency sources fall back an aliased cache without discarding valid module roots', () => {
   const worktreeRoot = path.resolve('aliased-cache-worktree');
   const dependencyHost = path.resolve('aliased-cache-host');
   const bridge = path.join(worktreeRoot, 'node_modules');
   const physicalBridgeTarget = path.join(dependencyHost, 'node_modules');
-  const nodeModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
+  const dependencyModules = path.join(dependencyHost, '.shared-deps', 'node_modules');
   const browserCache = path.join(dependencyHost, '.shared-deps', '.playwright-browsers');
   const aliasedCache = path.join(path.resolve('elsewhere'), '.playwright-browsers');
   expect(resolveIsolatedRuntimeDependencySourcesForTests(worktreeRoot, pathProbe({
     realpaths: {
       [bridge]: physicalBridgeTarget,
       [physicalBridgeTarget]: physicalBridgeTarget,
-      [nodeModules]: nodeModules,
+      [dependencyModules]: dependencyModules,
       [browserCache]: aliasedCache
     },
     metadata: {
       [bridge]: metadata('bridge', { directory: false, symbolicLink: true }),
       [physicalBridgeTarget]: metadata('physical-modules'),
-      [nodeModules]: metadata('modules'),
+      [dependencyModules]: metadata('modules'),
       [browserCache]: metadata('cache')
     }
   }))).toEqual({
-    nodeModules: path.join(worktreeRoot, '.shared-deps', 'node_modules'),
-    browserCache: path.join(worktreeRoot, '.shared-deps', '.playwright-browsers')
+    browserCache: path.join(worktreeRoot, '.shared-deps', '.playwright-browsers'),
+    compilerModulesRoot: physicalBridgeTarget,
+    dependencyModules
   });
 });
 

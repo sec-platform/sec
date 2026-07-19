@@ -525,7 +525,7 @@ async function defaultPathExists(filePath: string): Promise<boolean> {
 }
 
 function gitRevision(repoRoot: string, revision: string): string {
-  const result = spawnSync('git', ['rev-parse', revision], {
+  const result = spawnSync('git', ['-c', 'core.longpaths=true', 'rev-parse', revision], {
     cwd: repoRoot,
     encoding: 'utf8',
     timeout: 30_000,
@@ -539,7 +539,17 @@ function gitRevision(repoRoot: string, revision: string): string {
 }
 
 async function defaultWorktreeDigest(repoRoot: string): Promise<string> {
-  const diff = spawnSync('git', ['diff', '--binary', '--no-ext-diff', '--full-index', 'HEAD', '--', '.'], {
+  const diff = spawnSync('git', [
+    '-c',
+    'core.longpaths=true',
+    'diff',
+    '--binary',
+    '--no-ext-diff',
+    '--full-index',
+    'HEAD',
+    '--',
+    '.'
+  ], {
     cwd: repoRoot,
     encoding: 'buffer',
     maxBuffer: 128 * 1024 * 1024,
@@ -547,7 +557,7 @@ async function defaultWorktreeDigest(repoRoot: string): Promise<string> {
     windowsHide: true
   });
   if (diff.status !== 0) throw new Error('Work Package gate could not snapshot tracked changes');
-  const trackedResult = spawnSync('git', ['ls-files', '-z'], {
+  const trackedResult = spawnSync('git', ['-c', 'core.longpaths=true', 'ls-files', '-z'], {
     cwd: repoRoot,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
@@ -573,7 +583,14 @@ async function defaultWorktreeDigest(repoRoot: string): Promise<string> {
       digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`
     });
   }
-  const untrackedResult = spawnSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+  const untrackedResult = spawnSync('git', [
+    '-c',
+    'core.longpaths=true',
+    'ls-files',
+    '--others',
+    '--exclude-standard',
+    '-z'
+  ], {
     cwd: repoRoot,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
@@ -632,7 +649,7 @@ function runGitSnapshotCommand(
   args: readonly string[],
   options: { readonly input?: Buffer; readonly encoding?: 'buffer' | 'utf8' } = {}
 ): ReturnType<typeof spawnSync> {
-  return spawnSync('git', [...args], {
+  return spawnSync('git', ['-c', 'core.longpaths=true', ...args], {
     cwd: repoRoot,
     encoding: options.encoding ?? 'buffer',
     input: options.input,
@@ -825,7 +842,15 @@ async function defaultPrepareExecutionSnapshot(
       runGitSnapshotCommand(repoRoot, ['worktree', 'prune'], { encoding: 'utf8' });
       const added = runGitSnapshotCommand(
         repoRoot,
-        ['worktree', 'add', '--detach', snapshotRoot, headSha],
+        [
+          '-c',
+          'core.hooksPath=/dev/null',
+          'worktree',
+          'add',
+          '--detach',
+          snapshotRoot,
+          headSha
+        ],
         { encoding: 'utf8' }
       );
       if (added.status !== 0) throw new Error('Work Package gate execution worktree creation failed');
