@@ -10,7 +10,7 @@ last-reviewed: 2026-07-22
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** Fact Delta、Impact Propagation 与 Semantic Mutation SM-0～SM-3 已进入 `main`。当前唯一正式执行闭包是 **Phase 0 Current Reality Rebase**（只修正文档、控制面与 canonical 规划）。它合并后的唯一近期工程包先消除已证实的 IR canonical primitives import cycle；唯一产品 next 仍是 **SM-4A Workbench/CLI minimum Semantic Mutation v2 loop**。SM-4B Task Envelope v2 与 SM-4C AI Semantic Operator 不属于 SM-4A。
+**v0.3 Semantic Core Foundation 已完成退出审查。** Fact Delta、Impact Propagation、Semantic Mutation SM-0～SM-3 与 Phase 0 Current Reality Rebase 已进入 `main`。当前唯一正式执行闭包是 **IR canonical primitives import-cycle removal**；它只修复已证实的 identity/revision 依赖环并保持全部 canonical bytes 不变。唯一产品 next 仍是 **SM-4A Workbench/CLI minimum Semantic Mutation v2 loop**。SM-4B Task Envelope v2 与 SM-4C AI Semantic Operator 不属于 SM-4A。
 
 当前真实形态：
 
@@ -431,11 +431,11 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 `validateResolvedTemplates()` 是非权威的隔离 template sandbox adapter：它复制已解析 workspace 输入后复用 `buildWorkspaceSemanticBundle()` 与 `createPipelineSemanticContext()`，只负责 compose/typecheck 预检，不拥有第二套 frontend、Pipeline coordinator 或业务语义 authority。PR #96 的 head `3649ac63e11bc6f336bf69d48e33f9810ec0996a` 与 squash merge `07290ccda640db5e285f1d4e198b2721e6d88a8c` tree 一致；持久 evidence 位于 `docs/evidence/v0-3-semantic-frontend-verification.json` 与 `docs/evidence/v0-3-semantic-frontend-risk-batch.json`。
 
-v0.3 的语义能力退出条件均为 **PASS**，状态因此更新为 **COMPLETED**。Phase 0 后续在 exact `main@eb48eb35` 运行全仓 dependency-cruiser，独立发现 `ir-identity.ts → ir-revision.ts → ir-identity.ts` import cycle；该 hygiene 缺陷不撤销已验证的产品能力，但必须由单独 Work Package 在 SM-4A 前修复，且不得借机改变任何 revision/digest schema。
+v0.3 的语义能力退出条件均为 **PASS**，状态因此更新为 **COMPLETED**。Phase 0 后续在 exact main运行全仓 dependency-cruiser，独立发现 `ir-identity.ts → ir-revision.ts → ir-identity.ts` import cycle；Phase 0自身已由PR #133进入 `main@313e2391`，该cycle仍是当前唯一engineering closure。它不撤销已验证的产品能力，也不得借机改变任何revision/digest schema。
 
 ## 13. v0.4：Semantic Operations
 
-状态：SM-0～SM-3 **COMPLETED**；Phase 0 文档/控制面 closure **ACTIVE**；合并后的近期 engineering next 是 IR canonical primitives cycle removal，产品 **ACTIVE NEXT = SM-4A**。
+状态：SM-0～SM-3 与 Phase 0 文档/控制面 closure **COMPLETED**；IR canonical primitives cycle removal **ACTIVE**；产品 **ACTIVE NEXT = SM-4A**。
 
 只有 v0.3 完成后进入：
 
@@ -507,7 +507,7 @@ FD-2 的 docs-only verification、frozen review 与失效边界记录在 `docs/e
 | SM-1 | pure request/plan/result kernels | **COMPLETED** | 纯 normalization、condition/expectation matcher、plan/result invariant 与 Contract Freeze 已落地；没有 Workspace IO、source adapter、consumer 或 live apply |
 | SM-2 | source adapter and edit-plan boundary | **COMPLETED** | 固定 authoring index、真实 loaded provenance、唯一 writable owner resolver、固定 allowlist path、realpath/reparse policy、deterministic edit plan、byte CAS 与 rollback manifest 已落地 |
 | SM-3 | isolated apply coordinator | **COMPLETED** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 与 exact production seam 已满足退出条件 |
-| IR-H1 | canonical primitives import-cycle removal | **ENGINEERING NEXT** | 消除 identity/revision 双向 import；所有 canonical identity/revision/digest vectors byte-identical，dependency-cruiser 零环 |
+| IR-H1 | canonical primitives import-cycle removal | **ACTIVE** | 消除 identity/revision 双向 import；所有 canonical identity/revision/digest vectors byte-identical，dependency-cruiser 零环 |
 | SM-4A | Workbench/CLI minimum product loop | **PRODUCT ACTIVE NEXT** | 只接 `add-state-transition`；共享 trusted adapter、CLI plan/apply/query/recover、Workbench State View/API、HTTP trust boundary 与真实 vertical 闭合 |
 | SM-4B | Task Envelope v2 | **DEFERRED** | 在 SEC-TS 主链与完整 Workbench 前置条件满足后，冻结 semantic target/operation/must-preserve/verification minimum；不复制 Mutation authority |
 | SM-4C | AI Semantic Operator | **DEFERRED** | 只消费 SM-4B Envelope/Context Packet 并提交 bounded proposal；无直接 writer、无自行扩权 |
@@ -666,9 +666,9 @@ v0.4 SM-2 source adapter and edit-plan boundary             COMPLETED
   ↓
 v0.4 SM-3 isolated apply coordinator                         COMPLETED
   ↓
-Phase 0 Current Reality Rebase                               ACTIVE
+Phase 0 Current Reality Rebase                               COMPLETED
   ↓
-IR-H1 canonical primitives import-cycle removal              ENGINEERING NEXT
+IR-H1 canonical primitives import-cycle removal              ACTIVE
   ↓
 v0.4 SM-4A Workbench/CLI minimum product loop               PRODUCT ACTIVE NEXT
   ↓

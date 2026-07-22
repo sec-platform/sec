@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import type {
   ScenarioDefinition,
   SemanticAttribute,
@@ -11,8 +9,10 @@ import type {
 } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { LoadedSemanticContract, SemanticContract } from '../../shared/semantic-contract-types.ts';
+import { digest, normalizedArtifactTarget } from './ir-canonical-primitives.ts';
 import { normalizeAttributes, normalizeFactObject } from './ir-normalization.ts';
-import { digest } from './ir-revision.ts';
+
+export { normalizedArtifactTarget };
 
 type FactIdentityInput = Pick<SemanticFact, 'subject' | 'predicate' | 'object'>;
 
@@ -103,10 +103,6 @@ export function contractScenarioId(namespace: string, id: string): string {
 
 export function generatorEntityId(blockId: string, generatorId: string): string {
   return `generator:${blockId}:${generatorId}`;
-}
-
-export function normalizedArtifactTarget(target: string): string {
-  return path.posix.normalize(target.replaceAll('\\', '/'));
 }
 
 export function artifactEntityId(target: string): string {
