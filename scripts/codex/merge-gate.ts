@@ -27,6 +27,7 @@ import {
   type CodexDevelopmentCiExecutionEnvironmentBindingV1
 } from '../../platform/shared/ci-execution-environment.ts';
 import {
+  decodeGitPathOutput,
   gitChangedFileDiffArgs,
   parseGitChangedRecordsOutput,
   type CodexDevelopmentGitChangedRecordV1
@@ -72,7 +73,9 @@ export const CodexDevelopmentTrustRootPathsV1 = [
   'package.json',
   'platform/dev-runner.ts',
   'platform/dev-runner/',
+  'platform/shared/active-documentation-contract.ts',
   'platform/shared/affected-test-inventory.ts',
+  'platform/shared/bun-runtime-version.ts',
   'platform/shared/ci-artifact-contract.ts',
   'platform/shared/ci-artifact-types.ts',
   'platform/shared/ci-contract.ts',
@@ -93,6 +96,7 @@ export const CodexDevelopmentTrustRootPathsV1 = [
   'platform/shared/platform-command.ts',
   'platform/shared/process.ts',
   'platform/shared/project-runtime.ts',
+  'platform/shared/repository-path-contract.ts',
   'platform/shared/runtime-dependency-spec.ts',
   'platform/shared/test-budget-contract.ts',
   'platform/shared/test-impact-contract.ts',
@@ -103,6 +107,7 @@ export const CodexDevelopmentTrustRootPathsV1 = [
   'scripts/ci-verification.ts',
   'scripts/ci-workspace-fast.ts',
   'scripts/codex/',
+  'scripts/install-git-hooks.ts',
   'tests/setup/runtime-deps.setup.ts',
   'tests/testkit/',
   'tsconfig.json'
@@ -694,7 +699,7 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     throw new Error('Verification workflow run is not exact-head trusted evidence.');
   }
   const expectedVerificationName = [
-    'sec-verification-v7',
+    'sec-verification-v8',
     verificationBinding.requiredProfile,
     `pr-${input.pullRequest}`,
     `base-${input.currentBase}`,
@@ -867,9 +872,16 @@ function mergeGateGitResolvers(candidateGitDir: string, legacyGitDir: string): {
     maxBuffer = 16 * 1024 * 1024
   ) => spawnSync('git', ['--git-dir', gitDir, ...args], { encoding, maxBuffer });
   const gitBlob = (ref: string, file: string): CodexDevelopmentExactGitBlobV1 | null => {
-    const result = run(gitDirectory(ref), ['ls-tree', '-z', '--full-tree', ref, '--', file], 'utf8', 1_048_576);
-    if (result.status !== 0 || typeof result.stdout !== 'string' || !result.stdout.endsWith('\0')) return null;
-    const entries = result.stdout.split('\0').filter(Boolean);
+    const result = run(gitDirectory(ref), ['ls-tree', '-z', '--full-tree', ref, '--', file], 'buffer', 1_048_576);
+    if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
+    let output: string;
+    try {
+      output = decodeGitPathOutput(result.stdout, 'tree-path');
+    } catch {
+      return null;
+    }
+    if (!output.endsWith('\0')) return null;
+    const entries = output.split('\0').filter(Boolean);
     if (entries.length !== 1) return null;
     const match = /^(100644|100755) blob ([0-9a-f]{40})\t(.+)$/u.exec(entries[0]!);
     if (!match || match[3] !== file) return null;
@@ -877,8 +889,8 @@ function mergeGateGitResolvers(candidateGitDir: string, legacyGitDir: string): {
   };
   return {
     changedRecords: (baseHead, currentHead) => {
-      const result = run(candidate, gitChangedFileDiffArgs(baseHead, currentHead), 'utf8');
-      if (result.status !== 0 || typeof result.stdout !== 'string') return null;
+      const result = run(candidate, gitChangedFileDiffArgs(baseHead, currentHead), 'buffer');
+      if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
       try {
         return parseGitChangedRecordsOutput(result.stdout);
       } catch {
@@ -897,14 +909,17 @@ function mergeGateGitResolvers(candidateGitDir: string, legacyGitDir: string): {
       const result = run(
         gitDirectory(ref),
         ['ls-tree', '-r', '-z', '--name-only', '--full-tree', ref, '--', prefix],
-        'utf8'
+        'buffer'
       );
-      if (
-        result.status !== 0
-        || typeof result.stdout !== 'string'
-        || (result.stdout.length > 0 && !result.stdout.endsWith('\0'))
-      ) return null;
-      return result.stdout.split('\0').filter(Boolean);
+      if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
+      let output: string;
+      try {
+        output = decodeGitPathOutput(result.stdout, 'tree-path');
+      } catch {
+        return null;
+      }
+      if (output.length > 0 && !output.endsWith('\0')) return null;
+      return output.split('\0').filter(Boolean);
     },
     gitTree: (ref) => {
       const result = run(gitDirectory(ref), ['rev-parse', `${ref}^{tree}`], 'utf8', 1_048_576);

@@ -96,9 +96,17 @@ test('every unmapped changed path fails closed even when another path has known 
 });
 
 test('explicit documentation ownership and direct slow tests remain resolved', () => {
-  const documentation = selectCiPrRiskSlowSuites(['docs/03-MVP实施计划与路线图.md']);
+  const documentation = selectCiPrRiskSlowSuites([
+    'README.md',
+    'docs/03-MVP实施计划与路线图.md',
+    'docs/work/current-state.yaml',
+    'docs/work/manifest.yaml',
+    'docs/governance/contracts/policy.yaml',
+    'docs/governance/nexus-absorption-ledger.yaml'
+  ]);
   expect(documentation.resolved).toBe(true);
   expect(documentation.reasons).not.toContain('changed-files-unresolved');
+  expect(documentation.suites).toEqual([]);
 
   const directSlowTest = selectCiPrRiskSlowSuites(['tests/e2e/dry-run-plan.test.ts']);
   expect(directSlowTest.resolved).toBe(true);

@@ -32,6 +32,7 @@ import {
   type CodexDevelopmentExactGitBlobV1
 } from '../platform/shared/ci-evidence-reuse-contract.ts';
 import {
+  decodeGitPathOutput,
   gitChangedFileDiffArgs,
   parseGitChangedFileOutput,
   parseGitChangedRecordsOutput,
@@ -126,11 +127,18 @@ function defaultGitRevision(ref: string): string | null {
 
 function defaultGitBlob(ref: string, file: string): CodexDevelopmentExactGitBlobV1 | null {
   const result = spawnSync('git', ['ls-tree', '-z', '--full-tree', ref, '--', file], {
-    encoding: 'utf8',
+    encoding: 'buffer',
     maxBuffer: 1_048_576
   });
-  if (result.status !== 0 || !result.stdout.endsWith('\0')) return null;
-  const entries = result.stdout.split('\0').filter(Boolean);
+  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
+  let output: string;
+  try {
+    output = decodeGitPathOutput(result.stdout, 'tree-path');
+  } catch {
+    return null;
+  }
+  if (!output.endsWith('\0')) return null;
+  const entries = output.split('\0').filter(Boolean);
   if (entries.length !== 1) return null;
   const match = /^(100644|100755) blob ([0-9a-f]{40})\t(.+)$/u.exec(entries[0]!);
   if (!match || match[3] !== file) return null;
@@ -150,11 +158,18 @@ function defaultReadGitBlob(ref: string, file: string): CodexDevelopmentExactGit
 
 function defaultGitFiles(ref: string, prefix: string): string[] | null {
   const result = spawnSync('git', ['ls-tree', '-r', '-z', '--name-only', '--full-tree', ref, '--', prefix], {
-    encoding: 'utf8',
+    encoding: 'buffer',
     maxBuffer: 16 * 1024 * 1024
   });
-  if (result.status !== 0 || (result.stdout.length > 0 && !result.stdout.endsWith('\0'))) return null;
-  return result.stdout.split('\0').filter(Boolean);
+  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
+  let output: string;
+  try {
+    output = decodeGitPathOutput(result.stdout, 'tree-path');
+  } catch {
+    return null;
+  }
+  if (output.length > 0 && !output.endsWith('\0')) return null;
+  return output.split('\0').filter(Boolean);
 }
 
 function defaultTrackedTreeIsClean(): boolean {
@@ -165,8 +180,8 @@ function defaultTrackedTreeIsClean(): boolean {
 }
 
 function defaultChangedFiles(baseRef: string): string[] | null {
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), { encoding: 'utf8' });
-  if (result.status !== 0) return null;
+  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), { encoding: 'buffer' });
+  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
   try {
     return parseGitChangedFileOutput(result.stdout);
   } catch {
@@ -269,8 +284,8 @@ function manifestBinding(
 }
 
 function defaultChangedRecords(baseRef: string): CodexDevelopmentGitChangedRecordV1[] | null {
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), { encoding: 'utf8' });
-  if (result.status !== 0) return null;
+  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), { encoding: 'buffer' });
+  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
   try {
     return parseGitChangedRecordsOutput(result.stdout);
   } catch {

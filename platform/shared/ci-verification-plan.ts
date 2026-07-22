@@ -1,10 +1,12 @@
+import { CodexDevelopmentIsActiveDocumentationPathV1 } from './active-documentation-contract.ts';
 import type { CodexDevelopmentEvidenceCompositionPlanV1 } from './ci-evidence-reuse-contract.ts';
 import { selectCiPrRiskSlowSuites } from './ci-pr-risk-selection.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 import { uniqueSorted } from './collections.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
 import type { CodexDevelopmentTestImpactSourceProviderV1 } from './test-impact-contract.ts';
 
-export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v6' as const;
+export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v8' as const;
 export { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 export const CI_VERIFICATION_EXECUTION_MODEL = 'frozen-delivery-single-runner' as const;
 
@@ -77,14 +79,7 @@ export function buildCiFullGatePlan(): CiVerificationGateStep[] {
 
 export function CodexDevelopmentCanonicalChangedFilesV1(files: readonly string[]): string[] {
   for (const file of files) {
-    if (
-      typeof file !== 'string'
-      || file.length === 0
-      || file !== file.normalize('NFC')
-      || file.includes('\\')
-      || file.startsWith('/')
-      || file.split('/').some((segment) => segment.length === 0 || segment === '.' || segment === '..')
-    ) {
+    if (!CodexDevelopmentIsCanonicalRepositoryPathV1(file)) {
       throw new Error(`Verification changed path is not canonical repository-relative POSIX: ${String(file)}`);
     }
   }
@@ -96,7 +91,7 @@ function hasTypeScriptChange(files: readonly string[]): boolean {
 }
 
 function hasActiveDocumentationChange(files: readonly string[]): boolean {
-  return files.some((file) => /^docs\/.+\.md$/u.test(file));
+  return files.some(CodexDevelopmentIsActiveDocumentationPathV1);
 }
 
 export function CodexDevelopmentBuildVerificationPlanV1(

@@ -4,12 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
 import { cleanTestWorkspaces } from './dev-runner/env-manager.ts';
 
-function devRunnerModuleUrl(moduleName: string): string {
-  return new URL(`./dev-runner/${moduleName}.ts`, import.meta.url).href;
-}
+const devRunnerFilePath = fileURLToPath(import.meta.url);
 
 function reenterWithResolvedDependencies(): never {
-  const result = spawnSync(process.execPath, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+  const result = spawnSync(process.execPath, [devRunnerFilePath, ...process.argv.slice(2)], {
     cwd: process.cwd(),
     env: process.env,
     stdio: 'inherit',
@@ -53,7 +51,7 @@ async function main(): Promise<void> {
       runImportOrganizer,
       runImportPreparation,
       runStagedImportOrganizer
-    } = await import(devRunnerModuleUrl('import-organizer'));
+    } = await import('./dev-runner/import-organizer.ts');
     if (target === 'imports:prepare') {
       if (args.length !== 0) usage();
       process.exitCode = await runImportPreparation();
@@ -80,7 +78,7 @@ async function main(): Promise<void> {
   }
 
   if (target === 'typecheck') {
-    const { runTypecheck } = await import(devRunnerModuleUrl('typecheck-runner'));
+    const { runTypecheck } = await import('./dev-runner/typecheck-runner.ts');
     process.exitCode = await runTypecheck(args);
     return;
   }
@@ -91,7 +89,7 @@ async function main(): Promise<void> {
     runFastTests,
     runSlowTests,
     runTests
-  } = await import(devRunnerModuleUrl('test-runner'));
+  } = await import('./dev-runner/test-runner.ts');
   process.exitCode = target === 'contract-freeze'
     ? await runContractFreeze()
     : target === 'test'

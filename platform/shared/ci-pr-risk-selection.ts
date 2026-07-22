@@ -1,3 +1,4 @@
+import { CodexDevelopmentIsActiveDocumentationPathV1 } from './active-documentation-contract.ts';
 import { CodexDevelopmentBuildAffectedTestInventoryV1 } from './affected-test-inventory.ts';
 import { uniqueSorted } from './collections.ts';
 import {
@@ -78,7 +79,7 @@ export function selectCiPrRiskSlowSuites(
   const directlyChangedSlowTests = inventory.changedSlowTests;
   const unresolvedFiles = files.filter((file) => {
     if (
-      /^docs\/.+\.md$/u.test(file) || isFastTestFile(file) || isSlowTestFile(file) ||
+      CodexDevelopmentIsActiveDocumentationPathV1(file) || isFastTestFile(file) || isSlowTestFile(file) ||
       BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file)) ||
       MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
     ) return false;

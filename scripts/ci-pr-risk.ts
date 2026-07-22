@@ -114,8 +114,8 @@ function defaultTrackedTreeIsClean(): boolean {
 }
 
 function defaultChangedFiles(baseRef: string): string[] | null {
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), { encoding: 'utf8' });
-  if (result.status !== 0) return null;
+  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), { encoding: 'buffer' });
+  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
   try {
     return parseGitChangedFileOutput(result.stdout);
   } catch {
