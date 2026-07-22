@@ -1,7 +1,7 @@
 schema: sec-current-state-v1
-observedMainSha: 313e2391d7017c23a510d56d28eaa82bba6614dd
-observedMainTree: 1528d8ea9ec2a4cfd194b2e7eb15e9a703f4fc26
-observedAt: "2026-07-22T22:58:17+08:00"
+observedMainSha: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
+observedMainTree: 9cc7f2d19e36cd8c0ac3ac150bdf1754186207cf
+observedAt: "2026-07-23T02:24:47+08:00"
 goalAuthority:
   repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
   upstreamDocumentCount: 2
@@ -15,75 +15,139 @@ goalAuthority:
   combinedRevision: sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d
 roadmapMilestone: v0.4-semantic-operations
 lastMergedWorkPackage:
-  id: phase-0-current-reality-rebase-v1
-  pullRequest: 133
-  mergeCommit: 313e2391d7017c23a510d56d28eaa82bba6614dd
-  mergedAt: "2026-07-22T22:30:25+08:00"
-  tree: 1528d8ea9ec2a4cfd194b2e7eb15e9a703f4fc26
-activeWorkPackage:
   id: ir-canonical-primitives-cycle-removal-v1
-  manifest: docs/work-packages/ir-canonical-primitives-cycle-removal-v1.md
-  manifestDigest: sha256:36c5c451a589464633005acc2a1dd46b48fa3c1834677baf65336388aabd584a
-  branch: codex/ir-canonical-primitives-cycle-removal-v1
-  pr: null
-  baseSha: 313e2391d7017c23a510d56d28eaa82bba6614dd
+  pullRequest: 135
+  mergeCommit: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
+  mergedAt: "2026-07-22T23:32:35+08:00"
+  tree: 9cc7f2d19e36cd8c0ac3ac150bdf1754186207cf
+activeWorkPackage:
+  id: affected-fast-timeout-contract-v1
+  manifest: docs/work-packages/affected-fast-timeout-contract-v1.md
+  manifestDigest: sha256:3a91921c3769037c4064085f4544b0b82544be7df97d3e3edc2919767961902a
+  branch: codex/affected-fast-timeout-contract-v1
+  pr: 136
+  baseSha: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
   headSha: null
 status: active
-nextReconciliationPoint: ir-cycle-exact-head-freeze
-openPullRequests: []
+nextReconciliationPoint: affected-fast-timeout-v9-exact-head-evidence
+openPullRequests:
+  - 136
 openIssues:
   - 132
+issueFacts:
+  issue132Role: navigation-only
+  issue132SnapshotStale: true
 ci:
   activeExactHeadEvidence: absent
   lastMergedEvidence:
     scopeAttestation:
-      runId: 29928582219
+      runId: 29932931686
       result: success
     quick:
-      runId: 29928585607
+      runId: 29933306857
       result: success
     pullRequestMergeGate:
-      runId: 29928682415
+      runId: 29933703051
       result: success
     mainPushMergeGate:
-      runId: 29928917790
+      runId: 29933867770
       result: success
-  requiredRevision: ci-verification-v8
+    pullRequestCloseGate:
+      runId: 29933870235
+      result: success
+  requiredRevision: ci-verification-v9
+  bootstrapMode: manual
+  hostedSelfCertificationAllowed: false
 review:
-  activePullRequest: null
+  activePullRequest: 136
+  state: draft
   reviews: 0
   unresolvedThreads: 0
   requestChanges: 0
+independentArchitectureReview:
+  initialV8Envelope: blocked
+  reason: verifier-trust-root-change-requires-v1-revision-advance
+  requiredRevision: ci-verification-v9
+  compositionRevision: ci-verification-v7
+candidateDiagnostics:
+  focusedBootstrap:
+    initialRun:
+      testsPassed: 103
+      testsFailed: 1
+      assertions: 1009
+      soleFailure: synthetic-immutable-pass-fixture-exact-pretty-raw-bytes
+    isolatedDelta:
+      command: bun test tests/unit/ci-evidence-reuse-contract.test.ts -t "synthetic immutable PASS fixture binds its exact pretty raw bytes" --timeout 180000
+      testsPassed: 1
+      testsFailed: 0
+      assertions: 4
+      durationMs: 693
+    combinedCoverage:
+      testsCovered: 104
+      singleAggregateRerun: false
+  immutableEvidenceCheckout:
+    fixture: tests/fixtures/ci-evidence-reuse/synthetic-pass.json
+    gitBlob: f9cb6f9f2f7499a605e3b4c4c45281fab3b56d39
+    rawSha256: cab3e169f29108986d250afe6fd7f5a5e3dd1f3af7d40c7ffa58e369fe28a3b2
+    indexEol: lf
+    workingTreeEol: lf
+    attribute: /tests/fixtures/ci-evidence-reuse/synthetic-pass.json text eol=lf
+    status: resolved-in-candidate
 repository:
   visibility: private
 repositoryRules:
   status: unavailable
   reason: GitHub API returned 403 for branch protection and rulesets
 blockers:
-  - id: compiler-ir-import-cycle
-    observedOnSha: 313e2391d7017c23a510d56d28eaa82bba6614dd
-    evidenceMode: exact-main-local-dependency-cruiser
-    gate: bun run depcruise
-    result: fail
-    dependencyViolations: 1
-    errors: 1
-    warnings: 0
-    modulesCruised: 535
-    dependenciesCruised: 1526
-    cycle:
-      - platform/compiler/ir/ir-identity.ts
-      - platform/compiler/ir/ir-revision.ts
-      - platform/compiler/ir/ir-identity.ts
-    gitNexusIndexCommit: 313e2391d7017c23a510d56d28eaa82bba6614dd
-    gitNexusImpactMaxDepth: 3
-    gitNexusImpactIncludeTests: false
-    digestImpactRisk: CRITICAL
-    digestUpstreamSymbols: 96
-    digestDirectDependants: 11
-    digestAffectedProcesses: 11
-    normalizedArtifactTargetImpactRisk: HIGH
-    normalizedArtifactTargetUpstreamSymbols: 8
-    normalizedArtifactTargetDirectDependants: 4
+  - id: affected-fast-default-timeout
+    observedOnBase: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
+    observedOnCandidate: b753b5578e24ef96d03c051c81e25bf81ffcd8c1
+    gate: SEC_AFFECTED_TESTS_BASE=5f70db3c76d23a04361ba7d2ed689a17e3e14e21 bun run test:affected
+    aggregate:
+      passed: 198
+      failed: 12
+      skipped: 1
+    failureMode: bun-default-timeout-5000ms
+    assertionOrSemanticFailures: 0
+    exactSentinel:
+      timeoutMs: 180000
+      passedFiles: 12
+      failedFiles: 0
+      assertions: 170
+      maxObservedDuration: approximately-21.6s
+    rootPath:
+      - runAffectedTests
+      - runFastTests
+      - fastTestArgs
+    selectedSlowSuites:
+      - end-to-end
+      - graph
+      - local-views
+      - pipeline
+      - semantic-runtime-contract
+      - verification
+    gitNexusImpactRisk: LOW
+    gitNexusImpactedSymbols: 5
+    gitNexusDirectCallers: 1
+    gitNexusAffectedProcesses: 1
+suspendedCandidates:
+  - id: sm4a-trusted-authorization-ingress-v1
+    branch: codex/sm4a-trusted-authorization-ingress-v1
+    commit: b753b5578e24ef96d03c051c81e25bf81ffcd8c1
+    tree: 90e036ad299bfd5d43ea9a4cb0c746991272582f
+    manifest: docs/work-packages/sm4a-trusted-authorization-ingress-v1.md
+    manifestDigest: sha256:3be79bcfb55304644dfc1859f23a351b80cbb56325d2c4aa4656ef82724fa6ba
+    pushed: false
+    pullRequest: null
+    state: suspended-by-prerequisite
+    focused:
+      testsPassed: 15
+      testsFailed: 0
+      assertions: 118
+    invalidatedEvidence:
+      - affected-tests
+      - selector-selected-risk
+      - exact-head-integration
 completedCapabilities:
   - v0.3-semantic-core-foundation
   - v0.4-fact-delta-pure-kernel
@@ -93,6 +157,7 @@ completedCapabilities:
   - v0.4-semantic-mutation-sm2-source-adapter
   - v0.4-semantic-mutation-sm3-isolated-apply-coordinator
   - ci-verification-v8-active-documentation-contract
+  - ir-canonical-primitives-cycle-removal
 limitations:
   - windows-appcontainer-optional-hardening-capability-incomplete
 nexusBaseline:

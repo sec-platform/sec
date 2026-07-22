@@ -1,7 +1,7 @@
 ---
 title: 测试反馈与 CI 分层
 status: active
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # 测试反馈与 CI 分层
@@ -34,7 +34,9 @@ bun run imports:organize
 
 `affected` 只选择相关 fast tests。开发者本地入口可以把未知映射报告为 notice；进入 hosted verification 时，changed-file 或 ownership 解析未知必须 fail closed，不得用 bounded baseline 冒充完整通过。
 
-`imports:prepare` 是本地 authoring 写边界，不是 hosted Gate。它在任何类型或测试反馈前，用唯一 TypeScript organizer 一次处理 `candidate base→HEAD`、`HEAD→index`、`index→working tree` 与未跟踪 TypeScript 路径的稳定去重并集；因此已提交候选、staged、unstaged 与新文件不会再等到只读 Gate 才首次暴露机械排序。`check:affected`、`check:fast`、`check:full` 固定先执行该入口。显式 `imports:organize` 仍用于全仓基线维护；两者不复制排序算法。使用 Git fixture 与 TypeScript Language Service 的 import lifecycle tests 固定进入 serial fast registry，避免在并发 shard 中把资源竞争误报为 5 秒用例失败；Contract Freeze runner 统一携带有界 180 秒 timeout，源码文本合同只忽略 CRLF/LF 表示差异。
+Fast runner 的 process timeout属于共享执行合同，不属于单个测试。`platform/dev-runner/fast-test-policy.ts` 中的 `DEFAULT_FAST_TEST_TIMEOUT_MS` 是唯一命名authority：caller未提供 `--timeout <value>` 或 `--timeout=<value>` 时，concurrent shard与process-isolated serial file都使用180秒有界默认值；显式override原样优先。不得通过逐测试硬编码、扩张serial registry、在affected selector中特判或失败后重复aggregate来掩盖默认5000ms造成的系统性假失败。
+
+`imports:prepare` 是本地 authoring 写边界，不是 hosted Gate。它在任何类型或测试反馈前，用唯一 TypeScript organizer 一次处理 `candidate base→HEAD`、`HEAD→index`、`index→working tree` 与未跟踪 TypeScript 路径的稳定去重并集；因此已提交候选、staged、unstaged 与新文件不会再等到只读 Gate 才首次暴露机械排序。`check:affected`、`check:fast`、`check:full` 固定先执行该入口。显式 `imports:organize` 仍用于全仓基线维护；两者不复制排序算法。使用 Git fixture 与 TypeScript Language Service 的 import lifecycle tests固定进入serial fast registry以隔离资源竞争；serial ownership与共享timeout是正交合同，不能互相替代。Contract Freeze runner统一携带有界180秒timeout，源码文本合同只忽略CRLF/LF表示差异。
 
 `bunfig.toml` 禁止 Bun ambient auto-install；仓库不接受全局 cache 或相邻 worktree 替代当前 manifest 的依赖解析。`deps:ensure` 对 root `package.json` 的完整 dependency maps、`packageManager`、`bun.lock` 原始字节、实际 Bun 版本与 OS/architecture 建立 generation identity。安装只发生在同卷 staging；所有 direct package manifest 与 TypeScript/ts-morph runtime entry 摘要验证完成后才以 rename 发布，失败恢复旧树并保留一个 previous generation，绝不原地修改 active `node_modules`。TypeScript 使用 exact pin。`.shared-deps` 继续只拥有生成项目/隔离验证所需的 runtime 子集与下载 cache，不再冒充 compiler 依赖树。dev-runner 在冷启动完成安装后只 re-enter 一次，随后所有 typecheck、test 与 import 命令直接复用同一可验证依赖树。tracked `post-checkout`、`post-merge`、`post-rewrite` 在 Git 改变候选树后刷新 binding，使新 worktree 的第一次 focused test 之前已经完成依赖闭合。
 
@@ -56,11 +58,11 @@ install frozen dependencies
 → impacted PR Risk（存在 slow / workspace risk 时）
 ```
 
-Quick 必须调用唯一 `test:affected` 入口，不得在 Workflow 或 CI coordinator 内重写第二套 fast selector。Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
+Quick 必须调用唯一 `test:affected` 入口，不得在 Workflow 或 CI coordinator 内重写第二套 fast selector或timeout policy。Quick 不默认跑 slow e2e，不使用 broad fast fallback，除非显式开启现有 fallback 环境变量。
 
 Hosted `imports:check` 保持只读、fail closed，并继续按 frozen base..HEAD changed-file contract 选择。Selector precedence 固定为：`SEC_IMPORTS_CHANGED_ONLY=1` 选择 changed-only，`=0` 强制全仓审计；两者都未设置时，存在 `SEC_CHANGED_BASE` 即选择 changed-only，其次才是 pull-request CI，其他无 base 的 schedule/local 入口保持全仓。由此 repository_dispatch 提供 exact base 时不会误触全仓 baseline。任何 diff base 缺失、缩写或不可解析都以 `IMPORT-AUTHORITY-003` 立即失败，严禁退化为全仓扫描。Commit/push hook 的 index auto-fix 是本地候选边界，不能把修复动作带入 CI。
 
-Affected selector 默认关注最近提交反馈。`ci-verification-v8` 继承 v6 的 single-parent freeze：hosted head 必须是 current base 上的单一提交，因此 hosted `HEAD^1` 与 current PR base 相同；多提交增量复用必须先定义新的 prefix evidence contract，不能由 v8 猜测。
+Affected selector 默认关注最近提交反馈。`ci-verification-v9` 继承 v8/v6 的 single-parent freeze：hosted head必须是current base上的单一提交，因此hosted `HEAD^1` 与current PR base相同；多提交增量复用必须先定义新的prefix evidence contract，不能由v9猜测。
 
 ## 4. PR Risk
 
@@ -112,7 +114,7 @@ SEC_AFFECTED_TESTS_BASE
   最近提交范围，用于快速 affected feedback。
 ```
 
-不要只用 `HEAD^1..HEAD` 判断整个 PR 的合同风险；也不要在日常本地反馈中默认用整个长期分支 diff 选择每次 affected test。Frozen hosted V1/V2 verification 在 freeze 前要求 A0 将最终状态重放为 `parent(current head) = live current base`，从结构上消除这两个范围之间的覆盖缺口；当前分别对应 V1 `ci-verification-v8` 与 V2 composition `ci-verification-v7`。
+不要只用 `HEAD^1..HEAD` 判断整个 PR 的合同风险；也不要在日常本地反馈中默认用整个长期分支 diff 选择每次 affected test。Frozen hosted V1/V2 verification 在 freeze 前要求 A0 将最终状态重放为 `parent(current head) = live current base`，从结构上消除这两个范围之间的覆盖缺口；当前分别对应 V1 `ci-verification-v9` 与 V2 composition `ci-verification-v7`。
 
 ### 6.1 Frozen Hosted Verification
 
@@ -128,7 +130,7 @@ rebase current main
 → base-side sec/merge-gate
 ```
 
-两个 dispatch 都绑定 repository、PR、current base、exact head、manifest ordinary-blob identity、raw digest/byte length，以及由 manifest schema 决定的 profile/revision。Work Package V1 绑定 `ci-verification-v8` 与 Evidence V2；只有 base 已注册 policy 的 Work Package V2 才绑定 `ci-verification-v7` 与 Evidence V3。Manifest 读取必须从 exact commit tree entry 到 raw blob，禁止由 Contents API 透明解引用 symlink。Heavy runner 只有读取权限，不发布 commit status；唯一远端合并状态是由 default-branch trusted workflow 发布的 `sec/merge-gate`。Head/base/manifest 任一变化都会使 attestation、verification artifact 与 gate 失效，必须重新 freeze，禁止通过遗留 label 或旧 success 自动重跑/复用。
+两个 dispatch 都绑定 repository、PR、current base、exact head、manifest ordinary-blob identity、raw digest/byte length，以及由 manifest schema 决定的 profile/revision。Work Package V1 绑定 `ci-verification-v9` 与 Evidence V2；只有 base 已注册 policy 的 Work Package V2 才绑定 `ci-verification-v7` 与 Evidence V3。Manifest 读取必须从 exact commit tree entry 到 raw blob，禁止由 Contents API 透明解引用 symlink。Heavy runner 只有读取权限，不发布 commit status；唯一远端合并状态是由 default-branch trusted workflow 发布的 `sec/merge-gate`。Head/base/manifest 任一变化都会使 attestation、verification artifact 与 gate 失效，必须重新 freeze，禁止通过遗留 label 或旧 success 自动重跑/复用。
 
 ### 6.2 Evidence V2/V3 与 Merge Gate
 
@@ -138,17 +140,21 @@ Work Package 由 PR body 中唯一的 `Work-Package: docs/work-packages/<id>.md`
 
 Evidence V3 在 V2 exact identity 之上增加 base-owned policy ID、完整 parent/refined selection digest、coverage ledger、immutable reuse binding、executed/delta disposition、sanitized child environment binding 与完整 `expected.plan`。Candidate 不能在 manifest 中提供 tests、argv、coverage 或 reuse；只允许选择一个 base 已注册的 `evidenceComposition.policyId`。受保护的 P0 transition 若提交 V1 或错误 policy，runner 与 merge gate 都必须在首个 Gate 前 fail closed。
 
-`sec/merge-gate` 只执行 default-branch/base 代码。它以只读方式 materialize exact candidate 与 legacy evidence Git objects，使用 `git diff`、`ls-tree`、`cat-file` 独立重算 changed records、test inventory、policy factory 与 composition plan，绝不执行 candidate 文件；GitHub API records 与 exact Git records 不一致即失败。它要求 same-repository、target main、单一 open PR 对应 exact head、`H.parents = [currentBase]`、合法且已 attested 的 frozen manifest、完整 ownership、匹配 profile 的 v8 artifact、至少 24 小时剩余 artifact TTL，并始终以重算得到的 `expected.plan` 校验 Evidence V3。最终 success 前仍二次读取 live head/base/manifest。`plan-revalidation` 对选中的 Draft-only head 写 failing status 但不分配 matrix runner；共享 head 的多个 open PR 同样 failure 且不执行。每 6 小时的轻量 revalidator 只为唯一的非 Draft PR head 复查元数据并撤销陈旧 status，不重跑测试。
+参与 immutable raw-byte reuse binding 的 repository fixture 必须由根 `.gitattributes` 以 exact path 固定 `text eol=lf`，使 Windows checkout 的实际执行字节与 canonical Git blob、registered digest 和源码常量一致。这个 checkout contract 必须由跨平台测试直接断言；不得在测试、producer 或 verifier 中归一化 CRLF/LF，否则会把不同 raw bytes 伪装成同一份 evidence。
+
+`sec/merge-gate` 只执行 default-branch/base 代码。它以只读方式 materialize exact candidate 与 legacy evidence Git objects，使用 `git diff`、`ls-tree`、`cat-file` 独立重算 changed records、test inventory、policy factory 与 composition plan，绝不执行 candidate 文件；GitHub API records 与 exact Git records 不一致即失败。它要求 same-repository、target main、单一 open PR 对应 exact head、`H.parents = [currentBase]`、合法且已 attested 的 frozen manifest、完整 ownership、匹配 profile 的 v9 artifact、至少 24 小时剩余 artifact TTL，并始终以重算得到的 `expected.plan` 校验 Evidence V3。最终 success 前仍二次读取 live head/base/manifest。`plan-revalidation` 对选中的 Draft-only head 写 failing status但不分配matrix runner；共享head的多个open PR同样failure且不执行。每6小时的轻量revalidator只为唯一的非Draft PR head复查元数据并撤销陈旧status，不重跑测试。
 
 Verifier trust root（verification workflows、CI contract/selector/evidence writer、runner、merge gate、manifest parser 与依赖入口）不得由普通 PR 修改后自证通过。命中 trust root 的变化必须升级 revision 并走明确的人工 bootstrap；mandatory sentinel 只增加测试覆盖，不能替代这条信任边界。
 
-V8 trust snapshot 对每个入口绑定 `mode:type:sha`，并覆盖 Git decoded raw changed-path identity（完整 byte stream 以 fatal UTF-8 且保留 BOM code point 的方式一次解码，reader不得在 canonical validation前改写 separator）、V1 CI changed-path canonicality、active-documentation contract、affected inventory、canonical Bun runtime leaf、dependency bootstrap 所调用的 hook installer、composition policy registry、reuse contract、execution environment、revision leaf、dev-runner 在 imports 后首个 executable top-level `const` 捕获的 bootstrap path、三个 direct string-literal runner imports、只递归 relative ESM static/literal import边的 closure、精确 external import allowlist、import-binding-aware loader sentinel 与 exact reviewed process-dispatch registry，以及 verification scope inventory；nonliteral dynamic import、absolute/URL/import-map/未批准 package specifier和未登记 loader均 fail closed。dev-runner自重入 process edge还由独立 AST sentinel审查，不属于 ESM closure。只比较 `type:sha` 不足以阻止 executable-bit drift。Artifact identity 统一为 `sec-verification-v8-*`。V2 composition policy 的 contract revision 仍固定为 `ci-verification-v7`，不会因普通 V1 revision 或 artifact namespace 升级而漂移。
+V9 延续V8 trust snapshot：每个入口绑定 `mode:type:sha`，并覆盖Git decoded raw changed-path identity、V1 path canonicality、active-documentation contract、affected inventory、canonical Bun runtime leaf、hook installer、composition policy registry、reuse contract、execution environment、revision leaf、dev-runner loader closure、精确external import allowlist、loader sentinel、reviewed process-dispatch registry及verification scope inventory。Nonliteral dynamic import、absolute/URL/import-map/未批准package specifier和未登记loader继续fail closed；dev-runner自重入edge仍独立AST审查。Artifact identity统一为 `sec-verification-v9-*`。V2 composition policy的contract revision仍固定为 `ci-verification-v7`，不会因V1 revision或artifact namespace升级而漂移。
 
 `ci-verification-v6` 由 B2 人工 bootstrap 引入：本地 Work Package execution snapshot 必须把 tracked checkout 的实际原始字节纳入 digest 并原样复制，覆盖 Git diff 看不见的 EOL/smudge 漂移；hosted manifest 仍按 exact commit ordinary blob 的 raw digest 与 byte length 绑定，二者不得共享规范化算法。EOL 规范化只允许发生在两个 local manifest parser call site，checkpoint、journal 与其他 durable evidence read 必须保持原始字节。Affected ownership 同时把 shared observed-process lifecycle 与 optional AppContainer hardening 分离；显式 declaration 可用 `declared-only` 关闭补充性 auto-reference，但冲突 mode 必须 fail closed。这样普通 Semantic Mutation/observed-process 变更不会因反向 import 误选真实 AppContainer 测试，同时 AppContainer source 仍保留自身 hardening coverage；selector rule 文件自身只归 verification/test-impact infrastructure，不能反向选择产品 slow suites。B2 只显式接纳已冻结的 SM-3 evidence 路径，不使用候选 v6 自证；所有 v5 artifact、attestation 与 status 均不能满足 v6 gate。
 
 `ci-verification-v7` 的首个 production policy 固定服务于 `sm3-p0-local-isolated-runner-v1`。Canonical 普通 Gate 保持原样；`affected-tests` 只细化为 residual fast、一次三标题 sibling Gate 与一次显式 production delta；`impact-risk` 只执行 policy 绑定的七个精确 Bun test 文件。该计划不调用 `test:affected` aggregate、不调用 `scripts/ci-pr-risk.ts`，也不包含 Playwright。历史 production PASS 只以 `legacy-unbound-v1` baseline 进入 delta closure，不是 merge、capability 或 SM-3 exit 证明；AppContainer 状态仍保持 `capabilityComplete:false`。
 
 `ci-verification-v8` 由 B3 人工 bootstrap 引入：V1 CI changed-file / active-documentation selector domain 的共享 canonical path owner 先拒绝空值、非 NFC、NUL、绝对/反斜杠、drive/URI/ADS 冒号与非法 segment；共享 active-documentation contract 再同时驱动 changed-source ownership、PR-risk resolution 与 Quick Gate selection，并优先于通用 manifest/contract YAML 分类，精确覆盖 repository README、全部 Markdown和受治理的 `docs/work` / `docs/governance` YAML。它不取代其他输入域的 validator，其他未拥有路径继续 fail closed。B3 candidate 不运行 hosted Scope/Quick 自证，旧 v6 manifest/evidence/status 不能满足 v8；B3 合并后，普通 PR 必须从新 `main` 重新 freeze 并取得一次新的 exact-head attestation 与 v8 artifact。
+
+`ci-verification-v9` 由 TEST-H1 人工 bootstrap引入：共享fast runner在caller没有显式timeout时，为concurrent shard与process-isolated serial file统一注入180秒有界默认值；两种显式override继续原样优先。V9不改变Evidence V2 schema、selector、Gate plan、workflow权限或trust-root集合，只推进V1 revision与artifact namespace；v8 manifest/evidence/artifact/status不能满足v9 gate。TEST-H1 candidate同样不运行hosted Scope/Quick/Full自证，合并后普通V1 Work Package必须从新 `main` 以v9重新freeze。
 
 ### 6.3 本地 Work Package 长时 Gate 监督
 
@@ -185,6 +191,8 @@ Source classification 至少显式区分 TypeScript、Manifest、Semantic Contra
 3. 路径规则只作 legacy fallback，不得与显式 identity 竞争 owner authority。
 
 直接变更 fast test 仍直接运行；直接变更 slow test 进入 PR Risk。`source/**` 不得因为不在 `platform/**` 下而静默漏选。
+
+Affected 只负责选择；选中后的fast执行必须复用第2节同一默认timeout合同。一次aggregate只要产生failure就不得把后续精确PASS冒充原aggregate PASS；精确重跑只可用于判定根因和冻结独立修复包，修复后仍须在新exact head上运行一次canonical aggregate。
 
 缺少 mapping 时给清晰 notice。不要因为 selector 不完整就把 PR Quick 变成 Full。
 

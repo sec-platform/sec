@@ -23,7 +23,7 @@ import {
 import { formatSlowImpactNotice } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { pathEnvKey } from './env-manager.ts';
-import { planFastTestProcesses } from './fast-test-policy.ts';
+import { DEFAULT_FAST_TEST_TIMEOUT_MS, planFastTestProcesses } from './fast-test-policy.ts';
 
 const BUN_TEST_OPTIONS_WITH_VALUE = new Set([
   '--timeout',
@@ -103,8 +103,14 @@ function selectMatchingTestFiles(availableFiles: string[], selectors: string[], 
   return selected;
 }
 
-function fastTestArgs(files: string[], options: string[]): string[] {
-  return ['test', '--concurrent', ...files, ...options];
+function fastTestArgs(files: string[], options: string[], concurrent: boolean): string[] {
+  const effectiveOptions = options.some((option) => (
+    option === '--timeout' || option.startsWith('--timeout=')
+  ))
+    ? options
+    : [...options, '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)];
+
+  return ['test', ...(concurrent ? ['--concurrent'] : []), ...files, ...effectiveOptions];
 }
 
 function fastTestInvocations(args: string[]): string[][] {
@@ -118,10 +124,10 @@ function fastTestInvocations(args: string[]): string[][] {
   const plan = planFastTestProcesses(selectedFiles);
   const invocations: string[][] = [];
   for (const shard of plan.concurrentShards) {
-    invocations.push(fastTestArgs(shard, options));
+    invocations.push(fastTestArgs(shard, options, true));
   }
   for (const file of plan.serial) {
-    invocations.push(['test', file, ...options]);
+    invocations.push(fastTestArgs([file], options, false));
   }
   return invocations;
 }
