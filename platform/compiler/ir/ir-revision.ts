@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import {
   ENGINEERING_IR_FORMAT_VERSION,
   type ScenarioDefinition,
@@ -14,7 +12,9 @@ import type {
   SemanticContract
 } from '../../shared/semantic-contract-types.ts';
 import type { ManifestGenerator } from '../../shared/semantic-generator-types.ts';
-import { normalizedArtifactTarget } from './ir-identity.ts';
+import { digest, normalizedArtifactTarget } from './ir-canonical-primitives.ts';
+
+export { digest };
 
 export interface InputRevisionManifest {
   blockId: string;
@@ -228,10 +228,6 @@ function canonicalPolicyDeclarations(policies: readonly PolicyRule[]): object[] 
     rule: policy.rule
   }));
   return uniqueSortedByKey(declarations, (declaration) => JSON.stringify(declaration));
-}
-
-export function digest(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
 }
 
 export function inputRevisionPayload(input: InputRevisionDomain): string {
