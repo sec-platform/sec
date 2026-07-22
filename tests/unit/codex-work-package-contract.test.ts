@@ -20,7 +20,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: quick
-ciRevision: ci-verification-v8
+ciRevision: ci-verification-v9
 tasks:
   - id: b0-bootstrap-v1
     owner: b0-writer
@@ -90,12 +90,14 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
     base: BASE,
     manifestState: 'frozen',
     requiredProfile: 'quick',
-    ciRevision: 'ci-verification-v8'
+    ciRevision: 'ci-verification-v9'
   });
-  const historical = CodexDevelopmentParseWorkPackageManifestV1(
-    source.replace('ci-verification-v8', 'ci-verification-v6')
-  );
-  expect(historical.ciRevision).toBe('ci-verification-v6');
+  for (const legacyRevision of ['ci-verification-v8', 'ci-verification-v6'] as const) {
+    const historical = CodexDevelopmentParseWorkPackageManifestV1(
+      source.replace('ci-verification-v9', legacyRevision)
+    );
+    expect(historical.ciRevision).toBe(legacyRevision);
+  }
   expect(CodexDevelopmentWorkPackageManifestDigest(source)).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(CodexDevelopmentAssertWorkPackageOwnership(parsed, [
     'platform/shared/ci-contract.ts',
@@ -153,7 +155,7 @@ test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous sco
   )).toThrow('must be frozen');
   for (const revision of ['ci-verification-v0', 'ci-verification-v05', 'ci-verification-latest']) {
     expect(() => CodexDevelopmentParseWorkPackageManifestV1(
-      manifest().replace('ci-verification-v8', revision)
+      manifest().replace('ci-verification-v9', revision)
     )).toThrow('stable positive verification revision');
   }
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(

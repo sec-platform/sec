@@ -699,7 +699,7 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     throw new Error('Verification workflow run is not exact-head trusted evidence.');
   }
   const expectedVerificationName = [
-    'sec-verification-v8',
+    'sec-verification-v9',
     verificationBinding.requiredProfile,
     `pr-${input.pullRequest}`,
     `base-${input.currentBase}`,

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 
 import {
   DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE,
+  DEFAULT_FAST_TEST_TIMEOUT_MS,
   FAST_TEST_PROCESS_ISOLATION_REGISTRY,
   SERIAL_FAST_TEST_FILES,
   planFastTestProcesses
@@ -122,13 +123,26 @@ test('resource-sensitive fast tests are registered for process isolation', () =>
   ]));
 });
 
+test('fast tests use one bounded default timeout policy', () => {
+  expect(DEFAULT_FAST_TEST_TIMEOUT_MS).toBe(180_000);
+});
+
 // 这些测试使用全局 mock，必须串行执行以避免并发干扰
 test.serial('targeted concurrent-safe fast tests run only the requested files', async () => {
   const code = await runFastTests(['tests/unit/path-containment.test.ts']);
 
   expect(code).toBe(0);
   expect(devCommandCalls).toEqual([
-    { command: 'bun', args: ['test', '--concurrent', 'tests/unit/path-containment.test.ts'] }
+    {
+      command: 'bun',
+      args: [
+        'test',
+        '--concurrent',
+        'tests/unit/path-containment.test.ts',
+        '--timeout',
+        String(DEFAULT_FAST_TEST_TIMEOUT_MS)
+      ]
+    }
   ]);
 });
 
@@ -155,6 +169,19 @@ test.serial('fast tests preserve options across concurrent and serial invocation
   const invokedFiles = devCommandCalls.flatMap(({ args }) => invocationTestFiles(args));
   expect([...invokedFiles].sort()).toEqual(getFastTestFilesSync());
   expect(new Set(invokedFiles).size).toBe(invokedFiles.length);
+});
+
+test.serial('fast tests preserve equals-form timeout overrides without adding the default', async () => {
+  const code = await runFastTests([
+    'tests/unit/path-containment.test.ts',
+    '--timeout=45000'
+  ]);
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toEqual([{
+    command: 'bun',
+    args: ['test', '--concurrent', 'tests/unit/path-containment.test.ts', '--timeout=45000']
+  }]);
 });
 
 test.serial('fast test process failures stop later sequential shards', async () => {
@@ -184,10 +211,22 @@ test.serial('serial fast test files run outside the concurrent invocation', asyn
 
   expect(code).toBe(0);
   expect(devCommandCalls).toEqual([
-    { command: 'bun', args: ['test', 'tests/integration/project-runtime.test.ts'] },
-    { command: 'bun', args: ['test', 'tests/integration/semantic-core-vertical.test.ts'] },
-    { command: 'bun', args: ['test', 'tests/integration/ticket-pipeline.test.ts'] },
-    { command: 'bun', args: ['test', 'tests/unit/test-runner.test.ts'] }
+    {
+      command: 'bun',
+      args: ['test', 'tests/integration/project-runtime.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+    },
+    {
+      command: 'bun',
+      args: ['test', 'tests/integration/semantic-core-vertical.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+    },
+    {
+      command: 'bun',
+      args: ['test', 'tests/integration/ticket-pipeline.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+    },
+    {
+      command: 'bun',
+      args: ['test', 'tests/unit/test-runner.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+    }
   ]);
 });
 
@@ -310,7 +349,16 @@ test.serial('affected tests run changed concurrent-safe fast files directly', as
 
     expect(code).toBe(0);
     expect(devCommandCalls).toEqual([
-      { command: 'bun', args: ['test', '--concurrent', 'tests/unit/path-containment.test.ts'] }
+      {
+        command: 'bun',
+        args: [
+          'test',
+          '--concurrent',
+          'tests/unit/path-containment.test.ts',
+          '--timeout',
+          String(DEFAULT_FAST_TEST_TIMEOUT_MS)
+        ]
+      }
     ]);
   } finally {
     console.log = originalLog;
@@ -324,7 +372,10 @@ test.serial('affected tests isolate changed serial fast files', async () => {
 
   expect(code).toBe(0);
   expect(devCommandCalls).toEqual([
-    { command: 'bun', args: ['test', 'tests/unit/test-runner.test.ts'] }
+    {
+      command: 'bun',
+      args: ['test', 'tests/unit/test-runner.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+    }
   ]);
 });
 
@@ -372,8 +423,14 @@ test.serial('affected tests allow broad fast-suite fallback when explicitly enab
     expect(concurrentCalls.every(({ args }) => (
       invocationTestFiles(args).length <= DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE
     ))).toBe(true);
+    expect(concurrentCalls.every(({ args }) => (
+      args.slice(-2).join(' ') === `--timeout ${DEFAULT_FAST_TEST_TIMEOUT_MS}`
+    ))).toBe(true);
     for (const file of SERIAL_FAST_TEST_FILES) {
-      expect(devCommandCalls).toContainEqual({ command: 'bun', args: ['test', file] });
+      expect(devCommandCalls).toContainEqual({
+        command: 'bun',
+        args: ['test', file, '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+      });
     }
     const invokedFiles = devCommandCalls.flatMap(({ args }) => invocationTestFiles(args));
     expect([...invokedFiles].sort()).toEqual(getFastTestFilesSync());

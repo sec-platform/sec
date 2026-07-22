@@ -97,6 +97,8 @@ test('registered synthetic policy partitions every original title scope before e
 });
 
 test('synthetic immutable PASS fixture binds its exact pretty raw bytes', () => {
+  const attributes = readFileSync('.gitattributes', 'utf8').split(/\r?\n/u);
+  expect(attributes).toContain('/tests/fixtures/ci-evidence-reuse/synthetic-pass.json text eol=lf');
   const source = readFileSync('tests/fixtures/ci-evidence-reuse/synthetic-pass.json', 'utf8');
   expect(source).toBe(CodexDevelopmentSyntheticReusableEvidenceSourceV1);
   expect(CodexDevelopmentEvidenceCompositionRawDigestV1(source)).toBe(
@@ -135,7 +137,7 @@ test('unknown or cross-Work-Package policy and profile/revision drift fail close
   })).toThrow('Unknown base-registered');
   expect(() => build({ workPackageId: 'other-work-package' })).toThrow('different Work Package');
   expect(() => build({ profile: 'full' })).toThrow('supports Quick only');
-  expect(() => build({ ciRevision: 'ci-verification-v8' })).toThrow('CI revision mismatch');
+  expect(() => build({ ciRevision: 'ci-verification-v9' })).toThrow('CI revision mismatch');
 });
 
 test('immutable evidence digest, identity, runtime, argv, tree, and blob drift fail closed', () => {

@@ -1,5 +1,6 @@
 export const DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE = 8;
 export const MAX_FAST_TEST_PROCESS_SHARD_SIZE = 16;
+export const DEFAULT_FAST_TEST_TIMEOUT_MS = 180_000;
 
 export const FAST_TEST_PROCESS_ISOLATION_REGISTRY = [
   { file: 'tests/integration/overview.test.ts', reason: 'shared-workspace' },
