@@ -1,7 +1,7 @@
 ---
 title: 工程编译器产品与总体架构
 status: active
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-22
 ---
 
 # Engineering Compiler 产品与总体架构
@@ -10,9 +10,9 @@ last-reviewed: 2026-07-04
 
 ## 1. 产品定位
 
-产品工作名 `SpecEngineer`，底层品类描述为 Engineering Compiler；仓库和 CLI 当前使用 SEC。
+产品工作名 `SpecEngineer`，最终品类描述为 Engineering Workspace Compiler；仓库和 CLI 当前使用 SEC。
 
-SEC 是本地优先的工程语义编译器：读取工程规格、Block Contract、策略、验收和受治理源码，构建统一 Engineering IR，经确定性 Pass 与受限 AI Pass 生成项目并形成 Verification、Provenance、Review 和 Workbench 投影。
+SEC 是本地优先的工程工作区编译器：读取产品意图、工程规格、Block Contract、策略、验收、受治理源码或既有 workspace evidence，冻结 canonical Workspace Input Snapshot；其业务语义进入统一 Engineering IR，再经确定性多层 IR/Pass 形成独立 validated domains 与聚合 Validated Engineering Workspace Snapshot，并由此生成源码、测试、文档、Gate、Agent、Release 和 Evidence 投影。
 
 SEC 不是：
 
@@ -24,7 +24,7 @@ SEC 不是：
 
 ## 2. 核心价值
 
-最小价值链：
+当前已落地语义主链与长期产品链分别是：
 
 ```text
 Specification
@@ -34,6 +34,18 @@ Specification
   → Verification
   → Explainable Artifact
   → Upgrade / Impact / Review
+
+Product Intent / Existing Workspace
+  → Canonical Workspace Input Snapshot
+  → Engineering IR + independently validated workspace domains
+  → Validated Engineering Workspace Snapshot
+  → Application IR
+  → Behavior IR
+  → Target Program IR（SEC-TS v1 为 TypeScript Program IR）
+  → Validated target Compilation Snapshot
+  → Source / Test / Docs / Gate / Agent / Release Projections
+  → Verification / Provenance / Workbench
+  → Semantic Mutation / Rollback / Recovery
 ```
 
 平台要降低的是三类成本：
@@ -42,11 +54,11 @@ Specification
 2. **实现成本**：通过 Block、Generator 和受限 Synthesis 复用工程能力。
 3. **维护成本**：通过 Fact Provenance、Semantic Diff、Verification 和 Upgrade/Migration 控制长期漂移。
 
-## 3. 六层架构
+## 3. 分层架构
 
-### Authoring Layer
+### Authoring / Import Layer
 
-开发者声明工程意图和受治理实现：`source/app.yaml`、`source/model/**`、`source/code/**`、`source/patches/**`、私有 Block 和 Mutation。
+开发者声明工程意图和受治理实现：`source/app.yaml`、`source/model/**`、`source/code/**`、`source/patches/**`、私有 Block 和 Mutation。既有 TypeScript workspace 通过 Attach/Lift/Adopt/Normalize 导入，未知与 opaque region 保持显式。
 
 ### Semantic Contract Layer
 
@@ -56,13 +68,21 @@ Block 和 Workspace 声明 Entity、Operation、State、Event、Policy、Permiss
 
 Parser、Normalizer、Alignment、Resolver 将多种 Authoring Source 归一为版本化 Engineering IR。IR 由 Semantic Entity、Semantic Fact、Scenario 和 Provenance 构成。
 
+### Engineering Workspace domains / Validated Snapshot
+
+Canonical Workspace Input Snapshot 只冻结本次 authoring/import inputs 与 source revisions；它不是 validated IR。Repository、Documentation、Workflow/Gate、Agent Operations、Release、Product Decision 与 Evidence 各自形成独立 validated domain；最终 Validated Engineering Workspace Snapshot 只组合 Engineering IR 在内的各 domain revision 与跨域一致性。规划合同见 `docs/architecture/engineering-workspace-ir.md`，不得形成巨型 optional object 或第二套 Engineering IR。
+
+### Application / Behavior / Target Program IR
+
+Validated Engineering IR 经 Target Profile 与 Type Algebra lowering 为 Application IR、Behavior IR 和 TypeScript Program IR。每层独立 version、validate、freeze、digest；后层不得重新解释前层 authoritative semantics。规划合同见 `docs/architecture/sec-ts-ir-layers.md`。
+
 ### Compilation & Verification Layer
 
-确定性 Pass 负责 Resolve、Lower、Generate、Compose、Verify、Lock、Emit；AI 只能在 Task Envelope 授权的综合、对齐或修复任务中运行。
+确定性 Pass 负责 Resolve、Lower、Generate、Compose、Verify、Lock、Emit；AI 只能在 Task Envelope 授权的综合、对齐或修复任务中运行。Task Envelope v2 与 AI Semantic Operator 是后续阶段，不是当前 SM-4A 的组成部分。
 
 ### Artifact Layer
 
-输出真实源码、测试、数据库 Schema、部署所需文件和稳定治理 Artifact。
+输出真实源码、测试、文档、Gate、Agent、数据库 Schema、部署/发布文件和稳定治理 Artifact。
 
 ### Projection & Platform Layer
 
@@ -80,7 +100,7 @@ ExplainGraph、ReviewSummary、SemanticView、Workbench、CLI、IDE/MCP Adapter 
 
 ### Local AI/MCP Adapter
 
-向外部 Agent 暴露只读 Semantic View/Context Packet 和 Task Envelope 操作入口。外部工具 Evidence 不得提升为 authoring truth。
+向外部 Agent 暴露只读 Semantic View/Context Packet 和未来 Task Envelope 操作入口。当前 Task Envelope 仍主要服务 Slot Synthesis；外部工具 Evidence 不得提升为 authoring truth。
 
 ### Registry
 
@@ -89,21 +109,23 @@ ExplainGraph、ReviewSummary、SemanticView、Workbench、CLI、IDE/MCP Adapter 
 ## 5. Canonical 数据关系
 
 ```text
-source/** + registry contracts
-          ↓
-   Semantic Frontend
-          ↓
-     Engineering IR
-       /     |      \
-      /      |       \
-Compiler  Verification  AI Runtime
-   ↓          ↓            ↓
-project/**  evidence    bounded proposal
-      \        |          /
-       \       |         /
-        governance artifacts
+authoring sources + imported evidence
                  ↓
-      projections / workbench
+canonical workspace inputs
+                 ↓
+validated workspace domains + Engineering IR
+                 ↓
+validated Engineering Workspace Snapshot
+                 ↓
+ Application IR → Behavior IR → Target Program IR
+                         ↓
+          validated target Compilation Snapshot
+        /              |               \
+ Compiler         Verification       bounded AI proposal
+        \              |               /
+ source/test/docs/gate/agent/release projections
+                         ↓
+              review / workbench / evidence
 ```
 
 硬边界：
@@ -113,6 +135,7 @@ project/**  evidence    bounded proposal
 - `provenance.json` 当前负责 Artifact Provenance；Fact Provenance 属于 IR。
 - `ExplainGraph` 负责“为什么当前工程状态如此”的治理解释。
 - 外部 graph/provider 只能成为 Evidence/Overlay。
+- Application/Behavior/Target Program IR 与 Workspace domain 的规划 owner 分别位于 `docs/architecture/**`；当前代码存在不能被推断为这些层已经实现。
 
 ## 6. Block 与 Responsibility
 
@@ -169,3 +192,5 @@ human understanding
 4. Semantic Mutation 能经预条件、Fact Delta、Verification 和回滚边界合流。
 5. AI 能以小 Context Packet 完成受限任务，且不能扩大自身权限。
 6. 新增同类业务实体无需修改 compiler core 的业务名称分支。
+7. 同一 workspace facts 能确定性生成源码、测试、文档、Gate、Agent 与 Release 投影，且不存在第二 writer/authority。
+8. Brownfield 未知区域显式，只有完整表示并验证的模块才可 Normalize。

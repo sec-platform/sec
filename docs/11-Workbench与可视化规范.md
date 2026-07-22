@@ -1,7 +1,7 @@
 ---
 title: Workbench 与可视化规范
 status: active
-last-reviewed: 2026-07-13
+last-reviewed: 2026-07-22
 ---
 
 # Workbench 与可视化规范
@@ -225,7 +225,35 @@ Workbench 禁止直接写：
 
 Workbench 只是 `14` 第 18 节 `SemanticMutationRequestV2` 的 caller 和 plan/result renderer：它可以收集 operation 参数、增加条件/verification、展示 source owner、actual delta、Impact、diagnostics 与 terminal status；不能提交 path、伪造 `FactDelta`、覆盖派生风险/required passes/rollback，也不能在 UI 中把 blocked plan 改成 ready。
 
-v1 operation registry 只含 `add-state-transition`。Block、port、Contract Entity/Operation、permission、effect、ownership 与 cascade 操作必须等后续 registry revision；旧 View Mutation operation 不因名称相近自动获得 v2 权限。Workbench adapter 在 SM-3 executor 完成后单独接入，接入前现有 Mutation API 不得宣称提供 Semantic Mutation。
+v1 operation registry 只含 `add-state-transition`。Block、port、Contract Entity/Operation、permission、effect、ownership 与 cascade 操作必须等后续 registry revision；旧 View Mutation operation 不因名称相近自动获得 v2 权限。SM-3 executor 已进入 `main`，当前产品 next SM-4A 只接该一个 operation；在 SM-4A 合并前，现有 Mutation API 不得宣称提供 Semantic Mutation v2。
+
+### SM-4A shared adapter 与 transport
+
+CLI 与 Workbench 必须消费同一个 platform-owned product adapter：
+
+```text
+CLI command ───────┐
+                   ├→ raw transport DTO validation
+Workbench HTTP ────┘  → trusted local policy draft
+                      → Mutation-owned authorization ingress
+                      → canonical Mutation facade plan/apply/query/recover
+                      → product DTO / stable error projection
+```
+
+Adapter 只独占 raw transport DTO、trusted local product policy draft，以及产品错误/结果投影与脱敏。当前 canonical authorization normalizer/revision builder 在 Mutation kernel 内，SM-2 owner token 与 writable path-prefix policy 在 source registry 内，均未作为产品构造入口公开；因此 SM-4A 必须先由 Mutation/Compiler owner 串行暴露一个 additive authorization ingress，复用这些算法并返回 normalized context。`authorizationRevision` 仍由 `14` 的 builder 计算并由 planner 重算，canonical request/plan/result revisions 仍归 SM-1 kernel，owner-token/path-policy algorithm 与 actual source/path resolution 仍归 SM-2 source adapter。CLI、HTTP route 和 product adapter 都不生成 `allowedSourceOwnerIds` / `allowedPathPrefixes` 或重算这些结果，也不计算 risk、required Verification、Fact Delta、Impact、rollback 或 terminal state。相同 workspace、proposal 与 policy 通过两种 transport 必须由 canonical facade 返回 byte-identical request/plan binding。
+
+依赖方向固定为 Workbench server/CLI → product adapter → Compiler/Semantic Mutation public facade。新 adapter 不放入 legacy Workbench mutation module；Pipeline、Fact Delta、Impact、Verification 与 Mutation kernel 都不得反向导入 product adapter。现有 Pipeline 对 legacy Workbench mutation 的兼容依赖不能被扩张成新环，后续迁移应删除该旁路而不是添加 adapter。
+
+### Local HTTP trust boundary
+
+Workbench 是本地产品不等于任意网页可以调用。所有 mutating routes 必须满足以下组合之一：
+
+- server 只 bind loopback，并严格校验 same-origin/`Origin` 与预期 Host；或
+- 每次启动生成不可预测、进程生命周期内有效的 capability，并在每个 mutating request 上校验；仍必须限制 bind/Host，capability 不写入日志或持久 artifact。
+
+不得对写 route 使用 wildcard CORS，也不得因 GET/health 可跨域而放宽 mutation。缺失/伪造 Origin、跨站表单或 fetch、DNS rebinding Host、错误 capability、非 loopback 暴露都必须在读取 workspace 内容或构造 plan 前拒绝。错误响应只返回 stable product diagnostic，不泄露绝对路径、source bytes、secret、journal payload 或内部 stack。
+
+SM-4A HTTP surface 至少分离：plan（只读 live workspace）、apply（要求 `expectedPlanRevision`）、query 与 recover。Workbench accepted 后重新读取 canonical projection；不能再调用第二条独立 compile/write 路径。Task Envelope v2 和 AI caller 属于 SM-4B/SM-4C，不得接入该 local trust shortcut。
 
 ## 9. UI 架构
 
@@ -261,13 +289,8 @@ Provider Adapter 可以产生：
 
 ## 11. 实施顺序
 
-1. Engineering IR v1。
-2. Fact Provenance。
-3. Architecture Projection。
-4. Scenario Projection。
-5. State Projection。
-6. Unified Inspector。
-7. Semantic Diff/Impact。
-8. Semantic Mutation。
-9. Data/Contract/Effect 完整投影。
-10. UI 体验强化。
+1. Engineering IR、Fact Provenance、Architecture/Scenario/State Projection 与 Impact 基础已进入 `main`。
+2. SM-4A：共享 product adapter、CLI 与 Workbench State View 的 `add-state-transition` plan/apply/query/recover，并关闭 local HTTP trust boundary。
+3. Source Ownership、SEC-TS 多层 IR/Lowering 后补齐 Data/Contract/Effect 等完整投影。
+4. 完整 Workbench 后才进入 SM-4B Task Envelope v2 与 SM-4C AI Semantic Operator。
+5. 最后进行视觉体验强化；不得用 UI polish 代替 product transaction 闭环。

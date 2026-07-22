@@ -1,6 +1,6 @@
 # Engineering Compiler
 
-Engineering Compiler（SEC）是一个本地优先的工程语义编译器。它把应用规格、Block 合约、策略、验收和受治理源码编译为可运行项目，并生成可验证、可追踪、可解释的工程控制面。
+Engineering Compiler（SEC）是一个本地优先的工程语义编译器，也是面向完整工程闭环的 **Engineering Workspace Compiler**。它把产品意图、应用规格、Block 合约、策略、验收、受治理源码和既有工程证据编译为可运行项目，以及一致的源码、测试、文档、Gate、Agent、Release 与 Evidence 投影。
 
 SEC 不是低代码运行时、模板市场或自由 AI 编码器。长期目标是把软件开发的主要操作从“直接修改文件”提升为“声明工程语义、组合能力、约束例外、验证结果”。
 
@@ -19,17 +19,24 @@ source/app.yaml
   → explain
 ```
 
-已实现的核心能力包括 Block Registry、依赖解析、Slot 合成、Verification、Acceptance Coverage、Policy Gate、Artifact Provenance、Repair、Upgrade、Explain Graph、Review Summary、Workbench 和结构化 Mutation。
+已实现的核心能力包括 Block Registry、依赖解析、Slot 合成、Verification、Acceptance Coverage、Policy Gate、Artifact Provenance、Repair、Upgrade、Explain Graph、Review Summary、Workbench 基础、canonical/validated Engineering IR、Fact Delta、Impact Propagation，以及 Semantic Mutation SM-0～SM-3 transaction。Workbench/CLI 的 Semantic Mutation v2 产品 adapter 尚未接入；现有 legacy View Mutation 不能代表该能力。
 
-下一阶段的主任务是 **Engineering IR 与 Semantic Fact Provenance**。目标链路为：
+当前产品主线的下一项仍是 **SM-4A Workbench/CLI 最小 Semantic Mutation v2 闭环**，只接现有 `add-state-transition`。在启动该产品包前，近期工程 DAG 先以一个独立 hygiene Work Package 消除 `ir-identity.ts ↔ ir-revision.ts` 的已证实 import cycle，并保持全部 canonical revision/digest bytes 不变；该修复不扩张 SM-4A 产品范围。长期目标链路为：
 
 ```text
-Authoring Source
+Product Intent / Existing Workspace
+  → Authoring Source + imported Evidence
+  → Canonical Workspace Input Snapshot
   → Semantic Frontend
-  → Engineering IR
-  → Compilation / Verification / AI Runtime
-  → Artifact
-  → Explain / Review / Workbench Projections
+  → Engineering IR + independently validated workspace domains
+  → Validated Engineering Workspace Snapshot
+  → Application IR
+  → Behavior IR
+  → Target Program IR（SEC-TS v1 为 TypeScript Program IR）
+  → Validated target Compilation Snapshot
+  → Source / Test / Docs / Gate / Agent / Release Projections
+  → Verification / Provenance / Workbench
+  → Semantic Mutation / Rollback / Recovery
 ```
 
 `ExplainGraph` 是治理解释投影，不是 Engineering IR，也不是第二事实源。
@@ -94,9 +101,10 @@ AI 不是主控制器。平台生成 Task Envelope 与 Context Packet，限定�
 1. [01-用户能力模块化开发-主题整理稿.md](docs/01-用户能力模块化开发-主题整理稿.md)：核心命题与概念。
 2. [02-工程编译器-MVP-PRD与架构稿.md](docs/02-工程编译器-MVP-PRD与架构稿.md)：产品与总体架构。
 3. [03-MVP实施计划与路线图.md](docs/03-MVP实施计划与路线图.md)：当前阶段与开发顺序。
-4. [14-Engineering IR与语义事实规范.md](docs/14-Engineering IR与语义事实规范.md)：下一阶段语义内核。
-5. `05–11`：实现级协议。
-6. [12-编译管道与行为流图示.md](docs/12-编译管道与行为流图示.md)：主数据流图。
+4. [14-Engineering IR与语义事实规范.md](docs/14-Engineering IR与语义事实规范.md)：已落地的语义内核及其后续合同。
+5. [SEC-TS 多层 IR](docs/architecture/sec-ts-ir-layers.md)、[Engineering Workspace IR](docs/architecture/engineering-workspace-ir.md) 与 [Brownfield Import](docs/architecture/brownfield-import.md)：长期架构的 canonical 规划 owner。
+6. [当前事实](docs/work/current-state.yaml)、[滚动计划](docs/work/rolling-plan.md) 与 [唯一活动 Work Package 选择器](docs/work/active-work-package.md)：三个相互分离的近期控制面；选择器指向 canonical frozen manifest。
+7. `05–11`：实现级协议；[12-编译管道与行为流图示.md](docs/12-编译管道与行为流图示.md) 只画当前权威主数据流。
 
 测试与 CI：
 
