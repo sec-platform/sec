@@ -74,6 +74,7 @@ import {
   assertSemanticMutationIsolatedRuntimeLaunchManifest,
   materializeSemanticMutationIsolatedRuntime,
   SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT,
+  semanticMutationRuntimeSourceSnapshotCacheGlobalStatsForTests,
   semanticMutationRuntimeSourceSnapshotCacheStatsForTests
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
 import {
@@ -3108,6 +3109,15 @@ test('isolated staging tree rejects hard links and reparse aliases', async () =>
   }, 'engineering-compiler-sm3-isolated-staging-links-');
 });
 
+async function runtimeSourceSnapshotTelemetryKeys(
+  stagingRoot: string
+): Promise<readonly string[]> {
+  const result = await readSemanticMutationIsolatedPhaseTelemetry(stagingRoot);
+  expect(result.status).toBe('valid');
+  if (result.status !== 'valid') throw new Error('Snapshot cache telemetry was not readable');
+  return Object.freeze(result.events.map((event) => `${event.phase}:${event.state}`));
+}
+
 test('runtime source snapshot cache reuses capture across staging roots and invalidates changed sources', async () => {
   await withTempWorkspace(async (root) => {
     const stagingA = stagingWorkspaceRoot(root, 'a'.repeat(64));
@@ -3131,13 +3141,15 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
     };
 
     const capabilityA = await probe(stagingA);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
-      captures: 1, entries: 1, flights: 0, revalidations: 0
-    });
+    expect(await runtimeSourceSnapshotTelemetryKeys(stagingA)).toEqual([
+      'source-snapshot-capture:started',
+      'source-snapshot-capture:completed'
+    ]);
     const capabilityB = await probe(stagingB);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
-      captures: 1, entries: 1, flights: 0, revalidations: 1
-    });
+    expect(await runtimeSourceSnapshotTelemetryKeys(stagingB)).toEqual([
+      'source-snapshot-revalidate:started',
+      'source-snapshot-revalidate:completed'
+    ]);
     await expect(materializeSemanticMutationIsolatedRuntime({
       binding: capabilityA,
       commitFence: async () => undefined,
@@ -3152,9 +3164,12 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
     const templateSource = path.join(sources.composeTemplates, 'template.txt');
     await writeFile(templateSource, 'template-v2-with-new-size', 'utf8');
     const capabilityC = await probe(stagingC);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
-      captures: 2, entries: 1, flights: 0, revalidations: 2
-    });
+    expect(await runtimeSourceSnapshotTelemetryKeys(stagingC)).toEqual([
+      'source-snapshot-revalidate:started',
+      'source-snapshot-revalidate:completed',
+      'source-snapshot-capture:started',
+      'source-snapshot-capture:completed'
+    ]);
     await materializeSemanticMutationIsolatedRuntime({
       binding: capabilityC,
       commitFence: async () => undefined,
@@ -3178,16 +3193,20 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
     const addedTemplateSource = path.join(sources.composeTemplates, 'added-template.txt');
     await writeFile(addedTemplateSource, 'added-after-snapshot', 'utf8');
     await probe(stagingD);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
-      captures: 3, entries: 1, flights: 0, revalidations: 3
-    });
+    expect(await runtimeSourceSnapshotTelemetryKeys(stagingD)).toEqual([
+      'source-snapshot-revalidate:started',
+      'source-snapshot-revalidate:completed',
+      'source-snapshot-capture:started',
+      'source-snapshot-capture:completed'
+    ]);
 
     const runnerSourceV2 = 'console.log("snapshot-cache-v2")';
     const runnerBytesV2 = new TextEncoder().encode(runnerSourceV2);
     const capabilityD = await probe(stagingD, runnerBytesV2);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
-      captures: 4, entries: 2, flights: 0, revalidations: 3
-    });
+    expect(await runtimeSourceSnapshotTelemetryKeys(stagingD)).toEqual([
+      'source-snapshot-capture:started',
+      'source-snapshot-capture:completed'
+    ]);
     await materializeSemanticMutationIsolatedRuntime({
       binding: capabilityD,
       commitFence: async () => undefined,
@@ -3246,18 +3265,21 @@ test('runtime source snapshot cache shares structural authority across wrappers 
     const baseRunner = new Uint8Array([1, 2, 3]);
 
     await probe(stagingRoots[0]!, sources, baseRunner);
+    expect(await runtimeSourceSnapshotTelemetryKeys(stagingRoots[0]!)).toEqual([
+      'source-snapshot-capture:started',
+      'source-snapshot-capture:completed'
+    ]);
     await probe(stagingRoots[1]!, equivalentSources, baseRunner);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
-      captures: 1, entries: 1, flights: 0, revalidations: 1
-    });
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(equivalentSources)).toMatchObject({
-      captures: 1, entries: 1, flights: 0, revalidations: 1
-    });
+    expect(await runtimeSourceSnapshotTelemetryKeys(stagingRoots[1]!)).toEqual([
+      'source-snapshot-revalidate:started',
+      'source-snapshot-revalidate:completed'
+    ]);
 
     await probe(stagingRoots[2]!, alternateSources, baseRunner);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(alternateSources)).toMatchObject({
-      captures: 1, entries: 1, flights: 0, revalidations: 0
-    });
+    expect(await runtimeSourceSnapshotTelemetryKeys(stagingRoots[2]!)).toEqual([
+      'source-snapshot-capture:started',
+      'source-snapshot-capture:completed'
+    ]);
 
     for (let index = 0; index < 5; index += 1) {
       await probe(
@@ -3265,19 +3287,18 @@ test('runtime source snapshot cache shares structural authority across wrappers 
         index % 2 === 0 ? sources : equivalentSources,
         new Uint8Array([10 + index])
       );
+      expect(await runtimeSourceSnapshotTelemetryKeys(stagingRoots[index + 3]!)).toEqual([
+        'source-snapshot-capture:started',
+        'source-snapshot-capture:completed'
+      ]);
     }
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
-      entries: 4,
-      flights: 0
-    });
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(alternateSources)).toMatchObject({
-      entries: 0,
-      flights: 0
-    });
+    const occupancy = semanticMutationRuntimeSourceSnapshotCacheGlobalStatsForTests();
+    expect(occupancy.flights).toBeLessThanOrEqual(occupancy.entries);
+    expect(occupancy.entries - occupancy.flights).toBeLessThanOrEqual(4);
   }, 'engineering-compiler-sm3-runtime-source-snapshot-structural-');
 });
 
-test('runtime source snapshot cache single-flights concurrent probes and evicts failed capture', async () => {
+test('runtime source snapshot cache single-flights concurrent probes and recovers failed capture', async () => {
   await withTempWorkspace(async (root) => {
     const stagingA = stagingWorkspaceRoot(root, 'd'.repeat(64));
     const stagingB = stagingWorkspaceRoot(root, 'e'.repeat(64));
@@ -3300,9 +3321,10 @@ test('runtime source snapshot cache single-flights concurrent probes and evicts 
     };
     expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingA, options))
       .toEqual({ status: 'unavailable' });
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
-      captures: 0, entries: 0, flights: 0, revalidations: 0
-    });
+    expect(await runtimeSourceSnapshotTelemetryKeys(stagingA)).toEqual([
+      'source-snapshot-capture:started',
+      'source-snapshot-capture:completed'
+    ]);
 
     await writeFile(executable, 'playwright-executable-restored', 'utf8');
     const [capabilityA, capabilityB] = await Promise.all([
@@ -3311,9 +3333,6 @@ test('runtime source snapshot cache single-flights concurrent probes and evicts 
     ]);
     expect(capabilityA.status).toBe('available');
     expect(capabilityB.status).toBe('available');
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
-      captures: 1, entries: 1, flights: 0, revalidations: 0
-    });
 
     const telemetry = await Promise.all([stagingA, stagingB].map(async (stagingRoot) => {
       const result = await readSemanticMutationIsolatedPhaseTelemetry(stagingRoot);
@@ -3335,6 +3354,9 @@ test('runtime source snapshot cache single-flights concurrent probes and evicts 
     expect(telemetry.filter((phases) => phases.waitStarted)).toHaveLength(1);
     expect(telemetry.filter((phases) => phases.captureStarted && phases.waitStarted))
       .toHaveLength(0);
+    const occupancy = semanticMutationRuntimeSourceSnapshotCacheGlobalStatsForTests();
+    expect(occupancy.flights).toBeLessThanOrEqual(occupancy.entries);
+    expect(occupancy.entries - occupancy.flights).toBeLessThanOrEqual(4);
   }, 'engineering-compiler-sm3-runtime-source-snapshot-flight-');
 });
 

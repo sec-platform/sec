@@ -1,7 +1,7 @@
 schema: sec-current-state-v1
 observedMainSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
 observedMainTree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
-observedAt: "2026-07-23T06:21:43+08:00"
+observedAt: "2026-07-23T06:35:21+08:00"
 goalAuthority:
   repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
   repositoryMirrorSha256: 3c24f71c3c9c88565dc2104e9a7869db4e0369582c9b9bd0245ae29aec094038
@@ -18,13 +18,13 @@ lastMergedWorkPackage:
 activeWorkPackage:
   id: test-runtime-browser-cache-v10-bootstrap-v2
   manifest: docs/work-packages/test-runtime-browser-cache-v10-bootstrap-v2.md
-  manifestDigest: sha256:22965ed3e5a40ef9312752a200bcd2717d081e7bb7d6109caccef82762dbddb8
+  manifestDigest: sha256:357201b287634986c1a1565feade6a324e302280cf8d85c07690256c5b40d2c8
   branch: codex/test-runtime-browser-cache-v10-bootstrap-v2
   pr: null
   baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
   headSha: null
 candidateImplementation:
-  state: v2-focused-and-real-cache-sentinel-passed-awaiting-frozen-head
+  state: v2-affected-oracle-blocker-repaired-focused-passed-awaiting-new-frozen-head
   predecessorHeadSha: 528a78085fc5cb7ba51b162be9b128f88adc38d1
   predecessorTree: 263fdd9fb6f1b2ce2dbe604ccc05441b7ec5d97f
   predecessorChangedPathCount: 33
@@ -42,10 +42,10 @@ candidateImplementation:
       testedHead: 528a78085fc5cb7ba51b162be9b128f88adc38d1
       result: 69-pass-0-fail-529-assertions
     structuralSnapshotCache:
-      testedState: working-tree-over-528a780
+      testedState: working-tree-over-e027ba6
       command: bun-test-semantic-mutation-isolated-child-fence-runtime-source-snapshot-cache
-      result: 3-pass-1-skip-0-fail-42-assertions
-      durationMs: 5370
+      result: 3-pass-1-skip-0-fail-62-assertions
+      durationMs: 5020
     realCachePhaseSentinel:
       testedState: working-tree-over-528a780
       command: bun-test-exact-real-canonical-runtime-source-snapshot-cache-title
@@ -64,10 +64,25 @@ candidateImplementation:
       childOutcomeFiles: 0
       childProgressCheckpoints: 0
       artifact: .tmp/runtime-browser-cache-v10-phase-attribution.json
-      laterDiff: import-normalization-and-synthetic-only-bounded-eviction-assertion
+      laterDiff: test-only-staging-telemetry-oracle-and-global-occupancy-seam
       reusableByDiffImpact: true
     invalidation: changes-to-the-covered-owner-or-test-surfaces
-  exactHeadEvidence: absent-v2-head-not-frozen
+  affectedFailureOnPriorHead:
+    testedHead: e027ba664faa42f341cb7f55d3e3becf24c4a911
+    baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+    command: SEC_AFFECTED_TESTS_BASE-equals-base-bun-run-test-affected
+    result: 111-pass-2-skip-2-fail-822-assertions
+    durationMs: 161130
+    failedScope: two-runtime-source-snapshot-cache-tests
+    rootCause: per-authority-live-lru-slot-counters-were-an-unstable-parallel-test-oracle
+    productCacheFailure: false
+    disposition: failed-head-invalid-new-head-required
+  focusedCorrection:
+    authority: per-staging-root-path-free-phase-telemetry-plus-global-settled-slot-bound
+    completedTelemetryMeaning: phase-wrapper-terminated-not-operation-succeeded
+    settledSlotAssertion: entries-minus-flights-less-than-or-equal-to-4
+    activeFlightEvictionAllowed: false
+  exactHeadEvidence: failed-on-e027ba6-new-v2-head-not-frozen
 status: active
 nextReconciliationPoint:
   - freeze-v2-candidate-head
@@ -106,7 +121,7 @@ independentReview:
     currentDiffRevalidationRequired: true
   evidence:
     lastVerdict: blocker
-    exactHeadPlanState: canonical-affected-failed-new-head-required
+    exactHeadPlanState: e027ba6-canonical-affected-failed-oracle-repaired-new-head-required
 runtimeBrowserCacheBlocker:
   discoveredOnCandidate: bca9102dc2a2bf865fff94b4e521383d8afac0ba
   candidateBase: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
@@ -153,7 +168,7 @@ runtimeBrowserCacheBlocker:
     canonicalSourcesObjectRecreatedPerProbe: true
     exactRunPhaseTelemetryAvailable: false
   v2FocusedEvidence:
-    structuralCacheResult: 3-pass-1-skip-0-fail-42-assertions
+    structuralCacheResult: 3-pass-1-skip-0-fail-62-assertions
     realCacheSentinelResult: 1-pass-0-fail-37-assertions
     realCacheCaptureCount: 1
     realCacheRevalidationCount: 2
@@ -161,6 +176,13 @@ runtimeBrowserCacheBlocker:
     realCacheSnapshotBytes: 1158544347
     materializeAndLaunchProofPassed: true
     childStarted: false
+  v2PriorHeadAffected:
+    head: e027ba664faa42f341cb7f55d3e3becf24c4a911
+    result: 111-pass-2-skip-2-fail-822-assertions
+    durationMs: 161130
+    failureClass: parallel-test-oracle-read-evictable-live-lru-slot-counters
+    implementationInvalidated: false
+    evidenceDisposition: failed-head-cannot-be-reused-as-pass
   replacementDisposition: v1-absorbed-by-structural-authority-key-v2
 suspendedWorkPackages:
   - id: sm4a-trusted-authorization-ingress-v1
@@ -270,7 +292,7 @@ gitNexusImpact:
     upstream: 37
     affectedProcesses: 9
 blockers:
-  - v2-candidate-head-not-frozen
+  - corrected-v2-candidate-head-not-frozen
   - new-head-canonical-affected-not-run
   - exact-head-risk-static-and-final-review-evidence-absent
 completedCapabilities:

@@ -1555,6 +1555,18 @@ export function semanticMutationRuntimeSourceSnapshotCacheStatsForTests(
   });
 }
 
+/** Test-only global LRU occupancy; active flights are separately visible because they are not evictable. */
+export function semanticMutationRuntimeSourceSnapshotCacheGlobalStatsForTests(): Readonly<{
+  entries: number;
+  flights: number;
+}> {
+  const slots = [...runtimeSourceSnapshots.values()];
+  return Object.freeze({
+    entries: slots.length,
+    flights: slots.filter((slot) => slot.flight !== undefined).length
+  });
+}
+
 /**
  * Test-only launch-proof seam. It exercises the production structural scan,
  * byte hash, hardlink/reparse checks, and post-hash identity pass without
