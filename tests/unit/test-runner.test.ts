@@ -8,7 +8,7 @@ import {
   planFastTestProcesses
 } from '../../platform/dev-runner/fast-test-policy.ts';
 
-const commandCalls: { command: string; args: string[] }[] = [];
+const commandCalls: { command: string; args: string[]; stdoutMode: 'bytes' | 'text' }[] = [];
 const devCommandCalls: { command: string; args: string[] }[] = [];
 const devCommandExitCodes: number[] = [];
 const serialFastTestFileSet = new Set<string>(SERIAL_FAST_TEST_FILES);
@@ -25,20 +25,30 @@ mock.module('../../platform/shared/fs.ts', () => ({
   }
 }));
 
-mock.module('../../platform/shared/process.ts', () => ({
-  runCommand: async (command: string, args: string[]) => {
-    commandCalls.push({ command, args });
+const processCommand = (
+  command: string,
+  args: string[],
+  stdoutMode: 'bytes' | 'text'
+): { code: number; stdout: string | Uint8Array; stderr: string } => {
+  commandCalls.push({ command, args, stdoutMode });
+  const stdout = (value: string): string | Uint8Array => (
+    stdoutMode === 'bytes' ? new TextEncoder().encode(value) : value
+  );
 
-    if (command === 'git' && args.includes('diff')) {
-      return { code: 0, stdout: changedFiles.map((file) => `M\0${file}\0`).join(''), stderr: '' };
-    }
-
-    if (command === 'git' && args.includes('ls-files')) {
-      return { code: 0, stdout: '', stderr: '' };
-    }
-
-    return { code: 1, stdout: '', stderr: `Unexpected command: ${command} ${args.join(' ')}` };
+  if (command === 'git' && args.includes('diff')) {
+    return { code: 0, stdout: stdout(changedFiles.map((file) => `M\0${file}\0`).join('')), stderr: '' };
   }
+
+  if (command === 'git' && args.includes('ls-files')) {
+    return { code: 0, stdout: stdout(''), stderr: '' };
+  }
+
+  return { code: 1, stdout: stdout(''), stderr: `Unexpected command: ${command} ${args.join(' ')}` };
+};
+
+mock.module('../../platform/shared/process.ts', () => ({
+  runCommand: async (command: string, args: string[]) => processCommand(command, args, 'text'),
+  runCommandBytes: async (command: string, args: string[]) => processCommand(command, args, 'bytes')
 }));
 
 mock.module('../../platform/dev-runner/command-runner.ts', () => ({
@@ -244,6 +254,16 @@ test.serial('affected tests skip broad fast-suite fallback for unmapped source c
   } finally {
     console.log = originalLog;
   }
+});
+
+test.serial('affected-test Git discovery requests byte-preserving stdout through the shared process seam', async () => {
+  const code = await runAffectedTests();
+
+  expect(code).toBe(0);
+  expect(commandCalls).toHaveLength(2);
+  expect(commandCalls.every((call) => call.command === 'git' && call.stdoutMode === 'bytes')).toBe(true);
+  expect(commandCalls.some((call) => call.args.includes('diff'))).toBe(true);
+  expect(commandCalls.some((call) => call.args.includes('ls-files'))).toBe(true);
 });
 
 test.serial('affected tests map semantic Contract files through explicit contract ownership', async () => {

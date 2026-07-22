@@ -6,14 +6,21 @@ import {
   buildCiQuickGatePlan,
   CI_VERIFICATION_PR_DISPATCH_TYPE,
   CI_VERIFICATION_PR_EVENT,
+  CodexDevelopmentBuildVerificationPlanV1,
+  CodexDevelopmentCanonicalChangedFilesV1,
   formatCiContract
 } from '../../platform/shared/ci-contract.ts';
+import {
+  parseGitChangedFileOutput,
+  parseGitChangedRecordsOutput
+} from '../../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import {
   getSlowTestSuitesSync,
   slowTestPrRiskBaselineSuiteIds,
   slowTestSuiteIds
 } from '../../platform/shared/test-budget-contract.ts';
+import { CodexDevelopmentBuildVerificationScopeInventoryV1 } from '../../platform/shared/verification-scope-inventory.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import {
   expectCiContractSelfConsistent,
@@ -50,7 +57,7 @@ test('CI contract counts and produced paths are self-consistent', () => {
 test('CI contract text exposes execution and logical lane split for workflow audits', () => {
   const formatted = formatCiContract(buildCiContract());
 
-  expect(formatted).toContain('Verification contract revision: ci-verification-v6');
+  expect(formatted).toContain('Verification contract revision: ci-verification-v8');
   expect(formatted).toContain('Execution model: frozen-delivery-single-runner');
   expect(formatted).toContain('PR workflow event: repository_dispatch');
   expect(formatted).toContain('PR dispatch type: sec-verify-frozen-v1');
@@ -130,6 +137,84 @@ test('CI impact ownership includes mandatory validation sentinels and roadmap au
     reasons: ['ownership-impact'],
     resolved: true
   });
+});
+
+test('V1 Quick resolves the complete PR #133 documentation and control-plane path set', () => {
+  const plan = CodexDevelopmentBuildVerificationPlanV1('quick', [
+    'README.md',
+    'docs/00-文档索引与一致性规则.md',
+    'docs/02-工程编译器-MVP-PRD与架构稿.md',
+    'docs/03-MVP实施计划与路线图.md',
+    'docs/04-AI自主实现执行蓝图.md',
+    'docs/09-AI Runtime、任务信封与治理规范.md',
+    'docs/11-Workbench与可视化规范.md',
+    'docs/14-Engineering IR与语义事实规范.md',
+    'docs/architecture/brownfield-import.md',
+    'docs/architecture/engineering-workspace-ir.md',
+    'docs/architecture/sec-ts-ir-layers.md',
+    'docs/goals/SEC-Engineering-Workspace-Compiler.md',
+    'docs/governance/nexus-absorption-and-conformance.md',
+    'docs/work/current-state.yaml',
+    'docs/governance/nexus-absorption-ledger.yaml',
+    'docs/governance/nexus-absorption-report.md',
+    'docs/work/active-work-package.md',
+    'docs/work/rolling-plan.md',
+    'docs/work-packages/phase-0-current-reality-rebase-v1.md'
+  ]);
+
+  expect(plan.selectionResolved).toBe(true);
+  expect(plan.selectionReasons).toEqual(['ownership-impact']);
+  expect(plan.affectedOwners).toEqual(['roadmap-authority']);
+  expect(plan.gates.map((gate) => gate.id)).toEqual([
+    'docs-doctor',
+    'typecheck',
+    'affected-tests'
+  ]);
+});
+
+test('V1 changed-file canonicalization shares the repository path contract', () => {
+  expect(CodexDevelopmentCanonicalChangedFilesV1([
+    'docs/work/current-state.yaml',
+    'README.md',
+    'README.md'
+  ])).toEqual(['README.md', 'docs/work/current-state.yaml']);
+
+  for (const file of [
+    '',
+    '/docs/work/current-state.yaml',
+    'C:/absolute.md',
+    'C:relative.md',
+    'file:/docs/readme.md',
+    'docs\\work\\current-state.yaml',
+    'docs/file:stream.md',
+    'docs//x.md',
+    'docs/./x.md',
+    'docs/work/../evidence/probe.yaml',
+    'docs/work/\0state.yaml',
+    'docs/e\u0301.md'
+  ]) {
+    expect(() => CodexDevelopmentCanonicalChangedFilesV1([file])).toThrow(
+      'not canonical repository-relative POSIX'
+    );
+  }
+});
+
+test('Git raw path identity reaches V1 canonical validation without separator laundering', () => {
+  const raw = new TextEncoder().encode('M\0docs\\work\\current-state.yaml\0');
+  const changedFiles = parseGitChangedFileOutput(raw);
+  expect(changedFiles).toEqual(['docs\\work\\current-state.yaml']);
+  expect(() => CodexDevelopmentBuildVerificationPlanV1('quick', changedFiles)).toThrow(
+    'not canonical repository-relative POSIX'
+  );
+  expect(() => CodexDevelopmentBuildVerificationScopeInventoryV1({
+    profile: 'quick',
+    changedFiles,
+    runtime: 'bun@test',
+    currentHead: 'a'.repeat(40),
+    baseHead: 'b'.repeat(40),
+    changedRecords: parseGitChangedRecordsOutput(raw),
+    gitBlob: () => null
+  })).toThrow('not canonical repository-relative POSIX');
 });
 
 test('Ticket semantic Contract impact selects the named mandatory vertical slow suite', () => {

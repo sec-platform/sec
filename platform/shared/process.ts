@@ -16,6 +16,12 @@ export interface CommandResult {
   stderr: string;
 }
 
+export interface ByteCommandResult {
+  code: number;
+  stdout: Uint8Array;
+  stderr: string;
+}
+
 export interface RunCommandOptions {
   beforeSpawn?: CommitFence;
   cwd: string;
@@ -140,11 +146,24 @@ async function terminateCommandProcessTree(child: ChildProcess): Promise<void> {
   if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
 }
 
-export async function runCommand(
+function runCommandCapture(
   command: string,
   args: string[],
-  options: RunCommandOptions
-): Promise<CommandResult> {
+  options: RunCommandOptions,
+  stdoutMode: 'bytes'
+): Promise<ByteCommandResult>;
+function runCommandCapture(
+  command: string,
+  args: string[],
+  options: RunCommandOptions,
+  stdoutMode: 'text'
+): Promise<CommandResult>;
+async function runCommandCapture(
+  command: string,
+  args: string[],
+  options: RunCommandOptions,
+  stdoutMode: 'bytes' | 'text'
+): Promise<CommandResult | ByteCommandResult> {
   const inheritedEnv = options.envMode === 'replace' ? {} : process.env;
   const env = Object.fromEntries(
     Object.entries({
@@ -156,7 +175,7 @@ export async function runCommand(
   options.signal?.throwIfAborted();
   await options.beforeSpawn?.();
   options.signal?.throwIfAborted();
-  return new Promise<CommandResult>((resolve, reject) => {
+  return new Promise<CommandResult | ByteCommandResult>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
       env,
@@ -164,6 +183,7 @@ export async function runCommand(
     });
 
     let stdout = '';
+    const stdoutChunks: Buffer[] = [];
     let stderr = '';
 
     let settled = false;
@@ -202,7 +222,11 @@ export async function runCommand(
     }
 
     child.stdout.on('data', (chunk) => {
-      stdout += String(chunk);
+      if (stdoutMode === 'bytes') {
+        stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      } else {
+        stdout += String(chunk);
+      }
     });
     child.stderr.on('data', (chunk) => {
       stderr += String(chunk);
@@ -214,13 +238,37 @@ export async function runCommand(
       if (settled || terminating) return;
       settled = true;
       cleanup();
-      resolve({
-        code: code ?? 1,
-        stdout,
-        stderr
-      });
+      if (stdoutMode === 'bytes') {
+        resolve({
+          code: code ?? 1,
+          stdout: new Uint8Array(Buffer.concat(stdoutChunks)),
+          stderr
+        });
+      } else {
+        resolve({
+          code: code ?? 1,
+          stdout,
+          stderr
+        });
+      }
     });
   });
+}
+
+export function runCommand(
+  command: string,
+  args: string[],
+  options: RunCommandOptions
+): Promise<CommandResult> {
+  return runCommandCapture(command, args, options, 'text');
+}
+
+export function runCommandBytes(
+  command: string,
+  args: string[],
+  options: RunCommandOptions
+): Promise<ByteCommandResult> {
+  return runCommandCapture(command, args, options, 'bytes');
 }
 
 export async function runCommandWithRetry(

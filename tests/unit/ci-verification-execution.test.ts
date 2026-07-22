@@ -58,7 +58,7 @@ test('CI verification writes one exact-head passed Evidence V2 after all focused
   expect(calls).toEqual(['typecheck', 'affected-tests']);
   expect(captured.evidence).toMatchObject({
     schema: 'codex-development-verification-evidence-v2',
-    contractRevision: 'ci-verification-v6',
+    contractRevision: 'ci-verification-v8',
     kind: 'verification',
     profile: 'quick',
     headSha: HEAD,
@@ -72,6 +72,38 @@ test('CI verification writes one exact-head passed Evidence V2 after all focused
   });
   expect(captured.evidence?.gates.map((gate) => gate.status)).toEqual(['passed', 'passed']);
   expect(captured.evidence?.evidenceDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+});
+
+test('CI verification reaches focused gates for repository and governed control-plane documentation', async () => {
+  const captured: { evidence?: CodexDevelopmentVerificationEvidenceV2 } = {};
+  const calls: string[] = [];
+  const code = await CodexDevelopmentCiVerificationMain({
+    argv: ['--profile', 'quick', '--expected-head', HEAD],
+    env: { SEC_CHANGED_BASE: BASE, SEC_AFFECTED_TESTS_BASE: BASE },
+    now: clock(),
+    gitRevision,
+    trackedTreeIsClean: () => true,
+    changedFiles: () => [
+      'README.md',
+      'docs/03-MVP实施计划与路线图.md',
+      'docs/work/current-state.yaml',
+      'docs/governance/nexus-absorption-ledger.yaml'
+    ],
+    runGate: async ({ id }) => {
+      calls.push(id);
+      return { code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' };
+    },
+    writeEvidence: (_path, value) => { captured.evidence = value; }
+  });
+
+  expect(code).toBe(0);
+  expect(calls).toEqual(['docs-doctor', 'typecheck', 'affected-tests']);
+  expect(captured.evidence).toMatchObject({
+    contractRevision: 'ci-verification-v8',
+    status: 'passed',
+    selectionResolved: true,
+    failure: null
+  });
 });
 
 test('CI verification default writer publishes one canonical file without temporary residue', async () => {
@@ -194,7 +226,7 @@ for (const scenario of [
     expect(writes).toBe(1);
     expect(captured.evidence).toMatchObject({
       schema: 'codex-development-verification-evidence-v2',
-      contractRevision: 'ci-verification-v6',
+      contractRevision: 'ci-verification-v8',
       kind: 'verification',
       status: 'failed'
     });

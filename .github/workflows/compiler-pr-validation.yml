@@ -141,7 +141,9 @@ jobs:
               'docs/scripts/docs-doctor.ts',
               'package.json',
               'platform/dev-runner.ts',
+              'platform/shared/active-documentation-contract.ts',
               'platform/shared/affected-test-inventory.ts',
+              'platform/shared/bun-runtime-version.ts',
               'platform/shared/ci-artifact-contract.ts',
               'platform/shared/ci-artifact-types.ts',
               'platform/shared/ci-contract.ts',
@@ -162,6 +164,7 @@ jobs:
               'platform/shared/platform-command.ts',
               'platform/shared/process.ts',
               'platform/shared/project-runtime.ts',
+              'platform/shared/repository-path-contract.ts',
               'platform/shared/runtime-dependency-spec.ts',
               'platform/shared/test-budget-contract.ts',
               'platform/shared/test-impact-contract.ts',
@@ -170,6 +173,7 @@ jobs:
               'scripts/ci-pr-risk.ts',
               'scripts/ci-verification.ts',
               'scripts/ci-workspace-fast.ts',
+              'scripts/install-git-hooks.ts',
               'tests/setup/runtime-deps.setup.ts',
               'tsconfig.json'
             ]);
@@ -232,7 +236,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sec-verification-v7-${{ steps.verification.outputs.profile }}-pr-${{ steps.verification.outputs.pull-request }}-base-${{ steps.verification.outputs.base }}-head-${{ steps.verification.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: sec-verification-v8-${{ steps.verification.outputs.profile }}-pr-${{ steps.verification.outputs.pull-request }}-base-${{ steps.verification.outputs.base }}-head-${{ steps.verification.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/ci-verification-evidence.json
           if-no-files-found: error
           retention-days: 90
