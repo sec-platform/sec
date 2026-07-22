@@ -12,6 +12,19 @@ test('test impact classifies every P0-7 source category deterministically', () =
   expect(classifyTestImpactSource('platform/registry/official/ticket.basic/block.manifest.yaml')).toBe('manifest');
   expect(classifyTestImpactSource('platform/registry/official/ticket.basic/contracts/ticket.yaml')).toBe('semantic-contract');
   expect(classifyTestImpactSource('source/model/app.plan.yaml')).toBe('source-model');
+  for (const file of [
+    'README.md',
+    'docs/03-MVP实施计划与路线图.md',
+    'docs/work/current-state.yaml',
+    'docs/work/manifest.yaml',
+    'docs/governance/contracts/policy.yaml',
+    'docs/governance/nexus-absorption-ledger.yaml'
+  ]) expect(classifyTestImpactSource(file)).toBe('active-documentation');
+  for (const file of [
+    'docs/evidence/unowned.yaml',
+    'docs/project-state.json',
+    'docs/architecture/unowned.yaml'
+  ]) expect(classifyTestImpactSource(file)).toBeNull();
 });
 
 test('test impact selector includes tests that directly import changed sources', () => {

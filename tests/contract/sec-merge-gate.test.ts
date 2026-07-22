@@ -27,7 +27,10 @@ import type {
   CodexDevelopmentExactGitBlobBytesV1,
   CodexDevelopmentExactGitBlobV1
 } from '../../platform/shared/ci-evidence-reuse-contract.ts';
-import { parseGitChangedRecordsOutput } from '../../platform/shared/ci-git-changed-files.ts';
+import {
+  decodeGitPathOutput,
+  parseGitChangedRecordsOutput
+} from '../../platform/shared/ci-git-changed-files.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
 import { CodexDevelopmentCiVerificationMain } from '../../scripts/ci-verification.ts';
 import {
@@ -126,7 +129,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: ${requiredProfile}
-ciRevision: ci-verification-v6
+ciRevision: ci-verification-v8
 tasks:
   - id: implementation
     owner: implementation-writer
@@ -170,12 +173,14 @@ function refinalizeEvidence(
   return CodexDevelopmentFinalizeVerificationEvidenceV2({ ...draft, ...patch });
 }
 
-function fixture(manifest = manifestSource()) {
+function fixture(
+  manifest = manifestSource(),
+  changedFiles = ['source/model/semantic-contracts.yaml']
+) {
   const manifestBytes = Buffer.from(manifest);
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes);
   const manifestBlobSha = gitBlobSha(manifestBytes);
   const parsedManifest = CodexDevelopmentParseWorkPackageManifestV1(manifest, MANIFEST_PATH);
-  const changedFiles = ['source/model/semantic-contracts.yaml'];
   const plan = CodexDevelopmentBuildVerificationPlanV1(parsedManifest.requiredProfile, changedFiles);
   const scopeRequest = {
     schema: 'codex-development-scope-attestation-request-v1',
@@ -205,7 +210,7 @@ function fixture(manifest = manifestSource()) {
   } as const;
   const attestation = CodexDevelopmentBuildScopeAttestationV1(scopeRequest, manifestBytes);
   const rawEvidence = CodexDevelopmentFinalizeVerificationEvidenceV2({
-    contractRevision: 'ci-verification-v6',
+    contractRevision: 'ci-verification-v8',
     kind: 'verification',
     profile: parsedManifest.requiredProfile,
     headSha: HEAD,
@@ -255,7 +260,7 @@ function fixture(manifest = manifestSource()) {
     }
   });
   const attestationName = `sec-scope-attestation-v1-pr-123-base-${BASE}-head-${HEAD}-manifest-${manifestDigest.slice(7)}-run-100-attempt-1`;
-  const verificationName = `sec-verification-v7-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
+  const verificationName = `sec-verification-v8-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
   const rawInput: CodexDevelopmentMergeGateInputV1 = {
     schema: 'codex-development-merge-gate-input-v1',
     repository: 'sec-platform/sec',
@@ -276,7 +281,7 @@ function fixture(manifest = manifestSource()) {
     manifestPath: MANIFEST_PATH,
     manifestBlobSha,
     manifestByteLength: manifestBytes.byteLength,
-    changedRecords: [{ status: 'changed', path: 'source/model/semantic-contracts.yaml' }],
+    changedRecords: changedFiles.map((repositoryPath) => ({ status: 'changed' as const, path: repositoryPath })),
     checkedAt: CHECKED_AT,
     attestationWorkflowId: 10,
     verificationWorkflowId: 20,
@@ -341,7 +346,7 @@ const P0_TEST_FILES = [
 
 function p0ManifestSource(schema: 'v1' | 'v2'): string {
   const revision = schema === 'v1'
-    ? 'requiredProfile: quick\nciRevision: ci-verification-v6\n'
+    ? 'requiredProfile: quick\nciRevision: ci-verification-v8\n'
     : `evidenceComposition:\n  policyId: ${CodexDevelopmentSm3P0EvidencePolicyIdV1}\n`;
   return `---
 schema: codex-development-work-package-${schema}
@@ -373,7 +378,11 @@ async function p0MergeFixture() {
     return encoding === 'utf8' ? String(result.stdout) : new Uint8Array(result.stdout as Buffer);
   };
   const tree = (ref: string): Map<string, CodexDevelopmentExactGitBlobV1> => {
-    const entries = String(git(['ls-tree', '-r', '-z', '--full-tree', ref])).split('\0').filter(Boolean);
+    const output = decodeGitPathOutput(
+      git(['ls-tree', '-r', '-z', '--full-tree', ref], 'buffer') as Uint8Array,
+      'tree-path'
+    );
+    const entries = output.split('\0').filter(Boolean);
     const result = new Map<string, CodexDevelopmentExactGitBlobV1>();
     for (const entry of entries) {
       const match = /^(100644|100755) blob ([0-9a-f]{40})\t(.+)$/u.exec(entry);
@@ -417,10 +426,10 @@ async function p0MergeFixture() {
     };
   };
   const changedRecords = [
-    ...parseGitChangedRecordsOutput(String(git([
+    ...parseGitChangedRecordsOutput(git([
     '-c', 'core.quotepath=false', 'diff', '--name-status', '-z', '--find-renames', '--find-copies',
     '--diff-filter=ACDMRTUXB', P0_BASE, P0_HEAD
-    ]))),
+    ], 'buffer') as Uint8Array),
     { status: 'changed' as const, path: P0_RUN_RUNTIME },
     { status: 'added' as const, path: P0_INVOCATION_CONTRACT },
     { status: 'changed' as const, path: P0_RUNTIME_PLAN },
@@ -542,7 +551,7 @@ async function p0MergeFixture() {
     },
     verificationArtifact: {
       id: 2000,
-      name: `sec-verification-v7-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
+      name: `sec-verification-v8-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
       digest: `sha256:${'5'.repeat(64)}`,
       expired: false,
       expiresAt: EXPIRES_AT,
@@ -607,11 +616,124 @@ const TCB_REVIEWED_SUT_EDGES = new Set([
   'scripts/ci-workspace-fast.ts -> platform/orchestrator.ts'
 ]);
 
-function runtimeRelativeImports(repositoryPath: string): string[] {
-  const absolutePath = path.join(compilerRoot, ...repositoryPath.split('/'));
-  const source = readFileSync(absolutePath, 'utf8');
+const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
+  'globby',
+  'lodash-es',
+  'node:crypto',
+  'node:fs',
+  'node:fs/promises',
+  'node:path',
+  'node:url',
+  'ts-morph',
+  'typescript',
+  'yaml'
+]);
+
+const TCB_CLASSIFIED_EXTERNAL_IMPORTS = new Set([
+  'bun',
+  'node:child_process',
+  'node:module',
+  'node:worker_threads'
+]);
+
+const TCB_BUN_SAFE_IMPORTS = new Set([
+  'Glob'
+]);
+
+const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
+  'platform/dev-runner.ts::function-declaration:reenterWithResolvedDependencies::spawnSync#1',
+  'platform/dev-runner/command-runner.ts::function-declaration:runDevCommand::spawn#1',
+  'platform/dev-runner/import-organizer.ts::function-declaration:changedTypeScriptFiles::spawnSync#1',
+  'platform/dev-runner/import-organizer.ts::function-declaration:gitBytes::spawnSync#1',
+  'platform/dev-runner/import-organizer.ts::function-declaration:gitText::spawnSync#1',
+  'platform/dev-runner/import-organizer.ts::function-declaration:tryResolveGitCommit::spawnSync#1',
+  'platform/shared/process.ts::function-declaration:runCommandCapture::spawn#1',
+  'platform/shared/process.ts::function-declaration:terminateCommandProcessTree::spawn#1',
+  'scripts/ci-pr-risk.ts::function-declaration:defaultChangedFiles::spawnSync#1',
+  'scripts/ci-pr-risk.ts::function-declaration:defaultGitRevision::spawnSync#1',
+  'scripts/ci-pr-risk.ts::function-declaration:defaultRunGate::spawn#1',
+  'scripts/ci-pr-risk.ts::function-declaration:defaultTrackedTreeIsClean::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:defaultChangedFiles::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:defaultChangedRecords::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:defaultGitBlob::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:defaultGitFiles::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:defaultGitRevision::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:defaultReadGitBlob::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:defaultRunGate::spawn#1',
+  'scripts/ci-verification.ts::function-declaration:defaultTrackedTreeIsClean::spawnSync#1',
+  'scripts/codex/merge-gate.ts::function-declaration:mergeGateGitResolvers>const-arrow:run::spawnSync#1',
+  'scripts/install-git-hooks.ts::function-declaration:gitText::spawnSync#1'
+]);
+
+const TCB_CHILD_PROCESS_LOADERS = new Set([
+  'exec',
+  'execFile',
+  'execFileSync',
+  'execSync',
+  'fork',
+  'spawn',
+  'spawnSync'
+]);
+
+const TCB_BUN_PROCESS_LOADERS = new Set([
+  'Bun.spawn',
+  'Bun.spawnSync'
+]);
+
+const TCB_BUN_SAFE_GLOBAL_MEMBERS = new Set([
+  'version'
+]);
+
+const TCB_GLOBAL_THIS_RUNTIME_LOADERS = new Set([
+  'eval',
+  'Function',
+  'importScripts',
+  'require',
+  'Worker'
+]);
+
+const TCB_IMPORT_META_SAFE_MEMBERS = new Set([
+  'dir',
+  'main',
+  'url'
+]);
+
+const TCB_FORBIDDEN_GLOBAL_ALIASES = new Set([
+  'global',
+  'self'
+]);
+
+const TCB_PROCESS_SAFE_MEMBERS = new Set([
+  'arch',
+  'argv',
+  'cwd',
+  'env',
+  'execPath',
+  'exit',
+  'exitCode',
+  'kill',
+  'pid',
+  'platform',
+  'stderr',
+  'stdout',
+  'versions'
+]);
+
+function runtimeRelativeImportsFromSource(
+  repositoryPath: string,
+  source: string,
+  reviewedProcessDispatchers: Set<string> = new Set()
+): string[] {
   const sourceFile = ts.createSourceFile(repositoryPath, source, ts.ScriptTarget.Latest, true);
   const specifiers: string[] = [];
+  const bunProcessBindings = new Map<string, string>();
+  const childProcessBindings = new Map<string, string>();
+  const childProcessNamespaces = new Set<string>();
+  const rejectUnmodeledLoader = (loader: string): never => {
+    throw new Error(
+      `TCB runtime loader is outside the relative ESM closure model: ${repositoryPath} (${loader}).`
+    );
+  };
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
       const clause = statement.importClause;
@@ -622,16 +744,470 @@ function runtimeRelativeImports(repositoryPath: string): string[] {
         && clause.name === undefined
         && clause.namedBindings.elements.every((element) => element.isTypeOnly)
       ) continue;
-      specifiers.push(statement.moduleSpecifier.text);
+      const moduleSpecifier = statement.moduleSpecifier.text;
+      const namedBindings = clause?.namedBindings;
+      const namespaceBindings = [
+        clause?.name?.text,
+        namedBindings && ts.isNamespaceImport(namedBindings) ? namedBindings.name.text : undefined
+      ].filter((binding): binding is string => binding !== undefined);
+      const runtimeNamedImports = namedBindings && ts.isNamedImports(namedBindings)
+        ? namedBindings.elements.filter((element) => !element.isTypeOnly)
+        : [];
+      if (TCB_CLASSIFIED_EXTERNAL_IMPORTS.has(moduleSpecifier)) {
+        const runtimeClause = clause ?? rejectUnmodeledLoader(`side-effect ${moduleSpecifier} import`);
+        if (moduleSpecifier === 'bun') {
+          if (runtimeClause.name || (namedBindings && ts.isNamespaceImport(namedBindings))) {
+            rejectUnmodeledLoader('bun default/namespace import');
+          }
+          if (runtimeNamedImports.length === 0) {
+            rejectUnmodeledLoader('bun import without a classified runtime binding');
+          }
+          for (const element of runtimeNamedImports) {
+            const importedName = element.propertyName?.text ?? element.name.text;
+            if (TCB_BUN_SAFE_IMPORTS.has(importedName)) continue;
+            const loader = `Bun.${importedName}`;
+            if (!TCB_BUN_PROCESS_LOADERS.has(loader)) {
+              rejectUnmodeledLoader(`unclassified bun binding ${importedName}`);
+            }
+            bunProcessBindings.set(element.name.text, loader);
+          }
+          continue;
+        }
+        if (moduleSpecifier === 'node:child_process') {
+          if (namespaceBindings.length === 0 && runtimeNamedImports.length === 0) {
+            rejectUnmodeledLoader('node:child_process import without a classified runtime binding');
+          }
+          for (const binding of namespaceBindings) childProcessNamespaces.add(binding);
+          for (const element of runtimeNamedImports) {
+            const importedName = element.propertyName?.text ?? element.name.text;
+            if (!TCB_CHILD_PROCESS_LOADERS.has(importedName)) {
+              rejectUnmodeledLoader(`unclassified node:child_process binding ${importedName}`);
+            }
+            childProcessBindings.set(element.name.text, importedName);
+          }
+          continue;
+        }
+        rejectUnmodeledLoader(`runtime ${moduleSpecifier} import`);
+      }
+      specifiers.push(moduleSpecifier);
     }
     if (
       ts.isExportDeclaration(statement)
       && !statement.isTypeOnly
       && statement.moduleSpecifier
       && ts.isStringLiteral(statement.moduleSpecifier)
-    ) specifiers.push(statement.moduleSpecifier.text);
+    ) {
+      const hasRuntimeExport = !statement.exportClause
+        || !ts.isNamedExports(statement.exportClause)
+        || statement.exportClause.elements.some((element) => !element.isTypeOnly);
+      if (hasRuntimeExport) {
+        if (TCB_CLASSIFIED_EXTERNAL_IMPORTS.has(statement.moduleSpecifier.text)) {
+          rejectUnmodeledLoader(`runtime ${statement.moduleSpecifier.text} re-export`);
+        }
+        specifiers.push(statement.moduleSpecifier.text);
+      }
+    }
   }
-  return specifiers.filter((specifier) => specifier.startsWith('.'));
+
+  const bunNamespaceName = (expression: ts.Expression): 'Bun' | 'globalThis.Bun' | null => {
+    if (ts.isIdentifier(expression) && expression.text === 'Bun') return 'Bun';
+    if (
+      ts.isPropertyAccessExpression(expression)
+      && ts.isIdentifier(expression.expression)
+      && expression.expression.text === 'globalThis'
+      && expression.name.text === 'Bun'
+    ) return 'globalThis.Bun';
+    return null;
+  };
+  const isImportMeta = (node: ts.Node): node is ts.MetaProperty => (
+    ts.isMetaProperty(node)
+    && node.keywordToken === ts.SyntaxKind.ImportKeyword
+    && node.name.text === 'meta'
+  );
+  const loaderName = (expression: ts.Expression): string | null => {
+    if (ts.isIdentifier(expression)) {
+      if (expression.text === 'require') return 'require';
+      if (expression.text === 'importScripts') return 'importScripts';
+      if (expression.text === 'eval') return 'eval';
+      if (expression.text === 'Function') return 'Function';
+      if (expression.text === 'Worker') return 'Worker';
+      return bunProcessBindings.get(expression.text) ?? childProcessBindings.get(expression.text) ?? null;
+    }
+    if (ts.isPropertyAccessExpression(expression)) {
+      const bunNamespace = bunNamespaceName(expression.expression);
+      const member = expression.name.text;
+      if (bunNamespace && TCB_BUN_PROCESS_LOADERS.has(`Bun.${member}`)) return `Bun.${member}`;
+      if (!ts.isIdentifier(expression.expression)) return null;
+      const owner = expression.expression.text;
+      if (childProcessNamespaces.has(owner) && TCB_CHILD_PROCESS_LOADERS.has(member)) return member;
+      if (owner === 'globalThis' && TCB_GLOBAL_THIS_RUNTIME_LOADERS.has(member)) {
+        return member;
+      }
+      if (member === 'require') return 'require';
+    }
+    return null;
+  };
+  type LexicalOwnerChunk = {
+    node: ts.FunctionLikeDeclaration;
+    segments: string[];
+  };
+  const variableDeclarationKind = (declaration: ts.VariableDeclaration): 'const' | 'let' | 'var' | null => {
+    if (!ts.isVariableDeclarationList(declaration.parent)) return null;
+    if ((declaration.parent.flags & ts.NodeFlags.Const) !== 0) return 'const';
+    if ((declaration.parent.flags & ts.NodeFlags.Let) !== 0) return 'let';
+    return 'var';
+  };
+  const lexicalOwnerSegments = (node: ts.FunctionLikeDeclaration): string[] | null => {
+    if (ts.isFunctionDeclaration(node)) {
+      if (!node.body) return [];
+      return node.name ? [`function-declaration:${node.name.text}`] : null;
+    }
+    if (ts.isMethodDeclaration(node)) {
+      return ts.isIdentifier(node.name) ? [`method-declaration:${node.name.text}`] : null;
+    }
+    if (ts.isArrowFunction(node)) {
+      if (!ts.isVariableDeclaration(node.parent) || node.parent.initializer !== node) return [];
+      if (!ts.isIdentifier(node.parent.name)) return null;
+      const declarationKind = variableDeclarationKind(node.parent);
+      return declarationKind ? [`${declarationKind}-arrow:${node.parent.name.text}`] : null;
+    }
+    if (ts.isFunctionExpression(node)) {
+      if (ts.isVariableDeclaration(node.parent) && node.parent.initializer === node) {
+        if (!ts.isIdentifier(node.parent.name)) return null;
+        const declarationKind = variableDeclarationKind(node.parent);
+        if (!declarationKind) return null;
+        return [
+          `${declarationKind}-function-expression:${node.parent.name.text}`,
+          ...(node.name ? [`function-expression:${node.name.text}`] : [])
+        ];
+      }
+      return node.name ? [`function-expression:${node.name.text}`] : [];
+    }
+    return null;
+  };
+  const isLexicalFunctionLike = (node: ts.Node): node is ts.FunctionLikeDeclaration => (
+    ts.isFunctionDeclaration(node)
+    || ts.isMethodDeclaration(node)
+    || ts.isConstructorDeclaration(node)
+    || ts.isGetAccessorDeclaration(node)
+    || ts.isSetAccessorDeclaration(node)
+    || ts.isArrowFunction(node)
+    || ts.isFunctionExpression(node)
+  );
+  const lexicalOwnerChunks = (node: ts.Node, includeSelf = false): LexicalOwnerChunk[] | null => {
+    const reversedChunks: LexicalOwnerChunk[] = [];
+    for (
+      let current: ts.Node | undefined = includeSelf ? node : node.parent;
+      current && current !== sourceFile;
+      current = current.parent
+    ) {
+      if (!isLexicalFunctionLike(current)) continue;
+      const segments = lexicalOwnerSegments(current);
+      if (segments === null) return null;
+      if (segments.length > 0) reversedChunks.push({ node: current, segments });
+    }
+    return reversedChunks.reverse();
+  };
+  const isCanonicalRootOwner = (node: ts.FunctionLikeDeclaration): boolean => {
+    if (ts.isFunctionDeclaration(node)) return node.parent === sourceFile;
+    if (
+      (ts.isArrowFunction(node) || ts.isFunctionExpression(node))
+      && ts.isVariableDeclaration(node.parent)
+      && ts.isVariableDeclarationList(node.parent.parent)
+      && ts.isVariableStatement(node.parent.parent.parent)
+    ) return node.parent.parent.parent.parent === sourceFile;
+    return false;
+  };
+  const ownerChainCounts = new Map<string, number>();
+  const countNamedOwnerChains = (node: ts.Node): void => {
+    if (isLexicalFunctionLike(node)) {
+      const ownSegments = lexicalOwnerSegments(node);
+      const chunks = ownSegments && ownSegments.length > 0 ? lexicalOwnerChunks(node, true) : null;
+      if (chunks && chunks.length > 0 && isCanonicalRootOwner(chunks[0]!.node)) {
+        const chain = chunks.flatMap((chunk) => chunk.segments).join('>');
+        ownerChainCounts.set(chain, (ownerChainCounts.get(chain) ?? 0) + 1);
+      }
+    }
+    ts.forEachChild(node, countNamedOwnerChains);
+  };
+  ts.forEachChild(sourceFile, countNamedOwnerChains);
+  const processDispatchOrdinals = new Map<string, number>();
+  const reviewProcessDispatch = (node: ts.CallExpression, loader: string): void => {
+    const chunks = lexicalOwnerChunks(node)
+      ?? rejectUnmodeledLoader('process dispatcher without a canonical named lexical owner');
+    const rootChunk = chunks[0]
+      ?? rejectUnmodeledLoader('process dispatcher without a canonical named lexical owner');
+    if (!isCanonicalRootOwner(rootChunk.node)) {
+      rejectUnmodeledLoader('process dispatcher without a canonical named lexical owner');
+    }
+    const segments: string[] = [];
+    for (const chunk of chunks) {
+      segments.push(...chunk.segments);
+      const chainPrefix = segments.join('>');
+      if (ownerChainCounts.get(chainPrefix) !== 1) {
+        rejectUnmodeledLoader(`ambiguous process dispatcher owner ${chainPrefix}`);
+      }
+    }
+    const chain = segments.join('>');
+    const ordinalKey = `${repositoryPath}::${chain}::${loader}`;
+    const ordinal = (processDispatchOrdinals.get(ordinalKey) ?? 0) + 1;
+    processDispatchOrdinals.set(ordinalKey, ordinal);
+    const identity = `${ordinalKey}#${ordinal}`;
+    if (!TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)) {
+      rejectUnmodeledLoader(`unreviewed process dispatcher ${identity}`);
+    }
+    reviewedProcessDispatchers.add(identity);
+  };
+
+  const isImportBindingDeclaration = (identifier: ts.Identifier): boolean => (
+    (ts.isImportClause(identifier.parent) && identifier.parent.name === identifier)
+    || (ts.isImportSpecifier(identifier.parent) && identifier.parent.name === identifier)
+    || (ts.isNamespaceImport(identifier.parent) && identifier.parent.name === identifier)
+  );
+  const isPropertyName = (identifier: ts.Identifier): boolean => (
+    (ts.isPropertyAccessExpression(identifier.parent) && identifier.parent.name === identifier)
+    || (ts.isPropertyAssignment(identifier.parent) && identifier.parent.name === identifier)
+    || (ts.isMethodDeclaration(identifier.parent) && identifier.parent.name === identifier)
+    || (ts.isPropertyDeclaration(identifier.parent) && identifier.parent.name === identifier)
+    || (ts.isPropertySignature(identifier.parent) && identifier.parent.name === identifier)
+    || (ts.isGetAccessorDeclaration(identifier.parent) && identifier.parent.name === identifier)
+    || (ts.isSetAccessorDeclaration(identifier.parent) && identifier.parent.name === identifier)
+    || (ts.isBindingElement(identifier.parent) && identifier.parent.propertyName === identifier)
+  );
+  const isTypeOnlyIdentifier = (identifier: ts.Identifier): boolean => {
+    for (let current: ts.Node | undefined = identifier.parent; current; current = current.parent) {
+      if (ts.isTypeNode(current)) return true;
+      if (ts.isImportClause(current) && current.isTypeOnly) return true;
+      if (ts.isImportSpecifier(current) && current.isTypeOnly) return true;
+      if (ts.isExportSpecifier(current) && current.isTypeOnly) return true;
+      if (ts.isStatement(current)) return false;
+    }
+    return false;
+  };
+
+  function visitRuntimeLoaders(node: ts.Node): void {
+    if (
+      ts.isIdentifier(node)
+      && TCB_FORBIDDEN_GLOBAL_ALIASES.has(node.text)
+      && !isPropertyName(node)
+    ) rejectUnmodeledLoader(`unapproved global namespace ${node.text}`);
+    if (
+      ts.isIdentifier(node)
+      && TCB_GLOBAL_THIS_RUNTIME_LOADERS.has(node.text)
+      && !isPropertyName(node)
+      && !isTypeOnlyIdentifier(node)
+    ) {
+      const isDirectInvocation = (
+        (ts.isCallExpression(node.parent) || ts.isNewExpression(node.parent))
+        && node.parent.expression === node
+      );
+      if (!isDirectInvocation) rejectUnmodeledLoader(`indirect global loader ${node.text}`);
+    }
+    if (
+      ts.isIdentifier(node)
+      && node.text === 'module'
+      && !isPropertyName(node)
+      && !isTypeOnlyIdentifier(node)
+    ) {
+      const isDirectRequireOwner = (
+        ts.isPropertyAccessExpression(node.parent)
+        && node.parent.expression === node
+        && node.parent.name.text === 'require'
+      );
+      if (!isDirectRequireOwner) rejectUnmodeledLoader('escaped module loader namespace');
+    }
+    if (isImportMeta(node)) {
+      if (ts.isElementAccessExpression(node.parent) && node.parent.expression === node) {
+        rejectUnmodeledLoader('computed import.meta member');
+      }
+      if (
+        !ts.isPropertyAccessExpression(node.parent)
+        || node.parent.expression !== node
+        || !TCB_IMPORT_META_SAFE_MEMBERS.has(node.parent.name.text)
+      ) rejectUnmodeledLoader('escaped or unclassified import.meta namespace');
+    }
+    if (ts.isIdentifier(node) && node.text === 'Bun' && !isPropertyName(node)) {
+      const isDirectMemberOwner = (
+        (ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent))
+        && node.parent.expression === node
+      );
+      if (!isDirectMemberOwner && !ts.isTypeOfExpression(node.parent)) {
+        rejectUnmodeledLoader('indirect Bun namespace Bun');
+      }
+    }
+    if (ts.isIdentifier(node) && node.text === 'globalThis' && !isPropertyName(node)) {
+      const isDirectMemberOwner = (
+        (ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent))
+        && node.parent.expression === node
+      );
+      if (!isDirectMemberOwner && !ts.isTypeOfExpression(node.parent)) {
+        rejectUnmodeledLoader('escaped globalThis namespace');
+      }
+    }
+    if (ts.isIdentifier(node) && node.text === 'process' && !isPropertyName(node)) {
+      const isDirectMemberOwner = (
+        (ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent))
+        && node.parent.expression === node
+      );
+      if (!isDirectMemberOwner && !ts.isTypeOfExpression(node.parent)) {
+        rejectUnmodeledLoader('escaped process namespace');
+      }
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      if (
+        node.name.text === 'require'
+        && !(
+          (ts.isCallExpression(node.parent) || ts.isNewExpression(node.parent))
+          && node.parent.expression === node
+        )
+      ) rejectUnmodeledLoader(`indirect require member ${node.getText(sourceFile)}`);
+      const bunNamespace = bunNamespaceName(node.expression);
+      if (bunNamespace) {
+        const member = node.name.text;
+        if (TCB_BUN_PROCESS_LOADERS.has(`Bun.${member}`)) {
+          if (!ts.isCallExpression(node.parent) || node.parent.expression !== node) {
+            rejectUnmodeledLoader(`indirect Bun process loader ${bunNamespace}.${member}`);
+          }
+        } else if (!TCB_BUN_SAFE_GLOBAL_MEMBERS.has(member)) {
+          rejectUnmodeledLoader(`unclassified Bun namespace member ${bunNamespace}.${member}`);
+        }
+      }
+      if (ts.isIdentifier(node.expression) && node.expression.text === 'globalThis') {
+        const member = node.name.text;
+        if (member !== 'Bun') {
+          if (!TCB_GLOBAL_THIS_RUNTIME_LOADERS.has(member)) {
+            rejectUnmodeledLoader(`unclassified globalThis member ${member}`);
+          }
+          const isDirectInvocation = (
+            (ts.isCallExpression(node.parent) || ts.isNewExpression(node.parent))
+            && node.parent.expression === node
+          );
+          if (!isDirectInvocation) rejectUnmodeledLoader(`indirect globalThis loader ${member}`);
+        }
+      }
+      if (
+        ts.isIdentifier(node.expression)
+        && node.expression.text === 'process'
+        && !TCB_PROCESS_SAFE_MEMBERS.has(node.name.text)
+      ) rejectUnmodeledLoader(`unclassified process member ${node.name.text}`);
+    }
+    if (
+      ts.isPropertyAccessExpression(node)
+      && bunNamespaceName(node) === 'globalThis.Bun'
+      && !(
+        (ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent))
+        && node.parent.expression === node
+      )
+      && !ts.isTypeOfExpression(node.parent)
+    ) rejectUnmodeledLoader('indirect Bun namespace globalThis.Bun');
+    if (
+      ts.isIdentifier(node)
+      && bunProcessBindings.has(node.text)
+      && !isImportBindingDeclaration(node)
+      && !isPropertyName(node)
+      && !(ts.isCallExpression(node.parent) && node.parent.expression === node)
+    ) rejectUnmodeledLoader(`indirect bun process binding ${node.text}`);
+    if (
+      ts.isIdentifier(node)
+      && childProcessBindings.has(node.text)
+      && !isImportBindingDeclaration(node)
+      && !isPropertyName(node)
+      && !(ts.isCallExpression(node.parent) && node.parent.expression === node)
+    ) rejectUnmodeledLoader(`indirect node:child_process binding ${node.text}`);
+    if (
+      ts.isIdentifier(node)
+      && childProcessNamespaces.has(node.text)
+      && !isImportBindingDeclaration(node)
+    ) {
+      const namespaceAccess = ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node
+        ? node.parent
+        : rejectUnmodeledLoader(`indirect node:child_process namespace ${node.text}`);
+      const member = namespaceAccess.name.text;
+      if (!TCB_CHILD_PROCESS_LOADERS.has(member)) {
+        rejectUnmodeledLoader(`unclassified node:child_process member ${node.text}.${member}`);
+      }
+      if (!ts.isCallExpression(namespaceAccess.parent) || namespaceAccess.parent.expression !== namespaceAccess) {
+        rejectUnmodeledLoader(`indirect node:child_process member ${node.text}.${member}`);
+      }
+    }
+    if (
+      ts.isElementAccessExpression(node)
+      && bunNamespaceName(node.expression) !== null
+    ) rejectUnmodeledLoader(`computed Bun namespace member ${bunNamespaceName(node.expression)}[...]`);
+    if (
+      ts.isElementAccessExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'globalThis'
+    ) rejectUnmodeledLoader('computed globalThis member');
+    if (
+      ts.isElementAccessExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'process'
+    ) rejectUnmodeledLoader('computed process member');
+    if (
+      ts.isElementAccessExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'module'
+    ) rejectUnmodeledLoader('computed module loader member');
+    if (
+      ts.isElementAccessExpression(node)
+      && isImportMeta(node.expression)
+    ) rejectUnmodeledLoader('computed import.meta member');
+    if (
+      ts.isElementAccessExpression(node)
+      && (ts.isStringLiteral(node.argumentExpression) || ts.isNoSubstitutionTemplateLiteral(node.argumentExpression))
+      && node.argumentExpression.text === 'require'
+    ) rejectUnmodeledLoader('computed require member');
+    if (ts.isImportEqualsDeclaration(node)) rejectUnmodeledLoader('import = require');
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const [argument] = node.arguments;
+      if (node.arguments.length !== 1 || argument === undefined) {
+        throw new Error(`TCB runtime dynamic import is not statically resolvable: ${repositoryPath}.`);
+      }
+      if (!ts.isStringLiteral(argument)) {
+        throw new Error(`TCB runtime dynamic import is not statically resolvable: ${repositoryPath}.`);
+      }
+      if (TCB_CLASSIFIED_EXTERNAL_IMPORTS.has(argument.text)) {
+        rejectUnmodeledLoader(`dynamic ${argument.text} import`);
+      }
+      specifiers.push(argument.text);
+    }
+    if (ts.isCallExpression(node)) {
+      const name = loaderName(node.expression);
+      if (name === 'require') rejectUnmodeledLoader('require');
+      if (name === 'createRequire') rejectUnmodeledLoader('createRequire');
+      if (name === 'importScripts') rejectUnmodeledLoader('importScripts');
+      if (name === 'eval') rejectUnmodeledLoader('eval');
+      if (name === 'Function') rejectUnmodeledLoader('Function');
+      if (name === 'Worker') rejectUnmodeledLoader('Worker');
+      if (name !== null && (TCB_CHILD_PROCESS_LOADERS.has(name) || TCB_BUN_PROCESS_LOADERS.has(name))) {
+        reviewProcessDispatch(node, name);
+      }
+    }
+    if (ts.isNewExpression(node)) {
+      const name = loaderName(node.expression);
+      if (name !== null && TCB_GLOBAL_THIS_RUNTIME_LOADERS.has(name)) rejectUnmodeledLoader(name);
+    }
+    ts.forEachChild(node, visitRuntimeLoaders);
+  }
+  ts.forEachChild(sourceFile, visitRuntimeLoaders);
+
+  return specifiers.filter((specifier) => {
+    if (specifier.startsWith('./') || specifier.startsWith('../')) return true;
+    if (TCB_APPROVED_EXTERNAL_IMPORTS.has(specifier)) return false;
+    throw new Error(
+      `TCB runtime import is outside the approved relative/external policy: ${repositoryPath} -> ${specifier}.`
+    );
+  });
+}
+
+function runtimeRelativeImports(repositoryPath: string, reviewedProcessDispatchers: Set<string>): string[] {
+  const absolutePath = path.join(compilerRoot, ...repositoryPath.split('/'));
+  return runtimeRelativeImportsFromSource(
+    repositoryPath,
+    readFileSync(absolutePath, 'utf8'),
+    reviewedProcessDispatchers
+  );
 }
 
 function resolveRepositoryImport(from: string, specifier: string): string {
@@ -644,15 +1220,20 @@ function resolveRepositoryImport(from: string, specifier: string): string {
   return resolved;
 }
 
-function trustedRuntimeClosure(): { closure: Set<string>; reviewedEdges: Set<string> } {
+function trustedRuntimeClosure(): {
+  closure: Set<string>;
+  reviewedEdges: Set<string>;
+  reviewedProcessDispatchers: Set<string>;
+} {
   const closure = new Set<string>();
   const reviewedEdges = new Set<string>();
+  const reviewedProcessDispatchers = new Set<string>();
   const queue: string[] = [...TCB_RUNTIME_ENTRYPOINTS];
   while (queue.length > 0) {
     const current = queue.shift()!;
     if (closure.has(current)) continue;
     closure.add(current);
-    for (const specifier of runtimeRelativeImports(current)) {
+    for (const specifier of runtimeRelativeImports(current, reviewedProcessDispatchers)) {
       const resolved = resolveRepositoryImport(current, specifier);
       const edge = `${current} -> ${resolved}`;
       if (TCB_REVIEWED_SUT_EDGES.has(edge)) {
@@ -662,7 +1243,7 @@ function trustedRuntimeClosure(): { closure: Set<string>; reviewedEdges: Set<str
       queue.push(resolved);
     }
   }
-  return { closure, reviewedEdges };
+  return { closure, reviewedEdges, reviewedProcessDispatchers };
 }
 
 function matchesCanonicalTrustRoot(repositoryPath: string): boolean {
@@ -696,6 +1277,33 @@ test('base-side merge gate accepts the real canonical full plan', () => {
     rawAttestation: value.attestation,
     rawEvidence: value.rawEvidence
   })).toMatchObject({ status: 'passed', requiredProfile: 'full' });
+});
+
+test('base-side v8 merge gate reconstructs active documentation without impact-risk', () => {
+  const changedFiles = [
+    'README.md',
+    'docs/03-MVP实施计划与路线图.md',
+    'docs/work/current-state.yaml',
+    'docs/governance/nexus-absorption-ledger.yml'
+  ];
+  const value = fixture(manifestSource(changedFiles), changedFiles);
+
+  expect(value.plan).toMatchObject({
+    selectionResolved: true,
+    selectionReasons: ['ownership-impact'],
+    affectedOwners: ['roadmap-authority']
+  });
+  expect(value.plan.gates.map(({ id }) => id)).toEqual([
+    'docs-doctor',
+    'typecheck',
+    'affected-tests'
+  ]);
+  expect(CodexDevelopmentEvaluateMergeGateV1({
+    rawInput: value.rawInput,
+    manifestBytes: value.manifestBytes,
+    rawAttestation: value.attestation,
+    rawEvidence: value.rawEvidence
+  })).toMatchObject({ status: 'passed', requiredProfile: 'quick' });
 });
 
 test('base-side V7 merge gate independently reconstructs the real P0 plan and rejects self-signed drift', async () => {
@@ -888,19 +1496,486 @@ test('trusted workflow TCB declarations exactly equal the canonical base-side tr
 });
 
 test('verifier runtime import closure stays inside the TCB except for the reviewed product seam', () => {
-  const { closure, reviewedEdges } = trustedRuntimeClosure();
+  const { closure, reviewedEdges, reviewedProcessDispatchers } = trustedRuntimeClosure();
+  expect(closure.size).toBe(49);
+  expect(reviewedProcessDispatchers.size).toBe(22);
   expect([...reviewedEdges].sort()).toEqual([...TCB_REVIEWED_SUT_EDGES].sort());
+  expect([...reviewedProcessDispatchers].sort()).toEqual([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort());
   expect([...closure].filter((entry) => !matchesCanonicalTrustRoot(entry)).sort()).toEqual([]);
   expect([...closure]).toEqual(expect.arrayContaining([
     'platform/dev-runner/command-runner.ts',
+    'platform/dev-runner/dependency-bootstrap.ts',
+    'platform/dev-runner/env-manager.ts',
+    'platform/dev-runner/import-organizer.ts',
+    'platform/dev-runner/test-runner.ts',
     'platform/dev-runner/typecheck-runner.ts',
+    'platform/shared/active-documentation-contract.ts',
+    'platform/shared/bun-runtime-version.ts',
     'platform/shared/collections.ts',
     'platform/shared/contract-freeze-contract.ts',
     'platform/shared/paths.ts',
     'platform/shared/process.ts',
     'platform/shared/project-runtime.ts',
-    'platform/shared/runtime-dependency-spec.ts'
+    'platform/shared/repository-path-contract.ts',
+    'platform/shared/runtime-dependency-spec.ts',
+    'scripts/install-git-hooks.ts'
   ]));
+});
+
+test('dev-runner captures one immutable bootstrap path before executable work', async () => {
+  const source = await readCompilerFile('platform/dev-runner.ts');
+  const sourceFile = ts.createSourceFile('platform/dev-runner.ts', source, ts.ScriptTarget.Latest, true);
+  const firstExecutableIndex = sourceFile.statements.findIndex((statement) => !ts.isImportDeclaration(statement));
+  const firstExecutable = sourceFile.statements[firstExecutableIndex];
+  expect(firstExecutableIndex).toBeGreaterThan(-1);
+  expect(sourceFile.statements.slice(0, firstExecutableIndex).every(ts.isImportDeclaration)).toBe(true);
+  if (!firstExecutable || !ts.isVariableStatement(firstExecutable)) {
+    throw new Error('dev-runner bootstrap path must be the first executable top-level statement.');
+  }
+  const declarationList = firstExecutable.declarationList;
+  const [declaration] = declarationList.declarations;
+  expect(firstExecutable.modifiers).toBeUndefined();
+  expect(declarationList.flags & ts.NodeFlags.Const).not.toBe(0);
+  expect(declarationList.declarations).toHaveLength(1);
+  if (
+    !declaration
+    || !ts.isIdentifier(declaration.name)
+    || declaration.name.text !== 'devRunnerFilePath'
+    || declaration.type !== undefined
+    || declaration.exclamationToken !== undefined
+    || !declaration.initializer
+    || !ts.isCallExpression(declaration.initializer)
+  ) throw new Error('dev-runner bootstrap path must be a single inferred top-level const.');
+
+  const initializer = declaration.initializer;
+  const [moduleUrl] = initializer.arguments;
+  expect(initializer.questionDotToken).toBeUndefined();
+  expect(initializer.arguments).toHaveLength(1);
+  expect(ts.isIdentifier(initializer.expression) && initializer.expression.text === 'fileURLToPath').toBe(true);
+  if (
+    !moduleUrl
+    || !ts.isPropertyAccessExpression(moduleUrl)
+    || moduleUrl.name.text !== 'url'
+    || !ts.isMetaProperty(moduleUrl.expression)
+    || moduleUrl.expression.keywordToken !== ts.SyntaxKind.ImportKeyword
+    || moduleUrl.expression.name.text !== 'meta'
+  ) throw new Error('dev-runner bootstrap path must capture fileURLToPath(import.meta.url).');
+
+  const nodeUrlImports = sourceFile.statements.filter((statement): statement is ts.ImportDeclaration => (
+    ts.isImportDeclaration(statement)
+    && ts.isStringLiteral(statement.moduleSpecifier)
+    && statement.moduleSpecifier.text === 'node:url'
+  ));
+  expect(nodeUrlImports).toHaveLength(1);
+  const importClause = nodeUrlImports[0]?.importClause;
+  expect(importClause?.isTypeOnly).toBe(false);
+  expect(importClause?.name).toBeUndefined();
+  expect(
+    importClause?.namedBindings
+    && ts.isNamedImports(importClause.namedBindings)
+    && importClause.namedBindings.elements.length === 1
+    && importClause.namedBindings.elements[0]?.propertyName === undefined
+    && importClause.namedBindings.elements[0]?.name.text === 'fileURLToPath'
+  ).toBe(true);
+
+  const importMetaNodes: ts.MetaProperty[] = [];
+  const pathIdentifiers: ts.Identifier[] = [];
+  function visit(node: ts.Node): void {
+    if (
+      ts.isMetaProperty(node)
+      && node.keywordToken === ts.SyntaxKind.ImportKeyword
+      && node.name.text === 'meta'
+    ) importMetaNodes.push(node);
+    if (ts.isIdentifier(node) && node.text === 'devRunnerFilePath') pathIdentifiers.push(node);
+    ts.forEachChild(node, visit);
+  }
+  ts.forEachChild(sourceFile, visit);
+  expect(importMetaNodes).toHaveLength(1);
+  expect(importMetaNodes[0]).toBe(moduleUrl.expression);
+  expect(pathIdentifiers).toHaveLength(2);
+  const runtimeReference = pathIdentifiers.find((identifier) => identifier !== declaration.name);
+  if (!runtimeReference || !ts.isArrayLiteralExpression(runtimeReference.parent)) {
+    throw new Error('reenterWithResolvedDependencies must use the captured dev-runner path.');
+  }
+  const spawnArguments = runtimeReference.parent;
+  const spawnCall = spawnArguments.parent;
+  expect(spawnArguments.elements[0]).toBe(runtimeReference);
+  expect(
+    ts.isCallExpression(spawnCall)
+    && ts.isIdentifier(spawnCall.expression)
+    && spawnCall.expression.text === 'spawnSync'
+    && spawnCall.arguments[1] === spawnArguments
+  ).toBe(true);
+  let owner: ts.Node = runtimeReference;
+  while (owner.parent !== sourceFile) owner = owner.parent;
+  expect(
+    ts.isFunctionDeclaration(owner)
+    && owner.name?.text === 'reenterWithResolvedDependencies'
+  ).toBe(true);
+});
+
+test('relative ESM closure accepts only direct literal dynamic imports', () => {
+  expect(runtimeRelativeImportsFromSource(
+    'virtual/direct.ts',
+    "async function load() { await import('./direct.ts'); }"
+  )).toEqual(['./direct.ts']);
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/nonliteral.ts',
+    "const target = './hidden.ts'; async function load() { await import(target); }"
+  )).toThrow('TCB runtime dynamic import is not statically resolvable: virtual/nonliteral.ts.');
+  expect(runtimeRelativeImportsFromSource(
+    'virtual/approved-external.ts',
+    "import ts from 'typescript'; import { readFileSync } from 'node:fs';"
+  )).toEqual([]);
+});
+
+test('relative ESM closure rejects non-approved absolute, URL, package, and import-map specifiers', () => {
+  for (const specifier of [
+    '/absolute/hidden.ts',
+    'C:/absolute/hidden.ts',
+    'data:text/javascript,export default 1',
+    'file:///absolute/hidden.ts',
+    'https://example.invalid/hidden.ts',
+    '#internal-loader',
+    '.hidden',
+    'unapproved-package'
+  ]) {
+    expect(() => runtimeRelativeImportsFromSource(
+      'virtual/non-approved.ts',
+      `async function load() { await import(${JSON.stringify(specifier)}); }`
+    )).toThrow(`virtual/non-approved.ts -> ${specifier}.`);
+  }
+});
+
+test('relative ESM closure fails closed on direct and import-bound unmodeled loaders', () => {
+  expect([
+    'bun',
+    'node:child_process',
+    'node:module',
+    'node:worker_threads'
+  ].filter((specifier) => TCB_APPROVED_EXTERNAL_IMPORTS.has(specifier))).toEqual([]);
+  expect([...TCB_PROCESS_SAFE_MEMBERS].sort()).toEqual([
+    'arch',
+    'argv',
+    'cwd',
+    'env',
+    'execPath',
+    'exit',
+    'exitCode',
+    'kill',
+    'pid',
+    'platform',
+    'stderr',
+    'stdout',
+    'versions'
+  ]);
+
+  const sources = [
+    ["const hidden = require('./hidden.ts');", 'require'],
+    ["import { createRequire as makeRequire } from 'node:module'; makeRequire(import.meta.url);", 'runtime node:module import'],
+    ["import hidden = require('./hidden.ts');", 'import = require'],
+    ["import { Worker as W } from 'node:worker_threads'; new W('./hidden.ts');", 'runtime node:worker_threads import'],
+    ["new Worker('./hidden.ts');", 'Worker'],
+    ["importScripts('./hidden.ts');", 'importScripts'],
+    ["eval(\"import('./hidden.ts')\");", 'eval'],
+    ["Function(\"return import('./hidden.ts')\");", 'Function']
+  ] as const;
+
+  for (const [source, loader] of sources) {
+    expect(() => runtimeRelativeImportsFromSource(`virtual/${loader}.ts`, source)).toThrow(
+      `(${loader}).`
+    );
+  }
+  for (const [fixtureName, source, loader] of [
+    ['aliased-require', "const load = require; load('./hidden.ts');", 'require'],
+    ['aliased-eval', "const execute = eval; execute('1');", 'eval'],
+    ['aliased-function', "const Build = Function; Build('return 1')();", 'Function'],
+    ['aliased-worker', "const BuildWorker = Worker; new BuildWorker('./hidden.ts');", 'Worker'],
+    ['aliased-import-scripts', "const load = importScripts; load('./hidden.ts');", 'importScripts'],
+    ['member-eval', "eval.call(undefined, '1');", 'eval'],
+    ['member-function', "Function.bind(undefined, 'return 1')();", 'Function']
+  ] as const) {
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/${fixtureName}.ts`,
+      source
+    )).toThrow(`(indirect global loader ${loader}).`);
+  }
+  for (const [fixtureName, source] of [
+    ['import-meta-require', "const load = import.meta.require; load('./hidden.ts');"],
+    ['bound-module-require', "module.require.bind(module)('./hidden.ts');"],
+    ['aliased-module-require', "const load = module.require; load('./hidden.ts');"]
+  ] as const) {
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/${fixtureName}.ts`,
+      source
+    )).toThrow('(indirect require member');
+  }
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/computed-require-member.ts',
+    "module['require']('./hidden.ts');"
+  )).toThrow('(computed module loader member).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/destructured-module-require.ts',
+    "const { require: load } = module; load('./hidden.ts');"
+  )).toThrow('(escaped module loader namespace).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/dynamic-module-member.ts',
+    "const key = 'require'; module[key]('./hidden.ts');"
+  )).toThrow('(computed module loader member).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/destructured-import-meta-require.ts',
+    "const { require: load } = import.meta; load('./hidden.ts');"
+  )).toThrow('(escaped or unclassified import.meta namespace).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/dynamic-import-meta-member.ts',
+    "const key = 'require'; import.meta[key]('./hidden.ts');"
+  )).toThrow('(computed import.meta member).');
+
+  const unreviewedDispatchers = [
+    [
+      'aliased-process',
+      "import { spawn as launch } from 'node:child_process'; const entrypoint = './hidden.ts'; function candidate() { launch(process.execPath, [entrypoint]); }",
+      'spawn'
+    ],
+    [
+      'aliased-exec-process',
+      "import { exec as run } from 'node:child_process'; function candidate() { run('git'); }",
+      'exec'
+    ],
+    [
+      'aliased-exec-sync-process',
+      "import { execSync as run } from 'node:child_process'; function candidate() { run('git'); }",
+      'execSync'
+    ],
+    [
+      'namespace-exec-process',
+      "import * as childProcess from 'node:child_process'; function candidate() { childProcess.exec('git'); }",
+      'exec'
+    ],
+    [
+      'namespace-exec-sync-process',
+      "import * as childProcess from 'node:child_process'; function candidate() { childProcess.execSync('git'); }",
+      'execSync'
+    ],
+    [
+      'default-plus-namespace-exec-process',
+      "import childProcess, * as childProcessNamespace from 'node:child_process'; function candidate() { childProcess.exec('git'); }",
+      'exec'
+    ],
+    [
+      'bun-process',
+      "const entrypoint = './hidden.ts'; function candidate() { Bun.spawn([process.execPath, entrypoint]); }",
+      'Bun.spawn'
+    ],
+    [
+      'bun-sync-process',
+      "function candidate() { Bun.spawnSync('git'); }",
+      'Bun.spawnSync'
+    ],
+    [
+      'global-bun-sync-process',
+      "function candidate() { globalThis.Bun.spawnSync('git'); }",
+      'Bun.spawnSync'
+    ],
+    [
+      'imported-bun-sync-process',
+      "import { spawnSync as run } from 'bun'; function candidate() { run('git'); }",
+      'Bun.spawnSync'
+    ],
+    [
+      'git-config-alias-process',
+      "import { spawn } from 'node:child_process'; function candidate() { spawn('git', ['-c', 'alias.x=!program', 'x']); }",
+      'spawn'
+    ]
+  ] as const;
+  for (const [fixtureName, source, loader] of unreviewedDispatchers) {
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/${fixtureName}.ts`,
+      source
+    )).toThrow(
+      `unreviewed process dispatcher virtual/${fixtureName}.ts::function-declaration:candidate::${loader}#1`
+    );
+  }
+
+  expect(runtimeRelativeImportsFromSource(
+    'platform/dev-runner.ts',
+    "import { spawnSync } from 'node:child_process'; function reenterWithResolvedDependencies() { [0].forEach(() => spawnSync(process.execPath, [])); }"
+  )).toEqual([]);
+  for (const member of [
+    'constructor() { spawnSync(process.execPath, []); }',
+    'get value() { spawnSync(process.execPath, []); return 1; }',
+    'set value(value: number) { spawnSync(process.execPath, []); void value; }'
+  ]) {
+    expect(() => runtimeRelativeImportsFromSource(
+      'platform/dev-runner.ts',
+      `import { spawnSync } from 'node:child_process'; function reenterWithResolvedDependencies() { class Candidate { ${member} } }`
+    )).toThrow('(process dispatcher without a canonical named lexical owner).');
+  }
+  expect(() => runtimeRelativeImportsFromSource(
+    'platform/dev-runner.ts',
+    "import { spawnSync } from 'node:child_process'; function reenterWithResolvedDependencies() { spawnSync(process.execPath, []); spawnSync(process.execPath, []); }"
+  )).toThrow(
+    'unreviewed process dispatcher platform/dev-runner.ts::function-declaration:reenterWithResolvedDependencies::spawnSync#2'
+  );
+  for (const [fixtureName, source, ownerChain] of [
+    [
+      'nested-function-owner',
+      "import { spawnSync } from 'node:child_process'; function unexpectedOwner() { function reenterWithResolvedDependencies() { spawnSync(process.execPath, []); } }",
+      'function-declaration:unexpectedOwner>function-declaration:reenterWithResolvedDependencies'
+    ],
+    [
+      'nested-arrow-owner',
+      "import { spawnSync } from 'node:child_process'; function unexpectedOwner() { const reenterWithResolvedDependencies = () => spawnSync(process.execPath, []); }",
+      'function-declaration:unexpectedOwner>const-arrow:reenterWithResolvedDependencies'
+    ],
+    [
+      'nested-method-owner',
+      "import { spawnSync } from 'node:child_process'; function unexpectedOwner() { class Candidate { reenterWithResolvedDependencies() { spawnSync(process.execPath, []); } } }",
+      'function-declaration:unexpectedOwner>method-declaration:reenterWithResolvedDependencies'
+    ]
+  ] as const) {
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/${fixtureName}.ts`,
+      source
+    )).toThrow(
+      `unreviewed process dispatcher virtual/${fixtureName}.ts::${ownerChain}::spawnSync#1`
+    );
+  }
+  expect(() => runtimeRelativeImportsFromSource(
+    'platform/dev-runner.ts',
+    "import { spawnSync } from 'node:child_process'; function reenterWithResolvedDependencies() { spawnSync(process.execPath, []); } function reenterWithResolvedDependencies() {}"
+  )).toThrow('(ambiguous process dispatcher owner function-declaration:reenterWithResolvedDependencies).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'scripts/codex/merge-gate.ts',
+    "import { spawnSync } from 'node:child_process'; function mergeGateGitResolvers() { { const run = () => spawnSync('git'); run(); } { const run = () => undefined; run(); } }"
+  )).toThrow(
+    '(ambiguous process dispatcher owner function-declaration:mergeGateGitResolvers>const-arrow:run).'
+  );
+
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/unclassified-process-binding.ts',
+    "import { ChildProcess as Process } from 'node:child_process'; void Process;"
+  )).toThrow('(unclassified node:child_process binding ChildProcess).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/unclassified-process-member.ts',
+    "import * as childProcess from 'node:child_process'; void childProcess.ChildProcess;"
+  )).toThrow('(unclassified node:child_process member childProcess.ChildProcess).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/indirect-default-process-member.ts',
+    "import childProcess from 'node:child_process'; const run = childProcess.exec; run('git');"
+  )).toThrow('(indirect node:child_process member childProcess.exec).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/aliased-bun-namespace.ts',
+    "const B = Bun; B.spawnSync('git');"
+  )).toThrow('(indirect Bun namespace Bun).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/computed-bun-member.ts',
+    "const name = 'spawnSync'; Bun[name]('git');"
+  )).toThrow('(computed Bun namespace member Bun[...]).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/indirect-global-bun-member.ts',
+    "const run = globalThis.Bun.spawnSync; run('git');"
+  )).toThrow('(indirect Bun process loader globalThis.Bun.spawnSync).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/unclassified-bun-member.ts',
+    "void Bun.file;"
+  )).toThrow('(unclassified Bun namespace member Bun.file).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/unclassified-global-member.ts',
+    "void globalThis.crypto;"
+  )).toThrow('(unclassified globalThis member crypto).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/computed-global-bun-member.ts',
+    "globalThis['Bun'].spawnSync('git');"
+  )).toThrow('(computed globalThis member).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/dynamic-global-member.ts',
+    "const key = 'Bun'; globalThis[key];"
+  )).toThrow('(computed globalThis member).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/reflective-global-bun.ts',
+    "Reflect.get(globalThis, 'Bun');"
+  )).toThrow('(escaped globalThis namespace).');
+  for (const alias of ['global', 'self']) {
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/${alias}-bun-process.ts`,
+      `${alias}.Bun.spawnSync('git');`
+    )).toThrow(`(unapproved global namespace ${alias}).`);
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/${alias}-process-acquisition.ts`,
+      `${alias}.process.getBuiltinModule('node:child_process');`
+    )).toThrow(`(unapproved global namespace ${alias}).`);
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/reflective-${alias}-acquisition.ts`,
+      `Reflect.get(${alias}, 'Bun');`
+    )).toThrow(`(unapproved global namespace ${alias}).`);
+  }
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/direct-process-acquisition.ts',
+    "process.getBuiltinModule('node:child_process');"
+  )).toThrow('(unclassified process member getBuiltinModule).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/computed-process-acquisition.ts',
+    "process['getBuiltinModule']('node:child_process');"
+  )).toThrow('(computed process member).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/aliased-process-acquisition.ts',
+    "const runtimeProcess = process; runtimeProcess.getBuiltinModule('node:child_process');"
+  )).toThrow('(escaped process namespace).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/reflective-process-acquisition.ts',
+    "Reflect.get(process, 'getBuiltinModule')('node:child_process');"
+  )).toThrow('(escaped process namespace).');
+  for (const member of ['binding', '_linkedBinding', 'mainModule']) {
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/process-${member}.ts`,
+      `void process.${member};`
+    )).toThrow(`(unclassified process member ${member}).`);
+  }
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/unused-process-member.ts',
+    'process.hrtime();'
+  )).toThrow('(unclassified process member hrtime).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/unclassified-bun-import.ts',
+    "import { $ as shell } from 'bun'; void shell;"
+  )).toThrow('(unclassified bun binding $).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/bun-namespace-import.ts',
+    "import * as bunRuntime from 'bun'; void bunRuntime;"
+  )).toThrow('(bun default/namespace import).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/dynamic-bun-module.ts',
+    "async function load() { return import('bun'); }"
+  )).toThrow('(dynamic bun import).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/reexported-bun-binding.ts',
+    "export { spawnSync } from 'bun';"
+  )).toThrow('(runtime bun re-export).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/dynamic-process-module.ts',
+    "async function load() { return import('node:child_process'); }"
+  )).toThrow('(dynamic node:child_process import).');
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/reexported-process-binding.ts',
+    "export { exec } from 'node:child_process';"
+  )).toThrow('(runtime node:child_process re-export).');
+  expect(runtimeRelativeImportsFromSource(
+    'virtual/type-only-process.ts',
+    "import type { ChildProcess } from 'node:child_process'; type Process = ChildProcess;"
+  )).toEqual([]);
+  expect(runtimeRelativeImportsFromSource(
+    'virtual/inline-type-only-process.ts',
+    "import { type ChildProcess } from 'node:child_process'; type Process = ChildProcess;"
+  )).toEqual([]);
+  expect(runtimeRelativeImportsFromSource(
+    'virtual/safe-bun-and-process.ts',
+    "import { Glob } from 'bun'; new Glob('*.ts'); void Bun.version; void globalThis.Bun.version; process.cwd(); void process.env.PATH; void process.execPath; void import.meta.url; void import.meta.dir; void import.meta.main;"
+  )).toEqual([]);
+  expect(runtimeRelativeImportsFromSource(
+    'virtual/type-only-restricted-modules.ts',
+    "import type { Glob } from 'bun'; import type { Module } from 'node:module'; import type { Worker } from 'node:worker_threads'; type RuntimeTypes = Glob | Module | Worker;"
+  )).toEqual([]);
 });
 
 test('head manifest cannot authorize edits to the canonical verifier trust root', () => {
@@ -944,13 +2019,20 @@ test('scope attestation binds the manifest profile and CI revision', () => {
     rawAttestation: { ...revision.attestation, ciRevision: 'ci-verification-v3' },
     rawEvidence: revision.rawEvidence
   })).toThrow('CI revision mismatch');
+
+  expect(() => CodexDevelopmentEvaluateMergeGateV1({
+    rawInput: revision.rawInput,
+    manifestBytes: revision.manifestBytes,
+    rawAttestation: revision.attestation,
+    rawEvidence: { ...revision.rawEvidence, contractRevision: 'ci-verification-v6' }
+  })).toThrow('Verification evidence CI revision mismatch');
 });
 
 test('historical Work Package revisions remain parseable but cannot satisfy the current gate', () => {
   const current = fixture();
-  const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v6', 'ci-verification-v5'));
+  const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v8', 'ci-verification-v6'));
   const legacyManifest = CodexDevelopmentParseWorkPackageManifestV1(legacyBytes.toString('utf8'), MANIFEST_PATH);
-  expect(legacyManifest.ciRevision).toBe('ci-verification-v5');
+  expect(legacyManifest.ciRevision).toBe('ci-verification-v6');
 
   expect(() => CodexDevelopmentBuildScopeAttestationV1({
     ...current.scopeRequest,
@@ -1224,7 +2306,8 @@ test('trusted workflows pin actions, revalidate drift, and only materialize cand
   expect(mergeWorkflow).toContain('ref: 514e6e401659f18ecffca19856a11354d66d05df');
   expect(mergeWorkflow).toContain('--candidate-git-dir .tmp/codex/candidate/.git');
   expect(mergeWorkflow).toContain('--legacy-git-dir .tmp/codex/legacy/.git');
-  expect((mergeWorkflow.match(/sec-verification-v7-/gu) ?? []).length).toBe(2);
+  expect((mergeWorkflow.match(/sec-verification-v8-/gu) ?? []).length).toBe(2);
+  expect(mergeWorkflow).not.toContain('sec-verification-v7-');
   expect(mergeWorkflow).not.toContain('sec-verification-v4-');
   expect(prWorkflow).toContain('repository_dispatch:');
   expect(prWorkflow).toContain('sec-verify-frozen-v1');

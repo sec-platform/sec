@@ -9,7 +9,7 @@ import {
 import { uniqueSorted, uniqueSortedLines } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../shared/contract-freeze-contract.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
-import { runCommand } from '../shared/process.ts';
+import { runCommandBytes } from '../shared/process.ts';
 import { ensureCompilerDepsReady } from '../shared/project-runtime.ts';
 import {
   getFastTestFilesSync,
@@ -216,8 +216,8 @@ function affectedTestsBaseRef(): string | undefined {
 async function gitChangedFiles(): Promise<string[] | null> {
   const baseRef = affectedTestsBaseRef();
   const [tracked, untracked] = await Promise.all([
-    runCommand('git', gitChangedFileDiffArgs(baseRef), { cwd: compilerRoot }),
-    runCommand('git', gitUntrackedFileArgs(), { cwd: compilerRoot })
+    runCommandBytes('git', gitChangedFileDiffArgs(baseRef), { cwd: compilerRoot }),
+    runCommandBytes('git', gitUntrackedFileArgs(), { cwd: compilerRoot })
   ]);
   if (tracked.code !== 0 || untracked.code !== 0) {
     return null;

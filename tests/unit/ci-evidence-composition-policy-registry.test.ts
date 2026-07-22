@@ -133,7 +133,7 @@ const RECORDS = [
   ...parseGitChangedRecordsOutput(git([
     '-c', 'core.quotepath=false', 'diff', '--name-status', '-z', '--find-renames', '--find-copies',
     '--diff-filter=ACDMRTUXB', BASE, CURRENT
-  ], 'utf8')),
+  ], 'buffer') as Uint8Array),
   { status: 'changed' as const, path: RUN_RUNTIME },
   { status: 'added' as const, path: INVOCATION_CONTRACT },
   { status: 'changed' as const, path: RUNTIME_PLAN },
@@ -415,7 +415,7 @@ function manifest(
   policyId: string = CodexDevelopmentSm3P0EvidencePolicyIdV1
 ): string {
   const versionFields = schema === 'v1'
-    ? 'requiredProfile: quick\nciRevision: ci-verification-v6\n'
+    ? 'requiredProfile: quick\nciRevision: ci-verification-v8\n'
     : `evidenceComposition:\n  policyId: ${policyId}\n`;
   return `---
 schema: codex-development-work-package-${schema}

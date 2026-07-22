@@ -1,3 +1,4 @@
+import { CodexDevelopmentIsActiveDocumentationPathV1 } from './active-documentation-contract.ts';
 import type { PassId } from './pipeline-types.ts';
 
 export const TEST_IMPACT_SOURCE_KINDS = [
@@ -47,12 +48,12 @@ export type ResolvedTestOwnership = {
 };
 
 export function classifyTestImpactSource(file: string): TestImpactSourceKind | null {
+  if (CodexDevelopmentIsActiveDocumentationPathV1(file)) return 'active-documentation';
   if (/(?:^|\/)contracts\/[^/]+\.ya?ml$/u.test(file)) return 'semantic-contract';
   if (/(?:^|\/)(?:block\.)?manifest\.ya?ml$/u.test(file) || /(?:^|\/)[^/]+\.manifest\.ya?ml$/u.test(file)) return 'manifest';
   if (/^source\//u.test(file)) return 'source-model';
   if (/\.[cm]?tsx?$/u.test(file)) return 'typescript';
   if (/^\.github\/workflows\/[^/]+\.ya?ml$/u.test(file)) return 'workflow';
-  if (/^docs\/.+\.md$/u.test(file)) return 'active-documentation';
   if (/^(?:package\.json|bun\.lock)$/u.test(file)) return 'repository-config';
   return null;
 }
