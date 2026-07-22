@@ -6,7 +6,7 @@ last-reviewed: 2026-07-23
 
 # SEC 滚动近期计划
 
-本计划依据最新正式工程事实重新计算：`sec-platform/sec@5f70db3c76d23a04361ba7d2ed689a17e3e14e21`、PR #135 的成功 Scope/Quick/merge/close evidence、当前零开放 PR、只作导航的过期 Issue #132、SM-4A ingress candidate 的 focused/static evidence，以及其 canonical affected aggregate 暴露的共享 Bun 5 秒 timeout 根因。IR-H1 已由 `main` 证明完成；ingress candidate 仍只在本地 branch，不能计为产品完成。
+本计划依据最新正式工程事实重新计算：`sec-platform/sec@5f70db3c76d23a04361ba7d2ed689a17e3e14e21`、PR #135 的成功 Scope/Quick/merge/close evidence、当前 Draft PR #136 及其预期 draft-lifecycle merge-gate failure、只作导航的过期 Issue #132、SM-4A ingress candidate 的 focused/static evidence，以及其 canonical affected aggregate 暴露的共享 Bun 5 秒 timeout 根因。IR-H1 已由 `main` 证明完成；PR #136 尚未进入 `main`，ingress candidate 仍只在本地 branch，两者都不能计为产品完成。实时 PR、CI 与 Review 事实只由 `docs/work/current-state.yaml` 拥有，本计划只引用其当前快照来排序。
 
 本窗口只保留一个 active package 与五个候选。它不证明任何 active/candidate 完成，也不取代 `docs/03-MVP实施计划与路线图.md`、`docs/14-Engineering IR与语义事实规范.md` 或 `docs/test-feedback-and-ci-lanes.md` 的 authority。
 

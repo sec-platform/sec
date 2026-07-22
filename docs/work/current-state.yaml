@@ -1,7 +1,7 @@
 schema: sec-current-state-v1
 observedMainSha: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
 observedMainTree: 9cc7f2d19e36cd8c0ac3ac150bdf1754186207cf
-observedAt: "2026-07-23T02:24:47+08:00"
+observedAt: "2026-07-23T02:34:33+08:00"
 goalAuthority:
   repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
   upstreamDocumentCount: 2
@@ -23,13 +23,13 @@ lastMergedWorkPackage:
 activeWorkPackage:
   id: affected-fast-timeout-contract-v1
   manifest: docs/work-packages/affected-fast-timeout-contract-v1.md
-  manifestDigest: sha256:3a91921c3769037c4064085f4544b0b82544be7df97d3e3edc2919767961902a
+  manifestDigest: sha256:1084f3bd9df2a0ad94899f7cf86bca80b78dda0d8e0f0deaf10d95d6344693b8
   branch: codex/affected-fast-timeout-contract-v1
   pr: 136
   baseSha: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
   headSha: null
 status: active
-nextReconciliationPoint: affected-fast-timeout-v9-exact-head-evidence
+nextReconciliationPoint: control-state-pr-ownership-reconciliation
 openPullRequests:
   - 136
 openIssues:
@@ -69,6 +69,11 @@ independentArchitectureReview:
   reason: verifier-trust-root-change-requires-v1-revision-advance
   requiredRevision: ci-verification-v9
   compositionRevision: ci-verification-v7
+  exactHeadV9:
+    reviewedHead: 13d49270b89e47a7194a055b97cc9a580f7a6521
+    state: blocked
+    blocker: CONTROL-STATE-PR-OWNERSHIP-001
+    reason: frozen-manifest-and-rolling-plan-duplicated-stale-live-pr-state
 candidateDiagnostics:
   focusedBootstrap:
     initialRun:

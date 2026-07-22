@@ -70,7 +70,7 @@ acceptance:
   - "Historical frozen manifests and evidence records remain byte-identical historical facts; only current authority, current fixtures, current artifact lookups, and explicit v8 invalidation tests advance."
   - "The immutable synthetic reusable-evidence fixture retains its existing LF Git blob and registered raw digest; the root .gitattributes pins that exact path to text eol=lf, its contract test asserts the pin, and no test, producer, or verifier normalizes away CRLF/LF byte differences."
   - "The prior SM-4A ingress candidate remains outside main and paused: its exact affected aggregate failed only through twelve Bun default-5000ms timeouts, while an exact 180000ms rerun of those twelve files passed 12/12 with 170 assertions."
-  - "The roadmap and three control planes record IR-H1 as merged, this v9 bootstrap manifest as the sole active package, no open pull request, stale Issue 132 as navigation only, the paused ingress as non-main evidence, and exactly five bounded candidates."
+  - "The roadmap and three control planes record IR-H1 as merged, this v9 bootstrap manifest as the sole active package, stale Issue 132 as navigation only, the paused ingress as non-main evidence, and exactly five bounded candidates; live branch, pull-request, CI, and review state has exactly one canonical owner in docs/work/current-state.yaml and is not duplicated as frozen acceptance."
   - "Because this package changes the verifier trust root and revision, it never dispatches hosted Scope, Quick, Risk, Full, or release to self-certify; merge authority comes only from frozen local exact-head evidence, independent architecture/evidence review, and manual bootstrap."
   - "The exact candidate diff contains only the twenty-four owned paths, has no temporary probe/generated artifact, and the bootstrap focused batch plus its isolated Windows EOL sentinel, canonical affected, typecheck, dependency architecture, changed-only imports, docs, manifest scope, patch whitespace, and GitNexus compare pass."
 tests:
@@ -96,7 +96,7 @@ tests:
 ## Prerequisite and inputs
 
 - IR-H1 / PR #135 已 squash merge为 `5f70db3c76d23a04361ba7d2ed689a17e3e14e21`，tree `9cc7f2d19e36cd8c0ac3ac150bdf1754186207cf`；Scope `29932931686`、Quick `29933306857`、Ready merge gate `29933703051`、main push gate `29933867770` 与 PR close gate `29933870235` 均成功。
-- 当前开放PR为0；Issue #132仍开放但内容停留在Phase 0 / PR #133，只作roadmap navigation。
+- 本包不复制会随lifecycle变化的开放PR、CI或Review快照；这些实时事实只由 `docs/work/current-state.yaml` 记录。Issue #132仍开放但内容停留在Phase 0 / PR #133，只作roadmap navigation。
 - 两份上游Goal Markdown已全文读取，combined revision为 `sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d`；没有新的Nexus Census事实改变本包前置关系。
 - ingress candidate `b753b5578e24ef96d03c051c81e25bf81ffcd8c1` / tree `90e036ad299bfd5d43ea9a4cb0c746991272582f` 仍只存在于本地branch，无push或PR。其focused 15/15、118 assertions及静态Gates不能覆盖失败aggregate，也不能证明能力进入main。
 - GitNexus对 `fastTestArgs` 为LOW（5 affected、1 direct、1 process），对 `fastTestInvocations` 为LOW（4 affected、2 direct、1 process），对revision常量和merge-gate evaluator也为LOW；独立architecture review仍判定当前v8 envelope为BLOCKER，因为图影响不能覆盖trust-root authority。
