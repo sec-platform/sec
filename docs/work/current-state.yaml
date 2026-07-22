@@ -1,7 +1,7 @@
 schema: sec-current-state-v1
 observedMainSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
 observedMainTree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
-observedAt: "2026-07-23T05:24:40+08:00"
+observedAt: "2026-07-23T06:21:43+08:00"
 goalAuthority:
   repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
   repositoryMirrorSha256: 3c24f71c3c9c88565dc2104e9a7869db4e0369582c9b9bd0245ae29aec094038
@@ -16,27 +16,62 @@ lastMergedWorkPackage:
   tree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
   integrationMode: manual-trust-root-bootstrap
 activeWorkPackage:
-  id: test-runtime-browser-cache-v10-bootstrap-v1
-  manifest: docs/work-packages/test-runtime-browser-cache-v10-bootstrap-v1.md
-  manifestDigest: sha256:ae3de06db1d2c0ccc09041f7f36b85186f375bbf09b3bdf5bf71f51e1d616e90
-  branch: codex/test-runtime-browser-cache-v10-bootstrap-v1
+  id: test-runtime-browser-cache-v10-bootstrap-v2
+  manifest: docs/work-packages/test-runtime-browser-cache-v10-bootstrap-v2.md
+  manifestDigest: sha256:22965ed3e5a40ef9312752a200bcd2717d081e7bb7d6109caccef82762dbddb8
+  branch: codex/test-runtime-browser-cache-v10-bootstrap-v2
   pr: null
   baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
   headSha: null
 candidateImplementation:
-  state: uncommitted-diff
-  changedPathCount: 33
+  state: v2-focused-and-real-cache-sentinel-passed-awaiting-frozen-head
+  predecessorHeadSha: 528a78085fc5cb7ba51b162be9b128f88adc38d1
+  predecessorTree: 263fdd9fb6f1b2ce2dbe604ccc05441b7ec5d97f
+  predecessorChangedPathCount: 33
+  predecessorDisposition: absorbed-after-canonical-affected-timeout
+  candidateChangedPathCount: 35
   browserCacheMaterialized: true
   focusedEvidence:
-    gateKey: runtime-authority-owner-batch
-    testedState: uncommitted-diff
-    command: bun test tests/unit/playwright-browser-cache.test.ts tests/unit/dependency-environment.test.ts tests/unit/dev-runner-dependency-bootstrap.test.ts tests/unit/runtime-verification.test.ts --timeout 180000
-    result: 34-pass-0-fail-137-assertions
-    durationMs: 2330
-    invalidation: any-change-to-project-runtime-dependency-environment-dependency-bootstrap-runtime-verification-or-these-tests
-  exactHeadEvidence: absent
+    directPreload:
+      testedHead: 528a78085fc5cb7ba51b162be9b128f88adc38d1
+      result: 34-pass-0-fail-137-assertions
+    managedRunner:
+      testedHead: 528a78085fc5cb7ba51b162be9b128f88adc38d1
+      result: 21-pass-0-fail-220-assertions
+    v10Policy:
+      testedHead: 528a78085fc5cb7ba51b162be9b128f88adc38d1
+      result: 69-pass-0-fail-529-assertions
+    structuralSnapshotCache:
+      testedState: working-tree-over-528a780
+      command: bun-test-semantic-mutation-isolated-child-fence-runtime-source-snapshot-cache
+      result: 3-pass-1-skip-0-fail-42-assertions
+      durationMs: 5370
+    realCachePhaseSentinel:
+      testedState: working-tree-over-528a780
+      command: bun-test-exact-real-canonical-runtime-source-snapshot-cache-title
+      result: 1-pass-0-fail-37-assertions
+      durationMs: 126600
+      captures: 1
+      revalidations: 2
+      entries: 1
+      flights: 0
+      snapshotFiles: 11979
+      snapshotBytes: 1158544347
+      captureDurationMs: 40660
+      revalidationDurationMs: [6081, 6412]
+      materializeDurationMs: 24804
+      launchProofDurationMs: 40429
+      childOutcomeFiles: 0
+      childProgressCheckpoints: 0
+      artifact: .tmp/runtime-browser-cache-v10-phase-attribution.json
+      laterDiff: import-normalization-and-synthetic-only-bounded-eviction-assertion
+      reusableByDiffImpact: true
+    invalidation: changes-to-the-covered-owner-or-test-surfaces
+  exactHeadEvidence: absent-v2-head-not-frozen
 status: active
-nextReconciliationPoint: freeze-test-runtime-browser-cache-v10-candidate
+nextReconciliationPoint:
+  - freeze-v2-candidate-head
+  - run-one-new-head-canonical-affected
 openPullRequests: []
 openIssues:
   - 132
@@ -50,7 +85,7 @@ ci:
   bootstrapMode: manual-trust-root-bootstrap
   hostedSelfCertificationAllowed: false
   latestMainRun:
-    runId: 29947771252
+    runId: 29952047837
     result: lifecycle-revalidation-success-only
     candidateVerificationEvidence: false
 review:
@@ -61,17 +96,17 @@ review:
   requestChanges: 0
 independentReview:
   architecture:
-    lastVerdict: go-after-physical-cold-path-correction
+    lastVerdict: v2-structural-key-go-real-cache-sentinel-passed
     resolvedFindings:
       - path-file-existence-was-not-node-authority
       - registry-nonzero-was-misclassified-as-cold-cache
       - runtime-verification-delegation-lacked-behavioral-test
       - cold-cache-ancestor-reparse-could-write-outside-worktree
-    correctionState: implemented-uncommitted
-    currentDiffRevalidationRequired: false
+    correctionState: v2-implementation-working-tree-focused-passed
+    currentDiffRevalidationRequired: true
   evidence:
-    lastVerdict: conditionally-approvable
-    exactHeadPlanState: blocked-until-frozen-candidate
+    lastVerdict: blocker
+    exactHeadPlanState: canonical-affected-failed-new-head-required
 runtimeBrowserCacheBlocker:
   discoveredOnCandidate: bca9102dc2a2bf865fff94b4e521383d8afac0ba
   candidateBase: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
@@ -98,6 +133,35 @@ runtimeBrowserCacheBlocker:
     executableSha256: f7c1ef91a3e287b64509a9733fc8fd43678cf4e2765d67f4d0eceb0e39ecd026
     trackedArtifactDrift: false
   authorityDisposition: external-node-and-physical-cold-path-correction-reviewed-uncommitted
+  v1Candidate:
+    head: 528a78085fc5cb7ba51b162be9b128f88adc38d1
+    tree: 263fdd9fb6f1b2ce2dbe604ccc05441b7ec5d97f
+    canonicalAffectedResult: failed
+    primaryFailure: semantic-mutation-apply-timeout-300039.56ms
+    timeoutBudgetMs: 300000
+    lateAsyncResult: verification-failed-semantic-mutation-010
+    lateAsyncResultIsSecondSelectedTestFailure: false
+    exactFailedLaneRecoverable: false
+    retainedTestWorkspaceCount: 0
+  sourceSnapshotCost:
+    browserCacheFiles: 610
+    browserCacheBytes: 707791179
+    dependencyFiles: 10967
+    dependencyBytes: 388737526
+    productionProbeCountBeforeFirstPublish: 3
+    cacheBucketIdentity: transient-sources-object
+    canonicalSourcesObjectRecreatedPerProbe: true
+    exactRunPhaseTelemetryAvailable: false
+  v2FocusedEvidence:
+    structuralCacheResult: 3-pass-1-skip-0-fail-42-assertions
+    realCacheSentinelResult: 1-pass-0-fail-37-assertions
+    realCacheCaptureCount: 1
+    realCacheRevalidationCount: 2
+    realCacheSnapshotFiles: 11979
+    realCacheSnapshotBytes: 1158544347
+    materializeAndLaunchProofPassed: true
+    childStarted: false
+  replacementDisposition: v1-absorbed-by-structural-authority-key-v2
 suspendedWorkPackages:
   - id: sm4a-trusted-authorization-ingress-v1
     branch: codex/sm4a-trusted-authorization-ingress-v1-v9
@@ -123,9 +187,9 @@ gitNexusImpact:
   compareAgainstBase:
     baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
     risk: CRITICAL
-    changedSymbols: 101
-    affectedProcesses: 36
-    indexedChangedFiles: 30
+    changedSymbols: 62
+    affectedProcesses: 51
+    indexedChangedFiles: 31
     disposition: expected-trust-root-and-test-runner-blast-radius-requires-exact-affected-and-risk
   inspectPlaywrightBrowserCache:
     risk: HIGH
@@ -137,6 +201,21 @@ gitNexusImpact:
     upstream: 4
     direct: 1
     affectedProcesses: 3
+  getRuntimeSourceSnapshot:
+    risk: HIGH
+    upstream: 7
+    direct: 1
+    affectedProcesses: 2
+  issueSemanticMutationIsolatedRuntimeCapability:
+    risk: HIGH
+    upstream: 6
+    direct: 1
+    affectedProcesses: 1
+  resolveCanonicalSemanticMutationIsolatedRuntimeInputSources:
+    risk: HIGH
+    upstream: 8
+    direct: 2
+    affectedProcesses: 1
   projectRuntimeFile:
     risk: HIGH
     upstream: 118
@@ -191,8 +270,9 @@ gitNexusImpact:
     upstream: 37
     affectedProcesses: 9
 blockers:
-  - independent-architecture-revalidation-pending
-  - frozen-candidate-and-exact-head-evidence-absent
+  - v2-candidate-head-not-frozen
+  - new-head-canonical-affected-not-run
+  - exact-head-risk-static-and-final-review-evidence-absent
 completedCapabilities:
   - v0.3-semantic-core-foundation
   - v0.4-fact-delta-pure-kernel

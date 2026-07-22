@@ -431,11 +431,11 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 `validateResolvedTemplates()` 是非权威的隔离 template sandbox adapter：它复制已解析 workspace 输入后复用 `buildWorkspaceSemanticBundle()` 与 `createPipelineSemanticContext()`，只负责 compose/typecheck 预检，不拥有第二套 frontend、Pipeline coordinator 或业务语义 authority。PR #96 的 head `3649ac63e11bc6f336bf69d48e33f9810ec0996a` 与 squash merge `07290ccda640db5e285f1d4e198b2721e6d88a8c` tree 一致；持久 evidence 位于 `docs/evidence/v0-3-semantic-frontend-verification.json` 与 `docs/evidence/v0-3-semantic-frontend-risk-batch.json`。
 
-v0.3 的语义能力退出条件均为 **PASS**，状态因此更新为 **COMPLETED**。Phase 0 后续发现的 `ir-identity.ts → ir-revision.ts → ir-identity.ts` import cycle 已由 IR-H1 / PR #135 在 `main@5f70db3` 消除，并保持 canonical bytes不变；TEST-H1 / PR #136 已在 `main@8aa2d2d` 固定fast timeout与v9 identity。当前engineering closure只补齐test/runtime browser cache materialization与v10 trust-root identity；它不撤销已验证的产品能力，也不得借机改变selector、Evidence schema、Gate顺序或产品revision。
+v0.3 的语义能力退出条件均为 **PASS**，状态因此更新为 **COMPLETED**。Phase 0 后续发现的 `ir-identity.ts → ir-revision.ts → ir-identity.ts` import cycle 已由 IR-H1 / PR #135 在 `main@5f70db3` 消除，并保持 canonical bytes不变；TEST-H1 / PR #136 已在 `main@8aa2d2d` 固定fast timeout与v9 identity。当前engineering closure只补齐test/runtime browser cache materialization、等价authority的structural snapshot reuse与v10 trust-root identity；它不撤销已验证的产品能力，也不得借机改变selector、Evidence schema、Gate顺序或产品revision。
 
 ## 13. v0.4：Semantic Operations
 
-状态：SM-0～SM-3、Phase 0 文档/控制面 closure、IR canonical primitives cycle removal与Affected Fast Timeout V9 Bootstrap **COMPLETED**；Runtime Browser Cache V10 Bootstrap **ACTIVE PREREQUISITE**；产品 **ACTIVE NEXT = SM-4A**。
+状态：SM-0～SM-3、Phase 0 文档/控制面 closure、IR canonical primitives cycle removal与Affected Fast Timeout V9 Bootstrap **COMPLETED**；Runtime Browser Cache + Structural Snapshot Reuse V10 Bootstrap V2 **ACTIVE PREREQUISITE**；产品 **ACTIVE NEXT = SM-4A**。
 
 只有 v0.3 完成后进入：
 
@@ -509,7 +509,7 @@ FD-2 的 docs-only verification、frozen review 与失效边界记录在 `docs/e
 | SM-3 | isolated apply coordinator | **COMPLETED** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 与 exact production seam 已满足退出条件 |
 | IR-H1 | canonical primitives import-cycle removal | **COMPLETED** | PR #135 已进入 `main`；identity/revision 双向 import消除，canonical bytes不变，dependency-cruiser零环 |
 | TEST-H1 | affected fast timeout V9 bootstrap | **COMPLETED** | PR #136 已以人工trust-root bootstrap进入`main@8aa2d2d`；concurrent/serial fast invocation共享180秒有界默认timeout，V1 identity为v9 |
-| TEST-H2 | runtime browser cache V10 bootstrap | **ACTIVE PREREQUISITE** | project-runtime实际执行并绑定external Node 22+，拒绝Bun/低版本/非Node/不可执行/execPath漂移；project-local registry failure fatal，只有成功选择但physical executable缺失才安装；doctor、test bootstrap与non-isolated runtime verifier复用该owner，V1 revision/artifact推进到v10 |
+| TEST-H2 | runtime browser cache + structural snapshot reuse V10 bootstrap V2 | **ACTIVE PREREQUISITE** | project-runtime实际执行并绑定external Node 22+，拒绝Bun/低版本/非Node/不可执行/execPath漂移；project-local registry failure fatal，只有成功选择但physical executable缺失才安装；doctor、test bootstrap与non-isolated runtime verifier复用该owner；runtime-plan按完整结构化authority key有界复用snapshot且逐次保留原revalidation/proof，V1 revision/artifact推进到v10 |
 | SM-4A | Workbench/CLI minimum product loop | **PRODUCT ACTIVE NEXT** | 只接 `add-state-transition`；共享 trusted adapter、CLI plan/apply/query/recover、Workbench State View/API、HTTP trust boundary 与真实 vertical 闭合 |
 | SM-4B | Task Envelope v2 | **DEFERRED** | 在 SEC-TS 主链与完整 Workbench 前置条件满足后，冻结 semantic target/operation/must-preserve/verification minimum；不复制 Mutation authority |
 | SM-4C | AI Semantic Operator | **DEFERRED** | 只消费 SM-4B Envelope/Context Packet 并提交 bounded proposal；无直接 writer、无自行扩权 |
@@ -574,7 +574,11 @@ SM-3 状态因此更新为 **COMPLETED**。Windows AppContainer 仍是 optional 
 
 2026-07-23 reconciliation事实：TEST-H1 / PR #136 已以人工bootstrap squash merge为`main@8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2`。SM-4A v9 candidate `bca9102` 的focused owner batch、typecheck、dependency architecture、docs、imports与Contract Freeze通过；canonical affected唯一失败title首先因worktree-local revision1217 Playwright cache缺失而返回blocked diagnostics。物化cache后一次exact-title尝试与覆盖repo、LOCALAPPDATA和USERPROFILE的递归扫描竞争磁盘并在300秒超时，后续artifact-read是teardown次生错误，只能记为`INVALID_ENV_CONTAMINATED`。Hosted Ubuntu workflow同样没有canonical cache materialization，故TEST-H2成为新的串行前置；candidate及其计划仍不构成产品完成证据。
 
-同日TEST-H2架构复审进一步否决“PATH文件存在即Node authority”的初版假设：Bun的`process.versions.node`不是external Node证明，registry `executablePathOrDie()`又会把Node/require/registry failure误判为cold cache并下载。physical-cold-path复审还证明缺失leaf会让`.shared-deps`父junction或cache中间junction绕过旧检查，把lock/download写出worktree。当前修正实际执行并绑定同一个Node 22+ physical executable，由非抛出的registry expected path严格区分fatal authority failure与唯一cold condition，并在lock前、lock内和真实spawn前逐段验证root到expected executable的类型、reparse与realpath containment；direct/preload 34/34（137 assertions）、managed runner 21/21和v10 policy 69/69仅证明未提交修正树，不是exact-head或`main`完成证据。
+同日TEST-H2架构复审进一步否决“PATH文件存在即Node authority”的初版假设：Bun的`process.versions.node`不是external Node证明，registry `executablePathOrDie()`又会把Node/require/registry failure误判为cold cache并下载。physical-cold-path复审还证明缺失leaf会让`.shared-deps`父junction或cache中间junction绕过旧检查，把lock/download写出worktree。V1 head `528a780` 已实际执行并绑定同一个Node 22+ physical executable，由非抛出的registry expected path严格区分fatal authority failure与唯一cold condition，并在lock前、lock内和真实spawn前逐段验证root到expected executable的类型、reparse与realpath containment；direct/preload 34/34（137 assertions）、managed runner 21/21和v10 policy 69/69是该exact head的focused evidence，但canonical affected已失败，所以仍不是`main`完成证据。
+
+V1 canonical affected的唯一primary failure是SM-3 exact title在`300039.56ms`命中300秒合同；随后detail-less `SEMANTIC-MUTATION-010`是同一已超时async body迟到返回的failed verification，不是第二个selected test。静态exact-head tracing确认production在首次publish前执行两次显式plan与一次apply lease-replan，而每次canonical source preparation都创建新冻结对象；runtime snapshot外层WeakMap按对象身份分桶，故三个等价authority各自full capture。当前browser tree为610 files / 675.0 MiB，dependency tree为10967 files / 370.73 MiB。V2因此吸收V1并只在runtime-plan canonical owner中改为完整structural authority key的有界复用；每次root/directory/file revalidation、capture raw hash、materialization identity、destination hash/reparse/hardlink与launch manifest proof全部保留。V1失败aggregate与任何exact-title诊断不能组合为PASS，V2新head必须重新运行一次canonical affected。
+
+V2 working-tree focused evidence现已闭合该局部机制：三个synthetic snapshot-cache titles为3 pass / 0 fail；独立opt-in real-cache pre-child sentinel以三个fresh canonical wrappers得到1 capture、2 revalidations、1 retained entry、0 flights，snapshot为11979 files / 1158544347 bytes。随后一次materialize与一次launch proof通过，且没有compile/next/unit/playwright phase、child outcome或progress checkpoint。该证据证明结构化复用与真实缓存量级，不替代尚未冻结的新head canonical affected，也不构成`main`完成声明。
 
 ### SM-4A minimum product contract
 
@@ -678,7 +682,7 @@ IR-H1 canonical primitives import-cycle removal              COMPLETED
   ↓
 TEST-H1 affected fast timeout V9 bootstrap                   COMPLETED
   ↓
-TEST-H2 runtime browser cache V10 bootstrap                  ACTIVE PREREQUISITE
+TEST-H2 browser cache + structural snapshot reuse V10 V2    ACTIVE PREREQUISITE
   ↓
 SM-4A trusted authorization ingress replay                    PAUSED NEXT
   ↓

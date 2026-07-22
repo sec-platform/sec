@@ -45,7 +45,8 @@ import {
   type SemanticMutationIsolatedProgressCheckpoint
 } from '../../platform/compiler/semantic-mutation/isolated-verification-child-progress.ts';
 import {
-  readSemanticMutationIsolatedPhaseTelemetry
+  readSemanticMutationIsolatedPhaseTelemetry,
+  withSemanticMutationIsolatedPhaseTelemetry
 } from '../../platform/compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
 import {
   assertIsolatedStagingTree,
@@ -3130,11 +3131,11 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
     };
 
     const capabilityA = await probe(stagingA);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toEqual({
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
       captures: 1, entries: 1, flights: 0, revalidations: 0
     });
     const capabilityB = await probe(stagingB);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toEqual({
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
       captures: 1, entries: 1, flights: 0, revalidations: 1
     });
     await expect(materializeSemanticMutationIsolatedRuntime({
@@ -3151,7 +3152,7 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
     const templateSource = path.join(sources.composeTemplates, 'template.txt');
     await writeFile(templateSource, 'template-v2-with-new-size', 'utf8');
     const capabilityC = await probe(stagingC);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toEqual({
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
       captures: 2, entries: 1, flights: 0, revalidations: 2
     });
     await materializeSemanticMutationIsolatedRuntime({
@@ -3177,14 +3178,14 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
     const addedTemplateSource = path.join(sources.composeTemplates, 'added-template.txt');
     await writeFile(addedTemplateSource, 'added-after-snapshot', 'utf8');
     await probe(stagingD);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toEqual({
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
       captures: 3, entries: 1, flights: 0, revalidations: 3
     });
 
     const runnerSourceV2 = 'console.log("snapshot-cache-v2")';
     const runnerBytesV2 = new TextEncoder().encode(runnerSourceV2);
     const capabilityD = await probe(stagingD, runnerBytesV2);
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toEqual({
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
       captures: 4, entries: 2, flights: 0, revalidations: 3
     });
     await materializeSemanticMutationIsolatedRuntime({
@@ -3206,6 +3207,74 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
       ...SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH.split('/')
     ), 'utf8')).toBe(runnerSourceV2);
   }, 'engineering-compiler-sm3-runtime-source-snapshot-cache-');
+});
+
+test('runtime source snapshot cache shares structural authority across wrappers and stays bounded', async () => {
+  await withTempWorkspace(async (root) => {
+    const stagingRoots = [...'abcdef01'].map((value) =>
+      stagingWorkspaceRoot(root, value.repeat(64)));
+    await Promise.all(stagingRoots.map(async (stagingRoot) => {
+      await mkdir(stagingRoot, { recursive: true });
+      await writeProjectBaseline(stagingRoot);
+    }));
+    const sources = await createRuntimeInputSources(
+      path.join(root, 'primary'),
+      path.join(root, 'primary-browser')
+    );
+    const equivalentSources = Object.freeze({ ...sources });
+    const alternateSources = await createRuntimeInputSources(
+      path.join(root, 'alternate'),
+      path.join(root, 'alternate-browser')
+    );
+    const probe = async (
+      stagingRoot: string,
+      runtimeInputSources: SemanticMutationIsolatedRuntimeInputSources,
+      runnerBundle: Uint8Array
+    ) => {
+      const result = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+        buildRunnerBundle: async () => runnerBundle.slice(),
+        runtimeInputSources
+      });
+      expect({
+        diagnostic: semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests(result),
+        status: result.status
+      }).toEqual({
+        diagnostic: undefined,
+        status: 'available'
+      });
+    };
+    const baseRunner = new Uint8Array([1, 2, 3]);
+
+    await probe(stagingRoots[0]!, sources, baseRunner);
+    await probe(stagingRoots[1]!, equivalentSources, baseRunner);
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
+      captures: 1, entries: 1, flights: 0, revalidations: 1
+    });
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(equivalentSources)).toMatchObject({
+      captures: 1, entries: 1, flights: 0, revalidations: 1
+    });
+
+    await probe(stagingRoots[2]!, alternateSources, baseRunner);
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(alternateSources)).toMatchObject({
+      captures: 1, entries: 1, flights: 0, revalidations: 0
+    });
+
+    for (let index = 0; index < 5; index += 1) {
+      await probe(
+        stagingRoots[index + 3]!,
+        index % 2 === 0 ? sources : equivalentSources,
+        new Uint8Array([10 + index])
+      );
+    }
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
+      entries: 4,
+      flights: 0
+    });
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(alternateSources)).toMatchObject({
+      entries: 0,
+      flights: 0
+    });
+  }, 'engineering-compiler-sm3-runtime-source-snapshot-structural-');
 });
 
 test('runtime source snapshot cache single-flights concurrent probes and evicts failed capture', async () => {
@@ -3231,7 +3300,7 @@ test('runtime source snapshot cache single-flights concurrent probes and evicts 
     };
     expect(await probeSemanticMutationIsolatedRuntimeCapability(stagingA, options))
       .toEqual({ status: 'unavailable' });
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toEqual({
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
       captures: 0, entries: 0, flights: 0, revalidations: 0
     });
 
@@ -3242,7 +3311,7 @@ test('runtime source snapshot cache single-flights concurrent probes and evicts 
     ]);
     expect(capabilityA.status).toBe('available');
     expect(capabilityB.status).toBe('available');
-    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toEqual({
+    expect(semanticMutationRuntimeSourceSnapshotCacheStatsForTests(sources)).toMatchObject({
       captures: 1, entries: 1, flights: 0, revalidations: 0
     });
 
@@ -3268,6 +3337,283 @@ test('runtime source snapshot cache single-flights concurrent probes and evicts 
       .toHaveLength(0);
   }, 'engineering-compiler-sm3-runtime-source-snapshot-flight-');
 });
+
+test.skipIf(process.env.SEC_RUN_SM3_RUNTIME_SOURCE_PHASE_SENTINEL !== '1')(
+  'runtime source snapshot cache reuses real canonical authority across fresh wrappers before child',
+  async () => {
+    const evidencePath = path.join(
+      process.cwd(),
+      '.tmp',
+      'runtime-browser-cache-v10-phase-attribution.json'
+    );
+    const pendingEvidencePath = `${evidencePath}.pending-${process.pid}`;
+    await mkdir(path.dirname(evidencePath), { recursive: true });
+    await Promise.all([
+      rm(evidencePath, { force: true }),
+      rm(pendingEvidencePath, { force: true })
+    ]);
+
+    await withTempWorkspace(async (root) => {
+      type CacheStats = ReturnType<
+        typeof semanticMutationRuntimeSourceSnapshotCacheStatsForTests
+      >;
+      type Telemetry = Awaited<ReturnType<
+        typeof readSemanticMutationIsolatedPhaseTelemetry
+      >>;
+      const emptyCacheStats: CacheStats = Object.freeze({
+        captures: 0,
+        entries: 0,
+        flights: 0,
+        revalidations: 0,
+        snapshotBytes: 0,
+        snapshotFiles: 0
+      });
+      const summary: {
+        cache: {
+          after: CacheStats;
+          before: CacheStats;
+          delta: CacheStats;
+        };
+        child: {
+          outcomeFiles: number;
+          progressCheckpoints: number;
+          progressStatuses: string[];
+        };
+        formatVersion: 'runtime-browser-cache-v10-phase-attribution-v1';
+        launchProof: {
+          durationMs: number;
+          status: 'failed' | 'not-run' | 'passed';
+        };
+        materialize: {
+          durationMs: number;
+          status: 'failed' | 'not-run' | 'passed';
+        };
+        probes: Array<{
+          durationMs: number;
+          index: number;
+          status: 'available' | 'not-run' | 'unavailable';
+        }>;
+        stage: string;
+        status: 'failed' | 'passed';
+        telemetry: Array<{ probe: number; result: Telemetry }>;
+      } = {
+        cache: {
+          after: emptyCacheStats,
+          before: emptyCacheStats,
+          delta: emptyCacheStats
+        },
+        child: {
+          outcomeFiles: 0,
+          progressCheckpoints: 0,
+          progressStatuses: []
+        },
+        formatVersion: 'runtime-browser-cache-v10-phase-attribution-v1',
+        launchProof: { durationMs: 0, status: 'not-run' },
+        materialize: { durationMs: 0, status: 'not-run' },
+        probes: [1, 2, 3].map((index) => ({
+          durationMs: 0,
+          index,
+          status: 'not-run'
+        })),
+        stage: 'setup',
+        status: 'failed',
+        telemetry: []
+      };
+      const stagingRoots = ['1', '2', '3'].map((value) =>
+        stagingWorkspaceRoot(root, value.repeat(64)));
+      let failure: unknown = null;
+
+      try {
+        await Promise.all(stagingRoots.map(async (stagingRoot) => {
+          await mkdir(stagingRoot, { recursive: true });
+          await writeProjectBaseline(stagingRoot);
+        }));
+        summary.cache.before = semanticMutationRuntimeSourceSnapshotCacheStatsForTests(
+          resolveCanonicalSemanticMutationIsolatedRuntimeInputSources()
+        );
+
+        const capabilities: Array<{ readonly status: 'available' | 'unavailable' }> = [];
+        for (let index = 0; index < stagingRoots.length; index += 1) {
+          summary.stage = `probe-${index + 1}`;
+          const startedAt = Date.now();
+          const capability = await probeSemanticMutationIsolatedRuntimeCapability(
+            stagingRoots[index]!
+          );
+          summary.probes[index] = {
+            durationMs: Math.max(0, Date.now() - startedAt),
+            index: index + 1,
+            status: capability.status
+          };
+          expect({
+            diagnostic: semanticMutationIsolatedRuntimeCapabilityDiagnosticForTests(capability),
+            status: capability.status
+          }).toEqual({
+            diagnostic: undefined,
+            status: 'available'
+          });
+          capabilities.push(capability);
+        }
+
+        summary.stage = 'runtime-materialize';
+        let startedAt = Date.now();
+        try {
+          await withSemanticMutationIsolatedPhaseTelemetry(
+            stagingRoots[2]!,
+            'runtime-materialize',
+            async () => await materializeSemanticMutationIsolatedRuntime({
+              binding: capabilities[2]!,
+              commitFence: async () => undefined,
+              stagingWorkspaceRoot: stagingRoots[2]!
+            })
+          );
+          summary.materialize = {
+            durationMs: Math.max(0, Date.now() - startedAt),
+            status: 'passed'
+          };
+        } catch (error) {
+          summary.materialize = {
+            durationMs: Math.max(0, Date.now() - startedAt),
+            status: 'failed'
+          };
+          throw error;
+        }
+
+        summary.stage = 'launch-proof';
+        startedAt = Date.now();
+        try {
+          await assertSemanticMutationIsolatedRuntimeLaunchManifest({
+            binding: capabilities[2]!,
+            commitFence: async () => undefined,
+            stagingWorkspaceRoot: stagingRoots[2]!
+          });
+          summary.launchProof = {
+            durationMs: Math.max(0, Date.now() - startedAt),
+            status: 'passed'
+          };
+        } catch (error) {
+          summary.launchProof = {
+            durationMs: Math.max(0, Date.now() - startedAt),
+            status: 'failed'
+          };
+          throw error;
+        }
+        summary.stage = 'evidence-assertion';
+      } catch (error) {
+        failure = error;
+      }
+
+      try {
+        summary.cache.after = semanticMutationRuntimeSourceSnapshotCacheStatsForTests(
+          resolveCanonicalSemanticMutationIsolatedRuntimeInputSources()
+        );
+        summary.cache.delta = Object.freeze({
+          captures: summary.cache.after.captures - summary.cache.before.captures,
+          entries: summary.cache.after.entries - summary.cache.before.entries,
+          flights: summary.cache.after.flights - summary.cache.before.flights,
+          revalidations: summary.cache.after.revalidations - summary.cache.before.revalidations,
+          snapshotBytes: summary.cache.after.snapshotBytes - summary.cache.before.snapshotBytes,
+          snapshotFiles: summary.cache.after.snapshotFiles - summary.cache.before.snapshotFiles
+        });
+        summary.telemetry = await Promise.all(stagingRoots.map(async (stagingRoot, index) => ({
+          probe: index + 1,
+          result: await readSemanticMutationIsolatedPhaseTelemetry(stagingRoot)
+        })));
+        const progress = await Promise.all(stagingRoots.map(async (stagingRoot) =>
+          await readSemanticMutationIsolatedProgressTrace(stagingRoot)));
+        const outcomePresence = await Promise.all(stagingRoots.flatMap((stagingRoot) => [
+          semanticMutationIsolatedChildOutcomePath(stagingRoot),
+          semanticMutationIsolatedChildOutcomePendingPath(stagingRoot)
+        ]).map(async (filePath) => {
+          try {
+            await stat(filePath);
+            return true;
+          } catch (error) {
+            const code = error !== null && typeof error === 'object' && 'code' in error
+              ? (error as { readonly code?: unknown }).code
+              : undefined;
+            if (code === 'ENOENT') return false;
+            throw error;
+          }
+        }));
+        summary.child = {
+          outcomeFiles: outcomePresence.filter(Boolean).length,
+          progressCheckpoints: progress.reduce((total, result) =>
+            total + (result.status === 'valid' ? result.trace.checkpoints.length : 0), 0),
+          progressStatuses: progress.map((result) => result.status)
+        };
+
+        if (failure === null) {
+          expect(summary.cache.delta).toMatchObject({
+            captures: 1,
+            entries: 1,
+            flights: 0,
+            revalidations: 2
+          });
+          expect(summary.cache.after).toMatchObject({ entries: 1, flights: 0 });
+          expect(summary.cache.after.snapshotBytes).toBeGreaterThan(0);
+          expect(summary.cache.after.snapshotFiles).toBeGreaterThan(0);
+          expect(summary.probes.map((probe) => probe.status)).toEqual([
+            'available',
+            'available',
+            'available'
+          ]);
+          expect(summary.materialize.status).toBe('passed');
+          expect(summary.launchProof.status).toBe('passed');
+          expect(summary.telemetry.map(({ result }) => result.status)).toEqual([
+            'valid',
+            'valid',
+            'valid'
+          ]);
+          expect(summary.telemetry.map(({ result }) => result.status === 'valid'
+            ? result.events.map((event) => `${event.phase}:${event.state}`)
+            : [result.status])).toEqual([
+            ['source-snapshot-capture:started', 'source-snapshot-capture:completed'],
+            ['source-snapshot-revalidate:started', 'source-snapshot-revalidate:completed'],
+            [
+              'source-snapshot-revalidate:started',
+              'source-snapshot-revalidate:completed',
+              'runtime-materialize:started',
+              'runtime-materialize:completed'
+            ]
+          ]);
+          for (const { result } of summary.telemetry) {
+            if (result.status !== 'valid') continue;
+            for (const event of result.events) {
+              expect(Object.keys(event).sort()).toEqual([
+                'durationMs',
+                'formatVersion',
+                'phase',
+                'state'
+              ]);
+              expect(Number.isSafeInteger(event.durationMs)).toBe(true);
+              expect(event.durationMs).toBeGreaterThanOrEqual(0);
+            }
+          }
+          expect(summary.child).toEqual({
+            outcomeFiles: 0,
+            progressCheckpoints: 0,
+            progressStatuses: ['valid', 'valid', 'valid']
+          });
+          summary.stage = 'complete';
+          summary.status = 'passed';
+        }
+      } catch (error) {
+        if (failure === null) failure = error;
+        summary.stage = 'evidence-assertion';
+        summary.status = 'failed';
+      } finally {
+        await writeFile(
+          pendingEvidencePath,
+          `${JSON.stringify(summary, null, 2)}\n`,
+          { encoding: 'utf8', flag: 'wx', mode: 0o600 }
+        );
+        await rename(pendingEvidencePath, evidencePath);
+      }
+
+      if (failure !== null) throw failure;
+    }, 'engineering-compiler-sm3-runtime-source-phase-sentinel-');
+  }
+);
 
 test('isolated runtime capability permits baseline bootstrap but blocks Prisma and linked opaque modules', async () => {
   await withTempWorkspace(async (root) => {

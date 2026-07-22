@@ -145,6 +145,7 @@ interface RuntimeSourceSnapshotV1 {
 }
 
 interface RuntimeSourceSnapshotCacheSlot {
+  readonly authorityKey: string;
   captures: number;
   flight?: Promise<RuntimeSourceSnapshotV1>;
   revalidations: number;
@@ -176,11 +177,8 @@ interface ReparsePointInspector {
 
 const issuedRuntimePlans = new WeakSet<object>();
 const runtimePlansByBinding = new WeakMap<object, SemanticMutationIsolatedRuntimePlanV1>();
-const runtimeSourceSnapshotsBySources = new WeakMap<
-  SemanticMutationIsolatedRuntimeInputSources,
-  Map<string, RuntimeSourceSnapshotCacheSlot>
->();
-const MAX_RUNTIME_SOURCE_SNAPSHOTS_PER_SOURCES = 4;
+const runtimeSourceSnapshots = new Map<string, RuntimeSourceSnapshotCacheSlot>();
+const MAX_RUNTIME_SOURCE_SNAPSHOTS = 4;
 
 function sha256Bytes(bytes: Uint8Array): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
@@ -1245,6 +1243,19 @@ interface RuntimeSourceSnapshotInputV1 {
   readonly sources: SemanticMutationIsolatedRuntimeInputSources;
 }
 
+function runtimeSourceAuthorityKey(sources: SemanticMutationIsolatedRuntimeInputSources): string {
+  return sha256Value({
+    domain: 'semantic-mutation-runtime-source-authority-key-v1',
+    browserCache: foldedPath(path.resolve(sources.browserCache)),
+    compilerModulesRoot: foldedPath(path.resolve(sources.compilerModulesRoot)),
+    compilerPackage: foldedPath(path.resolve(sources.compilerPackage)),
+    composeTemplates: foldedPath(path.resolve(sources.composeTemplates)),
+    dependencyModules: foldedPath(path.resolve(sources.dependencyModules)),
+    officialPolicies: foldedPath(path.resolve(sources.officialPolicies)),
+    officialRegistry: foldedPath(path.resolve(sources.officialRegistry))
+  });
+}
+
 function normalizedCompilerRegistries(input: {
   readonly compilerRegistries?: readonly SemanticMutationIsolatedCompilerRegistryInput[];
   readonly sources: SemanticMutationIsolatedRuntimeInputSources;
@@ -1282,15 +1293,7 @@ function runtimeSourceSnapshotCacheKey(input: RuntimeSourceSnapshotInputV1): str
       }))),
       runner: sha256Bytes(input.runnerBundle)
     },
-    sources: {
-      browserCache: foldedPath(path.resolve(input.sources.browserCache)),
-      compilerModulesRoot: foldedPath(path.resolve(input.sources.compilerModulesRoot)),
-      compilerPackage: foldedPath(path.resolve(input.sources.compilerPackage)),
-      composeTemplates: foldedPath(path.resolve(input.sources.composeTemplates)),
-      dependencyModules: foldedPath(path.resolve(input.sources.dependencyModules)),
-      officialPolicies: foldedPath(path.resolve(input.sources.officialPolicies)),
-      officialRegistry: foldedPath(path.resolve(input.sources.officialRegistry))
-    }
+    sourceAuthorityKey: runtimeSourceAuthorityKey(input.sources)
   });
 }
 
@@ -1455,13 +1458,12 @@ async function revalidateRuntimeSourceSnapshot(
   return secondDirectoryPass.every(Boolean);
 }
 
-function trimRuntimeSourceSnapshotBucket(
-  bucket: Map<string, RuntimeSourceSnapshotCacheSlot>,
+function trimRuntimeSourceSnapshots(
   protectedKey: string
 ): void {
-  for (const [key, slot] of bucket) {
-    if (bucket.size <= MAX_RUNTIME_SOURCE_SNAPSHOTS_PER_SOURCES) return;
-    if (key !== protectedKey && slot.flight === undefined) bucket.delete(key);
+  for (const [key, slot] of runtimeSourceSnapshots) {
+    if (runtimeSourceSnapshots.size <= MAX_RUNTIME_SOURCE_SNAPSHOTS) return;
+    if (key !== protectedKey && slot.flight === undefined) runtimeSourceSnapshots.delete(key);
   }
 }
 
@@ -1471,20 +1473,19 @@ async function getRuntimeSourceSnapshot(
   stagingWorkspaceRoot: string
 ): Promise<RuntimeSourceSnapshotV1> {
   const key = runtimeSourceSnapshotCacheKey(input);
-  let bucket = runtimeSourceSnapshotsBySources.get(input.sources);
-  if (!bucket) {
-    bucket = new Map();
-    runtimeSourceSnapshotsBySources.set(input.sources, bucket);
-  }
-  let slot = bucket.get(key);
+  const authorityKey = runtimeSourceAuthorityKey(input.sources);
+  let slot = runtimeSourceSnapshots.get(key);
   if (!slot) {
-    slot = { captures: 0, revalidations: 0 };
-    bucket.set(key, slot);
+    slot = { authorityKey, captures: 0, revalidations: 0 };
+    runtimeSourceSnapshots.set(key, slot);
   } else {
-    bucket.delete(key);
-    bucket.set(key, slot);
+    if (slot.authorityKey !== authorityKey) {
+      throw new Error('Semantic Mutation runtime snapshot cache authority key is inconsistent');
+    }
+    runtimeSourceSnapshots.delete(key);
+    runtimeSourceSnapshots.set(key, slot);
   }
-  trimRuntimeSourceSnapshotBucket(bucket, key);
+  trimRuntimeSourceSnapshots(key);
   const sharedFlight = slot.flight;
   if (sharedFlight) {
     return await withSemanticMutationIsolatedPhaseTelemetry(
@@ -1519,24 +1520,38 @@ async function getRuntimeSourceSnapshot(
     activeSlot.snapshot = snapshot;
     return snapshot;
   } catch (error) {
-    if (bucket.get(key) === activeSlot && activeSlot.flight === flight) bucket.delete(key);
+    if (runtimeSourceSnapshots.get(key) === activeSlot && activeSlot.flight === flight) {
+      runtimeSourceSnapshots.delete(key);
+    }
     throw error;
   } finally {
     if (activeSlot.flight === flight) activeSlot.flight = undefined;
-    trimRuntimeSourceSnapshotBucket(bucket, key);
+    trimRuntimeSourceSnapshots(key);
   }
 }
 
 /** Test-only cache counters; snapshot contents and capability bindings stay private. */
 export function semanticMutationRuntimeSourceSnapshotCacheStatsForTests(
   sources: SemanticMutationIsolatedRuntimeInputSources
-): Readonly<{ captures: number; entries: number; flights: number; revalidations: number }> {
-  const slots = [...(runtimeSourceSnapshotsBySources.get(sources)?.values() ?? [])];
+): Readonly<{
+  captures: number;
+  entries: number;
+  flights: number;
+  revalidations: number;
+  snapshotBytes: number;
+  snapshotFiles: number;
+}> {
+  const authorityKey = runtimeSourceAuthorityKey(sources);
+  const slots = [...runtimeSourceSnapshots.values()].filter((slot) => slot.authorityKey === authorityKey);
+  const snapshots = slots.flatMap((slot) => slot.snapshot ? [slot.snapshot] : []);
   return Object.freeze({
     captures: slots.reduce((total, slot) => total + slot.captures, 0),
     entries: slots.length,
     flights: slots.filter((slot) => slot.flight !== undefined).length,
-    revalidations: slots.reduce((total, slot) => total + slot.revalidations, 0)
+    revalidations: slots.reduce((total, slot) => total + slot.revalidations, 0),
+    snapshotBytes: snapshots.reduce((total, snapshot) =>
+      total + snapshot.files.reduce((snapshotTotal, file) => snapshotTotal + file.size, 0), 0),
+    snapshotFiles: snapshots.reduce((total, snapshot) => total + snapshot.files.length, 0)
   });
 }
 

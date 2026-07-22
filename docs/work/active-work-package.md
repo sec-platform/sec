@@ -7,8 +7,8 @@ last-reviewed: 2026-07-23
 # 当前唯一 Active Work Package
 
 ```yaml
-manifest: docs/work-packages/test-runtime-browser-cache-v10-bootstrap-v1.md
-manifestDigest: sha256:ae3de06db1d2c0ccc09041f7f36b85186f375bbf09b3bdf5bf71f51e1d616e90
+manifest: docs/work-packages/test-runtime-browser-cache-v10-bootstrap-v2.md
+manifestDigest: sha256:22965ed3e5a40ef9312752a200bcd2717d081e7bb7d6109caccef82762dbddb8
 ```
 
 本文件只按 path + raw-byte digest 选择当前唯一正式 Work Package，不复制其 id、base、tracking、ownership、acceptance、tests、forbidden paths、stop/reload 或执行说明；exact `main` SHA、branch与PR是 `current-state` 观察事实。候选不能在自身 tree内嵌最终 commit SHA而不形成 self-reference，因此 candidate `headSha` 保持 `null`，exact candidate head只由外部 Context Capsule与绑定 evidence给出。完整可执行闭包以所选 frozen manifest为唯一 authority；控制面 lifecycle只以 `docs/04-AI自主实现执行蓝图.md` 为权威。

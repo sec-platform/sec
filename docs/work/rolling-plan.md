@@ -6,12 +6,12 @@ last-reviewed: 2026-07-23
 
 # SEC 滚动近期计划
 
-本计划依据 `main@8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2`、open PR 为零、陈旧导航 Issue #132、SM-4A candidate `bca9102` 的 exact local evidence、canonical affected 的缺 cache失败与受扫描污染timeout、以及 hosted Ubuntu workflow缺少canonical cache materialization 的新事实整体重算。TEST-H1 已由 `main` 证明完成；SM-4A ingress与本 prerequisite 均未进入 `main`，不能计为产品完成。实时PR、CI与Review事实只由 `docs/work/current-state.yaml` 拥有。
+本计划依据 `main@8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2`、open PR 为零、陈旧导航 Issue #132、最新main revalidation success、SM-4A candidate `bca9102` 的exact local evidence，以及TEST-H2 V1 head `528a780` 的canonical affected timeout整体重算。V1已证明browser bootstrap本身的focused合同，却同时证伪“isolated runtime snapshot无需进入本包”的架构假设：同一完整authority被临时`sources`对象身份切成多个snapshot bucket。V2 working-tree的structural-cache focused合同与real-cache pre-child sentinel现已通过，但候选尚未冻结、canonical affected尚未在新head运行，因此V1仍只被吸收而不构成完成。实时PR、CI与Review事实只由 `docs/work/current-state.yaml` 拥有。
 
 本窗口只保留一个 active package 与五个有界候选。它不取代路线图、Engineering IR或测试authority，也不把计划、branch或单次诊断当成完成证据。
 
 ```text
-TEST-H2 runtime browser cache V10 bootstrap (active prerequisite)
+TEST-H2 runtime browser cache + structural snapshot reuse V10 bootstrap V2 (active prerequisite)
 └─→ SM-4A trusted authorization ingress replay
     └─→ SM-4A shared product adapter
         └─→ SM-4A CLI + Workbench transport vertical
@@ -21,14 +21,14 @@ Nexus Phase 0A exact-tree census (read-only candidate; no second active package)
 
 ## 当前唯一 Work Package
 
-### test-runtime-browser-cache-v10-bootstrap-v1
+### test-runtime-browser-cache-v10-bootstrap-v2
 
-- 工程结果：project-runtime实际执行并冻结同一个external Node 22+ path/version authority，再由该Node调用project-local Playwright registry选择canonical expected executable；registry/runtime failure fatal，只有成功选择但physical executable缺失才安装。Doctor、`ensureTestDependencies()`、direct preload与non-isolated runtime verification复用该owner。
-- 根因：Bun安装不执行Playwright lifecycle，canonical runtime又拒绝global/default cache；Windows exact probe证明Bun 1.3.14网络兼容层不能执行Playwright下载，而同机Node可达。初版只扫描PATH文件且用`executablePathOrDie()`，会把不兼容/poisoned Node或registry failure误分类为cold miss；后续复审又证明缺失leaf会绕过既存`.shared-deps`/cache中间junction并把lock/download写出worktree。当前修正实际执行external Node、区分fatal registry与cold，并在lock前、lock内及真实spawn前逐段复核physical containment。
-- Canonical seam：`project-runtime.ts`独占dependency path、external Node selection/validation、browser-specific lock、CLI/registry调用与失败语义；`dependency-environment.ts`只向下消费同一Node authority，不能反向成为resolver owner；test runner只消费组合入口并覆盖每个child的cache/preload环境，isolated capability probe继续只读fail closed。
-- 风险：`project-runtime.ts`文件级HIGH（10 direct/118 upstream），runtime verification文件级HIGH（4 direct/109 upstream），`getDoctorReport`为LOW；`withTestDependencies`与`pathEnv`仍为HIGH，`isolatedPlaywrightBrowsersPath`为CRITICAL但只把无参分支委托现有authority。`ensureCompilerDepsReady`、HIGH `executableCheck()`与CRITICAL `withInstallLock`均禁止修改；任何selector/timeout/Gate order、Mutation或runtime proof变化立即停止。
-- 信任：本包修改verifier trust root，V1 revision/artifact推进到v10，使用旧base本地exact evidence与双审查人工bootstrap；候选不dispatch hosted Scope/Quick/Full/release。
-- 退出：真实external Node、PATH/same-node/missing/incompatible/Bun/non-Node/non-executable/fatal-registry、physical ancestor/cold path、cold/warm/concurrent/failure-retry、doctor消费、direct/pre-fanout与runtime delegation合同，以及v10 identity与canonical affected在单一exact head满足；tracked diff不包含cache或临时产物。当前direct/preload 34/34（137 assertions）、managed runner 21/21与v10 policy 69/69只绑定未提交树，仍须冻结单一candidate并运行exact-head Gate。
+- 工程结果：保留V1已经独立复审为GO的external Node 22+、project-local Playwright registry、physical containment、browser lock与pre-fanout bootstrap；新增runtime-plan structural snapshot key，使不同对象但完整authority相同的production probes共享一个有界slot/single flight。
+- 根因：exact title在首次publish前执行两次plan与一次apply replan；每次canonical source resolver都创建新冻结对象，而现有WeakMap按对象身份分桶。每次cold capture要读取并hash 675.0 MiB browser tree与370.73 MiB dependency tree，V1 canonical affected在`300039.56ms`超时。迟到`SEMANTIC-MUTATION-010`来自同一已超时body；具体failed lane随临时artifact清理而不可恢复。
+- Canonical seam：`project-runtime.ts`继续独占dependency/browser materialization；`semantic-mutation-isolated-runtime-plan.ts`独占snapshot structural key、slot bounds、capture/revalidation/materialization与launch proof。V2只修改该cache owner及其既有unit owner，不修改orchestrator、isolated child、Mutation合同、timeout、selector或process lifecycle。
+- 风险：GitNexus将`getRuntimeSourceSnapshot`、`issueSemanticMutationIsolatedRuntimeCapability`与canonical sources resolver均评为HIGH。结构化复用必须每次执行现有root/directory/file identity revalidation；capture raw hash、destination hash manifest、reparse/hardlink拒绝与launch proof不能减少。browser materializer的HIGH/CRITICAL seams仍按V1审查结果冻结。
+- 信任：本包修改verifier trust root，V1 revision/artifact从main的v9推进到v10，使用冻结本地evidence、独立架构/证据审查与人工bootstrap；候选不dispatch hosted Scope/Quick/Risk/Full/release自证。
+- 退出：新增focused test已确定性证明distinct-but-equivalent sources只capture一次、结构key变化不复用、failed flight可恢复且cache总量有界；real-cache sentinel已证明三个fresh canonical wrappers只产生1 capture + 2 revalidations，并完成materialize/launch且不进入child。V1三个exact-head focused batch只在输入未变时复用。下一步冻结新head并只运行一次完整canonical affected；V1失败aggregate与任何exact-title结果不能组合为PASS，affected通过后才运行唯一Risk与剩余静态/文档/ownership Gate。
 
 ## 候选 Work Package
 
