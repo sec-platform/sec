@@ -1,7 +1,7 @@
 schema: sec-current-state-v1
 observedMainSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
 observedMainTree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
-observedAt: "2026-07-23T06:35:21+08:00"
+observedAt: "2026-07-23T06:56:25+08:00"
 goalAuthority:
   repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
   repositoryMirrorSha256: 3c24f71c3c9c88565dc2104e9a7869db4e0369582c9b9bd0245ae29aec094038
@@ -16,15 +16,15 @@ lastMergedWorkPackage:
   tree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
   integrationMode: manual-trust-root-bootstrap
 activeWorkPackage:
-  id: test-runtime-browser-cache-v10-bootstrap-v2
-  manifest: docs/work-packages/test-runtime-browser-cache-v10-bootstrap-v2.md
-  manifestDigest: sha256:357201b287634986c1a1565feade6a324e302280cf8d85c07690256c5b40d2c8
-  branch: codex/test-runtime-browser-cache-v10-bootstrap-v2
+  id: test-runtime-isolated-failure-attribution-v1
+  manifest: docs/work-packages/test-runtime-isolated-failure-attribution-v1.md
+  manifestDigest: sha256:7dd1818b4116aab448c3b04e0616f23ac6c50a00d2e2b325d1182995aa8f72c3
+  branch: codex/test-runtime-isolated-failure-attribution-v1
   pr: null
-  baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+  baseSha: de5f84e693d2cae2ad502185dc86353813d62e4e
   headSha: null
 candidateImplementation:
-  state: v2-affected-oracle-blocker-repaired-focused-passed-awaiting-new-frozen-head
+  state: v2-stopped-after-valid-failed-isolated-artifact-set
   predecessorHeadSha: 528a78085fc5cb7ba51b162be9b128f88adc38d1
   predecessorTree: 263fdd9fb6f1b2ce2dbe604ccc05441b7ec5d97f
   predecessorChangedPathCount: 33
@@ -82,11 +82,27 @@ candidateImplementation:
     completedTelemetryMeaning: phase-wrapper-terminated-not-operation-succeeded
     settledSlotAssertion: entries-minus-flights-less-than-or-equal-to-4
     activeFlightEvictionAllowed: false
-  exactHeadEvidence: failed-on-e027ba6-new-v2-head-not-frozen
+  correctedCandidate:
+    testedHead: de5f84e693d2cae2ad502185dc86353813d62e4e
+    testedTree: 685c2a12334f3a126b4f99b483afd78785f85d5b
+    canonicalAffectedResult: failed
+    command: SEC_AFFECTED_TESTS_BASE-equals-main-bun-run-test-affected
+    exitCode: 1
+    snapshotBatch: 113-pass-2-skip-0-fail-845-assertions
+    sm3TargetFile: 3-pass-1-fail-77-assertions-383120ms
+    failedTitleDurationMs: 287236.36
+    publicFailure: SEMANTIC-MUTATION-010-impact-verification
+    verificationStatus: failed
+    isolatedVerificationDetailsPresent: false
+    classification: canonical-artifact-set-valid-readable-coherent-and-failed
+    riskRun: false
+    disposition: stopped-cannot-rerun-or-compose-pass
+  exactHeadEvidence: de5f84e-affected-failed
 status: active
 nextReconciliationPoint:
-  - freeze-v2-candidate-head
-  - run-one-new-head-canonical-affected
+  - freeze-diagnostic-head
+  - run-one-retained-exact-title-diagnostic
+  - classify-first-failed-lane-and-clean-retained-workspace
 openPullRequests: []
 openIssues:
   - 132
@@ -96,7 +112,7 @@ issueFacts:
 ci:
   currentMainRevision: ci-verification-v9
   candidateRequiredRevision: ci-verification-v10
-  activeExactHeadEvidence: absent
+  activeExactHeadEvidence: diagnostic-head-not-frozen
   bootstrapMode: manual-trust-root-bootstrap
   hostedSelfCertificationAllowed: false
   latestMainRun:
@@ -111,17 +127,38 @@ review:
   requestChanges: 0
 independentReview:
   architecture:
-    lastVerdict: v2-structural-key-go-real-cache-sentinel-passed
+    lastVerdict: test-h3-bounded-single-call-site-retention-go
     resolvedFindings:
       - path-file-existence-was-not-node-authority
       - registry-nonzero-was-misclassified-as-cold-cache
       - runtime-verification-delegation-lacked-behavioral-test
       - cold-cache-ancestor-reparse-could-write-outside-worktree
     correctionState: v2-implementation-working-tree-focused-passed
-    currentDiffRevalidationRequired: true
+    currentDiffRevalidationRequired: false
+    diagnosticConstraints:
+      - shared-critical-workspace-helper-byte-identical
+      - production-and-timeout-surfaces-byte-identical
+      - exactly-one-retained-run-then-literal-path-cleanup
+      - pass-timeout-missing-multiple-or-contradictory-artifacts-means-unknown-stop
   evidence:
     lastVerdict: blocker
-    exactHeadPlanState: e027ba6-canonical-affected-failed-oracle-repaired-new-head-required
+    exactHeadPlanState: de5f84e-canonical-affected-failed-valid-artifact-lane-unknown
+activeDiagnostic:
+  goal: classify-first-canonical-failed-verification-lane-without-reexecution
+  retainedWorkspaceCount: 0
+  existingArtifactsRecoverable: false
+  reason: default-testkit-cleanup-removed-the-failed-workspace
+  allowedMutation: one-sm3-test-call-site-selects-existing-retain-on-callback-failure-option
+  forbiddenMutation:
+    - shared-testkit-helper
+    - production-runtime-plan
+    - isolated-child
+    - orchestrator
+    - process-lifecycle
+    - timeout
+    - selector
+  plannedDiagnosticCount: 1
+  diagnosticIsGatePass: false
 runtimeBrowserCacheBlocker:
   discoveredOnCandidate: bca9102dc2a2bf865fff94b4e521383d8afac0ba
   candidateBase: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
@@ -183,7 +220,36 @@ runtimeBrowserCacheBlocker:
     failureClass: parallel-test-oracle-read-evictable-live-lru-slot-counters
     implementationInvalidated: false
     evidenceDisposition: failed-head-cannot-be-reused-as-pass
+  v2CorrectedHeadAffected:
+    head: de5f84e693d2cae2ad502185dc86353813d62e4e
+    tree: 685c2a12334f3a126b4f99b483afd78785f85d5b
+    result: failed
+    failedTitle: sm3-dry-run-apply-share-one-plan-revision
+    durationMs: 287236.36
+    fileResult: 3-pass-1-fail-77-assertions-383120ms
+    verificationStatus: failed
+    validArtifactSet: true
+    publicDiagnosticDetails: absent
+    concreteFailedLaneRecoverable: false
+    retainedTestWorkspaceCount: 0
+    riskRun: false
   replacementDisposition: v1-absorbed-by-structural-authority-key-v2
+stoppedWorkPackages:
+  - id: test-runtime-browser-cache-v10-bootstrap-v2
+    branch: codex/test-runtime-browser-cache-v10-bootstrap-v2
+    baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+    failedHeadSha: de5f84e693d2cae2ad502185dc86353813d62e4e
+    manifestDigest: sha256:357201b287634986c1a1565feade6a324e302280cf8d85c07690256c5b40d2c8
+    state: stopped-by-canonical-affected-valid-failed-artifact-set
+    reusableEvidence:
+      - browser-cache-focused-baseline
+      - structural-snapshot-focused
+      - real-cache-pre-child-sentinel
+      - affected-successful-sub-batches-as-diagnostic-baseline-only
+    invalidEvidence:
+      - canonical-affected-pass
+      - sm3-target-file-pass
+      - impact-risk
 suspendedWorkPackages:
   - id: sm4a-trusted-authorization-ingress-v1
     branch: codex/sm4a-trusted-authorization-ingress-v1-v9
@@ -292,9 +358,9 @@ gitNexusImpact:
     upstream: 37
     affectedProcesses: 9
 blockers:
-  - corrected-v2-candidate-head-not-frozen
-  - new-head-canonical-affected-not-run
-  - exact-head-risk-static-and-final-review-evidence-absent
+  - canonical-failed-verification-lane-not-yet-classified
+  - retained-exact-title-diagnostic-not-run
+  - repair-owner-and-new-task-envelope-not-yet-frozen
 completedCapabilities:
   - v0.3-semantic-core-foundation
   - v0.4-fact-delta-pure-kernel

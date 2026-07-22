@@ -580,6 +580,8 @@ V1 canonical affected的唯一primary failure是SM-3 exact title在`300039.56ms`
 
 V2 working-tree focused evidence现已闭合该局部机制：三个synthetic snapshot-cache titles为3 pass / 1 skip / 0 fail / 62 assertions；独立opt-in real-cache pre-child sentinel以三个fresh canonical wrappers得到1 capture、2 revalidations、1 retained entry、0 flights，snapshot为11979 files / 1158544347 bytes。随后一次materialize与一次launch proof通过，且没有compile/next/unit/playwright phase、child outcome或progress checkpoint。prior head `e027ba6` 的canonical affected为111 pass / 2 skip / 2 fail / 822 assertions，两个失败只证明per-authority live LRU counters不是parallel-safe oracle；修复改用per-staging telemetry与`entries - flights <= 4`全局bound，未改变产品cache。该focused证据证明结构化复用与真实缓存量级，不替代修复后尚未冻结的新head canonical affected，也不构成`main`完成声明。
 
+修复head `de5f84e` 的唯一canonical affected再次以FAIL终结，但failure class已推进：snapshot-cache batch在同一aggregate内为113 pass / 2 skip / 0 fail / 845 assertions，SM-3 dry-run/apply title则在287236ms返回合法`verification.status=failed`与公开`SEMANTIC-MUTATION-010`，不是watchdog timeout。公开结果没有`details.isolatedVerification`，因此现有代码可证明materialize、launch、supervisor、child-control、artifact read/parse、semantic rebuild与artifact-set classification均完成；具体fast/runtime failed lane因testkit默认cleanup已删除而不可恢复。TEST-H2 V2按stop条件终止，当前唯一闭包TEST-H3只在该测试调用点启用现有retain-on-failure选项，运行一次exact-title diagnostic读取canonical reports并立即清理；它不修改产品、提高timeout、重跑aggregate或启动Risk。
+
 ### SM-4A minimum product contract
 
 - **Architectural goal**：让本地用户通过 CLI 与 Workbench 的同一个 trusted product adapter plan/apply/query/recover 现有 `add-state-transition`，并看到 source owner、actual Delta、Impact、Verification 与 terminal result。

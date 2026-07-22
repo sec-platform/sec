@@ -158,6 +158,8 @@ V10 延续V9 trust snapshot：每个入口绑定 `mode:type:sha`，并覆盖Git 
 
 V10 的real-cache phase sentinel是显式opt-in本地诊断，不进入普通selector或hosted Gate：它只运行三个default capability probes、一次materialize与一次launch proof，记录path-free snapshot counters/file-byte totals/phase durations，并断言没有compile/test/browser或child事件。synthetic并行测试只把每个staging root的capture/revalidate/single-flight telemetry作为phase选择证据，并以`entries - flights <= 4`验证全局settled-slot bound；不得要求某个authority的settled slot在其他test file运行期间持续驻留。telemetry `completed`由`finally`发布，只证明phase wrapper终止，不证明内部操作成功。该结果只能证明pre-child量级与reuse，不得替代canonical affected；production cache语义、sentinel路径、canonical source authority或browser/dependency tree identity变化后必须失效，单纯新增无调用侧效果的test-only occupancy reader可由exact diff impact证明不失效。
 
+V10 affected若返回一个合法但`status=failed`的isolated artifact set，公开`SEMANTIC-MUTATION-010`不能再被归类为timeout、supervisor或artifact-protocol failure；它表示canonical报告已形成但至少一个verification lane失败。若普通testkit cleanup删除了报告，只允许在新的diagnostic head上运行一次exact-title，并仅在该调用点以显式环境变量选择既有`retainOnCallbackFailure`。该diagnostic不是Gate PASS，不能与aggregate成功sub-batches组合；读取path-free lane/status/phase/digest后必须删除唯一retained workspace并重新冻结实际failed-lane owner。共享testkit helper、timeout、selector、child和orchestrator不得为归因而修改。
+
 ### 6.3 本地 Work Package 长时 Gate 监督
 
 当 frozen Work Package 明确要求一次不可拆分、不可重复的长时 owner batch 时，本地 supervisor 可以作为观察与 containment 层，但不能冒充 hosted Evidence V2/V3 或 `sec/merge-gate`。它必须位于既有 verifier trust root 之外，并复用独立的 bounded observed-process lifecycle；不得修改 `platform/shared/process.ts`、`scripts/codex/` 或 hosted CI revision 后自证。

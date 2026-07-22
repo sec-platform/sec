@@ -6,65 +6,66 @@ last-reviewed: 2026-07-23
 
 # SEC 滚动近期计划
 
-本计划依据 `main@8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2`、open PR 为零、陈旧导航 Issue #132、最新main revalidation success、SM-4A candidate `bca9102` 的exact local evidence、TEST-H2 V1 head `528a780` 的canonical affected timeout，以及V2 prior head `e027ba6` 的canonical affected失败整体重算。V1已证明browser bootstrap本身的focused合同，却同时证伪“isolated runtime snapshot无需进入本包”的架构假设：同一完整authority被临时`sources`对象身份切成多个snapshot bucket。V2 structural cache与real-cache pre-child sentinel证明产品机制有效；`e027ba6` 的affected以111 pass / 2 skip / 2 fail暴露的是两个测试读取可被并行文件合法逐出的live LRU slot counters，未证明产品cache失败。当前working tree已改用每个staging root的path-free phase telemetry与全局settled-slot bound，focused为3 pass / 1 skip / 0 fail，但修复尚未冻结且新head canonical affected未运行。实时PR、CI与Review事实只由 `docs/work/current-state.yaml` 拥有。
+本计划依据外部长期 Goal authority `sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d`、`main@8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2`、open PR 为零、陈旧导航 Issue #132、最新 main Actions 仅有 lifecycle revalidation success，以及 `de5f84e693d2cae2ad502185dc86353813d62e4e` 的唯一 canonical affected FAIL 整体重算。实时 PR、Issue、CI、Review 与 exact evidence 事实只由 `docs/work/current-state.yaml` 拥有。
 
-本窗口只保留一个 active package 与五个有界候选。它不取代路线图、Engineering IR或测试authority，也不把计划、branch或单次诊断当成完成证据。
+`de5f84e` 上 snapshot-cache batch 为 113 pass / 2 skip / 0 fail / 845 assertions，但 SM-3 dry-run/apply title 在 287236.36ms 返回 `SEMANTIC-MUTATION-010`，使目标文件成为 3 pass / 1 fail / 77 assertions，aggregate 以 exit code 1 终结。公开结果证明 isolated child 已形成完整、可解析且内部一致的 failed artifact set；它没有暴露具体 failed lane，且默认 cleanup 已删除原 workspace。该 Gate 身份永久为 FAIL，不得在同一 head 重跑、改名或与局部结果组合成 PASS，Risk 也不得在该 head 启动。
+
+本窗口只保留一个 active package 与五个有界候选。候选顺序会在诊断取得真实 failed lane 后重新计算；若 repair 必须吸收 TEST-H2 delta，则合并候选而不是同时启动两个依赖未冻结的正式包。计划、branch、diagnostic 或候选证据都不证明能力进入 `main`。
 
 ```text
-TEST-H2 runtime browser cache + structural snapshot reuse V10 bootstrap V2 (active prerequisite)
-└─→ SM-4A trusted authorization ingress replay
-    └─→ SM-4A shared product adapter
-        └─→ SM-4A CLI + Workbench transport vertical
-            └─→ Blockless Semantic Source Ownership
+TEST-H3 isolated failed-lane attribution (active diagnostic)
+└─→ proven failed-lane repair (conditional owner)
+    └─→ TEST-H2 browser-cache closure replay or absorption
+        └─→ SM-4A trusted authorization ingress replay
+            └─→ SM-4A shared adapter + transport vertical
 Nexus Phase 0A exact-tree census (read-only candidate; no second active package)
 ```
 
 ## 当前唯一 Work Package
 
-### test-runtime-browser-cache-v10-bootstrap-v2
+### test-runtime-isolated-failure-attribution-v1
 
-- 工程结果：保留V1已经独立复审为GO的external Node 22+、project-local Playwright registry、physical containment、browser lock与pre-fanout bootstrap；新增runtime-plan structural snapshot key，使不同对象但完整authority相同的production probes共享一个有界slot/single flight。
-- 根因：exact title在首次publish前执行两次plan与一次apply replan；每次canonical source resolver都创建新冻结对象，而现有WeakMap按对象身份分桶。每次cold capture要读取并hash 675.0 MiB browser tree与370.73 MiB dependency tree，V1 canonical affected在`300039.56ms`超时。迟到`SEMANTIC-MUTATION-010`来自同一已超时body；具体failed lane随临时artifact清理而不可恢复。
-- Canonical seam：`project-runtime.ts`继续独占dependency/browser materialization；`semantic-mutation-isolated-runtime-plan.ts`独占snapshot structural key、slot bounds、capture/revalidation/materialization与launch proof。V2只修改该cache owner及其既有unit owner，不修改orchestrator、isolated child、Mutation合同、timeout、selector或process lifecycle。
-- 最新反证：`e027ba6` canonical affected在161.13秒结束为111 pass / 2 skip / 2 fail / 822 assertions，失败只来自两个snapshot-cache测试。它们把当前仍驻留的per-authority LRU slot counters当成exact oracle；并行测试文件可合法加入其他authority并逐出旧settled slot，所以该读数不稳定。修复只新增test-only全局occupancy seam，并以每个staging root telemetry证明capture/revalidate/single-flight；`completed`只表示phase wrapper终止，不被解释为capture成功。
-- 风险：GitNexus将`getRuntimeSourceSnapshot`、`issueSemanticMutationIsolatedRuntimeCapability`与canonical sources resolver均评为HIGH。结构化复用必须每次执行现有root/directory/file identity revalidation；capture raw hash、destination hash manifest、reparse/hardlink拒绝与launch proof不能减少。browser materializer的HIGH/CRITICAL seams仍按V1审查结果冻结。
-- 信任：本包修改verifier trust root，V1 revision/artifact从main的v9推进到v10，使用冻结本地evidence、独立架构/证据审查与人工bootstrap；候选不dispatch hosted Scope/Quick/Risk/Full/release自证。
-- 退出：新增focused test已确定性证明distinct-but-equivalent sources只capture一次、结构key变化不复用、failed flight可恢复、并发只形成一次capture/一次wait，且`entries - flights <= 4`；active flights永不被逐出。real-cache sentinel已证明三个fresh canonical wrappers只产生1 capture + 2 revalidations，并完成materialize/launch且不进入child。V1三个exact-head focused batch只在输入未变时复用。下一步冻结修复后的新head并只运行一次完整canonical affected；`528a780`与`e027ba6`的失败aggregate均不能组合或改名为PASS，affected通过后才运行唯一Risk与剩余静态/文档/ownership Gate。
+- 工程目标：仅在失败 title 的现有 `withTempWorkspace` 调用点，按 `SEC_RETAIN_SM3_FAILED_WORKSPACE=1` 选择既有 `retainOnCallbackFailure` 能力；共享 testkit helper 与 production runtime 保持 byte-identical。
+- 影响边界：共享 `withTempWorkspace` helper 的 GitNexus 风险为 CRITICAL（69 direct / 74 upstream），明确禁止修改。允许变化只有单个 test call site、三控制面、canonical 路线/测试文档、manifest 与 path-free evidence。
+- 唯一执行：冻结 diagnostic head 后运行一次 retained exact-title diagnostic。该结果无论 PASS、FAIL 或 UNKNOWN 都只是诊断证据，不补成 affected、Quick、Risk 或完成证明。
+- 证据最小化：只读取已生成 artifact，不重新执行 child；记录 canonical status/failed lanes、runtime failed step、phase durations、child outcome/progress 分类、byte length 与 SHA-256。禁止写入绝对路径、raw logs、源字节、环境变量或 mutable workspace 内容。
+- 清理与停止：必须证明 canonical temp root 下恰好一个 retained `sm3-*` workspace；证据独立校验后只删除该 literal path，并以 `Test-Path` 证明不存在。本包在首个真实 failed lane 分类并重算三控制面后停止，不修产品、不改 timeout、不跑 canonical affected/Risk、不 dispatch hosted CI、不开 PR。
+- Stop condition：若 diagnostic 意外 PASS、未保留或保留多个 workspace、artifact 缺失/不可解析、与既有 failed envelope 矛盾，或只能靠泄露原始材料建立证据，则记录 UNKNOWN 并停止；同一 head 不运行第二次。
 
 ## 候选 Work Package
 
-### 1. sm4a-trusted-authorization-ingress-v1
+### 1. semantic-mutation-proven-failed-lane-repair-v1
 
-- 状态：`bca9102` / base `8aa2d2d` 已冻结并暂停；不是`main`事实。
-- 下一步：TEST-H2合并后从新`main`重放十路径产品/测试/文档delta，重新冻结base、v10 manifest与全部失效evidence；旧失败aggregate、污染sentinel与v9证据不改名复用。
-- 退出：trusted-local policy draft只经现有authorization revision与SM-2 registry authority生成canonical authorization；不接transport或修改Mutation合同。
+- 状态：条件候选；具体 owner、owned paths、base 与 acceptance 必须由 TEST-H3 的真实 failed lane 决定，当前不得提前冻结或实现。
+- 选择规则：fast lane 失败归 fast/selector owner；runtime step 失败归对应 runtime/verification owner；artifact/child-control 矛盾则回到 isolated process authority。禁止用 timeout 增大、重试、fixture 特判或弱化合同掩盖失败。
+- 退出：最小 sentinel 证明根因修复；若修复必须与 TEST-H2 candidate 同树验证，则本候选吸收下一候选并形成一个 closure，不制造并行依赖包。
 
-### 2. sm4a-shared-product-adapter-v1
+### 2. test-runtime-browser-cache-v10-closure-replay
 
-- 产品结果：一个platform-owned adapter统一raw DTO validation、trusted policy、plan/apply/query/recover调用与产品结果投影。
-- 依赖：trusted authorization ingress先进入`main`；request/plan/result、source resolver、Verification、lease与journal保持既有owner。
-- 退出：同一workspace/request/policy生成稳定binding；plan无写入，apply强制expected plan，四类terminal lifecycle可区分。
+- 状态：`de5f84e` 的 browser-cache/structural snapshot 实现与 focused evidence 可作 baseline，但其 canonical affected 身份为 FAIL，candidate 未进入 `main`。
+- 下一步：只在 failed-lane repair 边界冻结后决定是独立 replay、被 repair 吸收，还是被新实现取代；从最终 base 重新生成 manifest、exact head 与 invalidation ledger。
+- 退出：新冻结 head 上恰好一次 canonical affected PASS，之后才运行一次 canonical Risk 与被 diff 失效的静态/文档/ownership Gates；trust-root candidate 使用人工 bootstrap，不由 hosted candidate 自证。
 
-### 3. sm4a-cli-workbench-transport-vertical-v1
+### 3. sm4a-trusted-authorization-ingress-v1
 
-- 产品结果：CLI与Workbench State View/API作为薄transport shell消费同一个shared adapter，闭合真实`add-state-transition` vertical。
-- 依赖：shared adapter contract已冻结；HTTP mutating boundary先冻结loopback + strict Origin或等价capability。
-- 风险：禁止wildcard CORS、path/source/stack泄露、第二DTO/revision owner或提前实现SM-4B/SM-4C。
+- 状态：旧 candidate `bca9102` / base `8aa2d2d` 已暂停，不是 `main` 事实；其 focused baseline 只能按最终 diff impact 选择性复用。
+- 依赖：TEST-H2 closure 进入新 `main` 后重放十路径产品/测试/文档 delta，重新冻结 base、v10 authority 与全部失效 evidence。
+- 退出：trusted-local policy draft 只经现有 authorization revision 与 SM-2 registry authority 生成 canonical authorization；不接 transport、不修改 Mutation 合同。
 
-### 4. nexus-phase-0a-exact-tree-census
+### 4. sm4a-shared-adapter-and-transport-vertical-v1
 
-- 产品结果：对已绑定Nexus tree形成全量path/EPR/Skills与机制决策inventory。
-- 执行：只读采集可辅助；ledger写入、owner裁决与路线重算仍由A0串行，不能成为第二active package。
-- 退出：unclassified/undecided为零且manifest digest确定；仍不宣称Parity或Retirement完成。
+- 产品结果：platform-owned adapter 统一 raw DTO validation、trusted policy、plan/apply/query/recover 与产品结果投影；CLI 与 Workbench 作为薄 transport shell 消费同一 contract。
+- 依赖：trusted authorization ingress 已进入 `main`，shared adapter contract、loopback + strict Origin 或等价 capability boundary 均先冻结。
+- 风险：禁止 wildcard CORS、第二 DTO/revision owner、path/source/stack 泄露，或提前展开 SM-4B/SM-4C。若 adapter 与 transport ownership 不能冻结为单一 closure，本候选在执行前拆分并只激活前半包。
 
-### 5. blockless-semantic-source-ownership-v1
+### 5. nexus-phase-0a-exact-tree-census
 
-- 产品结果：App/source-module-owned Semantic Contract不依赖Block许可证进入Frontend → IR → Projection，并保持唯一writable owner。
-- 依赖：SM-4A真实consumer进入`main`后冻结migration contract。
-- 风险：禁止loader临时union、第二identity authority、破坏CAS/Registry provenance或让unlisted mirror获得authority。
+- 产品结果：对绑定的 Nexus exact tree 形成全量 path/EPR/Skills 与机制决策 inventory，为后续吸收路线提供真实前置条件。
+- 执行：只读采集可作为当前工程外的辅助；ledger 写入、owner 裁决与 SEC 路线重算仍由 A0 串行，不能成为第二 active package。
+- 退出：unclassified/undecided 为零且 manifest digest 确定；这只证明 census 完成，不宣称 parity、absorption 或 retirement 完成。
 
 ## 单写者、证据与重算
 
-- 正式active package始终只有一个；runtime dependency、CI revision、authorization、source owner、adapter与transport boundary按DAG串行冻结。
-- 每个Gate只有一个`gate_owner`；相同`gate_key + tested head + profile`的有效结果必须复用，失败aggregate不由精确重跑改名。
-- Merge/close、相关`main`变化、新CI/Review blocker、architecture反证、candidate被替代、Nexus新前置或Goal变化后整体重算，并删除失效候选而非增长永久Backlog。
+- 正式 active package 始终只有一个；failed lane、runtime dependency、CI revision、authorization、adapter 与 transport boundary 按 DAG 串行冻结。
+- 每个 Gate 只有一个 `gate_owner`；相同 `gate_key + tested head + profile` 的有效结果必须复用。失败 aggregate、污染 diagnostic 与成功 sub-batch 均不得改名为 closure PASS。
+- Merge/close、相关 `main` 变化、新 CI/Review blocker、architecture 反证、candidate 被替代、Nexus 新前置或 Goal revision 变化后整体重算，并删除或合并失效候选，不维护无限增长 Backlog。
