@@ -1,0 +1,277 @@
+{
+  "schema": "sec-test-runtime-isolated-failure-attribution-evidence-v1",
+  "observedAt": "2026-07-23T07:15:51.6288476+08:00",
+  "goalAuthorityRevision": "sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d",
+  "workPackage": "test-runtime-isolated-failure-attribution-v1",
+  "diagnostic": {
+    "base": "de5f84e693d2cae2ad502185dc86353813d62e4e",
+    "testedHead": "b25851778cf91e44bab0cb2e0f82ed0170e9a5ba",
+    "testedTree": "a25d34357fb218a0e039c3383ef26c0bf7b77ec2",
+    "profile": "retained-exact-title-diagnostic-v1",
+    "title": "SM-3 dry-run/apply share one plan revision, publish atomically, rebuild live derivatives, and replay exactly once",
+    "expectedResult": "nonzero-diagnostic-only",
+    "result": "failed",
+    "exitCode": 1,
+    "testDurationMs": 282845.07,
+    "processDurationSeconds": 284.86,
+    "canonicalGatePass": false,
+    "rerunAllowedOnTestedHead": false
+  },
+  "priorCanonicalGate": {
+    "testedHead": "de5f84e693d2cae2ad502185dc86353813d62e4e",
+    "gateKey": "affected-tests",
+    "result": "failed",
+    "immutable": true,
+    "riskRun": false
+  },
+  "publicEnvelope": {
+    "requestRevision": "sha256:c13f4ae8ac9a9451ece91d4e26d0cd47290cb24d2b7fd4382fcc0f46eb4a6276",
+    "planRevision": "sha256:c03b2edd41093848fdc60644b17514b2a0d45afceb9bb587cff85b664e14621c",
+    "reportRevision": "sha256:9bd0f52453ea489588f592278bc63b088439ccd871e094813158766f9f362474f",
+    "verificationExecutionRevision": "sha256:b98856f07329d84969b977dd7a5f38cd518f6d962d0cd520e2c091d006c0c2318",
+    "resultRevision": "sha256:1498d46329b406430c1b981e6cf66c992830f8532d0005d3edc393cbdcbddba3e",
+    "resultStatus": "rejected",
+    "verificationStatus": "failed",
+    "diagnosticCode": "SEMANTIC-MUTATION-010",
+    "diagnosticStage": "impact-verification"
+  },
+  "laneSummary": {
+    "requestedLane": "all",
+    "status": "failed",
+    "failedLanes": [
+      "runtime"
+    ],
+    "fast": {
+      "status": "passed",
+      "build": "passed",
+      "unit": "passed",
+      "acceptance": "passed",
+      "policy": "passed",
+      "policyViolationCount": 0
+    },
+    "runtime": {
+      "status": "failed",
+      "build": "passed",
+      "unit": "passed",
+      "acceptance": "failed",
+      "failedLogicalItem": "customer-flow.spec.ts",
+      "failedItemByteLength": 46,
+      "failedItemSha256": "be170ba068c595c2ac737415555d42af0367fdc17c99130ba8765361ab4e99ef"
+    },
+    "acceptanceCoverage": {
+      "status": "failed",
+      "uncoveredBlockCount": 4,
+      "uncoveredSlotCount": 1,
+      "uncoveredSlot": "customer_normalizer"
+    }
+  },
+  "derivedFailureClassification": {
+    "ownerSeam": "runtime-acceptance-launch",
+    "errorCode": "ENOENT",
+    "operation": "uv_spawn",
+    "missingExecutableLogicalName": "cmd.exe",
+    "browserCacheFailure": false,
+    "sourceSnapshotFailure": false,
+    "runtimeBuildFailure": false,
+    "runtimeUnitFailure": false,
+    "rawLogStored": false
+  },
+  "child": {
+    "status": "failed",
+    "stage": "verify-all",
+    "boundary": "verify-runtime",
+    "outcomeArtifact": {
+      "byteLength": 131,
+      "sha256": "233f0304a8c9cbee3c80cc3a9ef7c97d28637d8041be31c2787b86fba3d75b76"
+    },
+    "progress": [
+      {
+        "checkpoint": "bootstrap-entered",
+        "byteLength": 92,
+        "sha256": "999f24099e0dc0240716fc82d2bcd46aad22ff60738411db152e84ec89be33c1"
+      },
+      {
+        "checkpoint": "loader-entered",
+        "byteLength": 89,
+        "sha256": "23eb461411a90a0f40072564f5e665caa5c964b9dc902174688f642191907ec7"
+      },
+      {
+        "checkpoint": "core-import-started",
+        "byteLength": 94,
+        "sha256": "61ba705a551e31420ada5dafb5958b544ae2e28643e6387abb7f0928b5971c2a"
+      },
+      {
+        "checkpoint": "module-entered",
+        "byteLength": 89,
+        "sha256": "893824a489a65dc045e19d0052dd6a2b2eb682254b09153e17b6d9f8bd0d3a70"
+      },
+      {
+        "checkpoint": "catch-armed",
+        "byteLength": 86,
+        "sha256": "910272ff49e5476c5eefbf2776e18a8e8494da6fb84c37811eb71a89a9dc82e0"
+      },
+      {
+        "checkpoint": "verify-all",
+        "byteLength": 85,
+        "sha256": "32c9b6c4b93959a82c1b0567fd5a76bf5fbea152ea2569926d7dfa45cb247ac8"
+      },
+      {
+        "checkpoint": "failure-caught",
+        "byteLength": 89,
+        "sha256": "dad2fb001fae83c99c9fb10f1e3f6427acc45a9e4b3bb5045b6dc156fc1e552a"
+      },
+      {
+        "checkpoint": "catch-tree-validated",
+        "byteLength": 95,
+        "sha256": "63b2c4e42eb9f359ebc5483ac5f1e929765a99ff477bd95bac6e7d6c67862e3f"
+      },
+      {
+        "checkpoint": "outcome-publish-started",
+        "byteLength": 98,
+        "sha256": "15d0c6a34e619177db99c1efa949ff699bc14748af5f5effb80a6938688150f6"
+      }
+    ]
+  },
+  "phaseTelemetry": {
+    "completedStateMeaning": "phase-wrapper-terminated-not-operation-succeeded",
+    "records": [
+      {
+        "phase": "source-snapshot-revalidate",
+        "state": "started",
+        "durationMs": 0,
+        "byteLength": 136,
+        "sha256": "1d046a794dd56858f8752e0993cd23bc27ae0063b42c129d0a1f958980666bf8"
+      },
+      {
+        "phase": "source-snapshot-revalidate",
+        "state": "completed",
+        "durationMs": 6105,
+        "byteLength": 141,
+        "sha256": "091edcb2aad182faf2ad868dcd2a4e6429483b001f7acb4d33cda820d4ebc6d2"
+      },
+      {
+        "phase": "runtime-materialize",
+        "state": "started",
+        "durationMs": 0,
+        "byteLength": 129,
+        "sha256": "f56620f05c6fe5cddc7698b6170f9c4256f7fcde2fd81f5529adf5d9bc7a314d"
+      },
+      {
+        "phase": "runtime-materialize",
+        "state": "completed",
+        "durationMs": 31661,
+        "byteLength": 135,
+        "sha256": "9034ea3854b327e0f8ee0f5364838320194bc32bf9f4f65f2997400643ad152b"
+      },
+      {
+        "phase": "compile-workspace",
+        "state": "started",
+        "durationMs": 0,
+        "byteLength": 127,
+        "sha256": "e080529d8cf7d95133a4d6714df21ba9c81a33efa1c5aee6328919f6cd25f4e8"
+      },
+      {
+        "phase": "compile-workspace",
+        "state": "completed",
+        "durationMs": 94921,
+        "byteLength": 133,
+        "sha256": "cfee7403194eb3a44c48e61f63955d46798df450de6338109ead8eacfe1f226a"
+      },
+      {
+        "phase": "next-build",
+        "state": "started",
+        "durationMs": 0,
+        "byteLength": 120,
+        "sha256": "a278f65466f2fc1429b8ce3b3ba48351a9ed362b5b8a1aa54c18739d6147be6a"
+      },
+      {
+        "phase": "next-build",
+        "state": "completed",
+        "durationMs": 46709,
+        "byteLength": 126,
+        "sha256": "5f1361d4289c688446cd6300f4cdde4432deb4c266eaee9afc60b86c6b3e7668"
+      },
+      {
+        "phase": "unit",
+        "state": "started",
+        "durationMs": 0,
+        "byteLength": 114,
+        "sha256": "cfb86ad5d2d9f3e89f8aee1597f3af0e3a697ff7a3ba7df80d17b762dd813ad9"
+      },
+      {
+        "phase": "unit",
+        "state": "completed",
+        "durationMs": 85,
+        "byteLength": 117,
+        "sha256": "4dc31a3d458b769253a7852c77d18225ef3eaf777702ff080a9926dce31fc520"
+      },
+      {
+        "phase": "playwright",
+        "state": "started",
+        "durationMs": 0,
+        "byteLength": 120,
+        "sha256": "ac88474aeb7f59df3fb74c58d8e6b33115e19293a6f0776459ef1f469680b9d2"
+      },
+      {
+        "phase": "playwright",
+        "state": "completed",
+        "durationMs": 1082,
+        "byteLength": 125,
+        "sha256": "0ed59e0371bc917c30e6d593c74fd340320bbe16dd6480510fe38c559405084e"
+      }
+    ]
+  },
+  "canonicalArtifacts": {
+    "canonicalRoleCount": 1,
+    "sameBasenameOutsideCanonicalRoleCount": 1,
+    "verification": {
+      "byteLength": 3205,
+      "sha256": "dd68b7f5b53a9f0ad638fa8166019dc6f309d8a859d91dcc8c3c741c869f7fbc"
+    },
+    "runtime": {
+      "byteLength": 739,
+      "sha256": "6c8a62589f0f824c757795e40bcd4a11e541dfd9e20e4975760d5b9585317a27"
+    },
+    "policy": {
+      "byteLength": 781,
+      "sha256": "cc542a996093e9b86a13f774eb18d53f047af0878966f59e4a7f6ee6b1c1e4b6"
+    },
+    "acceptanceCoverage": {
+      "byteLength": 1226,
+      "sha256": "bb968087c8ac2bb624c27c85d872577e9dfe22e4d388175162dedde6ea8e56a0"
+    },
+    "runtimeStdout": {
+      "byteLength": 172,
+      "sha256": "afc29cd75407655d205ea99111371f778e71e8a1c00ee0fb259989be27470620"
+    },
+    "runtimeStderr": {
+      "byteLength": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "cleanup": {
+    "retainedWorkspaceCountBefore": 1,
+    "canonicalContainmentValidated": true,
+    "literalWorkspaceDeleted": true,
+    "retainedWorkspaceCountAfter": 0,
+    "deletedWorkspaceTestPath": false,
+    "completedAt": "2026-07-23T07:18:34.2557904+08:00"
+  },
+  "privacy": {
+    "absolutePathsStored": false,
+    "repositoryRelativePathsStored": false,
+    "rawLogsStored": false,
+    "sourceBytesStored": false,
+    "environmentValuesStored": false,
+    "mutableWorkspaceContentsStored": false
+  },
+  "disposition": {
+    "classification": "runtime-acceptance-launch-shell-unavailable",
+    "nextOwner": "runtime-acceptance-environment",
+    "repairIncluded": false,
+    "canonicalAffectedRerunIncluded": false,
+    "riskIncluded": false,
+    "hostedVerificationIncluded": false,
+    "stopAfterEvidenceAndCleanup": true
+  }
+}
