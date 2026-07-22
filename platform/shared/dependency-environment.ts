@@ -2,7 +2,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathExists, removeDir } from './fs.ts';
 import { compilerRoot, getWorkspacePaths, resolveWorkspacePlanPath } from './paths.ts';
-import { ensureProjectDependencies, ensureSharedDepsReady, readRuntimeDepsStamp } from './project-runtime.ts';
+import {
+  ensureProjectDependencies,
+  ensureSharedDepsReady,
+  EXTERNAL_NODE_MINIMUM_MAJOR_VERSION,
+  readRuntimeDepsStamp,
+  resolveExternalNodeRuntimeAuthority,
+  type ExternalNodeRuntimeResolutionOptions
+} from './project-runtime.ts';
 import { loadRuntimeDependencySpec } from './runtime-dependency-spec.ts';
 
 export type DependencyEnvironmentMode = 'cold' | 'warm-shared' | 'warm-project' | 'dirty' | 'stale';
@@ -39,6 +46,7 @@ export interface DependencyCleanOptions {
 }
 
 export interface DependencyEnvironmentOptions {
+  nodeRuntime?: ExternalNodeRuntimeResolutionOptions;
   sharedDepsRoot?: string;
 }
 
@@ -189,6 +197,25 @@ async function workspaceRootsDoctorCheck(paths: ReturnType<typeof getWorkspacePa
   };
 }
 
+async function externalNodeRuntimeDoctorCheck(
+  options: ExternalNodeRuntimeResolutionOptions | undefined
+): Promise<DoctorCheck> {
+  try {
+    const authority = await resolveExternalNodeRuntimeAuthority(options);
+    return {
+      id: 'node-version',
+      status: 'ok',
+      message: `External Node.js ${authority.version} detected at ${authority.executablePath}; Node.js ${EXTERNAL_NODE_MINIMUM_MAJOR_VERSION} or newer is required.`
+    };
+  } catch (error) {
+    return {
+      id: 'node-version',
+      status: 'fail',
+      message: `External Node.js ${EXTERNAL_NODE_MINIMUM_MAJOR_VERSION} or newer is required: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+}
+
 function dependencyDoctorCheck(status: DependencyEnvironmentStatus): DoctorCheck {
   if (status.mode === 'warm-project') {
     return {
@@ -284,13 +311,8 @@ export async function getDoctorReport(
   const dependencies = await getDependencyEnvironmentStatus(workspaceRoot, options);
   const workspacePlanPath = await resolveWorkspacePlanPath(workspaceRoot);
   const workspacePlanExists = await pathExists(workspacePlanPath);
-  const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
   const checks: DoctorCheck[] = [
-    {
-      id: 'node-version',
-      status: nodeMajor >= 22 ? 'ok' : 'fail',
-      message: `Node.js ${process.versions.node} detected; Node.js 22 or newer is required.`
-    },
+    await externalNodeRuntimeDoctorCheck(options.nodeRuntime),
     await executableCheck('bun', 'bun', true),
     await workspaceRootsDoctorCheck(paths),
     {

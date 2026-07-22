@@ -13,7 +13,8 @@ import {
 } from '../../shared/process.ts';
 import {
   dependencyAuthorityPaths,
-  ensureProjectDependencies
+  ensureProjectDependencies,
+  materializePlaywrightBrowserCache
 } from '../../shared/project-runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
 import {
@@ -300,7 +301,7 @@ export function revalidateIsolatedRuntimeBuildNodeModulesProofForTests(
 export function isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot?: string): string {
   return stagingWorkspaceRoot
     ? path.join(stagingWorkspaceRoot, '.isolated-process', 'playwright-browsers')
-    : path.join(compilerRoot, '.shared-deps', '.playwright-browsers');
+    : dependencyAuthorityPaths().browserCache;
 }
 
 export function buildIsolatedRuntimeEnvironment(
@@ -404,21 +405,35 @@ async function timed<T>(
 async function ensurePlaywrightBrowser(
   projectRoot: string,
   env: NodeJS.ProcessEnv,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  materialize: typeof materializePlaywrightBrowserCache = materializePlaywrightBrowserCache
 ): Promise<{
   code: number;
   stdout: string;
   stderr: string;
 }> {
-  const playwrightCli = path.join(projectRoot, 'node_modules', 'playwright', 'cli.js');
-  return runCommand(process.execPath, [playwrightCli, 'install', 'chromium'], {
-    cwd: projectRoot,
-    env: {
-      ...env,
-      PLAYWRIGHT_BROWSERS_PATH: isolatedPlaywrightBrowsersPath()
-    },
+  const result = await materialize({
+    environment: env,
+    playwrightProjectRoot: projectRoot,
     signal
   });
+  return result.commandResult;
+}
+
+/** Test-only behavioral seam for the non-isolated runtime browser delegation. */
+export async function ensurePlaywrightBrowserForTests(
+  projectRoot: string,
+  env: NodeJS.ProcessEnv,
+  options: {
+    readonly materialize?: typeof materializePlaywrightBrowserCache;
+    readonly signal?: AbortSignal;
+  } = {}
+): Promise<{
+  code: number;
+  stdout: string;
+  stderr: string;
+}> {
+  return ensurePlaywrightBrowser(projectRoot, env, options.signal, options.materialize);
 }
 
 export async function runRuntimeVerification(

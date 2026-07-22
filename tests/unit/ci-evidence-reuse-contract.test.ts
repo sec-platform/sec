@@ -137,7 +137,7 @@ test('unknown or cross-Work-Package policy and profile/revision drift fail close
   })).toThrow('Unknown base-registered');
   expect(() => build({ workPackageId: 'other-work-package' })).toThrow('different Work Package');
   expect(() => build({ profile: 'full' })).toThrow('supports Quick only');
-  expect(() => build({ ciRevision: 'ci-verification-v9' })).toThrow('CI revision mismatch');
+  expect(() => build({ ciRevision: 'ci-verification-v10' })).toThrow('CI revision mismatch');
 });
 
 test('immutable evidence digest, identity, runtime, argv, tree, and blob drift fail closed', () => {

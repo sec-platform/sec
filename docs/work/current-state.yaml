@@ -1,158 +1,198 @@
 schema: sec-current-state-v1
-observedMainSha: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
-observedMainTree: 9cc7f2d19e36cd8c0ac3ac150bdf1754186207cf
-observedAt: "2026-07-23T02:34:33+08:00"
+observedMainSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+observedMainTree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
+observedAt: "2026-07-23T05:24:40+08:00"
 goalAuthority:
   repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
+  repositoryMirrorSha256: 3c24f71c3c9c88565dc2104e9a7869db4e0369582c9b9bd0245ae29aec094038
   upstreamDocumentCount: 2
-  upstreamDocuments:
-    - name: SEC_Codex_Conversation_Goal_No_Omission_V3_2026-07-22.md
-      sha256: 04b81d9f155a3bf6388c7bf0d62bb8a08e2e68d870964f053be3fa7c9fbe5c3d
-      bytes: 80851
-    - name: SEC_Codex_Persistent_Goal_With_Rolling_Plan.md
-      sha256: 117a438228a9212753ab8ff2266969db1a8c36a13becfe1efcc796ab97a99c4c
-      bytes: 9800
   combinedRevision: sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d
 roadmapMilestone: v0.4-semantic-operations
 lastMergedWorkPackage:
-  id: ir-canonical-primitives-cycle-removal-v1
-  pullRequest: 135
-  mergeCommit: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
-  mergedAt: "2026-07-22T23:32:35+08:00"
-  tree: 9cc7f2d19e36cd8c0ac3ac150bdf1754186207cf
-activeWorkPackage:
   id: affected-fast-timeout-contract-v1
-  manifest: docs/work-packages/affected-fast-timeout-contract-v1.md
-  manifestDigest: sha256:1084f3bd9df2a0ad94899f7cf86bca80b78dda0d8e0f0deaf10d95d6344693b8
-  branch: codex/affected-fast-timeout-contract-v1
-  pr: 136
-  baseSha: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
+  pullRequest: 136
+  mergeCommit: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+  mergedAt: "2026-07-23T02:41:27+08:00"
+  tree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
+  integrationMode: manual-trust-root-bootstrap
+activeWorkPackage:
+  id: test-runtime-browser-cache-v10-bootstrap-v1
+  manifest: docs/work-packages/test-runtime-browser-cache-v10-bootstrap-v1.md
+  manifestDigest: sha256:ae3de06db1d2c0ccc09041f7f36b85186f375bbf09b3bdf5bf71f51e1d616e90
+  branch: codex/test-runtime-browser-cache-v10-bootstrap-v1
+  pr: null
+  baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
   headSha: null
+candidateImplementation:
+  state: uncommitted-diff
+  changedPathCount: 33
+  browserCacheMaterialized: true
+  focusedEvidence:
+    gateKey: runtime-authority-owner-batch
+    testedState: uncommitted-diff
+    command: bun test tests/unit/playwright-browser-cache.test.ts tests/unit/dependency-environment.test.ts tests/unit/dev-runner-dependency-bootstrap.test.ts tests/unit/runtime-verification.test.ts --timeout 180000
+    result: 34-pass-0-fail-137-assertions
+    durationMs: 2330
+    invalidation: any-change-to-project-runtime-dependency-environment-dependency-bootstrap-runtime-verification-or-these-tests
+  exactHeadEvidence: absent
 status: active
-nextReconciliationPoint: control-state-pr-ownership-reconciliation
-openPullRequests:
-  - 136
+nextReconciliationPoint: freeze-test-runtime-browser-cache-v10-candidate
+openPullRequests: []
 openIssues:
   - 132
 issueFacts:
   issue132Role: navigation-only
   issue132SnapshotStale: true
 ci:
+  currentMainRevision: ci-verification-v9
+  candidateRequiredRevision: ci-verification-v10
   activeExactHeadEvidence: absent
-  lastMergedEvidence:
-    scopeAttestation:
-      runId: 29932931686
-      result: success
-    quick:
-      runId: 29933306857
-      result: success
-    pullRequestMergeGate:
-      runId: 29933703051
-      result: success
-    mainPushMergeGate:
-      runId: 29933867770
-      result: success
-    pullRequestCloseGate:
-      runId: 29933870235
-      result: success
-  requiredRevision: ci-verification-v9
-  bootstrapMode: manual
+  bootstrapMode: manual-trust-root-bootstrap
   hostedSelfCertificationAllowed: false
+  latestMainRun:
+    runId: 29947771252
+    result: lifecycle-revalidation-success-only
+    candidateVerificationEvidence: false
 review:
-  activePullRequest: 136
-  state: draft
+  activePullRequest: null
+  state: not-open
   reviews: 0
   unresolvedThreads: 0
   requestChanges: 0
-independentArchitectureReview:
-  initialV8Envelope: blocked
-  reason: verifier-trust-root-change-requires-v1-revision-advance
-  requiredRevision: ci-verification-v9
-  compositionRevision: ci-verification-v7
-  exactHeadV9:
-    reviewedHead: 13d49270b89e47a7194a055b97cc9a580f7a6521
-    state: blocked
-    blocker: CONTROL-STATE-PR-OWNERSHIP-001
-    reason: frozen-manifest-and-rolling-plan-duplicated-stale-live-pr-state
-candidateDiagnostics:
-  focusedBootstrap:
-    initialRun:
-      testsPassed: 103
-      testsFailed: 1
-      assertions: 1009
-      soleFailure: synthetic-immutable-pass-fixture-exact-pretty-raw-bytes
-    isolatedDelta:
-      command: bun test tests/unit/ci-evidence-reuse-contract.test.ts -t "synthetic immutable PASS fixture binds its exact pretty raw bytes" --timeout 180000
-      testsPassed: 1
-      testsFailed: 0
-      assertions: 4
-      durationMs: 693
-    combinedCoverage:
-      testsCovered: 104
-      singleAggregateRerun: false
-  immutableEvidenceCheckout:
-    fixture: tests/fixtures/ci-evidence-reuse/synthetic-pass.json
-    gitBlob: f9cb6f9f2f7499a605e3b4c4c45281fab3b56d39
-    rawSha256: cab3e169f29108986d250afe6fd7f5a5e3dd1f3af7d40c7ffa58e369fe28a3b2
-    indexEol: lf
-    workingTreeEol: lf
-    attribute: /tests/fixtures/ci-evidence-reuse/synthetic-pass.json text eol=lf
-    status: resolved-in-candidate
-repository:
-  visibility: private
-repositoryRules:
-  status: unavailable
-  reason: GitHub API returned 403 for branch protection and rulesets
-blockers:
-  - id: affected-fast-default-timeout
-    observedOnBase: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
-    observedOnCandidate: b753b5578e24ef96d03c051c81e25bf81ffcd8c1
-    gate: SEC_AFFECTED_TESTS_BASE=5f70db3c76d23a04361ba7d2ed689a17e3e14e21 bun run test:affected
-    aggregate:
-      passed: 198
-      failed: 12
-      skipped: 1
-    failureMode: bun-default-timeout-5000ms
-    assertionOrSemanticFailures: 0
-    exactSentinel:
-      timeoutMs: 180000
-      passedFiles: 12
-      failedFiles: 0
-      assertions: 170
-      maxObservedDuration: approximately-21.6s
-    rootPath:
-      - runAffectedTests
-      - runFastTests
-      - fastTestArgs
-    selectedSlowSuites:
-      - end-to-end
-      - graph
-      - local-views
-      - pipeline
-      - semantic-runtime-contract
-      - verification
-    gitNexusImpactRisk: LOW
-    gitNexusImpactedSymbols: 5
-    gitNexusDirectCallers: 1
-    gitNexusAffectedProcesses: 1
-suspendedCandidates:
+independentReview:
+  architecture:
+    lastVerdict: go-after-physical-cold-path-correction
+    resolvedFindings:
+      - path-file-existence-was-not-node-authority
+      - registry-nonzero-was-misclassified-as-cold-cache
+      - runtime-verification-delegation-lacked-behavioral-test
+      - cold-cache-ancestor-reparse-could-write-outside-worktree
+    correctionState: implemented-uncommitted
+    currentDiffRevalidationRequired: false
+  evidence:
+    lastVerdict: conditionally-approvable
+    exactHeadPlanState: blocked-until-frozen-candidate
+runtimeBrowserCacheBlocker:
+  discoveredOnCandidate: bca9102dc2a2bf865fff94b4e521383d8afac0ba
+  candidateBase: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+  canonicalCache: .shared-deps/.playwright-browsers
+  playwrightVersion: 1.59.1
+  chromiumRevision: "1217"
+  initialAffectedResult: missing-canonical-cache
+  exactDiagnosticResult: invalid-environment-contaminated-timeout
+  exactTimeoutMs: 300000
+  secondaryFailure: teardown-after-timeout-artifact-read
+  hostedWorkflow:
+    runner: ubuntu-latest
+    dependencyStep: bun install --frozen-lockfile
+    canonicalCacheMaterialization: absent
+  localRuntimeDiagnostic:
+    bunVersion: 1.3.14
+    bunHttpsResult: ECONNREFUSED
+    nodeVersion: 24.15.0
+    nodeExecutable: D:/Environment/nodejs/node.exe
+    nodeHttpsResult: redirect
+    canonicalRetryResult: ready
+    executable: .shared-deps/.playwright-browsers/chromium_headless_shell-1217/chrome-headless-shell-win64/chrome-headless-shell.exe
+    executableSize: 199090176
+    executableSha256: f7c1ef91a3e287b64509a9733fc8fd43678cf4e2765d67f4d0eceb0e39ecd026
+    trackedArtifactDrift: false
+  authorityDisposition: external-node-and-physical-cold-path-correction-reviewed-uncommitted
+suspendedWorkPackages:
   - id: sm4a-trusted-authorization-ingress-v1
-    branch: codex/sm4a-trusted-authorization-ingress-v1
-    commit: b753b5578e24ef96d03c051c81e25bf81ffcd8c1
-    tree: 90e036ad299bfd5d43ea9a4cb0c746991272582f
-    manifest: docs/work-packages/sm4a-trusted-authorization-ingress-v1.md
-    manifestDigest: sha256:3be79bcfb55304644dfc1859f23a351b80cbb56325d2c4aa4656ef82724fa6ba
-    pushed: false
-    pullRequest: null
-    state: suspended-by-prerequisite
-    focused:
-      testsPassed: 15
-      testsFailed: 0
-      assertions: 118
-    invalidatedEvidence:
-      - affected-tests
-      - selector-selected-risk
-      - exact-head-integration
+    branch: codex/sm4a-trusted-authorization-ingress-v1-v9
+    baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+    headSha: bca9102dc2a2bf865fff94b4e521383d8afac0ba
+    manifestDigest: sha256:3528fd73870d21f883f5e092f24b69987cd52e7ee142fb33326a733f746aa28a
+    state: suspended-by-runtime-browser-cache-prerequisite
+    trackedWorktreeClean: true
+    reusableEvidence:
+      - focused-owner-batch
+      - typecheck
+      - dependency-architecture
+      - docs-doctor
+      - changed-only-imports
+      - contract-freeze
+    invalidOrMissingEvidence:
+      - canonical-affected
+      - hosted-scope
+      - hosted-quick
+      - review
+      - merge-gate
+gitNexusImpact:
+  compareAgainstBase:
+    baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+    risk: CRITICAL
+    changedSymbols: 101
+    affectedProcesses: 36
+    indexedChangedFiles: 30
+    disposition: expected-trust-root-and-test-runner-blast-radius-requires-exact-affected-and-risk
+  inspectPlaywrightBrowserCache:
+    risk: HIGH
+    upstream: 3
+    direct: 1
+    affectedProcesses: 4
+  materializePlaywrightBrowserCache:
+    risk: HIGH
+    upstream: 4
+    direct: 1
+    affectedProcesses: 3
+  projectRuntimeFile:
+    risk: HIGH
+    upstream: 118
+    direct: 10
+  runtimeVerificationFile:
+    risk: HIGH
+    upstream: 109
+    direct: 4
+  getDoctorReport:
+    risk: LOW
+    upstream: 14
+    direct: 1
+  ensureCompilerDepsReady:
+    risk: HIGH
+    editAllowed: false
+    upstream: 15
+    direct: 4
+    affectedProcesses: 4
+  withTestDependencies:
+    risk: HIGH
+    upstream: 5
+    direct: 4
+    affectedProcesses: 3
+  ensurePlaywrightBrowser:
+    risk: LOW
+    upstream: 4
+    direct: 1
+    affectedProcesses: 2
+  prewarmSharedRuntimeDeps:
+    risk: LOW
+    upstream: 1
+    direct: 1
+    affectedProcesses: 0
+  ensureDevDependencies:
+    risk: LOW
+    upstream: 4
+    direct: 2
+    affectedProcesses: 0
+  pathEnv:
+    risk: HIGH
+    upstream: 5
+    direct: 4
+    affectedProcesses: 3
+  isolatedPlaywrightBrowsersPath:
+    risk: CRITICAL
+    upstream: 9
+    direct: 4
+    affectedProcesses: 5
+  withInstallLock:
+    risk: CRITICAL
+    editAllowed: false
+    upstream: 37
+    affectedProcesses: 9
+blockers:
+  - independent-architecture-revalidation-pending
+  - frozen-candidate-and-exact-head-evidence-absent
 completedCapabilities:
   - v0.3-semantic-core-foundation
   - v0.4-fact-delta-pure-kernel
@@ -163,6 +203,7 @@ completedCapabilities:
   - v0.4-semantic-mutation-sm3-isolated-apply-coordinator
   - ci-verification-v8-active-documentation-contract
   - ir-canonical-primitives-cycle-removal
+  - ci-verification-v9-fast-timeout-contract
 limitations:
   - windows-appcontainer-optional-hardening-capability-incomplete
 nexusBaseline:
@@ -170,11 +211,5 @@ nexusBaseline:
   commit: e75caa28dcbc1ffa6e893b5539f85c8177346cd3
   gitTree: 3a8ad6bedd56fd92db141c45ec687b75263364c2
   trackedPaths: 1439
-  nexusDirectoryPaths: 1405
-  otherRepositoryPaths: 34
-  eprDefinitions: 29
-  projectSkills: 11
-  seededMechanismCandidates: 3
-  ledgerTemplateRevision: sha256:dedbb7ae68c065779131c337b39f69d2c9e5f1de0a250fd3f11106336c542348
   censusStatus: incomplete
   liveWorktreeAuthority: false

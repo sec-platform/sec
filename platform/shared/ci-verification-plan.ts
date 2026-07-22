@@ -6,7 +6,7 @@ import { uniqueSorted } from './collections.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
 import type { CodexDevelopmentTestImpactSourceProviderV1 } from './test-impact-contract.ts';
 
-export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v9' as const;
+export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v10' as const;
 export { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 export const CI_VERIFICATION_EXECUTION_MODEL = 'frozen-delivery-single-runner' as const;
 

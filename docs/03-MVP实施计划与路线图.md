@@ -10,7 +10,7 @@ last-reviewed: 2026-07-23
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** Fact Delta、Impact Propagation、Semantic Mutation SM-0～SM-3、Phase 0 Current Reality Rebase 与 IR canonical primitives import-cycle removal 已进入 `main`。SM-4A trusted authorization ingress candidate 已形成 focused/static evidence，但其 canonical affected aggregate 暴露共享 fast runner 仍落到 Bun 默认 5 秒 timeout；独立架构审查又确认该runner属于verifier trust root，因此当前唯一正式执行闭包是 **Affected Fast Timeout V9 Bootstrap**，产品 active next 仍是 **SM-4A Workbench/CLI minimum Semantic Mutation v2 loop**。SM-4B Task Envelope v2 与 SM-4C AI Semantic Operator 不属于 SM-4A。
+**v0.3 Semantic Core Foundation 已完成退出审查。** Fact Delta、Impact Propagation、Semantic Mutation SM-0～SM-3、Phase 0 Current Reality Rebase、IR canonical primitives import-cycle removal 与 TEST-H1 fast timeout V9 bootstrap 已进入 `main`。SM-4A trusted authorization ingress candidate 已形成 focused/static evidence，但其 canonical affected aggregate证明 test/runtime dependency bootstrap没有物化 isolated runtime唯一接受的 worktree-local Playwright cache；fresh hosted Ubuntu runner同样只有`bun install`而没有该authority。因此当前唯一正式执行闭包是 **TEST-H2 Runtime Browser Cache V10 Bootstrap**，产品 active next 仍是 **SM-4A Workbench/CLI minimum Semantic Mutation v2 loop**。SM-4B Task Envelope v2 与 SM-4C AI Semantic Operator 不属于 SM-4A。
 
 当前真实形态：
 
@@ -431,11 +431,11 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 `validateResolvedTemplates()` 是非权威的隔离 template sandbox adapter：它复制已解析 workspace 输入后复用 `buildWorkspaceSemanticBundle()` 与 `createPipelineSemanticContext()`，只负责 compose/typecheck 预检，不拥有第二套 frontend、Pipeline coordinator 或业务语义 authority。PR #96 的 head `3649ac63e11bc6f336bf69d48e33f9810ec0996a` 与 squash merge `07290ccda640db5e285f1d4e198b2721e6d88a8c` tree 一致；持久 evidence 位于 `docs/evidence/v0-3-semantic-frontend-verification.json` 与 `docs/evidence/v0-3-semantic-frontend-risk-batch.json`。
 
-v0.3 的语义能力退出条件均为 **PASS**，状态因此更新为 **COMPLETED**。Phase 0 后续发现的 `ir-identity.ts → ir-revision.ts → ir-identity.ts` import cycle 已由 IR-H1 / PR #135 在 `main@5f70db3` 消除，并保持 canonical bytes不变。当前 engineering closure只处理 fast runner默认timeout；它不撤销已验证的产品能力，也不得借机改变 selector、evidence schema或产品revision。
+v0.3 的语义能力退出条件均为 **PASS**，状态因此更新为 **COMPLETED**。Phase 0 后续发现的 `ir-identity.ts → ir-revision.ts → ir-identity.ts` import cycle 已由 IR-H1 / PR #135 在 `main@5f70db3` 消除，并保持 canonical bytes不变；TEST-H1 / PR #136 已在 `main@8aa2d2d` 固定fast timeout与v9 identity。当前engineering closure只补齐test/runtime browser cache materialization与v10 trust-root identity；它不撤销已验证的产品能力，也不得借机改变selector、Evidence schema、Gate顺序或产品revision。
 
 ## 13. v0.4：Semantic Operations
 
-状态：SM-0～SM-3、Phase 0 文档/控制面 closure 与 IR canonical primitives cycle removal **COMPLETED**；Affected Fast Timeout V9 Bootstrap **ACTIVE PREREQUISITE**；产品 **ACTIVE NEXT = SM-4A**。
+状态：SM-0～SM-3、Phase 0 文档/控制面 closure、IR canonical primitives cycle removal与Affected Fast Timeout V9 Bootstrap **COMPLETED**；Runtime Browser Cache V10 Bootstrap **ACTIVE PREREQUISITE**；产品 **ACTIVE NEXT = SM-4A**。
 
 只有 v0.3 完成后进入：
 
@@ -508,7 +508,8 @@ FD-2 的 docs-only verification、frozen review 与失效边界记录在 `docs/e
 | SM-2 | source adapter and edit-plan boundary | **COMPLETED** | 固定 authoring index、真实 loaded provenance、唯一 writable owner resolver、固定 allowlist path、realpath/reparse policy、deterministic edit plan、byte CAS 与 rollback manifest 已落地 |
 | SM-3 | isolated apply coordinator | **COMPLETED** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 与 exact production seam 已满足退出条件 |
 | IR-H1 | canonical primitives import-cycle removal | **COMPLETED** | PR #135 已进入 `main`；identity/revision 双向 import消除，canonical bytes不变，dependency-cruiser零环 |
-| TEST-H1 | affected fast timeout V9 bootstrap | **ACTIVE PREREQUISITE** | concurrent/serial fast invocation共享有界默认timeout；V1 revision/artifact推进到v9，显式override、Evidence schema、selector、Gate与composition v7不变 |
+| TEST-H1 | affected fast timeout V9 bootstrap | **COMPLETED** | PR #136 已以人工trust-root bootstrap进入`main@8aa2d2d`；concurrent/serial fast invocation共享180秒有界默认timeout，V1 identity为v9 |
+| TEST-H2 | runtime browser cache V10 bootstrap | **ACTIVE PREREQUISITE** | project-runtime实际执行并绑定external Node 22+，拒绝Bun/低版本/非Node/不可执行/execPath漂移；project-local registry failure fatal，只有成功选择但physical executable缺失才安装；doctor、test bootstrap与non-isolated runtime verifier复用该owner，V1 revision/artifact推进到v10 |
 | SM-4A | Workbench/CLI minimum product loop | **PRODUCT ACTIVE NEXT** | 只接 `add-state-transition`；共享 trusted adapter、CLI plan/apply/query/recover、Workbench State View/API、HTTP trust boundary 与真实 vertical 闭合 |
 | SM-4B | Task Envelope v2 | **DEFERRED** | 在 SEC-TS 主链与完整 Workbench 前置条件满足后，冻结 semantic target/operation/must-preserve/verification minimum；不复制 Mutation authority |
 | SM-4C | AI Semantic Operator | **DEFERRED** | 只消费 SM-4B Envelope/Context Packet 并提交 bounded proposal；无直接 writer、无自行扩权 |
@@ -569,9 +570,11 @@ import/runtime 根因也已作为工程协议闭合：`.shared-deps` 是唯一 r
 
 退出证据绑定 exact implementation head `53709496e6d0195f764612905420de025f8f443d` 与 tree `c9d929b05bdfc7598eb0cc634e0dfed238b5ab91`。唯一新 production identity 在 `bf702a5036dc4f32242c57b50b5fbc472b8fd66c` / tree `b43a7367021ef2e1e4ab8f44f4c67e03a76171fc` 运行一次并以 1/1 PASS、0 fail、约 130.7 秒证明 canonical import/runtime closure、single builder、resume、bootstrap、runner、controlled failure、Job settlement 与 cleanup；其后只变化 CI/snapshot/hook verification infrastructure，production 与 sentinel blobs 未变，因此不重跑该 identity。组合证据还包括 Windows lifecycle 45/45、三个 deterministic apply siblings 3/3、Contract Freeze 124/124、V7 residual base 的 321 个未受影响 PASS 加 V8 exact owner 43/43、typecheck、changed-only imports 与 patch hygiene。完整命令、head/tree/blob、失败身份退役、证据复用与失效规则位于 `docs/evidence/v0-4-semantic-mutation-exit-closure-2026-07-19.json`。
 
-SM-3 状态因此更新为 **COMPLETED**。Windows AppContainer 仍是 optional hardening，`capabilityComplete:false`；本退出不宣称恶意代码或网络安全沙箱能力。IR-H1 已在 Phase 0 后闭合并进入 `main`；SM-4A ingress candidate暴露的共享fast timeout必须以v9人工bootstrap进入新 `main` 后，才重放并重冻该ingress。公共DTO、路由schema、canonical authorization payload与排序算法保持单写者，不提前混入Task Envelope v2或AI Semantic Operator。
+SM-3 状态因此更新为 **COMPLETED**。Windows AppContainer 仍是 optional hardening，`capabilityComplete:false`；本退出不宣称恶意代码或网络安全沙箱能力。IR-H1与TEST-H1均已进入`main`；SM-4A ingress在v9 replay后的affected又暴露canonical browser cache没有由test bootstrap物化，因此必须先以TEST-H2/v10人工bootstrap闭合该前置，再从新`main`重放并重冻ingress。公共DTO、路由schema、canonical authorization payload与排序算法保持单写者，不提前混入Task Envelope v2或AI Semantic Operator。
 
-2026-07-23 reconciliation事实：IR-H1 / PR #135 已 squash merge为 `main@5f70db3c76d23a04361ba7d2ed689a17e3e14e21`。首个 SM-4A ingress candidate仍未push、无PR；其 focused 15/15与118 assertions通过，但 `test:affected` aggregate得到198 PASS、12个Bun默认5000ms timeout failure、1 SKIP。相同十二个文件以180秒timeout精确重跑为12/12、170 assertions PASS，故当前先修共享runner合同；该candidate及其计划不构成产品完成证据。
+2026-07-23 reconciliation事实：TEST-H1 / PR #136 已以人工bootstrap squash merge为`main@8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2`。SM-4A v9 candidate `bca9102` 的focused owner batch、typecheck、dependency architecture、docs、imports与Contract Freeze通过；canonical affected唯一失败title首先因worktree-local revision1217 Playwright cache缺失而返回blocked diagnostics。物化cache后一次exact-title尝试与覆盖repo、LOCALAPPDATA和USERPROFILE的递归扫描竞争磁盘并在300秒超时，后续artifact-read是teardown次生错误，只能记为`INVALID_ENV_CONTAMINATED`。Hosted Ubuntu workflow同样没有canonical cache materialization，故TEST-H2成为新的串行前置；candidate及其计划仍不构成产品完成证据。
+
+同日TEST-H2架构复审进一步否决“PATH文件存在即Node authority”的初版假设：Bun的`process.versions.node`不是external Node证明，registry `executablePathOrDie()`又会把Node/require/registry failure误判为cold cache并下载。physical-cold-path复审还证明缺失leaf会让`.shared-deps`父junction或cache中间junction绕过旧检查，把lock/download写出worktree。当前修正实际执行并绑定同一个Node 22+ physical executable，由非抛出的registry expected path严格区分fatal authority failure与唯一cold condition，并在lock前、lock内和真实spawn前逐段验证root到expected executable的类型、reparse与realpath containment；direct/preload 34/34（137 assertions）、managed runner 21/21和v10 policy 69/69仅证明未提交修正树，不是exact-head或`main`完成证据。
 
 ### SM-4A minimum product contract
 
@@ -673,7 +676,9 @@ Phase 0 Current Reality Rebase                               COMPLETED
   ↓
 IR-H1 canonical primitives import-cycle removal              COMPLETED
   ↓
-TEST-H1 affected fast timeout V9 bootstrap                   ACTIVE PREREQUISITE
+TEST-H1 affected fast timeout V9 bootstrap                   COMPLETED
+  ↓
+TEST-H2 runtime browser cache V10 bootstrap                  ACTIVE PREREQUISITE
   ↓
 SM-4A trusted authorization ingress replay                    PAUSED NEXT
   ↓

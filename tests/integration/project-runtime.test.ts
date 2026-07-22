@@ -421,18 +421,30 @@ describe('test budget and benchmark contracts', () => {
     const runnerSource = await readCompilerFile('platform/dev-runner.ts');
     const testRunnerSource = await readCompilerFile('platform/dev-runner/test-runner.ts');
     const setupSource = await readCompilerFile('tests/setup/runtime-deps.setup.ts');
+    const runtimeVerificationSource = await readCompilerFile(
+      'platform/compiler/verify/run-runtime-verification.ts'
+    );
 
     expectContainsAll(runnerSource, [
       'test:fast'
     ]);
     expectContainsAll(testRunnerSource, [
       'fastTestArgs',
+      'ensureTestDependencies',
+      'PLAYWRIGHT_BROWSERS_PATH',
       'SEC_SKIP_RUNTIME_DEPS_SETUP'
     ]);
     expectContainsAll(setupSource, [
       "process.env.SEC_SKIP_RUNTIME_DEPS_SETUP !== '1'",
-      'ensureDevDependencies',
+      'ensureTestDependencies',
+      'process.env.PLAYWRIGHT_BROWSERS_PATH = dependencies.browserCachePath',
       'await fs.rm(lockPath, { recursive: true, force: true });'
+    ]);
+    expectContainsNone(setupSource, ['ensureDevDependencies', 'ensurePlaywrightBrowserCacheReady']);
+    expectContainsAll(runtimeVerificationSource, ['materializePlaywrightBrowserCache']);
+    expectContainsNone(runtimeVerificationSource, [
+      "path.join(projectRoot, 'node_modules', 'playwright', 'cli.js')",
+      "path.join(compilerRoot, '.shared-deps', '.playwright-browsers')"
     ]);
   });
 

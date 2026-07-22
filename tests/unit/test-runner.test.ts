@@ -1,5 +1,6 @@
 import { beforeEach, expect, mock, test } from 'bun:test';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 
 import {
   DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE,
@@ -11,7 +12,11 @@ import {
 
 const commandCalls: { command: string; args: string[]; stdoutMode: 'bytes' | 'text' }[] = [];
 const devCommandCalls: { command: string; args: string[] }[] = [];
+const devCommandEnvironments: NodeJS.ProcessEnv[] = [];
 const devCommandExitCodes: number[] = [];
+const canonicalBrowserCachePath = path.resolve('.shared-deps', '.playwright-browsers');
+let testDependencyBootstrapCalls = 0;
+let testDependencyBootstrapError: Error | null = null;
 const serialFastTestFileSet = new Set<string>(SERIAL_FAST_TEST_FILES);
 let changedFiles = ['platform/unmapped-source.ts'];
 
@@ -53,9 +58,23 @@ mock.module('../../platform/shared/process.ts', () => ({
 }));
 
 mock.module('../../platform/dev-runner/command-runner.ts', () => ({
-  runDevCommand: async (command: string, args: string[]) => {
+  runDevCommand: async (command: string, args: string[], env: NodeJS.ProcessEnv) => {
     devCommandCalls.push({ command, args });
+    devCommandEnvironments.push(env);
     return devCommandExitCodes.shift() ?? 0;
+  }
+}));
+
+mock.module('../../platform/dev-runner/dependency-bootstrap.ts', () => ({
+  ensureTestDependencies: async () => {
+    testDependencyBootstrapCalls += 1;
+    if (testDependencyBootstrapError) throw testDependencyBootstrapError;
+    return {
+      browserCachePath: canonicalBrowserCachePath,
+      manifestHash: 'test-manifest',
+      nodeModulesPath: path.resolve('node_modules'),
+      source: 'existing'
+    };
   }
 }));
 
@@ -69,7 +88,10 @@ function invocationTestFiles(args: readonly string[]): string[] {
 beforeEach(() => {
   commandCalls.length = 0;
   devCommandCalls.length = 0;
+  devCommandEnvironments.length = 0;
   devCommandExitCodes.length = 0;
+  testDependencyBootstrapCalls = 0;
+  testDependencyBootstrapError = null;
   changedFiles = ['platform/unmapped-source.ts'];
   delete process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK;
 });
@@ -132,6 +154,10 @@ test.serial('targeted concurrent-safe fast tests run only the requested files', 
   const code = await runFastTests(['tests/unit/path-containment.test.ts']);
 
   expect(code).toBe(0);
+  expect(testDependencyBootstrapCalls).toBe(1);
+  expect(devCommandEnvironments).toHaveLength(1);
+  expect(devCommandEnvironments[0]?.PLAYWRIGHT_BROWSERS_PATH).toBe(canonicalBrowserCachePath);
+  expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
   expect(devCommandCalls).toEqual([
     {
       command: 'bun',
@@ -144,6 +170,38 @@ test.serial('targeted concurrent-safe fast tests run only the requested files', 
       ]
     }
   ]);
+});
+
+test.serial('one pre-fanout bootstrap overwrites poisoned browser state for every managed child', async () => {
+  const previousBrowserCachePath = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  process.env.PLAYWRIGHT_BROWSERS_PATH = 'poisoned-browser-cache';
+  try {
+    const code = await runFastTests([
+      'tests/unit/path-containment.test.ts',
+      'tests/unit/test-runner.test.ts'
+    ]);
+
+    expect(code).toBe(0);
+    expect(testDependencyBootstrapCalls).toBe(1);
+    expect(devCommandCalls).toHaveLength(2);
+    expect(devCommandEnvironments).toHaveLength(2);
+    expect(devCommandEnvironments.every((env) =>
+      env.PLAYWRIGHT_BROWSERS_PATH === canonicalBrowserCachePath &&
+      env.SEC_SKIP_RUNTIME_DEPS_SETUP === '1')).toBe(true);
+  } finally {
+    if (previousBrowserCachePath === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH;
+    else process.env.PLAYWRIGHT_BROWSERS_PATH = previousBrowserCachePath;
+  }
+});
+
+test.serial('bootstrap failure launches no managed test child', async () => {
+  testDependencyBootstrapError = new Error('browser bootstrap failed');
+
+  await expect(runFastTests(['tests/unit/path-containment.test.ts']))
+    .rejects.toThrow('browser bootstrap failed');
+  expect(testDependencyBootstrapCalls).toBe(1);
+  expect(devCommandCalls).toEqual([]);
+  expect(devCommandEnvironments).toEqual([]);
 });
 
 test.serial('fast tests preserve options across concurrent and serial invocations', async () => {

@@ -7,6 +7,7 @@ import {
   buildIsolatedRuntimeEnvironment,
   captureIsolatedRuntimeBuildNodeModulesProofForTests,
   createSkippedRuntimeLane,
+  ensurePlaywrightBrowserForTests,
   isolatedPlaywrightBrowsersPath,
   normalizeRuntimeVerificationLog,
   resolveIsolatedRuntimeDependencySourcesForTests,
@@ -427,6 +428,44 @@ test('writable and staged Playwright caches remain rooted in their original owne
   expect(isolatedPlaywrightBrowsersPath(stagingRoot)).toBe(
     path.join(stagingRoot, '.isolated-process', 'playwright-browsers')
   );
+});
+
+test('non-isolated runtime verification delegates to the shared browser materializer and preserves failure bytes', async () => {
+  const projectRoot = path.resolve('runtime-project');
+  const environment = {
+    PLAYWRIGHT_BROWSERS_PATH: path.resolve('canonical-browser-cache'),
+    TEST_RUNTIME_ENV: 'preserved'
+  };
+  let calls = 0;
+  const result = await ensurePlaywrightBrowserForTests(projectRoot, environment, {
+    materialize: async (options) => {
+      calls += 1;
+      expect(options).toEqual({
+        environment,
+        playwrightProjectRoot: projectRoot,
+        signal: undefined
+      });
+      return Object.freeze({
+        browserCachePath: environment.PLAYWRIGHT_BROWSERS_PATH,
+        browserExecutablePath: null,
+        commandResult: { code: 17, stdout: 'partial', stderr: 'network unavailable' },
+        source: null,
+        status: 'failed' as const
+      });
+    }
+  });
+
+  expect(calls).toBe(1);
+  expect(result).toEqual({ code: 17, stdout: 'partial', stderr: 'network unavailable' });
+});
+
+test('non-isolated runtime verification preserves fatal materializer failures', async () => {
+  const failure = Object.assign(new Error('registry poisoned'), { code: 'RUNTIME-DEPS-005' });
+  await expect(ensurePlaywrightBrowserForTests(path.resolve('runtime-project'), {}, {
+    materialize: async () => {
+      throw failure;
+    }
+  })).rejects.toBe(failure);
 });
 
 test('isolated runtime environment excludes live fallbacks and contains writable homes', () => {

@@ -1,7 +1,9 @@
 import { installGitHooks } from '../../scripts/install-git-hooks.ts';
 import {
   ensureCompilerDepsReady,
-  type CompilerDepsReadyState
+  ensurePlaywrightBrowserCacheReady,
+  type CompilerDepsReadyState,
+  type PlaywrightBrowserCacheReadyState
 } from '../shared/project-runtime.ts';
 
 export interface DevDependencyBootstrapResult {
@@ -10,9 +12,20 @@ export interface DevDependencyBootstrapResult {
   readonly source: 'existing' | 'installed';
 }
 
-interface DevDependencyBootstrapOptions {
+export interface TestDependencyBootstrapResult extends DevDependencyBootstrapResult {
+  readonly browserCachePath: string;
+}
+
+interface CompilerDependencyBootstrapOptions {
   readonly ensureCompilerDeps?: () => Promise<CompilerDepsReadyState>;
+}
+
+interface DevDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
   readonly ensureHooks?: (repoRoot: string) => Promise<void>;
+}
+
+interface TestDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
+  readonly ensureBrowserCache?: (dependencyRoot: string) => Promise<PlaywrightBrowserCacheReadyState>;
 }
 
 async function ensureManagedHooks(repoRoot: string): Promise<void> {
@@ -21,14 +34,30 @@ async function ensureManagedHooks(repoRoot: string): Promise<void> {
   if (result.status === 'conflict') console.warn(result.message);
 }
 
+function dependencyBootstrapResult(ready: CompilerDepsReadyState): DevDependencyBootstrapResult {
+  return {
+    manifestHash: ready.manifestHash,
+    nodeModulesPath: ready.nodeModulesPath,
+    source: ready.source
+  };
+}
+
 export async function ensureDevDependencies(
   options: DevDependencyBootstrapOptions = {}
 ): Promise<DevDependencyBootstrapResult> {
   const ready = await (options.ensureCompilerDeps ?? (() => ensureCompilerDepsReady()))();
   await (options.ensureHooks ?? ensureManagedHooks)(ready.root);
+  return dependencyBootstrapResult(ready);
+}
+
+export async function ensureTestDependencies(
+  options: TestDependencyBootstrapOptions = {}
+): Promise<TestDependencyBootstrapResult> {
+  const ready = await (options.ensureCompilerDeps ?? (() => ensureCompilerDepsReady()))();
+  const browser = await (options.ensureBrowserCache ?? ((dependencyRoot) =>
+    ensurePlaywrightBrowserCacheReady({}, dependencyRoot)))(ready.root);
   return {
-    manifestHash: ready.manifestHash,
-    nodeModulesPath: ready.nodeModulesPath,
-    source: ready.source
+    ...dependencyBootstrapResult(ready),
+    browserCachePath: browser.browserCachePath
   };
 }

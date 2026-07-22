@@ -14,7 +14,7 @@ import {
   writeText,
   type CommitFence
 } from './fs.ts';
-import { compilerRoot } from './paths.ts';
+import { compilerRoot, isPathInside } from './paths.ts';
 import {
   buildIsolatedProcessEnvironment,
   ensureIsolatedProcessDirectories,
@@ -99,6 +99,66 @@ export interface RuntimeDependencyInstallOptions {
   sleep?: (ms: number) => Promise<void>;
   testCompilerPublishHook?: (stage: 'active-backed-up') => void | Promise<void>;
 }
+
+export interface ExternalNodeRuntimeResolutionOptions {
+  beforeCommit?: CommitFence;
+  commandRunner?: typeof runCommand;
+  environment?: NodeJS.ProcessEnv;
+  nodeExecutablePath?: string;
+  signal?: AbortSignal;
+}
+
+export interface ExternalNodeRuntimeAuthority {
+  readonly executablePath: string;
+  readonly version: string;
+}
+
+export interface PlaywrightBrowserCacheInstallOptions extends RuntimeDependencyInstallOptions {
+  environment?: NodeJS.ProcessEnv;
+  nodeExecutablePath?: string;
+  playwrightProjectRoot?: string;
+}
+
+export type PlaywrightBrowserCacheMaterializationResult = Readonly<
+  | {
+    browserCachePath: string;
+    browserExecutablePath: null;
+    commandResult: CommandResult;
+    source: null;
+    status: 'failed';
+  }
+  | {
+    browserCachePath: string;
+    browserExecutablePath: string;
+    commandResult: CommandResult;
+    source: 'existing' | 'installed';
+    status: 'ready';
+  }
+>;
+
+export type PlaywrightBrowserCacheReadyState = Readonly<{
+  browserCachePath: string;
+  browserExecutablePath: string;
+}>;
+
+export const EXTERNAL_NODE_MINIMUM_MAJOR_VERSION = 22;
+const EXTERNAL_NODE_RUNTIME_PROBE = [
+  "process.stdout.write(JSON.stringify({",
+  "  bunVersion: process.versions.bun ?? null,",
+  "  executablePath: process.execPath,",
+  "  format: 'sec-external-node-runtime-v1',",
+  "  releaseName: process.release?.name ?? null,",
+  "  version: process.versions.node ?? null",
+  '}));'
+].join('\n');
+const PLAYWRIGHT_BROWSER_EXECUTABLE_PROBE = [
+  "const path = require('node:path');",
+  "const { createRequire } = require('node:module');",
+  'const projectRoot = process.argv[1];',
+  "const requireFromProject = createRequire(path.join(projectRoot, 'package.json'));",
+  "const { registry } = requireFromProject('playwright-core/lib/server');",
+  "process.stdout.write(registry.findExecutable('chromium-headless-shell').executablePath());"
+].join('\n');
 
 export function dependencyAuthorityPaths(
   dependencyRoot = compilerRoot
@@ -506,6 +566,515 @@ async function runBunInstall(
 
   throw new CompilerError('RUNTIME-DEPS-001', `Failed to install runtime dependencies in ${workingDirectory}`, {
     bunResult
+  });
+}
+
+function playwrightBrowserInstallFailure(
+  message: string,
+  details: Record<string, unknown> = {}
+): CompilerError {
+  return new CompilerError('RUNTIME-DEPS-005', message, details);
+}
+
+async function assertPlaywrightCli(playwrightProjectRoot: string): Promise<string> {
+  const playwrightCli = path.join(playwrightProjectRoot, 'node_modules', 'playwright', 'cli.js');
+  const metadata = await fs.lstat(playwrightCli).catch(() => null);
+  if (!metadata?.isFile() || metadata.isSymbolicLink()) {
+    throw playwrightBrowserInstallFailure('Canonical Playwright installer entry is unavailable', {
+      playwrightCli
+    });
+  }
+  return playwrightCli;
+}
+
+async function physicalExecutablePath(candidatePath: string): Promise<string | null> {
+  const physicalPath = await fs.realpath(candidatePath).catch(() => null);
+  if (physicalPath === null) return null;
+  const metadata = await fs.lstat(physicalPath).catch(() => null);
+  return metadata?.isFile() === true ? physicalPath : null;
+}
+
+function sameExecutablePath(left: string, right: string): boolean {
+  const resolvedLeft = path.resolve(left);
+  const resolvedRight = path.resolve(right);
+  return process.platform === 'win32'
+    ? resolvedLeft.toLocaleLowerCase('en-US') === resolvedRight.toLocaleLowerCase('en-US')
+    : resolvedLeft === resolvedRight;
+}
+
+function externalNodeEnvironment(environment: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+  return {
+    ...environment,
+    NODE_OPTIONS: undefined,
+    NODE_PATH: undefined
+  };
+}
+
+function pathEnvironmentValue(environment: NodeJS.ProcessEnv): string {
+  return Object.entries(environment)
+    .find(([key]) => key.toLocaleLowerCase('en-US') === 'path')?.[1] ?? '';
+}
+
+type ExternalNodeRuntimeProbe = Readonly<{
+  bunVersion: string | null;
+  executablePath: string;
+  format: 'sec-external-node-runtime-v1';
+  releaseName: string;
+  version: string;
+}>;
+
+function parseExternalNodeRuntimeProbe(stdout: string): ExternalNodeRuntimeProbe | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(stdout.trim());
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const probe = value as Record<string, unknown>;
+  if (probe.format !== 'sec-external-node-runtime-v1' ||
+    probe.bunVersion !== null ||
+    typeof probe.executablePath !== 'string' ||
+    !path.isAbsolute(probe.executablePath) ||
+    probe.releaseName !== 'node' ||
+    typeof probe.version !== 'string') {
+    return null;
+  }
+  const versionMatch = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u.exec(probe.version);
+  if (!versionMatch ||
+    Number.parseInt(versionMatch[1]!, 10) < EXTERNAL_NODE_MINIMUM_MAJOR_VERSION) return null;
+  return Object.freeze({
+    bunVersion: null,
+    executablePath: probe.executablePath,
+    format: 'sec-external-node-runtime-v1',
+    releaseName: 'node',
+    version: probe.version
+  });
+}
+
+async function validateExternalNodeRuntime(
+  executablePath: string,
+  options: ExternalNodeRuntimeResolutionOptions,
+  workingDirectory: string
+): Promise<Readonly<ExternalNodeRuntimeAuthority>> {
+  const commandRunner = options.commandRunner ?? runCommand;
+  let commandResult: CommandResult;
+  try {
+    commandResult = await commandRunner(executablePath, ['-e', EXTERNAL_NODE_RUNTIME_PROBE], {
+      beforeSpawn: options.beforeCommit,
+      cwd: workingDirectory,
+      env: externalNodeEnvironment(options.environment),
+      signal: options.signal
+    });
+  } catch (error) {
+    throw playwrightBrowserInstallFailure('Configured Node.js runtime cannot be executed', {
+      cause: error instanceof Error ? error.message : String(error),
+      nodeExecutablePath: executablePath
+    });
+  }
+  const probe = commandResult.code === 0
+    ? parseExternalNodeRuntimeProbe(commandResult.stdout)
+    : null;
+  const reportedPhysicalPath = probe
+    ? await physicalExecutablePath(probe.executablePath)
+    : null;
+  if (!probe || reportedPhysicalPath === null || !sameExecutablePath(executablePath, reportedPhysicalPath)) {
+    throw playwrightBrowserInstallFailure(
+      `Configured runtime is not the required external Node.js ${EXTERNAL_NODE_MINIMUM_MAJOR_VERSION}+ authority`,
+      {
+        commandResult,
+        nodeExecutablePath: executablePath,
+        reportedExecutablePath: probe?.executablePath ?? null,
+        reportedVersion: probe?.version ?? null
+      }
+    );
+  }
+  return Object.freeze({ executablePath, version: probe.version });
+}
+
+export async function resolveExternalNodeRuntimeAuthority(
+  options: ExternalNodeRuntimeResolutionOptions = {},
+  workingDirectory = compilerRoot
+): Promise<Readonly<ExternalNodeRuntimeAuthority>> {
+  options.signal?.throwIfAborted();
+  const environment = options.environment ?? process.env;
+  const candidates: string[] = [];
+  if (options.nodeExecutablePath) {
+    candidates.push(path.resolve(options.nodeExecutablePath));
+  } else {
+    if (/^node(?:\.exe)?$/iu.test(path.basename(process.execPath))) {
+      candidates.push(process.execPath);
+    }
+    const executableNames = process.platform === 'win32' ? ['node.exe', 'node'] : ['node'];
+    const pathEntries = pathEnvironmentValue(environment)
+      .split(path.delimiter)
+      .map((entry) => entry.trim().replace(/^"|"$/gu, ''))
+      .filter((entry) => entry.length > 0);
+    for (const pathEntry of pathEntries) {
+      for (const executableName of executableNames) {
+        candidates.push(path.join(pathEntry, executableName));
+      }
+    }
+  }
+
+  const visited = new Set<string>();
+  for (const candidate of candidates) {
+    const physicalPath = await physicalExecutablePath(candidate);
+    if (physicalPath === null) continue;
+    const identity = process.platform === 'win32'
+      ? physicalPath.toLocaleLowerCase('en-US')
+      : physicalPath;
+    if (visited.has(identity)) continue;
+    visited.add(identity);
+    return validateExternalNodeRuntime(physicalPath, options, path.resolve(workingDirectory));
+  }
+  throw playwrightBrowserInstallFailure(
+    `Canonical external Node.js ${EXTERNAL_NODE_MINIMUM_MAJOR_VERSION}+ runtime is unavailable for Playwright installation`,
+    { nodeExecutablePath: options.nodeExecutablePath ? path.resolve(options.nodeExecutablePath) : null }
+  );
+}
+
+type PlaywrightBrowserCacheProbe = Readonly<{
+  browserExecutablePath: string;
+  commandResult: CommandResult;
+}>;
+
+function playwrightBrowserEnvironment(
+  environment: NodeJS.ProcessEnv | undefined,
+  browserCachePath: string
+): NodeJS.ProcessEnv {
+  return {
+    ...environment,
+    NODE_OPTIONS: undefined,
+    NODE_PATH: undefined,
+    PLAYWRIGHT_BROWSERS_PATH: browserCachePath,
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: undefined
+  };
+}
+
+async function probePlaywrightBrowserCache(
+  commandRunner: typeof runCommand,
+  nodeExecutablePath: string,
+  playwrightProjectRoot: string,
+  browserCachePath: string,
+  options: PlaywrightBrowserCacheInstallOptions
+): Promise<PlaywrightBrowserCacheProbe> {
+  options.signal?.throwIfAborted();
+  let commandResult: CommandResult;
+  try {
+    commandResult = await commandRunner(
+      nodeExecutablePath,
+      ['-e', PLAYWRIGHT_BROWSER_EXECUTABLE_PROBE, playwrightProjectRoot],
+      {
+        beforeSpawn: options.beforeCommit,
+        cwd: playwrightProjectRoot,
+        env: playwrightBrowserEnvironment(options.environment, browserCachePath),
+        signal: options.signal
+      }
+    );
+  } catch (error) {
+    throw playwrightBrowserInstallFailure('Project-local Playwright registry probe could not execute', {
+      browserCachePath,
+      cause: error instanceof Error ? error.message : String(error),
+      nodeExecutablePath
+    });
+  }
+  if (commandResult.code !== 0) {
+    throw playwrightBrowserInstallFailure('Project-local Playwright registry probe failed', {
+      browserCachePath,
+      commandResult,
+      nodeExecutablePath
+    });
+  }
+
+  const executableLines = commandResult.stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (executableLines.length !== 1 || !path.isAbsolute(executableLines[0]!)) {
+    throw playwrightBrowserInstallFailure('Project-local Playwright registry returned an invalid executable path', {
+      browserCachePath,
+      commandResult,
+      nodeExecutablePath
+    });
+  }
+
+  const browserExecutablePath = path.resolve(executableLines[0]!);
+  if (!isPathInside(browserCachePath, browserExecutablePath) ||
+    path.resolve(browserCachePath) === browserExecutablePath) {
+    throw playwrightBrowserInstallFailure('Project-local Playwright registry escaped the canonical browser cache', {
+      browserCachePath,
+      browserExecutablePath,
+      commandResult,
+      nodeExecutablePath
+    });
+  }
+  return Object.freeze({ browserExecutablePath, commandResult });
+}
+
+async function optionalMetadata(targetPath: string): Promise<Awaited<ReturnType<typeof fs.lstat>> | null> {
+  try {
+    return await fs.lstat(targetPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw playwrightBrowserInstallFailure('Playwright browser cache metadata cannot be inspected', {
+      cause: error instanceof Error ? error.message : String(error),
+      targetPath
+    });
+  }
+}
+
+async function inspectPlaywrightBrowserCache(
+  dependencyRoot: string,
+  browserCachePath: string,
+  browserExecutablePath: string
+): Promise<'missing' | 'ready'> {
+  const resolvedRoot = path.resolve(dependencyRoot);
+  const resolvedCachePath = path.resolve(browserCachePath);
+  const resolvedExecutablePath = path.resolve(browserExecutablePath);
+  if (!isPathInside(resolvedRoot, resolvedCachePath) ||
+    sameExecutablePath(resolvedRoot, resolvedCachePath) ||
+    !isPathInside(resolvedCachePath, resolvedExecutablePath) ||
+    sameExecutablePath(resolvedCachePath, resolvedExecutablePath)) {
+    throw playwrightBrowserInstallFailure('Canonical Playwright browser path escaped its lexical dependency authority', {
+      browserCachePath: resolvedCachePath,
+      browserExecutablePath: resolvedExecutablePath,
+      dependencyRoot: resolvedRoot
+    });
+  }
+
+  const rootMetadata = await optionalMetadata(resolvedRoot);
+  const physicalRoot = await fs.realpath(resolvedRoot).catch(() => null);
+  if (rootMetadata === null || !rootMetadata.isDirectory() || rootMetadata.isSymbolicLink() || physicalRoot === null) {
+    throw playwrightBrowserInstallFailure('Playwright dependency root is not a physical directory', {
+      dependencyRoot: resolvedRoot,
+      physicalRoot
+    });
+  }
+
+  let currentPath = resolvedRoot;
+  let expectedPhysicalPath = physicalRoot;
+  const relativeExecutablePath = path.relative(resolvedRoot, resolvedExecutablePath);
+  for (const segment of relativeExecutablePath.split(path.sep)) {
+    currentPath = path.join(currentPath, segment);
+    expectedPhysicalPath = path.join(expectedPhysicalPath, segment);
+    const metadata = await optionalMetadata(currentPath);
+    if (metadata === null) return 'missing';
+
+    const isExecutable = sameExecutablePath(currentPath, resolvedExecutablePath);
+    if (metadata.isSymbolicLink() ||
+      (isExecutable ? !metadata.isFile() : !metadata.isDirectory())) {
+      throw playwrightBrowserInstallFailure(
+        isExecutable
+          ? 'Canonical Playwright browser executable is not a physical file'
+          : 'Canonical Playwright browser path contains a non-physical directory',
+        {
+          browserCachePath: resolvedCachePath,
+          browserExecutablePath: resolvedExecutablePath,
+          targetPath: currentPath
+        }
+      );
+    }
+
+    const physicalPath = await fs.realpath(currentPath).catch(() => null);
+    if (physicalPath === null ||
+      !sameExecutablePath(physicalPath, expectedPhysicalPath) ||
+      !isPathInside(physicalRoot, physicalPath)) {
+      throw playwrightBrowserInstallFailure('Canonical Playwright browser path escaped physical dependency containment', {
+        browserCachePath: resolvedCachePath,
+        browserExecutablePath: resolvedExecutablePath,
+        dependencyRoot: resolvedRoot,
+        expectedPhysicalPath,
+        physicalPath,
+        targetPath: currentPath
+      });
+    }
+  }
+  return 'ready';
+}
+
+async function waitWithAbort(
+  delayMs: number,
+  sleep: (ms: number) => Promise<void>,
+  signal?: AbortSignal
+): Promise<void> {
+  if (!signal) {
+    await sleep(delayMs);
+    return;
+  }
+  signal.throwIfAborted();
+  let abortListener: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    abortListener = () => reject(signal.reason ?? new Error('Playwright browser cache bootstrap was aborted'));
+    signal.addEventListener('abort', abortListener, { once: true });
+  });
+  try {
+    await Promise.race([sleep(delayMs), aborted]);
+  } finally {
+    if (abortListener) signal.removeEventListener('abort', abortListener);
+  }
+}
+
+export async function materializePlaywrightBrowserCache(
+  options: PlaywrightBrowserCacheInstallOptions = {},
+  dependencyRoot = compilerRoot
+): Promise<PlaywrightBrowserCacheMaterializationResult> {
+  const root = path.resolve(dependencyRoot);
+  const authority = dependencyAuthorityPaths(root);
+  const playwrightProjectRoot = path.resolve(options.playwrightProjectRoot ?? root);
+  options.signal?.throwIfAborted();
+  const commandRunner = options.commandRunner ?? runCommand;
+  const nodeRuntime = await resolveExternalNodeRuntimeAuthority({
+    beforeCommit: options.beforeCommit,
+    commandRunner,
+    environment: options.environment,
+    nodeExecutablePath: options.nodeExecutablePath,
+    signal: options.signal
+  }, playwrightProjectRoot);
+  const playwrightCli = await assertPlaywrightCli(playwrightProjectRoot);
+  const initialRegistryProbe = await probePlaywrightBrowserCache(
+    commandRunner,
+    nodeRuntime.executablePath,
+    playwrightProjectRoot,
+    authority.browserCache,
+    options
+  );
+  const lockPath = path.join(authority.sharedDepsRoot, 'playwright-browser-install.lock');
+  const sleep = options.sleep ?? sleepMs;
+  await inspectPlaywrightBrowserCache(
+    root,
+    authority.browserCache,
+    initialRegistryProbe.browserExecutablePath
+  );
+
+  return withInstallLock(lockPath, {
+    ...options,
+    sleep: (delayMs) => waitWithAbort(delayMs, sleep, options.signal)
+  }, async () => {
+    options.signal?.throwIfAborted();
+    if (await inspectPlaywrightBrowserCache(
+      root,
+      authority.browserCache,
+      initialRegistryProbe.browserExecutablePath
+    ) === 'ready') {
+      return Object.freeze({
+        browserCachePath: authority.browserCache,
+        browserExecutablePath: initialRegistryProbe.browserExecutablePath,
+        commandResult: { code: 0, stdout: '', stderr: '' },
+        source: 'existing' as const,
+        status: 'ready' as const
+      });
+    }
+
+    await options.beforeCommit?.();
+    options.signal?.throwIfAborted();
+    if (await inspectPlaywrightBrowserCache(
+      root,
+      authority.browserCache,
+      initialRegistryProbe.browserExecutablePath
+    ) === 'ready') {
+      return Object.freeze({
+        browserCachePath: authority.browserCache,
+        browserExecutablePath: initialRegistryProbe.browserExecutablePath,
+        commandResult: { code: 0, stdout: '', stderr: '' },
+        source: 'existing' as const,
+        status: 'ready' as const
+      });
+    }
+    let commandResult: CommandResult;
+    try {
+      commandResult = await commandRunner(nodeRuntime.executablePath, [playwrightCli, 'install', 'chromium'], {
+        beforeSpawn: async () => {
+          await options.beforeCommit?.();
+          options.signal?.throwIfAborted();
+          if (await inspectPlaywrightBrowserCache(
+            root,
+            authority.browserCache,
+            initialRegistryProbe.browserExecutablePath
+          ) === 'ready') {
+            throw playwrightBrowserInstallFailure(
+              'Playwright browser cache identity changed before installer execution',
+              {
+                browserCachePath: authority.browserCache,
+                browserExecutablePath: initialRegistryProbe.browserExecutablePath
+              }
+            );
+          }
+        },
+        cwd: playwrightProjectRoot,
+        env: playwrightBrowserEnvironment(options.environment, authority.browserCache),
+        signal: options.signal
+      });
+    } catch (error) {
+      throw playwrightBrowserInstallFailure('Canonical Playwright installer could not execute', {
+        browserCachePath: authority.browserCache,
+        cause: error instanceof Error ? error.message : String(error),
+        nodeExecutablePath: nodeRuntime.executablePath,
+        playwrightCli
+      });
+    }
+    await options.beforeCommit?.();
+    options.signal?.throwIfAborted();
+
+    if (commandResult.code !== 0) {
+      return Object.freeze({
+        browserCachePath: authority.browserCache,
+        browserExecutablePath: null,
+        commandResult,
+        source: null,
+        status: 'failed' as const
+      });
+    }
+
+    const finalProbe = await probePlaywrightBrowserCache(
+      commandRunner,
+      nodeRuntime.executablePath,
+      playwrightProjectRoot,
+      authority.browserCache,
+      options
+    );
+    if (!sameExecutablePath(
+      initialRegistryProbe.browserExecutablePath,
+      finalProbe.browserExecutablePath
+    ) || await inspectPlaywrightBrowserCache(
+      root,
+      authority.browserCache,
+      finalProbe.browserExecutablePath
+    ) !== 'ready') {
+      throw playwrightBrowserInstallFailure(
+        'Playwright browser cache materialization has no current executable postcondition',
+        {
+          browserCachePath: authority.browserCache,
+          commandResult,
+          initialBrowserExecutablePath: initialRegistryProbe.browserExecutablePath,
+          readinessProbe: finalProbe.commandResult
+        }
+      );
+    }
+    return Object.freeze({
+      browserCachePath: authority.browserCache,
+      browserExecutablePath: finalProbe.browserExecutablePath,
+      commandResult,
+      source: 'installed' as const,
+      status: 'ready' as const
+    });
+  });
+}
+
+export async function ensurePlaywrightBrowserCacheReady(
+  options: PlaywrightBrowserCacheInstallOptions = {},
+  dependencyRoot = compilerRoot
+): Promise<PlaywrightBrowserCacheReadyState> {
+  const result = await materializePlaywrightBrowserCache(options, dependencyRoot);
+  if (result.status !== 'ready' || result.browserExecutablePath === null) {
+    throw playwrightBrowserInstallFailure('Failed to materialize the canonical Playwright browser cache', {
+      browserCachePath: result.browserCachePath,
+      commandResult: result.commandResult
+    });
+  }
+  return Object.freeze({
+    browserCachePath: result.browserCachePath,
+    browserExecutablePath: result.browserExecutablePath
   });
 }
 
