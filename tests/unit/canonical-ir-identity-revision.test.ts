@@ -1,8 +1,11 @@
 import { expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
+import { artifactEntityId, normalizedArtifactTarget } from '../../platform/compiler/ir/ir-identity.ts';
+import { digest } from '../../platform/compiler/ir/ir-revision.ts';
 import { normalizePlan, validatePlan } from '../../platform/compiler/parse/load-plan.ts';
 import { runPolicyGate } from '../../platform/compiler/verify/run-policy-gate.ts';
 import { buildWorkspaceEngineeringIR } from '../../platform/orchestrator.ts';
@@ -165,6 +168,42 @@ function expectCompilerError(run: () => unknown, code: string): void {
   }
   throw new Error(`Expected CompilerError ${code}`);
 }
+
+test('canonical primitive known-answer vectors remain byte-identical', () => {
+  const generatorTarget = 'src\\installed/item/./generated/../item-semantic-contract.ts';
+  const input = fixture();
+  input.manifests[0]!.manifest.generators = [{
+    id: 'item-status-runtime-contract',
+    kind: 'generate-state-transition-map',
+    contract: 'item-core',
+    state: 'item-status',
+    target: generatorTarget,
+    consumes: ['transition', 'state'],
+    produces: 'typescript-runtime-contract',
+    typeBinding: { name: 'ItemStatus', importFrom: '../../runtime/database.ts' },
+    verification: ['typecheck', 'item_can_update']
+  }];
+  const ir = buildEngineeringIR(input);
+
+  expect(digest('SEC canonical primitives\n工程')).toBe(
+    '5f977604c630d50f70017523d83a380745f74dfceabbb89acfaa2a6b7342593d'
+  );
+  expect(normalizedArtifactTarget(generatorTarget)).toBe(
+    'src/installed/item/item-semantic-contract.ts'
+  );
+  expect(artifactEntityId(generatorTarget)).toBe(
+    'artifact:src/installed/item/item-semantic-contract.ts'
+  );
+  expect(ir.inputRevision).toBe(
+    'sha256:cbede18ab8fe30ed4415079bec66eea1817895bc345ad12ed218cee2b55b5f8a'
+  );
+  expect(ir.semanticRevision).toBe(
+    'sha256:ca1159129589153aac34b5681c198d6eb278ce7714e724056991a1d005a9d1d0'
+  );
+  expect(createHash('sha256').update(JSON.stringify(ir)).digest('hex')).toBe(
+    '0ae600bf54566728e7ae0d791d1598f2a12bf8c4e499d17500448cd98b088a41'
+  );
+});
 
 test('app label changes do not change app identity, graph identity, or Fact IDs', () => {
   const input = fixture();

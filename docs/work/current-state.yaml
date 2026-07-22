@@ -1,6 +1,7 @@
 schema: sec-current-state-v1
-observedMainSha: ea8d1287dd6d41ed84d198904a55906a345907ec
-observedAt: "2026-07-22T21:33:43+08:00"
+observedMainSha: 313e2391d7017c23a510d56d28eaa82bba6614dd
+observedMainTree: 1528d8ea9ec2a4cfd194b2e7eb15e9a703f4fc26
+observedAt: "2026-07-22T22:58:17+08:00"
 goalAuthority:
   repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
   upstreamDocumentCount: 2
@@ -13,38 +14,43 @@ goalAuthority:
       bytes: 9800
   combinedRevision: sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d
 roadmapMilestone: v0.4-semantic-operations
-activeWorkPackage:
+lastMergedWorkPackage:
   id: phase-0-current-reality-rebase-v1
-  manifest: docs/work-packages/phase-0-current-reality-rebase-v1.md
-  manifestDigest: sha256:f9c4569dd2528583e1e7932b0e3f6ef1022b8b64f3f6645e507f5e3731a9fcd3
-  branch: docs/sec-product-roadmap-rebase
-  pr: 133
-  baseSha: ea8d1287dd6d41ed84d198904a55906a345907ec
+  pullRequest: 133
+  mergeCommit: 313e2391d7017c23a510d56d28eaa82bba6614dd
+  mergedAt: "2026-07-22T22:30:25+08:00"
+  tree: 1528d8ea9ec2a4cfd194b2e7eb15e9a703f4fc26
+activeWorkPackage:
+  id: ir-canonical-primitives-cycle-removal-v1
+  manifest: docs/work-packages/ir-canonical-primitives-cycle-removal-v1.md
+  manifestDigest: sha256:36c5c451a589464633005acc2a1dd46b48fa3c1834677baf65336388aabd584a
+  branch: codex/ir-canonical-primitives-cycle-removal-v1
+  pr: null
+  baseSha: 313e2391d7017c23a510d56d28eaa82bba6614dd
   headSha: null
 status: active
-nextReconciliationPoint: phase0-exact-head-freeze
-openPullRequests:
-  - number: 133
-    state: open
-    draft: true
-    baseBranch: main
-    branch: docs/sec-product-roadmap-rebase
-    reviews: 0
-    unresolvedThreads: 0
-    requestChanges: 0
+nextReconciliationPoint: ir-cycle-exact-head-freeze
+openPullRequests: []
 openIssues:
   - 132
 ci:
-  phase0ExactHeadEvidence: absent
-  invalidatedEvidence:
-    - runId: 29900753057
-      kind: scope-attestation
-      reason: base-and-v1-revision-changed
-    - runId: 29900819819
-      kind: quick
-      reason: base-and-v1-revision-changed
+  activeExactHeadEvidence: absent
+  lastMergedEvidence:
+    scopeAttestation:
+      runId: 29928582219
+      result: success
+    quick:
+      runId: 29928585607
+      result: success
+    pullRequestMergeGate:
+      runId: 29928682415
+      result: success
+    mainPushMergeGate:
+      runId: 29928917790
+      result: success
   requiredRevision: ci-verification-v8
 review:
+  activePullRequest: null
   reviews: 0
   unresolvedThreads: 0
   requestChanges: 0
@@ -55,15 +61,20 @@ repositoryRules:
   reason: GitHub API returned 403 for branch protection and rulesets
 blockers:
   - id: compiler-ir-import-cycle
-    observedOnSha: ea8d1287dd6d41ed84d198904a55906a345907ec
-    evidenceMode: verified-eb48eb35-baseline-plus-disjoint-b3-diff
+    observedOnSha: 313e2391d7017c23a510d56d28eaa82bba6614dd
+    evidenceMode: exact-main-local-dependency-cruiser
     gate: bun run depcruise
     result: fail
+    dependencyViolations: 1
+    errors: 1
+    warnings: 0
+    modulesCruised: 535
+    dependenciesCruised: 1526
     cycle:
       - platform/compiler/ir/ir-identity.ts
       - platform/compiler/ir/ir-revision.ts
       - platform/compiler/ir/ir-identity.ts
-    gitNexusIndexCommit: eb48eb35d1cdb0c647154385f0c938bf1066f7d4
+    gitNexusIndexCommit: 313e2391d7017c23a510d56d28eaa82bba6614dd
     gitNexusImpactMaxDepth: 3
     gitNexusImpactIncludeTests: false
     digestImpactRisk: CRITICAL
