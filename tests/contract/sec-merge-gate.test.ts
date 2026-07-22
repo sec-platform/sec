@@ -129,7 +129,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: ${requiredProfile}
-ciRevision: ci-verification-v8
+ciRevision: ci-verification-v9
 tasks:
   - id: implementation
     owner: implementation-writer
@@ -210,7 +210,7 @@ function fixture(
   } as const;
   const attestation = CodexDevelopmentBuildScopeAttestationV1(scopeRequest, manifestBytes);
   const rawEvidence = CodexDevelopmentFinalizeVerificationEvidenceV2({
-    contractRevision: 'ci-verification-v8',
+    contractRevision: 'ci-verification-v9',
     kind: 'verification',
     profile: parsedManifest.requiredProfile,
     headSha: HEAD,
@@ -260,7 +260,7 @@ function fixture(
     }
   });
   const attestationName = `sec-scope-attestation-v1-pr-123-base-${BASE}-head-${HEAD}-manifest-${manifestDigest.slice(7)}-run-100-attempt-1`;
-  const verificationName = `sec-verification-v8-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
+  const verificationName = `sec-verification-v9-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
   const rawInput: CodexDevelopmentMergeGateInputV1 = {
     schema: 'codex-development-merge-gate-input-v1',
     repository: 'sec-platform/sec',
@@ -346,7 +346,7 @@ const P0_TEST_FILES = [
 
 function p0ManifestSource(schema: 'v1' | 'v2'): string {
   const revision = schema === 'v1'
-    ? 'requiredProfile: quick\nciRevision: ci-verification-v8\n'
+    ? 'requiredProfile: quick\nciRevision: ci-verification-v9\n'
     : `evidenceComposition:\n  policyId: ${CodexDevelopmentSm3P0EvidencePolicyIdV1}\n`;
   return `---
 schema: codex-development-work-package-${schema}
@@ -551,7 +551,7 @@ async function p0MergeFixture() {
     },
     verificationArtifact: {
       id: 2000,
-      name: `sec-verification-v8-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
+      name: `sec-verification-v9-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
       digest: `sha256:${'5'.repeat(64)}`,
       expired: false,
       expiresAt: EXPIRES_AT,
@@ -2030,27 +2030,29 @@ test('scope attestation binds the manifest profile and CI revision', () => {
 
 test('historical Work Package revisions remain parseable but cannot satisfy the current gate', () => {
   const current = fixture();
-  const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v8', 'ci-verification-v6'));
-  const legacyManifest = CodexDevelopmentParseWorkPackageManifestV1(legacyBytes.toString('utf8'), MANIFEST_PATH);
-  expect(legacyManifest.ciRevision).toBe('ci-verification-v6');
+  for (const legacyRevision of ['ci-verification-v8', 'ci-verification-v6'] as const) {
+    const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v9', legacyRevision));
+    const legacyManifest = CodexDevelopmentParseWorkPackageManifestV1(legacyBytes.toString('utf8'), MANIFEST_PATH);
+    expect(legacyManifest.ciRevision).toBe(legacyRevision);
 
-  expect(() => CodexDevelopmentBuildScopeAttestationV1({
-    ...current.scopeRequest,
-    expectedManifestDigest: CodexDevelopmentWorkPackageManifestDigest(legacyBytes),
-    expectedManifestBlobSha: gitBlobSha(legacyBytes),
-    expectedManifestByteLength: legacyBytes.byteLength
-  }, legacyBytes)).toThrow('CI revision is not current');
+    expect(() => CodexDevelopmentBuildScopeAttestationV1({
+      ...current.scopeRequest,
+      expectedManifestDigest: CodexDevelopmentWorkPackageManifestDigest(legacyBytes),
+      expectedManifestBlobSha: gitBlobSha(legacyBytes),
+      expectedManifestByteLength: legacyBytes.byteLength
+    }, legacyBytes)).toThrow('CI revision is not current');
 
-  expect(() => CodexDevelopmentEvaluateMergeGateV1({
-    rawInput: {
-      ...current.rawInput,
-      manifestBlobSha: gitBlobSha(legacyBytes),
-      manifestByteLength: legacyBytes.byteLength
-    },
-    manifestBytes: legacyBytes,
-    rawAttestation: current.attestation,
-    rawEvidence: current.rawEvidence
-  })).toThrow('CI revision is not current');
+    expect(() => CodexDevelopmentEvaluateMergeGateV1({
+      rawInput: {
+        ...current.rawInput,
+        manifestBlobSha: gitBlobSha(legacyBytes),
+        manifestByteLength: legacyBytes.byteLength
+      },
+      manifestBytes: legacyBytes,
+      rawAttestation: current.attestation,
+      rawEvidence: current.rawEvidence
+    })).toThrow('CI revision is not current');
+  }
 });
 
 test('artifact metadata and repository_dispatch run identity fail closed', () => {
@@ -2306,7 +2308,8 @@ test('trusted workflows pin actions, revalidate drift, and only materialize cand
   expect(mergeWorkflow).toContain('ref: 514e6e401659f18ecffca19856a11354d66d05df');
   expect(mergeWorkflow).toContain('--candidate-git-dir .tmp/codex/candidate/.git');
   expect(mergeWorkflow).toContain('--legacy-git-dir .tmp/codex/legacy/.git');
-  expect((mergeWorkflow.match(/sec-verification-v8-/gu) ?? []).length).toBe(2);
+  expect((mergeWorkflow.match(/sec-verification-v9-/gu) ?? []).length).toBe(2);
+  expect(mergeWorkflow).not.toContain('sec-verification-v8-');
   expect(mergeWorkflow).not.toContain('sec-verification-v7-');
   expect(mergeWorkflow).not.toContain('sec-verification-v4-');
   expect(prWorkflow).toContain('repository_dispatch:');

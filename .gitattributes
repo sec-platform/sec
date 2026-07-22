@@ -1,1 +1,2 @@
 /.githooks/* text eol=lf
+/tests/fixtures/ci-evidence-reuse/synthetic-pass.json text eol=lf
