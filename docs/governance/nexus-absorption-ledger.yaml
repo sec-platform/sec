@@ -1,0 +1,228 @@
+schema: sec-nexus-absorption-ledger-v1
+status: incomplete
+revision: 3
+observedAt: "2026-07-22T21:33:43+08:00"
+templateSource:
+  path: docs/goals/SEC_Nexus_Absorption_Ledger_Template_V1.yaml
+  rawSha256: dedbb7ae68c065779131c337b39f69d2c9e5f1de0a250fd3f11106336c542348
+source:
+  repository: QzCrane/nexus
+  repositoryRoot: D:/Project/Nexus
+  commit: e75caa28dcbc1ffa6e893b5539f85c8177346cd3
+  gitTree: 3a8ad6bedd56fd92db141c45ec687b75263364c2
+  treeDigest: null
+  manifestDigest: null
+  capturedAt: "2026-07-22T14:47:31+08:00"
+  trackedPaths: 1439
+  trackedPathPartitions:
+    nexusDirectory: 1405
+    otherRepositoryPaths: 34
+  deltaFromPreviousObservedBaseline:
+    commit: 1b82ace3650f6d6936a21269cd2331de66e5007e
+    changedPaths: 31
+    deletedTrackedPaths: 1
+    insertions: 255
+    deletions: 1231
+target:
+  repository: sec-platform/sec
+  baseCommit: ea8d1287dd6d41ed84d198904a55906a345907ec
+allowedPathStatuses:
+  - classified
+allowedDecisions:
+  - absorb-core
+  - absorb-domain-ir
+  - absorb-policy-pack
+  - absorb-adapter
+  - retain-project-specific
+  - superseded
+  - reject-with-rationale
+allowedMechanismStatuses:
+  - candidate
+  - specified
+  - implemented
+  - parity-proven
+  - migrated
+  - retired
+allowedParityStatuses:
+  - missing
+  - planned
+  - proven
+census:
+  exactTreeInventoryMaterialized: false
+  pathClassificationComplete: false
+  entrypointInventoryComplete: false
+  authorityGraphComplete: false
+  publicAndDeployedSurfaceInventoryComplete: false
+  eprBindingsComplete: false
+  skillBindingsComplete: false
+parityContract:
+  requiredDimensions:
+    - positive
+    - negative
+    - failure
+    - diagnostic
+    - side-effect
+    - migration
+  acceptedMechanismRecord:
+    eachDimensionRequires:
+      - status
+      - evidenceIds
+    provenStatus: proven
+  shadowComparison:
+    kind: independent-reconciliation-gate
+    completionField: unexplainedDeltaCount
+    requiredValue: 0
+paths: []
+mechanisms:
+  - id: nexus.documentation.owner-uniqueness
+    title: One stable normative owner per domain
+    sources:
+      - path: nexus/docs/README.md
+        blob: 3e28dc08774d4f671dcbd17ea6f4cf2bb34942af
+      - path: nexus/scripts/lint-docs.mjs
+        blob: a581ae58e620cf6c3fda6662d324004d1b88e6f8
+    essence: A domain has one stable normative document owner; projections and aliases cannot redefine it.
+    nexusSpecificData: []
+    secDecision: null
+    secTarget:
+      domain: DocumentationIR
+      owner: null
+      types: []
+      adapters: []
+    invariants: []
+    parity:
+      positive: { status: missing, evidenceIds: [] }
+      negative: { status: missing, evidenceIds: [] }
+      failure: { status: missing, evidenceIds: [] }
+      diagnostic: { status: missing, evidenceIds: [] }
+      side-effect: { status: missing, evidenceIds: [] }
+      migration: { status: missing, evidenceIds: [] }
+    status: candidate
+    oldImplementation:
+      paths:
+        - nexus/scripts/lint-docs.mjs
+      retirementCondition: null
+    evidence: []
+  - id: nexus.runtime.desired-actual-ack
+    title: Desired, actual, ACK, snapshot and optimistic projection separation
+    sources:
+      - path: nexus/docs/principles/01-state-and-ownership.md
+        blob: 4b0bba81e9c76062547b35a04ff985cef37acc29
+    essence: Requested state is not successful state; acknowledged actual state requires identity-bound readback evidence.
+    nexusSpecificData: []
+    secDecision: null
+    secTarget:
+      domain: EngineeringIR
+      owner: null
+      types: []
+      adapters: []
+    invariants: []
+    parity:
+      positive: { status: missing, evidenceIds: [] }
+      negative: { status: missing, evidenceIds: [] }
+      failure: { status: missing, evidenceIds: [] }
+      diagnostic: { status: missing, evidenceIds: [] }
+      side-effect: { status: missing, evidenceIds: [] }
+      migration: { status: missing, evidenceIds: [] }
+    status: candidate
+    oldImplementation:
+      paths: []
+      retirementCondition: null
+    evidence: []
+  - id: nexus.release.frozen-source-promotion-receipt
+    title: Frozen release source and capability-bound promotion receipt
+    sources:
+      - path: nexus/scripts/release-spectra.mjs
+        blob: c2883cbb865b3c45dc8f95dd50b5f313b9c17f3c
+    essence: Release gates operate on a frozen source digest; promotion requires all prior gates and a short-lived authenticated receipt.
+    nexusSpecificData:
+      - SPECTRA gate labels
+      - SPECTRA archive path
+    secDecision: null
+    secTarget:
+      domain: ReleaseIR
+      owner: null
+      types: []
+      adapters: []
+    invariants: []
+    parity:
+      positive: { status: missing, evidenceIds: [] }
+      negative: { status: missing, evidenceIds: [] }
+      failure: { status: missing, evidenceIds: [] }
+      diagnostic: { status: missing, evidenceIds: [] }
+      side-effect: { status: missing, evidenceIds: [] }
+      migration: { status: missing, evidenceIds: [] }
+    status: candidate
+    oldImplementation:
+      paths:
+        - nexus/scripts/release-spectra.mjs
+      retirementCondition: null
+    evidence: []
+coverage:
+  trackedPaths: 1439
+  classifiedPaths: 0
+  unclassifiedPathCount: 1439
+  unclassifiedPathsMaterialized: false
+  unclassifiedPaths: []
+  mechanisms: 3
+  decidedMechanisms: 0
+  acceptedMechanisms: 0
+  parityProvenMechanisms: 0
+  parityDimensionBindingsMaterialized: false
+  acceptedMechanismsMissingAnyParityDimension: 0
+  undecidedMechanisms:
+    - nexus.documentation.owner-uniqueness
+    - nexus.runtime.desired-actual-ack
+    - nexus.release.frozen-source-promotion-receipt
+  missingParity: []
+  eprExpected: 29
+  eprObservedAtBaseline: 29
+  eprBound: 0
+  skillsExpectedAtGoalRevision: 11
+  skillsObservedAtBaseline: 11
+  skillsBound: 0
+  executableEntrypointsObserved: null
+  executableEntrypointsBound: 0
+  unexplainedDeltaCount: null
+  unauthorizedRetirementCount: 0
+hardGates:
+  pathCoverage100Percent: false
+  mechanismDecisionCoverage100Percent: false
+  epr29Of29: false
+  currentSkillsExact: false
+  executableEntrypoints100Percent: false
+  generatedOutputOwners100Percent: false
+  publicClaimProjections100Percent: false
+  acceptedParity100Percent: false
+  unexplainedDeltaZero: false
+  unclassifiedZero: false
+  unauthorizedRetirementsZero: true
+completion:
+  censusComplete: false
+  parityComplete: false
+  retirementComplete: false
+  noOmissionProven: false
+completionRules:
+  - coverage.unclassifiedPathsMaterialized == true
+  - coverage.trackedPaths == coverage.classifiedPaths
+  - coverage.unclassifiedPathCount == 0
+  - coverage.undecidedMechanisms.length == 0
+  - coverage.missingParity.length == 0
+  - coverage.eprBound == coverage.eprExpected
+  - coverage.skillsBound == coverage.skillsExpectedAtGoalRevision
+  - coverage.acceptedMechanisms == coverage.parityProvenMechanisms
+  - coverage.unexplainedDeltaCount == 0
+  - coverage.unauthorizedRetirementCount == 0
+invalidation:
+  - source commit or Git tree changes
+  - target SEC base changes before ledger materialization
+  - exact-tree inventory disagrees with tracked path count or partition
+  - new entrypoint, authority, EPR, Skill, public, release, generated, hook, workflow, or verifier surface is discovered
+notes:
+  - Exact baseline identity is recorded, but no tracked path has yet been classified in this ledger.
+  - The live Nexus worktree/index is not an authority; census input must come from the exact committed tree or a clean isolated view.
+  - The previous bootstrap candidate advanced by one parent commit before publication; no classification or parity evidence was carried forward because none had been materialized.
+  - The 31-path SPECTRA delta deletes one site-native fallback test and generalizes playback-rate behavior; the Census must classify the removed owner and replacement mechanism explicitly.
+  - The three candidate mechanisms are lifted from the Goal-directory V1 template and exact-blob checked at this baseline; they remain undecided seeds, not Census or parity results.
+  - treeDigest and manifestDigest remain null until Phase 0A materializes and hashes the deterministic exact-tree inventory; the Git tree object ID is not substituted for either digest.
+  - SEC target base advanced through the B3 verifier bootstrap; the Nexus source commit/tree was rechecked unchanged, and no Census or parity evidence was carried across the target-base invalidation.

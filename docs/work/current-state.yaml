@@ -1,7 +1,8 @@
 schema: sec-current-state-v1
-observedMainSha: eb48eb35d1cdb0c647154385f0c938bf1066f7d4
-observedAt: "2026-07-22T20:32:19+08:00"
+observedMainSha: ea8d1287dd6d41ed84d198904a55906a345907ec
+observedAt: "2026-07-22T21:33:43+08:00"
 goalAuthority:
+  repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
   upstreamDocumentCount: 2
   upstreamDocuments:
     - name: SEC_Codex_Conversation_Goal_No_Omission_V3_2026-07-22.md
@@ -13,91 +14,74 @@ goalAuthority:
   combinedRevision: sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d
 roadmapMilestone: v0.4-semantic-operations
 activeWorkPackage:
-  id: b3-active-documentation-bootstrap-v1
-  manifest: docs/work-packages/b3-active-documentation-bootstrap-v1.md
-  manifestDigest: sha256:013ecff5ccd85e9f6552a03d9882a18a07598a577bbd26d444a0e0c1145a6767
-  branch: codex/b3-active-documentation-v8-bootstrap
-  pr: 134
+  id: phase-0-current-reality-rebase-v1
+  manifest: docs/work-packages/phase-0-current-reality-rebase-v1.md
+  manifestDigest: sha256:f9c4569dd2528583e1e7932b0e3f6ef1022b8b64f3f6645e507f5e3731a9fcd3
+  branch: docs/sec-product-roadmap-rebase
+  pr: 133
+  baseSha: ea8d1287dd6d41ed84d198904a55906a345907ec
   headSha: null
-  baseSha: eb48eb35d1cdb0c647154385f0c938bf1066f7d4
-  architectureReconciliation:
-    state: candidate-implemented-awaiting-exact-head-architecture-closeout
-    relativeEsmPrefixes:
-      - "./"
-      - "../"
-    runtimeLoaderAcquisition: capability-total-positive-classification
-    reviewedDispatcherRegistry: exact-existing-identities
 status: active
-nextReconciliationPoint: a0-exact-head-architecture-closeout
+nextReconciliationPoint: phase0-exact-head-freeze
 openPullRequests:
   - number: 133
     state: open
     draft: true
-    mergeable: true
-    baseSha: eb48eb35d1cdb0c647154385f0c938bf1066f7d4
-    headSha: 1b392c252a471bd03b40b03332ad6cb39b87be5d
-    reviews: 0
-    unresolvedThreads: 0
-    requestChanges: 0
-  - number: 134
-    state: open
-    draft: true
-    mergeable: true
-    baseSha: eb48eb35d1cdb0c647154385f0c938bf1066f7d4
-    headSha: null
+    baseBranch: main
+    branch: docs/sec-product-roadmap-rebase
     reviews: 0
     unresolvedThreads: 0
     requestChanges: 0
 openIssues:
   - 132
 ci:
-  phase0ScopeAttestation:
-    runId: 29900753057
-    conclusion: success
-    reusableForCurrentPhase0Head: true
-  phase0Quick:
-    runId: 29900819819
-    conclusion: failure
-    stage: changed-file-selection-preflight
-    executedGateCount: 0
-    reasons:
-      - changed-files-unresolved
-      - ownership-impact
-  phase0MergeGateRevalidation:
-    runId: 29905050862
-    workflowConclusion: success
-    commitStatus: failure
-    reason: draft-pr-not-eligible
+  phase0ExactHeadEvidence: absent
+  invalidatedEvidence:
+    - runId: 29900753057
+      kind: scope-attestation
+      reason: base-and-v1-revision-changed
+    - runId: 29900819819
+      kind: quick
+      reason: base-and-v1-revision-changed
+  requiredRevision: ci-verification-v8
+review:
+  reviews: 0
+  unresolvedThreads: 0
+  requestChanges: 0
+repository:
+  visibility: private
+repositoryRules:
+  status: unavailable
+  reason: GitHub API returned 403 for branch protection and rulesets
 blockers:
-  - id: active-documentation-selection-contract
-    observedOnHead: 1b392c252a471bd03b40b03332ad6cb39b87be5d
-    omittedPaths:
-      - README.md
-      - docs/work/current-state.yaml
-      - docs/governance/nexus-absorption-ledger.yaml
-    rawGitPathNormalization: backslash-to-slash-before-canonical-validation
-    verifierTrustRootChangeRequired: true
   - id: compiler-ir-import-cycle
-    observedOnSha: eb48eb35d1cdb0c647154385f0c938bf1066f7d4
+    observedOnSha: ea8d1287dd6d41ed84d198904a55906a345907ec
+    evidenceMode: verified-eb48eb35-baseline-plus-disjoint-b3-diff
+    gate: bun run depcruise
+    result: fail
     cycle:
       - platform/compiler/ir/ir-identity.ts
       - platform/compiler/ir/ir-revision.ts
       - platform/compiler/ir/ir-identity.ts
+    gitNexusIndexCommit: eb48eb35d1cdb0c647154385f0c938bf1066f7d4
+    gitNexusImpactMaxDepth: 3
+    gitNexusImpactIncludeTests: false
     digestImpactRisk: CRITICAL
     digestUpstreamSymbols: 96
+    digestDirectDependants: 11
     digestAffectedProcesses: 11
-  - id: verifier-trust-root-runtime-closure
-    observedOnSha: eb48eb35d1cdb0c647154385f0c938bf1066f7d4
-    gate: verifier-runtime-import-closure
-    result: fail
-    omittedPaths:
-      - platform/shared/bun-runtime-version.ts
-      - scripts/install-git-hooks.ts
+    normalizedArtifactTargetImpactRisk: HIGH
+    normalizedArtifactTargetUpstreamSymbols: 8
+    normalizedArtifactTargetDirectDependants: 4
 completedCapabilities:
   - v0.3-semantic-core-foundation
   - v0.4-fact-delta-pure-kernel
   - v0.4-impact-propagation-pure-kernel
-  - v0.4-semantic-mutation-sm0-through-sm3
+  - v0.4-semantic-mutation-sm0-contract
+  - v0.4-semantic-mutation-sm1-pure-kernels
+  - v0.4-semantic-mutation-sm2-source-adapter
+  - v0.4-semantic-mutation-sm3-isolated-apply-coordinator
+  - ci-verification-v8-active-documentation-contract
 limitations:
   - windows-appcontainer-optional-hardening-capability-incomplete
 nexusBaseline:
@@ -105,6 +89,11 @@ nexusBaseline:
   commit: e75caa28dcbc1ffa6e893b5539f85c8177346cd3
   gitTree: 3a8ad6bedd56fd92db141c45ec687b75263364c2
   trackedPaths: 1439
+  nexusDirectoryPaths: 1405
+  otherRepositoryPaths: 34
   eprDefinitions: 29
   projectSkills: 11
+  seededMechanismCandidates: 3
+  ledgerTemplateRevision: sha256:dedbb7ae68c065779131c337b39f69d2c9e5f1de0a250fd3f11106336c542348
   censusStatus: incomplete
+  liveWorktreeAuthority: false
