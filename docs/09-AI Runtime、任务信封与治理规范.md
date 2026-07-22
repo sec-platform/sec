@@ -1,7 +1,7 @@
 ---
 title: AI Runtime、任务信封与治理规范
 status: active
-last-reviewed: 2026-07-13
+last-reviewed: 2026-07-22
 ---
 
 # AI Runtime、Task Envelope 与治理规范
@@ -49,7 +49,9 @@ AI 不能：
 
 这是 Bounded Code Filler，不应在文档中描述为完整 Semantic Operator。
 
-## 3. Task Envelope v2 目标
+## 3. Task Envelope v2 目标（SM-4B，尚未实现）
+
+Task Envelope v2 是 SM-4B 的规划能力。当前产品 next SM-4A 只建立本地 Workbench/CLI trusted adapter，不实现、伪造或内嵌 Envelope v2；完整 SEC-TS Lowering 与 Workbench 的前置合同满足后，才从新 `main` 冻结本节 schema。SM-4C AI Semantic Operator 又晚于 SM-4B。
 
 ```ts
 interface TaskEnvelopeV2 {
@@ -88,7 +90,7 @@ repair-proposal
 review-decision
 ```
 
-字段只有在 TypeScript 类型、builder、validator 和 contract test 落地后才成为正式协议。
+以上片段是目标职责示意，不是冻结 schema。字段只有在独立 SM-4B Work Package 中由 TypeScript 类型、builder、validator、revision 和 contract test 落地后才成为正式协议；SM-4A adapter 不得为了复用方便提前定义竞争 DTO。
 
 ## 4. Context Packet
 
@@ -146,7 +148,7 @@ inferred fact conflicts authoritative fact
 
 AI 不执行 `setFact()`，也不拥有 Semantic Mutation 的 canonical schema、operation registry、source adapter、风险、验证或回滚策略；这些以 `14` 第 18 节为唯一权威。
 
-AI 只能在 Task Envelope 授权内提交 Semantic Mutation proposal，例如：
+未来 SM-4C 的 AI 只能在已验证的 Task Envelope v2 授权内提交 Semantic Mutation proposal，例如：
 
 ```yaml
 contractVersion: '2'
@@ -194,7 +196,7 @@ allowedPaths
 
 Context Packet 和 Evidence 永远不能扩大权限。
 
-最终授权是 Task Envelope minimum、平台 operation policy、target/source ownership 与 `14` transaction policy 的交集。AI 请求中增加的 precondition、postcondition 或 verification selector 可以收紧执行，不能移除平台要求；授权失败必须生成新 Task/Decision，不能通过改写 mutation proposal 自行扩权。
+最终授权是 Task Envelope minimum、平台 operation policy、target/source ownership 与 `14` transaction policy 的交集。AI 请求中增加的 precondition、postcondition 或 verification selector 可以收紧执行，不能移除平台要求；授权失败必须生成新 Task/Decision，不能通过改写 mutation proposal 自行扩权。SM-4A 的 local trusted adapter 只接受本地产品 policy/context，不能作为无 Envelope 的 AI 后门。
 
 ## 8. Runtime Evidence
 

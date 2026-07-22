@@ -1,7 +1,7 @@
 ---
 title: MVP 实施计划与路线图
 status: active
-last-reviewed: 2026-07-13
+last-reviewed: 2026-07-22
 ---
 
 # MVP 实施计划与路线图
@@ -10,7 +10,7 @@ last-reviewed: 2026-07-13
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** 当前进入 **v0.4 Semantic Operations**；Fact Delta canonical contract / pure kernel、Impact Propagation canonical contract / pure kernel、Semantic Mutation canonical contract design、SM-1 pure kernels、SM-2 source adapter / edit-plan boundary 与 SM-3 isolated apply coordinator 均已完成，当前唯一 active next 是 SM-4 product adapters and Task Envelope reconciliation。
+**v0.3 Semantic Core Foundation 已完成退出审查。** Fact Delta、Impact Propagation 与 Semantic Mutation SM-0～SM-3 已进入 `main`。当前唯一正式执行闭包是 **Phase 0 Current Reality Rebase**（只修正文档、控制面与 canonical 规划）。它合并后的唯一近期工程包先消除已证实的 IR canonical primitives import cycle；唯一产品 next 仍是 **SM-4A Workbench/CLI minimum Semantic Mutation v2 loop**。SM-4B Task Envelope v2 与 SM-4C AI Semantic Operator 不属于 SM-4A。
 
 当前真实形态：
 
@@ -67,7 +67,7 @@ Lock / Manifest → business-semantic ExplainGraph reconstruction
 Lock / Manifest → business-semantic Workbench reconstruction
 ```
 
-v0.4 的 Fact Delta、Impact Propagation、Semantic Mutation 与 AI Semantic Operator 必须建立在上述 canonical representation 上；Semantic Mutation 只能回写 Authoring Source，再由 Compiler 重建 IR，不得直接修改 IR 或把 Lock 升格为 authority。
+v0.4 的 Fact Delta、Impact Propagation、Semantic Mutation 与后续 AI Semantic Operator 必须建立在上述 canonical representation 上；Semantic Mutation 只能回写 Authoring Source，再由 Compiler 重建 IR，不得直接修改 IR 或把 Lock 升格为 authority。后续 SEC-TS 与 Engineering Workspace IR 的分层规划分别由 `docs/architecture/sec-ts-ir-layers.md` 和 `docs/architecture/engineering-workspace-ir.md` 持有。
 
 ## 3. 已有能力：保留但重新归位
 
@@ -431,19 +431,20 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 `validateResolvedTemplates()` 是非权威的隔离 template sandbox adapter：它复制已解析 workspace 输入后复用 `buildWorkspaceSemanticBundle()` 与 `createPipelineSemanticContext()`，只负责 compose/typecheck 预检，不拥有第二套 frontend、Pipeline coordinator 或业务语义 authority。PR #96 的 head `3649ac63e11bc6f336bf69d48e33f9810ec0996a` 与 squash merge `07290ccda640db5e285f1d4e198b2721e6d88a8c` tree 一致；持久 evidence 位于 `docs/evidence/v0-3-semantic-frontend-verification.json` 与 `docs/evidence/v0-3-semantic-frontend-risk-batch.json`。
 
-所有退出条件均为 **PASS**，未发现 unresolved architecture conflict。v0.3 状态因此更新为 **COMPLETED**；后续不得以 v0.3 收口为名继续修改已经正确的代码。
+v0.3 的语义能力退出条件均为 **PASS**，状态因此更新为 **COMPLETED**。Phase 0 后续在 exact `main@eb48eb35` 运行全仓 dependency-cruiser，独立发现 `ir-identity.ts → ir-revision.ts → ir-identity.ts` import cycle；该 hygiene 缺陷不撤销已验证的产品能力，但必须由单独 Work Package 在 SM-4A 前修复，且不得借机改变任何 revision/digest schema。
 
 ## 13. v0.4：Semantic Operations
 
-状态：**ACTIVE NEXT（SM-4 product adapters and Task Envelope reconciliation）**。
+状态：SM-0～SM-3 **COMPLETED**；Phase 0 文档/控制面 closure **ACTIVE**；合并后的近期 engineering next 是 IR canonical primitives cycle removal，产品 **ACTIVE NEXT = SM-4A**。
 
 只有 v0.3 完成后进入：
 
 1. Fact Delta canonical contract：固定 fact identity、before/after revision、deterministic diff、transaction ownership 与 verification/invalidation contract。
 2. Impact Propagation。
 3. Semantic Mutation。
-4. AI Task Envelope v2。
-5. AI Semantic Operator。
+4. SM-4A Workbench/CLI minimum product adapter。
+5. 在 Source Ownership、SEC-TS IR/Lowering 与完整 Workbench 的前置合同满足后，进入 SM-4B Task Envelope v2。
+6. SM-4C AI Semantic Operator。
 
 AI 仍不得直接写 IR。Semantic Mutation 回写 Authoring Source，由 Compiler 重建 IR。
 
@@ -506,7 +507,10 @@ FD-2 的 docs-only verification、frozen review 与失效边界记录在 `docs/e
 | SM-1 | pure request/plan/result kernels | **COMPLETED** | 纯 normalization、condition/expectation matcher、plan/result invariant 与 Contract Freeze 已落地；没有 Workspace IO、source adapter、consumer 或 live apply |
 | SM-2 | source adapter and edit-plan boundary | **COMPLETED** | 固定 authoring index、真实 loaded provenance、唯一 writable owner resolver、固定 allowlist path、realpath/reparse policy、deterministic edit plan、byte CAS 与 rollback manifest 已落地 |
 | SM-3 | isolated apply coordinator | **COMPLETED** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 与 exact production seam 已满足退出条件 |
-| SM-4 | product adapters and Task Envelope reconciliation | **ACTIVE NEXT** | Workbench 先迁移为 v2 caller；AI Task Envelope v2 随后只提供 trusted authorization minimum |
+| IR-H1 | canonical primitives import-cycle removal | **ENGINEERING NEXT** | 消除 identity/revision 双向 import；所有 canonical identity/revision/digest vectors byte-identical，dependency-cruiser 零环 |
+| SM-4A | Workbench/CLI minimum product loop | **PRODUCT ACTIVE NEXT** | 只接 `add-state-transition`；共享 trusted adapter、CLI plan/apply/query/recover、Workbench State View/API、HTTP trust boundary 与真实 vertical 闭合 |
+| SM-4B | Task Envelope v2 | **DEFERRED** | 在 SEC-TS 主链与完整 Workbench 前置条件满足后，冻结 semantic target/operation/must-preserve/verification minimum；不复制 Mutation authority |
+| SM-4C | AI Semantic Operator | **DEFERRED** | 只消费 SM-4B Envelope/Context Packet 并提交 bounded proposal；无直接 writer、无自行扩权 |
 
 ### SM-0 退出审查与 SM-1 implementation contract
 
@@ -548,34 +552,57 @@ Source boundary 已冻结 canonical POSIX lexical containment、realpath、symli
 - **Base**：SM-2 squash merge 后的 `origin/main@49f96d75cd90a4e5b43db5f8b4dfedebb0f3017f`。
 - **Architectural goal**：实现唯一 isolated apply coordinator：通用 cross-process workspace writer lease、deterministic retained transaction directory/staged transaction、lease内 fresh preflight/source plan、base/source/expected-plan CAS、same-volume staging/backup、canonical staged rebuild、actual Delta/expectation/Impact、Verification-owned conservative execution、atomic single-file publish、live full downstream rebuild、verified rollback、crash recovery与replay/query/retention。
 - **Owned files**：Mutation-specific transaction/record/publish modules，`platform/orchestrator/semantic-mutation-orchestrator.ts`，Verification-owned local adapter，generic `platform/shared/workspace-write-lease.ts` 与 Pipeline reentrant lease seam，mutation-specific shared types，Compiler additive facade，唯一 `semantic-mutation` test owner，独立 `semantic.mutation-apply` Contract Freeze target、focused tests与evidence。
-- **Required shared seam**：所有 live workspace writers至少经 canonical `compileWorkspace()` 或同一 generic writer lease；Pipeline不依赖 Mutation，Mutation持 token reentrant调用 live rebuild。Downstream closure只读取现有 Pipeline registry，不复制pass order。Workbench/CLI/AI product adapter仍属于SM-4。
+- **Required shared seam**：所有 live workspace writers至少经 canonical `compileWorkspace()` 或同一 generic writer lease；Pipeline不依赖 Mutation，Mutation持 token reentrant调用 live rebuild。Downstream closure只读取现有 Pipeline registry，不复制pass order。Workbench/CLI product adapter 属于 SM-4A；Task Envelope 与 AI 分别属于 SM-4B/SM-4C。
 - **Verification contract**：使用 `semantic-mutation-verification-report-v1` report schema、`semantic-mutation-local-verification-v2` adapter revision 与真实 `reportRevision`；完整 requirement union保守映射到一次 isolated verify-all，逐requirement记录 execution。当前本地个人使用 profile 由 host 进程内唯一 canonical `Bun.build()` 生成 runner bundle，再只监督一个独立 verifier child；不存在 Worker、第二 helper process、第二 builder、browser host alias 或 IPC/CDP 控制面。Child 只在 retained staging workspace 中运行 host-path-free bundle，使用完整替换环境与空 `PATH`，并由 writer lease、超时、bounded output、child-tree closure 和 artifact binding 共同约束。Windows 因 libuv 长路径限制可让 manifest-bound trusted absolute bootstrap 从短 volume-root 初始 cwd 启动，但 bootstrap 必须从自身固定位置推导唯一 staging root，并在任何 progress、loader 或 verifier import 前 fail closed 地切换到该 cwd；其他平台直接以 staging cwd 启动。通过的 isolated artifact set 只能签发一个 Verification-owned、one-shot staged proof：proof exact 绑定 source/project input、input/semantic/plan revision、完整 requirement、execution/report 与 raw artifacts，并在 live publish 后再次校验；Pipeline 只经 Verification façade消费它，不导入 Mutation-specific compiler internals。该 profile 不把 runner 当作不可信代码，也不宣称提供网络或恶意代码安全沙箱；Windows AppContainer 只保留为 optional hardening backlog，不是本 P0 收口或 SM-3 退出条件。未知/缺失/non-runnable/non-isolated、wrong plan/endpoint/source/union/report binding均在publish前以010拒绝；不得复用 changed-file selector或旧report冒充semantic verification。
 - **Recovery/replay contract**：`.sec/semantic-mutation/v1` immutable generation journal，状态 `prepared → authoring-committed → verified | rolled-back | recovery-required`；fixed crash digest matrix、request identity/revision collision、retained exact replay、256 terminal retention、active/recovery-required不自动清理、query contract全部冻结。普通合同拒绝以显式 apply outcome返回，不靠throw。
 - **Forbidden**：修改Fact Delta/Impact/IR/Projection shape或revision、把Pipeline journal/Workbench mutex/Repair/Upgrade backup冒充Mutation authority、非原子copy fallback、caller注入path/lease/staging/Verification evidence、接Workbench/API/CLI/AI consumer、修改official Registry contract、运行GitHub Actions或全slow/full矩阵。
 - **Acceptance**：真实child-process lease contention/orphan recovery；dry-run/apply plan revision稳定且lease内重算；publish前所有failure保持live bytes/derivatives不变；publish后mismatch执行committed-digest CAS rollback并精确恢复base；第三方write/restore/rebuild/journal失败进入durable recovery-required；exact replay不二次apply；四种terminal lifecycle、record chain、retention/query、diagnostic脱敏与early-stage call-count均有deterministic vectors。
 - **Required evidence**：完整实现后一次focused owner batch；独立frozen review集中关闭blocker；冻结implementation head后只运行一次canonical affected、完整Contract Freeze、changed-only imports/typecheck，以及selector实际要求的slow batch。默认风险簇为`e2e-graph`、`e2e-local-views`、`e2e-ticket-semantic-vertical`、`e2e-verify-lock`；若generic Pipeline seam使selector增加pipeline suites，则同批追加。复用未被blob交集失效的full-fast、其余slow、workspace/reference与GitHub Actions旧证据，不重复全矩阵。
-- **Reconciliation point**：SM-3 merge后从新main重算SM-4；不得在本包提前迁移Workbench或对齐AI Task Envelope。
+- **Reconciliation point**：SM-3 merge后从新main重算 SM-4A；不得把 Task Envelope v2 或 AI Operator 提前混入最小产品 adapter。
 
 ### SM-3 退出审查
 
-SM-3 已闭合唯一 isolated apply coordinator：generic cross-process writer lease 与 Pipeline exact reentrant token、retained isolated transaction、lease 内 fresh replan 与 base/source/plan CAS、same-volume staging/backup、staged canonical rebuild、actual Fact Delta / expectation / Impact、Verification-owned requirement union 与一次 isolated `verify-all`、atomic publish、live downstream rebuild、completion proof、committed-digest rollback，以及 immutable generation journal / replay / query / 256 terminal retention / durable recovery-required 均由 canonical owner 实现。Workbench、CLI、AI 与 Task Envelope consumer 仍未接入，继续属于 SM-4。
+SM-3 已闭合唯一 isolated apply coordinator：generic cross-process writer lease 与 Pipeline exact reentrant token、retained isolated transaction、lease 内 fresh replan 与 base/source/plan CAS、same-volume staging/backup、staged canonical rebuild、actual Fact Delta / expectation / Impact、Verification-owned requirement union 与一次 isolated `verify-all`、atomic publish、live downstream rebuild、completion proof、committed-digest rollback，以及 immutable generation journal / replay / query / 256 terminal retention / durable recovery-required 均由 canonical owner 实现。Workbench/CLI product consumer 仍未接入，属于 SM-4A；AI 与 Task Envelope consumer 分别属于 SM-4C/SM-4B。
 
 import/runtime 根因也已作为工程协议闭合：`.shared-deps` 是唯一 runtime dependency owner；11 个 dependency/devDependency package manifest 由同一冻结列表驱动 shared install、capability publication、prebound readiness、copy 与 launch proof，逐项要求非空 manifest、精确 `name` 与非空 installed `version`，不完整安装不发布 ready stamp。解析器不再缓存依赖树尚未就绪时的错误 fallback；production sentinel 不再覆盖 `dependencyModules` 或复制 compiler-owned source。Git lifecycle hook 的 deployed generation 绑定当前 `process.execPath`，内部 gate snapshot 则禁用 checkout hook并固定 Git long-path materialization，因此 import 准备不再依赖调用方 PATH、临时目录深度或隐式 worktree side effect。
 
 退出证据绑定 exact implementation head `53709496e6d0195f764612905420de025f8f443d` 与 tree `c9d929b05bdfc7598eb0cc634e0dfed238b5ab91`。唯一新 production identity 在 `bf702a5036dc4f32242c57b50b5fbc472b8fd66c` / tree `b43a7367021ef2e1e4ab8f44f4c67e03a76171fc` 运行一次并以 1/1 PASS、0 fail、约 130.7 秒证明 canonical import/runtime closure、single builder、resume、bootstrap、runner、controlled failure、Job settlement 与 cleanup；其后只变化 CI/snapshot/hook verification infrastructure，production 与 sentinel blobs 未变，因此不重跑该 identity。组合证据还包括 Windows lifecycle 45/45、三个 deterministic apply siblings 3/3、Contract Freeze 124/124、V7 residual base 的 321 个未受影响 PASS 加 V8 exact owner 43/43、typecheck、changed-only imports 与 patch hygiene。完整命令、head/tree/blob、失败身份退役、证据复用与失效规则位于 `docs/evidence/v0-4-semantic-mutation-exit-closure-2026-07-19.json`。
 
-SM-3 状态因此更新为 **COMPLETED**。Windows AppContainer 仍是 optional hardening，`capabilityComplete:false`；本退出不宣称恶意代码或网络安全沙箱能力。下一 reconciliation point 是从合并后的新 `main` 重算 SM-4：先迁移 Workbench Semantic Mutation v2，再对齐 Task Envelope v2；公共 DTO、路由 schema、canonical authorization payload 与排序算法保持单写者，不在此处提前混入 AI Semantic Operator。
+SM-3 状态因此更新为 **COMPLETED**。Windows AppContainer 仍是 optional hardening，`capabilityComplete:false`；本退出不宣称恶意代码或网络安全沙箱能力。Phase 0 合并后先从新 `main` 冻结并闭合 IR-H1 import-cycle removal，再从其合并 `main` 重算 SM-4A；公共 DTO、路由 schema、canonical authorization payload 与排序算法保持单写者，不提前混入 Task Envelope v2 或 AI Semantic Operator。
+
+### SM-4A minimum product contract
+
+- **Architectural goal**：让本地用户通过 CLI 与 Workbench 的同一个 trusted product adapter plan/apply/query/recover 现有 `add-state-transition`，并看到 source owner、actual Delta、Impact、Verification 与 terminal result。
+- **Shared owner**：一个 platform-owned product adapter 只负责 raw transport DTO validation、trusted local product policy draft，以及产品错误/结果投影；CLI 与 HTTP server 都只能作为 transport shell。SM-4A 的第一个串行 seam 由 Mutation/Compiler owner 暴露 additive authorization ingress：复用现有 authorization normalizer/revision builder，并经 SM-2 registry 获取 canonical owner token 与 writable path-prefix policy，再把 normalized context 交给既有 preflight/plan/apply。SM-1 继续独占 canonical request/plan/result revisions，SM-2 继续独占 owner-token/path-policy algorithm 与 actual source/path resolution；新 adapter 不生成 `allowedSourceOwnerIds` / `allowedPathPrefixes` 或复制这些算法。
+- **Dependency direction**：CLI/Workbench server → product adapter → Compiler/Semantic Mutation public facade。新 adapter 不放入 legacy Workbench mutation owner，Pipeline 不导入 adapter 或 Mutation，避免 Workbench ↔ Pipeline ↔ legacy mutation cycle。
+- **HTTP trust boundary**：mutating routes 必须仅接受受信本地 caller。至少满足 loopback bind + strict same-origin/Origin policy，或每次启动生成并校验不可预测 capability；禁止以 wildcard CORS 暴露写操作。错误响应不得泄露未授权 filesystem path、source bytes、secret 或内部 stack。
+- **Scope**：operation registry 仍只有 `add-state-transition`；plan 不写 live source；apply 强制 expected plan revision 并在 lease 内 fresh replan；query/recover 只消费 canonical journal/outcome；accepted/rejected/rolled-back/recovery-required 可区分。
+- **Product vertical**：Workbench State View 与 CLI 对相同 workspace/request/policy 得到 byte-identical canonical request/plan/result binding；accepted 后只由 canonical rebuild 生成 projection，不触发第二次独立 `/api/compile`。
+- **Legacy**：`/api/mutations`、`applyViewMutations()` 与 graph dry-run 保持明确 v1/legacy，迁移完成后降级或退役；在此前不得宣称它们是 Semantic Mutation v2。
+- **Forbidden**：扩 operation catalog；修改 `docs/14` 第 18 节 canonical contract/revisions；让 product adapter 生成 authorization/source-owner token/path prefix 或 canonical revision；重排 Pipeline；复制 Verification、lease、source resolver 或 journal；实现 Task Envelope v2/AI；修改 CI/import/hook trust-root。
+- **Required evidence**：shared adapter contract/property、CLI/HTTP positive/negative/security、Workbench State View、terminal lifecycle、legacy separation、一个真实 product vertical、affected/typecheck/Contract Freeze/changed-only imports；复用未被 diff 失效的 SM-3 evidence。
+- **Stop/recompute**：若 additive authorization ingress 无法保持现有 Mutation contract/revisions 与 SM-2 owner/path semantics，HTTP trust 需要全局 server redesign，或必须修改 Pipeline order、Verification schema、writer lease/source owner，则停止该包并从最新 `main` 重算。
+
+### SM-4B / SM-4C 边界
+
+SM-4B 才实现 Task Envelope v2 的 semantic target、allowed operation、must-preserve、Context Packet 与 Verification minimum；SM-4C 才让 AI 在该 Envelope 内提交 proposal。二者在 `docs/09-AI Runtime、任务信封与治理规范.md` 保持规划状态，不是 SM-4A exit 条件。SM-4A 的 local trusted adapter 不得伪造未来 envelope，也不能被 AI 直接调用以绕过授权。
 
 ## 14. 后续阶段
 
-完成第 13 节 v0.4 顺序后，再进入：
+SM-4A 后的主线按前置合同推进：
 
-1. Work Tracking 完整纵切面。
-2. Private Registry 版本 / Trust 治理。
-3. 两个独立团队 Block 生命周期验证。
-4. PostgreSQL 正式目标。
-5. Enterprise Business Process Hub 压力母例。
-6. 多目标 / 多栈。
+1. Blockless Semantic Source Ownership；
+2. Target Profile 与 Semantic Type Algebra；
+3. Application IR、Behavior IR 与 TypeScript Program IR；
+4. Generic TypeScript Lowering 与反特化 adapters；
+5. 完整 Workbench；
+6. SM-4B Task Envelope v2 与 SM-4C AI Semantic Operator；
+7. Engineering Workspace domains 与 Snapshot；
+8. Nexus Corpus/Parity/Migration；
+9. TypeScript Brownfield Attach/Lift/Adopt/Normalize；
+10. Work Tracking、Registry Trust、PostgreSQL、多目标/多栈与生产化。
+
+层级合同分别见 `docs/architecture/**` 和 `docs/governance/nexus-absorption-and-conformance.md`。Nexus exact-tree Census 可只读并行，但不成为第二 active package，也不阻塞 SM-4A 可见产品。
 
 ## 15. 当前禁止事项
 
@@ -590,7 +617,7 @@ SM-3 状态因此更新为 **COMPLETED**。Windows AppContainer 仍是 optional 
 - 整仓 Autonomous Agent。
 - stable `engineering-ir.json` 持久化。
 
-Fact Delta、Impact Propagation、Semantic Mutation、AI Task Envelope v2 与 AI Semantic Operator 只能按第 13 节顺序推进；后项不得绕过前项的 canonical contract、transaction ownership 与 verification evidence。
+Fact Delta、Impact Propagation 与 Semantic Mutation SM-0～SM-3 已完成。SM-4A、Source Ownership、SEC-TS 多层 IR/Lowering、完整 Workbench、SM-4B 与 SM-4C 必须按第 14 节前置关系推进；后项不得绕过 canonical contract、transaction ownership 与 verification evidence。
 
 ## 16. 当前唯一执行顺序
 
@@ -639,7 +666,17 @@ v0.4 SM-2 source adapter and edit-plan boundary             COMPLETED
   ↓
 v0.4 SM-3 isolated apply coordinator                         COMPLETED
   ↓
-v0.4 SM-4 product adapters and Task Envelope reconciliation ACTIVE NEXT
+Phase 0 Current Reality Rebase                               ACTIVE
+  ↓
+IR-H1 canonical primitives import-cycle removal              ENGINEERING NEXT
+  ↓
+v0.4 SM-4A Workbench/CLI minimum product loop               PRODUCT ACTIVE NEXT
+  ↓
+Blockless Source Ownership → Target Profile/Type Algebra    PLANNED
+  ↓
+Application/Behavior/TypeScript Program IR + Lowering       PLANNED
+  ↓
+Full Workbench → SM-4B Task Envelope v2 → SM-4C AI          PLANNED
 ```
 
 P0-7 是 v0.3 最后一个实现 Work Package。本次经用户明确授权，以绑定 exact head/base、明确失效边界的本地组合 Full 替代新的 hosted Full；这不应表述为 latest-head hosted status success。最终 bounded audit 又在合并树上运行 canonical affected selector、Contract Freeze 74/74 与 4 个受 ExplainGraph additive compatibility change 影响的 slow consumers，关闭了 intervening-diff 解释缺口。v0.3 exit review 只组合与裁决仍有效证据，不重跑 full-fast、25-suite slow matrix、workspace chain 或 GitHub Actions。完整命令、duration、原始 batch JSON 与复用规则见验证账本。
