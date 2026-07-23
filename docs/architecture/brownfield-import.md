@@ -1,12 +1,12 @@
 ---
 title: TypeScript Brownfield Import 与 Source Program Model 规划
 status: active
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # TypeScript Brownfield Import 与 Source Program Model 规划
 
-本文是现有 TypeScript 工程的 Attach、Lift、Adopt、Normalize、Source Program Model、Provider Evidence 与 unknown/opaque 处理的唯一规划 owner。业务语义 authority 仍属于 Authoring Contract 与 `docs/14-Engineering IR与语义事实规范.md`；Repository/Documentation/Gate/Agent/Release 域属于 `docs/architecture/engineering-workspace-ir.md`。源码分析结果不能直接升级为 authoritative Engineering IR。
+本文是现有 TypeScript 工程的 Attach、Lift、Reconcile、Adopt、Normalize、Source Program Model、Provider Evidence 与 unknown/opaque 处理的唯一规划 owner。业务语义 authority 仍属于 Authoring Contract 与 `docs/14-Engineering IR与语义事实规范.md`；Repository/Documentation/Gate/Agent/Release 域属于 `docs/architecture/engineering-workspace-ir.md`。源码分析结果不能直接升级为 authoritative Engineering IR。
 
 ## 1. 产品结果
 
@@ -18,7 +18,7 @@ Existing TypeScript Workspace
 complete physical artifact inventory
         ↓ Lift
 Source Program Model + typed Evidence candidates
-        ↓ human/policy reconciliation
+        ↓ Reconcile
 authoritative / derived / observed / inferred / ambiguous / unknown
         ↓ Adopt
 Governed Source + canonical bindings
@@ -28,7 +28,7 @@ SEC-owned deterministic projections
 
 任何阶段都必须允许用户保留复杂区域，而不是强迫全仓重写。
 
-## 2. 四个阶段
+## 2. 五个阶段
 
 ### Attach
 
@@ -37,6 +37,10 @@ SEC-owned deterministic projections
 ### Lift
 
 构建 Source Program Model 并生成候选：module、symbol、declaration、type、reference、import/export、call/control/data-flow、effect、framework binding、source span 与 unresolved region。每个候选必须绑定 provider/source revision、coverage、confidence、diagnostic 和 evidence reference。
+
+### Reconcile
+
+把 Lift 候选与 Authoring Contract、现有 Engineering IR、Repository identity、owner policy 和 competing Provider evidence逐项对齐，输出 accepted、rejected、conflicted、ambiguous、unknown 与 opaque disposition。Reconcile 只作裁决和证据绑定，不写 live source、不把多数票或 confidence 当 authority，也不能提前创建 Adopt owner。任何 unresolved region 都必须保留到 Workbench、Impact 与 Verification边界。
 
 ### Adopt
 
@@ -92,7 +96,7 @@ Provider 只能增加证据与候选。多个 provider 冲突时保留 competing
 
 ## 6. Owner、Mutation 与 round-trip
 
-Attach/Lift 默认只读。Adopt 后每个 source region 必须唯一属于 application、source module、block、generated projection、governed extension 或 opaque owner。Registry 仍是 read-only；同名 mirror、copy 或未被 canonical frontend 装载的文件不能获得 writable authority。
+Attach/Lift/Reconcile 默认只读。Adopt 后每个 source region 必须唯一属于 application、source module、block、generated projection、governed extension 或 opaque owner。Registry 仍是 read-only；同名 mirror、copy 或未被 canonical frontend 装载的文件不能获得 writable authority。
 
 未来 Brownfield mutation 必须：
 
@@ -117,7 +121,7 @@ Brownfield MVP 至少要求：
 - supported TS packages/modules/symbols 有可复现 coverage；
 - unresolved/ambiguous/opaque 显式且可导航；
 - Provider output 不越权；
-- 至少一个真实现有工程完成 Attach → Lift → Adopt；
+- 至少一个真实现有工程完成 Attach → Lift → Reconcile → Adopt；
 - 至少一个完整可表示模块完成 Normalize、round-trip、Mutation 与 rollback；
 - 同输入重复导入 byte-stable；
 - source move/change 触发 deterministic delta census；

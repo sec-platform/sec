@@ -1,0 +1,326 @@
+schema: sec-external-capability-ledger-v1
+
+ledger:
+  owner: docs/governance/external-capability-ledger.yaml
+  observedAt: "2026-07-23T21:07:24+08:00"
+  secMainSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+  policyRevision: sha256:a78262c075bf96643d207290050fd414172af8fb17a96a4610b0405782115202
+
+allowedDecisions:
+  - absorb-design
+  - integrate-provider
+  - integrate-adapter
+  - use-as-development-tool
+  - use-as-conformance-tool
+  - retain-project-specific
+  - superseded
+  - reject-with-rationale
+  - watch
+
+allowedLifecycleStates:
+  - discovered
+  - researching
+  - benchmark-planned
+  - benchmarked
+  - decided
+  - integrating
+  - active
+  - revalidation-required
+  - deprecated
+  - retired
+
+allowedAuthorityClasses:
+  - physical-observation
+  - derived
+  - observed
+  - inferred
+  - explanation
+
+routingProfiles:
+  direct:
+    purpose: Known-scope edits using native file, search, Git, compiler and test tools.
+    maxActiveGraphProviders: 0
+  daily-context:
+    purpose: Cross-file context, paths and local impact with one minimal integrated query surface.
+    maxActiveGraphProviders: 1
+    selectionStatus: undecided
+    evaluationCandidate: codegraph
+    currentObservedProvider: null
+  architecture:
+    purpose: Canonical, cross-package, cross-repository, process and large-diff analysis.
+    maxActiveGraphProviders: 1
+    selectionStatus: provisional-existing-development-tool
+    evaluationCandidate: gitnexus
+    currentObservedProvider: gitnexus
+    mutuallyExclusiveWith:
+      - daily-context
+  security:
+    purpose: Data-flow, taint, source-to-sink and adversarial verification.
+    maxActiveGraphProviders: 0
+  brownfield-census:
+    purpose: Orchestrated multi-provider evidence collection without exposing every provider as a standing agent tool.
+    maxActiveGraphProviders: null
+
+providers:
+  - id: codegraph
+    displayName: CodeGraph
+    category:
+      - code-index
+      - agent-context
+    source:
+      repository: null
+      documentation: null
+      license: null
+    version:
+      pinned: null
+      observedAt: null
+      upgradePolicy: independent-toolchain-work-package
+    problemStatement:
+      currentPain: Repeated grep/read exploration and uncertain cross-file context for ordinary coding tasks.
+      requiredCapabilities:
+        - task-context
+        - source-excerpts
+        - call-trace
+        - reverse-impact-candidates
+        - freshness-diagnostics
+      explicitlyNotRequired:
+        - canonical-impact
+        - source-mutation-authority
+        - architecture-authority
+    implementationBasis:
+      parser: null
+      compilerBacked: null
+      runtimeEvidence: false
+      llmGeneratedRelations: null
+    toolSurface:
+      cliCommands: []
+      mcpToolsExposedByDefault: []
+      recommendedAllowlist:
+        - codegraph_explore
+      writeCapabilities: []
+    dataBoundary:
+      localOnly: null
+      networkRequired: null
+      telemetry: null
+      sourceUpload: null
+      nativeDependencies: []
+    providerContract:
+      outputAuthority: inferred
+      sourceRevisionBound: null
+      providerRevisionBound: true
+      reportsCoverage: null
+      reportsFreshness: null
+      reportsDiagnostics: null
+      reportsUnresolvedRegions: null
+    benchmarks:
+      - corpus: sec-platform/sec
+        revision: null
+        taskSuite: null
+        metrics:
+          taskSuccessRate: null
+          correctFileRecall: null
+          criticalConsumerRecall: null
+          falseRelationRate: null
+          toolCalls: null
+          inputTokens: null
+          outputTokens: null
+          wallClockMs: null
+          indexTimeMs: null
+          peakMemoryMb: null
+      - corpus: QzCrane/nexus
+        revision: null
+        taskSuite: null
+        metrics: {}
+    decision:
+      value: watch
+      rationale: Pending repository-specific A/B.
+      secOwner: SourceEvidenceProviderRegistry
+      activeRoutingProfile: null
+      replacesInternalCapabilities: []
+      forbiddenAuthority:
+        - EngineeringIR
+        - canonicalImpact
+        - actualDelta
+        - sourceWriter
+    lifecycle:
+      state: discovered
+      revalidateOn:
+        - provider-major-version
+        - license-change
+        - security-advisory
+        - codex-native-capability-change
+        - repeated-stale-results
+      retirementConditions: []
+
+  - id: gitnexus
+    displayName: GitNexus
+    category:
+      - code-graph
+      - architecture-analysis
+      - process-analysis
+      - diff-impact
+    source:
+      repository: null
+      documentation: null
+      license: null
+    version:
+      pinned: null
+      observed: 1.6.9
+      observedAt: "2026-07-23T21:07:24+08:00"
+      upgradePolicy: independent-toolchain-work-package
+    problemStatement:
+      currentPain: Canonical and cross-package changes need process-level and large-diff impact candidates.
+      requiredCapabilities:
+        - query
+        - symbol-context
+        - process-trace
+        - reverse-impact-candidates
+        - diff-impact
+        - cross-repository-contracts
+        - index-status
+      explicitlyNotRequired:
+        - automatic-agent-rule-generation
+        - canonical-rename-writer
+        - arbitrary-cypher-for-daily-use
+    toolSurface:
+      cliCommands:
+        - analyze
+        - status
+        - mcp
+      mcpToolsExposedByDefault: []
+      recommendedAllowlist:
+        - query
+        - context
+        - impact
+        - detect_changes
+      conditionalAllowlist:
+        - group_status
+        - group_query
+        - group_contracts
+      forbiddenWithoutExplicitWorkPackage:
+        - rename
+        - cypher
+        - group_sync
+        - setup
+      writeCapabilities: []
+    dataBoundary:
+      localOnly: null
+      networkRequired: null
+      telemetry: null
+      sourceUpload: null
+      nativeDependencies:
+        - '@ladybugdb/core'
+        - onnxruntime-node
+        - protobufjs
+    providerContract:
+      outputAuthority: inferred
+      sourceRevisionBound: true
+      providerRevisionBound: true
+      reportsCoverage: null
+      reportsFreshness: true
+      reportsDiagnostics: true
+      reportsUnresolvedRegions: null
+    benchmarks:
+      - corpus: sec-platform/sec
+        revision: null
+        taskSuite: null
+        metrics: {}
+      - corpus: QzCrane/nexus
+        revision: null
+        taskSuite: null
+        metrics: {}
+    decision:
+      value: use-as-development-tool
+      rationale: Existing Architecture-mode development tool observed in the Agent environment; repository-specific A/B and default-selection evidence are still missing, so this is not a preferred or canonical provider decision.
+      secOwner: SourceEvidenceProviderRegistry
+      activeRoutingProfile: architecture
+      replacesInternalCapabilities: []
+      forbiddenAuthority:
+        - EngineeringIR
+        - canonicalImpact
+        - actualDelta
+        - sourceWriter
+        - AgentOperationsAuthority
+    lifecycle:
+      state: revalidation-required
+      revalidateOn:
+        - provider-major-version
+        - license-change
+        - security-advisory
+        - repeated-stale-results
+        - alternative-provider-outperforms
+      retirementConditions: []
+
+capabilities: []
+
+benchmarkSuites:
+  - id: sec-daily-context-v1
+    corpus:
+      repository: sec-platform/sec
+      revision: null
+    tasks: []
+    requiredMetrics:
+      - answer-correctness
+      - correct-file-recall
+      - critical-consumer-recall
+      - false-relation-rate
+      - tool-calls
+      - tokens
+      - wall-clock
+      - freshness-failures
+  - id: sec-architecture-impact-v1
+    corpus:
+      repository: sec-platform/sec
+      revision: null
+    tasks: []
+    requiredMetrics:
+      - process-trace-correctness
+      - impacted-symbol-recall
+      - impacted-test-recall
+      - false-positive-impact
+      - source-verification-rate
+  - id: nexus-brownfield-context-v1
+    corpus:
+      repository: QzCrane/nexus
+      revision: null
+    tasks: []
+    requiredMetrics:
+      - cross-package-recall
+      - browser-context-path-recall
+      - protocol-consumer-recall
+      - stale-index-detection
+
+decisionGate:
+  required:
+    - exact-version-and-license
+    - explicit-problem-statement
+    - capability-decomposition
+    - data-boundary-review
+    - sec-and-nexus-benchmark
+    - authority-boundary
+    - duplicate-removal-plan
+    - revalidation-trigger
+  forbidden:
+    - marketing-only-decision
+    - multiple-overlapping-standing-mcps
+    - direct-provider-to-canonical-promotion
+    - unpinned-production-tool
+    - setup-that-writes-canonical-agent-rules
+
+coverage:
+  discoveredTools: 2
+  researchedTools: 0
+  benchmarkedTools: 0
+  decidedTools: 1
+  activeTools: 0
+  unresolvedDecisions:
+    - codegraph
+    - gitnexus-default-selection
+  missingBenchmarks:
+    - codegraph
+    - gitnexus
+  unpinnedActiveTools: []
+  unvalidatedSelections:
+    - codegraph
+    - gitnexus
+  authorityViolations: []

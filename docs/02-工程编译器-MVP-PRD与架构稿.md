@@ -1,7 +1,7 @@
 ---
 title: 工程编译器产品与总体架构
 status: active
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Engineering Compiler 产品与总体架构
@@ -75,6 +75,8 @@ Canonical Workspace Input Snapshot 只冻结本次 authoring/import inputs 与 s
 ### Application / Behavior / Target Program IR
 
 Validated Engineering IR 经 Target Profile 与 Type Algebra lowering 为 Application IR、Behavior IR 和 TypeScript Program IR。每层独立 version、validate、freeze、digest；后层不得重新解释前层 authoritative semantics。规划合同见 `docs/architecture/sec-ts-ir-layers.md`。
+
+最终架构只允许完整 `Validated Engineering Workspace Snapshot` 作为 target lowering 输入。实施迁移期间，现有 validated Engineering IR 可作为显式标记的 provisional input；Workspace domains进入主链后，必须由唯一 Workspace Snapshot builder 原位 reconcile并使旧 target snapshot失效。该迁移不能产生第二 filesystem loader、第二 revision authority、第二 writer或平行 target-program pipeline。
 
 ### Compilation & Verification Layer
 
