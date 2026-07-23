@@ -1,7 +1,7 @@
 schema: sec-current-state-v1
 observedMainSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
 observedMainTree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
-observedAt: "2026-07-23T08:05:23+08:00"
+observedAt: "2026-07-23T08:10:22+08:00"
 goalAuthority:
   repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
   upstreamDocuments:
@@ -17,11 +17,11 @@ activeWorkPackage:
   manifest: docs/work-packages/test-runtime-browser-cache-v10-bootstrap-v3.md
   manifestDigest: sha256:81e5af444598624176239b96eb69b7c06b86fbd1442164a86af7918397abedd3
   branch: codex/runtime-acceptance-shell-authority-v1
-  pr: null
+  pr: 137
   baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
   preImplementationHeadSha: f6dd49ba8f18fe827bd57cadde0f93dd07d0d6e9
   candidateHeadSha: null
-  state: implementation-working-tree-focused-and-static-passed
+  state: draft-pr-open-focused-and-static-passed
 lastMergedWorkPackage:
   id: affected-fast-timeout-contract-v1
   pullRequest: 136
@@ -30,17 +30,23 @@ lastMergedWorkPackage:
   integrationMode: manual-trust-root-bootstrap
 github:
   repository: sec-platform/sec
-  openPullRequests: []
+  openPullRequests:
+    - 137
   openIssues:
     - 132
   issue132Role: stale-navigation-only
   review:
-    activePullRequest: null
+    activePullRequest: 137
+    state: draft
     unresolvedThreads: 0
     requestChanges: 0
   latestMainAction:
     runId: 29952047837
     result: lifecycle-revalidation-success-only
+    candidateVerificationEvidence: false
+  candidateLifecycle:
+    mode: draft-plan-revalidation-only
+    mergeGateStatus: expected-draft-failure
     candidateVerificationEvidence: false
 diagnosticEvidence:
   testH2Affected:

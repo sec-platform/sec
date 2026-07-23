@@ -6,7 +6,7 @@ last-reviewed: 2026-07-23
 
 # SEC 滚动近期计划
 
-本窗口依据已全文读取的长期 Goal revision `sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d`、`main@8aa2d2d`、零 open PR、陈旧导航 Issue #132、main lifecycle-only Action，以及 TEST-H3 的 path-free runtime-acceptance failure attribution 重算。实时 SHA、CI、Review 和 evidence 事实只由 `docs/work/current-state.yaml` 拥有；本文件只规划一个 active package 与四个候选。
+本窗口依据已全文读取的长期 Goal revision `sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d`、`main@8aa2d2d`、Draft PR #137、陈旧导航 Issue #132、candidate Draft lifecycle revalidation，以及 TEST-H3 的 path-free runtime-acceptance failure attribution重算。实时 SHA、CI、Review 和 evidence 事实只由 `docs/work/current-state.yaml` 拥有；本文件只规划一个 active package 与四个候选。
 
 ```text
 TEST-H2 V3 browser-cache + acceptance shell closure (active)
@@ -26,7 +26,7 @@ Nexus Phase 0A exact-tree census (read-only auxiliary candidate)
 - Owner：通用 empty-PATH owner `buildIsolatedProcessEnvironment()` 保持不变；`run-runtime-verification.ts` 新窄 helper只拥有 acceptance shell launch；`ensureProjectBase()` 只拥有一个 generated webServer command；Next module identity仍归现有 invocation contract。
 - 风险：generic environment 是 CRITICAL forbidden owner；`ensureProjectBase` production graph 为 HIGH，含测试消费者时 40 impacted / 4 direct / 4 processes。禁止修改 process/Observed Process/AppContainer/override/invocation-contract owners，禁止 shared → compiler 反向依赖。
 - 退出：POSIX PATH 仅含 Bun 物理目录；Windows PATH 固定 System32→Bun、ComSpec/cmd、PATHEXT `.EXE`、taskkill与 Bun identity均先验证。isolated webServer 从 generated project cwd 解析 fixed config，项目 bunfig poison不能接管。新 focused sentinel证明真实 Next/Playwright/URL/teardown；诊断 retention selector撤销；新 frozen head恰好一次 affected PASS后才允许一次 Risk。
-- 验证：manifest 中的 shell owner、真实 sentinel、browser-cache delta、v10 policy、affected、Risk、typecheck、changed-only imports、depcruise、docs、scope、diff和GitNexus Gate。candidate trust-root不 dispatch hosted verification，自主证明后走 manual bootstrap。
+- 验证：Draft PR #137只产生预期的plan revalidation与Draft merge-status failure，不是candidate Gate证据。继续按manifest完成 shell owner、真实sentinel、browser-cache delta、v10 policy、affected、Risk、typecheck、changed-only imports、depcruise、docs、scope、diff和GitNexus Gate；candidate trust-root不 dispatch hosted verification，自主证明后走manual bootstrap。
 - 重算：任何 shell authority泄漏、fixed config/cwd containment失效、需要扩大 competing owner、真实 teardown失败、affected失败、新 CI/Review blocker或 `main` 变化都会停止当前包并整体重算。
 
 ## 候选 Work Package
