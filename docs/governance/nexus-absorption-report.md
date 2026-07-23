@@ -1,7 +1,7 @@
 ---
 title: Nexus 吸收与 Conformance 报告
 status: active
-last-reviewed: 2026-07-22
+last-reviewed: 2026-07-23
 ---
 
 # Nexus 吸收与 Conformance 报告
@@ -9,6 +9,8 @@ last-reviewed: 2026-07-22
 ## 裁决
 
 **未完成。** 当前只建立 canonical contract、ledger/report owner 与 exact committed-tree baseline；没有完成 path classification、mechanism decisions、EPR/Skill binding、Parity 或 retirement。不得使用“无遗漏吸收完成”。
+
+V5 文档迁移吸收了扩展后的 Conformance Corpus/Policy Pack requirement，但拒绝用空的 V2 template覆盖机器事实。`nexus-absorption-ledger.yaml` 继续保留 revision 3 的 exact baseline与三个seed；本次文档归位没有新增 Census、decision、parity或retirement evidence，也没有改变下表覆盖率。
 
 ## Exact baseline
 

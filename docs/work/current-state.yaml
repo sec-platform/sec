@@ -1,158 +1,197 @@
 schema: sec-current-state-v1
-observedMainSha: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
-observedMainTree: 9cc7f2d19e36cd8c0ac3ac150bdf1754186207cf
-observedAt: "2026-07-23T02:34:33+08:00"
+observedMainSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+observedMainTree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
+observedAt: "2026-07-23T23:03:08+08:00"
 goalAuthority:
   repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
-  upstreamDocumentCount: 2
+  upstreamDocumentCount: 9
   upstreamDocuments:
-    - name: SEC_Codex_Conversation_Goal_No_Omission_V3_2026-07-22.md
-      sha256: 04b81d9f155a3bf6388c7bf0d62bb8a08e2e68d870964f053be3fa7c9fbe5c3d
-      bytes: 80851
-    - name: SEC_Codex_Persistent_Goal_With_Rolling_Plan.md
-      sha256: 117a438228a9212753ab8ff2266969db1a8c36a13becfe1efcc796ab97a99c4c
-      bytes: 9800
-  combinedRevision: sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d
-roadmapMilestone: v0.4-semantic-operations
+    - path: docs/goals/SEC_Document_System_V4_Combined_Reference.md
+      bytes: 110937
+      sha256: 77dd444ed1215da03c392ce84741509ea40adaf323a0d32e57b7de105a52a5db
+    - path: docs/goals/sec_document_system_v4/01-SEC-Codex-Persistent-Goal-V4.md
+      bytes: 10758
+      sha256: c14b64a51c88929ff02efd32b3ef55891277386efa800aa2cbb926fa56f5d120
+    - path: docs/goals/sec_document_system_v4/02-SEC-Product-Architecture-V4.md
+      bytes: 16807
+      sha256: b0d7ad1f1cade594d36c622edb67721db4f24762f05fb9fe8b2d3445ae51b2d3
+    - path: docs/goals/sec_document_system_v4/03-SEC-Roadmap-and-Completion-V4.md
+      bytes: 14853
+      sha256: ac2ec8c3509765f213dcf5ef66459aa1efb1c9205e1212633ff49f82e4e192db
+    - path: docs/goals/sec_document_system_v4/04-SEC-Engineering-Operating-Protocol-V4.md
+      bytes: 12927
+      sha256: 7994c7804d9367be60851026053bfa726bc143d091bd0fa0fc92b5e953f2ad7a
+    - path: docs/goals/sec_document_system_v4/05-SEC-External-Capability-and-MCP-Policy-V1.md
+      bytes: 16547
+      sha256: e748332f0bf1ebf4f845d55ce9c82fbbba625736e04ac51d5847872713b5f316
+    - path: docs/goals/sec_document_system_v4/06-SEC-Nexus-Conformance-Spec-V2.md
+      bytes: 26484
+      sha256: 1f4b2341d1a8b270e9f9c7762e656b1e1dfa2fb0d40c4eca95b93183da05755f
+    - path: docs/goals/sec_document_system_v4/MIGRATION-MATRIX.md
+      bytes: 6577
+      sha256: aa6871af90c5f6b031fe64122b8cd9693d7e9c2fe4e515a8a779794db0e2ba54
+    - path: docs/goals/sec_document_system_v4/README.md
+      bytes: 5710
+      sha256: 0efd7260d96b805f8899b2b9d5c689eea6ecc2e841826854e36164887f22dd1f
+  combinedRevision: sha256:555a187dc8a1a8ed8d52e76c23a2e2e752c2a77073664fde5f286d274cbbf676
+documentReplacementInput:
+  path: docs/scripts/SEC_docs_v5_replacement
+  trackedInCandidate: false
+  originalManifestSha256: dfebcd615422f7d70fea68537cf4e9c82cd0d81e4ac401fd1c8aaf333890e9c2
+  originalManifestEntries: 132
+  originalBytesInternallyConsistent: true
+  executableAsPublished: false
+  transientRepairInvalidatedManifestIdentity: true
+  rawAuthorityVerdict: no-go
+  overlayObservation:
+    baseDocsFiles: 132
+    preserveFilesChecked: 103
+    preserveMissing: 0
+    preserveByteDrift: 0
+    payloadOwnedFilesChecked: 33
+    payloadMissing: 0
+    payloadHashMismatch: 0
+    mechanicalGitDelta:
+      added: 4
+      modified: 18
+      deleted: 0
+  semanticRegressionClasses:
+    - latest-main-architecture-authority-rollback
+    - ci-verification-v9-authority-rollback
+    - nexus-exact-baseline-reset
+    - docs-doctor-legacy-diagnostic-loss
+roadmapMilestone: document-authority-v5-reconciliation-v2
 lastMergedWorkPackage:
-  id: ir-canonical-primitives-cycle-removal-v1
-  pullRequest: 135
-  mergeCommit: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
-  mergedAt: "2026-07-22T23:32:35+08:00"
-  tree: 9cc7f2d19e36cd8c0ac3ac150bdf1754186207cf
-activeWorkPackage:
   id: affected-fast-timeout-contract-v1
-  manifest: docs/work-packages/affected-fast-timeout-contract-v1.md
-  manifestDigest: sha256:1084f3bd9df2a0ad94899f7cf86bca80b78dda0d8e0f0deaf10d95d6344693b8
-  branch: codex/affected-fast-timeout-contract-v1
-  pr: 136
-  baseSha: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
+  pullRequest: 136
+  mergeCommit: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+  mergedAt: "2026-07-23T02:41:27+08:00"
+  tree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
+activeWorkPackage:
+  id: docs-document-authority-v5-reconciliation-v2
+  manifest: docs/work-packages/docs-document-authority-v5-reconciliation-v2.md
+  manifestDigest: sha256:6531989d3d32527a998c44008ef7ea1f76fec79c1cf589025f78733ddc8a68bf
+  ownedPathCount: 22
+  candidateChangedPathCount: 21
+  preservesFailedV1Manifest:
+    path: docs/work-packages/docs-document-authority-v5-reconciliation-v1.md
+    digest: sha256:1e34c24aa14f1ff099e4a70286d72d748dab380a23687c68dca799aa73cae16a
+    byteIdenticalToFailedHead: true
+  branch: codex/docs-document-authority-v5
+  pullRequest: 138
+  baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
   headSha: null
+  state: local-ci-blocker-repair
 status: active
-nextReconciliationPoint: control-state-pr-ownership-reconciliation
+nextReconciliationPoint: docs-v5-v2-final-head-freeze
 openPullRequests:
-  - 136
+  - 137
+  - 138
 openIssues:
   - 132
 issueFacts:
   issue132Role: navigation-only
   issue132SnapshotStale: true
-ci:
-  activeExactHeadEvidence: absent
-  lastMergedEvidence:
-    scopeAttestation:
-      runId: 29932931686
-      result: success
-    quick:
-      runId: 29933306857
-      result: success
-    pullRequestMergeGate:
-      runId: 29933703051
-      result: success
-    mainPushMergeGate:
-      runId: 29933867770
-      result: success
-    pullRequestCloseGate:
-      runId: 29933870235
-      result: success
-  requiredRevision: ci-verification-v9
-  bootstrapMode: manual
-  hostedSelfCertificationAllowed: false
-review:
-  activePullRequest: 136
-  state: draft
+pullRequest137:
+  state: open
+  draft: true
+  mergeable: true
+  baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+  remoteHeadSha: cf0183d495fbc8223fb8e216393f7f20867e653a
+  changedFiles: 41
   reviews: 0
   unresolvedThreads: 0
   requestChanges: 0
-independentArchitectureReview:
-  initialV8Envelope: blocked
-  reason: verifier-trust-root-change-requires-v1-revision-advance
-  requiredRevision: ci-verification-v9
+  hostedVerificationRunsForHead: 0
+  status:
+    context: sec/merge-gate
+    result: failure
+    reason: draft-plan-revalidation-invalidates-merge-eligibility-without-running-heavy-gates
+  latestScheduledRevalidation:
+    runId: 29992025207
+    workflowConclusion: success
+    planRevalidation: success
+    mergeGateJob: skipped
+pullRequest138:
+  state: open
+  draft: false
+  mergeable: true
+  baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
+  seedHeadSha: 5e216594d1d88cb473fa32707f9a2382ac87738b
+  failedV1HeadSha: 897250bcd6e48802f24c58adfb0c843dac497735
+  observedRemoteHeadSha: 897250bcd6e48802f24c58adfb0c843dac497735
+  candidateV2HeadSha: null
+  changedFiles: 17
+  candidateV2ChangedFiles: 21
+  commits: 1
+  reviews: 0
+  unresolvedThreads: 0
+  requestChanges: 0
+  hostedVerificationRunsForHead: 1
+  seedStatus:
+    context: sec/merge-gate
+    result: failure
+    reason: draft-plan-revalidation-invalidates-merge-eligibility-without-running-heavy-gates
+  seedScheduledRevalidation:
+    runId: 30011433282
+    workflowConclusion: success
+    planRevalidation: success
+    mergeGateJob: skipped
+  v1Scope:
+    runId: 30012100577
+    result: success
+    artifactId: 8565504776
+  v1Quick:
+    runId: 30012238172
+    contractRevision: ci-verification-v9
+    profile: quick
+    result: failure
+    failedGate: affected-tests
+    focusedResult: 39-pass-1-fail
+    reason: stale-roadmap-executable-consumer
+  latestScheduledRevalidation:
+    runId: 30016007890
+    result: failure
+    reason: latest-exact-verification-attempt-not-successful
+ci:
+  requiredV1Revision: ci-verification-v9
   compositionRevision: ci-verification-v7
-  exactHeadV9:
-    reviewedHead: 13d49270b89e47a7194a055b97cc9a580f7a6521
-    state: blocked
-    blocker: CONTROL-STATE-PR-OWNERSHIP-001
-    reason: frozen-manifest-and-rolling-plan-duplicated-stale-live-pr-state
-candidateDiagnostics:
-  focusedBootstrap:
-    initialRun:
-      testsPassed: 103
-      testsFailed: 1
-      assertions: 1009
-      soleFailure: synthetic-immutable-pass-fixture-exact-pretty-raw-bytes
-    isolatedDelta:
-      command: bun test tests/unit/ci-evidence-reuse-contract.test.ts -t "synthetic immutable PASS fixture binds its exact pretty raw bytes" --timeout 180000
-      testsPassed: 1
-      testsFailed: 0
-      assertions: 4
-      durationMs: 693
-    combinedCoverage:
-      testsCovered: 104
-      singleAggregateRerun: false
-  immutableEvidenceCheckout:
-    fixture: tests/fixtures/ci-evidence-reuse/synthetic-pass.json
-    gitBlob: f9cb6f9f2f7499a605e3b4c4c45281fab3b56d39
-    rawSha256: cab3e169f29108986d250afe6fd7f5a5e3dd1f3af7d40c7ffa58e369fe28a3b2
-    indexEol: lf
-    workingTreeEol: lf
-    attribute: /tests/fixtures/ci-evidence-reuse/synthetic-pass.json text eol=lf
-    status: resolved-in-candidate
-repository:
-  visibility: private
-repositoryRules:
-  status: unavailable
-  reason: GitHub API returned 403 for branch protection and rulesets
-blockers:
-  - id: affected-fast-default-timeout
-    observedOnBase: 5f70db3c76d23a04361ba7d2ed689a17e3e14e21
-    observedOnCandidate: b753b5578e24ef96d03c051c81e25bf81ffcd8c1
-    gate: SEC_AFFECTED_TESTS_BASE=5f70db3c76d23a04361ba7d2ed689a17e3e14e21 bun run test:affected
-    aggregate:
-      passed: 198
-      failed: 12
-      skipped: 1
-    failureMode: bun-default-timeout-5000ms
-    assertionOrSemanticFailures: 0
-    exactSentinel:
-      timeoutMs: 180000
-      passedFiles: 12
-      failedFiles: 0
-      assertions: 170
-      maxObservedDuration: approximately-21.6s
-    rootPath:
-      - runAffectedTests
-      - runFastTests
-      - fastTestArgs
-    selectedSlowSuites:
-      - end-to-end
-      - graph
-      - local-views
-      - pipeline
-      - semantic-runtime-contract
-      - verification
-    gitNexusImpactRisk: LOW
-    gitNexusImpactedSymbols: 5
-    gitNexusDirectCallers: 1
-    gitNexusAffectedProcesses: 1
+  activeCandidateExactHeadEvidence: failed-v1
+  activeCandidateTouchesVerifierTrustRoot: false
+  hostedSelfCertificationAllowed: true
+  lastMergedBootstrapMode: manual
+  failedV1QuickRun: 30012238172
+  failedV1QuickGate: affected-tests
+review:
+  activePullRequest: 138
+  reviews: 0
+  unresolvedThreads: 0
+  requestChanges: 0
 suspendedCandidates:
-  - id: sm4a-trusted-authorization-ingress-v1
-    branch: codex/sm4a-trusted-authorization-ingress-v1
-    commit: b753b5578e24ef96d03c051c81e25bf81ffcd8c1
-    tree: 90e036ad299bfd5d43ea9a4cb0c746991272582f
-    manifest: docs/work-packages/sm4a-trusted-authorization-ingress-v1.md
-    manifestDigest: sha256:3be79bcfb55304644dfc1859f23a351b80cbb56325d2c4aa4656ef82724fa6ba
+  - id: runtime-v10-pr137
+    branch: codex/runtime-acceptance-shell-authority-v1
+    remoteHeadSha: cf0183d495fbc8223fb8e216393f7f20867e653a
+    localSuccessorSha: 377a4876160e860a39898ae2851f6f7c2c175b5d
+    pullRequest: 137
+    state: draft-diagnostic-blocked
+    immutableAffectedResult: fail
+    failedStage: artifact-read
+    riskGateRun: not-run
+  - id: runtime-precommand-observability-successor
+    branch: codex/runtime-verification-precommand-observability-v1
+    localHeadSha: 50a5f29618a4c456e41f46803474e2ed7d069ca2
     pushed: false
     pullRequest: null
-    state: suspended-by-prerequisite
-    focused:
-      testsPassed: 15
-      testsFailed: 0
-      assertions: 118
-    invalidatedEvidence:
-      - affected-tests
-      - selector-selected-risk
-      - exact-head-integration
+    state: suspended-by-goal-authority-reload
+    dirtyPaths:
+      - AGENTS.md
+      - docs/work-packages/runtime-precommand-timeout-attribution-v1.md
+  - id: sm4a-trusted-authorization-ingress-v1
+    branch: codex/sm4a-trusted-authorization-ingress-v1-v9
+    localHeadSha: bca9102dc2a2bf865fff94b4e521383d8afac0ba
+    pushed: false
+    pullRequest: null
+    state: suspended-by-runtime-prerequisite
 completedCapabilities:
   - v0.3-semantic-core-foundation
   - v0.4-fact-delta-pure-kernel
@@ -163,8 +202,10 @@ completedCapabilities:
   - v0.4-semantic-mutation-sm3-isolated-apply-coordinator
   - ci-verification-v8-active-documentation-contract
   - ir-canonical-primitives-cycle-removal
+  - affected-fast-timeout-ci-verification-v9
 limitations:
   - windows-appcontainer-optional-hardening-capability-incomplete
+  - docs-doctor-v5-semantic-superset-not-implemented
 nexusBaseline:
   repository: QzCrane/nexus
   commit: e75caa28dcbc1ffa6e893b5539f85c8177346cd3
@@ -175,6 +216,25 @@ nexusBaseline:
   eprDefinitions: 29
   projectSkills: 11
   seededMechanismCandidates: 3
-  ledgerTemplateRevision: sha256:dedbb7ae68c065779131c337b39f69d2c9e5f1de0a250fd3f11106336c542348
   censusStatus: incomplete
   liveWorktreeAuthority: false
+externalCapabilityObservations:
+  gitnexus:
+    observedVersion: 1.6.9
+    repositorySelectionEvidence: missing
+    indexLastCommit: eb48eb35d1cdb0c647154385f0c938bf1066f7d4
+    matchesObservedMain: false
+    authority: inferred-only
+  codegraph:
+    repositorySelectionEvidence: missing
+    observedToolSurface: absent-in-current-session
+blockers:
+  - id: docs-v5-raw-payload-authority-regression
+    state: reconciled-in-draft-candidate
+  - id: docs-doctor-trust-root-serialization
+    state: deferred-candidate
+    conflictingRevisionSeam: runtime-v10-pr137
+  - id: docs-v5-roadmap-executable-consumer-drift
+    state: active-v2-repair
+    failedHeadSha: 897250bcd6e48802f24c58adfb0c843dac497735
+    failedQuickRun: 30012238172
