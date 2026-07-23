@@ -447,7 +447,9 @@ test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild li
       appId: request.appId,
       requestId: 'request:missing'
     })).toBeNull();
-  }, 'sm3-');
+  }, 'sm3-', {
+    retainOnCallbackFailure: process.env.SEC_RETAIN_SM3_FAILED_WORKSPACE === '1'
+  });
 }, 300_000);
 
 test('SM-3 public dry-run blocks on unfinished recovery authority without publishing live source', async () => {

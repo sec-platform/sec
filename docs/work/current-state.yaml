@@ -1,7 +1,7 @@
 schema: sec-current-state-v1
 observedMainSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
 observedMainTree: 6e16ec68fa510cada4c304be5750e01a34bb1d15
-observedAt: "2026-07-23T08:10:22+08:00"
+observedAt: "2026-07-23T08:27:46+08:00"
 goalAuthority:
   repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
   upstreamDocuments:
@@ -11,17 +11,22 @@ goalAuthority:
       sha256: 117a438228a9212753ab8ff2266969db1a8c36a13becfe1efcc796ab97a99c4c
   combinedRevision: sha256:fbe08bd8dd24224b873619fa48746778eeb4357ddb5cd917d6ee45e45134f86d
 currentPhase: v0.4-semantic-operations-runtime-prerequisite
-status: active
+status: blocked-active-diagnosis
 activeWorkPackage:
-  id: test-runtime-browser-cache-v10-bootstrap-v3
-  manifest: docs/work-packages/test-runtime-browser-cache-v10-bootstrap-v3.md
-  manifestDigest: sha256:81e5af444598624176239b96eb69b7c06b86fbd1442164a86af7918397abedd3
+  id: test-runtime-artifact-read-attribution-v1
+  manifest: docs/work-packages/test-runtime-artifact-read-attribution-v1.md
+  manifestDigest: sha256:38c2a73897dd59fd02144c8d2e5fd844d051fa4b22ea1e15ac4a08fbfbb691d0
   branch: codex/runtime-acceptance-shell-authority-v1
   pr: 137
   baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
-  preImplementationHeadSha: f6dd49ba8f18fe827bd57cadde0f93dd07d0d6e9
+  preDiagnosticHeadSha: ec97412efda4a61efe147575fd6f641338b110c9
   candidateHeadSha: null
-  state: draft-pr-open-focused-and-static-passed
+  state: diagnostic-head-freeze-pending
+stoppedWorkPackages:
+  - id: test-runtime-browser-cache-v10-bootstrap-v3
+    headSha: ec97412efda4a61efe147575fd6f641338b110c9
+    tree: f1247167a1f48652baf6dd5a57a326b8ea0ce170
+    disposition: stopped-on-canonical-affected-failure
 lastMergedWorkPackage:
   id: affected-fast-timeout-contract-v1
   pullRequest: 136
@@ -38,22 +43,21 @@ github:
   review:
     activePullRequest: 137
     state: draft
+    mergeable: true
+    reviews: 0
     unresolvedThreads: 0
     requestChanges: 0
-  latestMainAction:
-    runId: 29952047837
-    result: lifecycle-revalidation-success-only
-    candidateVerificationEvidence: false
   candidateLifecycle:
-    mode: draft-plan-revalidation-only
-    mergeGateStatus: expected-draft-failure
+    combinedStatus: failure
+    context: sec/merge-gate
+    runId: 29968010168
+    disposition: expected-draft-lifecycle-only
     candidateVerificationEvidence: false
-diagnosticEvidence:
+verificationEvidence:
   testH2Affected:
     testedHead: de5f84e693d2cae2ad502185dc86353813d62e4e
     profile: quick
     result: failed
-    failedTitle: sm3-dry-run-apply-share-one-plan-revision
     failedTitleDurationMs: 287236.36
     publicFailure: SEMANTIC-MUTATION-010-impact-verification
     riskRun: false
@@ -67,54 +71,49 @@ diagnosticEvidence:
     errorClass: ENOENT-uv_spawn-cmd.exe
     retainedWorkspaceCount: 0
     diagnosticIsGatePass: false
-architectureReview:
-  verdict: go
-  genericEnvironmentRisk: critical
-  genericEnvironmentDisposition: byte-semantically-unchanged
-  projectBaseProductionRisk: high
-  projectBaseIncludeTestsRisk: critical
-  projectBaseIncludeTestsImpact:
-    impacted: 40
-    direct: 4
-    processes: 4
-  fixedConfigRequirement: ../.isolated-process/runtime/bunfig.toml
-  competingOwnersForbidden: true
-workingTreeEvidence:
-  testedState: uncommitted-diff-over-f6dd49ba8f18fe827bd57cadde0f93dd07d0d6e9
-  runtimeVerificationUnit:
-    result: 21-pass-0-fail-72-expect
-  generatedCommandContract:
-    result: 1-pass-0-fail
+  testH4Affected:
+    testedHead: ec97412efda4a61efe147575fd6f641338b110c9
+    testedTree: f1247167a1f48652baf6dd5a57a326b8ea0ce170
+    profile: quick
+    command: SEC_AFFECTED_TESTS_BASE=8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2 bun run test:affected
+    result: failed
+    targetFileResult: 3-pass-1-fail-77-expect
+    targetFileDurationSeconds: 350.36
+    failedTitle: sm3-dry-run-apply-share-one-plan-revision
+    failedTitleDurationMs: 254788.32
+    publicResult: rejected
+    publicVerification: blocked
+    publicFailure: SEMANTIC-MUTATION-010-impact-verification
+    isolatedVerificationStage: artifact-read
+    exitCode: 1
+    riskRun: false
+    disposition: immutable-fail-no-rerun-no-composed-pass
+candidateEvidence:
+  testedHead: ec97412efda4a61efe147575fd6f641338b110c9
+  testedTree: f1247167a1f48652baf6dd5a57a326b8ea0ce170
+  runtimeVerificationUnit: 21-pass-0-fail-72-expect
+  generatedCommandContract: passed
   realShellAcceptanceSentinel:
-    result: 1-pass-0-fail
+    result: passed
     durationMs: 28536.85
     projectBunfigPoisonAppliedAfterBuild: true
     freePortAfterTeardown: true
+  affectedProjectRuntimeBatch: 42-pass-0-fail
+  v10PolicyFocused: 69-pass-0-fail-529-expect
   typecheck: passed
-  dependencyCruiser:
-    result: passed
-    modules: 536
-    dependencies: 1526
-    violations: 0
-  docsDoctor:
-    errors: 0
-    preExistingWarnings: 8
-  changedOnlyImports: passed-after-organize
-  v10PolicyFocused:
-    result: 69-pass-0-fail-529-expect
+  dependencyCruiser: 0-violations-536-modules-1526-dependencies
+  changedOnlyImports: passed
+  docsDoctor: 0-errors-8-pre-existing-warnings
   patchWhitespace: passed
-  gitNexusCompare:
-    risk: critical
-    changedSymbols: 80
-    affectedProcesses: 54
-    indexedChangedFiles: 35
+  gitNexusCompare: critical-80-symbols-54-processes-35-indexed-files
 ci:
   mainRevision: ci-verification-v9
   candidateRevision: ci-verification-v10
   gateOwner: a0
   hostedSelfCertificationAllowed: false
   bootstrapMode: manual-trust-root-bootstrap
-blockers: []
+blockers:
+  - affected-tests-ec97412-artifact-read
 suspendedWorkPackages:
   - id: sm4a-trusted-authorization-ingress-v1
     branch: codex/sm4a-trusted-authorization-ingress-v1-v9
@@ -139,10 +138,10 @@ nexusBaseline:
   censusStatus: incomplete
   liveWorktreeAuthority: false
 nextReconciliationPoint:
-  - focused-owner-result
-  - frozen-candidate-head
-  - one-canonical-affected-result
-  - one-risk-result-if-affected-passes
+  - frozen-diagnostic-head
+  - one-retained-exact-title-result
+  - diagnostic-evidence-and-cleanup-proof
+  - replacement-repair-work-package-freeze
   - new-ci-or-review-blocker
   - merge-or-main-change
   - nexus-census-new-prerequisite

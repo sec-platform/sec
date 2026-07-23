@@ -7,8 +7,8 @@ last-reviewed: 2026-07-23
 # 当前唯一 Active Work Package
 
 ```yaml
-manifest: docs/work-packages/test-runtime-browser-cache-v10-bootstrap-v3.md
-manifestDigest: sha256:81e5af444598624176239b96eb69b7c06b86fbd1442164a86af7918397abedd3
+manifest: docs/work-packages/test-runtime-artifact-read-attribution-v1.md
+manifestDigest: sha256:38c2a73897dd59fd02144c8d2e5fd844d051fa4b22ea1e15ac4a08fbfbb691d0
 ```
 
-本文件只按 path + raw-byte digest 选择当前唯一正式 Work Package，不复制其 id、base、tracking、ownership、acceptance、tests、forbidden paths、stop/reload 或执行说明；exact `main` SHA、branch与PR是 `current-state` 观察事实。候选不能在自身 tree内嵌最终 commit SHA而不形成 self-reference，因此 candidate `headSha` 保持 `null`，exact candidate head只由外部 Context Capsule与绑定 evidence给出。完整可执行闭包以所选 frozen manifest为唯一 authority；控制面 lifecycle只以 `docs/04-AI自主实现执行蓝图.md` 为权威。
+本文件只按path与raw-byte digest选择当前唯一正式Work Package，不复制其base、ownership、acceptance、tests、forbidden paths、stop/reload或执行说明。exact `main`、PR与失败Gate事实由`current-state`拥有；完整执行闭包以所选frozen manifest为唯一authority。候选Work Package不能提前启动或修改canonical surface。
