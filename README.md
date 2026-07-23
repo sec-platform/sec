@@ -21,7 +21,7 @@ source/app.yaml
 
 已实现的核心能力包括 Block Registry、依赖解析、Slot 合成、Verification、Acceptance Coverage、Policy Gate、Artifact Provenance、Repair、Upgrade、Explain Graph、Review Summary、Workbench 基础、canonical/validated Engineering IR、Fact Delta、Impact Propagation，以及 Semantic Mutation SM-0～SM-3 transaction。Workbench/CLI 的 Semantic Mutation v2 产品 adapter 尚未接入；现有 legacy View Mutation 不能代表该能力。
 
-当前产品主线的下一项仍是 **SM-4A Workbench/CLI 最小 Semantic Mutation v2 闭环**，只接现有 `add-state-transition`。在启动该产品包前，近期工程 DAG 先以一个独立 hygiene Work Package 消除 `ir-identity.ts ↔ ir-revision.ts` 的已证实 import cycle，并保持全部 canonical revision/digest bytes 不变；该修复不扩张 SM-4A 产品范围。长期目标链路为：
+稳定产品阶段、依赖与完成定义只由 `docs/03-MVP实施计划与路线图.md` 维护；当前 `main`、CI/Review、唯一 active Work Package 与近期候选只由 `docs/work/**` 三个控制面维护。README 不复制会随合并变化的当前任务、SHA、PR 或 blocker。长期目标链路为：
 
 ```text
 Product Intent / Existing Workspace
@@ -100,7 +100,7 @@ AI 不是主控制器。平台生成 Task Envelope 与 Context Packet，限定�
 
 1. [01-用户能力模块化开发-主题整理稿.md](docs/01-用户能力模块化开发-主题整理稿.md)：核心命题与概念。
 2. [02-工程编译器-MVP-PRD与架构稿.md](docs/02-工程编译器-MVP-PRD与架构稿.md)：产品与总体架构。
-3. [03-MVP实施计划与路线图.md](docs/03-MVP实施计划与路线图.md)：当前阶段与开发顺序。
+3. [03-MVP实施计划与路线图.md](docs/03-MVP实施计划与路线图.md)：稳定阶段 DAG、进入/退出条件与完成定义。
 4. [14-Engineering IR与语义事实规范.md](docs/14-Engineering IR与语义事实规范.md)：已落地的语义内核及其后续合同。
 5. [SEC-TS 多层 IR](docs/architecture/sec-ts-ir-layers.md)、[Engineering Workspace IR](docs/architecture/engineering-workspace-ir.md) 与 [Brownfield Import](docs/architecture/brownfield-import.md)：长期架构的 canonical 规划 owner。
 6. [当前事实](docs/work/current-state.yaml)、[滚动计划](docs/work/rolling-plan.md) 与 [唯一活动 Work Package 选择器](docs/work/active-work-package.md)：三个相互分离的近期控制面；选择器指向 canonical frozen manifest。
