@@ -77,6 +77,26 @@ interface DependencyPathProbe {
   realpath(value: string): string;
 }
 
+interface RuntimeAcceptancePathMetadata {
+  readonly identity: string;
+  readonly isDirectory: boolean;
+  readonly isFile: boolean;
+  readonly isSymbolicLink: boolean;
+}
+
+interface RuntimeAcceptancePathProbe {
+  lstat(value: string): RuntimeAcceptancePathMetadata;
+  realpath(value: string): string;
+}
+
+export interface RuntimeAcceptanceShellAuthorityTestOptions {
+  readonly additionalEnv?: NodeJS.ProcessEnv;
+  readonly execPath: string;
+  readonly platform: NodeJS.Platform;
+  readonly probe: RuntimeAcceptancePathProbe;
+  readonly source: NodeJS.ProcessEnv;
+}
+
 export interface IsolatedRuntimeDependencySources {
   readonly browserCache: string;
   readonly compilerModulesRoot: string;
@@ -104,6 +124,27 @@ const NODE_DEPENDENCY_PATH_PROBE: DependencyPathProbe = Object.freeze({
         metadata.mtimeMs
       ].map(String).join(':'),
       isDirectory: metadata.isDirectory(),
+      isSymbolicLink: metadata.isSymbolicLink()
+    });
+  },
+  realpath: realpathSync
+});
+
+const NODE_RUNTIME_ACCEPTANCE_PATH_PROBE: RuntimeAcceptancePathProbe = Object.freeze({
+  lstat(value: string): RuntimeAcceptancePathMetadata {
+    const metadata = lstatSync(value);
+    return Object.freeze({
+      identity: [
+        metadata.dev,
+        metadata.ino,
+        metadata.mode,
+        metadata.nlink,
+        metadata.size,
+        metadata.ctimeMs,
+        metadata.mtimeMs
+      ].map(String).join(':'),
+      isDirectory: metadata.isDirectory(),
+      isFile: metadata.isFile(),
       isSymbolicLink: metadata.isSymbolicLink()
     });
   },
@@ -308,13 +349,220 @@ export function buildIsolatedRuntimeEnvironment(
   stagingWorkspaceRoot: string,
   additionalEnv: NodeJS.ProcessEnv = {}
 ): NodeJS.ProcessEnv {
+  return buildIsolatedRuntimeEnvironmentFromSource(stagingWorkspaceRoot, additionalEnv, process.env);
+}
+
+function buildIsolatedRuntimeEnvironmentFromSource(
+  stagingWorkspaceRoot: string,
+  additionalEnv: NodeJS.ProcessEnv,
+  source: NodeJS.ProcessEnv
+): NodeJS.ProcessEnv {
   return buildIsolatedProcessEnvironment(path.join(stagingWorkspaceRoot, '.isolated-process', 'runtime'), {
     [ISOLATED_VERIFICATION_ENV_KEY]: '1',
     CI: 'true',
     PLAYWRIGHT_BROWSERS_PATH: isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot),
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
     ...additionalEnv
+  }, source);
+}
+
+function runtimeAcceptanceShellAuthorityError(reason: string): Error {
+  return new Error(`Runtime acceptance shell authority is invalid: ${reason}`);
+}
+
+function runtimeAcceptancePathApi(platform: NodeJS.Platform): typeof path.win32 {
+  return platform === 'win32' ? path.win32 : path.posix;
+}
+
+function foldedRuntimeAcceptancePath(value: string, platform: NodeJS.Platform): string {
+  const resolved = runtimeAcceptancePathApi(platform).resolve(value);
+  return platform === 'win32' ? resolved.toLocaleLowerCase('en-US') : resolved;
+}
+
+function sameRuntimeAcceptancePathMetadata(
+  left: RuntimeAcceptancePathMetadata,
+  right: RuntimeAcceptancePathMetadata
+): boolean {
+  return left.identity === right.identity &&
+    left.isDirectory === right.isDirectory &&
+    left.isFile === right.isFile &&
+    left.isSymbolicLink === right.isSymbolicLink;
+}
+
+function uniqueEnvironmentValue(source: NodeJS.ProcessEnv, key: string): string {
+  const matches = Object.entries(source).filter(([candidate, value]) => (
+    candidate.toLocaleLowerCase('en-US') === key.toLocaleLowerCase('en-US') && value !== undefined
+  ));
+  if (matches.length !== 1) {
+    throw runtimeAcceptanceShellAuthorityError(`${key} must have one case-insensitive source`);
+  }
+  return matches[0]![1]!;
+}
+
+function withoutEnvironmentKeys(
+  source: NodeJS.ProcessEnv,
+  removedKeys: readonly string[]
+): NodeJS.ProcessEnv {
+  const removed = new Set(removedKeys.map((key) => key.toLocaleLowerCase('en-US')));
+  return Object.fromEntries(Object.entries(source).filter(([key]) => (
+    !removed.has(key.toLocaleLowerCase('en-US'))
+  )));
+}
+
+function assertUniqueEnvironmentKeys(source: NodeJS.ProcessEnv): void {
+  const keys = new Set<string>();
+  for (const key of Object.keys(source)) {
+    const folded = key.toLocaleLowerCase('en-US');
+    if (keys.has(folded)) {
+      throw runtimeAcceptanceShellAuthorityError('environment keys must be case-insensitively unique');
+    }
+    keys.add(folded);
+  }
+}
+
+function proveRuntimeAcceptancePhysicalPath(
+  value: string,
+  expectedKind: 'directory' | 'file',
+  label: string,
+  platform: NodeJS.Platform,
+  probe: RuntimeAcceptancePathProbe
+): Readonly<{ metadata: RuntimeAcceptancePathMetadata; physicalPath: string }> {
+  const pathApi = runtimeAcceptancePathApi(platform);
+  try {
+    if (!pathApi.isAbsolute(value)) throw new Error('relative');
+    const resolved = pathApi.resolve(value);
+    const before = probe.lstat(resolved);
+    const kindMatches = expectedKind === 'directory' ? before.isDirectory : before.isFile;
+    if (!kindMatches || before.isSymbolicLink) throw new Error('kind');
+    const physicalPath = probe.realpath(resolved);
+    const after = probe.lstat(resolved);
+    if (!sameRuntimeAcceptancePathMetadata(before, after) ||
+      foldedRuntimeAcceptancePath(physicalPath, platform) !== foldedRuntimeAcceptancePath(resolved, platform)) {
+      throw new Error('identity');
+    }
+    return Object.freeze({ metadata: before, physicalPath });
+  } catch {
+    throw runtimeAcceptanceShellAuthorityError(`${label} must be one stable physical ${expectedKind}`);
+  }
+}
+
+function buildIsolatedRuntimeAcceptanceEnvironmentWithAuthority(
+  stagingWorkspaceRoot: string,
+  options: RuntimeAcceptanceShellAuthorityTestOptions
+): NodeJS.ProcessEnv {
+  const pathApi = runtimeAcceptancePathApi(options.platform);
+  const genericEnvironment = buildIsolatedRuntimeEnvironmentFromSource(
+    stagingWorkspaceRoot,
+    options.additionalEnv ?? {},
+    options.source
+  );
+  const environment = withoutEnvironmentKeys(genericEnvironment, [
+    'PATH',
+    'ComSpec',
+    'PATHEXT',
+    'SystemRoot',
+    'WINDIR'
+  ]);
+  const bunExecutable = proveRuntimeAcceptancePhysicalPath(
+    options.execPath,
+    'file',
+    'running Bun executable',
+    options.platform,
+    options.probe
+  );
+  const bunDirectory = proveRuntimeAcceptancePhysicalPath(
+    pathApi.dirname(bunExecutable.physicalPath),
+    'directory',
+    'running Bun directory',
+    options.platform,
+    options.probe
+  );
+  const bareBunExecutable = proveRuntimeAcceptancePhysicalPath(
+    pathApi.join(bunDirectory.physicalPath, options.platform === 'win32' ? 'bun.exe' : 'bun'),
+    'file',
+    'bare Bun executable',
+    options.platform,
+    options.probe
+  );
+  if (bareBunExecutable.metadata.identity !== bunExecutable.metadata.identity) {
+    throw runtimeAcceptanceShellAuthorityError('bare Bun must resolve to the running executable');
+  }
+
+  if (options.platform !== 'win32') {
+    environment.PATH = bunDirectory.physicalPath;
+    assertUniqueEnvironmentKeys(environment);
+    return environment;
+  }
+
+  const systemRoot = proveRuntimeAcceptancePhysicalPath(
+    uniqueEnvironmentValue(options.source, 'SystemRoot'),
+    'directory',
+    'SystemRoot',
+    options.platform,
+    options.probe
+  );
+  const windowsDirectory = proveRuntimeAcceptancePhysicalPath(
+    uniqueEnvironmentValue(options.source, 'WINDIR'),
+    'directory',
+    'WINDIR',
+    options.platform,
+    options.probe
+  );
+  if (systemRoot.metadata.identity !== windowsDirectory.metadata.identity ||
+    foldedRuntimeAcceptancePath(systemRoot.physicalPath, options.platform) !==
+      foldedRuntimeAcceptancePath(windowsDirectory.physicalPath, options.platform)) {
+    throw runtimeAcceptanceShellAuthorityError('SystemRoot and WINDIR must resolve to one authority');
+  }
+  const systemDirectory = proveRuntimeAcceptancePhysicalPath(
+    pathApi.join(systemRoot.physicalPath, 'System32'),
+    'directory',
+    'System32',
+    options.platform,
+    options.probe
+  );
+  const commandShell = proveRuntimeAcceptancePhysicalPath(
+    pathApi.join(systemDirectory.physicalPath, 'cmd.exe'),
+    'file',
+    'cmd.exe',
+    options.platform,
+    options.probe
+  );
+  proveRuntimeAcceptancePhysicalPath(
+    pathApi.join(systemDirectory.physicalPath, 'taskkill.exe'),
+    'file',
+    'taskkill.exe',
+    options.platform,
+    options.probe
+  );
+
+  environment.PATH = [systemDirectory.physicalPath, bunDirectory.physicalPath].join(pathApi.delimiter);
+  environment.SystemRoot = systemRoot.physicalPath;
+  environment.WINDIR = systemRoot.physicalPath;
+  environment.ComSpec = commandShell.physicalPath;
+  environment.PATHEXT = '.EXE';
+  assertUniqueEnvironmentKeys(environment);
+  return environment;
+}
+
+export function buildIsolatedRuntimeAcceptanceEnvironment(
+  stagingWorkspaceRoot: string,
+  additionalEnv: NodeJS.ProcessEnv = {}
+): NodeJS.ProcessEnv {
+  return buildIsolatedRuntimeAcceptanceEnvironmentWithAuthority(stagingWorkspaceRoot, {
+    additionalEnv,
+    execPath: process.execPath,
+    platform: process.platform,
+    probe: NODE_RUNTIME_ACCEPTANCE_PATH_PROBE,
+    source: process.env
   });
+}
+
+/** Test-only pure seam for cross-platform acceptance shell authority vectors. */
+export function buildIsolatedRuntimeAcceptanceEnvironmentForTests(
+  stagingWorkspaceRoot: string,
+  options: RuntimeAcceptanceShellAuthorityTestOptions
+): NodeJS.ProcessEnv {
+  return buildIsolatedRuntimeAcceptanceEnvironmentWithAuthority(stagingWorkspaceRoot, options);
 }
 
 function createRuntimeStepReport(
@@ -594,7 +842,7 @@ export async function runRuntimeVerification(
     const testPort = generatePort(projectRoot, isolated);
     const acceptanceInvocation = runtimeVerificationInvocation('acceptance', projectRoot, isolated, isolatedConfigPath);
     const acceptanceEnv = isolated
-      ? buildIsolatedRuntimeEnvironment(options.stagingWorkspaceRoot!, { TEST_PORT: String(testPort) })
+      ? buildIsolatedRuntimeAcceptanceEnvironment(options.stagingWorkspaceRoot!, { TEST_PORT: String(testPort) })
       : { ...baseEnv, CI: process.env.CI ?? 'true', TEST_PORT: String(testPort) };
     const acceptanceResult = await timed('playwright test', emitTiming, () =>
       withIsolatedPhaseTelemetry('playwright', () =>

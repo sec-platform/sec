@@ -1,9 +1,12 @@
 import { expect, test } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  buildIsolatedRuntimeAcceptanceEnvironment,
+  buildIsolatedRuntimeAcceptanceEnvironmentForTests,
   buildIsolatedRuntimeEnvironment,
   captureIsolatedRuntimeBuildNodeModulesProofForTests,
   createSkippedRuntimeLane,
@@ -47,6 +50,65 @@ function pathProbe(input: {
       return result;
     }
   };
+}
+
+function shellPathMetadata(
+  identity: string,
+  kind: 'directory' | 'file',
+  symbolicLink = false
+) {
+  return Object.freeze({
+    identity,
+    isDirectory: kind === 'directory',
+    isFile: kind === 'file',
+    isSymbolicLink: symbolicLink
+  });
+}
+
+function shellPathProbe(input: {
+  readonly metadata: Readonly<Record<string, ReturnType<typeof shellPathMetadata>>>;
+  readonly realpaths: Readonly<Record<string, string>>;
+}) {
+  return {
+    lstat(value: string) {
+      const result = input.metadata[value];
+      if (!result) throw new Error('metadata is unavailable');
+      return result;
+    },
+    realpath(value: string) {
+      const result = input.realpaths[value];
+      if (!result) throw new Error('physical path is unavailable');
+      return result;
+    }
+  };
+}
+
+async function runThroughShell(
+  command: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv
+): Promise<{ code: number; stderr: string; stdout: string }> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command, [], {
+      cwd,
+      env,
+      shell: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr?.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once('error', reject);
+    child.once('close', (code) => resolve({ code: code ?? -1, stderr, stdout }));
+  });
 }
 
 test('runtime verification logs normalize elapsed durations', () => {
@@ -430,6 +492,222 @@ test('writable and staged Playwright caches remain rooted in their original owne
   );
 });
 
+test('runtime acceptance shell environment is a minimal POSIX Bun authority', () => {
+  const bunDirectory = '/opt/sec-bun/bin';
+  const bunExecutable = `${bunDirectory}/bun`;
+  const environment = buildIsolatedRuntimeAcceptanceEnvironmentForTests(
+    path.resolve('isolated-posix-acceptance'),
+    {
+      execPath: bunExecutable,
+      platform: 'linux',
+      probe: shellPathProbe({
+        metadata: {
+          [bunDirectory]: shellPathMetadata('bun-directory', 'directory'),
+          [bunExecutable]: shellPathMetadata('bun-executable', 'file')
+        },
+        realpaths: {
+          [bunDirectory]: bunDirectory,
+          [bunExecutable]: bunExecutable
+        }
+      }),
+      source: {
+        ComSpec: '/poison/cmd',
+        PATH: '/poison/bin',
+        PATHEXT: '.POISON',
+        SystemRoot: '/poison/windows',
+        WINDIR: '/poison/windows'
+      }
+    }
+  );
+
+  expect(environment.PATH).toBe(bunDirectory);
+  for (const key of ['ComSpec', 'PATHEXT', 'SystemRoot', 'SYSTEMROOT', 'WINDIR']) {
+    expect(Object.keys(environment).some((candidate) => candidate.toLowerCase() === key.toLowerCase())).toBe(false);
+  }
+
+  const alternateExecutable = `${bunDirectory}/bun-runtime`;
+  expect(() => buildIsolatedRuntimeAcceptanceEnvironmentForTests(
+    path.resolve('isolated-posix-acceptance-shadow'),
+    {
+      execPath: alternateExecutable,
+      platform: 'linux',
+      probe: shellPathProbe({
+        metadata: {
+          [bunDirectory]: shellPathMetadata('bun-directory', 'directory'),
+          [alternateExecutable]: shellPathMetadata('running-bun', 'file'),
+          [bunExecutable]: shellPathMetadata('shadow-bun', 'file')
+        },
+        realpaths: {
+          [bunDirectory]: bunDirectory,
+          [alternateExecutable]: alternateExecutable,
+          [bunExecutable]: bunExecutable
+        }
+      }),
+      source: {}
+    }
+  )).toThrow('bare Bun');
+});
+
+test('runtime acceptance shell environment fixes one validated Windows authority', () => {
+  const systemRoot = String.raw`C:\Windows`;
+  const systemDirectory = String.raw`C:\Windows\System32`;
+  const commandShell = String.raw`C:\Windows\System32\cmd.exe`;
+  const taskkill = String.raw`C:\Windows\System32\taskkill.exe`;
+  const bunDirectory = String.raw`D:\Bun`;
+  const bunExecutable = String.raw`D:\Bun\bun.exe`;
+  const probe = shellPathProbe({
+    metadata: {
+      [systemRoot]: shellPathMetadata('windows-root', 'directory'),
+      [systemDirectory]: shellPathMetadata('system32', 'directory'),
+      [commandShell]: shellPathMetadata('cmd', 'file'),
+      [taskkill]: shellPathMetadata('taskkill', 'file'),
+      [bunDirectory]: shellPathMetadata('bun-directory', 'directory'),
+      [bunExecutable]: shellPathMetadata('bun-executable', 'file')
+    },
+    realpaths: {
+      [systemRoot]: systemRoot,
+      [systemDirectory]: systemDirectory,
+      [commandShell]: commandShell,
+      [taskkill]: taskkill,
+      [bunDirectory]: bunDirectory,
+      [bunExecutable]: bunExecutable
+    }
+  });
+  const environment = buildIsolatedRuntimeAcceptanceEnvironmentForTests(
+    path.resolve('isolated-windows-acceptance'),
+    {
+      execPath: bunExecutable,
+      platform: 'win32',
+      probe,
+      source: {
+        ComSpec: String.raw`Z:\poison\cmd.exe`,
+        path: String.raw`Z:\poison`,
+        PATHEXT: '.COM;.EXE;.BAT;.CMD',
+        SystemRoot: systemRoot,
+        windir: systemRoot
+      }
+    }
+  );
+
+  expect(environment).toMatchObject({
+    ComSpec: commandShell,
+    PATH: `${systemDirectory};${bunDirectory}`,
+    PATHEXT: '.EXE',
+    SystemRoot: systemRoot,
+    WINDIR: systemRoot
+  });
+  for (const key of ['path', 'systemroot', 'windir', 'comspec', 'pathext']) {
+    expect(Object.keys(environment).filter((candidate) => candidate.toLowerCase() === key).length).toBe(1);
+  }
+  expect(environment.PATH?.startsWith(`${systemDirectory};`)).toBe(true);
+  expect(environment.PATH).not.toContain('poison');
+  expect(path.win32.join(environment.PATH!.split(';')[0]!, 'cmd.exe')).toBe(commandShell);
+  expect(path.win32.join(environment.PATH!.split(';')[0]!, 'taskkill.exe')).toBe(taskkill);
+});
+
+test('runtime acceptance shell environment rejects ambiguous or non-physical Windows authority', () => {
+  const systemRoot = String.raw`C:\Windows`;
+  const otherRoot = String.raw`D:\Windows`;
+  const systemDirectory = String.raw`C:\Windows\System32`;
+  const commandShell = String.raw`C:\Windows\System32\cmd.exe`;
+  const taskkill = String.raw`C:\Windows\System32\taskkill.exe`;
+  const bunDirectory = String.raw`D:\Bun`;
+  const bunExecutable = String.raw`D:\Bun\bun.exe`;
+  const alternateBunDirectory = String.raw`D:\Runtime`;
+  const alternateBunExecutable = String.raw`D:\Runtime\bun-runtime.exe`;
+  const alternateBareBunExecutable = String.raw`D:\Runtime\bun.exe`;
+  const baseMetadata = {
+    [systemRoot]: shellPathMetadata('windows-root', 'directory'),
+    [otherRoot]: shellPathMetadata('other-root', 'directory'),
+    [systemDirectory]: shellPathMetadata('system32', 'directory'),
+    [commandShell]: shellPathMetadata('cmd', 'file'),
+    [taskkill]: shellPathMetadata('taskkill', 'file'),
+    [bunDirectory]: shellPathMetadata('bun-directory', 'directory'),
+    [bunExecutable]: shellPathMetadata('bun-executable', 'file')
+  };
+  const baseRealpaths = Object.fromEntries(Object.keys(baseMetadata).map((value) => [value, value]));
+  const build = (
+    source: NodeJS.ProcessEnv,
+    metadata = baseMetadata,
+    realpaths: Readonly<Record<string, string>> = baseRealpaths,
+    execPath = bunExecutable
+  ) => buildIsolatedRuntimeAcceptanceEnvironmentForTests(path.resolve('isolated-windows-negative'), {
+    execPath,
+    platform: 'win32',
+    probe: shellPathProbe({ metadata, realpaths }),
+    source
+  });
+
+  expect(() => build({ SystemRoot: 'Windows', WINDIR: 'Windows' })).toThrow('SystemRoot');
+  expect(() => build({ SystemRoot: systemRoot, SYSTEMROOT: systemRoot, WINDIR: systemRoot }))
+    .toThrow('one case-insensitive source');
+  expect(() => build({ SystemRoot: systemRoot, WINDIR: otherRoot })).toThrow('one authority');
+  expect(() => build(
+    { SystemRoot: systemRoot, WINDIR: systemRoot },
+    { ...baseMetadata, [commandShell]: shellPathMetadata('cmd-link', 'file', true) }
+  )).toThrow('cmd.exe');
+  expect(() => build(
+    { SystemRoot: systemRoot, WINDIR: systemRoot },
+    {
+      ...baseMetadata,
+      [alternateBunDirectory]: shellPathMetadata('alternate-bun-directory', 'directory'),
+      [alternateBunExecutable]: shellPathMetadata('running-bun', 'file'),
+      [alternateBareBunExecutable]: shellPathMetadata('shadow-bun', 'file')
+    },
+    {
+      ...baseRealpaths,
+      [alternateBunDirectory]: alternateBunDirectory,
+      [alternateBunExecutable]: alternateBunExecutable,
+      [alternateBareBunExecutable]: alternateBareBunExecutable
+    },
+    alternateBunExecutable
+  )).toThrow('bare Bun');
+  const metadataWithoutTaskkill = { ...baseMetadata } as Record<string, ReturnType<typeof shellPathMetadata>>;
+  delete metadataWithoutTaskkill[taskkill];
+  expect(() => build(
+    { SystemRoot: systemRoot, WINDIR: systemRoot },
+    metadataWithoutTaskkill
+  )).toThrow('taskkill.exe');
+  expect(() => build(
+    { SystemRoot: systemRoot, WINDIR: systemRoot },
+    baseMetadata,
+    { ...baseRealpaths, [systemRoot]: String.raw`C:\RealWindows` }
+  )).toThrow('SystemRoot');
+});
+
+test('runtime acceptance resolves the exact running Bun through a real shell', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-runtime-shell-authority-'));
+  try {
+    const stagingRoot = path.join(root, 'staging');
+    const environment = buildIsolatedRuntimeAcceptanceEnvironment(stagingRoot);
+    for (const value of [
+      environment.HOME,
+      environment.APPDATA,
+      environment.LOCALAPPDATA,
+      environment.TEMP,
+      environment.PLAYWRIGHT_BROWSERS_PATH
+    ]) {
+      if (value) await mkdir(value, { recursive: true });
+    }
+    await writeFile(
+      path.join(root, 'runtime-shell-probe.mjs'),
+      "process.stdout.write(process.execPath);\n",
+      'utf8'
+    );
+
+    const result = await runThroughShell(
+      'bun --no-env-file --no-install runtime-shell-probe.mjs',
+      root,
+      environment
+    );
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(await realpath(result.stdout.trim())).toBe(await realpath(process.execPath));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('non-isolated runtime verification delegates to the shared browser materializer and preserves failure bytes', async () => {
   const projectRoot = path.resolve('runtime-project');
   const environment = {
@@ -472,6 +750,8 @@ test('isolated runtime environment excludes live fallbacks and contains writable
   const stagingRoot = path.resolve('isolated-staging-contract');
   const environment = buildIsolatedRuntimeEnvironment(stagingRoot);
   expect(environment.PATH).toBe('');
+  expect(environment.ComSpec).toBeUndefined();
+  expect(environment.PATHEXT).toBeUndefined();
   expect(environment.NODE_OPTIONS).toBeUndefined();
   expect(environment.BUN_OPTIONS).toBeUndefined();
   expect(environment.HTTP_PROXY).toBeUndefined();

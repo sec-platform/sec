@@ -10,7 +10,7 @@ last-reviewed: 2026-07-23
 
 ## 1. 当前阶段判定
 
-**v0.3 Semantic Core Foundation 已完成退出审查。** Fact Delta、Impact Propagation、Semantic Mutation SM-0～SM-3、Phase 0 Current Reality Rebase、IR canonical primitives import-cycle removal 与 TEST-H1 fast timeout V9 bootstrap 已进入 `main`。SM-4A trusted authorization ingress candidate 已形成 focused/static evidence，但其 canonical affected aggregate证明 test/runtime dependency bootstrap没有物化 isolated runtime唯一接受的 worktree-local Playwright cache；fresh hosted Ubuntu runner同样只有`bun install`而没有该authority。因此当前唯一正式执行闭包是 **TEST-H2 Runtime Browser Cache V10 Bootstrap**，产品 active next 仍是 **SM-4A Workbench/CLI minimum Semantic Mutation v2 loop**。SM-4B Task Envelope v2 与 SM-4C AI Semantic Operator 不属于 SM-4A。
+**v0.3 Semantic Core Foundation 已完成退出审查。** Fact Delta、Impact Propagation、Semantic Mutation SM-0～SM-3、Phase 0 Current Reality Rebase、IR canonical primitives import-cycle removal 与 TEST-H1 fast timeout V9 bootstrap 已进入 `main`。SM-4A trusted authorization ingress candidate 已形成 focused/static evidence，但其 canonical affected aggregate证明 test/runtime dependency bootstrap没有物化 isolated runtime唯一接受的 worktree-local Playwright cache；后续 TEST-H3 又把修复候选的合法 failed artifact set 精确归因为 isolated runtime acceptance 的 shell authority 缺失。当前唯一正式执行闭包是 **TEST-H2 Runtime Browser Cache + Acceptance Shell V10 Bootstrap V3**，产品 active next 仍是 **SM-4A Workbench/CLI minimum Semantic Mutation v2 loop**。SM-4B Task Envelope v2 与 SM-4C AI Semantic Operator 不属于 SM-4A。
 
 当前真实形态：
 
@@ -431,11 +431,11 @@ Ticket 母例由命名 slow suite `e2e-ticket-semantic-vertical`（`tests/e2e/se
 
 `validateResolvedTemplates()` 是非权威的隔离 template sandbox adapter：它复制已解析 workspace 输入后复用 `buildWorkspaceSemanticBundle()` 与 `createPipelineSemanticContext()`，只负责 compose/typecheck 预检，不拥有第二套 frontend、Pipeline coordinator 或业务语义 authority。PR #96 的 head `3649ac63e11bc6f336bf69d48e33f9810ec0996a` 与 squash merge `07290ccda640db5e285f1d4e198b2721e6d88a8c` tree 一致；持久 evidence 位于 `docs/evidence/v0-3-semantic-frontend-verification.json` 与 `docs/evidence/v0-3-semantic-frontend-risk-batch.json`。
 
-v0.3 的语义能力退出条件均为 **PASS**，状态因此更新为 **COMPLETED**。Phase 0 后续发现的 `ir-identity.ts → ir-revision.ts → ir-identity.ts` import cycle 已由 IR-H1 / PR #135 在 `main@5f70db3` 消除，并保持 canonical bytes不变；TEST-H1 / PR #136 已在 `main@8aa2d2d` 固定fast timeout与v9 identity。当前engineering closure只补齐test/runtime browser cache materialization、等价authority的structural snapshot reuse与v10 trust-root identity；它不撤销已验证的产品能力，也不得借机改变selector、Evidence schema、Gate顺序或产品revision。
+v0.3 的语义能力退出条件均为 **PASS**，状态因此更新为 **COMPLETED**。Phase 0 后续发现的 `ir-identity.ts → ir-revision.ts → ir-identity.ts` import cycle 已由 IR-H1 / PR #135 在 `main@5f70db3` 消除，并保持 canonical bytes不变；TEST-H1 / PR #136 已在 `main@8aa2d2d` 固定fast timeout与v9 identity。当前engineering closure只补齐test/runtime browser cache materialization、等价authority的structural snapshot reuse、acceptance-only shell authority与v10 trust-root identity；它不撤销已验证的产品能力，也不得借机改变selector、Evidence schema、Gate顺序或产品revision。
 
 ## 13. v0.4：Semantic Operations
 
-状态：SM-0～SM-3、Phase 0 文档/控制面 closure、IR canonical primitives cycle removal与Affected Fast Timeout V9 Bootstrap **COMPLETED**；Runtime Browser Cache + Structural Snapshot Reuse V10 Bootstrap V2 **ACTIVE PREREQUISITE**；产品 **ACTIVE NEXT = SM-4A**。
+状态：SM-0～SM-3、Phase 0 文档/控制面 closure、IR canonical primitives cycle removal与Affected Fast Timeout V9 Bootstrap **COMPLETED**；Runtime Browser Cache + Structural Snapshot Reuse + Acceptance Shell V10 Bootstrap V3 **ACTIVE PREREQUISITE**；产品 **ACTIVE NEXT = SM-4A**。
 
 只有 v0.3 完成后进入：
 
@@ -509,7 +509,7 @@ FD-2 的 docs-only verification、frozen review 与失效边界记录在 `docs/e
 | SM-3 | isolated apply coordinator | **COMPLETED** | 跨进程 lease、isolated rebuild、actual Delta/Impact、Verification union、atomic publish、verified rollback/recovery journal 与 exact production seam 已满足退出条件 |
 | IR-H1 | canonical primitives import-cycle removal | **COMPLETED** | PR #135 已进入 `main`；identity/revision 双向 import消除，canonical bytes不变，dependency-cruiser零环 |
 | TEST-H1 | affected fast timeout V9 bootstrap | **COMPLETED** | PR #136 已以人工trust-root bootstrap进入`main@8aa2d2d`；concurrent/serial fast invocation共享180秒有界默认timeout，V1 identity为v9 |
-| TEST-H2 | runtime browser cache + structural snapshot reuse V10 bootstrap V2 | **ACTIVE PREREQUISITE** | project-runtime实际执行并绑定external Node 22+，拒绝Bun/低版本/非Node/不可执行/execPath漂移；project-local registry failure fatal，只有成功选择但physical executable缺失才安装；doctor、test bootstrap与non-isolated runtime verifier复用该owner；runtime-plan按完整结构化authority key有界复用snapshot且逐次保留原revalidation/proof，V1 revision/artifact推进到v10 |
+| TEST-H2 | runtime browser cache + structural snapshot reuse + acceptance shell V10 bootstrap V3 | **ACTIVE PREREQUISITE** | 保留V2的external Node、canonical Playwright cache、pre-fanout与structural snapshot invariants；generic isolated build/unit继续使用空PATH，只有Playwright acceptance获得经物理验证的最小shell authority；generated webServer从project cwd经fixed isolated bunfig启动project-local Next；V1 revision/artifact推进到v10 |
 | SM-4A | Workbench/CLI minimum product loop | **PRODUCT ACTIVE NEXT** | 只接 `add-state-transition`；共享 trusted adapter、CLI plan/apply/query/recover、Workbench State View/API、HTTP trust boundary 与真实 vertical 闭合 |
 | SM-4B | Task Envelope v2 | **DEFERRED** | 在 SEC-TS 主链与完整 Workbench 前置条件满足后，冻结 semantic target/operation/must-preserve/verification minimum；不复制 Mutation authority |
 | SM-4C | AI Semantic Operator | **DEFERRED** | 只消费 SM-4B Envelope/Context Packet 并提交 bounded proposal；无直接 writer、无自行扩权 |
@@ -580,7 +580,11 @@ V1 canonical affected的唯一primary failure是SM-3 exact title在`300039.56ms`
 
 V2 working-tree focused evidence现已闭合该局部机制：三个synthetic snapshot-cache titles为3 pass / 1 skip / 0 fail / 62 assertions；独立opt-in real-cache pre-child sentinel以三个fresh canonical wrappers得到1 capture、2 revalidations、1 retained entry、0 flights，snapshot为11979 files / 1158544347 bytes。随后一次materialize与一次launch proof通过，且没有compile/next/unit/playwright phase、child outcome或progress checkpoint。prior head `e027ba6` 的canonical affected为111 pass / 2 skip / 2 fail / 822 assertions，两个失败只证明per-authority live LRU counters不是parallel-safe oracle；修复改用per-staging telemetry与`entries - flights <= 4`全局bound，未改变产品cache。该focused证据证明结构化复用与真实缓存量级，不替代修复后尚未冻结的新head canonical affected，也不构成`main`完成声明。
 
-修复head `de5f84e` 的唯一canonical affected再次以FAIL终结，但failure class已推进：snapshot-cache batch在同一aggregate内为113 pass / 2 skip / 0 fail / 845 assertions，SM-3 dry-run/apply title则在287236ms返回合法`verification.status=failed`与公开`SEMANTIC-MUTATION-010`，不是watchdog timeout。公开结果没有`details.isolatedVerification`，因此现有代码可证明materialize、launch、supervisor、child-control、artifact read/parse、semantic rebuild与artifact-set classification均完成；具体fast/runtime failed lane因testkit默认cleanup已删除而不可恢复。TEST-H2 V2按stop条件终止，当前唯一闭包TEST-H3只在该测试调用点启用现有retain-on-failure选项，运行一次exact-title diagnostic读取canonical reports并立即清理；它不修改产品、提高timeout、重跑aggregate或启动Risk。
+修复head `de5f84e` 的唯一canonical affected再次以FAIL终结，但failure class已推进：snapshot-cache batch在同一aggregate内为113 pass / 2 skip / 0 fail / 845 assertions，SM-3 dry-run/apply title则在287236ms返回合法`verification.status=failed`与公开`SEMANTIC-MUTATION-010`，不是watchdog timeout。公开结果没有`details.isolatedVerification`，因此现有代码可证明materialize、launch、supervisor、child-control、artifact read/parse、semantic rebuild与artifact-set classification均完成；具体fast/runtime failed lane因testkit默认cleanup已删除而不可恢复。TEST-H2 V2按stop条件终止。
+
+TEST-H3 已在独立diagnostic head只对该调用点启用既有`retainOnCallbackFailure`并恰好运行一次旧exact title：fast、runtime build与runtime unit均PASS，唯一失败为`customer-flow.spec.ts`所在runtime acceptance，path-free错误类为`ENOENT / uv_spawn / cmd.exe`。证据已绑定`b258517`、由`f6dd49b`持久化到`docs/evidence/test-runtime-isolated-failure-attribution-2026-07-23.json`，唯一retained workspace校验后按literal path删除且最终计数为0；测试调用点的diagnostic selector已撤销。该结果只是根因归因，不是Gate PASS，也不能与`de5f84e`成功sub-batches组合。
+
+当前V3从`main@8aa2d2d`吸收V2全部未落地delta，并只增加一个窄修复面：`buildIsolatedProcessEnvironment()`及build/unit的generic empty-PATH合同保持不变；只有acceptance Playwright CLI取得controlled shell environment。POSIX只暴露运行中Bun的物理目录；Windows固定`System32 → BunDir`、validated `ComSpec=cmd.exe`、`PATHEXT=.EXE`并预证`taskkill.exe`。generated Playwright webServer从project/config cwd以`bun --no-env-file --config=../.isolated-process/runtime/bunfig.toml --no-install node_modules/next/dist/bin/next start ...`启动，避免ambient PATH、global Next或可override的project bunfig重新成为authority。V3尚未形成完成事实；必须先由focused real-shell sentinel证明Next URL与teardown，再冻结新head并只运行一次canonical affected，只有PASS才允许一次Risk。
 
 ### SM-4A minimum product contract
 

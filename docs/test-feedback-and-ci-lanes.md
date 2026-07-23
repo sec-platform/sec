@@ -160,6 +160,10 @@ V10 的real-cache phase sentinel是显式opt-in本地诊断，不进入普通sel
 
 V10 affected若返回一个合法但`status=failed`的isolated artifact set，公开`SEMANTIC-MUTATION-010`不能再被归类为timeout、supervisor或artifact-protocol failure；它表示canonical报告已形成但至少一个verification lane失败。若普通testkit cleanup删除了报告，只允许在新的diagnostic head上运行一次exact-title，并仅在该调用点以显式环境变量选择既有`retainOnCallbackFailure`。该diagnostic不是Gate PASS，不能与aggregate成功sub-batches组合；读取path-free lane/status/phase/digest后必须删除唯一retained workspace并重新冻结实际failed-lane owner。共享testkit helper、timeout、selector、child和orchestrator不得为归因而修改。
 
+上述TEST-H3诊断已按一次性合同结束：`b258517`只保留一次失败workspace，`f6dd49b`持久化path-free evidence；fast、runtime build与runtime unit均PASS，唯一失败为runtime acceptance，error class为`ENOENT / uv_spawn / cmd.exe`。证据校验后唯一literal workspace已删除且计数为0，`semantic-mutation-apply.test.ts`的临时retention selector已撤销。该identity永久只作diagnostic，不得重跑、补组成affected PASS或据此启动Risk。
+
+后续V3修复保持generic isolated build/unit空`PATH`不变，只为acceptance Playwright CLI建立最小shell authority；generated webServer必须从project/config cwd通过fixed isolated bunfig与project-local Next启动。Focused evidence必须分别覆盖pure Windows/POSIX authority vectors、真实shell解析到exact Bun、generated command contract，以及generated project → build → Playwright CLI → webServer shell → Next URL → teardown/free-port sentinel。最终冻结head仍需一次完整canonical affected；只有其PASS才允许一次canonical Risk。candidate修改v10 trust root，禁止dispatch hosted Scope/Quick/Risk/Full或release自证，使用frozen local evidence、独立Review与manual bootstrap。
+
 ### 6.3 本地 Work Package 长时 Gate 监督
 
 当 frozen Work Package 明确要求一次不可拆分、不可重复的长时 owner batch 时，本地 supervisor 可以作为观察与 containment 层，但不能冒充 hosted Evidence V2/V3 或 `sec/merge-gate`。它必须位于既有 verifier trust root 之外，并复用独立的 bounded observed-process lifecycle；不得修改 `platform/shared/process.ts`、`scripts/codex/` 或 hosted CI revision 后自证。
