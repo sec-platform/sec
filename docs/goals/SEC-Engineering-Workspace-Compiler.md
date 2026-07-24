@@ -22,23 +22,9 @@ sha256:555a187dc8a1a8ed8d52e76c23a2e2e752c2a77073664fde5f286d274cbbf676
 
 ## 产品目标
 
-SEC 的目标品类是 **Engineering Workspace Compiler**：用户表达产品与工程语义，或导入 Existing Workspace；SEC 内部确定性地治理并生成源码、测试、文档、Gate、Agent、Release 与 Evidence。
+SEC 的目标品类是 **Engineering Workspace Compiler**：用户表达产品与工程语义，或导入 Existing Workspace；SEC 内部确定性地治理并生成源码、测试、文档、Gate、Agent、Release 与 Evidence。TypeScript 是第一目标；SEC 支持受控 AI、真实 Brownfield 导入，并以 `QzCrane/nexus` 作为首个完整 Conformance Corpus。
 
-```text
-Product Intent / Existing Workspace
-→ Canonical Workspace Input Snapshot
-→ Engineering IR + independently validated workspace domains
-→ Validated Engineering Workspace Snapshot
-→ Application IR
-→ Behavior IR
-→ Target Program IR（SEC-TS v1 为 TypeScript Program IR）
-→ Validated target Compilation Snapshot
-→ Source / Test / Docs / Gate / Agent / Release Projections
-→ Verification / Provenance / Workbench
-→ Semantic Mutation / Atomic Publish / Rollback / Recovery
-```
-
-TypeScript 是第一目标；SEC 支持受控 AI、真实 Brownfield 导入，并以 `QzCrane/nexus` 作为首个完整 Conformance Corpus。
+本文件只绑定上游长期意图，不拥有产品主链。完整数据流与系统边界只见 `docs/02-工程编译器-MVP-PRD与架构稿.md`；Engineering IR、Workspace domains、Target IR/Lowering 与 Brownfield 只见 `14` 和三个 `docs/architecture/**` owner。
 
 ## 永久边界
 
@@ -52,9 +38,7 @@ TypeScript 是第一目标；SEC 支持受控 AI、真实 Brownfield 导入，�
 
 ## 稳定路线
 
-路线校准与 canonical 基础 → SM-4A 产品闭环 → Blockless Source Ownership → TS Target Profile / Type Algebra → Application / Behavior / TS Program IR → 通用 TS Lowering → Workspace domains 与 projections → 完整 Workbench → Task Envelope v2 / AI Operator → Brownfield → Nexus Parity → 生产化。
-
-最终数据流要求完整 Validated Engineering Workspace Snapshot 位于 target IR 之前；实施阶段允许现有 validated Engineering IR 先作为 provisional target-lowering input。后续 Workspace-domain 扩展必须通过同一个 snapshot builder 原位 reconcile，不能建立第二 loader、writer、revision authority 或 target-program pipeline。详细迁移门与完成定义只由 `docs/03-MVP实施计划与路线图.md`、`docs/architecture/engineering-workspace-ir.md` 和 `docs/architecture/sec-ts-ir-layers.md` 维护。
+阶段 DAG、进入/退出门与完成定义只由 `docs/03-MVP实施计划与路线图.md` 维护；Workspace-domain 与 Target IR/Lowering 的依赖只由对应 `docs/architecture/**` owner 维护。本 Goal mirror 不再复制路线或 snapshot 迁移算法。
 
 ## Nexus 完成门
 

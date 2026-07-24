@@ -1,67 +1,61 @@
 ---
 title: SEC 滚动近期计划
 status: active
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-24
 ---
 
 # SEC 滚动近期计划
 
-本窗口由 `bun scripts/codex/document-control-plane.ts status --json` 的 live resolved current-state、九文件 Goal revision `sha256:555a187d…f676`、代码/测试、隔离 worktree 与 GitNexus radar重新计算。原 V5 replacement 包仅作为已审计输入，不能机械执行。active pointer在 candidate digest尚未进入 live default branch时选择 **Docs Control-plane Publication Lifecycle V1**；同一 digest进入 default branch后自动解析为`none`并触发下一轮重算。
+本窗口从 `origin/main@2065492f55bab75f65cf124c048fc6b849be73f9`、九文件 Goal revision `sha256:555a187d…f676`、live resolver、开放PR identity #137/#141、Issue #132、外部exact-head Review/CI状态、V5 replacement审计、文档引用图、docs-doctor输出与 Nexus freshness反证重新计算。#141创建后的全窗口重算未改变DAG或候选顺序；PR的Draft/merge/head/Review/CI不在计划中复制，由live resolver持续提供。上一 manifest 已在 live default branch解析为`none`，本 pointer现只选择 **Docs Authority Content Normalization V1**。
 
 ```text
-Docs Control-plane Publication Lifecycle V1 (active)
-→ Docs Authority Content Normalization V1
-  → Docs-doctor V5 Semantic Superset Bootstrap V1
+Docs Authority Content Normalization V1 (active)
+→ Docs-doctor V5 Semantic Superset Bootstrap V1
 → Runtime Canonical Line + PR #137 Reconciliation
 → Dirty Root / Branch / Worktree Reconciliation
 → Nexus Exact-tree Census Refresh
 ```
 
-本计划只维护一个条件 active package 与五个候选；候选不是授权、完成声明或永久 Backlog。resolved main/PR/Issue/CI/Review、Goal、authority或前置发生变化后必须整体重算，不能追加一个同义 post-merge closeout。
+本计划只有一个 active package与四个候选。候选不是授权、完成声明或永久 Backlog；任一 reload事件发生后必须从新事实整体重算。
 
-## 当前条件选择的唯一 Work Package
+## 当前唯一 Work Package
 
-### docs-control-plane-publication-lifecycle-v1
+### docs-authority-content-normalization-v1
 
-- 结果：消除 versioned control plane 对自身最终 commit/PR/merge identity 的依赖，让 active selector在 manifest digest进入 default branch后确定性解析为 `none`，并对 stale snapshot fail-closed。
-- 根因：#138 合并后创建 #139 更新旧 SHA；#139 合并后同一问题再次出现。候选无法在自身 Git tree 内记录未来 squash identity，继续提交 closeout会无限递归。
-- Owner：`docs/04-AI自主实现执行蓝图.md`、三个 `docs/work` 控制面、本 manifest与一个最小 lifecycle contract test。
-- 退出：current-state只含 resolver 配置与稳定事实；不记录当前候选 self lifecycle；pointer使用 Git blob bytes SHA-256；merged/stale/CRLF负例受测试约束；focused tests、docs doctor、manifest/YAML/patch、GitNexus、Review、exact-head Scope与 verifier trust-root人工 bootstrap闭合。`scripts/codex/`候选不得用自身 Quick 结果自证。
+- 结果：将 `AGENTS.md` 收敛为短投影；产品主链只由`02`拥有；active CI authority不再累积历史 SHA/PR/run；两个不存在的 template path改为可验证 provenance；Nexus ledger显式标记 source-revision invalidation。
+- 根因：V5选择性迁移保留了latest-main代码事实，但仍把 stable policy、历史 evidence与外部 source input path混在 active owner中；Nexus记录值已被 live default branch的117-path delta失效。
+- Gate反馈：首次exact-head Quick通过，但base-side Gate发现历史archive被Git识别为`C099`、GitHub API识别为`added`；archive必须以可逆引用快照保留base原文并消除copy identity，禁止修改verifier trust root来放宽一致性。
+- Owner：文档权威图、Agent projection、执行/CI policy、Goal mirror、Provider/Nexus ledgers与三个控制面；产品、tests、CI verifier和runtime均禁止修改。
+- 退出：旧CI全文进入 historical archive；active docs无旧 run ledger或第二产品主链；ledger provenance不依赖不存在路径；Nexus current coverage不再冒充fresh；focused docs/control/CI-path contracts、docs doctor、YAML、patch、GitNexus与exact-head Review闭合。
 
 ## 候选 Work Package
 
-### 1. docs-authority-content-normalization-v1
+### 1. docs-doctor-v5-semantic-superset-bootstrap-v1
 
-- 工程结果：把 `AGENTS.md` 收敛为短 projection，产品主链只保留一个 canonical owner，把旧 SHA/PR/run evidence移出 active CI authority，修复两个不存在的 template provenance path，并明确 Nexus ledger已因 source revision变化失效。
-- 依赖：本 control-plane lifecycle先进入 `main`，随后从新 main重新冻结 owner、消费者与 test surface。
-- 边界：不修改 docs doctor/verifier trust root，不借文档整理声称产品能力完成。
+- 工程结果：保留现有 file URI、广义 repo path与deprecated-token诊断，同时加入 required owner、唯一H1、frontmatter/status、禁用V4实体、Unicode/path、historical/future-output语义与三个控制面 lifecycle检查。
+- 依赖：本包先冻结 active/historical owner边界；`docs/scripts/docs-doctor.ts`属于 verifier trust root，必须使用新 revision与人工 bootstrap，不由candidate自证。
+- 退出：legacy+V5 positive/negative/differential fixtures跨平台通过，当前8个warning被按真实语义归零而非删除历史记录或加宽排除。
 
-### 2. docs-doctor-v5-semantic-superset-bootstrap-v1
+### 2. runtime-canonical-line-and-pr137-reconciliation-v1
 
-- 工程结果：在保留 legacy diagnostics 的前提下，把 canonical existence、唯一 H1、frontmatter/status、V4 differential、Unicode/path与三个控制面 lifecycle纳入一个 doctor。
-- 依赖：authority normalization先冻结 stable owner；verifier trust-root变化使用人工 bootstrap，不由候选自证。
-- 退出：legacy与V5正负 fixture、跨平台 bytes、manual bootstrap evidence和独立 Review全部闭合。
+- 产品结果：从届时新`main`选择唯一 runtime implementation/evidence line，解决 Draft #137 的冲突与 immutable affected failure，吸收或准确 supersede其他本地候选。
+- 依赖：文档与doctor trust-root包完成；重新读取 #137 head/base/Review/CI及所有 runtime worktree bytes。
+- 退出：一个 canonical runtime owner进入`main`，失败根因有最小复现与Gate，#137被合并或准确关闭，替代分支不再保留第二实现。
 
-### 3. runtime-canonical-line-and-pr137-reconciliation-v1
+### 3. dirty-root-and-branch-reconciliation-v1
 
-- 产品结果：以新 `main` 为单一 base，在保存现有 dirty/staged证据的前提下选择唯一 runtime implementation/evidence line，修复 #137 的冲突与 immutable affected failure，吸收或准确 supersede旧 PR。
-- 依赖：前三个文档治理包完成或证明与 runtime surface无交集；重新冻结 production/test/evidence owner。
-- 退出：单一 canonical runtime owner进入 `main`；#137 CI/Review/冲突闭合或被准确关闭；被包含或替代的 runtime refs/worktrees有内容证明后清理。
+- 工程结果：逐项裁决用户 dirty root、上游 Goal/replacement inputs、legacy roadmap、已包含branches与retained worktrees；有价值内容进入 canonical owner，确认无独有内容后才删除。
+- 约束：不得 reset/checkout覆盖用户 bytes，不用0/0或branch名证明可删；每个ref按 tree/diff/PR/consumer判断 adopt/archive/retire。
+- 退出：root可安全快进；完成使命的local/remote branch与worktree物理清理；只保留仍有未合并价值的ref。
 
-### 4. dirty-root-and-branch-reconciliation-v1
+### 4. nexus-exact-tree-census-refresh
 
-- 工程结果：逐字节裁决 dirty root、legacy roadmap、已包含 local branches与 retained worktrees；有价值内容迁入 canonical owner，已被 `main` 吸收或明确退役的内容才物理清理。
-- 约束：不得 reset/checkout覆盖用户修改；原 goals/replacement输入只有在 canonical吸收、审计记录与 hash证明完成后才可移除。
-- 退出：每项 dirty byte都有 adopt/archive/retire结果；root可安全快进；本地远程只保留仍有未合并价值的 ref。
+- 产品结果：在启动时绑定最新 Nexus commit/tree，重算path/mode/object、entrypoints、EPR 29/29、Skills、mechanism decisions、public/deployed surfaces与retirement前置。
+- 依赖：当前`bc2c3b3…`仅是 freshness反证，不预先冻结未来 baseline；ledger authority写入保持A0单写者。
+- 退出：classification/decision达到100%，unclassified/undecided为0；未完成六维Parity与owner迁移前仍不得声称吸收完成。
 
-### 5. nexus-exact-tree-census-refresh
+## Gate、单写者与重算
 
-- 产品结果：绑定最新 Nexus commit/tree，重算 path/mode/object inventory、entrypoints、EPR 29/29、Skills、mechanism decisions、public/deployed surfaces和 retirement前置。
-- 执行方式：只读采集可并行；ledger authority写入与 parity/retirement仍由 A0串行，Census不能成为第二 active package。
-- 退出：tracked path classification与 mechanism decision为100%、unclassified/undecided为0；这仍不证明 accepted parity或 retirement完成。
-
-## 单写者、Gate 与整体重算
-
-- 同一时刻只有一个 formal active package；文档 authority、doctor trust root、runtime owner与 Nexus ledger按依赖串行冻结。
-- 每个 Gate只有一个 `gate_owner`；相同 `gate_key + tested head + profile` 的未失效结果必须复用，历史 FAIL/diagnostic不能包装成 PASS。
-- 任一 merge/close、相关 SEC/Nexus `main`变化、新 CI/Review blocker、architecture/authority反证、实现 supersede、Nexus Census新前置或长期 Goal更新后，先运行时刷新 current-state，再整体重算本窗口。
+- A0是本窗口全部Gate owner；相同 `gate_key + tested head + profile` 的未失效结果复用，历史archive只能提供线索。
+- 文档authority、doctor trust root、runtime owner与Nexus ledger按依赖串行；只读审计不能创建第二formal package。
+- 任一 SEC/Nexus `main`变化、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership反证、实现supersede或Census新前置均触发 live resolver与全窗口重算。
