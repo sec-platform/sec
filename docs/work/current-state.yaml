@@ -1,272 +1,44 @@
-schema: sec-current-state-v1
-observedMainSha: 7dbcdc4349348b4f0af446df548af3083ad7d43d
-observedMainTree: c2019e0547be2871dae8195ec59a39a214593043
-observedAt: "2026-07-24T00:01:57+08:00"
-currentPhase: P1-sm4a-prerequisite-reconciliation
-status: active
-nextReconciliationPoint:
-  - docs-v5-postmerge-reconciliation-merge-or-invalidation
+schema: sec-current-state-live-v1
+resolver:
+  command: bun scripts/codex/document-control-plane.ts status --json
+  repository: sec-platform/sec
+  remote: origin
+  defaultBranch: main
+  defaultRef: refs/remotes/origin/main
+  requireRemoteMatch: true
 
-goalAuthority:
-  repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
-  upstreamDocumentCount: 9
-  combinedRevision: sha256:555a187dc8a1a8ed8d52e76c23a2e2e752c2a77073664fde5f286d274cbbf676
-  sourceInputsTracked: false
+stableFacts:
+  goalAuthority:
+    repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
+    upstreamDocumentCount: 9
+    combinedRevision: sha256:555a187dc8a1a8ed8d52e76c23a2e2e752c2a77073664fde5f286d274cbbf676
+    sourceInputsTracked: false
 
-documentReplacement:
-  sourcePath: docs/scripts/SEC_docs_v5_replacement
-  sourceManifestSha256: dfebcd615422f7d70fea68537cf4e9c82cd0d81e4ac401fd1c8aaf333890e9c2
-  manifestEntries: 132
-  manifestBytesConsistent: true
-  executableVerdict: no-go
-  disposition: superseded-by-main-reconciliation
-  mergedReconciliationCommit: 7dbcdc4349348b4f0af446df548af3083ad7d43d
+  documentReplacement:
+    sourcePath: docs/scripts/SEC_docs_v5_replacement
+    sourceManifestSha256: dfebcd615422f7d70fea68537cf4e9c82cd0d81e4ac401fd1c8aaf333890e9c2
+    manifestEntries: 132
+    manifestBytesConsistent: true
+    executableVerdict: no-go
+    disposition: superseded-by-selective-main-reconciliation
+    mergedPullRequests:
+      - 138
+      - 139
+    integratedMainSha: 014abb32e88aa34b789116779d7e07ed1748c91e
 
-lastMergedWorkPackage:
-  id: docs-document-authority-v5-reconciliation-v2
-  pullRequest: 138
-  baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
-  sourceHeadSha: 260aa6c57991b40e225b5d8a35b5a3b7500b5d07
-  mergeCommit: 7dbcdc4349348b4f0af446df548af3083ad7d43d
-  sourceAndMergeTreeEqual: true
-  mergedTree: c2019e0547be2871dae8195ec59a39a214593043
-  mergedAt: "2026-07-23T23:16:17+08:00"
-  scopeRun: 30019092243
-  quickRun: 30019203515
-  mergeGateRun: 30019592728
-  result: merged
+  completedCapabilities:
+    - v0.3-semantic-core-foundation
+    - v0.4-fact-delta-pure-kernel
+    - v0.4-impact-propagation-pure-kernel
+    - v0.4-semantic-mutation-sm0-through-sm3
+    - ci-verification-v8-active-documentation-contract
+    - ci-verification-v9-fast-timeout-contract
+    - ir-canonical-primitives-cycle-removal
+    - docs-document-authority-v5-reconciliation
 
-activeWorkPackage:
-  id: docs-v5-postmerge-reconciliation-v1
-  manifest: docs/work-packages/docs-v5-postmerge-reconciliation-v1.md
-  manifestDigest: sha256:c82669744167c48a82e1dfe2a79c46310bf8187055edfe0ddf21fe03894ed1b2
-  branch: codex/docs-v5-postmerge-reconciliation-v1
-  pullRequest: 139
-  baseSha: 7dbcdc4349348b4f0af446df548af3083ad7d43d
-  headSha: null
-  headBinding: external-exact-head-evidence-required-to-avoid-self-reference
-  state: active
-
-openPullRequests:
-  - 137
-  - 139
-openIssues:
-  - 132
-
-issueFacts:
-  issue132:
-    state: open
-    role: navigation-only
-
-pullRequestFacts:
-  pullRequest137:
-    state: open
-    draft: true
-    mergeability: conflicting
-    mergeStateStatus: dirty
-    baseSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
-    remoteHeadSha: cf0183d495fbc8223fb8e216393f7f20867e653a
-    localSuccessorSha: 377a4876160e860a39898ae2851f6f7c2c175b5d
-    relativeToCurrentMain:
-      behind: 1
-      aheadRemoteHead: 8
-      netChangedPaths: 56
-      overlappingMainPaths: 6
-      textConflictPaths: 4
-    reviews: 0
-    unresolvedThreads: 0
-    requestChanges: 0
-    reviewRequests: 0
-    hostedScopeRunsForCurrentHead: 0
-    hostedQuickRunsForCurrentHead: 0
-    immutableAffectedVerification:
-      testedHead: ec97412efda4a61efe147575fd6f641338b110c9
-      gate: affected-tests
-      profile: quick
-      result: fail
-      targetResult: 3-pass-1-fail-77-expectations
-      durationSeconds: 350.36
-      failedStage: artifact-read
-      diagnostic: SEMANTIC-MUTATION-010
-      riskGateRun: not-run-and-forbidden-on-tested-head
-      compositionRule: successful-sub-batches-and-focused-diagnostics-cannot-compose-to-pass
-      invalidation: remains-an-immutable-fail-for-tested-head
-    mergeGate:
-      result: failure
-      runId: 30019759440
-      reason: draft-pr-not-eligible
-  pullRequest139:
-    number: 139
-    branch: codex/docs-v5-postmerge-reconciliation-v1
-    baseSha: 7dbcdc4349348b4f0af446df548af3083ad7d43d
-    headSha: null
-    headBinding: external-exact-head-evidence-required-to-avoid-self-reference
-    finalLifecycleBinding: external-review-ci-and-merge-evidence
-    bootstrapSnapshot:
-      observedAt: "2026-07-24T00:01:57+08:00"
-      state: open
-      draft: true
-      headSha: e5a42effc9683ade96fa304a8f24b64932640b41
-      mergeability: mergeable
-      mergeStateStatus: unstable
-      reviews: 0
-      unresolvedThreads: 0
-      requestChanges: 0
-      reviewRequests: 0
-      hostedScopeRuns: 0
-      hostedQuickRuns: 0
-      mergeGate:
-        result: failure
-        runId: 30023240095
-        reason: draft-pr-not-eligible
-      invalidation: final-candidate-refreeze
-
-remoteHeads:
-  main: 7dbcdc4349348b4f0af446df548af3083ad7d43d
-  codex/runtime-acceptance-shell-authority-v1: cf0183d495fbc8223fb8e216393f7f20867e653a
-
-worktrees:
-  root:
-    path: .
-    branch: main
-    headSha: eb48eb35d1cdb0c647154385f0c938bf1066f7d4
-    relativeToMain:
-      behind: 5
-      ahead: 0
-    state: dirty-protected
-    dirtyClasses:
-      - tracked-agent-and-settings
-      - untracked-goal-inputs
-      - untracked-replacement-audit-package
-  postmergeReconciliation:
-    path: .worktrees/docs-v5-postmerge-reconciliation-7dbcdc4
-    branch: codex/docs-v5-postmerge-reconciliation-v1
-    headSha: null
-    headBinding: external-exact-head-evidence-required-to-avoid-self-reference
-    bootstrapHeadSha: e5a42effc9683ade96fa304a8f24b64932640b41
-    bootstrapSnapshotInvalidation: final-candidate-refreeze
-    state: active
-  runtimePullRequestSuccessor:
-    path: .worktrees/runtime-browser-cache-8aa2d2d
-    branch: codex/runtime-acceptance-shell-authority-v1
-    headSha: 377a4876160e860a39898ae2851f6f7c2c175b5d
-    state: clean-protected
-  runtimeObservability:
-    path: .worktrees/runtime-staged-node-candidate-8aa2d2d
-    branch: codex/runtime-verification-precommand-observability-v1
-    headSha: 50a5f29618a4c456e41f46803474e2ed7d069ca2
-    state: dirty-protected
-    dirtyPaths:
-      - AGENTS.md
-      - docs/work-packages/runtime-precommand-timeout-attribution-v1.md
-  runtimeTreeDuplicate:
-    path: .worktrees/runtime-staged-node-final-8aa2d2d
-    branch: codex/runtime-staged-node-final-v1
-    headSha: ddf5cdadb4a4ca130b85822d92dbae9c2fa714c1
-    state: clean-conditional-cleanup
-  roadmap:
-    path: .worktrees/sec-product-roadmap-rebase
-    branch: docs/sec-product-roadmap-rebase
-    headSha: 1b392c252a471bd03b40b03332ad6cb39b87be5d
-    state: dirty-protected
-    dirtyPathCount: 9
-  sm4a:
-    path: .worktrees/sm4a-ingress-8aa2d2d
-    branch: codex/sm4a-trusted-authorization-ingress-v1-v9
-    headSha: bca9102dc2a2bf865fff94b4e521383d8afac0ba
-    state: clean-suspended
-
-competingLocalHeads:
-  runtime:
-    pullRequestLocalSuccessor: 377a4876160e860a39898ae2851f6f7c2c175b5d
-    observabilitySuccessor: 50a5f29618a4c456e41f46803474e2ed7d069ca2
-    treeDuplicateAlternative: ddf5cdadb4a4ca130b85822d92dbae9c2fa714c1
-  sm4a:
-    currentV9: bca9102dc2a2bf865fff94b4e521383d8afac0ba
-    olderNonEquivalent: b753b5578e24ef96d03c051c81e25bf81ffcd8c1
-
-ancestryContainedLocalBranches:
-  codex/runtime-acceptance-lane-repair-v1:
-    headSha: aa9eb30d8e546a4ae0913a513bd975e5a015e404
-    containedBy: 50a5f29618a4c456e41f46803474e2ed7d069ca2
-  codex/runtime-apply-phase-attribution-v1:
-    headSha: 7c9da6c7ad524420ff677a728fda218fedadae69
-    containedBy: 50a5f29618a4c456e41f46803474e2ed7d069ca2
-  codex/runtime-staged-node-candidate-v1:
-    headSha: e9ef8422e9674221a70d46773952baa6c32825ae
-    containedBy: 50a5f29618a4c456e41f46803474e2ed7d069ca2
-  codex/test-runtime-browser-cache-v10-bootstrap-v2:
-    headSha: de5f84e693d2cae2ad502185dc86353813d62e4e
-    containedBy: cf0183d495fbc8223fb8e216393f7f20867e653a
-  codex/test-runtime-isolated-failure-attribution-v1:
-    headSha: f6dd49ba8f18fe827bd57cadde0f93dd07d0d6e9
-    containedBy: cf0183d495fbc8223fb8e216393f7f20867e653a
-
-gitnexus:
-  indexRoot: .worktrees/docs-v5-postmerge-reconciliation-7dbcdc4
-  indexedCommit: 7dbcdc4349348b4f0af446df548af3083ad7d43d
-  nodes: 8004
-  edges: 23135
-  flows: 300
-  fullTextSearch: unavailable
-  authority: predicted-impact-radar-only
-
-evidence:
-  reusable:
-    - id: runtime-v10-policy-focused
-      testedHead: ec97412efda4a61efe147575fd6f641338b110c9
-      result: pass-69-of-69
-      invalidation: runtime-policy-or-input-change
-    - id: runtime-verification-unit
-      testedHead: ec97412efda4a61efe147575fd6f641338b110c9
-      result: pass-21-of-21
-      invalidation: runtime-verification-owner-change
-    - id: runtime-retained-exact-title-diagnostic
-      testedHead: b25851778cf91e44bab0cb2e0f82ed0170e9a5ba
-      result: diagnostic-fail
-      failure: enoent-uv-spawn-cmd
-      invalidation: evidence-is-historical-and-must-not-be-rerun
-  invalidated:
-    - docs-v5-v2-tree-equal-quick-baseline
-    - docs-v5-v2-exact-head-scope-for-new-control-plane
-    - docs-v5-v2-exact-head-quick-for-new-control-plane
-    - pull-request-137-manifest-scope
-    - pull-request-137-imports
-    - pull-request-137-typecheck
-    - pull-request-137-docs-doctor
-    - pull-request-137-project-runtime-cluster
-    - pull-request-137-patch-whitespace
-    - pull-request-137-gitnexus-compare
-
-completedCapabilities:
-  - v0.3-semantic-core-foundation
-  - v0.4-fact-delta-pure-kernel
-  - v0.4-impact-propagation-pure-kernel
-  - v0.4-semantic-mutation-sm0-contract
-  - v0.4-semantic-mutation-sm1-pure-kernels
-  - v0.4-semantic-mutation-sm2-source-adapter
-  - v0.4-semantic-mutation-sm3-isolated-apply-coordinator
-  - ci-verification-v8-active-documentation-contract
-  - ci-verification-v9-fast-timeout-contract
-  - ir-canonical-primitives-cycle-removal
-  - docs-document-authority-v5-reconciliation
-
-blockers:
-  - id: postmerge-control-plane-stale
-    state: active-reconciliation
-  - id: pull-request-137-current-main-conflict
-    state: open
-    conflictPathCount: 4
-  - id: pull-request-137-immutable-affected-failure
-    state: open
-    testedHead: ec97412efda4a61efe147575fd6f641338b110c9
-    failedStage: artifact-read
-    riskGateRun: not-run-and-forbidden-on-tested-head
-  - id: runtime-canonical-successor-unselected
-    state: open
-    competingHeadCount: 3
-
-limitations:
-  - windows-appcontainer-optional-hardening-capability-incomplete
-  - docs-doctor-v5-semantic-superset-not-implemented
-  - nexus-full-census-and-parity-incomplete
+  unresolvedEngineeringFacts:
+    - windows-appcontainer-optional-hardening-capability-incomplete
+    - documentation-authority-duplication
+    - docs-doctor-v5-semantic-superset-not-implemented
+    - nexus-ledger-source-revision-stale
+    - nexus-full-census-and-parity-incomplete

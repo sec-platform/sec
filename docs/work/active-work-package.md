@@ -1,14 +1,22 @@
 ---
-schema: sec-active-work-package-pointer-v1
-status: active
-last-reviewed: 2026-07-24
+schema: sec-active-work-package-pointer-v2
+status: conditional
+last-reviewed: 2026-07-23
 ---
 
 # 当前唯一 Active Work Package
 
 ```yaml
-manifest: docs/work-packages/docs-v5-postmerge-reconciliation-v1.md
-manifestDigest: sha256:c82669744167c48a82e1dfe2a79c46310bf8187055edfe0ddf21fe03894ed1b2
+selectionMode: exact-manifest-not-on-default-branch-v1
+defaultBranchRef: refs/remotes/origin/main
+defaultRefFreshness: live-platform-match-required
+manifest: docs/work-packages/docs-control-plane-publication-lifecycle-v1.md
+manifestDigest: sha256:d78210c4640caf5f620391431083b0ce18917691755b47c4b2740b1ef0fbb53e
+digestBytes: git-blob
+unavailableDefaultRef: unresolved
+matchingDefaultBlob: none
 ```
 
-本文件只按 path + raw-byte digest 选择当前唯一正式 Work Package，不复制其 id、base、tracking、ownership、acceptance、tests、forbidden paths、stop/reload 或执行说明；exact `main` SHA、branch与PR是 `current-state` 观察事实。候选不能在自身 tree内嵌最终 commit SHA而不形成 self-reference，因此 candidate `headSha` 保持 `null`，exact candidate head只由外部 Context Capsule与绑定 evidence给出。完整可执行闭包以所选 frozen manifest为唯一 authority；控制面 lifecycle只以 `docs/04-AI自主实现执行蓝图.md` 为权威。
+选择器只在 candidate manifest 的 Git blob bytes SHA-256 与 `manifestDigest` 一致、且 live default branch不含同 path + digest时解析为该唯一 manifest。default branch包含同一 blob后自动解析为`none`，因此合并不需要再创建只更新自身 lifecycle 的递归 Work Package。default ref不可解析、candidate digest漂移或出现多个选择时均 fail-closed。
+
+完整执行闭包只存在于所选 frozen manifest。`current-state.yaml`只保存 resolver 配置与不依赖当前 publication identity 的稳定事实；candidate exact head、PR、Review、CI与 merge evidence由外部 Context Capsule绑定，不写入这些 versioned控制文件。
