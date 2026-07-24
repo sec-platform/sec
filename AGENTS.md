@@ -5,6 +5,7 @@
 ## 工程事实与决策顺序
 
 - `main` 是唯一正式工程事实。Branch、PR、Issue、Completion Report 和历史聊天只作为线索。
+- 读取三个近期控制面前先执行 `bun scripts/codex/document-control-plane.ts status --json`；只有 live remote/default-ref核对、GitHub PR/Issue/CI/Review读取和 pointer resolution全部成功的输出才是 current-state。`unresolved`、`invalid`或仅阅读 versioned YAML/Markdown都不得冒充当前事实。
 - 完整事实重载只在新 Work Package 启动、Task Envelope 缺少有效 Capsule 或 authority revision、base 经 merge/rebase 改变、authority/contract/ownership seam 改变、命中 `reload_if`、现有证据与代码冲突，或最终 merge/closeout 审查时执行；普通新 Task Envelope 和 reconciliation 只要 Capsule 仍有效，就只能读取其中标记的失效项与当前 delta。
 - Squash merge 后按最终代码与 diff 判断能力是否进入 `main`，不得用原 commit ancestry 误判遗漏。
 - 先从 architecture authority、代码和测试重新计算 DAG；不要默认沿用上一轮计划。
