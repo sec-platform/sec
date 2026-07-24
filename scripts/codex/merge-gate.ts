@@ -33,6 +33,7 @@ import {
   type CodexDevelopmentGitChangedRecordV1
 } from '../../platform/shared/ci-git-changed-files.ts';
 import {
+  CI_VERIFICATION_ARTIFACT_NAMESPACE,
   CI_VERIFICATION_CONTRACT_REVISION,
   CodexDevelopmentBuildVerificationInputV2,
   CodexDevelopmentBuildVerificationPlanV1,
@@ -699,7 +700,7 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     throw new Error('Verification workflow run is not exact-head trusted evidence.');
   }
   const expectedVerificationName = [
-    'sec-verification-v9',
+    CI_VERIFICATION_ARTIFACT_NAMESPACE,
     verificationBinding.requiredProfile,
     `pr-${input.pullRequest}`,
     `base-${input.currentBase}`,

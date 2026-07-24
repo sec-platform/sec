@@ -78,6 +78,7 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
     contractFreezeTarget('verification.budget', 'tests/contract/benchmark-budget.test.ts'),
     contractFreezeTarget('verification.impact', 'tests/contract/test-impact.test.ts'),
     contractFreezeTarget('verification.ci-lanes', 'tests/contract/ci-lanes.test.ts'),
+    contractFreezeTarget('verification.docs-doctor', 'tests/contract/docs-doctor.test.ts'),
     contractFreezeTarget('verification.test-architecture', 'tests/contract/test-architecture.test.ts'),
     contractFreezeTarget('verification.contract-freeze', 'tests/contract/contract-freeze.test.ts'),
     contractFreezeTarget('verification.ci-workflow', 'tests/contract/ci-contract.test.ts'),
