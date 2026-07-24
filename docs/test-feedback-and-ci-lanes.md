@@ -131,7 +131,7 @@ Merge gate必须用 default-branch代码和 Git objects独立重算 changed reco
 
 ## 9. Contract Freeze、affected 与 slow
 
-- Contract Freeze 绑定公共合同与其 owner tests；公共 schema/IR/operation/diagnostic变化必须运行对应完整 contract set。
+- Contract Freeze 绑定公共合同与其 owner tests；公共 schema/IR/operation/diagnostic变化必须运行对应完整 contract set。`verification.docs-doctor`直接绑定 scanner 的 positive/negative/differential fixture，禁止只用当前文档树的正例运行替代失败语义。
 - Affected selector是快速反馈，不是完整风险或 Full 的替代。未知映射在本地可以提示，在 hosted verification 必须失败。
 - Slow suite必须声明资源等级、并行安全、owner、适用变化、timeout owner 与 cleanup；open handle、process、workspace 或 artifact residue是失败。
 - Browser、activation、navigation、restart、release artifact与远端事实不能由 unit/typecheck替代；纯函数也不应无条件触发浏览器矩阵。
