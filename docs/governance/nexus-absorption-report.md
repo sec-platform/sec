@@ -1,18 +1,24 @@
 ---
 title: Nexus 吸收与 Conformance 报告
 status: active
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-24
 ---
 
 # Nexus 吸收与 Conformance 报告
 
 ## 裁决
 
-**未完成。** 当前只建立 canonical contract、ledger/report owner 与 exact committed-tree baseline；没有完成 path classification、mechanism decisions、EPR/Skill binding、Parity 或 retirement。不得使用“无遗漏吸收完成”。
+**未完成且已失效。** 当前只建立 canonical contract、ledger/report owner 与一个历史 exact committed-tree baseline；没有完成 path classification、mechanism decisions、EPR/Skill binding、Parity 或 retirement。不得使用“无遗漏吸收完成”。
 
 V5 文档迁移吸收了扩展后的 Conformance Corpus/Policy Pack requirement，但拒绝用空的 V2 template覆盖机器事实。`nexus-absorption-ledger.yaml` 继续保留 revision 3 的 exact baseline与三个seed；本次文档归位没有新增 Census、decision、parity或retirement evidence，也没有改变下表覆盖率。
 
-## Exact baseline
+## Freshness
+
+2026-07-24 已从 `QzCrane/nexus` 的 live `origin/main` 观察到 `bc2c3b3cf31e41813b2e18be53aab1c154704f92` / tree `7139fd11d6c0b911b765c5b76adc7ad241a86ec1`，本地 main 与远端 0/0 且工作树 clean。它是 ledger 记录值 `e75caa28…` 的 descendant，但两者之间已有 117 paths、6,431 insertions、1,789 deletions；当前 tracked paths 为 1,443。
+
+因此下列 revision 3 baseline、coverage 分母、三个 seeds 与所有旧 blob只能作为历史输入，不能证明 live Nexus 的 path、mechanism、EPR、Skill、public/deployed surface 或 parity状态。机器 ledger 已显式标记 `freshness.state: invalidated`；本包不把一次 Git diff冒充 exact-tree Census。
+
+## Recorded stale baseline
 
 | 项目 | 当前记录 |
 | --- | --- |
@@ -21,12 +27,12 @@ V5 文档迁移吸收了扩展后的 Conformance Corpus/Policy Pack requirement�
 | Nexus Git tree | `3a8ad6bedd56fd92db141c45ec687b75263364c2` |
 | Tracked paths | 1,439；`nexus/` 1,405，其他 repository paths 34 |
 | SEC base | `ea8d1287dd6d41ed84d198904a55906a345907ec` |
-| Goal ledger template | raw SHA-256 `dedbb7ae68c065779131c337b39f69d2c9e5f1de0a250fd3f11106336c542348` |
+| Historical Goal ledger template input | raw SHA-256 `dedbb7ae68c065779131c337b39f69d2c9e5f1de0a250fd3f11106336c542348`；未跟踪 source input，不是仓库 path |
 | Manifest digest | 尚未物化 |
 
 该表只证明 baseline identity。新 commit 是原观察值 `1b82ace…` 的单 parent descendant：31 paths、255 insertions、1,231 deletions，并删除一个 tracked test path；EPR-001..029 与 11 个 Project Skill entrypoint 的 exact count 未变。该 SPECTRA delta 移除 site-native fallback 并泛化 playback-rate bridge，后续 Census 必须同时分类被删除 owner 与替代机制。live Nexus worktree 即使观察时 clean，也不能代替 exact committed-tree Census 输入。
 
-## Coverage
+## Recorded coverage
 
 | Gate | 当前值 | 完成要求 |
 | --- | ---: | ---: |
@@ -60,6 +66,6 @@ Ledger 已从 Goal-directory V1 template 提升三个 exact-blob checked candida
 
 ## 下一步
 
-正式 `nexus-phase-0a-exact-tree-census` Work Package 必须从 exact commit/tree 或 clean isolated view 生成 deterministic inventory，再由 A0 串行 reconcile ledger。它可以只读并行采集，但不能成为与 SEC 产品主线竞争的 active package，也不能先修改共享 canonical types。
+正式 `nexus-exact-tree-census-refresh` Work Package 必须在启动时重新读取 live default branch，从当时的 exact commit/tree 或 clean isolated view生成 deterministic inventory，再由 A0串行 reconcile ledger。当前观察到的 `bc2c3b3…` 只是 freshness反证，不提前冻结未来执行包的 source baseline。Census可以只读并行采集，但不能成为与 SEC 产品主线竞争的第二 active package，也不能先修改共享 canonical types。
 
 Nexus baseline 变化后，按 contract 执行 delta census、更新受影响 decision 并只重跑失效 parity；本报告的旧 baseline 不证明新 commit。

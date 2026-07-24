@@ -24,7 +24,8 @@ stableFacts:
     mergedPullRequests:
       - 138
       - 139
-    integratedMainSha: 014abb32e88aa34b789116779d7e07ed1748c91e
+      - 140
+    integratedMainSha: 2065492f55bab75f65cf124c048fc6b849be73f9
 
   completedCapabilities:
     - v0.3-semantic-core-foundation
@@ -35,10 +36,4 @@ stableFacts:
     - ci-verification-v9-fast-timeout-contract
     - ir-canonical-primitives-cycle-removal
     - docs-document-authority-v5-reconciliation
-
-  unresolvedEngineeringFacts:
-    - windows-appcontainer-optional-hardening-capability-incomplete
-    - documentation-authority-duplication
-    - docs-doctor-v5-semantic-superset-not-implemented
-    - nexus-ledger-source-revision-stale
-    - nexus-full-census-and-parity-incomplete
+    - docs-control-plane-publication-lifecycle

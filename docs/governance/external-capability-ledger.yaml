@@ -2,9 +2,16 @@ schema: sec-external-capability-ledger-v1
 
 ledger:
   owner: docs/governance/external-capability-ledger.yaml
-  observedAt: "2026-07-23T21:07:24+08:00"
-  secMainSha: 8aa2d2db8dd7541ddc05d9367a4070a73fa3f8a2
-  policyRevision: sha256:a78262c075bf96643d207290050fd414172af8fb17a96a4610b0405782115202
+  observedAt: "2026-07-24T09:20:00+08:00"
+  secMainSha: 2065492f55bab75f65cf124c048fc6b849be73f9
+  policyRevision: sha256:da38d8c2e71304425bc8d5515d234f1c16847f81e2b332c8a686f8b40f0ac867
+
+templateProvenance:
+  inputName: SEC-External-Capability-Ledger-Template-V1.yaml
+  rawSha256: 65212c56855702e2c262d10a617ab819b46436eafbbc41c36394f82bd9a0499f
+  sourceInputTracked: false
+  migrationRecord: docs/archive/2026-07-23-document-system-v4-migration-note.md
+  disposition: schema-input-absorbed-into-canonical-ledger
 
 allowedDecisions:
   - absorb-design

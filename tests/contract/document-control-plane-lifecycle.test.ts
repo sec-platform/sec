@@ -16,7 +16,7 @@ import {
 
 const CURRENT_STATE_PATH = 'docs/work/current-state.yaml';
 const POINTER_PATH = 'docs/work/active-work-package.md';
-const MANIFEST_PATH = 'docs/work-packages/docs-control-plane-publication-lifecycle-v1.md';
+const FIXTURE_MANIFEST_PATH = 'docs/work-packages/control-plane-lifecycle-fixture-v1.md';
 
 function readGitBlob(cwd: string, spec: string): Buffer | undefined {
   const result = spawnSync('git', ['show', spec], {
@@ -45,7 +45,7 @@ function pointerFor(blob: Uint8Array): CodexDevelopmentActivePointerV2 {
     selectionMode: 'exact-manifest-not-on-default-branch-v1',
     defaultBranchRef: 'refs/remotes/origin/main',
     defaultRefFreshness: 'live-platform-match-required',
-    manifest: MANIFEST_PATH,
+    manifest: FIXTURE_MANIFEST_PATH,
     manifestDigest: CodexDevelopmentGitBlobSha256(blob),
     digestBytes: 'git-blob',
     unavailableDefaultRef: 'unresolved',
@@ -86,7 +86,7 @@ last-reviewed: 2026-07-24
 \`\`\`yaml
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
-manifest: ${MANIFEST_PATH}
+manifest: ${FIXTURE_MANIFEST_PATH}
 manifestDigest: ${pointer.manifestDigest}
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
@@ -177,26 +177,26 @@ test('real Git lifecycle resolves missing path to active and published blob to n
     runGit(repositoryRoot, ['commit', '--quiet', '-m', 'base']);
 
     runGit(repositoryRoot, ['switch', '--quiet', '-c', 'candidate']);
-    const manifestPath = path.join(repositoryRoot, MANIFEST_PATH);
+    const manifestPath = path.join(repositoryRoot, FIXTURE_MANIFEST_PATH);
     await mkdir(path.dirname(manifestPath), { recursive: true });
     await writeFile(manifestPath, 'schema: frozen\n', 'utf8');
-    runGit(repositoryRoot, ['add', MANIFEST_PATH]);
+    runGit(repositoryRoot, ['add', FIXTURE_MANIFEST_PATH]);
     runGit(repositoryRoot, ['commit', '--quiet', '-m', 'candidate']);
-    const candidateBlob = readGitBlob(repositoryRoot, `HEAD:${MANIFEST_PATH}`);
+    const candidateBlob = readGitBlob(repositoryRoot, `HEAD:${FIXTURE_MANIFEST_PATH}`);
     expect(candidateBlob).toBeDefined();
     const pointer = pointerFor(candidateBlob!);
 
     runGit(repositoryRoot, ['switch', '--quiet', 'main']);
-    expect(readGitBlob(repositoryRoot, `main:${MANIFEST_PATH}`)).toBeUndefined();
+    expect(readGitBlob(repositoryRoot, `main:${FIXTURE_MANIFEST_PATH}`)).toBeUndefined();
     expect(CodexDevelopmentResolveActiveWorkPackageV1({
       pointer,
       candidateManifestBlob: candidateBlob!,
       defaultManifestBlob: null,
       defaultRefState: 'fresh'
-    })).toMatchObject({ state: 'active', manifest: MANIFEST_PATH });
+    })).toMatchObject({ state: 'active', manifest: FIXTURE_MANIFEST_PATH });
 
     runGit(repositoryRoot, ['merge', '--quiet', '--ff-only', 'candidate']);
-    const publishedBlob = readGitBlob(repositoryRoot, `main:${MANIFEST_PATH}`);
+    const publishedBlob = readGitBlob(repositoryRoot, `main:${FIXTURE_MANIFEST_PATH}`);
     expect(publishedBlob).toEqual(candidateBlob!);
     expect(CodexDevelopmentResolveActiveWorkPackageV1({
       pointer,
@@ -211,7 +211,7 @@ test('real Git lifecycle resolves missing path to active and published blob to n
     expect(CodexDevelopmentResolveActiveWorkPackageV1({
       pointer,
       candidateManifestBlob: candidateBlob!,
-      defaultManifestBlob: readGitBlob(repositoryRoot, `main:${MANIFEST_PATH}`)!,
+      defaultManifestBlob: readGitBlob(repositoryRoot, `main:${FIXTURE_MANIFEST_PATH}`)!,
       defaultRefState: 'fresh'
     })).toEqual({ state: 'none', reason: 'matching-default-blob' });
   } finally {
@@ -228,7 +228,8 @@ test('repository controls use the shared live resolver and preserve one bounded 
   ]);
   const currentState = CodexDevelopmentParseCurrentStateSpecV1(currentStateSource);
   const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
-  const manifestBlob = readGitBlob(process.cwd(), `:${MANIFEST_PATH}`);
+  const manifestBlob = readGitBlob(process.cwd(), `:${pointer.manifest}`);
+  const activePackageId = path.basename(pointer.manifest, '.md');
 
   expect(currentState.schema).toBe('sec-current-state-live-v1');
   expect(currentState.resolver).toEqual({
@@ -242,33 +243,37 @@ test('repository controls use the shared live resolver and preserve one bounded 
   expect(currentStateSource).not.toContain('basisMainSha');
   expect(currentStateSource).not.toContain('openPullRequests');
   expect(currentStateSource).not.toContain('nextReconciliationPoint');
-  expect(pointer.manifest).toBe(MANIFEST_PATH);
   expect(manifestBlob).toBeDefined();
   expect(pointer.manifestDigest).toBe(CodexDevelopmentGitBlobSha256(manifestBlob!));
 
-  const defaultManifestBlob = readGitBlob(process.cwd(), `${pointer.defaultBranchRef}:${MANIFEST_PATH}`) ?? null;
+  const defaultManifestBlob = readGitBlob(
+    process.cwd(),
+    `${pointer.defaultBranchRef}:${pointer.manifest}`
+  ) ?? null;
   expect(CodexDevelopmentResolveActiveWorkPackageV1({
     pointer,
     candidateManifestBlob: manifestBlob!,
     defaultManifestBlob,
     defaultRefState: 'fresh'
-  })).toMatchObject({ state: 'active', manifest: MANIFEST_PATH });
+  })).toMatchObject({ state: 'active', manifest: pointer.manifest });
 
   expect(lifecycleAuthority).toContain('bun scripts/codex/document-control-plane.ts status --json');
   expect(lifecycleAuthority).toContain('测试必须导入共享 resolver，禁止复制 selector算法');
-  expect((rollingPlan.match(/^### [1-5]\. /gmu) ?? [])).toHaveLength(5);
-  expect((rollingPlan.match(/^### docs-control-plane-publication-lifecycle-v1$/gmu) ?? []))
+  expect((rollingPlan.match(new RegExp(`^### ${activePackageId}$`, 'gmu')) ?? []))
     .toHaveLength(1);
-  const candidateHeadings = [
-    '### 1. docs-authority-content-normalization-v1',
-    '### 2. docs-doctor-v5-semantic-superset-bootstrap-v1',
-    '### 3. runtime-canonical-line-and-pr137-reconciliation-v1',
-    '### 4. dirty-root-and-branch-reconciliation-v1',
-    '### 5. nexus-exact-tree-census-refresh'
-  ];
-  for (let index = 1; index < candidateHeadings.length; index += 1) {
-    expect(rollingPlan.indexOf(candidateHeadings[index])).toBeGreaterThan(
-      rollingPlan.indexOf(candidateHeadings[index - 1])
-    );
+
+  const candidates = [...rollingPlan.matchAll(/^### ([1-5])\. ([^\r\n]+)$/gmu)]
+    .map((match) => ({ ordinal: Number(match[1]), id: match[2]! }));
+  expect(candidates.length).toBeGreaterThanOrEqual(2);
+  expect(candidates.length).toBeLessThanOrEqual(5);
+  expect(new Set(candidates.map(({ id }) => id)).size).toBe(candidates.length);
+  expect(candidates.map(({ ordinal }) => ordinal))
+    .toEqual(candidates.map((_, index) => index + 1));
+  expect(candidates.map(({ id }) => id)).not.toContain(activePackageId);
+
+  for (let index = 1; index < candidates.length; index += 1) {
+    const previous = `### ${candidates[index - 1]!.ordinal}. ${candidates[index - 1]!.id}`;
+    const current = `### ${candidates[index]!.ordinal}. ${candidates[index]!.id}`;
+    expect(rollingPlan.indexOf(current)).toBeGreaterThan(rollingPlan.indexOf(previous));
   }
 });

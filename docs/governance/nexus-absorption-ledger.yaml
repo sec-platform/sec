@@ -1,10 +1,27 @@
 schema: sec-nexus-absorption-ledger-v1
 status: incomplete
 revision: 3
-observedAt: "2026-07-22T21:33:43+08:00"
+observedAt: "2026-07-24T09:20:00+08:00"
 templateSource:
-  path: docs/goals/SEC_Nexus_Absorption_Ledger_Template_V1.yaml
+  inputName: SEC_Nexus_Absorption_Ledger_Template_V1.yaml
   rawSha256: dedbb7ae68c065779131c337b39f69d2c9e5f1de0a250fd3f11106336c542348
+  sourceInputTracked: false
+  migrationRecord: docs/archive/2026-07-23-document-system-v4-migration-note.md
+  supersededSchemaInput:
+    inputName: SEC-Nexus-Absorption-Ledger-Template-V2.yaml
+    rawSha256: 72b192ac95ea91d8cf6bac218e8067cdf79c77578990cfee627c970624e9f57e
+    sourceInputTracked: false
+    disposition: schema-reconciled-with-recorded-facts-not-copied-over-ledger
+freshness:
+  state: invalidated
+  reason: source-revision-changed
+  checkedAt: "2026-07-24T09:20:00+08:00"
+  recordedCommit: e75caa28dcbc1ffa6e893b5539f85c8177346cd3
+  liveDefaultCommit: bc2c3b3cf31e41813b2e18be53aab1c154704f92
+  liveDefaultTree: 7139fd11d6c0b911b765c5b76adc7ad241a86ec1
+  changedPathsFromRecorded: 117
+  liveTrackedPaths: 1443
+  censusRequired: true
 source:
   repository: QzCrane/nexus
   repositoryRoot: D:/Project/Nexus

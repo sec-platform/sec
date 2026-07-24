@@ -1,7 +1,7 @@
 ---
 title: SEC 外部能力吸收与 Provider/MCP 政策
 status: active
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-24
 ---
 
 # SEC 外部能力吸收与 Provider/MCP 政策
@@ -504,7 +504,7 @@ AI和Provider都不能提交actual Delta作为事实。
 - integration owner；
 - revalidation和retirement条件。
 
-使用`SEC-External-Capability-Ledger-Template-V1.yaml`。
+机器记录只写入 canonical `docs/governance/external-capability-ledger.yaml`。上游 Goal 中的 `SEC-External-Capability-Ledger-Template-V1.yaml` 仅是未跟踪迁移输入，其名称、raw digest 与 disposition 由 canonical ledger 的 `templateProvenance` 和迁移审计绑定；不得把不存在的 template path 当作仓库依赖或第二 ledger。
 
 ## 12. 重点参考域
 

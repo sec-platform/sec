@@ -1,71 +1,36 @@
 # SEC Codex 工程治理
 
-本文件只维护长期稳定的仓库级 Agent operating contract。稳定阶段 DAG 与完成定义以 `docs/03-MVP实施计划与路线图.md` 为准；当前事实、唯一 active Work Package 与近期候选分别以 `docs/work/current-state.yaml`、`docs/work/active-work-package.md` 和 `docs/work/rolling-plan.md` 为准；Engineering IR 设计以 `docs/14-Engineering IR与语义事实规范.md` 为准；测试分层与证据复用以 `docs/test-feedback-and-ci-lanes.md` 为准。
+本文件是仓库级 Agent operating contract 的短投影。文档权威图见 `docs/00-文档索引与一致性规则.md`，稳定阶段 DAG 与完成定义见 `docs/03-MVP实施计划与路线图.md`，完整执行协议见 `docs/04-AI自主实现执行蓝图.md`，Engineering IR 见 `docs/14-Engineering IR与语义事实规范.md`，测试/CI/Gate 见 `docs/test-feedback-and-ci-lanes.md`。
 
-## 工程事实与决策顺序
+## 启动与事实
 
-- `main` 是唯一正式工程事实。Branch、PR、Issue、Completion Report 和历史聊天只作为线索。
-- 读取三个近期控制面前先执行 `bun scripts/codex/document-control-plane.ts status --json`；只有 live remote/default-ref核对、GitHub PR/Issue/CI/Review读取和 pointer resolution全部成功的输出才是 current-state。`unresolved`、`invalid`或仅阅读 versioned YAML/Markdown都不得冒充当前事实。
-- 完整事实重载只在新 Work Package 启动、Task Envelope 缺少有效 Capsule 或 authority revision、base 经 merge/rebase 改变、authority/contract/ownership seam 改变、命中 `reload_if`、现有证据与代码冲突，或最终 merge/closeout 审查时执行；普通新 Task Envelope 和 reconciliation 只要 Capsule 仍有效，就只能读取其中标记的失效项与当前 delta。
-- Squash merge 后按最终代码与 diff 判断能力是否进入 `main`，不得用原 commit ancestry 误判遗漏。
-- 先从 architecture authority、代码和测试重新计算 DAG；不要默认沿用上一轮计划。
+- `main` 是唯一正式工程事实；branch、PR、Issue、报告、计划、聊天和代码图只提供线索。
+- 先执行 `bun scripts/codex/document-control-plane.ts status --json`。只有 live remote/default-ref、GitHub PR/Issue/CI/Review 与 active pointer 全部解析成功的输出才是 current-state；`unresolved` 或 `invalid` 必须 fail closed。
+- 新 Work Package、base/authority/contract/ownership 变化、命中 `reload_if`、证据冲突或最终收口时完整重载；有效 Context Capsule 内的普通 Task Envelope 只读取标记失效项与 delta。
+- Squash merge 后按最终 tree、代码和 diff 判断能力是否进入 `main`，不得用原 commit ancestry 误判遗漏。
 
-## Root A0 Orchestration
+## A0、Worker 与单写者
 
-- Root 是 A0 Integrator，负责 DAG、task ownership、integration、验证、merge、closeout 与 branch hygiene。
-- 对真实独立的探索、架构审查、实现或证据分析动态 spawn subagents；不要为了占满并发而固定启动全部角色。
-- 并行前明确 branch、owned files、allowed seam expansion、forbidden paths、prerequisite、acceptance、tests 与 reconciliation points。
-- 同一个 canonical type、revision algorithm、builder、pipeline stage order 或 authority 章节默认串行，除非 ownership seam 已明确。
-- 保持 delegation depth 为 1。普通 worker 不得继续递归分派。
-- 可用角色位于 `.codex/agents/`；按任务选择最小角色集合。
-- A0 为每个执行 batch 提供 Context Capsule：base/head、goal、authority refs 与已观察 revision、owned/forbidden surface、prerequisite、acceptance、`gate_owner` 与可复用 evidence、reconciliation point、stop condition 和 `reload_if`。未命中 `reload_if` 时，worker 不得重新审计全仓。
-- Public contract 与被测接口已经冻结，且 tests/fixtures ownership 与生产代码、Contract Freeze registry 完全不重叠时，A0 可复用 `implementation-worker` 并行派发 `work_kind=test-prep`；否则 reviewer 只准备测试矩阵，由 canonical writer 串行落盘。
-
-## Worker 协议
-
-正式实现 worker 的 Task Envelope 必须包含：task/Issue、current base、branch、architectural goal、ownership、forbidden paths、dependency、acceptance、required tests、`gate_owner` 和 stop condition。
-
-Worker 执行：
+- Root 是 A0 Integrator，独占 DAG、Task ownership、integration、Gate custody、merge、closeout 与 branch hygiene。
+- 一个时刻只有一个 formal active Work Package。并行前必须冻结 branch、owned/forbidden paths、prerequisite、acceptance、tests、`gate_owner`、reconciliation point、stop 与 `reload_if`；同一 canonical type、revision、builder、pipeline order 或 authority 章节保持单写者。
+- Delegation depth 保持 1；普通 worker 不再递归分派。角色按需从 `.codex/agents/` 选择。
+- Worker 流程固定为：
 
 ```text
-inspect → implement → focused local validation → explicit-path stage → pre-commit imports:freeze → commit → Draft PR/update existing PR → Reconciliation Delta → stop
+inspect → implement → focused validation → explicit-path stage
+→ pre-commit imports:freeze → commit → Draft PR/update → Reconciliation Delta → stop
 ```
 
-Worker 默认 `DO NOT MERGE`，不得添加 `run-quick` / `run-full` label，不得修改其他 worker ownership，不得顺手全仓重构，也不得通过删除测试或弱化合同解决失败。
+- Worker 默认 `DO NOT MERGE`，不得添加 `run-quick` / `run-full` label、越界修改、顺手全仓重构、删除测试或弱化合同。
+- Reconciliation Delta 必须返回 tested head/base、changed files/symbols、authority/acceptance delta、focused results、reusable/invalidated evidence、blocker、next ready seam 与规定的时间/重载/重复 Gate 指标；不得另建叙述性进度文档。
 
-`hooks:install` 仅在当前 worktree 实际包含 index mode `100755` 的全部 tracked managed hooks 且没有其他真实 hook authority 时，以 worktree-local config 接管；不得覆盖 shared `core.hooksPath`，CI/Gitless lifecycle 只做 no-op。安装后，`.githooks/pre-commit` 唯一调用 `imports:freeze`：verification 可注入 exact full `SEC_CHANGED_BASE`，普通本地提交自动取 `HEAD` 与 `refs/remotes/origin/main` 的 merge-base，缺少 remote ref 时才退回 exact `HEAD`；选择范围始终是完整 base→candidate index TypeScript diff，不依赖实现者记忆或本轮 stage 范围。`.githooks/pre-push` 对 rebase/squash 后的最终候选重算同一 freeze；零变化才允许 push，发现漂移时只把规范化结果原子写入 index 并停止本次 push，要求提交后再推。该入口只规范化 index、从不重写工作树，并在持有真实 `index.lock` 时复核及发布完整新 index；完整暂存、partial-stage、并发修改与外部 alias 观察到的 working-tree bytes 均保持不变。Hosted `imports:check` 仍是只读 fail-closed Gate，不由 hook 替代；无效 base 直接失败，严禁退化成全仓扫描。
+## 影响、写边界与验证
 
-每个 reconciliation/stop 必须返回结构化 Delta：tested head、changed files/symbols、public/authority delta、acceptance delta、focused results、reusable/invalidated evidence、new blocker 和 next ready seam；同时记录 `inspect_ms`、`implement_ms`、`focused_validation_ms`、`wait_ms`、`reconcile_ms`、`context_reload_count` 与 `duplicate_gate_count`，不得另写叙述性进度文档。
-
-## 验证与 Actions 经济性
-
-- 验证结论必须绑定 tested head/base、profile、contract revision（已知时）、命令/Gate、scope、result、duration/evidence 与 invalidation rule。
-- 每个 Gate 只有一个 `gate_owner` 可以执行；结果以 `gate_key + tested head + profile` 唯一标识。同一标识已有未失效结果时必须复用，其他 worker/reviewer只能选择或审计 Gate，不得重复执行。
-- 优先复用 `docs/test-feedback-and-ci-lanes.md` 中仍有效的昂贵证据。后续只重跑被 intervening diff 失效的 Gate。
-- 旧结果不得伪装成新 head 的 exact-head 结果；允许记录“已验证 baseline + diff impact + delta focused validation”的组合证据。
-- 本地环境足以证明的 Gate 在本地运行；GitHub Actions 只在 required contract 仍缺证据时触发一次。不得恢复 every-push、daily full 或重复 full/slow rerun。
-- 失败后读取具体 failed Gate / failure tail，修根因并运行最小 sentinel。不要在设计期反复跑完整矩阵。
-
-## Merge 与收口
-
-只有在能力仍有效、未被取代、authority 一致、required evidence 满足、head/base 已理解、无 unresolved thread、无 REQUEST_CHANGES、无临时 probe/意外 artifact drift 时，A0 才能 merge。
-
-- 大型 integration 优先 squash 最终验证状态。
-- 每次 commit 都由 `imports:freeze` 自动覆盖完整 base→candidate index；pre-push 对 rebase/squash 后的最终候选再做零漂移封印，不再要求 A0 记忆额外命令。verification 只有在绑定已冻结 exact base 时才显式注入 full `SEC_CHANGED_BASE`，且 organizer 必须验证它精确解析为该 commit。
-- 门禁满足后及时 merge，不为表现仍在开发继续修改正确代码。
-- 被 integration 吸收的源 PR 必须准确标为 superseded/absorbed，不得声称独立进入 `main`。
-- 完成后关闭对应 Issue/PR，删除完成使命的远端临时 branch，并重新读取新 `main`。
-
-## 文档与重复问题
-
-- 活跃工程文档使用中文；一个主题只有一个 canonical owner，其他文档引用它。
-- 不把临时 SHA、一次性 blocker 或当前 task list 写入本文件。
-- 代码、测试、CI 与文档冲突时，识别真正 authority 后统一受影响表面。
-- 同类问题重复出现时，升级检查 shared abstraction、canonical contract、identity/revision boundary、state ownership、lifecycle、deterministic normalization、test architecture 与 CI Gate；修复共同根因。
-
-## 常用本地门禁
-
-按 diff 风险选择最小集合：
+- 修改任何函数、类或方法前运行 GitNexus upstream impact；HIGH/CRITICAL 先向用户报告。索引刷新只能使用 `--index-only`，不得让外部工具改写 AGENTS、Skills 或 authority docs。
+- Commit 前运行 GitNexus `detect_changes({scope:"compare", base_ref:"main"})`，再以 current source、exact diff、compiler 和适用测试裁决真实影响。
+- `pre-commit imports:freeze` 与 pre-push 共用唯一 organizer；选择范围始终是完整 base→candidate index TypeScript diff。Hook 只原子更新 index，不改 working tree；hosted `imports:check` 仍只读 fail closed。
+- 每个 Gate 只有一个 `gate_owner`；以 `gate_key + tested head + profile` 唯一标识并复用未失效证据。失败后读取具体 failure tail，修根因，只重跑被 delta 失效的最小 sentinel。
+- 按风险从下列入口选择最小集合，不机械全跑：
 
 ```text
 bun run typecheck
@@ -75,49 +40,9 @@ bun test <focused tests> --timeout 180000
 bun run reference:check
 ```
 
-不要把上述列表理解为每次全部运行；以验证复用账本和 invalidation 判断为准。
+## 文档、Merge 与清理
 
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
-
-This project is indexed by GitNexus as **sec** (7685 symbols, 22627 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
-
-> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
-
-## Always Do
-
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
-- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
-
-## Never Do
-
-- NEVER edit a function, class, or method without first running `impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
-- NEVER commit changes without running `detect_changes()` to check affected scope.
-
-## Resources
-
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/sec/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/sec/clusters` | All functional areas |
-| `gitnexus://repo/sec/processes` | All execution flows |
-| `gitnexus://repo/sec/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
-
-<!-- gitnexus:end -->
+- 活跃工程文档使用中文；一个主题只有一个 canonical owner，其他文档只链接。动态事实只进入三个 `docs/work` 控制面，历史证据进入 `docs/evidence` 或 `docs/archive`。
+- 只有能力仍有效、authority 一致、required evidence 满足、head/base 清楚、无 unresolved thread/`REQUEST_CHANGES`、无 probe 或 artifact drift 时才能 merge。
+- Verifier trust-root 变化必须按当前 CI 合同人工 bootstrap，不能由 candidate 自证；门禁满足后及时合并。
+- 合并后确认结果真实进入新 `main`，准确关闭 absorbed/superseded PR/Issue，删除完成使命且已证明无独有内容的远端/本地 branch 与 worktree，再从新事实整体重算。
