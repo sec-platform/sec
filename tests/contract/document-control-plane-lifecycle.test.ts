@@ -10,9 +10,10 @@ import {
   CodexDevelopmentGitBlobSha256,
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseCurrentStateSpecV1,
+  CodexDevelopmentParseRollingPlanV1,
   CodexDevelopmentResolveActiveWorkPackageV1,
   type CodexDevelopmentActivePointerV2
-} from '../../scripts/codex/document-control-plane.ts';
+} from '../../scripts/codex/document-control-plane-contract.ts';
 
 const CURRENT_STATE_PATH = 'docs/work/current-state.yaml';
 const POINTER_PATH = 'docs/work/active-work-package.md';
@@ -95,6 +96,35 @@ matchingDefaultBlob: none
 `;
   expect(() => CodexDevelopmentParseActivePointerV2(malformedPointer))
     .toThrow('must contain exactly');
+
+  const competingPointer = `---
+schema: sec-active-work-package-pointer-v2
+status: conditional
+last-reviewed: 2026-07-24
+---
+\`\`\`yaml
+selectionMode: exact-manifest-not-on-default-branch-v1
+defaultBranchRef: refs/remotes/origin/main
+defaultRefFreshness: live-platform-match-required
+manifest: ${FIXTURE_MANIFEST_PATH}
+manifestDigest: ${pointer.manifestDigest}
+digestBytes: git-blob
+unavailableDefaultRef: unresolved
+matchingDefaultBlob: none
+\`\`\`
+\`\`\`yaml
+selectionMode: exact-manifest-not-on-default-branch-v1
+defaultBranchRef: refs/remotes/origin/main
+defaultRefFreshness: live-platform-match-required
+manifest: docs/work-packages/competing-control-plane-fixture-v1.md
+manifestDigest: ${pointer.manifestDigest}
+digestBytes: git-blob
+unavailableDefaultRef: unresolved
+matchingDefaultBlob: none
+\`\`\`
+`;
+  expect(() => CodexDevelopmentParseActivePointerV2(competingPointer))
+    .toThrow('exactly one YAML selector block');
 
   expect(() => CodexDevelopmentParseCurrentStateSpecV1(`
 schema: sec-current-state-live-v1
@@ -250,30 +280,29 @@ test('repository controls use the shared live resolver and preserve one bounded 
     process.cwd(),
     `${pointer.defaultBranchRef}:${pointer.manifest}`
   ) ?? null;
-  expect(CodexDevelopmentResolveActiveWorkPackageV1({
+  const repositoryResolution = CodexDevelopmentResolveActiveWorkPackageV1({
     pointer,
     candidateManifestBlob: manifestBlob!,
     defaultManifestBlob,
     defaultRefState: 'fresh'
-  })).toMatchObject({ state: 'active', manifest: pointer.manifest });
+  });
+  if (
+    defaultManifestBlob
+    && CodexDevelopmentGitBlobSha256(defaultManifestBlob) === pointer.manifestDigest
+  ) {
+    expect(repositoryResolution).toEqual({ state: 'none', reason: 'matching-default-blob' });
+  } else {
+    expect(repositoryResolution).toEqual({
+      state: 'active',
+      manifest: pointer.manifest,
+      manifestDigest: pointer.manifestDigest
+    });
+  }
 
   expect(lifecycleAuthority).toContain('bun scripts/codex/document-control-plane.ts status --json');
   expect(lifecycleAuthority).toContain('测试必须导入共享 resolver，禁止复制 selector算法');
-  expect((rollingPlan.match(new RegExp(`^### ${activePackageId}$`, 'gmu')) ?? []))
-    .toHaveLength(1);
-
-  const candidates = [...rollingPlan.matchAll(/^### ([1-5])\. ([^\r\n]+)$/gmu)]
-    .map((match) => ({ ordinal: Number(match[1]), id: match[2]! }));
-  expect(candidates.length).toBeGreaterThanOrEqual(2);
-  expect(candidates.length).toBeLessThanOrEqual(5);
-  expect(new Set(candidates.map(({ id }) => id)).size).toBe(candidates.length);
-  expect(candidates.map(({ ordinal }) => ordinal))
-    .toEqual(candidates.map((_, index) => index + 1));
-  expect(candidates.map(({ id }) => id)).not.toContain(activePackageId);
-
-  for (let index = 1; index < candidates.length; index += 1) {
-    const previous = `### ${candidates[index - 1]!.ordinal}. ${candidates[index - 1]!.id}`;
-    const current = `### ${candidates[index]!.ordinal}. ${candidates[index]!.id}`;
-    expect(rollingPlan.indexOf(current)).toBeGreaterThan(rollingPlan.indexOf(previous));
-  }
+  const parsedRollingPlan = CodexDevelopmentParseRollingPlanV1(rollingPlan);
+  expect(parsedRollingPlan.activePackageId).toBe(activePackageId);
+  expect(parsedRollingPlan.candidatePackageIds.length).toBeGreaterThanOrEqual(2);
+  expect(parsedRollingPlan.candidatePackageIds.length).toBeLessThanOrEqual(5);
 });
