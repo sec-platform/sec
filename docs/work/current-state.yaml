@@ -39,3 +39,23 @@ stableFacts:
     - docs-document-authority-v5-reconciliation
     - docs-control-plane-publication-lifecycle
     - docs-authority-content-normalization
+    - docs-doctor-v5-semantic-superset
+
+  runtimeReconciliation:
+    completionStatus: not-in-main
+    stableProductionSource:
+      commit: d2f7083c63642306ba18cd77aac373e490c9079b
+      role: blob-source-only
+      canonicalAffectedResult: failed
+    rejectedDiagnosticSource:
+      commit: ceaf72a45d11b96b412cb1fd4234f98edd03488c
+      reason: temporary-diagnostic-test-only
+    retainedStableBlobs:
+      runtimeVerification: e3de72fc69c33f05ac0274acf0aeedfbf1476079
+      projectRuntime: 0cf6392e84d91256a4924fddd15df804d862fa90
+      runtimeDependencySpec: cbfafeb4d442c957b8a6d6c4206b25d037bb10e4
+      projectRuntimeTest: 868863e3d35fcc21ad28843ad454beb15433e2db
+      semanticMutationApplyTest: 83437728a3980c734b8b79b700c0a901d8604764
+    knownFailureClassification:
+      kind: playwright-dependency-browser-revision-drift
+      completionEvidence: false

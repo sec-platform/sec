@@ -13,7 +13,8 @@ import {
 } from '../../shared/process.ts';
 import {
   dependencyAuthorityPaths,
-  ensureProjectDependencies
+  ensureProjectDependencies,
+  materializePlaywrightBrowserCache
 } from '../../shared/project-runtime.ts';
 import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
 import {
@@ -28,6 +29,7 @@ import {
   RUNTIME_VERIFICATION_INVOCATION_CONTRACT,
   type RuntimeVerificationStep
 } from './runtime-verification-invocation-contract.ts';
+import { semanticMutationIsolatedNodeExecutablePath } from './semantic-mutation-isolated-runtime-plan.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
 
@@ -44,9 +46,10 @@ export function runtimeVerificationInvocation(
   step: RuntimeVerificationStep,
   projectRoot: string,
   isolated = false,
-  isolatedConfigPath?: string
+  isolatedConfigPath?: string,
+  isolatedNodeExecutablePath?: string
 ): { command: string; args: string[] } {
-  if (isolated && !isolatedConfigPath) {
+  if (isolated && step === 'unit' && !isolatedConfigPath) {
     throw new Error('Isolated Bun invocation requires a fixed config path');
   }
   const descriptor = RUNTIME_VERIFICATION_INVOCATION_CONTRACT[step];
@@ -54,11 +57,20 @@ export function runtimeVerificationInvocation(
     return { command: 'bun', args: ['run', descriptor.packageScript] };
   }
 
-  const fixedArgs = ['--no-env-file', `--config=${isolatedConfigPath!}`, '--no-install'];
   const canonicalProjectRoot = path.resolve(projectRoot);
   const moduleArg = descriptor.moduleRelativePath === null
     ? []
     : [path.join(canonicalProjectRoot, 'node_modules', ...descriptor.moduleRelativePath.split('/'))];
+  if (step !== 'unit') {
+    if (!isolatedNodeExecutablePath || !path.isAbsolute(isolatedNodeExecutablePath)) {
+      throw new Error('Isolated Node invocation requires its fixed staged executable');
+    }
+    return {
+      command: path.resolve(isolatedNodeExecutablePath),
+      args: [...moduleArg, ...descriptor.argvTail]
+    };
+  }
+  const fixedArgs = ['--no-env-file', `--config=${isolatedConfigPath!}`, '--no-install'];
   return {
     command: process.execPath,
     args: [...fixedArgs, ...moduleArg, ...descriptor.argvTail]
@@ -74,6 +86,26 @@ interface DependencyPathMetadata {
 interface DependencyPathProbe {
   lstat(value: string): DependencyPathMetadata;
   realpath(value: string): string;
+}
+
+interface RuntimeAcceptancePathMetadata {
+  readonly identity: string;
+  readonly isDirectory: boolean;
+  readonly isFile: boolean;
+  readonly isSymbolicLink: boolean;
+}
+
+interface RuntimeAcceptancePathProbe {
+  lstat(value: string): RuntimeAcceptancePathMetadata;
+  realpath(value: string): string;
+}
+
+export interface RuntimeAcceptanceShellAuthorityTestOptions {
+  readonly additionalEnv?: NodeJS.ProcessEnv;
+  readonly nodeExecutablePath: string;
+  readonly platform: NodeJS.Platform;
+  readonly probe: RuntimeAcceptancePathProbe;
+  readonly source: NodeJS.ProcessEnv;
 }
 
 export interface IsolatedRuntimeDependencySources {
@@ -103,6 +135,27 @@ const NODE_DEPENDENCY_PATH_PROBE: DependencyPathProbe = Object.freeze({
         metadata.mtimeMs
       ].map(String).join(':'),
       isDirectory: metadata.isDirectory(),
+      isSymbolicLink: metadata.isSymbolicLink()
+    });
+  },
+  realpath: realpathSync
+});
+
+const NODE_RUNTIME_ACCEPTANCE_PATH_PROBE: RuntimeAcceptancePathProbe = Object.freeze({
+  lstat(value: string): RuntimeAcceptancePathMetadata {
+    const metadata = lstatSync(value);
+    return Object.freeze({
+      identity: [
+        metadata.dev,
+        metadata.ino,
+        metadata.mode,
+        metadata.nlink,
+        metadata.size,
+        metadata.ctimeMs,
+        metadata.mtimeMs
+      ].map(String).join(':'),
+      isDirectory: metadata.isDirectory(),
+      isFile: metadata.isFile(),
       isSymbolicLink: metadata.isSymbolicLink()
     });
   },
@@ -300,20 +353,267 @@ export function revalidateIsolatedRuntimeBuildNodeModulesProofForTests(
 export function isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot?: string): string {
   return stagingWorkspaceRoot
     ? path.join(stagingWorkspaceRoot, '.isolated-process', 'playwright-browsers')
-    : path.join(compilerRoot, '.shared-deps', '.playwright-browsers');
+    : dependencyAuthorityPaths().browserCache;
 }
 
 export function buildIsolatedRuntimeEnvironment(
   stagingWorkspaceRoot: string,
   additionalEnv: NodeJS.ProcessEnv = {}
 ): NodeJS.ProcessEnv {
-  return buildIsolatedProcessEnvironment(path.join(stagingWorkspaceRoot, '.isolated-process', 'runtime'), {
-    [ISOLATED_VERIFICATION_ENV_KEY]: '1',
-    CI: 'true',
-    PLAYWRIGHT_BROWSERS_PATH: isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot),
-    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
-    ...additionalEnv
+  return buildIsolatedRuntimeEnvironmentFromSource(stagingWorkspaceRoot, additionalEnv, process.env);
+}
+
+function runtimeOwnedDirectoryPath(value: string, platform: NodeJS.Platform): string {
+  return platform === 'win32' ? path.win32.toNamespacedPath(value) : value;
+}
+
+function runtimeTempDirectoryPath(value: string, platform: NodeJS.Platform): string {
+  return runtimeOwnedDirectoryPath(value, platform);
+}
+
+/** Test-only pure seam for staging-owned runtime directory representations. */
+export function runtimeOwnedDirectoryPathForTests(
+  value: string,
+  platform: NodeJS.Platform
+): string {
+  return runtimeOwnedDirectoryPath(value, platform);
+}
+
+/** Test-only pure seam for the Windows runtime TEMP representation. */
+export function runtimeTempDirectoryPathForTests(
+  value: string,
+  platform: NodeJS.Platform
+): string {
+  return runtimeTempDirectoryPath(value, platform);
+}
+
+function buildIsolatedRuntimeEnvironmentFromSource(
+  stagingWorkspaceRoot: string,
+  additionalEnv: NodeJS.ProcessEnv,
+  source: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform
+): NodeJS.ProcessEnv {
+  const browserCacheDirectory = runtimeOwnedDirectoryPath(
+    isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot),
+    platform
+  );
+  const environment = buildIsolatedProcessEnvironment(
+    path.join(stagingWorkspaceRoot, '.isolated-process', 'runtime'),
+    {
+      [ISOLATED_VERIFICATION_ENV_KEY]: '1',
+      CI: 'true',
+      PLAYWRIGHT_BROWSERS_PATH: browserCacheDirectory,
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+      ...additionalEnv
+    },
+    source
+  );
+  const tempDirectory = environment.TEMP;
+  if (!tempDirectory || environment.TMP !== tempDirectory || environment.TMPDIR !== tempDirectory) {
+    throw new Error('Isolated runtime TEMP authority is inconsistent');
+  }
+  const runtimeTemp = runtimeTempDirectoryPath(tempDirectory, platform);
+  environment.TEMP = runtimeTemp;
+  environment.TMP = runtimeTemp;
+  environment.TMPDIR = runtimeTemp;
+  return environment;
+}
+
+function runtimeAcceptanceShellAuthorityError(reason: string): Error {
+  return new Error(`Runtime acceptance shell authority is invalid: ${reason}`);
+}
+
+function runtimeAcceptancePathApi(platform: NodeJS.Platform): typeof path.win32 {
+  return platform === 'win32' ? path.win32 : path.posix;
+}
+
+function foldedRuntimeAcceptancePath(value: string, platform: NodeJS.Platform): string {
+  const resolved = runtimeAcceptancePathApi(platform).resolve(value);
+  return platform === 'win32' ? resolved.toLocaleLowerCase('en-US') : resolved;
+}
+
+function sameRuntimeAcceptancePathMetadata(
+  left: RuntimeAcceptancePathMetadata,
+  right: RuntimeAcceptancePathMetadata
+): boolean {
+  return left.identity === right.identity &&
+    left.isDirectory === right.isDirectory &&
+    left.isFile === right.isFile &&
+    left.isSymbolicLink === right.isSymbolicLink;
+}
+
+function uniqueEnvironmentValue(source: NodeJS.ProcessEnv, key: string): string {
+  const matches = Object.entries(source).filter(([candidate, value]) => (
+    candidate.toLocaleLowerCase('en-US') === key.toLocaleLowerCase('en-US') && value !== undefined
+  ));
+  if (matches.length !== 1) {
+    throw runtimeAcceptanceShellAuthorityError(`${key} must have one case-insensitive source`);
+  }
+  return matches[0]![1]!;
+}
+
+function withoutEnvironmentKeys(
+  source: NodeJS.ProcessEnv,
+  removedKeys: readonly string[]
+): NodeJS.ProcessEnv {
+  const removed = new Set(removedKeys.map((key) => key.toLocaleLowerCase('en-US')));
+  return Object.fromEntries(Object.entries(source).filter(([key]) => (
+    !removed.has(key.toLocaleLowerCase('en-US'))
+  )));
+}
+
+function assertUniqueEnvironmentKeys(source: NodeJS.ProcessEnv): void {
+  const keys = new Set<string>();
+  for (const key of Object.keys(source)) {
+    const folded = key.toLocaleLowerCase('en-US');
+    if (keys.has(folded)) {
+      throw runtimeAcceptanceShellAuthorityError('environment keys must be case-insensitively unique');
+    }
+    keys.add(folded);
+  }
+}
+
+function proveRuntimeAcceptancePhysicalPath(
+  value: string,
+  expectedKind: 'directory' | 'file',
+  label: string,
+  platform: NodeJS.Platform,
+  probe: RuntimeAcceptancePathProbe
+): Readonly<{ metadata: RuntimeAcceptancePathMetadata; physicalPath: string }> {
+  const pathApi = runtimeAcceptancePathApi(platform);
+  try {
+    if (!pathApi.isAbsolute(value)) throw new Error('relative');
+    const resolved = pathApi.resolve(value);
+    const before = probe.lstat(resolved);
+    const kindMatches = expectedKind === 'directory' ? before.isDirectory : before.isFile;
+    if (!kindMatches || before.isSymbolicLink) throw new Error('kind');
+    const physicalPath = probe.realpath(resolved);
+    const after = probe.lstat(resolved);
+    if (!sameRuntimeAcceptancePathMetadata(before, after) ||
+      foldedRuntimeAcceptancePath(physicalPath, platform) !== foldedRuntimeAcceptancePath(resolved, platform)) {
+      throw new Error('identity');
+    }
+    return Object.freeze({ metadata: before, physicalPath });
+  } catch {
+    throw runtimeAcceptanceShellAuthorityError(`${label} must be one stable physical ${expectedKind}`);
+  }
+}
+
+function buildIsolatedRuntimeAcceptanceEnvironmentWithAuthority(
+  stagingWorkspaceRoot: string,
+  options: RuntimeAcceptanceShellAuthorityTestOptions
+): NodeJS.ProcessEnv {
+  const pathApi = runtimeAcceptancePathApi(options.platform);
+  const genericEnvironment = buildIsolatedRuntimeEnvironmentFromSource(
+    stagingWorkspaceRoot,
+    options.additionalEnv ?? {},
+    options.source
+  );
+  const environment = withoutEnvironmentKeys(genericEnvironment, [
+    'PATH',
+    'ComSpec',
+    'PATHEXT',
+    'SystemRoot',
+    'WINDIR'
+  ]);
+  const expectedNodeExecutablePath = semanticMutationIsolatedNodeExecutablePath(
+    stagingWorkspaceRoot,
+    options.platform
+  );
+  const nodeExecutable = proveRuntimeAcceptancePhysicalPath(
+    options.nodeExecutablePath,
+    'file',
+    'staged Node executable',
+    options.platform,
+    options.probe
+  );
+  if (foldedRuntimeAcceptancePath(nodeExecutable.physicalPath, options.platform) !==
+    foldedRuntimeAcceptancePath(expectedNodeExecutablePath, options.platform)) {
+    throw runtimeAcceptanceShellAuthorityError('Node must be the exact staged executable');
+  }
+  const nodeDirectory = proveRuntimeAcceptancePhysicalPath(
+    pathApi.dirname(nodeExecutable.physicalPath),
+    'directory',
+    'staged Node directory',
+    options.platform,
+    options.probe
+  );
+
+  if (options.platform !== 'win32') {
+    environment.PATH = nodeDirectory.physicalPath;
+    assertUniqueEnvironmentKeys(environment);
+    return environment;
+  }
+
+  const systemRoot = proveRuntimeAcceptancePhysicalPath(
+    uniqueEnvironmentValue(options.source, 'SystemRoot'),
+    'directory',
+    'SystemRoot',
+    options.platform,
+    options.probe
+  );
+  const windowsDirectory = proveRuntimeAcceptancePhysicalPath(
+    uniqueEnvironmentValue(options.source, 'WINDIR'),
+    'directory',
+    'WINDIR',
+    options.platform,
+    options.probe
+  );
+  if (systemRoot.metadata.identity !== windowsDirectory.metadata.identity ||
+    foldedRuntimeAcceptancePath(systemRoot.physicalPath, options.platform) !==
+      foldedRuntimeAcceptancePath(windowsDirectory.physicalPath, options.platform)) {
+    throw runtimeAcceptanceShellAuthorityError('SystemRoot and WINDIR must resolve to one authority');
+  }
+  const systemDirectory = proveRuntimeAcceptancePhysicalPath(
+    pathApi.join(systemRoot.physicalPath, 'System32'),
+    'directory',
+    'System32',
+    options.platform,
+    options.probe
+  );
+  const commandShell = proveRuntimeAcceptancePhysicalPath(
+    pathApi.join(systemDirectory.physicalPath, 'cmd.exe'),
+    'file',
+    'cmd.exe',
+    options.platform,
+    options.probe
+  );
+  proveRuntimeAcceptancePhysicalPath(
+    pathApi.join(systemDirectory.physicalPath, 'taskkill.exe'),
+    'file',
+    'taskkill.exe',
+    options.platform,
+    options.probe
+  );
+
+  environment.PATH = [systemDirectory.physicalPath, nodeDirectory.physicalPath].join(pathApi.delimiter);
+  environment.SystemRoot = systemRoot.physicalPath;
+  environment.WINDIR = systemRoot.physicalPath;
+  environment.ComSpec = commandShell.physicalPath;
+  environment.PATHEXT = '.EXE';
+  assertUniqueEnvironmentKeys(environment);
+  return environment;
+}
+
+export function buildIsolatedRuntimeAcceptanceEnvironment(
+  stagingWorkspaceRoot: string,
+  additionalEnv: NodeJS.ProcessEnv = {}
+): NodeJS.ProcessEnv {
+  return buildIsolatedRuntimeAcceptanceEnvironmentWithAuthority(stagingWorkspaceRoot, {
+    additionalEnv,
+    nodeExecutablePath: semanticMutationIsolatedNodeExecutablePath(stagingWorkspaceRoot),
+    platform: process.platform,
+    probe: NODE_RUNTIME_ACCEPTANCE_PATH_PROBE,
+    source: process.env
   });
+}
+
+/** Test-only pure seam for cross-platform acceptance shell authority vectors. */
+export function buildIsolatedRuntimeAcceptanceEnvironmentForTests(
+  stagingWorkspaceRoot: string,
+  options: RuntimeAcceptanceShellAuthorityTestOptions
+): NodeJS.ProcessEnv {
+  return buildIsolatedRuntimeAcceptanceEnvironmentWithAuthority(stagingWorkspaceRoot, options);
 }
 
 function createRuntimeStepReport(
@@ -404,21 +704,35 @@ async function timed<T>(
 async function ensurePlaywrightBrowser(
   projectRoot: string,
   env: NodeJS.ProcessEnv,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  materialize: typeof materializePlaywrightBrowserCache = materializePlaywrightBrowserCache
 ): Promise<{
   code: number;
   stdout: string;
   stderr: string;
 }> {
-  const playwrightCli = path.join(projectRoot, 'node_modules', 'playwright', 'cli.js');
-  return runCommand(process.execPath, [playwrightCli, 'install', 'chromium'], {
-    cwd: projectRoot,
-    env: {
-      ...env,
-      PLAYWRIGHT_BROWSERS_PATH: isolatedPlaywrightBrowsersPath()
-    },
+  const result = await materialize({
+    environment: env,
+    playwrightProjectRoot: projectRoot,
     signal
   });
+  return result.commandResult;
+}
+
+/** Test-only behavioral seam for the non-isolated runtime browser delegation. */
+export async function ensurePlaywrightBrowserForTests(
+  projectRoot: string,
+  env: NodeJS.ProcessEnv,
+  options: {
+    readonly materialize?: typeof materializePlaywrightBrowserCache;
+    readonly signal?: AbortSignal;
+  } = {}
+): Promise<{
+  code: number;
+  stdout: string;
+  stderr: string;
+}> {
+  return ensurePlaywrightBrowser(projectRoot, env, options.signal, options.materialize);
 }
 
 export async function runRuntimeVerification(
@@ -441,21 +755,31 @@ export async function runRuntimeVerification(
         execute
       )
     : await execute();
-  const runtimeUnitFiles = relativeFiles(
-    projectRoot,
-    (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'unit'))).filter((file) => file.endsWith('.test.ts'))
-  );
-  const runtimeAcceptanceFiles = relativeFiles(
-    projectRoot,
-    (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'acceptance'))).filter((file) => file.endsWith('.spec.ts'))
+  const { runtimeUnitFiles, runtimeAcceptanceFiles } = await withIsolatedPhaseTelemetry(
+    'runtime-test-discovery',
+    async () => {
+      const runtimeUnitFiles = relativeFiles(
+        projectRoot,
+        (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'unit')))
+          .filter((file) => file.endsWith('.test.ts'))
+      );
+      const runtimeAcceptanceFiles = relativeFiles(
+        projectRoot,
+        (await listFilesRecursive(path.join(projectRoot, 'tests', 'runtime', 'acceptance')))
+          .filter((file) => file.endsWith('.spec.ts'))
+      );
+      return { runtimeUnitFiles, runtimeAcceptanceFiles };
+    }
   );
 
-  await timed('project deps materialize', emitTiming, () => ensureProjectDependencies(projectRoot, {
-    beforeCommit: options.beforeCommit,
-    signal: options.signal,
-    skipSharedDepsWarmup: true,
-    ...(isolated ? { installMode: 'prebound-only' as const } : {})
-  }));
+  await withIsolatedPhaseTelemetry('runtime-dependency-validation', () =>
+    timed('project deps materialize', emitTiming, () => ensureProjectDependencies(projectRoot, {
+      beforeCommit: options.beforeCommit,
+      signal: options.signal,
+      skipSharedDepsWarmup: true,
+      ...(isolated ? { installMode: 'prebound-only' as const } : {})
+    }))
+  );
 
   const isolatedRuntimeRoot = options.stagingWorkspaceRoot
     ? path.join(options.stagingWorkspaceRoot, '.isolated-process', 'runtime')
@@ -463,9 +787,14 @@ export async function runRuntimeVerification(
   const isolatedConfigPath = isolatedRuntimeRoot
     ? path.join(isolatedRuntimeRoot, 'bunfig.toml')
     : undefined;
+  const isolatedNodeExecutablePath = isolated
+    ? semanticMutationIsolatedNodeExecutablePath(options.stagingWorkspaceRoot!)
+    : undefined;
   if (isolatedRuntimeRoot && isolatedConfigPath) {
-    await ensureIsolatedProcessDirectories(isolatedRuntimeRoot, options.beforeCommit);
-    await writeText(isolatedConfigPath, '# isolated runtime\n', options.beforeCommit);
+    await withIsolatedPhaseTelemetry('runtime-process-environment-materialize', async () => {
+      await ensureIsolatedProcessDirectories(isolatedRuntimeRoot, options.beforeCommit);
+      await writeText(isolatedConfigPath, '# isolated runtime\n', options.beforeCommit);
+    });
   }
   const envPathKey = pathEnvKey();
   const baseEnv = isolated
@@ -477,7 +806,9 @@ export async function runRuntimeVerification(
       };
   const lane = createSkippedRuntimeLane();
   if (isolated) {
-    await assertIsolatedStagingTree(options.stagingWorkspaceRoot!, options.stagingTreeOptions);
+    await withIsolatedPhaseTelemetry('runtime-staging-tree-validation', () =>
+      assertIsolatedStagingTree(options.stagingWorkspaceRoot!, options.stagingTreeOptions)
+    );
   }
   const runRuntimeCommand = async (
     invocation: { readonly command: string; readonly args: string[] },
@@ -496,7 +827,13 @@ export async function runRuntimeVerification(
 
   try {
     if (mode === 'full') {
-      const buildInvocation = runtimeVerificationInvocation('build', projectRoot, isolated, isolatedConfigPath);
+      const buildInvocation = runtimeVerificationInvocation(
+        'build',
+        projectRoot,
+        isolated,
+        isolatedConfigPath,
+        isolatedNodeExecutablePath
+      );
       const buildResult = await timed('next build', emitTiming, () =>
         withIsolatedPhaseTelemetry('next-build', () => runRuntimeCommand(buildInvocation, baseEnv))
       );
@@ -514,7 +851,13 @@ export async function runRuntimeVerification(
     }
 
     if (runtimeUnitFiles.length > 0) {
-      const unitInvocation = runtimeVerificationInvocation('unit', projectRoot, isolated, isolatedConfigPath);
+      const unitInvocation = runtimeVerificationInvocation(
+        'unit',
+        projectRoot,
+        isolated,
+        isolatedConfigPath,
+        isolatedNodeExecutablePath
+      );
       const unitResult = await timed('bun unit', emitTiming, () =>
         withIsolatedPhaseTelemetry('unit', () => runRuntimeCommand(unitInvocation, baseEnv))
       );
@@ -577,9 +920,15 @@ export async function runRuntimeVerification(
     }
 
     const testPort = generatePort(projectRoot, isolated);
-    const acceptanceInvocation = runtimeVerificationInvocation('acceptance', projectRoot, isolated, isolatedConfigPath);
+    const acceptanceInvocation = runtimeVerificationInvocation(
+      'acceptance',
+      projectRoot,
+      isolated,
+      isolatedConfigPath,
+      isolatedNodeExecutablePath
+    );
     const acceptanceEnv = isolated
-      ? buildIsolatedRuntimeEnvironment(options.stagingWorkspaceRoot!, { TEST_PORT: String(testPort) })
+      ? buildIsolatedRuntimeAcceptanceEnvironment(options.stagingWorkspaceRoot!, { TEST_PORT: String(testPort) })
       : { ...baseEnv, CI: process.env.CI ?? 'true', TEST_PORT: String(testPort) };
     const acceptanceResult = await timed('playwright test', emitTiming, () =>
       withIsolatedPhaseTelemetry('playwright', () =>

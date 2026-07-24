@@ -10,8 +10,8 @@ last-reviewed: 2026-07-24
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/docs-doctor-v5-semantic-superset-bootstrap-v1.md
-manifestDigest: sha256:eb8da07591f9bf51baa9dcad0b9177e4de8241d7b82c2f4537032bd13e62d98d
+manifest: docs/work-packages/runtime-canonical-line-and-pr137-reconciliation-v1.md
+manifestDigest: sha256:003f02bbaee054d7b62f1d1f05645da381b7fd1b6df79595491c696a48324a7e
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

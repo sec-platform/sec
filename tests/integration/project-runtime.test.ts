@@ -1,15 +1,27 @@
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
+import { type AddressInfo, createServer } from 'node:net';
 import path from 'node:path';
 
+import {
+  buildIsolatedRuntimeAcceptanceEnvironment,
+  buildIsolatedRuntimeEnvironment,
+  runtimeVerificationInvocation
+} from '../../platform/compiler/verify/run-runtime-verification.ts';
+import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from '../../platform/compiler/verify/runtime-verification-invocation-contract.ts';
+import {
+  semanticMutationIsolatedNodeExecutablePath
+} from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { runCommand } from '../../platform/shared/process.ts';
 import { ensureProjectBase } from '../../platform/shared/project-base.ts';
 import {
   ensureCompilerDepsReady,
   ensureProjectDependencies,
   ensureSharedDepsReady,
   readRuntimeDepsStamp,
+  resolveExternalNodeRuntimeAuthority,
   withProjectDependencyBridge,
   writeRuntimeDepsStamp
 } from '../../platform/shared/project-runtime.ts';
@@ -28,6 +40,41 @@ type RuntimePackageJson = {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
 };
+
+async function reserveLoopbackPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address() as AddressInfo;
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  return address.port;
+}
+
+async function assertLoopbackPortIsFree(port: number): Promise<void> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', resolve);
+  });
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+}
+
+async function ensureEnvironmentDirectories(environment: NodeJS.ProcessEnv): Promise<void> {
+  for (const value of [
+    environment.HOME,
+    environment.USERPROFILE,
+    environment.APPDATA,
+    environment.LOCALAPPDATA,
+    environment.TEMP,
+    environment.TMP,
+    environment.TMPDIR,
+    environment.PLAYWRIGHT_BROWSERS_PATH
+  ]) {
+    if (value) await fs.mkdir(value, { recursive: true });
+  }
+}
 
 async function installCompilerDependencyFixture(workingDirectory: string, marker: string): Promise<void> {
   const packages = [{ name: 'commander', version: '1.0.0' }, {
@@ -421,18 +468,30 @@ describe('test budget and benchmark contracts', () => {
     const runnerSource = await readCompilerFile('platform/dev-runner.ts');
     const testRunnerSource = await readCompilerFile('platform/dev-runner/test-runner.ts');
     const setupSource = await readCompilerFile('tests/setup/runtime-deps.setup.ts');
+    const runtimeVerificationSource = await readCompilerFile(
+      'platform/compiler/verify/run-runtime-verification.ts'
+    );
 
     expectContainsAll(runnerSource, [
       'test:fast'
     ]);
     expectContainsAll(testRunnerSource, [
       'fastTestArgs',
+      'ensureTestDependencies',
+      'PLAYWRIGHT_BROWSERS_PATH',
       'SEC_SKIP_RUNTIME_DEPS_SETUP'
     ]);
     expectContainsAll(setupSource, [
       "process.env.SEC_SKIP_RUNTIME_DEPS_SETUP !== '1'",
-      'ensureDevDependencies',
+      'ensureTestDependencies',
+      'process.env.PLAYWRIGHT_BROWSERS_PATH = dependencies.browserCachePath',
       'await fs.rm(lockPath, { recursive: true, force: true });'
+    ]);
+    expectContainsNone(setupSource, ['ensureDevDependencies', 'ensurePlaywrightBrowserCacheReady']);
+    expectContainsAll(runtimeVerificationSource, ['materializePlaywrightBrowserCache']);
+    expectContainsNone(runtimeVerificationSource, [
+      "path.join(projectRoot, 'node_modules', 'playwright', 'cli.js')",
+      "path.join(compilerRoot, '.shared-deps', '.playwright-browsers')"
     ]);
   });
 
@@ -723,10 +782,135 @@ describe('project base', () => {
       expect(projectPackage.scripts['test:fast']).not.toContain('playwright');
       expect(playwrightConfig).toContain("trace: 'retain-on-failure'");
       expect(playwrightConfig).toContain('workers: 1');
-      expect(playwrightConfig).toContain('next start --hostname 127.0.0.1');
+      expect(playwrightConfig).toContain("'node_modules/next/dist/bin/next'");
       expect(playwrightConfig).not.toContain('next dev');
     }, 'engineering-compiler-runtime-trace-');
   });
+
+  test('project base emits the canonical isolated runtime acceptance webServer command', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await ensureProjectBase(workspaceRoot);
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      const playwrightConfig = await fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8');
+
+      expect(RUNTIME_VERIFICATION_INVOCATION_CONTRACT.build.moduleRelativePath).toBe('next/dist/bin/next');
+      expectContainsAll(playwrightConfig, [
+        "process.env.SEC_ISOLATED_VERIFICATION === '1'",
+        'const webServerCommand = (isolatedVerification',
+        "? [\n      'node'",
+        ": [\n      'bun'",
+        "'bun'",
+        "'--no-env-file'",
+        "'--no-install'",
+        "'node_modules/next/dist/bin/next'",
+        "'start'",
+        "cwd: '.'",
+        'command: webServerCommand'
+      ]);
+      expectContainsNone(playwrightConfig, [
+        '.bin/next',
+        'next start --hostname',
+        '--config=../.isolated-process/runtime/bunfig.toml',
+        "'npx'",
+        'bun run',
+        'process.env.PATH',
+        'process.env.ComSpec',
+        'process.env.PATHEXT'
+      ]);
+    }, 'engineering-compiler-runtime-command-');
+  });
+
+  test('isolated runtime acceptance launches generated Next through the Playwright shell and closes the server', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await ensureProjectBase(workspaceRoot);
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      const isolatedRuntimeRoot = path.join(workspaceRoot, '.isolated-process', 'runtime');
+      const isolatedConfigPath = path.join(isolatedRuntimeRoot, 'bunfig.toml');
+      const stagedNode = semanticMutationIsolatedNodeExecutablePath(workspaceRoot);
+      const externalNode = await resolveExternalNodeRuntimeAuthority();
+      const resolvedNestedConfig = path.resolve(projectRoot, '../.isolated-process/runtime/bunfig.toml');
+      const testPort = await reserveLoopbackPort();
+      expect(resolvedNestedConfig).toBe(isolatedConfigPath);
+
+      await Promise.all([
+        fs.mkdir(path.join(projectRoot, 'app', 'login'), { recursive: true }),
+        fs.mkdir(path.join(projectRoot, 'tests', 'runtime', 'acceptance'), { recursive: true }),
+        fs.mkdir(isolatedRuntimeRoot, { recursive: true }),
+        fs.mkdir(path.dirname(stagedNode), { recursive: true })
+      ]);
+      await Promise.all([
+        fs.writeFile(path.join(projectRoot, 'app', 'layout.js'), [
+          'export default function RootLayout({ children }) {',
+          '  return <html><body>{children}</body></html>;',
+          '}',
+          ''
+        ].join('\n'), 'utf8'),
+        fs.writeFile(path.join(projectRoot, 'app', 'login', 'page.js'), [
+          'export default function LoginPage() {',
+          "  return <main>shell-authority-ok</main>;",
+          '}',
+          ''
+        ].join('\n'), 'utf8'),
+        fs.writeFile(path.join(projectRoot, 'tests', 'runtime', 'acceptance', 'shell-authority.spec.ts'), [
+          "import { expect, test } from '@playwright/test';",
+          '',
+          "test('serves the generated login route', async ({ request, baseURL }) => {",
+          "  const response = await request.get(`${baseURL}/login`);",
+          '  expect(response.ok()).toBe(true);',
+          "  expect(await response.text()).toContain('shell-authority-ok');",
+          '});',
+          ''
+        ].join('\n'), 'utf8'),
+        fs.writeFile(isolatedConfigPath, '# isolated runtime\n', 'utf8'),
+        fs.copyFile(externalNode.executablePath, stagedNode)
+      ]);
+
+      await withProjectDependencyBridge(projectRoot, async () => {
+        const buildEnvironment = buildIsolatedRuntimeEnvironment(workspaceRoot);
+        await ensureEnvironmentDirectories(buildEnvironment);
+        const buildInvocation = runtimeVerificationInvocation(
+          'build', projectRoot, true, isolatedConfigPath, stagedNode
+        );
+        const buildResult = await runCommand(buildInvocation.command, buildInvocation.args, {
+          cwd: projectRoot,
+          env: buildEnvironment,
+          envMode: 'replace',
+          timeoutMs: 120_000
+        });
+        expect(buildResult).toMatchObject({ code: 0 });
+
+        await fs.writeFile(path.join(projectRoot, 'bunfig.toml'), 'invalid project bunfig = [\n', 'utf8');
+
+        const acceptanceEnvironment = buildIsolatedRuntimeAcceptanceEnvironment(workspaceRoot, {
+          TEST_PORT: String(testPort)
+        });
+        expect(acceptanceEnvironment.PATH?.split(path.delimiter).at(-1))
+          .toBe(path.dirname(stagedNode));
+        expect(acceptanceEnvironment.NODE_OPTIONS).toBeUndefined();
+        expect(acceptanceEnvironment.NODE_PATH).toBeUndefined();
+        await ensureEnvironmentDirectories(acceptanceEnvironment);
+        const acceptanceInvocation = runtimeVerificationInvocation(
+          'acceptance',
+          projectRoot,
+          true,
+          isolatedConfigPath,
+          stagedNode
+        );
+        const acceptanceResult = await runCommand(acceptanceInvocation.command, acceptanceInvocation.args, {
+          cwd: projectRoot,
+          env: acceptanceEnvironment,
+          envMode: 'replace',
+          timeoutMs: 120_000
+        });
+        expect(acceptanceResult).toMatchObject({ code: 0 });
+        expect(`${acceptanceResult.stdout}\n${acceptanceResult.stderr}`).not.toMatch(
+          /ENOENT|uv_spawn|cmd\.exe.*(?:not found|not recognized)|taskkill.*(?:not found|not recognized)/iu
+        );
+      });
+
+      await assertLoopbackPortIsFree(testPort);
+    }, 'engineering-compiler-runtime-shell-');
+  }, 180_000);
 });
 
 describe('dependency bridge', () => {

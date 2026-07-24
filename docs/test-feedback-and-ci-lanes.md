@@ -54,6 +54,7 @@ bun run hooks:install
 - `imports:prepare` 是 authoring 写边界；hosted `imports:check` 是只读 Gate。二者使用同一 organizer，不复制排序算法。
 - changed-only imports 必须绑定可解析的 exact base；无效 base 直接 fail closed，不能退化为全仓扫描。
 - `deps:ensure` 只发布与 manifest、lock、Bun、OS/architecture identity 匹配且验证完成的依赖 generation；ambient auto-install 和相邻 worktree 依赖不能代替当前仓库依赖。
+- `deps:ensure` 与 managed hook lifecycle只闭合 compiler dependency和hook投影，绝不下载浏览器。Playwright browser readiness只属于test/runtime preparation，并绑定精确package identity、项目本地cache、外部Node、正数有界安装预算与可执行文件后置条件。
 - `hooks:install` 只在 tracked、executable、byte-equal hooks 且不存在其他真实 hook authority 时安装。lifecycle hook 负责依赖闭合，pre-commit/pre-push 只调用唯一 `imports:freeze`。
 - fast process timeout 是共享 runner 合同；显式 override 优先，默认值只由代码 owner维护。不得在单测、selector或 serial registry 中复制 timeout。
 
