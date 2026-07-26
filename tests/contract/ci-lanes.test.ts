@@ -268,6 +268,8 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
     'e2e-explain',
     'e2e-local-views',
     'e2e-provenance',
+    'e2e-runtime-host',
+    'e2e-summary',
     'e2e-windows-appcontainer-executor'
   ]);
   expect(suites.find((suite) => suite.id === 'e2e-windows-appcontainer-executor'))

@@ -1,73 +1,34 @@
 import {
   lstat,
   mkdir,
-  mkdtemp,
-  readFile,
   readdir,
+  readFile,
   realpath,
   rm,
   symlink,
   unlink,
   writeFile
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
 import {
-  acquireBrowserLaunchPath,
   acquireBrowserLaunchPathForTests,
   assertRegisteredWindowsBrowserLaunchProofCurrent
 } from '../../platform/compiler/verify/windows-browser-launch-path.ts';
 import { runCommand } from '../../platform/shared/process.ts';
-
-const EXECUTABLE_RELATIVE_PATH =
-  'chromium_headless_shell-1217/chrome-headless-shell-win64/chrome-headless-shell.exe';
-
-test.skipIf(process.platform !== 'win32')(
-  'production Windows browser launch authority hardens and removes its private host root',
-  async () => {
-    const input = await fixture();
-    try {
-      const lease = await acquireBrowserLaunchPath(
-        input.browserRoot,
-        EXECUTABLE_RELATIVE_PATH
-      );
-      const authorityRoot = path.dirname(path.dirname(lease.browsersPath));
-      await lease.assertCurrent();
-      await lease.release();
-      await expect(lstat(authorityRoot)).rejects.toMatchObject({ code: 'ENOENT' });
-    } finally {
-      await rm(input.root, { recursive: true, force: true });
-    }
-  }
-);
-
-async function fixture(): Promise<Readonly<{
-  browserRoot: string;
-  executablePath: string;
-  root: string;
-  temporaryRoot: string;
-}>> {
-  const root = await mkdtemp(path.join(tmpdir(), 'sec-browser-launch-test-'));
-  const browserRoot = path.join(root, 'physical-browser-cache');
-  const executablePath = path.join(browserRoot, ...EXECUTABLE_RELATIVE_PATH.split('/'));
-  const temporaryRoot = path.join(root, 'temporary-authority');
-  await Promise.all([
-    mkdir(path.dirname(executablePath), { recursive: true }),
-    mkdir(temporaryRoot, { recursive: true })
-  ]);
-  await writeFile(executablePath, Buffer.from('exact-browser-executable'));
-  return Object.freeze({ browserRoot, executablePath, root, temporaryRoot });
-}
+import {
+  createWindowsBrowserLaunchFixture,
+  WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH
+} from '../helpers/windows-browser-launch-path-fixture.ts';
 
 test('Windows browser launch projection binds one physical cache and cleans its lease', async () => {
-  const input = await fixture();
+  const input = await createWindowsBrowserLaunchFixture();
   try {
     const lease = await acquireBrowserLaunchPathForTests(
       input.browserRoot,
-      EXECUTABLE_RELATIVE_PATH,
+      WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH,
       {
         platform: 'win32',
         proveTemporaryAuthority: async () => undefined,
@@ -76,7 +37,7 @@ test('Windows browser launch projection binds one physical cache and cleans its 
     );
     const projectedExecutable = path.join(
       lease.browsersPath,
-      ...EXECUTABLE_RELATIVE_PATH.split('/')
+      ...WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH.split('/')
     );
     expect(lease.browsersPath).not.toBe(input.browserRoot);
     expect(path.relative(input.temporaryRoot, lease.browsersPath).startsWith('..')).toBe(false);
@@ -96,11 +57,11 @@ test('Windows browser launch projection binds one physical cache and cleans its 
 });
 
 test('POSIX browser launch path remains the exact physical staging cache', async () => {
-  const input = await fixture();
+  const input = await createWindowsBrowserLaunchFixture();
   try {
     const lease = await acquireBrowserLaunchPathForTests(
       input.browserRoot,
-      EXECUTABLE_RELATIVE_PATH,
+      WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH,
       {
         platform: 'linux',
         temporaryRoot: input.temporaryRoot
@@ -117,17 +78,17 @@ test('POSIX browser launch path remains the exact physical staging cache', async
 });
 
 test('browser launch projection rejects target swaps without deleting unowned data', async () => {
-  const input = await fixture();
+  const input = await createWindowsBrowserLaunchFixture();
   const outsideRoot = path.join(input.root, 'outside-browser-cache');
   const outsideExecutable = path.join(
     outsideRoot,
-    ...EXECUTABLE_RELATIVE_PATH.split('/')
+    ...WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH.split('/')
   );
   await mkdir(path.dirname(outsideExecutable), { recursive: true });
   await writeFile(outsideExecutable, Buffer.from('outside-browser-executable'));
   const lease = await acquireBrowserLaunchPathForTests(
     input.browserRoot,
-    EXECUTABLE_RELATIVE_PATH,
+    WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH,
     {
       platform: 'win32',
       proveTemporaryAuthority: async () => undefined,
@@ -160,18 +121,18 @@ test('browser launch projection rejects target swaps without deleting unowned da
 });
 
 test('browser launch proof rejects a post-readiness target swap at the command pre-spawn boundary', async () => {
-  const input = await fixture();
+  const input = await createWindowsBrowserLaunchFixture();
   const outsideRoot = path.join(input.root, 'race-browser-cache');
   const outsideExecutable = path.join(
     outsideRoot,
-    ...EXECUTABLE_RELATIVE_PATH.split('/')
+    ...WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH.split('/')
   );
   const markerPath = path.join(input.root, 'browser-command-spawned');
   await mkdir(path.dirname(outsideExecutable), { recursive: true });
   await writeFile(outsideExecutable, Buffer.from('race-browser-executable'));
   const lease = await acquireBrowserLaunchPathForTests(
     input.browserRoot,
-    EXECUTABLE_RELATIVE_PATH,
+    WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH,
     {
       platform: 'win32',
       proveTemporaryAuthority: async () => undefined,
@@ -213,11 +174,11 @@ test('browser launch proof rejects a post-readiness target swap at the command p
 });
 
 test('browser launch projection rejects a physical but untrusted host root before creating residue', async () => {
-  const input = await fixture();
+  const input = await createWindowsBrowserLaunchFixture();
   try {
     await expect(acquireBrowserLaunchPathForTests(
       input.browserRoot,
-      EXECUTABLE_RELATIVE_PATH,
+      WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH,
       {
         platform: 'win32',
         proveTemporaryAuthority: async () => {
@@ -233,11 +194,11 @@ test('browser launch projection rejects a physical but untrusted host root befor
 });
 
 test('browser launch projection fails closed when the executable path is not launch-compatible', async () => {
-  const input = await fixture();
+  const input = await createWindowsBrowserLaunchFixture();
   try {
     await expect(acquireBrowserLaunchPathForTests(
       input.browserRoot,
-      EXECUTABLE_RELATIVE_PATH,
+      WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH,
       {
         maxLaunchPathLength: 1,
         platform: 'win32',
@@ -252,7 +213,7 @@ test('browser launch projection fails closed when the executable path is not lau
 });
 
 test('browser launch projection rejects non-canonical executable paths', async () => {
-  const input = await fixture();
+  const input = await createWindowsBrowserLaunchFixture();
   try {
     await expect(acquireBrowserLaunchPathForTests(
       input.browserRoot,

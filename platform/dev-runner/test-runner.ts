@@ -30,8 +30,10 @@ import {
   TEST_WORKSPACE_NAMESPACE_ENV
 } from './env-manager.ts';
 import {
+  DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY,
   DEFAULT_FAST_TEST_TIMEOUT_MS,
   DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY,
+  isDefaultFastTestFile,
   planFastTestProcesses
 } from './fast-test-policy.ts';
 
@@ -129,14 +131,21 @@ type FastTestInvocationPlan = {
   exclusive: string[][];
 };
 
-function fastTestInvocations(args: string[]): FastTestInvocationPlan {
+function fastTestInvocations(
+  args: string[],
+  inventory: 'default' | 'complete' = 'default'
+): FastTestInvocationPlan {
   const { options, selectors } = partitionBunTestArgs(args);
   const slowSelectors = selectors.filter(isSlowTestFile);
   if (slowSelectors.length > 0) {
     throw new Error(`Fast test runner cannot run slow test files: ${slowSelectors.join(', ')}`);
   }
 
-  const selectedFiles = selectMatchingTestFiles(getFastTestFilesSync(), selectors, 'fast');
+  const completeFastFiles = getFastTestFilesSync();
+  const availableFiles = selectors.length === 0 && inventory === 'default'
+    ? completeFastFiles.filter(isDefaultFastTestFile)
+    : completeFastFiles;
+  const selectedFiles = selectMatchingTestFiles(availableFiles, selectors, 'fast');
   const plan = planFastTestProcesses(selectedFiles);
   return {
     concurrentShards: plan.concurrentShards.map((shard) => fastTestArgs(shard, options, true)),
@@ -215,7 +224,7 @@ function slowTestArgSelection(args: string[]): SlowTestArgSelection {
 
 function fullTestInvocations(): string[][] {
   const slowSelection = slowTestArgSelection([]);
-  const fast = fastTestInvocations([]);
+  const fast = fastTestInvocations([], 'complete');
   return [
     ...fast.concurrentShards,
     ...fast.isolatedParallel,
@@ -461,7 +470,11 @@ export async function runFastTests(args: string[] = []): Promise<number> {
       try {
         const plan = fastTestInvocations(args);
         const env = pathEnv(binPath, browserCachePath, workspaceEnv);
-        exitCode = await runSequentialInvocations(plan.concurrentShards, env);
+        exitCode = await runBoundedInvocations(
+          plan.concurrentShards,
+          env,
+          DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY
+        );
         if (exitCode !== 0) return;
         exitCode = await runBoundedInvocations(
           plan.isolatedParallel,

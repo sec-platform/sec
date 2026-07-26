@@ -64,12 +64,19 @@ Lane归属由确定性工作内容裁决，不由一次duration裁决。以下�
 | managed Git hooks | `tests/unit/install-git-hooks.test.ts`只读tracked hook合同 | `tests/e2e/install-git-hooks.test.ts`运行真实repo、commit、linked worktree与hook lifecycle |
 | SM-3 durable terminal | `tests/unit/semantic-mutation-apply.test.ts`保留identity、redaction与一次最小durable chain | 既有`tests/e2e/semantic-runtime-contract.test.ts`统一运行runtime lowering、reparse、race、legacy audit、retention与全量durable I/O |
 | Windows AppContainer | `tests/unit/windows-appcontainer-executor.test.ts`验证ABI、protocol、bundle与owner publication | `tests/e2e/windows-appcontainer-executor.test.ts`运行native sandbox、host/runtime residue和MAX_PATH acceptance |
+| Pipeline closure与write lease | `tests/integration/pipeline-kernel.test.ts`和`pipeline-workspace-write-lease.test.ts`保留capability、blocked、journal、process与lease micro-sentinel | 既有`tests/e2e/pipeline.test.ts`拥有完整compose/emit completion proof与真实compile reentrant lease |
+| Overview与verified semantic projection | `tests/integration/overview.test.ts`只保留missing-artifact CLI边界；`semantic-core-vertical.test.ts`从一个validated in-memory snapshot验证projection | 既有`tests/e2e/summary.test.ts`共享一次locked+explained Workspace；`semantic-runtime-contract.test.ts`拥有verified Workspace到architecture/scenario/state的闭环 |
+| Windows browser launch path | `tests/unit/windows-browser-launch-path.test.ts`验证projection、target-swap race、path与fail-closed合同 | 既有`tests/e2e/runtime-host.test.ts`运行production Windows ACL和private host-root lifecycle |
 
 这些slow owner即使某次运行偶然很快也不得进入fast；它们的真实Git、durable filesystem或native host副作用是稳定分类事实。反过来，fast owner单次超出目标也只触发最小phase诊断，不能凭一个样本迁层。
 
+Slow文件内的昂贵共享setup必须按能力惰性创建或限定在局部suite，不能用文件级`beforeAll`迫使无关的named sentinel也启动完整Pipeline。共享locked Workspace的suite必须登记为`runtime-heavy`；共享只减少同一slow owner内部的重复setup，不改变slow归属，也不能让并行case共享mutable state。
+
 需要真实Git、临时仓库或Language Service的fast component test必须把fixture lifecycle视为测试架构：不可变seed最多初始化一次，每个场景使用独立copy，互不共享working tree、index、lock或publication state；独立场景可有界并发，但必须由代码中的单一semaphore限制并断言peak，不得依赖Bun默认并发或用无限并发掩盖重复工作。seed、copy与外部alias都必须在失败路径清理。该优化只减少fixture与调度成本，不得mock或复制被测Git/TypeScript语义。
 
-Fast runner的结构顺序固定为`bounded concurrent shards → bounded-parallel process isolation → exclusive process isolation`。同一进程内不安全不等于跨进程必须串行：只依赖module global或独立临时Workspace的文件可进入有界并行；会修改repository worktree、host profile、共享server/runtime lifecycle的owner保持独占。分类、shard容量、isolated并发与最大默认process waves只由`fast-test-policy.ts`拥有，并由完整inventory的结构测试证明每个文件恰好一次、无遗漏且不超过wave预算；wall-clock不参与该hard invariant。
+Fast runner的结构顺序固定为`bounded concurrent shard batches → bounded-parallel process isolation → exclusive process isolation`。同一进程内不安全不等于跨进程必须串行：只依赖module global或独立临时Workspace的文件可进入有界并行；会修改repository worktree、host profile、共享server/runtime lifecycle的owner保持独占。多个concurrent shard也只能按`fast-test-policy.ts`的单一有界cap并行，失败batch必须等待已启动siblings收口并阻止后续batch。分类、shard容量、两类并发cap与最大默认process waves只由该policy拥有，并由完整inventory的结构测试证明每个文件恰好一次、无遗漏且不超过wave预算；wall-clock不参与该hard invariant。
+
+`test:fast`无selector时只运行默认编辑反馈inventory。包含完整Workspace compile、durable recovery、server/runtime lifecycle、真实repository worktree或完整upgrade transaction的文件由`DEFAULT_FAST_TEST_EXCLUSION_REGISTRY`从默认inventory排除；这不是删除覆盖，也不改变其test-impact身份。affected/Risk显式选中这些owner时仍运行原文件，`test:full`仍包含完整fast inventory和全部slow registry。禁止在runner复制第二份排除列表，禁止用排除掩盖无owner测试；每个排除项必须有确定性work-content reason、仍被完整inventory发现，并由结构测试证明default、explicit affected与full三条路径。
 
 每次fast run必须绑定一个安全的run-owned mutable test-workspace namespace。所有child共享该namespace，mutable workspace仍由`mkdtemp`隔离；版本化immutable template cache与其lock位于namespace外的唯一共享根，创建完成后只读复用，普通run cleanup不得删除并重复初始化。parent runner在success、test failure、planner failure与spawn exception之后统一清理mutable namespace；child hook只是提前回收，不能替代parent ownership。cleanup失败必须使run失败，残留不能留给下一次Gate；显式`clean:test-workspaces`才删除完整root与template cache。
 

@@ -1,11 +1,41 @@
 export const DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE = 16;
 export const MAX_FAST_TEST_PROCESS_SHARD_SIZE = 16;
+export const DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY = 2;
 export const DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY = 4;
 export const MAX_DEFAULT_FAST_TEST_PROCESS_WAVES = 20;
 export const DEFAULT_FAST_TEST_TIMEOUT_MS = 180_000;
 
+export const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
+  { file: 'tests/integration/semantic-mutation-apply.test.ts', reason: 'full-semantic-mutation-transaction' },
+  {
+    file: 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
+    reason: 'durable-recovery-lifecycle'
+  },
+  { file: 'tests/integration/semantic-pipeline-spine.test.ts', reason: 'full-workspace-compile' },
+  {
+    file: 'tests/integration/semantic-projection-consumers.test.ts',
+    reason: 'full-workspace-derived-consumers'
+  },
+  { file: 'tests/integration/ticket-pipeline.test.ts', reason: 'full-workspace-compile' },
+  { file: 'tests/integration/upgrade-pipeline-kernel.test.ts', reason: 'full-upgrade-compile' },
+  { file: 'tests/integration/workbench-pipeline.test.ts', reason: 'server-and-full-workspace-compile' },
+  { file: 'tests/integration/workspace-engineering-ir.test.ts', reason: 'full-workspace-ir-build' },
+  {
+    file: 'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+    reason: 'production-host-and-runtime-lifecycle'
+  },
+  { file: 'tests/unit/work-package-gate-execution.test.ts', reason: 'repository-worktree-execution' }
+] as const;
+
+export const DEFAULT_FAST_TEST_EXCLUDED_FILES = DEFAULT_FAST_TEST_EXCLUSION_REGISTRY
+  .map(({ file }) => file);
+const defaultFastTestExcludedFileSet = new Set<string>(DEFAULT_FAST_TEST_EXCLUDED_FILES);
+
+export function isDefaultFastTestFile(file: string): boolean {
+  return !defaultFastTestExcludedFileSet.has(file);
+}
+
 export const FAST_TEST_PROCESS_ISOLATION_REGISTRY = [
-  { file: 'tests/integration/overview.test.ts', reason: 'shared-workspace', scheduling: 'bounded-parallel' },
   { file: 'tests/integration/pipeline-kernel.test.ts', reason: 'workspace-mutation', scheduling: 'bounded-parallel' },
   {
     file: 'tests/integration/pipeline-workspace-write-lease.test.ts',
@@ -13,11 +43,6 @@ export const FAST_TEST_PROCESS_ISOLATION_REGISTRY = [
     scheduling: 'bounded-parallel'
   },
   { file: 'tests/integration/project-runtime.test.ts', reason: 'runtime-dependency-state', scheduling: 'exclusive' },
-  {
-    file: 'tests/integration/semantic-core-vertical.test.ts',
-    reason: 'workspace-mutation',
-    scheduling: 'bounded-parallel'
-  },
   {
     file: 'tests/integration/semantic-mutation-apply.test.ts',
     reason: 'workspace-mutation',
