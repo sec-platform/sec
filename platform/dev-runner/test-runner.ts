@@ -362,7 +362,25 @@ function unresolvedRiskPaths(files: string[]): string[] {
   return files.filter((file) => !selectCiPrRiskSlowSuites([file]).resolved);
 }
 
-function affectedTestPlan(files: string[]): Record<string, unknown> {
+export interface AffectedTestPlanV1 {
+  readonly schema: 'sec-affected-test-plan-v1';
+  readonly changedPaths: readonly string[];
+  readonly owners: readonly string[];
+  readonly selectedFastTests: readonly string[];
+  readonly selectedSlowTests: readonly string[];
+  readonly riskSuites: readonly string[];
+  readonly riskTests: readonly string[];
+  readonly riskReasons: readonly string[];
+  readonly unresolvedPaths: readonly string[];
+  readonly resolved: boolean;
+}
+
+export interface ResolvedAffectedTestExecutionV1 {
+  readonly plan: AffectedTestPlanV1;
+  readonly run: () => Promise<number>;
+}
+
+function affectedTestPlan(files: string[]): AffectedTestPlanV1 {
   const risk = selectCiPrRiskSlowSuites(files);
   const selection = affectedTestSelection(files);
   const unresolvedPaths = unresolvedRiskPaths(files);
@@ -383,36 +401,31 @@ function affectedTestPlan(files: string[]): Record<string, unknown> {
   };
 }
 
-export async function runAffectedTests(args: string[] = []): Promise<number> {
-  if (args.length === 1 && args[0] === '--plan') {
-    const files = await gitChangedFiles();
-    if (!files) {
-      console.error('Failed to detect affected test files.');
-      return 1;
-    }
-    const plan = affectedTestPlan(files);
-    console.log(JSON.stringify(plan, null, 2));
-    return plan.resolved === true ? 0 : 1;
-  }
-  if (args.length > 0) {
-    return runTests(args);
-  }
-  const files = await gitChangedFiles();
-  if (!files) {
-    console.error('Failed to detect affected test files.');
+function freezeAffectedTestPlan(plan: AffectedTestPlanV1): AffectedTestPlanV1 {
+  return Object.freeze({
+    ...plan,
+    changedPaths: Object.freeze([...plan.changedPaths]),
+    owners: Object.freeze([...plan.owners]),
+    selectedFastTests: Object.freeze([...plan.selectedFastTests]),
+    selectedSlowTests: Object.freeze([...plan.selectedSlowTests]),
+    riskSuites: Object.freeze([...plan.riskSuites]),
+    riskTests: Object.freeze([...plan.riskTests]),
+    riskReasons: Object.freeze([...plan.riskReasons]),
+    unresolvedPaths: Object.freeze([...plan.unresolvedPaths])
+  });
+}
+
+async function runAffectedTestPlan(plan: AffectedTestPlanV1): Promise<number> {
+  if (!plan.resolved) {
+    console.error(`Affected test ownership is unresolved for changed paths: ${plan.unresolvedPaths.join(', ')}`);
     return 1;
   }
-  const risk = selectCiPrRiskSlowSuites(files);
-  if (!risk.resolved) {
-    console.error(`Affected test ownership is unresolved for changed paths: ${unresolvedRiskPaths(files).join(', ')}`);
-    return 1;
-  }
-  const selection = affectedTestSelection(files);
+  const selection = affectedTestSelection([...plan.changedPaths]);
   if (selection.slowTests.length > 0) {
     console.log(`Changed slow test files require PR risk or release/full verification: ${selection.slowTests.join(', ')}`);
   }
 
-  const selectedFastTests = unionTestFiles(selection.tests, selection.affectedTests);
+  const selectedFastTests = [...plan.selectedFastTests];
   if (selectedFastTests.length > 0) {
     if (selection.affectedTests.length > 0) {
       console.log(`Running changed and affected fast tests for ${selection.affectedOwners.join(', ') || 'changed sources'}: ${selectedFastTests.join(', ')}`);
@@ -447,6 +460,32 @@ export async function runAffectedTests(args: string[] = []): Promise<number> {
   }
   console.log('No affected fast test files detected.');
   return 0;
+}
+
+export async function resolveAffectedTestExecution(): Promise<ResolvedAffectedTestExecutionV1 | null> {
+  const files = await gitChangedFiles();
+  if (!files) return null;
+  const plan = freezeAffectedTestPlan(affectedTestPlan(files));
+  return Object.freeze({
+    plan,
+    run: () => runAffectedTestPlan(plan)
+  });
+}
+
+export async function runAffectedTests(args: string[] = []): Promise<number> {
+  if (args.length > 0 && !(args.length === 1 && args[0] === '--plan')) {
+    return runTests(args);
+  }
+  const execution = await resolveAffectedTestExecution();
+  if (!execution) {
+    console.error('Failed to detect affected test files.');
+    return 1;
+  }
+  if (args.length === 1) {
+    console.log(JSON.stringify(execution.plan, null, 2));
+    return execution.plan.resolved ? 0 : 1;
+  }
+  return execution.run();
 }
 
 export async function runTests(args: string[] = []): Promise<number> {

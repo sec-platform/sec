@@ -61,6 +61,7 @@ last-reviewed: 2026-07-26
 bun run deps:ensure
 bun run imports:prepare
 bun run test:affected --plan
+bun run check:affected --plan
 bun run check:affected
 bun run check:fast
 bun run check:full
@@ -78,6 +79,10 @@ bun run hooks:install
 - 每次fast execution拥有唯一mutable test-workspace namespace，child可提前清理，parent必须在所有退出路径兜底删除并把cleanup failure计入失败。版本化immutable template cache位于namespace外并跨run复用；普通cleanup不得反复重建它，显式`clean:test-workspaces`才清空全部派生测试状态。上次失败残留不得成为下一次测试输入，也不得依赖人工清理完成普通闭环。
 - Root typecheck由`tsconfig.json`启用TypeScript原生incremental，并把唯一build info写入Git-ignored `.tmp/typecheck/tsconfig.tsbuildinfo`。该文件只是可删除性能提示；TypeScript拥有compiler version、options与source signature失效语义，SEC不得解析、发布、复用为Evidence或建立第二cache registry。clean checkout/hosted runner仍走cold完整检查。
 - `test:affected --plan` 是 changed-path/Risk ownership的只读 preflight：不获取 heavy lease、不准备依赖、不启动 test child、不写 Evidence；任一 unresolved path使 plan与正式 affected都非零退出。其他入口按变化条件选择，不机械全跑。
+- `check:affected --plan` 是本地最终闭包的只读Gate并集权威：它复用affected plan，输出唯一有序`gates`和`subsumedStandaloneCommands`，同样不准备依赖、不获取heavy lease、不启动typecheck/docs/test child。纯active docs只选择`docs:doctor`；TypeScript选择`imports:prepare + typecheck`；存在selected affected fast test时才追加`test:affected`。正式`check:affected`在一个dev-runner生命周期内按该计划fail-stop执行，每项最多一次。
+- affected执行权只由一次Git discovery返回的immutable resolver-issued capability持有；runner不导出“执行任意plan”的入口，调用者不能用部分changed paths或空test列表构造可执行子集。
+- Compiler dependency preparation由并集惰性选择：只有`imports:prepare`或`typecheck`入选才准备compiler generation；纯active docs、空计划与unresolved preflight不支付compiler bootstrap，affected-only仍由test runner拥有其依赖与browser readiness。
+- 一旦最终选择`check:affected`，不得先单独运行它列出的`imports:prepare`、`typecheck`、`docs:doctor`或`test:affected`再执行umbrella；开发中只运行会被后续代码修改自然失效的failing/focused sentinel。`check:fast`、`check:full`也不能作为其后的“保险重跑”，除非Risk/release合同明确选择更广profile。
 
 ### 3.1 按变更类型选择最小验证
 

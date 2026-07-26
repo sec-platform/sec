@@ -18,7 +18,7 @@ function reenterWithResolvedDependencies(): never {
 }
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:prepare|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:prepare|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -30,6 +30,19 @@ async function main(): Promise<void> {
 
   if (target === 'clean-test-workspaces') {
     await cleanTestWorkspaces();
+    return;
+  }
+
+  if (target === 'check:affected') {
+    if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) usage();
+    const { runLocalAffectedCheck } = await import('./dev-runner/check-runner.ts');
+    process.exitCode = await runLocalAffectedCheck(args, {
+      prepareCompilerNodeModulesPath: async () => {
+        const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
+        if (dependencies.source === 'installed') reenterWithResolvedDependencies();
+        return dependencies.nodeModulesPath;
+      }
+    });
     return;
   }
 
