@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto';
 
-import { parseDocument } from 'yaml';
-
 export const CodexDevelopmentWorkPackageSchemaV1 = 'codex-development-work-package-v1' as const;
 export const CodexDevelopmentWorkPackageSchemaV2 = 'codex-development-work-package-v2' as const;
 export const CodexDevelopmentWorkPackageManifestStateFrozen = 'frozen' as const;
@@ -178,41 +176,137 @@ function extractFrontmatter(source: string): string {
   if (!normalized.startsWith('---\n')) throw new Error('Work Package manifest must begin with frontmatter.');
   const end = normalized.indexOf('\n---\n', 4);
   if (end < 0) throw new Error('Work Package manifest frontmatter is unterminated.');
-  const frontmatter = normalized.slice(4, end);
-  if (/^\s*<<\s*:/mu.test(frontmatter) || /(?:^|[\s,[{])[&*][A-Za-z0-9_-]+/mu.test(frontmatter)) {
-    throw new Error('Work Package manifest YAML anchors, aliases, and merge keys are forbidden.');
-  }
-  return frontmatter;
+  return normalized.slice(4, end);
 }
 
-function assertNoExplicitYamlTags(node: unknown): void {
-  if (!node || typeof node !== 'object') return;
-  const value = node as { tag?: unknown; items?: unknown[]; key?: unknown; value?: unknown };
-  if (typeof value.tag === 'string' && value.tag.length > 0) {
-    throw new Error(`Work Package manifest explicit YAML tags are forbidden: ${value.tag}.`);
+function yamlSyntaxWithoutQuotedScalarsOrComments(source: string): string {
+  let result = '';
+  let quote: "'" | '"' | null = null;
+  let comment = false;
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]!;
+    if (comment) {
+      if (character === '\n') {
+        comment = false;
+        result += '\n';
+      } else {
+        result += ' ';
+      }
+      continue;
+    }
+    if (quote === '"') {
+      if (character === '\\' && index + 1 < source.length) {
+        result += ' ';
+        index += 1;
+        result += source[index] === '\n' ? '\n' : ' ';
+        continue;
+      }
+      if (character === '"') quote = null;
+      result += character === '\n' ? '\n' : ' ';
+      continue;
+    }
+    if (quote === "'") {
+      if (character === "'" && source[index + 1] === "'") {
+        result += '  ';
+        index += 1;
+        continue;
+      }
+      if (character === "'") quote = null;
+      result += character === '\n' ? '\n' : ' ';
+      continue;
+    }
+    const previous = index === 0 ? '\n' : source[index - 1]!;
+    const tokenBoundary = index === 0 || /[\s:[{,\-]/u.test(previous);
+    if ((character === '"' || character === "'") && tokenBoundary) {
+      quote = character;
+      result += ' ';
+      continue;
+    }
+    if (character === '#' && (index === 0 || /\s/u.test(previous))) {
+      comment = true;
+      result += ' ';
+      continue;
+    }
+    result += character;
   }
-  if (Array.isArray(value.items)) value.items.forEach(assertNoExplicitYamlTags);
-  if (value.key !== undefined) assertNoExplicitYamlTags(value.key);
-  if (value.value !== undefined) assertNoExplicitYamlTags(value.value);
+  if (quote !== null) {
+    throw new Error('Work Package manifest YAML is invalid: unterminated quoted scalar.');
+  }
+  return result;
+}
+
+function assertUniqueYamlMappingKey(
+  seenKeys: Map<string, Set<string>>,
+  context: string,
+  key: string
+): void {
+  const keys = seenKeys.get(context) ?? new Set<string>();
+  if (keys.has(key)) {
+    throw new Error(`Work Package manifest YAML is invalid: duplicate mapping key "${key}".`);
+  }
+  keys.add(key);
+  seenKeys.set(context, keys);
+}
+
+function assertNoDuplicateYamlMappingKeys(source: string): void {
+  const frames: Array<{ indent: number; context: string }> = [{ indent: -1, context: '$' }];
+  const listItemCounters = new Map<string, number>();
+  const seenKeys = new Map<string, Set<string>>();
+  for (const line of source.split('\n')) {
+    if (line.trim().length === 0) continue;
+    const listMapping = /^( *)(?:-\s+)([A-Za-z][A-Za-z0-9_-]*):(?:\s*(.*))?$/u.exec(line);
+    const mapping = /^( *)([A-Za-z][A-Za-z0-9_-]*):(?:\s*(.*))?$/u.exec(line);
+    const matched = listMapping ?? mapping;
+    if (!matched) continue;
+    const indent = matched[1]!.length;
+    while (frames.length > 1 && frames[frames.length - 1]!.indent >= indent) frames.pop();
+    const parent = frames[frames.length - 1]!.context;
+    const key = matched[2]!;
+    const value = matched[3] ?? '';
+    if (listMapping) {
+      const counterKey = `${parent}@${indent}`;
+      const itemIndex = listItemCounters.get(counterKey) ?? 0;
+      listItemCounters.set(counterKey, itemIndex + 1);
+      const context = `${parent}[${itemIndex}]`;
+      assertUniqueYamlMappingKey(seenKeys, context, key);
+      frames.push({ indent, context });
+      continue;
+    }
+    const context = indent === 0 ? '$' : parent;
+    assertUniqueYamlMappingKey(seenKeys, context, key);
+    if (value.trim().length === 0) frames.push({ indent, context: `${context}.${key}` });
+  }
+}
+
+function assertStrictManifestYamlSyntax(frontmatter: string): void {
+  if (/^\s*["'][^"']+["']\s*:/mu.test(frontmatter) || /^\s*\?\s/mu.test(frontmatter)) {
+    throw new Error('Work Package manifest YAML complex or quoted mapping keys are forbidden.');
+  }
+  const syntax = yamlSyntaxWithoutQuotedScalarsOrComments(frontmatter);
+  if (syntax.includes('\t')) throw new Error('Work Package manifest YAML tabs are forbidden.');
+  if (/^\s*<<\s*:/mu.test(syntax) || /(?:^|[\s,[{])[&*][A-Za-z0-9_-]+/mu.test(syntax)) {
+    throw new Error('Work Package manifest YAML anchors, aliases, and merge keys are forbidden.');
+  }
+  if (/(?:^|[\s,[{,:])![^\s,[\]{}]+/mu.test(syntax)) {
+    throw new Error('Work Package manifest explicit YAML tags are forbidden.');
+  }
+  if (/^(?:\s*(?:-\s*)?|[ ]*[A-Za-z][A-Za-z0-9_-]*:\s*)[\[{]/mu.test(syntax)) {
+    throw new Error('Work Package manifest YAML flow collections are forbidden.');
+  }
+  if (/:\s*[|>][+-]?\s*$/mu.test(syntax) || /^\s*-\s*[|>][+-]?\s*$/mu.test(syntax)) {
+    throw new Error('Work Package manifest YAML block scalars are forbidden.');
+  }
+  assertNoDuplicateYamlMappingKeys(syntax);
 }
 
 function parseManifestRaw(source: string): Record<string, unknown> {
-  const document = parseDocument(extractFrontmatter(source), {
-    prettyErrors: false,
-    strict: true,
-    uniqueKeys: true
-  });
-  assertNoExplicitYamlTags(document.contents);
-  if (document.errors.length > 0 || document.warnings.length > 0) {
-    const diagnostics = [...document.errors, ...document.warnings].map((error) => error.message).join('; ');
-    throw new Error(`Work Package manifest YAML is invalid: ${diagnostics}`);
-  }
-
+  const frontmatter = extractFrontmatter(source);
+  assertStrictManifestYamlSyntax(frontmatter);
   let raw: unknown;
   try {
-    raw = document.toJS({ maxAliasCount: 0 });
+    raw = Bun.YAML.parse(frontmatter);
   } catch (error) {
-    throw new Error(`Work Package manifest aliases are forbidden: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Work Package manifest YAML is invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
   assertPlainObject(raw, 'Work Package manifest');
   return raw;
