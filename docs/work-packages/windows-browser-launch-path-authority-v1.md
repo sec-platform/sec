@@ -46,6 +46,7 @@ tasks:
       - scripts/ci-pr-risk.ts
       - scripts/codex/merge-gate.ts
       - tests/helpers/semantic-mutation-production-sentinel.ts
+      - tests/helpers/semantic-mutation-runtime-target-swap-runner.ts
       - tests/contract/ci-contract.test.ts
       - tests/contract/ci-lanes.test.ts
       - tests/contract/docs-doctor.test.ts

@@ -24,7 +24,7 @@ import {
   type CommandResult
 } from './process.ts';
 import {
-  buildExactPlaywrightPackageClosure,
+  buildExactPlaywrightPackageAuthority,
   buildRuntimePackageManifest,
   EXACT_PLAYWRIGHT_PACKAGE_NAMES,
   isRuntimeDependencyPackageManifest,
@@ -32,6 +32,7 @@ import {
   loadRuntimeDependencySpec,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE,
+  type ExactPlaywrightPackageAuthority,
   type ExactPlaywrightPackageName,
   type RootPackageJson,
   type RuntimeDependencySpec
@@ -73,16 +74,6 @@ interface CompilerDependencyPackageBinding {
   manifestSha256: string;
   name: string;
   version: string;
-}
-
-export interface ExactPlaywrightPackageAuthority {
-  readonly packages: readonly Readonly<{
-    readonly manifestSha256: string;
-    readonly name: ExactPlaywrightPackageName;
-    readonly version: string;
-  }>[];
-  readonly release: string;
-  readonly revision: string;
 }
 
 interface CompilerDepsBinding {
@@ -268,14 +259,16 @@ async function exactPlaywrightPackageClosure(
 ): Promise<Readonly<ExactPlaywrightPackageAuthority>> {
   const runtimeSpec = await loadRuntimeDependencySpec();
   const expectedRelease = runtimeSpec.devDependencies['@playwright/test'];
-  let bindings: readonly CompilerDependencyPackageBinding[];
   try {
-    bindings = await Promise.all(EXACT_PLAYWRIGHT_PACKAGE_NAMES.map((name) =>
+    const bindings = await Promise.all(EXACT_PLAYWRIGHT_PACKAGE_NAMES.map((name) =>
       compilerDependencyPackageBinding(nodeModulesPath, name, expectedRelease!)
     ));
-    buildExactPlaywrightPackageClosure(
-      Object.fromEntries(bindings.map((binding) => [binding.name, binding])) as
-        Partial<Record<ExactPlaywrightPackageName, unknown>>,
+    return buildExactPlaywrightPackageAuthority(
+      bindings.map((binding) => ({
+        manifestSha256: binding.manifestSha256,
+        name: binding.name as ExactPlaywrightPackageName,
+        version: binding.version
+      })),
       expectedRelease!
     );
   } catch {
@@ -284,21 +277,6 @@ async function exactPlaywrightPackageClosure(
       `Playwright packages must exactly match release ${expectedRelease}`
     );
   }
-  const packages = Object.freeze(bindings.map((binding) => Object.freeze({
-    manifestSha256: binding.manifestSha256,
-    name: binding.name as ExactPlaywrightPackageName,
-    version: binding.version
-  })));
-  const release = expectedRelease!;
-  return Object.freeze({
-    packages,
-    release,
-    revision: `sha256:${sha256(JSON.stringify({
-      domain: 'playwright-package-authority-v1',
-      packages,
-      release
-    }))}`
-  });
 }
 
 const criticalCompilerDependencyEntries = new Set([

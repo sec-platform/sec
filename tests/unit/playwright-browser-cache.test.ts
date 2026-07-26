@@ -9,6 +9,7 @@ import {
   resolveExternalNodeRuntimeAuthority
 } from '../../platform/shared/project-runtime.ts';
 import {
+  buildExactPlaywrightPackageAuthority,
   EXACT_PLAYWRIGHT_PACKAGE_NAMES,
   type ExactPlaywrightPackageName
 } from '../../platform/shared/runtime-dependency-spec.ts';
@@ -28,16 +29,7 @@ function playwrightPackageClosure() {
     name,
     version: PLAYWRIGHT_RELEASE
   }));
-  const release = PLAYWRIGHT_RELEASE;
-  return {
-    packages,
-    release,
-    revision: `sha256:${createHash('sha256').update(JSON.stringify({
-      domain: 'playwright-package-authority-v1',
-      packages,
-      release
-    })).digest('hex')}`
-  };
+  return buildExactPlaywrightPackageAuthority(packages, PLAYWRIGHT_RELEASE);
 }
 
 async function writePlaywrightCli(

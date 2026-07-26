@@ -60,6 +60,16 @@ export interface ExactPlaywrightPackageClosure {
   readonly release: string;
 }
 
+export interface ExactPlaywrightPackageAuthority {
+  readonly packages: readonly Readonly<{
+    readonly manifestSha256: string;
+    readonly name: ExactPlaywrightPackageName;
+    readonly version: string;
+  }>[];
+  readonly release: string;
+  readonly revision: string;
+}
+
 export const RUNTIME_DEPENDENCY_PACKAGE_NAMES: readonly string[] = Object.freeze([
   ...runtimeDependencyKeys,
   ...runtimeDevDependencyKeys
@@ -100,6 +110,71 @@ export function buildExactPlaywrightPackageClosure(
     packages: Object.freeze(packages),
     release: expectedRelease
   });
+}
+
+export function buildExactPlaywrightPackageAuthority(
+  identities: readonly Readonly<{
+    readonly manifestSha256: string;
+    readonly name: ExactPlaywrightPackageName;
+    readonly version: string;
+  }>[],
+  expectedRelease: string
+): Readonly<ExactPlaywrightPackageAuthority> {
+  if (!Array.isArray(identities) || identities.length !== EXACT_PLAYWRIGHT_PACKAGE_NAMES.length) {
+    throw new CompilerError('RUNTIME-DEPS-000', 'Playwright package authority is incomplete');
+  }
+  const byName = new Map<ExactPlaywrightPackageName, (typeof identities)[number]>();
+  for (const identity of identities) {
+    if (!identity || typeof identity !== 'object' ||
+      !EXACT_PLAYWRIGHT_PACKAGE_NAMES.includes(identity.name) ||
+      byName.has(identity.name) ||
+      typeof identity.manifestSha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/u.test(identity.manifestSha256)) {
+      throw new CompilerError('RUNTIME-DEPS-000', 'Playwright package authority is non-canonical');
+    }
+    byName.set(identity.name, identity);
+  }
+  const closure = buildExactPlaywrightPackageClosure(
+    Object.fromEntries([...byName].map(([name, identity]) => [name, identity])),
+    expectedRelease
+  );
+  const packages = Object.freeze(closure.packages.map((identity) => {
+    const authorityIdentity = byName.get(identity.name)!;
+    return Object.freeze({
+      manifestSha256: authorityIdentity.manifestSha256,
+      name: identity.name,
+      version: identity.version
+    });
+  }));
+  const release = closure.release;
+  return Object.freeze({
+    packages,
+    release,
+    revision: `sha256:${stableHash({
+      domain: 'playwright-package-authority-v1',
+      packages,
+      release
+    })}`
+  });
+}
+
+export function isExactPlaywrightPackageAuthority(
+  value: unknown
+): value is Readonly<ExactPlaywrightPackageAuthority> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Partial<ExactPlaywrightPackageAuthority>;
+  if (!Array.isArray(candidate.packages) ||
+    typeof candidate.release !== 'string' ||
+    typeof candidate.revision !== 'string') return false;
+  try {
+    const canonical = buildExactPlaywrightPackageAuthority(
+      candidate.packages as ExactPlaywrightPackageAuthority['packages'],
+      candidate.release
+    );
+    return JSON.stringify(value) === JSON.stringify(canonical);
+  } catch {
+    return false;
+  }
 }
 
 function resolveVersion(rootPackage: RootPackageJson, dependencyName: string): string {

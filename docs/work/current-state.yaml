@@ -101,6 +101,26 @@ stableFacts:
           executedGateCount: 0
         failureClassification: top-level-dev-runner-cli-missing-from-mandatory-risk-owner-pattern
         disposition: superseded-by-exact-dev-runner-cli-risk-classification
+      - commit: c7e281e1c28a5b11860a4e4430e3c560ccb00b74
+        canonicalAffected:
+          result: passed
+        risk:
+          result: invalidated
+          passedBeforeInvalidation:
+            - selector
+            - contract-freeze
+            - compiler-smoke
+            - graph
+            - workspace
+            - verify-lock
+          termination: independent-architecture-review-failed
+        independentArchitectureReview:
+          result: failed
+          blockers:
+            - dev-runner-cli-risk-prefix-collision
+            - playwright-package-authority-revision-multiple-production-owners
+            - staged-runner-to-playwright-pre-spawn-no-spawn-behavior-unproven
+        disposition: superseded-by-exact-selector-single-authority-and-staged-no-spawn-closure
     stableProductionSource:
       commit: d2f7083c63642306ba18cd77aac373e490c9079b
       role: blob-source-only
@@ -166,15 +186,14 @@ stableFacts:
       disposition: canonical-derived-output-exclusion-plus-proof-micro-sentinel
       completionEvidence: false
     latestIndependentArchitectureReview:
-      reviewedCommit: 6f7904cd9708e6ba9dca2e9c1afa409ea0c35088
+      reviewedCommit: c7e281e1c28a5b11860a4e4430e3c560ccb00b74
       result: failed
-      canonicalAffectedAtReviewedCommit: failed
-      riskRun: false
+      canonicalAffectedAtReviewedCommit: passed
+      riskRun: invalidated-and-terminated
       blockers:
-        - compiler-dependency-publish-windows-transient-rename-unhandled
-        - non-playwright-direct-runtime-package-version-unbound
-        - posix-plan-materialization-and-real-playwright-no-spawn-evidence-missing
-        - failed-candidate-control-plane-history-stale
+        - dev-runner-cli-risk-prefix-collision
+        - playwright-package-authority-revision-multiple-production-owners
+        - staged-runner-to-playwright-pre-spawn-no-spawn-behavior-unproven
       disposition: one-final-successor-required
       completionEvidence: false
     latestIndependentEvidenceReview:

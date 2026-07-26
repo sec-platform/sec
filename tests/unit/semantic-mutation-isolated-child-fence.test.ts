@@ -97,6 +97,9 @@ import {
 import {
   assertStagedVerificationLiveContext
 } from '../../platform/compiler/verify/verify-project.ts';
+import {
+  acquireBrowserLaunchPathForTests
+} from '../../platform/compiler/verify/windows-browser-launch-path.ts';
 import { initWorkspace } from '../../platform/orchestrator.ts';
 import { compileWorkspace } from '../../platform/orchestrator/pipeline-orchestrator.ts';
 import type { AcceptanceCoverageReport } from '../../platform/shared/acceptance-types.ts';
@@ -112,6 +115,7 @@ import {
   runCommand
 } from '../../platform/shared/process.ts';
 import {
+  buildExactPlaywrightPackageAuthority,
   buildRuntimeDependencySpec,
   EXACT_PLAYWRIGHT_PACKAGE_NAMES,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
@@ -902,16 +906,10 @@ function playwrightPackageAuthorityFixture() {
     name,
     version: directRuntimeDependencySpec.devDependencies['@playwright/test']
   }));
-  const release = directRuntimeDependencySpec.devDependencies['@playwright/test'];
-  return Object.freeze({
-    packages: Object.freeze(packages),
-    release,
-    revision: `sha256:${createHash('sha256').update(JSON.stringify({
-      domain: 'playwright-package-authority-v1',
-      packages,
-      release
-    })).digest('hex')}`
-  });
+  return buildExactPlaywrightPackageAuthority(
+    packages,
+    directRuntimeDependencySpec.devDependencies['@playwright/test']
+  );
 }
 
 async function createRuntimeInputSources(
@@ -1883,6 +1881,123 @@ test('staged verify-all runner preserves one browser proof through both runtime 
   expect(runtimeVerificationSource.replaceAll('\r\n', '\n')).toContain(
     'acceptanceInvocation,\n      acceptanceEnv,\n      assertBrowserLaunchPreSpawn'
   );
+});
+
+test('staged verify-all runner rejects a Playwright target swap before spawn', async () => {
+  await withTempWorkspace(async (root) => {
+    const stagingRoot = stagingWorkspaceRoot(root);
+    const browserSource = path.join(root, 'browser-source');
+    const outsideBrowserRoot = path.join(root, 'outside-browser');
+    const observationPath = path.join(root, 'runtime-target-swap-observation.json');
+    const spawnMarkerPath = path.join(root, 'playwright-spawned.marker');
+    await mkdir(stagingRoot, { recursive: true });
+    await writeProjectBaseline(stagingRoot);
+    const runtimeInputSources = await createRuntimeInputSources(root, browserSource);
+    const helperBuild = await Bun.build({
+      entrypoints: [path.join(
+        compilerRoot,
+        'tests',
+        'helpers',
+        'semantic-mutation-runtime-target-swap-runner.ts'
+      )],
+      format: 'esm',
+      sourcemap: 'none',
+      splitting: false,
+      target: 'bun'
+    });
+    expect(helperBuild.success).toBe(true);
+    expect(helperBuild.outputs).toHaveLength(1);
+    const runtimeCapability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+      buildRunnerBundle: async () =>
+        new Uint8Array(await helperBuild.outputs[0]!.arrayBuffer()),
+      runtimeInputSources
+    });
+    expect(runtimeCapability.status).toBe('available');
+    const materialized = await materializeSemanticMutationIsolatedRuntime({
+      binding: runtimeCapability,
+      commitFence: async () => undefined,
+      stagingWorkspaceRoot: stagingRoot
+    });
+    await mkdir(path.join(stagingRoot, 'project', 'tests', 'runtime', 'acceptance'), {
+      recursive: true
+    });
+    await writeFile(
+      path.join(stagingRoot, 'project', 'tests', 'runtime', 'acceptance', 'target-swap.spec.ts'),
+      'export {};\n',
+      'utf8'
+    );
+    const outsideExecutable = path.join(
+      outsideBrowserRoot,
+      ...materialized.browserExecutableRelativePath.split('/')
+    );
+    await mkdir(path.dirname(outsideExecutable), { recursive: true });
+    await writeFile(outsideExecutable, 'outside-browser-must-not-change', 'utf8');
+    const outsideExecutableBefore = await readFile(outsideExecutable);
+    const launchAuthorityRoot = path.join(root, 'launch-authority');
+    await Promise.all([
+      ensureIsolatedProcessDirectories(path.join(stagingRoot, '.isolated-process', 'child')),
+      mkdir(launchAuthorityRoot, { recursive: true })
+    ]);
+    const browserLaunchPath = await acquireBrowserLaunchPathForTests(
+      materialized.browsersPath,
+      materialized.browserExecutableRelativePath,
+      {
+        maxLaunchPathLength: 1_000,
+        platform: process.platform,
+        proveTemporaryAuthority: async () => undefined,
+        temporaryRoot: launchAuthorityRoot
+      }
+    );
+    const supervisor = createSemanticMutationIsolatedVerificationSupervisor({
+      commandRunner: runCommand
+    });
+    try {
+      const result = await supervisor({
+        browserLaunchProofArgument: browserLaunchPath.proofArgument,
+        commitFence: async () => undefined,
+        env: buildSemanticMutationIsolatedVerificationEnvironment(
+          stagingRoot,
+          browserLaunchPath.browsersPath
+        ),
+        runnerRelativePath: materialized.runnerRelativePath,
+        stagingWorkspaceRoot: stagingRoot,
+        workspaceRoot: root,
+        workspaceWriteLease: workspaceWriteLeaseToken()
+      });
+      expect(result).toEqual({ code: 0, stdout: '', stderr: '' });
+      const observation = JSON.parse(await readFile(observationPath, 'utf8')) as {
+        readonly mode: string;
+        readonly nextPreSpawnPassed: boolean;
+        readonly targetSwapped: boolean;
+        readonly playwrightInvocation?: { readonly command: string; readonly args: string[] };
+        readonly playwrightPreSpawnRejected: boolean;
+        readonly playwrightSpawned: boolean;
+        readonly failureMessage?: string;
+        readonly browserRootRestored: boolean;
+      };
+      expect(observation).toMatchObject({
+        mode: 'full',
+        nextPreSpawnPassed: true,
+        targetSwapped: true,
+        playwrightPreSpawnRejected: true,
+        playwrightSpawned: false,
+        failureMessage: 'Staged browser cache must be a physical directory',
+        browserRootRestored: true
+      });
+      expect(observation.playwrightInvocation?.command)
+        .toBe(semanticMutationIsolatedNodeExecutablePath(stagingRoot));
+      expect(observation.playwrightInvocation?.args.some((argument) =>
+        argument.replaceAll('\\', '/').endsWith('project/node_modules/@playwright/test/cli.js')))
+        .toBe(true);
+      await expect(stat(spawnMarkerPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(await readFile(outsideExecutable)).toEqual(outsideExecutableBefore);
+      const restoredBrowserRoot = await lstat(materialized.browsersPath);
+      expect(restoredBrowserRoot.isDirectory()).toBe(true);
+      expect(restoredBrowserRoot.isSymbolicLink()).toBe(false);
+    } finally {
+      await browserLaunchPath.release();
+    }
+  }, 'engineering-compiler-sm3-staged-playwright-target-swap-');
 });
 
 test('production isolated verification supervisor rejects unclosed or truncated child lifecycle', async () => {

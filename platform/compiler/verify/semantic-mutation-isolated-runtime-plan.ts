@@ -5,14 +5,14 @@ import path from 'node:path';
 import type { CommitFence } from '../../shared/fs.ts';
 import type { PlaywrightBrowserRuntimeAuthority } from '../../shared/project-runtime.ts';
 import {
-  buildExactPlaywrightPackageClosure,
+  buildExactPlaywrightPackageAuthority,
   buildRuntimeDependencySpec,
   encodeRuntimeDepsPreboundBinding,
   EXACT_PLAYWRIGHT_PACKAGE_NAMES,
+  isExactPlaywrightPackageAuthority,
   isRuntimeDependencyPackageManifest,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE,
-  type ExactPlaywrightPackageClosure,
   type ExactPlaywrightPackageName,
   type RootPackageJson
 } from '../../shared/runtime-dependency-spec.ts';
@@ -667,29 +667,24 @@ async function assertRuntimeDependencyPackageClosure(
       playwrightManifestDigests.set(playwrightPackageName, evidence.rawDigest.slice('sha256:'.length));
     }
   }
-  let actualPlaywrightClosure: Readonly<ExactPlaywrightPackageClosure>;
+  let actualPlaywrightAuthority: Readonly<
+    PlaywrightBrowserRuntimeAuthority['playwrightPackageClosure']
+  >;
   try {
-    actualPlaywrightClosure = buildExactPlaywrightPackageClosure(
-      playwrightManifests,
+    actualPlaywrightAuthority = buildExactPlaywrightPackageAuthority(
+      EXACT_PLAYWRIGHT_PACKAGE_NAMES.map((name) => {
+        const manifest = playwrightManifests[name] as Readonly<{ readonly version: string }>;
+        return {
+          manifestSha256: playwrightManifestDigests.get(name)!,
+          name,
+          version: manifest.version
+        };
+      }),
       expectedPlaywrightClosure.release
     );
   } catch {
     throw new Error('The staged Playwright package closure is inconsistent');
   }
-  const packages = actualPlaywrightClosure.packages.map((identity) => Object.freeze({
-    manifestSha256: playwrightManifestDigests.get(identity.name)!,
-    name: identity.name,
-    version: identity.version
-  }));
-  const actualPlaywrightAuthority = Object.freeze({
-    packages: Object.freeze(packages),
-    release: actualPlaywrightClosure.release,
-    revision: sha256Value({
-      domain: 'playwright-package-authority-v1',
-      packages,
-      release: actualPlaywrightClosure.release
-    })
-  });
   if (JSON.stringify(actualPlaywrightAuthority) !== JSON.stringify(expectedPlaywrightClosure)) {
     throw new Error('The staged Playwright package closure changed after browser selection');
   }
@@ -702,37 +697,8 @@ function requireCanonicalPlaywrightPackageAuthority(
     typeof value.release !== 'string' || typeof value.revision !== 'string') {
     throw new Error('Semantic Mutation Playwright package authority is invalid');
   }
-  let packageClosure: Readonly<ExactPlaywrightPackageClosure>;
-  try {
-    const packageManifests = Object.fromEntries(value.packages.map(
-      (identity) => [identity.name, identity]
-    )) as Partial<Record<ExactPlaywrightPackageName, unknown>>;
-    packageClosure = buildExactPlaywrightPackageClosure(packageManifests, value.release);
-  } catch {
+  if (!isExactPlaywrightPackageAuthority(value)) {
     throw new Error('Semantic Mutation Playwright package authority is invalid');
-  }
-  const packages = packageClosure.packages.map((identity, index) => {
-    const authorityIdentity = value.packages[index];
-    if (!authorityIdentity ||
-      authorityIdentity.name !== identity.name ||
-      authorityIdentity.version !== identity.version ||
-      typeof authorityIdentity.manifestSha256 !== 'string' ||
-      !/^[a-f0-9]{64}$/u.test(authorityIdentity.manifestSha256)) {
-      throw new Error('Semantic Mutation Playwright package authority is non-canonical');
-    }
-    return Object.freeze({
-      manifestSha256: authorityIdentity.manifestSha256,
-      name: identity.name,
-      version: identity.version
-    });
-  });
-  const revision = sha256Value({
-    domain: 'playwright-package-authority-v1',
-    packages,
-    release: packageClosure.release
-  });
-  if (value.packages.length !== packages.length || value.revision !== revision) {
-    throw new Error('Semantic Mutation Playwright package authority is non-canonical');
   }
 }
 

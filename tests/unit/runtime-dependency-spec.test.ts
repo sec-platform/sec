@@ -2,8 +2,10 @@ import { expect, test } from 'bun:test';
 
 import { CompilerError } from '../../platform/shared/errors.ts';
 import {
+  buildExactPlaywrightPackageAuthority,
   buildExactPlaywrightPackageClosure,
   buildRuntimeDependencySpec,
+  isExactPlaywrightPackageAuthority,
   type RootPackageJson
 } from '../../platform/shared/runtime-dependency-spec.ts';
 
@@ -65,6 +67,52 @@ test('Playwright package closure requires all three packages at the root exact r
   });
   expect(Object.isFrozen(closure)).toBe(true);
   expect(Object.isFrozen(closure.packages)).toBe(true);
+});
+
+test('Playwright package authority has one canonical order and revision owner', () => {
+  const identities = [
+    { manifestSha256: 'c'.repeat(64), name: 'playwright-core' as const, version: '1.59.1' },
+    { manifestSha256: 'a'.repeat(64), name: '@playwright/test' as const, version: '1.59.1' },
+    { manifestSha256: 'b'.repeat(64), name: 'playwright' as const, version: '1.59.1' }
+  ];
+  const authority = buildExactPlaywrightPackageAuthority(identities, '1.59.1');
+
+  expect(authority.packages.map(({ name }) => name)).toEqual([
+    '@playwright/test',
+    'playwright',
+    'playwright-core'
+  ]);
+  expect(authority.revision).toMatch(/^sha256:[a-f0-9]{64}$/u);
+  expect(buildExactPlaywrightPackageAuthority([...identities].reverse(), '1.59.1')).toEqual(authority);
+  expect(isExactPlaywrightPackageAuthority(authority)).toBe(true);
+  expect(isExactPlaywrightPackageAuthority({ ...authority, revision: `sha256:${'0'.repeat(64)}` })).toBe(false);
+  expect(isExactPlaywrightPackageAuthority({ ...authority, extra: true })).toBe(false);
+  expect(isExactPlaywrightPackageAuthority({
+    ...authority,
+    packages: [...authority.packages].reverse()
+  })).toBe(false);
+  expect(Object.isFrozen(authority)).toBe(true);
+  expect(Object.isFrozen(authority.packages)).toBe(true);
+});
+
+test('Playwright package authority rejects duplicate, missing, and malformed identities', () => {
+  const valid = [
+    { manifestSha256: 'a'.repeat(64), name: '@playwright/test' as const, version: '1.59.1' },
+    { manifestSha256: 'b'.repeat(64), name: 'playwright' as const, version: '1.59.1' },
+    { manifestSha256: 'c'.repeat(64), name: 'playwright-core' as const, version: '1.59.1' }
+  ];
+
+  expect(() => buildExactPlaywrightPackageAuthority(valid.slice(0, 2), '1.59.1')).toThrow(
+    'Playwright package authority is incomplete'
+  );
+  expect(() => buildExactPlaywrightPackageAuthority(
+    [valid[0]!, valid[0]!, valid[2]!],
+    '1.59.1'
+  )).toThrow('Playwright package authority is non-canonical');
+  expect(() => buildExactPlaywrightPackageAuthority(
+    [{ ...valid[0]!, manifestSha256: 'invalid' }, valid[1]!, valid[2]!],
+    '1.59.1'
+  )).toThrow('Playwright package authority is non-canonical');
 });
 
 for (const mismatch of ['@playwright/test', 'playwright', 'playwright-core'] as const) {

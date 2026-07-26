@@ -27,6 +27,19 @@ test('bounded slow baseline is owned by shared execution lifecycle surfaces', ()
   }
 });
 
+test('dev-runner mandatory ownership rejects CLI prefix collisions', () => {
+  for (const file of [
+    'platform/dev-runner.tsx',
+    'platform/dev-runner.ts/evil',
+    'platform/dev-runner.ts-anything'
+  ]) {
+    const selection = selectCiPrRiskSlowSuites([file]);
+    expect(selection.resolved).toBe(false);
+    expect(selection.reasons).toContain('changed-files-unresolved');
+    expect(selection.reasons).not.toContain('mandatory-sentinel');
+  }
+});
+
 test('assertion-only testkit helpers rely on direct test impact instead of broad slow baseline', () => {
   const selection = selectCiPrRiskSlowSuites(['tests/testkit/contracts.ts']);
 
