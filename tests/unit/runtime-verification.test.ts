@@ -12,6 +12,7 @@ import {
   unlink,
   writeFile
 } from 'node:fs/promises';
+import { type AddressInfo, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -22,6 +23,7 @@ import {
 } from '../../platform/compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
 import { assertIsolatedStagingTree } from '../../platform/compiler/verify/assert-isolated-staging-tree.ts';
 import {
+  assertRuntimeAcceptancePortReleasedForTests,
   buildIsolatedRuntimeAcceptanceEnvironment,
   buildIsolatedRuntimeAcceptanceEnvironmentForTests,
   buildIsolatedRuntimeEnvironment,
@@ -35,12 +37,14 @@ import {
   revalidateIsolatedRuntimeBuildNodeModulesProofForTests,
   runRuntimeVerification,
   runtimeTempDirectoryPathForTests,
-  runtimeVerificationInvocation
+  runtimeVerificationInvocation,
+  withRuntimeAcceptanceCleanupForTests
 } from '../../platform/compiler/verify/run-runtime-verification.ts';
 import {
   RUNTIME_VERIFICATION_INVOCATION_CONTRACT
 } from '../../platform/compiler/verify/runtime-verification-invocation-contract.ts';
 import {
+  semanticMutationIsolatedBrowserPath,
   semanticMutationIsolatedNodeExecutablePath
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
 import { listFilesRecursive, writeText } from '../../platform/shared/fs.ts';
@@ -389,7 +393,7 @@ test('namespaced Windows runtime TEMP preserves one physical directory beyond th
 test('isolated runtime accepts only a parent-issued launch path for its exact physical browser cache', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'sec-runtime-browser-launch-binding-'));
   const stagingRoot = path.join(root, 'staging');
-  const physicalBrowserCache = isolatedPlaywrightBrowsersPath(stagingRoot);
+  const physicalBrowserCache = semanticMutationIsolatedBrowserPath(stagingRoot);
   const launchPath = path.join(root, 'launch-path');
   const outside = path.join(root, 'outside');
   await Promise.all([
@@ -704,8 +708,51 @@ test('writable and staged Playwright caches remain rooted in their original owne
   expect(isolatedPlaywrightBrowsersPath()).toBe(
     path.join(compilerRoot, '.shared-deps', '.playwright-browsers')
   );
-  expect(isolatedPlaywrightBrowsersPath(stagingRoot)).toBe(
+  expect(semanticMutationIsolatedBrowserPath(stagingRoot)).toBe(
     path.join(stagingRoot, '.isolated-process', 'playwright-browsers')
+  );
+});
+
+test('runtime acceptance cleanup rejects an occupied loopback port and proves release by rebind', async () => {
+  const server = createServer((socket) => {
+    socket.end('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n');
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen({ host: '127.0.0.1', port: 0 }, resolve);
+  });
+  const port = (server.address() as AddressInfo).port;
+  try {
+    await expect(assertRuntimeAcceptancePortReleasedForTests(port, 0)).rejects.toMatchObject({
+      code: 'VERIFY-RUNTIME-PORT-RELEASE',
+      port
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+  await assertRuntimeAcceptancePortReleasedForTests(port, 1_000);
+});
+
+test('runtime acceptance preserves execution and cleanup failures in one AggregateError', async () => {
+  const executionError = new Error('injected acceptance execution failure');
+  const cleanupError = new Error('injected port release failure');
+  const failure = await withRuntimeAcceptanceCleanupForTests(
+    async () => {
+      throw executionError;
+    },
+    async () => {
+      throw cleanupError;
+    }
+  ).then(
+    () => undefined,
+    (error: unknown) => error
+  );
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect((failure as AggregateError).errors).toEqual([executionError, cleanupError]);
+  expect((failure as Error).message).toBe(
+    'Isolated runtime acceptance execution and server cleanup both failed'
   );
 });
 
@@ -991,7 +1038,7 @@ test('isolated runtime environment excludes live fallbacks and contains writable
     LOCALAPPDATA: environment.LOCALAPPDATA
   }).every((value) => typeof value === 'string' &&
     !path.relative(stagingRoot, value).startsWith('..') && !path.isAbsolute(path.relative(stagingRoot, value)))).toBe(true);
-  const physicalBrowserCache = isolatedPlaywrightBrowsersPath(stagingRoot);
+  const physicalBrowserCache = semanticMutationIsolatedBrowserPath(stagingRoot);
   expect(environment.PLAYWRIGHT_BROWSERS_PATH).toBe(physicalBrowserCache);
   const physicalTemp = path.join(stagingRoot, '.isolated-process', 'runtime', 'tmp');
   expect(environment.TEMP).toBe(runtimeTempDirectoryPathForTests(physicalTemp, process.platform));

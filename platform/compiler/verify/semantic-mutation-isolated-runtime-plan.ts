@@ -320,6 +320,17 @@ export function semanticMutationIsolatedNodeExecutablePath(
   );
 }
 
+export function semanticMutationIsolatedBrowserPath(
+  stagingWorkspaceRoot: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  const pathApi = platform === 'win32' ? path.win32 : path.posix;
+  return pathApi.join(
+    pathApi.resolve(stagingWorkspaceRoot),
+    ...SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT.split('/')
+  );
+}
+
 async function createReparsePointInspector(): Promise<ReparsePointInspector> {
   if (process.platform !== 'win32') {
     return { hasReparsePoint: () => false, close: () => undefined };
@@ -1925,7 +1936,7 @@ export async function materializeSemanticMutationIsolatedRuntime(input: {
     }
     return {
       browserExecutableRelativePath: plan.browserExecutableRelativePath,
-      browsersPath: absoluteDestination(plan.stagingRoot, SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT),
+      browsersPath: semanticMutationIsolatedBrowserPath(plan.stagingRoot),
       nodeExecutablePath,
       runnerRelativePath: SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH
     };

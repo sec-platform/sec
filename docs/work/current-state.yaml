@@ -110,3 +110,15 @@ stableFacts:
         expensiveFallback: rollback-full-verification
       disposition: canonical-derived-output-exclusion-plus-proof-micro-sentinel
       completionEvidence: false
+    latestIndependentArchitectureReview:
+      reviewedCommit: 066fbd2150f49f3c57948c3f58f32db397bd2732
+      result: failed
+      canonicalAffectedAtReviewedCommit: passed-baseline-only
+      riskRun: false
+      blockers:
+        - child-pre-spawn-browser-proof-missing
+        - staged-browser-relative-root-duplicated
+        - acceptance-port-release-unproven
+        - windows-temp-owner-acl-unproven
+      disposition: repair-in-active-package-new-head-required
+      completionEvidence: false

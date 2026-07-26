@@ -18,6 +18,9 @@ import {
 import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
+import {
+  registerWindowsBrowserLaunchProofFromArguments
+} from '../compiler/verify/windows-browser-launch-path.ts';
 import { listFilesRecursive, pathExists } from '../shared/fs.ts';
 import type { PipelineExecutionBoundary } from '../shared/pipeline-types.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../shared/process.ts';
@@ -26,6 +29,8 @@ import { mintIsolatedVerificationCapability } from './isolated-verification-capa
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
 const EXPECTED_STAGES = ['resolve', 'semantic', 'compose', 'adapt', 'verify'] as const;
+
+registerWindowsBrowserLaunchProofFromArguments(process.argv);
 
 class SemanticMutationIsolatedCatchTreeFailure extends Error {
   constructor() {

@@ -148,6 +148,8 @@ function workspaceWriteLeaseToken(): WorkspaceWriteLeaseToken {
   });
 }
 
+const BROWSER_LAUNCH_PROOF_ARGUMENT = '--sec-browser-launch-proof-v1=fixture';
+
 function legacyWindowsAppContainerExecutionError(
   phase: string,
   nativeCode?: number,
@@ -1726,6 +1728,7 @@ test('isolated verification supervisor aborts an active runner when its workspac
   const workspaceWriteLease = workspaceWriteLeaseToken();
 
   await expect(supervisor({
+    browserLaunchProofArgument: BROWSER_LAUNCH_PROOF_ARGUMENT,
     commitFence,
     env: { PATH: '' },
     runnerRelativePath: '.isolated-process/runner/runner.mjs',
@@ -1752,7 +1755,8 @@ test('production isolated verification supervisor uses one bounded observed loca
         '--no-env-file',
         `--config=${path.join(stagingRoot, '.isolated-compiler', 'bunfig.toml')}`,
         '--no-install',
-        path.join(stagingRoot, '.isolated-compiler', 'platform', 'orchestrator', 'runner.mjs')
+        path.join(stagingRoot, '.isolated-compiler', 'platform', 'orchestrator', 'runner.mjs'),
+        BROWSER_LAUNCH_PROOF_ARGUMENT
       ]);
       expect(options).toMatchObject({
         cwd: process.platform === 'win32' ? path.parse(stagingRoot).root : stagingRoot,
@@ -1772,6 +1776,7 @@ test('production isolated verification supervisor uses one bounded observed loca
   });
 
   expect(await supervisor({
+    browserLaunchProofArgument: BROWSER_LAUNCH_PROOF_ARGUMENT,
     commitFence: async () => { fences += 1; },
     env: {
       PATH: '',
@@ -1800,6 +1805,7 @@ test('isolated Verification suppresses runtime timing before the zero-output chi
 test('production isolated verification supervisor rejects unclosed or truncated child lifecycle', async () => {
   const empty = new Uint8Array();
   const request = {
+    browserLaunchProofArgument: BROWSER_LAUNCH_PROOF_ARGUMENT,
     commitFence: async () => undefined,
     env: { PATH: '' },
     runnerRelativePath: '.isolated-compiler/platform/orchestrator/runner.mjs',
@@ -1865,6 +1871,7 @@ test('production isolated verification supervisor enforces one combined output b
   });
 
   await expect(supervisor({
+    browserLaunchProofArgument: BROWSER_LAUNCH_PROOF_ARGUMENT,
     commitFence: async () => undefined,
     env: { PATH: '' },
     runnerRelativePath: '.isolated-compiler/platform/orchestrator/runner.mjs',

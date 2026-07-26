@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { lstat, open, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
@@ -74,7 +75,6 @@ import {
 import { assertIsolatedStagingTree } from './assert-isolated-staging-tree.ts';
 import {
   captureIsolatedRuntimeBuildNodeModulesProof,
-  isolatedPlaywrightBrowsersPath,
   resolveIsolatedRuntimeDependencySources,
   revalidateIsolatedRuntimeBuildNodeModulesProof
 } from './run-runtime-verification.ts';
@@ -87,6 +87,7 @@ import {
   materializeSemanticMutationIsolatedRuntime,
   SEMANTIC_MUTATION_ISOLATED_BUNFIG_RELATIVE_PATH,
   SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT,
+  semanticMutationIsolatedBrowserPath,
   semanticMutationIsolatedNodeExecutablePath,
   type SemanticMutationIsolatedCompilerRegistryInput,
   type SemanticMutationIsolatedRuntimeInputSources,
@@ -104,7 +105,10 @@ import {
   issueStagedVerificationProofSource,
   type StagedVerificationProofSource
 } from './staged-verification-proof.ts';
-import { acquireBrowserLaunchPath } from './windows-browser-launch-path.ts';
+import {
+  acquireBrowserLaunchPath,
+  acquireBrowserLaunchPathForTests
+} from './windows-browser-launch-path.ts';
 
 export type { SemanticMutationIsolatedRuntimeInputSources } from './semantic-mutation-isolated-runtime-plan.ts';
 export {
@@ -624,6 +628,7 @@ export function classifySemanticMutationIsolatedVerificationArtifactSet(
 }
 
 export interface SemanticMutationIsolatedVerificationExecutionRequest {
+  readonly browserLaunchProofArgument: string;
   readonly commitFence: CommitFence;
   readonly env: NodeJS.ProcessEnv;
   readonly runnerRelativePath: string;
@@ -756,7 +761,7 @@ function ownDataOption<Value>(
 
 export function buildSemanticMutationIsolatedVerificationEnvironment(
   stagingWorkspaceRoot: string,
-  browsersPath = isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot)
+  browsersPath = semanticMutationIsolatedBrowserPath(stagingWorkspaceRoot)
 ): Readonly<Record<string, string>> {
   if (!path.isAbsolute(browsersPath)) {
     throw new Error('Isolated browser launch path must be absolute');
@@ -795,7 +800,8 @@ export function createSemanticMutationIsolatedVerificationSupervisor(options: {
       ...SEMANTIC_MUTATION_ISOLATED_BUNFIG_RELATIVE_PATH.split('/')
     )}`,
     '--no-install',
-    path.join(request.stagingWorkspaceRoot, ...request.runnerRelativePath.split('/'))
+    path.join(request.stagingWorkspaceRoot, ...request.runnerRelativePath.split('/')),
+    request.browserLaunchProofArgument
   ];
   if (options.commandRunner === undefined) {
     const observedCommandRunner = options.observedCommandRunner ?? runObservedCommand;
@@ -1651,10 +1657,17 @@ export async function runSemanticMutationIsolatedVerificationChild(
       })
     );
     const result = await (async (): Promise<CommandResult> => {
-      const browserLaunchPath = await acquireBrowserLaunchPath(
-        browsersPath,
-        browserExecutableRelativePath
-      );
+      const browserLaunchPath = productionInvocation
+        ? await acquireBrowserLaunchPath(browsersPath, browserExecutableRelativePath)
+        : await acquireBrowserLaunchPathForTests(
+            browsersPath,
+            browserExecutableRelativePath,
+            {
+              platform: process.platform,
+              proveTemporaryAuthority: async () => undefined,
+              temporaryRoot: tmpdir()
+            }
+          );
       try {
         await commitFence();
         const writableRoot = path.join(stagingWorkspaceRoot, '.isolated-process', 'child');
@@ -1677,6 +1690,7 @@ export async function runSemanticMutationIsolatedVerificationChild(
         await browserLaunchPath.assertCurrent();
         failureStage = 'isolated-child-execution';
         const result = await supervisor({
+          browserLaunchProofArgument: browserLaunchPath.proofArgument,
           commitFence,
           env,
           runnerRelativePath,

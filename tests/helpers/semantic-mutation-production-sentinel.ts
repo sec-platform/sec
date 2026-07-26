@@ -22,6 +22,7 @@ import {
   assertSemanticMutationIsolatedRuntimeLaunchManifest,
   materializeSemanticMutationIsolatedRuntime
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
+import { acquireBrowserLaunchPath } from '../../platform/compiler/verify/windows-browser-launch-path.ts';
 import { initWorkspace } from '../../platform/orchestrator.ts';
 import type { ObservedCommandOutcome } from '../../platform/shared/observed-process.ts';
 import {
@@ -174,6 +175,10 @@ export async function runSemanticMutationProductionSentinel(): Promise<void> {
     const nextManifestBefore = await readFile(nextManifestPath);
 
     await ensureIsolatedProcessDirectories(path.join(stagingRoot, '.isolated-process', 'child'));
+    const browserLaunchPath = await acquireBrowserLaunchPath(
+      materialized.browsersPath,
+      materialized.browserExecutableRelativePath
+    );
     const lease = await acquireWorkspaceWriteLease(root);
     let observedOutcome: ObservedCommandOutcome | undefined;
     const supervisor = createSemanticMutationIsolatedVerificationSupervisor({
@@ -188,8 +193,12 @@ export async function runSemanticMutationProductionSentinel(): Promise<void> {
       let execution: { readonly code: number };
       try {
         execution = await supervisor({
+          browserLaunchProofArgument: browserLaunchPath.proofArgument,
           commitFence: async () => assertWorkspaceWriteLease(root, lease.token),
-          env: buildSemanticMutationIsolatedVerificationEnvironment(stagingRoot),
+          env: buildSemanticMutationIsolatedVerificationEnvironment(
+            stagingRoot,
+            browserLaunchPath.browsersPath
+          ),
           runnerRelativePath: materialized.runnerRelativePath,
           stagingWorkspaceRoot: stagingRoot,
           workspaceRoot: root,
@@ -263,7 +272,11 @@ export async function runSemanticMutationProductionSentinel(): Promise<void> {
       expect((await readdir(stagingProjectRoot)).filter((entry) =>
         entry.startsWith('.engineering-compiler-template-'))).toEqual([]);
     } finally {
-      await lease.release();
+      try {
+        await lease.release();
+      } finally {
+        await browserLaunchPath.release();
+      }
     }
   } finally {
     await rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });

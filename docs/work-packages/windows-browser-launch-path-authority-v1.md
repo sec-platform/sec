@@ -28,6 +28,7 @@ tasks:
       - platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts
       - platform/compiler/verify/semantic-mutation-staged-project-input.ts
       - platform/compiler/verify/windows-browser-launch-path.ts
+      - platform/orchestrator/semantic-mutation-isolated-verification-runner.ts
       - platform/dev-runner/dependency-bootstrap.ts
       - platform/dev-runner/fast-test-policy.ts
       - platform/dev-runner/test-runner.ts
@@ -36,6 +37,8 @@ tasks:
       - platform/shared/project-base.ts
       - platform/shared/project-runtime.ts
       - platform/shared/runtime-dependency-spec.ts
+      - platform/shared/windows-host-filesystem-authority.ts
+      - tests/helpers/semantic-mutation-production-sentinel.ts
       - tests/contract/ci-contract.test.ts
       - tests/contract/ci-lanes.test.ts
       - tests/contract/docs-doctor.test.ts
@@ -57,6 +60,7 @@ tasks:
       - tests/unit/semantic-mutation-runtime-materialization.test.ts
       - tests/unit/test-runner.test.ts
       - tests/unit/windows-browser-launch-path.test.ts
+      - tests/unit/windows-host-filesystem-authority.test.ts
 forbiddenPaths:
   - .claude/
   - .gitattributes
@@ -96,11 +100,12 @@ acceptance:
   - "The package adopts the stable runtime/V11 reconstruction from 3a72882151072ca96a83d974d01acc0b033fdd1a as source only. Its exact-head canonical affected result remains permanently failed and is never rerun or presented as completion evidence."
   - "The retained failed workspace and a bounded launch probe prove that the exact browser cache is complete, the 171-character source executable launches, the 323-character namespaced staged executable is not Win32-launch-compatible, and a 160-character projection of the same physical cache launches."
   - "Windows filesystem addressability and Win32 launch compatibility are separate canonical contracts. The staged browser cache remains the only exact physical runtime materialization; a launch projection may expose only that cache and never becomes a second cache, installer or package identity owner."
-  - "The Windows launch projection is unique per execution, rooted in an inspected host temporary directory, resolves to the exact staged physical cache, proves the required browser executable through the projected path, enters only the fixed isolated environment, and is revalidated immediately before child execution."
+  - "The Windows launch projection is unique per execution. Ambient TEMP is only an untrusted allocation surface; a cryptographically named private root is created atomically, stripped of inherited ACLs, bound to the current process SID, and owner/DACL-proven before it becomes host authority."
+  - "The parent binds the plan-derived physical cache, exact executable identity and projection into one fixed child command-line proof. The staged runner revalidates alias, physical cache and executable identity in the exact Playwright runCommand.beforeSpawn boundary, so a post-readiness swap prevents browser command spawn."
   - "Projection cleanup is mandatory on success, child failure, timeout, abort and pre-launch rejection. Failed cleanup fails closed; stale or attacker-controlled roots, aliases, targets and path escapes are rejected without deleting unowned data."
   - "POSIX continues to use the canonical physical staging path and creates no projection."
   - "The child consumes one runtime plan and one environment binding. run-runtime-verification accepts only the parent-issued launch path bound to its exact staged cache; ambient PLAYWRIGHT_BROWSERS_PATH cannot become authority."
-  - "Isolated acceptance starts generated Next as one direct child of the SEC verifier through the exact staged Node, proves loopback readiness, and closes that direct child on every exit. The generated Playwright config does not register a webServer in isolated mode and cannot delegate lifecycle to Playwright's Windows shell/taskkill fallback."
+  - "Isolated acceptance starts generated Next as one direct child of the SEC verifier through the exact staged Node, proves loopback readiness, and closes that direct child on every exit. Cleanup additionally proves the port is no longer serving and can be exclusively rebound; port occupation is typed failure and simultaneous execution/cleanup errors remain aggregated. The generated Playwright config does not register a webServer in isolated mode and cannot delegate lifecycle to Playwright's Windows shell/taskkill fallback."
   - "The SM-3 production sentinel timeout is derived from and strictly exceeds the canonical isolated supervisor deadline plus cleanup margin, so the test runner cannot begin afterAll cleanup while production verification still owns the staging workspace."
   - "Staged Verification project-input identity excludes only canonical runtime/build outputs, including the project dependency stamp and Next-managed next-env.d.ts. Source, tests, configuration and every unclassified root entry remain exact-bound and fail closed on drift."
   - "The old namespaced browser-path assumption is removed from canonical docs. Windows TEMP may remain namespaced; browser launch paths must instead satisfy the launch-compatible projection contract."
@@ -109,7 +114,7 @@ acceptance:
   - "Canonical affected executes exactly once on the final successor head. Only a real affected PASS permits one selected ci-verification-v11 Risk execution."
   - "The successor PR has no unresolved review or REQUEST_CHANGES and is integrated through V11 manual bootstrap. Only after the successor is in main is PR #137 closed as absorbed/superseded and its remote branch removed."
 tests:
-  - "windows-launch-path-focused: bun test tests/unit/windows-browser-launch-path.test.ts tests/unit/runtime-verification.test.ts tests/unit/semantic-mutation-runtime-materialization.test.ts tests/unit/semantic-mutation-isolated-child-fence.test.ts --timeout 180000"
+  - "windows-launch-path-focused: bun test tests/unit/windows-browser-launch-path.test.ts tests/unit/windows-host-filesystem-authority.test.ts tests/unit/runtime-verification.test.ts tests/unit/semantic-mutation-runtime-materialization.test.ts tests/unit/semantic-mutation-isolated-child-fence.test.ts --timeout 180000"
   - "proof-consumption-micro-sentinel: the exact staged full Verification proof test title in tests/unit/semantic-mutation-isolated-child-fence.test.ts before the production sentinel"
   - "sm3-failure-sentinel: the exact retained production test title in tests/integration/semantic-mutation-apply.test.ts once on the repaired head with no retained workspace"
   - "runtime-regression: bun test tests/integration/project-runtime.test.ts tests/unit/runtime-dependency-spec.test.ts tests/unit/playwright-browser-cache.test.ts --timeout 180000"
