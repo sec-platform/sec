@@ -44,12 +44,24 @@ last-reviewed: 2026-07-26
 | 单个unit/contract focused文件 | 通常`<= 5s` |
 | 单个fast integration文件 | 通常`<= 10s` |
 | leaf变化的focused fast batch | 通常`<= 10s` |
+| focused imports prepare/check | `<= 4s`目标 |
+| clean candidate imports freeze | `<= 5s`目标 |
 | unchanged hot typecheck | `<= 5s`目标；cold/hosted保持完整检查 |
 | 真实Next、server、Playwright或browser acceptance | 明确slow；只在最终Risk/release选择时运行 |
+
+这些数值是编辑反馈 SLO，不是从某一次 wall-clock 结果自动生成的硬 Gate。性能事实分三层：
+
+1. **结构性硬不变量**：selected root数、process spawn数、workspace复制次数、是否启动browser/server、是否命中isolated snapshot、Gate dispatch次数等可确定重算的工作量；违反即失败。
+2. **可比较性能基线**：只在专门的性能变更中建立。固定candidate、输入、Bun/TypeScript版本、机器电源状态与warm/cold模式，先warm-up，再至少采集五组独立有效样本；报告median与observed range。宣称优化比例时必须对旧/新实现做同条件交错采样，不能比较两次孤立运行。
+3. **单次诊断样本**：只用于定位phase或发现可能的离群点。一次超过目标既不能建立新baseline，也不能单独使candidate失效；最多立即复跑同一最小micro-sentinel一次。不能复现就记录为噪声并停止，能够复现才进入结构归因或正式采样。
+
+CI timeout只是失控熔断器，不是性能基准。不得因为一次慢样本扩大timeout、全面回退、重复整批Gate或制造successor candidate；硬性能Gate应优先断言结构性工作量，只有稳定采样协议明确选择时才使用wall-clock裁决。
 
 fast文件超过十秒时必须先按phase计时。若耗时来自build、server readiness、browser、安装、网络或真实workspace复制，应把该acceptance迁入已有slow owner，同时在fast层保留不启动生产进程的合同/micro-sentinel；不得通过缓存偶然命中、增大timeout或删除覆盖来宣称变快。Contract Freeze只允许快速合同成员，不能无条件启动真实Runtime。
 
 Typecheck的warm加速只能使用TypeScript原生incremental invalidation；`.tmp/typecheck`可随时删除且不进入Git、artifact或Evidence。changed source、compiler version、compiler options或build-info损坏不得产生false PASS；任何疑义直接删除该derived目录并回到cold check。
+
+Import organizer只把selected targets与项目声明文件作为Language Service roots；target的import closure、configured lib/types、unused判断和最终edits仍由TypeScript解析。Candidate只有在Git canonical clean-filter比较确认tracked working tree相对index无delta且不存在untracked path时才复用physical context；任一Git可见差异必须回到隔离full-index snapshot。`core.autocrlf`等checkout表示允许physical CRLF/LF bytes与index blob不同，因此physical context只提供非权威的module-resolution底座，selected targets始终由exact staged blobs覆盖，最终candidate bytes仍只来自index。该优化不得改变完整base→index选择、index lock、atomic publication或working-tree byte preservation。
 
 ## 3. 事实源
 

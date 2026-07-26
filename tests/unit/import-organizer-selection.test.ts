@@ -7,20 +7,26 @@ import ts from 'typescript';
 
 import {
   changedTypeScriptFiles,
+  importServiceRootFileNames,
   organizeImportsInSource,
   resolveImportDiffBase,
   selectChangedImportsOnly
 } from '../../platform/dev-runner/import-organizer.ts';
 
-function organizeFixtureImports(source: string): string {
+function organizeFixtureImports(source: string, roots: 'full' | 'focused' = 'full'): string {
   const fixtureRoot = path.resolve(import.meta.dir, 'import-organizer-newline-fixture');
   const fileName = path.join(fixtureRoot, 'fixture.ts');
   const sources = new Map<string, string>([
     [fileName, source],
-    [path.join(fixtureRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;']
+    [path.join(fixtureRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;'],
+    [path.join(fixtureRoot, 'ambient.d.ts'), 'declare const ambientImportFixture: unique symbol;'],
+    [path.join(fixtureRoot, 'unrelated.ts'), 'export const unrelated = true;']
   ]);
+  const rootFileNames = roots === 'full'
+    ? [...sources.keys()]
+    : [...importServiceRootFileNames({ fileNames: [...sources.keys()] }, [fileName])];
   const host: ts.LanguageServiceHost = {
-    getScriptFileNames: () => [...sources.keys()],
+    getScriptFileNames: () => rootFileNames,
     getScriptVersion: () => '0',
     getScriptSnapshot: (requestedFileName) => {
       const content = sources.get(path.resolve(requestedFileName)) ?? ts.sys.readFile(requestedFileName);
@@ -43,6 +49,22 @@ function organizeFixtureImports(source: string): string {
 }
 
 describe('import organizer selection', () => {
+  test('language service roots contain only selected targets and project declarations', () => {
+    const projectRoot = path.resolve(import.meta.dir, 'import-organizer-root-fixture');
+    const target = path.join(projectRoot, 'target.ts');
+    const declaration = path.join(projectRoot, 'ambient.d.ts');
+    const moduleDeclaration = path.join(projectRoot, 'runtime.d.mts');
+    const unrelated = path.join(projectRoot, 'unrelated.ts');
+
+    expect(importServiceRootFileNames({
+      fileNames: [unrelated, declaration, moduleDeclaration, target]
+    }, [target])).toEqual([
+      declaration,
+      moduleDeclaration,
+      target
+    ].sort());
+  });
+
   test('explicit changed-only setting overrides CI context', () => {
     expect(selectChangedImportsOnly({ SEC_IMPORTS_CHANGED_ONLY: '1' })).toBe(true);
     expect(selectChangedImportsOnly({
@@ -115,6 +137,17 @@ describe('import organizer selection', () => {
 });
 
 describe('import organizer newline preservation', () => {
+  test('focused roots produce the same import bytes as the complete project roots', () => {
+    const unsorted = [
+      "import { beta, alpha } from './values.ts';",
+      '',
+      'export const answer = alpha + beta;',
+      ''
+    ].join('\n');
+
+    expect(organizeFixtureImports(unsorted, 'focused')).toBe(organizeFixtureImports(unsorted, 'full'));
+  });
+
   for (const newLine of ['\n', '\r\n'] as const) {
     test(`keeps ${newLine === '\n' ? 'LF' : 'CRLF'} files stable and preserves the body when imports reorder`, () => {
       const sortedImports = [

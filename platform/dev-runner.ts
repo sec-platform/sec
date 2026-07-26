@@ -47,7 +47,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  const dependencies = await ensureDevDependencies();
+  const dependencies = await ensureDevDependencies({
+    hookPolicy: target === 'deps:ensure' ? 'always' : 'if-installed'
+  });
   if (target === 'deps:ensure') {
     console.log(`Compiler dependencies ready (${dependencies.source}, ${dependencies.manifestHash}).`);
     return;

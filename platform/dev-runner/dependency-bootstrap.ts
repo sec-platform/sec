@@ -1,4 +1,5 @@
 import { installGitHooks } from '../../scripts/install-git-hooks.ts';
+
 import {
   ensureCompilerDepsReady,
   ensurePlaywrightBrowserCacheReady,
@@ -22,6 +23,7 @@ interface CompilerDependencyBootstrapOptions {
 
 interface DevDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
   readonly ensureHooks?: (repoRoot: string) => Promise<void>;
+  readonly hookPolicy?: 'always' | 'if-installed';
 }
 
 interface TestDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
@@ -46,7 +48,9 @@ export async function ensureDevDependencies(
   options: DevDependencyBootstrapOptions = {}
 ): Promise<DevDependencyBootstrapResult> {
   const ready = await (options.ensureCompilerDeps ?? (() => ensureCompilerDepsReady()))();
-  await (options.ensureHooks ?? ensureManagedHooks)(ready.root);
+  if (options.hookPolicy !== 'if-installed' || ready.source === 'installed') {
+    await (options.ensureHooks ?? ensureManagedHooks)(ready.root);
+  }
   return dependencyBootstrapResult(ready);
 }
 

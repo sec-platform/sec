@@ -25,6 +25,7 @@ interface StagedImportUpdate {
 interface StagedImportOrganizerTestHooks {
   readonly beforeHash?: (fileName: string) => void;
   readonly afterIndexLock?: () => void | Promise<void>;
+  readonly candidateContext?: (mode: 'working-tree' | 'snapshot') => void | Promise<void>;
 }
 
 interface StagedImportSelection {
@@ -183,6 +184,23 @@ function nulFields(bytes: Buffer, source: string): string[] {
 
 function isTypeScriptPath(value: string): boolean {
   return /\.[cm]?tsx?$/iu.test(value);
+}
+
+function isTypeScriptDeclarationPath(value: string): boolean {
+  return /\.d\.[cm]?ts$/iu.test(value);
+}
+
+export function importServiceRootFileNames(
+  config: Pick<ts.ParsedCommandLine, 'fileNames'>,
+  targetFileNames: readonly string[]
+): readonly string[] {
+  const roots = new Set(targetFileNames.map((fileName) => path.resolve(fileName)));
+  for (const fileName of config.fileNames) {
+    if (isTypeScriptDeclarationPath(fileName)) {
+      roots.add(path.resolve(fileName));
+    }
+  }
+  return Object.freeze([...roots].sort());
 }
 
 function typeScriptTargetsFromNameStatus(bytes: Buffer, source: string): readonly string[] {
@@ -361,12 +379,77 @@ async function materializeCandidateIndex(projectRoot: string): Promise<string> {
   }
 }
 
+function workingTreeMatchesIndex(projectRoot: string): boolean {
+  return gitBytes(
+    projectRoot,
+    ['diff', '--name-status', '-z', '--']
+  ).byteLength === 0 && gitBytes(
+    projectRoot,
+    ['ls-files', '--others', '--exclude-standard', '-z', '--']
+  ).byteLength === 0;
+}
+
+async function candidateContext(
+  projectRoot: string,
+  testHooks: StagedImportOrganizerTestHooks
+): Promise<{ readonly root: string; readonly snapshotRoot: string | null; readonly mode: 'working-tree' | 'snapshot' }> {
+  if (workingTreeMatchesIndex(projectRoot)) {
+    await testHooks.candidateContext?.('working-tree');
+    return Object.freeze({
+      root: projectRoot,
+      snapshotRoot: null,
+      mode: 'working-tree'
+    });
+  }
+  const snapshotRoot = await materializeCandidateIndex(projectRoot);
+  await testHooks.candidateContext?.('snapshot');
+  return Object.freeze({
+    root: snapshotRoot,
+    snapshotRoot,
+    mode: 'snapshot'
+  });
+}
+
 function decodeTypeScriptBlob(bytes: Buffer, gitPath: string): string {
   const source = bytes.toString('utf8');
   if (!Buffer.from(source, 'utf8').equals(bytes)) {
     throw new Error(`TypeScript staged blob is not valid UTF-8: ${gitPath}`);
   }
   return source;
+}
+
+function readStagedBlobs(
+  projectRoot: string,
+  selectedEntries: readonly StagedIndexEntry[]
+): ReadonlyMap<string, Buffer> {
+  const input = Buffer.from(`${selectedEntries.map((entry) => entry.objectId).join('\n')}\n`, 'utf8');
+  const output = gitBytes(projectRoot, ['cat-file', '--batch'], input);
+  const blobs = new Map<string, Buffer>();
+  let offset = 0;
+  for (const entry of selectedEntries) {
+    const headerEnd = output.indexOf(0x0a, offset);
+    if (headerEnd < 0) throw new Error('git cat-file --batch returned an incomplete header');
+    const header = output.subarray(offset, headerEnd).toString('ascii');
+    const match = /^([0-9a-f]{40,64}) blob ([0-9]+)$/u.exec(header);
+    if (!match || match[1] !== entry.objectId) {
+      throw new Error(`git cat-file --batch returned an invalid blob header for ${entry.path}`);
+    }
+    const byteLength = Number(match[2]);
+    if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
+      throw new Error(`git cat-file --batch returned an invalid blob length for ${entry.path}`);
+    }
+    const contentStart = headerEnd + 1;
+    const contentEnd = contentStart + byteLength;
+    if (contentEnd >= output.byteLength || output[contentEnd] !== 0x0a) {
+      throw new Error(`git cat-file --batch returned incomplete blob bytes for ${entry.path}`);
+    }
+    blobs.set(entry.path, Buffer.from(output.subarray(contentStart, contentEnd)));
+    offset = contentEnd + 1;
+  }
+  if (offset !== output.byteLength) {
+    throw new Error('git cat-file --batch returned trailing bytes');
+  }
+  return blobs;
 }
 
 function createImportService(
@@ -494,26 +577,32 @@ export async function runStagedImportOrganizer(
     return 0;
   }
 
-  const snapshotRoot = candidateBase === undefined ? null : await materializeCandidateIndex(projectRoot);
-  const contextRoot = snapshotRoot ?? projectRoot;
+  const context = candidateBase === undefined
+    ? Object.freeze({
+      root: projectRoot,
+      snapshotRoot: null,
+      mode: 'working-tree' as const
+    })
+    : await candidateContext(projectRoot, testHooks);
+  const contextRoot = context.root;
+  let service: ts.LanguageService | undefined;
   try {
     const config = loadProjectConfig(contextRoot);
     const stagedFiles = new Map<string, { version: number; content: string }>();
     const originals = new Map<string, Buffer>();
+    const blobs = readStagedBlobs(projectRoot, selectedEntries);
     for (const entry of selectedEntries) {
       const absolutePath = absoluteStagedPath(contextRoot, entry.path);
-      const bytes = gitBytes(projectRoot, ['cat-file', 'blob', entry.objectId]);
+      const bytes = blobs.get(entry.path);
+      if (!bytes) throw new Error(`TypeScript staged blob was not batch-loaded: ${entry.path}`);
       originals.set(entry.path, bytes);
       stagedFiles.set(absolutePath, {
         version: 0,
         content: decodeTypeScriptBlob(bytes, entry.path)
       });
     }
-    const projectFileNames = Object.freeze([...new Set([
-      ...config.fileNames.map((fileName) => path.resolve(fileName)),
-      ...stagedFiles.keys()
-    ])]);
-    const service = createImportService(config, contextRoot, projectFileNames, stagedFiles);
+    const projectFileNames = importServiceRootFileNames(config, [...stagedFiles.keys()]);
+    service = createImportService(config, contextRoot, projectFileNames, stagedFiles);
     const updates: StagedImportUpdate[] = [];
 
     for (const entry of selectedEntries) {
@@ -538,6 +627,10 @@ export async function runStagedImportOrganizer(
       }));
     }
 
+    if (candidateBase !== undefined && context.mode === 'working-tree' && !workingTreeMatchesIndex(projectRoot)) {
+      throw new Error('Working tree or untracked paths changed while organizing candidate imports');
+    }
+
     if (updates.length === 0) {
       console.log('Staged TypeScript imports are organized.');
       return 0;
@@ -557,8 +650,9 @@ export async function runStagedImportOrganizer(
     console.log(`Organized ${scope} imports in ${updates.length} file(s); working tree unchanged:\n${fileList}`);
     return 0;
   } finally {
-    if (snapshotRoot !== null) {
-      await fs.rm(snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
+    service?.dispose();
+    if (context.snapshotRoot !== null) {
+      await fs.rm(context.snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
     }
   }
 }
@@ -617,7 +711,6 @@ async function runImportOrganizerForTargets(
   targetFileNames: readonly string[],
   options: { check: boolean; mode: 'check' | 'organize' | 'prepare' }
 ): Promise<number> {
-  const projectFileNames = config.fileNames;
   if (targetFileNames.length === 0) {
     console.log(options.mode === 'prepare'
       ? 'No changed TypeScript authoring targets selected.'
@@ -634,41 +727,46 @@ async function runImportOrganizerForTargets(
       }
     ]))
   );
+  const projectFileNames = importServiceRootFileNames(config, targetFileNames);
   const service = createImportService(config, projectRoot, projectFileNames, files);
-  const changedFiles: string[] = [];
+  try {
+    const changedFiles: string[] = [];
 
-  for (const fileName of targetFileNames) {
-    const file = files.get(fileName);
-    if (!file) {
-      continue;
+    for (const fileName of targetFileNames) {
+      const file = files.get(fileName);
+      if (!file) {
+        continue;
+      }
+
+      const updated = organizeImportsInSource(service, fileName, file.content);
+      if (updated === file.content) {
+        continue;
+      }
+
+      changedFiles.push(relativePosixPath(projectRoot, fileName));
+      if (!options.check) {
+        await fs.writeFile(fileName, updated, 'utf8');
+        file.content = updated;
+        file.version += 1;
+      }
     }
 
-    const updated = organizeImportsInSource(service, fileName, file.content);
-    if (updated === file.content) {
-      continue;
+    if (changedFiles.length === 0) {
+      console.log('Imports are organized.');
+      return 0;
     }
 
-    changedFiles.push(relativePosixPath(projectRoot, fileName));
-    if (!options.check) {
-      await fs.writeFile(fileName, updated, 'utf8');
-      file.content = updated;
-      file.version += 1;
+    const fileList = changedFiles.map((fileName) => `- ${fileName}`).join('\n');
+    if (options.check) {
+      console.error(`Imports need organizing in ${changedFiles.length} file(s):\n${fileList}\nRun bun run imports:organize.`);
+      return 1;
     }
-  }
 
-  if (changedFiles.length === 0) {
-    console.log('Imports are organized.');
+    console.log(`${options.mode === 'prepare' ? 'Prepared' : 'Organized'} imports in ${changedFiles.length} file(s):\n${fileList}`);
     return 0;
+  } finally {
+    service.dispose();
   }
-
-  const fileList = changedFiles.map((fileName) => `- ${fileName}`).join('\n');
-  if (options.check) {
-    console.error(`Imports need organizing in ${changedFiles.length} file(s):\n${fileList}\nRun bun run imports:organize.`);
-    return 1;
-  }
-
-  console.log(`${options.mode === 'prepare' ? 'Prepared' : 'Organized'} imports in ${changedFiles.length} file(s):\n${fileList}`);
-  return 0;
 }
 
 export async function runImportOrganizer(

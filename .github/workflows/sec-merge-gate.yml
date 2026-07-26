@@ -663,7 +663,7 @@ jobs:
                 run_id: selectedVerificationRun.id,
                 per_page: 100
               });
-              const expectedVerificationName = `sec-verification-v13-${requestedProfile}-pr-${pullNumber}-base-${currentBase}-head-${exactHead}-run-${selectedVerificationRun.id}-attempt-${selectedVerificationRun.run_attempt}`;
+              const expectedVerificationName = `sec-verification-v14-${requestedProfile}-pr-${pullNumber}-base-${currentBase}-head-${exactHead}-run-${selectedVerificationRun.id}-attempt-${selectedVerificationRun.run_attempt}`;
               const exactVerification = verificationArtifacts.filter((artifact) => artifact.name === expectedVerificationName);
               if (exactVerification.length !== 1) throw new Error('Expected exactly one current-attempt verification artifact.');
               const verificationArtifact = await metadata(
@@ -942,7 +942,7 @@ jobs:
                   })
                 ]);
                 const attestationName = `sec-scope-attestation-v1-pr-${pullNumber}-base-${currentBase}-head-${process.env.EXACT_HEAD}-manifest-${digest.slice('sha256:'.length)}-run-${attestationRunId}-attempt-${attestationRunAttempt}`;
-                const verificationName = `sec-verification-v13-${process.env.VERIFICATION_PROFILE}-pr-${pullNumber}-base-${currentBase}-head-${process.env.EXACT_HEAD}-run-${verificationRunId}-attempt-${verificationRunAttempt}`;
+                const verificationName = `sec-verification-v14-${process.env.VERIFICATION_PROFILE}-pr-${pullNumber}-base-${currentBase}-head-${process.env.EXACT_HEAD}-run-${verificationRunId}-attempt-${verificationRunAttempt}`;
                 const attestationArtifact = attestationArtifacts.filter((artifact) => (
                   artifact.id === attestationArtifactId && artifact.name === attestationName
                 ));

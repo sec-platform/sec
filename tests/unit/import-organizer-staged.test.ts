@@ -110,14 +110,25 @@ test('candidate organizer repairs the complete amended commit diff instead of on
     git(repoRoot, ['commit', '--quiet', '-m', 'legacy candidate']);
     await writeFile(path.join(repoRoot, 'README.md'), 'amend metadata\n', 'utf8');
     git(repoRoot, ['add', 'README.md']);
+    const contexts: string[] = [];
 
-    expect(await runStagedImportOrganizer(repoRoot, {}, { candidateBase })).toBe(0);
+    expect(await runStagedImportOrganizer(repoRoot, {
+      candidateContext: (mode) => {
+        contexts.push(mode);
+      }
+    }, { candidateBase })).toBe(0);
 
     expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
     expect(await readFile(fixturePath)).toEqual(Buffer.from(committed));
     expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim().split(/\r?\n/u).sort())
       .toEqual(['README.md', 'fixture.ts']);
-    expect(await runStagedImportOrganizer(repoRoot, {}, { candidateBase })).toBe(0);
+    expect(contexts).toEqual(['working-tree']);
+    expect(await runStagedImportOrganizer(repoRoot, {
+      candidateContext: (mode) => {
+        contexts.push(mode);
+      }
+    }, { candidateBase })).toBe(0);
+    expect(contexts).toEqual(['working-tree', 'snapshot']);
     expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(expected));
   });
 });
@@ -141,6 +152,30 @@ test('candidate organizer derives the branch merge-base without an ambient base 
     expect(await readFile(fixturePath)).toEqual(Buffer.from(committed));
     expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim().split(/\r?\n/u).sort())
       .toEqual(['README.md', 'fixture.ts']);
+  });
+});
+
+test('clean candidate context fails closed if an untracked path appears before index publication', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    const staged = `${source('unsorted')}export const candidate = answer;\n`;
+    await writeFile(fixturePath, staged, 'utf8');
+    git(repoRoot, ['add', 'fixture.ts']);
+    let context = '';
+
+    await expect(runStagedImportOrganizer(repoRoot, {
+      candidateContext: async (mode) => {
+        context = mode;
+        await writeFile(path.join(repoRoot, 'concurrent.txt'), 'concurrent untracked path\n', 'utf8');
+      }
+    }, { candidateBase })).rejects.toThrow(
+      'Working tree or untracked paths changed while organizing candidate imports'
+    );
+
+    expect(context).toBe('working-tree');
+    expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(staged));
+    expect(await readFile(fixturePath)).toEqual(Buffer.from(staged));
   });
 });
 
@@ -201,9 +236,15 @@ test('candidate organizer reads configuration and project context from the index
     git(repoRoot, ['add', 'fixture.ts']);
     await writeFile(tsconfigPath, '{ invalid unstaged config', 'utf8');
     await writeFile(valuesPath, 'invalid unstaged project source', 'utf8');
+    const contexts: string[] = [];
 
-    expect(await runStagedImportOrganizer(repoRoot, {}, { candidateBase })).toBe(0);
+    expect(await runStagedImportOrganizer(repoRoot, {
+      candidateContext: (mode) => {
+        contexts.push(mode);
+      }
+    }, { candidateBase })).toBe(0);
 
+    expect(contexts).toEqual(['snapshot']);
     expect(await stagedBytes(repoRoot, 'fixture.ts')).toEqual(Buffer.from(
       `${source('sorted')}export const candidate = answer;\n`
     ));
