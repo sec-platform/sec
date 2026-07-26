@@ -129,7 +129,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: ${requiredProfile}
-ciRevision: ci-verification-v16
+ciRevision: ci-verification-v17
 tasks:
   - id: implementation
     owner: implementation-writer
@@ -210,7 +210,7 @@ function fixture(
   } as const;
   const attestation = CodexDevelopmentBuildScopeAttestationV1(scopeRequest, manifestBytes);
   const rawEvidence = CodexDevelopmentFinalizeVerificationEvidenceV2({
-    contractRevision: 'ci-verification-v16',
+    contractRevision: 'ci-verification-v17',
     kind: 'verification',
     profile: parsedManifest.requiredProfile,
     headSha: HEAD,
@@ -260,7 +260,7 @@ function fixture(
     }
   });
   const attestationName = `sec-scope-attestation-v1-pr-123-base-${BASE}-head-${HEAD}-manifest-${manifestDigest.slice(7)}-run-100-attempt-1`;
-  const verificationName = `sec-verification-v16-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
+  const verificationName = `sec-verification-v17-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
   const rawInput: CodexDevelopmentMergeGateInputV1 = {
     schema: 'codex-development-merge-gate-input-v1',
     repository: 'sec-platform/sec',
@@ -346,7 +346,7 @@ const P0_TEST_FILES = [
 
 function p0ManifestSource(schema: 'v1' | 'v2'): string {
   const revision = schema === 'v1'
-    ? 'requiredProfile: quick\nciRevision: ci-verification-v16\n'
+    ? 'requiredProfile: quick\nciRevision: ci-verification-v17\n'
     : `evidenceComposition:\n  policyId: ${CodexDevelopmentSm3P0EvidencePolicyIdV1}\n`;
   return `---
 schema: codex-development-work-package-${schema}
@@ -551,7 +551,7 @@ async function p0MergeFixture() {
     },
     verificationArtifact: {
       id: 2000,
-      name: `sec-verification-v16-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
+      name: `sec-verification-v17-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
       digest: `sha256:${'5'.repeat(64)}`,
       expired: false,
       expiresAt: EXPIRES_AT,
@@ -728,7 +728,8 @@ function runtimeRelativeImportsFromSource(
   repositoryPath: string,
   source: string,
   reviewedProcessDispatchers: Set<string> = new Set(),
-  reviewedExternalImports: Set<string> = new Set()
+  reviewedExternalImports: Set<string> = new Set(),
+  observedExternalImports: Set<string> = new Set()
 ): string[] {
   const sourceFile = ts.createSourceFile(repositoryPath, source, ts.ScriptTarget.Latest, true);
   const specifiers: string[] = [];
@@ -1070,11 +1071,34 @@ function runtimeRelativeImportsFromSource(
       const bunNamespace = bunNamespaceName(node.expression);
       if (bunNamespace) {
         const member = node.name.text;
+        const isDirectBuiltinYamlParse = (
+          bunNamespace === 'Bun'
+          && member === 'YAML'
+          && node.questionDotToken === undefined
+          && ts.isPropertyAccessExpression(node.parent)
+          && node.parent.expression === node
+          && node.parent.name.text === 'parse'
+          && node.parent.questionDotToken === undefined
+          && ts.isCallExpression(node.parent.parent)
+          && node.parent.parent.expression === node.parent
+          && node.parent.parent.questionDotToken === undefined
+        );
+        const isDirectBuiltinTranspilerConstruction = (
+          bunNamespace === 'Bun'
+          && member === 'Transpiler'
+          && node.questionDotToken === undefined
+          && ts.isNewExpression(node.parent)
+          && node.parent.expression === node
+        );
         if (TCB_BUN_PROCESS_LOADERS.has(`Bun.${member}`)) {
           if (!ts.isCallExpression(node.parent) || node.parent.expression !== node) {
             rejectUnmodeledLoader(`indirect Bun process loader ${bunNamespace}.${member}`);
           }
-        } else if (!TCB_BUN_SAFE_GLOBAL_MEMBERS.has(member)) {
+        } else if (
+          !isDirectBuiltinYamlParse
+          && !isDirectBuiltinTranspilerConstruction
+          && !TCB_BUN_SAFE_GLOBAL_MEMBERS.has(member)
+        ) {
           rejectUnmodeledLoader(`unclassified Bun namespace member ${bunNamespace}.${member}`);
         }
       }
@@ -1200,10 +1224,14 @@ function runtimeRelativeImportsFromSource(
 
   return specifiers.filter((specifier) => {
     if (specifier.startsWith('./') || specifier.startsWith('../')) return true;
-    if (TCB_APPROVED_EXTERNAL_IMPORTS.has(specifier)) return false;
+    if (TCB_APPROVED_EXTERNAL_IMPORTS.has(specifier)) {
+      observedExternalImports.add(specifier);
+      return false;
+    }
     const reviewedExternalImport = `${repositoryPath} -> ${specifier}`;
     if (TCB_REVIEWED_EXTERNAL_IMPORTS.has(reviewedExternalImport)) {
       reviewedExternalImports.add(reviewedExternalImport);
+      observedExternalImports.add(specifier);
       return false;
     }
     throw new Error(
@@ -1215,14 +1243,16 @@ function runtimeRelativeImportsFromSource(
 function runtimeRelativeImports(
   repositoryPath: string,
   reviewedProcessDispatchers: Set<string>,
-  reviewedExternalImports: Set<string>
+  reviewedExternalImports: Set<string>,
+  observedExternalImports: Set<string> = new Set()
 ): string[] {
   const absolutePath = path.join(compilerRoot, ...repositoryPath.split('/'));
   return runtimeRelativeImportsFromSource(
     repositoryPath,
     readFileSync(absolutePath, 'utf8'),
     reviewedProcessDispatchers,
-    reviewedExternalImports
+    reviewedExternalImports,
+    observedExternalImports
   );
 }
 
@@ -1236,17 +1266,21 @@ function resolveRepositoryImport(from: string, specifier: string): string {
   return resolved;
 }
 
-function trustedRuntimeClosure(): {
+function trustedRuntimeClosure(
+  entrypoints: readonly string[] = TCB_RUNTIME_ENTRYPOINTS
+): {
   closure: Set<string>;
   reviewedEdges: Set<string>;
   reviewedExternalImports: Set<string>;
   reviewedProcessDispatchers: Set<string>;
+  observedExternalImports: Set<string>;
 } {
   const closure = new Set<string>();
   const reviewedEdges = new Set<string>();
   const reviewedExternalImports = new Set<string>();
   const reviewedProcessDispatchers = new Set<string>();
-  const queue: string[] = [...TCB_RUNTIME_ENTRYPOINTS];
+  const observedExternalImports = new Set<string>();
+  const queue: string[] = [...entrypoints];
   while (queue.length > 0) {
     const current = queue.shift()!;
     if (closure.has(current)) continue;
@@ -1254,7 +1288,8 @@ function trustedRuntimeClosure(): {
     for (const specifier of runtimeRelativeImports(
       current,
       reviewedProcessDispatchers,
-      reviewedExternalImports
+      reviewedExternalImports,
+      observedExternalImports
     )) {
       const resolved = resolveRepositoryImport(current, specifier);
       const edge = `${current} -> ${resolved}`;
@@ -1265,7 +1300,13 @@ function trustedRuntimeClosure(): {
       queue.push(resolved);
     }
   }
-  return { closure, reviewedEdges, reviewedExternalImports, reviewedProcessDispatchers };
+  return {
+    closure,
+    reviewedEdges,
+    reviewedExternalImports,
+    reviewedProcessDispatchers,
+    observedExternalImports
+  };
 }
 
 function matchesCanonicalTrustRoot(repositoryPath: string): boolean {
@@ -1550,6 +1591,17 @@ test('verifier runtime import closure stays inside the TCB except for the review
     'scripts/codex/document-control-plane-contract.ts',
     'scripts/install-git-hooks.ts'
   ]));
+});
+
+test('merge-gate runtime closure requires no node_modules package', () => {
+  const {
+    closure,
+    observedExternalImports
+  } = trustedRuntimeClosure(['scripts/codex/merge-gate.ts']);
+  expect([...closure]).toContain('scripts/codex/work-package-contract.ts');
+  expect([...observedExternalImports].filter((specifier) => (
+    !specifier.startsWith('node:') && !specifier.startsWith('bun:')
+  )).sort()).toEqual([]);
 });
 
 test('dev-runner captures one immutable bootstrap path before executable work', async () => {
@@ -1910,6 +1962,36 @@ test('relative ESM closure fails closed on direct and import-bound unmodeled loa
     'virtual/unclassified-bun-member.ts',
     "void Bun.file;"
   )).toThrow('(unclassified Bun namespace member Bun.file).');
+  expect(runtimeRelativeImportsFromSource(
+    'virtual/direct-bun-yaml-parse.ts',
+    "const value = Bun.YAML.parse('owner: agent'); void value;"
+  )).toEqual([]);
+  for (const [fixtureName, source] of [
+    ['escaped-bun-yaml', 'const yaml = Bun.YAML; void yaml;'],
+    ['other-bun-yaml-member', "Bun.YAML.stringify({ owner: 'agent' });"],
+    ['computed-bun-yaml-parse', "Bun.YAML['parse']('owner: agent');"],
+    ['escaped-bun-yaml-parse', 'const parse = Bun.YAML.parse; void parse;'],
+    ['global-bun-yaml-parse', "globalThis.Bun.YAML.parse('owner: agent');"]
+  ] as const) {
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/${fixtureName}.ts`,
+      source
+    )).toThrow('(unclassified Bun namespace member');
+  }
+  expect(runtimeRelativeImportsFromSource(
+    'virtual/direct-bun-transpiler.ts',
+    "const parser = new Bun.Transpiler({ loader: 'tsx' }); void parser;"
+  )).toEqual([]);
+  for (const [fixtureName, source] of [
+    ['escaped-bun-transpiler', 'const Transpiler = Bun.Transpiler; void Transpiler;'],
+    ['called-bun-transpiler', "Bun.Transpiler({ loader: 'tsx' });"],
+    ['global-bun-transpiler', "new globalThis.Bun.Transpiler({ loader: 'tsx' });"]
+  ] as const) {
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/${fixtureName}.ts`,
+      source
+    )).toThrow('(unclassified Bun namespace member');
+  }
   expect(() => runtimeRelativeImportsFromSource(
     'virtual/unclassified-global-member.ts',
     "void globalThis.crypto;"
@@ -2060,8 +2142,8 @@ test('scope attestation binds the manifest profile and CI revision', () => {
 
 test('historical Work Package revisions remain parseable but cannot satisfy the current gate', () => {
   const current = fixture();
-  for (const legacyRevision of ['ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
-    const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v16', legacyRevision));
+  for (const legacyRevision of ['ci-verification-v16', 'ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
+    const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v17', legacyRevision));
     const legacyManifest = CodexDevelopmentParseWorkPackageManifestV1(legacyBytes.toString('utf8'), MANIFEST_PATH);
     expect(legacyManifest.ciRevision).toBe(legacyRevision);
 
@@ -2090,7 +2172,7 @@ test('artifact metadata and repository_dispatch run identity fail closed', () =>
     (value) => { value.rawInput.attestationArtifact.digest = null; },
     (value) => {
       value.rawInput.verificationArtifact.name = value.rawInput.verificationArtifact.name.replace(
-        'sec-verification-v16-',
+        'sec-verification-v17-',
         'sec-verification-v11-'
       );
     },
@@ -2284,12 +2366,18 @@ test('trusted workflows pin actions, revalidate drift, and only materialize cand
   );
   expect(attestationJob).toContain('ref: ${{ github.sha }}');
   expect(attestationJob).not.toContain('ref: ${{ steps.attest.outputs.base }}');
+  expect(attestationJob).toContain('- name: Setup Bun');
+  expect(attestationJob).not.toContain('Install trusted dependencies');
+  expect(attestationJob).not.toContain('bun install');
   const mergeGateJob = mergeWorkflow.slice(mergeWorkflow.indexOf('  merge-gate:'));
   expect(mergeGateJob.indexOf('- name: Checkout trusted current base')).toBeLessThan(
     mergeGateJob.indexOf('- name: Resolve live PR and exact trusted artifacts'),
   );
   expect(mergeGateJob).toContain('ref: ${{ github.sha }}');
   expect(mergeGateJob).not.toContain('ref: ${{ steps.resolve.outputs.base }}');
+  expect(mergeGateJob).toContain('- name: Setup Bun');
+  expect(mergeGateJob).not.toContain('Install trusted dependencies');
+  expect(mergeGateJob).not.toContain('bun install');
   expect(mergeWorkflow).toContain("cron: '17 */6 * * *'");
   expect(mergeWorkflow).toContain('push:');
   expect(mergeWorkflow).toContain('pull_request_target:');
@@ -2344,7 +2432,8 @@ test('trusted workflows pin actions, revalidate drift, and only materialize cand
   expect(mergeWorkflow).toContain('ref: 514e6e401659f18ecffca19856a11354d66d05df');
   expect(mergeWorkflow).toContain('--candidate-git-dir .tmp/codex/candidate/.git');
   expect(mergeWorkflow).toContain('--legacy-git-dir .tmp/codex/legacy/.git');
-  expect((mergeWorkflow.match(/sec-verification-v16-/gu) ?? []).length).toBe(2);
+  expect((mergeWorkflow.match(/sec-verification-v17-/gu) ?? []).length).toBe(2);
+  expect(mergeWorkflow).not.toContain('sec-verification-v16-');
   expect(mergeWorkflow).not.toContain('sec-verification-v15-');
   expect(mergeWorkflow).not.toContain('sec-verification-v14-');
   expect(mergeWorkflow).not.toContain('sec-verification-v13-');
@@ -2362,6 +2451,8 @@ test('trusted workflows pin actions, revalidate drift, and only materialize cand
   expect(prWorkflow).not.toContain('run-quick');
   expect(prWorkflow).not.toContain('run-full');
   expect(prWorkflow).toContain('persist-credentials: false');
+  expect((prWorkflow.match(/run: bun install --frozen-lockfile/gu) ?? []).length).toBe(1);
   expect(prWorkflow).toContain('`${entry.mode}:${entry.type}:${entry.sha}`');
   expect(releaseWorkflow).toContain('`${entry.mode}:${entry.type}:${entry.sha}`');
+  expect((releaseWorkflow.match(/run: bun install --frozen-lockfile/gu) ?? []).length).toBe(1);
 });

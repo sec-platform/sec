@@ -204,6 +204,7 @@ Formal Work Package 的本地长时 Gate必须通过唯一 supervisor：
 
 - 优化目标是最小化 billed runner processing，同时完整满足 Required Verification Contract。
 - Scope 先于 heavy verification；同一 frozen identity不得重复 dispatch。
+- Scope与base-side merge-gate的职责仅是解析受控manifest、读取Git/Evidence并重算authority；它们使用`.bun-version`固定的Bun内建YAML parser、`Bun.Transpiler.scanImports`和无package的canonical collection primitives。YAML另有duplicate-key/anchor/alias/merge/tag/flow/block lexical fail-closed合同；test import scanner另有static import、re-export、literal dynamic import与import-like text合同。runtime closure不得依赖外部package，也不得执行`bun install`。历史manifest必须通过旧strict parser与内建parser的全量value differential。PR/release verification仍各自只安装一次frozen root依赖。
 - 一个 profile 尽量复用一次 checkout/setup/install；无代码变化不运行 daily full。
 - Actions或本地runner的单次duration只保留为observed sample；没有同条件采样集合时不得据此改变hard budget、timeout或lane归属。
 - 轻量 revalidator只撤销 stale authority，不运行产品测试。

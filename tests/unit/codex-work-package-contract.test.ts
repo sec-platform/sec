@@ -1,4 +1,7 @@
 import { expect, test } from 'bun:test';
+import { readdirSync, readFileSync } from 'node:fs';
+
+import { parseDocument } from 'yaml';
 
 import {
   CodexDevelopmentAssertWorkPackageChangedRecords,
@@ -20,7 +23,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: quick
-ciRevision: ci-verification-v16
+ciRevision: ci-verification-v17
 tasks:
   - id: b0-bootstrap-v1
     owner: b0-writer
@@ -90,11 +93,11 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
     base: BASE,
     manifestState: 'frozen',
     requiredProfile: 'quick',
-    ciRevision: 'ci-verification-v16'
+    ciRevision: 'ci-verification-v17'
   });
-  for (const legacyRevision of ['ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
+  for (const legacyRevision of ['ci-verification-v16', 'ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
     const historical = CodexDevelopmentParseWorkPackageManifestV1(
-      source.replace('ci-verification-v16', legacyRevision)
+      source.replace('ci-verification-v17', legacyRevision)
     );
     expect(historical.ciRevision).toBe(legacyRevision);
   }
@@ -155,7 +158,7 @@ test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous sco
   )).toThrow('must be frozen');
   for (const revision of ['ci-verification-v0', 'ci-verification-v05', 'ci-verification-latest']) {
     expect(() => CodexDevelopmentParseWorkPackageManifestV1(
-      manifest().replace('ci-verification-v16', revision)
+      manifest().replace('ci-verification-v17', revision)
     )).toThrow('stable positive verification revision');
   }
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(
@@ -170,6 +173,65 @@ test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous sco
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(
     manifest().replace('  - platform/compiler/', '  - scripts/codex/')
   )).toThrow('owned/forbidden paths overlap');
+});
+
+test('built-in Work Package YAML keeps strict mapping and lexical fail-closed semantics', () => {
+  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+    manifest().replace('    owner: b0-writer', '    owner: b0-writer\n    owner: duplicate-writer')
+  )).toThrow('duplicate mapping key "owner"');
+  expect(() => CodexDevelopmentParseWorkPackageManifestV2(
+    manifestV2().replace(
+      '  policyId: ci-v7-synthetic-composition-v1',
+      '  policyId: ci-v7-synthetic-composition-v1\n  policyId: duplicate-policy'
+    )
+  )).toThrow('duplicate mapping key "policyId"');
+  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+    manifest().replace('id: b0-bootstrap-v1', 'id: &manifest-id b0-bootstrap-v1')
+  )).toThrow('anchors, aliases, and merge keys are forbidden');
+  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+    manifest().replace('tracking: issue-106', 'tracking: *manifest-id')
+  )).toThrow('anchors, aliases, and merge keys are forbidden');
+  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+    manifest().replace('acceptance:\n  - exact-head-evidence', 'acceptance: [exact-head-evidence]')
+  )).toThrow('flow collections are forbidden');
+  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+    manifest().replace('acceptance:\n  - exact-head-evidence', 'acceptance: |\n  exact-head-evidence')
+  )).toThrow('block scalars are forbidden');
+  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+    manifest().replace('tracking: issue-106', '\ttracking: issue-106')
+  )).toThrow('tabs are forbidden');
+  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+    manifest().replace('tracking: issue-106', '"tracking": issue-106')
+  )).toThrow('complex or quoted mapping keys are forbidden');
+  expect(() => CodexDevelopmentParseWorkPackageManifestV1(
+    manifest().replace(
+      '  - exact-head-evidence',
+      '  - "quoted [value] {value} !tag &anchor *alias | > # remains data"'
+    )
+  )).not.toThrow();
+});
+
+test('built-in Work Package YAML preserves every tracked historical manifest value', () => {
+  const files = readdirSync('docs/work-packages')
+    .filter((file) => file.endsWith('.md'))
+    .sort();
+  expect(files.length).toBeGreaterThanOrEqual(61);
+  for (const file of files) {
+    const source = readFileSync(`docs/work-packages/${file}`, 'utf8').replaceAll('\r\n', '\n');
+    const end = source.indexOf('\n---\n', 4);
+    const frontmatter = source.slice(4, end);
+    const legacy = parseDocument(frontmatter, {
+      prettyErrors: false,
+      strict: true,
+      uniqueKeys: true
+    });
+    expect(legacy.errors).toEqual([]);
+    expect(legacy.warnings).toEqual([]);
+    expect(CodexDevelopmentParseWorkPackageManifest(
+      source,
+      `docs/work-packages/${file}`
+    )).toEqual(legacy.toJS({ maxAliasCount: 0 }));
+  }
 });
 
 test('Work Package ownership rejects unowned and forbidden changed paths', () => {
