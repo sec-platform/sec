@@ -23,8 +23,17 @@ import {
 import { formatSlowImpactNotice } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { ensureTestDependencies } from './dependency-bootstrap.ts';
-import { pathEnvKey } from './env-manager.ts';
-import { DEFAULT_FAST_TEST_TIMEOUT_MS, planFastTestProcesses } from './fast-test-policy.ts';
+import {
+  cleanTestWorkspaces,
+  pathEnvKey,
+  resolveTestWorkspaceNamespace,
+  TEST_WORKSPACE_NAMESPACE_ENV
+} from './env-manager.ts';
+import {
+  DEFAULT_FAST_TEST_TIMEOUT_MS,
+  DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY,
+  planFastTestProcesses
+} from './fast-test-policy.ts';
 
 const BUN_TEST_OPTIONS_WITH_VALUE = new Set([
   '--timeout',
@@ -114,7 +123,13 @@ function fastTestArgs(files: string[], options: string[], concurrent: boolean): 
   return ['test', ...(concurrent ? ['--concurrent'] : []), ...files, ...effectiveOptions];
 }
 
-function fastTestInvocations(args: string[]): string[][] {
+type FastTestInvocationPlan = {
+  concurrentShards: string[][];
+  isolatedParallel: string[][];
+  exclusive: string[][];
+};
+
+function fastTestInvocations(args: string[]): FastTestInvocationPlan {
   const { options, selectors } = partitionBunTestArgs(args);
   const slowSelectors = selectors.filter(isSlowTestFile);
   if (slowSelectors.length > 0) {
@@ -123,14 +138,11 @@ function fastTestInvocations(args: string[]): string[][] {
 
   const selectedFiles = selectMatchingTestFiles(getFastTestFilesSync(), selectors, 'fast');
   const plan = planFastTestProcesses(selectedFiles);
-  const invocations: string[][] = [];
-  for (const shard of plan.concurrentShards) {
-    invocations.push(fastTestArgs(shard, options, true));
-  }
-  for (const file of plan.serial) {
-    invocations.push(fastTestArgs([file], options, false));
-  }
-  return invocations;
+  return {
+    concurrentShards: plan.concurrentShards.map((shard) => fastTestArgs(shard, options, true)),
+    isolatedParallel: plan.isolatedParallel.map((file) => fastTestArgs([file], options, false)),
+    exclusive: plan.exclusive.map((file) => fastTestArgs([file], options, false))
+  };
 }
 
 type SlowTestRunnerArgs = {
@@ -203,8 +215,11 @@ function slowTestArgSelection(args: string[]): SlowTestArgSelection {
 
 function fullTestInvocations(): string[][] {
   const slowSelection = slowTestArgSelection([]);
+  const fast = fastTestInvocations([]);
   return [
-    ...fastTestInvocations([]),
+    ...fast.concurrentShards,
+    ...fast.isolatedParallel,
+    ...fast.exclusive,
     slowSelection.kind === 'run' ? slowSelection.args : []
   ].filter((invocation) => invocation.length > 0);
 }
@@ -249,12 +264,64 @@ async function withTestDependencies<T>(callback: (context: DependencyContext) =>
   });
 }
 
-function pathEnv(binPath: string, browserCachePath: string): NodeJS.ProcessEnv {
+function pathEnv(
+  binPath: string,
+  browserCachePath: string,
+  additionalEnv: NodeJS.ProcessEnv = {}
+): NodeJS.ProcessEnv {
   return {
     [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`,
     PLAYWRIGHT_BROWSERS_PATH: browserCachePath,
-    SEC_SKIP_RUNTIME_DEPS_SETUP: '1'
+    SEC_SKIP_RUNTIME_DEPS_SETUP: '1',
+    ...additionalEnv
   };
+}
+
+let fastTestRunSequence = 0;
+
+function fastTestWorkspaceEnv(): NodeJS.ProcessEnv {
+  const configured = resolveTestWorkspaceNamespace(process.env);
+  fastTestRunSequence += 1;
+  return {
+    [TEST_WORKSPACE_NAMESPACE_ENV]: configured ?? (
+      `fast-${process.pid}-${Date.now().toString(36)}-${fastTestRunSequence.toString(36)}`
+    )
+  };
+}
+
+async function runSequentialInvocations(
+  invocations: string[][],
+  env: NodeJS.ProcessEnv
+): Promise<number> {
+  for (const invocation of invocations) {
+    const code = await runDevCommand('bun', invocation, env);
+    if (code !== 0) return code;
+  }
+  return 0;
+}
+
+async function runBoundedInvocations(
+  invocations: string[][],
+  env: NodeJS.ProcessEnv,
+  concurrency: number
+): Promise<number> {
+  for (let index = 0; index < invocations.length; index += concurrency) {
+    const batch = invocations.slice(index, index + concurrency);
+    const outcomes = await Promise.allSettled(
+      batch.map((invocation) => runDevCommand('bun', invocation, env))
+    );
+    const rejected = outcomes.find(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected'
+    );
+    if (rejected) throw rejected.reason;
+    const failure = outcomes.find(
+      (outcome): outcome is PromiseFulfilledResult<number> => (
+        outcome.status === 'fulfilled' && outcome.value !== 0
+      )
+    );
+    if (failure) return failure.value;
+  }
+  return 0;
 }
 
 interface AffectedTestSelection {
@@ -387,17 +454,37 @@ export async function runTests(args: string[] = []): Promise<number> {
 
 export async function runFastTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
-  await withTestDependencies(async ({ binPath, browserCachePath }) => {
-    try {
-      for (const invocation of fastTestInvocations(args)) {
-        exitCode = await runDevCommand('bun', invocation, pathEnv(binPath, browserCachePath));
+  const workspaceEnv = fastTestWorkspaceEnv();
+  let primaryFailure: unknown;
+  try {
+    await withTestDependencies(async ({ binPath, browserCachePath }) => {
+      try {
+        const plan = fastTestInvocations(args);
+        const env = pathEnv(binPath, browserCachePath, workspaceEnv);
+        exitCode = await runSequentialInvocations(plan.concurrentShards, env);
         if (exitCode !== 0) return;
+        exitCode = await runBoundedInvocations(
+          plan.isolatedParallel,
+          env,
+          DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY
+        );
+        if (exitCode !== 0) return;
+        exitCode = await runSequentialInvocations(plan.exclusive, env);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        exitCode = 1;
       }
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      exitCode = 1;
-    }
-  });
+    });
+  } catch (error) {
+    primaryFailure = error;
+  }
+  try {
+    await cleanTestWorkspaces(workspaceEnv);
+  } catch (error) {
+    console.error(`Fast test workspace cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    if (!primaryFailure) exitCode = 1;
+  }
+  if (primaryFailure) throw primaryFailure;
   return exitCode;
 }
 

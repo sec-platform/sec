@@ -2,7 +2,10 @@ import { afterAll, expect } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { getTestWorkspaceTempRoot } from '../../platform/dev-runner/env-manager.ts';
+import {
+  getTestWorkspaceTemplateRoot,
+  getTestWorkspaceTempRoot
+} from '../../platform/dev-runner/env-manager.ts';
 import {
   addBlock,
   compileWorkspace,
@@ -17,7 +20,7 @@ import {
 } from './workspace-cleanup.ts';
 
 const workspaceParent = getTestWorkspaceTempRoot();
-const templateParent = path.join(workspaceParent, '.templates');
+const templateParent = getTestWorkspaceTemplateRoot();
 const templateCacheVersion = 'v5-typescript-incremental-pruning';
 const deferredCleanupDirs = new Set<string>();
 

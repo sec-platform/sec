@@ -237,7 +237,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sec-verification-v15-${{ steps.verification.outputs.profile }}-pr-${{ steps.verification.outputs.pull-request }}-base-${{ steps.verification.outputs.base }}-head-${{ steps.verification.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          name: sec-verification-v16-${{ steps.verification.outputs.profile }}-pr-${{ steps.verification.outputs.pull-request }}-base-${{ steps.verification.outputs.base }}-head-${{ steps.verification.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: .tmp/ci-verification-evidence.json
           if-no-files-found: error
           retention-days: 90

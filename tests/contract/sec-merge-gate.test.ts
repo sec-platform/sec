@@ -129,7 +129,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: ${requiredProfile}
-ciRevision: ci-verification-v15
+ciRevision: ci-verification-v16
 tasks:
   - id: implementation
     owner: implementation-writer
@@ -210,7 +210,7 @@ function fixture(
   } as const;
   const attestation = CodexDevelopmentBuildScopeAttestationV1(scopeRequest, manifestBytes);
   const rawEvidence = CodexDevelopmentFinalizeVerificationEvidenceV2({
-    contractRevision: 'ci-verification-v15',
+    contractRevision: 'ci-verification-v16',
     kind: 'verification',
     profile: parsedManifest.requiredProfile,
     headSha: HEAD,
@@ -260,7 +260,7 @@ function fixture(
     }
   });
   const attestationName = `sec-scope-attestation-v1-pr-123-base-${BASE}-head-${HEAD}-manifest-${manifestDigest.slice(7)}-run-100-attempt-1`;
-  const verificationName = `sec-verification-v15-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
+  const verificationName = `sec-verification-v16-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
   const rawInput: CodexDevelopmentMergeGateInputV1 = {
     schema: 'codex-development-merge-gate-input-v1',
     repository: 'sec-platform/sec',
@@ -346,7 +346,7 @@ const P0_TEST_FILES = [
 
 function p0ManifestSource(schema: 'v1' | 'v2'): string {
   const revision = schema === 'v1'
-    ? 'requiredProfile: quick\nciRevision: ci-verification-v15\n'
+    ? 'requiredProfile: quick\nciRevision: ci-verification-v16\n'
     : `evidenceComposition:\n  policyId: ${CodexDevelopmentSm3P0EvidencePolicyIdV1}\n`;
   return `---
 schema: codex-development-work-package-${schema}
@@ -551,7 +551,7 @@ async function p0MergeFixture() {
     },
     verificationArtifact: {
       id: 2000,
-      name: `sec-verification-v15-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
+      name: `sec-verification-v16-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
       digest: `sha256:${'5'.repeat(64)}`,
       expired: false,
       expiresAt: EXPIRES_AT,
@@ -2060,8 +2060,8 @@ test('scope attestation binds the manifest profile and CI revision', () => {
 
 test('historical Work Package revisions remain parseable but cannot satisfy the current gate', () => {
   const current = fixture();
-  for (const legacyRevision of ['ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
-    const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v15', legacyRevision));
+  for (const legacyRevision of ['ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
+    const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v16', legacyRevision));
     const legacyManifest = CodexDevelopmentParseWorkPackageManifestV1(legacyBytes.toString('utf8'), MANIFEST_PATH);
     expect(legacyManifest.ciRevision).toBe(legacyRevision);
 
@@ -2090,7 +2090,7 @@ test('artifact metadata and repository_dispatch run identity fail closed', () =>
     (value) => { value.rawInput.attestationArtifact.digest = null; },
     (value) => {
       value.rawInput.verificationArtifact.name = value.rawInput.verificationArtifact.name.replace(
-        'sec-verification-v15-',
+        'sec-verification-v16-',
         'sec-verification-v11-'
       );
     },
@@ -2344,7 +2344,8 @@ test('trusted workflows pin actions, revalidate drift, and only materialize cand
   expect(mergeWorkflow).toContain('ref: 514e6e401659f18ecffca19856a11354d66d05df');
   expect(mergeWorkflow).toContain('--candidate-git-dir .tmp/codex/candidate/.git');
   expect(mergeWorkflow).toContain('--legacy-git-dir .tmp/codex/legacy/.git');
-  expect((mergeWorkflow.match(/sec-verification-v15-/gu) ?? []).length).toBe(2);
+  expect((mergeWorkflow.match(/sec-verification-v16-/gu) ?? []).length).toBe(2);
+  expect(mergeWorkflow).not.toContain('sec-verification-v15-');
   expect(mergeWorkflow).not.toContain('sec-verification-v14-');
   expect(mergeWorkflow).not.toContain('sec-verification-v13-');
   expect(mergeWorkflow).not.toContain('sec-verification-v11-');

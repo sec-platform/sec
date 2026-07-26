@@ -2,11 +2,16 @@ import { beforeEach, expect, mock, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { getTestWorkspaceTempRoot } from '../../platform/dev-runner/env-manager.ts';
 import {
+  BOUNDED_PARALLEL_ISOLATED_FAST_TEST_FILES,
   DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE,
   DEFAULT_FAST_TEST_TIMEOUT_MS,
+  DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY,
+  EXCLUSIVE_FAST_TEST_FILES,
   FAST_TEST_PROCESS_ISOLATION_REGISTRY,
-  SERIAL_FAST_TEST_FILES,
+  MAX_DEFAULT_FAST_TEST_PROCESS_WAVES,
+  PROCESS_ISOLATED_FAST_TEST_FILES,
   planFastTestProcesses
 } from '../../platform/dev-runner/fast-test-policy.ts';
 
@@ -14,11 +19,13 @@ const commandCalls: { command: string; args: string[]; stdoutMode: 'bytes' | 'te
 const devCommandCalls: { command: string; args: string[] }[] = [];
 const devCommandEnvironments: NodeJS.ProcessEnv[] = [];
 const devCommandExitCodes: number[] = [];
+const devCommandFailures: Array<Error | null> = [];
 const canonicalBrowserCachePath = path.resolve('.shared-deps', '.playwright-browsers');
 let testDependencyBootstrapCalls = 0;
 let testDependencyBootstrapError: Error | null = null;
-const serialFastTestFileSet = new Set<string>(SERIAL_FAST_TEST_FILES);
+const isolatedFastTestFileSet = new Set<string>(PROCESS_ISOLATED_FAST_TEST_FILES);
 let changedFiles = ['platform/unmapped-source.ts'];
+let materializeTestWorkspace = false;
 
 mock.module('../../platform/shared/fs.ts', () => ({
   pathExists: async (targetPath: string) => {
@@ -61,6 +68,11 @@ mock.module('../../platform/dev-runner/command-runner.ts', () => ({
   runDevCommand: async (command: string, args: string[], env: NodeJS.ProcessEnv) => {
     devCommandCalls.push({ command, args });
     devCommandEnvironments.push(env);
+    if (materializeTestWorkspace) {
+      await fs.mkdir(getTestWorkspaceTempRoot(env), { recursive: true });
+    }
+    const failure = devCommandFailures.shift();
+    if (failure) throw failure;
     return devCommandExitCodes.shift() ?? 0;
   }
 }));
@@ -90,9 +102,11 @@ beforeEach(() => {
   devCommandCalls.length = 0;
   devCommandEnvironments.length = 0;
   devCommandExitCodes.length = 0;
+  devCommandFailures.length = 0;
   testDependencyBootstrapCalls = 0;
   testDependencyBootstrapError = null;
   changedFiles = ['platform/unmapped-source.ts'];
+  materializeTestWorkspace = false;
   delete process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK;
 });
 
@@ -113,14 +127,19 @@ test('fast process planning deterministically bounds concurrent shards without d
     ...isolatedFiles.slice(1)
   ];
   const plan = planFastTestProcesses(files);
-  const plannedFiles = [...plan.concurrentShards.flat(), ...plan.serial];
+  const plannedFiles = [
+    ...plan.concurrentShards.flat(),
+    ...plan.isolatedParallel,
+    ...plan.exclusive
+  ];
 
   expect(plan.concurrentShards.map((shard) => shard.length)).toEqual([
     DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE,
     DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE,
     1
   ]);
-  expect(plan.serial).toEqual(isolatedFiles);
+  expect(plan.isolatedParallel).toEqual(isolatedFiles.slice(1));
+  expect(plan.exclusive).toEqual(isolatedFiles.slice(0, 1));
   expect([...plannedFiles].sort()).toEqual([...files].sort());
   expect(new Set(plannedFiles).size).toBe(files.length);
   expect(planFastTestProcesses(files)).toEqual(plan);
@@ -129,8 +148,18 @@ test('fast process planning deterministically bounds concurrent shards without d
   ]);
 });
 
-test('resource-sensitive fast tests are registered for process isolation', () => {
-  const registeredFiles = new Set(FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file }) => file));
+test('fast process planning removes stale isolation and bounds structural process waves', () => {
+  const files = getFastTestFilesSync();
+  const plan = planFastTestProcesses(files);
+  const registeredFiles = new Set(PROCESS_ISOLATED_FAST_TEST_FILES);
+  const plannedFiles = [
+    ...plan.concurrentShards.flat(),
+    ...plan.isolatedParallel,
+    ...plan.exclusive
+  ];
+  const processWaves = plan.concurrentShards.length
+    + Math.ceil(plan.isolatedParallel.length / DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY)
+    + plan.exclusive.length;
 
   expect([...registeredFiles]).toEqual(expect.arrayContaining([
     'tests/unit/work-package-gate-execution.test.ts',
@@ -140,9 +169,25 @@ test('resource-sensitive fast tests are registered for process isolation', () =>
     'tests/integration/project-runtime.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts',
     'tests/integration/workbench-writer-lease.test.ts',
-    'tests/integration/workspace-engineering-ir.test.ts',
-    'tests/unit/import-organizer-staged.test.ts'
+    'tests/integration/workspace-engineering-ir.test.ts'
   ]));
+  expect([...registeredFiles]).not.toContain('tests/unit/import-organizer-staged.test.ts');
+  expect(planFastTestProcesses(['tests/unit/import-organizer-staged.test.ts'])).toEqual({
+    concurrentShards: [['tests/unit/import-organizer-staged.test.ts']],
+    isolatedParallel: [],
+    exclusive: []
+  });
+  expect(plan.isolatedParallel).toEqual(BOUNDED_PARALLEL_ISOLATED_FAST_TEST_FILES);
+  expect(plan.exclusive).toEqual(EXCLUSIVE_FAST_TEST_FILES);
+  expect([...plannedFiles].sort()).toEqual([...files].sort());
+  expect(new Set(plannedFiles).size).toBe(files.length);
+  expect(processWaves).toBeLessThanOrEqual(MAX_DEFAULT_FAST_TEST_PROCESS_WAVES);
+  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
+    ({ file }) => file === 'tests/unit/work-package-gate-execution.test.ts'
+  )?.scheduling).toBe('exclusive');
+  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
+    ({ file }) => file === 'tests/integration/workspace-engineering-ir.test.ts'
+  )?.scheduling).toBe('bounded-parallel');
 });
 
 test('fast tests use one bounded default timeout policy', () => {
@@ -158,6 +203,7 @@ test.serial('targeted concurrent-safe fast tests run only the requested files', 
   expect(devCommandEnvironments).toHaveLength(1);
   expect(devCommandEnvironments[0]?.PLAYWRIGHT_BROWSERS_PATH).toBe(canonicalBrowserCachePath);
   expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
+  expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-\d+-[a-z0-9]+-\d+$/u);
   expect(devCommandCalls).toEqual([
     {
       command: 'bun',
@@ -215,10 +261,10 @@ test.serial('fast tests preserve options across concurrent and serial invocation
     expect(call.args.slice(0, 2)).toEqual(['test', '--concurrent']);
     expect(invocationTestFiles(call.args).length).toBeLessThanOrEqual(DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE);
     expect(call.args.slice(-2)).toEqual(['--timeout', '30000']);
-    expect(call.args.some((arg) => serialFastTestFileSet.has(arg))).toBe(false);
+    expect(call.args.some((arg) => isolatedFastTestFileSet.has(arg))).toBe(false);
     expect(call.args.some((arg) => arg.startsWith('tests/e2e/'))).toBe(false);
   }
-  for (const file of SERIAL_FAST_TEST_FILES) {
+  for (const file of PROCESS_ISOLATED_FAST_TEST_FILES) {
     expect(devCommandCalls).toContainEqual({
       command: 'bun',
       args: ['test', file, '--timeout', '30000']
@@ -227,6 +273,9 @@ test.serial('fast tests preserve options across concurrent and serial invocation
   const invokedFiles = devCommandCalls.flatMap(({ args }) => invocationTestFiles(args));
   expect([...invokedFiles].sort()).toEqual(getFastTestFilesSync());
   expect(new Set(invokedFiles).size).toBe(invokedFiles.length);
+  expect(new Set(devCommandEnvironments.map(
+    (env) => env.SEC_TEST_WORKSPACE_NAMESPACE
+  )).size).toBe(1);
 });
 
 test.serial('fast tests preserve equals-form timeout overrides without adding the default', async () => {
@@ -244,7 +293,7 @@ test.serial('fast tests preserve equals-form timeout overrides without adding th
 
 test.serial('fast test process failures stop later sequential shards', async () => {
   const selectedFiles = getFastTestFilesSync()
-    .filter((file) => !serialFastTestFileSet.has(file))
+    .filter((file) => !isolatedFastTestFileSet.has(file))
     .slice(0, DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE * 2 + 1);
   expect(selectedFiles).toHaveLength(DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE * 2 + 1);
   devCommandExitCodes.push(0, 7, 0);
@@ -259,7 +308,7 @@ test.serial('fast test process failures stop later sequential shards', async () 
   );
 });
 
-test.serial('serial fast test files run outside the concurrent invocation', async () => {
+test.serial('process-isolated tests run in bounded batches before exclusive owners', async () => {
   const code = await runFastTests([
     'tests/integration/project-runtime.test.ts',
     'tests/integration/semantic-core-vertical.test.ts',
@@ -271,10 +320,6 @@ test.serial('serial fast test files run outside the concurrent invocation', asyn
   expect(devCommandCalls).toEqual([
     {
       command: 'bun',
-      args: ['test', 'tests/integration/project-runtime.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
-    },
-    {
-      command: 'bun',
       args: ['test', 'tests/integration/semantic-core-vertical.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
     },
     {
@@ -284,8 +329,39 @@ test.serial('serial fast test files run outside the concurrent invocation', asyn
     {
       command: 'bun',
       args: ['test', 'tests/unit/test-runner.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+    },
+    {
+      command: 'bun',
+      args: ['test', 'tests/integration/project-runtime.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
     }
   ]);
+});
+
+test.serial('failed fast children leave no run-owned workspace residue', async () => {
+  materializeTestWorkspace = true;
+  devCommandExitCodes.push(7);
+
+  const code = await runFastTests(['tests/unit/path-containment.test.ts']);
+  const workspaceEnv = devCommandEnvironments[0]!;
+
+  expect(code).toBe(7);
+  expect(workspaceEnv.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-/u);
+  await expect(fs.access(getTestWorkspaceTempRoot(workspaceEnv))).rejects.toThrow();
+});
+
+test.serial('thrown isolated child waits for its bounded siblings before parent cleanup', async () => {
+  materializeTestWorkspace = true;
+  devCommandFailures.push(new Error('spawn sentinel'), null);
+
+  const code = await runFastTests([
+    'tests/integration/semantic-core-vertical.test.ts',
+    'tests/integration/ticket-pipeline.test.ts'
+  ]);
+  const workspaceEnv = devCommandEnvironments[0]!;
+
+  expect(code).toBe(1);
+  expect(devCommandCalls).toHaveLength(2);
+  await expect(fs.access(getTestWorkspaceTempRoot(workspaceEnv))).rejects.toThrow();
 });
 
 test.serial('fast tests reject explicit slow file selectors', async () => {
@@ -565,7 +641,7 @@ test.serial('affected tests allow broad fast-suite fallback when explicitly enab
     expect(concurrentCalls.every(({ args }) => (
       args.slice(-2).join(' ') === `--timeout ${DEFAULT_FAST_TEST_TIMEOUT_MS}`
     ))).toBe(true);
-    for (const file of SERIAL_FAST_TEST_FILES) {
+    for (const file of PROCESS_ISOLATED_FAST_TEST_FILES) {
       expect(devCommandCalls).toContainEqual({
         command: 'bun',
         args: ['test', file, '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]

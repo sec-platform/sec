@@ -73,6 +73,8 @@ bun run hooks:install
 - `deps:ensure` 与 managed hook lifecycle只闭合 compiler dependency和hook投影，绝不下载浏览器。Playwright browser readiness只属于test/runtime preparation，并把精确三包release与manifest identity、项目本地cache、外部Node、registry-derived platform executable、正数有界安装预算和后置条件绑定为一个opaque authority；consumer不得重选browser或依赖ambient预热。
 - `hooks:install` 只在 tracked、executable、byte-equal hooks 且不存在其他真实 hook authority 时安装。首次compiler dependency安装和显式`deps:ensure`负责闭合hook lifecycle；已有validated generation上的普通warmed命令不重复扫描hook bytes。pre-commit/pre-push只调用唯一 `imports:freeze`。
 - fast process timeout 是共享 runner 合同；显式 override 优先，默认值只由代码 owner维护。不得在单测、selector或 serial registry 中复制 timeout。
+- fast process isolation明确区分bounded-parallel与exclusive；前者只隔离process global并使用独立mutable workspace，后者才串行拥有repository/host/server/runtime共享状态。Runner对完整计划使用唯一shard、isolated并发与process-wave预算，不得把“需要独立进程”自动扩大成“所有进程逐个等待”。
+- 每次fast execution拥有唯一mutable test-workspace namespace，child可提前清理，parent必须在所有退出路径兜底删除并把cleanup failure计入失败。版本化immutable template cache位于namespace外并跨run复用；普通cleanup不得反复重建它，显式`clean:test-workspaces`才清空全部派生测试状态。上次失败残留不得成为下一次测试输入，也不得依赖人工清理完成普通闭环。
 - Root typecheck由`tsconfig.json`启用TypeScript原生incremental，并把唯一build info写入Git-ignored `.tmp/typecheck/tsconfig.tsbuildinfo`。该文件只是可删除性能提示；TypeScript拥有compiler version、options与source signature失效语义，SEC不得解析、发布、复用为Evidence或建立第二cache registry。clean checkout/hosted runner仍走cold完整检查。
 - `test:affected --plan` 是 changed-path/Risk ownership的只读 preflight：不获取 heavy lease、不准备依赖、不启动 test child、不写 Evidence；任一 unresolved path使 plan与正式 affected都非零退出。其他入口按变化条件选择，不机械全跑。
 

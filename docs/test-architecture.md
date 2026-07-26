@@ -59,6 +59,10 @@ CI timeout只是失控熔断器，不是性能基准。不得因为一次慢样�
 
 需要真实Git、临时仓库或Language Service的fast component test必须把fixture lifecycle视为测试架构：不可变seed最多初始化一次，每个场景使用独立copy，互不共享working tree、index、lock或publication state；独立场景可有界并发，但必须由代码中的单一semaphore限制并断言peak，不得依赖Bun默认并发或用无限并发掩盖重复工作。seed、copy与外部alias都必须在失败路径清理。该优化只减少fixture与调度成本，不得mock或复制被测Git/TypeScript语义。
 
+Fast runner的结构顺序固定为`bounded concurrent shards → bounded-parallel process isolation → exclusive process isolation`。同一进程内不安全不等于跨进程必须串行：只依赖module global或独立临时Workspace的文件可进入有界并行；会修改repository worktree、host profile、共享server/runtime lifecycle的owner保持独占。分类、shard容量、isolated并发与最大默认process waves只由`fast-test-policy.ts`拥有，并由完整inventory的结构测试证明每个文件恰好一次、无遗漏且不超过wave预算；wall-clock不参与该hard invariant。
+
+每次fast run必须绑定一个安全的run-owned mutable test-workspace namespace。所有child共享该namespace，mutable workspace仍由`mkdtemp`隔离；版本化immutable template cache与其lock位于namespace外的唯一共享根，创建完成后只读复用，普通run cleanup不得删除并重复初始化。parent runner在success、test failure、planner failure与spawn exception之后统一清理mutable namespace；child hook只是提前回收，不能替代parent ownership。cleanup失败必须使run失败，残留不能留给下一次Gate；显式`clean:test-workspaces`才删除完整root与template cache。
+
 fast文件超过十秒时必须先按phase计时。若耗时来自build、server readiness、browser、安装、网络或真实workspace复制，应把该acceptance迁入已有slow owner，同时在fast层保留不启动生产进程的合同/micro-sentinel；不得通过缓存偶然命中、增大timeout或删除覆盖来宣称变快。Contract Freeze只允许快速合同成员，不能无条件启动真实Runtime。
 
 Typecheck的warm加速只能使用TypeScript原生incremental invalidation；`.tmp/typecheck`可随时删除且不进入Git、artifact或Evidence。changed source、compiler version、compiler options或build-info损坏不得产生false PASS；任何疑义直接删除该derived目录并回到cold check。
