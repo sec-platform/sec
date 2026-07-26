@@ -250,7 +250,15 @@ stableFacts:
     retainedSourceBranchDeleted: true
 
   rootHygiene:
-    completionStatus: not-in-main
+    completionStatus: in-main
+    integratedMainSha: f1df074b8080b97882ff2afd3b1a110ce42512c4
+    mergedPullRequest: 145
+    mergedCandidateHead: 2f1afa3828ce70c5018990d47fd118d61e88bead
+    integrationMode: manual-bootstrap-squash
+    scopeAttestation:
+      runId: 30197172677
+      result: passed
+    independentExactHeadReview: passed
     failedCandidateHead: 236485b3aca07b103698fb93a331437b50f1f755
     hostedQuick:
       runId: 30196624646
@@ -258,4 +266,9 @@ stableFacts:
       failedStage: preflight
       reason: changed-files-unresolved
       executedGateCount: 0
-    disposition: manual-bootstrap-successor
+    legacyInputCleanup:
+      combinedReferenceRemoved: true
+      v4TreeRemoved: true
+      v5ReplacementRemoved: true
+      canonicalGoalPreserved: true
+    disposition: completed-by-manual-bootstrap-successor

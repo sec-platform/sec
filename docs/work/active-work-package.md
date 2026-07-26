@@ -10,8 +10,8 @@ last-reviewed: 2026-07-26
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/root-hygiene-closeout-v1.md
-manifestDigest: sha256:7188d5b7092bc38d37167492ab78e580725c11a18cbce632c61398f11306e72d
+manifest: docs/work-packages/root-hygiene-postmerge-reconciliation-v1.md
+manifestDigest: sha256:7e05d884a83710d06f2a64435e9699cc932a01fc2da98fdaa5c7a78268430e49
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
