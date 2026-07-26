@@ -6,25 +6,26 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从 `origin/main@aa2355a80041f0cfd41563f58ce0208837c19beb`、长期 Goal revision `sha256:555a187d…f676`、PR #143/#144 合并事实、PR #137 absorbed closeout、Issue #132、hosted Quick/merge-gate、Review 与本地 ref/worktree 状态重新计算。Windows runtime/V11 与 SM-4A trusted authorization ingress 已进入 `main`，但后者不等同于 P1 完成；当前 active 只闭合 repository hygiene，随后先补 shared adapter 与 CLI/Workbench 薄 transport，再进入 P2。
+本窗口从 `origin/main@f1df074b8080b97882ff2afd3b1a110ce42512c4`、长期 Goal revision `sha256:555a187d…f676`、PR #137/#143/#144/#145、scope attestation `30197172677`、永久 Quick FAIL `30196624646`、exact-head Review、Issue #132 与本地 ref/worktree 状态重新计算。Windows runtime/V11、SM-4A trusted authorization ingress 与 root hygiene 已进入 `main`；trusted ingress 不等同于 P1 完成。
 
 ```text
-Root Hygiene Closeout V1 (active)
-→ SM-4A Shared Adapter + CLI/Workbench Thin Transports
+Root Hygiene Postmerge Reconciliation V1 (仅在 pointer 选中候选时 active)
+→ publication 后 active pointer = none
+→ SM-4A Shared Adapter + CLI/Workbench Thin Transports (next-ready)
 → Nexus Exact-tree Census Refresh
 → P2 Blockless Source Ownership Foundation
 ```
 
-本计划只有一个 active package 与三个候选。候选不是授权、完成声明或永久 Backlog；任一 reload 事件发生后必须从新事实整体重算。
+本计划在候选发布前只有一个 resolver-selected active package；同一 manifest blob 进入 default branch 后 resolver 返回 `none`，只保留三个 next-ready 候选。候选不是授权、完成声明或永久 Backlog；任一 reload 事件发生后必须从新事实整体重算。
 
 ## 当前唯一 Work Package
 
-### root-hygiene-closeout-v1
+### root-hygiene-postmerge-reconciliation-v1
 
-- 工程结果：移除 tracked 机器专属 Claude settings permission allowlist；在 latest main 上记录 SM-4A 真实完成证据；验证 Goal/V4 与 V5 replacement 输入已被 canonical mirror/migration/governance 吸收后删除未跟踪 bytes；最终只保留 clean root `main`。
-- Owner：机器专属 Claude settings permission allowlist、新 frozen manifest 与三个控制面；产品、CI、Goal、canonical architecture/docs owner 均禁止修改。
-- 证据边界：首个 head `236485b` 的 hosted Quick 因退役配置路径没有 test-impact owner，在 preflight 永久 FAIL 且 0 Gate 执行；不为一次性删除增加永久 CI selector 特例。successor 只更新该事实与 manifest/pointer，由 A0 依据 exact scope、docs/lifecycle、scope attestation 与 Review 做 manual bootstrap。
-- 退出：tracked PR 通过 docs/lifecycle/scope/manual-bootstrap 并进入 main；root `AGENTS.md` 与 main blob 一致；未跟踪输入删除；本地/远端仅 `main`；worktree 仅仓库根；`main...origin/main = 0/0`；无 task-local 进程或临时目录。
+- 工程结果：只发布 PR #145 已进入 `main@f1df074`、旧输入已物理退役、P1 尚余 shared adapter + CLI/Workbench 薄 transport 等已经发生的事实。
+- Owner：新 frozen manifest 与三个控制面；产品、CI、Goal、canonical architecture/docs owner 均禁止修改。
+- 选择语义：candidate manifest 尚未出现在 live default branch 时它是唯一 active；相同 blob 发布后 resolver 返回 `none`，本节不再代表活动授权。
+- 退出：docs/lifecycle/scope/Review 通过并进入 main；随后本地/远端只保留 `main`，worktree 只保留仓库根，`main...origin/main = 0/0`。
 
 ## 候选 Work Package
 
@@ -49,5 +50,5 @@ Root Hygiene Closeout V1 (active)
 ## Gate、单写者与重算
 
 - A0 是本窗口全部 Gate owner；相同 `gate_key + tested head + profile` 的未失效结果复用。
-- Root hygiene、P1 剩余闭包、Nexus Census 与 P2 owner foundation 按依赖串行；任何时刻只有一个正式 active manifest。
+- Postmerge publication、P1 剩余闭包、Nexus Census 与 P2 owner foundation 按依赖串行；任何时刻最多只有一个正式 active manifest。
 - SEC/Nexus main 变化、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership 反证、实现 supersede 或 Census 新前置均触发 live resolver 与全窗口重算。
