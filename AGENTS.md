@@ -6,13 +6,13 @@
 
 - `main` 是唯一正式工程事实；branch、PR、Issue、报告、计划、聊天和代码图只提供线索。
 - 新 Work Package 开始时执行一次 `bun scripts/codex/document-control-plane.ts status --json`。只有 live remote/default-ref、GitHub PR/Issue/CI/Review 与 active pointer 全部解析成功的输出才是 current-state；`unresolved` 或 `invalid` 必须 fail closed。有效 Capsule 内禁止用重复 status/list/read/wait 轮询不变事实。
-- 仅在 base/authority/contract/ownership 变化、命中 `reload_if`、证据冲突或最终收口时完整重载；普通 Task Envelope 只读取标记失效项与 Reconciliation Delta。三个 `docs/work` 控制面也只在新 Work Package、真实 `reload_if` 与最终 reconciliation 更新。
+- 仅在 base/authority/contract/ownership 变化、命中 `reload_if`、证据冲突或最终收口时完整重载；普通 Task Envelope 只读取标记失效项与 Reconciliation Delta。正常 Work Package 的三个 `docs/work` 控制面只在开包和最终收口各更新一轮，总计最多两轮；真实 `reload_if` 属显式异常并必须记录原因。
 - Squash merge 后按最终 tree、代码和 diff 判断能力是否进入 `main`，不得用原 commit ancestry 误判遗漏。
 
 ## A0、Worker 与单写者
 
 - Root 是 A0 Integrator，独占 DAG、Task ownership、integration、Gate custody、merge、closeout 与 branch hygiene。
-- 一个时刻只有一个 formal active Work Package和一个 candidate epoch；每个 owned seam/角色最多一个 live agent。并行前必须冻结 branch、owned/forbidden paths、prerequisite、acceptance、tests、`gate_owner`、reconciliation point、stop 与 `reload_if`；同一 canonical type、revision、builder、pipeline order 或 authority 章节保持单写者。本地 owned seam未耗尽前不得轮询 Agent。
+- 一个时刻只有一个 formal active Work Package和一个 candidate epoch。单一纵向切片默认不创建子 Agent；只有至少两个依赖已满足、owned/forbidden paths完全不重叠、可独立提交和reconcile的write seam才允许并行。每个 owned seam/角色最多一个 live agent；并行前必须冻结 branch、owner、prerequisite、acceptance、tests、`gate_owner`、reconciliation point、stop 与 `reload_if`；同一 canonical type、revision、builder、pipeline order 或 authority 章节保持单写者。禁止主动 polling，本地 owned seam未耗尽前不得 wait。
 - Delegation depth 保持 1；普通 worker 不再递归分派。角色按需从 `.codex/agents/` 选择。
 - Worker 流程固定为：
 
@@ -22,15 +22,16 @@ inspect → implement → focused validation → explicit-path stage
 ```
 
 - Worker 默认 `DO NOT MERGE`，不得添加 `run-quick` / `run-full` label、越界修改、顺手全仓重构、删除测试或弱化合同。
-- Reconciliation Delta 必须返回 tested head/base、changed files/symbols、authority/acceptance delta、focused results、reusable/invalidated evidence、blocker、next ready seam，以及时间、`context_reload_count`、`duplicate_gate_count`、`tool_call_count`、`agent_spawn_count`、`agent_wait_timeout_count`、`context_compaction_count` 与 `candidate_invalidation_count`；不得另建叙述性进度文档。
+- Reconciliation Delta 必须返回 tested head/base、changed files/symbols、authority/acceptance delta、focused results、reusable/invalidated evidence、blocker、next ready seam，以及时间、`context_reload_count`、`duplicate_gate_count`、`tool_call_count`、`agent_spawn_count`、`agent_wait_timeout_count`、`context_compaction_count` 与 `candidate_invalidation_count`；不得另建叙述性进度文档。硬目标为完全重复工具调用 `0`、Agent wait timeout `0`、同一 exact head/profile Gate最多 `1` 次、同时存在的正式 candidate `1` 个；产品实现占主动工作时间至少 `70%`，协调、叙述文档和控制面合计低于 `15%`。
 
 ## 影响、写边界与验证
 
 - 修改共享函数、公共类型、authority seam或未知影响实现前运行 GitNexus upstream impact；已证明为局部叶节点且 Capsule 内 impact未失效时复用结果。HIGH/CRITICAL 先向用户报告。索引刷新只能使用 `--index-only`，不得让外部工具改写 AGENTS、Skills 或 authority docs。
-- Commit 前运行 GitNexus `detect_changes({scope:"compare", base_ref:"main"})`，再以 current source、exact diff、compiler 和适用测试裁决真实影响。
+- Commit 前以 base→candidate exact staged diff、changed-path census、ownership、current source、compiler和适用测试裁决真实影响；不得把当前不可调用或不存在的图工具接口列为必经 Gate。
 - `pre-commit imports:freeze` 与 pre-push 共用唯一 organizer；选择范围始终是完整 base→candidate index TypeScript diff。Hook 只原子更新 index，不改 working tree；hosted `imports:check` 仍只读 fail closed。
 - 每个 Gate 只有一个 `gate_owner`；以 `gate_key + tested head + profile` 唯一标识并复用未失效证据。失败后读取具体 failure tail，修根因，只重跑被 delta 失效的最小 sentinel。同一 Work Package 第二次 candidate invalidation后必须回到 failing repro、owner与 invariant并返回 `STOP_PROOF_RESET`，不得继续昂贵 Gate。
 - 长时命令或可能等待 approval的命令必须独立调用并由唯一 supervisor收口；不得放进 `Promise.all`、复合 shell或主动轮询循环。
+- 开发中只运行当前 failing/focused sentinel；TypeScript稳定后运行一次typecheck，active docs变化时运行一次docs doctor，最终候选才条件运行affected。正常交付不本地运行Risk后再重复hosted Risk；只让最终hosted Quick及其selected Risk各最多运行一次。Full只属于release、广泛schema/IR变化或Risk明确无法覆盖的变化。
 - 按风险从下列入口选择最小集合，不机械全跑：
 
 ```text

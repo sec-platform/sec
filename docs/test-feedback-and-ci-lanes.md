@@ -43,6 +43,17 @@ last-reviewed: 2026-07-26
 - 失败后只重跑失败项和被修复 delta 失效的消费者；不得为制造绿色删除测试、弱化 assertion、无边界加 timeout 或重复整套矩阵。
 - 长时 production sentinel 启动前，先执行覆盖同一前置边界的最小 micro-sentinel；micro-sentinel 只能阻止已知无效候选进入昂贵 Gate，不能替代 production evidence。若长时运行的 durable journal 已证明会进入同一失败闭包，应在保留 failure phase、精确输入 delta 与 cleanup 证据后主动终止，修复根因再运行一次，而不是等待 supervisor deadline。
 
+失败处理只有一条路径：
+
+```text
+读取首个 failure tail
+→ 定位失效输入、唯一owner或invariant
+→ 修复根因
+→ 只重跑失败sentinel和被delta直接失效的消费者
+→ 第一次candidate invalidation后最多refreeze一次
+→ 第二次返回STOP_PROOF_RESET并回到reproduction/owner/invariant
+```
+
 ## 3. 本地入口
 
 ```bash
@@ -63,6 +74,19 @@ bun run hooks:install
 - fast process timeout 是共享 runner 合同；显式 override 优先，默认值只由代码 owner维护。不得在单测、selector或 serial registry 中复制 timeout。
 - `test:affected --plan` 是 changed-path/Risk ownership的只读 preflight：不获取 heavy lease、不准备依赖、不启动 test child、不写 Evidence；任一 unresolved path使 plan与正式 affected都非零退出。其他入口按变化条件选择，不机械全跑。
 
+### 3.1 按变更类型选择最小验证
+
+| 变化类型 | 开发中 | frozen candidate | 明确不运行 |
+| --- | --- | --- | --- |
+| 纯文档 | 相关文档fixture（若有） | `docs:doctor`一次 | typecheck、affected、Risk、Full |
+| Leaf TypeScript | 当前failing/focused test | typecheck一次；selector要求时才affected | local Risk、Full |
+| 公共合同、IR、selector | focused contract | typecheck + 最终affected；hosted selected Risk一次 | 重复local Risk |
+| Runtime、browser、platform | 同前置边界micro-sentinel | 真实production acceptance只在slow owner运行一次；hosted selected Risk一次 | 把Next/Playwright塞进fast或Contract Freeze |
+| Verifier trust root | base-side focused bootstrap proof | 人工bootstrap + 独立exact-head Review | 反复发送必然`manual-bootstrap-required`的hosted Quick |
+| Release或广泛schema/IR变化 | focused proof | Full / complete slow / reference按合同一次 | 用日常修改触发完整矩阵 |
+
+测试文件本身迁层时，源层fast合同与目标层slow acceptance各运行一次即可；覆盖没有删除时，不再额外运行local Risk。任何表项若被changed-path owner扩大，以机器selector为准并在Evidence记录selection reason。
+
 ## 4. PR Quick
 
 Quick 负责最早发现当前 frozen candidate 的静态与 fast regression：
@@ -76,7 +100,7 @@ frozen dependencies
 → selected PR Risk when applicable
 ```
 
-Quick 必须调用 canonical affected selector；changed source 无 owner、非法 path 或 inventory 不完整时 hosted execution fail closed。普通 push、PR opened/synchronize/ready 只维护元数据，不自动消耗 heavy runner。
+Quick是最终frozen candidate的一次hosted profile；其中`impact-risk`是同一plan按selector条件加入的Risk phase，不是要求先本地跑Risk再hosted重复。正常交付只触发一次Quick，selected Risk若适用也只在该exact head内执行一次。Quick必须调用 canonical affected selector；changed source 无 owner、非法 path 或 inventory 不完整时 hosted execution fail closed。普通 push、PR opened/synchronize/ready 只维护元数据，不自动消耗 heavy runner。
 
 ## 5. PR Risk
 
@@ -88,6 +112,7 @@ Risk 只运行 diff 影响的合同、slow、browser、artifact、workspace 或 
 - `--all-slow` 只属于 Full；显式 local batch一次收集同一风险簇，默认 fail fast，只有诊断/收口合同允许 continue-on-failure。
 - `parallelSafe` 与资源等级共同决定并发；runtime-heavy 或共享状态 owner 保持隔离。并发不能改变 Gate 语义、环境绑定或失败归因。
 - 可执行的`test:affected`与`ci:risk`是同一physical worktree的互斥heavy Gate。二者CLI在启动任何测试child或写Risk Evidence前获取同一zero-wait lease；只读`test:affected --plan`明确绕过 lease。live contender立即失败，Windows abandoned mutex只恢复已崩溃owner。不得让两者并发争用`.tmp/test-workspaces`、Playwright、Next或Evidence，也不得把并发污染归类为产品FAIL。
+- 正常产品交付不执行“local Risk + hosted Risk”双份证明。local Risk只属于无hosted executor的人工bootstrap、Risk runner自身开发或明确诊断；这些例外必须绑定不同的证据目的，不能冒充最终exact-head hosted PASS。
 
 ## 6. Release / Full
 
@@ -140,7 +165,7 @@ Merge gate必须用 default-branch代码和 Git objects独立重算 changed reco
 
 ## 9. Contract Freeze、affected 与 slow
 
-- Contract Freeze 绑定公共合同与其 owner tests；公共 schema/IR/operation/diagnostic变化必须运行对应完整 contract set。`verification.docs-doctor`直接绑定 scanner 的 positive/negative/differential fixture，禁止只用当前文档树的正例运行替代失败语义。
+- Contract Freeze 绑定公共合同与其快速owner tests；公共 schema/IR/operation/diagnostic变化必须运行对应完整 contract set。其成员不得启动Next build、production server、Playwright、浏览器安装或其他slow runtime；真实acceptance必须由slow registry中的Risk owner覆盖。`verification.docs-doctor`直接绑定 scanner 的 positive/negative/differential fixture，禁止只用当前文档树的正例运行替代失败语义。
 - Affected selector是快速反馈，不是完整风险或 Full 的替代。本地 plan、正式 affected与 hosted verification都必须对未知 ownership fail closed。
 - Slow suite必须声明资源等级、并行安全、owner、适用变化、timeout owner 与 cleanup；open handle、process、workspace 或 artifact residue是失败。
 - Browser、activation、navigation、restart、release artifact与远端事实不能由 unit/typecheck替代；纯函数也不应无条件触发浏览器矩阵。
