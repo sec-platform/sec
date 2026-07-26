@@ -10,8 +10,8 @@ last-reviewed: 2026-07-26
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/local-gate-union-v1.md
-manifestDigest: sha256:f737848823085f9ce6ec6645ce1b752e8b8baa03430b9d13ea526449d4983475
+manifest: docs/work-packages/dev-runner-precise-test-impact-v1.md
+manifestDigest: sha256:b94b933f6688fca3e1423aa3e6ca3880770a4852547754806664c76657f7b081
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

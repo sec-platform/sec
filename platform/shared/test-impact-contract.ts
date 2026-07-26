@@ -6,6 +6,7 @@ import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-
 import { governanceTestOwnershipDeclarations } from './test-impact-rules/governance.ts';
 import { pipelineTestOwnershipDeclarations } from './test-impact-rules/pipeline.ts';
 import { semanticTestOwnershipDeclarations } from './test-impact-rules/semantic.ts';
+import { verificationTestOwnershipDeclarations } from './test-impact-rules/verification.ts';
 import {
   classifyTestImpactSource,
   matchesTestOwnershipDeclaration,
@@ -49,7 +50,8 @@ export function isVerificationInfrastructureFile(file: string): boolean {
 export const testOwnershipDeclarations: TestOwnershipDeclaration[] = [
   ...governanceTestOwnershipDeclarations,
   ...pipelineTestOwnershipDeclarations,
-  ...semanticTestOwnershipDeclarations
+  ...semanticTestOwnershipDeclarations,
+  ...verificationTestOwnershipDeclarations
 ];
 
 export function isTestImpactSourceFile(file: string): boolean {
@@ -62,7 +64,7 @@ export function isTestImpactSourceFile(file: string): boolean {
 export const testImpactFallbackRules: TestImpactRule[] = [
   {
     owner: 'verification-infrastructure',
-    sourcePattern: /^(?:\.github\/workflows\/|scripts\/ci-[^/]+\.ts$|platform\/dev-runner\/|platform\/shared\/ci-[^/]+\.ts$|platform\/shared\/test-(?:budget|impact|ownership)-contract\.ts$|platform\/shared\/test-impact-rules\/)/,
+    sourcePattern: /^(?:\.github\/workflows\/|scripts\/ci-[^/]+\.ts$|platform\/shared\/ci-[^/]+\.ts$|platform\/shared\/test-(?:budget|impact|ownership)-contract\.ts$|platform\/shared\/test-impact-rules\/)/,
     fast: [
       'tests/contract/benchmark-budget.test.ts',
       'tests/contract/ci-contract.test.ts',
@@ -88,12 +90,6 @@ export const testImpactFallbackRules: TestImpactRule[] = [
   {
     owner: 'test-impact',
     sourcePattern: /^platform\/shared\/test-impact-contract\.ts$/,
-    fast: ['tests/integration/project-runtime.test.ts', 'tests/contract/benchmark-budget.test.ts'],
-    slow: []
-  },
-  {
-    owner: 'dev-runner',
-    sourcePattern: /^platform\/dev-runner\/(test-runner|typecheck-runner)\.ts$/,
     fast: ['tests/integration/project-runtime.test.ts', 'tests/contract/benchmark-budget.test.ts'],
     slow: []
   },

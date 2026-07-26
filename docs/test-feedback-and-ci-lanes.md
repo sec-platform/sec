@@ -179,6 +179,7 @@ Merge gate必须用 default-branch代码和 Git objects独立重算 changed reco
 - Affected selector是快速反馈，不是完整风险或 Full 的替代。本地 plan、正式 affected与 hosted verification都必须对未知 ownership fail closed。
 - Slow suite必须声明资源等级、并行安全、owner、适用变化、timeout owner 与 cleanup；open handle、process、workspace 或 artifact residue是失败。
 - 同一能力若同时需要真实Git/Language Service快速阻断与完整index/race/rollback覆盖，fast层只保留一个真实micro-sentinel，完整场景进入显式slow suite。Slow fixture可以复用一次初始化的immutable seed，但每个并发场景必须复制为隔离repository，并以单一有界semaphore约束peak；不得共享working tree、index、lock或publication state。是否“变快”遵循`test-architecture.md`的固定环境采样协议：一次warm-up后至少五个有效样本，以median和observed range报告，单次duration不设hard baseline。
+- `platform/dev-runner.ts`与`platform/dev-runner/**`的affected/Risk选择只来自`test-impact-rules/verification.ts`的dev-runner owner、direct import和更窄owner声明。公共runner变化只运行轻量入口合同与相关unit/contract；`import-organizer`、managed hook dependency等真实Git能力仍选择各自slow suite。禁止把整个目录重新映射到通用fast列表或全部baseline slow suites。
 - managed hook、SM-3 durable terminal与Windows AppContainer的fast/slow文件映射只由`test-architecture.md`和`test-budget-contract.ts`拥有。Test impact必须同时选择fast micro-sentinel与对应slow Risk owner；迁层只移动acceptance，禁止删除覆盖或把slow runtime mock成unit。
 - MAX_PATH AppContainer acceptance只接受native成功，或精确的结构化`launch/nativeCode=267` fail-closed；两条路径都必须验证无child process、profile、owner/result、runtime目录和ACL residue。测试标题中的“fails closed”必须有可执行断言，不能靠catch后忽略错误。
 - Browser、activation、navigation、restart、release artifact与远端事实不能由 unit/typecheck替代；纯函数也不应无条件触发浏览器矩阵。

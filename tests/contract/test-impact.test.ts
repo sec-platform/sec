@@ -3,7 +3,8 @@ import { expect, test } from 'bun:test';
 import {
   classifyTestImpactSource,
   resolveTestOwnership,
-  selectTestsForSources
+  selectTestsForSources,
+  testImpactFallbackRules
 } from '../../platform/shared/test-impact-contract.ts';
 import { resolveTestOwnershipAutoReferenceMode } from '../../platform/shared/test-ownership-contract.ts';
 
@@ -170,11 +171,55 @@ test('test impact keeps managed Git hooks fast contract coverage and slow real-r
   expect(selection.slow).toEqual(['tests/e2e/install-git-hooks.test.ts']);
 });
 
-test('test impact selector includes tests that dynamically import changed sources', () => {
-  const selection = selectTestsForSources(['platform/dev-runner/test-runner.ts']);
+test('dev-runner impact uses explicit lightweight ownership plus direct import sentinels', () => {
+  expect(testImpactFallbackRules.filter((rule) => (
+    rule.sourcePattern.test('platform/dev-runner/test-runner.ts')
+  ))).toEqual([]);
 
-  expect(selection.owners).toContain('auto-reference');
-  expect(selection.fast).toContain('tests/unit/test-runner.test.ts');
+  const rootSelection = selectTestsForSources(['platform/dev-runner.ts']);
+  expect(rootSelection).toEqual({
+    fast: [
+      'tests/contract/dev-runner-contract.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts'
+    ],
+    slow: [],
+    owners: ['dev-runner']
+  });
+
+  const moduleSelection = selectTestsForSources(['platform/dev-runner/test-runner.ts']);
+  expect(moduleSelection.owners).toEqual(['auto-reference', 'dev-runner']);
+  expect(moduleSelection.fast).toEqual([
+    'tests/contract/dev-runner-contract.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/ci-pr-risk-selection.test.ts',
+    'tests/unit/test-runner.test.ts'
+  ]);
+  expect(moduleSelection.fast).not.toEqual(expect.arrayContaining([
+    'tests/contract/benchmark-budget.test.ts',
+    'tests/contract/ci-contract.test.ts',
+    'tests/contract/ci-lanes.test.ts',
+    'tests/contract/slow-suite-resource-budget.test.ts',
+    'tests/integration/project-runtime.test.ts'
+  ]));
+  expect(moduleSelection.slow).toEqual([]);
+  expect(resolveTestOwnership(['platform/dev-runner/test-runner.ts'])).toEqual([{
+    source: 'platform/dev-runner/test-runner.ts',
+    owner: 'dev-runner',
+    identity: { kind: 'architecture-owner', id: 'dev-runner' }
+  }]);
+
+  expect(selectTestsForSources(['platform/dev-runner/typecheck-runner.ts']).fast).toEqual([
+    'tests/contract/dev-runner-contract.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/ci-pr-risk-selection.test.ts'
+  ]);
+
+  expect(resolveTestOwnership(['platform/dev-runner/dependency-bootstrap.ts'])).toEqual([{
+    source: 'platform/dev-runner/dependency-bootstrap.ts',
+    owner: 'managed-git-hooks',
+    identity: { kind: 'architecture-owner', id: 'managed-git-hooks' }
+  }]);
 });
 
 test('test impact selector uses auto-reference for CI contract coverage', () => {
