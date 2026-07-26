@@ -43,6 +43,7 @@ tasks:
       - tests/contract/ci-lanes.test.ts
       - tests/contract/docs-doctor.test.ts
       - tests/contract/sec-merge-gate.test.ts
+      - tests/contract/test-architecture.test.ts
       - tests/integration/project-runtime.test.ts
       - tests/integration/semantic-mutation-apply.test.ts
       - tests/setup/runtime-deps.setup.ts
@@ -119,6 +120,7 @@ tests:
   - "sm3-failure-sentinel: the exact retained production test title in tests/integration/semantic-mutation-apply.test.ts once on the repaired head with no retained workspace"
   - "runtime-regression: bun test tests/integration/project-runtime.test.ts tests/unit/runtime-dependency-spec.test.ts tests/unit/playwright-browser-cache.test.ts --timeout 180000"
   - "v11-contract-focused: bun test tests/contract/ci-contract.test.ts tests/contract/ci-lanes.test.ts tests/contract/docs-doctor.test.ts tests/contract/sec-merge-gate.test.ts tests/unit/codex-work-package-contract.test.ts tests/unit/ci-evidence-composition-policy-registry.test.ts tests/unit/ci-pr-risk-execution.test.ts tests/unit/ci-verification-execution.test.ts --timeout 180000"
+  - "architecture-owner-boundary: bun test tests/contract/test-architecture.test.ts tests/unit/windows-host-filesystem-authority.test.ts --timeout 180000"
   - "control-plane-lifecycle: bun test tests/contract/document-control-plane-lifecycle.test.ts --timeout 180000"
   - "typecheck: bun run typecheck"
   - "imports/changed-only: SEC_IMPORTS_CHANGED_ONLY=1 and SEC_CHANGED_BASE=4ef0d38f726ce38d931ea66e859d20214469c69e with bun run imports:check"
@@ -149,6 +151,8 @@ exact package identity
 ## Frozen failure
 
 `3a72882151072ca96a83d974d01acc0b033fdd1a` 的 canonical affected 在 `semantic-mutation-apply.test.ts` 首个 production closure 上得到 `3 pass / 1 fail / 1 error`，其中目标测试 300 秒超时，随后返回 runtime verification failure。该 identity 永久为 FAIL；Risk 未运行，候选未推送。
+
+`6daed7aaeecdfeca8910d1d2367634b86a70c0e9` 的 canonical affected 已通过，但其唯一V11 Risk在Contract Freeze得到`136 pass / 1 fail`：`semantic-mutation-isolated-verification-runner.ts`直接消费side-effect verifier runtime却未登记为exact production owner boundary。Risk在slow/workspace前fail-stop，不能重跑或成为完成证据。独立证据Review同时发现ACL harden/prove acquisition失败会吞掉private-root cleanup failure；最终successor必须以exact owner allowlist、无residue fault test与primary+cleanup聚合闭合两项根因。
 
 Retained workspace 显示 build/unit 通过、runtime acceptance 失败，Chromium 报 `Invalid file descriptor to ICU data received`。同一物理 cache 的 323 字符 namespaced executable 不能直接启动，而 160 字符 junction projection 与 171 字符 source executable 均成功输出版本。因而 dependency revision、安装完整性与 browser selection 不是当前根因。
 

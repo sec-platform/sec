@@ -59,6 +59,16 @@ stableFacts:
           summary: 67-pass-1-fail
           riskRun: false
         disposition: superseded-by-contract-preserving-supervisor-result-closure
+      - commit: 6daed7aaeecdfeca8910d1d2367634b86a70c0e9
+        canonicalAffected:
+          result: passed
+        risk:
+          result: failed
+          failedGate: contract-freeze
+          failedTest: platform-modules-import-compiler-apis-through-facade-or-exact-owner-boundary
+          summary: 136-pass-1-fail
+          slowAndWorkspaceExecuted: false
+        disposition: superseded-by-host-acquisition-cleanup-and-owner-seam-closure
     stableProductionSource:
       commit: d2f7083c63642306ba18cd77aac373e490c9079b
       role: blob-source-only
@@ -121,4 +131,11 @@ stableFacts:
         - acceptance-port-release-unproven
         - windows-temp-owner-acl-unproven
       disposition: repair-in-active-package-new-head-required
+      completionEvidence: false
+    latestIndependentEvidenceReview:
+      reviewedCommit: 6daed7aaeecdfeca8910d1d2367634b86a70c0e9
+      result: failed
+      blockers:
+        - exact-owner-runtime-import-boundary-unregistered
+        - failed-host-authority-acquisition-cleanup-unproven
       completionEvidence: false

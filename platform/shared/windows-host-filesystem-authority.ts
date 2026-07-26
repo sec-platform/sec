@@ -26,6 +26,17 @@ export type WindowsHostDirectoryAuthority = Readonly<{
   rootPath: string;
 }>;
 
+type WindowsHostDirectoryAuthorityProbe = (
+  directoryPath: string,
+  mode: 'harden' | 'prove'
+) => Promise<WindowsHostDirectoryAclProof>;
+
+type WindowsBrowserLaunchHostAuthorityOptions = Readonly<{
+  aclProbe: WindowsHostDirectoryAuthorityProbe;
+  allocationSurfacePath: string;
+  removeDirectory: (directoryPath: string) => Promise<void>;
+}>;
+
 const WINDOWS_ACL_PROOF_TIMEOUT_MS = 10_000;
 const WINDOWS_ACL_PROOF_OUTPUT_LIMIT = 16 * 1024;
 
@@ -270,7 +281,17 @@ export async function acquireWindowsBrowserLaunchHostAuthority(): Promise<
   if (process.platform !== 'win32') {
     throw new Error('Windows browser launch host authority is Windows-only');
   }
-  const allocationSurface = await physicalWindowsDirectory(tmpdir());
+  return acquireWindowsBrowserLaunchHostAuthorityWithOptions({
+    aclProbe: probeWindowsDirectoryAcl,
+    allocationSurfacePath: tmpdir(),
+    removeDirectory: rmdir
+  });
+}
+
+async function acquireWindowsBrowserLaunchHostAuthorityWithOptions(
+  options: WindowsBrowserLaunchHostAuthorityOptions
+): Promise<WindowsHostDirectoryAuthority> {
+  const allocationSurface = await physicalWindowsDirectory(options.allocationSurfacePath);
   const authorityPath = path.win32.join(
     allocationSurface.rootPath,
     `sec-h-${randomUUID().replaceAll('-', '')}`
@@ -278,13 +299,13 @@ export async function acquireWindowsBrowserLaunchHostAuthority(): Promise<
   await mkdir(authorityPath);
   let released = false;
   try {
-    const initialAcl = await probeWindowsDirectoryAcl(authorityPath, 'harden');
+    const initialAcl = await options.aclProbe(authorityPath, 'harden');
     if ((await readdir(authorityPath)).length !== 0) {
       throw new Error('Windows host directory authority contains unowned data');
     }
     const authority = await proveWindowsHostDirectoryAuthority(
       authorityPath,
-      probeWindowsDirectoryAcl,
+      async (directoryPath) => options.aclProbe(directoryPath, 'prove'),
       initialAcl,
       async () => {
         if (released) return;
@@ -292,17 +313,41 @@ export async function acquireWindowsBrowserLaunchHostAuthority(): Promise<
         if ((await readdir(authorityPath)).length !== 0) {
           throw new Error('Windows host directory authority contains unowned data');
         }
-        await rmdir(authorityPath);
+        await options.removeDirectory(authorityPath);
         released = true;
       }
     );
     return authority;
   } catch (error) {
-    if ((await readdir(authorityPath).catch(() => ['unproven'])).length === 0) {
-      await rmdir(authorityPath).catch(() => undefined);
+    try {
+      if ((await readdir(authorityPath)).length !== 0) {
+        throw new Error('Windows host directory authority contains unowned data after failed acquisition');
+      }
+      await options.removeDirectory(authorityPath);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'Windows browser launch host authority acquisition and cleanup both failed'
+      );
     }
     throw error;
   }
+}
+
+/** Test-only production-acquisition fault seam. */
+export function acquireWindowsBrowserLaunchHostAuthorityForTests(
+  allocationSurfacePath: string,
+  aclProbe: WindowsHostDirectoryAuthorityProbe,
+  removeDirectory: (directoryPath: string) => Promise<void> = rmdir
+): Promise<WindowsHostDirectoryAuthority> {
+  if (process.platform !== 'win32') {
+    throw new Error('Windows browser launch host authority is Windows-only');
+  }
+  return acquireWindowsBrowserLaunchHostAuthorityWithOptions({
+    aclProbe,
+    allocationSurfacePath,
+    removeDirectory
+  });
 }
 
 /** Test-only deterministic owner/DACL proof seam. */

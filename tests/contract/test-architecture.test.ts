@@ -233,6 +233,9 @@ const compilerInternalOwnerImportAllowlist: Readonly<Record<string, readonly str
     '../compiler/verify/semantic-mutation-isolated-verification-failure.ts',
     '../compiler/verify/staged-verification-proof.ts'
   ]),
+  'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts': Object.freeze([
+    '../compiler/verify/windows-browser-launch-path.ts'
+  ]),
   'platform/orchestrator/verify-orchestrator.ts': Object.freeze([
     '../compiler/verify/staged-verification-proof.ts',
     '../compiler/verify/verify-project.ts',

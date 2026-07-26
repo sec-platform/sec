@@ -6,7 +6,7 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody、GitNexus impact与`066fbd2`独立Review重新计算。`066fbd2`的canonical affected已PASS，但只能冻结为baseline：Review随后发现child真实pre-spawn proof、staged browser path唯一owner、production port release和Windows host owner/ACL四个阻断；Risk未运行。当前active package只形成一个新head修复这四个边界，复用baseline并只补delta sentinels，最终head才各运行一次canonical affected和Risk。#142已squash merge，V5 docs-doctor semantic superset与V10 trust root已进入main。PR #137仍位于旧base且冲突，只有失败merge-gate，不能提供完成或验证授权。
+本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody、GitNexus impact与exact-head Review重新计算。`6daed7a`已经真实通过唯一canonical affected，但其首次V11 Risk在Contract Freeze得到`136 pass / 1 fail`：staged runner的side-effect compiler runtime import没有登记为exact owner boundary；并行Review同时证明ACL harden/prove失败会吞掉私有root cleanup failure。该Risk永久为FAIL，slow/workspace未执行。当前active package只形成一个最终新head，登记精确owner seam并让acquisition cleanup成功无residue、失败聚合primary+cleanup；随后只运行被delta失效的最小sentinel、一次新head canonical affected与一次Risk。#142已squash merge，V5 docs-doctor semantic superset与V10 trust root已进入main。PR #137仍位于旧base且冲突，只有失败merge-gate，不能提供完成或验证授权。
 
 ```text
 Windows Browser Launch Path Authority V1 (active)
