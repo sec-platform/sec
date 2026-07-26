@@ -22,9 +22,17 @@ tasks:
       - platform/dev-runner/fast-test-policy.ts
       - platform/dev-runner/test-runner.ts
       - platform/shared/ci-verification-plan.ts
+      - platform/shared/test-budget-contract.ts
+      - platform/shared/test-impact-rules/governance.ts
+      - platform/shared/test-impact-rules/semantic.ts
       - tests/contract/ci-contract.test.ts
       - tests/contract/ci-lanes.test.ts
       - tests/contract/sec-merge-gate.test.ts
+      - tests/contract/test-impact.test.ts
+      - tests/e2e/install-git-hooks.test.ts
+      - tests/e2e/semantic-runtime-contract.test.ts
+      - tests/e2e/windows-appcontainer-executor.test.ts
+      - tests/helpers/semantic-mutation-recovery-fixture.ts
       - tests/integration/workspace-engineering-ir.test.ts
       - tests/unit/canonical-ir-identity-revision.test.ts
       - tests/unit/ci-evidence-composition-policy-registry.test.ts
@@ -33,7 +41,10 @@ tasks:
       - tests/unit/ci-verification-execution.test.ts
       - tests/unit/codex-work-package-contract.test.ts
       - tests/unit/env-manager.test.ts
+      - tests/unit/install-git-hooks.test.ts
+      - tests/unit/semantic-mutation-apply.test.ts
       - tests/unit/test-runner.test.ts
+      - tests/unit/windows-appcontainer-executor.test.ts
       - tests/testkit/workspace.ts
 forbiddenPaths:
   - .codex/
@@ -49,10 +60,8 @@ forbiddenPaths:
   - platform/compiler/
   - platform/orchestrator/
   - platform/shared/ci-evidence-reuse-contract.ts
-  - platform/shared/test-budget-contract.ts
   - platform/shared/test-impact-contract.ts
   - scripts/
-  - tests/e2e/
   - tsconfig.json
 acceptance:
   - "The immutable reusable-evidence fixture is read from the exact HEAD Git blob; Windows checkout CRLF bytes never act as Git raw authority and no normalization hides the mismatch."
@@ -62,6 +71,8 @@ acceptance:
   - "Every fast run owns one safe mutable test-workspace namespace and parent cleanup executes after success, child failure, planner failure, or thrown child execution; terminal residue makes the run fail while the versioned immutable template cache remains outside run ownership."
   - "Canonical IR artifact and policy-report exclusion acceptance reuses the existing workspace Engineering IR integration setup; the unit file contains no full workspace preparation."
   - "Structural tests prove fewer process waves, one workspace setup for the migrated IR acceptance, no duplicate or missing test file, and zero failed-run workspace residue without a wall-clock threshold."
+  - "Fast retains executable micro-sentinels while real Git/worktree acceptance, exhaustive SM-3 durable filesystem acceptance, and native AppContainer acceptance have explicit slow registry owners selected by test impact."
+  - "The AppContainer MAX_PATH acceptance proves either successful execution or exact launch/nativeCode 267 fail-closed, with identical process/profile/owner/runtime/ACL residue checks on both paths."
   - "Comparative performance uses a fixed candidate and environment, one warm-up, at least five valid samples, median and observed range; a single duration is diagnostic only."
   - "V1 verifier revision and every active artifact producer/lookup advance atomically from V15 to V16. V2 composition stays V7, and the candidate uses manual bootstrap rather than self-authorization."
 tests:
@@ -69,6 +80,10 @@ tests:
   - "process-plan: bun test tests/unit/test-runner.test.ts tests/unit/env-manager.test.ts --timeout 180000"
   - "ir-unit: bun test tests/unit/canonical-ir-identity-revision.test.ts --timeout 180000"
   - "ir-integration: bun test tests/integration/workspace-engineering-ir.test.ts --timeout 180000"
+  - "fast-boundary: bun test tests/unit/install-git-hooks.test.ts tests/unit/semantic-mutation-apply.test.ts tests/unit/windows-appcontainer-executor.test.ts --timeout 180000"
+  - "lane-ownership: bun test tests/contract/benchmark-budget.test.ts tests/contract/ci-lanes.test.ts tests/contract/test-impact.test.ts tests/contract/slow-suite-resource-budget.test.ts tests/unit/ci-pr-risk-selection.test.ts --timeout 180000"
+  - "slow-file-smoke: run one named sentinel from each migrated slow file; exhaustive durability acceptance remains final selected Risk only"
+  - "appcontainer-max-path: bun test tests/e2e/windows-appcontainer-executor.test.ts --test-name-pattern 'just beyond MAX_PATH' --timeout 180000"
   - "v16-contract: bun test tests/contract/ci-contract.test.ts tests/contract/ci-lanes.test.ts tests/contract/sec-merge-gate.test.ts tests/unit/codex-work-package-contract.test.ts tests/unit/ci-evidence-composition-policy-registry.test.ts tests/unit/ci-pr-risk-execution.test.ts tests/unit/ci-verification-execution.test.ts --timeout 180000"
   - "typecheck: bun run typecheck once after source stabilizes"
   - "imports/changed-only: SEC_IMPORTS_CHANGED_ONLY=1 and SEC_CHANGED_BASE=e30e434d15c9a87541866e64a56051d08b70cad4 with bun run imports:check once on the frozen candidate"
@@ -100,15 +115,18 @@ exact Git blob fixture
 - Failing reproduction：唯一完整 fast 诊断样本在54.167秒时因 synthetic PASS fixture 的 worktree CRLF bytes 与Git blob LF bytes不一致而提前失败；它不是完整总耗时或性能baseline。
 - Structural census：base计划157个fast文件，17个concurrent shard与24个逐个执行的isolated process；其中import organizer文件已是约3.5秒micro-sentinel，却仍保留旧隔离。
 - Long-tail ownership：canonical IR unit中的两个完整Workspace场景分别观察到约8.3秒与6.8秒；已有`workspace-engineering-ir` integration可用一次setup吸收相同acceptance。
+- Invalid warm-up：结构优化后的唯一完整fast warm-up在243.023秒提前失败，未完成全部isolated/exclusive阶段，故既不是完整总耗时也不是性能baseline；warm-up无效后没有继续浪费五次采样。
+- Deterministic pseudo-fast work：`install-git-hooks`运行真实repo/commit/worktree，SM-3 retention单场景执行全量durable terminal I/O，Windows AppContainer运行native host/runtime。这些稳定副作用而非单次duration决定slow归属。
+- Focused closure：迁层后3个fast owner合计17 tests在3.21秒通过；MAX_PATH slow sentinel在结构化267 fail-closed路径通过。以上仍只是focused correctness evidence，不替代最终多样本性能报告。
 - Cleanup failure：失败进程后`.tmp/test-workspaces`观察到22个残留目录；当前runner没有run-owned mutable namespace与父进程finally cleanup。Versioned immutable template cache必须位于namespace外继续复用，不能被普通run cleanup反复重建。
 - Performance interpretation：以上duration只定位phase；结构性进程数、波次、setup与残留是本包hard invariant。最终wall-clock只按固定环境多样本协议报告。
 - Trust boundary：`platform/dev-runner/**`和V1 verification plan属于verifier trust root，因此原子升级V16并走manual bootstrap；V2 composition保持V7。
-- Gate owner：A0；开发中只运行四组focused sentinel，稳定后才运行一次多样本采集与最终Gate。
+- Gate owner：A0；开发中只运行manifest列出的focused sentinel，稳定后才运行一次warm-up；只有warm-up完整通过才采集至少五个有效样本与最终Gate。
 
 ## Reload if
 
 - live `origin/main`不再是`e30e434d15c9a87541866e64a56051d08b70cad4`。
-- 需要修改compiler/orchestrator、V2 composition、slow registry、test impact、`tests/testkit/workspace-cleanup.ts`或任一forbidden path。
+- 需要修改compiler/orchestrator、V2 composition、`test-impact-contract.ts`、`tests/testkit/workspace-cleanup.ts`或任一剩余forbidden path。
 - 有界并行暴露未声明的共享repo、host、port、workspace或artifact authority。
 - 第一次candidate freeze后实现继续变化。
 

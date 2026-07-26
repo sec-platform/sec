@@ -57,6 +57,16 @@ last-reviewed: 2026-07-26
 
 CI timeout只是失控熔断器，不是性能基准。不得因为一次慢样本扩大timeout、全面回退、重复整批Gate或制造successor candidate；硬性能Gate应优先断言结构性工作量，只有稳定采样协议明确选择时才使用wall-clock裁决。
 
+Lane归属由确定性工作内容裁决，不由一次duration裁决。以下边界是当前canonical实例：
+
+| 能力 | fast owner | slow owner |
+| --- | --- | --- |
+| managed Git hooks | `tests/unit/install-git-hooks.test.ts`只读tracked hook合同 | `tests/e2e/install-git-hooks.test.ts`运行真实repo、commit、linked worktree与hook lifecycle |
+| SM-3 durable terminal | `tests/unit/semantic-mutation-apply.test.ts`保留identity、redaction与一次最小durable chain | 既有`tests/e2e/semantic-runtime-contract.test.ts`统一运行runtime lowering、reparse、race、legacy audit、retention与全量durable I/O |
+| Windows AppContainer | `tests/unit/windows-appcontainer-executor.test.ts`验证ABI、protocol、bundle与owner publication | `tests/e2e/windows-appcontainer-executor.test.ts`运行native sandbox、host/runtime residue和MAX_PATH acceptance |
+
+这些slow owner即使某次运行偶然很快也不得进入fast；它们的真实Git、durable filesystem或native host副作用是稳定分类事实。反过来，fast owner单次超出目标也只触发最小phase诊断，不能凭一个样本迁层。
+
 需要真实Git、临时仓库或Language Service的fast component test必须把fixture lifecycle视为测试架构：不可变seed最多初始化一次，每个场景使用独立copy，互不共享working tree、index、lock或publication state；独立场景可有界并发，但必须由代码中的单一semaphore限制并断言peak，不得依赖Bun默认并发或用无限并发掩盖重复工作。seed、copy与外部alias都必须在失败路径清理。该优化只减少fixture与调度成本，不得mock或复制被测Git/TypeScript语义。
 
 Fast runner的结构顺序固定为`bounded concurrent shards → bounded-parallel process isolation → exclusive process isolation`。同一进程内不安全不等于跨进程必须串行：只依赖module global或独立临时Workspace的文件可进入有界并行；会修改repository worktree、host profile、共享server/runtime lifecycle的owner保持独占。分类、shard容量、isolated并发与最大默认process waves只由`fast-test-policy.ts`拥有，并由完整inventory的结构测试证明每个文件恰好一次、无遗漏且不超过wave预算；wall-clock不参与该hard invariant。

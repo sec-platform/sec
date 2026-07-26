@@ -267,11 +267,15 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
     'e2e-demo-doctor',
     'e2e-explain',
     'e2e-local-views',
-    'e2e-provenance'
+    'e2e-provenance',
+    'e2e-windows-appcontainer-executor'
   ]);
+  expect(suites.find((suite) => suite.id === 'e2e-windows-appcontainer-executor'))
+    .toMatchObject({ parallelSafe: false });
   expect(
     suites
-      .filter((suite) => suite.resourceClass === 'runtime-heavy')
+      .filter((suite) => suite.resourceClass === 'runtime-heavy' &&
+        suite.id !== 'e2e-windows-appcontainer-executor')
       .every((suite) => suite.parallelSafe)
   ).toBe(true);
 });

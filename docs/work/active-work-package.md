@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/fast-feedback-closure-v2.md
-manifestDigest: sha256:8a769f320e9d6040cf055aef1b0f1a30a0a63bb1c43660ff6eadda937b765bdf
+manifestDigest: sha256:b04b90a85fa7447392402e1676bae74c80c4b9ccf6574a549717f81b987b7586
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

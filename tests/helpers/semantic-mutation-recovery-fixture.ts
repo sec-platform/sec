@@ -1,0 +1,348 @@
+import { createHash } from 'node:crypto';
+
+import {
+  buildFactDelta,
+  buildImpactPropagation,
+  buildSemanticMutationResult,
+  buildSemanticMutationVerificationPlanningContext,
+  buildValidatedEngineeringIR,
+  planSemanticMutation,
+  preflightSemanticMutation,
+  type BuildEngineeringIRInput,
+  type SemanticMutationAuthorizationContextV2,
+  type SemanticMutationDiagnosticV2,
+  type SemanticMutationRequestV2,
+  type VerificationRequirementV1
+} from '../../platform/compiler/index.ts';
+import { canonicalVerificationUnion } from '../../platform/compiler/semantic-mutation/canonical.ts';
+import { expectationFromFactDelta } from '../../platform/compiler/semantic-mutation/match-expectation.ts';
+import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
+import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
+import { semanticMutationRequestIdentityDigest } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
+import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
+import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
+import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
+import type { SemanticMutationRecoveryRecordV1 } from '../../platform/shared/semantic-mutation-transaction-types.ts';
+import {
+  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+  SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION
+} from '../../platform/shared/verification-types.ts';
+import { semanticMutationVerificationReportFixture } from './semantic-mutation-verification-report.ts';
+
+export function digest(value: unknown): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
+function contract(withTransition: boolean): LoadedSemanticContract {
+  return {
+    blockId: 'item/basic',
+    contractPath: 'source/model/item.yaml',
+    contract: {
+      formatVersion: '1',
+      id: 'item-core',
+      namespace: 'item',
+      entities: [{ id: 'Item', fields: [{ id: 'status', type: 'ItemStatus', mutable: true }] }],
+      states: [{
+        id: 'item-status',
+        entity: 'Item',
+        field: 'status',
+        owner: 'ItemStateMachine',
+        values: ['closed', 'open'],
+        transitions: withTransition ? [{ from: 'open', to: 'closed', by: 'closeItem' }] : []
+      }],
+      responsibilities: [{
+        id: 'ItemStateMachine',
+        role: 'Own item status',
+        owns: ['Item.status'],
+        implements: ['closeItem'],
+        dependsOn: []
+      }],
+      operations: [{
+        id: 'closeItem',
+        responsibility: 'ItemStateMachine',
+        inputs: ['Item'],
+        output: 'Item',
+        reads: ['Item.status'],
+        writes: [],
+        mutates: ['Item.status'],
+        requiresPolicies: [],
+        requiresPermissions: [],
+        performsEffects: [],
+        emits: [],
+        invokes: [],
+        awaits: []
+      }],
+      events: [],
+      policies: [],
+      permissions: [],
+      effects: [],
+      scenarios: []
+    }
+  };
+}
+
+function buildInput(withTransition: boolean): BuildEngineeringIRInput {
+  return {
+    app: { id: 'mutation-app', name: 'Mutation App' },
+    resolvedBlocks: [{
+      id: 'item/basic',
+      version: '0.1.0',
+      kind: 'capability',
+      installOrder: 1,
+      manifestPath: 'source/model/block.manifest.yaml',
+      registrySourceId: 'workspace',
+      registryKind: 'private',
+      registryLocation: 'workspace',
+      registryPath: 'source/model'
+    }],
+    manifests: [],
+    slotTasks: [],
+    acceptanceIds: [],
+    policyDeclarations: [],
+    semanticContracts: [contract(withTransition)]
+  };
+}
+
+function endpoint(
+  snapshot: ReturnType<typeof buildValidatedEngineeringIR>,
+  transactionId: string
+): FactDeltaEndpointContext {
+  return {
+    transactionId,
+    inputRevision: snapshot.ir.inputRevision,
+    semanticRevision: snapshot.ir.semanticRevision,
+    snapshot
+  };
+}
+
+function authorization(): SemanticMutationAuthorizationContextV2 {
+  const draft: Omit<SemanticMutationAuthorizationContextV2, 'authorizationRevision'> = {
+    taskId: 'task:mutation-journal',
+    envelopeRevision: 'envelope:v2',
+    allowedOperationKinds: ['add-state-transition'],
+    allowedTargetEntityIds: ['state:item:item-status'],
+    allowedSourceOwnerIds: ['owner:item-core'],
+    allowedPathPrefixes: ['source/model/'],
+    requiredPreconditions: [],
+    requiredPostconditions: [],
+    minimumVerification: []
+  };
+  return { ...draft, authorizationRevision: semanticMutationAuthorizationRevision(draft) };
+}
+
+export function readyTransactionFixture(requestId = 'request:add-transition') {
+  const before = buildValidatedEngineeringIR(buildInput(false));
+  const after = buildValidatedEngineeringIR(buildInput(true));
+  const base = endpoint(before, 'tx:base');
+  const staged = endpoint(after, 'tx:staged');
+  const delta = buildFactDelta(base, staged);
+  const request: SemanticMutationRequestV2 = {
+    contractVersion: '2',
+    requestId,
+    graphId: before.ir.graphId,
+    appId: before.ir.appId,
+    base: {
+      transactionId: base.transactionId,
+      inputRevision: base.inputRevision,
+      semanticRevision: base.semanticRevision
+    },
+    preconditions: [],
+    operations: [{
+      operationId: 'operation:add-transition',
+      kind: 'add-state-transition',
+      contract: { namespace: 'item', contractId: 'item-core' },
+      stateId: 'item-status',
+      from: 'open',
+      to: 'closed',
+      by: 'closeItem'
+    }],
+    expectation: expectationFromFactDelta(delta, before, after),
+    postconditions: [],
+    additionalVerification: []
+  };
+  const auth = authorization();
+  const preflight = preflightSemanticMutation({ request, base, authorization: auth });
+  if (preflight.status !== 'ready') throw new Error(JSON.stringify(preflight));
+  const impact = buildImpactPropagation({ delta, from: base, to: staged });
+  const impactVerification: VerificationRequirementV1[] = impact.verification.map((entry) =>
+    entry.kind === 'acceptance'
+      ? { kind: 'acceptance', acceptanceEntityId: entry.acceptanceEntityId }
+      : { kind: 'selector', selector: entry.selector });
+  const requiredVerification = canonicalVerificationUnion(
+    impactVerification,
+    [{ kind: 'pass', passId: 'verify' }]
+  );
+  const verificationPlanning = buildSemanticMutationVerificationPlanningContext({
+    adapterId: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
+    adapterRevision: SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
+    impactRevision: impact.impactRevision,
+    uncertaintyStatus: 'covered',
+    capabilities: requiredVerification.map((requirement) => ({
+      requirement,
+      status: 'runnable',
+      isolated: true
+    }))
+  }, requiredVerification);
+  const plan = planSemanticMutation({
+    request,
+    base,
+    authorization: auth,
+    preparation: {
+      status: 'prepared',
+      preflightRevision: preflight.preflightRevision,
+      sourceChanges: [{
+        ownerId: 'owner:item-core',
+        adapterId: 'semantic-contract-yaml',
+        adapterRevision: 'semantic-contract-yaml-v1',
+        relativePath: 'source/model/item.yaml',
+        beforeByteDigest: digest('before'),
+        stagedByteDigest: digest('after'),
+        invalidationFromStage: 'resolve'
+      }],
+      staged,
+      rollbackManifestDigest: digest('rollback')
+    },
+    verificationPlanning
+  });
+  if (plan.status !== 'ready') throw new Error(JSON.stringify(plan));
+  const verification = buildSemanticMutationVerificationExecutionRef(semanticMutationVerificationReportFixture({
+    adapterId: plan.verificationAdapterId,
+    adapterRevision: plan.verificationAdapterRevision,
+    planRevision: plan.planRevision,
+    attempted: plan.staged,
+    stagedSourceDigest: plan.sourceChanges[0].stagedByteDigest,
+    requiredVerificationDigest: semanticMutationRequiredVerificationDigest(plan.requiredVerification),
+    status: 'passed',
+    requirements: plan.requiredVerification
+  }));
+  return { request, auth, base, plan, verification };
+}
+
+export type RecoveryDraft = Omit<
+  SemanticMutationRecoveryRecordV1,
+  'formatRevision' | 'sequence' | 'previousRecordRevision' | 'terminalSequence' | 'recordRevision'
+>;
+
+export function recoveryDraft(requestId = 'request:add-transition'): RecoveryDraft {
+  const { request, auth, plan, verification } = readyTransactionFixture(requestId);
+  return {
+    state: 'prepared',
+    transactionId: 'tx:live',
+    requestIdentityDigest: semanticMutationRequestIdentityDigest({
+      graphId: request.graphId,
+      appId: request.appId,
+      requestId: request.requestId
+    }),
+    requestRevision: plan.requestRevision,
+    authorizationRevision: plan.authorizationRevision,
+    expectedPlanRevision: plan.planRevision,
+    planRevision: plan.planRevision,
+    editPlanRevision: digest('edit-plan'),
+    rollbackManifestDigest: plan.rollbackManifestDigest,
+    relativePath: plan.sourceChanges[0].relativePath,
+    beforeByteDigest: plan.sourceChanges[0].beforeByteDigest,
+    committedByteDigest: plan.sourceChanges[0].stagedByteDigest,
+    base: plan.base,
+    staged: plan.staged,
+    verificationExecutionRevision: verification.verificationExecutionRevision,
+    verificationReportRevision: verification.reportRevision,
+    request,
+    authorization: auth,
+    plan,
+    verification,
+    diagnostics: []
+  };
+}
+
+function diagnostic(code: 'SEMANTIC-MUTATION-007' | 'SEMANTIC-MUTATION-012') {
+  return {
+    origin: 'semantic-mutation' as const,
+    code,
+    stage: code === 'SEMANTIC-MUTATION-007' ? 'cas' as const : 'rollback' as const,
+    message: code === 'SEMANTIC-MUTATION-007' ? 'Plan CAS failed' : 'Recovery is required'
+  };
+}
+
+export function nextDraft(
+  record: SemanticMutationRecoveryRecordV1,
+  state: SemanticMutationRecoveryRecordV1['state'],
+  fields: {
+    readonly diagnostics?: RecoveryDraft['diagnostics'];
+    readonly result?: RecoveryDraft['result'];
+    readonly recoveryState?: RecoveryDraft['recoveryState'];
+  } = {}
+): RecoveryDraft {
+  return {
+    state,
+    transactionId: record.transactionId,
+    requestIdentityDigest: record.requestIdentityDigest,
+    requestRevision: record.requestRevision,
+    authorizationRevision: record.authorizationRevision,
+    expectedPlanRevision: record.expectedPlanRevision,
+    planRevision: record.planRevision,
+    editPlanRevision: record.editPlanRevision,
+    rollbackManifestDigest: record.rollbackManifestDigest,
+    relativePath: record.relativePath,
+    beforeByteDigest: record.beforeByteDigest,
+    committedByteDigest: record.committedByteDigest,
+    base: record.base,
+    staged: record.staged,
+    verificationExecutionRevision: record.verificationExecutionRevision,
+    verificationReportRevision: record.verificationReportRevision,
+    request: record.request,
+    authorization: record.authorization,
+    plan: record.plan,
+    verification: record.verification,
+    ...(fields.result === undefined ? {} : { result: fields.result }),
+    ...(fields.recoveryState === undefined ? {} : { recoveryState: fields.recoveryState }),
+    diagnostics: fields.diagnostics ?? []
+  };
+}
+
+export function acceptedResult(draft: RecoveryDraft) {
+  if (draft.plan.status !== 'ready') throw new Error('Expected ready plan');
+  return buildSemanticMutationResult(draft.plan, {
+    status: 'accepted',
+    transactionId: draft.transactionId,
+    attempted: draft.plan.staged,
+    accepted: draft.plan.staged,
+    verification: draft.verification as typeof draft.verification & { readonly status: 'passed' }
+  });
+}
+
+export function rolledBackResult(draft: RecoveryDraft) {
+  if (draft.plan.status !== 'ready') throw new Error('Expected ready plan');
+  return buildSemanticMutationResult(draft.plan, {
+    status: 'rolled-back',
+    transactionId: draft.transactionId,
+    attempted: draft.plan.staged,
+    verification: draft.verification as typeof draft.verification & { readonly status: 'passed' },
+    diagnostics: [diagnostic('SEMANTIC-MUTATION-012')]
+  });
+}
+
+export function recoveryRequiredResult(draft: RecoveryDraft) {
+  if (draft.plan.status !== 'ready') throw new Error('Expected ready plan');
+  return buildSemanticMutationResult(draft.plan, {
+    status: 'recovery-required',
+    transactionId: draft.transactionId,
+    attempted: draft.plan.staged,
+    verification: draft.verification as typeof draft.verification & { readonly status: 'passed' },
+    recoveryState: 'concurrent-write',
+    diagnostics: [diagnostic('SEMANTIC-MUTATION-012')]
+  });
+}
+
+export function rejectedResult(
+  draft: RecoveryDraft,
+  diagnostics: readonly SemanticMutationDiagnosticV2[] = [diagnostic('SEMANTIC-MUTATION-007')]
+) {
+  if (draft.plan.status !== 'ready') throw new Error('Expected ready plan');
+  return buildSemanticMutationResult(draft.plan, {
+    status: 'rejected',
+    transactionId: draft.transactionId,
+    attempted: draft.plan.staged,
+    verification: draft.verification,
+    diagnostics
+  });
+}

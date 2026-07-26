@@ -209,14 +209,14 @@ test('runner build changes select only the focused verification PR-risk suite', 
   }
 });
 
-test('optional AppContainer settlement changes resolve without slow PR-risk expansion', () => {
+test('AppContainer settlement changes select only the native slow acceptance owner', () => {
   const selection = selectCiPrRiskSlowSuites([
     'platform/shared/windows-appcontainer-native-helper-settlement.ts'
   ]);
 
-  expect(selection.suites).toEqual([]);
+  expect(selection.suites).toEqual(['e2e-windows-appcontainer-executor']);
   expect(selection.slowTests).toEqual([]);
-  expect(selection.affectedSlowTests).toEqual([]);
+  expect(selection.affectedSlowTests).toEqual(['tests/e2e/windows-appcontainer-executor.test.ts']);
   expect(selection.owners).toEqual(['auto-reference', 'windows-appcontainer-hardening']);
   expect(selection.reasons).toEqual(['ownership-impact']);
   expect(selection.resolved).toBe(true);
