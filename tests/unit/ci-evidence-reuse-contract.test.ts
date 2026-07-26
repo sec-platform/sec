@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 
 import { expect, test } from 'bun:test';
 
@@ -18,6 +18,19 @@ const WORK_PACKAGE_ID = 'ci-v7-evidence-composition-bootstrap-v1';
 const RUNTIME = 'bun@1.3.6';
 const CURRENT_HEAD = '3'.repeat(40);
 const CURRENT_TREE = '4'.repeat(40);
+
+function headBlob(file: string): Buffer {
+  const result = spawnSync('git', ['cat-file', 'blob', `HEAD:${file}`], {
+    cwd: process.cwd(),
+    encoding: null,
+    windowsHide: true
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`Unable to read exact HEAD blob ${file}: ${String(result.stderr)}`);
+  }
+  return result.stdout;
+}
 
 function policy(): CodexDevelopmentEvidenceCompositionPolicyV1 {
   return CodexDevelopmentSyntheticEvidenceCompositionPolicyV1();
@@ -97,10 +110,10 @@ test('registered synthetic policy partitions every original title scope before e
 });
 
 test('synthetic immutable PASS fixture binds its exact pretty raw bytes', () => {
-  const attributes = readFileSync('.gitattributes', 'utf8').split(/\r?\n/u);
+  const attributes = headBlob('.gitattributes').toString('utf8').split('\n');
   expect(attributes).toContain('/tests/fixtures/ci-evidence-reuse/synthetic-pass.json text eol=lf');
-  const source = readFileSync('tests/fixtures/ci-evidence-reuse/synthetic-pass.json', 'utf8');
-  expect(source).toBe(CodexDevelopmentSyntheticReusableEvidenceSourceV1);
+  const source = headBlob('tests/fixtures/ci-evidence-reuse/synthetic-pass.json');
+  expect(source).toEqual(Buffer.from(CodexDevelopmentSyntheticReusableEvidenceSourceV1, 'utf8'));
   expect(CodexDevelopmentEvidenceCompositionRawDigestV1(source)).toBe(
     policy().reusedEvidence[0]!.evidenceDigest
   );

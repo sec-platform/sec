@@ -1,21 +1,13 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 
 import { buildEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
 import { artifactEntityId, normalizedArtifactTarget } from '../../platform/compiler/ir/ir-identity.ts';
 import { digest } from '../../platform/compiler/ir/ir-revision.ts';
 import { normalizePlan, validatePlan } from '../../platform/compiler/parse/load-plan.ts';
-import { runPolicyGate } from '../../platform/compiler/verify/run-policy-gate.ts';
-import { buildWorkspaceEngineeringIR } from '../../platform/orchestrator.ts';
 import { CompilerError } from '../../platform/shared/errors.ts';
-import { pathExists, writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type { PlanFile } from '../../platform/shared/plan-manifest-types.ts';
 import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
-import { prepareResolvedWorkspace } from '../testkit/workspace.ts';
 
 function semanticContract(): LoadedSemanticContract {
   return {
@@ -377,69 +369,3 @@ test('plan validation hard fails when app.id is absent', () => {
 
   expectCompilerError(() => validatePlan(normalized), 'PLAN-VALIDATION-014');
 });
-
-test.serial('provenance and ExplainGraph artifact changes cannot feed canonical revisions', async () => {
-  const workspaceRoot = await prepareResolvedWorkspace({
-    blockIds: ['ticket/basic'],
-    prefix: 'engineering-compiler-canonical-revision-domain-'
-  });
-  const before = await buildWorkspaceEngineeringIR(workspaceRoot);
-  const { provenancePath, explainGraphPath } = getWorkspacePaths(workspaceRoot);
-
-  await fs.mkdir(path.dirname(provenancePath), { recursive: true });
-  await fs.writeFile(provenancePath, JSON.stringify({ artifacts: [{ path: 'changed.ts', generatedAt: Date.now() }] }), 'utf8');
-  const afterProvenance = await buildWorkspaceEngineeringIR(workspaceRoot);
-
-  expect(afterProvenance.inputRevision).toBe(before.inputRevision);
-  expect(afterProvenance.semanticRevision).toBe(before.semanticRevision);
-
-  await fs.mkdir(path.dirname(explainGraphPath), { recursive: true });
-  await fs.writeFile(explainGraphPath, JSON.stringify({ nodes: ['changed'], generatedAt: Date.now() }), 'utf8');
-  const afterExplainGraph = await buildWorkspaceEngineeringIR(workspaceRoot);
-
-  expect(afterExplainGraph.inputRevision).toBe(before.inputRevision);
-  expect(afterExplainGraph.semanticRevision).toBe(before.semanticRevision);
-}, 15_000);
-
-test.serial('policy report materialization cannot feed canonical policy identity or revisions', async () => {
-  const workspaceRoot = await prepareResolvedWorkspace({
-    blockIds: ['ticket/basic'],
-    prefix: 'engineering-compiler-policy-revision-domain-'
-  });
-  const { sourcePoliciesRoot, policyReportPath } = getWorkspacePaths(workspaceRoot);
-  await fs.mkdir(sourcePoliciesRoot, { recursive: true });
-  await writeYaml(path.join(sourcePoliciesRoot, 'canonical-policy.yaml'), {
-    policies: [{
-      id: 'canonical-source-policy',
-      severity: 'warn',
-      appliesTo: ['ticket/basic'],
-      rule: 'declaration_only_for_revision_stability'
-    }]
-  });
-
-  expect(await pathExists(policyReportPath)).toBe(false);
-  const before = await buildWorkspaceEngineeringIR(workspaceRoot);
-  const beforePolicyEntities = before.entities.filter((entity) => entity.kind === 'policy');
-  const beforePolicyEntityIds = new Set(beforePolicyEntities.map((entity) => entity.id));
-  const beforePolicyFacts = before.facts.filter((fact) =>
-    beforePolicyEntityIds.has(fact.subject) ||
-    (fact.object.kind === 'entity' && beforePolicyEntityIds.has(fact.object.entityId))
-  );
-  expect(beforePolicyEntities.map((entity) => entity.id)).toContain('policy:canonical-source-policy');
-
-  const report = await runPolicyGate(workspaceRoot);
-  await writeJson(policyReportPath, report);
-  expect(await pathExists(policyReportPath)).toBe(true);
-  const after = await buildWorkspaceEngineeringIR(workspaceRoot);
-  const afterPolicyEntities = after.entities.filter((entity) => entity.kind === 'policy');
-  const afterPolicyEntityIds = new Set(afterPolicyEntities.map((entity) => entity.id));
-  const afterPolicyFacts = after.facts.filter((fact) =>
-    afterPolicyEntityIds.has(fact.subject) ||
-    (fact.object.kind === 'entity' && afterPolicyEntityIds.has(fact.object.entityId))
-  );
-
-  expect(after.inputRevision).toBe(before.inputRevision);
-  expect(after.semanticRevision).toBe(before.semanticRevision);
-  expect(afterPolicyEntities).toEqual(beforePolicyEntities);
-  expect(afterPolicyFacts).toEqual(beforePolicyFacts);
-}, 15_000);

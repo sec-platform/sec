@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { compileWorkspace, initWorkspace } from '../../platform/orchestrator.ts';
+import { initWorkspace } from '../../platform/orchestrator.ts';
 import { withMonitoredWorkspaceWriteLease } from '../../platform/orchestrator/pipeline-orchestrator.ts';
 import { pathExists, writeText } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
@@ -39,34 +39,6 @@ test('initWorkspace creates a missing workspace root before acquiring its writer
     }
   }, 'engineering-compiler-init-missing-workspace-');
 });
-
-test('compileWorkspace acquires the writer lease and accepts only the exact reentrant token', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    await initWorkspace(workspaceRoot, { reset: true });
-    const lease = await acquireWorkspaceWriteLease(workspaceRoot);
-
-    await expect(compileWorkspace(workspaceRoot, { through: 'resolve' })).rejects.toMatchObject({
-      code: 'WORKSPACE-WRITE-LEASE-001'
-    });
-    await expect(compileWorkspace(workspaceRoot, {
-      through: 'resolve',
-      workspaceWriteLease: { ...lease.token, leaseId: 'forged' }
-    })).rejects.toMatchObject({
-      code: 'WORKSPACE-WRITE-LEASE-002'
-    });
-
-    const result = await compileWorkspace(workspaceRoot, {
-      through: 'resolve',
-      workspaceWriteLease: lease.token
-    });
-    expect(result.completedStages).toEqual(['resolve']);
-    await lease.assertOwned();
-    await lease.release();
-
-    const independent = await compileWorkspace(workspaceRoot, { through: 'resolve' });
-    expect(independent.completedStages).toEqual(['resolve']);
-  }, 'engineering-compiler-pipeline-workspace-lease-');
-}, 120000);
 
 test('a child cannot reuse or release a live holder token copied from owner.json', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

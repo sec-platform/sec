@@ -127,6 +127,24 @@ test('test impact assigns focused governance and frozen work-package ownership',
   }
 });
 
+test('test impact keeps managed Git hooks fast contract coverage and slow real-repository acceptance distinct', () => {
+  const sources = [
+    'scripts/install-git-hooks.ts',
+    'platform/dev-runner/dependency-bootstrap.ts',
+    '.githooks/pre-commit'
+  ];
+  const selection = selectTestsForSources(sources);
+
+  expect(selection.owners).toEqual(['auto-reference', 'managed-git-hooks']);
+  expect(selection.fast).toEqual([
+    'tests/contract/test-impact.test.ts',
+    'tests/integration/project-runtime.test.ts',
+    'tests/unit/dev-runner-dependency-bootstrap.test.ts',
+    'tests/unit/install-git-hooks.test.ts'
+  ]);
+  expect(selection.slow).toEqual(['tests/e2e/install-git-hooks.test.ts']);
+});
+
 test('test impact selector includes tests that dynamically import changed sources', () => {
   const selection = selectTestsForSources(['platform/dev-runner/test-runner.ts']);
 
@@ -330,7 +348,7 @@ test('test impact selector keeps Windows AppContainer as optional hardening cove
     'tests/unit/windows-appcontainer-hardening-static.test.ts',
     'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'
   ]);
-  expect(selection.slow).toEqual([]);
+  expect(selection.slow).toEqual(['tests/e2e/windows-appcontainer-executor.test.ts']);
   for (const source of sources) {
     expect(resolveTestOwnership([source]).filter(
       (entry) => entry.owner === 'windows-appcontainer-hardening'
@@ -340,6 +358,25 @@ test('test impact selector keeps Windows AppContainer as optional hardening cove
       identity: { kind: 'architecture-owner', id: 'windows-appcontainer-hardening' }
     }]);
   }
+});
+
+test('test impact selector binds Windows browser launch contracts to production host acceptance', () => {
+  const source = 'platform/compiler/verify/windows-browser-launch-path.ts';
+  const selection = selectTestsForSources([source]);
+
+  expect(selection.owners).toEqual(['windows-browser-launch-path']);
+  expect(selection.fast).toEqual([
+    'tests/contract/test-architecture.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/runtime-verification.test.ts',
+    'tests/unit/windows-browser-launch-path.test.ts'
+  ]);
+  expect(selection.slow).toEqual(['tests/e2e/runtime-host.test.ts']);
+  expect(resolveTestOwnership([source])).toContainEqual({
+    source,
+    owner: 'windows-browser-launch-path',
+    identity: { kind: 'architecture-owner', id: 'windows-browser-launch-path' }
+  });
 });
 
 test('test impact selector gives the shared observed-process lifecycle a neutral owner', () => {

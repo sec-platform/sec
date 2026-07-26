@@ -23,6 +23,21 @@ const WORK_PACKAGE_FIXTURE_FAST_TESTS = [
 
 export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
+    owner: 'managed-git-hooks',
+    identity: { kind: 'architecture-owner', id: 'managed-git-hooks' },
+    sourceFiles: [
+      'scripts/install-git-hooks.ts',
+      'platform/dev-runner/dependency-bootstrap.ts'
+    ],
+    sourcePrefixes: ['.githooks/'],
+    fast: [
+      'tests/unit/install-git-hooks.test.ts',
+      'tests/integration/project-runtime.test.ts',
+      'tests/contract/test-impact.test.ts'
+    ],
+    slow: ['tests/e2e/install-git-hooks.test.ts']
+  },
+  {
     owner: 'agent-governance',
     identity: { kind: 'architecture-owner', id: 'agent-governance' },
     sourceFiles: [

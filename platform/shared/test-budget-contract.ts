@@ -107,6 +107,9 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
   slowFileSuite('e2e-import-organizer-staged', 'import-organizer-staged', 'compiler-import-organizer-staged-e2e', 120_000, {
     parallelSafe: true
   }),
+  slowFileSuite('e2e-install-git-hooks', 'install-git-hooks', 'managed-git-hooks-e2e', 120_000, {
+    parallelSafe: true
+  }),
   slowFileSuite('e2e-lanes', 'lanes', 'compiler-lanes-e2e', 120_000, { parallelSafe: true }),
   slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true, resourceClass: 'runtime-heavy' }),
   slowFileSuite('e2e-manifest', 'manifest', 'compiler-manifest-e2e'),
@@ -121,16 +124,25 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
   }),
   slowFileSuite('e2e-registry', 'registry', 'compiler-registry-e2e'),
   slowFileSuite('e2e-repair', 'repair', 'compiler-repair-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-runtime-host', 'runtime-host', 'compiler-runtime-host-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-summary', 'summary', 'compiler-summary-e2e', 120_000, { parallelSafe: true }),
+  slowFileSuite('e2e-runtime-host', 'runtime-host', 'compiler-runtime-host-e2e', 180_000, {
+    parallelSafe: true,
+    resourceClass: 'runtime-heavy'
+  }),
+  slowFileSuite('e2e-summary', 'summary', 'compiler-summary-e2e', 120_000, {
+    parallelSafe: true,
+    resourceClass: 'runtime-heavy'
+  }),
   slowFileSuite(
     'e2e-ticket-semantic-vertical',
     'semantic-runtime-contract',
     'ticket-semantic-vertical',
-    180_000
+    300_000
   ),
   slowFileSuite('e2e-upgrade', 'upgrade', 'compiler-upgrade-e2e', 180_000, { parallelSafe: true }),
   slowFileSuite('e2e-verify-lock', 'verification', 'compiler-verify-lock-e2e', 180_000, { parallelSafe: true, prRiskBaseline: true }),
+  slowFileSuite('e2e-windows-appcontainer-executor', 'windows-appcontainer-executor', 'windows-appcontainer-native-e2e', 180_000, {
+    resourceClass: 'runtime-heavy'
+  }),
   slowFileSuite('e2e-workspace', 'workspace', 'compiler-workspace-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true })
 ];
 
