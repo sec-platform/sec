@@ -94,6 +94,12 @@ export {
   semanticMutationRequestIdentityDigest,
   semanticMutationStagedTransactionId
 } from './semantic-mutation/transaction-identity.ts';
+export {
+  buildTrustedLocalSemanticMutationAuthorization,
+  type TrustedLocalSemanticMutationAuthorizationInputV1,
+  type TrustedLocalSemanticMutationAuthorizationResultV1,
+  type TrustedLocalSemanticMutationPolicyDraftV1
+} from './semantic-mutation/trusted-authorization-ingress.ts';
 export { buildSemanticMutationVerificationPlanningContext } from './semantic-mutation/verification-policy.ts';
 export { buildSemanticGeneratorPlan } from './semantic-plan.ts';
 export { assertIsolatedStagingTree } from './verify/assert-isolated-staging-tree.ts';

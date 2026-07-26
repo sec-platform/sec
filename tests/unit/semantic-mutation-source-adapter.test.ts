@@ -5,14 +5,17 @@ import { expect, test } from 'bun:test';
 
 import {
   buildEngineeringIR,
+  buildTrustedLocalSemanticMutationAuthorization,
   buildValidatedEngineeringIR,
   loadAuthoringSemanticContractSources,
+  normalizeSemanticMutationRequest,
   planSemanticMutationSourceEdit,
   preflightSemanticMutation,
   renderSemanticMutationSourceEdit,
   type BuildEngineeringIRInput,
   type SemanticMutationAuthorizationContextV2,
-  type SemanticMutationRequestV2
+  type SemanticMutationRequestV2,
+  type TrustedLocalSemanticMutationPolicyDraftV1
 } from '../../platform/compiler/index.ts';
 import { buildSemanticContractSourceCandidate } from '../../platform/compiler/parse/load-authoring-semantic-contracts.ts';
 import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
@@ -181,6 +184,16 @@ function authorization(ownerId = 'semantic-contract-owner:item:item-core'): Sema
   return { ...draft, authorizationRevision: semanticMutationAuthorizationRevision(draft) };
 }
 
+function trustedLocalPolicy(): TrustedLocalSemanticMutationPolicyDraftV1 {
+  return {
+    allowedOperationKinds: ['add-state-transition'],
+    allowedTargetEntityIds: ['state:item:item-status'],
+    requiredPreconditions: [],
+    requiredPostconditions: [],
+    minimumVerification: []
+  };
+}
+
 function fixture(contract = loadedContract(), auth = authorization()) {
   const snapshot = buildValidatedEngineeringIR(buildInput(contract));
   const base: FactDeltaEndpointContext = {
@@ -238,6 +251,101 @@ function candidate(
 ): SemanticMutationLoadedSourceCandidateV1 {
   return buildSemanticContractSourceCandidate(sourceKind, contract);
 }
+
+test('trusted local authorization ingress derives owner/path authority from the shared source registry', () => {
+  const { contract, base, request, auth } = fixture();
+  const normalized = normalizeSemanticMutationRequest(request);
+  const result = buildTrustedLocalSemanticMutationAuthorization({
+    request: normalized,
+    base,
+    sourceCandidates: [candidate(contract)],
+    policy: trustedLocalPolicy()
+  });
+  expect(result.status).toBe('authorized');
+  if (result.status !== 'authorized') return;
+
+  expect(result.authorization).toMatchObject({
+    allowedOperationKinds: ['add-state-transition'],
+    allowedTargetEntityIds: ['state:item:item-status'],
+    allowedSourceOwnerIds: ['semantic-contract-owner:item:item-core'],
+    allowedPathPrefixes: ['source/model/'],
+    requiredPreconditions: [],
+    requiredPostconditions: [],
+    minimumVerification: []
+  });
+  expect('taskId' in result.authorization).toBe(false);
+  expect('envelopeRevision' in result.authorization).toBe(false);
+  expect(Object.isFrozen(result)).toBe(true);
+  expect(Object.isFrozen(result.authorization)).toBe(true);
+  expect(Object.isFrozen(result.authorization.allowedSourceOwnerIds)).toBe(true);
+  const { authorizationRevision, ...authorizationDraft } = result.authorization;
+  expect(authorizationRevision).toBe(semanticMutationAuthorizationRevision(authorizationDraft));
+
+  const manuallyAuthorized = resolveSemanticMutationSource(normalized, base, auth, [candidate(contract)]);
+  const ingressAuthorized = resolveSemanticMutationSource(
+    normalized,
+    base,
+    result.authorization,
+    [candidate(contract)]
+  );
+  expect(ingressAuthorized.status).toBe('resolved');
+  expect(JSON.stringify(ingressAuthorized)).toBe(JSON.stringify(manuallyAuthorized));
+});
+
+test('trusted local authorization ingress rejects caller authority fields and unresolved source ownership', () => {
+  const { contract, base, request } = fixture();
+  const normalized = normalizeSemanticMutationRequest(request);
+  const input = {
+    request: normalized,
+    base,
+    sourceCandidates: [candidate(contract)],
+    policy: trustedLocalPolicy()
+  };
+
+  for (const [field, value] of [
+    ['authorizationRevision', 'sha256:forged'],
+    ['taskId', 'task:caller'],
+    ['envelopeRevision', 'envelope:caller'],
+    ['allowedSourceOwnerIds', ['semantic-contract-owner:item:item-core']],
+    ['allowedPathPrefixes', ['source/model/']]
+  ] as const) {
+    expect(() => buildTrustedLocalSemanticMutationAuthorization({
+      ...input,
+      policy: { ...input.policy, [field]: value } as never
+    })).toThrow('forbidden authority fields');
+  }
+
+  expect(() => buildTrustedLocalSemanticMutationAuthorization({
+    ...input,
+    policy: {
+      ...input.policy,
+      allowedTargetEntityIds: ['state:item:z', 'state:item:a']
+    }
+  })).toThrow('canonical order');
+
+  const forged = candidate(contract);
+  const sourceSets = [
+    [] as SemanticMutationLoadedSourceCandidateV1[],
+    [candidate(contract, 'workspace-registry')],
+    [candidate(contract, 'compiler-registry')],
+    [candidate(contract), candidate(contract)],
+    [{ ...forged, sourceRevision: 'sha256:'.padEnd(71, '1') }]
+  ];
+  for (const sourceCandidates of sourceSets) {
+    expect(buildTrustedLocalSemanticMutationAuthorization({
+      ...input,
+      sourceCandidates
+    }).status).toBe('rejected');
+  }
+
+  expect(buildTrustedLocalSemanticMutationAuthorization({
+    ...input,
+    policy: {
+      ...input.policy,
+      allowedTargetEntityIds: ['state:item:other']
+    }
+  }).status).toBe('rejected');
+});
 
 test('SM-2 plans one deterministic YAML edit and preserves comments, BOM, CRLF, and final-newline policy', async () => {
   await withTempWorkspace(async (root) => {

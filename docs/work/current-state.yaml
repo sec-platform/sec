@@ -42,7 +42,19 @@ stableFacts:
     - docs-doctor-v5-semantic-superset
 
   runtimeReconciliation:
-    completionStatus: not-in-main
+    completionStatus: in-main
+    integratedMainSha: 470f2172dca8ff443efb854bdbc78cd888d53c87
+    mergedPullRequest: 143
+    mergedCandidateHead: 842c864536c24e28afd26db7b003a210d741ada3
+    canonicalAffectedResult: passed
+    risk:
+      revision: ci-verification-v11
+      result: passed
+      gateCount: 12
+      durationMs: 479245
+    independentArchitectureReview: passed
+    integrationMode: manual-bootstrap-squash
+    absorbedPullRequest: 137
     frozenFailedCandidate:
       commit: 3a72882151072ca96a83d974d01acc0b033fdd1a
       canonicalAffected:
@@ -212,3 +224,12 @@ stableFacts:
         - exact-owner-runtime-import-boundary-unregistered
         - failed-host-authority-acquisition-cleanup-unproven
       completionEvidence: false
+
+  sm4aReconciliation:
+    completionStatus: not-in-main
+    phase: P1
+    retainedSourceCommit: bca9102
+    retainedSourceBranch: codex/sm4a-trusted-authorization-ingress-v1-v9
+    replayBase: 470f2172dca8ff443efb854bdbc78cd888d53c87
+    replayPathCount: 5
+    oldControlPlaneReplayAllowed: false
