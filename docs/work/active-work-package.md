@@ -10,8 +10,8 @@ last-reviewed: 2026-07-26
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/hot-typecheck-incremental-cache-v1.md
-manifestDigest: sha256:3ac0bdf3802f14c8cc83f9435d437e20b8280a2ebb7eefd6fa311eb68f3ff053
+manifest: docs/work-packages/hot-import-feedback-v1.md
+manifestDigest: sha256:31a5268a118d717531c038c569d87363a8219480c0fad334d6a31baedcbe09de
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

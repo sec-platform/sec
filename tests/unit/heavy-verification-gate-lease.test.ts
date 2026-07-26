@@ -121,12 +121,14 @@ test('heavy verification gate never reclaims an owner from another host', async 
 
 test('affected and Risk CLI entrypoints share the same outer heavy-gate owner', async () => {
   const [devRunnerSource, riskSource, leaseSource] = await Promise.all([
-    readFile(path.join(compilerRoot, 'platform/dev-runner.ts'), 'utf8'),
-    readFile(path.join(compilerRoot, 'scripts/ci-pr-risk.ts'), 'utf8'),
+    readFile(path.join(compilerRoot, 'platform/dev-runner.ts'), 'utf8')
+      .then((source) => source.replaceAll('\r\n', '\n')),
+    readFile(path.join(compilerRoot, 'scripts/ci-pr-risk.ts'), 'utf8')
+      .then((source) => source.replaceAll('\r\n', '\n')),
     readFile(
       path.join(compilerRoot, 'platform/shared/heavy-verification-gate-lease.ts'),
       'utf8'
-    )
+    ).then((source) => source.replaceAll('\r\n', '\n'))
   ]);
   expect(devRunnerSource).toContain(
     "withHeavyVerificationGateLease(\n      'test:affected',\n      () => runAffectedTests(args)"
@@ -134,11 +136,14 @@ test('affected and Risk CLI entrypoints share the same outer heavy-gate owner', 
   const affectedEntryIndex = devRunnerSource.indexOf("if (target === 'test:affected')");
   const planBypassIndex = devRunnerSource.indexOf("if (args.length === 1 && args[0] === '--plan')");
   const leaseIndex = devRunnerSource.indexOf("withHeavyVerificationGateLease(\n      'test:affected'");
-  const dependencyBootstrapIndex = devRunnerSource.indexOf('const dependencies = await ensureDevDependencies();');
+  const dependencyBootstrapIndex = devRunnerSource.indexOf('const dependencies = await ensureDevDependencies({');
   expect(affectedEntryIndex).toBeGreaterThanOrEqual(0);
   expect(planBypassIndex).toBeGreaterThan(affectedEntryIndex);
   expect(leaseIndex).toBeGreaterThan(planBypassIndex);
   expect(dependencyBootstrapIndex).toBeGreaterThan(leaseIndex);
+  expect(devRunnerSource.slice(dependencyBootstrapIndex)).toContain(
+    "hookPolicy: target === 'deps:ensure' ? 'always' : 'if-installed'"
+  );
   expect(devRunnerSource.slice(planBypassIndex, leaseIndex)).toContain(
     'process.exitCode = await runAffectedTests(args);'
   );
