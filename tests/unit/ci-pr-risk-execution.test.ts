@@ -58,7 +58,7 @@ test('CI risk argv failures still atomically project failed Evidence V2', async 
   expect(code).toBe(1);
   expect(captured.evidence).toMatchObject({
     schema: 'codex-development-verification-evidence-v2',
-    contractRevision: 'ci-verification-v14',
+    contractRevision: 'ci-verification-v15',
     kind: 'risk',
     profile: 'risk',
     headSha: HEAD,
@@ -268,7 +268,7 @@ for (const scenario of [
     expect(writes).toBe(1);
     expect(captured.evidence).toMatchObject({
       schema: 'codex-development-verification-evidence-v2',
-      contractRevision: 'ci-verification-v14',
+      contractRevision: 'ci-verification-v15',
       kind: 'risk',
       status: 'failed'
     });
