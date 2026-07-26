@@ -57,7 +57,7 @@ test('CI contract counts and produced paths are self-consistent', () => {
 test('CI contract text exposes execution and logical lane split for workflow audits', () => {
   const formatted = formatCiContract(buildCiContract());
 
-  expect(formatted).toContain('Verification contract revision: ci-verification-v11');
+  expect(formatted).toContain('Verification contract revision: ci-verification-v12');
   expect(formatted).toContain('Execution model: frozen-delivery-single-runner');
   expect(formatted).toContain('PR workflow event: repository_dispatch');
   expect(formatted).toContain('PR dispatch type: sec-verify-frozen-v1');
@@ -294,7 +294,10 @@ test('local affected runner shares canonical changed-file parsing and impact own
   expect(source).toContain('gitUntrackedFileArgs');
   expect(source).toContain('parseGitChangedFileOutput');
   expect(source).toContain("from '../shared/affected-test-inventory.ts'");
+  expect(source).toContain("from '../shared/ci-pr-risk-selection.ts'");
   expect(source).toContain('CodexDevelopmentBuildAffectedTestInventoryV1(files)');
+  expect(source).toContain('selectCiPrRiskSlowSuites(files)');
+  expect(source).toContain('selectCiPrRiskSlowSuites([file])');
   expect(source).not.toContain('isTestImpactSourceFile');
   expect(source).not.toContain('function impactSourceFile');
   expect(source).not.toContain("['diff', '--name-only', '--diff-filter=ACMR'");

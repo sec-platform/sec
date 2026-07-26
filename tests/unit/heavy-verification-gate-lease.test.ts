@@ -131,6 +131,17 @@ test('affected and Risk CLI entrypoints share the same outer heavy-gate owner', 
   expect(devRunnerSource).toContain(
     "withHeavyVerificationGateLease(\n      'test:affected',\n      () => runAffectedTests(args)"
   );
+  const affectedEntryIndex = devRunnerSource.indexOf("if (target === 'test:affected')");
+  const planBypassIndex = devRunnerSource.indexOf("if (args.length === 1 && args[0] === '--plan')");
+  const leaseIndex = devRunnerSource.indexOf("withHeavyVerificationGateLease(\n      'test:affected'");
+  const dependencyBootstrapIndex = devRunnerSource.indexOf('const dependencies = await ensureDevDependencies();');
+  expect(affectedEntryIndex).toBeGreaterThanOrEqual(0);
+  expect(planBypassIndex).toBeGreaterThan(affectedEntryIndex);
+  expect(leaseIndex).toBeGreaterThan(planBypassIndex);
+  expect(dependencyBootstrapIndex).toBeGreaterThan(leaseIndex);
+  expect(devRunnerSource.slice(planBypassIndex, leaseIndex)).toContain(
+    'process.exitCode = await runAffectedTests(args);'
+  );
   expect(riskSource).toContain(
     "withHeavyVerificationGateLease('ci:risk', () => CodexDevelopmentCiPrRiskMain())"
   );
