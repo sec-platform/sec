@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { compilerRoot } from '../../platform/shared/paths.ts';
 import {
   acquireWindowsBrowserLaunchHostAuthorityForTests,
   proveWindowsHostDirectoryAuthorityForTests
@@ -27,6 +28,128 @@ test.skipIf(process.platform !== 'win32')(
   }
   }
 );
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows browser launch host acquisition rejects a no-op cleanup with exact residue evidence',
+  async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-noop-cleanup-'));
+  try {
+    const result = await acquireWindowsBrowserLaunchHostAuthorityForTests(
+      root,
+      async () => {
+        throw new Error('synthetic-acl-hardening-failure');
+      },
+      async () => undefined
+    ).catch((error: unknown) => error);
+    expect(result).toBeInstanceOf(AggregateError);
+    expect((result as AggregateError).errors.map((error) => (
+      error instanceof Error ? error.message : String(error)
+    ))).toEqual([
+      'synthetic-acl-hardening-failure',
+      'Windows host directory authority cleanup did not remove the private root'
+    ]);
+    expect(await readdir(root)).toHaveLength(1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows browser launch host acquisition preserves a replacement directory',
+  async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-replacement-'));
+  let replacementPath = '';
+  try {
+    const result = await acquireWindowsBrowserLaunchHostAuthorityForTests(
+      root,
+      async (directoryPath) => {
+        replacementPath = directoryPath;
+        await rmdir(directoryPath);
+        await mkdir(directoryPath);
+        throw new Error('synthetic-post-replacement-failure');
+      }
+    ).catch((error: unknown) => error);
+    expect(result).toBeInstanceOf(AggregateError);
+    expect((result as AggregateError).errors.map((error) => (
+      error instanceof Error ? error.message : String(error)
+    ))).toEqual([
+      'synthetic-post-replacement-failure',
+      'Windows host directory authority changed before cleanup'
+    ]);
+    expect(await readdir(root)).toEqual([path.basename(replacementPath)]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows browser launch host acquisition never issues authority for a harden-time replacement',
+  async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-harden-replacement-'));
+  let replacementPath = '';
+  try {
+    const result = await acquireWindowsBrowserLaunchHostAuthorityForTests(
+      root,
+      async (directoryPath) => {
+        replacementPath = directoryPath;
+        await rmdir(directoryPath);
+        await mkdir(directoryPath);
+        return {
+          aclDigest: 'sha256:replacement',
+          ownerSid: 'S-1-5-21-replacement'
+        };
+      }
+    ).catch((error: unknown) => error);
+    expect(result).toBeInstanceOf(AggregateError);
+    expect((result as AggregateError).errors.map((error) => (
+      error instanceof Error ? error.message : String(error)
+    ))).toEqual([
+      'Windows host directory authority changed during ACL hardening',
+      'Windows host directory authority changed before cleanup'
+    ]);
+    expect(await readdir(root)).toEqual([path.basename(replacementPath)]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+  }
+);
+
+test.skipIf(process.platform !== 'win32')(
+  'Windows browser launch host release proves the exact private root is absent',
+  async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-windows-host-release-'));
+  try {
+    const authority = await acquireWindowsBrowserLaunchHostAuthorityForTests(
+      root,
+      async () => ({
+        aclDigest: 'sha256:stable',
+        ownerSid: 'S-1-5-21-stable'
+      })
+    );
+    const privateRoot = authority.rootPath;
+    await authority.release();
+    const error = await lstat(privateRoot).then(
+      () => undefined,
+      (caught: unknown) => caught
+    );
+    expect(error).toMatchObject({ code: 'ENOENT' });
+    expect(await readdir(root)).toEqual([]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+  }
+);
+
+test('Windows host ACL proof trusts no wildcard capability writer SID', async () => {
+  const source = await readFile(
+    path.join(compilerRoot, 'platform/shared/windows-host-filesystem-authority.ts'),
+    'utf8'
+  );
+  expect(source).not.toContain('S-1-15-3-');
+  expect(source).toContain('$trustedSids.Contains($sid)');
+});
 
 test.skipIf(process.platform !== 'win32')(
   'Windows browser launch host acquisition preserves primary and cleanup failures',

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -7,11 +8,52 @@ import {
   materializePlaywrightBrowserCache,
   resolveExternalNodeRuntimeAuthority
 } from '../../platform/shared/project-runtime.ts';
+import {
+  EXACT_PLAYWRIGHT_PACKAGE_NAMES,
+  type ExactPlaywrightPackageName
+} from '../../platform/shared/runtime-dependency-spec.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-async function writePlaywrightCli(projectRoot: string): Promise<string> {
+const PLAYWRIGHT_RELEASE = '1.59.1';
+
+function playwrightPackageManifest(name: ExactPlaywrightPackageName, version = PLAYWRIGHT_RELEASE): string {
+  return JSON.stringify({ name, version });
+}
+
+function playwrightPackageClosure() {
+  const packages = EXACT_PLAYWRIGHT_PACKAGE_NAMES.map((name) => ({
+    manifestSha256: createHash('sha256')
+      .update(playwrightPackageManifest(name))
+      .digest('hex'),
+    name,
+    version: PLAYWRIGHT_RELEASE
+  }));
+  const release = PLAYWRIGHT_RELEASE;
+  return {
+    packages,
+    release,
+    revision: `sha256:${createHash('sha256').update(JSON.stringify({
+      domain: 'playwright-package-authority-v1',
+      packages,
+      release
+    })).digest('hex')}`
+  };
+}
+
+async function writePlaywrightCli(
+  projectRoot: string,
+  versions: Partial<Record<ExactPlaywrightPackageName, string>> = {}
+): Promise<string> {
   const playwrightCli = path.join(projectRoot, 'node_modules', 'playwright', 'cli.js');
-  await fs.mkdir(path.dirname(playwrightCli), { recursive: true });
+  await Promise.all(EXACT_PLAYWRIGHT_PACKAGE_NAMES.map(async (name) => {
+    const packageRoot = path.join(projectRoot, 'node_modules', ...name.split('/'));
+    await fs.mkdir(packageRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(packageRoot, 'package.json'),
+      playwrightPackageManifest(name, versions[name] ?? PLAYWRIGHT_RELEASE),
+      'utf8'
+    );
+  }));
   await fs.writeFile(playwrightCli, 'fixture\n', 'utf8');
   return playwrightCli;
 }
@@ -53,6 +95,23 @@ function isNodeAuthorityProbe(args: string[]): boolean {
 
 function isPlaywrightRegistryProbe(args: string[]): boolean {
   return args[0] === '-e' && args.length === 3;
+}
+
+function browserRuntimeAuthority(
+  browserCachePath: string,
+  browserExecutablePath: string,
+  nodeExecutablePath: string
+) {
+  return {
+    browserCachePath,
+    browserExecutablePath,
+    browserExecutableRelativePath: 'current-browser/headless-shell',
+    externalNode: {
+      executablePath: nodeExecutablePath,
+      version: '24.15.0'
+    },
+    playwrightPackageClosure: playwrightPackageClosure()
+  };
 }
 
 describe('Playwright browser cache materialization', () => {
@@ -182,7 +241,9 @@ describe('Playwright browser cache materialization', () => {
         }
       }, tempRoot);
 
-      expect(ready).toEqual({ browserCachePath, browserExecutablePath });
+      expect(ready).toEqual(
+        browserRuntimeAuthority(browserCachePath, browserExecutablePath, nodeExecutablePath)
+      );
       expect(calls).toHaveLength(4);
       expect(calls.every(({ command }) => command === nodeExecutablePath)).toBe(true);
       expect(calls.filter(({ args }) => isPlaywrightRegistryProbe(args))).toHaveLength(2);
@@ -203,6 +264,25 @@ describe('Playwright browser cache materialization', () => {
       await expect(fs.stat(path.join(tempRoot, '.shared-deps', 'playwright-browser-install.lock')))
         .rejects.toMatchObject({ code: 'ENOENT' });
     }, 'engineering-compiler-playwright-cache-');
+  });
+
+  test('rejects Playwright package release drift before registry selection or installation', async () => {
+    for (const packageName of EXACT_PLAYWRIGHT_PACKAGE_NAMES) {
+      await withTempWorkspace(async (tempRoot) => {
+        await writePlaywrightCli(tempRoot, { [packageName]: '1.59.0' });
+        const nodeExecutablePath = await writeNodeRuntime(tempRoot);
+        let registryOrInstallCalls = 0;
+        await expect(materializePlaywrightBrowserCache({
+          commandRunner: async (_command, args) => {
+            if (isNodeAuthorityProbe(args)) return nodeAuthorityResult(nodeExecutablePath);
+            registryOrInstallCalls += 1;
+            return { code: 0, stdout: '', stderr: '' };
+          },
+          nodeExecutablePath
+        }, tempRoot)).rejects.toMatchObject({ code: 'RUNTIME-DEPS-000' });
+        expect(registryOrInstallCalls).toBe(0);
+      }, `engineering-compiler-playwright-release-${packageName.replaceAll('/', '-')}-`);
+    }
   });
 
   test('requires one positive bounded installer timeout and forwards an explicit override', async () => {
@@ -331,8 +411,7 @@ describe('Playwright browser cache materialization', () => {
 
       installCode = 0;
       await expect(ensurePlaywrightBrowserCacheReady({ commandRunner, nodeExecutablePath }, tempRoot)).resolves.toEqual({
-        browserCachePath,
-        browserExecutablePath
+        ...browserRuntimeAuthority(browserCachePath, browserExecutablePath, nodeExecutablePath)
       });
     }, 'engineering-compiler-playwright-cache-retry-');
   });

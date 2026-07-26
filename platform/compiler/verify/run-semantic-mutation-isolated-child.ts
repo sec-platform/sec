@@ -32,8 +32,8 @@ import {
   type CommandResult
 } from '../../shared/process.ts';
 import {
+  ensurePlaywrightBrowserCacheReady,
   ensureSharedDepsReady,
-  resolveExternalNodeRuntimeAuthority
 } from '../../shared/project-runtime.ts';
 import { isCanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
 import type {
@@ -495,7 +495,6 @@ export function resolveCanonicalSemanticMutationIsolatedRuntimeInputSources(
 ): SemanticMutationIsolatedRuntimeSourcePaths {
   const dependencySources = resolveIsolatedRuntimeDependencySources();
   return Object.freeze({
-    browserCache: dependencySources.browserCache,
     compilerModulesRoot: dependencySources.compilerModulesRoot,
     compilerPackage: path.join(compilerRoot, 'package.json'),
     composeTemplates: path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates'),
@@ -508,10 +507,10 @@ export function resolveCanonicalSemanticMutationIsolatedRuntimeInputSources(
 export async function prepareCanonicalSemanticMutationIsolatedRuntimeInputSources(
 ): Promise<SemanticMutationIsolatedRuntimeInputSources> {
   await ensureSharedDepsReady();
-  const externalNode = await resolveExternalNodeRuntimeAuthority();
+  const browserRuntime = await ensurePlaywrightBrowserCacheReady();
   return Object.freeze({
     ...resolveCanonicalSemanticMutationIsolatedRuntimeInputSources(),
-    externalNode
+    browserRuntime
   });
 }
 
@@ -1295,7 +1294,6 @@ export function createSemanticMutationIsolatedRunnerBundleLoaderForTests(
 }
 
 export interface SemanticMutationIsolatedRuntimeCapabilityProbeOptions {
-  readonly browserCacheSource?: string;
   readonly buildRunnerBundle?: SemanticMutationIsolatedRunnerBundleBuilder;
   /** Internal test seam. Product callers cannot supply isolated runtime paths. */
   readonly runtimeInputSources?: SemanticMutationIsolatedRuntimeInputSources;
@@ -1362,11 +1360,6 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
 ): Promise<{ readonly status: 'available' | 'unavailable' }> {
   try {
     const optionDescriptors = Object.getOwnPropertyDescriptors(options);
-    const browserCacheSource = ownDataOption<string>(
-      optionDescriptors,
-      'browserCacheSource',
-      'Isolated runtime capability probe options'
-    );
     const buildRunnerBundle = ownDataOption<SemanticMutationIsolatedRunnerBundleBuilder>(
       optionDescriptors,
       'buildRunnerBundle',
@@ -1377,11 +1370,10 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
       'runtimeInputSources',
       'Isolated runtime capability probe options'
     );
-    const canonicalProductionProbe = browserCacheSource === undefined &&
+    const canonicalProductionProbe =
       buildRunnerBundle === undefined && runtimeInputSources === undefined;
     const sources = runtimeInputSources ??
       await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources();
-    const browserCache = browserCacheSource ?? sources.browserCache;
     if (!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)) {
       throw new Error('Isolated verification requires a controlled staging workspace');
     }
@@ -1400,7 +1392,6 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
     const capability = await withCapabilityPreparationBoundary(
       'capability-issue',
       async () => await issueSemanticMutationIsolatedRuntimeCapability({
-        browserCache,
         compilerRegistries,
         runnerBundle: bundle,
         sources,

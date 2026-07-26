@@ -378,10 +378,12 @@ async function createBrowserLaunchPathLease(
   if (!hostAuthority) {
     throw new Error('Windows browser launch host authority is unavailable');
   }
+  await hostAuthority.assertCurrent();
   const temporaryAuthority = await physicalDirectory(
     hostAuthority.rootPath,
     'Browser launch host authority'
   );
+  await hostAuthority.assertCurrent();
   const leaseRoot = await mkdtemp(path.join(
     temporaryAuthority.realPath,
     WINDOWS_BROWSER_LAUNCH_PREFIX

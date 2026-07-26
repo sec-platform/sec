@@ -739,6 +739,18 @@ function appendRuntimeAcceptanceServerDiagnostic(current: string, chunk: unknown
   return (current + String(chunk)).slice(0, RUNTIME_ACCEPTANCE_SERVER_DIAGNOSTIC_LIMIT);
 }
 
+function runtimeAcceptanceDirectChildReportedReady(stdout: string, stderr: string): boolean {
+  return /(?:^|\r?\n).*Ready in [0-9]/u.test(`${stdout}\n${stderr}`);
+}
+
+/** Test-only direct-child readiness ownership seam. */
+export function runtimeAcceptanceDirectChildReportedReadyForTests(
+  stdout: string,
+  stderr: string
+): boolean {
+  return runtimeAcceptanceDirectChildReportedReady(stdout, stderr);
+}
+
 function runtimeAcceptanceServerError(message: string, stdout: string, stderr: string): Error {
   const diagnostic = [stderr.trim(), stdout.trim()].filter(Boolean).join('\n');
   return new Error(diagnostic.length > 0 ? `${message}\n${diagnostic}` : message);
@@ -787,6 +799,15 @@ export class RuntimeAcceptancePortReleaseError extends Error {
   }
 }
 
+export class RuntimeAcceptancePortOccupationError extends Error {
+  readonly code = 'VERIFY-RUNTIME-PORT-OCCUPIED' as const;
+
+  constructor(public readonly port: number) {
+    super(`Isolated runtime acceptance port ${port} is already occupied`);
+    this.name = 'RuntimeAcceptancePortOccupationError';
+  }
+}
+
 async function runtimeAcceptanceServerIsReady(port: number): Promise<boolean> {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/login`, {
@@ -811,7 +832,7 @@ async function canExclusivelyBindRuntimeAcceptancePort(port: number): Promise<bo
     server.unref();
     server.once('error', (error: NodeJS.ErrnoException) => {
       settle(() => {
-        if (error.code === 'EADDRINUSE' || error.code === 'EACCES') resolve(false);
+        if (error.code === 'EADDRINUSE') resolve(false);
         else reject(error);
       });
     });
@@ -834,12 +855,17 @@ async function assertRuntimeAcceptancePortReleased(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   do {
-    const stillServing = await runtimeAcceptanceServerIsReady(port);
-    if (!stillServing && await canExclusivelyBindRuntimeAcceptancePort(port)) return;
+    if (await canExclusivelyBindRuntimeAcceptancePort(port)) return;
     if (Date.now() >= deadline) break;
     await delayRuntimeAcceptanceServerPoll();
   } while (true);
   throw new RuntimeAcceptancePortReleaseError(port);
+}
+
+async function assertRuntimeAcceptancePortAvailable(port: number): Promise<void> {
+  if (!(await canExclusivelyBindRuntimeAcceptancePort(port))) {
+    throw new RuntimeAcceptancePortOccupationError(port);
+  }
 }
 
 /** Test-only production port-release proof seam. */
@@ -848,6 +874,11 @@ export function assertRuntimeAcceptancePortReleasedForTests(
   timeoutMs: number
 ): Promise<void> {
   return assertRuntimeAcceptancePortReleased(port, timeoutMs);
+}
+
+/** Test-only production pre-start occupation seam. */
+export function assertRuntimeAcceptancePortAvailableForTests(port: number): Promise<void> {
+  return assertRuntimeAcceptancePortAvailable(port);
 }
 
 async function delayRuntimeAcceptanceServerPoll(signal?: AbortSignal): Promise<void> {
@@ -919,9 +950,7 @@ export async function withIsolatedRuntimeAcceptanceServer<T>(
   request.signal?.throwIfAborted();
   await request.beforeSpawn?.();
   request.signal?.throwIfAborted();
-  if (await runtimeAcceptanceServerIsReady(request.port)) {
-    throw new Error('Isolated runtime acceptance port is already serving another process');
-  }
+  await assertRuntimeAcceptancePortAvailable(request.port);
   const nextModule = path.join(
     projectRoot,
     'node_modules',
@@ -958,7 +987,9 @@ export async function withIsolatedRuntimeAcceptanceServer<T>(
 
   return await withRuntimeAcceptanceCleanup(async () => {
     const deadline = Date.now() + RUNTIME_ACCEPTANCE_SERVER_START_TIMEOUT_MS;
-    while (!(await runtimeAcceptanceServerIsReady(request.port))) {
+    while (true) {
+      const httpReady = await runtimeAcceptanceServerIsReady(request.port);
+      if (httpReady && runtimeAcceptanceDirectChildReportedReady(stdout, stderr)) break;
       request.signal?.throwIfAborted();
       if (spawnError) throw spawnError;
       if (child.exitCode !== null || child.signalCode !== null) {

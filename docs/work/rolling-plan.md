@@ -6,13 +6,13 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody、GitNexus impact与exact-head Review重新计算。`6daed7a`已经真实通过唯一canonical affected，但其首次V11 Risk在Contract Freeze得到`136 pass / 1 fail`：staged runner的side-effect compiler runtime import没有登记为exact owner boundary；并行Review同时证明ACL harden/prove失败会吞掉私有root cleanup failure。该Risk永久为FAIL，slow/workspace未执行。当前active package只形成一个最终新head，登记精确owner seam并让acquisition cleanup成功无residue、失败聚合primary+cleanup；随后只运行被delta失效的最小sentinel、一次新head canonical affected与一次Risk。#142已squash merge，V5 docs-doctor semantic superset与V10 trust root已进入main。PR #137仍位于旧base且冲突，只有失败merge-gate，不能提供完成或验证授权。
+本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody、GitNexus impact与exact-head Review重新计算。`6daed7a`的唯一V11 Risk在Contract Freeze得到`136 pass / 1 fail`，该Risk永久为FAIL；`a44dc34`虽已登记exact owner seam，但独立Review继续证明private-root cleanup、Playwright三包identity、唯一browser selector/cold readiness与through-verify stage order尚未闭合。随后一次错误的affected/Risk并发又真实污染共享测试工作区、造成e2e timeout、EBUSY与孤儿进程，未形成Risk Evidence；这不是产品FAIL，而是Gate ownership缺失。当前active package已显式refreeze scope，只形成一个最终successor：同时关闭上述canonical authority seam，并让affected与Risk在同一physical worktree上zero-wait互斥。之后只运行一次focused owner batch、一次新head canonical affected，只有PASS才运行一次Risk。#142已squash merge，V5 docs-doctor semantic superset与V10 trust root已进入main。PR #137仍位于旧base且冲突，不能提供完成或验证授权。
 
 ```text
 Windows Browser Launch Path Authority V1 (active)
+→ SM-4A Trusted Authorization Ingress Reconciliation
 → Dirty Root / Branch / Worktree Reconciliation
 → Nexus Exact-tree Census Refresh
-→ SM-4A Trusted Authorization Ingress Reconciliation
 ```
 
 本计划只有一个active package与三个候选。候选不是授权、完成声明或永久Backlog；任一reload事件发生后必须从新事实整体重算。
@@ -21,30 +21,30 @@ Windows Browser Launch Path Authority V1 (active)
 
 ### windows-browser-launch-path-authority-v1
 
-- 产品结果：保留`3a72882`重建的唯一runtime/V11 authority，把Windows文件系统可访问路径与Win32可启动路径拆成两个显式合同，使Playwright只通过绑定同一staged physical cache的短期launch projection启动；父级固定proof由staged runner在实际browser pre-spawn边界重验，ambient TEMP不成为authority；isolated Next服务由SEC verifier直接拥有并证明端口可rebind，Playwright不再拥有Windows shell/taskkill teardown。
+- 产品结果：保留`3a72882`重建的唯一runtime/V11 authority，把Windows文件系统可访问路径与Win32可启动路径拆成两个显式合同；由`project-runtime`唯一证明Playwright三包、external Node、physical cache和registry-derived executable，isolated plan只消费该opaque authority；父级固定proof由staged runner在实际browser pre-spawn边界重验，ambient TEMP不成为authority；isolated Next服务由SEC verifier直接拥有并以direct-child marker、HTTP和exclusive bind共同证明ownership；affected/Risk由同一worktree heavy-gate owner串行化。
 - 根因：`\\?\`解决文件系统寻址但不能保证Chromium从超长module path读取ICU/resources；323字符staged executable失败，同一物理cache的160字符projection成功。后续修复又揭示Playwright teardown不拥有可用的Windows关闭权、test timeout早于production supervisor、project input digest把runtime stamp与Next生成文件误当authoring input。四个边界现分别由launch projection、SEC-owned direct child、deadline-derived budget与canonical derived-output classification拥有。
 - Owner：runtime plan materialization、Windows launch projection、child fixed environment与lifecycle、对应tests、docs/05和三个动态控制面；Engineering IR、process executor、installer、hooks、Goal/governance与历史evidence禁止修改。
-- 退出：projection正反/cleanup/target-swap与physical-untrusted-root合同、child pre-spawn no-spawn负例、production port occupied/双失败合同、proof micro-sentinel、repaired SM-3 sentinel、type/import/docs/control/scope、最终successor exact-head canonical affected真实PASS、其后一次Risk、独立Review与V11人工bootstrap闭合；successor进入main后#137准确标为absorbed并关闭。
+- 退出：exact package/cache/executable authority、projection正反/cleanup/target-swap与physical-untrusted-root合同、child pre-spawn no-spawn source chain、production port occupied/readiness/双失败合同、heavy-gate互斥、proof micro-sentinel、repaired SM-3 sentinel、type/import/docs/control/scope、最终successor exact-head canonical affected真实PASS、其后一次Risk、独立Review与V11人工bootstrap闭合；successor进入main后#137准确标为absorbed并关闭。
 
 ## 候选 Work Package
 
-### 1. dirty-root-and-branch-reconciliation-v1
+### 1. sm4a-trusted-authorization-ingress-reconciliation-v1
+
+- 产品结果：从retained SM-4A line与runtime successor进入后的最新main重放唯一五路径产品/测试delta，重新证明一个trusted local Workbench/CLI ingress，只覆盖既有`add-state-transition`纵向闭包。
+- 依赖：runtime successor先合并；只复用`platform/compiler/index.ts`、source adapter registry、trusted ingress与两份对应测试，不带回旧V9控制面或文档。
+- 退出：一个shared adapter进入canonical SM-3 transaction，CLI/Workbench保持薄transport，无第二authorization/source writer，真实合同与集成Gate通过；随后旧SM-4A branch才可删除。
+
+### 2. dirty-root-and-branch-reconciliation-v1
 
 - 工程结果：逐项裁决dirty root、上游Goal/replacement inputs、legacy roadmap、local branches与retained worktrees；有价值内容进入canonical owner，证明无独有内容后才删除。
 - 约束：不得reset/checkout覆盖用户bytes，不用0/0或branch名证明可删；每个ref按tree/diff/PR/consumer判断adopt/archive/retire。
 - 退出：root可安全快进；完成使命的local/remote branch与worktree物理清理；只保留仍有未合并价值的ref。
 
-### 2. nexus-exact-tree-census-refresh
+### 3. nexus-exact-tree-census-refresh
 
 - 产品结果：在启动时绑定最新Nexus commit/tree，重算path/mode/object、entrypoints、EPR、Skills、mechanism decisions、public/deployed surfaces与retirement前置。
 - 依赖：不预先冻结未来baseline；ledger authority保持A0单写者。
 - 退出：classification/decision达到100%，unclassified/undecided为0；六维Parity与owner迁移未完成前不得声称吸收完成。
-
-### 3. sm4a-trusted-authorization-ingress-reconciliation-v1
-
-- 产品结果：从retained SM-4A line与最新main重新证明一个trusted local Workbench/CLI ingress，只覆盖既有`add-state-transition`纵向闭包。
-- 依赖：runtime与dirty-root reconciliation合并后重新计算authority、revision、测试与branch custody；旧V9 branch不提供完成证明。
-- 退出：一个shared adapter进入canonical SM-3 transaction，CLI/Workbench保持薄transport，无第二authorization/source writer，真实合同与集成Gate通过。
 
 ## Gate、单写者与重算
 

@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { CompilerError } from '../../platform/shared/errors.ts';
 import {
+  buildExactPlaywrightPackageClosure,
   buildRuntimeDependencySpec,
   type RootPackageJson
 } from '../../platform/shared/runtime-dependency-spec.ts';
@@ -32,6 +33,44 @@ test('runtime dependency spec preserves one exact Playwright release identity', 
   expect(spec.devDependencies['@playwright/test']).toBe('1.59.1');
   expect(spec.manifestHash).toMatch(/^[a-f0-9]{64}$/);
 });
+
+test('Playwright package closure requires all three packages at the root exact release', () => {
+  const closure = buildExactPlaywrightPackageClosure({
+    '@playwright/test': { name: '@playwright/test', version: '1.59.1' },
+    playwright: { name: 'playwright', version: '1.59.1' },
+    'playwright-core': { name: 'playwright-core', version: '1.59.1' }
+  }, '1.59.1');
+
+  expect(closure).toEqual({
+    packages: [
+      { name: '@playwright/test', version: '1.59.1' },
+      { name: 'playwright', version: '1.59.1' },
+      { name: 'playwright-core', version: '1.59.1' }
+    ],
+    release: '1.59.1'
+  });
+  expect(Object.isFrozen(closure)).toBe(true);
+  expect(Object.isFrozen(closure.packages)).toBe(true);
+});
+
+for (const mismatch of ['@playwright/test', 'playwright', 'playwright-core'] as const) {
+  test(`Playwright package closure rejects ${mismatch} release drift`, () => {
+    expect(() => buildExactPlaywrightPackageClosure({
+      '@playwright/test': {
+        name: '@playwright/test',
+        version: mismatch === '@playwright/test' ? '1.59.0' : '1.59.1'
+      },
+      playwright: {
+        name: 'playwright',
+        version: mismatch === 'playwright' ? '1.59.0' : '1.59.1'
+      },
+      'playwright-core': {
+        name: 'playwright-core',
+        version: mismatch === 'playwright-core' ? '1.59.0' : '1.59.1'
+      }
+    }, '1.59.1')).toThrow(`Playwright package "${mismatch}" must exactly match release 1.59.1`);
+  });
+}
 
 for (const version of [
   '^1.59.1',

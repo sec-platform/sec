@@ -47,7 +47,21 @@ test('test dependency bootstrap composes compiler and browser readiness without 
       calls.push(`browser:${dependencyRoot}`);
       return {
         browserCachePath: 'canonical-browser-cache',
-        browserExecutablePath: 'canonical-browser-executable'
+        browserExecutablePath: 'canonical-browser-executable',
+        browserExecutableRelativePath: 'canonical-browser-executable',
+        externalNode: {
+          executablePath: 'canonical-node',
+          version: '24.15.0'
+        },
+        playwrightPackageClosure: {
+          packages: [
+            { manifestSha256: 'a'.repeat(64), name: '@playwright/test', version: '1.59.1' },
+            { manifestSha256: 'b'.repeat(64), name: 'playwright', version: '1.59.1' },
+            { manifestSha256: 'c'.repeat(64), name: 'playwright-core', version: '1.59.1' }
+          ],
+          release: '1.59.1',
+          revision: `sha256:${'d'.repeat(64)}`
+        }
       };
     }
   });

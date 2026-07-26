@@ -104,10 +104,7 @@ foreach ($rule in $acl.GetAccessRules(
     continue
   }
   $sid = $rule.IdentityReference.Value
-  if (-not $trustedSids.Contains($sid) -and -not $sid.StartsWith(
-    'S-1-15-3-',
-    [StringComparison]::OrdinalIgnoreCase
-  )) {
+  if (-not $trustedSids.Contains($sid)) {
     throw "untrusted-writer:$sid"
   }
 }
@@ -168,6 +165,30 @@ async function physicalWindowsDirectory(directoryPath: string): Promise<Readonly
     identity: directoryIdentity(metadata),
     rootPath
   });
+}
+
+async function removeExactEmptyWindowsDirectory(
+  directoryPath: string,
+  expectedIdentity: DirectoryIdentity,
+  removeDirectory: (targetPath: string) => Promise<void>
+): Promise<void> {
+  const current = await physicalWindowsDirectory(directoryPath);
+  if (!sameDirectoryIdentity(current.identity, expectedIdentity)) {
+    throw new Error('Windows host directory authority changed before cleanup');
+  }
+  if ((await readdir(current.rootPath)).length !== 0) {
+    throw new Error('Windows host directory authority contains unowned data');
+  }
+  await removeDirectory(current.rootPath);
+  try {
+    await lstat(current.rootPath);
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+  throw new Error('Windows host directory authority cleanup did not remove the private root');
 }
 
 async function windowsSystemDirectory(): Promise<string> {
@@ -253,9 +274,13 @@ async function proveWindowsHostDirectoryAuthority(
   directoryPath: string,
   aclProbe: WindowsHostDirectoryAclProbe,
   initialAcl?: WindowsHostDirectoryAclProof,
-  release: () => Promise<void> = async () => undefined
+  release: () => Promise<void> = async () => undefined,
+  expectedIdentity?: DirectoryIdentity
 ): Promise<WindowsHostDirectoryAuthority> {
   const physical = await physicalWindowsDirectory(directoryPath);
+  if (expectedIdentity && !sameDirectoryIdentity(physical.identity, expectedIdentity)) {
+    throw new Error('Windows host directory authority changed before issuance');
+  }
   const acl = initialAcl ?? await aclProbe(physical.rootPath);
   if (!acl.ownerSid.startsWith('S-1-') || !acl.aclDigest.startsWith('sha256:')) {
     throw new Error('Windows host directory owner and ACL proof is invalid');
@@ -297,9 +322,18 @@ async function acquireWindowsBrowserLaunchHostAuthorityWithOptions(
     `sec-h-${randomUUID().replaceAll('-', '')}`
   );
   await mkdir(authorityPath);
+  const created = await physicalWindowsDirectory(authorityPath);
   let released = false;
   try {
+    const currentAllocationSurface = await physicalWindowsDirectory(allocationSurface.rootPath);
+    if (!sameDirectoryIdentity(currentAllocationSurface.identity, allocationSurface.identity)) {
+      throw new Error('Windows host allocation surface changed during private-root creation');
+    }
     const initialAcl = await options.aclProbe(authorityPath, 'harden');
+    const hardened = await physicalWindowsDirectory(authorityPath);
+    if (!sameDirectoryIdentity(hardened.identity, created.identity)) {
+      throw new Error('Windows host directory authority changed during ACL hardening');
+    }
     if ((await readdir(authorityPath)).length !== 0) {
       throw new Error('Windows host directory authority contains unowned data');
     }
@@ -310,20 +344,23 @@ async function acquireWindowsBrowserLaunchHostAuthorityWithOptions(
       async () => {
         if (released) return;
         await authority.assertCurrent();
-        if ((await readdir(authorityPath)).length !== 0) {
-          throw new Error('Windows host directory authority contains unowned data');
-        }
-        await options.removeDirectory(authorityPath);
+        await removeExactEmptyWindowsDirectory(
+          authorityPath,
+          created.identity,
+          options.removeDirectory
+        );
         released = true;
-      }
+      },
+      created.identity
     );
     return authority;
   } catch (error) {
     try {
-      if ((await readdir(authorityPath)).length !== 0) {
-        throw new Error('Windows host directory authority contains unowned data after failed acquisition');
-      }
-      await options.removeDirectory(authorityPath);
+      await removeExactEmptyWindowsDirectory(
+        authorityPath,
+        created.identity,
+        options.removeDirectory
+      );
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],

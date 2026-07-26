@@ -71,34 +71,10 @@ async function createProductionRuntimeCapabilityContext(root: string): Promise<R
   readonly stagingRoot: string;
 }>> {
   const stagingRoot = stagingWorkspaceRoot(root);
-  const browserSource = path.join(root, 'browser-source');
   await writeProjectBaseline(stagingRoot);
-  await mkdir(browserSource, { recursive: true });
-  const canonicalRuntimeInputSources =
-    await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources();
-  const descriptor = JSON.parse(await readFile(path.join(
-    canonicalRuntimeInputSources.compilerModulesRoot,
-    'playwright-core',
-    'browsers.json'
-  ), 'utf8')) as {
-    readonly browsers: readonly { readonly name: string; readonly revision: string }[];
-  };
-  const browser = descriptor.browsers.find((candidate) =>
-    candidate.name === 'chromium-headless-shell');
-  if (!browser) throw new Error('Production browser descriptor is unavailable');
-  const browserExecutable = path.join(
-    browserSource,
-    `chromium_headless_shell-${browser.revision}`,
-    'chrome-headless-shell-win64',
-    'chrome-headless-shell.exe'
-  );
-  await mkdir(path.dirname(browserExecutable), { recursive: true });
-  await writeFile(browserExecutable, 'production-bundle-browser-fixture', 'utf8');
   return Object.freeze({
-    runtimeInputSources: Object.freeze({
-      ...canonicalRuntimeInputSources,
-      browserCache: browserSource
-    }),
+    runtimeInputSources:
+      await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources(),
     stagingRoot
   });
 }

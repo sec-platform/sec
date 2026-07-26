@@ -44,6 +44,22 @@ const runtimeDevDependencyKeys = [
 
 const exactPlaywrightReleasePattern = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u;
 
+export const EXACT_PLAYWRIGHT_PACKAGE_NAMES = Object.freeze([
+  '@playwright/test',
+  'playwright',
+  'playwright-core'
+] as const);
+
+export type ExactPlaywrightPackageName = (typeof EXACT_PLAYWRIGHT_PACKAGE_NAMES)[number];
+
+export interface ExactPlaywrightPackageClosure {
+  readonly packages: readonly Readonly<{
+    readonly name: ExactPlaywrightPackageName;
+    readonly version: string;
+  }>[];
+  readonly release: string;
+}
+
 export const RUNTIME_DEPENDENCY_PACKAGE_NAMES: readonly string[] = Object.freeze([
   ...runtimeDependencyKeys,
   ...runtimeDevDependencyKeys
@@ -57,6 +73,33 @@ export function isRuntimeDependencyPackageManifest(
   const manifest = value as { readonly name?: unknown; readonly version?: unknown };
   return manifest.name === expectedName && typeof manifest.version === 'string' &&
     manifest.version.length > 0;
+}
+
+export function buildExactPlaywrightPackageClosure(
+  manifests: Readonly<Partial<Record<ExactPlaywrightPackageName, unknown>>>,
+  expectedRelease: string
+): Readonly<ExactPlaywrightPackageClosure> {
+  if (!exactPlaywrightReleasePattern.test(expectedRelease)) {
+    throw new CompilerError(
+      'RUNTIME-DEPS-000',
+      'Playwright package closure requires one exact numeric release'
+    );
+  }
+  const packages = EXACT_PLAYWRIGHT_PACKAGE_NAMES.map((name) => {
+    const manifest = manifests[name];
+    if (!isRuntimeDependencyPackageManifest(manifest, name) ||
+      manifest.version !== expectedRelease) {
+      throw new CompilerError(
+        'RUNTIME-DEPS-000',
+        `Playwright package "${name}" must exactly match release ${expectedRelease}`
+      );
+    }
+    return Object.freeze({ name, version: manifest.version });
+  });
+  return Object.freeze({
+    packages: Object.freeze(packages),
+    release: expectedRelease
+  });
 }
 
 function resolveVersion(rootPackage: RootPackageJson, dependencyName: string): string {

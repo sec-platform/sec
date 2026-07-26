@@ -3,13 +3,17 @@ import { lstat, mkdir, open, readdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { CommitFence } from '../../shared/fs.ts';
-import type { ExternalNodeRuntimeAuthority } from '../../shared/project-runtime.ts';
+import type { PlaywrightBrowserRuntimeAuthority } from '../../shared/project-runtime.ts';
 import {
+  buildExactPlaywrightPackageClosure,
   buildRuntimeDependencySpec,
   encodeRuntimeDepsPreboundBinding,
+  EXACT_PLAYWRIGHT_PACKAGE_NAMES,
   isRuntimeDependencyPackageManifest,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE,
+  type ExactPlaywrightPackageClosure,
+  type ExactPlaywrightPackageName,
   type RootPackageJson
 } from '../../shared/runtime-dependency-spec.ts';
 import {
@@ -54,7 +58,6 @@ const OWNED_RUNTIME_ROOTS = Object.freeze([
 ] as const);
 
 export interface SemanticMutationIsolatedRuntimeSourcePaths {
-  readonly browserCache: string;
   readonly compilerModulesRoot: string;
   readonly compilerPackage: string;
   readonly composeTemplates: string;
@@ -65,7 +68,7 @@ export interface SemanticMutationIsolatedRuntimeSourcePaths {
 
 export interface SemanticMutationIsolatedRuntimeInputSources
   extends SemanticMutationIsolatedRuntimeSourcePaths {
-  readonly externalNode: Readonly<ExternalNodeRuntimeAuthority>;
+  readonly browserRuntime: Readonly<PlaywrightBrowserRuntimeAuthority>;
 }
 
 export interface SemanticMutationIsolatedCompilerRegistryInput {
@@ -624,9 +627,18 @@ function assertCompilerPackageManifest(bytes: Uint8Array): void {
 
 async function assertRuntimeDependencyPackageClosure(
   dependencyFiles: readonly RuntimeInputFileV1[],
-  inspector: ReparsePointInspector
+  inspector: ReparsePointInspector,
+  expectedPlaywrightClosure: Readonly<
+    PlaywrightBrowserRuntimeAuthority['playwrightPackageClosure']
+  >
 ): Promise<void> {
-  for (const packageName of RUNTIME_DEPENDENCY_PACKAGE_NAMES) {
+  const playwrightManifests: Partial<Record<ExactPlaywrightPackageName, unknown>> = {};
+  const playwrightManifestDigests = new Map<ExactPlaywrightPackageName, string>();
+  const requiredPackages = new Set([
+    ...RUNTIME_DEPENDENCY_PACKAGE_NAMES,
+    ...EXACT_PLAYWRIGHT_PACKAGE_NAMES
+  ]);
+  for (const packageName of requiredPackages) {
     const relativeManifest = canonicalRelativePath(
       `${SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT}/${packageName}/package.json`
     );
@@ -649,26 +661,104 @@ async function assertRuntimeDependencyPackageClosure(
     if (!isRuntimeDependencyPackageManifest(manifest, packageName)) {
       throw new Error(`A required runtime package identity is invalid: ${packageName}`);
     }
+    if (EXACT_PLAYWRIGHT_PACKAGE_NAMES.includes(packageName as ExactPlaywrightPackageName)) {
+      const playwrightPackageName = packageName as ExactPlaywrightPackageName;
+      playwrightManifests[playwrightPackageName] = manifest;
+      playwrightManifestDigests.set(playwrightPackageName, evidence.rawDigest.slice('sha256:'.length));
+    }
+  }
+  let actualPlaywrightClosure: Readonly<ExactPlaywrightPackageClosure>;
+  try {
+    actualPlaywrightClosure = buildExactPlaywrightPackageClosure(
+      playwrightManifests,
+      expectedPlaywrightClosure.release
+    );
+  } catch {
+    throw new Error('The staged Playwright package closure is inconsistent');
+  }
+  const packages = actualPlaywrightClosure.packages.map((identity) => Object.freeze({
+    manifestSha256: playwrightManifestDigests.get(identity.name)!,
+    name: identity.name,
+    version: identity.version
+  }));
+  const actualPlaywrightAuthority = Object.freeze({
+    packages: Object.freeze(packages),
+    release: actualPlaywrightClosure.release,
+    revision: sha256Value({
+      domain: 'playwright-package-authority-v1',
+      packages,
+      release: actualPlaywrightClosure.release
+    })
+  });
+  if (JSON.stringify(actualPlaywrightAuthority) !== JSON.stringify(expectedPlaywrightClosure)) {
+    throw new Error('The staged Playwright package closure changed after browser selection');
   }
 }
 
-function requiredPlaywrightExecutable(bytes: Uint8Array): string {
-  const value = JSON.parse(new TextDecoder().decode(bytes)) as {
-    readonly browsers?: unknown;
-  };
-  if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.browsers)) {
-    throw new Error('Playwright browser descriptor is invalid');
+function requireCanonicalPlaywrightPackageAuthority(
+  value: Readonly<PlaywrightBrowserRuntimeAuthority['playwrightPackageClosure']>
+): void {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.packages) ||
+    typeof value.release !== 'string' || typeof value.revision !== 'string') {
+    throw new Error('Semantic Mutation Playwright package authority is invalid');
   }
-  const descriptor = value.browsers.find((entry: unknown) => {
-    return Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry) &&
-      (entry as { readonly name?: unknown }).name === 'chromium-headless-shell';
-  }) as { readonly revision?: unknown } | undefined;
-  if (!descriptor || typeof descriptor.revision !== 'string' ||
-    !/^[1-9][0-9]*$/u.test(descriptor.revision)) {
-    throw new Error('Playwright Chromium headless-shell revision is unavailable');
+  let packageClosure: Readonly<ExactPlaywrightPackageClosure>;
+  try {
+    const packageManifests = Object.fromEntries(value.packages.map(
+      (identity) => [identity.name, identity]
+    )) as Partial<Record<ExactPlaywrightPackageName, unknown>>;
+    packageClosure = buildExactPlaywrightPackageClosure(packageManifests, value.release);
+  } catch {
+    throw new Error('Semantic Mutation Playwright package authority is invalid');
   }
-  return `chromium_headless_shell-${descriptor.revision}/` +
-    'chrome-headless-shell-win64/chrome-headless-shell.exe';
+  const packages = packageClosure.packages.map((identity, index) => {
+    const authorityIdentity = value.packages[index];
+    if (!authorityIdentity ||
+      authorityIdentity.name !== identity.name ||
+      authorityIdentity.version !== identity.version ||
+      typeof authorityIdentity.manifestSha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/u.test(authorityIdentity.manifestSha256)) {
+      throw new Error('Semantic Mutation Playwright package authority is non-canonical');
+    }
+    return Object.freeze({
+      manifestSha256: authorityIdentity.manifestSha256,
+      name: identity.name,
+      version: identity.version
+    });
+  });
+  const revision = sha256Value({
+    domain: 'playwright-package-authority-v1',
+    packages,
+    release: packageClosure.release
+  });
+  if (value.packages.length !== packages.length || value.revision !== revision) {
+    throw new Error('Semantic Mutation Playwright package authority is non-canonical');
+  }
+}
+
+function requirePlaywrightBrowserRuntimeAuthority(
+  value: Readonly<PlaywrightBrowserRuntimeAuthority>
+): Readonly<PlaywrightBrowserRuntimeAuthority> {
+  if (!value || typeof value !== 'object' ||
+    typeof value.browserCachePath !== 'string' || !path.isAbsolute(value.browserCachePath) ||
+    typeof value.browserExecutablePath !== 'string' || !path.isAbsolute(value.browserExecutablePath) ||
+    typeof value.browserExecutableRelativePath !== 'string' ||
+    !value.playwrightPackageClosure || typeof value.playwrightPackageClosure !== 'object' ||
+    !Array.isArray(value.playwrightPackageClosure.packages) ||
+    typeof value.playwrightPackageClosure.release !== 'string' ||
+    typeof value.playwrightPackageClosure.revision !== 'string') {
+    throw new Error('Semantic Mutation Playwright browser runtime authority is invalid');
+  }
+  const executableRelativePath = canonicalRelativePath(value.browserExecutableRelativePath);
+  const expectedExecutablePath = path.resolve(
+    value.browserCachePath,
+    ...executableRelativePath.split('/')
+  );
+  if (foldedPath(expectedExecutablePath) !== foldedPath(path.resolve(value.browserExecutablePath))) {
+    throw new Error('Semantic Mutation Playwright browser authority is internally inconsistent');
+  }
+  requireCanonicalPlaywrightPackageAuthority(value.playwrightPackageClosure);
+  return value;
 }
 
 function generatedInputFile(destinationRelativePath: string, bytes: Uint8Array): RuntimeInputFileV1 {
@@ -685,7 +775,7 @@ function generatedInputFile(destinationRelativePath: string, bytes: Uint8Array):
 
 function canonicalPlanPayload(plan: Omit<SemanticMutationIsolatedRuntimePlanV1, 'planRevision'>): unknown {
   return {
-    domain: 'semantic-mutation-isolated-runtime-plan-v1',
+    domain: 'semantic-mutation-isolated-runtime-plan-v2',
     bootstrapBundleDigest: sha256Bytes(plan.bootstrapBundle),
     browserExecutableRelativePath: plan.browserExecutableRelativePath,
     dependencyBindingDigest: sha256Bytes(plan.dependencyBinding),
@@ -742,7 +832,10 @@ async function captureRuntimeSourceSnapshot(
 ): Promise<RuntimeSourceSnapshotV1> {
     const proofs: RuntimeSourceProofCollector = { directories: [], roots: [] };
     const directories = new Set<string>();
-    const externalNode = input.sources.externalNode;
+    const browserRuntime = requirePlaywrightBrowserRuntimeAuthority(
+      input.sources.browserRuntime
+    );
+    const externalNode = browserRuntime.externalNode;
     if (!externalNode || typeof externalNode !== 'object' ||
       typeof externalNode.executablePath !== 'string' ||
       !path.isAbsolute(externalNode.executablePath) ||
@@ -784,15 +877,14 @@ async function captureRuntimeSourceSnapshot(
     const runtimeDependencySpec = buildRuntimeDependencySpec(
       JSON.parse(new TextDecoder().decode(compilerPackage.bytes!)) as RootPackageJson
     );
+    if (runtimeDependencySpec.devDependencies['@playwright/test'] !==
+      browserRuntime.playwrightPackageClosure.release) {
+      throw new Error('Compiler and browser Playwright release authorities are inconsistent');
+    }
     const dependencyBinding = encodeRuntimeDepsPreboundBinding(runtimeDependencySpec);
-    const playwrightDescriptor = await captureInputFile(
-      path.join(input.sources.compilerModulesRoot, 'playwright-core', 'browsers.json'),
-      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/node_modules/playwright-core/browsers.json`,
-      inspector,
-      proofs,
-      true
+    const requiredBrowserExecutable = canonicalRelativePath(
+      browserRuntime.browserExecutableRelativePath
     );
-    const requiredBrowserExecutable = requiredPlaywrightExecutable(playwrightDescriptor.bytes!);
     const registryInputs = input.compilerRegistries;
     const registryFiles: RuntimeInputFileV1[] = [];
     for (const registry of [...registryInputs].sort((left, right) =>
@@ -807,7 +899,7 @@ async function captureRuntimeSourceSnapshot(
       ));
     }
     const browserFiles = await captureInputTree(
-      input.browserCache,
+      browserRuntime.browserCachePath,
       SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT,
       inspector,
       proofs,
@@ -834,7 +926,11 @@ async function captureRuntimeSourceSnapshot(
       directories,
       true
     );
-    await assertRuntimeDependencyPackageClosure(dependencyFiles, inspector);
+    await assertRuntimeDependencyPackageClosure(
+      dependencyFiles,
+      inspector,
+      browserRuntime.playwrightPackageClosure
+    );
     for (const descriptor of Object.values(RUNTIME_VERIFICATION_INVOCATION_CONTRACT)) {
       const requiredInputs = [
         descriptor.moduleRelativePath,
@@ -862,7 +958,6 @@ async function captureRuntimeSourceSnapshot(
       ),
       nodeExecutable,
       compilerPackage,
-      playwrightDescriptor,
       ...registryFiles,
       ...await captureInputTree(
         input.sources.officialPolicies,
@@ -1000,7 +1095,6 @@ async function captureRuntimeSourceSnapshot(
  * creates a fresh staging-bound plan and process-local opaque result.
  */
 export async function issueSemanticMutationIsolatedRuntimeCapability(input: {
-  readonly browserCache: string;
   readonly compilerRegistries?: readonly SemanticMutationIsolatedCompilerRegistryInput[];
   readonly runnerBundle: Uint8Array;
   readonly sources: SemanticMutationIsolatedRuntimeInputSources;
@@ -1013,7 +1107,6 @@ export async function issueSemanticMutationIsolatedRuntimeCapability(input: {
   try {
     const staging = await assertCanonicalPhysicalRoot(input.stagingWorkspaceRoot, inspector, 'directory');
     const snapshotInput = Object.freeze({
-      browserCache: path.resolve(input.browserCache),
       compilerRegistries: normalizedCompilerRegistries(input),
       runnerBundle: input.runnerBundle.slice(),
       sources: input.sources
@@ -1370,7 +1463,6 @@ async function assertExactDestinationManifest(
 }
 
 interface RuntimeSourceSnapshotInputV1 {
-  readonly browserCache: string;
   readonly compilerRegistries: readonly SemanticMutationIsolatedCompilerRegistryInput[];
   readonly runnerBundle: Uint8Array;
   readonly sources: SemanticMutationIsolatedRuntimeInputSources;
@@ -1378,16 +1470,21 @@ interface RuntimeSourceSnapshotInputV1 {
 
 function runtimeSourceAuthorityKey(sources: SemanticMutationIsolatedRuntimeInputSources): string {
   return sha256Value({
-    domain: 'semantic-mutation-runtime-source-authority-key-v1',
-    browserCache: foldedPath(path.resolve(sources.browserCache)),
+    domain: 'semantic-mutation-runtime-source-authority-key-v2',
+    browserRuntime: {
+      browserCachePath: foldedPath(path.resolve(sources.browserRuntime.browserCachePath)),
+      browserExecutablePath: foldedPath(path.resolve(sources.browserRuntime.browserExecutablePath)),
+      browserExecutableRelativePath: sources.browserRuntime.browserExecutableRelativePath,
+      externalNode: {
+        executablePath: foldedPath(path.resolve(sources.browserRuntime.externalNode.executablePath)),
+        version: sources.browserRuntime.externalNode.version
+      },
+      playwrightPackageClosure: sources.browserRuntime.playwrightPackageClosure
+    },
     compilerModulesRoot: foldedPath(path.resolve(sources.compilerModulesRoot)),
     compilerPackage: foldedPath(path.resolve(sources.compilerPackage)),
     composeTemplates: foldedPath(path.resolve(sources.composeTemplates)),
     dependencyModules: foldedPath(path.resolve(sources.dependencyModules)),
-    externalNode: {
-      executablePath: foldedPath(path.resolve(sources.externalNode.executablePath)),
-      version: sources.externalNode.version
-    },
     officialPolicies: foldedPath(path.resolve(sources.officialPolicies)),
     officialRegistry: foldedPath(path.resolve(sources.officialRegistry))
   });
@@ -1415,8 +1512,7 @@ function normalizedCompilerRegistries(input: {
 
 function runtimeSourceSnapshotLookupKey(input: RuntimeSourceSnapshotInputV1): string {
   return sha256Value({
-    domain: 'semantic-mutation-runtime-source-snapshot-lookup-key-v1',
-    browserCache: foldedPath(path.resolve(input.browserCache)),
+    domain: 'semantic-mutation-runtime-source-snapshot-lookup-key-v2',
     compilerRegistries: input.compilerRegistries.map((registry) => ({
       destinationRelativePath: registry.destinationRelativePath,
       sourceRoot: foldedPath(path.resolve(registry.sourceRoot))
@@ -1439,7 +1535,7 @@ function runtimeSourceSnapshotCacheKey(
   snapshot: RuntimeSourceSnapshotV1
 ): string {
   return sha256Value({
-    domain: 'semantic-mutation-runtime-source-snapshot-cache-key-v2',
+    domain: 'semantic-mutation-runtime-source-snapshot-cache-key-v3',
     lookupKey: runtimeSourceSnapshotLookupKey(input),
     nodeRuntime: snapshot.nodeRuntime,
     snapshotRevision: snapshot.snapshotRevision
@@ -1450,7 +1546,7 @@ function canonicalRuntimeSourceSnapshotPayload(
   snapshot: Omit<RuntimeSourceSnapshotV1, 'snapshotRevision'>
 ): unknown {
   return {
-    domain: 'semantic-mutation-runtime-source-snapshot-v1',
+    domain: 'semantic-mutation-runtime-source-snapshot-v2',
     bootstrapBundleDigest: sha256Bytes(snapshot.bootstrapBundle),
     browserExecutableRelativePath: snapshot.browserExecutableRelativePath,
     dependencyBindingDigest: sha256Bytes(snapshot.dependencyBinding),

@@ -110,6 +110,7 @@ import {
   runCommand
 } from '../../platform/shared/process.ts';
 import {
+  EXACT_PLAYWRIGHT_PACKAGE_NAMES,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
 } from '../../platform/shared/runtime-dependency-spec.ts';
@@ -876,7 +877,30 @@ test('canonical isolated runtime inputs keep compiler-owned sources under one au
 });
 
 function directRuntimePackageFixture(name: string): string {
-  return `${JSON.stringify({ name, version: '0.0.0-fixture' })}\n`;
+  const version = EXACT_PLAYWRIGHT_PACKAGE_NAMES.includes(
+    name as (typeof EXACT_PLAYWRIGHT_PACKAGE_NAMES)[number]
+  ) ? '1.59.1' : '0.0.0-fixture';
+  return `${JSON.stringify({ name, version })}\n`;
+}
+
+function playwrightPackageAuthorityFixture() {
+  const packages = EXACT_PLAYWRIGHT_PACKAGE_NAMES.map((name) => Object.freeze({
+    manifestSha256: createHash('sha256')
+      .update(directRuntimePackageFixture(name))
+      .digest('hex'),
+    name,
+    version: '1.59.1'
+  }));
+  const release = '1.59.1';
+  return Object.freeze({
+    packages: Object.freeze(packages),
+    release,
+    revision: `sha256:${createHash('sha256').update(JSON.stringify({
+      domain: 'playwright-package-authority-v1',
+      packages,
+      release
+    })).digest('hex')}`
+  });
 }
 
 async function createRuntimeInputSources(
@@ -885,16 +909,30 @@ async function createRuntimeInputSources(
 ): Promise<SemanticMutationIsolatedRuntimeInputSources> {
   const inputRoot = path.join(root, 'runtime-inputs');
   const compilerModulesRoot = path.join(inputRoot, 'node_modules');
+  const browserExecutableRelativePath = [
+    'chromium_headless_shell-1217',
+    'chrome-headless-shell-win64',
+    'chrome-headless-shell.exe'
+  ].join('/');
+  const externalNode = Object.freeze({
+    executablePath: path.join(inputRoot, process.platform === 'win32' ? 'node.exe' : 'node'),
+    version: '22.0.0-test'
+  });
   const sources = {
-    browserCache,
+    browserRuntime: Object.freeze({
+      browserCachePath: browserCache,
+      browserExecutablePath: path.join(
+        browserCache,
+        ...browserExecutableRelativePath.split('/')
+      ),
+      browserExecutableRelativePath,
+      externalNode,
+      playwrightPackageClosure: playwrightPackageAuthorityFixture()
+    }),
     compilerModulesRoot,
     compilerPackage: path.join(inputRoot, 'package.json'),
     composeTemplates: path.join(inputRoot, 'compose-templates'),
     dependencyModules: path.join(inputRoot, 'dependency-modules'),
-    externalNode: Object.freeze({
-      executablePath: path.join(inputRoot, process.platform === 'win32' ? 'node.exe' : 'node'),
-      version: '22.0.0-test'
-    }),
     officialPolicies: path.join(inputRoot, 'official-policies'),
     officialRegistry: path.join(inputRoot, 'official-registry')
   } satisfies SemanticMutationIsolatedRuntimeInputSources;
@@ -902,7 +940,10 @@ async function createRuntimeInputSources(
     .flatMap(({ moduleRelativePath }) => moduleRelativePath === null ? [] : [moduleRelativePath]);
   const directPackageManifests = Object.values(RUNTIME_VERIFICATION_INVOCATION_CONTRACT)
     .flatMap(({ packageManifest }) => packageManifest === null ? [] : [packageManifest]);
-  const runtimePackageManifests = RUNTIME_DEPENDENCY_PACKAGE_NAMES.map((name) => ({
+  const runtimePackageManifests = [...new Set([
+    ...RUNTIME_DEPENDENCY_PACKAGE_NAMES,
+    ...EXACT_PLAYWRIGHT_PACKAGE_NAMES
+  ])].map((name) => ({
     name,
     relativePath: `${name}/package.json`
   }));
@@ -925,7 +966,6 @@ async function createRuntimeInputSources(
     mkdir(sources.officialRegistry, { recursive: true }),
     mkdir(path.join(compilerModulesRoot, 'ts-morph'), { recursive: true }),
     mkdir(path.join(compilerModulesRoot, 'typescript'), { recursive: true }),
-    mkdir(path.join(compilerModulesRoot, 'playwright-core'), { recursive: true }),
     mkdir(path.join(
       browserCache,
       'chromium_headless_shell-1217',
@@ -942,7 +982,7 @@ async function createRuntimeInputSources(
         '@types/react': '1', '@types/react-dom': '1', 'ts-morph': '1', typescript: '1'
       }
     }), 'utf8'),
-    writeFile(sources.externalNode.executablePath, 'external-node-runtime-fixture', 'utf8'),
+    writeFile(sources.browserRuntime.externalNode.executablePath, 'external-node-runtime-fixture', 'utf8'),
     writeFile(path.join(sources.composeTemplates, 'template.txt'), 'template', 'utf8'),
     writeFile(path.join(sources.dependencyModules, 'cache.bin'), 'cache', 'utf8'),
     ...directModulePaths.map((relativePath) =>
@@ -995,9 +1035,6 @@ async function createRuntimeInputSources(
       'module.exports = typescript;',
       ''
     ].join('\n'), 'utf8'),
-    writeFile(path.join(compilerModulesRoot, 'playwright-core', 'browsers.json'), JSON.stringify({
-      browsers: [{ name: 'chromium-headless-shell', revision: '1217' }]
-    }), 'utf8'),
     writeFile(path.join(
       browserCache,
       'chromium_headless_shell-1217',
@@ -1005,7 +1042,9 @@ async function createRuntimeInputSources(
       'chrome-headless-shell.exe'
     ), 'playwright-executable', 'utf8')
   ]);
-  if (process.platform !== 'win32') await chmod(sources.externalNode.executablePath, 0o755);
+  if (process.platform !== 'win32') {
+    await chmod(sources.browserRuntime.externalNode.executablePath, 0o755);
+  }
   return sources;
 }
 
@@ -1800,6 +1839,47 @@ test('isolated Verification suppresses runtime timing before the zero-output chi
     'verify-orchestrator.ts'
   ), 'utf8');
   expect(source).toContain('emitTiming: isolated ? false : options.emitTiming');
+});
+
+test('staged verify-all runner preserves one browser proof through both runtime acceptance spawns', async () => {
+  const [runnerSource, verifyProjectSource, runtimeVerificationSource] = await Promise.all([
+    readFile(path.join(
+      compilerRoot,
+      'platform',
+      'orchestrator',
+      'semantic-mutation-isolated-verification-runner.ts'
+    ), 'utf8'),
+    readFile(path.join(
+      compilerRoot,
+      'platform',
+      'compiler',
+      'verify',
+      'verify-project.ts'
+    ), 'utf8'),
+    readFile(path.join(
+      compilerRoot,
+      'platform',
+      'compiler',
+      'verify',
+      'run-runtime-verification.ts'
+    ), 'utf8')
+  ]);
+
+  expect(runnerSource).toContain(
+    'registerWindowsBrowserLaunchProofFromArguments(process.argv);'
+  );
+  expect(runnerSource).toContain("verificationLane: 'all'");
+  expect(verifyProjectSource).toContain('runtimeLane = await runRuntimeVerification(');
+  expect(verifyProjectSource).toContain("lane === 'all' ? 'full' : 'service'");
+  expect(runtimeVerificationSource).toContain(
+    'const assertBrowserLaunchPreSpawn = isolated'
+  );
+  expect(runtimeVerificationSource).toContain(
+    'beforeSpawn: assertBrowserLaunchPreSpawn'
+  );
+  expect(runtimeVerificationSource.replaceAll('\r\n', '\n')).toContain(
+    'acceptanceInvocation,\n      acceptanceEnv,\n      assertBrowserLaunchPreSpawn'
+  );
 });
 
 test('production isolated verification supervisor rejects unclosed or truncated child lifecycle', async () => {
@@ -3178,10 +3258,10 @@ test('external Node authority binds version, bytes, identity, staged copy, and p
       semanticMutationIsolatedNodeExecutablePath(stagingRoot)
     );
     expect(await readFile(materialized.nodeExecutablePath)).toEqual(
-      await readFile(sources.externalNode.executablePath)
+      await readFile(sources.browserRuntime.externalNode.executablePath)
     );
     const [sourceMetadata, stagedMetadata] = await Promise.all([
-      stat(sources.externalNode.executablePath),
+      stat(sources.browserRuntime.externalNode.executablePath),
       stat(materialized.nodeExecutablePath)
     ]);
     expect(stagedMetadata.nlink).toBe(1);
@@ -3195,9 +3275,12 @@ test('external Node authority binds version, bytes, identity, staged copy, and p
 
     const versionChangedSources = Object.freeze({
       ...sources,
-      externalNode: Object.freeze({
-        ...sources.externalNode,
-        version: '22.0.1-test'
+      browserRuntime: Object.freeze({
+        ...sources.browserRuntime,
+        externalNode: Object.freeze({
+          ...sources.browserRuntime.externalNode,
+          version: '22.0.1-test'
+        })
       })
     });
     const versionChangedCapability = await probe(versionChangedSources);
@@ -3206,8 +3289,14 @@ test('external Node authority binds version, bytes, identity, staged copy, and p
     );
     expect(versionChangedRevision).not.toBe(firstRevision);
 
-    await writeFile(sources.externalNode.executablePath, 'external-node-runtime-fixture-v2', 'utf8');
-    if (process.platform !== 'win32') await chmod(sources.externalNode.executablePath, 0o755);
+    await writeFile(
+      sources.browserRuntime.externalNode.executablePath,
+      'external-node-runtime-fixture-v2',
+      'utf8'
+    );
+    if (process.platform !== 'win32') {
+      await chmod(sources.browserRuntime.externalNode.executablePath, 0o755);
+    }
     await expect(materializeSemanticMutationIsolatedRuntime({
       binding: versionChangedCapability,
       commitFence: async () => undefined,

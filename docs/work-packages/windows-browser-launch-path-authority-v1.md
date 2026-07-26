@@ -26,24 +26,31 @@ tasks:
       - platform/compiler/verify/run-runtime-verification.ts
       - platform/compiler/verify/run-semantic-mutation-isolated-child.ts
       - platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts
+      - platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts
       - platform/compiler/verify/semantic-mutation-staged-project-input.ts
       - platform/compiler/verify/windows-browser-launch-path.ts
+      - platform/dev-runner.ts
       - platform/orchestrator/semantic-mutation-isolated-verification-runner.ts
       - platform/dev-runner/dependency-bootstrap.ts
       - platform/dev-runner/fast-test-policy.ts
       - platform/dev-runner/test-runner.ts
       - platform/shared/ci-verification-plan.ts
       - platform/shared/dependency-environment.ts
+      - platform/shared/heavy-verification-gate-lease.ts
+      - platform/shared/pipeline-types.ts
       - platform/shared/project-base.ts
       - platform/shared/project-runtime.ts
       - platform/shared/runtime-dependency-spec.ts
       - platform/shared/windows-host-filesystem-authority.ts
+      - scripts/ci-pr-risk.ts
       - tests/helpers/semantic-mutation-production-sentinel.ts
       - tests/contract/ci-contract.test.ts
       - tests/contract/ci-lanes.test.ts
       - tests/contract/docs-doctor.test.ts
       - tests/contract/sec-merge-gate.test.ts
+      - tests/contract/semantic-mutation-contract.test.ts
       - tests/contract/test-architecture.test.ts
+      - tests/integration/project-runtime-fixtures.ts
       - tests/integration/project-runtime.test.ts
       - tests/integration/semantic-mutation-apply.test.ts
       - tests/setup/runtime-deps.setup.ts
@@ -53,6 +60,7 @@ tasks:
       - tests/unit/codex-work-package-contract.test.ts
       - tests/unit/dependency-environment.test.ts
       - tests/unit/dev-runner-dependency-bootstrap.test.ts
+      - tests/unit/heavy-verification-gate-lease.test.ts
       - tests/unit/playwright-browser-cache.test.ts
       - tests/unit/runtime-dependency-spec.test.ts
       - tests/unit/runtime-verification.test.ts
@@ -102,6 +110,7 @@ acceptance:
   - "The retained failed workspace and a bounded launch probe prove that the exact browser cache is complete, the 171-character source executable launches, the 323-character namespaced staged executable is not Win32-launch-compatible, and a 160-character projection of the same physical cache launches."
   - "Windows filesystem addressability and Win32 launch compatibility are separate canonical contracts. The staged browser cache remains the only exact physical runtime materialization; a launch projection may expose only that cache and never becomes a second cache, installer or package identity owner."
   - "The Windows launch projection is unique per execution. Ambient TEMP is only an untrusted allocation surface; a cryptographically named private root is created atomically, stripped of inherited ACLs, bound to the current process SID, and owner/DACL-proven before it becomes host authority."
+  - "The exact Playwright release binds @playwright/test, playwright and playwright-core as one installed package closure. The unique project-runtime owner derives the platform-specific executable through the installed Playwright registry and publishes an opaque cache/executable/Node authority; isolated planning never reparses browsers.json, reconstructs a win64 path or depends on ambient prewarming."
   - "The parent binds the plan-derived physical cache, exact executable identity and projection into one fixed child command-line proof. The staged runner revalidates alias, physical cache and executable identity in the exact Playwright runCommand.beforeSpawn boundary, so a post-readiness swap prevents browser command spawn."
   - "Projection cleanup is mandatory on success, child failure, timeout, abort and pre-launch rejection. Failed cleanup fails closed; stale or attacker-controlled roots, aliases, targets and path escapes are rejected without deleting unowned data."
   - "POSIX continues to use the canonical physical staging path and creates no projection."
@@ -109,6 +118,8 @@ acceptance:
   - "Isolated acceptance starts generated Next as one direct child of the SEC verifier through the exact staged Node, proves loopback readiness, and closes that direct child on every exit. Cleanup additionally proves the port is no longer serving and can be exclusively rebound; port occupation is typed failure and simultaneous execution/cleanup errors remain aggregated. The generated Playwright config does not register a webServer in isolated mode and cannot delegate lifecycle to Playwright's Windows shell/taskkill fallback."
   - "The SM-3 production sentinel timeout is derived from and strictly exceeds the canonical isolated supervisor deadline plus cleanup margin, so the test runner cannot begin afterAll cleanup while production verification still owns the staging workspace."
   - "Staged Verification project-input identity excludes only canonical runtime/build outputs, including the project dependency stamp and Next-managed next-env.d.ts. Source, tests, configuration and every unclassified root entry remain exact-bound and fail closed on drift."
+  - "The through-verify stage prefix is derived from PIPELINE_STAGE_IDS and reused by the staged runner and evidence digest; no consumer owns a second literal stage order."
+  - "test:affected and ci:risk acquire the same physical-worktree heavy-verification lease at their outer CLI boundaries. Windows uses a zero-wait Global named mutex with abandoned-owner recovery; a live contender fails before launching test children, so affected and Risk can never corrupt one another's workspace or Evidence."
   - "The old namespaced browser-path assumption is removed from canonical docs. Windows TEMP may remain namespaced; browser launch paths must instead satisfy the launch-compatible projection contract."
   - "Focused projection, environment, materialization, child lifecycle and retained SM-3 sentinel tests pass. No one-shot diagnostic selector or retained test workspace enters the candidate."
   - "Typecheck, changed-only imports, docs doctor, control-plane lifecycle, manifest scope, patch hygiene and GitNexus change detection pass on the frozen head."
@@ -121,6 +132,7 @@ tests:
   - "runtime-regression: bun test tests/integration/project-runtime.test.ts tests/unit/runtime-dependency-spec.test.ts tests/unit/playwright-browser-cache.test.ts --timeout 180000"
   - "v11-contract-focused: bun test tests/contract/ci-contract.test.ts tests/contract/ci-lanes.test.ts tests/contract/docs-doctor.test.ts tests/contract/sec-merge-gate.test.ts tests/unit/codex-work-package-contract.test.ts tests/unit/ci-evidence-composition-policy-registry.test.ts tests/unit/ci-pr-risk-execution.test.ts tests/unit/ci-verification-execution.test.ts --timeout 180000"
   - "architecture-owner-boundary: bun test tests/contract/test-architecture.test.ts tests/unit/windows-host-filesystem-authority.test.ts --timeout 180000"
+  - "heavy-gate-concurrency: bun test tests/unit/heavy-verification-gate-lease.test.ts --timeout 180000"
   - "control-plane-lifecycle: bun test tests/contract/document-control-plane-lifecycle.test.ts --timeout 180000"
   - "typecheck: bun run typecheck"
   - "imports/changed-only: SEC_IMPORTS_CHANGED_ONLY=1 and SEC_CHANGED_BASE=4ef0d38f726ce38d931ea66e859d20214469c69e with bun run imports:check"

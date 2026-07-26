@@ -23,6 +23,7 @@ import {
 } from '../../platform/compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
 import { assertIsolatedStagingTree } from '../../platform/compiler/verify/assert-isolated-staging-tree.ts';
 import {
+  assertRuntimeAcceptancePortAvailableForTests,
   assertRuntimeAcceptancePortReleasedForTests,
   buildIsolatedRuntimeAcceptanceEnvironment,
   buildIsolatedRuntimeAcceptanceEnvironmentForTests,
@@ -36,6 +37,7 @@ import {
   resolveIsolatedRuntimeDependencySourcesForTests,
   revalidateIsolatedRuntimeBuildNodeModulesProofForTests,
   runRuntimeVerification,
+  runtimeAcceptanceDirectChildReportedReadyForTests,
   runtimeTempDirectoryPathForTests,
   runtimeVerificationInvocation,
   withRuntimeAcceptanceCleanupForTests
@@ -56,6 +58,7 @@ import {
 } from '../../platform/shared/project-runtime.ts';
 import {
   buildRuntimeDepsPreboundBinding,
+  EXACT_PLAYWRIGHT_PACKAGE_NAMES,
   loadRuntimeDependencySpec,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
@@ -177,10 +180,20 @@ function failureContract(error: NodeJS.ErrnoException) {
 async function writeCompleteRuntimeDependencyClosure(projectRoot: string): Promise<void> {
   const runtimeSpec = await loadRuntimeDependencySpec();
   const nodeModulesRoot = path.join(projectRoot, 'node_modules');
-  for (const packageName of RUNTIME_DEPENDENCY_PACKAGE_NAMES) {
+  const packageNames = new Set([
+    ...RUNTIME_DEPENDENCY_PACKAGE_NAMES,
+    ...EXACT_PLAYWRIGHT_PACKAGE_NAMES
+  ]);
+  const playwrightRelease = runtimeSpec.devDependencies['@playwright/test'];
+  for (const packageName of packageNames) {
     const manifestPath = path.join(nodeModulesRoot, ...packageName.split('/'), 'package.json');
     await mkdir(path.dirname(manifestPath), { recursive: true });
-    await writeFile(manifestPath, `${JSON.stringify({ name: packageName, version: '1.0.0' })}\n`, 'utf8');
+    const version = EXACT_PLAYWRIGHT_PACKAGE_NAMES.includes(
+      packageName as (typeof EXACT_PLAYWRIGHT_PACKAGE_NAMES)[number]
+    )
+      ? playwrightRelease
+      : '1.0.0';
+    await writeFile(manifestPath, `${JSON.stringify({ name: packageName, version })}\n`, 'utf8');
   }
   await writeFile(
     path.join(nodeModulesRoot, RUNTIME_DEPS_PREBOUND_BINDING_FILE),
@@ -723,6 +736,10 @@ test('runtime acceptance cleanup rejects an occupied loopback port and proves re
   });
   const port = (server.address() as AddressInfo).port;
   try {
+    await expect(assertRuntimeAcceptancePortAvailableForTests(port)).rejects.toMatchObject({
+      code: 'VERIFY-RUNTIME-PORT-OCCUPIED',
+      port
+    });
     await expect(assertRuntimeAcceptancePortReleasedForTests(port, 0)).rejects.toMatchObject({
       code: 'VERIFY-RUNTIME-PORT-RELEASE',
       port
@@ -733,6 +750,18 @@ test('runtime acceptance cleanup rejects an occupied loopback port and proves re
     });
   }
   await assertRuntimeAcceptancePortReleasedForTests(port, 1_000);
+});
+
+test('runtime acceptance readiness requires the direct Next child marker', () => {
+  expect(runtimeAcceptanceDirectChildReportedReadyForTests('', '')).toBe(false);
+  expect(runtimeAcceptanceDirectChildReportedReadyForTests(
+    'foreign server returned HTTP 200',
+    ''
+  )).toBe(false);
+  expect(runtimeAcceptanceDirectChildReportedReadyForTests(
+    '▲ Next.js 16.2.4\n✓ Ready in 843ms\n',
+    ''
+  )).toBe(true);
 });
 
 test('runtime acceptance preserves execution and cleanup failures in one AggregateError', async () => {

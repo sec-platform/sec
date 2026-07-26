@@ -28,6 +28,7 @@ import {
 } from '../../platform/shared/project-runtime.ts';
 import {
   buildRuntimeDepsPreboundBinding,
+  EXACT_PLAYWRIGHT_PACKAGE_NAMES,
   loadRuntimeDependencySpec,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
@@ -108,12 +109,18 @@ async function installCompilerDependencyFixture(workingDirectory: string, marker
 }
 
 async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Promise<void> {
-  await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
+  const packageNames = new Set([
+    ...RUNTIME_DEPENDENCY_PACKAGE_NAMES,
+    ...EXACT_PLAYWRIGHT_PACKAGE_NAMES
+  ]);
+  await Promise.all([...packageNames].map(async (packageName) => {
     const packageRoot = path.join(nodeModulesRoot, ...packageName.split('/'));
     await fs.mkdir(packageRoot, { recursive: true });
     await fs.writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
       name: packageName,
-      version: '0.0.0-fixture'
+      version: EXACT_PLAYWRIGHT_PACKAGE_NAMES.includes(
+        packageName as (typeof EXACT_PLAYWRIGHT_PACKAGE_NAMES)[number]
+      ) ? '1.59.1' : '0.0.0-fixture'
     })}\n`, 'utf8');
   }));
 }

@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/windows-browser-launch-path-authority-v1.md
-manifestDigest: sha256:1d3728d42e855fb7d3c40b40d0902ef72c058d3bf2e2c3190d0ab9cb803ff1de
+manifestDigest: sha256:59f81b14ead5ba9f7c8ef466d86cce84c5221360c21758514bb06f00a7907564
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

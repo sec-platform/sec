@@ -109,6 +109,19 @@ stableFacts:
         observedAfterTimeoutStage: artifact-read
       disposition: deadline-derived-test-budget
       completionEvidence: false
+    knownVerificationConcurrencyFailureClassification:
+      kind: affected-and-risk-shared-workspace-contention
+      evidence:
+        affectedExitObserved: false
+        riskStartedWhileAffectedAlive: true
+        contaminatedFailures:
+          - e2e-pipeline-timeout
+          - workspace-lease-ebusy
+          - orphaned-next-and-playwright-children
+        riskEvidencePublished: false
+        postRecoveryTestWorkspaceEmpty: true
+      disposition: physical-worktree-heavy-gate-zero-wait-lease
+      completionEvidence: false
     knownProofInputFailureClassification:
       kind: derived-runtime-output-misclassified-as-project-input
       evidence:
@@ -121,16 +134,18 @@ stableFacts:
       disposition: canonical-derived-output-exclusion-plus-proof-micro-sentinel
       completionEvidence: false
     latestIndependentArchitectureReview:
-      reviewedCommit: 066fbd2150f49f3c57948c3f58f32db397bd2732
+      reviewedCommit: a44dc3410a9fa0e4818b610cdd0204a7ed0654dd
       result: failed
-      canonicalAffectedAtReviewedCommit: passed-baseline-only
+      canonicalAffectedAtReviewedCommit: not-run
       riskRun: false
       blockers:
-        - child-pre-spawn-browser-proof-missing
-        - staged-browser-relative-root-duplicated
-        - acceptance-port-release-unproven
-        - windows-temp-owner-acl-unproven
-      disposition: repair-in-active-package-new-head-required
+        - windows-private-root-exact-cleanup-unproven
+        - playwright-three-package-closure-unbound
+        - isolated-runtime-browser-selector-duplicated
+        - isolated-cold-browser-readiness-missing
+        - through-verify-stage-order-duplicated
+        - affected-risk-heavy-gate-ownership-missing
+      disposition: one-scope-refrozen-successor-required
       completionEvidence: false
     latestIndependentEvidenceReview:
       reviewedCommit: 6daed7aaeecdfeca8910d1d2367634b86a70c0e9
