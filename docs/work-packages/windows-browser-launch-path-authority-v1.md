@@ -43,6 +43,7 @@ tasks:
       - platform/shared/runtime-dependency-spec.ts
       - platform/shared/windows-host-filesystem-authority.ts
       - scripts/ci-pr-risk.ts
+      - scripts/codex/merge-gate.ts
       - tests/helpers/semantic-mutation-production-sentinel.ts
       - tests/contract/ci-contract.test.ts
       - tests/contract/ci-lanes.test.ts

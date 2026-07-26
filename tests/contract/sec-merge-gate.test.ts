@@ -616,12 +616,17 @@ const TCB_REVIEWED_SUT_EDGES = new Set([
   'scripts/ci-workspace-fast.ts -> platform/orchestrator.ts'
 ]);
 
+const TCB_REVIEWED_EXTERNAL_IMPORTS = new Set([
+  'platform/shared/heavy-verification-gate-lease.ts -> bun:ffi'
+]);
+
 const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
   'globby',
   'lodash-es',
   'node:crypto',
   'node:fs',
   'node:fs/promises',
+  'node:os',
   'node:path',
   'node:url',
   'ts-morph',
@@ -722,7 +727,8 @@ const TCB_PROCESS_SAFE_MEMBERS = new Set([
 function runtimeRelativeImportsFromSource(
   repositoryPath: string,
   source: string,
-  reviewedProcessDispatchers: Set<string> = new Set()
+  reviewedProcessDispatchers: Set<string> = new Set(),
+  reviewedExternalImports: Set<string> = new Set()
 ): string[] {
   const sourceFile = ts.createSourceFile(repositoryPath, source, ts.ScriptTarget.Latest, true);
   const specifiers: string[] = [];
@@ -1195,18 +1201,28 @@ function runtimeRelativeImportsFromSource(
   return specifiers.filter((specifier) => {
     if (specifier.startsWith('./') || specifier.startsWith('../')) return true;
     if (TCB_APPROVED_EXTERNAL_IMPORTS.has(specifier)) return false;
+    const reviewedExternalImport = `${repositoryPath} -> ${specifier}`;
+    if (TCB_REVIEWED_EXTERNAL_IMPORTS.has(reviewedExternalImport)) {
+      reviewedExternalImports.add(reviewedExternalImport);
+      return false;
+    }
     throw new Error(
       `TCB runtime import is outside the approved relative/external policy: ${repositoryPath} -> ${specifier}.`
     );
   });
 }
 
-function runtimeRelativeImports(repositoryPath: string, reviewedProcessDispatchers: Set<string>): string[] {
+function runtimeRelativeImports(
+  repositoryPath: string,
+  reviewedProcessDispatchers: Set<string>,
+  reviewedExternalImports: Set<string>
+): string[] {
   const absolutePath = path.join(compilerRoot, ...repositoryPath.split('/'));
   return runtimeRelativeImportsFromSource(
     repositoryPath,
     readFileSync(absolutePath, 'utf8'),
-    reviewedProcessDispatchers
+    reviewedProcessDispatchers,
+    reviewedExternalImports
   );
 }
 
@@ -1223,17 +1239,23 @@ function resolveRepositoryImport(from: string, specifier: string): string {
 function trustedRuntimeClosure(): {
   closure: Set<string>;
   reviewedEdges: Set<string>;
+  reviewedExternalImports: Set<string>;
   reviewedProcessDispatchers: Set<string>;
 } {
   const closure = new Set<string>();
   const reviewedEdges = new Set<string>();
+  const reviewedExternalImports = new Set<string>();
   const reviewedProcessDispatchers = new Set<string>();
   const queue: string[] = [...TCB_RUNTIME_ENTRYPOINTS];
   while (queue.length > 0) {
     const current = queue.shift()!;
     if (closure.has(current)) continue;
     closure.add(current);
-    for (const specifier of runtimeRelativeImports(current, reviewedProcessDispatchers)) {
+    for (const specifier of runtimeRelativeImports(
+      current,
+      reviewedProcessDispatchers,
+      reviewedExternalImports
+    )) {
       const resolved = resolveRepositoryImport(current, specifier);
       const edge = `${current} -> ${resolved}`;
       if (TCB_REVIEWED_SUT_EDGES.has(edge)) {
@@ -1243,7 +1265,7 @@ function trustedRuntimeClosure(): {
       queue.push(resolved);
     }
   }
-  return { closure, reviewedEdges, reviewedProcessDispatchers };
+  return { closure, reviewedEdges, reviewedExternalImports, reviewedProcessDispatchers };
 }
 
 function matchesCanonicalTrustRoot(repositoryPath: string): boolean {
@@ -1496,10 +1518,16 @@ test('trusted workflow TCB declarations exactly equal the canonical base-side tr
 });
 
 test('verifier runtime import closure stays inside the TCB except for the reviewed product seam', () => {
-  const { closure, reviewedEdges, reviewedProcessDispatchers } = trustedRuntimeClosure();
-  expect(closure.size).toBe(50);
+  const {
+    closure,
+    reviewedEdges,
+    reviewedExternalImports,
+    reviewedProcessDispatchers
+  } = trustedRuntimeClosure();
+  expect(closure.size).toBe(51);
   expect(reviewedProcessDispatchers.size).toBe(22);
   expect([...reviewedEdges].sort()).toEqual([...TCB_REVIEWED_SUT_EDGES].sort());
+  expect([...reviewedExternalImports].sort()).toEqual([...TCB_REVIEWED_EXTERNAL_IMPORTS].sort());
   expect([...reviewedProcessDispatchers].sort()).toEqual([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort());
   expect([...closure].filter((entry) => !matchesCanonicalTrustRoot(entry)).sort()).toEqual([]);
   expect([...closure]).toEqual(expect.arrayContaining([
@@ -1513,6 +1541,7 @@ test('verifier runtime import closure stays inside the TCB except for the review
     'platform/shared/bun-runtime-version.ts',
     'platform/shared/collections.ts',
     'platform/shared/contract-freeze-contract.ts',
+    'platform/shared/heavy-verification-gate-lease.ts',
     'platform/shared/paths.ts',
     'platform/shared/process.ts',
     'platform/shared/project-runtime.ts',
