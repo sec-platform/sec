@@ -10,8 +10,8 @@ last-reviewed: 2026-07-26
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/hot-import-feedback-v1.md
-manifestDigest: sha256:31a5268a118d717531c038c569d87363a8219480c0fad334d6a31baedcbe09de
+manifest: docs/work-packages/import-test-feedback-v1.md
+manifestDigest: sha256:7ba9f168169e8f1107d9fe9242510f60083a70d9bc2bbe6bc5cfbe1056f4ca8c
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
