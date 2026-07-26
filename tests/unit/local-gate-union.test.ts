@@ -1,0 +1,108 @@
+import { expect, test } from 'bun:test';
+import { readFile } from 'node:fs/promises';
+
+import {
+  buildLocalAffectedCheckPlan,
+  type LocalAffectedGateId
+} from '../../platform/dev-runner/check-runner.ts';
+import type { AffectedTestPlanV1 } from '../../platform/dev-runner/test-runner.ts';
+import { compilerRoot } from '../../platform/shared/paths.ts';
+
+function affectedPlan(
+  changedPaths: string[],
+  selectedFastTests: string[] = [],
+  resolved = true
+): AffectedTestPlanV1 {
+  return {
+    schema: 'sec-affected-test-plan-v1',
+    changedPaths,
+    owners: [],
+    selectedFastTests,
+    selectedSlowTests: [],
+    riskSuites: [],
+    riskTests: [],
+    riskReasons: [],
+    unresolvedPaths: resolved ? [] : changedPaths,
+    resolved
+  };
+}
+
+function gateIds(plan: ReturnType<typeof buildLocalAffectedCheckPlan>): LocalAffectedGateId[] {
+  return plan.gates.map(({ id }) => id);
+}
+
+test('local affected plan selects docs doctor alone for pure active documentation', () => {
+  const plan = buildLocalAffectedCheckPlan(affectedPlan(
+    ['docs/test-feedback-and-ci-lanes.md'],
+    ['tests/unit/codex-work-package-contract.test.ts']
+  ));
+
+  expect(gateIds(plan)).toEqual(['docs:doctor']);
+  expect(plan.subsumedStandaloneCommands).toEqual(['bun run docs:doctor']);
+});
+
+test('local affected plan forms one ordered union for mixed TypeScript and docs changes', () => {
+  const plan = buildLocalAffectedCheckPlan(affectedPlan(
+    [
+      'docs/test-feedback-and-ci-lanes.md',
+      'platform/dev-runner/check-runner.ts'
+    ],
+    [
+      'tests/unit/local-gate-union.test.ts',
+      'tests/unit/test-runner.test.ts'
+    ]
+  ));
+
+  expect(gateIds(plan)).toEqual([
+    'imports:prepare',
+    'typecheck',
+    'docs:doctor',
+    'test:affected'
+  ]);
+  expect(plan.subsumedStandaloneCommands).toEqual([
+    'bun run imports:prepare',
+    'bun run typecheck',
+    'bun run docs:doctor',
+    'bun run test:affected'
+  ]);
+  expect(new Set(plan.subsumedStandaloneCommands).size).toBe(plan.subsumedStandaloneCommands.length);
+  expect(plan.umbrellaCommand).toBe('bun run check:affected');
+});
+
+test('local affected plan keeps non-TypeScript contracts narrow', () => {
+  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
+    ['package.json'],
+    ['tests/integration/project-runtime.test.ts']
+  )))).toEqual(['typecheck', 'test:affected']);
+
+  expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
+    ['.github/workflows/compiler-pr-validation.yml'],
+    ['tests/contract/ci-lanes.test.ts']
+  )))).toEqual(['test:affected']);
+});
+
+test('local affected plan preserves unresolved authority and selects no invented broad fallback', () => {
+  const plan = buildLocalAffectedCheckPlan(affectedPlan(['assets/unowned.bin'], [], false));
+
+  expect(plan.resolved).toBe(false);
+  expect(plan.gates).toEqual([]);
+  expect(plan.affectedPlan.unresolvedPaths).toEqual(['assets/unowned.bin']);
+});
+
+test('check affected plan bypasses dependency bootstrap and formal execution path', async () => {
+  const source = (await readFile(`${compilerRoot}/platform/dev-runner.ts`, 'utf8')).replaceAll('\r\n', '\n');
+  const planEntry = source.indexOf("if (target === 'check:affected')");
+  const nextEntry = source.indexOf("if (target === 'test:affected')", planEntry + 1);
+  const dependencyBootstrap = source.indexOf('const dependencies = await ensureDevDependencies({');
+  const branch = source.slice(planEntry, nextEntry);
+
+  expect(planEntry).toBeGreaterThanOrEqual(0);
+  expect(nextEntry).toBeGreaterThan(planEntry);
+  expect(dependencyBootstrap).toBeGreaterThan(planEntry);
+  expect(branch).toContain(
+    'process.exitCode = await runLocalAffectedCheck(args, {'
+  );
+  expect(branch).toContain('prepareCompilerNodeModulesPath: async () => {');
+  expect(branch).toContain('return;');
+  expect(source.indexOf("if (target === 'check:affected')", planEntry + 1)).toBe(-1);
+});
