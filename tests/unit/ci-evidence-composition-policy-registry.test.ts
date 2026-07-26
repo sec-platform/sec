@@ -415,7 +415,7 @@ function manifest(
   policyId: string = CodexDevelopmentSm3P0EvidencePolicyIdV1
 ): string {
   const versionFields = schema === 'v1'
-    ? 'requiredProfile: quick\nciRevision: ci-verification-v14\n'
+    ? 'requiredProfile: quick\nciRevision: ci-verification-v15\n'
     : `evidenceComposition:\n  policyId: ${policyId}\n`;
   return `---
 schema: codex-development-work-package-${schema}

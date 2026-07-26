@@ -140,6 +140,13 @@ test('explicit documentation ownership and direct slow tests remain resolved', (
   expect(directSlowTest.resolved).toBe(true);
   expect(directSlowTest.reasons).toContain('direct-slow-test');
   expect(directSlowTest.suites).toContain('e2e-dry-run-plan');
+
+  const importOrganizerAcceptance = selectCiPrRiskSlowSuites([
+    'tests/e2e/import-organizer-staged.test.ts'
+  ]);
+  expect(importOrganizerAcceptance.resolved).toBe(true);
+  expect(importOrganizerAcceptance.reasons).toContain('direct-slow-test');
+  expect(importOrganizerAcceptance.suites).toEqual(['e2e-import-organizer-staged']);
 });
 
 test('agent governance and frozen work-package inputs use focused owners without slow fallback', () => {

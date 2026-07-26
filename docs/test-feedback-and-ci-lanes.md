@@ -170,6 +170,7 @@ Merge gate必须用 default-branch代码和 Git objects独立重算 changed reco
 - Contract Freeze 绑定公共合同与其快速owner tests；公共 schema/IR/operation/diagnostic变化必须运行对应完整 contract set。其成员不得启动Next build、production server、Playwright、浏览器安装或其他slow runtime；真实acceptance必须由slow registry中的Risk owner覆盖。`verification.docs-doctor`直接绑定 scanner 的 positive/negative/differential fixture，禁止只用当前文档树的正例运行替代失败语义。
 - Affected selector是快速反馈，不是完整风险或 Full 的替代。本地 plan、正式 affected与 hosted verification都必须对未知 ownership fail closed。
 - Slow suite必须声明资源等级、并行安全、owner、适用变化、timeout owner 与 cleanup；open handle、process、workspace 或 artifact residue是失败。
+- 同一能力若同时需要真实Git/Language Service快速阻断与完整index/race/rollback覆盖，fast层只保留一个真实micro-sentinel，完整场景进入显式slow suite。Slow fixture可以复用一次初始化的immutable seed，但每个并发场景必须复制为隔离repository，并以单一有界semaphore约束peak；不得共享working tree、index、lock或publication state。是否“变快”遵循`test-architecture.md`的固定环境采样协议：一次warm-up后至少五个有效样本，以median和observed range报告，单次duration不设hard baseline。
 - Browser、activation、navigation、restart、release artifact与远端事实不能由 unit/typecheck替代；纯函数也不应无条件触发浏览器矩阵。
 
 ## 10. 本地长时 Gate

@@ -104,6 +104,9 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
     resourceClass: 'runtime-heavy'
   }),
   slowFileSuite('e2e-graph', 'graph', 'compiler-graph-e2e', 120_000, { parallelSafe: true }),
+  slowFileSuite('e2e-import-organizer-staged', 'import-organizer-staged', 'compiler-import-organizer-staged-e2e', 120_000, {
+    parallelSafe: true
+  }),
   slowFileSuite('e2e-lanes', 'lanes', 'compiler-lanes-e2e', 120_000, { parallelSafe: true }),
   slowFileSuite('e2e-local-views', 'local-views', 'compiler-local-views-e2e', 120_000, { parallelSafe: true, resourceClass: 'runtime-heavy' }),
   slowFileSuite('e2e-manifest', 'manifest', 'compiler-manifest-e2e'),

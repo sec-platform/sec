@@ -8,6 +8,7 @@ import {
   buildTestBudgetContract,
   formatTestBudgetContract,
   getFastTestFilesSync,
+  getSlowTestSuitesSync,
   isFastTestFile,
   isTestFile
 } from '../../platform/shared/test-budget-contract.ts';
@@ -133,6 +134,9 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
   const contract = await buildTestBudgetContract();
   const formatted = formatTestBudgetContract(contract);
   const fastTestFiles = getFastTestFilesSync();
+  const importOrganizerSuite = getSlowTestSuitesSync().find((suite) => (
+    suite.id === 'e2e-import-organizer-staged'
+  ));
 
   expectTestBudgetSelfConsistent(contract);
 
@@ -143,6 +147,15 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
   expect(fastTestFiles).not.toContain('project/tests/runtime/acceptance/customer-flow.spec.ts');
   expect(fastTestFiles.some((file) => file.startsWith('tests/e2e/'))).toBe(false);
   expect(fastTestFiles.every((file) => file.startsWith('tests/'))).toBe(true);
+  expect(importOrganizerSuite).toEqual({
+    id: 'e2e-import-organizer-staged',
+    owner: 'compiler-import-organizer-staged-e2e',
+    timeoutMs: 120_000,
+    parallelSafe: true,
+    resourceClass: 'standard',
+    prRiskBaseline: false,
+    files: ['tests/e2e/import-organizer-staged.test.ts']
+  });
 
   expectContainsAll(formatted, [
     'Test budget default lane: fast',
