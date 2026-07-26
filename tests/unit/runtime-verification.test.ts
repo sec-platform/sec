@@ -1,6 +1,17 @@
 import { expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { copyFile, link, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+  copyFile,
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  unlink,
+  writeFile
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -14,6 +25,7 @@ import {
   buildIsolatedRuntimeAcceptanceEnvironment,
   buildIsolatedRuntimeAcceptanceEnvironmentForTests,
   buildIsolatedRuntimeEnvironment,
+  buildIsolatedRuntimeEnvironmentFromSourceForTests,
   captureIsolatedRuntimeBuildNodeModulesProofForTests,
   createSkippedRuntimeLane,
   ensurePlaywrightBrowserForTests,
@@ -22,7 +34,6 @@ import {
   resolveIsolatedRuntimeDependencySourcesForTests,
   revalidateIsolatedRuntimeBuildNodeModulesProofForTests,
   runRuntimeVerification,
-  runtimeOwnedDirectoryPathForTests,
   runtimeTempDirectoryPathForTests,
   runtimeVerificationInvocation
 } from '../../platform/compiler/verify/run-runtime-verification.ts';
@@ -375,20 +386,67 @@ test('namespaced Windows runtime TEMP preserves one physical directory beyond th
   }
 });
 
-test('namespaced Windows runtime browser cache preserves one physical directory authority', () => {
-  const windowsCache = String.raw`D:\workspace\.isolated-process\playwright-browsers`;
-  const namespacedCache = runtimeOwnedDirectoryPathForTests(windowsCache, 'win32');
-  expect(namespacedCache).toBe(path.win32.toNamespacedPath(windowsCache));
-  expect(path.win32.normalize(namespacedCache.slice(4))).toBe(path.win32.normalize(windowsCache));
-
-  const posixCache = '/workspace/.isolated-process/playwright-browsers';
-  expect(runtimeOwnedDirectoryPathForTests(posixCache, 'linux')).toBe(posixCache);
-
-  const stagingRoot = path.resolve('isolated-browser-cache-contract');
+test('isolated runtime accepts only a parent-issued launch path for its exact physical browser cache', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-runtime-browser-launch-binding-'));
+  const stagingRoot = path.join(root, 'staging');
   const physicalBrowserCache = isolatedPlaywrightBrowsersPath(stagingRoot);
-  const environment = buildIsolatedRuntimeEnvironment(stagingRoot);
-  expect(environment.PLAYWRIGHT_BROWSERS_PATH)
-    .toBe(runtimeOwnedDirectoryPathForTests(physicalBrowserCache, process.platform));
+  const launchPath = path.join(root, 'launch-path');
+  const outside = path.join(root, 'outside');
+  await Promise.all([
+    mkdir(physicalBrowserCache, { recursive: true }),
+    mkdir(outside, { recursive: true })
+  ]);
+  try {
+    const ordinary = buildIsolatedRuntimeEnvironment(stagingRoot);
+    expect(ordinary.PLAYWRIGHT_BROWSERS_PATH).toBe(physicalBrowserCache);
+    const reservedOverride = buildIsolatedRuntimeEnvironmentFromSourceForTests(
+      stagingRoot,
+      {},
+      process.platform,
+      {
+        CI: 'false',
+        PLAYWRIGHT_BROWSERS_PATH: outside,
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '0',
+        SEC_ISOLATED_VERIFICATION: '0'
+      }
+    );
+    expect(reservedOverride.CI).toBe('true');
+    expect(reservedOverride.PLAYWRIGHT_BROWSERS_PATH).toBe(physicalBrowserCache);
+    expect(reservedOverride.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
+    expect(reservedOverride.SEC_ISOLATED_VERIFICATION).toBe('1');
+
+    await symlink(
+      physicalBrowserCache,
+      launchPath,
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+    const projected = buildIsolatedRuntimeEnvironmentFromSourceForTests(
+      stagingRoot,
+      {
+        SEC_ISOLATED_VERIFICATION: '1',
+        PLAYWRIGHT_BROWSERS_PATH: launchPath
+      },
+      process.platform
+    );
+    expect(projected.PLAYWRIGHT_BROWSERS_PATH).toBe(launchPath);
+    await unlink(launchPath);
+
+    await symlink(
+      outside,
+      launchPath,
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+    expect(() => buildIsolatedRuntimeEnvironmentFromSourceForTests(
+      stagingRoot,
+      {
+        SEC_ISOLATED_VERIFICATION: '1',
+        PLAYWRIGHT_BROWSERS_PATH: launchPath
+      },
+      process.platform
+    )).toThrow('does not bind the staged browser cache');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('isolated dependency sources split compiler generation from an external runtime host', () => {
@@ -934,8 +992,7 @@ test('isolated runtime environment excludes live fallbacks and contains writable
   }).every((value) => typeof value === 'string' &&
     !path.relative(stagingRoot, value).startsWith('..') && !path.isAbsolute(path.relative(stagingRoot, value)))).toBe(true);
   const physicalBrowserCache = isolatedPlaywrightBrowsersPath(stagingRoot);
-  expect(environment.PLAYWRIGHT_BROWSERS_PATH)
-    .toBe(runtimeOwnedDirectoryPathForTests(physicalBrowserCache, process.platform));
+  expect(environment.PLAYWRIGHT_BROWSERS_PATH).toBe(physicalBrowserCache);
   const physicalTemp = path.join(stagingRoot, '.isolated-process', 'runtime', 'tmp');
   expect(environment.TEMP).toBe(runtimeTempDirectoryPathForTests(physicalTemp, process.platform));
   expect(environment.TMP).toBe(environment.TEMP);

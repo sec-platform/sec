@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-07-24
+last-reviewed: 2026-07-26
 ---
 
 # 当前唯一 Active Work Package
@@ -10,8 +10,8 @@ last-reviewed: 2026-07-24
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/runtime-canonical-line-and-pr137-reconciliation-v1.md
-manifestDigest: sha256:003f02bbaee054d7b62f1d1f05645da381b7fd1b6df79595491c696a48324a7e
+manifest: docs/work-packages/windows-browser-launch-path-authority-v1.md
+manifestDigest: sha256:2b0f8f0c6bd0f6d8ceb59e8aa5821ced760be7099df91bec00ed4c9037c214f8
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

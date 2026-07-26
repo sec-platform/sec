@@ -43,6 +43,14 @@ stableFacts:
 
   runtimeReconciliation:
     completionStatus: not-in-main
+    frozenFailedCandidate:
+      commit: 3a72882151072ca96a83d974d01acc0b033fdd1a
+      canonicalAffected:
+        result: failed
+        failedBatch: tests/integration/semantic-mutation-apply.test.ts
+        summary: 3-pass-1-fail-1-error
+        riskRun: false
+      disposition: source-only-never-rerun
     stableProductionSource:
       commit: d2f7083c63642306ba18cd77aac373e490c9079b
       role: blob-source-only
@@ -57,5 +65,40 @@ stableFacts:
       projectRuntimeTest: 868863e3d35fcc21ad28843ad454beb15433e2db
       semanticMutationApplyTest: 83437728a3980c734b8b79b700c0a901d8604764
     knownFailureClassification:
-      kind: playwright-dependency-browser-revision-drift
+      kind: windows-browser-filesystem-path-not-launch-compatible
+      evidence:
+        sourceExecutableLength: 171
+        stagedExecutableLength: 323
+        projectedExecutableLength: 160
+        sourceLaunch: passed
+        stagedNamespacedLaunch: failed
+        projectedLaunch: passed
+      completionEvidence: false
+    knownSecondaryFailureClassification:
+      kind: playwright-windows-taskkill-access-denied
+      evidence:
+        nextReady: passed
+        acceptanceRequest: passed
+        playwrightTaskkill: access-denied
+        teardownWait: unbounded
+      disposition: sec-owned-direct-next-lifecycle
+      completionEvidence: false
+    knownTestHarnessFailureClassification:
+      kind: test-timeout-preempts-production-supervisor
+      evidence:
+        previousOuterTimeoutMs: 300000
+        supervisorTimeoutMs: 1200000
+        observedAfterTimeoutStage: artifact-read
+      disposition: deadline-derived-test-budget
+      completionEvidence: false
+    knownProofInputFailureClassification:
+      kind: derived-runtime-output-misclassified-as-project-input
+      evidence:
+        liveOnlyDerivedOutputs:
+          - .runtime-deps.stamp.json
+        nextBuildRewrittenOutputs:
+          - next-env.d.ts
+        observedFailure: Live rebuild inputs do not match the staged Verification proof
+        expensiveFallback: rollback-full-verification
+      disposition: canonical-derived-output-exclusion-plus-proof-micro-sentinel
       completionEvidence: false

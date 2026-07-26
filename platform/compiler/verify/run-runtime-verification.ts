@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { CommitFence } from '../../shared/fs.ts';
@@ -119,6 +120,16 @@ export interface IsolatedRuntimeBuildNodeModulesProof {
   readonly buildNodeModulesRoot: string;
   readonly bridgeMetadata: DependencyPathMetadata;
   readonly targetMetadata: DependencyPathMetadata;
+}
+
+export interface IsolatedRuntimeAcceptanceServerRequest {
+  readonly beforeSpawn?: CommitFence;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly nodeExecutablePath: string;
+  readonly port: number;
+  readonly projectRoot: string;
+  readonly signal?: AbortSignal;
+  readonly stagingWorkspaceRoot: string;
 }
 
 const NODE_DEPENDENCY_PATH_PROBE: DependencyPathProbe = Object.freeze({
@@ -367,6 +378,45 @@ function runtimeOwnedDirectoryPath(value: string, platform: NodeJS.Platform): st
   return platform === 'win32' ? path.win32.toNamespacedPath(value) : value;
 }
 
+function ordinaryWindowsPath(value: string): string {
+  const normalized = path.win32.normalize(value);
+  if (normalized.startsWith('\\\\?\\UNC\\')) return `\\\\${normalized.slice(8)}`;
+  return normalized.startsWith('\\\\?\\') ? normalized.slice(4) : normalized;
+}
+
+function samePhysicalRuntimePath(
+  left: string,
+  right: string,
+  platform: NodeJS.Platform
+): boolean {
+  if (platform !== 'win32') return path.resolve(left) === path.resolve(right);
+  return ordinaryWindowsPath(left).toLocaleLowerCase('en-US') ===
+    ordinaryWindowsPath(right).toLocaleLowerCase('en-US');
+}
+
+function runtimeBrowserLaunchPath(
+  stagingWorkspaceRoot: string,
+  source: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform
+): string {
+  const physicalBrowserCache = isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot);
+  const inheritedLaunchPath = source[ISOLATED_VERIFICATION_ENV_KEY] === '1'
+    ? source.PLAYWRIGHT_BROWSERS_PATH
+    : undefined;
+  if (inheritedLaunchPath === undefined) {
+    return physicalBrowserCache;
+  }
+  if (!path.isAbsolute(inheritedLaunchPath)) {
+    throw new Error('Inherited browser launch path must be absolute');
+  }
+  const physicalTarget = realpathSync(physicalBrowserCache);
+  const launchTarget = realpathSync(inheritedLaunchPath);
+  if (!samePhysicalRuntimePath(physicalTarget, launchTarget, platform)) {
+    throw new Error('Inherited browser launch path does not bind the staged browser cache');
+  }
+  return inheritedLaunchPath;
+}
+
 function runtimeTempDirectoryPath(value: string, platform: NodeJS.Platform): string {
   return runtimeOwnedDirectoryPath(value, platform);
 }
@@ -393,18 +443,15 @@ function buildIsolatedRuntimeEnvironmentFromSource(
   source: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform
 ): NodeJS.ProcessEnv {
-  const browserCacheDirectory = runtimeOwnedDirectoryPath(
-    isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot),
-    platform
-  );
+  const browserCacheDirectory = runtimeBrowserLaunchPath(stagingWorkspaceRoot, source, platform);
   const environment = buildIsolatedProcessEnvironment(
     path.join(stagingWorkspaceRoot, '.isolated-process', 'runtime'),
     {
+      ...additionalEnv,
       [ISOLATED_VERIFICATION_ENV_KEY]: '1',
       CI: 'true',
       PLAYWRIGHT_BROWSERS_PATH: browserCacheDirectory,
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
-      ...additionalEnv
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     },
     source
   );
@@ -417,6 +464,21 @@ function buildIsolatedRuntimeEnvironmentFromSource(
   environment.TMP = runtimeTemp;
   environment.TMPDIR = runtimeTemp;
   return environment;
+}
+
+/** Test-only source seam for the parent-issued browser launch-path binding. */
+export function buildIsolatedRuntimeEnvironmentFromSourceForTests(
+  stagingWorkspaceRoot: string,
+  source: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  additionalEnv: NodeJS.ProcessEnv = {}
+): NodeJS.ProcessEnv {
+  return buildIsolatedRuntimeEnvironmentFromSource(
+    stagingWorkspaceRoot,
+    additionalEnv,
+    source,
+    platform
+  );
 }
 
 function runtimeAcceptanceShellAuthorityError(reason: string): Error {
@@ -656,6 +718,192 @@ function generatePort(projectRoot: string, isolated: boolean): number {
     0
   );
   return basePort + workerId * 1000 + pathHash;
+}
+
+const RUNTIME_ACCEPTANCE_SERVER_START_TIMEOUT_MS = 120_000;
+const RUNTIME_ACCEPTANCE_SERVER_STOP_TIMEOUT_MS = 5_000;
+const RUNTIME_ACCEPTANCE_SERVER_POLL_MS = 100;
+const RUNTIME_ACCEPTANCE_SERVER_DIAGNOSTIC_LIMIT = 16 * 1024;
+
+function appendRuntimeAcceptanceServerDiagnostic(current: string, chunk: unknown): string {
+  if (current.length >= RUNTIME_ACCEPTANCE_SERVER_DIAGNOSTIC_LIMIT) return current;
+  return (current + String(chunk)).slice(0, RUNTIME_ACCEPTANCE_SERVER_DIAGNOSTIC_LIMIT);
+}
+
+function runtimeAcceptanceServerError(message: string, stdout: string, stderr: string): Error {
+  const diagnostic = [stderr.trim(), stdout.trim()].filter(Boolean).join('\n');
+  return new Error(diagnostic.length > 0 ? `${message}\n${diagnostic}` : message);
+}
+
+async function waitForRuntimeAcceptanceServerClose(
+  child: ChildProcess,
+  timeoutMs: number
+): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return await new Promise<boolean>((resolve) => {
+    const onClose = (): void => {
+      clearTimeout(timeout);
+      resolve(true);
+    };
+    const timeout = setTimeout(() => {
+      child.removeListener('close', onClose);
+      resolve(false);
+    }, timeoutMs);
+    child.once('close', onClose);
+  });
+}
+
+async function stopRuntimeAcceptanceServer(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill('SIGTERM');
+  if (await waitForRuntimeAcceptanceServerClose(
+    child,
+    RUNTIME_ACCEPTANCE_SERVER_STOP_TIMEOUT_MS
+  )) return;
+  child.kill('SIGKILL');
+  if (!(await waitForRuntimeAcceptanceServerClose(
+    child,
+    RUNTIME_ACCEPTANCE_SERVER_STOP_TIMEOUT_MS
+  ))) {
+    throw new Error('Isolated runtime acceptance server did not close');
+  }
+}
+
+async function runtimeAcceptanceServerIsReady(port: number): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/login`, {
+      signal: AbortSignal.timeout(1_000)
+    });
+    await response.body?.cancel();
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function delayRuntimeAcceptanceServerPoll(signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  await new Promise<void>((resolve) => setTimeout(resolve, RUNTIME_ACCEPTANCE_SERVER_POLL_MS));
+  signal?.throwIfAborted();
+}
+
+/**
+ * Keeps isolated Next lifecycle under the SEC verifier instead of Playwright's
+ * Windows shell/taskkill fallback. The generated Playwright config only
+ * observes and reuses this exact ready server.
+ */
+export async function withIsolatedRuntimeAcceptanceServer<T>(
+  request: IsolatedRuntimeAcceptanceServerRequest,
+  execute: () => Promise<T>
+): Promise<T> {
+  if (!path.isAbsolute(request.projectRoot) ||
+    !path.isAbsolute(request.nodeExecutablePath) ||
+    !path.isAbsolute(request.stagingWorkspaceRoot) ||
+    !Number.isSafeInteger(request.port) ||
+    request.port < 1 ||
+    request.port > 65_535) {
+    throw new Error('Isolated runtime acceptance server request is invalid');
+  }
+  const stagingWorkspaceRoot = path.resolve(request.stagingWorkspaceRoot);
+  const projectRoot = path.resolve(request.projectRoot);
+  if (foldedPath(projectRoot) !== foldedPath(path.join(stagingWorkspaceRoot, 'project')) ||
+    foldedPath(request.nodeExecutablePath) !== foldedPath(
+      semanticMutationIsolatedNodeExecutablePath(stagingWorkspaceRoot)
+    ) ||
+    request.environment[ISOLATED_VERIFICATION_ENV_KEY] !== '1' ||
+    request.environment.TEST_PORT !== String(request.port)) {
+    throw new Error('Isolated runtime acceptance server authority is invalid');
+  }
+  request.signal?.throwIfAborted();
+  await request.beforeSpawn?.();
+  request.signal?.throwIfAborted();
+  if (await runtimeAcceptanceServerIsReady(request.port)) {
+    throw new Error('Isolated runtime acceptance port is already serving another process');
+  }
+  const nextModule = path.join(
+    projectRoot,
+    'node_modules',
+    'next',
+    'dist',
+    'bin',
+    'next'
+  );
+  const child = spawn(path.resolve(request.nodeExecutablePath), [
+    nextModule,
+    'start',
+    '--hostname',
+    '127.0.0.1',
+    '--port',
+    String(request.port)
+  ], {
+    cwd: projectRoot,
+    env: request.environment,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true
+  });
+  let stdout = '';
+  let stderr = '';
+  let spawnError: Error | undefined;
+  child.stdout?.on('data', (chunk) => {
+    stdout = appendRuntimeAcceptanceServerDiagnostic(stdout, chunk);
+  });
+  child.stderr?.on('data', (chunk) => {
+    stderr = appendRuntimeAcceptanceServerDiagnostic(stderr, chunk);
+  });
+  child.once('error', (error) => {
+    spawnError = error;
+  });
+
+  let primaryError: unknown;
+  try {
+    const deadline = Date.now() + RUNTIME_ACCEPTANCE_SERVER_START_TIMEOUT_MS;
+    while (!(await runtimeAcceptanceServerIsReady(request.port))) {
+      request.signal?.throwIfAborted();
+      if (spawnError) throw spawnError;
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw runtimeAcceptanceServerError(
+          'Isolated runtime acceptance server exited before readiness',
+          stdout,
+          stderr
+        );
+      }
+      if (Date.now() >= deadline) {
+        throw runtimeAcceptanceServerError(
+          'Isolated runtime acceptance server readiness timed out',
+          stdout,
+          stderr
+        );
+      }
+      await delayRuntimeAcceptanceServerPoll(request.signal);
+    }
+    if (spawnError) throw spawnError;
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw runtimeAcceptanceServerError(
+        'Isolated runtime acceptance server exited after readiness',
+        stdout,
+        stderr
+      );
+    }
+    await request.beforeSpawn?.();
+    request.signal?.throwIfAborted();
+    return await execute();
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    try {
+      await stopRuntimeAcceptanceServer(child);
+      await request.beforeSpawn?.();
+    } catch (closeError) {
+      if (primaryError !== undefined) {
+        throw new AggregateError(
+          [primaryError, closeError],
+          'Isolated runtime acceptance execution and server cleanup both failed'
+        );
+      }
+      throw closeError;
+    }
+  }
 }
 
 function normalizeStatus(code: number): VerificationStatus {
@@ -930,9 +1178,23 @@ export async function runRuntimeVerification(
     const acceptanceEnv = isolated
       ? buildIsolatedRuntimeAcceptanceEnvironment(options.stagingWorkspaceRoot!, { TEST_PORT: String(testPort) })
       : { ...baseEnv, CI: process.env.CI ?? 'true', TEST_PORT: String(testPort) };
+    const runAcceptance = (): Promise<{
+      code: number;
+      stdout: string;
+      stderr: string;
+    }> => runRuntimeCommand(acceptanceInvocation, acceptanceEnv);
     const acceptanceResult = await timed('playwright test', emitTiming, () =>
-      withIsolatedPhaseTelemetry('playwright', () =>
-        runRuntimeCommand(acceptanceInvocation, acceptanceEnv))
+      withIsolatedPhaseTelemetry('playwright', () => isolated
+        ? withIsolatedRuntimeAcceptanceServer({
+            beforeSpawn: options.beforeCommit,
+            environment: acceptanceEnv,
+            nodeExecutablePath: isolatedNodeExecutablePath!,
+            port: testPort,
+            projectRoot,
+            signal: options.signal,
+            stagingWorkspaceRoot: options.stagingWorkspaceRoot!
+          }, runAcceptance)
+        : runAcceptance())
     );
     lane.acceptance = createRuntimeCommandStep(
       RUNTIME_VERIFICATION_INVOCATION_CONTRACT.acceptance.logicalCommandLabel,

@@ -6,7 +6,8 @@ import path from 'node:path';
 import {
   buildIsolatedRuntimeAcceptanceEnvironment,
   buildIsolatedRuntimeEnvironment,
-  runtimeVerificationInvocation
+  runtimeVerificationInvocation,
+  withIsolatedRuntimeAcceptanceServer
 } from '../../platform/compiler/verify/run-runtime-verification.ts';
 import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from '../../platform/compiler/verify/runtime-verification-invocation-contract.ts';
 import {
@@ -787,7 +788,7 @@ describe('project base', () => {
     }, 'engineering-compiler-runtime-trace-');
   });
 
-  test('project base emits the canonical isolated runtime acceptance webServer command', async () => {
+  test('project base delegates isolated acceptance server lifecycle to the verifier', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       await ensureProjectBase(workspaceRoot);
       const { projectRoot } = getWorkspacePaths(workspaceRoot);
@@ -796,18 +797,19 @@ describe('project base', () => {
       expect(RUNTIME_VERIFICATION_INVOCATION_CONTRACT.build.moduleRelativePath).toBe('next/dist/bin/next');
       expectContainsAll(playwrightConfig, [
         "process.env.SEC_ISOLATED_VERIFICATION === '1'",
-        'const webServerCommand = (isolatedVerification',
-        "? [\n      'node'",
-        ": [\n      'bun'",
+        'const webServerCommand = [',
         "'bun'",
         "'--no-env-file'",
         "'--no-install'",
         "'node_modules/next/dist/bin/next'",
         "'start'",
+        'webServer: isolatedVerification ? undefined : {',
         "cwd: '.'",
-        'command: webServerCommand'
+        'command: webServerCommand',
+        'reuseExistingServer: !process.env.CI'
       ]);
       expectContainsNone(playwrightConfig, [
+        "? [\n      'node'",
         '.bin/next',
         'next start --hostname',
         '--config=../.isolated-process/runtime/bunfig.toml',
@@ -820,7 +822,7 @@ describe('project base', () => {
     }, 'engineering-compiler-runtime-command-');
   });
 
-  test('isolated runtime acceptance launches generated Next through the Playwright shell and closes the server', async () => {
+  test('isolated runtime acceptance launches generated Next under SEC lifecycle and closes the server', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       await ensureProjectBase(workspaceRoot);
       const { projectRoot } = getWorkspacePaths(workspaceRoot);
@@ -896,12 +898,18 @@ describe('project base', () => {
           isolatedConfigPath,
           stagedNode
         );
-        const acceptanceResult = await runCommand(acceptanceInvocation.command, acceptanceInvocation.args, {
-          cwd: projectRoot,
-          env: acceptanceEnvironment,
-          envMode: 'replace',
-          timeoutMs: 120_000
-        });
+        const acceptanceResult = await withIsolatedRuntimeAcceptanceServer({
+          environment: acceptanceEnvironment,
+          nodeExecutablePath: stagedNode,
+          port: testPort,
+          projectRoot,
+          stagingWorkspaceRoot: workspaceRoot
+        }, async () => await runCommand(acceptanceInvocation.command, acceptanceInvocation.args, {
+            cwd: projectRoot,
+            env: acceptanceEnvironment,
+            envMode: 'replace',
+            timeoutMs: 120_000
+          }));
         expect(acceptanceResult).toMatchObject({ code: 0 });
         expect(`${acceptanceResult.stdout}\n${acceptanceResult.stderr}`).not.toMatch(
           /ENOENT|uv_spawn|cmd\.exe.*(?:not found|not recognized)|taskkill.*(?:not found|not recognized)/iu

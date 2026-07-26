@@ -1,15 +1,15 @@
 ---
 title: SEC 滚动近期计划
 status: active
-last-reviewed: 2026-07-24
+last-reviewed: 2026-07-26
 ---
 
 # SEC 滚动近期计划
 
-本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、外部exact-head Review/CI、retained worktree custody与GitNexus impact重新计算。#142已squash merge，V5 docs-doctor semantic superset与V10 trust root已进入main；上一manifest在live default branch解析为`none`。PR #137仍位于旧base且冲突，只有失败merge-gate，不能提供完成或验证授权。
+本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、外部exact-head Review/CI、retained worktree custody、GitNexus impact与`3a72882`的canonical affected失败重新计算。#142已squash merge，V5 docs-doctor semantic superset与V10 trust root已进入main。PR #137仍位于旧base且冲突，只有失败merge-gate，不能提供完成或验证授权。
 
 ```text
-Runtime Canonical Line + PR #137 Reconciliation V1 (active)
+Windows Browser Launch Path Authority V1 (active)
 → Dirty Root / Branch / Worktree Reconciliation
 → Nexus Exact-tree Census Refresh
 → SM-4A Trusted Authorization Ingress Reconciliation
@@ -19,12 +19,12 @@ Runtime Canonical Line + PR #137 Reconciliation V1 (active)
 
 ## 当前唯一 Work Package
 
-### runtime-canonical-line-and-pr137-reconciliation-v1
+### windows-browser-launch-path-authority-v1
 
-- 产品结果：在新main上重建唯一 runtime dependency/Node/browser/staging/verification authority，消除旧分支竞争实现与Playwright dependency/browser revision漂移。
-- 根因：旧runtime线从V9/V10前的base长期分叉；range dependency允许generated runtime与已物化browser cache使用不同revision，历史局部PASS又不能组合为affected PASS。
-- Owner：runtime dependency identity/lifecycle、staged plan、isolated child、verification/telemetry/process-isolation、对应tests、canonical docs、V11 V1 trust root与三个动态控制面；Engineering IR、process executor、hooks、Goal/governance与历史evidence禁止修改。
-- 退出：focused owner contracts、type/import/docs/control/scope、最终exact-head canonical affected真实PASS、其后一次Risk、独立Review与V11人工bootstrap闭合；successor进入main后#137准确标为absorbed并关闭。
+- 产品结果：保留`3a72882`重建的唯一runtime/V11 authority，把Windows文件系统可访问路径与Win32可启动路径拆成两个显式合同，使Playwright只通过绑定同一staged physical cache的短期launch projection启动；isolated Next服务由SEC verifier直接拥有，Playwright不再拥有Windows shell/taskkill teardown。
+- 根因：`\\?\`解决文件系统寻址但不能保证Chromium从超长module path读取ICU/resources；323字符staged executable失败，同一物理cache的160字符projection成功。后续修复又揭示Playwright teardown不拥有可用的Windows关闭权、test timeout早于production supervisor、project input digest把runtime stamp与Next生成文件误当authoring input。四个边界现分别由launch projection、SEC-owned direct child、deadline-derived budget与canonical derived-output classification拥有。
+- Owner：runtime plan materialization、Windows launch projection、child fixed environment与lifecycle、对应tests、docs/05和三个动态控制面；Engineering IR、process executor、installer、hooks、Goal/governance与历史evidence禁止修改。
+- 退出：projection正反/cleanup/target-swap合同、proof micro-sentinel、repaired SM-3 sentinel、type/import/docs/control/scope、最终successor exact-head canonical affected真实PASS、其后一次Risk、独立Review与V11人工bootstrap闭合；successor进入main后#137准确标为absorbed并关闭。
 
 ## 候选 Work Package
 
@@ -49,5 +49,5 @@ Runtime Canonical Line + PR #137 Reconciliation V1 (active)
 ## Gate、单写者与重算
 
 - A0是本窗口全部Gate owner；相同`gate_key + tested head + profile`的未失效结果复用。Contract Freeze统一拥有其登记测试，不逐项重复执行。
-- Runtime/V11 trust root、dirty ref reconciliation、Nexus ledger与SM-4A按依赖串行；只读审查不能创建第二formal package。
+- Windows launch/runtime/V11 trust root、dirty ref reconciliation、Nexus ledger与SM-4A按依赖串行；只读审查不能创建第二formal package。
 - SEC/Nexus main变化、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership反证、实现supersede或Census新前置均触发live resolver与全窗口重算。

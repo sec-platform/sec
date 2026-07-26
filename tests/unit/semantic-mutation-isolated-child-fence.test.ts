@@ -3,6 +3,7 @@ import {
   chmod,
   cp,
   link,
+  lstat,
   mkdir,
   readFile,
   rename,
@@ -1195,6 +1196,16 @@ test('staged full Verification proof is one-shot and binds exact live inputs and
       artifacts
     });
     const proof = await issueStagedVerificationProof({ source, evidenceDigest, binding });
+    await writeFile(
+      path.join(liveProjectRoot, '.runtime-deps.stamp.json'),
+      '{"installedAt":"2026-07-25T00:00:00.000Z","manifestHash":"live-cache","packageManager":"bun"}\n',
+      'utf8'
+    );
+    await writeFile(
+      path.join(liveProjectRoot, 'next-env.d.ts'),
+      '// live Next-generated residue is not an authoring input\n',
+      'utf8'
+    );
     expect(() => assertStagedVerificationProofBinding(proof, binding)).not.toThrow();
     expect(() => assertStagedVerificationProofBinding(proof, {
       ...binding,
@@ -1968,6 +1979,7 @@ test('isolated verification materializes fenced runner and browser inputs before
     });
     expect(runtimeCapabilityForTest.status).toBe('available');
     let fenceCalls = 0;
+    let launchPath: string | undefined;
     let supervisorCalls = 0;
 
     const unavailable = await runSemanticMutationIsolatedVerificationChild(stagingRoot, {
@@ -1977,6 +1989,7 @@ test('isolated verification materializes fenced runner and browser inputs before
       runtimeCapabilityForTest,
       supervisor: async (request) => {
         supervisorCalls += 1;
+        launchPath = request.env.PLAYWRIGHT_BROWSERS_PATH;
         expect(request.runnerRelativePath)
           .toBe(SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH);
         expect(request.stagingWorkspaceRoot).toBe(stagingRoot);
@@ -2009,6 +2022,11 @@ test('isolated verification materializes fenced runner and browser inputs before
 
     expect(supervisorCalls).toBe(1);
     expect(fenceCalls).toBeGreaterThanOrEqual(20);
+    if (process.platform === 'win32') {
+      expect(launchPath).toBeDefined();
+      await expect(lstat(launchPath!)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(lstat(path.dirname(launchPath!))).rejects.toMatchObject({ code: 'ENOENT' });
+    }
     expect(await readFile(path.join(
       stagingRoot,
       '.isolated-compiler',
@@ -2469,10 +2487,12 @@ test('isolated host enforces receipt, exit, and complete canonical report cohere
     }
 
     const canonicalSuccess = await createResolvedIsolatedHostFixture(root, 'canonical-success', 'a');
+    let successLaunchPath: string | undefined;
     const success = await runSemanticMutationIsolatedVerificationChild(canonicalSuccess.stagingRoot, {
       commitFence: async () => undefined,
       runtimeCapabilityForTest: canonicalSuccess.runtimeCapabilityForTest,
-      supervisor: async () => {
+      supervisor: async (request) => {
+        successLaunchPath = request.env.PLAYWRIGHT_BROWSERS_PATH;
         await writeIsolatedVerificationArtifacts(canonicalSuccess.stagingRoot, 'passed');
         await publishSuccessfulChildTrace(canonicalSuccess.stagingRoot);
         return { code: 0, stdout: '', stderr: '' };
@@ -2481,6 +2501,12 @@ test('isolated host enforces receipt, exit, and complete canonical report cohere
       workspaceWriteLease: workspaceWriteLeaseToken()
     });
     expect(success.status).toBe('passed');
+    if (process.platform === 'win32') {
+      expect(successLaunchPath).toBeDefined();
+      await expect(lstat(successLaunchPath!)).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(lstat(path.dirname(successLaunchPath!)))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+    }
   }, 'engineering-compiler-sm3-child-outcome-coherence-');
 });
 

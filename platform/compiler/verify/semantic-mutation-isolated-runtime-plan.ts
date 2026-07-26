@@ -151,6 +151,7 @@ interface RuntimeNodeAuthorityV1 {
 
 interface RuntimeSourceSnapshotV1 {
   readonly bootstrapBundle: Uint8Array;
+  readonly browserExecutableRelativePath: string;
   readonly dependencyBinding: Uint8Array;
   readonly directories: readonly string[];
   readonly directoryProofs: readonly RuntimeSourceDirectoryProofV1[];
@@ -179,6 +180,7 @@ interface RuntimeSourceProofCollector {
 
 interface SemanticMutationIsolatedRuntimePlanV1 {
   readonly bootstrapBundle: Uint8Array;
+  readonly browserExecutableRelativePath: string;
   readonly dependencyBinding: Uint8Array;
   readonly directories: readonly string[];
   readonly files: readonly RuntimeInputFileV1[];
@@ -674,6 +676,7 @@ function canonicalPlanPayload(plan: Omit<SemanticMutationIsolatedRuntimePlanV1, 
   return {
     domain: 'semantic-mutation-isolated-runtime-plan-v1',
     bootstrapBundleDigest: sha256Bytes(plan.bootstrapBundle),
+    browserExecutableRelativePath: plan.browserExecutableRelativePath,
     dependencyBindingDigest: sha256Bytes(plan.dependencyBinding),
     directories: plan.directories,
     files: plan.files.map((file) => ({
@@ -957,6 +960,7 @@ async function captureRuntimeSourceSnapshot(
     });
     const withoutRevision = {
       bootstrapBundle,
+      browserExecutableRelativePath: requiredBrowserExecutable,
       dependencyBinding,
       directories: sortedDirectories,
       directoryProofs: canonicalDirectoryProofs(proofs.directories),
@@ -1016,6 +1020,7 @@ export async function issueSemanticMutationIsolatedRuntimeCapability(input: {
     }
     const withoutRevision = {
       bootstrapBundle: snapshot.bootstrapBundle,
+      browserExecutableRelativePath: snapshot.browserExecutableRelativePath,
       dependencyBinding: snapshot.dependencyBinding,
       directories: snapshot.directories,
       files: snapshot.files,
@@ -1057,6 +1062,20 @@ function runtimeNodeAuthorityMatchesPlan(plan: SemanticMutationIsolatedRuntimePl
     (process.platform === 'win32' || nodeFile.destinationMode !== null);
 }
 
+function runtimeBrowserAuthorityMatchesPlan(plan: SemanticMutationIsolatedRuntimePlanV1): boolean {
+  try {
+    const executableRelativePath = canonicalRelativePath(plan.browserExecutableRelativePath);
+    const destinationRelativePath = canonicalRelativePath(
+      `${SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT}/${executableRelativePath}`
+    );
+    const executable = plan.files.find((file) =>
+      file.destinationRelativePath === destinationRelativePath);
+    return executable !== undefined && executable.size > 0;
+  } catch {
+    return false;
+  }
+}
+
 function requireRuntimePlan(binding: unknown): SemanticMutationIsolatedRuntimePlanV1 {
   if (!binding || typeof binding !== 'object') {
     throw new Error('Semantic Mutation isolated runtime plan binding is missing');
@@ -1069,6 +1088,7 @@ function requireRuntimePlan(binding: unknown): SemanticMutationIsolatedRuntimePl
   if (!plan || !issuedRuntimePlans.has(plan) ||
       plan.planRevision !== sha256Value(canonicalPlanPayload({
       bootstrapBundle: plan.bootstrapBundle,
+      browserExecutableRelativePath: plan.browserExecutableRelativePath,
       dependencyBinding: plan.dependencyBinding,
       directories: plan.directories,
       files: plan.files,
@@ -1078,7 +1098,8 @@ function requireRuntimePlan(binding: unknown): SemanticMutationIsolatedRuntimePl
       runnerBundle: plan.runnerBundle,
       stagingRoot: plan.stagingRoot,
       stagingRootIdentity: plan.stagingRootIdentity
-    })) || !runtimeNodeAuthorityMatchesPlan(plan) || sha256Bytes(plan.bootstrapBundle) !==
+    })) || !runtimeNodeAuthorityMatchesPlan(plan) || !runtimeBrowserAuthorityMatchesPlan(plan) ||
+    sha256Bytes(plan.bootstrapBundle) !==
       plan.files.find((file) => file.destinationRelativePath ===
         SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH)?.rawDigest ||
     sha256Bytes(plan.dependencyBinding) !==
@@ -1261,8 +1282,11 @@ async function exactDestinationStructure(
   plan: SemanticMutationIsolatedRuntimePlanV1,
   inspector: ReparsePointInspector
 ): Promise<RuntimeDestinationStructureV1> {
-  const structures = await Promise.all(OWNED_RUNTIME_ROOTS.map((relativeRoot) =>
-    scanDestinationStructure(plan.stagingRoot, relativeRoot, inspector)));
+  const structures = await runCanonicalBatches(
+    OWNED_RUNTIME_ROOTS,
+    async (relativeRoot) =>
+      await scanDestinationStructure(plan.stagingRoot, relativeRoot, inspector)
+  );
   return Object.freeze({
     directories: structures.flatMap((structure) => structure.directories).sort(compareCodeUnits),
     files: structures.flatMap((structure) => structure.files)
@@ -1417,6 +1441,7 @@ function canonicalRuntimeSourceSnapshotPayload(
   return {
     domain: 'semantic-mutation-runtime-source-snapshot-v1',
     bootstrapBundleDigest: sha256Bytes(snapshot.bootstrapBundle),
+    browserExecutableRelativePath: snapshot.browserExecutableRelativePath,
     dependencyBindingDigest: sha256Bytes(snapshot.dependencyBinding),
     directories: snapshot.directories,
     files: snapshot.files.map((file) => ({
@@ -1819,6 +1844,7 @@ export async function materializeSemanticMutationIsolatedRuntime(input: {
   readonly commitFence: CommitFence;
   readonly stagingWorkspaceRoot: string;
 }): Promise<{
+  readonly browserExecutableRelativePath: string;
   readonly browsersPath: string;
   readonly nodeExecutablePath: string;
   readonly runnerRelativePath: string;
@@ -1898,6 +1924,7 @@ export async function materializeSemanticMutationIsolatedRuntime(input: {
       throw new Error('Semantic Mutation staged Node aliases its source authority');
     }
     return {
+      browserExecutableRelativePath: plan.browserExecutableRelativePath,
       browsersPath: absoluteDestination(plan.stagingRoot, SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT),
       nodeExecutablePath,
       runnerRelativePath: SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH

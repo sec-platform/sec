@@ -1,7 +1,7 @@
 ---
 title: 测试反馈、证据与 CI 分层
 status: active
-last-reviewed: 2026-07-24
+last-reviewed: 2026-07-26
 ---
 
 # 测试反馈、证据与 CI 分层
@@ -39,6 +39,7 @@ last-reviewed: 2026-07-24
 - 旧结果只能作为“已验证 baseline + intervening diff impact + delta validation”的组成部分，不能伪装成新 head 的 exact-head PASS。
 - 未启动、缺失、超时、损坏、过期或 scope 不匹配均不是 PASS。
 - 失败后只重跑失败项和被修复 delta 失效的消费者；不得为制造绿色删除测试、弱化 assertion、无边界加 timeout 或重复整套矩阵。
+- 长时 production sentinel 启动前，先执行覆盖同一前置边界的最小 micro-sentinel；micro-sentinel 只能阻止已知无效候选进入昂贵 Gate，不能替代 production evidence。若长时运行的 durable journal 已证明会进入同一失败闭包，应在保留 failure phase、精确输入 delta 与 cleanup 证据后主动终止，修复根因再运行一次，而不是等待 supervisor deadline。
 
 ## 3. 本地入口
 
