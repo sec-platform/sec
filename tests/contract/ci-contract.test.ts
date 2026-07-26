@@ -52,7 +52,7 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   const contract = buildCiContract();
 
   expect(contract.verificationContractRevision).toBe(CI_VERIFICATION_CONTRACT_REVISION);
-  expect(contract.verificationContractRevision).toBe('ci-verification-v13');
+  expect(contract.verificationContractRevision).toBe('ci-verification-v14');
   expect(contract.executionModel).toBe(CI_VERIFICATION_EXECUTION_MODEL);
   expect(contract.prWorkflowEvent).toBe(CI_VERIFICATION_PR_EVENT);
   expect(contract.prDispatchType).toBe(CI_VERIFICATION_PR_DISPATCH_TYPE);
@@ -92,7 +92,8 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
     SEC_EXPECTED_HEAD_SHA: '${{ steps.verification.outputs.head }}',
     SEC_WORK_PACKAGE_MANIFEST_PATH: '${{ steps.verification.outputs.manifest }}'
   });
-  expect(prWorkflowSource).toContain('sec-verification-v13-${{ steps.verification.outputs.profile }}-pr-');
+  expect(prWorkflowSource).toContain('sec-verification-v14-${{ steps.verification.outputs.profile }}-pr-');
+  expect(prWorkflowSource).not.toContain('sec-verification-v13-');
   expect(prWorkflowSource).not.toContain('sec-verification-v12-');
   expect(prWorkflowSource).not.toContain('sec-verification-v11-');
   expect(prWorkflowSource).not.toContain('sec-verification-v10-');
@@ -120,7 +121,8 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   expect(releaseCheckout.with?.['persist-credentials']).toBe(false);
   const releaseVerify = workflowStep(releaseWorkflow, 'compiler-release-verification', 'Run exact-head full verification');
   expect(releaseVerify.env?.SEC_EXPECTED_HEAD_SHA).toBe('${{ steps.verification.outputs.sha }}');
-  expect(releaseWorkflowSource).toContain('sec-verification-v13-full-release-head-');
+  expect(releaseWorkflowSource).toContain('sec-verification-v14-full-release-head-');
+  expect(releaseWorkflowSource).not.toContain('sec-verification-v13-');
   expect(releaseWorkflowSource).not.toContain('sec-verification-v12-');
   expect(releaseWorkflowSource).not.toContain('sec-verification-v11-');
   expect(releaseWorkflowSource).not.toContain('sec-verification-v10-');

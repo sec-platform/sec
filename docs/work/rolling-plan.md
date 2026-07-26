@@ -6,10 +6,10 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从 `origin/main@bb04d53eb21efc70c4747968c7ba889fad55d114`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与一次 live resolver snapshot重新计算。旧 candidate、PR/run与 Review历史不再复制进活动控制面。
+本窗口从 `origin/main@a65dbef3e3666edf5030200ef66fe715dcb0ea95`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与一次 live resolver snapshot重新计算。旧 candidate、PR/run与 Review历史不再复制进活动控制面。
 
 ```text
-Hot Typecheck Incremental Cache V1
+Hot Import Feedback V1
 → publication 后 active pointer = none
 → SM-4A Shared Adapter + CLI/Workbench Thin Transports (next-ready)
 → Nexus Exact-tree Census Refresh
@@ -20,12 +20,12 @@ Hot Typecheck Incremental Cache V1
 
 ## 当前唯一 Work Package
 
-### hot-typecheck-incremental-cache-v1
+### hot-import-feedback-v1
 
-- 工程结果：使用TypeScript原生incremental build info把unchanged hot typecheck从约14秒压到五秒目标，同时保持clean/cold与hosted语义不变；V1 verifier原子升级V13。
-- Owner：frozen manifest列出的root tsconfig、V1 revision消费者、focused contracts与必要流程文档；产品语义、typecheck runner、V2 composition、Risk selector、suite registry和Evidence schema均禁止修改。
+- 工程结果：focused import check只构造目标与声明root；Git canonical clean-filter parity且无untracked path时复用physical resolution context，selected targets仍由exact staged blobs覆盖、candidate bytes只由index拥有；warmed命令不重复轮询managed hooks，把常用prepare/check/freeze压进几秒；V1 verifier原子升级V14。
+- Owner：frozen manifest列出的唯一import organizer、dependency bootstrap hot policy、dev-runner dispatch、focused tests、V1 revision消费者与必要流程文档；TypeScript organizeImports、Git index/hook/dependency authority、V2 composition、Risk selector、suite registry和Evidence schema均禁止分叉。
 - 选择语义：candidate manifest尚未出现在 live default branch时它是唯一 active；相同 blob发布后 resolver返回 `none`。
-- 退出：cold typecheck保持正确，unchanged warm typecheck在当前开发机不超过五秒，source/corrupt invalidation不false-pass；一个exact candidate完成focused合同、独立Review与V13 manual bootstrap后进入main，随后readback并清理任务branch。
+- 退出：target-root输出与完整root语义byte-equivalent，任何Git canonical comparison可见的tracked delta或untracked path都回到隔离snapshot，selected targets继续由exact staged blobs覆盖且index-only原子发布不变；一个exact candidate完成focused合同、性能预算、独立Review与V14 manual bootstrap后进入main，随后readback并清理任务branch。
 
 ## 候选 Work Package
 
@@ -50,5 +50,5 @@ Hot Typecheck Incremental Cache V1
 ## Gate、单写者与重算
 
 - A0 是本窗口全部 Gate owner；相同 `gate_key + tested head + profile` 的未失效结果复用。
-- Fast feedback、hot typecheck、P1剩余闭包、Nexus Census与P2 owner foundation按依赖串行；任何时刻最多只有一个正式active manifest。
+- Hot import feedback、P1剩余闭包、Nexus Census与P2 owner foundation按依赖串行；任何时刻最多只有一个正式active manifest。
 - SEC/Nexus main 变化、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership 反证、实现 supersede 或 Census 新前置均触发 live resolver 与全窗口重算。
