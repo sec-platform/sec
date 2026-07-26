@@ -6,7 +6,27 @@ const DEV_RUNNER_FAST_TESTS = [
   'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
+const AFFECTED_TEST_SELECTION_FAST_TESTS = [
+  'tests/contract/ci-lanes.test.ts',
+  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/ci-pr-risk-selection.test.ts',
+  'tests/unit/ci-verification-v7-execution.test.ts',
+  'tests/unit/test-runner.test.ts'
+];
+
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: 'affected-test-selection',
+    identity: { kind: 'architecture-owner', id: 'affected-test-selection' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'platform/shared/affected-test-inventory.ts',
+      'platform/shared/verification-scope-inventory.ts'
+    ],
+    fast: AFFECTED_TEST_SELECTION_FAST_TESTS,
+    slow: []
+  },
   {
     owner: 'dev-runner',
     identity: { kind: 'architecture-owner', id: 'dev-runner' },

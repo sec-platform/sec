@@ -102,19 +102,23 @@ test('test architecture exposes only canonical testkit primitives', async () => 
 });
 
 test('production runtime acceptance is owned by the registered slow runtime-host suite', async () => {
-  const fastRuntimeFile = 'tests/integration/project-runtime.test.ts';
+  const fastRuntimeFiles = [
+    'tests/integration/compiler-dependency-installation.test.ts',
+    'tests/integration/project-base.test.ts',
+    'tests/integration/project-dependency-runtime.test.ts'
+  ];
   const slowRuntimeFile = 'tests/e2e/runtime-host.test.ts';
-  const [fastSource, slowSource] = await Promise.all([
-    fs.readFile(path.join(repoRoot, fastRuntimeFile), 'utf8'),
+  const [fastSources, slowSource] = await Promise.all([
+    Promise.all(fastRuntimeFiles.map((file) => fs.readFile(path.join(repoRoot, file), 'utf8'))),
     fs.readFile(path.join(repoRoot, slowRuntimeFile), 'utf8')
   ]);
   const runtimeHostSuite = getSlowTestSuitesSync().find((suite) => suite.id === 'e2e-runtime-host');
 
-  expect(isFastTestFile(fastRuntimeFile)).toBe(true);
+  expect(fastRuntimeFiles.every(isFastTestFile)).toBe(true);
   expect(isFastTestFile(slowRuntimeFile)).toBe(false);
   expect(runtimeHostSuite?.files).toEqual([slowRuntimeFile]);
-  expect(fastSource).not.toContain('withIsolatedRuntimeAcceptanceServer');
-  expect(fastSource).not.toContain('isolated runtime acceptance launches generated Next');
+  expect(fastSources.join('\n')).not.toContain('withIsolatedRuntimeAcceptanceServer');
+  expect(fastSources.join('\n')).not.toContain('isolated runtime acceptance launches generated Next');
   expect(slowSource).toContain('withIsolatedRuntimeAcceptanceServer');
   expect(slowSource).toContain('isolated runtime acceptance launches generated Next');
 });

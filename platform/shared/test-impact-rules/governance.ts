@@ -32,7 +32,6 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     sourcePrefixes: ['.githooks/'],
     fast: [
       'tests/unit/install-git-hooks.test.ts',
-      'tests/integration/project-runtime.test.ts',
       'tests/contract/test-impact.test.ts'
     ],
     slow: ['tests/e2e/install-git-hooks.test.ts']

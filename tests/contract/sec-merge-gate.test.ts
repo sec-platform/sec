@@ -329,7 +329,9 @@ const P0_ISOLATED_CHILD_TEST = 'tests/unit/semantic-mutation-isolated-child-fenc
 const P0_ISOLATED_CHILD_TEST_BLOB = 'a77d1d23c5b75d751ef39c0b8a0e81909486136c';
 const P0_TEST_IMPACT = 'tests/contract/test-impact.test.ts';
 const P0_TEST_IMPACT_BLOB = '5d7da4f7df39bd18ba4acff5263c6166557f1459';
+const P0_DOCUMENTATION_AUTHORITY = 'tests/contract/documentation-authority.test.ts';
 const P0_TEST_FILES = [
+  P0_DOCUMENTATION_AUTHORITY,
   'tests/contract/semantic-mutation-apply-contract.test.ts',
   'tests/integration/semantic-mutation-apply.test.ts',
   'tests/integration/semantic-mutation-production-sentinel.test.ts',
@@ -406,7 +408,8 @@ async function p0MergeFixture() {
     [P0_RUNTIME_PLAN, P0_RUNTIME_PLAN_BLOB],
     [P0_RUNTIME_VERIFICATION_TEST, P0_RUNTIME_VERIFICATION_TEST_BLOB],
     [P0_ISOLATED_CHILD_TEST, P0_ISOLATED_CHILD_TEST_BLOB],
-    [P0_TEST_IMPACT, P0_TEST_IMPACT_BLOB]
+    [P0_TEST_IMPACT, P0_TEST_IMPACT_BLOB],
+    [P0_DOCUMENTATION_AUTHORITY, P0_TEST_IMPACT_BLOB]
   ] as const) {
     anticipatedHeadTree.set(repositoryPath, { blobSha, mode: '100644', type: 'blob' });
   }
@@ -1354,7 +1357,7 @@ test('base-side v8 merge gate reconstructs active documentation without impact-r
   expect(value.plan).toMatchObject({
     selectionResolved: true,
     selectionReasons: ['ownership-impact'],
-    affectedOwners: ['roadmap-authority']
+    affectedOwners: ['documentation-authority']
   });
   expect(value.plan.gates.map(({ id }) => id)).toEqual([
     'docs-doctor',

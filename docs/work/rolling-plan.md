@@ -1,15 +1,15 @@
 ---
 title: SEC 滚动近期计划
 status: active
-last-reviewed: 2026-07-26
+last-reviewed: 2026-07-27
 ---
 
 # SEC 滚动近期计划
 
-本窗口从 `origin/main@b2890f43acfc15c90050002e4053144275afa2fc`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与一次 live resolver snapshot重新计算。旧 candidate、PR/run与 Review历史不再复制进活动控制面。
+本窗口从 `origin/main@16899564957f175f8e96b2d7c75c8a4ba5772191`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与一次 live resolver snapshot重新计算。旧 candidate、PR/run与 Review历史不再复制进活动控制面。
 
 ```text
-Dev Runner Precise Test Impact V1
+Project Runtime Owner Split V1
 → publication 后 active pointer = none
 → SM-4A Shared Adapter + CLI/Workbench Thin Transports (next-ready)
 → Nexus Exact-tree Census Refresh
@@ -20,12 +20,12 @@ Dev Runner Precise Test Impact V1
 
 ## 当前唯一 Work Package
 
-### dev-runner-precise-test-impact-v1
+### project-runtime-owner-split-v1
 
-- 工程结果：把`platform/dev-runner.ts`与`platform/dev-runner/**`从目录级通用测试/全部baseline slow suite过选迁移到owner-declared精确sentinel；本地affected与hosted Risk共享同一ownership事实。
-- Owner：verification test-impact declaration、dev-runner mandatory Risk边界、轻量runner合同及对应测试/文档；affected算法、test budget/slow registry、CI plan、Evidence与merge gate authority不迁移。由于owned paths命中canonical verifier trust root，候选走独立Review与base-side manual bootstrap。
+- 工程结果：删除旧 project-runtime integration catch-all这个混合runtime state、compiler dependency generation、repository tooling、文档权威、Task Envelope与generated project base的伪owner；42项acceptance逐项进入唯一真实owner，Contract Freeze与affected只运行受变化影响的最小sentinel。
+- Owner：测试acceptance迁移、test-impact declaration输入、fast process classification、Contract Freeze target及对应合同/文档；生产runtime、selector算法、test budget/slow registry、CI plan、Evidence与merge gate authority不迁移。由于owned paths命中canonical verifier trust root，候选走独立Review与base-side manual bootstrap。
 - 选择语义：candidate manifest尚未出现在 live default branch时它是唯一 active；相同 blob发布后 resolver返回 `none`。
-- 退出：每个dev-runner变化只选择公共轻量合同、direct import sentinel与更窄owner acceptance；未知路径继续fail closed；结构选择合同、focused、typecheck、imports、docs、TCB和独立Review在单一exact candidate上通过，并由trusted base-side manual integration进入main。wall-clock只按warm-up + 至少五个样本报告median/range。
+- 退出：42项旧测试均有move/remove disposition；Contract Freeze不再运行runtime dependency installation；无acceptance依赖的semantic/pipeline/registry/managed-hook输入不再继承runtime测试；isolated temp-root runtime tests不再占exclusive process tail；结构合同、focused、typecheck、imports、docs、TCB和独立Review在单一exact candidate上通过，并由trusted base-side manual integration进入main。wall-clock只按warm-up + 至少五个样本报告median/range。
 
 ## 候选 Work Package
 
@@ -50,5 +50,5 @@ Dev Runner Precise Test Impact V1
 ## Gate、单写者与重算
 
 - A0 是本窗口全部 Gate owner；相同 `gate_key + tested head + profile` 的未失效结果复用。
-- Dev Runner Precise Test Impact、P1剩余闭包、Nexus Census与P2 owner foundation按依赖串行；任何时刻最多只有一个正式active manifest。
+- Project Runtime Owner Split、P1剩余闭包、Nexus Census与P2 owner foundation按依赖串行；任何时刻最多只有一个正式active manifest。
 - SEC/Nexus main 变化、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership 反证、实现 supersede 或 Census 新前置均触发 live resolver 与全窗口重算。

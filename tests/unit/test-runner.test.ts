@@ -176,13 +176,15 @@ test('fast process planning removes stale isolation and bounds structural proces
     'tests/unit/work-package-profile-census-repair.test.ts',
     'tests/unit/work-package-profile-probe-diagnostic.test.ts',
     'tests/integration/pipeline-kernel.test.ts',
-    'tests/integration/project-runtime.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts',
     'tests/integration/workbench-writer-lease.test.ts',
     'tests/integration/workspace-engineering-ir.test.ts'
   ]));
   expect([...registeredFiles]).not.toContain('tests/integration/overview.test.ts');
   expect([...registeredFiles]).not.toContain('tests/integration/semantic-core-vertical.test.ts');
+  expect([...registeredFiles]).not.toContain('tests/integration/compiler-dependency-installation.test.ts');
+  expect([...registeredFiles]).not.toContain('tests/integration/project-base.test.ts');
+  expect([...registeredFiles]).not.toContain('tests/integration/project-dependency-runtime.test.ts');
   expect([...registeredFiles]).not.toContain('tests/unit/import-organizer-staged.test.ts');
   expect(planFastTestProcesses(['tests/unit/import-organizer-staged.test.ts'])).toEqual({
     concurrentShards: [['tests/unit/import-organizer-staged.test.ts']],
@@ -351,16 +353,26 @@ test.serial('bounded concurrent shard failures settle siblings and stop later ba
   );
 });
 
-test.serial('process-isolated tests run in bounded batches before exclusive owners', async () => {
+test.serial('temp-root runtime tests share the concurrent shard before isolated and exclusive owners', async () => {
   const code = await runFastTests([
-    'tests/integration/project-runtime.test.ts',
+    'tests/integration/project-dependency-runtime.test.ts',
     'tests/integration/pipeline-kernel.test.ts',
     'tests/integration/ticket-pipeline.test.ts',
-    'tests/unit/test-runner.test.ts'
+    'tests/integration/workbench-writer-lease.test.ts'
   ]);
 
   expect(code).toBe(0);
   expect(devCommandCalls).toEqual([
+    {
+      command: 'bun',
+      args: [
+        'test',
+        '--concurrent',
+        'tests/integration/project-dependency-runtime.test.ts',
+        '--timeout',
+        String(DEFAULT_FAST_TEST_TIMEOUT_MS)
+      ]
+    },
     {
       command: 'bun',
       args: ['test', 'tests/integration/pipeline-kernel.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
@@ -371,11 +383,12 @@ test.serial('process-isolated tests run in bounded batches before exclusive owne
     },
     {
       command: 'bun',
-      args: ['test', 'tests/unit/test-runner.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
-    },
-    {
-      command: 'bun',
-      args: ['test', 'tests/integration/project-runtime.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+      args: [
+        'test',
+        'tests/integration/workbench-writer-lease.test.ts',
+        '--timeout',
+        String(DEFAULT_FAST_TEST_TIMEOUT_MS)
+      ]
     }
   ]);
 });
@@ -519,6 +532,34 @@ test.serial('affected plan reports resolved selection without dependency or test
     expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
     expect(devCommandEnvironments).toEqual([]);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test.serial('deleted test paths remain changed facts without becoming runnable tests', async () => {
+  changedFiles = ['tests/integration/project-runtime.test.ts'];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (message?: unknown) => {
+    logs.push(String(message));
+  };
+
+  try {
+    const code = await runAffectedTests(['--plan']);
+    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+
+    expect(code).toBe(0);
+    expect(plan).toMatchObject({
+      schema: 'sec-affected-test-plan-v1',
+      changedPaths: ['tests/integration/project-runtime.test.ts'],
+      selectedFastTests: [],
+      selectedSlowTests: [],
+      unresolvedPaths: [],
+      resolved: true
+    });
+    expect(testDependencyBootstrapCalls).toBe(0);
+    expect(devCommandCalls).toEqual([]);
   } finally {
     console.log = originalLog;
   }

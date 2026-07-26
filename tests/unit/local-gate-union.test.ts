@@ -72,7 +72,7 @@ test('local affected plan forms one ordered union for mixed TypeScript and docs 
 test('local affected plan keeps non-TypeScript contracts narrow', () => {
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
     ['package.json'],
-    ['tests/integration/project-runtime.test.ts']
+    ['tests/contract/repository-runtime.test.ts']
   )))).toEqual(['typecheck', 'test:affected']);
 
   expect(gateIds(buildLocalAffectedCheckPlan(affectedPlan(
