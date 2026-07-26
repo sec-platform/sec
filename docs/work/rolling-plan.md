@@ -6,7 +6,7 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody、GitNexus impact与`6f7904c` exact-head Review重新计算。`a62f568`的affected因heavy-gate `node:os`/`bun:ffi` seam未精确进入TCB而永久FAIL；`6f7904c`已根治该问题，但其affected在Windows compiler dependency generation发布时遇到重复`EPERM`并以`IMPORT-AUTHORITY-004`永久FAIL，两者均未运行Risk。独立Review确认private-root cleanup、Playwright三包authority、唯一browser selector、cold readiness、through-verify order与affected/Risk互斥均已结构性闭合，剩余闭包被压缩为：全部direct runtime package exact version、Windows transient rename的有界identity-preserving publish/rollback，以及POSIX plan materialization与真实Playwright target-swap no-spawn行为证据。当前active package只形成一个最终successor；focused owner结果只能证明局部修复，不能代替最终exact-head affected、Risk、Review与main集成。#142已squash merge，PR #137仍位于旧base且冲突，不能提供完成授权。
+本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody、GitNexus impact与`6f7904c` exact-head Review重新计算。`a62f568`因heavy-gate TCB seam缺失永久FAIL；`6f7904c`因Windows dependency publish重复`EPERM`永久FAIL；两者均未运行Risk。`eb437f6`已经关闭全部产品/架构blocker，但其唯一affected在15秒内得到`83 pass / 3 fail`：新增no-spawn sentinel改写进程级isolated browser环境，污染同文件并发测试；该head也永久FAIL且未运行Risk。当前最小successor只把verifier test source environment改为显式输入，生产仍使用真实process environment，29/29 owner sentinel已证明不再泄漏全局状态。focused结果不能代替新exact-head affected、Risk、Review与main集成。#142已squash merge，PR #137仍位于旧base且冲突，不能提供完成授权。
 
 ```text
 Windows Browser Launch Path Authority V1 (active)

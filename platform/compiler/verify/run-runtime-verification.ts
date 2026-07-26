@@ -49,6 +49,7 @@ type RuntimeVerificationOptions = {
   emitTiming?: boolean;
   isolated?: boolean;
   signal?: AbortSignal;
+  sourceEnvironmentForTests?: NodeJS.ProcessEnv;
   stagingTreeOptions?: IsolatedStagingTreeOptions;
   stagingWorkspaceRoot?: string;
 };
@@ -670,14 +671,15 @@ function buildIsolatedRuntimeAcceptanceEnvironmentWithAuthority(
 
 export function buildIsolatedRuntimeAcceptanceEnvironment(
   stagingWorkspaceRoot: string,
-  additionalEnv: NodeJS.ProcessEnv = {}
+  additionalEnv: NodeJS.ProcessEnv = {},
+  source: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   return buildIsolatedRuntimeAcceptanceEnvironmentWithAuthority(stagingWorkspaceRoot, {
     additionalEnv,
     nodeExecutablePath: semanticMutationIsolatedNodeExecutablePath(stagingWorkspaceRoot),
     platform: process.platform,
     probe: NODE_RUNTIME_ACCEPTANCE_PATH_PROBE,
-    source: process.env
+    source
   });
 }
 
@@ -1167,11 +1169,16 @@ export async function runRuntimeVerification(
     });
   }
   const envPathKey = pathEnvKey();
+  const sourceEnvironment = options.sourceEnvironmentForTests ?? process.env;
   const baseEnv = isolated
-    ? buildIsolatedRuntimeEnvironment(options.stagingWorkspaceRoot!)
+    ? buildIsolatedRuntimeEnvironmentFromSource(
+        options.stagingWorkspaceRoot!,
+        {},
+        sourceEnvironment
+      )
     : {
-        ...process.env,
-        [envPathKey]: `${path.join(dependencyAuthorityPaths().compilerModulesRoot, '.bin')}${path.delimiter}${process.env[envPathKey] ?? ''}`,
+        ...sourceEnvironment,
+        [envPathKey]: `${path.join(dependencyAuthorityPaths().compilerModulesRoot, '.bin')}${path.delimiter}${sourceEnvironment[envPathKey] ?? ''}`,
         PLAYWRIGHT_BROWSERS_PATH: isolatedPlaywrightBrowsersPath()
       };
   const lane = createSkippedRuntimeLane();
@@ -1299,7 +1306,11 @@ export async function runRuntimeVerification(
       isolatedNodeExecutablePath
     );
     const acceptanceEnv = isolated
-      ? buildIsolatedRuntimeAcceptanceEnvironment(options.stagingWorkspaceRoot!, { TEST_PORT: String(testPort) })
+      ? buildIsolatedRuntimeAcceptanceEnvironment(
+          options.stagingWorkspaceRoot!,
+          { TEST_PORT: String(testPort) },
+          sourceEnvironment
+        )
       : { ...baseEnv, CI: process.env.CI ?? 'true', TEST_PORT: String(testPort) };
     const assertBrowserLaunchPreSpawn = isolated
       ? async (): Promise<void> => {

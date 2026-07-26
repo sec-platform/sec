@@ -83,6 +83,14 @@ stableFacts:
           errorCode: IMPORT-AUTHORITY-004
           riskRun: false
         disposition: superseded-by-bounded-identity-preserving-publish-retry
+      - commit: eb437f6fbf2cc99a8f827b65b05fe3168e70f7f2
+        canonicalAffected:
+          result: failed
+          failedBatch: tests/unit/runtime-verification.test.ts
+          summary: 83-pass-3-fail
+          riskRun: false
+        failureClassification: test-sentinel-process-environment-leakage
+        disposition: superseded-by-explicit-verifier-test-source-environment
     stableProductionSource:
       commit: d2f7083c63642306ba18cd77aac373e490c9079b
       role: blob-source-only

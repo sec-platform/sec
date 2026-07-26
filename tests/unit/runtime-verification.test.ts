@@ -489,8 +489,6 @@ test('staged runtime verifier rejects a real Playwright target swap before the b
   const outsideExecutable = path.join(outsideRoot, ...browserExecutableRelativePath.split('/'));
   const displacedBrowserRoot = `${browserRoot}.original`;
   const temporaryRoot = path.join(root, 'launch-authority');
-  const previousIsolated = process.env.SEC_ISOLATED_VERIFICATION;
-  const previousBrowsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH;
   await Promise.all([
     mkdir(path.dirname(browserExecutable), { recursive: true }),
     mkdir(path.dirname(outsideExecutable), { recursive: true }),
@@ -517,8 +515,6 @@ test('staged runtime verifier rejects a real Playwright target swap before the b
       temporaryRoot
     }
   );
-  process.env.SEC_ISOLATED_VERIFICATION = '1';
-  process.env.PLAYWRIGHT_BROWSERS_PATH = lease.browsersPath;
   let playwrightInvocation: { command: string; args: string[] } | undefined;
   let playwrightSpawned = false;
   let targetSwapped = false;
@@ -550,6 +546,11 @@ test('staged runtime verifier rejects a real Playwright target swap before the b
       },
       emitTiming: false,
       isolated: true,
+      sourceEnvironmentForTests: {
+        ...process.env,
+        SEC_ISOLATED_VERIFICATION: '1',
+        PLAYWRIGHT_BROWSERS_PATH: lease.browsersPath
+      },
       stagingWorkspaceRoot: stagingRoot
     })).rejects.toThrow('Staged browser cache must be a physical directory');
     expect(targetSwapped).toBe(true);
@@ -558,10 +559,6 @@ test('staged runtime verifier rejects a real Playwright target swap before the b
       argument.replaceAll('\\', '/').endsWith('@playwright/test/cli.js'))).toBe(true);
     expect(playwrightSpawned).toBe(false);
   } finally {
-    if (previousIsolated === undefined) delete process.env.SEC_ISOLATED_VERIFICATION;
-    else process.env.SEC_ISOLATED_VERIFICATION = previousIsolated;
-    if (previousBrowsersPath === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH;
-    else process.env.PLAYWRIGHT_BROWSERS_PATH = previousBrowsersPath;
     await lease.release().catch(() => undefined);
     await rm(root, { recursive: true, force: true });
   }
