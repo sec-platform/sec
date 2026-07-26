@@ -94,6 +94,9 @@ const WINDOWS_APPCONTAINER_HARDENING_FAST_TESTS = [
   "tests/unit/windows-appcontainer-executor.test.ts",
   "tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts",
 ];
+const WINDOWS_APPCONTAINER_HARDENING_SLOW_TESTS = [
+  "tests/e2e/windows-appcontainer-executor.test.ts",
+];
 
 const OBSERVED_PROCESS_LIFECYCLE_FAST_TESTS = [
   "tests/contract/semantic-mutation-apply-contract.test.ts",
@@ -122,7 +125,7 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/shared/windows-appcontainer-native-helper.ts",
     ],
     fast: WINDOWS_APPCONTAINER_HARDENING_FAST_TESTS,
-    slow: [],
+    slow: WINDOWS_APPCONTAINER_HARDENING_SLOW_TESTS,
   },
   {
     owner: "semantic-mutation",

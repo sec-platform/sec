@@ -57,7 +57,7 @@ test('CI contract counts and produced paths are self-consistent', () => {
 test('CI contract text exposes execution and logical lane split for workflow audits', () => {
   const formatted = formatCiContract(buildCiContract());
 
-  expect(formatted).toContain('Verification contract revision: ci-verification-v15');
+  expect(formatted).toContain('Verification contract revision: ci-verification-v16');
   expect(formatted).toContain('Execution model: frozen-delivery-single-runner');
   expect(formatted).toContain('PR workflow event: repository_dispatch');
   expect(formatted).toContain('PR dispatch type: sec-verify-frozen-v1');
@@ -267,11 +267,17 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
     'e2e-demo-doctor',
     'e2e-explain',
     'e2e-local-views',
-    'e2e-provenance'
+    'e2e-provenance',
+    'e2e-runtime-host',
+    'e2e-summary',
+    'e2e-windows-appcontainer-executor'
   ]);
+  expect(suites.find((suite) => suite.id === 'e2e-windows-appcontainer-executor'))
+    .toMatchObject({ parallelSafe: false });
   expect(
     suites
-      .filter((suite) => suite.resourceClass === 'runtime-heavy')
+      .filter((suite) => suite.resourceClass === 'runtime-heavy' &&
+        suite.id !== 'e2e-windows-appcontainer-executor')
       .every((suite) => suite.parallelSafe)
   ).toBe(true);
 });

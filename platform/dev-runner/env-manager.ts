@@ -3,7 +3,7 @@ import path from 'node:path';
 import { compilerRoot } from '../shared/paths.ts';
 export { pathEnvKey } from '../shared/process.ts';
 
-const TEST_WORKSPACE_NAMESPACE_ENV = 'SEC_TEST_WORKSPACE_NAMESPACE';
+export const TEST_WORKSPACE_NAMESPACE_ENV = 'SEC_TEST_WORKSPACE_NAMESPACE';
 
 export function resolveTestWorkspaceNamespace(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const namespace = env[TEST_WORKSPACE_NAMESPACE_ENV]?.trim();
@@ -20,8 +20,17 @@ export function getTestWorkspaceTempRoot(env: NodeJS.ProcessEnv = process.env): 
   return namespace ? path.join(root, namespace) : root;
 }
 
-export async function cleanTestWorkspaces(): Promise<void> {
-  await fs.rm(getTestWorkspaceTempRoot(), { recursive: true, force: true });
+export function getTestWorkspaceTemplateRoot(): string {
+  return path.join(compilerRoot, '.tmp', 'test-workspaces', '.templates');
+}
+
+export async function cleanTestWorkspaces(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  await fs.rm(getTestWorkspaceTempRoot(env), {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100
+  });
 }
 
 export function commandPath(binPath: string, base: string): string {

@@ -13,6 +13,9 @@ import {
   semanticMutationIsolatedNodeExecutablePath
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
 import {
+  acquireBrowserLaunchPath
+} from '../../platform/compiler/verify/windows-browser-launch-path.ts';
+import {
   composeWorkspace,
   initWorkspace,
   resolveWorkspace
@@ -25,7 +28,30 @@ import {
   resolveExternalNodeRuntimeAuthority,
   withProjectDependencyBridge
 } from '../../platform/shared/project-runtime.ts';
+import {
+  createWindowsBrowserLaunchFixture,
+  WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH
+} from '../helpers/windows-browser-launch-path-fixture.ts';
 import { createWorkspace, withTempWorkspace } from '../testkit/workspace.ts';
+
+test.skipIf(process.platform !== 'win32')(
+  'production Windows browser launch authority hardens and removes its private host root',
+  async () => {
+    const input = await createWindowsBrowserLaunchFixture();
+    try {
+      const lease = await acquireBrowserLaunchPath(
+        input.browserRoot,
+        WINDOWS_BROWSER_EXECUTABLE_RELATIVE_PATH
+      );
+      const authorityRoot = path.dirname(path.dirname(lease.browsersPath));
+      await lease.assertCurrent();
+      await lease.release();
+      await expect(fs.lstat(authorityRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await fs.rm(input.root, { recursive: true, force: true });
+    }
+  }
+);
 
 async function reserveLoopbackPort(): Promise<number> {
   const server = createServer();

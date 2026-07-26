@@ -2,6 +2,23 @@ import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
 
 export const pipelineTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
+    owner: 'windows-browser-launch-path',
+    identity: { kind: 'architecture-owner', id: 'windows-browser-launch-path' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'platform/compiler/verify/windows-browser-launch-path.ts'
+    ],
+    fast: [
+      'tests/contract/test-architecture.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/runtime-verification.test.ts',
+      'tests/unit/windows-browser-launch-path.test.ts'
+    ],
+    slow: [
+      'tests/e2e/runtime-host.test.ts'
+    ]
+  },
+  {
     owner: 'pipeline-kernel',
     identity: { kind: 'pass', id: 'build-ir' },
     sourceFiles: [

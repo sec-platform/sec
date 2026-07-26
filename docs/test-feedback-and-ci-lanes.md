@@ -73,6 +73,9 @@ bun run hooks:install
 - `deps:ensure` 与 managed hook lifecycle只闭合 compiler dependency和hook投影，绝不下载浏览器。Playwright browser readiness只属于test/runtime preparation，并把精确三包release与manifest identity、项目本地cache、外部Node、registry-derived platform executable、正数有界安装预算和后置条件绑定为一个opaque authority；consumer不得重选browser或依赖ambient预热。
 - `hooks:install` 只在 tracked、executable、byte-equal hooks 且不存在其他真实 hook authority 时安装。首次compiler dependency安装和显式`deps:ensure`负责闭合hook lifecycle；已有validated generation上的普通warmed命令不重复扫描hook bytes。pre-commit/pre-push只调用唯一 `imports:freeze`。
 - fast process timeout 是共享 runner 合同；显式 override 优先，默认值只由代码 owner维护。不得在单测、selector或 serial registry 中复制 timeout。
+- fast process isolation明确区分bounded-parallel与exclusive；前者只隔离process global并使用独立mutable workspace，后者才串行拥有repository/host/server/runtime共享状态。Runner对完整计划使用唯一shard、isolated并发与process-wave预算，不得把“需要独立进程”自动扩大成“所有进程逐个等待”。
+- 默认`test:fast`只运行编辑反馈inventory；完整Workspace compile、durable recovery、server/runtime、真实worktree与完整upgrade transaction由`fast-test-policy.ts`的唯一排除registry留给显式affected/Risk或`test:full`。排除不改变test-impact owner，也不能从full inventory消失。Concurrent shard按单一有界cap成批并行；失败batch等待已启动siblings后停止后续batch。
+- 每次fast execution拥有唯一mutable test-workspace namespace，child可提前清理，parent必须在所有退出路径兜底删除并把cleanup failure计入失败。版本化immutable template cache位于namespace外并跨run复用；普通cleanup不得反复重建它，显式`clean:test-workspaces`才清空全部派生测试状态。上次失败残留不得成为下一次测试输入，也不得依赖人工清理完成普通闭环。
 - Root typecheck由`tsconfig.json`启用TypeScript原生incremental，并把唯一build info写入Git-ignored `.tmp/typecheck/tsconfig.tsbuildinfo`。该文件只是可删除性能提示；TypeScript拥有compiler version、options与source signature失效语义，SEC不得解析、发布、复用为Evidence或建立第二cache registry。clean checkout/hosted runner仍走cold完整检查。
 - `test:affected --plan` 是 changed-path/Risk ownership的只读 preflight：不获取 heavy lease、不准备依赖、不启动 test child、不写 Evidence；任一 unresolved path使 plan与正式 affected都非零退出。其他入口按变化条件选择，不机械全跑。
 
@@ -171,6 +174,8 @@ Merge gate必须用 default-branch代码和 Git objects独立重算 changed reco
 - Affected selector是快速反馈，不是完整风险或 Full 的替代。本地 plan、正式 affected与 hosted verification都必须对未知 ownership fail closed。
 - Slow suite必须声明资源等级、并行安全、owner、适用变化、timeout owner 与 cleanup；open handle、process、workspace 或 artifact residue是失败。
 - 同一能力若同时需要真实Git/Language Service快速阻断与完整index/race/rollback覆盖，fast层只保留一个真实micro-sentinel，完整场景进入显式slow suite。Slow fixture可以复用一次初始化的immutable seed，但每个并发场景必须复制为隔离repository，并以单一有界semaphore约束peak；不得共享working tree、index、lock或publication state。是否“变快”遵循`test-architecture.md`的固定环境采样协议：一次warm-up后至少五个有效样本，以median和observed range报告，单次duration不设hard baseline。
+- managed hook、SM-3 durable terminal与Windows AppContainer的fast/slow文件映射只由`test-architecture.md`和`test-budget-contract.ts`拥有。Test impact必须同时选择fast micro-sentinel与对应slow Risk owner；迁层只移动acceptance，禁止删除覆盖或把slow runtime mock成unit。
+- MAX_PATH AppContainer acceptance只接受native成功，或精确的结构化`launch/nativeCode=267` fail-closed；两条路径都必须验证无child process、profile、owner/result、runtime目录和ACL residue。测试标题中的“fails closed”必须有可执行断言，不能靠catch后忽略错误。
 - Browser、activation、navigation、restart、release artifact与远端事实不能由 unit/typecheck替代；纯函数也不应无条件触发浏览器矩阵。
 
 ## 10. 本地长时 Gate

@@ -6,10 +6,10 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从 `origin/main@9f61bca1d8b7d358368270eff783fb6eac27c568`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与一次 live resolver snapshot重新计算。旧 candidate、PR/run与 Review历史不再复制进活动控制面。
+本窗口从 `origin/main@e30e434d15c9a87541866e64a56051d08b70cad4`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与一次 live resolver snapshot重新计算。旧 candidate、PR/run与 Review历史不再复制进活动控制面。
 
 ```text
-Import Test Feedback V1
+Fast Feedback Closure V2
 → publication 后 active pointer = none
 → SM-4A Shared Adapter + CLI/Workbench Thin Transports (next-ready)
 → Nexus Exact-tree Census Refresh
@@ -20,12 +20,12 @@ Import Test Feedback V1
 
 ## 当前唯一 Work Package
 
-### import-test-feedback-v1
+### fast-feedback-closure-v2
 
-- 工程结果：普通编辑循环只保留一个真实Git+TypeScript micro-sentinel；原17个完整场景与一个fixture rollback sentinel进入显式slow acceptance，使用一个immutable seed、isolated copy与单一四槽semaphore，既保留全部断言又避免每个场景重复初始化仓库，并在所有权转交前由creator清理失败残留。
-- Owner：frozen manifest列出的fast sentinel、slow acceptance、测试fixture lifecycle、suite registry、V15 verifier原子升级与必要测试架构文档；production organizer、Git index、TypeScript、runner、timeout、V2 composition和Evidence均禁止修改。
+- 工程结果：fast runner删除过期隔离，扩大已受Bun并发上限约束的shard容量，把进程隔离拆成有界并行与真实独占，使用run-owned workspace namespace并由父进程在任何退出路径清理；canonical IR完整Workspace acceptance并入既有integration setup，Git immutable evidence读取exact blob。
+- Owner：frozen manifest列出的runner plan/cleanup、两个测试分层、Git fixture、V16 verifier原子升级与必要测试架构文档；compiler/orchestrator、slow registry、test impact、timeout、V2 composition和Evidence合同均禁止修改。
 - 选择语义：candidate manifest尚未出现在 live default branch时它是唯一 active；相同 blob发布后 resolver返回 `none`。
-- 退出：全部既有场景与断言保留；seed init/commit计数为1、peak active scenario不超过4、cleanup后active为0；一个warm-up加至少五个同条件样本只建立median/range性能证据，不把单次duration当hard baseline；exact candidate完成focused、typecheck/imports/docs与Review后进入main并清理任务branch。
+- 退出：每个selected file执行一次且无遗漏，isolated peak不超过唯一上限，exclusive保持串行，迁移的IR acceptance只做一次workspace setup，任何fast退出后run-owned residue为0；一个warm-up加至少五个同条件样本只建立median/range性能证据，不把单次duration当hard baseline；exact candidate完成focused、typecheck/imports/docs与Review后进入main并清理任务branch。
 
 ## 候选 Work Package
 
@@ -50,5 +50,5 @@ Import Test Feedback V1
 ## Gate、单写者与重算
 
 - A0 是本窗口全部 Gate owner；相同 `gate_key + tested head + profile` 的未失效结果复用。
-- Import test feedback、P1剩余闭包、Nexus Census与P2 owner foundation按依赖串行；任何时刻最多只有一个正式active manifest。
+- Fast feedback closure、P1剩余闭包、Nexus Census与P2 owner foundation按依赖串行；任何时刻最多只有一个正式active manifest。
 - SEC/Nexus main 变化、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership 反证、实现 supersede 或 Census 新前置均触发 live resolver 与全窗口重算。
