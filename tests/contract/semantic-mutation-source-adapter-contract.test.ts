@@ -8,8 +8,12 @@ import {
   assertSemanticMutationRollbackManifestInvariant,
   assertSemanticMutationSourceEditArtifactsInvariant,
   assertSemanticMutationSourceEditPlanInvariant,
+  buildTrustedLocalSemanticMutationAuthorization,
   planSemanticMutationSourceEdit,
-  type SemanticMutationSourceEditPlanningInputV1
+  type SemanticMutationAuthorizationContextV2,
+  type SemanticMutationSourceEditPlanningInputV1,
+  type TrustedLocalSemanticMutationAuthorizationInputV1,
+  type TrustedLocalSemanticMutationPolicyDraftV1
 } from '../../platform/compiler/index.ts';
 import type { EngineeringIR } from '../../platform/shared/engineering-ir-types.ts';
 import type { LockFile } from '../../platform/shared/lock-types.ts';
@@ -174,6 +178,9 @@ test('proposal, raw IR, Lock, Projection, and arbitrary objects cannot replace t
   const proposal = {} as SemanticMutationRequestV2;
   const source = {} as SemanticMutationLoadedSourceCandidateV1;
   const trusted = {} as SemanticMutationSourceEditPlanningInputV1;
+  const trustedAuthorizationInput = {} as TrustedLocalSemanticMutationAuthorizationInputV1;
+  const trustedLocalPolicy = {} as TrustedLocalSemanticMutationPolicyDraftV1;
+  const authorization = {} as SemanticMutationAuthorizationContextV2;
   const rawIR = {} as EngineeringIR;
   const lock = {} as LockFile;
   const views = {} as SemanticViewSet;
@@ -188,9 +195,17 @@ test('proposal, raw IR, Lock, Projection, and arbitrary objects cannot replace t
     void planSemanticMutationSourceEdit(lock);
     // @ts-expect-error Projection state cannot replace the source edit planning input.
     void planSemanticMutationSourceEdit(views);
+    // @ts-expect-error A complete authorization cannot replace the authority-free trusted-local policy draft.
+    buildTrustedLocalSemanticMutationAuthorization({ ...trustedAuthorizationInput, policy: authorization });
+    // @ts-expect-error A raw proposal lacks the normalized request revision required by the trusted ingress.
+    buildTrustedLocalSemanticMutationAuthorization({ ...trustedAuthorizationInput, request: proposal });
+    // @ts-expect-error Raw EngineeringIR cannot replace the branded Fact Delta endpoint.
+    buildTrustedLocalSemanticMutationAuthorization({ ...trustedAuthorizationInput, base: rawIR });
     void candidate;
     void request;
+    void trustedLocalPolicy;
   }
+  expect(typeof buildTrustedLocalSemanticMutationAuthorization).toBe('function');
   expect(true).toBe(true);
 });
 
@@ -250,6 +265,21 @@ test('only explicit SM-2/SM-3 owners may import filesystem, path, YAML, or autho
       expect(await readFile(file, 'utf8')).not.toContain('semantic-mutation/');
     }
   }
+});
+
+test('only the existing source resolver and trusted ingress consume the shared source-authority core', async () => {
+  const root = path.resolve(import.meta.dir, '../../platform/compiler/semantic-mutation');
+  const consumers = (await Promise.all((await sourceFiles(root)).map(async (file) => ({
+    file: path.basename(file),
+    source: await readFile(file, 'utf8')
+  }))))
+    .filter(({ source }) => source.includes('resolveSemanticMutationSourceAuthority'))
+    .map(({ file }) => file)
+    .sort();
+  expect(consumers).toEqual([
+    'source-adapter-registry.ts',
+    'trusted-authorization-ingress.ts'
+  ]);
 });
 
 test('stable read binds the opened handle identity to the inspected target before reading bytes', async () => {
