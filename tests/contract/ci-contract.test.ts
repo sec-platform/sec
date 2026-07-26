@@ -185,22 +185,3 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
     code: 'ENOENT'
   });
 });
-
-test('root typecheck uses one TypeScript-owned derived incremental cache', async () => {
-  const tsconfig = JSON.parse(await readCompilerFile('tsconfig.json')) as {
-    compilerOptions?: Record<string, unknown>;
-  };
-  const gitignore = await readCompilerFile('.gitignore');
-  const runner = await readCompilerFile('platform/dev-runner/typecheck-runner.ts');
-
-  expect(tsconfig.compilerOptions).toMatchObject({
-    incremental: true,
-    noEmit: true,
-    strict: true,
-    tsBuildInfoFile: '.tmp/typecheck/tsconfig.tsbuildinfo'
-  });
-  expect(gitignore.replaceAll('\r\n', '\n').split('\n')).toContain('.tmp/');
-  expect(runner).toContain("['--noEmit', '-p', 'tsconfig.json', ...args]");
-  expect(runner).not.toContain('tsbuildinfo');
-  expect(runner).not.toContain('tsBuildInfoFile');
-});

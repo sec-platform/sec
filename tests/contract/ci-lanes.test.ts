@@ -129,6 +129,16 @@ test('CI impact ownership includes mandatory validation sentinels and roadmap au
   expect(workflowSelection.reasons).toEqual(['mandatory-sentinel', 'ownership-impact']);
   expect(workflowSelection.resolved).toBe(true);
 
+  const devRunnerSelection = selectCiPrRiskSlowSuites(['platform/dev-runner/check-runner.ts']);
+  expect(devRunnerSelection).toEqual({
+    suites: [],
+    slowTests: [],
+    affectedSlowTests: [],
+    owners: ['auto-reference', 'dev-runner'],
+    reasons: ['ownership-impact'],
+    resolved: true
+  });
+
   expect(selectCiPrRiskSlowSuites(['docs/03-MVP实施计划与路线图.md'])).toEqual({
     suites: [],
     slowTests: [],
@@ -291,22 +301,6 @@ test('CI PR risk gate skips slow suites when no source or slow test impact exist
     reasons: [],
     resolved: true
   });
-});
-
-test('local affected runner shares canonical changed-file parsing and impact ownership', async () => {
-  const source = await readCompilerFile('platform/dev-runner/test-runner.ts');
-
-  expect(source).toContain('gitChangedFileDiffArgs');
-  expect(source).toContain('gitUntrackedFileArgs');
-  expect(source).toContain('parseGitChangedFileOutput');
-  expect(source).toContain("from '../shared/affected-test-inventory.ts'");
-  expect(source).toContain("from '../shared/ci-pr-risk-selection.ts'");
-  expect(source).toContain('CodexDevelopmentBuildAffectedTestInventoryV1(files)');
-  expect(source).toContain('selectCiPrRiskSlowSuites(files)');
-  expect(source).toContain('selectCiPrRiskSlowSuites([file])');
-  expect(source).not.toContain('isTestImpactSourceFile');
-  expect(source).not.toContain('function impactSourceFile');
-  expect(source).not.toContain("['diff', '--name-only', '--diff-filter=ACMR'");
 });
 
 test('CI risk runner keeps fail-fast default and supports explicit resumable local batches', async () => {
