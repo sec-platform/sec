@@ -58,7 +58,7 @@ test('CI verification writes one exact-head passed Evidence V2 after all focused
   expect(calls).toEqual(['typecheck', 'affected-tests']);
   expect(captured.evidence).toMatchObject({
     schema: 'codex-development-verification-evidence-v2',
-    contractRevision: 'ci-verification-v12',
+    contractRevision: 'ci-verification-v13',
     kind: 'verification',
     profile: 'quick',
     headSha: HEAD,
@@ -99,7 +99,7 @@ test('CI verification reaches focused gates for repository and governed control-
   expect(code).toBe(0);
   expect(calls).toEqual(['docs-doctor', 'typecheck', 'affected-tests']);
   expect(captured.evidence).toMatchObject({
-    contractRevision: 'ci-verification-v12',
+    contractRevision: 'ci-verification-v13',
     status: 'passed',
     selectionResolved: true,
     failure: null
@@ -226,7 +226,7 @@ for (const scenario of [
     expect(writes).toBe(1);
     expect(captured.evidence).toMatchObject({
       schema: 'codex-development-verification-evidence-v2',
-      contractRevision: 'ci-verification-v12',
+      contractRevision: 'ci-verification-v13',
       kind: 'verification',
       status: 'failed'
     });
