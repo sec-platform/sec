@@ -79,7 +79,7 @@ describe('dev-runner contract', () => {
       'parseGitChangedFileOutput',
       "from '../shared/affected-test-inventory.ts'",
       "from '../shared/ci-pr-risk-selection.ts'",
-      'CodexDevelopmentBuildAffectedTestInventoryV1(files)',
+      'CodexDevelopmentAffectedInventoryInputsV1(files, (file) => currentTestFiles.has(file))',
       'selectCiPrRiskSlowSuites(files)',
       'selectCiPrRiskSlowSuites([file])'
     ]);

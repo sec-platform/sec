@@ -1,5 +1,8 @@
 import path from 'node:path';
-import { CodexDevelopmentBuildAffectedTestInventoryV1 } from '../shared/affected-test-inventory.ts';
+import {
+  CodexDevelopmentAffectedInventoryInputsV1,
+  CodexDevelopmentBuildAffectedTestInventoryV1
+} from '../shared/affected-test-inventory.ts';
 import {
   gitChangedFileDiffArgs,
   gitUntrackedFileArgs,
@@ -343,7 +346,13 @@ interface AffectedTestSelection {
 }
 
 function affectedTestSelection(files: string[]): AffectedTestSelection {
-  const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(files);
+  const currentTestFiles = new Set([
+    ...getFastTestFilesSync(),
+    ...getSlowTestFilesSync()
+  ]);
+  const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(
+    CodexDevelopmentAffectedInventoryInputsV1(files, (file) => currentTestFiles.has(file))
+  );
   return {
     tests: inventory.changedFastTests,
     slowTests: inventory.changedSlowTests,

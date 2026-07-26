@@ -63,6 +63,12 @@ export function isTestImpactSourceFile(file: string): boolean {
 
 export const testImpactFallbackRules: TestImpactRule[] = [
   {
+    owner: 'repository-tooling-workflows',
+    sourcePattern: /^\.github\/workflows\/(?:architecture-tools|compiler-pr-validation|compiler-release-validation|sec-merge-gate)\.yml$/,
+    fast: ['tests/contract/repository-runtime.test.ts'],
+    slow: []
+  },
+  {
     owner: 'verification-infrastructure',
     sourcePattern: /^(?:\.github\/workflows\/|scripts\/ci-[^/]+\.ts$|platform\/shared\/ci-[^/]+\.ts$|platform\/shared\/test-(?:budget|impact|ownership)-contract\.ts$|platform\/shared\/test-impact-rules\/)/,
     fast: [
@@ -70,39 +76,50 @@ export const testImpactFallbackRules: TestImpactRule[] = [
       'tests/contract/ci-contract.test.ts',
       'tests/contract/ci-lanes.test.ts',
       'tests/contract/slow-suite-resource-budget.test.ts',
-      'tests/integration/project-runtime.test.ts',
       'tests/unit/test-runner.test.ts'
     ],
     slow: []
   },
   {
-    owner: 'roadmap-authority',
-    sourcePattern: /^docs\/03-MVP实施计划与路线图\.md$/,
-    fast: ['tests/integration/project-runtime.test.ts'],
+    owner: 'documentation-authority',
+    sourcePattern: /^(?:README\.md|docs\/(?:03-MVP实施计划与路线图|05-编译器核心实现规格)\.md)$/,
+    fast: ['tests/contract/documentation-authority.test.ts'],
     slow: []
   },
   {
-    owner: 'repository-runtime-contract',
-    sourcePattern: /^(?:package\.json|bun\.lock)$/,
-    fast: ['tests/contract/benchmark-budget.test.ts', 'tests/integration/project-runtime.test.ts'],
+    owner: 'repository-package-contract',
+    sourcePattern: /^package\.json$/,
+    fast: [
+      'tests/contract/benchmark-budget.test.ts',
+      'tests/contract/repository-runtime.test.ts',
+      'tests/integration/compiler-dependency-installation.test.ts',
+      'tests/integration/project-base.test.ts',
+      'tests/integration/project-dependency-runtime.test.ts'
+    ],
+    slow: []
+  },
+  {
+    owner: 'repository-lockfile-contract',
+    sourcePattern: /^bun\.lock$/,
+    fast: ['tests/integration/compiler-dependency-installation.test.ts'],
     slow: []
   },
   {
     owner: 'test-impact',
     sourcePattern: /^platform\/shared\/test-impact-contract\.ts$/,
-    fast: ['tests/integration/project-runtime.test.ts', 'tests/contract/benchmark-budget.test.ts'],
+    fast: ['tests/contract/benchmark-budget.test.ts'],
     slow: []
   },
   {
-    owner: 'runtime-dependencies',
-    sourcePattern: /^platform\/shared\/runtime-dependency-spec\.ts$/,
-    fast: ['tests/integration/project-runtime.test.ts'],
-    slow: ['tests/e2e/runtime-host.test.ts']
+    owner: 'contract-freeze',
+    sourcePattern: /^platform\/shared\/contract-freeze-contract\.ts$/,
+    fast: ['tests/contract/contract-freeze.test.ts'],
+    slow: []
   },
   {
     owner: 'verify',
     sourcePattern: /^platform\/compiler\/verify\//,
-    fast: ['tests/unit/coverage.test.ts', 'tests/unit/policy-summary.test.ts', 'tests/integration/project-runtime.test.ts'],
+    fast: ['tests/unit/coverage.test.ts', 'tests/unit/policy-summary.test.ts'],
     slow: ['tests/e2e/verification.test.ts']
   },
   {
@@ -132,7 +149,7 @@ export const testImpactFallbackRules: TestImpactRule[] = [
   {
     owner: 'pipeline',
     sourcePattern: /^platform\/compiler\/(parse|resolve|compose|adapt)\//,
-    fast: ['tests/integration/overview.test.ts', 'tests/integration/project-runtime.test.ts'],
+    fast: ['tests/integration/overview.test.ts'],
     slow: ['tests/e2e/pipeline.test.ts', 'tests/e2e/end-to-end.test.ts']
   },
   {
@@ -159,7 +176,7 @@ export const testImpactFallbackRules: TestImpactRule[] = [
   {
     owner: 'registry',
     sourcePattern: /^platform\/registry\//,
-    fast: ['tests/unit/path-containment.test.ts', 'tests/integration/project-runtime.test.ts'],
+    fast: ['tests/unit/path-containment.test.ts'],
     slow: ['tests/e2e/registry.test.ts', 'tests/e2e/private-registry.test.ts']
   },
   {

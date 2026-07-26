@@ -122,7 +122,7 @@ test('CI PR risk gate selects slow suites from the test impact contract', () => 
   });
 });
 
-test('CI impact ownership includes mandatory validation sentinels and roadmap authority', () => {
+test('CI impact ownership includes mandatory validation sentinels and documentation authority', () => {
   const workflowSelection = selectCiPrRiskSlowSuites(['.github/workflows/compiler-pr-validation.yml']);
   expect(workflowSelection.suites).toEqual(slowTestPrRiskBaselineSuiteIds());
   expect(workflowSelection.owners).toEqual(expect.arrayContaining(['bounded-slow-risk', 'verification-infrastructure']));
@@ -143,7 +143,7 @@ test('CI impact ownership includes mandatory validation sentinels and roadmap au
     suites: [],
     slowTests: [],
     affectedSlowTests: [],
-    owners: ['roadmap-authority'],
+    owners: ['documentation-authority'],
     reasons: ['ownership-impact'],
     resolved: true
   });
@@ -174,7 +174,7 @@ test('V1 Quick resolves the complete PR #133 documentation and control-plane pat
 
   expect(plan.selectionResolved).toBe(true);
   expect(plan.selectionReasons).toEqual(['ownership-impact']);
-  expect(plan.affectedOwners).toEqual(['roadmap-authority']);
+  expect(plan.affectedOwners).toEqual(['documentation-authority']);
   expect(plan.gates.map((gate) => gate.id)).toEqual([
     'docs-doctor',
     'typecheck',

@@ -22,12 +22,14 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
     'tests/contract/error-protocol.test.ts',
     'tests/contract/fact-delta-contract.test.ts',
     'tests/contract/impact-propagation-contract.test.ts',
+    'tests/contract/repository-runtime.test.ts',
     'tests/contract/semantic-mutation-contract.test.ts',
     'tests/contract/semantic-mutation-apply-contract.test.ts',
     'tests/contract/semantic-mutation-source-adapter-contract.test.ts',
     'tests/contract/test-architecture.test.ts',
     'tests/contract/test-impact.test.ts'
   ]));
+  expect(contract.targetFiles).not.toContain('tests/integration/project-runtime.test.ts');
   expect(contract.targetFiles).not.toContain('tests/contract/contracts.test.ts');
   expect(contract.targets.map((target) => target.contractId)).toEqual(expect.arrayContaining([
     'verification.contract-freeze',
@@ -49,6 +51,7 @@ test('CLI exposes contract freeze target list as text and JSON contracts', async
   expect(formatted).toContain('Target verification.contract-freeze; file=tests/contract/contract-freeze.test.ts; command=bun test tests/contract/contract-freeze.test.ts');
   expect(formatted).toContain('Target verification.ci-workflow; file=tests/contract/ci-contract.test.ts; command=bun test tests/contract/ci-contract.test.ts');
   expect(formatted).toContain('Target verification.docs-doctor; file=tests/contract/docs-doctor.test.ts; command=bun test tests/contract/docs-doctor.test.ts');
+  expect(formatted).toContain('Target repository.runtime; file=tests/contract/repository-runtime.test.ts; command=bun test tests/contract/repository-runtime.test.ts');
   expect(formatted).toContain('Target semantic.mutation; file=tests/contract/semantic-mutation-contract.test.ts; command=bun test tests/contract/semantic-mutation-contract.test.ts');
   expect(formatted).toContain('Target semantic.mutation-source-adapter; file=tests/contract/semantic-mutation-source-adapter-contract.test.ts; command=bun test tests/contract/semantic-mutation-source-adapter-contract.test.ts');
   expect(formatted).toContain('Target semantic.mutation-apply; file=tests/contract/semantic-mutation-apply-contract.test.ts; command=bun test tests/contract/semantic-mutation-apply-contract.test.ts');

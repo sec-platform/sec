@@ -176,7 +176,9 @@ Merge gate必须用 default-branch代码和 Git objects独立重算 changed reco
 ## 9. Contract Freeze、affected 与 slow
 
 - Contract Freeze 绑定公共合同与其快速owner tests；公共 schema/IR/operation/diagnostic变化必须运行对应完整 contract set。其成员不得启动Next build、production server、Playwright、浏览器安装或其他slow runtime；真实acceptance必须由slow registry中的Risk owner覆盖。`verification.docs-doctor`直接绑定 scanner 的 positive/negative/differential fixture，禁止只用当前文档树的正例运行替代失败语义。
+- `repository.runtime`只绑定`tests/contract/repository-runtime.test.ts`中的repository/package/workflow公共合同，不得把compiler dependency installation、project dependency state、generated project base、文档内容或Task Envelope行为重新塞进同一冻结目标。后五类分别由owner-aligned integration/contract/unit sentinel拥有；source变化只选择真实consumer，不能因历史catch-all文件或文件名相似而继承无关测试。
 - Affected selector是快速反馈，不是完整风险或 Full 的替代。本地 plan、正式 affected与 hosted verification都必须对未知 ownership fail closed。
+- Affected必须区分changed fact与runnable test：删除/rename-away的测试路径仍完整进入changed-path、ownership、scope与Risk计算，但不能进入runner argv。本地以当前canonical test inventory证明可运行，hosted verification以exact candidate head中的ordinary Git blob证明可运行；新增/修改/rename-to测试只有满足该证明才进入fast/slow runnable set。禁止用保留空测试壳绕过删除语义。
 - Slow suite必须声明资源等级、并行安全、owner、适用变化、timeout owner 与 cleanup；open handle、process、workspace 或 artifact residue是失败。
 - 同一能力若同时需要真实Git/Language Service快速阻断与完整index/race/rollback覆盖，fast层只保留一个真实micro-sentinel，完整场景进入显式slow suite。Slow fixture可以复用一次初始化的immutable seed，但每个并发场景必须复制为隔离repository，并以单一有界semaphore约束peak；不得共享working tree、index、lock或publication state。是否“变快”遵循`test-architecture.md`的固定环境采样协议：一次warm-up后至少五个有效样本，以median和observed range报告，单次duration不设hard baseline。
 - `platform/dev-runner.ts`与`platform/dev-runner/**`的affected/Risk选择只来自`test-impact-rules/verification.ts`的dev-runner owner、direct import和更窄owner声明。公共runner变化只运行轻量入口合同与相关unit/contract；`import-organizer`、managed hook dependency等真实Git能力仍选择各自slow suite。禁止把整个目录重新映射到通用fast列表或全部baseline slow suites。

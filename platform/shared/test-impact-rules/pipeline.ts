@@ -56,7 +56,6 @@ export const pipelineTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     ],
     fast: [
       'tests/integration/pipeline-kernel.test.ts',
-      'tests/integration/project-runtime.test.ts',
       'tests/integration/semantic-pipeline-spine.test.ts',
       'tests/integration/pipeline-workspace-write-lease.test.ts',
       'tests/integration/repair.test.ts',

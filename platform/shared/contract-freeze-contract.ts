@@ -84,7 +84,7 @@ export function getContractFreezeTargets(): ContractFreezeTarget[] {
     contractFreezeTarget('verification.ci-workflow', 'tests/contract/ci-contract.test.ts'),
     contractFreezeTarget('cli.error-protocol', 'tests/contract/error-protocol.test.ts'),
     contractFreezeTarget('review.summary', 'tests/integration/review.test.ts'),
-    contractFreezeTarget('repository.runtime', 'tests/integration/project-runtime.test.ts')
+    contractFreezeTarget('repository.runtime', 'tests/contract/repository-runtime.test.ts')
   ];
 }
 
