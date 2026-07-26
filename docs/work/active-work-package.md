@@ -10,8 +10,8 @@ last-reviewed: 2026-07-26
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/root-hygiene-postmerge-reconciliation-v1.md
-manifestDigest: sha256:7e05d884a83710d06f2a64435e9699cc932a01fc2da98fdaa5c7a78268430e49
+manifest: docs/work-packages/development-throughput-v12-bootstrap-v1.md
+manifestDigest: sha256:447e7c57135c1e7ca5e6c8580cea05a279dfe803e98390234a9d3614d89f0ebf
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

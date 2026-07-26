@@ -335,7 +335,42 @@ test.serial('slow suite selector rejects unknown suite ids', async () => {
   }
 });
 
-test.serial('affected tests skip broad fast-suite fallback for unmapped source changes by default', async () => {
+test.serial('affected tests fail before dependency bootstrap for unresolved source ownership', async () => {
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (message?: unknown) => {
+    errors.push(String(message));
+  };
+
+  try {
+    const code = await runAffectedTests();
+
+    expect(code).toBe(1);
+    expect(testDependencyBootstrapCalls).toBe(0);
+    expect(devCommandCalls).toEqual([]);
+    expect(devCommandEnvironments).toEqual([]);
+    expect(errors).toContain('Affected test ownership is unresolved for changed paths: platform/unmapped-source.ts');
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test.serial('affected tests fail closed for mixed mapped and unresolved paths before any child', async () => {
+  changedFiles = [
+    'scripts/release-helper.ts',
+    'assets/new.bin'
+  ];
+
+  const code = await runAffectedTests();
+
+  expect(code).toBe(1);
+  expect(testDependencyBootstrapCalls).toBe(0);
+  expect(devCommandCalls).toEqual([]);
+  expect(devCommandEnvironments).toEqual([]);
+});
+
+test.serial('affected plan reports resolved selection without dependency or test execution', async () => {
+  changedFiles = ['tests/unit/path-containment.test.ts'];
   const logs: string[] = [];
   const originalLog = console.log;
   console.log = (message?: unknown) => {
@@ -343,17 +378,62 @@ test.serial('affected tests skip broad fast-suite fallback for unmapped source c
   };
 
   try {
-    const code = await runAffectedTests();
+    const code = await runAffectedTests(['--plan']);
+    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
 
     expect(code).toBe(0);
+    expect(plan).toMatchObject({
+      schema: 'sec-affected-test-plan-v1',
+      changedPaths: ['tests/unit/path-containment.test.ts'],
+      selectedFastTests: ['tests/unit/path-containment.test.ts'],
+      unresolvedPaths: [],
+      resolved: true
+    });
+    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
-    expect(logs).toContain('No affected fast tests matched source changes; skipping broad fast-suite fallback in PR quick lane. Full/manual/scheduled validation covers unmapped changes.');
+    expect(devCommandEnvironments).toEqual([]);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test.serial('affected plan lists every unresolved path and exits nonzero without side effects', async () => {
+  changedFiles = [
+    'assets/new.bin',
+    'platform/unmapped-source.ts'
+  ];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (message?: unknown) => {
+    logs.push(String(message));
+  };
+
+  try {
+    const code = await runAffectedTests(['--plan']);
+    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+
+    expect(code).toBe(1);
+    expect(plan).toMatchObject({
+      changedPaths: [
+        'assets/new.bin',
+        'platform/unmapped-source.ts'
+      ],
+      unresolvedPaths: [
+        'assets/new.bin',
+        'platform/unmapped-source.ts'
+      ],
+      resolved: false
+    });
+    expect(testDependencyBootstrapCalls).toBe(0);
+    expect(devCommandCalls).toEqual([]);
+    expect(devCommandEnvironments).toEqual([]);
   } finally {
     console.log = originalLog;
   }
 });
 
 test.serial('affected-test Git discovery requests byte-preserving stdout through the shared process seam', async () => {
+  changedFiles = ['docs/04-AI自主实现执行蓝图.md'];
   const code = await runAffectedTests();
 
   expect(code).toBe(0);
@@ -465,6 +545,7 @@ test.serial('affected tests treat changed slow files as notice-only quick-lane i
 });
 
 test.serial('affected tests allow broad fast-suite fallback when explicitly enabled', async () => {
+  changedFiles = ['tests/setup/unmapped.ts'];
   process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK = '1';
   const logs: string[] = [];
   const originalLog = console.log;

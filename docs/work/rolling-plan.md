@@ -6,26 +6,26 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从 `origin/main@f1df074b8080b97882ff2afd3b1a110ce42512c4`、长期 Goal revision `sha256:555a187d…f676`、PR #137/#143/#144/#145、scope attestation `30197172677`、永久 Quick FAIL `30196624646`、exact-head Review、Issue #132 与本地 ref/worktree 状态重新计算。Windows runtime/V11、SM-4A trusted authorization ingress 与 root hygiene 已进入 `main`；trusted ingress 不等同于 P1 完成。
+本窗口从 `origin/main@4eccc767c4dfeae4cd1190b17ceb91864af29f9a`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与一次 live resolver snapshot重新计算。旧 candidate、PR/run与 Review历史不再复制进活动控制面。
 
 ```text
-Root Hygiene Postmerge Reconciliation V1 (仅在 pointer 选中候选时 active)
+Development Throughput V12 Bootstrap
 → publication 后 active pointer = none
 → SM-4A Shared Adapter + CLI/Workbench Thin Transports (next-ready)
 → Nexus Exact-tree Census Refresh
 → P2 Blockless Source Ownership Foundation
 ```
 
-本计划在候选发布前只有一个 resolver-selected active package；同一 manifest blob 进入 default branch 后 resolver 返回 `none`，只保留三个 next-ready 候选。候选不是授权、完成声明或永久 Backlog；任一 reload 事件发生后必须从新事实整体重算。
+本计划在候选发布前只有一个 resolver-selected active package；同一 manifest blob 进入 default branch 后 resolver返回 `none`。普通进度只进入 Reconciliation Delta，不重写三个控制面；仅新 Work Package、真实 `reload_if`与最终 reconciliation更新本文件。
 
 ## 当前唯一 Work Package
 
-### root-hygiene-postmerge-reconciliation-v1
+### development-throughput-v12-bootstrap-v1
 
-- 工程结果：只发布 PR #145 已进入 `main@f1df074`、旧输入已物理退役、P1 尚余 shared adapter + CLI/Workbench 薄 transport 等已经发生的事实。
-- Owner：新 frozen manifest 与三个控制面；产品、CI、Goal、canonical architecture/docs owner 均禁止修改。
-- 选择语义：candidate manifest 尚未出现在 live default branch 时它是唯一 active；相同 blob 发布后 resolver 返回 `none`，本节不再代表活动授权。
-- 退出：docs/lifecycle/scope/Review 通过并进入 main；随后本地/远端只保留 `main`，worktree 只保留仓库根，`main...origin/main = 0/0`。
+- 工程结果：在 `test:affected` 内复用唯一 Risk ownership selector，新增无副作用 `--plan`并在任何昂贵执行前 fail closed；同步 V12 trust root与最小流程约束。
+- Owner：frozen manifest列出的 dev-runner、V1 CI revision消费者、focused sentinels与流程文档；产品语义、Risk selector、suite registry、Evidence builder和V2 composition均禁止修改。
+- 选择语义：candidate manifest尚未出现在 live default branch时它是唯一 active；相同 blob发布后 resolver返回 `none`。
+- 退出：一个 exact candidate完成 focused验证、正式 affected一次、独立 Review、V12人工 bootstrap与selected Risk一次并进入 main；随后 readback并清理任务 branch。
 
 ## 候选 Work Package
 

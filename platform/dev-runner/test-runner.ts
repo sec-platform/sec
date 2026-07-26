@@ -6,6 +6,7 @@ import {
   parseGitChangedFileOutput,
   parseGitUntrackedFileOutput
 } from '../shared/ci-git-changed-files.ts';
+import { selectCiPrRiskSlowSuites } from '../shared/ci-pr-risk-selection.ts';
 import { uniqueSorted, uniqueSortedLines } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../shared/contract-freeze-contract.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
@@ -265,9 +266,7 @@ interface AffectedTestSelection {
   sourceChanged: boolean;
 }
 
-async function affectedTestSelection(): Promise<AffectedTestSelection | null> {
-  const files = await gitChangedFiles();
-  if (!files) return null;
+function affectedTestSelection(files: string[]): AffectedTestSelection {
   const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(files);
   return {
     tests: inventory.changedFastTests,
@@ -283,15 +282,56 @@ function unionTestFiles(...groups: string[][]): string[] {
   return uniqueSortedLines(groups.flat().join('\n'));
 }
 
+function unresolvedRiskPaths(files: string[]): string[] {
+  return files.filter((file) => !selectCiPrRiskSlowSuites([file]).resolved);
+}
+
+function affectedTestPlan(files: string[]): Record<string, unknown> {
+  const risk = selectCiPrRiskSlowSuites(files);
+  const selection = affectedTestSelection(files);
+  const unresolvedPaths = unresolvedRiskPaths(files);
+  return {
+    schema: 'sec-affected-test-plan-v1',
+    changedPaths: files,
+    owners: uniqueSorted([...selection.affectedOwners, ...risk.owners]),
+    selectedFastTests: unionTestFiles(selection.tests, selection.affectedTests),
+    selectedSlowTests: unionTestFiles(selection.slowTests, selection.affectedSlowTests),
+    riskSuites: risk.suites,
+    riskTests: unionTestFiles(
+      risk.suites.flatMap((suite) => slowTestSuiteFiles(suite)),
+      risk.slowTests
+    ),
+    riskReasons: risk.reasons,
+    unresolvedPaths,
+    resolved: risk.resolved && unresolvedPaths.length === 0
+  };
+}
+
 export async function runAffectedTests(args: string[] = []): Promise<number> {
+  if (args.length === 1 && args[0] === '--plan') {
+    const files = await gitChangedFiles();
+    if (!files) {
+      console.error('Failed to detect affected test files.');
+      return 1;
+    }
+    const plan = affectedTestPlan(files);
+    console.log(JSON.stringify(plan, null, 2));
+    return plan.resolved === true ? 0 : 1;
+  }
   if (args.length > 0) {
     return runTests(args);
   }
-  const selection = await affectedTestSelection();
-  if (!selection) {
+  const files = await gitChangedFiles();
+  if (!files) {
     console.error('Failed to detect affected test files.');
     return 1;
   }
+  const risk = selectCiPrRiskSlowSuites(files);
+  if (!risk.resolved) {
+    console.error(`Affected test ownership is unresolved for changed paths: ${unresolvedRiskPaths(files).join(', ')}`);
+    return 1;
+  }
+  const selection = affectedTestSelection(files);
   if (selection.slowTests.length > 0) {
     console.log(`Changed slow test files require PR risk or release/full verification: ${selection.slowTests.join(', ')}`);
   }
