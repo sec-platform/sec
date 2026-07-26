@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
+import { parse as parseYaml } from 'yaml';
 
 import {
   DOCS_DOCTOR_REQUIRED_CANONICAL_PATHS,
@@ -109,7 +110,7 @@ tracking: issue-132
 base: "${'1'.repeat(40)}"
 manifestState: frozen
 requiredProfile: quick
-ciRevision: ci-verification-v11
+ciRevision: ci-verification-v12
 tasks:
   - id: fixture-task
     owner: a0
@@ -221,6 +222,22 @@ test('required-owner projection independently matches the docs/00 authority tabl
     const tableIdentity = numbered ? numbered[1]! : owner;
     expect(authorityIndex).toContain(`| \`${tableIdentity}\` |`);
   }
+});
+
+test('current state retains reusable runtime and trusted-ingress capability prerequisites', async () => {
+  const source = await readFile('docs/work/current-state.yaml', 'utf8');
+  const currentState = parseYaml(source) as {
+    stableFacts?: { completedCapabilities?: unknown[] };
+  };
+
+  expect(currentState.stableFacts?.completedCapabilities).toEqual(expect.arrayContaining([
+    'semantic-mutation-runtime-canonical-authority',
+    'semantic-mutation-sm4a-trusted-authorization-ingress'
+  ]));
+  expect(source).not.toContain('runtimeReconciliation:');
+  expect(source).not.toContain('sm4aReconciliation:');
+  expect(source).not.toContain('frozenFailedCandidate:');
+  expect(source).not.toContain('failedSuccessorCandidates:');
 });
 
 test('legacy file URI, repository path, and deprecated-token diagnostics remain active', async () => {

@@ -35,6 +35,8 @@ last-reviewed: 2026-07-26
 → Release / Full correctness backstop
 ```
 
+这是按风险选择图，不是每次修改都必须顺序执行的流水线。一个 stable candidate只运行被 changed paths、owner、contract或 release条件选中的最小集合。
+
 - 每个 Gate 只有一个 `gate_owner`；结果以 `gate_key + tested head + profile` 唯一标识。
 - 旧结果只能作为“已验证 baseline + intervening diff impact + delta validation”的组成部分，不能伪装成新 head 的 exact-head PASS。
 - 未启动、缺失、超时、损坏、过期或 scope 不匹配均不是 PASS。
@@ -46,6 +48,7 @@ last-reviewed: 2026-07-26
 ```bash
 bun run deps:ensure
 bun run imports:prepare
+bun run test:affected --plan
 bun run check:affected
 bun run check:fast
 bun run check:full
@@ -58,6 +61,7 @@ bun run hooks:install
 - `deps:ensure` 与 managed hook lifecycle只闭合 compiler dependency和hook投影，绝不下载浏览器。Playwright browser readiness只属于test/runtime preparation，并把精确三包release与manifest identity、项目本地cache、外部Node、registry-derived platform executable、正数有界安装预算和后置条件绑定为一个opaque authority；consumer不得重选browser或依赖ambient预热。
 - `hooks:install` 只在 tracked、executable、byte-equal hooks 且不存在其他真实 hook authority 时安装。lifecycle hook 负责依赖闭合，pre-commit/pre-push 只调用唯一 `imports:freeze`。
 - fast process timeout 是共享 runner 合同；显式 override 优先，默认值只由代码 owner维护。不得在单测、selector或 serial registry 中复制 timeout。
+- `test:affected --plan` 是 changed-path/Risk ownership的只读 preflight：不获取 heavy lease、不准备依赖、不启动 test child、不写 Evidence；任一 unresolved path使 plan与正式 affected都非零退出。其他入口按变化条件选择，不机械全跑。
 
 ## 4. PR Quick
 
@@ -83,7 +87,7 @@ Risk 只运行 diff 影响的合同、slow、browser、artifact、workspace 或 
 - slow selection 是 bounded baseline、直接 slow test、ownership/import impact 与 mandatory sentinel 的稳定去重并集。
 - `--all-slow` 只属于 Full；显式 local batch一次收集同一风险簇，默认 fail fast，只有诊断/收口合同允许 continue-on-failure。
 - `parallelSafe` 与资源等级共同决定并发；runtime-heavy 或共享状态 owner 保持隔离。并发不能改变 Gate 语义、环境绑定或失败归因。
-- `test:affected`与`ci:risk`是同一physical worktree的互斥heavy Gate。二者CLI在启动任何测试child或写Risk Evidence前获取同一zero-wait lease；live contender立即失败，Windows abandoned mutex只恢复已崩溃owner。不得让两者并发争用`.tmp/test-workspaces`、Playwright、Next或Evidence，也不得把并发污染归类为产品FAIL。
+- 可执行的`test:affected`与`ci:risk`是同一physical worktree的互斥heavy Gate。二者CLI在启动任何测试child或写Risk Evidence前获取同一zero-wait lease；只读`test:affected --plan`明确绕过 lease。live contender立即失败，Windows abandoned mutex只恢复已崩溃owner。不得让两者并发争用`.tmp/test-workspaces`、Playwright、Next或Evidence，也不得把并发污染归类为产品FAIL。
 
 ## 6. Release / Full
 
@@ -115,6 +119,8 @@ current main reconciliation
 → default-branch merge-gate
 ```
 
+每个 Work Package只有一个 candidate epoch。第一次 invalidation只修失败 delta并 refreeze一次；第二次必须回到 failing reproduction、owner与 invariant，禁止继续创建 successor或消耗 hosted Gate。Reviewer只在单一 exact candidate稳定后启动。
+
 - Manifest 必须从 exact commit ordinary blob 读取并绑定 raw bytes、length、digest、base、head、profile 与 revision；symlink、checkout normalization 或 candidate script不能改变 identity。
 - Heavy runner只读执行 exact head，不发布 required status；merge authorization只由 default-branch trust root结合 live PR、Review、ruleset、Scope 与 Evidence计算。
 - Head、base、manifest、profile、revision、review blocker或 source tree变化会按合同使旧 evidence失效。
@@ -135,7 +141,7 @@ Merge gate必须用 default-branch代码和 Git objects独立重算 changed reco
 ## 9. Contract Freeze、affected 与 slow
 
 - Contract Freeze 绑定公共合同与其 owner tests；公共 schema/IR/operation/diagnostic变化必须运行对应完整 contract set。`verification.docs-doctor`直接绑定 scanner 的 positive/negative/differential fixture，禁止只用当前文档树的正例运行替代失败语义。
-- Affected selector是快速反馈，不是完整风险或 Full 的替代。未知映射在本地可以提示，在 hosted verification 必须失败。
+- Affected selector是快速反馈，不是完整风险或 Full 的替代。本地 plan、正式 affected与 hosted verification都必须对未知 ownership fail closed。
 - Slow suite必须声明资源等级、并行安全、owner、适用变化、timeout owner 与 cleanup；open handle、process、workspace 或 artifact residue是失败。
 - Browser、activation、navigation、restart、release artifact与远端事实不能由 unit/typecheck替代；纯函数也不应无条件触发浏览器矩阵。
 
@@ -143,6 +149,7 @@ Merge gate必须用 default-branch代码和 Git objects独立重算 changed reco
 
 Formal Work Package 的本地长时 Gate必须通过唯一 supervisor：
 
+- 每个长时或可能等待 approval的命令独立调用；不得放入 `Promise.all`、复合 shell或主动轮询循环，只消费 supervisor的 terminal evidence；
 - 在 spawn 前复核 exact manifest/source/protected authority；
 - 使用受限环境、一个 child、一个 watchdog和独立 cleanup budget；
 - 持久 checkpoint/journal，terminal状态与 evidence 原子发布；
@@ -151,7 +158,7 @@ Formal Work Package 的本地长时 Gate必须通过唯一 supervisor：
 
 ## 11. Evidence 复用与历史
 
-当前复用选择只存在于 Work Package Context Capsule 和机器 Evidence 中；active文档不维护持续增长的 SHA/PR/run 表。
+当前复用选择只存在于 Work Package Context Capsule 和机器 Evidence 中；active文档和`current-state.yaml`不维护持续增长的 failed candidate、SHA/PR/run/review表。
 
 1. 先按 `gate_key + tested head + profile` 查 exact evidence。
 2. 若只有旧 baseline，计算 intervening diff 对 Gate owner、inputs、runtime与artifact的影响。
@@ -167,4 +174,5 @@ Formal Work Package 的本地长时 Gate必须通过唯一 supervisor：
 - 一个 profile 尽量复用一次 checkout/setup/install；无代码变化不运行 daily full。
 - 轻量 revalidator只撤销 stale authority，不运行产品测试。
 - 日志必须保留稳定 Gate identity、失败 phase与 bounded tail；不得输出 secret、原始 authority payload或无限日志。
+- Reconciliation telemetry必须记录 tool call、agent spawn、agent wait timeout、context compaction、candidate invalidation、context reload与duplicate Gate计数；这些数据只用于消除流程浪费，不形成第二业务 authority。
 - 当前命令、revision、artifact名、timeout和并发值从 canonical代码/registry读取，不在本文手工同步。

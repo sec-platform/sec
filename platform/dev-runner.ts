@@ -33,6 +33,20 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (target === 'test:affected') {
+    const { runAffectedTests } = await import('./dev-runner/test-runner.ts');
+    if (args.length === 1 && args[0] === '--plan') {
+      process.exitCode = await runAffectedTests(args);
+      return;
+    }
+    const { withHeavyVerificationGateLease } = await import('./shared/heavy-verification-gate-lease.ts');
+    process.exitCode = await withHeavyVerificationGateLease(
+      'test:affected',
+      () => runAffectedTests(args)
+    );
+    return;
+  }
+
   const dependencies = await ensureDevDependencies();
   if (target === 'deps:ensure') {
     console.log(`Compiler dependencies ready (${dependencies.source}, ${dependencies.manifestHash}).`);
@@ -84,20 +98,11 @@ async function main(): Promise<void> {
   }
 
   const {
-    runAffectedTests,
     runContractFreeze,
     runFastTests,
     runSlowTests,
     runTests
   } = await import('./dev-runner/test-runner.ts');
-  if (target === 'test:affected') {
-    const { withHeavyVerificationGateLease } = await import('./shared/heavy-verification-gate-lease.ts');
-    process.exitCode = await withHeavyVerificationGateLease(
-      'test:affected',
-      () => runAffectedTests(args)
-    );
-    return;
-  }
   process.exitCode = target === 'contract-freeze'
     ? await runContractFreeze()
     : target === 'test'
