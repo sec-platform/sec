@@ -72,6 +72,7 @@ bun run hooks:install
 - `deps:ensure` 与 managed hook lifecycle只闭合 compiler dependency和hook投影，绝不下载浏览器。Playwright browser readiness只属于test/runtime preparation，并把精确三包release与manifest identity、项目本地cache、外部Node、registry-derived platform executable、正数有界安装预算和后置条件绑定为一个opaque authority；consumer不得重选browser或依赖ambient预热。
 - `hooks:install` 只在 tracked、executable、byte-equal hooks 且不存在其他真实 hook authority 时安装。lifecycle hook 负责依赖闭合，pre-commit/pre-push 只调用唯一 `imports:freeze`。
 - fast process timeout 是共享 runner 合同；显式 override 优先，默认值只由代码 owner维护。不得在单测、selector或 serial registry 中复制 timeout。
+- Root typecheck由`tsconfig.json`启用TypeScript原生incremental，并把唯一build info写入Git-ignored `.tmp/typecheck/tsconfig.tsbuildinfo`。该文件只是可删除性能提示；TypeScript拥有compiler version、options与source signature失效语义，SEC不得解析、发布、复用为Evidence或建立第二cache registry。clean checkout/hosted runner仍走cold完整检查。
 - `test:affected --plan` 是 changed-path/Risk ownership的只读 preflight：不获取 heavy lease、不准备依赖、不启动 test child、不写 Evidence；任一 unresolved path使 plan与正式 affected都非零退出。其他入口按变化条件选择，不机械全跑。
 
 ### 3.1 按变更类型选择最小验证

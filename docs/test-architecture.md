@@ -44,9 +44,12 @@ last-reviewed: 2026-07-26
 | 单个unit/contract focused文件 | 通常`<= 5s` |
 | 单个fast integration文件 | 通常`<= 10s` |
 | leaf变化的focused fast batch | 通常`<= 10s` |
+| unchanged hot typecheck | `<= 5s`目标；cold/hosted保持完整检查 |
 | 真实Next、server、Playwright或browser acceptance | 明确slow；只在最终Risk/release选择时运行 |
 
 fast文件超过十秒时必须先按phase计时。若耗时来自build、server readiness、browser、安装、网络或真实workspace复制，应把该acceptance迁入已有slow owner，同时在fast层保留不启动生产进程的合同/micro-sentinel；不得通过缓存偶然命中、增大timeout或删除覆盖来宣称变快。Contract Freeze只允许快速合同成员，不能无条件启动真实Runtime。
+
+Typecheck的warm加速只能使用TypeScript原生incremental invalidation；`.tmp/typecheck`可随时删除且不进入Git、artifact或Evidence。changed source、compiler version、compiler options或build-info损坏不得产生false PASS；任何疑义直接删除该derived目录并回到cold check。
 
 ## 3. 事实源
 
