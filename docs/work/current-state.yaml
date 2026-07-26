@@ -226,10 +226,36 @@ stableFacts:
       completionEvidence: false
 
   sm4aReconciliation:
-    completionStatus: not-in-main
+    completionStatus: in-main
+    completionScope: trusted-authorization-ingress-only
     phase: P1
+    p1StageComplete: false
+    remainingP1Closure: shared-adapter-with-cli-and-workbench-thin-transports
     retainedSourceCommit: bca9102
-    retainedSourceBranch: codex/sm4a-trusted-authorization-ingress-v1-v9
     replayBase: 470f2172dca8ff443efb854bdbc78cd888d53c87
+    mergedCandidateHead: 42aaff29858e8ac69169334dcdec4e41a40890d3
+    integratedMainSha: aa2355a80041f0cfd41563f58ce0208837c19beb
+    mergedPullRequest: 144
     replayPathCount: 5
     oldControlPlaneReplayAllowed: false
+    scopeAttestation:
+      runId: 30195672045
+      result: passed
+    hostedQuick:
+      runId: 30195731816
+      result: passed
+    mergeGate:
+      runId: 30196099726
+      result: passed
+    retainedSourceBranchDeleted: true
+
+  rootHygiene:
+    completionStatus: not-in-main
+    failedCandidateHead: 236485b3aca07b103698fb93a331437b50f1f755
+    hostedQuick:
+      runId: 30196624646
+      result: failed
+      failedStage: preflight
+      reason: changed-files-unresolved
+      executedGateCount: 0
+    disposition: manual-bootstrap-successor
