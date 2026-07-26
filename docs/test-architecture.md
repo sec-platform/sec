@@ -67,6 +67,7 @@ Lane归属由确定性工作内容裁决，不由一次duration裁决。以下�
 | Pipeline closure与write lease | `tests/integration/pipeline-kernel.test.ts`和`pipeline-workspace-write-lease.test.ts`保留capability、blocked、journal、process与lease micro-sentinel | 既有`tests/e2e/pipeline.test.ts`拥有完整compose/emit completion proof与真实compile reentrant lease |
 | Overview与verified semantic projection | `tests/integration/overview.test.ts`只保留missing-artifact CLI边界；`semantic-core-vertical.test.ts`从一个validated in-memory snapshot验证projection | 既有`tests/e2e/summary.test.ts`共享一次locked+explained Workspace；`semantic-runtime-contract.test.ts`拥有verified Workspace到architecture/scenario/state的闭环 |
 | Windows browser launch path | `tests/unit/windows-browser-launch-path.test.ts`验证projection、target-swap race、path与fail-closed合同 | 既有`tests/e2e/runtime-host.test.ts`运行production Windows ACL和private host-root lifecycle |
+| Dev Runner与本地Gate选择 | `tests/contract/dev-runner-contract.test.ts`保留package/CLI公共入口，direct import与`verification.ts`声明选择模块sentinel | 只有`import-organizer`与managed-hook dependency等更窄owner选择各自真实Git慢验收；整个`platform/dev-runner/**`不得触发通用baseline slow suites |
 
 这些slow owner即使某次运行偶然很快也不得进入fast；它们的真实Git、durable filesystem或native host副作用是稳定分类事实。反过来，fast owner单次超出目标也只触发最小phase诊断，不能凭一个样本迁层。
 

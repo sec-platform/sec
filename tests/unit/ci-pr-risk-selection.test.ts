@@ -8,8 +8,6 @@ const baselineSuites = slowTestPrRiskBaselineSuiteIds();
 test('bounded slow baseline is owned by shared execution lifecycle surfaces', () => {
   for (const file of [
     'scripts/ci-pr-risk.ts',
-    'platform/dev-runner.ts',
-    'platform/dev-runner/test-runner.ts',
     'platform/shared/ci-pr-risk-selection.ts',
     'platform/shared/test-budget-contract.ts',
     'tests/helpers/semantic-mutation-runtime-target-swap-runner.ts',
@@ -26,6 +24,37 @@ test('bounded slow baseline is owned by shared execution lifecycle surfaces', ()
       file.startsWith('tests/') ? 'bounded-baseline' : 'mandatory-sentinel'
     );
   }
+});
+
+test('dev-runner changes use exact owned slow sentinels instead of the bounded baseline', () => {
+  for (const file of [
+    'platform/dev-runner.ts',
+    'platform/dev-runner/check-runner.ts',
+    'platform/dev-runner/test-runner.ts',
+    'platform/dev-runner/typecheck-runner.ts'
+  ]) {
+    const selection = selectCiPrRiskSlowSuites([file]);
+    expect(selection.suites).toEqual([]);
+    expect(selection.slowTests).toEqual([]);
+    expect(selection.affectedSlowTests).toEqual([]);
+    expect(selection.owners).toContain('dev-runner');
+    expect(selection.owners).not.toContain('bounded-slow-risk');
+    expect(selection.reasons).toEqual(['ownership-impact']);
+    expect(selection.resolved).toBe(true);
+  }
+
+  expect(selectCiPrRiskSlowSuites(['platform/dev-runner/import-organizer.ts'])).toMatchObject({
+    suites: ['e2e-import-organizer-staged'],
+    affectedSlowTests: ['tests/e2e/import-organizer-staged.test.ts'],
+    reasons: ['ownership-impact'],
+    resolved: true
+  });
+  expect(selectCiPrRiskSlowSuites(['platform/dev-runner/dependency-bootstrap.ts'])).toMatchObject({
+    suites: ['e2e-install-git-hooks'],
+    affectedSlowTests: ['tests/e2e/install-git-hooks.test.ts'],
+    reasons: ['ownership-impact'],
+    resolved: true
+  });
 });
 
 test('staged runtime helper bounded ownership rejects path prefix collisions', () => {
@@ -45,7 +74,8 @@ test('dev-runner mandatory ownership rejects CLI prefix collisions', () => {
   for (const file of [
     'platform/dev-runner.tsx',
     'platform/dev-runner.ts/evil',
-    'platform/dev-runner.ts-anything'
+    'platform/dev-runner.ts-anything',
+    'platform/dev-runner/new-unowned-module.ts'
   ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
     expect(selection.resolved).toBe(false);
