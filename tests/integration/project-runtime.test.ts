@@ -1,20 +1,34 @@
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
+import { type AddressInfo, createServer } from 'node:net';
 import path from 'node:path';
 
+import {
+  buildIsolatedRuntimeAcceptanceEnvironment,
+  buildIsolatedRuntimeEnvironment,
+  runtimeVerificationInvocation,
+  withIsolatedRuntimeAcceptanceServer
+} from '../../platform/compiler/verify/run-runtime-verification.ts';
+import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from '../../platform/compiler/verify/runtime-verification-invocation-contract.ts';
+import {
+  semanticMutationIsolatedNodeExecutablePath
+} from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
 import { readJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { runCommand } from '../../platform/shared/process.ts';
 import { ensureProjectBase } from '../../platform/shared/project-base.ts';
 import {
   ensureCompilerDepsReady,
   ensureProjectDependencies,
   ensureSharedDepsReady,
   readRuntimeDepsStamp,
+  resolveExternalNodeRuntimeAuthority,
   withProjectDependencyBridge,
   writeRuntimeDepsStamp
 } from '../../platform/shared/project-runtime.ts';
 import {
   buildRuntimeDepsPreboundBinding,
+  EXACT_PLAYWRIGHT_PACKAGE_NAMES,
   loadRuntimeDependencySpec,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
@@ -28,6 +42,41 @@ type RuntimePackageJson = {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
 };
+
+async function reserveLoopbackPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address() as AddressInfo;
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  return address.port;
+}
+
+async function assertLoopbackPortIsFree(port: number): Promise<void> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', resolve);
+  });
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+}
+
+async function ensureEnvironmentDirectories(environment: NodeJS.ProcessEnv): Promise<void> {
+  for (const value of [
+    environment.HOME,
+    environment.USERPROFILE,
+    environment.APPDATA,
+    environment.LOCALAPPDATA,
+    environment.TEMP,
+    environment.TMP,
+    environment.TMPDIR,
+    environment.PLAYWRIGHT_BROWSERS_PATH
+  ]) {
+    if (value) await fs.mkdir(value, { recursive: true });
+  }
+}
 
 async function installCompilerDependencyFixture(workingDirectory: string, marker: string): Promise<void> {
   const packages = [{ name: 'commander', version: '1.0.0' }, {
@@ -60,12 +109,23 @@ async function installCompilerDependencyFixture(workingDirectory: string, marker
 }
 
 async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Promise<void> {
-  await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
+  const runtimeSpec = await loadRuntimeDependencySpec();
+  const exactVersions = {
+    ...runtimeSpec.dependencies,
+    ...runtimeSpec.devDependencies
+  };
+  const packageNames = new Set([
+    ...RUNTIME_DEPENDENCY_PACKAGE_NAMES,
+    ...EXACT_PLAYWRIGHT_PACKAGE_NAMES
+  ]);
+  await Promise.all([...packageNames].map(async (packageName) => {
     const packageRoot = path.join(nodeModulesRoot, ...packageName.split('/'));
     await fs.mkdir(packageRoot, { recursive: true });
     await fs.writeFile(path.join(packageRoot, 'package.json'), `${JSON.stringify({
       name: packageName,
-      version: '0.0.0-fixture'
+      version: EXACT_PLAYWRIGHT_PACKAGE_NAMES.includes(
+        packageName as (typeof EXACT_PLAYWRIGHT_PACKAGE_NAMES)[number]
+      ) ? runtimeSpec.devDependencies['@playwright/test'] : exactVersions[packageName]
     })}\n`, 'utf8');
   }));
 }
@@ -234,6 +294,128 @@ describe('compiler dependency installation', () => {
       expect(await fs.readFile(entryPath)).toEqual(originalEntry);
       expect(await fs.readFile(bindingPath)).toEqual(originalBinding);
     }, 'engineering-compiler-dev-deps-rollback-');
+  });
+
+  test('retries only bounded Windows transient generation renames and preserves the exact source identity', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      const commandRunner = async (_command: string, _args: string[], command: { cwd: string }) => {
+        installCalls += 1;
+        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      await ensureCompilerDepsReady(baseOptions, tempRoot);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+
+      let transientFailures = 0;
+      const delays: number[] = [];
+      const result = await ensureCompilerDepsReady({
+        ...baseOptions,
+        sleep: async (delayMs) => {
+          delays.push(delayMs);
+        },
+        testCompilerPublishPlatform: 'win32',
+        testCompilerRename: async (source, target) => {
+          const stagedPublish = path.basename(source) === 'node_modules' &&
+            path.basename(path.dirname(source)).includes('.staging-');
+          if (stagedPublish && transientFailures < 2) {
+            transientFailures += 1;
+            const error = new Error('injected transient Windows rename denial') as NodeJS.ErrnoException;
+            error.code = 'EPERM';
+            throw error;
+          }
+          await fs.rename(source, target);
+        }
+      }, tempRoot);
+
+      expect(result.source).toBe('installed');
+      expect(transientFailures).toBe(2);
+      expect(delays).toEqual([25, 50]);
+      expect(await fs.readFile(path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'), 'utf8'))
+        .toBe('generation-2:typescript\n');
+    }, 'engineering-compiler-dev-deps-windows-rename-retry-');
+  });
+
+  test('fails closed and restores the active generation when a transient rename changes source identity', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      const commandRunner = async (_command: string, _args: string[], command: { cwd: string }) => {
+        installCalls += 1;
+        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      await ensureCompilerDepsReady(baseOptions, tempRoot);
+      const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
+      const originalEntry = await fs.readFile(entryPath);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      let replaced = false;
+
+      await expect(ensureCompilerDepsReady({
+        ...baseOptions,
+        sleep: async () => undefined,
+        testCompilerPublishPlatform: 'win32',
+        testCompilerRename: async (source, target) => {
+          const stagedPublish = path.basename(source) === 'node_modules' &&
+            path.basename(path.dirname(source)).includes('.staging-');
+          if (stagedPublish && !replaced) {
+            replaced = true;
+            await fs.rename(source, `${source}-original`);
+            await fs.mkdir(source);
+            const error = new Error('injected transient rename with source replacement') as NodeJS.ErrnoException;
+            error.code = 'EBUSY';
+            throw error;
+          }
+          await fs.rename(source, target);
+        }
+      }, tempRoot)).rejects.toMatchObject({
+        code: 'IMPORT-AUTHORITY-004',
+        details: {
+          cause: expect.stringContaining('identity changed')
+        }
+      });
+      expect(replaced).toBe(true);
+      expect(await fs.readFile(entryPath)).toEqual(originalEntry);
+    }, 'engineering-compiler-dev-deps-windows-rename-identity-');
+  });
+
+  test('does not retry a non-transient compiler generation rename failure', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      const commandRunner = async (_command: string, _args: string[], command: { cwd: string }) => {
+        installCalls += 1;
+        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      await ensureCompilerDepsReady(baseOptions, tempRoot);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      let failures = 0;
+
+      await expect(ensureCompilerDepsReady({
+        ...baseOptions,
+        sleep: async () => {
+          throw new Error('non-transient rename must not sleep');
+        },
+        testCompilerPublishPlatform: 'win32',
+        testCompilerRename: async (source, target) => {
+          const stagedPublish = path.basename(source) === 'node_modules' &&
+            path.basename(path.dirname(source)).includes('.staging-');
+          if (stagedPublish) {
+            failures += 1;
+            const error = new Error('injected non-transient rename failure') as NodeJS.ErrnoException;
+            error.code = 'ENOTEMPTY';
+            throw error;
+          }
+          await fs.rename(source, target);
+        }
+      }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      expect(failures).toBe(1);
+    }, 'engineering-compiler-dev-deps-non-transient-rename-');
   });
 
   test('reclaims a dead compiler install owner instead of timing out future development', async () => {
@@ -421,18 +603,30 @@ describe('test budget and benchmark contracts', () => {
     const runnerSource = await readCompilerFile('platform/dev-runner.ts');
     const testRunnerSource = await readCompilerFile('platform/dev-runner/test-runner.ts');
     const setupSource = await readCompilerFile('tests/setup/runtime-deps.setup.ts');
+    const runtimeVerificationSource = await readCompilerFile(
+      'platform/compiler/verify/run-runtime-verification.ts'
+    );
 
     expectContainsAll(runnerSource, [
       'test:fast'
     ]);
     expectContainsAll(testRunnerSource, [
       'fastTestArgs',
+      'ensureTestDependencies',
+      'PLAYWRIGHT_BROWSERS_PATH',
       'SEC_SKIP_RUNTIME_DEPS_SETUP'
     ]);
     expectContainsAll(setupSource, [
       "process.env.SEC_SKIP_RUNTIME_DEPS_SETUP !== '1'",
-      'ensureDevDependencies',
+      'ensureTestDependencies',
+      'process.env.PLAYWRIGHT_BROWSERS_PATH = dependencies.browserCachePath',
       'await fs.rm(lockPath, { recursive: true, force: true });'
+    ]);
+    expectContainsNone(setupSource, ['ensureDevDependencies', 'ensurePlaywrightBrowserCacheReady']);
+    expectContainsAll(runtimeVerificationSource, ['materializePlaywrightBrowserCache']);
+    expectContainsNone(runtimeVerificationSource, [
+      "path.join(projectRoot, 'node_modules', 'playwright', 'cli.js')",
+      "path.join(compilerRoot, '.shared-deps', '.playwright-browsers')"
     ]);
   });
 
@@ -723,10 +917,142 @@ describe('project base', () => {
       expect(projectPackage.scripts['test:fast']).not.toContain('playwright');
       expect(playwrightConfig).toContain("trace: 'retain-on-failure'");
       expect(playwrightConfig).toContain('workers: 1');
-      expect(playwrightConfig).toContain('next start --hostname 127.0.0.1');
+      expect(playwrightConfig).toContain("'node_modules/next/dist/bin/next'");
       expect(playwrightConfig).not.toContain('next dev');
     }, 'engineering-compiler-runtime-trace-');
   });
+
+  test('project base delegates isolated acceptance server lifecycle to the verifier', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await ensureProjectBase(workspaceRoot);
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      const playwrightConfig = await fs.readFile(path.join(projectRoot, 'playwright.config.ts'), 'utf8');
+
+      expect(RUNTIME_VERIFICATION_INVOCATION_CONTRACT.build.moduleRelativePath).toBe('next/dist/bin/next');
+      expectContainsAll(playwrightConfig, [
+        "process.env.SEC_ISOLATED_VERIFICATION === '1'",
+        'const webServerCommand = [',
+        "'bun'",
+        "'--no-env-file'",
+        "'--no-install'",
+        "'node_modules/next/dist/bin/next'",
+        "'start'",
+        'webServer: isolatedVerification ? undefined : {',
+        "cwd: '.'",
+        'command: webServerCommand',
+        'reuseExistingServer: !process.env.CI'
+      ]);
+      expectContainsNone(playwrightConfig, [
+        "? [\n      'node'",
+        '.bin/next',
+        'next start --hostname',
+        '--config=../.isolated-process/runtime/bunfig.toml',
+        "'npx'",
+        'bun run',
+        'process.env.PATH',
+        'process.env.ComSpec',
+        'process.env.PATHEXT'
+      ]);
+    }, 'engineering-compiler-runtime-command-');
+  });
+
+  test('isolated runtime acceptance launches generated Next under SEC lifecycle and closes the server', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await ensureProjectBase(workspaceRoot);
+      const { projectRoot } = getWorkspacePaths(workspaceRoot);
+      const isolatedRuntimeRoot = path.join(workspaceRoot, '.isolated-process', 'runtime');
+      const isolatedConfigPath = path.join(isolatedRuntimeRoot, 'bunfig.toml');
+      const stagedNode = semanticMutationIsolatedNodeExecutablePath(workspaceRoot);
+      const externalNode = await resolveExternalNodeRuntimeAuthority();
+      const resolvedNestedConfig = path.resolve(projectRoot, '../.isolated-process/runtime/bunfig.toml');
+      const testPort = await reserveLoopbackPort();
+      expect(resolvedNestedConfig).toBe(isolatedConfigPath);
+
+      await Promise.all([
+        fs.mkdir(path.join(projectRoot, 'app', 'login'), { recursive: true }),
+        fs.mkdir(path.join(projectRoot, 'tests', 'runtime', 'acceptance'), { recursive: true }),
+        fs.mkdir(isolatedRuntimeRoot, { recursive: true }),
+        fs.mkdir(path.dirname(stagedNode), { recursive: true })
+      ]);
+      await Promise.all([
+        fs.writeFile(path.join(projectRoot, 'app', 'layout.js'), [
+          'export default function RootLayout({ children }) {',
+          '  return <html><body>{children}</body></html>;',
+          '}',
+          ''
+        ].join('\n'), 'utf8'),
+        fs.writeFile(path.join(projectRoot, 'app', 'login', 'page.js'), [
+          'export default function LoginPage() {',
+          "  return <main>shell-authority-ok</main>;",
+          '}',
+          ''
+        ].join('\n'), 'utf8'),
+        fs.writeFile(path.join(projectRoot, 'tests', 'runtime', 'acceptance', 'shell-authority.spec.ts'), [
+          "import { expect, test } from '@playwright/test';",
+          '',
+          "test('serves the generated login route', async ({ request, baseURL }) => {",
+          "  const response = await request.get(`${baseURL}/login`);",
+          '  expect(response.ok()).toBe(true);',
+          "  expect(await response.text()).toContain('shell-authority-ok');",
+          '});',
+          ''
+        ].join('\n'), 'utf8'),
+        fs.writeFile(isolatedConfigPath, '# isolated runtime\n', 'utf8'),
+        fs.copyFile(externalNode.executablePath, stagedNode)
+      ]);
+
+      await withProjectDependencyBridge(projectRoot, async () => {
+        const buildEnvironment = buildIsolatedRuntimeEnvironment(workspaceRoot);
+        await ensureEnvironmentDirectories(buildEnvironment);
+        const buildInvocation = runtimeVerificationInvocation(
+          'build', projectRoot, true, isolatedConfigPath, stagedNode
+        );
+        const buildResult = await runCommand(buildInvocation.command, buildInvocation.args, {
+          cwd: projectRoot,
+          env: buildEnvironment,
+          envMode: 'replace',
+          timeoutMs: 120_000
+        });
+        expect(buildResult).toMatchObject({ code: 0 });
+
+        await fs.writeFile(path.join(projectRoot, 'bunfig.toml'), 'invalid project bunfig = [\n', 'utf8');
+
+        const acceptanceEnvironment = buildIsolatedRuntimeAcceptanceEnvironment(workspaceRoot, {
+          TEST_PORT: String(testPort)
+        });
+        expect(acceptanceEnvironment.PATH?.split(path.delimiter).at(-1))
+          .toBe(path.dirname(stagedNode));
+        expect(acceptanceEnvironment.NODE_OPTIONS).toBeUndefined();
+        expect(acceptanceEnvironment.NODE_PATH).toBeUndefined();
+        await ensureEnvironmentDirectories(acceptanceEnvironment);
+        const acceptanceInvocation = runtimeVerificationInvocation(
+          'acceptance',
+          projectRoot,
+          true,
+          isolatedConfigPath,
+          stagedNode
+        );
+        const acceptanceResult = await withIsolatedRuntimeAcceptanceServer({
+          environment: acceptanceEnvironment,
+          nodeExecutablePath: stagedNode,
+          port: testPort,
+          projectRoot,
+          stagingWorkspaceRoot: workspaceRoot
+        }, async () => await runCommand(acceptanceInvocation.command, acceptanceInvocation.args, {
+            cwd: projectRoot,
+            env: acceptanceEnvironment,
+            envMode: 'replace',
+            timeoutMs: 120_000
+          }));
+        expect(acceptanceResult).toMatchObject({ code: 0 });
+        expect(`${acceptanceResult.stdout}\n${acceptanceResult.stderr}`).not.toMatch(
+          /ENOENT|uv_spawn|cmd\.exe.*(?:not found|not recognized)|taskkill.*(?:not found|not recognized)/iu
+        );
+      });
+
+      await assertLoopbackPortIsFree(testPort);
+    }, 'engineering-compiler-runtime-shell-');
+  }, 180_000);
 });
 
 describe('dependency bridge', () => {
@@ -815,7 +1141,7 @@ describe('ensureProjectDependencies', () => {
 
       await fs.writeFile(reactManifest, '{"name":"react","version":"0.0.0"}\n', 'utf8');
       await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
-        .resolves.toBeUndefined();
+        .rejects.toThrow('Plan-bound dependency tree is unavailable');
     }, 'engineering-compiler-runtime-prebound-package-closure-');
   });
 

@@ -109,7 +109,7 @@ tracking: issue-132
 base: "${'1'.repeat(40)}"
 manifestState: frozen
 requiredProfile: quick
-ciRevision: ci-verification-v10
+ciRevision: ci-verification-v11
 tasks:
   - id: fixture-task
     owner: a0

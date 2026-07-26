@@ -15,7 +15,9 @@ import { expect, test } from 'bun:test';
 
 import {
   assertSemanticMutationRuntimeDestinationManifestForTests,
-  runSemanticMutationRuntimeCanonicalBatchesForTests
+  runSemanticMutationRuntimeCanonicalBatchesForTests,
+  SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT,
+  SEMANTIC_MUTATION_ISOLATED_NODE_RUNTIME_RELATIVE_ROOT
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
 
 function deferred(): {
@@ -155,7 +157,14 @@ test('runtime materialization scheduler stops before the next batch when its bou
 test('runtime launch proof rejects byte, shape, link, reparse, and post-hash identity tamper', async () => {
   const root = await mkdtemp(path.join(process.cwd(), '.tmp-runtime-launch-proof-'));
   const compilerRoot = path.join(root, '.isolated-compiler');
-  const browserRoot = path.join(root, '.isolated-process', 'playwright-browsers');
+  const browserRoot = path.join(
+    root,
+    ...SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT.split('/')
+  );
+  const nodeRuntimeRoot = path.join(
+    root,
+    ...SEMANTIC_MUTATION_ISOLATED_NODE_RUNTIME_RELATIVE_ROOT.split('/')
+  );
   const projectDepsRoot = path.join(root, 'project', 'node_modules');
   const target = path.join(compilerRoot, 'runner.bin');
   const expectedBytes = Buffer.from('AAAA');
@@ -163,7 +172,8 @@ test('runtime launch proof rejects byte, shape, link, reparse, and post-hash ide
     stagingRoot: root,
     directories: [
       '.isolated-compiler',
-      '.isolated-process/playwright-browsers',
+      SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT,
+      SEMANTIC_MUTATION_ISOLATED_NODE_RUNTIME_RELATIVE_ROOT,
       'project/node_modules'
     ],
     files: [{
@@ -178,6 +188,7 @@ test('runtime launch proof rejects byte, shape, link, reparse, and post-hash ide
     await rm(path.join(root, 'project'), { recursive: true, force: true });
     await mkdir(compilerRoot, { recursive: true });
     await mkdir(browserRoot, { recursive: true });
+    await mkdir(nodeRuntimeRoot, { recursive: true });
     await mkdir(projectDepsRoot, { recursive: true });
     await writeFile(target, expectedBytes);
   };

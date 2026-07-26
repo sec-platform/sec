@@ -129,7 +129,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: ${requiredProfile}
-ciRevision: ci-verification-v10
+ciRevision: ci-verification-v11
 tasks:
   - id: implementation
     owner: implementation-writer
@@ -210,7 +210,7 @@ function fixture(
   } as const;
   const attestation = CodexDevelopmentBuildScopeAttestationV1(scopeRequest, manifestBytes);
   const rawEvidence = CodexDevelopmentFinalizeVerificationEvidenceV2({
-    contractRevision: 'ci-verification-v10',
+    contractRevision: 'ci-verification-v11',
     kind: 'verification',
     profile: parsedManifest.requiredProfile,
     headSha: HEAD,
@@ -260,7 +260,7 @@ function fixture(
     }
   });
   const attestationName = `sec-scope-attestation-v1-pr-123-base-${BASE}-head-${HEAD}-manifest-${manifestDigest.slice(7)}-run-100-attempt-1`;
-  const verificationName = `sec-verification-v10-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
+  const verificationName = `sec-verification-v11-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
   const rawInput: CodexDevelopmentMergeGateInputV1 = {
     schema: 'codex-development-merge-gate-input-v1',
     repository: 'sec-platform/sec',
@@ -346,7 +346,7 @@ const P0_TEST_FILES = [
 
 function p0ManifestSource(schema: 'v1' | 'v2'): string {
   const revision = schema === 'v1'
-    ? 'requiredProfile: quick\nciRevision: ci-verification-v10\n'
+    ? 'requiredProfile: quick\nciRevision: ci-verification-v11\n'
     : `evidenceComposition:\n  policyId: ${CodexDevelopmentSm3P0EvidencePolicyIdV1}\n`;
   return `---
 schema: codex-development-work-package-${schema}
@@ -551,7 +551,7 @@ async function p0MergeFixture() {
     },
     verificationArtifact: {
       id: 2000,
-      name: `sec-verification-v10-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
+      name: `sec-verification-v11-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
       digest: `sha256:${'5'.repeat(64)}`,
       expired: false,
       expiresAt: EXPIRES_AT,
@@ -616,12 +616,17 @@ const TCB_REVIEWED_SUT_EDGES = new Set([
   'scripts/ci-workspace-fast.ts -> platform/orchestrator.ts'
 ]);
 
+const TCB_REVIEWED_EXTERNAL_IMPORTS = new Set([
+  'platform/shared/heavy-verification-gate-lease.ts -> bun:ffi'
+]);
+
 const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
   'globby',
   'lodash-es',
   'node:crypto',
   'node:fs',
   'node:fs/promises',
+  'node:os',
   'node:path',
   'node:url',
   'ts-morph',
@@ -722,7 +727,8 @@ const TCB_PROCESS_SAFE_MEMBERS = new Set([
 function runtimeRelativeImportsFromSource(
   repositoryPath: string,
   source: string,
-  reviewedProcessDispatchers: Set<string> = new Set()
+  reviewedProcessDispatchers: Set<string> = new Set(),
+  reviewedExternalImports: Set<string> = new Set()
 ): string[] {
   const sourceFile = ts.createSourceFile(repositoryPath, source, ts.ScriptTarget.Latest, true);
   const specifiers: string[] = [];
@@ -1195,18 +1201,28 @@ function runtimeRelativeImportsFromSource(
   return specifiers.filter((specifier) => {
     if (specifier.startsWith('./') || specifier.startsWith('../')) return true;
     if (TCB_APPROVED_EXTERNAL_IMPORTS.has(specifier)) return false;
+    const reviewedExternalImport = `${repositoryPath} -> ${specifier}`;
+    if (TCB_REVIEWED_EXTERNAL_IMPORTS.has(reviewedExternalImport)) {
+      reviewedExternalImports.add(reviewedExternalImport);
+      return false;
+    }
     throw new Error(
       `TCB runtime import is outside the approved relative/external policy: ${repositoryPath} -> ${specifier}.`
     );
   });
 }
 
-function runtimeRelativeImports(repositoryPath: string, reviewedProcessDispatchers: Set<string>): string[] {
+function runtimeRelativeImports(
+  repositoryPath: string,
+  reviewedProcessDispatchers: Set<string>,
+  reviewedExternalImports: Set<string>
+): string[] {
   const absolutePath = path.join(compilerRoot, ...repositoryPath.split('/'));
   return runtimeRelativeImportsFromSource(
     repositoryPath,
     readFileSync(absolutePath, 'utf8'),
-    reviewedProcessDispatchers
+    reviewedProcessDispatchers,
+    reviewedExternalImports
   );
 }
 
@@ -1223,17 +1239,23 @@ function resolveRepositoryImport(from: string, specifier: string): string {
 function trustedRuntimeClosure(): {
   closure: Set<string>;
   reviewedEdges: Set<string>;
+  reviewedExternalImports: Set<string>;
   reviewedProcessDispatchers: Set<string>;
 } {
   const closure = new Set<string>();
   const reviewedEdges = new Set<string>();
+  const reviewedExternalImports = new Set<string>();
   const reviewedProcessDispatchers = new Set<string>();
   const queue: string[] = [...TCB_RUNTIME_ENTRYPOINTS];
   while (queue.length > 0) {
     const current = queue.shift()!;
     if (closure.has(current)) continue;
     closure.add(current);
-    for (const specifier of runtimeRelativeImports(current, reviewedProcessDispatchers)) {
+    for (const specifier of runtimeRelativeImports(
+      current,
+      reviewedProcessDispatchers,
+      reviewedExternalImports
+    )) {
       const resolved = resolveRepositoryImport(current, specifier);
       const edge = `${current} -> ${resolved}`;
       if (TCB_REVIEWED_SUT_EDGES.has(edge)) {
@@ -1243,7 +1265,7 @@ function trustedRuntimeClosure(): {
       queue.push(resolved);
     }
   }
-  return { closure, reviewedEdges, reviewedProcessDispatchers };
+  return { closure, reviewedEdges, reviewedExternalImports, reviewedProcessDispatchers };
 }
 
 function matchesCanonicalTrustRoot(repositoryPath: string): boolean {
@@ -1496,10 +1518,16 @@ test('trusted workflow TCB declarations exactly equal the canonical base-side tr
 });
 
 test('verifier runtime import closure stays inside the TCB except for the reviewed product seam', () => {
-  const { closure, reviewedEdges, reviewedProcessDispatchers } = trustedRuntimeClosure();
-  expect(closure.size).toBe(50);
+  const {
+    closure,
+    reviewedEdges,
+    reviewedExternalImports,
+    reviewedProcessDispatchers
+  } = trustedRuntimeClosure();
+  expect(closure.size).toBe(51);
   expect(reviewedProcessDispatchers.size).toBe(22);
   expect([...reviewedEdges].sort()).toEqual([...TCB_REVIEWED_SUT_EDGES].sort());
+  expect([...reviewedExternalImports].sort()).toEqual([...TCB_REVIEWED_EXTERNAL_IMPORTS].sort());
   expect([...reviewedProcessDispatchers].sort()).toEqual([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort());
   expect([...closure].filter((entry) => !matchesCanonicalTrustRoot(entry)).sort()).toEqual([]);
   expect([...closure]).toEqual(expect.arrayContaining([
@@ -1513,6 +1541,7 @@ test('verifier runtime import closure stays inside the TCB except for the review
     'platform/shared/bun-runtime-version.ts',
     'platform/shared/collections.ts',
     'platform/shared/contract-freeze-contract.ts',
+    'platform/shared/heavy-verification-gate-lease.ts',
     'platform/shared/paths.ts',
     'platform/shared/process.ts',
     'platform/shared/project-runtime.ts',
@@ -2031,8 +2060,8 @@ test('scope attestation binds the manifest profile and CI revision', () => {
 
 test('historical Work Package revisions remain parseable but cannot satisfy the current gate', () => {
   const current = fixture();
-  for (const legacyRevision of ['ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
-    const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v10', legacyRevision));
+  for (const legacyRevision of ['ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
+    const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v11', legacyRevision));
     const legacyManifest = CodexDevelopmentParseWorkPackageManifestV1(legacyBytes.toString('utf8'), MANIFEST_PATH);
     expect(legacyManifest.ciRevision).toBe(legacyRevision);
 
@@ -2309,7 +2338,8 @@ test('trusted workflows pin actions, revalidate drift, and only materialize cand
   expect(mergeWorkflow).toContain('ref: 514e6e401659f18ecffca19856a11354d66d05df');
   expect(mergeWorkflow).toContain('--candidate-git-dir .tmp/codex/candidate/.git');
   expect(mergeWorkflow).toContain('--legacy-git-dir .tmp/codex/legacy/.git');
-  expect((mergeWorkflow.match(/sec-verification-v10-/gu) ?? []).length).toBe(2);
+  expect((mergeWorkflow.match(/sec-verification-v11-/gu) ?? []).length).toBe(2);
+  expect(mergeWorkflow).not.toContain('sec-verification-v10-');
   expect(mergeWorkflow).not.toContain('sec-verification-v9-');
   expect(mergeWorkflow).not.toContain('sec-verification-v8-');
   expect(mergeWorkflow).not.toContain('sec-verification-v7-');

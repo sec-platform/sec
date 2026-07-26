@@ -15,6 +15,7 @@ import {
 import { gitChangedFileDiffArgs, parseGitChangedFileOutput } from '../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-verification-plan.ts';
+import { withHeavyVerificationGateLease } from '../platform/shared/heavy-verification-gate-lease.ts';
 import { getSlowTestSuitesSync, slowTestSuiteIds } from '../platform/shared/test-budget-contract.ts';
 import {
   CodexDevelopmentParseWorkPackageManifestV1,
@@ -522,7 +523,7 @@ export async function CodexDevelopmentCiPrRiskMain(
 }
 
 async function main(): Promise<number> {
-  return CodexDevelopmentCiPrRiskMain();
+  return withHeavyVerificationGateLease('ci:risk', () => CodexDevelopmentCiPrRiskMain());
 }
 
 if (import.meta.main) {

@@ -10,7 +10,6 @@ import { uniqueSorted, uniqueSortedLines } from '../shared/collections.ts';
 import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from '../shared/contract-freeze-contract.ts';
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommandBytes } from '../shared/process.ts';
-import { ensureCompilerDepsReady } from '../shared/project-runtime.ts';
 import {
   getFastTestFilesSync,
   getSlowTestFilesSync,
@@ -22,6 +21,7 @@ import {
 } from '../shared/test-budget-contract.ts';
 import { formatSlowImpactNotice } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
+import { ensureTestDependencies } from './dependency-bootstrap.ts';
 import { pathEnvKey } from './env-manager.ts';
 import { DEFAULT_FAST_TEST_TIMEOUT_MS, planFastTestProcesses } from './fast-test-policy.ts';
 
@@ -132,13 +132,6 @@ function fastTestInvocations(args: string[]): string[][] {
   return invocations;
 }
 
-function fastTestEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return {
-    ...env,
-    SEC_SKIP_RUNTIME_DEPS_SETUP: '1'
-  };
-}
-
 type SlowTestRunnerArgs = {
   suiteId?: string;
   bunArgs: string[];
@@ -244,16 +237,22 @@ function allowFullFastFallback(): boolean {
 
 type DependencyContext = {
   binPath: string;
+  browserCachePath: string;
 };
 
 async function withTestDependencies<T>(callback: (context: DependencyContext) => Promise<T>): Promise<T> {
-  const compilerDeps = await ensureCompilerDepsReady();
-  return callback({ binPath: path.join(compilerDeps.nodeModulesPath, '.bin') });
+  const dependencies = await ensureTestDependencies();
+  return callback({
+    binPath: path.join(dependencies.nodeModulesPath, '.bin'),
+    browserCachePath: dependencies.browserCachePath
+  });
 }
 
-function pathEnv(binPath: string): NodeJS.ProcessEnv {
+function pathEnv(binPath: string, browserCachePath: string): NodeJS.ProcessEnv {
   return {
-    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
+    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`,
+    PLAYWRIGHT_BROWSERS_PATH: browserCachePath,
+    SEC_SKIP_RUNTIME_DEPS_SETUP: '1'
   };
 }
 
@@ -336,10 +335,10 @@ export async function runAffectedTests(args: string[] = []): Promise<number> {
 
 export async function runTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
-  await withTestDependencies(async ({ binPath }) => {
+  await withTestDependencies(async ({ binPath, browserCachePath }) => {
     const invocations = args.length > 0 ? [['test', ...args]] : fullTestInvocations();
     for (const invocation of invocations) {
-      exitCode = await runDevCommand('bun', invocation, pathEnv(binPath));
+      exitCode = await runDevCommand('bun', invocation, pathEnv(binPath, browserCachePath));
       if (exitCode !== 0) return;
     }
   });
@@ -348,10 +347,10 @@ export async function runTests(args: string[] = []): Promise<number> {
 
 export async function runFastTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
-  await withTestDependencies(async ({ binPath }) => {
+  await withTestDependencies(async ({ binPath, browserCachePath }) => {
     try {
       for (const invocation of fastTestInvocations(args)) {
-        exitCode = await runDevCommand('bun', invocation, fastTestEnv(pathEnv(binPath)));
+        exitCode = await runDevCommand('bun', invocation, pathEnv(binPath, browserCachePath));
         if (exitCode !== 0) return;
       }
     } catch (error) {
@@ -364,7 +363,7 @@ export async function runFastTests(args: string[] = []): Promise<number> {
 
 export async function runSlowTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
-  await withTestDependencies(async ({ binPath }) => {
+  await withTestDependencies(async ({ binPath, browserCachePath }) => {
     try {
       const selection = slowTestArgSelection(args);
       if (selection.kind === 'skip') {
@@ -373,7 +372,7 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
         return;
       }
 
-      exitCode = await runDevCommand('bun', selection.args, pathEnv(binPath));
+      exitCode = await runDevCommand('bun', selection.args, pathEnv(binPath, browserCachePath));
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       exitCode = 1;
@@ -384,9 +383,9 @@ export async function runSlowTests(args: string[] = []): Promise<number> {
 
 export async function runContractFreeze(targets?: ContractFreezeTarget[]): Promise<number> {
   let exitCode = 0;
-  await withTestDependencies(async ({ binPath }) => {
+  await withTestDependencies(async ({ binPath, browserCachePath }) => {
     for (const invocation of buildContractFreezeRunnerInvocations(targets)) {
-      exitCode = await runDevCommand('bun', invocation.args, pathEnv(binPath));
+      exitCode = await runDevCommand('bun', invocation.args, pathEnv(binPath, browserCachePath));
       if (exitCode !== 0) {
         return;
       }

@@ -391,8 +391,9 @@ test('SM-3 production sentinel consumes the canonical split dependency-source au
 
   expect(sentinel).toContain('prepareCanonicalSemanticMutationIsolatedRuntimeInputSources()');
   expect(sentinel.replaceAll('\r\n', '\n')).toContain('runtimeInputSources\n    });');
-  expect(sentinel).toContain('...canonicalRuntimeInputSources');
-  expect(sentinel).toContain('browserCache: browserSource');
+  expect(sentinel).not.toContain('browsers.json');
+  expect(sentinel).not.toContain('browserSource');
+  expect(sentinel).not.toContain('browserCache:');
   expect(sentinel).not.toContain('RUNTIME_VERIFICATION_INVOCATION_CONTRACT');
   expect(sentinel).not.toContain('dependencyModules:');
   expect(sentinel).not.toContain('resolveIsolatedRuntimeDependencySources()');
@@ -414,5 +415,8 @@ test('SM-3 production sentinel consumes the canonical split dependency-source au
   expect(isolatedChild).toContain(
     'dependencyModules: dependencySources.dependencyModules'
   );
+  expect(isolatedChild).toContain('const browserRuntime = await ensurePlaywrightBrowserCacheReady();');
+  expect(isolatedChild).toContain('browserRuntime');
+  expect(isolatedChild).not.toContain('resolveExternalNodeRuntimeAuthority');
   expect(isolatedChild).not.toContain('const DEFAULT_RUNTIME_DEPENDENCY_SOURCES');
 });

@@ -29,6 +29,9 @@ import {
 } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
 import {
+  SEMANTIC_MUTATION_ISOLATED_VERIFICATION_TIMEOUT_MS
+} from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
+import {
   addBlock,
   applySemanticMutation,
   initWorkspace,
@@ -54,6 +57,8 @@ const FAILURE_MATRIX_ISOLATION_CAPABILITY_PROBE = () =>
 const FAILURE_MATRIX_TEST_DEPENDENCIES = Object.freeze({
   isolationCapabilityProbe: FAILURE_MATRIX_ISOLATION_CAPABILITY_PROBE
 });
+const SM3_PRODUCTION_TEST_TIMEOUT_MS =
+  SEMANTIC_MUTATION_ISOLATED_VERIFICATION_TIMEOUT_MS + 120_000;
 
 const AUTHORING_SOURCE = [
   'formatVersion: "1"',
@@ -448,7 +453,7 @@ test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild li
       requestId: 'request:missing'
     })).toBeNull();
   }, 'sm3-');
-}, 300_000);
+}, SM3_PRODUCTION_TEST_TIMEOUT_MS);
 
 test('SM-3 public dry-run blocks on unfinished recovery authority without publishing live source', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
