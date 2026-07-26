@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import {
   chmod,
   cp,
@@ -76,6 +77,7 @@ import {
   assertSemanticMutationIsolatedRuntimeLaunchManifest,
   materializeSemanticMutationIsolatedRuntime,
   SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT,
+  semanticMutationIsolatedBrowserPath,
   semanticMutationIsolatedNodeExecutablePath,
   semanticMutationIsolatedRuntimePlanRevisionForTests,
   semanticMutationRuntimeSourceSnapshotCacheGlobalStatsForTests,
@@ -110,6 +112,7 @@ import {
   runCommand
 } from '../../platform/shared/process.ts';
 import {
+  buildRuntimeDependencySpec,
   EXACT_PLAYWRIGHT_PACKAGE_NAMES,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
@@ -876,10 +879,18 @@ test('canonical isolated runtime inputs keep compiler-owned sources under one au
   });
 });
 
+const directRuntimeDependencySpec = buildRuntimeDependencySpec(
+  JSON.parse(readFileSync(path.join(compilerRoot, 'package.json'), 'utf8'))
+);
+const directRuntimePackageVersions = Object.freeze({
+  ...directRuntimeDependencySpec.dependencies,
+  ...directRuntimeDependencySpec.devDependencies
+});
+
 function directRuntimePackageFixture(name: string): string {
   const version = EXACT_PLAYWRIGHT_PACKAGE_NAMES.includes(
     name as (typeof EXACT_PLAYWRIGHT_PACKAGE_NAMES)[number]
-  ) ? '1.59.1' : '0.0.0-fixture';
+  ) ? directRuntimeDependencySpec.devDependencies['@playwright/test'] : directRuntimePackageVersions[name];
   return `${JSON.stringify({ name, version })}\n`;
 }
 
@@ -889,9 +900,9 @@ function playwrightPackageAuthorityFixture() {
       .update(directRuntimePackageFixture(name))
       .digest('hex'),
     name,
-    version: '1.59.1'
+    version: directRuntimeDependencySpec.devDependencies['@playwright/test']
   }));
-  const release = '1.59.1';
+  const release = directRuntimeDependencySpec.devDependencies['@playwright/test'];
   return Object.freeze({
     packages: Object.freeze(packages),
     release,
@@ -905,15 +916,15 @@ function playwrightPackageAuthorityFixture() {
 
 async function createRuntimeInputSources(
   root: string,
-  browserCache: string
-): Promise<SemanticMutationIsolatedRuntimeInputSources> {
-  const inputRoot = path.join(root, 'runtime-inputs');
-  const compilerModulesRoot = path.join(inputRoot, 'node_modules');
-  const browserExecutableRelativePath = [
+  browserCache: string,
+  browserExecutableRelativePath = [
     'chromium_headless_shell-1217',
     'chrome-headless-shell-win64',
     'chrome-headless-shell.exe'
-  ].join('/');
+  ].join('/')
+): Promise<SemanticMutationIsolatedRuntimeInputSources> {
+  const inputRoot = path.join(root, 'runtime-inputs');
+  const compilerModulesRoot = path.join(inputRoot, 'node_modules');
   const externalNode = Object.freeze({
     executablePath: path.join(inputRoot, process.platform === 'win32' ? 'node.exe' : 'node'),
     version: '22.0.0-test'
@@ -966,21 +977,14 @@ async function createRuntimeInputSources(
     mkdir(sources.officialRegistry, { recursive: true }),
     mkdir(path.join(compilerModulesRoot, 'ts-morph'), { recursive: true }),
     mkdir(path.join(compilerModulesRoot, 'typescript'), { recursive: true }),
-    mkdir(path.join(
-      browserCache,
-      'chromium_headless_shell-1217',
-      'chrome-headless-shell-win64'
-    ), { recursive: true })
+    mkdir(path.dirname(path.join(browserCache, ...browserExecutableRelativePath.split('/'))), {
+      recursive: true
+    })
   ]);
   await Promise.all([
     writeFile(sources.compilerPackage, JSON.stringify({
-      dependencies: {
-        next: '1', react: '1', 'react-dom': '1', yaml: '1'
-      },
-      devDependencies: {
-        '@playwright/test': '1.59.1', '@types/bun': '1', '@types/node': '1',
-        '@types/react': '1', '@types/react-dom': '1', 'ts-morph': '1', typescript: '1'
-      }
+      dependencies: directRuntimeDependencySpec.dependencies,
+      devDependencies: directRuntimeDependencySpec.devDependencies
     }), 'utf8'),
     writeFile(sources.browserRuntime.externalNode.executablePath, 'external-node-runtime-fixture', 'utf8'),
     writeFile(path.join(sources.composeTemplates, 'template.txt'), 'template', 'utf8'),
@@ -1035,12 +1039,11 @@ async function createRuntimeInputSources(
       'module.exports = typescript;',
       ''
     ].join('\n'), 'utf8'),
-    writeFile(path.join(
-      browserCache,
-      'chromium_headless_shell-1217',
-      'chrome-headless-shell-win64',
-      'chrome-headless-shell.exe'
-    ), 'playwright-executable', 'utf8')
+    writeFile(
+      path.join(browserCache, ...browserExecutableRelativePath.split('/')),
+      'playwright-executable',
+      'utf8'
+    )
   ]);
   if (process.platform !== 'win32') {
     await chmod(sources.browserRuntime.externalNode.executablePath, 0o755);
@@ -3229,6 +3232,47 @@ test('isolated staging tree rejects hard links and reparse aliases', async () =>
       'symbolic link, junction, or reparse point'
     );
   }, 'engineering-compiler-sm3-isolated-staging-links-');
+});
+
+test('POSIX browser authority survives plan capture and materialization without platform reconstruction', async () => {
+  await withTempWorkspace(async (root) => {
+    const stagingRoot = stagingWorkspaceRoot(root);
+    const browserSource = path.join(root, 'browser-source');
+    const browserExecutableRelativePath = [
+      'chromium_headless_shell-1217',
+      'chrome-headless-shell-linux64',
+      'chrome-headless-shell'
+    ].join('/');
+    await mkdir(stagingRoot, { recursive: true });
+    await writeProjectBaseline(stagingRoot);
+    const sources = await createRuntimeInputSources(
+      root,
+      browserSource,
+      browserExecutableRelativePath
+    );
+    const capability = await probeSemanticMutationIsolatedRuntimeCapability(stagingRoot, {
+      buildRunnerBundle: async () => new TextEncoder().encode('export {};\n'),
+      runtimeInputSources: sources
+    });
+    expect(capability).toEqual({ status: 'available' });
+
+    const materialized = await materializeSemanticMutationIsolatedRuntime({
+      binding: capability,
+      commitFence: async () => undefined,
+      stagingWorkspaceRoot: stagingRoot
+    });
+    expect(materialized.browserExecutableRelativePath).toBe(browserExecutableRelativePath);
+    expect(materialized.browsersPath).toBe(semanticMutationIsolatedBrowserPath(stagingRoot));
+    expect(await readFile(path.join(
+      materialized.browsersPath,
+      ...browserExecutableRelativePath.split('/')
+    ), 'utf8')).toBe('playwright-executable');
+    await assertSemanticMutationIsolatedRuntimeLaunchManifest({
+      binding: capability,
+      commitFence: async () => undefined,
+      stagingWorkspaceRoot: stagingRoot
+    });
+  }, 'engineering-compiler-sm3-posix-browser-authority-');
 });
 
 test('external Node authority binds version, bytes, identity, staged copy, and plan revision', async () => {

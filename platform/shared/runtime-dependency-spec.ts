@@ -42,7 +42,7 @@ const runtimeDevDependencyKeys = [
   'typescript'
 ] as const;
 
-const exactPlaywrightReleasePattern = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u;
+const exactNumericReleasePattern = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u;
 
 export const EXACT_PLAYWRIGHT_PACKAGE_NAMES = Object.freeze([
   '@playwright/test',
@@ -79,7 +79,7 @@ export function buildExactPlaywrightPackageClosure(
   manifests: Readonly<Partial<Record<ExactPlaywrightPackageName, unknown>>>,
   expectedRelease: string
 ): Readonly<ExactPlaywrightPackageClosure> {
-  if (!exactPlaywrightReleasePattern.test(expectedRelease)) {
+  if (!exactNumericReleasePattern.test(expectedRelease)) {
     throw new CompilerError(
       'RUNTIME-DEPS-000',
       'Playwright package closure requires one exact numeric release'
@@ -110,6 +110,12 @@ function resolveVersion(rootPackage: RootPackageJson, dependencyName: string): s
       `Root package.json is missing required runtime dependency "${dependencyName}"`
     );
   }
+  if (!exactNumericReleasePattern.test(version)) {
+    throw new CompilerError(
+      'RUNTIME-DEPS-000',
+      `Root package.json must pin runtime dependency "${dependencyName}" to one exact numeric release`
+    );
+  }
   return version;
 }
 
@@ -124,12 +130,6 @@ export function buildRuntimeDependencySpec(rootPackage: RootPackageJson): Runtim
   const devDependencies = Object.fromEntries(
     runtimeDevDependencyKeys.map((dependencyName) => {
       const version = resolveVersion(rootPackage, dependencyName);
-      if (dependencyName === '@playwright/test' && !exactPlaywrightReleasePattern.test(version)) {
-        throw new CompilerError(
-          'RUNTIME-DEPS-000',
-          'Root package.json must pin "@playwright/test" to one exact numeric release'
-        );
-      }
       return [dependencyName, version];
     })
   );

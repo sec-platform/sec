@@ -10,18 +10,18 @@ import {
 function rootPackage(playwrightVersion: string): RootPackageJson {
   return {
     dependencies: {
-      next: '^16.2.4',
-      react: '^19.2.5',
-      'react-dom': '^19.2.5',
-      yaml: '^2.8.3'
+      next: '16.2.4',
+      react: '19.2.5',
+      'react-dom': '19.2.5',
+      yaml: '2.8.3'
     },
     devDependencies: {
       '@playwright/test': playwrightVersion,
-      '@types/bun': '^1.3.13',
-      '@types/node': '^25.6.0',
-      '@types/react': '^19.2.14',
-      '@types/react-dom': '^19.2.3',
-      'ts-morph': '^28.0.0',
+      '@types/bun': '1.3.13',
+      '@types/node': '25.6.0',
+      '@types/react': '19.2.14',
+      '@types/react-dom': '19.2.3',
+      'ts-morph': '28.0.0',
       typescript: '6.0.3'
     }
   };
@@ -30,8 +30,22 @@ function rootPackage(playwrightVersion: string): RootPackageJson {
 test('runtime dependency spec preserves one exact Playwright release identity', () => {
   const spec = buildRuntimeDependencySpec(rootPackage('1.59.1'));
 
+  expect(spec.dependencies).toEqual({
+    next: '16.2.4',
+    react: '19.2.5',
+    'react-dom': '19.2.5',
+    yaml: '2.8.3'
+  });
   expect(spec.devDependencies['@playwright/test']).toBe('1.59.1');
   expect(spec.manifestHash).toMatch(/^[a-f0-9]{64}$/);
+});
+
+test('runtime dependency spec rejects a range for every direct runtime package', () => {
+  const root = rootPackage('1.59.1');
+  root.dependencies = { ...root.dependencies, react: '^19.2.5' };
+  expect(() => buildRuntimeDependencySpec(root)).toThrow(
+    'runtime dependency "react" to one exact numeric release'
+  );
 });
 
 test('Playwright package closure requires all three packages at the root exact release', () => {

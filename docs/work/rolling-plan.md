@@ -6,7 +6,7 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody、GitNexus impact与exact-head Review重新计算。`6daed7a`的唯一V11 Risk在Contract Freeze得到`136 pass / 1 fail`，该Risk永久为FAIL；`a44dc34`虽已登记exact owner seam，但独立Review继续证明private-root cleanup、Playwright三包identity、唯一browser selector/cold readiness与through-verify stage order尚未闭合。随后一次错误的affected/Risk并发又真实污染共享测试工作区、造成e2e timeout、EBUSY与孤儿进程，未形成Risk Evidence；这不是产品FAIL，而是Gate ownership缺失。当前active package已显式refreeze scope，只形成一个最终successor：同时关闭上述canonical authority seam，并让affected与Risk在同一physical worktree上zero-wait互斥。之后只运行一次focused owner batch、一次新head canonical affected，只有PASS才运行一次Risk。#142已squash merge，V5 docs-doctor semantic superset与V10 trust root已进入main。PR #137仍位于旧base且冲突，不能提供完成或验证授权。
+本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody、GitNexus impact与`6f7904c` exact-head Review重新计算。`a62f568`的affected因heavy-gate `node:os`/`bun:ffi` seam未精确进入TCB而永久FAIL；`6f7904c`已根治该问题，但其affected在Windows compiler dependency generation发布时遇到重复`EPERM`并以`IMPORT-AUTHORITY-004`永久FAIL，两者均未运行Risk。独立Review确认private-root cleanup、Playwright三包authority、唯一browser selector、cold readiness、through-verify order与affected/Risk互斥均已结构性闭合，剩余闭包被压缩为：全部direct runtime package exact version、Windows transient rename的有界identity-preserving publish/rollback，以及POSIX plan materialization与真实Playwright target-swap no-spawn行为证据。当前active package只形成一个最终successor；focused owner结果只能证明局部修复，不能代替最终exact-head affected、Risk、Review与main集成。#142已squash merge，PR #137仍位于旧base且冲突，不能提供完成授权。
 
 ```text
 Windows Browser Launch Path Authority V1 (active)
@@ -21,10 +21,10 @@ Windows Browser Launch Path Authority V1 (active)
 
 ### windows-browser-launch-path-authority-v1
 
-- 产品结果：保留`3a72882`重建的唯一runtime/V11 authority，把Windows文件系统可访问路径与Win32可启动路径拆成两个显式合同；由`project-runtime`唯一证明Playwright三包、external Node、physical cache和registry-derived executable，isolated plan只消费该opaque authority；父级固定proof由staged runner在实际browser pre-spawn边界重验，ambient TEMP不成为authority；isolated Next服务由SEC verifier直接拥有并以direct-child marker、HTTP和exclusive bind共同证明ownership；affected/Risk由同一worktree heavy-gate owner串行化。
+- 产品结果：保留`3a72882`重建的唯一runtime/V11 authority，把Windows文件系统可访问路径与Win32可启动路径拆成两个显式合同；由`runtime-dependency-spec`精确绑定全部direct runtime package，由`project-runtime`唯一证明Playwright三包、external Node、physical cache和registry-derived executable，并以有界identity-preserving Windows rename原语发布/回滚compiler dependency generation；isolated plan只消费opaque authority；父级固定proof由staged runner在真实Playwright pre-spawn边界重验；isolated Next服务由SEC verifier直接拥有；affected/Risk由同一worktree heavy-gate owner串行化。
 - 根因：`\\?\`解决文件系统寻址但不能保证Chromium从超长module path读取ICU/resources；323字符staged executable失败，同一物理cache的160字符projection成功。后续修复又揭示Playwright teardown不拥有可用的Windows关闭权、test timeout早于production supervisor、project input digest把runtime stamp与Next生成文件误当authoring input。四个边界现分别由launch projection、SEC-owned direct child、deadline-derived budget与canonical derived-output classification拥有。
-- Owner：runtime plan materialization、Windows launch projection、child fixed environment与lifecycle、对应tests、docs/05和三个动态控制面；Engineering IR、process executor、installer、hooks、Goal/governance与历史evidence禁止修改。
-- 退出：exact package/cache/executable authority、projection正反/cleanup/target-swap与physical-untrusted-root合同、child pre-spawn no-spawn source chain、production port occupied/readiness/双失败合同、heavy-gate互斥、proof micro-sentinel、repaired SM-3 sentinel、type/import/docs/control/scope、最终successor exact-head canonical affected真实PASS、其后一次Risk、独立Review与V11人工bootstrap闭合；successor进入main后#137准确标为absorbed并关闭。
+- Owner：runtime dependency spec、project-runtime唯一publish/browser owner、runtime plan materialization、Windows launch projection、child fixed environment/lifecycle、对应tests、docs/05和三个动态控制面；Engineering IR、process executor、其他installer、hooks、Goal/governance与历史evidence禁止修改。
+- 退出：全部direct package exact identity、Playwright cache/executable authority、Windows publish retry/rollback、projection正反/cleanup/target-swap、POSIX plan/materialization、真实Playwright pre-spawn no-spawn、production port ownership/readiness、heavy-gate互斥、proof micro-sentinel、repaired SM-3 sentinel、type/import/docs/control/scope、最终successor exact-head canonical affected真实PASS、其后一次Risk、独立Review与V11人工bootstrap闭合；successor进入main后#137准确标为absorbed并关闭。
 
 ## 候选 Work Package
 

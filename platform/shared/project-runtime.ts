@@ -33,7 +33,8 @@ import {
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE,
   type ExactPlaywrightPackageName,
-  type RootPackageJson
+  type RootPackageJson,
+  type RuntimeDependencySpec
 } from './runtime-dependency-spec.ts';
 
 export interface RuntimeDepsStamp {
@@ -110,7 +111,9 @@ export interface RuntimeDependencyInstallOptions {
   signal?: AbortSignal;
   skipSharedDepsWarmup?: boolean;
   sleep?: (ms: number) => Promise<void>;
+  testCompilerPublishPlatform?: NodeJS.Platform;
   testCompilerPublishHook?: (stage: 'active-backed-up') => void | Promise<void>;
+  testCompilerRename?: (source: string, target: string) => Promise<void>;
 }
 
 export interface ExternalNodeRuntimeResolutionOptions {
@@ -416,13 +419,20 @@ function sleepMs(delayMs: number): Promise<void> {
   });
 }
 
-async function hasCompleteRuntimeDeps(nodeModulesPath: string): Promise<boolean> {
+async function hasCompleteRuntimeDeps(
+  nodeModulesPath: string,
+  spec?: RuntimeDependencySpec
+): Promise<boolean> {
   try {
+    const expected = spec ?? await loadRuntimeDependencySpec();
+    const exactVersions = {
+      ...expected.dependencies,
+      ...expected.devDependencies
+    };
     const manifests = await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
-      return isRuntimeDependencyPackageManifest(
-        await readJson<unknown>(dependencyPackagePath(nodeModulesPath, packageName)),
-        packageName
-      );
+      const manifest = await readJson<unknown>(dependencyPackagePath(nodeModulesPath, packageName));
+      return isRuntimeDependencyPackageManifest(manifest, packageName) &&
+        manifest.version === exactVersions[packageName];
     }));
     if (!manifests.every(Boolean)) return false;
     await exactPlaywrightPackageClosure(nodeModulesPath);
@@ -464,12 +474,16 @@ export async function writeRuntimeDepsStamp(
   await writeJson(stampPath, stamp, commitFence);
 }
 
-async function isCacheReady(nodeModulesPath: string, stampPath: string, manifestHash: string): Promise<boolean> {
+async function isCacheReady(
+  nodeModulesPath: string,
+  stampPath: string,
+  spec: RuntimeDependencySpec
+): Promise<boolean> {
   const [stamp, installed] = await Promise.all([
     readRuntimeDepsStamp(stampPath),
-    hasCompleteRuntimeDeps(nodeModulesPath)
+    hasCompleteRuntimeDeps(nodeModulesPath, spec)
   ]);
-  return installed && stamp?.manifestHash === manifestHash;
+  return installed && stamp?.manifestHash === spec.manifestHash;
 }
 
 function projectStampPath(projectRoot: string): string {
@@ -1228,10 +1242,11 @@ async function copyPhysicalDependencyTree(
 async function materializeIsolatedNodeModules(
   sharedDepsRoot: string,
   target: string,
+  spec: RuntimeDependencySpec,
   commitFence?: CommitFence
 ): Promise<void> {
   const source = path.join(sharedDepsRoot, 'node_modules');
-  if (!(await hasCompleteRuntimeDeps(source))) {
+  if (!(await hasCompleteRuntimeDeps(source, spec))) {
     throw new CompilerError('RUNTIME-DEPS-004', 'Preinstalled dependency tree is unavailable for isolated verification');
   }
   await commitFence?.();
@@ -1240,13 +1255,14 @@ async function materializeIsolatedNodeModules(
 }
 
 async function resolveProjectDependencyBridgeTarget(): Promise<string> {
+  const runtimeSpec = await loadRuntimeDependencySpec();
   const compilerNodeModules = dependencyAuthorityPaths().compilerModulesRoot;
-  if (await hasCompleteRuntimeDeps(compilerNodeModules)) {
+  if (await hasCompleteRuntimeDeps(compilerNodeModules, runtimeSpec)) {
     return compilerNodeModules;
   }
 
   const sharedNodeModules = path.join(defaultSharedDepsRoot(), 'node_modules');
-  if (await hasCompleteRuntimeDeps(sharedNodeModules)) {
+  if (await hasCompleteRuntimeDeps(sharedNodeModules, runtimeSpec)) {
     return sharedNodeModules;
   }
 
@@ -1341,6 +1357,97 @@ async function retainOnlyLatestCompilerDependencyBackup(backupsRoot: string, ret
     .map((entry) => fs.rm(path.join(backupsRoot, entry.name), { recursive: true, force: true }).catch(() => undefined)));
 }
 
+type CompilerDependencyDirectoryIdentity = Readonly<{
+  dev: string;
+  ino: string;
+  mode: string;
+}>;
+
+const COMPILER_DEPENDENCY_RENAME_MAX_ATTEMPTS = 8;
+const COMPILER_DEPENDENCY_RENAME_INITIAL_DELAY_MS = 25;
+const COMPILER_DEPENDENCY_RENAME_MAX_DELAY_MS = 200;
+const WINDOWS_TRANSIENT_RENAME_CODES = new Set(['EACCES', 'EBUSY', 'EPERM']);
+
+async function compilerDependencyDirectoryIdentity(
+  directoryPath: string
+): Promise<CompilerDependencyDirectoryIdentity | null> {
+  try {
+    const metadata = await fs.lstat(directoryPath, { bigint: true });
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+      throw new Error(`Compiler dependency generation is not a physical directory: ${directoryPath}`);
+    }
+    return Object.freeze({
+      dev: String(metadata.dev),
+      ino: String(metadata.ino),
+      mode: String(metadata.mode)
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function sameCompilerDependencyDirectoryIdentity(
+  left: CompilerDependencyDirectoryIdentity | null,
+  right: CompilerDependencyDirectoryIdentity
+): boolean {
+  return left !== null && left.dev === right.dev && left.ino === right.ino && left.mode === right.mode;
+}
+
+async function renameCompilerDependencyDirectory(
+  source: string,
+  target: string,
+  options: RuntimeDependencyInstallOptions
+): Promise<void> {
+  const expectedSource = await compilerDependencyDirectoryIdentity(source);
+  if (expectedSource === null) {
+    throw new Error(`Compiler dependency generation source is unavailable: ${source}`);
+  }
+  if ((await compilerDependencyDirectoryIdentity(target)) !== null) {
+    throw new Error(`Compiler dependency generation target already exists: ${target}`);
+  }
+
+  const rename = options.testCompilerRename ?? fs.rename;
+  const hostPlatform = options.testCompilerPublishPlatform ?? process.platform;
+  const sleep = options.sleep ?? sleepMs;
+  for (let attempt = 1; attempt <= COMPILER_DEPENDENCY_RENAME_MAX_ATTEMPTS; attempt += 1) {
+    await options.beforeCommit?.();
+    const currentSource = await compilerDependencyDirectoryIdentity(source);
+    const currentTarget = await compilerDependencyDirectoryIdentity(target);
+    if (!sameCompilerDependencyDirectoryIdentity(currentSource, expectedSource) || currentTarget !== null) {
+      throw new Error('Compiler dependency generation identity changed before publish');
+    }
+    try {
+      await rename(source, target);
+      return;
+    } catch (error) {
+      const sourceAfterFailure = await compilerDependencyDirectoryIdentity(source);
+      const targetAfterFailure = await compilerDependencyDirectoryIdentity(target);
+      if (sourceAfterFailure === null &&
+        sameCompilerDependencyDirectoryIdentity(targetAfterFailure, expectedSource)) {
+        return;
+      }
+      const code = (error as NodeJS.ErrnoException).code;
+      const retryable = hostPlatform === 'win32' &&
+        code !== undefined &&
+        WINDOWS_TRANSIENT_RENAME_CODES.has(code) &&
+        attempt < COMPILER_DEPENDENCY_RENAME_MAX_ATTEMPTS;
+      if (!retryable) throw error;
+      if (!sameCompilerDependencyDirectoryIdentity(sourceAfterFailure, expectedSource) ||
+        targetAfterFailure !== null) {
+        throw new Error('Compiler dependency generation identity changed after transient publish failure', {
+          cause: error
+        });
+      }
+      const delayMs = Math.min(
+        COMPILER_DEPENDENCY_RENAME_INITIAL_DELAY_MS * (2 ** (attempt - 1)),
+        COMPILER_DEPENDENCY_RENAME_MAX_DELAY_MS
+      );
+      await sleep(delayMs);
+    }
+  }
+}
+
 async function publishCompilerDependencyGeneration(
   root: string,
   activeNodeModulesPath: string,
@@ -1356,19 +1463,17 @@ async function publishCompilerDependencyGeneration(
   await fs.mkdir(backupsRoot, { recursive: true });
   try {
     if (await pathExists(activeNodeModulesPath)) {
-      await options.beforeCommit?.();
-      await fs.rename(activeNodeModulesPath, backupPath);
+      await renameCompilerDependencyDirectory(activeNodeModulesPath, backupPath, options);
       activeBackedUp = true;
       await options.testCompilerPublishHook?.('active-backed-up');
     }
-    await options.beforeCommit?.();
-    await fs.rename(stagingNodeModulesPath, activeNodeModulesPath);
+    await renameCompilerDependencyDirectory(stagingNodeModulesPath, activeNodeModulesPath, options);
     published = true;
   } catch (error) {
     let rollbackFailure: unknown;
     if (activeBackedUp && !(await pathExists(activeNodeModulesPath))) {
       try {
-        await fs.rename(backupPath, activeNodeModulesPath);
+        await renameCompilerDependencyDirectory(backupPath, activeNodeModulesPath, options);
       } catch (rollbackError) {
         rollbackFailure = rollbackError;
       }
@@ -1451,7 +1556,7 @@ export async function ensureSharedDepsReady(
   await ensureDir(sharedDepsRoot, options.beforeCommit);
   await writeManifestIfChanged(sharedPackagePath, manifest, options.beforeCommit);
 
-  if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec.manifestHash)) {
+  if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec)) {
     const sharedStamp = await readRuntimeDepsStamp(sharedStampPath);
     return {
       packageManager: sharedStamp?.packageManager ?? 'bun',
@@ -1464,7 +1569,7 @@ export async function ensureSharedDepsReady(
   return withInstallLock(sharedLockPath, options, async () => {
     await writeManifestIfChanged(sharedPackagePath, manifest, options.beforeCommit);
 
-    if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec.manifestHash)) {
+    if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec)) {
       const sharedStamp = await readRuntimeDepsStamp(sharedStampPath);
       return {
         packageManager: sharedStamp?.packageManager ?? 'bun',
@@ -1476,7 +1581,7 @@ export async function ensureSharedDepsReady(
 
     const sharedCacheDir = path.join(sharedDepsRoot, '.bun-cache');
     const { packageManager } = await runBunInstall(sharedDepsRoot, options, ['install'], sharedCacheDir);
-    if (!(await hasCompleteRuntimeDeps(sharedNodeModulesPath))) {
+    if (!(await hasCompleteRuntimeDeps(sharedNodeModulesPath, runtimeSpec))) {
       throw new CompilerError(
         'RUNTIME-DEPS-002',
         'Installed shared runtime dependency generation failed complete package validation'
@@ -1509,7 +1614,7 @@ export async function ensureProjectDependencies(
     const [binding, installed] = await Promise.all([
       readJson<unknown>(path.join(nodeModulesPath, RUNTIME_DEPS_PREBOUND_BINDING_FILE))
         .catch(() => null),
-      hasCompleteRuntimeDeps(nodeModulesPath)
+      hasCompleteRuntimeDeps(nodeModulesPath, runtimeSpec)
     ]);
     await options.beforeCommit?.();
     if (!installed || !isRuntimeDepsPreboundBinding(binding, runtimeSpec.manifestHash)) {
@@ -1527,7 +1632,7 @@ export async function ensureProjectDependencies(
   const stampPath = projectStampPath(projectRoot);
   await options.beforeCommit?.();
   const cacheReady = !options.rematerialize &&
-    await isCacheReady(nodeModulesPath, stampPath, runtimeSpec.manifestHash);
+    await isCacheReady(nodeModulesPath, stampPath, runtimeSpec);
   await options.beforeCommit?.();
   if (cacheReady) {
     return;
@@ -1539,7 +1644,7 @@ export async function ensureProjectDependencies(
   }
 
   if (isolated) {
-    await materializeIsolatedNodeModules(sharedDepsRoot, nodeModulesPath, options.beforeCommit);
+    await materializeIsolatedNodeModules(sharedDepsRoot, nodeModulesPath, runtimeSpec, options.beforeCommit);
     await writeRuntimeDepsStamp(stampPath, {
       manifestHash: runtimeSpec.manifestHash,
       packageManager: 'bun',
@@ -1550,7 +1655,7 @@ export async function ensureProjectDependencies(
 
   if (!isolated && options.skipSharedDepsWarmup === true && options.preferSharedCopy !== false) {
     const compilerNodeModules = dependencyAuthorityPaths().compilerModulesRoot;
-    if (await hasCompleteRuntimeDeps(compilerNodeModules)) {
+    if (await hasCompleteRuntimeDeps(compilerNodeModules, runtimeSpec)) {
       await options.beforeCommit?.();
       await fs.symlink(compilerNodeModules, nodeModulesPath, 'junction');
       await writeRuntimeDepsStamp(stampPath, {
@@ -1565,7 +1670,7 @@ export async function ensureProjectDependencies(
   if (!isolated && options.preferSharedCopy !== false) {
     const sharedStamp = await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'));
     const sharedNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
-    if (sharedStamp && (await hasCompleteRuntimeDeps(sharedNodeModulesPath))) {
+    if (sharedStamp && (await hasCompleteRuntimeDeps(sharedNodeModulesPath, runtimeSpec))) {
       try {
         await options.beforeCommit?.();
         await fs.symlink(sharedNodeModulesPath, nodeModulesPath, 'junction');

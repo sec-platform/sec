@@ -69,6 +69,20 @@ stableFacts:
           summary: 136-pass-1-fail
           slowAndWorkspaceExecuted: false
         disposition: superseded-by-host-acquisition-cleanup-and-owner-seam-closure
+      - commit: a62f5689a045cfcb596ebf35047f4f7c9a1061da
+        canonicalAffected:
+          result: failed
+          failedGate: tcb-import-authority
+          summary: heavy-verification-gate-node-os-and-bun-ffi-seams-unregistered
+          riskRun: false
+        disposition: superseded-by-exact-heavy-gate-trust-root-registration
+      - commit: 6f7904cd9708e6ba9dca2e9c1afa409ea0c35088
+        canonicalAffected:
+          result: failed
+          failedTest: compiler-dependency-generation-windows-rename-eperm
+          errorCode: IMPORT-AUTHORITY-004
+          riskRun: false
+        disposition: superseded-by-bounded-identity-preserving-publish-retry
     stableProductionSource:
       commit: d2f7083c63642306ba18cd77aac373e490c9079b
       role: blob-source-only
@@ -134,18 +148,16 @@ stableFacts:
       disposition: canonical-derived-output-exclusion-plus-proof-micro-sentinel
       completionEvidence: false
     latestIndependentArchitectureReview:
-      reviewedCommit: a44dc3410a9fa0e4818b610cdd0204a7ed0654dd
+      reviewedCommit: 6f7904cd9708e6ba9dca2e9c1afa409ea0c35088
       result: failed
-      canonicalAffectedAtReviewedCommit: not-run
+      canonicalAffectedAtReviewedCommit: failed
       riskRun: false
       blockers:
-        - windows-private-root-exact-cleanup-unproven
-        - playwright-three-package-closure-unbound
-        - isolated-runtime-browser-selector-duplicated
-        - isolated-cold-browser-readiness-missing
-        - through-verify-stage-order-duplicated
-        - affected-risk-heavy-gate-ownership-missing
-      disposition: one-scope-refrozen-successor-required
+        - compiler-dependency-publish-windows-transient-rename-unhandled
+        - non-playwright-direct-runtime-package-version-unbound
+        - posix-plan-materialization-and-real-playwright-no-spawn-evidence-missing
+        - failed-candidate-control-plane-history-stale
+      disposition: one-final-successor-required
       completionEvidence: false
     latestIndependentEvidenceReview:
       reviewedCommit: 6daed7aaeecdfeca8910d1d2367634b86a70c0e9

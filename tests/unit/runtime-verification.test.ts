@@ -7,6 +7,7 @@ import {
   mkdtemp,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
   unlink,
@@ -49,6 +50,9 @@ import {
   semanticMutationIsolatedBrowserPath,
   semanticMutationIsolatedNodeExecutablePath
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
+import {
+  acquireBrowserLaunchPathForTests
+} from '../../platform/compiler/verify/windows-browser-launch-path.ts';
 import { listFilesRecursive, writeText } from '../../platform/shared/fs.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
 import { ensureIsolatedProcessDirectories, runCommand } from '../../platform/shared/process.ts';
@@ -179,6 +183,10 @@ function failureContract(error: NodeJS.ErrnoException) {
 
 async function writeCompleteRuntimeDependencyClosure(projectRoot: string): Promise<void> {
   const runtimeSpec = await loadRuntimeDependencySpec();
+  const exactVersions = {
+    ...runtimeSpec.dependencies,
+    ...runtimeSpec.devDependencies
+  };
   const nodeModulesRoot = path.join(projectRoot, 'node_modules');
   const packageNames = new Set([
     ...RUNTIME_DEPENDENCY_PACKAGE_NAMES,
@@ -192,7 +200,7 @@ async function writeCompleteRuntimeDependencyClosure(projectRoot: string): Promi
       packageName as (typeof EXACT_PLAYWRIGHT_PACKAGE_NAMES)[number]
     )
       ? playwrightRelease
-      : '1.0.0';
+      : exactVersions[packageName];
     await writeFile(manifestPath, `${JSON.stringify({ name: packageName, version })}\n`, 'utf8');
   }
   await writeFile(
@@ -462,6 +470,99 @@ test('isolated runtime accepts only a parent-issued launch path for its exact ph
       process.platform
     )).toThrow('does not bind the staged browser cache');
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('staged runtime verifier rejects a real Playwright target swap before the browser command spawns', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-runtime-playwright-target-swap-'));
+  const stagingRoot = path.join(root, 'staging');
+  const projectRoot = path.join(stagingRoot, 'project');
+  const browserRoot = semanticMutationIsolatedBrowserPath(stagingRoot);
+  const browserExecutableRelativePath = [
+    'chromium_headless_shell-1217',
+    'chrome-headless-shell-linux64',
+    'chrome-headless-shell'
+  ].join('/');
+  const browserExecutable = path.join(browserRoot, ...browserExecutableRelativePath.split('/'));
+  const outsideRoot = path.join(root, 'outside-browser');
+  const outsideExecutable = path.join(outsideRoot, ...browserExecutableRelativePath.split('/'));
+  const displacedBrowserRoot = `${browserRoot}.original`;
+  const temporaryRoot = path.join(root, 'launch-authority');
+  const previousIsolated = process.env.SEC_ISOLATED_VERIFICATION;
+  const previousBrowsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  await Promise.all([
+    mkdir(path.dirname(browserExecutable), { recursive: true }),
+    mkdir(path.dirname(outsideExecutable), { recursive: true }),
+    mkdir(path.join(projectRoot, 'tests', 'runtime', 'acceptance'), { recursive: true }),
+    mkdir(path.dirname(semanticMutationIsolatedNodeExecutablePath(stagingRoot)), { recursive: true }),
+    mkdir(temporaryRoot, { recursive: true })
+  ]);
+  await Promise.all([
+    writeFile(browserExecutable, 'staged-browser', 'utf8'),
+    writeFile(outsideExecutable, 'outside-browser', 'utf8'),
+    writeFile(
+      path.join(projectRoot, 'tests', 'runtime', 'acceptance', 'login.spec.ts'),
+      'export {};\n',
+      'utf8'
+    ),
+    copyFile(process.execPath, semanticMutationIsolatedNodeExecutablePath(stagingRoot)),
+    writeCompleteRuntimeDependencyClosure(projectRoot)
+  ]);
+  const lease = await acquireBrowserLaunchPathForTests(
+    browserRoot,
+    browserExecutableRelativePath,
+    {
+      platform: 'linux',
+      temporaryRoot
+    }
+  );
+  process.env.SEC_ISOLATED_VERIFICATION = '1';
+  process.env.PLAYWRIGHT_BROWSERS_PATH = lease.browsersPath;
+  let playwrightInvocation: { command: string; args: string[] } | undefined;
+  let playwrightSpawned = false;
+  let targetSwapped = false;
+  try {
+    await expect(runRuntimeVerification(projectRoot, 'full', {
+      acceptanceServerForTests: async (_request, execute) => {
+        await rename(browserRoot, displacedBrowserRoot);
+        await symlink(outsideRoot, browserRoot, process.platform === 'win32' ? 'junction' : 'dir');
+        targetSwapped = true;
+        try {
+          return await execute();
+        } finally {
+          await unlink(browserRoot);
+          await rename(displacedBrowserRoot, browserRoot);
+        }
+      },
+      browserLaunchProofForTests: lease.proofArgument,
+      commandRunnerForTests: async (command, args, options) => {
+        const isPlaywright = args.some((argument) =>
+          argument.replaceAll('\\', '/').endsWith('@playwright/test/cli.js'));
+        if (isPlaywright) {
+          playwrightInvocation = { command, args: [...args] };
+          await options.beforeSpawn?.();
+          playwrightSpawned = true;
+        } else {
+          await options.beforeSpawn?.();
+        }
+        return { code: 0, stdout: '', stderr: '' };
+      },
+      emitTiming: false,
+      isolated: true,
+      stagingWorkspaceRoot: stagingRoot
+    })).rejects.toThrow('Staged browser cache must be a physical directory');
+    expect(targetSwapped).toBe(true);
+    expect(playwrightInvocation?.command).toBe(semanticMutationIsolatedNodeExecutablePath(stagingRoot));
+    expect(playwrightInvocation?.args.some((argument) =>
+      argument.replaceAll('\\', '/').endsWith('@playwright/test/cli.js'))).toBe(true);
+    expect(playwrightSpawned).toBe(false);
+  } finally {
+    if (previousIsolated === undefined) delete process.env.SEC_ISOLATED_VERIFICATION;
+    else process.env.SEC_ISOLATED_VERIFICATION = previousIsolated;
+    if (previousBrowsersPath === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH;
+    else process.env.PLAYWRIGHT_BROWSERS_PATH = previousBrowsersPath;
+    await lease.release().catch(() => undefined);
     await rm(root, { recursive: true, force: true });
   }
 });

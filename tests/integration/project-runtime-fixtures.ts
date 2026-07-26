@@ -8,6 +8,10 @@ import {
 
 export async function installRuntimeDeps(cwd: string): Promise<void> {
   const runtimeSpec = await loadRuntimeDependencySpec();
+  const exactVersions = {
+    ...runtimeSpec.dependencies,
+    ...runtimeSpec.devDependencies
+  };
   const packageNames = new Set([
     ...RUNTIME_DEPENDENCY_PACKAGE_NAMES,
     ...EXACT_PLAYWRIGHT_PACKAGE_NAMES
@@ -21,7 +25,7 @@ export async function installRuntimeDeps(cwd: string): Promise<void> {
         packageName as (typeof EXACT_PLAYWRIGHT_PACKAGE_NAMES)[number]
       )
         ? runtimeSpec.devDependencies['@playwright/test']
-        : '0.0.0-fixture'
+        : exactVersions[packageName]
     })}\n`, 'utf8');
   }));
 }

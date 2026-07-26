@@ -109,6 +109,11 @@ async function installCompilerDependencyFixture(workingDirectory: string, marker
 }
 
 async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Promise<void> {
+  const runtimeSpec = await loadRuntimeDependencySpec();
+  const exactVersions = {
+    ...runtimeSpec.dependencies,
+    ...runtimeSpec.devDependencies
+  };
   const packageNames = new Set([
     ...RUNTIME_DEPENDENCY_PACKAGE_NAMES,
     ...EXACT_PLAYWRIGHT_PACKAGE_NAMES
@@ -120,7 +125,7 @@ async function installRuntimePackageManifestClosure(nodeModulesRoot: string): Pr
       name: packageName,
       version: EXACT_PLAYWRIGHT_PACKAGE_NAMES.includes(
         packageName as (typeof EXACT_PLAYWRIGHT_PACKAGE_NAMES)[number]
-      ) ? '1.59.1' : '0.0.0-fixture'
+      ) ? runtimeSpec.devDependencies['@playwright/test'] : exactVersions[packageName]
     })}\n`, 'utf8');
   }));
 }
@@ -289,6 +294,128 @@ describe('compiler dependency installation', () => {
       expect(await fs.readFile(entryPath)).toEqual(originalEntry);
       expect(await fs.readFile(bindingPath)).toEqual(originalBinding);
     }, 'engineering-compiler-dev-deps-rollback-');
+  });
+
+  test('retries only bounded Windows transient generation renames and preserves the exact source identity', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      const commandRunner = async (_command: string, _args: string[], command: { cwd: string }) => {
+        installCalls += 1;
+        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      await ensureCompilerDepsReady(baseOptions, tempRoot);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+
+      let transientFailures = 0;
+      const delays: number[] = [];
+      const result = await ensureCompilerDepsReady({
+        ...baseOptions,
+        sleep: async (delayMs) => {
+          delays.push(delayMs);
+        },
+        testCompilerPublishPlatform: 'win32',
+        testCompilerRename: async (source, target) => {
+          const stagedPublish = path.basename(source) === 'node_modules' &&
+            path.basename(path.dirname(source)).includes('.staging-');
+          if (stagedPublish && transientFailures < 2) {
+            transientFailures += 1;
+            const error = new Error('injected transient Windows rename denial') as NodeJS.ErrnoException;
+            error.code = 'EPERM';
+            throw error;
+          }
+          await fs.rename(source, target);
+        }
+      }, tempRoot);
+
+      expect(result.source).toBe('installed');
+      expect(transientFailures).toBe(2);
+      expect(delays).toEqual([25, 50]);
+      expect(await fs.readFile(path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'), 'utf8'))
+        .toBe('generation-2:typescript\n');
+    }, 'engineering-compiler-dev-deps-windows-rename-retry-');
+  });
+
+  test('fails closed and restores the active generation when a transient rename changes source identity', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      const commandRunner = async (_command: string, _args: string[], command: { cwd: string }) => {
+        installCalls += 1;
+        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      await ensureCompilerDepsReady(baseOptions, tempRoot);
+      const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
+      const originalEntry = await fs.readFile(entryPath);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      let replaced = false;
+
+      await expect(ensureCompilerDepsReady({
+        ...baseOptions,
+        sleep: async () => undefined,
+        testCompilerPublishPlatform: 'win32',
+        testCompilerRename: async (source, target) => {
+          const stagedPublish = path.basename(source) === 'node_modules' &&
+            path.basename(path.dirname(source)).includes('.staging-');
+          if (stagedPublish && !replaced) {
+            replaced = true;
+            await fs.rename(source, `${source}-original`);
+            await fs.mkdir(source);
+            const error = new Error('injected transient rename with source replacement') as NodeJS.ErrnoException;
+            error.code = 'EBUSY';
+            throw error;
+          }
+          await fs.rename(source, target);
+        }
+      }, tempRoot)).rejects.toMatchObject({
+        code: 'IMPORT-AUTHORITY-004',
+        details: {
+          cause: expect.stringContaining('identity changed')
+        }
+      });
+      expect(replaced).toBe(true);
+      expect(await fs.readFile(entryPath)).toEqual(originalEntry);
+    }, 'engineering-compiler-dev-deps-windows-rename-identity-');
+  });
+
+  test('does not retry a non-transient compiler generation rename failure', async () => {
+    await withTempWorkspace(async (tempRoot) => {
+      await writeCompilerDependencyRoot(tempRoot);
+      let installCalls = 0;
+      const commandRunner = async (_command: string, _args: string[], command: { cwd: string }) => {
+        installCalls += 1;
+        await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
+        return { code: 0, stdout: 'ok', stderr: '' };
+      };
+      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      await ensureCompilerDepsReady(baseOptions, tempRoot);
+      await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      let failures = 0;
+
+      await expect(ensureCompilerDepsReady({
+        ...baseOptions,
+        sleep: async () => {
+          throw new Error('non-transient rename must not sleep');
+        },
+        testCompilerPublishPlatform: 'win32',
+        testCompilerRename: async (source, target) => {
+          const stagedPublish = path.basename(source) === 'node_modules' &&
+            path.basename(path.dirname(source)).includes('.staging-');
+          if (stagedPublish) {
+            failures += 1;
+            const error = new Error('injected non-transient rename failure') as NodeJS.ErrnoException;
+            error.code = 'ENOTEMPTY';
+            throw error;
+          }
+          await fs.rename(source, target);
+        }
+      }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      expect(failures).toBe(1);
+    }, 'engineering-compiler-dev-deps-non-transient-rename-');
   });
 
   test('reclaims a dead compiler install owner instead of timing out future development', async () => {
@@ -1014,7 +1141,7 @@ describe('ensureProjectDependencies', () => {
 
       await fs.writeFile(reactManifest, '{"name":"react","version":"0.0.0"}\n', 'utf8');
       await expect(ensureProjectDependencies(projectRoot, { installMode: 'prebound-only' }))
-        .resolves.toBeUndefined();
+        .rejects.toThrow('Plan-bound dependency tree is unavailable');
     }, 'engineering-compiler-runtime-prebound-package-closure-');
   });
 

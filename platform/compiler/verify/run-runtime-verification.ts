@@ -42,8 +42,10 @@ import {
 type RuntimeVerificationMode = 'service' | 'full';
 
 type RuntimeVerificationOptions = {
+  acceptanceServerForTests?: typeof withIsolatedRuntimeAcceptanceServer;
   beforeCommit?: CommitFence;
   browserLaunchProofForTests?: string;
+  commandRunnerForTests?: typeof runCommand;
   emitTiming?: boolean;
   isolated?: boolean;
   signal?: AbortSignal;
@@ -1183,7 +1185,7 @@ export async function runRuntimeVerification(
     env: NodeJS.ProcessEnv,
     beforeSpawn: CommitFence | undefined = isolated ? options.beforeCommit : undefined
   ) => {
-    const result = await runCommand(invocation.command, invocation.args, {
+    const result = await (options.commandRunnerForTests ?? runCommand)(invocation.command, invocation.args, {
       beforeSpawn,
       cwd: projectRoot,
       env,
@@ -1324,7 +1326,7 @@ export async function runRuntimeVerification(
     );
     const acceptanceResult = await timed('playwright test', emitTiming, () =>
       withIsolatedPhaseTelemetry('playwright', () => isolated
-        ? withIsolatedRuntimeAcceptanceServer({
+        ? (options.acceptanceServerForTests ?? withIsolatedRuntimeAcceptanceServer)({
             beforeSpawn: assertBrowserLaunchPreSpawn,
             environment: acceptanceEnv,
             nodeExecutablePath: isolatedNodeExecutablePath!,
