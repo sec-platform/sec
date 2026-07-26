@@ -35,6 +35,7 @@ tasks:
       - platform/dev-runner/fast-test-policy.ts
       - platform/dev-runner/test-runner.ts
       - platform/shared/ci-verification-plan.ts
+      - platform/shared/ci-pr-risk-selection.ts
       - platform/shared/dependency-environment.ts
       - platform/shared/heavy-verification-gate-lease.ts
       - platform/shared/pipeline-types.ts
@@ -57,6 +58,7 @@ tasks:
       - tests/setup/runtime-deps.setup.ts
       - tests/unit/ci-evidence-composition-policy-registry.test.ts
       - tests/unit/ci-pr-risk-execution.test.ts
+      - tests/unit/ci-pr-risk-selection.test.ts
       - tests/unit/ci-verification-execution.test.ts
       - tests/unit/codex-work-package-contract.test.ts
       - tests/unit/dependency-environment.test.ts
@@ -124,6 +126,7 @@ acceptance:
   - "Staged Verification project-input identity excludes only canonical runtime/build outputs, including the project dependency stamp and Next-managed next-env.d.ts. Source, tests, configuration and every unclassified root entry remain exact-bound and fail closed on drift."
   - "The through-verify stage prefix is derived from PIPELINE_STAGE_IDS and reused by the staged runner and evidence digest; no consumer owns a second literal stage order."
   - "test:affected and ci:risk acquire the same physical-worktree heavy-verification lease at their outer CLI boundaries. Windows uses a zero-wait Global named mutex with abandoned-owner recovery; a live contender fails before launching test children, so affected and Risk can never corrupt one another's workspace or Evidence."
+  - "The impact-selected Risk owner classifies both the top-level platform/dev-runner.ts CLI and its platform/dev-runner/ implementation directory as mandatory verification sentinels. A changed heavy-gate CLI boundary therefore resolves to the bounded baseline instead of failing as an unowned changed path."
   - "The old namespaced browser-path assumption is removed from canonical docs. Windows TEMP may remain namespaced; browser launch paths must instead satisfy the launch-compatible projection contract."
   - "Focused projection, environment, materialization, child lifecycle and retained SM-3 sentinel tests pass. No one-shot diagnostic selector or retained test workspace enters the candidate."
   - "Typecheck, changed-only imports, docs doctor, control-plane lifecycle, manifest scope, patch hygiene and GitNexus change detection pass on the frozen head."
@@ -134,7 +137,7 @@ tests:
   - "proof-consumption-micro-sentinel: the exact staged full Verification proof test title in tests/unit/semantic-mutation-isolated-child-fence.test.ts before the production sentinel"
   - "sm3-failure-sentinel: the exact retained production test title in tests/integration/semantic-mutation-apply.test.ts once on the repaired head with no retained workspace"
   - "runtime-regression: bun test tests/integration/project-runtime.test.ts tests/unit/runtime-dependency-spec.test.ts tests/unit/playwright-browser-cache.test.ts --timeout 180000"
-  - "v11-contract-focused: bun test tests/contract/ci-contract.test.ts tests/contract/ci-lanes.test.ts tests/contract/docs-doctor.test.ts tests/contract/sec-merge-gate.test.ts tests/unit/codex-work-package-contract.test.ts tests/unit/ci-evidence-composition-policy-registry.test.ts tests/unit/ci-pr-risk-execution.test.ts tests/unit/ci-verification-execution.test.ts --timeout 180000"
+  - "v11-contract-focused: bun test tests/contract/ci-contract.test.ts tests/contract/ci-lanes.test.ts tests/contract/docs-doctor.test.ts tests/contract/sec-merge-gate.test.ts tests/unit/codex-work-package-contract.test.ts tests/unit/ci-evidence-composition-policy-registry.test.ts tests/unit/ci-pr-risk-execution.test.ts tests/unit/ci-pr-risk-selection.test.ts tests/unit/ci-verification-execution.test.ts --timeout 180000"
   - "architecture-owner-boundary: bun test tests/contract/test-architecture.test.ts tests/unit/windows-host-filesystem-authority.test.ts --timeout 180000"
   - "heavy-gate-concurrency: bun test tests/unit/heavy-verification-gate-lease.test.ts --timeout 180000"
   - "control-plane-lifecycle: bun test tests/contract/document-control-plane-lifecycle.test.ts --timeout 180000"

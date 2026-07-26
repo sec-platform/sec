@@ -6,7 +6,7 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody、GitNexus impact与`6f7904c` exact-head Review重新计算。`a62f568`因heavy-gate TCB seam缺失永久FAIL；`6f7904c`因Windows dependency publish重复`EPERM`永久FAIL；两者均未运行Risk。`eb437f6`已经关闭全部产品/架构blocker，但其唯一affected在15秒内得到`83 pass / 3 fail`：新增no-spawn sentinel改写进程级isolated browser环境，污染同文件并发测试；该head也永久FAIL且未运行Risk。当前最小successor只把verifier test source environment改为显式输入，生产仍使用真实process environment，29/29 owner sentinel已证明不再泄漏全局状态。focused结果不能代替新exact-head affected、Risk、Review与main集成。#142已squash merge，PR #137仍位于旧base且冲突，不能提供完成授权。
+本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody和最新exact-head Gate重新计算。`a62f568`因heavy-gate TCB seam缺失永久FAIL；`6f7904c`因Windows dependency publish重复`EPERM`永久FAIL；`eb437f6`因no-spawn test sentinel污染进程级环境永久FAIL。`1699931`的canonical affected真实PASS，但其唯一Risk在2.1秒preflight fail-closed：新增heavy-gate外层入口是顶层`platform/dev-runner.ts`，而mandatory selector只覆盖`platform/dev-runner/`目录，导致`changed-files-unresolved`；Contract Freeze、slow与workspace Gate均未启动。该head永久FAIL且不重跑。当前最小successor只把顶层CLI与子目录归入同一个bounded Risk owner并冻结正反合同；它必须重新获得exact-head affected、一次Risk、Review与main集成。#142已squash merge，PR #137仍位于旧base且冲突，不能提供完成授权。
 
 ```text
 Windows Browser Launch Path Authority V1 (active)

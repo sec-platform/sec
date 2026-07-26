@@ -8,6 +8,7 @@ const baselineSuites = slowTestPrRiskBaselineSuiteIds();
 test('bounded slow baseline is owned by shared execution lifecycle surfaces', () => {
   for (const file of [
     'scripts/ci-pr-risk.ts',
+    'platform/dev-runner.ts',
     'platform/dev-runner/test-runner.ts',
     'platform/shared/ci-pr-risk-selection.ts',
     'platform/shared/test-budget-contract.ts',

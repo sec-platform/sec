@@ -91,6 +91,16 @@ stableFacts:
           riskRun: false
         failureClassification: test-sentinel-process-environment-leakage
         disposition: superseded-by-explicit-verifier-test-source-environment
+      - commit: 1699931f5ac1684108ff93f79fcd9e452ab8c7fa
+        canonicalAffected:
+          result: passed
+        risk:
+          result: failed
+          failedStage: preflight
+          summary: changed-files-unresolved-platform-dev-runner-cli
+          executedGateCount: 0
+        failureClassification: top-level-dev-runner-cli-missing-from-mandatory-risk-owner-pattern
+        disposition: superseded-by-exact-dev-runner-cli-risk-classification
     stableProductionSource:
       commit: d2f7083c63642306ba18cd77aac373e490c9079b
       role: blob-source-only

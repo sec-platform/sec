@@ -41,7 +41,7 @@ const MANDATORY_SENTINEL_PATTERNS = [
   /^\.github\/workflows\//,
   /^scripts\/ci-[^/]+\.ts$/,
   /^scripts\/codex\/(?:merge-gate|work-package-contract)\.ts$/,
-  /^platform\/dev-runner\//,
+  /^platform\/dev-runner(?:\.ts|\/)/,
   /^platform\/shared\/ci-[^/]+\.ts$/,
   /^platform\/shared\/test-(?:budget|impact|ownership)-contract\.ts$/,
   /^platform\/shared\/test-impact-rules\//
