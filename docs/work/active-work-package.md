@@ -10,8 +10,8 @@ last-reviewed: 2026-07-26
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/hosted-verifier-zero-install-v1.md
-manifestDigest: sha256:773a98ffe705d5dddce2eb11be866aff48f6416df2d7310a9f352dd5e3c7e61e
+manifest: docs/work-packages/local-gate-union-v1.md
+manifestDigest: sha256:f737848823085f9ce6ec6645ce1b752e8b8baa03430b9d13ea526449d4983475
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

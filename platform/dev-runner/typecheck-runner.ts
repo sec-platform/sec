@@ -12,11 +12,18 @@ async function typecheckDependencyContext(): Promise<TypecheckDependencyContext>
   return { binPath: path.join(compilerDeps.nodeModulesPath, '.bin') };
 }
 
-export async function runTypecheck(args: string[] = []): Promise<number> {
-  const deps = await typecheckDependencyContext();
+export async function runTypecheckWithBinPath(
+  binPath: string,
+  args: string[] = []
+): Promise<number> {
   const env = {
-    [pathEnvKey()]: `${deps.binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
+    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`
   };
 
-  return runDevCommand(commandPath(deps.binPath, 'tsc'), ['--noEmit', '-p', 'tsconfig.json', ...args], env);
+  return runDevCommand(commandPath(binPath, 'tsc'), ['--noEmit', '-p', 'tsconfig.json', ...args], env);
+}
+
+export async function runTypecheck(args: string[] = []): Promise<number> {
+  const deps = await typecheckDependencyContext();
+  return runTypecheckWithBinPath(deps.binPath, args);
 }

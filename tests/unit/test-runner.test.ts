@@ -93,7 +93,14 @@ mock.module('../../platform/dev-runner/dependency-bootstrap.ts', () => ({
   }
 }));
 
-const { runAffectedTests, runFastTests, runSlowTests, runTests } = await import('../../platform/dev-runner/test-runner.ts');
+const testRunnerModule = await import('../../platform/dev-runner/test-runner.ts');
+const {
+  resolveAffectedTestExecution,
+  runAffectedTests,
+  runFastTests,
+  runSlowTests,
+  runTests
+} = testRunnerModule;
 const { getFastTestFilesSync, slowTestSuiteFiles } = await import('../../platform/shared/test-budget-contract.ts');
 
 function invocationTestFiles(args: readonly string[]): string[] {
@@ -515,6 +522,27 @@ test.serial('affected plan reports resolved selection without dependency or test
   } finally {
     console.log = originalLog;
   }
+});
+
+test.serial('resolved affected plan executes without repeating Git discovery', async () => {
+  changedFiles = ['tests/unit/path-containment.test.ts'];
+  const execution = await resolveAffectedTestExecution();
+
+  expect(execution).not.toBeNull();
+  expect(Object.isFrozen(execution)).toBe(true);
+  expect(Object.isFrozen(execution!.plan)).toBe(true);
+  expect(Object.isFrozen(execution!.plan.selectedFastTests)).toBe(true);
+  expect(commandCalls).toHaveLength(2);
+  const code = await execution!.run();
+
+  expect(code).toBe(0);
+  expect(commandCalls).toHaveLength(2);
+  expect(testDependencyBootstrapCalls).toBe(1);
+  expect(devCommandCalls).toHaveLength(1);
+});
+
+test('affected execution does not export an arbitrary-plan runner', () => {
+  expect('runAffectedTestPlan' in testRunnerModule).toBe(false);
 });
 
 test.serial('affected plan lists every unresolved path and exits nonzero without side effects', async () => {

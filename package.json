@@ -50,7 +50,7 @@
     "preflight": "bun run depcruise && bun run jscpd && bun run discover",
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
     "check": "bun run check:fast",
-    "check:affected": "bun run imports:prepare && bun run typecheck && bun run test:affected",
+    "check:affected": "bun ./platform/dev-runner.ts check:affected",
     "check:fast": "bun run imports:prepare && bun run typecheck && bun run docs:doctor && bun run test:fast",
     "check:full": "bun run imports:prepare && bun run typecheck && bun run docs:doctor && bun run test:full"
   },
