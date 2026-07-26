@@ -51,6 +51,14 @@ stableFacts:
         summary: 3-pass-1-fail-1-error
         riskRun: false
       disposition: source-only-never-rerun
+    failedSuccessorCandidates:
+      - commit: 8bd5ba8f44706fa44c1ee5b95da4a900c2e5de35
+        canonicalAffected:
+          result: failed
+          failedTest: writer-authority-immutable-journal-atomic-publish-rollback-cas-public-redaction
+          summary: 67-pass-1-fail
+          riskRun: false
+        disposition: superseded-by-contract-preserving-supervisor-result-closure
     stableProductionSource:
       commit: d2f7083c63642306ba18cd77aac373e490c9079b
       role: blob-source-only

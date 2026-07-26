@@ -1650,44 +1650,46 @@ export async function runSemanticMutationIsolatedVerificationChild(
         stagingWorkspaceRoot
       })
     );
-    const browserLaunchPath = await acquireBrowserLaunchPath(
-      browsersPath,
-      browserExecutableRelativePath
-    );
-    let result: CommandResult;
-    try {
-      await commitFence();
-      const writableRoot = path.join(stagingWorkspaceRoot, '.isolated-process', 'child');
-      await ensureIsolatedProcessDirectories(writableRoot, commitFence);
-      const env = buildSemanticMutationIsolatedVerificationEnvironment(
-        stagingWorkspaceRoot,
-        browserLaunchPath.browsersPath
+    const result = await (async (): Promise<CommandResult> => {
+      const browserLaunchPath = await acquireBrowserLaunchPath(
+        browsersPath,
+        browserExecutableRelativePath
       );
-      if (env.PLAYWRIGHT_BROWSERS_PATH !== browserLaunchPath.browsersPath ||
-        nodeExecutablePath !== semanticMutationIsolatedNodeExecutablePath(stagingWorkspaceRoot)) {
-        throw new Error('Isolated runtime environment binding is invalid');
+      try {
+        await commitFence();
+        const writableRoot = path.join(stagingWorkspaceRoot, '.isolated-process', 'child');
+        await ensureIsolatedProcessDirectories(writableRoot, commitFence);
+        const env = buildSemanticMutationIsolatedVerificationEnvironment(
+          stagingWorkspaceRoot,
+          browserLaunchPath.browsersPath
+        );
+        if (env.PLAYWRIGHT_BROWSERS_PATH !== browserLaunchPath.browsersPath ||
+          nodeExecutablePath !== semanticMutationIsolatedNodeExecutablePath(stagingWorkspaceRoot)) {
+          throw new Error('Isolated runtime environment binding is invalid');
+        }
+        failureStage = 'binding-mismatch';
+        await browserLaunchPath.assertCurrent();
+        await assertSemanticMutationIsolatedRuntimeLaunchManifest({
+          binding: runtimeBinding,
+          commitFence,
+          stagingWorkspaceRoot
+        });
+        await browserLaunchPath.assertCurrent();
+        failureStage = 'isolated-child-execution';
+        const result = await supervisor({
+          commitFence,
+          env,
+          runnerRelativePath,
+          stagingWorkspaceRoot,
+          workspaceRoot,
+          workspaceWriteLease
+        });
+        await browserLaunchPath.assertCurrent();
+        return result;
+      } finally {
+        await browserLaunchPath.release();
       }
-      failureStage = 'binding-mismatch';
-      await browserLaunchPath.assertCurrent();
-      await assertSemanticMutationIsolatedRuntimeLaunchManifest({
-        binding: runtimeBinding,
-        commitFence,
-        stagingWorkspaceRoot
-      });
-      await browserLaunchPath.assertCurrent();
-      failureStage = 'isolated-child-execution';
-      result = await supervisor({
-        commitFence,
-        env,
-        runnerRelativePath,
-        stagingWorkspaceRoot,
-        workspaceRoot,
-        workspaceWriteLease
-      });
-      await browserLaunchPath.assertCurrent();
-    } finally {
-      await browserLaunchPath.release();
-    }
+    })();
 
     failureStage = 'artifact-read';
     await commitFence();

@@ -6,7 +6,7 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、外部exact-head Review/CI、retained worktree custody、GitNexus impact与`3a72882`的canonical affected失败重新计算。#142已squash merge，V5 docs-doctor semantic superset与V10 trust root已进入main。PR #137仍位于旧base且冲突，只有失败merge-gate，不能提供完成或验证授权。
+本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、外部exact-head Review/CI、retained worktree custody、GitNexus impact，以及`3a72882`和`8bd5ba8`两个canonical affected失败重新计算。后者仅剩 supervisor result 词法合同失败，Risk 未运行；当前 successor 只做保持同一 cleanup 语义的闭包重构。#142已squash merge，V5 docs-doctor semantic superset与V10 trust root已进入main。PR #137仍位于旧base且冲突，只有失败merge-gate，不能提供完成或验证授权。
 
 ```text
 Windows Browser Launch Path Authority V1 (active)
