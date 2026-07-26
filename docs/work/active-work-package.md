@@ -10,8 +10,8 @@ last-reviewed: 2026-07-26
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/fast-feedback-postmerge-pointer-v1.md
-manifestDigest: sha256:2037c52d064e2983339d03f8188c00baf8c1ddf3d392f2cb659e2ae6070fad93
+manifest: docs/work-packages/hosted-verifier-zero-install-v1.md
+manifestDigest: sha256:773a98ffe705d5dddce2eb11be866aff48f6416df2d7310a9f352dd5e3c7e61e
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

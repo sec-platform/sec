@@ -35,6 +35,31 @@ test('test impact selector includes tests that directly import changed sources',
   expect(selection.slow).not.toContain('tests/contract/test-impact.test.ts');
 });
 
+test('test impact scanner uses pinned Bun syntax scanning without import-like text false positives', () => {
+  const selected = 'tests/unit/virtual-import-impact.test.ts';
+  const ignored = 'tests/unit/virtual-import-text.test.ts';
+  const provider = {
+    testFiles: [selected, ignored],
+    readTestSource: (testFile: string): string | null => {
+      if (testFile === selected) {
+        return [
+          "import type {} from '../../platform/shared/test-impact-contract.ts';",
+          "export { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';",
+          "void import('../../platform/shared/test-impact-contract.ts');"
+        ].join('\n');
+      }
+      if (testFile === ignored) {
+        return "const text = \"import '../../platform/shared/test-impact-contract.ts'\"; void text;";
+      }
+      return null;
+    }
+  };
+  const selection = selectTestsForSources(['platform/shared/test-impact-contract.ts'], provider);
+
+  expect(selection.fast).toContain(selected);
+  expect(selection.fast).not.toContain(ignored);
+});
+
 test('test ownership auto-reference mode defaults to include and rejects conflicting owners', () => {
   const declaration = {
     owner: 'owner-a',

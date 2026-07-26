@@ -1,10 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { Node, Project, SyntaxKind } from 'ts-morph';
-
 import { uniqueSorted } from './collections.ts';
-import { compilerRoot, posixPath } from './paths.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
 import { governanceTestOwnershipDeclarations } from './test-impact-rules/governance.ts';
 import { pipelineTestOwnershipDeclarations } from './test-impact-rules/pipeline.ts';
@@ -19,6 +16,9 @@ import {
 } from './test-ownership-contract.ts';
 
 export { classifyTestImpactSource } from './test-ownership-contract.ts';
+
+const compilerRoot = path.resolve(import.meta.dir, '../..');
+const testImportTranspiler = new Bun.Transpiler({ loader: 'tsx' });
 
 export type TestImpactRule = {
   sourcePattern: RegExp;
@@ -181,7 +181,7 @@ function addAll(target: Set<string>, values: string[]): void {
 }
 
 function normalizeRepoPath(value: string): string {
-  return posixPath(path.normalize(value)).replace(/^\.\//, '');
+  return path.normalize(value).replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
 function importCandidates(testFile: string, specifier: string): string[] {
@@ -205,47 +205,13 @@ function importCandidates(testFile: string, specifier: string): string[] {
   ];
 }
 
-const importParserProject = new Project({ skipAddingFilesFromTsConfig: true, useInMemoryFileSystem: true });
-
-function literalValue(node: Node | undefined): string | null {
-  if (!node) {
-    return null;
-  }
-  if (Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node)) {
-    return node.getLiteralValue();
-  }
-  return null;
-}
-
 function importSpecifiers(source: string, testFile: string): string[] {
-  const specifiers = new Set<string>();
-  const sourceFile = importParserProject.createSourceFile(testFile, source, { overwrite: true });
-
   try {
-    for (const declaration of sourceFile.getImportDeclarations()) {
-      specifiers.add(declaration.getModuleSpecifierValue());
-    }
-
-    for (const declaration of sourceFile.getExportDeclarations()) {
-      const specifier = declaration.getModuleSpecifierValue();
-      if (specifier) {
-        specifiers.add(specifier);
-      }
-    }
-
-    for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-      if (call.getExpression().getKind() !== SyntaxKind.ImportKeyword) {
-        continue;
-      }
-      const specifier = literalValue(call.getArguments()[0]);
-      if (specifier) {
-        specifiers.add(specifier);
-      }
-    }
-
-    return [...specifiers];
-  } finally {
-    sourceFile.forget();
+    return uniqueSorted(testImportTranspiler.scanImports(source)
+      .filter((entry) => entry.kind === 'import-statement' || entry.kind === 'dynamic-import')
+      .map((entry) => entry.path));
+  } catch (error) {
+    throw new Error(`Test impact source is not parseable TS/TSX: ${testFile}.`, { cause: error });
   }
 }
 
