@@ -1,7 +1,7 @@
 ---
 title: 测试架构
 status: active
-last-reviewed: 2026-07-04
+last-reviewed: 2026-07-26
 ---
 
 # 测试架构
@@ -25,8 +25,8 @@ last-reviewed: 2026-07-04
 | --- | --- | --- |
 | `tests/unit` | 纯 Builder、Selector、Index、Formatter、安全边界 | 完整 Workspace/CLI/浏览器流程 |
 | `tests/contract` | 公共 CLI/JSON/Package/CI/Error/IR Shape | 复制完整命令表、脚本对象、Slow Suite 列表 |
-| `tests/integration` | Workspace Pipeline、Artifact Flow、IR/Projection 集成 | 大型浏览器矩阵 |
-| `tests/e2e` | 明确的慢产品路径和单一浏览器 Smoke | 成为全部业务逻辑测试仓库 |
+| `tests/integration` | Workspace Pipeline、Artifact Flow、IR/Projection 集成 | Next build、production server、Playwright、浏览器与真实安装 |
+| `tests/e2e` | 明确的慢产品路径、真实Runtime lifecycle和单一浏览器 Smoke | 成为全部业务逻辑测试仓库 |
 
 ### IR 测试归属
 
@@ -34,6 +34,19 @@ last-reviewed: 2026-07-04
 - IR public JSON/schema：contract。
 - Plan/Lock/Manifest → IR → Projection：integration。
 - Ticket observable runtime：unit/integration/API；只保留关键浏览器 smoke。
+
+### 2.1 秒级反馈预算
+
+`fast`表示可在编辑循环中反复使用的计算边界，不表示“给慢测试一个更大的timeout”。warmed开发环境采用以下目标：
+
+| 反馈单位 | 目标 |
+| --- | ---: |
+| 单个unit/contract focused文件 | 通常`<= 5s` |
+| 单个fast integration文件 | 通常`<= 10s` |
+| leaf变化的focused fast batch | 通常`<= 10s` |
+| 真实Next、server、Playwright或browser acceptance | 明确slow；只在最终Risk/release选择时运行 |
+
+fast文件超过十秒时必须先按phase计时。若耗时来自build、server readiness、browser、安装、网络或真实workspace复制，应把该acceptance迁入已有slow owner，同时在fast层保留不启动生产进程的合同/micro-sentinel；不得通过缓存偶然命中、增大timeout或删除覆盖来宣称变快。Contract Freeze只允许快速合同成员，不能无条件启动真实Runtime。
 
 ## 3. 事实源
 
@@ -75,6 +88,8 @@ Playwright 只证明生成 Runtime 的浏览器 Smoke：
 
 业务状态机、Contract、Fact Delta 和 Impact 不放进浏览器矩阵。
 
+真实Next build、server lifecycle与Playwright request/browser必须由`tests/e2e`且登记在`test-budget-contract.ts`的slow suite拥有。`tests/integration`只能验证生成配置、argv/environment、lifecycle builder和cleanup合同，不得实际启动这些production children。
+
 ## 6. 依赖策略
 
 当前测试栈：
@@ -106,5 +121,7 @@ Playwright 只证明生成 Runtime 的浏览器 Smoke：
 - 测试表达不变量而不是复制实现。
 - Testkit 只负责执行 primitive。
 - Playwright 不进入 affected/fast。
+- Contract Freeze不启动Next、production server或Playwright。
+- fast integration在warmed环境保持十秒内目标；超出即作为分层/fixture复用缺陷调查。
 - Slow suite 数据只由代码 Registry 维护。
 - 改一个事实源不要求同步三份数组和文档。
