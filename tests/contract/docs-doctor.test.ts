@@ -240,6 +240,56 @@ test('current state retains reusable runtime and trusted-ingress capability prer
   expect(source).not.toContain('failedSuccessorCandidates:');
 });
 
+test('canonical development workflow retains the speed contract and conditional verification matrix', async () => {
+  const [agents, blueprint, feedback, testArchitecture] = await Promise.all([
+    readFile('AGENTS.md', 'utf8'),
+    readFile('docs/04-AI自主实现执行蓝图.md', 'utf8'),
+    readFile('docs/test-feedback-and-ci-lanes.md', 'utf8'),
+    readFile('docs/test-architecture.md', 'utf8')
+  ]);
+
+  for (const fragment of [
+    '单一纵向切片默认不创建子 Agent',
+    '完全重复工具调用 `0`',
+    'Agent wait timeout `0`',
+    '产品实现占主动工作时间至少 `70%`',
+    '正常交付不本地运行Risk后再重复hosted Risk'
+  ]) {
+    expect(agents).toContain(fragment);
+  }
+  expect(agents).not.toContain('detect_changes');
+
+  for (const fragment of [
+    '### 1.4 开发吞吐硬指标',
+    '### 3.1 开发环节取舍',
+    '### 3.2 最短且完整的十步交付',
+    '1. 一次 live reload',
+    '10. merge readback + branch/worktree cleanup',
+    '第二次candidate invalidation返回STOP_PROOF_RESET',
+    '| 产品实现占主动工作时间 | `>= 70%` |',
+    '| 协调 + 叙述文档 + 控制面占比 | `< 15%` |'
+  ]) {
+    expect(blueprint).toContain(fragment);
+  }
+
+  for (const fragment of [
+    '### 3.1 按变更类型选择最小验证',
+    '| 纯文档 |',
+    '| Leaf TypeScript |',
+    '| 公共合同、IR、selector |',
+    '| Runtime、browser、platform |',
+    '| Verifier trust root |',
+    '| Release或广泛schema/IR变化 |',
+    '正常产品交付不执行“local Risk + hosted Risk”双份证明',
+    'Contract Freeze 绑定公共合同与其快速owner tests'
+  ]) {
+    expect(feedback).toContain(fragment);
+  }
+
+  expect(testArchitecture).toContain('### 2.1 秒级反馈预算');
+  expect(testArchitecture).toContain('Contract Freeze不启动Next、production server或Playwright');
+});
+
 test('legacy file URI, repository path, and deprecated-token diagnostics remain active', async () => {
   const fixture = await createFixture();
   try {

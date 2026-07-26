@@ -3,6 +3,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { posixPath } from '../../platform/shared/paths.ts';
+import {
+  getSlowTestSuitesSync,
+  isFastTestFile
+} from '../../platform/shared/test-budget-contract.ts';
 
 const repoRoot = process.cwd();
 const canonicalTestkitFiles = [
@@ -95,6 +99,24 @@ async function listMarkdownFiles(relativeRoot: string): Promise<string[]> {
 test('test architecture exposes only canonical testkit primitives', async () => {
   await expect(Promise.all(canonicalTestkitFiles.map(pathExists))).resolves.toEqual([true, true, true]);
   await expect(Promise.all(legacyAliasFiles.map(pathExists))).resolves.toEqual([false, false, false]);
+});
+
+test('production runtime acceptance is owned by the registered slow runtime-host suite', async () => {
+  const fastRuntimeFile = 'tests/integration/project-runtime.test.ts';
+  const slowRuntimeFile = 'tests/e2e/runtime-host.test.ts';
+  const [fastSource, slowSource] = await Promise.all([
+    fs.readFile(path.join(repoRoot, fastRuntimeFile), 'utf8'),
+    fs.readFile(path.join(repoRoot, slowRuntimeFile), 'utf8')
+  ]);
+  const runtimeHostSuite = getSlowTestSuitesSync().find((suite) => suite.id === 'e2e-runtime-host');
+
+  expect(isFastTestFile(fastRuntimeFile)).toBe(true);
+  expect(isFastTestFile(slowRuntimeFile)).toBe(false);
+  expect(runtimeHostSuite?.files).toEqual([slowRuntimeFile]);
+  expect(fastSource).not.toContain('withIsolatedRuntimeAcceptanceServer');
+  expect(fastSource).not.toContain('isolated runtime acceptance launches generated Next');
+  expect(slowSource).toContain('withIsolatedRuntimeAcceptanceServer');
+  expect(slowSource).toContain('isolated runtime acceptance launches generated Next');
 });
 
 test('testkit primitives do not depend on helper-layer fixtures', async () => {
