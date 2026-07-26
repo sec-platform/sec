@@ -93,6 +93,7 @@ export const CodexDevelopmentTrustRootPathsV1 = [
   'platform/shared/contract-freeze-contract.ts',
   'platform/shared/errors.ts',
   'platform/shared/fs.ts',
+  'platform/shared/heavy-verification-gate-lease.ts',
   'platform/shared/paths.ts',
   'platform/shared/platform-command.ts',
   'platform/shared/process.ts',

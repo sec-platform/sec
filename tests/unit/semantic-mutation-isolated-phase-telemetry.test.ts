@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  SEMANTIC_MUTATION_ISOLATED_PHASES,
   readSemanticMutationIsolatedPhaseTelemetry,
   resetSemanticMutationIsolatedExecutionPhaseTelemetry,
   resetSemanticMutationIsolatedPhaseTelemetry,
@@ -11,6 +12,13 @@ import {
   type SemanticMutationIsolatedPhase
 } from '../../platform/compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
+
+const RUNTIME_PRECOMMAND_PHASES = [
+  'runtime-test-discovery',
+  'runtime-dependency-validation',
+  'runtime-process-environment-materialize',
+  'runtime-staging-tree-validation'
+] as const satisfies readonly SemanticMutationIsolatedPhase[];
 
 function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
   let resolve!: () => void;
@@ -23,6 +31,41 @@ function deferred(): { readonly promise: Promise<void>; readonly resolve: () => 
 test('isolated phase telemetry is durable, path-free, reset-scoped, and non-authoritative', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await resetSemanticMutationIsolatedPhaseTelemetry(workspaceRoot);
+    for (const phase of RUNTIME_PRECOMMAND_PHASES) {
+      expect(SEMANTIC_MUTATION_ISOLATED_PHASES).toContain(phase);
+      const failure = Object.assign(new Error(`sentinel:${phase}`), {
+        code: `SENTINEL:${phase}`
+      });
+      await expect(withSemanticMutationIsolatedPhaseTelemetry(
+        workspaceRoot,
+        phase,
+        async () => {
+          throw failure;
+        }
+      )).rejects.toBe(failure);
+    }
+    expect(await readSemanticMutationIsolatedPhaseTelemetry(workspaceRoot)).toMatchObject({
+      status: 'valid',
+      events: RUNTIME_PRECOMMAND_PHASES.flatMap((phase) => [
+        { phase, state: 'started', durationMs: 0 },
+        { phase, state: 'completed' }
+      ])
+    });
+
+    const ownedPaths = semanticMutationIsolatedPhaseTelemetryOwnedPaths(workspaceRoot);
+    expect(ownedPaths).toHaveLength(SEMANTIC_MUTATION_ISOLATED_PHASES.length * 4);
+    const ownedNames = new Set(ownedPaths.map((filePath) => path.basename(filePath)));
+    for (const phase of RUNTIME_PRECOMMAND_PHASES) {
+      for (const state of ['started', 'completed'] as const) {
+        expect(ownedNames.has(
+          `semantic-mutation-isolated-phase-telemetry-v1-${phase}-${state}.json`
+        )).toBe(true);
+        expect(ownedNames.has(
+          `.semantic-mutation-isolated-phase-telemetry-v1-${phase}-${state}.json`
+        )).toBe(true);
+      }
+    }
+
     for (const phase of [
       'source-snapshot-revalidate',
       'source-snapshot-capture',
@@ -115,5 +158,14 @@ test('isolated phase telemetry is durable, path-free, reset-scoped, and non-auth
       'runtime-materialize',
       async () => 42
     )).toBe(42);
+
+    await resetSemanticMutationIsolatedPhaseTelemetry(workspaceRoot);
+    expect(await readSemanticMutationIsolatedPhaseTelemetry(workspaceRoot)).toEqual({
+      status: 'valid',
+      events: []
+    });
+    for (const filePath of ownedPaths) {
+      await expect(readFile(filePath)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
   }, 'engineering-compiler-sm3-phase-telemetry-');
 });

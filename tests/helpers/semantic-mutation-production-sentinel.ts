@@ -22,6 +22,7 @@ import {
   assertSemanticMutationIsolatedRuntimeLaunchManifest,
   materializeSemanticMutationIsolatedRuntime
 } from '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts';
+import { acquireBrowserLaunchPath } from '../../platform/compiler/verify/windows-browser-launch-path.ts';
 import { initWorkspace } from '../../platform/orchestrator.ts';
 import type { ObservedCommandOutcome } from '../../platform/shared/observed-process.ts';
 import {
@@ -70,34 +71,10 @@ async function createProductionRuntimeCapabilityContext(root: string): Promise<R
   readonly stagingRoot: string;
 }>> {
   const stagingRoot = stagingWorkspaceRoot(root);
-  const browserSource = path.join(root, 'browser-source');
   await writeProjectBaseline(stagingRoot);
-  await mkdir(browserSource, { recursive: true });
-  const canonicalRuntimeInputSources =
-    await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources();
-  const descriptor = JSON.parse(await readFile(path.join(
-    canonicalRuntimeInputSources.compilerModulesRoot,
-    'playwright-core',
-    'browsers.json'
-  ), 'utf8')) as {
-    readonly browsers: readonly { readonly name: string; readonly revision: string }[];
-  };
-  const browser = descriptor.browsers.find((candidate) =>
-    candidate.name === 'chromium-headless-shell');
-  if (!browser) throw new Error('Production browser descriptor is unavailable');
-  const browserExecutable = path.join(
-    browserSource,
-    `chromium_headless_shell-${browser.revision}`,
-    'chrome-headless-shell-win64',
-    'chrome-headless-shell.exe'
-  );
-  await mkdir(path.dirname(browserExecutable), { recursive: true });
-  await writeFile(browserExecutable, 'production-bundle-browser-fixture', 'utf8');
   return Object.freeze({
-    runtimeInputSources: Object.freeze({
-      ...canonicalRuntimeInputSources,
-      browserCache: browserSource
-    }),
+    runtimeInputSources:
+      await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources(),
     stagingRoot
   });
 }
@@ -174,6 +151,10 @@ export async function runSemanticMutationProductionSentinel(): Promise<void> {
     const nextManifestBefore = await readFile(nextManifestPath);
 
     await ensureIsolatedProcessDirectories(path.join(stagingRoot, '.isolated-process', 'child'));
+    const browserLaunchPath = await acquireBrowserLaunchPath(
+      materialized.browsersPath,
+      materialized.browserExecutableRelativePath
+    );
     const lease = await acquireWorkspaceWriteLease(root);
     let observedOutcome: ObservedCommandOutcome | undefined;
     const supervisor = createSemanticMutationIsolatedVerificationSupervisor({
@@ -188,8 +169,12 @@ export async function runSemanticMutationProductionSentinel(): Promise<void> {
       let execution: { readonly code: number };
       try {
         execution = await supervisor({
+          browserLaunchProofArgument: browserLaunchPath.proofArgument,
           commitFence: async () => assertWorkspaceWriteLease(root, lease.token),
-          env: buildSemanticMutationIsolatedVerificationEnvironment(stagingRoot),
+          env: buildSemanticMutationIsolatedVerificationEnvironment(
+            stagingRoot,
+            browserLaunchPath.browsersPath
+          ),
           runnerRelativePath: materialized.runnerRelativePath,
           stagingWorkspaceRoot: stagingRoot,
           workspaceRoot: root,
@@ -263,7 +248,11 @@ export async function runSemanticMutationProductionSentinel(): Promise<void> {
       expect((await readdir(stagingProjectRoot)).filter((entry) =>
         entry.startsWith('.engineering-compiler-template-'))).toEqual([]);
     } finally {
-      await lease.release();
+      try {
+        await lease.release();
+      } finally {
+        await browserLaunchPath.release();
+      }
     }
   } finally {
     await rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });

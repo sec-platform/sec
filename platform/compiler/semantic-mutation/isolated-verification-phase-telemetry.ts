@@ -11,6 +11,10 @@ export const SEMANTIC_MUTATION_ISOLATED_PHASES = Object.freeze([
   'source-snapshot-single-flight-wait',
   'runtime-materialize',
   'compile-workspace',
+  'runtime-test-discovery',
+  'runtime-dependency-validation',
+  'runtime-process-environment-materialize',
+  'runtime-staging-tree-validation',
   'next-build',
   'unit',
   'playwright'

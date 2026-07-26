@@ -90,13 +90,19 @@ async function main(): Promise<void> {
     runSlowTests,
     runTests
   } = await import('./dev-runner/test-runner.ts');
+  if (target === 'test:affected') {
+    const { withHeavyVerificationGateLease } = await import('./shared/heavy-verification-gate-lease.ts');
+    process.exitCode = await withHeavyVerificationGateLease(
+      'test:affected',
+      () => runAffectedTests(args)
+    );
+    return;
+  }
   process.exitCode = target === 'contract-freeze'
     ? await runContractFreeze()
     : target === 'test'
       ? await runTests(args)
-      : target === 'test:affected'
-        ? await runAffectedTests(args)
-        : target === 'test:fast'
+      : target === 'test:fast'
           ? await runFastTests(args)
           : target === 'test:slow'
             ? await runSlowTests(args)

@@ -18,14 +18,20 @@ import {
 import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
+import {
+  registerWindowsBrowserLaunchProofFromArguments
+} from '../compiler/verify/windows-browser-launch-path.ts';
 import { listFilesRecursive, pathExists } from '../shared/fs.ts';
-import type { PipelineExecutionBoundary } from '../shared/pipeline-types.ts';
+import {
+  PIPELINE_VERIFY_STAGE_IDS,
+  type PipelineExecutionBoundary
+} from '../shared/pipeline-types.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../shared/process.ts';
 import { readProjectBaseline } from '../shared/project-baseline.ts';
 import { mintIsolatedVerificationCapability } from './isolated-verification-capability.ts';
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
-const EXPECTED_STAGES = ['resolve', 'semantic', 'compose', 'adapt', 'verify'] as const;
+registerWindowsBrowserLaunchProofFromArguments(process.argv);
 
 class SemanticMutationIsolatedCatchTreeFailure extends Error {
   constructor() {
@@ -56,8 +62,8 @@ class SemanticMutationIsolatedStagingLayoutBoundaryFailure extends Error {
 }
 
 function sameStages(actual: readonly string[]): boolean {
-  return actual.length === EXPECTED_STAGES.length &&
-    actual.every((stage, index) => stage === EXPECTED_STAGES[index]);
+  return actual.length === PIPELINE_VERIFY_STAGE_IDS.length &&
+    actual.every((stage, index) => stage === PIPELINE_VERIFY_STAGE_IDS[index]);
 }
 
 async function main(): Promise<SemanticMutationIsolatedChildOutcomeV1 | null> {

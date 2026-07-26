@@ -339,6 +339,18 @@ pre.json {
 
 const port = parseInt(process.env.TEST_PORT ?? '3001', 10);
 const baseURL = \`http://127.0.0.1:\${port}\`;
+const isolatedVerification = process.env.SEC_ISOLATED_VERIFICATION === '1';
+const webServerCommand = [
+  'bun',
+  '--no-env-file',
+  '--no-install',
+  'node_modules/next/dist/bin/next',
+  'start',
+  '--hostname',
+  '127.0.0.1',
+  '--port',
+  String(port)
+].join(' ');
 
 export default defineConfig({
   testDir: './tests/runtime/acceptance',
@@ -348,8 +360,9 @@ export default defineConfig({
     baseURL,
     trace: 'retain-on-failure'
   },
-  webServer: {
-    command: \`next start --hostname 127.0.0.1 --port \${port}\`,
+  webServer: isolatedVerification ? undefined : {
+    command: webServerCommand,
+    cwd: '.',
     url: \`\${baseURL}/login\`,
     reuseExistingServer: !process.env.CI,
     timeout: 120000

@@ -14,7 +14,7 @@ import {
   writeText,
   type CommitFence
 } from './fs.ts';
-import { compilerRoot } from './paths.ts';
+import { compilerRoot, isPathInside } from './paths.ts';
 import {
   buildIsolatedProcessEnvironment,
   ensureIsolatedProcessDirectories,
@@ -24,13 +24,18 @@ import {
   type CommandResult
 } from './process.ts';
 import {
+  buildExactPlaywrightPackageAuthority,
   buildRuntimePackageManifest,
+  EXACT_PLAYWRIGHT_PACKAGE_NAMES,
   isRuntimeDependencyPackageManifest,
   isRuntimeDepsPreboundBinding,
   loadRuntimeDependencySpec,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE,
-  type RootPackageJson
+  type ExactPlaywrightPackageAuthority,
+  type ExactPlaywrightPackageName,
+  type RootPackageJson,
+  type RuntimeDependencySpec
 } from './runtime-dependency-spec.ts';
 
 export interface RuntimeDepsStamp {
@@ -97,8 +102,80 @@ export interface RuntimeDependencyInstallOptions {
   signal?: AbortSignal;
   skipSharedDepsWarmup?: boolean;
   sleep?: (ms: number) => Promise<void>;
+  testCompilerPublishPlatform?: NodeJS.Platform;
   testCompilerPublishHook?: (stage: 'active-backed-up') => void | Promise<void>;
+  testCompilerRename?: (source: string, target: string) => Promise<void>;
 }
+
+export interface ExternalNodeRuntimeResolutionOptions {
+  beforeCommit?: CommitFence;
+  commandRunner?: typeof runCommand;
+  environment?: NodeJS.ProcessEnv;
+  nodeExecutablePath?: string;
+  signal?: AbortSignal;
+}
+
+export interface ExternalNodeRuntimeAuthority {
+  readonly executablePath: string;
+  readonly version: string;
+}
+
+export interface PlaywrightBrowserCacheInstallOptions extends RuntimeDependencyInstallOptions {
+  environment?: NodeJS.ProcessEnv;
+  installTimeoutMs?: number;
+  nodeExecutablePath?: string;
+  playwrightProjectRoot?: string;
+}
+
+export type PlaywrightBrowserCacheMaterializationResult = Readonly<
+  | {
+    browserCachePath: string;
+    browserExecutablePath: null;
+    commandResult: CommandResult;
+    source: null;
+    status: 'failed';
+  }
+  | {
+    browserCachePath: string;
+    browserExecutablePath: string;
+    browserExecutableRelativePath: string;
+    commandResult: CommandResult;
+    externalNode: Readonly<ExternalNodeRuntimeAuthority>;
+    playwrightPackageClosure: Readonly<ExactPlaywrightPackageAuthority>;
+    source: 'existing' | 'installed';
+    status: 'ready';
+  }
+>;
+
+export interface PlaywrightBrowserRuntimeAuthority {
+  browserCachePath: string;
+  browserExecutablePath: string;
+  browserExecutableRelativePath: string;
+  externalNode: Readonly<ExternalNodeRuntimeAuthority>;
+  playwrightPackageClosure: Readonly<ExactPlaywrightPackageAuthority>;
+}
+
+export type PlaywrightBrowserCacheReadyState = Readonly<PlaywrightBrowserRuntimeAuthority>;
+
+export const EXTERNAL_NODE_MINIMUM_MAJOR_VERSION = 22;
+const PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_MS = 600_000;
+const EXTERNAL_NODE_RUNTIME_PROBE = [
+  "process.stdout.write(JSON.stringify({",
+  "  bunVersion: process.versions.bun ?? null,",
+  "  executablePath: process.execPath,",
+  "  format: 'sec-external-node-runtime-v1',",
+  "  releaseName: process.release?.name ?? null,",
+  "  version: process.versions.node ?? null",
+  '}));'
+].join('\n');
+const PLAYWRIGHT_BROWSER_EXECUTABLE_PROBE = [
+  "const path = require('node:path');",
+  "const { createRequire } = require('node:module');",
+  'const projectRoot = process.argv[1];',
+  "const requireFromProject = createRequire(path.join(projectRoot, 'package.json'));",
+  "const { registry } = requireFromProject('playwright-core/lib/server');",
+  "process.stdout.write(registry.findExecutable('chromium-headless-shell').executablePath());"
+].join('\n');
 
 export function dependencyAuthorityPaths(
   dependencyRoot = compilerRoot
@@ -175,6 +252,31 @@ async function compilerDependencyIdentity(
 
 function dependencyPackagePath(nodeModulesPath: string, packageName: string): string {
   return path.join(nodeModulesPath, ...packageName.split('/'), 'package.json');
+}
+
+async function exactPlaywrightPackageClosure(
+  nodeModulesPath: string
+): Promise<Readonly<ExactPlaywrightPackageAuthority>> {
+  const runtimeSpec = await loadRuntimeDependencySpec();
+  const expectedRelease = runtimeSpec.devDependencies['@playwright/test'];
+  try {
+    const bindings = await Promise.all(EXACT_PLAYWRIGHT_PACKAGE_NAMES.map((name) =>
+      compilerDependencyPackageBinding(nodeModulesPath, name, expectedRelease!)
+    ));
+    return buildExactPlaywrightPackageAuthority(
+      bindings.map((binding) => ({
+        manifestSha256: binding.manifestSha256,
+        name: binding.name as ExactPlaywrightPackageName,
+        version: binding.version
+      })),
+      expectedRelease!
+    );
+  } catch {
+    throw new CompilerError(
+      'RUNTIME-DEPS-000',
+      `Playwright packages must exactly match release ${expectedRelease}`
+    );
+  }
 }
 
 const criticalCompilerDependencyEntries = new Set([
@@ -295,18 +397,27 @@ function sleepMs(delayMs: number): Promise<void> {
   });
 }
 
-async function hasCompleteRuntimeDeps(nodeModulesPath: string): Promise<boolean> {
-  const manifests = await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
-    try {
-      return isRuntimeDependencyPackageManifest(
-        await readJson<unknown>(dependencyPackagePath(nodeModulesPath, packageName)),
-        packageName
-      );
-    } catch {
-      return false;
-    }
-  }));
-  return manifests.every(Boolean);
+async function hasCompleteRuntimeDeps(
+  nodeModulesPath: string,
+  spec?: RuntimeDependencySpec
+): Promise<boolean> {
+  try {
+    const expected = spec ?? await loadRuntimeDependencySpec();
+    const exactVersions = {
+      ...expected.dependencies,
+      ...expected.devDependencies
+    };
+    const manifests = await Promise.all(RUNTIME_DEPENDENCY_PACKAGE_NAMES.map(async (packageName) => {
+      const manifest = await readJson<unknown>(dependencyPackagePath(nodeModulesPath, packageName));
+      return isRuntimeDependencyPackageManifest(manifest, packageName) &&
+        manifest.version === exactVersions[packageName];
+    }));
+    if (!manifests.every(Boolean)) return false;
+    await exactPlaywrightPackageClosure(nodeModulesPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function writeManifestIfChanged(
@@ -341,12 +452,16 @@ export async function writeRuntimeDepsStamp(
   await writeJson(stampPath, stamp, commitFence);
 }
 
-async function isCacheReady(nodeModulesPath: string, stampPath: string, manifestHash: string): Promise<boolean> {
+async function isCacheReady(
+  nodeModulesPath: string,
+  stampPath: string,
+  spec: RuntimeDependencySpec
+): Promise<boolean> {
   const [stamp, installed] = await Promise.all([
     readRuntimeDepsStamp(stampPath),
-    hasCompleteRuntimeDeps(nodeModulesPath)
+    hasCompleteRuntimeDeps(nodeModulesPath, spec)
   ]);
-  return installed && stamp?.manifestHash === manifestHash;
+  return installed && stamp?.manifestHash === spec.manifestHash;
 }
 
 function projectStampPath(projectRoot: string): string {
@@ -509,6 +624,574 @@ async function runBunInstall(
   });
 }
 
+function playwrightBrowserInstallFailure(
+  message: string,
+  details: Record<string, unknown> = {}
+): CompilerError {
+  return new CompilerError('RUNTIME-DEPS-005', message, details);
+}
+
+function playwrightBrowserInstallTimeoutMs(configured: number | undefined): number {
+  const timeoutMs = configured ?? PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw playwrightBrowserInstallFailure(
+      'Playwright browser installer timeout must be a positive safe integer',
+      { timeoutMs }
+    );
+  }
+  return timeoutMs;
+}
+
+async function assertPlaywrightCli(playwrightProjectRoot: string): Promise<string> {
+  const playwrightCli = path.join(playwrightProjectRoot, 'node_modules', 'playwright', 'cli.js');
+  const metadata = await fs.lstat(playwrightCli).catch(() => null);
+  if (!metadata?.isFile() || metadata.isSymbolicLink()) {
+    throw playwrightBrowserInstallFailure('Canonical Playwright installer entry is unavailable', {
+      playwrightCli
+    });
+  }
+  return playwrightCli;
+}
+
+async function physicalExecutablePath(candidatePath: string): Promise<string | null> {
+  const physicalPath = await fs.realpath(candidatePath).catch(() => null);
+  if (physicalPath === null) return null;
+  const metadata = await fs.lstat(physicalPath).catch(() => null);
+  return metadata?.isFile() === true ? physicalPath : null;
+}
+
+function sameExecutablePath(left: string, right: string): boolean {
+  const resolvedLeft = path.resolve(left);
+  const resolvedRight = path.resolve(right);
+  return process.platform === 'win32'
+    ? resolvedLeft.toLocaleLowerCase('en-US') === resolvedRight.toLocaleLowerCase('en-US')
+    : resolvedLeft === resolvedRight;
+}
+
+function externalNodeEnvironment(environment: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+  return {
+    ...environment,
+    NODE_OPTIONS: undefined,
+    NODE_PATH: undefined
+  };
+}
+
+function pathEnvironmentValue(environment: NodeJS.ProcessEnv): string {
+  return Object.entries(environment)
+    .find(([key]) => key.toLocaleLowerCase('en-US') === 'path')?.[1] ?? '';
+}
+
+type ExternalNodeRuntimeProbe = Readonly<{
+  bunVersion: string | null;
+  executablePath: string;
+  format: 'sec-external-node-runtime-v1';
+  releaseName: string;
+  version: string;
+}>;
+
+function parseExternalNodeRuntimeProbe(stdout: string): ExternalNodeRuntimeProbe | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(stdout.trim());
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const probe = value as Record<string, unknown>;
+  if (probe.format !== 'sec-external-node-runtime-v1' ||
+    probe.bunVersion !== null ||
+    typeof probe.executablePath !== 'string' ||
+    !path.isAbsolute(probe.executablePath) ||
+    probe.releaseName !== 'node' ||
+    typeof probe.version !== 'string') {
+    return null;
+  }
+  const versionMatch = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u.exec(probe.version);
+  if (!versionMatch ||
+    Number.parseInt(versionMatch[1]!, 10) < EXTERNAL_NODE_MINIMUM_MAJOR_VERSION) return null;
+  return Object.freeze({
+    bunVersion: null,
+    executablePath: probe.executablePath,
+    format: 'sec-external-node-runtime-v1',
+    releaseName: 'node',
+    version: probe.version
+  });
+}
+
+async function validateExternalNodeRuntime(
+  executablePath: string,
+  options: ExternalNodeRuntimeResolutionOptions,
+  workingDirectory: string
+): Promise<Readonly<ExternalNodeRuntimeAuthority>> {
+  const commandRunner = options.commandRunner ?? runCommand;
+  let commandResult: CommandResult;
+  try {
+    commandResult = await commandRunner(executablePath, ['-e', EXTERNAL_NODE_RUNTIME_PROBE], {
+      beforeSpawn: options.beforeCommit,
+      cwd: workingDirectory,
+      env: externalNodeEnvironment(options.environment),
+      signal: options.signal
+    });
+  } catch (error) {
+    throw playwrightBrowserInstallFailure('Configured Node.js runtime cannot be executed', {
+      cause: error instanceof Error ? error.message : String(error),
+      nodeExecutablePath: executablePath
+    });
+  }
+  const probe = commandResult.code === 0
+    ? parseExternalNodeRuntimeProbe(commandResult.stdout)
+    : null;
+  const reportedPhysicalPath = probe
+    ? await physicalExecutablePath(probe.executablePath)
+    : null;
+  if (!probe || reportedPhysicalPath === null || !sameExecutablePath(executablePath, reportedPhysicalPath)) {
+    throw playwrightBrowserInstallFailure(
+      `Configured runtime is not the required external Node.js ${EXTERNAL_NODE_MINIMUM_MAJOR_VERSION}+ authority`,
+      {
+        commandResult,
+        nodeExecutablePath: executablePath,
+        reportedExecutablePath: probe?.executablePath ?? null,
+        reportedVersion: probe?.version ?? null
+      }
+    );
+  }
+  return Object.freeze({ executablePath, version: probe.version });
+}
+
+export async function resolveExternalNodeRuntimeAuthority(
+  options: ExternalNodeRuntimeResolutionOptions = {},
+  workingDirectory = compilerRoot
+): Promise<Readonly<ExternalNodeRuntimeAuthority>> {
+  options.signal?.throwIfAborted();
+  const environment = options.environment ?? process.env;
+  const candidates: string[] = [];
+  if (options.nodeExecutablePath) {
+    candidates.push(path.resolve(options.nodeExecutablePath));
+  } else {
+    if (/^node(?:\.exe)?$/iu.test(path.basename(process.execPath))) {
+      candidates.push(process.execPath);
+    }
+    const executableNames = process.platform === 'win32' ? ['node.exe', 'node'] : ['node'];
+    const pathEntries = pathEnvironmentValue(environment)
+      .split(path.delimiter)
+      .map((entry) => entry.trim().replace(/^"|"$/gu, ''))
+      .filter((entry) => entry.length > 0);
+    for (const pathEntry of pathEntries) {
+      for (const executableName of executableNames) {
+        candidates.push(path.join(pathEntry, executableName));
+      }
+    }
+  }
+
+  const visited = new Set<string>();
+  for (const candidate of candidates) {
+    const physicalPath = await physicalExecutablePath(candidate);
+    if (physicalPath === null) continue;
+    const identity = process.platform === 'win32'
+      ? physicalPath.toLocaleLowerCase('en-US')
+      : physicalPath;
+    if (visited.has(identity)) continue;
+    visited.add(identity);
+    return validateExternalNodeRuntime(physicalPath, options, path.resolve(workingDirectory));
+  }
+  throw playwrightBrowserInstallFailure(
+    `Canonical external Node.js ${EXTERNAL_NODE_MINIMUM_MAJOR_VERSION}+ runtime is unavailable for Playwright installation`,
+    { nodeExecutablePath: options.nodeExecutablePath ? path.resolve(options.nodeExecutablePath) : null }
+  );
+}
+
+type PlaywrightBrowserCacheProbe = Readonly<{
+  browserExecutablePath: string;
+  commandResult: CommandResult;
+}>;
+
+function playwrightBrowserEnvironment(
+  environment: NodeJS.ProcessEnv | undefined,
+  browserCachePath: string
+): NodeJS.ProcessEnv {
+  return {
+    ...environment,
+    NODE_OPTIONS: undefined,
+    NODE_PATH: undefined,
+    PLAYWRIGHT_BROWSERS_PATH: browserCachePath,
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: undefined
+  };
+}
+
+async function probePlaywrightBrowserCache(
+  commandRunner: typeof runCommand,
+  nodeExecutablePath: string,
+  playwrightProjectRoot: string,
+  browserCachePath: string,
+  options: PlaywrightBrowserCacheInstallOptions
+): Promise<PlaywrightBrowserCacheProbe> {
+  options.signal?.throwIfAborted();
+  let commandResult: CommandResult;
+  try {
+    commandResult = await commandRunner(
+      nodeExecutablePath,
+      ['-e', PLAYWRIGHT_BROWSER_EXECUTABLE_PROBE, playwrightProjectRoot],
+      {
+        beforeSpawn: options.beforeCommit,
+        cwd: playwrightProjectRoot,
+        env: playwrightBrowserEnvironment(options.environment, browserCachePath),
+        signal: options.signal
+      }
+    );
+  } catch (error) {
+    throw playwrightBrowserInstallFailure('Project-local Playwright registry probe could not execute', {
+      browserCachePath,
+      cause: error instanceof Error ? error.message : String(error),
+      nodeExecutablePath
+    });
+  }
+  if (commandResult.code !== 0) {
+    throw playwrightBrowserInstallFailure('Project-local Playwright registry probe failed', {
+      browserCachePath,
+      commandResult,
+      nodeExecutablePath
+    });
+  }
+
+  const executableLines = commandResult.stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (executableLines.length !== 1 || !path.isAbsolute(executableLines[0]!)) {
+    throw playwrightBrowserInstallFailure('Project-local Playwright registry returned an invalid executable path', {
+      browserCachePath,
+      commandResult,
+      nodeExecutablePath
+    });
+  }
+
+  const browserExecutablePath = path.resolve(executableLines[0]!);
+  if (!isPathInside(browserCachePath, browserExecutablePath) ||
+    path.resolve(browserCachePath) === browserExecutablePath) {
+    throw playwrightBrowserInstallFailure('Project-local Playwright registry escaped the canonical browser cache', {
+      browserCachePath,
+      browserExecutablePath,
+      commandResult,
+      nodeExecutablePath
+    });
+  }
+  return Object.freeze({ browserExecutablePath, commandResult });
+}
+
+async function optionalMetadata(targetPath: string): Promise<Awaited<ReturnType<typeof fs.lstat>> | null> {
+  try {
+    return await fs.lstat(targetPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw playwrightBrowserInstallFailure('Playwright browser cache metadata cannot be inspected', {
+      cause: error instanceof Error ? error.message : String(error),
+      targetPath
+    });
+  }
+}
+
+async function inspectPlaywrightBrowserCache(
+  dependencyRoot: string,
+  browserCachePath: string,
+  browserExecutablePath: string
+): Promise<'missing' | 'ready'> {
+  const resolvedRoot = path.resolve(dependencyRoot);
+  const resolvedCachePath = path.resolve(browserCachePath);
+  const resolvedExecutablePath = path.resolve(browserExecutablePath);
+  if (!isPathInside(resolvedRoot, resolvedCachePath) ||
+    sameExecutablePath(resolvedRoot, resolvedCachePath) ||
+    !isPathInside(resolvedCachePath, resolvedExecutablePath) ||
+    sameExecutablePath(resolvedCachePath, resolvedExecutablePath)) {
+    throw playwrightBrowserInstallFailure('Canonical Playwright browser path escaped its lexical dependency authority', {
+      browserCachePath: resolvedCachePath,
+      browserExecutablePath: resolvedExecutablePath,
+      dependencyRoot: resolvedRoot
+    });
+  }
+
+  const rootMetadata = await optionalMetadata(resolvedRoot);
+  const physicalRoot = await fs.realpath(resolvedRoot).catch(() => null);
+  if (rootMetadata === null || !rootMetadata.isDirectory() || rootMetadata.isSymbolicLink() || physicalRoot === null) {
+    throw playwrightBrowserInstallFailure('Playwright dependency root is not a physical directory', {
+      dependencyRoot: resolvedRoot,
+      physicalRoot
+    });
+  }
+
+  let currentPath = resolvedRoot;
+  let expectedPhysicalPath = physicalRoot;
+  const relativeExecutablePath = path.relative(resolvedRoot, resolvedExecutablePath);
+  for (const segment of relativeExecutablePath.split(path.sep)) {
+    currentPath = path.join(currentPath, segment);
+    expectedPhysicalPath = path.join(expectedPhysicalPath, segment);
+    const metadata = await optionalMetadata(currentPath);
+    if (metadata === null) return 'missing';
+
+    const isExecutable = sameExecutablePath(currentPath, resolvedExecutablePath);
+    if (metadata.isSymbolicLink() ||
+      (isExecutable ? !metadata.isFile() : !metadata.isDirectory())) {
+      throw playwrightBrowserInstallFailure(
+        isExecutable
+          ? 'Canonical Playwright browser executable is not a physical file'
+          : 'Canonical Playwright browser path contains a non-physical directory',
+        {
+          browserCachePath: resolvedCachePath,
+          browserExecutablePath: resolvedExecutablePath,
+          targetPath: currentPath
+        }
+      );
+    }
+
+    const physicalPath = await fs.realpath(currentPath).catch(() => null);
+    if (physicalPath === null ||
+      !sameExecutablePath(physicalPath, expectedPhysicalPath) ||
+      !isPathInside(physicalRoot, physicalPath)) {
+      throw playwrightBrowserInstallFailure('Canonical Playwright browser path escaped physical dependency containment', {
+        browserCachePath: resolvedCachePath,
+        browserExecutablePath: resolvedExecutablePath,
+        dependencyRoot: resolvedRoot,
+        expectedPhysicalPath,
+        physicalPath,
+        targetPath: currentPath
+      });
+    }
+  }
+  return 'ready';
+}
+
+function playwrightBrowserRuntimeAuthority(
+  browserCachePath: string,
+  browserExecutablePath: string,
+  externalNode: Readonly<ExternalNodeRuntimeAuthority>,
+  playwrightPackageClosure: Readonly<ExactPlaywrightPackageAuthority>
+): Readonly<PlaywrightBrowserRuntimeAuthority> {
+  const relativePath = path.relative(browserCachePath, browserExecutablePath);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw playwrightBrowserInstallFailure(
+      'Playwright browser executable has no canonical cache-relative identity',
+      { browserCachePath, browserExecutablePath }
+    );
+  }
+  return Object.freeze({
+    browserCachePath: path.resolve(browserCachePath),
+    browserExecutablePath: path.resolve(browserExecutablePath),
+    browserExecutableRelativePath: relativePath.split(path.sep).join('/'),
+    externalNode,
+    playwrightPackageClosure
+  });
+}
+
+async function waitWithAbort(
+  delayMs: number,
+  sleep: (ms: number) => Promise<void>,
+  signal?: AbortSignal
+): Promise<void> {
+  if (!signal) {
+    await sleep(delayMs);
+    return;
+  }
+  signal.throwIfAborted();
+  let abortListener: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    abortListener = () => reject(signal.reason ?? new Error('Playwright browser cache bootstrap was aborted'));
+    signal.addEventListener('abort', abortListener, { once: true });
+  });
+  try {
+    await Promise.race([sleep(delayMs), aborted]);
+  } finally {
+    if (abortListener) signal.removeEventListener('abort', abortListener);
+  }
+}
+
+export async function materializePlaywrightBrowserCache(
+  options: PlaywrightBrowserCacheInstallOptions = {},
+  dependencyRoot = compilerRoot
+): Promise<PlaywrightBrowserCacheMaterializationResult> {
+  const root = path.resolve(dependencyRoot);
+  const authority = dependencyAuthorityPaths(root);
+  const playwrightProjectRoot = path.resolve(options.playwrightProjectRoot ?? root);
+  const installTimeoutMs = playwrightBrowserInstallTimeoutMs(options.installTimeoutMs);
+  options.signal?.throwIfAborted();
+  const commandRunner = options.commandRunner ?? runCommand;
+  const nodeRuntime = await resolveExternalNodeRuntimeAuthority({
+    beforeCommit: options.beforeCommit,
+    commandRunner,
+    environment: options.environment,
+    nodeExecutablePath: options.nodeExecutablePath,
+    signal: options.signal
+  }, playwrightProjectRoot);
+  const playwrightCli = await assertPlaywrightCli(playwrightProjectRoot);
+  const initialPlaywrightPackageClosure = await exactPlaywrightPackageClosure(
+    path.join(playwrightProjectRoot, 'node_modules')
+  );
+  const initialRegistryProbe = await probePlaywrightBrowserCache(
+    commandRunner,
+    nodeRuntime.executablePath,
+    playwrightProjectRoot,
+    authority.browserCache,
+    options
+  );
+  const currentBrowserRuntime = async (
+    browserExecutablePath: string
+  ): Promise<Readonly<PlaywrightBrowserRuntimeAuthority>> => {
+    const currentPlaywrightPackageClosure = await exactPlaywrightPackageClosure(
+      path.join(playwrightProjectRoot, 'node_modules')
+    );
+    if (JSON.stringify(currentPlaywrightPackageClosure) !==
+      JSON.stringify(initialPlaywrightPackageClosure)) {
+      throw playwrightBrowserInstallFailure(
+        'Playwright package authority changed during browser materialization',
+        { playwrightProjectRoot }
+      );
+    }
+    return playwrightBrowserRuntimeAuthority(
+      authority.browserCache,
+      browserExecutablePath,
+      nodeRuntime,
+      currentPlaywrightPackageClosure
+    );
+  };
+  const lockPath = path.join(authority.sharedDepsRoot, 'playwright-browser-install.lock');
+  const sleep = options.sleep ?? sleepMs;
+  await inspectPlaywrightBrowserCache(
+    root,
+    authority.browserCache,
+    initialRegistryProbe.browserExecutablePath
+  );
+
+  return withInstallLock(lockPath, {
+    ...options,
+    sleep: (delayMs) => waitWithAbort(delayMs, sleep, options.signal)
+  }, async () => {
+    options.signal?.throwIfAborted();
+    if (await inspectPlaywrightBrowserCache(
+      root,
+      authority.browserCache,
+      initialRegistryProbe.browserExecutablePath
+    ) === 'ready') {
+      return Object.freeze({
+        ...await currentBrowserRuntime(initialRegistryProbe.browserExecutablePath),
+        commandResult: { code: 0, stdout: '', stderr: '' },
+        source: 'existing' as const,
+        status: 'ready' as const
+      });
+    }
+
+    await options.beforeCommit?.();
+    options.signal?.throwIfAborted();
+    if (await inspectPlaywrightBrowserCache(
+      root,
+      authority.browserCache,
+      initialRegistryProbe.browserExecutablePath
+    ) === 'ready') {
+      return Object.freeze({
+        ...await currentBrowserRuntime(initialRegistryProbe.browserExecutablePath),
+        commandResult: { code: 0, stdout: '', stderr: '' },
+        source: 'existing' as const,
+        status: 'ready' as const
+      });
+    }
+    let commandResult: CommandResult;
+    try {
+      commandResult = await commandRunner(nodeRuntime.executablePath, [playwrightCli, 'install', 'chromium'], {
+        beforeSpawn: async () => {
+          await options.beforeCommit?.();
+          options.signal?.throwIfAborted();
+          await currentBrowserRuntime(initialRegistryProbe.browserExecutablePath);
+          if (await inspectPlaywrightBrowserCache(
+            root,
+            authority.browserCache,
+            initialRegistryProbe.browserExecutablePath
+          ) === 'ready') {
+            throw playwrightBrowserInstallFailure(
+              'Playwright browser cache identity changed before installer execution',
+              {
+                browserCachePath: authority.browserCache,
+                browserExecutablePath: initialRegistryProbe.browserExecutablePath
+              }
+            );
+          }
+        },
+        cwd: playwrightProjectRoot,
+        env: playwrightBrowserEnvironment(options.environment, authority.browserCache),
+        signal: options.signal,
+        timeoutMs: installTimeoutMs
+      });
+    } catch (error) {
+      throw playwrightBrowserInstallFailure('Canonical Playwright installer could not execute', {
+        browserCachePath: authority.browserCache,
+        cause: error instanceof Error ? error.message : String(error),
+        nodeExecutablePath: nodeRuntime.executablePath,
+        playwrightCli
+      });
+    }
+    await options.beforeCommit?.();
+    options.signal?.throwIfAborted();
+
+    if (commandResult.code !== 0) {
+      return Object.freeze({
+        browserCachePath: authority.browserCache,
+        browserExecutablePath: null,
+        commandResult,
+        source: null,
+        status: 'failed' as const
+      });
+    }
+
+    const finalProbe = await probePlaywrightBrowserCache(
+      commandRunner,
+      nodeRuntime.executablePath,
+      playwrightProjectRoot,
+      authority.browserCache,
+      options
+    );
+    if (!sameExecutablePath(
+      initialRegistryProbe.browserExecutablePath,
+      finalProbe.browserExecutablePath
+    ) || await inspectPlaywrightBrowserCache(
+      root,
+      authority.browserCache,
+      finalProbe.browserExecutablePath
+    ) !== 'ready') {
+      throw playwrightBrowserInstallFailure(
+        'Playwright browser cache materialization has no current executable postcondition',
+        {
+          browserCachePath: authority.browserCache,
+          commandResult,
+          initialBrowserExecutablePath: initialRegistryProbe.browserExecutablePath,
+          readinessProbe: finalProbe.commandResult
+        }
+      );
+    }
+    return Object.freeze({
+      ...await currentBrowserRuntime(finalProbe.browserExecutablePath),
+      commandResult,
+      source: 'installed' as const,
+      status: 'ready' as const
+    });
+  });
+}
+
+export async function ensurePlaywrightBrowserCacheReady(
+  options: PlaywrightBrowserCacheInstallOptions = {},
+  dependencyRoot = compilerRoot
+): Promise<PlaywrightBrowserCacheReadyState> {
+  const result = await materializePlaywrightBrowserCache(options, dependencyRoot);
+  if (result.status !== 'ready' || result.browserExecutablePath === null) {
+    throw playwrightBrowserInstallFailure('Failed to materialize the canonical Playwright browser cache', {
+      browserCachePath: result.browserCachePath,
+      commandResult: result.commandResult
+    });
+  }
+  return Object.freeze({
+    browserCachePath: result.browserCachePath,
+    browserExecutablePath: result.browserExecutablePath,
+    browserExecutableRelativePath: result.browserExecutableRelativePath,
+    externalNode: result.externalNode,
+    playwrightPackageClosure: result.playwrightPackageClosure
+  });
+}
+
 async function copyPhysicalDependencyTree(
   source: string,
   target: string,
@@ -537,10 +1220,11 @@ async function copyPhysicalDependencyTree(
 async function materializeIsolatedNodeModules(
   sharedDepsRoot: string,
   target: string,
+  spec: RuntimeDependencySpec,
   commitFence?: CommitFence
 ): Promise<void> {
   const source = path.join(sharedDepsRoot, 'node_modules');
-  if (!(await hasCompleteRuntimeDeps(source))) {
+  if (!(await hasCompleteRuntimeDeps(source, spec))) {
     throw new CompilerError('RUNTIME-DEPS-004', 'Preinstalled dependency tree is unavailable for isolated verification');
   }
   await commitFence?.();
@@ -549,13 +1233,14 @@ async function materializeIsolatedNodeModules(
 }
 
 async function resolveProjectDependencyBridgeTarget(): Promise<string> {
+  const runtimeSpec = await loadRuntimeDependencySpec();
   const compilerNodeModules = dependencyAuthorityPaths().compilerModulesRoot;
-  if (await hasCompleteRuntimeDeps(compilerNodeModules)) {
+  if (await hasCompleteRuntimeDeps(compilerNodeModules, runtimeSpec)) {
     return compilerNodeModules;
   }
 
   const sharedNodeModules = path.join(defaultSharedDepsRoot(), 'node_modules');
-  if (await hasCompleteRuntimeDeps(sharedNodeModules)) {
+  if (await hasCompleteRuntimeDeps(sharedNodeModules, runtimeSpec)) {
     return sharedNodeModules;
   }
 
@@ -650,6 +1335,97 @@ async function retainOnlyLatestCompilerDependencyBackup(backupsRoot: string, ret
     .map((entry) => fs.rm(path.join(backupsRoot, entry.name), { recursive: true, force: true }).catch(() => undefined)));
 }
 
+type CompilerDependencyDirectoryIdentity = Readonly<{
+  dev: string;
+  ino: string;
+  mode: string;
+}>;
+
+const COMPILER_DEPENDENCY_RENAME_MAX_ATTEMPTS = 8;
+const COMPILER_DEPENDENCY_RENAME_INITIAL_DELAY_MS = 25;
+const COMPILER_DEPENDENCY_RENAME_MAX_DELAY_MS = 200;
+const WINDOWS_TRANSIENT_RENAME_CODES = new Set(['EACCES', 'EBUSY', 'EPERM']);
+
+async function compilerDependencyDirectoryIdentity(
+  directoryPath: string
+): Promise<CompilerDependencyDirectoryIdentity | null> {
+  try {
+    const metadata = await fs.lstat(directoryPath, { bigint: true });
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+      throw new Error(`Compiler dependency generation is not a physical directory: ${directoryPath}`);
+    }
+    return Object.freeze({
+      dev: String(metadata.dev),
+      ino: String(metadata.ino),
+      mode: String(metadata.mode)
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function sameCompilerDependencyDirectoryIdentity(
+  left: CompilerDependencyDirectoryIdentity | null,
+  right: CompilerDependencyDirectoryIdentity
+): boolean {
+  return left !== null && left.dev === right.dev && left.ino === right.ino && left.mode === right.mode;
+}
+
+async function renameCompilerDependencyDirectory(
+  source: string,
+  target: string,
+  options: RuntimeDependencyInstallOptions
+): Promise<void> {
+  const expectedSource = await compilerDependencyDirectoryIdentity(source);
+  if (expectedSource === null) {
+    throw new Error(`Compiler dependency generation source is unavailable: ${source}`);
+  }
+  if ((await compilerDependencyDirectoryIdentity(target)) !== null) {
+    throw new Error(`Compiler dependency generation target already exists: ${target}`);
+  }
+
+  const rename = options.testCompilerRename ?? fs.rename;
+  const hostPlatform = options.testCompilerPublishPlatform ?? process.platform;
+  const sleep = options.sleep ?? sleepMs;
+  for (let attempt = 1; attempt <= COMPILER_DEPENDENCY_RENAME_MAX_ATTEMPTS; attempt += 1) {
+    await options.beforeCommit?.();
+    const currentSource = await compilerDependencyDirectoryIdentity(source);
+    const currentTarget = await compilerDependencyDirectoryIdentity(target);
+    if (!sameCompilerDependencyDirectoryIdentity(currentSource, expectedSource) || currentTarget !== null) {
+      throw new Error('Compiler dependency generation identity changed before publish');
+    }
+    try {
+      await rename(source, target);
+      return;
+    } catch (error) {
+      const sourceAfterFailure = await compilerDependencyDirectoryIdentity(source);
+      const targetAfterFailure = await compilerDependencyDirectoryIdentity(target);
+      if (sourceAfterFailure === null &&
+        sameCompilerDependencyDirectoryIdentity(targetAfterFailure, expectedSource)) {
+        return;
+      }
+      const code = (error as NodeJS.ErrnoException).code;
+      const retryable = hostPlatform === 'win32' &&
+        code !== undefined &&
+        WINDOWS_TRANSIENT_RENAME_CODES.has(code) &&
+        attempt < COMPILER_DEPENDENCY_RENAME_MAX_ATTEMPTS;
+      if (!retryable) throw error;
+      if (!sameCompilerDependencyDirectoryIdentity(sourceAfterFailure, expectedSource) ||
+        targetAfterFailure !== null) {
+        throw new Error('Compiler dependency generation identity changed after transient publish failure', {
+          cause: error
+        });
+      }
+      const delayMs = Math.min(
+        COMPILER_DEPENDENCY_RENAME_INITIAL_DELAY_MS * (2 ** (attempt - 1)),
+        COMPILER_DEPENDENCY_RENAME_MAX_DELAY_MS
+      );
+      await sleep(delayMs);
+    }
+  }
+}
+
 async function publishCompilerDependencyGeneration(
   root: string,
   activeNodeModulesPath: string,
@@ -665,19 +1441,17 @@ async function publishCompilerDependencyGeneration(
   await fs.mkdir(backupsRoot, { recursive: true });
   try {
     if (await pathExists(activeNodeModulesPath)) {
-      await options.beforeCommit?.();
-      await fs.rename(activeNodeModulesPath, backupPath);
+      await renameCompilerDependencyDirectory(activeNodeModulesPath, backupPath, options);
       activeBackedUp = true;
       await options.testCompilerPublishHook?.('active-backed-up');
     }
-    await options.beforeCommit?.();
-    await fs.rename(stagingNodeModulesPath, activeNodeModulesPath);
+    await renameCompilerDependencyDirectory(stagingNodeModulesPath, activeNodeModulesPath, options);
     published = true;
   } catch (error) {
     let rollbackFailure: unknown;
     if (activeBackedUp && !(await pathExists(activeNodeModulesPath))) {
       try {
-        await fs.rename(backupPath, activeNodeModulesPath);
+        await renameCompilerDependencyDirectory(backupPath, activeNodeModulesPath, options);
       } catch (rollbackError) {
         rollbackFailure = rollbackError;
       }
@@ -760,7 +1534,7 @@ export async function ensureSharedDepsReady(
   await ensureDir(sharedDepsRoot, options.beforeCommit);
   await writeManifestIfChanged(sharedPackagePath, manifest, options.beforeCommit);
 
-  if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec.manifestHash)) {
+  if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec)) {
     const sharedStamp = await readRuntimeDepsStamp(sharedStampPath);
     return {
       packageManager: sharedStamp?.packageManager ?? 'bun',
@@ -773,7 +1547,7 @@ export async function ensureSharedDepsReady(
   return withInstallLock(sharedLockPath, options, async () => {
     await writeManifestIfChanged(sharedPackagePath, manifest, options.beforeCommit);
 
-    if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec.manifestHash)) {
+    if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec)) {
       const sharedStamp = await readRuntimeDepsStamp(sharedStampPath);
       return {
         packageManager: sharedStamp?.packageManager ?? 'bun',
@@ -785,7 +1559,7 @@ export async function ensureSharedDepsReady(
 
     const sharedCacheDir = path.join(sharedDepsRoot, '.bun-cache');
     const { packageManager } = await runBunInstall(sharedDepsRoot, options, ['install'], sharedCacheDir);
-    if (!(await hasCompleteRuntimeDeps(sharedNodeModulesPath))) {
+    if (!(await hasCompleteRuntimeDeps(sharedNodeModulesPath, runtimeSpec))) {
       throw new CompilerError(
         'RUNTIME-DEPS-002',
         'Installed shared runtime dependency generation failed complete package validation'
@@ -818,7 +1592,7 @@ export async function ensureProjectDependencies(
     const [binding, installed] = await Promise.all([
       readJson<unknown>(path.join(nodeModulesPath, RUNTIME_DEPS_PREBOUND_BINDING_FILE))
         .catch(() => null),
-      hasCompleteRuntimeDeps(nodeModulesPath)
+      hasCompleteRuntimeDeps(nodeModulesPath, runtimeSpec)
     ]);
     await options.beforeCommit?.();
     if (!installed || !isRuntimeDepsPreboundBinding(binding, runtimeSpec.manifestHash)) {
@@ -836,7 +1610,7 @@ export async function ensureProjectDependencies(
   const stampPath = projectStampPath(projectRoot);
   await options.beforeCommit?.();
   const cacheReady = !options.rematerialize &&
-    await isCacheReady(nodeModulesPath, stampPath, runtimeSpec.manifestHash);
+    await isCacheReady(nodeModulesPath, stampPath, runtimeSpec);
   await options.beforeCommit?.();
   if (cacheReady) {
     return;
@@ -848,7 +1622,7 @@ export async function ensureProjectDependencies(
   }
 
   if (isolated) {
-    await materializeIsolatedNodeModules(sharedDepsRoot, nodeModulesPath, options.beforeCommit);
+    await materializeIsolatedNodeModules(sharedDepsRoot, nodeModulesPath, runtimeSpec, options.beforeCommit);
     await writeRuntimeDepsStamp(stampPath, {
       manifestHash: runtimeSpec.manifestHash,
       packageManager: 'bun',
@@ -859,7 +1633,7 @@ export async function ensureProjectDependencies(
 
   if (!isolated && options.skipSharedDepsWarmup === true && options.preferSharedCopy !== false) {
     const compilerNodeModules = dependencyAuthorityPaths().compilerModulesRoot;
-    if (await hasCompleteRuntimeDeps(compilerNodeModules)) {
+    if (await hasCompleteRuntimeDeps(compilerNodeModules, runtimeSpec)) {
       await options.beforeCommit?.();
       await fs.symlink(compilerNodeModules, nodeModulesPath, 'junction');
       await writeRuntimeDepsStamp(stampPath, {
@@ -874,7 +1648,7 @@ export async function ensureProjectDependencies(
   if (!isolated && options.preferSharedCopy !== false) {
     const sharedStamp = await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'));
     const sharedNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
-    if (sharedStamp && (await hasCompleteRuntimeDeps(sharedNodeModulesPath))) {
+    if (sharedStamp && (await hasCompleteRuntimeDeps(sharedNodeModulesPath, runtimeSpec))) {
       try {
         await options.beforeCommit?.();
         await fs.symlink(sharedNodeModulesPath, nodeModulesPath, 'junction');

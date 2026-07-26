@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { lstat, open, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
@@ -30,7 +31,10 @@ import {
   runCommand,
   type CommandResult
 } from '../../shared/process.ts';
-import { ensureSharedDepsReady } from '../../shared/project-runtime.ts';
+import {
+  ensurePlaywrightBrowserCacheReady,
+  ensureSharedDepsReady,
+} from '../../shared/project-runtime.ts';
 import { isCanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
 import type {
   RuntimeVerificationLaneReport,
@@ -71,7 +75,6 @@ import {
 import { assertIsolatedStagingTree } from './assert-isolated-staging-tree.ts';
 import {
   captureIsolatedRuntimeBuildNodeModulesProof,
-  isolatedPlaywrightBrowsersPath,
   resolveIsolatedRuntimeDependencySources,
   revalidateIsolatedRuntimeBuildNodeModulesProof
 } from './run-runtime-verification.ts';
@@ -84,8 +87,11 @@ import {
   materializeSemanticMutationIsolatedRuntime,
   SEMANTIC_MUTATION_ISOLATED_BUNFIG_RELATIVE_PATH,
   SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT,
+  semanticMutationIsolatedBrowserPath,
+  semanticMutationIsolatedNodeExecutablePath,
   type SemanticMutationIsolatedCompilerRegistryInput,
-  type SemanticMutationIsolatedRuntimeInputSources
+  type SemanticMutationIsolatedRuntimeInputSources,
+  type SemanticMutationIsolatedRuntimeSourcePaths
 } from './semantic-mutation-isolated-runtime-plan.ts';
 import { semanticMutationIsolatedVerificationEvidenceDigest } from './semantic-mutation-isolated-verification-evidence.ts';
 import {
@@ -99,6 +105,10 @@ import {
   issueStagedVerificationProofSource,
   type StagedVerificationProofSource
 } from './staged-verification-proof.ts';
+import {
+  acquireBrowserLaunchPath,
+  acquireBrowserLaunchPathForTests
+} from './windows-browser-launch-path.ts';
 
 export type { SemanticMutationIsolatedRuntimeInputSources } from './semantic-mutation-isolated-runtime-plan.ts';
 export {
@@ -482,10 +492,9 @@ export function projectSemanticMutationIsolatedVerificationFailureForTests(
 }
 
 export function resolveCanonicalSemanticMutationIsolatedRuntimeInputSources(
-): SemanticMutationIsolatedRuntimeInputSources {
+): SemanticMutationIsolatedRuntimeSourcePaths {
   const dependencySources = resolveIsolatedRuntimeDependencySources();
   return Object.freeze({
-    browserCache: dependencySources.browserCache,
     compilerModulesRoot: dependencySources.compilerModulesRoot,
     compilerPackage: path.join(compilerRoot, 'package.json'),
     composeTemplates: path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates'),
@@ -498,7 +507,11 @@ export function resolveCanonicalSemanticMutationIsolatedRuntimeInputSources(
 export async function prepareCanonicalSemanticMutationIsolatedRuntimeInputSources(
 ): Promise<SemanticMutationIsolatedRuntimeInputSources> {
   await ensureSharedDepsReady();
-  return resolveCanonicalSemanticMutationIsolatedRuntimeInputSources();
+  const browserRuntime = await ensurePlaywrightBrowserCacheReady();
+  return Object.freeze({
+    ...resolveCanonicalSemanticMutationIsolatedRuntimeInputSources(),
+    browserRuntime
+  });
 }
 
 function canonicalCompilerRegistryPath(value: unknown): string {
@@ -614,6 +627,7 @@ export function classifySemanticMutationIsolatedVerificationArtifactSet(
 }
 
 export interface SemanticMutationIsolatedVerificationExecutionRequest {
+  readonly browserLaunchProofArgument: string;
   readonly commitFence: CommitFence;
   readonly env: NodeJS.ProcessEnv;
   readonly runnerRelativePath: string;
@@ -745,13 +759,17 @@ function ownDataOption<Value>(
 }
 
 export function buildSemanticMutationIsolatedVerificationEnvironment(
-  stagingWorkspaceRoot: string
+  stagingWorkspaceRoot: string,
+  browsersPath = semanticMutationIsolatedBrowserPath(stagingWorkspaceRoot)
 ): Readonly<Record<string, string>> {
+  if (!path.isAbsolute(browsersPath)) {
+    throw new Error('Isolated browser launch path must be absolute');
+  }
   const writableRoot = path.join(stagingWorkspaceRoot, '.isolated-process', 'child');
   return Object.freeze(Object.fromEntries(Object.entries(buildIsolatedProcessEnvironment(writableRoot, {
     [ISOLATED_VERIFICATION_ENV_KEY]: '1',
     CI: 'true',
-    PLAYWRIGHT_BROWSERS_PATH: isolatedPlaywrightBrowsersPath(stagingWorkspaceRoot),
+    PLAYWRIGHT_BROWSERS_PATH: browsersPath,
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
   })).filter((entry): entry is [string, string] => typeof entry[1] === 'string')));
 }
@@ -763,6 +781,7 @@ function semanticMutationIsolatedHostSpawnCwd(stagingWorkspaceRoot: string): str
 }
 
 const SEMANTIC_MUTATION_ISOLATED_OUTPUT_LIMIT_BYTES = 64 * 1024;
+export const SEMANTIC_MUTATION_ISOLATED_VERIFICATION_TIMEOUT_MS = 1_200_000;
 
 export function createSemanticMutationIsolatedVerificationSupervisor(options: {
   /** Internal test seam for deterministic command outcomes. */
@@ -772,7 +791,7 @@ export function createSemanticMutationIsolatedVerificationSupervisor(options: {
   readonly pollIntervalMs?: number;
   readonly timeoutMs?: number;
 } = {}): SemanticMutationIsolatedVerificationSupervisor {
-  const timeoutMs = options.timeoutMs ?? 1_200_000;
+  const timeoutMs = options.timeoutMs ?? SEMANTIC_MUTATION_ISOLATED_VERIFICATION_TIMEOUT_MS;
   const runnerArguments = (request: SemanticMutationIsolatedVerificationExecutionRequest) => [
     '--no-env-file',
     `--config=${path.join(
@@ -780,7 +799,8 @@ export function createSemanticMutationIsolatedVerificationSupervisor(options: {
       ...SEMANTIC_MUTATION_ISOLATED_BUNFIG_RELATIVE_PATH.split('/')
     )}`,
     '--no-install',
-    path.join(request.stagingWorkspaceRoot, ...request.runnerRelativePath.split('/'))
+    path.join(request.stagingWorkspaceRoot, ...request.runnerRelativePath.split('/')),
+    request.browserLaunchProofArgument
   ];
   if (options.commandRunner === undefined) {
     const observedCommandRunner = options.observedCommandRunner ?? runObservedCommand;
@@ -1274,7 +1294,6 @@ export function createSemanticMutationIsolatedRunnerBundleLoaderForTests(
 }
 
 export interface SemanticMutationIsolatedRuntimeCapabilityProbeOptions {
-  readonly browserCacheSource?: string;
   readonly buildRunnerBundle?: SemanticMutationIsolatedRunnerBundleBuilder;
   /** Internal test seam. Product callers cannot supply isolated runtime paths. */
   readonly runtimeInputSources?: SemanticMutationIsolatedRuntimeInputSources;
@@ -1341,11 +1360,6 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
 ): Promise<{ readonly status: 'available' | 'unavailable' }> {
   try {
     const optionDescriptors = Object.getOwnPropertyDescriptors(options);
-    const browserCacheSource = ownDataOption<string>(
-      optionDescriptors,
-      'browserCacheSource',
-      'Isolated runtime capability probe options'
-    );
     const buildRunnerBundle = ownDataOption<SemanticMutationIsolatedRunnerBundleBuilder>(
       optionDescriptors,
       'buildRunnerBundle',
@@ -1356,11 +1370,10 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
       'runtimeInputSources',
       'Isolated runtime capability probe options'
     );
-    const canonicalProductionProbe = browserCacheSource === undefined &&
+    const canonicalProductionProbe =
       buildRunnerBundle === undefined && runtimeInputSources === undefined;
     const sources = runtimeInputSources ??
       await prepareCanonicalSemanticMutationIsolatedRuntimeInputSources();
-    const browserCache = browserCacheSource ?? sources.browserCache;
     if (!isSemanticMutationStagingWorkspace(stagingWorkspaceRoot)) {
       throw new Error('Isolated verification requires a controlled staging workspace');
     }
@@ -1379,7 +1392,6 @@ export async function probeSemanticMutationIsolatedRuntimeCapability(
     const capability = await withCapabilityPreparationBoundary(
       'capability-issue',
       async () => await issueSemanticMutationIsolatedRuntimeCapability({
-        browserCache,
         compilerRegistries,
         runnerBundle: bundle,
         sources,
@@ -1620,7 +1632,13 @@ export async function runSemanticMutationIsolatedVerificationChild(
     const canIssueProofSource = productionInvocation && runtimeBindingRoot !== undefined &&
       isCanonicalWorkspaceWriteCommitFence(commitFence, workspaceRoot, workspaceWriteLease) &&
       canonicalProductionRuntimeBindingRoots.has(runtimeBindingRoot);
-    const { browsersPath, runnerRelativePath } = await withSemanticMutationIsolatedPhaseTelemetry(
+    const {
+      browserExecutableRelativePath,
+      browsersPath,
+      nodeExecutablePath,
+      runnerRelativePath
+    } =
+      await withSemanticMutationIsolatedPhaseTelemetry(
       stagingWorkspaceRoot,
       'runtime-materialize',
       async () => await materializeSemanticMutationIsolatedRuntime({
@@ -1629,28 +1647,54 @@ export async function runSemanticMutationIsolatedVerificationChild(
         stagingWorkspaceRoot
       })
     );
-    await commitFence();
-    const writableRoot = path.join(stagingWorkspaceRoot, '.isolated-process', 'child');
-    await ensureIsolatedProcessDirectories(writableRoot, commitFence);
-    const env = buildSemanticMutationIsolatedVerificationEnvironment(stagingWorkspaceRoot);
-    if (env.PLAYWRIGHT_BROWSERS_PATH !== browsersPath) {
-      throw new Error('Isolated browser cache environment binding is invalid');
-    }
-    failureStage = 'binding-mismatch';
-    await assertSemanticMutationIsolatedRuntimeLaunchManifest({
-      binding: runtimeBinding,
-      commitFence,
-      stagingWorkspaceRoot
-    });
-    failureStage = 'isolated-child-execution';
-    const result = await supervisor({
-      commitFence,
-      env,
-      runnerRelativePath,
-      stagingWorkspaceRoot,
-      workspaceRoot,
-      workspaceWriteLease
-    });
+    const result = await (async (): Promise<CommandResult> => {
+      const browserLaunchPath = productionInvocation
+        ? await acquireBrowserLaunchPath(browsersPath, browserExecutableRelativePath)
+        : await acquireBrowserLaunchPathForTests(
+            browsersPath,
+            browserExecutableRelativePath,
+            {
+              platform: process.platform,
+              proveTemporaryAuthority: async () => undefined,
+              temporaryRoot: tmpdir()
+            }
+          );
+      try {
+        await commitFence();
+        const writableRoot = path.join(stagingWorkspaceRoot, '.isolated-process', 'child');
+        await ensureIsolatedProcessDirectories(writableRoot, commitFence);
+        const env = buildSemanticMutationIsolatedVerificationEnvironment(
+          stagingWorkspaceRoot,
+          browserLaunchPath.browsersPath
+        );
+        if (env.PLAYWRIGHT_BROWSERS_PATH !== browserLaunchPath.browsersPath ||
+          nodeExecutablePath !== semanticMutationIsolatedNodeExecutablePath(stagingWorkspaceRoot)) {
+          throw new Error('Isolated runtime environment binding is invalid');
+        }
+        failureStage = 'binding-mismatch';
+        await browserLaunchPath.assertCurrent();
+        await assertSemanticMutationIsolatedRuntimeLaunchManifest({
+          binding: runtimeBinding,
+          commitFence,
+          stagingWorkspaceRoot
+        });
+        await browserLaunchPath.assertCurrent();
+        failureStage = 'isolated-child-execution';
+        const result = await supervisor({
+          browserLaunchProofArgument: browserLaunchPath.proofArgument,
+          commitFence,
+          env,
+          runnerRelativePath,
+          stagingWorkspaceRoot,
+          workspaceRoot,
+          workspaceWriteLease
+        });
+        await browserLaunchPath.assertCurrent();
+        return result;
+      } finally {
+        await browserLaunchPath.release();
+      }
+    })();
 
     failureStage = 'artifact-read';
     await commitFence();

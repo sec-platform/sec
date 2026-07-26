@@ -1,7 +1,7 @@
 ---
 title: 测试反馈、证据与 CI 分层
 status: active
-last-reviewed: 2026-07-24
+last-reviewed: 2026-07-26
 ---
 
 # 测试反馈、证据与 CI 分层
@@ -39,6 +39,7 @@ last-reviewed: 2026-07-24
 - 旧结果只能作为“已验证 baseline + intervening diff impact + delta validation”的组成部分，不能伪装成新 head 的 exact-head PASS。
 - 未启动、缺失、超时、损坏、过期或 scope 不匹配均不是 PASS。
 - 失败后只重跑失败项和被修复 delta 失效的消费者；不得为制造绿色删除测试、弱化 assertion、无边界加 timeout 或重复整套矩阵。
+- 长时 production sentinel 启动前，先执行覆盖同一前置边界的最小 micro-sentinel；micro-sentinel 只能阻止已知无效候选进入昂贵 Gate，不能替代 production evidence。若长时运行的 durable journal 已证明会进入同一失败闭包，应在保留 failure phase、精确输入 delta 与 cleanup 证据后主动终止，修复根因再运行一次，而不是等待 supervisor deadline。
 
 ## 3. 本地入口
 
@@ -54,6 +55,7 @@ bun run hooks:install
 - `imports:prepare` 是 authoring 写边界；hosted `imports:check` 是只读 Gate。二者使用同一 organizer，不复制排序算法。
 - changed-only imports 必须绑定可解析的 exact base；无效 base 直接 fail closed，不能退化为全仓扫描。
 - `deps:ensure` 只发布与 manifest、lock、Bun、OS/architecture identity 匹配且验证完成的依赖 generation；ambient auto-install 和相邻 worktree 依赖不能代替当前仓库依赖。
+- `deps:ensure` 与 managed hook lifecycle只闭合 compiler dependency和hook投影，绝不下载浏览器。Playwright browser readiness只属于test/runtime preparation，并把精确三包release与manifest identity、项目本地cache、外部Node、registry-derived platform executable、正数有界安装预算和后置条件绑定为一个opaque authority；consumer不得重选browser或依赖ambient预热。
 - `hooks:install` 只在 tracked、executable、byte-equal hooks 且不存在其他真实 hook authority 时安装。lifecycle hook 负责依赖闭合，pre-commit/pre-push 只调用唯一 `imports:freeze`。
 - fast process timeout 是共享 runner 合同；显式 override 优先，默认值只由代码 owner维护。不得在单测、selector或 serial registry 中复制 timeout。
 
@@ -81,6 +83,7 @@ Risk 只运行 diff 影响的合同、slow、browser、artifact、workspace 或 
 - slow selection 是 bounded baseline、直接 slow test、ownership/import impact 与 mandatory sentinel 的稳定去重并集。
 - `--all-slow` 只属于 Full；显式 local batch一次收集同一风险簇，默认 fail fast，只有诊断/收口合同允许 continue-on-failure。
 - `parallelSafe` 与资源等级共同决定并发；runtime-heavy 或共享状态 owner 保持隔离。并发不能改变 Gate 语义、环境绑定或失败归因。
+- `test:affected`与`ci:risk`是同一physical worktree的互斥heavy Gate。二者CLI在启动任何测试child或写Risk Evidence前获取同一zero-wait lease；live contender立即失败，Windows abandoned mutex只恢复已崩溃owner。不得让两者并发争用`.tmp/test-workspaces`、Playwright、Next或Evidence，也不得把并发污染归类为产品FAIL。
 
 ## 6. Release / Full
 

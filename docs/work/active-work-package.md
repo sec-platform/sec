@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-07-24
+last-reviewed: 2026-07-26
 ---
 
 # 当前唯一 Active Work Package
@@ -10,8 +10,8 @@ last-reviewed: 2026-07-24
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/docs-doctor-v5-semantic-superset-bootstrap-v1.md
-manifestDigest: sha256:eb8da07591f9bf51baa9dcad0b9177e4de8241d7b82c2f4537032bd13e62d98d
+manifest: docs/work-packages/windows-browser-launch-path-authority-v1.md
+manifestDigest: sha256:6d7934d951dfb23b081f605c9a379516dbf31ca18c268d196f9b0537a4067554
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

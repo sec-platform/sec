@@ -4,7 +4,9 @@ import path from 'node:path';
 
 const PROJECT_ROOT_EXCLUSIONS = new Set([
   '.next',
+  '.runtime-deps.stamp.json',
   'coverage',
+  'next-env.d.ts',
   'node_modules',
   'playwright-report',
   'test-results'

@@ -39,3 +39,176 @@ stableFacts:
     - docs-document-authority-v5-reconciliation
     - docs-control-plane-publication-lifecycle
     - docs-authority-content-normalization
+    - docs-doctor-v5-semantic-superset
+
+  runtimeReconciliation:
+    completionStatus: not-in-main
+    frozenFailedCandidate:
+      commit: 3a72882151072ca96a83d974d01acc0b033fdd1a
+      canonicalAffected:
+        result: failed
+        failedBatch: tests/integration/semantic-mutation-apply.test.ts
+        summary: 3-pass-1-fail-1-error
+        riskRun: false
+      disposition: source-only-never-rerun
+    failedSuccessorCandidates:
+      - commit: 8bd5ba8f44706fa44c1ee5b95da4a900c2e5de35
+        canonicalAffected:
+          result: failed
+          failedTest: writer-authority-immutable-journal-atomic-publish-rollback-cas-public-redaction
+          summary: 67-pass-1-fail
+          riskRun: false
+        disposition: superseded-by-contract-preserving-supervisor-result-closure
+      - commit: 6daed7aaeecdfeca8910d1d2367634b86a70c0e9
+        canonicalAffected:
+          result: passed
+        risk:
+          result: failed
+          failedGate: contract-freeze
+          failedTest: platform-modules-import-compiler-apis-through-facade-or-exact-owner-boundary
+          summary: 136-pass-1-fail
+          slowAndWorkspaceExecuted: false
+        disposition: superseded-by-host-acquisition-cleanup-and-owner-seam-closure
+      - commit: a62f5689a045cfcb596ebf35047f4f7c9a1061da
+        canonicalAffected:
+          result: failed
+          failedGate: tcb-import-authority
+          summary: heavy-verification-gate-node-os-and-bun-ffi-seams-unregistered
+          riskRun: false
+        disposition: superseded-by-exact-heavy-gate-trust-root-registration
+      - commit: 6f7904cd9708e6ba9dca2e9c1afa409ea0c35088
+        canonicalAffected:
+          result: failed
+          failedTest: compiler-dependency-generation-windows-rename-eperm
+          errorCode: IMPORT-AUTHORITY-004
+          riskRun: false
+        disposition: superseded-by-bounded-identity-preserving-publish-retry
+      - commit: eb437f6fbf2cc99a8f827b65b05fe3168e70f7f2
+        canonicalAffected:
+          result: failed
+          failedBatch: tests/unit/runtime-verification.test.ts
+          summary: 83-pass-3-fail
+          riskRun: false
+        failureClassification: test-sentinel-process-environment-leakage
+        disposition: superseded-by-explicit-verifier-test-source-environment
+      - commit: 1699931f5ac1684108ff93f79fcd9e452ab8c7fa
+        canonicalAffected:
+          result: passed
+        risk:
+          result: failed
+          failedStage: preflight
+          summary: changed-files-unresolved-platform-dev-runner-cli
+          executedGateCount: 0
+        failureClassification: top-level-dev-runner-cli-missing-from-mandatory-risk-owner-pattern
+        disposition: superseded-by-exact-dev-runner-cli-risk-classification
+      - commit: c7e281e1c28a5b11860a4e4430e3c560ccb00b74
+        canonicalAffected:
+          result: passed
+        risk:
+          result: invalidated
+          passedBeforeInvalidation:
+            - selector
+            - contract-freeze
+            - compiler-smoke
+            - graph
+            - workspace
+            - verify-lock
+          termination: independent-architecture-review-failed
+        independentArchitectureReview:
+          result: failed
+          blockers:
+            - dev-runner-cli-risk-prefix-collision
+            - playwright-package-authority-revision-multiple-production-owners
+            - staged-runner-to-playwright-pre-spawn-no-spawn-behavior-unproven
+        disposition: superseded-by-exact-selector-single-authority-and-staged-no-spawn-closure
+      - commit: 61dfeefc8a6484b606bf102f3c81b710ffdce13f
+        independentArchitectureReview:
+          result: passed
+        canonicalAffected:
+          result: passed
+        risk:
+          result: failed
+          failedStage: preflight
+          summary: changed-files-unresolved-staged-runtime-target-swap-helper
+          executedGateCount: 0
+        failureClassification: test-only-staged-runtime-helper-missing-from-bounded-risk-owner
+        disposition: superseded-by-exact-test-helper-risk-classification
+    stableProductionSource:
+      commit: d2f7083c63642306ba18cd77aac373e490c9079b
+      role: blob-source-only
+      canonicalAffectedResult: failed
+    rejectedDiagnosticSource:
+      commit: ceaf72a45d11b96b412cb1fd4234f98edd03488c
+      reason: temporary-diagnostic-test-only
+    retainedStableBlobs:
+      runtimeVerification: e3de72fc69c33f05ac0274acf0aeedfbf1476079
+      projectRuntime: 0cf6392e84d91256a4924fddd15df804d862fa90
+      runtimeDependencySpec: cbfafeb4d442c957b8a6d6c4206b25d037bb10e4
+      projectRuntimeTest: 868863e3d35fcc21ad28843ad454beb15433e2db
+      semanticMutationApplyTest: 83437728a3980c734b8b79b700c0a901d8604764
+    knownFailureClassification:
+      kind: windows-browser-filesystem-path-not-launch-compatible
+      evidence:
+        sourceExecutableLength: 171
+        stagedExecutableLength: 323
+        projectedExecutableLength: 160
+        sourceLaunch: passed
+        stagedNamespacedLaunch: failed
+        projectedLaunch: passed
+      completionEvidence: false
+    knownSecondaryFailureClassification:
+      kind: playwright-windows-taskkill-access-denied
+      evidence:
+        nextReady: passed
+        acceptanceRequest: passed
+        playwrightTaskkill: access-denied
+        teardownWait: unbounded
+      disposition: sec-owned-direct-next-lifecycle
+      completionEvidence: false
+    knownTestHarnessFailureClassification:
+      kind: test-timeout-preempts-production-supervisor
+      evidence:
+        previousOuterTimeoutMs: 300000
+        supervisorTimeoutMs: 1200000
+        observedAfterTimeoutStage: artifact-read
+      disposition: deadline-derived-test-budget
+      completionEvidence: false
+    knownVerificationConcurrencyFailureClassification:
+      kind: affected-and-risk-shared-workspace-contention
+      evidence:
+        affectedExitObserved: false
+        riskStartedWhileAffectedAlive: true
+        contaminatedFailures:
+          - e2e-pipeline-timeout
+          - workspace-lease-ebusy
+          - orphaned-next-and-playwright-children
+        riskEvidencePublished: false
+        postRecoveryTestWorkspaceEmpty: true
+      disposition: physical-worktree-heavy-gate-zero-wait-lease
+      completionEvidence: false
+    knownProofInputFailureClassification:
+      kind: derived-runtime-output-misclassified-as-project-input
+      evidence:
+        liveOnlyDerivedOutputs:
+          - .runtime-deps.stamp.json
+        nextBuildRewrittenOutputs:
+          - next-env.d.ts
+        observedFailure: Live rebuild inputs do not match the staged Verification proof
+        expensiveFallback: rollback-full-verification
+      disposition: canonical-derived-output-exclusion-plus-proof-micro-sentinel
+      completionEvidence: false
+    latestIndependentArchitectureReview:
+      reviewedCommit: 61dfeefc8a6484b606bf102f3c81b710ffdce13f
+      result: passed
+      canonicalAffectedAtReviewedCommit: passed
+      riskRun: failed-preflight-after-review
+      blockers: []
+      disposition: invalidated-by-post-review-risk-preflight
+      completionEvidence: false
+    latestIndependentEvidenceReview:
+      reviewedCommit: 6daed7aaeecdfeca8910d1d2367634b86a70c0e9
+      result: failed
+      blockers:
+        - exact-owner-runtime-import-boundary-unregistered
+        - failed-host-authority-acquisition-cleanup-unproven
+      completionEvidence: false
