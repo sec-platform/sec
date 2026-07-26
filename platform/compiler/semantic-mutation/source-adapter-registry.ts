@@ -32,6 +32,28 @@ export type SemanticMutationSourceResolutionV1 =
   | { readonly status: 'resolved'; readonly source: SemanticMutationResolvedSourceV1 }
   | { readonly status: 'rejected'; readonly diagnostics: readonly SemanticMutationDiagnosticV2[] };
 
+type SemanticMutationSourceRejectionV1 = Extract<
+  SemanticMutationSourceResolutionV1,
+  { readonly status: 'rejected' }
+>;
+
+/** @internal Shared Compiler authority seam; not part of the public facade. */
+export interface SemanticMutationResolvedSourceAuthorityV1 {
+  readonly sourceKind: 'workspace-authoring';
+  readonly ownerId: string;
+  readonly writablePathPrefix: string;
+  readonly adapterId: typeof SEMANTIC_CONTRACT_YAML_ADAPTER_ID;
+  readonly adapterRevision: typeof SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION;
+  readonly relativePath: string;
+  readonly sourceRevision: string;
+  readonly loadedContract: LoadedSemanticContract;
+}
+
+/** @internal Shared Compiler authority seam; not part of the public facade. */
+export type SemanticMutationSourceAuthorityResolutionV1 =
+  | { readonly status: 'resolved'; readonly authority: SemanticMutationResolvedSourceAuthorityV1 }
+  | SemanticMutationSourceRejectionV1;
+
 type ProvenanceTuple = {
   readonly sourceId: string;
   readonly sourcePath: string;
@@ -120,7 +142,7 @@ function candidateLooksValid(candidate: unknown): candidate is SemanticMutationL
     candidate.sourceRevision === semanticContractSourceRevision(candidate.sourceKind, candidate.loadedContract as unknown as LoadedSemanticContract);
 }
 
-function reject(message: string, details?: Readonly<Record<string, unknown>>): SemanticMutationSourceResolutionV1 {
+function reject(message: string, details?: Readonly<Record<string, unknown>>): SemanticMutationSourceRejectionV1 {
   return {
     status: 'rejected',
     diagnostics: [mutationDiagnostic(
@@ -132,12 +154,13 @@ function reject(message: string, details?: Readonly<Record<string, unknown>>): S
   };
 }
 
-export function resolveSemanticMutationSource(
+/** @internal Shared by the trusted authorization ingress and the existing source resolver. */
+export function resolveSemanticMutationSourceAuthority(
   request: NormalizedSemanticMutationRequestV2,
   base: FactDeltaEndpointContext,
   authorization: SemanticMutationAuthorizationContextV2,
   candidates: readonly SemanticMutationLoadedSourceCandidateV1[]
-): SemanticMutationSourceResolutionV1 {
+): SemanticMutationSourceAuthorityResolutionV1 {
   if (request.operations.length === 0) return reject('Semantic Mutation requires at least one source operation');
 
   if (!candidates.every(candidateLooksValid)) {
@@ -196,11 +219,42 @@ export function resolveSemanticMutationSource(
       relativePath: firstPath
     });
   }
-  if (!authorization.allowedSourceOwnerIds.includes(ownerId) ||
-    !pathAllowed(firstPath, authorization.allowedPathPrefixes)) {
-    return reject('Resolved source owner or path is not authorized', {
+
+  return {
+    status: 'resolved',
+    authority: cloneAndDeepFreeze({
+      sourceKind: firstCandidate.sourceKind,
       ownerId,
-      relativePath: firstPath
+      writablePathPrefix: descriptor.relativePathPrefix,
+      adapterId: descriptor.adapterId,
+      adapterRevision: descriptor.adapterRevision,
+      relativePath: firstPath,
+      sourceRevision: firstCandidate.sourceRevision,
+      loadedContract: firstCandidate.loadedContract
+    })
+  };
+}
+
+export function resolveSemanticMutationSource(
+  request: NormalizedSemanticMutationRequestV2,
+  base: FactDeltaEndpointContext,
+  authorization: SemanticMutationAuthorizationContextV2,
+  candidates: readonly SemanticMutationLoadedSourceCandidateV1[]
+): SemanticMutationSourceResolutionV1 {
+  const authorityResolution = resolveSemanticMutationSourceAuthority(
+    request,
+    base,
+    authorization,
+    candidates
+  );
+  if (authorityResolution.status === 'rejected') return authorityResolution;
+
+  const authority = authorityResolution.authority;
+  if (!authorization.allowedSourceOwnerIds.includes(authority.ownerId) ||
+    !pathAllowed(authority.relativePath, authorization.allowedPathPrefixes)) {
+    return reject('Resolved source owner or path is not authorized', {
+      ownerId: authority.ownerId,
+      relativePath: authority.relativePath
     });
   }
 
@@ -208,14 +262,14 @@ export function resolveSemanticMutationSource(
     status: 'resolved',
     source: cloneAndDeepFreeze((() => {
       const withoutRevision = {
-        sourceKind: firstCandidate.sourceKind,
-        ownerId,
+        sourceKind: authority.sourceKind,
+        ownerId: authority.ownerId,
         writable: true,
-        adapterId: descriptor.adapterId,
-        adapterRevision: descriptor.adapterRevision,
-        relativePath: firstPath,
-        sourceRevision: firstCandidate.sourceRevision,
-        loadedContract: firstCandidate.loadedContract,
+        adapterId: authority.adapterId,
+        adapterRevision: authority.adapterRevision,
+        relativePath: authority.relativePath,
+        sourceRevision: authority.sourceRevision,
+        loadedContract: authority.loadedContract,
         operations: request.operations
       } as const;
       return {
