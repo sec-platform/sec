@@ -12,6 +12,7 @@ test('bounded slow baseline is owned by shared execution lifecycle surfaces', ()
     'platform/dev-runner/test-runner.ts',
     'platform/shared/ci-pr-risk-selection.ts',
     'platform/shared/test-budget-contract.ts',
+    'tests/helpers/semantic-mutation-runtime-target-swap-runner.ts',
     'tests/helpers/workspace-fixtures.ts',
     'tests/setup/runtime-deps.setup.ts',
     'tests/testkit/workspace.ts'
@@ -24,6 +25,19 @@ test('bounded slow baseline is owned by shared execution lifecycle surfaces', ()
     expect(selection.reasons).toContain(
       file.startsWith('tests/') ? 'bounded-baseline' : 'mandatory-sentinel'
     );
+  }
+});
+
+test('staged runtime helper bounded ownership rejects path prefix collisions', () => {
+  for (const file of [
+    'tests/helpers/semantic-mutation-runtime-target-swap-runner.tsx',
+    'tests/helpers/semantic-mutation-runtime-target-swap-runner.ts/evil',
+    'tests/helpers/semantic-mutation-runtime-target-swap-runner-copy.ts'
+  ]) {
+    const selection = selectCiPrRiskSlowSuites([file]);
+    expect(selection.resolved).toBe(false);
+    expect(selection.reasons).toContain('changed-files-unresolved');
+    expect(selection.reasons).not.toContain('bounded-baseline');
   }
 });
 

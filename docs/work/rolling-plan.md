@@ -6,7 +6,7 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody和最新exact-head Gate重新计算。`1699931`的canonical affected真实PASS，但其唯一Risk在2.1秒preflight fail-closed，0个Gate执行；该head永久FAIL且不重跑。`c7e281e`的canonical affected真实PASS，其Risk完成selector、Contract Freeze、compiler-smoke、graph、workspace与verify-lock后，被独立Architecture Review判定为FAIL并主动终止，未冒充完成证据。三个不可绕过 blocker 是：dev-runner selector前缀碰撞、Playwright package authority revision多生产owner、缺少staged runner到真实Playwright pre-spawn的no-spawn行为证明。当前唯一successor只闭合这三项：exact selector边界、`runtime-dependency-spec`唯一revision builder/validator、test-only staged argv proof target-swap sentinel；它必须重新获得一次exact-head Review，Review PASS后才运行一次canonical affected和一次Risk。#142已squash merge，PR #137仍位于旧base且冲突，不能提供完成授权。
+本窗口从`origin/main@4ef0d38f726ce38d931ea66e859d20214469c69e`、九文件Goal revision `sha256:555a187d…f676`、live resolver、开放Draft PR #137、Issue #132、retained worktree custody和最新exact-head Gate重新计算。`1699931`的canonical affected真实PASS，但Risk在preflight fail-closed，0个Gate执行；`c7e281e`的canonical affected真实PASS，Risk被独立Review FAIL失效并终止。`61dfeef`随后闭合selector前缀碰撞、Playwright package authority多owner与staged no-spawn行为证据，独立Review和canonical affected均真实PASS；其唯一Risk仍在2.076秒preflight fail-closed，原因是新增test-only staged target-swap runner没有进入changed-file risk owner，0个Gate执行。该head永久FAIL且不重跑。当前唯一successor只把该精确helper纳入bounded Risk baseline并冻结路径前缀反例；它必须重新获得exact-head Review、一次canonical affected和一次Risk。#142已squash merge，PR #137仍位于旧base且冲突，不能提供完成授权。
 
 ```text
 Windows Browser Launch Path Authority V1 (active)

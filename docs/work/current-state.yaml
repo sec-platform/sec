@@ -121,6 +121,18 @@ stableFacts:
             - playwright-package-authority-revision-multiple-production-owners
             - staged-runner-to-playwright-pre-spawn-no-spawn-behavior-unproven
         disposition: superseded-by-exact-selector-single-authority-and-staged-no-spawn-closure
+      - commit: 61dfeefc8a6484b606bf102f3c81b710ffdce13f
+        independentArchitectureReview:
+          result: passed
+        canonicalAffected:
+          result: passed
+        risk:
+          result: failed
+          failedStage: preflight
+          summary: changed-files-unresolved-staged-runtime-target-swap-helper
+          executedGateCount: 0
+        failureClassification: test-only-staged-runtime-helper-missing-from-bounded-risk-owner
+        disposition: superseded-by-exact-test-helper-risk-classification
     stableProductionSource:
       commit: d2f7083c63642306ba18cd77aac373e490c9079b
       role: blob-source-only
@@ -186,15 +198,12 @@ stableFacts:
       disposition: canonical-derived-output-exclusion-plus-proof-micro-sentinel
       completionEvidence: false
     latestIndependentArchitectureReview:
-      reviewedCommit: c7e281e1c28a5b11860a4e4430e3c560ccb00b74
-      result: failed
+      reviewedCommit: 61dfeefc8a6484b606bf102f3c81b710ffdce13f
+      result: passed
       canonicalAffectedAtReviewedCommit: passed
-      riskRun: invalidated-and-terminated
-      blockers:
-        - dev-runner-cli-risk-prefix-collision
-        - playwright-package-authority-revision-multiple-production-owners
-        - staged-runner-to-playwright-pre-spawn-no-spawn-behavior-unproven
-      disposition: one-final-successor-required
+      riskRun: failed-preflight-after-review
+      blockers: []
+      disposition: invalidated-by-post-review-risk-preflight
       completionEvidence: false
     latestIndependentEvidenceReview:
       reviewedCommit: 6daed7aaeecdfeca8910d1d2367634b86a70c0e9
