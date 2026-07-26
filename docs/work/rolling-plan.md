@@ -6,10 +6,10 @@ last-reviewed: 2026-07-26
 
 # SEC 滚动近期计划
 
-本窗口从 `origin/main@e30e434d15c9a87541866e64a56051d08b70cad4`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与一次 live resolver snapshot重新计算。旧 candidate、PR/run与 Review历史不再复制进活动控制面。
+本窗口从 `origin/main@a370236e92518abb83c10afbe955010c589e3e2f`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与一次 live resolver snapshot重新计算。旧 candidate、PR/run与 Review历史不再复制进活动控制面。
 
 ```text
-Fast Feedback Closure V2
+Fast Feedback Postmerge Pointer V1
 → publication 后 active pointer = none
 → SM-4A Shared Adapter + CLI/Workbench Thin Transports (next-ready)
 → Nexus Exact-tree Census Refresh
@@ -20,12 +20,12 @@ Fast Feedback Closure V2
 
 ## 当前唯一 Work Package
 
-### fast-feedback-closure-v2
+### fast-feedback-postmerge-pointer-v1
 
-- 工程结果：fast runner删除过期隔离，扩大已受Bun并发上限约束的shard容量，把进程隔离拆成有界并行与真实独占，使用run-owned workspace namespace并由父进程在任何退出路径清理；canonical IR完整Workspace acceptance并入既有integration setup，Git immutable evidence读取exact blob。
-- Owner：frozen manifest列出的runner plan/cleanup、两个测试分层、Git fixture、V16 verifier原子升级与必要测试架构文档；compiler/orchestrator、slow registry、test impact、timeout、V2 composition和Evidence合同均禁止修改。
+- 工程结果：修复 PR #152 发布后 active pointer 仍绑定采样前 manifest digest 导致的 `candidate-digest-mismatch`，不改变已进入 main 的 fast runner、测试分层或 V16 verifier。
+- Owner：仅 postmerge manifest、active pointer 与 rolling plan；产品、测试、verifier、workflow、架构和稳定路线图均禁止修改。
 - 选择语义：candidate manifest尚未出现在 live default branch时它是唯一 active；相同 blob发布后 resolver返回 `none`。
-- 退出：每个selected file执行一次且无遗漏，isolated peak不超过唯一上限，exclusive保持串行，迁移的IR acceptance只做一次workspace setup，任何fast退出后run-owned residue为0；一个warm-up加至少五个同条件样本只建立median/range性能证据，不把单次duration当hard baseline；exact candidate完成focused、typecheck/imports/docs与Review后进入main并清理任务branch。
+- 退出：docs doctor与control-plane lifecycle通过，候选解析为唯一 active；相同 manifest blob进入 main 后解析为`matching-default-blob`，任务branch清理。
 
 ## 候选 Work Package
 
