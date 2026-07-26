@@ -17,6 +17,15 @@ export type CodexDevelopmentAffectedTestInventoryV1 = {
   sourceChanged: boolean;
 };
 
+export function CodexDevelopmentAffectedInventoryInputsV1(
+  changedPaths: readonly string[],
+  currentTestPathIsRunnable: (file: string) => boolean
+): string[] {
+  return uniqueSorted(changedPaths.filter((file) => (
+    (!isFastTestFile(file) && !isSlowTestFile(file)) || currentTestPathIsRunnable(file)
+  )));
+}
+
 export function CodexDevelopmentBuildAffectedTestInventoryV1(
   files: readonly string[],
   provider?: CodexDevelopmentTestImpactSourceProviderV1

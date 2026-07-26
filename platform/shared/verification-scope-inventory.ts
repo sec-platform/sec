@@ -1,4 +1,7 @@
-import { CodexDevelopmentBuildAffectedTestInventoryV1 } from './affected-test-inventory.ts';
+import {
+  CodexDevelopmentAffectedInventoryInputsV1,
+  CodexDevelopmentBuildAffectedTestInventoryV1
+} from './affected-test-inventory.ts';
 import {
   CodexDevelopmentEvidenceCompositionDigestV1,
   CodexDevelopmentVerificationScopeV1,
@@ -56,7 +59,10 @@ export function CodexDevelopmentBuildVerificationScopeInventoryV1(options: {
     throw new Error('Verification scope inventory cannot compose unresolved changed-path selection.');
   }
   const affected = CodexDevelopmentBuildAffectedTestInventoryV1(
-    fullChangedFiles,
+    CodexDevelopmentAffectedInventoryInputsV1(
+      fullChangedFiles,
+      (file) => options.gitBlob(options.currentHead, file)?.type === 'blob'
+    ),
     options.testImpactSourceProvider
   );
   const risk = selectCiPrRiskSlowSuites(fullChangedFiles, options.testImpactSourceProvider);

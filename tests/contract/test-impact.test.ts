@@ -36,6 +36,96 @@ test('test impact selector includes tests that directly import changed sources',
   expect(selection.slow).not.toContain('tests/contract/test-impact.test.ts');
 });
 
+test('repository and documentation changes select owner-aligned contracts instead of the runtime catch-all', () => {
+  for (const source of [
+    'README.md',
+    'docs/03-MVP实施计划与路线图.md',
+    'docs/05-编译器核心实现规格.md'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual({
+      fast: ['tests/contract/documentation-authority.test.ts'],
+      slow: [],
+      owners: ['documentation-authority']
+    });
+  }
+  expect(selectTestsForSources(['package.json'])).toEqual({
+    fast: [
+      'tests/contract/benchmark-budget.test.ts',
+      'tests/contract/repository-runtime.test.ts',
+      'tests/integration/compiler-dependency-installation.test.ts',
+      'tests/integration/project-base.test.ts',
+      'tests/integration/project-dependency-runtime.test.ts'
+    ],
+    slow: [],
+    owners: ['repository-package-contract']
+  });
+  expect(selectTestsForSources(['bun.lock'])).toEqual({
+    fast: ['tests/integration/compiler-dependency-installation.test.ts'],
+    slow: [],
+    owners: ['repository-lockfile-contract']
+  });
+});
+
+test('runtime dependency authorities select only their exact fast and slow owners', () => {
+  expect(selectTestsForSources(['platform/shared/project-runtime.ts'])).toEqual({
+    fast: [
+      'tests/contract/test-impact.test.ts',
+      'tests/integration/compiler-dependency-installation.test.ts',
+      'tests/integration/project-dependency-runtime.test.ts',
+      'tests/unit/dependency-environment.test.ts',
+      'tests/unit/playwright-browser-cache.test.ts',
+      'tests/unit/runtime-verification.test.ts',
+      'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
+    ],
+    slow: ['tests/e2e/runtime-host.test.ts'],
+    owners: ['project-runtime-authority']
+  });
+  expect(selectTestsForSources(['platform/shared/runtime-dependency-spec.ts'])).toEqual({
+    fast: [
+      'tests/contract/test-impact.test.ts',
+      'tests/integration/project-base.test.ts',
+      'tests/integration/project-dependency-runtime.test.ts',
+      'tests/unit/playwright-browser-cache.test.ts',
+      'tests/unit/runtime-dependency-spec.test.ts',
+      'tests/unit/runtime-verification.test.ts',
+      'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
+    ],
+    slow: ['tests/e2e/runtime-host.test.ts'],
+    owners: ['runtime-dependency-spec']
+  });
+  expect(selectTestsForSources(['platform/shared/project-base.ts'])).toEqual({
+    fast: [
+      'tests/contract/test-impact.test.ts',
+      'tests/integration/project-base.test.ts',
+      'tests/integration/project-dependency-runtime.test.ts'
+    ],
+    slow: ['tests/e2e/runtime-host.test.ts'],
+    owners: ['project-base']
+  });
+});
+
+test('Task Envelope changes select behavior instead of source-text assertions', () => {
+  for (const source of [
+    'platform/compiler/synthesize/build-task-envelope.ts',
+    'platform/shared/task-envelope-types.ts'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual({
+      fast: [
+        'tests/contract/test-impact.test.ts',
+        'tests/integration/repair.test.ts',
+        'tests/unit/task-envelope.test.ts'
+      ],
+      slow: ['tests/e2e/repair.test.ts'],
+      owners: ['task-envelope']
+    });
+  }
+  expect(selectTestsForSources(['platform/shared/contract-freeze-contract.ts'])).toEqual({
+    fast: ['tests/contract/contract-freeze.test.ts'],
+    slow: [],
+    owners: ['auto-reference', 'contract-freeze']
+  });
+});
+
 test('test impact scanner uses pinned Bun syntax scanning without import-like text false positives', () => {
   const selected = 'tests/unit/virtual-import-impact.test.ts';
   const ignored = 'tests/unit/virtual-import-text.test.ts';
@@ -90,6 +180,26 @@ test('test-impact rule files remain verification infrastructure rather than prod
     expect(selection.owners).toContain('verification-infrastructure');
     expect(selection.owners).not.toContain(productOwner);
     expect(selection.slow).toEqual([]);
+  }
+});
+
+test('affected selection authority has one explicit local and hosted verification owner', () => {
+  for (const source of [
+    'platform/shared/affected-test-inventory.ts',
+    'platform/shared/verification-scope-inventory.ts'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual({
+      fast: [
+        'tests/contract/ci-lanes.test.ts',
+        'tests/contract/sec-merge-gate.test.ts',
+        'tests/contract/test-impact.test.ts',
+        'tests/unit/ci-pr-risk-selection.test.ts',
+        'tests/unit/ci-verification-v7-execution.test.ts',
+        'tests/unit/test-runner.test.ts'
+      ],
+      slow: [],
+      owners: ['affected-test-selection']
+    });
   }
 });
 
@@ -164,7 +274,6 @@ test('test impact keeps managed Git hooks fast contract coverage and slow real-r
   expect(selection.owners).toEqual(['auto-reference', 'managed-git-hooks']);
   expect(selection.fast).toEqual([
     'tests/contract/test-impact.test.ts',
-    'tests/integration/project-runtime.test.ts',
     'tests/unit/dev-runner-dependency-bootstrap.test.ts',
     'tests/unit/install-git-hooks.test.ts'
   ]);
@@ -200,7 +309,9 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
     'tests/contract/ci-contract.test.ts',
     'tests/contract/ci-lanes.test.ts',
     'tests/contract/slow-suite-resource-budget.test.ts',
-    'tests/integration/project-runtime.test.ts'
+    'tests/integration/compiler-dependency-installation.test.ts',
+    'tests/integration/project-base.test.ts',
+    'tests/integration/project-dependency-runtime.test.ts'
   ]));
   expect(moduleSelection.slow).toEqual([]);
   expect(resolveTestOwnership(['platform/dev-runner/test-runner.ts'])).toEqual([{
@@ -365,7 +476,6 @@ test('test impact selector owns the SM-3 lease and local isolated child boundary
     'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
     'tests/unit/workspace-write-lease.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts',
-    'tests/integration/project-runtime.test.ts',
     'tests/contract/semantic-mutation-apply-contract.test.ts'
   ]));
   for (const source of sourceFiles) {
@@ -389,7 +499,6 @@ test('test impact selector gives runner build boundaries a focused semantic-muta
     expect(selection.fast).toEqual([
       'tests/contract/semantic-mutation-apply-contract.test.ts',
       'tests/contract/test-impact.test.ts',
-      'tests/integration/project-runtime.test.ts',
       'tests/unit/semantic-mutation-isolated-child-fence.test.ts'
     ]);
     expect(selection.slow).toEqual(['tests/e2e/verification.test.ts']);

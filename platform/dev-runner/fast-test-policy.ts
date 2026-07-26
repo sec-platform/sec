@@ -42,7 +42,6 @@ export const FAST_TEST_PROCESS_ISOLATION_REGISTRY = [
     reason: 'workspace-mutation',
     scheduling: 'bounded-parallel'
   },
-  { file: 'tests/integration/project-runtime.test.ts', reason: 'runtime-dependency-state', scheduling: 'exclusive' },
   {
     file: 'tests/integration/semantic-mutation-apply.test.ts',
     reason: 'workspace-mutation',

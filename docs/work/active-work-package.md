@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-07-26
+last-reviewed: 2026-07-27
 ---
 
 # 当前唯一 Active Work Package
@@ -10,8 +10,8 @@ last-reviewed: 2026-07-26
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/dev-runner-precise-test-impact-v1.md
-manifestDigest: sha256:b94b933f6688fca3e1423aa3e6ca3880770a4852547754806664c76657f7b081
+manifest: docs/work-packages/project-runtime-owner-split-v1.md
+manifestDigest: sha256:e6a987cd3b2edfcc999a34fcb8407d805f424a01fec493f78aa0eaca0966bb5d
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

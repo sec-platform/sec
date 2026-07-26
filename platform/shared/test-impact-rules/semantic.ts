@@ -65,7 +65,6 @@ const SEMANTIC_MUTATION_FAST_TESTS = [
   "tests/integration/semantic-mutation-recovery-lifecycle.test.ts",
   "tests/integration/semantic-mutation-windows-rollback.test.ts",
   "tests/integration/pipeline-workspace-write-lease.test.ts",
-  "tests/integration/project-runtime.test.ts",
   "tests/unit/runtime-verification.test.ts",
   "tests/integration/workspace-engineering-ir.test.ts",
   "tests/integration/semantic-core-vertical.test.ts",
@@ -83,8 +82,39 @@ const SEMANTIC_MUTATION_FAST_TESTS = [
 const SEMANTIC_MUTATION_RUNNER_BUILD_FAST_TESTS = [
   "tests/contract/semantic-mutation-apply-contract.test.ts",
   "tests/contract/test-impact.test.ts",
-  "tests/integration/project-runtime.test.ts",
   "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+];
+
+const PROJECT_RUNTIME_AUTHORITY_FAST_TESTS = [
+  "tests/contract/test-impact.test.ts",
+  "tests/integration/compiler-dependency-installation.test.ts",
+  "tests/integration/project-dependency-runtime.test.ts",
+  "tests/unit/dependency-environment.test.ts",
+  "tests/unit/playwright-browser-cache.test.ts",
+  "tests/unit/runtime-verification.test.ts",
+  "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+];
+
+const RUNTIME_DEPENDENCY_SPEC_FAST_TESTS = [
+  "tests/contract/test-impact.test.ts",
+  "tests/integration/project-base.test.ts",
+  "tests/integration/project-dependency-runtime.test.ts",
+  "tests/unit/playwright-browser-cache.test.ts",
+  "tests/unit/runtime-dependency-spec.test.ts",
+  "tests/unit/runtime-verification.test.ts",
+  "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+];
+
+const PROJECT_BASE_FAST_TESTS = [
+  "tests/contract/test-impact.test.ts",
+  "tests/integration/project-base.test.ts",
+  "tests/integration/project-dependency-runtime.test.ts",
+];
+
+const TASK_ENVELOPE_FAST_TESTS = [
+  "tests/contract/test-impact.test.ts",
+  "tests/integration/repair.test.ts",
+  "tests/unit/task-envelope.test.ts",
 ];
 
 const WINDOWS_APPCONTAINER_HARDENING_FAST_TESTS = [
@@ -139,6 +169,41 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     slow: ["tests/e2e/verification.test.ts"],
   },
   {
+    owner: "project-runtime-authority",
+    identity: { kind: "architecture-owner", id: "project-runtime-authority" },
+    autoReferenceMode: "declared-only",
+    sourceFiles: ["platform/shared/project-runtime.ts"],
+    fast: PROJECT_RUNTIME_AUTHORITY_FAST_TESTS,
+    slow: ["tests/e2e/runtime-host.test.ts"],
+  },
+  {
+    owner: "runtime-dependency-spec",
+    identity: { kind: "architecture-owner", id: "runtime-dependency-spec" },
+    autoReferenceMode: "declared-only",
+    sourceFiles: ["platform/shared/runtime-dependency-spec.ts"],
+    fast: RUNTIME_DEPENDENCY_SPEC_FAST_TESTS,
+    slow: ["tests/e2e/runtime-host.test.ts"],
+  },
+  {
+    owner: "project-base",
+    identity: { kind: "architecture-owner", id: "project-base" },
+    autoReferenceMode: "declared-only",
+    sourceFiles: ["platform/shared/project-base.ts"],
+    fast: PROJECT_BASE_FAST_TESTS,
+    slow: ["tests/e2e/runtime-host.test.ts"],
+  },
+  {
+    owner: "task-envelope",
+    identity: { kind: "contract", id: "task-envelope" },
+    autoReferenceMode: "declared-only",
+    sourceFiles: [
+      "platform/compiler/synthesize/build-task-envelope.ts",
+      "platform/shared/task-envelope-types.ts",
+    ],
+    fast: TASK_ENVELOPE_FAST_TESTS,
+    slow: ["tests/e2e/repair.test.ts"],
+  },
+  {
     owner: "semantic-mutation",
     identity: { kind: "architecture-owner", id: "semantic-mutation" },
     autoReferenceMode: "declared-only",
@@ -148,8 +213,6 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/shared/semantic-mutation-staging-boundary.ts",
       "platform/shared/workspace-write-lease.ts",
       "platform/shared/process.ts",
-      "platform/shared/project-runtime.ts",
-      "platform/shared/runtime-dependency-spec.ts",
       "platform/compiler/verify/assert-isolated-staging-tree.ts",
       "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
       "platform/compiler/verify/semantic-mutation-isolated-runtime-binding.ts",
@@ -276,7 +339,7 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     owner: "registry-manifest",
     identity: { kind: "architecture-owner", id: "registry-manifest" },
     sourceKinds: ["manifest"],
-    fast: ["tests/unit/path-containment.test.ts", "tests/integration/project-runtime.test.ts"],
+    fast: ["tests/unit/path-containment.test.ts"],
     slow: ["tests/e2e/registry.test.ts"]
   },
   {
