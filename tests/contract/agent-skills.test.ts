@@ -56,16 +56,15 @@ function isHeuristicSurface(file: string): boolean {
     || file === 'scripts/install-git-hooks.ts'
     || file === 'scripts/run-work-package-gate.ts'
     || /^\.agents\/skills\//u.test(file)
-    || /^\.codex\/agents\//u.test(file)
-    || /^\.github\/workflows\//u.test(file)
+    || /^\.codex\//u.test(file)
+    || /^\.github\//u.test(file)
     || /^\.githooks\//u.test(file)
-    || /^scripts\/codex\//u.test(file)
-    || /^scripts\/ci-[^/]+\.ts$/u.test(file)
+    || /^scripts\//u.test(file)
     || /^docs\/scripts\//u.test(file)
     || /^platform\/dev-runner\//u.test(file)
     || /^platform\/shared\/(?:ci-|test-impact|test-ownership|affected-test|verification-scope)/u.test(file)
     || /^platform\/shared\/test-impact-rules\//u.test(file)
-    || /^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version)$/u.test(file);
+    || /^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version|\.gitignore|\.gitattributes|\.npmrc|\.dependency-cruiser\.json)$/u.test(file);
 }
 
 test('SEC skill inventory conforms to one strict AgentOperation contract', async () => {
@@ -248,6 +247,28 @@ test('MCP entrypoints are retired while GitNexus and Graphify CLI analysis remai
   expect(packageJson.scripts['gitnexus:analyze']).toBeDefined();
   expect(packageJson.scripts['gitnexus:status']).toBeDefined();
   expect(packageJson.scripts.graphify).toBeDefined();
+});
+
+test('external capability ledger freezes MCP retirement without retiring CLI analysis', async () => {
+  const ledger = parseYaml(await readFile(
+    path.join(REPOSITORY_ROOT, 'docs', 'governance', 'external-capability-ledger.yaml'),
+    'utf8'
+  )) as {
+    providers?: Array<{
+      id?: string;
+      toolSurface?: { cliCommands?: string[]; mcpToolsExposedByDefault?: string[] };
+      decision?: { value?: string; rationale?: string };
+      lifecycle?: { state?: string };
+    }>;
+  };
+  const gitnexus = ledger.providers?.find((provider) => provider.id === 'gitnexus');
+  const graphItLive = ledger.providers?.find((provider) => provider.id === 'graph-it-live-mcp');
+
+  expect(gitnexus?.toolSurface?.cliCommands).toEqual(['analyze', 'status']);
+  expect(gitnexus?.toolSurface?.mcpToolsExposedByDefault).toEqual([]);
+  expect(gitnexus?.decision?.rationale).toContain('standing GitNexus MCP server');
+  expect(graphItLive?.decision?.value).toBe('reject-with-rationale');
+  expect(graphItLive?.lifecycle?.state).toBe('retired');
 });
 
 test('repository documentation resolves one selected Work Package and V19 authority', async () => {
