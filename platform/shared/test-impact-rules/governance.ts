@@ -6,7 +6,8 @@ const AGENT_GOVERNANCE_FAST_TESTS = [
   'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
-const REPOSITORY_TOOLING_CONFIG_FAST_TESTS = [
+const EXTERNAL_CAPABILITY_RETIREMENT_FAST_TESTS = [
+  'tests/contract/agent-skills.test.ts',
   'tests/contract/repository-runtime.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/ci-pr-risk-selection.test.ts'
@@ -56,17 +57,18 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     sourceFiles: [
       'AGENTS.md',
       '.codex/agents/implementation-worker.toml',
-      '.codex/agents/verification-evidence-reviewer.toml'
+      '.codex/agents/verification-evidence-reviewer.toml',
+      'platform/shared/agent-skill-contract.ts'
     ],
     sourcePrefixes: ['.agents/skills/'],
     fast: AGENT_GOVERNANCE_FAST_TESTS,
     slow: []
   },
   {
-    owner: 'repository-tooling-config',
-    identity: { kind: 'contract', id: 'repository-tooling-config' },
-    sourceFiles: ['.mcp.json'],
-    fast: REPOSITORY_TOOLING_CONFIG_FAST_TESTS,
+    owner: 'external-capability-retirement',
+    identity: { kind: 'contract', id: 'external-capability-retirement' },
+    sourceFiles: ['scripts/cleanup-mcp.ps1'],
+    fast: EXTERNAL_CAPABILITY_RETIREMENT_FAST_TESTS,
     slow: []
   },
   {
