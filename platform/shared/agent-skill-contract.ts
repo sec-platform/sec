@@ -37,7 +37,9 @@ export type SecMarkdownSurfaceKind =
   | 'active-authority'
   | 'frozen-work-package'
   | 'evidence'
-  | 'historical';
+  | 'historical'
+  | 'verification-fixture'
+  | 'repository-content';
 
 export type SecMarkdownSkillCoverage = {
   kind: SecMarkdownSurfaceKind;
@@ -77,12 +79,19 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       skills: skills('sec-repository-orientation', 'sec-documentation-governance')
     };
   }
+  if (/^tests\/.*\.md$/u.test(path)) {
+    return { kind: 'verification-fixture', skills: [] };
+  }
   if (/^docs\/work-packages\/[^/]+\.md$/u.test(path)) {
     return { kind: 'frozen-work-package', skills: [] };
   }
   if (/^docs\/evidence\//u.test(path)) return { kind: 'evidence', skills: [] };
   if (/^docs\/(?:archive|superpowers)\//u.test(path)) return { kind: 'historical', skills: [] };
-  if (!/^docs\/.*\.md$/u.test(path)) return null;
+  if (!/^docs\/.*\.md$/u.test(path)) {
+    return path.endsWith('.md')
+      ? { kind: 'repository-content', skills: skills('sec-documentation-governance') }
+      : null;
+  }
 
   if (path === 'docs/00-文档索引与一致性规则.md'
     || path === 'docs/governance/agent-skills-and-development-run-kernel.md') {
