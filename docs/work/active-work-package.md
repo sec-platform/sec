@@ -10,8 +10,8 @@ last-reviewed: 2026-07-27
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/agent-skills-hardening-v1.md
-manifestDigest: sha256:5818126fb462c5a65ceba58ccb9e4713b6341fc38fcd90b829b2355457cb891e
+manifest: docs/work-packages/agent-skills-and-v19-alignment-v2.md
+manifestDigest: sha256:28d39ded9867a6020d7283f108fce4288a5717e700b7274d265a0f0efe99a3d8
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
