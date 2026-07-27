@@ -1,4 +1,5 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -10,26 +11,14 @@ import {
   resolveSecMarkdownSkillCoverage,
   resolveSecRepositoryHeuristicSkills,
   SEC_AGENT_SKILL_IDS,
-  SEC_AGENT_SKILL_STANDARD_SECTIONS
+  SEC_AGENT_SKILL_STANDARD_SECTIONS,
+  type SecAgentSkillId
 } from '../../platform/shared/agent-skill-contract.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const SKILLS_ROOT = path.join(REPOSITORY_ROOT, '.agents', 'skills');
-const WALK_SKIPS = new Set([
-  '.git',
-  '.next',
-  '.shared-deps',
-  '.tmp',
-  'build',
-  'dist',
-  'node_modules',
-  'playwright-report',
-  'project',
-  'report',
-  'test-results'
-]);
 
 type SkillFrontmatter = {
   name?: unknown;
@@ -47,45 +36,42 @@ function parseSkill(source: string): { frontmatter: SkillFrontmatter; body: stri
   return { frontmatter: raw as SkillFrontmatter, body: match[2]! };
 }
 
-async function walkRepository(dir = REPOSITORY_ROOT): Promise<string[]> {
-  const files: string[] = [];
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    if (WALK_SKIPS.has(entry.name)) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...await walkRepository(full));
-    } else if (entry.isFile()) {
-      files.push(path.relative(REPOSITORY_ROOT, full).split(path.sep).join('/'));
-    }
+function trackedRepositoryFiles(): string[] {
+  const result = spawnSync('git', ['ls-files', '-z'], {
+    cwd: REPOSITORY_ROOT,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`git ls-files failed: ${result.stderr.trim()}`);
   }
-  return files.sort();
+  return result.stdout.split('\0').filter(Boolean).sort();
 }
 
-function isHeuristicSurface(path: string): boolean {
-  return path === 'AGENTS.md'
-    || path === 'platform/dev-runner.ts'
-    || path === 'scripts/install-git-hooks.ts'
-    || path === 'scripts/run-work-package-gate.ts'
-    || /^\.agents\/skills\//u.test(path)
-    || /^\.codex\/agents\//u.test(path)
-    || /^\.github\/workflows\//u.test(path)
-    || /^\.githooks\//u.test(path)
-    || /^scripts\/codex\//u.test(path)
-    || /^scripts\/ci-[^/]+\.ts$/u.test(path)
-    || /^docs\/scripts\//u.test(path)
-    || /^platform\/dev-runner\//u.test(path)
-    || /^platform\/shared\/(?:ci-|test-impact|test-ownership|affected-test|verification-scope)/u.test(path)
-    || /^platform\/shared\/test-impact-rules\//u.test(path)
-    || /^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version)$/u.test(path);
+function isHeuristicSurface(file: string): boolean {
+  return file === 'AGENTS.md'
+    || file === 'platform/shared/agent-skill-contract.ts'
+    || file === 'platform/dev-runner.ts'
+    || file === 'scripts/install-git-hooks.ts'
+    || file === 'scripts/run-work-package-gate.ts'
+    || /^\.agents\/skills\//u.test(file)
+    || /^\.codex\/agents\//u.test(file)
+    || /^\.github\/workflows\//u.test(file)
+    || /^\.githooks\//u.test(file)
+    || /^scripts\/codex\//u.test(file)
+    || /^scripts\/ci-[^/]+\.ts$/u.test(file)
+    || /^docs\/scripts\//u.test(file)
+    || /^platform\/dev-runner\//u.test(file)
+    || /^platform\/shared\/(?:ci-|test-impact|test-ownership|affected-test|verification-scope)/u.test(file)
+    || /^platform\/shared\/test-impact-rules\//u.test(file)
+    || /^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version)$/u.test(file);
 }
 
 test('SEC skill inventory conforms to one strict AgentOperation contract', async () => {
-  const entries = (await readdir(SKILLS_ROOT, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort();
-
-  expect(entries).toEqual([...SEC_AGENT_SKILL_IDS]);
+  const tracked = trackedRepositoryFiles();
+  const skillFiles = tracked.filter((file) => /^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(file));
+  expect(skillFiles).toEqual(SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`));
 
   const descriptions = new Set<string>();
   for (const skillId of SEC_AGENT_SKILL_IDS) {
@@ -104,7 +90,13 @@ test('SEC skill inventory conforms to one strict AgentOperation contract', async
     expect(typeof frontmatter.compatibility).toBe('string');
     expect((frontmatter.compatibility as string).length).toBeLessThanOrEqual(500);
     expect(body.match(/^#\s+/gmu)).toHaveLength(1);
-    for (const section of SEC_AGENT_SKILL_STANDARD_SECTIONS) expect(body).toContain(section);
+
+    let previousIndex = -1;
+    for (const section of SEC_AGENT_SKILL_STANDARD_SECTIONS) {
+      const index = body.indexOf(section);
+      expect(index).toBeGreaterThan(previousIndex);
+      previousIndex = index;
+    }
   }
 });
 
@@ -112,7 +104,7 @@ test('skills prohibit destructive shortcuts and preserve decisive boundaries', a
   const sources = Object.fromEntries(await Promise.all(SEC_AGENT_SKILL_IDS.map(async (skillId) => [
     skillId,
     await readFile(path.join(SKILLS_ROOT, skillId, 'SKILL.md'), 'utf8')
-  ])));
+  ]))) as Record<SecAgentSkillId, string>;
 
   for (const source of Object.values(sources)) {
     expect(source).not.toMatch(/git reset --hard/iu);
@@ -120,18 +112,22 @@ test('skills prohibit destructive shortcuts and preserve decisive boundaries', a
     expect(source).not.toContain('sec-work-package-manifest-v1');
   }
 
-  expect(sources['sec-ci-and-merge']).toContain('pull_request');
-  expect(sources['sec-ci-and-merge']).toContain('expected_head');
-  expect(sources['sec-ci-and-merge']).toContain('expected_base');
-  expect(sources['sec-ci-and-merge']).toContain('manifest_digest');
-  expect(sources['sec-ci-and-merge']).toContain('manifest_path');
-  expect(sources['sec-ci-and-merge']).toContain('profile');
+  expect(sources['sec-ci-and-merge']).toContain('client_payload[pull_request]');
+  expect(sources['sec-ci-and-merge']).toContain('client_payload[expected_head]');
+  expect(sources['sec-ci-and-merge']).toContain('client_payload[expected_base]');
+  expect(sources['sec-ci-and-merge']).toContain('client_payload[manifest_digest]');
+  expect(sources['sec-ci-and-merge']).toContain('codex-development-frozen-verification-request-v1');
+  expect(sources['sec-ci-and-merge']).toContain('client_payload[manifest_path]');
+  expect(sources['sec-ci-and-merge']).toContain('client_payload[profile]');
+  expect(sources['sec-ci-and-merge']).toContain('sha=$EXPECTED_HEAD');
   expect(sources['sec-ci-and-merge']).toContain('merged: true');
 
   expect(sources['sec-work-package-lifecycle']).toContain('codex-development-work-package-v1');
   expect(sources['sec-work-package-lifecycle']).toContain('codex-development-work-package-v2');
   expect(sources['sec-work-package-lifecycle']).toContain('matchingDefaultBlob: none');
 
+  expect(sources['sec-worker-development']).toContain('bun run check:affected --plan');
+  expect(sources['sec-worker-development']).toContain('bun run check:affected');
   expect(sources['sec-worker-development']).toContain('bun run imports:freeze');
   expect(sources['sec-worker-development']).toContain('candidate invalidation');
 
@@ -145,28 +141,31 @@ test('skills prohibit destructive shortcuts and preserve decisive boundaries', a
   expect(sources['sec-toolchain-and-dependencies']).toContain('保留CLI不等于保留MCP入口');
 });
 
-test('all repository Markdown is classified and every active authority has skill coverage', async () => {
-  const markdown = (await walkRepository()).filter((file) => file.endsWith('.md'));
+test('all tracked Markdown is classified and active surfaces have Skill coverage', () => {
+  const markdown = trackedRepositoryFiles().filter((file) => file.endsWith('.md'));
   expect(markdown.length).toBeGreaterThan(0);
 
   for (const file of markdown) {
     const coverage = resolveSecMarkdownSkillCoverage(file);
-    expect(coverage, file).not.toBeNull();
-    if (coverage?.kind === 'active-authority' || coverage?.kind === 'agent-projection') {
-      expect(coverage.skills.length, file).toBeGreaterThan(0);
+    if (!coverage) throw new Error(`Tracked Markdown is unclassified: ${file}`);
+    if (coverage.kind === 'active-authority'
+      || coverage.kind === 'agent-projection'
+      || coverage.kind === 'repository-content') {
+      if (coverage.skills.length === 0) throw new Error(`Active Markdown has no Skill coverage: ${file}`);
     }
   }
 });
 
-test('every repository heuristic runtime surface resolves at least one skill', async () => {
-  const files = await walkRepository();
+test('every known repository heuristic runtime surface resolves at least one Skill', () => {
+  const files = trackedRepositoryFiles();
   for (const file of files.filter(isHeuristicSurface)) {
-    expect(resolveSecRepositoryHeuristicSkills(file).length, file).toBeGreaterThan(0);
+    const skills = resolveSecRepositoryHeuristicSkills(file);
+    if (skills.length === 0) throw new Error(`Heuristic surface has no Skill owner: ${file}`);
   }
   for (const file of files) expect(classifySecRepositorySurface(file)).toBeDefined();
 });
 
-test('every Skill and skill authority source has focused agent-governance ownership', () => {
+test('every Skill and Skill authority source has focused agent-governance ownership', () => {
   const sources = [
     ...SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`),
     'platform/shared/agent-skill-contract.ts'
@@ -209,7 +208,7 @@ test('retired MCP cleanup and unsupported report have exact focused owners', () 
   });
 });
 
-test('focused skill inputs avoid slow fallback while trust-root changes retain mandatory Risk', () => {
+test('focused Skill inputs avoid slow fallback while trust-root changes retain mandatory Risk', () => {
   const focused = selectCiPrRiskSlowSuites([
     ...SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`),
     'scripts/cleanup-mcp.ps1',
