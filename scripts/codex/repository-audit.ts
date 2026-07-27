@@ -33,22 +33,25 @@ const DYNAMIC_IDENTITY = /(?:\b[0-9a-f]{40}\b|\bPR\s*#\d+\b|\b(?:run|job)\s*#?\d
 
 export type RepositoryAuditSeverity = 'critical' | 'high' | 'medium' | 'low';
 
-export type RepositoryAuditFinding = Readonly<{
+export interface RepositoryAuditFinding {
   code: string;
   line?: number;
   message: string;
   path?: string;
   severity: RepositoryAuditSeverity;
   skills?: readonly SecAgentSkillId[];
-}>;
+}
 
-export type RepositoryAuditReport = Readonly<{
-  schema: 'sec-repository-audit-v1';
+export interface RepositoryAuditReport {
+  behaviorOwners: typeof SEC_REPOSITORY_BEHAVIOR_OWNERS;
+  findings: readonly RepositoryAuditFinding[];
+  optimizations: readonly string[];
   revision: Readonly<{
     defaultHead: string | null;
     defaultRef: string;
     head: string;
   }>;
+  schema: 'sec-repository-audit-v1';
   summary: Readonly<{
     activeMarkdown: number;
     behaviorCandidates: number;
@@ -59,27 +62,27 @@ export type RepositoryAuditReport = Readonly<{
     unknowns: number;
   }>;
   surfaces: Readonly<Record<SecRepositorySurfaceKind, number>>;
-  behaviorOwners: typeof SEC_REPOSITORY_BEHAVIOR_OWNERS;
-  findings: readonly RepositoryAuditFinding[];
   unknowns: readonly string[];
-  optimizations: readonly string[];
-}>;
+}
 
-type BehaviorCandidate = Readonly<{
+export interface BehaviorCandidate {
   line: number;
   path: string;
   skills: readonly SecAgentSkillId[];
   text: string;
-}>;
+}
 
-function runGit(
+interface GitOptions {
+  allowFailure?: boolean;
+}
+
+function runGitBytes(
   repositoryRoot: string,
   args: readonly string[],
-  options: { allowFailure?: boolean } = {}
-): string | null {
+  options: GitOptions = {}
+): Buffer | null {
   const result = spawnSync('git', [...args], {
     cwd: repositoryRoot,
-    encoding: 'utf8',
     windowsHide: true
   });
   if (result.error) {
@@ -88,22 +91,29 @@ function runGit(
   }
   if (result.status !== 0) {
     if (options.allowFailure) return null;
-    throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`);
+    const stderr = Buffer.isBuffer(result.stderr)
+      ? result.stderr.toString('utf8').trim()
+      : String(result.stderr).trim();
+    throw new Error(`git ${args.join(' ')} failed: ${stderr}`);
   }
-  return result.stdout.trim();
+  if (!Buffer.isBuffer(result.stdout)) {
+    return Buffer.from(String(result.stdout), 'utf8');
+  }
+  return result.stdout;
+}
+
+function runGitText(
+  repositoryRoot: string,
+  args: readonly string[],
+  options: GitOptions = {}
+): string | null {
+  return runGitBytes(repositoryRoot, args, options)?.toString('utf8').trim() ?? null;
 }
 
 export function trackedRepositoryFiles(repositoryRoot = DEFAULT_REPOSITORY_ROOT): string[] {
-  const result = spawnSync('git', ['ls-files', '-z'], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    windowsHide: true
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`git ls-files failed: ${result.stderr.trim()}`);
-  }
-  return result.stdout.split('\0').filter(Boolean).sort();
+  const raw = runGitBytes(repositoryRoot, ['ls-files', '-z']);
+  if (!raw) throw new Error('git ls-files returned no output');
+  return raw.toString('utf8').split('\0').filter(Boolean).sort();
 }
 
 function isTextPath(repositoryPath: string): boolean {
@@ -131,8 +141,7 @@ function markdownStatus(source: string): string | null {
 
 function behaviorSkills(repositoryPath: string): SecAgentSkillId[] {
   const markdown = resolveSecMarkdownSkillCoverage(repositoryPath);
-  if (markdown) return markdown.skills;
-  return resolveSecRepositoryHeuristicSkills(repositoryPath);
+  return markdown?.skills ?? resolveSecRepositoryHeuristicSkills(repositoryPath);
 }
 
 export function extractHeuristicBehaviorCandidates(
@@ -140,13 +149,17 @@ export function extractHeuristicBehaviorCandidates(
   source: string
 ): BehaviorCandidate[] {
   const markdown = resolveSecMarkdownSkillCoverage(repositoryPath);
-  if (markdown && (markdown.kind === 'historical'
+  if (markdown && (
+    markdown.kind === 'historical'
     || markdown.kind === 'evidence'
     || markdown.kind === 'frozen-work-package'
-    || markdown.kind === 'verification-fixture')) {
+    || markdown.kind === 'verification-fixture'
+  )) {
     return [];
   }
 
+  const skills = behaviorSkills(repositoryPath);
+  const contextMarker = skills.length > 0 ? AGENT_CONTEXT_MARKER : STRONG_AGENT_CONTEXT_MARKER;
   const candidates: BehaviorCandidate[] = [];
   let fenced = false;
   for (const [index, rawLine] of source.split(/\r?\n/u).entries()) {
@@ -155,17 +168,15 @@ export function extractHeuristicBehaviorCandidates(
       fenced = !fenced;
       continue;
     }
-    const skills = behaviorSkills(repositoryPath);
-    const contextMarker = skills.length > 0 ? AGENT_CONTEXT_MARKER : STRONG_AGENT_CONTEXT_MARKER;
     if (fenced || !line || !HEURISTIC_MARKER.test(line) || !contextMarker.test(line)) {
       continue;
     }
-    candidates.push({
+    candidates.push(Object.freeze({
       line: index + 1,
       path: repositoryPath,
-      skills,
+      skills: Object.freeze([...skills]),
       text: line
-    });
+    }));
   }
   return candidates;
 }
@@ -173,12 +184,12 @@ export function extractHeuristicBehaviorCandidates(
 function countFindings(
   findings: readonly RepositoryAuditFinding[]
 ): Readonly<Record<RepositoryAuditSeverity, number>> {
-  return {
+  return Object.freeze({
     critical: findings.filter((finding) => finding.severity === 'critical').length,
     high: findings.filter((finding) => finding.severity === 'high').length,
     medium: findings.filter((finding) => finding.severity === 'medium').length,
     low: findings.filter((finding) => finding.severity === 'low').length
-  };
+  });
 }
 
 function pushFinding(
@@ -201,7 +212,9 @@ function parseManifestDigest(pointer: string): string | null {
 
 function currentRollingPackage(rollingPlan: string): string | null {
   const currentSection = /## 当前唯一 Work Package\s+([\s\S]*?)(?:\n## |\s*$)/u.exec(rollingPlan)?.[1];
-  return currentSection ? /^###\s+([^\s]+)\s*$/mu.exec(currentSection)?.[1] ?? null : null;
+  return currentSection
+    ? /^###\s+([^\s]+)\s*$/mu.exec(currentSection)?.[1] ?? null
+    : null;
 }
 
 async function auditControlPlane(
@@ -253,13 +266,13 @@ async function auditControlPlane(
     });
   }
 
-  const defaultManifest = runGit(
+  const defaultManifestBytes = runGitBytes(
     repositoryRoot,
     ['show', `${defaultRef}:${manifestPath}`],
     { allowFailure: true }
   );
-  if (defaultManifest !== null) {
-    const defaultDigest = createHash('sha256').update(defaultManifest).digest('hex');
+  if (defaultManifestBytes !== null) {
+    const defaultDigest = createHash('sha256').update(defaultManifestBytes).digest('hex');
     if (defaultDigest === expectedDigest) {
       pushFinding(findings, {
         code: 'control-plane-selected-manifest-already-on-default',
@@ -300,12 +313,12 @@ export async function auditRepository(
   const findings: RepositoryAuditFinding[] = [];
   const unknowns: string[] = [];
   const surfaceCounts: Record<SecRepositorySurfaceKind, number> = {
-    markdown: 0,
-    'heuristic-runtime': 0,
-    'product-implementation': 0,
-    'verification-test': 0,
     configuration: 0,
-    'repository-content': 0
+    'heuristic-runtime': 0,
+    markdown: 0,
+    'product-implementation': 0,
+    'repository-content': 0,
+    'verification-test': 0
   };
   const candidates: BehaviorCandidate[] = [];
   let markdown = 0;
@@ -326,7 +339,8 @@ export async function auditRepository(
     if (source === null) continue;
 
     const markdownCoverage = resolveSecMarkdownSkillCoverage(repositoryPath);
-    if (markdownCoverage?.kind === 'active-authority' || markdownCoverage?.kind === 'agent-projection') {
+    if (markdownCoverage?.kind === 'active-authority'
+      || markdownCoverage?.kind === 'agent-projection') {
       activeMarkdown += 1;
       if (markdownCoverage.skills.length === 0) {
         pushFinding(findings, {
@@ -352,11 +366,11 @@ export async function auditRepository(
     for (const candidate of extracted) {
       if (candidate.skills.length === 0) {
         pushFinding(findings, {
-          code: 'heuristic-outside-governance',
+          code: 'possible-heuristic-outside-governance',
           line: candidate.line,
-          message: `Agent behavior is outside Skill governance: ${candidate.text}`,
+          message: `possible Agent behavior requires deterministic-vs-heuristic triage: ${candidate.text}`,
           path: candidate.path,
-          severity: 'high'
+          severity: 'medium'
         });
       } else if (candidate.skills.every((skill) => skill === 'sec-documentation-governance')) {
         pushFinding(findings, {
@@ -393,16 +407,15 @@ export async function auditRepository(
       }
     }
 
-    if (repositoryPath === 'scripts/discover-all.ts') {
-      if (source.includes("const PLATFORM_ROOT = join(ROOT, 'platform');")
-        && source.includes('calls: calls.slice(0, 500)')) {
-        pushFinding(findings, {
-          code: 'partial-discovery-named-all',
-          message: 'discover-all scans only platform TypeScript and silently truncates call relations at 500',
-          path: repositoryPath,
-          severity: 'medium'
-        });
-      }
+    if (repositoryPath === 'scripts/discover-all.ts'
+      && (source.includes("const PLATFORM_ROOT = join(ROOT, 'platform');")
+        || source.includes('calls: calls.slice(0, 500)'))) {
+      pushFinding(findings, {
+        code: 'partial-discovery-named-all',
+        message: 'discover-all has a partial repository scope or silently truncates call relations',
+        path: repositoryPath,
+        severity: 'medium'
+      });
     }
   }
 
@@ -423,49 +436,48 @@ export async function auditRepository(
 
   await auditControlPlane(repositoryRoot, tracked, defaultRef, findings, unknowns);
 
-  const head = runGit(repositoryRoot, ['rev-parse', 'HEAD']) ?? '<unresolved>';
-  const defaultHead = runGit(repositoryRoot, ['rev-parse', '--verify', defaultRef], {
-    allowFailure: true
-  });
+  const head = runGitText(repositoryRoot, ['rev-parse', 'HEAD']) ?? '<unresolved>';
+  const defaultHead = runGitText(
+    repositoryRoot,
+    ['rev-parse', '--verify', defaultRef],
+    { allowFailure: true }
+  );
   if (defaultHead === null) unknowns.push(`default ref unavailable: ${defaultRef}`);
 
-  const sortedFindings = findings.sort((left, right) => {
-    const rank: Record<RepositoryAuditSeverity, number> = {
-      critical: 0,
-      high: 1,
-      medium: 2,
-      low: 3
-    };
-    return rank[left.severity] - rank[right.severity]
-      || (left.path ?? '').localeCompare(right.path ?? '')
-      || (left.line ?? 0) - (right.line ?? 0)
-      || left.code.localeCompare(right.code);
-  });
-  const findingCounts = countFindings(sortedFindings);
-  const optimizations = [
-    '把未覆盖的 Agent 行为交给 sec-heuristic-governance，不在原文件追加孤立指令。',
-    '把跨 owner 的架构 finding 交给 sec-architecture-evolution，冻结 authority/contract 后再实现。',
-    '把产品 finding 拆为依赖明确的最小 Work Package；审计报告只作 exact-revision Evidence。',
-    '删除无消费者配置、已退役路径 owner 和重复权威；保留机器可验证 registry，而不是新增叙述文档。'
-  ];
+  const rank: Record<RepositoryAuditSeverity, number> = {
+    critical: 0,
+    high: 1,
+    low: 3,
+    medium: 2
+  };
+  findings.sort((left, right) =>
+    rank[left.severity] - rank[right.severity]
+    || (left.path ?? '').localeCompare(right.path ?? '')
+    || (left.line ?? 0) - (right.line ?? 0)
+    || left.code.localeCompare(right.code));
 
   return Object.freeze({
-    schema: 'sec-repository-audit-v1',
+    behaviorOwners: SEC_REPOSITORY_BEHAVIOR_OWNERS,
+    findings: Object.freeze(findings),
+    optimizations: Object.freeze([
+      '把未覆盖的 Agent 行为交给 sec-heuristic-governance，不在原文件追加孤立指令。',
+      '把跨 owner 的架构 finding 交给 sec-architecture-evolution，冻结 authority/contract 后再实现。',
+      '把产品 finding 拆为依赖明确的最小 Work Package；审计报告只作 exact-revision Evidence。',
+      '删除无消费者配置、已退役路径 owner 和重复权威；保留机器可验证 registry，而不是新增叙述文档。'
+    ]),
     revision: Object.freeze({ defaultHead, defaultRef, head }),
+    schema: 'sec-repository-audit-v1',
     summary: Object.freeze({
       activeMarkdown,
       behaviorCandidates: candidates.length,
-      findings: findingCounts,
+      findings: countFindings(findings),
       markdown,
       skills: SEC_AGENT_SKILL_IDS.length,
       trackedPaths: tracked.length,
       unknowns: unknowns.length
     }),
     surfaces: Object.freeze({ ...surfaceCounts }),
-    behaviorOwners: SEC_REPOSITORY_BEHAVIOR_OWNERS,
-    findings: Object.freeze(sortedFindings),
-    unknowns: Object.freeze(unknowns.sort()),
-    optimizations: Object.freeze(optimizations)
+    unknowns: Object.freeze(unknowns.sort())
   });
 }
 
@@ -476,8 +488,8 @@ function severityFails(
   const rank: Record<RepositoryAuditSeverity, number> = {
     critical: 0,
     high: 1,
-    medium: 2,
-    low: 3
+    low: 3,
+    medium: 2
   };
   return rank[severity] <= rank[threshold];
 }
