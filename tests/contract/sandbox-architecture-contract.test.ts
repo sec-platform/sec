@@ -1,55 +1,50 @@
-import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
+
+import { describe, expect, test } from 'bun:test';
+
+import { RUNTIME_DEPENDENCY_PACKAGE_NAMES } from '../../platform/shared/runtime-dependency-spec.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 describe('Sandbox Architecture (SM-3 Exit Closure Constraints)', () => {
-  test('sandbox runtime consumes an immutable 11-package manifest contract', async () => {
+  test('materialized shared dependencies match the canonical runtime dependency spec', async () => {
     const manifestRaw = await readCompilerFile('.shared-deps/package.json');
-    const manifest = JSON.parse(manifestRaw);
-    
-    const deps = manifest.dependencies || {};
-    const devDeps = manifest.devDependencies || {};
-    const allPackages = [...Object.keys(deps), ...Object.keys(devDeps)];
-    
-    const authorized = [
-      'next', 'react', 'react-dom', 'yaml',
-      '@playwright/test', '@types/bun', '@types/node', '@types/react', '@types/react-dom',
-      'ts-morph', 'typescript'
-    ];
+    const manifest = JSON.parse(manifestRaw) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const dependencies = manifest.dependencies ?? {};
+    const devDependencies = manifest.devDependencies ?? {};
+    const actualPackages = [...Object.keys(dependencies), ...Object.keys(devDependencies)]
+      .sort((left, right) => left.localeCompare(right));
+    const expectedPackages = [...RUNTIME_DEPENDENCY_PACKAGE_NAMES]
+      .sort((left, right) => left.localeCompare(right));
 
-    // ARCHITECTURE CONTRACT: This array IS the single source of truth for allowed Sandbox dependencies.
-    // If a new Agent Skill or tool requires a new dependency in the Sandbox, 
-    // YOU MUST EXPLICITLY ADD IT TO THE `authorized` ARRAY ABOVE AND UPDATE THIS LENGTH CHECK!
-    // This physically forces an architectural review when expanding the Sandbox surface area.
-    expect(allPackages.length).toBe(authorized.length, `The .shared-deps manifest must contain exactly ${authorized.length} authorized packages`);
-    
-    // Every required package manifest must have its exact name and a nonempty installed version
-    for (const pkg of authorized) {
-      expect(allPackages).toContain(pkg);
-      const version = deps[pkg] || devDeps[pkg];
+    expect(actualPackages).toEqual(expectedPackages);
+    for (const packageName of expectedPackages) {
+      const version = dependencies[packageName] ?? devDependencies[packageName];
       expect(typeof version).toBe('string');
-      expect(version.trim().length).toBeGreaterThan(0, `Package ${pkg} must have a valid version`);
+      expect(version!.trim().length).toBeGreaterThan(0);
     }
   });
 
-  test('sandbox prevents workspace hoisting and duplicate locks', () => {
+  test('materialized shared dependency root does not own a competing lock or Bun config', () => {
     const sharedDepsDir = path.join(process.cwd(), '.shared-deps');
-    
-    // Hard limit: No local lockfiles or bunfig in the sandbox root to prevent hoisting
-    expect(fs.existsSync(path.join(sharedDepsDir, 'bun.lockb'))).toBe(false, 'Sandbox must not contain bun.lockb');
-    expect(fs.existsSync(path.join(sharedDepsDir, 'bun.lock'))).toBe(false, 'Sandbox must not contain bun.lock');
-    expect(fs.existsSync(path.join(sharedDepsDir, 'bunfig.toml'))).toBe(false, 'Sandbox must not contain bunfig.toml');
-    expect(fs.existsSync(path.join(sharedDepsDir, 'yarn.lock'))).toBe(false, 'Sandbox must not contain yarn.lock');
-    expect(fs.existsSync(path.join(sharedDepsDir, 'package-lock.json'))).toBe(false, 'Sandbox must not contain package-lock.json');
+    for (const forbiddenFile of [
+      'bun.lockb',
+      'bun.lock',
+      'bunfig.toml',
+      'yarn.lock',
+      'package-lock.json'
+    ]) {
+      expect(fs.existsSync(path.join(sharedDepsDir, forbiddenFile))).toBe(false);
+    }
   });
 
-  test('sandbox name strictly avoids naming conflicts with compiler tooling', () => {
+  test('materialized dependency root remains distinct from the compiler node_modules root', () => {
     const sharedDepsDir = path.join(process.cwd(), '.shared-deps');
-    // Ensure the folder exists to prove the isolation test is running on real directory
     expect(fs.existsSync(sharedDepsDir)).toBe(true);
-    
-    // The name must remain '.shared-deps' and not 'node_modules' to avoid accidental resolution
     expect(path.basename(sharedDepsDir)).toBe('.shared-deps');
+    expect(path.resolve(sharedDepsDir)).not.toBe(path.resolve(process.cwd(), 'node_modules'));
   });
 });
