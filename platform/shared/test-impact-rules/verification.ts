@@ -15,7 +15,31 @@ const AFFECTED_TEST_SELECTION_FAST_TESTS = [
   'tests/unit/test-runner.test.ts'
 ];
 
+const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
+  'tests/contract/ci-lanes.test.ts',
+  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/ci-evidence-composition-policy-registry.test.ts',
+  'tests/unit/ci-pr-risk-execution.test.ts',
+  'tests/unit/ci-pr-risk-selection.test.ts',
+  'tests/unit/ci-verification-execution.test.ts',
+  'tests/unit/ci-verification-v7-execution.test.ts',
+  'tests/unit/exact-git-blob.test.ts'
+];
+
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: 'verification-evidence-producers',
+    identity: { kind: 'architecture-owner', id: 'verification-evidence-producers' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'scripts/ci-pr-risk.ts',
+      'scripts/ci-verification.ts',
+      'scripts/codex/exact-git-blob.ts'
+    ],
+    fast: VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
+    slow: []
+  },
   {
     owner: 'affected-test-selection',
     identity: { kind: 'architecture-owner', id: 'affected-test-selection' },

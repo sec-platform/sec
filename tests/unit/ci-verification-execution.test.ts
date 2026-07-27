@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdtempSync,
@@ -20,6 +21,42 @@ import { CodexDevelopmentCiVerificationMain } from '../../scripts/ci-verificatio
 const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const BASE = '3'.repeat(40);
+
+function manifestSource(ciRevision = 'ci-verification-v17'): string {
+  return `---
+schema: codex-development-work-package-v1
+id: exact-verification-v1
+tracking: none
+base: "${BASE}"
+manifestState: frozen
+requiredProfile: quick
+ciRevision: ${ciRevision}
+tasks:
+  - id: exact-verification
+    owner: verification-writer
+    ownedPaths:
+      - scripts/ci-verification.ts
+forbiddenPaths:
+  - platform/compiler/
+acceptance:
+  - exact-verification
+tests:
+  - focused-verification
+---
+
+# Exact Verification
+`;
+}
+
+function exactManifest(source: Uint8Array | string) {
+  const bytes = typeof source === 'string' ? new TextEncoder().encode(source) : source;
+  return {
+    blobSha: '4'.repeat(40),
+    bytes,
+    mode: '100644' as const,
+    type: 'blob' as const
+  };
+}
 
 function clock(): () => Date {
   let time = Date.parse('2026-07-14T00:00:00.000Z');
@@ -262,9 +299,104 @@ test('CI verification manifest binding failure writes exactly one failed Evidenc
     schema: 'codex-development-verification-evidence-v2',
     kind: 'verification',
     status: 'failed',
-    failure: { stage: 'preflight' }
+    failure: { stage: 'manifest' }
   });
   expect(captured.evidence?.failure?.tail).toContain('SEC_WORK_PACKAGE_MANIFEST_PATH');
+});
+
+test('CI verification binds the manifest from captured HEAD before the first gate', async () => {
+  const captured: { evidence?: CodexDevelopmentVerificationEvidenceV2 } = {};
+  const manifest = manifestSource();
+  let capturedCommit: string | undefined;
+  let gateCalls = 0;
+  const code = await CodexDevelopmentCiVerificationMain({
+    argv: ['--profile', 'quick', '--expected-head', HEAD],
+    env: {
+      SEC_CHANGED_BASE: BASE,
+      SEC_AFFECTED_TESTS_BASE: BASE,
+      SEC_WORK_PACKAGE_MANIFEST_PATH: 'docs/work-packages/exact-verification-v1.md'
+    },
+    now: clock(),
+    gitRevision,
+    trackedTreeIsClean: () => true,
+    changedFiles: () => [],
+    readExactGitBlob: (options) => {
+      capturedCommit = options.commitSha;
+      return exactManifest(manifest);
+    },
+    runGate: async () => {
+      gateCalls += 1;
+      return { code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' };
+    },
+    writeEvidence: (_path, value) => { captured.evidence = value; }
+  });
+
+  expect(code).toBe(0);
+  expect(capturedCommit).toBe(HEAD);
+  expect(gateCalls).toBeGreaterThan(0);
+  expect(captured.evidence?.manifestDigest).toBe(
+    `sha256:${createHash('sha256').update(manifest).digest('hex')}`
+  );
+});
+
+test('CI verification exact manifest failures execute zero gates', async () => {
+  for (const [name, readExactGitBlob] of [
+    ['missing', () => { throw new Error('exact manifest missing'); }],
+    ['invalid UTF-8', () => exactManifest(Uint8Array.from([0xc3, 0x28]))]
+  ] as const) {
+    const captured: { evidence?: CodexDevelopmentVerificationEvidenceV2 } = {};
+    let gateCalls = 0;
+    const code = await CodexDevelopmentCiVerificationMain({
+      argv: ['--profile', 'quick', '--expected-head', HEAD],
+      env: {
+        SEC_CHANGED_BASE: BASE,
+        SEC_AFFECTED_TESTS_BASE: BASE,
+        SEC_WORK_PACKAGE_MANIFEST_PATH: 'docs/work-packages/exact-verification-v1.md'
+      },
+      now: clock(),
+      gitRevision,
+      trackedTreeIsClean: () => true,
+      changedFiles: () => [],
+      readExactGitBlob,
+      runGate: async () => {
+        gateCalls += 1;
+        return { code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' };
+      },
+      writeEvidence: (_path, value) => { captured.evidence = value; }
+    });
+
+    expect({ code, gateCalls, name }).toMatchObject({ code: 1, gateCalls: 0, name });
+    expect(captured.evidence).toMatchObject({ status: 'failed' });
+  }
+});
+
+test('CI verification rejects clean-to-clean HEAD drift after gate execution', async () => {
+  let headReads = 0;
+  const captured: { evidence?: CodexDevelopmentVerificationEvidenceV2 } = {};
+  const code = await CodexDevelopmentCiVerificationMain({
+    argv: ['--profile', 'quick', '--expected-head', HEAD],
+    env: { SEC_CHANGED_BASE: BASE, SEC_AFFECTED_TESTS_BASE: BASE },
+    now: clock(),
+    gitRevision: (ref) => {
+      if (ref === 'HEAD') return headReads++ === 0 ? HEAD : '5'.repeat(40);
+      return gitRevision(ref);
+    },
+    trackedTreeIsClean: () => true,
+    changedFiles: () => [],
+    runGate: async () => ({
+      code: 0,
+      rawOutputDigest: `sha256:${'0'.repeat(64)}`,
+      failureTail: ''
+    }),
+    writeEvidence: (_path, value) => { captured.evidence = value; }
+  });
+
+  expect(code).toBe(1);
+  expect(captured.evidence).toMatchObject({
+    status: 'failed',
+    cleanState: { before: true, after: true },
+    failure: { stage: 'exact-identity' }
+  });
 });
 
 test('CI verification rejects a parseable historical Work Package revision', async () => {
@@ -275,12 +407,13 @@ test('CI verification rejects a parseable historical Work Package revision', asy
     env: {
       SEC_CHANGED_BASE: BASE,
       SEC_AFFECTED_TESTS_BASE: BASE,
-      SEC_WORK_PACKAGE_MANIFEST_PATH: 'docs/work-packages/b0-bootstrap-v1.md'
+      SEC_WORK_PACKAGE_MANIFEST_PATH: 'docs/work-packages/exact-verification-v1.md'
     },
     now: clock(),
     gitRevision,
     trackedTreeIsClean: () => true,
     changedFiles: () => [],
+    readExactGitBlob: () => exactManifest(manifestSource('ci-verification-v16')),
     runGate: async () => ({ code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' }),
     writeEvidence: (_path, value) => {
       writes += 1;
@@ -293,7 +426,7 @@ test('CI verification rejects a parseable historical Work Package revision', asy
   expect(captured.evidence).toMatchObject({
     kind: 'verification',
     status: 'failed',
-    failure: { stage: 'preflight' }
+    failure: { stage: 'manifest' }
   });
   expect(captured.evidence?.failure?.tail).toContain('current CI verification revision');
 });

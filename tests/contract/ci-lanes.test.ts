@@ -305,6 +305,7 @@ test('CI PR risk gate skips slow suites when no source or slow test impact exist
 
 test('CI risk runner keeps fail-fast default and supports explicit resumable local batches', async () => {
   const source = await readCompilerFile('scripts/ci-pr-risk.ts');
+  const verificationSource = await readCompilerFile('scripts/ci-verification.ts');
 
   expect(source).toContain("argument === '--all-slow'");
   expect(source).toContain("argument === '--continue-on-failure'");
@@ -332,5 +333,13 @@ test('CI risk runner keeps fail-fast default and supports explicit resumable loc
   expect(source).toContain('parallel-safe standard slow steps with concurrency ${concurrency}');
   expect(source).toContain('SEC_TEST_WORKSPACE_NAMESPACE');
   expect(source).toContain('gateEnvironment(env, step)');
+  expect(source).toContain('CodexDevelopmentReadExactGitBlobV1');
+  expect(source).toContain('commitSha: headSha');
+  expect(source).toContain('CI risk exact head or tree changed during execution');
+  expect(source).not.toContain('readFileSync');
+  expect(verificationSource).toContain('CodexDevelopmentReadExactGitBlobV1');
+  expect(verificationSource).toContain('commitSha: headSha');
+  expect(verificationSource).not.toContain('readFileSync');
+  expect(verificationSource).not.toContain('readManifestBytes');
   expect(source).not.toContain('process.exit(');
 });

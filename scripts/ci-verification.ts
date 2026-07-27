@@ -1,6 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { CodexDevelopmentBuildSanitizedChildEnvironmentV1 } from '../platform/shared/ci-execution-environment.ts';
@@ -51,6 +50,11 @@ import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from '../platform/share
 import { isTestFile } from '../platform/shared/test-budget-contract.ts';
 import { CodexDevelopmentBuildVerificationScopeInventoryV1 } from '../platform/shared/verification-scope-inventory.ts';
 import {
+  CodexDevelopmentReadExactGitBlobEntryV1,
+  CodexDevelopmentReadExactGitBlobV1,
+  type CodexDevelopmentExactGitBlobReadOptionsV1
+} from './codex/exact-git-blob.ts';
+import {
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest,
   CodexDevelopmentWorkPackageSchemaV1,
@@ -82,6 +86,7 @@ export type CodexDevelopmentCiVerificationMainOptions = {
   argv?: string[];
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
+  repositoryRoot?: string;
   gitRevision?: (ref: string) => string | null;
   trackedTreeIsClean?: () => boolean;
   changedFiles?: (baseRef: string) => string[] | null;
@@ -92,7 +97,7 @@ export type CodexDevelopmentCiVerificationMainOptions = {
   runGate?: (step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }) => Promise<GateProcessResult>;
   writeEvidence?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV2) => void;
   writeEvidenceV3?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV3) => void;
-  readManifestBytes?: (manifestPath: string) => Uint8Array;
+  readExactGitBlob?: typeof CodexDevelopmentReadExactGitBlobV1;
   resolvePolicy?: (policyId: string) => CodexDevelopmentEvidenceCompositionPolicyV1;
 };
 
@@ -120,44 +125,53 @@ function parseProfile(argv: string[]): { profile: CodexDevelopmentVerificationPl
   return { profile, expectedHead };
 }
 
-function defaultGitRevision(ref: string): string | null {
-  const result = spawnSync('git', ['rev-parse', ref], { encoding: 'utf8' });
+function defaultGitRevision(repositoryRoot: string, ref: string): string | null {
+  const result = spawnSync('git', ['rev-parse', ref], {
+    cwd: repositoryRoot,
+    encoding: 'utf8'
+  });
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-function defaultGitBlob(ref: string, file: string): CodexDevelopmentExactGitBlobV1 | null {
-  const result = spawnSync('git', ['ls-tree', '-z', '--full-tree', ref, '--', file], {
-    encoding: 'buffer',
-    maxBuffer: 1_048_576
-  });
-  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-  let output: string;
+function defaultGitBlob(
+  repositoryRoot: string,
+  ref: string,
+  file: string
+): CodexDevelopmentExactGitBlobV1 | null {
   try {
-    output = decodeGitPathOutput(result.stdout, 'tree-path');
+    const entry = CodexDevelopmentReadExactGitBlobEntryV1({
+      repositoryRoot,
+      commitSha: ref,
+      repositoryPath: file
+    });
+    return { mode: entry.mode, type: entry.type, blobSha: entry.blobSha };
   } catch {
     return null;
   }
-  if (!output.endsWith('\0')) return null;
-  const entries = output.split('\0').filter(Boolean);
-  if (entries.length !== 1) return null;
-  const match = /^(100644|100755) blob ([0-9a-f]{40})\t(.+)$/u.exec(entries[0]!);
-  if (!match || match[3] !== file) return null;
-  return { mode: match[1] as '100644' | '100755', type: 'blob', blobSha: match[2]! };
 }
 
-function defaultReadGitBlob(ref: string, file: string): CodexDevelopmentExactGitBlobBytesV1 | null {
-  const entry = defaultGitBlob(ref, file);
-  if (!entry) return null;
-  const result = spawnSync('git', ['cat-file', 'blob', `${ref}:${file}`], {
-    encoding: 'buffer',
-    maxBuffer: 16 * 1024 * 1024
-  });
-  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-  return { ...entry, bytes: new Uint8Array(result.stdout) };
+function defaultReadGitBlob(
+  repositoryRoot: string,
+  readExactGitBlob: (
+    options: CodexDevelopmentExactGitBlobReadOptionsV1
+  ) => ReturnType<typeof CodexDevelopmentReadExactGitBlobV1>,
+  ref: string,
+  file: string
+): CodexDevelopmentExactGitBlobBytesV1 | null {
+  try {
+    return readExactGitBlob({
+      repositoryRoot,
+      commitSha: ref,
+      repositoryPath: file
+    });
+  } catch {
+    return null;
+  }
 }
 
-function defaultGitFiles(ref: string, prefix: string): string[] | null {
+function defaultGitFiles(repositoryRoot: string, ref: string, prefix: string): string[] | null {
   const result = spawnSync('git', ['ls-tree', '-r', '-z', '--name-only', '--full-tree', ref, '--', prefix], {
+    cwd: repositoryRoot,
     encoding: 'buffer',
     maxBuffer: 16 * 1024 * 1024
   });
@@ -172,15 +186,18 @@ function defaultGitFiles(ref: string, prefix: string): string[] | null {
   return output.split('\0').filter(Boolean);
 }
 
-function defaultTrackedTreeIsClean(): boolean {
+function defaultTrackedTreeIsClean(repositoryRoot: string): boolean {
   const result = spawnSync('git', [
     '-c', 'core.quotepath=false', 'status', '--porcelain=v1', '--untracked-files=normal', '--ignored=no'
-  ], { encoding: 'utf8' });
+  ], { cwd: repositoryRoot, encoding: 'utf8' });
   return result.status === 0 && result.stdout.length === 0;
 }
 
-function defaultChangedFiles(baseRef: string): string[] | null {
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), { encoding: 'buffer' });
+function defaultChangedFiles(repositoryRoot: string, baseRef: string): string[] | null {
+  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), {
+    cwd: repositoryRoot,
+    encoding: 'buffer'
+  });
   if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
   try {
     return parseGitChangedFileOutput(result.stdout);
@@ -262,14 +279,23 @@ type ManifestBinding = {
 
 function manifestBinding(
   env: NodeJS.ProcessEnv,
-  readManifestBytes: (manifestPath: string) => Uint8Array = (manifestPath) => readFileSync(path.resolve(manifestPath))
+  repositoryRoot: string,
+  headSha: string,
+  readExactGitBlob: (
+    options: CodexDevelopmentExactGitBlobReadOptionsV1
+  ) => ReturnType<typeof CodexDevelopmentReadExactGitBlobV1>
 ): ManifestBinding {
   const manifestPath = env.SEC_WORK_PACKAGE_MANIFEST_PATH;
   if (!manifestPath) return { manifestPath: null, manifestDigest: null, manifest: null };
   if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
     throw new Error('SEC_WORK_PACKAGE_MANIFEST_PATH must be a canonical repository-relative Work Package path.');
   }
-  const source = readManifestBytes(manifestPath);
+  const source = readExactGitBlob({
+    repositoryRoot,
+    commitSha: headSha,
+    maxBytes: 1024 * 1024,
+    repositoryPath: manifestPath
+  }).bytes;
   const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
   const manifest = CodexDevelopmentParseWorkPackageManifest(text, manifestPath);
   if (manifest.schema === CodexDevelopmentWorkPackageSchemaV1
@@ -283,8 +309,14 @@ function manifestBinding(
   };
 }
 
-function defaultChangedRecords(baseRef: string): CodexDevelopmentGitChangedRecordV1[] | null {
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), { encoding: 'buffer' });
+function defaultChangedRecords(
+  repositoryRoot: string,
+  baseRef: string
+): CodexDevelopmentGitChangedRecordV1[] | null {
+  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), {
+    cwd: repositoryRoot,
+    encoding: 'buffer'
+  });
   if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
   try {
     return parseGitChangedRecordsOutput(result.stdout);
@@ -327,13 +359,23 @@ export async function CodexDevelopmentCiVerificationMain(
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const now = options.now ?? (() => new Date());
-  const gitRevision = options.gitRevision ?? defaultGitRevision;
-  const trackedTreeIsClean = options.trackedTreeIsClean ?? defaultTrackedTreeIsClean;
-  const changedFileResolver = options.changedFiles ?? defaultChangedFiles;
-  const changedRecordResolver = options.changedRecords ?? defaultChangedRecords;
-  const gitBlob = options.gitBlob ?? defaultGitBlob;
-  const readGitBlob = options.readGitBlob ?? defaultReadGitBlob;
-  const gitFiles = options.gitFiles ?? defaultGitFiles;
+  const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
+  const readExactGitBlob = options.readExactGitBlob ?? CodexDevelopmentReadExactGitBlobV1;
+  const gitRevision = options.gitRevision
+    ?? ((ref: string) => defaultGitRevision(repositoryRoot, ref));
+  const trackedTreeIsClean = options.trackedTreeIsClean
+    ?? (() => defaultTrackedTreeIsClean(repositoryRoot));
+  const changedFileResolver = options.changedFiles
+    ?? ((baseRef: string) => defaultChangedFiles(repositoryRoot, baseRef));
+  const changedRecordResolver = options.changedRecords
+    ?? ((baseRef: string) => defaultChangedRecords(repositoryRoot, baseRef));
+  const gitBlob = options.gitBlob
+    ?? ((ref: string, file: string) => defaultGitBlob(repositoryRoot, ref, file));
+  const readGitBlob = options.readGitBlob
+    ?? ((ref: string, file: string) =>
+      defaultReadGitBlob(repositoryRoot, readExactGitBlob, ref, file));
+  const gitFiles = options.gitFiles
+    ?? ((ref: string, prefix: string) => defaultGitFiles(repositoryRoot, ref, prefix));
   const runGate = options.runGate ?? defaultRunGate;
   const writeEvidence = options.writeEvidence;
   const writeEvidenceV3 = options.writeEvidenceV3;
@@ -393,7 +435,9 @@ export async function CodexDevelopmentCiVerificationMain(
     }
     assertCiExpectedHead(headSha, parsed.expectedHead ?? env.SEC_EXPECTED_HEAD_SHA);
     if (!cleanBefore) throw new Error('CI verification requires a clean complete worktree before execution.');
-    binding = manifestBinding(env, options.readManifestBytes);
+    stage = 'manifest';
+    binding = manifestBinding(env, repositoryRoot, headSha, readExactGitBlob);
+    stage = 'preflight';
     if (binding.manifest !== null && binding.manifest.base !== prBaseSha) {
       throw new Error('Work Package manifest base does not match the exact PR base.');
     }
