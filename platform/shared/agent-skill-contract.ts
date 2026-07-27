@@ -178,6 +178,20 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   if (path === 'AGENTS.md') {
     return skills('sec-repository-orientation', 'sec-a0-integrator', 'sec-context-resume');
   }
+  if (/^docs\/work\//u.test(path)) {
+    return skills(
+      'sec-a0-integrator',
+      'sec-documentation-governance',
+      'sec-repository-orientation',
+      'sec-work-package-lifecycle'
+    );
+  }
+  if (path === 'docs/governance/external-capability-ledger.yaml') {
+    return skills('sec-external-capability-governance');
+  }
+  if (path === 'docs/governance/nexus-absorption-ledger.yaml') {
+    return skills('sec-external-capability-governance', 'sec-repository-orientation');
+  }
   if (path === 'platform/shared/agent-skill-contract.ts') {
     return skills('sec-documentation-governance', 'sec-context-resume', 'sec-trust-root-bootstrap');
   }
