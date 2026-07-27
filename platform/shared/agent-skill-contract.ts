@@ -21,8 +21,12 @@ export const SEC_AGENT_SKILL_STANDARD_SECTIONS = [
   '## 触发',
   '## 不触发',
   '## 输入',
+  '## 权限与路径',
+  '## 允许工具与操作',
+  '## 前置门禁',
   '## 执行',
-  '## 停止条件',
+  '## 完成证据',
+  '## 停止与恢复',
   '## 禁止捷径',
   '## 权威'
 ] as const;
@@ -62,6 +66,12 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     };
   }
   if (path === 'README.md') {
+    return {
+      kind: 'active-authority',
+      skills: skills('sec-repository-orientation', 'sec-documentation-governance')
+    };
+  }
+  if (/^[^/]+\.md$/u.test(path)) {
     return {
       kind: 'active-authority',
       skills: skills('sec-repository-orientation', 'sec-documentation-governance')
@@ -158,6 +168,9 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   if (skillId) return [skillId];
   if (path === 'AGENTS.md') {
     return skills('sec-repository-orientation', 'sec-a0-integrator', 'sec-context-resume');
+  }
+  if (path === 'platform/shared/agent-skill-contract.ts') {
+    return skills('sec-documentation-governance', 'sec-context-resume', 'sec-trust-root-bootstrap');
   }
   if (/^\.codex\/agents\//u.test(path)) {
     return skills('sec-task-delegation', 'sec-worker-development', 'sec-exact-head-review');
