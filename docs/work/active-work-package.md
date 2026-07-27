@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/agent-skills-and-v19-alignment-v2.md
-manifestDigest: sha256:7ba671942110e01eb187ee0b63a0f0d45feda0212725528d9282e31ccaa3e44a
+manifestDigest: sha256:a871d7e210d0bd7ca058a04209e184585d26e2826338b32a5d7ca98f72cb85ce
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
