@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/agent-skills-hardening-v1.md
-manifestDigest: sha256:e869d31ec7452236c6ba0f9436ddc893e81a31c9ad82e888cdd4c2516a0e0bfc
+manifestDigest: sha256:80b93ccdb02e836b5b9884685308e906c00449513e4eda3a471b1306697d5d09
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
