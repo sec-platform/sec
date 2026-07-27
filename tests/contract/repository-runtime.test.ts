@@ -94,8 +94,9 @@ describe('test budget and benchmark contracts', () => {
 
   test('retired MCP entrypoints stay absent while CLI analysis remains available', async () => {
     const { scripts } = await readCompilerPackageJson();
+    const mcpConfig = new URL('../../.mcp.json', import.meta.url);
 
-    expect(await Bun.file('.mcp.json').exists()).toBe(false);
+    expect(await Bun.file(mcpConfig).exists()).toBe(false);
     expect(scripts['gitnexus:mcp']).toBeUndefined();
     expect(scripts['gitnexus:analyze']).toBeDefined();
     expect(scripts['gitnexus:status']).toBeDefined();
