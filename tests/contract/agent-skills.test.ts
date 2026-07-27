@@ -5,17 +5,31 @@ import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
 import { scanDocumentation } from '../../docs/scripts/docs-doctor.ts';
+import {
+  classifySecRepositorySurface,
+  resolveSecMarkdownSkillCoverage,
+  resolveSecRepositoryHeuristicSkills,
+  SEC_AGENT_SKILL_IDS,
+  SEC_AGENT_SKILL_STANDARD_SECTIONS
+} from '../../platform/shared/agent-skill-contract.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const SKILLS_ROOT = path.join(REPOSITORY_ROOT, '.agents', 'skills');
-const SKILL_IDS = [
-  'sec-a0-integrator',
-  'sec-ci-and-merge',
-  'sec-work-package-lifecycle',
-  'sec-worker-development'
-] as const;
+const WALK_SKIPS = new Set([
+  '.git',
+  '.next',
+  '.shared-deps',
+  '.tmp',
+  'build',
+  'dist',
+  'node_modules',
+  'playwright-report',
+  'project',
+  'report',
+  'test-results'
+]);
 
 type SkillFrontmatter = {
   name?: unknown;
@@ -33,21 +47,52 @@ function parseSkill(source: string): { frontmatter: SkillFrontmatter; body: stri
   return { frontmatter: raw as SkillFrontmatter, body: match[2]! };
 }
 
-test('SEC skill inventory conforms to the strict Agent Skills identity contract', async () => {
+async function walkRepository(dir = REPOSITORY_ROOT): Promise<string[]> {
+  const files: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (WALK_SKIPS.has(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await walkRepository(full));
+    } else if (entry.isFile()) {
+      files.push(path.relative(REPOSITORY_ROOT, full).split(path.sep).join('/'));
+    }
+  }
+  return files.sort();
+}
+
+function isHeuristicSurface(path: string): boolean {
+  return path === 'AGENTS.md'
+    || path === 'platform/dev-runner.ts'
+    || path === 'scripts/install-git-hooks.ts'
+    || path === 'scripts/run-work-package-gate.ts'
+    || /^\.agents\/skills\//u.test(path)
+    || /^\.codex\/agents\//u.test(path)
+    || /^\.github\/workflows\//u.test(path)
+    || /^\.githooks\//u.test(path)
+    || /^scripts\/codex\//u.test(path)
+    || /^scripts\/ci-[^/]+\.ts$/u.test(path)
+    || /^docs\/scripts\//u.test(path)
+    || /^platform\/dev-runner\//u.test(path)
+    || /^platform\/shared\/(?:ci-|test-impact|test-ownership|affected-test|verification-scope)/u.test(path)
+    || /^platform\/shared\/test-impact-rules\//u.test(path)
+    || /^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version)$/u.test(path);
+}
+
+test('SEC skill inventory conforms to one strict AgentOperation contract', async () => {
   const entries = (await readdir(SKILLS_ROOT, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
 
-  expect(entries).toEqual([...SKILL_IDS]);
+  expect(entries).toEqual([...SEC_AGENT_SKILL_IDS]);
 
   const descriptions = new Set<string>();
-  for (const skillId of SKILL_IDS) {
+  for (const skillId of SEC_AGENT_SKILL_IDS) {
     const source = await readFile(path.join(SKILLS_ROOT, skillId, 'SKILL.md'), 'utf8');
     const { frontmatter, body } = parseSkill(source);
-    const keys = Object.keys(frontmatter).sort();
 
-    expect(keys).toEqual(['compatibility', 'description', 'name']);
+    expect(Object.keys(frontmatter).sort()).toEqual(['compatibility', 'description', 'name']);
     expect(frontmatter.name).toBe(skillId);
     expect(skillId).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
     expect(typeof frontmatter.description).toBe('string');
@@ -59,11 +104,12 @@ test('SEC skill inventory conforms to the strict Agent Skills identity contract'
     expect(typeof frontmatter.compatibility).toBe('string');
     expect((frontmatter.compatibility as string).length).toBeLessThanOrEqual(500);
     expect(body.match(/^#\s+/gmu)).toHaveLength(1);
+    for (const section of SEC_AGENT_SKILL_STANDARD_SECTIONS) expect(body).toContain(section);
   }
 });
 
-test('SEC skills prohibit destructive shortcuts and preserve canonical command contracts', async () => {
-  const sources = Object.fromEntries(await Promise.all(SKILL_IDS.map(async (skillId) => [
+test('skills prohibit destructive shortcuts and preserve decisive boundaries', async () => {
+  const sources = Object.fromEntries(await Promise.all(SEC_AGENT_SKILL_IDS.map(async (skillId) => [
     skillId,
     await readFile(path.join(SKILLS_ROOT, skillId, 'SKILL.md'), 'utf8')
   ])));
@@ -74,34 +120,59 @@ test('SEC skills prohibit destructive shortcuts and preserve canonical command c
     expect(source).not.toContain('sec-work-package-manifest-v1');
   }
 
-  expect(sources['sec-a0-integrator']).toContain('client_payload[pull_request]');
-  expect(sources['sec-a0-integrator']).toContain('client_payload[expected_head]');
-  expect(sources['sec-a0-integrator']).toContain('client_payload[expected_base]');
-  expect(sources['sec-a0-integrator']).toContain('client_payload[manifest_digest]');
-  expect(sources['sec-a0-integrator']).toContain('codex-development-frozen-verification-request-v1');
-  expect(sources['sec-a0-integrator']).toContain('client_payload[manifest_path]');
-  expect(sources['sec-a0-integrator']).toContain('client_payload[profile]');
-
-  expect(sources['sec-ci-and-merge']).toContain('-f "sha=$EXPECTED_HEAD"');
+  expect(sources['sec-ci-and-merge']).toContain('pull_request');
+  expect(sources['sec-ci-and-merge']).toContain('expected_head');
+  expect(sources['sec-ci-and-merge']).toContain('expected_base');
+  expect(sources['sec-ci-and-merge']).toContain('manifest_digest');
+  expect(sources['sec-ci-and-merge']).toContain('manifest_path');
+  expect(sources['sec-ci-and-merge']).toContain('profile');
   expect(sources['sec-ci-and-merge']).toContain('merged: true');
-  expect(sources['sec-ci-and-merge']).toContain('manual bootstrap');
 
   expect(sources['sec-work-package-lifecycle']).toContain('codex-development-work-package-v1');
   expect(sources['sec-work-package-lifecycle']).toContain('codex-development-work-package-v2');
-  expect(sources['sec-work-package-lifecycle']).toContain('禁止把仍被 pointer引用的 selected manifest移入 archive');
-  expect(sources['sec-work-package-lifecycle']).toContain('matchingDefaultBlob');
+  expect(sources['sec-work-package-lifecycle']).toContain('matchingDefaultBlob: none');
 
   expect(sources['sec-worker-development']).toContain('bun run imports:freeze');
   expect(sources['sec-worker-development']).toContain('candidate invalidation');
-  expect(sources['sec-worker-development']).toContain('STOP_PROOF_RESET');
-  expect(sources['sec-worker-development']).not.toContain('bun run imports:check');
+
+  expect(sources['sec-context-resume']).toContain('validated deterministic resume');
+  expect(sources['sec-context-resume']).toContain('Git common dir');
+  expect(sources['sec-context-resume']).toContain('runId');
+  expect(sources['sec-context-resume']).toContain('recoveryRequired');
+  expect(sources['sec-context-resume']).toContain('manual-shadow');
+
+  expect(sources['sec-external-capability-governance']).toContain('不保留无消费者的MCP配置');
+  expect(sources['sec-toolchain-and-dependencies']).toContain('保留CLI不等于保留MCP入口');
 });
 
-test('every SEC skill path has one agent-governance owner and focused contract', () => {
-  for (const skillId of SKILL_IDS) {
-    const source = `.agents/skills/${skillId}/SKILL.md`;
-    const selection = selectTestsForSources([source]);
+test('all repository Markdown is classified and every active authority has skill coverage', async () => {
+  const markdown = (await walkRepository()).filter((file) => file.endsWith('.md'));
+  expect(markdown.length).toBeGreaterThan(0);
 
+  for (const file of markdown) {
+    const coverage = resolveSecMarkdownSkillCoverage(file);
+    expect(coverage, file).not.toBeNull();
+    if (coverage?.kind === 'active-authority' || coverage?.kind === 'agent-projection') {
+      expect(coverage.skills.length, file).toBeGreaterThan(0);
+    }
+  }
+});
+
+test('every repository heuristic runtime surface resolves at least one skill', async () => {
+  const files = await walkRepository();
+  for (const file of files.filter(isHeuristicSurface)) {
+    expect(resolveSecRepositoryHeuristicSkills(file).length, file).toBeGreaterThan(0);
+  }
+  for (const file of files) expect(classifySecRepositorySurface(file)).toBeDefined();
+});
+
+test('every Skill and skill authority source has focused agent-governance ownership', () => {
+  const sources = [
+    ...SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`),
+    'platform/shared/agent-skill-contract.ts'
+  ];
+  for (const source of sources) {
+    const selection = selectTestsForSources([source]);
     expect(selection.owners).toEqual(['agent-governance']);
     expect(selection.fast).toEqual([
       'tests/contract/agent-skills.test.ts',
@@ -112,15 +183,16 @@ test('every SEC skill path has one agent-governance owner and focused contract',
   }
 });
 
-test('restored repository tooling and removed report have exact focused owners', () => {
-  expect(selectTestsForSources(['.mcp.json'])).toEqual({
+test('retired MCP cleanup and unsupported report have exact focused owners', () => {
+  expect(selectTestsForSources(['scripts/cleanup-mcp.ps1'])).toEqual({
     fast: [
+      'tests/contract/agent-skills.test.ts',
       'tests/contract/repository-runtime.test.ts',
       'tests/contract/test-impact.test.ts',
       'tests/unit/ci-pr-risk-selection.test.ts'
     ],
     slow: [],
-    owners: ['repository-tooling-config']
+    owners: ['external-capability-retirement']
   });
 
   expect(selectTestsForSources([
@@ -137,57 +209,79 @@ test('restored repository tooling and removed report have exact focused owners',
   });
 });
 
-test('non-trust-root skill, tooling, and report inputs remain resolved without slow fallback', () => {
-  const sources = [
-    ...SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`),
-    '.mcp.json',
+test('focused skill inputs avoid slow fallback while trust-root changes retain mandatory Risk', () => {
+  const focused = selectCiPrRiskSlowSuites([
+    ...SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`),
+    'scripts/cleanup-mcp.ps1',
     'docs/evidence/2026-07-27-markdown-docs-analysis.md'
-  ];
-  const selection = selectCiPrRiskSlowSuites(sources);
-
-  expect(selection.resolved).toBe(true);
-  expect(selection.suites).toEqual([]);
-  expect(selection.slowTests).toEqual([]);
-  expect(selection.affectedSlowTests).toEqual([]);
-  expect(selection.reasons).toEqual(['ownership-impact']);
-  expect(selection.owners).toEqual([
-    'agent-governance',
-    'documentation-evidence-cleanup',
-    'repository-tooling-config'
   ]);
-});
+  expect(focused.resolved).toBe(true);
+  expect(focused.suites).toEqual([]);
+  expect(focused.slowTests).toEqual([]);
+  expect(focused.affectedSlowTests).toEqual([]);
+  expect(focused.reasons).toEqual(['ownership-impact']);
 
-test('governance trust-root changes retain mandatory bounded Risk selection', () => {
-  const selection = selectCiPrRiskSlowSuites([
-    'platform/shared/test-impact-rules/governance.ts'
+  const trustRoot = selectCiPrRiskSlowSuites([
+    'platform/shared/agent-skill-contract.ts',
+    'platform/shared/test-impact-rules/governance.ts',
+    'package.json'
   ]);
-
-  expect(selection.resolved).toBe(true);
-  expect(selection.suites.length).toBeGreaterThan(0);
-  expect(selection.reasons).toEqual([
+  expect(trustRoot.resolved).toBe(true);
+  expect(trustRoot.suites.length).toBeGreaterThan(0);
+  expect(trustRoot.reasons).toEqual(expect.arrayContaining([
+    'bounded-baseline',
     'mandatory-sentinel',
     'ownership-impact'
-  ]);
-  expect(selection.owners).toEqual(expect.arrayContaining([
+  ]));
+  expect(trustRoot.owners).toEqual(expect.arrayContaining([
     'bounded-slow-risk',
     'verification-infrastructure'
   ]));
 });
 
-test('repository documentation resolves one existing selected Work Package with no errors', async () => {
+test('MCP entrypoints are retired while GitNexus and Graphify CLI analysis remain', async () => {
+  const packageJson = JSON.parse(await readFile(path.join(REPOSITORY_ROOT, 'package.json'), 'utf8')) as {
+    scripts: Record<string, string>;
+  };
+  expect(await Bun.file(path.join(REPOSITORY_ROOT, '.mcp.json')).exists()).toBe(false);
+  expect(await Bun.file(path.join(REPOSITORY_ROOT, 'scripts/cleanup-mcp.ps1')).exists()).toBe(false);
+  expect(packageJson.scripts['gitnexus:mcp']).toBeUndefined();
+  expect(packageJson.scripts['gitnexus:analyze']).toBeDefined();
+  expect(packageJson.scripts['gitnexus:status']).toBeDefined();
+  expect(packageJson.scripts.graphify).toBeDefined();
+});
+
+test('repository documentation resolves one selected Work Package and V19 authority', async () => {
   const docsRoot = path.join(REPOSITORY_ROOT, 'docs');
   const result = await scanDocumentation({
     docsRoot,
     repositoryRoot: REPOSITORY_ROOT,
     readCandidateManifestBlob: (manifestPath) => readFile(path.join(REPOSITORY_ROOT, manifestPath))
   });
-
   expect(result.errors).toEqual([]);
+
+  const authority = await readFile(
+    path.join(docsRoot, 'governance', 'agent-skills-and-development-run-kernel.md'),
+    'utf8'
+  );
+  for (const marker of [
+    'AgentOperation',
+    '全仓库覆盖',
+    '全 Markdown 覆盖',
+    'V19 可验证确定性续跑',
+    '<git-common-dir>/sec-codex/runs/<run-id>/',
+    'repository-level intake spool',
+    'PreCompact',
+    'recoveryRequired',
+    'WP-A Development Run Kernel Shadow',
+    'WP-B Project Hook Activation'
+  ]) expect(authority).toContain(marker);
 });
 
-test('AGENTS declares skills as tested projections rather than a second authority', async () => {
+test('AGENTS keeps Skills as compiled projections instead of a second authority', async () => {
   const agents = await readFile(path.join(REPOSITORY_ROOT, 'AGENTS.md'), 'utf8');
-
-  expect(agents).toContain('`.agents/skills/**` 只保存本合同与 canonical owner 的窄幅可执行投影');
-  expect(agents).toContain('`tests/contract/agent-skills.test.ts`机器校验');
+  expect(agents).toContain('`.agents/skills/**`');
+  expect(agents).toContain('`platform/shared/agent-skill-contract.ts`');
+  expect(agents).toContain('全部 tracked Markdown');
+  expect(agents).toContain('V19');
 });
