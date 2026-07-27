@@ -5,6 +5,7 @@ import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 
 import { scanDocumentation } from '../../docs/scripts/docs-doctor.ts';
+import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
@@ -109,6 +110,51 @@ test('every SEC skill path has one agent-governance owner and focused contract',
     ]);
     expect(selection.slow).toEqual([]);
   }
+});
+
+test('restored repository tooling and removed report have exact focused owners', () => {
+  expect(selectTestsForSources(['.mcp.json'])).toEqual({
+    fast: [
+      'tests/contract/repository-runtime.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts'
+    ],
+    slow: [],
+    owners: ['repository-tooling-config']
+  });
+
+  expect(selectTestsForSources([
+    'docs/evidence/2026-07-27-markdown-docs-analysis.md'
+  ])).toEqual({
+    fast: [
+      'tests/contract/agent-skills.test.ts',
+      'tests/contract/docs-doctor.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts'
+    ],
+    slow: [],
+    owners: ['documentation-evidence-cleanup']
+  });
+});
+
+test('skill, tooling, and report changes remain resolved without slow fallback', () => {
+  const sources = [
+    ...SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`),
+    '.mcp.json',
+    'docs/evidence/2026-07-27-markdown-docs-analysis.md'
+  ];
+  const selection = selectCiPrRiskSlowSuites(sources);
+
+  expect(selection.resolved).toBe(true);
+  expect(selection.suites).toEqual([]);
+  expect(selection.slowTests).toEqual([]);
+  expect(selection.affectedSlowTests).toEqual([]);
+  expect(selection.reasons).toEqual(['ownership-impact']);
+  expect(selection.owners).toEqual([
+    'agent-governance',
+    'documentation-evidence-cleanup',
+    'repository-tooling-config'
+  ]);
 });
 
 test('repository documentation resolves one existing selected Work Package with no errors', async () => {
