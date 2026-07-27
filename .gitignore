@@ -48,4 +48,3 @@ _handoff/
 !.codex/config.toml
 !.codex/agents/
 !.codex/agents/*.toml
-.agents/

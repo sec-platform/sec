@@ -469,6 +469,15 @@ export async function scanDocumentation(
     const authorityDocument = isAuthorityDocument(relativePath);
     const workPackage = isWorkPackage(relativePath);
 
+    if (workPackage && relativePath !== selectedWorkPackage) {
+      pushIssue(issues, {
+        level: 'error',
+        code: 'stale-work-package',
+        file: relativePath,
+        message: '历史执行闭包（Work Package）必须移入 archive/ 目录，不能在 active 目录下积压'
+      });
+    }
+
     if (
       repositoryPath !== repositoryPath.normalize('NFC')
       || repositoryPath.includes('\uFFFD')
