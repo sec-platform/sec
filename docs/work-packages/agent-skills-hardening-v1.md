@@ -40,7 +40,7 @@ acceptance:
   - "The four repository skills use strict lowercase hyphenated Agent Skills identities matching their parent directories and describe both trigger and exclusion boundaries."
   - "A0 dispatch examples carry every exact client_payload key required by the current Scope and frozen Verification workflows."
   - "No skill instructs hard reset, force push, pre-merge head rewriting, unsupported Work Package schema, unsupported pointer none state, or unconditional Issue closure."
-  - "Every changed Agent Skill, .mcp.json, and removed machine-local report path resolves to one explicit focused test-impact owner."
+  - "Every changed Agent Skill, .mcp.json, and removed machine-local report path resolves to one explicit focused test-impact owner; the governance trust-root change still selects its mandatory bounded Risk sentinels."
   - "The active pointer, rolling plan, and selected Work Package resolve together; only non-selected historical Work Packages are archived."
   - "The tracked MCP configuration required by the repository-runtime contract is restored byte-for-byte and the machine-local narrative report is removed."
   - "Because test-impact authority changes, the candidate uses independent exact-head review and trusted base-side manual bootstrap rather than candidate self-authorization."
