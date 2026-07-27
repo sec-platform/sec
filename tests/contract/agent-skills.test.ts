@@ -8,10 +8,14 @@ import { parse as parseYaml } from 'yaml';
 import { scanDocumentation } from '../../docs/scripts/docs-doctor.ts';
 import {
   classifySecRepositorySurface,
+  isSecRepositoryHeuristicSurface,
   resolveSecMarkdownSkillCoverage,
+  resolveSecRepositoryBehaviorOwner,
   resolveSecRepositoryHeuristicSkills,
   SEC_AGENT_SKILL_IDS,
   SEC_AGENT_SKILL_STANDARD_SECTIONS,
+  SEC_REPOSITORY_BEHAVIOR_IDS,
+  SEC_REPOSITORY_BEHAVIOR_OWNERS,
   type SecAgentSkillId
 } from '../../platform/shared/agent-skill-contract.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
@@ -20,20 +24,20 @@ import { selectTestsForSources } from '../../platform/shared/test-impact-contrac
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const SKILLS_ROOT = path.join(REPOSITORY_ROOT, '.agents', 'skills');
 
-type SkillFrontmatter = {
-  name?: unknown;
-  description?: unknown;
+interface SkillFrontmatter {
   compatibility?: unknown;
-};
+  description?: unknown;
+  name?: unknown;
+}
 
-function parseSkill(source: string): { frontmatter: SkillFrontmatter; body: string } {
+function parseSkill(source: string): { body: string; frontmatter: SkillFrontmatter } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/u.exec(source);
   if (!match) throw new Error('Skill must contain one leading YAML frontmatter block.');
   const raw = parseYaml(match[1]!) as unknown;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('Skill frontmatter must be a mapping.');
   }
-  return { frontmatter: raw as SkillFrontmatter, body: match[2]! };
+  return { body: match[2]!, frontmatter: raw as SkillFrontmatter };
 }
 
 function trackedRepositoryFiles(): string[] {
@@ -49,36 +53,17 @@ function trackedRepositoryFiles(): string[] {
   return result.stdout.split('\0').filter(Boolean).sort();
 }
 
-function isHeuristicSurface(file: string): boolean {
-  return file === 'AGENTS.md'
-    || file === 'platform/shared/agent-skill-contract.ts'
-    || file === 'platform/dev-runner.ts'
-    || file === 'scripts/install-git-hooks.ts'
-    || file === 'scripts/run-work-package-gate.ts'
-    || file === 'docs/governance/external-capability-ledger.yaml'
-    || file === 'docs/governance/nexus-absorption-ledger.yaml'
-    || /^docs\/work\//u.test(file)
-    || /^\.agents\/skills\//u.test(file)
-    || /^\.codex\//u.test(file)
-    || /^\.github\//u.test(file)
-    || /^\.githooks\//u.test(file)
-    || /^scripts\//u.test(file)
-    || /^docs\/scripts\//u.test(file)
-    || /^platform\/dev-runner\//u.test(file)
-    || /^platform\/shared\/(?:ci-|test-impact|test-ownership|affected-test|verification-scope)/u.test(file)
-    || /^platform\/shared\/test-impact-rules\//u.test(file)
-    || /^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version|\.gitignore|\.gitattributes|\.npmrc|\.dependency-cruiser\.json)$/u.test(file);
-}
-
 test('SEC skill inventory conforms to one strict AgentOperation contract', async () => {
   const tracked = trackedRepositoryFiles();
   const skillFiles = tracked.filter((file) => /^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(file));
-  expect(skillFiles).toEqual(SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`));
+  expect(skillFiles).toEqual(
+    SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`)
+  );
 
   const descriptions = new Set<string>();
   for (const skillId of SEC_AGENT_SKILL_IDS) {
     const source = await readFile(path.join(SKILLS_ROOT, skillId, 'SKILL.md'), 'utf8');
-    const { frontmatter, body } = parseSkill(source);
+    const { body, frontmatter } = parseSkill(source);
 
     expect(Object.keys(frontmatter).sort()).toEqual(['compatibility', 'description', 'name']);
     expect(frontmatter.name).toBe(skillId);
@@ -100,6 +85,16 @@ test('SEC skill inventory conforms to one strict AgentOperation contract', async
       previousIndex = index;
     }
   }
+});
+
+test('every repository behavior has one Skill owner and every Skill owns one behavior', () => {
+  expect(Object.keys(SEC_REPOSITORY_BEHAVIOR_OWNERS).sort()).toEqual(
+    [...SEC_REPOSITORY_BEHAVIOR_IDS].sort()
+  );
+  const owners = SEC_REPOSITORY_BEHAVIOR_IDS.map((behavior) =>
+    resolveSecRepositoryBehaviorOwner(behavior));
+  expect(new Set(owners)).toEqual(new Set(SEC_AGENT_SKILL_IDS));
+  expect(owners).toHaveLength(SEC_AGENT_SKILL_IDS.length);
 });
 
 test('skills prohibit destructive shortcuts and preserve decisive boundaries', async () => {
@@ -139,6 +134,14 @@ test('skills prohibit destructive shortcuts and preserve decisive boundaries', a
   expect(sources['sec-context-resume']).toContain('recoveryRequired');
   expect(sources['sec-context-resume']).toContain('manual-shadow');
 
+  expect(sources['sec-repository-audit']).toContain('git ls-files -z');
+  expect(sources['sec-repository-audit']).toContain('全部 tracked paths');
+  expect(sources['sec-repository-audit']).toContain('不得以搜索命中');
+  expect(sources['sec-heuristic-governance']).toContain('确定性合同');
+  expect(sources['sec-heuristic-governance']).toContain('唯一 Skill');
+  expect(sources['sec-architecture-evolution']).toContain('authority first');
+  expect(sources['sec-architecture-evolution']).toContain('第二pipeline');
+
   expect(sources['sec-external-capability-governance']).toContain('不保留无消费者的MCP配置');
   expect(sources['sec-toolchain-and-dependencies']).toContain('保留CLI不等于保留MCP入口');
 });
@@ -153,14 +156,16 @@ test('all tracked Markdown is classified and active surfaces have Skill coverage
     if (coverage.kind === 'active-authority'
       || coverage.kind === 'agent-projection'
       || coverage.kind === 'repository-content') {
-      if (coverage.skills.length === 0) throw new Error(`Active Markdown has no Skill coverage: ${file}`);
+      if (coverage.skills.length === 0) {
+        throw new Error(`Active Markdown has no Skill coverage: ${file}`);
+      }
     }
   }
 });
 
-test('every known repository heuristic runtime surface resolves at least one Skill', () => {
+test('every registered heuristic runtime surface resolves at least one Skill', () => {
   const files = trackedRepositoryFiles();
-  for (const file of files.filter(isHeuristicSurface)) {
+  for (const file of files.filter(isSecRepositoryHeuristicSurface)) {
     const skills = resolveSecRepositoryHeuristicSkills(file);
     if (skills.length === 0) throw new Error(`Heuristic surface has no Skill owner: ${file}`);
   }
@@ -169,27 +174,38 @@ test('every known repository heuristic runtime surface resolves at least one Ski
   expect(resolveSecRepositoryHeuristicSkills('docs/work/current-state.yaml')).toEqual([
     'sec-a0-integrator',
     'sec-documentation-governance',
+    'sec-repository-audit',
     'sec-repository-orientation',
     'sec-work-package-lifecycle'
   ]);
   expect(resolveSecRepositoryHeuristicSkills(
     'docs/governance/external-capability-ledger.yaml'
-  )).toEqual(['sec-external-capability-governance']);
+  )).toEqual(['sec-external-capability-governance', 'sec-heuristic-governance']);
   expect(resolveSecRepositoryHeuristicSkills(
     'docs/governance/nexus-absorption-ledger.yaml'
-  )).toEqual(['sec-external-capability-governance', 'sec-repository-orientation']);
+  )).toEqual([
+    'sec-external-capability-governance',
+    'sec-repository-audit',
+    'sec-repository-orientation'
+  ]);
+  expect(resolveSecRepositoryHeuristicSkills('scripts/codex/repository-audit.ts')).toEqual([
+    'sec-heuristic-governance',
+    'sec-repository-audit'
+  ]);
 });
 
-test('every Skill and Skill authority source has focused agent-governance ownership', () => {
+test('every Skill and audit authority source has focused agent-governance ownership', () => {
   const sources = [
     ...SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`),
-    'platform/shared/agent-skill-contract.ts'
+    'platform/shared/agent-skill-contract.ts',
+    'scripts/codex/repository-audit.ts'
   ];
   for (const source of sources) {
     const selection = selectTestsForSources([source]);
     expect(selection.owners).toEqual(['agent-governance']);
     expect(selection.fast).toEqual([
       'tests/contract/agent-skills.test.ts',
+      'tests/contract/repository-audit.test.ts',
       'tests/contract/test-impact.test.ts',
       'tests/unit/ci-pr-risk-selection.test.ts'
     ]);
@@ -197,37 +213,10 @@ test('every Skill and Skill authority source has focused agent-governance owners
   }
 });
 
-test('retired MCP cleanup and unsupported report have exact focused owners', () => {
-  expect(selectTestsForSources(['scripts/cleanup-mcp.ps1'])).toEqual({
-    fast: [
-      'tests/contract/agent-skills.test.ts',
-      'tests/contract/repository-runtime.test.ts',
-      'tests/contract/test-impact.test.ts',
-      'tests/unit/ci-pr-risk-selection.test.ts'
-    ],
-    slow: [],
-    owners: ['external-capability-retirement']
-  });
-
-  expect(selectTestsForSources([
-    'docs/evidence/2026-07-27-markdown-docs-analysis.md'
-  ])).toEqual({
-    fast: [
-      'tests/contract/agent-skills.test.ts',
-      'tests/contract/docs-doctor.test.ts',
-      'tests/contract/test-impact.test.ts',
-      'tests/unit/ci-pr-risk-selection.test.ts'
-    ],
-    slow: [],
-    owners: ['documentation-evidence-cleanup']
-  });
-});
-
 test('focused Skill inputs avoid slow fallback while trust-root changes retain mandatory Risk', () => {
   const focused = selectCiPrRiskSlowSuites([
     ...SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`),
-    'scripts/cleanup-mcp.ps1',
-    'docs/evidence/2026-07-27-markdown-docs-analysis.md'
+    'scripts/codex/repository-audit.ts'
   ]);
   expect(focused.resolved).toBe(true);
   expect(focused.suites).toEqual([]);
@@ -263,6 +252,7 @@ test('MCP entrypoints are retired while GitNexus and Graphify CLI analysis remai
   expect(packageJson.scripts['gitnexus:analyze']).toBeDefined();
   expect(packageJson.scripts['gitnexus:status']).toBeDefined();
   expect(packageJson.scripts.graphify).toBeDefined();
+  expect(packageJson.scripts['audit:repository']).toBeDefined();
 });
 
 test('external capability ledger freezes MCP retirement without retiring CLI analysis', async () => {
@@ -271,10 +261,10 @@ test('external capability ledger freezes MCP retirement without retiring CLI ana
     'utf8'
   )) as {
     providers?: Array<{
+      decision?: { rationale?: string; value?: string };
       id?: string;
-      toolSurface?: { cliCommands?: string[]; mcpToolsExposedByDefault?: string[] };
-      decision?: { value?: string; rationale?: string };
       lifecycle?: { state?: string };
+      toolSurface?: { cliCommands?: string[]; mcpToolsExposedByDefault?: string[] };
     }>;
   };
   const gitnexus = ledger.providers?.find((provider) => provider.id === 'gitnexus');
@@ -287,7 +277,7 @@ test('external capability ledger freezes MCP retirement without retiring CLI ana
   expect(graphItLive?.lifecycle?.state).toBe('retired');
 });
 
-test('repository documentation resolves one selected Work Package and V19 authority', async () => {
+test('repository documentation resolves one selected Work Package and audit authority', async () => {
   const docsRoot = path.join(REPOSITORY_ROOT, 'docs');
   const result = await scanDocumentation({
     docsRoot,
@@ -304,6 +294,9 @@ test('repository documentation resolves one selected Work Package and V19 author
     'AgentOperation',
     '全仓库覆盖',
     '全 Markdown 覆盖',
+    '全仓库审计',
+    '启发式抽取',
+    '架构演进',
     'V19 可验证确定性续跑',
     '<git-common-dir>/sec-codex/runs/<run-id>/',
     'repository-level intake spool',
@@ -319,5 +312,8 @@ test('AGENTS keeps Skills as compiled projections instead of a second authority'
   expect(agents).toContain('`.agents/skills/**`');
   expect(agents).toContain('`platform/shared/agent-skill-contract.ts`');
   expect(agents).toContain('全部 tracked Markdown');
+  expect(agents).toContain('sec-repository-audit');
+  expect(agents).toContain('sec-heuristic-governance');
+  expect(agents).toContain('sec-architecture-evolution');
   expect(agents).toContain('V19');
 });
