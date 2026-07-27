@@ -1,6 +1,9 @@
-import { serve } from 'bun';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import fs from 'node:fs/promises';
+import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import YAML from 'yaml';
 
 import { writeJson } from '../shared/fs.ts';
@@ -77,6 +80,11 @@ interface SubprocessHandle {
   readonly exited: Promise<number>;
   readonly stdout: ReadableStream<Uint8Array>;
   readonly stderr: ReadableStream<Uint8Array>;
+}
+
+export interface WorkbenchServerHandle {
+  readonly port: number;
+  stop(): void;
 }
 
 function encodeSse(event: string, data: string): Uint8Array {
@@ -221,6 +229,49 @@ async function commandForNode(context: RouteContext, body: RunNodeBody, log: (me
   return ['bun', 'run', 'sec', 'verify', '--lane', 'fast'];
 }
 
+function nodeReadableToWeb(stream: Readable): ReadableStream<Uint8Array> {
+  return Readable.toWeb(stream) as ReadableStream<Uint8Array>;
+}
+
+async function spawnWorkbenchProcess(command: readonly string[], cwd: string): Promise<SubprocessHandle> {
+  const [executable, ...args] = command;
+  if (!executable) throw new Error('Workbench process command is empty');
+
+  const child = spawn(executable, args, {
+    cwd,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true
+  });
+  const exited = new Promise<number>((resolve) => {
+    child.once('exit', (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    const onSpawn = (): void => {
+      child.off('error', onError);
+      resolve();
+    };
+    const onError = (error: Error): void => {
+      child.off('spawn', onSpawn);
+      reject(new Error(
+        `Unable to start workbench toolchain executable "${executable}": ${error.message}`,
+        { cause: error }
+      ));
+    };
+    child.once('spawn', onSpawn);
+    child.once('error', onError);
+  });
+
+  return {
+    kill: () => {
+      child.kill();
+    },
+    exited,
+    stdout: nodeReadableToWeb(child.stdout),
+    stderr: nodeReadableToWeb(child.stderr)
+  };
+}
+
 async function readProcessStream(
   stream: ReadableStream<Uint8Array>,
   log: (message: string) => void
@@ -230,7 +281,7 @@ async function readProcessStream(
   while (true) {
     const { done, value } = await reader.read();
     if (done) return;
-    for (const line of decoder.decode(value).split('\n')) {
+    for (const line of decoder.decode(value, { stream: true }).split('\n')) {
       if (line.trim()) log(`   ${line.trim()}`);
     }
   }
@@ -238,10 +289,10 @@ async function readProcessStream(
 
 async function handleRunNodeSse(context: RouteContext, mutex: WorkbenchMutex): Promise<Response> {
   const body = await context.req.json() as RunNodeBody;
+  let activeProcess: SubprocessHandle | null = null;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const release = await mutex.acquire();
-      let activeProcess: SubprocessHandle | null = null;
       const log = (message: string): void => {
         try {
           controller.enqueue(encodeSse('log', message));
@@ -267,11 +318,7 @@ async function handleRunNodeSse(context: RouteContext, mutex: WorkbenchMutex): P
         }
 
         log(`[Runner] Executing: ${command.join(' ')}`);
-        activeProcess = Bun.spawn(command, {
-          cwd: context.workspaceRoot,
-          stdout: 'pipe',
-          stderr: 'pipe'
-        }) as unknown as SubprocessHandle;
+        activeProcess = await spawnWorkbenchProcess(command, context.workspaceRoot);
         await Promise.all([
           readProcessStream(activeProcess.stdout, log),
           readProcessStream(activeProcess.stderr, log)
@@ -293,7 +340,7 @@ async function handleRunNodeSse(context: RouteContext, mutex: WorkbenchMutex): P
           // Stream already closed.
         }
       } finally {
-        void activeProcess;
+        activeProcess = null;
         release();
         try {
           controller.close();
@@ -301,6 +348,9 @@ async function handleRunNodeSse(context: RouteContext, mutex: WorkbenchMutex): P
           // Stream already closed.
         }
       }
+    },
+    cancel() {
+      activeProcess?.kill();
     }
   });
 
@@ -369,7 +419,92 @@ function wrapHandler(handler: RouteHandler): RouteHandler {
   };
 }
 
-export async function startWorkbenchServer(workspaceRoot: string, port: number): Promise<ReturnType<typeof serve>> {
+function nodeHeadersToWebHeaders(headers: IncomingHttpHeaders): Headers {
+  const result = new Headers();
+  for (const [name, value] of Object.entries(headers)) {
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      for (const entry of value) result.append(name, entry);
+    } else {
+      result.set(name, value);
+    }
+  }
+  return result;
+}
+
+async function readIncomingRequestBody(request: IncomingMessage): Promise<Uint8Array | undefined> {
+  const method = request.method ?? 'GET';
+  if (method === 'GET' || method === 'HEAD') return undefined;
+
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of request) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  return chunks.length === 0 ? undefined : Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+}
+
+async function toWebRequest(request: IncomingMessage, port: number): Promise<Request> {
+  const method = request.method ?? 'GET';
+  const host = request.headers.host ?? `127.0.0.1:${port}`;
+  const body = await readIncomingRequestBody(request);
+  return new Request(new URL(request.url ?? '/', `http://${host}`), {
+    method,
+    headers: nodeHeadersToWebHeaders(request.headers),
+    ...(body ? { body } : {})
+  });
+}
+
+async function writeWebResponse(target: ServerResponse, response: Response): Promise<void> {
+  target.statusCode = response.status;
+  if (response.statusText) target.statusMessage = response.statusText;
+  response.headers.forEach((value, name) => target.setHeader(name, value));
+
+  if (!response.body) {
+    target.end();
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const cancelOnDisconnect = (): void => {
+    void reader.cancel('Workbench HTTP client disconnected').catch(() => undefined);
+  };
+  target.once('close', cancelOnDisconnect);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!target.write(Buffer.from(value))) await once(target, 'drain');
+    }
+  } finally {
+    target.off('close', cancelOnDisconnect);
+    reader.releaseLock();
+  }
+  if (!target.writableEnded) target.end();
+}
+
+function serverPort(server: Server, requestedPort: number): number {
+  const address = server.address();
+  return address && typeof address === 'object' ? address.port : requestedPort;
+}
+
+async function listen(server: Server, port: number): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => {
+      server.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = (): void => {
+      server.off('error', onError);
+      resolve();
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port);
+  });
+  return serverPort(server, port);
+}
+
+export async function startWorkbenchServer(workspaceRoot: string, port: number): Promise<WorkbenchServerHandle> {
   const paths = getWorkspacePaths(workspaceRoot);
   const viewsDir = path.join(workspaceRoot, controlWorkbenchViewsRelativePath);
   const mutex = new WorkbenchMutex();
@@ -382,60 +517,79 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
     { method: 'POST', path: '/api/mutations', handler: wrapHandler(handleMutations) }
   ];
 
-  const server = serve({
-    port,
-    async fetch(req) {
-      const startTime = Date.now();
-      const url = new URL(req.url);
-      const reqPath = url.pathname;
-      const method = req.method;
+  const handleRequest = async (req: Request): Promise<Response> => {
+    const startTime = Date.now();
+    const url = new URL(req.url);
+    const reqPath = url.pathname;
+    const method = req.method;
 
-      if (method === 'OPTIONS') {
-        const response = new Response(null, {
-          status: 204,
-          headers: new Headers(WORKBENCH_SECURITY_HEADERS)
-        });
-        logWorkbenchHttp('OPTIONS', reqPath, 204, 'No Content', Date.now() - startTime, WORKBENCH_COLORS.green);
-        return response;
-      }
+    if (method === 'OPTIONS') {
+      const response = new Response(null, {
+        status: 204,
+        headers: new Headers(WORKBENCH_SECURITY_HEADERS)
+      });
+      logWorkbenchHttp('OPTIONS', reqPath, 204, 'No Content', Date.now() - startTime, WORKBENCH_COLORS.green);
+      return response;
+    }
 
-      const context: RouteContext = {
-        req,
-        url,
-        method,
-        reqPath,
-        startTime,
+    const context: RouteContext = {
+      req,
+      url,
+      method,
+      reqPath,
+      startTime,
+      workspaceRoot,
+      paths
+    };
+
+    if (reqPath === '/api/compile' && method === 'POST') {
+      const stream = createWorkbenchCompileStream({
         workspaceRoot,
-        paths
-      };
+        acquire: () => mutex.acquire()
+      });
+      return workbenchSseResponse(stream);
+    }
 
-      if (reqPath === '/api/compile' && method === 'POST') {
-        const stream = createWorkbenchCompileStream({
-          workspaceRoot,
-          acquire: () => mutex.acquire()
-        });
-        return workbenchSseResponse(stream);
+    if (reqPath === '/api/run-node' && method === 'POST') {
+      return handleRunNodeSse(context, mutex);
+    }
+
+    for (const route of routes) {
+      if (route.path !== reqPath) continue;
+      if (route.method !== null && route.method !== method) continue;
+      return route.handler(context);
+    }
+
+    return serveStaticFile(viewsDir, reqPath, startTime);
+  };
+
+  const server = createServer(async (incoming, outgoing) => {
+    try {
+      const request = await toWebRequest(incoming, serverPort(server, port));
+      await writeWebResponse(outgoing, await handleRequest(request));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      defaultLogger.error('Workbench Node HTTP bridge failed', { message });
+      if (!outgoing.headersSent) {
+        outgoing.statusCode = 500;
+        outgoing.setHeader('Content-Type', 'application/json');
       }
-
-      if (reqPath === '/api/run-node' && method === 'POST') {
-        return handleRunNodeSse(context, mutex);
-      }
-
-      for (const route of routes) {
-        if (route.path !== reqPath) continue;
-        if (route.method !== null && route.method !== method) continue;
-        return route.handler(context);
-      }
-
-      return serveStaticFile(viewsDir, reqPath, startTime);
+      outgoing.end(JSON.stringify({ error: message }));
     }
   });
+  const actualPort = await listen(server, port);
 
-  const actualPort = server.port ?? port;
   defaultLogger.info('Workbench server listening', {
     url: `http://localhost:${actualPort}`,
-    viewsDir
+    viewsDir,
+    hostRuntime: process.release?.name ?? 'unknown'
   });
   logWorkbenchMutex(`Workbench server serving ${viewsDir}`);
-  return server;
+  return Object.freeze({
+    port: actualPort,
+    stop: () => {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
 }
