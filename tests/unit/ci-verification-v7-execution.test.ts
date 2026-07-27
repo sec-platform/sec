@@ -12,6 +12,7 @@ import {
   CodexDevelopmentVerificationScopeV1,
   CodexDevelopmentVerificationSelectionDigestV1,
   type CodexDevelopmentEvidenceCompositionPolicyV1,
+  type CodexDevelopmentExactGitBlobBytesV1,
   type CodexDevelopmentExactGitBlobV1
 } from '../../platform/shared/ci-evidence-reuse-contract.ts';
 import { CodexDevelopmentBuildSanitizedChildEnvironmentV1 } from '../../platform/shared/ci-execution-environment.ts';
@@ -91,6 +92,16 @@ acceptance:
 
 # CI V7 Runner Fixture
 `;
+}
+
+function exactManifestBlob(): CodexDevelopmentExactGitBlobBytesV1 {
+  const bytes = new TextEncoder().encode(manifestSource());
+  return {
+    blobSha: gitBlobSha(bytes),
+    bytes,
+    mode: '100644',
+    type: 'blob'
+  };
 }
 
 function fixture() {
@@ -320,7 +331,7 @@ test('V2 runner preserves canonical gates, replaces aggregate selectors, binds d
       const entry = exactBlob(ref, file);
       return entry ? { ...entry, bytes: CURRENT_BYTES } : null;
     },
-    readManifestBytes: () => new TextEncoder().encode(manifestSource()),
+    readExactGitBlob: () => exactManifestBlob(),
     resolvePolicy: () => structuredClone(policy),
     runGate: async (step) => {
       runCalls.push({ id: step.id, argv: [...step.argv], env: { ...step.env } });
@@ -436,7 +447,7 @@ test('V2 runner rejects a drifted base policy before the first subprocess spawn'
       const entry = exactBlob(ref, file);
       return entry ? { ...entry, bytes: CURRENT_BYTES } : null;
     },
-    readManifestBytes: () => new TextEncoder().encode(manifestSource()),
+    readExactGitBlob: () => exactManifestBlob(),
     resolvePolicy: () => drifted,
     runGate: async () => {
       spawnCount += 1;

@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-07-27
+last-reviewed: 2026-07-28
 ---
 
 # 当前唯一 Active Work Package
@@ -10,8 +10,8 @@ last-reviewed: 2026-07-27
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/agent-skills-and-v19-alignment-v2.md
-manifestDigest: sha256:a871d7e210d0bd7ca058a04209e184585d26e2826338b32a5d7ca98f72cb85ce
+manifest: docs/work-packages/repository-audit-trust-root-closure-v2.md
+manifestDigest: sha256:37501cff46a70df344cbc5fe0285cb0fbe051fca16a4cceff95e9409ee72f5ae
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
