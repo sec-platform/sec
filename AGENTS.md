@@ -1,6 +1,6 @@
 # SEC Codex 工程治理
 
-本文件是仓库级 Agent operating contract 的短投影。文档权威图见 `docs/00-文档索引与一致性规则.md`，稳定阶段 DAG 与完成定义见 `docs/03-MVP实施计划与路线图.md`，完整执行协议见 `docs/04-AI自主实现执行蓝图.md`，Engineering IR 见 `docs/14-Engineering IR与语义事实规范.md`，测试/CI/Gate 见 `docs/test-feedback-and-ci-lanes.md`。
+本文件是仓库级 Agent operating contract 的短投影。文档权威图见 `docs/00-文档索引与一致性规则.md`，稳定阶段 DAG 与完成定义见 `docs/03-MVP实施计划与路线图.md`，完整执行协议见 `docs/04-AI自主实现执行蓝图.md`，Agent Skills与V19续跑见 `docs/governance/agent-skills-and-development-run-kernel.md`，Engineering IR 见 `docs/14-Engineering IR与语义事实规范.md`，测试/CI/Gate 见 `docs/test-feedback-and-ci-lanes.md`。
 
 ## 启动与事实
 
@@ -14,6 +14,8 @@
 - Root 是 A0 Integrator，独占 DAG、Task ownership、integration、Gate custody、merge、closeout 与 branch hygiene。
 - 一个时刻只有一个 formal active Work Package和一个 candidate epoch。单一纵向切片默认不创建子 Agent；只有至少两个依赖已满足、owned/forbidden paths完全不重叠、可独立提交和reconcile的write seam才允许并行。每个 owned seam/角色最多一个 live agent；并行前必须冻结 branch、owner、prerequisite、acceptance、tests、`gate_owner`、reconciliation point、stop 与 `reload_if`；同一 canonical type、revision、builder、pipeline order 或 authority 章节保持单写者。禁止主动 polling，本地 owned seam未耗尽前不得 wait。
 - Delegation depth 保持 1；普通 worker 不再递归分派。角色按需从 `.codex/agents/` 选择。
+- `.agents/skills/**` 只保存 canonical owner 的窄幅可执行投影。任何需要 Agent 判断触发、选择、回退或停止的启发式行为必须解析到 `platform/shared/agent-skill-contract.ts` 中的唯一 Skill；全部 tracked Markdown 与已知启发式运行面由 `tests/contract/agent-skills.test.ts`机器覆盖。未覆盖即 fail closed，不得临时写进 prompt、PR body 或孤立脚本。
+- V19只承诺可验证确定性续跑，不承诺恢复隐藏思维。Development Run Kernel与Hook物理落地前，`sec-context-resume`只能执行manual-shadow恢复，不得宣称压缩问题已解决。
 - Worker 流程固定为：
 
 ```text
