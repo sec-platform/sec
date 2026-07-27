@@ -2,8 +2,8 @@ schema: sec-external-capability-ledger-v1
 
 ledger:
   owner: docs/governance/external-capability-ledger.yaml
-  observedAt: "2026-07-24T09:20:00+08:00"
-  secMainSha: 2065492f55bab75f65cf124c048fc6b849be73f9
+  observedAt: "2026-07-27T17:30:00+08:00"
+  secMainSha: 3f0df59e31e0bf5c39c5ce774c2abb8ccbfbb1df
   policyRevision: sha256:da38d8c2e71304425bc8d5515d234f1c16847f81e2b332c8a686f8b40f0ac867
 
 templateProvenance:
@@ -178,14 +178,13 @@ providers:
     problemStatement:
       currentPain: Canonical and cross-package changes need process-level and large-diff impact candidates.
       requiredCapabilities:
-        - query
-        - symbol-context
+        - architecture-analysis
         - process-trace
         - reverse-impact-candidates
         - diff-impact
-        - cross-repository-contracts
         - index-status
       explicitlyNotRequired:
+        - standing-mcp-surface
         - automatic-agent-rule-generation
         - canonical-rename-writer
         - arbitrary-cypher-for-daily-use
@@ -193,22 +192,10 @@ providers:
       cliCommands:
         - analyze
         - status
-        - mcp
       mcpToolsExposedByDefault: []
-      recommendedAllowlist:
-        - query
-        - context
-        - impact
-        - detect_changes
-      conditionalAllowlist:
-        - group_status
-        - group_query
-        - group_contracts
-      forbiddenWithoutExplicitWorkPackage:
-        - rename
-        - cypher
-        - group_sync
-        - setup
+      recommendedAllowlist: []
+      conditionalAllowlist: []
+      forbiddenWithoutExplicitWorkPackage: []
       writeCapabilities: []
     dataBoundary:
       localOnly: null
@@ -238,7 +225,7 @@ providers:
         metrics: {}
     decision:
       value: use-as-development-tool
-      rationale: Existing Architecture-mode development tool observed in the Agent environment; repository-specific A/B and default-selection evidence are still missing, so this is not a preferred or canonical provider decision.
+      rationale: Retain only the explicit GitNexus analyze/status CLI for architecture-mode evidence. The standing GitNexus MCP server, MCP command and MCP allowlists were retired on 2026-07-27; CLI evidence remains non-canonical and still requires repository-specific revalidation.
       secOwner: SourceEvidenceProviderRegistry
       activeRoutingProfile: architecture
       replacesInternalCapabilities: []
@@ -256,7 +243,73 @@ providers:
         - security-advisory
         - repeated-stale-results
         - alternative-provider-outperforms
-      retirementConditions: []
+        - cli-surface-change
+      retirementConditions:
+        - cli-has-no-validated-consumer
+        - alternative-provider-replaces-architecture-mode
+
+  - id: graph-it-live-mcp
+    displayName: Graph-It-Live MCP
+    category:
+      - code-graph
+      - agent-context
+    source:
+      repository: null
+      documentation: null
+      license: null
+    version:
+      pinned: null
+      observedAt: null
+      upgradePolicy: no-upgrade-retired-surface
+    problemStatement:
+      currentPain: Historical standing MCP entrypoint duplicated native search and graph evidence surfaces without a validated repository-specific advantage.
+      requiredCapabilities: []
+      explicitlyNotRequired:
+        - standing-mcp-surface
+        - source-mutation-authority
+        - architecture-authority
+    implementationBasis:
+      parser: null
+      compilerBacked: null
+      runtimeEvidence: false
+      llmGeneratedRelations: null
+    toolSurface:
+      cliCommands: []
+      mcpToolsExposedByDefault: []
+      recommendedAllowlist: []
+      writeCapabilities: []
+    dataBoundary:
+      localOnly: null
+      networkRequired: null
+      telemetry: null
+      sourceUpload: null
+      nativeDependencies: []
+    providerContract:
+      outputAuthority: inferred
+      sourceRevisionBound: null
+      providerRevisionBound: null
+      reportsCoverage: null
+      reportsFreshness: null
+      reportsDiagnostics: null
+      reportsUnresolvedRegions: null
+    benchmarks: []
+    decision:
+      value: reject-with-rationale
+      rationale: The .mcp.json standing Graph-It-Live server was retired on 2026-07-27 because it had no required consumer or validated advantage. Historical provider-neutral Evidence references do not reactivate the MCP surface.
+      secOwner: SourceEvidenceProviderRegistry
+      activeRoutingProfile: null
+      replacesInternalCapabilities: []
+      forbiddenAuthority:
+        - EngineeringIR
+        - canonicalImpact
+        - actualDelta
+        - sourceWriter
+        - AgentOperationsAuthority
+    lifecycle:
+      state: retired
+      revalidateOn: []
+      retirementConditions:
+        - completed-2026-07-27
 
 capabilities: []
 
@@ -315,10 +368,10 @@ decisionGate:
     - setup-that-writes-canonical-agent-rules
 
 coverage:
-  discoveredTools: 2
+  discoveredTools: 3
   researchedTools: 0
   benchmarkedTools: 0
-  decidedTools: 1
+  decidedTools: 2
   activeTools: 0
   unresolvedDecisions:
     - codegraph
