@@ -1,8 +1,9 @@
 import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
 
 const AGENT_GOVERNANCE_FAST_TESTS = [
-  'tests/unit/ci-pr-risk-selection.test.ts',
-  'tests/contract/test-impact.test.ts'
+  'tests/contract/agent-skills.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
 const WORK_PACKAGE_SELECTOR_FAST_TESTS = [
@@ -44,6 +45,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       '.codex/agents/implementation-worker.toml',
       '.codex/agents/verification-evidence-reviewer.toml'
     ],
+    sourcePrefixes: ['.agents/skills/'],
     fast: AGENT_GOVERNANCE_FAST_TESTS,
     slow: []
   },
