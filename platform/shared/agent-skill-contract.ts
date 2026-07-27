@@ -181,11 +181,11 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   if (path === 'platform/shared/agent-skill-contract.ts') {
     return skills('sec-documentation-governance', 'sec-context-resume', 'sec-trust-root-bootstrap');
   }
-  if (/^\.codex\/agents\//u.test(path)) {
-    return skills('sec-task-delegation', 'sec-worker-development', 'sec-exact-head-review');
+  if (/^\.codex\//u.test(path)) {
+    return skills('sec-task-delegation', 'sec-worker-development', 'sec-exact-head-review', 'sec-context-resume');
   }
-  if (/^\.github\/workflows\//u.test(path)) {
-    return skills('sec-ci-and-merge', 'sec-trust-root-bootstrap');
+  if (/^\.github\//u.test(path)) {
+    return skills('sec-ci-and-merge', 'sec-trust-root-bootstrap', 'sec-documentation-governance');
   }
   if (/^\.githooks\//u.test(path)) {
     return skills('sec-impact-and-validation', 'sec-toolchain-and-dependencies');
@@ -212,11 +212,14 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   if (path === 'scripts/install-git-hooks.ts') {
     return skills('sec-impact-and-validation', 'sec-toolchain-and-dependencies');
   }
-  if (/^platform\/shared\/(?:ci-|test-impact|test-ownership|affected-test|verification-scope)/u.test(path)
+  if (/^scripts\//u.test(path)) {
+    return skills('sec-toolchain-and-dependencies', 'sec-impact-and-validation');
+  }
+  if (/^platform\/shared\/(?:active-documentation|affected-test|ci-|contract-freeze|heavy-verification|repository-path|runtime-dependency|test-|verification-scope)/u.test(path)
     || /^platform\/shared\/test-impact-rules\//u.test(path)) {
     return skills('sec-impact-and-validation', 'sec-ci-and-merge', 'sec-trust-root-bootstrap');
   }
-  if (/^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version)$/u.test(path)) {
+  if (/^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version|\.gitignore|\.gitattributes|\.npmrc|\.dependency-cruiser\.json)$/u.test(path)) {
     return skills('sec-toolchain-and-dependencies');
   }
   return [];
