@@ -10,8 +10,8 @@ last-reviewed: 2026-07-27
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/agent-skills-and-v19-alignment-v2.md
-manifestDigest: sha256:a871d7e210d0bd7ca058a04209e184585d26e2826338b32a5d7ca98f72cb85ce
+manifest: docs/work-packages/repository-audit-skill-v1.md
+manifestDigest: sha256:5f89515305d773469152bab5ade9df64159f3552372d8268a55d1b02d8fd262c
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
