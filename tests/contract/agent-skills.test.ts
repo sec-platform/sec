@@ -137,7 +137,7 @@ test('restored repository tooling and removed report have exact focused owners',
   });
 });
 
-test('skill, tooling, and report changes remain resolved without slow fallback', () => {
+test('non-trust-root skill, tooling, and report inputs remain resolved without slow fallback', () => {
   const sources = [
     ...SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`),
     '.mcp.json',
@@ -155,6 +155,23 @@ test('skill, tooling, and report changes remain resolved without slow fallback',
     'documentation-evidence-cleanup',
     'repository-tooling-config'
   ]);
+});
+
+test('governance trust-root changes retain mandatory bounded Risk selection', () => {
+  const selection = selectCiPrRiskSlowSuites([
+    'platform/shared/test-impact-rules/governance.ts'
+  ]);
+
+  expect(selection.resolved).toBe(true);
+  expect(selection.suites.length).toBeGreaterThan(0);
+  expect(selection.reasons).toEqual([
+    'mandatory-sentinel',
+    'ownership-impact'
+  ]);
+  expect(selection.owners).toEqual(expect.arrayContaining([
+    'bounded-slow-risk',
+    'verification-infrastructure'
+  ]));
 });
 
 test('repository documentation resolves one existing selected Work Package with no errors', async () => {
