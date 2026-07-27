@@ -4,6 +4,25 @@ import * as path from 'node:path';
 import { startWorkbenchServer } from '../../platform/orchestrator/workbench-server.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
+test('default Workbench entrypoint does not statically require the Bun host runtime', async () => {
+  const sourcePaths = [
+    'platform/orchestrator/workbench-server.ts',
+    'platform/orchestrator/workbench-server-v2.ts',
+    'platform/orchestrator.ts',
+    'platform/cli/register-commands.ts'
+  ];
+  const sources = await Promise.all(sourcePaths.map((relativePath) =>
+    fs.readFile(path.join(process.cwd(), relativePath), 'utf8')
+  ));
+
+  for (const source of sources) {
+    expect(source).not.toMatch(/(?:from\s+|import\s*\()['"]bun['"]/u);
+    expect(source).not.toMatch(/\bBun\./u);
+  }
+  expect(sources[1]).toContain("from 'node:http'");
+  expect(sources[1]).toContain("from 'node:child_process'");
+});
+
 test('workbench server serves files and APIs correctly', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     // 1. Setup mock views and JSON paths
@@ -16,7 +35,7 @@ test('workbench server serves files and APIs correctly', async () => {
     const mockGraph = { nodes: [], edges: [] };
     await fs.writeFile(path.join(graphDir, 'explain-graph.json'), JSON.stringify(mockGraph), 'utf8');
 
-    // 2. Start Bun HTTP server on a random port (port=0 lets the OS pick one)
+    // 2. Start the Node-compatible HTTP host on an OS-assigned port.
     const server = await startWorkbenchServer(workspaceRoot, 0);
     expect(server).toBeDefined();
     const port = server.port ?? 0;
@@ -143,13 +162,10 @@ slots: []
           await reader.cancel();
         }
       }
-
     } finally {
       // Clean up server
       server.stop();
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
-
   });
 });
-
