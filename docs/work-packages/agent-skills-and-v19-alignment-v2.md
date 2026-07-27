@@ -32,6 +32,7 @@ tasks:
       - docs/00-文档索引与一致性规则.md
       - docs/evidence/2026-07-27-markdown-docs-analysis.md
       - docs/governance/agent-skills-and-development-run-kernel.md
+      - docs/governance/external-capability-ledger.yaml
       - docs/work-packages/agent-skills-and-v19-alignment-v2.md
       - docs/work/active-work-package.md
       - docs/work/rolling-plan.md
@@ -56,7 +57,7 @@ acceptance:
   - "Every tracked Markdown file is classified as Skill, projection, active authority, frozen Work Package, Evidence, historical material, verification fixture or repository content; every active/projection/repository-content surface has Skill coverage."
   - "Every known repository heuristic runtime surface resolves at least one Skill owner while deterministic product implementation remains owned by code and canonical contracts."
   - "The V19 authority defines stable runId, Git common-directory state, prompt intake, event-level checkpointing, phase-plus-lock recovery, Hook limits and the WP-A/WP-B trust-epoch sequence without claiming hidden-state losslessness."
-  - "Graph-It-Live and GitNexus MCP entrypoints, .mcp.json and the obsolete MCP cleanup script are retired; GitNexus analyze/status and Graphify CLI remain available."
+  - "Graph-It-Live and GitNexus MCP entrypoints, .mcp.json and the obsolete MCP cleanup script are retired in code, tests and the external capability ledger; GitNexus analyze/status and Graphify CLI remain available."
   - "No Skill instructs hard reset, force push, unsupported manifest/pointer states, evidence reuse across heads, unconditional Issue closure, scope expansion without authorization or candidate self-authorization."
   - "Skill, retired-tooling and documentation-cleanup paths have explicit focused test-impact ownership; package and verification trust-root changes retain mandatory bounded Risk selection."
   - "Because package and verifier trust-root inputs change, the candidate uses independent exact-head Review and trusted base-side manual bootstrap, then returns TASK_RESTART_REQUIRED."
