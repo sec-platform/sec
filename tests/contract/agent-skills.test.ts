@@ -55,6 +55,9 @@ function isHeuristicSurface(file: string): boolean {
     || file === 'platform/dev-runner.ts'
     || file === 'scripts/install-git-hooks.ts'
     || file === 'scripts/run-work-package-gate.ts'
+    || file === 'docs/governance/external-capability-ledger.yaml'
+    || file === 'docs/governance/nexus-absorption-ledger.yaml'
+    || /^docs\/work\//u.test(file)
     || /^\.agents\/skills\//u.test(file)
     || /^\.codex\//u.test(file)
     || /^\.github\//u.test(file)
@@ -162,6 +165,19 @@ test('every known repository heuristic runtime surface resolves at least one Ski
     if (skills.length === 0) throw new Error(`Heuristic surface has no Skill owner: ${file}`);
   }
   for (const file of files) expect(classifySecRepositorySurface(file)).toBeDefined();
+
+  expect(resolveSecRepositoryHeuristicSkills('docs/work/current-state.yaml')).toEqual([
+    'sec-a0-integrator',
+    'sec-documentation-governance',
+    'sec-repository-orientation',
+    'sec-work-package-lifecycle'
+  ]);
+  expect(resolveSecRepositoryHeuristicSkills(
+    'docs/governance/external-capability-ledger.yaml'
+  )).toEqual(['sec-external-capability-governance']);
+  expect(resolveSecRepositoryHeuristicSkills(
+    'docs/governance/nexus-absorption-ledger.yaml'
+  )).toEqual(['sec-external-capability-governance', 'sec-repository-orientation']);
 });
 
 test('every Skill and Skill authority source has focused agent-governance ownership', () => {
