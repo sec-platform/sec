@@ -50,13 +50,13 @@ const EXPECTED_CANONICAL_OWNER_PATHS = [
   'slow-suite-registry.md'
 ] as const;
 
-type DocumentationFixture = {
-  repositoryRoot: string;
+interface DocumentationFixture {
+  dispose: () => Promise<void>;
   docsRoot: string;
+  repositoryRoot: string;
   scan: () => Promise<DocsDoctorResult>;
   writeDoc: (relativePath: string, content: string) => Promise<void>;
-  dispose: () => Promise<void>;
-};
+}
 
 function authorityDocument(relativePath: string): string {
   const title = `Fixture ${relativePath.replace(/[^A-Za-z0-9]+/gu, ' ').trim()}`;
@@ -182,9 +182,9 @@ matchingDefaultBlob: none
   await writeFile(manifestFile, manifestBytes);
 
   return {
-    repositoryRoot,
+    dispose: () => rm(repositoryRoot, { recursive: true, force: true }),
     docsRoot,
-    writeDoc,
+    repositoryRoot,
     scan: () => scanDocumentation({
       docsRoot,
       repositoryRoot,
@@ -192,7 +192,7 @@ matchingDefaultBlob: none
         path.join(repositoryRoot, manifestPath)
       )
     }),
-    dispose: () => rm(repositoryRoot, { recursive: true, force: true })
+    writeDoc
   };
 }
 
@@ -240,12 +240,29 @@ test('current state retains reusable runtime and trusted-ingress capability prer
   expect(source).not.toContain('failedSuccessorCandidates:');
 });
 
-test('canonical development workflow retains the speed contract and conditional verification matrix', async () => {
-  const [agents, blueprint, feedback, testArchitecture] = await Promise.all([
+test('canonical workflow keeps stable protocol in docs and executable detail in Skills', async () => {
+  const [
+    agents,
+    blueprint,
+    feedback,
+    testArchitecture,
+    workerSkill,
+    failureSkill,
+    ciSkill,
+    auditSkill,
+    heuristicSkill,
+    architectureSkill
+  ] = await Promise.all([
     readFile('AGENTS.md', 'utf8'),
     readFile('docs/04-AI自主实现执行蓝图.md', 'utf8'),
     readFile('docs/test-feedback-and-ci-lanes.md', 'utf8'),
-    readFile('docs/test-architecture.md', 'utf8')
+    readFile('docs/test-architecture.md', 'utf8'),
+    readFile('.agents/skills/sec-worker-development/SKILL.md', 'utf8'),
+    readFile('.agents/skills/sec-failure-recovery/SKILL.md', 'utf8'),
+    readFile('.agents/skills/sec-ci-and-merge/SKILL.md', 'utf8'),
+    readFile('.agents/skills/sec-repository-audit/SKILL.md', 'utf8'),
+    readFile('.agents/skills/sec-heuristic-governance/SKILL.md', 'utf8'),
+    readFile('.agents/skills/sec-architecture-evolution/SKILL.md', 'utf8')
   ]);
 
   for (const fragment of [
@@ -260,17 +277,29 @@ test('canonical development workflow retains the speed contract and conditional 
   expect(agents).not.toContain('detect_changes');
 
   for (const fragment of [
-    '### 1.4 开发吞吐硬指标',
-    '### 3.1 开发环节取舍',
-    '### 3.2 最短且完整的十步交付',
-    '1. 一次 live reload',
-    '10. merge readback + branch/worktree cleanup',
-    '第二次candidate invalidation返回STOP_PROOF_RESET',
-    '| 产品实现占主动工作时间 | `>= 70%` |',
-    '| 协调 + 叙述文档 + 控制面占比 | `< 15%` |'
+    '具体 trigger、exclusion、permissions、execution',
+    '`sec-repository-audit`',
+    '`sec-heuristic-governance`',
+    '`sec-architecture-evolution`',
+    '本文件不复制具体 repository dispatch payload'
   ]) {
     expect(blueprint).toContain(fragment);
   }
+  for (const removedDuplicate of [
+    '### 1.4 开发吞吐硬指标',
+    '### 3.1 开发环节取舍',
+    '### 3.2 最短且完整的十步交付'
+  ]) {
+    expect(blueprint).not.toContain(removedDuplicate);
+  }
+
+  expect(workerSkill).toContain('bun run check:affected --plan');
+  expect(workerSkill).toContain('bun run check:affected');
+  expect(failureSkill).toContain('STOP_PROOF_RESET');
+  expect(ciSkill).toContain('merge后读取新 main tree');
+  expect(auditSkill).toContain('全部 tracked paths');
+  expect(heuristicSkill).toContain('唯一 Skill owner');
+  expect(architectureSkill).toContain('authority first');
 
   for (const fragment of [
     '### 3.1 按变更类型选择最小验证',
