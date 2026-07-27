@@ -14,6 +14,7 @@
 - Root 是 A0 Integrator，独占 DAG、Task ownership、integration、Gate custody、merge、closeout 与 branch hygiene。
 - 一个时刻只有一个 formal active Work Package和一个 candidate epoch。单一纵向切片默认不创建子 Agent；只有至少两个依赖已满足、owned/forbidden paths完全不重叠、可独立提交和reconcile的write seam才允许并行。每个 owned seam/角色最多一个 live agent；并行前必须冻结 branch、owner、prerequisite、acceptance、tests、`gate_owner`、reconciliation point、stop 与 `reload_if`；同一 canonical type、revision、builder、pipeline order 或 authority 章节保持单写者。禁止主动 polling，本地 owned seam未耗尽前不得 wait。
 - Delegation depth 保持 1；普通 worker 不再递归分派。角色按需从 `.codex/agents/` 选择。
+- `.agents/skills/**` 只保存本合同与 canonical owner 的窄幅可执行投影，不得发明新的 manifest、Gate、merge、状态或权限语义。Skill 名称、触发边界、危险命令禁令和 test-impact owner 由 `tests/contract/agent-skills.test.ts`机器校验；与权威冲突时 Skill 必须 fail closed。
 - Worker 流程固定为：
 
 ```text

@@ -1,8 +1,22 @@
 import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
 
 const AGENT_GOVERNANCE_FAST_TESTS = [
-  'tests/unit/ci-pr-risk-selection.test.ts',
-  'tests/contract/test-impact.test.ts'
+  'tests/contract/agent-skills.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/ci-pr-risk-selection.test.ts'
+];
+
+const REPOSITORY_TOOLING_CONFIG_FAST_TESTS = [
+  'tests/contract/repository-runtime.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/ci-pr-risk-selection.test.ts'
+];
+
+const DOCUMENTATION_EVIDENCE_CLEANUP_FAST_TESTS = [
+  'tests/contract/agent-skills.test.ts',
+  'tests/contract/docs-doctor.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
 const WORK_PACKAGE_SELECTOR_FAST_TESTS = [
@@ -44,7 +58,22 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       '.codex/agents/implementation-worker.toml',
       '.codex/agents/verification-evidence-reviewer.toml'
     ],
+    sourcePrefixes: ['.agents/skills/'],
     fast: AGENT_GOVERNANCE_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'repository-tooling-config',
+    identity: { kind: 'contract', id: 'repository-tooling-config' },
+    sourceFiles: ['.mcp.json'],
+    fast: REPOSITORY_TOOLING_CONFIG_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'documentation-evidence-cleanup',
+    identity: { kind: 'contract', id: 'documentation-evidence-cleanup' },
+    sourceFiles: ['docs/evidence/2026-07-27-markdown-docs-analysis.md'],
+    fast: DOCUMENTATION_EVIDENCE_CLEANUP_FAST_TESTS,
     slow: []
   },
   {
