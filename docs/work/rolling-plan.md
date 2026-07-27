@@ -6,11 +6,12 @@ last-reviewed: 2026-07-27
 
 # SEC 滚动近期计划
 
-本窗口从 `main@3f0df59e31e0bf5c39c5ce774c2abb8ccbfbb1df`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与最新仓库事实重新计算。直接写入 main 的 Agent Skills提交没有 PR、Review或CI，并使 active pointer指向已归档 manifest、删除受 repository-runtime合同保护的`.mcp.json`；本包先恢复执行控制面和技能治理，再继续产品主线。
+本窗口从 `main@3f0df59e31e0bf5c39c5ce774c2abb8ccbfbb1df`、长期 Goal revision `sha256:555a187d…f676`、Issue #132 与最新仓库事实重新计算。当前包先把整个仓库的启发式行为和全部 Markdown 纳入 Agent Skills coverage，并按用户最新决定正式退役 Graph-It-Live 与 GitNexus MCP入口；随后按 V19 的 trust epoch顺序落地可验证续跑，再恢复产品主线。
 
 ```text
-Agent Skills Hardening V1
-→ publication 后 active pointer resolver = none
+Agent Skills and V19 Alignment V2
+→ Development Run Kernel Shadow
+→ Project Hook Activation + Compact Resume Proof
 → SM-4A Shared Adapter + CLI/Workbench Thin Transports
 → Nexus Exact-tree Census Refresh
 → P2 Blockless Source Ownership Foundation
@@ -20,35 +21,47 @@ Agent Skills Hardening V1
 
 ## 当前唯一 Work Package
 
-### agent-skills-hardening-v1
+### agent-skills-and-v19-alignment-v2
 
-- 工程结果：把四个不合规范且含危险命令的 Skill重建为严格 Agent Skills投影；恢复`.mcp.json`；以实际仓库合同测试锁定 Skill identity、触发边界、dispatch payload、merge前置条件、Work Package轮换、Worker验证和 test-impact owner。
-- Owner：仅 Agent Skill、AGENTS短投影、governance test-impact声明、focused合同、当前 Work Package与两个控制面；不修改产品编译器、CI workflow、docs-doctor实现或完整开发运行 Kernel。
-- Trust boundary：`platform/shared/test-impact-rules/governance.ts`属于 verifier trust root，candidate不得自证；采用独立 exact-head Review与受信 base-side manual bootstrap。
-- 退出：16个 changed path全部唯一 owned；Skill严格 identity与危险命令负例通过；repository docs零 error；`.mcp.json`合同恢复；typecheck、docs、imports与focused tests通过；merge后 main readback和任务分支清理完成。
+- 工程结果：建立十四个标准 AgentOperation Skill；机器分类全部 tracked Markdown和已知启发式运行面；新增Skill/Kernel canonical authority；修复控制面；退役`.mcp.json`、`gitnexus:mcp`和`cleanup-mcp.ps1`，保留GitNexus analyze/status与Graphify CLI。
+- Owner：Agent Skills、Skill coverage contract、AGENTS短投影、文档权威图、focused合同、package MCP入口退役、当前 Work Package与两控制面；不实现Kernel、Hook或产品编译器。
+- Trust boundary：`package.json`、`platform/shared/agent-skill-contract.ts`与`platform/shared/test-impact-rules/governance.ts`命中toolchain/verifier trust root，candidate不得自证；采用独立 exact-head Review与受信 base-side manual bootstrap。
+- 退出：全部实际changed records唯一owned；十四Skill标准章节通过；全Markdown分类和启发式表面覆盖为零遗漏；MCP入口与残留脚本退役；V19 marker与pointer digest通过；focused/typecheck/docs/imports和mandatory selected Risk完成；merge后readback并返回`TASK_RESTART_REQUIRED`。
 
 ## 候选 Work Package
 
-### 1. sm4a-shared-adapter-cli-workbench-v1
+### 1. development-run-kernel-shadow-v1
 
-- 产品结果：闭合一个既有 Semantic Mutation operation 的 shared product adapter，并让 CLI 与 Workbench 成为同一 adapter 的薄 transport；不扩展 operation catalog，不混入 Task Envelope v2。
-- 依赖：Agent Skills治理与控制面先闭合；从最新 `main`复用唯一 trusted authorization ingress、operation registry、revision与pipeline authority。
-- 退出：同一 operation经 CLI与Workbench产生同一 canonical plan/Delta/Impact语义并走同一 verification/authorization seam；transport不拥有业务规则。
+- 工程结果：实现stable runId、Git common-dir状态、repo-level prompt intake、不可变capsule/event事务、phase+locks、repository fingerprint、deterministic nextTransition和crash/stale-lock tests；Hook保持shadow未启用。
+- 依赖：当前Skill/V19 authority进入main并由新任务重新加载。
+- 退出：无Hook条件下完成open→reconcile→transition→close模拟；跨worktree单写者、崩溃恢复和Evidence identity通过；不改变现有Quick/Risk authorization。
 
-### 2. nexus-exact-tree-census-refresh
+### 2. codex-compact-resume-activation-v1
 
-- 产品结果：启动时绑定最新 Nexus commit/tree，重算 path/mode/object、entrypoints、EPR、Skills、mechanism decisions、public/deployed surfaces与retirement前置。
-- 依赖：SEC Skill/control-plane修复与P1产品闭包先完成；ledger authority保持A0单写者。
+- 工程结果：在已进入main的Kernel上启用单dispatcher Project Hooks，闭合UserPromptSubmit intake、PreCompact/PostCompact、SessionStart(compact)、PreToolUse恢复锁、PostToolUse fingerprint、retention和terminal receipt。
+- 依赖：Kernel Shadow先完成并`TASK_RESTART_REQUIRED`。
+- 退出：manual compact、session-only auto compact、进程重启和新session bind均保持task、authorization、phase、candidate、Evidence与nextTransition不漂移；覆盖外工具边界准确声明。
+
+### 3. sm4a-shared-adapter-cli-workbench-v1
+
+- 产品结果：闭合一个既有 Semantic Mutation operation 的 shared product adapter，并让 CLI 与 Workbench 成为同一 adapter 的薄 transport；不扩展operation catalog，不混入Task Envelope v2。
+- 依赖：Hook Activation进入main并由新任务通过真实续跑验收。
+- 退出：同一operation经CLI与Workbench产生同一canonical plan/Delta/Impact语义并走同一verification/authorization seam；transport不拥有业务规则。
+
+### 4. nexus-exact-tree-census-refresh
+
+- 产品结果：绑定最新Nexus commit/tree，重算path/mode/object、entrypoints、EPR、Skills、mechanism decisions、public/deployed surfaces与retirement前置。
+- 依赖：P1产品闭包先完成；ledger authority保持A0单写者。
 - 退出：classification/decision达到100%，unclassified/undecided为0；Parity与owner迁移未完成前不得声称吸收完成。
 
-### 3. p2-blockless-source-ownership-foundation
+### 5. p2-blockless-source-ownership-foundation
 
-- 产品结果：从已进入 main 的 SM-4A source-authority seam建立 App/source-module/import-session的canonical Semantic Source Owner，Block不再是语义存在的前置许可证。
-- 依赖：P1 shared adapter + CLI/Workbench薄transport与Nexus Census均先闭合。
-- 退出：每个 writable region唯一 owner，ownership迁移不伪造Entity/Fact identity，现有SM-2/SM-3 transaction与CAS/recovery authority不分叉。
+- 产品结果：从已进入main的SM-4A source-authority seam建立App/source-module/import-session的canonical Semantic Source Owner，Block不再是语义存在的前置许可证。
+- 依赖：P1 shared adapter与Nexus Census均先闭合。
+- 退出：每个writable region唯一owner，ownership迁移不伪造Entity/Fact identity，现有SM-2/SM-3 transaction与CAS/recovery authority不分叉。
 
 ## Gate、单写者与重算
 
-- A0是本窗口全部 Gate owner；相同 `gate_key + tested head + profile`的未失效结果复用。
-- 当前治理修复、P1产品闭包、Nexus Census与P2 foundation按依赖串行；任何时刻最多一个正式active manifest。
+- A0是本窗口全部Gate owner；相同`gate_key + tested head + profile`的未失效结果复用。
+- Skill/V19治理、Kernel、Hook、P1产品、Nexus Census与P2 foundation按依赖串行；任何时刻最多一个正式active manifest。
 - SEC/Nexus main变化、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership反证、实现supersede或Census新前置触发live resolver与全窗口重算。
