@@ -69,7 +69,7 @@ describe('test budget and benchmark contracts', () => {
     expect(scripts.discover).toBe('bun scripts/discover-all.ts --json --output report/discover.json');
     expect(scripts['gitnexus:analyze']).toBe('gitnexus analyze --skip-agents-md --no-stats');
     expect(scripts['gitnexus:status']).toBe('gitnexus status');
-    expect(scripts['gitnexus:mcp']).toBe('gitnexus mcp');
+    expect(scripts['gitnexus:mcp']).toBeUndefined();
     expect(scripts.graphify).toBe('uvx --from graphifyy==0.7.10 graphify');
     expect(scripts['graphify:update']).toBe('uvx --from graphifyy==0.7.10 graphify update .');
     expect(scripts['graphify:extract']).toBe('uvx --from graphifyy==0.7.10 graphify extract . --out report/graphify --no-cluster');
@@ -92,19 +92,14 @@ describe('test budget and benchmark contracts', () => {
     expectContainsAll(gitignore, ['.gitnexus/', 'graphify-out/']);
   });
 
-  test('MCP config exposes Graph-It-Live and GitNexus servers', async () => {
-    const mcpConfig = JSON.parse(await readCompilerFile('.mcp.json')) as {
-      mcpServers: Record<string, { command: string; args: string[] }>;
-    };
+  test('retired MCP entrypoints stay absent while CLI analysis remains available', async () => {
+    const { scripts } = await readCompilerPackageJson();
 
-    expect(mcpConfig.mcpServers['graph-it-live']).toMatchObject({
-      command: 'npx',
-      args: ['-y', '@magic5644/graph-it-live', 'serve', '--workspace', '.']
-    });
-    expect(mcpConfig.mcpServers.gitnexus).toEqual({
-      command: 'bun',
-      args: ['run', 'gitnexus:mcp']
-    });
+    expect(await Bun.file('.mcp.json').exists()).toBe(false);
+    expect(scripts['gitnexus:mcp']).toBeUndefined();
+    expect(scripts['gitnexus:analyze']).toBeDefined();
+    expect(scripts['gitnexus:status']).toBeDefined();
+    expect(scripts.graphify).toBeDefined();
   });
 
   test('architecture tools workflow delegates to canonical package scripts', async () => {
