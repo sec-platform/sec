@@ -44,6 +44,7 @@ const ANTICIPATED_RUNTIME_VERIFICATION_TEST_BLOB = '8b84a253daa8fce0ae7cf770bc13
 const BASE_ISOLATED_CHILD_TEST_BLOB = '56c89b78f7a51ceb84eaf59630f4cbae163b8681';
 const ANTICIPATED_ISOLATED_CHILD_TEST_BLOB = 'a77d1d23c5b75d751ef39c0b8a0e81909486136c';
 const TEST_IMPACT_TEST = 'tests/contract/test-impact.test.ts';
+const DOCUMENTATION_AUTHORITY_TEST = 'tests/contract/documentation-authority.test.ts';
 const PREVIOUS_TEST_IMPACT_BLOB = 'c7fe5d1e90a9ca31884cb39b873c2f564b789ea6';
 const ANTICIPATED_TEST_IMPACT_BLOB = '5d7da4f7df39bd18ba4acff5263c6166557f1459';
 const RISK_FILES = [
@@ -108,6 +109,9 @@ function gitBlob(ref: string, path: string): CodexDevelopmentExactGitBlobV1 | nu
     return { blobSha: ANTICIPATED_ISOLATED_CHILD_TEST_BLOB, mode: '100644', type: 'blob' };
   }
   if (ref === CURRENT && path === TEST_IMPACT_TEST) {
+    return { blobSha: ANTICIPATED_TEST_IMPACT_BLOB, mode: '100644', type: 'blob' };
+  }
+  if (ref === CURRENT && path === DOCUMENTATION_AUTHORITY_TEST) {
     return { blobSha: ANTICIPATED_TEST_IMPACT_BLOB, mode: '100644', type: 'blob' };
   }
   return TREES.get(ref)?.get(path) ?? null;
@@ -438,6 +442,16 @@ ${schema === 'v1' ? 'tests:\n  - bun run typecheck\n' : ''}---
 `;
 }
 
+function exactManifestBlob(source: string): CodexDevelopmentExactGitBlobBytesV1 {
+  const bytes = new TextEncoder().encode(source);
+  return {
+    blobSha: gitBlobDigest(bytes),
+    bytes,
+    mode: '100644',
+    type: 'blob'
+  };
+}
+
 test('runner rejects V1 and wrong-policy V2 downgrade before the first gate', async () => {
   for (const source of [manifest('v1'), manifest('v2', 'wrong-policy')]) {
     let spawnCount = 0;
@@ -459,7 +473,7 @@ test('runner rejects V1 and wrong-policy V2 downgrade before the first gate', as
       trackedTreeIsClean: () => true,
       changedRecords: () => [...RECORDS],
       gitBlob,
-      readManifestBytes: () => new TextEncoder().encode(source),
+      readExactGitBlob: () => exactManifestBlob(source),
       runGate: async () => {
         spawnCount += 1;
         return { code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' };
@@ -476,6 +490,7 @@ test('runner resolves the real P0 registry and executes its exact direct gate pl
   const calls: Array<{ id: string; argv: string[]; env: NodeJS.ProcessEnv }> = [];
   let written: CodexDevelopmentVerificationEvidenceV3 | undefined;
   const runnerTestFiles = [
+    DOCUMENTATION_AUTHORITY_TEST,
     'tests/contract/semantic-mutation-apply-contract.test.ts',
     APPLY_TEST,
     WRAPPER_TEST,
@@ -527,7 +542,7 @@ test('runner resolves the real P0 registry and executes its exact direct gate pl
       }
       return path === EVIDENCE_PATH ? exactBytes(ref, path) : null;
     },
-    readManifestBytes: () => new TextEncoder().encode(manifest('v2')),
+    readExactGitBlob: () => exactManifestBlob(manifest('v2')),
     runGate: async (step) => {
       calls.push({ id: step.id, argv: [...step.argv], env: { ...step.env } });
       return { code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' };

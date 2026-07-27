@@ -1,6 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -17,6 +16,10 @@ import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selectio
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-verification-plan.ts';
 import { withHeavyVerificationGateLease } from '../platform/shared/heavy-verification-gate-lease.ts';
 import { getSlowTestSuitesSync, slowTestSuiteIds } from '../platform/shared/test-budget-contract.ts';
+import {
+  CodexDevelopmentReadExactGitBlobV1,
+  type CodexDevelopmentExactGitBlobReadOptionsV1
+} from './codex/exact-git-blob.ts';
 import {
   CodexDevelopmentParseWorkPackageManifestV1,
   CodexDevelopmentWorkPackageManifestDigest
@@ -43,9 +46,11 @@ export type CodexDevelopmentCiPrRiskMainOptions = {
   argv?: string[];
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
+  repositoryRoot?: string;
   gitRevision?: (ref: string) => string | null;
   trackedTreeIsClean?: () => boolean;
   changedFiles?: (baseRef: string) => string[] | null;
+  readExactGitBlob?: typeof CodexDevelopmentReadExactGitBlobV1;
   runGate?: (step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }) => Promise<GateProcessResult>;
   writeEvidence?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV2) => void;
 };
@@ -102,20 +107,26 @@ function parseArguments(argv: string[], slowSuites: string[]): ParsedArguments {
   return { runAllSlow, continueOnFailure, requestedSlowSuites: requested };
 }
 
-function defaultGitRevision(ref: string): string | null {
-  const result = spawnSync('git', ['rev-parse', ref], { encoding: 'utf8' });
+function defaultGitRevision(repositoryRoot: string, ref: string): string | null {
+  const result = spawnSync('git', ['rev-parse', ref], {
+    cwd: repositoryRoot,
+    encoding: 'utf8'
+  });
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
-function defaultTrackedTreeIsClean(): boolean {
+function defaultTrackedTreeIsClean(repositoryRoot: string): boolean {
   const result = spawnSync('git', [
     '-c', 'core.quotepath=false', 'status', '--porcelain=v1', '--untracked-files=normal', '--ignored=no'
-  ], { encoding: 'utf8' });
+  ], { cwd: repositoryRoot, encoding: 'utf8' });
   return result.status === 0 && result.stdout.length === 0;
 }
 
-function defaultChangedFiles(baseRef: string): string[] | null {
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), { encoding: 'buffer' });
+function defaultChangedFiles(repositoryRoot: string, baseRef: string): string[] | null {
+  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), {
+    cwd: repositoryRoot,
+    encoding: 'buffer'
+  });
   if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
   try {
     return parseGitChangedFileOutput(result.stdout);
@@ -210,14 +221,36 @@ function isoAfterDays(date: Date, days: number): string {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function manifestBinding(env: NodeJS.ProcessEnv): { manifestPath: string | null; manifestDigest: string | null } {
+type ManifestBinding = {
+  manifestPath: string | null;
+  manifestDigest: string | null;
+};
+
+function manifestBinding(
+  env: NodeJS.ProcessEnv,
+  repositoryRoot: string,
+  headSha: string,
+  readExactGitBlob: (
+    options: CodexDevelopmentExactGitBlobReadOptionsV1
+  ) => ReturnType<typeof CodexDevelopmentReadExactGitBlobV1>
+): ManifestBinding {
   const manifestPath = env.SEC_WORK_PACKAGE_MANIFEST_PATH;
   if (!manifestPath) return { manifestPath: null, manifestDigest: null };
   if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
     throw new Error('SEC_WORK_PACKAGE_MANIFEST_PATH must be a canonical repository-relative Work Package path.');
   }
-  const source = readFileSync(path.resolve(manifestPath));
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(source);
+  const source = readExactGitBlob({
+    repositoryRoot,
+    commitSha: headSha,
+    maxBytes: 1024 * 1024,
+    repositoryPath: manifestPath
+  }).bytes;
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(source);
+  } catch (error) {
+    throw new Error('Work Package manifest exact Git blob is not strict UTF-8.', { cause: error });
+  }
   const manifest = CodexDevelopmentParseWorkPackageManifestV1(text, manifestPath);
   if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
     throw new Error('Work Package manifest does not target the current CI verification revision.');
@@ -234,9 +267,14 @@ export async function CodexDevelopmentCiPrRiskMain(
   const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const now = options.now ?? (() => new Date());
-  const gitRevision = options.gitRevision ?? defaultGitRevision;
-  const trackedTreeIsClean = options.trackedTreeIsClean ?? defaultTrackedTreeIsClean;
-  const changedFileResolver = options.changedFiles ?? defaultChangedFiles;
+  const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
+  const gitRevision = options.gitRevision
+    ?? ((ref: string) => defaultGitRevision(repositoryRoot, ref));
+  const trackedTreeIsClean = options.trackedTreeIsClean
+    ?? (() => defaultTrackedTreeIsClean(repositoryRoot));
+  const changedFileResolver = options.changedFiles
+    ?? ((baseRef: string) => defaultChangedFiles(repositoryRoot, baseRef));
+  const readExactGitBlob = options.readExactGitBlob ?? CodexDevelopmentReadExactGitBlobV1;
   const runGate = options.runGate ?? defaultRunGate;
   const writeEvidence = options.writeEvidence ?? CodexDevelopmentWriteVerificationEvidenceAtomic;
   const evidencePath = path.resolve(env.SEC_CI_RISK_EVIDENCE_PATH ?? '.tmp/ci-risk-batch-evidence.json');
@@ -262,6 +300,7 @@ export async function CodexDevelopmentCiPrRiskMain(
   let selectedSlowTests: string[] = [];
   let parsed: ParsedArguments | null = null;
   let gateEvidence: CodexDevelopmentVerificationGateEvidenceV2[] = [];
+  let binding: ManifestBinding = { manifestPath: null, manifestDigest: null };
   let initializationFailure: string | null = null;
 
   try {
@@ -325,6 +364,9 @@ export async function CodexDevelopmentCiPrRiskMain(
       throw new Error(`CI risk cannot resolve exact head/tree/two bases (${prBaseRef}, ${affectedBaseRef}).`);
     }
     if (!cleanBefore) throw new Error('CI risk requires a clean complete worktree before execution.');
+    stage = 'manifest';
+    binding = manifestBinding(env, repositoryRoot, headSha, readExactGitBlob);
+    stage = 'preflight';
     files = changedFileResolver(prBaseRef);
     const selection = selectCiPrRiskSlowSuites(files);
     selectionResolved = selection.resolved;
@@ -435,6 +477,28 @@ export async function CodexDevelopmentCiPrRiskMain(
     failure ??= { stage, tail: failureTail(message, 'CI risk failed.') };
     console.error(message);
   } finally {
+    if (headSha !== null && treeSha !== null) {
+      try {
+        const finalHead = gitRevision('HEAD');
+        const finalTree = gitRevision('HEAD^{tree}');
+        if (finalHead !== headSha || finalTree !== treeSha) {
+          exitCode = 1;
+          failure = {
+            stage: 'exact-identity',
+            tail: 'CI risk exact head or tree changed during execution.'
+          };
+        }
+      } catch (error) {
+        exitCode = 1;
+        failure = {
+          stage: 'exact-identity',
+          tail: failureTail(
+            error instanceof Error ? error.stack ?? error.message : String(error),
+            'Exact identity recheck failed.'
+          )
+        };
+      }
+    }
     try {
       cleanAfter = trackedTreeIsClean();
     } catch (error) {
@@ -458,17 +522,6 @@ export async function CodexDevelopmentCiPrRiskMain(
         stage: 'clock',
         tail: failureTail(error instanceof Error ? error.stack ?? error.message : String(error), 'Clock probe failed.')
       };
-    }
-    let binding: { manifestPath: string | null; manifestDigest: string | null } = {
-      manifestPath: null,
-      manifestDigest: null
-    };
-    try {
-      binding = manifestBinding(env);
-    } catch (error) {
-      exitCode = 1;
-      const message = error instanceof Error ? error.stack ?? error.message : String(error);
-      failure = { stage: 'manifest', tail: failureTail(message, 'Manifest binding failed.') };
     }
     const inputDigest = CodexDevelopmentVerificationDigest({
       contractRevision: CI_VERIFICATION_CONTRACT_REVISION,

@@ -483,7 +483,12 @@ async function p0MergeFixture() {
     gitFiles: (ref) => ref === P0_HEAD ? [...P0_TEST_FILES] : null,
     gitBlob,
     readGitBlob,
-    readManifestBytes: () => manifestBytes,
+    readExactGitBlob: () => ({
+      blobSha: manifestBlobSha,
+      bytes: manifestBytes,
+      mode: '100644',
+      type: 'blob'
+    }),
     runGate: async () => ({
       code: 0,
       rawOutputDigest: `sha256:${'0'.repeat(64)}`,
@@ -608,6 +613,7 @@ const TCB_RUNTIME_ENTRYPOINTS = [
   'scripts/ci-pr-risk.ts',
   'scripts/ci-verification.ts',
   'scripts/ci-workspace-fast.ts',
+  'scripts/codex/exact-git-blob.ts',
   'scripts/codex/merge-gate.ts',
   'scripts/codex/work-package-contract.ts',
   'tests/setup/runtime-deps.setup.ts'
@@ -663,12 +669,11 @@ const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'scripts/ci-pr-risk.ts::function-declaration:defaultTrackedTreeIsClean::spawnSync#1',
   'scripts/ci-verification.ts::function-declaration:defaultChangedFiles::spawnSync#1',
   'scripts/ci-verification.ts::function-declaration:defaultChangedRecords::spawnSync#1',
-  'scripts/ci-verification.ts::function-declaration:defaultGitBlob::spawnSync#1',
   'scripts/ci-verification.ts::function-declaration:defaultGitFiles::spawnSync#1',
   'scripts/ci-verification.ts::function-declaration:defaultGitRevision::spawnSync#1',
-  'scripts/ci-verification.ts::function-declaration:defaultReadGitBlob::spawnSync#1',
   'scripts/ci-verification.ts::function-declaration:defaultRunGate::spawn#1',
   'scripts/ci-verification.ts::function-declaration:defaultTrackedTreeIsClean::spawnSync#1',
+  'scripts/codex/exact-git-blob.ts::function-declaration:runGit::spawnSync#1',
   'scripts/codex/merge-gate.ts::function-declaration:mergeGateGitResolvers>const-arrow:run::spawnSync#1',
   'scripts/install-git-hooks.ts::function-declaration:gitText::spawnSync#1'
 ]);
@@ -1568,8 +1573,8 @@ test('verifier runtime import closure stays inside the TCB except for the review
     reviewedExternalImports,
     reviewedProcessDispatchers
   } = trustedRuntimeClosure();
-  expect(closure.size).toBe(53);
-  expect(reviewedProcessDispatchers.size).toBe(22);
+  expect(closure.size).toBe(54);
+  expect(reviewedProcessDispatchers.size).toBe(21);
   expect([...reviewedEdges].sort()).toEqual([...TCB_REVIEWED_SUT_EDGES].sort());
   expect([...reviewedExternalImports].sort()).toEqual([...TCB_REVIEWED_EXTERNAL_IMPORTS].sort());
   expect([...reviewedProcessDispatchers].sort()).toEqual([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort());
@@ -1594,6 +1599,7 @@ test('verifier runtime import closure stays inside the TCB except for the review
     'platform/shared/runtime-dependency-spec.ts',
     'platform/shared/test-impact-rules/verification.ts',
     'scripts/codex/document-control-plane-contract.ts',
+    'scripts/codex/exact-git-blob.ts',
     'scripts/install-git-hooks.ts'
   ]));
 });

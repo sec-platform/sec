@@ -203,6 +203,31 @@ test('affected selection authority has one explicit local and hosted verificatio
   }
 });
 
+test('exact blob reader and both Evidence producers share one direct execution owner', () => {
+  const expected = {
+    fast: [
+      'tests/contract/ci-lanes.test.ts',
+      'tests/contract/sec-merge-gate.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/ci-evidence-composition-policy-registry.test.ts',
+      'tests/unit/ci-pr-risk-execution.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts',
+      'tests/unit/ci-verification-execution.test.ts',
+      'tests/unit/ci-verification-v7-execution.test.ts',
+      'tests/unit/exact-git-blob.test.ts'
+    ],
+    slow: [],
+    owners: ['verification-evidence-producers']
+  };
+  for (const source of [
+    'scripts/ci-pr-risk.ts',
+    'scripts/ci-verification.ts',
+    'scripts/codex/exact-git-blob.ts'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual(expected);
+  }
+});
+
 test('test impact assigns focused governance and frozen work-package ownership', () => {
   const agentGovernance = selectTestsForSources([
     'AGENTS.md',
