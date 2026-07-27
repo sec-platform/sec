@@ -54,6 +54,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'agent-governance',
     identity: { kind: 'architecture-owner', id: 'agent-governance' },
+    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'AGENTS.md',
       '.codex/agents/implementation-worker.toml',
