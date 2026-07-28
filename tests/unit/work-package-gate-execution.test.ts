@@ -7,6 +7,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 
 import { CodexDevelopmentVerificationDigest } from '../../platform/shared/ci-evidence-contract.ts';
 import type { ObservedCommandOutcome } from '../../platform/shared/observed-process.ts';
+import { createWorkspaceWriteLeaseManager } from '../../platform/shared/workspace-write-lease.ts';
 import {
   prepareWorkPackageExecutionSnapshotForTests,
   publishWorkPackageExecutionSnapshotOwnerForTests,
@@ -1001,6 +1002,95 @@ test('namespace scanner authorizes only canonical bound owner records and reject
       .rejects.toThrow(/identity|regular file/);
   } finally {
     await rm(namespaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('namespace scanner consumes the shared v2 workspace lease inspector for active and terminal states', async () => {
+  const namespaceRoot = path.join(repoRoot, '.tmp', `synthetic-lease-census-${randomUUID()}`);
+  const workspaceRoot = path.join(namespaceRoot, 'workspace-a');
+  try {
+    await mkdir(workspaceRoot, { recursive: true });
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10,
+      staleAfterMs: 100,
+      createId: (() => {
+        let next = 0;
+        return () => `gate-active-${next += 1}`;
+      })()
+    });
+    const active = await manager.acquire(workspaceRoot);
+    const activeCensus = await workPackageGateNamespaceStructureForTests(namespaceRoot);
+    expect(activeCensus.counts).toMatchObject({ workspaceRoots: 1, writerLeases: 1 });
+    expect(activeCensus.recoveryAuthorityIdentities).toHaveLength(1);
+    expect(activeCensus.recoveryAuthorityIdentities[0]).toStartWith('workspace-write-lease:active:sha256:');
+    await active.release();
+
+    const releasedCensus = await workPackageGateNamespaceStructureForTests(namespaceRoot);
+    expect(releasedCensus.counts.writerLeases).toBe(1);
+    expect(releasedCensus.recoveryAuthorityIdentities[0])
+      .toStartWith('workspace-write-lease:quiescent:sha256:');
+
+    await writeFile(
+      path.join(workspaceRoot, '.sec', 'workspace-write-lease', '0000000000000001.owner.json'),
+      '{}',
+      'utf8'
+    );
+    await expect(workPackageGateNamespaceStructureForTests(namespaceRoot))
+      .rejects.toThrow(/owner record|generation identity|terminal identity/);
+  } finally {
+    await rm(namespaceRoot, { recursive: true, force: true });
+  }
+
+  const recoveryNamespace = path.join(repoRoot, '.tmp', `synthetic-lease-recovery-${randomUUID()}`);
+  const recoveryWorkspace = path.join(recoveryNamespace, 'workspace-a');
+  try {
+    await mkdir(recoveryWorkspace, { recursive: true });
+    const strandedManager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 1,
+      staleAfterMs: 10,
+      hostname: 'gate-recovery-host',
+      pid: 42_001,
+      processNonce: 'process:gate-recovery-stranded',
+      now: () => 0,
+      createId: (() => {
+        let next = 0;
+        return () => `gate-stranded-${next += 1}`;
+      })(),
+      ownerPublicationDirectorySync: async () => {
+        throw new Error('synthetic-owner-publication-fsync-failure');
+      }
+    });
+    await expect(strandedManager.acquire(recoveryWorkspace))
+      .rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-004' });
+    const recoveryManager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 1,
+      staleAfterMs: 10,
+      hostname: 'gate-recovery-host',
+      pid: 42_002,
+      processNonce: 'process:gate-recovery-successor',
+      now: () => 100,
+      createId: (() => {
+        let next = 0;
+        return () => `gate-recovery-${next += 1}`;
+      })(),
+      processAlive: () => 'dead'
+    });
+    const recovered = await recoveryManager.acquire(recoveryWorkspace);
+    await recovered.release();
+    const recoveredCensus = await workPackageGateNamespaceStructureForTests(recoveryNamespace);
+    expect(recoveredCensus.counts.writerLeases).toBe(1);
+    expect(recoveredCensus.recoveryAuthorityIdentities[0])
+      .toStartWith('workspace-write-lease:quiescent:sha256:');
+
+    await writeFile(
+      path.join(recoveryWorkspace, '.sec', 'workspace-write-lease', 'owner.json'),
+      '{}',
+      'utf8'
+    );
+    await expect(workPackageGateNamespaceStructureForTests(recoveryNamespace))
+      .rejects.toThrow(/Legacy workspace writer lease|legacy/i);
+  } finally {
+    await rm(recoveryNamespace, { recursive: true, force: true });
   }
 });
 

@@ -1,7 +1,7 @@
 ---
 title: Engineering IR 与语义事实规范
 status: active
-last-reviewed: 2026-07-13
+last-reviewed: 2026-07-28
 ---
 
 # Engineering IR 与语义事实规范
@@ -1751,9 +1751,9 @@ acquire cross-process exclusive workspace mutation lease
 → release lease
 ```
 
-Lease 是 workspace 级通用 writer lease，而不是 Mutation 私有 mutex。`compileWorkspace()`、Workbench source apply、live Repair/Upgrade 与其他会写 Authoring Source、Lock、Projection、Artifact 或 View 的入口必须持有同一 lease；Pipeline 只依赖中立 lease module，不得反向依赖 Mutation。Mutation 持 lease 调用 live rebuild 时传递 exact reentrant token，避免自锁。Lease 目录固定为 `.sec/workspace-write-lease`；acquire 先在同一 parent 构造并 durable 写完 unique candidate directory，再以 atomic rename 发布为固定 lease directory，固定目录已存在即表示 contention。owner record 绑定 workspace identity、hostname、pid、process-start nonce、lease ID 与 heartbeat。活 holder 绝不按超时抢占；无法证明 holder 已死、foreign-host owner、PID reuse 或 owner record 不完整时 fail closed。只允许在 same-host PID 已不存在且 heartbeat stale 时，把旧 lease directory atomic rename 到 unique quarantine 后重新获取；release 与每个 live side effect 前都必须 exact 核对 token 和 lease-directory identity。
+Lease 是 workspace 级通用 writer lease，而不是 Mutation 私有 mutex。Shared lease 的唯一物理 protocol、owner identity、heartbeat、recovery、terminal 与迁移合同由[运行时权威中的 portable workspace lease](./13-独立工具分发与打包规划.md#51-portable-workspace-lease-authority)拥有；Mutation 不复制或重选该机制。`compileWorkspace()`、Workbench source apply、live Repair/Upgrade 与其他会写 Authoring Source、Lock、Projection、Artifact 或 View 的入口必须持有同一 lease；Pipeline 只依赖中立 lease module，不得反向依赖 Mutation。
 
-Lease busy 或无法安全 reclaim 是公开的 pre-publish `rejected`，产生脱敏 `SEMANTIC-MUTATION-007`，不返回绝对 lease 路径。Generic Pipeline caller 可等待或返回 writer-busy，但不得绕过 lease。Lease token 不是 proposal 字段，也不进入 Semantic Mutation request/plan/result digest。
+Mutation 持 lease 调用 live rebuild 时必须传递 exact reentrant token，避免自锁；release 与每个 live side effect 前都必须通过 shared commit fence exact 核对 token 与当前 owner identity。Lease busy 或无法安全 recovery 是公开的 pre-publish `rejected`，产生脱敏 `SEMANTIC-MUTATION-007`，不返回绝对 lease 路径。Generic Pipeline caller 可等待或返回 writer-busy，但不得绕过 lease。Lease token 不是 proposal 字段，也不进入 Semantic Mutation request/plan/result digest。
 
 Planning/dry-run never writes live source. Before publish，所有 parse、precondition、transform、resolve/frontend、actual Delta/Impact、expectation 与可隔离 Verification 必须先在 staging 完成。Local child 只有在 host 已证明正常 exit、child close、完整 process tree 关闭、stdout/stderr 排空，且完成后 writer lease 仍有效时才可产生成功结果；timeout、abort、fence loss、output overflow 或 lifecycle failure 必须先有界终止并证明 tree closure，随后只能返回失败。单独的 exit code 不能替代 progress、outcome、report 与 revision binding。Temp/backup 与 target 位于同卷受控目录；backup 保留 exact original bytes、BOM/EOL 和 file mode/attributes needed for restoration。Atomic rename 前再次验证 live digest 等于 before digest；semantic revision 相同不能替代 byte CAS，因为 formatting/comment/source bytes 可能已变。
 

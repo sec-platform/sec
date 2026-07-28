@@ -68,3 +68,25 @@ test('isolated staging tree coordinates final revalidation with its active lease
     }
   }, 'engineering-compiler-isolated-staging-lease-heartbeat-');
 });
+
+test('isolated staging tree active lease proof does not allow ordinary hard links', async () => {
+  await withTempWorkspace(async (stagingRoot) => {
+    const original = path.join(stagingRoot, 'original.txt');
+    const alias = path.join(stagingRoot, 'alias.txt');
+    await writeFile(original, 'shared bytes', 'utf8');
+    await link(original, alias);
+    const lease = await acquireWorkspaceWriteLease(stagingRoot);
+    try {
+      await expect(assertIsolatedStagingTreeForTests(stagingRoot, {
+        workspaceWriteLease: lease.token,
+        afterInitialTraversal: () => undefined
+      })).rejects.toMatchObject({
+        code: 'VERIFY-ISOLATION-001',
+        message: 'Staging tree contains a hard-linked file'
+      });
+      await lease.assertOwned();
+    } finally {
+      await lease.release();
+    }
+  }, 'engineering-compiler-isolated-staging-lease-hardlink-');
+});

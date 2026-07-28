@@ -15,4 +15,4 @@ test('ticket project reaches a passing fast pipeline state', async () => {
 
   expect(report.fast.status).toBe('passed');
   expect(report.summary.status).toBe('passed');
-}, 15_000);
+});

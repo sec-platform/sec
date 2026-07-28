@@ -4,6 +4,8 @@ import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from '../../shared/process.ts';
 import {
+  WORKSPACE_WRITE_LEASE_DIRECTORY_NAME,
+  inspectWorkspaceWriteLease,
   withWorkspaceWriteLeaseControlPlaneQuiesced,
   type WorkspaceWriteLeaseToken
 } from '../../shared/workspace-write-lease.ts';
@@ -25,6 +27,11 @@ interface StagingEntrySnapshot {
   readonly metadata: FileMetadata;
   readonly relativePath: string;
 }
+
+type CanonicalHardLinkProof = (
+  absolutePath: string,
+  metadata: FileMetadata
+) => Promise<boolean>;
 
 export interface IsolatedStagingTreeOptions {
   readonly executionBoundary?: 'windows-appcontainer';
@@ -142,7 +149,8 @@ async function inspectEntrySnapshot(
   absolutePath: string,
   relativePath: string,
   reparsePoints: ReparsePointInspector,
-  requireRealpathProof: boolean
+  requireRealpathProof: boolean,
+  proveCanonicalHardLink?: CanonicalHardLinkProof
 ): Promise<StagingEntrySnapshot> {
   const before = await proveFilesystemOperation('entry-lstat', () => lstat(absolutePath));
   if (before.isSymbolicLink() || reparsePoints.hasReparsePoint(absolutePath)) {
@@ -151,7 +159,8 @@ async function inspectEntrySnapshot(
   if (!before.isDirectory() && !before.isFile()) {
     isolationFailure('Staging tree contains an unsupported special entry', relativePath);
   }
-  if (before.isFile() && Number(before.nlink) !== 1) {
+  if (before.isFile() && Number(before.nlink) !== 1 &&
+    (!proveCanonicalHardLink || !await proveCanonicalHardLink(absolutePath, before))) {
     isolationFailure('Staging tree contains a hard-linked file', relativePath);
   }
 
@@ -239,6 +248,7 @@ async function inspectTree(
   resolvedRoot: string,
   reparsePoints: ReparsePointInspector,
   requireRealpathProof: boolean,
+  proveCanonicalHardLink?: CanonicalHardLinkProof,
   afterInitialTraversal?: () => Promise<void> | void
 ): Promise<void> {
   let frontier: readonly Readonly<{ absolutePath: string; relativePath: string }>[] =
@@ -250,7 +260,8 @@ async function inspectTree(
       entry.absolutePath,
       entry.relativePath,
       reparsePoints,
-      requireRealpathProof
+      requireRealpathProof,
+      proveCanonicalHardLink
     ));
     snapshots.push(...inspected);
     frontier = Object.freeze(inspected.flatMap((snapshot) =>
@@ -284,7 +295,7 @@ async function assertIsolatedStagingTreeInternal(
       !isSemanticMutationStagingWorkspace(resolvedRoot))) {
       isolationFailure('Windows AppContainer staging scan boundary is invalid', '.');
     }
-    const inspect = async (): Promise<void> => {
+    const inspect = async (proveCanonicalHardLink?: CanonicalHardLinkProof): Promise<void> => {
       reparsePoints = await createReparsePointInspector();
       const rootMetadata = await proveFilesystemOperation('root-lstat', () => lstat(resolvedRoot));
       if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink() ||
@@ -307,6 +318,7 @@ async function assertIsolatedStagingTreeInternal(
         resolvedRoot,
         reparsePoints,
         requireEntryRealpathProof,
+        proveCanonicalHardLink,
         testOptions?.afterInitialTraversal
       );
     };
@@ -314,7 +326,26 @@ async function assertIsolatedStagingTreeInternal(
       await withWorkspaceWriteLeaseControlPlaneQuiesced(
         resolvedRoot,
         options.workspaceWriteLease,
-        inspect
+        async () => {
+          const leaseRoot = path.join(
+            resolvedRoot,
+            '.sec',
+            WORKSPACE_WRITE_LEASE_DIRECTORY_NAME
+          );
+          await inspect(async (absolutePath, metadata) => {
+            if (!isInside(leaseRoot, absolutePath)) return false;
+            const inspection = await inspectWorkspaceWriteLease(resolvedRoot);
+            if (!inspection.authorityPaths.some((authorityPath) =>
+              foldedPath(authorityPath) === foldedPath(absolutePath))) {
+              return false;
+            }
+            const revalidated = await proveFilesystemOperation(
+              'entry-revalidate',
+              () => lstat(absolutePath)
+            );
+            return sameIdentity(metadata, revalidated);
+          });
+        }
       );
     } else {
       await inspect();

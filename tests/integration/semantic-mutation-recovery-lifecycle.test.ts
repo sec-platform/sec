@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -39,7 +39,7 @@ import type { FactDeltaEndpointContext } from '../../platform/shared/engineering
 import type { SemanticMutationRecoveryState } from '../../platform/shared/semantic-mutation-transaction-types.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+import { copyWorkspaceFixture, withTempWorkspace } from '../testkit/workspace.ts';
 
 const AUTHORING_SOURCE = [
   'formatVersion: "1"',
@@ -398,13 +398,164 @@ test('SM-3 retained terminal history does not become recovery authority for late
   }, 'sm3-terminal-history-');
 }, 600_000);
 
+test('workspace fixture copies case-fold local state and preserve only snapshot-defining files', async () => {
+  await withTempWorkspace(async (root) => {
+    const template = path.join(root, 'template');
+    const workspace = path.join(root, 'workspace');
+    const localState = path.join(template, '.SEC');
+    const clonedLocalState = path.join(workspace, '.sec');
+    await mkdir(path.join(localState, 'workspace-write-lease'), { recursive: true });
+    await mkdir(path.join(localState, 'CACHE'), { recursive: true });
+    await mkdir(path.join(localState, 'semantic-mutation', 'v1'), { recursive: true });
+    await mkdir(path.join(localState, 'future-state'), { recursive: true });
+    await mkdir(path.join(template, 'source'), { recursive: true });
+    await writeFile(path.join(localState, 'workspace-write-lease', 'protocol.json'), '{}\n', 'utf8');
+    await writeFile(path.join(localState, 'CACHE', 'composition-baseline.json'), '{"kind":"composition"}\n', 'utf8');
+    await writeFile(path.join(localState, 'CACHE', 'project-baseline.json'), '{"kind":"project"}\n', 'utf8');
+    await writeFile(path.join(localState, 'pipeline-journal.json'), '{"kind":"pipeline"}\n', 'utf8');
+    await writeFile(path.join(localState, 'semantic-mutation', 'v1', 'state.json'), '{}\n', 'utf8');
+    await writeFile(path.join(localState, 'future-state', 'state.json'), '{}\n', 'utf8');
+    await writeFile(path.join(template, 'source', 'model.yaml'), 'formatVersion: "1"\n', 'utf8');
+
+    await copyWorkspaceFixture(template, workspace);
+
+    await expect(readFile(path.join(workspace, 'source', 'model.yaml'), 'utf8'))
+      .resolves.toBe('formatVersion: "1"\n');
+    await expect(readFile(path.join(clonedLocalState, 'cache', 'composition-baseline.json'), 'utf8'))
+      .resolves.toBe('{"kind":"composition"}\n');
+    await expect(readFile(path.join(clonedLocalState, 'cache', 'project-baseline.json'), 'utf8'))
+      .resolves.toBe('{"kind":"project"}\n');
+    await expect(readFile(path.join(clonedLocalState, 'pipeline-journal.json'), 'utf8'))
+      .resolves.toBe('{"kind":"pipeline"}\n');
+    await expect(access(path.join(clonedLocalState, 'workspace-write-lease')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(path.join(clonedLocalState, 'semantic-mutation')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(path.join(clonedLocalState, 'future-state')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  }, 'sm3-fixture-copy-');
+});
+
+test.skipIf(
+  process.platform === 'win32' && process.env.SEC_CASE_SENSITIVE_FIXTURE_TEST !== '1'
+)(
+  'workspace fixture copies reject case-colliding local-state paths',
+  async () => {
+    await withTempWorkspace(async (root) => {
+      const template = path.join(root, 'template');
+      await mkdir(path.join(template, '.sec', 'cache'), { recursive: true });
+      await mkdir(path.join(template, '.SEC', 'CACHE'), { recursive: true });
+
+      await expect(copyWorkspaceFixture(template, path.join(root, 'workspace')))
+        .rejects.toThrow('case-colliding local-state paths');
+    }, 'sm3-fixture-case-collision-');
+  }
+);
+
+test('workspace fixture copies reject a local-state root alias', async () => {
+  await withTempWorkspace(async (root) => {
+    const template = path.join(root, 'template');
+    const externalState = path.join(root, 'external-state');
+    await mkdir(path.join(externalState, 'workspace-write-lease'), { recursive: true });
+    await mkdir(template, { recursive: true });
+    await symlink(
+      externalState,
+      path.join(template, '.sec'),
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+
+    await expect(copyWorkspaceFixture(template, path.join(root, 'workspace')))
+      .rejects.toThrow('Workspace fixture .sec must be a physical directory');
+  }, 'sm3-fixture-root-alias-');
+});
+
+test('workspace fixture copies reject a local-state cache alias', async () => {
+  await withTempWorkspace(async (root) => {
+    const template = path.join(root, 'template');
+    const externalCache = path.join(root, 'external-cache');
+    await mkdir(path.join(template, '.sec'), { recursive: true });
+    await mkdir(externalCache, { recursive: true });
+    await symlink(
+      externalCache,
+      path.join(template, '.sec', 'cache'),
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+
+    await expect(copyWorkspaceFixture(template, path.join(root, 'workspace')))
+      .rejects.toThrow('Workspace fixture .sec/cache must be a physical directory');
+  }, 'sm3-fixture-cache-alias-');
+});
+
+test('workspace fixture copies reject an allowlisted snapshot alias', async () => {
+  await withTempWorkspace(async (root) => {
+    const template = path.join(root, 'template');
+    const cacheRoot = path.join(template, '.sec', 'cache');
+    const externalTarget = path.join(
+      root,
+      process.platform === 'win32' ? 'external-baseline-dir' : 'external-baseline.json'
+    );
+    await mkdir(cacheRoot, { recursive: true });
+    if (process.platform === 'win32') {
+      await mkdir(externalTarget, { recursive: true });
+    } else {
+      await writeFile(externalTarget, '{"external":true}\n', 'utf8');
+    }
+    await symlink(
+      externalTarget,
+      path.join(cacheRoot, 'project-baseline.json'),
+      process.platform === 'win32' ? 'junction' : 'file'
+    );
+
+    await expect(copyWorkspaceFixture(template, path.join(root, 'workspace')))
+      .rejects.toThrow(
+        'Workspace fixture .sec/cache/project-baseline.json must be a physical regular file'
+      );
+  }, 'sm3-fixture-leaf-alias-');
+});
+
+test('workspace fixture copies reject a case-equivalent destination alias without writes', async () => {
+  await withTempWorkspace(async (root) => {
+    const template = path.join(root, 'template');
+    const workspace = path.join(root, 'workspace');
+    const externalState = path.join(root, 'external-destination-state');
+    await mkdir(path.join(template, '.sec'), { recursive: true });
+    await mkdir(path.join(template, 'source'), { recursive: true });
+    await writeFile(
+      path.join(template, '.sec', 'pipeline-journal.json'),
+      '{"kind":"pipeline"}\n',
+      'utf8'
+    );
+    await writeFile(path.join(template, 'source', 'model.yaml'), 'formatVersion: "1"\n', 'utf8');
+    await mkdir(workspace, { recursive: true });
+    await mkdir(externalState, { recursive: true });
+    await writeFile(path.join(externalState, 'sentinel.txt'), 'unchanged\n', 'utf8');
+    await symlink(
+      externalState,
+      path.join(workspace, '.SEC'),
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+
+    await expect(copyWorkspaceFixture(template, workspace))
+      .rejects.toThrow(
+        'Workspace fixture destination must not contain a case-equivalent local-state path'
+      );
+    expect(await readdir(workspace)).toEqual(['.SEC']);
+    await expect(readFile(path.join(externalState, 'sentinel.txt'), 'utf8'))
+      .resolves.toBe('unchanged\n');
+    await expect(access(path.join(externalState, 'pipeline-journal.json')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(path.join(workspace, 'source')))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  }, 'sm3-fixture-destination-alias-');
+});
+
 test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-back, recovery-required recovery', async () => {
   await withTempWorkspace(async (root) => {
     const template = path.join(root, 'template');
     await createTemplate(template);
 
     const casWorkspace = path.join(root, 'plan-cas');
-    await cp(template, casWorkspace, { recursive: true });
+    await copyWorkspaceFixture(template, casWorkspace);
     const cas = await mutationInput(casWorkspace, 'request:plan-cas');
     const casTestDependencies = createRecoveryTestDependencies();
     const casPlan = await planSemanticMutationTransactionWithTestDependencies(
@@ -456,7 +607,7 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
     await expectRecoveryChain(casTransactionRoot, []);
 
     const preparedWorkspace = path.join(root, 'prepared-crash');
-    await cp(template, preparedWorkspace, { recursive: true });
+    await copyWorkspaceFixture(template, preparedWorkspace);
     const prepared = await crashAfterPrepared(preparedWorkspace, 'request:prepared-crash');
     await expectRecoveryChain(prepared.transactionRoot, ['prepared']);
     expect(await readFile(prepared.sourcePath)).toEqual(Buffer.from(prepared.beforeBytes));
@@ -473,7 +624,7 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
     await expectRecoveryChain(prepared.transactionRoot, ['prepared', 'authoring-committed', 'verified']);
 
     const rolledBackWorkspace = path.join(root, 'rolled-back');
-    await cp(template, rolledBackWorkspace, { recursive: true });
+    await copyWorkspaceFixture(template, rolledBackWorkspace);
     const rolledBack = await applyAccepted(rolledBackWorkspace, 'request:rolled-back');
     await expectRecoveryChain(rolledBack.transactionRoot, ['prepared', 'authoring-committed', 'verified']);
     await rm(path.join(rolledBack.transactionRoot, 'records', '000003-verified.json'));
@@ -495,7 +646,7 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
     await expectRecoveryChain(rolledBack.transactionRoot, ['prepared', 'authoring-committed', 'rolled-back']);
 
     const recoveryWorkspace = path.join(root, 'recovery-required');
-    await cp(template, recoveryWorkspace, { recursive: true });
+    await copyWorkspaceFixture(template, recoveryWorkspace);
     const recoveryRequired = await applyAccepted(recoveryWorkspace, 'request:recovery-required');
     await expectRecoveryChain(recoveryRequired.transactionRoot, ['prepared', 'authoring-committed', 'verified']);
     await rm(path.join(recoveryRequired.transactionRoot, 'records', '000003-verified.json'));
@@ -521,7 +672,7 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
     ]);
 
     const missingSourceWorkspace = path.join(root, 'missing-terminal-source');
-    await cp(template, missingSourceWorkspace, { recursive: true });
+    await copyWorkspaceFixture(template, missingSourceWorkspace);
     const missingSource = await applyAccepted(missingSourceWorkspace, 'request:missing-terminal-source');
     const missingSourceRecords = await loadSemanticMutationRecoveryRecords(missingSource.transactionRoot);
     await rm(missingSource.sourcePath);
@@ -540,7 +691,7 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
       .toEqual(missingSourceRecords);
 
     const missingActiveSourceWorkspace = path.join(root, 'missing-active-source');
-    await cp(template, missingActiveSourceWorkspace, { recursive: true });
+    await copyWorkspaceFixture(template, missingActiveSourceWorkspace);
     const missingActiveSource = await crashAfterPrepared(
       missingActiveSourceWorkspace,
       'request:missing-active-source'
@@ -559,7 +710,7 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
     await expectRecoveryChain(missingActiveSource.transactionRoot, ['prepared', 'recovery-required']);
 
     const frontendFailureWorkspace = path.join(root, 'prepared-frontend-failure');
-    await cp(template, frontendFailureWorkspace, { recursive: true });
+    await copyWorkspaceFixture(template, frontendFailureWorkspace);
     const frontendFailure = await crashAfterPrepared(
       frontendFailureWorkspace,
       'request:prepared-frontend-failure'
@@ -576,7 +727,7 @@ test('SM-3 real lifecycle covers CAS rejection/collision and prepared, rolled-ba
     await expectRecoveryChain(frontendFailure.transactionRoot, ['prepared', 'recovery-required']);
 
     const restoreValidationWorkspace = path.join(root, 'restore-validation-failure');
-    await cp(template, restoreValidationWorkspace, { recursive: true });
+    await copyWorkspaceFixture(template, restoreValidationWorkspace);
     const restoreValidation = await applyAccepted(
       restoreValidationWorkspace,
       'request:restore-validation-failure'
