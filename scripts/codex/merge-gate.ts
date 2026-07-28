@@ -100,6 +100,7 @@ export const CodexDevelopmentTrustRootPathsV1 = [
   'platform/shared/project-runtime.ts',
   'platform/shared/repository-path-contract.ts',
   'platform/shared/runtime-dependency-spec.ts',
+  'platform/shared/runtime-layout.ts',
   'platform/shared/test-budget-contract.ts',
   'platform/shared/test-impact-contract.ts',
   'platform/shared/test-ownership-contract.ts',

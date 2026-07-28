@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CompilerError } from '../../shared/errors.ts';
-import { compilerRoot } from '../../shared/paths.ts';
+import { compilerRuntimeResources } from '../../shared/runtime-layout.ts';
 
-const TEMPLATES_DIR = path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates');
+const TEMPLATES_DIR = compilerRuntimeResources.composeTemplates;
 
 export class TemplateEngine {
   private static cache = new Map<string, string>();

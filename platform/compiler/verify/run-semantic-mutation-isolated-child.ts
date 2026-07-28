@@ -35,6 +35,10 @@ import {
   ensurePlaywrightBrowserCacheReady,
   ensureSharedDepsReady,
 } from '../../shared/project-runtime.ts';
+import {
+  compilerRuntimeLayout,
+  compilerRuntimeResources
+} from '../../shared/runtime-layout.ts';
 import { isCanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
 import type {
   RuntimeVerificationLaneReport,
@@ -496,11 +500,11 @@ export function resolveCanonicalSemanticMutationIsolatedRuntimeInputSources(
   const dependencySources = resolveIsolatedRuntimeDependencySources();
   return Object.freeze({
     compilerModulesRoot: dependencySources.compilerModulesRoot,
-    compilerPackage: path.join(compilerRoot, 'package.json'),
-    composeTemplates: path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates'),
+    compilerPackage: path.join(compilerRuntimeLayout.packageRoot, 'package.json'),
+    composeTemplates: compilerRuntimeResources.composeTemplates,
     dependencyModules: dependencySources.dependencyModules,
-    officialPolicies: path.join(compilerRoot, 'platform', 'policies', 'official'),
-    officialRegistry: path.join(compilerRoot, 'platform', 'registry', 'official')
+    officialPolicies: compilerRuntimeResources.officialPolicies,
+    officialRegistry: compilerRuntimeResources.officialRegistry
   });
 }
 

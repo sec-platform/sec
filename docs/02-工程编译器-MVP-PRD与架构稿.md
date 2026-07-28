@@ -1,7 +1,7 @@
 ---
 title: 工程编译器产品与总体架构
 status: active
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-28
 ---
 
 # Engineering Compiler 产品与总体架构
@@ -94,7 +94,7 @@ ExplainGraph、ReviewSummary、SemanticView、Workbench、CLI、IDE/MCP Adapter 
 
 ### SEC CLI
 
-主执行入口，运行在开发者机器或 CI Runner。CLI 调用相同 compiler facade 和合同，不维护独立业务规则。
+主执行入口，运行在开发者机器或 CI Runner。CLI 调用相同 compiler facade 和合同，不维护独立业务规则。Semantic Core 保持 runtime-neutral；Host Runtime、Bun Toolchain、生成 Target 与 package layout 的独立权威见 [运行时权威、包布局与独立 CLI 分发](13-独立工具分发与打包规划.md)。Node 22/24 是待物理 Gate 闭合的公开 baseline，不是当前支持声明。
 
 ### Local Workbench
 
@@ -185,6 +185,7 @@ human understanding
 - 不允许 Workbench 前端独立计算工程语义。
 - 不允许 AI 直接修改 canonical IR 或 governance artifact。
 - 不在 Semantic Representation 稳定前继续用巨型业务 Demo 放大文件装配抽象。
+- 不把执行 SEC 的 Host、仓库 Toolchain 与生成项目 Target 合并为一个 runtime 选择，也不以 Bun 下的成功替代 Node/Bun 各自的物理证据。
 
 ## 9. 产品成功的工程判据
 

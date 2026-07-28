@@ -1573,7 +1573,7 @@ test('verifier runtime import closure stays inside the TCB except for the review
     reviewedExternalImports,
     reviewedProcessDispatchers
   } = trustedRuntimeClosure();
-  expect(closure.size).toBe(54);
+  expect(closure.size).toBe(55);
   expect(reviewedProcessDispatchers.size).toBe(21);
   expect([...reviewedEdges].sort()).toEqual([...TCB_REVIEWED_SUT_EDGES].sort());
   expect([...reviewedExternalImports].sort()).toEqual([...TCB_REVIEWED_EXTERNAL_IMPORTS].sort());
@@ -1597,6 +1597,7 @@ test('verifier runtime import closure stays inside the TCB except for the review
     'platform/shared/project-runtime.ts',
     'platform/shared/repository-path-contract.ts',
     'platform/shared/runtime-dependency-spec.ts',
+    'platform/shared/runtime-layout.ts',
     'platform/shared/test-impact-rules/verification.ts',
     'scripts/codex/document-control-plane-contract.ts',
     'scripts/codex/exact-git-blob.ts',

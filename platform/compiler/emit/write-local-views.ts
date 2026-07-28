@@ -17,7 +17,6 @@ import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { defaultLogger } from '../../shared/logger.ts';
 import {
-  compilerRoot,
   getWorkspacePaths,
   graphViewRelativePath,
   overviewViewRelativePath,
@@ -35,6 +34,7 @@ import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import { buildE2eMatrix } from '../../shared/review-matrix.ts';
 import type { ReviewSummary } from '../../shared/review-types.ts';
 import { buildReviewUpgradePreflightSummaries } from '../../shared/review-upgrade.ts';
+import { compilerRuntimeResources } from '../../shared/runtime-layout.ts';
 import { semanticViewFactIds, type SemanticViewSet } from '../../shared/semantic-view-types.ts';
 import type { ToolEvidenceReport } from '../../shared/tool-evidence-contract.ts';
 import type { CiArtifactManifest, VerificationReport } from '../../shared/types.ts';
@@ -42,7 +42,7 @@ import { readReviewGovernanceReports } from './read-review-governance-reports.ts
 import { buildRuntimeAttributions, classifyRuntimeEntry, detectVerticalFromPath } from './runtime-attribution.ts';
 import { assertSemanticViewArtifactsAreCurrent } from './semantic-view-artifact-contract.ts';
 
-const TEMPLATES_DIR = path.join(compilerRoot, 'platform', 'compiler', 'emit', 'templates');
+const TEMPLATES_DIR = compilerRuntimeResources.localViewTemplates;
 const CANONICAL_LOCAL_VIEW_GENERATED_AT = '1970-01-01T00:00:00.000Z';
 
 function formatList(values: Iterable<string>, fallback = 'none'): string {
