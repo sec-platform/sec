@@ -12,6 +12,7 @@ import {
   DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY,
   EXCLUSIVE_FAST_TEST_FILES,
   FAST_TEST_PROCESS_ISOLATION_REGISTRY,
+  FAST_TEST_PROCESS_RESOURCE_SCHEDULING,
   isDefaultFastTestFile,
   MAX_DEFAULT_FAST_TEST_PROCESS_WAVES,
   planFastTestProcesses,
@@ -177,6 +178,8 @@ test('fast process planning removes stale isolation and bounds structural proces
     'tests/unit/work-package-profile-probe-diagnostic.test.ts',
     'tests/integration/pipeline-kernel.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts',
+    'tests/integration/semantic-mutation-apply.test.ts',
+    'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
     'tests/integration/workbench-writer-lease.test.ts',
     'tests/integration/workspace-engineering-ir.test.ts'
   ]));
@@ -204,6 +207,34 @@ test('fast process planning removes stale isolation and bounds structural proces
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
     ({ file }) => file === 'tests/integration/workspace-engineering-ir.test.ts'
   )?.scheduling).toBe('bounded-parallel');
+});
+
+test('fast process resource classes uniquely derive scheduling and isolate production runtime owners', () => {
+  for (const entry of FAST_TEST_PROCESS_ISOLATION_REGISTRY) {
+    expect(entry.scheduling).toBe(FAST_TEST_PROCESS_RESOURCE_SCHEDULING[entry.resourceClass]);
+  }
+
+  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
+    ({ file }) => file === 'tests/integration/semantic-mutation-apply.test.ts'
+  )).toMatchObject({
+    reason: 'production-host-and-runtime-lifecycle',
+    resourceClass: 'shared-host-runtime',
+    scheduling: 'exclusive'
+  });
+  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
+    ({ file }) => file === 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts'
+  )).toMatchObject({
+    resourceClass: 'independent-process',
+    scheduling: 'bounded-parallel'
+  });
+  expect(planFastTestProcesses([
+    'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
+    'tests/integration/semantic-mutation-apply.test.ts'
+  ])).toEqual({
+    concurrentShards: [],
+    isolatedParallel: ['tests/integration/semantic-mutation-recovery-lifecycle.test.ts'],
+    exclusive: ['tests/integration/semantic-mutation-apply.test.ts']
+  });
 });
 
 test('fast tests use one bounded default timeout policy', () => {
