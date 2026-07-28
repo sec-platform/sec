@@ -220,6 +220,7 @@ test('exact blob reader and both Evidence producers share one direct execution o
     owners: ['verification-evidence-producers']
   };
   for (const source of [
+    'scripts/codex/ci-orchestration-core.ts',
     'scripts/ci-pr-risk.ts',
     'scripts/ci-verification.ts',
     'scripts/codex/exact-git-blob.ts'

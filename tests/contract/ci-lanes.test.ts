@@ -1,4 +1,8 @@
 import { expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import {
   buildCiContract,
@@ -21,6 +25,11 @@ import {
   slowTestSuiteIds
 } from '../../platform/shared/test-budget-contract.ts';
 import { CodexDevelopmentBuildVerificationScopeInventoryV1 } from '../../platform/shared/verification-scope-inventory.ts';
+import {
+  CodexDevelopmentChangedFilesFromRecordsV1,
+  CodexDevelopmentCreateNotRunGateV2,
+  CodexDevelopmentRunGateProcessV1
+} from '../../scripts/codex/ci-orchestration-core.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import {
   expectCiContractSelfConsistent,
@@ -57,7 +66,7 @@ test('CI contract counts and produced paths are self-consistent', () => {
 test('CI contract text exposes execution and logical lane split for workflow audits', () => {
   const formatted = formatCiContract(buildCiContract());
 
-  expect(formatted).toContain('Verification contract revision: ci-verification-v17');
+  expect(formatted).toContain('Verification contract revision: ci-verification-v18');
   expect(formatted).toContain('Execution model: frozen-delivery-single-runner');
   expect(formatted).toContain('PR workflow event: repository_dispatch');
   expect(formatted).toContain('PR dispatch type: sec-verify-frozen-v1');
@@ -306,6 +315,7 @@ test('CI PR risk gate skips slow suites when no source or slow test impact exist
 test('CI risk runner keeps fail-fast default and supports explicit resumable local batches', async () => {
   const source = await readCompilerFile('scripts/ci-pr-risk.ts');
   const verificationSource = await readCompilerFile('scripts/ci-verification.ts');
+  const orchestrationSource = await readCompilerFile('scripts/codex/ci-orchestration-core.ts');
 
   expect(source).toContain("argument === '--all-slow'");
   expect(source).toContain("argument === '--continue-on-failure'");
@@ -341,5 +351,70 @@ test('CI risk runner keeps fail-fast default and supports explicit resumable loc
   expect(verificationSource).toContain('commitSha: headSha');
   expect(verificationSource).not.toContain('readFileSync');
   expect(verificationSource).not.toContain('readManifestBytes');
+  expect(source).toContain("from './codex/ci-orchestration-core.ts'");
+  expect(verificationSource).toContain("from './codex/ci-orchestration-core.ts'");
+  expect(orchestrationSource).toContain('CodexDevelopmentDefaultGitRevisionV1');
+  expect(orchestrationSource).toContain('CodexDevelopmentDefaultTrackedTreeIsCleanV1');
+  expect(orchestrationSource).toContain('CodexDevelopmentDefaultChangedPathsV1');
+  expect(orchestrationSource).toContain('CodexDevelopmentDefaultChangedFilesV1');
+  expect(verificationSource).toContain('CodexDevelopmentDefaultChangedPathsV1');
+  expect(verificationSource).not.toContain('defaultChangedRecords');
+  expect(verificationSource).not.toContain('gitChangedFileDiffArgs');
+  expect(orchestrationSource).toContain('CodexDevelopmentRunGateProcessV1');
+  expect(orchestrationSource).toContain('CodexDevelopmentCreateNotRunGateV2');
+  expect(orchestrationSource).toContain('cwd: repositoryRoot');
+  expect(source).not.toContain("from 'node:child_process'");
+  expect(verificationSource).toContain("import { spawnSync } from 'node:child_process'");
+  expect(verificationSource).not.toContain("import { spawn, spawnSync } from 'node:child_process'");
   expect(source).not.toContain('process.exit(');
+});
+
+test('CI changed files derive from one immutable changed-record snapshot', () => {
+  expect(CodexDevelopmentChangedFilesFromRecordsV1([
+    { status: 'changed', path: 'scripts/ci-verification.ts' },
+    {
+      status: 'renamed',
+      previousPath: 'scripts/old-ci.ts',
+      path: 'scripts/ci-verification.ts'
+    },
+    { status: 'added', path: 'scripts/codex/ci-orchestration-core.ts' }
+  ])).toEqual([
+    'scripts/ci-verification.ts',
+    'scripts/codex/ci-orchestration-core.ts',
+    'scripts/old-ci.ts'
+  ]);
+});
+
+test('shared CI orchestration preserves child cwd, raw output digest and V2 not-run shape', async () => {
+  const repositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-ci-orchestration-'));
+  try {
+    const output = `${repositoryRoot}\n`;
+    const result = await CodexDevelopmentRunGateProcessV1(repositoryRoot, {
+      id: 'cwd-sentinel',
+      argv: [process.execPath, '-e', 'console.log(process.cwd())'],
+      env: process.env
+    });
+    expect(result).toEqual({
+      code: 0,
+      rawOutputDigest: `sha256:${createHash('sha256').update(output).digest('hex')}`,
+      failureTail: repositoryRoot
+    });
+    expect(CodexDevelopmentCreateNotRunGateV2({
+      id: 'not-run-sentinel',
+      argv: ['bun', 'test', 'sentinel.test.ts']
+    })).toEqual({
+      id: 'not-run-sentinel',
+      argv: ['bun', 'test', 'sentinel.test.ts'],
+      status: 'not-run',
+      exitCode: null,
+      startedAt: null,
+      finishedAt: null,
+      durationMs: null,
+      failureTail: null,
+      rawOutputDigest: null,
+      notRunReason: 'Gate was not reached because preflight or an earlier fail-fast gate did not complete.'
+    });
+  } finally {
+    await fs.rm(repositoryRoot, { recursive: true, force: true });
+  }
 });
