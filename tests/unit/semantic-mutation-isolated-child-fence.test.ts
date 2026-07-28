@@ -76,8 +76,10 @@ import {
 import {
   assertSemanticMutationIsolatedRuntimeLaunchManifest,
   materializeSemanticMutationIsolatedRuntime,
+  SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT,
   SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT,
   SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS,
+  SEMANTIC_MUTATION_ISOLATED_COMPILER_RUNTIME_ASSET_RELATIVE_ROOT,
   SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT,
   semanticMutationIsolatedBrowserPath,
   semanticMutationIsolatedNodeExecutablePath,
@@ -126,7 +128,9 @@ import {
 import {
   COMPILER_RUNTIME_RESOURCE_POSIX_PATHS,
   compilerRuntimeLayout,
-  compilerRuntimeResources
+  compilerRuntimeResources,
+  RELEASE_ENTRYPOINT_RELATIVE_PATH,
+  RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH
 } from '../../platform/shared/runtime-layout.ts';
 import type { SemanticMutationVerificationExecutionRefV2 } from '../../platform/shared/semantic-mutation-types.ts';
 import {
@@ -453,8 +457,11 @@ test('isolated runner relocation accepts exact logical and proven physical build
     physicalRoot
   ));
 
-  expect(relocated).toContain('../../node_modules/@ts-morph/common/dist');
-  expect(relocated).toContain('../../node_modules/typescript/lib');
+  expect(SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT)
+    .toBe(`${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/node_modules`);
+  expect(relocated).toContain('../node_modules/@ts-morph/common/dist');
+  expect(relocated).toContain('../node_modules/typescript/lib');
+  expect(relocated).not.toContain('../../node_modules');
   expect(relocated).not.toContain(logicalRoot);
   expect(relocated).not.toContain(physicalRoot);
 });
@@ -472,8 +479,9 @@ test('isolated runner relocation accepts the fixed conservative-minified bundle 
     physicalRoot
   ));
 
-  expect(relocated).toContain('../../node_modules/@ts-morph/common/dist');
-  expect(relocated).toContain('../../node_modules/typescript/lib');
+  expect(relocated).toContain('../node_modules/@ts-morph/common/dist');
+  expect(relocated).toContain('../node_modules/typescript/lib');
+  expect(relocated).not.toContain('../../node_modules');
   expect(relocated).not.toContain(BUNDLED_EJS_CONSERVATIVE_MINIFIED_RELOCATION_GUARD);
   expect(relocated).not.toContain(logicalRoot);
   expect(relocated).not.toContain(physicalRoot);
@@ -892,10 +900,20 @@ test('canonical isolated runtime inputs keep compiler-owned sources under one au
     Object.entries(COMPILER_RUNTIME_RESOURCE_POSIX_PATHS).map(
       ([name, relativePath]) => [
         name,
-        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/${relativePath}`
+        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RUNTIME_ASSET_RELATIVE_ROOT}/${relativePath}`
       ]
     )
   ) as typeof SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS;
+  expect(SEMANTIC_MUTATION_ISOLATED_COMPILER_RUNTIME_ASSET_RELATIVE_ROOT).toBe(
+    `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/${
+      RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH.replaceAll('\\', '/')
+    }`
+  );
+  expect(SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH).toBe(
+    `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/${
+      RELEASE_ENTRYPOINT_RELATIVE_PATH.replaceAll('\\', '/')
+    }`
+  );
   expect(SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS).toEqual(
     expectedResourceDestinations
   );
@@ -1648,6 +1666,13 @@ test('physical loader reaches the exact bundled core without package authority',
     expect(loaderSource).not.toContain("await import('typescript')");
     expect(loaderSource).not.toContain("await import('ts-morph')");
     expect(loaderSource).toContain("await publish('core-import-started')");
+    const loaderToCore = path.posix.relative(
+      path.posix.dirname(SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH),
+      SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH
+    );
+    expect(loaderSource).toContain(JSON.stringify(
+      loaderToCore.startsWith('.') ? loaderToCore : `./${loaderToCore}`
+    ));
     expect(loaderSource).not.toContain(path.resolve(root));
     const result = await runCommand(process.execPath, [
       '--no-env-file',
@@ -1813,7 +1838,7 @@ test('production isolated verification supervisor uses one bounded observed loca
         '--no-env-file',
         `--config=${path.join(stagingRoot, '.isolated-compiler', 'bunfig.toml')}`,
         '--no-install',
-        path.join(stagingRoot, '.isolated-compiler', 'platform', 'orchestrator', 'runner.mjs'),
+        path.join(stagingRoot, ...SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH.split('/')),
         BROWSER_LAUNCH_PROOF_ARGUMENT
       ]);
       expect(options).toMatchObject({
@@ -1841,7 +1866,7 @@ test('production isolated verification supervisor uses one bounded observed loca
       SYSTEMROOT: String.raw`C:\Windows`,
       WINDIR: String.raw`C:\Windows`
     },
-    runnerRelativePath: '.isolated-compiler/platform/orchestrator/runner.mjs',
+    runnerRelativePath: SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH,
     stagingWorkspaceRoot: stagingRoot,
     workspaceRoot,
     workspaceWriteLease
@@ -2024,7 +2049,7 @@ test('production isolated verification supervisor rejects unclosed or truncated 
     browserLaunchProofArgument: BROWSER_LAUNCH_PROOF_ARGUMENT,
     commitFence: async () => undefined,
     env: { PATH: '' },
-    runnerRelativePath: '.isolated-compiler/platform/orchestrator/runner.mjs',
+    runnerRelativePath: SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH,
     stagingWorkspaceRoot: String.raw`C:\isolated-staging`,
     workspaceRoot: String.raw`C:\live-workspace`,
     workspaceWriteLease: workspaceWriteLeaseToken()
@@ -2090,7 +2115,7 @@ test('production isolated verification supervisor enforces one combined output b
     browserLaunchProofArgument: BROWSER_LAUNCH_PROOF_ARGUMENT,
     commitFence: async () => undefined,
     env: { PATH: '' },
-    runnerRelativePath: '.isolated-compiler/platform/orchestrator/runner.mjs',
+    runnerRelativePath: SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH,
     stagingWorkspaceRoot: String.raw`C:\isolated-staging`,
     workspaceRoot: String.raw`C:\live-workspace`,
     workspaceWriteLease: workspaceWriteLeaseToken()
@@ -2148,10 +2173,7 @@ test('isolated verification rechecks the fence after planned runner construction
     const runtimeInputSources = await createRuntimeInputSources(root, browserSource);
     const runnerPath = path.join(
       stagingRoot,
-      '.isolated-compiler',
-      'platform',
-      'orchestrator',
-      'semantic-mutation-isolated-verification-runner.mjs'
+      ...SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH.split('/')
     );
     let bundleBuilt = false;
     let supervisorCalls = 0;
@@ -2252,10 +2274,7 @@ test('isolated verification materializes fenced runner and browser inputs before
     }
     expect(await readFile(path.join(
       stagingRoot,
-      '.isolated-compiler',
-      'platform',
-      'orchestrator',
-      'semantic-mutation-isolated-verification-runner.mjs'
+      ...SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH.split('/')
     ), 'utf8')).toBe('console.log("runner")');
     expect(await readFile(path.join(
       stagingRoot,
@@ -2263,11 +2282,7 @@ test('isolated verification materializes fenced runner and browser inputs before
     ), 'utf8')).toContain('bootstrap-entered');
     expect(await readFile(path.join(
       stagingRoot,
-      '.isolated-compiler',
-      'platform',
-      'compiler',
-      'compose',
-      'templates',
+      ...SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.composeTemplates.split('/'),
       'template.txt'
     ), 'utf8')).toBe('template');
     expect(await readFile(path.join(
@@ -2930,19 +2945,12 @@ test('runtime plan rejects cloned bindings, stale sources, destination tamper, a
     expect(fenceCalls).toBeLessThanOrEqual(20);
     expect(await readFile(path.join(
       stagingRoot,
-      '.isolated-compiler',
-      'platform',
-      'compiler',
-      'compose',
-      'templates',
+      ...SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.composeTemplates.split('/'),
       'template.txt'
     ), 'utf8')).toBe('template');
     const runnerPath = path.join(
       stagingRoot,
-      '.isolated-compiler',
-      'platform',
-      'orchestrator',
-      'semantic-mutation-isolated-verification-runner.mjs'
+      ...SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH.split('/')
     );
     const bootstrapPath = path.join(
       stagingRoot,
@@ -3560,11 +3568,7 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
     });
     expect(await readFile(path.join(
       stagingC,
-      '.isolated-compiler',
-      'platform',
-      'compiler',
-      'compose',
-      'templates',
+      ...SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.composeTemplates.split('/'),
       'template.txt'
     ), 'utf8')).toBe('template-v2-with-new-size');
     await expect(materializeSemanticMutationIsolatedRuntime({
@@ -3597,11 +3601,7 @@ test('runtime source snapshot cache reuses capture across staging roots and inva
     });
     expect(await readFile(path.join(
       stagingD,
-      '.isolated-compiler',
-      'platform',
-      'compiler',
-      'compose',
-      'templates',
+      ...SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.composeTemplates.split('/'),
       'added-template.txt'
     ), 'utf8')).toBe('added-after-snapshot');
     expect(await readFile(path.join(
