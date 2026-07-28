@@ -1339,6 +1339,71 @@ test('base-side merge gate binds same-repo single-parent head, frozen scope, att
   });
 });
 
+test('base-side merge gate compares changed-record value identity instead of insertion order', () => {
+  const previousPath = 'source/model/semantic-contracts-before.yaml';
+  const currentPath = 'source/model/semantic-contracts.yaml';
+  const value = fixture(manifestSource(), [previousPath, currentPath]);
+  const apiRecord = {
+    status: 'renamed' as const,
+    path: currentPath,
+    previousPath
+  };
+  const exactGitRecord = {
+    status: 'renamed' as const,
+    previousPath,
+    path: currentPath
+  };
+  const copiedApiRecord = {
+    status: 'copied' as const,
+    path: currentPath,
+    previousPath
+  };
+  const copiedExactGitRecord = {
+    status: 'copied' as const,
+    previousPath,
+    path: currentPath
+  };
+  const evaluate = (
+    apiChangedRecords: typeof value.rawInput.changedRecords,
+    exactGitChangedRecords: typeof value.rawInput.changedRecords
+  ) => (
+    CodexDevelopmentEvaluateMergeGateV1({
+      rawInput: {
+        ...value.rawInput,
+        changedRecords: apiChangedRecords
+      },
+      manifestBytes: value.manifestBytes,
+      rawAttestation: value.attestation,
+      rawEvidence: value.rawEvidence,
+      changedRecords: () => exactGitChangedRecords
+    })
+  );
+
+  expect(evaluate([apiRecord], [exactGitRecord])).toMatchObject({
+    status: 'passed',
+    exactHead: HEAD,
+    currentBase: BASE
+  });
+  expect(evaluate([copiedApiRecord], [copiedExactGitRecord])).toMatchObject({
+    status: 'passed',
+    exactHead: HEAD,
+    currentBase: BASE
+  });
+
+  for (const changedRecords of [
+    [{ ...exactGitRecord, status: 'copied' as const }],
+    [{ ...exactGitRecord, path: 'source/model/semantic-contracts-drifted.yaml' }],
+    [{ ...exactGitRecord, previousPath: 'source/model/semantic-contracts-drifted-before.yaml' }],
+    [{ status: 'renamed' as const, path: currentPath }],
+    [],
+    [exactGitRecord, { status: 'added' as const, path: 'source/model/extra.yaml' }]
+  ]) {
+    expect(() => evaluate([apiRecord], changedRecords)).toThrow(
+      'Merge gate API and exact Git changed records disagree.'
+    );
+  }
+});
+
 test('base-side merge gate accepts the real canonical full plan', () => {
   const value = fixture(manifestSource(['source/'], ['focused-contract'], 'full'));
   expect(value.plan.gates.length).toBeGreaterThan(0);

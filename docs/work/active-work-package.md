@@ -10,8 +10,8 @@ last-reviewed: 2026-07-28
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/runtime-authority-and-package-layout-v1.md
-manifestDigest: sha256:07badf24ccb653de4169df132074a64258c6d5b912492159a24df5e88a8f3811
+manifest: docs/work-packages/merge-gate-changed-record-identity-v1.md
+manifestDigest: sha256:af26f70990ea2f5e150a5d463608800128d4358ce590f9aa189af8f61c088b3e
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
