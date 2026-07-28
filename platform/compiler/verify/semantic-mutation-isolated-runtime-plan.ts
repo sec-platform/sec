@@ -17,6 +17,10 @@ import {
   type RootPackageJson
 } from '../../shared/runtime-dependency-spec.ts';
 import {
+  COMPILER_RUNTIME_RESOURCE_POSIX_PATHS,
+  type CompilerRuntimeResourceMap
+} from '../../shared/runtime-layout.ts';
+import {
   SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH,
   SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH,
   SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH,
@@ -294,6 +298,16 @@ function canonicalRelativePath(relativePath: string): string {
   }
   return canonical;
 }
+
+export const SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS =
+  Object.freeze(Object.fromEntries(Object.entries(
+    COMPILER_RUNTIME_RESOURCE_POSIX_PATHS
+  ).map(([name, relativePath]) => [
+    name,
+    canonicalRelativePath(
+      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/${relativePath}`
+    )
+  ]))) as CompilerRuntimeResourceMap<string>;
 
 function absoluteDestination(stagingRoot: string, relativePath: string): string {
   const canonical = canonicalRelativePath(relativePath);
@@ -927,7 +941,7 @@ async function captureRuntimeSourceSnapshot(
       ...registryFiles,
       ...await captureInputTree(
         input.sources.officialPolicies,
-        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/platform/policies/official`,
+        SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.officialPolicies,
         inspector,
         proofs,
         false,
@@ -935,7 +949,7 @@ async function captureRuntimeSourceSnapshot(
       ),
       ...await captureInputTree(
         input.sources.composeTemplates,
-        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/platform/compiler/compose/templates`,
+        SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.composeTemplates,
         inspector,
         proofs,
         false,
@@ -996,8 +1010,8 @@ async function captureRuntimeSourceSnapshot(
       addOwnedParentDirectories(directories, file.destinationRelativePath);
     }
     const requiredRoots = [
-      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/platform/policies/official/`,
-      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/platform/compiler/compose/templates/`,
+      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.officialPolicies}/`,
+      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.composeTemplates}/`,
       `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/node_modules/`,
       `${SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT}/`,
       `${SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT}/`,
@@ -1462,7 +1476,7 @@ function normalizedCompilerRegistries(input: {
 }): readonly SemanticMutationIsolatedCompilerRegistryInput[] {
   const registries = input.compilerRegistries ?? [{
     destinationRelativePath:
-      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/platform/registry/official`,
+      SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.officialRegistry,
     sourceRoot: input.sources.officialRegistry
   }];
   return Object.freeze([...registries]

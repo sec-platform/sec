@@ -1,7 +1,19 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, test } from 'bun:test';
 
+import {
+  COMPILER_RUNTIME_RESOURCE_POSIX_PATHS,
+  COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
+  RELEASE_ENTRYPOINT_RELATIVE_PATH,
+  RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH
+} from '../../platform/shared/runtime-layout.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile, readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
+
+const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
 
 describe('root package scripts', () => {
   test('canonical Bun version is projected into package and every setup workflow', async () => {
@@ -20,6 +32,135 @@ describe('root package scripts', () => {
       expect(workflow).toContain('bun-version-file: .bun-version');
       expect(workflow).not.toContain('bun-version: 1.3.6');
     }
+  });
+
+  test('release builder consumes the canonical package and runtime asset layout', async () => {
+    const rootPackage = await readCompilerPackageJson();
+    const builder = await readCompilerFile('scripts/build-release.ts');
+    const publicBin = (rootPackage as typeof rootPackage & {
+      readonly bin: Readonly<{ readonly sec: string }>;
+    }).bin;
+
+    expect(publicBin.sec).toBe(`./${RELEASE_ENTRYPOINT_RELATIVE_PATH.replaceAll('\\', '/')}`);
+    expect(RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH.replaceAll('\\', '/')).toBe('dist');
+    expectContainsAll(builder, [
+      'compilerRuntimeLayout.packageRoot',
+      'compilerRuntimeLayout.repositorySourceRoot',
+      'RELEASE_ENTRYPOINT_RELATIVE_PATH',
+      'resolveCompilerRuntimeLayout',
+      'releaseRuntimeLayout.runtimeAssetRoot'
+    ]);
+    expectContainsNone(builder, [
+      "path.resolve(process.cwd(), 'dist')",
+      "path.resolve(process.cwd(), 'platform'",
+      'process.cwd()'
+    ]);
+  });
+
+  test('runtime resource consumers and release builder share one canonical inventory', async () => {
+    const [
+      builder,
+      composeTemplateEngine,
+      localViewWriter,
+      isolatedRuntimeInputResolver,
+      isolatedRuntimePlan,
+      policyLoader,
+      workbenchServer,
+      workspaceOrchestrator,
+      sharedPaths
+    ] = await Promise.all([
+      readCompilerFile('scripts/build-release.ts'),
+      readCompilerFile('platform/compiler/compose/template-engine.ts'),
+      readCompilerFile('platform/compiler/emit/write-local-views.ts'),
+      readCompilerFile('platform/compiler/verify/run-semantic-mutation-isolated-child.ts'),
+      readCompilerFile('platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts'),
+      readCompilerFile('platform/compiler/parse/load-policy-declarations.ts'),
+      readCompilerFile('platform/orchestrator/workbench-server-v2.ts'),
+      readCompilerFile('platform/orchestrator/workspace-orchestrator.ts'),
+      readCompilerFile('platform/shared/paths.ts')
+    ]);
+
+    expect(Object.values(COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS).map(
+      (relativePath) => relativePath.replaceAll('\\', '/')
+    )).toEqual(Object.values(COMPILER_RUNTIME_RESOURCE_POSIX_PATHS));
+    expect(Object.values(COMPILER_RUNTIME_RESOURCE_POSIX_PATHS)).toEqual([
+      'platform/compiler/compose/templates',
+      'platform/compiler/emit/templates',
+      'platform/policies/official',
+      'platform/registry/official'
+    ]);
+    expectContainsAll(builder, [
+      'COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS',
+      'releaseRuntimeLayout.runtimeAssetRoot',
+      'Object.values(COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS)'
+    ]);
+    expectContainsAll(composeTemplateEngine, [
+      'compilerRuntimeResources',
+      'compilerRuntimeResources.composeTemplates'
+    ]);
+    expectContainsAll(localViewWriter, [
+      'compilerRuntimeResources',
+      'compilerRuntimeResources.localViewTemplates'
+    ]);
+    expectContainsAll(isolatedRuntimeInputResolver, [
+      'compilerRuntimeLayout.packageRoot',
+      'compilerRuntimeResources.composeTemplates',
+      'compilerRuntimeResources.officialPolicies',
+      'compilerRuntimeResources.officialRegistry'
+    ]);
+    expectContainsAll(sharedPaths, [
+      'COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS.officialRegistry',
+      'compilerRuntimeResources.officialPolicies',
+      'compilerRuntimeResources.officialRegistry'
+    ]);
+    expectContainsAll(isolatedRuntimePlan, [
+      'COMPILER_RUNTIME_RESOURCE_POSIX_PATHS',
+      'SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS'
+    ]);
+    expectContainsAll(policyLoader, [
+      'officialPoliciesRelativePath',
+      'posixPath(officialPoliciesRelativePath)'
+    ]);
+    expectContainsAll(workbenchServer, [
+      'compilerRuntimeResources.officialRegistry'
+    ]);
+    expectContainsNone(workbenchServer, [
+      'path.join(context.workspaceRoot, officialRegistryRelativePath)'
+    ]);
+    expectContainsAll(workspaceOrchestrator, [
+      'officialRegistryRelativePath',
+      'posixPath(officialRegistryRelativePath)'
+    ]);
+    expectContainsNone([
+      composeTemplateEngine,
+      localViewWriter,
+      isolatedRuntimeInputResolver
+    ].join('\n'), [
+      "path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates')",
+      "path.join(compilerRoot, 'platform', 'compiler', 'emit', 'templates')",
+      "path.join(compilerRoot, 'platform', 'policies', 'official')",
+      "path.join(compilerRoot, 'platform', 'registry', 'official')"
+    ]);
+
+    const allowedTrackedSourceSelectors = new Set([
+      'platform/shared/test-impact-rules/semantic.ts'
+    ]);
+    const competingDefinitions: string[] = [];
+    const sourceGlob = new Bun.Glob('**/*.ts');
+    for await (const rawPath of sourceGlob.scan({ cwd: repositoryRoot, onlyFiles: true })) {
+      const relativePath = rawPath.replaceAll('\\', '/');
+      if (
+        (!relativePath.startsWith('platform/') && !relativePath.startsWith('scripts/'))
+        || allowedTrackedSourceSelectors.has(relativePath)
+      ) continue;
+      const source = await readFile(path.join(repositoryRoot, relativePath), 'utf8');
+      for (const resourcePath of Object.values(COMPILER_RUNTIME_RESOURCE_POSIX_PATHS)) {
+        if (source.includes(resourcePath)) {
+          competingDefinitions.push(`${relativePath}:${resourcePath}`);
+        }
+      }
+    }
+    expect(competingDefinitions).toEqual([]);
   });
 
   test('demo scripts follow the documented platform chain', async () => {

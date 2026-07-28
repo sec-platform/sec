@@ -1,8 +1,27 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import pkg from '../package.json' with { type: 'json' };
+import {
+  COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
+  compilerRuntimeLayout,
+  RELEASE_ENTRYPOINT_RELATIVE_PATH,
+  resolveCompilerRuntimeLayout
+} from '../platform/shared/runtime-layout.ts';
 
-const DIST_DIR = path.resolve(process.cwd(), 'dist');
+function requireRepositorySourceRoot(): string {
+  const sourceRoot = compilerRuntimeLayout.repositorySourceRoot;
+  if (!sourceRoot) {
+    throw new Error('Release build requires the SEC repository source layout');
+  }
+  return sourceRoot;
+}
+const repositorySourceRoot = requireRepositorySourceRoot();
+const releaseRuntimeLayout = resolveCompilerRuntimeLayout(pathToFileURL(path.join(
+  compilerRuntimeLayout.packageRoot,
+  RELEASE_ENTRYPOINT_RELATIVE_PATH
+)).href);
+const DIST_DIR = releaseRuntimeLayout.runtimeAssetRoot;
 
 async function build() {
   console.log('Starting release build...');
@@ -21,8 +40,8 @@ async function build() {
   const externalDependencies = Object.keys(pkg.dependencies || {});
   
   const result = await Bun.build({
-    entrypoints: ['./platform/cli/index.ts'],
-    outdir: './dist',
+    entrypoints: [path.join(repositorySourceRoot, 'platform', 'cli', 'index.ts')],
+    outdir: DIST_DIR,
     target: 'node',
     external: [...externalDependencies, 'bun', 'typescript', 'node:path', 'node:fs', 'node:child_process', 'node:url', 'node:os'],
     minify: false,
@@ -40,27 +59,16 @@ async function build() {
   // The entrypoint is dist/index.js (matching package.json bin configuration)
   console.log('CLI compiled successfully to ./dist/index.js.');
 
-  // 3. Copy official registry and policies
-  console.log('Copying official registry and policies assets to dist...');
-  
-  const registryDest = path.join(DIST_DIR, 'platform', 'registry', 'official');
-  fs.mkdirSync(registryDest, { recursive: true });
-  fs.cpSync(
-    path.resolve(process.cwd(), 'platform', 'registry', 'official'),
-    registryDest,
-    { recursive: true }
-  );
-
-  const policiesDest = path.join(DIST_DIR, 'platform', 'policies', 'official');
-  fs.mkdirSync(policiesDest, { recursive: true });
-  fs.cpSync(
-    path.resolve(process.cwd(), 'platform', 'policies', 'official'),
-    policiesDest,
-    { recursive: true }
-  );
+  // 3. Copy every canonical runtime resource into the bundle asset root.
+  console.log('Copying canonical runtime assets to dist...');
+  for (const relativePath of Object.values(COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS)) {
+    const destination = path.join(releaseRuntimeLayout.runtimeAssetRoot, relativePath);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.cpSync(path.join(repositorySourceRoot, relativePath), destination, { recursive: true });
+  }
 
   // 4. Set executable permission for the entrypoint (chmod +x)
-  const cliEntrypoint = path.join(DIST_DIR, 'index.js');
+  const cliEntrypoint = releaseRuntimeLayout.executableModulePath;
   if (fs.existsSync(cliEntrypoint)) {
     // Add Node shebang at the top of the bundle if not present,
     // though the entrypoint platform/cli/index.ts has it, Bun's bundler keeps it if it's there.
