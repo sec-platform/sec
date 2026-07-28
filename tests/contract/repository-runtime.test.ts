@@ -106,7 +106,14 @@ describe('root package scripts', () => {
       'compilerRuntimeLayout.packageRoot',
       'compilerRuntimeResources.composeTemplates',
       'compilerRuntimeResources.officialPolicies',
-      'compilerRuntimeResources.officialRegistry'
+      'compilerRuntimeResources.officialRegistry',
+      'SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.officialRegistry',
+      'SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT',
+      'SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH'
+    ]);
+    expectContainsNone(isolatedRuntimeInputResolver, [
+      '`${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/${officialPath}`',
+      "'../../node_modules"
     ]);
     expectContainsAll(sharedPaths, [
       'COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS.officialRegistry',
@@ -115,6 +122,8 @@ describe('root package scripts', () => {
     ]);
     expectContainsAll(isolatedRuntimePlan, [
       'COMPILER_RUNTIME_RESOURCE_POSIX_PATHS',
+      'RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH',
+      'SEMANTIC_MUTATION_ISOLATED_COMPILER_RUNTIME_ASSET_RELATIVE_ROOT',
       'SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS'
     ]);
     expectContainsAll(policyLoader, [
