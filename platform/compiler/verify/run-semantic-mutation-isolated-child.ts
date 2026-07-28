@@ -66,6 +66,7 @@ import {
   classifySemanticMutationIsolatedTermination,
   readSemanticMutationIsolatedProgressTrace,
   SEMANTIC_MUTATION_ISOLATED_PROGRESS_CHECKPOINTS,
+  SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH,
   semanticMutationIsolatedProgressOwnedPaths,
   type SemanticMutationIsolatedProgressCheckpoint,
   type SemanticMutationIsolatedProgressTrace,
@@ -90,7 +91,8 @@ import {
   issueSemanticMutationIsolatedRuntimeCapability,
   materializeSemanticMutationIsolatedRuntime,
   SEMANTIC_MUTATION_ISOLATED_BUNFIG_RELATIVE_PATH,
-  SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT,
+  SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT,
+  SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS,
   semanticMutationIsolatedBrowserPath,
   semanticMutationIsolatedNodeExecutablePath,
   type SemanticMutationIsolatedCompilerRegistryInput,
@@ -563,7 +565,7 @@ async function compilerRegistryInputs(
   }
   return [{
     destinationRelativePath:
-      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/${officialPath}`,
+      SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.officialRegistry,
     sourceRoot: sources.officialRegistry
   }];
 }
@@ -1094,14 +1096,22 @@ function relocateIsolatedRunnerBundle(
     revalidateIsolatedRuntimeBuildNodeModulesProof(
       captureIsolatedRuntimeBuildNodeModulesProof()
     );
+  const runtimeNodeModulesRoot = path.posix.relative(
+    path.posix.dirname(SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH),
+    SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT
+  );
+  if (!runtimeNodeModulesRoot || runtimeNodeModulesRoot.includes('\\') ||
+    path.posix.isAbsolute(runtimeNodeModulesRoot)) {
+    throw new Error('Semantic Mutation isolated runner dependency relocation is invalid');
+  }
   const expectedRuntimeDirectories = Object.freeze([
     Object.freeze({
       sourceSuffix: '/node_modules/@ts-morph/common/dist',
-      runtimeDirectory: '../../node_modules/@ts-morph/common/dist'
+      runtimeDirectory: path.posix.join(runtimeNodeModulesRoot, '@ts-morph/common/dist')
     }),
     Object.freeze({
       sourceSuffix: '/node_modules/typescript/lib',
-      runtimeDirectory: '../../node_modules/typescript/lib'
+      runtimeDirectory: path.posix.join(runtimeNodeModulesRoot, 'typescript/lib')
     })
   ]);
   const trustedBuildRoots = Object.freeze([

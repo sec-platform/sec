@@ -18,6 +18,7 @@ import {
 } from '../../shared/runtime-dependency-spec.ts';
 import {
   COMPILER_RUNTIME_RESOURCE_POSIX_PATHS,
+  RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH,
   type CompilerRuntimeResourceMap
 } from '../../shared/runtime-layout.ts';
 import {
@@ -37,6 +38,12 @@ import {
 } from './semantic-mutation-isolated-runtime-binding.ts';
 
 export const SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT = '.isolated-compiler' as const;
+export const SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT =
+  `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/node_modules` as const;
+export const SEMANTIC_MUTATION_ISOLATED_COMPILER_RUNTIME_ASSET_RELATIVE_ROOT =
+  `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/${
+    RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH.replaceAll('\\', '/')
+  }`;
 export const SEMANTIC_MUTATION_ISOLATED_BUNFIG_RELATIVE_PATH =
   '.isolated-compiler/bunfig.toml' as const;
 export const SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT =
@@ -305,7 +312,7 @@ export const SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS =
   ).map(([name, relativePath]) => [
     name,
     canonicalRelativePath(
-      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/${relativePath}`
+      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RUNTIME_ASSET_RELATIVE_ROOT}/${relativePath}`
     )
   ]))) as CompilerRuntimeResourceMap<string>;
 
@@ -967,7 +974,7 @@ async function captureRuntimeSourceSnapshot(
       const moduleRoot = compilerModulePath(input.sources.compilerModulesRoot, moduleName);
       const packageManifest = await captureInputFile(
         path.join(moduleRoot, 'package.json'),
-        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/node_modules/${moduleName}/package.json`,
+        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT}/${moduleName}/package.json`,
         inspector,
         proofs,
         true
@@ -975,7 +982,7 @@ async function captureRuntimeSourceSnapshot(
       const parsedManifest = parsePackageManifest(packageManifest.bytes!, moduleName);
       const moduleFiles = await captureInputTree(
         moduleRoot,
-        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/node_modules/${moduleName}`,
+        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT}/${moduleName}`,
         inspector,
         proofs,
         false,
@@ -1012,7 +1019,7 @@ async function captureRuntimeSourceSnapshot(
     const requiredRoots = [
       `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.officialPolicies}/`,
       `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS.composeTemplates}/`,
-      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/node_modules/`,
+      `${SEMANTIC_MUTATION_ISOLATED_COMPILER_DEPS_RELATIVE_ROOT}/`,
       `${SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT}/`,
       `${SEMANTIC_MUTATION_ISOLATED_BROWSER_RELATIVE_ROOT}/`,
       `${SEMANTIC_MUTATION_ISOLATED_NODE_RUNTIME_RELATIVE_ROOT}/`

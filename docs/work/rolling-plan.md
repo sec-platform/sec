@@ -6,10 +6,12 @@ last-reviewed: 2026-07-28
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@2513f640c91eafbe6eaecd1d33227fbfa59da11c`、Issue #167、关闭且未合并的 Spike #168、exact-tree 全仓审计和当前源码重算。Node Host、Bun Toolchain 与生成 Target 是三条独立轴；任何阶段都不得用 Bun 下的 `target: node`、类型声明或文档替代真实 Node clean-package 运行证据。
+本窗口从 live resolver 已确认的 `main@a2f4463ab94c12346134a46ee3ae0ff4a16082a8`、唯一开放 PR #174、待整合分支 census、exact-base 退出码 `75` 复现和当前源码重算。`runtime-authority-and-package-layout-v1` 已进入 `main`，但隔离物化仍使用伪 source 形状；必须先修复这个主干回归，才能恢复反馈闭环候选的 affected Evidence。Node Host、Bun Toolchain 与生成 Target 仍是三条独立轴。
 
 ```text
-Runtime Authority + Package Layout
+Isolated Runtime Bundle Layout Repair
+→ Development Feedback Loop Hardening
+→ Active Documentation Corpus
 → Portable Atomic Workspace Lease
 → Common Node Host + Bun Toolchain Separation
 → Generated Node/Bun Target Profiles
@@ -21,50 +23,48 @@ Runtime Authority + Package Layout
 
 ## 当前唯一 Work Package
 
-### runtime-authority-and-package-layout-v1
+### isolated-runtime-bundle-layout-v1
 
-- 工程结果：`13` 成为唯一 active 中文 runtime/package authority；公共类型分开 Host、Toolchain、Target 与 Evidence；源码和 bundle 共享一个 fail-closed package/runtime layout resolver。
-- 当前 Bun 合法边界：Bun 1.3.14 继续拥有 repository install/test/build 和显式 Bun Toolchain 表面；本包不清除合法 Bun adapter，也不修改生成目标。
-- Node 边界：2026-07-28 官方 schedule 仍支持 minimum Node 22 / reference Node 24 的后续验证选择，但本包没有 Node 支持声明。
-- Trust boundary：`paths.ts` 已属于 verifier trust root；`runtime-layout.ts` 必须登记为 canonical trust file并同步两个 workflow 投影。candidate hosted Gate按设计返回`manual-bootstrap-required`，只允许trusted-base Evidence、独立exact-head Review与admin/manual integration。
-- Review reload：首个 frozen head 的独立 Review 发现 compose/emit templates 与 isolated runtime input 仍从 package root 定位；该 P1 使旧 Review 和旧 manifest digest 失效，并触发本包唯一一次 refreeze。
-- Proof reset：第二个 frozen head 仍存在 registry/policy/template relative identity 与 isolated staging destination 的竞争定义，已按 `STOP_PROOF_RESET` 停止旧证明。重算后的机制由一个 inventory 同时派生 native relative path、POSIX identity、source/bundle absolute root 与 isolated destination；Workbench catalog 也必须从 package runtime assets 读取，不得从 caller workspace 猜测。
-- 退出：布局在 source 与 `dist/index.js` 模式下有负例合同；official registry/policy、compose templates 与 local-view templates 全部从 asset root 解析并由 builder 的同一资源清单复制；全部 changed records 唯一 owned；base-side parser/TCB、focused/typecheck/docs/audit/imports与独立Review满足；手工集成并readback后返回`TASK_RESTART_REQUIRED`。
+- 根因：首次 candidate 修复 core 和 asset destination 后仍有两处旧 source-shape 假设：official registry 被写到 package root 下，依赖 relocation 的 `../../node_modules` 又从新 core `dist/index.js` 指向 staging root；前者产生 `MANIFEST-SCHEMA-004`，修复后后者使 TypeScript 标准库缺失。
+- 唯一机制：package root、core、runtime assets 与 dependency root 共同构成标准 bundle profile；resource destination 消费 `SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS`，dependency relative URL 从 runner core 与 compiler deps 两个 canonical identity 计算。
+- 边界：这是 `STOP_PROOF_RESET` 后的 redesign；保留 staging 的物化与 diagnostic bundle 已分别裁决 registry 和 dependency lookup，不修改通用 resolver、cache identity，也不引入 cwd/env/祖先搜索/全局注册。
+- 退出：registry 与 dependency relocation 的最小 sentinel 红转绿后，只重跑被本次 delta 失效的 focused/typecheck/docs/audit/imports/affected；独立 Review、hosted Gate 和 main readback 全部绑定新 exact head。
 
 ## 候选 Work Package
 
-### 1. workspace-write-lease-portability-v1
+### 1. development-feedback-loop-hardening-v1
 
-- 工程结果：以 Node 标准能力实现单一 portable lease protocol，保持 no-replace 原子性、完整 owner publication、heartbeat、stale recovery、commit fence 与 deterministic errors。
-- 依赖：当前 runtime/package authority 进入 `main` 并 readback。
-- 退出：Windows、Linux ext4/WSL2 的真实跨进程竞争与崩溃恢复通过；`bun:ffi` 不再属于 common write authority，可留在显式 Bun/verification adapter。
+- 工程结果：把已在本地 `bfa4a5350a6de46a56239d2a4837efe2353d0525` 冻结的反馈闭环候选重放到新 `main`，只保留 formal manifest 已接受的 19-file delta。
+- 已证实根治项：test-impact 必须覆盖 `semantic-mutation-isolated-runtime-plan.ts` 的直接 consumer `semantic-mutation-runtime-materialization.test.ts`；worktree bootstrap 必须复用或原子生成 exact compiler dependency/browser cache，不能让相同 lockfile 的嵌套依赖缺项和重复网络安装阻塞每个新 worktree。
+- 依赖：本包修复进入 `main`；旧 affected code `75` Evidence 失效。
+- 退出：trust-root bootstrap、独立 exact-head Review、hosted Gate 与 main readback完成，并返回 `TASK_RESTART_REQUIRED`。
 
-### 2. common-node-host-and-toolchain-separation-v1
+### 2. active-documentation-corpus-v1
 
-- 工程结果：默认公共 CLI 静态图不加载 Bun host API；Workbench HTTP/process host 使用共同 lifecycle owner；Bun executable 由独立 Toolchain authority 解析。
+- 工程结果：整合 `docs/active-corpus-authority-v1` 中仍有效的 active corpus authority，拒绝已被 supersede 的旧文档简化分支。
+- 依赖：反馈闭环 trust-root 进入新 `main` 后新任务重算。
+- 退出：active Markdown、Skill coverage、链接、frontmatter、docs doctor 与 trust-root bootstrap闭合。
+
+### 3. workspace-write-lease-portability-v1
+
+- 工程结果：重算 PR #174 的三个 P1，统一 immutable publication outcome、crash alias recovery 与 shared read-only v2 census。
+- 依赖：前两个 trust-root 包进入 `main`；旧 `STOP_PROOF_RESET_3` candidate 不复用。
+- 退出：真实 crash boundary 回归、focused/typecheck、独立 Review 与 hosted Gate通过。
+
+### 4. common-node-host-and-toolchain-separation-v1
+
+- 工程结果：默认公共 CLI 静态图不加载 Bun host API；Bun executable 由独立 Toolchain authority 解析。
 - 依赖：portable lease 已进入 `main`。
-- 退出：`process.execPath` 不再被当作 Bun Toolchain；Node 22/24 clean-package read/write smoke 与 Bun common-bundle smoke 各自通过。
+- 退出：Node 22/24 clean-package read/write smoke 与 Bun common-bundle smoke 各自通过。
 
-### 3. generated-node-bun-target-profiles-v1
+### 5. generated-node-bun-target-profiles-v1
 
-- 工程结果：生成目标以 canonical Target Runtime Profile 驱动 scripts、types、dependencies、lock/container lowering；package manager 与 runtime family 分轴。
+- 工程结果：canonical Target Runtime Profile 驱动 scripts、types、dependencies、lock/container lowering。
 - 依赖：common Node host 与 Toolchain 分离已闭合。
-- 退出：Node target 无 Bun API/types/lock/container 假设；Bun target 只在声明 capability 后使用 Bun API。
-
-### 4. optional-native-capability-adapters-v1
-
-- 工程结果：Windows filesystem/AppContainer、native helper、development Gate mutex 与其他 host capability 全部进入显式 adapter/capability 边界。
-- 依赖：公共 Node/Bun host 与 generated target profile 已真实存在。
-- 退出：optional native 能力缺失只产生可行动 capability error，不阻断 common CLI load。
-
-### 5. cross-host-determinism-and-release-matrix-v1
-
-- 工程结果：Node/Bun 同 target 的 canonical outputs 共享唯一 canonicalizer；host path/version/platform/timing 只进入非 canonical Evidence；publication 改为 clean build/pack/install/smoke。
-- 依赖：前五个 runtime seam 全部进入 `main`。
-- 退出：Node 22/24、Bun、clean npm-compatible install、package surface/resources、Windows launcher、license 与 cross-host determinism 通过；只有本包允许声明 public Node baseline fully supported。
+- 退出：Node/Bun target capability 均由唯一 profile 约束；后续 optional adapter 与 cross-host release matrix 再接管。
 
 ## Gate、单写者与重算
 
 - A0是本窗口全部Gate owner；相同`gate_key + tested head + profile`的未失效结果复用。
-- A→F 严格串行；任何时刻最多一个正式 active manifest，单一纵向切片默认不创建子 Agent。
+- 上述 active→5 严格串行；任何时刻最多一个正式 active manifest，单一纵向切片默认不创建子 Agent。
 - SEC main、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership反证、实现supersede或全仓审计新决定性finding触发live resolver与全窗口重算。

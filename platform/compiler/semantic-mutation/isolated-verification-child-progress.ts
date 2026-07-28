@@ -1,6 +1,8 @@
 import { open, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
+import { RELEASE_ENTRYPOINT_RELATIVE_PATH } from '../../shared/runtime-layout.ts';
+
 export const SEMANTIC_MUTATION_ISOLATED_PROGRESS_FORMAT =
   'semantic-mutation-isolated-progress-v1' as const;
 export const SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH =
@@ -8,7 +10,7 @@ export const SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH =
 export const SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH =
   '.isolated-compiler/platform/orchestrator/semantic-mutation-isolated-verification-loader.mjs' as const;
 export const SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH =
-  '.isolated-compiler/platform/orchestrator/semantic-mutation-isolated-verification-runner.mjs' as const;
+  `.isolated-compiler/${RELEASE_ENTRYPOINT_RELATIVE_PATH.replaceAll('\\', '/')}`;
 
 export const SEMANTIC_MUTATION_ISOLATED_PROGRESS_CHECKPOINTS = Object.freeze([
   'bootstrap-entered',
@@ -461,7 +463,16 @@ export function semanticMutationIsolatedStagedLoaderBytes(
     checkpoint,
     generatedCheckpointBinding(checkpoint)
   ]));
-  const coreFileName = path.posix.basename(SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH);
+  const coreRelativePath = path.posix.relative(
+    path.posix.dirname(SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH),
+    SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH
+  );
+  if (!coreRelativePath || path.posix.isAbsolute(coreRelativePath)) {
+    throw new Error('Semantic Mutation bundled core import path is invalid');
+  }
+  const coreModuleSpecifier = coreRelativePath.startsWith('.')
+    ? coreRelativePath
+    : `./${coreRelativePath}`;
   const source = [
     "const { open, rename, rm } = await import('node:fs/promises');",
     "const path = await import('node:path');",
@@ -495,7 +506,7 @@ export function semanticMutationIsolatedStagedLoaderBytes(
     'try {',
     "  await publish('loader-entered');",
     "  await publish('core-import-started');",
-    `  await import(new URL(${JSON.stringify(`./${coreFileName}`)}, import.meta.url).href);`,
+    `  await import(new URL(${JSON.stringify(coreModuleSpecifier)}, import.meta.url).href);`,
     '} catch (error) {',
     `  process.exitCode = error === progressPublicationFailure ? ${
       SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.progressPublicationFailure
