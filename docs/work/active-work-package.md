@@ -10,13 +10,11 @@ last-reviewed: 2026-07-28
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/repository-audit-trust-root-closure-v2.md
-manifestDigest: sha256:37501cff46a70df344cbc5fe0285cb0fbe051fca16a4cceff95e9409ee72f5ae
+manifest: docs/work-packages/document-authority-simplification-v1.md
+manifestDigest: sha256:43b6d9d994632b6ec499a1363e5bee2458bde80ebf45402adf699937d74305b6
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 ```
 
-共享 resolver只在candidate manifest Git blob SHA-256与`manifestDigest`一致、live default branch不含同path+digest时选择该唯一manifest；default branch包含同一blob后返回`none`。default ref stale/unavailable、path不canonical、candidate drift或多个选择均fail closed。
-
-完整执行闭包只存在于所选frozen manifest。selected manifest在下一个 Work Package原子接管 pointer前保持于`docs/work-packages/`，不得先行归档。
+共享 resolver 只在 candidate manifest 的 raw Git blob SHA-256 与 `manifestDigest` 一致、live default branch 不含同 path + digest 时选择该 manifest。default ref stale/unavailable、candidate drift、非 canonical path 或多个选择均 fail closed。

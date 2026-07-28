@@ -194,6 +194,19 @@ test('all tracked Markdown is classified and active surfaces have Skill coverage
   }
 });
 
+test('unregistered docs fail closed while canonical and lifecycle paths remain classified', () => {
+  expect(resolveSecMarkdownSkillCoverage('docs/unregistered-active-authority.md')).toBeNull();
+  expect(resolveSecMarkdownSkillCoverage('docs/14-Engineering IR与语义事实规范.md')).toMatchObject({
+    kind: 'active-authority'
+  });
+  expect(resolveSecMarkdownSkillCoverage(
+    'docs/work-packages/document-authority-simplification-v1.md'
+  )).toEqual({ kind: 'frozen-work-package', skills: [] });
+  expect(resolveSecMarkdownSkillCoverage(
+    'docs/archive/work-packages/repository-audit-trust-root-closure-v2.md'
+  )).toEqual({ kind: 'historical', skills: [] });
+});
+
 test('every registered heuristic runtime surface resolves at least one Skill', () => {
   const files = trackedRepositoryFiles();
   for (const file of files.filter(isSecRepositoryHeuristicSurface)) {
@@ -309,7 +322,7 @@ test('external capability ledger freezes MCP retirement without retiring CLI ana
   expect(graphItLive?.lifecycle?.state).toBe('retired');
 });
 
-test('repository documentation resolves one selected Work Package and audit authority', async () => {
+test('repository documentation resolves one selected Work Package and bounded governance authority', async () => {
   const docsRoot = path.join(REPOSITORY_ROOT, 'docs');
   const result = await scanDocumentation({
     docsRoot,
@@ -323,29 +336,31 @@ test('repository documentation resolves one selected Work Package and audit auth
     'utf8'
   );
   for (const marker of [
+    '三种知识不得混写',
+    '确定性合同',
+    '启发式行为',
+    '审计 Evidence',
     'AgentOperation',
-    '全仓库覆盖',
-    '全 Markdown 覆盖',
+    '未登记的 `docs/**/*.md`',
     '全仓库审计',
-    '启发式抽取',
-    '架构演进',
-    'V19 可验证确定性续跑',
+    'Coverage 只证明路径被分类',
     '<git-common-dir>/sec-codex/runs/<run-id>/',
-    'repository-level intake spool',
-    'PreCompact',
-    'recoveryRequired',
-    'WP-A Development Run Kernel Shadow',
-    'WP-B Project Hook Activation'
+    'deterministic transition',
+    'manual-shadow'
   ]) expect(authority).toContain(marker);
 });
 
-test('AGENTS keeps Skills as compiled projections instead of a second authority', async () => {
+test('AGENTS remains a bootstrap router and prose-only targets cannot become merge gates', async () => {
   const agents = await readFile(path.join(REPOSITORY_ROOT, 'AGENTS.md'), 'utf8');
-  expect(agents).toContain('`.agents/skills/**`');
-  expect(agents).toContain('`platform/shared/agent-skill-contract.ts`');
-  expect(agents).toContain('全部 tracked Markdown');
-  expect(agents).toContain('sec-repository-audit');
-  expect(agents).toContain('sec-heuristic-governance');
-  expect(agents).toContain('sec-architecture-evolution');
-  expect(agents).toContain('V19');
+  for (const marker of [
+    '只负责启动与路由',
+    '`.agents/skills/**`',
+    '约束的生效等级',
+    '仅写在 prose 中且无机器 owner 的句子不能称为硬门禁',
+    '只能作为可观测性或专用 Skill 的优化目标',
+    '不能单独阻塞正确实现或证明交付失败',
+    'sec-repository-audit',
+    'sec-architecture-evolution',
+    'sec-worker-development'
+  ]) expect(agents).toContain(marker);
 });

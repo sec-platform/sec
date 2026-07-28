@@ -103,6 +103,124 @@ function skillIdFromPath(path: string): SecAgentSkillId | null {
     : null;
 }
 
+export const SEC_PRODUCT_AUTHORITY_MARKDOWN_PATHS = [
+  'docs/01-用户能力模块化开发-主题整理稿.md',
+  'docs/02-工程编译器-MVP-PRD与架构稿.md',
+  'docs/03-MVP实施计划与路线图.md',
+  'docs/05-编译器核心实现规格.md',
+  'docs/06-Registry与Block协议规范.md',
+  'docs/07-Pass状态机、错误码与恢复机制.md',
+  'docs/08-Verification、Provenance与Graph规范.md',
+  'docs/09-AI Runtime、任务信封与治理规范.md',
+  'docs/10-升级迁移与Override规范.md',
+  'docs/11-Workbench与可视化规范.md',
+  'docs/12-编译管道与行为流图示.md',
+  'docs/13-独立工具分发与打包规划.md',
+  'docs/14-Engineering IR与语义事实规范.md',
+  'docs/goals/SEC-Engineering-Workspace-Compiler.md',
+  'docs/architecture/sec-ts-ir-layers.md',
+  'docs/architecture/engineering-workspace-ir.md',
+  'docs/architecture/brownfield-import.md'
+] as const;
+
+const PRODUCT_AUTHORITY_MARKDOWN = new Set<string>(SEC_PRODUCT_AUTHORITY_MARKDOWN_PATHS);
+
+const OPERATIONAL_MARKDOWN_COVERAGE = new Map<string, SecMarkdownSkillCoverage>([
+  [
+    'docs/00-文档索引与一致性规则.md',
+    {
+      kind: 'active-authority',
+      skills: skills('sec-documentation-governance', 'sec-heuristic-governance')
+    }
+  ],
+  [
+    'docs/04-AI自主实现执行蓝图.md',
+    {
+      kind: 'active-authority',
+      skills: skills(
+        'sec-repository-orientation',
+        'sec-a0-integrator',
+        'sec-work-package-lifecycle',
+        'sec-heuristic-governance'
+      )
+    }
+  ],
+  [
+    'docs/governance/agent-skills-and-development-run-kernel.md',
+    {
+      kind: 'active-authority',
+      skills: skills(
+        'sec-context-resume',
+        'sec-repository-audit',
+        'sec-heuristic-governance'
+      )
+    }
+  ],
+  [
+    'docs/governance/external-capability-and-provider-policy.md',
+    {
+      kind: 'active-authority',
+      skills: skills('sec-external-capability-governance')
+    }
+  ],
+  [
+    'docs/governance/nexus-absorption-and-conformance.md',
+    {
+      kind: 'active-authority',
+      skills: skills('sec-external-capability-governance', 'sec-repository-audit')
+    }
+  ],
+  [
+    'docs/governance/nexus-absorption-report.md',
+    {
+      kind: 'active-authority',
+      skills: skills('sec-external-capability-governance', 'sec-repository-audit')
+    }
+  ],
+  [
+    'docs/work/README.md',
+    {
+      kind: 'active-authority',
+      skills: skills('sec-documentation-governance', 'sec-work-package-lifecycle')
+    }
+  ],
+  [
+    'docs/work/rolling-plan.md',
+    {
+      kind: 'active-authority',
+      skills: skills('sec-a0-integrator', 'sec-work-package-lifecycle')
+    }
+  ],
+  [
+    'docs/work/active-work-package.md',
+    {
+      kind: 'active-authority',
+      skills: skills('sec-repository-orientation', 'sec-work-package-lifecycle')
+    }
+  ],
+  [
+    'docs/test-architecture.md',
+    {
+      kind: 'active-authority',
+      skills: skills('sec-impact-and-validation')
+    }
+  ],
+  [
+    'docs/test-feedback-and-ci-lanes.md',
+    {
+      kind: 'active-authority',
+      skills: skills('sec-ci-and-merge', 'sec-impact-and-validation', 'sec-trust-root-bootstrap')
+    }
+  ],
+  [
+    'docs/slow-suite-registry.md',
+    {
+      kind: 'active-authority',
+      skills: skills('sec-impact-and-validation')
+    }
+  ]
+]);
+
 export function resolveSecRepositoryBehaviorOwner(
   behavior: SecRepositoryBehaviorId
 ): SecAgentSkillId {
@@ -117,9 +235,7 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       kind: 'agent-projection',
       skills: skills(
         'sec-repository-orientation',
-        'sec-repository-audit',
         'sec-a0-integrator',
-        'sec-context-resume',
         'sec-heuristic-governance'
       )
     };
@@ -127,22 +243,13 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
   if (path === 'README.md') {
     return {
       kind: 'active-authority',
-      skills: skills(
-        'sec-repository-orientation',
-        'sec-repository-audit',
-        'sec-documentation-governance'
-      )
+      skills: skills('sec-documentation-governance', 'sec-repository-orientation')
     };
   }
   if (/^[^/]+\.md$/u.test(path)) {
     return {
-      kind: 'active-authority',
-      skills: skills(
-        'sec-repository-orientation',
-        'sec-repository-audit',
-        'sec-documentation-governance',
-        'sec-heuristic-governance'
-      )
+      kind: 'repository-content',
+      skills: skills('sec-documentation-governance')
     };
   }
   if (/^tests\/.*\.md$/u.test(path)) {
@@ -155,115 +262,30 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
   if (/^docs\/(?:archive|superpowers)\/.*\.md$/u.test(path)) {
     return { kind: 'historical', skills: [] };
   }
-  if (!/^docs\/.*\.md$/u.test(path)) {
-    return path.endsWith('.md')
-      ? {
-          kind: 'repository-content',
-          skills: skills('sec-documentation-governance', 'sec-heuristic-governance')
-        }
-      : null;
-  }
-
-  if (path === 'docs/00-文档索引与一致性规则.md'
-    || path === 'docs/governance/agent-skills-and-development-run-kernel.md') {
+  const operational = OPERATIONAL_MARKDOWN_COVERAGE.get(path);
+  if (operational) {
     return {
-      kind: 'active-authority',
-      skills: skills(
-        'sec-documentation-governance',
-        'sec-context-resume',
-        'sec-repository-audit',
-        'sec-heuristic-governance'
-      )
+      kind: operational.kind,
+      skills: [...operational.skills]
     };
   }
-  if (path === 'docs/04-AI自主实现执行蓝图.md') {
-    return {
-      kind: 'active-authority',
-      skills: skills(
-        'sec-repository-orientation',
-        'sec-repository-audit',
-        'sec-architecture-evolution',
-        'sec-a0-integrator',
-        'sec-work-package-lifecycle',
-        'sec-task-delegation',
-        'sec-worker-development',
-        'sec-impact-and-validation',
-        'sec-exact-head-review',
-        'sec-ci-and-merge',
-        'sec-trust-root-bootstrap',
-        'sec-context-resume',
-        'sec-failure-recovery',
-        'sec-heuristic-governance'
-      )
-    };
-  }
-  if (/^docs\/work\//u.test(path)) {
-    return {
-      kind: 'active-authority',
-      skills: skills(
-        'sec-a0-integrator',
-        'sec-work-package-lifecycle',
-        'sec-documentation-governance',
-        'sec-repository-orientation',
-        'sec-repository-audit'
-      )
-    };
-  }
-  if (/^docs\/(?:test-architecture|test-feedback-and-ci-lanes|slow-suite-registry)\.md$/u.test(path)) {
-    return {
-      kind: 'active-authority',
-      skills: skills(
-        'sec-impact-and-validation',
-        'sec-ci-and-merge',
-        'sec-trust-root-bootstrap',
-        'sec-repository-audit'
-      )
-    };
-  }
-  if (/^docs\/governance\/(?:external-capability|nexus-)/u.test(path)) {
-    return {
-      kind: 'active-authority',
-      skills: skills(
-        'sec-external-capability-governance',
-        'sec-repository-orientation',
-        'sec-repository-audit',
-        'sec-heuristic-governance'
-      )
-    };
-  }
-  if (/^docs\/(?:0[1-3]-|goals\/)/u.test(path)) {
-    return {
-      kind: 'active-authority',
-      skills: skills(
-        'sec-repository-orientation',
-        'sec-repository-audit',
-        'sec-architecture-evolution',
-        'sec-a0-integrator',
-        'sec-documentation-governance'
-      )
-    };
-  }
-  if (/^docs\/(?:0[5-9]-|1[0-4]-|architecture\/)/u.test(path)) {
+  if (PRODUCT_AUTHORITY_MARKDOWN.has(path)) {
     return {
       kind: 'active-authority',
       skills: skills(
         'sec-architecture-evolution',
-        'sec-worker-development',
-        'sec-impact-and-validation',
-        'sec-exact-head-review',
         'sec-documentation-governance',
         'sec-repository-audit'
       )
     };
   }
-  return {
-    kind: 'active-authority',
-    skills: skills(
-      'sec-documentation-governance',
-      'sec-repository-audit',
-      'sec-heuristic-governance'
-    )
-  };
+  if (/^docs\/.*\.md$/u.test(path)) return null;
+  return path.endsWith('.md')
+    ? {
+        kind: 'repository-content',
+        skills: skills('sec-documentation-governance')
+      }
+    : null;
 }
 
 export type SecRepositorySurfaceKind =
@@ -285,9 +307,7 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   if (path === 'AGENTS.md') {
     return skills(
       'sec-repository-orientation',
-      'sec-repository-audit',
       'sec-a0-integrator',
-      'sec-context-resume',
       'sec-heuristic-governance'
     );
   }
