@@ -26,7 +26,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 
 ## 执行
 1. 分类为产品、合同、Review、用户scope、authority、环境瞬态、基础设施、stale remote或unknown。
-2. 只重跑被delta失效的最小sentinel。
+2. 只重跑被delta失效的最小sentinel；环境瞬态只有在锁owner结束、cache修复、network恢复等具体因果输入变化后才允许现有primitive定义的受限重试，输入与failure tail未变时复用失败证据并停止。
 3. transient failure不生成新candidate；用户scope变化先reconcile。
 4. 第二次同根因frozen invalidation返回 `STOP_PROOF_RESET`。
 5. proof reset后再次同类失败进入 `BLOCKED_REDESIGN_REQUIRED`。

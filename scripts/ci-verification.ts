@@ -1,5 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 import { CodexDevelopmentBuildSanitizedChildEnvironmentV1 } from '../platform/shared/ci-execution-environment.ts';
@@ -32,9 +31,6 @@ import {
 } from '../platform/shared/ci-evidence-reuse-contract.ts';
 import {
   decodeGitPathOutput,
-  gitChangedFileDiffArgs,
-  parseGitChangedFileOutput,
-  parseGitChangedRecordsOutput,
   type CodexDevelopmentGitChangedRecordV1
 } from '../platform/shared/ci-git-changed-files.ts';
 import {
@@ -50,6 +46,16 @@ import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from '../platform/share
 import { isTestFile } from '../platform/shared/test-budget-contract.ts';
 import { CodexDevelopmentBuildVerificationScopeInventoryV1 } from '../platform/shared/verification-scope-inventory.ts';
 import {
+  CodexDevelopmentChangedFilesFromRecordsV1,
+  CodexDevelopmentCreateNotRunGateV2,
+  CodexDevelopmentDefaultChangedPathsV1,
+  CodexDevelopmentDefaultGitRevisionV1,
+  CodexDevelopmentDefaultTrackedTreeIsCleanV1,
+  CodexDevelopmentFailureTailV1,
+  CodexDevelopmentRunGateProcessV1,
+  type CodexDevelopmentGateProcessResultV1
+} from './codex/ci-orchestration-core.ts';
+import {
   CodexDevelopmentReadExactGitBlobEntryV1,
   CodexDevelopmentReadExactGitBlobV1,
   type CodexDevelopmentExactGitBlobReadOptionsV1
@@ -63,7 +69,6 @@ import {
 } from './codex/work-package-contract.ts';
 
 const VERIFICATION_EVIDENCE_PATH = '.tmp/ci-verification-evidence.json';
-const FAILURE_TAIL_CHARACTER_LIMIT = 24_000;
 function isCompositionProtectedEnvKey(key: string): boolean {
   return key === 'SEC_TEST_WORKSPACE_NAMESPACE' || key.startsWith('SEC_RUN_');
 }
@@ -75,12 +80,6 @@ const INVALIDATION_RULES = [
   'tracked worktree is not clean before and after verification',
   'hosted artifact is missing, expired, or has a mismatched digest'
 ];
-
-type GateProcessResult = {
-  code: number;
-  rawOutputDigest: string;
-  failureTail: string;
-};
 
 export type CodexDevelopmentCiVerificationMainOptions = {
   argv?: string[];
@@ -94,7 +93,9 @@ export type CodexDevelopmentCiVerificationMainOptions = {
   gitBlob?: (ref: string, file: string) => CodexDevelopmentExactGitBlobV1 | null;
   readGitBlob?: (ref: string, file: string) => CodexDevelopmentExactGitBlobBytesV1 | null;
   gitFiles?: (ref: string, prefix: string) => string[] | null;
-  runGate?: (step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }) => Promise<GateProcessResult>;
+  runGate?: (
+    step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }
+  ) => Promise<CodexDevelopmentGateProcessResultV1>;
   writeEvidence?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV2) => void;
   writeEvidenceV3?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV3) => void;
   readExactGitBlob?: typeof CodexDevelopmentReadExactGitBlobV1;
@@ -123,14 +124,6 @@ function parseProfile(argv: string[]): { profile: CodexDevelopmentVerificationPl
   }
   if (profile === null) throw new Error('CI verification requires --profile quick|full.');
   return { profile, expectedHead };
-}
-
-function defaultGitRevision(repositoryRoot: string, ref: string): string | null {
-  const result = spawnSync('git', ['rev-parse', ref], {
-    cwd: repositoryRoot,
-    encoding: 'utf8'
-  });
-  return result.status === 0 ? result.stdout.trim() : null;
 }
 
 function defaultGitBlob(
@@ -186,89 +179,11 @@ function defaultGitFiles(repositoryRoot: string, ref: string, prefix: string): s
   return output.split('\0').filter(Boolean);
 }
 
-function defaultTrackedTreeIsClean(repositoryRoot: string): boolean {
-  const result = spawnSync('git', [
-    '-c', 'core.quotepath=false', 'status', '--porcelain=v1', '--untracked-files=normal', '--ignored=no'
-  ], { cwd: repositoryRoot, encoding: 'utf8' });
-  return result.status === 0 && result.stdout.length === 0;
-}
-
-function defaultChangedFiles(repositoryRoot: string, baseRef: string): string[] | null {
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), {
-    cwd: repositoryRoot,
-    encoding: 'buffer'
-  });
-  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-  try {
-    return parseGitChangedFileOutput(result.stdout);
-  } catch {
-    return null;
-  }
-}
-
-function defaultRunGate(step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }): Promise<GateProcessResult> {
-  return new Promise((resolve) => {
-    const child = spawn(step.argv[0]!, step.argv.slice(1), {
-      env: step.env,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    const hash = createHash('sha256');
-    let boundedTail = '';
-    let settled = false;
-    const observe = (chunk: Buffer): void => {
-      hash.update(chunk);
-      boundedTail = `${boundedTail}${chunk.toString('utf8')}`;
-      if (boundedTail.length > FAILURE_TAIL_CHARACTER_LIMIT) {
-        boundedTail = boundedTail.slice(-FAILURE_TAIL_CHARACTER_LIMIT);
-      }
-    };
-    child.stdout?.on('data', (chunk: Buffer) => {
-      observe(chunk);
-      process.stdout.write(chunk);
-    });
-    child.stderr?.on('data', (chunk: Buffer) => {
-      observe(chunk);
-      process.stderr.write(chunk);
-    });
-    const finish = (code: number): void => {
-      if (settled) return;
-      settled = true;
-      resolve({
-        code,
-        rawOutputDigest: `sha256:${hash.digest('hex')}`,
-        failureTail: boundedTail.trim()
-      });
-    };
-    child.on('error', (error) => {
-      const message = `${error instanceof Error ? error.stack ?? error.message : String(error)}\n`;
-      observe(Buffer.from(message));
-      process.stderr.write(message);
-      finish(1);
-    });
-    child.on('close', (code) => finish(code ?? 1));
-  });
-}
-
 function notRunGate(step: CiVerificationGateStep): CodexDevelopmentVerificationGateEvidenceV2 {
-  return {
+  return CodexDevelopmentCreateNotRunGateV2({
     id: step.id,
-    argv: ['bun', ...step.args],
-    status: 'not-run',
-    exitCode: null,
-    startedAt: null,
-    finishedAt: null,
-    durationMs: null,
-    failureTail: null,
-    rawOutputDigest: null,
-    notRunReason: 'Gate was not reached because preflight or an earlier fail-fast gate did not complete.'
-  };
-}
-
-function tail(output: string, fallback: string): string {
-  const combined = output.trim() || fallback;
-  return combined.length > FAILURE_TAIL_CHARACTER_LIMIT
-    ? combined.slice(-FAILURE_TAIL_CHARACTER_LIMIT)
-    : combined;
+    argv: ['bun', ...step.args]
+  });
 }
 
 type ManifestBinding = {
@@ -309,22 +224,6 @@ function manifestBinding(
   };
 }
 
-function defaultChangedRecords(
-  repositoryRoot: string,
-  baseRef: string
-): CodexDevelopmentGitChangedRecordV1[] | null {
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), {
-    cwd: repositoryRoot,
-    encoding: 'buffer'
-  });
-  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-  try {
-    return parseGitChangedRecordsOutput(result.stdout);
-  } catch {
-    return null;
-  }
-}
-
 function afterRetention(date: Date): string {
   return new Date(
     date.getTime() + CodexDevelopmentVerificationArtifactRetentionDays * 24 * 60 * 60 * 1000
@@ -362,13 +261,11 @@ export async function CodexDevelopmentCiVerificationMain(
   const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
   const readExactGitBlob = options.readExactGitBlob ?? CodexDevelopmentReadExactGitBlobV1;
   const gitRevision = options.gitRevision
-    ?? ((ref: string) => defaultGitRevision(repositoryRoot, ref));
+    ?? ((ref: string) => CodexDevelopmentDefaultGitRevisionV1(repositoryRoot, ref));
   const trackedTreeIsClean = options.trackedTreeIsClean
-    ?? (() => defaultTrackedTreeIsClean(repositoryRoot));
-  const changedFileResolver = options.changedFiles
-    ?? ((baseRef: string) => defaultChangedFiles(repositoryRoot, baseRef));
-  const changedRecordResolver = options.changedRecords
-    ?? ((baseRef: string) => defaultChangedRecords(repositoryRoot, baseRef));
+    ?? (() => CodexDevelopmentDefaultTrackedTreeIsCleanV1(repositoryRoot));
+  const changedFileResolver = options.changedFiles;
+  const changedRecordResolver = options.changedRecords;
   const gitBlob = options.gitBlob
     ?? ((ref: string, file: string) => defaultGitBlob(repositoryRoot, ref, file));
   const readGitBlob = options.readGitBlob
@@ -376,7 +273,8 @@ export async function CodexDevelopmentCiVerificationMain(
       defaultReadGitBlob(repositoryRoot, readExactGitBlob, ref, file));
   const gitFiles = options.gitFiles
     ?? ((ref: string, prefix: string) => defaultGitFiles(repositoryRoot, ref, prefix));
-  const runGate = options.runGate ?? defaultRunGate;
+  const runGate = options.runGate
+    ?? ((step) => CodexDevelopmentRunGateProcessV1(repositoryRoot, step));
   const writeEvidence = options.writeEvidence;
   const writeEvidenceV3 = options.writeEvidenceV3;
   const evidencePath = path.resolve(env.SEC_CI_VERIFICATION_EVIDENCE_PATH ?? VERIFICATION_EVIDENCE_PATH);
@@ -444,11 +342,21 @@ export async function CodexDevelopmentCiVerificationMain(
     if (binding.manifestPath !== null && (prBaseSha !== affectedBaseSha || directParentSha !== prBaseSha)) {
       throw new Error('Frozen verification requires affected base = HEAD^1 = current PR base.');
     }
-    const changedRecords = options.changedRecords
-      ? changedRecordResolver(prBaseRef)
-      : options.changedFiles
-        ? changedFileResolver(prBaseRef)?.map((file) => ({ status: 'changed' as const, path: file })) ?? null
-        : changedRecordResolver(prBaseRef);
+    let changedRecords: CodexDevelopmentGitChangedRecordV1[] | null;
+    let rawChangedFiles: string[] | null;
+    if (changedRecordResolver) {
+      changedRecords = changedRecordResolver(prBaseSha);
+      rawChangedFiles = changedRecords === null
+        ? null
+        : CodexDevelopmentChangedFilesFromRecordsV1(changedRecords);
+    } else if (changedFileResolver) {
+      rawChangedFiles = changedFileResolver(prBaseSha);
+      changedRecords = rawChangedFiles?.map((file) => ({ status: 'changed' as const, path: file })) ?? null;
+    } else {
+      const snapshot = CodexDevelopmentDefaultChangedPathsV1(repositoryRoot, prBaseSha);
+      changedRecords = snapshot?.records ?? null;
+      rawChangedFiles = snapshot?.files ?? null;
+    }
     const requiredPolicyId = changedRecords === null
       ? null
       : CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
@@ -466,11 +374,6 @@ export async function CodexDevelopmentCiVerificationMain(
     }
     if (binding.manifest?.schema === CodexDevelopmentWorkPackageSchemaV2) {
       if (profile !== 'quick') throw new Error('CI verification V7 composition revision supports --profile quick only.');
-      const rawChangedFiles = changedRecords === null ? null : [...new Set(changedRecords.flatMap((record) => (
-        'previousPath' in record && record.previousPath !== undefined
-          ? [record.previousPath, record.path]
-          : [record.path]
-      )))].sort();
       if (!rawChangedFiles) throw new Error('CI verification V7 cannot resolve the complete changed-path set.');
       const testFiles = gitFiles(headSha, 'tests');
       if (!testFiles) throw new Error('CI verification V7 cannot enumerate exact-head test files.');
@@ -536,7 +439,6 @@ export async function CodexDevelopmentCiVerificationMain(
         }
       }
     } else {
-      const rawChangedFiles = changedFileResolver(prBaseRef);
       const plan = CodexDevelopmentBuildVerificationPlanV1(profile, rawChangedFiles);
       files = plan.changedFiles;
       selectionResolved = plan.selectionResolved;
@@ -563,7 +465,7 @@ export async function CodexDevelopmentCiVerificationMain(
         const gate = compositionPlan.gates[index]!;
         const gateStarted = now();
         console.log(`::group::SEC verification: ${gate.gateId}`);
-        let result: GateProcessResult;
+        let result: CodexDevelopmentGateProcessResultV1;
         try {
           if (!compositionExecutionEnvironment) {
             throw new Error('CI verification V7 execution environment was not initialized.');
@@ -599,7 +501,9 @@ export async function CodexDevelopmentCiVerificationMain(
           startedAt: gateStarted.toISOString(),
           finishedAt: gateFinished.toISOString(),
           durationMs: Math.max(0, gateFinished.getTime() - gateStarted.getTime()),
-          failureTail: result.code === 0 ? null : tail(result.failureTail, `${gate.gateId} exited ${result.code}`),
+          failureTail: result.code === 0
+            ? null
+            : CodexDevelopmentFailureTailV1(result.failureTail, `${gate.gateId} exited ${result.code}`),
           rawOutputDigest: result.rawOutputDigest,
           notRunReason: null
         };
@@ -614,7 +518,7 @@ export async function CodexDevelopmentCiVerificationMain(
       const step = steps[index]!;
       const gateStarted = now();
       console.log(`::group::SEC verification: ${step.id}`);
-      let result: GateProcessResult;
+      let result: CodexDevelopmentGateProcessResultV1;
       try {
         result = await runGate({
           id: step.id,
@@ -636,7 +540,9 @@ export async function CodexDevelopmentCiVerificationMain(
         startedAt: gateStarted.toISOString(),
         finishedAt: gateFinished.toISOString(),
         durationMs: Math.max(0, gateFinished.getTime() - gateStarted.getTime()),
-        failureTail: result.code === 0 ? null : tail(result.failureTail, `${step.id} exited ${result.code}`),
+        failureTail: result.code === 0
+          ? null
+          : CodexDevelopmentFailureTailV1(result.failureTail, `${step.id} exited ${result.code}`),
         rawOutputDigest: result.rawOutputDigest,
         notRunReason: null
       };
@@ -650,7 +556,7 @@ export async function CodexDevelopmentCiVerificationMain(
   } catch (error) {
     exitCode = exitCode || 1;
     const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    failure ??= { stage, tail: tail(message, 'CI verification failed.') };
+    failure ??= { stage, tail: CodexDevelopmentFailureTailV1(message, 'CI verification failed.') };
     console.error(message);
   } finally {
     if (headSha !== null && treeSha !== null) {
@@ -665,7 +571,10 @@ export async function CodexDevelopmentCiVerificationMain(
         exitCode = 1;
         failure ??= {
           stage: 'exact-identity',
-          tail: tail(error instanceof Error ? error.stack ?? error.message : String(error), 'Exact identity recheck failed.')
+          tail: CodexDevelopmentFailureTailV1(
+            error instanceof Error ? error.stack ?? error.message : String(error),
+            'Exact identity recheck failed.'
+          )
         };
       }
     }
@@ -676,7 +585,10 @@ export async function CodexDevelopmentCiVerificationMain(
       exitCode = 1;
       failure = {
         stage: 'clean-state',
-        tail: tail(error instanceof Error ? error.stack ?? error.message : String(error), 'Clean-state probe failed.')
+        tail: CodexDevelopmentFailureTailV1(
+          error instanceof Error ? error.stack ?? error.message : String(error),
+          'Clean-state probe failed.'
+        )
       };
     }
     if (cleanAfter !== true && exitCode === 0) {
@@ -690,7 +602,10 @@ export async function CodexDevelopmentCiVerificationMain(
       exitCode = 1;
       failure = {
         stage: 'clock',
-        tail: tail(error instanceof Error ? error.stack ?? error.message : String(error), 'Clock probe failed.')
+        tail: CodexDevelopmentFailureTailV1(
+          error instanceof Error ? error.stack ?? error.message : String(error),
+          'Clock probe failed.'
+        )
       };
     }
     try {

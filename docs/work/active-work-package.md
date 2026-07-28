@@ -10,8 +10,8 @@ last-reviewed: 2026-07-28
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/isolated-runtime-bundle-layout-v1.md
-manifestDigest: sha256:ebd5fc80382e4cb4283736c2cd101fe35e181aa740eeb8debf8918a96fd9b69b
+manifest: docs/work-packages/development-feedback-loop-hardening-v1.md
+manifestDigest: sha256:c64c6c599353da83759d34a6b1cccf94fd904630100e18ffb05b2da7e7bca09c
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

@@ -56,11 +56,16 @@ describe('compiler dependency installation', () => {
     await withTempWorkspace(async (tempRoot) => {
       await writeCompilerDependencyRoot(tempRoot);
       let installCalls = 0;
+      const stagingRoots = new Set<string>();
       const commandRunner = async (_command: string, args: string[], options: { cwd: string }) => {
         installCalls += 1;
         expect(args).toEqual(['install', '--frozen-lockfile', '--ignore-scripts']);
         expect(options.cwd).not.toBe(tempRoot);
-        expect(path.basename(options.cwd)).toContain('.staging-');
+        const stagingName = path.basename(options.cwd);
+        expect(stagingName.startsWith('c.staging-')).toBe(true);
+        expect(stagingName.length).toBe('c.staging-'.length + 6);
+        expect(path.dirname(options.cwd)).toBe(path.join(tempRoot, '.tmp', 'dependency-installs'));
+        stagingRoots.add(options.cwd);
         await new Promise((resolve) => setTimeout(resolve, 50));
         await installCompilerDependencyFixture(options.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
@@ -89,6 +94,10 @@ describe('compiler dependency installation', () => {
       expect((await ensureCompilerDepsReady({ ...options, runtimeVersion: '1.3.14' }, tempRoot)).source)
         .toBe('installed');
       expect(installCalls).toBe(3);
+      expect(stagingRoots.size).toBe(3);
+      for (const stagingRoot of stagingRoots) {
+        await expect(fs.stat(stagingRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+      }
       expect(await readJson(path.join(
         tempRoot,
         'node_modules',
@@ -127,8 +136,10 @@ describe('compiler dependency installation', () => {
     await withTempWorkspace(async (tempRoot) => {
       await writeCompilerDependencyRoot(tempRoot);
       let installCalls = 0;
+      const stagingRoots: string[] = [];
       const commandRunner = async (_command: string, _args: string[], command: { cwd: string }) => {
         installCalls += 1;
+        stagingRoots.push(command.cwd);
         await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
       };
@@ -140,10 +151,16 @@ describe('compiler dependency installation', () => {
       const originalBinding = await fs.readFile(bindingPath);
 
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
+      let failedInstallRoot: string | null = null;
       await expect(ensureCompilerDepsReady({
         ...baseOptions,
-        commandRunner: async () => ({ code: 1, stdout: '', stderr: 'injected install failure' })
+        commandRunner: async (_command, _args, command) => {
+          failedInstallRoot = command.cwd;
+          return { code: 1, stdout: '', stderr: 'injected install failure' };
+        }
       }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-002' });
+      expect(failedInstallRoot).not.toBeNull();
+      await expect(fs.stat(failedInstallRoot!)).rejects.toMatchObject({ code: 'ENOENT' });
       expect(await fs.readFile(entryPath)).toEqual(originalEntry);
       expect(await fs.readFile(bindingPath)).toEqual(originalBinding);
 
@@ -153,6 +170,7 @@ describe('compiler dependency installation', () => {
           throw new Error('injected publish failure');
         }
       }, tempRoot)).rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-004' });
+      await expect(fs.stat(stagingRoots.at(-1)!)).rejects.toMatchObject({ code: 'ENOENT' });
       expect(await fs.readFile(entryPath)).toEqual(originalEntry);
       expect(await fs.readFile(bindingPath)).toEqual(originalBinding);
     }, 'engineering-compiler-dev-deps-rollback-');

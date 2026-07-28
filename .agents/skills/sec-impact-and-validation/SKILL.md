@@ -19,13 +19,13 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 只执行 selector解析出的 tests/Gates；不写产品路径，除非本Task Envelope明确拥有。
 
 ## 允许工具与操作
-- GitNexus impact、check:affected plan/run、focused tests、typecheck、docs doctor、selected Risk。
+- capability ledger与Capsule已批准且证明可调用的optional impact工具、check:affected plan/run、focused tests、typecheck、docs doctor、selected Risk。
 
 ## 前置门禁
 - changed records完整；test inventory和owner registry可解析。
 
 ## 执行
-1. 先运行只读 impact/affected plan；unresolved path立即 fail closed。
+1. 先运行只读 impact/affected plan；optional capability不可用时记录降级并改用exact imports、consumer与test-impact census，禁止为满足optional impact临时安装、动态解析package或重建索引；unresolved path立即 fail closed。
 2. 开发中只运行 focused sentinel。
 3. frozen candidate按变化类型一次运行 typecheck/docs/affected。
 4. production browser/native/durable acceptance留给 selected Risk。

@@ -123,6 +123,11 @@ test('skills prohibit destructive shortcuts and preserve decisive boundaries', a
     skillId,
     await readFile(path.join(SKILLS_ROOT, skillId, 'SKILL.md'), 'utf8')
   ]))) as Record<SecAgentSkillId, string>;
+  const agentsSource = await readFile(path.join(REPOSITORY_ROOT, 'AGENTS.md'), 'utf8');
+  const blueprintSource = await readFile(
+    path.join(REPOSITORY_ROOT, 'docs', '04-AI自主实现执行蓝图.md'),
+    'utf8'
+  );
 
   for (const source of Object.values(sources)) {
     const executableGuidance = executableSkillGuidance(source);
@@ -166,6 +171,15 @@ test('skills prohibit destructive shortcuts and preserve decisive boundaries', a
 
   expect(sources['sec-external-capability-governance']).toContain('不保留无消费者的MCP配置');
   expect(sources['sec-toolchain-and-dependencies']).toContain('保留CLI不等于保留MCP入口');
+  expect(sources['sec-repository-orientation']).toContain('保持intended workspace作为resolver cwd或显式target');
+  expect(agentsSource).toContain('`sec-repository-orientation`');
+  expect(blueprintSource).toContain('`sec-repository-orientation`');
+  expect(agentsSource).not.toContain('bun scripts/codex/document-control-plane.ts status --json');
+  expect(blueprintSource).not.toContain('bun scripts/codex/document-control-plane.ts status --json');
+  expect(sources['sec-impact-and-validation']).toContain('禁止为满足optional impact临时安装、动态解析package或重建索引');
+  expect(sources['sec-failure-recovery']).toContain('输入与failure tail未变时复用失败证据并停止');
+  expect(agentsSource).not.toContain('GitNexus upstream impact');
+  expect(sources['sec-impact-and-validation']).not.toContain('GitNexus impact');
 });
 
 test('all tracked Markdown is classified and active surfaces have Skill coverage', () => {
@@ -202,6 +216,20 @@ test('every registered heuristic runtime surface resolves at least one Skill', (
   }
   for (const file of files) expect(classifySecRepositorySurface(file)).toBeDefined();
 
+  const agentsCoverage = resolveSecMarkdownSkillCoverage('AGENTS.md');
+  expect(agentsCoverage).toEqual({
+    kind: 'agent-projection',
+    skills: [
+      'sec-a0-integrator',
+      'sec-context-resume',
+      'sec-external-capability-governance',
+      'sec-heuristic-governance',
+      'sec-impact-and-validation',
+      'sec-repository-audit',
+      'sec-repository-orientation'
+    ]
+  });
+  expect(resolveSecRepositoryHeuristicSkills('AGENTS.md')).toEqual(agentsCoverage!.skills);
   expect(resolveSecRepositoryHeuristicSkills('docs/work/current-state.yaml')).toEqual([
     'sec-a0-integrator',
     'sec-documentation-governance',
@@ -222,6 +250,11 @@ test('every registered heuristic runtime surface resolves at least one Skill', (
   expect(resolveSecRepositoryHeuristicSkills('scripts/codex/repository-audit.ts')).toEqual([
     'sec-heuristic-governance',
     'sec-repository-audit'
+  ]);
+  expect(resolveSecRepositoryHeuristicSkills('scripts/codex/ci-orchestration-core.ts')).toEqual([
+    'sec-ci-and-merge',
+    'sec-impact-and-validation',
+    'sec-trust-root-bootstrap'
   ]);
 });
 
