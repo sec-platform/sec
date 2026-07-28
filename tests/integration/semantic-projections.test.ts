@@ -24,7 +24,7 @@ beforeAll(async () => {
   });
   ticketInput = (await loadWorkspaceEngineeringIRBuildInput(workspaceRoot)).engineeringIRInput;
   ticketSnapshot = buildValidatedEngineeringIR(ticketInput);
-}, 15_000);
+});
 
 test('architecture projection preserves Responsibility, Port, Effect, and Permission Fact edges', () => {
   const view = projectArchitectureView(ticketSnapshot, 'responsibility:ticket:TicketLifecycle');

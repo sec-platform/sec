@@ -16,6 +16,18 @@ import {
 } from '../../platform/shared/workspace-write-lease.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
+async function activeOwnerPath(leaseRoot: string): Promise<string> {
+  const entries = await fs.readdir(leaseRoot);
+  const generations = entries
+    .filter((entry) => /^[0-9]{16}\.owner\.json$/u.test(entry))
+    .sort();
+  const active = [...generations].reverse().find(
+    (entry) => !entries.includes(entry.replace('.owner.json', '.terminal.json'))
+  );
+  if (!active) throw new Error('Expected one active workspace writer generation');
+  return path.join(leaseRoot, active);
+}
+
 test('initWorkspace creates a missing workspace root before acquiring its writer lease', async () => {
   await withTempWorkspace(async (outerRoot) => {
     const workspaceRoot = path.join(outerRoot, 'workspace');
@@ -27,7 +39,10 @@ test('initWorkspace creates a missing workspace root before acquiring its writer
     expect(await pathExists(initialized.planPath)).toBe(true);
     expect(await pathExists(initialized.lockPath)).toBe(true);
     expect((await fs.readdir(outerRoot)).sort()).toEqual(['workspace']);
-    expect(await pathExists(path.join(workspaceRoot, '.sec', 'workspace-write-lease'))).toBe(false);
+    const leaseRoot = path.join(workspaceRoot, '.sec', 'workspace-write-lease');
+    expect(await pathExists(leaseRoot)).toBe(true);
+    expect((await fs.readdir(leaseRoot)).filter((entry) => entry.endsWith('.owner.json'))).toHaveLength(1);
+    expect((await fs.readdir(leaseRoot)).filter((entry) => entry.endsWith('.terminal.json'))).toHaveLength(1);
     const lease = await acquireWorkspaceWriteLease(workspaceRoot);
     try {
       await lease.assertOwned();
@@ -45,7 +60,7 @@ test('a child cannot reuse or release a live holder token copied from owner.json
     await initWorkspace(workspaceRoot, { reset: true });
     const lease = await acquireWorkspaceWriteLease(workspaceRoot);
     const { localStateRoot } = getWorkspacePaths(workspaceRoot);
-    const ownerPath = path.join(localStateRoot, 'workspace-write-lease', 'owner.json');
+    const ownerPath = await activeOwnerPath(path.join(localStateRoot, 'workspace-write-lease'));
     const resultPath = path.join(workspaceRoot, 'copied-token-attempt.json');
     const orchestratorUrl = new URL('../../platform/orchestrator.ts', import.meta.url).href;
     const leaseModuleUrl = new URL('../../platform/shared/workspace-write-lease.ts', import.meta.url).href;
@@ -100,8 +115,8 @@ test('a stage producer stops the current and subsequent writes when its exact le
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot, { reset: true });
     const { localStateRoot, projectRoot } = getWorkspacePaths(workspaceRoot);
-    const leasePath = path.join(localStateRoot, 'workspace-write-lease');
-    const parkedLeasePath = path.join(localStateRoot, 'workspace-write-lease.parked-test');
+    const leaseRoot = path.join(localStateRoot, 'workspace-write-lease');
+    const parkedLeasePath = path.join(leaseRoot, 'active-owner.parked-test');
     const committedPath = path.join(projectRoot, 'producer-committed.txt');
     const blockedPath = path.join(projectRoot, 'producer-blocked.txt');
     const subsequentPath = path.join(projectRoot, 'producer-subsequent.txt');
@@ -124,7 +139,8 @@ test('a stage producer stops the current and subsequent writes when its exact le
           await writeText(committedPath, 'committed-before-token-loss\n', commitFence);
 
           const payloadAfterProducerWork = await Promise.resolve('must-not-commit-after-token-loss\n');
-          await fs.rename(leasePath, parkedLeasePath);
+          const ownerPath = await activeOwnerPath(leaseRoot);
+          await fs.rename(ownerPath, parkedLeasePath);
           let writeFailure: unknown;
           try {
             await writeText(blockedPath, payloadAfterProducerWork, commitFence);
@@ -133,7 +149,7 @@ test('a stage producer stops the current and subsequent writes when its exact le
           } catch (error) {
             writeFailure = error;
           } finally {
-            await fs.rename(parkedLeasePath, leasePath);
+            await fs.rename(parkedLeasePath, ownerPath);
           }
           if (!writeFailure) throw new Error('Invalidated writer lease unexpectedly allowed a producer write');
           throw writeFailure;
@@ -151,9 +167,10 @@ test('a stage producer stops the current and subsequent writes when its exact le
 test('the pipeline lease monitor aborts a long-running isolated child when the staging token is lost', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const { localStateRoot } = getWorkspacePaths(workspaceRoot);
-    const leasePath = path.join(localStateRoot, 'workspace-write-lease');
-    const parkedLeasePath = path.join(localStateRoot, 'workspace-write-lease.parked-monitor-test');
+    const leaseRoot = path.join(localStateRoot, 'workspace-write-lease');
+    const parkedLeasePath = path.join(leaseRoot, 'active-owner.parked-monitor-test');
     const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+    const ownerPath = await activeOwnerPath(leaseRoot);
     let childStarted = false;
     let childAborted = false;
 
@@ -171,12 +188,12 @@ test('the pipeline lease monitor aborts a long-running isolated child when the s
       })
     );
     while (!childStarted) await Bun.sleep(1);
-    await fs.rename(leasePath, parkedLeasePath);
+    await fs.rename(ownerPath, parkedLeasePath);
     try {
       await expect(monitored).rejects.toBeInstanceOf(WorkspaceWriteLeaseError);
       expect(childAborted).toBe(true);
     } finally {
-      await fs.rename(parkedLeasePath, leasePath);
+      await fs.rename(parkedLeasePath, ownerPath);
       await lease.release();
     }
   }, 'engineering-compiler-pipeline-lease-monitor-');

@@ -6,7 +6,7 @@ last-reviewed: 2026-07-28
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@a490a42f5bc8c1b834aad6560360888411cb45c9`、全部本地/远端 branch census、PR/Issue/Review/CI 和 exact tree 重新计算。PR #184 已完成 development feedback trust epoch；PR #174 的同一 production SM-3 apply sentinel 单独通过、在 affected 并发 wave 中失败，证明 runner resource classification 是产品候选之前必须独立进入 `main` 的 trust-root prerequisite。
+本窗口从 live resolver 已确认的 `main@9b1111441a92b64888323c79f359b52cd039994a`、PR #174/#185、Issue #167/#173/#175/#176、Review/CI 和 exact tree 重新计算。Fast Runner Resource Isolation 已通过受信 base manual bootstrap 进入当前 main；旧 candidate、Review 与 Gate 只作为原 identity Evidence，不重复执行。Portable lease 现在独占 active 控制面，active documentation corpus 只能在其进入 main 后重算，禁止并行双写。
 
 ```text
 Fast Runner Resource Isolation
@@ -20,39 +20,36 @@ Fast Runner Resource Isolation
 
 ## 当前唯一 Work Package
 
-### verification-fast-runner-resource-isolation-v1
+### workspace-write-lease-portability-v1
 
-- 工程结果：fast process registry 只声明资源类别，`bounded-parallel` / `exclusive` 从类别唯一推导，禁止原因与调度形成竞争事实。
-- 直接闭包：运行 production host/browser/runtime lifecycle 的 SM-3 apply suite 必须 exclusive；完全绑定 run-owned mutable state 的 recovery 和其他 suites 继续有界并行。
-- 范围边界：本包只解除 PR #174 暴露的 runner prerequisite，不实现 Issue #176 的 result/platform ledger、skip 或 affected 空选择语义。
-- 退出：single-parent candidate、focused/typecheck/docs/audit/imports、独立 exact-head Review 和受信 base bootstrap 全部闭合；本包改变 dev-runner trust root，进入 main 后返回 `TASK_RESTART_REQUIRED`。
+- 工程结果：common write authority 使用 Node 标准 `fs.link`发布 append-only generation ledger；完整 immutable owner 与terminal均 no-replace，active owner只由最高未terminalized generation决定。
+- 崩溃收敛：immutable publication 显式区分未发布、已发布和durability unknown；一旦目标可能已发布就保留完整holder，由重启从ledger恢复，禁止不确定删除。
+- 唯一消费：protected Gate 只消费 shared read-only v2 inspector，不再维护v1 `owner.json`、token或identity的第二套parser。
+- 恢复不变量：heartbeat只属于exact owner holder；仅同host、stale且PID proven-dead的最高generation可追加recovery terminal。release/recovery都不删除或复用active/successor generation，延迟actor不能撤销后继writer。
+- 迁移边界：v1 active directory只在graceful release后自然消失；发现legacy `owner.json` residue必须typed fail closed，不自动猜测旧进程死亡。v2永久protocol root使旧v1进程也无法并行取得同一路径。
+- 当前 Bun 合法边界：只从`platform/shared/workspace-write-lease.ts`移除`bun:ffi`；Bun 1.3.14 repository Toolchain、显式 Bun/native adapter、Bun Target与development/verification Gate保持合法。
+- Node 边界：本包只证明lease primitive在Windows Node 24与WSL2/ext4 Node 22上的真实跨进程竞争和crash recovery；公共CLI静态图、Bun Toolchain executable、clean package smoke与Node支持声明仍属于后续包。
+- 退出：source/contracts/focused/typecheck/docs/audit/affected/imports、真实双平台 sentinel、独立 exact-head Review 与 required trust-root bootstrap 满足；merge/readback 后重算 Issue #167 剩余 DAG。
 
 ## 候选 Work Package
 
-### 1. workspace-write-lease-portability-v1
-
-- 工程结果：以 Node 标准能力实现单一 portable lease protocol，保持 no-replace 原子性、完整 owner publication、heartbeat、stale recovery、commit fence 与 deterministic errors。
-- 依赖：fast runner resource isolation trust epoch 进入 main；PR #174 已闭合 protocol alias、publication durability、shared inspector、fixture ownership与isolated scan consumer，只需基于新 main 重冻并执行唯一最终 affected。
-- 退出：Windows、Linux ext4/WSL2 真实跨进程竞争与崩溃恢复、独立 Review、required Evidence 与 merge readback全部通过。
-
-### 2. active-documentation-corpus-v1
+### 1. active-documentation-corpus-v1
 
 - 工程结果：机器 registry 取代历史编号、路径 catch-all 和人工 authority 表；active prose 按自然领域原子迁移，旧正文 byte-for-byte 归档。
-- 依赖：portable lease 进入 main 后从新事实重算，吸收 runtime 与 runner trust epoch，禁止旧 docs candidate 覆盖新事实。
-- 已知根治项：`main@a490a42` 的 `document-control-plane-lifecycle.test.ts` 仍要求蓝图复制 resolver 命令，与 #184 已进入 main 的 `sec-repository-orientation` 唯一入口 authority 冲突；本包必须把合同绑定到唯一 Skill owner，禁止把命令重新复制回蓝图制造第二事实源。
-- 退出：在新 base 单提交重冻；独立 Review 与 required `full` Evidence只运行一次；merge 后readback并返回 `TASK_RESTART_REQUIRED`。
+- 依赖：portable lease 产品结果与控制面先进入 main，PR #185 随后重算 authority、链接、manifest 与 trust-root bootstrap。
+- 退出：在新 base 单提交重冻；独立 Review 与 required `full` Evidence 只运行一次；merge 后 readback 并返回 `TASK_RESTART_REQUIRED`。
 
-### 3. verification-result-truth-v1
+### 2. verification-result-truth-v1
 
 - 工程结果：完成 Issue #176 剩余的 Gate result、platform/runtime execution ledger、skip 与 affected 空选择真值模型。
-- 依赖：PR #174 已进入 main，live resolver不存在其他 active product Work Package；本轮 runner prerequisite不冒充该完整闭包。
-- 退出：未在 owning environment 物理执行的声明不能投影为 PASS，result ledger 成为 CLI、artifact与Checks的唯一事实。
+- 依赖：portable lease 已进入 `main`，live resolver 不存在其他 active product Work Package。
+- 退出：未在 owning environment 物理执行的声明不能投影为 PASS，result ledger 成为 CLI、artifact 与 Checks 的唯一事实。
 
-### 4. remaining-runtime-and-toolchain-seams-v1
+### 3. remaining-runtime-and-toolchain-seams-v1
 
-- 工程结果：已证明未被前述候选吸收的 runtime/toolchain 能力按 authority DAG 继续闭合；spike 与 local-dirty snapshot 不进入 main。
-- 依赖：portable lease 与全部待合正式分支完成或被准确阻塞。
-- 退出：全部剩余 heads 都有进入 main、被吸收、明确禁止合并或带准确 blocker 四类之一的持久证明。
+- 工程结果：按 `common-node-host-and-toolchain-separation → generated-node-bun-target-profiles → optional-native-capability-adapters → cross-host-determinism-and-release-matrix` 严格串行闭合剩余 runtime/toolchain seam。
+- 依赖：portable lease 与 verification result truth 均进入 `main`；spike 与 local-dirty snapshot 不进入正式事实。
+- 退出：全部剩余 heads 都有进入 main、被吸收、明确禁止合并或带准确 blocker 四类之一的持久证明；只有最终 release matrix 允许声明 public Node baseline fully supported。
 
 ## Gate、单写者与重算
 

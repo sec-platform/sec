@@ -159,7 +159,8 @@ function workspaceWriteLeaseToken(): WorkspaceWriteLeaseToken {
   return Object.freeze({
     formatVersion: WORKSPACE_WRITE_LEASE_TOKEN_VERSION,
     workspaceIdentityDigest: 'sha256:workspace',
-    leaseDirectoryIdentityDigest: 'sha256:lease-directory',
+    generation: 1,
+    ownerFileIdentityDigest: 'sha256:owner-file',
     hostname: 'semantic-mutation-test-host',
     pid: 1234,
     processNonce: 'semantic-mutation-test-process',
