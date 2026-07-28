@@ -193,7 +193,7 @@ test('SM-3 freezes lease, journal, query, rollback, Pipeline proof, and Verifica
     capabilityPlanRevision: SEMANTIC_MUTATION_VERIFICATION_CAPABILITY_PLAN_REVISION,
     verificationReportRevision: SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION
   }).toEqual({
-    lease: 'workspace-write-lease-token-v1',
+    lease: 'workspace-write-lease-token-v2',
     recovery: 'semantic-mutation-recovery-record-v1',
     rejectedTerminal: 'semantic-mutation-rejected-terminal-record-v1',
     requestView: 'semantic-mutation-request-record-view-v1',

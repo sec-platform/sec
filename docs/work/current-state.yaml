@@ -28,3 +28,4 @@ stableFacts:
     - docs-control-plane-publication-lifecycle
     - docs-authority-content-normalization
     - docs-doctor-v5-semantic-superset
+    - runtime-authority-and-package-layout

@@ -32,7 +32,12 @@ import {
   type ObservedCommandOutcome
 } from '../platform/shared/observed-process.ts';
 import { recoverWindowsAppContainerOwnedTransaction } from '../platform/shared/windows-appcontainer-executor.ts';
-import { acquireWorkspaceWriteLease } from '../platform/shared/workspace-write-lease.ts';
+import {
+  WORKSPACE_WRITE_LEASE_DIRECTORY_NAME,
+  acquireWorkspaceWriteLease,
+  inspectWorkspaceWriteLease,
+  type WorkspaceWriteLeaseInspection
+} from '../platform/shared/workspace-write-lease.ts';
 import {
   WORK_PACKAGE_GATE_CHECKPOINT_SCHEMA_V4,
   WORK_PACKAGE_GATE_CUSTODY_LEDGER_V4,
@@ -77,12 +82,9 @@ const RECOVERY_OWNER_PENDING_FILE = `${RECOVERY_OWNER_FILE}.pending-v1`;
 const PROVISIONAL_OWNER_FILE = '.semantic-mutation-appcontainer-provisional-owner-v1.json';
 const PROVISIONAL_OWNER_PENDING_FILE = `${PROVISIONAL_OWNER_FILE}.pending-v1`;
 const NATIVE_RESULT_FILE = '.semantic-mutation-appcontainer-result-v1.json';
-const WORKSPACE_WRITE_LEASE_DIRECTORY = 'workspace-write-lease';
-const WORKSPACE_WRITE_LEASE_OWNER_FILE = 'owner.json';
 const TERMINAL_RECORD_FILE = 'terminal-rejected.json';
 const RECOVERY_OWNER_FORMAT_VERSION = 'windows-appcontainer-recovery-owner-v1';
 const PROVISIONAL_OWNER_FORMAT_VERSION = 'windows-appcontainer-provisional-owner-v1';
-const WORKSPACE_WRITE_LEASE_FORMAT_VERSION = 'workspace-write-lease-token-v1';
 const STAGING_DIRECTORY_NAME = 'workspace';
 const RUNTIME_RELATIVE_PATH = '.sm3r';
 const HOST_BUN_CONFIG_RELATIVE_PATH = '.sm3h';
@@ -1331,36 +1333,21 @@ async function assertBoundNativeResult(filePath: string): Promise<void> {
   }
 }
 
-async function assertBoundWorkspaceLease(directory: string): Promise<void> {
+async function inspectBoundWorkspaceLease(
+  directory: string
+): Promise<WorkspaceWriteLeaseInspection> {
   const workspaceRoot = path.resolve(directory, '..', '..');
   if (canonicalFilesystemIdentity(directory) !== canonicalFilesystemIdentity(
-    path.join(workspaceRoot, '.sec', WORKSPACE_WRITE_LEASE_DIRECTORY)
+    path.join(workspaceRoot, '.sec', WORKSPACE_WRITE_LEASE_DIRECTORY_NAME)
   )) {
     throw new Error('Work Package gate writer lease is outside its canonical workspace location');
   }
-  const physical = await physicalPathIdentity(directory, true);
-  if (physical?.kind !== 'directory') throw new Error('Work Package gate writer lease is not a directory');
-  const directoryMetadata = await lstat(directory);
-  const directoryDigest = rawJsonSha256({
-    domain: 'workspace-write-lease-directory-identity-v1',
-    dev: String(directoryMetadata.dev),
-    ino: String(directoryMetadata.ino),
-    mode: Number(directoryMetadata.mode)
-  });
-  const record = await readStableJsonRecord(path.join(directory, WORKSPACE_WRITE_LEASE_OWNER_FILE), 4096);
-  const owner = record.value;
-  if (!exactObjectKeys(owner, [
-    'formatVersion', 'workspaceIdentityDigest', 'leaseDirectoryIdentityDigest', 'hostname',
-    'pid', 'processNonce', 'leaseId', 'createdAtMs', 'heartbeatAtMs'
-  ]) || owner.formatVersion !== WORKSPACE_WRITE_LEASE_FORMAT_VERSION ||
-    owner.workspaceIdentityDigest !== await workspaceIdentityDigest(workspaceRoot) ||
-    owner.leaseDirectoryIdentityDigest !== directoryDigest ||
-    !nonEmptyString(owner.hostname) || !Number.isSafeInteger(owner.pid) || Number(owner.pid) < 0 ||
-    !nonEmptyString(owner.processNonce) || !nonEmptyString(owner.leaseId) ||
-    !Number.isSafeInteger(owner.createdAtMs) || Number(owner.createdAtMs) < 0 ||
-    !Number.isSafeInteger(owner.heartbeatAtMs) || Number(owner.heartbeatAtMs) < Number(owner.createdAtMs)) {
-    throw new Error('Work Package gate writer lease owner is invalid');
+  const inspection = await inspectWorkspaceWriteLease(workspaceRoot);
+  if (canonicalFilesystemIdentity(inspection.protocolRoot) !==
+    canonicalFilesystemIdentity(directory)) {
+    throw new Error('Work Package gate writer lease inspection resolved a different protocol root');
   }
+  return inspection;
 }
 
 async function scanNamespaceStructure(
@@ -1402,6 +1389,7 @@ async function scanNamespaceStructure(
       const entries = await readdir(directory, { withFileTypes: true });
       for (const entry of entries) {
         const child = path.join(directory, entry.name);
+        let recurseIntoChild = entry.isDirectory();
         const identity = await physicalPathIdentity(child, true);
         if (identity === null) throw new Error('Work Package gate namespace object identity is unavailable');
         const identityKey = `${identity.dev}:${identity.ino}`;
@@ -1435,16 +1423,20 @@ async function scanNamespaceStructure(
           if (!entry.isFile()) throw new Error('Work Package gate native result has the wrong object kind');
           await assertBoundNativeResult(child);
           counts.nativeResults += 1;
-        } else if (entry.name === WORKSPACE_WRITE_LEASE_DIRECTORY) {
+        } else if (entry.name === WORKSPACE_WRITE_LEASE_DIRECTORY_NAME) {
           if (!entry.isDirectory()) throw new Error('Work Package gate writer lease has the wrong object kind');
-          await assertBoundWorkspaceLease(child);
+          const inspection = await inspectBoundWorkspaceLease(child);
+          recoveryAuthorityIdentities.add(
+            `workspace-write-lease:${inspection.state}:${inspection.stateDigest}`
+          );
           counts.writerLeases += 1;
+          recurseIntoChild = false;
         } else if (entry.name === TERMINAL_RECORD_FILE) {
           if (!entry.isFile()) throw new Error('Work Package gate terminal record has the wrong object kind');
           const terminal = await readRejectedSemanticMutationTerminal(path.dirname(child));
           if (terminal === null) throw new Error('Work Package gate terminal record disappeared during census');
         }
-        if (entry.isDirectory()) await visit(child, depth + 1);
+        if (recurseIntoChild) await visit(child, depth + 1);
       }
     };
     await visit(namespaceRoot, 0);
@@ -1971,11 +1963,10 @@ async function collectProtectedPathAuthorityV4(repoRoot: string): Promise<readon
         add(terminalAuthorityPath, true);
       }
     }
-    const leaseDirectory = path.join(workspaceRoot, '.sec', WORKSPACE_WRITE_LEASE_DIRECTORY);
+    const leaseDirectory = path.join(workspaceRoot, '.sec', WORKSPACE_WRITE_LEASE_DIRECTORY_NAME);
     if (await defaultPathExists(leaseDirectory)) {
-      await assertBoundWorkspaceLease(leaseDirectory);
-      add(leaseDirectory, true);
-      add(path.join(leaseDirectory, WORKSPACE_WRITE_LEASE_OWNER_FILE), true);
+      const inspection = await inspectBoundWorkspaceLease(leaseDirectory);
+      for (const authorityPath of inspection.authorityPaths) add(authorityPath, true);
       protectedWorkspace = true;
     }
     if (protectedWorkspace) add(workspaceRoot, true);

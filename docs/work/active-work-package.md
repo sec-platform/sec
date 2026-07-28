@@ -10,8 +10,8 @@ last-reviewed: 2026-07-28
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/verification-fast-runner-resource-isolation-v1.md
-manifestDigest: sha256:c57917dbacb961c6dc1ed00d5558255128c45e3a7e95e097e281c6b24dc45ff6
+manifest: docs/work-packages/workspace-write-lease-portability-v1.md
+manifestDigest: sha256:67f6b91dd77fafd753caf63d7e321cd0277b489b27f0a3832cb5eb69403038ba
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

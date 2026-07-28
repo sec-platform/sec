@@ -172,6 +172,31 @@ describe('root package scripts', () => {
     expect(competingDefinitions).toEqual([]);
   });
 
+  test('common workspace write authority uses the portable generation ledger without Bun APIs', async () => {
+    const leaseAuthority = await readCompilerFile('platform/shared/workspace-write-lease.ts');
+
+    expectContainsAll(leaseAuthority, [
+      "WORKSPACE_WRITE_LEASE_TOKEN_VERSION = 'workspace-write-lease-token-v2'",
+      "WORKSPACE_WRITE_LEASE_PROTOCOL_VERSION = 'workspace-write-lease-protocol-v2'",
+      'type ImmutablePublicationOutcome =',
+      'await fs.link(candidate, target)',
+      'const ownerPublication = await linkImmutableCandidateNoReplace(',
+      "if (ownerPublication.state === 'not-published')",
+      "if (ownerPublication.state === 'durability-unknown')",
+      'publishTerminal(paths, tokenFromOwner(finalState.owner), \'recovered\')',
+      'firstInventory.highestGeneration !== token.generation'
+    ]);
+    expectContainsNone(leaseAuthority, [
+      "from 'bun'",
+      "import('bun')",
+      'bun:ffi',
+      'Bun.',
+      'renameat2',
+      'RENAME_NOREPLACE',
+      'leaseTargetExists'
+    ]);
+  });
+
   test('demo scripts follow the documented platform chain', async () => {
     const { scripts } = await readCompilerPackageJson();
 

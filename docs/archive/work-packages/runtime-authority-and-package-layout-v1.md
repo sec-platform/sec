@@ -89,3 +89,5 @@ tests:
 本包只闭合 Issue #167 的第一个可审查纵向切片：把 Semantic Core、Host Runtime、Toolchain Provider、Target Runtime Profile 与 host Evidence 分成独立合同，并让源码执行和 `dist/index.js` 单文件包执行共享一个显式 package/runtime layout owner。
 
 `platform/shared/paths.ts` 属 verifier trust root，因此 layout owner 的接入必须在同一 candidate 内登记 `runtime-layout.ts` 并同步受信 workflow 投影；该 delta 只能由 trusted base Evidence、独立 Review 与 admin/manual bootstrap 集成，进入新 `main` 后立即返回 `TASK_RESTART_REQUIRED`。原子 workspace lease 仍是 Node 可变路径的真实阻塞，因此保留为紧随其后的严格前置包。Workbench 只迁移 official catalog 的 runtime asset locator，transport 保持不变；本包不得修改 lease、compiler dependency executor、生成目标投影或发布/CI 矩阵，也不得把类型、文档、`target: node` 或 Bun 下的 bundle 成功写成 Node 支持。
+
+该包已由 PR #172 进入 `main@a2f4463ab94c12346134a46ee3ae0ff4a16082a8`，现作为历史 frozen manifest 归档。
