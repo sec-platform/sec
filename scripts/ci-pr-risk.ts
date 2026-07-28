@@ -1,5 +1,3 @@
-import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -11,11 +9,19 @@ import {
   type CodexDevelopmentVerificationEvidenceV2,
   type CodexDevelopmentVerificationGateEvidenceV2
 } from '../platform/shared/ci-evidence-contract.ts';
-import { gitChangedFileDiffArgs, parseGitChangedFileOutput } from '../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-verification-plan.ts';
 import { withHeavyVerificationGateLease } from '../platform/shared/heavy-verification-gate-lease.ts';
 import { getSlowTestSuitesSync, slowTestSuiteIds } from '../platform/shared/test-budget-contract.ts';
+import {
+  CodexDevelopmentCreateNotRunGateV2,
+  CodexDevelopmentDefaultChangedFilesV1,
+  CodexDevelopmentDefaultGitRevisionV1,
+  CodexDevelopmentDefaultTrackedTreeIsCleanV1,
+  CodexDevelopmentFailureTailV1,
+  CodexDevelopmentRunGateProcessV1,
+  type CodexDevelopmentGateProcessResultV1
+} from './codex/ci-orchestration-core.ts';
 import {
   CodexDevelopmentReadExactGitBlobV1,
   type CodexDevelopmentExactGitBlobReadOptionsV1
@@ -28,12 +34,6 @@ import {
 type GateStep = {
   id: string;
   args: string[];
-};
-
-type GateProcessResult = {
-  code: number;
-  rawOutputDigest: string;
-  failureTail: string;
 };
 
 type ParsedArguments = {
@@ -51,11 +51,12 @@ export type CodexDevelopmentCiPrRiskMainOptions = {
   trackedTreeIsClean?: () => boolean;
   changedFiles?: (baseRef: string) => string[] | null;
   readExactGitBlob?: typeof CodexDevelopmentReadExactGitBlobV1;
-  runGate?: (step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }) => Promise<GateProcessResult>;
+  runGate?: (
+    step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }
+  ) => Promise<CodexDevelopmentGateProcessResultV1>;
   writeEvidence?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV2) => void;
 };
 
-const FAILURE_TAIL_CHARACTER_LIMIT = 24_000;
 const INVALIDATION_RULES = [
   'head SHA or tree SHA changes',
   'PR base SHA or affected base SHA changes',
@@ -107,34 +108,6 @@ function parseArguments(argv: string[], slowSuites: string[]): ParsedArguments {
   return { runAllSlow, continueOnFailure, requestedSlowSuites: requested };
 }
 
-function defaultGitRevision(repositoryRoot: string, ref: string): string | null {
-  const result = spawnSync('git', ['rev-parse', ref], {
-    cwd: repositoryRoot,
-    encoding: 'utf8'
-  });
-  return result.status === 0 ? result.stdout.trim() : null;
-}
-
-function defaultTrackedTreeIsClean(repositoryRoot: string): boolean {
-  const result = spawnSync('git', [
-    '-c', 'core.quotepath=false', 'status', '--porcelain=v1', '--untracked-files=normal', '--ignored=no'
-  ], { cwd: repositoryRoot, encoding: 'utf8' });
-  return result.status === 0 && result.stdout.length === 0;
-}
-
-function defaultChangedFiles(repositoryRoot: string, baseRef: string): string[] | null {
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), {
-    cwd: repositoryRoot,
-    encoding: 'buffer'
-  });
-  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-  try {
-    return parseGitChangedFileOutput(result.stdout);
-  } catch {
-    return null;
-  }
-}
-
 function slowTestStepId(file: string): string {
   return file.replace(/[^a-z0-9]+/giu, '-').replace(/^-|-$/g, '').toLowerCase();
 }
@@ -146,69 +119,11 @@ function gateEnvironment(env: NodeJS.ProcessEnv, step: GateStep): NodeJS.Process
   };
 }
 
-function defaultRunGate(step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }): Promise<GateProcessResult> {
-  return new Promise((resolve) => {
-    const child = spawn(step.argv[0]!, step.argv.slice(1), {
-      env: step.env,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    const hash = createHash('sha256');
-    let boundedTail = '';
-    let settled = false;
-    const observe = (chunk: Buffer): void => {
-      hash.update(chunk);
-      boundedTail = `${boundedTail}${chunk.toString('utf8')}`;
-      if (boundedTail.length > FAILURE_TAIL_CHARACTER_LIMIT) {
-        boundedTail = boundedTail.slice(-FAILURE_TAIL_CHARACTER_LIMIT);
-      }
-    };
-    child.stdout?.on('data', (chunk: Buffer) => {
-      observe(chunk);
-      process.stdout.write(chunk);
-    });
-    child.stderr?.on('data', (chunk: Buffer) => {
-      observe(chunk);
-      process.stderr.write(chunk);
-    });
-    const finish = (code: number): void => {
-      if (settled) return;
-      settled = true;
-      resolve({
-        code,
-        rawOutputDigest: `sha256:${hash.digest('hex')}`,
-        failureTail: boundedTail.trim()
-      });
-    };
-    child.on('error', (error) => {
-      const message = `${error instanceof Error ? error.stack ?? error.message : String(error)}\n`;
-      observe(Buffer.from(message));
-      process.stderr.write(message);
-      finish(1);
-    });
-    child.on('close', (code) => finish(code ?? 1));
-  });
-}
-
-function failureTail(output: string, fallback: string): string {
-  const combined = output.trim() || fallback;
-  return combined.length > FAILURE_TAIL_CHARACTER_LIMIT
-    ? combined.slice(-FAILURE_TAIL_CHARACTER_LIMIT)
-    : combined;
-}
-
 function notRunGate(step: GateStep): CodexDevelopmentVerificationGateEvidenceV2 {
-  return {
+  return CodexDevelopmentCreateNotRunGateV2({
     id: step.id,
-    argv: ['bun', ...step.args],
-    status: 'not-run',
-    exitCode: null,
-    startedAt: null,
-    finishedAt: null,
-    durationMs: null,
-    failureTail: null,
-    rawOutputDigest: null,
-    notRunReason: 'Gate was not reached because preflight or an earlier fail-fast gate did not complete.'
-  };
+    argv: ['bun', ...step.args]
+  });
 }
 
 function slowSuiteConcurrency(env: NodeJS.ProcessEnv): number {
@@ -269,13 +184,14 @@ export async function CodexDevelopmentCiPrRiskMain(
   const now = options.now ?? (() => new Date());
   const repositoryRoot = path.resolve(options.repositoryRoot ?? process.cwd());
   const gitRevision = options.gitRevision
-    ?? ((ref: string) => defaultGitRevision(repositoryRoot, ref));
+    ?? ((ref: string) => CodexDevelopmentDefaultGitRevisionV1(repositoryRoot, ref));
   const trackedTreeIsClean = options.trackedTreeIsClean
-    ?? (() => defaultTrackedTreeIsClean(repositoryRoot));
+    ?? (() => CodexDevelopmentDefaultTrackedTreeIsCleanV1(repositoryRoot));
   const changedFileResolver = options.changedFiles
-    ?? ((baseRef: string) => defaultChangedFiles(repositoryRoot, baseRef));
+    ?? ((baseRef: string) => CodexDevelopmentDefaultChangedFilesV1(repositoryRoot, baseRef));
   const readExactGitBlob = options.readExactGitBlob ?? CodexDevelopmentReadExactGitBlobV1;
-  const runGate = options.runGate ?? defaultRunGate;
+  const runGate = options.runGate
+    ?? ((step) => CodexDevelopmentRunGateProcessV1(repositoryRoot, step));
   const writeEvidence = options.writeEvidence ?? CodexDevelopmentWriteVerificationEvidenceAtomic;
   const evidencePath = path.resolve(env.SEC_CI_RISK_EVIDENCE_PATH ?? '.tmp/ci-risk-batch-evidence.json');
   let slowSuites: string[] = [];
@@ -347,7 +263,9 @@ export async function CodexDevelopmentCiPrRiskMain(
         startedAt: gateStarted.toISOString(),
         finishedAt: gateFinished.toISOString(),
         durationMs,
-        failureTail: result.code === 0 ? null : failureTail(result.failureTail, `${step.id} exited ${result.code}`),
+        failureTail: result.code === 0
+          ? null
+          : CodexDevelopmentFailureTailV1(result.failureTail, `${step.id} exited ${result.code}`),
         rawOutputDigest: result.rawOutputDigest,
         notRunReason: null
       };
@@ -367,7 +285,7 @@ export async function CodexDevelopmentCiPrRiskMain(
     stage = 'manifest';
     binding = manifestBinding(env, repositoryRoot, headSha, readExactGitBlob);
     stage = 'preflight';
-    files = changedFileResolver(prBaseRef);
+    files = changedFileResolver(prBaseSha);
     const selection = selectCiPrRiskSlowSuites(files);
     selectionResolved = selection.resolved;
     selectedSlowSuites = parsed.requestedSlowSuites.length > 0
@@ -474,7 +392,7 @@ export async function CodexDevelopmentCiPrRiskMain(
   } catch (error) {
     exitCode = exitCode || 1;
     const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    failure ??= { stage, tail: failureTail(message, 'CI risk failed.') };
+    failure ??= { stage, tail: CodexDevelopmentFailureTailV1(message, 'CI risk failed.') };
     console.error(message);
   } finally {
     if (headSha !== null && treeSha !== null) {
@@ -492,7 +410,7 @@ export async function CodexDevelopmentCiPrRiskMain(
         exitCode = 1;
         failure = {
           stage: 'exact-identity',
-          tail: failureTail(
+          tail: CodexDevelopmentFailureTailV1(
             error instanceof Error ? error.stack ?? error.message : String(error),
             'Exact identity recheck failed.'
           )
@@ -506,7 +424,10 @@ export async function CodexDevelopmentCiPrRiskMain(
       exitCode = 1;
       failure = {
         stage: 'clean-state',
-        tail: failureTail(error instanceof Error ? error.stack ?? error.message : String(error), 'Clean-state probe failed.')
+        tail: CodexDevelopmentFailureTailV1(
+          error instanceof Error ? error.stack ?? error.message : String(error),
+          'Clean-state probe failed.'
+        )
       };
     }
     if (cleanAfter !== true && exitCode === 0) {
@@ -520,7 +441,10 @@ export async function CodexDevelopmentCiPrRiskMain(
       exitCode = 1;
       failure = {
         stage: 'clock',
-        tail: failureTail(error instanceof Error ? error.stack ?? error.message : String(error), 'Clock probe failed.')
+        tail: CodexDevelopmentFailureTailV1(
+          error instanceof Error ? error.stack ?? error.message : String(error),
+          'Clock probe failed.'
+        )
       };
     }
     const inputDigest = CodexDevelopmentVerificationDigest({

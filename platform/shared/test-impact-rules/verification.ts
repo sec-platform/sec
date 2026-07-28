@@ -33,6 +33,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     identity: { kind: 'architecture-owner', id: 'verification-evidence-producers' },
     autoReferenceMode: 'declared-only',
     sourceFiles: [
+      'scripts/codex/ci-orchestration-core.ts',
       'scripts/ci-pr-risk.ts',
       'scripts/ci-verification.ts',
       'scripts/codex/exact-git-blob.ts'

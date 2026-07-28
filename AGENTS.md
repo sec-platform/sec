@@ -5,7 +5,7 @@
 ## 启动与事实
 
 - `main` 是唯一正式工程事实；branch、PR、Issue、报告、计划、聊天和代码图只提供线索。
-- 新 Work Package 开始时执行一次 `bun scripts/codex/document-control-plane.ts status --json`。只有 live remote/default-ref、GitHub PR/Issue/CI/Review 与 active pointer 全部解析成功的输出才是 current-state；`unresolved` 或 `invalid` 必须 fail closed。有效 Capsule 内禁止用重复 status/list/read/wait 轮询不变事实。
+- 新 Work Package 由 `sec-repository-orientation` 完成一次受信 current-state 解析；resolver 代码信任、目标 workspace 分离与 fail-closed 入口只由该 Skill 拥有。只有 live remote/default-ref、GitHub PR/Issue/CI/Review 与 active pointer 全部 resolved 的输出才可使用；有效 Capsule 内禁止重复轮询不变事实。
 - 仅在 base/authority/contract/ownership 变化、命中 `reload_if`、证据冲突或最终收口时完整重载；普通 Task Envelope 只读取标记失效项与 Reconciliation Delta。正常 Work Package 的三个 `docs/work` 控制面只在开包和最终收口各更新一轮，总计最多两轮；真实 `reload_if` 属显式异常并必须记录原因。
 - Squash merge 后按最终 tree、代码和 diff 判断能力是否进入 `main`，不得用原 commit ancestry 误判遗漏。
 - 普通任务由 `sec-repository-orientation` 建立最小充分上下文，禁止默认全仓扫描；只有用户明确要求全仓分析、重大架构变更前或系统性漂移时，才由 `sec-repository-audit` 对 exact revision 的全部 tracked paths 执行 census、行为候选抽取与证据化优化。
@@ -30,7 +30,7 @@ inspect → implement → focused validation → explicit-path stage
 
 ## 影响、写边界与验证
 
-- 修改共享函数、公共类型、authority seam或未知影响实现前运行 GitNexus upstream impact；已证明为局部叶节点且 Capsule 内 impact未失效时复用结果。HIGH/CRITICAL 先向用户报告。索引刷新只能使用 `--index-only`，不得让外部工具改写 AGENTS、Skills 或 authority docs。
+- 修改共享函数、公共类型、authority seam或未知影响实现前，先使用 capability ledger 与 Capsule 已批准且证明可调用的 impact capability；不可用时按 `sec-impact-and-validation` 降级为 exact imports、consumer 与 test-impact census，不得临时安装或动态解析工具。已证明为局部叶节点且 Capsule 内 impact 未失效时复用结果；HIGH/CRITICAL 先向用户报告。索引刷新只能使用 `--index-only`，不得让外部工具改写 AGENTS、Skills 或 authority docs。
 - Commit 前以 base→candidate exact staged diff、changed-path census、ownership、current source、compiler和适用测试裁决真实影响；不得把当前不可调用或不存在的图工具接口列为必经 Gate。
 - `pre-commit imports:freeze` 与 pre-push 共用唯一 organizer；选择范围始终是完整 base→candidate index TypeScript diff。Hook 只原子更新 index，不改 working tree；hosted `imports:check` 仍只读 fail closed。
 - 每个 Gate 只有一个 `gate_owner`；以 `gate_key + tested head + profile` 唯一标识并复用未失效证据。失败后读取具体 failure tail，修根因，只重跑被 delta 失效的最小 sentinel。同一 Work Package 第二次 candidate invalidation后必须回到 failing repro、owner与 invariant并返回 `STOP_PROOF_RESET`，不得继续昂贵 Gate。

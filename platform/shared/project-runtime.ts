@@ -1270,14 +1270,11 @@ async function stageCompilerDependencyGeneration(
   identity: CompilerDependencyIdentity,
   options: RuntimeDependencyInstallOptions
 ): Promise<{ binding: CompilerDepsBinding; stagingRoot: string }> {
-  const stagingRoot = path.join(
-    root,
-    '.tmp',
-    'dependency-installs',
-    `compiler-${identity.manifestHash}.staging-${crypto.randomUUID()}`
-  );
+  const stagingParent = path.join(root, '.tmp', 'dependency-installs');
   await options.beforeCommit?.();
-  await fs.mkdir(stagingRoot, { recursive: true });
+  await fs.mkdir(stagingParent, { recursive: true });
+  await options.beforeCommit?.();
+  const stagingRoot = await fs.mkdtemp(path.join(stagingParent, 'c.staging-'));
   try {
     const rootPackage = await readJson<Record<string, unknown>>(path.join(root, 'package.json'));
     await writeJson(path.join(stagingRoot, 'package.json'), rootPackage, options.beforeCommit);

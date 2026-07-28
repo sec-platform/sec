@@ -120,6 +120,8 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
         'sec-repository-audit',
         'sec-a0-integrator',
         'sec-context-resume',
+        'sec-external-capability-governance',
+        'sec-impact-and-validation',
         'sec-heuristic-governance'
       )
     };
@@ -288,6 +290,8 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
       'sec-repository-audit',
       'sec-a0-integrator',
       'sec-context-resume',
+      'sec-external-capability-governance',
+      'sec-impact-and-validation',
       'sec-heuristic-governance'
     );
   }
@@ -333,6 +337,9 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   }
   if (/^\.githooks\//u.test(path)) {
     return skills('sec-impact-and-validation', 'sec-toolchain-and-dependencies');
+  }
+  if (path === 'scripts/codex/ci-orchestration-core.ts') {
+    return skills('sec-impact-and-validation', 'sec-ci-and-merge', 'sec-trust-root-bootstrap');
   }
   if (path === 'scripts/codex/repository-audit.ts') {
     return skills('sec-repository-audit', 'sec-heuristic-governance');

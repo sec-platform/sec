@@ -15,7 +15,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 仅解释稳定产品概念，不需要当前仓库事实。
 
 ## 输入
-- latest default branch、当前 branch/HEAD/tree、open PR/Issue、Review、CI、active pointer。
+- latest default branch、intended workspace branch/HEAD/tree/diff target、resolver executable trust-root、open PR/Issue、Review、CI、active pointer。
 
 ## 权限与路径
 - 只读仓库/GitHub事实、canonical docs和当前任务相关代码；不写产品路径。
@@ -25,12 +25,14 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 
 ## 前置门禁
 - repository identity、remote/default branch和用户任务已知。
+- resolver executable closure已绑定受信latest default/base；intended workspace仍是需要解析的candidate、index和dirty diff target/evidence。
 
 ## 执行
-1. 一次运行 `bun scripts/codex/document-control-plane.ts status --json`。
-2. 核对 live default ref、本地 ref、pointer、manifest、workspace 和 GitHub facts 全部 resolved。
-3. 只读取当前任务相关 authority、types、tests 和 source；禁止默认全仓扫描。
-4. 记录哪些事实可复用、哪些事件触发 `reload_if`。
+1. 先用Git-only preflight解析live default SHA并证明resolver executable closure受信；当前checkout的resolver stale时，从trusted default/base入口执行，但保持intended workspace作为resolver cwd或显式target，禁止执行旧resolver或把clean default workspace替换成candidate解析目标；当前launcher不能分离code authority与target workspace时fail closed。
+2. 使用步骤1选定的trusted resolver entry对intended workspace运行一次；只有当前closure已证明受信时才使用canonical相对命令`bun scripts/codex/document-control-plane.ts status --json`。
+3. 核对 live default ref、本地 ref、pointer、manifest、workspace 和 GitHub facts 全部 resolved。
+4. 只读取当前任务相关 authority、types、tests 和 source；禁止默认全仓扫描。
+5. 记录哪些事实可复用、哪些事件触发 `reload_if`。
 
 ## 完成证据
 - resolved snapshot、authority refs、exact Git/GitHub identities、reload_if列表。

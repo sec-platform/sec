@@ -24,7 +24,7 @@ const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const BASE = '3'.repeat(40);
 
-function manifestSource(ciRevision = 'ci-verification-v17'): string {
+function manifestSource(ciRevision = 'ci-verification-v18'): string {
   return `---
 schema: codex-development-work-package-v1
 id: exact-risk-v1
@@ -95,7 +95,7 @@ test('CI risk argv failures still atomically project failed Evidence V2', async 
   expect(code).toBe(1);
   expect(captured.evidence).toMatchObject({
     schema: 'codex-development-verification-evidence-v2',
-    contractRevision: 'ci-verification-v17',
+    contractRevision: 'ci-verification-v18',
     kind: 'risk',
     profile: 'risk',
     headSha: HEAD,
@@ -110,6 +110,34 @@ test('CI risk argv failures still atomically project failed Evidence V2', async 
   });
   expect(captured.evidence?.inputDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(captured.evidence?.evidenceDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+});
+
+test('CI risk resolves changed files against the immutable PR base SHA', async () => {
+  const symbolicBase = 'refs/remotes/origin/main';
+  const observedChangedBases: string[] = [];
+  const code = await CodexDevelopmentCiPrRiskMain({
+    argv: [],
+    env: {
+      SEC_CHANGED_BASE: symbolicBase,
+      SEC_AFFECTED_TESTS_BASE: symbolicBase
+    },
+    now: clock(),
+    gitRevision: (ref) => ref === symbolicBase ? BASE : gitRevision(ref),
+    trackedTreeIsClean: () => true,
+    changedFiles: (baseRef) => {
+      observedChangedBases.push(baseRef);
+      return [];
+    },
+    runGate: async () => ({
+      code: 0,
+      rawOutputDigest: `sha256:${'0'.repeat(64)}`,
+      failureTail: ''
+    }),
+    writeEvidence: () => undefined
+  });
+
+  expect(code).toBe(0);
+  expect(observedChangedBases).toEqual([BASE]);
 });
 
 test('CI risk fail-fast evidence retains raw digest, failure tail, and not-run gates', async () => {
@@ -305,7 +333,7 @@ for (const scenario of [
     expect(writes).toBe(1);
     expect(captured.evidence).toMatchObject({
       schema: 'codex-development-verification-evidence-v2',
-      contractRevision: 'ci-verification-v17',
+      contractRevision: 'ci-verification-v18',
       kind: 'risk',
       status: 'failed'
     });
@@ -458,7 +486,7 @@ test('CI risk rejects a parseable historical Work Package revision', async () =>
     gitRevision,
     trackedTreeIsClean: () => true,
     changedFiles: () => [],
-    readExactGitBlob: () => exactManifest(manifestSource('ci-verification-v16')),
+    readExactGitBlob: () => exactManifest(manifestSource('ci-verification-v17')),
     runGate: async () => ({ code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' }),
     writeEvidence: (_path, value) => {
       writes += 1;
