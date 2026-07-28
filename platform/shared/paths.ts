@@ -1,18 +1,23 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { pathExists } from './fs.ts';
+import {
+  COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
+  compilerRuntimeLayout,
+  compilerRuntimeResources
+} from './runtime-layout.ts';
 import type { RegistryLocation } from './types.ts';
 import type { WorkspacePaths } from './workspace-types.ts';
 
-const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-
-export const compilerRoot = path.resolve(moduleDir, '../..');
+export const compilerRoot = compilerRuntimeLayout.packageRoot;
 export const projectRelativePath = 'project';
 export const developerSourceRelativePath = 'source';
 export const controlRelativePath = 'control';
 export const localStateRelativePath = '.sec';
 export const legacyDeveloperSourceRelativePath = path.join(projectRelativePath, 'source');
-export const officialRegistryRelativePath = path.join('platform', 'registry', 'official');
+export const officialPoliciesRelativePath =
+  COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS.officialPolicies;
+export const officialRegistryRelativePath =
+  COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS.officialRegistry;
 export const privateRegistryRelativePath = path.join('platform', 'registry', 'private');
 export const sourceCodeRelativePath = path.join(developerSourceRelativePath, 'code');
 export const sourceModelRelativePath = path.join(developerSourceRelativePath, 'model');
@@ -33,7 +38,7 @@ export const sourceViewRelativePath = `${controlWorkbenchViewsRelativePath}/sour
 export const slotRuleViewRelativePath = `${controlWorkbenchViewsRelativePath}/slot-rule-view.html` as const;
 export const graphViewRelativePath = `${controlWorkbenchViewsRelativePath}/graph-view.html` as const;
 export const reviewViewRelativePath = `${controlWorkbenchViewsRelativePath}/review-view.html` as const;
-export const officialRegistryRoot = path.join(compilerRoot, officialRegistryRelativePath);
+export const officialRegistryRoot = compilerRuntimeResources.officialRegistry;
 
 export function posixPath(value: string): string {
   return value.replaceAll('\\', '/');
@@ -86,7 +91,7 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
   const controlWorkbenchRoot = path.join(root, controlWorkbenchRelativePath);
   const controlAuditRoot = path.join(root, controlAuditRelativePath);
   const controlCiRoot = path.join(root, controlCiRelativePath);
-  const officialPoliciesRoot = path.join(compilerRoot, 'platform', 'policies', 'official');
+  const officialPoliciesRoot = compilerRuntimeResources.officialPolicies;
   const projectPoliciesRoot = path.join(projectRoot, 'policies');
   const sourcePoliciesRoot = path.join(sourceModelRoot, 'policies');
 
@@ -234,7 +239,9 @@ export function resolveRegistryRoot(
   location: RegistryLocation,
   registryPath: string
 ): string {
-  const baseRoot = location === 'compiler' ? compilerRoot : path.resolve(workspaceRoot);
+  const baseRoot = location === 'compiler'
+    ? compilerRuntimeLayout.runtimeAssetRoot
+    : path.resolve(workspaceRoot);
   const resolvedPath = resolvePathInside(baseRoot, registryPath);
   if (!resolvedPath) {
     throw new Error(`Registry path "${registryPath}" escapes its allowed root`);

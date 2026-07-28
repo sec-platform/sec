@@ -6,56 +6,65 @@ last-reviewed: 2026-07-28
 
 # SEC 滚动近期计划
 
-本窗口从 `main@9043b7f0e22f9437a85bae59726456eb57ceb874`、Issue #132、旧候选 #166/#169、final exact-head Review 与 Risk Evidence Review 重新计算。现包保留已经形成的审计、Skill、合同、测试和文档闭包，只根治 tracked content coverage、跨行 Agent 指令抽取和 Risk manifest raw-blob identity 三个已证实缺口；完成后再按 V19 trust epoch 进入 Development Run Kernel。
+本窗口从 live resolver 已确认的 `main@2513f640c91eafbe6eaecd1d33227fbfa59da11c`、Issue #167、关闭且未合并的 Spike #168、exact-tree 全仓审计和当前源码重算。Node Host、Bun Toolchain 与生成 Target 是三条独立轴；任何阶段都不得用 Bun 下的 `target: node`、类型声明或文档替代真实 Node clean-package 运行证据。
 
 ```text
-Repository Audit + Risk Trust-root Closure V2
-→ Development Run Kernel Shadow
-→ Project Hook Activation + Compact Resume Proof
-→ SM-4A Shared Adapter + CLI/Workbench Thin Transports
-→ P2 Blockless Source Ownership Foundation
+Runtime Authority + Package Layout
+→ Portable Atomic Workspace Lease
+→ Common Node Host + Bun Toolchain Separation
+→ Generated Node/Bun Target Profiles
+→ Optional Native Capability Adapters
+→ Cross-host Determinism + Release Matrix
 ```
 
 普通进度只进入 Reconciliation Delta；仅新 Work Package、真实 `reload_if`与最终 reconciliation更新本文件。
 
 ## 当前唯一 Work Package
 
-### repository-audit-trust-root-closure-v2
+### runtime-authority-and-package-layout-v1
 
-- 工程结果：保留 `sec-repository-audit`、`sec-heuristic-governance`、`sec-architecture-evolution`、17 个行为 owner、文档去重和完整 `discover-all`；为每个 exact-tree tracked entry 增加显式 content-coverage ledger。
-- 审计修复：未知扩展、超大文本、tests 中的 operational comment、submodule、NUL/invalid text和已知二进制边界都有决定性覆盖结果；跨行 heading/list/fence 中的 Agent 指令不再逃逸。
-- Evidence 修复：Risk与Quick/Full producer共用 captured HEAD ordinary Git blob reader；CRLF checkout和运行期间HEAD/tree漂移不能改变 manifestDigest/inputDigest；旧七项绿色记录只保留诊断价值。
-- Trust boundary：candidate改变Risk producer、Agent Skill contract和test-impact trust root，不能自证；最终只允许一个single-parent head、一次fresh selected Risk、独立exact-head Review和受信base-side manual bootstrap。
-- 退出：全部changed records唯一owned且forbidden交集为零；focused/typecheck/docs/audit/imports通过；fresh Risk artifact通过raw Git identity校验；merge后readback并返回`TASK_RESTART_REQUIRED`。
+- 工程结果：`13` 成为唯一 active 中文 runtime/package authority；公共类型分开 Host、Toolchain、Target 与 Evidence；源码和 bundle 共享一个 fail-closed package/runtime layout resolver。
+- 当前 Bun 合法边界：Bun 1.3.14 继续拥有 repository install/test/build 和显式 Bun Toolchain 表面；本包不清除合法 Bun adapter，也不修改生成目标。
+- Node 边界：2026-07-28 官方 schedule 仍支持 minimum Node 22 / reference Node 24 的后续验证选择，但本包没有 Node 支持声明。
+- Trust boundary：`paths.ts` 已属于 verifier trust root；`runtime-layout.ts` 必须登记为 canonical trust file并同步两个 workflow 投影。candidate hosted Gate按设计返回`manual-bootstrap-required`，只允许trusted-base Evidence、独立exact-head Review与admin/manual integration。
+- Review reload：首个 frozen head 的独立 Review 发现 compose/emit templates 与 isolated runtime input 仍从 package root 定位；该 P1 使旧 Review 和旧 manifest digest 失效，并触发本包唯一一次 refreeze。
+- Proof reset：第二个 frozen head 仍存在 registry/policy/template relative identity 与 isolated staging destination 的竞争定义，已按 `STOP_PROOF_RESET` 停止旧证明。重算后的机制由一个 inventory 同时派生 native relative path、POSIX identity、source/bundle absolute root 与 isolated destination；Workbench catalog 也必须从 package runtime assets 读取，不得从 caller workspace 猜测。
+- 退出：布局在 source 与 `dist/index.js` 模式下有负例合同；official registry/policy、compose templates 与 local-view templates 全部从 asset root 解析并由 builder 的同一资源清单复制；全部 changed records 唯一 owned；base-side parser/TCB、focused/typecheck/docs/audit/imports与独立Review满足；手工集成并readback后返回`TASK_RESTART_REQUIRED`。
 
 ## 候选 Work Package
 
-### 1. development-run-kernel-shadow-v1
+### 1. workspace-write-lease-portability-v1
 
-- 工程结果：实现stable runId、Git common-dir状态、repository-level prompt intake、不可变capsule/event事务、phase+locks、repository fingerprint、deterministic nextTransition和crash/stale-lock tests；Hook保持shadow未启用。
-- 依赖：当前审计与 Risk trust-root authority进入main并由新任务重新加载。
-- 退出：无Hook条件下完成open→reconcile→transition→close模拟；跨worktree单写者、崩溃恢复和Evidence identity通过；不改变现有Quick/Risk authorization。
+- 工程结果：以 Node 标准能力实现单一 portable lease protocol，保持 no-replace 原子性、完整 owner publication、heartbeat、stale recovery、commit fence 与 deterministic errors。
+- 依赖：当前 runtime/package authority 进入 `main` 并 readback。
+- 退出：Windows、Linux ext4/WSL2 的真实跨进程竞争与崩溃恢复通过；`bun:ffi` 不再属于 common write authority，可留在显式 Bun/verification adapter。
 
-### 2. codex-compact-resume-activation-v1
+### 2. common-node-host-and-toolchain-separation-v1
 
-- 工程结果：在已进入main的Kernel上启用单dispatcher Project Hooks，闭合UserPromptSubmit intake、PreCompact/PostCompact、SessionStart(compact)、PreToolUse恢复锁、PostToolUse fingerprint、retention和terminal receipt。
-- 依赖：Kernel Shadow先完成并`TASK_RESTART_REQUIRED`。
-- 退出：manual compact、session-only auto compact、进程重启和新session bind均保持task、authorization、phase、candidate、Evidence与nextTransition不漂移；覆盖外工具边界准确声明。
+- 工程结果：默认公共 CLI 静态图不加载 Bun host API；Workbench HTTP/process host 使用共同 lifecycle owner；Bun executable 由独立 Toolchain authority 解析。
+- 依赖：portable lease 已进入 `main`。
+- 退出：`process.execPath` 不再被当作 Bun Toolchain；Node 22/24 clean-package read/write smoke 与 Bun common-bundle smoke 各自通过。
 
-### 3. sm4a-shared-adapter-cli-workbench-v1
+### 3. generated-node-bun-target-profiles-v1
 
-- 产品结果：闭合一个既有 Semantic Mutation operation 的 shared product adapter，并让 CLI 与 Workbench 成为同一 adapter 的薄 transport；不扩展operation catalog，不混入Task Envelope v2。
-- 依赖：Hook Activation进入main并由新任务通过真实续跑验收。
-- 退出：同一operation经CLI与Workbench产生同一canonical plan/Delta/Impact语义并走同一verification/authorization seam；transport不拥有业务规则。
+- 工程结果：生成目标以 canonical Target Runtime Profile 驱动 scripts、types、dependencies、lock/container lowering；package manager 与 runtime family 分轴。
+- 依赖：common Node host 与 Toolchain 分离已闭合。
+- 退出：Node target 无 Bun API/types/lock/container 假设；Bun target 只在声明 capability 后使用 Bun API。
 
-### 4. p2-blockless-source-ownership-foundation
+### 4. optional-native-capability-adapters-v1
 
-- 产品结果：从已进入main的SM-4A source-authority seam建立App/source-module/import-session的canonical Semantic Source Owner，Block不再是语义存在的前置许可证。
-- 依赖：P1 shared adapter闭合；必要Nexus exact-tree Census作为独立只读Evidence lane，不抢占产品owner。
-- 退出：每个writable region唯一owner，ownership迁移不伪造Entity/Fact identity，现有SM-2/SM-3 transaction与CAS/recovery authority不分叉。
+- 工程结果：Windows filesystem/AppContainer、native helper、development Gate mutex 与其他 host capability 全部进入显式 adapter/capability 边界。
+- 依赖：公共 Node/Bun host 与 generated target profile 已真实存在。
+- 退出：optional native 能力缺失只产生可行动 capability error，不阻断 common CLI load。
+
+### 5. cross-host-determinism-and-release-matrix-v1
+
+- 工程结果：Node/Bun 同 target 的 canonical outputs 共享唯一 canonicalizer；host path/version/platform/timing 只进入非 canonical Evidence；publication 改为 clean build/pack/install/smoke。
+- 依赖：前五个 runtime seam 全部进入 `main`。
+- 退出：Node 22/24、Bun、clean npm-compatible install、package surface/resources、Windows launcher、license 与 cross-host determinism 通过；只有本包允许声明 public Node baseline fully supported。
 
 ## Gate、单写者与重算
 
 - A0是本窗口全部Gate owner；相同`gate_key + tested head + profile`的未失效结果复用。
-- 审计/Risk trust-root、Kernel、Hook、P1产品与P2 foundation按依赖串行；任何时刻最多一个正式active manifest。
+- A→F 严格串行；任何时刻最多一个正式 active manifest，单一纵向切片默认不创建子 Agent。
 - SEC main、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership反证、实现supersede或全仓审计新决定性finding触发live resolver与全窗口重算。

@@ -4,7 +4,11 @@ import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { defaultLimit } from '../shared/concurrency.ts';
 import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from '../shared/constants.ts';
 import { pathExists, removeDir, writeJson } from '../shared/fs.ts';
-import { getWorkspacePaths } from '../shared/paths.ts';
+import {
+  getWorkspacePaths,
+  officialRegistryRelativePath,
+  posixPath
+} from '../shared/paths.ts';
 import type { PlanFile } from '../shared/plan-manifest-types.ts';
 import { ensureProjectBase } from '../shared/project-base.ts';
 import {
@@ -71,7 +75,7 @@ function defaultPlan(): PlanFile {
           id: 'official',
           kind: 'official',
           location: 'compiler',
-          path: 'platform/registry/official'
+          path: posixPath(officialRegistryRelativePath)
         },
         {
           id: 'source-private',

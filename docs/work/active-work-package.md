@@ -10,8 +10,8 @@ last-reviewed: 2026-07-28
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/repository-audit-trust-root-closure-v2.md
-manifestDigest: sha256:37501cff46a70df344cbc5fe0285cb0fbe051fca16a4cceff95e9409ee72f5ae
+manifest: docs/work-packages/runtime-authority-and-package-layout-v1.md
+manifestDigest: sha256:07badf24ccb653de4169df132074a64258c6d5b912492159a24df5e88a8f3811
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

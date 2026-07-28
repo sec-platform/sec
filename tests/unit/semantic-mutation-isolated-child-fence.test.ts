@@ -76,6 +76,8 @@ import {
 import {
   assertSemanticMutationIsolatedRuntimeLaunchManifest,
   materializeSemanticMutationIsolatedRuntime,
+  SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT,
+  SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS,
   SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_RELATIVE_ROOT,
   semanticMutationIsolatedBrowserPath,
   semanticMutationIsolatedNodeExecutablePath,
@@ -121,6 +123,11 @@ import {
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
   RUNTIME_DEPS_PREBOUND_BINDING_FILE
 } from '../../platform/shared/runtime-dependency-spec.ts';
+import {
+  COMPILER_RUNTIME_RESOURCE_POSIX_PATHS,
+  compilerRuntimeLayout,
+  compilerRuntimeResources
+} from '../../platform/shared/runtime-layout.ts';
 import type { SemanticMutationVerificationExecutionRefV2 } from '../../platform/shared/semantic-mutation-types.ts';
 import {
   acquireWorkspaceWriteLease,
@@ -876,11 +883,22 @@ test('canonical isolated runtime inputs keep compiler-owned sources under one au
   const sources = resolveCanonicalSemanticMutationIsolatedRuntimeInputSources();
   expect(Object.isFrozen(sources)).toBe(true);
   expect(sources).toMatchObject({
-    compilerPackage: path.join(compilerRoot, 'package.json'),
-    composeTemplates: path.join(compilerRoot, 'platform', 'compiler', 'compose', 'templates'),
-    officialPolicies: path.join(compilerRoot, 'platform', 'policies', 'official'),
-    officialRegistry: path.join(compilerRoot, 'platform', 'registry', 'official')
+    compilerPackage: path.join(compilerRuntimeLayout.packageRoot, 'package.json'),
+    composeTemplates: compilerRuntimeResources.composeTemplates,
+    officialPolicies: compilerRuntimeResources.officialPolicies,
+    officialRegistry: compilerRuntimeResources.officialRegistry
   });
+  const expectedResourceDestinations = Object.fromEntries(
+    Object.entries(COMPILER_RUNTIME_RESOURCE_POSIX_PATHS).map(
+      ([name, relativePath]) => [
+        name,
+        `${SEMANTIC_MUTATION_ISOLATED_COMPILER_RELATIVE_ROOT}/${relativePath}`
+      ]
+    )
+  ) as typeof SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS;
+  expect(SEMANTIC_MUTATION_ISOLATED_COMPILER_RESOURCE_DESTINATIONS).toEqual(
+    expectedResourceDestinations
+  );
 });
 
 const directRuntimeDependencySpec = buildRuntimeDependencySpec(

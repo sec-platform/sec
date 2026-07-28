@@ -1,6 +1,11 @@
 import { uniqueSorted } from '../../shared/collections.ts';
 import { listFilesRecursive, pathExists } from '../../shared/fs.ts';
-import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
+import {
+  getWorkspacePaths,
+  officialPoliciesRelativePath,
+  posixPath,
+  relativePosixPath
+} from '../../shared/paths.ts';
 import type {
   PolicyRule,
   PolicySourceFileReport,
@@ -43,7 +48,7 @@ function withinScopePath(
 ): string {
   const relativePath = relativePosixPath(rootPath, filePath);
   return scope === 'official'
-    ? `platform/policies/official/${relativePath}`
+    ? `${posixPath(officialPoliciesRelativePath)}/${relativePath}`
     : `${sourcePrefix ?? 'project/policies'}/${relativePath}`;
 }
 

@@ -76,25 +76,14 @@ test('workbench server serves files and APIs correctly', async () => {
         await reader.cancel();
       }
 
-      // 7. Test GET /api/blocks-catalog (with dynamically created mock block)
-      const mockRegDir = path.join(workspaceRoot, 'platform/registry/official/test-mock-block');
-      await fs.mkdir(mockRegDir, { recursive: true });
-      const mockManifest = `
-id: test-mock-block
-version: 0.9.9
-requires: [auth]
-provides: [test-mock]
-slots: []
-`;
-      await fs.writeFile(path.join(mockRegDir, 'block.manifest.yaml'), mockManifest, 'utf8');
-
+      // 7. Test GET /api/blocks-catalog against the packaged canonical registry.
       const resCatalog = await fetch(`${base}/api/blocks-catalog`);
       expect(resCatalog.status).toBe(200);
       const jsonCatalog = await resCatalog.json() as Array<{ id: string; version: string }>;
       expect(Array.isArray(jsonCatalog)).toBe(true);
-      const matchedBlock = jsonCatalog.find((b: { id: string }) => b.id === 'test-mock-block');
+      const matchedBlock = jsonCatalog.find((b: { id: string }) => b.id === 'worklog/basic');
       expect(matchedBlock).toBeDefined();
-      expect(matchedBlock!.version).toBe('0.9.9');
+      expect(matchedBlock!.version).toBe('0.1.0');
 
       // 8. Test POST /api/bootstrap-slot
       const resBootstrap = await fetch(`${base}/api/bootstrap-slot`, {

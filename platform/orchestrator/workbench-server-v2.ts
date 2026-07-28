@@ -8,10 +8,10 @@ import { defaultLogger } from '../shared/logger.ts';
 import {
   controlWorkbenchViewsRelativePath,
   getWorkspacePaths,
-  officialRegistryRelativePath,
   posixPath,
   sourceSlotsRelativePath
 } from '../shared/paths.ts';
+import { compilerRuntimeResources } from '../shared/runtime-layout.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease,
@@ -83,8 +83,8 @@ function encodeSse(event: string, data: string): Uint8Array {
   return new TextEncoder().encode(`event: ${event}\ndata: ${data}\n\n`);
 }
 
-async function handleBlocksCatalog(context: RouteContext): Promise<Response> {
-  const registryDir = path.join(context.workspaceRoot, officialRegistryRelativePath);
+async function handleBlocksCatalog(_context: RouteContext): Promise<Response> {
+  const registryDir = compilerRuntimeResources.officialRegistry;
   const entries = await fs.readdir(registryDir, { withFileTypes: true });
   const catalog: unknown[] = [];
 
