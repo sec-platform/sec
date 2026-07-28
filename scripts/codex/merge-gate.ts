@@ -505,7 +505,11 @@ function changedRecordPaths(record: CodexDevelopmentWorkPackageChangedRecordV1):
 function canonicalChangedRecords(
   records: readonly CodexDevelopmentGitChangedRecordV1[]
 ): CodexDevelopmentGitChangedRecordV1[] {
-  return records.map((record) => ({ ...record })).sort((left, right) => {
+  return records.map((record) => ({
+    status: record.status,
+    path: record.path,
+    ...(record.previousPath === undefined ? {} : { previousPath: record.previousPath })
+  })).sort((left, right) => {
     const leftKey = `${left.previousPath ?? ''}\0${left.path}\0${left.status}`;
     const rightKey = `${right.previousPath ?? ''}\0${right.path}\0${right.status}`;
     return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
