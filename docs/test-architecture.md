@@ -76,7 +76,7 @@ Slow文件内的昂贵共享setup必须按能力惰性创建或限定在局部su
 
 需要真实Git、临时仓库或Language Service的fast component test必须把fixture lifecycle视为测试架构：不可变seed最多初始化一次，每个场景使用独立copy，互不共享working tree、index、lock或publication state；独立场景可有界并发，但必须由代码中的单一semaphore限制并断言peak，不得依赖Bun默认并发或用无限并发掩盖重复工作。seed、copy与外部alias都必须在失败路径清理。该优化只减少fixture与调度成本，不得mock或复制被测Git/TypeScript语义。
 
-Fast runner的结构顺序固定为`bounded concurrent shard batches → bounded-parallel process isolation → exclusive process isolation`。同一进程内不安全不等于跨进程必须串行：只依赖module global或独立临时Workspace的文件可进入有界并行；会修改repository worktree、host profile、共享server/runtime lifecycle的owner保持独占。多个concurrent shard也只能按`fast-test-policy.ts`的单一有界cap并行，失败batch必须等待已启动siblings收口并阻止后续batch。分类、shard容量、两类并发cap与最大默认process waves只由该policy拥有，并由完整inventory的结构测试证明每个文件恰好一次、无遗漏且不超过wave预算；wall-clock不参与该hard invariant。
+Fast runner的结构顺序固定为`bounded concurrent shard batches → bounded-parallel process isolation → exclusive process isolation`。同一进程内不安全不等于跨进程必须串行：只依赖module global或独立临时Workspace的文件可进入有界并行；会修改repository worktree、host profile、共享server/runtime lifecycle的owner保持独占。`fast-test-policy.ts`的registry只声明机器资源类别，调度结果从资源类别唯一推导，不允许`reason`与手写`scheduling`形成竞争事实；执行production host、browser或runtime lifecycle的文件必须属于exclusive资源类别。多个concurrent shard也只能按该policy的单一有界cap并行，失败batch必须等待已启动siblings收口并阻止后续batch。分类、shard容量、两类并发cap与最大默认process waves只由该policy拥有，并由完整inventory的结构测试证明每个文件恰好一次、无遗漏且不超过wave预算；wall-clock不参与该hard invariant。
 
 测试文件不能用“integration”名称或一次较慢duration申请exclusive。只有process-global mock、真实repository mutation、共享server/host runtime、不可隔离ambient cache等确定性状态冲突才能登记；所有I/O只落在独立`withTempWorkspace`根且runner/cache由参数注入的文件必须进入普通concurrent shard。一个文件混合多个owner时先按acceptance拆分，再判断每个新文件的调度，禁止为保留历史文件名而继承exclusive。
 

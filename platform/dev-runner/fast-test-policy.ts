@@ -35,88 +35,127 @@ export function isDefaultFastTestFile(file: string): boolean {
   return !defaultFastTestExcludedFileSet.has(file);
 }
 
-export const FAST_TEST_PROCESS_ISOLATION_REGISTRY = [
-  { file: 'tests/integration/pipeline-kernel.test.ts', reason: 'workspace-mutation', scheduling: 'bounded-parallel' },
+export const FAST_TEST_PROCESS_RESOURCE_SCHEDULING = {
+  'independent-process': 'bounded-parallel',
+  'shared-host-runtime': 'exclusive',
+  'repository-worktree': 'exclusive',
+  'host-profile': 'exclusive'
+} as const;
+
+export type FastTestProcessResourceClass = keyof typeof FAST_TEST_PROCESS_RESOURCE_SCHEDULING;
+
+const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
+  {
+    file: 'tests/integration/pipeline-kernel.test.ts',
+    reason: 'workspace-mutation',
+    resourceClass: 'independent-process'
+  },
   {
     file: 'tests/integration/pipeline-workspace-write-lease.test.ts',
     reason: 'workspace-mutation',
-    scheduling: 'bounded-parallel'
+    resourceClass: 'independent-process'
   },
   {
     file: 'tests/integration/semantic-mutation-apply.test.ts',
-    reason: 'workspace-mutation',
-    scheduling: 'bounded-parallel'
+    reason: 'production-host-and-runtime-lifecycle',
+    resourceClass: 'shared-host-runtime'
   },
   {
     file: 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
     reason: 'workspace-mutation',
-    scheduling: 'bounded-parallel'
+    resourceClass: 'independent-process'
   },
   {
     file: 'tests/integration/semantic-mutation-windows-rollback.test.ts',
     reason: 'workspace-mutation',
-    scheduling: 'bounded-parallel'
+    resourceClass: 'independent-process'
   },
   {
     file: 'tests/integration/semantic-pipeline-spine.test.ts',
     reason: 'workspace-mutation',
-    scheduling: 'bounded-parallel'
+    resourceClass: 'independent-process'
   },
   {
     file: 'tests/integration/semantic-projection-consumers.test.ts',
     reason: 'workspace-mutation',
-    scheduling: 'bounded-parallel'
+    resourceClass: 'independent-process'
   },
   {
     file: 'tests/integration/semantic-projections.test.ts',
     reason: 'shared-workspace',
-    scheduling: 'bounded-parallel'
+    resourceClass: 'independent-process'
   },
   {
     file: 'tests/integration/ticket-pipeline.test.ts',
     reason: 'workspace-mutation',
-    scheduling: 'bounded-parallel'
+    resourceClass: 'independent-process'
   },
   {
     file: 'tests/integration/upgrade-pipeline-kernel.test.ts',
     reason: 'workspace-mutation',
-    scheduling: 'bounded-parallel'
+    resourceClass: 'independent-process'
   },
-  { file: 'tests/integration/workbench-pipeline.test.ts', reason: 'workspace-server', scheduling: 'exclusive' },
-  { file: 'tests/integration/workbench-writer-lease.test.ts', reason: 'workspace-server', scheduling: 'exclusive' },
+  {
+    file: 'tests/integration/workbench-pipeline.test.ts',
+    reason: 'workspace-server',
+    resourceClass: 'shared-host-runtime'
+  },
+  {
+    file: 'tests/integration/workbench-writer-lease.test.ts',
+    reason: 'workspace-server',
+    resourceClass: 'shared-host-runtime'
+  },
   {
     file: 'tests/integration/workspace-engineering-ir.test.ts',
     reason: 'workspace-mutation',
-    scheduling: 'bounded-parallel'
+    resourceClass: 'independent-process'
   },
-  { file: 'tests/unit/project-overview.test.ts', reason: 'workspace-overview', scheduling: 'bounded-parallel' },
+  {
+    file: 'tests/unit/project-overview.test.ts',
+    reason: 'workspace-overview',
+    resourceClass: 'independent-process'
+  },
   {
     file: 'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
     reason: 'module-global-runtime-cache-and-process-lifecycle',
-    scheduling: 'exclusive'
+    resourceClass: 'shared-host-runtime'
   },
-  { file: 'tests/unit/test-runner.test.ts', reason: 'process-global-mocks', scheduling: 'bounded-parallel' },
+  {
+    file: 'tests/unit/test-runner.test.ts',
+    reason: 'process-global-mocks',
+    resourceClass: 'independent-process'
+  },
   {
     file: 'tests/unit/work-package-gate-contract.test.ts',
     reason: 'work-package-evidence',
-    scheduling: 'bounded-parallel'
+    resourceClass: 'independent-process'
   },
   {
     file: 'tests/unit/work-package-gate-execution.test.ts',
     reason: 'repository-worktree-mutation',
-    scheduling: 'exclusive'
+    resourceClass: 'repository-worktree'
   },
   {
     file: 'tests/unit/work-package-profile-census-repair.test.ts',
     reason: 'work-package-profile-evidence',
-    scheduling: 'exclusive'
+    resourceClass: 'repository-worktree'
   },
   {
     file: 'tests/unit/work-package-profile-probe-diagnostic.test.ts',
     reason: 'host-profile-probe',
-    scheduling: 'exclusive'
+    resourceClass: 'host-profile'
   }
-] as const;
+] as const satisfies readonly {
+  file: string;
+  reason: string;
+  resourceClass: FastTestProcessResourceClass;
+}[];
+
+export const FAST_TEST_PROCESS_ISOLATION_REGISTRY = FAST_TEST_PROCESS_ISOLATION_DEFINITIONS
+  .map((definition) => ({
+    ...definition,
+    scheduling: FAST_TEST_PROCESS_RESOURCE_SCHEDULING[definition.resourceClass]
+  }));
 
 export const PROCESS_ISOLATED_FAST_TEST_FILES = FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file }) => file);
 export const BOUNDED_PARALLEL_ISOLATED_FAST_TEST_FILES = FAST_TEST_PROCESS_ISOLATION_REGISTRY

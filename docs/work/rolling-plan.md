@@ -6,12 +6,13 @@ last-reviewed: 2026-07-28
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@1ff00a3883991f5eaf696d29b6d28504b96791b0`、全部本地/远端 branch census、PR/Issue/Review/CI 和 exact tree 重新计算。PR #181 的产品能力已由 successor PR #183 在 `main@f17202dd0c076279e9ab115c722a87856c1cd42f` 上恢复并进入当前 main；旧 head、旧 Review 和旧 Gate 只作为原 identity Evidence，不重复执行。
+本窗口从 live resolver 已确认的 `main@a490a42f5bc8c1b834aad6560360888411cb45c9`、全部本地/远端 branch census、PR/Issue/Review/CI 和 exact tree 重新计算。PR #184 已完成 development feedback trust epoch；PR #174 的同一 production SM-3 apply sentinel 单独通过、在 affected 并发 wave 中失败，证明 runner resource classification 是产品候选之前必须独立进入 `main` 的 trust-root prerequisite。
 
 ```text
-Verification Feedback Loop Hardening
-→ Active Documentation Corpus
+Fast Runner Resource Isolation
 → Portable Atomic Workspace Lease
+→ Active Documentation Corpus
+→ Verification Result Truth
 → Remaining Runtime / Toolchain Seams
 ```
 
@@ -19,29 +20,35 @@ Verification Feedback Loop Hardening
 
 ## 当前唯一 Work Package
 
-### development-feedback-loop-hardening-v1
+### verification-fast-runner-resource-isolation-v1
 
-- 工程结果：CI Risk 与 Quick/Full 共享唯一进程编排与 changed-record snapshot；files 只从一次 raw record capture 派生。
-- 启动修复：compiler dependency generation 使用短且碰撞安全的 staging 名称，避免长 Windows worktree 扩大 native package extraction 路径。
-- 行为修复：resolver executable 只信任 latest default/base，intended candidate workspace 保持独立解析目标；AGENTS 与蓝图只投影 orientation Skill，不维护第二套入口。
-- 恢复边界：旧 `bfa4a535` 的 isolated code 75 已由 #183 改变根输入；其 affected FAIL 与 `CHANGES_REQUESTED` Review 保持无效证据，不原样重跑。successor 只验证新 base 与两个 P1 直接失效的最小闭包。
-- 退出：single-parent candidate、focused/typecheck/docs/audit/imports、独立 exact-head Review 和受信 base bootstrap 全部闭合；本包改变 verifier、dependency bootstrap 与 Skill trust root，进入 main 后返回 `TASK_RESTART_REQUIRED`。
+- 工程结果：fast process registry 只声明资源类别，`bounded-parallel` / `exclusive` 从类别唯一推导，禁止原因与调度形成竞争事实。
+- 直接闭包：运行 production host/browser/runtime lifecycle 的 SM-3 apply suite 必须 exclusive；完全绑定 run-owned mutable state 的 recovery 和其他 suites 继续有界并行。
+- 范围边界：本包只解除 PR #174 暴露的 runner prerequisite，不实现 Issue #176 的 result/platform ledger、skip 或 affected 空选择语义。
+- 退出：single-parent candidate、focused/typecheck/docs/audit/imports、独立 exact-head Review 和受信 base bootstrap 全部闭合；本包改变 dev-runner trust root，进入 main 后返回 `TASK_RESTART_REQUIRED`。
 
 ## 候选 Work Package
 
-### 1. active-documentation-corpus-v1
-
-- 工程结果：机器 registry 取代历史编号、路径 catch-all 和人工 authority 表；active prose 按自然领域原子迁移，旧正文 byte-for-byte 归档。
-- 依赖：反馈环 trust epoch 进入 main 并由新任务重新加载。
-- 退出：在新 base 单提交重冻；独立 Review 与 required `full` Evidence 只运行一次；merge 后再次 readback 并返回 `TASK_RESTART_REQUIRED`。
-
-### 2. workspace-write-lease-portability-v1
+### 1. workspace-write-lease-portability-v1
 
 - 工程结果：以 Node 标准能力实现单一 portable lease protocol，保持 no-replace 原子性、完整 owner publication、heartbeat、stale recovery、commit fence 与 deterministic errors。
-- 依赖：active documentation trust epoch 进入 main；PR #174 的 protocol alias、publication durability 和 gate census 三个 P1 完成重新设计与 focused evidence。
-- 退出：Windows、Linux ext4/WSL2 真实跨进程竞争与崩溃恢复通过；`bun:ffi` 不再属于 common write authority。
+- 依赖：fast runner resource isolation trust epoch 进入 main；PR #174 已闭合 protocol alias、publication durability、shared inspector、fixture ownership与isolated scan consumer，只需基于新 main 重冻并执行唯一最终 affected。
+- 退出：Windows、Linux ext4/WSL2 真实跨进程竞争与崩溃恢复、独立 Review、required Evidence 与 merge readback全部通过。
 
-### 3. remaining-runtime-and-toolchain-seams-v1
+### 2. active-documentation-corpus-v1
+
+- 工程结果：机器 registry 取代历史编号、路径 catch-all 和人工 authority 表；active prose 按自然领域原子迁移，旧正文 byte-for-byte 归档。
+- 依赖：portable lease 进入 main 后从新事实重算，吸收 runtime 与 runner trust epoch，禁止旧 docs candidate 覆盖新事实。
+- 已知根治项：`main@a490a42` 的 `document-control-plane-lifecycle.test.ts` 仍要求蓝图复制 resolver 命令，与 #184 已进入 main 的 `sec-repository-orientation` 唯一入口 authority 冲突；本包必须把合同绑定到唯一 Skill owner，禁止把命令重新复制回蓝图制造第二事实源。
+- 退出：在新 base 单提交重冻；独立 Review 与 required `full` Evidence只运行一次；merge 后readback并返回 `TASK_RESTART_REQUIRED`。
+
+### 3. verification-result-truth-v1
+
+- 工程结果：完成 Issue #176 剩余的 Gate result、platform/runtime execution ledger、skip 与 affected 空选择真值模型。
+- 依赖：PR #174 已进入 main，live resolver不存在其他 active product Work Package；本轮 runner prerequisite不冒充该完整闭包。
+- 退出：未在 owning environment 物理执行的声明不能投影为 PASS，result ledger 成为 CLI、artifact与Checks的唯一事实。
+
+### 4. remaining-runtime-and-toolchain-seams-v1
 
 - 工程结果：已证明未被前述候选吸收的 runtime/toolchain 能力按 authority DAG 继续闭合；spike 与 local-dirty snapshot 不进入 main。
 - 依赖：portable lease 与全部待合正式分支完成或被准确阻塞。
