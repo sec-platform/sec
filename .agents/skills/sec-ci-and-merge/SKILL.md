@@ -45,6 +45,6 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 不无条件关闭Issue。
 
 ## 权威
-- `docs/test-feedback-and-ci-lanes.md`
+- `docs/verification-governance.md`
 - `.github/workflows/`
 - `scripts/codex/merge-gate.ts`

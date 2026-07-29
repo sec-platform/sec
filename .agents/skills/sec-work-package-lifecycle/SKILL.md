@@ -44,6 +44,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 禁止 pointer 指向不存在文件或不受支持的显式 `none` 状态。
 
 ## 权威
-- `docs/04-AI自主实现执行蓝图.md`
+- `docs/development-governance.md`
+- `docs/work/README.md`
 - `scripts/codex/work-package-contract.ts`
 - `scripts/codex/document-control-plane-contract.ts`

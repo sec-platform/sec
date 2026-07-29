@@ -3,9 +3,19 @@ import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
 const AGENT_GOVERNANCE_FAST_TESTS = [
   'tests/contract/agent-skills.test.ts',
   'tests/contract/discover-all.test.ts',
+  'tests/contract/docs-doctor.test.ts',
   'tests/contract/repository-audit.test.ts',
   'tests/contract/test-impact.test.ts',
+  'tests/unit/active-documentation-contract.test.ts',
   'tests/unit/ci-pr-risk-selection.test.ts'
+];
+
+const FROZEN_WORK_PACKAGE_FAST_TESTS = [
+  'tests/contract/ci-lanes.test.ts',
+  'tests/contract/docs-doctor.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/ci-pr-risk-selection.test.ts',
+  'tests/unit/codex-work-package-contract.test.ts'
 ];
 
 const WORK_PACKAGE_SELECTOR_FAST_TESTS = [
@@ -47,12 +57,26 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'AGENTS.md',
       '.codex/agents/implementation-worker.toml',
       '.codex/agents/verification-evidence-reviewer.toml',
+      'docs/authority.json',
+      'docs/scripts/docs-doctor.ts',
+      'docs/scripts/docs-doctor-ledgers.ts',
+      'docs/scripts/docs-doctor-shared.ts',
+      'platform/shared/active-documentation-contract.ts',
+      'platform/shared/documentation-authority-contract.ts',
       'platform/shared/agent-skill-contract.ts',
       'scripts/codex/repository-audit.ts',
       'scripts/discover-all.ts'
     ],
     sourcePrefixes: ['.agents/skills/'],
     fast: AGENT_GOVERNANCE_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'frozen-work-package',
+    identity: { kind: 'contract', id: 'frozen-work-package' },
+    autoReferenceMode: 'declared-only',
+    sourcePrefixes: ['docs/work-packages/'],
+    fast: FROZEN_WORK_PACKAGE_FAST_TESTS,
     slow: []
   },
   {

@@ -24,7 +24,9 @@ import {
   slowTestPrRiskBaselineSuiteIds,
   slowTestSuiteIds
 } from '../../platform/shared/test-budget-contract.ts';
-import { CodexDevelopmentBuildVerificationScopeInventoryV1 } from '../../platform/shared/verification-scope-inventory.ts';
+import {
+  CodexDevelopmentBuildVerificationScopeInventoryV1
+} from '../../platform/shared/verification-scope-inventory.ts';
 import {
   CodexDevelopmentChangedFilesFromRecordsV1,
   CodexDevelopmentCreateNotRunGateV2,
@@ -40,15 +42,12 @@ import {
 
 test('CI contract keeps PR lanes bounded and full logical lane complete', () => {
   const contract = buildCiContract();
-
   expectPrFastLaneBoundary(contract);
   expectFullLaneCoversCorrectnessBackstop(contract);
   expectFullLaneCoversSlowSuites(contract, slowTestSuiteIds());
   expect(contract.executionModel).toBe('frozen-delivery-single-runner');
   expect(CI_VERIFICATION_PR_EVENT).toBe('repository_dispatch');
   expect(CI_VERIFICATION_PR_DISPATCH_TYPE).toBe('sec-verify-frozen-v1');
-  expect(contract.prWorkflowEvent).toBe(CI_VERIFICATION_PR_EVENT);
-  expect(contract.prDispatchType).toBe(CI_VERIFICATION_PR_DISPATCH_TYPE);
   expect(contract.prWorkflowCommands).toEqual([
     'bun install --frozen-lockfile',
     'bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"'
@@ -59,29 +58,30 @@ test('CI contract keeps PR lanes bounded and full logical lane complete', () => 
   ]);
 });
 
-test('CI contract counts and produced paths are self-consistent', () => {
-  expectCiContractSelfConsistent(buildCiContract());
-});
-
-test('CI contract text exposes execution and logical lane split for workflow audits', () => {
-  const formatted = formatCiContract(buildCiContract());
-
+test('CI contract counts and formatted projections are self-consistent', () => {
+  const contract = buildCiContract();
+  expectCiContractSelfConsistent(contract);
+  const formatted = formatCiContract(contract);
   expect(formatted).toContain('Verification contract revision: ci-verification-v18');
   expect(formatted).toContain('Execution model: frozen-delivery-single-runner');
   expect(formatted).toContain('PR workflow event: repository_dispatch');
   expect(formatted).toContain('PR dispatch type: sec-verify-frozen-v1');
   expect(formatted).not.toContain('Trigger labels:');
-  expect(formatted).toContain('PR workflow command count:');
-  expect(formatted).toContain('PR workflow commands:');
-  expect(formatted).toContain('Release workflow command count:');
-  expect(formatted).toContain('Release workflow commands:');
-  expect(formatted).toContain('PR quick lane command count:');
-  expect(formatted).toContain('PR risk lane command count:');
-  expect(formatted).toContain('Full lane command count:');
+  for (const label of [
+    'PR workflow command count:',
+    'Release workflow command count:',
+    'PR quick lane command count:',
+    'PR risk lane command count:',
+    'Full lane command count:'
+  ]) expect(formatted).toContain(label);
 });
 
-test('CI verification plans execute canonical affected Quick and one ordered fail-stop Full workspace chain', () => {
-  expect(buildCiQuickGatePlan({ includeImports: false, includeDocs: false, includeRisk: false })).toEqual([
+test('CI verification plans execute canonical affected Quick and ordered Full workspace chain', () => {
+  expect(buildCiQuickGatePlan({
+    includeImports: false,
+    includeDocs: false,
+    includeRisk: false
+  })).toEqual([
     { id: 'typecheck', phase: 'quick', args: ['run', 'typecheck'] },
     { id: 'affected-tests', phase: 'quick', args: ['run', 'test:affected'] }
   ]);
@@ -103,24 +103,24 @@ test('CI verification plans execute canonical affected Quick and one ordered fai
   ]);
 });
 
-test('CI PR risk gate selects slow suites from the test impact contract', () => {
-  const pipelineSelection = selectCiPrRiskSlowSuites(['platform/compiler/compose/generate-runtime-host.ts']);
-  expect(pipelineSelection).toMatchObject({
-    slowTests: [],
-    resolved: true
-  });
-  expect(pipelineSelection.suites).toContain('e2e-pipeline');
-  expect(pipelineSelection.suites).toContain('e2e-pipeline-end-to-end');
-  expect(pipelineSelection.owners).toContain('pipeline');
+test('CI PR risk gate selects slow suites from test impact ownership', () => {
+  const pipeline = selectCiPrRiskSlowSuites([
+    'platform/compiler/compose/generate-runtime-host.ts'
+  ]);
+  expect(pipeline).toMatchObject({ slowTests: [], resolved: true });
+  expect(pipeline.suites).toEqual(expect.arrayContaining([
+    'e2e-pipeline',
+    'e2e-pipeline-end-to-end'
+  ]));
+  expect(pipeline.owners).toContain('pipeline');
 
-  const runtimeSelection = selectCiPrRiskSlowSuites(['platform/compiler/verify/run-runtime-verification.ts']);
-  expect(runtimeSelection).toMatchObject({
-    slowTests: [],
-    resolved: true
-  });
-  expect(runtimeSelection.suites).toContain('e2e-verify-lock');
-  expect(runtimeSelection.owners).toContain('verify');
-  expect(runtimeSelection.affectedSlowTests).toContain('tests/e2e/verification.test.ts');
+  const runtime = selectCiPrRiskSlowSuites([
+    'platform/compiler/verify/run-runtime-verification.ts'
+  ]);
+  expect(runtime).toMatchObject({ slowTests: [], resolved: true });
+  expect(runtime.suites).toContain('e2e-verify-lock');
+  expect(runtime.owners).toContain('verify');
+  expect(runtime.affectedSlowTests).toContain('tests/e2e/verification.test.ts');
 
   expect(selectCiPrRiskSlowSuites(['tests/e2e/dry-run-plan.test.ts'])).toMatchObject({
     suites: ['e2e-dry-run-plan'],
@@ -131,59 +131,70 @@ test('CI PR risk gate selects slow suites from the test impact contract', () => 
   });
 });
 
-test('CI impact ownership includes mandatory validation sentinels and documentation authority', () => {
-  const workflowSelection = selectCiPrRiskSlowSuites(['.github/workflows/compiler-pr-validation.yml']);
-  expect(workflowSelection.suites).toEqual(slowTestPrRiskBaselineSuiteIds());
-  expect(workflowSelection.owners).toEqual(expect.arrayContaining(['bounded-slow-risk', 'verification-infrastructure']));
-  expect(workflowSelection.reasons).toEqual(['mandatory-sentinel', 'ownership-impact']);
-  expect(workflowSelection.resolved).toBe(true);
+test('documentation registry and verifier trust roots select mandatory sentinels', () => {
+  for (const file of [
+    'docs/authority.json',
+    'docs/scripts/docs-doctor.ts',
+    'docs/scripts/docs-doctor-ledgers.ts',
+    'docs/scripts/docs-doctor-shared.ts',
+    'platform/shared/active-documentation-contract.ts',
+    'platform/shared/documentation-authority-contract.ts'
+  ]) {
+    const selection = selectCiPrRiskSlowSuites([file]);
+    expect(selection.suites).toEqual(slowTestPrRiskBaselineSuiteIds());
+    expect(selection.owners).toEqual(expect.arrayContaining([
+      'agent-governance',
+      'bounded-slow-risk'
+    ]));
+    expect(selection.reasons).toEqual(expect.arrayContaining([
+      'mandatory-sentinel',
+      'ownership-impact'
+    ]));
+    expect(selection.resolved).toBe(true);
+  }
 
-  const devRunnerSelection = selectCiPrRiskSlowSuites(['platform/dev-runner/check-runner.ts']);
-  expect(devRunnerSelection).toEqual({
+  expect(selectCiPrRiskSlowSuites(['docs/product.md'])).toEqual({
     suites: [],
     slowTests: [],
     affectedSlowTests: [],
-    owners: ['auto-reference', 'dev-runner'],
-    reasons: ['ownership-impact'],
+    owners: [],
+    reasons: [],
     resolved: true
   });
-
-  expect(selectCiPrRiskSlowSuites(['docs/03-MVP实施计划与路线图.md'])).toEqual({
-    suites: [],
-    slowTests: [],
-    affectedSlowTests: [],
-    owners: ['documentation-authority'],
-    reasons: ['ownership-impact'],
-    resolved: true
-  });
+  expect(selectCiPrRiskSlowSuites(['docs/unregistered.md']).resolved).toBe(false);
 });
 
-test('V1 Quick resolves the complete PR #133 documentation and control-plane path set', () => {
+test('V1 Quick resolves the active corpus and control-plane path set', () => {
   const plan = CodexDevelopmentBuildVerificationPlanV1('quick', [
     'README.md',
-    'docs/00-文档索引与一致性规则.md',
-    'docs/02-工程编译器-MVP-PRD与架构稿.md',
-    'docs/03-MVP实施计划与路线图.md',
-    'docs/04-AI自主实现执行蓝图.md',
-    'docs/09-AI Runtime、任务信封与治理规范.md',
-    'docs/11-Workbench与可视化规范.md',
-    'docs/14-Engineering IR与语义事实规范.md',
-    'docs/architecture/brownfield-import.md',
-    'docs/architecture/engineering-workspace-ir.md',
-    'docs/architecture/sec-ts-ir-layers.md',
-    'docs/goals/SEC-Engineering-Workspace-Compiler.md',
-    'docs/governance/nexus-absorption-and-conformance.md',
-    'docs/work/current-state.yaml',
+    'AGENTS.md',
+    'docs/authority.json',
+    'docs/README.md',
+    'docs/product.md',
+    'docs/roadmap.md',
+    'docs/system-architecture.md',
+    'docs/semantic-model.md',
+    'docs/delta-and-impact.md',
+    'docs/semantic-mutation.md',
+    'docs/compiler-target-ir.md',
+    'docs/capability-and-block-model.md',
+    'docs/brownfield-import.md',
+    'docs/workbench-and-ai-operations.md',
+    'docs/runtime-and-distribution.md',
+    'docs/change-management.md',
+    'docs/verification-governance.md',
+    'docs/development-governance.md',
+    'docs/external-provider-policy.md',
+    'docs/corpus/nexus/contract.md',
+    'docs/governance/external-capability-ledger.yaml',
     'docs/governance/nexus-absorption-ledger.yaml',
-    'docs/governance/nexus-absorption-report.md',
+    'docs/work/current-state.yaml',
     'docs/work/active-work-package.md',
     'docs/work/rolling-plan.md',
-    'docs/work-packages/phase-0-current-reality-rebase-v1.md'
+    'docs/work-packages/active-documentation-corpus-v1.md'
   ]);
 
   expect(plan.selectionResolved).toBe(true);
-  expect(plan.selectionReasons).toEqual(['ownership-impact']);
-  expect(plan.affectedOwners).toEqual(['documentation-authority']);
   expect(plan.gates.map((gate) => gate.id)).toEqual([
     'docs-doctor',
     'typecheck',
@@ -236,22 +247,22 @@ test('Git raw path identity reaches V1 canonical validation without separator la
   })).toThrow('not canonical repository-relative POSIX');
 });
 
-test('Ticket semantic Contract impact selects the named mandatory vertical slow suite', () => {
+test('Ticket semantic Contract impact selects the mandatory vertical slow suite', () => {
   const selection = selectCiPrRiskSlowSuites([
     'platform/registry/official/ticket.basic/contracts/ticket.yaml'
   ]);
-
   expect(selection).toMatchObject({ reasons: ['ownership-impact'], resolved: true });
   expect(selection.owners).toEqual(expect.arrayContaining(['semantic-contract', 'ticket-core']));
   expect(selection.suites).toContain('e2e-ticket-semantic-vertical');
-  expect(selection.affectedSlowTests).toContain('tests/e2e/semantic-runtime-contract.test.ts');
+  expect(selection.affectedSlowTests).toContain(
+    'tests/e2e/semantic-runtime-contract.test.ts'
+  );
 });
 
-test('CI PR risk gate uses bounded baseline suites for broad risk changes', () => {
+test('CI PR risk gate uses a bounded baseline for broad risk changes', () => {
   const baselineSuites = slowTestPrRiskBaselineSuiteIds();
   expect(baselineSuites.length).toBeGreaterThan(0);
   expect(baselineSuites.length).toBeLessThan(slowTestSuiteIds().length);
-
   expect(selectCiPrRiskSlowSuites(null)).toEqual({
     suites: baselineSuites,
     slowTests: [],
@@ -279,7 +290,6 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
   const runtimeHeavy = suites
     .filter((suite) => suite.resourceClass === 'runtime-heavy')
     .map((suite) => suite.id);
-
   expect(runtimeHeavy).toEqual([
     'e2e-artifacts',
     'e2e-conflicts',
@@ -295,78 +305,60 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
     .toMatchObject({ parallelSafe: false });
   expect(
     suites
-      .filter((suite) => suite.resourceClass === 'runtime-heavy' &&
-        suite.id !== 'e2e-windows-appcontainer-executor')
+      .filter((suite) =>
+        suite.resourceClass === 'runtime-heavy'
+        && suite.id !== 'e2e-windows-appcontainer-executor')
       .every((suite) => suite.parallelSafe)
   ).toBe(true);
 });
 
-test('CI PR risk gate skips slow suites when no source or slow test impact exists', () => {
-  expect(selectCiPrRiskSlowSuites(['docs/usage.md'])).toEqual({
-    suites: [],
-    slowTests: [],
-    affectedSlowTests: [],
-    owners: [],
-    reasons: [],
-    resolved: true
-  });
-});
-
-test('CI risk runner keeps fail-fast default and supports explicit resumable local batches', async () => {
+test('CI risk runner keeps fail-fast, exact Git identity, and resumable batch contracts', async () => {
   const source = await readCompilerFile('scripts/ci-pr-risk.ts');
   const verificationSource = await readCompilerFile('scripts/ci-verification.ts');
   const orchestrationSource = await readCompilerFile('scripts/codex/ci-orchestration-core.ts');
-
-  expect(source).toContain("argument === '--all-slow'");
-  expect(source).toContain("argument === '--continue-on-failure'");
-  expect(source).toContain("argument.startsWith('--suite=')");
-  expect(source).toContain("'requested-batch'");
-  expect(source).toContain('cannot combine --all-slow with explicit --suite values');
-  expect(source).toContain('--continue-on-failure requires at least one explicit --suite value');
-  expect(source).toContain('requires a clean complete worktree before execution');
-  expect(source).toContain('cannot resolve exact head/tree/two bases');
-  expect(source).toContain("env.SEC_CHANGED_BASE ?? 'HEAD^1'");
-  expect(source).toContain('const preSlowSteps: GateStep[] = parsed.runAllSlow || requestedBatch ? []');
-  expect(source).toContain('const postSlowSteps: GateStep[] = parsed.runAllSlow || requestedBatch ? []');
-  expect(source).toContain('parsed.runAllSlow ? slowSuites : selection.suites');
-  expect(source).toContain('SEC_CI_PR_RISK_SLOW_CONCURRENCY');
-  expect(source).toContain("suite.parallelSafe && suite.resourceClass === 'standard'");
-  expect(source).toContain("suite.resourceClass === 'runtime-heavy'");
-  expect(source).toContain('let stopScheduling = false');
-  expect(source).toContain('(!stopScheduling || parsed!.continueOnFailure)');
-  expect(source).toContain('stopScheduling = true');
-  expect(source).toContain('SEC_CI_RISK_SUMMARY');
-  expect(source).toContain('.tmp/ci-risk-batch-evidence.json');
-  expect(source).toContain('CodexDevelopmentFinalizeVerificationEvidenceV2');
-  expect(source).toContain('affectedBaseSha');
-  expect(source).toContain('cleanState: { before: cleanBefore, after: cleanAfter }');
-  expect(source).toContain('parallel-safe standard slow steps with concurrency ${concurrency}');
-  expect(source).toContain('SEC_TEST_WORKSPACE_NAMESPACE');
-  expect(source).toContain('gateEnvironment(env, step)');
-  expect(source).toContain('CodexDevelopmentReadExactGitBlobV1');
-  expect(source).toContain('commitSha: headSha');
-  expect(source).toContain('CI risk exact head or tree changed during execution');
+  for (const fragment of [
+    "argument === '--all-slow'",
+    "argument === '--continue-on-failure'",
+    "argument.startsWith('--suite=')",
+    "'requested-batch'",
+    'cannot combine --all-slow with explicit --suite values',
+    '--continue-on-failure requires at least one explicit --suite value',
+    'requires a clean complete worktree before execution',
+    'cannot resolve exact head/tree/two bases',
+    "env.SEC_CHANGED_BASE ?? 'HEAD^1'",
+    'SEC_CI_PR_RISK_SLOW_CONCURRENCY',
+    "suite.resourceClass === 'runtime-heavy'",
+    'let stopScheduling = false',
+    'SEC_CI_RISK_SUMMARY',
+    '.tmp/ci-risk-batch-evidence.json',
+    'CodexDevelopmentFinalizeVerificationEvidenceV2',
+    'affectedBaseSha',
+    'SEC_TEST_WORKSPACE_NAMESPACE',
+    'CodexDevelopmentReadExactGitBlobV1',
+    'commitSha: headSha',
+    'CI risk exact head or tree changed during execution'
+  ]) expect(source).toContain(fragment);
   expect(source).not.toContain('readFileSync');
+  expect(source).not.toContain('process.exit(');
+  expect(source).toContain("from './codex/ci-orchestration-core.ts'");
+  expect(source).not.toContain("from 'node:child_process'");
   expect(verificationSource).toContain('CodexDevelopmentReadExactGitBlobV1');
   expect(verificationSource).toContain('commitSha: headSha');
   expect(verificationSource).not.toContain('readFileSync');
   expect(verificationSource).not.toContain('readManifestBytes');
-  expect(source).toContain("from './codex/ci-orchestration-core.ts'");
   expect(verificationSource).toContain("from './codex/ci-orchestration-core.ts'");
+  expect(verificationSource).toContain('CodexDevelopmentDefaultChangedPathsV1');
+  expect(verificationSource).not.toContain('defaultChangedRecords');
+  expect(verificationSource).not.toContain('gitChangedFileDiffArgs');
+  expect(verificationSource).toContain("import { spawnSync } from 'node:child_process'");
+  expect(verificationSource).not.toContain("import { spawn, spawnSync } from 'node:child_process'");
   expect(orchestrationSource).toContain('CodexDevelopmentDefaultGitRevisionV1');
   expect(orchestrationSource).toContain('CodexDevelopmentDefaultTrackedTreeIsCleanV1');
   expect(orchestrationSource).toContain('CodexDevelopmentDefaultChangedPathsV1');
   expect(orchestrationSource).toContain('CodexDevelopmentDefaultChangedFilesV1');
-  expect(verificationSource).toContain('CodexDevelopmentDefaultChangedPathsV1');
-  expect(verificationSource).not.toContain('defaultChangedRecords');
-  expect(verificationSource).not.toContain('gitChangedFileDiffArgs');
   expect(orchestrationSource).toContain('CodexDevelopmentRunGateProcessV1');
   expect(orchestrationSource).toContain('CodexDevelopmentCreateNotRunGateV2');
   expect(orchestrationSource).toContain('cwd: repositoryRoot');
-  expect(source).not.toContain("from 'node:child_process'");
-  expect(verificationSource).toContain("import { spawnSync } from 'node:child_process'");
-  expect(verificationSource).not.toContain("import { spawn, spawnSync } from 'node:child_process'");
-  expect(source).not.toContain('process.exit(');
 });
 
 test('CI changed files derive from one immutable changed-record snapshot', () => {

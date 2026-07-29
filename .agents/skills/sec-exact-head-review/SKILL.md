@@ -42,5 +42,6 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 
 ## 权威
 - `AGENTS.md`
-- `docs/04-AI自主实现执行蓝图.md`
+- `docs/development-governance.md`
+- `docs/verification-governance.md`
 - `scripts/codex/merge-gate.ts`

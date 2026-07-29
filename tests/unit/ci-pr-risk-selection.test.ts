@@ -26,6 +26,23 @@ test('bounded slow baseline is owned by shared execution lifecycle surfaces', ()
   }
 });
 
+test('documentation authority trust roots require bounded sentinels', () => {
+  for (const file of [
+    'docs/authority.json',
+    'docs/scripts/docs-doctor.ts',
+    'docs/scripts/docs-doctor-ledgers.ts',
+    'docs/scripts/docs-doctor-shared.ts',
+    'platform/shared/active-documentation-contract.ts',
+    'platform/shared/documentation-authority-contract.ts'
+  ]) {
+    const selection = selectCiPrRiskSlowSuites([file]);
+    expect(selection.suites).toEqual(expect.arrayContaining(baselineSuites));
+    expect(selection.owners).toContain('bounded-slow-risk');
+    expect(selection.reasons).toContain('mandatory-sentinel');
+    expect(selection.resolved).toBe(true);
+  }
+});
+
 test('dev-runner changes use exact owned slow sentinels instead of the bounded baseline', () => {
   for (const file of [
     'platform/dev-runner.ts',
@@ -86,7 +103,6 @@ test('dev-runner mandatory ownership rejects CLI prefix collisions', () => {
 
 test('assertion-only testkit helpers rely on direct test impact instead of broad slow baseline', () => {
   const selection = selectCiPrRiskSlowSuites(['tests/testkit/contracts.ts']);
-
   expect(selection.suites).toEqual([]);
   expect(selection.slowTests).toEqual([]);
   expect(selection.affectedSlowTests).toEqual([]);
@@ -101,7 +117,6 @@ test('mixed broad and direct slow changes form a stable union instead of returni
     'tests/e2e/dry-run-plan.test.ts',
     'platform/compiler/verify/run-runtime-verification.ts'
   ]);
-
   expect(selection.suites).toEqual(expect.arrayContaining([
     ...baselineSuites,
     'e2e-dry-run-plan',
@@ -156,10 +171,9 @@ test('every unmapped changed path fails closed even when another path has known 
 test('explicit documentation ownership and direct slow tests remain resolved', () => {
   const documentation = selectCiPrRiskSlowSuites([
     'README.md',
-    'docs/03-MVP实施计划与路线图.md',
+    'docs/product.md',
+    'docs/roadmap.md',
     'docs/work/current-state.yaml',
-    'docs/work/manifest.yaml',
-    'docs/governance/contracts/policy.yaml',
     'docs/governance/nexus-absorption-ledger.yaml'
   ]);
   expect(documentation.resolved).toBe(true);
@@ -243,7 +257,6 @@ test('AppContainer settlement changes select only the native slow acceptance own
   const selection = selectCiPrRiskSlowSuites([
     'platform/shared/windows-appcontainer-native-helper-settlement.ts'
   ]);
-
   expect(selection.suites).toEqual(['e2e-windows-appcontainer-executor']);
   expect(selection.slowTests).toEqual([]);
   expect(selection.affectedSlowTests).toEqual(['tests/e2e/windows-appcontainer-executor.test.ts']);

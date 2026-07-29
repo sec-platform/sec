@@ -8,24 +8,11 @@ resolver:
   requireRemoteMatch: true
 
 stableFacts:
-  goalAuthority:
-    repositoryMirror: docs/goals/SEC-Engineering-Workspace-Compiler.md
-    upstreamDocumentCount: 9
-    combinedRevision: sha256:555a187dc8a1a8ed8d52e76c23a2e2e752c2a77073664fde5f286d274cbbf676
-    sourceInputsTracked: false
-
-  completedCapabilities:
-    - v0.3-semantic-core-foundation
-    - v0.4-fact-delta-pure-kernel
-    - v0.4-impact-propagation-pure-kernel
-    - v0.4-semantic-mutation-sm0-through-sm3
-    - semantic-mutation-runtime-canonical-authority
-    - semantic-mutation-sm4a-trusted-authorization-ingress
-    - ci-verification-v8-active-documentation-contract
-    - ci-verification-v9-fast-timeout-contract
-    - ir-canonical-primitives-cycle-removal
-    - docs-document-authority-v5-reconciliation
-    - docs-control-plane-publication-lifecycle
-    - docs-authority-content-normalization
-    - docs-doctor-v5-semantic-superset
-    - runtime-authority-and-package-layout
+  documentAuthority:
+    registry: docs/authority.json
+    parser: platform/shared/documentation-authority-contract.ts
+  productAuthority:
+    document: docs/product.md
+  capabilityAuthority:
+    implementation: latest-main-code-and-contracts
+    verification: exact-head-evidence
