@@ -44,6 +44,5 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 不把 local Risk和hosted Risk重复当成两份正确性。
 
 ## 权威
-- `docs/test-architecture.md`
-- `docs/test-feedback-and-ci-lanes.md`
+- `docs/verification-governance.md`
 - `platform/shared/test-impact-contract.ts`

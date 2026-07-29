@@ -40,8 +40,11 @@ const BOUNDED_BASELINE_PATTERNS = [
 
 const MANDATORY_SENTINEL_PATTERNS = [
   /^\.github\/workflows\//,
+  /^docs\/authority\.json$/,
+  /^docs\/scripts\/docs-doctor(?:-[^/]+)?\.ts$/,
   /^scripts\/ci-[^/]+\.ts$/,
   /^scripts\/codex\/(?:merge-gate|work-package-contract)\.ts$/,
+  /^platform\/shared\/(?:active-documentation|documentation-authority)-contract\.ts$/,
   /^platform\/shared\/ci-[^/]+\.ts$/,
   /^platform\/shared\/test-(?:budget|impact|ownership)-contract\.ts$/,
   /^platform\/shared\/test-impact-rules\//
@@ -54,7 +57,9 @@ function baselineSlowSuiteIds(): string[] {
 function suitesForSlowTests(slowTests: string[]): string[] {
   const suites = getSlowTestSuitesSync();
   return uniqueSorted(
-    slowTests.flatMap((file) => suites.filter((suite) => suite.files.includes(file)).map((suite) => suite.id))
+    slowTests.flatMap((file) =>
+      suites.filter((suite) => suite.files.includes(file)).map((suite) => suite.id)
+    )
   );
 }
 
@@ -73,15 +78,21 @@ export function selectCiPrRiskSlowSuites(
     };
   }
 
-  const boundedBaselineRequired = files.some((file) => BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file)));
-  const mandatorySentinelsRequired = files.some((file) => MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file)));
+  const boundedBaselineRequired = files.some((file) =>
+    BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file))
+  );
+  const mandatorySentinelsRequired = files.some((file) =>
+    MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
+  );
   const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(files, provider);
   const directlyChangedSlowTests = inventory.changedSlowTests;
   const unresolvedFiles = files.filter((file) => {
     if (
-      CodexDevelopmentIsActiveDocumentationPathV1(file) || isFastTestFile(file) || isSlowTestFile(file) ||
-      BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file)) ||
-      MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
+      CodexDevelopmentIsActiveDocumentationPathV1(file)
+      || isFastTestFile(file)
+      || isSlowTestFile(file)
+      || BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file))
+      || MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
     ) return false;
     if (!isTestImpactSourceFile(file)) return true;
     const fileImpact = CodexDevelopmentBuildAffectedTestInventoryV1([file], provider);
@@ -90,14 +101,19 @@ export function selectCiPrRiskSlowSuites(
       && fileImpact.affectedOwners.length === 0;
   });
   const selectionResolved = unresolvedFiles.length === 0;
-  const affectedSlowTests = uniqueSorted([...directlyChangedSlowTests, ...inventory.affectedSlowTests]);
+  const affectedSlowTests = uniqueSorted([
+    ...directlyChangedSlowTests,
+    ...inventory.affectedSlowTests
+  ]);
   const impactedSuites = suitesForSlowTests(affectedSlowTests);
   const baselineSuites = boundedBaselineRequired || mandatorySentinelsRequired || !selectionResolved
     ? baselineSlowSuiteIds()
     : [];
   const suites = uniqueSorted([...baselineSuites, ...impactedSuites]);
   const slowTests = uniqueSorted(
-    directlyChangedSlowTests.filter((file) => !suites.some((suite) => slowTestSuiteFiles(suite).includes(file)))
+    directlyChangedSlowTests.filter((file) =>
+      !suites.some((suite) => slowTestSuiteFiles(suite).includes(file))
+    )
   );
   const reasons = uniqueSorted([
     ...(boundedBaselineRequired ? ['bounded-baseline' as const] : []),

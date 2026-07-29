@@ -43,5 +43,6 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 不让外部工具改写AGENTS、Skills或authority docs。
 
 ## 权威
-- `docs/governance/external-capability-and-provider-policy.md`
-- `docs/governance/nexus-absorption-and-conformance.md`
+- `docs/external-provider-policy.md`
+- `docs/governance/external-capability-ledger.yaml`
+- `docs/corpus/nexus/contract.md`

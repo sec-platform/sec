@@ -1,58 +1,72 @@
 ---
 title: SEC 滚动近期计划
 status: active
-last-reviewed: 2026-07-28
+last-reviewed: 2026-07-29
 ---
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@9b1111441a92b64888323c79f359b52cd039994a`、PR #174/#185、Issue #167/#173/#175/#176、Review/CI 和 exact tree 重新计算。Fast Runner Resource Isolation 已通过受信 base manual bootstrap 进入当前 main；旧 candidate、Review 与 Gate 只作为原 identity Evidence，不重复执行。Portable lease 现在独占 active 控制面，active documentation corpus 只能在其进入 main 后重算，禁止并行双写。
+本窗口从 live resolver 已确认的 `main@c289a44609a3502140ede55857d90109d4db744f`、已合并 PR #174、Draft PR #185、开放 Issues #167/#173/#175–#194、Review/CI 与 exact tree 重新计算。
+
+Portable workspace lease 已进入 `main`：common writer authority 使用 Node 标准 `fs.link` 的 append-only generation ledger，shared v2 inspector 是唯一只读协议消费者；Windows native Node 24 与 WSL2/ext4 Node 22 的竞争、crash recovery 和 quiescence Evidence 已在 PR #174 exact head 闭合。该结果只解除 Node mutating host 的 lease 阻塞，不等于公共 Node CLI 已受支持。
 
 ```text
-Fast Runner Resource Isolation
-→ Portable Atomic Workspace Lease
-→ Active Documentation Corpus
-→ Verification Result Truth
-→ Remaining Runtime / Toolchain Seams
+Active Documentation Corpus
+→ Parallel Work Package Contract V1
+→ Verification Truth / Hermetic Runtime / Worktree Hygiene / Dependency Boundary / Incremental Compiler
+→ Semantic Test Impact / Failure Epoch / Trusted Bootstrap / Evidence DAG
+→ Automatic Feedback / Property-Fault-Flake
+→ Runtime Host / Target / Provider / Release Matrix
 ```
 
 普通进度只进入 Reconciliation Delta；仅新 Work Package、真实 `reload_if` 与最终 reconciliation 更新本文件。
 
 ## 当前唯一 Work Package
 
-### workspace-write-lease-portability-v1
+### active-documentation-corpus-v1
 
-- 工程结果：common write authority 使用 Node 标准 `fs.link`发布 append-only generation ledger；完整 immutable owner 与terminal均 no-replace，active owner只由最高未terminalized generation决定。
-- 崩溃收敛：immutable publication 显式区分未发布、已发布和durability unknown；一旦目标可能已发布就保留完整holder，由重启从ledger恢复，禁止不确定删除。
-- 唯一消费：protected Gate 只消费 shared read-only v2 inspector，不再维护v1 `owner.json`、token或identity的第二套parser。
-- 恢复不变量：heartbeat只属于exact owner holder；仅同host、stale且PID proven-dead的最高generation可追加recovery terminal。release/recovery都不删除或复用active/successor generation，延迟actor不能撤销后继writer。
-- 迁移边界：v1 active directory只在graceful release后自然消失；发现legacy `owner.json` residue必须typed fail closed，不自动猜测旧进程死亡。v2永久protocol root使旧v1进程也无法并行取得同一路径。
-- 当前 Bun 合法边界：只从`platform/shared/workspace-write-lease.ts`移除`bun:ffi`；Bun 1.3.14 repository Toolchain、显式 Bun/native adapter、Bun Target与development/verification Gate保持合法。
-- Node 边界：本包只证明lease primitive在Windows Node 24与WSL2/ext4 Node 22上的真实跨进程竞争和crash recovery；公共CLI静态图、Bun Toolchain executable、clean package smoke与Node支持声明仍属于后续包。
-- 退出：source/contracts/focused/typecheck/docs/audit/affected/imports、真实双平台 sentinel、独立 exact-head Review 与 required trust-root bootstrap 满足；merge/readback 后重算 Issue #167 剩余 DAG。
+- 工程结果：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；历史编号、旧合集和 superseded governance/test prose 按 latest-main bytes 归档。
+- 设计完整性：Product、System、Semantic Model、Delta/Impact、Mutation、Compiler/Target IR、Block、Brownfield、Workbench/AI、Runtime、Change、Verification、Development Governance 与 External Provider 各有唯一 owner；长期能力保留 promotion 条件，不以三行名词替代设计。
+- 主干协调：吸收 #182–#187 与 #174 的产品/CI事实；不把这些实现复制进 prose，不实现 #176–#194。
+- Trust boundary：candidate 修改 docs-doctor、active-documentation、Agent coverage 与 Risk selection，必须由 trusted-base bootstrap、独立 exact-head Review 和 required Full Evidence 验证。
+- 退出：single-parent current-main candidate；focused/typecheck/docs/audit/imports/affected、Review 与 Full Evidence 闭合；merge 后从新 `main` readback，关闭 #173，归档本 manifest并返回 `TASK_RESTART_REQUIRED`。
 
 ## 候选 Work Package
 
-### 1. active-documentation-corpus-v1
+### 1. parallel-work-package-contract-v1（#191 Phase V1）
 
-- 工程结果：机器 registry 取代历史编号、路径 catch-all 和人工 authority 表；active prose 按自然领域原子迁移，旧正文 byte-for-byte 归档。
-- 依赖：portable lease 产品结果与控制面先进入 main，PR #185 随后重算 authority、链接、manifest 与 trust-root bootstrap。
-- 退出：在新 base 单提交重冻；独立 Review 与 required `full` Evidence 只运行一次；merge 后 readback 并返回 `TASK_RESTART_REQUIRED`。
+- 工程结果：为 manifest 增加 authority read/write、owned/forbidden paths、global exclusive resources、requires/conflicts，并将关系确定性分类为 parallel-safe、ordered、write/resource-conflict 或 unresolved。
+- 依赖：active documentation corpus 进入 main并reload authority。
+- 退出：默认仍单包；只有机器证明分离的任务可并行，Integration Queue 不建立第二产品计划源。
 
-### 2. verification-result-truth-v1
+### 2. verification-result-truth-v1（#176）
 
-- 工程结果：完成 Issue #176 剩余的 Gate result、platform/runtime execution ledger、skip 与 affected 空选择真值模型。
-- 依赖：portable lease 已进入 `main`，live resolver 不存在其他 active product Work Package。
-- 退出：未在 owning environment 物理执行的声明不能投影为 PASS，result ledger 成为 CLI、artifact 与 Checks 的唯一事实。
+- 工程结果：`passed | failed | not-run | unsupported | invalidated` 与 execution ledger 成为唯一结果真值；空/未知 affected closure 不再返回成功。
+- 依赖：#185 进入 main；#191 若未完成则保持唯一 active 包。
+- 退出：owning platform未执行不能显示 PASS，CLI/artifact/Checks只投影同一 ledger。
 
-### 3. remaining-runtime-and-toolchain-seams-v1
+### 3. hermetic-test-runtime-phase-a（#190）
 
-- 工程结果：按 `common-node-host-and-toolchain-separation → generated-node-bun-target-profiles → optional-native-capability-adapters → cross-host-determinism-and-release-matrix` 严格串行闭合剩余 runtime/toolchain seam。
-- 依赖：portable lease 与 verification result truth 均进入 `main`；spike 与 local-dirty snapshot 不进入正式事实。
-- 退出：全部剩余 heads 都有进入 main、被吸收、明确禁止合并或带准确 blocker 四类之一的持久证明；只有最终 release matrix 允许声明 public Node baseline fully supported。
+- 工程结果：fixture/resource 分类、workspace/port/process/browser/environment allocation、cleanup/readback receipt 与 Windows/Unix physical owner。
+- 依赖：#185 进入 main；portable lease 已满足；与其他包并行需 #191 证明。
+- 退出：identity-bound/control-state不普通复制，失败/取消后无隐式进程或下一轮残留。
 
-## Gate、单写者与重算
+### 4. worktree-hygiene-v1（#186）
 
-- A0 是本窗口全部 Gate owner；相同 `gate_key + tested head + profile` 的未失效结果复用。
-- 上述顺序严格串行；任何时刻最多一个正式 active manifest 与一个 candidate epoch。同一 exact Gate identity 只执行一次，确定性失败在输入变化前直接复用。
-- SEC main、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership 反证、实现 supersede 或全仓审计新决定性 finding 触发 live resolver 与全窗口重算。
+- 工程结果：Git registry、物理目录、dirty/untracked/ignored、Windows reparse 与最终 receipt 的唯一 cleanup owner。
+- 依赖：#185 后的新 development-governance authority。
+- 退出：Git 注销但物理残留不再被误报为完成；无法证明安全删除时 fail closed。
+
+### 5. dependency-boundary-first-cleanup / compiler-incremental-phase-1（#193/#194）
+
+- #193 首包只建立 Core/Host/Toolchain/Provider/Target依赖边界并删除已证明无用的小依赖；`package.json`/`bun.lock`保持唯一 writer。
+- #194 Phase 1建立 in-memory Compiler Incremental Graph与clean/incremental byte parity，不引入持久CAS。
+- 二者是否与 #176/#190/#186 并行，由 #191 对实际 write/resource set裁决。
+
+## 并行 Spike
+
+#192 Runtime/Library physical matrix、#193 dependency census、#188 Impact census、#194 Phase 0 benchmark与#190/#180设计Census可继续在scratch/Issue Evidence中执行；不得修改产品分支、package/lock、docs/work或冒充正式结果。
+
+## 重算触发
+
+`main`、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership反证、实现 supersede、#191冲突结果或全仓审计的新决定性 finding，都会触发 live resolver 与本窗口整体重算。
