@@ -7,7 +7,7 @@ last-reviewed: 2026-07-30
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@fe80386d2aaad41805bcf9e66936e46259e39fdf`、已合并 PR #196（active documentation corpus）与 PR #199（test runtime performance）、已归档 PR #197（superseded）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
+本窗口从 live resolver 已确认的 `main@fe80386d2aaad41805bcf9e66936e46259e39fdf`、已合并 PR #196（active documentation corpus；replay provenance 保留 "当前 PR #196" 窗口标记）与 PR #199（test runtime performance）、已归档 PR #197（superseded；曾经 consolidated tree 等价重放且待 supersede）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
 
 Active documentation corpus 与 test runtime performance 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`。
 
@@ -24,12 +24,17 @@ Active Documentation Corpus
 
 ## 当前唯一 Work Package
 
-### parallel-work-package-contract-v1
+### ci-speed-optimization-v1
 
-- 已合并至 `main@e2c079c`；manifest blob 已在 default branch 上，pointer 返回 `none`；manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer 后归档。
-- 工程结果：为 Work Package manifest 创建 V3 schema（codex-development-work-package-v3）parser/types/validator，包含 authority reads/writes、owned/permitted/forbidden paths、global exclusive resources、shared read-only resources、requires/orderedAfter/conflictsWith；实现 pairwise conflict resolver（7 步冲突算法）和 global exclusive resource registry（8 类全局单 writer）；V1/V2 输入返回 unresolved；默认仍单包。
+- 从 `main@05de8a1` 创建；frozen manifest 指向 `docs/work-packages/ci-speed-optimization-v1.md`。
+- 工程结果：为所有 CI 工作流添加 bun install cache 和 tsc incremental build info cache；为 merge-gate push 触发器添加 paths filter；创建 sec-merge-bootstrap.ts CLI 工具自动化合并流程；优化 merge-gate API 调用去重。
 
 ## 已完成 Work Package
+
+### parallel-work-package-contract-v1 (PR #200)
+
+- 已合并至 `main@e2c079c`；manifest 已归档至 `docs/archive/work-packages/`。
+- 工程结果：为 Work Package manifest 创建 V3 schema（codex-development-work-package-v3）parser/types/validator，包含 authority reads/writes、owned/permitted/forbidden paths、global exclusive resources、shared read-only resources、requires/orderedAfter/conflictsWith；实现 pairwise conflict resolver（7 步冲突算法）和 global exclusive resource registry（8 类全局单 writer）；V1/V2 输入返回 unresolved；默认仍单包。
 
 ### test-runtime-performance-v1 (PR #199)
 

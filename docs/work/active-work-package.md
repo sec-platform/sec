@@ -10,8 +10,8 @@ last-reviewed: 2026-07-30
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/parallel-work-package-contract-v1.md
-manifestDigest: sha256:28ed0fc175d4e1548e17864ad1f7ef353df1f04b7b94b9c053d474e14d7d9209
+manifest: docs/work-packages/ci-speed-optimization-v1.md
+manifestDigest: sha256:926b636f1af4dcd1a654df8a8ecba5c8b3abd76cc93f2b847ed124d648a9ad9c
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
