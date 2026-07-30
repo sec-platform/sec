@@ -11,7 +11,8 @@ import {
   CI_VERIFICATION_PR_DISPATCH_TYPE,
   CI_VERIFICATION_PR_EVENT,
   CI_VERIFICATION_PR_STEP_ORDER,
-  CI_VERIFICATION_RELEASE_STEP_ORDER
+  CI_VERIFICATION_RELEASE_STEP_ORDER,
+  CodexDevelopmentBuildVerificationPlanV1
 } from '../../platform/shared/ci-contract.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
@@ -174,6 +175,15 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
     'explain',
     'reference-check'
   ]);
+  // Full gate conditionally includes docs-doctor based on documentation lifecycle changes.
+  expect(buildCiFullGatePlan({ hasDocumentationLifecycleChange: false }).map((step) => step.id)).not.toContain('docs-doctor');
+  expect(buildCiFullGatePlan({ hasDocumentationLifecycleChange: true }).map((step) => step.id)).toContain('docs-doctor');
+  // Build plan with empty changedFiles and no documentation-lifecycle owners omits docs-doctor in full profile.
+  const fullPlanNoDocChange = CodexDevelopmentBuildVerificationPlanV1('full', [], undefined);
+  expect(fullPlanNoDocChange.gates.map((step) => step.id)).not.toContain('docs-doctor');
+  // Build plan with null changedFiles (unknown changes) includes docs-doctor as conservative default.
+  const fullPlanUnknownChanges = CodexDevelopmentBuildVerificationPlanV1('full', null, undefined);
+  expect(fullPlanUnknownChanges.gates.map((step) => step.id)).toContain('docs-doctor');
   expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
   expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
   expect(() => assertCiExpectedHead('head-a', 'head-a')).not.toThrow();

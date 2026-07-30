@@ -158,3 +158,38 @@ export async function runLocalAffectedCheck(
   }
   return 0;
 }
+
+interface FastCheckExecutionOptions {
+  readonly prepareCompilerNodeModulesPath?: () => Promise<string>;
+}
+
+export async function runFastCheck(options: FastCheckExecutionOptions = {}): Promise<number> {
+  if (!options.prepareCompilerNodeModulesPath) {
+    console.error('Fast check requires the canonical dependency preparation capability.');
+    return 1;
+  }
+
+  const compilerNodeModulesPath = await options.prepareCompilerNodeModulesPath();
+
+  console.log('Running fast check: imports:prepare + docs:doctor (parallel) -> typecheck -> test:fast');
+
+  const { runImportPreparation } = await import('./import-organizer.ts');
+  const { runDevCommand } = await import('./command-runner.ts');
+
+  const [importsCode, docsCode] = await Promise.all([
+    runImportPreparation(),
+    runDevCommand('bun', ['docs/scripts/docs-doctor.ts'], {})
+  ]);
+  if (importsCode !== 0) return importsCode;
+  if (docsCode !== 0) return docsCode;
+
+  const { runTypecheck, runTypecheckWithBinPath } = await import('./typecheck-runner.ts');
+  const typecheckCode = compilerNodeModulesPath
+    ? await runTypecheckWithBinPath(path.join(compilerNodeModulesPath, '.bin'))
+    : await runTypecheck();
+  if (typecheckCode !== 0) return typecheckCode;
+
+  const { withHeavyVerificationGateLease } = await import('../shared/heavy-verification-gate-lease.ts');
+  const { runFastTests } = await import('./test-runner.ts');
+  return withHeavyVerificationGateLease('test:fast', () => runFastTests());
+}

@@ -25,7 +25,13 @@ export function getTestWorkspaceTemplateRoot(): string {
 }
 
 export async function cleanTestWorkspaces(env: NodeJS.ProcessEnv = process.env): Promise<void> {
-  await fs.rm(getTestWorkspaceTempRoot(env), {
+  const root = getTestWorkspaceTempRoot(env);
+  try {
+    await fs.access(root);
+  } catch {
+    return;
+  }
+  await fs.rm(root, {
     recursive: true,
     force: true,
     maxRetries: 5,

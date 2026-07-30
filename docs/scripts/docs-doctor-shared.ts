@@ -54,6 +54,17 @@ export interface DocsDoctorScanOptions {
   docsRoot: string;
   repositoryRoot: string;
   readCandidateManifestBlob?: (manifestPath: string) => Promise<Uint8Array>;
+  /**
+   * When provided, per-document diagnostics (frontmatter, link resolution, deprecated tokens,
+   * dynamic-fact checks, H1 count) only run for documents whose repository-relative POSIX path
+   * is in this set. Global invariants (control plane binding, registry integrity, generated
+   * index drift, machine ledgers, active-candidate census, registered-document existence)
+   * always run so that incremental mode never weakens the contract.
+   *
+   * The CLI exposes this via `--since <git-ref>`; callers that do not pass the option retain
+   * full-scan semantics.
+   */
+  changedDocumentPaths?: ReadonlySet<string> | null;
 }
 
 export interface DocsDoctorFrontmatter {

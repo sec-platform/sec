@@ -51,7 +51,7 @@
     "clean:test-workspaces": "bun ./platform/dev-runner.ts clean-test-workspaces",
     "check": "bun run check:fast",
     "check:affected": "bun ./platform/dev-runner.ts check:affected",
-    "check:fast": "bun run imports:prepare && bun run typecheck && bun run docs:doctor && bun run test:fast",
+    "check:fast": "bun ./platform/dev-runner.ts check:fast",
     "check:full": "bun run imports:prepare && bun run typecheck && bun run docs:doctor && bun run test:full"
   },
   "dependencies": {

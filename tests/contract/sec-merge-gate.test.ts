@@ -670,7 +670,8 @@ const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentRunGateProcessV1::spawn#1',
   'scripts/codex/exact-git-blob.ts::function-declaration:runGit::spawnSync#1',
   'scripts/codex/merge-gate.ts::function-declaration:mergeGateGitResolvers>const-arrow:run::spawnSync#1',
-  'scripts/install-git-hooks.ts::function-declaration:gitText::spawnSync#1'
+  'scripts/install-git-hooks.ts::function-declaration:gitText::spawnSync#1',
+  'docs/scripts/docs-doctor.ts::function-declaration:resolveChangedDocumentPathsSince::spawnSync#1'
 ]);
 
 const TCB_CHILD_PROCESS_LOADERS = new Set([
@@ -1647,7 +1648,7 @@ test('verifier runtime import closure stays inside the TCB except for the review
     reviewedProcessDispatchers
   } = trustedRuntimeClosure();
   expect(closure.size).toBe(60);
-  expect(reviewedProcessDispatchers.size).toBe(16);
+  expect(reviewedProcessDispatchers.size).toBe(17);
   expect([...reviewedEdges].sort()).toEqual([...TCB_REVIEWED_SUT_EDGES].sort());
   expect([...reviewedExternalImports].sort()).toEqual([...TCB_REVIEWED_EXTERNAL_IMPORTS].sort());
   expect([...reviewedProcessDispatchers].sort()).toEqual([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort());

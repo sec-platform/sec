@@ -1,4 +1,6 @@
-export const DEFAULT_FAST_TEST_MAX_CONCURRENCY = 4;
+import { availableParallelism } from 'node:os';
+
+export const DEFAULT_FAST_TEST_MAX_CONCURRENCY = Math.max(4, Math.min(8, availableParallelism()));
 
 function hasOption(args: readonly string[], option: string): boolean {
   return args.some((arg) => arg === option || arg.startsWith(`${option}=`));
