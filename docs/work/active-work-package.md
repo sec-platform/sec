@@ -10,8 +10,8 @@ last-reviewed: 2026-07-30
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/ci-speed-optimization-v1.md
-manifestDigest: sha256:926b636f1af4dcd1a654df8a8ecba5c8b3abd76cc93f2b847ed124d648a9ad9c
+manifest: docs/work-packages/dev-loop-speed-v1.md
+manifestDigest: sha256:e3b5b2f254b67537e10c3f4357d10886b8bcbaf4953249dd8da552d106bde730
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

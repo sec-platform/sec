@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 /** Registry-backed documentation policy scanner. */
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -180,7 +181,21 @@ export async function scanDocumentation(
     }
   }
 
+  const incrementalFilter = options.changedDocumentPaths ?? null;
+  const isIncremental = incrementalFilter !== null;
+  // 当 registry 本身或其投影（docs/README.md）发生变化时，增量模式必须退化为全量
+  // per-document 检查：任何文档都可能引用了被变更的 registry/index，需要重新校验链接。
+  const registryOrIndexChanged = isIncremental
+    && (incrementalFilter.has(DOCUMENT_AUTHORITY_REGISTRY_PATH)
+      || incrementalFilter.has('docs/README.md')
+      || incrementalFilter.has(CONTROL_PATHS.activePointer)
+      || incrementalFilter.has(CONTROL_PATHS.rollingPlan)
+      || incrementalFilter.has(CONTROL_PATHS.currentState));
+  const effectiveFilter = registryOrIndexChanged ? null : incrementalFilter;
+
   for (const record of registry.documents) {
+    // 增量模式：只对变更文档执行 per-document 诊断；全局不变量已在上文/下文单独校验。
+    if (effectiveFilter !== null && !effectiveFilter.has(record.path)) continue;
     const file = path.join(repositoryRoot, ...record.path.split('/'));
     if (!(await exists(file))) continue;
     const content = await fs.readFile(file, 'utf8');
@@ -418,11 +433,80 @@ export async function scanDocumentation(
   };
 }
 
+/**
+ * Resolve the set of repository-relative paths changed since `sinceRef` via
+ * `git diff --name-only`. Used by the CLI `--since` flag to drive incremental scans.
+ * This is the single reviewed spawnSync dispatcher in docs-doctor.ts.
+ */
+function resolveChangedDocumentPathsSince(
+  repositoryRoot: string,
+  sinceRef: string
+): SpawnSyncReturns<string> {
+  return spawnSync(
+    'git',
+    ['diff', '--name-only', `${sinceRef}..HEAD`],
+    { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true }
+  );
+}
+
 if (import.meta.main) {
   const repositoryRoot = path.resolve(import.meta.dir, '../..');
+  const argv = process.argv.slice(2);
+  let sinceRef: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--since') {
+      sinceRef = argv[i + 1];
+      if (!sinceRef || sinceRef.startsWith('--')) {
+        console.error('docs-doctor: --since requires a git ref argument');
+        process.exitCode = 2;
+        throw new Error('docs-doctor --since requires a git ref argument');
+      }
+      i++;
+    } else if (arg.startsWith('--since=')) {
+      sinceRef = arg.slice('--since='.length);
+      if (sinceRef.length === 0) {
+        console.error('docs-doctor: --since requires a non-empty git ref');
+        process.exitCode = 2;
+        throw new Error('docs-doctor --since requires a non-empty git ref');
+      }
+    } else if (arg === '--help' || arg === '-h') {
+      console.log('docs-doctor: registry-backed documentation policy scanner');
+      console.log('  --since <git-ref>  Only scan documents changed since the ref (incremental mode)');
+      console.log('                    Global invariants (control plane, index drift, machine ledgers)');
+      console.log('                    always run; pass without value for full scan.');
+      process.exit(0);
+    }
+  }
+
+  let changedDocumentPaths: ReadonlySet<string> | null = null;
+  if (sinceRef) {
+    const diffResult = resolveChangedDocumentPathsSince(repositoryRoot, sinceRef);
+    if (diffResult.error) {
+      console.error(`docs-doctor: git diff --name-only ${sinceRef}..HEAD failed: ${diffResult.error.message}`);
+      process.exitCode = 2;
+      throw new Error(`docs-doctor: git diff against ${sinceRef} failed`);
+    }
+    if (diffResult.status !== 0) {
+      const detail = diffResult.stderr?.trim() ?? '';
+      console.error(`docs-doctor: git diff --name-only ${sinceRef}..HEAD failed${detail.length > 0 ? `: ${detail}` : ''}`);
+      process.exitCode = 2;
+      throw new Error(`docs-doctor: git diff against ${sinceRef} failed`);
+    }
+    changedDocumentPaths = new Set(
+      diffResult.stdout.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)
+    );
+    if (changedDocumentPaths.size === 0) {
+      console.log('docs-doctor: no changed paths since %s; running full-scan invariants only.', sinceRef);
+    } else {
+      console.log('docs-doctor: incremental mode, %d changed path(s) since %s', changedDocumentPaths.size, sinceRef);
+    }
+  }
+
   const result = await scanDocumentation({
     repositoryRoot,
-    docsRoot: path.join(repositoryRoot, 'docs')
+    docsRoot: path.join(repositoryRoot, 'docs'),
+    changedDocumentPaths
   });
   for (const issue of result.issues) {
     console.error(`[${issue.level}] ${issue.code} ${issue.file}: ${issue.message}`);

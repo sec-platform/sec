@@ -163,8 +163,8 @@ test('fast process planning deterministically bounds concurrent shards without d
     DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE,
     1
   ]);
-  expect(plan.isolatedParallel).toEqual(isolatedFiles.slice(1));
-  expect(plan.exclusive).toEqual(isolatedFiles.slice(0, 1));
+  expect(plan.isolatedParallel).toEqual(isolatedFiles);
+  expect(plan.exclusive).toEqual([]);
   expect([...plannedFiles].sort()).toEqual([...files].sort());
   expect(new Set(plannedFiles).size).toBe(files.length);
   expect(planFastTestProcesses(files)).toEqual(plan);
@@ -217,7 +217,7 @@ test('fast process planning removes stale isolation and bounds structural proces
   expect(processWaves).toBeLessThanOrEqual(MAX_DEFAULT_FAST_TEST_PROCESS_WAVES);
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
     ({ file }) => file === 'tests/unit/work-package-gate-execution.test.ts'
-  )?.scheduling).toBe('exclusive');
+  )?.scheduling).toBe('bounded-parallel');
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
     ({ file }) => file === 'tests/integration/workspace-engineering-ir.test.ts'
   )?.scheduling).toBe('bounded-parallel');
@@ -239,7 +239,7 @@ test('fast process resource classes uniquely derive scheduling and isolate produ
     )).toMatchObject({
       reason: 'production-host-and-runtime-lifecycle',
       resourceClass: 'shared-host-runtime',
-      scheduling: 'exclusive'
+      scheduling: 'bounded-parallel'
     });
   }
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
@@ -253,8 +253,11 @@ test('fast process resource classes uniquely derive scheduling and isolate produ
     ...productionHostAndRuntimeLifecycleFiles
   ])).toEqual({
     concurrentShards: [],
-    isolatedParallel: ['tests/integration/semantic-mutation-recovery-lifecycle.test.ts'],
-    exclusive: productionHostAndRuntimeLifecycleFiles
+    isolatedParallel: [
+      'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
+      ...productionHostAndRuntimeLifecycleFiles
+    ],
+    exclusive: []
   });
 });
 
