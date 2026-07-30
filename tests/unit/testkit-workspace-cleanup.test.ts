@@ -75,7 +75,7 @@ describe('testkit workspace cleanup', () => {
 
     await removeWorkspaceDirectoryWithRetry(harness.request);
 
-    expect(harness.delays).toEqual([100, 200]);
+    expect(harness.delays).toEqual([50, 100]);
     expect(harness.removeOptions).toEqual([
       { recursive: true, force: true },
       { recursive: true, force: true },
@@ -87,7 +87,7 @@ describe('testkit workspace cleanup', () => {
   test('retries EACCES only on win32', async () => {
     const windowsHarness = cleanupHarness({ failures: [errnoFailure('EACCES')], platform: 'win32' });
     await removeWorkspaceDirectoryWithRetry(windowsHarness.request);
-    expect(windowsHarness.delays).toEqual([100]);
+    expect(windowsHarness.delays).toEqual([50]);
     expect(windowsHarness.removeOptions).toHaveLength(2);
     expect(windowsHarness.deferredCleanupDirs.size).toBe(0);
 
@@ -107,7 +107,7 @@ describe('testkit workspace cleanup', () => {
     await expect(removeWorkspaceDirectoryWithRetry(harness.request)).rejects.toBe(terminalFailure);
 
     expect(harness.removeOptions).toHaveLength(6);
-    expect(harness.delays).toEqual([100, 200, 300, 400, 500]);
+    expect(harness.delays).toEqual([50, 100, 200, 400, 800]);
     expect(harness.deferredCleanupDirs).toContain(harness.directory);
   });
 
