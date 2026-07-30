@@ -1555,7 +1555,10 @@ export async function ensureSharedDepsReady(
     }
 
     const sharedCacheDir = path.join(sharedDepsRoot, '.bun-cache');
-    const { packageManager } = await runBunInstall(sharedDepsRoot, options, ['install'], sharedCacheDir);
+    // --no-lockfile prevents bun from creating .shared-deps/bun.lock, which would
+    // violate the sandbox-architecture contract (no competing lockfiles in shared deps root).
+    // The lockfile is unnecessary here because package.json is generated with pinned versions.
+    const { packageManager } = await runBunInstall(sharedDepsRoot, options, ['install', '--no-lockfile'], sharedCacheDir);
     if (!(await hasCompleteRuntimeDeps(sharedNodeModulesPath, runtimeSpec))) {
       throw new CompilerError(
         'RUNTIME-DEPS-002',
