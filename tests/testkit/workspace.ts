@@ -13,6 +13,7 @@ import {
   initWorkspace,
   verifyWorkspace
 } from '../../platform/orchestrator.ts';
+import { createConcurrencyLimit } from '../../platform/shared/concurrency.ts';
 import type { PipelineStageId } from '../../platform/shared/pipeline-types.ts';
 import {
   createWorkspaceWithDeferredCleanup,
@@ -24,6 +25,7 @@ const workspaceParent = getTestWorkspaceTempRoot();
 const templateParent = getTestWorkspaceTemplateRoot();
 const templateCacheVersion = 'v5-typescript-incremental-pruning';
 const deferredCleanupDirs = new Set<string>();
+const deferredCleanupConcurrency = createConcurrencyLimit(4);
 
 export type WorkspaceTemplateKind =
   | 'empty-default'
@@ -41,9 +43,15 @@ export type WorkspaceCallbackOptions = {
 };
 
 afterAll(async () => {
-  for (const directory of deferredCleanupDirs) {
-    await removeWorkspaceDirectory(directory);
-  }
+  // Parallelize workspace cleanup with bounded concurrency to avoid
+  // exhausting the 120s afterAll budget on Windows where directory removal
+  // is slow. Each directory is distinct, so concurrent removal is safe;
+  // EBUSY/EPERM retries are handled by removeWorkspaceDirectoryWithRetry.
+  await Promise.all(
+    [...deferredCleanupDirs].map((directory) =>
+      deferredCleanupConcurrency(() => removeWorkspaceDirectory(directory))
+    )
+  );
 }, 120000);
 
 function sleepMs(delayMs: number): Promise<void> {
@@ -491,9 +499,13 @@ export async function cloneWorkspaceTemplate(
 ): Promise<string> {
   const templateRoot = await ensureTemplate(kind);
   const workspaceRoot = await createWorkspace(prefix);
-  await withTemplateLock(kind, async () => {
-    await copyWorkspaceFixture(templateRoot, workspaceRoot);
-  });
+  // Template is immutable after ensureTemplate returns: templateCacheVersion
+  // is a hardcoded constant, so the .template-ready marker never becomes
+  // stale within a single run, and createTemplate uses staging + atomic rename.
+  // Concurrent copies from the read-only template to distinct targets are safe
+  // and do not need the creation lock — holding it here serialized all clones
+  // of the same kind, defeating --concurrent --max-concurrency.
+  await copyWorkspaceFixture(templateRoot, workspaceRoot);
   return workspaceRoot;
 }
 

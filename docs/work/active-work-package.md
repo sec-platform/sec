@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-07-29
+last-reviewed: 2026-07-30
 ---
 
 # 当前唯一 Active Work Package
@@ -10,8 +10,8 @@ last-reviewed: 2026-07-29
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/active-documentation-corpus-v1.md
-manifestDigest: sha256:30ef0ce29e00a692130b47a32887368c92550bb0d593964c26992151a5417e10
+manifest: docs/work-packages/test-runtime-performance-v1.md
+manifestDigest: sha256:14b6d779b1c9207d9bc63f5da875929c55e8d118d1aeb1f032994f0bfa7f9d45
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
