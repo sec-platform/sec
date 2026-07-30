@@ -4,6 +4,10 @@ import type {
   SemanticMutationVerificationCapabilityV1,
   VerificationRequirementV1
 } from './semantic-mutation-types.ts';
+import type {
+  VerificationAggregateResultV1,
+  VerificationGateResultV1
+} from './verification-result-contract.ts';
 
 export const SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID =
   'semantic-mutation-local-verification' as const;
@@ -109,6 +113,17 @@ export interface RuntimeVerificationLaneReport {
   logs: VerificationLogs;
 }
 
+/**
+ * Claim-based verification summary produced by aggregating lane-level gate
+ * results through `CodexDevelopmentAggregateVerificationClaimsV1`. Replaces
+ * the legacy "skipped → passed" false-green path: `overallStatus` is `passed`
+ * only when every required claim is `passed`.
+ */
+export interface VerificationClaimSummary {
+  readonly overall: VerificationAggregateResultV1;
+  readonly gates: readonly VerificationGateResultV1[];
+}
+
 export interface VerificationReport {
   build: FastVerificationLaneReport['build'];
   unit: FastVerificationLaneReport['unit'];
@@ -120,6 +135,12 @@ export interface VerificationReport {
     status: 'passed' | 'failed';
     requestedLane: VerificationLane;
     failedLanes: Array<'fast' | 'runtime'>;
+    /**
+     * Claim-based summary from `CodexDevelopmentAggregateVerificationClaimsV1`.
+     * Production code always sets this; tests for unrelated features may omit it.
+     * When present, `status` MUST be consistent with `claimSummary.overall.overallStatus`.
+     */
+    claimSummary?: VerificationClaimSummary;
   };
   logs: VerificationLogs;
 }
