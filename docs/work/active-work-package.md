@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/dev-loop-speed-v2.md
-manifestDigest: sha256:4f629ca4bbf24d16732e8963a6815f6a192670f441f93b2cd79df9f12e85c82c
+manifestDigest: sha256:689a07b6ff42f98112a2611bb3de723c379858d9166685388de4232636919992
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
