@@ -218,9 +218,6 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Fetch PR base for exact tree comparison
-        run: git fetch --no-tags --depth=1 origin ${{ steps.verification.outputs.base }}
-
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:

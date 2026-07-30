@@ -35,7 +35,6 @@ export const CI_VERIFICATION_PR_DISPATCH_TYPE = 'sec-verify-frozen-v1' as const;
 export const CI_VERIFICATION_PR_STEP_ORDER = [
   'Resolve trusted frozen request, exact head, current base, and profile',
   'Checkout exact PR head',
-  'Fetch PR base for exact tree comparison',
   'Setup Bun',
   'Cache bun install',
   'Cache tsc incremental build info',

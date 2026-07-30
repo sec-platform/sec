@@ -7,11 +7,11 @@ last-reviewed: 2026-07-30
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@ec0e6b53af183c820d798a039d9f6871770fd4f1`、已合并 PR #196（active documentation corpus）、PR #199（test runtime performance）、PR #200（parallel work package contract）、PR #201（CI speed optimization）、PR #202（dev-loop-speed-v1）、PR #203（dev-loop-speed-v2）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
+本窗口从 live resolver 已确认的 `main@46f92e4b966712e0adc819cf9b200502fb38d0d1`、已合并 PR #196（active documentation corpus）、PR #199（test runtime performance）、PR #200（parallel work package contract）、PR #201（CI speed optimization）、PR #202（dev-loop-speed-v1）、PR #203（dev-loop-speed-v2）、PR #204（verification-result-core-v1）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
 
-Active documentation corpus、test runtime performance、parallel work package contract、CI speed optimization、dev-loop-speed-v1 与 dev-loop-speed-v2 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`；CI 缓存、merge bootstrap CLI 与 gate API 已优化；check:fast gate 并行化、docs:doctor 增量模式、preload marker 门控、动态并发与 bounded-parallel 队列已落地；冷启动 stamp 短路、测试基础设施硬链接克隆与跨进程 test-impact 缓存、编译器管线共享 ts-morph Project 与并行 I/O、affected-tests reverse-import-map 已落地；sec-merge-bootstrap squash 已修复 single-parent invariant。
+Active documentation corpus、test runtime performance、parallel work package contract、CI speed optimization、dev-loop-speed-v1、dev-loop-speed-v2 与 verification-result-core-v1 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`；CI 缓存、merge bootstrap CLI 与 gate API 已优化；check:fast gate 并行化、docs:doctor 增量模式、preload marker 门控、动态并发与 bounded-parallel 队列已落地；冷启动 stamp 短路、测试基础设施硬链接克隆与跨进程 test-impact 缓存、编译器管线共享 ts-morph Project 与并行 I/O、affected-tests reverse-import-map 已落地；sec-merge-bootstrap squash 已修复 single-parent invariant；统一验证结果模型 5 态/3 disposition/4 applicability/17 reasonCode/claim-based aggregate 已建立。
 
-当前 `verification-result-core-v1`（Issue #176 Slice 1）正在冻结实现：建立 5 态统一结果模型（passed/failed/not-run/unsupported/invalidated）、3 disposition、4 applicability、17 reasonCode、claim-based 6 步 aggregate 算法与 legacy mapping helpers；纯加法，不修改 runner/CI/Product 写入者。
+当前 `ci-verification-flow-fix-v1` 正在冻结实现：修复 CI 验证流程两个基础设施 bug——移除 `compiler-pr-validation.yml` 冗余 `git fetch` 步骤（与 `persist-credentials: false` 冲突导致自 PR #200 起所有 hosted 验证失败）；重排 `sec-merge-bootstrap.ts commandAll` 使 `ensureSingleParent` 在 attestation/verification dispatch 之前执行（消除手动 squash workaround）。
 
 ```text
 Active Documentation Corpus
@@ -26,13 +26,18 @@ Active Documentation Corpus
 
 ## 当前唯一 Work Package
 
-### verification-result-core-v1
+### ci-verification-flow-fix-v1
 
-- Issue #176 Slice 1（首包）；base `main@ec0e6b5`；纯加法建立统一结果模型，不修改 runner/CI/Product 写入者。
-- 工程目标：5 态 `VerificationResultStatus`（passed/failed/not-run/unsupported/invalidated）、3 `VerificationDisposition`（executed/reused/not-executed）、4 `VerificationApplicability`（required/optional/not-applicable/unresolved）、17 `VerificationReasonCode`、`VerificationGateResultV1` schema、claim-based 6 步 aggregate 算法、legacy mapping helpers（product/CI V2/semantic-mutation/evidence-disposition → 统一模型，lossy 暴露为 unresolved/invalidated）。
-- 退出：所有旧模型可投影到新结果并暴露 lossy/unresolved；10 个回归场景覆盖；focused/typecheck/docs/audit/imports/affected、Review 与 Full Evidence 闭合。
+- 基础设施修复包；base `main@46f92e4`；修复 CI 验证流程两个阻断性 bug。
+- 工程目标：移除 `compiler-pr-validation.yml` 冗余 `git fetch` 步骤（`persist-credentials: false` 下凭据失败，自 PR #200 起所有 hosted 验证失败）；重排 `sec-merge-bootstrap.ts commandAll` 使 `ensureSingleParent` 在 attestation/verification dispatch 之前执行（消除手动 squash workaround）；`persist-credentials: false` 安全不变量不变。
+- 退出：hosted verification 恢复成功；`commandAll` 自动 squash 后再 dispatch；ordering 不变量有测试守护。
 
 ## 已完成 Work Package
+
+### verification-result-core-v1 (PR #204)
+
+- 已合并至 `main@46f92e4`；manifest 已归档至 `docs/archive/work-packages/`。
+- 工程结果：Issue #176 Slice 1 建立 5 态统一验证结果模型（passed/failed/not-run/unsupported/invalidated）、3 disposition（executed/reused/not-executed）、4 applicability、17 reasonCode、`VerificationGateResultV1` schema、claim-based 6 步 aggregate 算法、legacy mapping helpers（product/CI V2/semantic-mutation/evidence-disposition → 统一模型，lossy 暴露为 unresolved/invalidated）；10 个回归场景覆盖；同时修复 main 分支 documentation-authority 与 testkit-workspace-cleanup 测试 drift。
 
 ### dev-loop-speed-v2 (PR #203)
 
