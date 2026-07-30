@@ -2,7 +2,7 @@
 title: 自主开发治理
 status: stable
 domain: development-governance
-last-reviewed: 2026-07-29
+last-reviewed: 2026-07-30
 ---
 
 # 自主开发治理
@@ -12,9 +12,10 @@ last-reviewed: 2026-07-29
 ## 当前规则与目标机制
 
 - **当前可强制规则**：`main` authority、唯一 formal active Work Package、single writer、frozen manifest、exact candidate Evidence、独立 Review、merge readback 和 branch hygiene。
-- **已设计但需独立实现的目标**：并行 Work Package resolver、Integration Queue、Development Run Kernel、统一 Run Journal 和自动 feedback service。
+- **已实现**：并行 Work Package resolver（V3 schema + pairwise conflict resolver + global exclusive resource registry，见 `scripts/codex/parallel-work-package-contract.ts`）。
+- **已设计但需独立实现的目标**：Integration Queue、Development Run Kernel、统一 Run Journal 和自动 feedback service。
 
-目标设计不能被文档、Issue 或模拟对象升格为当前能力。在相应 contracts、producer、state storage、hooks、fault tests 和 real-session Evidence 进入 `main` 前，默认继续使用一个 formal active Work Package 和可验证的 manual-shadow 续跑。
+目标设计不能被文档、Issue 或模拟对象升格为当前能力。并行 Work Package resolver 已实现但尚未接入 CI/merge-gate；在 Integration Queue、Development Run Kernel、统一 Run Journal 和自动 feedback service 进入 `main` 前，默认继续使用一个 formal active Work Package 和可验证的 manual-shadow 续跑。
 
 ## 事实与授权顺序
 

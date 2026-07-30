@@ -10,8 +10,8 @@ last-reviewed: 2026-07-30
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/test-runtime-performance-v1.md
-manifestDigest: sha256:14b6d779b1c9207d9bc63f5da875929c55e8d118d1aeb1f032994f0bfa7f9d45
+manifest: docs/work-packages/parallel-work-package-contract-v1.md
+manifestDigest: sha256:28ed0fc175d4e1548e17864ad1f7ef353df1f04b7b94b9c053d474e14d7d9209
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
