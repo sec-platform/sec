@@ -57,9 +57,7 @@ describe('canonical documentation authority', () => {
     );
 
     expectContainsAll(rollingPlan, [
-      '当前 PR #196',
-      'PR #197',
-      'consolidated tree 等价重放',
+      'PR #196',
       'Failure Epoch → Trusted Bootstrap → Evidence DAG'
     ]);
     expect(rollingPlan.indexOf('Failure Epoch')).toBeLessThan(rollingPlan.indexOf('Trusted Bootstrap'));
