@@ -20,7 +20,8 @@ async function configureTestTempRoot(): Promise<void> {
   if (!process.env.LOG_LEVEL) {
     process.env.LOG_LEVEL = 'warn';
   }
-  await cleanStaleWorkspaces(tempRoot);
+  // cleanStaleWorkspaces is no longer called in preload to avoid every bun test
+  // subprocess doing I/O scans. It is called once by runFastTests before spawning.
 }
 
 /**
@@ -28,8 +29,11 @@ async function configureTestTempRoot(): Promise<void> {
  * 使用 mkdir 锁串行化，避免并发 bun test 进程同时清理。
  * 触发条件：目录数超过 STALE_DIR_THRESHOLD，或存在孤儿 staging。
  * 使用 marker file 节流，5 分钟内不重复 readdir+stat 扫描。
+ *
+ * 注意：此函数不再在 preload 中调用（避免每个 bun test 子进程都做 I/O 扫描）。
+ * 改为由 runFastTests 启动时单次调用。
  */
-async function cleanStaleWorkspaces(tempRoot: string): Promise<void> {
+export async function cleanStaleWorkspaces(tempRoot: string): Promise<void> {
   const markerPath = path.join(tempRoot, '.last-cleanup');
   try {
     const markerStat = await fs.stat(markerPath);

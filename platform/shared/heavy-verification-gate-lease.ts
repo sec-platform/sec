@@ -23,13 +23,21 @@ export type HeavyVerificationGateLeaseOptions = Readonly<{
   gateId: string;
   isProcessAlive?: (pid: number) => boolean;
   lockPath?: string;
+  namespace?: string;
   ownerHost?: string;
   ownerPid?: number;
   startedAt?: string;
   token?: string;
+  waitTimeoutMs?: number;
 }>;
 
+export type HeavyVerificationGateLeaseCallOptions = Readonly<
+  Pick<HeavyVerificationGateLeaseOptions, 'namespace' | 'waitTimeoutMs'>
+>;
+
 const HEAVY_VERIFICATION_GATE_LOCK_NAME = 'heavy-verification-gate-v1';
+const HEAVY_VERIFICATION_GATE_ID_PATTERN = /^[a-z0-9][a-z0-9:-]*$/u;
+const HEAVY_VERIFICATION_GATE_DEFAULT_WAIT_TIMEOUT_MS = 0;
 const OWNER_FILE = 'owner.json';
 const INITIALIZATION_GRACE_MS = 30_000;
 const WINDOWS_WAIT_OBJECT_0 = 0x0000_0000;
@@ -55,10 +63,24 @@ function windowsWide(value: string): Buffer {
   return Buffer.from(`${value}\0`, 'utf16le');
 }
 
-function heavyVerificationGateMutexName(worktreeRoot: string): string {
+export function heavyVerificationGateMutexName(worktreeRoot: string, namespace?: string): string {
   const canonical = path.resolve(worktreeRoot).toLocaleLowerCase('en-US');
   const digest = createHash('sha256').update(canonical).digest('hex').slice(0, 32);
-  return `Global\\sec-heavy-verification-gate-${digest}`;
+  if (!namespace) {
+    return `Global\\sec-heavy-verification-gate-${digest}`;
+  }
+  const namespaceDigest = createHash('sha256').update(namespace).digest('hex').slice(0, 16);
+  return `Global\\sec-heavy-verification-gate-${digest}-${namespaceDigest}`;
+}
+
+function validateHeavyVerificationGateNamespace(namespace: string): void {
+  if (!HEAVY_VERIFICATION_GATE_ID_PATTERN.test(namespace)) {
+    throw new Error('Heavy verification gate namespace must be canonical.');
+  }
+}
+
+function heavyVerificationGateNamespaceSegment(namespace: string): string {
+  return createHash('sha256').update(namespace).digest('hex').slice(0, 16);
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -126,7 +148,9 @@ async function reclaimStaleLock(lockPath: string, token: string): Promise<boolea
 }
 
 async function acquireWindowsHeavyVerificationGateLease(
-  owner: HeavyVerificationGateOwnerV1
+  owner: HeavyVerificationGateOwnerV1,
+  namespace: string | undefined,
+  waitTimeoutMs: number
 ): Promise<HeavyVerificationGateLease> {
   if (windowsHeavyVerificationGateHeld) {
     throw new Error('Another heavy verification gate is already active in this process.');
@@ -136,12 +160,12 @@ async function acquireWindowsHeavyVerificationGateLease(
   const handle = kernel32.symbols.CreateMutexW(
     null,
     0,
-    windowsWide(heavyVerificationGateMutexName(physicalWorktreeRoot))
+    windowsWide(heavyVerificationGateMutexName(physicalWorktreeRoot, namespace))
   ) as bigint;
   if (handle === 0n) {
     throw new Error('Heavy verification gate mutex could not be created.');
   }
-  const wait = kernel32.symbols.WaitForSingleObject(handle, 0);
+  const wait = kernel32.symbols.WaitForSingleObject(handle, waitTimeoutMs);
   if (wait !== WINDOWS_WAIT_OBJECT_0 && wait !== WINDOWS_WAIT_ABANDONED_0) {
     kernel32.symbols.CloseHandle(handle);
     if (wait === WINDOWS_WAIT_TIMEOUT) {
@@ -166,12 +190,22 @@ async function acquireWindowsHeavyVerificationGateLease(
 export async function acquireHeavyVerificationGateLease(
   options: HeavyVerificationGateLeaseOptions
 ): Promise<HeavyVerificationGateLease> {
-  if (!/^[a-z0-9][a-z0-9:-]*$/u.test(options.gateId)) {
+  if (!HEAVY_VERIFICATION_GATE_ID_PATTERN.test(options.gateId)) {
     throw new Error('Heavy verification gate id must be canonical.');
   }
-  const lockPath = path.resolve(
-    options.lockPath ?? path.join(compilerRoot, '.tmp', HEAVY_VERIFICATION_GATE_LOCK_NAME)
-  );
+  const namespace = options.namespace;
+  if (namespace !== undefined) {
+    validateHeavyVerificationGateNamespace(namespace);
+  }
+  const waitTimeoutMs = options.waitTimeoutMs ?? HEAVY_VERIFICATION_GATE_DEFAULT_WAIT_TIMEOUT_MS;
+  const namespaceSegment = namespace
+    ? heavyVerificationGateNamespaceSegment(namespace)
+    : undefined;
+  const baseLockPath = options.lockPath
+    ?? path.join(compilerRoot, '.tmp', HEAVY_VERIFICATION_GATE_LOCK_NAME);
+  const lockPath = namespaceSegment
+    ? path.join(baseLockPath, namespaceSegment)
+    : path.resolve(baseLockPath);
   const token = options.token ?? randomUUID().replaceAll('-', '');
   if (!/^[0-9a-f]{32}$/u.test(token)) {
     throw new Error('Heavy verification gate token must be 128-bit lowercase hex.');
@@ -185,7 +219,7 @@ export async function acquireHeavyVerificationGateLease(
     token
   });
   if (process.platform === 'win32' && options.lockPath === undefined) {
-    return acquireWindowsHeavyVerificationGateLease(owner);
+    return acquireWindowsHeavyVerificationGateLease(owner, namespace, waitTimeoutMs);
   }
   const ownerIsAlive = options.isProcessAlive ?? isProcessAlive;
   await mkdir(path.dirname(lockPath), { recursive: true });
@@ -243,9 +277,10 @@ export async function acquireHeavyVerificationGateLease(
 
 export async function withHeavyVerificationGateLease<T>(
   gateId: string,
-  callback: () => Promise<T>
+  callback: () => Promise<T>,
+  options?: HeavyVerificationGateLeaseCallOptions
 ): Promise<T> {
-  const lease = await acquireHeavyVerificationGateLease({ gateId });
+  const lease = await acquireHeavyVerificationGateLease({ gateId, ...options });
   try {
     return await callback();
   } finally {

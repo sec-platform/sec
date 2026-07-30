@@ -1,9 +1,10 @@
-import fs from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import { uniqueSorted } from '../../shared/collections.ts';
+import { pathExists, readText } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { defaultLogger } from '../../shared/logger.ts';
 import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
+import { manifestCache } from '../parse/manifest-cache.ts';
 
 export type RuntimeEntryKind = 'page' | 'api';
 
@@ -33,21 +34,36 @@ export function classifyRuntimeEntry(targetPath: string): RuntimeEntryKind | nul
 export class AttributionResolver {
   private blockToVertical = new Map<string, string>();
 
-  constructor(lock: LockFile) {
+  /**
+   * 异步工厂：优先查询 manifestCache（resolve-graph 阶段已预热），
+   * 缓存未命中时回退到异步磁盘读取，避免重复 I/O 与同步阻塞。
+   */
+  public static async create(lock: LockFile): Promise<AttributionResolver> {
     const manifests = new Map<string, BlockManifest>();
 
-    for (const block of lock.resolvedBlocks) {
-      try {
-        if (block.manifestPath && fs.existsSync(block.manifestPath)) {
-          const content = fs.readFileSync(block.manifestPath, 'utf8');
-          const manifest = parseYaml(content) as BlockManifest;
-          manifests.set(block.id, manifest);
+    await Promise.all(
+      lock.resolvedBlocks.map(async (block) => {
+        try {
+          const cached = manifestCache.get({ blockId: block.id, version: block.version });
+          if (cached) {
+            manifests.set(block.id, cached.manifest);
+            return;
+          }
+          if (block.manifestPath && await pathExists(block.manifestPath)) {
+            const content = await readText(block.manifestPath);
+            const manifest = parseYaml(content) as BlockManifest;
+            manifests.set(block.id, manifest);
+          }
+        } catch (err) {
+          defaultLogger.warn('Failed to load block manifest for runtime attribution', { blockId: block.id, error: err });
         }
-      } catch (err) {
-        defaultLogger.warn('Failed to load block manifest for runtime attribution', { blockId: block.id, error: err });
-      }
-    }
+      })
+    );
 
+    return new AttributionResolver(manifests);
+  }
+
+  private constructor(manifests: Map<string, BlockManifest>) {
     // 1. Detect anchors via route paths
     for (const [blockId, manifest] of manifests.entries()) {
       if (manifest.routes && manifest.routes.length > 0) {
@@ -58,7 +74,7 @@ export class AttributionResolver {
           else if (cleanPath.startsWith('customer')) vertical = 'customer';
 
           this.blockToVertical.set(blockId, vertical);
-          break; 
+          break;
         }
       }
     }
@@ -168,18 +184,18 @@ export function detectVerticalFromPath(targetPath: string): string | null {
   return null;
 }
 
-export function inferRelatedBlocks(lock: LockFile, targetPath: string): string[] {
-  const resolver = new AttributionResolver(lock);
+export async function inferRelatedBlocks(lock: LockFile, targetPath: string): Promise<string[]> {
+  const resolver = await AttributionResolver.create(lock);
   return uniqueSorted(resolver.getRelatedBlocks(targetPath, lock));
 }
 
-export function buildRuntimeAttribution(lock: LockFile, targetPath: string): RuntimeAttribution | null {
+export async function buildRuntimeAttribution(lock: LockFile, targetPath: string): Promise<RuntimeAttribution | null> {
   const kind = classifyRuntimeEntry(targetPath);
   if (!kind) {
     return null;
   }
 
-  const resolver = new AttributionResolver(lock);
+  const resolver = await AttributionResolver.create(lock);
   const vertical = resolver.detectVertical(targetPath);
   return {
     path: targetPath,
@@ -189,8 +205,8 @@ export function buildRuntimeAttribution(lock: LockFile, targetPath: string): Run
   };
 }
 
-export function buildRuntimeAttributions(lock: LockFile, targetPaths: string[]): RuntimeAttribution[] {
-  const resolver = new AttributionResolver(lock);
+export async function buildRuntimeAttributions(lock: LockFile, targetPaths: string[]): Promise<RuntimeAttribution[]> {
+  const resolver = await AttributionResolver.create(lock);
   return uniqueSorted(targetPaths)
     .map((targetPath) => {
       const kind = classifyRuntimeEntry(targetPath);

@@ -9,7 +9,7 @@
     riskMap.set(vertical, uniqueSorted(existing));
   }
   const fallbackSlices = new Map();
-  for (const entry of buildRuntimeAttributions(lock, lock.generatedPaths)) {
+  for (const entry of await buildRuntimeAttributions(lock, lock.generatedPaths)) {
     if (!entry.vertical) continue;
     let slice = fallbackSlices.get(entry.vertical);
     if (!slice) { slice = { runtimeEntries: new Set(), relatedBlocks: new Set() }; fallbackSlices.set(entry.vertical, slice); }

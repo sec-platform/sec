@@ -16,6 +16,7 @@ import {
 import type { BlockManifest, ManifestEntry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
 import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
 import { readOptionalYaml, readYaml } from '../../shared/yaml.ts';
+import { manifestCache } from './manifest-cache.ts';
 import { normalizeAndValidateSemanticManifestFields } from './validate-semantic-manifest.ts';
 
 export interface ResolvedRegistrySource {
@@ -184,6 +185,13 @@ export function validateManifest(manifest: BlockManifest): asserts manifest is M
 
 export async function loadManifestById(blockId: string, options: ManifestLoadOptions = {}): Promise<ManifestEntry> {
   const version = options.version;
+  const workspaceRoot = options.workspaceRoot;
+
+  const cached = manifestCache.get({ blockId, version, workspaceRoot });
+  if (cached) {
+    return cached;
+  }
+
   const registrySources = resolveRegistrySources(options.workspaceRoot, options.registrySources ?? []);
 
   for (const registrySource of registrySources) {
@@ -201,7 +209,9 @@ export async function loadManifestById(blockId: string, options: ManifestLoadOpt
           const resourceRoots = rootManifest
             ? [versionRoot, path.dirname(rootPath)]
             : [versionRoot];
-          return manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
+          const entry = manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
+          manifestCache.set({ blockId, version, workspaceRoot }, entry);
+          return entry;
         }
       }
     }
@@ -210,7 +220,9 @@ export async function loadManifestById(blockId: string, options: ManifestLoadOpt
     if (!manifest) continue;
     validateManifest(manifest);
     if (version && manifest.version !== version) continue;
-    return manifestEntryFromPath(registrySource, manifest, rootPath);
+    const entry = manifestEntryFromPath(registrySource, manifest, rootPath);
+    manifestCache.set({ blockId, version, workspaceRoot }, entry);
+    return entry;
   }
 
   throw new CompilerError(

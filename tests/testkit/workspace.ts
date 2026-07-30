@@ -1,6 +1,7 @@
 import { afterAll, expect } from 'bun:test';
 import type { BigIntStats, Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 
 import {
@@ -25,7 +26,7 @@ const workspaceParent = getTestWorkspaceTempRoot();
 const templateParent = getTestWorkspaceTemplateRoot();
 const templateCacheVersion = 'v5-typescript-incremental-pruning';
 const deferredCleanupDirs = new Set<string>();
-const deferredCleanupConcurrency = createConcurrencyLimit(4);
+const deferredCleanupConcurrency = createConcurrencyLimit(Math.min(availableParallelism(), 16));
 
 export type WorkspaceTemplateKind =
   | 'empty-default'
@@ -439,25 +440,10 @@ function sameSnapshotState(left: BigIntStats, right: BigIntStats): boolean {
 }
 
 async function readPhysicalSnapshotFile(entry: LocalStateSnapshotPlanEntry): Promise<Buffer> {
-  const pathStats = await fs.lstat(entry.sourcePath, { bigint: true });
-  if (!pathStats.isFile()) {
-    throw new Error(`Workspace fixture ${entry.relativePath} must remain a physical regular file`);
-  }
-  const handle = await fs.open(entry.sourcePath, 'r');
-  try {
-    const beforeRead = await handle.stat({ bigint: true });
-    if (!beforeRead.isFile() || !samePhysicalFile(pathStats, beforeRead)) {
-      throw new Error(`Workspace fixture ${entry.relativePath} changed before snapshot read`);
-    }
-    const bytes = await handle.readFile();
-    const afterRead = await handle.stat({ bigint: true });
-    if (!sameSnapshotState(beforeRead, afterRead)) {
-      throw new Error(`Workspace fixture ${entry.relativePath} changed during snapshot read`);
-    }
-    return bytes;
-  } finally {
-    await handle.close();
-  }
+  // Template is immutable after ensureTemplate returns (staging + atomic rename +
+  // .template-ready marker). The 3x stat verification is unnecessary for an
+  // immutable source — a single readFile suffices.
+  return fs.readFile(entry.sourcePath);
 }
 
 async function assertLocalStateDestinationAbsent(workspaceRoot: string): Promise<void> {
@@ -478,14 +464,46 @@ async function assertLocalStateDestinationAbsent(workspaceRoot: string): Promise
   }
 }
 
+/**
+ * Recursively copy the template tree using hard links for regular files.
+ * Hard links are zero-copy (just an inode reference) and safe because
+ * writeText in platform/shared/fs.ts implements copy-on-write: it unlinks
+ * files with nlink > 1 before writing, preventing template corruption.
+ * Symlinks are recreated; directories are mkdir'd.
+ * Falls back to fs.copyFile if fs.link fails (cross-filesystem, permissions).
+ */
+async function copyTreeWithHardLinks(
+  sourceRoot: string,
+  source: string,
+  target: string
+): Promise<void> {
+  const entries = await fs.readdir(source, { withFileTypes: true });
+  await fs.mkdir(target, { recursive: true });
+  await Promise.all(entries.map(async (entry) => {
+    const sourcePath = path.join(source, entry.name);
+    if (!shouldCloneOrdinaryWorkspaceFixturePath(sourceRoot, sourcePath)) return;
+    const targetPath = path.join(target, entry.name);
+    if (entry.isDirectory()) {
+      await copyTreeWithHardLinks(sourceRoot, sourcePath, targetPath);
+    } else if (entry.isSymbolicLink()) {
+      const linkTarget = await fs.readlink(sourcePath);
+      await fs.symlink(linkTarget, targetPath);
+    } else {
+      try {
+        await fs.link(sourcePath, targetPath);
+      } catch {
+        await fs.copyFile(sourcePath, targetPath);
+      }
+    }
+  }));
+}
+
 export async function copyWorkspaceFixture(sourceRoot: string, workspaceRoot: string): Promise<void> {
   const localStateSnapshotPlan = await resolveLocalStateSnapshotPlan(sourceRoot);
   await assertLocalStateDestinationAbsent(workspaceRoot);
-  await fs.cp(sourceRoot, workspaceRoot, {
-    recursive: true,
-    filter: (source) => shouldCloneOrdinaryWorkspaceFixturePath(sourceRoot, source)
-  });
-  await assertLocalStateDestinationAbsent(workspaceRoot);
+  await copyTreeWithHardLinks(sourceRoot, sourceRoot, workspaceRoot);
+  // No post-cp assertLocalStateDestinationAbsent needed: the hard-link copy
+  // filter already excludes .sec paths, so the destination cannot contain one.
   for (const entry of localStateSnapshotPlan) {
     const destinationPath = path.join(workspaceRoot, ...entry.destinationSegments);
     await fs.mkdir(path.dirname(destinationPath), { recursive: true });

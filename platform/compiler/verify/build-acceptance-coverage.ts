@@ -82,10 +82,12 @@ export async function buildAcceptanceCoverage(
   const slotCoverage: AcceptanceCoverageEntry[] = [];
   const targets: AcceptanceCoverageTarget[] = [];
 
-  for (const block of lock.resolvedBlocks) {
-    const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
-    targets.push(...buildAcceptanceTargets(block.id, manifestEntry.manifest));
-  }
+  const manifestEntries = await Promise.all(
+    lock.resolvedBlocks.map((block) => loadManifestForResolvedBlock(workspaceRoot, block))
+  );
+  manifestEntries.forEach((manifestEntry, i) => {
+    targets.push(...buildAcceptanceTargets(lock.resolvedBlocks[i].id, manifestEntry.manifest));
+  });
 
   const acceptanceById = new Map<string, AcceptanceItem>();
   for (const target of targets) {

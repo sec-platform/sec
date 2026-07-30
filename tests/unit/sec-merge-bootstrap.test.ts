@@ -44,6 +44,7 @@ function prInfo(overrides: Record<string, unknown> = {}): string {
     headRefOid: HEAD_SHA,
     baseRefOid: BASE_SHA,
     headRefName: 'feat/test-branch',
+    title: 'feat: test work package',
     state: 'OPEN',
     body: 'Work-Package: docs/work-packages/test-wp-v1.md\n\nSome description.',
     ...overrides
@@ -162,6 +163,7 @@ test('parsePrInfo parses valid PR JSON and extracts manifest path via locator', 
     headRefOid: HEAD_SHA,
     baseRefOid: BASE_SHA,
     headRefName: 'feat/branch',
+    title: 'feat: my feature',
     state: 'OPEN',
     body: 'Work-Package: docs/work-packages/my-wp-v1.md\n\ndesc'
   });
@@ -174,6 +176,7 @@ test('parsePrInfo parses valid PR JSON and extracts manifest path via locator', 
   expect(pr.headSha).toBe(HEAD_SHA);
   expect(pr.baseSha).toBe(BASE_SHA);
   expect(pr.headBranch).toBe('feat/branch');
+  expect(pr.title).toBe('feat: my feature');
   expect(pr.state).toBe('OPEN');
   expect(pr.manifestPath).toBe('docs/work-packages/my-wp-v1.md');
 });
@@ -184,6 +187,7 @@ test('parsePrInfo throws when head SHA is not 40-char hex', () => {
     headRefOid: 'short',
     baseRefOid: BASE_SHA,
     headRefName: 'b',
+    title: 't',
     state: 'OPEN',
     body: ''
   });
@@ -196,6 +200,7 @@ test('parsePrInfo throws when PR number is not a safe positive integer', () => {
     headRefOid: HEAD_SHA,
     baseRefOid: BASE_SHA,
     headRefName: 'b',
+    title: 't',
     state: 'OPEN',
     body: ''
   });
@@ -208,6 +213,7 @@ test('parsePrInfo throws when headRefName is empty', () => {
     headRefOid: HEAD_SHA,
     baseRefOid: BASE_SHA,
     headRefName: '',
+    title: 't',
     state: 'OPEN',
     body: ''
   });

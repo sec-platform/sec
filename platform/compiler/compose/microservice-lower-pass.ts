@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { loadCanonicalBunRuntimeVersion } from '../../shared/bun-runtime-version.ts';
+import { createConcurrencyLimit } from '../../shared/concurrency.ts';
 import { ensureDir, writeText, type CommitFence } from '../../shared/fs.ts';
-import type { LockFile } from '../../shared/lock-types.ts';
+import type { LockFile, ResolvedBlock } from '../../shared/lock-types.ts';
 import { blockDirName, getWorkspacePaths } from '../../shared/paths.ts';
 import { CodeBuilder } from '../codegen/code-builder.ts';
 
@@ -22,117 +23,133 @@ export async function lowerToMicroservices(
   }
 
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
-  const generatedPaths: string[] = [];
   const bunRuntimeVersion = await loadCanonicalBunRuntimeVersion();
 
-  for (const block of lock.resolvedBlocks) {
-    const dirName = blockDirName(block.id);
+  // 各 block 的 RPC Gateway / Client / Dockerfile 生成互相独立，可并行执行。
+  // 使用 createConcurrencyLimit 限制并发文件写入数量，避免同时打开过多文件句柄。
+  const limit = createConcurrencyLimit(8);
+  const blockGeneratedPaths = await Promise.all(
+    lock.resolvedBlocks.map((block) =>
+      limit(() => lowerBlock(block, projectRoot, bunRuntimeVersion, commitFence))
+    )
+  );
+  return blockGeneratedPaths.flat();
+}
 
-    // 1. 生成高内聚的反射型 JSON-RPC Route Gateway (Next.js API Route)
-    const rpcRouteDir = path.join(projectRoot, 'app', 'api', 'rpc', dirName);
-    const rpcRouteFile = path.join(rpcRouteDir, 'route.ts');
+async function lowerBlock(
+  block: ResolvedBlock,
+  projectRoot: string,
+  bunRuntimeVersion: string,
+  commitFence?: CommitFence
+): Promise<string[]> {
+  const dirName = blockDirName(block.id);
+  const generatedPaths: string[] = [];
 
-    await ensureDir(rpcRouteDir, commitFence);
+  // 1. 生成高内聚的反射型 JSON-RPC Route Gateway (Next.js API Route)
+  const rpcRouteDir = path.join(projectRoot, 'app', 'api', 'rpc', dirName);
+  const rpcRouteFile = path.join(rpcRouteDir, 'route.ts');
 
-    // 使用 CodeBuilder 程序化构造 RPC Gateway，类似 LLVM IRBuilder 的 SSA 构造方式。
-    // 顶层声明（import / type alias / const / function）通过 Structure API 构造为 AST，
-    // 函数体内部用语句文本（ts-morph 会解析为 AST 节点，语法错误立即抛出）。
-    const rpcRouteBuilder = new CodeBuilder(`app/api/rpc/${dirName}/route.ts`)
-      .addFileComment(`@generated-rpc-gateway block-id:${block.id}`)
-      .addImport({ moduleSpecifier: 'next/server', namedImports: ['NextResponse'] })
-      .addImport({
-        moduleSpecifier: `../../../../src/installed/${dirName}/index.ts`,
-        namespaceImport: 'service'
-      })
-      .addTypeAlias('RpcHandler', '(...args: unknown[]) => unknown | Promise<unknown>')
-      .addVariable({
-        name: 'handlers',
-        initializer: 'service as unknown as Record<string, RpcHandler>'
-      })
-      .addFunction({
-        name: 'POST',
-        isAsync: true,
-        isExported: true,
-        parameters: [{ name: 'request', type: 'Request' }],
-        body: buildRpcRouteBody(block.id)
-      });
+  await ensureDir(rpcRouteDir, commitFence);
 
-    await writeText(rpcRouteFile, rpcRouteBuilder.getText(), commitFence);
-    generatedPaths.push(`app/api/rpc/${dirName}/route.ts`);
+  // 使用 CodeBuilder 程序化构造 RPC Gateway，类似 LLVM IRBuilder 的 SSA 构造方式。
+  // 顶层声明（import / type alias / const / function）通过 Structure API 构造为 AST，
+  // 函数体内部用语句文本（ts-morph 会解析为 AST 节点，语法错误立即抛出）。
+  const rpcRouteBuilder = new CodeBuilder(`app/api/rpc/${dirName}/route.ts`)
+    .addFileComment(`@generated-rpc-gateway block-id:${block.id}`)
+    .addImport({ moduleSpecifier: 'next/server', namedImports: ['NextResponse'] })
+    .addImport({
+      moduleSpecifier: `../../../../src/installed/${dirName}/index.ts`,
+      namespaceImport: 'service'
+    })
+    .addTypeAlias('RpcHandler', '(...args: unknown[]) => unknown | Promise<unknown>')
+    .addVariable({
+      name: 'handlers',
+      initializer: 'service as unknown as Record<string, RpcHandler>'
+    })
+    .addFunction({
+      name: 'POST',
+      isAsync: true,
+      isExported: true,
+      parameters: [{ name: 'request', type: 'Request' }],
+      body: buildRpcRouteBody(block.id)
+    });
 
-    // 2. 生成 RPC 客户端代理桩 (RPC Client Proxies)，注入熔断重试韧性机制
-    const clientDir = path.join(projectRoot, 'src', 'rpc-clients');
-    const clientFile = path.join(clientDir, `${dirName}-client.ts`);
+  await writeText(rpcRouteFile, rpcRouteBuilder.getText(), commitFence);
+  generatedPaths.push(`app/api/rpc/${dirName}/route.ts`);
 
-    await ensureDir(clientDir, commitFence);
+  // 2. 生成 RPC 客户端代理桩 (RPC Client Proxies)，注入熔断重试韧性机制
+  const clientDir = path.join(projectRoot, 'src', 'rpc-clients');
+  const clientFile = path.join(clientDir, `${dirName}-client.ts`);
 
-    // 使用 CodeBuilder 程序化构造 RPC Client。
-    // CircuitBreaker 类的属性与方法通过 Structure API 构造为 AST 节点，
-    // 方法体与 callRpc 函数体用语句文本（ts-morph 解析为 AST 节点，语法错误立即抛出）。
-    const envVarName = `SERVICE_HOST_${dirName.toUpperCase().replace(/\./g, '_')}`;
-    const rpcClientBuilder = new CodeBuilder(`src/rpc-clients/${dirName}-client.ts`)
-      .addFileComment(`@generated-rpc-client block-id:${block.id}`)
-      .addClass({
-        name: 'CircuitBreaker',
-        properties: [
-          { name: 'state', type: "'CLOSED' | 'OPEN' | 'HALF_OPEN'", initializer: "'CLOSED'", scope: 'private' },
-          { name: 'failureThreshold', initializer: '3', scope: 'private' },
-          { name: 'cooldownPeriodMs', initializer: '5000', scope: 'private' },
-          { name: 'failureCount', initializer: '0', scope: 'private' },
-          { name: 'lastStateChanged', initializer: '0', scope: 'private' }
-        ],
-        methods: [
-          {
-            name: 'checkCall',
-            scope: 'public',
-            returnType: 'void',
-            body: buildCheckCallBody(block.id)
-          },
-          {
-            name: 'recordSuccess',
-            scope: 'public',
-            returnType: 'void',
-            body: 'this.failureCount = 0;\nthis.state = "CLOSED";'
-          },
-          {
-            name: 'recordFailure',
-            scope: 'public',
-            returnType: 'void',
-            body: 'this.failureCount++;\nif (this.state === "HALF_OPEN" || this.failureCount >= this.failureThreshold) {\n  this.state = "OPEN";\n  this.lastStateChanged = Date.now();\n}'
-          }
-        ]
-      })
-      .addVariable({ name: 'breaker', initializer: 'new CircuitBreaker()' })
-      .addFunction({
-        name: 'delay',
-        isAsync: true,
-        parameters: [{ name: 'ms', type: 'number' }],
-        returnType: 'Promise<void>',
-        body: 'return new Promise(resolve => setTimeout(resolve, ms));'
-      })
-      .addFunction({
-        name: 'callRpc',
-        isAsync: true,
-        isExported: true,
-        parameters: [
-          { name: 'method', type: 'string' },
-          { name: 'params', type: 'any[]' },
-          { name: 'options', type: '{ fallback?: any; timeoutMs?: number }', isOptional: true }
-        ],
-        returnType: 'Promise<any>',
-        body: buildCallRpcBody(block.id, dirName, envVarName)
-      });
+  await ensureDir(clientDir, commitFence);
 
-    await writeText(clientFile, rpcClientBuilder.getText(), commitFence);
-    generatedPaths.push(`src/rpc-clients/${dirName}-client.ts`);
+  // 使用 CodeBuilder 程序化构造 RPC Client。
+  // CircuitBreaker 类的属性与方法通过 Structure API 构造为 AST 节点，
+  // 方法体与 callRpc 函数体用语句文本（ts-morph 解析为 AST 节点，语法错误立即抛出）。
+  const envVarName = `SERVICE_HOST_${dirName.toUpperCase().replace(/\./g, '_')}`;
+  const rpcClientBuilder = new CodeBuilder(`src/rpc-clients/${dirName}-client.ts`)
+    .addFileComment(`@generated-rpc-client block-id:${block.id}`)
+    .addClass({
+      name: 'CircuitBreaker',
+      properties: [
+        { name: 'state', type: "'CLOSED' | 'OPEN' | 'HALF_OPEN'", initializer: "'CLOSED'", scope: 'private' },
+        { name: 'failureThreshold', initializer: '3', scope: 'private' },
+        { name: 'cooldownPeriodMs', initializer: '5000', scope: 'private' },
+        { name: 'failureCount', initializer: '0', scope: 'private' },
+        { name: 'lastStateChanged', initializer: '0', scope: 'private' }
+      ],
+      methods: [
+        {
+          name: 'checkCall',
+          scope: 'public',
+          returnType: 'void',
+          body: buildCheckCallBody(block.id)
+        },
+        {
+          name: 'recordSuccess',
+          scope: 'public',
+          returnType: 'void',
+          body: 'this.failureCount = 0;\nthis.state = "CLOSED";'
+        },
+        {
+          name: 'recordFailure',
+          scope: 'public',
+          returnType: 'void',
+          body: 'this.failureCount++;\nif (this.state === "HALF_OPEN" || this.failureCount >= this.failureThreshold) {\n  this.state = "OPEN";\n  this.lastStateChanged = Date.now();\n}'
+        }
+      ]
+    })
+    .addVariable({ name: 'breaker', initializer: 'new CircuitBreaker()' })
+    .addFunction({
+      name: 'delay',
+      isAsync: true,
+      parameters: [{ name: 'ms', type: 'number' }],
+      returnType: 'Promise<void>',
+      body: 'return new Promise(resolve => setTimeout(resolve, ms));'
+    })
+    .addFunction({
+      name: 'callRpc',
+      isAsync: true,
+      isExported: true,
+      parameters: [
+        { name: 'method', type: 'string' },
+        { name: 'params', type: 'any[]' },
+        { name: 'options', type: '{ fallback?: any; timeoutMs?: number }', isOptional: true }
+      ],
+      returnType: 'Promise<any>',
+      body: buildCallRpcBody(block.id, dirName, envVarName)
+    });
 
-    // 3. 生成物理隔离部署的 Dockerfile 容器定义 (Containerization)
-    const dockerDir = path.join(projectRoot, 'docker', dirName);
-    const dockerFile = path.join(dockerDir, 'Dockerfile');
-    
-    await ensureDir(dockerDir, commitFence);
-    
-    const dockerfileContent = `# @generated-dockerfile block-id:${block.id}
+  await writeText(clientFile, rpcClientBuilder.getText(), commitFence);
+  generatedPaths.push(`src/rpc-clients/${dirName}-client.ts`);
+
+  // 3. 生成物理隔离部署的 Dockerfile 容器定义 (Containerization)
+  const dockerDir = path.join(projectRoot, 'docker', dirName);
+  const dockerFile = path.join(dockerDir, 'Dockerfile');
+
+  await ensureDir(dockerDir, commitFence);
+
+  const dockerfileContent = `# @generated-dockerfile block-id:${block.id}
 FROM bun:${bunRuntimeVersion}-alpine
 
 WORKDIR /app
@@ -152,9 +169,8 @@ EXPOSE 3000
 
 CMD ["bun", "run", "dev"]
 `;
-    await writeText(dockerFile, dockerfileContent, commitFence);
-    generatedPaths.push(`docker/${dirName}/Dockerfile`);
-  }
+  await writeText(dockerFile, dockerfileContent, commitFence);
+  generatedPaths.push(`docker/${dirName}/Dockerfile`);
 
   return generatedPaths;
 }

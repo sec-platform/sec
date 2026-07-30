@@ -10,6 +10,8 @@ export async function formatOutputFiles(
   commitFence?: CommitFence
 ): Promise<void> {
   const limit = createConcurrencyLimit(10);
+  // 在循环外一次性解析 prettier 配置，避免每个文件重复 resolveConfig 的磁盘扫描。
+  const config = (await prettier.resolveConfig(projectRoot)) || {};
   await Promise.all(
     filePaths.map((relPath) =>
       limit(async () => {
@@ -19,7 +21,6 @@ export async function formatOutputFiles(
         }
         try {
           const content = await readText(fullPath);
-          const config = (await prettier.resolveConfig(fullPath)) || {};
           const formatted = await prettier.format(content, {
             ...config,
             filepath: fullPath

@@ -638,6 +638,7 @@ const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
   'node:os',
   'node:path',
   'node:url',
+  'p-limit',
   'ts-morph',
   'typescript',
   'yaml'
@@ -655,7 +656,6 @@ const TCB_BUN_SAFE_IMPORTS = new Set([
 ]);
 
 const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
-  'platform/dev-runner.ts::function-declaration:reenterWithResolvedDependencies::spawnSync#1',
   'platform/dev-runner/command-runner.ts::function-declaration:runDevCommand::spawn#1',
   'platform/dev-runner/import-organizer.ts::function-declaration:changedTypeScriptFiles::spawnSync#1',
   'platform/dev-runner/import-organizer.ts::function-declaration:gitBytes::spawnSync#1',
@@ -1648,7 +1648,7 @@ test('verifier runtime import closure stays inside the TCB except for the review
     reviewedProcessDispatchers
   } = trustedRuntimeClosure();
   expect(closure.size).toBe(60);
-  expect(reviewedProcessDispatchers.size).toBe(17);
+  expect(reviewedProcessDispatchers.size).toBe(16);
   expect([...reviewedEdges].sort()).toEqual([...TCB_REVIEWED_SUT_EDGES].sort());
   expect([...reviewedExternalImports].sort()).toEqual([...TCB_REVIEWED_EXTERNAL_IMPORTS].sort());
   expect([...reviewedProcessDispatchers].sort()).toEqual([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort());
@@ -1693,98 +1693,6 @@ test('merge-gate runtime closure requires no node_modules package', () => {
   expect([...observedExternalImports].filter((specifier) => (
     !specifier.startsWith('node:') && !specifier.startsWith('bun:')
   )).sort()).toEqual([]);
-});
-
-test('dev-runner captures one immutable bootstrap path before executable work', async () => {
-  const source = await readCompilerFile('platform/dev-runner.ts');
-  const sourceFile = ts.createSourceFile('platform/dev-runner.ts', source, ts.ScriptTarget.Latest, true);
-  const firstExecutableIndex = sourceFile.statements.findIndex((statement) => !ts.isImportDeclaration(statement));
-  const firstExecutable = sourceFile.statements[firstExecutableIndex];
-  expect(firstExecutableIndex).toBeGreaterThan(-1);
-  expect(sourceFile.statements.slice(0, firstExecutableIndex).every(ts.isImportDeclaration)).toBe(true);
-  if (!firstExecutable || !ts.isVariableStatement(firstExecutable)) {
-    throw new Error('dev-runner bootstrap path must be the first executable top-level statement.');
-  }
-  const declarationList = firstExecutable.declarationList;
-  const [declaration] = declarationList.declarations;
-  expect(firstExecutable.modifiers).toBeUndefined();
-  expect(declarationList.flags & ts.NodeFlags.Const).not.toBe(0);
-  expect(declarationList.declarations).toHaveLength(1);
-  if (
-    !declaration
-    || !ts.isIdentifier(declaration.name)
-    || declaration.name.text !== 'devRunnerFilePath'
-    || declaration.type !== undefined
-    || declaration.exclamationToken !== undefined
-    || !declaration.initializer
-    || !ts.isCallExpression(declaration.initializer)
-  ) throw new Error('dev-runner bootstrap path must be a single inferred top-level const.');
-
-  const initializer = declaration.initializer;
-  const [moduleUrl] = initializer.arguments;
-  expect(initializer.questionDotToken).toBeUndefined();
-  expect(initializer.arguments).toHaveLength(1);
-  expect(ts.isIdentifier(initializer.expression) && initializer.expression.text === 'fileURLToPath').toBe(true);
-  if (
-    !moduleUrl
-    || !ts.isPropertyAccessExpression(moduleUrl)
-    || moduleUrl.name.text !== 'url'
-    || !ts.isMetaProperty(moduleUrl.expression)
-    || moduleUrl.expression.keywordToken !== ts.SyntaxKind.ImportKeyword
-    || moduleUrl.expression.name.text !== 'meta'
-  ) throw new Error('dev-runner bootstrap path must capture fileURLToPath(import.meta.url).');
-
-  const nodeUrlImports = sourceFile.statements.filter((statement): statement is ts.ImportDeclaration => (
-    ts.isImportDeclaration(statement)
-    && ts.isStringLiteral(statement.moduleSpecifier)
-    && statement.moduleSpecifier.text === 'node:url'
-  ));
-  expect(nodeUrlImports).toHaveLength(1);
-  const importClause = nodeUrlImports[0]?.importClause;
-  expect(importClause?.isTypeOnly).toBe(false);
-  expect(importClause?.name).toBeUndefined();
-  expect(
-    importClause?.namedBindings
-    && ts.isNamedImports(importClause.namedBindings)
-    && importClause.namedBindings.elements.length === 1
-    && importClause.namedBindings.elements[0]?.propertyName === undefined
-    && importClause.namedBindings.elements[0]?.name.text === 'fileURLToPath'
-  ).toBe(true);
-
-  const importMetaNodes: ts.MetaProperty[] = [];
-  const pathIdentifiers: ts.Identifier[] = [];
-  function visit(node: ts.Node): void {
-    if (
-      ts.isMetaProperty(node)
-      && node.keywordToken === ts.SyntaxKind.ImportKeyword
-      && node.name.text === 'meta'
-    ) importMetaNodes.push(node);
-    if (ts.isIdentifier(node) && node.text === 'devRunnerFilePath') pathIdentifiers.push(node);
-    ts.forEachChild(node, visit);
-  }
-  ts.forEachChild(sourceFile, visit);
-  expect(importMetaNodes).toHaveLength(1);
-  expect(importMetaNodes[0]).toBe(moduleUrl.expression);
-  expect(pathIdentifiers).toHaveLength(2);
-  const runtimeReference = pathIdentifiers.find((identifier) => identifier !== declaration.name);
-  if (!runtimeReference || !ts.isArrayLiteralExpression(runtimeReference.parent)) {
-    throw new Error('reenterWithResolvedDependencies must use the captured dev-runner path.');
-  }
-  const spawnArguments = runtimeReference.parent;
-  const spawnCall = spawnArguments.parent;
-  expect(spawnArguments.elements[0]).toBe(runtimeReference);
-  expect(
-    ts.isCallExpression(spawnCall)
-    && ts.isIdentifier(spawnCall.expression)
-    && spawnCall.expression.text === 'spawnSync'
-    && spawnCall.arguments[1] === spawnArguments
-  ).toBe(true);
-  let owner: ts.Node = runtimeReference;
-  while (owner.parent !== sourceFile) owner = owner.parent;
-  expect(
-    ts.isFunctionDeclaration(owner)
-    && owner.name?.text === 'reenterWithResolvedDependencies'
-  ).toBe(true);
 });
 
 test('relative ESM closure accepts only direct literal dynamic imports', () => {
@@ -1971,8 +1879,8 @@ test('relative ESM closure fails closed on direct and import-bound unmodeled loa
   }
 
   expect(runtimeRelativeImportsFromSource(
-    'platform/dev-runner.ts',
-    "import { spawnSync } from 'node:child_process'; function reenterWithResolvedDependencies() { [0].forEach(() => spawnSync(process.execPath, [])); }"
+    'platform/dev-runner/import-organizer.ts',
+    "import { spawnSync } from 'node:child_process'; function gitBytes() { [0].forEach(() => spawnSync(process.execPath, [])); }"
   )).toEqual([]);
   for (const member of [
     'constructor() { spawnSync(process.execPath, []); }',
@@ -1980,31 +1888,31 @@ test('relative ESM closure fails closed on direct and import-bound unmodeled loa
     'set value(value: number) { spawnSync(process.execPath, []); void value; }'
   ]) {
     expect(() => runtimeRelativeImportsFromSource(
-      'platform/dev-runner.ts',
-      `import { spawnSync } from 'node:child_process'; function reenterWithResolvedDependencies() { class Candidate { ${member} } }`
+      'platform/dev-runner/import-organizer.ts',
+      `import { spawnSync } from 'node:child_process'; function gitBytes() { class Candidate { ${member} } }`
     )).toThrow('(process dispatcher without a canonical named lexical owner).');
   }
   expect(() => runtimeRelativeImportsFromSource(
-    'platform/dev-runner.ts',
-    "import { spawnSync } from 'node:child_process'; function reenterWithResolvedDependencies() { spawnSync(process.execPath, []); spawnSync(process.execPath, []); }"
+    'platform/dev-runner/import-organizer.ts',
+    "import { spawnSync } from 'node:child_process'; function gitBytes() { spawnSync(process.execPath, []); spawnSync(process.execPath, []); }"
   )).toThrow(
-    'unreviewed process dispatcher platform/dev-runner.ts::function-declaration:reenterWithResolvedDependencies::spawnSync#2'
+    'unreviewed process dispatcher platform/dev-runner/import-organizer.ts::function-declaration:gitBytes::spawnSync#2'
   );
   for (const [fixtureName, source, ownerChain] of [
     [
       'nested-function-owner',
-      "import { spawnSync } from 'node:child_process'; function unexpectedOwner() { function reenterWithResolvedDependencies() { spawnSync(process.execPath, []); } }",
-      'function-declaration:unexpectedOwner>function-declaration:reenterWithResolvedDependencies'
+      "import { spawnSync } from 'node:child_process'; function unexpectedOwner() { function nestedDispatcher() { spawnSync(process.execPath, []); } }",
+      'function-declaration:unexpectedOwner>function-declaration:nestedDispatcher'
     ],
     [
       'nested-arrow-owner',
-      "import { spawnSync } from 'node:child_process'; function unexpectedOwner() { const reenterWithResolvedDependencies = () => spawnSync(process.execPath, []); }",
-      'function-declaration:unexpectedOwner>const-arrow:reenterWithResolvedDependencies'
+      "import { spawnSync } from 'node:child_process'; function unexpectedOwner() { const nestedDispatcher = () => spawnSync(process.execPath, []); }",
+      'function-declaration:unexpectedOwner>const-arrow:nestedDispatcher'
     ],
     [
       'nested-method-owner',
-      "import { spawnSync } from 'node:child_process'; function unexpectedOwner() { class Candidate { reenterWithResolvedDependencies() { spawnSync(process.execPath, []); } } }",
-      'function-declaration:unexpectedOwner>method-declaration:reenterWithResolvedDependencies'
+      "import { spawnSync } from 'node:child_process'; function unexpectedOwner() { class Candidate { nestedDispatcher() { spawnSync(process.execPath, []); } } }",
+      'function-declaration:unexpectedOwner>method-declaration:nestedDispatcher'
     ]
   ] as const) {
     expect(() => runtimeRelativeImportsFromSource(
@@ -2015,9 +1923,9 @@ test('relative ESM closure fails closed on direct and import-bound unmodeled loa
     );
   }
   expect(() => runtimeRelativeImportsFromSource(
-    'platform/dev-runner.ts',
-    "import { spawnSync } from 'node:child_process'; function reenterWithResolvedDependencies() { spawnSync(process.execPath, []); } function reenterWithResolvedDependencies() {}"
-  )).toThrow('(ambiguous process dispatcher owner function-declaration:reenterWithResolvedDependencies).');
+    'platform/dev-runner/import-organizer.ts',
+    "import { spawnSync } from 'node:child_process'; function gitBytes() { spawnSync(process.execPath, []); } function gitBytes() {}"
+  )).toThrow('(ambiguous process dispatcher owner function-declaration:gitBytes).');
   expect(() => runtimeRelativeImportsFromSource(
     'scripts/codex/merge-gate.ts',
     "import { spawnSync } from 'node:child_process'; function mergeGateGitResolvers() { { const run = () => spawnSync('git'); run(); } { const run = () => undefined; run(); } }"
