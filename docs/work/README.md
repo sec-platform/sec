@@ -1,11 +1,14 @@
 ---
-title: 动态工程控制面说明
+title: 动态工程控制面
 status: active
-last-reviewed: 2026-07-23
+domain: current-control
+last-reviewed: 2026-07-28
 ---
 
-# 动态工程控制面说明
+# 动态工程控制面
 
-本目录中的`current-state.yaml`、`rolling-plan.md`和`active-work-package.md`是动态事实。文档替换工具默认从现有仓库保留它们；缺失、损坏或长期Goal变化时，由Codex依据最新main、PR/Issue、CI、Review、代码和Evidence重建。
+- `current-state.yaml` 只保存 resolver配置和跨候选稳定的 authority入口，不保存人工完成能力清单。
+- `rolling-plan.md` 只保存一个当前包和二至五个条件候选；候选不是授权。
+- `active-work-package.md` 只保存 frozen manifest path与raw Git blob digest。
 
-禁止用本替换包中的静态模板覆盖真实动态状态。
+当前 Git、PR、CI、Review和resolver状态在运行时生成，不写入稳定文档。历史manifest在新pointer原子接管后移入 `docs/archive/work-packages/`。

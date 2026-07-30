@@ -389,7 +389,7 @@ test('live P0 policy derives candidate digests and emits only explicit direct ga
   const plan = CodexDevelopmentBuildEvidenceCompositionPlanV1({
     policyId: CodexDevelopmentSm3P0EvidencePolicyIdV1,
     workPackageId: CodexDevelopmentSm3P0WorkPackageIdV1,
-    ciRevision: 'ci-verification-v7',
+    ciRevision: 'ci-verification-v8',
     profile: 'quick',
     inventory: firstInventory,
     runtime: 'bun@1.3.14',
@@ -419,7 +419,7 @@ function manifest(
   policyId: string = CodexDevelopmentSm3P0EvidencePolicyIdV1
 ): string {
   const versionFields = schema === 'v1'
-    ? 'requiredProfile: quick\nciRevision: ci-verification-v18\n'
+    ? 'requiredProfile: quick\nciRevision: ci-verification-v19\n'
     : `evidenceComposition:\n  policyId: ${policyId}\n`;
   return `---
 schema: codex-development-work-package-${schema}

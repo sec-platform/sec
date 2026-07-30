@@ -52,6 +52,12 @@ export type CodexDevelopmentWorkPackageChangedRecordV1 = {
   previousPath?: string;
 };
 
+type CodexDevelopmentWorkPackageChangedPathOccurrence = {
+  status: CodexDevelopmentWorkPackageChangedRecordV1['status'];
+  path: string;
+  role: 'direct' | 'source' | 'destination';
+};
+
 const TOP_LEVEL_KEYS = [
   'schema',
   'id',
@@ -537,7 +543,8 @@ export function CodexDevelopmentAssertWorkPackageChangedRecords(
   records: CodexDevelopmentWorkPackageChangedRecordV1[]
 ): CodexDevelopmentWorkPackageOwnershipResult {
   if (records.length === 0 || records.length > 3_000) throw new Error('Changed-file records must be non-empty and bounded.');
-  const flattenedPaths = records.flatMap((record, index) => {
+  const seenRecords = new Set<string>();
+  const pathOccurrences = records.flatMap((record, index): CodexDevelopmentWorkPackageChangedPathOccurrence[] => {
     const label = `changed-file records[${index}]`;
     assertPlainObject(record, label);
     if (!['added', 'changed', 'removed', 'renamed', 'copied'].includes(record.status)) {
@@ -550,12 +557,57 @@ export function CodexDevelopmentAssertWorkPackageChangedRecords(
       throw new Error(`${label} rename/copy shape is invalid.`);
     }
     if (record.previousPath !== undefined) assertOwnershipPath(record.previousPath, `${label}.previousPath`);
-    return record.previousPath === undefined ? [record.path] : [record.previousPath, record.path];
+    if (record.previousPath === record.path) {
+      throw new Error(`${label} source and destination paths must differ.`);
+    }
+    const recordKey = `${record.status}\0${record.previousPath ?? ''}\0${record.path}`;
+    if (seenRecords.has(recordKey)) throw new Error(`${label} duplicates an earlier changed-file record.`);
+    seenRecords.add(recordKey);
+    return record.previousPath === undefined
+      ? [{ path: record.path, role: 'direct' as const, status: record.status }]
+      : [
+          { path: record.previousPath, role: 'source' as const, status: record.status },
+          { path: record.path, role: 'destination' as const, status: record.status }
+        ];
   });
-  const windowsKeys = flattenedPaths.map((changedPath) => changedPath.toLowerCase());
-  if (new Set(windowsKeys).size !== windowsKeys.length) {
-    throw new Error('Changed-file records contain duplicate or case-insensitive Windows-colliding paths.');
+  const occurrencesByWindowsPath = new Map<string, typeof pathOccurrences>();
+  for (const occurrence of pathOccurrences) {
+    const windowsPath = occurrence.path.toLowerCase();
+    const group = occurrencesByWindowsPath.get(windowsPath) ?? [];
+    group.push(occurrence);
+    occurrencesByWindowsPath.set(windowsPath, group);
   }
+  for (const occurrences of occurrencesByWindowsPath.values()) {
+    if (new Set(occurrences.map((occurrence) => occurrence.path)).size !== 1) {
+      throw new Error('Changed-file records contain case-insensitive Windows-colliding paths.');
+    }
+    if (occurrences.length === 1) continue;
+    const direct = occurrences.filter((occurrence) => occurrence.role === 'direct');
+    const sources = occurrences.filter((occurrence) => occurrence.role === 'source');
+    const destinations = occurrences.filter((occurrence) => occurrence.role === 'destination');
+    if (
+      destinations.length > 0
+      || direct.length > 1
+      || (
+        direct.length === 1
+        && (
+          direct[0]!.status !== 'changed'
+          || sources.length === 0
+          || sources.some((occurrence) => occurrence.status !== 'copied')
+        )
+      )
+      || (
+        direct.length === 0
+        && (
+          sources.length !== occurrences.length
+          || sources.filter((occurrence) => occurrence.status === 'renamed').length > 1
+        )
+      )
+    ) {
+      throw new Error('Changed-file records contain ambiguous duplicate path roles.');
+    }
+  }
+  const flattenedPaths = pathOccurrences.map((occurrence) => occurrence.path);
   const ownership = CodexDevelopmentAssertWorkPackageOwnership(manifest, [...new Set(flattenedPaths)].sort());
   const ownerByPath = new Map(ownership.changedPathOwners.map((entry) => [entry.path, entry.taskId]));
   for (const record of records) {

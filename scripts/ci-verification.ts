@@ -373,19 +373,19 @@ export async function CodexDevelopmentCiVerificationMain(
       throw new Error(`Protected SM3 P0 inputs require Work Package V2 policy ${requiredPolicyId}.`);
     }
     if (binding.manifest?.schema === CodexDevelopmentWorkPackageSchemaV2) {
-      if (profile !== 'quick') throw new Error('CI verification V7 composition revision supports --profile quick only.');
-      if (!rawChangedFiles) throw new Error('CI verification V7 cannot resolve the complete changed-path set.');
+      if (profile !== 'quick') throw new Error('Composition verification supports --profile quick only.');
+      if (!rawChangedFiles) throw new Error('Composition verification cannot resolve the complete changed-path set.');
       const testFiles = gitFiles(headSha, 'tests');
-      if (!testFiles) throw new Error('CI verification V7 cannot enumerate exact-head test files.');
+      if (!testFiles) throw new Error('Composition verification cannot enumerate exact-head test files.');
       const testImpactSourceProvider = {
         testFiles: testFiles.filter(isTestFile),
         readTestSource: (testFile: string): string | null => {
           const entry = readGitBlob(headSha!, testFile);
-          if (!entry) throw new Error(`CI verification V7 cannot read exact-head test source: ${testFile}.`);
+          if (!entry) throw new Error(`Composition verification cannot read exact-head test source: ${testFile}.`);
           try {
             return new TextDecoder('utf-8', { fatal: true }).decode(entry.bytes);
           } catch (error) {
-            throw new Error(`CI verification V7 exact-head test source is not UTF-8: ${testFile}.`, { cause: error });
+            throw new Error(`Composition verification exact-head test source is not UTF-8: ${testFile}.`, { cause: error });
           }
         }
       };
@@ -434,7 +434,7 @@ export async function CodexDevelopmentCiVerificationMain(
             && env[key] !== undefined
             && env[key] !== value
           ) {
-            throw new Error(`CI verification V7 inherited environment conflicts with ${gate.gateId}:${key}.`);
+            throw new Error(`Composition verification inherited environment conflicts with ${gate.gateId}:${key}.`);
           }
         }
       }
@@ -468,7 +468,7 @@ export async function CodexDevelopmentCiVerificationMain(
         let result: CodexDevelopmentGateProcessResultV1;
         try {
           if (!compositionExecutionEnvironment) {
-            throw new Error('CI verification V7 execution environment was not initialized.');
+            throw new Error('Composition verification execution environment was not initialized.');
           }
           const childEnvironment = CodexDevelopmentBuildSanitizedChildEnvironmentV1(
             compositionExecutionEnvironment,
@@ -478,7 +478,7 @@ export async function CodexDevelopmentCiVerificationMain(
           if (
             childEnvironment.binding.allowlistRevision !== gate.envAllowlistRevision
             || childEnvironment.binding.digest !== gate.envDigest
-          ) throw new Error(`CI verification V7 execution environment drifted for ${gate.gateId}.`);
+          ) throw new Error(`Composition verification execution environment drifted for ${gate.gateId}.`);
           result = await runGate({
             id: gate.gateId,
             argv: [...gate.argv],
@@ -653,7 +653,7 @@ export async function CodexDevelopmentCiVerificationMain(
           cleanState: { before: cleanBefore, after: cleanAfter },
           failure: exitCode === 0 && compositionPlan ? null : failure ?? {
             stage: 'composition',
-            tail: 'CI verification V7 composition plan was not constructed.'
+            tail: 'Composition verification plan was not constructed.'
           },
           gates: compositionGates,
           coverageLedger: compositionPlan?.coverageLedger ?? [],

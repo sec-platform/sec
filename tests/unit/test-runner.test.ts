@@ -1,8 +1,11 @@
-import { beforeEach, expect, mock, test } from 'bun:test';
+import { afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { getTestWorkspaceTempRoot } from '../../platform/dev-runner/env-manager.ts';
+import {
+  getTestWorkspaceTempRoot,
+  TEST_WORKSPACE_NAMESPACE_ENV
+} from '../../platform/dev-runner/env-manager.ts';
 import {
   BOUNDED_PARALLEL_ISOLATED_FAST_TEST_FILES,
   DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY,
@@ -30,6 +33,7 @@ let testDependencyBootstrapError: Error | null = null;
 const isolatedFastTestFileSet = new Set<string>(PROCESS_ISOLATED_FAST_TEST_FILES);
 let changedFiles = ['platform/unmapped-source.ts'];
 let materializeTestWorkspace = false;
+let previousTestWorkspaceNamespace: string | undefined;
 
 mock.module('../../platform/shared/fs.ts', () => ({
   pathExists: async (targetPath: string) => {
@@ -109,6 +113,8 @@ function invocationTestFiles(args: readonly string[]): string[] {
 }
 
 beforeEach(() => {
+  previousTestWorkspaceNamespace = process.env[TEST_WORKSPACE_NAMESPACE_ENV];
+  delete process.env[TEST_WORKSPACE_NAMESPACE_ENV];
   commandCalls.length = 0;
   devCommandCalls.length = 0;
   devCommandEnvironments.length = 0;
@@ -119,6 +125,14 @@ beforeEach(() => {
   changedFiles = ['platform/unmapped-source.ts'];
   materializeTestWorkspace = false;
   delete process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK;
+});
+
+afterEach(() => {
+  if (previousTestWorkspaceNamespace === undefined) {
+    delete process.env[TEST_WORKSPACE_NAMESPACE_ENV];
+  } else {
+    process.env[TEST_WORKSPACE_NAMESPACE_ENV] = previousTestWorkspaceNamespace;
+  }
 });
 
 test('fast process planning deterministically bounds concurrent shards without duplicate or missing files', () => {
@@ -214,13 +228,20 @@ test('fast process resource classes uniquely derive scheduling and isolate produ
     expect(entry.scheduling).toBe(FAST_TEST_PROCESS_RESOURCE_SCHEDULING[entry.resourceClass]);
   }
 
-  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
-    ({ file }) => file === 'tests/integration/semantic-mutation-apply.test.ts'
-  )).toMatchObject({
-    reason: 'production-host-and-runtime-lifecycle',
-    resourceClass: 'shared-host-runtime',
-    scheduling: 'exclusive'
-  });
+  const productionHostAndRuntimeLifecycleFiles = [
+    'tests/integration/semantic-mutation-apply.test.ts',
+    'tests/unit/windows-appcontainer-executor.test.ts',
+    'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'
+  ];
+  for (const file of productionHostAndRuntimeLifecycleFiles) {
+    expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
+      (entry) => entry.file === file
+    )).toMatchObject({
+      reason: 'production-host-and-runtime-lifecycle',
+      resourceClass: 'shared-host-runtime',
+      scheduling: 'exclusive'
+    });
+  }
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
     ({ file }) => file === 'tests/integration/semantic-mutation-recovery-lifecycle.test.ts'
   )).toMatchObject({
@@ -229,11 +250,11 @@ test('fast process resource classes uniquely derive scheduling and isolate produ
   });
   expect(planFastTestProcesses([
     'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
-    'tests/integration/semantic-mutation-apply.test.ts'
+    ...productionHostAndRuntimeLifecycleFiles
   ])).toEqual({
     concurrentShards: [],
     isolatedParallel: ['tests/integration/semantic-mutation-recovery-lifecycle.test.ts'],
-    exclusive: ['tests/integration/semantic-mutation-apply.test.ts']
+    exclusive: productionHostAndRuntimeLifecycleFiles
   });
 });
 
@@ -441,6 +462,19 @@ test.serial('failed fast children leave no run-owned workspace residue', async (
 
   expect(code).toBe(7);
   expect(workspaceEnv.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-/u);
+  await expect(fs.access(getTestWorkspaceTempRoot(workspaceEnv))).rejects.toThrow();
+});
+
+test.serial('fast tests preserve an explicit workspace namespace through child execution and cleanup', async () => {
+  const namespace = 'test-runner-explicit-namespace';
+  process.env[TEST_WORKSPACE_NAMESPACE_ENV] = namespace;
+  materializeTestWorkspace = true;
+
+  const code = await runFastTests(['tests/unit/path-containment.test.ts']);
+  const workspaceEnv = devCommandEnvironments[0]!;
+
+  expect(code).toBe(0);
+  expect(workspaceEnv[TEST_WORKSPACE_NAMESPACE_ENV]).toBe(namespace);
   await expect(fs.access(getTestWorkspaceTempRoot(workspaceEnv))).rejects.toThrow();
 });
 

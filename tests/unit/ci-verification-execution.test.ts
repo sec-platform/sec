@@ -22,7 +22,7 @@ const HEAD = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const BASE = '3'.repeat(40);
 
-function manifestSource(ciRevision = 'ci-verification-v18'): string {
+function manifestSource(ciRevision = 'ci-verification-v19'): string {
   return `---
 schema: codex-development-work-package-v1
 id: exact-verification-v1
@@ -95,7 +95,7 @@ test('CI verification writes one exact-head passed Evidence V2 after all focused
   expect(calls).toEqual(['typecheck', 'affected-tests']);
   expect(captured.evidence).toMatchObject({
     schema: 'codex-development-verification-evidence-v2',
-    contractRevision: 'ci-verification-v18',
+    contractRevision: 'ci-verification-v19',
     kind: 'verification',
     profile: 'quick',
     headSha: HEAD,
@@ -164,7 +164,7 @@ test('CI verification reaches focused gates for repository and governed control-
   expect(code).toBe(0);
   expect(calls).toEqual(['docs-doctor', 'typecheck', 'affected-tests']);
   expect(captured.evidence).toMatchObject({
-    contractRevision: 'ci-verification-v18',
+    contractRevision: 'ci-verification-v19',
     status: 'passed',
     selectionResolved: true,
     failure: null
@@ -291,7 +291,7 @@ for (const scenario of [
     expect(writes).toBe(1);
     expect(captured.evidence).toMatchObject({
       schema: 'codex-development-verification-evidence-v2',
-      contractRevision: 'ci-verification-v18',
+      contractRevision: 'ci-verification-v19',
       kind: 'verification',
       status: 'failed'
     });
@@ -441,7 +441,7 @@ test('CI verification rejects a parseable historical Work Package revision', asy
     gitRevision,
     trackedTreeIsClean: () => true,
     changedFiles: () => [],
-    readExactGitBlob: () => exactManifest(manifestSource('ci-verification-v17')),
+    readExactGitBlob: () => exactManifest(manifestSource('ci-verification-v18')),
     runGate: async () => ({ code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' }),
     writeEvidence: (_path, value) => {
       writes += 1;

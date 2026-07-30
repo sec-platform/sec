@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 import { expect, test } from 'bun:test';
 
@@ -27,9 +28,9 @@ const TREE = '2'.repeat(40);
 const BASE = '3'.repeat(40);
 const TESTED_HEAD = '4'.repeat(40);
 const TESTED_TREE = '5'.repeat(40);
-const MANIFEST_PATH = 'docs/work-packages/ci-v7-evidence-composition-bootstrap-v1.md';
-const POLICY_ID = 'ci-v7-runner-execution-fixture-v1';
-const WORK_PACKAGE_ID = 'ci-v7-evidence-composition-bootstrap-v1';
+const MANIFEST_PATH = 'docs/work-packages/ci-v8-evidence-composition-bootstrap-v1.md';
+const POLICY_ID = 'ci-v8-runner-execution-fixture-v1';
+const WORK_PACKAGE_ID = 'ci-v8-evidence-composition-bootstrap-v1';
 const EVIDENCE_PATH = 'tests/fixtures/ci-evidence-reuse/synthetic-pass.json';
 const SOURCE_FILE = 'platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
 const TEST_FILE = 'tests/contract/contract-freeze.test.ts';
@@ -80,8 +81,8 @@ manifestState: frozen
 evidenceComposition:
   policyId: ${POLICY_ID}
 tasks:
-  - id: ci-v7-bootstrap
-    owner: ci-v7-writer
+  - id: ci-v8-bootstrap
+    owner: ci-v8-writer
     ownedPaths:
       - platform/shared/ci-evidence-reuse-contract.ts
 forbiddenPaths:
@@ -90,7 +91,7 @@ acceptance:
   - exact-composition
 ---
 
-# CI V7 Runner Fixture
+# CI V8 Runner Fixture
 `;
 }
 
@@ -196,7 +197,7 @@ function fixture() {
     policyRevision: 'codex-development-evidence-composition-policy-v1',
     policyId: POLICY_ID,
     workPackageId: WORK_PACKAGE_ID,
-    ciRevision: 'ci-verification-v7',
+    ciRevision: 'ci-verification-v8',
     requiredProfile: 'quick',
     parentSelectionDigest: inventory.fullSelectionDigest,
     fullSelectionDigest: CodexDevelopmentVerificationSelectionDigestV1(
@@ -263,7 +264,7 @@ function fixture() {
   const plan = CodexDevelopmentBuildEvidenceCompositionPlanV1({
     policyId: POLICY_ID,
     workPackageId: WORK_PACKAGE_ID,
-    ciRevision: 'ci-verification-v7',
+    ciRevision: 'ci-verification-v8',
     profile: 'quick',
     inventory,
     runtime,
@@ -280,6 +281,13 @@ function fixture() {
   });
   return { evidenceEntry, evidenceSource, inventory, plan, policy };
 }
+
+test('active composition producer diagnostics stay revision-neutral', async () => {
+  const source = await readFile(new URL('../../scripts/ci-verification.ts', import.meta.url), 'utf8');
+  expect(source).not.toMatch(/\bCI verification V\d+\b/u);
+  expect(source).toContain('Composition verification supports --profile quick only.');
+  expect(source).toContain('Composition verification plan was not constructed.');
+});
 
 test('V2 runner preserves canonical gates, replaces aggregate selectors, binds delta env, and writes V3', async () => {
   const { evidenceEntry, evidenceSource, inventory, plan, policy } = fixture();
@@ -405,7 +413,7 @@ test('changed-input digest is content-addressed across rebases while retaining e
   );
 });
 
-test('V7 sanitized environment rejects a non-exact changed base', () => {
+test('V8 sanitized environment rejects a non-exact changed base', () => {
   expect(() => CodexDevelopmentBuildSanitizedChildEnvironmentV1(
     { PATH: 'C:\\trusted-bin', SEC_CHANGED_BASE: 'base-ref' },
     {},

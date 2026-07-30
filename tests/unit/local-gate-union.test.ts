@@ -33,7 +33,7 @@ function gateIds(plan: ReturnType<typeof buildLocalAffectedCheckPlan>): LocalAff
 
 test('local affected plan selects docs doctor alone for pure active documentation', () => {
   const plan = buildLocalAffectedCheckPlan(affectedPlan(
-    ['docs/test-feedback-and-ci-lanes.md'],
+    ['docs/verification-governance.md'],
     ['tests/unit/codex-work-package-contract.test.ts']
   ));
 
@@ -44,7 +44,7 @@ test('local affected plan selects docs doctor alone for pure active documentatio
 test('local affected plan forms one ordered union for mixed TypeScript and docs changes', () => {
   const plan = buildLocalAffectedCheckPlan(affectedPlan(
     [
-      'docs/test-feedback-and-ci-lanes.md',
+      'docs/verification-governance.md',
       'platform/dev-runner/check-runner.ts'
     ],
     [

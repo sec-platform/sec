@@ -1,12 +1,12 @@
-import { CodexDevelopmentIsActiveDocumentationPathV1 } from './active-documentation-contract.ts';
 import type { CodexDevelopmentEvidenceCompositionPlanV1 } from './ci-evidence-reuse-contract.ts';
 import { selectCiPrRiskSlowSuites } from './ci-pr-risk-selection.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 import { uniqueSorted } from './collections.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
 import type { CodexDevelopmentTestImpactSourceProviderV1 } from './test-impact-contract.ts';
+import { DOCUMENTATION_LIFECYCLE_TEST_OWNERS } from './test-impact-rules/governance.ts';
 
-export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v18' as const;
+export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v19' as const;
 export const CI_VERIFICATION_ARTIFACT_NAMESPACE = CI_VERIFICATION_CONTRACT_REVISION.replace(
   /^ci-/u,
   'sec-'
@@ -94,8 +94,12 @@ function hasTypeScriptChange(files: readonly string[]): boolean {
   return files.some((file) => /\.[cm]?tsx?$/u.test(file));
 }
 
-function hasActiveDocumentationChange(files: readonly string[]): boolean {
-  return files.some(CodexDevelopmentIsActiveDocumentationPathV1);
+const DOCUMENTATION_LIFECYCLE_OWNER_SET = new Set<string>(
+  Object.values(DOCUMENTATION_LIFECYCLE_TEST_OWNERS)
+);
+
+function hasDocumentationLifecycleChange(owners: readonly string[]): boolean {
+  return owners.some((owner) => DOCUMENTATION_LIFECYCLE_OWNER_SET.has(owner));
 }
 
 export function CodexDevelopmentBuildVerificationPlanV1(
@@ -110,7 +114,7 @@ export function CodexDevelopmentBuildVerificationPlanV1(
     ? buildCiFullGatePlan()
     : buildCiQuickGatePlan({
       includeImports: changedFiles === null || hasTypeScriptChange(changedFiles),
-      includeDocs: changedFiles === null || hasActiveDocumentationChange(changedFiles),
+      includeDocs: changedFiles === null || hasDocumentationLifecycleChange(selection.owners),
       includeRisk
     });
   return {

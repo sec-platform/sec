@@ -1,386 +1,79 @@
-schema: sec-external-capability-ledger-v1
-
-ledger:
-  owner: docs/governance/external-capability-ledger.yaml
-  observedAt: "2026-07-27T17:30:00+08:00"
-  secMainSha: 3f0df59e31e0bf5c39c5ce774c2abb8ccbfbb1df
-  policyRevision: sha256:da38d8c2e71304425bc8d5515d234f1c16847f81e2b332c8a686f8b40f0ac867
-
-templateProvenance:
-  inputName: SEC-External-Capability-Ledger-Template-V1.yaml
-  rawSha256: 65212c56855702e2c262d10a617ab819b46436eafbbc41c36394f82bd9a0499f
-  sourceInputTracked: false
-  migrationRecord: docs/archive/2026-07-23-document-system-v4-migration-note.md
-  disposition: schema-input-absorbed-into-canonical-ledger
-
-allowedDecisions:
-  - absorb-design
-  - integrate-provider
-  - integrate-adapter
-  - use-as-development-tool
-  - use-as-conformance-tool
-  - retain-project-specific
-  - superseded
-  - reject-with-rationale
-  - watch
-
-allowedLifecycleStates:
-  - discovered
-  - researching
-  - benchmark-planned
-  - benchmarked
-  - decided
-  - integrating
-  - active
-  - revalidation-required
-  - deprecated
-  - retired
-
-allowedAuthorityClasses:
-  - physical-observation
-  - derived
-  - observed
-  - inferred
-  - explanation
-
-routingProfiles:
-  direct:
-    purpose: Known-scope edits using native file, search, Git, compiler and test tools.
-    maxActiveGraphProviders: 0
-  daily-context:
-    purpose: Cross-file context, paths and local impact with one minimal integrated query surface.
-    maxActiveGraphProviders: 1
-    selectionStatus: undecided
-    evaluationCandidate: codegraph
-    currentObservedProvider: null
-  architecture:
-    purpose: Canonical, cross-package, cross-repository, process and large-diff analysis.
-    maxActiveGraphProviders: 1
-    selectionStatus: provisional-existing-development-tool
-    evaluationCandidate: gitnexus
-    currentObservedProvider: gitnexus
-    mutuallyExclusiveWith:
-      - daily-context
-  security:
-    purpose: Data-flow, taint, source-to-sink and adversarial verification.
-    maxActiveGraphProviders: 0
-  brownfield-census:
-    purpose: Orchestrated multi-provider evidence collection without exposing every provider as a standing agent tool.
-    maxActiveGraphProviders: null
-
+schema: sec-external-capability-ledger-v3
+status: revalidation-required
+binding:
+  repository: sec-platform/sec
+  packageAuthority: package.json
+  lockAuthority: bun.lock
+policy:
+  owner: docs/external-provider-policy.md
 providers:
   - id: codegraph
-    displayName: CodeGraph
-    category:
-      - code-index
-      - agent-context
-    source:
-      repository: null
-      documentation: null
-      license: null
-    version:
-      pinned: null
-      observedAt: null
-      upgradePolicy: independent-toolchain-work-package
-    problemStatement:
-      currentPain: Repeated grep/read exploration and uncertain cross-file context for ordinary coding tasks.
-      requiredCapabilities:
-        - task-context
-        - source-excerpts
-        - call-trace
-        - reverse-impact-candidates
-        - freshness-diagnostics
-      explicitlyNotRequired:
-        - canonical-impact
-        - source-mutation-authority
-        - architecture-authority
-    implementationBasis:
-      parser: null
-      compilerBacked: null
-      runtimeEvidence: false
-      llmGeneratedRelations: null
-    toolSurface:
-      cliCommands: []
-      mcpToolsExposedByDefault: []
-      recommendedAllowlist:
-        - codegraph_explore
-      writeCapabilities: []
-    dataBoundary:
-      localOnly: null
-      networkRequired: null
-      telemetry: null
-      sourceUpload: null
-      nativeDependencies: []
-    providerContract:
-      outputAuthority: inferred
-      sourceRevisionBound: null
-      providerRevisionBound: true
-      reportsCoverage: null
-      reportsFreshness: null
-      reportsDiagnostics: null
-      reportsUnresolvedRegions: null
-    benchmarks:
-      - corpus: sec-platform/sec
-        revision: null
-        taskSuite: null
-        metrics:
-          taskSuccessRate: null
-          correctFileRecall: null
-          criticalConsumerRecall: null
-          falseRelationRate: null
-          toolCalls: null
-          inputTokens: null
-          outputTokens: null
-          wallClockMs: null
-          indexTimeMs: null
-          peakMemoryMb: null
-      - corpus: QzCrane/nexus
-        revision: null
-        taskSuite: null
-        metrics: {}
-    decision:
-      value: watch
-      rationale: Pending repository-specific A/B.
-      secOwner: SourceEvidenceProviderRegistry
-      activeRoutingProfile: null
-      replacesInternalCapabilities: []
-      forbiddenAuthority:
-        - EngineeringIR
-        - canonicalImpact
-        - actualDelta
-        - sourceWriter
-    lifecycle:
-      state: discovered
-      revalidateOn:
-        - provider-major-version
-        - license-change
-        - security-advisory
-        - codex-native-capability-change
-        - repeated-stale-results
-      retirementConditions: []
-
+    category: graph
+    capability: source-context
+    decision: watch-with-trigger
+    lifecycle: discovered
+    observedVersion: null
+    versionAuthority: null
+    activeRoutingProfile: null
+    surfaces:
+      cli: []
+      standingMcp: []
+    forbiddenAuthority:
+      - AgentOperationsAuthority
+      - EngineeringIR
+      - actualDelta
+      - canonicalImpact
+      - sourceWriter
+    unresolved:
+      - data-boundary
+      - exact-version
+      - license
+      - sec-and-nexus-benchmark
   - id: gitnexus
-    displayName: GitNexus
-    category:
-      - code-graph
-      - architecture-analysis
-      - process-analysis
-      - diff-impact
-    source:
-      repository: null
-      documentation: null
-      license: null
-    version:
-      pinned: null
-      observed: 1.6.9
-      observedAt: "2026-07-23T21:07:24+08:00"
-      upgradePolicy: independent-toolchain-work-package
-    problemStatement:
-      currentPain: Canonical and cross-package changes need process-level and large-diff impact candidates.
-      requiredCapabilities:
-        - architecture-analysis
-        - process-trace
-        - reverse-impact-candidates
-        - diff-impact
-        - index-status
-      explicitlyNotRequired:
-        - standing-mcp-surface
-        - automatic-agent-rule-generation
-        - canonical-rename-writer
-        - arbitrary-cypher-for-daily-use
-    toolSurface:
-      cliCommands:
+    category: graph
+    capability: architecture-analysis
+    decision: use-as-development-tool
+    lifecycle: revalidation-required
+    observedVersion: 1.6.3
+    versionAuthority:
+      kind: package
+      dependency: gitnexus
+      section: devDependencies
+      declaredSpec: 1.6.3
+    activeRoutingProfile: architecture
+    surfaces:
+      cli:
         - analyze
         - status
-      mcpToolsExposedByDefault: []
-      recommendedAllowlist: []
-      conditionalAllowlist: []
-      forbiddenWithoutExplicitWorkPackage: []
-      writeCapabilities: []
-    dataBoundary:
-      localOnly: null
-      networkRequired: null
-      telemetry: null
-      sourceUpload: null
-      nativeDependencies:
-        - '@ladybugdb/core'
-        - onnxruntime-node
-        - protobufjs
-    providerContract:
-      outputAuthority: inferred
-      sourceRevisionBound: true
-      providerRevisionBound: true
-      reportsCoverage: null
-      reportsFreshness: true
-      reportsDiagnostics: true
-      reportsUnresolvedRegions: null
-    benchmarks:
-      - corpus: sec-platform/sec
-        revision: null
-        taskSuite: null
-        metrics: {}
-      - corpus: QzCrane/nexus
-        revision: null
-        taskSuite: null
-        metrics: {}
-    decision:
-      value: use-as-development-tool
-      rationale: Retain only the explicit GitNexus analyze/status CLI for architecture-mode evidence. The standing GitNexus MCP server, MCP command and MCP allowlists were retired on 2026-07-27; CLI evidence remains non-canonical and still requires repository-specific revalidation.
-      secOwner: SourceEvidenceProviderRegistry
-      activeRoutingProfile: architecture
-      replacesInternalCapabilities: []
-      forbiddenAuthority:
-        - EngineeringIR
-        - canonicalImpact
-        - actualDelta
-        - sourceWriter
-        - AgentOperationsAuthority
-    lifecycle:
-      state: revalidation-required
-      revalidateOn:
-        - provider-major-version
-        - license-change
-        - security-advisory
-        - repeated-stale-results
-        - alternative-provider-outperforms
-        - cli-surface-change
-      retirementConditions:
-        - cli-has-no-validated-consumer
-        - alternative-provider-replaces-architecture-mode
-
+      standingMcp: []
+    forbiddenAuthority:
+      - AgentOperationsAuthority
+      - EngineeringIR
+      - actualDelta
+      - canonicalImpact
+      - sourceWriter
+    unresolved:
+      - freshness-and-coverage-validation
+      - repository-specific-benchmark
   - id: graph-it-live-mcp
-    displayName: Graph-It-Live MCP
-    category:
-      - code-graph
-      - agent-context
-    source:
-      repository: null
-      documentation: null
-      license: null
-    version:
-      pinned: null
-      observedAt: null
-      upgradePolicy: no-upgrade-retired-surface
-    problemStatement:
-      currentPain: Historical standing MCP entrypoint duplicated native search and graph evidence surfaces without a validated repository-specific advantage.
-      requiredCapabilities: []
-      explicitlyNotRequired:
-        - standing-mcp-surface
-        - source-mutation-authority
-        - architecture-authority
-    implementationBasis:
-      parser: null
-      compilerBacked: null
-      runtimeEvidence: false
-      llmGeneratedRelations: null
-    toolSurface:
-      cliCommands: []
-      mcpToolsExposedByDefault: []
-      recommendedAllowlist: []
-      writeCapabilities: []
-    dataBoundary:
-      localOnly: null
-      networkRequired: null
-      telemetry: null
-      sourceUpload: null
-      nativeDependencies: []
-    providerContract:
-      outputAuthority: inferred
-      sourceRevisionBound: null
-      providerRevisionBound: null
-      reportsCoverage: null
-      reportsFreshness: null
-      reportsDiagnostics: null
-      reportsUnresolvedRegions: null
-    benchmarks: []
-    decision:
-      value: reject-with-rationale
-      rationale: The .mcp.json standing Graph-It-Live server was retired on 2026-07-27 because it had no required consumer or validated advantage. Historical provider-neutral Evidence references do not reactivate the MCP surface.
-      secOwner: SourceEvidenceProviderRegistry
-      activeRoutingProfile: null
-      replacesInternalCapabilities: []
-      forbiddenAuthority:
-        - EngineeringIR
-        - canonicalImpact
-        - actualDelta
-        - sourceWriter
-        - AgentOperationsAuthority
-    lifecycle:
-      state: retired
-      revalidateOn: []
-      retirementConditions:
-        - completed-2026-07-27
-
-capabilities: []
-
-benchmarkSuites:
-  - id: sec-daily-context-v1
-    corpus:
-      repository: sec-platform/sec
-      revision: null
-    tasks: []
-    requiredMetrics:
-      - answer-correctness
-      - correct-file-recall
-      - critical-consumer-recall
-      - false-relation-rate
-      - tool-calls
-      - tokens
-      - wall-clock
-      - freshness-failures
-  - id: sec-architecture-impact-v1
-    corpus:
-      repository: sec-platform/sec
-      revision: null
-    tasks: []
-    requiredMetrics:
-      - process-trace-correctness
-      - impacted-symbol-recall
-      - impacted-test-recall
-      - false-positive-impact
-      - source-verification-rate
-  - id: nexus-brownfield-context-v1
-    corpus:
-      repository: QzCrane/nexus
-      revision: null
-    tasks: []
-    requiredMetrics:
-      - cross-package-recall
-      - browser-context-path-recall
-      - protocol-consumer-recall
-      - stale-index-detection
-
-decisionGate:
-  required:
-    - exact-version-and-license
-    - explicit-problem-statement
-    - capability-decomposition
-    - data-boundary-review
-    - sec-and-nexus-benchmark
-    - authority-boundary
-    - duplicate-removal-plan
-    - revalidation-trigger
-  forbidden:
-    - marketing-only-decision
-    - multiple-overlapping-standing-mcps
-    - direct-provider-to-canonical-promotion
-    - unpinned-production-tool
-    - setup-that-writes-canonical-agent-rules
-
-coverage:
-  discoveredTools: 3
-  researchedTools: 0
-  benchmarkedTools: 0
-  decidedTools: 2
-  activeTools: 0
-  unresolvedDecisions:
-    - codegraph
-    - gitnexus-default-selection
-  missingBenchmarks:
-    - codegraph
-    - gitnexus
-  unpinnedActiveTools: []
-  unvalidatedSelections:
-    - codegraph
-    - gitnexus
-  authorityViolations: []
+    category: graph
+    capability: source-context
+    decision: reject-with-rationale
+    lifecycle: retired
+    observedVersion: null
+    versionAuthority: null
+    activeRoutingProfile: null
+    surfaces:
+      cli: []
+      standingMcp: []
+    forbiddenAuthority:
+      - AgentOperationsAuthority
+      - EngineeringIR
+      - actualDelta
+      - canonicalImpact
+      - sourceWriter
+    rationale: standing MCP surface had no required consumer or validated advantage
+invariants:
+  maxStandingGraphProviders: 1
+  providerOutputCannotBecomeCanonical: true
+  providerWriteRequiresWorkPackage: true

@@ -44,5 +44,5 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 不把Hook描述为完整Codex沙箱。
 
 ## 权威
-- `docs/governance/agent-skills-and-development-run-kernel.md`
-- `docs/04-AI自主实现执行蓝图.md`
+- `docs/development-governance.md`
+- `docs/proposals/development-run-kernel.md`
