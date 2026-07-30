@@ -2,14 +2,14 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-07-29
+last-reviewed: 2026-07-30
 ---
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@c289a44609a3502140ede55857d90109d4db744f`、已合并 PR #174、当前 PR #196、已被 consolidated tree 等价重放且待 supersede 的 PR #197、已关闭 superseded PR #185、开放 Issues #167/#173/#175–#194、Review/CI 与 exact tree 重新计算。
+本窗口从 live resolver 已确认的 `main@95baca1c622b8c6bd53b033ec004a5834013c88d`、已合并 PR #196（active documentation corpus）、已归档 PR #197（superseded）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
 
-Portable workspace lease 已进入 `main`：common writer authority 使用 Node 标准 `fs.link` 的 append-only generation ledger，shared v2 inspector 是唯一只读协议消费者；Windows native Node 24 与 WSL2/ext4 Node 22 的竞争、crash recovery 和 quiescence Evidence 已在 PR #174 exact head 闭合。该结果只解除 Node mutating host 的 lease 阻塞，不等于公共 Node CLI 已受支持。
+Active documentation corpus 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；历史编号、旧合集和 superseded governance/test prose 按 latest-main bytes 归档。
 
 ```text
 Active Documentation Corpus
@@ -24,13 +24,18 @@ Active Documentation Corpus
 
 ## 当前唯一 Work Package
 
-### active-documentation-corpus-v1
+### test-runtime-performance-v1
 
-- 工程结果：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；历史编号、旧合集和 superseded governance/test prose 按 latest-main bytes 归档。
-- 设计完整性：Product、System、Semantic Model、Delta/Impact、Mutation、Compiler/Target IR、Block、Brownfield、Workbench/AI、Runtime、Change、Verification、Development Governance 与 External Provider 各有唯一 owner；长期能力保留 promotion 条件，不以三行名词替代设计。
-- 主干协调：吸收 #182–#187 与 #174 的产品/CI事实；不把这些实现复制进 prose，不实现 #176–#194。
-- Trust boundary：candidate 修改 docs-doctor、active-documentation、Agent coverage 与 Risk selection，必须由 trusted-base bootstrap、独立 exact-head Review 和 required Full Evidence 验证。
-- 退出：single-parent current-main candidate；focused/typecheck/docs/audit/imports/affected、Review 与 Full Evidence 闭合；merge 后从新 `main` readback，关闭 #173，归档本 manifest并返回 `TASK_RESTART_REQUIRED`。
+- 工程结果：移除 `cloneWorkspaceTemplate` 中冗余的 template creation lock，使并发 clone 真正并行；`afterAll` 清理从串行改为 bounded-concurrency 并行；修复 `.shared-deps/` 的 `bun install` 创建 `bun.lock` 的合同违反。
+- 设计完整性：template lock 只保护创建（`ensureTemplate` 内 double-check + lock），不保护复制（模板创建后不可变）；shared deps install 不需要 lockfile（`package.json` 由 runtime spec 生成，版本已固定）。
+- Trust boundary：candidate 修改 `tests/testkit/workspace.ts` 与 `platform/shared/project-runtime.ts`（均为 trust-root），必须由 trusted-base bootstrap、独立 exact-head Review 和 required Full Evidence 验证。
+- 退出：single-parent current-main candidate；focused/typecheck/docs/audit/imports/affected、Review 与 Full Evidence 闭合；merge 后从新 `main` readback，归档本 manifest 并返回 `TASK_RESTART_REQUIRED`。
+
+## 已完成 Work Package
+
+### active-documentation-corpus-v1 (PR #196)
+
+- 已合并至 `main@95baca1`；Issue #173 已关闭；manifest 已归档至 `docs/archive/work-packages/`。
 
 ## 候选 Work Package
 
