@@ -174,7 +174,29 @@ async function createTemplate(kind: WorkspaceTemplateKind): Promise<string> {
     await fs.rm(stagingRoot, { recursive: true, force: true });
     throw error;
   }
+  await assertTemplateComplete(templateRoot, kind);
   return templateRoot;
+}
+
+async function assertTemplateComplete(templateRoot: string, kind: WorkspaceTemplateKind): Promise<void> {
+  const markerPath = path.join(templateRoot, '.template-ready');
+  if (!(await templateIsReady(kind, markerPath))) {
+    throw new Error(`Template ${kind} incomplete: readiness marker missing or mismatched`);
+  }
+  // Validate that the project directory physically exists — a partially copied
+  // template (e.g. interrupted fs.cp) may have the marker but lack project content.
+  const projectDir = path.join(templateRoot, 'project');
+  try {
+    const stat = await fs.lstat(projectDir);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error(`Template ${kind} incomplete: project is not a physical directory`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`Template ${kind} incomplete: project directory missing`);
+    }
+    throw error;
+  }
 }
 
 function templateReadyMarker(kind: WorkspaceTemplateKind): string {
@@ -205,15 +227,23 @@ async function pruneTransientWorkspaceState(workspaceRoot: string): Promise<void
 async function withTemplateLock<T>(kind: WorkspaceTemplateKind, callback: () => Promise<T>): Promise<T> {
   await fs.mkdir(templateParent, { recursive: true });
   const lockPath = path.join(templateParent, `${kind}.lock`);
+  const ownerFile = path.join(lockPath, 'owner.json');
   const deadline = Date.now() + 120000;
 
   while (true) {
     try {
       await fs.mkdir(lockPath);
+      await fs.writeFile(ownerFile, JSON.stringify({ pid: process.pid, acquiredAt: Date.now() }), 'utf8');
       break;
     } catch (error) {
       const failure = error as NodeJS.ErrnoException;
       if (failure.code !== 'EEXIST') throw error;
+      // Stale lock recovery: if the owner process is dead or the lock is very old,
+      // reclaim it so a crashed predecessor does not block all subsequent template builds.
+      if (await isStaleTemplateLock(ownerFile)) {
+        await fs.rm(lockPath, { recursive: true, force: true });
+        continue;
+      }
       if (Date.now() > deadline) {
         throw new Error(`Timed out waiting for workspace template lock: ${kind}`);
       }
@@ -225,6 +255,33 @@ async function withTemplateLock<T>(kind: WorkspaceTemplateKind, callback: () => 
     return await callback();
   } finally {
     await fs.rm(lockPath, { recursive: true, force: true });
+  }
+}
+
+async function isStaleTemplateLock(ownerFile: string): Promise<boolean> {
+  try {
+    const ownerData = JSON.parse(await fs.readFile(ownerFile, 'utf8')) as { pid: number; acquiredAt: number };
+    // Owner process is dead → stale
+    if (typeof ownerData.pid === 'number' && !processAlive(ownerData.pid)) {
+      return true;
+    }
+    // Safety net: lock older than 5 minutes is stale regardless
+    if (typeof ownerData.acquiredAt === 'number' && Date.now() - ownerData.acquiredAt > 300000) {
+      return true;
+    }
+    return false;
+  } catch {
+    // Cannot read owner file — treat as stale to avoid permanent blockage
+    return true;
+  }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
 

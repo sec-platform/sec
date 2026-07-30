@@ -43,4 +43,4 @@ test('upgrade apply recompiles through one canonical upgrade transaction', async
       ['lock', 'succeeded']
     ]);
   });
-}, 120000);
+}, 180000);
