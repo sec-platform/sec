@@ -7,9 +7,9 @@ last-reviewed: 2026-07-30
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@95baca1c622b8c6bd53b033ec004a5834013c88d`、已合并 PR #196（active documentation corpus）、已归档 PR #197（superseded）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
+本窗口从 live resolver 已确认的 `main@e857ca5a4ec206e3614ca6a658fd83d95b92b4f4`、已合并 PR #196（active documentation corpus）与 PR #199（test runtime performance）、已归档 PR #197（superseded）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
 
-Active documentation corpus 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；历史编号、旧合集和 superseded governance/test prose 按 latest-main bytes 归档。
+Active documentation corpus 与 test runtime performance 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`。
 
 ```text
 Active Documentation Corpus
@@ -26,10 +26,8 @@ Active Documentation Corpus
 
 ### test-runtime-performance-v1
 
+- 已合并至 `main@e857ca5`；manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer。
 - 工程结果：移除 `cloneWorkspaceTemplate` 中冗余的 template creation lock，使并发 clone 真正并行；`afterAll` 清理从串行改为 bounded-concurrency 并行；修复 `.shared-deps/` 的 `bun install` 创建 `bun.lock` 的合同违反。
-- 设计完整性：template lock 只保护创建（`ensureTemplate` 内 double-check + lock），不保护复制（模板创建后不可变）；shared deps install 不需要 lockfile（`package.json` 由 runtime spec 生成，版本已固定）。
-- Trust boundary：candidate 修改 `tests/testkit/workspace.ts` 与 `platform/shared/project-runtime.ts`（均为 trust-root），必须由 trusted-base bootstrap、独立 exact-head Review 和 required Full Evidence 验证。
-- 退出：single-parent current-main candidate；focused/typecheck/docs/audit/imports/affected、Review 与 Full Evidence 闭合；merge 后从新 `main` readback，归档本 manifest 并返回 `TASK_RESTART_REQUIRED`。
 
 ## 已完成 Work Package
 
