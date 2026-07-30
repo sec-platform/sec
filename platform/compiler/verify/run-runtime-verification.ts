@@ -18,7 +18,13 @@ import {
   ensureProjectDependencies,
   materializePlaywrightBrowserCache
 } from '../../shared/project-runtime.ts';
-import type { RuntimeVerificationLaneReport, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
+import {
+  CodexDevelopmentBuildVerificationGateResultV1,
+  mapProductVerificationStatus,
+  type ProductVerificationMappingContext,
+  type VerificationGateResultV1
+} from '../../shared/verification-result-contract.ts';
+import type { RuntimeVerificationLaneReport, VerificationLane, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
 import {
   withSemanticMutationIsolatedPhaseTelemetry,
   type SemanticMutationIsolatedPhase
@@ -40,6 +46,108 @@ import {
 } from './windows-browser-launch-path.ts';
 
 type RuntimeVerificationMode = 'service' | 'full';
+
+const RUNTIME_GATE_ID = 'product-runtime-lane';
+const RUNTIME_CLAIM_ID = 'product-runtime-verification';
+const RUNTIME_GATE_REVISION = 'product-verification-v1';
+const RUNTIME_GATE_OWNER = 'product-verify-project';
+const RUNTIME_GATE_REQUIREMENT_KEY = 'product-verification';
+const RUNTIME_SUBJECT_REVISION = '0000000000000000000000000000000000000000';
+const RUNTIME_INPUT_DIGEST = `sha256:${'0'.repeat(64)}`;
+
+/**
+ * Build a `VerificationGateResultV1` for the runtime lane.
+ *
+ * Issue #176 Slice 2: service-mode `passed` (unit tests ran but acceptance did
+ * not) is represented as `not-run` with `current-runner-not-owning-environment`
+ * so the aggregator never silently promotes to overall `passed`. Full-mode
+ * `passed`/`failed` and `skipped` map via `mapProductVerificationStatus`.
+ */
+export function buildRuntimeClaimGate(
+  runtime: RuntimeVerificationLaneReport,
+  requestedLane: VerificationLane,
+  runtimeMode: RuntimeVerificationMode,
+  fastFailed: boolean = false
+): VerificationGateResultV1 {
+  const claims = [RUNTIME_CLAIM_ID];
+
+  // Service-mode `passed` means unit tests ran but acceptance did not.
+  if (runtimeMode === 'service' && runtime.status === 'passed') {
+    return CodexDevelopmentBuildVerificationGateResultV1({
+      gateId: RUNTIME_GATE_ID,
+      gateRevision: RUNTIME_GATE_REVISION,
+      owner: RUNTIME_GATE_OWNER,
+      requirementKey: RUNTIME_GATE_REQUIREMENT_KEY,
+      subjectRevision: RUNTIME_SUBJECT_REVISION,
+      inputDigest: RUNTIME_INPUT_DIGEST,
+      applicability: 'required',
+      status: 'not-run',
+      disposition: 'not-executed',
+      reasonCode: 'current-runner-not-owning-environment',
+      requiredForClaims: claims,
+      supportedClaims: [],
+      environment: null,
+      execution: null,
+      evidenceRefs: [],
+      invalidationRules: [],
+      diagnostic: 'Service-mode runtime passed without acceptance execution.'
+    });
+  }
+
+  const context: ProductVerificationMappingContext = {
+    requestedLane,
+    lane: 'runtime',
+    fastFailed,
+    currentRunnerOwning: runtime.status === 'skipped' && !fastFailed ? false : undefined
+  };
+  const mapping = mapProductVerificationStatus(runtime.status, context);
+  const isExecuted = mapping.disposition === 'executed';
+  const applicability = mapping.reasonCode === 'not-applicable'
+    ? 'not-applicable'
+    : mapping.status === 'invalidated'
+      ? 'unresolved'
+      : 'required';
+
+  return CodexDevelopmentBuildVerificationGateResultV1({
+    gateId: RUNTIME_GATE_ID,
+    gateRevision: RUNTIME_GATE_REVISION,
+    owner: RUNTIME_GATE_OWNER,
+    requirementKey: RUNTIME_GATE_REQUIREMENT_KEY,
+    subjectRevision: RUNTIME_SUBJECT_REVISION,
+    inputDigest: RUNTIME_INPUT_DIGEST,
+    applicability,
+    status: mapping.status,
+    disposition: mapping.disposition,
+    reasonCode: mapping.reasonCode,
+    requiredForClaims: claims,
+    supportedClaims: mapping.status === 'passed' ? claims : [],
+    environment: isExecuted
+      ? {
+          runtime: 'bun',
+          os: process.platform,
+          arch: process.arch,
+          filesystem: null,
+          capabilities: [],
+          toolchainRevision: 'ci-verification-v19',
+          providerRevisions: []
+        }
+      : null,
+    execution: isExecuted
+      ? {
+          argv: [],
+          startedAt: '1970-01-01T00:00:00.000Z',
+          finishedAt: '1970-01-01T00:00:00.000Z',
+          durationMs: 0,
+          exitCode: mapping.status === 'failed' ? 1 : 0,
+          outputDigest: `sha256:${'0'.repeat(64)}`,
+          failureFingerprint: mapping.status === 'failed' ? 'runtime-failure' : null
+        }
+      : null,
+    evidenceRefs: [],
+    invalidationRules: [],
+    diagnostic: null
+  });
+}
 
 type RuntimeVerificationOptions = {
   acceptanceServerForTests?: typeof withIsolatedRuntimeAcceptanceServer;
