@@ -8,6 +8,7 @@ import {
 } from '../compiler/verify/staged-verification-proof.ts';
 import {
   assertStagedVerificationLiveContext,
+  buildBlockedClaimSummary,
   verifyProject
 } from '../compiler/verify/verify-project.ts';
 import { writePolicySnapshot } from '../compiler/verify/write-policy-snapshot.ts';
@@ -73,6 +74,7 @@ async function writeBlockedVerificationSnapshot(
     policyReport,
     logs: { stdout: `policy:${policyReport.status}`, stderr: message }
   };
+  const claimSummary = buildBlockedClaimSummary(lane);
   const report: VerificationReport = {
     build: fast.build,
     unit: fast.unit,
@@ -80,7 +82,12 @@ async function writeBlockedVerificationSnapshot(
     policy: fast.policy,
     fast,
     runtime,
-    summary: { status: 'failed', requestedLane: lane, failedLanes: ['fast'] },
+    summary: {
+      status: 'failed',
+      requestedLane: lane,
+      failedLanes: ['fast'],
+      claimSummary
+    },
     logs: { stdout: fast.logs.stdout, stderr: message }
   };
   const {

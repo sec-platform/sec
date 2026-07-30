@@ -7,11 +7,11 @@ last-reviewed: 2026-07-30
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@46f92e4b966712e0adc819cf9b200502fb38d0d1`、已合并 PR #196（active documentation corpus）、PR #199（test runtime performance）、PR #200（parallel work package contract）、PR #201（CI speed optimization）、PR #202（dev-loop-speed-v1）、PR #203（dev-loop-speed-v2）、PR #204（verification-result-core-v1）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
+本窗口从 live resolver 已确认的 `main@c13a229e53e5de818f3c8dd9f980ddd6023562a4`、已合并 PR #196（active documentation corpus）、PR #199（test runtime performance）、PR #200（parallel work package contract）、PR #201（CI speed optimization）、PR #202（dev-loop-speed-v1）、PR #203（dev-loop-speed-v2）、PR #204（verification-result-core-v1）、PR #210（ci-verification-flow-fix-v1）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
 
-Active documentation corpus、test runtime performance、parallel work package contract、CI speed optimization、dev-loop-speed-v1、dev-loop-speed-v2 与 verification-result-core-v1 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`；CI 缓存、merge bootstrap CLI 与 gate API 已优化；check:fast gate 并行化、docs:doctor 增量模式、preload marker 门控、动态并发与 bounded-parallel 队列已落地；冷启动 stamp 短路、测试基础设施硬链接克隆与跨进程 test-impact 缓存、编译器管线共享 ts-morph Project 与并行 I/O、affected-tests reverse-import-map 已落地；sec-merge-bootstrap squash 已修复 single-parent invariant；统一验证结果模型 5 态/3 disposition/4 applicability/17 reasonCode/claim-based aggregate 已建立。
+Active documentation corpus、test runtime performance、parallel work package contract、CI speed optimization、dev-loop-speed-v1、dev-loop-speed-v2、verification-result-core-v1 与 ci-verification-flow-fix-v1 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`；CI 缓存、merge bootstrap CLI 与 gate API 已优化；check:fast gate 并行化、docs:doctor 增量模式、preload marker 门控、动态并发与 bounded-parallel 队列已落地；冷启动 stamp 短路、测试基础设施硬链接克隆与跨进程 test-impact 缓存、编译器管线共享 ts-morph Project 与并行 I/O、affected-tests reverse-import-map 已落地；sec-merge-bootstrap squash 已修复 single-parent invariant；统一验证结果模型 5 态/3 disposition/4 applicability/17 reasonCode/claim-based aggregate 已建立；CI PR validation 冗余 `git fetch` 已移除；`commandAll` 自动 squash 在 attestation/verification dispatch 之前执行。
 
-当前 `ci-verification-flow-fix-v1` 正在冻结实现：修复 CI 验证流程两个基础设施 bug——移除 `compiler-pr-validation.yml` 冗余 `git fetch` 步骤（与 `persist-credentials: false` 冲突导致自 PR #200 起所有 hosted 验证失败）；重排 `sec-merge-bootstrap.ts commandAll` 使 `ensureSingleParent` 在 attestation/verification dispatch 之前执行（消除手动 squash workaround）。
+当前 `verification-result-claim-migration-v1` 正在冻结实现：Issue #176 Slice 2 — 将产品 `verification-types.ts`/`verify-project.ts`/runtime/policy lane 迁移至统一验证结果模型；删除 `skipped→summary passed` 假绿路径；`summarizeReport` 通过 `CodexDevelopmentAggregateVerificationClaimsV1` 生成；service-mode `passed` 映射为 `not-run` 且 `reasonCode: current-runner-not-owning-environment`；policy `skipped` 显式为 `not-applicable`；阻塞快照发出 failed claims 而非混合 skipped+failed。
 
 ```text
 Active Documentation Corpus
@@ -26,13 +26,18 @@ Active Documentation Corpus
 
 ## 当前唯一 Work Package
 
-### ci-verification-flow-fix-v1
+### verification-result-claim-migration-v1
 
-- 基础设施修复包；base `main@46f92e4`；修复 CI 验证流程两个阻断性 bug。
-- 工程目标：移除 `compiler-pr-validation.yml` 冗余 `git fetch` 步骤（`persist-credentials: false` 下凭据失败，自 PR #200 起所有 hosted 验证失败）；重排 `sec-merge-bootstrap.ts commandAll` 使 `ensureSingleParent` 在 attestation/verification dispatch 之前执行（消除手动 squash workaround）；`persist-credentials: false` 安全不变量不变。
-- 退出：hosted verification 恢复成功；`commandAll` 自动 squash 后再 dispatch；ordering 不变量有测试守护。
+- 产品行为迁移包；base `main@c13a229`；Issue #176 Slice 2 — 将产品 verification lane 迁移至统一验证结果模型。
+- 工程目标：`verify-project.ts summarizeReport` 通过 `CodexDevelopmentAggregateVerificationClaimsV1` 生成；`skipped` 不再静默产生 `summary.passed`；policy `skipped` 显式 `not-applicable`；service-mode `passed` 映射为 `not-run` + `current-runner-not-owning-environment`；`writeBlockedVerificationSnapshot` 发出 failed claims；`verification-types.ts` 添加 `VerificationClaimSummary` 桥接类型。
+- 退出：no-test/browser/platform 负例不再显示绿色 PASS；summary 由 claim aggregator 生成；统一模型 contract 不变；CI contract/workflow/merge-gate 不变。
 
 ## 已完成 Work Package
+
+### ci-verification-flow-fix-v1 (PR #210)
+
+- 已合并至 `main@c13a229`；manifest 已归档至 `docs/archive/work-packages/`。
+- 工程结果：移除 `compiler-pr-validation.yml` 冗余 `git fetch` 步骤（与 `persist-credentials: false` 冲突导致自 PR #200 起所有 hosted 验证失败）；重排 `sec-merge-bootstrap.ts commandAll` 使 `ensureSingleParent` 在 attestation/verification dispatch 之前执行（消除手动 squash workaround）；`persist-credentials: false` 安全不变量不变；ordering 不变量有测试守护。
 
 ### verification-result-core-v1 (PR #204)
 
@@ -70,25 +75,19 @@ Active Documentation Corpus
 
 ## 候选 Work Package
 
-### 1. verification-result-claim-migration-v1
-
-- 工程结果：Issue #176 Slice 2 — 产品 `verification-types.ts`/`verify-project.ts`/runtime/policy lane 迁统一模型；删除 `skipped→summary passed`；lock verify succeeded 只由 all required claims passed 签发。
-- 依赖：`verification-result-core-v1` 进入 main。
-- 退出：no-test/browser/platform 负例不再显示绿色 PASS；summary 由 claim aggregator 生成。
-
-### 2. hermetic-test-runtime-phase-a
+### 1. hermetic-test-runtime-phase-a
 
 - 工程结果：fixture/resource 分类、workspace/port/process/browser/environment allocation、cleanup/readback receipt 与 Windows/Unix physical owner。
 - 依赖：active documentation corpus 已进入 main；portable lease 已满足；与其他包并行需 parallel contract 进入 main。
 - 退出：identity-bound/control-state不普通复制，失败/取消后无隐式进程或下一轮残留。
 
-### 3. worktree-hygiene-v1
+### 2. worktree-hygiene-v1
 
 - 工程结果：Git registry、物理目录、dirty/untracked/ignored、Windows reparse 与最终 receipt 的唯一 cleanup owner。
 - 依赖：active documentation corpus 后的 development-governance authority。
 - 退出：Git注销但物理残留不再被误报为完成；无法证明安全删除时fail closed。
 
-### 4. dependency-boundary-first-cleanup-v1
+### 3. dependency-boundary-first-cleanup-v1
 
 - 工程结果：建立Core/Host/Toolchain/Provider/Target依赖边界，删除已证明无用的小依赖；`package.json`与`bun.lock`保持唯一writer。
 - 依赖：Runtime/Library物理Census与Dependency Census提供证据；与其他正式包并行需 parallel contract 进入 main。

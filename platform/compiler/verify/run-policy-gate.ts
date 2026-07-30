@@ -11,10 +11,97 @@ import type {
   PolicyViolation
 } from '../../shared/policy-types.ts';
 import {
+  CodexDevelopmentBuildVerificationGateResultV1,
+  type VerificationGateResultV1
+} from '../../shared/verification-result-contract.ts';
+import type { VerificationLane } from '../../shared/verification-types.ts';
+import {
   loadPolicyDeclarations,
   type LoadedPolicyDefinition,
   type LoadedPolicyScope
 } from '../parse/load-policy-declarations.ts';
+
+const POLICY_GATE_ID = 'product-policy-gate';
+const POLICY_CLAIM_ID = 'product-policy-verification';
+const POLICY_GATE_REVISION = 'product-verification-v1';
+const POLICY_GATE_OWNER = 'product-verify-project';
+const POLICY_GATE_REQUIREMENT_KEY = 'product-verification';
+const POLICY_SUBJECT_REVISION = '0000000000000000000000000000000000000000';
+const POLICY_INPUT_DIGEST = `sha256:${'0'.repeat(64)}`;
+
+/**
+ * Build a `VerificationGateResultV1` for the policy lane. `skipped` (no policies
+ * declared) maps to `not-run` with `not-applicable` applicability, NOT silently
+ * passed. `passed`/`failed` map directly via the unified status vocabulary.
+ *
+ * Issue #176 Slice 2: the policy gate emits an explicit applicability instead
+ * of the legacy ambiguous `skipped` status.
+ */
+export function buildPolicyClaimGate(
+  policyReport: PolicyReport,
+  _requestedLane: VerificationLane
+): VerificationGateResultV1 {
+  const claims = [POLICY_CLAIM_ID];
+
+  if (policyReport.status === 'skipped') {
+    return CodexDevelopmentBuildVerificationGateResultV1({
+      gateId: POLICY_GATE_ID,
+      gateRevision: POLICY_GATE_REVISION,
+      owner: POLICY_GATE_OWNER,
+      requirementKey: POLICY_GATE_REQUIREMENT_KEY,
+      subjectRevision: POLICY_SUBJECT_REVISION,
+      inputDigest: POLICY_INPUT_DIGEST,
+      applicability: 'not-applicable',
+      status: 'not-run',
+      disposition: 'not-executed',
+      reasonCode: 'not-applicable',
+      requiredForClaims: claims,
+      supportedClaims: [],
+      environment: null,
+      execution: null,
+      evidenceRefs: [],
+      invalidationRules: [],
+      diagnostic: 'No policies declared; policy gate is not-applicable.'
+    });
+  }
+
+  const isPassed = policyReport.status === 'passed';
+  return CodexDevelopmentBuildVerificationGateResultV1({
+    gateId: POLICY_GATE_ID,
+    gateRevision: POLICY_GATE_REVISION,
+    owner: POLICY_GATE_OWNER,
+    requirementKey: POLICY_GATE_REQUIREMENT_KEY,
+    subjectRevision: POLICY_SUBJECT_REVISION,
+    inputDigest: POLICY_INPUT_DIGEST,
+    applicability: 'required',
+    status: isPassed ? 'passed' : 'failed',
+    disposition: 'executed',
+    reasonCode: isPassed ? 'executed-success' : 'executed-failure',
+    requiredForClaims: claims,
+    supportedClaims: isPassed ? claims : [],
+    environment: {
+      runtime: 'bun',
+      os: process.platform,
+      arch: process.arch,
+      filesystem: null,
+      capabilities: [],
+      toolchainRevision: 'ci-verification-v19',
+      providerRevisions: []
+    },
+    execution: {
+      argv: [],
+      startedAt: '1970-01-01T00:00:00.000Z',
+      finishedAt: '1970-01-01T00:00:00.000Z',
+      durationMs: 0,
+      exitCode: isPassed ? 0 : 1,
+      outputDigest: `sha256:${'0'.repeat(64)}`,
+      failureFingerprint: isPassed ? null : 'policy-violation'
+    },
+    evidenceRefs: [],
+    invalidationRules: [],
+    diagnostic: null
+  });
+}
 
 function buildMergedPolicyEntries(
   definitions: ReadonlyMap<string, LoadedPolicyDefinition>,
