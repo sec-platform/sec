@@ -6,13 +6,18 @@ import {
   compilerRuntimeResources
 } from './runtime-layout.ts';
 import type { RegistryLocation } from './types.ts';
+import {
+  localStateRelativePath,
+  resolveWorkspaceLocalStateRoot
+} from './workspace-path-contract.ts';
 import type { WorkspacePaths } from './workspace-types.ts';
+
+export { localStateRelativePath };
 
 export const compilerRoot = compilerRuntimeLayout.packageRoot;
 export const projectRelativePath = 'project';
 export const developerSourceRelativePath = 'source';
 export const controlRelativePath = 'control';
-export const localStateRelativePath = '.sec';
 export const legacyDeveloperSourceRelativePath = path.join(projectRelativePath, 'source');
 export const officialPoliciesRelativePath =
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS.officialPolicies;
@@ -127,7 +132,7 @@ export function getWorkspacePaths(workspaceRoot = process.cwd()): WorkspacePaths
     controlWorkbenchRoot,
     controlAuditRoot,
     controlCiRoot,
-    localStateRoot: path.join(root, localStateRelativePath),
+    localStateRoot: resolveWorkspaceLocalStateRoot(root),
     generatedViewsDir: path.join(root, controlWorkbenchViewsRelativePath),
     planPath: path.join(developerSourceRoot, 'app.yaml'),
     legacyPlanPath: path.join(projectRoot, 'app.plan.yaml'),

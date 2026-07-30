@@ -23,7 +23,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: quick
-ciRevision: ci-verification-v18
+ciRevision: ci-verification-v19
 tasks:
   - id: b0-bootstrap-v1
     owner: b0-writer
@@ -45,15 +45,15 @@ ${overrides}---
 function manifestV2(overrides = ''): string {
   return `---
 schema: codex-development-work-package-v2
-id: ci-v7-evidence-composition-bootstrap-v1
+id: ci-v8-evidence-composition-bootstrap-v1
 tracking: none
 base: "${BASE}"
 manifestState: frozen
 evidenceComposition:
-  policyId: ci-v7-synthetic-composition-v1
+  policyId: ci-v8-synthetic-composition-v1
 tasks:
-  - id: ci-v7-bootstrap
-    owner: ci-v7-writer
+  - id: ci-v8-bootstrap
+    owner: ci-v8-writer
     ownedPaths:
       - platform/shared/ci-evidence-reuse-contract.ts
 forbiddenPaths:
@@ -62,7 +62,7 @@ acceptance:
   - exact-composition
 ${overrides}---
 
-# CI V7 Bootstrap
+# CI V8 Bootstrap
 `;
 }
 
@@ -93,11 +93,11 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
     base: BASE,
     manifestState: 'frozen',
     requiredProfile: 'quick',
-    ciRevision: 'ci-verification-v18'
+    ciRevision: 'ci-verification-v19'
   });
-  for (const legacyRevision of ['ci-verification-v17', 'ci-verification-v16', 'ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
+  for (const legacyRevision of ['ci-verification-v18', 'ci-verification-v17', 'ci-verification-v16', 'ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
     const historical = CodexDevelopmentParseWorkPackageManifestV1(
-      source.replace('ci-verification-v18', legacyRevision)
+      source.replace('ci-verification-v19', legacyRevision)
     );
     expect(historical.ciRevision).toBe(legacyRevision);
   }
@@ -116,12 +116,12 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
 test('Work Package V2 exposes only one immutable evidence-composition policy reference', () => {
   const parsed = CodexDevelopmentParseWorkPackageManifestV2(
     manifestV2(),
-    'docs/work-packages/ci-v7-evidence-composition-bootstrap-v1.md'
+    'docs/work-packages/ci-v8-evidence-composition-bootstrap-v1.md'
   );
   expect(parsed).toMatchObject({
     schema: 'codex-development-work-package-v2',
-    id: 'ci-v7-evidence-composition-bootstrap-v1',
-    evidenceComposition: { policyId: 'ci-v7-synthetic-composition-v1' }
+    id: 'ci-v8-evidence-composition-bootstrap-v1',
+    evidenceComposition: { policyId: 'ci-v8-synthetic-composition-v1' }
   });
   expect('requiredProfile' in parsed).toBe(false);
   expect('ciRevision' in parsed).toBe(false);
@@ -140,7 +140,7 @@ test('Work Package V2 rejects commands, exclusions, evidence claims, and unknown
     '  scopeIds: [fast-test:any]\n',
     'tests:\n  - bun run typecheck\n',
     'requiredProfile: quick\n',
-    'ciRevision: ci-verification-v7\n'
+    'ciRevision: ci-verification-v8\n'
   ]) {
     expect(() => CodexDevelopmentParseWorkPackageManifestV2(manifestV2(injected))).toThrow();
   }
@@ -158,7 +158,7 @@ test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous sco
   )).toThrow('must be frozen');
   for (const revision of ['ci-verification-v0', 'ci-verification-v05', 'ci-verification-latest']) {
     expect(() => CodexDevelopmentParseWorkPackageManifestV1(
-      manifest().replace('ci-verification-v18', revision)
+      manifest().replace('ci-verification-v19', revision)
     )).toThrow('stable positive verification revision');
   }
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(
@@ -181,8 +181,8 @@ test('built-in Work Package YAML keeps strict mapping and lexical fail-closed se
   )).toThrow('duplicate mapping key "owner"');
   expect(() => CodexDevelopmentParseWorkPackageManifestV2(
     manifestV2().replace(
-      '  policyId: ci-v7-synthetic-composition-v1',
-      '  policyId: ci-v7-synthetic-composition-v1\n  policyId: duplicate-policy'
+      '  policyId: ci-v8-synthetic-composition-v1',
+      '  policyId: ci-v8-synthetic-composition-v1\n  policyId: duplicate-policy'
     )
   )).toThrow('duplicate mapping key "policyId"');
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(
@@ -288,6 +288,54 @@ test('rename and copy endpoints must remain inside one task seam', () => {
     previousPath: 'scripts/codex/old.ts',
     path: 'scripts/codex/new.ts'
   }])).not.toThrow();
+  expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [{
+    status: 'copied',
+    previousPath: 'platform/shared/source.ts',
+    path: 'scripts/codex/copy.ts'
+  }])).toThrow('Cross-task copied is forbidden');
+});
+
+test('changed records preserve same-source copy lineage without weakening path identity', () => {
+  const parsed = CodexDevelopmentParseWorkPackageManifestV1(manifest().replace(
+    '      - platform/shared/ci-contract.ts\n      - scripts/codex/',
+    '      - src/'
+  ));
+  expect(CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [
+    { status: 'changed', path: 'src/source.ts' },
+    { status: 'copied', previousPath: 'src/source.ts', path: 'src/archive/first.ts' },
+    { status: 'copied', previousPath: 'src/source.ts', path: 'src/archive/second.ts' }
+  ])).toEqual({
+    changedPathOwners: [
+      { path: 'src/archive/first.ts', taskId: 'b0-bootstrap-v1', owner: 'b0-writer' },
+      { path: 'src/archive/second.ts', taskId: 'b0-bootstrap-v1', owner: 'b0-writer' },
+      { path: 'src/source.ts', taskId: 'b0-bootstrap-v1', owner: 'b0-writer' }
+    ]
+  });
+  expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [
+    { status: 'renamed', previousPath: 'src/source.ts', path: 'src/archive/first.ts' },
+    { status: 'copied', previousPath: 'src/source.ts', path: 'src/archive/second.ts' }
+  ])).not.toThrow();
+  expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [
+    { status: 'changed', path: 'src/source.ts' },
+    { status: 'changed', path: 'src/source.ts' }
+  ])).toThrow('duplicates an earlier changed-file record');
+  expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [{
+    status: 'copied',
+    previousPath: 'src/source.ts',
+    path: 'src/source.ts'
+  }])).toThrow('source and destination paths must differ');
+  expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [
+    { status: 'copied', previousPath: 'src/source.ts', path: 'src/archive/first.ts' },
+    { status: 'copied', previousPath: 'src/other.ts', path: 'src/archive/first.ts' }
+  ])).toThrow('ambiguous duplicate path roles');
+  expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [
+    { status: 'removed', path: 'src/source.ts' },
+    { status: 'copied', previousPath: 'src/source.ts', path: 'src/archive/first.ts' }
+  ])).toThrow('ambiguous duplicate path roles');
+  expect(() => CodexDevelopmentAssertWorkPackageChangedRecords(parsed, [
+    { status: 'renamed', previousPath: 'src/source.ts', path: 'src/archive/first.ts' },
+    { status: 'renamed', previousPath: 'src/source.ts', path: 'src/archive/second.ts' }
+  ])).toThrow('ambiguous duplicate path roles');
 });
 
 test('changed records reject case-insensitive flattened path collisions', () => {

@@ -23,6 +23,7 @@ export type TestOwnershipDeclaration = {
   identity: TestOwnershipIdentity;
   autoReferenceMode?: 'include' | 'declared-only';
   sourceFiles?: readonly string[];
+  excludedSourceFiles?: readonly string[];
   sourcePrefixes?: readonly string[];
   sourceKinds?: readonly TestImpactSourceKind[];
   fast: readonly string[];
@@ -49,6 +50,7 @@ export type ResolvedTestOwnership = {
 
 export function classifyTestImpactSource(file: string): TestImpactSourceKind | null {
   if (CodexDevelopmentIsActiveDocumentationPathV1(file)) return 'active-documentation';
+  if (/^docs\//u.test(file)) return null;
   if (/(?:^|\/)contracts\/[^/]+\.ya?ml$/u.test(file)) return 'semantic-contract';
   if (/(?:^|\/)(?:block\.)?manifest\.ya?ml$/u.test(file) || /(?:^|\/)[^/]+\.manifest\.ya?ml$/u.test(file)) return 'manifest';
   if (/^source\//u.test(file)) return 'source-model';
@@ -62,6 +64,7 @@ export function matchesTestOwnershipDeclaration(
   declaration: TestOwnershipDeclaration,
   file: string
 ): boolean {
+  if (declaration.excludedSourceFiles?.includes(file) === true) return false;
   const sourceKind = classifyTestImpactSource(file);
   return declaration.sourceFiles?.includes(file) === true
     || declaration.sourcePrefixes?.some((prefix) => file.startsWith(prefix)) === true

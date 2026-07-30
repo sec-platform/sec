@@ -129,7 +129,7 @@ tracking: issue-106
 base: "${BASE}"
 manifestState: frozen
 requiredProfile: ${requiredProfile}
-ciRevision: ci-verification-v18
+ciRevision: ci-verification-v19
 tasks:
   - id: implementation
     owner: implementation-writer
@@ -210,7 +210,7 @@ function fixture(
   } as const;
   const attestation = CodexDevelopmentBuildScopeAttestationV1(scopeRequest, manifestBytes);
   const rawEvidence = CodexDevelopmentFinalizeVerificationEvidenceV2({
-    contractRevision: 'ci-verification-v18',
+    contractRevision: 'ci-verification-v19',
     kind: 'verification',
     profile: parsedManifest.requiredProfile,
     headSha: HEAD,
@@ -260,7 +260,7 @@ function fixture(
     }
   });
   const attestationName = `sec-scope-attestation-v1-pr-123-base-${BASE}-head-${HEAD}-manifest-${manifestDigest.slice(7)}-run-100-attempt-1`;
-  const verificationName = `sec-verification-v18-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
+  const verificationName = `sec-verification-v19-${parsedManifest.requiredProfile}-pr-123-base-${BASE}-head-${HEAD}-run-200-attempt-1`;
   const rawInput: CodexDevelopmentMergeGateInputV1 = {
     schema: 'codex-development-merge-gate-input-v1',
     repository: 'sec-platform/sec',
@@ -348,7 +348,7 @@ const P0_TEST_FILES = [
 
 function p0ManifestSource(schema: 'v1' | 'v2'): string {
   const revision = schema === 'v1'
-    ? 'requiredProfile: quick\nciRevision: ci-verification-v18\n'
+    ? 'requiredProfile: quick\nciRevision: ci-verification-v19\n'
     : `evidenceComposition:\n  policyId: ${CodexDevelopmentSm3P0EvidencePolicyIdV1}\n`;
   return `---
 schema: codex-development-work-package-${schema}
@@ -559,7 +559,7 @@ async function p0MergeFixture() {
     },
     verificationArtifact: {
       id: 2000,
-      name: `sec-verification-v18-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
+      name: `sec-verification-v19-quick-pr-113-base-${P0_BASE}-head-${P0_HEAD}-run-200-attempt-1`,
       digest: `sha256:${'5'.repeat(64)}`,
       expired: false,
       expiresAt: EXPIRES_AT,
@@ -1086,6 +1086,18 @@ function runtimeRelativeImportsFromSource(
           && node.parent.parent.expression === node.parent
           && node.parent.parent.questionDotToken === undefined
         );
+        const isDirectBuiltinSemverSatisfies = (
+          bunNamespace === 'Bun'
+          && member === 'semver'
+          && node.questionDotToken === undefined
+          && ts.isPropertyAccessExpression(node.parent)
+          && node.parent.expression === node
+          && node.parent.name.text === 'satisfies'
+          && node.parent.questionDotToken === undefined
+          && ts.isCallExpression(node.parent.parent)
+          && node.parent.parent.expression === node.parent
+          && node.parent.parent.questionDotToken === undefined
+        );
         const isDirectBuiltinTranspilerConstruction = (
           bunNamespace === 'Bun'
           && member === 'Transpiler'
@@ -1099,6 +1111,7 @@ function runtimeRelativeImportsFromSource(
           }
         } else if (
           !isDirectBuiltinYamlParse
+          && !isDirectBuiltinSemverSatisfies
           && !isDirectBuiltinTranspilerConstruction
           && !TCB_BUN_SAFE_GLOBAL_MEMBERS.has(member)
         ) {
@@ -1415,7 +1428,7 @@ test('base-side v8 merge gate reconstructs active documentation without impact-r
     'README.md',
     'docs/03-MVP实施计划与路线图.md',
     'docs/work/current-state.yaml',
-    'docs/governance/nexus-absorption-ledger.yml'
+    'docs/governance/nexus-absorption-and-conformance.md'
   ];
   const value = fixture(manifestSource(changedFiles), changedFiles);
 
@@ -1437,7 +1450,7 @@ test('base-side v8 merge gate reconstructs active documentation without impact-r
   })).toMatchObject({ status: 'passed', requiredProfile: 'quick' });
 });
 
-test('base-side V7 merge gate independently reconstructs the real P0 plan and rejects self-signed drift', async () => {
+test('base-side V8 merge gate independently reconstructs the real P0 plan and rejects self-signed drift', async () => {
   const value = await p0MergeFixture();
   expect(value.rawEvidence.gates.map(({ id }) => id)).toEqual([
     'sm3-p0-gate-00',
@@ -1633,13 +1646,15 @@ test('verifier runtime import closure stays inside the TCB except for the review
     reviewedExternalImports,
     reviewedProcessDispatchers
   } = trustedRuntimeClosure();
-  expect(closure.size).toBe(56);
+  expect(closure.size).toBe(60);
   expect(reviewedProcessDispatchers.size).toBe(16);
   expect([...reviewedEdges].sort()).toEqual([...TCB_REVIEWED_SUT_EDGES].sort());
   expect([...reviewedExternalImports].sort()).toEqual([...TCB_REVIEWED_EXTERNAL_IMPORTS].sort());
   expect([...reviewedProcessDispatchers].sort()).toEqual([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort());
   expect([...closure].filter((entry) => !matchesCanonicalTrustRoot(entry)).sort()).toEqual([]);
   expect([...closure]).toEqual(expect.arrayContaining([
+    'docs/scripts/docs-doctor-ledgers.ts',
+    'docs/scripts/docs-doctor-shared.ts',
     'platform/dev-runner/check-runner.ts',
     'platform/dev-runner/command-runner.ts',
     'platform/dev-runner/dependency-bootstrap.ts',
@@ -1651,6 +1666,7 @@ test('verifier runtime import closure stays inside the TCB except for the review
     'platform/shared/bun-runtime-version.ts',
     'platform/shared/collections.ts',
     'platform/shared/contract-freeze-contract.ts',
+    'platform/shared/documentation-authority-contract.ts',
     'platform/shared/heavy-verification-gate-lease.ts',
     'platform/shared/paths.ts',
     'platform/shared/process.ts',
@@ -1659,6 +1675,7 @@ test('verifier runtime import closure stays inside the TCB except for the review
     'platform/shared/runtime-dependency-spec.ts',
     'platform/shared/runtime-layout.ts',
     'platform/shared/test-impact-rules/verification.ts',
+    'platform/shared/workspace-path-contract.ts',
     'scripts/codex/ci-orchestration-core.ts',
     'scripts/codex/document-control-plane-contract.ts',
     'scripts/codex/exact-git-blob.ts',
@@ -2052,6 +2069,27 @@ test('relative ESM closure fails closed on direct and import-bound unmodeled loa
     )).toThrow('(unclassified Bun namespace member');
   }
   expect(runtimeRelativeImportsFromSource(
+    'virtual/direct-bun-semver-satisfies.ts',
+    "const valid = Bun.semver.satisfies('1.2.3', '^1.0.0'); void valid;"
+  )).toEqual([]);
+  for (const [fixtureName, source] of [
+    ['escaped-bun-semver', 'const semver = Bun.semver; void semver;'],
+    ['escaped-bun-semver-satisfies', 'const satisfies = Bun.semver.satisfies; void satisfies;'],
+    ['non-call-bun-semver-satisfies', 'void Bun.semver.satisfies;'],
+    ['other-bun-semver-member', "Bun.semver.order('1.2.3', '1.2.4');"],
+    ['computed-bun-semver-satisfies', "Bun.semver['satisfies']('1.2.3', '^1.0.0');"],
+    ['global-bun-semver-satisfies', "globalThis.Bun.semver.satisfies('1.2.3', '^1.0.0');"]
+  ] as const) {
+    expect(() => runtimeRelativeImportsFromSource(
+      `virtual/${fixtureName}.ts`,
+      source
+    )).toThrow('(unclassified Bun namespace member');
+  }
+  expect(() => runtimeRelativeImportsFromSource(
+    'virtual/computed-bun-semver.ts',
+    "Bun['semver'].satisfies('1.2.3', '^1.0.0');"
+  )).toThrow('(computed Bun namespace member Bun[...]).');
+  expect(runtimeRelativeImportsFromSource(
     'virtual/direct-bun-transpiler.ts',
     "const parser = new Bun.Transpiler({ loader: 'tsx' }); void parser;"
   )).toEqual([]);
@@ -2209,14 +2247,20 @@ test('scope attestation binds the manifest profile and CI revision', () => {
     rawInput: revision.rawInput,
     manifestBytes: revision.manifestBytes,
     rawAttestation: revision.attestation,
-    rawEvidence: { ...revision.rawEvidence, contractRevision: 'ci-verification-v6' }
+    rawEvidence: { ...revision.rawEvidence, contractRevision: 'ci-verification-v7' }
   })).toThrow('Verification evidence CI revision mismatch');
+});
+
+test('active merge-gate composition diagnostics stay revision-neutral', async () => {
+  const source = await readCompilerFile('scripts/codex/merge-gate.ts');
+  expect(source).not.toMatch(/\bMerge gate V\d+\b/u);
+  expect(source).toContain('Composition contract requires independent exact candidate Git resolvers.');
 });
 
 test('historical Work Package revisions remain parseable but cannot satisfy the current gate', () => {
   const current = fixture();
-  for (const legacyRevision of ['ci-verification-v17', 'ci-verification-v16', 'ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
-    const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v18', legacyRevision));
+  for (const legacyRevision of ['ci-verification-v18', 'ci-verification-v17', 'ci-verification-v16', 'ci-verification-v15', 'ci-verification-v14', 'ci-verification-v13', 'ci-verification-v12', 'ci-verification-v11', 'ci-verification-v10', 'ci-verification-v9', 'ci-verification-v8', 'ci-verification-v6'] as const) {
+    const legacyBytes = Buffer.from(manifestSource().replace('ci-verification-v19', legacyRevision));
     const legacyManifest = CodexDevelopmentParseWorkPackageManifestV1(legacyBytes.toString('utf8'), MANIFEST_PATH);
     expect(legacyManifest.ciRevision).toBe(legacyRevision);
 
@@ -2245,8 +2289,8 @@ test('artifact metadata and repository_dispatch run identity fail closed', () =>
     (value) => { value.rawInput.attestationArtifact.digest = null; },
     (value) => {
       value.rawInput.verificationArtifact.name = value.rawInput.verificationArtifact.name.replace(
-        'sec-verification-v18-',
-        'sec-verification-v11-'
+        'sec-verification-v19-',
+        'sec-verification-v18-'
       );
     },
     (value) => { value.rawInput.verificationArtifact.expired = true; },
@@ -2505,7 +2549,8 @@ test('trusted workflows pin actions, revalidate drift, and only materialize cand
   expect(mergeWorkflow).toContain('ref: 514e6e401659f18ecffca19856a11354d66d05df');
   expect(mergeWorkflow).toContain('--candidate-git-dir .tmp/codex/candidate/.git');
   expect(mergeWorkflow).toContain('--legacy-git-dir .tmp/codex/legacy/.git');
-  expect((mergeWorkflow.match(/sec-verification-v18-/gu) ?? []).length).toBe(2);
+  expect((mergeWorkflow.match(/sec-verification-v19-/gu) ?? []).length).toBe(2);
+  expect(mergeWorkflow).not.toContain('sec-verification-v18-');
   expect(mergeWorkflow).not.toContain('sec-verification-v17-');
   expect(mergeWorkflow).not.toContain('sec-verification-v16-');
   expect(mergeWorkflow).not.toContain('sec-verification-v15-');

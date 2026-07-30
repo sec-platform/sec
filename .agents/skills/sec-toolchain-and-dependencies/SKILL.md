@@ -45,5 +45,6 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 ## 权威
 - `package.json`
 - `bun.lock`
-- `docs/test-feedback-and-ci-lanes.md`
+- `docs/runtime-and-distribution.md`
+- `docs/verification-governance.md`
 - `scripts/install-git-hooks.ts`

@@ -32,8 +32,11 @@ import {
 
 const repoRoot = path.resolve(import.meta.dir, '../..');
 const executionPath = 'docs/work-packages/sm3-r2-bounded-runtime-gate-v1.md';
+const executionSourcePath = 'docs/archive/work-packages/sm3-r2-bounded-runtime-gate-v1.md';
 const selectionPath = 'docs/work-packages/sm3-r1-focused-blocker-repair-v1.md';
+const selectionSourcePath = 'docs/archive/work-packages/sm3-r1-focused-blocker-repair-v1.md';
 const executionPathV4 = 'docs/work-packages/sm3-r3-actionable-runtime-gate-v4.md';
+const executionSourcePathV4 = 'docs/archive/work-packages/sm3-r3-actionable-runtime-gate-v4.md';
 const emptyIdentitySet = Object.freeze({
   count: 0,
   digest: `sha256:${'0'.repeat(64)}`
@@ -45,9 +48,9 @@ async function frozenManifest(relativePath: string): Promise<string> {
 
 async function frozenSelection() {
   return parseFrozenWorkPackageGateSelection({
-    executionManifestSource: await frozenManifest(executionPath),
+    executionManifestSource: await frozenManifest(executionSourcePath),
     executionManifestPath: executionPath,
-    selectionManifestSource: await frozenManifest(selectionPath),
+    selectionManifestSource: await frozenManifest(selectionSourcePath),
     selectionManifestPath: selectionPath,
     selectionIndex: 0
   });
@@ -55,9 +58,9 @@ async function frozenSelection() {
 
 async function frozenSelectionV4() {
   return parseFrozenWorkPackageGateSelectionV4({
-    executionManifestSource: await frozenManifest(executionPathV4),
+    executionManifestSource: await frozenManifest(executionSourcePathV4),
     executionManifestPath: executionPathV4,
-    selectionManifestSource: await frozenManifest(selectionPath),
+    selectionManifestSource: await frozenManifest(selectionSourcePath),
     selectionManifestPath: selectionPath,
     selectionIndex: 0
   });
@@ -85,8 +88,8 @@ test('gate selection derives exactly one canonical 39-file argv from the R1 froz
 });
 
 test('gate selection rejects timeout drift and duplicate owner files', async () => {
-  const execution = await frozenManifest(executionPath);
-  const selection = await frozenManifest(selectionPath);
+  const execution = await frozenManifest(executionSourcePath);
+  const selection = await frozenManifest(selectionSourcePath);
   expect(() => parseFrozenWorkPackageGateSelection({
     executionManifestSource: execution.replace('tracking: issue-106', 'tracking: issue-107'),
     executionManifestPath: executionPath,
@@ -445,9 +448,9 @@ test('tracked R2 evidence remains V1-only and V1/V4 parsers reject each other', 
     schema: 'codex-work-package-gate-evidence-v1'
   })).toThrow();
 
-  const r2Execution = await frozenManifest(executionPath);
-  const v4Execution = await frozenManifest(executionPathV4);
-  const selection = await frozenManifest(selectionPath);
+  const r2Execution = await frozenManifest(executionSourcePath);
+  const v4Execution = await frozenManifest(executionSourcePathV4);
+  const selection = await frozenManifest(selectionSourcePath);
   expect(() => parseFrozenWorkPackageGateSelectionV4({
     executionManifestSource: r2Execution,
     executionManifestPath: executionPath,

@@ -43,6 +43,6 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 不在同一epoch边修内核边继续产品开发。
 
 ## 权威
-- `docs/test-feedback-and-ci-lanes.md`
+- `docs/verification-governance.md`
+- `docs/development-governance.md`
 - `scripts/codex/merge-gate.ts`
-- `docs/governance/agent-skills-and-development-run-kernel.md`

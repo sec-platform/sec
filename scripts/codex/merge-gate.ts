@@ -69,6 +69,8 @@ export const CodexDevelopmentTrustRootPathsV1 = [
   '.shared-deps/',
   'bun.lock',
   'bunfig.toml',
+  'docs/scripts/docs-doctor-ledgers.ts',
+  'docs/scripts/docs-doctor-shared.ts',
   'docs/scripts/docs-doctor.ts',
   'node_modules/',
   'package.json',
@@ -91,6 +93,7 @@ export const CodexDevelopmentTrustRootPathsV1 = [
   'platform/shared/collections.ts',
   'platform/shared/constants.ts',
   'platform/shared/contract-freeze-contract.ts',
+  'platform/shared/documentation-authority-contract.ts',
   'platform/shared/errors.ts',
   'platform/shared/fs.ts',
   'platform/shared/heavy-verification-gate-lease.ts',
@@ -106,6 +109,7 @@ export const CodexDevelopmentTrustRootPathsV1 = [
   'platform/shared/test-ownership-contract.ts',
   'platform/shared/test-impact-rules/',
   'platform/shared/verification-scope-inventory.ts',
+  'platform/shared/workspace-path-contract.ts',
   'scripts/ci-pr-risk.ts',
   'scripts/ci-verification.ts',
   'scripts/ci-workspace-fast.ts',
@@ -761,7 +765,7 @@ export function CodexDevelopmentEvaluateMergeGateV1(options: {
     }
   } else {
     if (!options.gitBlob || !options.readGitBlob || !options.gitFiles || !options.gitTree || !options.changedRecords) {
-      throw new Error('Merge gate V7 requires independent exact candidate Git resolvers.');
+      throw new Error('Composition contract requires independent exact candidate Git resolvers.');
     }
     CodexDevelopmentAssertVerificationEvidenceV3(options.rawEvidence, {
       profile: 'quick',

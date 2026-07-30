@@ -126,6 +126,16 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/windows-appcontainer-executor.test.ts',
+    reason: 'production-host-and-runtime-lifecycle',
+    resourceClass: 'shared-host-runtime'
+  },
+  {
+    file: 'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts',
+    reason: 'production-host-and-runtime-lifecycle',
+    resourceClass: 'shared-host-runtime'
+  },
+  {
     file: 'tests/unit/work-package-gate-contract.test.ts',
     reason: 'work-package-evidence',
     resourceClass: 'independent-process'

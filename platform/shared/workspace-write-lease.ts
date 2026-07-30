@@ -4,9 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { CommitFence } from './fs.ts';
-import { getWorkspacePaths } from './paths.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from './process.ts';
 import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
+import { resolveWorkspaceLocalStateRoot } from './workspace-path-contract.ts';
 
 export const WORKSPACE_WRITE_LEASE_TOKEN_VERSION = 'workspace-write-lease-token-v2' as const;
 export const WORKSPACE_WRITE_LEASE_INSPECTION_VERSION =
@@ -387,7 +387,7 @@ async function assertLeaseParent(
   if (executionBoundary === 'windows-appcontainer') {
     const resolvedWorkspace = path.resolve(workspaceRoot);
     const resolvedParent = path.resolve(parent);
-    const expectedParent = path.join(resolvedWorkspace, '.sec');
+    const expectedParent = resolveWorkspaceLocalStateRoot(resolvedWorkspace);
     const [workspaceMetadata, parentMetadata] = await Promise.all([
       fs.lstat(resolvedWorkspace),
       fs.lstat(resolvedParent)
@@ -731,7 +731,7 @@ function holderDirectory(holders: string, token: Pick<WorkspaceWriteLeaseToken, 
 }
 
 function workspaceWriteLeasePathsFor(workspaceRoot: string): WorkspaceWriteLeasePaths {
-  const parent = getWorkspacePaths(workspaceRoot).localStateRoot;
+  const parent = resolveWorkspaceLocalStateRoot(workspaceRoot);
   const root = path.join(parent, LEASE_DIRECTORY);
   return { parent, root, holders: path.join(root, HOLDERS_DIRECTORY) };
 }

@@ -253,7 +253,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
   const [currentStateSource, pointerSource, lifecycleAuthority, rollingPlan] = await Promise.all([
     readFile(CURRENT_STATE_PATH, 'utf8'),
     readFile(POINTER_PATH, 'utf8'),
-    readFile('docs/04-AI自主实现执行蓝图.md', 'utf8'),
+    readFile('docs/development-governance.md', 'utf8'),
     readFile('docs/work/rolling-plan.md', 'utf8')
   ]);
   const currentState = CodexDevelopmentParseCurrentStateSpecV1(currentStateSource);
@@ -299,8 +299,10 @@ test('repository controls use the shared live resolver and preserve one bounded 
     });
   }
 
-  expect(lifecycleAuthority).toContain('bun scripts/codex/document-control-plane.ts status --json');
-  expect(lifecycleAuthority).toContain('测试必须导入共享 resolver，禁止复制 selector算法');
+  expect(lifecycleAuthority).toContain('selected frozen Work Package');
+  expect(lifecycleAuthority).toContain('Resolver 无法确定');
+  expect(lifecycleAuthority).toContain('fail closed');
+  expect(lifecycleAuthority).toContain('Development Run Journal');
   const parsedRollingPlan = CodexDevelopmentParseRollingPlanV1(rollingPlan);
   expect(parsedRollingPlan.activePackageId).toBe(activePackageId);
   expect(parsedRollingPlan.candidatePackageIds.length).toBeGreaterThanOrEqual(2);

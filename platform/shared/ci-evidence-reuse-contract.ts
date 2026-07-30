@@ -12,7 +12,7 @@ export const CodexDevelopmentEvidenceCompositionPolicyRevisionV1 =
 export const CodexDevelopmentReusableEvidenceFormatV1 =
   'legacy-frozen-exact-production-pass-v1-env-unbound' as const;
 export const CodexDevelopmentSyntheticEvidencePolicyIdV1 =
-  'ci-v7-synthetic-composition-v1' as const;
+  'ci-v8-synthetic-composition-v1' as const;
 
 export type CodexDevelopmentEvidenceDispositionV1 = 'executed' | 'reused' | 'delta';
 
@@ -417,7 +417,7 @@ export const CodexDevelopmentSyntheticReusableEvidenceSourceV1 = `${JSON.stringi
 const SYNTHETIC_POLICY: CodexDevelopmentEvidenceCompositionPolicyV1 = {
   policyRevision: CodexDevelopmentEvidenceCompositionPolicyRevisionV1,
   policyId: CodexDevelopmentSyntheticEvidencePolicyIdV1,
-  workPackageId: 'ci-v7-evidence-composition-bootstrap-v1',
+  workPackageId: 'ci-v8-evidence-composition-bootstrap-v1',
   ciRevision: CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION,
   requiredProfile: 'quick',
   parentSelectionDigest: SYNTHETIC_PARENT_SELECTION_DIGEST,
@@ -899,7 +899,10 @@ export function CodexDevelopmentBuildEvidenceCompositionPlanV1(options: {
   if (policy.workPackageId !== options.workPackageId) {
     throw new Error('Evidence composition policy is registered for a different Work Package.');
   }
-  if (policy.ciRevision !== options.ciRevision) {
+  if (
+    options.ciRevision !== CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION
+    || policy.ciRevision !== options.ciRevision
+  ) {
     throw new Error('Evidence composition policy CI revision mismatch.');
   }
   if (policy.requiredProfile !== options.profile || options.inventory.profile !== options.profile) {
