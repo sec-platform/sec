@@ -14,7 +14,7 @@ import {
   type CodexDevelopmentEvidenceCompositionPolicyV1
 } from '../../platform/shared/ci-evidence-reuse-contract.ts';
 
-const WORK_PACKAGE_ID = 'ci-v7-evidence-composition-bootstrap-v1';
+const WORK_PACKAGE_ID = 'ci-v8-evidence-composition-bootstrap-v1';
 const RUNTIME = 'bun@1.3.6';
 const CURRENT_HEAD = '3'.repeat(40);
 const CURRENT_TREE = '4'.repeat(40);
@@ -52,7 +52,7 @@ function build(overrides: Partial<Parameters<typeof CodexDevelopmentBuildEvidenc
   return CodexDevelopmentBuildEvidenceCompositionPlanV1({
     policyId: CodexDevelopmentSyntheticEvidencePolicyIdV1,
     workPackageId: WORK_PACKAGE_ID,
-    ciRevision: 'ci-verification-v7',
+    ciRevision: 'ci-verification-v8',
     profile: 'quick',
     inventory: CodexDevelopmentSyntheticVerificationInventoryV1(),
     runtime: RUNTIME,
@@ -150,7 +150,14 @@ test('unknown or cross-Work-Package policy and profile/revision drift fail close
   })).toThrow('Unknown base-registered');
   expect(() => build({ workPackageId: 'other-work-package' })).toThrow('different Work Package');
   expect(() => build({ profile: 'full' })).toThrow('supports Quick only');
-  expect(() => build({ ciRevision: 'ci-verification-v9' })).toThrow('CI revision mismatch');
+  expect(() => build({ ciRevision: 'ci-verification-v7' })).toThrow('CI revision mismatch');
+  expect(() => build({
+    ciRevision: 'ci-verification-v7',
+    resolvePolicy: () => ({
+      ...policy(),
+      ciRevision: 'ci-verification-v7'
+    } as unknown as CodexDevelopmentEvidenceCompositionPolicyV1)
+  })).toThrow('CI revision mismatch');
 });
 
 test('immutable evidence digest, identity, runtime, argv, tree, and blob drift fail closed', () => {

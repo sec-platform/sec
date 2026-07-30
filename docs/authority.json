@@ -1,0 +1,685 @@
+{
+  "schema": "sec-document-authority-registry-v1",
+  "documents": [
+    {
+      "id": "root-readme",
+      "path": "README.md",
+      "kind": "navigation",
+      "domain": "entry",
+      "lifecycle": "active",
+      "dynamicPolicy": "forbidden",
+      "owns": [],
+      "projects": [
+        "compiler-target-ir",
+        "docs-index",
+        "product",
+        "semantic-model",
+        "system-architecture"
+      ],
+      "audience": [
+        "developer",
+        "user"
+      ],
+      "consumers": [
+        "repository-home"
+      ],
+      "updateTriggers": [
+        "primary-entrypoint-change"
+      ]
+    },
+    {
+      "id": "agents-entry",
+      "path": "AGENTS.md",
+      "kind": "agent-projection",
+      "domain": "development-governance",
+      "lifecycle": "active",
+      "dynamicPolicy": "forbidden",
+      "owns": [],
+      "projects": [
+        "development-governance"
+      ],
+      "audience": [
+        "agent"
+      ],
+      "consumers": [
+        "codex"
+      ],
+      "updateTriggers": [
+        "skill-routing-change"
+      ]
+    },
+    {
+      "id": "docs-index",
+      "path": "docs/README.md",
+      "kind": "navigation",
+      "domain": "documentation",
+      "lifecycle": "active",
+      "dynamicPolicy": "forbidden",
+      "owns": [],
+      "projects": [],
+      "generatedFrom": "docs/authority.json",
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "docs-reader"
+      ],
+      "updateTriggers": [
+        "registry-change"
+      ]
+    },
+    {
+      "id": "documentation-registry",
+      "path": "docs/authority.json",
+      "kind": "registry",
+      "domain": "documentation",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "documentation.identity",
+        "documentation.lifecycle",
+        "documentation.ownership"
+      ],
+      "projects": [],
+      "audience": [
+        "agent",
+        "developer"
+      ],
+      "consumers": [
+        "docs-doctor",
+        "docs-index",
+        "test-impact"
+      ],
+      "updateTriggers": [
+        "document-created",
+        "document-moved",
+        "document-retired",
+        "ownership-changed"
+      ]
+    },
+    {
+      "id": "product",
+      "path": "docs/product.md",
+      "kind": "authority",
+      "domain": "product",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "product.boundary",
+        "product.problem",
+        "product.success",
+        "product.value"
+      ],
+      "projects": [],
+      "audience": [
+        "developer",
+        "user"
+      ],
+      "consumers": [
+        "roadmap",
+        "system-architecture"
+      ],
+      "updateTriggers": [
+        "product-goal-change"
+      ]
+    },
+    {
+      "id": "roadmap",
+      "path": "docs/roadmap.md",
+      "kind": "authority",
+      "domain": "roadmap",
+      "lifecycle": "active",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "delivery.exit-criteria",
+        "delivery.stage-dag"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "work-control"
+      ],
+      "updateTriggers": [
+        "stage-dependency-change"
+      ]
+    },
+    {
+      "id": "system-architecture",
+      "path": "docs/system-architecture.md",
+      "kind": "authority",
+      "domain": "system-architecture",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "architecture.authority-flow",
+        "architecture.layering",
+        "architecture.single-writer",
+        "architecture.workspace-zones"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "compiler-target-ir",
+        "workbench-ai"
+      ],
+      "updateTriggers": [
+        "cross-domain-boundary-change"
+      ]
+    },
+    {
+      "id": "semantic-model",
+      "path": "docs/semantic-model.md",
+      "kind": "authority",
+      "domain": "semantic-model",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "semantic.assertion",
+        "semantic.authority",
+        "semantic.entity",
+        "semantic.fact",
+        "semantic.revision",
+        "semantic.validated-boundary"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "compiler-target-ir",
+        "delta-impact",
+        "semantic-mutation"
+      ],
+      "updateTriggers": [
+        "engineering-ir-contract-change"
+      ]
+    },
+    {
+      "id": "delta-impact",
+      "path": "docs/delta-and-impact.md",
+      "kind": "authority",
+      "domain": "delta-and-impact",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "semantic.fact-delta",
+        "semantic.impact"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "semantic-mutation",
+        "verification-governance",
+        "workbench-ai"
+      ],
+      "updateTriggers": [
+        "delta-or-impact-contract-change"
+      ]
+    },
+    {
+      "id": "semantic-mutation",
+      "path": "docs/semantic-mutation.md",
+      "kind": "authority",
+      "domain": "semantic-mutation",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "semantic.mutation",
+        "semantic.source-ownership",
+        "semantic.transaction-recovery"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "change-management",
+        "workbench-ai"
+      ],
+      "updateTriggers": [
+        "mutation-contract-change"
+      ]
+    },
+    {
+      "id": "compiler-target-ir",
+      "path": "docs/compiler-target-ir.md",
+      "kind": "authority",
+      "domain": "compiler-target-ir",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "compiler.application-ir",
+        "compiler.behavior-ir",
+        "compiler.lowering",
+        "compiler.pipeline",
+        "compiler.target-profile",
+        "compiler.target-program-ir",
+        "compiler.type-algebra"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "runtime-distribution"
+      ],
+      "updateTriggers": [
+        "compiler-or-target-ir-boundary-change"
+      ]
+    },
+    {
+      "id": "capability-block",
+      "path": "docs/capability-and-block-model.md",
+      "kind": "authority",
+      "domain": "capability-block",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "capability.block",
+        "capability.contract",
+        "capability.generator",
+        "capability.port",
+        "capability.registry",
+        "capability.slot"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "brownfield",
+        "compiler-target-ir"
+      ],
+      "updateTriggers": [
+        "registry-or-block-contract-change"
+      ]
+    },
+    {
+      "id": "brownfield",
+      "path": "docs/brownfield-import.md",
+      "kind": "authority",
+      "domain": "brownfield",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "brownfield.lifecycle",
+        "brownfield.source-program-model",
+        "brownfield.unknown-opaque"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "system-architecture"
+      ],
+      "updateTriggers": [
+        "brownfield-stage-or-provider-contract-change"
+      ]
+    },
+    {
+      "id": "workbench-ai",
+      "path": "docs/workbench-and-ai-operations.md",
+      "kind": "authority",
+      "domain": "workbench-ai",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "ai.bounded-operator",
+        "ai.context-packet",
+        "ai.task-envelope",
+        "workbench.projection",
+        "workbench.semantic-operation"
+      ],
+      "projects": [],
+      "audience": [
+        "developer",
+        "user"
+      ],
+      "consumers": [
+        "product-adapter"
+      ],
+      "updateTriggers": [
+        "workbench-or-ai-authority-change"
+      ]
+    },
+    {
+      "id": "runtime-distribution",
+      "path": "docs/runtime-and-distribution.md",
+      "kind": "authority",
+      "domain": "runtime-distribution",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "runtime.distribution",
+        "runtime.host",
+        "runtime.layout",
+        "runtime.target-profile",
+        "runtime.toolchain"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "release"
+      ],
+      "updateTriggers": [
+        "runtime-or-package-boundary-change"
+      ]
+    },
+    {
+      "id": "change-management",
+      "path": "docs/change-management.md",
+      "kind": "authority",
+      "domain": "change-management",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "change.migration",
+        "change.override",
+        "change.rollback",
+        "change.upgrade"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "semantic-mutation"
+      ],
+      "updateTriggers": [
+        "upgrade-or-migration-boundary-change"
+      ]
+    },
+    {
+      "id": "verification-governance",
+      "path": "docs/verification-governance.md",
+      "kind": "authority",
+      "domain": "verification-governance",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "verification.evidence",
+        "verification.gate",
+        "verification.layering",
+        "verification.merge-authority",
+        "verification.provenance"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "ci",
+        "review"
+      ],
+      "updateTriggers": [
+        "verification-authority-change"
+      ]
+    },
+    {
+      "id": "development-governance",
+      "path": "docs/development-governance.md",
+      "kind": "authority",
+      "domain": "development-governance",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "development.fact-sources",
+        "development.resume",
+        "development.roles",
+        "development.skill",
+        "development.work-package"
+      ],
+      "projects": [],
+      "audience": [
+        "agent",
+        "developer"
+      ],
+      "consumers": [
+        "agents-entry"
+      ],
+      "updateTriggers": [
+        "agent-governance-change"
+      ]
+    },
+    {
+      "id": "external-provider",
+      "path": "docs/external-provider-policy.md",
+      "kind": "authority",
+      "domain": "external-provider",
+      "lifecycle": "stable",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "provider.adoption",
+        "provider.authority",
+        "provider.retirement",
+        "provider.security"
+      ],
+      "projects": [],
+      "audience": [
+        "agent",
+        "developer"
+      ],
+      "consumers": [
+        "external-provider-ledger"
+      ],
+      "updateTriggers": [
+        "provider-policy-change"
+      ]
+    },
+    {
+      "id": "external-provider-ledger",
+      "path": "docs/governance/external-capability-ledger.yaml",
+      "kind": "machine-ledger",
+      "domain": "external-provider",
+      "lifecycle": "active",
+      "dynamicPolicy": "machine-state",
+      "owns": [
+        "provider.state"
+      ],
+      "projects": [
+        "external-provider"
+      ],
+      "audience": [
+        "developer",
+        "machine"
+      ],
+      "consumers": [
+        "sec-external-capability-governance"
+      ],
+      "updateTriggers": [
+        "provider-observation-or-decision"
+      ]
+    },
+    {
+      "id": "nexus-corpus",
+      "path": "docs/corpus/nexus/contract.md",
+      "kind": "corpus-contract",
+      "domain": "nexus-corpus",
+      "lifecycle": "active",
+      "dynamicPolicy": "forbidden",
+      "owns": [
+        "corpus.nexus.conformance"
+      ],
+      "projects": [],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "nexus-ledger"
+      ],
+      "updateTriggers": [
+        "nexus-conformance-contract-change"
+      ]
+    },
+    {
+      "id": "nexus-ledger",
+      "path": "docs/governance/nexus-absorption-ledger.yaml",
+      "kind": "machine-ledger",
+      "domain": "nexus",
+      "lifecycle": "active",
+      "dynamicPolicy": "machine-state",
+      "owns": [
+        "corpus.nexus.state"
+      ],
+      "projects": [
+        "nexus-corpus"
+      ],
+      "audience": [
+        "developer",
+        "machine"
+      ],
+      "consumers": [
+        "sec-repository-audit"
+      ],
+      "updateTriggers": [
+        "nexus-census-or-parity-change"
+      ]
+    },
+    {
+      "id": "workspace-domains-proposal",
+      "path": "docs/proposals/engineering-workspace-domains.md",
+      "kind": "proposal",
+      "domain": "proposal",
+      "lifecycle": "draft",
+      "dynamicPolicy": "forbidden",
+      "owns": [],
+      "projects": [
+        "system-architecture"
+      ],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "roadmap"
+      ],
+      "updateTriggers": [
+        "proposal-decision"
+      ]
+    },
+    {
+      "id": "run-kernel-proposal",
+      "path": "docs/proposals/development-run-kernel.md",
+      "kind": "proposal",
+      "domain": "proposal",
+      "lifecycle": "draft",
+      "dynamicPolicy": "forbidden",
+      "owns": [],
+      "projects": [
+        "development-governance"
+      ],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "roadmap"
+      ],
+      "updateTriggers": [
+        "proposal-decision"
+      ]
+    },
+    {
+      "id": "current-state",
+      "path": "docs/work/current-state.yaml",
+      "kind": "control",
+      "domain": "current-control",
+      "lifecycle": "active",
+      "dynamicPolicy": "control",
+      "owns": [
+        "control.resolver-authority"
+      ],
+      "projects": [
+        "docs-index",
+        "product"
+      ],
+      "audience": [
+        "machine"
+      ],
+      "consumers": [
+        "document-control-plane"
+      ],
+      "updateTriggers": [
+        "authority-entry-change"
+      ]
+    },
+    {
+      "id": "rolling-plan",
+      "path": "docs/work/rolling-plan.md",
+      "kind": "control",
+      "domain": "current-control",
+      "lifecycle": "active",
+      "dynamicPolicy": "control",
+      "owns": [
+        "control.rolling-plan"
+      ],
+      "projects": [
+        "roadmap"
+      ],
+      "audience": [
+        "agent",
+        "developer"
+      ],
+      "consumers": [
+        "a0"
+      ],
+      "updateTriggers": [
+        "main-or-plan-invalidating-fact"
+      ]
+    },
+    {
+      "id": "active-work-package",
+      "path": "docs/work/active-work-package.md",
+      "kind": "control",
+      "domain": "current-control",
+      "lifecycle": "active",
+      "dynamicPolicy": "control",
+      "owns": [
+        "control.active-work-package"
+      ],
+      "projects": [
+        "development-governance"
+      ],
+      "audience": [
+        "agent",
+        "machine"
+      ],
+      "consumers": [
+        "document-control-plane"
+      ],
+      "updateTriggers": [
+        "work-package-switch"
+      ]
+    },
+    {
+      "id": "work-control-readme",
+      "path": "docs/work/README.md",
+      "kind": "navigation",
+      "domain": "current-control",
+      "lifecycle": "active",
+      "dynamicPolicy": "forbidden",
+      "owns": [],
+      "projects": [
+        "active-work-package",
+        "current-state",
+        "rolling-plan"
+      ],
+      "audience": [
+        "developer"
+      ],
+      "consumers": [
+        "docs-reader"
+      ],
+      "updateTriggers": [
+        "control-plane-contract-change"
+      ]
+    }
+  ]
+}

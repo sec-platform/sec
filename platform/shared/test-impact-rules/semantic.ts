@@ -211,6 +211,7 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/shared/semantic-mutation-types.ts",
       "platform/shared/semantic-mutation-transaction-types.ts",
       "platform/shared/semantic-mutation-staging-boundary.ts",
+      "platform/shared/workspace-path-contract.ts",
       "platform/shared/workspace-write-lease.ts",
       "platform/shared/process.ts",
       "platform/compiler/verify/assert-isolated-staging-tree.ts",

@@ -6,22 +6,31 @@ import {
   selectTestsForSources,
   testImpactFallbackRules
 } from '../../platform/shared/test-impact-contract.ts';
+import {
+  DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES,
+  FROZEN_WORK_PACKAGE_TOMBSTONE_FILES
+} from '../../platform/shared/test-impact-rules/governance.ts';
 import { resolveTestOwnershipAutoReferenceMode } from '../../platform/shared/test-ownership-contract.ts';
 
-test('test impact classifies every P0-7 source category deterministically', () => {
+test('test impact classifies current source categories deterministically', () => {
   expect(classifyTestImpactSource('platform/compiler/semantic-linker.ts')).toBe('typescript');
   expect(classifyTestImpactSource('platform/registry/official/ticket.basic/block.manifest.yaml')).toBe('manifest');
   expect(classifyTestImpactSource('platform/registry/official/ticket.basic/contracts/ticket.yaml')).toBe('semantic-contract');
   expect(classifyTestImpactSource('source/model/app.plan.yaml')).toBe('source-model');
   for (const file of [
     'README.md',
-    'docs/03-MVP实施计划与路线图.md',
+    'docs/roadmap.md',
+    'docs/compiler-target-ir.md',
     'docs/work/current-state.yaml',
-    'docs/work/manifest.yaml',
-    'docs/governance/contracts/policy.yaml',
+    'docs/work/active-work-package.md',
+    'docs/governance/external-capability-ledger.yaml',
     'docs/governance/nexus-absorption-ledger.yaml'
   ]) expect(classifyTestImpactSource(file)).toBe('active-documentation');
   for (const file of [
+    'docs/03-MVP实施计划与路线图.md',
+    'docs/work/manifest.yaml',
+    'docs/governance/contracts/policy.yaml',
+    'docs/unregistered.manifest.yaml',
     'docs/evidence/unowned.yaml',
     'docs/project-state.json',
     'docs/architecture/unowned.yaml'
@@ -36,17 +45,20 @@ test('test impact selector includes tests that directly import changed sources',
   expect(selection.slow).not.toContain('tests/contract/test-impact.test.ts');
 });
 
-test('repository and documentation changes select owner-aligned contracts instead of the runtime catch-all', () => {
+test('repository and documentation changes select registry-backed owner contracts', () => {
   for (const source of [
     'README.md',
-    'docs/03-MVP实施计划与路线图.md',
-    'docs/05-编译器核心实现规格.md'
+    'docs/roadmap.md',
+    'docs/compiler-target-ir.md'
   ]) {
-    expect(selectTestsForSources([source])).toEqual({
-      fast: ['tests/contract/documentation-authority.test.ts'],
-      slow: [],
-      owners: ['documentation-authority']
-    });
+    const selection = selectTestsForSources([source]);
+    expect(selection.owners).toContain('documentation-authority');
+    expect(selection.fast).toEqual(expect.arrayContaining([
+      'tests/contract/documentation-authority.test.ts',
+      'tests/contract/docs-doctor.test.ts',
+      'tests/contract/test-impact.test.ts'
+    ]));
+    expect(selection.slow).toEqual([]);
   }
   expect(selectTestsForSources(['package.json'])).toEqual({
     fast: [
@@ -64,6 +76,92 @@ test('repository and documentation changes select owner-aligned contracts instea
     slow: [],
     owners: ['repository-lockfile-contract']
   });
+});
+
+test('non-active documentation lifecycles have explicit owners without a docs catch-all', () => {
+  const historicalSources = [
+    'docs/archive/authority-v5/00-文档索引与一致性规则.md',
+    'docs/archive/authority-v5/work/current-state.yaml',
+    'docs/archive/work-packages/workspace-write-lease-portability-v1.md',
+    'docs/archive/example/block.manifest.yaml'
+  ];
+  for (const source of historicalSources) {
+    expect(classifyTestImpactSource(source)).toBeNull();
+    expect(selectTestsForSources([source])).toEqual({
+      fast: [
+        'tests/contract/agent-skills.test.ts',
+        'tests/contract/documentation-authority.test.ts',
+        'tests/contract/repository-audit.test.ts',
+        'tests/contract/test-impact.test.ts',
+        'tests/unit/active-documentation-contract.test.ts',
+        'tests/unit/codex-work-package-contract.test.ts'
+      ],
+      slow: [],
+      owners: ['historical-documentation']
+    });
+    expect(resolveTestOwnership([source])).toEqual([{
+      source,
+      owner: 'historical-documentation',
+      identity: { kind: 'contract', id: 'historical-documentation' }
+    }]);
+  }
+
+  for (const evidenceSource of [
+    'docs/evidence/documentation/active-documentation-corpus-v1.md',
+    'docs/evidence/documentation/example.manifest.yaml'
+  ]) {
+    expect(classifyTestImpactSource(evidenceSource)).toBeNull();
+    expect(selectTestsForSources([evidenceSource])).toEqual({
+      fast: [
+        'tests/contract/agent-skills.test.ts',
+        'tests/contract/repository-audit.test.ts',
+        'tests/contract/test-impact.test.ts',
+        'tests/unit/active-documentation-contract.test.ts'
+      ],
+      slow: [],
+      owners: ['documentation-evidence']
+    });
+    expect(resolveTestOwnership([evidenceSource])).toEqual([{
+      source: evidenceSource,
+      owner: 'documentation-evidence',
+      identity: { kind: 'contract', id: 'documentation-evidence' }
+    }]);
+  }
+
+  for (const source of [
+    'docs/architecture/unowned.md',
+    'docs/new-unregistered-authority.md',
+    'docs/work/manifest.yaml',
+    'docs/governance/contracts/policy.yaml',
+    'docs/unregistered.manifest.yaml',
+    'docs/evidence/unowned.yaml'
+  ]) {
+    expect(classifyTestImpactSource(source)).toBeNull();
+    expect(selectTestsForSources([source])).toEqual({
+      fast: [],
+      slow: [],
+      owners: []
+    });
+    expect(resolveTestOwnership([source])).toEqual([]);
+  }
+});
+
+test('documentation migrations retain exact tombstone ownership without reactivation', () => {
+  for (const source of DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES) {
+    expect(classifyTestImpactSource(source)).toBeNull();
+  }
+  expect(selectTestsForSources([...DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES])).toEqual({
+    fast: ['tests/contract/documentation-authority.test.ts'],
+    slow: [],
+    owners: ['documentation-authority']
+  });
+  expect(resolveTestOwnership([...DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES])).toEqual(
+    DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES.map((source) => ({
+      source,
+      owner: 'documentation-authority',
+      identity: { kind: 'contract', id: 'documentation-authority' }
+    }))
+  );
 });
 
 test('runtime dependency authorities select only their exact fast and slow owners', () => {
@@ -194,7 +292,7 @@ test('affected selection authority has one explicit local and hosted verificatio
         'tests/contract/sec-merge-gate.test.ts',
         'tests/contract/test-impact.test.ts',
         'tests/unit/ci-pr-risk-selection.test.ts',
-        'tests/unit/ci-verification-v7-execution.test.ts',
+        'tests/unit/ci-verification-composition-execution.test.ts',
         'tests/unit/test-runner.test.ts'
       ],
       slow: [],
@@ -212,8 +310,8 @@ test('exact blob reader and both Evidence producers share one direct execution o
       'tests/unit/ci-evidence-composition-policy-registry.test.ts',
       'tests/unit/ci-pr-risk-execution.test.ts',
       'tests/unit/ci-pr-risk-selection.test.ts',
+      'tests/unit/ci-verification-composition-execution.test.ts',
       'tests/unit/ci-verification-execution.test.ts',
-      'tests/unit/ci-verification-v7-execution.test.ts',
       'tests/unit/exact-git-blob.test.ts'
     ],
     slow: [],
@@ -235,12 +333,53 @@ test('test impact assigns focused governance and frozen work-package ownership',
     '.codex/agents/implementation-worker.toml',
     '.codex/agents/verification-evidence-reviewer.toml'
   ]);
-  expect(agentGovernance.owners).toEqual(['agent-governance']);
+  expect(agentGovernance.owners).toEqual([
+    'agent-governance',
+    'documentation-authority'
+  ]);
   expect(agentGovernance.fast).toEqual(expect.arrayContaining([
+    'tests/unit/agent-skill-markdown-classification.test.ts',
     'tests/unit/ci-pr-risk-selection.test.ts',
+    'tests/contract/documentation-authority.test.ts',
     'tests/contract/test-impact.test.ts'
   ]));
   expect(agentGovernance.slow).toEqual([]);
+  for (const source of [
+    'docs/authority.json',
+    'platform/shared/active-documentation-contract.ts'
+  ]) {
+    expect(selectTestsForSources([source]).fast).toContain(
+      'tests/unit/local-gate-union.test.ts'
+    );
+  }
+
+  const frozenManifest = 'docs/work-packages/active-documentation-corpus-v1.md';
+  const frozenSelection = selectTestsForSources([frozenManifest]);
+  expect(frozenSelection.owners).toEqual(['frozen-work-package']);
+  expect(frozenSelection.fast).toEqual(expect.arrayContaining([
+    'tests/contract/document-control-plane-lifecycle.test.ts',
+    'tests/contract/documentation-authority.test.ts',
+    'tests/contract/docs-doctor.test.ts',
+    'tests/unit/codex-work-package-contract.test.ts'
+  ]));
+  expect(resolveTestOwnership([frozenManifest])).toEqual([{
+    source: frozenManifest,
+    owner: 'frozen-work-package',
+    identity: { kind: 'contract', id: 'frozen-work-package' }
+  }]);
+
+  for (const tombstone of FROZEN_WORK_PACKAGE_TOMBSTONE_FILES) {
+    expect(selectTestsForSources([tombstone])).toEqual({
+      fast: ['tests/contract/documentation-authority.test.ts'],
+      slow: [],
+      owners: ['frozen-work-package']
+    });
+    expect(resolveTestOwnership([tombstone])).toEqual([{
+      source: tombstone,
+      owner: 'frozen-work-package',
+      identity: { kind: 'contract', id: 'frozen-work-package' }
+    }]);
+  }
 
   const workPackageEvidenceSources = [
     'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
@@ -491,6 +630,7 @@ test('test impact selector gives Semantic Mutation focused fast and notice-only 
 test('test impact selector owns the SM-3 lease and local isolated child boundary', () => {
   const sourceFiles = [
     'platform/shared/semantic-mutation-staging-boundary.ts',
+    'platform/shared/workspace-path-contract.ts',
     'platform/shared/workspace-write-lease.ts',
     'platform/compiler/verify/run-semantic-mutation-isolated-child.ts',
     'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts'

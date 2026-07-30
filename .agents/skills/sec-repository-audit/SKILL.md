@@ -17,7 +17,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 
 ## 输入
 - exact repository/default/head/tree identity、clean index/worktree、全部 tracked paths、open PR/Issue、CI/Review、active pointer与manifest。
-- authority graph、模块/入口/公共合同、状态与写 owner、依赖/工具链、测试/CI/Gate、外部能力账本和历史边界。
+- `docs/authority.json`、模块/入口/公共合同、状态与写 owner、依赖/工具链、测试/CI/Gate、外部能力账本和历史边界。
 
 ## 权限与路径
 - 默认只读全部 tracked repository、Git/GitHub事实和批准的外部只读分析结果。
@@ -34,7 +34,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 ## 执行
 1. 先冻结 clean HEAD/tree，再从该 exact tree 与 raw blobs 对全部 tracked paths 做一次 census；checkout/index 内容不得混入报告。分类为产品实现、验证、配置、活动权威、历史/Evidence、Agent投影或启发式运行面；不得以搜索命中、目录抽样或固定文件清单代替全仓覆盖。
 2. 建立对象、入口、接口、状态/写 owner、生命周期、依赖、数据流、控制流、错误/恢复和发布链；区分确定性合同与需要 Agent 判断触发/选择/回退/停止的启发式行为。
-3. 对齐长期 Goal、阶段 DAG、active authority、当前代码、测试、CI/Gate、PR/Issue/Review和真实产物；冲突时追踪唯一 canonical owner，不以文档或代码任一方自动胜出。
+3. 对齐长期 Goal、阶段 DAG、registry owner、当前代码、测试、CI/Gate、PR/Issue/Review和真实产物；冲突时追踪唯一 canonical owner，不以文档或代码任一方自动胜出。
 4. 主动寻找第二 writer/loader/revision/pipeline、隐式状态、循环依赖、孤儿入口、重复规则、宽泛 catch-all、无消费者配置、过期当前事实、弱测试、错误成功声明和不可恢复路径。
 5. 对每项 finding 绑定 exact path/line/symbol、机制、影响、证据、最强反例、未知和反转条件，并区分事实、机制推导、现实推断和候选优化。
 6. 将 Agent 启发式缺口交给 `sec-heuristic-governance`，跨 owner 架构缺口交给 `sec-architecture-evolution`，产品实现交给 A0 冻结独立 Work Package；全仓审计本身不扩张为无限修改包。
@@ -57,7 +57,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 
 ## 权威
 - `AGENTS.md`
-- `docs/00-文档索引与一致性规则.md`
-- `docs/governance/agent-skills-and-development-run-kernel.md`
+- `docs/authority.json`
+- `docs/development-governance.md`
 - `platform/shared/agent-skill-contract.ts`
 - `scripts/codex/repository-audit.ts`

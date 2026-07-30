@@ -25,8 +25,8 @@ function composition() {
   const policy = CodexDevelopmentSyntheticEvidenceCompositionPolicyV1();
   return CodexDevelopmentBuildEvidenceCompositionPlanV1({
     policyId: CodexDevelopmentSyntheticEvidencePolicyIdV1,
-    workPackageId: 'ci-v7-evidence-composition-bootstrap-v1',
-    ciRevision: 'ci-verification-v7',
+    workPackageId: 'ci-v8-evidence-composition-bootstrap-v1',
+    ciRevision: 'ci-verification-v8',
     profile: 'quick',
     inventory: CodexDevelopmentSyntheticVerificationInventoryV1(),
     runtime: 'bun@1.3.6',
@@ -81,25 +81,25 @@ function passedGate(
 function evidence(): CodexDevelopmentVerificationEvidenceV3 {
   const plan = composition();
   return CodexDevelopmentFinalizeVerificationEvidenceV3({
-    contractRevision: 'ci-verification-v7',
+    contractRevision: 'ci-verification-v8',
     kind: 'verification',
     profile: 'quick',
     policyId: plan.policyId,
-    workPackageId: 'ci-v7-evidence-composition-bootstrap-v1',
+    workPackageId: 'ci-v8-evidence-composition-bootstrap-v1',
     headSha: HEAD,
     treeSha: TREE,
     prBaseSha: BASE,
     affectedBaseSha: BASE,
-    manifestPath: 'docs/work-packages/ci-v7-evidence-composition-bootstrap-v1.md',
+    manifestPath: 'docs/work-packages/ci-v8-evidence-composition-bootstrap-v1.md',
     manifestDigest: MANIFEST_DIGEST,
     inputDigest: CodexDevelopmentVerificationDigest(CodexDevelopmentBuildVerificationInputV3({
       headSha: HEAD,
       treeSha: TREE,
       prBaseSha: BASE,
       affectedBaseSha: BASE,
-      manifestPath: 'docs/work-packages/ci-v7-evidence-composition-bootstrap-v1.md',
+      manifestPath: 'docs/work-packages/ci-v8-evidence-composition-bootstrap-v1.md',
       manifestDigest: MANIFEST_DIGEST,
-      workPackageId: 'ci-v7-evidence-composition-bootstrap-v1',
+      workPackageId: 'ci-v8-evidence-composition-bootstrap-v1',
       plan
     })),
     argv: ['bun', 'scripts/ci-verification.ts', '--profile', 'quick', '--expected-head', HEAD],
@@ -140,7 +140,7 @@ test('Evidence V3 records complete selection, exact coverage ledger, reuse, and 
     {
       profile: 'quick',
       policyId: CodexDevelopmentSyntheticEvidencePolicyIdV1,
-      workPackageId: 'ci-v7-evidence-composition-bootstrap-v1',
+      workPackageId: 'ci-v8-evidence-composition-bootstrap-v1',
       headSha: HEAD,
       treeSha: TREE,
       prBaseSha: BASE,
@@ -158,6 +158,11 @@ test('Evidence V3 records complete selection, exact coverage ledger, reuse, and 
   expect(value.gates).toHaveLength(2);
   expect(value.reusedEvidence).toHaveLength(1);
   expect(value.uncoveredScopes).toEqual([]);
+  expect(() => CodexDevelopmentAssertVerificationEvidenceV3(
+    { ...value, contractRevision: 'ci-verification-v7' },
+    { plan },
+    new Date('2026-07-18T00:00:00.000Z')
+  )).toThrow('Verification V3 evidence CI revision mismatch');
 });
 
 test('Evidence V3 PASS rejects uncovered, not-run delta, missing coverage, or env drift', () => {

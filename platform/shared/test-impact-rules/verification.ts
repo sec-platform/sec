@@ -11,7 +11,7 @@ const AFFECTED_TEST_SELECTION_FAST_TESTS = [
   'tests/contract/sec-merge-gate.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/ci-pr-risk-selection.test.ts',
-  'tests/unit/ci-verification-v7-execution.test.ts',
+  'tests/unit/ci-verification-composition-execution.test.ts',
   'tests/unit/test-runner.test.ts'
 ];
 
@@ -23,7 +23,7 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/unit/ci-pr-risk-execution.test.ts',
   'tests/unit/ci-pr-risk-selection.test.ts',
   'tests/unit/ci-verification-execution.test.ts',
-  'tests/unit/ci-verification-v7-execution.test.ts',
+  'tests/unit/ci-verification-composition-execution.test.ts',
   'tests/unit/exact-git-blob.test.ts'
 ];
 

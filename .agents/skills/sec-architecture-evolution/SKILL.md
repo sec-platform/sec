@@ -16,7 +16,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 只做文档生命周期、格式或链接维护。
 
 ## 输入
-- latest exact main、长期 Goal和阶段出口、canonical owner docs、当前代码/types/tests、consumer/impact图、状态与写 owner、失败/恢复证据、兼容和迁移约束。
+- latest exact main、长期 Goal和阶段出口、`docs/authority.json`解析出的领域owner、当前代码/types/tests、consumer/impact图、状态与写 owner、失败/恢复证据、兼容和迁移约束。
 
 ## 权限与路径
 - 只在 frozen Work Package 声明的 canonical authority、公共contract/types、contract tests与迁移说明范围内设计和修改。
@@ -33,7 +33,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 1. 从用户 Goal 和不可绕过约束重建对象边界、状态、身份、数据所有权、写权限、接口、生命周期、失败/恢复与确定性要求，不从现有易改代码反推降低目标。
 2. 建立当前机制链和最强竞争方案，主动攻击反向因果、共同原因、兼容破坏、并发/崩溃、极端输入、第二事实源和不可逆迁移风险。
 3. 选择唯一 canonical owner，明确哪些旧 owner/adapter/pipeline被吸收、迁移或退役；禁止平行长期双写。
-4. authority first：先更新唯一设计 owner和稳定合同，再定义公共类型/Schema、negative/compatibility/property tests、迁移与rollback/recovery计划。
+4. authority first：先更新唯一领域owner和稳定合同，再定义公共类型/Schema、negative/compatibility/property tests、迁移与rollback/recovery计划。
 5. 将实现拆成依赖明确的最小纵向 Work Package；proof/spike只产生Evidence，成立后提炼为 feat/refactor/fix，不直接合并实验噪声。
 6. 每个候选方案给出适用边界、失效/反转条件、未知和决定性证据；证据推翻根假设时返回上游重算而不是追加例外。
 7. authority与contract冻结后交给A0/Worker执行；实现结果必须回读并统一修正代码、测试、文档和迁移面。
@@ -52,9 +52,8 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 不为兼容无限保留旧路径；每条迁移必须有退出和删除条件。
 
 ## 权威
-- `docs/00-文档索引与一致性规则.md`
-- `docs/02-工程编译器-MVP-PRD与架构稿.md`
-- `docs/03-MVP实施计划与路线图.md`
-- `docs/04-AI自主实现执行蓝图.md`
-- `docs/14-Engineering IR与语义事实规范.md`
-- `docs/architecture/**`
+- `docs/authority.json`
+- `docs/product.md`
+- `docs/roadmap.md`
+- `docs/system-architecture.md`
+- 当前变更对应的唯一领域文档和代码合同

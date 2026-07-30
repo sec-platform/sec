@@ -32,7 +32,7 @@ beforeAll(async () => {
   ticketInput = (await loadWorkspaceEngineeringIRBuildInput(workspaceRoot)).engineeringIRInput;
   ticketSnapshot = buildValidatedEngineeringIR(ticketInput);
   ticketIR = ticketSnapshot.ir;
-}, 15_000);
+});
 
 test("Ticket closes the P0-2A identity, assertion, signature, and Scenario ownership vertical", () => {
   expect(ticketIR.formatVersion).toBe("2");
