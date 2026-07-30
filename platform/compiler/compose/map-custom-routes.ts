@@ -11,11 +11,12 @@ async function hasLayoutInChain(dir: string, routesSourceDir: string): Promise<b
   let current = dir;
 
   while (true) {
-    for (const ext of layoutExtensions) {
-      const layoutPath = path.join(current, `layout${ext}`);
-      if (await pathExists(layoutPath)) {
-        return true;
-      }
+    // 并行检查当前目录下所有 layout 扩展名，避免逐个串行 stat。
+    const checks = await Promise.all(
+      layoutExtensions.map((ext) => pathExists(path.join(current, `layout${ext}`)))
+    );
+    if (checks.some((exists) => exists)) {
+      return true;
     }
 
     if (current === routesSourceDir) {
@@ -50,10 +51,13 @@ export async function mapCustomRoutes(
     targetAppRoot = path.join(projectRoot, 'app');
   }
 
-  const generatedPaths: string[] = [];
+  const generatedPaths = new Set<string>();
 
-  // 1. Copy all custom routes recursively
+  // 1. Copy all custom routes recursively + scan for route entrypoints in one traversal
   const sourceFiles = await listFilesRecursive(routesSourceDir);
+  const pageExtensions = ['page.tsx', 'page.ts', 'page.jsx', 'page.js', 'route.ts', 'route.js'];
+  const routeDirs = new Set<string>();
+
   for (const sourceFile of sourceFiles) {
     const relativePath = path.relative(routesSourceDir, sourceFile);
     const targetFile = path.join(targetAppRoot, relativePath);
@@ -61,21 +65,15 @@ export async function mapCustomRoutes(
     await copyRecursive(sourceFile, targetFile, commitFence);
 
     const relativeToProject = path.relative(projectRoot, targetFile).split(path.sep).join('/');
-    generatedPaths.push(relativeToProject);
-  }
+    generatedPaths.add(relativeToProject);
 
-  // 2. Scan for directories containing page or route entrypoints
-  const pageExtensions = ['page.tsx', 'page.ts', 'page.jsx', 'page.js', 'route.ts', 'route.js'];
-  const routeDirs = new Set<string>();
-
-  for (const sourceFile of sourceFiles) {
     const filename = path.basename(sourceFile);
     if (pageExtensions.includes(filename)) {
       routeDirs.add(path.dirname(sourceFile));
     }
   }
 
-  // 3. For each route directory, check layout and fallback/throw
+  // 2. For each route directory, check layout and fallback/throw
   for (const routeDir of routeDirs) {
     const relativeDir = path.relative(routesSourceDir, routeDir);
     const targetRouteDir = path.join(targetAppRoot, relativeDir);
@@ -87,9 +85,7 @@ export async function mapCustomRoutes(
         await copyRecursive(fallbackLayoutPath, targetLayoutPath, commitFence);
 
         const relativeLayoutToProject = path.relative(projectRoot, targetLayoutPath).split(path.sep).join('/');
-        if (!generatedPaths.includes(relativeLayoutToProject)) {
-          generatedPaths.push(relativeLayoutToProject);
-        }
+        generatedPaths.add(relativeLayoutToProject);
       } else {
         throw new CompilerError(
           'SPEC-ROUTE-005',
@@ -99,5 +95,5 @@ export async function mapCustomRoutes(
     }
   }
 
-  return generatedPaths;
+  return [...generatedPaths];
 }

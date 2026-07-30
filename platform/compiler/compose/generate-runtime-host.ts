@@ -383,11 +383,6 @@ function scaffoldEntries(lock: LockFile): RuntimeHostScaffoldEntry[] {
     }));
 }
 
-function generatedPathsForScaffold(lock: LockFile): string[] {
-  const entries = scaffoldEntries(lock).map((entry) => entry.relativePath);
-  return uniqueSorted([...BASE_RUNTIME_SCAFFOLD_PATHS, ...entries]);
-}
-
 export async function generateRuntimeHostScaffold(
   workspaceRoot: string,
   lock: LockFile,
@@ -402,5 +397,5 @@ export async function generateRuntimeHostScaffold(
     await writeText(targetPath, entry.source, commitFence);
   }
 
-  return generatedPathsForScaffold(lock);
+  return uniqueSorted([...BASE_RUNTIME_SCAFFOLD_PATHS, ...entries.map((e) => e.relativePath)]);
 }

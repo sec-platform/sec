@@ -171,25 +171,29 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
 
   const compilerNodeModulesPath = await options.prepareCompilerNodeModulesPath();
 
-  console.log('Running fast check: imports:prepare + docs:doctor (parallel) -> typecheck -> test:fast');
+  console.log('Running fast check: imports:prepare -> docs:doctor + typecheck (parallel) -> test:fast');
 
   const { runImportPreparation } = await import('./import-organizer.ts');
-  const { runDevCommand } = await import('./command-runner.ts');
-
-  const [importsCode, docsCode] = await Promise.all([
-    runImportPreparation(),
-    runDevCommand('bun', ['docs/scripts/docs-doctor.ts'], {})
-  ]);
+  const importsCode = await runImportPreparation();
   if (importsCode !== 0) return importsCode;
-  if (docsCode !== 0) return docsCode;
 
+  const { runDevCommand } = await import('./command-runner.ts');
   const { runTypecheck, runTypecheckWithBinPath } = await import('./typecheck-runner.ts');
-  const typecheckCode = compilerNodeModulesPath
-    ? await runTypecheckWithBinPath(path.join(compilerNodeModulesPath, '.bin'))
-    : await runTypecheck();
+  const typecheck = compilerNodeModulesPath
+    ? () => runTypecheckWithBinPath(path.join(compilerNodeModulesPath, '.bin'))
+    : () => runTypecheck();
+
+  const [docsCode, typecheckCode] = await Promise.all([
+    runDevCommand('bun', ['docs/scripts/docs-doctor.ts'], {}),
+    typecheck()
+  ]);
+  if (docsCode !== 0) return docsCode;
   if (typecheckCode !== 0) return typecheckCode;
 
   const { withHeavyVerificationGateLease } = await import('../shared/heavy-verification-gate-lease.ts');
   const { runFastTests } = await import('./test-runner.ts');
-  return withHeavyVerificationGateLease('test:fast', () => runFastTests());
+  return withHeavyVerificationGateLease('test:fast', () => runFastTests(), {
+    namespace: 'test:fast',
+    waitTimeoutMs: 5000
+  });
 }

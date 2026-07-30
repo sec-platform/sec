@@ -1,9 +1,10 @@
 import type { ManifestEntry } from '../../shared/plan-manifest-types.ts';
-import { loadAllManifests, loadManifestById } from './load-manifest.ts';
+import { loadAllManifests } from './load-manifest.ts';
 
 interface CacheKey {
   blockId: string;
   version?: string;
+  workspaceRoot?: string;
 }
 
 class ManifestCache {
@@ -12,21 +13,24 @@ class ManifestCache {
   private allEntriesKey: string | null = null;
 
   private cacheKey(key: CacheKey): string {
-    return `${key.blockId}@${key.version ?? 'latest'}`;
+    return `${key.workspaceRoot ?? '__default__'}::${key.blockId}@${key.version ?? 'latest'}`;
   }
 
-  async get(key: CacheKey): Promise<ManifestEntry> {
-    const cacheId = this.cacheKey(key);
-    const cached = this.entries.get(cacheId);
-    if (cached) {
-      return cached;
-    }
-    const entry = await loadManifestById(key.blockId, {
-      version: key.version,
-      registrySources: undefined
-    });
-    this.entries.set(cacheId, entry);
-    return entry;
+  /**
+   * 纯缓存查询：仅检查内存 Map，不触发磁盘读取。
+   * 命中返回 ManifestEntry，未命中返回 undefined。
+   * 调用方（如 loadManifestById）负责在磁盘读取后调用 set() 回填缓存。
+   */
+  get(key: CacheKey): ManifestEntry | undefined {
+    return this.entries.get(this.cacheKey(key));
+  }
+
+  /**
+   * 回填缓存。loadManifestById 在磁盘读取成功后调用此方法，
+   * 使后续相同 blockId+version 的查询直接命中缓存。
+   */
+  set(key: CacheKey, entry: ManifestEntry): void {
+    this.entries.set(this.cacheKey(key), entry);
   }
 
   async getAll(options: { workspaceRoot?: string } = {}): Promise<ManifestEntry[]> {
@@ -37,7 +41,7 @@ class ManifestCache {
     this.allEntriesCache = await loadAllManifests({ workspaceRoot: options.workspaceRoot });
     this.allEntriesKey = cacheKey;
     for (const entry of this.allEntriesCache) {
-      this.entries.set(this.cacheKey({ blockId: entry.manifest.id, version: entry.manifest.version }), entry);
+      this.set({ blockId: entry.manifest.id, version: entry.manifest.version, workspaceRoot: options.workspaceRoot }, entry);
     }
     return this.allEntriesCache;
   }

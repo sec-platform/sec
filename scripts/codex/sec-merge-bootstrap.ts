@@ -28,7 +28,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -57,6 +57,7 @@ export type PrInfo = {
   headSha: string;
   baseSha: string;
   headBranch: string;
+  title: string;
   state: string;
   body: string;
   manifestPath: string;
@@ -194,6 +195,7 @@ export function parsePrInfo(json: string, parseLocator: (body: string) => string
     headRefOid?: string;
     baseRefOid?: string;
     headRefName?: string;
+    title?: string;
     state?: string;
     body?: string;
   };
@@ -214,6 +216,7 @@ export function parsePrInfo(json: string, parseLocator: (body: string) => string
   if (typeof headRefName !== 'string' || headRefName.length === 0) {
     throw new Error('PR headRefName is invalid.');
   }
+  if (typeof data.title !== 'string' || data.title.length === 0) throw new Error('PR title is invalid.');
   if (typeof data.state !== 'string') throw new Error('PR state is invalid.');
   const body = data.body ?? '';
   const manifestPath = parseLocator(body);
@@ -222,6 +225,7 @@ export function parsePrInfo(json: string, parseLocator: (body: string) => string
     headSha: headRefOid,
     baseSha: baseRefOid,
     headBranch: headRefName,
+    title: data.title,
     state: data.state,
     body,
     manifestPath
@@ -291,7 +295,7 @@ export function selectSuccessfulRun(
 function resolvePrInfo(ctx: BootstrapContext, prNumber: number): PrInfo {
   const result = ctx.runShell('gh', [
     'pr', 'view', String(prNumber),
-    '--json', 'number,headRefOid,baseRefOid,headRefName,state,body'
+    '--json', 'number,headRefOid,baseRefOid,headRefName,title,state,body'
   ], { cwd: ctx.repositoryRoot });
   if (result.status !== 0) {
     fail(`Failed to fetch PR #${prNumber}: ${result.stderr.trim() || result.stdout.trim()}`);
@@ -430,7 +434,14 @@ function ensureSingleParent(ctx: BootstrapContext, pr: PrInfo): void {
     return;
   }
   logInfo(`PR #${pr.number} head has ${parents.length} parents; squashing to single-parent base ${pr.baseSha.slice(0, 8)}.`);
-  // Checkout the PR head branch, reset --soft to base, amend, force-push.
+  // Use the PR title as the squashed commit message so the branch head reflects
+  // the feature intent regardless of how many commits the branch accumulated.
+  const commitMessage = `${pr.title}\n`;
+  // Checkout the PR head branch, reset --soft to base, commit (not --amend), force-push.
+  // Using `git commit` (not `--amend`) is critical: after `reset --soft <base>`,
+  // HEAD is <base>, so `--amend` would rewrite <base> and produce a commit whose
+  // parent is <base>'s parent — breaking the single-parent-base invariant.
+  // A fresh `git commit -F <file>` creates a new commit with parent === <base>.
   const checkoutResult = ctx.runShell('git', ['checkout', pr.headBranch], { cwd: ctx.repositoryRoot });
   if (checkoutResult.status !== 0) {
     fail(`Failed to checkout branch ${pr.headBranch}: ${checkoutResult.stderr.trim()}`);
@@ -439,9 +450,16 @@ function ensureSingleParent(ctx: BootstrapContext, pr: PrInfo): void {
   if (resetResult.status !== 0) {
     fail(`Failed to git reset --soft ${pr.baseSha}: ${resetResult.stderr.trim()}`);
   }
-  const commitResult = ctx.runShell('git', ['commit', '--amend', '--no-edit', '--no-verify'], { cwd: ctx.repositoryRoot });
-  if (commitResult.status !== 0) {
-    fail(`Failed to git commit --amend: ${commitResult.stderr.trim()}`);
+  const messageDir = mkdtempSync(path.join(ctx.repositoryRoot, '.tmp', 'squash-msg-'));
+  const messageFile = path.join(messageDir, 'COMMIT_MSG');
+  try {
+    writeFileSync(messageFile, commitMessage, 'utf8');
+    const commitResult = ctx.runShell('git', ['commit', '--no-verify', '-F', messageFile], { cwd: ctx.repositoryRoot });
+    if (commitResult.status !== 0) {
+      fail(`Failed to git commit: ${commitResult.stderr.trim()}`);
+    }
+  } finally {
+    rmSync(messageDir, { recursive: true, force: true });
   }
   const pushResult = ctx.runShell('git', ['push', '--force-with-lease', 'origin', pr.headBranch], { cwd: ctx.repositoryRoot });
   if (pushResult.status !== 0) {

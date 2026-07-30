@@ -10,8 +10,8 @@ last-reviewed: 2026-07-30
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/dev-loop-speed-v1.md
-manifestDigest: sha256:e3b5b2f254b67537e10c3f4357d10886b8bcbaf4953249dd8da552d106bde730
+manifest: docs/work-packages/dev-loop-speed-v2.md
+manifestDigest: sha256:4f629ca4bbf24d16732e8963a6815f6a192670f441f93b2cd79df9f12e85c82c
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

@@ -127,12 +127,12 @@ function addVerificationFailurePoint(points: ReviewFailurePoint[], spec: Verific
   }
 }
 
-function mapOverrideTarget(lock: LockFile, target: string): Pick<ReviewRegressionRisk, 'blockId' | 'slotId'> {
+async function mapOverrideTarget(lock: LockFile, target: string): Promise<Pick<ReviewRegressionRisk, 'blockId' | 'slotId'>> {
   const slotTask = lock.slotTasks.find((task) => task.target === target);
   if (slotTask) return { blockId: slotTask.block, slotId: slotTask.id };
   const installStep = lock.installPlan.find((step) => step.to === target);
   if (installStep) return { blockId: installStep.blockId };
-  const runtimeEntry = buildRuntimeAttribution(lock, target);
+  const runtimeEntry = await buildRuntimeAttribution(lock, target);
   if (runtimeEntry?.relatedBlocks.length) {
     const verticalBlock = runtimeEntry.vertical ? `${runtimeEntry.vertical}/basic` : null;
     return { blockId: verticalBlock && runtimeEntry.relatedBlocks.includes(verticalBlock) ? verticalBlock : runtimeEntry.relatedBlocks[0] };
@@ -467,7 +467,7 @@ export async function buildReviewSummary(
   }
 
   for (const override of overrideManifest.overrides) {
-    addRegressionRisk(regressionRisks, { kind: 'override-active', message: `Override active: ${override.id} -> ${override.target}`, ...mapOverrideTarget(lock, override.target) });
+    addRegressionRisk(regressionRisks, { kind: 'override-active', message: `Override active: ${override.id} -> ${override.target}`, ...await mapOverrideTarget(lock, override.target) });
     for (const conflict of override.conflictsWith) {
       addConflictHint(conflictHints, { kind: 'override-conflict', relatedId: conflict, message: `Override ${override.id} conflicts with ${conflict}` });
     }
@@ -514,7 +514,7 @@ export async function buildReviewSummary(
     }
   }
 
-  const runtimeEntries = buildRuntimeAttributions(lock, provenance.artifacts.map((a) => a.path));
+  const runtimeEntries = await buildRuntimeAttributions(lock, provenance.artifacts.map((a) => a.path));
   const runtimeEntryByPath = new Map(runtimeEntries.map((e) => [e.path, e]));
   const changeSources = provenance.artifacts.map((artifact) => {
     const runtimeEntry = runtimeEntryByPath.get(artifact.path);

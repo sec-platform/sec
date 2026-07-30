@@ -93,6 +93,28 @@ export interface InterfacePropertySpec {
   isOptional?: boolean;
 }
 
+/**
+ * 进程级共享 ts-morph Project 单例。
+ *
+ * CodeBuilder 历史上每次构造都 new 一个 Project，导致大量重复的 ts-morph
+ * 初始化开销。由于所有 CodeBuilder 生成的 SourceFile 都使用内存文件系统、
+ * 不加载 lib 文件、不解析依赖，多个 SourceFile 可以安全共存于同一个 Project。
+ * 通过 getDefaultProject() 复用单例可显著降低编译管线中的 Project 构造成本。
+ */
+let _defaultProject: Project | null = null;
+
+export function getDefaultProject(): Project {
+  if (_defaultProject === null) {
+    _defaultProject = new Project({
+      useInMemoryFileSystem: true,
+      skipLoadingLibFiles: true,
+      skipAddingFilesFromTsConfig: true,
+      skipFileDependencyResolution: true
+    });
+  }
+  return _defaultProject;
+}
+
 export class CodeBuilder {
   private readonly sourceFile: SourceFile;
   /**
@@ -102,14 +124,9 @@ export class CodeBuilder {
    */
   private fileComment: string | null = null;
 
-  constructor(filePath: string = 'generated.ts', initialText: string = '') {
-    const project = new Project({
-      useInMemoryFileSystem: true,
-      skipLoadingLibFiles: true,
-      skipAddingFilesFromTsConfig: true,
-      skipFileDependencyResolution: true
-    });
-    this.sourceFile = project.createSourceFile(filePath, initialText, { overwrite: true });
+  constructor(filePath: string = 'generated.ts', initialText: string = '', project?: Project) {
+    const resolvedProject = project ?? getDefaultProject();
+    this.sourceFile = resolvedProject.createSourceFile(filePath, initialText, { overwrite: true });
   }
 
   /**

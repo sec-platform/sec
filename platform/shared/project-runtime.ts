@@ -38,6 +38,21 @@ import {
   type RuntimeDependencySpec
 } from './runtime-dependency-spec.ts';
 
+// Inline config cache for package.json/bun.lock parsing.
+// Inlined here to avoid expanding the TCB runtime closure with config-cache.ts.
+interface ConfigCacheEntry { readonly signature: string; readonly value: unknown }
+const configCache = new Map<string, ConfigCacheEntry>();
+async function cachedRead<T>(filePath: string, parser: (content: string) => T): Promise<T> {
+  const stat = await fs.stat(filePath);
+  const signature = `${filePath}:${stat.mtimeMs}:${stat.size}`;
+  const existing = configCache.get(filePath);
+  if (existing !== undefined && existing.signature === signature) return existing.value as T;
+  const content = await fs.readFile(filePath, 'utf8');
+  const value = parser(content);
+  configCache.set(filePath, { signature, value: value as unknown });
+  return value;
+}
+
 export interface RuntimeDepsStamp {
   manifestHash: string;
   packageManager: 'bun';
@@ -212,8 +227,11 @@ async function compilerDependencyIdentity(
   root: string,
   options: RuntimeDependencyInstallOptions
 ): Promise<CompilerDependencyIdentity> {
-  const packageJson = await readJson<RootPackageJson & { packageManager?: string }>(path.join(root, 'package.json'));
-  const lockfile = await readText(path.join(root, 'bun.lock'));
+  const packageJson = await cachedRead(
+    path.join(root, 'package.json'),
+    (text) => JSON.parse(text) as RootPackageJson & { packageManager?: string }
+  );
+  const lockfile = await cachedRead(path.join(root, 'bun.lock'), (text) => text);
   const dependencies = sortedRecord(packageJson.dependencies);
   const devDependencies = sortedRecord(packageJson.devDependencies);
   const canonicalBunVersion = await loadCanonicalBunRuntimeVersion(root);
@@ -1276,7 +1294,10 @@ async function stageCompilerDependencyGeneration(
   await options.beforeCommit?.();
   const stagingRoot = await fs.mkdtemp(path.join(stagingParent, 'c.staging-'));
   try {
-    const rootPackage = await readJson<Record<string, unknown>>(path.join(root, 'package.json'));
+    const rootPackage = await cachedRead(
+      path.join(root, 'package.json'),
+      (text) => JSON.parse(text) as Record<string, unknown>
+    );
     await writeJson(path.join(stagingRoot, 'package.json'), rootPackage, options.beforeCommit);
     await options.beforeCommit?.();
     await fs.copyFile(path.join(root, 'bun.lock'), path.join(stagingRoot, 'bun.lock'));
@@ -1465,6 +1486,147 @@ async function publishCompilerDependencyGeneration(
   }
 }
 
+interface CompilerDepsRuntimeIdentity {
+  architecture: string;
+  bunVersion: string;
+  platform: NodeJS.Platform;
+}
+
+interface CompilerDepsStamp {
+  packageJsonMtimeMs: number;
+  bunLockMtimeMs: number;
+  packageJsonSize: number;
+  bunLockSize: number;
+  cachedIdentity: CompilerDependencyIdentity;
+  lastReadyState: CompilerDepsReadyState;
+}
+
+function isCompilerDepsRuntimeIdentity(value: unknown): value is CompilerDepsRuntimeIdentity {
+  const identity = value as Partial<CompilerDepsRuntimeIdentity> | null;
+  return identity !== null && typeof identity === 'object' &&
+    typeof identity.architecture === 'string' &&
+    typeof identity.bunVersion === 'string' &&
+    typeof identity.platform === 'string';
+}
+
+function isCompilerDependencyIdentity(value: unknown): value is CompilerDependencyIdentity {
+  const identity = value as Partial<CompilerDependencyIdentity> | null;
+  return identity !== null && typeof identity === 'object' &&
+    typeof identity.architecture === 'string' &&
+    typeof identity.bunVersion === 'string' &&
+    typeof identity.declaredBunVersion === 'string' &&
+    typeof identity.manifestHash === 'string' &&
+    Array.isArray(identity.packageNames) &&
+    identity.packageNames.every((name: unknown) => typeof name === 'string') &&
+    typeof identity.packageVersions === 'object' && identity.packageVersions !== null &&
+    typeof identity.platform === 'string';
+}
+
+function isCompilerDepsStamp(value: unknown): value is CompilerDepsStamp {
+  const stamp = value as Partial<CompilerDepsStamp> | null;
+  return stamp !== null && typeof stamp === 'object' &&
+    typeof stamp.packageJsonMtimeMs === 'number' &&
+    typeof stamp.bunLockMtimeMs === 'number' &&
+    typeof stamp.packageJsonSize === 'number' &&
+    typeof stamp.bunLockSize === 'number' &&
+    isCompilerDependencyIdentity(stamp.cachedIdentity) &&
+    stamp.lastReadyState !== null && typeof stamp.lastReadyState === 'object';
+}
+
+// Computes the current runtime identity from options + process without reading
+// any files. This is an O(1) pre-check so the stamp short-circuit can detect
+// runtime environment changes (bun version, architecture, platform) without
+// waiting for the full compilerDependencyIdentity validation.
+function compilerDepsRuntimeIdentity(
+  options: RuntimeDependencyInstallOptions
+): CompilerDepsRuntimeIdentity {
+  return {
+    architecture: options.runtimeArchitecture ?? process.arch,
+    bunVersion: options.runtimeVersion ?? process.versions.bun ?? 'unknown',
+    platform: options.runtimePlatform ?? process.platform
+  };
+}
+
+// Returns the cached identity and ready state when the stamp file matches the
+// current stat(package.json).mtimeMs + size, stat(bun.lock).mtimeMs + size,
+// the current runtime identity (architecture, bunVersion, platform), and
+// node_modules still exists. Returns null on any mismatch or parse error so
+// the caller falls through to the full validation path.
+//
+// The caller MUST still run compilerDependencyTreeReady with the cached
+// identity to verify node_modules integrity (entry SHA-256 hashes). The stamp
+// only skips the expensive compilerDependencyIdentity computation (package.json
+// parsing, bun.lock reading, canonical bun version loading, manifest hash).
+async function readCompilerDepsStamp(
+  stampPath: string,
+  packageJsonPath: string,
+  bunLockPath: string,
+  nodeModulesPath: string,
+  runtimeIdentity: CompilerDepsRuntimeIdentity
+): Promise<{ identity: CompilerDependencyIdentity; readyState: CompilerDepsReadyState } | null> {
+  let stamp: unknown;
+  try {
+    stamp = await readJson<unknown>(stampPath);
+  } catch {
+    return null;
+  }
+  if (!isCompilerDepsStamp(stamp)) return null;
+
+  const [packageJsonStat, bunLockStat, nodeModulesExists] = await Promise.all([
+    fs.stat(packageJsonPath).catch(() => null),
+    fs.stat(bunLockPath).catch(() => null),
+    pathExists(nodeModulesPath)
+  ]);
+  if (packageJsonStat === null || bunLockStat === null || !nodeModulesExists) {
+    return null;
+  }
+  if (
+    packageJsonStat.mtimeMs !== stamp.packageJsonMtimeMs ||
+    packageJsonStat.size !== stamp.packageJsonSize ||
+    bunLockStat.mtimeMs !== stamp.bunLockMtimeMs ||
+    bunLockStat.size !== stamp.bunLockSize
+  ) {
+    return null;
+  }
+  if (
+    stamp.cachedIdentity.architecture !== runtimeIdentity.architecture ||
+    stamp.cachedIdentity.bunVersion !== runtimeIdentity.bunVersion ||
+    stamp.cachedIdentity.platform !== runtimeIdentity.platform
+  ) {
+    return null;
+  }
+  return { identity: stamp.cachedIdentity, readyState: stamp.lastReadyState };
+}
+
+// Writes the stamp file with the current package.json/bun.lock stats and the
+// full compiler dependency identity. The stamp normalizes source to 'existing'
+// because it represents a known-good state for future calls — the deps already
+// exist regardless of whether the current call installed them.
+async function writeCompilerDepsStamp(
+  stampPath: string,
+  packageJsonPath: string,
+  bunLockPath: string,
+  readyState: CompilerDepsReadyState,
+  identity: CompilerDependencyIdentity,
+  commitFence?: CommitFence
+): Promise<void> {
+  const [packageJsonStat, bunLockStat] = await Promise.all([
+    fs.stat(packageJsonPath),
+    fs.stat(bunLockPath)
+  ]);
+  const stamp: CompilerDepsStamp = {
+    packageJsonMtimeMs: packageJsonStat.mtimeMs,
+    bunLockMtimeMs: bunLockStat.mtimeMs,
+    packageJsonSize: packageJsonStat.size,
+    bunLockSize: bunLockStat.size,
+    cachedIdentity: identity,
+    lastReadyState: readyState.source === 'existing'
+      ? readyState
+      : { ...readyState, source: 'existing' as const }
+  };
+  await writeJson(stampPath, stamp, commitFence);
+}
+
 export async function ensureCompilerDepsReady(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot = compilerRoot
@@ -1473,6 +1635,29 @@ export async function ensureCompilerDepsReady(
   const nodeModulesPath = dependencyAuthorityPaths(root).compilerModulesRoot;
   const bindingPath = path.join(nodeModulesPath, '.sec-compiler-deps-binding-v2.json');
   const installLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
+  const stampPath = path.join(root, '.tmp', 'compiler-deps.stamp.json');
+  const packageJsonPath = path.join(root, 'package.json');
+  const bunLockPath = path.join(root, 'bun.lock');
+
+  const runtimeIdentity = compilerDepsRuntimeIdentity(options);
+  const stampHit = await readCompilerDepsStamp(
+    stampPath,
+    packageJsonPath,
+    bunLockPath,
+    nodeModulesPath,
+    runtimeIdentity
+  );
+  if (stampHit !== null) {
+    // Stamp matched: skip compilerDependencyIdentity (saves package.json parsing,
+    // bun.lock reading, canonical bun version loading, manifest hash computation)
+    // but STILL verify node_modules integrity via compilerDependencyTreeReady.
+    // This detects entry corruption that the stamp's mtime/size check cannot.
+    if (await compilerDependencyTreeReady(nodeModulesPath, bindingPath, stampHit.identity)) {
+      return stampHit.readyState;
+    }
+    // Stamp said ready but integrity check failed — fall through to full path.
+  }
+
   const identity = await compilerDependencyIdentity(root, options);
   const ready = () => compilerDependencyTreeReady(
     nodeModulesPath,
@@ -1481,24 +1666,42 @@ export async function ensureCompilerDepsReady(
   );
 
   if (await ready()) {
-    return {
+    const readyState: CompilerDepsReadyState = {
       manifestHash: identity.manifestHash,
       nodeModulesPath,
       packageManager: 'bun',
       root,
       source: 'existing'
     };
+    await writeCompilerDepsStamp(
+      stampPath,
+      packageJsonPath,
+      bunLockPath,
+      readyState,
+      identity,
+      options.beforeCommit
+    );
+    return readyState;
   }
 
   return withInstallLock(installLockPath, options, async () => {
     if (await ready()) {
-      return {
+      const readyState: CompilerDepsReadyState = {
         manifestHash: identity.manifestHash,
         nodeModulesPath,
         packageManager: 'bun' as const,
         root,
         source: 'existing' as const
       };
+      await writeCompilerDepsStamp(
+        stampPath,
+        packageJsonPath,
+        bunLockPath,
+        readyState,
+        identity,
+        options.beforeCommit
+      );
+      return readyState;
     }
 
     const staged = await stageCompilerDependencyGeneration(root, identity, options);
@@ -1507,13 +1710,22 @@ export async function ensureCompilerDepsReady(
       throw new CompilerError('IMPORT-AUTHORITY-002', 'Published compiler dependency generation failed validation');
     }
 
-    return {
+    const readyState: CompilerDepsReadyState = {
       manifestHash: identity.manifestHash,
       nodeModulesPath,
       packageManager: 'bun',
       root,
       source: 'installed'
     };
+    await writeCompilerDepsStamp(
+      stampPath,
+      packageJsonPath,
+      bunLockPath,
+      readyState,
+      identity,
+      options.beforeCommit
+    );
+    return readyState;
   });
 }
 

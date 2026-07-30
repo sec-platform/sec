@@ -1,21 +1,5 @@
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-
 import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
 import { cleanTestWorkspaces } from './dev-runner/env-manager.ts';
-
-const devRunnerFilePath = fileURLToPath(import.meta.url);
-
-function reenterWithResolvedDependencies(): never {
-  const result = spawnSync(process.execPath, [devRunnerFilePath, ...process.argv.slice(2)], {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: 'inherit',
-    windowsHide: true
-  });
-  if (result.error) throw result.error;
-  process.exit(result.status ?? 1);
-}
 
 function usage(): never {
   console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:prepare|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
@@ -39,7 +23,6 @@ async function main(): Promise<void> {
     process.exitCode = await runLocalAffectedCheck(args, {
       prepareCompilerNodeModulesPath: async () => {
         const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
-        if (dependencies.source === 'installed') reenterWithResolvedDependencies();
         return dependencies.nodeModulesPath;
       }
     });
@@ -52,7 +35,6 @@ async function main(): Promise<void> {
     process.exitCode = await runFastCheck({
       prepareCompilerNodeModulesPath: async () => {
         const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
-        if (dependencies.source === 'installed') reenterWithResolvedDependencies();
         return dependencies.nodeModulesPath;
       }
     });
@@ -68,7 +50,8 @@ async function main(): Promise<void> {
     const { withHeavyVerificationGateLease } = await import('./shared/heavy-verification-gate-lease.ts');
     process.exitCode = await withHeavyVerificationGateLease(
       'test:affected',
-      () => runAffectedTests(args)
+      () => runAffectedTests(args),
+      { namespace: 'test:affected', waitTimeoutMs: 5000 }
     );
     return;
   }
@@ -79,9 +62,6 @@ async function main(): Promise<void> {
   if (target === 'deps:ensure') {
     console.log(`Compiler dependencies ready (${dependencies.source}, ${dependencies.manifestHash}).`);
     return;
-  }
-  if (dependencies.source === 'installed') {
-    reenterWithResolvedDependencies();
   }
 
   if (

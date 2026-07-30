@@ -71,7 +71,11 @@ export default config;
 `, commitFence);
     }
 
-    const project = new Project();
+    const project = new Project({
+      skipLoadingLibFiles: true,
+      skipAddingFilesFromTsConfig: true,
+      skipFileDependencyResolution: true
+    });
     const sourceFile = project.addSourceFileAtPath(targetConfigPath);
 
     // Find the config object literal

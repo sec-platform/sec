@@ -28,7 +28,7 @@ export type WorkspaceCallbackSettlementOptions =
       readonly deferredCleanupDirs: Set<string>;
     };
 
-const retryDelaysMs = [100, 200, 300, 400, 500] as const;
+const retryDelaysMs = [50, 100, 200, 400, 800] as const;
 
 export async function createWorkspaceWithDeferredCleanup(
   temporaryDirectoryPrefix: string,

@@ -27,6 +27,7 @@ import { formatSlowImpactNotice } from '../shared/test-impact-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { ensureTestDependencies } from './dependency-bootstrap.ts';
 import {
+  cleanStaleTestWorkspaces,
   cleanTestWorkspaces,
   pathEnvKey,
   resolveTestWorkspaceNamespace,
@@ -337,12 +338,12 @@ async function runBoundedInvocations(
 }
 
 interface AffectedTestSelection {
-  tests: string[];
-  slowTests: string[];
-  affectedTests: string[];
-  affectedSlowTests: string[];
-  affectedOwners: string[];
-  sourceChanged: boolean;
+  readonly tests: readonly string[];
+  readonly slowTests: readonly string[];
+  readonly affectedTests: readonly string[];
+  readonly affectedSlowTests: readonly string[];
+  readonly affectedOwners: readonly string[];
+  readonly sourceChanged: boolean;
 }
 
 function affectedTestSelection(files: string[]): AffectedTestSelection {
@@ -382,6 +383,7 @@ export interface AffectedTestPlanV1 {
   readonly riskReasons: readonly string[];
   readonly unresolvedPaths: readonly string[];
   readonly resolved: boolean;
+  readonly selectionResolved: AffectedTestSelection;
 }
 
 export interface ResolvedAffectedTestExecutionV1 {
@@ -397,8 +399,8 @@ function affectedTestPlan(files: string[]): AffectedTestPlanV1 {
     schema: 'sec-affected-test-plan-v1',
     changedPaths: files,
     owners: uniqueSorted([...selection.affectedOwners, ...risk.owners]),
-    selectedFastTests: unionTestFiles(selection.tests, selection.affectedTests),
-    selectedSlowTests: unionTestFiles(selection.slowTests, selection.affectedSlowTests),
+    selectedFastTests: unionTestFiles([...selection.tests], [...selection.affectedTests]),
+    selectedSlowTests: unionTestFiles([...selection.slowTests], [...selection.affectedSlowTests]),
     riskSuites: risk.suites,
     riskTests: unionTestFiles(
       risk.suites.flatMap((suite) => slowTestSuiteFiles(suite)),
@@ -406,7 +408,8 @@ function affectedTestPlan(files: string[]): AffectedTestPlanV1 {
     ),
     riskReasons: risk.reasons,
     unresolvedPaths,
-    resolved: risk.resolved && unresolvedPaths.length === 0
+    resolved: risk.resolved && unresolvedPaths.length === 0,
+    selectionResolved: selection
   };
 }
 
@@ -420,7 +423,15 @@ function freezeAffectedTestPlan(plan: AffectedTestPlanV1): AffectedTestPlanV1 {
     riskSuites: Object.freeze([...plan.riskSuites]),
     riskTests: Object.freeze([...plan.riskTests]),
     riskReasons: Object.freeze([...plan.riskReasons]),
-    unresolvedPaths: Object.freeze([...plan.unresolvedPaths])
+    unresolvedPaths: Object.freeze([...plan.unresolvedPaths]),
+    selectionResolved: Object.freeze({
+      tests: Object.freeze([...plan.selectionResolved.tests]),
+      slowTests: Object.freeze([...plan.selectionResolved.slowTests]),
+      affectedTests: Object.freeze([...plan.selectionResolved.affectedTests]),
+      affectedSlowTests: Object.freeze([...plan.selectionResolved.affectedSlowTests]),
+      affectedOwners: Object.freeze([...plan.selectionResolved.affectedOwners]),
+      sourceChanged: plan.selectionResolved.sourceChanged
+    })
   });
 }
 
@@ -429,7 +440,8 @@ async function runAffectedTestPlan(plan: AffectedTestPlanV1): Promise<number> {
     console.error(`Affected test ownership is unresolved for changed paths: ${plan.unresolvedPaths.join(', ')}`);
     return 1;
   }
-  const selection = affectedTestSelection([...plan.changedPaths]);
+  // Reuse the selection computed during plan construction instead of recomputing.
+  const selection = plan.selectionResolved;
   if (selection.slowTests.length > 0) {
     console.log(`Changed slow test files require PR risk or release/full verification: ${selection.slowTests.join(', ')}`);
   }
@@ -443,8 +455,8 @@ async function runAffectedTestPlan(plan: AffectedTestPlanV1): Promise<number> {
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
         fast: selectedFastTests,
-        slow: selection.affectedSlowTests,
-        owners: selection.affectedOwners
+        slow: [...selection.affectedSlowTests],
+        owners: [...selection.affectedOwners]
       }));
     }
     return code;
@@ -461,8 +473,8 @@ async function runAffectedTestPlan(plan: AffectedTestPlanV1): Promise<number> {
     if (selection.affectedSlowTests.length > 0) {
       console.log(formatSlowImpactNotice({
         fast: [],
-        slow: selection.affectedSlowTests,
-        owners: selection.affectedOwners
+        slow: [...selection.affectedSlowTests],
+        owners: [...selection.affectedOwners]
       }));
     }
     return code;
@@ -513,6 +525,9 @@ export async function runFastTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
   const workspaceEnv = fastTestWorkspaceEnv();
   let primaryFailure: unknown;
+  // One-time stale workspace cleanup before spawning shards, replacing the
+  // previous per-subprocess preload call that caused redundant I/O.
+  try { await cleanStaleTestWorkspaces(); } catch { /* non-critical */ }
   try {
     await withTestDependencies(async ({ binPath, browserCachePath }) => {
       try {
