@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-07-30
+last-reviewed: 2026-07-31
 ---
 
 # 当前唯一 Active Work Package
@@ -10,12 +10,14 @@ last-reviewed: 2026-07-30
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/verification-result-claim-migration-v1.md
-manifestDigest: sha256:81a5b7cd54f7c70d42d0f272a5467de43ee5d2120748f404ed6f27decf71b449
+manifest: docs/work-packages/exact-default-base-identity-v1.md
+manifestDigest: sha256:c3f54ef6006f50fc1c3e1b989f6469bb38a3740732876c70435bf92d11a0637e
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 ```
-共享 resolver 只在 candidate manifest Git blob SHA-256 与 `manifestDigest` 一致、live default branch 不含同 path+digest 时选择该唯一 manifest；default branch 包含同一 blob 后返回 `none`。default ref stale/unavailable、path 不 canonical、candidate drift 或多个选择均 fail closed。
+
+共享 resolver 只在 candidate manifest Git blob SHA-256 与 `manifestDigest` 一致、live default branch 不含同 path+digest 时选择该唯一 manifest；default branch 包含同一 blob 后返回 
+one`。default ref stale/unavailable、path 不 canonical、candidate drift 或多个选择均 fail closed。
 
 完整执行闭包只存在于所选 frozen manifest。selected manifest 在下一个 Work Package 原子接管 pointer 前保持于 `docs/work-packages/`，不得先行归档。

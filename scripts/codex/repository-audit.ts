@@ -54,6 +54,8 @@ export interface RepositoryAuditReport {
   revision: Readonly<{
     defaultHead: string | null;
     defaultRef: string;
+    defaultRefInput: string;
+    defaultRefMode: 'exact-sha' | 'ref';
     head: string;
     tree: string;
     worktree: 'clean' | 'dirty' | 'unresolved';
@@ -862,7 +864,11 @@ export async function auditRepository(
   repositoryRoot = DEFAULT_REPOSITORY_ROOT,
   options: { defaultRef?: string } = {}
 ): Promise<RepositoryAuditReport> {
-  const defaultRef = options.defaultRef ?? 'refs/remotes/origin/main';
+  const defaultRefInput = options.defaultRef ?? process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF ?? 'refs/remotes/origin/main';
+  const isExactSha = /^[0-9a-f]{40}$/u.test(defaultRefInput);
+  // For exact SHA input, validate it resolves to a commit object. For ref input,
+  // use rev-parse --verify <ref> (resolves through symbolic refs).
+  const defaultRef = isExactSha ? `${defaultRefInput}^{commit}` : defaultRefInput;
   const findings: RepositoryAuditFinding[] = [];
   const unknowns: string[] = [];
   const head = runGitText(repositoryRoot, ['rev-parse', '--verify', 'HEAD^{commit}']);
@@ -891,7 +897,9 @@ export async function auditRepository(
     ['rev-parse', '--verify', defaultRef],
     { allowFailure: true }
   );
-  if (defaultHead === null) unknowns.push(`default ref unavailable: ${defaultRef}`);
+  if (defaultHead === null) {
+    unknowns.push(`default ref unavailable: ${defaultRefInput}`);
+  }
   const surfaceCounts: Record<SecRepositorySurfaceKind, number> = {
     configuration: 0,
     'heuristic-runtime': 0,
@@ -1015,7 +1023,7 @@ export async function auditRepository(
     repositoryRoot,
     tracked,
     head,
-    defaultRef,
+    defaultRefInput,
     bytesByPath,
     textByPath,
     findings,
@@ -1066,7 +1074,15 @@ export async function auditRepository(
       '把产品 finding 拆为依赖明确的最小 Work Package；审计报告只作 exact-revision Evidence。',
       '删除无消费者配置、已退役路径 owner 和重复权威；保留机器可验证 registry，而不是新增叙述文档。'
     ]),
-    revision: Object.freeze({ defaultHead, defaultRef, head, tree, worktree }),
+    revision: Object.freeze({
+      defaultHead,
+      defaultRef: defaultRefInput,
+      defaultRefInput,
+      defaultRefMode: isExactSha ? 'exact-sha' : 'ref',
+      head,
+      tree,
+      worktree
+    }),
     schema: 'sec-repository-audit-v1',
     summary: Object.freeze({
       activeMarkdown,
@@ -1129,7 +1145,13 @@ async function main(): Promise<void> {
     throw new Error(`Unsupported --fail-on value: ${failOn}`);
   }
 
-  const report = await auditRepository();
+  // Default-base identity: CLI --default-ref takes precedence; env is read only
+  // when CLI flag is absent. No other inference paths.
+  const defaultRefIndex = args.indexOf('--default-ref');
+  const cliDefaultRef = defaultRefIndex >= 0 ? args[defaultRefIndex + 1] : undefined;
+  const defaultRef = cliDefaultRef ?? process.env.SEC_REPOSITORY_AUDIT_DEFAULT_REF ?? undefined;
+
+  const report = await auditRepository(undefined, { defaultRef });
   const encoded = `${JSON.stringify(report, null, 2)}\n`;
   if (outputPath) {
     const absoluteOutput = path.resolve(outputPath);
