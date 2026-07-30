@@ -26,7 +26,7 @@ Active Documentation Corpus
 
 ### parallel-work-package-contract-v1
 
-- 从 `main@fe80386` 创建；frozen manifest 指向 `docs/work-packages/parallel-work-package-contract-v1.md`。
+- 已合并至 `main@e2c079c`；manifest blob 已在 default branch 上，pointer 返回 `none`；manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer 后归档。
 - 工程结果：为 Work Package manifest 创建 V3 schema（codex-development-work-package-v3）parser/types/validator，包含 authority reads/writes、owned/permitted/forbidden paths、global exclusive resources、shared read-only resources、requires/orderedAfter/conflictsWith；实现 pairwise conflict resolver（7 步冲突算法）和 global exclusive resource registry（8 类全局单 writer）；V1/V2 输入返回 unresolved；默认仍单包。
 
 ## 已完成 Work Package
