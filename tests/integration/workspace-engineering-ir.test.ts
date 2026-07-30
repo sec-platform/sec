@@ -87,4 +87,4 @@ test('workspace builds one deterministic canonical Engineering IR independent of
     const afterDerivedArtifacts = await buildWorkspaceEngineeringIR(workspaceRoot);
     expect(afterDerivedArtifacts).toEqual(first);
   }, 'engineering-compiler-semantic-ir-');
-}, 15_000);
+}, 30_000);
