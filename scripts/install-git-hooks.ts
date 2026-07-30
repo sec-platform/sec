@@ -16,6 +16,7 @@ const MANAGED_HOOKS = [
   `${MANAGED_HOOKS_PATH}/post-merge`,
   `${MANAGED_HOOKS_PATH}/post-rewrite`
 ] as const;
+const MARKER_FILE_NAME = '.last-install';
 
 export interface GitHookInstallationResult {
   readonly status: 'installed' | 'managed' | 'conflict';
@@ -237,6 +238,71 @@ async function managedGenerationReady(
   return true;
 }
 
+/**
+ * Marker file lives inside the repository-common managed-hooks directory (under .git/),
+ * so it is naturally untracked and never perturbs `git status` or docs-doctor census.
+ * Content format: two lines — managedGenerationDigest and sourceFingerprint.
+ * sourceFingerprint = sha256 over (hookName \0 mtimeMs \0 size \0) for each managed hook,
+ * a cheap stat-only proxy that detects source edits without reading or hashing file bytes.
+ */
+function markerFilePath(commonGitDir: string): string {
+  return path.join(commonGitDir, MANAGED_COMMON_DIRECTORY, MARKER_FILE_NAME);
+}
+
+interface HookMarkerRecord {
+  readonly digest: string;
+  readonly fingerprint: string;
+}
+
+async function computeSourceFingerprint(repoRoot: string): Promise<string | null> {
+  const hash = createHash('sha256');
+  let allPresent = true;
+  for (const hook of MANAGED_HOOKS) {
+    const sourcePath = path.join(repoRoot, ...hook.split('/'));
+    try {
+      const info = await stat(sourcePath);
+      if (!info.isFile()) { allPresent = false; break; }
+      hash.update(`${hook}\0${info.mtimeMs}\0${info.size}\0`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') { allPresent = false; break; }
+      throw error;
+    }
+  }
+  return allPresent ? hash.digest('hex') : null;
+}
+
+async function readMarkerFile(markerPath: string): Promise<HookMarkerRecord | null> {
+  let raw: string;
+  try {
+    raw = await readFile(markerPath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    return null;
+  }
+  const lines = raw.split('\n');
+  const digest = lines[0]?.trim();
+  const fingerprint = lines[1]?.trim();
+  if (
+    !digest
+    || !/^[0-9a-f]{64}$/u.test(digest)
+    || !fingerprint
+    || !/^[0-9a-f]{64}$/u.test(fingerprint)
+  ) return null;
+  return { digest, fingerprint };
+}
+
+async function writeMarkerFile(
+  markerPath: string,
+  record: HookMarkerRecord
+): Promise<void> {
+  try {
+    await mkdir(path.dirname(markerPath), { recursive: true });
+    await writeFile(markerPath, `${record.digest}\n${record.fingerprint}\n`, { mode: 0o644 });
+  } catch {
+    // marker write is best-effort; failures must not break hook installation.
+  }
+}
+
 async function materializeManagedGeneration(
   commonGitDir: string,
   snapshots: readonly ManagedHookSnapshot[],
@@ -284,6 +350,49 @@ export async function installGitHooks(options: {
   readonly lifecycle?: boolean;
 }): Promise<GitHookInstallationResult> {
   const repoRoot = path.resolve(options.repoRoot);
+  const commonGitDir = gitText(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (commonGitDir === null) throw new Error('Git common directory is unavailable');
+
+  // Marker-based fast path: when hook source files are unchanged (stat fingerprint matches)
+  // and core.hooksPath already points at the recorded generation, skip the expensive
+  // managedHookSnapshots (5x git ls-files + readFile + hash) and materializeManagedGeneration.
+  const markerPath = markerFilePath(commonGitDir);
+  const sourceFingerprint = await computeSourceFingerprint(repoRoot);
+  const marker = sourceFingerprint !== null ? await readMarkerFile(markerPath) : null;
+  if (marker !== null && marker.fingerprint === sourceFingerprint) {
+    const worktreeConfigEnabledFast = gitText(
+      repoRoot,
+      ['config', '--local', '--type=bool', '--get', 'extensions.worktreeConfig'],
+      { allowMissing: true }
+    ) === 'true';
+    const commonConfiguredFast = gitText(
+      repoRoot,
+      ['config', '--local', '--path', '--get', 'core.hooksPath'],
+      { allowMissing: true }
+    );
+    const worktreeConfiguredFast = worktreeConfigEnabledFast
+      ? gitText(repoRoot, ['config', '--worktree', '--path', '--get', 'core.hooksPath'], { allowMissing: true })
+      : null;
+    const expectedGenerationPath = path.join(
+      commonGitDir,
+      MANAGED_COMMON_DIRECTORY,
+      `generation-${marker.digest}`
+    );
+    if (
+      commonConfiguredFast !== null
+      && isCurrentManagedCommonSetting(commonConfiguredFast, commonGitDir)
+      && canonicalPath(resolveGitPath(repoRoot, commonConfiguredFast)) === canonicalPath(expectedGenerationPath)
+      && worktreeConfiguredFast === null
+      && await pathExists(expectedGenerationPath)
+    ) {
+      return Object.freeze({
+        status: 'managed',
+        message: `Git hooks already use validated repository-common generation ${expectedGenerationPath}.`
+      });
+    }
+    // Fast path conditions not met; fall through to full validation.
+  }
+
   const snapshots = await managedHookSnapshots(repoRoot);
   if (snapshots === null) {
     return stoppedResult(
@@ -291,8 +400,6 @@ export async function installGitHooks(options: {
       options.lifecycle ?? false
     );
   }
-  const commonGitDir = gitText(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
-  if (commonGitDir === null) throw new Error('Git common directory is unavailable');
   const worktreeConfigEnabled = gitText(
     repoRoot,
     ['config', '--local', '--type=bool', '--get', 'extensions.worktreeConfig'],
@@ -339,6 +446,12 @@ export async function installGitHooks(options: {
   }
   if (worktreeOverridePresent) {
     gitText(repoRoot, ['config', '--worktree', '--unset-all', 'core.hooksPath'], { allowMissing: true });
+  }
+
+  // Persist marker so the next invocation can take the fast path.
+  if (sourceFingerprint !== null) {
+    const digest = managedGenerationDigest(snapshots);
+    await writeMarkerFile(markerPath, { digest, fingerprint: sourceFingerprint });
   }
 
   if (commonMatchesGeneration && !worktreeOverridePresent) {

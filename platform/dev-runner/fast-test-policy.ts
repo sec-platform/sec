@@ -1,7 +1,15 @@
+import { availableParallelism } from 'node:os';
+
 export const DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE = 16;
 export const MAX_FAST_TEST_PROCESS_SHARD_SIZE = 16;
-export const DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY = 2;
-export const DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY = 4;
+
+function resolveAdaptiveConcurrency(min: number, max: number): number {
+  const available = availableParallelism();
+  return Math.max(min, Math.min(max, Math.floor(available / 2)));
+}
+
+export const DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY = resolveAdaptiveConcurrency(2, 8);
+export const DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY = resolveAdaptiveConcurrency(4, 8);
 export const MAX_DEFAULT_FAST_TEST_PROCESS_WAVES = 20;
 export const DEFAULT_FAST_TEST_TIMEOUT_MS = 180_000;
 
@@ -37,8 +45,8 @@ export function isDefaultFastTestFile(file: string): boolean {
 
 export const FAST_TEST_PROCESS_RESOURCE_SCHEDULING = {
   'independent-process': 'bounded-parallel',
-  'shared-host-runtime': 'exclusive',
-  'repository-worktree': 'exclusive',
+  'shared-host-runtime': 'bounded-parallel',
+  'repository-worktree': 'bounded-parallel',
   'host-profile': 'exclusive'
 } as const;
 

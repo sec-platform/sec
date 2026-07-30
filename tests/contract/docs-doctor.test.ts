@@ -507,3 +507,77 @@ test('machine-local absolute inline paths fail closed without flagging plain fil
     await fixture.dispose();
   }
 });
+
+test('incremental mode skips per-document diagnostics for unchanged documents', async () => {
+  const fixture = await createFixture();
+  try {
+    // Inject a deprecated token into docs/product.md; full scan flags it.
+    await fixture.write(
+      'docs/product.md',
+      `${document('Fixture Product', 'product')}\nCompilerPass\n`
+    );
+    const fullScan = await fixture.scan();
+    expect(fullScan.issues.map((issue) => issue.code)).toContain('deprecated-token');
+
+    // Incremental scan with changedDocumentPaths pointing only at a non-structural file
+    // (not registry/index/control-plane) must NOT flag the deprecated token in
+    // docs/product.md because per-document checks are skipped for unchanged documents.
+    const incrementalScan = await scanDocumentation({
+      docsRoot: fixture.docsRoot,
+      repositoryRoot: fixture.repositoryRoot,
+      readCandidateManifestBlob: async (manifestPath) =>
+        readFile(path.join(fixture.repositoryRoot, ...manifestPath.split('/'))),
+      changedDocumentPaths: new Set(['platform/shared/some-unrelated-file.ts'])
+    });
+    expect(incrementalScan.issues.map((issue) => issue.code)).not.toContain('deprecated-token');
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test('incremental mode still runs global invariants (control plane binding)', async () => {
+  const fixture = await createFixture();
+  try {
+    // Break control plane binding by corrupting the pointer digest.
+    await fixture.write(
+      'docs/work/active-work-package.md',
+      (await readFile(path.join(fixture.repositoryRoot, 'docs/work/active-work-package.md'), 'utf8'))
+        .replace(/sha256:[0-9a-f]{64}/u, `sha256:${'0'.repeat(64)}`)
+    );
+    // Incremental scan with a changedDocumentPaths set that excludes control-plane paths.
+    const incrementalScan = await scanDocumentation({
+      docsRoot: fixture.docsRoot,
+      repositoryRoot: fixture.repositoryRoot,
+      readCandidateManifestBlob: async (manifestPath) =>
+        readFile(path.join(fixture.repositoryRoot, ...manifestPath.split('/'))),
+      changedDocumentPaths: new Set(['docs/product.md'])
+    });
+    // Global invariant must still fire.
+    expect(incrementalScan.issues.map((issue) => issue.code)).toContain('control-plane-invalid');
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test('incremental mode degrades to full per-document scan when registry or index changes', async () => {
+  const fixture = await createFixture();
+  try {
+    // Inject a deprecated token into docs/product.md.
+    await fixture.write(
+      'docs/product.md',
+      `${document('Fixture Product', 'product')}\nCompilerPass\n`
+    );
+    // Incremental scan where changedDocumentPaths includes docs/authority.json — this
+    // is a structural change that forces per-document re-scan of every registered document.
+    const incrementalScan = await scanDocumentation({
+      docsRoot: fixture.docsRoot,
+      repositoryRoot: fixture.repositoryRoot,
+      readCandidateManifestBlob: async (manifestPath) =>
+        readFile(path.join(fixture.repositoryRoot, ...manifestPath.split('/'))),
+      changedDocumentPaths: new Set(['docs/authority.json'])
+    });
+    expect(incrementalScan.issues.map((issue) => issue.code)).toContain('deprecated-token');
+  } finally {
+    await fixture.dispose();
+  }
+});

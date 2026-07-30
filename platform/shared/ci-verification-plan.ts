@@ -59,11 +59,14 @@ export function buildCiQuickGatePlan(options: {
   ];
 }
 
-export function buildCiFullGatePlan(): CiVerificationGateStep[] {
+export function buildCiFullGatePlan(options: {
+  hasDocumentationLifecycleChange?: boolean;
+} = {}): CiVerificationGateStep[] {
+  const includeDocs = options.hasDocumentationLifecycleChange !== false;
   return [
     gate('imports', 'quick', 'run', 'imports:check'),
     gate('typecheck', 'quick', 'run', 'typecheck'),
-    gate('docs-doctor', 'quick', 'run', 'docs:doctor'),
+    ...(includeDocs ? [gate('docs-doctor', 'quick', 'run', 'docs:doctor')] : []),
     gate('affected-tests', 'quick', 'run', 'test:affected'),
     gate('full-fast', 'full', 'run', 'test:fast'),
     gate('test-budget', 'full', 'run', 'sec', '--', 'test', 'budget', '--json', '--compact'),
@@ -110,11 +113,12 @@ export function CodexDevelopmentBuildVerificationPlanV1(
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFilesV1(rawChangedFiles);
   const selection = selectCiPrRiskSlowSuites(changedFiles, testImpactSourceProvider);
   const includeRisk = !selection.resolved || selection.suites.length > 0 || selection.slowTests.length > 0;
+  const hasDocsLifecycleChange = changedFiles === null || hasDocumentationLifecycleChange(selection.owners);
   const gates = profile === 'full'
-    ? buildCiFullGatePlan()
+    ? buildCiFullGatePlan({ hasDocumentationLifecycleChange: hasDocsLifecycleChange })
     : buildCiQuickGatePlan({
       includeImports: changedFiles === null || hasTypeScriptChange(changedFiles),
-      includeDocs: changedFiles === null || hasDocumentationLifecycleChange(selection.owners),
+      includeDocs: hasDocsLifecycleChange,
       includeRisk
     });
   return {

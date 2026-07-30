@@ -24,12 +24,17 @@ Active Documentation Corpus
 
 ## 当前唯一 Work Package
 
-### ci-speed-optimization-v1
+### dev-loop-speed-v1
+
+- 全工程速度审计发现 6 大环节约 30 个瓶颈：测试执行串行化（22 个 exclusive 文件全串行）、check:fast 4 gate 串行、docs:doctor 全量扫描、tsc cache key 绑定 immutable SHA、architecture-tools 用 windows runner、preload 每进程重复清理。
+- 工程目标：动态并发（os.availableParallelism）；resource-class-aware bounded-parallel 队列替代串行 exclusive；check:fast gate 并行化（imports:prepare || docs:doctor → typecheck → test:fast）；docs:doctor 增量模式（--since git-ref）；tsc cache key 改为内容 hash；architecture-tools 改用 ubuntu runner；preload stale cleanup marker-file 门控。
+
+## 已完成 Work Package
+
+### ci-speed-optimization-v1 (PR #201)
 
 - 已合并至 `main@7589886`；manifest blob 已在 default branch 上，pointer 返回 `none`；manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer 后归档。
 - 工程结果：为所有 CI 工作流添加 bun install cache 和 tsc incremental build info cache；为 merge-gate push 触发器添加 paths filter；创建 sec-merge-bootstrap.ts CLI 工具自动化合并流程；优化 merge-gate API 调用去重；同步 ci-contract.ts STEP_ORDER 常量；修复 rolling-plan.md 的 PR #199 replay provenance regression。
-
-## 已完成 Work Package
 
 ### parallel-work-package-contract-v1 (PR #200)
 

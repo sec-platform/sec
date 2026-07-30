@@ -16,9 +16,7 @@ describe('dev-runner contract', () => {
     expect(scripts['test:full']).toBe('bun ./platform/dev-runner.ts test');
     expect(scripts.check).toBe('bun run check:fast');
     expect(scripts['check:affected']).toBe('bun ./platform/dev-runner.ts check:affected');
-    expect(scripts['check:fast']).toBe(
-      'bun run imports:prepare && bun run typecheck && bun run docs:doctor && bun run test:fast'
-    );
+    expect(scripts['check:fast']).toBe('bun ./platform/dev-runner.ts check:fast');
     expect(scripts['check:full']).toBe(
       'bun run imports:prepare && bun run typecheck && bun run docs:doctor && bun run test:full'
     );
