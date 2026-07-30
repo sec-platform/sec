@@ -654,16 +654,20 @@ function commandAll(ctx: BootstrapContext, options: BootstrapOptions): void {
   const pr = resolvePrInfo(ctx, prNumber);
   const manifest = resolveManifestDigest(ctx, pr);
   logInfo(`Manifest digest: ${manifest.digest}`);
-  // 2. Dispatch scope attestation + wait.
+  // 2. Ensure single-parent BEFORE attestation/verification dispatch.
+  //    The verification workflow enforces that the PR head is single-parent
+  //    (parent === base). Squashing first ensures attestation and verification
+  //    run on the exact single-parent head that will be merged, so their
+  //    evidence stays valid and no manual `squash` command is needed.
+  ensureSingleParent(ctx, pr);
+  // 3. Dispatch scope attestation + wait.
   dispatchScopeAttest(ctx, pr, manifest);
   const attestTitle = `sec-scope-attest-v1 PR #${pr.number} head ${pr.headSha} base ${pr.baseSha} manifest ${manifest.digest}`;
   waitForWorkflowRun(ctx, 'sec-merge-gate.yml', 'repository_dispatch', attestTitle, pr.baseSha, 10 * 60 * 1000, 15 * 1000);
-  // 3. Dispatch verification + wait.
+  // 4. Dispatch verification + wait.
   dispatchVerification(ctx, pr, manifest, profile);
   const verifyTitle = `verify frozen PR #${pr.number} ${profile} @ ${pr.headSha} base ${pr.baseSha}`;
   waitForWorkflowRun(ctx, 'compiler-pr-validation.yml', 'repository_dispatch', verifyTitle, pr.baseSha, 90 * 60 * 1000, 30 * 1000);
-  // 4. Ensure single-parent.
-  ensureSingleParent(ctx, pr);
   // 5. Admin squash merge.
   adminSquashMerge(ctx, pr);
   // 6. Post-merge pointer patch.

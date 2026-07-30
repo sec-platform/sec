@@ -10,8 +10,8 @@ last-reviewed: 2026-07-30
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/verification-result-core-v1.md
-manifestDigest: sha256:291a1bec00d1d142dfd365c1ff3eefb8c957c9492bebbf3b95c4f538f784184a
+manifest: docs/work-packages/ci-verification-flow-fix-v1.md
+manifestDigest: sha256:45ab0b409795c912870d3be83e75cfb12f3c545f52964f847cf31b1894f115e1
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

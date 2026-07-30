@@ -1,4 +1,6 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   buildScopeAttestPayload,
@@ -296,4 +298,32 @@ test('selectSuccessfulRun throws when latest matching run is still in_progress',
     { databaseId: 1, status: 'in_progress', conclusion: null, displayTitle: 't1', headSha: BASE_SHA }
   ];
   expect(() => selectSuccessfulRun(runs, 't1', BASE_SHA)).toThrow('not successful');
+});
+
+// ---------------------------------------------------------------------------
+// commandAll ordering invariant
+// ---------------------------------------------------------------------------
+
+test('commandAll ensures single-parent before attestation and verification dispatch', () => {
+  // The verification workflow enforces that the PR head is single-parent
+  // (parent === base). commandAll must call ensureSingleParent before
+  // dispatchScopeAttest and dispatchVerification, otherwise verification
+  // fails for multi-commit branches and forces a manual squash workaround.
+  const raw = readFileSync(join(__dirname, '../../scripts/codex/sec-merge-bootstrap.ts'), 'utf8');
+  const source = raw.replaceAll('\r\n', '\n');
+  const commandAllStart = source.indexOf('function commandAll(');
+  expect(commandAllStart).toBeGreaterThan(-1);
+  const commandAllEnd = source.indexOf('\n}\n', commandAllStart);
+  expect(commandAllEnd).toBeGreaterThan(commandAllStart);
+  const commandAllBody = source.slice(commandAllStart, commandAllEnd);
+
+  const ensureSingleParentIndex = commandAllBody.indexOf('ensureSingleParent(ctx, pr)');
+  const dispatchScopeAttestIndex = commandAllBody.indexOf('dispatchScopeAttest(ctx, pr, manifest)');
+  const dispatchVerificationIndex = commandAllBody.indexOf('dispatchVerification(ctx, pr, manifest, profile)');
+
+  expect(ensureSingleParentIndex).toBeGreaterThan(-1);
+  expect(dispatchScopeAttestIndex).toBeGreaterThan(-1);
+  expect(dispatchVerificationIndex).toBeGreaterThan(-1);
+  expect(ensureSingleParentIndex).toBeLessThan(dispatchScopeAttestIndex);
+  expect(ensureSingleParentIndex).toBeLessThan(dispatchVerificationIndex);
 });
