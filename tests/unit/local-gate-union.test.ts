@@ -23,7 +23,15 @@ function affectedPlan(
     riskTests: [],
     riskReasons: [],
     unresolvedPaths: resolved ? [] : changedPaths,
-    resolved
+    resolved,
+    selectionResolved: {
+      tests: selectedFastTests,
+      slowTests: [],
+      affectedTests: selectedFastTests,
+      affectedSlowTests: [],
+      affectedOwners: [],
+      sourceChanged: changedPaths.some((file) => !file.endsWith('.md'))
+    }
   };
 }
 

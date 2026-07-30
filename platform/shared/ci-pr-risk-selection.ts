@@ -9,6 +9,7 @@ import {
   slowTestSuiteFiles
 } from './test-budget-contract.ts';
 import {
+  hasTestImpactForFile,
   isTestImpactSourceFile,
   type CodexDevelopmentTestImpactSourceProviderV1
 } from './test-impact-contract.ts';
@@ -86,6 +87,10 @@ export function selectCiPrRiskSlowSuites(
   );
   const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(files, provider);
   const directlyChangedSlowTests = inventory.changedSlowTests;
+  // Use the batch inventory + hasTestImpactForFile (which leverages the
+  // reverse-import-map) instead of per-file CodexDevelopmentBuildAffectedTestInventoryV1
+  // recomputation. The overall inventory provides aggregate impact; per-file
+  // resolution is a cheap O(1) lookup against declarations/fallback/reverse-map.
   const unresolvedFiles = files.filter((file) => {
     if (
       CodexDevelopmentIsActiveDocumentationPathV1(file)
@@ -95,10 +100,7 @@ export function selectCiPrRiskSlowSuites(
       || MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
     ) return false;
     if (!isTestImpactSourceFile(file)) return true;
-    const fileImpact = CodexDevelopmentBuildAffectedTestInventoryV1([file], provider);
-    return fileImpact.affectedFastTests.length === 0
-      && fileImpact.affectedSlowTests.length === 0
-      && fileImpact.affectedOwners.length === 0;
+    return !hasTestImpactForFile(file, provider);
   });
   const selectionResolved = unresolvedFiles.length === 0;
   const affectedSlowTests = uniqueSorted([

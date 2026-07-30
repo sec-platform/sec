@@ -190,7 +190,7 @@ export async function buildExplainGraph(
     }
     g.edge(fileId, originId, 'originates_from');
 
-    const attribution = buildRuntimeAttribution(lock, artifact.path);
+    const attribution = await buildRuntimeAttribution(lock, artifact.path);
     if (attribution) {
       for (const blockId of attribution.relatedBlocks) {
         g.edge(`block:${blockId}`, fileId, 'writes_to');

@@ -241,7 +241,57 @@ function readTestSource(testFile: string): string | null {
   }
 }
 
-const testImportSpecifiersCache = new Map<string, string[]>();
+// --- Persistent test import specifiers cache ---
+// Keyed on testFile + stat.mtimeMs, survives across processes via
+// .tmp/test-impact-cache.json. Eliminates redundant Bun.Transpiler.scanImports
+// calls across dev-runner invocations.
+
+type TestImportSpecifiersCacheEntry = { mtimeMs: number; specifiers: string[] };
+
+const TEST_IMPACT_CACHE_FILE = path.join(compilerRoot, '.tmp', 'test-impact-cache.json');
+
+const testImportSpecifiersCache = new Map<string, TestImportSpecifiersCacheEntry>();
+let persistentCacheLoaded = false;
+let persistentCacheDirty = false;
+
+function loadPersistentTestImpactCache(): void {
+  if (persistentCacheLoaded) return;
+  persistentCacheLoaded = true;
+  try {
+    const raw = fs.readFileSync(TEST_IMPACT_CACHE_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as Record<string, TestImportSpecifiersCacheEntry>;
+    for (const [testFile, entry] of Object.entries(parsed)) {
+      // Don't overwrite a fresh in-process entry with a stale persisted one.
+      if (!testImportSpecifiersCache.has(testFile)) {
+        testImportSpecifiersCache.set(testFile, entry);
+      }
+    }
+  } catch {
+    // Cache absent or corrupt — start empty.
+  }
+}
+
+function schedulePersistentTestImpactCacheSave(): void {
+  persistentCacheDirty = true;
+}
+
+export function flushPersistentTestImpactCache(): void {
+  if (!persistentCacheDirty) return;
+  persistentCacheDirty = false;
+  try {
+    const obj: Record<string, TestImportSpecifiersCacheEntry> = {};
+    for (const [testFile, entry] of testImportSpecifiersCache) {
+      obj[testFile] = entry;
+    }
+    const dir = path.dirname(TEST_IMPACT_CACHE_FILE);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmpPath = `${TEST_IMPACT_CACHE_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(obj), 'utf8');
+    fs.renameSync(tmpPath, TEST_IMPACT_CACHE_FILE);
+  } catch {
+    // Best-effort persistence — cache will be rebuilt on next run.
+  }
+}
 
 function readTestImportSpecifiers(
   testFile: string,
@@ -251,36 +301,112 @@ function readTestImportSpecifiers(
     const source = provider.readTestSource(testFile);
     return source === null ? [] : importSpecifiers(source, testFile);
   }
+
+  let mtimeMs: number;
+  try {
+    mtimeMs = fs.statSync(path.join(compilerRoot, testFile)).mtimeMs;
+  } catch {
+    return [];
+  }
+
   const cached = testImportSpecifiersCache.get(testFile);
-  if (cached) return cached;
+  if (cached && cached.mtimeMs === mtimeMs) {
+    return cached.specifiers;
+  }
+
+  loadPersistentTestImpactCache();
+  const persisted = testImportSpecifiersCache.get(testFile);
+  if (persisted && persisted.mtimeMs === mtimeMs) {
+    return persisted.specifiers;
+  }
 
   const source = readTestSource(testFile);
   if (!source) {
     return [];
   }
   const specifiers = importSpecifiers(source, testFile);
-  testImportSpecifiersCache.set(testFile, specifiers);
+  testImportSpecifiersCache.set(testFile, { mtimeMs, specifiers });
+  schedulePersistentTestImpactCacheSave();
   return specifiers;
+}
+
+// --- Reverse-import-map ---
+// Built once per process (default mode) by scanning all test files' imports,
+// producing Map<sourceFile, testFiles[]>. Reduces testsReferencingSources from
+// O(changed × tests) to O(tests) one-time build + O(changed) lookups.
+// In provider mode the map is built fresh (not cached) because the provider's
+// test file set may differ from the real repo.
+
+let reverseImportMapCache: Map<string, string[]> | null = null;
+
+function buildReverseImportMap(
+  provider?: CodexDevelopmentTestImpactSourceProviderV1
+): Map<string, string[]> {
+  if (!provider && reverseImportMapCache) return reverseImportMapCache;
+
+  const map = new Map<string, string[]>();
+  const testFiles = provider?.testFiles ?? getTestFilesSync();
+  for (const testFile of testFiles) {
+    for (const specifier of readTestImportSpecifiers(testFile, provider)) {
+      for (const candidate of importCandidates(testFile, specifier)) {
+        const existing = map.get(candidate);
+        if (existing) {
+          if (!existing.includes(testFile)) existing.push(testFile);
+        } else {
+          map.set(candidate, [testFile]);
+        }
+      }
+    }
+  }
+
+  if (!provider) {
+    reverseImportMapCache = map;
+    // Flush the persistent cache after a full scan so it survives across
+    // processes. We can't use process.on('beforeExit') because this file is
+    // in the TCB runtime closure which rejects unclassified process members.
+    flushPersistentTestImpactCache();
+  }
+  return map;
 }
 
 function testsReferencingSources(
   files: string[],
   provider?: CodexDevelopmentTestImpactSourceProviderV1
 ): string[] {
-  const sourceFiles = new Set(files.map(normalizeRepoPath));
+  const map = buildReverseImportMap(provider);
   const matchedTests = new Set<string>();
-
-  for (const testFile of provider?.testFiles ?? getTestFilesSync()) {
-    for (const specifier of readTestImportSpecifiers(testFile, provider)) {
-      for (const candidate of importCandidates(testFile, specifier)) {
-        if (sourceFiles.has(candidate)) {
-          matchedTests.add(testFile);
-        }
-      }
+  for (const sourceFile of files.map(normalizeRepoPath)) {
+    const tests = map.get(sourceFile);
+    if (tests) {
+      for (const testFile of tests) matchedTests.add(testFile);
     }
   }
-
   return uniqueSorted([...matchedTests]);
+}
+
+/**
+ * Returns true if the file maps to any test impact (ownership declaration,
+ * fallback rule, or auto-referenced test). Used by ci-pr-risk-selection to
+ * avoid per-file CodexDevelopmentBuildAffectedTestInventoryV1 recomputation.
+ */
+export function hasTestImpactForFile(
+  file: string,
+  provider?: CodexDevelopmentTestImpactSourceProviderV1
+): boolean {
+  const declarations = testOwnershipDeclarations.filter((declaration) => (
+    matchesTestOwnershipDeclaration(declaration, file)
+  ));
+  if (declarations.length > 0) return true;
+  if (testImpactFallbackRules.some((rule) => rule.sourcePattern.test(file))) return true;
+  return testsReferencingSources([file], provider).length > 0;
+}
+
+/** @internal Reset all caches — for tests verifying persistence across processes. */
+export function __resetTestImpactCachesForTesting(): void {
+  testImportSpecifiersCache.clear();
+  reverseImportMapCache = null;
+  persistentCacheLoaded = false;
+  persistentCacheDirty = false;
 }
 
 export function resolveTestOwnership(files: string[]): ResolvedTestOwnership[] {

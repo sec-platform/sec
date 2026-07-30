@@ -90,14 +90,15 @@ export async function prefixJsxClassNames(
   filePath: string,
   prefix = 'block-attachment-',
   logger: Logger = defaultLogger,
-  commitFence?: CommitFence
+  commitFence?: CommitFence,
+  project?: Project
 ): Promise<boolean> {
   try {
-    const project = new Project({
+    const resolvedProject = project ?? new Project({
       skipLoadingLibFiles: true,
       skipAddingFilesFromTsConfig: true
     });
-    const sourceFile = project.addSourceFileAtPath(filePath);
+    const sourceFile = resolvedProject.addSourceFileAtPath(filePath);
     let changed = false;
 
     const jsxAttributes = sourceFile.getDescendantsOfKind(SyntaxKind.JsxAttribute);
@@ -155,6 +156,11 @@ export async function applyPrefixSandboxing(
     newGeneratedPaths.push('tailwind.config.ts');
   }
 
+  // 创建单个共享 ts-morph Project，避免每个文件都重新初始化。
+  const project = new Project({
+    skipLoadingLibFiles: true,
+    skipAddingFilesFromTsConfig: true
+  });
   for (const relPath of generatedPaths) {
     const filePath = path.join(projectRoot, relPath);
     if (!(await pathExists(filePath))) continue;
@@ -167,7 +173,7 @@ export async function applyPrefixSandboxing(
         await writeText(filePath, updated, commitFence);
       }
     } else if (ext === '.tsx' || ext === '.jsx') {
-      await prefixJsxClassNames(filePath, 'block-attachment-', logger, commitFence);
+      await prefixJsxClassNames(filePath, 'block-attachment-', logger, commitFence, project);
     }
   }
 

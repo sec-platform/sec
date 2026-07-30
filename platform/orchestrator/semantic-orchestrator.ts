@@ -28,14 +28,14 @@ export async function runWorkspaceSemanticFrontend(
     context,
     async (stageContext) => {
       const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, stageContext.workspaceWriteLease);
-      const staleLock = await readLockFile(workspaceRoot);
-      delete staleLock.semanticLoweringTasks;
-      delete staleLock.semanticViews;
-      await saveLock(workspaceRoot, staleLock, commitFence);
+      // 合并为单次读-改-写：读取 lock 一次，在内存中清理字段、构建 semantic bundle、
+      // 回填字段后一次性写入，避免原来 clear → save → read → fill → save 的两次磁盘往返。
+      const lock = await readLockFile(workspaceRoot);
+      delete lock.semanticLoweringTasks;
+      delete lock.semanticViews;
 
       const { snapshot, generatorPlan, semanticViews } = await buildWorkspaceSemanticBundle(workspaceRoot);
       const semanticContext = bindPipelineSemanticContext(stageContext, snapshot, generatorPlan, semanticViews);
-      const lock = await readLockFile(workspaceRoot);
       lock.semanticLoweringTasks = generatorPlan.tasks.map((task) => ({
         ...structuredClone(task),
         status: 'pending'

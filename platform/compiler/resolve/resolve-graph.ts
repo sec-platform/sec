@@ -168,16 +168,15 @@ function buildSlotTasks(plan: PlanFile, manifestMap: Map<string, ManifestEntry>)
 }
 
 export async function resolveGraph(workspaceRoot: string, plan: PlanFile): Promise<LockFile> {
-  const explicitEntries: ManifestEntry[] = [];
-  for (const block of plan.blocks) {
-    explicitEntries.push(
-      await loadManifestById(block.id, {
+  const explicitEntries = await Promise.all(
+    plan.blocks.map((block) =>
+      loadManifestById(block.id, {
         workspaceRoot,
         version: block.version,
         registrySources: plan.registry.sources
       })
-    );
-  }
+    )
+  );
 
   const allEntries = await loadAllManifests({
     workspaceRoot,

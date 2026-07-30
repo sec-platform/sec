@@ -1,11 +1,26 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { readFileSync, statSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 
 import { CompilerError } from '../shared/errors.ts';
 import { compilerRoot, relativePosixPath } from '../shared/paths.ts';
+
+// Inline sync config cache for tsconfig.json parsing.
+// Inlined here to avoid expanding the TCB runtime closure with config-cache.ts.
+const tsconfigCache = new Map<string, { signature: string; value: { config?: unknown; error?: ts.Diagnostic } }>();
+function cachedParseConfigFile(configPath: string): { config?: unknown; error?: ts.Diagnostic } {
+  const stat = statSync(configPath);
+  const signature = `${configPath}:${stat.mtimeMs}:${stat.size}`;
+  const existing = tsconfigCache.get(configPath);
+  if (existing !== undefined && existing.signature === signature) return existing.value;
+  const text = readFileSync(configPath, 'utf8');
+  const value = ts.parseConfigFileTextToJson(configPath, text);
+  tsconfigCache.set(configPath, { signature, value });
+  return value;
+}
 
 type ImportSelectionEnvironment = Record<string, string | undefined>;
 
@@ -48,7 +63,7 @@ function loadProjectConfig(projectRoot = compilerRoot): ts.ParsedCommandLine {
     throw new Error('tsconfig.json not found');
   }
 
-  const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+  const configFile = cachedParseConfigFile(configPath);
   if (configFile.error) {
     throw new Error(formatDiagnostic(configFile.error, projectRoot));
   }
@@ -230,6 +245,42 @@ function typeScriptTargetsFromNameStatus(bytes: Buffer, source: string): readonl
   return Object.freeze([...targets].sort());
 }
 
+// Parses `git status --porcelain=v1 -z` output into a sorted list of TypeScript
+// file paths. The porcelain format is `XY PATH\0` for normal entries and
+// `XY PATH\0ORIG_PATH\0` for renames/copies, where XY is the 2-character index
+// (X) and work-tree (Y) status. Untracked files appear as `?? PATH\0`.
+// A single porcelain call replaces the former --cached, working-tree, and
+// ls-files --others calls, deriving staged, unstaged, and untracked targets in
+// one pass.
+function typeScriptTargetsFromPorcelain(bytes: Buffer, source: string): readonly string[] {
+  const fields = nulFields(bytes, source);
+  const targets = new Set<string>();
+  for (let index = 0; index < fields.length;) {
+    const entry = fields[index++];
+    if (entry.length < 3) continue;
+    const x = entry[0]!;
+    const y = entry[1]!;
+    const filePath = entry.slice(3);
+
+    // Rename/copy entries are followed by an extra NUL-separated original path
+    // field that must be consumed to keep field alignment.
+    if (x === 'R' || x === 'C' || y === 'R' || y === 'C') {
+      if (index < fields.length) index++;
+    }
+
+    if (x === '?' && y === '?') {
+      if (isTypeScriptPath(filePath)) targets.add(filePath);
+      continue;
+    }
+
+    if (x === 'A' || x === 'C' || x === 'M' || x === 'R' ||
+      y === 'A' || y === 'C' || y === 'M' || y === 'R') {
+      if (isTypeScriptPath(filePath)) targets.add(filePath);
+    }
+  }
+  return Object.freeze([...targets].sort());
+}
+
 function resolvedCandidateBase(projectRoot: string, candidateBase: string | undefined): string | undefined {
   if (candidateBase === undefined) return undefined;
   if (!/^[0-9a-f]{40,64}$/u.test(candidateBase)) {
@@ -282,31 +333,29 @@ export function workingTreeTypeScriptTargets(
 ): readonly string[] {
   const candidateBase = resolveCandidateImportBase(projectRoot, env);
   const targets = new Set<string>();
-  const trackedDiffs: readonly [readonly string[], string][] = [
-    [
-      ['diff', '--name-status', '-z', '--diff-filter=ACMR', '--find-renames', candidateBase, 'HEAD', '--'],
-      'git diff candidate base'
-    ],
-    [
-      ['diff', '--cached', '--name-status', '-z', '--diff-filter=ACMR', '--find-renames', 'HEAD', '--'],
-      'git diff --cached HEAD'
-    ],
-    [
-      ['diff', '--name-status', '-z', '--diff-filter=ACMR', '--find-renames', '--'],
-      'git diff working tree'
-    ]
-  ];
-  for (const [args, source] of trackedDiffs) {
-    for (const target of typeScriptTargetsFromNameStatus(gitBytes(projectRoot, args), source)) {
-      targets.add(target);
-    }
-  }
+
+  // Committed changes since the candidate base (single git diff --name-only
+  // call replaces the former candidate-base-to-HEAD name-status diff).
   for (const target of nulFields(
-    gitBytes(projectRoot, ['ls-files', '--others', '--exclude-standard', '-z', '--']),
-    'git ls-files --others'
+    gitBytes(projectRoot, [
+      'diff', '--name-only', '-z', '--diff-filter=ACMR', '--find-renames',
+      candidateBase, 'HEAD', '--'
+    ]),
+    'git diff candidate base HEAD'
   )) {
     if (isTypeScriptPath(target)) targets.add(target);
   }
+
+  // Working tree changes: staged, unstaged, and untracked (single porcelain
+  // call replaces the former --cached, working-tree, and ls-files --others
+  // calls, deriving all working-tree targets in one pass).
+  for (const target of typeScriptTargetsFromPorcelain(
+    gitBytes(projectRoot, ['status', '--porcelain=v1', '-z']),
+    'git status --porcelain=v1'
+  )) {
+    targets.add(target);
+  }
+
   return Object.freeze([...targets].sort());
 }
 

@@ -7,9 +7,9 @@ last-reviewed: 2026-07-30
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@fe80386d2aaad41805bcf9e66936e46259e39fdf`、已合并 PR #196（active documentation corpus；replay provenance 保留 "当前 PR #196" 窗口标记）与 PR #199（test runtime performance）、已归档 PR #197（superseded；曾经 consolidated tree 等价重放且待 supersede）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
+本窗口从 live resolver 已确认的 `main@7b46604e212d64b0aa8288cda86f5be3fd9cf138`、已合并 PR #196（active documentation corpus）、PR #199（test runtime performance）、PR #200（parallel work package contract）、PR #201（CI speed optimization）、PR #202（dev-loop-speed-v1）、已关闭 Issue #173、开放 Issues #167/#175–#194、Review/CI 与 exact tree 重新计算。
 
-Active documentation corpus 与 test runtime performance 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`。
+Active documentation corpus、test runtime performance、parallel work package contract、CI speed optimization 与 dev-loop-speed-v1 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`；CI 缓存、merge bootstrap CLI 与 gate API 已优化；check:fast gate 并行化、docs:doctor 增量模式、preload marker 门控、动态并发与 bounded-parallel 队列已落地。
 
 ```text
 Active Documentation Corpus
@@ -24,12 +24,17 @@ Active Documentation Corpus
 
 ## 当前唯一 Work Package
 
-### dev-loop-speed-v1
+### dev-loop-speed-v2
 
-- 全工程速度审计发现 6 大环节约 30 个瓶颈：测试执行串行化（22 个 exclusive 文件全串行）、check:fast 4 gate 串行、docs:doctor 全量扫描、tsc cache key 绑定 immutable SHA、architecture-tools 用 windows runner、preload 每进程重复清理。
-- 工程目标：动态并发（os.availableParallelism）；resource-class-aware bounded-parallel 队列替代串行 exclusive；check:fast gate 并行化（imports:prepare || docs:doctor → typecheck → test:fast）；docs:doctor 增量模式（--since git-ref）；tsc cache key 改为内容 hash；architecture-tools 改用 ubuntu runner；preload stale cleanup marker-file 门控。
+- 全工程速度审计（4 个并行 agent，64 个瓶颈）发现本地开发循环仍有显著冷启动开销、测试基础设施冗余 I/O、编译器管线串行化等问题。
+- 工程目标：5 个 Slice 系统性消除剩余高影响瓶颈——冷启动消除（stamp 短路、移除 reenter、git 调用合并、ConfigCache）；测试基础设施加固（硬链接克隆、指数退避清理、preload 移除扫描、test-impact 跨进程缓存）；编译器管线并行化（共享 ts-morph Project、manifestCache 激活、Promise.all 并行 I/O、prettier config 单次解析）；check:fast 阶段并行化（docs:doctor || typecheck、per-namespace lease）；affected-tests 优化（reverse-import-map、批量 impact、复用 selection）。
 
 ## 已完成 Work Package
+
+### dev-loop-speed-v1 (PR #202)
+
+- 已合并至 `main@7b46604`；manifest 已归档至 `docs/archive/work-packages/`。
+- 工程结果：动态并发（os.availableParallelism）；resource-class-aware bounded-parallel 队列替代串行 exclusive；check:fast gate 并行化（imports:prepare || docs:doctor → typecheck → test:fast）；docs:doctor 增量模式（--since git-ref）；tsc cache key 改为内容 hash；architecture-tools 改用 ubuntu runner；preload stale cleanup marker-file 门控。
 
 ### ci-speed-optimization-v1 (PR #201)
 

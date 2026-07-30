@@ -1,5 +1,13 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, test } from 'bun:test';
 
+import {
+  acquireHeavyVerificationGateLease,
+  heavyVerificationGateMutexName
+} from '../../platform/shared/heavy-verification-gate-lease.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile, readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 
@@ -115,5 +123,113 @@ describe('dev-runner contract', () => {
       "path.join(projectRoot, 'node_modules', 'playwright', 'cli.js')",
       "path.join(compilerRoot, '.shared-deps', '.playwright-browsers')"
     ]);
+  });
+
+  test('runFastCheck runs docs:doctor in parallel with typecheck after imports:prepare', async () => {
+    const checkRunnerSource = await readCompilerFile('platform/dev-runner/check-runner.ts');
+    const fastCheckStart = checkRunnerSource.indexOf('export async function runFastCheck');
+    expect(fastCheckStart).toBeGreaterThanOrEqual(0);
+    const fastCheckSource = checkRunnerSource.slice(fastCheckStart);
+
+    expectContainsAll(fastCheckSource, [
+      'imports:prepare -> docs:doctor + typecheck (parallel) -> test:fast',
+      'await runImportPreparation()',
+      'Promise.all([',
+      "runDevCommand('bun', ['docs/scripts/docs-doctor.ts'], {})",
+      'typecheck()',
+      "namespace: 'test:fast'",
+      'waitTimeoutMs: 5000'
+    ]);
+    expectContainsNone(fastCheckSource, [
+      'imports:prepare + docs:doctor (parallel) -> typecheck'
+    ]);
+
+    const importsIndex = fastCheckSource.indexOf('await runImportPreparation()');
+    const parallelIndex = fastCheckSource.indexOf('Promise.all([');
+    const docsIndex = fastCheckSource.indexOf("runDevCommand('bun', ['docs/scripts/docs-doctor.ts']");
+    const typecheckIndex = fastCheckSource.indexOf('typecheck()');
+    expect(importsIndex).toBeGreaterThanOrEqual(0);
+    expect(parallelIndex).toBeGreaterThan(importsIndex);
+    expect(docsIndex).toBeGreaterThan(parallelIndex);
+    expect(typecheckIndex).toBeGreaterThan(parallelIndex);
+  });
+
+  test('heavy verification gate lease exposes per-namespace isolation and a wait timeout option', async () => {
+    const leaseSource = await readCompilerFile('platform/shared/heavy-verification-gate-lease.ts');
+
+    expectContainsAll(leaseSource, [
+      'export function heavyVerificationGateMutexName',
+      'namespace?: string',
+      'waitTimeoutMs?: number',
+      'heavyVerificationGateNamespaceSegment',
+      'WaitForSingleObject(handle, waitTimeoutMs)'
+    ]);
+
+    const fast = heavyVerificationGateMutexName('C:\\repo', 'test:fast');
+    const affected = heavyVerificationGateMutexName('C:\\repo', 'test:affected');
+    const unscoped = heavyVerificationGateMutexName('C:\\repo');
+    expect(fast).not.toBe(affected);
+    expect(fast).not.toBe(unscoped);
+    expect(affected).not.toBe(unscoped);
+    expect(fast).toContain('Global\\sec-heavy-verification-gate-');
+    expect(affected).toContain('Global\\sec-heavy-verification-gate-');
+    expect(unscoped).toContain('Global\\sec-heavy-verification-gate-');
+  });
+
+  test('two heavy verification gate leases with different namespaces can be held concurrently', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-heavy-gate-ns-'));
+    try {
+      const fast = await acquireHeavyVerificationGateLease({
+        gateId: 'test:fast',
+        namespace: 'test:fast',
+        isProcessAlive: () => true,
+        lockPath: root,
+        ownerHost: 'test-host',
+        ownerPid: 101,
+        token: '11111111111111111111111111111111'
+      });
+      const affected = await acquireHeavyVerificationGateLease({
+        gateId: 'test:affected',
+        namespace: 'test:affected',
+        isProcessAlive: () => true,
+        lockPath: root,
+        ownerHost: 'test-host',
+        ownerPid: 202,
+        token: '22222222222222222222222222222222'
+      });
+      expect(fast.owner.gateId).toBe('test:fast');
+      expect(affected.owner.gateId).toBe('test:affected');
+      await fast.release();
+      await affected.release();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('two heavy verification gate leases with the same namespace still conflict', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'sec-heavy-gate-same-'));
+    try {
+      const first = await acquireHeavyVerificationGateLease({
+        gateId: 'test:fast',
+        namespace: 'test:fast',
+        isProcessAlive: () => true,
+        lockPath: root,
+        ownerHost: 'test-host',
+        ownerPid: 101,
+        token: '11111111111111111111111111111111'
+      });
+      await expect(acquireHeavyVerificationGateLease({
+        gateId: 'test:fast',
+        namespace: 'test:fast',
+        isProcessAlive: () => true,
+        lockPath: root,
+        ownerHost: 'test-host',
+        ownerPid: 202,
+        token: '22222222222222222222222222222222'
+      })).rejects.toThrow('is already active');
+      await first.release();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
