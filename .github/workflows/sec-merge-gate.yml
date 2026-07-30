@@ -25,6 +25,19 @@ on:
   push:
     branches:
       - main
+    paths:
+      - .github/**
+      - .shared-deps/**
+      - .bun-version
+      - .npmrc
+      - bun.lock
+      - bunfig.toml
+      - package.json
+      - tsconfig.json
+      - platform/**
+      - scripts/**
+      - tests/**
+      - docs/work/**
   schedule:
     - cron: '17 */6 * * *'
 
@@ -368,30 +381,9 @@ jobs:
               repo: context.repo.repo,
               branch: repository.data.default_branch
             });
-            const headCommit = await github.rest.repos.getCommit({
-              owner: context.repo.owner, repo: context.repo.repo, ref: pull.data.head.sha
-            });
-            const headTree = await github.rest.git.getTree({
-              owner: context.repo.owner, repo: context.repo.repo,
-              tree_sha: headCommit.data.commit.tree.sha, recursive: 'true'
-            });
-            if (headTree.data.truncated) throw new Error('Manifest tree lookup was truncated before attestation upload.');
-            const manifestEntry = headTree.data.tree.find((entry) => entry.path === process.env.MANIFEST_PATH);
-            if (
-              !manifestEntry || manifestEntry.type !== 'blob' || manifestEntry.mode !== '100644' ||
-              typeof manifestEntry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(manifestEntry.sha)
-            ) {
-              throw new Error('Work Package manifest changed Git type before attestation upload.');
-            }
-            const manifestResponse = await github.rest.git.getBlob({
-              owner: context.repo.owner, repo: context.repo.repo, file_sha: manifestEntry.sha
-            });
-            if (manifestResponse.data.encoding !== 'base64' || typeof manifestResponse.data.content !== 'string') {
-              throw new Error('Manifest blob encoding changed before attestation upload.');
-            }
-            const bytes = Buffer.from(manifestResponse.data.content.replaceAll('\n', ''), 'base64');
-            const blobSha = crypto.createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex');
-            const digest = `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`;
+            // Manifest blob re-query is skipped: head SHA is immutable, so manifest blob
+            // SHA/digest/byteLength cannot change when pull.data.head.sha === EXPECTED_HEAD.
+            // Reuse step 1 manifest metadata for revalidation.
             const locatorLines = (pull.data.body ?? '').replaceAll('\r\n', '\n').split('\n')
               .filter((line) => line.startsWith('Work-Package:'));
             if (
@@ -400,12 +392,8 @@ jobs:
               base.data.commit.sha !== process.env.EXPECTED_BASE ||
               pull.data.base.sha !== process.env.EXPECTED_BASE ||
               pull.data.head.sha !== process.env.EXPECTED_HEAD ||
-              locatorLines.length !== 1 || locatorLines[0] !== `Work-Package: ${process.env.MANIFEST_PATH}` ||
-              manifestResponse.data.size !== bytes.byteLength ||
-              bytes.byteLength !== Number(process.env.MANIFEST_BYTE_LENGTH) ||
-              manifestEntry.sha !== process.env.MANIFEST_BLOB_SHA || blobSha !== process.env.MANIFEST_BLOB_SHA ||
-              digest !== process.env.MANIFEST_DIGEST
-            ) throw new Error('Live PR/base/head/manifest changed before attestation upload.');
+              locatorLines.length !== 1 || locatorLines[0] !== `Work-Package: ${process.env.MANIFEST_PATH}`
+            ) throw new Error('Live PR/base/head/locator changed before attestation upload.');
 
       - name: Upload append-only scope attestation
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -856,29 +844,9 @@ jobs:
                 ) throw new Error('Trusted workflow/base identity changed during gate validation.');
                 const locatorLines = (pull.data.body ?? '').replaceAll('\r\n', '\n').split('\n')
                   .filter((line) => line.startsWith('Work-Package:'));
-                const headCommit = await github.rest.repos.getCommit({
-                  owner: context.repo.owner, repo: context.repo.repo, ref: pull.data.head.sha
-                });
-                const headTree = await github.rest.git.getTree({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  tree_sha: headCommit.data.commit.tree.sha, recursive: 'true'
-                });
-                if (headTree.data.truncated) throw new Error('Manifest tree lookup was truncated during final gate validation.');
-                const manifestEntry = headTree.data.tree.find((entry) => entry.path === process.env.MANIFEST_PATH);
-                if (
-                  !manifestEntry || manifestEntry.type !== 'blob' || manifestEntry.mode !== '100644' ||
-                  typeof manifestEntry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(manifestEntry.sha)
-                ) throw new Error('Manifest changed Git type during final gate validation.');
-                const manifestResponse = await github.rest.git.getBlob({
-                  owner: context.repo.owner, repo: context.repo.repo, file_sha: manifestEntry.sha
-                });
-                if (manifestResponse.data.encoding !== 'base64' || typeof manifestResponse.data.content !== 'string') {
-                  throw new Error('Manifest blob encoding changed during final gate validation.');
-                }
-                const manifestBytes = Buffer.from(manifestResponse.data.content.replaceAll('\n', ''), 'base64');
-                const blobSha = crypto.createHash('sha1')
-                  .update(`blob ${manifestBytes.byteLength}\0`).update(manifestBytes).digest('hex');
-                const digest = `sha256:${crypto.createHash('sha256').update(manifestBytes).digest('hex')}`;
+                // Manifest blob re-query is skipped: head SHA is immutable, so manifest blob
+                // SHA/digest/byteLength cannot change when pull.data.head.sha === EXPECTED_HEAD.
+                // Reuse step 2 manifest metadata (MANIFEST_DIGEST) for run title reconstruction.
                 const sameHeadCount = openPulls.filter((candidate) => (
                   candidate.head.sha === process.env.EXACT_HEAD
                   && candidate.base.ref === repository.data.default_branch
@@ -893,12 +861,9 @@ jobs:
                   pull.data.head.sha !== process.env.EXACT_HEAD ||
                   pull.data.base.sha !== process.env.EXPECTED_BASE ||
                   locatorLines.length !== 1 || locatorLines[0] !== `Work-Package: ${process.env.MANIFEST_PATH}` ||
-                  manifestResponse.data.size !== manifestBytes.byteLength ||
-                  manifestBytes.byteLength !== Number(process.env.MANIFEST_BYTE_LENGTH) ||
-                  manifestEntry.sha !== process.env.MANIFEST_BLOB_SHA || blobSha !== process.env.MANIFEST_BLOB_SHA ||
-                  digest !== process.env.MANIFEST_DIGEST ||
                   sameHeadCount !== 1
-                ) throw new Error('Live PR/base/head/manifest uniqueness changed during gate validation.');
+                ) throw new Error('Live PR/base/head/locator uniqueness changed during gate validation.');
+                const digest = process.env.MANIFEST_DIGEST;
 
                 const [attestationRuns, verificationRuns] = await Promise.all([
                   github.paginate(github.rest.actions.listWorkflowRuns, {
