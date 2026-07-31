@@ -28,9 +28,9 @@ Active Documentation Corpus
 
 ### affected-selection-trust-boundary-v1
 
-- 根除 affected-selection 空选择假绿与陈旧 Test Impact 缓存（Issue #206）；base `main@597b42f`。
-- 工程目标：`sourceChanged=true && selectedFastTests=[] && fallback off` 不再返回 exit 0，投影为 `invalidated/selection-unresolved`；持久 cache 以 `(testFile, sourceDigest)` + envelope（schema/parser/contract revision）为身份，corrupt/unknown-schema 拒绝重建；read/stat 失败 → unresolved 信号（不减少闭包）；常驻进程可失效反向图；cache on/off 选择 byte-equivalent。
-- 退出：affected plan/execution 投影统一 VerificationGateResultV1；10 条必须回归全绿；`docs:doctor` 0 error；`test:fast` 全绿；不修改 verification-result-contract.ts core、CI workflow、package/lock。
+- Issue #206 已通过 PR #220 squash merge 到 `main@782c07a`。manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer 后归档。
+- 工程结果：根除 affected-selection 空选择假绿与陈旧 Test Impact 缓存。建立 `AffectedSelectionTrustBoundary`（7 种边界）并投影到 `VerificationGateResultV1`；持久 cache 改用 `TestImpactCacheEnvelope` + `sourceDigest` 身份；`readTestImportSpecifiers` 失败返回 `unresolved` 信号；`sourceChanged=true && selectedFastTests=[] && fallback off` fail-closed；10 条端到端契约测试 + 单元测试覆盖。
+- 下一步：#207 (resolver correctness, V1→V3 activation migration, Integration Epoch) 待激活。
 
 ## 已完成 Work Package
 
