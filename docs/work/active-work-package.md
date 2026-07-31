@@ -10,8 +10,8 @@ last-reviewed: 2026-07-31
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/work-readme-conditional-state-clarification-v1.md
-manifestDigest: sha256:d20036cd311b3b31d13f5a865c733c478380a8dec21a1c97a96dfd78c6c8e571
+manifest: docs/work-packages/canonical-text-bytes-phase-a-v1.md
+manifestDigest: sha256:2182efcfba960601e5d8472f86d3543095c5d8da76bf4b6adc3e24840338c1a2
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

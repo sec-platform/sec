@@ -1,4 +1,6 @@
 import type { Command } from 'commander';
+import { runCensus } from '../../scripts/codex/text-byte-census.ts';
+import { runSettlement } from '../../scripts/codex/worktree-settlement.ts';
 import { buildCiArtifactManifest, loadManifestById, loadWorkspacePlan } from '../compiler/index.ts';
 import { adaptWorkspace, addBlock, applyWorkbenchMutations, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, startWorkbenchServer, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from '../orchestrator.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
@@ -60,8 +62,10 @@ import {
   buildTestBudgetContract,
   formatTestBudgetContract
 } from '../shared/test-budget-contract.ts';
+import type { TextByteCensusReport, TextByteClassification } from '../shared/text-byte-census-contract.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationLane, VerificationReport } from '../shared/verification-types.ts';
+import type { WorktreeSettlementReceipt } from '../shared/worktree-settlement-contract.ts';
 import { formatJson, printJsonOrText } from './format-utils.ts';
 import {
   buildAcceptanceTargetInspect,
@@ -155,6 +159,63 @@ function modeCommand(cmd: Command): Command {
 
 function runWithOptionalSpinner<T>(text: string, output: JsonOpts, fn: () => Promise<T>): Promise<T> {
   return output.json ? fn() : withSpinner(text, fn);
+}
+
+function formatTextCensusReport(report: TextByteCensusReport): string {
+  const lines: string[] = [];
+  lines.push('Text Byte Census');
+  lines.push(`  totalFiles: ${report.totalFiles}`);
+  lines.push(`  failClosed: ${report.failClosed}`);
+  lines.push('  classifications:');
+  const classifications: TextByteClassification[] = ['canonical-lf', 'explicit-crlf', 'binary', 'preserve-external', 'unknown'];
+  for (const c of classifications) {
+    if (report.classificationCounts[c] > 0) {
+      lines.push(`    ${c}: ${report.classificationCounts[c]}`);
+    }
+  }
+  lines.push('  anomalies:');
+  let anyAnomaly = false;
+  for (const [a, count] of Object.entries(report.anomalyCounts)) {
+    if (count > 0) {
+      lines.push(`    ${a}: ${count}`);
+      anyAnomaly = true;
+    }
+  }
+  if (!anyAnomaly) lines.push('    (none)');
+  if (report.flaggedEntries.length > 0) {
+    lines.push(`  flagged: ${report.flaggedEntries.length} file(s)`);
+    const maxShow = Math.min(report.flaggedEntries.length, 20);
+    for (let i = 0; i < maxShow; i += 1) {
+      const e = report.flaggedEntries[i]!;
+      lines.push(`    ${e.path} [${e.classification}] ${e.anomalies.length === 0 ? '(none)' : e.anomalies.join(', ')}`);
+    }
+    if (report.flaggedEntries.length > maxShow) {
+      lines.push(`    ... and ${report.flaggedEntries.length - maxShow} more`);
+    }
+  }
+  return lines.join('\n');
+}
+
+function formatSettlementReceipt(r: WorktreeSettlementReceipt): string {
+  const lines: string[] = [];
+  lines.push('Worktree Settlement');
+  lines.push(`  status: ${r.status}`);
+  lines.push(`  totalFiles: ${r.totalFiles}`);
+  lines.push(`  dirty: ${r.dirtyCount}, untracked: ${r.untrackedCount}, drift: ${r.driftEntries.length}`);
+  lines.push(`  core.autocrlf: ${r.coreAutocrlf}, core.eol: ${r.coreEol}`);
+  lines.push(`  summary: ${r.summary}`);
+  if (r.driftEntries.length > 0) {
+    lines.push('  drift:');
+    const maxShow = Math.min(r.driftEntries.length, 20);
+    for (let i = 0; i < maxShow; i += 1) {
+      const e = r.driftEntries[i]!;
+      lines.push(`    ${e.path} [declared=${e.declared} blob=${e.blobLineEnding} worktree=${e.worktreeLineEnding}]`);
+    }
+    if (r.driftEntries.length > maxShow) {
+      lines.push(`    ... and ${r.driftEntries.length - maxShow} more`);
+    }
+  }
+  return lines.join('\n');
 }
 
 async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist> {
@@ -594,4 +655,26 @@ export function registerCommands(program: Command): void {
   addJsonFlags(modeCommand(program.command('postgres'))).action(async (opts: Record<string, unknown>) => {
     await printWorkspaceJson<PostgresContract>(process.cwd(), (p) => p.postgresContractPath, 'Postgres contract not found; run platform compose first', jsonOpts(opts), formatPostgresContract);
   });
+
+  const textCmd = program.command('text').description('Text byte policy inspection');
+  addJsonFlags(textCmd.command('census'))
+    .description('Scan tracked Git blobs and classify by .gitattributes policy')
+    .action(async (opts: Record<string, unknown>) => {
+      const output = jsonOpts(opts);
+      const report = await runWithOptionalSpinner('Scanning text bytes', output, () => runCensus(process.cwd()));
+      printJsonOrText(report, output, formatTextCensusReport);
+    });
+
+  const envCmd = program.command('environment').description('Environment settlement inspection');
+  addJsonFlags(envCmd.command('settle'))
+    .description('Non-destructive worktree settlement preflight')
+    .option('--fix', 'Re-checkout governed text files to enforce canonical LF materialization')
+    .action(async (opts: Record<string, unknown>) => {
+      const output = jsonOpts(opts);
+      const receipt = await runWithOptionalSpinner('Settling worktree', output, () => runSettlement(process.cwd(), { fix: !!opts.fix }));
+      printJsonOrText(receipt, output, formatSettlementReceipt);
+      if (receipt.status !== 'settled') {
+        throw new Error(`Worktree not settled: ${receipt.status}`);
+      }
+    });
 }
