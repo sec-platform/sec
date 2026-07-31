@@ -1,0 +1,485 @@
+schema: sec-architecture-assembly-proposal-v1
+status: draft
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+tracking: issue-225
+mergePolicy: spike-default-no-merge
+canonicalAuthority: none
+humanProposal: docs/proposals/sec-complete-architecture-synthesis-v1.md
+
+principles:
+  - authority-canonical-evidence-projection-separated
+  - unknown-never-promoted
+  - single-owner-single-writer
+  - validated-immutable-boundaries
+  - deterministic-canonical-results
+  - clean-incremental-equivalence
+  - no-false-green
+  - no-partial-publication
+  - ai-proposal-only
+  - core-no-business-language-framework-specialization
+
+planes:
+  - id: truth
+    purpose: authority-to-canonical-snapshot
+  - id: compilation
+    purpose: validated-workspace-to-target-artifacts
+  - id: operation
+    purpose: intent-to-transactional-canonical-change
+  - id: governance
+    purpose: task-selection-verification-review-release
+
+graphs:
+  - id: source-program-graph
+    owner: source-program-domain
+    authority: observed-derived
+  - id: engineering-semantic-graph
+    owner: semantic-engineering-domain
+    authority: canonical
+  - id: target-compilation-graph
+    owner: target-compilation-domain
+    authority: canonical-derived
+  - id: delta-impact-graph
+    owner: delta-impact-domain
+    authority: canonical-derived
+  - id: verification-evidence-graph
+    owner: verification-evidence-domain
+    authority: evidence
+  - id: operational-graph
+    owner: operation-governance-domains
+    authority: journal-and-control
+
+identityDomains:
+  - repository
+  - source-artifact
+  - source-symbol-binding
+  - semantic-entity
+  - semantic-fact
+  - semantic-assertion
+  - semantic-responsibility
+  - semantic-contract
+  - workspace-domain
+  - target-profile
+  - type-algebra
+  - application-ir
+  - behavior-ir
+  - target-program-ir
+  - artifact
+  - gate-definition
+  - gate-execution
+  - verification-claim
+  - evidence-node
+  - mutation-plan
+  - mutation-transaction
+  - development-decision
+  - task-capsule
+  - candidate-epoch
+
+canonicalDomains:
+  - id: product
+    authority: docs/product.md
+    owns:
+      - product.problem
+      - product.boundary
+      - product.value
+      - product.success
+    maturity: canonical-doc
+
+  - id: roadmap
+    authority: docs/roadmap.md
+    owns:
+      - delivery.stage-dag
+      - delivery.exit-criteria
+    maturity: canonical-doc
+
+  - id: system-architecture
+    authority: docs/system-architecture.md
+    owns:
+      - architecture.layering
+      - architecture.authority-flow
+      - architecture.single-writer
+      - architecture.workspace-zones
+    maturity: canonical-doc
+
+  - id: source-program-domain
+    authority: docs/brownfield-import.md
+    relatedIssues:
+      - 224
+      - 222
+    inputs:
+      - repository-inventory
+      - language-provider-output
+      - framework-provider-output
+    outputs:
+      - validated-source-program-snapshot
+      - candidate-bindings
+      - coverage-and-unknown
+    maturity: partially-designed
+
+  - id: semantic-engineering-domain
+    authority: docs/semantic-model.md
+    inputs:
+      - authoring-contracts
+      - reconciled-candidates
+    outputs:
+      - validated-engineering-ir
+      - semantic-revision
+    maturity: implemented-partial
+
+  - id: responsibility-domain
+    authority: issue-224-proposal
+    canonicalTarget: docs/semantic-model.md-or-new-focused-authority
+    inputs:
+      - source-program-snapshot
+      - contract-policy-test-evidence
+    outputs:
+      - responsibility-candidates
+      - reconciled-responsibility-snapshot
+    maturity: proposal
+
+  - id: delta-impact-domain
+    authority: docs/delta-and-impact.md
+    inputs:
+      - validated-from-snapshot
+      - validated-to-snapshot
+      - versioned-impact-rules
+    outputs:
+      - canonical-delta
+      - impact-with-witness-and-unknown
+    maturity: implemented-partial
+
+  - id: semantic-mutation-domain
+    authority: docs/semantic-mutation.md
+    inputs:
+      - typed-intent
+      - authorization
+      - source-owner
+      - delta-impact
+      - verification-plan
+    outputs:
+      - mutation-plan
+      - transaction-result
+      - recovery-state
+    maturity: implemented-partial
+
+  - id: target-compilation-domain
+    authority: docs/compiler-target-ir.md
+    inputs:
+      - validated-engineering-workspace
+      - target-profile
+      - type-algebra
+      - provider-revisions
+    outputs:
+      - application-ir
+      - behavior-ir
+      - target-program-ir
+      - artifacts
+    maturity: implemented-partial
+
+  - id: capability-block-domain
+    authority: docs/capability-and-block-model.md
+    inputs:
+      - registry-source
+      - trust-policy
+      - semantic-contracts
+      - generator-declarations
+    outputs:
+      - deterministic-resolution
+      - installed-block-set
+      - migration-plan
+    maturity: implemented-partial
+
+  - id: workbench-ai-domain
+    authority: docs/workbench-and-ai-operations.md
+    inputs:
+      - canonical-projections
+      - context-packet
+      - task-envelope
+    outputs:
+      - proposal
+      - review-decision
+      - product-result-projection
+    maturity: implemented-partial
+
+  - id: runtime-distribution-domain
+    authority: docs/runtime-and-distribution.md
+    programIssue: 167
+    inputs:
+      - host-profile
+      - toolchain-provider
+      - target-profile
+      - package-layout
+    outputs:
+      - host-evidence
+      - package-artifacts
+      - support-claim
+    maturity: implemented-partial
+
+  - id: verification-evidence-domain
+    authority: docs/verification-governance.md
+    programIssue: 175
+    inputs:
+      - gate-definition
+      - applicability-proof
+      - exact-input-closure
+      - environment
+    outputs:
+      - execution-record
+      - gate-result
+      - claim-result
+      - evidence-node
+    maturity: active-migration
+
+  - id: change-management-domain
+    authority: docs/change-management.md
+    inputs:
+      - current-target-revisions
+      - compatibility-rules
+      - migration-contract
+    outputs:
+      - upgrade-plan
+      - migration-result
+      - retirement-proof
+    maturity: implemented-partial
+
+  - id: development-governance-domain
+    authority: docs/development-governance.md
+    inputs:
+      - latest-main
+      - live-github
+      - work-selection-decision
+      - work-package
+      - evidence-review
+    outputs:
+      - candidate-lifecycle
+      - merge-closeout
+      - replan
+    maturity: active-migration
+
+workspaceDomainsTarget:
+  - repository-source-ownership
+  - semantic-engineering
+  - documentation-authority
+  - workflow-gate
+  - agent-operations
+  - evidence-ledger
+  - product-decision
+  - release-deployment-operations
+  - security-policy-trust
+  - registry-capability-assets
+
+providerKinds:
+  - language-frontend
+  - source-analysis
+  - framework-adapter
+  - build-system
+  - runtime-observation
+  - browser-verification
+  - native-capability
+  - artifact-backend
+  - ai-inference
+  - release-deployment
+  - external-graph
+
+stateMachineOwners:
+  - id: work-selection
+    owner: issue-221
+    mustNotOwn:
+      - task-capsule
+      - integration-conflict
+      - verification-result
+
+  - id: task-capsule
+    owner: issue-205
+    mustNotOwn:
+      - work-selection
+      - change-closure
+
+  - id: change-closure
+    owner: issue-219
+    mustNotOwn:
+      - test-impact
+      - candidate-epoch
+
+  - id: integration-epoch
+    owner: issues-207-191
+    mustNotOwn:
+      - product-task-content
+      - merge-evidence-truth
+
+  - id: candidate-epoch-failure
+    owner: issue-177
+    mustNotOwn:
+      - gate-result
+      - evidence-storage
+
+  - id: verification-result
+    owner: issues-176-215
+    mustNotOwn:
+      - test-selection
+      - execution-scheduling
+
+  - id: test-impact
+    owner: issue-188
+    mustNotOwn:
+      - gate-result
+      - compiler-incremental
+
+  - id: trusted-bootstrap
+    owner: issue-178
+    mustNotOwn:
+      - candidate-verifier-semantics
+
+  - id: evidence-dag-run-journal
+    owner: issue-179
+    mustNotOwn:
+      - gate-result
+      - mutation-journal
+      - compiler-node-semantics
+
+  - id: hermetic-test-runtime
+    owner: issue-190
+    mustNotOwn:
+      - repository-worktree-cleanup
+      - gate-result
+
+  - id: compiler-query-graph
+    owner: issue-194
+    mustNotOwn:
+      - verification-dag
+      - daemon-scheduling
+
+  - id: automatic-feedback
+    owner: issue-189
+    mustNotOwn:
+      - impact
+      - result
+      - compiler-query-semantics
+
+  - id: mutation-transaction
+    owner: docs-semantic-mutation-and-code
+    mustNotOwn:
+      - development-run-journal
+      - verification-result
+
+externalMechanisms:
+  - name: MLIR
+    adopt:
+      - multi-level-ir
+      - dialect-validation
+      - explicit-pass-dependencies
+    reject:
+      - engineering-ir-equals-compiler-ir
+
+  - name: rustc-query
+    adopt:
+      - demand-driven-query
+      - red-green-invalidation
+      - canonical-fingerprints
+    reject:
+      - side-effects-hidden-in-query
+
+  - name: Roslyn
+    adopt:
+      - immutable-workspace-snapshots
+      - full-fidelity-source-model
+    reject:
+      - dotnet-model-as-core
+
+  - name: Tree-sitter
+    adopt:
+      - incremental-multilanguage-syntax
+    reject:
+      - syntax-implies-semantics
+
+  - name: OpenRewrite-LST
+    adopt:
+      - format-comment-preserving-transform
+    reject:
+      - parse-success-implies-parity
+
+  - name: CodeQL-Datalog
+    adopt:
+      - relational-query
+      - path-witness
+    reject:
+      - query-db-as-authority
+
+  - name: Bazel-Nix-Git-CAS
+    adopt:
+      - explicit-input-closure
+      - content-addressed-physical-store
+      - reproducible-actions
+    reject:
+      - build-key-equals-semantic-revision
+
+  - name: TLA-Alloy
+    adopt:
+      - critical-state-machine-models
+      - structural-counterexamples
+    reject:
+      - formalize-all-business-code
+
+  - name: Cedar
+    adopt:
+      - principal-action-resource-context
+      - default-deny
+      - forbid-precedence
+    reject:
+      - policy-engine-owns-source-path
+
+  - name: Temporal
+    adopt:
+      - durable-history-replay-concept
+    reject:
+      - core-runtime-dependency
+
+  - name: SLSA-in-toto-PROV
+    adopt:
+      - builder-materials-provenance
+      - interoperable-provenance-vocabulary
+    reject:
+      - provenance-equals-correctness
+
+nearTermSequence:
+  serialCurrent:
+    - issue-215-pr-223
+  nextAcceleration:
+    - issue-207-minimal
+  productLane:
+    - typescript-source-program-and-ownership
+    - issue-224-responsibility-self-observation
+    - responsibility-level-impact-explain
+    - one-controlled-mutation
+    - deterministic-typescript-lowering
+    - brownfield-adopt-normalize
+  governanceLane:
+    - issue-221-phase-a
+    - issue-177-phase-a
+    - issue-219-phase-a
+    - issue-188
+    - issue-178-and-minimal-179
+    - issue-194-in-memory-query-kernel
+  later:
+    - issue-222-native-web
+    - tsx-cross-artifact
+    - workbench-self-hosting
+    - browser-evidence
+    - framework-providers
+    - registry-release-ecosystem
+
+acceptanceCorpora:
+  - sec-self-subsystem
+  - lifecycle-state-machine
+  - reservation-concurrency
+  - approval-policy-workflow
+  - real-brownfield-typescript-web
+  - governed-extension-complex-algorithm
+  - native-html-css-ts
+  - react-tsx
+  - second-framework
+
+adoptionRule:
+  proposalMustBeDecomposed: true
+  updateAuthorityRegistryDirectly: false
+  updateActivePointer: false
+  mergeWholeProposal: false
