@@ -1,0 +1,799 @@
+schema: sec-global-design-decision-matrix-v1
+status: research-evidence
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+tracking: issue-225
+sourceLedger: docs/proposals/research/sec-global-primary-source-ledger-v1.yaml
+authority: none
+
+statusVocabulary:
+  - retain-current-direction
+  - extend-canonical-design
+  - new-focused-authority-needed
+  - implementation-needed
+  - migration-needed
+  - interoperability-only
+  - defer-until-consumer
+  - reject
+
+priorityVocabulary:
+  - permanent-invariant
+  - before-self-observation
+  - before-controlled-mutation
+  - before-parallel-development
+  - before-brownfield
+  - before-web
+  - before-registry
+  - before-release
+  - future
+
+decisions:
+  - id: DEC-001
+    title: Model Federation Kernel replaces implicit cross-domain conventions
+    status: new-focused-authority-needed
+    priority: before-self-observation
+    sources: [SRC-002, SRC-003, SRC-004, SRC-005, SRC-075]
+    currentOwners: [docs/system-architecture.md, docs/semantic-model.md]
+    canonicalTarget: system-architecture plus shared federation contract
+    decision: >-
+      建立极小跨域协议，统一 DomainDescriptor、identity/revision reference、authority class、
+      validation、coverage、unknown frontier 和 migration binding；不建立万能 object/edge graph。
+    invariants:
+      - domain-fields-remain-owned-by-domain
+      - cross-domain-reference-by-stable-identity-and-revision
+      - no-generic-property-bag-core
+      - no-consumer-reinterpretation
+    proof:
+      - schema-contract-tests
+      - duplicate-owner-negative-tests
+      - cross-domain-reference-property-tests
+    migration: 先作为只读 registry 投影现有 domains，再逐 consumer 切换。
+
+  - id: DEC-002
+    title: Every public contract is structural semantic operational triad
+    status: extend-canonical-design
+    priority: permanent-invariant
+    sources: [SRC-011, SRC-040, SRC-074, SRC-087, SRC-089, SRC-101]
+    currentOwners: [docs/semantic-model.md, docs/compiler-target-ir.md, docs/semantic-mutation.md]
+    canonicalTarget: contract protocol and validators
+    decision: shape schema 不能单独构成工程合同；必须同时声明语义不变量和 Effect/failure/recovery。
+    invariants:
+      - shape-validation-does-not-prove-semantics
+      - defaults-annotations-do-not-create-authority
+      - operational-failure-is-part-of-contract
+    proof:
+      - generated-parser-differential
+      - semantic-negative-tests
+      - fault-recovery-tests
+
+  - id: DEC-003
+    title: Source representation has bytes LST semantic model and SPM layers
+    status: new-focused-authority-needed
+    priority: before-self-observation
+    sources: [SRC-012, SRC-013, SRC-014, SRC-015, SRC-016]
+    currentOwners: [docs/brownfield-import.md]
+    canonicalTarget: source-program-model authority
+    decision: >-
+      精确 bytes/mode、lossless syntax、language semantic model 与 Source Program Model 分层；
+      任何 AST/LST/Provider 不能越级成为 Engineering IR。
+    invariants:
+      - comments-format-unowned-regions-preserved
+      - provider-coverage-explicit
+      - source-identity-not-absolute-path
+      - provider-conflict-retained
+    proof:
+      - byte-roundtrip-corpus
+      - rename-move-identity-tests
+      - parser-error-recovery-tests
+      - multi-provider-conflict-tests
+
+  - id: DEC-004
+    title: Semantic Responsibility is obligation not function cluster
+    status: extend-canonical-design
+    priority: before-self-observation
+    sources: [SRC-012, SRC-020, SRC-021, SRC-022, SRC-045]
+    currentOwners: [issue-224, docs/semantic-model.md]
+    canonicalTarget: semantic responsibility contract
+    decision: Function、span、Block 与 Responsibility 均为多对多；增加 consistency/capability/observability/compatibility facets。
+    invariants:
+      - compact-code-may-contain-many-responsibilities
+      - one-responsibility-may-span-many-artifacts
+      - ai-summary-never-identity
+      - utility-not-promoted-by-call-frequency
+    proof:
+      - mixed-function-corpus
+      - cross-file-responsibility-corpus
+      - inline-extract-identity-tests
+      - human-reconcile-evaluation
+
+  - id: DEC-005
+    title: Effect Algebra is first-class engineering contract
+    status: new-focused-authority-needed
+    priority: before-controlled-mutation
+    sources: [SRC-045, SRC-047, SRC-048, SRC-049]
+    currentOwners: [docs/semantic-model.md, docs/compiler-target-ir.md, docs/semantic-mutation.md]
+    canonicalTarget: effect algebra shared contract
+    decision: >-
+      Effect 具有 resource、capability、read/write、determinism、idempotency、compensation、
+      isolation、failure 和 observability；支持 subeffect/conflict/commute/precedence relations。
+    invariants:
+      - effect-is-not-string-label
+      - capability-is-not-ambient
+      - semantic-permission-and-os-capability-separated
+    proof:
+      - effect-composition-properties
+      - forbidden-effect-negative-tests
+      - provider-capability-matrix
+
+  - id: DEC-006
+    title: Type Algebra includes resource opaque recursive and representation dimensions
+    status: extend-canonical-design
+    priority: before-controlled-mutation
+    sources: [SRC-007, SRC-008, SRC-009, SRC-010, SRC-086]
+    currentOwners: [docs/compiler-target-ir.md]
+    canonicalTarget: type algebra contract
+    decision: >-
+      增加 recursive identity、variance、refinement reference、resource handle、opaque external、
+      serialization representation 和 Target capability；禁止 any/string defaults。
+    invariants:
+      - type-identity-separate-from-target-spelling
+      - recursive-types-canonicalized
+      - unsupported-before-emit
+      - representation-compatibility-explicit
+    proof:
+      - recursive-type-properties
+      - cross-target-compatibility-tests
+      - serialization-roundtrip
+
+  - id: DEC-007
+    title: Compiler uses demand-driven query contracts
+    status: extend-canonical-design
+    priority: before-controlled-mutation
+    sources: [SRC-025, SRC-026, SRC-027, SRC-028, SRC-029, SRC-030]
+    currentOwners: [issue-194, docs/compiler-target-ir.md]
+    canonicalTarget: compiler query kernel
+    decision: >-
+      每个 query 声明完整 input closure、动态依赖、output fingerprint、validation、invalidation、
+      cancellation、resource class 与 clean oracle；增量是 clean computation 的优化。
+    invariants:
+      - no-ambient-input
+      - dirty-set-monotone-on-unknown
+      - clean-incremental-byte-equivalence
+      - cache-deletable-and-untrusted
+    proof:
+      - dependency-audit
+      - clean-incremental-differential
+      - random-input-invalidation-properties
+      - cancellation-no-publication
+
+  - id: DEC-008
+    title: Compiler Query DAG and Verification Evidence DAG stay distinct
+    status: retain-current-direction
+    priority: permanent-invariant
+    sources: [SRC-025, SRC-031, SRC-078, SRC-106]
+    currentOwners: [issue-194, issue-179, docs/verification-governance.md]
+    canonicalTarget: existing separate owners
+    decision: 两图最多共享物理 CAS，绝不共享 node schema、status、freshness 或 authority。
+    invariants:
+      - computation-is-not-proof
+      - evidence-key-includes-environment-and-producer
+      - compiler-cache-never-merge-evidence
+    proof:
+      - owner-registry-tests
+      - cross-graph-type-negative-tests
+
+  - id: DEC-009
+    title: Translation validation added between lowering and support claim
+    status: new-focused-authority-needed
+    priority: before-controlled-mutation
+    sources: [SRC-033, SRC-034, SRC-010, SRC-101]
+    currentOwners: [docs/compiler-target-ir.md, docs/verification-governance.md]
+    canonicalTarget: lowering validation protocol
+    decision: >-
+      高风险 pure lowering/optimization 对每个 candidate 做 refinement/translation validation；
+      tiny trusted kernels 可形式证明；unsupported 明确阻断或降级到更强 Acceptance。
+    invariants:
+      - transformation-proof-bound-to-exact-input
+      - unsupported-never-promoted
+      - verifier-independent-from-candidate-where-trust-root
+    proof:
+      - semantic-refinement-counterexamples
+      - differential-interpreter-tests
+      - base-side-verifier-tests
+
+  - id: DEC-010
+    title: E-graphs are optional local rewrite provider
+    status: defer-until-consumer
+    priority: future
+    sources: [SRC-035, SRC-036]
+    currentOwners: []
+    canonicalTarget: optional rewrite provider
+    decision: >-
+      仅用于 typed pure equivalence search、normalization 和 target optimization；
+      需要 side conditions、budget、cost extraction 和 proof witness；不得发现 authority/Responsibility。
+    invariants:
+      - typed-rewrite-only
+      - bounded-saturation
+      - extracted-result-validated
+      - no-authority-creation
+    proof:
+      - rewrite-soundness-tests
+      - saturation-budget-tests
+      - translation-validation
+
+  - id: DEC-011
+    title: Delta and equivalence are multi-layer typed relations
+    status: extend-canonical-design
+    priority: before-controlled-mutation
+    sources: [SRC-021, SRC-022, SRC-034, SRC-086]
+    currentOwners: [docs/delta-and-impact.md]
+    canonicalTarget: delta/equivalence contracts
+    decision: >-
+      Byte、Syntax、Source Semantic、Engineering、Compilation、Artifact、Runtime 和 Support Delta 分层；
+      equivalence/refinement/compatibility 各有 verifier 和 assumptions。
+    invariants:
+      - empty-byte-delta-not-general-proof
+      - direction-and-lineage-explicit
+      - equivalence-kind-explicit
+      - counterexample-retained
+    proof:
+      - layer-differential-corpus
+      - removal-old-endpoint-impact-tests
+      - additional-delta-blocking-tests
+
+  - id: DEC-012
+    title: Impact uses monotone lattice and canonical witnesses
+    status: retain-current-direction
+    priority: before-controlled-mutation
+    sources: [SRC-021, SRC-022, SRC-023, SRC-024]
+    currentOwners: [docs/delta-and-impact.md, issue-188]
+    canonicalTarget: impact rule registry
+    decision: definite/possible/unknown 单调传播至 fixpoint，每项有 stable witness；预算耗尽形成 unknown frontier。
+    invariants:
+      - cycles-terminate
+      - inferred-never-upgrades-to-definite
+      - missing-rule-expands-unknown
+      - no-witness-no-canonical-impact
+    proof:
+      - lattice-property-tests
+      - cycle-model-tests
+      - witness-order-determinism
+
+  - id: DEC-013
+    title: Conditions bind observations to observedRevision
+    status: new-focused-authority-needed
+    priority: before-parallel-development
+    sources: [SRC-072, SRC-103]
+    currentOwners: [docs/system-architecture.md, docs/verification-governance.md]
+    canonicalTarget: shared condition contract
+    decision: >-
+      Ready/Supported/Complete/Recovered 等长期状态使用 True/False/Unknown、reasonCode、
+      observedRevision、producerRevision 和 Evidence refs；旧 condition 不附着到新 generation。
+    invariants:
+      - condition-observed-revision-required
+      - unknown-preserved
+      - message-not-control-flow
+      - stable-reason-code
+    proof:
+      - stale-condition-negative-tests
+      - generation-transition-properties
+
+  - id: DEC-014
+    title: Verification object model separates requirement applicability execution result claim evidence
+    status: extend-canonical-design
+    priority: before-parallel-development
+    sources: [SRC-010, SRC-011, SRC-078, SRC-106]
+    currentOwners: [issue-215, docs/verification-governance.md]
+    canonicalTarget: verification result/evidence contracts
+    decision: >-
+      Requirement、ApplicabilityProof、GateDefinition、ExecutionPlan、ExecutionRecord、GateResult、
+      Claim、EvidenceNode 和 AggregateDecision 分离；环境 ownership 和 zero-test proof 强制。
+    invariants:
+      - no-false-green
+      - result-order-independent
+      - duplicate-and-missing-identities-fail
+      - reused-evidence-binds-environment
+      - cleanup-readback-part-of-result
+    proof:
+      - issue-215-counterexamples
+      - status-lattice-properties
+      - evidence-invalidation-tests
+
+  - id: DEC-015
+    title: Counterexample Registry unifies property fuzz model and fault failures
+    status: new-focused-authority-needed
+    priority: before-controlled-mutation
+    sources: [SRC-057, SRC-058, SRC-059, SRC-060, SRC-061, SRC-107]
+    currentOwners: [issue-180]
+    canonicalTarget: counterexample corpus contract
+    decision: >-
+      保存 producer/revision/property/seed/minimal input/replay/fix revision；
+      failure cluster 可引用 counterexample，但反例不成为 semantic authority。
+    invariants:
+      - every-generated-failure-replayable
+      - shrink-result-versioned
+      - fixed-counterexample-retained-as-regression
+    proof:
+      - replay-contract-tests
+      - corruption-and-version-mismatch-tests
+
+  - id: DEC-016
+    title: Mutation plan and apply are separate deterministic transitions
+    status: retain-current-direction
+    priority: permanent-invariant
+    sources: [SRC-073, SRC-108]
+    currentOwners: [docs/semantic-mutation.md]
+    canonicalTarget: existing mutation state machine
+    decision: Plan 无 live write；Apply 在 lease 内重新读取/replan/CAS；state/cache 不反向成为 desired truth。
+    invariants:
+      - plan-side-effect-free
+      - caller-cannot-submit-derived-fields
+      - source-and-semantic-cas
+      - no-partial-success
+    proof:
+      - plan-byte-stability
+      - stale-plan-concurrency-tests
+      - caller-forgery-negative-tests
+
+  - id: DEC-017
+    title: Publication protocol distinguishes logical publication and physical durability
+    status: extend-canonical-design
+    priority: before-controlled-mutation
+    sources: [SRC-050, SRC-051, SRC-052, SRC-055]
+    currentOwners: [docs/semantic-mutation.md, docs/runtime-and-distribution.md]
+    canonicalTarget: publication durability contract
+    decision: >-
+      WAL-like intent/stage/publish/marker/fsync/readback/terminal protocol；
+      终态区分 not-published、published-unknown、published-durable、rolled-back、recovery-required。
+    invariants:
+      - journal-before-authority-change
+      - uncertain-publication-preserves-recovery-material
+      - rollback-cas-does-not-overwrite-successor
+      - observable-operation-linearizable
+    proof:
+      - TLA-model
+      - crash-point-fault-traversal
+      - filesystem-matrix
+
+  - id: DEC-018
+    title: Durable workflow replay cannot own semantic terminal states
+    status: extend-canonical-design
+    priority: before-parallel-development
+    sources: [SRC-053]
+    currentOwners: [issue-177, issue-179, docs/development-governance.md]
+    canonicalTarget: development run kernel
+    decision: >-
+      history/replay 只拥有 orchestration progress；clock/random/I/O 经 activities；
+      Mutation、Verification、Epoch 等终态仍由各 domain owner 输出。
+    invariants:
+      - orchestrator-deterministic
+      - replay-does-not-repeat-effects
+      - workflow-versioning-explicit
+      - no-second-terminal-state
+    proof:
+      - replay-differential-tests
+      - workflow-upgrade-tests
+
+  - id: DEC-019
+    title: Canonical workspace writes are single-writer linearizable not CRDT merged
+    status: retain-current-direction
+    priority: permanent-invariant
+    sources: [SRC-054, SRC-055, SRC-056]
+    currentOwners: [docs/semantic-mutation.md, docs/development-governance.md]
+    canonicalTarget: workspace writer contract
+    decision: canonical source/semantics/release/policy 使用 single writer + CAS；CRDT 仅用于可合并草稿/注释/UI。
+    invariants:
+      - no-automatic-authority-conflict-merge
+      - operation-has-observable-linearization-point
+      - ui-crdt-never-publishes-canonical-state
+    proof:
+      - concurrent-history-tests
+      - CRDT-scope-negative-tests
+
+  - id: DEC-020
+    title: Work Package parallelism requires semantic and physical conflict proof
+    status: retain-current-direction
+    priority: before-parallel-development
+    sources: [SRC-025, SRC-055]
+    currentOwners: [issue-207, issue-191]
+    canonicalTarget: Integration Epoch registry
+    decision: authority/state/artifact/path/resource/dependency/verification 全部分离才 parallel-safe；unknown 永不 safe。
+    invariants:
+      - all-active-pairs-resolved
+      - global-writers-unique
+      - stale-base-invalidates-epoch
+      - permitted-path-not-ownership
+    proof:
+      - issue-207-matrix
+      - Alloy-structure-model
+      - integration-recompute-tests
+
+  - id: DEC-021
+    title: Authorization is semantic policy plus physical capability attenuation
+    status: extend-canonical-design
+    priority: before-controlled-mutation
+    sources: [SRC-041, SRC-042, SRC-043, SRC-044, SRC-047, SRC-048, SRC-049, SRC-100]
+    currentOwners: [docs/semantic-mutation.md, docs/workbench-and-ai-operations.md, docs/runtime-and-distribution.md]
+    canonicalTarget: authorization and sandbox provider contracts
+    decision: >-
+      Cedar-like default deny/forbid 与 SEC typed operation负责语义授权；
+      WASI/Landlock/seccomp/平台 adapter负责最小物理能力；任一层不能替代另一层。
+    invariants:
+      - transport-auth-not-semantic-auth
+      - semantic-permit-does-not-grant-ambient-host
+      - sandbox-limits-explicit
+      - unsupported-capability-visible
+    proof:
+      - policy-property-tests
+      - sandbox-capability-matrix
+      - privilege-escalation-negative-tests
+
+  - id: DEC-022
+    title: External tool protocols remain transport adapters
+    status: interoperability-only
+    priority: future
+    sources: [SRC-017, SRC-018, SRC-019, SRC-097]
+    currentOwners: [docs/workbench-and-ai-operations.md]
+    canonicalTarget: tool adapter protocol
+    decision: LSP/BSP/DAP/MCP 只解决消息、发现和工具互操作；写入、Impact、Result、Terminal 由 SEC facade。
+    invariants:
+      - adapter-cannot-expand-operation
+      - external-path-not-write-authority
+      - external-result-is-evidence-or-proposal
+    proof:
+      - adapter-forgery-negative-tests
+      - protocol-version-compatibility-tests
+
+  - id: DEC-023
+    title: Web domain uses multiple source runtime and accessibility models
+    status: extend-canonical-design
+    priority: before-web
+    sources: [SRC-062, SRC-063, SRC-064, SRC-065, SRC-066, SRC-067, SRC-068]
+    currentOwners: [issue-222, docs/brownfield-import.md]
+    canonicalTarget: Web source/target authority
+    decision: >-
+      Source Template、framework render、DOM、source CSS、cascade/computed style、layout/paint、
+      accessibility tree/name 分开；跨 artifact Impact 有 witness，动态区域 unknown/opaque。
+    invariants:
+      - runtime-dom-not-source-authority
+      - css-cascade-order-semantic
+      - accessibility-derived-not-guessed
+      - framework-core-neutral
+    proof:
+      - native-web-corpus
+      - TSX-cross-artifact-corpus
+      - browser-owning-gates
+
+  - id: DEC-024
+    title: Provider and Block ports adapt WIT concepts but not Wasm authority
+    status: extend-canonical-design
+    priority: before-registry
+    sources: [SRC-069, SRC-070, SRC-047]
+    currentOwners: [docs/capability-and-block-model.md]
+    canonicalTarget: Provider/Port ABI
+    decision: >-
+      借鉴 WIT package/world/import/export/resource/canonical ABI 建立跨语言 typed port；
+      Wasm/WASI 可选作为 sandboxed runtime，Block identity/trust/semantics仍由 SEC。
+    invariants:
+      - port-schema-versioned
+      - resource-handles-unforgeable
+      - canonical-abi-not-engineering-ir
+      - missing-runtime-does-not-block-core
+    proof:
+      - multi-language-component-corpus
+      - ABI-compatibility-tests
+      - capability-negative-tests
+
+  - id: DEC-025
+    title: Configuration constraints and desired/observed state remain separate
+    status: extend-canonical-design
+    priority: before-brownfield
+    sources: [SRC-071, SRC-072, SRC-073, SRC-074, SRC-108]
+    currentOwners: [docs/brownfield-import.md, docs/system-architecture.md]
+    canonicalTarget: configuration/reconciliation domain
+    decision: >-
+      CUE-like constraints可作为 config Provider；Desired、Candidate、Observed、Applied、Condition分离；
+      Terraform/Kubernetes state/status不成为 authoring authority。
+    invariants:
+      - observed-state-bound-to-revision
+      - state-cache-rebuildable
+      - constraint-incomplete-is-not-valid-complete
+    proof:
+      - reconciliation-state-machine-tests
+      - stale-observation-tests
+      - config-roundtrip
+
+  - id: DEC-026
+    title: Architecture views are concern-specific projections
+    status: retain-current-direction
+    priority: permanent-invariant
+    sources: [SRC-075, SRC-076, SRC-077, SRC-109]
+    currentOwners: [docs/system-architecture.md, docs/workbench-and-ai-operations.md]
+    canonicalTarget: Workbench view contracts
+    decision: 不追求一张全局图；每个 viewpoint 声明 stakeholder/concern/selection/omission/unknown/references。
+    invariants:
+      - view-layout-not-semantic-revision
+      - projection-cannot-write-authority
+      - same-fact-referenced-not-copied
+    proof:
+      - cross-view-reference-consistency
+      - projection-rebuild-tests
+
+  - id: DEC-027
+    title: Compatibility is directional multidimensional algebra
+    status: new-focused-authority-needed
+    priority: before-registry
+    sources: [SRC-086, SRC-092, SRC-093, SRC-094, SRC-095]
+    currentOwners: [docs/change-management.md, docs/capability-and-block-model.md]
+    canonicalTarget: compatibility algebra contract
+    decision: >-
+      source/binary/wire/schema read-write/behavior/error/effect/runtime/toolchain/target/platform/data/deploy/rollback
+      分维度、分方向、分 profile；SemVer只投影建议。
+    invariants:
+      - unknown-not-compatible
+      - producer-consumer-direction-required
+      - version-number-not-proof
+      - public-surface-explicit
+    proof:
+      - version-pair-corpus
+      - consumer-differential-tests
+      - wire/schema-compatibility-properties
+
+  - id: DEC-028
+    title: Block resolver uses explainable incompatibility derivation
+    status: extend-canonical-design
+    priority: before-registry
+    sources: [SRC-092, SRC-093]
+    currentOwners: [docs/capability-and-block-model.md]
+    canonicalTarget: registry resolver
+    decision: PubGrub-style incompatibilities和冲突链扩展到 version/source/trust/profile/provider/capability constraints。
+    invariants:
+      - deterministic-resolution
+      - no-search-order-authority
+      - unsat-has-stable-explanation
+      - lock-binds-source-and-policy
+    proof:
+      - solver-property-tests
+      - adversarial-dependency-graphs
+      - explanation-stability
+
+  - id: DEC-029
+    title: Provenance types remain separate and export through standards
+    status: retain-current-direction
+    priority: before-release
+    sources: [SRC-078, SRC-079, SRC-080, SRC-083, SRC-084, SRC-085]
+    currentOwners: [docs/verification-governance.md, docs/runtime-and-distribution.md]
+    canonicalTarget: provenance/export providers
+    decision: Fact、Artifact、Verification、Runtime、Decision provenance typed分离；SLSA/in-toto/PROV/SPDX/CycloneDX为导出。
+    invariants:
+      - provenance-not-correctness
+      - SBOM-not-dependency-authority
+      - export-lossiness-visible
+    proof:
+      - export-roundtrip-where-supported
+      - lossy-mapping-tests
+
+  - id: DEC-030
+    title: Registry and update trust use threshold and transparency mechanisms
+    status: new-focused-authority-needed
+    priority: before-registry
+    sources: [SRC-081, SRC-082, SRC-104]
+    currentOwners: [docs/capability-and-block-model.md, docs/runtime-and-distribution.md]
+    canonicalTarget: registry trust/update protocol
+    decision: TUF-style role/threshold/version/expiry/rollback protection，Sigstore/Rekor-style identity/transparency作为Evidence。
+    invariants:
+      - signature-does-not-equal-safety
+      - root-rotation-explicit
+      - rollback-freeze-protection
+      - trust-policy-owned-by-workspace-or-registry
+    proof:
+      - key-compromise-model
+      - rollback-freeze-tests
+      - transparency-inclusion-tests
+
+  - id: DEC-031
+    title: Release closure includes reproducibility and clean projection
+    status: extend-canonical-design
+    priority: before-release
+    sources: [SRC-032, SRC-078, SRC-079, SRC-083, SRC-105, SRC-106]
+    currentOwners: [docs/runtime-and-distribution.md]
+    canonicalTarget: release domain
+    decision: >-
+      clean materials、explicit environment、SOURCE_DATE_EPOCH、deterministic artifact、SBOM、
+      verification、attestation、signature、publication、consumer install/deploy全部闭合。
+    invariants:
+      - wall-clock-not-canonical
+      - private-state-not-in-release
+      - rebuild-difference-invalidates-claim
+      - package-success-not-deploy-success
+    proof:
+      - reproducible-build-differential
+      - clean-install-matrix
+      - public-surface-census
+
+  - id: DEC-032
+    title: Events have semantic contracts separate from envelopes
+    status: new-focused-authority-needed
+    priority: before-release
+    sources: [SRC-088, SRC-089]
+    currentOwners: [docs/semantic-model.md, docs/compiler-target-ir.md]
+    canonicalTarget: event contract domain
+    decision: CloudEvents envelope与AsyncAPI description用于互操作；ordering/delivery/idempotency/privacy/compatibility/consumer obligations由SEC。
+    invariants:
+      - event-envelope-not-business-semantics
+      - producer-and-consumer-responsibilities-explicit
+      - delivery-semantics-explicit
+    proof:
+      - schema-version-compatibility
+      - duplicate-reorder-fault-tests
+
+  - id: DEC-033
+    title: Observability is revision-bound evidence
+    status: extend-canonical-design
+    priority: before-release
+    sources: [SRC-090, SRC-091]
+    currentOwners: [docs/verification-governance.md, docs/runtime-and-distribution.md]
+    canonicalTarget: runtime observation domain
+    decision: OpenTelemetry semantic conventions/OpenLineage作为interop；每条 observation绑定release/environment/sampling/coverage。
+    invariants:
+      - absence-of-observation-not-absence-of-behavior
+      - telemetry-not-authority
+      - sampling-and-coverage-visible
+    proof:
+      - stale-telemetry-tests
+      - schema-stability-tests
+
+  - id: DEC-034
+    title: AI remains proposal provider under typed operation and bounded context
+    status: retain-current-direction
+    priority: permanent-invariant
+    sources: [SRC-041, SRC-096, SRC-097]
+    currentOwners: [docs/workbench-and-ai-operations.md, issue-205, issue-221]
+    canonicalTarget: AI runtime governance
+    decision: AI不提交Fact/path/owner/Impact/Result/terminal；Context Packet最小充分；预算、Effect、privacy、Verification均平台派生。
+    invariants:
+      - ai-confidence-no-authority
+      - context-does-not-expand-write-scope
+      - tool-auth-does-not-expand-semantic-permission
+      - proposal-revalidated
+    proof:
+      - prompt-injection-tool-tests
+      - forged-derived-field-tests
+      - context-minimization-evaluation
+
+  - id: DEC-035
+    title: Work selection is deterministic lifecycle-first policy
+    status: retain-current-direction
+    priority: before-parallel-development
+    sources: [SRC-028, SRC-041, SRC-072]
+    currentOwners: [issue-221]
+    canonicalTarget: autonomous work selector
+    decision: closeout/reconcile先于新选择，eligibility后按integrity/product/acceleration词典序；不使用不可解释分数。
+    invariants:
+      - exact-main-bound
+      - no-user-loss-estimation
+      - product-starvation-protection
+      - unresolved-fail-closed
+    proof:
+      - historical-replay
+      - candidate-order-permutation
+      - stale-issue-main-readback
+
+  - id: DEC-036
+    title: Development records have strict owner partition
+    status: retain-current-direction
+    priority: before-parallel-development
+    sources: [SRC-053, SRC-078]
+    currentOwners: [issue-205, issue-207, issue-177, issue-179, issue-221]
+    canonicalTarget: development governance contracts
+    decision: Selector/Capsule/Closure/Epoch/Integration/Evidence各自唯一owner，通过references连接，不复制状态。
+    invariants:
+      - no-second-current-state
+      - no-second-failure-state
+      - no-second-evidence-ledger
+      - resume-from-external-facts
+    proof:
+      - cross-owner-schema-negative-tests
+      - resume-replay-tests
+
+  - id: DEC-037
+    title: Formal methods target small high-leverage protocols
+    status: extend-canonical-design
+    priority: before-controlled-mutation
+    sources: [SRC-037, SRC-038, SRC-039, SRC-040]
+    currentOwners: [docs/verification-governance.md]
+    canonicalTarget: formal model registry
+    decision: TLA+用于时序协议，Alloy用于结构约束；模型绑定实现revision和refinement tests，不形式化全部业务。
+    invariants:
+      - model-assumptions-explicit
+      - implementation-refinement-checked
+      - bounded-proof-not-global-proof
+    proof:
+      - model-checker-artifacts
+      - model-to-test-vector-generation
+
+  - id: DEC-038
+    title: Support claims are structured closures with Conditions
+    status: new-focused-authority-needed
+    priority: before-release
+    sources: [SRC-072, SRC-078, SRC-083, SRC-103, SRC-106]
+    currentOwners: [docs/runtime-and-distribution.md, docs/product.md]
+    canonicalTarget: support claim contract
+    decision: capability/profile/implementation/providers/environments/claims/package/deploy/limitations/unknown/condition完整记录。
+    invariants:
+      - designed-not-implemented
+      - implemented-not-physically-verified
+      - verified-not-packaged-or-supported
+      - invalidation-immediate
+    proof:
+      - support-level-transition-tests
+      - stale-provider-release-tests
+
+  - id: DEC-039
+    title: External risk scores remain evidence only
+    status: retain-current-direction
+    priority: before-registry
+    sources: [SRC-098, SRC-110]
+    currentOwners: [docs/external-provider-policy.md]
+    canonicalTarget: external provider governance
+    decision: SSDF/Scorecard等结果用于risk evidence，不自动adopt/reject；最终决策绑定实际consumer、capabilities和verification。
+    invariants:
+      - score-not-authority
+      - evidence-version-and-coverage-visible
+      - provider-adoption-has-retirement-plan
+    proof:
+      - risk-evidence-mapping-tests
+
+  - id: DEC-040
+    title: Self-hosting proceeds through capability levels with independent gates
+    status: retain-current-direction
+    priority: before-self-observation
+    sources: [SRC-012, SRC-020, SRC-025, SRC-041, SRC-053]
+    currentOwners: [docs/roadmap.md, issue-224, issue-221]
+    canonicalTarget: self-hosting roadmap projection
+    decision: Observe→Reconcile→Explain→Impact→Plan→Mutate→Lower→Verify→Govern→Operate；每级独立支持声明。
+    invariants:
+      - higher-level-cannot-bypass-lower-gate
+      - git-ci-merge-remain-external-until-governed
+      - self-proof-not-merge-authority
+    proof:
+      - SEC-self-corpus
+      - external-brownfield-corpus
+      - level-specific-acceptance
+
+adoptionSequence:
+  immediateCurrent:
+    - complete-issue-215-pr-223
+  beforeTwoFormalWriters:
+    - DEC-013
+    - DEC-014
+    - DEC-020
+    - DEC-035
+  firstProductSelfObservation:
+    - DEC-001
+    - DEC-002
+    - DEC-003
+    - DEC-004
+    - DEC-005
+  beforeControlledMutation:
+    - DEC-006
+    - DEC-007
+    - DEC-009
+    - DEC-011
+    - DEC-012
+    - DEC-015
+    - DEC-016
+    - DEC-017
+    - DEC-021
+    - DEC-037
+  laterProductAndEcosystem:
+    - DEC-023
+    - DEC-024
+    - DEC-025
+    - DEC-027
+    - DEC-028
+    - DEC-029
+    - DEC-030
+    - DEC-031
+    - DEC-032
+    - DEC-033
+    - DEC-038
