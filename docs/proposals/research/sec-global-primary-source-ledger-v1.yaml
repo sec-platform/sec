@@ -1,0 +1,1159 @@
+schema: sec-global-primary-source-ledger-v1
+status: research-evidence
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+tracking: issue-225
+scopeDate: 2026-08-01
+authority: none
+purpose: >-
+  审计 SEC 完整目标架构所吸收、改造、拒绝或仅作互操作参考的全球一手技术资料。
+  本账本是 Spike Evidence，不是 canonical 设计或支持声明。
+method:
+  preferredSources:
+    - normative-standard
+    - official-project-design
+    - original-peer-reviewed-paper
+    - official-reference-manual
+  excludedAsAuthority:
+    - vendor-marketing
+    - secondary-blog-summary
+    - popularity-ranking
+    - ai-generated-summary
+  decisionVocabulary:
+    - adopt-mechanism
+    - adapt-mechanism
+    - interoperability-only
+    - reference-only
+    - reject-as-authority
+    - defer-pending-evidence
+
+sources:
+  - id: SRC-001
+    family: compiler-ir
+    organization: LLVM Project
+    title: LLVM Language Reference Manual
+    url: https://llvm.org/docs/LangRef.html
+    sourceType: official-reference-manual
+    secDecision: reference-only
+    targetOwner: target-compilation-domain
+    note: 借鉴严格 IR 语义、验证和未定义行为边界；LLVM IR 不成为 Engineering IR。
+
+  - id: SRC-002
+    family: compiler-ir
+    organization: LLVM Project
+    title: MLIR Rationale
+    url: https://mlir.llvm.org/docs/Rationale/Rationale/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: model-federation-kernel
+    note: 吸收多层 IR、可扩展 dialect 和 progressive lowering；拒绝万能 IR。
+
+  - id: SRC-003
+    family: compiler-ir
+    organization: LLVM Project
+    title: MLIR Defining Dialects
+    url: https://mlir.llvm.org/docs/DefiningDialects/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: provider-and-domain-protocol
+    note: 每个 domain/dialect 拥有 operation/type/attribute/verification，而非字符串属性包。
+
+  - id: SRC-004
+    family: compiler-ir
+    organization: LLVM Project
+    title: MLIR Interfaces
+    url: https://mlir.llvm.org/docs/Interfaces/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: provider-and-domain-protocol
+    note: 借鉴 operation/type interfaces 解耦算法和具体表示。
+
+  - id: SRC-005
+    family: compiler-ir
+    organization: LLVM Project
+    title: MLIR Operation Definition Specification
+    url: https://mlir.llvm.org/docs/DefiningDialects/Operations/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: contract-schema-kernel
+    note: 借鉴声明式 schema、生成 validator 和文档；规则仍由 SEC domain owner 定义。
+
+  - id: SRC-006
+    family: compiler-ir
+    organization: GNU Project
+    title: GCC GIMPLE Documentation
+    url: https://gcc.gnu.org/onlinedocs/gccint/GIMPLE.html
+    sourceType: official-reference-manual
+    secDecision: reference-only
+    targetOwner: behavior-ir-domain
+    note: 参考简化中间表示和 CFG/SSA 分层，不复制 GCC 私有模型。
+
+  - id: SRC-007
+    family: virtual-machine
+    organization: Oracle
+    title: Java Virtual Machine Specification
+    url: https://docs.oracle.com/javase/specs/jvms/se25/html/
+    sourceType: normative-standard
+    secDecision: reference-only
+    targetOwner: target-runtime-profile
+    note: 参考 class format、验证、链接和运行时类型边界。
+
+  - id: SRC-008
+    family: virtual-machine
+    organization: ECMA International
+    title: ECMA-335 Common Language Infrastructure
+    url: https://ecma-international.org/publications-and-standards/standards/ecma-335/
+    sourceType: normative-standard
+    secDecision: reference-only
+    targetOwner: target-runtime-profile
+    note: 参考 metadata、CIL、assembly 和 type system 分层。
+
+  - id: SRC-009
+    family: compiler-ir
+    organization: Rust Project
+    title: Rust MIR
+    url: https://rustc-dev-guide.rust-lang.org/mir/index.html
+    sourceType: official-project-design
+    secDecision: reference-only
+    targetOwner: behavior-ir-domain
+    note: 参考从高层语义降为适合流敏感检查的简化 IR。
+
+  - id: SRC-010
+    family: typed-bytecode
+    organization: W3C WebAssembly Community Group
+    title: WebAssembly Core Specification 3.0
+    url: https://webassembly.github.io/spec/core/
+    sourceType: normative-standard
+    secDecision: reference-only
+    targetOwner: target-program-ir-domain
+    note: 参考声明式验证、类型可靠性、抽象语法与多具体编码分离。
+
+  - id: SRC-011
+    family: typed-bytecode
+    organization: W3C WebAssembly Community Group
+    title: WebAssembly Validation Algorithm
+    url: https://webassembly.github.io/spec/core/appendix/algorithm.html
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: validator-generation-kernel
+    note: 参考规范约束与 sound/complete 可执行算法的双重表达。
+
+  - id: SRC-012
+    family: source-model
+    organization: Microsoft
+    title: Roslyn Workspaces
+    url: https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/work-with-workspace
+    sourceType: official-reference-manual
+    secDecision: adapt-mechanism
+    targetOwner: source-program-domain
+    note: 借鉴不可变 solution/project/document snapshots 与 forked edits。
+
+  - id: SRC-013
+    family: source-model
+    organization: Microsoft
+    title: Roslyn Syntax Transformation
+    url: https://learn.microsoft.com/dotnet/csharp/roslyn-sdk/get-started/syntax-transformation
+    sourceType: official-reference-manual
+    secDecision: adapt-mechanism
+    targetOwner: lossless-source-domain
+    note: 借鉴 full-fidelity immutable syntax 与 trivia preservation。
+
+  - id: SRC-014
+    family: source-model
+    organization: Tree-sitter Project
+    title: Tree-sitter Documentation
+    url: https://tree-sitter.github.io/tree-sitter/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: language-frontend-provider
+    note: 用作多语言增量容错 syntax Provider，不负责 symbol/type authority。
+
+  - id: SRC-015
+    family: source-transform
+    organization: OpenRewrite
+    title: Lossless Semantic Trees
+    url: https://docs.openrewrite.org/concepts-and-explanations/lossless-semantic-trees
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: governed-source-mutation
+    note: 借鉴全保真树、类型归因、格式保留与 recipe 可组合性。
+
+  - id: SRC-016
+    family: source-tooling
+    organization: LLVM Project
+    title: Clang LibTooling
+    url: https://clang.llvm.org/docs/LibTooling.html
+    sourceType: official-project-design
+    secDecision: reference-only
+    targetOwner: language-frontend-provider
+    note: 参考 compilation database 驱动的真实编译参数和 tooling 边界。
+
+  - id: SRC-017
+    family: tool-protocol
+    organization: Microsoft
+    title: Language Server Protocol Specification
+    url: https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: tool-transport-provider
+    note: 仅用于编辑器互操作；LSP workspace edit 不获得 SEC 写 authority。
+
+  - id: SRC-018
+    family: tool-protocol
+    organization: Build Server Protocol Project
+    title: Build Server Protocol
+    url: https://build-server-protocol.github.io/
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: toolchain-provider
+    note: 参考 IDE 与 build tool 的稳定协议分离。
+
+  - id: SRC-019
+    family: tool-protocol
+    organization: Microsoft
+    title: Debug Adapter Protocol
+    url: https://microsoft.github.io/debug-adapter-protocol/
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: runtime-observation-provider
+    note: 仅承载调试观察，不反向成为 canonical semantic source。
+
+  - id: SRC-020
+    family: static-analysis
+    organization: GitHub
+    title: CodeQL Database and Extraction Model
+    url: https://codeql.github.com/docs/codeql-overview/about-codeql/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: analysis-index-provider
+    note: 借鉴关系查询、可重建数据库和跨语言库；CodeQL DB 只是 Evidence/index。
+
+  - id: SRC-021
+    family: static-analysis
+    organization: GitHub
+    title: Creating Path Queries
+    url: https://codeql.github.com/docs/writing-codeql-queries/creating-path-queries/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: delta-impact-domain
+    note: 借鉴 path witness 与 source/sink 可解释路径。
+
+  - id: SRC-022
+    family: static-analysis
+    organization: INRIA
+    title: Abstract Interpretation Original Framework
+    url: https://www.di.ens.fr/~cousot/COUSOTpapers/POPL77.shtml
+    sourceType: original-peer-reviewed-paper
+    secDecision: adapt-mechanism
+    targetOwner: analysis-certainty-domain
+    note: 用 lattice/fixpoint/over-approximation 定义 possible 与 unknown，不把分析结果当 authority。
+
+  - id: SRC-023
+    family: static-analysis
+    organization: Souffle Project
+    title: Souffle Datalog
+    url: https://souffle-lang.github.io/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: analysis-query-engine
+    note: 可作为高性能关系计算 Provider；规则 registry 仍由 SEC 拥有。
+
+  - id: SRC-024
+    family: static-analysis
+    organization: University of Wisconsin
+    title: IFDS Interprocedural Dataflow Analysis
+    url: https://research.cs.wisc.edu/wpis/papers/popl95.pdf
+    sourceType: original-peer-reviewed-paper
+    secDecision: adapt-mechanism
+    targetOwner: source-analysis-provider
+    note: 借鉴可判定的跨过程 distributive dataflow 和 demand variants。
+
+  - id: SRC-025
+    family: incremental-computation
+    organization: Bazel Project
+    title: Skyframe
+    url: https://bazel.build/reference/skyframe
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: compiler-query-kernel
+    note: 借鉴 demand-driven nodes、依赖发现和 change pruning；不使用 Bazel target 作为语义节点。
+
+  - id: SRC-026
+    family: incremental-computation
+    organization: Meta
+    title: Buck2 DICE
+    url: https://buck2.build/docs/developers/dice/modern_dice/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: compiler-query-kernel
+    note: 参考增量查询、版本和并发计算。
+
+  - id: SRC-027
+    family: incremental-computation
+    organization: Salsa Project
+    title: Salsa Red-Green Algorithm
+    url: https://salsa-rs.github.io/salsa/reference/algorithm.html
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: compiler-query-kernel
+    note: 输出 fingerprint 未变时阻止下游无效重算。
+
+  - id: SRC-028
+    family: build-system
+    organization: Microsoft Research
+    title: Build Systems à la Carte
+    url: https://www.microsoft.com/en-us/research/publication/build-systems-la-carte/
+    sourceType: original-peer-reviewed-paper
+    secDecision: adapt-mechanism
+    targetOwner: build-semantics-domain
+    note: 用统一代数比较 scheduler、rebuilder 和 dependency model，但不把构建状态机并入 Compiler IR。
+
+  - id: SRC-029
+    family: build-system
+    organization: KU Leuven
+    title: Pluto Sound Incremental Building
+    url: https://pluto-build.github.io/
+    sourceType: original-peer-reviewed-paper
+    secDecision: adapt-mechanism
+    targetOwner: dependency-completeness-domain
+    note: 依赖动态发现必须持久化并保证 soundness。
+
+  - id: SRC-030
+    family: build-system
+    organization: NixOS Foundation
+    title: Nix Derivations and Store
+    url: https://nix.dev/manual/nix/latest/store/derivation/
+    sourceType: official-reference-manual
+    secDecision: adapt-mechanism
+    targetOwner: physical-cas-provider
+    note: 借鉴显式 derivation 输入和不可变 store；Nix hash 不替代 SEC domain revision。
+
+  - id: SRC-031
+    family: remote-execution
+    organization: Remote Execution API Project
+    title: Remote Execution API
+    url: https://github.com/bazelbuild/remote-apis
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: remote-execution-provider
+    note: CAS、Action、Command 和 result 作为物理执行协议；不成为 Gate authority。
+
+  - id: SRC-032
+    family: reproducible-builds
+    organization: Reproducible Builds Project
+    title: SOURCE_DATE_EPOCH Specification
+    url: https://reproducible-builds.org/specs/source-date-epoch/
+    sourceType: normative-standard
+    secDecision: adopt-mechanism
+    targetOwner: deterministic-artifact-domain
+    note: 明确时间输入；禁止 wall clock 污染 canonical bytes。
+
+  - id: SRC-033
+    family: compiler-correctness
+    organization: CompCert Project
+    title: The CompCert Verified Compiler
+    url: https://compcert.org/doc/
+    sourceType: official-project-design
+    secDecision: reference-only
+    targetOwner: compiler-correctness-domain
+    note: 证明 source/target semantic preservation 的最高保证参考；SEC 采用分层关键核形式化，不承诺全系统 Coq 化。
+
+  - id: SRC-034
+    family: compiler-correctness
+    organization: AliveToolkit
+    title: Alive2 Translation Validation
+    url: https://github.com/AliveToolkit/alive2
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: lowering-validation-domain
+    note: 对高风险 lowering/optimization 做逐次 refinement check，明确 unsupported 范围。
+
+  - id: SRC-035
+    family: program-rewriting
+    organization: egg Project
+    title: egg Fast and Extensible Equality Saturation
+    url: https://github.com/egraphs-good/egg
+    sourceType: original-peer-reviewed-paper
+    secDecision: defer-pending-evidence
+    targetOwner: optional-rewrite-provider
+    note: 适合局部等价重写、优化和 synthesis；不能用于发现业务 authority，需 proof/cost/budget 边界。
+
+  - id: SRC-036
+    family: program-rewriting
+    organization: egglog Project
+    title: Better Together Unifying Datalog and Equality Saturation
+    url: https://doi.org/10.1145/3591239
+    sourceType: original-peer-reviewed-paper
+    secDecision: reference-only
+    targetOwner: optional-rewrite-provider
+    note: 参考 lattice、fixpoint、term equality 和 relational analysis 融合。
+
+  - id: SRC-037
+    family: formal-methods
+    organization: TLA+ Project
+    title: TLA+ Home and Language
+    url: https://lamport.azurewebsites.net/tla/tla.html
+    sourceType: official-project-design
+    secDecision: adopt-mechanism
+    targetOwner: formal-protocol-verification
+    note: 用于 writer lease、publication、recovery、epoch、queue 的 safety/liveness 模型。
+
+  - id: SRC-038
+    family: formal-methods
+    organization: Apalache Project
+    title: Apalache Symbolic Model Checker
+    url: https://apalache-mc.org/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: formal-protocol-verification
+    note: 对有限范围 TLA+ 模型提供 SMT-based 检查。
+
+  - id: SRC-039
+    family: formal-methods
+    organization: MIT
+    title: Alloy Language and Analyzer
+    url: https://alloytools.org/
+    sourceType: official-project-design
+    secDecision: adopt-mechanism
+    targetOwner: structural-model-verification
+    note: 用 bounded counterexample 检查 ownership、identity、relation cycle 和 schema composition。
+
+  - id: SRC-040
+    family: state-machines
+    organization: W3C
+    title: SCXML 1.0
+    url: https://www.w3.org/TR/scxml/
+    sourceType: normative-standard
+    secDecision: reference-only
+    targetOwner: state-machine-domain
+    note: 参考层级状态、事件和执行语义；不以 XML 作为 SEC 内部格式。
+
+  - id: SRC-041
+    family: authorization
+    organization: Cedar Project
+    title: Cedar Policy Language
+    url: https://docs.cedarpolicy.com/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: authorization-policy-domain
+    note: principal/action/resource/context、default deny、forbid precedence；路径/Impact/Gate 仍由 SEC 派生。
+
+  - id: SRC-042
+    family: authorization
+    organization: Open Policy Agent
+    title: OPA and Rego
+    url: https://www.openpolicyagent.org/docs/latest/
+    sourceType: official-project-design
+    secDecision: interoperability-only
+    targetOwner: policy-provider
+    note: Policy decision 与 enforcement 分离；OPA bundle 不成为 Engineering IR authority。
+
+  - id: SRC-043
+    family: authorization
+    organization: USENIX / Google
+    title: Zanzibar Global Authorization System
+    url: https://www.usenix.org/conference/atc19/presentation/pang
+    sourceType: original-peer-reviewed-paper
+    secDecision: reference-only
+    targetOwner: relationship-authorization-provider
+    note: 参考 relationship tuples、consistency tokens 和大规模授权图，不是 MVP 前置。
+
+  - id: SRC-044
+    family: authorization
+    organization: Google Research
+    title: Macaroons Cookies with Contextual Caveats
+    url: https://research.google/pubs/macaroons-cookies-with-contextual-caveats-for-decentralized-authorization-in-the-cloud/
+    sourceType: original-peer-reviewed-paper
+    secDecision: reference-only
+    targetOwner: delegated-capability-provider
+    note: 参考 attenuation 和 caveat；不得代替 canonical authorization revision。
+
+  - id: SRC-045
+    family: effect-system
+    organization: Koka Project
+    title: Koka Effect Types and Handlers
+    url: https://koka-lang.github.io/koka/doc/book.html
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: effect-algebra-domain
+    note: 借鉴 effect rows、handler 和总函数/异常/非确定性区分；SEC Effect 是工程合同而非新语言运行时。
+
+  - id: SRC-046
+    family: ownership
+    organization: Rust Project
+    title: Rust References and Borrowing
+    url: https://doc.rust-lang.org/reference/types/pointer.html
+    sourceType: normative-standard
+    secDecision: reference-only
+    targetOwner: source-ownership-domain
+    note: 借鉴共享/独占、lifetime 和 aliasing 思维，不把 Rust borrow checker 泛化为工程 owner。
+
+  - id: SRC-047
+    family: capability-security
+    organization: WebAssembly WASI
+    title: Capabilities in WASI
+    url: https://github.com/WebAssembly/WASI/blob/main/docs/Capabilities.md
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: provider-capability-domain
+    note: 区分 link-time capability 和不可伪造 runtime handle。
+
+  - id: SRC-048
+    family: capability-security
+    organization: Linux Kernel
+    title: Landlock Unprivileged Access Control
+    url: https://docs.kernel.org/userspace-api/landlock.html
+    sourceType: official-reference-manual
+    secDecision: adapt-mechanism
+    targetOwner: linux-sandbox-provider
+    note: 环境支持时用于 filesystem/network/IPC attenuation；显式 ABI/errata 和缺失能力。
+
+  - id: SRC-049
+    family: capability-security
+    organization: Linux Kernel
+    title: Seccomp BPF
+    url: https://docs.kernel.org/userspace-api/seccomp_filter.html
+    sourceType: official-reference-manual
+    secDecision: adapt-mechanism
+    targetOwner: linux-sandbox-provider
+    note: 仅缩小 syscall surface，不误称完整 sandbox。
+
+  - id: SRC-050
+    family: transaction-recovery
+    organization: SQLite Project
+    title: Atomic Commit In SQLite
+    url: https://www.sqlite.org/atomiccommit.html
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: publication-recovery-domain
+    note: 借鉴 rollback journal/WAL、sector assumptions、hot journal 和 crash recovery。
+
+  - id: SRC-051
+    family: transaction-recovery
+    organization: IBM Research
+    title: ARIES Recovery Algorithm
+    url: https://research.ibm.com/publications/aries-a-transaction-recovery-method-supporting-fine-granularity-locking-and-partial-rollbacks-using-write-ahead-logging
+    sourceType: original-peer-reviewed-paper
+    secDecision: adapt-mechanism
+    targetOwner: publication-recovery-domain
+    note: 借鉴 WAL、LSN、redo/undo、compensation log records；按文件系统事务简化。
+
+  - id: SRC-052
+    family: transaction-recovery
+    organization: PostgreSQL Global Development Group
+    title: Write-Ahead Logging
+    url: https://www.postgresql.org/docs/current/wal-intro.html
+    sourceType: official-reference-manual
+    secDecision: adapt-mechanism
+    targetOwner: publication-recovery-domain
+    note: 数据先有 durable log，后有 data publication；目录/fsync 能力必须显式。
+
+  - id: SRC-053
+    family: durable-workflow
+    organization: Microsoft
+    title: Durable Functions Orchestrator Code Constraints
+    url: https://learn.microsoft.com/azure/azure-functions/durable/durable-functions-code-constraints
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: development-run-kernel
+    note: 历史 replay 要求确定性；外部 I/O 进入 activities；版本化长任务需显式策略。
+
+  - id: SRC-054
+    family: distributed-consistency
+    organization: Raft Project
+    title: In Search of an Understandable Consensus Algorithm
+    url: https://raft.github.io/
+    sourceType: original-peer-reviewed-paper
+    secDecision: reference-only
+    targetOwner: future-distributed-control-plane
+    note: 单机/本地 SEC MVP 不需要共识；未来远程多节点 authority 才评估。
+
+  - id: SRC-055
+    family: distributed-consistency
+    organization: ACM
+    title: Linearizability A Correctness Condition for Concurrent Objects
+    url: https://doi.org/10.1145/78969.78972
+    sourceType: original-peer-reviewed-paper
+    secDecision: adapt-mechanism
+    targetOwner: workspace-writer-contract
+    note: 用于定义单 writer operations 的可观察原子点和并发历史，而非实现分布式数据库。
+
+  - id: SRC-056
+    family: distributed-consistency
+    organization: INRIA
+    title: Conflict-free Replicated Data Types
+    url: https://hal.inria.fr/inria-00609399/document
+    sourceType: original-peer-reviewed-paper
+    secDecision: reject-as-authority
+    targetOwner: collaborative-projection-provider
+    note: CRDT 可用于 UI annotations/协作草稿；canonical mutation 与 source authority 不做自动无冲突合并。
+
+  - id: SRC-057
+    family: testing
+    organization: Chalmers University
+    title: QuickCheck A Lightweight Tool for Random Testing
+    url: https://www.cse.chalmers.se/~rjmh/QuickCheck/manual.html
+    sourceType: original-peer-reviewed-paper
+    secDecision: adopt-mechanism
+    targetOwner: property-testing-domain
+    note: identity、normalization、state machine、round-trip 和 monotonicity 使用生成/缩减反例。
+
+  - id: SRC-058
+    family: testing
+    organization: LLVM Project
+    title: libFuzzer
+    url: https://llvm.org/docs/LibFuzzer.html
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: fuzz-testing-provider
+    note: 用覆盖引导 fuzz parser/validator/decoder；保存最小 corpus 和 producer revision。
+
+  - id: SRC-059
+    family: testing
+    organization: Google
+    title: OSS-Fuzz
+    url: https://google.github.io/oss-fuzz/
+    sourceType: official-project-design
+    secDecision: reference-only
+    targetOwner: continuous-fuzzing-provider
+    note: 参考持续 fuzz、崩溃去重、回归 corpus 和 sanitizer 组合。
+
+  - id: SRC-060
+    family: testing
+    organization: LLVM Project
+    title: ThreadSanitizer
+    url: https://clang.llvm.org/docs/ThreadSanitizer.html
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: concurrency-test-provider
+    note: native helper/并发 writer 代码进入时使用；不覆盖逻辑 race 模型。
+
+  - id: SRC-061
+    family: testing
+    organization: PIT Project
+    title: PIT Mutation Testing
+    url: https://pitest.org/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: test-quality-domain
+    note: 只校准高价值 validator/authorization/fail-closed/selector，不进入普通编辑循环。
+
+  - id: SRC-062
+    family: web
+    organization: WHATWG
+    title: HTML Living Standard
+    url: https://html.spec.whatwg.org/
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: html-source-provider
+    note: HTML tokenizer/tree builder、custom elements 和 parsing error recovery 以标准为准。
+
+  - id: SRC-063
+    family: web
+    organization: WHATWG
+    title: DOM Standard
+    url: https://dom.spec.whatwg.org/
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: dom-observation-domain
+    note: DOM 是运行时对象模型，不与 source template tree 混合。
+
+  - id: SRC-064
+    family: web
+    organization: W3C CSS Working Group
+    title: CSS Object Model
+    url: https://www.w3.org/TR/cssom-1/
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: css-source-and-runtime-provider
+    note: CSSOM 与 source CSS、computed style、layout Evidence 分域。
+
+  - id: SRC-065
+    family: web
+    organization: W3C CSS Working Group
+    title: CSS Cascading and Inheritance Level 5
+    url: https://www.w3.org/TR/css-cascade-5/
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: style-semantics-domain
+    note: specificity、origin、layer、scope、order 不能按 key-value 配置处理。
+
+  - id: SRC-066
+    family: accessibility
+    organization: W3C
+    title: Web Content Accessibility Guidelines 2.2
+    url: https://www.w3.org/TR/WCAG22/
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: accessibility-contract-provider
+    note: 用户可观察 Acceptance 与 policy 输入；不把 WCAG prose 自动转换成全部 canonical facts。
+
+  - id: SRC-067
+    family: accessibility
+    organization: W3C
+    title: WAI-ARIA 1.2
+    url: https://www.w3.org/TR/wai-aria-1.2/
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: accessibility-source-provider
+    note: role/state/property binding 与 DOM/source ownership 显式关联。
+
+  - id: SRC-068
+    family: accessibility
+    organization: W3C
+    title: Accessible Name and Description Computation
+    url: https://www.w3.org/TR/accname-1.2/
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: accessibility-runtime-provider
+    note: 可访问名称是算法派生/浏览器 Evidence，不等于 attribute 文本。
+
+  - id: SRC-069
+    family: component-abi
+    organization: W3C WebAssembly Community Group
+    title: WebAssembly Component Model
+    url: https://github.com/WebAssembly/component-model
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: provider-port-abi
+    note: 借鉴 WIT world/import/export/resource/canonical ABI；Wasm 不成为 Block authority。
+
+  - id: SRC-070
+    family: capability-runtime
+    organization: WASI Project
+    title: WASI Preview 2
+    url: https://github.com/WebAssembly/WASI
+    sourceType: official-project-design
+    secDecision: interoperability-only
+    targetOwner: sandboxed-provider-runtime
+    note: 可用于可选跨语言 Provider sandbox；支持矩阵和能力必须物理验证。
+
+  - id: SRC-071
+    family: configuration
+    organization: CUE Project
+    title: CUE Language Specification
+    url: https://cuelang.org/docs/reference/spec/
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: constraint-configuration-domain
+    note: 借鉴 order-independent constraint unification、lattice 和 incomplete values；不替代 Semantic Contract。
+
+  - id: SRC-072
+    family: reconciliation
+    organization: Kubernetes Project
+    title: API Conditions
+    url: https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: condition-and-support-state-domain
+    note: type/status/reason/message/observedGeneration，防止旧观察附着到新 revision。
+
+  - id: SRC-073
+    family: reconciliation
+    organization: HashiCorp
+    title: Terraform Plan and Apply
+    url: https://developer.hashicorp.com/terraform/cli/run
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: semantic-mutation-domain
+    note: plan/apply 分离、state lock、refresh 思维；Terraform state 不成为 SEC canonical truth。
+
+  - id: SRC-074
+    family: schema
+    organization: JSON Schema Project
+    title: JSON Schema Core and Validation
+    url: https://json-schema.org/draft/2020-12/json-schema-core
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: schema-interop-provider
+    note: shape validation 与 annotation/default 分离；复杂跨对象语义仍由 typed validator。
+
+  - id: SRC-075
+    family: architecture-description
+    organization: ISO IEC IEEE
+    title: ISO IEC IEEE 42010 2022
+    url: https://www.iso.org/standard/74393.html
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: architecture-projection-domain
+    note: stakeholder/concern/viewpoint/view 分离；Architecture Description 是 projection，不是系统事实本体。
+
+  - id: SRC-076
+    family: systems-modeling
+    organization: Object Management Group
+    title: SysML Version 2
+    url: https://www.omg.org/sysml/sysmlv2/
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: model-import-export-provider
+    note: 未来交换 requirements/structure/behavior；不复制 SysML metamodel 为 SEC Core。
+
+  - id: SRC-077
+    family: graph-validation
+    organization: W3C
+    title: Shapes Constraint Language SHACL
+    url: https://www.w3.org/TR/shacl/
+    sourceType: normative-standard
+    secDecision: reference-only
+    targetOwner: semantic-graph-validator
+    note: 参考 node/property shapes 和 validation reports；SEC 使用强类型 predicate registry。
+
+  - id: SRC-078
+    family: provenance
+    organization: SLSA
+    title: SLSA Provenance v1.2
+    url: https://slsa.dev/spec/v1.2/provenance
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: artifact-provenance-domain
+    note: 导出 builder/materials/subject；provenance 不证明业务正确性。
+
+  - id: SRC-079
+    family: provenance
+    organization: in-toto Project
+    title: in-toto Specification
+    url: https://github.com/in-toto/docs/blob/master/in-toto-spec.md
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: supply-chain-policy-domain
+    note: layout/link/functionary/material/product 作为 release supply-chain Evidence。
+
+  - id: SRC-080
+    family: provenance
+    organization: W3C
+    title: PROV-O
+    url: https://www.w3.org/TR/prov-o/
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: provenance-export-provider
+    note: Entity/Activity/Agent 仅作交换映射；SEC 保留多类 typed provenance。
+
+  - id: SRC-081
+    family: transparency-log
+    organization: Sigstore
+    title: Rekor Transparency Log
+    url: https://docs.sigstore.dev/logging/overview/
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: registry-transparency-provider
+    note: 公开 Registry/Release 阶段用于 append-only inclusion Evidence，不替代 trust policy。
+
+  - id: SRC-082
+    family: secure-update
+    organization: TUF Project
+    title: The Update Framework Specification
+    url: https://theupdateframework.github.io/specification/latest/
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: registry-update-security-domain
+    note: root/targets/snapshot/timestamp roles、threshold signatures、rollback/freeze protection。
+
+  - id: SRC-083
+    family: artifact-distribution
+    organization: Open Container Initiative
+    title: OCI Image and Distribution Specifications
+    url: https://opencontainers.org/release-notices/overview/
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: artifact-distribution-provider
+    note: content-addressed artifacts、manifests、indexes、referrers；不定义 Block semantics。
+
+  - id: SRC-084
+    family: sbom
+    organization: SPDX Project
+    title: SPDX 3.0
+    url: https://spdx.github.io/spdx-spec/v3.0/
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: sbom-export-provider
+    note: package/file/license/relationship 导出；内部 dependency truth 不迁移到 SPDX。
+
+  - id: SRC-085
+    family: sbom
+    organization: CycloneDX Project
+    title: CycloneDX 1.7
+    url: https://cyclonedx.org/specification/overview/
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: sbom-export-provider
+    note: BOM、services、vulnerabilities、compositions 和 BOM-Link 用于交付互操作。
+
+  - id: SRC-086
+    family: serialization
+    organization: Protocol Buffers Project
+    title: Protobuf Updating a Message Type
+    url: https://protobuf.dev/programming-guides/proto3/#updating
+    sourceType: official-reference-manual
+    secDecision: adapt-mechanism
+    targetOwner: compatibility-algebra-domain
+    note: field number identity、wire-safe/unsafe changes 和 unknown fields；protobuf bytes 本身非 canonical。
+
+  - id: SRC-087
+    family: api-contract
+    organization: OpenAPI Initiative
+    title: OpenAPI Specification 3.2
+    url: https://spec.openapis.org/oas/v3.2.0.html
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: http-api-contract-provider
+    note: 导入/导出 endpoint schema；OpenAPI 不能表达完整状态、Effect、事务和权限语义。
+
+  - id: SRC-088
+    family: event-contract
+    organization: CNCF CloudEvents
+    title: CloudEvents Specification
+    url: https://github.com/cloudevents/spec
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: event-envelope-provider
+    note: 统一事件元数据和传输映射；事件业务合同由 SEC Contract 拥有。
+
+  - id: SRC-089
+    family: event-contract
+    organization: AsyncAPI Initiative
+    title: AsyncAPI Specification 3.1
+    url: https://www.asyncapi.com/docs/reference/specification/v3.0.0
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: messaging-contract-provider
+    note: 导入/导出 channel/operation/message/binding；不成为运行时 truth。
+
+  - id: SRC-090
+    family: observability
+    organization: OpenTelemetry
+    title: OpenTelemetry Semantic Conventions
+    url: https://opentelemetry.io/docs/specs/semconv/
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: runtime-observation-provider
+    note: traces/metrics/logs 使用稳定语义属性；telemetry 仍是 observed Evidence。
+
+  - id: SRC-091
+    family: lineage
+    organization: OpenLineage
+    title: OpenLineage Specification
+    url: https://github.com/OpenLineage/OpenLineage/blob/main/spec/OpenLineage.md
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: operational-lineage-provider
+    note: Job/Run/Dataset/Facet 可映射数据流水 Evidence，不替代 Engineering Fact Provenance。
+
+  - id: SRC-092
+    family: package-resolution
+    organization: Dart Project
+    title: PubGrub Version Solving
+    url: https://github.com/dart-lang/pub/blob/master/doc/solver.md
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: registry-resolution-domain
+    note: incompatibility derivation、conflict resolution 和可解释失败适合 Block resolver。
+
+  - id: SRC-093
+    family: package-resolution
+    organization: Rust Project
+    title: Cargo Dependency Resolution
+    url: https://doc.rust-lang.org/cargo/reference/resolver.html
+    sourceType: official-reference-manual
+    secDecision: reference-only
+    targetOwner: registry-resolution-domain
+    note: 参考 version unification、duplicate-version hazards、lockfile 与 MSRV constraints。
+
+  - id: SRC-094
+    family: package-surface
+    organization: Node.js Project
+    title: Node Package Exports and Imports
+    url: https://nodejs.org/api/packages.html
+    sourceType: official-reference-manual
+    secDecision: adapt-mechanism
+    targetOwner: package-public-surface-domain
+    note: exports/imports/conditions 明确公共面；加入 exports 可能是 breaking change。
+
+  - id: SRC-095
+    family: versioning
+    organization: Semantic Versioning Project
+    title: Semantic Versioning 2.0.0
+    url: https://semver.org/
+    sourceType: normative-standard
+    secDecision: reference-only
+    targetOwner: compatibility-algebra-domain
+    note: 版本号只是发布信号；SEC 必须从 Contract/consumer/behavior Evidence 计算真实兼容方向。
+
+  - id: SRC-096
+    family: ai-governance
+    organization: NIST
+    title: AI Risk Management Framework 1.0
+    url: https://www.nist.gov/itl/ai-risk-management-framework
+    sourceType: normative-standard
+    secDecision: reference-only
+    targetOwner: ai-governance-domain
+    note: Govern/Map/Measure/Manage 用于组织风险投影，不替代 typed authorization。
+
+  - id: SRC-097
+    family: ai-tool-protocol
+    organization: Model Context Protocol
+    title: MCP Specification 2025-06-18
+    url: https://modelcontextprotocol.io/specification/2025-06-18
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: ai-tool-transport-provider
+    note: MCP 是 transport/discovery/auth integration；每个 tool 必须被 SEC typed operation 包装。
+
+  - id: SRC-098
+    family: secure-development
+    organization: NIST
+    title: Secure Software Development Framework 1.1
+    url: https://csrc.nist.gov/pubs/sp/800/218/final
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: secure-development-governance
+    note: 对安全要求、设计决策、provenance、开发环境和漏洞根因建立可审计结果。
+
+  - id: SRC-099
+    family: architecture-description
+    organization: OpenTelemetry
+    title: API SDK Separation
+    url: https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/overview.md
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: public-api-provider-separation
+    note: instrumentation 依赖稳定 API，不直接依赖 SDK 实现；对应 SEC Core/Provider 分离。
+
+  - id: SRC-100
+    family: component-runtime
+    organization: WASI.dev
+    title: WASI Capability-based Sandbox Introduction
+    url: https://wasi.dev/
+    sourceType: official-project-design
+    secDecision: reference-only
+    targetOwner: sandboxed-provider-runtime
+    note: 组件默认无 ambient authority；仅被 host 显式授予能力。
+
+  - id: SRC-101
+    family: declarative-validation
+    organization: W3C WebAssembly Community Group
+    title: WebAssembly Declarative Validation Rules
+    url: https://webassembly.github.io/spec/core/valid/conventions.html
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: contract-schema-kernel
+    note: 稳定规范声明约束，可执行 validator 证明 sound/complete 对应关系。
+
+  - id: SRC-102
+    family: jit-and-materialization
+    organization: LLVM Project
+    title: ORC JIT Design and Implementation
+    url: https://llvm.org/docs/ORCv2.html
+    sourceType: official-project-design
+    secDecision: reference-only
+    targetOwner: future-live-materialization-provider
+    note: 借鉴 MaterializationUnit/Responsibility、lazy lookup、dependency tracking 和 resource removal。
+
+  - id: SRC-103
+    family: conditions
+    organization: Kubernetes Project
+    title: Standardized Conditions KEP
+    url: https://github.com/kubernetes/enhancements/tree/master/keps/sig-api-machinery/1623-standardize-conditions
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: condition-and-support-state-domain
+    note: 状态观察必须绑定 generation、稳定 reason 和 transition time。
+
+  - id: SRC-104
+    family: transparency-and-trust
+    organization: Sigstore
+    title: Sigstore Security Model
+    url: https://docs.sigstore.dev/about/security/
+    sourceType: official-project-design
+    secDecision: reference-only
+    targetOwner: registry-trust-domain
+    note: identity、short-lived signing、transparency 和 threat assumptions 必须显式。
+
+  - id: SRC-105
+    family: artifact-identity
+    organization: OCI
+    title: OCI Image Specification
+    url: https://github.com/opencontainers/image-spec
+    sourceType: normative-standard
+    secDecision: interoperability-only
+    targetOwner: artifact-distribution-provider
+    note: descriptor digest/mediaType/platform index 作为发布 envelope，不成为语义 artifact identity。
+
+  - id: SRC-106
+    family: verification-evidence
+    organization: SLSA
+    title: SLSA Build Track
+    url: https://slsa.dev/spec/v1.2/build-requirements
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: trusted-build-evidence-domain
+    note: build platform isolation、provenance generation 和 verification controls 分层。
+
+  - id: SRC-107
+    family: testing
+    organization: Google
+    title: AddressSanitizer
+    url: https://clang.llvm.org/docs/AddressSanitizer.html
+    sourceType: official-project-design
+    secDecision: adapt-mechanism
+    targetOwner: native-memory-test-provider
+    note: native adapters/Provider 出现后检查越界、use-after-free 等物理缺陷。
+
+  - id: SRC-108
+    family: configuration
+    organization: HashiCorp
+    title: Terraform State Purpose
+    url: https://developer.hashicorp.com/terraform/language/state/purpose
+    sourceType: official-project-design
+    secDecision: reject-as-authority
+    targetOwner: observed-state-projection
+    note: state 可做 remote-object mapping/performance cache，但不能反向成为 desired/canonical intent。
+
+  - id: SRC-109
+    family: documentation-architecture
+    organization: ISO IEC IEEE
+    title: Architecture Description Concepts
+    url: https://www.iso-architecture.org/ieee-1471/
+    sourceType: normative-standard
+    secDecision: adapt-mechanism
+    targetOwner: architecture-projection-domain
+    note: concern/viewpoint/view/rationale 分开，避免一张全局图满足所有读者。
+
+  - id: SRC-110
+    family: supply-chain
+    organization: OpenSSF
+    title: OpenSSF Scorecard
+    url: https://openssf.org/projects/scorecard/
+    sourceType: official-project-design
+    secDecision: reference-only
+    targetOwner: external-provider-risk-evidence
+    note: 可提供生态风险 Evidence；评分不能直接批准 Provider/Block。
+
+coverageSummary:
+  sourceCount: 110
+  familiesCovered:
+    - compiler-ir
+    - source-model
+    - source-transform
+    - static-analysis
+    - incremental-computation
+    - build-system
+    - compiler-correctness
+    - formal-methods
+    - authorization
+    - effects-and-ownership
+    - capability-security
+    - transaction-recovery
+    - durable-workflow
+    - distributed-consistency
+    - testing
+    - web-and-accessibility
+    - component-abi
+    - configuration-and-reconciliation
+    - architecture-and-graph-validation
+    - provenance-and-supply-chain
+    - serialization-and-api-contracts
+    - eventing-and-observability
+    - package-resolution-and-versioning
+    - ai-governance-and-tool-protocols
+  caveat: >-
+    110 项并不代表穷尽全球所有资料；它形成可复核的一手资料基线。
+    新来源必须给出它改变哪一项设计、为何现有来源不足，而不是仅增加引用数量。
