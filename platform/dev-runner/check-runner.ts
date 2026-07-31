@@ -1,6 +1,7 @@
 import path from 'node:path';
 
 import { CodexDevelopmentIsActiveDocumentationPathV1 } from '../shared/active-documentation-contract.ts';
+import { isAffectedSelectionFailClosed } from '../shared/affected-test-inventory.ts';
 import {
   type AffectedTestPlanV1,
   type ResolvedAffectedTestExecutionV1,
@@ -63,13 +64,24 @@ export function buildLocalAffectedCheckPlan(
     && changedPaths.every(CodexDevelopmentIsActiveDocumentationPathV1);
   const typescriptChanged = hasTypeScriptInput(changedPaths);
   const typecheckRequired = typescriptChanged || hasTypecheckAuthorityInput(changedPaths);
+  // Issue #206: include test:affected gate whenever fast tests are selected OR
+  // the selection trust boundary is fail-closed (but only when ownership is
+  // resolved — when ownership itself is unresolved, plan.resolved is false and
+  // runLocalAffectedCheck short-circuits before executing any gate, so we keep
+  // gates empty to match the "no invented broad fallback" contract).
+  // Previously, an empty selectedFastTests silently skipped test:affected even
+  // when the empty closure was caused by an unresolved selection — a
+  // false-green. Now the gate runs and fails closed via runAffectedTestPlan.
+  const failClosed = affectedPlan.resolved
+    && isAffectedSelectionFailClosed(affectedPlan.selectionTrustBoundary);
+  const testAffectedRequired = affectedPlan.selectedFastTests.length > 0 || failClosed;
   const gates = activeDocsOnly
     ? [gate('docs:doctor')]
     : [
       ...(typescriptChanged ? [gate('imports:prepare')] : []),
       ...(typecheckRequired ? [gate('typecheck')] : []),
       ...(activeDocsChanged ? [gate('docs:doctor')] : []),
-      ...(affectedPlan.selectedFastTests.length > 0 ? [gate('test:affected')] : [])
+      ...(testAffectedRequired ? [gate('test:affected')] : [])
     ];
 
   return {
