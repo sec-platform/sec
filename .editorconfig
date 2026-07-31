@@ -1,0 +1,28 @@
+# SEC Editor / Formatter Projection (Issue #209 Phase A)
+# Mirrors .gitattributes: governed text is canonical LF with final newline.
+# Editors and formatters read this to avoid producing CRLF materialization.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.{ts,tsx,js,mjs,cjs,jsx,json,jsonc,yaml,yml}]
+indent_size = 2
+
+[*.{md,markdown}]
+trim_trailing_whitespace = false
+
+[*.html]
+indent_size = 2
+
+[*.{toml,prisma}]
+indent_size = 2
+
+[Makefile]
+indent_style = tab

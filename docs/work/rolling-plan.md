@@ -26,13 +26,18 @@ Active Documentation Corpus
 
 ## 当前唯一 Work Package
 
-### work-readme-conditional-state-clarification-v1
+### canonical-text-bytes-phase-a-v1
 
-- 文档收口包；base `main@28b62b7`；归档已合并的 `exact-default-base-identity-v1` manifest，激活新 pointer，并在 `docs/work/README.md` 中明确 conditional manifest state 与 trusted exact base 语义。
-- 工程目标：归档 `exact-default-base-identity-v1.md` 到 `docs/archive/work-packages/`；更新 pointer 指向新 manifest；更新 rolling-plan；澄清 `docs/work/README.md` 中 conditional 状态语义。
-- 退出：控制面无 drift；`docs:doctor` 0 error；hosted verification 对非 trust-root PR 真实通过。
+- 根治 CRLF/LF 工作树物化漂移 Phase A；base `main@80b7fb9`；建立 Canonical Text Byte Contract 与 Line-Ending Environment settlement：`.gitattributes` 唯一 policy、`.editorconfig` + prettier LF 投影、text-byte-census 工具、worktree-settlement 非破坏性 preflight、一次性 renormalize 迁移。
+- 工程目标：闭合 attributes、editor/formatter、census、preflight 整个因果链；Git blob identity 与工作树物化解耦；环境未 settled 时 fail-closed，不靠"先 organize 再 retry"。
+- 退出：`.gitattributes` 覆盖所有 SEC 自有文本分类；census 工具检测 CRLF/mixed/BOM/NUL/unknown 并 fail-closed；settlement preflight 输出 receipt 且不破坏 dirty 工作树；迁移语义 diff 为零；`docs:doctor` 0 error；`test:fast` 全绿；hosted verification 真实通过（非 trust-root PR）。
 
 ## 已完成 Work Package
+
+### work-readme-conditional-state-clarification-v1 (PR #214)
+
+- 已合并至 `main@80b7fb9`；manifest 已归档至 `docs/archive/work-packages/`。
+- 工程结果：归档 `exact-default-base-identity-v1` manifest，激活新 pointer，并在 `docs/work/README.md` 中明确 conditional manifest state 与 trusted exact base 语义；首个 hosted verification 真实通过（quick profile SUCCESS），证明 PR #213 trust-root 修复生效。
 
 ### exact-default-base-identity-v1 (PR #213)
 
