@@ -26,13 +26,18 @@ Active Documentation Corpus
 
 ## 当前唯一 Work Package
 
-### exact-default-base-identity-v1
+### work-readme-conditional-state-clarification-v1
 
-- Trust-root 修复包；base `main@ea41e26`；修复 shallow CI 中 `refs/remotes/origin/main` 缺失导致 repository audit 阻断所有 hosted verification 的根因。
-- 工程目标：为 repository audit 建立显式 `--default-ref <exact-commit-or-ref>` 输入合同；hosted 路径传入 trusted exact base SHA（复用 `SEC_CHANGED_BASE`）；local 路径使用 live `refs/remotes/origin/main`；不恢复无凭据 fetch，不设 `persist-credentials: true`；错误/stale/unsupported shape 有结构化结果。
-- 退出：shallow hosted checkout 不依赖 remote-tracking ref 存在；repository audit 使用 trusted exact base 并保留 fail-closed；后续普通 PR 的 hosted verification 真实通过；`persist-credentials: false` 不变。
+- 文档收口包；base `main@28b62b7`；归档已合并的 `exact-default-base-identity-v1` manifest，激活新 pointer，并在 `docs/work/README.md` 中明确 conditional manifest state 与 trusted exact base 语义。
+- 工程目标：归档 `exact-default-base-identity-v1.md` 到 `docs/archive/work-packages/`；更新 pointer 指向新 manifest；更新 rolling-plan；澄清 `docs/work/README.md` 中 conditional 状态语义。
+- 退出：控制面无 drift；`docs:doctor` 0 error；hosted verification 对非 trust-root PR 真实通过。
 
 ## 已完成 Work Package
+
+### exact-default-base-identity-v1 (PR #213)
+
+- 已合并至 `main@28b62b7`；manifest 已归档至 `docs/archive/work-packages/`。
+- 工程结果：Issue #212 — 为 repository audit 建立显式 `--default-ref <exact-commit-or-ref>` 输入合同；hosted 路径传入 trusted exact base SHA（复用 `SEC_CHANGED_BASE`）；local 路径使用 live `refs/remotes/origin/main`；不恢复无凭据 fetch；`persist-credentials: false` 不变；6 个回归测试覆盖所有关键场景。
 
 ### verification-result-claim-migration-v1 (PR #211)
 
