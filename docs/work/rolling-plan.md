@@ -2,12 +2,12 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-07-30
+last-reviewed: 2026-07-31
 ---
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@ea41e264f5448f2005dd141514bcd6f7e546c1cd`、已合并 PR #196（active documentation corpus）、PR #199（test runtime performance）、PR #200（parallel work package contract）、PR #201（CI speed optimization）、PR #202（dev-loop-speed-v1）、PR #203（dev-loop-speed-v2）、PR #204（verification-result-core-v1）、PR #210（ci-verification-flow-fix-v1）、PR #211（verification-result-claim-migration-v1）、已关闭 Issue #173、开放 Issues #167/#175–#194/#205–#212、Review/CI 与 exact tree 重新计算。
+本窗口从 live resolver 已确认的 `main@597b42fedeb4ee0994b4c56c48f378562766d28b`、已合并 PR #196（active documentation corpus）、PR #199（test runtime performance）、PR #200（parallel work package contract）、PR #201（CI speed optimization）、PR #202（dev-loop-speed-v1）、PR #203（dev-loop-speed-v2）、PR #204（verification-result-core-v1）、PR #210（ci-verification-flow-fix-v1）、PR #211（verification-result-claim-migration-v1）、PR #213（exact-default-base-identity-v1）、PR #214（work-readme-conditional-state-clarification-v1）、PR #218（canonical-text-bytes-phase-a-v1）、已关闭 Issue #173、开放 Issues #167/#175–#194/#205–#212/#216/#217、Review/CI 与 exact tree 重新计算。
 
 Active documentation corpus、test runtime performance、parallel work package contract、CI speed optimization、dev-loop-speed-v1、dev-loop-speed-v2、verification-result-core-v1、ci-verification-flow-fix-v1 与 verification-result-claim-migration-v1 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`；CI 缓存、merge bootstrap CLI 与 gate API 已优化；check:fast gate 并行化、docs:doctor 增量模式、preload marker 门控、动态并发与 bounded-parallel 队列已落地；冷启动 stamp 短路、测试基础设施硬链接克隆与跨进程 test-impact 缓存、编译器管线共享 ts-morph Project 与并行 I/O、affected-tests reverse-import-map 已落地；sec-merge-bootstrap squash 已修复 single-parent invariant；统一验证结果模型 5 态/3 disposition/4 applicability/17 reasonCode/claim-based aggregate 已建立；CI PR validation 冗余 `git fetch` 已移除；`commandAll` 自动 squash 在 attestation/verification dispatch 之前执行；产品 verification summary 已迁移至 claim-based aggregation，`skipped` 不再静默产生 `passed`。
 
@@ -26,13 +26,20 @@ Active Documentation Corpus
 
 ## 当前唯一 Work Package
 
-### canonical-text-bytes-phase-a-v1
+### affected-selection-trust-boundary-v1
 
-- 根治 CRLF/LF 工作树物化漂移 Phase A；base `main@80b7fb9`；建立 Canonical Text Byte Contract 与 Line-Ending Environment settlement：`.gitattributes` 唯一 policy、`.editorconfig` + prettier LF 投影、text-byte-census 工具、worktree-settlement 非破坏性 preflight、一次性 renormalize 迁移。
-- 工程目标：闭合 attributes、editor/formatter、census、preflight 整个因果链；Git blob identity 与工作树物化解耦；环境未 settled 时 fail-closed，不靠"先 organize 再 retry"。
-- 退出：`.gitattributes` 覆盖所有 SEC 自有文本分类；census 工具检测 CRLF/mixed/BOM/NUL/unknown 并 fail-closed；settlement preflight 输出 receipt 且不破坏 dirty 工作树；迁移语义 diff 为零；`docs:doctor` 0 error；`test:fast` 全绿；hosted verification 真实通过（非 trust-root PR）。
+- 根除 affected-selection 空选择假绿与陈旧 Test Impact 缓存（Issue #206）；base `main@597b42f`。
+- 工程目标：`sourceChanged=true && selectedFastTests=[] && fallback off` 不再返回 exit 0，投影为 `invalidated/selection-unresolved`；持久 cache 以 `(testFile, sourceDigest)` + envelope（schema/parser/contract revision）为身份，corrupt/unknown-schema 拒绝重建；read/stat 失败 → unresolved 信号（不减少闭包）；常驻进程可失效反向图；cache on/off 选择 byte-equivalent。
+- 退出：affected plan/execution 投影统一 VerificationGateResultV1；10 条必须回归全绿；`docs:doctor` 0 error；`test:fast` 全绿；不修改 verification-result-contract.ts core、CI workflow、package/lock。
 
 ## 已完成 Work Package
+
+### canonical-text-bytes-phase-a-v1 (PR #218)
+
+- 已合并至 `main@597b42f`；manifest 已归档至 `docs/archive/work-packages/`。
+- 工程结果：Issue #209 Phase A — 建立 Canonical Text Byte Contract 与 Line-Ending environment settlement：`.gitattributes` 唯一 policy 覆盖 SEC 自有文本（scripts/ts/js/json/yaml/md/workflow/config = text eol=lf）与二进制（image/font/archive/database = -text）；`.editorconfig` + `.prettierrc.json` 投影 LF；text-byte-census 工具按 .gitattributes 分类（canonical-lf/explicit-crlf/binary/preserve-external/unknown）并检测 CRLF/mixed/BOM/NUL/unknown-encoding，unknown fail-closed；worktree-settlement 非破坏性 preflight 输出 receipt，支持 `--fix` 重物化 governed text；CLI 注册 `sec text census` 与 `sec environment settle`；32 + 14 个测试覆盖。
+
+
 
 ### work-readme-conditional-state-clarification-v1 (PR #214)
 
