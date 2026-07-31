@@ -6,6 +6,11 @@ import {
   type LocalAffectedGateId
 } from '../../platform/dev-runner/check-runner.ts';
 import type { AffectedTestPlanV1 } from '../../platform/dev-runner/test-runner.ts';
+import {
+  classifyAffectedSelectionTrustBoundary,
+  defaultAffectedSelectionProjectionContext,
+  projectAffectedSelectionToVerificationGateResult
+} from '../../platform/shared/affected-test-inventory.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
 
 function affectedPlan(
@@ -13,6 +18,17 @@ function affectedPlan(
   selectedFastTests: string[] = [],
   resolved = true
 ): AffectedTestPlanV1 {
+  const sourceChanged = changedPaths.some((file) => !file.endsWith('.md'));
+  const ownershipResolved = resolved;
+  const boundary = classifyAffectedSelectionTrustBoundary({
+    gitDiscoveryFailed: false,
+    ownershipResolved,
+    sourceChanged,
+    selectionResolved: true,
+    unresolvedTestFiles: [],
+    selectedFastTestCount: selectedFastTests.length,
+    broadFallbackEnabled: false
+  });
   return {
     schema: 'sec-affected-test-plan-v1',
     changedPaths,
@@ -30,8 +46,15 @@ function affectedPlan(
       affectedTests: selectedFastTests,
       affectedSlowTests: [],
       affectedOwners: [],
-      sourceChanged: changedPaths.some((file) => !file.endsWith('.md'))
-    }
+      sourceChanged,
+      selectionResolved: true,
+      unresolvedTestFiles: []
+    },
+    selectionTrustBoundary: boundary,
+    verificationResult: projectAffectedSelectionToVerificationGateResult(
+      boundary,
+      defaultAffectedSelectionProjectionContext('HEAD', 'sha256:0', null)
+    )
   };
 }
 

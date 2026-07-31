@@ -838,3 +838,127 @@ test.serial('affected tests allow broad fast-suite fallback when explicitly enab
     console.log = originalLog;
   }
 });
+
+test.serial('affected tests fail closed for source change with empty closure and no fallback (Issue #206)', async () => {
+  // tests/setup/unmapped.ts is a .ts file (→ sourceChanged=true via typescript
+  // kind) under tests/setup/ (→ BOUNDED_BASELINE_PATTERLS → ownershipResolved=true)
+  // with no ownership declaration, fallback rule, or reverse-import edge
+  // (→ selectedFastTests=[]). Previously this returned 0 — a false-green.
+  changedFiles = ['tests/setup/unmapped.ts'];
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (message?: unknown) => {
+    errors.push(String(message));
+  };
+
+  try {
+    const code = await runAffectedTests();
+
+    expect(code).toBe(1);
+    expect(testDependencyBootstrapCalls).toBe(0);
+    expect(devCommandCalls).toEqual([]);
+    expect(devCommandEnvironments).toEqual([]);
+    expect(errors.some((e) => e.includes('Failing closed'))).toBe(true);
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test.serial('affected plan projects invalidated verificationResult for fail-closed boundary (Issue #206)', async () => {
+  changedFiles = ['tests/setup/unmapped.ts'];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (message?: unknown) => {
+    logs.push(String(message));
+  };
+
+  try {
+    const code = await runAffectedTests(['--plan']);
+    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+
+    // --plan must fail closed (exit 1) for the fail-closed trust boundary.
+    expect(code).toBe(1);
+    expect(plan).toHaveProperty('verificationResult');
+    const vr = plan.verificationResult as Record<string, unknown>;
+    expect(vr.status).toBe('invalidated');
+    expect(vr.reasonCode).toBe('selection-unresolved');
+    expect(vr.applicability).toBe('unresolved');
+    expect(vr.disposition).toBe('not-executed');
+    expect(plan.selectionTrustBoundary).toBe('unresolved-selection');
+    expect(testDependencyBootstrapCalls).toBe(0);
+    expect(devCommandCalls).toEqual([]);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test.serial('affected plan projects not-applicable for non-source change with no fast tests (Issue #206)', async () => {
+  // Only a slow test file changed: sourceChanged=false, selectedFastTests=[].
+  // This is the legitimate "no impact" boundary → not-applicable, exit 0.
+  changedFiles = ['tests/e2e/registry.test.ts'];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (message?: unknown) => {
+    logs.push(String(message));
+  };
+
+  try {
+    const code = await runAffectedTests(['--plan']);
+    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+
+    expect(code).toBe(0);
+    const vr = plan.verificationResult as Record<string, unknown>;
+    expect(vr.status).toBe('not-run');
+    expect(vr.reasonCode).toBe('not-applicable');
+    expect(vr.applicability).toBe('not-applicable');
+    expect(plan.selectionTrustBoundary).toBe('applicable-no-tests');
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test.serial('affected plan projects not-dispatched for applicable selection with fast tests (Issue #206)', async () => {
+  changedFiles = ['tests/unit/path-containment.test.ts'];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (message?: unknown) => {
+    logs.push(String(message));
+  };
+
+  try {
+    const code = await runAffectedTests(['--plan']);
+    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+
+    expect(code).toBe(0);
+    const vr = plan.verificationResult as Record<string, unknown>;
+    expect(vr.status).toBe('not-run');
+    expect(vr.reasonCode).toBe('not-dispatched');
+    expect(vr.applicability).toBe('required');
+    expect(plan.selectionTrustBoundary).toBe('applicable-with-tests');
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test.serial('affected plan projects invalidated for unresolved ownership (Issue #206)', async () => {
+  changedFiles = ['platform/unmapped-source.ts'];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (message?: unknown) => {
+    logs.push(String(message));
+  };
+
+  try {
+    const code = await runAffectedTests(['--plan']);
+    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+
+    expect(code).toBe(1);
+    const vr = plan.verificationResult as Record<string, unknown>;
+    expect(vr.status).toBe('invalidated');
+    expect(vr.reasonCode).toBe('selection-unresolved');
+    expect(vr.applicability).toBe('unresolved');
+    expect(plan.selectionTrustBoundary).toBe('unresolved-ownership');
+  } finally {
+    console.log = originalLog;
+  }
+});

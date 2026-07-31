@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -241,12 +242,38 @@ function readTestSource(testFile: string): string | null {
   }
 }
 
-// --- Persistent test import specifiers cache ---
-// Keyed on testFile + stat.mtimeMs, survives across processes via
-// .tmp/test-impact-cache.json. Eliminates redundant Bun.Transpiler.scanImports
-// calls across dev-runner invocations.
+// --- Persistent test import specifiers cache (Issue #206 cache identity) ---
+//
+// Cache identity is (testFile, sourceDigest) inside an envelope that binds
+// parserRuntimeIdentity, parserOptionsDigest, contractRevision and cacheSchema
+// revision. mtimeMs/size are kept only as an optional fast-path hint; the
+// sourceDigest is the single source of truth and is always recomputed on read.
+//
+// Load rejects envelopes whose schema/parser/contract revision does not match
+// the current runtime, so parser or contract upgrades invalidate the entire
+// cache atomically. Corrupt or unknown-schema caches are rejected with an
+// observable stderr warning (not silently empty).
 
-type TestImportSpecifiersCacheEntry = { mtimeMs: number; specifiers: string[] };
+const TEST_IMPACT_CACHE_SCHEMA_REVISION = 'sec-test-impact-cache-v2' as const;
+const TEST_IMPACT_PARSER_RUNTIME_IDENTITY = 'bun-transpiler-tsx-v1' as const;
+const TEST_IMPACT_PARSER_OPTIONS_DIGEST = 'sha256:' + createHash('sha256')
+  .update(JSON.stringify({ loader: 'tsx' })).digest('hex') as `sha256:${string}`;
+const TEST_IMPACT_CONTRACT_REVISION = 'test-impact-contract-v1' as const;
+
+type TestImportSpecifiersCacheEntry = {
+  sourceDigest: `sha256:${string}`;
+  specifiers: string[];
+  mtimeMs: number;
+  size: number;
+};
+
+type TestImpactCacheEnvelope = {
+  schema: typeof TEST_IMPACT_CACHE_SCHEMA_REVISION;
+  parserRuntimeIdentity: typeof TEST_IMPACT_PARSER_RUNTIME_IDENTITY;
+  parserOptionsDigest: typeof TEST_IMPACT_PARSER_OPTIONS_DIGEST;
+  contractRevision: typeof TEST_IMPACT_CONTRACT_REVISION;
+  entries: Record<string, TestImportSpecifiersCacheEntry>;
+};
 
 const TEST_IMPACT_CACHE_FILE = path.join(compilerRoot, '.tmp', 'test-impact-cache.json');
 
@@ -254,20 +281,59 @@ const testImportSpecifiersCache = new Map<string, TestImportSpecifiersCacheEntry
 let persistentCacheLoaded = false;
 let persistentCacheDirty = false;
 
+function isCacheEntry(value: unknown): value is TestImportSpecifiersCacheEntry {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Record<string, unknown>;
+  return typeof entry.sourceDigest === 'string' && /^sha256:[0-9a-f]{64}$/u.test(entry.sourceDigest)
+    && Array.isArray(entry.specifiers) && entry.specifiers.every((s) => typeof s === 'string')
+    && typeof entry.mtimeMs === 'number' && typeof entry.size === 'number';
+}
+
 function loadPersistentTestImpactCache(): void {
   if (persistentCacheLoaded) return;
   persistentCacheLoaded = true;
+  let raw: string;
   try {
-    const raw = fs.readFileSync(TEST_IMPACT_CACHE_FILE, 'utf8');
-    const parsed = JSON.parse(raw) as Record<string, TestImportSpecifiersCacheEntry>;
-    for (const [testFile, entry] of Object.entries(parsed)) {
-      // Don't overwrite a fresh in-process entry with a stale persisted one.
-      if (!testImportSpecifiersCache.has(testFile)) {
-        testImportSpecifiersCache.set(testFile, entry);
-      }
-    }
+    raw = fs.readFileSync(TEST_IMPACT_CACHE_FILE, 'utf8');
   } catch {
-    // Cache absent or corrupt — start empty.
+    return; // absent cache — normal, no warning
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.warn(`[test-impact] Cache file at ${TEST_IMPACT_CACHE_FILE} is corrupt (invalid JSON); rebuilding.`);
+    return;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    console.warn(`[test-impact] Cache file at ${TEST_IMPACT_CACHE_FILE} has unknown shape; rebuilding.`);
+    return;
+  }
+  const envelope = parsed as Record<string, unknown>;
+  if (
+    envelope.schema !== TEST_IMPACT_CACHE_SCHEMA_REVISION
+    || envelope.parserRuntimeIdentity !== TEST_IMPACT_PARSER_RUNTIME_IDENTITY
+    || envelope.parserOptionsDigest !== TEST_IMPACT_PARSER_OPTIONS_DIGEST
+    || envelope.contractRevision !== TEST_IMPACT_CONTRACT_REVISION
+  ) {
+    // Schema/parser/contract revision mismatch — discard entire cache atomically.
+    console.warn(`[test-impact] Cache envelope revision mismatch; rebuilding.`);
+    return;
+  }
+  const entries = envelope.entries;
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    console.warn(`[test-impact] Cache envelope entries field is invalid; rebuilding.`);
+    return;
+  }
+  for (const [testFile, entry] of Object.entries(entries as Record<string, unknown>)) {
+    if (!isCacheEntry(entry)) {
+      console.warn(`[test-impact] Cache entry for ${testFile} is invalid; skipping.`);
+      continue;
+    }
+    // Don't overwrite a fresh in-process entry with a persisted one.
+    if (!testImportSpecifiersCache.has(testFile)) {
+      testImportSpecifiersCache.set(testFile, entry);
+    }
   }
 }
 
@@ -279,55 +345,115 @@ export function flushPersistentTestImpactCache(): void {
   if (!persistentCacheDirty) return;
   persistentCacheDirty = false;
   try {
-    const obj: Record<string, TestImportSpecifiersCacheEntry> = {};
+    const envelope: TestImpactCacheEnvelope = {
+      schema: TEST_IMPACT_CACHE_SCHEMA_REVISION,
+      parserRuntimeIdentity: TEST_IMPACT_PARSER_RUNTIME_IDENTITY,
+      parserOptionsDigest: TEST_IMPACT_PARSER_OPTIONS_DIGEST,
+      contractRevision: TEST_IMPACT_CONTRACT_REVISION,
+      entries: {}
+    };
     for (const [testFile, entry] of testImportSpecifiersCache) {
-      obj[testFile] = entry;
+      envelope.entries[testFile] = entry;
     }
     const dir = path.dirname(TEST_IMPACT_CACHE_FILE);
     fs.mkdirSync(dir, { recursive: true });
     const tmpPath = `${TEST_IMPACT_CACHE_FILE}.${process.pid}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(obj), 'utf8');
+    fs.writeFileSync(tmpPath, JSON.stringify(envelope), 'utf8');
     fs.renameSync(tmpPath, TEST_IMPACT_CACHE_FILE);
   } catch {
     // Best-effort persistence — cache will be rebuilt on next run.
   }
 }
 
+/** Result of reading a test file's import specifiers. */
+export type ReadTestImportSpecifiersResult =
+  | { kind: 'resolved'; specifiers: string[] }
+  | { kind: 'unresolved'; reason: 'stat-failed' | 'read-failed' };
+
+function computeSourceDigest(bytes: Uint8Array): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}` as `sha256:${string}`;
+}
+
 function readTestImportSpecifiers(
   testFile: string,
   provider?: CodexDevelopmentTestImpactSourceProviderV1
-): string[] {
+): ReadTestImportSpecifiersResult {
   if (provider) {
     const source = provider.readTestSource(testFile);
-    return source === null ? [] : importSpecifiers(source, testFile);
+    if (source === null) return { kind: 'unresolved', reason: 'read-failed' };
+    try {
+      return { kind: 'resolved', specifiers: importSpecifiers(source, testFile) };
+    } catch {
+      return { kind: 'unresolved', reason: 'read-failed' };
+    }
   }
 
-  let mtimeMs: number;
+  const filePath = path.join(compilerRoot, testFile);
+  let stat: fs.Stats;
   try {
-    mtimeMs = fs.statSync(path.join(compilerRoot, testFile)).mtimeMs;
+    stat = fs.statSync(filePath);
   } catch {
-    return [];
+    return { kind: 'unresolved', reason: 'stat-failed' };
   }
+
+  // Read the file bytes unconditionally so we can compute the digest. The
+  // digest is the single identity; mtimeMs/size are only hints for optional
+  // fast-path skipping of the digest computation, but to keep the contract
+  // simple and correct we always compute the digest. The cost is negligible
+  // (~0.01ms per file for sha256 of typical test files).
+  let bytes: Buffer;
+  try {
+    bytes = fs.readFileSync(filePath);
+  } catch {
+    return { kind: 'unresolved', reason: 'read-failed' };
+  }
+  const sourceDigest = computeSourceDigest(new Uint8Array(bytes));
 
   const cached = testImportSpecifiersCache.get(testFile);
-  if (cached && cached.mtimeMs === mtimeMs) {
-    return cached.specifiers;
+  if (cached && cached.sourceDigest === sourceDigest) {
+    // Update mtime/size hints in the cache if they drifted (same content, different mtime).
+    if (cached.mtimeMs !== stat.mtimeMs || cached.size !== stat.size) {
+      testImportSpecifiersCache.set(testFile, {
+        ...cached,
+        mtimeMs: stat.mtimeMs,
+        size: stat.size
+      });
+      schedulePersistentTestImpactCacheSave();
+    }
+    return { kind: 'resolved', specifiers: cached.specifiers };
   }
 
   loadPersistentTestImpactCache();
   const persisted = testImportSpecifiersCache.get(testFile);
-  if (persisted && persisted.mtimeMs === mtimeMs) {
-    return persisted.specifiers;
+  if (persisted && persisted.sourceDigest === sourceDigest) {
+    // Update mtime/size hints.
+    if (persisted.mtimeMs !== stat.mtimeMs || persisted.size !== stat.size) {
+      testImportSpecifiersCache.set(testFile, {
+        ...persisted,
+        mtimeMs: stat.mtimeMs,
+        size: stat.size
+      });
+      schedulePersistentTestImpactCacheSave();
+    }
+    return { kind: 'resolved', specifiers: persisted.specifiers };
   }
 
-  const source = readTestSource(testFile);
-  if (!source) {
-    return [];
+  // Digest mismatch (content changed) or no cache entry — re-transpile.
+  const source = bytes.toString('utf8');
+  let specifiers: string[];
+  try {
+    specifiers = importSpecifiers(source, testFile);
+  } catch {
+    return { kind: 'unresolved', reason: 'read-failed' };
   }
-  const specifiers = importSpecifiers(source, testFile);
-  testImportSpecifiersCache.set(testFile, { mtimeMs, specifiers });
+  testImportSpecifiersCache.set(testFile, {
+    sourceDigest,
+    specifiers,
+    mtimeMs: stat.mtimeMs,
+    size: stat.size
+  });
   schedulePersistentTestImpactCacheSave();
-  return specifiers;
+  return { kind: 'resolved', specifiers };
 }
 
 // --- Reverse-import-map ---
@@ -336,18 +462,39 @@ function readTestImportSpecifiers(
 // O(changed × tests) to O(tests) one-time build + O(changed) lookups.
 // In provider mode the map is built fresh (not cached) because the provider's
 // test file set may differ from the real repo.
+//
+// Issue #206: the map also collects `unresolvedTestFiles` — test files whose
+// import specifiers could not be read (stat/read/parse failure). These surface
+// as a selection trust boundary: when sourceChanged && unresolvedTestFiles > 0,
+// the affected-test inventory reports selectionResolved=false so the runner
+// can fail closed instead of silently treating the empty closure as "no impact".
 
-let reverseImportMapCache: Map<string, string[]> | null = null;
+type ReverseImportMap = {
+  map: Map<string, string[]>;
+  unresolvedTestFiles: string[];
+};
+
+let reverseImportMapCache: ReverseImportMap | null = null;
 
 function buildReverseImportMap(
   provider?: CodexDevelopmentTestImpactSourceProviderV1
-): Map<string, string[]> {
+): ReverseImportMap {
   if (!provider && reverseImportMapCache) return reverseImportMapCache;
 
   const map = new Map<string, string[]>();
+  const unresolvedTestFiles: string[] = [];
   const testFiles = provider?.testFiles ?? getTestFilesSync();
   for (const testFile of testFiles) {
-    for (const specifier of readTestImportSpecifiers(testFile, provider)) {
+    const result = readTestImportSpecifiers(testFile, provider);
+    if (result.kind === 'unresolved') {
+      // Do NOT reduce the closure: record the unresolved test file so the
+      // selection trust boundary can fail closed. We still include the test
+      // file as a key with an empty import list so it isn't lost, but the
+      // unresolved signal propagates via unresolvedTestFiles.
+      unresolvedTestFiles.push(testFile);
+      continue;
+    }
+    for (const specifier of result.specifiers) {
       for (const candidate of importCandidates(testFile, specifier)) {
         const existing = map.get(candidate);
         if (existing) {
@@ -359,21 +506,66 @@ function buildReverseImportMap(
     }
   }
 
+  const built: ReverseImportMap = { map, unresolvedTestFiles };
   if (!provider) {
-    reverseImportMapCache = map;
+    reverseImportMapCache = built;
     // Flush the persistent cache after a full scan so it survives across
     // processes. We can't use process.on('beforeExit') because this file is
     // in the TCB runtime closure which rejects unclassified process members.
     flushPersistentTestImpactCache();
   }
-  return map;
+  return built;
+}
+
+/**
+ * Invalidate the cached reverse-import-map. Long-lived processes (e.g., a
+ * future daemon) should call this when test files may have been added, removed
+ * or modified on disk, so the next selection rebuilds the map fresh.
+ *
+ * This does NOT invalidate the persistent on-disk import-specifier cache
+ * (which is keyed on sourceDigest and self-validating); it only clears the
+ * in-process reverse map that aggregates specifiers across all test files.
+ */
+export function invalidateReverseImportMap(): void {
+  reverseImportMapCache = null;
+}
+
+/**
+ * Resolution trust boundary for an affected-test selection.
+ *
+ * `selectionResolved` is false when any test file's import specifiers could
+ * not be read (stat/read/parse failure). In that case the reverse-import-map
+ * closure is incomplete and an empty `selectedFastTests` must NOT be treated
+ * as "no impact" — the runner fails closed with `invalidated/selection-unresolved`.
+ */
+export type TestImpactSelectionResolution = {
+  selectionResolved: boolean;
+  unresolvedTestFiles: string[];
+};
+
+/**
+ * Resolve the selection trust boundary for the current test file set.
+ *
+ * This is separated from `selectTestsForSources` so that callers that only
+ * need the { fast, slow, owners } selection shape (e.g. existing contract
+ * tests) are unaffected, while the affected-test inventory can also obtain
+ * the unresolved signal to drive fail-closed behaviour.
+ */
+export function resolveTestImpactSelectionTrustBoundary(
+  provider?: CodexDevelopmentTestImpactSourceProviderV1
+): TestImpactSelectionResolution {
+  const { unresolvedTestFiles } = buildReverseImportMap(provider);
+  return {
+    selectionResolved: unresolvedTestFiles.length === 0,
+    unresolvedTestFiles: uniqueSorted(unresolvedTestFiles)
+  };
 }
 
 function testsReferencingSources(
   files: string[],
   provider?: CodexDevelopmentTestImpactSourceProviderV1
 ): string[] {
-  const map = buildReverseImportMap(provider);
+  const { map } = buildReverseImportMap(provider);
   const matchedTests = new Set<string>();
   for (const sourceFile of files.map(normalizeRepoPath)) {
     const tests = map.get(sourceFile);

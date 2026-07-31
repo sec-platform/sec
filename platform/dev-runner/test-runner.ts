@@ -1,7 +1,14 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
+
 import {
+  classifyAffectedSelectionTrustBoundary,
   CodexDevelopmentAffectedInventoryInputsV1,
-  CodexDevelopmentBuildAffectedTestInventoryV1
+  CodexDevelopmentBuildAffectedTestInventoryV1,
+  defaultAffectedSelectionProjectionContext,
+  isAffectedSelectionFailClosed,
+  projectAffectedSelectionToVerificationGateResult,
+  type AffectedSelectionTrustBoundary
 } from '../shared/affected-test-inventory.ts';
 import {
   gitChangedFileDiffArgs,
@@ -24,6 +31,7 @@ import {
   slowTestSuiteIds
 } from '../shared/test-budget-contract.ts';
 import { formatSlowImpactNotice } from '../shared/test-impact-contract.ts';
+import type { VerificationGateResultV1 } from '../shared/verification-result-contract.ts';
 import { runDevCommand } from './command-runner.ts';
 import { ensureTestDependencies } from './dependency-bootstrap.ts';
 import {
@@ -344,6 +352,8 @@ interface AffectedTestSelection {
   readonly affectedSlowTests: readonly string[];
   readonly affectedOwners: readonly string[];
   readonly sourceChanged: boolean;
+  readonly selectionResolved: boolean;
+  readonly unresolvedTestFiles: readonly string[];
 }
 
 function affectedTestSelection(files: string[]): AffectedTestSelection {
@@ -360,7 +370,9 @@ function affectedTestSelection(files: string[]): AffectedTestSelection {
     affectedTests: inventory.affectedFastTests,
     affectedSlowTests: inventory.affectedSlowTests,
     affectedOwners: inventory.affectedOwners,
-    sourceChanged: inventory.sourceChanged
+    sourceChanged: inventory.sourceChanged,
+    selectionResolved: inventory.selectionResolved,
+    unresolvedTestFiles: inventory.unresolvedTestFiles
   };
 }
 
@@ -384,6 +396,21 @@ export interface AffectedTestPlanV1 {
   readonly unresolvedPaths: readonly string[];
   readonly resolved: boolean;
   readonly selectionResolved: AffectedTestSelection;
+  /**
+   * Issue #206 trust boundary classification for this plan. Computed from the
+   * same inputs as `resolved` and `selectionResolved` but projected to a
+   * stable enum so CI and callers can branch on the boundary without
+   * re-deriving it.
+   */
+  readonly selectionTrustBoundary: AffectedSelectionTrustBoundary;
+  /**
+   * Issue #206 projection of the plan-phase trust boundary to the unified
+   * VerificationGateResultV1 model. For fail-closed boundaries this carries
+   * `status: invalidated, reasonCode: selection-unresolved`. For applicable
+   * boundaries this carries `status: not-run` (plan phase; execution outcome
+   * is NOT represented here).
+   */
+  readonly verificationResult: VerificationGateResultV1;
 }
 
 export interface ResolvedAffectedTestExecutionV1 {
@@ -391,15 +418,43 @@ export interface ResolvedAffectedTestExecutionV1 {
   readonly run: () => Promise<number>;
 }
 
+function computeAffectedInputDigest(files: readonly string[]): `sha256:${string}` {
+  const sorted = uniqueSorted([...files]);
+  const hash = createHash('sha256');
+  for (const file of sorted) hash.update(file);
+  hash.update('\0');
+  return `sha256:${hash.digest('hex')}` as `sha256:${string}`;
+}
+
 function affectedTestPlan(files: string[]): AffectedTestPlanV1 {
   const risk = selectCiPrRiskSlowSuites(files);
   const selection = affectedTestSelection(files);
   const unresolvedPaths = unresolvedRiskPaths(files);
+  const selectedFastTests = unionTestFiles([...selection.tests], [...selection.affectedTests]);
+  const ownershipResolved = risk.resolved && unresolvedPaths.length === 0;
+  const trustBoundary = classifyAffectedSelectionTrustBoundary({
+    gitDiscoveryFailed: false,
+    ownershipResolved,
+    sourceChanged: selection.sourceChanged,
+    selectionResolved: selection.selectionResolved,
+    unresolvedTestFiles: selection.unresolvedTestFiles,
+    selectedFastTestCount: selectedFastTests.length,
+    broadFallbackEnabled: allowFullFastFallback()
+  });
+  const subjectRevision = affectedTestsBaseRef() ?? 'HEAD';
+  const inputDigest = computeAffectedInputDigest(files);
+  const diagnostic = isAffectedSelectionFailClosed(trustBoundary)
+    ? `Affected selection trust boundary: ${trustBoundary}`
+    : null;
+  const verificationResult = projectAffectedSelectionToVerificationGateResult(
+    trustBoundary,
+    defaultAffectedSelectionProjectionContext(subjectRevision, inputDigest, diagnostic)
+  );
   return {
     schema: 'sec-affected-test-plan-v1',
     changedPaths: files,
     owners: uniqueSorted([...selection.affectedOwners, ...risk.owners]),
-    selectedFastTests: unionTestFiles([...selection.tests], [...selection.affectedTests]),
+    selectedFastTests,
     selectedSlowTests: unionTestFiles([...selection.slowTests], [...selection.affectedSlowTests]),
     riskSuites: risk.suites,
     riskTests: unionTestFiles(
@@ -408,8 +463,10 @@ function affectedTestPlan(files: string[]): AffectedTestPlanV1 {
     ),
     riskReasons: risk.reasons,
     unresolvedPaths,
-    resolved: risk.resolved && unresolvedPaths.length === 0,
-    selectionResolved: selection
+    resolved: ownershipResolved,
+    selectionResolved: selection,
+    selectionTrustBoundary: trustBoundary,
+    verificationResult
   };
 }
 
@@ -430,8 +487,11 @@ function freezeAffectedTestPlan(plan: AffectedTestPlanV1): AffectedTestPlanV1 {
       affectedTests: Object.freeze([...plan.selectionResolved.affectedTests]),
       affectedSlowTests: Object.freeze([...plan.selectionResolved.affectedSlowTests]),
       affectedOwners: Object.freeze([...plan.selectionResolved.affectedOwners]),
-      sourceChanged: plan.selectionResolved.sourceChanged
-    })
+      sourceChanged: plan.selectionResolved.sourceChanged,
+      selectionResolved: plan.selectionResolved.selectionResolved,
+      unresolvedTestFiles: Object.freeze([...plan.selectionResolved.unresolvedTestFiles])
+    }),
+    verificationResult: Object.freeze({ ...plan.verificationResult })
   });
 }
 
@@ -464,8 +524,19 @@ async function runAffectedTestPlan(plan: AffectedTestPlanV1): Promise<number> {
 
   if (selection.sourceChanged) {
     if (!allowFullFastFallback()) {
-      console.log('No affected fast tests matched source changes; skipping broad fast-suite fallback in PR quick lane. Full/manual/scheduled validation covers unmapped changes.');
-      return 0;
+      // Issue #206: source changed but no fast tests selected and no fallback.
+      // This is a fail-closed trust boundary — the empty closure is NOT proof
+      // of "no impact". Returning 0 here would be a false-green: it would let
+      // CI treat "selector found nothing" as "change has no impact", masking
+      // both missing test coverage and selector/read failures. Fail closed
+      // with the invalidated/selection-unresolved verification result so
+      // callers must explicitly opt into broad fallback or add targeted tests.
+      console.error(
+        `Affected selection trust boundary is ${plan.selectionTrustBoundary}; `
+        + 'source changed but no fast tests selected and SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK is not set. '
+        + 'Failing closed to avoid false-green.'
+      );
+      return 1;
     }
 
     console.log('No affected fast tests matched source changes; running the fast test suite because SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1.');
@@ -504,7 +575,10 @@ export async function runAffectedTests(args: string[] = []): Promise<number> {
   }
   if (args.length === 1) {
     console.log(JSON.stringify(execution.plan, null, 2));
-    return execution.plan.resolved ? 0 : 1;
+    // Issue #206: --plan fails closed for any unresolved trust boundary, not
+    // just ownership-unresolved. This keeps `--plan` exit codes consistent
+    // with the execution path so CI can branch on `--plan` alone.
+    return isAffectedSelectionFailClosed(execution.plan.selectionTrustBoundary) ? 1 : 0;
   }
   return execution.run();
 }

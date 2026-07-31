@@ -10,8 +10,8 @@ last-reviewed: 2026-07-31
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/canonical-text-bytes-phase-a-v1.md
-manifestDigest: sha256:2182efcfba960601e5d8472f86d3543095c5d8da76bf4b6adc3e24840338c1a2
+manifest: docs/work-packages/affected-selection-trust-boundary-v1.md
+manifestDigest: sha256:3ed5cd46e4433d7bd2b9ffbea1e4ba74ae5c3c30ec327bc086a316d8c92ab87d
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
