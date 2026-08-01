@@ -1,0 +1,569 @@
+schema: sec-global-research-coverage-registry-proposal-v1
+status: draft
+tracking: issue-225
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+reviewedAt: 2026-08-01
+mergePolicy: spike-default-no-merge
+canonicalAuthority: none
+
+claimPolicy:
+  literalAllWorldInformationCoverage: impossible-and-forbidden
+  currentClaim: broad-cross-discipline-primary-source-census
+  evidenceRule:
+    - every-critical-decision-needs-primary-source-family
+    - source-count-does-not-prove-correctness
+    - unresolved-frontier-remains-explicit
+    - current-version-or-status-rechecked-before-adoption
+    - implementation-requires-focused-contract-and-evidence
+
+coverageLevels:
+  - id: seed
+    meaning: one-or-two-source-families-only
+  - id: broad
+    meaning: multiple-major-mechanism-families-and-primary-sources-reviewed
+  - id: deep
+    meaning: competing-approaches-failure-modes-and-adoption-boundary-reviewed
+  - id: implementation-ready
+    meaning: exact-contract-corpus-benchmark-provider-and-migration-inputs-identified
+  - id: physical-proof-ready
+    meaning: owning-environments-and-execution-protocol-ready-for-real-evidence
+
+sourceKinds:
+  - normative-standard
+  - official-specification
+  - official-architecture
+  - official-implementation-documentation
+  - original-paper
+  - machine-checked-proof
+  - official-test-corpus
+  - empirical-evaluation
+
+registries:
+  - domain: compiler-ir-and-language-workbenches
+    level: deep
+    sourceFamilies:
+      - MLIR
+      - LLVM
+      - GCC-GIMPLE
+      - JVM
+      - WebAssembly-Component-Model
+      - Graal-Truffle
+      - Spoofax-Statix-Stratego
+    changedSecDecisions:
+      - no-universal-ir
+      - layered-validated-ir
+      - dialect-provider-interfaces
+      - target-ir-never-own-engineering-semantics
+    unresolved:
+      - exact-target-program-ir-partitioning
+      - provider-interface-versioning
+      - cross-language-source-mapping
+    reviewTriggers:
+      - new-first-class-language
+      - behavior-ir-contract-change
+      - wasm-component-model-stabilization
+
+  - domain: full-fidelity-source-and-refactoring
+    level: deep
+    sourceFamilies:
+      - TypeScript-Compiler-API
+      - Tree-sitter
+      - Roslyn
+      - OpenRewrite
+      - Clang-Tooling
+      - Coccinelle
+      - Scope-Graphs
+      - Stack-Graphs
+      - Kythe
+      - SCIP
+      - LSP
+    changedSecDecisions:
+      - source-program-model-is-not-one-ast
+      - full-fidelity-tree-separated-from-symbol-and-effect-model
+      - rule-backed-transformation-stores-match-precondition-and-preservation
+      - source-anchor-separated-from-canonical-identity
+    unresolved:
+      - typescript-source-program-schema
+      - source-move-identity-strategy
+      - cross-provider-conflict-policy
+    nextArtifact: typescript-source-program-model-v1
+
+  - domain: semantic-responsibility-and-static-analysis
+    level: deep
+    sourceFamilies:
+      - Abstract-Interpretation
+      - CodeQL
+      - Souffle-Datalog
+      - Joern-CPG
+      - Infer-Separation-Logic
+      - Scope-Graphs
+    changedSecDecisions:
+      - function-to-responsibility-many-to-many
+      - provider-result-remains-candidate-evidence
+      - impact-needs-witness-and-unknown-frontier
+      - no-code-property-graph-as-canonical-semantic-graph
+    unresolved:
+      - candidate-reconcile-algorithm
+      - responsibility-identity-under-inline-extract
+      - facet-level-impact-rules
+    nextArtifact: responsibility-candidate-and-source-binding-v1
+
+  - domain: incremental-computation-and-build-systems
+    level: deep
+    sourceFamilies:
+      - rustc-queries
+      - Salsa
+      - Buck2-DICE
+      - Build-Systems-a-la-Carte
+      - Bazel
+      - Nix
+      - Git-CAS
+    changedSecDecisions:
+      - demand-driven-query-kernel
+      - compiler-query-dag-separated-from-verification-dag
+      - clean-incremental-equivalence
+      - action-key-never-equals-semantic-revision
+    unresolved:
+      - measured-compiler-critical-path
+      - pure-query-boundaries
+      - cancellation-memory-backpressure
+    nextArtifact: benchmark-before-query-kernel
+
+  - domain: dependency-resolution-package-and-lock
+    level: deep
+    sourceFamilies:
+      - npm
+      - pnpm
+      - Cargo
+      - Maven
+      - Gradle
+      - PubGrub
+      - Semantic-Versioning
+    changedSecDecisions:
+      - lockfile-is-provider-specific-resolution-result
+      - dependency-node-needs-variant-features-target-source-and-artifact
+      - dependency-graph-completeness-first-class
+      - version-resolution-does-not-prove-semantic-compatibility
+    unresolved:
+      - common-dependency-resolution-snapshot-schema
+      - toolchain-provider-matrix
+      - peer-and-variant-cross-ecosystem-projection
+
+  - domain: transaction-publication-and-recovery
+    level: deep
+    sourceFamilies:
+      - ARIES
+      - SQLite-Atomic-Commit
+      - Temporal
+      - Terraform-Plan-Apply
+      - Kubernetes-Controller
+      - Kubernetes-Server-Side-Apply
+      - Saga
+    changedSecDecisions:
+      - not-published-published-publication-unknown
+      - append-only-journal-and-compensation-lineage
+      - apply-rereads-and-replans-under-writer-lease
+      - field-region-ownership-distinct-from-physical-writer-generation
+    unresolved:
+      - exact-filesystem-durability-protocol-per-platform
+      - journal-compaction-proof
+      - multi-domain-transaction-boundary
+    nextArtifact: formal-publication-recovery-model-and-fault-corpus
+
+  - domain: distributed-systems-and-collaboration
+    level: broad
+    sourceFamilies:
+      - Raft
+      - CRDT
+      - Zanzibar
+      - Kubernetes-Reconciliation
+    changedSecDecisions:
+      - distributed-consensus-deferred
+      - crdt-for-projection-only-not-canonical-mutation
+      - remote-authorization-needs-snapshot-consistency
+    unresolved:
+      - real-multi-node-consumer
+      - collaboration-product-requirements
+    adoptionState: defer-until-real-consumer
+
+  - domain: formal-methods-and-test-generation
+    level: deep
+    sourceFamilies:
+      - TLA+
+      - Alloy
+      - QuickCheck
+      - libFuzzer
+      - AFL++
+      - Mutation-Testing
+      - Differential-Testing
+      - Metamorphic-Testing
+      - Model-Based-Testing
+      - CompCert
+      - CakeML
+      - Lean
+      - Coq-Isabelle-SMT
+      - Wasm-SpecTec
+    changedSecDecisions:
+      - protocol-model-to-counterexample-to-contract-test-loop
+      - proof-object-and-checker-revision-in-evidence
+      - solver-unknown-never-pass
+      - single-spec-source-multiple-generated-projections
+      - verified-component-does-not-verify-whole-toolchain
+    unresolved:
+      - first-formalized-sec-protocol
+      - proof-checker-provider-contract
+      - model-implementation-traceability
+
+  - domain: type-effect-ownership-and-information-flow
+    level: deep
+    sourceFamilies:
+      - Algebraic-Effects
+      - Koka
+      - Rust-Ownership
+      - Typestate
+      - Session-Types
+      - Refinement-Types
+      - Jif-Information-Flow
+    changedSecDecisions:
+      - effect-is-typed-operation-capability-and-lifecycle
+      - resources-have-owner-borrow-scope-and-revocation
+      - protocols-can-have-state-specific-operations
+      - data-governance-separated-from-authorization
+    unresolved:
+      - exact-effect-algebra
+      - source-language-effect-inference
+      - information-flow-domain-authority
+    nextArtifact: typed-effect-and-data-governance-contracts
+
+  - domain: authorization-capabilities-and-ai-tools
+    level: deep
+    sourceFamilies:
+      - Cedar
+      - Zanzibar
+      - OPA-Rego
+      - Macaroons
+      - Capsicum
+      - WASI-Capabilities
+      - MCP
+      - A2A
+      - Structured-Outputs
+      - SWE-agent-ACI
+    changedSecDecisions:
+      - default-deny-typed-operation
+      - forbid-overrides-permit
+      - task-token-attenuation-and-expiry
+      - protocol-schema-never-expands-authority
+      - ai-proposal-only
+    unresolved:
+      - task-envelope-v2
+      - capability-token-storage-and-replay
+      - external-agent-provider-trust
+
+  - domain: os-sandbox-and-resource-isolation
+    level: deep
+    sourceFamilies:
+      - Linux-seccomp
+      - Landlock
+      - Namespaces
+      - cgroups
+      - Windows-AppContainer-LPAC
+      - Windows-Job-Object
+      - macOS-App-Sandbox
+      - Capsicum
+      - WASI
+    changedSecDecisions:
+      - no-sandbox-boolean
+      - platform-mechanism-specific-profile
+      - access-isolation-separated-from-process-settlement
+      - unsupported-sandbox-never-pretends-safe
+    unresolved:
+      - windows-linux-macos-minimum-provider-implementations
+      - untrusted-build-script-policy
+      - secret-broker-and-network-egress
+    nextArtifact: sandbox-profile-v1
+
+  - domain: schema-api-config-and-protocol-evolution
+    level: deep
+    sourceFamilies:
+      - JSON-Schema
+      - OpenAPI
+      - AsyncAPI
+      - Protocol-Buffers
+      - CUE
+      - Dhall
+      - W3C-Web-of-Things
+      - Semantic-Versioning
+    changedSecDecisions:
+      - schema-shape-does-not-equal-semantic-contract
+      - wire-field-identity-and-reservation-explicit
+      - configuration-unification-does-not-decide-authority
+      - compatibility-is-multidimensional
+    unresolved:
+      - type-algebra-external-schema-adapters
+      - compatibility-matrix-contract
+      - schema-migration-rule-registry
+
+  - domain: web-html-css-dom-accessibility
+    level: deep
+    sourceFamilies:
+      - WHATWG-HTML
+      - WHATWG-DOM
+      - CSS-Cascade
+      - WAI-ARIA
+      - Custom-Elements-Shadow-DOM
+    changedSecDecisions:
+      - source-template-rendered-dom-runtime-dom-separated
+      - css-is-style-program-not-key-value-config
+      - browser-owns-computed-layout-evidence
+      - accessibility-is-contract-and-acceptance
+    unresolved:
+      - native-web-source-schema
+      - tsx-binding-provider
+      - browser-evidence-claim-link
+    nextArtifact: web-source-domain-phase-zero
+
+  - domain: supply-chain-signing-sbom-and-release
+    level: deep
+    sourceFamilies:
+      - SLSA
+      - in-toto
+      - TUF
+      - Sigstore
+      - SPDX
+      - CycloneDX
+      - W3C-PROV
+      - OCI
+    changedSecDecisions:
+      - provenance-never-equals-correctness
+      - sbom-completeness-first-class
+      - signature-transparency-needs-identity-policy
+      - tag-mutable-digest-immutable
+      - update-trust-separate-from-content-compatibility
+    unresolved:
+      - release-snapshot-contract
+      - registry-signature-policy
+      - sbom-dependency-graph-validation
+
+  - domain: telemetry-and-observability
+    level: broad
+    sourceFamilies:
+      - OpenTelemetry
+      - OpenTelemetry-GenAI
+    changedSecDecisions:
+      - telemetry-is-observation-not-authority
+      - shared-semantic-conventions-with-version-stability
+      - prompt-source-content-capture-disabled-by-default
+    unresolved:
+      - sec-telemetry-semantic-conventions
+      - privacy-retention-cardinality-policy
+
+  - domain: online-data-message-and-deployment-evolution
+    level: deep
+    sourceFamilies:
+      - PostgreSQL-Logical-Replication
+      - Debezium-Outbox
+      - Kafka-Transactions
+      - Saga
+      - OpenFeature
+      - OpenGitOps
+      - OCI
+      - Progressive-Delivery
+    changedSecDecisions:
+      - application-schema-data-message-deploy-flag-revisions-separated
+      - cdc-does-not-own-schema-migration
+      - exactly-once-scope-must-be-explicit
+      - safety-critical-flags-fail-closed
+      - git-is-not-runtime-truth
+    unresolved:
+      - online-migration-state-machine
+      - deployment-metric-evidence
+      - backfill-checkpoint-and-recovery
+    nextArtifact: online-migration-plan-v1
+
+  - domain: ffi-abi-and-cross-language-runtime
+    level: deep
+    sourceFamilies:
+      - C-ABI
+      - JNI
+      - DotNet-PInvoke
+      - Python-Limited-API-Stable-ABI
+      - Wasm-Component-Canonical-ABI
+    changedSecDecisions:
+      - api-abi-wire-behavior-resource-deployment-compatibility-separated
+      - target-triple-data-layout-calling-convention-explicit
+      - ownership-lifetime-errors-threading-required
+      - portable-component-abi-is-provider-not-core
+    unresolved:
+      - ffi-port-contract
+      - first-cross-language-corpus
+      - runtime-load-and-fault-matrix
+
+  - domain: gpu-and-accelerators
+    level: broad
+    sourceFamilies:
+      - CUDA
+      - ROCm-HIP
+      - Metal
+    changedSecDecisions:
+      - specialized-accelerator-profile
+      - stream-event-async-resource-graph
+      - numerical-policy-and-performance-evidence
+      - gpu-kernel-default-governed-extension
+    unresolved:
+      - common-accelerator-contract
+      - target-device-corpus
+      - determinism-and-numerical-tolerance
+    adoptionState: later-specialized-provider
+
+  - domain: kernel-ebpf-and-drivers
+    level: broad
+    sourceFamilies:
+      - Linux-BPF-Verifier
+      - BTF-CO-RE
+      - Kernel-Driver-Lifecycle
+    changedSecDecisions:
+      - verifier-proof-scope-explicit
+      - bytecode-btf-map-link-attach-identities-separated
+      - hardware-in-loop-required-for-drivers
+    unresolved:
+      - kernel-provider-contract
+      - privilege-and-attach-policy
+      - device-fault-corpus
+
+  - domain: mobile-platforms
+    level: broad
+    sourceFamilies:
+      - Android-Activity-Manifest-Permission
+      - Apple-Scene-Entitlement-Sandbox
+    changedSecDecisions:
+      - process-component-scene-permission-signing-identities-separated
+      - simulator-does-not-substitute-device
+      - store-release-is-distinct-support-layer
+    unresolved:
+      - android-and-apple-target-profiles
+      - device-farm-evidence
+      - mobile-resource-and-background-lifecycle
+
+  - domain: embedded-automotive-real-time-and-high-assurance-os
+    level: broad
+    sourceFamilies:
+      - AUTOSAR-Classic
+      - AUTOSAR-Adaptive
+      - seL4
+      - Real-Time-Safety-Standards
+    changedSecDecisions:
+      - application-runtime-hardware-separation
+      - typed-port-and-deployment-mapping
+      - proof-support-claim-bound-to-configuration
+      - deadline-needs-wcet-not-average
+    unresolved:
+      - specialized-target-profile
+      - assurance-evidence-matrix
+      - real-hardware-corpus
+
+  - domain: cryptographic-assets-and-protocols
+    level: deep
+    sourceFamilies:
+      - NIST-Key-Management
+      - PKCS11
+      - TLS13
+      - Noise
+      - Tamarin
+      - ProVerif
+    changedSecDecisions:
+      - key-bytes-never-enter-semantic-graph-or-ai-context
+      - key-lifecycle-is-distinct-domain
+      - symbolic-protocol-proof-and-implementation-evidence-separated
+      - proof-result-has-proved-attack-unknown
+    unresolved:
+      - cryptographic-key-lifecycle-contract
+      - proof-provider-to-implementation-mapping
+      - side-channel-rng-hsm-physical-evidence
+
+  - domain: ml-model-data-evaluation-and-ai-risk
+    level: deep
+    sourceFamilies:
+      - Hugging-Face-Model-Cards
+      - Hugging-Face-Pickle-Scanning
+      - MLflow-Model-Registry
+      - NIST-AI-RMF
+      - NIST-SSDF-AI-Profile
+    changedSecDecisions:
+      - model-data-evaluation-serving-promotion-revisions-separated
+      - mutable-model-alias-not-artifact-identity
+      - unsafe-serialization-default-high-risk
+      - benchmark-score-never-equals-safe-supported
+    unresolved:
+      - model-data-evaluation-lineage-contract
+      - agent-evaluation-corpus-and-metrics
+      - model-serving-drift-incident-governance
+
+  - domain: privacy-data-governance-and-information-flow
+    level: broad
+    sourceFamilies:
+      - W3C-Privacy-Principles
+      - Jif-Decentralized-Label-Model
+      - NIST-AI-RMF
+    changedSecDecisions:
+      - new-data-governance-domain-candidate
+      - purpose-retention-recipient-and-declassification-first-class
+      - authorization-and-information-flow-both-required
+      - context-packet-and-telemetry-data-minimization
+    unresolved:
+      - legal-jurisdiction-profiles
+      - data-contract-and-flow-checker
+      - retention-deletion-physical-proof
+
+  - domain: assurance-cases-and-secure-development-controls
+    level: broad
+    sourceFamilies:
+      - GSN
+      - NIST-SSDF
+      - seL4-Proof-Assumptions
+      - NIST-AI-RMF
+    changedSecDecisions:
+      - assurance-case-is-projection-not-authority
+      - requirement-control-implementation-evidence-assessment-separated
+      - one-test-does-not-close-parent-claim
+      - compliance-not-self-declared
+    unresolved:
+      - assurance-case-projection-schema
+      - control-mapping-to-sec-owners-and-evidence
+      - defeater-and-assumption-lifecycle
+
+remainingFrontier:
+  highImpact:
+    - database-online-ddl-and-consistency-verification
+    - cryptographic-side-channel-and-key-hardware
+    - ml-serving-drift-and-data-quality
+    - safety-certification-and-assurance-case-tooling
+    - mobile-store-and-signing-release-matrix
+    - gpu-numerical-determinism-and-compiler-validation
+  specialized:
+    - fpga-hdl-synthesis-formal-equivalence
+    - quantum-programming-and-resource-estimation
+    - robotics-ros2-real-time-and-safety
+    - telecom-protocols-and-network-functions
+    - blockchain-smart-contract-and-consensus-providers
+    - game-engine-rendering-physics-and-asset-pipelines
+    - scientific-hpc-mpi-and-distributed-memory
+    - database-engine-internals-and-query-optimizer-providers
+    - hardware-design-eda-and-silicon-provenance
+  organizational:
+    - architecture-decision-records-and-rationale
+    - socio-technical-ownership-and-team-topology
+    - human-factors-and-operator-error
+    - economics-cost-and-capacity-planning
+
+nextReviewPolicy:
+  doNotBlockCurrentCriticalPath: true
+  currentCriticalPath:
+    - issue-215-pr-223
+    - minimal-issue-207
+    - typescript-source-program-model
+  triggerReviewWhen:
+    - specialized-domain-becomes-real-consumer
+    - external-standard-major-revision
+    - canonical-owner-or-boundary-changes
+    - physical-evidence-contradicts-assumption
+    - repeated-failure-class-reveals-missing-domain
