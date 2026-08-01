@@ -1,0 +1,648 @@
+schema: sec-development-throughput-architecture-v1
+status: proposal
+researchBase: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+tracking: issue-230
+
+principles:
+  - id: main-is-product-truth
+    statement: Only new-main implementation and readback establish completed product results.
+  - id: no-second-owner
+    statement: Composition services reference domain results and never redefine Verification, Impact, Failure, Resource, Run, or Integration semantics.
+  - id: exact-identity
+    statement: Every reusable result binds exact input closure, environment, contract, producer, and output identity.
+  - id: unknown-fails-closed
+    statement: Unknown, unresolved, stale, missing, unsupported, skipped, or cleanup-unknown never project to PASS or parallel-safe.
+  - id: plan-before-side-effect
+    statement: Read-only stable plans precede automatic execution or repository mutation.
+  - id: one-legal-next-transition
+    statement: Any valid external state resolves zero or one legal next transition; zero returns a typed blocker.
+  - id: derived-state-is-rebuildable
+    statement: Context indexes, caches, journals, and projections are deletable and rebuildable from canonical inputs.
+  - id: speed-from-precision
+    statement: Throughput gains come from impact precision, reuse, cancellation, parallel proof, and stable candidates rather than reduced verification truth.
+
+maturityLevels:
+  - implemented-main
+  - implemented-partial
+  - manual-shadow
+  - designed
+  - proposed-here
+  - blocked
+  - retired-target
+
+trustClasses:
+  - id: canonical-product
+    examples:
+      - main-tree
+      - canonical-contract
+  - id: trusted-control
+    examples:
+      - default-branch-workflow
+      - base-side-verifier
+      - merge-ruleset
+  - id: candidate-untrusted
+    examples:
+      - pr-head
+      - candidate-generated-plan
+  - id: evidence
+    examples:
+      - workflow-artifact
+      - review
+      - physical-receipt
+  - id: derived-local
+    examples:
+      - semantic-index
+      - local-action-cache
+      - context-capsule
+
+owners:
+  verification-result:
+    issue: 176
+    owns:
+      - result-status
+      - disposition
+      - applicability
+      - execution-ledger
+      - aggregate-truth
+  epoch-failure:
+    issue: 177
+    owns:
+      - authoring-candidate-frozen
+      - failure-fingerprint
+      - failure-occurrence
+      - typed-next-action
+  trusted-bootstrap:
+    issue: 178
+    owns:
+      - trust-registry
+      - base-side-request-resolution
+      - candidate-as-untrusted-sut
+      - tcb-closure
+  evidence-run-journal:
+    issue: 179
+    owns:
+      - action-key
+      - evidence-dag
+      - evidence-reuse
+      - development-run-journal
+  test-impact:
+    issue: 188
+    owns:
+      - semantic-impact-graph
+      - unknown-frontier
+      - verification-selection
+  automatic-feedback:
+    issue: 189
+    owns:
+      - watch-to-plan
+      - automatic-hermetic-execution
+      - feedback-presentation
+  hermetic-resource:
+    issue: 190
+    owns:
+      - fixture-identity
+      - resource-allocation
+      - cleanup-readback
+      - physical-resource-receipt
+  integration-queue:
+    issues:
+      - 191
+      - 207
+    owns:
+      - parallel-conflict-resolution
+      - integration-epoch
+      - merge-order
+      - virtual-merge-queue
+  compiler-incremental:
+    issue: 194
+    owns:
+      - compiler-node-graph
+      - compiler-artifact-invalidation
+      - clean-incremental-parity
+  task-capsule:
+    issue: 205
+    owns:
+      - root-cause-input
+      - task-capsule
+      - reconciliation-delta
+  change-closure:
+    issue: 219
+    owns:
+      - closure-plan
+      - omission-proof
+      - first-pass-completeness
+      - escaped-failure-learning
+  development-run-kernel:
+    proposal: docs/proposals/development-run-kernel.md
+    owns:
+      - stable-run-id
+      - transition-preconditions
+      - immutable-run-event-chain
+      - resume-cancel-supersede
+  candidate-closure:
+    sourceOwners:
+      - current-ci-control-plane
+      - merge-gate
+      - merge-bootstrap
+    proposalRole: orchestration-only
+    mustNotOwn:
+      - verification-truth
+      - test-impact
+      - review-truth
+      - failure-semantics
+      - integration-conflict-semantics
+
+capabilities:
+  - id: repository-orientation
+    owner: current-agent-governance
+    maturity: implemented-partial
+    consumes:
+      - git-default-identity
+      - github-pr-issue-review-ci
+      - active-work-package
+      - documentation-authority
+    produces:
+      - resolved-repository-snapshot
+      - reload-conditions
+    nextTarget:
+      - task-capsule
+      - context-capsule
+
+  - id: fast-test-runner
+    owner: current-verification-runtime
+    maturity: implemented-main
+    consumes:
+      - selected-fast-tests
+      - process-isolation-registry
+      - workspace-namespace
+    produces:
+      - focused-or-fast-result
+      - cleanup-state
+    knownBaseline:
+      medianSeconds: 54.955
+      sampleCount: 5
+      scope: historical-fixed-candidate
+
+  - id: affected-selection-v1
+    owner: test-impact
+    maturity: implemented-main
+    consumes:
+      - changed-base
+      - changed-records
+      - path-and-owner-rules
+    produces:
+      - affected-plan
+    gaps:
+      - semantic-transitive-edges
+      - provider-and-platform-closure
+      - unresolved-frontier-model
+
+  - id: frozen-verification-workflow
+    owner: trusted-bootstrap
+    maturity: implemented-main
+    consumes:
+      - trusted-repository-dispatch
+      - exact-pr-base-head
+      - manifest-path-digest
+      - profile
+    produces:
+      - verification-artifact
+    constraints:
+      - same-repository
+      - single-parent-head
+      - parent-equals-current-base
+      - trust-root-unchanged-or-manual-bootstrap
+
+  - id: merge-gate-revalidation
+    owner: current-ci-control-plane
+    maturity: implemented-main
+    consumes:
+      - pr-event
+      - workflow-run-event
+      - scope-artifact
+      - verification-artifact
+      - review-state
+    produces:
+      - sec-merge-gate-status
+    gaps:
+      - no-automatic-candidate-progression
+
+  - id: local-merge-bootstrap
+    owner: current-ci-control-plane
+    maturity: implemented-partial
+    consumes:
+      - local-git
+      - local-gh
+      - maintainer-credentials
+      - pr-and-manifest
+    produces:
+      - dispatches
+      - single-parent-head
+      - merge
+      - pointer-patch
+      - branch-cleanup
+    retirementTarget: candidate-closure-engine
+
+  - id: task-capsule-compiler
+    owner: task-capsule
+    maturity: designed
+    consumes:
+      - resolved-repository-snapshot
+      - issue-intent
+      - work-package
+      - authority
+      - root-cause-census
+      - impact-plan
+    produces:
+      - sec-task-capsule-v1
+      - unresolved-frontier
+
+  - id: change-closure-compiler
+    owner: change-closure
+    maturity: designed
+    consumes:
+      - sec-task-capsule-v1
+      - authority-and-consumers
+      - historical-failure-corpus
+      - impact-plan
+    produces:
+      - sec-change-closure-plan-v1
+      - counterexample-plan
+      - omission-proofs
+
+  - id: candidate-closure-engine
+    owner: candidate-closure
+    maturity: proposed-here
+    consumes:
+      - candidate-identity
+      - work-package-identity
+      - closure-receipt
+      - verification-plan
+      - review-policy
+      - publication-policy
+    produces:
+      - candidate-closure-state
+      - transition-receipts
+      - merge-authorization
+      - publication-receipt
+    mustBe:
+      - idempotent
+      - resumable
+      - exact-head-bound
+      - orchestration-only
+
+  - id: evidence-dag
+    owner: evidence-run-journal
+    maturity: designed
+    consumes:
+      - action-definitions
+      - exact-input-closures
+      - environment-digests
+      - trusted-producers
+    produces:
+      - action-results
+      - reusable-evidence
+      - invalidation-reasons
+
+  - id: run-journal
+    owner: evidence-run-journal
+    maturity: designed
+    consumes:
+      - run-events
+      - candidate-failure-evidence
+      - transition-receipts
+    produces:
+      - persistent-next-action
+      - resume-preconditions
+
+  - id: development-run-kernel
+    owner: development-run-kernel
+    maturity: manual-shadow
+    consumes:
+      - run-journal
+      - exact-repository-fingerprint
+      - prompt-intake
+      - transition-contract
+    produces:
+      - immutable-capsules
+      - legal-next-transition
+      - cancellation-or-supersede
+
+  - id: context-compiler
+    owner: task-capsule
+    maturity: proposed-here
+    consumes:
+      - task-capsule
+      - operation
+      - authority-index
+      - semantic-index
+      - evidence-and-failure
+    produces:
+      - context-capsule
+    constraints:
+      - references-not-copy
+      - reason-tagged
+      - mode-tagged
+      - digest-bound
+      - progressive-disclosure
+
+  - id: repository-semantic-index
+    owner: compiler-incremental
+    maturity: proposed-here
+    role: derived-development-index
+    consumes:
+      - exact-git-blobs
+      - parsers
+      - owner-registries
+    produces:
+      - symbol-import-consumer-graph
+      - state-and-artifact-owner-edges
+      - context-selection-index
+      - integration-conflict-evidence
+    mustNotOwn:
+      - engineering-ir
+      - canonical-product-identity
+      - verification-truth
+
+  - id: automatic-feedback-plan
+    owner: automatic-feedback
+    maturity: designed
+    consumes:
+      - watcher-hints
+      - digest-confirmation
+      - impact-plan
+      - incremental-program
+    produces:
+      - diagnostics
+      - gate-plan
+      - current-revision
+    sideEffects: none
+
+  - id: automatic-feedback-execution
+    owner: automatic-feedback
+    maturity: blocked
+    blockedBy:
+      - verification-result
+      - epoch-failure
+      - hermetic-resource
+    consumes:
+      - feedback-plan
+      - evidence-dag
+      - resource-plan
+    produces:
+      - edit-results
+      - candidate-results
+      - frozen-request
+
+  - id: parallel-resolver-v3
+    owner: integration-queue
+    maturity: implemented-partial
+    consumes:
+      - v3-work-package-manifests
+    produces:
+      - pairwise-classification
+    gaps:
+      - relation-control-flow
+      - producer-consumer-direction
+      - integration-epoch
+      - stale-and-cycle-revalidation
+
+  - id: integration-epoch-registry
+    owner: integration-queue
+    maturity: designed
+    consumes:
+      - exact-base
+      - active-packages
+      - pairwise-matrix
+      - global-writers
+      - worktree-session-bindings
+    produces:
+      - authorized-active-set
+      - merge-order
+      - epoch-invalidations
+
+  - id: virtual-merge
+    owner: integration-queue
+    maturity: designed
+    consumes:
+      - current-main-tree
+      - ordered-candidates
+      - integration-epoch
+    produces:
+      - virtual-merge-tree
+      - combined-change-records
+      - evidence-invalidation-plan
+
+  - id: typed-publication-actions
+    owner: candidate-closure
+    maturity: proposed-here
+    actions:
+      - create-issue
+      - add-comment
+      - create-branch
+      - update-file
+      - update-ref
+      - dispatch
+      - merge
+      - delete-ref
+    requires:
+      - intent-class
+      - target-identity
+      - permission
+      - expected-precondition
+      - dry-run-summary
+      - reversibility
+      - readback
+      - receipt
+
+lifecycleStates:
+  workSelection:
+    - unselected
+    - proposed
+    - ready
+    - selected
+    - superseded
+  run:
+    - created
+    - oriented
+    - authorized
+    - running
+    - blocked
+    - candidate
+    - frozen
+    - verified
+    - integrated
+    - read-back
+    - completed
+    - cancelled
+    - superseded
+  candidateClosure:
+    - absent
+    - authoring
+    - prepared
+    - single-parent-ready
+    - scope-requested
+    - scope-passed
+    - verification-requested
+    - verification-passed
+    - review-requested
+    - review-approved
+    - merge-authorized
+    - merged
+    - main-readback
+    - cleanup-completed
+    - blocked
+    - invalidated
+  integrationEpoch:
+    - proposed
+    - active
+    - invalidated
+    - completed
+
+candidateClosureTransitions:
+  - from: authoring
+    to: prepared
+    requires:
+      - authoring-acceptance
+      - manifest-frozen
+      - change-closure-receipt
+  - from: prepared
+    to: single-parent-ready
+    requires:
+      - current-base
+      - exact-candidate-tree
+      - no-uncommitted-authority
+  - from: single-parent-ready
+    to: scope-requested
+    action: dispatch-scope
+  - from: scope-requested
+    to: scope-passed
+    requires:
+      - trusted-scope-artifact-pass
+  - from: scope-passed
+    to: verification-requested
+    action: dispatch-verification
+  - from: verification-requested
+    to: verification-passed
+    requires:
+      - trusted-verification-artifact-pass
+  - from: verification-passed
+    to: review-requested
+    action: request-independent-review
+  - from: review-requested
+    to: review-approved
+    requires:
+      - exact-head-approval
+      - no-unresolved-thread
+      - no-request-changes
+  - from: review-approved
+    to: merge-authorized
+    requires:
+      - live-pr-revalidation
+      - live-base-head-manifest
+      - required-evidence-still-valid
+  - from: merge-authorized
+    to: merged
+    action: expected-head-merge
+  - from: merged
+    to: main-readback
+    requires:
+      - product-result-in-main
+  - from: main-readback
+    to: cleanup-completed
+    requires:
+      - issue-closeout
+      - manifest-lifecycle
+      - branch-worktree-cleanup-receipts
+      - rolling-replan
+
+invalidations:
+  - event: head-changed
+    invalidates:
+      - candidate-aggregate
+      - exact-head-review
+      - merge-authorization
+      - unfinished-head-resource
+    mayRetain:
+      - action-results-with-unchanged-input-closure
+  - event: base-changed
+    invalidates:
+      - candidate-closure-state-after-prepared
+      - integration-epoch
+      - virtual-merge
+  - event: manifest-changed
+    invalidates:
+      - scope-artifact
+      - verification-request
+      - review-scope
+      - merge-authorization
+  - event: trust-root-changed
+    invalidates:
+      - candidate-verifier-authorization
+    requires:
+      - trusted-bootstrap-route
+  - event: cleanup-failed
+    invalidates:
+      - positive-resource-result
+      - publication-completion
+  - event: user-scope-delta
+    action:
+      - reconcile-task-capsule
+      - preserve-or-invalidate-candidate-by-proof
+
+prioritySequence:
+  - priority: P0
+    name: candidate-closure
+    rationale: Removes the current post-authoring dead zone and makes existing verification investment usable.
+  - priority: P1
+    name: task-and-change-closure-read-only
+    rationale: Reduces predictable rework before more automation increases mutation rate.
+  - priority: P2
+    name: failure-evidence-run-core
+    rationale: Enables exact reuse and deterministic resume.
+  - priority: P3
+    name: impact-and-feedback-plan
+    rationale: Removes repeated scanning and manual lane selection.
+  - priority: P4
+    name: integration-epoch-and-virtual-merge
+    rationale: Adds safe parallel throughput after single-candidate closure is stable.
+  - priority: P5
+    name: persistent-cache-and-telemetry
+    rationale: Optimizes repeated work only after keys, trust, resources, and invalidation are correct.
+
+retirements:
+  - target: local-merge-bootstrap-as-state-owner
+    after:
+      - candidate-closure-engine-main-readback
+    preserveAs:
+      - thin-operator-cli
+  - target: manual-chat-resume
+    after:
+      - run-journal-and-kernel-acceptance
+  - target: manual-test-lane-selection
+    after:
+      - automatic-feedback-execution-acceptance
+  - target: path-only-impact-as-primary
+    after:
+      - semantic-impact-v2-clean-parity
+    preserveAs:
+      - conservative-fallback
+  - target: one-formal-package-default
+    after:
+      - integration-epoch-v1-main-readback
+    preserveWhen:
+      - conflict-or-unresolved
+  - target: prose-duplicated-transition-rules
+    after:
+      - typed-transition-contract-and-projections
+
+nonGoals:
+  - migrate-to-bazel-nx-pants
+  - remote-execution-v1
+  - all-tests-in-edit-loop
+  - branch-as-test-parameter
+  - ai-as-verification-authority
+  - cache-as-merge-authority
+  - universal-free-parallelism
+  - second-engineering-ir
+  - merge-spike-history
