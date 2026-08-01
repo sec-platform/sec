@@ -1,0 +1,764 @@
+schema: sec-development-throughput-evaluation-v1
+status: proposal
+researchBase: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+tracking: issue-230
+
+resultVocabulary:
+  - pass
+  - fail
+  - blocked
+  - unresolved
+  - not-run
+  - unsupported
+  - stale
+  - invalidated
+  - superseded
+
+suites:
+  - id: historical-first-pass-replay
+    purpose: Prove Task Capsule and Change Closure would surface previously escaped adjacent invariants before first Frozen candidate.
+    scenarios:
+      - id: history-203-to-210
+        source: PR-203-to-PR-210
+        input:
+          change: squash-parent-fix
+          laterDefect: commandAll-dispatched-before-single-parent-preparation
+        expected:
+          primaryOwner: change-closure
+          requiredCells:
+            - full-command-state-order
+            - dispatch-precondition
+            - single-parent-tree-preservation
+          result: blocked
+          nextAction: expand-closure-before-authoring
+
+      - id: history-210-to-213
+        source: PR-210-to-Issue-212-PR-213
+        input:
+          change: remove-redundant-git-fetch
+          laterDefect: repository-audit-depends-on-remote-tracking-main
+        expected:
+          requiredCells:
+            - shallow-checkout
+            - missing-remote-tracking-ref
+            - exact-default-base
+            - hosted-environment
+          result: blocked
+
+      - id: history-211-to-215
+        source: PR-211-to-Issue-215
+        input:
+          change: skipped-no-longer-projects-to-passed
+          laterDefects:
+            - owning-environment-not-consumed
+            - aggregate-order-dependence
+            - not-applicable-blocks-overall
+            - zero-test-full-runtime-passes
+        expected:
+          requiredCells:
+            - permutation-property
+            - required-claim-coverage
+            - owning-environment-ledger
+            - zero-execution-fail-closed
+          result: blocked
+
+      - id: repeated-crlf-lf
+        source: repeated-candidate-failures-before-Issue-209
+        input:
+          symptom: checkout-bytes-differ-from-git-blob
+        expected:
+          rootOwner: repository-text-byte-contract
+          prohibitedAction:
+            - retry
+            - normalize-evidence-silently
+          result: blocked
+
+      - id: post-merge-pointer-drift
+        source: repeated-manual-control-plane-closeout
+        input:
+          productMerged: true
+          pointerSettlement: failed
+        expected:
+          productState: merged
+          controlPlaneState: reconciliation-required
+          result: blocked
+          prohibitedClaim: cleanup-completed
+
+      - id: intent-action-mismatch
+        source: historical-tool-routing-error
+        input:
+          intent: create-issue
+          attemptedAction: update-main-file
+        expected:
+          result: blocked
+          violatedInvariant: typed-action-intent-match
+          noRepositoryMutation: true
+
+  - id: candidate-closure-state
+    purpose: Validate exact candidate progression, invalidation, idempotency, and recovery.
+    scenarios:
+      - id: draft-pr-not-eligible
+        input:
+          prState: open
+          draft: true
+          candidatePrepared: true
+        expected:
+          state: blocked
+          nextTransition: mark-ready-after-authoring-acceptance
+          noDispatch: true
+
+      - id: multi-commit-preparation-preserves-tree
+        input:
+          parentCount: 4
+          beforeTree: tree-A
+          currentBase: base-A
+        operation: prepare-single-parent
+        expected:
+          parentCount: 1
+          parent: base-A
+          afterTree: tree-A
+          oldHeadEvidence: invalidated
+          result: pass
+
+      - id: preparation-tree-drift
+        input:
+          beforeTree: tree-A
+          afterTree: tree-B
+        expected:
+          result: invalidated
+          state: candidate
+          prohibitedTransition: scope-requested
+
+      - id: duplicate-scope-dispatch
+        input:
+          candidate: candidate-A
+          existingRequestReceipt: scope-request-A
+        expected:
+          result: pass
+          reusedReceipt: scope-request-A
+          dispatchCount: 0
+
+      - id: new-head-invalidates-review
+        input:
+          reviewedHead: head-A
+          liveHead: head-B
+        expected:
+          reviewState: stale
+          mergeAuthorization: invalidated
+          result: blocked
+
+      - id: new-head-cancels-old-aggregate
+        input:
+          oldHeadRun: in-progress
+          newHead: head-B
+        expected:
+          oldAggregate: superseded
+          cancellationRequested: true
+          independentActionReuse: evaluate-by-action-key
+
+      - id: base-advanced
+        input:
+          candidateBase: base-A
+          liveBase: base-B
+        expected:
+          candidateClosureAfterPrepared: invalidated
+          integrationEpoch: invalidated
+          nextTransition: reconcile-against-new-main
+
+      - id: verification-pass-review-missing
+        input:
+          verification: passed
+          review: not-run
+        expected:
+          mergeAuthorization: absent
+          result: blocked
+
+      - id: unresolved-review-thread
+        input:
+          verification: passed
+          review: approved
+          unresolvedThreads: 1
+        expected:
+          mergeAuthorization: absent
+          result: blocked
+
+      - id: trust-root-candidate
+        input:
+          trustRootChanged: true
+          candidateVerification: passed-by-candidate-runner
+        expected:
+          result: blocked
+          nextTransition: trusted-base-manual-bootstrap
+          prohibitedClaim: verified
+
+      - id: merge-timeout-readback-success
+        input:
+          mergeCall: timeout
+          livePrMerged: true
+          newMainContainsTree: true
+        expected:
+          secondMergeCall: false
+          state: main-readback
+          result: pass
+
+      - id: merge-timeout-readback-not-merged
+        input:
+          mergeCall: timeout
+          livePrMerged: false
+        expected:
+          state: blocked
+          nextTransition: safe-retry-after-live-revalidation
+
+      - id: cleanup-tool-unavailable
+        input:
+          merged: true
+          deleteRefCapability: unsupported
+        expected:
+          productState: main-readback
+          cleanupState: incomplete
+          receipt: not-performed
+          prohibitedClaim: cleanup-completed
+
+      - id: process-restart-after-verification
+        input:
+          lastReceipt: verification-passed
+          liveCandidateUnchanged: true
+        expected:
+          repeatedVerification: false
+          nextTransition: review-requested
+          result: pass
+
+      - id: shared-exact-head-two-prs
+        input:
+          openPullRequestsForHead: 2
+        expected:
+          result: blocked
+          reason: ambiguous-publication-target
+
+  - id: action-key-and-evidence
+    purpose: Prevent duplicate work, cache poisoning, trust confusion, and invalid reuse.
+    scenarios:
+      - id: exact-action-hit
+        input:
+          actionDefinition: action-A
+          inputClosure: input-A
+          environment: env-A
+          producerTrust: hosted-trusted
+        cache:
+          actionKey: matching
+          result: passed
+        expected:
+          execute: false
+          reuse: true
+          result: pass
+
+      - id: toolchain-version-change
+        input:
+          previousToolchain: bun-1
+          currentToolchain: bun-2
+        expected:
+          actionKeyEqual: false
+          reuse: false
+
+      - id: selector-revision-change
+        input:
+          previousSelector: impact-v1
+          currentSelector: impact-v2
+        expected:
+          affectedPlanReuse: false
+          downstreamReuse: recompute-by-input-closure
+
+      - id: branch-name-change-no-invalidation
+        input:
+          sameTree: true
+          sameInputs: true
+          oldBranch: feature-a
+          newBranch: renamed-feature
+        expected:
+          actionKeyEqual: true
+
+      - id: pr-number-not-key
+        input:
+          sameExactInputs: true
+          oldPr: 10
+          newPr: 11
+        expected:
+          pureActionKeyEqual: true
+          publicationActionKeyEqual: false
+
+      - id: partial-restore-is-hint
+        input:
+          githubCacheRestore: prefix-hit
+          toolIdentityValidation: failed
+        expected:
+          evidenceReuse: false
+          rebuild: true
+
+      - id: untrusted-producer
+        input:
+          actionKey: matching
+          producerTrust: local-untrusted
+          consumerRequirement: hosted-trusted
+        expected:
+          reuseForMergeAuthority: false
+          localDiagnosticUse: allowed
+
+      - id: cleanup-failed
+        input:
+          actionStatus: passed
+          cleanupReceipt: failed
+        expected:
+          effectiveStatus: failed
+          positiveEvidence: absent
+
+      - id: deterministic-failure-reuse
+        input:
+          sameActionKey: true
+          sameFailureFingerprint: true
+          causalInputChanged: false
+        expected:
+          execute: false
+          returnFailure: true
+          result: fail
+
+      - id: transient-causal-change
+        input:
+          sameActionKey: false
+          change: lock-owner-ended
+          previousFailureClass: transient-resource-lock
+        expected:
+          boundedRetryEligible: true
+
+      - id: ambient-path-underdeclared
+        input:
+          actionReadsUndeclaredGlobalPath: true
+        expected:
+          result: fail
+          cacheable: false
+          finding: incomplete-input-closure
+
+      - id: cache-poison-revocation
+        input:
+          producerRevisionCompromised: producer-X
+        expected:
+          revokeByProducer: true
+          dependentAggregates: invalidated
+
+      - id: cache-eviction
+        input:
+          exactResultMetadataMissing: true
+          canonicalInputsAvailable: true
+        expected:
+          rebuild: true
+          correctnessChanged: false
+
+  - id: context-and-resume
+    purpose: Ensure compact context, instruction fences, and deterministic resume do not lose authority or repeat work.
+    scenarios:
+      - id: byte-stable-task-capsule
+        input:
+          exactFacts: facts-A
+          generationTimeDifferent: true
+        expected:
+          capsuleDigestEqual: true
+
+      - id: authority-change-narrow-reload
+        input:
+          changedAuthority: verification-governance
+          unrelatedSourceUnchanged: true
+        expected:
+          reload:
+            - verification-authority-ref
+          retain:
+            - unrelated-source-ref
+
+      - id: leaf-task-no-full-audit
+        input:
+          sharedOwnerResolved: true
+          publicContractUnchanged: true
+          localConsumerClosureComplete: true
+        expected:
+          contextLevelMax: L2
+          fullAudit: false
+
+      - id: missing-index-is-unknown
+        input:
+          parserFailedForConsumer: true
+        expected:
+          impact: unresolved
+          notAffected: false
+
+      - id: dirty-delta-does-not-poison-base
+        input:
+          baseTree: tree-A
+          dirtyWorkspace: delta-B
+        expected:
+          baseSnapshotDigestUnchanged: true
+          candidateSnapshot: base-plus-delta
+
+      - id: compact-resume
+        input:
+          lastEvent: focused-tests-passed
+          repositoryFingerprintUnchanged: true
+        expected:
+          nextTransition: candidate-pre-freeze
+          repeatedFocusedTest: false
+
+      - id: instruction-fence-changed
+        input:
+          previousInstructionDigest: instruction-A
+          currentInstructionDigest: instruction-B
+        expected:
+          result: blocked
+          nextTransition: reconcile-instructions
+
+      - id: session-changed-run-stable
+        input:
+          runId: run-A
+          oldSession: session-1
+          newSession: session-2
+          externalStateUnchanged: true
+        expected:
+          runId: run-A
+          nextTransitionUnchanged: true
+
+      - id: worktree-binding-changed
+        input:
+          expectedWorktree: worktree-A
+          currentWorktree: worktree-B
+        expected:
+          result: blocked
+          nextTransition: rebind-or-select-correct-worktree
+
+      - id: user-says-continue
+        input:
+          promptIntent: continue
+          currentNextTransition: review-candidate
+        expected:
+          scopeDelta: none
+          nextTransition: review-candidate
+
+      - id: user-expands-goal
+        input:
+          promptIntent: add-new-capability
+          frozenCandidateExists: true
+        expected:
+          reconciliationDelta: required
+          candidateInvalidation: proof-dependent
+          silentScopeExpansion: false
+
+      - id: duplicate-watcher-events
+        input:
+          watcherEvents: 5
+          finalBytesDigest: digest-A
+        expected:
+          semanticRevisionCount: 1
+
+      - id: rapid-edit-supersede
+        input:
+          revisions:
+            - rev-1
+            - rev-2
+            - rev-3
+        expected:
+          publishedAggregate: rev-3
+          rev1Rev2: superseded
+          safeCancellation: true
+
+  - id: incremental-and-feedback
+    purpose: Verify incremental speedups preserve clean parity and correct selection.
+    scenarios:
+      - id: typecheck-clean-incremental-parity
+        input:
+          sourceTree: tree-A
+        expected:
+          cleanDiagnosticsEqualIncremental: true
+
+      - id: corrupted-build-info
+        input:
+          tsbuildinfo: corrupt
+        expected:
+          deleteAndRebuild: true
+          falsePass: false
+
+      - id: project-reference-real-boundary
+        input:
+          moduleOwnershipIndependent: true
+          declarationBoundaryStable: true
+          measuredBenefit: positive
+        expected:
+          adoptCandidate: true
+
+      - id: project-reference-arbitrary-split
+        input:
+          onlyGoal: increase-cache-hit
+          ownershipBoundary: absent
+        expected:
+          adoptCandidate: false
+
+      - id: watcher-hint-bytes-unchanged
+        input:
+          watcherEvent: changed
+          actualDigestBefore: digest-A
+          actualDigestAfter: digest-A
+        expected:
+          semanticInvalidation: false
+
+      - id: edit-loop-excludes-physical-gate
+        input:
+          changedFileRequiresBrowserOnlyAtRisk: true
+        expected:
+          editActions:
+            - plan
+          browserStart: false
+
+      - id: candidate-loop-selects-browser
+        input:
+          impactRequiresBrowser: true
+          candidateStable: true
+        expected:
+          selectedPhysicalGate: browser
+          executionPhase: candidate-or-frozen
+
+      - id: affected-empty-source-change
+        input:
+          sourceChanged: true
+          affectedSelection: []
+          notApplicableProof: absent
+        expected:
+          result: blocked
+          falsePass: false
+
+  - id: integration-epoch
+    purpose: Prove parallel and ordered work are authorized by semantic conflict and exact base rather than Git text conflict.
+    scenarios:
+      - id: path-disjoint-authority-conflict
+        input:
+          packageA:
+            writesAuthority: canonical-schema
+            paths: [a.ts]
+          packageB:
+            writesAuthority: canonical-schema
+            paths: [b.ts]
+        expected:
+          classification: authority-conflict
+
+      - id: producer-consumer-correct-direction
+        input:
+          packageA:
+            writesAuthority: contract-X
+          packageB:
+            readsAuthority: contract-X
+            requires: [packageA]
+        expected:
+          classification: ordered
+          order: [packageA, packageB]
+
+      - id: producer-consumer-wrong-direction
+        input:
+          packageA:
+            writesAuthority: contract-X
+            requires: [packageB]
+          packageB:
+            readsAuthority: contract-X
+        expected:
+          classification: unresolved
+
+      - id: conflicts-with-one-sided
+        input:
+          packageA:
+            conflictsWith: [packageB]
+          packageB:
+            conflictsWith: []
+        expected:
+          classification: write-conflict
+
+      - id: relation-cycle
+        input:
+          requires:
+            packageA: [packageB]
+            packageB: [packageA]
+        expected:
+          classification: unresolved
+          cycleWitness: required
+
+      - id: missing-relation-target
+        input:
+          packageA:
+            orderedAfter: [missing-package]
+        expected:
+          classification: unresolved
+
+      - id: verification-definition-shared-resource-independent
+        input:
+          sameVerificationPolicy: true
+          separateWorkspaces: true
+          separateEvidenceKeys: true
+          noSharedWriter: true
+        expected:
+          classification: parallel-safe
+
+      - id: verification-definition-different-shared-resource
+        input:
+          sameVerificationPolicy: false
+          sharedMutableBrowserProfile: true
+        expected:
+          classification: resource-conflict
+
+      - id: three-package-nontransitive-safe
+        input:
+          pairwise:
+            A-B: parallel-safe
+            A-C: parallel-safe
+            B-C: resource-conflict
+        expected:
+          wholeSetParallelSafe: false
+
+      - id: main-advance-invalidates-epoch
+        input:
+          epochBase: base-A
+          liveMain: base-B
+        expected:
+          epochState: invalidated
+          recomputeRequired: true
+
+      - id: candidate-failure-unrelated-continues
+        input:
+          packageA: failed
+          packageB:
+            dependsOnA: false
+            classificationWithA: parallel-safe
+        expected:
+          packageBMayContinue: true
+
+      - id: virtual-order-differs
+        input:
+          orderOne: [A, B]
+          orderTwo: [B, A]
+          textMergeBoth: true
+          contractOutcomeDifferent: true
+        expected:
+          virtualMergeIdentityEqual: false
+          queueMustHonorOrder: true
+
+      - id: candidate-absorbed-by-main
+        input:
+          commitAncestryMissing: true
+          mainBehaviorContainsCandidateResult: true
+        expected:
+          candidateState: superseded
+          mergeAttempt: false
+
+  - id: publication-security
+    purpose: Contain automation blast radius and prevent intent/action or permission mistakes.
+    scenarios:
+      - id: app-minimum-permissions
+        input:
+          requestedAction: dispatch
+          appPermissions:
+            actions: write
+            contents: read
+            pullRequests: read
+        expected:
+          allowed: true
+
+      - id: app-overbroad-main-write
+        input:
+          requestedAction: dispatch
+          appPermissions:
+            contents: write
+        expected:
+          finding: unnecessary-write-permission
+
+      - id: expected-head-mismatch
+        input:
+          authorizedHead: head-A
+          liveHead: head-B
+        expected:
+          action: merge
+          allowed: false
+
+      - id: target-repository-mismatch
+        input:
+          authorizedRepository: sec-platform/sec
+          requestedRepository: other/repo
+        expected:
+          allowed: false
+
+      - id: plan-intent-mutating-action
+        input:
+          intentClass: plan-only
+          action: update-ref
+        expected:
+          allowed: false
+          mutationCount: 0
+
+      - id: delete-parent-directory
+        input:
+          action: cleanup-worktree
+          target: parent-project-root
+        expected:
+          allowed: false
+
+      - id: issue-closeout-without-main-readback
+        input:
+          mergeApiSaysSuccess: true
+          productReadback: unknown
+        expected:
+          closeIssue: false
+
+  - id: metric-anti-gaming
+    purpose: Reject apparent speedups that weaken correctness or move work outside measured windows.
+    scenarios:
+      - id: faster-by-skipping-risk
+        input:
+          durationImproved: true
+          requiredRisk: not-run
+        expected:
+          metricImprovementAccepted: false
+
+      - id: first-pass-by-late-freeze
+        input:
+          firstPassYieldImproved: true
+          unlimitedManualChecksBeforeFreeze: true
+        expected:
+          metricImprovementAccepted: false
+
+      - id: context-smaller-authority-missing
+        input:
+          contextBytesReduced: true
+          requiredAuthorityMissing: true
+        expected:
+          metricImprovementAccepted: false
+
+      - id: reuse-rate-underdeclared-inputs
+        input:
+          cacheHitRateImproved: true
+          undeclaredInputs: true
+        expected:
+          metricImprovementAccepted: false
+
+      - id: parallel-count-by-unknown-as-safe
+        input:
+          parallelSafeCountImproved: true
+          unresolvedClassifiedSafe: true
+        expected:
+          metricImprovementAccepted: false
+
+coverageRequirements:
+  minimumScenarios: 60
+  requiredSuites:
+    - historical-first-pass-replay
+    - candidate-closure-state
+    - action-key-and-evidence
+    - context-and-resume
+    - incremental-and-feedback
+    - integration-epoch
+    - publication-security
+    - metric-anti-gaming
+  acceptance:
+    - Every scenario resolves one owning capability or explicitly reports unresolved ownership.
+    - No expected PASS is derived from skipped, missing, stale, unsupported, or cleanup-unknown evidence.
+    - Historical replay demonstrates whether the proposed plan would catch the later defect before first freeze.
+    - Automation scenarios verify no unintended repository mutation occurs before typed authorization.
+    - Evaluation results bind exact implementation and registry revisions when formalized.
