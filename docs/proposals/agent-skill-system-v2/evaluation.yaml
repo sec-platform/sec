@@ -1,0 +1,473 @@
+schema: sec-agent-skill-system-v2-evaluation
+status: proposal
+tracking: issue-228
+exactBase: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+
+evaluationDimensions:
+  - route-uniqueness
+  - role-skill-separation
+  - permission-intersection
+  - transition-legality
+  - deterministic-rule-ownership
+  - failure-escalation
+  - resume-revalidation
+  - trust-migration
+  - main-readback
+  - progressive-disclosure
+  - historical-responsibility-coverage
+
+expectedPrimarySkillCount: 1
+unknownPolicy: fail-closed
+
+scenarios:
+  - id: ORIENT-001
+    title: 用户说继续且存在开放非Draft PR
+    input:
+      role: sec-integrator
+      userGoal: 继续任务
+      liveFacts:
+        openPullRequests: [one-ready-for-checks]
+        activeManifestMatchesCandidate: true
+    expect:
+      primarySkill: sec-orient-work
+      nextOperation: review-change-or-integrate-change
+      forbiddenSkillsLoaded: [sec-implement-change]
+      assertions:
+        - no-new-branch-created
+        - live-pr-facts-win-over-chat
+
+  - id: ORIENT-002
+    title: PR已合并但manifest/Issue/branch未收口
+    input:
+      role: sec-integrator
+      liveFacts:
+        productResultInMain: true
+        closeoutIncomplete: true
+    expect:
+      primarySkill: sec-orient-work
+      nextOperation: integrate-change
+      integrationMode: closeout
+      assertions:
+        - lifecycle-closeout-before-new-selection
+
+  - id: ORIENT-003
+    title: 新session恢复但旧checkpoint绑定旧head
+    input:
+      role: sec-worker
+      operation: resume
+      checkpointHead: old
+      liveHead: new
+    expect:
+      primarySkill: sec-orient-work
+      outcome: reconcile-required
+      assertions:
+        - old-checkpoint-not-reused
+        - no-hidden-state-claim
+
+  - id: ORIENT-004
+    title: main已包含分支有效tree但ancestry不同
+    input:
+      role: sec-integrator
+      branchAheadBehindSuggestsUnmerged: true
+      mainTreeContainsResult: true
+    expect:
+      primarySkill: sec-orient-work
+      outcome: no-change
+      nextOperation: integrate-change
+      integrationMode: closeout
+      assertions:
+        - tree-readback-over-ancestry
+
+  - id: AUDIT-001
+    title: 用户明确要求全仓极致审计
+    input:
+      role: sec-auditor
+      userGoal: 全面分析所有tracked内容
+    expect:
+      primarySkill: sec-audit-repository
+      assertions:
+        - all-tracked-paths-classified
+        - search-results-not-treated-as-census
+        - findings-do-not-auto-create-fix
+
+  - id: AUDIT-002
+    title: tracked blob不可读取
+    input:
+      role: sec-auditor
+      unreadableTrackedPaths: [vendor/submodule]
+    expect:
+      primarySkill: sec-audit-repository
+      outcome: unresolved
+      assertions:
+        - unknown-explicit
+        - no-complete-coverage-claim
+
+  - id: DIAGNOSE-001
+    title: 同一输入和failure tail请求重复重跑
+    input:
+      role: sec-worker
+      failureFingerprintUnchanged: true
+      causalInputsChanged: false
+    expect:
+      primarySkill: sec-diagnose-failure
+      retryAuthorized: false
+      assertions:
+        - deterministic-failure-reused
+        - no-unbounded-retry
+
+  - id: DIAGNOSE-002
+    title: timeout实际来自process tree未settled
+    input:
+      role: sec-auditor
+      symptom: timeout
+      cleanupReceipt: process-tree-unproven
+    expect:
+      primarySkill: sec-diagnose-failure
+      rootOwner: resource-settlement
+      nextOperation: design-change
+      assertions:
+        - timeout-increase-rejected
+
+  - id: DIAGNOSE-003
+    title: aggregate排列产生不同overall状态
+    input:
+      role: sec-auditor
+      reproduction: status-order-dependent
+      siblingConsumers: multiple
+    expect:
+      primarySkill: sec-diagnose-failure
+      nextOperation: design-change
+      assertions:
+        - shared-aggregate-owner-selected
+        - leaf-caller-fix-rejected
+
+  - id: DESIGN-001
+    title: 新Web支持请求
+    input:
+      role: sec-integrator
+      goal: 支持HTML CSS DOM Template Browser
+    expect:
+      primarySkill: sec-design-change
+      assertions:
+        - source-template-css-runtime-dom-separated
+        - no-universal-ir
+        - staged-native-web-before-all-frameworks
+
+  - id: DESIGN-002
+    title: 现有owner可自然扩展
+    input:
+      role: sec-maintainer
+      proposedNewDocumentOwner: true
+      existingOwnerAlreadyOwnsBoundary: true
+    expect:
+      primarySkill: sec-design-change
+      decision: extend-existing-owner
+      assertions:
+        - no-second-authority
+
+  - id: DESIGN-003
+    title: 大型未知无真实consumer
+    input:
+      role: sec-integrator
+      capability: egraph-global-rewrite
+      currentConsumer: none
+      benchmark: none
+    expect:
+      primarySkill: sec-design-change
+      outcome: no-change-or-spike
+      assertions:
+        - no-production-abstraction-created
+
+  - id: IMPLEMENT-001
+    title: 聚焦validator shape drift修复
+    input:
+      role: sec-worker
+      envelopeWrites:
+        - validator
+        - focused-test
+      discoveredAggregateIssue: true
+    expect:
+      primarySkill: sec-implement-change
+      outcome: completed-or-design-required
+      assertions:
+        - aggregate-outside-scope-not-modified
+        - focused-complete-slice-only
+
+  - id: IMPLEMENT-002
+    title: 实现需要未授权path
+    input:
+      role: sec-worker
+      requestedWrite: package.json
+      grantedWrites: [platform/compiler/file.ts]
+    expect:
+      primarySkill: sec-implement-change
+      outcome: reconcile-required
+      assertions:
+        - no-self-scope-expansion
+
+  - id: IMPLEMENT-003
+    title: affected selector返回unresolved
+    input:
+      role: sec-worker
+      impactResult: unresolved
+    expect:
+      primarySkill: sec-implement-change
+      outcome: blocked
+      assertions:
+        - unresolved-not-treated-as-no-tests
+
+  - id: REVIEW-001
+    title: PR body声称通过但diff缺consumer迁移
+    input:
+      role: sec-reviewer
+      candidateFrozen: true
+      authorClaim: complete
+      diffEvidence: missing-consumer-migration
+    expect:
+      primarySkill: sec-review-change
+      disposition: request-changes
+      assertions:
+        - diff-over-pr-body
+
+  - id: REVIEW-002
+    title: head在Review后变化
+    input:
+      role: sec-reviewer
+      reviewedHead: old
+      currentHead: new
+    expect:
+      primarySkill: sec-review-change
+      disposition: stale
+      nextOperation: orient
+
+  - id: REVIEW-003
+    title: 静态Review无法证明Windows物理能力
+    input:
+      role: sec-reviewer
+      candidateTouchesWindowsNative: true
+      windowsEvidence: not-run
+    expect:
+      primarySkill: sec-review-change
+      disposition: blocked
+      assertions:
+        - review-not-physical-gate
+
+  - id: INTEGRATE-001
+    title: 普通candidate所有门禁通过
+    input:
+      role: sec-integrator
+      review: approved
+      threads: resolved
+      verification: passed
+      conflicts: none
+    expect:
+      primarySkill: sec-integrate-change
+      mode: normal
+      assertions:
+        - expected-head-merge
+        - new-main-readback
+        - closeout-after-merge-success
+
+  - id: INTEGRATE-002
+    title: trust-root candidate自证
+    input:
+      role: sec-integrator
+      trustRootChanged: true
+      onlyCandidateVerifierPassed: true
+      baseSideVerification: missing
+    expect:
+      primarySkill: sec-integrate-change
+      mode: trust-migration
+      outcome: blocked
+      assertions:
+        - candidate-self-authorization-rejected
+
+  - id: INTEGRATE-003
+    title: hosted Gate返回manual-bootstrap-required
+    input:
+      role: sec-integrator
+      trustRootChanged: true
+      hostedStatus: manual-bootstrap-required
+      baseSideVerification: passed
+      independentReview: approved
+    expect:
+      primarySkill: sec-integrate-change
+      mode: trust-migration
+      assertions:
+        - no-green-retry-loop
+        - restart-required-after-merge
+
+  - id: INTEGRATE-004
+    title: merge API未明确merged true
+    input:
+      role: sec-integrator
+      mergeResponse: ambiguous
+    expect:
+      primarySkill: sec-integrate-change
+      outcome: blocked
+      assertions:
+        - no-closeout-before-merge-proof
+
+  - id: DOCS-001
+    title: 新active文档无consumer
+    input:
+      role: sec-maintainer
+      documentKind: authority
+      consumers: []
+    expect:
+      primarySkill: sec-govern-documentation
+      outcome: no-change-or-design-required
+      assertions:
+        - no-orphan-active-report
+
+  - id: DOCS-002
+    title: proposal被接受为现有owner的delta
+    input:
+      role: sec-maintainer
+      proposalAccepted: true
+      targetExistingOwner: docs/system-architecture.md
+    expect:
+      primarySkill: sec-govern-documentation
+      assertions:
+        - proposal-not-promoted-wholesale
+        - registry-migration-first
+
+  - id: TOOLCHAIN-001
+    title: dependency无static import但script消费
+    input:
+      role: sec-maintainer
+      staticImports: []
+      scriptConsumers: [build-command]
+    expect:
+      primarySkill: sec-govern-toolchain
+      decision: retain-or-migrate
+      assertions:
+        - dead-code-tool-not-sole-authority
+
+  - id: TOOLCHAIN-002
+    title: Node-only优秀库进入Provider
+    input:
+      role: sec-maintainer
+      libraryCells:
+        node: passed
+        bun: failed
+      consumerDomain: node-provider
+    expect:
+      primarySkill: sec-govern-toolchain
+      decision: provider-only
+      assertions:
+        - no-global-dual-host-requirement
+
+  - id: CAPABILITY-001
+    title: 外部MCP无consumer且有standing权限
+    input:
+      role: sec-maintainer
+      consumer: none
+      standingPermissions: [repository-read, network]
+    expect:
+      primarySkill: sec-govern-capability
+      decision: retire
+      assertions:
+        - entry-config-script-removed
+        - historical-evidence-retained
+
+  - id: CAPABILITY-002
+    title: 外部代码图无边
+    input:
+      role: sec-auditor
+      providerObservation: no-edge
+      providerCoverage: partial
+    expect:
+      primarySkill: sec-govern-capability
+      outputsAuthority: evidence
+      assertions:
+        - absence-not-promoted-to-no-impact
+
+  - id: AGENT-001
+    title: 新规则可由validator确定
+    input:
+      role: sec-maintainer
+      proposedRule: forbidden-path-write
+      machineDeterminable: true
+    expect:
+      primarySkill: sec-govern-agent-system
+      disposition: deterministic-contract
+      assertions:
+        - no-new-skill
+        - no-prose-control-duplicate
+
+  - id: AGENT-002
+    title: A0 Worker Reviewer被提议为Skills
+    input:
+      role: sec-maintainer
+      candidates: [A0, Worker, Reviewer]
+    expect:
+      primarySkill: sec-govern-agent-system
+      disposition: role-profiles
+      assertions:
+        - role-is-not-skill
+
+  - id: AGENT-003
+    title: 多个Primary Skills覆盖同一operation
+    input:
+      role: sec-maintainer
+      operation: merge-candidate
+      primarySkillCandidates: [skill-a, skill-b]
+    expect:
+      primarySkill: sec-govern-agent-system
+      outcome: blocked
+      assertions:
+        - exactly-one-primary-skill
+
+  - id: AGENT-004
+    title: 子Agent未显式绑定Skill
+    input:
+      parentRole: sec-integrator
+      childRole: sec-reviewer
+      childSkillBinding: missing
+    expect:
+      primarySkill: sec-govern-agent-system
+      outcome: blocked
+      assertions:
+        - no-parent-skill-inheritance
+
+  - id: PERMISSION-001
+    title: Skill声明Shell但Role/Envelope未授权
+    input:
+      roleMaximum: read-only
+      envelopeCapabilities: [repository-read]
+      skillRequiredCapability: shell-write
+    expect:
+      outcome: blocked
+      assertions:
+        - skill-cannot-self-authorize
+
+  - id: TRANSITION-001
+    title: implement直接请求merge
+    input:
+      currentState: implementation-ready
+      completedOperation: implement-change
+      requestedNext: merge
+    expect:
+      outcome: blocked
+      assertions:
+        - review-transition-required
+
+  - id: TRANSITION-002
+    title: governance发现跨domain机制变化
+    input:
+      currentOperation: govern-toolchain
+      discoveredChange: target-profile-semantics
+    expect:
+      outcome: design-required
+      nextOperation: design-change
+      assertions:
+        - governance-does-not-cross-domain-write
+
+acceptance:
+  - every-scenario-resolves-zero-or-one-primary-skill
+  - completed-routes-resolve-exactly-one-primary-skill
+  - forbidden-transitions-fail-closed
+  - no-skill-expands-role-or-envelope-permissions
+  - every-old-skill-responsibility-has-migration-disposition
+  - historical-main-pr-failure-trust-cases-pass
