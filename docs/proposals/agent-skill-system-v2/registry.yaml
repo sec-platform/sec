@@ -1,0 +1,385 @@
+schema: sec-agent-skill-system-v2-proposal
+status: proposal
+tracking: issue-228
+exactBase: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+authority: none
+
+principles:
+  primarySkillCardinality: exactly-one-per-operation
+  roleIsNotSkill: true
+  skillOwnsDynamicState: false
+  skillMaySelfAuthorize: false
+  deterministicRulesOwner: code-contract
+  unknownDisposition: fail-closed
+  subagentInheritance: explicit-only
+  progressiveDisclosure: true
+
+trustClasses:
+  - id: read-only
+    permits: [repository-read, github-read, evidence-read]
+  - id: branch-write
+    permits: [repository-read, github-read, granted-branch-path-write]
+  - id: trust-root-write
+    permits: [repository-read, granted-trust-root-branch-write]
+    requires: [base-side-verification, independent-review, trust-migration]
+  - id: repository-control
+    permits: [github-pr-write, verification-dispatch, merge, closeout, safe-ref-cleanup]
+    roleAllowlist: [sec-integrator]
+  - id: external-control
+    permits: [approved-provider-write, publication, credential-use]
+    requires: [capability-ledger-approval, explicit-user-or-policy-authorization]
+
+outcomes:
+  - completed
+  - blocked
+  - unresolved
+  - reconcile-required
+  - design-required
+  - implementation-required
+  - review-required
+  - integration-required
+  - trust-migration-required
+  - restart-required
+  - no-change
+
+roles:
+  - id: sec-integrator
+    purpose: 选择、协调、Gate custody、合并和收口
+    maximumTrustClasses: [read-only, repository-control]
+    mayUseSkills:
+      - sec-orient-work
+      - sec-diagnose-failure
+      - sec-design-change
+      - sec-review-change
+      - sec-integrate-change
+      - sec-govern-agent-system
+    prohibited:
+      - write-worker-owned-product-seam
+      - self-approve-authored-candidate
+  - id: sec-worker
+    purpose: 在 typed envelope 内实现或修复
+    maximumTrustClasses: [read-only, branch-write, trust-root-write]
+    mayUseSkills:
+      - sec-orient-work
+      - sec-diagnose-failure
+      - sec-implement-change
+    prohibited:
+      - merge
+      - dispatch-hosted-gates
+      - expand-envelope
+      - recursive-delegation
+  - id: sec-reviewer
+    purpose: 对 exact candidate 做独立对抗审查
+    maximumTrustClasses: [read-only]
+    mayUseSkills:
+      - sec-orient-work
+      - sec-review-change
+      - sec-diagnose-failure
+    prohibited:
+      - modify-candidate
+      - replace-physical-verification
+  - id: sec-auditor
+    purpose: exact revision 全仓审计与故障调查
+    maximumTrustClasses: [read-only]
+    mayUseSkills:
+      - sec-orient-work
+      - sec-audit-repository
+      - sec-diagnose-failure
+    prohibited:
+      - convert-findings-to-giant-fix
+      - claim-unknown-as-absent
+  - id: sec-maintainer
+    purpose: 文档、工具链、外部能力和 Agent 系统治理
+    maximumTrustClasses: [read-only, branch-write, trust-root-write, external-control]
+    mayUseSkills:
+      - sec-orient-work
+      - sec-diagnose-failure
+      - sec-design-change
+      - sec-review-change
+      - sec-govern-documentation
+      - sec-govern-toolchain
+      - sec-govern-capability
+      - sec-govern-agent-system
+    prohibited:
+      - cross-domain-write-without-design-transition
+
+operations:
+  - id: orient
+    primarySkill: sec-orient-work
+    defaultTrustClass: read-only
+    requiredInputs: [repository-identity, requested-goal]
+    outputs: [resolved-work-context, next-operation-decision]
+  - id: resume
+    primarySkill: sec-orient-work
+    mode: resume
+    defaultTrustClass: read-only
+    requiredInputs: [repository-identity, external-checkpoint-or-run-reference]
+    outputs: [revalidated-work-context, next-operation-decision]
+  - id: audit-repository
+    primarySkill: sec-audit-repository
+    defaultTrustClass: read-only
+    requiredInputs: [resolved-work-context, exact-revision]
+    outputs: [repository-audit-evidence]
+  - id: diagnose-failure
+    primarySkill: sec-diagnose-failure
+    defaultTrustClass: read-only
+    requiredInputs: [resolved-work-context, failure-observation]
+    outputs: [failure-diagnosis]
+  - id: design-change
+    primarySkill: sec-design-change
+    defaultTrustClass: read-only
+    requiredInputs: [resolved-work-context, problem-or-goal, canonical-owners]
+    outputs: [change-design]
+  - id: implement-change
+    primarySkill: sec-implement-change
+    defaultTrustClass: branch-write
+    requiredInputs: [resolved-work-context, operation-envelope, frozen-scope]
+    outputs: [candidate-delta, implementation-reconciliation]
+  - id: review-change
+    primarySkill: sec-review-change
+    defaultTrustClass: read-only
+    requiredInputs: [resolved-work-context, exact-candidate]
+    outputs: [exact-head-review]
+  - id: integrate-change
+    primarySkill: sec-integrate-change
+    defaultTrustClass: repository-control
+    requiredInputs: [resolved-work-context, exact-candidate, verification-requirements]
+    outputs: [integration-receipt]
+  - id: integrate-trust-migration
+    primarySkill: sec-integrate-change
+    mode: trust-migration
+    defaultTrustClass: repository-control
+    requiredInputs: [trusted-base-verifier, exact-candidate, independent-review]
+    outputs: [trust-migration-receipt, restart-required]
+  - id: govern-documentation
+    primarySkill: sec-govern-documentation
+    defaultTrustClass: branch-write
+    requiredInputs: [resolved-work-context, documentation-change-intent]
+    outputs: [documentation-governance-delta]
+  - id: govern-toolchain
+    primarySkill: sec-govern-toolchain
+    defaultTrustClass: branch-write
+    requiredInputs: [resolved-work-context, toolchain-change-intent]
+    outputs: [toolchain-governance-delta]
+  - id: govern-capability
+    primarySkill: sec-govern-capability
+    defaultTrustClass: branch-write
+    requiredInputs: [resolved-work-context, capability-change-intent]
+    outputs: [capability-decision-or-delta]
+  - id: govern-agent-system
+    primarySkill: sec-govern-agent-system
+    defaultTrustClass: trust-root-write
+    requiredInputs: [resolved-work-context, agent-behavior-change-intent]
+    outputs: [agent-system-governance-delta]
+
+skills:
+  - id: sec-orient-work
+    category: lifecycle
+    operations: [orient, resume]
+    ownsHeuristics:
+      - decide-minimum-facts-needed
+      - decide-whether-resume-is-revalidatable
+      - route-to-next-operation
+    consumesServices: [repository-snapshot-resolver, authority-registry, work-selector]
+    mustNotOwn: [run-state, work-selection-policy, failure-state]
+  - id: sec-audit-repository
+    category: lifecycle
+    operations: [audit-repository]
+    ownsHeuristics:
+      - decide-audit-depth-after-full-census
+      - prioritize-findings
+      - classify-unknown-boundaries
+    consumesServices: [tracked-tree-census, repository-audit-contract, authority-registry]
+    mustNotOwn: [product-fix-scope, current-state]
+  - id: sec-diagnose-failure
+    category: lifecycle
+    operations: [diagnose-failure]
+    ownsHeuristics:
+      - choose-competing-root-cause
+      - decide-escalation-after-classifier-output
+      - identify-missing-decisive-evidence
+    consumesServices: [failure-classifier, evidence-invalidator, cleanup-receipts]
+    mustNotOwn: [retry-policy-algorithm, epoch-state, product-scope]
+  - id: sec-design-change
+    category: lifecycle
+    operations: [design-change]
+    ownsHeuristics:
+      - reconstruct-problem-boundary
+      - compare-architectural-alternatives
+      - choose-canonical-owner
+      - decompose-formal-delivery
+    consumesServices: [authority-registry, change-closure-compiler, impact-selector]
+    mustNotOwn: [implementation-state, verification-result]
+  - id: sec-implement-change
+    category: lifecycle
+    operations: [implement-change]
+    ownsHeuristics:
+      - choose-local-implementation-strategy
+      - order-edits-within-granted-scope
+      - interpret-focused-failure-before-escalation
+    consumesServices: [permission-evaluator, change-closure-plan, impact-selector, verification-runner]
+    mustNotOwn: [scope-expansion, hosted-gate-custody, merge]
+  - id: sec-review-change
+    category: lifecycle
+    operations: [review-change]
+    ownsHeuristics:
+      - prioritize-adversarial-review-attacks
+      - judge-finding-severity
+      - identify-omitted-consumer-or-invariant
+    consumesServices: [exact-diff-reader, authority-registry, change-closure-plan, review-thread-state]
+    mustNotOwn: [candidate-edits, physical-gate-result]
+  - id: sec-integrate-change
+    category: lifecycle
+    operations: [integrate-change, integrate-trust-migration]
+    ownsHeuristics:
+      - choose-integration-order-after-machine-conflict-result
+      - decide-closeout-actions
+      - interpret-main-readback
+    consumesServices: [integration-resolver, verification-aggregator, merge-gate, branch-hygiene]
+    mustNotOwn: [verification-semantics, trust-policy, product-implementation]
+  - id: sec-govern-documentation
+    category: governance
+    operations: [govern-documentation]
+    ownsHeuristics:
+      - classify-document-lifecycle
+      - choose-canonical-document-owner
+      - decide-archive-vs-delete-vs-projection
+    consumesServices: [documentation-authority-registry, docs-doctor, link-checker]
+    mustNotOwn: [product-fact, dynamic-run-state]
+  - id: sec-govern-toolchain
+    category: governance
+    operations: [govern-toolchain]
+    ownsHeuristics:
+      - evaluate-adopt-upgrade-retain-retire
+      - choose-minimum-supported-matrix
+      - decide-consumer-migration-order
+    consumesServices: [package-lock-authority, runtime-capability-evidence, security-advisory-source]
+    mustNotOwn: [package-version-facts-in-prose, product-semantics]
+  - id: sec-govern-capability
+    category: governance
+    operations: [govern-capability]
+    ownsHeuristics:
+      - evaluate-external-capability-necessity
+      - choose-provider-boundary
+      - decide-retirement
+    consumesServices: [capability-ledger, provider-policy, permission-evaluator]
+    mustNotOwn: [external-output-as-authority, ambient-credentials]
+  - id: sec-govern-agent-system
+    category: governance
+    operations: [govern-agent-system]
+    ownsHeuristics:
+      - classify-rule-as-deterministic-or-heuristic
+      - choose-role-operation-skill-boundary
+      - detect-prose-owner-duplication
+      - decide-skill-merge-split-retirement
+    consumesServices: [agent-system-registry, behavior-census, permission-evaluator, historical-replay]
+    mustNotOwn: [product-algorithm, dynamic-run-state, tool-permission-grants]
+
+transitions:
+  - from: unbound
+    operation: orient
+    toAnyOf: [oriented, audit-required, diagnosis-required, design-required, implementation-ready, review-ready, integration-ready, governance-ready, no-change, blocked]
+  - from: oriented
+    operation: audit-repository
+    toAnyOf: [diagnosis-required, design-required, governance-ready, no-change, blocked]
+  - fromAnyOf: [oriented, audit-required, implementation-failed, review-blocked, integration-blocked]
+    operation: diagnose-failure
+    toAnyOf: [implementation-ready, design-required, integration-ready, blocked]
+  - fromAnyOf: [oriented, design-required, audit-complete, diagnosis-complete]
+    operation: design-change
+    toAnyOf: [implementation-ready, governance-ready, blocked]
+  - from: implementation-ready
+    operation: implement-change
+    toAnyOf: [review-ready, diagnosis-required, reconcile-required, blocked]
+  - from: review-ready
+    operation: review-change
+    toAnyOf: [implementation-ready, integration-ready, blocked]
+  - from: integration-ready
+    operationAnyOf: [integrate-change, integrate-trust-migration]
+    toAnyOf: [closeout-complete, restart-required, diagnosis-required, blocked]
+  - from: governance-ready
+    operationAnyOf: [govern-documentation, govern-toolchain, govern-capability, govern-agent-system]
+    toAnyOf: [review-ready, design-required, no-change, blocked]
+
+forbiddenTransitions:
+  - implement-change-to-merge
+  - design-change-to-passed
+  - review-change-to-candidate-write
+  - audit-repository-to-giant-fix
+  - diagnose-failure-to-unbounded-retry
+  - governance-to-cross-domain-write
+
+oldToNew:
+  sec-a0-integrator:
+    disposition: retire-as-skill
+    replacements: [role:sec-integrator, sec-orient-work, sec-design-change, sec-integrate-change]
+  sec-architecture-evolution:
+    disposition: replace
+    replacements: [sec-design-change]
+  sec-ci-and-merge:
+    disposition: replace
+    replacements: [sec-integrate-change]
+  sec-context-resume:
+    disposition: merge-as-mode
+    replacements: [sec-orient-work:resume]
+  sec-documentation-governance:
+    disposition: replace
+    replacements: [sec-govern-documentation]
+  sec-exact-head-review:
+    disposition: replace
+    replacements: [sec-review-change]
+  sec-external-capability-governance:
+    disposition: replace
+    replacements: [sec-govern-capability]
+  sec-failure-recovery:
+    disposition: replace-and-narrow
+    replacements: [sec-diagnose-failure, service:failure-classifier]
+  sec-heuristic-governance:
+    disposition: replace
+    replacements: [sec-govern-agent-system]
+  sec-impact-and-validation:
+    disposition: retire-to-deterministic-services
+    replacements: [service:change-closure-compiler, service:impact-selector, service:verification-runner]
+  sec-repository-audit:
+    disposition: replace
+    replacements: [sec-audit-repository]
+  sec-repository-orientation:
+    disposition: replace
+    replacements: [sec-orient-work]
+  sec-task-delegation:
+    disposition: retire-to-role-orchestration
+    replacements: [role-profiles, operation-envelope]
+  sec-toolchain-and-dependencies:
+    disposition: replace
+    replacements: [sec-govern-toolchain]
+  sec-trust-root-bootstrap:
+    disposition: merge-as-mode
+    replacements: [sec-integrate-change:trust-migration]
+  sec-work-package-lifecycle:
+    disposition: retire-to-state-contracts
+    replacements: [sec-design-change, sec-integrate-change, service:work-package-resolver]
+  sec-worker-development:
+    disposition: replace
+    replacements: [sec-implement-change]
+
+deterministicServices:
+  - repository-snapshot-resolver
+  - work-selector
+  - work-package-resolver
+  - integration-resolver
+  - change-closure-compiler
+  - impact-selector
+  - permission-evaluator
+  - epoch-failure-classifier
+  - verification-aggregator
+  - evidence-run-journal
+  - publication-cleanup-owner
+
+evaluationRequirements:
+  routeUniqueness: required
+  oldResponsibilityCoverage: complete
+  permissionNegativeTests: required
+  transitionNegativeTests: required
+  historicalReplay: required
+  contextCostMeasurement: required
+  trustMigrationProof: required
