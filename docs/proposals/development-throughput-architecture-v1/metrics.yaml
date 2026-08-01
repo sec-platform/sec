@@ -1,0 +1,379 @@
+schema: sec-development-throughput-metrics-v1
+status: proposal
+researchBase: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+tracking: issue-230
+
+measurementPrinciples:
+  - id: exact-event-source
+    rule: Metrics derive from typed transitions, action results, workflow receipts, and Git/GitHub readback rather than chat or manual timestamps.
+  - id: separate-wait-and-work
+    rule: Queue, execution, human-review, resource, and recovery durations are reported separately.
+  - id: no-single-sample-gates
+    rule: Performance regression claims require fixed inputs, warm-up policy, multiple valid samples, median, and observed range.
+  - id: no-speed-with-less-truth
+    rule: A metric improvement is invalid when unknown frontier, skipped required gates, cleanup residue, or escaped defects increase.
+  - id: exact-scope
+    rule: Every measurement binds repository, base, head/tree or main revision, toolchain, environment, and metric schema.
+  - id: percentiles-over-average
+    rule: Report P50/P95 and tails where sample volume permits; averages alone cannot hide long stalls.
+
+primaryOutcomes:
+  - id: ready-to-main-readback
+    description: Wall-clock from Ready work selection to verified result present in new main and read back.
+    startEvent: work-selection-ready
+    endEvent: main-readback-completed
+    dimensions:
+      - change-class
+      - trust-class
+      - platform-requirements
+      - verification-profile
+      - first-pass-or-rework
+  - id: first-pass-candidate-yield
+    description: Fraction of first Frozen candidates that require no product modification before all required gates and review pass.
+    numerator: first-frozen-candidates-merged-without-product-head-change
+    denominator: first-frozen-candidates
+  - id: avoidable-failure-rate
+    description: Fraction of failures classified as known-cell-missed, duplicate-owner, stale-input, repeated-action, or closure-model omissions.
+    numerator: avoidable-failures
+    denominator: all-failures
+  - id: effective-main-slices-per-wall-time
+    description: Independently valuable vertical slices entering main per elapsed development time.
+    numerator: main-readback-vertical-slices
+    denominator: elapsed-hours
+
+latencyMetrics:
+  selection:
+    - id: goal-to-ready-selection
+      startEvent: goal-or-replan
+      endEvent: work-selection-ready
+    - id: ready-to-operation-authorized
+      startEvent: work-selection-ready
+      endEvent: operation-authorized
+  context:
+    - id: orientation-duration
+      startEvent: orientation-started
+      endEvent: orientation-resolved
+    - id: context-compile-duration
+      startEvent: context-compile-started
+      endEvent: context-capsule-published
+    - id: resume-duration
+      startEvent: resume-started
+      endEvent: next-transition-resolved
+  authoring:
+    - id: authorized-to-first-edit
+      startEvent: operation-authorized
+      endEvent: first-owned-path-mutation
+    - id: mutation-to-first-feedback
+      startEvent: source-revision-published
+      endEvent: first-feedback-published
+    - id: mutation-to-focused-result
+      startEvent: source-revision-published
+      endEvent: focused-result-published
+  candidateClosure:
+    - id: candidate-ready-to-scope-start
+      startEvent: candidate-prepared
+      endEvent: scope-requested
+    - id: candidate-ready-to-gate-start
+      startEvent: candidate-prepared
+      endEvent: verification-requested
+    - id: gate-queue-wait
+      startEvent: verification-requested
+      endEvent: verification-running
+    - id: gate-execution-duration
+      startEvent: verification-running
+      endEvent: verification-completed
+    - id: verification-to-review-result
+      startEvent: verification-passed
+      endEvent: review-approved-or-blocked
+    - id: review-to-merge-authorization
+      startEvent: review-approved
+      endEvent: merge-authorized
+    - id: merge-authorization-to-main-readback
+      startEvent: merge-authorized
+      endEvent: main-readback-completed
+    - id: main-readback-to-cleanup
+      startEvent: main-readback-completed
+      endEvent: cleanup-completed
+  integration:
+    - id: queue-wait
+      startEvent: candidate-queue-ready
+      endEvent: virtual-merge-started
+    - id: virtual-merge-duration
+      startEvent: virtual-merge-started
+      endEvent: virtual-merge-result
+    - id: main-advance-revalidation-duration
+      startEvent: main-advanced
+      endEvent: remaining-candidates-replanned
+
+qualityMetrics:
+  - id: proof-reset-count
+    unit: count-per-work-package
+  - id: frozen-head-churn
+    description: Head changes after first Frozen transition.
+    unit: changes-per-candidate
+  - id: escaped-adjacent-invariant-defects
+    description: Post-freeze or post-merge defects that the declared Change Closure table should have covered.
+    unit: count
+  - id: post-merge-hotfix-rate
+    numerator: changes-requiring-hotfix-before-next-planned-slice
+    denominator: merged-changes
+  - id: scope-expansion-count
+    description: Unauthorized or late owned-path/authority expansion events.
+    unit: count-per-work-package
+  - id: repeated-root-cause-rate
+    numerator: root-cause-classes-seen-more-than-once
+    denominator: root-cause-classes
+  - id: selector-false-negative-rate
+    numerator: full-or-post-merge-failures-missed-by-affected-selection
+    denominator: affected-selection-decisions
+  - id: review-stale-count
+    description: Reviews invalidated by later head changes.
+    unit: count
+  - id: merge-readback-mismatch
+    description: Merge API result and actual main product result disagree or cannot be proved.
+    unit: count
+
+reuseMetrics:
+  - id: action-reuse-rate
+    numerator: reused-action-results
+    denominator: required-action-results
+  - id: exact-cache-hit-rate
+    numerator: exact-action-key-hits
+    denominator: cache-lookups
+  - id: partial-cache-restore-rate
+    numerator: partial-restore-hints
+    denominator: cache-lookups
+    guardrail: Must not be reported as Evidence reuse until tool-level identity validation succeeds.
+  - id: repeated-passed-action-execution
+    description: Same valid Action Key executed more than once without explicit policy reason.
+    unit: count
+    targetDirection: zero
+  - id: repeated-failed-action-execution
+    description: Same deterministic failure fingerprint rerun without causal input change.
+    unit: count
+    targetDirection: zero
+  - id: evidence-retained-after-head-change
+    numerator: valid-independent-actions-retained
+    denominator: independent-actions-from-prior-head
+  - id: evidence-retained-after-main-advance
+    numerator: valid-actions-retained-after-base-change
+    denominator: actions-before-base-change
+  - id: cache-poison-incidents
+    unit: count
+    targetDirection: zero
+  - id: cache-eviction-recompute-cost
+    unit: seconds-and-actions
+
+contextMetrics:
+  - id: context-bytes-loaded
+    dimensions:
+      - eager
+      - on-demand
+      - authority
+      - source
+      - tests
+      - historical
+  - id: files-read-before-first-edit
+    unit: count
+  - id: symbols-loaded-before-first-edit
+    unit: count
+  - id: duplicate-context-bytes
+    description: Semantically duplicated content loaded from multiple projections.
+    unit: bytes
+  - id: full-audit-escalation-rate
+    numerator: operations-escalated-to-full-audit
+    denominator: all-operations
+  - id: unnecessary-full-audit-count
+    description: Full audits with no decision-relevant finding beyond available local evidence.
+    unit: count
+  - id: resume-repeated-read-count
+    description: Context refs reread after resume without invalidation.
+    unit: count
+  - id: unresolved-context-rate
+    numerator: context-capsules-with-unresolved-critical-input
+    denominator: context-capsules
+
+feedbackMetrics:
+  - id: edit-feedback-p50
+    unit: milliseconds
+  - id: edit-feedback-p95
+    unit: milliseconds
+  - id: candidate-closure-p50
+    unit: seconds
+  - id: candidate-closure-p95
+    unit: seconds
+  - id: superseded-revision-count
+    unit: count
+  - id: stale-work-seconds
+    description: Execution time spent on results that were already superseded and cancellable.
+    unit: seconds
+  - id: selected-action-count
+    unit: count
+  - id: reused-action-count
+    unit: count
+  - id: unresolved-impact-frontier
+    unit: count
+  - id: explanation-coverage
+    numerator: selected-or-skipped-actions-with-machine-reason
+    denominator: all-selection-decisions
+
+resourceMetrics:
+  - id: process-start-count
+    unit: count-per-run
+  - id: process-wave-count
+    unit: count-per-run
+  - id: browser-start-count
+    unit: count-per-run
+  - id: workspace-setup-count
+    unit: count-per-run
+  - id: install-count
+    unit: count-per-run
+  - id: peak-memory
+    unit: bytes
+  - id: cpu-time
+    unit: milliseconds
+  - id: actions-minutes
+    unit: minutes
+  - id: cleanup-residue-count
+    unit: count
+    targetDirection: zero
+  - id: cleanup-latency
+    unit: milliseconds
+  - id: exclusive-resource-queue-wait
+    unit: milliseconds
+  - id: cache-storage
+    unit: bytes
+  - id: cache-thrash-rate
+    description: Cache entries created and evicted before meaningful reuse.
+    unit: count-per-day
+
+integrationMetrics:
+  - id: parallel-safe-package-count
+    unit: count-per-epoch
+  - id: pre-authoring-conflict-detection-rate
+    numerator: conflicts-found-before-first-write
+    denominator: all-conflicts
+  - id: late-integration-conflict-count
+    unit: count
+    targetDirection: zero
+  - id: virtual-merge-failure-rate
+    numerator: virtual-merge-failures
+    denominator: virtual-merge-attempts
+  - id: queue-reorder-count
+    unit: count
+  - id: candidate-supersede-rate
+    numerator: candidates-closed-as-superseded-or-absorbed
+    denominator: candidates
+  - id: unrelated-candidate-evidence-loss
+    description: Evidence invalidated without an Impact or trust dependency.
+    unit: count
+    targetDirection: zero
+  - id: global-writer-contention
+    unit: wait-seconds-by-resource
+
+publicationMetrics:
+  - id: manual-transition-count
+    description: Required human or Agent control-plane commands from candidate prepared through cleanup.
+    unit: count-per-candidate
+    targetDirection: zero
+  - id: duplicate-dispatch-count
+    unit: count
+    targetDirection: zero
+  - id: duplicate-merge-attempt-count
+    unit: count
+    targetDirection: zero
+  - id: post-merge-reconciliation-failure
+    unit: count
+  - id: issue-closeout-latency
+    unit: milliseconds
+  - id: branch-cleanup-latency
+    unit: milliseconds
+  - id: worktree-cleanup-latency
+    unit: milliseconds
+  - id: cleanup-not-performed-count
+    unit: count-by-tool-boundary
+
+initialTargets:
+  policy: Targets are provisional until a telemetry baseline exists. They must never authorize weaker verification.
+  hardInvariantTargets:
+    repeated-passed-action-execution: 0
+    repeated-failed-action-execution: 0
+    cache-poison-incidents: 0
+    cleanup-residue-count: 0
+    late-integration-conflict-count: 0
+    unrelated-candidate-evidence-loss: 0
+    duplicate-dispatch-count: 0
+    duplicate-merge-attempt-count: 0
+  directionalTargets:
+    ready-to-main-readback: decrease
+    first-pass-candidate-yield: increase
+    avoidable-failure-rate: decrease
+    manual-transition-count: decrease-to-zero
+    stale-work-seconds: decrease
+    action-reuse-rate: increase
+    context-bytes-loaded: decrease-with-authority-coverage-guardrail
+    pre-authoring-conflict-detection-rate: increase
+
+antiGamingGuardrails:
+  - metric: ready-to-main-readback
+    rejectImprovementWhen:
+      - required-gate-not-run
+      - unknown-frontier-increased
+      - escaped-defect-rate-increased
+      - cleanup-residue-increased
+  - metric: first-pass-candidate-yield
+    rejectImprovementWhen:
+      - candidate-freeze-delayed-by-unbounded-manual-work
+      - product-scope-artificially-split-without-independent-value
+      - review-or-risk-requirement-removed
+  - metric: action-reuse-rate
+    rejectImprovementWhen:
+      - action-key-underdeclares-inputs
+      - untrusted-producer-used
+      - cleanup-not-bound
+      - partial-cache-hit-counted-as-evidence
+  - metric: context-bytes-loaded
+    rejectImprovementWhen:
+      - authority-reference-missing
+      - consumer-census-incomplete
+      - unresolved-input-silently-dropped
+  - metric: parallel-safe-package-count
+    rejectImprovementWhen:
+      - unresolved-treated-safe
+      - semantic-owner-conflict-ignored
+      - shared-resource-not-declared
+  - metric: gate-execution-duration
+    rejectImprovementWhen:
+      - test-coverage-removed
+      - timeout-expanded-to-hide-failure
+      - physical-gate-reclassified-without-owner-proof
+
+reporting:
+  cadence:
+    perTransition: true
+    perCandidate: true
+    perWorkPackage: true
+    weeklyAggregate: optional
+  requiredDimensions:
+    - repository
+    - main-or-base
+    - candidate-head-or-tree
+    - toolchain
+    - environment
+    - change-class
+    - trust-class
+    - metric-schema
+  derivedViews:
+    - critical-path-waterfall
+    - wait-versus-execution
+    - first-pass-and-rework
+    - evidence-reuse-and-invalidation
+    - context-load-and-resume
+    - integration-queue
+    - actions-cost
+  forbiddenClaims:
+    - faster-based-on-one-run
+    - complete-based-on-pr-body
+    - cache-hit-without-action-key
+    - parallel-based-on-no-text-conflict
+    - passed-with-missing-owning-environment
