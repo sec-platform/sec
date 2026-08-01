@@ -1,0 +1,136 @@
+schema: sec-global-research-index-proposal-v1
+status: research-evidence
+tracking: issue-225
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+canonicalAuthority: none
+mergePolicy: spike-default-no-merge
+
+purpose: >-
+  为 SEC 完整架构 Spike 声明研究产物的唯一职责，防止并行研究再次产生第二来源账本、
+  第二设计矩阵或第二覆盖真值。该索引只导航 proposal/Evidence，不成为 canonical 架构或当前状态。
+
+artifacts:
+  - id: complete-human-synthesis
+    path: docs/proposals/sec-complete-architecture-synthesis-v1.md
+    owns:
+      - integrated-target-architecture-proposal
+      - human-readable-model-and-protocol-boundaries
+      - self-hosting-and-migration-route
+    mustNotOwn:
+      - source-citation-ledger
+      - current-repository-state
+      - implementation-completion
+
+  - id: complete-machine-assembly
+    path: docs/proposals/sec-complete-architecture-assembly-v1.yaml
+    owns:
+      - machine-readable-domain-owner-map
+      - identity-and-state-machine-assembly
+      - dependency-and-maturity-projection
+    mustNotOwn:
+      - canonical-domain-schema
+      - dynamic-work-selection
+
+  - id: primary-source-ledger
+    path: docs/proposals/research/sec-global-primary-source-ledger-v1.yaml
+    owns:
+      - general-primary-source-identity
+      - source-family
+      - adoption-decision
+      - target-owner
+      - source-specific-note
+    updateRule: >-
+      通用来源只在提供新机制、反例、前提或推翻既有裁决时加入；不得仅为增加数量重复同一来源家族。
+    mustNotOwn:
+      - integrated-design
+      - current-support-claim
+
+  - id: technology-synthesis
+    path: docs/proposals/research/sec-global-technology-synthesis-v1.md
+    owns:
+      - cross-source-mechanism-synthesis
+      - architecture-calibration
+      - external-mechanism-boundaries
+    references:
+      - primary-source-ledger
+    mustNotOwn:
+      - per-decision-migration-status
+      - current-implementation-facts
+
+  - id: design-decision-matrix
+    path: docs/proposals/research/sec-global-design-decision-matrix-v1.yaml
+    owns:
+      - decomposable-design-decision
+      - current-owner-and-canonical-target
+      - invariants
+      - proof-obligations
+      - migration-order
+    references:
+      - primary-source-ledger
+      - technology-synthesis
+    mustNotOwn:
+      - dynamic-priority-selection
+      - work-package-activation
+
+  - id: coverage-conflict-and-unknown
+    path: docs/proposals/research/sec-global-coverage-and-open-questions-v1.md
+    owns:
+      - technology-family-coverage
+      - conflicting-schools-and-sec-rationale
+      - permanent-invariants-supported-by-public-evidence
+      - sec-specific-benchmarks-formal-models-and-physical-unknowns
+    mustNotOwn:
+      - literal-global-exhaustiveness-claim
+      - implementation-completion
+
+  - id: specialized-platform-census
+    path: docs/proposals/sec-specialized-platform-and-assurance-census-v1.md
+    owns:
+      - gpu-kernel-mobile-embedded-crypto-ml-assurance-human-synthesis
+      - specialized-provider-boundaries
+    reasonForSeparateExtension: >-
+      这些领域需要 hardware/device/driver/proof/release 语义，超出通用服务器软件研究账本初始范围；
+      后续稳定后再按来源身份去重并吸收到 primary-source-ledger。
+    mustNotOwn:
+      - universal-behavior-ir
+      - general-target-profile
+
+  - id: specialized-platform-adoption
+    path: docs/proposals/sec-specialized-platform-and-assurance-adoption-v1.yaml
+    owns:
+      - specialized-mechanism-adoption-map
+      - required-environment-and-proof-dimensions
+      - new-domain-and-contract-candidates
+    references:
+      - specialized-platform-census
+    mustNotOwn:
+      - current-platform-support
+      - provider-implementation
+
+singleWriterRules:
+  sourceIdentityAndDecision: primary-source-ledger
+  crossSourceNarrative: technology-synthesis
+  decomposableDesignDecision: design-decision-matrix
+  coverageAndOpenQuestion: coverage-conflict-and-unknown
+  specializedExtension: specialized-platform-census-and-adoption
+  finalIntegratedProposal: complete-human-synthesis
+  machineAssembly: complete-machine-assembly
+
+retiredDuplicates:
+  - docs/proposals/sec-global-technology-census-v1.md
+  - docs/proposals/sec-global-technology-adoption-v1.yaml
+  - docs/proposals/sec-global-technology-census-extension-v1.md
+  - docs/proposals/sec-global-technology-adoption-extension-v1.yaml
+  - docs/proposals/sec-architecture-gap-and-adoption-matrix-v1.yaml
+  - docs/proposals/sec-global-research-coverage-registry-v1.yaml
+
+promotionRule:
+  wholeSpikeMerge: forbidden
+  acceptedDecisionFlow:
+    - identify-canonical-owner
+    - prove-not-already-represented
+    - create-focused-authority-delta-or-evidence-spike
+    - freeze-machine-contract
+    - implement-positive-negative-property-fault-tests
+    - migrate-consumers-and-retire-old-owner
+    - main-readback
