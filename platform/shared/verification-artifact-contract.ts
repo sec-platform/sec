@@ -1,8 +1,17 @@
 import type { AcceptanceCoverageReport } from './acceptance-types.ts';
 import type { PolicyReport } from './policy-types.ts';
+import {
+  CodexDevelopmentAssertVerificationGateResultV1,
+  type VerificationAggregateResultV1,
+  type VerificationClaimResultV1,
+  type VerificationGateResultV1,
+  type VerificationReasonCode,
+  type VerificationResultStatus
+} from './verification-result-contract.ts';
 import type {
   FastVerificationLaneReport,
   RuntimeVerificationLaneReport,
+  VerificationClaimSummary,
   VerificationReport,
   VerificationStatus
 } from './verification-types.ts';
@@ -35,6 +44,31 @@ function exactStringArray(value: unknown): value is string[] {
 
 function exactVerificationStatus(value: unknown): value is VerificationStatus {
   return value === 'passed' || value === 'failed' || value === 'skipped';
+}
+
+function exactUnifiedVerificationStatus(value: unknown): value is VerificationResultStatus {
+  return value === 'passed' || value === 'failed' || value === 'not-run' ||
+    value === 'unsupported' || value === 'invalidated';
+}
+
+function exactVerificationReasonCode(value: unknown): value is VerificationReasonCode {
+  return value === 'executed-success' ||
+    value === 'executed-failure' ||
+    value === 'not-applicable' ||
+    value === 'fail-fast-prerequisite-failed' ||
+    value === 'current-runner-not-owning-environment' ||
+    value === 'not-dispatched' ||
+    value === 'required-artifact-missing' ||
+    value === 'capability-unsupported' ||
+    value === 'platform-unsupported' ||
+    value === 'selection-unresolved' ||
+    value === 'input-invalidated' ||
+    value === 'evidence-stale' ||
+    value === 'superseded-revision' ||
+    value === 'cancelled' ||
+    value === 'timeout' ||
+    value === 'cleanup-failed' ||
+    value === 'process-settlement-failed';
 }
 
 function exactLogs(value: unknown): boolean {
@@ -108,23 +142,77 @@ function exactRuntimeVerificationReport(value: unknown): value is RuntimeVerific
     exactVerificationStep(value.unit) && exactVerificationStep(value.acceptance) && exactLogs(value.logs);
 }
 
+function exactVerificationClaimResult(value: unknown): value is VerificationClaimResultV1 {
+  return exactKeys(value, [
+    'claimId', 'status', 'reasonCode', 'contributingGateIds', 'coverageComplete'
+  ]) && typeof value.claimId === 'string' &&
+    exactUnifiedVerificationStatus(value.status) &&
+    exactVerificationReasonCode(value.reasonCode) &&
+    exactStringArray(value.contributingGateIds) &&
+    typeof value.coverageComplete === 'boolean';
+}
+
+function exactVerificationAggregateResult(
+  value: unknown
+): value is VerificationAggregateResultV1 {
+  return exactKeys(value, ['overallStatus', 'overallReasonCode', 'claimResults']) &&
+    exactUnifiedVerificationStatus(value.overallStatus) &&
+    exactVerificationReasonCode(value.overallReasonCode) &&
+    Array.isArray(value.claimResults) &&
+    value.claimResults.every(exactVerificationClaimResult);
+}
+
+function exactVerificationGateResult(value: unknown): value is VerificationGateResultV1 {
+  try {
+    CodexDevelopmentAssertVerificationGateResultV1(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function exactVerificationClaimSummary(value: unknown): value is VerificationClaimSummary {
+  return exactKeys(value, ['overall', 'gates']) &&
+    exactVerificationAggregateResult(value.overall) &&
+    Array.isArray(value.gates) &&
+    value.gates.every(exactVerificationGateResult);
+}
+
 function exactVerificationReport(value: unknown): value is VerificationReport {
   if (!exactKeys(value, [
     'build', 'unit', 'acceptance', 'policy', 'fast', 'runtime', 'summary', 'logs'
   ]) || !exactFastVerificationReport(value.fast) ||
-    !exactRuntimeVerificationReport(value.runtime) || !exactLogs(value.logs) ||
-    !exactKeys(value.summary, ['status', 'requestedLane', 'failedLanes']) ||
-    (value.summary.status !== 'passed' && value.summary.status !== 'failed') ||
-    value.summary.requestedLane !== 'all' || !Array.isArray(value.summary.failedLanes) ||
-    !value.summary.failedLanes.every((lane) => lane === 'fast' || lane === 'runtime')) {
+    !exactRuntimeVerificationReport(value.runtime) || !exactLogs(value.logs)) {
     return false;
   }
+
+  const rawSummary = value.summary;
+  if (!rawSummary || typeof rawSummary !== 'object' || Array.isArray(rawSummary)) {
+    return false;
+  }
+  const summary = rawSummary as Record<string, unknown>;
+  const summaryHasClaim = exactKeys(summary, [
+    'status', 'requestedLane', 'failedLanes', 'claimSummary'
+  ]);
+  const summaryIsLegacy = exactKeys(summary, [
+    'status', 'requestedLane', 'failedLanes'
+  ]);
+  if ((!summaryHasClaim && !summaryIsLegacy) ||
+    (summary.status !== 'passed' && summary.status !== 'failed') ||
+    summary.requestedLane !== 'all' || !Array.isArray(summary.failedLanes) ||
+    !summary.failedLanes.every((lane) => lane === 'fast' || lane === 'runtime') ||
+    (summaryHasClaim && !exactVerificationClaimSummary(summary.claimSummary))) {
+    return false;
+  }
+
   const report = value as unknown as VerificationReport;
   const failedLanes = [
     ...(report.fast.status === 'failed' ? ['fast' as const] : []),
     ...(report.runtime.status === 'failed' ? ['runtime' as const] : [])
   ];
-  const expectedSummaryStatus = failedLanes.length === 0 ? 'passed' : 'failed';
+  const expectedSummaryStatus = report.summary.claimSummary
+    ? report.summary.claimSummary.overall.overallStatus === 'passed' ? 'passed' : 'failed'
+    : failedLanes.length === 0 ? 'passed' : 'failed';
   const expectedLogs = {
     stdout: [report.fast.logs.stdout, report.runtime.logs.stdout].filter(Boolean).join('\n'),
     stderr: [report.fast.logs.stderr, report.runtime.logs.stderr].filter(Boolean).join('\n')
