@@ -1,0 +1,573 @@
+schema: sec-specialized-platform-and-assurance-adoption-proposal-v1
+status: draft
+tracking: issue-225
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+mergePolicy: spike-default-no-merge
+canonicalAuthority: none
+
+governingDecision:
+  universalBehaviorIRForSpecializedPlatforms: rejected
+  integrationPattern:
+    - specialized-provider
+    - target-and-capability-profile
+    - typed-resource-and-effect-contract
+    - owning-environment-verification
+    - governed-extension-or-opaque-boundary
+  unsupportedProviderBlocksUnrelatedCore: false
+
+commonProviderContract:
+  identity:
+    - providerId
+    - providerRevision
+    - targetFamily
+    - targetRevision
+    - platform
+    - hardwareOrDeviceIdentity
+  inputs:
+    - sourceOrArtifactRevision
+    - toolchainRevision
+    - configurationRevision
+    - capabilityProfileRevision
+  declarations:
+    - sourceCoverage
+    - supportedOperations
+    - resources
+    - effects
+    - permissions
+    - lifecycle
+    - compatibility
+    - knownUnsupported
+    - unknownFrontier
+  outputs:
+    - candidateModel
+    - diagnostics
+    - artifacts
+    - runtimeObservation
+    - verificationEvidence
+  invariants:
+    - no-provider-output-becomes-authority-without-reconcile
+    - no-cross-platform-evidence-substitution
+    - no-support-claim-without-exact-version-and-environment
+    - no-hidden-fallback-to-host-default
+
+entries:
+  - id: cuda
+    category: accelerator
+    decision: provider-only
+    sources:
+      - https://docs.nvidia.com/cuda/cuda-programming-guide/index.html
+    secOwner: nvidia-cuda-provider
+    models:
+      - host-device
+      - kernel-thread-block-grid-cluster
+      - memory-space-and-ownership
+      - stream-event-dependency
+      - async-completion
+      - compute-capability
+      - ptx-binary-source-compatibility
+      - numerical-precision-and-determinism
+    requiredEnvironment:
+      - gpu-model
+      - compute-capability
+      - driver
+      - toolkit
+      - host-platform
+    evidence:
+      - compilation
+      - device-load
+      - async-error-readback
+      - stream-completion
+      - numerical-acceptance
+      - performance-resource-profile
+    forbiddenInference:
+      - kernel-launch-returned-means-passed
+      - cpu-test-means-gpu-supported
+      - ptx-compatible-means-behavior-equivalent
+
+  - id: rocm-hip
+    category: accelerator
+    decision: provider-only
+    sources:
+      - https://rocm.docs.amd.com/
+    secOwner: amd-rocm-provider
+    models:
+      - hip-source
+      - rocm-runtime
+      - amd-gpu-architecture
+      - memory-and-atomic-model
+      - device-library
+    forbiddenInference:
+      - cuda-like-means-compatible
+      - hip-compiles-means-runtime-supported
+
+  - id: apple-metal
+    category: accelerator
+    decision: provider-only
+    sources:
+      - https://developer.apple.com/metal/
+    secOwner: apple-metal-provider
+    models:
+      - device
+      - command-queue
+      - command-buffer
+      - encoder
+      - pipeline-state
+      - buffer-texture-resource
+      - completion-status
+    requiredEvidence:
+      - command-buffer-status
+      - resource-lifetime
+      - cpu-gpu-synchronization
+      - target-device
+
+  - id: ebpf
+    category: kernel-program
+    decision: provider-only
+    sources:
+      - https://docs.ebpf.io/linux/concepts/verifier/
+      - https://docs.kernel.org/bpf/
+    secOwner: linux-ebpf-provider
+    models:
+      - source-program
+      - bpf-bytecode
+      - btf-core-relocation
+      - verifier-result
+      - program-map-link-pin-lifecycle
+      - attach-point
+      - kernel-config-and-capability
+    verifierProofScope:
+      - bounded-kernel-safety-rules
+      - type-and-memory-state
+    verifierDoesNotProve:
+      - business-policy
+      - observation-completeness
+      - deployment-correctness
+      - runtime-performance
+
+  - id: kernel-module-driver
+    category: kernel-program
+    decision: governed-extension
+    secOwner: native-kernel-driver-provider
+    requiredContract:
+      - kernel-abi
+      - config
+      - privilege
+      - device-and-firmware
+      - dma-mmio-interrupt
+      - concurrency
+      - power-lifecycle
+      - fault-containment
+      - hardware-in-loop-verification
+    defaultCoverage: opaque
+
+  - id: android
+    category: mobile-target
+    decision: provider-only
+    sources:
+      - https://developer.android.com/guide/components/activities/intro-activities
+      - https://developer.android.com/guide/components/activities/activity-lifecycle
+      - https://developer.android.com/guide/topics/permissions/overview
+    secOwner: android-target-provider
+    identityDomains:
+      - application
+      - process
+      - activity
+      - service
+      - receiver
+      - provider
+      - compose-destination
+      - manifest-component
+      - runtime-permission-state
+    requiredProfile:
+      - android-api-range
+      - device-features
+      - manifest
+      - permissions
+      - intent-and-deep-link
+      - lifecycle-and-saved-state
+      - background-execution
+      - package-signing
+      - distribution-channel
+    owningEvidence:
+      - emulator-where-valid
+      - physical-device-for-device-only-capabilities
+      - instrumented-runtime
+    forbiddenInference:
+      - app-process-lifetime-equals-component-lifetime
+      - manifest-permission-equals-runtime-consent
+      - emulator-success-equals-all-device-support
+
+  - id: apple-mobile
+    category: mobile-target
+    decision: provider-only
+    sources:
+      - https://developer.apple.com/documentation/uikit/managing-your-app-s-life-cycle
+      - https://developer.apple.com/documentation/UIKit/specifying-the-scenes-your-app-supports
+      - https://developer.apple.com/documentation/bundleresources/entitlements
+    secOwner: apple-mobile-target-provider
+    identityDomains:
+      - app-process
+      - scene-session
+      - window-document
+      - background-task
+      - entitlement
+      - provisioning-profile
+      - code-signature
+      - runtime-permission
+    requiredProfile:
+      - os-and-sdk-range
+      - device-family
+      - scene-lifecycle
+      - entitlements
+      - privacy-usage-descriptions
+      - signing-and-provisioning
+      - store-channel
+    forbiddenInference:
+      - simulator-success-equals-device-support
+      - entitlement-declared-equals-user-consent
+      - signed-build-equals-store-supported
+
+  - id: autosar-classic
+    category: embedded-automotive
+    decision: interoperate-only
+    sources:
+      - https://www.autosar.org/standards/classic-platform/
+    secOwner: autosar-classic-provider
+    mechanisms:
+      - application-rte-bsw-separation
+      - virtual-functional-bus
+      - typed-ports
+      - ecu-deployment
+      - arxml-schema-and-semantic-constraints
+      - methodology-and-work-products
+      - generator-toolchain
+    forbiddenTakeover:
+      - arxml-as-engineering-ir
+      - autosar-config-as-universal-app-model
+
+  - id: autosar-adaptive
+    category: embedded-automotive
+    decision: interoperate-only
+    sources:
+      - https://www.autosar.org/standards/adaptive-platform/
+    secOwner: autosar-adaptive-provider
+    mechanisms:
+      - service-and-api-runtime
+      - dynamic-service-linking
+      - application-machine-deployment
+      - execution-management
+      - persistency-security-safety
+    requiredEvidence:
+      - exact-release
+      - toolchain
+      - machine-platform
+      - service-runtime
+
+  - id: sel4
+    category: high-assurance-os
+    decision: provider-only
+    sources:
+      - https://sel4.systems/Verification/proofs.html
+      - https://docs.sel4.systems/projects/sel4/verified-configurations.html
+    secOwner: sel4-target-provider
+    proofDimensions:
+      - functional-correctness
+      - binary-correctness-where-available
+      - integrity
+      - confidentiality-where-available
+    supportClaimMustBind:
+      - kernel-version
+      - architecture
+      - platform
+      - configuration
+      - proof-property
+      - assumptions
+    forbiddenInference:
+      - one-verified-configuration-means-all-configurations
+      - kernel-proof-means-application-proof
+      - proof-means-hardware-dma-driver-secure
+
+  - id: hard-real-time
+    category: real-time-safety
+    decision: specialized-profile
+    secOwner: real-time-target-provider
+    requiredModel:
+      - task-and-priority
+      - period-deadline-budget
+      - preemption
+      - interrupt
+      - bounded-blocking
+      - memory-allocation-policy
+      - clock-and-timer
+      - wcet-evidence
+      - fault-containment
+    forbiddenMetric:
+      - mean-latency-as-deadline-proof
+
+  - id: nist-key-management
+    category: cryptographic-asset
+    decision: adapt
+    sources:
+      - https://csrc.nist.gov/pubs/sp/800/57/pt1/r5/final
+      - https://csrc.nist.gov/pubs/sp/800/57/pt1/r6/ipd
+    secOwner: cryptographic-key-lifecycle-domain
+    keyModel:
+      - identity-type-algorithm-strength
+      - purpose-and-allowed-operations
+      - origin-generation
+      - custodian
+      - storage-provider-hsm
+      - activation-expiry-rotation
+      - backup-recovery-escrow
+      - compromise-revocation-destruction
+      - access-and-audit
+    keyBytesInSemanticGraph: forbidden
+    keyBytesInAIContext: forbidden
+
+  - id: pkcs11
+    category: cryptographic-provider
+    decision: provider-only
+    sources:
+      - https://docs.oasis-open.org/pkcs11/pkcs11-spec/v3.2/
+    secOwner: hsm-token-provider
+    models:
+      - slot
+      - token
+      - session
+      - object
+      - mechanism
+      - login-state
+    requiredEvidence:
+      - provider-and-token-version
+      - mechanism-support
+      - key-operation
+      - session-and-failure-lifecycle
+
+  - id: tls13
+    category: cryptographic-protocol
+    decision: interoperate-only
+    sources:
+      - https://www.rfc-editor.org/rfc/rfc8446
+    secOwner: tls-runtime-provider
+    models:
+      - handshake-state
+      - authentication
+      - key-schedule
+      - transport-state
+      - certificate-and-trust
+    deploymentProofRequired: true
+
+  - id: noise-protocol
+    category: cryptographic-protocol
+    decision: interoperate-only
+    sources:
+      - https://noiseprotocol.org/noise.html
+    secOwner: noise-protocol-provider
+    models:
+      - handshake-pattern
+      - symmetric-state
+      - cipher-state
+      - transcript
+      - key-agreement
+
+  - id: tamarin
+    category: protocol-verification
+    decision: provider-only
+    sources:
+      - https://tamarin-prover.com/manual/master/book/001_introduction.html
+    secOwner: cryptographic-protocol-proof-provider
+    mechanisms:
+      - multiset-rewriting
+      - symbolic-adversary
+      - attack-search
+      - unbounded-proof
+    evidenceMustRecord:
+      - model
+      - properties
+      - adversary
+      - assumptions
+      - tool-version
+      - proof-or-counterexample
+    forbiddenInference:
+      - symbolic-proof-equals-implementation-secure
+
+  - id: proverif
+    category: protocol-verification
+    decision: provider-only
+    sources:
+      - https://bblanche.gitlabpages.inria.fr/proverif/
+    secOwner: cryptographic-protocol-proof-provider
+    mechanisms:
+      - applied-pi-calculus
+      - horn-clause-resolution
+      - reachability
+      - correspondence
+      - equivalence
+    resultStates:
+      - proved
+      - attack-found
+      - cannot-be-proved
+    unknownIsPass: false
+
+  - id: model-card
+    category: ml-governance
+    decision: interoperate-only
+    sources:
+      - https://huggingface.co/docs/hub/en/model-cards
+    secOwner: model-documentation-projection
+    fields:
+      - intended-use
+      - limitations
+      - biases-and-ethics
+      - training-parameters
+      - datasets
+      - evaluation-results
+    authority: projection-only
+
+  - id: mlflow-model-registry
+    category: ml-registry
+    decision: provider-only
+    sources:
+      - https://mlflow.org/docs/latest/ml/model-registry/
+    secOwner: model-registry-provider
+    models:
+      - immutable-model-version
+      - run-lineage
+      - signature
+      - metadata-and-tags
+      - mutable-alias
+    forbiddenIdentityUse:
+      - mutable-alias-as-artifact-identity
+    promotionMustBind:
+      - exact-model-version
+      - evaluation
+      - serving-profile
+      - approval
+
+  - id: unsafe-model-serialization
+    category: ml-security
+    decision: default-reject-or-explicit-high-risk-provider
+    sources:
+      - https://huggingface.co/docs/hub/security-pickle
+    secOwner: model-artifact-security-provider
+    risks:
+      - arbitrary-code-execution
+      - malicious-imports
+      - scanner-incompleteness
+    preferredFormats:
+      - data-only
+      - safetensors-where-applicable
+    requiredExecutionBoundary:
+      - static-scan
+      - format-validation
+      - isolated-load
+      - source-and-signature-policy
+
+  - id: nist-ai-rmf
+    category: ai-risk-governance
+    decision: governance-mapping
+    sources:
+      - https://www.nist.gov/itl/ai-risk-management-framework
+      - https://airc.nist.gov/
+    secOwner: ai-model-risk-domain
+    functions:
+      - govern
+      - map
+      - measure
+      - manage
+    profileMustBind:
+      - use-case
+      - model-version
+      - data-and-evaluation
+      - risk-tolerance
+      - environment
+    frameworkDoesNotProveSafety: true
+
+  - id: gsn
+    category: assurance-case
+    decision: interoperate-only
+    sources:
+      - https://goalstructuringnotation.info/
+    secOwner: assurance-case-projection
+    nodeKinds:
+      - goal
+      - strategy
+      - context
+      - assumption
+      - justification
+      - solution
+    authority: projection-only
+    parentGoalAutoClosedByOneSolution: false
+
+  - id: nist-ssdf
+    category: secure-development-governance
+    decision: governance-mapping
+    sources:
+      - https://csrc.nist.gov/pubs/sp/800/218/final
+      - https://csrc.nist.gov/pubs/sp/800/218/r1/ipd
+    secOwner: secure-development-control-mapping
+    maturityNote:
+      - version-1-1-final
+      - version-1-2-draft
+    mappingRequires:
+      - sec-owner
+      - artifact
+      - gate
+      - evidence
+      - retirement
+    checklistEqualsEvidence: false
+
+newDomainCandidates:
+  - id: specialized-target-provider
+    purpose: typed-extension-for-gpu-kernel-mobile-embedded-and-ml-targets
+    owns:
+      - specialized-target-profile
+      - specialized-resource-kinds
+      - owning-environment-contract
+      - provider-specific-verification
+
+  - id: cryptographic-key-lifecycle
+    purpose: govern-opaque-key-handles-and-policy-without-exposing-key-bytes
+    owns:
+      - key-identity-and-purpose
+      - lifecycle-and-rotation
+      - hsm-provider-binding
+      - compromise-revocation-destruction
+
+  - id: model-data-evaluation-lineage
+    purpose: separate-model-data-evaluation-serving-and-promotion-revisions
+    owns:
+      - model-version
+      - dataset-lineage
+      - evaluation-result
+      - serving-profile
+      - promotion-decision
+
+  - id: assurance-case-projection
+    purpose: structured-argument-over-requirements-assumptions-and-evidence
+    owns: []
+    authority: projection-only
+
+newContractsRequired:
+  - specialized-target-profile-v1
+  - accelerator-resource-contract-v1
+  - kernel-program-lifecycle-v1
+  - mobile-application-lifecycle-v1
+  - real-time-resource-and-deadline-v1
+  - cryptographic-key-lifecycle-v1
+  - cryptographic-protocol-proof-evidence-v1
+  - model-data-evaluation-lineage-v1
+  - assurance-case-projection-v1
+
+supportLevelPolicy:
+  dimensions:
+    - source-understanding
+    - semantic-binding
+    - controlled-mutation
+    - deterministic-lowering
+    - target-runtime
+    - physical-device
+    - performance-or-timing
+    - safety-or-security-proof
+    - packaging-and-distribution
+  noSingleSupportedBoolean: true
