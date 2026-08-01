@@ -1,0 +1,438 @@
+schema: sec-architecture-gap-and-adoption-matrix-proposal-v1
+status: draft
+tracking: issue-225
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+mergePolicy: spike-default-no-merge
+canonicalAuthority: none
+
+interpretation:
+  currentMaturity:
+    - canonical-doc
+    - implemented-partial
+    - implemented-unverified
+    - proposal
+    - absent
+  action:
+    - preserve
+    - complete
+    - add-focused-authority
+    - add-contract
+    - add-provider
+    - migrate-consumer
+    - retire-duplicate
+    - benchmark-first
+    - formal-model-first
+    - defer
+
+permanentInvariants:
+  - authority-canonical-evidence-projection-separated
+  - one-owner-per-canonical-type-state-writer-selector
+  - unknown-never-promoted
+  - clean-incremental-equivalent
+  - no-false-green
+  - no-partial-publication
+  - ai-proposal-only
+  - core-language-framework-business-neutral
+
+gaps:
+  - id: verification-claim-truth
+    priority: integrity-critical
+    canonicalOwner: verification-result-contract
+    tracking: [215, 223]
+    currentMaturity: implemented-unverified
+    observedGap:
+      - owning-environment-not-enforced
+      - aggregate-order-dependent
+      - not-applicable-blocks-overall
+      - zero-test-can-pass
+      - duplicate-gate-last-write-wins
+      - reused-evidence-without-environment
+    externalMechanisms: [cedar, formal-lattice-testing, quickcheck]
+    action: complete
+    nextFormalResult: merge-ready-focused-fix
+    blocks: [trusted-development-feedback, self-verification]
+
+  - id: parallel-resolver-correctness
+    priority: active-critical-path
+    canonicalOwner: parallel-work-package-contract
+    tracking: [191, 207]
+    currentMaturity: implemented-partial
+    observedGap:
+      - orderedAfter-not-enforced
+      - conflictsWith-not-enforced
+      - producer-consumer-direction-uncertain
+      - no-exact-base-integration-epoch
+      - relation-cycle-missing-target-not-closed
+    externalMechanisms: [kubernetes-server-side-apply, pubgrub, alloy, tla-plus]
+    action: complete
+    nextFormalResult: minimal-two-package-integration-epoch
+    nonGoal: [virtual-merge, automatic-queue, remote-execution]
+
+  - id: autonomous-work-selection
+    priority: near-term-acceleration
+    canonicalOwner: work-selection-policy
+    tracking: [221]
+    currentMaturity: proposal
+    observedGap:
+      - rolling-plan-and-issue-comments-can-conflict
+      - no-byte-stable-decision-receipt
+      - no-machine-rejection-reasons
+      - no-product-starvation-protection
+    externalMechanisms: [pubgrub, cedar, kubernetes-controller, build-systems-a-la-carte]
+    action: add-contract
+    nextFormalResult: read-only-deterministic-selector
+    orderedAfter: [parallel-resolver-correctness]
+
+  - id: source-program-model
+    priority: product-critical-path
+    canonicalOwner: source-program-domain
+    currentMaturity: proposal
+    observedGap:
+      - no-single-versioned-source-program-snapshot
+      - full-fidelity-tree-name-resolution-type-effect-framework-data-mixed-or-missing
+      - provider-coverage-and-conflict-not-canonicalized
+      - source-binding-identity-not-complete
+    externalMechanisms:
+      - typescript-compiler-api
+      - tree-sitter
+      - roslyn
+      - scope-graphs-statix
+      - kythe
+      - scip
+      - openrewrite
+    action: add-contract
+    nextFormalResult: typescript-source-program-model-v1
+    acceptance:
+      - byte-stable-snapshot
+      - full-provider-coverage-report
+      - unknown-and-conflict-preserved
+      - source-move-delta
+
+  - id: semantic-responsibility-reconstruction
+    priority: product-critical-path
+    canonicalOwner: responsibility-domain
+    tracking: [224]
+    currentMaturity: proposal
+    observedGap:
+      - function-responsibility-many-to-many-not-typed
+      - candidate-vs-canonical-reconcile-missing
+      - facet-taxonomy-not-machine-contract
+      - source-binding-coverage-not-enforced
+    externalMechanisms:
+      - abstract-interpretation
+      - infer-separation-logic
+      - scope-graphs-statix
+      - codeql
+      - souffle
+      - joern-cpg
+    action: add-contract
+    nextFormalResult: responsibility-candidate-and-binding-v1
+    orderedAfter: [source-program-model]
+
+  - id: canonical-semantic-model
+    priority: product-critical-path
+    canonicalOwner: engineering-ir
+    currentMaturity: implemented-partial
+    action: preserve
+    observedStrength:
+      - entity-fact-assertion-separated
+      - authority-confidence-provenance-separated
+      - validated-immutable-boundary
+    requiredCompletion:
+      - responsibility-predicates
+      - source-provider-binding
+      - workspace-domain-references
+      - no-second-scenario-authority
+    externalMechanisms: [mlir, souffle, w3c-prov]
+
+  - id: impact-rule-engine
+    priority: product-critical-path
+    canonicalOwner: delta-impact
+    currentMaturity: implemented-partial
+    observedGap:
+      - responsibility-facet-propagation-incomplete
+      - cross-domain-adapters-incomplete
+      - rule-provenance-and-witness-not-complete
+      - query-engine-clean-incremental-contract-not-frozen
+    externalMechanisms: [souffle, codeql, abstract-interpretation, quickcheck]
+    action: complete
+    nextFormalResult: responsibility-level-impact-v1
+    orderedAfter: [semantic-responsibility-reconstruction]
+
+  - id: semantic-mutation-operation-registry
+    priority: product-critical-path
+    canonicalOwner: semantic-mutation
+    currentMaturity: implemented-partial
+    observedGap:
+      - operation-does-not-yet-cover-responsibility-facet
+      - transformation-rule-and-match-precondition-not-generalized
+      - provider-source-adapter-matrix-incomplete
+    globalResearchCorrection:
+      - preserve-match-precondition
+      - preserve-transform-rule
+      - preserve-must-preserve
+      - preserve-expected-delta
+      - preserve-coverage-and-unknown
+    externalMechanisms: [openrewrite, coccinelle, clang-tooling, terraform-plan]
+    action: complete
+    nextFormalResult: one-decision-or-state-operation-physical-closure
+
+  - id: publication-recovery
+    priority: integrity-critical
+    canonicalOwner: workspace-write-authority-and-mutation-journal
+    currentMaturity: implemented-partial
+    observedGap:
+      - durable-publication-proof-platform-matrix-incomplete
+      - exact-crash-boundary-model-incomplete
+      - recovery-topology-proof-incomplete
+    externalMechanisms: [aries, sqlite-atomic-commit, temporal, tla-plus]
+    action: formal-model-first
+    nextFormalResult: publication-recovery-state-machine-plus-fault-traversal
+
+  - id: target-profile-type-algebra
+    priority: product-critical-path
+    canonicalOwner: target-compilation
+    currentMaturity: implemented-partial
+    observedGap:
+      - target-capability-combination-validator-incomplete
+      - type-normalization-and-compatibility-not-general
+      - serialization-compatibility-domains-incomplete
+    externalMechanisms: [mlir, protobuf, wasm-component-wit, json-schema]
+    action: complete
+    nextFormalResult: typescript-node-target-profile-and-type-algebra-v1
+
+  - id: application-behavior-target-program-ir
+    priority: product-critical-path
+    canonicalOwner: target-compilation
+    currentMaturity: implemented-partial
+    observedGap:
+      - producer-and-promotion-contracts-not-complete
+      - governed-extension-boundary-not-proven
+      - legacy-generator-single-writer-migration-incomplete
+    externalMechanisms: [mlir, llvm-ir, gcc-gimple, openrewrite]
+    action: complete
+    nextFormalResult: one-end-to-end-typescript-lowering-slice
+
+  - id: deterministic-typescript-lowering
+    priority: product-critical-path
+    canonicalOwner: target-backend
+    currentMaturity: implemented-partial
+    observedGap:
+      - three-unrelated-domain-anti-specialization-not-closed
+      - source-comment-format-preservation-boundary-incomplete
+      - round-trip-and-owner-migration-incomplete
+    externalMechanisms: [roslyn, openrewrite, clang-tooling]
+    action: complete
+    nextFormalResult: self-owned-module-round-trip-v1
+
+  - id: compiler-query-incremental
+    priority: near-term-acceleration
+    canonicalOwner: compiler-incremental-graph
+    tracking: [194]
+    currentMaturity: proposal
+    observedGap:
+      - no-clean-benchmark
+      - no-pure-query-kernel
+      - existing-caches-not-under-single-invalidation-owner
+    externalMechanisms: [rustc-query, salsa, buck2-dice, bazel, build-systems-a-la-carte]
+    action: benchmark-first
+    nextFormalResult: in-memory-query-kernel-for-stable-pure-nodes
+    orderedAfter:
+      - stable-source-program-model
+      - stable-clean-compilation-boundaries
+
+  - id: verification-test-impact
+    priority: near-term-acceleration
+    canonicalOwner: semantic-test-impact
+    tracking: [188]
+    currentMaturity: implemented-partial
+    observedGap:
+      - direct-import-and-path-heavy
+      - semantic-responsibility-edges-missing
+      - completeness-classification-not-general
+      - full-calibration-invalidation-not-automatic
+    globalResearchCorrection:
+      - all-graphs-declare-completeness
+      - no-edge-never-means-no-impact-when-partial
+    externalMechanisms: [kythe, scip, codeql, cyclonedx, abstract-interpretation]
+    action: complete
+    orderedAfter: [source-program-model, impact-rule-engine]
+
+  - id: candidate-epoch-failure-routing
+    priority: near-term-acceleration
+    canonicalOwner: development-epoch-failure
+    tracking: [177]
+    currentMaturity: proposal
+    observedGap:
+      - authoring-candidate-frozen-not-machine-state
+      - failure-fingerprint-owner-next-action-not-unified
+      - repeated-deterministic-failure-not-reused
+    externalMechanisms: [temporal, opentelemetry, quickcheck]
+    action: add-contract
+
+  - id: evidence-dag-run-journal
+    priority: near-term-acceleration
+    canonicalOwner: evidence-dag-run-journal
+    tracking: [179]
+    currentMaturity: proposal
+    observedGap:
+      - action-key-and-trusted-producer-not-general
+      - resume-state-still-relies-on-external-reconstruction
+      - resource-identity-integration-missing
+    externalMechanisms: [bazel, nix, temporal, slsa, opentelemetry]
+    action: add-contract
+    orderedAfter: [candidate-epoch-failure-routing, trusted-bootstrap]
+
+  - id: trusted-bootstrap
+    priority: integrity-critical
+    canonicalOwner: trusted-bootstrap
+    tracking: [178]
+    currentMaturity: proposal
+    observedGap:
+      - verifier-selector-docs-doctor-can-risk-self-certification
+      - tcb-registry-and-base-side-runner-not-unified
+    externalMechanisms: [slsa, in-toto, tuf, sigstore]
+    action: add-contract
+
+  - id: hermetic-test-runtime
+    priority: near-term-acceleration
+    canonicalOwner: hermetic-resource-runtime
+    tracking: [190]
+    currentMaturity: implemented-partial
+    observedGap:
+      - resource-classification-and-receipt-not-general
+      - cross-platform-process-tree-port-browser-db-proof-incomplete
+    externalMechanisms: [capsicum, wasi-capabilities, bazel, nix]
+    action: complete
+
+  - id: block-registry-resolution
+    priority: later-product-ecosystem
+    canonicalOwner: capability-block
+    currentMaturity: implemented-partial
+    observedGap:
+      - trust-and-signature-provider-not-complete
+      - version-conflict-explanation-not-general
+      - compatibility-migration-support-claim-not-machine-unified
+    externalMechanisms: [pubgrub, semver, tuf, sigstore, wasm-component-wit, cyclonedx]
+    action: complete
+    orderedAfter: [typescript-product-closure, release-domain]
+
+  - id: ai-authorization-task-envelope
+    priority: product-critical-path
+    canonicalOwner: workbench-ai
+    currentMaturity: implemented-partial
+    observedGap:
+      - task-envelope-v2-not-complete
+      - capability-token-and-default-deny-not-machine-closed
+      - tool-protocol-can-outpace-operation-registry
+    externalMechanisms: [cedar, macaroons, mcp, swe-agent-aci, structured-outputs]
+    action: complete
+    nextFormalResult: one-ai-proposal-through-canonical-plan-with-no-write
+
+  - id: ai-runtime-telemetry-evaluation
+    priority: later-acceleration
+    canonicalOwner: ai-runtime-evidence
+    currentMaturity: proposal
+    observedGap:
+      - no-stable-agent-tool-span-schema
+      - no-context-efficiency-and-first-pass-yield-metrics
+      - prompt-source-privacy-policy-not-machine-enforced
+    externalMechanisms: [otel-genai, swe-bench, swe-agent-aci]
+    action: add-provider
+
+  - id: web-source-target-domain
+    priority: later-product
+    canonicalOwner: web-frontend-domain
+    tracking: [222]
+    currentMaturity: proposal
+    observedGap:
+      - html-template-style-resource-models-missing
+      - source-rendered-runtime-identities-not-separated-in-code
+      - browser-evidence-not-linked-to-semantic-claim
+    externalMechanisms: [whatwg-html, whatwg-dom, css-cascade, wai-aria, web-components]
+    action: add-focused-authority
+    orderedAfter:
+      - typescript-source-program-model
+      - responsibility-impact-mutation
+
+  - id: supply-chain-release
+    priority: later-product
+    canonicalOwner: runtime-distribution-release
+    currentMaturity: implemented-partial
+    observedGap:
+      - release-snapshot-promotion-publication-receipt-incomplete
+      - sbom-completeness-and-dependency-graph-quality-not-enforced
+      - signature-transparency-and-update-trust-not-integrated
+    externalMechanisms: [slsa, in-toto, tuf, sigstore, spdx, cyclonedx, w3c-prov]
+    action: complete
+
+  - id: operational-telemetry
+    priority: maintenance-required
+    canonicalOwner: operations-evidence
+    currentMaturity: implemented-partial
+    observedGap:
+      - inconsistent-event-attribute-naming
+      - telemetry-provenance-and-privacy-not-unified
+    externalMechanisms: [opentelemetry]
+    action: add-provider
+
+  - id: distributed-control-plane
+    priority: defer
+    canonicalOwner: future-distributed-service
+    currentMaturity: absent
+    externalMechanisms: [raft, crdt, zanzibar]
+    action: defer
+    reason: no-real-multi-node-consumer
+
+  - id: collaborative-workbench
+    priority: defer
+    canonicalOwner: future-collaboration-domain
+    currentMaturity: absent
+    externalMechanisms: [crdt, kubernetes-server-side-apply]
+    action: defer
+    invariant: canonical-mutation-writer-remains-serial-and-authoritative
+
+adoptionSequence:
+  - order: 0
+    work: finish-215-and-223
+    type: integrity
+  - order: 1
+    work: minimal-207-resolver-and-integration-epoch
+    type: acceleration
+  - order: 2
+    work: typescript-source-program-model-and-source-ownership
+    type: product
+  - order: 3
+    work: responsibility-candidate-self-observation
+    type: product
+  - order: 4
+    work: responsibility-level-impact-explain
+    type: product
+  - order: 5
+    work: one-controlled-mutation-physical-closure
+    type: product
+  - order: 6
+    work: deterministic-typescript-lowering-round-trip
+    type: product
+  - order: 7
+    work: external-brownfield-module-adopt-normalize
+    type: product
+
+parallelGovernanceLane:
+  requiresMachineConflictProof: true
+  candidates:
+    - work-selector-read-only
+    - epoch-failure-core
+    - change-closure-read-only
+    - semantic-test-impact
+    - trusted-bootstrap-and-minimal-run-journal
+    - compiler-query-kernel-after-clean-boundaries
+
+proposalDecompositionRule:
+  wholeProposalMerge: forbidden
+  eachAcceptedDeltaRequires:
+    - canonical-owner
+    - focused-issue-or-work-package
+    - migration-and-retirement
+    - positive-negative-fault-tests
+    - main-readback
