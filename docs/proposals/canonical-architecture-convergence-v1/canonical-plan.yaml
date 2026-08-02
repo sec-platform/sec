@@ -14,6 +14,7 @@ artifactModel:
   humanEntry: docs/proposals/canonical-architecture-convergence-v1/README.md
   machineRecord: docs/proposals/canonical-architecture-convergence-v1/canonical-plan.yaml
   allowedFilesInThisProposal: [README.md, canonical-plan.yaml]
+  exactInventoryRequired: true
   prohibitedParallelArtifacts:
     - separate-constraint-registry
     - separate-decision-ledger
