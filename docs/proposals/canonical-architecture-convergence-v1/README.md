@@ -17,7 +17,7 @@ merge-policy: extract-focused-canonical-deltas
 - `README.md`：人类入口；
 - `canonical-plan.yaml`：全部约束、裁决、owner、依赖、测试/Skill/文档策略、迁移和退役的唯一机器记录。
 
-任何重复的 constraints、decision ledger、assembly、DAG、migration 或 execution-policy 文件都必须删除，避免同一未来设计被多处维护。
+独立的 constraints、decision ledger、assembly、DAG、migration 和 execution-policy 文件已经删除；同一未来设计不再由多份文件并列维护。
 
 ## 产品裁决
 
@@ -40,6 +40,7 @@ Authority and observations
 ```text
 PR #227
 → Issue #215 Verification truth
+→ deterministic Work Selection
 → select one real SEC subsystem
 → TypeScript Source Program
 → Responsibility self-observation
