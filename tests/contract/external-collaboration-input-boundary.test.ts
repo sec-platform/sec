@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 import { expect, test } from 'bun:test';
 
 import {
@@ -144,4 +146,23 @@ test('review-thread bodies and incomplete pagination cannot enter the projection
       }
     ]
   })).toThrow('bounded page');
+});
+
+test('the live resolver requests only metadata and never emits raw worktree text', async () => {
+  const source = await readFile('scripts/codex/document-control-plane.ts', 'utf8');
+  expect(source).toContain(
+    'number,isDraft,headRefOid,baseRefOid,mergeStateStatus,reviewDecision,reviewRequests,statusCheckRollup'
+  );
+  expect(source).toContain("'--json',\n    'number'");
+  expect(source).toContain("schema: 'sec-resolved-current-state-v2'");
+  expect(source).toContain('projectWorktreeStatus');
+  for (const forbidden of [
+    'number,title',
+    'latestReviews',
+    'reviews,comments',
+    'openPullRequests,\n          openIssues',
+    'status: worktreeStatus\n    }'
+  ]) {
+    expect(source).not.toContain(forbidden);
+  }
 });
