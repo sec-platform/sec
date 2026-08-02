@@ -88,6 +88,23 @@ test('control facts expose bounded metadata and strip all contributor-controlled
   }
 });
 
+test('empty or null review decisions normalize to null without accepting arbitrary text', () => {
+  for (const reviewDecision of ['', null]) {
+    const projected = CodexDevelopmentProjectExternalGitHubFactsV1({
+      pullRequests: [safePullRequest({ reviewDecision })],
+      issues: [],
+      reviewThreads: []
+    });
+    expect(projected.openPullRequests[0]?.reviewDecision).toBeNull();
+  }
+
+  expect(() => CodexDevelopmentProjectExternalGitHubFactsV1({
+    pullRequests: [safePullRequest({ reviewDecision: HOSTILE })],
+    issues: [],
+    reviewThreads: []
+  })).toThrow('outside the bounded enum');
+});
+
 test('PR and Issue natural-language fields are rejected rather than silently retained', () => {
   expect(() => CodexDevelopmentProjectExternalGitHubFactsV1({
     pullRequests: [{ ...safePullRequest(), title: HOSTILE }],
@@ -148,7 +165,7 @@ test('review-thread bodies and incomplete pagination cannot enter the projection
   })).toThrow('bounded page');
 });
 
-test('the live resolver requests only metadata and never emits raw worktree text', async () => {
+test('the live resolver requests only metadata and never emits raw collaboration text', async () => {
   const source = await readFile('scripts/codex/document-control-plane.ts', 'utf8');
   expect(source).toContain(
     'number,isDraft,headRefOid,baseRefOid,mergeStateStatus,reviewDecision,reviewRequests,statusCheckRollup'
@@ -156,12 +173,12 @@ test('the live resolver requests only metadata and never emits raw worktree text
   expect(source).toContain("'--json',\n    'number'");
   expect(source).toContain("schema: 'sec-resolved-current-state-v2'");
   expect(source).toContain('projectWorktreeStatus');
+  expect(source).not.toContain("run('git', ['branch', '--show-current']");
   for (const forbidden of [
     'number,title',
     'latestReviews',
     'reviews,comments',
-    'openPullRequests,\n          openIssues',
-    'status: worktreeStatus\n    }'
+    'openPullRequests,\n          openIssues'
   ]) {
     expect(source).not.toContain(forbidden);
   }
