@@ -615,18 +615,21 @@ sourceDispositions:
       - docs/brownfield-import.md
       - docs/compiler-target-ir.md
       - focused-effect-condition-compatibility-support-contracts
+    migration: extract-one-focused-owner-delta-per-consumer
     retainedInvariants: [minimal-federation, source-layering, bounded-behavior, query-evidence-separation, publication-durability, specialized-provider-pattern]
     rejectedParts: [nine-file-active-architecture, source-count-as-proof, speculative-support]
     retirementTarget: absorbed-research-archive-after-decision-and-consumer-migration
   - source: pr-229-issue-228
     disposition: adapt
     canonicalTarget: docs/development-governance.md-plus-agent-operation-contracts
+    migration: role-operation-permission-transition-contracts-then-compatible-router-cutover
     retainedInvariants: [role-operation-primary-skill-separation, permission-intersection, typed-outcome]
     rejectedParts: [permanent-eleven-skill-count, skill-prose-as-state-or-permission]
     retirementTarget: archive-after-router-permission-transition-cutover-and-parity
   - source: pr-231-issue-230
     disposition: adapt
     canonicalTarget: issues-177-179-188-191-194-205-207-219-221-plus-candidate-closure
+    migration: owner-specific-contracts-read-only-first-then-trusted-dispatch
     retainedInvariants: [candidate-closure-orchestration, read-only-first, action-key-before-cas, diagnostic-failure-reuse, derived-index, typed-publication-receipt]
     rejectedParts: [combined-multi-owner-nodes, infrastructure-before-product]
     retirementTarget: absorbed-synthesis-archive-after-owner-contracts-and-consumers-enter-main
@@ -634,21 +637,27 @@ sourceDispositions:
     disposition: adapt
     canonicalTarget: source-program-target-profile-mutation-browser-verification-owners
     migration: native-html-css-typescript-then-tsx-impact-mutation-browser-evidence
+    retainedInvariants: [native-first, runtime-dom-as-evidence, framework-adapters-late]
+    rejectedParts: [one-web-superdomain, framework-first-core]
     retirementTarget: close-as-absorbed-after-first-web-source-target-browser-contracts-enter-main-and-roadmap-readback
   - source: issue-224
     disposition: adapt
     canonicalTarget: responsibility-source-impact-mutation-and-block-owners
     migration: responsibility-contract-then-self-observation-impact-and-one-responsibility-mutation
+    retainedInvariants: [obligation-identity, many-to-many-bindings, facet-model]
+    rejectedParts: [function-equals-responsibility, ai-summary-as-identity, mechanical-code-splitting]
     retirementTarget: close-as-implemented-or-absorbed-after-main-readback-of-responsibility-contract-and-operation
   - source: docs/proposals/development-run-kernel.md
     disposition: adapt
     canonicalTarget: docs/development-governance.md-plus-issues-177-179-and-candidate-closure
+    migration: split-run-candidate-evidence-and-integration-consumers-by-owner
     retainedInvariants: [restartable-run, external-evidence, typed-transition]
     rejectedParts: [second-verification-result, second-mutation-terminal, second-integration-epoch]
     retirementTarget: archive-after-consumer-cutover
   - source: docs/proposals/engineering-workspace-domains.md
     disposition: adapt
     canonicalTarget: docs/system-architecture.md-docs/roadmap.md-and-activated-domain-owners
+    migration: activate-only-real-consumer-domains-with-own-boundaries-and-revisions
     retainedInvariants: [independent-domain-revisions, aggregate-references-only]
     rejectedParts: [giant-optional-workspace-object, speculative-domain-activation]
     retirementTarget: archive-after-domain-decisions-are-mapped-and-first-real-domain-consumers-enter-main
