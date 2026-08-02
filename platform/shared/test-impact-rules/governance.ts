@@ -22,6 +22,8 @@ const DOCUMENTATION_AUTHORITY_FAST_TESTS = [
 ];
 
 const AGENT_GOVERNANCE_FAST_TESTS = [
+  'tests/contract/agent-knowledge-closure.test.ts',
+  'tests/contract/agent-knowledge-readiness.test.ts',
   'tests/contract/agent-skills.test.ts',
   'tests/contract/discover-all.test.ts',
   'tests/contract/docs-doctor-ledgers.test.ts',
@@ -169,6 +171,8 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'docs/scripts/docs-doctor-ledgers.ts',
       'docs/scripts/docs-doctor-shared.ts',
       'platform/shared/active-documentation-contract.ts',
+      'platform/shared/agent-knowledge-closure-contract.ts',
+      'platform/shared/agent-knowledge-readiness-contract.ts',
       'platform/shared/documentation-authority-contract.ts',
       'platform/shared/agent-skill-contract.ts',
       'scripts/codex/document-control-plane.ts',
