@@ -12,7 +12,7 @@ merge-policy: extract-focused-canonical-deltas
 
 本目录是非权威设计收敛记录，不是当前产品事实，也不应整体合并。
 
-它只保留两个文件：
+最终只保留两个文件：
 
 - `README.md`：人类入口；
 - `canonical-plan.yaml`：全部约束、裁决、owner、依赖、测试/Skill/文档策略、迁移和退役的唯一机器记录。
@@ -77,3 +77,5 @@ Release credential closure、Candidate Closure、Evidence/Run、feedback、Query
 - current formal PR #227。
 
 正式采用必须从届时最新 `main` 重新建立聚焦 Work Package，并经过独立 Review、实际测试/Gate、squash merge 和 new-main readback。
+
+当前 proposal tree 相对 `main` 只新增上述两个文件；其余曾新增的并列设计文件已从最终 tree 删除。
