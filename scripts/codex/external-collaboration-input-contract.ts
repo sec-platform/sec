@@ -122,7 +122,7 @@ function optionalEnumValue(
   allowed: ReadonlySet<string>,
   label: string
 ): string | null {
-  if (value === null) return null;
+  if (value === null || value === '') return null;
   return enumValue(value, allowed, label);
 }
 
