@@ -1,0 +1,349 @@
+schema: sec-canonical-architecture-decision-ledger-v1
+status: proposal
+tracking: issue-232
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+authority: none
+
+vocabulary:
+  disposition: [adopt, adapt, reject, defer, experimental]
+  priority:
+    - permanent
+    - integrity-now
+    - before-self-observation
+    - before-controlled-mutation
+    - before-parallel-development
+    - before-brownfield
+    - before-web
+    - before-release
+    - future
+
+decisions:
+  - id: ARCH-001
+    title: SEC product identity
+    disposition: adopt
+    priority: permanent
+    sources: [docs/product.md, pr-226]
+    decision: deterministic multi-domain engineering semantic compiler plus governed change platform
+    canonicalTarget: docs/product.md
+
+  - id: ARCH-002
+    title: Minimal Model Federation Kernel
+    disposition: adapt
+    priority: before-self-observation
+    sources: [pr-226-DEC-001, docs/system-architecture.md]
+    decision: >-
+      Retain federation, but narrow the kernel to domain identity, typed references, revisions,
+      authority/producer references, validated envelopes, coverage/unknown and migration references.
+      Effect, Verification, Agent, Mutation and Release state remain outside the kernel.
+    canonicalTarget: docs/system-architecture.md-plus-machine-contract
+    rejects: [universal-object-model, universal-edge-schema, central-domain-state]
+
+  - id: ARCH-003
+    title: Typed domain snapshots plus canonical Fact projection
+    disposition: adapt
+    priority: before-self-observation
+    sources: [docs/semantic-model.md, docs/system-architecture.md, pr-226]
+    decision: >-
+      Domain typed snapshots own domain invariants. Entity/Fact/Assertion is the canonical
+      cross-domain assertion and provenance layer, not a duplicate storage of every domain field.
+      Workspace Snapshot aggregates domain revisions and validates references.
+    canonicalTarget: docs/semantic-model.md-and-docs/system-architecture.md
+
+  - id: ARCH-004
+    title: Universal IR or graph
+    disposition: reject
+    priority: permanent
+    sources: [docs/semantic-model.md, pr-226]
+    decision: source, semantic, compilation, impact, evidence and operational graphs remain distinct
+    reversalCondition: none-within-current-product-definition
+
+  - id: ARCH-005
+    title: Structural Semantic Operational contract triad
+    disposition: adopt
+    priority: permanent
+    sources: [pr-226-DEC-002, docs/semantic-mutation.md]
+    decision: every public contract declares shape, semantic invariants and operational effects/failure/recovery
+    canonicalTarget: shared-contract-protocol-plus-domain-projections
+
+  - id: ARCH-006
+    title: Source bytes LST language semantics and Source Program layers
+    disposition: adopt
+    priority: before-self-observation
+    sources: [pr-226-DEC-003, docs/brownfield-import.md, openrewrite-lst, roslyn-workspace]
+    decision: exact bytes/mode, lossless syntax, language semantics and SPM dialect are separate
+    canonicalTarget: new-source-program-authority
+
+  - id: ARCH-007
+    title: TypeScript source authority
+    disposition: adopt
+    priority: before-self-observation
+    sources: [docs/roadmap.md, pr-226]
+    decision: TypeScript Compiler API owns symbol/type/module semantics; LST owns preservation
+    canonicalTarget: typescript-source-provider-contract
+
+  - id: ARCH-008
+    title: Semantic Responsibility reconstruction
+    disposition: adopt
+    priority: before-self-observation
+    sources: [issue-224, pr-226-DEC-004]
+    decision: Responsibility is an obligation with ten facets and many-to-many source/function/block bindings
+    canonicalTarget: focused-responsibility-authority-or-semantic-model-delta
+
+  - id: ARCH-009
+    title: Effect Resource Capability Algebra
+    disposition: adapt
+    priority: before-controlled-mutation
+    sources: [pr-226-DEC-005, docs/semantic-mutation.md, docs/compiler-target-ir.md]
+    decision: create a shared algebra domain, not a Federation Kernel field
+    canonicalTarget: new-effect-resource-capability-authority
+
+  - id: ARCH-010
+    title: Condition and freshness protocol
+    disposition: adapt
+    priority: before-parallel-development
+    sources: [pr-226-DEC-013, docs/verification-governance.md]
+    decision: generic envelope is shared; each domain retains its readiness/support/recovery algorithm
+    canonicalTarget: shared-condition-contract
+
+  - id: ARCH-011
+    title: Compatibility algebra
+    disposition: adapt
+    priority: before-brownfield
+    sources: [pr-226, docs/change-management.md, docs/runtime-and-distribution.md]
+    decision: directional multidimensional result protocol; no universal compatibility algorithm
+    dimensions: [source-api, abi, wire, behavior, resource-ownership, data, deployment]
+    canonicalTarget: change-management-plus-domain-registries
+
+  - id: ARCH-012
+    title: Support Claim protocol
+    disposition: adopt
+    priority: before-release
+    sources: [docs/product.md, docs/runtime-and-distribution.md, docs/roadmap.md]
+    decision: design, main implementation, physical proof, package/deploy and product support are separate states
+    canonicalTarget: runtime-verification-release
+
+  - id: ARCH-013
+    title: Type Algebra extension
+    disposition: adopt
+    priority: before-controlled-mutation
+    sources: [docs/compiler-target-ir.md, pr-226-DEC-006]
+    decision: add recursive, resource, opaque external, representation and directional compatibility semantics
+    canonicalTarget: docs/compiler-target-ir.md-and-code
+
+  - id: ARCH-014
+    title: Bounded Behavior IR
+    disposition: adopt
+    priority: permanent
+    sources: [docs/compiler-target-ir.md, docs/product.md]
+    decision: only fully verifiable/lowerable behavior enters Behavior IR; complex logic stays governed or opaque
+    canonicalTarget: docs/compiler-target-ir.md
+
+  - id: ARCH-015
+    title: Demand-driven compiler Query Contracts
+    disposition: adopt
+    priority: before-controlled-mutation
+    sources: [issue-194, pr-226-DEC-007, rustc-query]
+    decision: queries declare exact inputs, dependencies, fingerprints, invalidation, cancellation and clean oracle
+    canonicalTarget: compiler-query-kernel
+    prerequisite: clean-deterministic-pipeline
+
+  - id: ARCH-016
+    title: Compiler Query DAG versus Evidence DAG
+    disposition: adopt
+    priority: permanent
+    sources: [pr-226-DEC-008, docs/verification-governance.md]
+    decision: separate schemas, statuses, freshness and authority; physical CAS may be shared
+    canonicalTarget: existing-separate-owners
+
+  - id: ARCH-017
+    title: Translation validation
+    disposition: adapt
+    priority: before-controlled-mutation
+    sources: [pr-226-DEC-009]
+    decision: use for high-risk pure lowering/optimization and support-critical transformations, not every business operation
+    canonicalTarget: lowering-validation-protocol
+
+  - id: ARCH-018
+    title: E-graphs
+    disposition: defer
+    priority: future
+    sources: [pr-226-DEC-010]
+    decision: optional typed pure rewrite provider only after a real optimization consumer exists
+    activationTrigger: repeated-local-rewrite-search-with-measurable-benefit
+
+  - id: ARCH-019
+    title: Typed Delta layers
+    disposition: adopt
+    priority: before-controlled-mutation
+    sources: [docs/delta-and-impact.md, pr-226-DEC-011]
+    decision: Authoring, Syntax, Source Semantic, Engineering, Compilation, Artifact, Runtime and Support deltas remain distinct
+    canonicalTarget: docs/delta-and-impact.md
+
+  - id: ARCH-020
+    title: Impact lattice and witnesses
+    disposition: adopt
+    priority: before-controlled-mutation
+    sources: [docs/delta-and-impact.md, issue-188]
+    decision: definite/possible/unknown monotone fixpoint with stable witnesses and unknown frontier
+    canonicalTarget: impact-rule-registry
+
+  - id: ARCH-021
+    title: Plan Apply separation and canonical writes
+    disposition: adopt
+    priority: permanent
+    sources: [docs/semantic-mutation.md]
+    decision: read-only plan; apply re-reads/replans under single writer and source+semantic CAS
+    canonicalTarget: existing-mutation-state-machine
+
+  - id: ARCH-022
+    title: CRDT scope
+    disposition: adapt
+    priority: permanent
+    sources: [pr-226-DEC-019]
+    decision: CRDT allowed only for non-authority draft/comment/UI collaboration; canonical source and state remain single-writer
+    canonicalTarget: system-architecture-and-mutation
+
+  - id: ARCH-023
+    title: Publication durability protocol
+    disposition: adopt
+    priority: before-controlled-mutation
+    sources: [docs/semantic-mutation.md, pr-226-DEC-017]
+    decision: WAL-like journal, publish marker, fsync/readback, exact rollback and recovery-required
+    canonicalTarget: mutation-runtime-publication-contract
+
+  - id: ARCH-024
+    title: Verification object decomposition
+    disposition: adopt
+    priority: integrity-now
+    sources: [issue-215, docs/verification-governance.md, pr-226-DEC-014]
+    decision: Requirement, Applicability, Gate, Execution, Result, Claim, Evidence and Aggregate remain separate
+    canonicalTarget: verification-result-and-evidence-contracts
+
+  - id: ARCH-025
+    title: Evidence Action Key and CAS
+    disposition: adapt
+    priority: before-parallel-development
+    sources: [pr-231, bazel-remote-cache]
+    decision: define exact Action Key and trust/freshness first; CAS stores immutable bytes and never grants semantic authority
+    canonicalTarget: evidence-dag-action-contract
+
+  - id: ARCH-026
+    title: Candidate Closure
+    disposition: adopt
+    priority: integrity-now
+    sources: [pr-231, docs/development-governance.md]
+    decision: orchestration-only state machine that consumes Scope, Verification, Review and merge authority
+    canonicalTarget: development-integration-domain
+    doesNotOwn: [pass-semantics, impact, review-findings]
+
+  - id: ARCH-027
+    title: Development state decomposition
+    disposition: adopt
+    priority: before-parallel-development
+    sources: [issues-177-179, 188-191, 194, 205, 207, 219, 221, pr-231]
+    decision: selection, capsule, closure, candidate, evidence, run, integration and publication have separate owners
+    canonicalTarget: development-governance-plus-machine-contracts
+
+  - id: ARCH-028
+    title: Agent Role Operation Primary Skill architecture
+    disposition: adapt
+    priority: before-parallel-development
+    sources: [pr-229, docs/development-governance.md]
+    decision: adopt roles, typed operation envelope, exactly one Primary Skill and deterministic services
+    experimental: exact-number-and-names-of-skills
+    canonicalTarget: development-governance-and-agent-contracts
+
+  - id: ARCH-029
+    title: Context Capsule
+    disposition: adopt
+    priority: before-parallel-development
+    sources: [pr-231, docs/workbench-and-ai-operations.md]
+    decision: reason/digest/freshness-bound references loaded on demand, not copied repository summaries
+    canonicalTarget: task-context-contract
+
+  - id: ARCH-030
+    title: Runtime host and toolchain split
+    disposition: adopt
+    priority: before-release
+    sources: [docs/runtime-and-distribution.md, issue-167]
+    decision: runtime-neutral core, supported Node LTS public host family, exact Bun repository toolchain until evidence changes it
+    experimental: exact-minimum-node-version
+    canonicalTarget: runtime-support-profile
+
+  - id: ARCH-031
+    title: Package/domain boundaries
+    disposition: adapt
+    priority: before-release
+    sources: [docs/runtime-and-distribution.md, pr-226]
+    decision: logical package boundaries approved; physical split only after import/load/cycle/release evidence
+    canonicalTarget: dependency-provider-program
+
+  - id: ARCH-032
+    title: Workbench and AI write path
+    disposition: adopt
+    priority: permanent
+    sources: [docs/product.md, docs/semantic-mutation.md]
+    decision: all surfaces use one query/plan/apply/recover facade; AI only proposes
+    canonicalTarget: docs/workbench-and-ai-operations.md
+
+  - id: ARCH-033
+    title: Authorization architecture
+    disposition: adapt
+    priority: before-controlled-mutation
+    sources: [docs/semantic-mutation.md, cedar-parc]
+    decision: typed principal/action/resource/context request intersected with source owner, policy and runtime capability
+    providerPolicy: Cedar-or-OPA-may-implement-policy-evaluation-but-not-own-SEC-authority
+    canonicalTarget: authorization-contract
+
+  - id: ARCH-034
+    title: Web frontend
+    disposition: adopt
+    priority: before-web
+    sources: [issue-222]
+    decision: native HTML/CSS/TS, then TSX, Impact, governed mutation, browser Evidence, framework adapters
+    canonicalTarget: source-program-and-target-profile-domains
+
+  - id: ARCH-035
+    title: Specialized platforms
+    disposition: adopt
+    priority: future
+    sources: [pr-226-specialized-platform]
+    decision: specialized Provider + Profile + typed Resource/Effect + owning Evidence + governed/opaque boundary
+    canonicalTarget: provider-and-target-domains
+
+  - id: ARCH-036
+    title: Generic sandbox boolean
+    disposition: reject
+    priority: permanent
+    sources: [docs/runtime-and-distribution.md, pr-226]
+    decision: every isolation claim binds platform, mechanism, capability, generation and physical Evidence
+
+  - id: ARCH-037
+    title: External policy/build/compiler mechanisms
+    disposition: adapt
+    priority: permanent
+    sources: [mlir, rustc, roslyn, openrewrite, bazel, cedar]
+    decision: adopt mechanisms and invariants, never import external object models as SEC authority
+    canonicalTarget: relevant-domain-providers
+
+  - id: ARCH-038
+    title: Giant architecture implementation PR
+    disposition: reject
+    priority: permanent
+    sources: [docs/development-governance.md, issue-232]
+    decision: freeze one total decision, implement via dependency-ordered focused Work Packages with retirement proof
+
+  - id: ARCH-039
+    title: Product starvation by infrastructure
+    disposition: reject
+    priority: permanent
+    sources: [docs/roadmap.md, pr-231, issue-232]
+    decision: after integrity blockers, a real self-observation-to-mutation vertical slice is mandatory before more optional infrastructure
+
+  - id: ARCH-040
+    title: Final Design V1 completion
+    disposition: adopt
+    priority: permanent
+    sources: [issue-232]
+    decision: every independent proposal decision gets a canonical target or explicit reject/defer/experiment and parallel final designs are retired
+    canonicalTarget: architecture-assembly-plus-domain-deltas
