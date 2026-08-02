@@ -165,15 +165,20 @@ test('review-thread bodies and incomplete pagination cannot enter the projection
   })).toThrow('bounded page');
 });
 
-test('the live resolver requests only metadata and never emits raw collaboration text', async () => {
+test('the live resolver requests only metadata and binds control authority to canonical main', async () => {
   const source = await readFile('scripts/codex/document-control-plane.ts', 'utf8');
   expect(source).toContain(
     'number,isDraft,headRefOid,baseRefOid,mergeStateStatus,reviewDecision,reviewRequests,statusCheckRollup'
   );
   expect(source).toContain("'--json',\n    'number'");
+  expect(source).toContain("const TrustedDefaultRef = 'refs/remotes/origin/main'");
+  expect(source).toContain("const TrustedRepository = 'sec-platform/sec'");
+  expect(source).toContain("run('git', ['remote', 'get-url', remote]");
+  expect(source).toContain('`${TrustedDefaultRef}:${TrustedCurrentStatePath}`');
   expect(source).toContain("schema: 'sec-resolved-current-state-v2'");
   expect(source).toContain('projectWorktreeStatus');
   expect(source).not.toContain("run('git', ['branch', '--show-current']");
+  expect(source).not.toContain("const statePath = path.join(repositoryRoot, 'docs/work/current-state.yaml')");
   for (const forbidden of [
     'number,title',
     'latestReviews',
