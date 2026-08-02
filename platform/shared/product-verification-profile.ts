@@ -108,7 +108,10 @@ function buildMappedGate(
     supportedClaims: mapping.status === 'passed' ? [claimId] : [],
     environment: isExecuted ? productEnvironment() : null,
     execution: isExecuted
-      ? productExecution(mapping.status === 'failed' ? 1 : 0, mapping.status === 'failed' ? failureFingerprint : null)
+      ? productExecution(
+          mapping.status === 'failed' ? 1 : 0,
+          mapping.status === 'failed' ? failureFingerprint : null
+        )
       : null,
     evidenceRefs: [],
     invalidationRules: [],
@@ -219,11 +222,10 @@ export function buildExpectedProductPolicyGate(
 }
 
 export function inferProductVerificationRuntimeMode(
-  runtime: RuntimeVerificationLaneReport
+  _runtime: RuntimeVerificationLaneReport,
+  requestedLane: VerificationLane = 'all'
 ): ProductVerificationRuntimeMode {
-  return runtime.status === 'passed' && runtime.acceptance.status === 'skipped'
-    ? 'service'
-    : 'full';
+  return requestedLane === 'all' ? 'full' : 'service';
 }
 
 export function productVerificationClaimDefinitions(
