@@ -54,6 +54,27 @@ function authorityRecord(
   };
 }
 
+function navigationRecord(
+  id: string,
+  filePath: string,
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    id,
+    path: filePath,
+    kind: 'navigation',
+    domain: `navigation-${id}`,
+    lifecycle: 'active',
+    dynamicPolicy: 'forbidden',
+    owns: [],
+    projects: [],
+    audience: ['developer'],
+    consumers: ['reader'],
+    updateTriggers: ['navigation-change'],
+    ...overrides
+  };
+}
+
 function proposalRecord(
   id: string,
   filePath: string,
@@ -116,7 +137,16 @@ test('documentation registry reuses canonical paths and rejects Windows aliases'
   ))).toThrow('Case-insensitive document path collision');
 });
 
-test('documentation dependency graph rejects projection and generation cycles', () => {
+test('existing registry lists retain code-unit ordering semantics', () => {
+  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
+    authorityRecord('ordered', 'docs/ordered.md', { audience: ['A', 'a'] })
+  ))).not.toThrow();
+  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
+    authorityRecord('reversed', 'docs/reversed.md', { audience: ['a', 'A'] })
+  ))).toThrow(/canonical code-unit order/);
+});
+
+test('documentation dependency graph rejects project, generation and proposal-target cycles', () => {
   expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
     authorityRecord('a', 'docs/a.md', { projects: ['b'] }),
     authorityRecord('b', 'docs/b.md', { projects: ['a'] })
@@ -129,6 +159,15 @@ test('documentation dependency graph rejects projection and generation cycles', 
   expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
     authorityRecord('a', 'docs/a.md', { generatedFrom: 'docs/b.md' }),
     authorityRecord('b', 'docs/b.md', { generatedFrom: 'docs/a.md' })
+  ))).toThrow('Documentation dependency cycle');
+
+  const target = authorityRecord('target', 'docs/target.md', { projects: ['proposal'] });
+  const proposal = proposalRecord('proposal', 'docs/proposals/proposal.md', 'target', {
+    projects: []
+  });
+  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
+    target,
+    proposal
   ))).toThrow('Documentation dependency cycle');
 });
 
@@ -153,19 +192,20 @@ test('proposal kind requires one enforceable lifecycle disposition', () => {
   ))).toThrow(/non-proposal kind cannot declare proposal metadata/);
 });
 
-test('adopt and adapt proposals require target, activation and archive retirement', () => {
+test('adopt and adapt proposals require target, activation, Evidence and archive retirement', () => {
   const target = authorityRecord('target', 'docs/target.md');
   const base = proposalRecord('proposal', 'docs/proposals/proposal.md', 'target');
 
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    { ...base, proposal: { ...(base.proposal as object), canonicalTargets: [] } }
-  ))).toThrow(/requires canonicalTargets and activationTrigger/);
-
-  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    target,
-    { ...base, proposal: { ...(base.proposal as object), activationTrigger: null } }
-  ))).toThrow(/requires canonicalTargets and activationTrigger/);
+  for (const patch of [
+    { canonicalTargets: [] },
+    { activationTrigger: null },
+    { evidenceRequirement: null }
+  ]) {
+    expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
+      target,
+      { ...base, proposal: { ...(base.proposal as object), ...patch } }
+    ))).toThrow(/requires canonicalTargets, activationTrigger and evidenceRequirement/);
+  }
 
   expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
     target,
@@ -173,11 +213,13 @@ test('adopt and adapt proposals require target, activation and archive retiremen
   ))).toThrow(/retirementTarget must be under docs\/archive/);
 });
 
-test('proposal targets must resolve to non-proposal registered owners', () => {
+test('proposal targets must resolve to owning non-proposal records', () => {
   const target = authorityRecord('target', 'docs/target.md');
   expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
     target,
-    proposalRecord('unknown', 'docs/proposals/unknown.md', 'missing')
+    proposalRecord('unknown', 'docs/proposals/unknown.md', 'missing', {
+      projects: ['target']
+    })
   ))).toThrow(/targets unknown document missing/);
 
   const first = proposalRecord('first', 'docs/proposals/first.md', 'target');
@@ -187,6 +229,31 @@ test('proposal targets must resolve to non-proposal registered owners', () => {
     first,
     second
   ))).toThrow(/cannot migrate into proposal first/);
+
+  const navigation = navigationRecord('navigation', 'docs/navigation.md');
+  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
+    target,
+    navigation,
+    proposalRecord('bad-target', 'docs/proposals/bad-target.md', 'navigation')
+  ))).toThrow(/target navigation is not an owning canonical record/);
+});
+
+test('proposal retirement targets are unique', () => {
+  const target = authorityRecord('target', 'docs/target.md');
+  const first = proposalRecord('first', 'docs/proposals/first.md', 'target');
+  const secondBase = proposalRecord('second', 'docs/proposals/second.md', 'target');
+  const second = {
+    ...secondBase,
+    proposal: {
+      ...(secondBase.proposal as object),
+      retirementTarget: 'docs/archive/proposals/first.md'
+    }
+  };
+  expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
+    target,
+    first,
+    second
+  ))).toThrow(/retirementTarget .* is shared by first and second/);
 });
 
 test('reject and experimental dispositions preserve reversal or Evidence requirements', () => {
@@ -220,7 +287,7 @@ test('reject and experimental dispositions preserve reversal or Evidence require
   ))).toThrow(/experimental requires activationTrigger and evidenceRequirement/);
 });
 
-test('active documentation projection and generated index exactly match registry', async () => {
+test('active documentation projection and generated index exactly match registry bytes', async () => {
   const registrySource = await readFile(
     path.join(REPOSITORY_ROOT, 'docs/authority.json'),
     'utf8'
@@ -233,7 +300,7 @@ test('active documentation projection and generated index exactly match registry
   }
 
   const actualIndex = await readFile(path.join(REPOSITORY_ROOT, 'docs/README.md'), 'utf8');
-  expect(actualIndex.replace(/\r\n/gu, '\n')).toBe(renderDocumentationIndex(registry));
+  expect(actualIndex).toBe(renderDocumentationIndex(registry));
   expect(actualIndex).toContain('| Proposal 处置 |');
   expect(actualIndex).toContain('| adapt |');
 });
