@@ -1,0 +1,705 @@
+schema: sec-converged-architecture-plan-v3
+status: proposal
+tracking: issue-232
+authority: none
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+mergePolicy: extract-focused-canonical-deltas-never-merge-this-plan-whole
+
+purpose: >-
+  Preserve the complete adjudicated future design in one non-authoritative machine record,
+  eliminate parallel proposal surfaces, and define the shortest trustworthy migration from
+  current main to real SEC product closure.
+
+artifactModel:
+  humanEntry: docs/proposals/canonical-architecture-convergence-v1/README.md
+  machineRecord: docs/proposals/canonical-architecture-convergence-v1/canonical-plan.yaml
+  allowedFilesInThisProposal: [README.md, canonical-plan.yaml]
+  prohibitedParallelArtifacts:
+    - separate-constraint-registry
+    - separate-decision-ledger
+    - separate-architecture-assembly
+    - separate-implementation-dag
+    - separate-migration-plan
+    - separate-execution-policy
+  canonicalAdoptionRule: one-owner-at-a-time-from-then-latest-main
+
+optimization:
+  objectiveOrder:
+    - first-trustworthy-user-visible-product-closure
+    - correctness-and-trust-integrity
+    - first-pass-yield
+    - edit-to-useful-signal-latency
+    - ready-to-main-readback-latency
+    - validated-work-reuse
+    - minimum-irreversible-architecture
+    - safe-parallelism
+    - ecosystem-breadth
+  antiMetrics:
+    - number-of-documents
+    - number-of-abstractions
+    - number-of-skills
+    - number-of-agents
+    - number-of-workflows
+    - theoretical-future-coverage-without-consumers
+  singleExecutionPath:
+    - intent
+    - operation
+    - capability-resolution
+    - deterministic-plan
+    - impact
+    - controlled-mutation
+    - verification
+    - evidence
+    - integration
+    - main-readback
+  reversalRule: >-
+    If evidence invalidates an identity, owner, dependency, trust boundary, or product assumption,
+    return to that decision and recompute; never accumulate downstream exceptions.
+
+constraintClasses:
+  permanent: product or trust-model invariant
+  evidenceGatedDefault: current default changeable only by comparative evidence and migration
+  experiment: cannot block product work until an activated consumer exists
+  rejected: prohibited until its explicit reversal condition becomes true
+
+permanentConstraints:
+  - id: C-AUTH-001
+    ownerTarget: docs/system-architecture.md
+    statement: authority, canonical state, Evidence, projection, cache and UI are distinct identities
+  - id: C-AUTH-002
+    ownerTarget: docs/system-architecture.md
+    statement: every canonical identity, revision algorithm, producer, validator, writer and selector has one owner
+  - id: C-AUTH-003
+    ownerTarget: federation-reference-closure-contract
+    statement: one validator owns cross-domain target existence, revision compatibility, unique ownership, forbidden authority cycles and unresolved frontiers
+    bootstrap: base-side-or-independent-verifier
+  - id: C-UNKNOWN-001
+    ownerTarget: docs/semantic-model.md
+    statement: unknown, ambiguous, conflicted, stale, unsupported and opaque are explicit and never project to safe, ready or passed
+  - id: C-MODEL-001
+    ownerTarget: docs/system-architecture.md
+    statement: no universal IR, universal graph, generic property-bag Core or one revision for all domains
+  - id: C-MODEL-002
+    ownerTarget: docs/semantic-model.md
+    statement: typed domain snapshots own domain truth; Fact and Assertion are rebuildable cross-domain provenance projections
+  - id: C-SOURCE-001
+    ownerTarget: docs/brownfield-import.md
+    statement: exact bytes, lossless syntax, language semantics, Source Program dialect, candidates and reconciliation remain separate
+  - id: C-RESP-001
+    ownerTarget: docs/semantic-model.md
+    statement: Responsibility is an obligation with many-to-many function, source and Block bindings, never a function, cluster or AI summary
+  - id: C-CONTRACT-001
+    ownerTarget: focused-contract-protocol
+    statement: public contracts define structural, semantic and operational obligations
+  - id: C-EFFECT-001
+    ownerTarget: focused-effect-resource-capability-contract
+    statement: Effect, Resource and Capability form a typed shared protocol outside the Federation Kernel
+  - id: C-COMPAT-001
+    ownerTarget: docs/change-management.md
+    statement: Compatibility is directional and multidimensional and remains separate from Support Claim maturity
+  - id: C-SUPPORT-001
+    ownerTarget: runtime-verification-release-contracts
+    statement: every Support Claim transition consumes the single owning transition contract and proves every predecessor state
+  - id: C-COMPILER-001
+    ownerTarget: docs/compiler-target-ir.md
+    statement: every compiler layer has one producer and raw-to-validated immutable boundary
+  - id: C-COMPILER-002
+    ownerTarget: docs/compiler-target-ir.md
+    statement: Behavior IR remains bounded; complex algorithms remain governed extensions or opaque boundaries
+  - id: C-INCREMENTAL-001
+    ownerTarget: compiler-query-contract
+    statement: incremental and daemon paths are optimizations of the clean oracle and must be clean-equivalent
+  - id: C-GRAPH-001
+    ownerTarget: compiler-query-and-verification-owners
+    statement: Compiler Query DAG and Verification Evidence DAG have separate schemas, authority, freshness and status
+  - id: C-DELTA-001
+    ownerTarget: docs/delta-and-impact.md
+    statement: authoring, syntax, source semantic, engineering, compilation, artifact, runtime and support deltas remain distinct
+  - id: C-IMPACT-001
+    ownerTarget: docs/delta-and-impact.md
+    statement: Impact uses definite, possible and unknown monotone results with witnesses and unknown frontier
+  - id: C-MUTATION-001
+    ownerTarget: docs/semantic-mutation.md
+    statement: plan and apply are separate; apply replans under one writer with source and semantic CAS
+  - id: C-MUTATION-002
+    ownerTarget: docs/semantic-mutation.md
+    statement: mutation terminals are accepted, rejected, rolled-back or recovery-required; partial success is forbidden
+  - id: C-PUBLISH-001
+    ownerTarget: mutation-runtime-publication-contract
+    statement: publication distinguishes not-published, durability-unknown, durable, rolled-back and recovery-required
+  - id: C-VERIFY-001
+    ownerTarget: docs/verification-governance.md
+    statement: candidate cannot prove changes to its own validator, selector, workflow, docs-doctor or merge authority
+  - id: C-VERIFY-002
+    ownerTarget: docs/verification-governance.md
+    statement: not-run requires trusted applicability proof; missing, stale, unsupported, unknown, cleanup or readback failure cannot pass
+  - id: C-EVIDENCE-001
+    ownerTarget: evidence-action-contract
+    statement: Action Cache metadata and content-addressed storage are separate; cache bytes never grant semantic authority
+  - id: C-AGENT-001
+    ownerTarget: docs/development-governance.md
+    statement: Intent and typed Operation are execution axes; Skill is a strategy and routing surface only
+  - id: C-AGENT-002
+    ownerTarget: operation-permission-contract
+    statement: Skill prose cannot own permission, state, candidate truth, Verification, integration order or current SHA
+  - id: C-DEV-001
+    ownerTarget: docs/development-governance.md
+    statement: work selection, Task Capsule, Change Closure, Candidate, Bootstrap, Evidence Run, Integration and Mutation have distinct state owners
+  - id: C-PRODUCT-001
+    ownerTarget: docs/roadmap.md
+    statement: optional infrastructure cannot preempt the first real self-observation-to-mutation product slice
+  - id: C-DOC-001
+    ownerTarget: docs/authority.json
+    statement: one stable semantic owner per concept; navigation owns nothing; dynamic facts live in registries or current control
+  - id: C-DOC-002
+    ownerTarget: documentation-lifecycle-contract
+    statement: every proposal has one disposition plus the required migration, activation, evidence, reversal and retirement fields
+  - id: C-TEST-001
+    ownerTarget: verification-and-development-contracts
+    statement: advisory feedback, candidate authority and release proof are distinct test levels
+  - id: C-TEST-002
+    ownerTarget: test-capability-contract
+    statement: Browser, native, container and other heavy capabilities are prepared only when selected tests require them
+  - id: C-TEST-003
+    ownerTarget: test-action-contract
+    statement: the same exact valid test action is not executed twice in one closure
+  - id: C-RUNTIME-001
+    ownerTarget: docs/runtime-and-distribution.md
+    statement: Semantic Core, Host Runtime, Toolchain Provider and Target Profile are orthogonal
+  - id: C-SECURITY-001
+    ownerTarget: authorization-and-runtime-capability-contracts
+    statement: semantic authorization and physical capability attenuation intersect under default deny
+  - id: C-SECURITY-002
+    ownerTarget: docs/runtime-and-distribution.md
+    statement: generic sandbox booleans are forbidden; isolation claims bind platform, mechanism, capability, generation and physical Evidence
+
+currentDefaults:
+  - id: D-TS-001
+    class: evidenceGatedDefault
+    decision: TypeScript first with language-neutral Core contracts
+    target: docs/roadmap.md
+  - id: D-TS-002
+    class: evidenceGatedDefault
+    decision: TypeScript Compiler API owns symbol, type and module semantics; lossless representation owns preservation
+    target: source-typescript-provider-contract
+  - id: D-HOST-001
+    class: evidenceGatedDefault
+    decision: supported Node LTS family is the public host and exact Bun is the repository toolchain
+    target: docs/runtime-and-distribution.md
+  - id: D-SKILL-001
+    class: evidenceGatedDefault
+    decision: one Primary Skill per Operation; exact Skill number and names remain experimental
+    target: agent-operation-contract
+  - id: D-FEEDBACK-001
+    class: evidenceGatedDefault
+    decision: local hot feedback may be partial and advisory but never grants merge authority
+    target: automatic-feedback-contract
+  - id: D-PARALLEL-001
+    class: evidenceGatedDefault
+    decision: default single writer; parallel work requires owner, path, contract, resource and integration proof
+    target: integration-resolver-contract
+  - id: D-PACKAGE-001
+    class: evidenceGatedDefault
+    decision: logical package boundaries precede physical package splitting
+    target: docs/runtime-and-distribution.md
+
+experiments:
+  - id: X-EGRAPH-001
+    activation: a real typed pure rewrite consumer with measurable search cost
+    evidence: comparative correctness, latency and complexity
+  - id: X-CAS-001
+    activation: stable Action Key and Evidence freshness contracts
+    evidence: hit rate, invalidation correctness, storage and operational cost
+  - id: X-DAEMON-001
+    activation: measured cold-start or repeated graph-rebuild bottleneck
+    evidence: clean equivalence, restart safety, memory and cancellation
+  - id: X-VIRTUAL-MERGE-001
+    activation: Integration Epoch and cross-package conflict proof are in main
+    evidence: combined-state correctness and avoided revalidation
+  - id: X-MULTI-AGENT-001
+    activation: at least two real disjoint Work Packages with measured coordination overhead
+    evidence: ready-to-main improvement without owner or Evidence ambiguity
+  - id: X-MULTILANG-001
+    activation: TypeScript self-observation, mutation, lowering and Brownfield closure are real
+    evidence: language-provider completeness and no Core specialization
+
+rejectedDesigns:
+  - universal-ir-or-universal-graph
+  - generic-property-bag-core
+  - central-kernel-owning-domain-state
+  - one-revision-for-source-semantic-artifact-evidence-and-transaction
+  - one-function-one-responsibility
+  - one-responsibility-one-block
+  - provider-or-ai-creates-authority
+  - query-cache-equals-evidence
+  - canonical-crdt-auto-merge
+  - skill-prose-as-state-machine-or-permission-authority
+  - current-host-or-toolchain-implies-target
+  - unsupported-stale-unknown-or-missing-equals-pass
+  - giant-cross-domain-implementation-pr
+  - parallel-active-final-designs
+  - proposal-as-long-term-current-control
+
+architecture:
+  productDefinition: deterministic-multi-domain-engineering-semantic-compiler-and-governed-change-platform
+  federationKernel:
+    target: docs/system-architecture.md-plus-focused-reference-contract
+    scope:
+      - domain-and-object-reference-shapes
+      - domain-revision-reference
+      - authority-and-producer-reference
+      - validated-snapshot-envelope
+      - coverage-and-unknown-frontier-envelope
+      - migration-and-retirement-reference
+      - one-reference-closure-validator
+    excludes:
+      - domain-fields
+      - domain-state-machines
+      - type-and-effect-algorithms
+      - verification-status-and-aggregation
+      - mutation-terminal
+      - agent-lifecycle
+      - compatibility-decision
+      - support-enablement
+      - release-state
+      - provider-and-business-names
+  sharedProtocols:
+    - id: contract
+      target: focused-contract-protocol
+    - id: type-algebra
+      target: docs/compiler-target-ir.md
+    - id: effect-resource-capability
+      target: focused-effect-resource-capability-contract
+    - id: condition-freshness
+      target: focused-condition-contract
+    - id: compatibility
+      target: docs/change-management.md-plus-domain-rule-registries
+    - id: support-claim
+      target: runtime-verification-release-contracts
+  canonicalDomains:
+    product: docs/product.md
+    systemArchitecture: docs/system-architecture.md
+    semanticModel: docs/semantic-model.md
+    sourceProgram: docs/brownfield-import.md-plus-focused-source-contract
+    responsibility: docs/semantic-model.md-or-focused-responsibility-owner
+    capabilityBlock: docs/capability-and-block-model.md
+    compilerTarget: docs/compiler-target-ir.md
+    deltaImpact: docs/delta-and-impact.md
+    mutation: docs/semantic-mutation.md
+    verification: docs/verification-governance.md
+    runtimeDistribution: docs/runtime-and-distribution.md
+    changeManagement: docs/change-management.md
+    development: docs/development-governance.md
+    workbenchAi: docs/workbench-and-ai-operations.md
+    externalProvider: docs/external-provider-policy.md
+    documentation: docs/authority.json
+  projections:
+    engineeringFacts: rebuildable-cross-domain-assertion-and-provenance
+    workspaceSnapshot: domain-revisions-plus-reference-closure-only
+    documentationIndex: generated-from-docs-authority
+
+stateOwners:
+  workSelection: issue-221
+  taskCapsule: issue-205
+  changeClosure: issue-219
+  candidateEpochFailure: issue-177
+  trustedBootstrap: issue-178
+  evidenceDagRunJournal: issue-179
+  verificationResult: issues-176-215
+  testImpact: issue-188
+  automaticFeedback: issue-189
+  hermeticRuntime: issue-190
+  compilerQueryGraph: issue-194
+  integrationEpoch: issues-191-207
+  mutationTransaction: docs-semantic-mutation-and-code
+  candidateClosure: development-integration-orchestrator-only
+
+skillsAndAgents:
+  chain:
+    - universal-policy
+    - role
+    - typed-operation-envelope
+    - capability-resolution
+    - exactly-one-primary-skill
+    - deterministic-services
+    - typed-outcome
+    - external-run-state-and-evidence
+  skillOwns: [routing-hints, reusable-strategy, tool-usage-guidance]
+  skillDoesNotOwn: [permission, truth, state-machine, verification-result, candidate-state, merge-order, current-sha]
+  migration:
+    - census-current-skill-responsibilities
+    - define-operation-and-capability-contracts
+    - project-current-skills-for-compatibility
+    - historical-and-negative-routing-evaluation
+    - trusted-cutover
+    - remove-duplicated-lifecycle-prose
+
+verificationAndTests:
+  levels:
+    feedback:
+      authority: none
+      purpose: fastest useful signal
+      allows: [partial-selection, advisory-typecheck, affected-doc-check, cancellation]
+    candidate:
+      authority: merge-confidence-input
+      requires: [exact-base-head, resolved-impact, focused-and-affected-tests, relevant-contracts, cleanup-readback]
+    release:
+      authority: support-promotion-input
+      requires: [complete-owned-environment-proof, package-deployment-smoke, support-transition-contract]
+  schedulerInputs:
+    - measured-p50-p95-duration
+    - resource-class
+    - process-isolation
+    - shared-mutable-resource
+    - platform-capability
+    - parallel-safety
+    - flake-history
+  hotPathRules:
+    - do-not-prepare-browser-unless-selected
+    - do-not-run-docs-doctor-unless-affected
+    - pre-push-is-check-only
+    - duration-aware-balancing-not-fixed-file-count-only
+    - exact-action-result-reuse-within-one-closure
+  requiredMeasurements:
+    - dependency-readiness
+    - impact-selection
+    - import-preparation
+    - typecheck
+    - docs-doctor
+    - process-startup
+    - test-execution
+    - cleanup
+    - ci-queue
+    - review-wait
+    - candidate-invalidation
+    - merge-readback
+
+implementationGraph:
+  rules:
+    - every-node-has-one-state-owner
+    - state-changing-node-completes-only-after-merge-and-new-main-readback
+    - read-only-node-is-explicit
+    - unresolved-p1-or-p2-blocks-parent-node-completion
+    - product-work-is-not-blocked-by-release-or-navigation-projection
+    - dependencies-are-edges-not-narrative-order
+  nodes:
+    - id: I0
+      owner: pr-227-issue-217
+      kind: state-changing
+      outcome: verification-artifact-consumes-canonical-claim-aggregate
+      completion: [all-blocking-review-resolved, focused-tests, typecheck, docs-doctor, repository-audit, single-parent, hosted-quick, merged-main-readback]
+    - id: I1
+      owner: issue-215
+      kind: state-changing
+      requires: [I0]
+      outcome: verification-aggregate-truth
+      completion: [property-counterexample-suite, all-writers-readers-migrated, exact-evidence, merged-main-readback]
+    - id: R0
+      owner: issue-216
+      kind: state-changing-parallel
+      requires: [I0]
+      outcome: release-credential-closure
+      completion: [real-release-candidate-run, workflow-contract-agreement, merged-main-readback]
+    - id: A0
+      owner: issue-232
+      kind: read-only-proposal
+      outcome: converged-plan
+      completion: [exact-head-independent-review, zero-unresolved-p1-p2, no-canonical-write, all-source-decisions-dispositioned]
+    - id: W0
+      owner: issue-221
+      kind: state-changing-development
+      requires: [I1]
+      outcome: deterministic-work-selection
+      completion: [unique-selection, unresolved-state-explicit, merged-main-readback]
+    - id: T0
+      owner: issue-205
+      kind: state-changing-development
+      requires: [W0]
+      outcome: task-capsule
+      completion: [authority-path-budget-and-freshness-bound, merged-main-readback]
+    - id: C0
+      owner: issue-219
+      kind: state-changing-development
+      requires: [T0]
+      outcome: change-closure-plan
+      completion: [operation-impact-verification-and-retirement-plan, merged-main-readback]
+    - id: P0
+      owner: product-roadmap-and-work-selection
+      kind: state-changing-control
+      requires: [I1, W0]
+      outcome: selected-real-sec-subsystem-corpus
+      completion: [exact-inventory, human-authority-baseline, acceptance, unsupported-boundaries, decision-recorded-in-main]
+    - id: P1
+      owner: source-program-domain
+      kind: state-changing-product
+      requires: [P0]
+      outcome: typescript-source-program-snapshot
+      completion: [byte-stable-rebuild, identity-tests, provider-failure-fail-closed, merged-main-readback]
+    - id: P2
+      owner: responsibility-domain
+      kind: state-changing-product
+      requires: [P1]
+      outcome: responsibility-self-observation
+      completion: [many-to-many-bindings, reconciliation-states, authority-baseline-comparison, merged-main-readback]
+    - id: P3
+      owner: delta-impact-domain
+      kind: state-changing-product
+      requires: [P2]
+      outcome: responsibility-delta-impact-explain
+      completion: [old-and-new-endpoint-correctness, fixpoint, witnesses, unknown-frontier, merged-main-readback]
+    - id: E0
+      owner: effect-resource-capability-domain
+      kind: state-changing-protocol
+      requires: [P2]
+      outcome: minimal-effect-resource-capability-for-first-operation
+      completion: [operation-resource-capability-compensation-contract, negative-tests, merged-main-readback]
+    - id: P4
+      owner: semantic-mutation-domain
+      kind: state-changing-product
+      requires: [P3, E0, I1]
+      outcome: one-governed-mutation-with-rollback
+      completion: [plan-apply-separation, stale-and-concurrent-rejection, actual-delta-impact, crash-rollback-recovery, source-readback, merged-main-readback]
+    - id: P5
+      owner: target-compilation-domain
+      kind: state-changing-product
+      requires: [P2]
+      outcome: minimal-target-type-application-behavior-program-ir
+      completion: [unsupported-before-emit, one-producer-per-layer, byte-stable-output, merged-main-readback]
+    - id: P6
+      owner: target-compilation-domain
+      kind: state-changing-product
+      requires: [P4, P5]
+      outcome: three-unrelated-typescript-models
+      completion: [no-business-core-specialization, typecheck-runtime-negative-roundtrip, real-consumer, merged-main-readback]
+    - id: K0
+      owner: change-management-domain
+      kind: state-changing-protocol
+      requires: [P4]
+      outcome: compatibility-contract-for-brownfield
+      completion: [direction-dimensions-assumptions-counterexamples, domain-registry-projection, merged-main-readback]
+    - id: X0
+      owner: brownfield-domain
+      kind: state-changing-product
+      requires: [P4, P6, K0]
+      outcome: real-typescript-attach-lift-reconcile-adopt-and-one-normalize
+      completion: [coverage-unknown-visible, provider-nonauthority, roundtrip-mutation-rollback, merged-main-readback]
+    - id: S0
+      owner: runtime-verification-release-contracts
+      kind: state-changing-protocol
+      requires: [I1]
+      outcome: support-claim-transition-contract
+      completion: [single-lifecycle, predecessor-proof, invalidation, merged-main-readback]
+    - id: X1
+      owner: web-source-target-browser-domains
+      kind: state-changing-expansion
+      requires: [X0]
+      outcome: native-web-then-tsx-impact-mutation-browser-evidence
+      completion: [runtime-dom-nonauthority, dynamic-unknown-explicit, native-and-tsx-corpora, merged-main-readback]
+    - id: X2
+      owner: runtime-release-domain
+      kind: state-changing-expansion
+      requires: [P6, R0, S0]
+      outcome: package-release-and-support-promotion
+      completion: [host-platform-matrix, packaged-consumer-smoke, every-support-transition-proven, merged-main-readback]
+    - id: F0
+      owner: issue-177
+      kind: state-changing-acceleration
+      requires: [I1]
+      outcome: candidate-epoch-and-failure-fingerprint
+      completion: [deterministic-invalidation, failure-not-pass, merged-main-readback]
+    - id: B0
+      owner: issue-178
+      kind: state-changing-acceleration
+      requires: [F0]
+      outcome: trusted-bootstrap
+      completion: [base-or-independent-proof, no-self-authorization, merged-main-readback]
+    - id: EV0
+      owner: issue-179
+      kind: state-changing-acceleration
+      requires: [F0, B0]
+      outcome: action-key-evidence-dag-and-run-journal
+      completion: [exact-input-environment-producer, replay-without-side-effect-duplication, merged-main-readback]
+    - id: TI0
+      owner: issue-188
+      kind: state-changing-acceleration
+      requires: [P3]
+      outcome: semantic-test-impact
+      completion: [unknown-expands-selection, full-detects-selector-miss, merged-main-readback]
+    - id: HR0
+      owner: issue-190
+      kind: state-changing-acceleration
+      requires: [I1]
+      outcome: hermetic-resource-and-cleanup-result
+      completion: [workspace-port-process-browser-environment-settlement, merged-main-readback]
+    - id: AF0
+      owner: issue-189
+      kind: state-changing-acceleration
+      requires: [TI0, HR0]
+      outcome: warm-advisory-feedback
+      completion: [no-merge-authority, cancellation-no-publication, timing-evidence, merged-main-readback]
+    - id: Q0
+      owner: issue-194
+      kind: state-changing-acceleration
+      requires: [P5]
+      outcome: compiler-query-kernel-after-clean-correctness
+      completion: [declared-input-closure, clean-equivalence, cancellation, merged-main-readback]
+    - id: INT0
+      owner: issue-207
+      kind: state-changing-acceleration
+      requires: [C0, F0, I1]
+      outcome: integration-epoch-resolver
+      completion: [requires-ordered-after-conflicts-with, cycle-and-missing-target-rejection, real-package-replay, merged-main-readback]
+    - id: CC0
+      owner: development-integration-domain
+      kind: state-changing-acceleration
+      requires: [I1, C0]
+      outcome: candidate-closure-read-only-then-trusted-dispatch
+      completion: [orchestration-only, stale-head-invalidation, expected-head-publication, main-closeout, merged-main-readback]
+  edges:
+    - [I0, I1]
+    - [I0, R0]
+    - [I1, W0]
+    - [W0, T0]
+    - [T0, C0]
+    - [I1, P0]
+    - [W0, P0]
+    - [P0, P1]
+    - [P1, P2]
+    - [P2, P3]
+    - [P2, E0]
+    - [P3, P4]
+    - [E0, P4]
+    - [I1, P4]
+    - [P2, P5]
+    - [P4, P6]
+    - [P5, P6]
+    - [P4, K0]
+    - [P4, X0]
+    - [P6, X0]
+    - [K0, X0]
+    - [X0, X1]
+    - [I1, S0]
+    - [P6, X2]
+    - [R0, X2]
+    - [S0, X2]
+  joins:
+    firstMutation: {requires: [P3, E0, I1], produces: P4}
+    threeModelLowering: {requires: [P4, P5], produces: P6}
+    brownfield: {requires: [P4, P6, K0], produces: X0}
+    releaseSupport: {requires: [P6, R0, S0], produces: X2}
+  parallelMilestones:
+    afterI0: [I1, R0, A0]
+    afterI1: [W0, F0, HR0, S0]
+    afterP2: [P3, E0, P5]
+    afterP3: [TI0]
+    afterP5: [Q0]
+
+proposalLifecycle:
+  dispositionEnum: [adopt, adapt, defer, experimental, reject, retired]
+  requiredFields:
+    adopt: [canonicalTarget, migration, retirementTarget]
+    adapt: [canonicalTarget, migration, retainedInvariants, rejectedParts, retirementTarget]
+    defer: [activationTrigger, reconsiderationEvidence, retirementTarget]
+    experimental: [activationTrigger, evidencePlan, successAndFailureCriteria, retirementTarget]
+    reject: [reason, reversalCondition, retirementTarget]
+    retired: [archiveOrDeletion, consumerReadback]
+  invariant: one-disposition-per-proposal-with-multiple-required-fields-allowed
+
+sourceDispositions:
+  - source: pr-226-issue-225
+    disposition: adapt
+    canonicalTarget:
+      - docs/product.md
+      - docs/system-architecture.md
+      - docs/semantic-model.md
+      - docs/brownfield-import.md
+      - docs/compiler-target-ir.md
+      - focused-effect-condition-compatibility-support-contracts
+    retainedInvariants: [minimal-federation, source-layering, bounded-behavior, query-evidence-separation, publication-durability, specialized-provider-pattern]
+    rejectedParts: [nine-file-active-architecture, source-count-as-proof, speculative-support]
+    retirementTarget: absorbed-research-archive-after-decision-and-consumer-migration
+  - source: pr-229-issue-228
+    disposition: adapt
+    canonicalTarget: docs/development-governance.md-plus-agent-operation-contracts
+    retainedInvariants: [role-operation-primary-skill-separation, permission-intersection, typed-outcome]
+    rejectedParts: [permanent-eleven-skill-count, skill-prose-as-state-or-permission]
+    retirementTarget: archive-after-router-permission-transition-cutover-and-parity
+  - source: pr-231-issue-230
+    disposition: adapt
+    canonicalTarget: issues-177-179-188-191-194-205-207-219-221-plus-candidate-closure
+    retainedInvariants: [candidate-closure-orchestration, read-only-first, action-key-before-cas, diagnostic-failure-reuse, derived-index, typed-publication-receipt]
+    rejectedParts: [combined-multi-owner-nodes, infrastructure-before-product]
+    retirementTarget: absorbed-synthesis-archive-after-owner-contracts-and-consumers-enter-main
+  - source: issue-222
+    disposition: adapt
+    canonicalTarget: source-program-target-profile-mutation-browser-verification-owners
+    migration: native-html-css-typescript-then-tsx-impact-mutation-browser-evidence
+    retirementTarget: close-as-absorbed-after-first-web-source-target-browser-contracts-enter-main-and-roadmap-readback
+  - source: issue-224
+    disposition: adapt
+    canonicalTarget: responsibility-source-impact-mutation-and-block-owners
+    migration: responsibility-contract-then-self-observation-impact-and-one-responsibility-mutation
+    retirementTarget: close-as-implemented-or-absorbed-after-main-readback-of-responsibility-contract-and-operation
+  - source: docs/proposals/development-run-kernel.md
+    disposition: adapt
+    canonicalTarget: docs/development-governance.md-plus-issues-177-179-and-candidate-closure
+    retainedInvariants: [restartable-run, external-evidence, typed-transition]
+    rejectedParts: [second-verification-result, second-mutation-terminal, second-integration-epoch]
+    retirementTarget: archive-after-consumer-cutover
+  - source: docs/proposals/engineering-workspace-domains.md
+    disposition: adapt
+    canonicalTarget: docs/system-architecture.md-docs/roadmap.md-and-activated-domain-owners
+    retainedInvariants: [independent-domain-revisions, aggregate-references-only]
+    rejectedParts: [giant-optional-workspace-object, speculative-domain-activation]
+    retirementTarget: archive-after-domain-decisions-are-mapped-and-first-real-domain-consumers-enter-main
+  - source: this-proposal
+    disposition: retired
+    archiveOrDeletion: archive-or-delete-after-all-adopted-decisions-enter-canonical-owners
+    consumerReadback: docs-authority-roadmap-and-code-contracts-reference-no-proposal-path
+
+documentationPolicy:
+  categories:
+    navigation: owns-nothing-and-is-generated-or-thin
+    stableAuthority: long-lived-semantics-and-boundaries-only
+    machineContract: executable-schema-algorithm-owner-and-state
+    currentControl: exact-current-work-only
+    issueDecision: unresolved-alternatives-and-counterexamples
+    evidence: measurements-runs-research-and-physical-proof
+    archive: superseded-history-no-current-consumer
+  newDocumentGate:
+    - identifies-existing-owner
+    - states-replace-extend-or-reference
+    - cannot-fit-existing-owner-without-owner-conflict
+    - includes-lifecycle-and-retirement
+  forbidden:
+    - duplicate-final-architecture
+    - duplicate-roadmap
+    - duplicate-skill-system
+    - duplicate-throughput-system
+    - stable-doc-containing-current-sha-pr-run-or-support-state
+
+migrationProtocol:
+  - read-then-latest-main
+  - select-one-indivisible-decision-family
+  - identify-exact-canonical-owner-and-consumers
+  - create-focused-work-package
+  - update-owner-or-machine-contract
+  - migrate-consumers-and-compatibility
+  - add-positive-negative-property-fault-or-physical-proof
+  - retire-parallel-expression-in-same-or-ordered-closeout
+  - exact-head-independent-review-and-required-gates
+  - squash-merge
+  - new-main-readback
+  - close-source-issue-pr-proposal-branch
+
+completionGate:
+  - exact-head-independent-review-has-zero-unresolved-p1-p2
+  - every-source-decision-has-one-disposition-and-required-fields
+  - no-proposal-file-outside-readme-and-this-plan
+  - no-canonical-or-current-control-file-modified-by-this-spike
+  - no-domain-schema-enum-copied-as-a-second-machine-owner
+  - implementation-graph-has-one-owner-per-node-and-valid-edges
+  - every-state-changing-node-requires-merged-main-readback
+  - product-path-begins-after-i1-without-waiting-for-release-or-document-projection
+  - all-adopted-decisions-have-focused-migration-and-retirement-target
+  - this-proposal-retires-after-canonical-migration
