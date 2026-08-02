@@ -1,0 +1,490 @@
+schema: sec-canonical-architecture-implementation-dag-v1
+status: proposal
+tracking: issue-232
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+authority: none
+
+objective:
+  primary: shortest-trustworthy-path-to-sec-typescript-product-closure
+  optimizationOrder:
+    - correctness-and-trust-integrity
+    - first-pass-yield
+    - user-visible-product-vertical-slices
+    - repeatable-candidate-delivery
+    - safe-parallelism
+    - incremental-performance
+    - ecosystem-breadth
+  antiGoals:
+    - giant-architecture-implementation-pr
+    - infrastructure-before-consumer
+    - speculative-package-splitting
+    - automatic-parallelism-before-conflict-proof
+    - another-parallel-final-design
+
+hardSchedulingRules:
+  - current-formal-work-package-closes-before-canonical-authority-write
+  - integrity-p0-p1-blockers-preempt-product-publication
+  - architecture-phase-a-may-remain-read-only-parallel
+  - after-verification-and-release-integrity-no-optional-infrastructure-may-preempt-first-product-slice
+  - every-node-has-one-canonical-owner-and-retirement-output
+  - no-node-claims-completion-before-main-readback
+
+lanes:
+  - id: integrity-delivery
+    purpose: make-current-truth-and-candidate-publication-reliable
+  - id: architecture-convergence
+    purpose: migrate-this-decision-into-single-canonical-owners-and-retire-parallel-designs
+  - id: product-vertical
+    purpose: prove-the-architecture-through-self-observation-impact-mutation-and-lowering
+  - id: acceleration
+    purpose: automate-only-after-correct-owners-and-action-keys-exist
+  - id: platform-expansion
+    purpose: add-brownfield-web-runtime-release-and-ecosystem-after-core-closure
+
+nodes:
+  - id: I0-close-pr-227
+    lane: integrity-delivery
+    priority: immediate
+    owner: issue-217-pr-227
+    requires: []
+    outputs:
+      - claim-summary-artifact-validator-uses-canonical-aggregate
+      - exact-head-review-and-hosted-quick
+      - single-parent-merge
+      - new-main-readback
+      - issue-217-closeout
+    completion:
+      - current-p1-threads-resolved
+      - focused-and-adapter-tests-pass
+      - typecheck-docs-doctor-repository-audit-pass
+      - exact-head-hosted-quick-pass
+      - merged-main-readback
+
+  - id: I1-verification-aggregate-truth
+    lane: integrity-delivery
+    priority: immediate
+    owner: issue-215
+    requires: [I0-close-pr-227]
+    outputs:
+      - order-independent-status-lattice
+      - owning-environment-semantics
+      - not-applicable-policy
+      - zero-test-runtime-truth
+      - duplicate-missing-stale-evidence-rejection
+    completion:
+      - property-and-counterexample-suite
+      - current-writers-and-readers-migrated
+      - no-second-aggregate-owner
+      - exact-hosted-evidence
+
+  - id: I2-release-credential-closure
+    lane: integrity-delivery
+    priority: immediate
+    owner: issue-216
+    requires: [I0-close-pr-227]
+    outputs:
+      - authenticated-release-verification-path
+      - no-raw-fetch-with-persist-credentials-false
+      - physical-release-workflow-evidence
+    completion:
+      - real-single-parent-release-candidate-executes-end-to-end
+      - workflow-contract-and-physical-run-agree
+
+  - id: A0-phase-a-decision-freeze
+    lane: architecture-convergence
+    priority: current-read-only
+    owner: issue-232
+    requires: []
+    outputs:
+      - human-total-decision
+      - machine-assembly
+      - forty-decision-ledger
+      - implementation-dag
+      - migration-retirement-plan
+    completion:
+      - draft-spike-reviewed
+      - no-canonical-or-control-plane-write
+      - every-major-spike-decision-has-disposition
+
+  - id: A1-canonical-assembly-authority
+    lane: architecture-convergence
+    priority: before-self-observation
+    owner: issue-232-phase-b
+    requires: [I0-close-pr-227, A0-phase-a-decision-freeze]
+    outputs:
+      - docs-architecture-assembly
+      - machine-architecture-assembly
+      - docs-authority-registration
+      - relationship-and-duplicate-owner-validator
+    scope:
+      - cross-domain-relations-only
+      - no-domain-algorithm-copy
+      - no-dynamic-project-state
+    completion:
+      - docs-doctor-and-authority-tests-pass
+      - every-reference-target-exists
+      - no-circular-authority
+      - main-readback
+
+  - id: A2-domain-authority-deltas
+    lane: architecture-convergence
+    priority: incremental
+    owner: issue-232-phase-b
+    requires: [A1-canonical-assembly-authority]
+    outputs:
+      - source-program-authority-delta
+      - responsibility-authority-delta
+      - effect-resource-capability-authority
+      - condition-freshness-protocol
+      - compatibility-support-protocol
+      - agent-operation-authority-delta
+    executionPolicy:
+      - one-owner-per-focused-pr
+      - only-when-next-product-consumer-needs-the-contract
+      - retire-superseded-proposal-section-in-same-or-following-closeout
+    completion:
+      - canonical-owner-updated
+      - machine-contract-or-explicit-doc-only-boundary
+      - negative-tests
+      - proposal-retirement-reference
+
+  - id: P0-select-self-observation-subsystem
+    lane: product-vertical
+    priority: immediate-after-integrity
+    owner: product-roadmap-plus-work-selector
+    requires: [I1-verification-aggregate-truth, I2-release-credential-closure, A1-canonical-assembly-authority]
+    outputs:
+      - one-controlled-sec-subsystem-corpus
+      - human-authority-baseline
+      - exact-source-and-acceptance-inventory
+      - unsupported-and-opaque-boundaries
+    selectionCriteria:
+      - meaningful-state-effect-permission-responsibility
+      - small-enough-for-complete-proof
+      - real-consumer-in-sec
+      - mutation-and-rollback-possible
+      - not-a-toy-fixture
+
+  - id: P1-typescript-source-program-snapshot
+    lane: product-vertical
+    priority: product-critical
+    owner: source-program-domain
+    requires: [P0-select-self-observation-subsystem]
+    outputs:
+      - exact-source-artifact-inventory
+      - lossless-syntax-bindings
+      - typescript-symbol-type-module-model
+      - coverage-unknown-opaque-diagnostics
+      - stable-source-binding-identities
+    implementation:
+      - typescript-compiler-api-semantic-authority
+      - full-fidelity-preservation-layer
+      - minimal-federation-references-only-as-consumed
+    completion:
+      - byte-stable-rebuild
+      - rename-move-identity-tests
+      - parse-and-provider-failure-fail-closed
+      - no-engineering-ir-authority-leak
+
+  - id: P2-responsibility-self-observation
+    lane: product-vertical
+    priority: product-critical
+    owner: responsibility-domain
+    requires: [P1-typescript-source-program-snapshot]
+    outputs:
+      - responsibility-candidates
+      - ten-facet-bindings
+      - accepted-ambiguous-unknown-opaque-reconciliation
+      - canonical-responsibility-snapshot
+      - engineering-fact-assertion-projection
+    completion:
+      - compact-function-multiple-facets-proven
+      - cross-file-responsibility-identity-proven
+      - ai-and-static-candidates-cannot-self-authorize
+      - human-authority-baseline-comparison
+
+  - id: P3-responsibility-impact-explain
+    lane: product-vertical
+    priority: product-critical
+    owner: delta-impact-domain
+    requires: [P2-responsibility-self-observation]
+    outputs:
+      - canonical-from-to-delta
+      - responsibility-facet-impact
+      - stable-witnesses
+      - unknown-frontier
+      - verification-recommendations
+    completion:
+      - decision-change-does-not-blindly-rewrite-unrelated-effects
+      - removal-uses-old-endpoint
+      - cycles-converge
+      - missing-rules-remain-unknown
+
+  - id: P4-one-governed-mutation
+    lane: product-vertical
+    priority: product-critical
+    owner: semantic-mutation-domain
+    requires: [P3-responsibility-impact-explain, I1-verification-aggregate-truth]
+    outputs:
+      - one-versioned-semantic-operation
+      - read-only-plan
+      - source-owner-and-path-proof
+      - isolated-transform
+      - actual-delta-and-impact
+      - minimum-verification
+      - accepted-rejected-rolled-back-recovery-required-results
+    completion:
+      - stale-plan-and-concurrent-writer-rejected
+      - forbidden-facet-preserved
+      - crash-boundary-and-rollback-proof
+      - cli-and-workbench-consume-same-facade
+      - real-source-bytes-change-and-readback
+
+  - id: P5-minimal-target-and-type-closure
+    lane: product-vertical
+    priority: product-critical
+    owner: target-compilation-domain
+    requires: [P2-responsibility-self-observation]
+    outputs:
+      - explicit-typescript-target-profile
+      - minimal-type-algebra
+      - application-ir-slice
+      - bounded-behavior-ir-slice
+      - target-program-ir-slice
+      - backend-and-source-map
+    completion:
+      - unsupported-before-emit
+      - no-business-name-core-branches
+      - validated-boundary-per-layer
+      - byte-stable-output
+
+  - id: P6-three-model-typescript-lowering
+    lane: product-vertical
+    priority: product-critical
+    owner: target-compilation-domain
+    requires: [P5-minimal-target-and-type-closure, P4-one-governed-mutation]
+    outputs:
+      - lifecycle-state-machine-model
+      - reservation-concurrency-model
+      - approval-policy-model
+      - governed-extension-case
+    completion:
+      - no-core-specialization-between-models
+      - typecheck-runtime-negative-and-roundtrip-pass
+      - legacy-writer-retired-per-artifact
+      - actual-product-consumer
+
+  - id: P7-workbench-ai-same-facade
+    lane: product-vertical
+    priority: after-core-product-proof
+    owner: workbench-ai-domain
+    requires: [P4-one-governed-mutation, P3-responsibility-impact-explain]
+    outputs:
+      - architecture-and-impact-projections
+      - context-capsule
+      - bounded-ai-proposal
+      - same-plan-apply-recover-facade
+    completion:
+      - ui-cannot-create-authority
+      - ai-cannot-expand-operation-path-effect-or-verification
+      - unknown-and-evidence-visible
+
+  - id: D0-candidate-closure-read-only
+    lane: acceleration
+    priority: after-integrity
+    owner: development-integration-domain
+    requires: [I1-verification-aggregate-truth]
+    outputs:
+      - exact-candidate-closure-state
+      - unique-next-transition
+      - stale-head-invalidation
+      - typed-receipt
+    doesNotOwn:
+      - verification-semantics
+      - review-findings
+      - impact-selection
+    completion:
+      - historical-pr-replay
+      - byte-stable-plan
+      - no-write-mode
+
+  - id: D1-candidate-closure-dispatch
+    lane: acceleration
+    priority: high
+    owner: development-integration-domain
+    requires: [D0-candidate-closure-read-only, I2-release-credential-closure]
+    outputs:
+      - trusted-exact-head-dispatch
+      - review-request-and-readback
+      - expected-head-publication-adapter
+      - main-closeout-receipt
+    completion:
+      - no-candidate-self-proof
+      - stale-run-cancelled-or-invalidated
+      - operator-dry-run-and-permission-boundary
+
+  - id: D2-integration-resolver-v1-1
+    lane: acceleration
+    priority: before-formal-parallelism
+    owner: issue-207
+    requires: [I1-verification-aggregate-truth, D0-candidate-closure-read-only]
+    outputs:
+      - requires-ordered-after-conflicts-with-correctness
+      - cycle-and-missing-target-rejection
+      - integration-epoch-registry
+      - global-writer-and-resource-conflict-proof
+    completion:
+      - two-to-four-real-work-packages-replay
+      - unresolved-never-parallel-safe
+      - deterministic-order-and-closeout
+
+  - id: D3-evidence-run-foundation
+    lane: acceleration
+    priority: before-persistent-reuse
+    owner: issues-177-178-179
+    requires: [I1-verification-aggregate-truth, D0-candidate-closure-read-only]
+    outputs:
+      - candidate-epoch-and-failure-fingerprint
+      - trusted-bootstrap
+      - exact-action-key
+      - evidence-dag
+      - run-journal
+    completion:
+      - deterministic-failure-reuse
+      - stale-input-invalidation
+      - replay-without-repeating-side-effects
+      - compiler-cache-not-evidence
+
+  - id: D4-impact-feedback-query-acceleration
+    lane: acceleration
+    priority: after-product-baseline
+    owner: issues-188-189-194
+    requires: [P3-responsibility-impact-explain, D3-evidence-run-foundation]
+    outputs:
+      - semantic-test-impact
+      - warm-plan-only-feedback
+      - compiler-query-kernel
+      - derived-repository-index
+    completion:
+      - clean-incremental-equivalence
+      - no-ambient-input
+      - cancellation-does-not-publish
+      - unknown-only-expands-invalidation
+
+  - id: D5-safe-virtual-merge
+    lane: acceleration
+    priority: after-resolver-and-evidence
+    owner: integration-epoch-domain
+    requires: [D2-integration-resolver-v1-1, D3-evidence-run-foundation, D4-impact-feedback-query-acceleration]
+    outputs:
+      - virtual-merge-tree
+      - combined-affected-closure
+      - evidence-reuse-and-invalidation
+      - queue-reorder-supersede-cleanup
+    completion:
+      - combined-state-proven-before-merge
+      - one-candidate-failure-does-not-invalidate-unrelated-evidence
+
+  - id: X0-typescript-brownfield-adopt-normalize
+    lane: platform-expansion
+    priority: after-core-product-proof
+    owner: brownfield-domain
+    requires: [P4-one-governed-mutation, P6-three-model-typescript-lowering]
+    outputs:
+      - real-external-typescript-attach-lift-reconcile-adopt
+      - one-module-normalize
+      - roundtrip-mutation-rollback
+    completion:
+      - coverage-and-unknown-visible
+      - provider-does-not-own-authority
+      - no-unexplained-owner-consumer-artifact-drift
+
+  - id: X1-web-native-and-tsx
+    lane: platform-expansion
+    priority: after-typescript-brownfield
+    owner: web-source-target-domain
+    requires: [X0-typescript-brownfield-adopt-normalize]
+    outputs:
+      - native-html-css-typescript-source-models
+      - jsx-tsx-bindings
+      - cross-artifact-impact
+      - governed-web-mutation
+      - browser-evidence
+    completion:
+      - runtime-dom-not-source-authority
+      - cascade-dynamic-and-hydration-unknown-explicit
+      - native-and-tsx-corpora
+
+  - id: X2-runtime-package-release
+    lane: platform-expansion
+    priority: before-product-support
+    owner: runtime-release-domain
+    requires: [P6-three-model-typescript-lowering, I2-release-credential-closure]
+    outputs:
+      - node-lts-public-host-profile
+      - bun-toolchain-separation
+      - clean-package-layout
+      - cross-host-canonical-determinism
+      - sbom-signing-publication-receipt
+    completion:
+      - physical-host-platform-matrix
+      - packaged-consumer-smoke
+      - support-claim-enabled-only-after-evidence
+
+  - id: X3-registry-and-ecosystem
+    lane: platform-expansion
+    priority: last
+    owner: registry-provider-domain
+    requires: [X0-typescript-brownfield-adopt-normalize, X2-runtime-package-release]
+    outputs:
+      - trusted-block-provider-registry
+      - compatibility-migration-revocation
+      - additional-language-provider-protocol
+    completion:
+      - typescript-product-closure-already-real
+      - supply-chain-and-retirement-proof
+
+criticalPath:
+  - I0-close-pr-227
+  - I1-verification-aggregate-truth
+  - I2-release-credential-closure
+  - A1-canonical-assembly-authority
+  - P0-select-self-observation-subsystem
+  - P1-typescript-source-program-snapshot
+  - P2-responsibility-self-observation
+  - P3-responsibility-impact-explain
+  - P4-one-governed-mutation
+  - P5-minimal-target-and-type-closure
+  - P6-three-model-typescript-lowering
+  - X0-typescript-brownfield-adopt-normalize
+  - X2-runtime-package-release
+
+parallelWindows:
+  - after: I0-close-pr-227
+    allowed:
+      - I1-verification-aggregate-truth
+      - I2-release-credential-closure
+      - A1-canonical-assembly-authority
+    condition: exact-write-and-authority-conflicts-resolved
+  - after: P2-responsibility-self-observation
+    allowed:
+      - P3-responsibility-impact-explain
+      - P5-minimal-target-and-type-closure
+      - D0-candidate-closure-read-only
+    condition: domain-writes-and-shared-contract-revisions-are-disjoint
+  - after: D2-integration-resolver-v1-1
+    allowed:
+      - multiple-formal-work-packages
+    condition: integration-epoch-machine-proof
+
+stopAndReversal:
+  - condition: new-p0-or-p1-integrity-counterexample
+    action: preempt-and-return-to-owning-integrity-node
+  - condition: product-slice-requires-business-name-core-branch
+    action: return-to-responsibility-type-or-behavior-model
+  - condition: shared-kernel-starts-owning-domain-fields
+    action: shrink-kernel-and-restore-domain-owner
+  - condition: incremental-result-differs-from-clean
+    action: disable-incremental-publication-and-fix-query-contract
+  - condition: architecture-work-delays-product-after-I1-I2
+    action: pause-optional-architecture-and-run-P0-through-P4
