@@ -70,34 +70,17 @@ export interface DocumentationAuthorityRegistry {
 }
 
 const RECORD_KEYS = new Set([
-  'id',
-  'path',
-  'kind',
-  'domain',
-  'lifecycle',
-  'dynamicPolicy',
-  'owns',
-  'projects',
-  'generatedFrom',
-  'proposal',
-  'audience',
-  'consumers',
-  'updateTriggers'
+  'id', 'path', 'kind', 'domain', 'lifecycle', 'dynamicPolicy', 'owns', 'projects',
+  'generatedFrom', 'proposal', 'audience', 'consumers', 'updateTriggers'
 ]);
 
 const PROPOSAL_KEYS = new Set([
-  'disposition',
-  'canonicalTargets',
-  'activationTrigger',
-  'retirementTarget',
-  'evidenceRequirement',
-  'reversalCondition'
+  'disposition', 'canonicalTargets', 'activationTrigger', 'retirementTarget',
+  'evidenceRequirement', 'reversalCondition'
 ]);
 
 const NON_OWNING_KINDS = new Set<DocumentationAuthorityKind>([
-  'navigation',
-  'agent-projection',
-  'proposal'
+  'navigation', 'agent-projection', 'proposal'
 ]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -138,9 +121,9 @@ function stringList(value: unknown, label: string): string[] {
   if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
   const result = value.map((item, index) => nonEmptyString(item, `${label}[${index}]`));
   if (new Set(result).size !== result.length) throw new Error(`${label} must be unique.`);
-  const sorted = [...result].sort((left, right) => left.localeCompare(right, 'en'));
+  const sorted = [...result].sort();
   if (sorted.some((item, index) => item !== result[index])) {
-    throw new Error(`${label} must be in canonical lexical order.`);
+    throw new Error(`${label} must be in canonical code-unit order.`);
   }
   return result;
 }
@@ -171,12 +154,8 @@ function parseProposalLifecycle(
 ): DocumentationProposalLifecycle {
   assertPlainObject(value, label);
   assertExactKeys(value, PROPOSAL_KEYS, [
-    'disposition',
-    'canonicalTargets',
-    'activationTrigger',
-    'retirementTarget',
-    'evidenceRequirement',
-    'reversalCondition'
+    'disposition', 'canonicalTargets', 'activationTrigger', 'retirementTarget',
+    'evidenceRequirement', 'reversalCondition'
   ], label);
 
   const disposition = enumValue(
@@ -199,20 +178,23 @@ function parseProposalLifecycle(
     `${label}.reversalCondition`
   );
 
-  if ((disposition === 'adopt' || disposition === 'adapt') &&
-    (canonicalTargets.length === 0 || activationTrigger === null)) {
+  if ((disposition === 'adopt' || disposition === 'adapt') && (
+    canonicalTargets.length === 0 ||
+    activationTrigger === null ||
+    evidenceRequirement === null
+  )) {
     throw new Error(
-      `${label} ${disposition} requires canonicalTargets and activationTrigger.`
+      `${label} ${disposition} requires canonicalTargets, activationTrigger and evidenceRequirement.`
     );
   }
-  if (disposition === 'reject' &&
-    (canonicalTargets.length > 0 || reversalCondition === null)) {
-    throw new Error(
-      `${label} reject requires no canonicalTargets and a reversalCondition.`
-    );
+  if (disposition === 'reject' && (
+    canonicalTargets.length > 0 || reversalCondition === null
+  )) {
+    throw new Error(`${label} reject requires no canonicalTargets and a reversalCondition.`);
   }
-  if ((disposition === 'defer' || disposition === 'experimental') &&
-    (activationTrigger === null || evidenceRequirement === null)) {
+  if ((disposition === 'defer' || disposition === 'experimental') && (
+    activationTrigger === null || evidenceRequirement === null
+  )) {
     throw new Error(
       `${label} ${disposition} requires activationTrigger and evidenceRequirement.`
     );
@@ -232,17 +214,8 @@ function parseRecord(value: unknown, index: number): DocumentationAuthorityRecor
   const label = `documents[${index}]`;
   assertPlainObject(value, label);
   assertExactKeys(value, RECORD_KEYS, [
-    'id',
-    'path',
-    'kind',
-    'domain',
-    'lifecycle',
-    'dynamicPolicy',
-    'owns',
-    'projects',
-    'audience',
-    'consumers',
-    'updateTriggers'
+    'id', 'path', 'kind', 'domain', 'lifecycle', 'dynamicPolicy', 'owns', 'projects',
+    'audience', 'consumers', 'updateTriggers'
   ], label);
 
   const kind = enumValue(value.kind, DOCUMENT_AUTHORITY_KINDS, `${label}.kind`);
@@ -298,38 +271,55 @@ function parseRecord(value: unknown, index: number): DocumentationAuthorityRecor
   };
 }
 
-function assertUnique(records: readonly DocumentationAuthorityRecord[]): void {
-  const ids = new Map<string, string>();
-  const paths = new Map<string, string>();
-  const windowsPaths = new Map<string, string>();
-  const owners = new Map<string, string>();
+function assertRegistryClosure(records: readonly DocumentationAuthorityRecord[]): void {
+  const ids = new Map<string, DocumentationAuthorityRecord>();
+  const paths = new Map<string, DocumentationAuthorityRecord>();
+  const windowsPaths = new Map<string, DocumentationAuthorityRecord>();
+  const owners = new Map<string, DocumentationAuthorityRecord>();
+  const retirementTargets = new Map<string, DocumentationAuthorityRecord>();
 
   for (const record of records) {
     const previousId = ids.get(record.id);
-    if (previousId) throw new Error(`Duplicate document id ${record.id}: ${previousId}, ${record.path}.`);
-    ids.set(record.id, record.path);
+    if (previousId) {
+      throw new Error(`Duplicate document id ${record.id}: ${previousId.path}, ${record.path}.`);
+    }
+    ids.set(record.id, record);
 
     const previousPath = paths.get(record.path);
     if (previousPath) {
-      throw new Error(`Duplicate document path ${record.path}: ${previousPath}, ${record.id}.`);
+      throw new Error(`Duplicate document path ${record.path}: ${previousPath.id}, ${record.id}.`);
     }
-    paths.set(record.path, record.id);
+    paths.set(record.path, record);
 
     const windowsPath = record.path.toLowerCase();
     const previousWindowsPath = windowsPaths.get(windowsPath);
     if (previousWindowsPath) {
       throw new Error(
-        `Case-insensitive document path collision ${record.path}: ${previousWindowsPath}, ${record.id}.`
+        `Case-insensitive document path collision ${record.path}: ${previousWindowsPath.id}, ${record.id}.`
       );
     }
-    windowsPaths.set(windowsPath, record.id);
+    windowsPaths.set(windowsPath, record);
 
     for (const owned of record.owns) {
       const previousOwner = owners.get(owned);
       if (previousOwner) {
-        throw new Error(`Canonical ownership ${owned} is duplicated by ${previousOwner} and ${record.id}.`);
+        throw new Error(
+          `Canonical ownership ${owned} is duplicated by ${previousOwner.id} and ${record.id}.`
+        );
       }
-      owners.set(owned, record.id);
+      owners.set(owned, record);
+    }
+
+    if (record.proposal) {
+      const previousRetirement = retirementTargets.get(record.proposal.retirementTarget);
+      if (previousRetirement) {
+        throw new Error(
+          `Proposal retirementTarget ${record.proposal.retirementTarget} is shared by ${
+            previousRetirement.id
+          } and ${record.id}.`
+        );
+      }
+      retirementTargets.set(record.proposal.retirementTarget, record);
     }
   }
 
@@ -349,13 +339,15 @@ function assertUnique(records: readonly DocumentationAuthorityRecord[]): void {
     }
     if (record.proposal) {
       for (const target of record.proposal.canonicalTargets) {
-        const targetPath = ids.get(target);
-        if (!targetPath) {
+        const targetRecord = ids.get(target);
+        if (!targetRecord) {
           throw new Error(`Proposal ${record.id} targets unknown document ${target}.`);
         }
-        const targetRecord = records.find((candidate) => candidate.id === target);
-        if (targetRecord?.kind === 'proposal') {
+        if (targetRecord.kind === 'proposal') {
           throw new Error(`Proposal ${record.id} cannot migrate into proposal ${target}.`);
+        }
+        if (targetRecord.owns.length === 0) {
+          throw new Error(`Proposal ${record.id} target ${target} is not an owning canonical record.`);
         }
       }
       if (!record.proposal.retirementTarget.startsWith('docs/archive/')) {
@@ -391,10 +383,15 @@ function assertDependencyGraphAcyclic(records: readonly DocumentationAuthorityRe
     const record = byId.get(id);
     if (!record) throw new Error(`Documentation dependency references unknown document ${id}.`);
     for (const target of record.projects) visit(target, [...chain, id]);
+    for (const target of record.proposal?.canonicalTargets ?? []) {
+      visit(target, [...chain, id]);
+    }
     if (record.generatedFrom) {
       const sourceId = idByPath.get(record.generatedFrom);
       if (!sourceId) {
-        throw new Error(`Documentation generation dependency references unknown path ${record.generatedFrom}.`);
+        throw new Error(
+          `Documentation generation dependency references unknown path ${record.generatedFrom}.`
+        );
       }
       visit(sourceId, [...chain, id]);
     }
@@ -424,12 +421,9 @@ export function parseDocumentationAuthorityRegistry(
   if (!Array.isArray(raw.documents)) throw new Error('registry.documents must be an array.');
   const documents = raw.documents.map(parseRecord);
   if (documents.length === 0) throw new Error('registry.documents must not be empty.');
-  assertUnique(documents);
+  assertRegistryClosure(documents);
   assertDependencyGraphAcyclic(documents);
-  return {
-    schema: DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
-    documents
-  };
+  return { schema: DOCUMENT_AUTHORITY_REGISTRY_SCHEMA, documents };
 }
 
 export function documentationRecordByPath(
@@ -476,8 +470,8 @@ export function renderDocumentationIndex(
     .filter((record) => record.path !== 'docs/README.md')
     .sort((left, right) => (
       (kindOrder.get(left.kind) ?? 99) - (kindOrder.get(right.kind) ?? 99)
-      || left.domain.localeCompare(right.domain, 'en')
-      || left.path.localeCompare(right.path, 'en')
+      || (left.domain < right.domain ? -1 : left.domain > right.domain ? 1 : 0)
+      || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
     ));
 
   return [
