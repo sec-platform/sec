@@ -702,6 +702,21 @@ migrationProtocol:
   - new-main-readback
   - close-source-issue-pr-proposal-branch
 
+reviewContract:
+  exactHeadOnly: true
+  blockingSeverities: [P1, P2]
+  requiredChecks:
+    - no-information-loss-from-removed-files
+    - no-second-canonical-owner
+    - no-domain-schema-enum-duplicated-as-authority
+    - all-source-dispositions-satisfy-lifecycle-fields
+    - one-owner-per-implementation-node
+    - all-dependencies-have-matching-edges
+    - all-state-changing-nodes-require-main-readback
+    - product-path-not-starved-by-release-or-infrastructure
+    - skill-remains-strategy-not-control-plane
+    - test-feedback-candidate-release-authority-separated
+
 completionGate:
   - exact-head-independent-review-has-zero-unresolved-p1-p2
   - every-source-decision-has-one-disposition-and-required-fields
