@@ -1,0 +1,370 @@
+schema: sec-canonical-architecture-convergence-v1
+status: proposal
+tracking: issue-232
+exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
+authority: none
+humanDecision: docs/proposals/canonical-architecture-convergence-v1/README.md
+
+product:
+  definition: deterministic-multi-domain-engineering-semantic-compiler-and-governed-change-platform
+  primaryLanguage: typescript-first
+  coreLanguagePolicy: language-neutral-contracts
+  canonicalCompletion:
+    - one-real-self-observation-slice
+    - one-governed-mutation-with-rollback
+    - three-unrelated-models-without-core-specialization
+    - one-real-brownfield-adopt-normalize
+
+permanentInvariants:
+  - authority-canonical-evidence-projection-separated
+  - unknown-ambiguous-conflicted-stale-unsupported-opaque-explicit
+  - one-owner-per-canonical-identity-state-writer-selector-validator-producer
+  - validated-snapshots-immutable-and-revision-bound
+  - deterministic-canonical-results
+  - clean-incremental-equivalence
+  - no-candidate-self-proof
+  - no-false-green
+  - no-partial-publication
+  - ai-and-providers-proposal-or-evidence-only
+  - core-no-business-language-framework-brand-specialization
+  - support-claims-layered
+
+federationKernel:
+  scope: minimal-cross-domain-protocol
+  owns:
+    - domain-id
+    - domain-descriptor
+    - stable-typed-reference
+    - domain-revision-reference
+    - authority-class-reference
+    - producer-reference
+    - validated-snapshot-envelope
+    - coverage-envelope
+    - unknown-frontier-envelope
+    - migration-reference
+  explicitlyDoesNotOwn:
+    - domain-object-fields
+    - domain-state-machines
+    - effect-algebra
+    - type-algebra
+    - verification-status
+    - mutation-terminal
+    - agent-lifecycle
+    - release-state
+    - provider-brands
+    - business-names
+
+sharedProtocolDomains:
+  - id: contract-protocol
+    canonicalTarget: docs/system-architecture.md-and-new-machine-contract
+    owns:
+      - structural-contract-envelope
+      - semantic-invariant-reference
+      - operational-contract-reference
+    doesNotOwn:
+      - domain-specific-invariants
+      - domain-specific-failure-algorithm
+
+  - id: type-algebra
+    canonicalTarget: docs/compiler-target-ir.md
+    owns:
+      - type-identity
+      - normalization
+      - representation
+      - target-mapping
+      - directional-type-compatibility
+
+  - id: effect-resource-capability
+    canonicalTarget: new-focused-authority-plus-semantic-compiler-mutation-projections
+    owns:
+      - effect-identity
+      - resource-reference
+      - capability-requirement
+      - determinism-idempotency-isolation-compensation
+      - failure-and-observability-contract
+    doesNotOwn:
+      - authorization-decision
+      - runtime-sandbox-implementation
+
+  - id: condition-freshness
+    canonicalTarget: shared-condition-contract
+    owns:
+      - true-false-unknown-envelope
+      - observed-revision
+      - producer-revision
+      - stable-reason-code
+      - evidence-reference
+    doesNotOwn:
+      - domain-readiness-algorithm
+
+  - id: compatibility-support
+    canonicalTarget: change-management-runtime-verification
+    owns:
+      - directional-compatibility-result-envelope
+      - compatibility-dimension-registry
+      - support-claim-maturity-vocabulary
+    doesNotOwn:
+      - universal-compatibility-algorithm
+      - product-support-enablement
+
+planes:
+  - id: truth
+    input: authority-and-observation
+    output: validated-engineering-workspace
+  - id: compilation
+    input: validated-engineering-workspace-plus-target-profile
+    output: artifacts-with-provenance
+  - id: operation
+    input: typed-intent-and-authorization
+    output: accepted-rejected-rolled-back-recovery-required
+  - id: governance
+    input: work-and-evidence-facts
+    output: selection-review-integration-publication-closeout
+
+canonicalDomains:
+  - id: product
+    authorityDocument: docs/product.md
+    canonicalForm: typed-policy-and-stable-doc
+    produces: [product-intent, success-criteria]
+
+  - id: source-program
+    authorityDocument: docs/brownfield-import.md
+    canonicalDeltaNeeded: true
+    relatedIssues: [222, 224]
+    rawInputs: [source-bytes, lossless-syntax, language-semantics, provider-observations]
+    validatedOutputs: [source-program-snapshot, bindings, coverage, unknown-frontier]
+
+  - id: engineering-semantics
+    authorityDocument: docs/semantic-model.md
+    canonicalForm: typed-domain-snapshots-plus-fact-assertion-layer
+    validatedOutputs: [domain-snapshots, engineering-fact-graph, semantic-revision]
+    doesNotOwn: [source-program-internals, target-ir, evidence-records]
+
+  - id: responsibility
+    canonicalTarget: docs/semantic-model.md-or-focused-responsibility-authority
+    relatedIssue: 224
+    validatedOutputs: [responsibility-snapshot, facet-bindings, verification-obligations]
+
+  - id: repository
+    canonicalTarget: engineering-workspace-domain
+    validatedOutputs: [repository-snapshot, source-ownership, artifact-bindings]
+
+  - id: documentation
+    authorityDocument: docs/authority.json
+    validatedOutputs: [document-authority-registry, document-relations]
+
+  - id: workflow-gate
+    canonicalTarget: engineering-workspace-domain
+    validatedOutputs: [workflow-definition-snapshot, gate-bindings]
+
+  - id: agent-operations
+    authorityDocument: docs/development-governance.md
+    canonicalDeltaNeeded: true
+    validatedOutputs: [role-registry, operation-registry, permission-envelope, transition-result]
+
+  - id: release-operations
+    canonicalTarget: runtime-distribution-and-future-release-domain
+    validatedOutputs: [release-candidate, promotion, publication-receipt, support-claim]
+
+  - id: target-compilation
+    authorityDocument: docs/compiler-target-ir.md
+    validatedOutputs: [target-profile, application-ir, behavior-ir, target-program-ir, artifact-plan]
+
+  - id: delta-impact
+    authorityDocument: docs/delta-and-impact.md
+    validatedOutputs: [typed-delta, impact, witness, unknown-frontier]
+
+  - id: mutation
+    authorityDocument: docs/semantic-mutation.md
+    validatedOutputs: [mutation-plan, transaction-result, recovery-state]
+
+  - id: verification-evidence
+    authorityDocument: docs/verification-governance.md
+    relatedIssues: [175, 176, 177, 178, 179, 188, 190, 215, 217]
+    validatedOutputs:
+      - requirement
+      - applicability-proof
+      - gate-definition
+      - execution-record
+      - gate-result
+      - claim-result
+      - evidence-node
+      - aggregate-decision
+
+  - id: runtime-distribution
+    authorityDocument: docs/runtime-and-distribution.md
+    relatedIssue: 167
+    validatedOutputs: [host-profile, toolchain-profile, package-layout, capability-result, support-claim]
+
+  - id: change-management
+    authorityDocument: docs/change-management.md
+    validatedOutputs: [compatibility-decision, migration-plan, retirement-proof]
+
+  - id: development-integration
+    authorityDocument: docs/development-governance.md
+    relatedIssues: [191, 205, 207, 219, 221]
+    validatedOutputs:
+      - work-selection-decision
+      - task-capsule
+      - change-closure-plan
+      - candidate-epoch
+      - candidate-closure-receipt
+      - integration-epoch
+      - publication-closeout
+
+  - id: workbench-ai
+    authorityDocument: docs/workbench-and-ai-operations.md
+    validatedOutputs: [context-capsule, proposal, review-projection, operation-result-projection]
+    doesNotOwn: [canonical-state, authorization, mutation-plan, verification-result]
+
+stateMachineOwners:
+  work-selection: issue-221
+  task-capsule: issue-205
+  change-closure: issue-219
+  candidate-epoch-failure: issue-177
+  verification-result: issues-176-215
+  trusted-bootstrap: issue-178
+  evidence-dag-run-journal: issue-179
+  test-impact: issue-188
+  hermetic-test-runtime: issue-190
+  compiler-query-graph: issue-194
+  automatic-feedback: issue-189
+  integration-epoch: issues-191-207
+  mutation-transaction: docs-semantic-mutation-and-code
+  candidate-closure: development-integration-orchestrator-only
+
+sourceArchitecture:
+  layers:
+    - exact-bytes-and-mode
+    - lossless-syntax
+    - language-semantic-model
+    - source-program-dialect
+    - candidate-extraction
+    - reconciliation
+    - canonical-semantic-domain
+  typescript:
+    semanticAuthority: typescript-compiler-api
+    preservationLayer: full-fidelity-lst
+  optionalProviders:
+    - tree-sitter
+    - ts-morph
+    - ast-grep
+    - codeql
+    - runtime-trace
+    - ai-inference
+
+compilerArchitecture:
+  stages:
+    - target-profile
+    - type-algebra
+    - application-ir
+    - bounded-behavior-ir
+    - target-program-ir
+    - backend
+  executionModel: demand-driven-query-after-clean-correctness
+  queryGraphAndEvidenceGraphSeparated: true
+  translationValidation: high-risk-pure-transformations
+  eGraph: deferred-until-typed-rewrite-consumer
+
+mutationArchitecture:
+  planApplySeparated: true
+  canonicalWriteModel: single-writer-linearizable-cas
+  crdtScope: non-authority-drafts-comments-ui
+  terminals: [accepted, rejected, rolled-back, recovery-required]
+  publicationStates:
+    - not-published
+    - published-durability-unknown
+    - published-durable
+    - rolled-back
+    - recovery-required
+
+verificationArchitecture:
+  statuses: [passed, failed, not-run, unsupported, invalidated]
+  dispositions: [executed, reused, not-executed]
+  notRunRequiresApplicabilityProof: true
+  actionCacheSeparatedFromCas: true
+  failureReusableOnlyForDiagnosis: true
+  trustRootUsesIndependentVerifier: true
+
+developmentArchitecture:
+  primaryChain:
+    - ready-issue
+    - trusted-orientation
+    - task-capsule
+    - change-closure
+    - authorized-operation
+    - incremental-feedback
+    - candidate-closure
+    - independent-review
+    - integration-epoch
+    - expected-head-publication
+    - main-readback-cleanup-replan
+  agent:
+    rolesSeparatedFromSkills: true
+    typedOperationEnvelope: true
+    exactlyOnePrimarySkill: true
+    permanentSkillCount: false
+    deterministicRulesOutsideProse: true
+
+runtimeArchitecture:
+  semanticCore: runtime-neutral
+  publicCliHost: supported-node-lts-family
+  repositoryToolchain: exact-bun-until-evidence-changes-decision
+  targetHostToolchainOrthogonal: true
+  contentAddressedStorageScope: immutable-derived-artifact-and-evidence-blobs
+  nonCacheState:
+    - authoring-source
+    - writer-generation
+    - transaction-journal
+    - recovery-state
+    - canonical-policy
+
+webArchitecture:
+  sequence:
+    - native-html-css-typescript
+    - jsx-tsx-binding
+    - cross-artifact-impact
+    - governed-web-mutation
+    - browser-evidence
+    - framework-adapters
+  runtimeDomIsEvidenceNotSourceAuthority: true
+
+specializedPlatforms:
+  pattern:
+    - specialized-provider
+    - target-capability-profile
+    - typed-resource-effect
+    - owning-environment-evidence
+    - governed-or-opaque-boundary
+  mustNotExpandUniversalBehaviorIr: true
+
+security:
+  authorizationRequest: principal-action-resource-context
+  defaultDeny: true
+  forbidPrecedence: true
+  semanticPermissionAndRuntimeAttenuationIntersect: true
+  secretsExcludedFrom: [engineering-ir, ai-context, normal-logs, generic-evidence]
+  genericSandboxBooleanRejected: true
+
+supportMaturity:
+  - proposed
+  - contract-frozen
+  - implemented-in-main
+  - physically-verified
+  - packaged-deployed
+  - product-supported
+
+forbiddenArchitectures:
+  - universal-ir
+  - universal-graph
+  - generic-property-bag-core
+  - one-revision-for-all-domains
+  - one-function-one-responsibility
+  - one-responsibility-one-block
+  - provider-or-ai-creates-authority
+  - query-cache-equals-evidence
+  - canonical-crdt-auto-merge
+  - skill-prose-state-machine
+  - current-host-implies-target
+  - unsupported-or-unknown-equals-pass
+  - giant-cross-domain-implementation-pr
