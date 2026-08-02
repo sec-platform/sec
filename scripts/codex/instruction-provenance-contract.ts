@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export const SEC_INSTRUCTION_PROVENANCE_CLASSES = [
   'canonical-main-authority',
   'derived-analysis',
@@ -20,11 +22,13 @@ export const SEC_EXTERNAL_ADOPTION_DISPOSITIONS = [
 export type SecExternalAdoptionDisposition =
   (typeof SEC_EXTERNAL_ADOPTION_DISPOSITIONS)[number];
 
+export type SecMaintainerPermission = 'admin' | 'maintain';
+
 export type SecMaintainerAdoptionRecordV1 = Readonly<{
   acceptance: readonly string[];
   authorizedBy: Readonly<{
     login: string;
-    permission: 'admin' | 'maintain';
+    permission: SecMaintainerPermission;
   }>;
   containsExternalText: false;
   createdAt: string;
@@ -44,6 +48,27 @@ export type SecMaintainerAdoptionRecordV1 = Readonly<{
   }>;
 }>;
 
+export type SecMaintainerAuthorizationObservationV1 = Readonly<{
+  adoptionRecordDigest: string;
+  defaultHead: string;
+  evidenceDigest: string;
+  login: string;
+  observedAt: string;
+  permission: SecMaintainerPermission;
+  repository: string;
+  repositoryId: number;
+  schema: 'sec-maintainer-authorization-observation-v1';
+  source: 'trusted-github-collaborator-permission-api';
+  userId: number;
+}>;
+
+export type SecAuthorizedMaintainerAdoptionV1 = Readonly<{
+  authorization: SecMaintainerAuthorizationObservationV1;
+  instructionAuthority: boolean;
+  record: SecMaintainerAdoptionRecordV1;
+  schema: 'sec-authorized-maintainer-adoption-v1';
+}>;
+
 const RecordKeys = [
   'acceptance',
   'authorizedBy',
@@ -57,6 +82,20 @@ const RecordKeys = [
   'recordId',
   'schema',
   'source'
+] as const;
+
+const AuthorizationObservationKeys = [
+  'adoptionRecordDigest',
+  'defaultHead',
+  'evidenceDigest',
+  'login',
+  'observedAt',
+  'permission',
+  'repository',
+  'repositoryId',
+  'schema',
+  'source',
+  'userId'
 ] as const;
 
 function assertRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -120,6 +159,47 @@ function parseTimestamp(value: unknown, label: string): string {
   return value;
 }
 
+function parseRepository(value: unknown, label: string): string {
+  if (
+    typeof value !== 'string'
+    || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(value)
+  ) {
+    throw new Error(`${label} must be owner/name.`);
+  }
+  return value;
+}
+
+function parseDigest(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
+    throw new Error(`${label} must be a SHA-256 digest.`);
+  }
+  return value;
+}
+
+function parseCommitOid(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) {
+    throw new Error(`${label} must be one lowercase 40-character Git object ID.`);
+  }
+  return value;
+}
+
+function parseLogin(value: unknown, label: string): string {
+  if (
+    typeof value !== 'string'
+    || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/u.test(value)
+  ) {
+    throw new Error(`${label} is invalid.`);
+  }
+  return value;
+}
+
+function parsePermission(value: unknown, label: string): SecMaintainerPermission {
+  if (value !== 'maintain' && value !== 'admin') {
+    throw new Error(`${label} must be maintain or admin.`);
+  }
+  return value;
+}
+
 function parseSource(value: unknown): SecMaintainerAdoptionRecordV1['source'] {
   assertRecord(value, 'source');
   assertExactKeys(
@@ -129,18 +209,6 @@ function parseSource(value: unknown): SecMaintainerAdoptionRecordV1['source'] {
     'source'
   );
   if (
-    typeof value.repository !== 'string'
-    || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(value.repository)
-  ) {
-    throw new Error('source.repository must be owner/name.');
-  }
-  if (
-    typeof value.digest !== 'string'
-    || !/^sha256:[0-9a-f]{64}$/u.test(value.digest)
-  ) {
-    throw new Error('source.digest must be a SHA-256 digest.');
-  }
-  if (
     typeof value.kind !== 'string'
     || !['discussion', 'issue', 'pull-request', 'review-comment'].includes(value.kind)
   ) {
@@ -149,33 +217,25 @@ function parseSource(value: unknown): SecMaintainerAdoptionRecordV1['source'] {
   const commentId = value.commentId === undefined
     ? undefined
     : positiveInteger(value.commentId, 'source.commentId');
-  if (
-    (value.kind === 'review-comment') !== (commentId !== undefined)
-  ) {
+  if ((value.kind === 'review-comment') !== (commentId !== undefined)) {
     throw new Error('source.commentId is required only for review-comment sources.');
   }
   return Object.freeze({
     ...(commentId === undefined ? {} : { commentId }),
-    digest: value.digest,
+    digest: parseDigest(value.digest, 'source.digest'),
     kind: value.kind as SecMaintainerAdoptionRecordV1['source']['kind'],
     number: positiveInteger(value.number, 'source.number'),
-    repository: value.repository
+    repository: parseRepository(value.repository, 'source.repository')
   });
 }
 
 function parseAuthorizedBy(value: unknown): SecMaintainerAdoptionRecordV1['authorizedBy'] {
   assertRecord(value, 'authorizedBy');
   assertExactKeys(value, ['login', 'permission'], [], 'authorizedBy');
-  if (
-    typeof value.login !== 'string'
-    || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/u.test(value.login)
-  ) {
-    throw new Error('authorizedBy.login is invalid.');
-  }
-  if (value.permission !== 'maintain' && value.permission !== 'admin') {
-    throw new Error('authorizedBy.permission must be maintain or admin.');
-  }
-  return Object.freeze({ login: value.login, permission: value.permission });
+  return Object.freeze({
+    login: parseLogin(value.login, 'authorizedBy.login'),
+    permission: parsePermission(value.permission, 'authorizedBy.permission')
+  });
 }
 
 export function CodexDevelopmentAssertMaintainerAdoptionRecordV1(
@@ -213,6 +273,12 @@ export function CodexDevelopmentAssertMaintainerAdoptionRecordV1(
   if ((decision === 'reject' || decision === 'defer') && acceptance.length > 0) {
     throw new Error('reject/defer records cannot issue acceptance conditions.');
   }
+  if (
+    typeof value.recordId !== 'string'
+    || !/^[a-z0-9][a-z0-9-]{0,127}$/u.test(value.recordId)
+  ) {
+    throw new Error('recordId must be one canonical lower-kebab identity.');
+  }
   return Object.freeze({
     acceptance,
     authorizedBy: parseAuthorizedBy(value.authorizedBy),
@@ -223,14 +289,83 @@ export function CodexDevelopmentAssertMaintainerAdoptionRecordV1(
     normalizedIntent,
     normalizationMethod: 'independent-restatement-v1',
     provenance: 'maintainer-intent',
-    recordId: boundedText(value.recordId, 'recordId', 128),
+    recordId: value.recordId,
     schema: 'sec-maintainer-adoption-record-v1',
     source: parseSource(value.source)
   });
 }
 
-export function CodexDevelopmentAdoptionRecordCanIssueInstructionsV1(
+export function CodexDevelopmentMaintainerAdoptionRecordDigestV1(
   record: SecMaintainerAdoptionRecordV1
+): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify(record)).digest('hex')}`;
+}
+
+export function CodexDevelopmentAssertMaintainerAuthorizationObservationV1(
+  value: unknown
+): SecMaintainerAuthorizationObservationV1 {
+  assertRecord(value, 'authorization observation');
+  assertExactKeys(value, AuthorizationObservationKeys, [], 'authorization observation');
+  if (value.schema !== 'sec-maintainer-authorization-observation-v1') {
+    throw new Error('authorization observation schema is invalid.');
+  }
+  if (value.source !== 'trusted-github-collaborator-permission-api') {
+    throw new Error('authorization observation source is not trusted.');
+  }
+  return Object.freeze({
+    adoptionRecordDigest: parseDigest(
+      value.adoptionRecordDigest,
+      'authorization observation adoptionRecordDigest'
+    ),
+    defaultHead: parseCommitOid(value.defaultHead, 'authorization observation defaultHead'),
+    evidenceDigest: parseDigest(
+      value.evidenceDigest,
+      'authorization observation evidenceDigest'
+    ),
+    login: parseLogin(value.login, 'authorization observation login'),
+    observedAt: parseTimestamp(value.observedAt, 'authorization observation observedAt'),
+    permission: parsePermission(value.permission, 'authorization observation permission'),
+    repository: parseRepository(value.repository, 'authorization observation repository'),
+    repositoryId: positiveInteger(
+      value.repositoryId,
+      'authorization observation repositoryId'
+    ),
+    schema: 'sec-maintainer-authorization-observation-v1',
+    source: 'trusted-github-collaborator-permission-api',
+    userId: positiveInteger(value.userId, 'authorization observation userId')
+  });
+}
+
+export function CodexDevelopmentAuthorizeMaintainerAdoptionRecordV1(input: {
+  readonly authorization: unknown;
+  readonly record: SecMaintainerAdoptionRecordV1;
+}): SecAuthorizedMaintainerAdoptionV1 {
+  const authorization = CodexDevelopmentAssertMaintainerAuthorizationObservationV1(
+    input.authorization
+  );
+  const recordDigest = CodexDevelopmentMaintainerAdoptionRecordDigestV1(input.record);
+  if (authorization.adoptionRecordDigest !== recordDigest) {
+    throw new Error('authorization observation is bound to a different adoption record.');
+  }
+  if (authorization.repository !== input.record.source.repository) {
+    throw new Error('authorization repository does not match the adoption source repository.');
+  }
+  if (
+    authorization.login !== input.record.authorizedBy.login
+    || authorization.permission !== input.record.authorizedBy.permission
+  ) {
+    throw new Error('live maintainer authorization does not match the adoption record signer.');
+  }
+  return Object.freeze({
+    authorization,
+    instructionAuthority: input.record.decision === 'adopt' || input.record.decision === 'adapt',
+    record: input.record,
+    schema: 'sec-authorized-maintainer-adoption-v1'
+  });
+}
+
+export function CodexDevelopmentAdoptionRecordCanIssueInstructionsV1(
+  authorized: SecAuthorizedMaintainerAdoptionV1
 ): boolean {
-  return record.decision === 'adopt' || record.decision === 'adapt';
+  return authorized.instructionAuthority;
 }
