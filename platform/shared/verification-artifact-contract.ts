@@ -1,10 +1,12 @@
 import type { AcceptanceCoverageReport } from './acceptance-types.ts';
 import type { PolicyReport } from './policy-types.ts';
 import {
-  CodexDevelopmentAggregateVerificationClaimsV1,
+  buildExpectedProductVerificationClaimSummary,
+  inferProductVerificationRuntimeMode
+} from './product-verification-profile.ts';
+import {
   CodexDevelopmentAssertVerificationGateResultV1,
   type VerificationAggregateResultV1,
-  type VerificationClaimDefinitionV1,
   type VerificationClaimResultV1,
   type VerificationGateResultV1
 } from './verification-result-contract.ts';
@@ -44,12 +46,6 @@ function exactStringArray(value: unknown): value is string[] {
 
 function uniqueStrings(values: readonly string[]): boolean {
   return new Set(values).size === values.length;
-}
-
-function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length &&
-    uniqueStrings(left) && uniqueStrings(right) &&
-    left.every((value) => right.includes(value));
 }
 
 function exactVerificationStatus(value: unknown): value is VerificationStatus {
@@ -154,75 +150,13 @@ function exactVerificationGateResult(value: unknown): value is VerificationGateR
   }
 }
 
-function environmentKey(gate: VerificationGateResultV1): string | null {
-  return gate.environment ? `${gate.environment.os}-${gate.environment.arch}` : null;
-}
-
-function deriveClaimDefinitions(
-  claimResults: readonly VerificationClaimResultV1[],
-  gates: readonly VerificationGateResultV1[]
-): VerificationClaimDefinitionV1[] | null {
-  const claimIds = new Set(claimResults.map((claim) => claim.claimId));
-  const definitions: VerificationClaimDefinitionV1[] = [];
-
-  for (const gate of gates) {
-    if (!uniqueStrings(gate.requiredForClaims) ||
-      !uniqueStrings(gate.supportedClaims) ||
-      gate.requiredForClaims.length === 0 ||
-      gate.requiredForClaims.some((claimId) => !claimIds.has(claimId)) ||
-      gate.supportedClaims.some((claimId) => (
-        !claimIds.has(claimId) || !gate.requiredForClaims.includes(claimId)
-      ))) {
-      return null;
-    }
-  }
-
-  for (const claim of claimResults) {
-    const requiredGates = gates.filter((gate) => gate.requiredForClaims.includes(claim.claimId));
-    const requiredGateIds = requiredGates.map((gate) => gate.gateId);
-    if (requiredGateIds.length === 0 ||
-      !sameStringSet(requiredGateIds, claim.contributingGateIds)) {
-      return null;
-    }
-    const owningEnvironments = requiredGates
-      .map(environmentKey)
-      .filter((value): value is string => value !== null)
-      .filter((value, index, values) => values.indexOf(value) === index)
-      .sort((left, right) => left.localeCompare(right));
-    definitions.push({
-      claimId: claim.claimId,
-      requiredGateIds,
-      owningEnvironments
-    });
-  }
-
-  return definitions;
-}
-
-function sameClaimResult(
-  actual: VerificationClaimResultV1,
-  expected: VerificationClaimResultV1
-): boolean {
-  return actual.claimId === expected.claimId &&
-    actual.status === expected.status &&
-    actual.reasonCode === expected.reasonCode &&
-    actual.coverageComplete === expected.coverageComplete &&
-    sameStringSet(actual.contributingGateIds, expected.contributingGateIds);
-}
-
-function sameAggregateResult(
-  actual: VerificationAggregateResultV1,
-  expected: VerificationAggregateResultV1
-): boolean {
-  return actual.overallStatus === expected.overallStatus &&
-    actual.overallReasonCode === expected.overallReasonCode &&
-    actual.claimResults.length === expected.claimResults.length &&
-    actual.claimResults.every((claim, index) => (
-      sameClaimResult(claim, expected.claimResults[index]!)
-    ));
-}
-
-function exactVerificationClaimSummary(value: unknown): value is VerificationClaimSummary {
+function exactVerificationClaimSummary(
+  value: unknown,
+  requestedLane: VerificationReport['summary']['requestedLane'],
+  fast: FastVerificationLaneReport,
+  runtime: RuntimeVerificationLaneReport,
+  policyReport: PolicyReport
+): value is VerificationClaimSummary {
   if (!exactKeys(value, ['overall', 'gates']) ||
     !exactVerificationAggregateShape(value.overall) ||
     !Array.isArray(value.gates) || value.gates.length === 0 ||
@@ -231,17 +165,16 @@ function exactVerificationClaimSummary(value: unknown): value is VerificationCla
   }
 
   const summary = value as unknown as VerificationClaimSummary;
-  const gates = [...summary.gates];
-  if (!uniqueStrings(gates.map((gate) => gate.gateId))) return false;
+  if (!uniqueStrings(summary.gates.map((gate) => gate.gateId))) return false;
 
-  const claims = deriveClaimDefinitions(summary.overall.claimResults, gates);
-  if (claims === null) return false;
-
-  const canonical = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims,
-    gateResults: gates
-  });
-  return sameAggregateResult(summary.overall, canonical);
+  const expected = buildExpectedProductVerificationClaimSummary(
+    requestedLane,
+    fast,
+    runtime,
+    inferProductVerificationRuntimeMode(runtime),
+    policyReport
+  );
+  return JSON.stringify(summary) === JSON.stringify(expected);
 }
 
 function exactVerificationReport(value: unknown): value is VerificationReport {
@@ -267,7 +200,14 @@ function exactVerificationReport(value: unknown): value is VerificationReport {
     (summary.status !== 'passed' && summary.status !== 'failed') ||
     summary.requestedLane !== 'all' || !Array.isArray(summary.failedLanes) ||
     !summary.failedLanes.every((lane) => lane === 'fast' || lane === 'runtime') ||
-    (summaryHasClaim && !exactVerificationClaimSummary(summary.claimSummary))) {
+    !uniqueStrings(summary.failedLanes as string[]) ||
+    (summaryHasClaim && !exactVerificationClaimSummary(
+      summary.claimSummary,
+      summary.requestedLane,
+      value.fast,
+      value.runtime,
+      value.fast.policyReport as PolicyReport
+    ))) {
     return false;
   }
 
