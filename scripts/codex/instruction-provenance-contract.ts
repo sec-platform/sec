@@ -48,6 +48,12 @@ export type SecMaintainerAdoptionRecordV1 = Readonly<{
   }>;
 }>;
 
+export type SecTrustedRepositoryIdentityV1 = Readonly<{
+  defaultHead: string;
+  fullName: string;
+  id: number;
+}>;
+
 export type SecMaintainerAuthorizationObservationV1 = Readonly<{
   adoptionRecordDigest: string;
   defaultHead: string;
@@ -66,6 +72,7 @@ export type SecAuthorizedMaintainerAdoptionV1 = Readonly<{
   authorization: SecMaintainerAuthorizationObservationV1;
   instructionAuthority: boolean;
   record: SecMaintainerAdoptionRecordV1;
+  repository: SecTrustedRepositoryIdentityV1;
   schema: 'sec-authorized-maintainer-adoption-v1';
 }>;
 
@@ -238,6 +245,16 @@ function parseAuthorizedBy(value: unknown): SecMaintainerAdoptionRecordV1['autho
   });
 }
 
+function parseTrustedRepositoryIdentity(value: unknown): SecTrustedRepositoryIdentityV1 {
+  assertRecord(value, 'trusted repository identity');
+  assertExactKeys(value, ['defaultHead', 'fullName', 'id'], [], 'trusted repository identity');
+  return Object.freeze({
+    defaultHead: parseCommitOid(value.defaultHead, 'trusted repository identity defaultHead'),
+    fullName: parseRepository(value.fullName, 'trusted repository identity fullName'),
+    id: positiveInteger(value.id, 'trusted repository identity id')
+  });
+}
+
 export function CodexDevelopmentAssertMaintainerAdoptionRecordV1(
   value: unknown
 ): SecMaintainerAdoptionRecordV1 {
@@ -339,16 +356,27 @@ export function CodexDevelopmentAssertMaintainerAuthorizationObservationV1(
 export function CodexDevelopmentAuthorizeMaintainerAdoptionRecordV1(input: {
   readonly authorization: unknown;
   readonly record: SecMaintainerAdoptionRecordV1;
+  readonly repository: unknown;
 }): SecAuthorizedMaintainerAdoptionV1 {
   const authorization = CodexDevelopmentAssertMaintainerAuthorizationObservationV1(
     input.authorization
   );
+  const repository = parseTrustedRepositoryIdentity(input.repository);
   const recordDigest = CodexDevelopmentMaintainerAdoptionRecordDigestV1(input.record);
   if (authorization.adoptionRecordDigest !== recordDigest) {
     throw new Error('authorization observation is bound to a different adoption record.');
   }
-  if (authorization.repository !== input.record.source.repository) {
-    throw new Error('authorization repository does not match the adoption source repository.');
+  if (
+    authorization.repository !== repository.fullName
+    || authorization.repositoryId !== repository.id
+  ) {
+    throw new Error('authorization observation does not match the trusted repository identity.');
+  }
+  if (authorization.defaultHead !== repository.defaultHead) {
+    throw new Error('authorization observation is stale for the current default head.');
+  }
+  if (input.record.source.repository !== repository.fullName) {
+    throw new Error('adoption source repository does not match the trusted repository identity.');
   }
   if (
     authorization.login !== input.record.authorizedBy.login
@@ -360,6 +388,7 @@ export function CodexDevelopmentAuthorizeMaintainerAdoptionRecordV1(input: {
     authorization,
     instructionAuthority: input.record.decision === 'adopt' || input.record.decision === 'adapt',
     record: input.record,
+    repository,
     schema: 'sec-authorized-maintainer-adoption-v1'
   });
 }
