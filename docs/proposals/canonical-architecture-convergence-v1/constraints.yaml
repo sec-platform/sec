@@ -1,364 +1,45 @@
 schema: sec-canonical-optimization-constraints-v1
 status: proposal
 tracking: issue-232
-exactMain: 6cc3bf8a3b655bebf85dfca3f065c9842207c086
-authority: none
+
 purpose: >-
-  Preserve the currently adjudicated non-negotiable constraints, evidence-gated defaults,
-  experiments and rejected designs in one machine-readable registry. Formal adoption must move
-  each constraint into its canonical owner; this proposal registry must then retire.
+  This registry is the single temporary convergence index for non-negotiable
+  constraints. It is not a second authority. Adoption requires migration into
+  the owning canonical document or code contract, followed by retirement here.
 
-classification:
-  permanent-invariant: cannot be relaxed without changing the product definition or trust model
-  evidence-gated-default: current best default; may change only with comparative evidence and migration
-  experiment: unresolved; cannot block the product path without an activated consumer
-  rejected: prohibited unless its recorded reversal condition becomes true
+executionBoundary:
+  currentPhase: convergence-not-adoption
+  mainAuthorityUnchanged: true
+  noWholeProposalMerge: true
+  requiredMigrationUnit: one-canonical-owner-at-a-time
 
-changeProtocol:
-  requiredFields:
-    - id
-    - class
-    - ownerTarget
-    - statement
-    - rationale
-    - enforcement
-    - reversalCondition
-  rules:
-    - no-silent-edit-of-semantics
-    - every-change-is-versioned-and-reviewed
-    - permanent-invariant-change-requires-product-or-trust-model-decision
-    - evidence-gated-default-change-requires-baseline-alternative-safety-and-migration-evidence
-    - experiment-cannot-be-presented-as-support-or-current-capability
-    - superseded-constraint-must-retain-history-and-retirement-reference
+permanentRules:
+  - one-owner-per-concept
+  - no-second-canonical-document
+  - no-second-schema-owner
+  - no-second-state-machine-owner
+  - no-second-writer
+  - unknown-never-means-pass
+  - cache-never-means-evidence
+  - provider-or-ai-never-creates-authority
+  - architecture-proposal-never-becomes-runtime-truth
 
-constraints:
-  - id: OPT-ARCH-001
-    class: permanent-invariant
-    ownerTarget: docs/system-architecture.md
-    statement: authority, canonical state, Evidence and projection are distinct identities
-    rationale: prevents observations, reports, caches, UI and AI output from becoming truth by accident
-    enforcement: machine owner/type boundaries and negative tests
-    reversalCondition: product-definition-change
+integrationRules:
+  - latest-main-is-source-of-truth-before-migration
+  - every-adopted-decision-needs-owner-target
+  - every-retired-proposal-needs-replacement-or-archive-target
+  - product-vertical-slice-cannot-be-blocked-by-optional-infrastructure
+  - every-state-changing-node-needs-main-readback
 
-  - id: OPT-ARCH-002
-    class: permanent-invariant
-    ownerTarget: docs/system-architecture.md-plus-reference-closure-contract
-    statement: every canonical identity, revision algorithm, producer, validator, writer and selector has one owner
-    rationale: duplicate owners create divergent truth and migration ambiguity
-    enforcement: duplicate-owner and single-writer validators
-    reversalCondition: none-within-current-trust-model
+optimizationRules:
+  - hot-feedback-and-authoritative-validation-are-separated
+  - measurements-before-performance-claims
+  - reuse-only-after-exact-action-identity
+  - clean-path-remains-correctness-oracle
 
-  - id: OPT-ARCH-003
-    class: permanent-invariant
-    ownerTarget: federation-reference-closure-contract
-    statement: >-
-      one cross-domain reference-closure validator checks target existence, revision compatibility,
-      unique ownership, forbidden authority cycles and unresolved frontiers
-    rationale: identical domain snapshots must not validate differently in different aggregators
-    enforcement: base-side or independently bootstrapped contract and property tests
-    reversalCondition: a formally equivalent single implementation replaces it
-
-  - id: OPT-ARCH-004
-    class: permanent-invariant
-    ownerTarget: docs/semantic-model.md
-    statement: unknown, ambiguous, conflicted, stale, unsupported and opaque remain explicit
-    rationale: absence of knowledge is not false, safe, ready or passed
-    enforcement: discriminated states and fail-closed consumers
-    reversalCondition: none
-
-  - id: OPT-ARCH-005
-    class: permanent-invariant
-    ownerTarget: docs/system-architecture.md
-    statement: no universal IR, universal graph or generic property-bag Core
-    rationale: source, semantic, compilation, impact, Evidence and operational models have different authority and revision domains
-    enforcement: typed domain snapshots and dependency rules
-    reversalCondition: none-within-current-product-definition
-
-  - id: OPT-ARCH-006
-    class: permanent-invariant
-    ownerTarget: docs/semantic-model.md-and-docs/system-architecture.md
-    statement: typed domain snapshots own domain truth; Fact/Assertion is the cross-domain assertion and provenance layer
-    rationale: preserves one truth owner without losing uniform query and Explain surfaces
-    enforcement: projection is rebuildable and cannot write back to domain state
-    reversalCondition: a proven alternative preserves one-owner semantics and typed domain invariants
-
-  - id: OPT-ARCH-007
-    class: permanent-invariant
-    ownerTarget: shared-contract-protocol
-    statement: public contracts cover structural, semantic and operational obligations
-    rationale: schema shape alone cannot prove meaning, Effect, cleanup or recovery
-    enforcement: contract metadata and negative/fault tests
-    reversalCondition: none
-
-  - id: OPT-ARCH-008
-    class: permanent-invariant
-    ownerTarget: effect-resource-capability-authority
-    statement: Effect, Resource and Capability are typed and remain outside the Federation Kernel
-    rationale: centralizing domain Effects creates a God Kernel; string labels cannot support authorization or recovery
-    enforcement: shared algebra with domain-owned policies
-    reversalCondition: none
-
-  - id: OPT-ARCH-009
-    class: permanent-invariant
-    ownerTarget: docs/change-management.md
-    statement: Compatibility and Support Claim are separate domains connected by references
-    rationale: compatibility does not prove implementation, physical verification, packaging or support
-    enforcement: separate types, owners and lifecycle tests
-    reversalCondition: none
-
-  - id: OPT-ARCH-010
-    class: permanent-invariant
-    ownerTarget: docs/roadmap.md-and-runtime-support-contract
-    statement: >-
-      support maturity is proposed -> contract-frozen -> implemented-in-main -> physically-verified
-      -> packaged-deployed -> product-supported
-    rationale: one vocabulary is required for deterministic comparison and migration
-    enforcement: one enum and projection contract
-    reversalCondition: versioned vocabulary migration with all consumers updated atomically
-
-  - id: OPT-ARCH-011
-    class: permanent-invariant
-    ownerTarget: docs/compiler-target-ir.md
-    statement: clean deterministic computation is the semantic oracle; incremental paths are optimizations
-    rationale: stale or incomplete caches must never define product semantics
-    enforcement: clean/incremental differential tests and cache deletion recovery
-    reversalCondition: none
-
-  - id: OPT-ARCH-012
-    class: permanent-invariant
-    ownerTarget: docs/semantic-mutation.md
-    statement: canonical writes use single-writer authority, source and semantic CAS, journaled publication and exact recovery
-    rationale: automatic conflict merge cannot safely resolve semantic authority
-    enforcement: concurrency, crash, publication and rollback tests
-    reversalCondition: a stronger consistency protocol with equivalent authority and recovery guarantees
-
-  - id: OPT-ARCH-013
-    class: permanent-invariant
-    ownerTarget: docs/verification-governance.md
-    statement: candidate changes to verifier, selector, docs authority or merge trust root cannot self-prove
-    rationale: a defective new trust rule could authorize itself
-    enforcement: base-side or independent verifier and exact-head Evidence
-    reversalCondition: formally verified trusted kernel with independent deployment proof
-
-  - id: OPT-ARCH-014
-    class: permanent-invariant
-    ownerTarget: docs/product.md-and-docs/workbench-and-ai-operations.md
-    statement: AI and Providers produce proposals, observations or Evidence; they do not create authority
-    rationale: model confidence and tool output are not permission or truth
-    enforcement: bounded operation envelope and canonical producer validation
-    reversalCondition: none
-
-  - id: OPT-TEST-001
-    class: permanent-invariant
-    ownerTarget: docs/verification-governance.md
-    statement: missing, skipped, unknown-impact, stale, unsupported, cleanup-failed and candidate-self-proof are never PASS
-    rationale: prevents false-green delivery
-    enforcement: unified Result contract and adversarial tests
-    reversalCondition: none
-
-  - id: OPT-TEST-002
-    class: evidence-gated-default
-    ownerTarget: local-feedback-contract
-    statement: advisory edit feedback and merge-authoritative affected checks are separate modes
-    rationale: hot feedback should run known relevant checks without granting merge authority; authoritative unknowns still fail closed
-    enforcement: distinct commands, result types and Evidence eligibility
-    reversalCondition: measured single mode meets both latency and trust requirements without ambiguity
-
-  - id: OPT-TEST-003
-    class: evidence-gated-default
-    ownerTarget: test-capability-bootstrap
-    statement: fast tests prepare browser, native or container capabilities only when selected tests require them
-    rationale: capability discovery and materialization are avoidable hot-path cost
-    enforcement: capability declarations and dependency-bootstrap tests
-    reversalCondition: measurements prove unconditional preparation is faster and equally reliable
-
-  - id: OPT-TEST-004
-    class: evidence-gated-default
-    ownerTarget: test-scheduler
-    statement: test scheduling uses measured duration, resource class, isolation and parallel-safety rather than directory alone
-    rationale: fixed file-count shards create tail latency and manual classification drift
-    enforcement: timing ledger, bounded bin packing and classification-drift diagnostics
-    reversalCondition: representative corpus proves static sharding is consistently superior
-
-  - id: OPT-TEST-005
-    class: permanent-invariant
-    ownerTarget: Evidence-action-contract
-    statement: no test or Gate result is reused before an exact Action Key, input closure, environment and invalidation contract exist
-    rationale: caching an incorrectly keyed result makes errors faster
-    enforcement: Action Key validator and corruption/staleness tests
-    reversalCondition: none
-
-  - id: OPT-TEST-006
-    class: evidence-gated-default
-    ownerTarget: verification-execution-planner
-    statement: an exact test action already passed in a closure is not executed again in that closure
-    rationale: affected then full execution currently duplicates work
-    enforcement: result composition and execution-dedup tests
-    reversalCondition: a required independence property is identified and represented as a distinct Action Key
-
-  - id: OPT-TEST-007
-    class: evidence-gated-default
-    ownerTarget: local-check-planner
-    statement: docs doctor, typecheck and other broad checks run in advisory mode only when their owned inputs are impacted
-    rationale: unconditional broad checks inflate small-change feedback
-    enforcement: ownership rules and Full backstop calibration
-    reversalCondition: false-negative rate or measured overhead makes unconditional execution preferable
-
-  - id: OPT-TEST-008
-    class: evidence-gated-default
-    ownerTarget: Git-hook-policy
-    statement: pre-commit may repair the index; pre-push is check-only and never creates a second commit cycle
-    rationale: push-time mutation causes push -> new index -> recommit -> repush loops
-    enforcement: hook contract tests
-    reversalCondition: a transactional push protocol can publish the repaired candidate without ambiguity
-
-  - id: OPT-TEST-009
-    class: permanent-invariant
-    ownerTarget: verification-resource-contract
-    statement: process, workspace, port, browser, filesystem and cleanup ownership are part of Result truth
-    rationale: test assertions passing while resources remain unsettled is not success
-    enforcement: hermetic resource receipts and fault tests
-    reversalCondition: none
-
-  - id: OPT-DEV-001
-    class: evidence-gated-default
-    ownerTarget: development-governance
-    statement: authoring is mutable; a frozen candidate is produced once for exact Review and hosted Evidence
-    rationale: reviewing a continuously changing Draft invalidates Review, digest, Scope and Gate evidence repeatedly
-    enforcement: candidate epoch and freeze transition
-    reversalCondition: incremental Review/Evidence composition proves exact unaffected nodes can survive head changes
-
-  - id: OPT-DEV-002
-    class: permanent-invariant
-    ownerTarget: candidate-closure-contract
-    statement: Candidate Closure orchestrates existing owners and cannot redefine Impact, Review or PASS
-    rationale: a convenience orchestrator must not become a second truth system
-    enforcement: typed references and ownership tests
-    reversalCondition: none
-
-  - id: OPT-DEV-003
-    class: evidence-gated-default
-    ownerTarget: candidate-closure-service
-    statement: normal candidate dispatch, review, merge, readback and cleanup are repository services; local CLI is fallback
-    rationale: local polling and post-merge manual settlement dominate end-to-end latency and recovery cost
-    enforcement: read-only reconciler before mutation, permission checks and receipts
-    reversalCondition: measured service cost or security risk exceeds operator workflow with no reliability gain
-
-  - id: OPT-DEV-004
-    class: permanent-invariant
-    ownerTarget: docs/roadmap.md
-    statement: optional infrastructure cannot starve the self-observation -> Impact -> governed Mutation product slice
-    rationale: infrastructure without a current consumer creates complexity without user value
-    enforcement: DAG prerequisites and product-starvation guard
-    reversalCondition: new P0/P1 integrity counterexample directly blocks the slice
-
-  - id: OPT-DEV-005
-    class: permanent-invariant
-    ownerTarget: development-state-registry
-    statement: work selection, Task Capsule, Change Closure, candidate/failure, Verification, Evidence/Run, Integration and Mutation have separate owners
-    rationale: bundled state machines create circular authority and giant migrations
-    enforcement: one-owner DAG nodes and transition contracts
-    reversalCondition: none
-
-  - id: OPT-DEV-006
-    class: evidence-gated-default
-    ownerTarget: development-feedback-service
-    statement: persistent watch state may accelerate feedback but clean execution remains the authoritative oracle
-    rationale: avoids repeated process and graph cold starts without making daemon memory truth
-    enforcement: warm/clean parity, restart and corruption tests
-    reversalCondition: measurements show no meaningful benefit or unacceptable memory/resource cost
-
-  - id: OPT-DOC-001
-    class: permanent-invariant
-    ownerTarget: docs/authority.json
-    statement: each stable concept has one canonical document or machine owner
-    rationale: duplicate prose creates contradictory design and update fan-out
-    enforcement: document ownership registry and duplicate-owner tests
-    reversalCondition: none
-
-  - id: OPT-DOC-002
-    class: permanent-invariant
-    ownerTarget: documentation-governance
-    statement: exact fields and algorithms live in code contracts; mutable state in machine registries; measurements in Evidence; unresolved decisions in Issues; history in archive
-    rationale: stable prose must not duplicate volatile or executable truth
-    enforcement: docs doctor classification rules
-    reversalCondition: none
-
-  - id: OPT-DOC-003
-    class: permanent-invariant
-    ownerTarget: documentation-governance
-    statement: no parallel active final architecture, final Skill system or final throughput design
-    rationale: multiple final documents make selection human-dependent and prevent retirement
-    enforcement: one active decision family and proposal disposition checks
-    reversalCondition: none
-
-  - id: OPT-DOC-004
-    class: permanent-invariant
-    ownerTarget: proposal-lifecycle-contract
-    statement: every proposal records canonicalTarget, activationTrigger, experimentalEvidence, rejectedReason/reversalCondition or retirementTarget
-    rationale: indefinite drafts are an unbounded design backlog and second architecture surface
-    enforcement: docs doctor proposal-lifecycle validation
-    reversalCondition: none
-
-  - id: OPT-DOC-005
-    class: evidence-gated-default
-    ownerTarget: docs/system-architecture.md
-    statement: architecture assembly is a generated/navigation projection with zero semantic ownership
-    rationale: system architecture already owns layering and authority flow; a second assembly owner would conflict
-    enforcement: owns-empty registry rule and generated-from references
-    reversalCondition: explicit atomic transfer of enumerated ownership from system architecture
-
-  - id: OPT-DOC-006
-    class: permanent-invariant
-    ownerTarget: documentation-governance
-    statement: future design is recorded as invariant, owner, trigger, proof obligation, migration and retirement—not speculative full implementation prose
-    rationale: detailed premature designs increase cognitive load and become stale before a consumer exists
-    enforcement: proposal template and scope review
-    reversalCondition: a near-term formal Work Package requires the detailed contract
-
-  - id: OPT-DOC-007
-    class: evidence-gated-default
-    ownerTarget: documentation-governance
-    statement: each adopted decision deletes, archives or marks superseded its parallel active expression during migration closeout
-    rationale: adding a new canonical document without retiring old text increases rather than reduces complexity
-    enforcement: migration receipt and active-text census
-    reversalCondition: temporary compatibility window with named consumer and expiry
-
-  - id: OPT-OPTIMALITY-001
-    class: permanent-invariant
-    ownerTarget: architecture-decision-process
-    statement: global optimum or final cannot be claimed without baseline metrics, representative workloads, alternatives, safety checks and repeated real Work Packages
-    rationale: conceptual coherence is not empirical optimality
-    enforcement: terminology and completion-gate review
-    reversalCondition: none
-
-  - id: OPT-OPTIMALITY-002
-    class: evidence-gated-default
-    ownerTarget: issue-232
-    statement: the current artifact is named Converged Architecture Baseline V1, not Final Optimal Design
-    rationale: open counterexamples and unmeasured performance remain
-    enforcement: document titles and status vocabulary
-    reversalCondition: OPT-OPTIMALITY-001 completion evidence exists
-
-  - id: OPT-OPTIMALITY-003
-    class: experiment
-    ownerTarget: performance-evidence-program
-    statement: determine optimal feedback, test scheduling, caching and candidate closure through measured workload competition
-    rationale: current repository has historical samples but no current comprehensive p50/p95 baseline
-    enforcement: timing schema, corpus and comparative report
-    reversalCondition: experiment completed and decisions migrated to evidence-gated defaults
-
-rejectedDesigns:
-  - universal-ir-or-graph
-  - one-revision-for-all-domains
-  - central-kernel-owning-domain-state
-  - compatibility-equals-support
-  - candidate-self-proof
-  - cache-equals-evidence
-  - canonical-crdt-auto-merge
-  - skill-prose-as-state-machine-or-permission
-  - host-or-toolchain-implies-target
-  - unsupported-or-unknown-equals-pass
-  - giant-cross-domain-implementation-pr
-  - indefinite-active-proposal
-  - parallel-final-designs
+nextMigrationOrder:
+  - complete-formal-verification-candidate
+  - close-verification-truth-gaps
+  - start-real-sec-self-observation-slice
+  - migrate-converged-decisions-by-domain-owner
+  - retire-superseded-proposals
