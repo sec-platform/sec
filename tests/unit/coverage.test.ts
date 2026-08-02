@@ -31,12 +31,17 @@ function runtime(passed: string[]): RuntimeVerificationLaneReport {
     status: acceptancePassed ? 'passed' : 'failed',
     build: { status: 'skipped', passed: [], failed: [], command: null },
     unit: { status: 'skipped', passed: [], failed: [], command: null },
-    acceptance: { status: acceptancePassed ? 'passed' : 'failed', passed, failed: acceptancePassed ? [] : passed, command: 'bun run test:acceptance' },
+    acceptance: {
+      status: acceptancePassed ? 'passed' : 'failed',
+      passed,
+      failed: acceptancePassed ? [] : passed,
+      command: 'bun run test:acceptance'
+    },
     logs: emptyVerificationLogs()
   };
 }
 
-test('acceptance coverage honors covers and dependsOn declarations', async () => {
+test('acceptance coverage honors covers and dependsOn declarations without synthesizing passes', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const registryRoot = path.join(workspaceRoot, 'registry');
     await fs.mkdir(path.join(registryRoot, 'source.block'), { recursive: true });
@@ -46,9 +51,7 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
       manifest('source/block', [
         {
           id: 'source_smoke',
-          covers: {
-            blocks: ['source/block']
-          }
+          covers: { blocks: ['source/block'] }
         },
         {
           id: 'cross_block_flow',
@@ -69,23 +72,17 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
         {
           id: 'cycle_a',
           dependsOn: ['cycle_b'],
-          covers: {
-            blocks: ['target/block']
-          }
+          covers: { blocks: ['target/block'] }
         },
         {
           id: 'cycle_b',
           dependsOn: ['cycle_a'],
-          covers: {
-            blocks: ['target/block']
-          }
+          covers: { blocks: ['target/block'] }
         },
         {
           id: 'source_smoke',
           dependsOn: ['missing_duplicate_dependency'],
-          covers: {
-            blocks: ['target/block']
-          }
+          covers: { blocks: ['target/block'] }
         }
       ])
     );
@@ -137,10 +134,7 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
           kind: 'adapter',
           status: 'filled',
           writableZones: ['custom/target_slot.ts'],
-          provenanceHints: {
-            generator: 'test',
-            verifiedBy: []
-          }
+          provenanceHints: { generator: 'test', verifiedBy: [] }
         }
       ],
       generatedPaths: [],
@@ -165,9 +159,20 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
       }
     };
 
-    const missingDependencyCoverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime(['cross_block_flow']));
+    const missingDependencyCoverage = await buildAcceptanceCoverage(
+      workspaceRoot,
+      lock,
+      runtime(['cross_block_flow'])
+    );
     expect(missingDependencyCoverage.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow', 'cycle_a', 'cycle_b', 'source_smoke', 'target_declared_only'],
+      declaredAcceptance: [
+        'chained_cross_block_flow',
+        'cross_block_flow',
+        'cycle_a',
+        'cycle_b',
+        'source_smoke',
+        'target_declared_only'
+      ],
       coveredBy: [],
       uncovered: true
     });
@@ -187,46 +192,64 @@ test('acceptance coverage honors covers and dependsOn declarations', async () =>
       uncovered: true
     });
 
-    const cyclicDependencyCoverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime(['cycle_a', 'cycle_b']));
+    const cyclicDependencyCoverage = await buildAcceptanceCoverage(
+      workspaceRoot,
+      lock,
+      runtime(['cycle_a', 'cycle_b'])
+    );
     expect(cyclicDependencyCoverage.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
       coveredBy: ['cycle_a', 'cycle_b'],
       uncovered: false
     });
 
-    const covered = await buildAcceptanceCoverage(workspaceRoot, lock, runtime(['unknown_flow', 'cross_block_flow', 'source_smoke', 'source_smoke']));
-    expect(covered.acceptancePassed).toHaveLength(2);
+    const covered = await buildAcceptanceCoverage(
+      workspaceRoot,
+      lock,
+      runtime(['unknown_flow', 'cross_block_flow', 'source_smoke', 'source_smoke'])
+    );
+    expect(covered.acceptancePassed).toEqual(['cross_block_flow', 'source_smoke']);
     expect(covered.blocks.find((entry) => entry.id === 'source/block')).toMatchObject({
       declaredAcceptance: ['source_smoke'],
       coveredBy: ['source_smoke'],
       uncovered: false
     });
     expect(covered.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow', 'cycle_a', 'cycle_b', 'source_smoke', 'target_declared_only'],
       coveredBy: ['cross_block_flow'],
       uncovered: false
     });
     expect(covered.slots.find((entry) => entry.id === 'target_slot')).toMatchObject({
-      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow'],
       coveredBy: ['cross_block_flow'],
       uncovered: false
     });
     expect(covered.uncoveredBlocks).toHaveLength(0);
     expect(covered.uncoveredSlots).toHaveLength(0);
 
-    // When acceptance has no test files, coverage falls back to the declared
-    // acceptance chain: all targets on the dependency chain are considered covered.
     const noAcceptanceFilesRuntime: RuntimeVerificationLaneReport = {
       status: 'passed',
       build: { status: 'passed', passed: ['next build'], failed: [], command: 'bun run build' },
-      unit: { status: 'passed', passed: ['tests/runtime/unit/example.test.ts'], failed: [], command: 'bun run test:unit' },
-      acceptance: { status: 'passed', passed: [], failed: [], command: 'bun run test:acceptance' },
+      unit: {
+        status: 'passed',
+        passed: ['tests/runtime/unit/example.test.ts'],
+        failed: [],
+        command: 'bun run test:unit'
+      },
+      acceptance: {
+        status: 'passed',
+        passed: [],
+        failed: [],
+        command: 'bun run test:acceptance'
+      },
       logs: emptyVerificationLogs()
     };
-    const fallback = await buildAcceptanceCoverage(workspaceRoot, lock, noAcceptanceFilesRuntime);
-    expect(fallback.acceptancePassed).toHaveLength(6);
-    expect(fallback.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      coveredBy: ['chained_cross_block_flow', 'cross_block_flow', 'cycle_a', 'cycle_b', 'target_declared_only'],
-      uncovered: false
-    });
+    const emptyObservation = await buildAcceptanceCoverage(
+      workspaceRoot,
+      lock,
+      noAcceptanceFilesRuntime
+    );
+    expect(emptyObservation.acceptancePassed).toEqual([]);
+    expect(emptyObservation.blocks.every((entry) => entry.uncovered)).toBe(true);
+    expect(emptyObservation.slots.every((entry) => entry.uncovered)).toBe(true);
+    expect(emptyObservation.uncoveredBlocks).toEqual(['source/block', 'target/block']);
+    expect(emptyObservation.uncoveredSlots).toEqual(['target_slot']);
   });
 });

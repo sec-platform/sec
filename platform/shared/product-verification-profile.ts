@@ -40,12 +40,6 @@ export const PRODUCT_VERIFICATION_GATE_IDS = Object.freeze([
   PRODUCT_POLICY_GATE_ID
 ] as const);
 
-export const PRODUCT_VERIFICATION_CLAIM_IDS = Object.freeze([
-  PRODUCT_FAST_CLAIM_ID,
-  PRODUCT_POLICY_CLAIM_ID,
-  PRODUCT_RUNTIME_CLAIM_ID
-] as const);
-
 export type ProductVerificationRuntimeMode = 'service' | 'full';
 
 function productEnvironment(): VerificationGateEnvironmentV1 {
@@ -119,7 +113,10 @@ function buildMappedGate(
   });
 }
 
-function buildInvalidFullRuntimeGate(diagnostic: string): VerificationGateResultV1 {
+function buildUnresolvedRuntimeGate(
+  diagnostic: string,
+  invalidationRule: string
+): VerificationGateResultV1 {
   return CodexDevelopmentBuildVerificationGateResultV1({
     gateId: PRODUCT_RUNTIME_GATE_ID,
     gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
@@ -136,7 +133,7 @@ function buildInvalidFullRuntimeGate(diagnostic: string): VerificationGateResult
     environment: null,
     execution: null,
     evidenceRefs: [],
-    invalidationRules: ['runtime-step-shape-change'],
+    invalidationRules: [invalidationRule],
     diagnostic
   });
 }
@@ -178,18 +175,27 @@ export function buildExpectedProductRuntimeGate(
       execution: null,
       evidenceRefs: [],
       invalidationRules: [],
-      diagnostic: 'Service-mode runtime passed without acceptance execution.'
+      diagnostic: 'Service-mode runtime does not own full runtime acceptance proof.'
     });
   }
 
-  if (runtimeMode === 'full' && runtime.status === 'passed' && (
-    runtime.build.status !== 'passed'
-    || runtime.unit.status !== 'passed'
-    || runtime.acceptance.status !== 'passed'
-  )) {
-    return buildInvalidFullRuntimeGate(
-      'Full runtime status passed while one or more required runtime steps were not passed.'
-    );
+  if (runtimeMode === 'full' && runtime.status === 'passed') {
+    if (
+      runtime.build.status !== 'passed'
+      || runtime.unit.status !== 'passed'
+      || runtime.acceptance.status !== 'passed'
+    ) {
+      return buildUnresolvedRuntimeGate(
+        'Full runtime status passed while one or more required runtime steps were not passed.',
+        'runtime-step-shape-change'
+      );
+    }
+    if (runtime.unit.passed.length === 0 || runtime.acceptance.passed.length === 0) {
+      return buildUnresolvedRuntimeGate(
+        'Runtime verification cannot pass without explicit unit and acceptance applicability or executed files.',
+        'runtime-test-inventory-or-applicability-change'
+      );
+    }
   }
 
   return buildMappedGate(
@@ -261,7 +267,8 @@ export function inferProductVerificationRuntimeMode(
 }
 
 export function productVerificationClaimDefinitions(
-  lane: VerificationLane
+  lane: VerificationLane,
+  policyReport: PolicyReport
 ): VerificationClaimDefinitionV1[] {
   const owningEnvironments = [`${process.platform}-${process.arch}`];
   const claims: VerificationClaimDefinitionV1[] = [];
@@ -271,11 +278,13 @@ export function productVerificationClaimDefinitions(
       requiredGateIds: [PRODUCT_FAST_GATE_ID],
       owningEnvironments
     });
-    claims.push({
-      claimId: PRODUCT_POLICY_CLAIM_ID,
-      requiredGateIds: [PRODUCT_POLICY_GATE_ID],
-      owningEnvironments
-    });
+    if (policyReport.status !== 'skipped') {
+      claims.push({
+        claimId: PRODUCT_POLICY_CLAIM_ID,
+        requiredGateIds: [PRODUCT_POLICY_GATE_ID],
+        owningEnvironments
+      });
+    }
   }
   if (lane === 'runtime' || lane === 'all') {
     claims.push({
@@ -300,7 +309,50 @@ export function buildExpectedProductVerificationClaimSummary(
     buildExpectedProductPolicyGate(policyReport)
   ];
   const overall = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: productVerificationClaimDefinitions(lane),
+    claims: productVerificationClaimDefinitions(lane, policyReport),
+    gateResults: gates
+  });
+  return { overall, gates };
+}
+
+export function buildBlockedProductVerificationClaimSummary(
+  lane: VerificationLane
+): VerificationClaimSummary {
+  const buildBlockedGate = (gateId: string, claimId: string): VerificationGateResultV1 =>
+    CodexDevelopmentBuildVerificationGateResultV1({
+      gateId,
+      gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
+      owner: PRODUCT_VERIFICATION_OWNER,
+      requirementKey: PRODUCT_VERIFICATION_REQUIREMENT_KEY,
+      subjectRevision: PRODUCT_VERIFICATION_SUBJECT_REVISION,
+      inputDigest: PRODUCT_VERIFICATION_INPUT_DIGEST,
+      applicability: 'required',
+      status: 'not-run',
+      disposition: 'not-executed',
+      reasonCode: 'fail-fast-prerequisite-failed',
+      requiredForClaims: [claimId],
+      supportedClaims: [],
+      environment: null,
+      execution: null,
+      evidenceRefs: [],
+      invalidationRules: [],
+      diagnostic: 'Verification blocked by prerequisite drift failure.'
+    });
+
+  const gates = [
+    buildBlockedGate(PRODUCT_FAST_GATE_ID, PRODUCT_FAST_CLAIM_ID),
+    buildBlockedGate(PRODUCT_RUNTIME_GATE_ID, PRODUCT_RUNTIME_CLAIM_ID),
+    buildBlockedGate(PRODUCT_POLICY_GATE_ID, PRODUCT_POLICY_CLAIM_ID)
+  ];
+  const blockedPolicy: PolicyReport = {
+    status: 'passed',
+    official: { policies: ['blocked-policy'], sources: [], violations: [] },
+    project: { policies: [], sources: [], violations: [] },
+    merged: { policies: [] },
+    violations: []
+  };
+  const overall = CodexDevelopmentAggregateVerificationClaimsV1({
+    claims: productVerificationClaimDefinitions(lane, blockedPolicy),
     gateResults: gates
   });
   return { overall, gates };

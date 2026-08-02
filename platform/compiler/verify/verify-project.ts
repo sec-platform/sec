@@ -12,37 +12,27 @@ import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
 import { emitPipelineExecutionBoundary } from '../../shared/pipeline-journal.ts';
 import type { PipelineEventHandler, PipelineExecutionBoundary } from '../../shared/pipeline-types.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
+import {
+  buildBlockedProductVerificationClaimSummary,
+  buildExpectedProductVerificationClaimSummary
+} from '../../shared/product-verification-profile.ts';
 import { checkProjectBeforeVerify } from '../../shared/project-integrity.ts';
 import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
 import type { CanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
-import {
-  CodexDevelopmentAggregateVerificationClaimsV1,
-  CodexDevelopmentBuildVerificationGateResultV1,
-  mapProductVerificationStatus,
-  type ProductVerificationMappingContext,
-  type VerificationApplicability,
-  type VerificationClaimDefinitionV1,
-  type VerificationGateEnvironmentV1,
-  type VerificationGateExecutionV1,
-  type VerificationGateResultV1,
-  type VerificationReasonCode,
-  type VerificationResultStatus
-} from '../../shared/verification-result-contract.ts';
 import type {
   FastVerificationLaneReport,
   RuntimeVerificationLaneReport,
   VerificationClaimSummary,
   VerificationLane,
-  VerificationReport,
-  VerificationStatus
+  VerificationReport
 } from '../../shared/verification-types.ts';
 import {
   assertIsolatedStagingTree,
   type IsolatedStagingTreeOptions
 } from './assert-isolated-staging-tree.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
-import { buildPolicyClaimGate, runPolicyGate } from './run-policy-gate.ts';
-import { buildRuntimeClaimGate, createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
+import { runPolicyGate } from './run-policy-gate.ts';
+import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
 import {
   consumeStagedVerificationProof,
   revalidateStagedVerificationProof,
@@ -55,105 +45,6 @@ interface SuiteModule {
   runSuite?: () => Promise<void> | void;
 }
 
-// ---------------------------------------------------------------------------
-// Claim-based verification summary helpers (Issue #176 Slice 2 migration)
-// ---------------------------------------------------------------------------
-
-const PRODUCT_GATE_REVISION = 'product-verification-v1';
-const PRODUCT_GATE_OWNER = 'product-verify-project';
-const PRODUCT_GATE_REQUIREMENT_KEY = 'product-verification';
-const PRODUCT_SUBJECT_REVISION = '0000000000000000000000000000000000000000';
-const PRODUCT_INPUT_DIGEST = `sha256:${'0'.repeat(64)}`;
-const PRODUCT_OUTPUT_DIGEST = `sha256:${'0'.repeat(64)}`;
-const PRODUCT_OWNING_ENVIRONMENTS = [`${process.platform}-${process.arch}`];
-
-const FAST_GATE_ID = 'product-fast-lane';
-const RUNTIME_GATE_ID = 'product-runtime-lane';
-const POLICY_GATE_ID = 'product-policy-gate';
-const FAST_CLAIM_ID = 'product-fast-verification';
-const RUNTIME_CLAIM_ID = 'product-runtime-verification';
-const POLICY_CLAIM_ID = 'product-policy-verification';
-
-function productEnvironment(): VerificationGateEnvironmentV1 {
-  return {
-    runtime: 'bun',
-    os: process.platform,
-    arch: process.arch,
-    filesystem: null,
-    capabilities: [],
-    toolchainRevision: 'ci-verification-v19',
-    providerRevisions: []
-  };
-}
-
-function productExecution(exitCode: number): VerificationGateExecutionV1 {
-  return {
-    argv: [],
-    startedAt: '1970-01-01T00:00:00.000Z',
-    finishedAt: '1970-01-01T00:00:00.000Z',
-    durationMs: 0,
-    exitCode,
-    outputDigest: PRODUCT_OUTPUT_DIGEST,
-    failureFingerprint: exitCode === 0 ? null : 'product-failure'
-  };
-}
-
-function applicabilityForMapping(
-  status: VerificationResultStatus,
-  reasonCode: VerificationReasonCode
-): VerificationApplicability {
-  if (reasonCode === 'not-applicable') return 'not-applicable';
-  if (status === 'invalidated') return 'unresolved';
-  return 'required';
-}
-
-function buildProductGateResult(
-  gateId: string,
-  legacyStatus: VerificationStatus,
-  context: ProductVerificationMappingContext,
-  claims: string[]
-): VerificationGateResultV1 {
-  const mapping = mapProductVerificationStatus(legacyStatus, context);
-  const isExecuted = mapping.disposition === 'executed';
-  return CodexDevelopmentBuildVerificationGateResultV1({
-    gateId,
-    gateRevision: PRODUCT_GATE_REVISION,
-    owner: PRODUCT_GATE_OWNER,
-    requirementKey: PRODUCT_GATE_REQUIREMENT_KEY,
-    subjectRevision: PRODUCT_SUBJECT_REVISION,
-    inputDigest: PRODUCT_INPUT_DIGEST,
-    applicability: applicabilityForMapping(mapping.status, mapping.reasonCode),
-    status: mapping.status,
-    disposition: mapping.disposition,
-    reasonCode: mapping.reasonCode,
-    requiredForClaims: claims,
-    supportedClaims: mapping.status === 'passed' ? claims : [],
-    environment: isExecuted ? productEnvironment() : null,
-    execution: isExecuted ? productExecution(mapping.status === 'failed' ? 1 : 0) : null,
-    evidenceRefs: [],
-    invalidationRules: [],
-    diagnostic: null
-  });
-}
-
-function buildFastGateResult(
-  fast: FastVerificationLaneReport,
-  requestedLane: VerificationLane
-): VerificationGateResultV1 {
-  const claims = [FAST_CLAIM_ID];
-  const context: ProductVerificationMappingContext = {
-    requestedLane,
-    lane: 'fast'
-  };
-  return buildProductGateResult(FAST_GATE_ID, fast.status, context, claims);
-}
-
-/**
- * Build the claim-based verification summary by aggregating lane-level gate
- * results through `CodexDevelopmentAggregateVerificationClaimsV1`. Overall
- * `passed` requires every required claim to be `passed`; skipped lanes no
- * longer silently produce overall `passed`.
- */
 export function buildClaimSummary(
   lane: VerificationLane,
   fast: FastVerificationLaneReport,
@@ -161,95 +52,17 @@ export function buildClaimSummary(
   runtimeMode: 'service' | 'full',
   policyReport: PolicyReport
 ): VerificationClaimSummary {
-  const fastGate = buildFastGateResult(fast, lane);
-  const runtimeGate = buildRuntimeClaimGate(runtime, lane, runtimeMode, fast.status === 'failed');
-  const policyGate = buildPolicyClaimGate(policyReport, lane);
-  const gates: VerificationGateResultV1[] = [fastGate, runtimeGate, policyGate];
-
-  const claims: VerificationClaimDefinitionV1[] = [];
-  if (lane === 'fast' || lane === 'all') {
-    claims.push({
-      claimId: FAST_CLAIM_ID,
-      requiredGateIds: [FAST_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-    claims.push({
-      claimId: POLICY_CLAIM_ID,
-      requiredGateIds: [POLICY_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-  }
-  if (lane === 'runtime' || lane === 'all') {
-    claims.push({
-      claimId: RUNTIME_CLAIM_ID,
-      requiredGateIds: [RUNTIME_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-  }
-
-  const overall = CodexDevelopmentAggregateVerificationClaimsV1({ claims, gateResults: gates });
-  return { overall, gates };
+  return buildExpectedProductVerificationClaimSummary(
+    lane,
+    fast,
+    runtime,
+    runtimeMode,
+    policyReport
+  );
 }
 
-/**
- * Build a claim summary for a blocked verification snapshot (drift failure).
- * All gates are not-run with fail-fast-prerequisite-failed; the overall is
- * not-run (mapped to legacy `failed`), never silently passed.
- */
 export function buildBlockedClaimSummary(lane: VerificationLane): VerificationClaimSummary {
-  const failedReasonCode: VerificationReasonCode = 'fail-fast-prerequisite-failed';
-
-  function buildBlockedGate(gateId: string, claimId: string): VerificationGateResultV1 {
-    return CodexDevelopmentBuildVerificationGateResultV1({
-      gateId,
-      gateRevision: PRODUCT_GATE_REVISION,
-      owner: PRODUCT_GATE_OWNER,
-      requirementKey: PRODUCT_GATE_REQUIREMENT_KEY,
-      subjectRevision: PRODUCT_SUBJECT_REVISION,
-      inputDigest: PRODUCT_INPUT_DIGEST,
-      applicability: 'required',
-      status: 'not-run',
-      disposition: 'not-executed',
-      reasonCode: failedReasonCode,
-      requiredForClaims: [claimId],
-      supportedClaims: [],
-      environment: null,
-      execution: null,
-      evidenceRefs: [],
-      invalidationRules: [],
-      diagnostic: 'Verification blocked by prerequisite drift failure.'
-    });
-  }
-
-  const gates: VerificationGateResultV1[] = [
-    buildBlockedGate(FAST_GATE_ID, FAST_CLAIM_ID),
-    buildBlockedGate(RUNTIME_GATE_ID, RUNTIME_CLAIM_ID),
-    buildBlockedGate(POLICY_GATE_ID, POLICY_CLAIM_ID)
-  ];
-
-  const claims: VerificationClaimDefinitionV1[] = [];
-  if (lane === 'fast' || lane === 'all') {
-    claims.push({
-      claimId: FAST_CLAIM_ID,
-      requiredGateIds: [FAST_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-    claims.push({
-      claimId: POLICY_CLAIM_ID,
-      requiredGateIds: [POLICY_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-  }
-  if (lane === 'runtime' || lane === 'all') {
-    claims.push({
-      claimId: RUNTIME_CLAIM_ID,
-      requiredGateIds: [RUNTIME_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-  }
-
-  const overall = CodexDevelopmentAggregateVerificationClaimsV1({ claims, gateResults: gates });
-  return { overall, gates };
+  return buildBlockedProductVerificationClaimSummary(lane);
 }
 
 export interface VerifyProjectOptions {
@@ -438,10 +251,6 @@ function summarizeReport(
   policyReport: PolicyReport
 ): VerificationReport['summary'] {
   const claimSummary = buildClaimSummary(lane, fast, runtime, runtimeMode, policyReport);
-  // Legacy `status` derives from the unified overall status: only `passed`
-  // maps to `passed`; every other unified status (failed/not-run/unsupported/
-  // invalidated) maps to `failed` so the legacy contract never reports green
-  // when the claim aggregator did not pass.
   const status: 'passed' | 'failed' = claimSummary.overall.overallStatus === 'passed'
     ? 'passed'
     : 'failed';
@@ -596,13 +405,13 @@ export async function verifyProject(
   if (shouldRunRuntime) {
     await emitVerifyBoundary(options, 'verify-runtime');
     runtimeLane = await runRuntimeVerification(projectRoot, runtimeMode, {
-        beforeCommit: options.beforeCommit,
-        emitTiming: options.emitTiming,
-        isolated: options.isolated,
-        signal: options.signal,
-        stagingTreeOptions: options.stagingTreeOptions,
-        ...(options.isolated ? { stagingWorkspaceRoot: workspaceRoot } : {})
-      });
+      beforeCommit: options.beforeCommit,
+      emitTiming: options.emitTiming,
+      isolated: options.isolated,
+      signal: options.signal,
+      stagingTreeOptions: options.stagingTreeOptions,
+      ...(options.isolated ? { stagingWorkspaceRoot: workspaceRoot } : {})
+    });
   } else {
     runtimeLane = createSkippedRuntimeLane();
   }
