@@ -47,6 +47,10 @@ type WorktreeStatusFacts = Readonly<{
 const ExternalCommandTimeoutMs = 30_000;
 const ExternalCommandMaxBufferBytes = 8 * 1024 * 1024;
 const ConflictStatusPairs = new Set(['AA', 'AU', 'DD', 'DU', 'UA', 'UD', 'UU']);
+const TrustedCurrentStatePath = 'docs/work/current-state.yaml';
+const TrustedDefaultRef = 'refs/remotes/origin/main';
+const TrustedRemote = 'origin';
+const TrustedRepository = 'sec-platform/sec';
 
 function assertRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -94,6 +98,46 @@ function readGitBlob(cwd: string, spec: string): Buffer | undefined {
     }
   });
   return result.status === 0 ? result.stdout : undefined;
+}
+
+function decodeTrustedText(bytes: Buffer, label: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error(`${label} is not canonical UTF-8 text.`);
+  }
+}
+
+function canonicalGitHubRepositoryFromRemote(value: string): string | null {
+  const scp = /^git@github\.com:([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+?)(?:\.git)?$/u.exec(value);
+  if (scp) return scp[1];
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (
+    parsed.protocol !== 'https:'
+    || parsed.hostname !== 'github.com'
+    || parsed.port !== ''
+    || parsed.username !== ''
+    || parsed.password !== ''
+    || parsed.search !== ''
+    || parsed.hash !== ''
+  ) return null;
+  const repository = parsed.pathname.replace(/^\//u, '').replace(/\.git$/u, '');
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository) ? repository : null;
+}
+
+function assertTrustedRemoteIdentity(cwd: string, remote: string, repository: string): void {
+  const remoteUrl = requireCommand(
+    run('git', ['remote', 'get-url', remote], cwd),
+    'Git remote identity resolution'
+  );
+  if (canonicalGitHubRepositoryFromRemote(remoteUrl) !== repository) {
+    throw new Error('Git remote does not match the trusted canonical repository identity.');
+  }
 }
 
 function parseJsonArray(source: string, label: string): unknown[] {
@@ -152,14 +196,29 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
     run('git', ['rev-parse', '--show-toplevel'], cwd),
     'git repository discovery'
   );
-  const statePath = path.join(repositoryRoot, 'docs/work/current-state.yaml');
+  assertTrustedRemoteIdentity(repositoryRoot, TrustedRemote, TrustedRepository);
+
+  const trustedStateBytes = readGitBlob(
+    repositoryRoot,
+    `${TrustedDefaultRef}:${TrustedCurrentStatePath}`
+  );
+  if (!trustedStateBytes) {
+    throw new Error('Trusted default-ref current-state authority is unavailable.');
+  }
+  const spec = CodexDevelopmentParseCurrentStateSpecV1(
+    decodeTrustedText(trustedStateBytes, 'Trusted current-state authority')
+  );
+  if (
+    spec.resolver.repository !== TrustedRepository
+    || spec.resolver.remote !== TrustedRemote
+    || spec.resolver.defaultBranch !== 'main'
+    || spec.resolver.defaultRef !== TrustedDefaultRef
+  ) {
+    throw new Error('Trusted current-state authority does not match the bootstrap identity.');
+  }
+
   const pointerPath = path.join(repositoryRoot, 'docs/work/active-work-package.md');
-  const [stateSource, pointerSource] = await Promise.all([
-    readFile(statePath, 'utf8'),
-    readFile(pointerPath, 'utf8')
-  ]);
-  const spec = CodexDevelopmentParseCurrentStateSpecV1(stateSource);
-  const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
+  const pointer = CodexDevelopmentParseActivePointerV2(await readFile(pointerPath, 'utf8'));
   CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer });
 
   const localDefaultShaResult = run('git', ['rev-parse', '--verify', spec.resolver.defaultRef], repositoryRoot);
@@ -278,7 +337,7 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
   return {
     schema: 'sec-resolved-current-state-v2',
     observedAt: new Date().toISOString(),
-    source: 'docs/work/current-state.yaml',
+    source: `${TrustedDefaultRef}:${TrustedCurrentStatePath}`,
     repository: {
       fullName: spec.resolver.repository,
       defaultBranch: spec.resolver.defaultBranch,
