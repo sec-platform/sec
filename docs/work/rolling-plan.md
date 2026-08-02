@@ -2,123 +2,72 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-02
 ---
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@597b42fedeb4ee0994b4c56c48f378562766d28b`、已合并 PR #196（active documentation corpus）、PR #199（test runtime performance）、PR #200（parallel work package contract）、PR #201（CI speed optimization）、PR #202（dev-loop-speed-v1）、PR #203（dev-loop-speed-v2）、PR #204（verification-result-core-v1）、PR #210（ci-verification-flow-fix-v1）、PR #211（verification-result-claim-migration-v1）、PR #213（exact-default-base-identity-v1）、PR #214（work-readme-conditional-state-clarification-v1）、PR #218（canonical-text-bytes-phase-a-v1）、已关闭 Issue #173、开放 Issues #167/#175–#194/#205–#212/#216/#217、Review/CI 与 exact tree 重新计算。
+本窗口从 live resolver 已确认的 `main@6cc3bf8a3b655bebf85dfca3f065c9842207c086`、已合并 PR #196（active documentation corpus）、PR #199–#204、PR #210–#214、PR #218、PR #220、开放 PR #227、开放 integrity Issues #215/#216/#217 与当前 Review/CI 重新计算。
 
-Active documentation corpus、test runtime performance、parallel work package contract、CI speed optimization、dev-loop-speed-v1、dev-loop-speed-v2、verification-result-core-v1、ci-verification-flow-fix-v1 与 verification-result-claim-migration-v1 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`；CI 缓存、merge bootstrap CLI 与 gate API 已优化；check:fast gate 并行化、docs:doctor 增量模式、preload marker 门控、动态并发与 bounded-parallel 队列已落地；冷启动 stamp 短路、测试基础设施硬链接克隆与跨进程 test-impact 缓存、编译器管线共享 ts-morph Project 与并行 I/O、affected-tests reverse-import-map 已落地；sec-merge-bootstrap squash 已修复 single-parent invariant；统一验证结果模型 5 态/3 disposition/4 applicability/17 reasonCode/claim-based aggregate 已建立；CI PR validation 冗余 `git fetch` 已移除；`commandAll` 自动 squash 在 attestation/verification dispatch 之前执行；产品 verification summary 已迁移至 claim-based aggregation，`skipped` 不再静默产生 `passed`。
+`main` 已具备 active documentation authority、统一 Verification Result vocabulary、claim-based product summary、affected-selection fail-closed、content-identity Test Impact cache、canonical text bytes、exact default-base repository audit、merge bootstrap、bounded-parallel fast feedback 与 V3 parallel Work Package 骨架。它们是已经进入主干的实现，不等于完整 Verification Truth、正式多包并行、自动选择、Evidence DAG、Brownfield 或 SEC-TS MVP 已完成。
 
-当前 `exact-default-base-identity-v1`（Issue #212）待激活：修复 shallow CI 中 `refs/remotes/origin/main` 缺失导致 repository audit 报 `default ref unavailable` 阻断所有后续 hosted verification 的根因。建立 Repository Audit Default-Base Identity Contract：hosted 使用 trusted exact base SHA，local 使用 live remote ref，不恢复无凭据 fetch。
+稳定横切顺序继续保持：
 
 ```text
-Active Documentation Corpus
-→ Parallel Work Package Contract V1
-→ Verification Truth / Hermetic Runtime / Worktree Hygiene / Dependency Boundary / Incremental Compiler
-→ Semantic Test Impact / (Failure Epoch → Trusted Bootstrap → Evidence DAG)
-→ Automatic Feedback / Property-Fault-Flake
-→ Runtime Host / Target / Provider / Release Matrix
+Verification Result Truth
+→ Semantic Test Impact
+→ Failure Epoch → Trusted Bootstrap → Evidence DAG
+→ Automatic Feedback / Persistent Resume
 ```
 
-普通进度只进入 Reconciliation Delta；仅新 Work Package、真实 `reload_if` 与最终 reconciliation 更新本文件。
+产品主线继续由 `docs/roadmap.md` 拥有；横切治理不能无限替代 Self-Observation、Source Ownership、Impact 与 Controlled Mutation 的真实纵切片。
 
 ## 当前唯一 Work Package
 
-### affected-selection-trust-boundary-v1
+### verification-artifact-claim-summary-v1
 
-- Issue #206 已通过 PR #220 squash merge 到 `main@782c07a`。manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer 后归档。
-- 工程结果：根除 affected-selection 空选择假绿与陈旧 Test Impact 缓存。建立 `AffectedSelectionTrustBoundary`（7 种边界）并投影到 `VerificationGateResultV1`；持久 cache 改用 `TestImpactCacheEnvelope` + `sourceDigest` 身份；`readTestImportSpecifiers` 失败返回 `unresolved` 信号；`sourceChanged=true && selectedFastTests=[] && fallback off` fail-closed；10 条端到端契约测试 + 单元测试覆盖。
-- 下一步：#207 (resolver correctness, V1→V3 activation migration, Integration Epoch) 待激活。
+- Tracking：Issue #217；Draft PR #227；base `main@6cc3bf8a3b655bebf85dfca3f065c9842207c086`。
+- 根因：PR #211 的 current writer 与 `VerificationReport` 已产生 `summary.claimSummary`，旧 artifact validator 仍只接受 legacy summary；第一版候选又只逐字段检查 aggregate，可能接受 `overallStatus: passed` 但内部 claim 已失败的矛盾 Evidence。
+- 当前闭包：同时修复合法 current-writer report 被误拒绝和矛盾 claim aggregate 被错误接受；复用 canonical gate validator，校验 status/reason、状态格、唯一 claim/gate identity、contributing gate 引用及 claim/gate 支撑关系。
+- 控制面：`affected-selection-trust-boundary-v1` 从 live manifests 原子归档；pointer、rolling plan 与 manifest digest 必须一致。
+- 退出：focused regression、existing semantic-mutation adapter regression、typecheck、docs doctor、repository audit、exact-head hosted Quick 与独立 Review 全部通过；全部 review threads 解决；single-parent exact candidate 合并并从新 `main` readback；随后关闭 #217。
 
-## 已完成 Work Package
+## 已完成并在本次接管中归档
 
-### canonical-text-bytes-phase-a-v1 (PR #218)
+### affected-selection-trust-boundary-v1（Issue #206 / PR #220）
 
-- 已合并至 `main@597b42f`；manifest 已归档至 `docs/archive/work-packages/`。
-- 工程结果：Issue #209 Phase A — 建立 Canonical Text Byte Contract 与 Line-Ending environment settlement：`.gitattributes` 唯一 policy 覆盖 SEC 自有文本（scripts/ts/js/json/yaml/md/workflow/config = text eol=lf）与二进制（image/font/archive/database = -text）；`.editorconfig` + `.prettierrc.json` 投影 LF；text-byte-census 工具按 .gitattributes 分类（canonical-lf/explicit-crlf/binary/preserve-external/unknown）并检测 CRLF/mixed/BOM/NUL/unknown-encoding，unknown fail-closed；worktree-settlement 非破坏性 preflight 输出 receipt，支持 `--fix` 重物化 governed text；CLI 注册 `sec text census` 与 `sec environment settle`；32 + 14 个测试覆盖。
+- source 变化且选择闭包为空/未知时 fail-closed，不再 exit 0。
+- Test Impact V1 cache 使用 source digest 与 parser/contract/schema envelope；read/stat/parse failure 不能静默减少闭包。
+- 本 Work Package 接管后，旧 manifest 从 `docs/work-packages/` 移至 `docs/archive/work-packages/`。
+- Issue #206 的最终关闭还需以新主干 readback确认其完成定义与控制面收口均成立。
 
+## #227 合并后的严格顺序
 
+### 1. #215 Verification Claim Aggregate Correctness
 
-### work-readme-conditional-state-clarification-v1 (PR #214)
+优先级：integrity-critical。
 
-- 已合并至 `main@80b7fb9`；manifest 已归档至 `docs/archive/work-packages/`。
-- 工程结果：归档 `exact-default-base-identity-v1` manifest，激活新 pointer，并在 `docs/work/README.md` 中明确 conditional manifest state 与 trusted exact base 语义；首个 hosted verification 真实通过（quick profile SUCCESS），证明 PR #213 trust-root 修复生效。
+必须闭合 owning environment、order-independent status lattice、not-applicable 与 runtime no-test truth。它决定现有 Verification 是否能作为后续 Impact、Evidence、并行和产品 Mutation 的可信基础。
 
-### exact-default-base-identity-v1 (PR #213)
+### 2. #216 Release Verification Credential Closure
 
-- 已合并至 `main@28b62b7`；manifest 已归档至 `docs/archive/work-packages/`。
-- 工程结果：Issue #212 — 为 repository audit 建立显式 `--default-ref <exact-commit-or-ref>` 输入合同；hosted 路径传入 trusted exact base SHA（复用 `SEC_CHANGED_BASE`）；local 路径使用 live `refs/remotes/origin/main`；不恢复无凭据 fetch；`persist-credentials: false` 不变；6 个回归测试覆盖所有关键场景。
+移除 release workflow 中与 `persist-credentials: false` 冲突的 raw `git fetch`，并以真实 single-parent release head 跑通 end-to-end release verification；contract test 不能替代物理 workflow。
 
-### verification-result-claim-migration-v1 (PR #211)
+### 3. #207 Parallel Resolver Correctness V1.1
 
-- 已合并至 `main@c38d249`；manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer 后归档。
-- 工程结果：Issue #176 Slice 2 — 将产品 verification summary 迁移至 `CodexDevelopmentAggregateVerificationClaimsV1` claim-based aggregation；`summarizeReport` 不再允许 `skipped` 静默产生 `passed`；policy `skipped` 显式 `not-applicable`；service-mode `passed` 映射为 `not-run` + `current-runner-not-owning-environment`；`writeBlockedVerificationSnapshot` 发出 not-run claims；11 个回归测试覆盖所有关键场景。
+修正 `requires`、`orderedAfter`、`conflictsWith`、cycle/missing-target、global writer 与 Integration Epoch。完成前只允许并行只读研究，不授权多个正式写入 Work Package。
 
-### ci-verification-flow-fix-v1 (PR #210)
+### 4. 一个产品自举纵切片
 
-- 已合并至 `main@c13a229`；manifest 已归档至 `docs/archive/work-packages/`。
-- 工程结果：移除 `compiler-pr-validation.yml` 冗余 `git fetch` 步骤（与 `persist-credentials: false` 冲突导致自 PR #200 起所有 hosted 验证失败）；重排 `sec-merge-bootstrap.ts commandAll` 使 `ensureSingleParent` 在 attestation/verification dispatch 之前执行（消除手动 squash workaround）；`persist-credentials: false` 安全不变量不变；ordering 不变量有测试守护。
+在不存在新的 P0/P1 integrity blocker 时，必须恢复产品线：让 SEC 对自身一个受控子系统完成 Responsibility/Source Binding 观察、Impact、Controlled Mutation、actual Delta、Verification 与 rollback/accepted 闭环。不得继续以新的元治理系统无限延迟产品结果。
 
-### verification-result-core-v1 (PR #204)
+## 全项目设计与文档统一状态
 
-- 已合并至 `main@46f92e4`；manifest 已归档至 `docs/archive/work-packages/`。
-- 工程结果：Issue #176 Slice 1 建立 5 态统一验证结果模型（passed/failed/not-run/unsupported/invalidated）、3 disposition（executed/reused/not-executed）、4 applicability、17 reasonCode、`VerificationGateResultV1` schema、claim-based 6 步 aggregate 算法、legacy mapping helpers（product/CI V2/semantic-mutation/evidence-disposition → 统一模型，lossy 暴露为 unresolved/invalidated）；10 个回归场景覆盖；同时修复 main 分支 documentation-authority 与 testkit-workspace-cleanup 测试 drift。
-
-### dev-loop-speed-v2 (PR #203)
-
-- 已合并至 `main@abc277e`；manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer 后归档。
-- 工程结果：5 个 Slice 系统性消除剩余高影响瓶颈——冷启动消除（stamp 短路、移除 reenter、git 调用合并、inline ConfigCache for TCB compliance）；测试基础设施加固（硬链接克隆、指数退避清理、preload 移除扫描、test-impact 跨进程缓存）；编译器管线并行化（共享 ts-morph Project、manifestCache 激活、Promise.all 并行 I/O、prettier config 单次解析）；check:fast 阶段并行化（docs:doctor || typecheck、per-namespace lease）；affected-tests 优化（reverse-import-map、复用 selection）。同时修复 sec-merge-bootstrap squash 的 single-parent invariant bug（`git commit --amend` → `git commit -F`，parent === base）。
-
-### dev-loop-speed-v1 (PR #202)
-
-- 已合并至 `main@7b46604`；manifest 已归档至 `docs/archive/work-packages/`。
-- 工程结果：动态并发（os.availableParallelism）；resource-class-aware bounded-parallel 队列替代串行 exclusive；check:fast gate 并行化（imports:prepare || docs:doctor → typecheck → test:fast）；docs:doctor 增量模式（--since git-ref）；tsc cache key 改为内容 hash；architecture-tools 改用 ubuntu runner；preload stale cleanup marker-file 门控。
-
-### ci-speed-optimization-v1 (PR #201)
-
-- 已合并至 `main@7589886`；manifest blob 已在 default branch 上，pointer 返回 `none`；manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer 后归档。
-- 工程结果：为所有 CI 工作流添加 bun install cache 和 tsc incremental build info cache；为 merge-gate push 触发器添加 paths filter；创建 sec-merge-bootstrap.ts CLI 工具自动化合并流程；优化 merge-gate API 调用去重；同步 ci-contract.ts STEP_ORDER 常量；修复 rolling-plan.md 的 PR #199 replay provenance regression。
-
-### parallel-work-package-contract-v1 (PR #200)
-
-- 已合并至 `main@e2c079c`；manifest 已归档至 `docs/archive/work-packages/`。
-- 工程结果：为 Work Package manifest 创建 V3 schema（codex-development-work-package-v3）parser/types/validator，包含 authority reads/writes、owned/permitted/forbidden paths、global exclusive resources、shared read-only resources、requires/orderedAfter/conflictsWith；实现 pairwise conflict resolver（7 步冲突算法）和 global exclusive resource registry（8 类全局单 writer）；V1/V2 输入返回 unresolved；默认仍单包。
-
-### test-runtime-performance-v1 (PR #199)
-
-- 已合并至 `main@e857ca5`；manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer 后归档。
-- 工程结果：移除 `cloneWorkspaceTemplate` 中冗余的 template creation lock；`afterAll` 清理从串行改为 bounded-concurrency 并行；修复 `.shared-deps/` 的 `bun install` 创建 `bun.lock` 的合同违反。
-
-### active-documentation-corpus-v1 (PR #196)
-
-- 已合并至 `main@95baca1`；Issue #173 已关闭；manifest 已归档至 `docs/archive/work-packages/`。
-
-## 候选 Work Package
-
-### 1. hermetic-test-runtime-phase-a
-
-- 工程结果：fixture/resource 分类、workspace/port/process/browser/environment allocation、cleanup/readback receipt 与 Windows/Unix physical owner。
-- 依赖：active documentation corpus 已进入 main；portable lease 已满足；与其他包并行需 parallel contract 进入 main。
-- 退出：identity-bound/control-state不普通复制，失败/取消后无隐式进程或下一轮残留。
-
-### 2. worktree-hygiene-v1
-
-- 工程结果：Git registry、物理目录、dirty/untracked/ignored、Windows reparse 与最终 receipt 的唯一 cleanup owner。
-- 依赖：active documentation corpus 后的 development-governance authority。
-- 退出：Git注销但物理残留不再被误报为完成；无法证明安全删除时fail closed。
-
-### 3. dependency-boundary-first-cleanup-v1
-
-- 工程结果：建立Core/Host/Toolchain/Provider/Target依赖边界，删除已证明无用的小依赖；`package.json`与`bun.lock`保持唯一writer。
-- 依赖：Runtime/Library物理Census与Dependency Census提供证据；与其他正式包并行需 parallel contract 进入 main。
-- 退出：根公共加载图和发布面更小，Node-only/Bun-only/Browser/External依赖有明确Provider归属，不把未知依赖猜测删除。
-
-## 并行 Spike
-
-Runtime/Library physical matrix、dependency census、Impact census、Compiler Incremental Phase 0 benchmark与Hermetic/Property设计Census可继续在scratch/Issue Evidence中执行；不得修改产品分支、package/lock、docs/work或冒充正式结果。Compiler Incremental Phase 1在Phase 0 Evidence与parallel contract完成后由下一次rolling-plan重算选入。
+- `docs/authority.json` 与 canonical domain documents 已形成单一文档权威结构；README、Issue、PR body、proposal 和 spike 不得成为第二 authority。
+- 全项目最终设计尚未结束：#215/#216/#207 是已证实实现缺口；#222/#224 等仍是未迁移到 canonical authority 的架构候选；关闭的综合 Spike 只提供研究输入，不构成已采用设计。
+- 最终“大一统”不是把全部内容塞进一个巨型文档或巨型 PR，而是一个极小 federation kernel、一个 authority registry、一套 identity/revision/verification truth，以及按 domain 分治的唯一 owners。跨域总装只做索引、关系和完成状态，不复制各域算法。
+- 后续文档统一必须执行 census → owner 冲突消除 → canonical delta → proposal/archive retirement → docs doctor/repository audit → main readback；不得继续保留多份并列“最终设计”。
 
 ## 重算触发
 
-`main`、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership反证、实现 supersede、parallel conflict结果或全仓审计的新决定性 finding，都会触发 live resolver 与本窗口整体重算。
+`main`、PR merge/close/head/base、CI/Review blocker、Goal revision、authority/ownership反证、implementation supersede、parallel conflict结果、物理 platform Evidence或全仓审计的新决定性 finding，都会触发 live resolver 与本窗口整体重算。
