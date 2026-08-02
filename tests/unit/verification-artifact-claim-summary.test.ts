@@ -10,14 +10,33 @@ import {
 import {
   CodexDevelopmentAggregateVerificationClaimsV1,
   CodexDevelopmentBuildVerificationGateResultV1,
+  type VerificationClaimResultV1,
   type VerificationGateEnvironmentV1,
-  type VerificationGateResultV1
+  type VerificationGateResultV1,
+  type VerificationReasonCode,
+  type VerificationResultStatus
 } from '../../platform/shared/verification-result-contract.ts';
 
 const INPUT_REVISION = `sha256:${'1'.repeat(64)}`;
 const SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
 const INPUT_DIGEST = `sha256:${'3'.repeat(64)}`;
 const OUTPUT_DIGEST = `sha256:${'4'.repeat(64)}`;
+
+interface MutableClaimSummaryArtifactSet extends SemanticMutationIsolatedVerificationArtifactSet {
+  verificationReport: {
+    summary: {
+      status: 'passed' | 'failed';
+      claimSummary: {
+        overall: {
+          overallStatus: VerificationResultStatus;
+          overallReasonCode: VerificationReasonCode;
+          claimResults: VerificationClaimResultV1[];
+        };
+        gates: VerificationGateResultV1[];
+      };
+    };
+  };
+}
 
 function environment(): VerificationGateEnvironmentV1 {
   return {
@@ -175,6 +194,15 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
   };
 }
 
+function mutablePassedArtifact(): MutableClaimSummaryArtifactSet {
+  return structuredClone(artifactSet('passed')) as MutableClaimSummaryArtifactSet;
+}
+
+function expectBlocked(candidate: SemanticMutationIsolatedVerificationArtifactSet): void {
+  expect(isCanonicalVerificationArtifactSet(candidate)).toBe(false);
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
+}
+
 test('canonical artifact contract accepts claimSummary reports from current verification writer', () => {
   const passed = artifactSet('passed');
   const failed = artifactSet('failed');
@@ -186,26 +214,15 @@ test('canonical artifact contract accepts claimSummary reports from current veri
 });
 
 test('claimSummary overall status must agree with the legacy summary projection', () => {
-  const candidate = structuredClone(artifactSet('passed')) as SemanticMutationIsolatedVerificationArtifactSet & {
-    verificationReport: {
-      summary: {
-        status: 'passed' | 'failed';
-        claimSummary: {
-          overall: {
-            overallStatus: 'passed' | 'failed' | 'not-run' | 'unsupported' | 'invalidated';
-          };
-        };
-      };
-    };
-  };
+  const candidate = mutablePassedArtifact();
   candidate.verificationReport.summary.claimSummary.overall.overallStatus = 'invalidated';
+  candidate.verificationReport.summary.claimSummary.overall.overallReasonCode = 'selection-unresolved';
 
-  expect(isCanonicalVerificationArtifactSet(candidate)).toBe(false);
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
+  expectBlocked(candidate);
 });
 
 test('unknown claimSummary fields remain fail-closed', () => {
-  const candidate = structuredClone(artifactSet('passed')) as SemanticMutationIsolatedVerificationArtifactSet & {
+  const candidate = mutablePassedArtifact() as MutableClaimSummaryArtifactSet & {
     verificationReport: {
       summary: {
         claimSummary: Record<string, unknown>;
@@ -214,6 +231,57 @@ test('unknown claimSummary fields remain fail-closed', () => {
   };
   candidate.verificationReport.summary.claimSummary.forged = true;
 
-  expect(isCanonicalVerificationArtifactSet(candidate)).toBe(false);
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
+  expectBlocked(candidate);
+});
+
+test('overall passed cannot conceal a failed claim result', () => {
+  const candidate = mutablePassedArtifact();
+  const claim = candidate.verificationReport.summary.claimSummary.overall.claimResults[0]!;
+  claim.status = 'failed';
+  claim.reasonCode = 'executed-failure';
+  claim.coverageComplete = false;
+
+  expectBlocked(candidate);
+});
+
+test('claim status and reasonCode must remain consistent', () => {
+  const candidate = mutablePassedArtifact();
+  candidate.verificationReport.summary.claimSummary.overall.claimResults[0]!.reasonCode =
+    'executed-failure';
+
+  expectBlocked(candidate);
+});
+
+test('overall status follows the declared order-independent status lattice', () => {
+  const candidate = mutablePassedArtifact();
+  const claim = candidate.verificationReport.summary.claimSummary.overall.claimResults[0]!;
+  claim.status = 'invalidated';
+  claim.reasonCode = 'selection-unresolved';
+  claim.coverageComplete = false;
+  candidate.verificationReport.summary.claimSummary.overall.overallStatus = 'not-run';
+  candidate.verificationReport.summary.claimSummary.overall.overallReasonCode = 'not-dispatched';
+  candidate.verificationReport.summary.status = 'failed';
+
+  expectBlocked(candidate);
+});
+
+test('duplicate claim and gate identities remain fail-closed', () => {
+  const duplicateClaim = mutablePassedArtifact();
+  duplicateClaim.verificationReport.summary.claimSummary.overall.claimResults.push(
+    structuredClone(duplicateClaim.verificationReport.summary.claimSummary.overall.claimResults[0]!)
+  );
+  expectBlocked(duplicateClaim);
+
+  const duplicateGate = mutablePassedArtifact();
+  duplicateGate.verificationReport.summary.claimSummary.gates[1]!.gateId =
+    duplicateGate.verificationReport.summary.claimSummary.gates[0]!.gateId;
+  expectBlocked(duplicateGate);
+});
+
+test('contributing gate references must resolve to exact embedded gates', () => {
+  const candidate = mutablePassedArtifact();
+  candidate.verificationReport.summary.claimSummary.overall.claimResults[0]!
+    .contributingGateIds.push('forged-gate');
+
+  expectBlocked(candidate);
 });
