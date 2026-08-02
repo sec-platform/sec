@@ -38,6 +38,13 @@ const AGENT_GOVERNANCE_FAST_TESTS = [
   'tests/unit/local-gate-union.test.ts'
 ];
 
+const ENGINEERING_PRACTICE_INTAKE_FAST_TESTS = [
+  'tests/contract/agent-skills.test.ts',
+  'tests/contract/engineering-practice-corpus.test.ts',
+  'tests/contract/repository-audit.test.ts',
+  'tests/contract/test-impact.test.ts'
+];
+
 const FROZEN_WORK_PACKAGE_FAST_TESTS = [
   'tests/contract/agent-skills.test.ts',
   'tests/contract/ci-lanes.test.ts',
@@ -183,6 +190,18 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     ],
     sourcePrefixes: ['.agents/skills/', '.codex/agents/'],
     fast: AGENT_GOVERNANCE_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'engineering-practice-intake',
+    identity: { kind: 'contract', id: 'engineering-practice-intake' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'platform/shared/engineering-practice-catalog-contract.ts',
+      'platform/shared/engineering-practice-corpus-contract.ts'
+    ],
+    sourcePrefixes: ['docs/evidence/engineering-practices/'],
+    fast: ENGINEERING_PRACTICE_INTAKE_FAST_TESTS,
     slow: []
   },
   {

@@ -1,0 +1,12 @@
+{
+  "schema": "sec-engineering-practice-corpus-v1",
+  "authoritative": false,
+  "instructionAuthority": "none",
+  "adoptionPolicy": "canonical-owner-migration-required",
+  "observedAt": "2026-08-03",
+  "sourceCatalogPath": "docs/evidence/engineering-practices/sources-v1.json",
+  "practiceCatalogPaths": [
+    "docs/evidence/engineering-practices/practices-a-m-v1.json",
+    "docs/evidence/engineering-practices/practices-n-z-v1.json"
+  ]
+}
