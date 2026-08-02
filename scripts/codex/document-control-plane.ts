@@ -10,6 +10,7 @@ import {
   type CodexDevelopmentActiveWorkPackageResolution,
   type CodexDevelopmentDefaultRefState
 } from './document-control-plane-contract.ts';
+import { CodexDevelopmentProjectExternalGitHubFactsV1 } from './external-collaboration-input-contract.ts';
 
 export {
   CodexDevelopmentActivePointerSchemaV2,
@@ -35,8 +36,17 @@ type CommandResult = {
   stderr: string;
 };
 
+type WorktreeStatusFacts = Readonly<{
+  clean: boolean;
+  conflictedCount: number;
+  stagedCount: number;
+  unstagedCount: number;
+  untrackedCount: number;
+}>;
+
 const ExternalCommandTimeoutMs = 30_000;
 const ExternalCommandMaxBufferBytes = 8 * 1024 * 1024;
+const ConflictStatusPairs = new Set(['AA', 'AU', 'DD', 'DU', 'UA', 'UD', 'UU']);
 
 function assertRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -66,7 +76,7 @@ function run(command: string, args: string[], cwd: string): CommandResult {
 
 function requireCommand(result: CommandResult, label: string): string {
   if (result.code !== 0) {
-    throw new Error(`${label} failed: ${result.stderr.trim() || `exit ${result.code}`}`);
+    throw new Error(`${label} failed without exposing command output.`);
   }
   return result.stdout.trim();
 }
@@ -106,31 +116,35 @@ function parseReviewThreads(source: string): unknown[] {
     throw new Error('gh review-thread response nodes must be an array.');
   }
   assertRecord(connection.pageInfo, 'gh review-thread response.pageInfo');
-  if (connection.pageInfo.hasNextPage === true) {
+  if (connection.pageInfo.hasNextPage !== false) {
     throw new Error('gh review-thread response exceeded the bounded first page.');
   }
-  for (const pullRequest of connection.nodes) {
-    assertRecord(pullRequest, 'gh review-thread pull request');
-    assertRecord(pullRequest.reviewThreads, 'gh review-thread pull request.reviewThreads');
-    const reviewThreads = pullRequest.reviewThreads;
-    if (!Array.isArray(reviewThreads.nodes)) {
-      throw new Error('gh review-thread pull request nodes must be an array.');
-    }
-    assertRecord(reviewThreads.pageInfo, 'gh review-thread pull request.pageInfo');
-    if (
-      reviewThreads.pageInfo.hasNextPage === true
-      || reviewThreads.totalCount !== reviewThreads.nodes.length
-    ) {
-      throw new Error('gh review-thread pull request exceeded the bounded first page.');
-    }
-    for (const thread of reviewThreads.nodes) {
-      assertRecord(thread, 'gh review thread');
-      if (typeof thread.isResolved !== 'boolean') {
-        throw new Error('gh review thread.isResolved must be a boolean.');
-      }
-    }
-  }
   return connection.nodes;
+}
+
+function projectWorktreeStatus(source: string): WorktreeStatusFacts {
+  let conflictedCount = 0;
+  let stagedCount = 0;
+  let unstagedCount = 0;
+  let untrackedCount = 0;
+  for (const line of source.split(/\r?\n/gu)) {
+    if (line.length === 0 || line.startsWith('## ')) continue;
+    const status = line.slice(0, 2);
+    if (status === '??') {
+      untrackedCount += 1;
+      continue;
+    }
+    if (ConflictStatusPairs.has(status)) conflictedCount += 1;
+    if (status[0] !== ' ' && status[0] !== '?') stagedCount += 1;
+    if (status[1] !== ' ' && status[1] !== '?') unstagedCount += 1;
+  }
+  return Object.freeze({
+    clean: conflictedCount + stagedCount + unstagedCount + untrackedCount === 0,
+    conflictedCount,
+    stagedCount,
+    unstagedCount,
+    untrackedCount
+  });
 }
 
 async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unknown>> {
@@ -190,20 +204,17 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
     run('git', ['rev-parse', 'HEAD'], repositoryRoot),
     'candidate head resolution'
   );
-  const branch = requireCommand(
-    run('git', ['branch', '--show-current'], repositoryRoot),
-    'candidate branch resolution'
-  ) || '(detached)';
   const mergeBase = defaultRefState === 'fresh'
     ? requireCommand(
         run('git', ['merge-base', spec.resolver.defaultRef, 'HEAD'], repositoryRoot),
         'candidate merge-base resolution'
       )
     : undefined;
-  const worktreeStatus = requireCommand(
+  const worktreeStatus = projectWorktreeStatus(requireCommand(
     run('git', ['status', '--short', '--branch'], repositoryRoot),
     'worktree status'
-  );
+  ));
+
   const pullRequestsResult = run('gh', [
     'pr',
     'list',
@@ -214,7 +225,7 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
     '--limit',
     '100',
     '--json',
-    'number,title,isDraft,headRefOid,baseRefOid,mergeStateStatus,reviewDecision,reviewRequests,latestReviews,reviews,comments,statusCheckRollup'
+    'number,isDraft,headRefOid,baseRefOid,mergeStateStatus,reviewDecision,reviewRequests,statusCheckRollup'
   ], repositoryRoot);
   const issuesResult = run('gh', [
     'issue',
@@ -226,7 +237,7 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
     '--limit',
     '100',
     '--json',
-    'number,title'
+    'number'
   ], repositoryRoot);
   const [repositoryOwner, repositoryName] = spec.resolver.repository.split('/');
   const reviewThreadsResult = repositoryOwner && repositoryName
@@ -240,36 +251,32 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
         '-F',
         `name=${repositoryName}`
       ], repositoryRoot)
-    : { code: 1, stdout: '', stderr: 'repository must be owner/name' };
+    : { code: 1, stdout: '', stderr: '' };
   const githubState = (
     pullRequestsResult.code === 0
     && issuesResult.code === 0
     && reviewThreadsResult.code === 0
   )
-    ? (() => {
-        const openPullRequests = parseJsonArray(pullRequestsResult.stdout, 'gh pr list');
-        const openIssues = parseJsonArray(issuesResult.stdout, 'gh issue list');
-        if (openPullRequests.length >= 100 || openIssues.length >= 100) {
-          throw new Error('GitHub PR/Issue facts reached the bounded query limit.');
-        }
-        return {
-          status: 'resolved',
-          openPullRequests,
-          openIssues,
+    ? {
+        status: 'resolved',
+        ...CodexDevelopmentProjectExternalGitHubFactsV1({
+          pullRequests: parseJsonArray(pullRequestsResult.stdout, 'gh pr list'),
+          issues: parseJsonArray(issuesResult.stdout, 'gh issue list'),
           reviewThreads: parseReviewThreads(reviewThreadsResult.stdout)
-        };
-      })()
+        })
+      }
     : {
         status: 'unresolved',
-        reason: [
-          pullRequestsResult.code === 0 ? undefined : pullRequestsResult.stderr.trim(),
-          issuesResult.code === 0 ? undefined : issuesResult.stderr.trim(),
-          reviewThreadsResult.code === 0 ? undefined : reviewThreadsResult.stderr.trim()
-        ].filter(Boolean).join(' | ')
+        reason: 'github-control-facts-unresolved',
+        failedSources: [
+          pullRequestsResult.code === 0 ? undefined : 'pull-requests',
+          issuesResult.code === 0 ? undefined : 'issues',
+          reviewThreadsResult.code === 0 ? undefined : 'review-threads'
+        ].filter((value): value is string => value !== undefined)
       };
 
   return {
-    schema: 'sec-resolved-current-state-v1',
+    schema: 'sec-resolved-current-state-v2',
     observedAt: new Date().toISOString(),
     source: 'docs/work/current-state.yaml',
     repository: {
@@ -282,7 +289,6 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
     },
     workspace: {
       headSha,
-      branch,
       mergeBase,
       status: worktreeStatus
     },
