@@ -179,6 +179,8 @@ test('the live resolver requests only metadata and binds control authority to ca
   expect(source).toContain('projectWorktreeStatus');
   expect(source).not.toContain("run('git', ['branch', '--show-current']");
   expect(source).not.toContain("const statePath = path.join(repositoryRoot, 'docs/work/current-state.yaml')");
+  expect(source).not.toContain("readFile(statePath, 'utf8')");
+  expect(source).not.toContain("source: 'docs/work/current-state.yaml'");
   for (const forbidden of [
     'number,title',
     'latestReviews',
