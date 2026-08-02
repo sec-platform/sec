@@ -1,5 +1,5 @@
 {
-  "schema": "sec-document-authority-registry-v1",
+  "schema": "sec-document-authority-registry-v2",
   "documents": [
     {
       "id": "root-readme",
@@ -555,6 +555,18 @@
       "projects": [
         "system-architecture"
       ],
+      "proposal": {
+        "disposition": "adapt",
+        "canonicalTargets": [
+          "brownfield",
+          "roadmap",
+          "system-architecture"
+        ],
+        "activationTrigger": "real-workspace-domain-consumer-and-focused-owner-contract",
+        "retirementTarget": "docs/archive/proposals/engineering-workspace-domains.md",
+        "evidenceRequirement": "domain-identity-validator-query-mutation-and-consumer-migration",
+        "reversalCondition": null
+      },
       "audience": [
         "developer"
       ],
@@ -576,6 +588,17 @@
       "projects": [
         "development-governance"
       ],
+      "proposal": {
+        "disposition": "adapt",
+        "canonicalTargets": [
+          "development-governance",
+          "verification-governance"
+        ],
+        "activationTrigger": "candidate-closure-or-run-journal-focused-work-package",
+        "retirementTarget": "docs/archive/proposals/development-run-kernel.md",
+        "evidenceRequirement": "historical-run-replay-state-owner-separation-and-consumer-cutover",
+        "reversalCondition": null
+      },
       "audience": [
         "developer"
       ],
