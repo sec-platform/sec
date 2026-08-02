@@ -27,6 +27,7 @@ const AGENT_GOVERNANCE_FAST_TESTS = [
   'tests/contract/docs-doctor-ledgers.test.ts',
   'tests/contract/docs-doctor.test.ts',
   'tests/contract/external-collaboration-input-boundary.test.ts',
+  'tests/contract/instruction-provenance-boundary.test.ts',
   'tests/contract/repository-audit.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/active-documentation-contract.test.ts',
@@ -172,6 +173,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'platform/shared/agent-skill-contract.ts',
       'scripts/codex/document-control-plane.ts',
       'scripts/codex/external-collaboration-input-contract.ts',
+      'scripts/codex/instruction-provenance-contract.ts',
       'scripts/codex/repository-audit.ts',
       'scripts/discover-all.ts'
     ],
