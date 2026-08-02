@@ -11,6 +11,7 @@ import {
 const SOURCE_DIGEST = `sha256:${'a'.repeat(64)}`;
 const EVIDENCE_DIGEST = `sha256:${'b'.repeat(64)}`;
 const DEFAULT_HEAD = '1111111111111111111111111111111111111111';
+const REPOSITORY_ID = 1216913442;
 
 function adoptionRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -35,6 +36,15 @@ function adoptionRecord(overrides: Record<string, unknown> = {}): Record<string,
   };
 }
 
+function trustedRepository(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    defaultHead: DEFAULT_HEAD,
+    fullName: 'sec-platform/sec',
+    id: REPOSITORY_ID,
+    ...overrides
+  };
+}
+
 function authorizationObservation(
   record: SecMaintainerAdoptionRecordV1,
   overrides: Record<string, unknown> = {}
@@ -47,7 +57,7 @@ function authorizationObservation(
     observedAt: '2026-08-03T00:01:00Z',
     permission: 'admin',
     repository: 'sec-platform/sec',
-    repositoryId: 1216913442,
+    repositoryId: REPOSITORY_ID,
     schema: 'sec-maintainer-authorization-observation-v1',
     source: 'trusted-github-collaborator-permission-api',
     userId: 107861762,
@@ -55,11 +65,12 @@ function authorizationObservation(
   };
 }
 
-test('only a record bound to trusted live maintainer permission can issue instructions', () => {
+test('only a record bound to trusted live maintainer permission and current head can issue instructions', () => {
   const record = CodexDevelopmentAssertMaintainerAdoptionRecordV1(adoptionRecord());
   const authorized = CodexDevelopmentAuthorizeMaintainerAdoptionRecordV1({
     record,
-    authorization: authorizationObservation(record)
+    authorization: authorizationObservation(record),
+    repository: trustedRepository()
   });
 
   expect(record.provenance).toBe('maintainer-intent');
@@ -67,6 +78,7 @@ test('only a record bound to trusted live maintainer permission can issue instru
   expect(authorized.authorization.adoptionRecordDigest).toBe(
     CodexDevelopmentMaintainerAdoptionRecordDigestV1(record)
   );
+  expect(authorized.repository.defaultHead).toBe(DEFAULT_HEAD);
   expect(CodexDevelopmentAdoptionRecordCanIssueInstructionsV1(authorized)).toBe(true);
   expect(JSON.stringify(authorized)).not.toContain('sourceBody');
   expect(JSON.stringify(authorized)).not.toContain('quote');
@@ -93,21 +105,30 @@ test('external text, prompt fields, and invalid claimed authorization fail close
   }))).toThrow('maintain or admin');
 });
 
-test('forged, stale-shaped, or cross-record authorization cannot activate a record', () => {
+test('forged, stale, cross-repository, or cross-record authorization cannot activate a record', () => {
   const record = CodexDevelopmentAssertMaintainerAdoptionRecordV1(adoptionRecord());
 
   for (const [overrides, expected] of [
     [{ login: 'attacker' }, 'does not match'],
     [{ permission: 'maintain' }, 'does not match'],
-    [{ repository: 'attacker/fork' }, 'repository does not match'],
+    [{ repository: 'attacker/fork' }, 'trusted repository identity'],
+    [{ repositoryId: REPOSITORY_ID + 1 }, 'trusted repository identity'],
+    [{ defaultHead: '2222222222222222222222222222222222222222' }, 'stale'],
     [{ adoptionRecordDigest: `sha256:${'c'.repeat(64)}` }, 'different adoption record'],
     [{ source: 'candidate-file-claim' }, 'source is not trusted']
   ] as const) {
     expect(() => CodexDevelopmentAuthorizeMaintainerAdoptionRecordV1({
       record,
-      authorization: authorizationObservation(record, overrides)
+      authorization: authorizationObservation(record, overrides),
+      repository: trustedRepository()
     })).toThrow(expected);
   }
+
+  expect(() => CodexDevelopmentAuthorizeMaintainerAdoptionRecordV1({
+    record,
+    authorization: authorizationObservation(record),
+    repository: trustedRepository({ defaultHead: '3333333333333333333333333333333333333333' })
+  })).toThrow('stale');
 });
 
 test('reject and defer remain non-authoritative after valid maintainer authorization', () => {
@@ -123,7 +144,8 @@ test('reject and defer remain non-authoritative after valid maintainer authoriza
     }));
     const authorized = CodexDevelopmentAuthorizeMaintainerAdoptionRecordV1({
       record,
-      authorization: authorizationObservation(record)
+      authorization: authorizationObservation(record),
+      repository: trustedRepository()
     });
     expect(CodexDevelopmentAdoptionRecordCanIssueInstructionsV1(authorized)).toBe(false);
   }
