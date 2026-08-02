@@ -244,7 +244,7 @@ test('overall passed cannot conceal a failed claim result', () => {
   expectBlocked(candidate);
 });
 
-test('claim status and reasonCode must remain consistent', () => {
+test('claim status and reasonCode must remain consistent with canonical aggregation', () => {
   const candidate = mutablePassedArtifact();
   candidate.verificationReport.summary.claimSummary.overall.claimResults[0]!.reasonCode =
     'executed-failure';
@@ -252,7 +252,7 @@ test('claim status and reasonCode must remain consistent', () => {
   expectBlocked(candidate);
 });
 
-test('overall status follows the declared order-independent status lattice', () => {
+test('serialized overall result must match canonical aggregate recomputation', () => {
   const candidate = mutablePassedArtifact();
   const claim = candidate.verificationReport.summary.claimSummary.overall.claimResults[0]!;
   claim.status = 'invalidated';
@@ -282,6 +282,22 @@ test('contributing gate references must resolve to exact embedded gates', () => 
   const candidate = mutablePassedArtifact();
   candidate.verificationReport.summary.claimSummary.overall.claimResults[0]!
     .contributingGateIds.push('forged-gate');
+
+  expectBlocked(candidate);
+});
+
+test('empty claim and gate sets cannot manufacture a passed aggregate', () => {
+  const candidate = mutablePassedArtifact();
+  candidate.verificationReport.summary.claimSummary.overall.claimResults = [];
+  candidate.verificationReport.summary.claimSummary.gates = [];
+
+  expectBlocked(candidate);
+});
+
+test('every required gate binding must appear in the claim contribution set', () => {
+  const candidate = mutablePassedArtifact();
+  candidate.verificationReport.summary.claimSummary.overall.claimResults[0]!
+    .contributingGateIds.pop();
 
   expectBlocked(candidate);
 });
