@@ -7,7 +7,7 @@ last-reviewed: 2026-08-02
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@6cc3bf8a3b655bebf85dfca3f065c9842207c086`、已合并 PR #196（active documentation corpus）、PR #199–#204、PR #210–#214、PR #218、PR #220、开放 PR #227、开放 integrity Issues #215/#216/#217、Canonical Architecture Convergence Program #232 与当前 Review/CI 重新计算。
+本窗口从 live resolver 已确认的 `main@6cc3bf8a3b655bebf85dfca3f065c9842207c086`、已合并 PR #196（active documentation corpus）、PR #199–#204、PR #210–#214、PR #218、PR #220、开放 PR #227、开放 integrity Issues #215/#216/#217、非权威规划输入 Issue #232 与当前 Review/CI 重新计算。
 
 `main` 已具备 active documentation authority、统一 Verification Result vocabulary、claim-based product summary、affected-selection fail-closed、content-identity Test Impact cache、canonical text bytes、exact default-base repository audit、merge bootstrap、bounded-parallel fast feedback 与 V3 parallel Work Package 骨架。它们是已经进入主干的实现，不等于完整 Verification Truth、正式多包并行、自动选择、Evidence DAG、Brownfield 或 SEC-TS MVP 已完成。
 
@@ -27,8 +27,8 @@ Verification Result Truth
 ### verification-artifact-claim-summary-v1
 
 - Tracking：Issue #217；Draft PR #227；base `main@6cc3bf8a3b655bebf85dfca3f065c9842207c086`。
-- 根因：PR #211 的 current writer 与 `VerificationReport` 已产生 `summary.claimSummary`，旧 artifact validator 仍只接受 legacy summary；第一版候选又只逐字段检查 aggregate，可能接受 `overallStatus: passed` 但内部 claim 已失败的矛盾 Evidence。
-- 当前闭包：同时修复合法 current-writer report 被误拒绝和矛盾 claim aggregate 被错误接受；从嵌入 gate 重建 claims，复用唯一 canonical aggregate，拒绝重复、空、未知、不完整或矛盾的 claim/gate 关系。
+- 根因：PR #211 的 current writer 与 `VerificationReport` 已产生 `summary.claimSummary`，旧 artifact validator 仍只接受 legacy summary；第一版候选又允许 artifact 自行声明 gate/claim inventory，可能删除整个 required gate/claim、清空 `supportedClaims` 或制造 lane/gate 矛盾后仍通过。
+- 当前闭包：建立唯一外部 `product-verification-profile`，固定 current-writer 的 gate/claim identity、完整 inventory、lane→gate 投影与 claim definitions；artifact validator 从 fast/runtime/policy reports 独立重建预期 claim summary，并拒绝缺失、重复、未知、不支持、矛盾或伪造的 gate/claim Evidence。
 - 控制面：`affected-selection-trust-boundary-v1` 从 live manifests 原子归档；pointer、rolling plan 与 manifest digest 必须一致。
 - 退出：focused regression、existing semantic-mutation adapter regression、typecheck、docs doctor、repository audit、exact-head hosted Quick 与独立 Review 全部通过；全部 review threads 解决；single-parent exact candidate 合并并从新 `main` readback；随后关闭 #217。
 
@@ -63,12 +63,11 @@ Verification Result Truth
 
 ## 全项目设计与文档统一状态
 
-- `docs/authority.json` 与 canonical domain documents 已形成单一文档权威结构；README、Issue、PR body、proposal 和 spike 不得成为第二 authority。
-- 全项目最终设计尚未结束：#215/#216/#207 是已证实实现缺口；#222/#224 等仍是未迁移到 canonical authority 的架构候选；关闭的综合 Spike 只提供研究输入，不构成已采用设计。
-- #232 是唯一 Canonical Architecture Convergence owner：负责把 #226/#229/#231/#222/#224 与全部 canonical domains 逐项裁决为 adopted/adapted/rejected/deferred/experimental，迁入唯一 owner 并退役并列“最终设计”。
-- 最终“大一统”不是把全部内容塞进一个巨型文档或巨型 PR，而是一个极小 Model Federation Kernel、一个 authority registry、一套 shared identity/revision/assertion/contract/effect/condition/compatibility/support-claim primitives，以及按 domain 分治的唯一 owners。跨域 Assembly 只拥有关系和设计裁决，不复制各域算法。
-- #232 Phase A 可只读并行；正式 canonical authority 写入必须在 current integrity blockers 收口后由 latest main 激活，且不得延迟产品自举纵切片。
-- 后续文档统一必须执行 census → owner 冲突消除 → canonical delta → proposal/archive retirement → docs doctor/repository audit → main readback；不得继续保留多份并列“最终设计”。
+- `docs/authority.json` 与 canonical domain documents 是当前唯一文档权威；README、Issue、PR body、proposal、spike 与 `docs/work/**` 不得取得跨域 canonical ownership。
+- 全项目最终设计尚未结束：#215/#216/#207 是已证实实现缺口；#222/#224 等仍是等待对应 canonical owner 裁决和迁移的规划输入；关闭的综合 Spike 只提供研究 Evidence，不构成已采用设计。
+- Issue #232 与 PR #233 只可作为非权威 convergence record：它可以记录候选、冲突、迁移目标与退役条件，但不能拥有 Verification、Compiler、Mutation、Roadmap、Development 或其他 canonical domain semantics。
+- 任何正式迁移必须由 `docs/authority.json` 中现有 owner，或经 registry 原子授权的新聚焦 owner，从 latest `main` 逐域执行；禁止在 rolling plan 中授予一个 Issue 全域裁决权。
+- 后续文档统一执行 registry census → duplicate/overlap diagnosis → existing-owner delta → consumer migration → proposal/archive retirement → docs doctor/repository audit → main readback；不得继续保留多份并列“最终设计”，也不得把全部内容塞入一个巨型文档或巨型 PR。
 
 ## 重算触发
 
