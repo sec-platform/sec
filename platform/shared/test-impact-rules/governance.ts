@@ -26,6 +26,7 @@ const AGENT_GOVERNANCE_FAST_TESTS = [
   'tests/contract/discover-all.test.ts',
   'tests/contract/docs-doctor-ledgers.test.ts',
   'tests/contract/docs-doctor.test.ts',
+  'tests/contract/external-collaboration-input-boundary.test.ts',
   'tests/contract/repository-audit.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/active-documentation-contract.test.ts',
@@ -162,8 +163,6 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     autoReferenceMode: 'declared-only',
     sourceFiles: [
       'AGENTS.md',
-      '.codex/agents/implementation-worker.toml',
-      '.codex/agents/verification-evidence-reviewer.toml',
       'docs/authority.json',
       'docs/scripts/docs-doctor.ts',
       'docs/scripts/docs-doctor-ledgers.ts',
@@ -171,10 +170,12 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'platform/shared/active-documentation-contract.ts',
       'platform/shared/documentation-authority-contract.ts',
       'platform/shared/agent-skill-contract.ts',
+      'scripts/codex/document-control-plane.ts',
+      'scripts/codex/external-collaboration-input-contract.ts',
       'scripts/codex/repository-audit.ts',
       'scripts/discover-all.ts'
     ],
-    sourcePrefixes: ['.agents/skills/'],
+    sourcePrefixes: ['.agents/skills/', '.codex/agents/'],
     fast: AGENT_GOVERNANCE_FAST_TESTS,
     slow: []
   },
