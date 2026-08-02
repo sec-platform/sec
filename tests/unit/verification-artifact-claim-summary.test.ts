@@ -245,6 +245,28 @@ test('serialized gates must match their lane and policy reports', () => {
   expectBlocked(candidate);
 });
 
+test('all-lane artifacts cannot replace full runtime proof with a service projection', () => {
+  const candidate = mutablePassedArtifact() as any;
+  candidate.verificationReport.runtime.acceptance = {
+    status: 'skipped',
+    passed: [],
+    failed: [],
+    command: null
+  };
+  candidate.runtimeReport.acceptance = candidate.verificationReport.runtime.acceptance;
+  candidate.acceptanceCoverage.acceptancePassed = [];
+  candidate.verificationReport.summary.status = 'failed';
+  candidate.verificationReport.summary.claimSummary =
+    buildExpectedProductVerificationClaimSummary(
+      'all',
+      candidate.verificationReport.fast,
+      candidate.verificationReport.runtime,
+      'service',
+      candidate.policyReport
+    );
+  expectBlocked(candidate);
+});
+
 test('duplicate identities and forged contribution references remain fail-closed', () => {
   const duplicate = mutablePassedArtifact();
   duplicate.verificationReport.summary.claimSummary.gates[1]!.gateId =
