@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/verification-artifact-claim-summary-v1.md
-manifestDigest: sha256:bf9d06d0676841cdfac1a2cb025d850265fa42d50848202abaa72e17a29bb185
+manifestDigest: sha256:a5af5288e58496cb20c4067a9386d31eb2af04c82c8b48cd7fd7cc3bbde1e2f2
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
