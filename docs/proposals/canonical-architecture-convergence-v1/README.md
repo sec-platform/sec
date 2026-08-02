@@ -15,7 +15,7 @@ merge-policy: extract-focused-canonical-deltas
 最终只保留两个文件：
 
 - `README.md`：人类入口；
-- `canonical-plan.yaml`：全部约束、裁决、owner、依赖、测试/Skill/文档策略、迁移和退役的唯一机器记录。
+- `canonical-plan.yaml`：全部约束、裁决、owner、依赖、测试/Skill/文档策略、迁移、审查合同和退役的唯一机器记录。
 
 独立的 constraints、decision ledger、assembly、DAG、migration 和 execution-policy 文件已经删除；同一未来设计不再由多份文件并列维护。
 
