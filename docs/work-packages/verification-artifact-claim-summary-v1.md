@@ -13,6 +13,7 @@ tasks:
       - platform/shared/verification-artifact-contract.ts
       - tests/unit/verification-artifact-claim-summary.test.ts
       - docs/work/active-work-package.md
+      - docs/work/rolling-plan.md
       - docs/work-packages/verification-artifact-claim-summary-v1.md
       - docs/work-packages/affected-selection-trust-boundary-v1.md
       - docs/archive/work-packages/affected-selection-trust-boundary-v1.md
@@ -37,19 +38,19 @@ forbiddenPaths:
   - .github/workflows/
   - docs/authority.json
   - docs/work/current-state.yaml
-  - docs/work/rolling-plan.md
   - source/
   - project/
   - control/
   - tests/e2e/
 acceptance:
   - "platform/shared/verification-artifact-contract.ts accepts both the legacy summary shape and the current summary shape with claimSummary; no other unknown summary keys are accepted."
-  - "Embedded claimSummary.gates are validated with CodexDevelopmentAssertVerificationGateResultV1; embedded aggregate/claim results receive exact structural validation without duplicating the aggregate algorithm owned by verification-result-contract.ts."
-  - "When claimSummary is present, legacy summary.status is passed if and only if claimSummary.overall.overallStatus is passed; every non-passed unified status projects to failed."
+  - "Embedded gates pass CodexDevelopmentAssertVerificationGateResultV1; aggregate and claim results reject status/reason mismatch, contradictory overall status, duplicate claim/gate identities, unresolved contributing gate references, and passed claims unsupported by their contributing gates."
+  - "The embedded aggregate follows the declared order-independent lattice failed > invalidated > unsupported > not-run > passed; legacy summary.status is passed if and only if claimSummary.overall.overallStatus is passed."
   - "Existing no-claimSummary VerificationReport fixtures remain accepted."
-  - "tests/unit/verification-artifact-claim-summary.test.ts proves passed and failed current-writer reports classify as passed/failed rather than blocked; inconsistent or forged claimSummary remains blocked."
-  - "Issue #217 is closed only after focused tests, existing semantic-mutation verification adapter tests, typecheck, docs doctor, repository audit, and hosted quick evidence pass on the exact candidate."
-  - "No changes to verification aggregate semantics, runtime/policy writers, CI workflows, package/lock, or canonical docs."
+  - "tests/unit/verification-artifact-claim-summary.test.ts proves passed and failed current-writer reports classify as passed/failed rather than blocked; contradictory, inconsistent, duplicate, unknown-field, and forged-reference claimSummary objects remain blocked."
+  - "The previous affected-selection-trust-boundary-v1 manifest is archived, its live manifest is removed, the active pointer and rolling plan identify this package, and repository audit reports no control-plane handoff drift."
+  - "Issue #217 is closed only after focused tests, existing semantic-mutation verification adapter tests, typecheck, docs doctor, repository audit, hosted quick evidence, and independent exact-head Review pass."
+  - "No changes to verification aggregate execution semantics, runtime/policy writers, CI workflows, package/lock, or canonical product authority."
 tests:
   - tests/unit/verification-artifact-claim-summary.test.ts
   - tests/unit/semantic-mutation-verification-adapter.test.ts
@@ -63,22 +64,26 @@ the optional claim-based summary in PR #211.
 ## Root cause
 
 The canonical writer now emits `summary.claimSummary`, and `VerificationReport` declares it,
-but `exactVerificationReport()` still accepts only the legacy three-key summary. Valid
-isolated verification artifacts therefore become `blocked` before their physical pass/fail
-result can be consumed.
+but `exactVerificationReport()` still accepted only the legacy three-key summary. The first
+candidate then checked the new aggregate fields independently, which could admit an
+`overallStatus: passed` aggregate containing a failed claim. The complete fix therefore must
+close both producer/validator shape drift and the contradictory-evidence acceptance path.
 
 ## Fix boundary
 
-- Extend only the artifact serialization validator.
+- Extend only the artifact serialization validator and its focused regression surface.
 - Reuse the canonical gate validator from `verification-result-contract.ts`.
-- Validate aggregate and claim result exact shapes locally, but do not reimplement or alter
-  the aggregate algorithm, owning-environment semantics, status lattice, or zero-test policy.
+- Validate claim result status/reason combinations, unique identities, contributing-gate
+  references, aggregate lattice consistency, and the relationship between claims and embedded
+  gates without changing the aggregate execution algorithm owned by Issue #215.
 - Derive legacy `summary.status` from claimSummary overall status when present.
 - Preserve legacy summary compatibility for unrelated fixtures during migration.
+- Complete the active Work Package handoff atomically by archiving the previous manifest,
+  removing its live copy, updating the rolling plan, and rebinding the pointer digest.
 
 ## Non-goals
 
-- Issue #215 aggregate correctness.
+- Issue #215 owning-environment, not-applicable, no-test, and aggregate algorithm correction.
 - Issue #176 full writer/Evidence migration.
-- CI Evidence V3 or workflows.
+- CI Evidence V3 or workflow changes.
 - Semantic Test Impact, Hermetic Runtime, Evidence DAG, or parallel integration.
