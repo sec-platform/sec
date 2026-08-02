@@ -1,12 +1,12 @@
 import type { AcceptanceCoverageReport } from './acceptance-types.ts';
 import type { PolicyReport } from './policy-types.ts';
 import {
+  CodexDevelopmentAggregateVerificationClaimsV1,
   CodexDevelopmentAssertVerificationGateResultV1,
   type VerificationAggregateResultV1,
+  type VerificationClaimDefinitionV1,
   type VerificationClaimResultV1,
-  type VerificationGateResultV1,
-  type VerificationReasonCode,
-  type VerificationResultStatus
+  type VerificationGateResultV1
 } from './verification-result-contract.ts';
 import type {
   FastVerificationLaneReport,
@@ -30,32 +30,6 @@ export interface CanonicalVerificationArtifactSet {
   readonly acceptanceCoverage: AcceptanceCoverageReport;
 }
 
-const PASSED_REASON_CODES: ReadonlySet<VerificationReasonCode> = new Set([
-  'executed-success'
-]);
-const FAILED_REASON_CODES: ReadonlySet<VerificationReasonCode> = new Set([
-  'executed-failure', 'timeout', 'cleanup-failed', 'process-settlement-failed'
-]);
-const NOT_RUN_REASON_CODES: ReadonlySet<VerificationReasonCode> = new Set([
-  'not-applicable', 'fail-fast-prerequisite-failed',
-  'current-runner-not-owning-environment', 'not-dispatched',
-  'required-artifact-missing'
-]);
-const UNSUPPORTED_REASON_CODES: ReadonlySet<VerificationReasonCode> = new Set([
-  'capability-unsupported', 'platform-unsupported'
-]);
-const INVALIDATED_REASON_CODES: ReadonlySet<VerificationReasonCode> = new Set([
-  'selection-unresolved', 'input-invalidated', 'evidence-stale',
-  'superseded-revision', 'cancelled'
-]);
-const VERIFICATION_STATUS_PRIORITY: Readonly<Record<VerificationResultStatus, number>> = {
-  passed: 0,
-  'not-run': 1,
-  unsupported: 2,
-  invalidated: 3,
-  failed: 4
-};
-
 function exactKeys(value: unknown, expected: readonly string[]): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const actual = Object.keys(value).sort();
@@ -72,44 +46,14 @@ function uniqueStrings(values: readonly string[]): boolean {
   return new Set(values).size === values.length;
 }
 
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length &&
+    uniqueStrings(left) && uniqueStrings(right) &&
+    left.every((value) => right.includes(value));
+}
+
 function exactVerificationStatus(value: unknown): value is VerificationStatus {
   return value === 'passed' || value === 'failed' || value === 'skipped';
-}
-
-function exactUnifiedVerificationStatus(value: unknown): value is VerificationResultStatus {
-  return value === 'passed' || value === 'failed' || value === 'not-run' ||
-    value === 'unsupported' || value === 'invalidated';
-}
-
-function exactVerificationReasonCode(value: unknown): value is VerificationReasonCode {
-  return value === 'executed-success' ||
-    value === 'executed-failure' ||
-    value === 'not-applicable' ||
-    value === 'fail-fast-prerequisite-failed' ||
-    value === 'current-runner-not-owning-environment' ||
-    value === 'not-dispatched' ||
-    value === 'required-artifact-missing' ||
-    value === 'capability-unsupported' ||
-    value === 'platform-unsupported' ||
-    value === 'selection-unresolved' ||
-    value === 'input-invalidated' ||
-    value === 'evidence-stale' ||
-    value === 'superseded-revision' ||
-    value === 'cancelled' ||
-    value === 'timeout' ||
-    value === 'cleanup-failed' ||
-    value === 'process-settlement-failed';
-}
-
-function reasonMatchesStatus(
-  status: VerificationResultStatus,
-  reasonCode: VerificationReasonCode
-): boolean {
-  if (status === 'passed') return PASSED_REASON_CODES.has(reasonCode);
-  if (status === 'failed') return FAILED_REASON_CODES.has(reasonCode);
-  if (status === 'not-run') return NOT_RUN_REASON_CODES.has(reasonCode);
-  if (status === 'unsupported') return UNSUPPORTED_REASON_CODES.has(reasonCode);
-  return INVALIDATED_REASON_CODES.has(reasonCode);
 }
 
 function exactLogs(value: unknown): boolean {
@@ -183,62 +127,22 @@ function exactRuntimeVerificationReport(value: unknown): value is RuntimeVerific
     exactVerificationStep(value.unit) && exactVerificationStep(value.acceptance) && exactLogs(value.logs);
 }
 
-function exactVerificationClaimResult(value: unknown): value is VerificationClaimResultV1 {
-  if (!exactKeys(value, [
+function exactVerificationClaimResultShape(value: unknown): value is VerificationClaimResultV1 {
+  return exactKeys(value, [
     'claimId', 'status', 'reasonCode', 'contributingGateIds', 'coverageComplete'
-  ]) || typeof value.claimId !== 'string' || value.claimId.length === 0 ||
-    !exactUnifiedVerificationStatus(value.status) ||
-    !exactVerificationReasonCode(value.reasonCode) ||
-    !exactStringArray(value.contributingGateIds) ||
-    !uniqueStrings(value.contributingGateIds) ||
-    typeof value.coverageComplete !== 'boolean') {
-    return false;
-  }
-  if (!reasonMatchesStatus(value.status, value.reasonCode)) return false;
-  return value.status !== 'passed' || value.coverageComplete;
+  ]) && typeof value.claimId === 'string' && value.claimId.length > 0 &&
+    typeof value.status === 'string' && typeof value.reasonCode === 'string' &&
+    exactStringArray(value.contributingGateIds) &&
+    uniqueStrings(value.contributingGateIds) &&
+    typeof value.coverageComplete === 'boolean';
 }
 
-function strongestClaimStatus(
-  claimResults: readonly VerificationClaimResultV1[]
-): VerificationResultStatus {
-  let strongest: VerificationResultStatus = 'passed';
-  for (const result of claimResults) {
-    if (VERIFICATION_STATUS_PRIORITY[result.status] > VERIFICATION_STATUS_PRIORITY[strongest]) {
-      strongest = result.status;
-    }
-  }
-  return strongest;
-}
-
-function exactVerificationAggregateResult(
-  value: unknown
-): value is VerificationAggregateResultV1 {
-  if (!exactKeys(value, ['overallStatus', 'overallReasonCode', 'claimResults']) ||
-    !exactUnifiedVerificationStatus(value.overallStatus) ||
-    !exactVerificationReasonCode(value.overallReasonCode) ||
-    !reasonMatchesStatus(value.overallStatus, value.overallReasonCode) ||
-    !Array.isArray(value.claimResults) ||
-    !value.claimResults.every(exactVerificationClaimResult)) {
-    return false;
-  }
-
-  const result = value as unknown as VerificationAggregateResultV1;
-  if (!uniqueStrings(result.claimResults.map((claim) => claim.claimId)) ||
-    strongestClaimStatus(result.claimResults) !== result.overallStatus) {
-    return false;
-  }
-  if (result.overallStatus === 'passed') {
-    return result.overallReasonCode === 'executed-success';
-  }
-  if (result.overallStatus === 'failed') {
-    return result.overallReasonCode === 'executed-failure' ||
-      result.claimResults.some((claim) => (
-        claim.status === 'failed' && claim.reasonCode === result.overallReasonCode
-      ));
-  }
-  return result.claimResults.some((claim) => (
-    claim.status === result.overallStatus && claim.reasonCode === result.overallReasonCode
-  ));
+function exactVerificationAggregateShape(value: unknown): value is VerificationAggregateResultV1 {
+  return exactKeys(value, ['overallStatus', 'overallReasonCode', 'claimResults']) &&
+    typeof value.overallStatus === 'string' && typeof value.overallReasonCode === 'string' &&
+    Array.isArray(value.claimResults) && value.claimResults.length > 0 &&
+    value.claimResults.every(exactVerificationClaimResultShape) &&
+    uniqueStrings(value.claimResults.map((claim) => claim.claimId));
 }
 
 function exactVerificationGateResult(value: unknown): value is VerificationGateResultV1 {
@@ -250,37 +154,78 @@ function exactVerificationGateResult(value: unknown): value is VerificationGateR
   }
 }
 
-function claimMatchesContributingGates(
-  claim: VerificationClaimResultV1,
-  gateById: ReadonlyMap<string, VerificationGateResultV1>
+function environmentKey(gate: VerificationGateResultV1): string | null {
+  return gate.environment ? `${gate.environment.os}-${gate.environment.arch}` : null;
+}
+
+function deriveClaimDefinitions(
+  claimResults: readonly VerificationClaimResultV1[],
+  gates: readonly VerificationGateResultV1[]
+): VerificationClaimDefinitionV1[] | null {
+  const claimIds = new Set(claimResults.map((claim) => claim.claimId));
+  const definitions: VerificationClaimDefinitionV1[] = [];
+
+  for (const gate of gates) {
+    if (!uniqueStrings(gate.requiredForClaims) ||
+      !uniqueStrings(gate.supportedClaims) ||
+      gate.requiredForClaims.length === 0 ||
+      gate.requiredForClaims.some((claimId) => !claimIds.has(claimId)) ||
+      gate.supportedClaims.some((claimId) => (
+        !claimIds.has(claimId) || !gate.requiredForClaims.includes(claimId)
+      ))) {
+      return null;
+    }
+  }
+
+  for (const claim of claimResults) {
+    const requiredGates = gates.filter((gate) => gate.requiredForClaims.includes(claim.claimId));
+    const requiredGateIds = requiredGates.map((gate) => gate.gateId);
+    if (requiredGateIds.length === 0 ||
+      !sameStringSet(requiredGateIds, claim.contributingGateIds)) {
+      return null;
+    }
+    const owningEnvironments = requiredGates
+      .map(environmentKey)
+      .filter((value): value is string => value !== null)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .sort((left, right) => left.localeCompare(right));
+    definitions.push({
+      claimId: claim.claimId,
+      requiredGateIds,
+      owningEnvironments
+    });
+  }
+
+  return definitions;
+}
+
+function sameClaimResult(
+  actual: VerificationClaimResultV1,
+  expected: VerificationClaimResultV1
 ): boolean {
-  const gates = claim.contributingGateIds.map((gateId) => gateById.get(gateId));
-  if (gates.some((gate) => gate === undefined)) return false;
-  const contributing = gates as VerificationGateResultV1[];
-  if (contributing.some((gate) => !gate.requiredForClaims.includes(claim.claimId))) {
-    return false;
-  }
-  if (claim.status === 'passed') {
-    return claim.coverageComplete && contributing.every((gate) => (
-      gate.status === 'passed' && gate.supportedClaims.includes(claim.claimId)
+  return actual.claimId === expected.claimId &&
+    actual.status === expected.status &&
+    actual.reasonCode === expected.reasonCode &&
+    actual.coverageComplete === expected.coverageComplete &&
+    sameStringSet(actual.contributingGateIds, expected.contributingGateIds);
+}
+
+function sameAggregateResult(
+  actual: VerificationAggregateResultV1,
+  expected: VerificationAggregateResultV1
+): boolean {
+  return actual.overallStatus === expected.overallStatus &&
+    actual.overallReasonCode === expected.overallReasonCode &&
+    actual.claimResults.length === expected.claimResults.length &&
+    actual.claimResults.every((claim, index) => (
+      sameClaimResult(claim, expected.claimResults[index]!)
     ));
-  }
-  if (claim.status === 'failed') {
-    return contributing.some((gate) => gate.status === 'failed');
-  }
-  if (claim.status === 'unsupported') {
-    return contributing.some((gate) => gate.status === 'unsupported');
-  }
-  if (claim.status === 'not-run') {
-    return !claim.coverageComplete || contributing.some((gate) => gate.status === 'not-run');
-  }
-  return !claim.coverageComplete || contributing.some((gate) => gate.status === 'invalidated');
 }
 
 function exactVerificationClaimSummary(value: unknown): value is VerificationClaimSummary {
   if (!exactKeys(value, ['overall', 'gates']) ||
-    !exactVerificationAggregateResult(value.overall) ||
-    !Array.isArray(value.gates) ||
+    !exactVerificationAggregateShape(value.overall) ||
+    !Array.isArray(value.gates) || value.gates.length === 0 ||
     !value.gates.every(exactVerificationGateResult)) {
     return false;
   }
@@ -289,17 +234,14 @@ function exactVerificationClaimSummary(value: unknown): value is VerificationCla
   const gates = [...summary.gates];
   if (!uniqueStrings(gates.map((gate) => gate.gateId))) return false;
 
-  const claimIds = new Set(summary.overall.claimResults.map((claim) => claim.claimId));
-  if (gates.some((gate) => (
-    [...gate.requiredForClaims, ...gate.supportedClaims].some((claimId) => !claimIds.has(claimId))
-  ))) {
-    return false;
-  }
+  const claims = deriveClaimDefinitions(summary.overall.claimResults, gates);
+  if (claims === null) return false;
 
-  const gateById = new Map(gates.map((gate) => [gate.gateId, gate] as const));
-  return summary.overall.claimResults.every((claim) => (
-    claimMatchesContributingGates(claim, gateById)
-  ));
+  const canonical = CodexDevelopmentAggregateVerificationClaimsV1({
+    claims,
+    gateResults: gates
+  });
+  return sameAggregateResult(summary.overall, canonical);
 }
 
 function exactVerificationReport(value: unknown): value is VerificationReport {
