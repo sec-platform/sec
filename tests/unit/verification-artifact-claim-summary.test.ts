@@ -245,6 +245,19 @@ test('serialized gates must match their lane and policy reports', () => {
   expectBlocked(candidate);
 });
 
+test('full-runtime pass cannot contain a skipped acceptance step while retaining green evidence', () => {
+  const candidate = mutablePassedArtifact() as any;
+  candidate.verificationReport.runtime.acceptance = {
+    status: 'skipped',
+    passed: [],
+    failed: [],
+    command: null
+  };
+  candidate.runtimeReport.acceptance = candidate.verificationReport.runtime.acceptance;
+  candidate.acceptanceCoverage.acceptancePassed = [];
+  expectBlocked(candidate);
+});
+
 test('all-lane artifacts cannot replace full runtime proof with a service projection', () => {
   const candidate = mutablePassedArtifact() as any;
   candidate.verificationReport.runtime.acceptance = {
