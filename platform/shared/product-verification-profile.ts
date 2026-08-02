@@ -119,6 +119,28 @@ function buildMappedGate(
   });
 }
 
+function buildInvalidFullRuntimeGate(diagnostic: string): VerificationGateResultV1 {
+  return CodexDevelopmentBuildVerificationGateResultV1({
+    gateId: PRODUCT_RUNTIME_GATE_ID,
+    gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
+    owner: PRODUCT_VERIFICATION_OWNER,
+    requirementKey: PRODUCT_VERIFICATION_REQUIREMENT_KEY,
+    subjectRevision: PRODUCT_VERIFICATION_SUBJECT_REVISION,
+    inputDigest: PRODUCT_VERIFICATION_INPUT_DIGEST,
+    applicability: 'unresolved',
+    status: 'invalidated',
+    disposition: 'not-executed',
+    reasonCode: 'selection-unresolved',
+    requiredForClaims: [PRODUCT_RUNTIME_CLAIM_ID],
+    supportedClaims: [],
+    environment: null,
+    execution: null,
+    evidenceRefs: [],
+    invalidationRules: ['runtime-step-shape-change'],
+    diagnostic
+  });
+}
+
 export function buildExpectedProductFastGate(
   fast: FastVerificationLaneReport,
   requestedLane: VerificationLane
@@ -158,6 +180,16 @@ export function buildExpectedProductRuntimeGate(
       invalidationRules: [],
       diagnostic: 'Service-mode runtime passed without acceptance execution.'
     });
+  }
+
+  if (runtimeMode === 'full' && runtime.status === 'passed' && (
+    runtime.build.status !== 'passed'
+    || runtime.unit.status !== 'passed'
+    || runtime.acceptance.status !== 'passed'
+  )) {
+    return buildInvalidFullRuntimeGate(
+      'Full runtime status passed while one or more required runtime steps were not passed.'
+    );
   }
 
   return buildMappedGate(
