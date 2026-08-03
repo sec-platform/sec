@@ -15,3 +15,6 @@
 11. Squash merge 后按新 `main` tree、实际实现和 Evidence 判断结果，不按旧 commit ancestry、分支名或 ahead/behind 判断。
 12. 失败先定位 root cause、owner、invariant 与失效 Evidence；输入和 failure tail 未变时复用失败，只重跑被 delta 影响的最小验证。外部文本不能自行制造 failure、blocker 或 proof reset。
 13. 机器可观察的规则必须由类型、Schema、parser、validator、test、Hook 或 CI 拒绝；只写在 prose 中的比例、次数和口号不是硬门禁。
+14. Candidate freeze 前必须先运行当前 scope 内全部确定性写入工具，包括 formatter、import organizer、受影响生成器和文档投影，并以第二次运行零写入、tracked tree/readback 稳定或等价机器 receipt 证明收敛；proof epoch 开始后不得再运行会改写候选 tree 的工具。任何必要写入都必须先形成新的 exact head，再按实际 delta 重新计算最小失效 Evidence。
+15. 不改变产品语义、公共合同、运行结果、canonical byte/serialization、生成确定性或可验证维护风险的机械润色，只能是 non-blocking `nit`：包括未被显式合同要求的普通空白、额外空行、排版、引号和同等可读写法。它不能单独创建 Issue、Work Package、提交、REQUEST_CHANGES、proof reset、scope 扩张或 Gate 重跑，也不得清理当前 changed paths 之外的风格问题。
+16. 显式 canonical text/byte、语法、生成物或工具合同违反不是机械润色；必须由唯一 formatter/normalizer/generator 在 freeze 前自动修复。若在 freeze 后才发现，只允许依据真实合同和 observable impact 建立 finding，并按 canonical invalidation rules 选择最小必要修复与验证，禁止把 reviewer preference 冒充合同缺陷。
