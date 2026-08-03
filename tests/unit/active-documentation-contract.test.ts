@@ -153,12 +153,12 @@ test('documentation dependency graph rejects project, generation and proposal-ta
   ))).toThrow('Documentation dependency cycle');
 
   expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    authorityRecord('self', 'docs/self.md', { generatedFrom: 'docs/self.md' })
+    navigationRecord('self', 'docs/self.md', { generatedFrom: 'docs/self.md' })
   ))).toThrow('Documentation dependency cycle');
 
   expect(() => parseDocumentationAuthorityRegistry(authorityRegistry(
-    authorityRecord('a', 'docs/a.md', { generatedFrom: 'docs/b.md' }),
-    authorityRecord('b', 'docs/b.md', { generatedFrom: 'docs/a.md' })
+    navigationRecord('a', 'docs/a.md', { generatedFrom: 'docs/b.md' }),
+    navigationRecord('b', 'docs/b.md', { generatedFrom: 'docs/a.md' })
   ))).toThrow('Documentation dependency cycle');
 
   const target = authorityRecord('target', 'docs/target.md', { projects: ['proposal'] });
