@@ -27,6 +27,19 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/unit/exact-git-blob.test.ts'
 ];
 
+const VERIFICATION_TRUTH_FAST_TESTS = [
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/acceptance-coverage-closure.test.ts',
+  'tests/unit/coverage.test.ts',
+  'tests/unit/product-verification-profile.test.ts',
+  'tests/unit/semantic-mutation-isolated-classification.test.ts',
+  'tests/unit/semantic-mutation-verification-adapter.test.ts',
+  'tests/unit/verification-artifact-claim-summary.test.ts',
+  'tests/unit/verification-claim-migration.test.ts',
+  'tests/unit/verification-result-core.test.ts',
+  'tests/unit/verification-result-proof-identity.test.ts'
+];
+
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'verification-evidence-producers',
@@ -39,6 +52,24 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/exact-git-blob.ts'
     ],
     fast: VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'verification-truth',
+    identity: { kind: 'architecture-owner', id: 'verification-truth' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'platform/compiler/verify/build-acceptance-coverage.ts',
+      'platform/compiler/verify/run-semantic-mutation-isolated-child-core.ts',
+      'platform/compiler/verify/run-semantic-mutation-isolated-child.ts',
+      'platform/compiler/verify/verify-project.ts',
+      'platform/orchestrator/verify-orchestrator.ts',
+      'platform/shared/acceptance-proof-contract.ts',
+      'platform/shared/product-verification-profile.ts',
+      'platform/shared/verification-artifact-contract.ts',
+      'platform/shared/verification-result-contract.ts'
+    ],
+    fast: VERIFICATION_TRUTH_FAST_TESTS,
     slow: []
   },
   {

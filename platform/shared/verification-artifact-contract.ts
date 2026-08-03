@@ -1,4 +1,7 @@
 import type { AcceptanceCoverageReport } from './acceptance-types.ts';
+import {
+  acceptanceIdsProvenByVerificationReportsV1
+} from './acceptance-proof-contract.ts';
 import type { PolicyReport } from './policy-types.ts';
 import {
   buildBlockedProductVerificationClaimSummary,
@@ -70,6 +73,11 @@ function uniqueStrings(values: readonly string[]): boolean {
 
 function exactUniqueStringArray(value: unknown): value is string[] {
   return exactStringArray(value) && uniqueStrings(value);
+}
+
+function exactCanonicalStringArray(value: unknown): value is string[] {
+  return exactUniqueStringArray(value) &&
+    JSON.stringify(value) === JSON.stringify([...value].sort());
 }
 
 function exactVerificationStatus(value: unknown): value is VerificationStatus {
@@ -147,12 +155,8 @@ function exactVerificationStep(value: unknown): boolean {
     !exactVerificationStatus(value.status) ||
     !exactUniqueStringArray(value.passed) ||
     !exactUniqueStringArray(value.failed) ||
-    !exactString(value.command)) {
-    return false;
-  }
-  if (value.status === 'skipped') {
-    return value.passed.length === 0 && value.failed.length === 0;
-  }
+    !exactString(value.command)) return false;
+  if (value.status === 'skipped') return value.passed.length === 0 && value.failed.length === 0;
   if (value.status === 'passed') return value.failed.length === 0;
   return value.failed.length > 0;
 }
@@ -195,15 +199,11 @@ function exactClaimSummaryShape(value: unknown): value is VerificationClaimSumma
     uniqueStrings(value.gates.map((gate) => gate.gateId));
 }
 
-function blockedPhysicalProfile(
-  report: Pick<VerificationReport, 'fast' | 'runtime' | 'summary'>
-): boolean {
+function blockedPhysicalProfile(report: Pick<VerificationReport, 'fast' | 'runtime' | 'summary'>): boolean {
   return report.summary.status === 'failed' &&
     report.summary.failedLanes.length === 1 && report.summary.failedLanes[0] === 'fast' &&
-    report.fast.status === 'failed' &&
-    report.fast.build.status === 'skipped' &&
-    report.fast.unit.status === 'skipped' &&
-    report.fast.acceptance.status === 'skipped' &&
+    report.fast.status === 'failed' && report.fast.build.status === 'skipped' &&
+    report.fast.unit.status === 'skipped' && report.fast.acceptance.status === 'skipped' &&
     report.runtime.status === 'skipped';
 }
 
@@ -213,6 +213,7 @@ function exactVerificationClaimSummary(
   fast: FastVerificationLaneReport,
   runtime: RuntimeVerificationLaneReport,
   policyReport: PolicyReport,
+  acceptanceCoverage: AcceptanceCoverageReport,
   blocked: boolean
 ): value is VerificationClaimSummary {
   if (!exactClaimSummaryShape(value)) return false;
@@ -223,67 +224,78 @@ function exactVerificationClaimSummary(
         fast,
         runtime,
         inferProductVerificationRuntimeMode(runtime, requestedLane),
-        policyReport
+        policyReport,
+        acceptanceCoverage
       );
   return structurallyEqual(value, expected);
 }
 
 function exactCoverageEntry(value: unknown, accepted: ReadonlySet<string>): boolean {
   if (!exactKeys(value, ['id', 'declaredAcceptance', 'coveredBy', 'uncovered']) ||
-    !exactString(value.id) || !exactUniqueStringArray(value.declaredAcceptance) ||
-    !exactUniqueStringArray(value.coveredBy) || typeof value.uncovered !== 'boolean') {
-    return false;
-  }
+    !exactString(value.id) || !exactCanonicalStringArray(value.declaredAcceptance) ||
+    !exactCanonicalStringArray(value.coveredBy) || typeof value.uncovered !== 'boolean') return false;
   const declared = new Set(value.declaredAcceptance);
   if (value.coveredBy.some((id) => !declared.has(id) || !accepted.has(id))) return false;
-  return value.uncovered === (value.coveredBy.length === 0);
+  return value.uncovered === (
+    value.declaredAcceptance.length === 0 ||
+    value.coveredBy.length !== value.declaredAcceptance.length
+  );
 }
 
-function exactAcceptanceCoverage(value: unknown): value is AcceptanceCoverageReport {
+function exactAcceptanceCoverage(
+  value: unknown,
+  fast: FastVerificationLaneReport,
+  runtime: RuntimeVerificationLaneReport
+): value is AcceptanceCoverageReport {
   if (!exactKeys(value, [
     'formatVersion', 'status', 'acceptancePassed', 'blocks', 'slots',
     'uncoveredBlocks', 'uncoveredSlots'
   ]) || value.formatVersion !== '1' || !exactVerificationStatus(value.status) ||
-    !exactUniqueStringArray(value.acceptancePassed) ||
+    !exactCanonicalStringArray(value.acceptancePassed) ||
     !Array.isArray(value.blocks) || !Array.isArray(value.slots) ||
-    !exactUniqueStringArray(value.uncoveredBlocks) || !exactUniqueStringArray(value.uncoveredSlots)) {
-    return false;
-  }
-  const accepted = new Set(value.acceptancePassed);
-  if (!value.blocks.every((entry) => exactCoverageEntry(entry, accepted)) ||
-    !value.slots.every((entry) => exactCoverageEntry(entry, accepted))) {
-    return false;
-  }
+    !exactUniqueStringArray(value.uncoveredBlocks) ||
+    !exactUniqueStringArray(value.uncoveredSlots)) return false;
+
   const report = value as unknown as AcceptanceCoverageReport;
-  return uniqueStrings(report.blocks.map((entry) => entry.id)) &&
-    uniqueStrings(report.slots.map((entry) => entry.id)) &&
-    structurallyEqual(
-      report.uncoveredBlocks,
-      report.blocks.filter((entry) => entry.uncovered).map((entry) => entry.id)
-    ) && structurallyEqual(
-      report.uncoveredSlots,
-      report.slots.filter((entry) => entry.uncovered).map((entry) => entry.id)
-    );
+  const declaredAcceptance = [...new Set([
+    ...report.blocks.flatMap((entry) => entry.declaredAcceptance),
+    ...report.slots.flatMap((entry) => entry.declaredAcceptance)
+  ])].sort();
+  const expectedAccepted = acceptanceIdsProvenByVerificationReportsV1(
+    fast,
+    runtime,
+    declaredAcceptance
+  );
+  if (!structurallyEqual(report.acceptancePassed, expectedAccepted)) return false;
+
+  const accepted = new Set(report.acceptancePassed);
+  if (!report.blocks.every((entry) => exactCoverageEntry(entry, accepted)) ||
+    !report.slots.every((entry) => exactCoverageEntry(entry, accepted)) ||
+    !uniqueStrings(report.blocks.map((entry) => entry.id)) ||
+    !uniqueStrings(report.slots.map((entry) => entry.id))) return false;
+
+  return structurallyEqual(
+    report.uncoveredBlocks,
+    report.blocks.filter((entry) => entry.uncovered).map((entry) => entry.id)
+  ) && structurallyEqual(
+    report.uncoveredSlots,
+    report.slots.filter((entry) => entry.uncovered).map((entry) => entry.id)
+  );
 }
 
-function exactVerificationReport(value: unknown): value is VerificationReport {
+function exactVerificationReport(
+  value: unknown,
+  acceptanceCoverage: AcceptanceCoverageReport
+): value is VerificationReport {
   if (!exactKeys(value, [
     'build', 'unit', 'acceptance', 'policy', 'fast', 'runtime', 'summary', 'logs'
   ]) || !exactFastVerificationReport(value.fast) ||
-    !exactRuntimeVerificationReport(value.runtime) || !exactLogs(value.logs)) {
-    return false;
-  }
+    !exactRuntimeVerificationReport(value.runtime) || !exactLogs(value.logs)) return false;
   const summary = value.summary;
-  // Current production authorization requires the claim-bound protocol. A
-  // no-claimSummary legacy report may remain readable elsewhere as diagnostic
-  // data, but it cannot authorize pipeline or Semantic Mutation PASS/FAIL.
   if (!exactKeys(summary, ['status', 'requestedLane', 'failedLanes', 'claimSummary']) ||
     (summary.status !== 'passed' && summary.status !== 'failed') ||
-    summary.requestedLane !== 'all' ||
-    !exactUniqueStringArray(summary.failedLanes) ||
-    !summary.failedLanes.every((lane) => lane === 'fast' || lane === 'runtime')) {
-    return false;
-  }
+    summary.requestedLane !== 'all' || !exactUniqueStringArray(summary.failedLanes) ||
+    !summary.failedLanes.every((lane) => lane === 'fast' || lane === 'runtime')) return false;
   const report = value as unknown as VerificationReport;
   const blocked = blockedPhysicalProfile(report);
   if (!exactVerificationClaimSummary(
@@ -292,6 +304,7 @@ function exactVerificationReport(value: unknown): value is VerificationReport {
     report.fast,
     report.runtime,
     report.fast.policyReport as PolicyReport,
+    acceptanceCoverage,
     blocked
   )) return false;
 
@@ -318,12 +331,17 @@ function exactVerificationReport(value: unknown): value is VerificationReport {
 export function isCanonicalVerificationArtifactSet(
   input: VerificationArtifactSet
 ): input is CanonicalVerificationArtifactSet {
-  if (!exactVerificationReport(input.verificationReport) ||
-    !exactRuntimeVerificationReport(input.runtimeReport) ||
+  if (!exactRuntimeVerificationReport(input.runtimeReport) ||
     !exactPolicyReport(input.policyReport) ||
-    !exactAcceptanceCoverage(input.acceptanceCoverage)) {
-    return false;
-  }
+    !input.verificationReport || typeof input.verificationReport !== 'object' ||
+    !exactFastVerificationReport((input.verificationReport as Record<string, unknown>).fast) ||
+    !exactRuntimeVerificationReport((input.verificationReport as Record<string, unknown>).runtime) ||
+    !exactAcceptanceCoverage(
+      input.acceptanceCoverage,
+      (input.verificationReport as VerificationReport).fast,
+      (input.verificationReport as VerificationReport).runtime
+    ) || !exactVerificationReport(input.verificationReport, input.acceptanceCoverage)) return false;
+
   const report = input.verificationReport;
   return structurallyEqual(report.runtime, input.runtimeReport) &&
     structurallyEqual(report.fast.policyReport, input.policyReport) &&

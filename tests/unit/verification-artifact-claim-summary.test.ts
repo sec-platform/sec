@@ -6,7 +6,6 @@ import {
 } from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
 import { isCanonicalVerificationArtifactSet } from '../../platform/shared/verification-artifact-contract.ts';
 import {
-  buildBlockedProductVerificationClaimSummary,
   buildExpectedProductVerificationClaimSummary,
   PRODUCT_FAST_GATE_ID,
   PRODUCT_POLICY_CLAIM_ID,
@@ -21,6 +20,7 @@ import type {
 
 const INPUT_REVISION = `sha256:${'1'.repeat(64)}`;
 const SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
+const ACCEPTANCE_ID = 'runtime_acceptance_proven';
 
 type PolicyStatus = 'passed' | 'failed' | 'skipped';
 
@@ -34,29 +34,21 @@ interface RuntimeStep {
 interface MutableClaimSummaryArtifactSet extends SemanticMutationIsolatedVerificationArtifactSet {
   verificationReport: {
     build: { status: PolicyStatus };
-    unit: { status: PolicyStatus; passed: string[] };
-    acceptance: { status: PolicyStatus; passed: string[]; failed: string[] };
     policy: { status: PolicyStatus; violations: unknown[] };
     fast: {
       status: PolicyStatus;
       build: { status: PolicyStatus };
-      unit: { status: PolicyStatus; passed: string[] };
-      acceptance: { status: PolicyStatus; passed: string[]; failed: string[] };
       policy: { status: PolicyStatus; violations: unknown[] };
       policyReport: ReturnType<typeof policyReport>;
-      logs: { stdout: string; stderr: string };
     };
     runtime: {
       status: PolicyStatus;
       build: RuntimeStep;
       unit: RuntimeStep;
       acceptance: RuntimeStep;
-      logs: { stdout: string; stderr: string };
     };
     summary: {
       status: 'passed' | 'failed';
-      requestedLane: 'all';
-      failedLanes: Array<'fast' | 'runtime'>;
       claimSummary: {
         overall: {
           overallStatus: VerificationResultStatus;
@@ -66,14 +58,12 @@ interface MutableClaimSummaryArtifactSet extends SemanticMutationIsolatedVerific
         gates: VerificationGateResultV1[];
       };
     };
-    logs: { stdout: string; stderr: string };
   };
   runtimeReport: {
     status: PolicyStatus;
     build: RuntimeStep;
     unit: RuntimeStep;
     acceptance: RuntimeStep;
-    logs: { stdout: string; stderr: string };
   };
   policyReport: ReturnType<typeof policyReport>;
   acceptanceCoverage: {
@@ -136,15 +126,35 @@ function blockingViolation() {
   };
 }
 
+function coverage(status: 'passed' | 'failed') {
+  const complete = status === 'passed';
+  return {
+    formatVersion: '1',
+    status,
+    acceptancePassed: complete ? [ACCEPTANCE_ID] : [],
+    blocks: [{
+      id: 'block',
+      declaredAcceptance: [ACCEPTANCE_ID],
+      coveredBy: complete ? [ACCEPTANCE_ID] : [],
+      uncovered: !complete
+    }],
+    slots: [{
+      id: 'slot',
+      declaredAcceptance: [ACCEPTANCE_ID],
+      coveredBy: complete ? [ACCEPTANCE_ID] : [],
+      uncovered: !complete
+    }],
+    uncoveredBlocks: complete ? [] : ['block'],
+    uncoveredSlots: complete ? [] : ['slot']
+  };
+}
+
 function semanticBundle() {
   return {
     snapshot: { ir: { inputRevision: INPUT_REVISION, semanticRevision: SEMANTIC_REVISION } },
     generatorPlan: { inputRevision: INPUT_REVISION, semanticRevision: SEMANTIC_REVISION, tasks: [] },
     semanticViews: {
-      formatVersion: '1',
-      inputRevision: INPUT_REVISION,
-      semanticRevision: SEMANTIC_REVISION,
-      views: []
+      formatVersion: '1', inputRevision: INPUT_REVISION, semanticRevision: SEMANTIC_REVISION, views: []
     },
     semanticContractSources: []
   };
@@ -175,11 +185,14 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
       status: 'passed' as const, passed: ['next build'], failed: [], command: 'bun run build'
     },
     unit: {
-      status: 'passed' as const, passed: ['runtime-unit'], failed: [], command: 'bun run test:unit'
+      status: 'passed' as const,
+      passed: ['tests/runtime/unit/runtime.test.ts'],
+      failed: [],
+      command: 'bun run test:unit'
     },
     acceptance: {
       status: 'passed' as const,
-      passed: ['runtime-acceptance'],
+      passed: ['tests/runtime/acceptance/customer-flow.spec.ts'],
       failed: [],
       command: 'bun run test:acceptance'
     },
@@ -187,20 +200,20 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
   } : {
     status: 'failed' as const,
     build: {
-      status: 'failed' as const, passed: [], failed: ['next build'], command: 'bun run build'
-    },
-    unit: { status: 'skipped' as const, passed: [], failed: [], command: 'bun run test:unit' },
-    acceptance: {
-      status: 'skipped' as const,
+      status: 'failed' as const,
       passed: [],
-      failed: [],
-      command: 'bun run test:acceptance'
+      failed: ['next build'],
+      command: 'bun run build'
     },
+    unit: { status: 'skipped' as const, passed: [], failed: [], command: null },
+    acceptance: { status: 'skipped' as const, passed: [], failed: [], command: null },
     logs: runtimeLogs
   };
+  const acceptanceCoverage = coverage(status);
   const claimSummary = buildExpectedProductVerificationClaimSummary(
-    'all', fast, runtime, 'full', policy
+    'all', fast, runtime, 'full', policy, acceptanceCoverage
   );
+
   return {
     childExitCode: status === 'passed' ? 0 : 1,
     verificationReport: {
@@ -223,55 +236,23 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
     },
     runtimeReport: runtime,
     policyReport: policy,
-    acceptanceCoverage: {
-      formatVersion: '1',
-      status: runtime.status,
-      acceptancePassed: runtime.acceptance.passed,
-      blocks: [],
-      slots: [],
-      uncoveredBlocks: [],
-      uncoveredSlots: []
-    },
+    acceptanceCoverage,
     semanticBundle: semanticBundle()
   };
 }
 
-function blockedArtifactSet(): SemanticMutationIsolatedVerificationArtifactSet {
-  const candidate = structuredClone(artifactSet('failed')) as MutableClaimSummaryArtifactSet;
-  candidate.verificationReport.fast.status = 'failed';
-  candidate.verificationReport.fast.build.status = 'skipped';
-  candidate.verificationReport.fast.unit = { status: 'skipped', passed: [] };
-  candidate.verificationReport.fast.acceptance = { status: 'skipped', passed: [], failed: [] };
-  candidate.verificationReport.build = candidate.verificationReport.fast.build;
-  candidate.verificationReport.unit = candidate.verificationReport.fast.unit;
-  candidate.verificationReport.acceptance = candidate.verificationReport.fast.acceptance;
-  candidate.verificationReport.runtime = {
-    status: 'skipped',
-    build: { status: 'skipped', passed: [], failed: [], command: 'bun run build' },
-    unit: { status: 'skipped', passed: [], failed: [], command: 'bun run test:unit' },
-    acceptance: {
-      status: 'skipped', passed: [], failed: [], command: 'bun run test:acceptance'
-    },
-    logs: { stdout: '', stderr: '' }
-  };
-  candidate.runtimeReport = structuredClone(candidate.verificationReport.runtime);
-  candidate.verificationReport.summary.status = 'failed';
-  candidate.verificationReport.summary.failedLanes = ['fast'];
-  candidate.verificationReport.summary.claimSummary =
-    buildBlockedProductVerificationClaimSummary('all') as MutableClaimSummaryArtifactSet[
-      'verificationReport'
-    ]['summary']['claimSummary'];
-  candidate.verificationReport.logs = {
-    stdout: candidate.verificationReport.fast.logs.stdout,
-    stderr: candidate.verificationReport.fast.logs.stderr
-  };
-  candidate.acceptanceCoverage.status = 'skipped';
-  candidate.acceptanceCoverage.acceptancePassed = [];
-  return candidate;
-}
-
 function mutablePassedArtifact(): MutableClaimSummaryArtifactSet {
   return structuredClone(artifactSet('passed')) as MutableClaimSummaryArtifactSet;
+}
+
+function invalidateCoverage(candidate: MutableClaimSummaryArtifactSet): void {
+  candidate.acceptanceCoverage.acceptancePassed = [];
+  for (const entry of [...candidate.acceptanceCoverage.blocks, ...candidate.acceptanceCoverage.slots]) {
+    entry.coveredBy = [];
+    entry.uncovered = true;
+  }
+  candidate.acceptanceCoverage.uncoveredBlocks = candidate.acceptanceCoverage.blocks.map((entry) => entry.id);
+  candidate.acceptanceCoverage.uncoveredSlots = candidate.acceptanceCoverage.slots.map((entry) => entry.id);
 }
 
 function expectBlocked(candidate: SemanticMutationIsolatedVerificationArtifactSet): void {
@@ -279,16 +260,13 @@ function expectBlocked(candidate: SemanticMutationIsolatedVerificationArtifactSe
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(candidate)).toBe('blocked');
 }
 
-test('canonical artifact contract accepts ordinary pass/failure and blocked snapshot profiles', () => {
+test('canonical artifact contract accepts complete current-writer pass and failure inventories', () => {
   const passed = artifactSet('passed');
   const failed = artifactSet('failed');
-  const blocked = blockedArtifactSet();
   expect(isCanonicalVerificationArtifactSet(passed)).toBe(true);
   expect(isCanonicalVerificationArtifactSet(failed)).toBe(true);
-  expect(isCanonicalVerificationArtifactSet(blocked)).toBe(true);
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(passed)).toBe('passed');
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(failed)).toBe('failed');
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(blocked)).toBe('failed');
 });
 
 test('current production artifacts cannot delete claimSummary and fall back to legacy PASS', () => {
@@ -297,57 +275,57 @@ test('current production artifacts cannot delete claimSummary and fall back to l
   expectBlocked(candidate);
 });
 
-test('claimSummary aggregate and complete inventory are mandatory', () => {
-  const contradictory = mutablePassedArtifact();
-  contradictory.verificationReport.summary.claimSummary.overall.overallStatus = 'invalidated';
-  contradictory.verificationReport.summary.claimSummary.overall.overallReasonCode = 'selection-unresolved';
-  expectBlocked(contradictory);
-
-  const incomplete = mutablePassedArtifact();
-  incomplete.verificationReport.summary.claimSummary.gates =
-    incomplete.verificationReport.summary.claimSummary.gates.filter(
-      (gate) => gate.gateId !== PRODUCT_POLICY_GATE_ID
-    );
-  incomplete.verificationReport.summary.claimSummary.overall.claimResults =
-    incomplete.verificationReport.summary.claimSummary.overall.claimResults.filter(
-      (claim) => claim.claimId !== PRODUCT_POLICY_CLAIM_ID
-    );
-  expectBlocked(incomplete);
+test('claimSummary overall status must agree with the legacy summary projection', () => {
+  const candidate = mutablePassedArtifact();
+  candidate.verificationReport.summary.claimSummary.overall.overallStatus = 'invalidated';
+  candidate.verificationReport.summary.claimSummary.overall.overallReasonCode = 'selection-unresolved';
+  expectBlocked(candidate);
 });
 
-test('passed gates, contributions and object shape remain fail-closed', () => {
-  const unsupported = mutablePassedArtifact();
-  unsupported.verificationReport.summary.claimSummary.gates.find(
-    (gate) => gate.gateId === PRODUCT_FAST_GATE_ID
-  )!.supportedClaims = [];
-  expectBlocked(unsupported);
-
-  const forged = mutablePassedArtifact();
-  forged.verificationReport.summary.claimSummary.overall.claimResults[0]!
-    .contributingGateIds.push('forged-gate');
-  expectBlocked(forged);
-
-  const unknown = mutablePassedArtifact() as MutableClaimSummaryArtifactSet & {
+test('unknown claimSummary fields remain fail-closed', () => {
+  const candidate = mutablePassedArtifact() as MutableClaimSummaryArtifactSet & {
     verificationReport: { summary: { claimSummary: Record<string, unknown> } };
   };
-  unknown.verificationReport.summary.claimSummary.forged = true;
-  expectBlocked(unknown);
+  candidate.verificationReport.summary.claimSummary.forged = true;
+  expectBlocked(candidate);
 });
 
-test('fast, runtime and policy physical reports must match the green aggregate', () => {
+test('overall passed cannot conceal a failed claim result', () => {
+  const candidate = mutablePassedArtifact();
+  const claim = candidate.verificationReport.summary.claimSummary.overall.claimResults[0]!;
+  claim.status = 'failed';
+  claim.reasonCode = 'executed-failure';
+  claim.coverageComplete = false;
+  expectBlocked(candidate);
+});
+
+test('complete current-writer gate and claim inventory is mandatory', () => {
+  const candidate = mutablePassedArtifact();
+  candidate.verificationReport.summary.claimSummary.gates =
+    candidate.verificationReport.summary.claimSummary.gates.filter(
+      (gate) => gate.gateId !== PRODUCT_POLICY_GATE_ID
+    );
+  candidate.verificationReport.summary.claimSummary.overall.claimResults =
+    candidate.verificationReport.summary.claimSummary.overall.claimResults.filter(
+      (claim) => claim.claimId !== PRODUCT_POLICY_CLAIM_ID
+    );
+  expectBlocked(candidate);
+});
+
+test('passed required gates must explicitly support their claim', () => {
+  const candidate = mutablePassedArtifact();
+  const fastGate = candidate.verificationReport.summary.claimSummary.gates.find(
+    (gate) => gate.gateId === PRODUCT_FAST_GATE_ID
+  )!;
+  fastGate.supportedClaims = [];
+  expectBlocked(candidate);
+});
+
+test('fast, runtime and policy reports must match their green aggregate', () => {
   const fastDrift = mutablePassedArtifact();
   fastDrift.verificationReport.fast.build.status = 'skipped';
   fastDrift.verificationReport.build.status = 'skipped';
   expectBlocked(fastDrift);
-
-  const runtimeDrift = mutablePassedArtifact();
-  const skipped: RuntimeStep = {
-    status: 'skipped', passed: [], failed: [], command: 'bun run test:acceptance'
-  };
-  runtimeDrift.verificationReport.runtime.acceptance = skipped;
-  runtimeDrift.runtimeReport.acceptance = structuredClone(skipped);
-  runtimeDrift.acceptanceCoverage.acceptancePassed = [];
-  expectBlocked(runtimeDrift);
 
   const policyDrift = mutablePassedArtifact();
   const violation = blockingViolation();
@@ -358,45 +336,25 @@ test('fast, runtime and policy physical reports must match the green aggregate',
   policyDrift.verificationReport.fast.policy.violations = [violation];
   policyDrift.verificationReport.policy.violations = [violation];
   expectBlocked(policyDrift);
+
+  const runtimeDrift = mutablePassedArtifact();
+  const skipped: RuntimeStep = { status: 'skipped', passed: [], failed: [], command: null };
+  runtimeDrift.verificationReport.runtime.acceptance = skipped;
+  runtimeDrift.runtimeReport.acceptance = structuredClone(skipped);
+  invalidateCoverage(runtimeDrift);
+  expectBlocked(runtimeDrift);
 });
 
-test('policy declaration, merged inventory and scoped violation partitions close exactly', () => {
-  const scopedOnly = mutablePassedArtifact();
-  const violation = blockingViolation();
-  scopedOnly.policyReport.official.violations = [violation];
-  scopedOnly.verificationReport.fast.policyReport.official.violations = [violation];
-  expectBlocked(scopedOnly);
-
-  const forgedMerged = mutablePassedArtifact();
-  forgedMerged.policyReport.official.policies = [];
-  forgedMerged.policyReport.official.sources = [];
-  forgedMerged.verificationReport.fast.policyReport.official.policies = [];
-  forgedMerged.verificationReport.fast.policyReport.official.sources = [];
-  expectBlocked(forgedMerged);
-
-  const skippedWithInventory = mutablePassedArtifact();
-  skippedWithInventory.policyReport.status = 'skipped';
-  skippedWithInventory.verificationReport.fast.policyReport.status = 'skipped';
-  skippedWithInventory.verificationReport.fast.policy.status = 'skipped';
-  skippedWithInventory.verificationReport.policy.status = 'skipped';
-  expectBlocked(skippedWithInventory);
+test('skipped policy cannot conceal declared inventory', () => {
+  const candidate = mutablePassedArtifact();
+  candidate.policyReport.status = 'skipped';
+  candidate.verificationReport.fast.policyReport.status = 'skipped';
+  candidate.verificationReport.fast.policy.status = 'skipped';
+  candidate.verificationReport.policy.status = 'skipped';
+  expectBlocked(candidate);
 });
 
-test('full-runtime PASS accepts empty physical inventories but rejects blank entries or missing commands', () => {
-  const emptyAcceptance = mutablePassedArtifact();
-  emptyAcceptance.verificationReport.runtime.acceptance.passed = [];
-  emptyAcceptance.runtimeReport.acceptance.passed = [];
-  emptyAcceptance.acceptanceCoverage.acceptancePassed = [];
-  emptyAcceptance.verificationReport.summary.claimSummary =
-    buildExpectedProductVerificationClaimSummary(
-      'all',
-      emptyAcceptance.verificationReport.fast as any,
-      emptyAcceptance.verificationReport.runtime as any,
-      'full',
-      emptyAcceptance.policyReport
-    ) as MutableClaimSummaryArtifactSet['verificationReport']['summary']['claimSummary'];
-  expect(isCanonicalVerificationArtifactSet(emptyAcceptance)).toBe(true);
-
+test('full-runtime PASS requires nonblank inventories and commands', () => {
   const blankInventory = mutablePassedArtifact();
   blankInventory.verificationReport.runtime.unit.passed = [''];
   blankInventory.runtimeReport.unit.passed = [''];
@@ -408,39 +366,60 @@ test('full-runtime PASS accepts empty physical inventories but rejects blank ent
   expectBlocked(missingCommand);
 });
 
-test('coverage references must be declared and accepted', () => {
+test('coverage cannot be emptied or partially forged under a green claim summary', () => {
+  const missingCoverage = mutablePassedArtifact();
+  invalidateCoverage(missingCoverage);
+  expectBlocked(missingCoverage);
+
+  const forgedCoverage = mutablePassedArtifact();
+  forgedCoverage.acceptanceCoverage.acceptancePassed = [];
+  expectBlocked(forgedCoverage);
+
+  const partialCoverage = mutablePassedArtifact();
+  partialCoverage.acceptanceCoverage.blocks[0]!.declaredAcceptance.push('second_requirement');
+  partialCoverage.acceptanceCoverage.blocks[0]!.uncovered = false;
+  expectBlocked(partialCoverage);
+});
+
+test('all-lane artifacts cannot replace full runtime proof with a service projection', () => {
   const candidate = mutablePassedArtifact();
-  candidate.acceptanceCoverage.blocks = [{
-    id: 'block',
-    declaredAcceptance: [],
-    coveredBy: ['forged'],
-    uncovered: false
-  }];
+  const skipped: RuntimeStep = { status: 'skipped', passed: [], failed: [], command: null };
+  candidate.verificationReport.runtime.acceptance = skipped;
+  candidate.runtimeReport.acceptance = structuredClone(skipped);
+  invalidateCoverage(candidate);
+  candidate.verificationReport.summary.status = 'failed';
+  candidate.verificationReport.summary.claimSummary =
+    buildExpectedProductVerificationClaimSummary(
+      'all',
+      candidate.verificationReport.fast as any,
+      candidate.verificationReport.runtime as any,
+      'service',
+      candidate.policyReport,
+      candidate.acceptanceCoverage as any
+    );
   expectBlocked(candidate);
 });
 
-test('empty claim/gate sets and all-lane service substitution remain blocked', () => {
-  const empty = mutablePassedArtifact();
-  empty.verificationReport.summary.claimSummary.overall.claimResults = [];
-  empty.verificationReport.summary.claimSummary.gates = [];
-  expectBlocked(empty);
+test('duplicate identities and forged contribution references remain fail-closed', () => {
+  const duplicate = mutablePassedArtifact();
+  duplicate.verificationReport.summary.claimSummary.gates[1]!.gateId =
+    duplicate.verificationReport.summary.claimSummary.gates[0]!.gateId;
+  expectBlocked(duplicate);
 
-  const service = mutablePassedArtifact();
-  const skipped: RuntimeStep = {
-    status: 'skipped', passed: [], failed: [], command: 'bun run test:acceptance'
-  };
-  service.verificationReport.runtime.acceptance = skipped;
-  service.runtimeReport.acceptance = structuredClone(skipped);
-  service.verificationReport.summary.status = 'failed';
-  service.verificationReport.summary.claimSummary =
-    buildExpectedProductVerificationClaimSummary(
-      'all', service.verificationReport.fast as any,
-      service.verificationReport.runtime as any, 'service', service.policyReport
-    ) as MutableClaimSummaryArtifactSet['verificationReport']['summary']['claimSummary'];
-  expectBlocked(service);
+  const forged = mutablePassedArtifact();
+  forged.verificationReport.summary.claimSummary.overall.claimResults[0]!
+    .contributingGateIds.push('forged-gate');
+  expectBlocked(forged);
 });
 
-test('object member reordering does not invalidate a semantically identical claim summary', () => {
+test('empty claim and gate sets cannot manufacture a passed aggregate', () => {
+  const candidate = mutablePassedArtifact();
+  candidate.verificationReport.summary.claimSummary.overall.claimResults = [];
+  candidate.verificationReport.summary.claimSummary.gates = [];
+  expectBlocked(candidate);
+});
+
+test('object member reordering preserves a semantically identical artifact', () => {
   const candidate = mutablePassedArtifact();
   const original = candidate.verificationReport.summary.claimSummary;
   candidate.verificationReport.summary.claimSummary = {

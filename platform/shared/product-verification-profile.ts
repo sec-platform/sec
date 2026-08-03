@@ -1,7 +1,9 @@
+import type { AcceptanceCoverageReport } from './acceptance-types.ts';
 import type { PolicyReport, PolicyViolation } from './policy-types.ts';
 import {
   CodexDevelopmentAggregateVerificationClaimsV1,
   CodexDevelopmentBuildVerificationGateResultV1,
+  CodexDevelopmentVerificationEnvironmentIdentityV1,
   mapProductVerificationStatus,
   type ProductVerificationMappingContext,
   type VerificationApplicability,
@@ -40,7 +42,6 @@ export const PRODUCT_VERIFICATION_GATE_IDS = Object.freeze([
   PRODUCT_RUNTIME_GATE_ID,
   PRODUCT_POLICY_GATE_ID
 ] as const);
-
 export const PRODUCT_VERIFICATION_CLAIM_IDS = Object.freeze([
   PRODUCT_FAST_CLAIM_ID,
   PRODUCT_POLICY_CLAIM_ID,
@@ -95,7 +96,7 @@ function buildMappedGate(
   failureFingerprint: string
 ): VerificationGateResultV1 {
   const mapping = mapProductVerificationStatus(legacyStatus, context);
-  const isExecuted = mapping.disposition === 'executed';
+  const executed = mapping.disposition === 'executed';
   return CodexDevelopmentBuildVerificationGateResultV1({
     gateId,
     gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
@@ -109,8 +110,8 @@ function buildMappedGate(
     reasonCode: mapping.reasonCode,
     requiredForClaims: [claimId],
     supportedClaims: mapping.status === 'passed' ? [claimId] : [],
-    environment: isExecuted ? productEnvironment() : null,
-    execution: isExecuted
+    environment: executed ? productEnvironment() : null,
+    execution: executed
       ? productExecution(
           mapping.status === 'failed' ? 1 : 0,
           mapping.status === 'failed' ? failureFingerprint : null
@@ -192,9 +193,6 @@ function policyClosureIsValid(report: PolicyReport): boolean {
       if (!localeSortedUnique(source.policyIds)) return false;
       for (const policyId of source.policyIds) {
         declaredIds.add(policyId);
-        // The loader intentionally permits shadow declarations. Official
-        // definitions are visited first, then project definitions, and later
-        // sorted source files replace earlier declarations with the same ID.
         winningDeclaration.set(policyId, { scope: scopeName, path: source.path });
       }
     }
@@ -212,9 +210,7 @@ function policyClosureIsValid(report: PolicyReport): boolean {
       || winner.path !== merged.sourcePath
       || !localeSortedUnique(merged.targets)
       || merged.targets.length === 0
-    ) {
-      return false;
-    }
+    ) return false;
   }
 
   for (const violation of report.violations) {
@@ -223,9 +219,7 @@ function policyClosureIsValid(report: PolicyReport): boolean {
       !winner
       || winner.scope !== violation.sourceScope
       || winner.path !== violation.sourcePath
-    ) {
-      return false;
-    }
+    ) return false;
   }
 
   const scoped = canonicalViolationInventory([
@@ -253,12 +247,16 @@ function hasBlockingPolicyViolation(report: PolicyReport): boolean {
   );
 }
 
-function passedStepIsWriterConsistent(step: VerificationStepReport): boolean {
+function nonblankInventory(values: readonly string[]): boolean {
+  return values.length > 0 && values.every((entry) => entry.trim().length > 0);
+}
+
+function executedPassedStep(step: VerificationStepReport): boolean {
   return step.status === 'passed' &&
+    nonblankInventory(step.passed) &&
     step.failed.length === 0 &&
     typeof step.command === 'string' &&
-    step.command.trim().length > 0 &&
-    step.passed.every((entry) => entry.trim().length > 0);
+    step.command.trim().length > 0;
 }
 
 function fastPassIsWriterConsistent(fast: FastVerificationLaneReport): boolean {
@@ -267,6 +265,17 @@ function fastPassIsWriterConsistent(fast: FastVerificationLaneReport): boolean {
     fast.acceptance.status === 'passed' &&
     fast.acceptance.failed.length === 0 &&
     fast.policy.status !== 'failed';
+}
+
+function completeAcceptanceCoverage(
+  runtime: RuntimeVerificationLaneReport,
+  coverage: AcceptanceCoverageReport | null
+): boolean {
+  return coverage !== null &&
+    coverage.status === runtime.status &&
+    coverage.acceptancePassed.length > 0 &&
+    coverage.uncoveredBlocks.length === 0 &&
+    coverage.uncoveredSlots.length === 0;
 }
 
 export function buildExpectedProductFastGate(
@@ -294,7 +303,8 @@ export function buildExpectedProductRuntimeGate(
   runtime: RuntimeVerificationLaneReport,
   requestedLane: VerificationLane,
   runtimeMode: ProductVerificationRuntimeMode,
-  fastFailed: boolean
+  fastFailed: boolean,
+  acceptanceCoverage: AcceptanceCoverageReport | null = null
 ): VerificationGateResultV1 {
   if (runtimeMode === 'service' && runtime.status === 'passed') {
     return CodexDevelopmentBuildVerificationGateResultV1({
@@ -314,20 +324,30 @@ export function buildExpectedProductRuntimeGate(
       execution: null,
       evidenceRefs: [],
       invalidationRules: [],
-      diagnostic: 'Service-mode runtime passed without owning full runtime proof.'
+      diagnostic: 'Service-mode runtime does not own full runtime proof.'
     });
   }
-  if (runtimeMode === 'full' && runtime.status === 'passed' && (
-    !passedStepIsWriterConsistent(runtime.build)
-    || !passedStepIsWriterConsistent(runtime.unit)
-    || !passedStepIsWriterConsistent(runtime.acceptance)
-  )) {
-    return buildInvalidGate(
-      PRODUCT_RUNTIME_GATE_ID,
-      PRODUCT_RUNTIME_CLAIM_ID,
-      'Full runtime pass contradicts subordinate step status, command, failure or inventory shape.',
-      'runtime-step-shape-change'
-    );
+  if (runtimeMode === 'full' && runtime.status === 'passed') {
+    if (
+      !executedPassedStep(runtime.build)
+      || !executedPassedStep(runtime.unit)
+      || !executedPassedStep(runtime.acceptance)
+    ) {
+      return buildInvalidGate(
+        PRODUCT_RUNTIME_GATE_ID,
+        PRODUCT_RUNTIME_CLAIM_ID,
+        'Full runtime pass requires nonempty executed build, unit and acceptance inventories.',
+        'runtime-test-inventory-or-applicability-change'
+      );
+    }
+    if (!completeAcceptanceCoverage(runtime, acceptanceCoverage)) {
+      return buildInvalidGate(
+        PRODUCT_RUNTIME_GATE_ID,
+        PRODUCT_RUNTIME_CLAIM_ID,
+        'Full runtime execution did not close all semantic acceptance coverage.',
+        'runtime-acceptance-coverage-change'
+      );
+    }
   }
   return buildMappedGate(
     PRODUCT_RUNTIME_GATE_ID,
@@ -418,9 +438,13 @@ export function inferProductVerificationRuntimeMode(
 }
 
 export function productVerificationClaimDefinitions(
-  lane: VerificationLane
+  lane: VerificationLane,
+  includePolicyClaim = true
 ): VerificationClaimDefinitionV1[] {
-  const owningEnvironments = [`${process.platform}-${process.arch}`];
+  const owningEnvironments = [CodexDevelopmentVerificationEnvironmentIdentityV1(
+    process.platform,
+    process.arch
+  )];
   const claims: VerificationClaimDefinitionV1[] = [];
   if (lane === 'fast' || lane === 'all') {
     claims.push({
@@ -428,13 +452,13 @@ export function productVerificationClaimDefinitions(
       requiredGateIds: [PRODUCT_FAST_GATE_ID],
       owningEnvironments
     });
-    // This mirrors the current writer exactly. Issue #215 owns any future
-    // change that removes a not-applicable policy claim from the aggregate.
-    claims.push({
-      claimId: PRODUCT_POLICY_CLAIM_ID,
-      requiredGateIds: [PRODUCT_POLICY_GATE_ID],
-      owningEnvironments
-    });
+    if (includePolicyClaim) {
+      claims.push({
+        claimId: PRODUCT_POLICY_CLAIM_ID,
+        requiredGateIds: [PRODUCT_POLICY_GATE_ID],
+        owningEnvironments
+      });
+    }
   }
   if (lane === 'runtime' || lane === 'all') {
     claims.push({
@@ -451,18 +475,30 @@ export function buildExpectedProductVerificationClaimSummary(
   fast: FastVerificationLaneReport,
   runtime: RuntimeVerificationLaneReport,
   runtimeMode: ProductVerificationRuntimeMode,
-  policyReport: PolicyReport
+  policyReport: PolicyReport,
+  acceptanceCoverage: AcceptanceCoverageReport | null = null
 ): VerificationClaimSummary {
   const gates = [
     buildExpectedProductFastGate(fast, lane),
-    buildExpectedProductRuntimeGate(runtime, lane, runtimeMode, fast.status === 'failed'),
+    buildExpectedProductRuntimeGate(
+      runtime,
+      lane,
+      runtimeMode,
+      fast.status === 'failed',
+      acceptanceCoverage
+    ),
     buildExpectedProductPolicyGate(policyReport)
   ];
-  const overall = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: productVerificationClaimDefinitions(lane),
-    gateResults: gates
-  });
-  return { overall, gates };
+  const includePolicyClaim = !(
+    policyReport.status === 'skipped' && policyInventoryIsEmpty(policyReport)
+  );
+  return {
+    gates,
+    overall: CodexDevelopmentAggregateVerificationClaimsV1({
+      claims: productVerificationClaimDefinitions(lane, includePolicyClaim),
+      gateResults: gates
+    })
+  };
 }
 
 export function buildBlockedProductVerificationClaimSummary(
@@ -496,7 +532,7 @@ export function buildBlockedProductVerificationClaimSummary(
   return {
     gates,
     overall: CodexDevelopmentAggregateVerificationClaimsV1({
-      claims: productVerificationClaimDefinitions(lane),
+      claims: productVerificationClaimDefinitions(lane, true),
       gateResults: gates
     })
   };

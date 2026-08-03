@@ -429,12 +429,22 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
     },
     logs: runtimeLogs
   };
+  const acceptanceCoverage = {
+    formatVersion: '1' as const,
+    status: runtime.status,
+    acceptancePassed: [],
+    blocks: [],
+    slots: [],
+    uncoveredBlocks: [],
+    uncoveredSlots: []
+  };
   const claimSummary = buildExpectedProductVerificationClaimSummary(
     'all',
     fast,
     runtime,
     'full',
-    policy
+    policy,
+    acceptanceCoverage
   );
   return {
     childExitCode: status === 'passed' ? 0 : 1,
@@ -446,7 +456,7 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
       fast,
       runtime,
       summary: {
-        status,
+        status: claimSummary.overall.overallStatus === 'passed' ? 'passed' : 'failed',
         requestedLane: 'all' as const,
         failedLanes: status === 'passed' ? [] : ['runtime'],
         claimSummary
@@ -458,21 +468,13 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
     },
     runtimeReport: runtime,
     policyReport: policy,
-    acceptanceCoverage: {
-      formatVersion: '1',
-      status: runtime.status,
-      acceptancePassed: [],
-      blocks: [],
-      slots: [],
-      uncoveredBlocks: [],
-      uncoveredSlots: []
-    },
+    acceptanceCoverage,
     semanticBundle: isolatedSemanticBundle()
   };
 }
 
-test('isolated child outcome accepts exact claim-bound pass and nonzero verification failure', () => {
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('passed'))).toBe('passed');
+test('isolated child outcome blocks zero-test pseudo-pass and accepts physical failure', () => {
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('passed'))).toBe('blocked');
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('failed'))).toBe('failed');
 });
 

@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   buildExpectedProductFastGate,
   buildExpectedProductPolicyGate,
+  buildExpectedProductRuntimeGate,
   buildExpectedProductVerificationClaimSummary,
   PRODUCT_POLICY_CLAIM_ID
 } from '../../platform/shared/product-verification-profile.ts';
@@ -62,14 +63,17 @@ function fast(policyReport: PolicyReport): FastVerificationLaneReport {
   };
 }
 
-function runtime(): RuntimeVerificationLaneReport {
+function runtime(
+  unitPassed: string[] = ['tests/unit/customer.test.ts'],
+  acceptancePassed: string[] = ['tests/acceptance/customer.test.ts']
+): RuntimeVerificationLaneReport {
   return {
     status: 'passed',
-    build: { status: 'passed', passed: [], failed: [], command: 'bun run build' },
-    unit: { status: 'passed', passed: [], failed: [], command: 'bun run test:unit' },
+    build: { status: 'passed', passed: ['next build'], failed: [], command: 'bun run build' },
+    unit: { status: 'passed', passed: unitPassed, failed: [], command: 'bun run test:unit' },
     acceptance: {
       status: 'passed',
-      passed: [],
+      passed: acceptancePassed,
       failed: [],
       command: 'bun run test:acceptance'
     },
@@ -77,23 +81,39 @@ function runtime(): RuntimeVerificationLaneReport {
   };
 }
 
-test('no-policy current writer profile retains the not-applicable policy claim', () => {
+function completeCoverage(runtimeReport: RuntimeVerificationLaneReport) {
+  return {
+    formatVersion: '1' as const,
+    status: runtimeReport.status,
+    acceptancePassed: ['customer_acceptance'],
+    blocks: [{
+      id: 'customer/basic',
+      declaredAcceptance: ['customer_acceptance'],
+      coveredBy: ['customer_acceptance'],
+      uncovered: false
+    }],
+    slots: [],
+    uncoveredBlocks: [],
+    uncoveredSlots: []
+  };
+}
+
+test('no-policy writer profile omits the not-applicable policy claim', () => {
   const policy = emptyPolicyReport();
+  const runtimeReport = runtime();
   const summary = buildExpectedProductVerificationClaimSummary(
     'all',
     fast(policy),
-    runtime(),
+    runtimeReport,
     'full',
-    policy
+    policy,
+    completeCoverage(runtimeReport)
   );
 
-  expect(summary.overall.claimResults.map((claim) => claim.claimId)).toContain(
+  expect(summary.overall.claimResults.map((claim) => claim.claimId)).not.toContain(
     PRODUCT_POLICY_CLAIM_ID
   );
-  expect(summary.overall.claimResults.find(
-    (claim) => claim.claimId === PRODUCT_POLICY_CLAIM_ID
-  )?.status).toBe('not-run');
-  expect(summary.overall.overallStatus).toBe('not-run');
+  expect(summary.overall.overallStatus).toBe('passed');
 });
 
 test('policy shadow declarations preserve the loader last-wins source identity', () => {
@@ -107,7 +127,6 @@ test('policy merged entries require the winning source and nonempty targets', ()
   wrongWinner.merged.policies[0]!.sourceScope = 'official';
   wrongWinner.merged.policies[0]!.sourcePath = 'policies/b.yaml';
   expect(buildExpectedProductPolicyGate(wrongWinner).status).toBe('invalidated');
-
   expect(buildExpectedProductPolicyGate(shadowedPolicyReport([])).status).toBe('invalidated');
 });
 
@@ -115,4 +134,41 @@ test('a passed fast lane cannot retain failed acceptance inventory', () => {
   const report = fast(shadowedPolicyReport());
   report.acceptance.failed = ['tests/acceptance/failed.test.ts'];
   expect(buildExpectedProductFastGate(report, 'all').status).toBe('invalidated');
+});
+
+test('full runtime pass requires nonempty physical inventories and complete coverage', () => {
+  const zeroUnit = runtime([], ['tests/acceptance/customer.test.ts']);
+  expect(buildExpectedProductRuntimeGate(
+    zeroUnit,
+    'all',
+    'full',
+    false,
+    completeCoverage(zeroUnit)
+  ).status).toBe('invalidated');
+
+  const complete = runtime();
+  expect(buildExpectedProductRuntimeGate(
+    complete,
+    'all',
+    'full',
+    false,
+    completeCoverage(complete)
+  ).status).toBe('passed');
+
+  expect(buildExpectedProductRuntimeGate(
+    complete,
+    'all',
+    'full',
+    false,
+    {
+      ...completeCoverage(complete),
+      uncoveredBlocks: ['customer/basic'],
+      blocks: [{
+        id: 'customer/basic',
+        declaredAcceptance: ['customer_acceptance'],
+        coveredBy: [],
+        uncovered: true
+      }]
+    }
+  ).status).toBe('invalidated');
 });

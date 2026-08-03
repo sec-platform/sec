@@ -4,590 +4,408 @@ import {
   CodexDevelopmentAggregateVerificationClaimsV1,
   CodexDevelopmentAssertVerificationGateResultV1,
   CodexDevelopmentBuildVerificationGateResultV1,
+  CodexDevelopmentVerificationEnvironmentIdentityV1,
   mapCiEvidenceV2Status,
   mapEvidenceDisposition,
   mapProductVerificationStatus,
   mapSemanticMutationBlocked,
   VERIFICATION_GATE_RESULT_SCHEMA_V1,
+  type VerificationApplicability,
   type VerificationClaimDefinitionV1,
+  type VerificationDisposition,
   type VerificationGateEnvironmentV1,
-  type VerificationGateExecutionV1,
-  type VerificationGateResultV1
+  type VerificationGateResultV1,
+  type VerificationReasonCode,
+  type VerificationResultStatus
 } from '../../platform/shared/verification-result-contract.ts';
 
 const INPUT_DIGEST = `sha256:${'a'.repeat(64)}`;
 const SUBJECT_REVISION = 'b'.repeat(40);
 const OUTPUT_DIGEST = `sha256:${'c'.repeat(64)}`;
 
-function environment(os: string, arch: string, capabilities: string[]): VerificationGateEnvironmentV1 {
+function environment(os = 'linux', arch = 'x64'): VerificationGateEnvironmentV1 {
   return {
     runtime: 'bun@1.3.14',
     os,
     arch,
-    filesystem: 'ntfs',
-    capabilities,
+    filesystem: os === 'windows' ? 'ntfs' : 'ext4',
+    capabilities: ['typescript'],
     toolchainRevision: 'ci-verification-v19',
     providerRevisions: []
   };
 }
 
-function execution(exitCode: number): VerificationGateExecutionV1 {
+function environmentId(os = 'linux', arch = 'x64'): string {
+  return CodexDevelopmentVerificationEnvironmentIdentityV1(os, arch);
+}
+
+function execution(exitCode: number) {
   return {
     argv: ['bun', 'test'],
-    startedAt: '2026-07-30T10:00:00.000Z',
-    finishedAt: '2026-07-30T10:00:05.000Z',
-    durationMs: 5000,
+    startedAt: '2026-08-02T00:00:00.000Z',
+    finishedAt: '2026-08-02T00:00:01.000Z',
+    durationMs: 1000,
     exitCode,
     outputDigest: OUTPUT_DIGEST,
-    failureFingerprint: exitCode === 0 ? null : 'failure-fingerprint'
+    failureFingerprint: exitCode === 0 ? null : 'failure'
   };
 }
 
-function passedGate(gateId: string, claims: string[], env?: VerificationGateEnvironmentV1): VerificationGateResultV1 {
+interface GateOptions {
+  status?: VerificationResultStatus;
+  disposition?: VerificationDisposition;
+  applicability?: VerificationApplicability;
+  reasonCode?: VerificationReasonCode;
+  env?: VerificationGateEnvironmentV1 | null;
+  claims?: string[];
+  supportedClaims?: string[];
+  evidenceRefs?: string[];
+  gateRevision?: string;
+  owner?: string;
+  requirementKey?: string;
+  subjectRevision?: string;
+  inputDigest?: string;
+}
+
+function gate(gateId: string, options: GateOptions = {}): VerificationGateResultV1 {
+  const status = options.status ?? 'passed';
+  const disposition = options.disposition ?? (
+    status === 'passed' || status === 'failed' ? 'executed' : 'not-executed'
+  );
+  const claims = options.claims ?? ['claim'];
+  const reasonCode = options.reasonCode ?? ({
+    passed: 'executed-success',
+    failed: 'executed-failure',
+    'not-run': 'not-dispatched',
+    unsupported: 'capability-unsupported',
+    invalidated: 'selection-unresolved'
+  } satisfies Record<VerificationResultStatus, VerificationReasonCode>)[status];
+  const applicability = options.applicability ?? (
+    status === 'invalidated' ? 'unresolved'
+      : reasonCode === 'not-applicable' ? 'not-applicable'
+        : 'required'
+  );
+  const env = options.env === undefined
+    ? disposition === 'executed' || disposition === 'reused' ? environment() : null
+    : options.env;
+  const supportedClaims = options.supportedClaims ?? (status === 'passed' ? claims : []);
+
   return CodexDevelopmentBuildVerificationGateResultV1({
     gateId,
-    gateRevision: 'gate-rev-1',
-    owner: 'test-owner',
-    requirementKey: 'test-requirement',
-    subjectRevision: SUBJECT_REVISION,
-    inputDigest: INPUT_DIGEST,
-    applicability: 'required',
-    status: 'passed',
-    disposition: 'executed',
-    reasonCode: 'executed-success',
+    gateRevision: options.gateRevision ?? 'gate-rev-1',
+    owner: options.owner ?? 'verification-test',
+    requirementKey: options.requirementKey ?? 'verification-test',
+    subjectRevision: options.subjectRevision ?? SUBJECT_REVISION,
+    inputDigest: options.inputDigest ?? INPUT_DIGEST,
+    applicability,
+    status,
+    disposition,
+    reasonCode,
     requiredForClaims: claims,
-    supportedClaims: claims,
-    environment: env ?? environment('linux', 'x64', ['typescript']),
-    execution: execution(0),
-    evidenceRefs: [],
+    supportedClaims,
+    environment: env,
+    execution: disposition === 'executed' ? execution(status === 'failed' ? 1 : 0) : null,
+    evidenceRefs: options.evidenceRefs ?? (disposition === 'reused' ? ['evidence-1'] : []),
     invalidationRules: [],
     diagnostic: null
   });
 }
 
-function failedGate(gateId: string, claims: string[], reasonCode: 'executed-failure' | 'timeout' | 'cleanup-failed' | 'process-settlement-failed' = 'executed-failure'): VerificationGateResultV1 {
-  return CodexDevelopmentBuildVerificationGateResultV1({
-    gateId,
-    gateRevision: 'gate-rev-1',
-    owner: 'test-owner',
-    requirementKey: 'test-requirement',
-    subjectRevision: SUBJECT_REVISION,
-    inputDigest: INPUT_DIGEST,
-    applicability: 'required',
-    status: 'failed',
-    disposition: 'executed',
-    reasonCode,
-    requiredForClaims: claims,
-    supportedClaims: [],
-    environment: environment('linux', 'x64', ['typescript']),
-    execution: execution(1),
-    evidenceRefs: [],
-    invalidationRules: [],
-    diagnostic: 'gate failed'
-  });
+function claim(
+  claimId: string,
+  requiredGateIds: string[],
+  owningEnvironments: string[] = [environmentId()]
+): VerificationClaimDefinitionV1 {
+  return { claimId, requiredGateIds, owningEnvironments };
 }
 
-function notRunGate(gateId: string, claims: string[], reasonCode: 'not-applicable' | 'fail-fast-prerequisite-failed' | 'current-runner-not-owning-environment' | 'not-dispatched' | 'required-artifact-missing'): VerificationGateResultV1 {
-  return CodexDevelopmentBuildVerificationGateResultV1({
-    gateId,
-    gateRevision: 'gate-rev-1',
-    owner: 'test-owner',
-    requirementKey: 'test-requirement',
-    subjectRevision: SUBJECT_REVISION,
-    inputDigest: INPUT_DIGEST,
-    applicability: reasonCode === 'not-applicable' ? 'not-applicable' : 'required',
-    status: 'not-run',
-    disposition: 'not-executed',
-    reasonCode,
-    requiredForClaims: claims,
-    supportedClaims: [],
-    environment: null,
-    execution: null,
-    evidenceRefs: [],
-    invalidationRules: [],
-    diagnostic: null
-  });
+function aggregate(
+  claims: VerificationClaimDefinitionV1[],
+  gateResults: VerificationGateResultV1[]
+) {
+  return CodexDevelopmentAggregateVerificationClaimsV1({ claims, gateResults });
 }
 
-function unsupportedGate(gateId: string, claims: string[], reasonCode: 'capability-unsupported' | 'platform-unsupported'): VerificationGateResultV1 {
-  return CodexDevelopmentBuildVerificationGateResultV1({
-    gateId,
-    gateRevision: 'gate-rev-1',
-    owner: 'test-owner',
-    requirementKey: 'test-requirement',
-    subjectRevision: SUBJECT_REVISION,
-    inputDigest: INPUT_DIGEST,
-    applicability: 'required',
-    status: 'unsupported',
-    disposition: 'not-executed',
-    reasonCode,
-    requiredForClaims: claims,
-    supportedClaims: [],
-    environment: null,
-    execution: null,
-    evidenceRefs: [],
-    invalidationRules: [],
-    diagnostic: 'capability not available'
-  });
-}
-
-function invalidatedGate(gateId: string, claims: string[], reasonCode: 'selection-unresolved' | 'input-invalidated' | 'evidence-stale' | 'superseded-revision' | 'cancelled'): VerificationGateResultV1 {
-  return CodexDevelopmentBuildVerificationGateResultV1({
-    gateId,
-    gateRevision: 'gate-rev-1',
-    owner: 'test-owner',
-    requirementKey: 'test-requirement',
-    subjectRevision: SUBJECT_REVISION,
-    inputDigest: INPUT_DIGEST,
-    applicability: 'unresolved',
-    status: 'invalidated',
-    disposition: 'not-executed',
-    reasonCode,
-    requiredForClaims: claims,
-    supportedClaims: [],
-    environment: null,
-    execution: null,
-    evidenceRefs: [],
-    invalidationRules: [],
-    diagnostic: 'result invalidated'
-  });
-}
-
-function reusedPassedGate(gateId: string, claims: string[], evidenceRefs: string[]): VerificationGateResultV1 {
-  return CodexDevelopmentBuildVerificationGateResultV1({
-    gateId,
-    gateRevision: 'gate-rev-1',
-    owner: 'test-owner',
-    requirementKey: 'test-requirement',
-    subjectRevision: SUBJECT_REVISION,
-    inputDigest: INPUT_DIGEST,
-    applicability: 'required',
-    status: 'passed',
-    disposition: 'reused',
-    reasonCode: 'executed-success',
-    requiredForClaims: claims,
-    supportedClaims: claims,
-    environment: null,
-    execution: null,
-    evidenceRefs,
-    invalidationRules: [],
-    diagnostic: null
-  });
-}
-
-function claim(claimId: string, gateIds: string[], owningEnvironments: string[] = ['linux-x64']): VerificationClaimDefinitionV1 {
-  return { claimId, requiredGateIds: gateIds, owningEnvironments };
-}
-
-// ---------------------------------------------------------------------------
-// Regression 1: all lane — fast passed + runtime skipped → overall not passed
-// ---------------------------------------------------------------------------
-
-test('regression 1: all-lane fast-passed + runtime-skipped → overall not passed', () => {
-  const fastGate = passedGate('fast-gate', ['overall']);
-  const runtimeGate = notRunGate('runtime-gate', ['overall'], 'fail-fast-prerequisite-failed');
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('overall', ['fast-gate', 'runtime-gate'])],
-    gateResults: [fastGate, runtimeGate]
-  });
-  expect(result.overallStatus).not.toBe('passed');
-  expect(result.overallStatus).toBe('not-run');
-  expect(result.claimResults[0]!.status).toBe('not-run');
-  expect(result.claimResults[0]!.reasonCode).toBe('fail-fast-prerequisite-failed');
+test('schema and canonical vocabularies remain fixed', () => {
+  expect(VERIFICATION_GATE_RESULT_SCHEMA_V1).toBe('sec-verification-gate-result-v1');
+  expect(new Set<VerificationResultStatus>([
+    'passed', 'failed', 'not-run', 'unsupported', 'invalidated'
+  ]).size).toBe(5);
+  expect(new Set<VerificationDisposition>(['executed', 'reused', 'not-executed']).size).toBe(3);
+  expect(new Set<VerificationApplicability>([
+    'required', 'optional', 'not-applicable', 'unresolved'
+  ]).size).toBe(4);
 });
 
-// ---------------------------------------------------------------------------
-// Regression 2: runtime requested + fast not-applicable + runtime passed
-//                → runtime claim passed, fast not pseudo-passed
-// ---------------------------------------------------------------------------
+test('builder and validator accept a complete executed pass', () => {
+  const result = gate('gate-1');
+  CodexDevelopmentAssertVerificationGateResultV1(result);
+  expect(result.schema).toBe(VERIFICATION_GATE_RESULT_SCHEMA_V1);
+});
 
-test('regression 2: runtime requested + fast not-applicable + runtime passed → runtime claim passed', () => {
-  const fastGate = notRunGate('fast-gate', ['runtime-claim'], 'not-applicable');
-  const runtimeGate = passedGate('runtime-gate', ['runtime-claim']);
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('runtime-claim', ['runtime-gate'])],
-    gateResults: [fastGate, runtimeGate]
+test('validator rejects information-losing status, disposition and applicability combinations', () => {
+  expect(() => gate('bad-pass', {
+    status: 'passed', disposition: 'not-executed', env: null
+  })).toThrow(/passed status cannot pair with not-executed/);
+  expect(() => gate('bad-failure', {
+    status: 'failed', disposition: 'not-executed', env: null
+  })).toThrow(/failed status requires executed disposition/);
+  expect(() => gate('bad-unresolved', {
+    status: 'not-run', applicability: 'unresolved', reasonCode: 'not-applicable',
+    disposition: 'not-executed', env: null
+  })).toThrow(/unresolved applicability requires invalidated/);
+});
+
+test('reused pass requires Evidence and environment identity', () => {
+  expect(() => gate('reused-no-evidence', {
+    disposition: 'reused', evidenceRefs: []
+  })).toThrow(/requires Evidence and environment identity/);
+  expect(() => gate('reused-no-environment', {
+    disposition: 'reused', env: null
+  })).toThrow(/requires Evidence and environment identity/);
+
+  const reused = gate('reused', {
+    disposition: 'reused', env: environment(), evidenceRefs: ['ev-1']
   });
+  expect(aggregate([claim('claim', ['reused'])], [reused]).overallStatus).toBe('passed');
+});
+
+test('passed required gate must explicitly support every required claim', () => {
+  expect(() => gate('missing-support', { claims: ['claim'], supportedClaims: [] }))
+    .toThrow(/must support every required claim/);
+  expect(() => gate('foreign-support', { claims: ['claim'], supportedClaims: ['other'] }))
+    .toThrow(/subset of requiredForClaims/);
+});
+
+test('gate arrays and aggregate identities reject duplicates', () => {
+  expect(() => gate('duplicate-claims', { claims: ['claim', 'claim'] }))
+    .toThrow(/must not contain duplicate values/);
+  expect(() => aggregate(
+    [claim('claim', ['same-gate'])],
+    [gate('same-gate'), gate('same-gate')]
+  )).toThrow(/duplicate gate observation/);
+  expect(() => aggregate([
+    claim('claim', ['gate-1']), claim('claim', ['gate-2'])
+  ], [gate('gate-1'), gate('gate-2')])).toThrow(/duplicate claimId/);
+});
+
+test('environment identity is structural and collision-free', () => {
+  const left = environmentId('linux-musl', 'x64');
+  const right = environmentId('linux', 'musl-x64');
+  expect(left).not.toBe(right);
+  expect(() => aggregate([
+    claim('claim', ['portable-gate'], [left, right])
+  ], [
+    gate('portable-gate', { env: environment('linux-musl', 'x64') }),
+    gate('portable-gate', { env: environment('linux', 'musl-x64') })
+  ])).not.toThrow();
+});
+
+test('same logical gate may retain distinct owning-environment observations', () => {
+  const linux = gate('portable-gate', { env: environment('linux', 'x64') });
+  const windows = gate('portable-gate', { env: environment('windows', 'x64') });
+  const result = aggregate([
+    claim('claim', ['portable-gate'], [environmentId('windows', 'x64')])
+  ], [linux, windows]);
   expect(result.overallStatus).toBe('passed');
-  expect(result.claimResults[0]!.status).toBe('passed');
-  // fast-gate is not-applicable so it doesn't contribute to this claim
-  expect(result.claimResults[0]!.contributingGateIds).toEqual(['runtime-gate']);
+  expect(result.claimResults[0]!.contributingGateIds).toEqual(['portable-gate']);
 });
 
-// ---------------------------------------------------------------------------
-// Regression 3: fast failed → runtime not-run/prerequisite-failed; overall failed
-// ---------------------------------------------------------------------------
+test('mixed proof identities for one logical gate fail closed', () => {
+  expect(() => aggregate([
+    claim('claim', ['portable-gate'], [environmentId(), environmentId('windows', 'x64')])
+  ], [
+    gate('portable-gate', { env: environment() }),
+    gate('portable-gate', {
+      env: environment('windows', 'x64'),
+      subjectRevision: 'd'.repeat(40),
+      inputDigest: `sha256:${'e'.repeat(64)}`
+    })
+  ])).toThrow(/mixes proof identities/);
+});
 
-test('regression 3: fast failed → runtime not-run, overall failed', () => {
-  const fastGate = failedGate('fast-gate', ['overall']);
-  const runtimeGate = notRunGate('runtime-gate', ['overall'], 'fail-fast-prerequisite-failed');
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('overall', ['fast-gate', 'runtime-gate'])],
-    gateResults: [fastGate, runtimeGate]
-  });
+test('wrong-environment pass cannot support an owning claim', () => {
+  const result = aggregate([
+    claim('windows-claim', ['windows-gate'], [environmentId('windows', 'x64')])
+  ], [gate('windows-gate', {
+    env: environment('linux', 'x64'), claims: ['windows-claim']
+  })]);
+  expect(result.overallStatus).toBe('not-run');
+  expect(result.overallReasonCode).toBe('current-runner-not-owning-environment');
+  expect(result.claimResults[0]!.coverageComplete).toBe(false);
+});
+
+test('non-owning unsupported observation cannot override owning pass', () => {
+  const result = aggregate([
+    claim('linux-claim', ['portable-gate'], [environmentId('linux', 'x64')])
+  ], [
+    gate('portable-gate', {
+      env: environment('linux', 'x64'), claims: ['linux-claim']
+    }),
+    gate('portable-gate', {
+      status: 'unsupported', disposition: 'not-executed',
+      reasonCode: 'platform-unsupported', env: environment('windows', 'x64'),
+      claims: ['linux-claim']
+    })
+  ]);
+  expect(result.overallStatus).toBe('passed');
+});
+
+test('failure dominates invalidation within owning observations', () => {
+  const result = aggregate([
+    claim('portable', ['portable-gate'], [
+      environmentId('linux', 'x64'), environmentId('windows', 'x64')
+    ])
+  ], [
+    gate('portable-gate', {
+      status: 'failed', reasonCode: 'executed-failure',
+      env: environment('linux', 'x64'), claims: ['portable']
+    }),
+    gate('portable-gate', {
+      status: 'invalidated', disposition: 'not-executed',
+      reasonCode: 'selection-unresolved', env: environment('windows', 'x64'),
+      claims: ['portable']
+    })
+  ]);
   expect(result.overallStatus).toBe('failed');
-  expect(result.claimResults[0]!.status).toBe('failed');
 });
 
-// ---------------------------------------------------------------------------
-// Regression 4: Windows required gate on Linux not-run, missing Windows result
-//                → claim not-run
-// ---------------------------------------------------------------------------
-
-test('regression 4: Windows required gate on Linux not-run → claim not-run', () => {
-  // Linux runner executes its gate, but the Windows owning gate is not-run
-  // because the current runner is not the owning environment.
-  const linuxGate = passedGate('linux-gate', ['windows-claim'], environment('linux', 'x64', ['typescript']));
-  const windowsGate = notRunGate('windows-gate', ['windows-claim'], 'current-runner-not-owning-environment');
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('windows-claim', ['windows-gate'], ['windows-x64'])],
-    gateResults: [linuxGate, windowsGate]
-  });
+test('explicit current-runner non-owning result remains not-run', () => {
+  const result = aggregate([
+    claim('windows-claim', ['windows-gate'], [environmentId('windows', 'x64')])
+  ], [gate('windows-gate', {
+    status: 'not-run', disposition: 'not-executed',
+    reasonCode: 'current-runner-not-owning-environment', env: null,
+    claims: ['windows-claim']
+  })]);
   expect(result.overallStatus).toBe('not-run');
-  expect(result.claimResults[0]!.status).toBe('not-run');
-  expect(result.claimResults[0]!.reasonCode).toBe('current-runner-not-owning-environment');
+  expect(result.overallReasonCode).toBe('current-runner-not-owning-environment');
 });
 
-// ---------------------------------------------------------------------------
-// Regression 5: optional Browser unsupported → non-browser claim passed,
-//                browser claim unsupported
-// ---------------------------------------------------------------------------
-
-test('regression 5: optional Browser unsupported → non-browser claim passed, browser unsupported', () => {
-  const typescriptGate = passedGate('ts-gate', ['typescript-claim']);
-  const browserGate = unsupportedGate('browser-gate', ['browser-claim'], 'capability-unsupported');
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [
-      claim('typescript-claim', ['ts-gate']),
-      claim('browser-claim', ['browser-gate'])
-    ],
-    gateResults: [typescriptGate, browserGate]
-  });
-  // typescript claim should pass
-  const tsResult = result.claimResults.find((c) => c.claimId === 'typescript-claim');
-  expect(tsResult!.status).toBe('passed');
-  // browser claim should be unsupported
-  const browserResult = result.claimResults.find((c) => c.claimId === 'browser-claim');
-  expect(browserResult!.status).toBe('unsupported');
-  // overall: not passed (browser claim is unsupported)
-  expect(result.overallStatus).toBe('unsupported');
+test('missing required gate remains not-run instead of passing empty coverage', () => {
+  const result = aggregate([claim('claim', ['present', 'missing'])], [gate('present')]);
+  expect(result.overallStatus).toBe('not-run');
+  expect(result.overallReasonCode).toBe('not-dispatched');
 });
 
-// ---------------------------------------------------------------------------
-// Regression 6: empty affected source closure → invalidated/non-zero
-// ---------------------------------------------------------------------------
-
-test('regression 6: empty affected source closure → invalidated, not passed', () => {
-  // Simulate: source changed but no tests selected, and selection is unresolved.
-  // The gate for this claim is invalidated with selection-unresolved.
-  const affectedGate = invalidatedGate('affected-gate', ['affected-closure'], 'selection-unresolved');
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('affected-closure', ['affected-gate'])],
-    gateResults: [affectedGate]
-  });
-  expect(result.overallStatus).toBe('invalidated');
-  expect(result.claimResults[0]!.status).toBe('invalidated');
-  expect(result.claimResults[0]!.reasonCode).toBe('selection-unresolved');
-  expect(result.overallStatus).not.toBe('passed');
+test('failed, invalidated, unsupported and not-run preserve strict lattice priority', () => {
+  const claims = [
+    claim('a-not-run', ['g-not-run']),
+    claim('b-unsupported', ['g-unsupported']),
+    claim('c-invalidated', ['g-invalidated']),
+    claim('d-failed', ['g-failed'])
+  ];
+  const gates = [
+    gate('g-not-run', {
+      status: 'not-run', disposition: 'not-executed', reasonCode: 'not-dispatched',
+      env: null, claims: ['a-not-run']
+    }),
+    gate('g-unsupported', {
+      status: 'unsupported', disposition: 'not-executed',
+      reasonCode: 'capability-unsupported', env: null, claims: ['b-unsupported']
+    }),
+    gate('g-invalidated', {
+      status: 'invalidated', disposition: 'not-executed',
+      reasonCode: 'selection-unresolved', env: null, claims: ['c-invalidated']
+    }),
+    gate('g-failed', { status: 'failed', reasonCode: 'cleanup-failed', claims: ['d-failed'] })
+  ];
+  expect(aggregate(claims, gates).overallStatus).toBe('failed');
+  expect(aggregate(claims.slice(0, 3), gates.slice(0, 3)).overallStatus).toBe('invalidated');
+  expect(aggregate(claims.slice(0, 2), gates.slice(0, 2)).overallStatus).toBe('unsupported');
+  expect(aggregate(claims.slice(0, 1), gates.slice(0, 1)).overallStatus).toBe('not-run');
 });
 
-// ---------------------------------------------------------------------------
-// Regression 7: stale reused evidence → invalidated, not passed
-// ---------------------------------------------------------------------------
-
-test('regression 7: stale reused evidence → invalidated, not passed', () => {
-  // A gate that was reused but the evidence is now stale.
-  const staleGate = invalidatedGate('stale-gate', ['reuse-claim'], 'evidence-stale');
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('reuse-claim', ['stale-gate'])],
-    gateResults: [staleGate]
-  });
-  expect(result.overallStatus).toBe('invalidated');
-  expect(result.claimResults[0]!.status).toBe('invalidated');
-  expect(result.claimResults[0]!.reasonCode).toBe('evidence-stale');
+test('aggregate status and reason are invariant under claim and gate permutations', () => {
+  const claims = [
+    claim('z-not-run', ['g-not-run']), claim('a-invalidated', ['g-invalidated'])
+  ];
+  const gates = [
+    gate('g-not-run', {
+      status: 'not-run', disposition: 'not-executed', reasonCode: 'not-dispatched',
+      env: null, claims: ['z-not-run']
+    }),
+    gate('g-invalidated', {
+      status: 'invalidated', disposition: 'not-executed', reasonCode: 'input-invalidated',
+      env: null, claims: ['a-invalidated']
+    })
+  ];
+  const forward = aggregate(claims, gates);
+  expect(aggregate([...claims].reverse(), [...gates].reverse())).toEqual(forward);
+  expect(forward.overallStatus).toBe('invalidated');
+  expect(forward.overallReasonCode).toBe('input-invalidated');
 });
 
-// ---------------------------------------------------------------------------
-// Regression 8: cleanup failure after assertions pass → failed
-// ---------------------------------------------------------------------------
-
-test('regression 8: cleanup failure after assertions pass → failed', () => {
-  // The test gate passed, but the cleanup gate failed.
-  const testGate = passedGate('test-gate', ['cleanup-claim']);
-  const cleanupGate = failedGate('cleanup-gate', ['cleanup-claim'], 'cleanup-failed');
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('cleanup-claim', ['test-gate', 'cleanup-gate'])],
-    gateResults: [testGate, cleanupGate]
-  });
+test('fast failure dominates a runtime prerequisite not-run', () => {
+  const result = aggregate([claim('all', ['fast', 'runtime'])], [
+    gate('fast', { status: 'failed', claims: ['all'] }),
+    gate('runtime', {
+      status: 'not-run', disposition: 'not-executed',
+      reasonCode: 'fail-fast-prerequisite-failed', env: null, claims: ['all']
+    })
+  ]);
   expect(result.overallStatus).toBe('failed');
-  expect(result.claimResults[0]!.status).toBe('failed');
 });
 
-// ---------------------------------------------------------------------------
-// Regression 9: not-applicable requires applicability revision;
-//                without proof → invalidated
-// ---------------------------------------------------------------------------
+test('cleanup failure after successful assertions remains failed', () => {
+  const result = aggregate([claim('claim', ['test', 'cleanup'])], [
+    gate('test'), gate('cleanup', { status: 'failed', reasonCode: 'cleanup-failed' })
+  ]);
+  expect(result.overallStatus).toBe('failed');
+  expect(result.overallReasonCode).toBe('cleanup-failed');
+});
 
-test('regression 9: not-applicable without applicability proof → invalidated', () => {
-  // A gate claims not-applicable but has unresolved applicability.
-  // The validator enforces: unresolved applicability → invalidated status.
-  const gate = invalidatedGate('na-gate', ['na-claim'], 'selection-unresolved');
+test('custom coverage false invalidates otherwise passed claim', () => {
   const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('na-claim', ['na-gate'])],
-    gateResults: [gate]
-  });
-  expect(result.overallStatus).toBe('invalidated');
-  expect(result.claimResults[0]!.status).toBe('invalidated');
-});
-
-// ---------------------------------------------------------------------------
-// Regression 10: V2 evidence adapter cannot increase claims
-// ---------------------------------------------------------------------------
-
-test('regression 10: V2 evidence adapter maps without increasing claims', () => {
-  // V2 evidence has status passed/failed/not-run. Mapping to unified model
-  // must not introduce new supportedClaims.
-  const passedMapping = mapCiEvidenceV2Status('passed', null);
-  expect(passedMapping.status).toBe('passed');
-  expect(passedMapping.disposition).toBe('executed');
-
-  const failedMapping = mapCiEvidenceV2Status('failed', null);
-  expect(failedMapping.status).toBe('failed');
-  expect(failedMapping.disposition).toBe('executed');
-
-  const notRunMapping = mapCiEvidenceV2Status('not-run', 'not-applicable for this platform');
-  expect(notRunMapping.status).toBe('not-run');
-  expect(notRunMapping.disposition).toBe('not-executed');
-  expect(notRunMapping.reasonCode).toBe('not-applicable');
-
-  // Lossy not-run reason → invalidated, never promoted to passed
-  const lossyMapping = mapCiEvidenceV2Status('not-run', 'some unknown reason');
-  expect(lossyMapping.status).toBe('invalidated');
-  expect(lossyMapping.reasonCode).toBe('selection-unresolved');
-});
-
-// ---------------------------------------------------------------------------
-// Builder & validator tests
-// ---------------------------------------------------------------------------
-
-test('builder produces valid gate result and validator accepts it', () => {
-  const gate = passedGate('test-gate', ['test-claim']);
-  // Should not throw
-  CodexDevelopmentAssertVerificationGateResultV1(gate);
-  expect(gate.schema).toBe(VERIFICATION_GATE_RESULT_SCHEMA_V1);
-});
-
-test('validator rejects passed status with not-executed disposition', () => {
-  expect(() => {
-    CodexDevelopmentBuildVerificationGateResultV1({
-      gateId: 'bad-gate',
-      gateRevision: 'rev-1',
-      owner: 'test',
-      requirementKey: 'req',
-      subjectRevision: SUBJECT_REVISION,
-      inputDigest: INPUT_DIGEST,
-      applicability: 'required',
-      status: 'passed',
-      disposition: 'not-executed',
-      reasonCode: 'executed-success',
-      requiredForClaims: ['claim'],
-      supportedClaims: ['claim'],
-      environment: null,
-      execution: null,
-      evidenceRefs: [],
-      invalidationRules: [],
-      diagnostic: null
-    });
-  }).toThrow(/passed status cannot pair with not-executed/);
-});
-
-test('validator rejects failed status with not-executed disposition', () => {
-  expect(() => {
-    CodexDevelopmentBuildVerificationGateResultV1({
-      gateId: 'bad-gate',
-      gateRevision: 'rev-1',
-      owner: 'test',
-      requirementKey: 'req',
-      subjectRevision: SUBJECT_REVISION,
-      inputDigest: INPUT_DIGEST,
-      applicability: 'required',
-      status: 'failed',
-      disposition: 'not-executed',
-      reasonCode: 'executed-failure',
-      requiredForClaims: ['claim'],
-      supportedClaims: [],
-      environment: null,
-      execution: null,
-      evidenceRefs: [],
-      invalidationRules: [],
-      diagnostic: null
-    });
-  }).toThrow(/failed status requires executed disposition/);
-});
-
-test('validator rejects reused disposition without evidenceRefs', () => {
-  expect(() => {
-    CodexDevelopmentBuildVerificationGateResultV1({
-      gateId: 'bad-gate',
-      gateRevision: 'rev-1',
-      owner: 'test',
-      requirementKey: 'req',
-      subjectRevision: SUBJECT_REVISION,
-      inputDigest: INPUT_DIGEST,
-      applicability: 'required',
-      status: 'passed',
-      disposition: 'reused',
-      reasonCode: 'executed-success',
-      requiredForClaims: ['claim'],
-      supportedClaims: ['claim'],
-      environment: null,
-      execution: null,
-      evidenceRefs: [],
-      invalidationRules: [],
-      diagnostic: null
-    });
-  }).toThrow(/reused disposition requires non-empty evidenceRefs/);
-});
-
-test('validator rejects unresolved applicability with non-invalidated status', () => {
-  expect(() => {
-    CodexDevelopmentBuildVerificationGateResultV1({
-      gateId: 'bad-gate',
-      gateRevision: 'rev-1',
-      owner: 'test',
-      requirementKey: 'req',
-      subjectRevision: SUBJECT_REVISION,
-      inputDigest: INPUT_DIGEST,
-      applicability: 'unresolved',
-      status: 'not-run',
-      disposition: 'not-executed',
-      reasonCode: 'not-applicable',
-      requiredForClaims: ['claim'],
-      supportedClaims: [],
-      environment: null,
-      execution: null,
-      evidenceRefs: [],
-      invalidationRules: [],
-      diagnostic: null
-    });
-  }).toThrow(/unresolved applicability requires invalidated status/);
-});
-
-test('reused passed gate is valid and aggregates as passed', () => {
-  const gate = reusedPassedGate('reused-gate', ['reuse-claim'], ['evidence-1', 'evidence-2']);
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('reuse-claim', ['reused-gate'])],
-    gateResults: [gate]
-  });
-  expect(result.overallStatus).toBe('passed');
-  expect(result.claimResults[0]!.status).toBe('passed');
-});
-
-// ---------------------------------------------------------------------------
-// Legacy mapping helper tests
-// ---------------------------------------------------------------------------
-
-test('mapProductVerificationStatus: skipped with fastFailed → not-run/fail-fast', () => {
-  const result = mapProductVerificationStatus('skipped', {
-    requestedLane: 'all',
-    lane: 'runtime',
-    fastFailed: true
-  });
-  expect(result.status).toBe('not-run');
-  expect(result.reasonCode).toBe('fail-fast-prerequisite-failed');
-});
-
-test('mapProductVerificationStatus: skipped with non-owning runner → not-run/not-owning', () => {
-  const result = mapProductVerificationStatus('skipped', {
-    requestedLane: 'all',
-    lane: 'runtime',
-    currentRunnerOwning: false
-  });
-  expect(result.status).toBe('not-run');
-  expect(result.reasonCode).toBe('current-runner-not-owning-environment');
-});
-
-test('mapProductVerificationStatus: skipped with lane not requested → not-run/not-applicable', () => {
-  const result = mapProductVerificationStatus('skipped', {
-    requestedLane: 'fast',
-    lane: 'runtime'
-  });
-  expect(result.status).toBe('not-run');
-  expect(result.reasonCode).toBe('not-applicable');
-});
-
-test('mapProductVerificationStatus: skipped with insufficient context → invalidated', () => {
-  const result = mapProductVerificationStatus('skipped', {
-    requestedLane: 'all',
-    lane: 'runtime',
-    currentRunnerOwning: true
-  });
-  expect(result.status).toBe('invalidated');
-  expect(result.reasonCode).toBe('selection-unresolved');
-});
-
-test('mapSemanticMutationBlocked: blocked with capability → unsupported', () => {
-  const result = mapSemanticMutationBlocked('blocked', { blockedReason: 'capability' });
-  expect(result.status).toBe('unsupported');
-  expect(result.reasonCode).toBe('capability-unsupported');
-});
-
-test('mapSemanticMutationBlocked: blocked with not-reached → not-run', () => {
-  const result = mapSemanticMutationBlocked('blocked', { blockedReason: 'not-reached' });
-  expect(result.status).toBe('not-run');
-  expect(result.reasonCode).toBe('fail-fast-prerequisite-failed');
-});
-
-test('mapSemanticMutationBlocked: blocked with unknown → invalidated (lossy)', () => {
-  const result = mapSemanticMutationBlocked('blocked', { blockedReason: 'unknown' });
-  expect(result.status).toBe('invalidated');
-  expect(result.reasonCode).toBe('selection-unresolved');
-});
-
-test('mapEvidenceDisposition: delta → not-executed (not a completion status)', () => {
-  const result = mapEvidenceDisposition('delta');
-  expect(result.disposition).toBe('not-executed');
-  expect(result.note).toContain('refining gate');
-});
-
-test('mapEvidenceDisposition: reused → reused disposition', () => {
-  const result = mapEvidenceDisposition('reused');
-  expect(result.disposition).toBe('reused');
-});
-
-// ---------------------------------------------------------------------------
-// Aggregate edge cases
-// ---------------------------------------------------------------------------
-
-test('aggregate: missing required gate → claim not-run', () => {
-  const gate = passedGate('present-gate', ['claim-1']);
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('claim-1', ['present-gate', 'missing-gate'])],
-    gateResults: [gate]
-  });
-  expect(result.overallStatus).toBe('not-run');
-  expect(result.claimResults[0]!.status).toBe('not-run');
-  expect(result.claimResults[0]!.reasonCode).toBe('not-dispatched');
-});
-
-test('aggregate: all claims passed → overall passed', () => {
-  const gate1 = passedGate('gate-1', ['claim-1']);
-  const gate2 = passedGate('gate-2', ['claim-2']);
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('claim-1', ['gate-1']), claim('claim-2', ['gate-2'])],
-    gateResults: [gate1, gate2]
-  });
-  expect(result.overallStatus).toBe('passed');
-});
-
-test('aggregate: custom coverage check returning false → invalidated', () => {
-  const gate = passedGate('gate-1', ['claim-1']);
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [claim('claim-1', ['gate-1'])],
-    gateResults: [gate],
+    claims: [claim('claim', ['gate'])],
+    gateResults: [gate('gate')],
     isCoverageComplete: () => false
   });
   expect(result.overallStatus).toBe('invalidated');
-  expect(result.claimResults[0]!.status).toBe('invalidated');
-  expect(result.claimResults[0]!.reasonCode).toBe('selection-unresolved');
+  expect(result.overallReasonCode).toBe('selection-unresolved');
+});
+
+test('empty claim set fails closed instead of producing a vacuous pass', () => {
+  expect(aggregate([], [])).toEqual({
+    overallStatus: 'invalidated',
+    overallReasonCode: 'selection-unresolved',
+    claimResults: []
+  });
+});
+
+test('legacy mappings never promote skipped, not-run or blocked to passed', () => {
+  const productMappings = [
+    mapProductVerificationStatus('skipped', { requestedLane: 'fast', lane: 'runtime' }),
+    mapProductVerificationStatus('skipped', {
+      requestedLane: 'all', lane: 'runtime', fastFailed: true
+    }),
+    mapProductVerificationStatus('skipped', {
+      requestedLane: 'all', lane: 'runtime', currentRunnerOwning: false
+    }),
+    mapProductVerificationStatus('skipped', {
+      requestedLane: 'all', lane: 'runtime', currentRunnerOwning: true
+    })
+  ];
+  for (const mapping of productMappings) expect(mapping.status).not.toBe('passed');
+  for (const reason of [
+    null, 'unknown', 'not-applicable', 'prerequisite', 'owning environment', 'artifact missing'
+  ]) expect(mapCiEvidenceV2Status('not-run', reason).status).not.toBe('passed');
+  for (const blockedReason of [
+    'capability', 'authorization', 'precondition', 'plan-changed', 'not-reached', 'unknown'
+  ] as const) {
+    expect(mapSemanticMutationBlocked('blocked', { blockedReason }).status).not.toBe('passed');
+  }
+});
+
+test('legacy mapping reasons remain explicit and Evidence disposition is orthogonal', () => {
+  expect(mapProductVerificationStatus('skipped', {
+    requestedLane: 'all', lane: 'runtime', fastFailed: true
+  }).reasonCode).toBe('fail-fast-prerequisite-failed');
+  expect(mapProductVerificationStatus('skipped', {
+    requestedLane: 'all', lane: 'runtime', currentRunnerOwning: false
+  }).reasonCode).toBe('current-runner-not-owning-environment');
+  expect(mapCiEvidenceV2Status('not-run', 'unknown').reasonCode).toBe('selection-unresolved');
+  expect(mapEvidenceDisposition('executed').disposition).toBe('executed');
+  expect(mapEvidenceDisposition('reused').disposition).toBe('reused');
+  expect(mapEvidenceDisposition('delta').disposition).toBe('not-executed');
 });

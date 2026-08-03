@@ -55,6 +55,7 @@ acceptance:
   - id: user_can_create_customer
   - id: user_can_list_customers
   - id: tenant_only_sees_own_customers
+  - id: customer_can_upload_attachment
   - id: ticket_can_be_created
   - id: ticket_status_can_transition
   - id: tenant_only_sees_own_tickets
