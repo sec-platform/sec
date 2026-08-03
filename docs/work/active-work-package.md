@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-03
 ---
 
 # 当前唯一 Active Work Package
@@ -10,8 +10,8 @@ last-reviewed: 2026-07-31
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/affected-selection-trust-boundary-v1.md
-manifestDigest: sha256:3ed5cd46e4433d7bd2b9ffbea1e4ba74ae5c3c30ec327bc086a316d8c92ab87d
+manifest: docs/work-packages/verification-artifact-claim-summary-v1.md
+manifestDigest: sha256:f76713146f24bbcfc13b323fb13e2cbaad0340abc58847a37de73b80af162e89
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

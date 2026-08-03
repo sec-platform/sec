@@ -14,6 +14,9 @@ import {
   executeSemanticMutationVerification,
   planSemanticMutationVerificationCapabilities
 } from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
+import {
+  buildExpectedProductVerificationClaimSummary
+} from '../../platform/shared/product-verification-profile.ts';
 import type { VerificationRequirementV1 } from '../../platform/shared/semantic-mutation-types.ts';
 import {
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
@@ -417,10 +420,22 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
   } : {
     status: 'failed' as const,
     build: { status: 'failed' as const, passed: [], failed: ['next build'], command: 'bun run build' },
-    unit: { status: 'skipped' as const, passed: [], failed: [], command: null },
-    acceptance: { status: 'skipped' as const, passed: [], failed: [], command: null },
+    unit: { status: 'skipped' as const, passed: [], failed: [], command: 'bun run test:unit' },
+    acceptance: {
+      status: 'skipped' as const,
+      passed: [],
+      failed: [],
+      command: 'bun run test:acceptance'
+    },
     logs: runtimeLogs
   };
+  const claimSummary = buildExpectedProductVerificationClaimSummary(
+    'all',
+    fast,
+    runtime,
+    'full',
+    policy
+  );
   return {
     childExitCode: status === 'passed' ? 0 : 1,
     verificationReport: {
@@ -433,7 +448,8 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
       summary: {
         status,
         requestedLane: 'all' as const,
-        failedLanes: status === 'passed' ? [] : ['runtime']
+        failedLanes: status === 'passed' ? [] : ['runtime'],
+        claimSummary
       },
       logs: {
         stdout: [fastLogs.stdout, runtimeLogs.stdout].filter(Boolean).join('\n'),
@@ -455,7 +471,7 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
   };
 }
 
-test('isolated child outcome accepts exact report-bound pass and nonzero verification failure', () => {
+test('isolated child outcome accepts exact claim-bound pass and nonzero verification failure', () => {
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('passed'))).toBe('passed');
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('failed'))).toBe('failed');
 });
