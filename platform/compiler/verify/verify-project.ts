@@ -12,6 +12,12 @@ import { getWorkspacePaths, relativePosixPath } from '../../shared/paths.ts';
 import { emitPipelineExecutionBoundary } from '../../shared/pipeline-journal.ts';
 import type { PipelineEventHandler, PipelineExecutionBoundary } from '../../shared/pipeline-types.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
+import {
+  buildProductVerificationClaimPlan,
+  projectProductVerificationGateClaim,
+  projectProductVerificationGateOrder,
+  type ProductVerificationGateKind
+} from '../../shared/product-verification-claim-plan.ts';
 import { checkProjectBeforeVerify } from '../../shared/project-integrity.ts';
 import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
 import type { CanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
@@ -21,7 +27,6 @@ import {
   mapProductVerificationStatus,
   type ProductVerificationMappingContext,
   type VerificationApplicability,
-  type VerificationClaimDefinitionV1,
   type VerificationGateEnvironmentV1,
   type VerificationGateExecutionV1,
   type VerificationGateResultV1,
@@ -65,14 +70,6 @@ const PRODUCT_GATE_REQUIREMENT_KEY = 'product-verification';
 const PRODUCT_SUBJECT_REVISION = '0000000000000000000000000000000000000000';
 const PRODUCT_INPUT_DIGEST = `sha256:${'0'.repeat(64)}`;
 const PRODUCT_OUTPUT_DIGEST = `sha256:${'0'.repeat(64)}`;
-const PRODUCT_OWNING_ENVIRONMENTS = [`${process.platform}-${process.arch}`];
-
-const FAST_GATE_ID = 'product-fast-lane';
-const RUNTIME_GATE_ID = 'product-runtime-lane';
-const POLICY_GATE_ID = 'product-policy-gate';
-const FAST_CLAIM_ID = 'product-fast-verification';
-const RUNTIME_CLAIM_ID = 'product-runtime-verification';
-const POLICY_CLAIM_ID = 'product-policy-verification';
 
 function productEnvironment(): VerificationGateEnvironmentV1 {
   return {
@@ -108,15 +105,15 @@ function applicabilityForMapping(
 }
 
 function buildProductGateResult(
-  gateId: string,
+  gate: ProductVerificationGateKind,
   legacyStatus: VerificationStatus,
-  context: ProductVerificationMappingContext,
-  claims: string[]
+  context: ProductVerificationMappingContext
 ): VerificationGateResultV1 {
   const mapping = mapProductVerificationStatus(legacyStatus, context);
+  const binding = projectProductVerificationGateClaim(gate, mapping.status === 'passed');
   const isExecuted = mapping.disposition === 'executed';
   return CodexDevelopmentBuildVerificationGateResultV1({
-    gateId,
+    gateId: binding.gateId,
     gateRevision: PRODUCT_GATE_REVISION,
     owner: PRODUCT_GATE_OWNER,
     requirementKey: PRODUCT_GATE_REQUIREMENT_KEY,
@@ -126,8 +123,8 @@ function buildProductGateResult(
     status: mapping.status,
     disposition: mapping.disposition,
     reasonCode: mapping.reasonCode,
-    requiredForClaims: claims,
-    supportedClaims: mapping.status === 'passed' ? claims : [],
+    requiredForClaims: binding.requiredForClaims,
+    supportedClaims: binding.supportedClaims,
     environment: isExecuted ? productEnvironment() : null,
     execution: isExecuted ? productExecution(mapping.status === 'failed' ? 1 : 0) : null,
     evidenceRefs: [],
@@ -140,12 +137,11 @@ function buildFastGateResult(
   fast: FastVerificationLaneReport,
   requestedLane: VerificationLane
 ): VerificationGateResultV1 {
-  const claims = [FAST_CLAIM_ID];
   const context: ProductVerificationMappingContext = {
     requestedLane,
     lane: 'fast'
   };
-  return buildProductGateResult(FAST_GATE_ID, fast.status, context, claims);
+  return buildProductGateResult('fast', fast.status, context);
 }
 
 /**
@@ -164,28 +160,14 @@ export function buildClaimSummary(
   const fastGate = buildFastGateResult(fast, lane);
   const runtimeGate = buildRuntimeClaimGate(runtime, lane, runtimeMode, fast.status === 'failed');
   const policyGate = buildPolicyClaimGate(policyReport, lane);
-  const gates: VerificationGateResultV1[] = [fastGate, runtimeGate, policyGate];
+  const gatesByKind: Record<ProductVerificationGateKind, VerificationGateResultV1> = {
+    policy: policyGate,
+    fast: fastGate,
+    runtime: runtimeGate
+  };
+  const gates = projectProductVerificationGateOrder().map((gate) => gatesByKind[gate]);
 
-  const claims: VerificationClaimDefinitionV1[] = [];
-  if (lane === 'fast' || lane === 'all') {
-    claims.push({
-      claimId: FAST_CLAIM_ID,
-      requiredGateIds: [FAST_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-    claims.push({
-      claimId: POLICY_CLAIM_ID,
-      requiredGateIds: [POLICY_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-  }
-  if (lane === 'runtime' || lane === 'all') {
-    claims.push({
-      claimId: RUNTIME_CLAIM_ID,
-      requiredGateIds: [RUNTIME_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-  }
+  const claims = buildProductVerificationClaimPlan(lane);
 
   const overall = CodexDevelopmentAggregateVerificationClaimsV1({ claims, gateResults: gates });
   return { overall, gates };
@@ -199,9 +181,10 @@ export function buildClaimSummary(
 export function buildBlockedClaimSummary(lane: VerificationLane): VerificationClaimSummary {
   const failedReasonCode: VerificationReasonCode = 'fail-fast-prerequisite-failed';
 
-  function buildBlockedGate(gateId: string, claimId: string): VerificationGateResultV1 {
+  function buildBlockedGate(gate: ProductVerificationGateKind): VerificationGateResultV1 {
+    const binding = projectProductVerificationGateClaim(gate, false);
     return CodexDevelopmentBuildVerificationGateResultV1({
-      gateId,
+      gateId: binding.gateId,
       gateRevision: PRODUCT_GATE_REVISION,
       owner: PRODUCT_GATE_OWNER,
       requirementKey: PRODUCT_GATE_REQUIREMENT_KEY,
@@ -211,8 +194,8 @@ export function buildBlockedClaimSummary(lane: VerificationLane): VerificationCl
       status: 'not-run',
       disposition: 'not-executed',
       reasonCode: failedReasonCode,
-      requiredForClaims: [claimId],
-      supportedClaims: [],
+      requiredForClaims: binding.requiredForClaims,
+      supportedClaims: binding.supportedClaims,
       environment: null,
       execution: null,
       evidenceRefs: [],
@@ -221,32 +204,17 @@ export function buildBlockedClaimSummary(lane: VerificationLane): VerificationCl
     });
   }
 
-  const gates: VerificationGateResultV1[] = [
-    buildBlockedGate(FAST_GATE_ID, FAST_CLAIM_ID),
-    buildBlockedGate(RUNTIME_GATE_ID, RUNTIME_CLAIM_ID),
-    buildBlockedGate(POLICY_GATE_ID, POLICY_CLAIM_ID)
-  ];
+  const fastGate = buildBlockedGate('fast');
+  const runtimeGate = buildBlockedGate('runtime');
+  const policyGate = buildBlockedGate('policy');
+  const gatesByKind: Record<ProductVerificationGateKind, VerificationGateResultV1> = {
+    policy: policyGate,
+    fast: fastGate,
+    runtime: runtimeGate
+  };
+  const gates = projectProductVerificationGateOrder().map((gate) => gatesByKind[gate]);
 
-  const claims: VerificationClaimDefinitionV1[] = [];
-  if (lane === 'fast' || lane === 'all') {
-    claims.push({
-      claimId: FAST_CLAIM_ID,
-      requiredGateIds: [FAST_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-    claims.push({
-      claimId: POLICY_CLAIM_ID,
-      requiredGateIds: [POLICY_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-  }
-  if (lane === 'runtime' || lane === 'all') {
-    claims.push({
-      claimId: RUNTIME_CLAIM_ID,
-      requiredGateIds: [RUNTIME_GATE_ID],
-      owningEnvironments: PRODUCT_OWNING_ENVIRONMENTS
-    });
-  }
+  const claims = buildProductVerificationClaimPlan(lane);
 
   const overall = CodexDevelopmentAggregateVerificationClaimsV1({ claims, gateResults: gates });
   return { overall, gates };

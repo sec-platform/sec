@@ -2,37 +2,45 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-03
 ---
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@597b42fedeb4ee0994b4c56c48f378562766d28b`、已合并 PR #196（active documentation corpus）、PR #199（test runtime performance）、PR #200（parallel work package contract）、PR #201（CI speed optimization）、PR #202（dev-loop-speed-v1）、PR #203（dev-loop-speed-v2）、PR #204（verification-result-core-v1）、PR #210（ci-verification-flow-fix-v1）、PR #211（verification-result-claim-migration-v1）、PR #213（exact-default-base-identity-v1）、PR #214（work-readme-conditional-state-clarification-v1）、PR #218（canonical-text-bytes-phase-a-v1）、已关闭 Issue #173、开放 Issues #167/#175–#194/#205–#212/#216/#217、Review/CI 与 exact tree 重新计算。
+本窗口从 live resolver 已确认的 `main@6cc3bf8a3b655bebf85dfca3f065c9842207c086`、当前正式候选 PR #227 / Issue #217、已关闭且未合并的 non-authority Spike PR #229、开放 Issues #206/#207/#208/#215/#216/#217、Review/CI 与 exact tree 重新计算。PR #229 只写 `docs/proposals/agent-skill-system-v2/**`，未选择 formal Work Package、未修改控制面，也不改变本窗口的串行交付顺序。
 
-Active documentation corpus、test runtime performance、parallel work package contract、CI speed optimization、dev-loop-speed-v1、dev-loop-speed-v2、verification-result-core-v1、ci-verification-flow-fix-v1 与 verification-result-claim-migration-v1 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`；CI 缓存、merge bootstrap CLI 与 gate API 已优化；check:fast gate 并行化、docs:doctor 增量模式、preload marker 门控、动态并发与 bounded-parallel 队列已落地；冷启动 stamp 短路、测试基础设施硬链接克隆与跨进程 test-impact 缓存、编译器管线共享 ts-morph Project 与并行 I/O、affected-tests reverse-import-map 已落地；sec-merge-bootstrap squash 已修复 single-parent invariant；统一验证结果模型 5 态/3 disposition/4 applicability/17 reasonCode/claim-based aggregate 已建立；CI PR validation 冗余 `git fetch` 已移除；`commandAll` 自动 squash 在 attestation/verification dispatch 之前执行；产品 verification summary 已迁移至 claim-based aggregation，`skipped` 不再静默产生 `passed`。
+Active documentation corpus、test runtime performance、parallel work package contract、CI speed optimization、dev-loop-speed-v1、dev-loop-speed-v2、verification-result-core-v1、ci-verification-flow-fix-v1 与 verification-result-claim-migration-v1 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`；CI 缓存、merge bootstrap CLI 与 gate API 已优化；check:fast gate 并行化、docs:doctor 增量模式、preload marker 门控、动态并发与 resource-class registry 已落地；冷启动 stamp 短路、测试基础设施硬链接克隆与跨进程 test-impact 缓存、编译器管线共享 ts-morph Project 与并行 I/O、affected-tests reverse-import-map 已落地；sec-merge-bootstrap squash 已修复 single-parent invariant；统一验证结果模型 5 态/3 disposition/4 applicability/17 reasonCode/claim-based aggregate 已建立；CI PR validation 冗余 `git fetch` 已移除；`commandAll` 自动 squash 在 attestation/verification dispatch 之前执行；产品 verification summary 已迁移至 claim-based aggregation，`skipped` 不再静默产生 `passed`。
 
-当前 `exact-default-base-identity-v1`（Issue #212）待激活：修复 shallow CI 中 `refs/remotes/origin/main` 缺失导致 repository audit 报 `default ref unavailable` 阻断所有后续 hosted verification 的根因。建立 Repository Audit Default-Base Identity Contract：hosted 使用 trusted exact base SHA，local 使用 live remote ref，不恢复无凭据 fetch。
+当前 `verification-artifact-claim-summary-v1`（Issue #217）已接管唯一 formal pointer。它先闭合 Verification Result 与 current artifact 的信任边界：canonical artifact 必须携带 `claimSummary`，legacy omission 只可诊断而不得 PASS，nested aggregate/claim/gate 矛盾由唯一 Result authority fail closed。最终 affected closure 在 live base 与 candidate 上先后暴露了 mutable workspace fixture 使用 hard-link alias，以及外层 process 与 Bun 内层并发各自解释 `availableParallelism()`、resource class 被扁平化、child failure receipt 丢失的既有基础设施缺陷；同一原包已最小重冻结，由同一代码 owner 顺序根除这些错误抽象，保持 Semantic Mutation 的 `nlink=1` 门禁、V19 Gate plan 与 timeout 不变。第一次 Runner contract proof reset 的独立 Review又证明裸 identifier 名字表、独立 loader/policy extractor 与完整读取后再限额仍可被 lexical shadow、import-equals、namespace和wrapper绕过；该失败 analyzer 已失效，原包改为 TypeScript Program identity 与 opened-handle limit+1 read，不保留 regex、名字表或 fixture-only fallback。首个 Program 实现因每个 scenario 重建完整 live inventory、Program 与图求解而发生第一次资源失效；改为一个 suite Program 后，正确的 shorthand lexical-value修复又接通了原本被假阴性遮住的 field-insensitive 对象流，使每个 value 上的全 Program callable/namespace 集合形成新的笛卡尔放大，Bun 在约 3.74 GiB 仍无结果。两次独立 Review确认根因是输入规模的 fact lattice，而非Program构造次数或运行预算；该 exact input不再重跑，状态进入 `STOP_PROOF_RESET`。当前同一原包重冻结为固定宽度敏感 bit 域、exact property/export slots、稀疏 callable/module SCC、冻结拓扑、一次 delta-only solve 和可由输入计数证明的复杂度上界；普通 callable/namespace不再成为 value fact，unknown executable flow稳定 fail closed。生产中的 authority-binding bounded executor同时改为文件私有，由模块边界而非当前consumer census保证不可暴露。该候选修改 verifier、test-fixture 与 dev-runner trust root，最终只能通过 trusted-base bootstrap、独立 exact-head Review、expected-head integration 与 new-main readback闭合。
 
 ```text
-Active Documentation Corpus
-→ Parallel Work Package Contract V1
-→ Verification Truth / Hermetic Runtime / Worktree Hygiene / Dependency Boundary / Incremental Compiler
-→ Semantic Test Impact / (Failure Epoch → Trusted Bootstrap → Evidence DAG)
-→ Automatic Feedback / Property-Fault-Flake
-→ Runtime Host / Target / Provider / Release Matrix
+#217 Verification Artifact Trust Boundary
+→ #215 Verification Claim Aggregate Correctness
+→ #216 Release Validation Credential / Fetch Trust Root
+→ #207 Parallel Resolver Correctness + Integration Epoch
 ```
+
+长期 Verification 架构的迁移依赖仍保持 `Failure Epoch → Trusted Bootstrap → Evidence DAG`；这只记录有序退出，不把尚未进入 `main` 的 Evidence DAG 或自动化 Kernel 升格为当前能力。
 
 普通进度只进入 Reconciliation Delta；仅新 Work Package、真实 `reload_if` 与最终 reconciliation 更新本文件。
 
 ## 当前唯一 Work Package
 
-### affected-selection-trust-boundary-v1
+### verification-artifact-claim-summary-v1
 
-- Issue #206 已通过 PR #220 squash merge 到 `main@782c07a`。manifest 保留在 `docs/work-packages/` 直到下一个 Work Package 接管 pointer 后归档。
-- 工程结果：根除 affected-selection 空选择假绿与陈旧 Test Impact 缓存。建立 `AffectedSelectionTrustBoundary`（7 种边界）并投影到 `VerificationGateResultV1`；持久 cache 改用 `TestImpactCacheEnvelope` + `sourceDigest` 身份；`readTestImportSpecifiers` 失败返回 `unresolved` 信号；`sourceChanged=true && selectedFastTests=[] && fallback off` fail-closed；10 条端到端契约测试 + 单元测试覆盖。
-- 下一步：#207 (resolver correctness, V1→V3 activation migration, Integration Epoch) 待激活。
+- Issue #217 / PR #227 是当前唯一 formal Work Package；schema 继续使用 `codex-development-work-package-v1`，profile 为 Quick，一个代码 Worker 与 A0 控制面 owner 串行工作。
+- 阶段 0–5 执行路线已冻结于 `docs/evidence/2026-08-03-constraint-thoughts-execution-plan.md`；`#234/#240/#242/#245/#250/#253/#254/#236/#243/#241/#260` 作为设计来源冻结，不推新 commit，直到替代 WP 从新 `main` 接管。
+- 工程目标：shared product claim plan 是 current required claim/gate identity、binding、order 与 byte-equivalent normal/blocked report-to-gate projection 的唯一 authority，正常/blocked writer、gate producer 与 artifact validator共同消费；Result contract 以受信 plan 提供唯一 canonical aggregate assertion；artifact contract 只拥有 envelope、cross-artifact binding 与 legacy projection，canonical fast/runtime/policy gates必须与serialized lane/policy reports逐字段一致，不能用自洽aggregate掩盖跨投影矛盾；current canonical artifact 必须包含完整 `claimSummary`，legacy omission或删除 required claim都不能签发 PASS；`copyWorkspaceFixture` 为 mutable workspace 产生独立 physical file identity；fast runner 由一个 combined budget 限制完整 process graph，按 physical resource class 调度并在 batch 尾保留结构化失败收据。
+- 冻结边界：同一代码 owner 顺序拥有 Result/artifact、mutable fixture、fast runner 三个已实现 seam；本次 proof reset 的新 delta只拥有 `tests/helpers/dev-runner-authority-proof.ts`、`tests/unit/dev-runner-authority-proof.test.ts`、`tests/contract/dev-runner-contract.test.ts`、`platform/dev-runner/test-runner.ts` 与 `tests/unit/test-runner.test.ts`。Runner proof 的唯一语义 authority 是一次读取的完整 bounded live inventory、一个同时包含全部唯一虚拟 scenario 的 suite-wide Program、一个 ProgramSymbolIndex、固定 Handle/ProtectedRole bits、属性敏感 typed topology、exact export slots、稀疏 callable/module SCC和一次delta solve；每个 value只有固定bit宽度，普通 callable/namespace identity从不传播，所有拓扑在 solve 前冻结。`inventoryReadCount/programBuildCount/typeCheckerBuildCount/topologyFreezeCount/graphSolveCount` 必须各为1，post-solve mutation、arbitrary callable/namespace facts和ambient cross seed必须为0，fact/edge/rule工作量不得超过input-derived bound。host source在allocation前由opened handle证明identity、size、limit+1与EOF。失败的名字表 analyzer、per-scenario Program、Program-sized callable/namespace lattice与validator侧第二遍closure整体退役；正确shorthand identity保留。authority-binding bounded executor改为file-local，任何导出的测试seam必须是无child authority的纯调度器；`runDevCommand`保持唯一reviewed dev-runner spawn dispatcher，但不声称仓库其他合法process owner不存在。不修改 Semantic Mutation产品门禁，不修改#215的owning environment、status lattice、policy applicability或runtime no-test语义，也不修改V19 Gate plan、workflow、package/lock、Evidence schema、Test Impact algorithm或parallel resolver。
+- 退出顺序：两文件 finite-kernel proof-reset focused → imports freeze → Product/Runner双exact-tree Review零finding → 全十二文件manifest focused batch → new single-parent candidate → 一次affected/Risk/audit → independent Review + trusted-base bootstrap → expected-head integration → new-main readback → `TASK_RESTART_REQUIRED`。若重冻结后再次出现同类fact-domain资源放大，直接返回`BLOCKED_REDESIGN_REQUIRED`。
 
 ## 已完成 Work Package
+
+### affected-selection-trust-boundary-v1 (PR #220)
+
+- 已 squash merge 至 `main@782c07a`；在 `verification-artifact-claim-summary-v1` 原子接管 pointer 后，manifest 已归档至 `docs/archive/work-packages/`。
+- 工程结果：根除 affected-selection 空选择假绿与陈旧 Test Impact 缓存。建立 `AffectedSelectionTrustBoundary`（7 种边界）并投影到 `VerificationGateResultV1`；持久 cache 使用 `TestImpactCacheEnvelope` + `sourceDigest` 身份；source read/stat failure 与 empty unresolved selection 均 fail closed；契约与单元测试覆盖。
+- 该归档只记录已进入 `main` 的实现结果，不是当前 authority，也不提供 Issue #215/#216/#207 的验证证据。
 
 ### canonical-text-bytes-phase-a-v1 (PR #218)
 
@@ -97,23 +105,22 @@ Active Documentation Corpus
 
 ## 候选 Work Package
 
-### 1. hermetic-test-runtime-phase-a
+### 1. verification-claim-aggregate-correctness-v1
 
-- 工程结果：fixture/resource 分类、workspace/port/process/browser/environment allocation、cleanup/readback receipt 与 Windows/Unix physical owner。
-- 依赖：active documentation corpus 已进入 main；portable lease 已满足；与其他包并行需 parallel contract 进入 main。
-- 退出：identity-bound/control-state不普通复制，失败/取消后无隐式进程或下一轮残留。
+- 在 #227 new-main readback 后的新任务重新 orientation 并冻结；不得预先复用当前 base、selector、Review 或 Evidence。
+- 工程结果：canonical environment identity、顺序无关 status rank、真实 decisive reason、identity/closure fail-closed、policy applicability、runtime empty-selection truth 与 coverage consumer correctness。
+- 退出：trust-root bootstrap、independent Review、manual integration、new-main readback，然后再次 `TASK_RESTART_REQUIRED`。
 
-### 2. worktree-hygiene-v1
+### 2. release-validation-credential-fetch-trust-root-v1
 
-- 工程结果：Git registry、物理目录、dirty/untracked/ignored、Windows reparse 与最终 receipt 的唯一 cleanup owner。
-- 依赖：active documentation corpus 后的 development-governance authority。
-- 退出：Git注销但物理残留不再被误报为完成；无法证明安全删除时fail closed。
+- 仅从 #215 的新 `main` 冻结独立小包；删除 release workflow 的无凭据 raw fetch，并同步唯一 CI step-order contract/test。
+- 保持 `persist-credentials: false` 与 trusted `SEC_CHANGED_BASE`；完成 base-side bootstrap 与新-main release canary readback。
 
-### 3. dependency-boundary-first-cleanup-v1
+### 3. parallel-resolver-integration-epoch-v1
 
-- 工程结果：建立Core/Host/Toolchain/Provider/Target依赖边界，删除已证明无用的小依赖；`package.json`与`bun.lock`保持唯一writer。
-- 依赖：Runtime/Library物理Census与Dependency Census提供证据；与其他正式包并行需 parallel contract 进入 main。
-- 退出：根公共加载图和发布面更小，Node-only/Bun-only/Browser/External依赖有明确Provider归属，不把未知依赖猜测删除。
+- 仍由当前串行 V1/V2 lifecycle bootstrap，不允许尚未可信的 V3 resolver 给自己授权并行。
+- 完成 relation/scope/resource/authority 语义、exact-base Integration Epoch、global writer allocation、deterministic order、receipt invalidation 与 current lifecycle 真实接入。
+- 只有它进入新 `main` 且首个正式 V3 successor 真实激活并产生 epoch/readback 后，才允许多个 formal writers。
 
 ## 并行 Spike
 

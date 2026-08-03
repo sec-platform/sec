@@ -1,3 +1,5 @@
+import { isProxy } from 'node:util/types';
+
 /**
  * Verification Result Core Contract v1
  *
@@ -225,7 +227,195 @@ const APPLICABILITIES: readonly VerificationApplicability[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Validation helpers
+// Strict verification-data boundary
+// ---------------------------------------------------------------------------
+
+type VerificationDataSnapshotV1 =
+  | null
+  | boolean
+  | number
+  | string
+  | VerificationDataSnapshotV1[]
+  | { [key: string]: VerificationDataSnapshotV1 };
+
+type OrdinaryDataDescriptor = PropertyDescriptor & { value: unknown };
+
+const VERIFICATION_PROXY_ERROR = 'Verification data must not contain Proxy values.';
+
+function assertNotVerificationProxy(value: unknown): void {
+  if (isProxy(value)) throw new Error(VERIFICATION_PROXY_ERROR);
+}
+
+function assertCanonicalVerificationDataPrototype(
+  value: object,
+  label: string,
+  isArray: boolean
+): void {
+  const prototype = Object.getPrototypeOf(value) as object | null;
+  const canonicalPrototype = isArray ? Array.prototype : Object.prototype;
+  if (prototype !== canonicalPrototype) {
+    throw new Error(
+      `${label} must use the canonical ${isArray ? 'Array' : 'Object'} prototype.`
+    );
+  }
+
+  // The candidate's immediate prototype identity is proven before any descriptor
+  // operation can reach candidate-controlled prototype state. Never traverse a
+  // candidate-supplied prototype chain: only the candidate and the two trusted
+  // intrinsic prototypes are relevant to the supported ordinary-data shape.
+  if (Object.getOwnPropertyDescriptor(value, 'toJSON') !== undefined ||
+    (isArray && Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON') !== undefined) ||
+    Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON') !== undefined) {
+    throw new Error(`${label} must not define or inherit toJSON.`);
+  }
+}
+
+function ordinaryDataDescriptor(
+  value: object,
+  key: PropertyKey,
+  label: string
+): OrdinaryDataDescriptor {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+    throw new Error(`${label} must be an ordinary own data field.`);
+  }
+  if (!descriptor.enumerable || !descriptor.configurable || !descriptor.writable) {
+    throw new Error(`${label} must be an enumerable, configurable, writable own data field.`);
+  }
+  return descriptor as OrdinaryDataDescriptor;
+}
+
+function snapshotStrictVerificationData(
+  value: unknown,
+  label: string,
+  ancestors: WeakSet<object>
+): VerificationDataSnapshotV1 {
+  assertNotVerificationProxy(value);
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error(`${label} must contain only finite numbers.`);
+    return value;
+  }
+  if (typeof value !== 'object') {
+    throw new Error(`${label} must contain only JSON-compatible data fields.`);
+  }
+  if (ancestors.has(value)) throw new Error(`${label} must not contain a cycle.`);
+  ancestors.add(value);
+  try {
+    const isArray = Array.isArray(value);
+    assertCanonicalVerificationDataPrototype(value, label, isArray);
+    if (isArray) {
+      const ownKeys = Reflect.ownKeys(value);
+      if (ownKeys.some((key) => typeof key === 'symbol')) {
+        throw new Error(`${label} must not contain symbol fields.`);
+      }
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
+      if (!lengthDescriptor || !Object.prototype.hasOwnProperty.call(lengthDescriptor, 'value') ||
+        lengthDescriptor.enumerable || lengthDescriptor.configurable || !lengthDescriptor.writable ||
+        !Number.isSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0) {
+        throw new Error(`${label}.length must be the canonical writable array length field.`);
+      }
+      const length = lengthDescriptor.value as number;
+      if (ownKeys.length !== length + 1) {
+        throw new Error(`${label} must be dense and contain no extra own fields.`);
+      }
+      const descriptors: OrdinaryDataDescriptor[] = [];
+      for (let index = 0; index < length; index += 1) {
+        descriptors.push(ordinaryDataDescriptor(value, String(index), `${label}[${index}]`));
+      }
+      const snapshot: VerificationDataSnapshotV1[] = [];
+      for (let index = 0; index < length; index += 1) {
+        snapshot.push(snapshotStrictVerificationData(
+          descriptors[index]!.value,
+          `${label}[${index}]`,
+          ancestors
+        ));
+      }
+      return snapshot;
+    }
+
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.some((key) => typeof key === 'symbol')) {
+      throw new Error(`${label} must not contain symbol fields.`);
+    }
+    const descriptors = ownKeys.map((key) => ({
+      key: key as string,
+      descriptor: ordinaryDataDescriptor(value, key, `${label}.${String(key)}`)
+    }));
+    const snapshot: { [key: string]: VerificationDataSnapshotV1 } = {};
+    for (const { key, descriptor } of descriptors) {
+      Object.defineProperty(snapshot, key, {
+        value: snapshotStrictVerificationData(descriptor.value, `${label}.${key}`, ancestors),
+        enumerable: true,
+        configurable: true,
+        writable: true
+      });
+    }
+    return snapshot;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+/**
+ * Validate and snapshot one untrusted verification-data graph without invoking
+ * candidate getters, array methods, or serialization hooks.
+ */
+export function CodexDevelopmentSnapshotVerificationDataV1(
+  value: unknown,
+  label: string = 'verification data'
+): unknown {
+  return snapshotStrictVerificationData(value, label, new WeakSet<object>());
+}
+
+function verificationDataSnapshotsEqual(
+  left: VerificationDataSnapshotV1,
+  right: VerificationDataSnapshotV1
+): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') {
+    return false;
+  }
+  const leftIsArray = Array.isArray(left);
+  if (leftIsArray !== Array.isArray(right)) return false;
+  if (leftIsArray) {
+    const leftArray = left as VerificationDataSnapshotV1[];
+    const rightArray = right as VerificationDataSnapshotV1[];
+    if (leftArray.length !== rightArray.length) return false;
+    for (let index = 0; index < leftArray.length; index += 1) {
+      if (!verificationDataSnapshotsEqual(leftArray[index]!, rightArray[index]!)) return false;
+    }
+    return true;
+  }
+  const leftRecord = left as { [key: string]: VerificationDataSnapshotV1 };
+  const rightRecord = right as { [key: string]: VerificationDataSnapshotV1 };
+  const leftKeys = Reflect.ownKeys(leftRecord).map(String).sort();
+  const rightKeys = Reflect.ownKeys(rightRecord).map(String).sort();
+  if (leftKeys.length !== rightKeys.length ||
+    leftKeys.some((key, index) => key !== rightKeys[index])) {
+    return false;
+  }
+  return leftKeys.every((key) => verificationDataSnapshotsEqual(leftRecord[key]!, rightRecord[key]!));
+}
+
+/** Compare two values only after both cross the same strict data boundary. */
+export function CodexDevelopmentVerificationDataEqualV1(
+  left: unknown,
+  right: unknown
+): boolean {
+  const leftSnapshot = CodexDevelopmentSnapshotVerificationDataV1(
+    left,
+    'left verification data'
+  ) as VerificationDataSnapshotV1;
+  const rightSnapshot = CodexDevelopmentSnapshotVerificationDataV1(
+    right,
+    'right verification data'
+  ) as VerificationDataSnapshotV1;
+  return verificationDataSnapshotsEqual(leftSnapshot, rightSnapshot);
+}
+
+// ---------------------------------------------------------------------------
+// Validation helpers (only consume strict snapshots)
 // ---------------------------------------------------------------------------
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -243,8 +433,15 @@ function assertExactKeys(value: Record<string, unknown>, expected: readonly stri
 }
 
 function assertString(value: unknown, label: string): asserts value is string {
-  if (typeof value !== 'string' || value.length === 0 || /[\u0000-\u001f]/u.test(value)) {
+  if (typeof value !== 'string' || value.length === 0 || /[\u0000-\u001f\u007f-\u009f]/u.test(value)) {
     throw new Error(`${label} must be a non-empty control-character-free string.`);
+  }
+}
+
+function assertIdentity(value: unknown, label: string): asserts value is string {
+  assertString(value, label);
+  if (value.trim() !== value) {
+    throw new Error(`${label} must not have leading or trailing whitespace.`);
   }
 }
 
@@ -257,11 +454,52 @@ function assertStringArray(value: unknown, label: string): asserts value is stri
   value.forEach((entry, index) => assertString(entry, `${label}[${index}]`));
 }
 
+function assertUniqueIdentityArray(value: unknown, label: string): asserts value is string[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array.`);
+  const identities = new Set<string>();
+  value.forEach((entry, index) => {
+    assertIdentity(entry, `${label}[${index}]`);
+    if (identities.has(entry)) {
+      throw new Error(`${label} must not contain duplicate identity ${entry}.`);
+    }
+    identities.add(entry);
+  });
+}
+
 function assertStringSet(value: unknown, allowed: ReadonlySet<string>, label: string): asserts value is string {
   assertString(value, label);
   if (!allowed.has(value)) {
     throw new Error(`${label} must be one of: ${[...allowed].join(', ')}; received: ${value}.`);
   }
+}
+
+function assertVerificationStatusReason(
+  statusValue: unknown,
+  reasonCodeValue: unknown,
+  label: string
+): { status: VerificationResultStatus; reasonCode: VerificationReasonCode } {
+  assertStringSet(statusValue, new Set(RESULT_STATUSES), `${label}.status`);
+  assertStringSet(reasonCodeValue, REASON_CODE_SET, `${label}.reasonCode`);
+  const status = statusValue as VerificationResultStatus;
+  const reasonCode = reasonCodeValue as VerificationReasonCode;
+
+  if (status === 'passed' && !PASSED_REASONS.has(reasonCode)) {
+    throw new Error(`${label} passed status requires reasonCode executed-success.`);
+  }
+  if (status === 'failed' && !FAILED_REASONS.has(reasonCode)) {
+    throw new Error(`${label} failed status requires an execution-failure reasonCode.`);
+  }
+  if (status === 'not-run' && !NOT_RUN_REASONS.has(reasonCode)) {
+    throw new Error(`${label} not-run status requires a not-run reasonCode.`);
+  }
+  if (status === 'unsupported' && !UNSUPPORTED_REASONS.has(reasonCode)) {
+    throw new Error(`${label} unsupported status requires capability-unsupported or platform-unsupported.`);
+  }
+  if (status === 'invalidated' && !INVALIDATED_REASONS.has(reasonCode)) {
+    throw new Error(`${label} invalidated status requires an invalidation reasonCode.`);
+  }
+
+  return { status, reasonCode };
 }
 
 function assertDigest(value: unknown, label: string): asserts value is string {
@@ -337,51 +575,36 @@ export function CodexDevelopmentAssertVerificationGateResultV1(
   value: unknown
 ): asserts value is VerificationGateResultV1 {
   const label = 'verification gate result';
-  assertObject(value, label);
-  assertExactKeys(value, GATE_RESULT_KEYS, label);
-  if (value.schema !== VERIFICATION_GATE_RESULT_SCHEMA_V1) {
+  const candidate = CodexDevelopmentSnapshotVerificationDataV1(value, label);
+  assertObject(candidate, label);
+  assertExactKeys(candidate, GATE_RESULT_KEYS, label);
+  if (candidate.schema !== VERIFICATION_GATE_RESULT_SCHEMA_V1) {
     throw new Error(`${label}.schema must be ${VERIFICATION_GATE_RESULT_SCHEMA_V1}.`);
   }
-  assertString(value.gateId, `${label}.gateId`);
-  assertString(value.gateRevision, `${label}.gateRevision`);
-  assertString(value.owner, `${label}.owner`);
-  assertString(value.requirementKey, `${label}.requirementKey`);
-  assertString(value.subjectRevision, `${label}.subjectRevision`);
-  assertDigest(value.inputDigest, `${label}.inputDigest`);
-  assertStringSet(value.applicability, new Set(APPLICABILITIES), `${label}.applicability`);
-  assertStringSet(value.status, new Set(RESULT_STATUSES), `${label}.status`);
-  assertStringSet(value.disposition, new Set(DISPOSITIONS), `${label}.disposition`);
-  assertStringSet(value.reasonCode, REASON_CODE_SET, `${label}.reasonCode`);
-  assertStringArray(value.requiredForClaims, `${label}.requiredForClaims`);
-  assertStringArray(value.supportedClaims, `${label}.supportedClaims`);
-  assertEnvironment(value.environment, `${label}.environment`);
-  assertExecution(value.execution, `${label}.execution`);
-  assertStringArray(value.evidenceRefs, `${label}.evidenceRefs`);
-  assertStringArray(value.invalidationRules, `${label}.invalidationRules`);
-  assertNullableString(value.diagnostic, `${label}.diagnostic`);
+  assertIdentity(candidate.gateId, `${label}.gateId`);
+  assertString(candidate.gateRevision, `${label}.gateRevision`);
+  assertString(candidate.owner, `${label}.owner`);
+  assertString(candidate.requirementKey, `${label}.requirementKey`);
+  assertString(candidate.subjectRevision, `${label}.subjectRevision`);
+  assertDigest(candidate.inputDigest, `${label}.inputDigest`);
+  assertStringSet(candidate.applicability, new Set(APPLICABILITIES), `${label}.applicability`);
+  assertStringSet(candidate.disposition, new Set(DISPOSITIONS), `${label}.disposition`);
+  const { status, reasonCode } = assertVerificationStatusReason(
+    candidate.status,
+    candidate.reasonCode,
+    label
+  );
+  assertUniqueIdentityArray(candidate.requiredForClaims, `${label}.requiredForClaims`);
+  assertUniqueIdentityArray(candidate.supportedClaims, `${label}.supportedClaims`);
+  assertEnvironment(candidate.environment, `${label}.environment`);
+  assertExecution(candidate.execution, `${label}.execution`);
+  assertStringArray(candidate.evidenceRefs, `${label}.evidenceRefs`);
+  assertStringArray(candidate.invalidationRules, `${label}.invalidationRules`);
+  assertNullableString(candidate.diagnostic, `${label}.diagnostic`);
 
   // Cross-field invariants
-  const status = value.status as VerificationResultStatus;
-  const disposition = value.disposition as VerificationDisposition;
-  const applicability = value.applicability as VerificationApplicability;
-  const reasonCode = value.reasonCode as VerificationReasonCode;
-
-  // status ↔ reasonCode
-  if (status === 'passed' && !PASSED_REASONS.has(reasonCode)) {
-    throw new Error(`${label} passed status requires reasonCode executed-success.`);
-  }
-  if (status === 'failed' && !FAILED_REASONS.has(reasonCode)) {
-    throw new Error(`${label} failed status requires an execution-failure reasonCode.`);
-  }
-  if (status === 'not-run' && !NOT_RUN_REASONS.has(reasonCode)) {
-    throw new Error(`${label} not-run status requires a not-run reasonCode.`);
-  }
-  if (status === 'unsupported' && !UNSUPPORTED_REASONS.has(reasonCode)) {
-    throw new Error(`${label} unsupported status requires capability-unsupported or platform-unsupported.`);
-  }
-  if (status === 'invalidated' && !INVALIDATED_REASONS.has(reasonCode)) {
-    throw new Error(`${label} invalidated status requires an invalidation reasonCode.`);
-  }
+  const disposition = candidate.disposition as VerificationDisposition;
+  const applicability = candidate.applicability as VerificationApplicability;
 
   // status ↔ disposition
   if (status === 'passed' && disposition === 'not-executed') {
@@ -399,22 +622,22 @@ export function CodexDevelopmentAssertVerificationGateResultV1(
 
   // disposition ↔ execution / environment
   if (disposition === 'executed') {
-    if (value.execution === null) {
+    if (candidate.execution === null) {
       throw new Error(`${label} executed disposition requires non-null execution.`);
     }
-    if (value.environment === null) {
+    if (candidate.environment === null) {
       throw new Error(`${label} executed disposition requires non-null environment.`);
     }
   }
   if (disposition === 'reused') {
-    if (value.evidenceRefs.length === 0) {
+    if (candidate.evidenceRefs.length === 0) {
       throw new Error(`${label} reused disposition requires non-empty evidenceRefs.`);
     }
-    if (value.execution !== null) {
+    if (candidate.execution !== null) {
       throw new Error(`${label} reused disposition must have null execution.`);
     }
   }
-  if (disposition === 'not-executed' && value.execution !== null) {
+  if (disposition === 'not-executed' && candidate.execution !== null) {
     throw new Error(`${label} not-executed disposition must have null execution.`);
   }
 
@@ -459,9 +682,13 @@ export interface VerificationGateResultBuilderInput {
 export function CodexDevelopmentBuildVerificationGateResultV1(
   input: VerificationGateResultBuilderInput
 ): VerificationGateResultV1 {
+  const snapshot = CodexDevelopmentSnapshotVerificationDataV1(
+    input,
+    'verification gate builder input'
+  ) as VerificationGateResultBuilderInput;
   const result: VerificationGateResultV1 = {
     schema: VERIFICATION_GATE_RESULT_SCHEMA_V1,
-    ...input
+    ...snapshot
   };
   CodexDevelopmentAssertVerificationGateResultV1(result);
   return result;
@@ -485,6 +712,113 @@ export interface VerificationAggregateInputV1 {
   ) => boolean;
 }
 
+function snapshotVerificationAggregateInputV1(
+  input: VerificationAggregateInputV1
+): VerificationAggregateInputV1 {
+  const label = 'verification aggregate input';
+  assertNotVerificationProxy(input);
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  assertCanonicalVerificationDataPrototype(input, label, false);
+  const ownKeys = Reflect.ownKeys(input);
+  if (ownKeys.some((key) => typeof key === 'symbol')) {
+    throw new Error(`${label} must not contain symbol fields.`);
+  }
+  const actualKeys = (ownKeys as string[]).slice().sort();
+  const expectedKeys = actualKeys.includes('isCoverageComplete')
+    ? ['claims', 'gateResults', 'isCoverageComplete']
+    : ['claims', 'gateResults'];
+  const sortedExpectedKeys = expectedKeys.slice().sort();
+  if (actualKeys.length !== sortedExpectedKeys.length ||
+    actualKeys.some((key, index) => key !== sortedExpectedKeys[index])) {
+    throw new Error(
+      `${label} has unknown or missing fields: ${actualKeys.join(', ')}; ` +
+      `expected: ${sortedExpectedKeys.join(', ')}.`
+    );
+  }
+  const claimsDescriptor = ordinaryDataDescriptor(input, 'claims', `${label}.claims`);
+  const gatesDescriptor = ordinaryDataDescriptor(input, 'gateResults', `${label}.gateResults`);
+  const coverageDescriptor = actualKeys.includes('isCoverageComplete')
+    ? ordinaryDataDescriptor(input, 'isCoverageComplete', `${label}.isCoverageComplete`)
+    : undefined;
+  if (coverageDescriptor) assertNotVerificationProxy(coverageDescriptor.value);
+  if (coverageDescriptor?.value !== undefined && typeof coverageDescriptor.value !== 'function') {
+    throw new Error(`${label}.isCoverageComplete must be a function when present.`);
+  }
+
+  const claims = CodexDevelopmentSnapshotVerificationDataV1(
+    claimsDescriptor.value,
+    `${label}.claims`
+  );
+  if (!Array.isArray(claims)) throw new Error(`${label}.claims must be an array.`);
+  const gateResults = CodexDevelopmentSnapshotVerificationDataV1(
+    gatesDescriptor.value,
+    `${label}.gateResults`
+  );
+  if (!Array.isArray(gateResults)) throw new Error(`${label}.gateResults must be an array.`);
+
+  const claimPlan = new Map<string, VerificationClaimDefinitionV1>();
+  claims.forEach((claim, index) => {
+    const claimLabel = `${label}.claims[${index}]`;
+    assertVerificationClaimDefinitionV1(claim, claimLabel);
+    if (claimPlan.has(claim.claimId)) {
+      throw new Error(`${label}.claims must not contain duplicate claimId ${claim.claimId}.`);
+    }
+    claimPlan.set(claim.claimId, claim);
+  });
+
+  const canonicalGates: VerificationGateResultV1[] = [];
+  const gateMap = new Map<string, VerificationGateResultV1>();
+  gateResults.forEach((gateResult) => {
+    CodexDevelopmentAssertVerificationGateResultV1(gateResult);
+    if (gateMap.has(gateResult.gateId)) {
+      throw new Error(`${label}.gateResults must not contain duplicate gateId ${gateResult.gateId}.`);
+    }
+    gateMap.set(gateResult.gateId, gateResult);
+    canonicalGates.push(gateResult);
+  });
+
+  for (const gate of canonicalGates) {
+    for (const claimId of gate.requiredForClaims) {
+      const selectedClaim = claimPlan.get(claimId);
+      if (selectedClaim && !selectedClaim.requiredGateIds.includes(gate.gateId)) {
+        throw new Error(
+          `${label} gate ${gate.gateId} requiredForClaims linkage to ${claimId} ` +
+          'is absent from the trusted claim plan.'
+        );
+      }
+    }
+  }
+  for (const claim of claimPlan.values()) {
+    for (const gateId of claim.requiredGateIds) {
+      const gate = gateMap.get(gateId);
+      if (!gate) continue;
+      if (!gate.requiredForClaims.includes(claim.claimId)) {
+        throw new Error(
+          `${label} required gate ${gateId} lacks requiredForClaims linkage to ${claim.claimId}.`
+        );
+      }
+      if (gate.status === 'passed' && !gate.supportedClaims.includes(claim.claimId)) {
+        throw new Error(
+          `${label} passed required gate ${gateId} lacks supportedClaims linkage to ${claim.claimId}.`
+        );
+      }
+    }
+  }
+
+  const snapshot: VerificationAggregateInputV1 = {
+    claims: claims as VerificationClaimDefinitionV1[],
+    gateResults: canonicalGates
+  };
+  if (coverageDescriptor?.value !== undefined) {
+    snapshot.isCoverageComplete = coverageDescriptor.value as NonNullable<
+      VerificationAggregateInputV1['isCoverageComplete']
+    >;
+  }
+  return snapshot;
+}
+
 function defaultCoverageComplete(
   claim: VerificationClaimDefinitionV1,
   contributingGates: VerificationGateResultV1[]
@@ -492,6 +826,34 @@ function defaultCoverageComplete(
   // Default: all required gates must be present and passed/reused.
   if (contributingGates.length !== claim.requiredGateIds.length) return false;
   return contributingGates.every((gate) => gate.status === 'passed');
+}
+
+function reduceVerificationAggregateOverallV1(
+  claimResults: readonly VerificationClaimResultV1[]
+): Pick<VerificationAggregateResultV1, 'overallStatus' | 'overallReasonCode'> {
+  // Preserve the current projection exactly. Issue #215 owns any future change
+  // to the non-failed status lattice or its ordering semantics.
+  let overallStatus: VerificationResultStatus = 'passed';
+  let overallReasonCode: VerificationReasonCode = 'executed-success';
+  for (const result of claimResults) {
+    if (result.status === 'failed') {
+      overallStatus = 'failed';
+      overallReasonCode = 'executed-failure';
+      break;
+    }
+    if (overallStatus !== 'passed') continue;
+    if (result.status === 'invalidated') {
+      overallStatus = 'invalidated';
+      overallReasonCode = result.reasonCode;
+    } else if (result.status === 'unsupported') {
+      overallStatus = 'unsupported';
+      overallReasonCode = result.reasonCode;
+    } else if (result.status === 'not-run') {
+      overallStatus = 'not-run';
+      overallReasonCode = result.reasonCode;
+    }
+  }
+  return { overallStatus, overallReasonCode };
 }
 
 /**
@@ -510,41 +872,35 @@ function defaultCoverageComplete(
 export function CodexDevelopmentAggregateVerificationClaimsV1(
   input: VerificationAggregateInputV1
 ): VerificationAggregateResultV1 {
+  const snapshot = snapshotVerificationAggregateInputV1(input);
   const gateMap = new Map<string, VerificationGateResultV1>();
-  for (const gate of input.gateResults) {
+  for (const gate of snapshot.gateResults) {
     gateMap.set(gate.gateId, gate);
   }
-  const isCoverageComplete = input.isCoverageComplete ?? defaultCoverageComplete;
-  const claimResults: VerificationClaimResultV1[] = input.claims.map((claim) => {
+  const customCoverageComplete = snapshot.isCoverageComplete;
+  const isCoverageComplete = (
+    claim: VerificationClaimDefinitionV1,
+    contributingGates: VerificationGateResultV1[]
+  ): boolean => {
+    const builtInCoverageComplete = defaultCoverageComplete(claim, contributingGates);
+    if (!customCoverageComplete) return builtInCoverageComplete;
+    const callbackClaim = CodexDevelopmentSnapshotVerificationDataV1(
+      claim,
+      'verification coverage callback claim'
+    ) as VerificationClaimDefinitionV1;
+    const callbackGates = CodexDevelopmentSnapshotVerificationDataV1(
+      contributingGates,
+      'verification coverage callback gates'
+    ) as VerificationGateResultV1[];
+    return builtInCoverageComplete && customCoverageComplete(callbackClaim, callbackGates) === true;
+  };
+  const claimResults: VerificationClaimResultV1[] = snapshot.claims.map((claim) => {
     const contributingGates = claim.requiredGateIds
       .map((id) => gateMap.get(id))
       .filter((gate): gate is VerificationGateResultV1 => gate !== undefined);
     return aggregateClaim(claim, contributingGates, isCoverageComplete);
   });
-
-  // Overall: passed only when every required claim is passed.
-  // Priority: failed (immediate break) > invalidated > unsupported > not-run > passed.
-  // Once a non-passed status is set, it is never downgraded (except to failed which breaks).
-  let overallStatus: VerificationResultStatus = 'passed';
-  let overallReasonCode: VerificationReasonCode = 'executed-success';
-  for (const result of claimResults) {
-    if (result.status === 'failed') {
-      overallStatus = 'failed';
-      overallReasonCode = 'executed-failure';
-      break;
-    }
-    if (overallStatus !== 'passed') continue; // already at a higher priority non-passed status
-    if (result.status === 'invalidated') {
-      overallStatus = 'invalidated';
-      overallReasonCode = result.reasonCode;
-    } else if (result.status === 'unsupported') {
-      overallStatus = 'unsupported';
-      overallReasonCode = result.reasonCode;
-    } else if (result.status === 'not-run') {
-      overallStatus = 'not-run';
-      overallReasonCode = result.reasonCode;
-    }
-  }
+  const { overallStatus, overallReasonCode } = reduceVerificationAggregateOverallV1(claimResults);
   return { overallStatus, overallReasonCode, claimResults };
 }
 
@@ -626,6 +982,113 @@ function aggregateClaim(
     contributingGateIds: contributingGates.map((gate) => gate.gateId),
     coverageComplete
   };
+}
+
+// ---------------------------------------------------------------------------
+// Aggregate result validator
+// ---------------------------------------------------------------------------
+
+const AGGREGATE_RESULT_KEYS = [
+  'overallStatus', 'overallReasonCode', 'claimResults'
+] as const;
+
+const CLAIM_RESULT_KEYS = [
+  'claimId', 'status', 'reasonCode', 'contributingGateIds', 'coverageComplete'
+] as const;
+
+const CLAIM_DEFINITION_KEYS = [
+  'claimId', 'requiredGateIds', 'owningEnvironments'
+] as const;
+
+function assertVerificationClaimResultV1(
+  value: unknown,
+  label: string
+): asserts value is VerificationClaimResultV1 {
+  assertObject(value, label);
+  assertExactKeys(value, CLAIM_RESULT_KEYS, label);
+  assertIdentity(value.claimId, `${label}.claimId`);
+  assertVerificationStatusReason(value.status, value.reasonCode, label);
+  assertUniqueIdentityArray(value.contributingGateIds, `${label}.contributingGateIds`);
+  if (typeof value.coverageComplete !== 'boolean') {
+    throw new Error(`${label}.coverageComplete must be a boolean.`);
+  }
+  if (value.status === 'passed' && !value.coverageComplete) {
+    throw new Error(`${label} passed status requires coverageComplete=true.`);
+  }
+  if (value.status === 'passed' && value.contributingGateIds.length === 0) {
+    throw new Error(`${label} passed status requires non-empty contributingGateIds.`);
+  }
+}
+
+function assertVerificationClaimDefinitionV1(
+  value: unknown,
+  label: string
+): asserts value is VerificationClaimDefinitionV1 {
+  assertObject(value, label);
+  assertExactKeys(value, CLAIM_DEFINITION_KEYS, label);
+  assertIdentity(value.claimId, `${label}.claimId`);
+  assertUniqueIdentityArray(value.requiredGateIds, `${label}.requiredGateIds`);
+  assertUniqueIdentityArray(value.owningEnvironments, `${label}.owningEnvironments`);
+  if (value.requiredGateIds.length === 0) {
+    throw new Error(`${label}.requiredGateIds must not be empty.`);
+  }
+  if (value.owningEnvironments.length === 0) {
+    throw new Error(`${label}.owningEnvironments must not be empty.`);
+  }
+}
+
+/**
+ * Assert one serialized aggregate against a trusted claim plan and gate set.
+ * The serialized aggregate never selects its own claims: after validating the
+ * plan and linkage, this assertion invokes the canonical writer and requires
+ * exact serialized equality with that output.
+ */
+export function CodexDevelopmentAssertVerificationAggregateResultV1(
+  value: unknown,
+  input: VerificationAggregateInputV1
+): asserts value is VerificationAggregateResultV1 {
+  const label = 'verification aggregate result';
+  const candidate = CodexDevelopmentSnapshotVerificationDataV1(value, label);
+  assertObject(candidate, label);
+  assertExactKeys(candidate, AGGREGATE_RESULT_KEYS, label);
+  assertVerificationStatusReason(
+    candidate.overallStatus,
+    candidate.overallReasonCode,
+    `${label}.overall`
+  );
+
+  if (!Array.isArray(candidate.claimResults)) {
+    throw new Error(`${label}.claimResults must be an array.`);
+  }
+  const claimIds = new Set<string>();
+  candidate.claimResults.forEach((claimResult, index) => {
+    const claimLabel = `${label}.claimResults[${index}]`;
+    assertVerificationClaimResultV1(claimResult, claimLabel);
+    if (claimIds.has(claimResult.claimId)) {
+      throw new Error(`${label}.claimResults must not contain duplicate claimId ${claimResult.claimId}.`);
+    }
+    claimIds.add(claimResult.claimId);
+  });
+
+  const canonicalInput = snapshotVerificationAggregateInputV1(input);
+  const gateMap = new Map<string, VerificationGateResultV1>();
+  canonicalInput.gateResults.forEach((gateResult) => {
+    gateMap.set(gateResult.gateId, gateResult);
+  });
+
+  candidate.claimResults.forEach((claimResult, index) => {
+    const claimLabel = `${label}.claimResults[${index}]`;
+    claimResult.contributingGateIds.forEach((gateId: string) => {
+      if (!gateMap.has(gateId)) {
+        throw new Error(`${claimLabel} references unknown contributing gateId ${gateId}.`);
+      }
+    });
+  });
+
+  const expected = CodexDevelopmentAggregateVerificationClaimsV1(canonicalInput);
+  if (!CodexDevelopmentVerificationDataEqualV1(candidate, expected)) {
+    throw new Error(`${label} does not exactly match the canonical aggregate writer output.`);
+  }
 }
 
 // ---------------------------------------------------------------------------

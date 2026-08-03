@@ -14,6 +14,9 @@ import {
   runCommand
 } from '../../shared/process.ts';
 import {
+  projectProductVerificationGateClaim
+} from '../../shared/product-verification-claim-plan.ts';
+import {
   dependencyAuthorityPaths,
   ensureProjectDependencies,
   materializePlaywrightBrowserCache
@@ -47,8 +50,6 @@ import {
 
 type RuntimeVerificationMode = 'service' | 'full';
 
-const RUNTIME_GATE_ID = 'product-runtime-lane';
-const RUNTIME_CLAIM_ID = 'product-runtime-verification';
 const RUNTIME_GATE_REVISION = 'product-verification-v1';
 const RUNTIME_GATE_OWNER = 'product-verify-project';
 const RUNTIME_GATE_REQUIREMENT_KEY = 'product-verification';
@@ -69,12 +70,11 @@ export function buildRuntimeClaimGate(
   runtimeMode: RuntimeVerificationMode,
   fastFailed: boolean = false
 ): VerificationGateResultV1 {
-  const claims = [RUNTIME_CLAIM_ID];
-
   // Service-mode `passed` means unit tests ran but acceptance did not.
   if (runtimeMode === 'service' && runtime.status === 'passed') {
+    const binding = projectProductVerificationGateClaim('runtime', false);
     return CodexDevelopmentBuildVerificationGateResultV1({
-      gateId: RUNTIME_GATE_ID,
+      gateId: binding.gateId,
       gateRevision: RUNTIME_GATE_REVISION,
       owner: RUNTIME_GATE_OWNER,
       requirementKey: RUNTIME_GATE_REQUIREMENT_KEY,
@@ -84,8 +84,8 @@ export function buildRuntimeClaimGate(
       status: 'not-run',
       disposition: 'not-executed',
       reasonCode: 'current-runner-not-owning-environment',
-      requiredForClaims: claims,
-      supportedClaims: [],
+      requiredForClaims: binding.requiredForClaims,
+      supportedClaims: binding.supportedClaims,
       environment: null,
       execution: null,
       evidenceRefs: [],
@@ -101,6 +101,7 @@ export function buildRuntimeClaimGate(
     currentRunnerOwning: runtime.status === 'skipped' && !fastFailed ? false : undefined
   };
   const mapping = mapProductVerificationStatus(runtime.status, context);
+  const binding = projectProductVerificationGateClaim('runtime', mapping.status === 'passed');
   const isExecuted = mapping.disposition === 'executed';
   const applicability = mapping.reasonCode === 'not-applicable'
     ? 'not-applicable'
@@ -109,7 +110,7 @@ export function buildRuntimeClaimGate(
       : 'required';
 
   return CodexDevelopmentBuildVerificationGateResultV1({
-    gateId: RUNTIME_GATE_ID,
+    gateId: binding.gateId,
     gateRevision: RUNTIME_GATE_REVISION,
     owner: RUNTIME_GATE_OWNER,
     requirementKey: RUNTIME_GATE_REQUIREMENT_KEY,
@@ -119,8 +120,8 @@ export function buildRuntimeClaimGate(
     status: mapping.status,
     disposition: mapping.disposition,
     reasonCode: mapping.reasonCode,
-    requiredForClaims: claims,
-    supportedClaims: mapping.status === 'passed' ? claims : [],
+    requiredForClaims: binding.requiredForClaims,
+    supportedClaims: binding.supportedClaims,
     environment: isExecuted
       ? {
           runtime: 'bun',
