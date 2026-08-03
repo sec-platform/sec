@@ -44,8 +44,7 @@ export const CI_VERIFICATION_PR_STEP_ORDER = [
 ] as const;
 export const CI_VERIFICATION_RELEASE_STEP_ORDER = [
   'Resolve trusted release request, exact head, and verifier boundary',
-  'Checkout exact release head',
-  'Fetch release base for exact tree comparison',
+  'Checkout exact single-parent release candidate',
   'Setup Bun',
   'Cache bun install',
   'Cache tsc incremental build info',

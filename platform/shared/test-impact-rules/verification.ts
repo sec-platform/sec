@@ -27,6 +27,12 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/unit/exact-git-blob.test.ts'
 ];
 
+const RELEASE_VERIFICATION_FAST_TESTS = [
+  'tests/contract/ci-contract.test.ts',
+  'tests/contract/release-verification-credential-closure.test.ts',
+  'tests/contract/test-impact.test.ts'
+];
+
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'verification-evidence-producers',
@@ -39,6 +45,17 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/exact-git-blob.ts'
     ],
     fast: VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'release-verification',
+    identity: { kind: 'architecture-owner', id: 'release-verification' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      '.github/workflows/compiler-release-validation.yml',
+      'platform/shared/ci-contract.ts'
+    ],
+    fast: RELEASE_VERIFICATION_FAST_TESTS,
     slow: []
   },
   {
