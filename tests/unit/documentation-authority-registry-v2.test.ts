@@ -113,7 +113,7 @@ test('retirement destinations are case-insensitively unique and unoccupied', () 
 });
 
 test('unknown canonical target errors are isolated from valid project edges', () => {
-  const candidate = proposal('candidate', 'missing', undefined as never, {
+  const candidate = proposal('candidate', 'target', 'docs/archive/proposals/candidate.md', {
     projects: ['target'],
     proposal: {
       disposition: 'adapt',
