@@ -39,6 +39,7 @@ export const CI_VERIFICATION_PR_STEP_ORDER = [
   'Cache bun install',
   'Cache tsc incremental build info',
   'Install dependencies once',
+  'Check exact-head formatting',
   'Run exact-head verification',
   'Upload compact verification evidence'
 ] as const;
@@ -50,6 +51,7 @@ export const CI_VERIFICATION_RELEASE_STEP_ORDER = [
   'Cache bun install',
   'Cache tsc incremental build info',
   'Install dependencies once',
+  'Check exact-head formatting',
   'Run exact-head full verification',
   'Upload compact full verification evidence'
 ] as const;
@@ -103,15 +105,18 @@ export type CiContract = {
 
 const prWorkflowCommands = [
   'bun install --frozen-lockfile',
+  'bun run format:check',
   'bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"'
 ];
 
 const releaseWorkflowCommands = [
   'bun install --frozen-lockfile',
+  'bun run format:check',
   'bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"'
 ];
 
 const prQuickLaneCommands = [
+  'bun run format:check',
   'bun run imports:check',
   'bun run typecheck',
   'bun run test:affected'
@@ -124,6 +129,7 @@ const prRiskLaneCommands = [
 const fullSlowSuiteCommands = slowTestSuiteIds().map((suiteId) => `bun run test:slow -- --suite ${suiteId}`);
 
 const fullLaneCommands = [
+  'bun run format:check',
   'bun run imports:check',
   'bun run typecheck',
   'bun run docs:doctor',
@@ -159,6 +165,13 @@ const ciArtifactSteps = CI_ARTIFACT_KINDS.map((kind): Omit<CiContractStep, 'prod
 }));
 
 const ciSteps: Array<Omit<CiContractStep, 'producesCount'>> = [
+  {
+    id: 'formatted-candidate',
+    phase: 'quality',
+    command: 'bun run format:check',
+    purpose: 'Ensure the exact candidate tree is already normalized by the canonical formatter.',
+    produces: []
+  },
   {
     id: 'typecheck',
     phase: 'quality',

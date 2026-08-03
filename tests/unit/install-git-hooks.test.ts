@@ -13,10 +13,15 @@ test('tracked hooks bind dependency preparation and candidate freeze without amb
   const attributes = await readFile(path.join(repoRoot, '.gitattributes'), 'utf8');
 
   expect(preCommit).toContain('bun ./platform/dev-runner.ts imports:freeze');
+  expect(preCommit).toContain('bun ./platform/dev-runner.ts format:freeze');
+  expect(preCommit.indexOf('imports:freeze')).toBeLessThan(preCommit.indexOf('format:freeze'));
   expect(preCommit).not.toContain('SEC_CHANGED_BASE');
   expect(preCommit).not.toContain('\r');
   expect(prePush).toContain('bun ./platform/dev-runner.ts imports:freeze');
+  expect(prePush).toContain('bun ./platform/dev-runner.ts format:freeze');
+  expect(prePush.indexOf('imports:freeze')).toBeLessThan(prePush.indexOf('format:freeze'));
   expect(prePush).toContain('git diff --cached --quiet HEAD');
+  expect(prePush).toContain('candidate imports or formatting were sealed into the index');
   expect(prePush).not.toContain('\r');
   for (const dependencyHook of [postCheckout, postMerge, postRewrite]) {
     expect(dependencyHook).toContain('bun ./platform/dev-runner.ts deps:ensure');

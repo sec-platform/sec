@@ -179,6 +179,11 @@ jobs:
       - name: Install dependencies once
         run: bun install --frozen-lockfile
 
+      - name: Check exact-head formatting
+        run: bun run format:check
+        env:
+          SEC_CHANGED_BASE: ${{ steps.verification.outputs.base }}
+
       - name: Run exact-head full verification
         id: verify
         shell: bash

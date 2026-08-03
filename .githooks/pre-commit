@@ -2,3 +2,4 @@
 set -eu
 
 bun ./platform/dev-runner.ts imports:freeze
+bun ./platform/dev-runner.ts format:freeze

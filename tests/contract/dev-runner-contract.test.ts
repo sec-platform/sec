@@ -26,7 +26,7 @@ describe('dev-runner contract', () => {
     expect(scripts['check:affected']).toBe('bun ./platform/dev-runner.ts check:affected');
     expect(scripts['check:fast']).toBe('bun ./platform/dev-runner.ts check:fast');
     expect(scripts['check:full']).toBe(
-      'bun run imports:prepare && bun run typecheck && bun run docs:doctor && bun run test:full'
+      'bun run imports:prepare && bun run format:prepare && bun run typecheck && bun run docs:doctor && bun run test:full'
     );
     expect(scripts['test:watch']).toBeUndefined();
     expect(scripts['test:coverage']).toBeUndefined();
@@ -35,6 +35,9 @@ describe('dev-runner contract', () => {
     expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
     expect(scripts['imports:freeze']).toBe('bun ./platform/dev-runner.ts imports:freeze');
     expect(scripts['imports:staged']).toBe('bun ./platform/dev-runner.ts imports:staged');
+    expect(scripts['format:prepare']).toBe('bun ./platform/dev-runner.ts format:prepare');
+    expect(scripts['format:check']).toBe('bun ./platform/dev-runner.ts format:check');
+    expect(scripts['format:freeze']).toBe('bun ./platform/dev-runner.ts format:freeze');
     expect(scripts['deps:ensure']).toBe('bun ./platform/dev-runner.ts deps:ensure');
   });
 
@@ -96,6 +99,27 @@ describe('dev-runner contract', () => {
     ]);
   });
 
+  test('formatter owns changed-scope writes, alternate-index publication and frozen blob checks', async () => {
+    const formatterSource = await readCompilerFile('platform/dev-runner/formatter.ts');
+
+    expectContainsAll(formatterSource, [
+      'workingTreeFormattingTargets',
+      'stagedFormattingTargets',
+      'candidateFormattingTargets',
+      "['update-index', '-z', '--index-info']",
+      'GIT_INDEX_FILE: alternateIndexPath',
+      "gitBytes(projectRoot, ['ls-tree', '-r', '-z', 'HEAD'])",
+      'Candidate formatting drift:',
+      "'docs/archive/'",
+      "'docs/evidence/'",
+      "'tests/fixtures/'"
+    ]);
+    expectContainsNone(formatterSource, [
+      "prettier.format(await fs.readFile",
+      "git add"
+    ]);
+  });
+
   test('fast runner owns test dependency readiness without production runtime setup', async () => {
     const runnerSource = await readCompilerFile('platform/dev-runner.ts');
     const testRunnerSource = await readCompilerFile('platform/dev-runner/test-runner.ts');
@@ -125,15 +149,16 @@ describe('dev-runner contract', () => {
     ]);
   });
 
-  test('runFastCheck runs docs:doctor in parallel with typecheck after imports:prepare', async () => {
+  test('runFastCheck converges imports and formatting before parallel static feedback', async () => {
     const checkRunnerSource = await readCompilerFile('platform/dev-runner/check-runner.ts');
     const fastCheckStart = checkRunnerSource.indexOf('export async function runFastCheck');
     expect(fastCheckStart).toBeGreaterThanOrEqual(0);
     const fastCheckSource = checkRunnerSource.slice(fastCheckStart);
 
     expectContainsAll(fastCheckSource, [
-      'imports:prepare -> docs:doctor + typecheck (parallel) -> test:fast',
+      'imports:prepare -> format:prepare -> docs:doctor + typecheck (parallel) -> test:fast',
       'await runImportPreparation()',
+      'await runFormatPreparation()',
       'Promise.all([',
       "runDevCommand('bun', ['docs/scripts/docs-doctor.ts'], {})",
       'typecheck()',
@@ -145,11 +170,13 @@ describe('dev-runner contract', () => {
     ]);
 
     const importsIndex = fastCheckSource.indexOf('await runImportPreparation()');
+    const formatIndex = fastCheckSource.indexOf('await runFormatPreparation()');
     const parallelIndex = fastCheckSource.indexOf('Promise.all([');
     const docsIndex = fastCheckSource.indexOf("runDevCommand('bun', ['docs/scripts/docs-doctor.ts']");
     const typecheckIndex = fastCheckSource.indexOf('typecheck()');
     expect(importsIndex).toBeGreaterThanOrEqual(0);
-    expect(parallelIndex).toBeGreaterThan(importsIndex);
+    expect(formatIndex).toBeGreaterThan(importsIndex);
+    expect(parallelIndex).toBeGreaterThan(formatIndex);
     expect(docsIndex).toBeGreaterThan(parallelIndex);
     expect(typecheckIndex).toBeGreaterThan(parallelIndex);
   });

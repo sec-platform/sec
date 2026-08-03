@@ -61,6 +61,9 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   expect(contract.releaseWorkflowStepOrder).toEqual([...CI_VERIFICATION_RELEASE_STEP_ORDER]);
   expect(contract.prWorkflowCommands.filter((command) => !prWorkflowSource.includes(command))).toEqual([]);
   expect(contract.releaseWorkflowCommands.filter((command) => !releaseWorkflowSource.includes(command))).toEqual([]);
+  expect(contract.qualityCommands).toContain('bun run format:check');
+  expect(contract.prQuickLaneCommands[0]).toBe('bun run format:check');
+  expect(contract.fullLaneCommands[0]).toBe('bun run format:check');
 
   expect(prWorkflow.on.repository_dispatch?.types).toEqual([CI_VERIFICATION_PR_DISPATCH_TYPE]);
   expect(prWorkflow.on.pull_request).toBeUndefined();
@@ -85,6 +88,9 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   const checkout = workflowStep(prWorkflow, 'compiler-pr-verification', 'Checkout exact PR head');
   expect(checkout.with?.ref).toBe('${{ steps.verification.outputs.head }}');
   expect(checkout.with?.['persist-credentials']).toBe(false);
+  const format = workflowStep(prWorkflow, 'compiler-pr-verification', 'Check exact-head formatting');
+  expect(format.run).toBe('bun run format:check');
+  expect(format.env?.SEC_CHANGED_BASE).toBe('${{ steps.verification.outputs.base }}');
   const verify = workflowStep(prWorkflow, 'compiler-pr-verification', 'Run exact-head verification');
   expect(verify.run).toBe('bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"');
   expect(verify.env).toMatchObject({
@@ -94,19 +100,7 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
     SEC_WORK_PACKAGE_MANIFEST_PATH: '${{ steps.verification.outputs.manifest }}'
   });
   expect(prWorkflowSource).toContain('sec-verification-v19-${{ steps.verification.outputs.profile }}-pr-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v18-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v17-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v16-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v15-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v14-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v13-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v12-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v11-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v10-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v9-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v8-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v7-');
-  expect(prWorkflowSource).not.toContain('sec-verification-v4-');
+  expect(prWorkflowSource).not.toContain('sec-verification-v20-');
   expect(prWorkflowSource).not.toContain('continue-on-error: true');
   expect(prWorkflowSource).not.toContain('statuses: write');
   expect(prWorkflowSource).not.toContain('run-quick');
@@ -125,22 +119,13 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   const releaseCheckout = workflowStep(releaseWorkflow, 'compiler-release-verification', 'Checkout exact release head');
   expect(releaseCheckout.with?.ref).toBe('${{ steps.verification.outputs.sha }}');
   expect(releaseCheckout.with?.['persist-credentials']).toBe(false);
+  const releaseFormat = workflowStep(releaseWorkflow, 'compiler-release-verification', 'Check exact-head formatting');
+  expect(releaseFormat.run).toBe('bun run format:check');
+  expect(releaseFormat.env?.SEC_CHANGED_BASE).toBe('${{ steps.verification.outputs.base }}');
   const releaseVerify = workflowStep(releaseWorkflow, 'compiler-release-verification', 'Run exact-head full verification');
   expect(releaseVerify.env?.SEC_EXPECTED_HEAD_SHA).toBe('${{ steps.verification.outputs.sha }}');
   expect(releaseWorkflowSource).toContain('sec-verification-v19-full-release-head-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v18-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v17-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v16-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v15-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v14-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v13-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v12-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v11-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v10-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v9-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v8-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v7-');
-  expect(releaseWorkflowSource).not.toContain('sec-verification-v4-');
+  expect(releaseWorkflowSource).not.toContain('sec-verification-v20-');
   expect(releaseWorkflowSource).toContain('manual-bootstrap-required');
   expect(releaseWorkflowSource).not.toContain('continue-on-error: true');
   expect(releaseWorkflowSource).not.toContain('schedule:');
@@ -175,13 +160,10 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
     'explain',
     'reference-check'
   ]);
-  // Full gate conditionally includes docs-doctor based on documentation lifecycle changes.
   expect(buildCiFullGatePlan({ hasDocumentationLifecycleChange: false }).map((step) => step.id)).not.toContain('docs-doctor');
   expect(buildCiFullGatePlan({ hasDocumentationLifecycleChange: true }).map((step) => step.id)).toContain('docs-doctor');
-  // Build plan with empty changedFiles and no documentation-lifecycle owners omits docs-doctor in full profile.
   const fullPlanNoDocChange = CodexDevelopmentBuildVerificationPlanV1('full', [], undefined);
   expect(fullPlanNoDocChange.gates.map((step) => step.id)).not.toContain('docs-doctor');
-  // Build plan with null changedFiles (unknown changes) includes docs-doctor as conservative default.
   const fullPlanUnknownChanges = CodexDevelopmentBuildVerificationPlanV1('full', null, undefined);
   expect(fullPlanUnknownChanges.gates.map((step) => step.id)).toContain('docs-doctor');
   expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');

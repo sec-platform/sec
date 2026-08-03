@@ -7,8 +7,9 @@ if ! git diff --cached --quiet HEAD --; then
 fi
 
 bun ./platform/dev-runner.ts imports:freeze
+bun ./platform/dev-runner.ts format:freeze
 
 if ! git diff --cached --quiet HEAD --; then
-  echo "Push stopped: candidate imports were sealed into the index; commit them, then push again." >&2
+  echo "Push stopped: candidate imports or formatting were sealed into the index; commit them, then push again." >&2
   exit 1
 fi

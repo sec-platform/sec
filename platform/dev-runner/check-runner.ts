@@ -10,6 +10,7 @@ import {
 
 export type LocalAffectedGateId =
   | 'imports:prepare'
+  | 'format:prepare'
   | 'typecheck'
   | 'docs:doctor'
   | 'test:affected';
@@ -75,10 +76,15 @@ export function buildLocalAffectedCheckPlan(
   const failClosed = affectedPlan.resolved
     && isAffectedSelectionFailClosed(affectedPlan.selectionTrustBoundary);
   const testAffectedRequired = affectedPlan.selectedFastTests.length > 0 || failClosed;
+  const formattingRequired = changedPaths.length > 0;
   const gates = activeDocsOnly
-    ? [gate('docs:doctor')]
+    ? [
+      ...(formattingRequired ? [gate('format:prepare')] : []),
+      gate('docs:doctor')
+    ]
     : [
       ...(typescriptChanged ? [gate('imports:prepare')] : []),
+      ...(formattingRequired ? [gate('format:prepare')] : []),
       ...(typecheckRequired ? [gate('typecheck')] : []),
       ...(activeDocsChanged ? [gate('docs:doctor')] : []),
       ...(testAffectedRequired ? [gate('test:affected')] : [])
@@ -103,6 +109,10 @@ async function executeLocalAffectedGate(
   if (step.id === 'imports:prepare') {
     const { runImportPreparation } = await import('./import-organizer.ts');
     return runImportPreparation();
+  }
+  if (step.id === 'format:prepare') {
+    const { runFormatPreparation } = await import('./formatter.ts');
+    return runFormatPreparation();
   }
   if (step.id === 'typecheck') {
     const { runTypecheck, runTypecheckWithBinPath } = await import('./typecheck-runner.ts');
@@ -153,7 +163,7 @@ export async function runLocalAffectedCheck(
   }
 
   const compilerGateSelected = plan.gates.some(({ id }) => (
-    id === 'imports:prepare' || id === 'typecheck'
+    id === 'imports:prepare' || id === 'format:prepare' || id === 'typecheck'
   ));
   if (compilerGateSelected && !options.prepareCompilerNodeModulesPath) {
     console.error('Local affected compiler Gates require the canonical dependency preparation capability.');
@@ -183,11 +193,15 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
 
   const compilerNodeModulesPath = await options.prepareCompilerNodeModulesPath();
 
-  console.log('Running fast check: imports:prepare -> docs:doctor + typecheck (parallel) -> test:fast');
+  console.log('Running fast check: imports:prepare -> format:prepare -> docs:doctor + typecheck (parallel) -> test:fast');
 
   const { runImportPreparation } = await import('./import-organizer.ts');
   const importsCode = await runImportPreparation();
   if (importsCode !== 0) return importsCode;
+
+  const { runFormatPreparation } = await import('./formatter.ts');
+  const formatCode = await runFormatPreparation();
+  if (formatCode !== 0) return formatCode;
 
   const { runDevCommand } = await import('./command-runner.ts');
   const { runTypecheck, runTypecheckWithBinPath } = await import('./typecheck-runner.ts');

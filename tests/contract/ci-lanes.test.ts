@@ -50,10 +50,12 @@ test('CI contract keeps PR lanes bounded and full logical lane complete', () => 
   expect(CI_VERIFICATION_PR_DISPATCH_TYPE).toBe('sec-verify-frozen-v1');
   expect(contract.prWorkflowCommands).toEqual([
     'bun install --frozen-lockfile',
+    'bun run format:check',
     'bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"'
   ]);
   expect(contract.releaseWorkflowCommands).toEqual([
     'bun install --frozen-lockfile',
+    'bun run format:check',
     'bun scripts/ci-verification.ts --profile full --expected-head "$SEC_EXPECTED_HEAD_SHA"'
   ]);
 });

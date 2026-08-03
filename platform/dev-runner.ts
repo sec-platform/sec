@@ -2,7 +2,7 @@ import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
 import { cleanTestWorkspaces } from './dev-runner/env-manager.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:prepare|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:prepare|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|format:prepare|format:check|format:freeze|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -96,6 +96,21 @@ async function main(): Promise<void> {
       undefined,
       args.length === 0 ? {} : { candidateBase: args[1] }
     );
+    return;
+  }
+
+  if (target === 'format:prepare' || target === 'format:check' || target === 'format:freeze') {
+    if (args.length !== 0) usage();
+    const {
+      runFormatCheck,
+      runFormatPreparation,
+      runStagedFormatter
+    } = await import('./dev-runner/formatter.ts');
+    process.exitCode = target === 'format:prepare'
+      ? await runFormatPreparation()
+      : target === 'format:check'
+        ? await runFormatCheck()
+        : await runStagedFormatter();
     return;
   }
 

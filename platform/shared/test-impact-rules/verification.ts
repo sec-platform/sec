@@ -3,7 +3,9 @@ import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
 const DEV_RUNNER_FAST_TESTS = [
   'tests/contract/dev-runner-contract.test.ts',
   'tests/contract/test-impact.test.ts',
-  'tests/unit/ci-pr-risk-selection.test.ts'
+  'tests/e2e/formatter-staged.test.ts',
+  'tests/unit/ci-pr-risk-selection.test.ts',
+  'tests/unit/formatter-contract.test.ts'
 ];
 
 const AFFECTED_TEST_SELECTION_FAST_TESTS = [
@@ -61,6 +63,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/command-runner.ts',
       'platform/dev-runner/env-manager.ts',
       'platform/dev-runner/fast-test-policy.ts',
+      'platform/dev-runner/formatter.ts',
       'platform/dev-runner/import-organizer.ts',
       'platform/dev-runner/test-concurrency-policy.ts',
       'platform/dev-runner/test-runner.ts',
