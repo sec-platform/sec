@@ -83,6 +83,8 @@ const NON_OWNING_KINDS = new Set<DocumentationAuthorityKind>([
   'navigation', 'agent-projection', 'proposal'
 ]);
 
+const ROOT_DOCUMENT_PATHS = new Set(['AGENTS.md', 'README.md']);
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
@@ -146,6 +148,18 @@ function canonicalRepositoryPath(value: unknown, label: string): string {
     throw new Error(`${label} must be a canonical repository-relative POSIX path.`);
   }
   return path;
+}
+
+function registryDocumentPath(value: unknown, label: string): string {
+  const documentPath = canonicalRepositoryPath(value, label);
+  if (!documentPath.startsWith('docs/') && !ROOT_DOCUMENT_PATHS.has(documentPath)) {
+    throw new Error(`${label} must be under docs/ or one of AGENTS.md, README.md.`);
+  }
+  return documentPath;
+}
+
+function caseInsensitivePathIdentity(value: string): string {
+  return value.toLowerCase();
 }
 
 function parseProposalLifecycle(
@@ -234,7 +248,10 @@ function parseRecord(value: unknown, index: number): DocumentationAuthorityRecor
 
   const generatedFrom = value.generatedFrom === undefined
     ? undefined
-    : canonicalRepositoryPath(value.generatedFrom, `${label}.generatedFrom`);
+    : registryDocumentPath(value.generatedFrom, `${label}.generatedFrom`);
+  if (generatedFrom !== undefined && owns.length > 0) {
+    throw new Error(`${label} generated projection cannot own canonical facts.`);
+  }
   const proposal = value.proposal === undefined
     ? undefined
     : parseProposalLifecycle(value.proposal, `${label}.proposal`);
@@ -252,7 +269,7 @@ function parseRecord(value: unknown, index: number): DocumentationAuthorityRecor
 
   return {
     id: nonEmptyString(value.id, `${label}.id`),
-    path: canonicalRepositoryPath(value.path, `${label}.path`),
+    path: registryDocumentPath(value.path, `${label}.path`),
     kind,
     domain: nonEmptyString(value.domain, `${label}.domain`),
     lifecycle,
@@ -274,9 +291,8 @@ function parseRecord(value: unknown, index: number): DocumentationAuthorityRecor
 function assertRegistryClosure(records: readonly DocumentationAuthorityRecord[]): void {
   const ids = new Map<string, DocumentationAuthorityRecord>();
   const paths = new Map<string, DocumentationAuthorityRecord>();
-  const windowsPaths = new Map<string, DocumentationAuthorityRecord>();
+  const caseInsensitivePaths = new Map<string, DocumentationAuthorityRecord>();
   const owners = new Map<string, DocumentationAuthorityRecord>();
-  const retirementTargets = new Map<string, DocumentationAuthorityRecord>();
 
   for (const record of records) {
     const previousId = ids.get(record.id);
@@ -291,14 +307,16 @@ function assertRegistryClosure(records: readonly DocumentationAuthorityRecord[])
     }
     paths.set(record.path, record);
 
-    const windowsPath = record.path.toLowerCase();
-    const previousWindowsPath = windowsPaths.get(windowsPath);
-    if (previousWindowsPath) {
+    const pathIdentity = caseInsensitivePathIdentity(record.path);
+    const previousCaseInsensitivePath = caseInsensitivePaths.get(pathIdentity);
+    if (previousCaseInsensitivePath) {
       throw new Error(
-        `Case-insensitive document path collision ${record.path}: ${previousWindowsPath.id}, ${record.id}.`
+        `Case-insensitive document path collision ${record.path}: ${
+          previousCaseInsensitivePath.id
+        }, ${record.id}.`
       );
     }
-    windowsPaths.set(windowsPath, record);
+    caseInsensitivePaths.set(pathIdentity, record);
 
     for (const owned of record.owns) {
       const previousOwner = owners.get(owned);
@@ -309,18 +327,29 @@ function assertRegistryClosure(records: readonly DocumentationAuthorityRecord[])
       }
       owners.set(owned, record);
     }
+  }
 
-    if (record.proposal) {
-      const previousRetirement = retirementTargets.get(record.proposal.retirementTarget);
-      if (previousRetirement) {
-        throw new Error(
-          `Proposal retirementTarget ${record.proposal.retirementTarget} is shared by ${
-            previousRetirement.id
-          } and ${record.id}.`
-        );
-      }
-      retirementTargets.set(record.proposal.retirementTarget, record);
+  const retirementTargets = new Map<string, DocumentationAuthorityRecord>();
+  for (const record of records) {
+    if (!record.proposal) continue;
+    const retirementIdentity = caseInsensitivePathIdentity(record.proposal.retirementTarget);
+    const occupied = caseInsensitivePaths.get(retirementIdentity);
+    if (occupied) {
+      throw new Error(
+        `Proposal ${record.id} retirementTarget ${record.proposal.retirementTarget} is occupied by ${
+          occupied.id
+        }.`
+      );
     }
+    const previousRetirement = retirementTargets.get(retirementIdentity);
+    if (previousRetirement) {
+      throw new Error(
+        `Proposal retirementTarget ${record.proposal.retirementTarget} is shared by ${
+          previousRetirement.id
+        } and ${record.id}.`
+      );
+    }
+    retirementTargets.set(retirementIdentity, record);
   }
 
   for (const record of records) {
@@ -346,7 +375,7 @@ function assertRegistryClosure(records: readonly DocumentationAuthorityRecord[])
         if (targetRecord.kind === 'proposal') {
           throw new Error(`Proposal ${record.id} cannot migrate into proposal ${target}.`);
         }
-        if (targetRecord.owns.length === 0) {
+        if (targetRecord.generatedFrom !== undefined || targetRecord.owns.length === 0) {
           throw new Error(`Proposal ${record.id} target ${target} is not an owning canonical record.`);
         }
       }
