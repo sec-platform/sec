@@ -7,11 +7,19 @@ export const DOCUMENTATION_LIFECYCLE_TEST_OWNERS = {
   historical: 'historical-documentation'
 } as const;
 
+const DOCUMENTATION_CORPUS_FAST_TESTS = [
+  'tests/contract/documentation-corpus-census.test.ts',
+  'tests/contract/documentation-ownership-closure.test.ts',
+  'tests/contract/docs-doctor-byte-exact.test.ts',
+  'tests/unit/documentation-authority-registry-v2.test.ts'
+];
+
 const DOCUMENTATION_AUTHORITY_FAST_TESTS = [
   'tests/contract/agent-skills.test.ts',
   'tests/contract/ci-lanes.test.ts',
   'tests/contract/document-control-plane-lifecycle.test.ts',
   'tests/contract/documentation-authority.test.ts',
+  ...DOCUMENTATION_CORPUS_FAST_TESTS,
   'tests/contract/docs-doctor-ledgers.test.ts',
   'tests/contract/docs-doctor.test.ts',
   'tests/contract/repository-audit.test.ts',
@@ -24,6 +32,7 @@ const DOCUMENTATION_AUTHORITY_FAST_TESTS = [
 const AGENT_GOVERNANCE_FAST_TESTS = [
   'tests/contract/agent-skills.test.ts',
   'tests/contract/discover-all.test.ts',
+  ...DOCUMENTATION_CORPUS_FAST_TESTS,
   'tests/contract/docs-doctor-ledgers.test.ts',
   'tests/contract/docs-doctor.test.ts',
   'tests/contract/repository-audit.test.ts',
