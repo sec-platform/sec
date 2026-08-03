@@ -66,18 +66,30 @@ function excludedDocumentClaimsAuthority(file: string, source: string): boolean 
       const value = JSON.parse(source) as unknown;
       if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
       const record = value as Record<string, unknown>;
-      return record.schema === 'sec-document-authority-registry-v2' ||
-        record.kind === 'authority' || record.kind === 'registry' || record.kind === 'proposal' ||
-        record.lifecycle === 'active' || record.lifecycle === 'stable' || record.lifecycle === 'draft';
-    } catch {
+      if (record.schema === 'sec-document-authority-registry-v2' ||
+        record.kind === 'authority' || record.kind === 'registry' || record.kind === 'proposal') {
+        return true;
+      }
+      if (isGeneratedPlanningDocument(file)) {
+        return record.lifecycle === 'active' || record.lifecycle === 'stable';
+      }
+      if (file.startsWith('docs/work-packages/')) {
+        return record.schema !== 'codex-development-work-package-v1';
+      }
       return false;
+    } catch {
+      return file.startsWith('docs/work-packages/');
     }
   }
 
-  const authorityKind = /^kind:\s*(?:authority|registry|proposal)\s*$/mu.test(source);
-  const lifecycle = /^(?:lifecycle|status):\s*(active|stable|draft)\s*$/mu.exec(source)?.[1];
-  if (authorityKind || lifecycle === 'active' || lifecycle === 'stable') return true;
-  return lifecycle === 'draft' && !isGeneratedPlanningDocument(file);
+  if (/^kind:\s*(?:authority|registry|proposal)\s*$/mu.test(source)) return true;
+  if (isGeneratedPlanningDocument(file)) {
+    return /^(?:lifecycle|status):\s*(?:active|stable)\s*$/mu.test(source);
+  }
+  if (file.startsWith('docs/work-packages/')) {
+    return !/^schema:\s*codex-development-work-package-v1\s*$/mu.test(source);
+  }
+  return false;
 }
 
 async function ordinaryTrackedFiles(files: readonly string[]): Promise<string[]> {
