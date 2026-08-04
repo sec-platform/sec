@@ -48,12 +48,12 @@ forbiddenPaths:
   - docs/roadmap.md
   - docs/development-governance.md
 acceptance:
-  - "One typed owner inventories exact local/remote refs, every worktree binding and dirty/untracked/locked state, all PR states, active Work Package resolution, GitHub delete_branch_on_merge and local prune configuration; unknown facts fail closed, while configure-clone establishes and reads back the three clone-local prune settings."
-  - "Every non-main branch is classified as active-candidate, open-pr-candidate, merged-closeout, closed-superseded, completed-spike, protected-pending or orphan-unknown; idle remote heads are exactly main and active mode admits only main plus the exact selected candidate."
-  - "Destructive closeout is two-phase: exact pre-state and verified recovery bundle outside repository/common-dir/worktree roots are frozen before disposition; remote deletion uses expected-SHA force-with-lease CAS; local deletion uses update-ref old-SHA CAS and protects every worktree-bound, newly appeared, changed or divergent local branch."
-  - "A sec-branch-closeout-receipt-v1 binds before/after inventory, recovery digest, authorization, attempts and completed/protected-pending/residue/blocked outcome; deletion failure, SHA race, unresolved API or readback cannot be reported as complete."
-  - "sec-merge-bootstrap prepares recovery before exact-head merge, removes the obsolete post-merge pointer patch and best-effort cleanup, reads new remote main, then delegates closeout to the lifecycle owner."
-  - "Focused unit tests and a real temporary Git repository prove idle/active drift, SHA race blocking, durable path exclusion, exact remote deletion and preservation of a dirty user-owned worktree."
+  - "One typed owner inventories exact local/remote refs, every worktree binding and dirty/untracked/locked state, all PR states with same-repository identity, active Work Package resolution, GitHub delete_branch_on_merge and clone-local prune configuration; unknown facts fail closed, while configure-clone establishes and reads back the three local settings."
+  - "Every non-main branch is classified as active-candidate, open-pr-candidate, merged-closeout, closed-superseded, completed-spike, protected-pending or orphan-unknown; cross-repository PRs never authorize origin refs; idle remote heads are exactly main and active mode admits only main plus the exact selected candidate."
+  - "Destructive closeout is two-phase: a clean global lifecycle audit, exact pre-state and verified recovery bundle outside repository/common-dir/worktree roots are frozen before disposition; finalize re-reads bundle bytes, SHA-256 sidecar and git bundle verification; remote deletion uses expected-SHA force-with-lease CAS; local deletion uses update-ref old-SHA CAS and protects every worktree-bound, newly appeared, changed or divergent local branch."
+  - "A sec-branch-closeout-receipt-v1 binds before/after inventory, recovery digest, authorization, attempts and completed/protected-pending/residue/blocked outcome; full after-inventory audit, closed local ref residue, deletion failure, SHA race, recovery tamper, unresolved API or readback cannot be reported as complete."
+  - "sec-merge-bootstrap prepares recovery before exact-head merge, re-reads exact PR base/head/branch/manifest immediately before merge, removes the obsolete post-merge pointer patch and best-effort cleanup, verifies new remote main and its exact first parent, then delegates closeout to the lifecycle owner."
+  - "Focused unit tests and a real temporary Git repository prove idle/active drift, same-repository PR authorization, SHA and local-ref race blocking, durable path exclusion, recovery tamper detection, exact remote deletion and preservation of a dirty user-owned worktree."
 tests:
   - tests/unit/branch-lifecycle-contract.test.ts
   - tests/unit/branch-lifecycle-temp-repo.test.ts
@@ -81,6 +81,14 @@ inventory
 → full readback
 → typed receipt
 ```
+
+## Trust-root bootstrap
+
+本包修改 `scripts/codex/`，属于现有 frozen verifier 明确定义的 trust-root delta。
+候选不得用自身新增规则授权自身；旧 epoch 的 hosted frozen verification 返回
+`manual-bootstrap-required` 是预期结果，不得伪造绿色。合并前必须保留 base-side
+parser/scope/TCB/focused evidence 与独立 Review；admin/manual integration 后读取新
+`main`，并在新任务中重新加载新 trust epoch。
 
 ## 边界
 
