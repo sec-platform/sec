@@ -126,6 +126,7 @@ export function parsePullRequestObservations(source: string): BranchPullRequestO
     const headSha = record.headRefOid;
     const baseBranch = record.baseRefName;
     const stateValue = record.state;
+    const isCrossRepository = record.isCrossRepository;
     if (typeof number !== 'number' || !Number.isSafeInteger(number) || number <= 0) {
       throw new Error(`PR observation ${index} has invalid number.`);
     }
@@ -134,6 +135,9 @@ export function parsePullRequestObservations(source: string): BranchPullRequestO
       throw new Error(`PR #${number} head SHA is invalid.`);
     }
     if (typeof baseBranch !== 'string') throw new Error(`PR #${number} base branch is invalid.`);
+    if (typeof isCrossRepository !== 'boolean') {
+      throw new Error(`PR #${number} cross-repository identity is invalid.`);
+    }
     assertGitBranchName(headBranch, `PR #${number} head branch`);
     assertGitBranchName(baseBranch, `PR #${number} base branch`);
     if (typeof headSha === 'string') assertGitSha(headSha, `PR #${number} head SHA`);
@@ -148,6 +152,7 @@ export function parsePullRequestObservations(source: string): BranchPullRequestO
       baseBranch,
       state,
       isDraft: record.isDraft === true,
+      isCrossRepository,
       url: typeof record.url === 'string' ? record.url : null
     };
   }));
