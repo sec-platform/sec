@@ -39,15 +39,10 @@ import {
   compilerRuntimeLayout,
   compilerRuntimeResources
 } from '../../shared/runtime-layout.ts';
-import {
-  isCanonicalVerificationArtifactSet,
-  type CurrentCanonicalVerificationReport
-} from '../../shared/verification-artifact-contract.ts';
-import { CodexDevelopmentSnapshotVerificationDataV1 } from '../../shared/verification-result-contract.ts';
+import type { CurrentCanonicalVerificationReport } from '../../shared/verification-artifact-contract.ts';
 import type {
   RuntimeVerificationLaneReport,
-  SemanticMutationVerificationCapabilityPlanV1,
-  VerificationReport
+  SemanticMutationVerificationCapabilityPlanV1
 } from '../../shared/verification-types.ts';
 import {
   createWorkspaceWriteCommitFence,
@@ -57,7 +52,6 @@ import {
 import { loadWorkspacePlan } from '../parse/load-plan.ts';
 import {
   buildWorkspaceSemanticBundle,
-  type WorkspaceSemanticBundle
 } from '../semantic-frontend.ts';
 import {
   parseSemanticMutationIsolatedChildOutcomeBytes,
@@ -76,6 +70,9 @@ import {
   type SemanticMutationIsolatedProgressTrace,
   type SemanticMutationIsolatedTerminationClass
 } from '../semantic-mutation/isolated-verification-child-progress.ts';
+import {
+  classifySemanticMutationIsolatedVerificationArtifactSet
+} from '../semantic-mutation/isolated-verification-classifier.ts';
 import {
   resetSemanticMutationIsolatedExecutionPhaseTelemetry,
   resetSemanticMutationIsolatedPhaseTelemetry,
@@ -576,89 +573,6 @@ async function compilerRegistryInputs(
 
 function rawByteDigest(bytes: Uint8Array): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-}
-
-function exactKeys(value: unknown, expected: readonly string[]): value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const actual = Object.keys(value).sort();
-  const canonicalExpected = [...expected].sort();
-  return actual.length === canonicalExpected.length &&
-    actual.every((key, index) => key === canonicalExpected[index]);
-}
-
-function exactSemanticBundle(value: unknown): value is WorkspaceSemanticBundle {
-  if (!exactKeys(value, ['snapshot', 'generatorPlan', 'semanticViews', 'semanticContractSources']) ||
-    !exactKeys(value.snapshot, ['ir']) || !exactKeys(value.generatorPlan, [
-      'inputRevision', 'semanticRevision', 'tasks'
-    ]) || !exactKeys(value.semanticViews, [
-      'formatVersion', 'inputRevision', 'semanticRevision', 'views'
-    ]) || !Array.isArray(value.semanticContractSources)) {
-    return false;
-  }
-  const bundle = value as unknown as WorkspaceSemanticBundle;
-  return typeof bundle.snapshot.ir.inputRevision === 'string' &&
-    typeof bundle.snapshot.ir.semanticRevision === 'string' &&
-    bundle.generatorPlan.inputRevision === bundle.snapshot.ir.inputRevision &&
-    bundle.generatorPlan.semanticRevision === bundle.snapshot.ir.semanticRevision &&
-    bundle.semanticViews.inputRevision === bundle.snapshot.ir.inputRevision &&
-    bundle.semanticViews.semanticRevision === bundle.snapshot.ir.semanticRevision &&
-    Array.isArray(bundle.generatorPlan.tasks) && Array.isArray(bundle.semanticViews.views) &&
-    bundle.semanticContractSources.every((source) => exactKeys(source, [
-      'sourceKind', 'loadedContract', 'sourceRevision'
-    ]) && (source.sourceKind === 'workspace-authoring' ||
-      source.sourceKind === 'workspace-registry' || source.sourceKind === 'compiler-registry') &&
-      typeof source.sourceRevision === 'string' && source.loadedContract !== null &&
-      typeof source.loadedContract === 'object' && !Array.isArray(source.loadedContract));
-}
-
-export interface SemanticMutationIsolatedVerificationArtifactSet {
-  readonly childExitCode: number;
-  readonly verificationReport: unknown;
-  readonly runtimeReport: unknown;
-  readonly policyReport: unknown;
-  readonly acceptanceCoverage: unknown;
-  readonly semanticBundle: unknown;
-}
-
-export function classifySemanticMutationIsolatedVerificationArtifactSet(
-  input: SemanticMutationIsolatedVerificationArtifactSet
-): 'passed' | 'failed' | 'blocked' {
-  let candidate: SemanticMutationIsolatedVerificationArtifactSet;
-  try {
-    candidate = {
-      verificationReport: CodexDevelopmentSnapshotVerificationDataV1(
-        input.verificationReport,
-        'verification report'
-      ),
-      runtimeReport: CodexDevelopmentSnapshotVerificationDataV1(
-        input.runtimeReport,
-        'runtime report'
-      ),
-      policyReport: CodexDevelopmentSnapshotVerificationDataV1(
-        input.policyReport,
-        'policy report'
-      ),
-      acceptanceCoverage: CodexDevelopmentSnapshotVerificationDataV1(
-        input.acceptanceCoverage,
-        'acceptance coverage'
-      )
-    } as SemanticMutationIsolatedVerificationArtifactSet;
-  } catch {
-    return 'blocked';
-  }
-  if (!Number.isSafeInteger(input.childExitCode) || input.childExitCode < 0 ||
-    !isCanonicalVerificationArtifactSet(
-      candidate as SemanticMutationIsolatedVerificationArtifactSet
-    ) ||
-    !exactSemanticBundle(input.semanticBundle)) {
-    return 'blocked';
-  }
-  const report = candidate.verificationReport as VerificationReport;
-  if (report.summary.status === 'failed') {
-    return input.childExitCode === 0 ? 'blocked' : 'failed';
-  }
-  return input.childExitCode === 0 && report.fast.status === 'passed' &&
-    report.runtime.status === 'passed' ? 'passed' : 'blocked';
 }
 
 export interface SemanticMutationIsolatedVerificationExecutionRequest {

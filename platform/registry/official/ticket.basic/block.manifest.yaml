@@ -172,6 +172,8 @@ acceptance:
     covers:
       blocks:
         - ticket/basic
+      slots:
+        - ticket_comment_delegate
 routes:
   - path: /tickets
     file: src/installed/ticket/ticket-service.ts

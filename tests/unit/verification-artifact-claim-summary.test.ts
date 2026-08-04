@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
   type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
+} from '../../platform/compiler/semantic-mutation/isolated-verification-classifier.ts';
 import {
   buildExpectedProductVerificationClaimSummary,
   PRODUCT_FAST_GATE_ID,
