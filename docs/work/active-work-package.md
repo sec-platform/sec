@@ -10,8 +10,8 @@ last-reviewed: 2026-08-04
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/branch-ref-lifecycle-v1.md
-manifestDigest: sha256:cccc57b7e6d4e86cc059ec087d1cb75bc0695666e085f2a636d5b3223e5a5a97
+manifest: docs/work-packages/generated-state-lifecycle-v1.md
+manifestDigest: sha256:63db9825bcc40f76be682a5b4c91a696e19c2420370bdceb5a0d25214fadb54b
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

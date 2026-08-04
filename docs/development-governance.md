@@ -53,6 +53,25 @@ latest main + live Git/GitHub facts
 
 Resolver 无法确定 default ref、target repository/workspace、active pointer、manifest bytes/digest、PR base/head、review/CI 或 authority owner时 fail closed。
 
+## Ignored 与 Generated State 生命周期
+
+`.gitignore` 只取消 Git tracking，不授予删除、保留、恢复或 settled 声明。一个 ignored path 即使不出现在 `git status`，仍然必须有唯一 lifecycle owner、重建方式、清理 profile、settlement effect 和 physical readback；路径名包含 `tmp`、`cache` 或 `generated` 不能代替这些事实。
+
+Repository-local generated state 固定区分：
+
+- 可重建 cache 和 toolchain 派生状态；
+- 由 owner/liveness 约束的临时 workspace；
+- 有明确 retention 与 promotion 责任的 diagnostic；
+- 只能由原协议恢复的 identity-bound control state；
+- 必须移出全部 repository/common-dir/worktree root 的 durable recovery；
+- 默认 fail closed 的 unknown。
+
+普通清理只能消费 canonical registry。`automatic` 只回收可证明 owner 已死亡的运行实例；`safe` 只再加入超过兼容宽限的 legacy workspace 和过期 diagnostic；`all-rebuildable` 才允许删除已登记 cache/toolchain state。Active、cross-host、malformed owner、reparse/symlink、changed-after-plan、recovery、control 和 unknown 永不因名称或年龄进入普通删除集。
+
+清理必须冻结 physical snapshot、在同一文件系统隔离、no-follow 删除并以 ENOENT/readback 和 typed receipt结束。失败、被保护对象和 interrupted transaction 必须保持可观察；`catch {}`、`force` 或命令退出码不能冒充 cleanup complete。
+
+Environment settlement 是 tracked Git materialization 与 ignored generated-state inventory 的联合结果。合法 hot cache 和 active owned run 可以存在；orphan、过期残留、unsafe/unknown、cleanup residue 和错误位置的 recovery 会阻断完整 settled。Evidence 与 durable recovery 不是 cache 子类，必须迁移到各自 canonical owner，不能与一键 cache clean 共删。
+
 ## 计划与记录分层
 
 - **`docs/product.md`**：产品问题、边界、用户结果和长期成功判据。

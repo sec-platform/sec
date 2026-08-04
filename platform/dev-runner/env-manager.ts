@@ -1,6 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { compilerRoot } from '../shared/paths.ts';
+import type { GeneratedStateCleanupReceipt } from '../shared/generated-state-contract.ts';
+import {
+  cleanGeneratedState,
+  getGeneratedStateRoot
+} from './generated-state.ts';
 export { pathEnvKey } from '../shared/process.ts';
 
 export const TEST_WORKSPACE_NAMESPACE_ENV = 'SEC_TEST_WORKSPACE_NAMESPACE';
@@ -15,102 +20,61 @@ export function resolveTestWorkspaceNamespace(env: NodeJS.ProcessEnv = process.e
 }
 
 export function getTestWorkspaceTempRoot(env: NodeJS.ProcessEnv = process.env): string {
-  const root = path.join(compilerRoot, '.tmp', 'test-workspaces');
+  const root = path.join(getGeneratedStateRoot(compilerRoot), 'test-workspaces');
   const namespace = resolveTestWorkspaceNamespace(env);
   return namespace ? path.join(root, namespace) : root;
 }
 
 export function getTestWorkspaceTemplateRoot(): string {
-  return path.join(compilerRoot, '.tmp', 'test-workspaces', '.templates');
+  return path.join(getGeneratedStateRoot(compilerRoot), 'test-workspaces', '.templates');
 }
 
-export async function cleanTestWorkspaces(env: NodeJS.ProcessEnv = process.env): Promise<void> {
-  const root = getTestWorkspaceTempRoot(env);
+async function pathExists(target: string): Promise<boolean> {
   try {
-    await fs.access(root);
-  } catch {
-    return;
+    await fs.lstat(target);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
   }
-  await fs.rm(root, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 100
-  });
 }
-
-export function commandPath(binPath: string, base: string): string {
-  return path.join(binPath, process.platform === 'win32' ? `${base}.exe` : base);
-}
-
-const STALE_DIR_THRESHOLD = 500;
-const STALE_MTIME_MS = 30 * 60 * 1000;
-const CLEANUP_TTL_MS = 5 * 60 * 1000;
 
 /**
- * Clean stale workspace directories and orphan staging, preserving .templates/.
- * Uses mkdir lock for serialization across concurrent processes.
- * Triggered when: directory count exceeds threshold, or orphan staging exists.
- * Throttled by marker file — no repeated readdir+stat within CLEANUP_TTL_MS.
- *
- * Called once by runFastTests before spawning shards, replacing the previous
- * per-subprocess preload call that caused redundant I/O in every bun test child.
+ * Exact compatibility projection for the historical clean-test-workspaces API.
+ * A namespaced call authorizes only that namespace. An unscoped call performs
+ * the generated-state safe profile and preserves templates and hot caches.
  */
-export async function cleanStaleTestWorkspaces(): Promise<void> {
-  const tempRoot = path.join(compilerRoot, '.tmp', 'test-workspaces');
-  const markerPath = path.join(tempRoot, '.last-cleanup');
-  try {
-    const markerStat = await fs.stat(markerPath);
-    if (Date.now() - markerStat.mtimeMs < CLEANUP_TTL_MS) return;
-  } catch { /* marker absent — proceed */ }
-
-  const lockPath = path.join(tempRoot, '.cleanup-lock');
-  try {
-    await fs.mkdir(lockPath);
-  } catch {
-    return; // another process is cleaning
+export async function cleanTestWorkspaces(
+  env: NodeJS.ProcessEnv = process.env
+): Promise<GeneratedStateCleanupReceipt> {
+  const namespace = resolveTestWorkspaceNamespace(env);
+  const relativePath = namespace ? `test-workspaces/${namespace}` : undefined;
+  const receipt = await cleanGeneratedState({
+    profile: 'safe',
+    deepInventory: false,
+    ...(relativePath ? { explicitRelativePaths: [relativePath], onlyExplicit: true } : {})
+  });
+  if (namespace && await pathExists(getTestWorkspaceTempRoot(env))) {
+    throw new Error(
+      `Generated-state cleanup did not settle test workspace namespace ${namespace}; status=${receipt.status}`
+    );
   }
-
-  try {
-    const entries = await fs.readdir(tempRoot, { withFileTypes: true });
-    const staleDirs: string[] = [];
-    let activeCount = 0;
-    const now = Date.now();
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name === '.templates' || entry.name === '.cleanup-lock') continue;
-      activeCount++;
-      const entryPath = path.join(tempRoot, entry.name);
-      try {
-        const stat = await fs.stat(entryPath);
-        if (now - stat.mtimeMs > STALE_MTIME_MS) {
-          staleDirs.push(entryPath);
-        }
-      } catch { /* skip */ }
-    }
-
-    const templatesDir = path.join(tempRoot, '.templates');
-    try {
-      const templateEntries = await fs.readdir(templatesDir, { withFileTypes: true });
-      for (const entry of templateEntries) {
-        if (entry.isDirectory() && entry.name.includes('.staging-')) {
-          staleDirs.push(path.join(templatesDir, entry.name));
-        }
-      }
-    } catch { /* skip */ }
-
-    const hasOrphanStaging = staleDirs.some((d) => d.includes('.staging-'));
-    const shouldClean = staleDirs.length > 0 && (activeCount > STALE_DIR_THRESHOLD || hasOrphanStaging);
-
-    if (shouldClean) {
-      for (const dir of staleDirs) {
-        try { await fs.rm(dir, { recursive: true, force: true }); } catch { /* skip */ }
-      }
-    }
-
-    try { await fs.writeFile(markerPath, String(Date.now())); } catch { /* skip */ }
-  } finally {
-    try { await fs.rm(lockPath, { recursive: true, force: true }); } catch { /* skip */ }
+  if (receipt.status === 'blocked' || receipt.status === 'residue') {
+    throw new Error(`Generated-state cleanup failed: ${receipt.status}`);
   }
+  return receipt;
 }
+
+/**
+ * Reap only workspaces whose registered owners are provably dead. Legacy
+ * unowned directories are never time-deleted by the automatic path.
+ */
+export async function cleanStaleTestWorkspaces(): Promise<GeneratedStateCleanupReceipt> {
+  const receipt = await cleanGeneratedState({ profile: 'automatic', deepInventory: false });
+  if (receipt.status === 'blocked' || receipt.status === 'residue') {
+    console.warn(`SEC_GENERATED_STATE_CLEANUP_RECEIPT ${JSON.stringify(receipt)}`);
+    throw new Error(`Generated-state automatic cleanup failed: ${receipt.status}; receipt=${receipt.digest}`);
+  }
+  return receipt;
+}
+
