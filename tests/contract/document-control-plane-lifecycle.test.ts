@@ -302,7 +302,7 @@ test('repository controls use the shared live resolver and preserve one bounded 
   expect(lifecycleAuthority).toContain('selected frozen Work Package');
   expect(lifecycleAuthority).toContain('Resolver 无法确定');
   expect(lifecycleAuthority).toContain('fail closed');
-  expect(lifecycleAuthority).toContain('Development Run Journal');
+  expect(lifecycleAuthority).toContain('Development Run State（目标 owner）');
   const parsedRollingPlan = CodexDevelopmentParseRollingPlanV1(rollingPlan);
   expect(parsedRollingPlan.activePackageId).toBe(activePackageId);
   expect(parsedRollingPlan.candidatePackageIds.length).toBeGreaterThanOrEqual(2);

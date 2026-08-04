@@ -152,6 +152,11 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.evidence,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.evidence },
     autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'docs/evidence/2026-08-03-constraint-thoughts-execution-plan.md',
+      'docs/evidence/2026-08-04-canonical-architecture-convergence.md',
+      'docs/evidence/2026-08-04-full-architecture-asset-audit.md'
+    ],
     sourcePrefixes: ['docs/evidence/documentation/'],
     fast: NON_ACTIVE_DOCUMENTATION_FAST_TESTS,
     slow: []

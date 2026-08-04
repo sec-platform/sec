@@ -10,8 +10,8 @@ last-reviewed: 2026-08-04
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/semantic-mutation-classification-v1.md
-manifestDigest: sha256:cd217441ada45100d170b969bf12ab8b8d4b4511a89375201f2d63b33e93755b
+manifest: docs/work-packages/canonical-architecture-convergence-v1.md
+manifestDigest: sha256:878ec1c02d44b4c496f828bc4ef4aaabf35cdbf412fdb3a9c4942190e1d7657d
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

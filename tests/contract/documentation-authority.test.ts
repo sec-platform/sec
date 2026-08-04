@@ -9,32 +9,45 @@ describe('canonical documentation authority', () => {
   test('roadmap owns the stable capability DAG without dynamic project state', async () => {
     const roadmap = await readCompilerFile('docs/roadmap.md');
     const orderedStages = [
-      'Canonical Engineering Foundation',
-      'Semantic Mutation Minimal Surface',
-      'Blockless Source Ownership',
-      'Target Profile + Type Algebra',
-      'Application IR',
-      'Behavior IR',
-      'Target Program IR + Backend',
-      'General TypeScript Lowering',
-      'Engineering Workspace Domains',
-      'Workbench / AI Semantic Operator',
-      'TypeScript Brownfield Adoption',
-      'Release / Deployment / Operations',
-      'Registry Trust / Ecosystem / Additional Languages'
+      'R0 — Theory / Authority Convergence',
+      'R1 — Canonical Engineering Semantic Kernel',
+      'R2 — Verification Truth Kernel',
+      'R3 — Physical Workspace Observation',
+      'R4 — TypeScript Source Program Model',
+      'R5 — Responsibility Reconstruction',
+      'R6 — Semantic Delta / Impact',
+      'R7 — Operation / Authorization / Planning',
+      'R8 — Transactional Controlled Mutation',
+      'R9 — Brownfield Adoption',
+      'R10 — Target Profile / Type Algebra',
+      'R11 — Application / Behavior / Target Program Lowering',
+      'R12 — General TypeScript Engineering Compiler',
+      'R13 — Workbench / AI Semantic Operator',
+      'R14 — Agent Operation Compiler / Run Kernel',
+      'R15 — Release / Deployment / Operations',
+      'R16 — Registry Ecosystem / Additional Languages'
     ];
 
     expectContainsAll(roadmap, [
       ...orderedStages,
-      'Verification Result Truth',
-      'Epoch / Failure Core → Trusted Bootstrap → Evidence DAG / Run Journal',
+      '## Workspace Domain 激活规则',
+      '## Nexus Conformance 轨道',
+      '## Specialized Target / Provider 轨道',
+      'W0 inventory',
+      'N0 exact repository/artifact census',
+      'S0 corpus + architecture only',
+      'unclassified = 0',
+      'unexplained delta = 0',
+      '基础设施饥饿保护',
+      'Observation → Responsibility → Impact → Operation → Mutation 不可颠倒',
       'clean/incremental byte-equivalent',
       'unsupported-before-emit',
-      'stable Entity/Fact/Assertion identity',
+      'stable Entity / Fact / Assertion identity',
       'deterministic revision',
       '统一 Pipeline Kernel',
-      '每层只有一个producer',
-      '只保留一个writer'
+      '每层一个producer',
+      '无竞争writer',
+      'public contract、migration和retirement一致'
     ]);
     for (let index = 1; index < orderedStages.length; index += 1) {
       expect(roadmap.indexOf(orderedStages[index]!)).toBeGreaterThan(
@@ -44,25 +57,42 @@ describe('canonical documentation authority', () => {
     expectContainsNone(roadmap, [
       'docs/03-MVP实施计划与路线图.md',
       '当前禁止事项',
-      'v0.3 Semantic Core Foundation'
+      'v0.3 Semantic Core Foundation',
+      '1B-4 → #216 → #207'
     ]);
     expect(roadmap).not.toMatch(/\b[0-9a-f]{40}\b/u);
     expect(roadmap).not.toMatch(/\bPR #\d+\b/u);
   });
 
-  test('rolling plan and migration Evidence retain replay provenance and ordered verification exits', async () => {
+  test('rolling plan keeps one active package, five candidates and absorbed design sources', async () => {
     const rollingPlan = await readCompilerFile('docs/work/rolling-plan.md');
     const migrationEvidence = await readCompilerFile(
       'docs/evidence/documentation/active-documentation-corpus-v1.md'
     );
 
     expectContainsAll(rollingPlan, [
+      'canonical-architecture-convergence-v1',
+      '## 当前唯一 Work Package',
+      '## 候选 Work Package',
+      '### 1. public-publisher-network-removal-v1',
+      '### 2. external-input-security-boundary-v1',
+      '### 3. task-envelope-de-specialization-v1',
+      '### 4. physical-workspace-observation-v1',
+      '### 5. typescript-source-program-model-skeleton-v1',
+      '## 条件候选',
+      '## 冻结设计来源',
+      '#216',
+      '#207',
+      '#248',
+      '#260',
+      '#240/#242'
+    ]);
+    expectContainsNone(rollingPlan, [
+      '1B-4 → #216 → #207',
       'PR #196',
+      '#232',
       'Failure Epoch → Trusted Bootstrap → Evidence DAG'
     ]);
-    expect(rollingPlan.indexOf('Failure Epoch')).toBeLessThan(rollingPlan.indexOf('Trusted Bootstrap'));
-    expect(rollingPlan.indexOf('Trusted Bootstrap')).toBeLessThan(rollingPlan.indexOf('Evidence DAG'));
-    expectContainsNone(rollingPlan, ['Failure Epoch / Trusted Bootstrap / Evidence DAG']);
     expectContainsAll(migrationEvidence, [
       'Target IR 跨层进入门',
       'provisional snapshot 失效/rebind',

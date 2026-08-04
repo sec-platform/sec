@@ -154,7 +154,9 @@
       "dynamicPolicy": "forbidden",
       "owns": [
         "architecture.authority-flow",
+        "architecture.cross-domain-reference",
         "architecture.layering",
+        "architecture.maturity",
         "architecture.single-writer",
         "architecture.workspace-zones"
       ],
@@ -163,7 +165,9 @@
         "developer"
       ],
       "consumers": [
+        "brownfield",
         "compiler-target-ir",
+        "development-governance",
         "workbench-ai"
       ],
       "updateTriggers": [
@@ -182,6 +186,7 @@
         "semantic.authority",
         "semantic.entity",
         "semantic.fact",
+        "semantic.responsibility",
         "semantic.revision",
         "semantic.validated-boundary"
       ],
@@ -190,9 +195,11 @@
         "developer"
       ],
       "consumers": [
+        "brownfield",
         "compiler-target-ir",
         "delta-impact",
-        "semantic-mutation"
+        "semantic-mutation",
+        "workbench-ai"
       ],
       "updateTriggers": [
         "engineering-ir-contract-change"
@@ -331,11 +338,11 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
-        "ai.bounded-operator",
+        "ai.bounded-proposal",
         "ai.context-packet",
-        "ai.task-envelope",
+        "workbench.interaction",
         "workbench.projection",
-        "workbench.semantic-operation"
+        "workbench.transport"
       ],
       "projects": [],
       "audience": [
@@ -358,9 +365,10 @@
       "dynamicPolicy": "forbidden",
       "owns": [
         "runtime.distribution",
-        "runtime.host",
+        "runtime.environment",
+        "runtime.host-profile",
         "runtime.layout",
-        "runtime.target-profile",
+        "runtime.support",
         "runtime.toolchain"
       ],
       "projects": [],
@@ -382,9 +390,11 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "change.compatibility",
+        "change.compensation",
+        "change.forward-recovery",
         "change.migration",
         "change.override",
-        "change.rollback",
         "change.upgrade"
       ],
       "projects": [],
@@ -392,6 +402,7 @@
         "developer"
       ],
       "consumers": [
+        "runtime-distribution",
         "semantic-mutation"
       ],
       "updateTriggers": [
@@ -406,11 +417,16 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "verification.aggregate",
+        "verification.applicability",
+        "verification.claim",
+        "verification.environment",
         "verification.evidence",
         "verification.gate",
         "verification.layering",
         "verification.merge-authority",
-        "verification.provenance"
+        "verification.provenance",
+        "verification.result"
       ],
       "projects": [],
       "audience": [
@@ -432,7 +448,10 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "development.agent-operation",
         "development.fact-sources",
+        "development.operation-envelope",
+        "development.plan-layering",
         "development.resume",
         "development.roles",
         "development.skill",
