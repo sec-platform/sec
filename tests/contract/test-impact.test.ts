@@ -108,7 +108,10 @@ test('non-active documentation lifecycles have explicit owners without a docs ca
 
   for (const evidenceSource of [
     'docs/evidence/documentation/active-documentation-corpus-v1.md',
-    'docs/evidence/documentation/example.manifest.yaml'
+    'docs/evidence/documentation/example.manifest.yaml',
+    'docs/evidence/2026-08-03-constraint-thoughts-execution-plan.md',
+    'docs/evidence/2026-08-04-canonical-architecture-convergence.md',
+    'docs/evidence/2026-08-04-full-architecture-asset-audit.md'
   ]) {
     expect(classifyTestImpactSource(evidenceSource)).toBeNull();
     expect(selectTestsForSources([evidenceSource])).toEqual({
