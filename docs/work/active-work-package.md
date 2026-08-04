@@ -10,8 +10,8 @@ last-reviewed: 2026-08-04
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/verification-aggregate-lattice-v1.md
-manifestDigest: sha256:98f247a75d86fa17d7defb2a49194389ed533e1169f9b084080ae3a51bc1db32
+manifest: docs/work-packages/verification-acceptance-coverage-v1.md
+manifestDigest: sha256:ae9a23891ef1b8cbab21aec84f094fca277dc9bd2fba63e12aa918258bb29c94
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

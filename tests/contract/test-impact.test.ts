@@ -766,11 +766,25 @@ test('test impact selector assigns neutral isolated Verification capabilities to
     'tests/contract/semantic-mutation-apply-contract.test.ts'
   ]));
   for (const source of sourceFiles) {
-    expect(resolveTestOwnership([source])).toEqual([{
-      source,
-      owner: 'pipeline-orchestrator',
-      identity: { kind: 'pass', id: 'resolve' }
-    }]);
+    const expected: ReturnType<typeof resolveTestOwnership> = source === 'platform/shared/verification-artifact-contract.ts'
+      ? [
+          {
+            source,
+            owner: 'pipeline-orchestrator',
+            identity: { kind: 'pass', id: 'resolve' }
+          },
+          {
+            source,
+            owner: 'verification-truth',
+            identity: { kind: 'architecture-owner', id: 'verification-truth' }
+          }
+        ]
+      : [{
+          source,
+          owner: 'pipeline-orchestrator',
+          identity: { kind: 'pass', id: 'resolve' }
+        }];
+    expect(resolveTestOwnership([source])).toEqual(expected);
   }
 });
 
