@@ -127,7 +127,9 @@ function branchNames(inventory: BranchLifecycleInventory): string[] {
     ...inventory.localBranches.map(({ branch }) => branch),
     ...inventory.remoteBranches.map(({ branch }) => branch),
     ...inventory.worktrees.flatMap(({ branch }) => branch === null ? [] : [branch]),
-    ...inventory.pullRequests.map(({ headBranch }) => headBranch),
+    ...inventory.pullRequests
+      .filter(({ isCrossRepository }) => !isCrossRepository)
+      .map(({ headBranch }) => headBranch),
     ...(inventory.activeWorkPackage.branch === null ? [] : [inventory.activeWorkPackage.branch])
   ])].sort((left, right) => left.localeCompare(right));
 }
@@ -137,7 +139,10 @@ function matchingPullRequests(
   branch: string
 ): BranchPullRequestObservation[] {
   return inventory.pullRequests
-    .filter((pullRequest) => pullRequest.headBranch === branch)
+    .filter((pullRequest) => (
+      !pullRequest.isCrossRepository
+      && pullRequest.headBranch === branch
+    ))
     .sort((left, right) => left.number - right.number);
 }
 
@@ -196,6 +201,13 @@ export function classifyBranchLifecycle(
           ? 'bound to a dirty, unknown, locked, or prunable worktree'
           : 'bound to a worktree and therefore not locally deletable'
       );
+    } else if (
+      explicitDisposition(dispositions, branch)?.disposition === 'protected-pending'
+      && localRefs.has(branch)
+      && !remoteRefs.has(branch)
+    ) {
+      classification = 'protected-pending';
+      reasons.push('bound to a durable protected-pending closeout receipt');
     } else if (pullRequests.some(({ state }) => state === 'merged')) {
       classification = 'merged-closeout';
       reasons.push('head of a merged pull request');
@@ -295,7 +307,9 @@ export function auditBranchLifecycle(
     ));
   }
 
-  const openPullRequests = inventory.pullRequests.filter(({ state }) => state === 'open');
+  const openPullRequests = inventory.pullRequests.filter(({ state, isCrossRepository }) => (
+    state === 'open' && !isCrossRepository
+  ));
   const active = inventory.activeWorkPackage;
   const allowedRemoteBranches = new Set<string>([defaultBranch]);
 
@@ -377,6 +391,20 @@ export function auditBranchLifecycle(
         'closed-pr-head-still-remote',
         'error',
         `Remote head remains after PR disposition (${classification.classification}).`,
+        classification.branch
+      ));
+    }
+    if (
+      classification.localSha !== null
+      && (
+        classification.classification === 'merged-closeout'
+        || classification.classification === 'closed-superseded'
+      )
+    ) {
+      findings.push(auditFinding(
+        'closed-pr-local-ref-remains',
+        'error',
+        `Local branch remains after PR disposition (${classification.classification}).`,
         classification.branch
       ));
     }
