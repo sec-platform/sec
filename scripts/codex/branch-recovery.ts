@@ -14,6 +14,12 @@ import {
 import path from 'node:path';
 
 import {
+  commandErrorText,
+  requireBranchCommandText,
+  runBranchCommand,
+  type BranchLifecycleContext
+} from './branch-lifecycle-command.ts';
+import {
   assertDurableRecoveryAuthority,
   assertGitBranchName,
   assertGitSha,
@@ -21,15 +27,9 @@ import {
   type BranchLifecycleInventory,
   type BranchRecoveryAuthority
 } from './branch-lifecycle-contract.ts';
-import {
-  commandErrorText,
-  requireBranchCommandText,
-  runBranchCommand,
-  type BranchLifecycleContext
-} from './branch-lifecycle-command.ts';
 
 function fsyncPath(filePath: string): void {
-  const handle = openSync(filePath, 'r');
+  const handle = openSync(filePath, 'r+');
   try {
     fsyncSync(handle);
   } finally {

@@ -4,8 +4,8 @@ import path from 'node:path';
 import type {
   BranchAuditSeverity,
   BranchLifecycleAuditFinding,
-  BranchLifecycleClassification,
   BranchLifecycleAuditReport,
+  BranchLifecycleClassification,
   BranchLifecycleDispositionRecord,
   BranchLifecycleInventory,
   BranchPullRequestObservation,

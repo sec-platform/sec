@@ -2,6 +2,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  commandErrorText,
+  runBranchCommand,
+  type BranchLifecycleContext
+} from './branch-lifecycle-command.ts';
+import {
   BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
   assertGitBranchName,
   assertGitSha,
@@ -16,11 +21,6 @@ import {
   type BranchCloseoutReceipt,
   type BranchLifecycleInventory
 } from './branch-lifecycle-contract.ts';
-import {
-  commandErrorText,
-  runBranchCommand,
-  type BranchLifecycleContext
-} from './branch-lifecycle-command.ts';
 import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
 import {
   createRecoveryBundle,
@@ -131,9 +131,9 @@ export function prepareBranchCloseout(
 
   const before = collectBranchLifecycleInventory(ctx);
   const beforeAudit = auditBranchLifecycle(before);
-  if (beforeAudit.status === 'drift' || beforeAudit.status === 'blocked') {
+  if (beforeAudit.status === 'blocked') {
     throw new Error(
-      `Branch lifecycle is not closeout-ready: ${beforeAudit.findings
+      `Branch lifecycle is not closeout-ready (unknown facts block): ${beforeAudit.findings
         .filter(({ severity }) => severity === 'error')
         .map(({ code, branch, message }) => `${code}${branch ? `(${branch})` : ''}: ${message}`)
         .join(' | ')}`

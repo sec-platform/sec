@@ -1,18 +1,4 @@
 import {
-  BRANCH_CLOSEOUT_PREPARATION_SCHEMA_V1,
-  BRANCH_CLOSEOUT_RECEIPT_SCHEMA_V1,
-  BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
-  type BranchCloseoutAttempt,
-  type BranchCloseoutAuthorization,
-  type BranchCloseoutPreparation,
-  type BranchCloseoutReceipt,
-  type BranchCloseoutRequest,
-  type BranchCloseoutStatus,
-  type BranchLifecycleInventory,
-  type ClassifiedBranchLifecycle,
-  type BranchPullRequestObservation
-} from './branch-lifecycle-types.ts';
-import {
   assertDurableRecoveryAuthority,
   assertGitBranchName,
   assertGitSha,
@@ -21,6 +7,22 @@ import {
   classifyBranchLifecycle,
   matchingWorktrees
 } from './branch-lifecycle-audit.ts';
+import {
+  BRANCH_CLOSEOUT_PREPARATION_SCHEMA_V1,
+  BRANCH_CLOSEOUT_RECEIPT_SCHEMA_V1,
+  BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+  type BranchCloseoutAttempt,
+  type BranchCloseoutAuthorization,
+  type BranchCloseoutDisposition,
+  type BranchCloseoutPreparation,
+  type BranchCloseoutReceipt,
+  type BranchCloseoutRequest,
+  type BranchCloseoutStatus,
+  type BranchLifecycleClassification,
+  type BranchLifecycleInventory,
+  type BranchPullRequestObservation,
+  type ClassifiedBranchLifecycle
+} from './branch-lifecycle-types.ts';
 
 function assertRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -213,8 +215,11 @@ export function authorizeBranchCloseout(input: {
     }
   }
 
-  if (current.activeWorkPackage.state === 'active') {
-    blockers.push('active Work Package still selects a candidate after closeout');
+  if (
+    current.activeWorkPackage.state === 'active'
+    && current.activeWorkPackage.branch === preparation.branch
+  ) {
+    blockers.push('active Work Package still selects the candidate being closed out');
   } else if (
     current.activeWorkPackage.state === 'invalid'
     || current.activeWorkPackage.state === 'unresolved'
@@ -234,6 +239,24 @@ export function authorizeBranchCloseout(input: {
   }
 
   const classification = resolveClassification(current, preparation.branch);
+  const dispositionClassifications: Record<
+    BranchCloseoutDisposition,
+    readonly BranchLifecycleClassification[]
+  > = {
+    merged: [
+      'active-candidate',
+      'open-pr-candidate',
+      'merged-closeout',
+      'protected-pending'
+    ],
+    'closed-superseded': ['closed-superseded', 'protected-pending'],
+    'completed-spike': ['completed-spike', 'orphan-unknown', 'protected-pending']
+  };
+  if (!dispositionClassifications[request.disposition].includes(classification.classification)) {
+    blockers.push(
+      `disposition ${request.disposition} cannot close out ${classification.classification}`
+    );
+  }
   const currentRemote = current.remoteBranches.find(
     ({ branch }) => branch === preparation.branch
   );

@@ -1,14 +1,14 @@
 import {
-  assertGitBranchName,
-  type BranchPruneConfigurationObservation
-} from './branch-lifecycle-contract.ts';
-import {
   commandErrorText,
   commandText,
   requireBranchCommandText,
   runBranchCommand,
   type BranchLifecycleContext
 } from './branch-lifecycle-command.ts';
+import {
+  assertGitBranchName,
+  type BranchPruneConfigurationObservation
+} from './branch-lifecycle-contract.ts';
 
 function readBooleanConfig(
   ctx: BranchLifecycleContext,

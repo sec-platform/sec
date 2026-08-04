@@ -9,11 +9,6 @@
  * user worktrees.
  */
 import {
-  auditBranchLifecycle,
-  type BranchCloseoutDisposition,
-  type BranchLifecycleInventory
-} from './branch-lifecycle-contract.ts';
-import {
   finalizeBranchCloseout,
   loadPreparedBranchCloseoutEnvelope,
   preparationFilePath,
@@ -25,14 +20,19 @@ import {
   type BranchLifecycleContext
 } from './branch-lifecycle-command.ts';
 import { configureBranchLifecycleClone } from './branch-lifecycle-config.ts';
+import {
+  auditBranchLifecycle,
+  type BranchCloseoutDisposition,
+  type BranchLifecycleInventory
+} from './branch-lifecycle-contract.ts';
 import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
 
+export * from './branch-closeout.ts';
 export * from './branch-lifecycle-command.ts';
 export * from './branch-lifecycle-config.ts';
-export * from './branch-lifecycle-parsers.ts';
 export * from './branch-lifecycle-inventory.ts';
+export * from './branch-lifecycle-parsers.ts';
 export * from './branch-recovery.ts';
-export * from './branch-closeout.ts';
 
 function formatAuditText(inventory: BranchLifecycleInventory): string {
   const report = auditBranchLifecycle(inventory);

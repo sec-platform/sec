@@ -8,7 +8,9 @@ import {
   collectBranchLifecycleInventory,
   configureBranchLifecycleClone,
   defaultBranchLifecycleCommandRunner,
+  finalizeBranchCloseout,
   finalizeMergedPullRequestCloseout,
+  prepareBranchCloseout,
   prepareMergedPullRequestCloseout,
   verifyRecoveryAuthorityLive,
   type BranchLifecycleCommandRunner
@@ -27,6 +29,8 @@ function git(cwd: string, args: readonly string[]): string {
 }
 
 test('temporary repository closeout deletes the remote exact ref and protects dirty worktree state', () => {
+  // Real git bundle create/verify and fsync can exceed Bun's 5s default on
+  // Windows, so this end-to-end closeout needs an explicit bounded window.
   const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-lifecycle-'));
   const remote = path.join(root, 'remote.git');
   const repository = path.join(root, 'repository');
@@ -153,4 +157,124 @@ test('temporary repository closeout deletes the remote exact ref and protects di
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+}, {
+  timeout: 120_000
+});
+
+test('orphan remote closeout completes while the active candidate is preserved', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-orphan-closeout-'));
+  const remote = path.join(root, 'remote.git');
+  const repository = path.join(root, 'repository');
+  const linkedWorktree = path.join(root, 'candidate-worktree');
+  const recoveryRoot = path.join(root, 'durable-recovery');
+  let activeState: 'active' | 'none' = 'active';
+
+  try {
+    git(root, ['init', '--bare', remote]);
+    git(root, ['clone', remote, repository]);
+    git(repository, ['config', 'user.name', 'SEC Test']);
+    git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
+    writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
+    git(repository, ['add', 'README.md']);
+    git(repository, ['commit', '-m', 'initial main']);
+    git(repository, ['branch', '-M', 'main']);
+    git(repository, ['push', '-u', 'origin', 'main']);
+    git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+    git(repository, ['remote', 'set-head', 'origin', '-a']);
+
+    git(repository, ['branch', 'probe/stale']);
+    git(repository, ['push', '-u', 'origin', 'probe/stale']);
+    const probeSha = git(repository, ['rev-parse', 'probe/stale']);
+
+    git(repository, ['branch', 'feat/exact-closeout']);
+    git(repository, ['worktree', 'add', linkedWorktree, 'feat/exact-closeout']);
+    writeFileSync(path.join(linkedWorktree, 'feature.txt'), 'feature\n', 'utf8');
+    git(linkedWorktree, ['add', 'feature.txt']);
+    git(linkedWorktree, ['commit', '-m', 'feature']);
+    git(linkedWorktree, ['push', '-u', 'origin', 'feat/exact-closeout']);
+    const candidateSha = git(linkedWorktree, ['rev-parse', 'HEAD']);
+
+    const run: BranchLifecycleCommandRunner = (command, args, options) => {
+      if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') {
+        const payload = [{
+          number: 7,
+          headRefName: 'feat/exact-closeout',
+          headRefOid: candidateSha,
+          baseRefName: 'main',
+          state: 'open',
+          isDraft: false,
+          isCrossRepository: false,
+          url: 'https://github.com/sec-platform/sec/pull/7'
+        }];
+        return {
+          status: 0,
+          stdout: Buffer.from(JSON.stringify(payload)),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      if (command === 'gh' && args[0] === 'api') {
+        return {
+          status: 0,
+          stdout: Buffer.from('true\n'),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      if (command === 'bun') {
+        const payload = {
+          activeWorkPackage: activeState === 'active'
+            ? {
+                state: 'active',
+                manifest: 'docs/work-packages/example-v1.md',
+                manifestDigest: `sha256:${'a'.repeat(64)}`
+              }
+            : { state: 'none', reason: 'matching-default-blob' },
+          workspace: {
+            branch: activeState === 'active' ? 'feat/exact-closeout' : 'main'
+          }
+        };
+        return {
+          status: 0,
+          stdout: Buffer.from(JSON.stringify(payload)),
+          stderr: Buffer.alloc(0)
+        };
+      }
+      return defaultBranchLifecycleCommandRunner(command, args, options);
+    };
+
+    const ctx = {
+      repositoryRoot: repository,
+      run,
+      repositoryFullName: 'sec-platform/sec',
+      defaultBranch: 'main',
+      recoveryRoot
+    };
+    const pruneConfiguration = configureBranchLifecycleClone(ctx);
+    expect(pruneConfiguration.fetchPrune).toBe(true);
+    expect(pruneConfiguration.remotePrune).toBe(true);
+    expect(pruneConfiguration.fetchPruneTags).toBe(true);
+
+    const prepared = prepareBranchCloseout(ctx, {
+      branch: 'probe/stale',
+      expectedHeadSha: probeSha
+    });
+    expect(prepared.preparation.recovery.path.startsWith(recoveryRoot)).toBe(true);
+    expect(existsSync(prepared.preparation.recovery.path)).toBe(true);
+
+    const receipt = finalizeBranchCloseout(ctx, {
+      prepared,
+      disposition: 'completed-spike',
+      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
+    });
+    expect(receipt.status).toBe('completed');
+    expect(receipt.authorization.remoteAction).toBe('delete-cas');
+    expect(receipt.authorization.classification).toBe('orphan-unknown');
+    expect(git(repository, ['ls-remote', '--heads', 'origin', 'probe/stale'])).toBe('');
+    expect(git(repository, ['ls-remote', '--heads', 'origin', 'feat/exact-closeout']))
+      .toContain(candidateSha);
+    expect(existsSync(`${prepared.preparation.recovery.path}.receipt.json`)).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, {
+  timeout: 120_000
 });

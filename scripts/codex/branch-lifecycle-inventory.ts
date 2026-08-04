@@ -2,6 +2,14 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  commandErrorText,
+  commandText,
+  optionalBranchCommandText,
+  requireBranchCommandText,
+  runBranchCommand,
+  type BranchLifecycleContext
+} from './branch-lifecycle-command.ts';
+import {
   BRANCH_LIFECYCLE_INVENTORY_SCHEMA_V1,
   assertGitBranchName,
   type BranchActiveWorkPackageObservation,
@@ -12,14 +20,6 @@ import {
   type BranchRepositorySettingObservation,
   type BranchWorktreeObservation
 } from './branch-lifecycle-contract.ts';
-import {
-  commandErrorText,
-  commandText,
-  optionalBranchCommandText,
-  requireBranchCommandText,
-  runBranchCommand,
-  type BranchLifecycleContext
-} from './branch-lifecycle-command.ts';
 import {
   countPorcelainStatus,
   parseControlPlane,

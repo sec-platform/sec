@@ -9,6 +9,7 @@ import {
   createBranchCloseoutReceipt,
   isPathWithin,
   parseBranchCloseoutReceipt,
+  type BranchCloseoutPreparation,
   type BranchLifecycleInventory
 } from '../../scripts/codex/branch-lifecycle-contract.ts';
 
@@ -144,6 +145,7 @@ test('active lifecycle admits only main and the exact active/open candidate', ()
       baseBranch: 'main',
       state: 'open',
       isDraft: false,
+      isCrossRepository: false,
       url: 'https://github.com/sec-platform/sec/pull/42'
     }],
     activeWorkPackage: {
@@ -176,6 +178,7 @@ test('open PR without an active Work Package is unauthorized', () => {
       baseBranch: 'main',
       state: 'open',
       isDraft: false,
+      isCrossRepository: false,
       url: null
     }]
   }));
@@ -243,6 +246,7 @@ test('authorization blocks an exact remote SHA race', () => {
       baseBranch: 'main',
       state: 'open',
       isDraft: false,
+      isCrossRepository: false,
       url: null
     }],
     activeWorkPackage: {
@@ -268,6 +272,7 @@ test('authorization blocks an exact remote SHA race', () => {
       baseBranch: 'main',
       state: 'merged',
       isDraft: false,
+      isCrossRepository: false,
       url: null
     }]
   });
@@ -298,6 +303,7 @@ test('local branch appearing after preparation blocks all deletion', () => {
       baseBranch: 'main',
       state: 'open',
       isDraft: false,
+      isCrossRepository: false,
       url: null
     }],
     activeWorkPackage: {
@@ -320,6 +326,7 @@ test('local branch appearing after preparation blocks all deletion', () => {
       baseBranch: 'main',
       state: 'merged',
       isDraft: false,
+      isCrossRepository: false,
       url: null
     }]
   });
@@ -355,6 +362,7 @@ test('divergent local branch is protected because remote recovery does not cover
       baseBranch: 'main',
       state: 'open',
       isDraft: false,
+      isCrossRepository: false,
       url: null
     }],
     activeWorkPackage: {
@@ -375,6 +383,7 @@ test('divergent local branch is protected because remote recovery does not cover
       baseBranch: 'main',
       state: 'merged',
       isDraft: false,
+      isCrossRepository: false,
       url: null
     }]
   });
@@ -411,6 +420,7 @@ test('merged closeout can delete remote while protecting a dirty local worktree'
       baseBranch: 'main',
       state: 'open',
       isDraft: false,
+      isCrossRepository: false,
       url: null
     }],
     activeWorkPackage: {
@@ -460,6 +470,7 @@ test('merged closeout can delete remote while protecting a dirty local worktree'
       baseBranch: 'main',
       state: 'merged',
       isDraft: false,
+      isCrossRepository: false,
       url: null
     }]
   });
@@ -500,4 +511,158 @@ test('merged closeout can delete remote while protecting a dirty local worktree'
 
   const tampered = JSON.stringify({ ...receipt, status: 'completed' });
   expect(() => parseBranchCloseoutReceipt(tampered)).toThrow('digest mismatch');
+});
+
+function orphanRemoteInventory(): BranchLifecycleInventory {
+  return inventory({
+    localBranches: [
+      { branch: 'main', sha: MAIN_SHA }
+    ],
+    remoteBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'probe/stale', sha: HEAD_SHA }
+    ],
+    pullRequests: [],
+    activeWorkPackage: { state: 'none', branch: null, manifest: null, reason: null }
+  });
+}
+
+function orphanPreparation(before: BranchLifecycleInventory): BranchCloseoutPreparation {
+  return createBranchCloseoutPreparation({
+    preparedAt: '2026-08-04T00:03:00.000Z',
+    repository: before.repository,
+    branch: 'probe/stale',
+    expectedHeadSha: HEAD_SHA,
+    expectedRemoteSha: HEAD_SHA,
+    expectedLocalSha: null,
+    pullRequestNumber: null,
+    pullRequestStateAtPreparation: null,
+    recovery: {
+      kind: 'bundle',
+      path: '/recovery/sec-probe-stale.bundle',
+      sha256: `sha256:${'a'.repeat(64)}`,
+      verified: true,
+      verifyOutput: 'verified'
+    },
+    worktreePathsAtPreparation: []
+  });
+}
+
+test('orphan remote closeout requires an explicit completed-spike disposition and durable issue goal', () => {
+  const observed = orphanRemoteInventory();
+  const prepared = orphanPreparation(observed);
+  const authorization = authorizeBranchCloseout({
+    preparation: prepared,
+    request: {
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      disposition: 'completed-spike',
+      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
+    },
+    before: observed,
+    current: observed
+  });
+  expect(authorization.blockers).toEqual([]);
+  expect(authorization.remoteAction).toBe('delete-cas');
+  expect(authorization.localAction).toBe('already-absent');
+  expect(authorization.classification).toBe('orphan-unknown');
+});
+
+test('orphan remote closeout rejects merged and closed-superseded dispositions', () => {
+  const observed = orphanRemoteInventory();
+  const prepared = orphanPreparation(observed);
+  const merged = authorizeBranchCloseout({
+    preparation: prepared,
+    request: {
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      disposition: 'merged',
+      durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
+    },
+    before: observed,
+    current: observed
+  });
+  expect(merged.blockers).toContain('disposition merged cannot close out orphan-unknown');
+  const superseded = authorizeBranchCloseout({
+    preparation: prepared,
+    request: {
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      disposition: 'closed-superseded',
+      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
+    },
+    before: observed,
+    current: observed
+  });
+  expect(superseded.blockers).toContain(
+    'disposition closed-superseded cannot close out orphan-unknown'
+  );
+});
+
+test('active work package selecting another branch does not block orphan closeout', () => {
+  const observed = orphanRemoteInventory();
+  const current = {
+    ...observed,
+    localBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/candidate', sha: RACE_SHA }
+    ],
+    remoteBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'probe/stale', sha: HEAD_SHA },
+      { branch: 'feat/candidate', sha: RACE_SHA }
+    ],
+    pullRequests: [{
+      number: 99,
+      headBranch: 'feat/candidate',
+      headSha: RACE_SHA,
+      baseBranch: 'main',
+      state: 'open' as const,
+      isDraft: false,
+      isCrossRepository: false,
+      url: null
+    }],
+    activeWorkPackage: {
+      state: 'active' as const,
+      branch: 'feat/candidate',
+      manifest: 'docs/work-packages/example-v1.md',
+      reason: null
+    }
+  };
+  const authorization = authorizeBranchCloseout({
+    preparation: orphanPreparation(observed),
+    request: {
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      disposition: 'completed-spike',
+      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
+    },
+    before: observed,
+    current
+  });
+  expect(authorization.blockers).toEqual([]);
+  expect(authorization.remoteAction).toBe('delete-cas');
+});
+
+test('active work package selecting the closeout branch blocks it', () => {
+  const observed = orphanRemoteInventory();
+  const current = {
+    ...observed,
+    activeWorkPackage: {
+      state: 'active' as const,
+      branch: 'probe/stale',
+      manifest: 'docs/work-packages/example-v1.md',
+      reason: null
+    }
+  };
+  const authorization = authorizeBranchCloseout({
+    preparation: orphanPreparation(observed),
+    request: {
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      disposition: 'completed-spike',
+      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
+    },
+    before: observed,
+    current
+  });
+  expect(authorization.blockers).toContain(
+    'active Work Package still selects the candidate being closed out'
+  );
+  expect(authorization.remoteAction).toBe('blocked');
 });

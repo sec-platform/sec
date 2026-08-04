@@ -29,7 +29,7 @@ last-reviewed: 2026-08-04
 - 收敛三条唯一入口：产品理解、领域实现、当前任务；`docs/README.md` 继续由 `docs/authority.json` 生成并 byte-readback。
 - 本包不提前设计 R3–R16 的完整字段宇宙，也不成为无限文档前置。完整执行裁决记录在 Issue #235。
 
-### 2. parallel-resolver-correctness-v1.1
+### 2. parallel-resolver-correctness-v1-1
 
 - Issue #207；修正 `requires`、`orderedAfter`、`conflictsWith`、authority/path/resource/global-writer 语义并建立 exact-base Integration Epoch Registry。
 - `unresolved` 永不授权并行；本包在自身进入 `main` 前保持唯一 formal Work Package，不能使用旧 resolver 给自己授权。
