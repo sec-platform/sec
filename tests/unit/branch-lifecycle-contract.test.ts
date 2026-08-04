@@ -61,7 +61,10 @@ function inventory(overrides: Partial<BranchLifecycleInventory> = {}): BranchLif
   return { ...base, ...overrides };
 }
 
-function preparation(before: BranchLifecycleInventory) {
+function preparation(
+  before: BranchLifecycleInventory,
+  expectedLocalSha: string | null = HEAD_SHA
+) {
   return createBranchCloseoutPreparation({
     preparedAt: '2026-08-04T00:01:00.000Z',
     repository: {
@@ -74,7 +77,7 @@ function preparation(before: BranchLifecycleInventory) {
     branch: 'feat/example',
     expectedHeadSha: HEAD_SHA,
     expectedRemoteSha: HEAD_SHA,
-    expectedLocalSha: HEAD_SHA,
+    expectedLocalSha,
     pullRequestNumber: 42,
     pullRequestStateAtPreparation: 'open',
     recovery: {
@@ -110,6 +113,20 @@ test('idle lifecycle rejects every non-main remote head', () => {
   ))).toBe(true);
 });
 
+test('clone prune drift is a blocking lifecycle error, not a protected state', () => {
+  const report = auditBranchLifecycle(inventory({
+    pruneConfiguration: {
+      observation: 'resolved',
+      fetchPrune: null,
+      remotePrune: false,
+      fetchPruneTags: true,
+      reason: null
+    }
+  }));
+  expect(report.status).toBe('drift');
+  expect(report.findings.filter(({ code }) => code === 'prune-configuration-drift')).toHaveLength(2);
+});
+
 test('active lifecycle admits only main and the exact active/open candidate', () => {
   const active = inventory({
     localBranches: [
@@ -140,6 +157,30 @@ test('active lifecycle admits only main and the exact active/open candidate', ()
   expect(report.status).toBe('clean');
   expect(classifyBranchLifecycle(active).find(({ branch }) => branch === 'feat/example')?.classification)
     .toBe('active-candidate');
+});
+
+test('open PR without an active Work Package is unauthorized', () => {
+  const report = auditBranchLifecycle(inventory({
+    localBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/example', sha: HEAD_SHA }
+    ],
+    remoteBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/example', sha: HEAD_SHA }
+    ],
+    pullRequests: [{
+      number: 42,
+      headBranch: 'feat/example',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      state: 'open',
+      isDraft: false,
+      url: null
+    }]
+  }));
+  expect(report.status).toBe('drift');
+  expect(report.findings.some(({ code }) => code === 'open-pr-without-active-package')).toBe(true);
 });
 
 test('dirty worktree is formally protected-pending instead of an active feature claim', () => {
@@ -177,6 +218,7 @@ test('dirty worktree is formally protected-pending instead of an active feature 
     .find(({ branch }) => branch === 'codex/local-recovery');
   expect(classification?.classification).toBe('protected-pending');
   expect(classification?.remoteSha).toBeNull();
+  expect(auditBranchLifecycle(observed).status).toBe('protected');
 });
 
 test('path containment is segment-safe', () => {
@@ -241,6 +283,115 @@ test('authorization blocks an exact remote SHA race', () => {
   });
   expect(authorization.remoteAction).toBe('blocked');
   expect(authorization.blockers).toContain('remote branch SHA changed after preparation');
+});
+
+test('local branch appearing after preparation blocks all deletion', () => {
+  const before = inventory({
+    remoteBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/example', sha: HEAD_SHA }
+    ],
+    pullRequests: [{
+      number: 42,
+      headBranch: 'feat/example',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      state: 'open',
+      isDraft: false,
+      url: null
+    }],
+    activeWorkPackage: {
+      state: 'active',
+      branch: 'feat/example',
+      manifest: 'docs/work-packages/example-v1.md',
+      reason: null
+    }
+  });
+  const current = inventory({
+    localBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/example', sha: HEAD_SHA }
+    ],
+    remoteBranches: before.remoteBranches,
+    pullRequests: [{
+      number: 42,
+      headBranch: 'feat/example',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      state: 'merged',
+      isDraft: false,
+      url: null
+    }]
+  });
+  const authorization = authorizeBranchCloseout({
+    preparation: preparation(before, null),
+    request: {
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      disposition: 'merged',
+      durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
+    },
+    before,
+    current
+  });
+  expect(authorization.remoteAction).toBe('blocked');
+  expect(authorization.localAction).toBe('blocked');
+  expect(authorization.blockers).toContain('local branch appeared after preparation');
+});
+
+test('divergent local branch is protected because remote recovery does not cover it', () => {
+  const before = inventory({
+    localBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/example', sha: RACE_SHA }
+    ],
+    remoteBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/example', sha: HEAD_SHA }
+    ],
+    pullRequests: [{
+      number: 42,
+      headBranch: 'feat/example',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      state: 'open',
+      isDraft: false,
+      url: null
+    }],
+    activeWorkPackage: {
+      state: 'active',
+      branch: 'feat/example',
+      manifest: 'docs/work-packages/example-v1.md',
+      reason: null
+    }
+  });
+  const prepared = preparation(before, RACE_SHA);
+  const current = inventory({
+    localBranches: before.localBranches,
+    remoteBranches: before.remoteBranches,
+    pullRequests: [{
+      number: 42,
+      headBranch: 'feat/example',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      state: 'merged',
+      isDraft: false,
+      url: null
+    }]
+  });
+  const authorization = authorizeBranchCloseout({
+    preparation: prepared,
+    request: {
+      capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+      disposition: 'merged',
+      durableGoal: { kind: 'main', reference: `main@${MAIN_SHA}` }
+    },
+    before,
+    current
+  });
+  expect(authorization.blockers).toEqual([]);
+  expect(authorization.remoteAction).toBe('delete-cas');
+  expect(authorization.localAction).toBe('protect-local');
+  expect(authorization.protections[0]).toContain('diverges from recovered remote head');
 });
 
 test('merged closeout can delete remote while protecting a dirty local worktree', () => {
@@ -320,7 +471,7 @@ test('merged closeout can delete remote while protecting a dirty local worktree'
   };
   const authorization = authorizeBranchCloseout({ preparation: prepared, request, before, current });
   expect(authorization.remoteAction).toBe('delete-cas');
-  expect(authorization.localAction).toBe('protect-worktree');
+  expect(authorization.localAction).toBe('protect-local');
 
   const after = inventory({
     localBranches: current.localBranches,
@@ -337,7 +488,7 @@ test('merged closeout can delete remote while protecting a dirty local worktree'
       { operation: 'recovery-create', status: 'success', detail: prepared.recovery.path },
       { operation: 'recovery-verify', status: 'success', detail: prepared.recovery.sha256 },
       { operation: 'remote-delete', status: 'success', detail: 'deleted' },
-      { operation: 'local-delete', status: 'skipped', detail: 'protect-worktree' },
+      { operation: 'local-delete', status: 'skipped', detail: 'protect-local' },
       { operation: 'prune', status: 'success', detail: 'pruned' },
       { operation: 'readback', status: 'success', detail: 'read back' }
     ],
