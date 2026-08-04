@@ -127,7 +127,7 @@ export interface BranchLifecycleAuditFinding {
 }
 
 export interface BranchLifecycleAuditReport {
-  status: 'clean' | 'drift' | 'blocked';
+  status: 'clean' | 'protected' | 'drift' | 'blocked';
   classifications: ClassifiedBranchLifecycle[];
   findings: BranchLifecycleAuditFinding[];
 }
@@ -174,7 +174,7 @@ export interface BranchCloseoutAuthorization {
   branch: string;
   classification: BranchLifecycleClassification;
   remoteAction: 'delete-cas' | 'already-absent' | 'blocked';
-  localAction: 'delete-exact' | 'already-absent' | 'protect-worktree' | 'blocked';
+  localAction: 'delete-exact' | 'already-absent' | 'protect-local' | 'blocked';
   blockers: string[];
   protections: string[];
 }
