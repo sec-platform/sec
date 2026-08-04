@@ -5,10 +5,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  collectBranchLifecycleInventory,
   configureBranchLifecycleClone,
   defaultBranchLifecycleCommandRunner,
   finalizeMergedPullRequestCloseout,
   prepareMergedPullRequestCloseout,
+  verifyRecoveryAuthorityLive,
   type BranchLifecycleCommandRunner
 } from '../../scripts/codex/branch-lifecycle.ts';
 
@@ -38,7 +40,6 @@ test('temporary repository closeout deletes the remote exact ref and protects di
     git(root, ['clone', remote, repository]);
     git(repository, ['config', 'user.name', 'SEC Test']);
     git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
-
     writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
     git(repository, ['add', 'README.md']);
     git(repository, ['commit', '-m', 'initial main']);
@@ -66,6 +67,7 @@ test('temporary repository closeout deletes the remote exact ref and protects di
           baseRefName: 'main',
           state: pullRequestState,
           isDraft: false,
+          isCrossRepository: false,
           url: 'https://github.com/sec-platform/sec/pull/7'
         }];
         return {
@@ -139,6 +141,15 @@ test('temporary repository closeout deletes the remote exact ref and protects di
     expect(git(repository, ['rev-parse', '--verify', 'refs/heads/feat/exact-closeout'])).toBe(headSha);
     expect(readFileSync(path.join(linkedWorktree, 'feature.txt'), 'utf8')).toContain('user-owned change');
     expect(existsSync(`${prepared.preparation.recovery.path}.receipt.json`)).toBe(true);
+
+    writeFileSync(prepared.preparation.recovery.path, 'tampered recovery', 'utf8');
+    const tamperedRecovery = verifyRecoveryAuthorityLive({
+      ctx,
+      inventory: collectBranchLifecycleInventory(ctx),
+      recovery: prepared.preparation.recovery
+    });
+    expect(tamperedRecovery.status).toBe('failed');
+    expect(tamperedRecovery.detail).toContain('digest mismatch');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
