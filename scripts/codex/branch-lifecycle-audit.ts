@@ -415,7 +415,7 @@ export function auditBranchLifecycle(
   const status = findings.some(({ severity }) => severity === 'error')
     ? (inventory.unknowns.length > 0 ? 'blocked' : 'drift')
     : findings.length > 0
-      ? 'drift'
+      ? 'protected'
       : 'clean';
 
   return { status, classifications, findings };
