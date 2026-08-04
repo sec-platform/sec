@@ -169,17 +169,21 @@ test('full bootstrap orders proof, durable recovery, merge and typed closeout', 
   const attest = body.indexOf('runAttestation(ctx, pr, manifest');
   const verify = body.indexOf('runVerification(ctx, pr, manifest');
   const recovery = body.indexOf('prepareMergedPullRequestCloseout(');
+  const exactReadback = body.indexOf('assertPullRequestStillExact(ctx, pr)');
   const merge = body.indexOf('adminSquashMerge(ctx, pr)');
   const mainReadback = body.indexOf('readNewMain(ctx');
+  const mainParentReadback = body.indexOf('newMain.firstParent === pr.baseSha');
   const closeout = body.indexOf('finalizeMergedPullRequestCloseout(');
 
   expect(squash).toBeGreaterThan(-1);
   expect(squash).toBeLessThan(attest);
   expect(attest).toBeLessThan(verify);
   expect(verify).toBeLessThan(recovery);
-  expect(recovery).toBeLessThan(merge);
+  expect(recovery).toBeLessThan(exactReadback);
+  expect(exactReadback).toBeLessThan(merge);
   expect(merge).toBeLessThan(mainReadback);
-  expect(mainReadback).toBeLessThan(closeout);
+  expect(mainReadback).toBeLessThan(mainParentReadback);
+  expect(mainParentReadback).toBeLessThan(closeout);
 });
 
 test('bootstrap contains no post-merge pointer patch or best-effort branch deletion', () => {
