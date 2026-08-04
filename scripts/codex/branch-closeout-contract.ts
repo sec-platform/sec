@@ -16,6 +16,7 @@ import {
   assertDurableRecoveryAuthority,
   assertGitBranchName,
   assertGitSha,
+  auditBranchLifecycle,
   branchLifecycleDigest,
   classifyBranchLifecycle,
   matchingWorktrees
@@ -326,6 +327,23 @@ export function deriveBranchCloseoutStatus(input: {
   }
   for (const attempt of failedAttempts) {
     residue.push(`${attempt.operation}: ${attempt.detail}`);
+  }
+  const afterAudit = auditBranchLifecycle(
+    after,
+    local !== undefined && authorization.localAction === 'protect-local'
+      ? [{
+          branch: preparation.branch,
+          disposition: 'protected-pending',
+          reference: preparation.preparationDigest
+        }]
+      : []
+  );
+  if (afterAudit.status === 'drift' || afterAudit.status === 'blocked') {
+    for (const finding of afterAudit.findings.filter(({ severity }) => severity === 'error')) {
+      residue.push(
+        `lifecycle ${finding.code}${finding.branch ? `(${finding.branch})` : ''}: ${finding.message}`
+      );
+    }
   }
 
   if (residue.length > 0) {
