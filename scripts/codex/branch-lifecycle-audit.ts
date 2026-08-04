@@ -15,12 +15,6 @@ import type {
   ClassifiedBranchLifecycle
 } from './branch-lifecycle-types.ts';
 
-function assertRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be an object.`);
-  }
-}
-
 export function assertGitSha(value: string, label = 'Git SHA'): void {
   if (!/^[0-9a-f]{40}$/u.test(value)) {
     throw new Error(`${label} must be a lowercase 40-character Git SHA.`);
