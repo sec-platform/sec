@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/branch-ref-lifecycle-v1.md
-manifestDigest: sha256:d977658f955727dbb5b69d8821b20b2edf2b1d16f3b70ce522f9ba1af339d603
+manifestDigest: sha256:cccc57b7e6d4e86cc059ec087d1cb75bc0695666e085f2a636d5b3223e5a5a97
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
