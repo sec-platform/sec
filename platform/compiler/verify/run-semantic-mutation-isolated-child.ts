@@ -39,11 +39,14 @@ import {
   compilerRuntimeLayout,
   compilerRuntimeResources
 } from '../../shared/runtime-layout.ts';
-import { isCanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
+import {
+  isCanonicalVerificationArtifactSet,
+  type CurrentCanonicalVerificationReport
+} from '../../shared/verification-artifact-contract.ts';
+import { CodexDevelopmentSnapshotVerificationDataV1 } from '../../shared/verification-result-contract.ts';
 import type {
   RuntimeVerificationLaneReport,
-  SemanticMutationVerificationCapabilityPlanV1,
-  VerificationReport
+  SemanticMutationVerificationCapabilityPlanV1
 } from '../../shared/verification-types.ts';
 import {
   createWorkspaceWriteCommitFence,
@@ -619,16 +622,25 @@ export interface SemanticMutationIsolatedVerificationArtifactSet {
 export function classifySemanticMutationIsolatedVerificationArtifactSet(
   input: SemanticMutationIsolatedVerificationArtifactSet
 ): 'passed' | 'failed' | 'blocked' {
-  if (!Number.isSafeInteger(input.childExitCode) || input.childExitCode < 0 ||
-    !isCanonicalVerificationArtifactSet(input) ||
-    !exactSemanticBundle(input.semanticBundle)) {
+  let candidate: SemanticMutationIsolatedVerificationArtifactSet;
+  try {
+    candidate = CodexDevelopmentSnapshotVerificationDataV1(
+      input,
+      'Semantic Mutation isolated verification artifact set'
+    ) as SemanticMutationIsolatedVerificationArtifactSet;
+  } catch {
     return 'blocked';
   }
-  const report = input.verificationReport;
-  if (report.summary.status === 'failed') {
-    return input.childExitCode === 0 ? 'blocked' : 'failed';
+  if (!Number.isSafeInteger(candidate.childExitCode) || candidate.childExitCode < 0 ||
+    !isCanonicalVerificationArtifactSet(candidate) ||
+    !exactSemanticBundle(candidate.semanticBundle)) {
+    return 'blocked';
   }
-  return input.childExitCode === 0 && report.fast.status === 'passed' &&
+  const report = candidate.verificationReport;
+  if (report.summary.status === 'failed') {
+    return candidate.childExitCode === 0 ? 'blocked' : 'failed';
+  }
+  return candidate.childExitCode === 0 && report.fast.status === 'passed' &&
     report.runtime.status === 'passed' ? 'passed' : 'blocked';
 }
 
@@ -1438,7 +1450,7 @@ export interface IsolatedVerificationArtifacts {
   };
   readonly semanticBundle: Awaited<ReturnType<typeof buildWorkspaceSemanticBundle>>;
   readonly stagedVerificationProofSource?: StagedVerificationProofSource;
-  readonly verificationReport: VerificationReport;
+  readonly verificationReport: CurrentCanonicalVerificationReport;
 }
 const canonicalProductionRuntimeBindingRoots = new WeakSet<object>();
 
@@ -1867,7 +1879,7 @@ export async function runSemanticMutationIsolatedVerificationChild(
     }
     const artifacts = cloneAndDeepFreeze<IsolatedVerificationArtifacts>({
       status,
-      verificationReport: verification.value as VerificationReport,
+      verificationReport: verification.value as CurrentCanonicalVerificationReport,
       runtimeReport: runtime.value as RuntimeVerificationLaneReport,
       policyReport: policy.value as PolicyReport,
       acceptanceCoverage: coverage.value as AcceptanceCoverageReport,

@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   CodexDevelopmentAggregateVerificationClaimsV1,
+  CodexDevelopmentAssertVerificationAggregateResultV1,
   CodexDevelopmentAssertVerificationGateResultV1,
   CodexDevelopmentBuildVerificationGateResultV1,
   mapCiEvidenceV2Status,
@@ -12,7 +13,8 @@ import {
   type VerificationClaimDefinitionV1,
   type VerificationGateEnvironmentV1,
   type VerificationGateExecutionV1,
-  type VerificationGateResultV1
+  type VerificationGateResultV1,
+  type VerificationResultStatus
 } from '../../platform/shared/verification-result-contract.ts';
 
 const INPUT_DIGEST = `sha256:${'a'.repeat(64)}`;
@@ -202,7 +204,7 @@ test('regression 1: all-lane fast-passed + runtime-skipped → overall not passe
 // ---------------------------------------------------------------------------
 
 test('regression 2: runtime requested + fast not-applicable + runtime passed → runtime claim passed', () => {
-  const fastGate = notRunGate('fast-gate', ['runtime-claim'], 'not-applicable');
+  const fastGate = notRunGate('fast-gate', [], 'not-applicable');
   const runtimeGate = passedGate('runtime-gate', ['runtime-claim']);
   const result = CodexDevelopmentAggregateVerificationClaimsV1({
     claims: [claim('runtime-claim', ['runtime-gate'])],
@@ -237,7 +239,7 @@ test('regression 3: fast failed → runtime not-run, overall failed', () => {
 test('regression 4: Windows required gate on Linux not-run → claim not-run', () => {
   // Linux runner executes its gate, but the Windows owning gate is not-run
   // because the current runner is not the owning environment.
-  const linuxGate = passedGate('linux-gate', ['windows-claim'], environment('linux', 'x64', ['typescript']));
+  const linuxGate = passedGate('linux-gate', [], environment('linux', 'x64', ['typescript']));
   const windowsGate = notRunGate('windows-gate', ['windows-claim'], 'current-runner-not-owning-environment');
   const result = CodexDevelopmentAggregateVerificationClaimsV1({
     claims: [claim('windows-claim', ['windows-gate'], ['windows-x64'])],
@@ -246,6 +248,20 @@ test('regression 4: Windows required gate on Linux not-run → claim not-run', (
   expect(result.overallStatus).toBe('not-run');
   expect(result.claimResults[0]!.status).toBe('not-run');
   expect(result.claimResults[0]!.reasonCode).toBe('current-runner-not-owning-environment');
+});
+
+test('Issue #215 deferred: a non-empty wrong-OS owner is not matched in this slice', () => {
+  const gate = passedGate(
+    'linux-gate',
+    ['windows-owned-claim'],
+    environment('linux', 'x64', ['typescript'])
+  );
+  const result = CodexDevelopmentAggregateVerificationClaimsV1({
+    claims: [claim('windows-owned-claim', ['linux-gate'], ['windows-x64'])],
+    gateResults: [gate]
+  });
+  expect(result.overallStatus).toBe('passed');
+  expect(result.claimResults[0]!.status).toBe('passed');
 });
 
 // ---------------------------------------------------------------------------
@@ -473,7 +489,7 @@ test('validator rejects unresolved applicability with non-invalidated status', (
   }).toThrow(/unresolved applicability requires invalidated status/);
 });
 
-test('reused passed gate is valid and aggregates as passed', () => {
+test('Issue #215 deferred: reused passed gate with null environment remains accepted', () => {
   const gate = reusedPassedGate('reused-gate', ['reuse-claim'], ['evidence-1', 'evidence-2']);
   const result = CodexDevelopmentAggregateVerificationClaimsV1({
     claims: [claim('reuse-claim', ['reused-gate'])],
@@ -590,4 +606,198 @@ test('aggregate: custom coverage check returning false → invalidated', () => {
   expect(result.overallStatus).toBe('invalidated');
   expect(result.claimResults[0]!.status).toBe('invalidated');
   expect(result.claimResults[0]!.reasonCode).toBe('selection-unresolved');
+});
+
+function gateForStatus(
+  status: VerificationResultStatus,
+  gateId: string,
+  claimId: string
+): VerificationGateResultV1 {
+  switch (status) {
+    case 'passed':
+      return passedGate(gateId, [claimId]);
+    case 'failed':
+      return failedGate(gateId, [claimId]);
+    case 'not-run':
+      return notRunGate(gateId, [claimId], 'not-dispatched');
+    case 'unsupported':
+      return unsupportedGate(gateId, [claimId], 'capability-unsupported');
+    case 'invalidated':
+      return invalidatedGate(gateId, [claimId], 'selection-unresolved');
+  }
+}
+
+test('aggregate assertion accepts the current writer projection across the status cross-product', () => {
+  const statuses: VerificationResultStatus[] = [
+    'passed', 'failed', 'not-run', 'unsupported', 'invalidated'
+  ];
+  for (const firstStatus of statuses) {
+    for (const secondStatus of statuses) {
+      const gates = [
+        gateForStatus(firstStatus, 'gate-first', 'claim-first'),
+        gateForStatus(secondStatus, 'gate-second', 'claim-second')
+      ];
+      const input = {
+        claims: [
+          claim('claim-first', ['gate-first']),
+          claim('claim-second', ['gate-second'])
+        ],
+        gateResults: gates
+      };
+      const result = CodexDevelopmentAggregateVerificationClaimsV1(input);
+      expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(result, input)).not.toThrow();
+    }
+  }
+
+  const emptyInput = {
+    claims: [],
+    gateResults: []
+  };
+  const emptyResult = CodexDevelopmentAggregateVerificationClaimsV1(emptyInput);
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    emptyResult,
+    emptyInput
+  )).not.toThrow();
+
+  const missingGateInput = {
+    claims: [claim('claim-missing', ['missing-gate'])],
+    gateResults: []
+  };
+  const missingGateResult = CodexDevelopmentAggregateVerificationClaimsV1(missingGateInput);
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    missingGateResult,
+    missingGateInput
+  )).not.toThrow();
+
+  const presentGate = passedGate('coverage-gate', ['coverage-claim']);
+  const incompleteCoverageInput = {
+    claims: [claim('coverage-claim', ['coverage-gate'])],
+    gateResults: [presentGate],
+    isCoverageComplete: () => false
+  };
+  const incompleteCoverageResult = CodexDevelopmentAggregateVerificationClaimsV1(
+    incompleteCoverageInput
+  );
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    incompleteCoverageResult,
+    incompleteCoverageInput
+  )).not.toThrow();
+
+  const failedSupportingGate = failedGate('failed-supporting-gate', ['failed-claim']);
+  failedSupportingGate.supportedClaims = ['failed-claim'];
+  const failedSupportingInput = {
+    claims: [claim('failed-claim', ['failed-supporting-gate'])],
+    gateResults: [failedSupportingGate]
+  };
+  const failedSupportingResult = CodexDevelopmentAggregateVerificationClaimsV1(
+    failedSupportingInput
+  );
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    failedSupportingResult,
+    failedSupportingInput
+  )).not.toThrow();
+});
+
+test('aggregate assertion rejects claim-plan omission even when the forged projection is internally canonical', () => {
+  const passedClaim = claim('selected-passed-claim', ['selected-passed-gate']);
+  const failedClaim = claim('selected-failed-claim', ['selected-failed-gate']);
+  const passed = passedGate('selected-passed-gate', ['selected-passed-claim']);
+  const failed = failedGate('selected-failed-gate', ['selected-failed-claim']);
+  const trustedClaims = [passedClaim, failedClaim];
+
+  const omittedNonPassedClaim = CodexDevelopmentAggregateVerificationClaimsV1({
+    claims: [passedClaim],
+    gateResults: [passed, failed]
+  });
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    omittedNonPassedClaim,
+    { claims: trustedClaims, gateResults: [passed, failed] }
+  )).toThrow(/does not exactly match the canonical aggregate writer output/);
+
+  const omittedClaimAndGate = CodexDevelopmentAggregateVerificationClaimsV1({
+    claims: [passedClaim],
+    gateResults: [passed]
+  });
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    omittedClaimAndGate,
+    { claims: trustedClaims, gateResults: [passed] }
+  )).toThrow(/does not exactly match the canonical aggregate writer output/);
+
+  const forgedEmptyGreen = CodexDevelopmentAggregateVerificationClaimsV1({
+    claims: [],
+    gateResults: []
+  });
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+    forgedEmptyGreen,
+    { claims: trustedClaims, gateResults: [] }
+  )).toThrow(/does not exactly match the canonical aggregate writer output/);
+});
+
+test('aggregate assertion rejects overall passed paired with every non-passed claim status', () => {
+  const statuses: Array<Exclude<VerificationResultStatus, 'passed'>> = [
+    'failed', 'invalidated', 'unsupported', 'not-run'
+  ];
+  for (const status of statuses) {
+    const gate = gateForStatus(status, `gate-${status}`, `claim-${status}`);
+    const input = {
+      claims: [claim(`claim-${status}`, [`gate-${status}`])],
+      gateResults: [gate]
+    };
+    const result = CodexDevelopmentAggregateVerificationClaimsV1(input);
+    result.overallStatus = 'passed';
+    result.overallReasonCode = 'executed-success';
+    expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(result, input)).toThrow(
+      /does not exactly match the canonical aggregate writer output/
+    );
+  }
+});
+
+test('aggregate assertion rejects invalid reasons for every status at claim and overall levels', () => {
+  const cases = [
+    ['passed', 'executed-failure'],
+    ['failed', 'executed-success'],
+    ['not-run', 'capability-unsupported'],
+    ['unsupported', 'selection-unresolved'],
+    ['invalidated', 'not-dispatched']
+  ] as const;
+
+  for (const [status, invalidReason] of cases) {
+    const gate = gateForStatus(status, `reason-gate-${status}`, `reason-claim-${status}`);
+    const input = {
+      claims: [claim(`reason-claim-${status}`, [`reason-gate-${status}`])],
+      gateResults: [gate]
+    };
+    const current = CodexDevelopmentAggregateVerificationClaimsV1(input);
+
+    const invalidClaimReason = structuredClone(current);
+    invalidClaimReason.claimResults[0]!.reasonCode = invalidReason;
+    expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+      invalidClaimReason,
+      input
+    )).toThrow();
+
+    const invalidOverallReason = structuredClone(current);
+    invalidOverallReason.overallReasonCode = invalidReason;
+    expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
+      invalidOverallReason,
+      input
+    )).toThrow();
+  }
+});
+
+test('aggregate assertion rejects a valid same-status but wrong decisive overall reason', () => {
+  const gate = failedGate('decisive-gate', ['decisive-claim'], 'cleanup-failed');
+  const input = {
+    claims: [claim('decisive-claim', ['decisive-gate'])],
+    gateResults: [gate]
+  };
+  const result = CodexDevelopmentAggregateVerificationClaimsV1(input);
+  expect(result).toMatchObject({
+    overallStatus: 'failed',
+    overallReasonCode: 'executed-failure'
+  });
+  result.overallReasonCode = 'timeout';
+  expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(result, input)).toThrow(
+    /does not exactly match the canonical aggregate writer output/
+  );
 });

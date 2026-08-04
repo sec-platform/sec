@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { access, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -402,6 +402,7 @@ test('workspace fixture copies case-fold local state and preserve only snapshot-
   await withTempWorkspace(async (root) => {
     const template = path.join(root, 'template');
     const workspace = path.join(root, 'workspace');
+    const siblingWorkspace = path.join(root, 'workspace-sibling');
     const localState = path.join(template, '.SEC');
     const clonedLocalState = path.join(workspace, '.sec');
     await mkdir(path.join(localState, 'workspace-write-lease'), { recursive: true });
@@ -418,9 +419,23 @@ test('workspace fixture copies case-fold local state and preserve only snapshot-
     await writeFile(path.join(template, 'source', 'model.yaml'), 'formatVersion: "1"\n', 'utf8');
 
     await copyWorkspaceFixture(template, workspace);
+    await copyWorkspaceFixture(template, siblingWorkspace);
 
-    await expect(readFile(path.join(workspace, 'source', 'model.yaml'), 'utf8'))
-      .resolves.toBe('formatVersion: "1"\n');
+    const sourceModel = path.join(template, 'source', 'model.yaml');
+    const clonedModel = path.join(workspace, 'source', 'model.yaml');
+    const siblingModel = path.join(siblingWorkspace, 'source', 'model.yaml');
+    const physicalFiles = await Promise.all([
+      lstat(sourceModel, { bigint: true }),
+      lstat(clonedModel, { bigint: true }),
+      lstat(siblingModel, { bigint: true })
+    ]);
+    expect(physicalFiles.map((metadata) => metadata.nlink)).toEqual([1n, 1n, 1n]);
+    expect(new Set(physicalFiles.map((metadata) => `${metadata.dev}:${metadata.ino}`)).size).toBe(3);
+    await writeFile(clonedModel, 'formatVersion: "2"\n', 'utf8');
+    await expect(readFile(sourceModel, 'utf8')).resolves.toBe('formatVersion: "1"\n');
+    await expect(readFile(siblingModel, 'utf8')).resolves.toBe('formatVersion: "1"\n');
+
+    await expect(readFile(clonedModel, 'utf8')).resolves.toBe('formatVersion: "2"\n');
     await expect(readFile(path.join(clonedLocalState, 'cache', 'composition-baseline.json'), 'utf8'))
       .resolves.toBe('{"kind":"composition"}\n');
     await expect(readFile(path.join(clonedLocalState, 'cache', 'project-baseline.json'), 'utf8'))

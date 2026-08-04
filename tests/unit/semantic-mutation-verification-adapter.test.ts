@@ -14,6 +14,7 @@ import {
   executeSemanticMutationVerification,
   planSemanticMutationVerificationCapabilities
 } from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
+import { buildClaimSummary } from '../../platform/compiler/verify/verify-project.ts';
 import type { VerificationRequirementV1 } from '../../platform/shared/semantic-mutation-types.ts';
 import {
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
@@ -362,7 +363,7 @@ const ISOLATED_SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
 
 function isolatedPolicyReport() {
   return {
-    status: 'skipped' as const,
+    status: 'passed' as const,
     official: { policies: [], sources: [], violations: [] },
     project: { policies: [], sources: [], violations: [] },
     merged: { policies: [] },
@@ -404,7 +405,7 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
     build: { status: 'passed' as const },
     unit: { status: 'passed' as const, passed: [] },
     acceptance: { status: 'passed' as const, passed: [], failed: [] },
-    policy: { status: 'skipped' as const, violations: [] },
+    policy: { status: 'passed' as const, violations: [] },
     policyReport: policy,
     logs: fastLogs
   };
@@ -421,6 +422,7 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
     acceptance: { status: 'skipped' as const, passed: [], failed: [], command: null },
     logs: runtimeLogs
   };
+  const claimSummary = buildClaimSummary('all', fast, runtime, 'full', policy);
   return {
     childExitCode: status === 'passed' ? 0 : 1,
     verificationReport: {
@@ -431,9 +433,10 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
       fast,
       runtime,
       summary: {
-        status,
+        status: claimSummary.overall.overallStatus === 'passed' ? 'passed' : 'failed',
         requestedLane: 'all' as const,
-        failedLanes: status === 'passed' ? [] : ['runtime']
+        failedLanes: status === 'passed' ? [] : ['runtime'],
+        claimSummary
       },
       logs: {
         stdout: [fastLogs.stdout, runtimeLogs.stdout].filter(Boolean).join('\n'),

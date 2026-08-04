@@ -1,5 +1,6 @@
 import { afterAll, expect } from 'bun:test';
 import type { BigIntStats, Dirent } from 'node:fs';
+import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
 import path from 'node:path';
@@ -465,14 +466,14 @@ async function assertLocalStateDestinationAbsent(workspaceRoot: string): Promise
 }
 
 /**
- * Recursively copy the template tree using hard links for regular files.
- * Hard links are zero-copy (just an inode reference) and safe because
- * writeText in platform/shared/fs.ts implements copy-on-write: it unlinks
- * files with nlink > 1 before writing, preventing template corruption.
+ * Recursively materialize a mutable workspace with independent regular files.
+ * COPYFILE_FICLONE requests filesystem copy-on-write cloning when available and
+ * falls back to an ordinary copy when unavailable. Both modes keep a distinct
+ * file identity, so direct host writes cannot mutate the template or a sibling
+ * workspace and product authorities continue to observe nlink === 1.
  * Symlinks are recreated; directories are mkdir'd.
- * Falls back to fs.copyFile if fs.link fails (cross-filesystem, permissions).
  */
-async function copyTreeWithHardLinks(
+async function copyTreeWithIndependentFiles(
   sourceRoot: string,
   source: string,
   target: string
@@ -484,16 +485,12 @@ async function copyTreeWithHardLinks(
     if (!shouldCloneOrdinaryWorkspaceFixturePath(sourceRoot, sourcePath)) return;
     const targetPath = path.join(target, entry.name);
     if (entry.isDirectory()) {
-      await copyTreeWithHardLinks(sourceRoot, sourcePath, targetPath);
+      await copyTreeWithIndependentFiles(sourceRoot, sourcePath, targetPath);
     } else if (entry.isSymbolicLink()) {
       const linkTarget = await fs.readlink(sourcePath);
       await fs.symlink(linkTarget, targetPath);
     } else {
-      try {
-        await fs.link(sourcePath, targetPath);
-      } catch {
-        await fs.copyFile(sourcePath, targetPath);
-      }
+      await fs.copyFile(sourcePath, targetPath, constants.COPYFILE_FICLONE);
     }
   }));
 }
@@ -501,8 +498,8 @@ async function copyTreeWithHardLinks(
 export async function copyWorkspaceFixture(sourceRoot: string, workspaceRoot: string): Promise<void> {
   const localStateSnapshotPlan = await resolveLocalStateSnapshotPlan(sourceRoot);
   await assertLocalStateDestinationAbsent(workspaceRoot);
-  await copyTreeWithHardLinks(sourceRoot, sourceRoot, workspaceRoot);
-  // No post-cp assertLocalStateDestinationAbsent needed: the hard-link copy
+  await copyTreeWithIndependentFiles(sourceRoot, sourceRoot, workspaceRoot);
+  // No post-copy assertLocalStateDestinationAbsent needed: the independent-file copy
   // filter already excludes .sec paths, so the destination cannot contain one.
   for (const entry of localStateSnapshotPlan) {
     const destinationPath = path.join(workspaceRoot, ...entry.destinationSegments);
@@ -520,7 +517,7 @@ export async function cloneWorkspaceTemplate(
   // Template is immutable after ensureTemplate returns: templateCacheVersion
   // is a hardcoded constant, so the .template-ready marker never becomes
   // stale within a single run, and createTemplate uses staging + atomic rename.
-  // Concurrent copies from the read-only template to distinct targets are safe
+  // Concurrent independent copies from the read-only template to distinct targets are safe
   // and do not need the creation lock — holding it here serialized all clones
   // of the same kind, defeating --concurrent --max-concurrency.
   await copyWorkspaceFixture(templateRoot, workspaceRoot);
