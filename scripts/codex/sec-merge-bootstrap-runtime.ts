@@ -285,6 +285,21 @@ function ensureSingleParent(ctx: BootstrapContext, pr: PrInfo): void {
   }
 }
 
+function assertPullRequestStillExact(ctx: BootstrapContext, expected: PrInfo): void {
+  const live = resolvePrInfo(ctx, expected.number);
+  if (
+    live.state.toUpperCase() !== 'OPEN'
+    || live.headSha !== expected.headSha
+    || live.baseSha !== expected.baseSha
+    || live.headBranch !== expected.headBranch
+    || live.manifestPath !== expected.manifestPath
+  ) {
+    fail(
+      `PR #${expected.number} changed after verification: expected base=${expected.baseSha} head=${expected.headSha}.`
+    );
+  }
+}
+
 function adminSquashMerge(ctx: BootstrapContext, pr: PrInfo): void {
   requireShell(ctx, 'gh', [
     'pr',
@@ -298,7 +313,10 @@ function adminSquashMerge(ctx: BootstrapContext, pr: PrInfo): void {
   logInfo(`Admin squash merged PR #${pr.number} at expected head ${pr.headSha}.`);
 }
 
-function readNewMain(ctx: BootstrapContext, defaultBranch = 'main'): string {
+function readNewMain(
+  ctx: BootstrapContext,
+  defaultBranch = 'main'
+): { sha: string; firstParent: string | null } {
   requireShell(ctx, 'git', [
     'fetch',
     '--prune',
@@ -320,7 +338,21 @@ function readNewMain(ctx: BootstrapContext, defaultBranch = 'main'): string {
   if (!live || live !== tracking || !/^[0-9a-f]{40}$/u.test(live)) {
     fail(`New ${defaultBranch} readback mismatch: live=${live ?? '<missing>'} tracking=${tracking}.`);
   }
-  return live;
+  const ancestry = requireShell(
+    ctx,
+    'git',
+    ['rev-list', '--parents', '-n', '1', `refs/remotes/origin/${defaultBranch}`],
+    `new ${defaultBranch} parent readback`
+  ).split(/\s+/u).filter(Boolean);
+  if (ancestry[0] !== live) {
+    fail(`New ${defaultBranch} commit identity changed during parent readback.`);
+  }
+  return {
+    sha: live,
+    firstParent: ancestry.length === 2 && /^[0-9a-f]{40}$/u.test(ancestry[1] ?? '')
+      ? ancestry[1]!
+      : null
+  };
 }
 
 function runAttestation(
@@ -432,12 +464,19 @@ function commandAll(ctx: BootstrapContext, options: BootstrapOptions): void {
   });
   logInfo(`Durable recovery prepared at ${prepared.preparation.recovery.path}.`);
 
+  assertPullRequestStillExact(ctx, pr);
   adminSquashMerge(ctx, pr);
-  const newMainSha = readNewMain(ctx, prepared.preparation.repository.defaultBranch);
+  const newMain = readNewMain(ctx, prepared.preparation.repository.defaultBranch);
+  const mainAncestryBlockers = newMain.firstParent === pr.baseSha
+    ? []
+    : [
+        `merged main first parent mismatch: expected ${pr.baseSha}, observed ${newMain.firstParent ?? '<not-single-parent>'}`
+      ];
   const receipt = finalizeMergedPullRequestCloseout(
     branchLifecycleContext(ctx),
     prepared,
-    newMainSha
+    newMain.sha,
+    mainAncestryBlockers
   );
   process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
   if (receipt.status === 'blocked' || receipt.status === 'residue') {
