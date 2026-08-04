@@ -27,6 +27,17 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/unit/exact-git-blob.test.ts'
 ];
 
+const VERIFICATION_TRUTH_FAST_TESTS = [
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/acceptance-coverage-closure.test.ts',
+  'tests/unit/coverage.test.ts',
+  'tests/unit/semantic-mutation-verification-adapter.test.ts',
+  'tests/unit/verification-artifact-claim-summary.test.ts',
+  'tests/unit/verification-claim-migration.test.ts',
+  'tests/unit/verification-result-core.test.ts',
+  'tests/unit/verification-result-proof-identity.test.ts'
+];
+
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'verification-evidence-producers',
@@ -39,6 +50,18 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/exact-git-blob.ts'
     ],
     fast: VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'verification-truth',
+    identity: { kind: 'architecture-owner', id: 'verification-truth' },
+    autoReferenceMode: 'include',
+    sourceFiles: [
+      'platform/compiler/verify/build-acceptance-coverage.ts',
+      'platform/shared/acceptance-proof-contract.ts',
+      'platform/shared/verification-artifact-contract.ts'
+    ],
+    fast: VERIFICATION_TRUTH_FAST_TESTS,
     slow: []
   },
   {

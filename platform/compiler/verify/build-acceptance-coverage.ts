@@ -1,12 +1,21 @@
+import {
+  acceptanceIdsProvenByVerificationReportsV1
+} from '../../shared/acceptance-proof-contract.ts';
 import type {
   AcceptanceCoverageEntry,
   AcceptanceCoverageReport,
   AcceptanceItem
 } from '../../shared/acceptance-types.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
+import { readJson } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
+import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
-import type { RuntimeVerificationLaneReport } from '../../shared/verification-types.ts';
+import type {
+  FastVerificationLaneReport,
+  RuntimeVerificationLaneReport,
+  VerificationReport
+} from '../../shared/verification-types.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 
 interface AcceptanceCoverageTarget {
@@ -15,49 +24,55 @@ interface AcceptanceCoverageTarget {
   blockId: string;
 }
 
-function buildCoverageEntry(id: string, declaredAcceptance: string[], coveredBy: string[]): AcceptanceCoverageEntry {
+interface AcceptanceDefinition {
+  id: string;
+  dependsOn: string[];
+}
+
+function buildCoverageEntry(
+  id: string,
+  declaredAcceptance: string[],
+  coveredBy: string[]
+): AcceptanceCoverageEntry {
+  const normalizedDeclared = uniqueSorted(declaredAcceptance);
   const normalizedCoveredBy = uniqueSorted(coveredBy);
   return {
     id,
-    declaredAcceptance: uniqueSorted(declaredAcceptance),
+    declaredAcceptance: normalizedDeclared,
     coveredBy: normalizedCoveredBy,
-    uncovered: normalizedCoveredBy.length === 0
+    uncovered: normalizedDeclared.length === 0 ||
+      normalizedCoveredBy.length !== normalizedDeclared.length
   };
 }
 
 function isAcceptanceSatisfied(
-  acceptance: AcceptanceItem,
+  acceptanceId: string,
   accepted: Set<string>,
-  acceptanceById: Map<string, AcceptanceItem>,
+  acceptanceById: ReadonlyMap<string, AcceptanceDefinition>,
   visited = new Set<string>()
 ): boolean {
-  if (!accepted.has(acceptance.id)) {
-    return false;
-  }
-  if (visited.has(acceptance.id)) {
-    return true;
-  }
-
+  if (!accepted.has(acceptanceId) || visited.has(acceptanceId)) return false;
+  const definition = acceptanceById.get(acceptanceId);
+  if (!definition) return false;
   const nextVisited = new Set(visited);
-  nextVisited.add(acceptance.id);
-  return (acceptance.dependsOn ?? []).every((dependency) => {
-    if (!accepted.has(dependency)) {
-      return false;
-    }
-    const dependencyAcceptance = acceptanceById.get(dependency);
-    return dependencyAcceptance ? isAcceptanceSatisfied(dependencyAcceptance, accepted, acceptanceById, nextVisited) : true;
-  });
+  nextVisited.add(acceptanceId);
+  return definition.dependsOn.every((dependency) =>
+    isAcceptanceSatisfied(dependency, accepted, acceptanceById, nextVisited)
+  );
 }
 
-function acceptanceCoversBlock(acceptance: AcceptanceItem, blockId: string, declaringBlockId: string): boolean {
-  return acceptance.covers?.blocks?.includes(blockId) ?? declaringBlockId === blockId;
+function acceptanceBlockTargets(target: AcceptanceCoverageTarget): string[] {
+  return target.acceptance.covers?.blocks ?? [target.blockId];
 }
 
-function acceptanceCoversSlot(acceptance: AcceptanceItem, slotId: string): boolean {
-  return acceptance.covers?.slots?.includes(slotId) ?? false;
+function acceptanceSlotTargets(target: AcceptanceCoverageTarget): string[] {
+  return target.acceptance.covers?.slots ?? [];
 }
 
-function buildAcceptanceTargets(blockId: string, manifest: BlockManifest): AcceptanceCoverageTarget[] {
+function buildAcceptanceTargets(
+  blockId: string,
+  manifest: BlockManifest
+): AcceptanceCoverageTarget[] {
   return manifest.acceptance.map((acceptance) => ({
     id: acceptance.id,
     acceptance,
@@ -65,19 +80,58 @@ function buildAcceptanceTargets(blockId: string, manifest: BlockManifest): Accep
   }));
 }
 
+function assertCoverageTargetClosure(
+  targets: readonly AcceptanceCoverageTarget[],
+  resolvedBlockIds: ReadonlySet<string>,
+  resolvedSlotIds: ReadonlySet<string>
+): ReadonlyMap<string, ReadonlySet<string>> {
+  const participation = new Map<string, Set<string>>();
+  for (const target of targets) {
+    for (const blockId of acceptanceBlockTargets(target)) {
+      if (!resolvedBlockIds.has(blockId)) {
+        throw new Error(`Acceptance ${target.id} references unknown resolved block ${blockId}`);
+      }
+      const entries = participation.get(target.id) ?? new Set<string>();
+      entries.add(`block:${blockId}`);
+      participation.set(target.id, entries);
+    }
+    for (const slotId of acceptanceSlotTargets(target)) {
+      if (!resolvedSlotIds.has(slotId)) {
+        throw new Error(`Acceptance ${target.id} references unknown resolved slot ${slotId}`);
+      }
+      const entries = participation.get(target.id) ?? new Set<string>();
+      entries.add(`slot:${slotId}`);
+      participation.set(target.id, entries);
+    }
+  }
+  return participation;
+}
+
+function sameCanonicalValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function resolveFastVerificationLane(
+  workspaceRoot: string,
+  runtime: RuntimeVerificationLaneReport,
+  fast: FastVerificationLaneReport | undefined
+): Promise<FastVerificationLaneReport> {
+  if (fast !== undefined) return fast;
+  const report = await readJson<VerificationReport>(getWorkspacePaths(workspaceRoot).verificationReportPath);
+  if (!report || typeof report !== 'object' || !report.fast ||
+    !sameCanonicalValue(report.runtime, runtime)) {
+    throw new Error('Acceptance Coverage readback requires the canonical matching fast/runtime report');
+  }
+  return report.fast;
+}
+
 export async function buildAcceptanceCoverage(
   workspaceRoot: string,
   lock: LockFile,
-  runtime: RuntimeVerificationLaneReport
+  runtime: RuntimeVerificationLaneReport,
+  fast?: FastVerificationLaneReport
 ): Promise<AcceptanceCoverageReport> {
-  const runtimeAccepted = new Set(runtime.acceptance.status === 'passed' ? runtime.acceptance.passed : []);
-  const runtimeAcceptancePassed = lock.acceptancePlan.filter((acceptanceId) => runtimeAccepted.has(acceptanceId));
-  const acceptancePassed = runtimeAcceptancePassed.length > 0
-    ? runtimeAcceptancePassed
-    : runtime.acceptance.status === 'passed'
-      ? [...lock.acceptancePlan]
-      : [];
-  const accepted = new Set(acceptancePassed);
+  const fastLane = await resolveFastVerificationLane(workspaceRoot, runtime, fast);
   const blockCoverage: AcceptanceCoverageEntry[] = [];
   const slotCoverage: AcceptanceCoverageEntry[] = [];
   const targets: AcceptanceCoverageTarget[] = [];
@@ -85,37 +139,65 @@ export async function buildAcceptanceCoverage(
   const manifestEntries = await Promise.all(
     lock.resolvedBlocks.map((block) => loadManifestForResolvedBlock(workspaceRoot, block))
   );
-  manifestEntries.forEach((manifestEntry, i) => {
-    targets.push(...buildAcceptanceTargets(lock.resolvedBlocks[i].id, manifestEntry.manifest));
+  manifestEntries.forEach((manifestEntry, index) => {
+    targets.push(...buildAcceptanceTargets(lock.resolvedBlocks[index]!.id, manifestEntry.manifest));
   });
 
-  const acceptanceById = new Map<string, AcceptanceItem>();
+  const resolvedBlockIds = new Set(lock.resolvedBlocks.map((block) => block.id));
+  const resolvedSlotIds = new Set(lock.slotTasks.map((task) => task.id));
+  const participation = assertCoverageTargetClosure(targets, resolvedBlockIds, resolvedSlotIds);
+
+  const acceptanceById = new Map<string, AcceptanceDefinition>();
   for (const target of targets) {
-    if (!acceptanceById.has(target.id)) {
-      acceptanceById.set(target.id, target.acceptance);
+    const current = acceptanceById.get(target.id);
+    acceptanceById.set(target.id, {
+      id: target.id,
+      dependsOn: uniqueSorted([
+        ...(current?.dependsOn ?? []),
+        ...(target.acceptance.dependsOn ?? [])
+      ])
+    });
+  }
+  for (const [acceptanceId, definition] of acceptanceById) {
+    for (const dependency of definition.dependsOn) {
+      if (!acceptanceById.has(dependency)) {
+        throw new Error(`Acceptance ${acceptanceId} depends on undeclared acceptance ID ${dependency}`);
+      }
+    }
+  }
+  for (const acceptanceId of lock.acceptancePlan) {
+    if (!acceptanceById.has(acceptanceId)) {
+      throw new Error(`Acceptance plan references undeclared acceptance ID ${acceptanceId}`);
+    }
+    if ((participation.get(acceptanceId)?.size ?? 0) === 0) {
+      throw new Error(`Acceptance plan ID ${acceptanceId} covers no resolved block or slot`);
     }
   }
 
+  const acceptancePassed = acceptanceIdsProvenByVerificationReportsV1(
+    fastLane,
+    runtime,
+    lock.acceptancePlan
+  );
+  const accepted = new Set(acceptancePassed);
+
   for (const block of lock.resolvedBlocks) {
     const declaredAcceptance = targets
-      .filter((target) => acceptanceCoversBlock(target.acceptance, block.id, target.blockId))
+      .filter((target) => acceptanceBlockTargets(target).includes(block.id))
       .map((target) => target.id);
-    const coveredBy = targets
-      .filter(
-        (target) =>
-          acceptanceCoversBlock(target.acceptance, block.id, target.blockId) && isAcceptanceSatisfied(target.acceptance, accepted, acceptanceById)
-      )
-      .map((target) => target.id);
+    const coveredBy = uniqueSorted(declaredAcceptance.filter((acceptanceId) =>
+      isAcceptanceSatisfied(acceptanceId, accepted, acceptanceById)
+    ));
     blockCoverage.push(buildCoverageEntry(block.id, declaredAcceptance, coveredBy));
   }
 
   for (const task of lock.slotTasks) {
     const declaredAcceptance = targets
-      .filter((target) => acceptanceCoversSlot(target.acceptance, task.id))
+      .filter((target) => acceptanceSlotTargets(target).includes(task.id))
       .map((target) => target.id);
-    const coveredBy = targets
-      .filter((target) => acceptanceCoversSlot(target.acceptance, task.id) && isAcceptanceSatisfied(target.acceptance, accepted, acceptanceById))
-      .map((target) => target.id);
+    const coveredBy = uniqueSorted(declaredAcceptance.filter((acceptanceId) =>
+      isAcceptanceSatisfied(acceptanceId, accepted, acceptanceById)
+    ));
     slotCoverage.push(buildCoverageEntry(task.id, declaredAcceptance, coveredBy));
   }
 

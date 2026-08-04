@@ -138,7 +138,7 @@ function artifactSet(status: 'passed' | 'failed'): SemanticMutationIsolatedVerif
     unit: { status: 'passed' as const, passed: ['runtime-unit'], failed: [], command: 'bun run test:unit' },
     acceptance: {
       status: 'passed' as const,
-      passed: ['runtime-acceptance'],
+      passed: [],
       failed: [],
       command: 'bun run test:acceptance'
     },

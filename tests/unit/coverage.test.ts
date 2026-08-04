@@ -3,7 +3,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { buildAcceptanceCoverage } from '../../platform/compiler/verify/build-acceptance-coverage.ts';
-import type { BlockManifest, LockFile, RuntimeVerificationLaneReport } from '../../platform/shared/types.ts';
+import type {
+  BlockManifest,
+  FastVerificationLaneReport,
+  LockFile,
+  RuntimeVerificationLaneReport
+} from '../../platform/shared/types.ts';
 import { writeYaml } from '../../platform/shared/yaml.ts';
 import { emptyVerificationLogs } from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -25,208 +30,276 @@ function manifest(id: string, acceptance: BlockManifest['acceptance']): BlockMan
   };
 }
 
-function runtime(passed: string[]): RuntimeVerificationLaneReport {
-  const acceptancePassed = passed.length > 0;
+function fast(passed: string[]): FastVerificationLaneReport {
   return {
-    status: acceptancePassed ? 'passed' : 'failed',
-    build: { status: 'skipped', passed: [], failed: [], command: null },
-    unit: { status: 'skipped', passed: [], failed: [], command: null },
-    acceptance: { status: acceptancePassed ? 'passed' : 'failed', passed, failed: acceptancePassed ? [] : passed, command: 'bun run test:acceptance' },
+    status: 'passed',
+    build: { status: 'passed' },
+    unit: { status: 'passed', passed: ['example.test.ts'] },
+    acceptance: { status: 'passed', passed, failed: [] },
+    policy: { status: 'passed', violations: [] },
+    policyReport: {
+      status: 'passed',
+      official: { policies: ['policy'], sources: [], violations: [] },
+      project: { policies: [], sources: [], violations: [] },
+      merged: {
+        policies: [{
+          id: 'policy',
+          sourceScope: 'official',
+          sourcePath: 'policy.yaml',
+          targets: []
+        }]
+      },
+      violations: []
+    },
     logs: emptyVerificationLogs()
   };
 }
 
-test('acceptance coverage honors covers and dependsOn declarations', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
-    const registryRoot = path.join(workspaceRoot, 'registry');
-    await fs.mkdir(path.join(registryRoot, 'source.block'), { recursive: true });
-    await fs.mkdir(path.join(registryRoot, 'target.block'), { recursive: true });
-    await writeYaml(
-      path.join(registryRoot, 'source.block', 'block.manifest.yaml'),
-      manifest('source/block', [
-        {
-          id: 'source_smoke',
-          covers: {
-            blocks: ['source/block']
-          }
-        },
-        {
-          id: 'cross_block_flow',
-          dependsOn: ['source_smoke'],
-          covers: {
-            blocks: ['target/block', 'target/block'],
-            slots: ['target_slot', 'target_slot']
-          }
-        },
-        {
-          id: 'chained_cross_block_flow',
-          dependsOn: ['cross_block_flow'],
-          covers: {
-            blocks: ['target/block'],
-            slots: ['target_slot']
-          }
-        },
-        {
-          id: 'cycle_a',
-          dependsOn: ['cycle_b'],
-          covers: {
-            blocks: ['target/block']
-          }
-        },
-        {
-          id: 'cycle_b',
-          dependsOn: ['cycle_a'],
-          covers: {
-            blocks: ['target/block']
-          }
-        },
-        {
-          id: 'source_smoke',
-          dependsOn: ['missing_duplicate_dependency'],
-          covers: {
-            blocks: ['target/block']
-          }
-        }
-      ])
-    );
-    await writeYaml(
-      path.join(registryRoot, 'target.block', 'block.manifest.yaml'),
-      manifest('target/block', [{ id: 'target_declared_only' }])
-    );
-
-    const lock: LockFile = {
-      formatVersion: '1',
-      app: {
-        id: 'customer-admin',
-        name: 'customer-admin',
-        stack: 'nextjs-ts-prisma-sqlite',
-        mode: 'single-tenant'
-      },
-      resolvedBlocks: [
-        {
-          id: 'source/block',
-          version: '0.1.0',
-          kind: 'capability',
-          installOrder: 1,
-          manifestPath: 'block.manifest.yaml',
-          registrySourceId: 'test',
-          registryKind: 'private',
-          registryLocation: 'workspace',
-          registryPath: 'registry'
-        },
-        {
-          id: 'target/block',
-          version: '0.1.0',
-          kind: 'capability',
-          installOrder: 2,
-          manifestPath: 'block.manifest.yaml',
-          registrySourceId: 'test',
-          registryKind: 'private',
-          registryLocation: 'workspace',
-          registryPath: 'registry'
-        }
-      ],
-      resolvedCapabilities: [],
-      installPlan: [],
-      slotTasks: [
-        {
-          id: 'target_slot',
-          block: 'target/block',
-          target: 'custom/target_slot.ts',
-          symbol: 'targetSlot',
-          kind: 'adapter',
-          status: 'filled',
-          writableZones: ['custom/target_slot.ts'],
-          provenanceHints: {
-            generator: 'test',
-            verifiedBy: []
-          }
-        }
-      ],
-      generatedPaths: [],
-      acceptancePlan: [
-        'source_smoke',
-        'cross_block_flow',
-        'chained_cross_block_flow',
-        'cycle_a',
-        'cycle_b',
-        'target_declared_only'
-      ],
-      passStatus: {
-        parse: 'succeeded',
-        align: 'succeeded',
-        resolve: 'succeeded',
-        compose: 'succeeded',
-        adapt: 'succeeded',
-        verify: 'succeeded',
-        repair: 'skipped',
-        lock: 'pending',
-        emit: 'pending'
-      }
-    };
-
-    const missingDependencyCoverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime(['cross_block_flow']));
-    expect(missingDependencyCoverage.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow', 'cycle_a', 'cycle_b', 'source_smoke', 'target_declared_only'],
-      coveredBy: [],
-      uncovered: true
-    });
-    expect(missingDependencyCoverage.slots.find((entry) => entry.id === 'target_slot')).toMatchObject({
-      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow'],
-      coveredBy: [],
-      uncovered: true
-    });
-
-    const missingTransitiveDependencyCoverage = await buildAcceptanceCoverage(
-      workspaceRoot,
-      lock,
-      runtime(['chained_cross_block_flow', 'cross_block_flow'])
-    );
-    expect(missingTransitiveDependencyCoverage.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      coveredBy: [],
-      uncovered: true
-    });
-
-    const cyclicDependencyCoverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime(['cycle_a', 'cycle_b']));
-    expect(cyclicDependencyCoverage.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      coveredBy: ['cycle_a', 'cycle_b'],
-      uncovered: false
-    });
-
-    const covered = await buildAcceptanceCoverage(workspaceRoot, lock, runtime(['unknown_flow', 'cross_block_flow', 'source_smoke', 'source_smoke']));
-    expect(covered.acceptancePassed).toHaveLength(2);
-    expect(covered.blocks.find((entry) => entry.id === 'source/block')).toMatchObject({
-      declaredAcceptance: ['source_smoke'],
-      coveredBy: ['source_smoke'],
-      uncovered: false
-    });
-    expect(covered.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow', 'cycle_a', 'cycle_b', 'source_smoke', 'target_declared_only'],
-      coveredBy: ['cross_block_flow'],
-      uncovered: false
-    });
-    expect(covered.slots.find((entry) => entry.id === 'target_slot')).toMatchObject({
-      declaredAcceptance: ['chained_cross_block_flow', 'cross_block_flow'],
-      coveredBy: ['cross_block_flow'],
-      uncovered: false
-    });
-    expect(covered.uncoveredBlocks).toHaveLength(0);
-    expect(covered.uncoveredSlots).toHaveLength(0);
-
-    // When acceptance has no test files, coverage falls back to the declared
-    // acceptance chain: all targets on the dependency chain are considered covered.
-    const noAcceptanceFilesRuntime: RuntimeVerificationLaneReport = {
+function runtime(passed: string[]): RuntimeVerificationLaneReport {
+  return {
+    status: 'passed',
+    build: {
+      status: 'passed', passed: ['next build'], failed: [], command: 'bun run build'
+    },
+    unit: {
       status: 'passed',
-      build: { status: 'passed', passed: ['next build'], failed: [], command: 'bun run build' },
-      unit: { status: 'passed', passed: ['tests/runtime/unit/example.test.ts'], failed: [], command: 'bun run test:unit' },
-      acceptance: { status: 'passed', passed: [], failed: [], command: 'bun run test:acceptance' },
-      logs: emptyVerificationLogs()
-    };
-    const fallback = await buildAcceptanceCoverage(workspaceRoot, lock, noAcceptanceFilesRuntime);
-    expect(fallback.acceptancePassed).toHaveLength(6);
-    expect(fallback.blocks.find((entry) => entry.id === 'target/block')).toMatchObject({
-      coveredBy: ['chained_cross_block_flow', 'cross_block_flow', 'cycle_a', 'cycle_b', 'target_declared_only'],
+      passed: ['tests/runtime/unit/example.test.ts'],
+      failed: [],
+      command: 'bun run test:unit'
+    },
+    acceptance: {
+      status: 'passed',
+      passed,
+      failed: [],
+      command: 'bun run test:acceptance'
+    },
+    logs: emptyVerificationLogs()
+  };
+}
+
+function lock(acceptancePlan: string[]): LockFile {
+  return {
+    formatVersion: '1',
+    app: {
+      id: 'coverage-test',
+      name: 'coverage-test',
+      stack: 'nextjs-ts-prisma-sqlite',
+      mode: 'single-tenant'
+    },
+    resolvedBlocks: [
+      {
+        id: 'source/block',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 1,
+        manifestPath: 'block.manifest.yaml',
+        registrySourceId: 'test',
+        registryKind: 'private',
+        registryLocation: 'workspace',
+        registryPath: 'registry'
+      },
+      {
+        id: 'target/block',
+        version: '0.1.0',
+        kind: 'capability',
+        installOrder: 2,
+        manifestPath: 'block.manifest.yaml',
+        registrySourceId: 'test',
+        registryKind: 'private',
+        registryLocation: 'workspace',
+        registryPath: 'registry'
+      }
+    ],
+    resolvedCapabilities: [],
+    installPlan: [],
+    slotTasks: [
+      {
+        id: 'target_slot',
+        block: 'target/block',
+        target: 'custom/target_slot.ts',
+        symbol: 'targetSlot',
+        kind: 'adapter',
+        status: 'filled',
+        writableZones: ['custom/target_slot.ts'],
+        provenanceHints: { generator: 'test', verifiedBy: [] }
+      }
+    ],
+    generatedPaths: [],
+    acceptancePlan,
+    passStatus: {
+      parse: 'succeeded',
+      align: 'succeeded',
+      resolve: 'succeeded',
+      compose: 'succeeded',
+      adapt: 'succeeded',
+      verify: 'succeeded',
+      repair: 'skipped',
+      lock: 'pending',
+      emit: 'pending'
+    }
+  };
+}
+
+async function writeManifests(
+  workspaceRoot: string,
+  sourceAcceptance: BlockManifest['acceptance']
+): Promise<void> {
+  const registryRoot = path.join(workspaceRoot, 'registry');
+  await fs.mkdir(path.join(registryRoot, 'source.block'), { recursive: true });
+  await fs.mkdir(path.join(registryRoot, 'target.block'), { recursive: true });
+  await writeYaml(
+    path.join(registryRoot, 'source.block', 'block.manifest.yaml'),
+    manifest('source/block', sourceAcceptance)
+  );
+  await writeYaml(
+    path.join(registryRoot, 'target.block', 'block.manifest.yaml'),
+    manifest('target/block', [])
+  );
+}
+
+test('fast and runtime files close every declared semantic acceptance', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeManifests(workspaceRoot, [
+      {
+        id: 'user_can_login',
+        covers: { blocks: ['source/block'] }
+      },
+      {
+        id: 'user_can_create_customer',
+        dependsOn: ['user_can_login'],
+        covers: { blocks: ['source/block'] }
+      },
+      {
+        id: 'customer_can_upload_attachment',
+        dependsOn: ['user_can_create_customer'],
+        covers: { blocks: ['target/block'], slots: ['target_slot'] }
+      }
+    ]);
+
+    const coverage = await buildAcceptanceCoverage(
+      workspaceRoot,
+      lock([
+        'user_can_login',
+        'user_can_create_customer',
+        'customer_can_upload_attachment'
+      ]),
+      runtime(['tests/runtime/acceptance/customer-flow.spec.ts']),
+      fast(['customer-flow.test.ts'])
+    );
+
+    expect(coverage.acceptancePassed).toEqual([
+      'customer_can_upload_attachment',
+      'user_can_create_customer',
+      'user_can_login'
+    ]);
+    expect(coverage.blocks).toEqual([
+      {
+        id: 'source/block',
+        declaredAcceptance: ['user_can_create_customer', 'user_can_login'],
+        coveredBy: ['user_can_create_customer', 'user_can_login'],
+        uncovered: false
+      },
+      {
+        id: 'target/block',
+        declaredAcceptance: ['customer_can_upload_attachment'],
+        coveredBy: ['customer_can_upload_attachment'],
+        uncovered: false
+      }
+    ]);
+    expect(coverage.slots[0]).toEqual({
+      id: 'target_slot',
+      declaredAcceptance: ['customer_can_upload_attachment'],
+      coveredBy: ['customer_can_upload_attachment'],
       uncovered: false
     });
+    expect(coverage.uncoveredBlocks).toEqual([]);
+    expect(coverage.uncoveredSlots).toEqual([]);
+  });
+});
+
+test('partial, cyclic, unmapped and empty observations remain uncovered', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeManifests(workspaceRoot, [
+      {
+        id: 'user_can_create_customer',
+        covers: { blocks: ['source/block'] }
+      },
+      {
+        id: 'customer_can_upload_attachment',
+        dependsOn: ['user_can_create_customer'],
+        covers: { blocks: ['target/block'], slots: ['target_slot'] }
+      },
+      {
+        id: 'ticket_can_be_created',
+        dependsOn: ['ticket_status_can_transition'],
+        covers: { blocks: ['target/block'] }
+      },
+      {
+        id: 'ticket_status_can_transition',
+        dependsOn: ['ticket_can_be_created'],
+        covers: { blocks: ['target/block'] }
+      },
+      {
+        id: 'unmapped_acceptance',
+        covers: { blocks: ['target/block'] }
+      }
+    ]);
+    const currentLock = lock([
+      'user_can_create_customer',
+      'customer_can_upload_attachment',
+      'ticket_can_be_created',
+      'ticket_status_can_transition',
+      'unmapped_acceptance'
+    ]);
+
+    const partial = await buildAcceptanceCoverage(
+      workspaceRoot,
+      currentLock,
+      runtime([
+        'tests/runtime/acceptance/customer-flow.spec.ts',
+        'tests/runtime/acceptance/ticket-flow.spec.ts'
+      ]),
+      fast([])
+    );
+    expect(partial.acceptancePassed).toEqual([
+      'customer_can_upload_attachment',
+      'ticket_can_be_created',
+      'ticket_status_can_transition',
+      'user_can_create_customer'
+    ]);
+    expect(partial.blocks.find((entry) => entry.id === 'target/block')).toEqual({
+      id: 'target/block',
+      declaredAcceptance: [
+        'customer_can_upload_attachment',
+        'ticket_can_be_created',
+        'ticket_status_can_transition',
+        'unmapped_acceptance'
+      ],
+      coveredBy: ['customer_can_upload_attachment'],
+      uncovered: true
+    });
+    expect(partial.uncoveredBlocks).toEqual(['target/block']);
+
+    const empty = await buildAcceptanceCoverage(
+      workspaceRoot,
+      currentLock,
+      runtime([]),
+      fast([])
+    );
+    expect(empty.acceptancePassed).toEqual([]);
+    expect(empty.blocks.every((entry) => entry.uncovered)).toBe(true);
+    expect(empty.slots.every((entry) => entry.uncovered)).toBe(true);
+  });
+});
+
+test('acceptance plan cannot reference an undeclared ID', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeManifests(workspaceRoot, []);
+    await expect(buildAcceptanceCoverage(
+      workspaceRoot,
+      lock(['missing_acceptance']),
+      runtime([]),
+      fast([])
+    )).rejects.toThrow(/undeclared acceptance ID missing_acceptance/);
   });
 });

@@ -1,3 +1,4 @@
+import { acceptanceIdsProvenByVerificationReportsV1 } from './acceptance-proof-contract.ts';
 import type { AcceptanceCoverageReport } from './acceptance-types.ts';
 import type { PolicyReport } from './policy-types.ts';
 import { buildProductVerificationClaimPlan } from './product-verification-claim-plan.ts';
@@ -190,22 +191,61 @@ function exactCurrentCanonicalVerificationReport(
   return exactVerificationReport(value) && value.summary.claimSummary !== undefined;
 }
 
-function exactCoverageEntry(value: unknown): boolean {
-  return exactKeys(value, ['id', 'declaredAcceptance', 'coveredBy', 'uncovered']) &&
-    typeof value.id === 'string' && exactStringArray(value.declaredAcceptance) &&
-    exactStringArray(value.coveredBy) && typeof value.uncovered === 'boolean' &&
-    value.uncovered === (value.coveredBy.length === 0);
+function exactCoverageEntry(value: unknown, accepted: ReadonlySet<string>): boolean {
+  if (!exactKeys(value, ['id', 'declaredAcceptance', 'coveredBy', 'uncovered']) ||
+    typeof value.id !== 'string' || !exactStringArray(value.declaredAcceptance) ||
+    !exactStringArray(value.coveredBy) || typeof value.uncovered !== 'boolean') {
+    return false;
+  }
+  const declared = value.declaredAcceptance as string[];
+  const coveredBy = value.coveredBy as string[];
+  return coveredBy.every((id) => declared.includes(id) && accepted.has(id)) &&
+    value.uncovered === (declared.length === 0 || coveredBy.length !== declared.length);
 }
 
-function exactAcceptanceCoverage(value: unknown): value is AcceptanceCoverageReport {
-  return exactKeys(value, [
+function exactAcceptanceCoverage(
+  value: unknown,
+  fast: FastVerificationLaneReport,
+  runtime: RuntimeVerificationLaneReport
+): value is AcceptanceCoverageReport {
+  if (!exactKeys(value, [
     'formatVersion', 'status', 'acceptancePassed', 'blocks', 'slots',
     'uncoveredBlocks', 'uncoveredSlots'
-  ]) && value.formatVersion === '1' && exactVerificationStatus(value.status) &&
-    exactStringArray(value.acceptancePassed) && Array.isArray(value.blocks) &&
-    value.blocks.every(exactCoverageEntry) && Array.isArray(value.slots) &&
-    value.slots.every(exactCoverageEntry) && exactStringArray(value.uncoveredBlocks) &&
-    exactStringArray(value.uncoveredSlots);
+  ]) || value.formatVersion !== '1' || !exactVerificationStatus(value.status) ||
+    !exactStringArray(value.acceptancePassed) || !Array.isArray(value.blocks) ||
+    !Array.isArray(value.slots) || !exactStringArray(value.uncoveredBlocks) ||
+    !exactStringArray(value.uncoveredSlots)) {
+    return false;
+  }
+  const report = value as unknown as AcceptanceCoverageReport;
+  const declaredAcceptance = [...new Set([
+    ...report.blocks.flatMap((entry) => entry.declaredAcceptance),
+    ...report.slots.flatMap((entry) => entry.declaredAcceptance)
+  ])].sort();
+  const expectedAccepted = acceptanceIdsProvenByVerificationReportsV1(
+    fast,
+    runtime,
+    declaredAcceptance
+  );
+  if (!CodexDevelopmentVerificationDataEqualV1(report.acceptancePassed, expectedAccepted)) {
+    return false;
+  }
+  const accepted = new Set(report.acceptancePassed);
+  if (!report.blocks.every((entry) => exactCoverageEntry(entry, accepted)) ||
+    !report.slots.every((entry) => exactCoverageEntry(entry, accepted))) {
+    return false;
+  }
+  if (new Set(report.blocks.map((entry) => entry.id)).size !== report.blocks.length ||
+    new Set(report.slots.map((entry) => entry.id)).size !== report.slots.length) {
+    return false;
+  }
+  return CodexDevelopmentVerificationDataEqualV1(
+    report.uncoveredBlocks,
+    report.blocks.filter((entry) => entry.uncovered).map((entry) => entry.id)
+  ) && CodexDevelopmentVerificationDataEqualV1(
+    report.uncoveredSlots,
+    report.slots.filter((entry) => entry.uncovered).map((entry) => entry.id)
+  );
 }
 
 export function isCanonicalVerificationArtifactSet(
@@ -225,7 +265,11 @@ export function isCanonicalVerificationArtifactSet(
   if (!exactCurrentCanonicalVerificationReport(candidate.verificationReport) ||
     !exactRuntimeVerificationReport(candidate.runtimeReport) ||
     !exactPolicyReport(candidate.policyReport) ||
-    !exactAcceptanceCoverage(candidate.acceptanceCoverage)) {
+    !exactAcceptanceCoverage(
+      candidate.acceptanceCoverage,
+      candidate.verificationReport.fast,
+      candidate.verificationReport.runtime
+    )) {
     return false;
   }
   const report = candidate.verificationReport;
