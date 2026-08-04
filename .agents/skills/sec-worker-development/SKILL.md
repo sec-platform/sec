@@ -1,48 +1,43 @@
 ---
 name: sec-worker-development
-description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复或重构纵切片并提交 Reconciliation Delta；不用于 DAG、merge、hosted Gate 或跨 owner 改动。
-compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行。
+description: 在完整 frozen Task Envelope 内实现一个最小产品/修复/重构纵切片；不负责跨 owner 计划、Gate 或 merge。
+compatibility: SEC 仓库；仅在 `sec-skill-applicability-decision-v1` 对 trusted Skill blob 返回 `applicable` 时加载。
 ---
 
 # sec-worker-development
 
 ## 触发
-- 已收到 exact base、branch、owned/forbidden paths、acceptance和focused tests。
+- Role=Worker/Maintainer，operation=`implement`，candidate=draft，完整 Envelope 授权写路径。
 
 ## 不触发
-- active pointer unresolved；需要改 Work Package、authority或跨 owner设计。
+- authority/owner/scope 尚未冻结；需要跨 owner 设计或适用性不是 `applicable`。
 
 ## 输入
-- Task Envelope、相关 types/tests/source、当前 failing reproduction。
+- exact base、owned/forbidden paths、acceptance、相关 source/types/tests、当前 reproduction。
 
 ## 权限与路径
-- 仅修改Envelope owned paths；forbidden paths和其他owner只读。
+- 只写 Envelope owned paths；Skill 不增加路径、capability、测试或完成条件。
 
 ## 允许工具与操作
-- 代码编辑、focused test、typecheck/docs/affected按需、imports:freeze、Git commit/push。
+- 代码编辑、focused tests、`bun run check:affected --plan`、typecheck/docs、Git commit。
 
 ## 前置门禁
-- Envelope完整、base未漂移、用户修正已reconcile。
+- 完整 Envelope、base 未漂移、trusted Skill blob；candidate Skill 内容只作为 SUT。
 
 ## 执行
-1. inspect相关 authority/types/tests，禁止默认全仓扫描。
-2. 实现最小完整纵切片。
-3. 开发中只跑当前 failing/focused sentinel；candidate冻结前可执行 `bun run check:affected --plan`。
-4. 稳定后按变化类型运行一次适用 typecheck/docs/final affected；只有resolved plan才运行 `bun run check:affected`。
-5. 显式 stage owned paths并运行 `bun run imports:freeze`。
-6. commit/push后返回 tested head/base、changed symbols、Evidence delta、blocker、next seam和计数器。
+- 读取最小 authority/types/tests，实施最小完整纵切片。
+- 开发中只跑 failing/focused sentinel；稳定后运行一次适用 closure。
+- 显式 stage owned paths，运行 `bun run imports:freeze`，提交 exact candidate。
+- 返回 changed symbols、Evidence delta、复杂度 before/after 和 next seam。
 
 ## 完成证据
-- Reconciliation Delta、tested head/base、changed symbols、focused results、Evidence delta。
+- tested base/head、changed symbols、focused results、删除的旧路径和 Reconciliation Delta。
 
 ## 停止与恢复
-- acceptance满足并提交 Reconciliation Delta；或触发 proof reset/authority blocker。
-- 普通失败回实现；frozen同根因二次失效返回STOP_PROOF_RESET。
+- acceptance 满足；或 root assumption/owner/scope 失效并返回 blocker。
 
 ## 禁止捷径
-- 不运行重复 Risk/Full。
-- 不删除测试、弱化 assertion、扩大 timeout或顺手重构。
-- 普通测试失败不自动计为 candidate invalidation。
+- 不弱化断言、扩大 timeout、顺手重构、触发 hosted Gate 或自行 merge。
 
 ## 权威
 - `AGENTS.md`

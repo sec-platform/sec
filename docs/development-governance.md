@@ -7,129 +7,92 @@ last-reviewed: 2026-08-04
 
 # 自主开发治理
 
-本文拥有 SEC 仓库开发的事实源、计划分层、Role/Operation/Skill 边界、Issue/Work Package/PR/Evidence 生命周期、A0/Worker/Reviewer 权责、可验证续跑和工程自主治理目标。具体启发式闭包只存在于 `.agents/skills/**`；机器可判断的规则必须下沉到代码合同。
+本文拥有 SEC 仓库开发的事实源、计划分层、Role/Operation/Skill 边界、Issue/Work Package/PR/Evidence 生命周期、A0/Worker/Reviewer/Auditor 权责、可验证续跑和收口规则。产品机制、验证算法和权限判断由各自代码 owner 实现；Skill 只保存不可完全机械化的短启发式方法。
 
 ## 自主治理责任
 
-SEC 的产品、架构、实现、测试、文档、CI、Review、分支和主干状态必须持续一致。维护者或 A0 不能只机械执行用户最后一句命令，也不能等待用户发现工程全局冲突。
+维护者必须持续对齐产品、架构、实现、测试、文档、CI、Review、分支和 `main`。每次任务先判断：
 
-每次任务都必须判断是否出现：
+- 产品目标与实现是否偏离；
+- 横切设施是否抢占产品主线；
+- canonical owner 是否重复、缺失或被 Proposal/Evidence/Projection 竞争；
+- 同类缺陷是否说明共享抽象、状态 owner、fixture、selector 或 Gate 缺失；
+- `main` 是否已包含结果而旧 PR/branch/plan 仍声称未完成；
+- 当前包、rolling plan、Issue、Skill 或文档是否已被新事实取代；
+- 正确 candidate 是否只剩 Review、合并、归档或删除。
 
-- 产品目标与实现方向不一致；
-- roadmap 依赖颠倒或横切设施抢占产品主线；
-- canonical owner重复、缺失或被 Proposal/Evidence/Projection竞争；
-- 同类缺陷重复，说明共享抽象、状态 owner、fixture、selector或门禁缺失；
-- 当前 `main` 已包含结果而旧 PR/branch/plan仍声称未完成；
-- 活动 Work Package、rolling plan、Issue 或文档已被新事实取代；
-- Skill/Agent/context机制复制机器规则或污染上下文；
-- 已正确 candidate 只剩 merge/closeout，而不是继续制造修改。
+合法动作可以是实现、设计重算、合并、关闭、归档、删除临时结构或确认无需修改。不得为了表现“持续开发”制造无证据变化。
 
-发现这些情况时，工程动作可以是设计重算、最小修复、合并、关闭、归档、删除临时结构或确认无修改；不能为了保持“持续开发”而制造无证据变化。
+## 当前能力与目标边界
 
-## 当前规则与目标机制
+当前可强制：`main` authority、一个 formal writer、frozen manifest、exact candidate Evidence、独立 Review、merge readback、branch hygiene 和 generated-state settlement。
 
-- **当前可强制规则**：`main` authority、一个 formal active Work Package、single writer、frozen manifest、exact candidate Evidence、独立 Review、merge readback 和 branch hygiene。
-- **已实现但尚未成为默认并行运行时**：并行 Work Package resolver（V3 schema、pairwise conflict resolver、global exclusive resource registry）。
-- **已冻结的目标架构**：Agent Operation Compiler、Integration Queue、Development Run Kernel、Run State/Event/Transition、统一 Evidence references 和自动 feedback service。
+已存在但不自动授权：并行 Work Package resolver 的部分合同、候选 Skill/path coverage、未来 Run Kernel/Integration Queue 设计。没有真实 consumer 和物理 Evidence 时，目标设计不得由文档、Issue、Skill prose 或模拟对象升格为现有能力。
 
-目标设计不能被文档、Issue、Skill prose 或模拟对象升格为当前能力。在 Integration Queue、Run Kernel、外部 Run State 与自动 feedback service进入 `main` 前，默认继续使用一个 formal active Work Package 和可验证的 manual-shadow 续跑。
-
-## 事实与授权顺序
+## 事实、授权与适用性顺序
 
 ```text
 latest main + live Git/GitHub facts
-→ docs/authority.json and canonical domain owners
+→ 用户最新 Goal / correction
+→ docs/authority.json 与 canonical domain owner
 → product / system architecture / roadmap
-→ AGENTS.md universal router
-→ trusted repository orientation or full audit
-→ selected frozen Work Package
-→ typed Operation / Task Envelope
-→ relevant source, contracts and tests
-→ exact-head Evidence and independent Review
+→ trusted repository orientation or exact audit
+→ Role + operation kind + frozen Work Package / Envelope
+→ sec-skill-applicability-decision-v1
+→ zero or one trusted Skill guidance
+→ source / contracts / tests / deterministic services
+→ exact-head Evidence + independent Review
 → merge → new-main readback → cleanup → replan
 ```
 
-`main` 是唯一正式产品事实。Branch、Issue、PR body、聊天、计划、Project 看板、审计报告、代码图、Completion Report 和模型记忆只提供导航、候选、决策或 Evidence，不能证明结果已进入主干。
+`main` 是唯一正式产品事实。Branch、Issue、PR body、聊天、计划、看板、报告、代码图、Completion Report、模型记忆和 Skill 只提供导航、候选、启发式或 Evidence，不能证明结果进入主干。
 
-Resolver 无法确定 default ref、target repository/workspace、active pointer、manifest bytes/digest、PR base/head、review/CI 或 authority owner时 fail closed。
+任何 default ref、target workspace、pointer、manifest、base/head、Review/CI、authority owner、Goal 或 Envelope 无法解析时 fail closed。
 
-## Ignored 与 Generated State 生命周期
+## Ignored 与 Generated State
 
-`.gitignore` 只取消 Git tracking，不授予删除、保留、恢复或 settled 声明。一个 ignored path 即使不出现在 `git status`，仍然必须有唯一 lifecycle owner、重建方式、清理 profile、settlement effect 和 physical readback；路径名包含 `tmp`、`cache` 或 `generated` 不能代替这些事实。
+`.gitignore` 只取消 Git tracking，不授予删除、保留、恢复或 settled 声明。Repository-local generated state 必须有唯一 owner、重建方式、cleanup profile、settlement effect 和 physical readback，并区分：
 
-Repository-local generated state 固定区分：
-
-- 可重建 cache 和 toolchain 派生状态；
-- 由 owner/liveness 约束的临时 workspace；
-- 有明确 retention 与 promotion 责任的 diagnostic；
-- 只能由原协议恢复的 identity-bound control state；
-- 必须移出全部 repository/common-dir/worktree root 的 durable recovery；
+- rebuildable cache / toolchain state；
+- owner/liveness 约束的临时 workspace；
+- 有 retention/promotion 的 diagnostic；
+- identity-bound control state；
+- 必须位于仓库外的 durable recovery；
 - 默认 fail closed 的 unknown。
 
-普通清理只能消费 canonical registry。`automatic` 只回收可证明 owner 已死亡的运行实例；`safe` 只再加入超过兼容宽限的 legacy workspace 和过期 diagnostic；`all-rebuildable` 才允许删除已登记 cache/toolchain state。Active、cross-host、malformed owner、reparse/symlink、changed-after-plan、recovery、control 和 unknown 永不因名称或年龄进入普通删除集。
+`automatic` 只回收可证明 owner 已死亡的实例；`safe` 可再处理过期 legacy workspace 与 diagnostic；`all-rebuildable` 才能删除已登记 cache/toolchain。Active、cross-host、malformed owner、symlink/reparse、changed-after-plan、recovery、control 和 unknown 不进入普通删除集。
 
-清理必须冻结 physical snapshot、在同一文件系统隔离、no-follow 删除并以 ENOENT/readback 和 typed receipt结束。失败、被保护对象和 interrupted transaction 必须保持可观察；`catch {}`、`force` 或命令退出码不能冒充 cleanup complete。
-
-Environment settlement 是 tracked Git materialization 与 ignored generated-state inventory 的联合结果。合法 hot cache 和 active owned run 可以存在；orphan、过期残留、unsafe/unknown、cleanup residue 和错误位置的 recovery 会阻断完整 settled。Evidence 与 durable recovery 不是 cache 子类，必须迁移到各自 canonical owner，不能与一键 cache clean 共删。
+清理必须冻结 physical snapshot、同文件系统 quarantine、no-follow 删除，并以 ENOENT/readback 和 typed receipt 闭合。Evidence 与 durable recovery 不是 cache 子类。
 
 ## 计划与记录分层
 
-- **`docs/product.md`**：产品问题、边界、用户结果和长期成功判据。
-- **`docs/system-architecture.md`**：总体对象、两条主链、authority flow、单写者和跨域依赖。
-- **`docs/roadmap.md`**：唯一稳定 capability DAG、阶段进入/退出和反转条件。
-- **Canonical domain docs/code**：领域对象、长期不变量、公共合同和机器规则。
-- **GitHub Issue**：真实问题、依赖、竞争方案、决策、验收和反证；不是运行日志或第二 roadmap。
-- **Rolling plan**：当前包与接下来二至五个条件化候选；不是永久 backlog或稳定架构。
-- **Work Package Manifest**：被激活交付闭包的 frozen scope、authority、ownership、Gate 和退出合同。
-- **Operation / Task Envelope**：一个执行者在 manifest 内的单角色、单 operation、单 seam授权。
-- **Pull Request**：一个 exact candidate diff及其 Review 表面。
-- **Checks/Artifacts/Evidence**：绑定 exact input/environment 的物理证明。
-- **Development Run State（目标 owner）**：run、event、transition、resume和下一合法动作；未实现前由外部 Git/PR/manifest/Evidence重算。
-- **GitHub Project**：Issue/PR的可视化投影。
-- **`main`**：完成后的唯一产品结果。
+- `docs/product.md`：产品问题、边界、用户结果和成功判据；
+- `docs/system-architecture.md`：总体对象、authority flow、层次和单写者；
+- `docs/roadmap.md`：唯一稳定 capability DAG；
+- canonical domain docs/code：领域对象、公共合同和长期不变量；
+- GitHub Issue：问题、证据、决策、依赖、验收和反证；
+- rolling plan：当前包与二至五个条件候选；
+- Work Package manifest：正式交付闭包；
+- Operation/Task Envelope：一个角色、一个 operation、一个 seam 的授权；
+- Pull Request：exact candidate diff；
+- Checks/Artifacts/Evidence：绑定 exact input/environment 的物理证明；
+- `main`：完成后的唯一产品结果。
 
-Dynamic SHA、run、failure tail 和临时候选不复制进 stable docs。Evidence 可以保存架构裁决、实验和历史计划，但不得自称当前状态源或长期路线 owner。
+动态 SHA、run 和 failure tail 不复制到 stable docs。Evidence 不拥有当前状态或长期路线。
 
-## Agent Operation System
+## Role 与 Operation Envelope
 
-最终开发运行时固定为：
+Role 是职责和可申请权限上限，不是 workflow：
 
-```text
-Universal Policy
-→ explicit Agent Role
-→ typed Operation Envelope
-→ exactly one Primary Skill
-→ deterministic services / contracts / tools
-→ typed outcome and legal next transition
-→ external Run State / Evidence
-```
+- Integrator/A0：事实重算、work selection、control plane、Gate custody、merge 与 closeout；
+- Worker：在 frozen Envelope 内实现；
+- Reviewer：独立只读 exact candidate；
+- Auditor：对 exact revision 做事实和机制 Census；
+- Maintainer：在文档、toolchain、provider 或 agent-system 的明确 Envelope 内维护。
 
-### Role
+一次 Envelope 至少绑定 repository、exact revisions、Role、operation、Goal digest、authority/path/resource/capability grant、inputs/outputs、Verification、stop/reload/reconcile 和 expiry。
 
-Role 是执行者身份、职责和可申请权限上限，不是 workflow：
-
-- **Integrator / A0**：事实重算、work selection、control plane、Gate custody、integration、merge和closeout；
-- **Worker**：在 frozen envelope 的 branch-write边界内实现；
-- **Reviewer**：对 exact candidate 独立只读审查；
-- **Auditor**：对 exact revision 做事实、architecture、repository或Evidence census；
-- **Maintainer**：在文档、toolchain、provider、agent-system等明确治理 envelope内工作。
-
-Role不能通过加载 Skill扩大权限。子 Agent 不继承父 Agent 的 Role、Skill、path或capability，必须显式签发 Envelope。
-
-### Operation Envelope
-
-一次 operation 至少绑定：
-
-- repository、exact main/base/target/candidate identity；
-- Role、operation kind、Primary Skill；
-- authority reads/writes；
-- path reads/writes与forbidden surface；
-- required capabilities、trust class和resource bounds；
-- inputs、expected outputs和completion claims；
-- Verification obligations；
-- stop、reload、reconcile和expiry conditions。
-
-最终可执行权限是交集：
+最终权限始终是交集：
 
 ```text
 Role maximum
@@ -139,161 +102,99 @@ Role maximum
 ∩ current state transition
 ```
 
-Skill只能声明 required capabilities，不能扩大交集。
+任何 Skill 都不能扩大该交集。
 
-### Primary Skill
+## Skill 适用性与隔离
 
-一次 operation只有一个 Primary Skill。跨阶段工作通过 typed transition顺序推进：
+### 零个或一个 Skill
 
-```text
-orient
-→ audit | diagnose | design | implement | review | integrate | govern | no-change
-```
+一次 operation 允许：
 
-禁止同时加载多份 Primary Skill共同解释一个状态转换。Impact、Gate selection、Work Package parser、permission intersection、Failure/Epoch、Evidence reuse和merge legality等机器规则不重复写入 Skill prose。
+- 一个 `applicable` Skill；或
+- `none-required`，只按 Universal Policy 与完整 Envelope 执行。
 
-Skill只保留需要 Agent 判断的：触发/不触发、输入、分析方法、工具选择、解释、停止和 typed outcome。详细 schema、枚举、命令和平台矩阵引用 canonical code或按需 reference，避免长流程连续加载重复正文污染 context。
+不再强制“必须选一个最接近的 Skill”。`ambiguous | stale | conflict | not-applicable` 均停止写入并返回 Reconciliation Delta。
 
-### Deterministic services
+### 选择前只读元数据
 
-以下能力必须由唯一代码 owner 提供：
+完整 Skill 正文只能在 `sec-skill-applicability-decision-v1` 之后加载。决策至少绑定：
 
-- repository snapshot resolver；
-- work selector；
-- Work Package / Integration conflict resolver；
-- Change Closure compiler；
-- impact/test/Gate selector；
-- permission evaluator；
-- candidate epoch/failure classifier；
-- Verification aggregator；
-- Evidence/Run State；
-- publication、merge、readback和cleanup owner。
+- repository、trusted revision 与 target revision；
+- Role、operation、Goal digest、Envelope digest；
+- write intent、candidate state、actor independence；
+- candidate Skill IDs、required/granted capabilities；
+- authority/scope conflicts；
+- selected Skill ID 与 trusted Skill blob；
+- expiry/reload conditions。
 
-Skill可以消费和解释 service结果，但不能重新实现算法或输出竞争状态。
+Path/Markdown coverage、行为 owner registry 和 test-impact 映射只用于影响分析、审计和测试选择，不是 runtime selector。
+
+### Trusted guidance quarantine
+
+候选如果修改 `AGENTS.md`、`.agents/skills/**`、Skill profile、selector 或相关 verifier，这些候选内容只作为 SUT/Review 数据。当前候选的实现、Review、Gate 和合并仍使用 trusted base/main 的 profile 与 Skill blob；candidate 不得通过修改 guidance 自我授权。
+
+Goal、trusted/target revision、Role、operation、Envelope 或 candidate state 任一变化，旧 decision 立即 `stale`。
+
+### Skill 内容边界
+
+Skill 只保留独有的：适用场景、输入、分析方法、工具选择、输出、停止和专业禁忌。通用权限、Gate、状态机、Schema、平台矩阵和产品事实只存在于 canonical code/docs，不在 17 个 Skill 中重复。
+
+Skill 不拥有：
+
+- 产品/架构事实；
+- authority、path、resource 或 capability grant；
+- Gate 选择与结果真值；
+- Work Package、Failure/Epoch、merge legality 或完成定义；
+- 动态 current state。
 
 ## A0、Worker、Reviewer 与 Auditor
 
-### A0 / Integrator 独占
+A0 独占事实重算、工作选择、控制面、冲突排序、Gate custody、merge/readback 和清理；不替 Worker 修改同一 owner seam，也不把 findings 合成巨型实现包。
 
-- 最新事实、产品目标、canonical architecture和rolling DAG重算；
-- active Work Package选择、candidate invalidation和proof reset；
-- authority/resource/write-set冲突裁决；
-- Gate custody、independent Review、integration和merge order；
-- new-main readback、Issue/PR收口、branch/worktree/workflow hygiene；
-- 发现全工程设计冲突时建立聚焦 architecture convergence，而不是等待用户拆解。
+Worker 只在完整 Envelope 内实现；root assumption、owner、scope 或 architecture 不成立时停止并返回 Reconciliation Delta。
 
-A0不替Worker修改同一owner seam，也不把所有发现塞进一个巨型implementation package。
+Reviewer 只读 exact base/head/tree、authority、Evidence 和 diff；Head 变化立即使 Review stale。作者自评不构成独立 Review。
 
-### Worker
+Auditor 对全部 tracked paths、owner、entry、state、dependency、verification 和 unknown 做 exact-revision Census；Audit 产生 Evidence 和聚焦 findings，不取得产品 authority。
 
-Worker只在 frozen Envelope 和 owned seam内实现，不自授权跨 owner、扩大路径、降低 Verification、触发 hosted Gate或合并。发现 root assumption、owner、scope或architecture不成立时停止并返回 Reconciliation Delta，不在局部代码继续堆例外。
+## Work Package 与并行
 
-### Reviewer
+Manifest 冻结 base、authority、paths、resources、dependencies、acceptance、tests、Evidence、migration、readback 和 cleanup。Pointer、branch、PR 或 candidate 存在都不是执行/合并授权。
 
-Reviewer只读 exact base/head/tree、authority、Evidence和真实diff。它寻找范围越界、第二owner、遗漏consumer、弱化assertion、临时probe、自证、生成物漂移和无法恢复路径。Head变化立即使Review stale；Reviewer不替Worker改码。
+当前默认一个 formal writer。只读 research/Census 可并行。只有两个真实正式候选已冻结，并由机器证明 authority/path/resource/worktree/Evidence 全部兼容时才允许同一 Integration Epoch 并行；`unresolved` 不解释为安全。
 
-### Auditor
+完整程序路线不得塞入一个 Work Package。一个包实现一个可独立验证、迁移、readback 和退役旧路径的纵向闭包。
 
-Repository orientation只建立当前任务最小充分事实。用户要求全仓、重大架构变化、重复系统缺陷或authority/code/test/CI无法解释时，Auditor对全部tracked paths、owner、entry、state、dependency、verification和unknown做exact-revision census。Audit只产生Evidence和聚焦findings，不取得产品authority。
-
-## Work Package
-
-Manifest 冻结：
-
-- base/default-ref constraints；
-- authority reads/writes 与 owner；
-- owned/permitted/forbidden paths；
-- global exclusive resources和physical capabilities；
-- dependencies、conflicts、ordered relations；
-- acceptance、tests、profile和Evidence；
-- completion、migration、readback和cleanup。
-
-Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。
-
-完整程序路线不写入一个Work Package。一个包只实现当前阶段中可独立验证、迁移和readback的纵向闭包，但不能降低canonical终态。
-
-完成必须区分：design contract-frozen、implementation entered main、physical verification、package/deployment和product-supported。
-
-## 并行工作
-
-当前默认：一个 formal active Work Package。只读 research、census和Evidence发现可以并行，但不能同时写 canonical owner、`docs/work/**`、package/lock、workflow、Skill registry或同一 state/artifact。
-
-目标并行 resolver只有机器证明以下全部成立后才允许同一 Integration Epoch 内多个正式包：
-
-- authority write-set、canonical types和writer不重叠；
-- owned/forbidden paths兼容；
-- producer/consumer和migration顺序明确；
-- state/artifact/global resource不冲突；
-- package/lock、control plane、docs/work、AGENTS/Skill registry和workflow有唯一writer；
-- 每包可独立验证、提交、回滚和失效；
-- integration order和virtual-merge Evidence可确定重算。
-
-关系只能是 `parallel-safe | ordered | write-conflict | resource-conflict | unresolved`；unknown/unresolved不解释为安全。
-
-Branch是演进路线，不是等待机械合并的功能包。并行正式结果通过ordered successor或A0从latest main重建收敛，不能机械合并所有分支。
-
-## Branch 与 PR 生命周期
+## Branch 与 PR
 
 - `feat/*`：正式产品能力；
 - `fix/*`：正式缺陷修复；
-- `refactor/*`：不改变外部语义的结构重构；
+- `refactor/*`：外部语义不变的结构重构；
 - `docs/*` / `chore/*`：文档和工程维护；
-- `spike/*`：大型未知探索，默认不合并；
-- `validation/*` / `diagnostic/*`：验证、故障隔离和Evidence，默认不合并；
-- `integration/*`：仅在两条真实、大型、并行产品线需要临时总装时使用。
+- `spike/*`：未知探索，默认不合并；
+- `validation/*` / `diagnostic/*`：验证和 Evidence，默认不合并；
+- `integration/*`：仅用于两条真实大型并行产品线的临时总装。
 
-Squash merge后按最终tree、contracts和行为结果判断内容是否进入 `main`，不能仅用commit ancestry或ahead/behind判断遗漏。
+Squash merge 后按最终 tree/contracts/行为判断内容是否进入 `main`，不按 ancestry、分支名或 ahead/behind 机械判断。
 
-Git branch承载代码演进；GitHub Actions的workflow_dispatch/matrix/job/artifact承载测试参数和Evidence。禁止长期创建一次性远端测试分支。
+## Impact、Failure 与续跑
 
-PR Ready只表示允许进入Review/Gate调度，不表示required Evidence已通过。Head/base/manifest/profile变化会使绑定旧identity的Review/Evidence失效。
+修改共享 contract、owner、pipeline、runtime 或 unknown 前，消费统一 Impact/test selector；能力不足时降级到 exact imports、consumer 和 test-impact Census，不临时安装工具改变 candidate 环境。
 
-## Impact 与验证选择
+相同 Gate identity 的 PASS 复用；输入与 failure fingerprint 未变时不重复确定性失败。第二次同根因 frozen invalidation进入 proof reset；再次发生进入 redesign-required。
 
-修改公共contract、canonical authority、state owner、pipeline、runtime boundary或未知影响前，先消费统一Impact和test/Gate selector；当前能力不足时降级到 exact imports、public API、runtime entry、owner、consumer和test-impact census。不得临时安装工具改变candidate环境。
-
-开发中先运行当前 failing/focused sentinel；candidate稳定后运行由变化类型和Impact选择的local closure；Frozen后由A0触发required hosted Gate。不是每个Work Package固定全跑同一套重门禁。
-
-相同未失效 Gate identity复用；输入和failure fingerprint未变时不重复确定性失败。无法证明不受影响不是“无需测试”。
-
-## Failure、重试与 Proof Reset
-
-Failure首先分类：root cause、owner、violated invariant、minimal reproduction、exact inputs、invalidated Evidence、cleanup state和unique next action。
-
-环境瞬态只有在因果输入明确变化时受限重试。重复运行同一失败、扩大timeout、清缓存碰运气、删除断言或创建successor branch而不改变root input都不构成修复。
-
-同一 Work Package重复出现同类 frozen invalidation时必须 proof reset：回到 reproduction、authority、state ownership、test architecture或scope重算。再犯同类根因时进入 redesign-required，而不是无限局部修补。
-
-当重复问题跨Work Package出现时，必须检查共享对象、协议、Fixture、Runner、Skill和CI是否缺少唯一owner或合同，并在roadmap对应上游阶段治理。
-
-## 可验证续跑
-
-上下文压缩、进程退出、会话/Agent/worktree切换后的目标是：只依赖外部权威状态，重新计算同一合法 next transition；不是恢复模型未外化的隐藏思维。
-
-当前 Run Kernel未实现时：
-
-- 每次恢复重新读取 main、PR/Issue、manifest、branch/worktree、dirty state、CI/Review和failure Evidence；
-- 未提交/未外化的“已经做过”视为unknown；
-- current operation、last completed transition、next action和stop condition写入受控外部记录；
-- identity、instruction、authority或trust fence不一致时停止，不猜测继续；
-- Skill正文按需加载，旧阶段正文不因已经读过而继续取得authority。
-
-目标 Run Kernel只拥有run/capsule/event/transition和resume verification。Epoch/Failure、Verification Result、Evidence、Work Package和Integration各由自己的domain owner拥有，禁止建立第二状态机。
+上下文压缩、进程退出、会话或 worktree 切换后，从 main、PR/Issue、manifest、dirty state、CI/Review、failure Evidence 和 Skill applicability 重新计算 next transition；不恢复隐藏思维。未外化的“已完成”视为 unknown。
 
 ## Merge 与收口
 
 变化只有同时满足以下条件才进入 `main`：
 
 1. 仍是有效产品能力、修复或必要维护；
-2. `main`尚未包含其有效结果，且未被更新实现取代；
-3. canonical authority、public contract、migration和architecture一致；
-4. exact base/head/tree/manifest/profile清楚；
-5. required CI/Evidence/independent Review通过；
-6. 无unresolved thread、有效REQUEST_CHANGES、probe、临时日志入口或artifact drift；
-7. merge order、conflict和consumer切换已理解。
+2. `main` 尚未包含，且未被更新实现取代；
+3. authority、公共合同、migration 和 architecture 一致；
+4. exact identities 清楚；
+5. required Evidence 与独立 Review 通过；
+6. 无 unresolved thread、有效 REQUEST_CHANGES、probe、临时入口或 artifact drift；
+7. consumer 切换、rollback 和 cleanup 已理解。
 
-满足时及时合并，不为表现“仍在开发”继续修改正确candidate。大型实验历史优先squash经过验证的最终状态。
-
-Merge后确认产品结果真实进入新 `main`；关闭 absorbed、superseded、mirror、probe和diagnostic PR/Issue；归档manifest；删除已完成使命且工具权限允许安全删除的branch/worktree/workflow；复核开放PR/Issue/CI，并从产品、架构和roadmap重新计算rolling plan。
-
-工具不能物理删除或执行某项操作时必须准确说明边界，不能把“已审查、已关闭、内容已包含”表述成“分支已删除、操作已完成”。
+满足条件时及时合并，不继续制造修改。Merge 后 readback 新 `main`，关闭 absorbed/superseded/probe 结构，归档 manifest，清理安全可删除的 branch/worktree/workflow，并重新计算计划。工具做不到的物理动作必须准确说明，不能把“已审查”写成“已删除”。

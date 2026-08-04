@@ -1,48 +1,43 @@
 ---
 name: sec-context-resume
-description: 用于 Codex 自动/手动压缩、进程退出、会话迁移或 worktree切换后，以 V19 可验证确定性续跑恢复同一合法下一步；不声称恢复模型隐藏思维。
-compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行。
+description: 在压缩、重启、会话或 worktree 切换后从外部事实重算合法下一步；不声称恢复隐藏思维。
+compatibility: SEC 仓库；仅在 `sec-skill-applicability-decision-v1` 对 trusted Skill blob 返回 `applicable` 时加载。
 ---
 
 # sec-context-resume
 
 ## 触发
-- `/compact`、自动压缩、resume、进程重启、新session、worktree切换。
+- operation=`resume`，且 session/process/worktree 或 instruction binding 已变化。
 
 ## 不触发
-- 同一有效session且没有状态事件、prompt或repository漂移。
+- 同一有效会话且所有 reload 条件均未变化。
 
 ## 输入
-- stable runId、session/worktree binding、prompt intake、capsule generation、repository fingerprint、Evidence、nextTransition。
+- latest main、candidate/worktree、manifest、Review/CI、failure Evidence、用户新指令。
 
 ## 权限与路径
-- 只读/写未来Kernel管理的git-common-dir运行态；不以聊天摘要写工程事实。
+- 当前只做 manual-shadow 事实重算；不从聊天摘要授予写权限。
 
 ## 允许工具与操作
-- run status/resume、capsule/event验证、repository fingerprint、Hook dispatcher。
+- repository orientation、binding/digest 校验、next-transition 重算。
 
 ## 前置门禁
-- stable runId与repository identity存在；Kernel未落地时仅manual-shadow。
+- trusted revision 和 target workspace 可解析；未来 Kernel 未落地时不得写成自动恢复。
 
 ## 执行
-1. 目标是 validated deterministic resume，不是“隐藏状态无损”。
-2. 状态根位于 Git common dir；runId独立于sessionId和worktree。
-3. 每个状态事件提交不可变capsule/event；PreCompact只增加recoveryRequired。
-4. resume重算HEAD/tree/index/worktree、manifest、AGENTS/Skill/Hook/trust digests。
-5. 优先处理 integrity、recovery、pending prompt、instruction fence、proof reset、Evidence revalidation，再执行phase transition。
-6. Kernel未落地前仅执行manual-shadow恢复并fail closed，不宣称问题已解决。
+- 重读 repository/PR/manifest/dirty state/Skill applicability。
+- 优先处理用户修正、instruction fence、integrity、recovery 和 proof reset。
+- 只保留外部可验证的 completed Evidence；其余为 unknown。
 
 ## 完成证据
-- validated bindings、capsule digest、prompt epoch、Evidence identity、唯一nextTransition。
+- validated bindings、失效项、唯一 next transition 和 reload 条件。
 
 ## 停止与恢复
-- 新执行者仅依赖外部权威可得出同一个nextTransition；绑定不一致则阻塞。
-- integrity/recovery/prompt/instruction/proof锁按优先级处理；不一致fail closed。
+- 新执行者能从同一外部状态得到同一结论；不一致则 fail closed。
 
 ## 禁止捷径
-- 不从聊天摘要猜phase/授权。
-- 不把Hook描述为完整Codex沙箱。
+- 不从聊天猜 phase，不让旧 Skill decision 跨 Goal/base/operation 继续有效。
 
 ## 权威
 - `docs/development-governance.md`
-- `docs/proposals/development-run-kernel.md`
+- `docs/work/current-state.yaml`

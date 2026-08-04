@@ -175,6 +175,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'docs/scripts/docs-doctor-shared.ts',
       'platform/shared/active-documentation-contract.ts',
       'platform/shared/documentation-authority-contract.ts',
+      'platform/shared/agent-skill-applicability-contract.ts',
       'platform/shared/agent-skill-contract.ts',
       'scripts/codex/repository-audit.ts',
       'scripts/discover-all.ts'

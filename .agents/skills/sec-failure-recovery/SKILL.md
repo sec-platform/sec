@@ -1,50 +1,44 @@
 ---
 name: sec-failure-recovery
-description: 用于测试、Gate、Review、candidate、进程或控制面失败后分类根因、最小重跑、proof reset和设计回退；不用于无分类重复尝试。
-compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行。
+description: 在测试、Gate、Review、candidate 或环境失败后分类根因、最小重跑和 proof reset；不重复碰运气。
+compatibility: SEC 仓库；仅在 `sec-skill-applicability-decision-v1` 对 trusted Skill blob 返回 `applicable` 时加载。
 ---
 
 # sec-failure-recovery
 
 ## 触发
-- focused/Gate失败、Review changes、candidate invalidation、capsule损坏、remote stale或基础设施故障。
+- operation=`recover`，且存在 exact failure identity 或 invalidated Evidence。
 
 ## 不触发
-- 结果尚未完成或只是单次性能离群。
+- 结果尚未完成；只有单次性能离群；没有可绑定 failure input。
 
 ## 输入
-- failure tail、exact identity、mutation/prompt epoch、root-cause cluster、cleanup evidence。
+- failure tail、exact identity、root-cause cluster、cleanup state、输入 delta。
 
 ## 权限与路径
-- 只处理失败证据、最小delta和恢复状态；不扩大产品scope。
+- 只处理失败证据和最小修复边界；不扩大产品 scope。
 
 ## 允许工具与操作
-- failure tail读取、root-cause分类、最小sentinel、capsule recovery、proof reset。
+- failure 分类、最小 sentinel、Evidence invalidation、proof reset。
 
 ## 前置门禁
-- exact failure identity、cleanup状态和输入变更已知。
+- failure identity、owner、cleanup 与因果输入已知。
 
 ## 执行
-1. 分类为产品、合同、Review、用户scope、authority、环境瞬态、基础设施、stale remote或unknown。
-2. 只重跑被delta失效的最小sentinel；环境瞬态只有在锁owner结束、cache修复、network恢复等具体因果输入变化后才允许现有primitive定义的受限重试，输入与failure tail未变时复用失败证据并停止。
-3. transient failure不生成新candidate；用户scope变化先reconcile。
-4. 第二次同根因frozen invalidation返回 `STOP_PROOF_RESET`。
-5. proof reset后再次同类失败进入 `BLOCKED_REDESIGN_REQUIRED`。
-6. capsule/chain损坏从最后合法generation恢复；无合法generation则fail closed。
+- 分类产品/合同/authority/Review/用户变更/环境/基础设施/stale/unknown。
+- 输入与failure tail未变时复用失败证据并停止；只有因果输入变化才受限重试。
+- 第二次同根因 frozen invalidation 返回 `STOP_PROOF_RESET`。
+- proof reset 后再犯进入 `BLOCKED_REDESIGN_REQUIRED`。
 
 ## 完成证据
-- failure class、root-cause cluster、invalidated Evidence、owner/invariant/next action。
+- failure class、owner/invariant、失效 Evidence 和唯一 next action。
 
 ## 停止与恢复
-- 根因、owner、invariant、下一动作和失效Evidence明确。
-- 瞬态受限重试；二次同根因STOP_PROOF_RESET；再犯BLOCKED_REDESIGN_REQUIRED。
+- 根因与下一动作闭合；unknown 或无合法恢复 generation 时 fail closed。
 
 ## 禁止捷径
-- 不硬重置或删除未审计工作。
-- 不把所有失败累计成同一candidate次数。
+- 不扩大 timeout、删断言、清缓存碰运气或创建无输入变化的新 candidate。
 
 ## 权威
-- `AGENTS.md`
 - `docs/development-governance.md`
 - `docs/verification-governance.md`
-- `docs/semantic-mutation.md`
