@@ -262,7 +262,7 @@ export function auditBranchLifecycle(
   if (inventory.pruneConfiguration.observation !== 'resolved') {
     findings.push(auditFinding(
       'prune-configuration-unknown',
-      'warning',
+      'error',
       inventory.pruneConfiguration.reason ?? 'Local prune configuration is unknown.'
     ));
   } else {
@@ -274,7 +274,7 @@ export function auditBranchLifecycle(
     for (const [key] of drift) {
       findings.push(auditFinding(
         'prune-configuration-drift',
-        'warning',
+        'error',
         `${key} must be true in this clone.`
       ));
     }
