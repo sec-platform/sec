@@ -14,7 +14,9 @@ import {
   executeSemanticMutationVerification,
   planSemanticMutationVerificationCapabilities
 } from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
-import { buildClaimSummary } from '../../platform/compiler/verify/verify-project.ts';
+import {
+  buildExpectedProductVerificationClaimSummary
+} from '../../platform/shared/product-verification-profile.ts';
 import type { VerificationRequirementV1 } from '../../platform/shared/semantic-mutation-types.ts';
 import {
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
@@ -363,7 +365,7 @@ const ISOLATED_SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
 
 function isolatedPolicyReport() {
   return {
-    status: 'passed' as const,
+    status: 'skipped' as const,
     official: { policies: [], sources: [], violations: [] },
     project: { policies: [], sources: [], violations: [] },
     merged: { policies: [] },
@@ -405,7 +407,7 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
     build: { status: 'passed' as const },
     unit: { status: 'passed' as const, passed: [] },
     acceptance: { status: 'passed' as const, passed: [], failed: [] },
-    policy: { status: 'passed' as const, violations: [] },
+    policy: { status: 'skipped' as const, violations: [] },
     policyReport: policy,
     logs: fastLogs
   };
@@ -418,11 +420,32 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
   } : {
     status: 'failed' as const,
     build: { status: 'failed' as const, passed: [], failed: ['next build'], command: 'bun run build' },
-    unit: { status: 'skipped' as const, passed: [], failed: [], command: null },
-    acceptance: { status: 'skipped' as const, passed: [], failed: [], command: null },
+    unit: { status: 'skipped' as const, passed: [], failed: [], command: 'bun run test:unit' },
+    acceptance: {
+      status: 'skipped' as const,
+      passed: [],
+      failed: [],
+      command: 'bun run test:acceptance'
+    },
     logs: runtimeLogs
   };
-  const claimSummary = buildClaimSummary('all', fast, runtime, 'full', policy);
+  const acceptanceCoverage = {
+    formatVersion: '1' as const,
+    status: runtime.status,
+    acceptancePassed: [],
+    blocks: [],
+    slots: [],
+    uncoveredBlocks: [],
+    uncoveredSlots: []
+  };
+  const claimSummary = buildExpectedProductVerificationClaimSummary(
+    'all',
+    fast,
+    runtime,
+    'full',
+    policy,
+    acceptanceCoverage
+  );
   return {
     childExitCode: status === 'passed' ? 0 : 1,
     verificationReport: {
@@ -445,25 +468,17 @@ function isolatedArtifactSet(status: 'passed' | 'failed'): SemanticMutationIsola
     },
     runtimeReport: runtime,
     policyReport: policy,
-    acceptanceCoverage: {
-      formatVersion: '1',
-      status: runtime.status,
-      acceptancePassed: [],
-      blocks: [],
-      slots: [],
-      uncoveredBlocks: [],
-      uncoveredSlots: []
-    },
+    acceptanceCoverage,
     semanticBundle: isolatedSemanticBundle()
   };
 }
 
-test('isolated child outcome accepts exact report-bound pass and nonzero verification failure', () => {
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('passed'))).toBe('passed');
+test('isolated child outcome blocks zero-test pseudo-pass and accepts physical failure', () => {
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('passed'))).toBe('blocked');
   expect(classifySemanticMutationIsolatedVerificationArtifactSet(isolatedArtifactSet('failed'))).toBe('failed');
 });
 
-test('isolated child outcome blocks unavailable or incomplete artifact protocols without exposing logs', () => {
+test('isolated child outcome blocks incomplete protocols and classifies canonical failure by exit', () => {
   const passedNonzero = { ...isolatedArtifactSet('passed'), childExitCode: 1 };
   const failedZero = { ...isolatedArtifactSet('failed'), childExitCode: 0 };
   const missingReport = { ...isolatedArtifactSet('failed'), runtimeReport: undefined };
@@ -476,7 +491,11 @@ test('isolated child outcome blocks unavailable or incomplete artifact protocols
     };
   mismatchedBundle.semanticBundle.generatorPlan.inputRevision = `sha256:${'3'.repeat(64)}`;
 
-  for (const candidate of [passedNonzero, failedZero, missingReport, forgedRuntime, mismatchedBundle]) {
+  // Under the 1B-3 writer profile a zero-test pseudo-pass is already a canonical
+  // failed summary, so a nonzero child exit is a real physical failure, not blocked.
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet(passedNonzero)).toBe('failed');
+
+  for (const candidate of [failedZero, missingReport, forgedRuntime, mismatchedBundle]) {
     const outcome = classifySemanticMutationIsolatedVerificationArtifactSet(candidate);
     expect(outcome).toBe('blocked');
     expect(outcome).not.toContain('workspace');

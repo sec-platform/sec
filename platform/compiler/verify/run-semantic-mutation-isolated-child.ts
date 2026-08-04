@@ -46,7 +46,8 @@ import {
 import { CodexDevelopmentSnapshotVerificationDataV1 } from '../../shared/verification-result-contract.ts';
 import type {
   RuntimeVerificationLaneReport,
-  SemanticMutationVerificationCapabilityPlanV1
+  SemanticMutationVerificationCapabilityPlanV1,
+  VerificationReport
 } from '../../shared/verification-types.ts';
 import {
   createWorkspaceWriteCommitFence,
@@ -624,23 +625,39 @@ export function classifySemanticMutationIsolatedVerificationArtifactSet(
 ): 'passed' | 'failed' | 'blocked' {
   let candidate: SemanticMutationIsolatedVerificationArtifactSet;
   try {
-    candidate = CodexDevelopmentSnapshotVerificationDataV1(
-      input,
-      'Semantic Mutation isolated verification artifact set'
-    ) as SemanticMutationIsolatedVerificationArtifactSet;
+    candidate = {
+      verificationReport: CodexDevelopmentSnapshotVerificationDataV1(
+        input.verificationReport,
+        'verification report'
+      ),
+      runtimeReport: CodexDevelopmentSnapshotVerificationDataV1(
+        input.runtimeReport,
+        'runtime report'
+      ),
+      policyReport: CodexDevelopmentSnapshotVerificationDataV1(
+        input.policyReport,
+        'policy report'
+      ),
+      acceptanceCoverage: CodexDevelopmentSnapshotVerificationDataV1(
+        input.acceptanceCoverage,
+        'acceptance coverage'
+      )
+    } as SemanticMutationIsolatedVerificationArtifactSet;
   } catch {
     return 'blocked';
   }
-  if (!Number.isSafeInteger(candidate.childExitCode) || candidate.childExitCode < 0 ||
-    !isCanonicalVerificationArtifactSet(candidate) ||
-    !exactSemanticBundle(candidate.semanticBundle)) {
+  if (!Number.isSafeInteger(input.childExitCode) || input.childExitCode < 0 ||
+    !isCanonicalVerificationArtifactSet(
+      candidate as SemanticMutationIsolatedVerificationArtifactSet
+    ) ||
+    !exactSemanticBundle(input.semanticBundle)) {
     return 'blocked';
   }
-  const report = candidate.verificationReport;
+  const report = candidate.verificationReport as VerificationReport;
   if (report.summary.status === 'failed') {
-    return candidate.childExitCode === 0 ? 'blocked' : 'failed';
+    return input.childExitCode === 0 ? 'blocked' : 'failed';
   }
-  return candidate.childExitCode === 0 && report.fast.status === 'passed' &&
+  return input.childExitCode === 0 && report.fast.status === 'passed' &&
     report.runtime.status === 'passed' ? 'passed' : 'blocked';
 }
 

@@ -1,9 +1,12 @@
 import { acceptanceIdsProvenByVerificationReportsV1 } from './acceptance-proof-contract.ts';
 import type { AcceptanceCoverageReport } from './acceptance-types.ts';
 import type { PolicyReport } from './policy-types.ts';
-import { buildProductVerificationClaimPlan } from './product-verification-claim-plan.ts';
 import {
-  CodexDevelopmentAssertVerificationAggregateResultV1,
+  buildBlockedProductVerificationClaimSummary,
+  buildExpectedProductVerificationClaimSummary,
+  inferProductVerificationRuntimeMode
+} from './product-verification-profile.ts';
+import {
   CodexDevelopmentSnapshotVerificationDataV1,
   CodexDevelopmentVerificationDataEqualV1
 } from './verification-result-contract.ts';
@@ -122,22 +125,45 @@ function exactRuntimeVerificationReport(value: unknown): value is RuntimeVerific
     exactVerificationStep(value.unit) && exactVerificationStep(value.acceptance) && exactLogs(value.logs);
 }
 
-function exactVerificationClaimSummary(value: unknown): value is VerificationClaimSummary {
+function blockedPhysicalProfile(
+  report: Pick<VerificationReport, 'fast' | 'runtime' | 'summary'>
+): boolean {
+  return report.summary.status === 'failed' &&
+    report.summary.failedLanes.length === 1 && report.summary.failedLanes[0] === 'fast' &&
+    report.fast.status === 'failed' && report.fast.build.status === 'skipped' &&
+    report.fast.unit.status === 'skipped' && report.fast.acceptance.status === 'skipped' &&
+    report.runtime.status === 'skipped';
+}
+
+function exactVerificationClaimSummary(
+  value: unknown,
+  requestedLane: VerificationReport['summary']['requestedLane'],
+  fast: FastVerificationLaneReport,
+  runtime: RuntimeVerificationLaneReport,
+  policyReport: PolicyReport,
+  acceptanceCoverage: AcceptanceCoverageReport,
+  blocked: boolean
+): value is VerificationClaimSummary {
   if (!exactKeys(value, ['overall', 'gates']) || !Array.isArray(value.gates)) {
     return false;
   }
-  try {
-    CodexDevelopmentAssertVerificationAggregateResultV1(value.overall, {
-      claims: buildProductVerificationClaimPlan('all'),
-      gateResults: value.gates
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  const expected = blocked
+    ? buildBlockedProductVerificationClaimSummary(requestedLane)
+    : buildExpectedProductVerificationClaimSummary(
+        requestedLane,
+        fast,
+        runtime,
+        inferProductVerificationRuntimeMode(runtime, requestedLane),
+        policyReport,
+        acceptanceCoverage
+      );
+  return CodexDevelopmentVerificationDataEqualV1(value, expected);
 }
 
-function exactVerificationReport(value: unknown): value is VerificationReport {
+function exactVerificationReport(
+  value: unknown,
+  acceptanceCoverage: AcceptanceCoverageReport
+): value is VerificationReport {
   if (!exactKeys(value, [
     'build', 'unit', 'acceptance', 'policy', 'fast', 'runtime', 'summary', 'logs'
   ]) || !exactFastVerificationReport(value.fast) ||
@@ -160,7 +186,15 @@ function exactVerificationReport(value: unknown): value is VerificationReport {
     (summary.status !== 'passed' && summary.status !== 'failed') ||
     summary.requestedLane !== 'all' || !Array.isArray(summary.failedLanes) ||
     !summary.failedLanes.every((lane) => lane === 'fast' || lane === 'runtime') ||
-    (summaryHasClaim && !exactVerificationClaimSummary(summary.claimSummary))) {
+    (summaryHasClaim && !exactVerificationClaimSummary(
+      summary.claimSummary,
+      summary.requestedLane,
+      value.fast,
+      value.runtime,
+      value.fast.policyReport as PolicyReport,
+      acceptanceCoverage,
+      blockedPhysicalProfile(value as unknown as VerificationReport)
+    ))) {
     return false;
   }
 
@@ -186,9 +220,11 @@ function exactVerificationReport(value: unknown): value is VerificationReport {
 }
 
 function exactCurrentCanonicalVerificationReport(
-  value: unknown
+  value: unknown,
+  acceptanceCoverage: AcceptanceCoverageReport
 ): value is CurrentCanonicalVerificationReport {
-  return exactVerificationReport(value) && value.summary.claimSummary !== undefined;
+  return exactVerificationReport(value, acceptanceCoverage) &&
+    (value as VerificationReport).summary.claimSummary !== undefined;
 }
 
 function exactCoverageEntry(value: unknown, accepted: ReadonlySet<string>): boolean {
@@ -262,7 +298,10 @@ export function isCanonicalVerificationArtifactSet(
   } catch {
     return false;
   }
-  if (!exactCurrentCanonicalVerificationReport(candidate.verificationReport) ||
+  if (!exactCurrentCanonicalVerificationReport(
+    candidate.verificationReport,
+    candidate.acceptanceCoverage as AcceptanceCoverageReport
+  ) ||
     !exactRuntimeVerificationReport(candidate.runtimeReport) ||
     !exactPolicyReport(candidate.policyReport) ||
     !exactAcceptanceCoverage(
