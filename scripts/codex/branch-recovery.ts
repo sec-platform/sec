@@ -206,3 +206,50 @@ export function createRecoveryBundle(input: {
     deleteStagingRef(ctx, repositoryRoot, stagingRef);
   }
 }
+
+export function verifyRecoveryAuthorityLive(input: {
+  ctx: BranchLifecycleContext;
+  inventory: BranchLifecycleInventory;
+  recovery: BranchRecoveryAuthority;
+}): BranchCloseoutAttempt {
+  const { ctx, inventory, recovery } = input;
+  try {
+    assertDurableRecoveryAuthority(recovery, inventory);
+    const bytes = readFileSync(recovery.path);
+    const digest = createHash('sha256').update(bytes).digest('hex');
+    if (`sha256:${digest}` !== recovery.sha256) {
+      throw new Error(
+        `recovery bundle digest mismatch: expected ${recovery.sha256}, observed sha256:${digest}`
+      );
+    }
+    const expectedChecksum = `${digest}  ${path.basename(recovery.path)}\n`;
+    const checksum = readFileSync(`${recovery.path}.sha256`, 'utf8');
+    if (checksum !== expectedChecksum) {
+      throw new Error('recovery checksum sidecar does not match the verified bundle');
+    }
+    const verify = runBranchCommand(
+      ctx,
+      'git',
+      ['bundle', 'verify', recovery.path],
+      inventory.repository.root
+    );
+    const output = [
+      verify.stdout.toString('utf8').trim(),
+      verify.stderr.toString('utf8').trim()
+    ].filter(Boolean).join('\n');
+    if (verify.status !== 0) {
+      throw new Error(`git bundle verify failed: ${output || commandErrorText(verify)}`);
+    }
+    return {
+      operation: 'recovery-verify',
+      status: 'success',
+      detail: `live revalidation ${recovery.sha256}; ${output}`
+    };
+  } catch (error) {
+    return {
+      operation: 'recovery-verify',
+      status: 'failed',
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
