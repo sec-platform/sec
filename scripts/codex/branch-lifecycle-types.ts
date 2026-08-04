@@ -54,6 +54,7 @@ export interface BranchPullRequestObservation {
   baseBranch: string;
   state: 'open' | 'closed' | 'merged';
   isDraft: boolean;
+  isCrossRepository: boolean;
   url: string | null;
 }
 
@@ -105,7 +106,7 @@ export interface BranchLifecycleInventory {
 
 export interface BranchLifecycleDispositionRecord {
   branch: string;
-  disposition: BranchCloseoutDisposition;
+  disposition: BranchCloseoutDisposition | 'protected-pending';
   reference: string;
 }
 
