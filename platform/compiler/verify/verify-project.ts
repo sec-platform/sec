@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError, formatCompilerFailure } from '../../shared/errors.ts';
@@ -13,41 +14,26 @@ import { emitPipelineExecutionBoundary } from '../../shared/pipeline-journal.ts'
 import type { PipelineEventHandler, PipelineExecutionBoundary } from '../../shared/pipeline-types.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
 import {
-  buildProductVerificationClaimPlan,
-  projectProductVerificationGateClaim,
-  projectProductVerificationGateOrder,
-  type ProductVerificationGateKind
-} from '../../shared/product-verification-claim-plan.ts';
+  buildBlockedProductVerificationClaimSummary,
+  buildExpectedProductVerificationClaimSummary
+} from '../../shared/product-verification-profile.ts';
 import { checkProjectBeforeVerify } from '../../shared/project-integrity.ts';
 import { ensureProjectDependencies } from '../../shared/project-runtime.ts';
 import type { CanonicalVerificationArtifactSet } from '../../shared/verification-artifact-contract.ts';
-import {
-  CodexDevelopmentAggregateVerificationClaimsV1,
-  CodexDevelopmentBuildVerificationGateResultV1,
-  mapProductVerificationStatus,
-  type ProductVerificationMappingContext,
-  type VerificationApplicability,
-  type VerificationGateEnvironmentV1,
-  type VerificationGateExecutionV1,
-  type VerificationGateResultV1,
-  type VerificationReasonCode,
-  type VerificationResultStatus
-} from '../../shared/verification-result-contract.ts';
 import type {
   FastVerificationLaneReport,
   RuntimeVerificationLaneReport,
   VerificationClaimSummary,
   VerificationLane,
-  VerificationReport,
-  VerificationStatus
+  VerificationReport
 } from '../../shared/verification-types.ts';
 import {
   assertIsolatedStagingTree,
   type IsolatedStagingTreeOptions
 } from './assert-isolated-staging-tree.ts';
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
-import { buildPolicyClaimGate, runPolicyGate } from './run-policy-gate.ts';
-import { buildRuntimeClaimGate, createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
+import { runPolicyGate } from './run-policy-gate.ts';
+import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
 import {
   consumeStagedVerificationProof,
   revalidateStagedVerificationProof,
@@ -60,164 +46,26 @@ interface SuiteModule {
   runSuite?: () => Promise<void> | void;
 }
 
-// ---------------------------------------------------------------------------
-// Claim-based verification summary helpers (Issue #176 Slice 2 migration)
-// ---------------------------------------------------------------------------
-
-const PRODUCT_GATE_REVISION = 'product-verification-v1';
-const PRODUCT_GATE_OWNER = 'product-verify-project';
-const PRODUCT_GATE_REQUIREMENT_KEY = 'product-verification';
-const PRODUCT_SUBJECT_REVISION = '0000000000000000000000000000000000000000';
-const PRODUCT_INPUT_DIGEST = `sha256:${'0'.repeat(64)}`;
-const PRODUCT_OUTPUT_DIGEST = `sha256:${'0'.repeat(64)}`;
-
-function productEnvironment(): VerificationGateEnvironmentV1 {
-  return {
-    runtime: 'bun',
-    os: process.platform,
-    arch: process.arch,
-    filesystem: null,
-    capabilities: [],
-    toolchainRevision: 'ci-verification-v19',
-    providerRevisions: []
-  };
-}
-
-function productExecution(exitCode: number): VerificationGateExecutionV1 {
-  return {
-    argv: [],
-    startedAt: '1970-01-01T00:00:00.000Z',
-    finishedAt: '1970-01-01T00:00:00.000Z',
-    durationMs: 0,
-    exitCode,
-    outputDigest: PRODUCT_OUTPUT_DIGEST,
-    failureFingerprint: exitCode === 0 ? null : 'product-failure'
-  };
-}
-
-function applicabilityForMapping(
-  status: VerificationResultStatus,
-  reasonCode: VerificationReasonCode
-): VerificationApplicability {
-  if (reasonCode === 'not-applicable') return 'not-applicable';
-  if (status === 'invalidated') return 'unresolved';
-  return 'required';
-}
-
-function buildProductGateResult(
-  gate: ProductVerificationGateKind,
-  legacyStatus: VerificationStatus,
-  context: ProductVerificationMappingContext
-): VerificationGateResultV1 {
-  const mapping = mapProductVerificationStatus(legacyStatus, context);
-  const binding = projectProductVerificationGateClaim(gate, mapping.status === 'passed');
-  const isExecuted = mapping.disposition === 'executed';
-  return CodexDevelopmentBuildVerificationGateResultV1({
-    gateId: binding.gateId,
-    gateRevision: PRODUCT_GATE_REVISION,
-    owner: PRODUCT_GATE_OWNER,
-    requirementKey: PRODUCT_GATE_REQUIREMENT_KEY,
-    subjectRevision: PRODUCT_SUBJECT_REVISION,
-    inputDigest: PRODUCT_INPUT_DIGEST,
-    applicability: applicabilityForMapping(mapping.status, mapping.reasonCode),
-    status: mapping.status,
-    disposition: mapping.disposition,
-    reasonCode: mapping.reasonCode,
-    requiredForClaims: binding.requiredForClaims,
-    supportedClaims: binding.supportedClaims,
-    environment: isExecuted ? productEnvironment() : null,
-    execution: isExecuted ? productExecution(mapping.status === 'failed' ? 1 : 0) : null,
-    evidenceRefs: [],
-    invalidationRules: [],
-    diagnostic: null
-  });
-}
-
-function buildFastGateResult(
-  fast: FastVerificationLaneReport,
-  requestedLane: VerificationLane
-): VerificationGateResultV1 {
-  const context: ProductVerificationMappingContext = {
-    requestedLane,
-    lane: 'fast'
-  };
-  return buildProductGateResult('fast', fast.status, context);
-}
-
-/**
- * Build the claim-based verification summary by aggregating lane-level gate
- * results through `CodexDevelopmentAggregateVerificationClaimsV1`. Overall
- * `passed` requires every required claim to be `passed`; skipped lanes no
- * longer silently produce overall `passed`.
- */
 export function buildClaimSummary(
   lane: VerificationLane,
   fast: FastVerificationLaneReport,
   runtime: RuntimeVerificationLaneReport,
   runtimeMode: 'service' | 'full',
-  policyReport: PolicyReport
+  policyReport: PolicyReport,
+  acceptanceCoverage: AcceptanceCoverageReport | null = null
 ): VerificationClaimSummary {
-  const fastGate = buildFastGateResult(fast, lane);
-  const runtimeGate = buildRuntimeClaimGate(runtime, lane, runtimeMode, fast.status === 'failed');
-  const policyGate = buildPolicyClaimGate(policyReport, lane);
-  const gatesByKind: Record<ProductVerificationGateKind, VerificationGateResultV1> = {
-    policy: policyGate,
-    fast: fastGate,
-    runtime: runtimeGate
-  };
-  const gates = projectProductVerificationGateOrder().map((gate) => gatesByKind[gate]);
-
-  const claims = buildProductVerificationClaimPlan(lane);
-
-  const overall = CodexDevelopmentAggregateVerificationClaimsV1({ claims, gateResults: gates });
-  return { overall, gates };
+  return buildExpectedProductVerificationClaimSummary(
+    lane,
+    fast,
+    runtime,
+    runtimeMode,
+    policyReport,
+    acceptanceCoverage
+  );
 }
 
-/**
- * Build a claim summary for a blocked verification snapshot (drift failure).
- * All gates are not-run with fail-fast-prerequisite-failed; the overall is
- * not-run (mapped to legacy `failed`), never silently passed.
- */
 export function buildBlockedClaimSummary(lane: VerificationLane): VerificationClaimSummary {
-  const failedReasonCode: VerificationReasonCode = 'fail-fast-prerequisite-failed';
-
-  function buildBlockedGate(gate: ProductVerificationGateKind): VerificationGateResultV1 {
-    const binding = projectProductVerificationGateClaim(gate, false);
-    return CodexDevelopmentBuildVerificationGateResultV1({
-      gateId: binding.gateId,
-      gateRevision: PRODUCT_GATE_REVISION,
-      owner: PRODUCT_GATE_OWNER,
-      requirementKey: PRODUCT_GATE_REQUIREMENT_KEY,
-      subjectRevision: PRODUCT_SUBJECT_REVISION,
-      inputDigest: PRODUCT_INPUT_DIGEST,
-      applicability: 'required',
-      status: 'not-run',
-      disposition: 'not-executed',
-      reasonCode: failedReasonCode,
-      requiredForClaims: binding.requiredForClaims,
-      supportedClaims: binding.supportedClaims,
-      environment: null,
-      execution: null,
-      evidenceRefs: [],
-      invalidationRules: [],
-      diagnostic: 'Verification blocked by prerequisite drift failure.'
-    });
-  }
-
-  const fastGate = buildBlockedGate('fast');
-  const runtimeGate = buildBlockedGate('runtime');
-  const policyGate = buildBlockedGate('policy');
-  const gatesByKind: Record<ProductVerificationGateKind, VerificationGateResultV1> = {
-    policy: policyGate,
-    fast: fastGate,
-    runtime: runtimeGate
-  };
-  const gates = projectProductVerificationGateOrder().map((gate) => gatesByKind[gate]);
-
-  const claims = buildProductVerificationClaimPlan(lane);
-
-  const overall = CodexDevelopmentAggregateVerificationClaimsV1({ claims, gateResults: gates });
-  return { overall, gates };
+  return buildBlockedProductVerificationClaimSummary(lane);
 }
 
 export interface VerifyProjectOptions {
@@ -249,19 +97,9 @@ async function emitVerifyBoundary(
 function createSkippedPolicyReport(): PolicyReport {
   return {
     status: 'skipped',
-    official: {
-      policies: [],
-      sources: [],
-      violations: []
-    },
-    project: {
-      policies: [],
-      sources: [],
-      violations: []
-    },
-    merged: {
-      policies: []
-    },
+    official: { policies: [], sources: [], violations: [] },
+    project: { policies: [], sources: [], violations: [] },
+    merged: { policies: [] },
     violations: []
   };
 }
@@ -269,27 +107,12 @@ function createSkippedPolicyReport(): PolicyReport {
 function createSkippedFastLane(): FastVerificationLaneReport {
   return {
     status: 'skipped',
-    build: {
-      status: 'skipped'
-    },
-    unit: {
-      status: 'skipped',
-      passed: []
-    },
-    acceptance: {
-      status: 'skipped',
-      passed: [],
-      failed: []
-    },
-    policy: {
-      status: 'skipped',
-      violations: []
-    },
+    build: { status: 'skipped' },
+    unit: { status: 'skipped', passed: [] },
+    acceptance: { status: 'skipped', passed: [], failed: [] },
+    policy: { status: 'skipped', violations: [] },
     policyReport: createSkippedPolicyReport(),
-    logs: {
-      stdout: '',
-      stderr: ''
-    }
+    logs: { stdout: '', stderr: '' }
   };
 }
 
@@ -323,10 +146,7 @@ async function runFastVerification(
   workspaceRoot: string,
   projectRoot: string,
   isolated: boolean
-): Promise<{
-  lane: FastVerificationLaneReport;
-  failure: unknown | null;
-}> {
+): Promise<{ lane: FastVerificationLaneReport; failure: unknown | null }> {
   const unitRoot = path.join(projectRoot, 'tests', 'unit');
   const acceptanceRoot = path.join(projectRoot, 'tests', 'acceptance');
   const acceptanceFiles = await listSuiteFiles(acceptanceRoot, '.test.ts');
@@ -366,10 +186,7 @@ async function runFastVerification(
 
   const policyReport = await runPolicyGate(workspaceRoot);
   lane.policyReport = policyReport;
-  lane.policy = {
-    status: policyReport.status,
-    violations: policyReport.violations
-  };
+  lane.policy = { status: policyReport.status, violations: policyReport.violations };
   lane.logs.stdout = [
     'typecheck:passed',
     `unit:${lane.unit.passed.join(',')}`,
@@ -393,9 +210,10 @@ function summarizeLogs(
   fast: FastVerificationLaneReport,
   runtime: RuntimeVerificationLaneReport
 ): VerificationReport['logs'] {
-  const stdout = [fast.logs.stdout, runtime.logs.stdout].filter(Boolean).join('\n');
-  const stderr = [fast.logs.stderr, runtime.logs.stderr].filter(Boolean).join('\n');
-  return { stdout, stderr };
+  return {
+    stdout: [fast.logs.stdout, runtime.logs.stdout].filter(Boolean).join('\n'),
+    stderr: [fast.logs.stderr, runtime.logs.stderr].filter(Boolean).join('\n')
+  };
 }
 
 function summarizeReport(
@@ -403,31 +221,24 @@ function summarizeReport(
   fast: FastVerificationLaneReport,
   runtime: RuntimeVerificationLaneReport,
   runtimeMode: 'service' | 'full',
-  policyReport: PolicyReport
+  policyReport: PolicyReport,
+  acceptanceCoverage: AcceptanceCoverageReport
 ): VerificationReport['summary'] {
-  const claimSummary = buildClaimSummary(lane, fast, runtime, runtimeMode, policyReport);
-  // Legacy `status` derives from the unified overall status: only `passed`
-  // maps to `passed`; every other unified status (failed/not-run/unsupported/
-  // invalidated) maps to `failed` so the legacy contract never reports green
-  // when the claim aggregator did not pass.
+  const claimSummary = buildClaimSummary(
+    lane,
+    fast,
+    runtime,
+    runtimeMode,
+    policyReport,
+    acceptanceCoverage
+  );
   const status: 'passed' | 'failed' = claimSummary.overall.overallStatus === 'passed'
     ? 'passed'
     : 'failed';
-
   const failedLanes: Array<'fast' | 'runtime'> = [];
-  if ((lane === 'fast' || lane === 'all') && fast.status === 'failed') {
-    failedLanes.push('fast');
-  }
-  if (runtime.status === 'failed') {
-    failedLanes.push('runtime');
-  }
-
-  return {
-    status,
-    requestedLane: lane,
-    failedLanes,
-    claimSummary
-  };
+  if ((lane === 'fast' || lane === 'all') && fast.status === 'failed') failedLanes.push('fast');
+  if (runtime.status === 'failed') failedLanes.push('runtime');
+  return { status, requestedLane: lane, failedLanes, claimSummary };
 }
 
 function updateVerifyPassState(lock: LockFile, report: VerificationReport): void {
@@ -435,22 +246,17 @@ function updateVerifyPassState(lock: LockFile, report: VerificationReport): void
     lock.passStatus.verify = report.summary.status === 'passed' ? 'succeeded' : 'failed';
     return;
   }
-
   lock.passStatus.verify = report.summary.status === 'failed' ? 'failed' : 'pending';
 }
 
 function updateVerifiedSlotTasks(lock: LockFile, report: VerificationReport): void {
-  if (report.summary.requestedLane !== 'all' || report.summary.status !== 'passed') {
-    return;
-  }
-
+  if (report.summary.requestedLane !== 'all' || report.summary.status !== 'passed') return;
   const verifiedBy = uniqueSorted([
     ...report.unit.passed.map((file) => `tests/unit/${file}`),
     ...report.acceptance.passed.map((file) => `tests/acceptance/${file}`),
     ...report.runtime.unit.passed,
     ...report.runtime.acceptance.passed
   ]);
-
   for (const task of lock.slotTasks) {
     if (task.status === 'filled' || task.status === 'verified') {
       task.status = 'verified';
@@ -473,12 +279,17 @@ export async function assertStagedVerificationLiveContext(
   lock: LockFile,
   artifacts: Pick<
     CanonicalVerificationArtifactSet,
-    'runtimeReport' | 'policyReport' | 'acceptanceCoverage'
+    'verificationReport' | 'runtimeReport' | 'policyReport' | 'acceptanceCoverage'
   >
 ): Promise<void> {
   const [policyReport, acceptanceCoverage] = await Promise.all([
     runPolicyGate(workspaceRoot),
-    buildAcceptanceCoverage(workspaceRoot, lock, artifacts.runtimeReport)
+    buildAcceptanceCoverage(
+      workspaceRoot,
+      lock,
+      artifacts.runtimeReport,
+      artifacts.verificationReport.fast
+    )
   ]);
   if (JSON.stringify(policyReport) !== JSON.stringify(artifacts.policyReport) ||
     JSON.stringify(acceptanceCoverage) !== JSON.stringify(artifacts.acceptanceCoverage)) {
@@ -502,7 +313,12 @@ export async function verifyProject(
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
 
-  assertPassStatus(lock, 'adapt', 'succeeded', new CompilerError('VERIFY-BLOCKED-001', 'adapt must succeed before verify'));
+  assertPassStatus(
+    lock,
+    'adapt',
+    'succeeded',
+    new CompilerError('VERIFY-BLOCKED-001', 'adapt must succeed before verify')
+  );
 
   await emitVerifyBoundary(options, 'verify-preflight');
   await checkProjectBeforeVerify(workspaceRoot);
@@ -541,41 +357,50 @@ export async function verifyProject(
       writeJson(acceptanceCoveragePath, artifacts.acceptanceCoverage, options.beforeCommit),
       writeJson(lockPath, lock, options.beforeCommit)
     ]);
-    await revalidateStagedVerificationProof(
-      projectRoot,
-      lock,
-      options.stagedVerificationProof
-    );
+    await revalidateStagedVerificationProof(projectRoot, lock, options.stagedVerificationProof);
     await assertStagedVerificationLiveContext(workspaceRoot, lock, artifacts);
     await options.beforeCommit?.();
     return artifacts.verificationReport;
   }
 
-  let fastResult: Awaited<ReturnType<typeof runFastVerification>>;
-  if (lane === 'runtime') {
-    fastResult = { lane: createSkippedFastLane(), failure: null };
-  } else {
-    await emitVerifyBoundary(options, 'verify-fast');
-    fastResult = await runFastVerification(workspaceRoot, projectRoot, options.isolated === true);
-  }
+  const fastResult = lane === 'runtime'
+    ? { lane: createSkippedFastLane(), failure: null }
+    : await (async () => {
+        await emitVerifyBoundary(options, 'verify-fast');
+        return runFastVerification(workspaceRoot, projectRoot, options.isolated === true);
+      })();
   const shouldRunRuntime = fastResult.lane.status === 'passed' || lane === 'runtime';
   const runtimeMode = lane === 'all' ? 'full' : 'service';
   let runtimeLane: RuntimeVerificationLaneReport;
   if (shouldRunRuntime) {
     await emitVerifyBoundary(options, 'verify-runtime');
     runtimeLane = await runRuntimeVerification(projectRoot, runtimeMode, {
-        beforeCommit: options.beforeCommit,
-        emitTiming: options.emitTiming,
-        isolated: options.isolated,
-        signal: options.signal,
-        stagingTreeOptions: options.stagingTreeOptions,
-        ...(options.isolated ? { stagingWorkspaceRoot: workspaceRoot } : {})
-      });
+      beforeCommit: options.beforeCommit,
+      emitTiming: options.emitTiming,
+      isolated: options.isolated,
+      signal: options.signal,
+      stagingTreeOptions: options.stagingTreeOptions,
+      ...(options.isolated ? { stagingWorkspaceRoot: workspaceRoot } : {})
+    });
   } else {
     runtimeLane = createSkippedRuntimeLane();
   }
+
   const policyReport = fastResult.lane.policyReport ?? createSkippedPolicyReport();
-  const summary = summarizeReport(lane, fastResult.lane, runtimeLane, runtimeMode, policyReport);
+  const coverage = await buildAcceptanceCoverage(
+    workspaceRoot,
+    lock,
+    runtimeLane,
+    fastResult.lane
+  );
+  const summary = summarizeReport(
+    lane,
+    fastResult.lane,
+    runtimeLane,
+    runtimeMode,
+    policyReport,
+    coverage
+  );
   const report: VerificationReport = {
     build: fastResult.lane.build,
     unit: fastResult.lane.unit,
@@ -586,15 +411,12 @@ export async function verifyProject(
     summary,
     logs: summarizeLogs(fastResult.lane, runtimeLane)
   };
-  const coverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtimeLane);
 
   ensureGeneratedPaths(lock);
   updateVerifyPassState(lock, report);
   updateVerifiedSlotTasks(lock, report);
 
-  if (summary.status === 'passed') {
-    await emitVerifyBoundary(options, 'verify-artifact-publish');
-  }
+  if (summary.status === 'passed') await emitVerifyBoundary(options, 'verify-artifact-publish');
   await options.beforeCommit?.();
   await Promise.all([
     writeJson(verificationReportPath, report, options.beforeCommit),

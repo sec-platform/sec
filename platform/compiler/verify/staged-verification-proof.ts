@@ -97,13 +97,14 @@ function deepFreeze<Value>(value: Value): Value {
 }
 
 function frozenArtifacts(artifacts: StagedVerificationArtifactSet): CanonicalVerificationArtifactSet {
-  const frozen = deepFreeze(structuredClone({
+  const clone = structuredClone({
     verificationReport: artifacts.verificationReport,
     runtimeReport: artifacts.runtimeReport,
     policyReport: artifacts.policyReport,
     acceptanceCoverage: artifacts.acceptanceCoverage
-  }));
-  assertCanonicalVerificationArtifactSet(frozen);
+  });
+  assertCanonicalVerificationArtifactSet(clone);
+  const frozen = deepFreeze(clone);
   if (frozen.verificationReport.summary.status !== 'passed' ||
     frozen.verificationReport.summary.requestedLane !== 'all' ||
     frozen.verificationReport.fast.status !== 'passed' ||

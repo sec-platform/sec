@@ -10,8 +10,8 @@ last-reviewed: 2026-08-04
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/verification-acceptance-coverage-v1.md
-manifestDigest: sha256:ae9a23891ef1b8cbab21aec84f094fca277dc9bd2fba63e12aa918258bb29c94
+manifest: docs/work-packages/verification-writer-profile-v1.md
+manifestDigest: sha256:0a6857a6e72b7bd8675c88476e66969970156f7872f6d9123ee78ccbf1cbb239
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
