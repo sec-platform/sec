@@ -1,7 +1,7 @@
 # SEC 约束思想执行计划（阶段 0–5）
 
 > 来源：`C:/Users/QzCrane/Downloads/AI开发中的约束思想_2026_08_03__2256.md`（2026-08-03 导出）。
-> 本文件是当前执行路线在仓库内的唯一状态源；后续重算只由真实 `reload_if` 或用户修正触发。
+> 本文件记录 2026-08-03 时点的阶段性执行裁决，不拥有当前状态或长期路线。当前状态由 `docs/work/**` 拥有，稳定能力 DAG 由 `docs/roadmap.md` 拥有；后续事实与设计可以使本文部分或全部 superseded。
 
 ## 0. 已核验事实（2026-08-03）
 
@@ -63,3 +63,7 @@
 - 本执行文档放 `docs/evidence/` 而非 `docs/work/`，因为当前 #227 manifest 禁止改 `docs/authority.json`，docs/work 新增文件需要 registry 登记；Evidence 根目录是 docs-doctor 豁免区。
 - 所有合并必须走 frozen WP + pointer + 独立 Review + hosted Gate + new-main readback；无 force merge、无候选自授权。
 - 阶段 2–5 每个 WP 都需要新任务授权；本文件不构成跨阶段写入授权。
+
+## 7. 后续裁决
+
+本计划中的有效机制、错误发现和阶段 1B 顺序已被后续实现与 `docs/evidence/2026-08-04-canonical-architecture-convergence.md` 吸收。长期阶段顺序、Brownfield优先级、Agent Operation System、Workspace Domain成熟度和门禁选择以then-current canonical `docs/roadmap.md`、领域authority和代码合同为准；本文不得用于绕过新的current-control或自动启动后继治理包。

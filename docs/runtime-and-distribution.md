@@ -2,64 +2,101 @@
 title: 运行时与分发
 status: stable
 domain: runtime-distribution
-last-reviewed: 2026-07-29
+last-reviewed: 2026-08-04
 ---
 
 # 运行时与分发
 
-本文拥有 Semantic Core、Host Runtime、Toolchain Provider、Target Runtime Profile、Optional Capability Adapter、package/runtime layout、平台能力和公开分发的稳定边界。精确版本、release schedule、当前支持矩阵、依赖清单、可执行路径、协议字段和 physical Gate 结果由 package metadata、代码合同、release profile 与 Evidence 拥有。
+本文拥有 Semantic Core 的 runtime-neutral 边界、Host Runtime Profile、Toolchain Provider、Optional Capability Adapter、package/runtime layout、平台能力、公开分发与 Support Claim maturity。生成目标的 canonical Target Profile、Type Algebra 和 target capability validation 只由 `docs/compiler-target-ir.md` 及其代码合同拥有；本文仅消费 target runtime requirements 的 typed reference。
+
+精确版本、release schedule、当前支持矩阵、依赖清单、可执行路径、协议字段和 physical Gate 结果由 package metadata、代码合同、release/support profile 与 Evidence 拥有。
 
 ## 正交轴
 
-- **Semantic Core**：runtime-neutral 的 Engineering IR、identity、revision、validation、pure lowering 与 projection。
-- **Host Runtime**：执行 SEC CLI、Workbench server 或 adapter 的进程，只进入 Host Evidence。
-- **Toolchain Provider**：install、test、typecheck、bundle、format 等工程命令的独立 executable/version authority。
-- **Target Runtime Profile**：生成项目的 canonical language/runtime/module/delivery capability 输入。
+- **Semantic Core**：runtime-neutral 的 Engineering IR、identity、revision、validation、pure Delta/Impact、lowering 与 projection。
+- **Host Runtime Profile**：执行 SEC CLI、Workbench server 或 adapter 的进程平台和能力。
+- **Toolchain Provider**：install、test、typecheck、bundle、format、package 等工程命令的独立 executable/version authority。
+- **Target Profile reference**：由 Compiler authority 提供的生成目标 language/runtime/module/delivery/capability要求；本文不复制其字段或 validator。
+- **Runtime Environment**：被测试或部署的目标程序实际运行环境，与 SEC Host 和生成 Target identity分离。
 - **Optional Capability Adapter**：native、FFI、container、browser、OS hardening 或平台专有能力；缺失时返回明确 capability result。
+- **Distribution / Support**：package/public artifact、安装、发布、部署 Evidence 与支持成熟度。
 
-任何一轴都不能推断另一轴。某 Host 成功不证明另一 Host；Target runtime 不决定 package manager；`process.execPath` 不代表 Toolchain；在一个 Toolchain 下生成另一 Target 也不证明该 Target 或 Host 已受支持。
+任何一轴都不能推断另一轴。某 Host 成功不证明另一 Host；Target runtime requirement不决定当前Toolchain；`process.execPath`不代表Toolchain authority；在一个Toolchain下生成另一Target也不证明该Target、Runtime Environment或Host已受支持。
 
 ## Runtime-neutral Core
 
-Semantic Core 的公共类型、builder、validator、identity/revision、canonical ordering、pure impact 和 target-independent lowering 不得加载 Node/Bun/Browser/OS adapter。平台 I/O、process、path、watcher、crypto、clock 和 random 必须经明确 Port/Provider 注入或停留在 Host/Toolchain/Verification 层。
+Semantic Core 的公共类型、builder、validator、identity/revision、canonical ordering、pure Delta/Impact 和 target-independent lowering 不得加载 Node/Bun/Browser/OS adapter。平台 I/O、process、path、watcher、crypto、clock 和 random 必须经明确 Port/Provider 注入或停留在 Host/Toolchain/Verification 层。
 
 “使用标准库”不自动等于 runtime-neutral；静态可达图、初始化副作用、package exports 和 transitive dependencies 都属于公共图验证范围。
 
+Runtime-neutral 不代表所有物理能力都抽象成最低公分母。平台特有能力可以存在于明确 Adapter，但必须在缺失时 deterministic unsupported，而不是污染 Core 或静默 fallback。
+
+## Host Runtime Profile
+
+Host Profile 表达 SEC 当前执行进程需要的能力，例如：
+
+- runtime family 和 version range；
+- OS、architecture、filesystem 和 path semantics；
+- process tree、signal、job/process group、stream settlement；
+- file lock、rename/link/fsync、permission/ACL 和 temp能力；
+- watcher、network、port、browser/native adapter availability；
+- package/module loading 与 runtime asset location；
+- security、sandbox、credential 和 local transport边界。
+
+Host Profile 只描述 SEC executor，不决定生成项目的 Target Profile。它具有独立 identity、revision、capability validator、physical Evidence 和 support maturity。
+
+## Toolchain Provider
+
+Repository可以使用与公共Host不同的Toolchain Provider。Node Host可以调用独立Bun Toolchain；Bun Host可以生成Node Target；这些组合必须绑定两个 executable identities、版本、platform、command contract和Evidence。
+
+Toolchain Provider至少声明：
+
+- executable identity、version和安装authority；
+- command schema、cwd/input/output和environment closure；
+- dependency/lock/cache authority；
+- network、postinstall、native、secret和side-effect边界；
+- timeout、process cleanup和receipt；
+- platform compatibility、unsupported和retirement。
+
+Bun-only、Node-only或native library只能进入明确Host/Toolchain/Target/Adapter包边界。只有进入common public graph的依赖才必须同时满足所有声明Host的静态加载和物理运行合同。
+
+## Target Profile reference
+
+Compiler authority唯一拥有Target Profile，包括language、runtime family/range、module system、delivery、package manager、persistence、database、UI、verification、deployment和capabilities。
+
+Runtime/Distribution只消费：
+
+- target profile identity/revision；
+- target runtime requirements；
+- required build/test/package/deployment capabilities；
+- target-specific dependency和artifact inventory；
+- declared platform/support requirements。
+
+本文不能复制Target字段、另建compatibility switch或从当前Host、Toolchain、`cwd`、package layout和ambient executable推断Target。未知Target组合由Compiler在emit前拒绝；Runtime只报告Host/Toolchain/Distribution是否能物理满足已解析要求。
+
 ## 支持版本策略
 
-公开 Host 至少区分：
+公开Host至少区分：
 
 - **minimum compatibility baseline**：承诺兼容的最低版本；
-- **primary reference baseline**：开发、性能和主要 physical Evidence 的参考版本；
+- **primary reference baseline**：开发、性能和主要physical Evidence的参考版本；
 - **canary baseline**：只用于提前发现未来不兼容，不是支持承诺；
-- **retired baseline**：不再进入普通 Gate，但有明确退出和迁移说明。
+- **retired baseline**：不再进入普通Gate，但有明确退出和迁移说明。
 
-最低版本和主要参考版本可以不同。版本选择必须由实际用户约束、上游安全支持、维护成本、依赖兼容和 physical Evidence共同裁决，并记录在机器可读 release/support profile；稳定正文不固定某个年份的版本号。
+版本选择由实际用户约束、上游安全支持、维护成本、依赖兼容和physical Evidence共同裁决，并记录在机器可读support profile；稳定正文不固定某个年份的版本号。
 
-支持声明分层：
+Support Claim成熟度固定为：
 
 ```text
-authority / policy selected
+policy selected
 → implementation entered main
 → exact physical tests passed
 → clean packaged/deployed surface passed
-→ support claim enabled
-→ usage and incident feedback maintained
+→ product support claim enabled
+→ usage / incident feedback maintained
 ```
 
-前一层不能代替后一层。一个 helper、`--help`、类型检查或单平台测试通过都不能被扩大成完整 CLI/Workbench/Target 支持。
-
-## Toolchain 与 Host
-
-Repository 可以使用与公共 Host 不同的 Toolchain Provider。Node Host 可以调用独立 Bun Toolchain；Bun Host 可以生成 Node Target；这些组合必须绑定两个 executable identities、版本、platform、command contract 和 Evidence。
-
-Bun-only、Node-only 或 native library 只能进入明确的 Host/Toolchain/Target/Adapter 包边界。只有进入 common public graph 的依赖才必须同时满足所有被声明 Host 的静态加载和物理运行合同。
-
-## Target Runtime Profile
-
-Target Profile 至少分离 language、runtime family/range、module system、delivery、package manager、persistence、database、UI、verification、deployment 与 capabilities。它是目标编译输入，不从当前 Host、Toolchain、`cwd` 或 ambient executable 推导。
-
-Profile 的每个组合都需要 validator、compatibility rules、canonical revision、Adapter selection 和 unsupported behavior。未知组合 deterministic reject；不能静默回退到仓库默认框架、数据库、package manager 或 runtime。
+Verification PASS、Compatibility、implementation和package success都不能直接跳到product-supported。
 
 ## Package 与资源布局
 
@@ -71,77 +108,88 @@ Profile 的每个组合都需要 validator、compatibility rules、canonical rev
 - development source root（公开包可以不存在）；
 - caller workspace root。
 
-Package metadata、dependency resolution 和可重建 Toolchain state 以 package root 为基准；official registry、policy、templates 和随包资源以 runtime asset root 为基准；caller `cwd` 只表示用户 workspace，不参与 compiler package/resource 定位。
+Package metadata、dependency resolution和可重建Toolchain state以package root为基准；official registry、policy、templates和随包资源以runtime asset root为基准；caller `cwd`只表示用户workspace，不参与compiler package/resource定位。
 
-Source、bundle、isolated compiler 和 clean installed package 必须投影同一 layout contract。未知 module layout、ancestor search、环境变量猜测、相邻 checkout 或全局注册全部 fail closed。
+Source、bundle、isolated compiler和clean installed package必须投影同一layout contract。未知module layout、ancestor search、环境变量猜测、相邻checkout或全局注册全部fail closed。
 
 ## Workspace 写 authority
 
-Common workspace write authority 必须只依赖公共 Host baseline 能力，并提供同一个 read-only inspection contract。稳定机制要求：
+Common workspace write authority必须只依赖公共Host baseline能力，并提供同一个read-only inspection contract。稳定机制要求：
 
-- 一个 workspace 同一时刻只有一个合法 writer generation；
-- acquire、heartbeat、release、recovery 和 commit fence 绑定 exact workspace、owner 与 physical publication identity；
-- publication 必须区分未发布、已发布和 durability unknown，不能在不确定时删除可能已成为 authority 的状态；
-- recovery 只在 owner liveness、generation 和 topology 可证明时推进，不按时间、内容相似或猜测路径夺取所有权；
-- release/recovery 不得移除后继 writer；
-- inspector 是 Gate、audit 和 recovery census 的唯一 parser，不允许第二套字段/路径解释；
-- crash、TOCTOU、异步 cleanup 和历史压缩均有 fail-closed 条件。
+- 一个workspace同一时刻只有一个合法writer generation，除非domain/resource resolver证明并行安全；
+- acquire、heartbeat、release、recovery和commit fence绑定exact workspace、owner与physical publication identity；
+- publication区分未发布、已发布和durability unknown；
+- recovery只在owner liveness、generation和topology可证明时推进，不按时间、内容相似或猜测路径夺取所有权；
+- release/recovery不得移除后继writer；
+- inspector是Gate、audit和recovery census的唯一parser；
+- crash、TOCTOU、异步cleanup和历史压缩有fail-closed条件。
 
-具体 generation ledger、文件名、hard-link topology、marker/terminal shape 和 cleanup algorithm 由代码合同与 fault tests 拥有，不在稳定文档复制。一个平台上的协议 Evidence 不能替代另一个文件系统和 Host 的物理证明；write authority 通过也不能扩大成整个 CLI/Workbench/package 支持。
+具体generation ledger、marker、terminal shape和cleanup algorithm由代码合同与fault tests拥有。Semantic Mutation拥有单次canonical/source transaction语义；Runtime只提供Host capability、physical primitive和Evidence。
 
 ## Windows、Unix、WSL 与平台能力
 
-Logical repository/artifact identity 使用 canonical repository-relative POSIX 表达；physical path 由声明平台的 path Provider 处理。校验 Windows 路径时使用 Windows 语义，校验 POSIX 路径时使用 POSIX 语义，不能使用当前进程平台代替目标平台。
+Logical repository/artifact identity使用canonical repository-relative POSIX表达；physical path由声明平台的path Provider处理。校验Windows路径时使用Windows语义，校验POSIX路径时使用POSIX语义，不能使用当前进程平台代替目标平台。
 
 平台能力至少包括：
 
-- path、drive/UNC/namespace/long path、case 和 Unicode；
-- symlink、junction/reparse、hard link、rename/link/fsync 能力；
+- path、drive/UNC/namespace/long path、case和Unicode；
+- symlink、junction/reparse、hard link、rename/link/fsync；
 - process tree、signal、job/process group、stream settlement；
-- filesystem permission、ACL/owner、temp root 和 cleanup receipt；
-- watcher/invalidation、network/port、browser executable 和 native ABI。
+- filesystem permission、ACL/owner、temp root和cleanup receipt；
+- watcher/invalidation、network/port、browser executable和native ABI。
 
-WSL/Linux Evidence 不替代 Windows native，Windows Evidence 也不替代 Linux/macOS。Watcher event 只是 invalidation hint，真实 bytes、Git/object identity 和重新读取结果才是变化事实。Direct child exit 不证明 descendant、port、stream、temp 或 lock 已收口。
+WSL/Linux Evidence不替代Windows native，Windows Evidence也不替代Linux/macOS。Watcher event只是invalidation hint，真实bytes、Git/object identity和重新读取结果才是变化事实。Direct child exit不证明descendant、port、stream、temp或lock已收口。
 
-通用 path/process/watcher/temp 库可以作为 Provider 实现，但不能替代 SEC 对 owner、capability、lease、cleanup、platform binding 和 Evidence 的合同。
+通用path/process/watcher/temp库可以作为Provider实现，但不能替代SEC对owner、capability、lease、cleanup、platform binding和Evidence的合同。
 
 ## 依赖作用域
 
-每个依赖必须唯一归属于 Semantic Core、Host、Toolchain、Verification、Generated Target、Workbench、External Tool 或 Release Provider之一。根 manifest 不应长期同时充当 Core、Web target、browser verification、native helper 和外部分析工具的发布 authority。
+每个依赖必须唯一归属于：Semantic Core、Host、Toolchain、Verification、Generated Target、Workbench、External Provider或Release。根manifest不应长期同时充当Core、Web target、browser verification、native helper和外部分析工具的发布authority。
 
-`package.json` 与 lockfile 保持单一 writer。引入、升级或删除依赖前必须检查：
+`package.json`与lockfile保持单一writer。引入、升级或删除依赖前必须检查：
 
-- 实际 import/load graph 和运行入口；
+- 实际import/load graph和运行入口；
 - Host/Target/Toolchain/platform matrix；
 - install/build/postinstall/network/native side effects；
-- package exports、bundling、license 和 supply-chain；
-- optional/fallback behavior 和缺失时 diagnostic；
-- clean package 与 consumer Evidence。
+- package exports、bundling、license和supply-chain；
+- optional/fallback behavior和缺失时diagnostic；
+- clean package与consumer Evidence。
 
-没有 import 不等于没有 build/runtime dependency；有依赖声明也不等于公共 graph 会加载它。
+没有import不等于没有build/runtime dependency；有依赖声明也不等于public graph会加载它。
 
 ## Browser、container 与 native Provider
 
-Browser Provider 只服务需要真实浏览器行为的 Acceptance；request-only、DOM-free 或 pure semantic test 使用更窄 Provider。非 Web Target 和普通 Core test 不准备 browser。
+Browser Provider只服务需要真实浏览器行为的Acceptance；request-only、DOM-free或pure semantic test使用更窄Provider。测试文件位于acceptance目录不自动意味着必须启动browser；Gate contract、test fixture需求和实际capability共同决定。
 
-Container、AppContainer、Job Object、native helper、FFI 和 Testcontainers 等都属于 Optional Capability Adapter。缺失、unsupported、not-run 和 failed 必须区分；是否阻断由相应 support/Verification contract决定。临时目录、进程隔离或 browser context 不自动构成恶意代码 sandbox。
+Container、AppContainer、Job Object、native helper、FFI和Testcontainers等属于Optional Capability Adapter。缺失、unsupported、not-run和failed必须区分；是否阻断由相应Verification/Support contract决定。临时目录、进程隔离或browser context不自动构成恶意代码sandbox。
 
 ## 公共分发
 
-Release builder 从 canonical resource inventory 构建 clean release workspace，验证至少覆盖：
+Release builder必须从exact tracked canonical revision构建clean release workspace，不能从live working tree递归复制，也不能通过force-push重写公共主干历史。
+
+验证至少覆盖：
 
 - public package surface、exports、entry、shebang/launcher、ESM/CJS policy；
-- runtime assets 和 resource location；
-- dependency、license、native 和 install-script closure；
-- 每个声明 Host/platform 的 clean install 与 read/write smoke；
-- Target Profile 输出和 target-specific dependencies；
-- cross-host canonical determinism；
-- privacy/public projection、locale、permission 和 store/package metadata；
-- SBOM、checksums、signature/attestation 与 publication receipt（进入相应发布阶段后）；
-- rollback/yank/deprecation 和 consumer migration。
+- runtime assets和resource location；
+- dependency、license、native和install-script closure；
+-每个声明Host/platform的clean install与read/write smoke；
+-Target Profile输出和target-specific dependencies；
+-cross-host canonical determinism；
+-privacy/public projection、locale、permission和store/package metadata；
+-SBOM、checksums、signature/attestation与publication receipt；
+-rollback/yank/deprecation和consumer migration。
 
-公开镜像必须由白名单 projection 从 clean revision生成。私有 docs、会话状态、secret、私有 Registry、ambient cache、测试残留和非公共 Provider 不进入发布面。
+公开镜像由白名单projection从clean revision生成。私有docs、会话状态、secret、私有Registry、ambient cache、测试残留和非公共Provider不进入发布面。
 
-## 支持声明的失效
+## Support Claim 的失效
 
-上游 EOL/security policy、dependency dropping support、packaged smoke failure、platform regression、ABI change、incident 或无法重现的 release artifact 都可以使支持声明 invalidated。失效后应立即停止新的支持承诺、保留受影响范围和 Evidence，并通过 fix、compatibility profile、deprecation 或 retirement明确收敛，而不是只修改 README 版本表。
+上游EOL/security policy、dependency dropping support、packaged smoke failure、platform regression、ABI change、incident或无法重现的release artifact都可以使Support Claim invalidated。
+
+失效后必须：
+
+- 停止新的支持承诺；
+- 保留受影响Host/Profile/platform和Evidence；
+- 选择fix、compatibility profile、deprecation或retirement；
+- 重新完成physical package/deployment验证后再恢复。
+
+README版本表、单次测试或已有用户仍在运行都不能覆盖失效状态。
