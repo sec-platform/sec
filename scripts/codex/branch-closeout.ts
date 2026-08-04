@@ -5,6 +5,7 @@ import {
   BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
   assertGitBranchName,
   assertGitSha,
+  auditBranchLifecycle,
   authorizeBranchCloseout,
   branchLifecycleDigest,
   createBranchCloseoutPreparation,
@@ -21,7 +22,11 @@ import {
   type BranchLifecycleContext
 } from './branch-lifecycle-command.ts';
 import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
-import { createRecoveryBundle, writeDurableFile } from './branch-recovery.ts';
+import {
+  createRecoveryBundle,
+  verifyRecoveryAuthorityLive,
+  writeDurableFile
+} from './branch-recovery.ts';
 
 export const BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1 =
   'sec-branch-closeout-prepared-envelope-v1' as const;
@@ -43,6 +48,7 @@ export interface PrepareBranchCloseoutInput {
 export interface FinalizeBranchCloseoutInput {
   prepared: PreparedBranchCloseoutEnvelope;
   disposition: BranchCloseoutDisposition;
+  blockingReasons?: readonly string[];
   durableGoal: {
     kind: 'main' | 'issue' | 'evidence';
     reference: string;
@@ -63,6 +69,18 @@ function createPreparedEnvelope(input: Omit<
   };
 }
 
+function assertPreparedBranchCloseoutEnvelope(
+  envelope: PreparedBranchCloseoutEnvelope
+): void {
+  if (envelope.schema !== BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1) {
+    throw new Error('Prepared branch closeout envelope schema mismatch.');
+  }
+  const { envelopeDigest, ...withoutDigest } = envelope;
+  if (branchLifecycleDigest(withoutDigest) !== envelopeDigest) {
+    throw new Error('Prepared branch closeout envelope digest mismatch.');
+  }
+}
+
 export function parsePreparedBranchCloseoutEnvelope(
   source: string
 ): PreparedBranchCloseoutEnvelope {
@@ -71,13 +89,7 @@ export function parsePreparedBranchCloseoutEnvelope(
     throw new Error('Prepared branch closeout envelope must be an object.');
   }
   const envelope = parsed as PreparedBranchCloseoutEnvelope;
-  if (envelope.schema !== BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1) {
-    throw new Error('Prepared branch closeout envelope schema mismatch.');
-  }
-  const { envelopeDigest, ...withoutDigest } = envelope;
-  if (branchLifecycleDigest(withoutDigest) !== envelopeDigest) {
-    throw new Error('Prepared branch closeout envelope digest mismatch.');
-  }
+  assertPreparedBranchCloseoutEnvelope(envelope);
   return envelope;
 }
 
@@ -118,8 +130,14 @@ export function prepareBranchCloseout(
   }
 
   const before = collectBranchLifecycleInventory(ctx);
-  if (before.unknowns.length > 0) {
-    throw new Error(`Branch inventory is unresolved: ${before.unknowns.join(' | ')}`);
+  const beforeAudit = auditBranchLifecycle(before);
+  if (beforeAudit.status === 'drift' || beforeAudit.status === 'blocked') {
+    throw new Error(
+      `Branch lifecycle is not closeout-ready: ${beforeAudit.findings
+        .filter(({ severity }) => severity === 'error')
+        .map(({ code, branch, message }) => `${code}${branch ? `(${branch})` : ''}: ${message}`)
+        .join(' | ')}`
+    );
   }
   if (input.branch === before.repository.defaultBranch) {
     throw new Error('Default branch cannot be prepared for closeout.');
@@ -279,7 +297,23 @@ export function finalizeBranchCloseout(
   ctx: BranchLifecycleContext,
   input: FinalizeBranchCloseoutInput
 ): BranchCloseoutReceipt {
-  const current = collectBranchLifecycleInventory(ctx);
+  assertPreparedBranchCloseoutEnvelope(input.prepared);
+  const observedCurrent = collectBranchLifecycleInventory(ctx);
+  const attempts = [...input.prepared.attempts];
+  const recoveryReadback = verifyRecoveryAuthorityLive({
+    ctx,
+    inventory: observedCurrent,
+    recovery: input.prepared.preparation.recovery
+  });
+  attempts.push(recoveryReadback);
+  const current = {
+    ...observedCurrent,
+    unknowns: [...new Set([
+      ...observedCurrent.unknowns,
+      ...(input.blockingReasons ?? []),
+      ...(recoveryReadback.status === 'success' ? [] : [recoveryReadback.detail])
+    ])].sort((left, right) => left.localeCompare(right))
+  };
   const request = {
     capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
     disposition: input.disposition,
@@ -291,7 +325,6 @@ export function finalizeBranchCloseout(
     before: input.prepared.before,
     current
   });
-  const attempts = [...input.prepared.attempts];
 
   if (authorization.blockers.length === 0) {
     if (authorization.remoteAction === 'delete-cas') {
@@ -349,12 +382,14 @@ export function finalizeBranchCloseout(
 export function finalizeMergedPullRequestCloseout(
   ctx: BranchLifecycleContext,
   prepared: PreparedBranchCloseoutEnvelope,
-  newMainSha: string
+  newMainSha: string,
+  blockingReasons: readonly string[] = []
 ): BranchCloseoutReceipt {
   assertGitSha(newMainSha, 'new main SHA');
   return finalizeBranchCloseout(ctx, {
     prepared,
     disposition: 'merged',
+    blockingReasons,
     durableGoal: {
       kind: 'main',
       reference: `main@${newMainSha}`
