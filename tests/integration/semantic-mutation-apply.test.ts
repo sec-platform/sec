@@ -32,7 +32,6 @@ import {
   SEMANTIC_MUTATION_ISOLATED_VERIFICATION_TIMEOUT_MS
 } from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
 import {
-  addBlock,
   applySemanticMutation,
   initWorkspace,
   planSemanticMutationTransaction,
@@ -48,7 +47,6 @@ import type {
   SemanticMutationApplyInputV1,
   SemanticMutationRecoveryState
 } from '../../platform/shared/semantic-mutation-transaction-types.ts';
-import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -105,6 +103,48 @@ const AUTHORING_SOURCE = [
   'scenarios: []',
   ''
 ].join('\n');
+
+async function installSmokeRuntimeTests(workspaceRoot: string): Promise<void> {
+  const unitRoot = path.join(workspaceRoot, 'project', 'tests', 'runtime', 'unit');
+  const acceptanceRoot = path.join(workspaceRoot, 'project', 'tests', 'runtime', 'acceptance');
+  const loginRoot = path.join(workspaceRoot, 'project', 'app', 'login');
+  await mkdir(unitRoot, { recursive: true });
+  await mkdir(acceptanceRoot, { recursive: true });
+  await mkdir(loginRoot, { recursive: true });
+  // Real runtime unit inventory for the full-runtime PASS contract.
+  await writeFile(
+    path.join(unitRoot, 'smoke.test.ts'),
+    "import { expect, test } from 'bun:test';\ntest('smoke unit truth', () => expect(1).toBe(1));\n",
+    'utf8'
+  );
+  // Real Playwright-run acceptance inventory that asserts the staged mutation
+  // result without requesting any browser fixture; the isolated harness still
+  // owns the Next server and the Playwright browser capability.
+  await writeFile(
+    path.join(acceptanceRoot, 'smoke.spec.ts'),
+    [
+      "import { readFile } from 'node:fs/promises';",
+      "import path from 'node:path';",
+      "import { expect, test } from '@playwright/test';",
+      '',
+      "test('semantic mutation produced the accepted item transition', async () => {",
+      "  const stagedSource = path.resolve(process.cwd(), '..', 'source', 'model', 'item.yaml');",
+      "  const source = await readFile(stagedSource, 'utf8');",
+      "  expect(source).toContain('from: open');",
+      "  expect(source).toContain('to: closed');",
+      '});',
+      ''
+    ].join('\n'),
+    'utf8'
+  );
+  // The isolated acceptance harness probes /login for server readiness; the
+  // fixture workspace has no auth block, so this route is fixture-local.
+  await writeFile(
+    path.join(loginRoot, 'page.tsx'),
+    "export default function FixtureLoginPage() {\n  return <main>fixture login</main>;\n}\n",
+    'utf8'
+  );
+}
 
 function endpoint(
   snapshot: Awaited<ReturnType<typeof buildWorkspaceSemanticBundle>>['snapshot'],
@@ -192,9 +232,8 @@ async function coordinatorFailureFixture(
 ): Promise<CoordinatorFailureFixture> {
   await mkdir(workspaceRoot, { recursive: true });
   await initWorkspace(workspaceRoot, { reset: true });
-  await installPrivateBannerBlock(workspaceRoot);
-  await addBlock(workspaceRoot, 'private/banner-basic');
   await resolveWorkspace(workspaceRoot);
+  await installSmokeRuntimeTests(workspaceRoot);
 
   const modelRoot = path.join(workspaceRoot, 'source', 'model');
   const sourcePath = path.join(modelRoot, 'item.yaml');
@@ -203,7 +242,7 @@ async function coordinatorFailureFixture(
   await writeFile(path.join(modelRoot, 'semantic-contracts.yaml'), [
     'formatRevision: authoring-semantic-contract-index-v1',
     'contracts:',
-    '  - blockId: private/banner-basic',
+    '  - blockId: entity/customer-basic',
     '    path: source/model/item.yaml',
     ''
   ].join('\n'), 'utf8');
@@ -303,9 +342,8 @@ test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild li
   expect(Bun.version).toBe('1.3.14');
   await withTempWorkspace(async (workspaceRoot) => {
     await initWorkspace(workspaceRoot, { reset: true });
-    await installPrivateBannerBlock(workspaceRoot);
-    await addBlock(workspaceRoot, 'private/banner-basic');
     await resolveWorkspace(workspaceRoot);
+    await installSmokeRuntimeTests(workspaceRoot);
 
     const modelRoot = path.join(workspaceRoot, 'source', 'model');
     const sourcePath = path.join(modelRoot, 'item.yaml');
@@ -314,7 +352,7 @@ test('SM-3 dry-run/apply share one plan revision, publish atomically, rebuild li
     await writeFile(path.join(modelRoot, 'semantic-contracts.yaml'), [
       'formatRevision: authoring-semantic-contract-index-v1',
       'contracts:',
-      '  - blockId: private/banner-basic',
+      '  - blockId: entity/customer-basic',
       '    path: source/model/item.yaml',
       ''
     ].join('\n'), 'utf8');

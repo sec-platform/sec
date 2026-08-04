@@ -99,7 +99,8 @@ import {
   type StagedVerificationProofBinding
 } from '../../platform/compiler/verify/staged-verification-proof.ts';
 import {
-  assertStagedVerificationLiveContext
+  assertStagedVerificationLiveContext,
+  buildClaimSummary
 } from '../../platform/compiler/verify/verify-project.ts';
 import {
   acquireBrowserLaunchPathForTests
@@ -1111,7 +1112,7 @@ function isolatedVerificationArtifacts(status: 'passed' | 'failed') {
   const fast = {
     status: 'passed' as const,
     build: { status: 'passed' as const },
-    unit: { status: 'passed' as const, passed: [] },
+    unit: { status: 'passed' as const, passed: ['tests/unit/smoke.test.ts'] },
     acceptance: { status: 'passed' as const, passed: [], failed: [] },
     policy: { status: 'skipped' as const, violations: [] },
     policyReport: policy,
@@ -1120,8 +1121,18 @@ function isolatedVerificationArtifacts(status: 'passed' | 'failed') {
   const runtime = status === 'passed' ? {
     status: 'passed' as const,
     build: { status: 'passed' as const, passed: ['next build'], failed: [], command: 'bun run build' },
-    unit: { status: 'passed' as const, passed: [], failed: [], command: 'bun run test:unit' },
-    acceptance: { status: 'passed' as const, passed: [], failed: [], command: 'bun run test:acceptance' },
+    unit: {
+      status: 'passed' as const,
+      passed: ['tests/runtime/unit/runtime.test.ts'],
+      failed: [],
+      command: 'bun run test:unit'
+    },
+    acceptance: {
+      status: 'passed' as const,
+      passed: ['tests/runtime/acceptance/customer-flow.spec.ts'],
+      failed: [],
+      command: 'bun run test:acceptance'
+    },
     logs: runtimeLogs
   } : {
     status: 'failed' as const,
@@ -1130,6 +1141,21 @@ function isolatedVerificationArtifacts(status: 'passed' | 'failed') {
     acceptance: { status: 'skipped' as const, passed: [], failed: [], command: null },
     logs: runtimeLogs
   };
+  const acceptanceCoverage = {
+    formatVersion: '1' as const,
+    status: runtime.status,
+    acceptancePassed: status === 'passed' ? ['user_can_create_customer'] : [],
+    blocks: status === 'passed' ? [{
+      id: 'block',
+      declaredAcceptance: ['user_can_create_customer'],
+      coveredBy: ['user_can_create_customer'],
+      uncovered: false
+    }] : [],
+    slots: [],
+    uncoveredBlocks: [],
+    uncoveredSlots: []
+  };
+  const claimSummary = buildClaimSummary('all', fast, runtime, 'full', policy, acceptanceCoverage);
   return {
     verificationReport: {
       build: fast.build,
@@ -1139,9 +1165,12 @@ function isolatedVerificationArtifacts(status: 'passed' | 'failed') {
       fast,
       runtime,
       summary: {
-        status,
+        status: (claimSummary.overall.overallStatus === 'passed' ? 'passed' : 'failed') as
+          'passed' | 'failed',
         requestedLane: 'all' as const,
-        failedLanes: status === 'passed' ? [] : ['runtime' as const]
+        failedLanes: (claimSummary.overall.overallStatus === 'passed' ? [] : ['runtime' as const]) as
+          ('fast' | 'runtime')[],
+        claimSummary
       },
       logs: {
         stdout: [fastLogs.stdout, runtimeLogs.stdout].filter(Boolean).join('\n'),
@@ -1150,15 +1179,7 @@ function isolatedVerificationArtifacts(status: 'passed' | 'failed') {
     },
     runtimeReport: runtime,
     policyReport: policy,
-    acceptanceCoverage: {
-      formatVersion: '1',
-      status: runtime.status,
-      acceptancePassed: [],
-      blocks: [],
-      slots: [],
-      uncoveredBlocks: [],
-      uncoveredSlots: []
-    }
+    acceptanceCoverage
   };
 }
 
@@ -1380,12 +1401,14 @@ test('staged Verification proof rejects live policy input drift outside the proj
     );
     const baseArtifacts = isolatedVerificationArtifacts('passed');
     const artifacts = {
+      verificationReport: baseArtifacts.verificationReport,
       runtimeReport: baseArtifacts.runtimeReport,
       policyReport: await runPolicyGate(workspaceRoot),
       acceptanceCoverage: await buildAcceptanceCoverage(
         workspaceRoot,
         lock,
-        baseArtifacts.runtimeReport
+        baseArtifacts.runtimeReport,
+        baseArtifacts.verificationReport.fast
       )
     };
     await expect(assertStagedVerificationLiveContext(

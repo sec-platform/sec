@@ -59,6 +59,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     sourceFiles: [
       'platform/compiler/verify/build-acceptance-coverage.ts',
       'platform/shared/acceptance-proof-contract.ts',
+      'platform/shared/product-verification-claim-plan.ts',
       'platform/shared/verification-artifact-contract.ts'
     ],
     fast: VERIFICATION_TRUTH_FAST_TESTS,

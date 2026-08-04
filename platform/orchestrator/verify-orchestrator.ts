@@ -48,11 +48,7 @@ export async function assertStagedVerificationProofAfterPipeline(
     lock,
     proof
   );
-  await assertStagedVerificationLiveContext(
-    workspaceRoot,
-    lock,
-    artifacts
-  );
+  await assertStagedVerificationLiveContext(workspaceRoot, lock, artifacts);
 }
 
 async function writeBlockedVerificationSnapshot(
@@ -96,7 +92,7 @@ async function writeBlockedVerificationSnapshot(
     runtimeReportPath,
     verificationReportPath
   } = getWorkspacePaths(workspaceRoot);
-  const coverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime);
+  const coverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime, fast);
 
   addGeneratedPaths(lock, [
     CI_ARTIFACT_FILES.verificationReport,
