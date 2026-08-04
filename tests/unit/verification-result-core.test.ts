@@ -250,7 +250,7 @@ test('regression 4: Windows required gate on Linux not-run → claim not-run', (
   expect(result.claimResults[0]!.reasonCode).toBe('current-runner-not-owning-environment');
 });
 
-test('Issue #215 deferred: a non-empty wrong-OS owner is not matched in this slice', () => {
+test('a non-owning observation cannot authorize a claim owned by another environment', () => {
   const gate = passedGate(
     'linux-gate',
     ['windows-owned-claim'],
@@ -260,8 +260,10 @@ test('Issue #215 deferred: a non-empty wrong-OS owner is not matched in this sli
     claims: [claim('windows-owned-claim', ['linux-gate'], ['windows-x64'])],
     gateResults: [gate]
   });
-  expect(result.overallStatus).toBe('passed');
-  expect(result.claimResults[0]!.status).toBe('passed');
+  expect(result.overallStatus).toBe('not-run');
+  expect(result.overallReasonCode).toBe('current-runner-not-owning-environment');
+  expect(result.claimResults[0]!.status).toBe('not-run');
+  expect(result.claimResults[0]!.reasonCode).toBe('current-runner-not-owning-environment');
 });
 
 // ---------------------------------------------------------------------------
@@ -489,14 +491,15 @@ test('validator rejects unresolved applicability with non-invalidated status', (
   }).toThrow(/unresolved applicability requires invalidated status/);
 });
 
-test('Issue #215 deferred: reused passed gate with null environment remains accepted', () => {
-  const gate = reusedPassedGate('reused-gate', ['reuse-claim'], ['evidence-1', 'evidence-2']);
-  const result = CodexDevelopmentAggregateVerificationClaimsV1({
+test('reused passed gate without environment identity fails closed', () => {
+  expect(() => CodexDevelopmentAggregateVerificationClaimsV1({
     claims: [claim('reuse-claim', ['reused-gate'])],
-    gateResults: [gate]
-  });
-  expect(result.overallStatus).toBe('passed');
-  expect(result.claimResults[0]!.status).toBe('passed');
+    gateResults: [reusedPassedGate(
+      'reused-gate',
+      ['reuse-claim'],
+      ['evidence-1', 'evidence-2']
+    )]
+  })).toThrow(/reused disposition requires a non-null environment identity/);
 });
 
 // ---------------------------------------------------------------------------
@@ -794,7 +797,7 @@ test('aggregate assertion rejects a valid same-status but wrong decisive overall
   const result = CodexDevelopmentAggregateVerificationClaimsV1(input);
   expect(result).toMatchObject({
     overallStatus: 'failed',
-    overallReasonCode: 'executed-failure'
+    overallReasonCode: 'cleanup-failed'
   });
   result.overallReasonCode = 'timeout';
   expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(result, input)).toThrow(
