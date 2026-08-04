@@ -24,9 +24,11 @@ import {
   defaultBranchLifecycleCommandRunner,
   type BranchLifecycleContext
 } from './branch-lifecycle-command.ts';
+import { configureBranchLifecycleClone } from './branch-lifecycle-config.ts';
 import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
 
 export * from './branch-lifecycle-command.ts';
+export * from './branch-lifecycle-config.ts';
 export * from './branch-lifecycle-parsers.ts';
 export * from './branch-lifecycle-inventory.ts';
 export * from './branch-recovery.ts';
@@ -65,7 +67,7 @@ function formatAuditText(inventory: BranchLifecycleInventory): string {
 }
 
 interface CliArguments {
-  command: 'audit' | 'prepare' | 'finalize';
+  command: 'audit' | 'configure-clone' | 'prepare' | 'finalize';
   json: boolean;
   compact: boolean;
   branch: string | null;
@@ -88,7 +90,12 @@ function parsePositiveInteger(value: string | undefined, label: string): number 
 
 function parseCliArguments(argv: readonly string[]): CliArguments {
   const command = argv[0];
-  if (command !== 'audit' && command !== 'prepare' && command !== 'finalize') {
+  if (
+    command !== 'audit'
+    && command !== 'configure-clone'
+    && command !== 'prepare'
+    && command !== 'finalize'
+  ) {
     throw new Error(USAGE);
   }
   const result: CliArguments = {
@@ -153,6 +160,7 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
 
 const USAGE = `Usage:
   bun scripts/codex/branch-lifecycle.ts audit [--json [--compact]]
+  bun scripts/codex/branch-lifecycle.ts configure-clone [--json]
   bun scripts/codex/branch-lifecycle.ts prepare --branch <name> [--pr <n>] [--recovery-root <absolute-path>] [--json]
   bun scripts/codex/branch-lifecycle.ts finalize --preparation <file> --disposition <merged|closed-superseded|completed-spike> --durable-goal-kind <main|issue|evidence> --durable-goal <reference> [--json]
 `;
@@ -188,6 +196,18 @@ async function main(): Promise<void> {
       process.stdout.write(`${formatAuditText(inventory)}\n`);
     }
     if (report.status === 'drift' || report.status === 'blocked') process.exitCode = 1;
+    return;
+  }
+
+  if (args.command === 'configure-clone') {
+    const observation = configureBranchLifecycleClone(ctx);
+    if (args.json) {
+      process.stdout.write(`${JSON.stringify(observation, null, 2)}\n`);
+    } else {
+      process.stdout.write(
+        'Configured clone-local fetch.prune, remote.origin.prune and fetch.pruneTags to true.\n'
+      );
+    }
     return;
   }
 
