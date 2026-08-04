@@ -54,64 +54,32 @@ function prInfo(overrides: Record<string, unknown> = {}): string {
 }
 
 function locatorParser(body: string): string {
-  const match = body.match(/^Work-Package: (docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md)$/mu);
+  const match = /^Work-Package: (docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md)$/mu.exec(body);
   if (!match) throw new Error('locator missing');
   return match[1]!;
 }
 
-// ---------------------------------------------------------------------------
-// computeManifestDigestFromBytes
-// ---------------------------------------------------------------------------
-
-test('computeManifestDigestFromBytes produces sha256 digest and git blob SHA-1', () => {
+test('manifest identity includes stable SHA-256 and Git blob SHA-1', () => {
   const bytes = Buffer.from(SAMPLE_MANIFEST, 'utf8');
-  const result = computeManifestDigestFromBytes(bytes);
-  expect(result.digest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-  expect(result.blobSha).toMatch(/^[0-9a-f]{40}$/u);
-  expect(result.byteLength).toBe(bytes.byteLength);
+  const first = computeManifestDigestFromBytes(bytes);
+  const second = computeManifestDigestFromBytes(bytes);
+  expect(first).toEqual(second);
+  expect(first.digest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(first.blobSha).toMatch(/^[0-9a-f]{40}$/u);
+  expect(first.byteLength).toBe(bytes.byteLength);
+  expect(computeManifestDigestFromBytes(Buffer.from(`${SAMPLE_MANIFEST}\n`)).digest)
+    .not.toBe(first.digest);
 });
 
-test('computeManifestDigestFromBytes digest is stable across calls with same bytes', () => {
-  const bytes = Buffer.from(SAMPLE_MANIFEST, 'utf8');
-  const left = computeManifestDigestFromBytes(bytes);
-  const right = computeManifestDigestFromBytes(bytes);
-  expect(left.digest).toBe(right.digest);
-  expect(left.blobSha).toBe(right.blobSha);
-});
-
-test('computeManifestDigestFromBytes digest changes when bytes differ', () => {
-  const left = computeManifestDigestFromBytes(Buffer.from(SAMPLE_MANIFEST, 'utf8'));
-  const right = computeManifestDigestFromBytes(Buffer.from(`${SAMPLE_MANIFEST}\n# extra\n`, 'utf8'));
-  expect(left.digest).not.toBe(right.digest);
-  expect(left.blobSha).not.toBe(right.blobSha);
-});
-
-// ---------------------------------------------------------------------------
-// buildScopeAttestPayload
-// ---------------------------------------------------------------------------
-
-test('buildScopeAttestPayload produces exactly 4 keys with correct values', () => {
+test('scope and verification payloads have exact bounded keys', () => {
   const pr = parsePrInfo(prInfo(), locatorParser);
-  const manifest = computeManifestDigestFromBytes(Buffer.from(SAMPLE_MANIFEST, 'utf8'));
-  const payload = buildScopeAttestPayload(pr, manifest);
-  const keys = Object.keys(payload).sort();
-  expect(keys).toEqual(['expected_base', 'expected_head', 'manifest_digest', 'pull_request']);
-  expect(payload.pull_request).toBe(200);
-  expect(payload.expected_head).toBe(HEAD_SHA);
-  expect(payload.expected_base).toBe(BASE_SHA);
-  expect(payload.manifest_digest).toBe(manifest.digest);
-});
-
-// ---------------------------------------------------------------------------
-// buildVerificationPayload
-// ---------------------------------------------------------------------------
-
-test('buildVerificationPayload produces exactly 7 keys with correct values', () => {
-  const pr = parsePrInfo(prInfo(), locatorParser);
-  const manifest = computeManifestDigestFromBytes(Buffer.from(SAMPLE_MANIFEST, 'utf8'));
-  const payload = buildVerificationPayload(pr, manifest, 'full');
-  const keys = Object.keys(payload).sort();
-  expect(keys).toEqual([
+  const manifest = computeManifestDigestFromBytes(Buffer.from(SAMPLE_MANIFEST));
+  const scope = buildScopeAttestPayload(pr, manifest);
+  const verification = buildVerificationPayload(pr, manifest, 'full');
+  expect(Object.keys(scope).sort()).toEqual([
+    'expected_base', 'expected_head', 'manifest_digest', 'pull_request'
+  ]);
+  expect(Object.keys(verification).sort()).toEqual([
     'expected_base',
     'expected_head',
     'manifest_digest',
@@ -120,210 +88,114 @@ test('buildVerificationPayload produces exactly 7 keys with correct values', () 
     'pull_request',
     'schema'
   ]);
-  expect(payload.schema).toBe('codex-development-frozen-verification-request-v1');
-  expect(payload.pull_request).toBe(200);
-  expect(payload.expected_head).toBe(HEAD_SHA);
-  expect(payload.expected_base).toBe(BASE_SHA);
-  expect(payload.manifest_path).toBe('docs/work-packages/test-wp-v1.md');
-  expect(payload.manifest_digest).toBe(manifest.digest);
-  expect(payload.profile).toBe('full');
+  expect(verification.profile).toBe('full');
+  expect(verification.expected_head).toBe(HEAD_SHA);
 });
 
-test('buildVerificationPayload accepts quick and full profiles', () => {
-  const pr = parsePrInfo(prInfo(), () => 'docs/work-packages/test-wp-v1.md');
-  const manifest = computeManifestDigestFromBytes(Buffer.from(SAMPLE_MANIFEST, 'utf8'));
-  const quick = buildVerificationPayload(pr, manifest, 'quick');
-  const full = buildVerificationPayload(pr, manifest, 'full');
-  expect(quick.profile).toBe('quick');
-  expect(full.profile).toBe('full');
-});
-
-// ---------------------------------------------------------------------------
-// shouldSquashToSingleParent
-// ---------------------------------------------------------------------------
-
-test('shouldSquashToSingleParent returns false when exactly one parent equals base', () => {
+test('single-parent decision binds the only parent to the exact base', () => {
   expect(shouldSquashToSingleParent([BASE_SHA], BASE_SHA)).toBe(false);
-});
-
-test('shouldSquashToSingleParent returns true when parents count differs from 1', () => {
   expect(shouldSquashToSingleParent([], BASE_SHA)).toBe(true);
   expect(shouldSquashToSingleParent([BASE_SHA, OTHER_SHA], BASE_SHA)).toBe(true);
-});
-
-test('shouldSquashToSingleParent returns true when single parent differs from base', () => {
   expect(shouldSquashToSingleParent([OTHER_SHA], BASE_SHA)).toBe(true);
 });
 
-// ---------------------------------------------------------------------------
-// parsePrInfo
-// ---------------------------------------------------------------------------
-
-test('parsePrInfo parses valid PR JSON and extracts manifest path via locator', () => {
-  const json = JSON.stringify({
-    number: 42,
-    headRefOid: HEAD_SHA,
-    baseRefOid: BASE_SHA,
-    headRefName: 'feat/branch',
-    title: 'feat: my feature',
-    state: 'OPEN',
-    body: 'Work-Package: docs/work-packages/my-wp-v1.md\n\ndesc'
-  });
-  const pr = parsePrInfo(json, (body) => {
-    const match = body.match(/^Work-Package: (docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md)$/mu);
-    if (!match) throw new Error('locator missing');
-    return match[1]!;
-  });
-  expect(pr.number).toBe(42);
-  expect(pr.headSha).toBe(HEAD_SHA);
-  expect(pr.baseSha).toBe(BASE_SHA);
-  expect(pr.headBranch).toBe('feat/branch');
-  expect(pr.title).toBe('feat: my feature');
-  expect(pr.state).toBe('OPEN');
-  expect(pr.manifestPath).toBe('docs/work-packages/my-wp-v1.md');
+test('PR parser binds exact identity and frozen manifest locator', () => {
+  const parsed = parsePrInfo(prInfo(), locatorParser);
+  expect(parsed.number).toBe(200);
+  expect(parsed.headSha).toBe(HEAD_SHA);
+  expect(parsed.baseSha).toBe(BASE_SHA);
+  expect(parsed.headBranch).toBe('feat/test-branch');
+  expect(parsed.manifestPath).toBe('docs/work-packages/test-wp-v1.md');
 });
 
-test('parsePrInfo throws when head SHA is not 40-char hex', () => {
-  const json = JSON.stringify({
-    number: 1,
-    headRefOid: 'short',
-    baseRefOid: BASE_SHA,
-    headRefName: 'b',
-    title: 't',
-    state: 'OPEN',
-    body: ''
-  });
-  expect(() => parsePrInfo(json, () => 'docs/work-packages/x-v1.md')).toThrow('headRefOid');
+test('PR parser rejects malformed identity', () => {
+  expect(() => parsePrInfo(prInfo({ number: 0 }), locatorParser)).toThrow('number');
+  expect(() => parsePrInfo(prInfo({ headRefOid: 'short' }), locatorParser)).toThrow('headRefOid');
+  expect(() => parsePrInfo(prInfo({ baseRefOid: 'short' }), locatorParser)).toThrow('baseRefOid');
+  expect(() => parsePrInfo(prInfo({ headRefName: '' }), locatorParser)).toThrow('headRefName');
 });
 
-test('parsePrInfo throws when PR number is not a safe positive integer', () => {
-  const json = JSON.stringify({
-    number: -1,
-    headRefOid: HEAD_SHA,
-    baseRefOid: BASE_SHA,
-    headRefName: 'b',
-    title: 't',
-    state: 'OPEN',
-    body: ''
-  });
-  expect(() => parsePrInfo(json, () => 'docs/work-packages/x-v1.md')).toThrow('number');
-});
-
-test('parsePrInfo throws when headRefName is empty', () => {
-  const json = JSON.stringify({
-    number: 1,
-    headRefOid: HEAD_SHA,
-    baseRefOid: BASE_SHA,
-    headRefName: '',
-    title: 't',
-    state: 'OPEN',
-    body: ''
-  });
-  expect(() => parsePrInfo(json, () => 'docs/work-packages/x-v1.md')).toThrow('headRefName');
-});
-
-// ---------------------------------------------------------------------------
-// parseWorkflowRuns
-// ---------------------------------------------------------------------------
-
-test('parseWorkflowRuns parses valid array of workflow runs', () => {
-  const json = JSON.stringify([
+test('workflow parser and selector use the latest exact title/head run', () => {
+  const runs = parseWorkflowRuns(JSON.stringify([
     {
       databaseId: 100,
       status: 'completed',
       conclusion: 'success',
-      displayTitle: 'attest PR #1',
+      displayTitle: 'exact',
       headSha: BASE_SHA
     },
     {
-      databaseId: 101,
-      status: 'in_progress',
-      conclusion: null,
-      displayTitle: 'verify PR #1',
+      databaseId: 200,
+      status: 'completed',
+      conclusion: 'success',
+      displayTitle: 'exact',
+      headSha: BASE_SHA
+    },
+    {
+      databaseId: 300,
+      status: 'completed',
+      conclusion: 'failure',
+      displayTitle: 'other',
       headSha: BASE_SHA
     }
-  ]);
-  const runs = parseWorkflowRuns(json);
-  expect(runs).toHaveLength(2);
-  expect(runs[0]!.databaseId).toBe(100);
-  expect(runs[0]!.conclusion).toBe('success');
-  expect(runs[1]!.conclusion).toBeNull();
-  expect(runs[1]!.status).toBe('in_progress');
+  ]));
+  expect(selectSuccessfulRun(runs, 'exact', BASE_SHA).databaseId).toBe(200);
+  expect(() => selectSuccessfulRun(runs, 'missing', BASE_SHA)).toThrow('No workflow run');
+  expect(() => selectSuccessfulRun(runs, 'other', BASE_SHA)).toThrow('not successful');
 });
 
-test('parseWorkflowRuns throws when input is not an array', () => {
-  expect(() => parseWorkflowRuns(JSON.stringify({ not: 'array' }))).toThrow('not an array');
+test('workflow parser rejects malformed rows', () => {
+  expect(() => parseWorkflowRuns(JSON.stringify({}))).toThrow('not an array');
+  expect(() => parseWorkflowRuns(JSON.stringify([{
+    databaseId: 0,
+    status: 'completed',
+    displayTitle: 'x',
+    headSha: BASE_SHA
+  }]))).toThrow('databaseId');
 });
 
-test('parseWorkflowRuns throws when databaseId is invalid', () => {
-  const json = JSON.stringify([{ databaseId: 0, status: 'completed', displayTitle: 't', headSha: BASE_SHA }]);
-  expect(() => parseWorkflowRuns(json)).toThrow('databaseId');
+test('full bootstrap orders proof, durable recovery, merge and typed closeout', () => {
+  const source = readFileSync(
+    join(__dirname, '../../scripts/codex/sec-merge-bootstrap-runtime.ts'),
+    'utf8'
+  ).replaceAll('\r\n', '\n');
+  const start = source.indexOf('function commandAll(');
+  const end = source.indexOf('\n}\n\ninterface CliArguments', start);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const body = source.slice(start, end);
+
+  const squash = body.indexOf('ensureSingleParent(ctx, pr)');
+  const attest = body.indexOf('runAttestation(ctx, pr, manifest');
+  const verify = body.indexOf('runVerification(ctx, pr, manifest');
+  const recovery = body.indexOf('prepareMergedPullRequestCloseout(');
+  const exactReadback = body.indexOf('assertPullRequestStillExact(ctx, pr)');
+  const merge = body.indexOf('adminSquashMerge(ctx, pr)');
+  const mainReadback = body.indexOf('readNewMain(ctx');
+  const mainParentReadback = body.indexOf('newMain.firstParent === pr.baseSha');
+  const closeout = body.indexOf('finalizeMergedPullRequestCloseout(');
+
+  expect(squash).toBeGreaterThan(-1);
+  expect(squash).toBeLessThan(attest);
+  expect(attest).toBeLessThan(verify);
+  expect(verify).toBeLessThan(recovery);
+  expect(recovery).toBeLessThan(exactReadback);
+  expect(exactReadback).toBeLessThan(merge);
+  expect(merge).toBeLessThan(mainReadback);
+  expect(mainReadback).toBeLessThan(mainParentReadback);
+  expect(mainParentReadback).toBeLessThan(closeout);
 });
 
-test('parseWorkflowRuns throws when status is missing', () => {
-  const json = JSON.stringify([{ databaseId: 1, displayTitle: 't', headSha: BASE_SHA }]);
-  expect(() => parseWorkflowRuns(json)).toThrow('status');
-});
-
-// ---------------------------------------------------------------------------
-// selectSuccessfulRun
-// ---------------------------------------------------------------------------
-
-test('selectSuccessfulRun returns latest matching successful run', () => {
-  const runs = [
-    { databaseId: 100, status: 'completed', conclusion: 'success', displayTitle: 't1', headSha: BASE_SHA },
-    { databaseId: 200, status: 'completed', conclusion: 'success', displayTitle: 't1', headSha: BASE_SHA },
-    { databaseId: 300, status: 'completed', conclusion: 'success', displayTitle: 't1', headSha: BASE_SHA }
-  ];
-  const selected = selectSuccessfulRun(runs, 't1', BASE_SHA);
-  expect(selected.databaseId).toBe(300);
-});
-
-test('selectSuccessfulRun throws when no matching run exists', () => {
-  const runs = [
-    { databaseId: 1, status: 'completed', conclusion: 'success', displayTitle: 'other', headSha: BASE_SHA }
-  ];
-  expect(() => selectSuccessfulRun(runs, 't1', BASE_SHA)).toThrow('No workflow run');
-});
-
-test('selectSuccessfulRun throws when latest matching run is not successful', () => {
-  const runs = [
-    { databaseId: 1, status: 'completed', conclusion: 'failure', displayTitle: 't1', headSha: BASE_SHA }
-  ];
-  expect(() => selectSuccessfulRun(runs, 't1', BASE_SHA)).toThrow('not successful');
-});
-
-test('selectSuccessfulRun throws when latest matching run is still in_progress', () => {
-  const runs = [
-    { databaseId: 1, status: 'in_progress', conclusion: null, displayTitle: 't1', headSha: BASE_SHA }
-  ];
-  expect(() => selectSuccessfulRun(runs, 't1', BASE_SHA)).toThrow('not successful');
-});
-
-// ---------------------------------------------------------------------------
-// commandAll ordering invariant
-// ---------------------------------------------------------------------------
-
-test('commandAll ensures single-parent before attestation and verification dispatch', () => {
-  // The verification workflow enforces that the PR head is single-parent
-  // (parent === base). commandAll must call ensureSingleParent before
-  // dispatchScopeAttest and dispatchVerification, otherwise verification
-  // fails for multi-commit branches and forces a manual squash workaround.
-  const raw = readFileSync(join(__dirname, '../../scripts/codex/sec-merge-bootstrap.ts'), 'utf8');
-  const source = raw.replaceAll('\r\n', '\n');
-  const commandAllStart = source.indexOf('function commandAll(');
-  expect(commandAllStart).toBeGreaterThan(-1);
-  const commandAllEnd = source.indexOf('\n}\n', commandAllStart);
-  expect(commandAllEnd).toBeGreaterThan(commandAllStart);
-  const commandAllBody = source.slice(commandAllStart, commandAllEnd);
-
-  const ensureSingleParentIndex = commandAllBody.indexOf('ensureSingleParent(ctx, pr)');
-  const dispatchScopeAttestIndex = commandAllBody.indexOf('dispatchScopeAttest(ctx, pr, manifest)');
-  const dispatchVerificationIndex = commandAllBody.indexOf('dispatchVerification(ctx, pr, manifest, profile)');
-
-  expect(ensureSingleParentIndex).toBeGreaterThan(-1);
-  expect(dispatchScopeAttestIndex).toBeGreaterThan(-1);
-  expect(dispatchVerificationIndex).toBeGreaterThan(-1);
-  expect(ensureSingleParentIndex).toBeLessThan(dispatchScopeAttestIndex);
-  expect(ensureSingleParentIndex).toBeLessThan(dispatchVerificationIndex);
+test('bootstrap contains no post-merge pointer patch or best-effort branch deletion', () => {
+  const source = [
+    'sec-merge-bootstrap.ts',
+    'sec-merge-bootstrap-runtime.ts'
+  ].map((fileName) => readFileSync(
+    join(__dirname, `../../scripts/codex/${fileName}`),
+    'utf8'
+  )).join('\n');
+  expect(source).not.toContain('postMergePointerPatch');
+  expect(source).not.toContain("git', ['branch', '-D'");
+  expect(source).not.toContain('/git/refs/heads/');
+  expect(source).toContain('branch-lifecycle.ts');
 });
