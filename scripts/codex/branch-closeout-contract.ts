@@ -155,6 +155,8 @@ export function authorizeBranchCloseout(input: {
     preparation.repository.fullName !== current.repository.fullName
     || preparation.repository.remote !== current.repository.remote
     || preparation.repository.defaultBranch !== current.repository.defaultBranch
+    || preparation.repository.root !== current.repository.root
+    || preparation.repository.commonDir !== current.repository.commonDir
   ) {
     blockers.push('prepared repository identity does not match current inventory');
   }
@@ -258,8 +260,13 @@ export function authorizeBranchCloseout(input: {
   } else if (currentLocal.sha !== preparation.expectedLocalSha) {
     localAction = 'blocked';
     blockers.push('local branch SHA changed after preparation');
+  } else if (preparation.expectedLocalSha !== preparation.expectedHeadSha) {
+    localAction = 'protect-local';
+    protections.push(
+      `local branch ${preparation.branch}@${preparation.expectedLocalSha} diverges from recovered remote head ${preparation.expectedHeadSha}`
+    );
   } else if (boundWorktrees.length > 0) {
-    localAction = 'protect-worktree';
+    localAction = 'protect-local';
     protections.push(...boundWorktrees.map((worktree) => {
       const details = [
         worktree.observation,
@@ -314,7 +321,7 @@ export function deriveBranchCloseoutStatus(input: {
   if (remote !== undefined) {
     residue.push(`remote ref remains at ${remote.sha}`);
   }
-  if (local !== undefined && authorization.localAction !== 'protect-worktree') {
+  if (local !== undefined && authorization.localAction !== 'protect-local') {
     residue.push(`local ref remains at ${local.sha}`);
   }
   for (const attempt of failedAttempts) {
@@ -328,7 +335,7 @@ export function deriveBranchCloseoutStatus(input: {
     };
   }
 
-  if (local !== undefined && authorization.localAction === 'protect-worktree') {
+  if (local !== undefined && authorization.localAction === 'protect-local') {
     return {
       status: 'protected-pending',
       residue: authorization.protections.length > 0
