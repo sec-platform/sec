@@ -235,7 +235,7 @@ function listPullRequests(
     '--limit',
     '1000',
     '--json',
-    'number,headRefName,headRefOid,baseRefName,state,isDraft,url'
+    'number,headRefName,headRefOid,baseRefName,state,isDraft,isCrossRepository,url'
   ], repositoryRoot);
   if (result.status !== 0) {
     unknowns.push(`PR inventory failed: ${commandErrorText(result)}`);
@@ -327,7 +327,7 @@ function readBooleanConfig(
   repositoryRoot: string,
   key: string
 ): boolean | null {
-  const result = runBranchCommand(ctx, 'git', ['config', '--bool', '--get', key], repositoryRoot);
+  const result = runBranchCommand(ctx, 'git', ['config', '--local', '--bool', '--get', key], repositoryRoot);
   if (result.status !== 0) return null;
   const value = commandText(result).toLowerCase();
   if (value === 'true') return true;
