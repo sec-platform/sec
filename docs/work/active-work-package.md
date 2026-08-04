@@ -10,8 +10,8 @@ last-reviewed: 2026-08-04
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/canonical-architecture-convergence-v1.md
-manifestDigest: sha256:878ec1c02d44b4c496f828bc4ef4aaabf35cdbf412fdb3a9c4942190e1d7657d
+manifest: docs/work-packages/branch-ref-lifecycle-v1.md
+manifestDigest: sha256:d977658f955727dbb5b69d8821b20b2edf2b1d16f3b70ce522f9ba1af339d603
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
