@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  configureBranchLifecycleClone,
   defaultBranchLifecycleCommandRunner,
   finalizeMergedPullRequestCloseout,
   prepareMergedPullRequestCloseout,
@@ -37,9 +38,6 @@ test('temporary repository closeout deletes the remote exact ref and protects di
     git(root, ['clone', remote, repository]);
     git(repository, ['config', 'user.name', 'SEC Test']);
     git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
-    git(repository, ['config', 'fetch.prune', 'true']);
-    git(repository, ['config', 'fetch.pruneTags', 'true']);
-    git(repository, ['config', 'remote.origin.prune', 'true']);
 
     writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
     git(repository, ['add', 'README.md']);
@@ -112,6 +110,11 @@ test('temporary repository closeout deletes the remote exact ref and protects di
       defaultBranch: 'main',
       recoveryRoot
     };
+    const pruneConfiguration = configureBranchLifecycleClone(ctx);
+    expect(pruneConfiguration.fetchPrune).toBe(true);
+    expect(pruneConfiguration.remotePrune).toBe(true);
+    expect(pruneConfiguration.fetchPruneTags).toBe(true);
+
     const prepared = prepareMergedPullRequestCloseout(ctx, {
       number: 7,
       headBranch: 'feat/exact-closeout',
@@ -131,7 +134,7 @@ test('temporary repository closeout deletes the remote exact ref and protects di
     const receipt = finalizeMergedPullRequestCloseout(ctx, prepared, newMainSha);
     expect(receipt.status).toBe('protected-pending');
     expect(receipt.authorization.remoteAction).toBe('delete-cas');
-    expect(receipt.authorization.localAction).toBe('protect-worktree');
+    expect(receipt.authorization.localAction).toBe('protect-local');
     expect(git(repository, ['ls-remote', '--heads', 'origin', 'feat/exact-closeout'])).toBe('');
     expect(git(repository, ['rev-parse', '--verify', 'refs/heads/feat/exact-closeout'])).toBe(headSha);
     expect(readFileSync(path.join(linkedWorktree, 'feature.txt'), 'utf8')).toContain('user-owned change');
