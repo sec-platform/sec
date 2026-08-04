@@ -75,6 +75,9 @@ acceptance:
     covers:
       blocks:
         - collaboration/enterprise-hub
+      slots:
+        - on_workflow_approved
+        - on_workflow_rejected
 routes:
   - path: /api/workflows
     file: src/installed/collaboration/workflows.ts

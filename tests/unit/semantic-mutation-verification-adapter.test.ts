@@ -5,8 +5,9 @@ import { expect, test } from 'bun:test';
 import { buildValidatedEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
 import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
+  classifySemanticMutationIsolatedVerificationOutcome,
   type SemanticMutationIsolatedVerificationArtifactSet
-} from '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts';
+} from '../../platform/compiler/semantic-mutation/isolated-verification-classifier.ts';
 import {
   type SemanticMutationIsolationCapabilityProbeV1
 } from '../../platform/compiler/verify/semantic-mutation-isolation-capability.ts';
@@ -488,12 +489,13 @@ test('isolated child outcome blocks incomplete protocols and classifies canonica
   const mismatchedBundle = structuredClone(isolatedArtifactSet('failed')) as
     SemanticMutationIsolatedVerificationArtifactSet & {
       semanticBundle: { generatorPlan: { inputRevision: string } };
-    };
+  };
   mismatchedBundle.semanticBundle.generatorPlan.inputRevision = `sha256:${'3'.repeat(64)}`;
 
-  // Under the 1B-3 writer profile a zero-test pseudo-pass is already a canonical
-  // failed summary, so a nonzero child exit is a real physical failure, not blocked.
-  expect(classifySemanticMutationIsolatedVerificationArtifactSet(passedNonzero)).toBe('failed');
+  // 1B-4: a zero-test pseudo-pass is a canonical invalidated summary, so a
+  // nonzero child exit is an environment/coverage truth problem (blocked),
+  // never a product failure.
+  expect(classifySemanticMutationIsolatedVerificationArtifactSet(passedNonzero)).toBe('blocked');
 
   for (const candidate of [failedZero, missingReport, forgedRuntime, mismatchedBundle]) {
     const outcome = classifySemanticMutationIsolatedVerificationArtifactSet(candidate);
@@ -501,4 +503,29 @@ test('isolated child outcome blocks incomplete protocols and classifies canonica
     expect(outcome).not.toContain('workspace');
     expect(outcome).not.toContain('secret');
   }
+});
+
+test('1B-4 pure decision rule separates product failure from blocked environment truth', () => {
+  // canonical passed requires zero exit and physical fast/runtime pass
+  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', 0, true, true)).toBe('passed');
+  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', 0, true, false)).toBe('blocked');
+  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', 0, false, true)).toBe('blocked');
+  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', 1, true, true)).toBe('blocked');
+
+  // canonical failed with nonzero exit is a real physical failure
+  expect(classifySemanticMutationIsolatedVerificationOutcome('failed', 1, false, false)).toBe('failed');
+  expect(classifySemanticMutationIsolatedVerificationOutcome('failed', 1, true, false)).toBe('failed');
+  // canonical failed with zero exit is protocol incoherence
+  expect(classifySemanticMutationIsolatedVerificationOutcome('failed', 0, false, false)).toBe('blocked');
+
+  // invalidated / unsupported / not-run are never product failures
+  for (const status of ['invalidated', 'unsupported', 'not-run'] as const) {
+    expect(classifySemanticMutationIsolatedVerificationOutcome(status, 1, false, false)).toBe('blocked');
+    expect(classifySemanticMutationIsolatedVerificationOutcome(status, 0, false, false)).toBe('blocked');
+    expect(classifySemanticMutationIsolatedVerificationOutcome(status, 1, true, true)).toBe('blocked');
+  }
+
+  // malformed exit evidence fails closed
+  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', -1, true, true)).toBe('blocked');
+  expect(classifySemanticMutationIsolatedVerificationOutcome('passed', Number.NaN, true, true)).toBe('blocked');
 });

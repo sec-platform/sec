@@ -751,6 +751,60 @@ test('SM-3 coordinator pre-publish failure matrix preserves every live byte and 
   }, 'sm3-pre-');
 }, 600_000);
 
+test('SM-3 acceptance-not-executed stays blocked and never publishes staged writes', async () => {
+  // 1B-4 reverse invariant: when acceptance truth cannot be executed (canonical
+  // blocked/not-run/invalidated verification), the mutation must be rejected as
+  // blocked, no transaction artifact/journal/publish/rebuild producer may run,
+  // and the live workspace must remain byte-identical (staged writes uncommitted).
+  await withTempWorkspace(async (workspaceRoot) => {
+    const fixture = await coordinatorFailureFixture(
+      workspaceRoot,
+      'request:acceptance-not-executed'
+    );
+    const before = await liveWorkspaceByteSnapshot(workspaceRoot);
+    const calls = { verify: 0, artifacts: 0, append: 0, publish: 0, rebuild: 0 };
+    const outcome = await applySemanticMutationWithTestDependencies(
+      workspaceRoot,
+      fixture.input,
+      {
+        ...FAILURE_MATRIX_TEST_DEPENDENCIES,
+        verify: async (derived: ReadyDerivedMutation) => {
+          calls.verify += 1;
+          return verificationExecution(derived, 'blocked');
+        },
+        writeTransactionArtifacts: async () => {
+          calls.artifacts += 1;
+          throw new Error('transaction artifacts must not run after blocked verification');
+        },
+        appendRecoveryRecord: async () => {
+          calls.append += 1;
+          throw new Error('prepared journal must not run after blocked verification');
+        },
+        publishSource: async () => {
+          calls.publish += 1;
+          throw new Error('publish must not run after blocked verification');
+        },
+        rebuildLive: async () => {
+          calls.rebuild += 1;
+          throw new Error('live rebuild must not run after blocked verification');
+        }
+      }
+    );
+    expect(outcome.status).toBe('terminal');
+    if (outcome.status !== 'terminal') throw new Error(JSON.stringify(outcome));
+    expect(outcome.result).toMatchObject({
+      status: 'rejected',
+      verification: { status: 'blocked' },
+      diagnostics: [expect.objectContaining({
+        code: 'SEMANTIC-MUTATION-010',
+        stage: 'impact-verification'
+      })]
+    });
+    expect(calls).toEqual({ verify: 1, artifacts: 0, append: 0, publish: 0, rebuild: 0 });
+    expect(await liveWorkspaceByteSnapshot(workspaceRoot)).toEqual(before);
+  }, 'sm3-acceptance-not-executed-');
+}, 600_000);
+
 test('SM-3 coordinator post-publish restore and journal failures become durable recovery-required', async () => {
   await withTempWorkspace(async (root) => {
     const createCase = async (label: string) => {
