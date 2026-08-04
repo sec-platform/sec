@@ -187,7 +187,7 @@ async function main(): Promise<void> {
     } else {
       process.stdout.write(`${formatAuditText(inventory)}\n`);
     }
-    if (report.status !== 'clean') process.exitCode = 1;
+    if (report.status === 'drift' || report.status === 'blocked') process.exitCode = 1;
     return;
   }
 
