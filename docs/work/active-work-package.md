@@ -10,8 +10,8 @@ last-reviewed: 2026-08-04
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/verification-writer-profile-v1.md
-manifestDigest: sha256:0a6857a6e72b7bd8675c88476e66969970156f7872f6d9123ee78ccbf1cbb239
+manifest: docs/work-packages/semantic-mutation-classification-v1.md
+manifestDigest: sha256:cd217441ada45100d170b969bf12ab8b8d4b4511a89375201f2d63b33e93755b
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

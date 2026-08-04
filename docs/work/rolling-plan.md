@@ -7,17 +7,16 @@ last-reviewed: 2026-08-04
 
 # SEC 滚动近期计划
 
-本窗口从 live resolver 已确认的 `main@335ffdbe1279e4284babf6f3133846970e7ac8ee`、当前正式候选 PR (1B-3) / Issue #215、已关闭且未合并的 non-authority Spike PR #229、开放 Issues #206/#207/#208/#215/#216、Review/CI 与 exact tree 重新计算。PR #229 只写 `docs/proposals/agent-skill-system-v2/**`，未选择 formal Work Package、未修改控制面，也不改变本窗口的串行交付顺序。
+本窗口从 live resolver 已确认的 `main@0fad72008c60e5bcb1805b59d109c8ef41f5b610`、当前唯一 formal Work Package (1B-4) / Issue #215、已关闭且未合并的 non-authority Spike PR #229、开放 Issues #206/#207/#208/#215/#216、Review/CI 与 exact tree 重新计算。PR #229 只写 `docs/proposals/agent-skill-system-v2/**`，未选择 formal Work Package、未修改控制面，也不改变本窗口的串行交付顺序。
 
 Active documentation corpus、test runtime performance、parallel work package contract、CI speed optimization、dev-loop-speed-v1、dev-loop-speed-v2、verification-result-core-v1、ci-verification-flow-fix-v1 与 verification-result-claim-migration-v1 已进入 `main`：`docs/authority.json` 机器化拥有 active document identity、lifecycle、domain、ownership、projection、consumer 与 update trigger；CI verification contract revision 为 v19；template lock 不再串行化并发 clone；`.shared-deps/` 不再泄漏 `bun.lock`；CI 缓存、merge bootstrap CLI 与 gate API 已优化；check:fast gate 并行化、docs:doctor 增量模式、preload marker 门控、动态并发与 resource-class registry 已落地；冷启动 stamp 短路、测试基础设施硬链接克隆与跨进程 test-impact 缓存、编译器管线共享 ts-morph Project 与并行 I/O、affected-tests reverse-import-map 已落地；sec-merge-bootstrap squash 已修复 single-parent invariant；统一验证结果模型 5 态/3 disposition/4 applicability/17 reasonCode/claim-based aggregate 已建立；CI PR validation 冗余 `git fetch` 已移除；`commandAll` 自动 squash 在 attestation/verification dispatch 之前执行；产品 verification summary 已迁移至 claim-based aggregation，`skipped` 不再静默产生 `passed`。
 
-`verification-artifact-claim-summary-v1`（PR #227 / Issue #217）已通过 trusted-base bootstrap 进入 `main@a74a4573`；`verification-aggregate-lattice-v1`（1B-1）进入 `main@0cd22ba9`（PR #263）；`verification-acceptance-coverage-v1`（1B-2）通过 manual bootstrap 进入 `main@335ffdbe`（PR #264），物理路径 → acceptance ID 契约与 readback 重算落地。
+`verification-artifact-claim-summary-v1`（PR #227 / Issue #217）已通过 trusted-base bootstrap 进入 `main@a74a4573`；`verification-aggregate-lattice-v1`（1B-1）进入 `main@0cd22ba9`（PR #263）；`verification-acceptance-coverage-v1`（1B-2）通过 manual bootstrap 进入 `main@335ffdbe`（PR #264），物理路径 → acceptance ID 契约与 readback 重算落地；`verification-writer-profile-v1`（1B-3）通过 trusted-base manual bootstrap 进入 `main@0fad7200`（PR #267），唯一 current-writer profile、no-policy 真值与 full-runtime 物理真值落地。
 
-当前 `verification-writer-profile-v1`（Issue #215 slice 1B-3）已接管唯一 formal pointer。它把 current writer 收敛到唯一 profile：no-policy 时 not-applicable Policy claim 从 aggregate 要求移除、full-runtime PASS 要求非空执行清单与 command identity、blocked snapshot 与普通物理失败区分、classifier 输入边界只对磁盘 artifact 做 strict snapshot、staged-proof 先断言后冻结。后续 1B-4 收口 Semantic Mutation classification。
+当前 `semantic-mutation-classification-v1`（Issue #215 slice 1B-4）已接管唯一 formal pointer。它把 isolated runner 拆成执行 core + thin verification/Coverage wrapper，并把 canonical `failed`（真实物理失败）与 `invalidated/unsupported/not-run`（环境/选择/覆盖真值，blocked）分开；acceptance 未执行永不 publish。
 
 ```text
-#215 Slice 1B-3 Writer Profile
-→ #215 Slice 1B-4 Semantic Mutation Classification
+#215 Slice 1B-4 Semantic Mutation Classification
 → #216 Release Validation Credential / Fetch Trust Root
 → #207 Parallel Resolver Correctness + Integration Epoch
 ```
@@ -28,15 +27,20 @@ Active documentation corpus、test runtime performance、parallel work package c
 
 ## 当前唯一 Work Package
 
-### verification-writer-profile-v1
+### semantic-mutation-classification-v1
 
-- Issue #215 slice 1B-3 是当前唯一 formal Work Package；schema 继续使用 `codex-development-work-package-v1`，profile 为 Quick，一个代码 Worker 与 A0 控制面 owner 串行工作。
+- Issue #215 slice 1B-4 是当前唯一 formal Work Package；schema 继续使用 `codex-development-work-package-v1`，profile 为 Quick，一个代码 Worker 与 A0 控制面 owner 串行工作。
 - 阶段 0–5 执行路线继续冻结于 `docs/evidence/2026-08-03-constraint-thoughts-execution-plan.md`；`#234/#240/#242/#245/#250/#253/#254/#236/#243/#241/#260` 继续作为设计来源冻结，不推新 commit，直到替代 WP 从新 `main` 接管。旧 #234 已随其基分支删除自动关闭；替代 PR 合并后补链接。
-- 工程目标：`product-verification-profile.ts` 是唯一 current-writer profile（gate/claim ID、revision、environment identity、lane selection、normal/blocked writer、runtime mode、policy applicability）；no-policy 移除 not-applicable Policy claim；full-runtime PASS 要求非空 build/unit/acceptance 清单 + command identity + 完整语义 Coverage；classifier 只对磁盘 artifact 做 strict snapshot，受信 frozen bundle 结构校验；staged-proof 先 canonical 断言再 deep-freeze。
-- 冻结边界：只改 profile、writers、artifact contract、classifier 输入边界、staged-proof 冻结顺序与列出的测试；不触碰 acceptance-proof-contract、build-acceptance-coverage、verification-result-contract、test-impact-rules、dev-runner、workflow、package/lock、docs/authority.json 或 current-state.yaml。
+- 工程目标：`platform/compiler/semantic-mutation/isolated-verification-classifier.ts` 是 thin verification/Coverage wrapper 与唯一 passed/failed/blocked 决策边界；执行 core（child + host）委托它做状态裁决；canonical passed 要求 zero exit 且 fast/runtime 物理通过；canonical failed + nonzero → failed；canonical failed + zero → blocked；canonical invalidated/unsupported/not-run 任何 exit → blocked；acceptance 未执行不 publish、staged 写保持未提交。
+- 冻结边界：只改 classifier wrapper、run-semantic-mutation-isolated-child 的委托与列出的测试；不触碰 verification-result-contract、verification-artifact-contract、product-verification-profile、acceptance-proof-contract、build-acceptance-coverage、verify-project、writers、test-impact-rules、dev-runner、workflow、package/lock、docs/authority.json 或 current-state.yaml。
 - 退出顺序：focused batch → 消费者回归 → typecheck → docs:doctor → repository audit → affected run → independent exact-head Review → hosted Quick → squash merge → new-main readback。
 
 ## 已完成 Work Package
+
+### verification-writer-profile-v1 (PR #267)
+
+- 已 squash merge 至 `main@0fad7200`（trusted-base manual bootstrap，hosted Quick 按预期 manual-bootstrap-required）；在 `semantic-mutation-classification-v1` 原子接管 pointer 后，manifest 已归档至 `docs/archive/work-packages/`。
+- 工程结果：唯一 current-writer profile（gate/claim ID、revision、environment identity、lane selection、runtime mode、policy applicability、normal/blocked summary）；no-policy 从 aggregate 移除 not-applicable Policy claim；full-runtime PASS 要求非空 build/unit/acceptance 清单 + command identity + 完整语义 Coverage（零测试伪 PASS 变 canonical failed）；blocked snapshot 与普通物理失败区分；classifier 输入边界只对磁盘 artifact 做 strict snapshot、受信 bundle 结构校验；staged-proof 先 canonical 断言再 deep-freeze；SM-3 真实隔离 verification 全绿。
 
 ### verification-acceptance-coverage-v1 (PR #264)
 
@@ -123,17 +127,12 @@ Active documentation corpus、test runtime performance、parallel work package c
 
 ## 候选 Work Package
 
-### 1. semantic-mutation-classification-v1
-
-- 1B-4，从 1B-3 的新 `main` 冻结；isolated runner 拆成 core + thin verification/Coverage wrapper；nonzero exit + canonical `invalidated/unsupported/not-run` → `blocked`，仅 canonical `failed` + nonzero → `failed`，canonical `passed` 仍要求 zero exit 且 fast/runtime 物理通过。
-- 退出：focused tests、typecheck、docs:doctor、repository audit、independent Review、hosted Quick、squash merge、new-main readback。
-
-### 2. release-validation-credential-fetch-trust-root-v1
+### 1. release-validation-credential-fetch-trust-root-v1
 
 - 从 1B-4 的新 `main` 冻结独立小包；删除 release workflow 的无凭据 raw fetch，并同步唯一 CI step-order contract/test。
 - 保持 `persist-credentials: false` 与 trusted `SEC_CHANGED_BASE`；完成 base-side bootstrap 与新-main release canary readback。
 
-### 3. parallel-resolver-integration-epoch-v1
+### 2. parallel-resolver-integration-epoch-v1
 
 - 仍由当前串行 V1/V2 lifecycle bootstrap，不允许尚未可信的 V3 resolver 给自己授权并行。
 - 完成 relation/scope/resource/authority 语义、exact-base Integration Epoch、global writer allocation、deterministic order、receipt invalidation 与 current lifecycle 真实接入。

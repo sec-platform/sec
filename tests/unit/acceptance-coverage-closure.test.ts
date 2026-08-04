@@ -12,7 +12,7 @@ import type {
   RuntimeVerificationLaneReport,
   VerificationReport
 } from '../../platform/shared/types.ts';
-import { writeYaml } from '../../platform/shared/yaml.ts';
+import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
 import { emptyVerificationLogs } from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -179,4 +179,25 @@ test('coverage readback restores fast acceptance from the matching canonical rep
     expect(coverage.acceptancePassed).toEqual(['user_can_create_customer']);
     expect(coverage.uncoveredBlocks).toEqual([]);
   });
+});
+
+test('every official registry slot is declared by at least one acceptance cover', async () => {
+  const officialRoot = path.resolve(import.meta.dir, '../../platform/registry/official');
+  const manifests = (await fs.readdir(officialRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(officialRoot, entry.name, 'block.manifest.yaml'));
+  expect(manifests.length).toBeGreaterThan(0);
+
+  for (const manifestPath of manifests) {
+    const parsed = await readYaml<BlockManifest>(manifestPath);
+    const coveredSlots = new Set(
+      (parsed.acceptance ?? []).flatMap((acceptance) => acceptance.covers?.slots ?? [])
+    );
+    for (const slot of parsed.slots ?? []) {
+      expect(
+        coveredSlots.has(slot.id),
+        `${parsed.id} slot ${slot.id} must be declared by an acceptance cover`
+      ).toBe(true);
+    }
+  }
 });
