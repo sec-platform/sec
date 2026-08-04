@@ -633,6 +633,9 @@ export function CodexDevelopmentAssertVerificationGateResultV1(
     if (candidate.evidenceRefs.length === 0) {
       throw new Error(`${label} reused disposition requires non-empty evidenceRefs.`);
     }
+    if (candidate.environment === null) {
+      throw new Error(`${label} reused disposition requires a non-null environment identity.`);
+    }
     if (candidate.execution !== null) {
       throw new Error(`${label} reused disposition must have null execution.`);
     }
@@ -703,13 +706,94 @@ export interface VerificationAggregateInputV1 {
   gateResults: readonly VerificationGateResultV1[];
   /**
    * Callback to determine whether coverage is complete for a claim given its
-   * contributing gates. Defaults to "all required gates are present and passed/reused".
+   * applicable observations. Defaults to "every required gate has at least one
+   * applicable passed observation with exact claim linkage".
    * Callers with richer coverage semantics (e.g., scope inventory) should override.
    */
   isCoverageComplete?: (
     claim: VerificationClaimDefinitionV1,
-    contributingGates: VerificationGateResultV1[]
+    observations: VerificationGateResultV1[]
   ) => boolean;
+}
+
+/**
+ * Canonical owning-environment identity for one gate observation.
+ *
+ * The current projection is `<os>-<arch>`, byte-compatible with the product
+ * claim plan already on `main`. Any future projection change must update every
+ * producer of `owningEnvironments` in the same lockstep Work Package; the
+ * aggregate treats the strings as opaque canonical identities and never parses
+ * or reconstructs them.
+ */
+export function CodexDevelopmentVerificationEnvironmentIdentityV1(
+  os: string,
+  arch: string
+): string {
+  assertString(os, 'verification environment os');
+  assertString(arch, 'verification environment arch');
+  return `${os}-${arch}`;
+}
+
+/**
+ * Order-independent status lattice: `failed > invalidated > unsupported >
+ * not-run > passed`. Later observations never override earlier ones by
+ * position; the highest competing status is decisive.
+ */
+const STATUS_PRIORITY: Readonly<Record<VerificationResultStatus, number>> = Object.freeze({
+  passed: 0,
+  'not-run': 1,
+  unsupported: 2,
+  invalidated: 3,
+  failed: 4
+});
+
+function environmentIdentity(gate: VerificationGateResultV1): string | null {
+  return gate.environment === null
+    ? null
+    : CodexDevelopmentVerificationEnvironmentIdentityV1(
+        gate.environment.os,
+        gate.environment.arch
+      );
+}
+
+function observationIdentity(gate: VerificationGateResultV1): string {
+  return JSON.stringify([gate.gateId, environmentIdentity(gate)]);
+}
+
+/**
+ * Logical proof identity binds gate revision, owner, requirement, subject,
+ * input digest, sorted claim bindings and canonical invalidation rules. Two
+ * owning observations with different proof identity cannot jointly authorize
+ * a pass; the mixed identity is itself invalidated.
+ */
+function logicalProofIdentity(gate: VerificationGateResultV1): string {
+  return JSON.stringify({
+    gateRevision: gate.gateRevision,
+    owner: gate.owner,
+    requirementKey: gate.requirementKey,
+    subjectRevision: gate.subjectRevision,
+    inputDigest: gate.inputDigest,
+    requiredForClaims: [...gate.requiredForClaims].sort(),
+    invalidationRules: [...gate.invalidationRules].sort()
+  });
+}
+
+/**
+ * A gate observation applies to a claim only when its environment is one of the
+ * claim's owning environments, or when it carries no environment and is
+ * not-executed (a not-run/unsupported/invalidated observation is a legitimate
+ * non-owning-agnostic fact). Non-owning observations never poison status or
+ * proof identity for an owning claim.
+ */
+function observationAppliesToClaim(
+  claim: VerificationClaimDefinitionV1,
+  gate: VerificationGateResultV1
+): boolean {
+  if (gate.environment === null) {
+    return gate.disposition === 'not-executed';
+  }
+  if (claim.owningEnvironments.length === 0) return true;
+  return claim.owningEnvironments.includes(environmentIdentity(gate)!);
 }
 
 function snapshotVerificationAggregateInputV1(
@@ -770,12 +854,19 @@ function snapshotVerificationAggregateInputV1(
 
   const canonicalGates: VerificationGateResultV1[] = [];
   const gateMap = new Map<string, VerificationGateResultV1>();
+  const observations = new Set<string>();
   gateResults.forEach((gateResult) => {
     CodexDevelopmentAssertVerificationGateResultV1(gateResult);
-    if (gateMap.has(gateResult.gateId)) {
-      throw new Error(`${label}.gateResults must not contain duplicate gateId ${gateResult.gateId}.`);
+    const observation = observationIdentity(gateResult);
+    if (observations.has(observation)) {
+      throw new Error(
+        `${label}.gateResults must not contain duplicate gate observation ${observation}.`
+      );
     }
-    gateMap.set(gateResult.gateId, gateResult);
+    observations.add(observation);
+    if (!gateMap.has(gateResult.gateId)) {
+      gateMap.set(gateResult.gateId, gateResult);
+    }
     canonicalGates.push(gateResult);
   });
 
@@ -792,17 +883,19 @@ function snapshotVerificationAggregateInputV1(
   }
   for (const claim of claimPlan.values()) {
     for (const gateId of claim.requiredGateIds) {
-      const gate = gateMap.get(gateId);
-      if (!gate) continue;
-      if (!gate.requiredForClaims.includes(claim.claimId)) {
-        throw new Error(
-          `${label} required gate ${gateId} lacks requiredForClaims linkage to ${claim.claimId}.`
-        );
-      }
-      if (gate.status === 'passed' && !gate.supportedClaims.includes(claim.claimId)) {
-        throw new Error(
-          `${label} passed required gate ${gateId} lacks supportedClaims linkage to ${claim.claimId}.`
-        );
+      const gatesForGateId = canonicalGates.filter((gate) => gate.gateId === gateId);
+      if (gatesForGateId.length === 0) continue;
+      for (const gate of gatesForGateId) {
+        if (!gate.requiredForClaims.includes(claim.claimId)) {
+          throw new Error(
+            `${label} required gate ${gateId} lacks requiredForClaims linkage to ${claim.claimId}.`
+          );
+        }
+        if (gate.status === 'passed' && !gate.supportedClaims.includes(claim.claimId)) {
+          throw new Error(
+            `${label} passed required gate ${gateId} lacks supportedClaims linkage to ${claim.claimId}.`
+          );
+        }
       }
     }
   }
@@ -821,165 +914,190 @@ function snapshotVerificationAggregateInputV1(
 
 function defaultCoverageComplete(
   claim: VerificationClaimDefinitionV1,
-  contributingGates: VerificationGateResultV1[]
+  observations: VerificationGateResultV1[]
 ): boolean {
-  // Default: all required gates must be present and passed/reused.
-  if (contributingGates.length !== claim.requiredGateIds.length) return false;
-  return contributingGates.every((gate) => gate.status === 'passed');
+  return claim.requiredGateIds.every((gateId) => observations.some((gate) => (
+    gate.gateId === gateId
+    && gate.status === 'passed'
+    && gate.requiredForClaims.includes(claim.claimId)
+    && gate.supportedClaims.includes(claim.claimId)
+    && observationAppliesToClaim(claim, gate)
+  )));
 }
 
-function reduceVerificationAggregateOverallV1(
-  claimResults: readonly VerificationClaimResultV1[]
-): Pick<VerificationAggregateResultV1, 'overallStatus' | 'overallReasonCode'> {
-  // Preserve the current projection exactly. Issue #215 owns any future change
-  // to the non-failed status lattice or its ordering semantics.
-  let overallStatus: VerificationResultStatus = 'passed';
-  let overallReasonCode: VerificationReasonCode = 'executed-success';
-  for (const result of claimResults) {
-    if (result.status === 'failed') {
-      overallStatus = 'failed';
-      overallReasonCode = 'executed-failure';
-      break;
-    }
-    if (overallStatus !== 'passed') continue;
-    if (result.status === 'invalidated') {
-      overallStatus = 'invalidated';
-      overallReasonCode = result.reasonCode;
-    } else if (result.status === 'unsupported') {
-      overallStatus = 'unsupported';
-      overallReasonCode = result.reasonCode;
-    } else if (result.status === 'not-run') {
-      overallStatus = 'not-run';
-      overallReasonCode = result.reasonCode;
-    }
+function chooseHighestStatus<
+  T extends { status: VerificationResultStatus; reasonCode: VerificationReasonCode }
+>(values: readonly T[]): T | null {
+  return [...values].sort((left, right) => {
+    const priority = STATUS_PRIORITY[right.status] - STATUS_PRIORITY[left.status];
+    if (priority !== 0) return priority;
+    return left.reasonCode < right.reasonCode ? -1 : left.reasonCode > right.reasonCode ? 1 : 0;
+  })[0] ?? null;
+}
+
+interface GateDecision {
+  gateId: string;
+  status: VerificationResultStatus;
+  reasonCode: VerificationReasonCode;
+  observations: VerificationGateResultV1[];
+}
+
+interface StatusDecision {
+  status: VerificationResultStatus;
+  reasonCode: VerificationReasonCode;
+}
+
+function observationDecision(
+  claim: VerificationClaimDefinitionV1,
+  gate: VerificationGateResultV1
+): StatusDecision {
+  if (!gate.requiredForClaims.includes(claim.claimId)) {
+    return { status: 'invalidated', reasonCode: 'selection-unresolved' };
   }
-  return { overallStatus, overallReasonCode };
+  if (gate.status === 'passed' && !gate.supportedClaims.includes(claim.claimId)) {
+    return { status: 'invalidated', reasonCode: 'selection-unresolved' };
+  }
+  return { status: gate.status, reasonCode: gate.reasonCode };
+}
+
+function decideRequiredGate(
+  claim: VerificationClaimDefinitionV1,
+  gateId: string,
+  observations: VerificationGateResultV1[]
+): GateDecision {
+  if (observations.length === 0) {
+    return { gateId, status: 'not-run', reasonCode: 'not-dispatched', observations: [] };
+  }
+
+  const applicable = observations.filter((gate) => observationAppliesToClaim(claim, gate));
+  if (applicable.length === 0) {
+    return {
+      gateId,
+      status: 'not-run',
+      reasonCode: 'current-runner-not-owning-environment',
+      observations: []
+    };
+  }
+
+  const decisions: StatusDecision[] = applicable.map((gate) =>
+    observationDecision(claim, gate)
+  );
+  if (new Set(applicable.map(logicalProofIdentity)).size > 1) {
+    decisions.push({ status: 'invalidated', reasonCode: 'selection-unresolved' });
+  }
+
+  const decisive = chooseHighestStatus(decisions);
+  if (!decisive) {
+    return {
+      gateId,
+      status: 'invalidated',
+      reasonCode: 'selection-unresolved',
+      observations: applicable
+    };
+  }
+  return {
+    gateId,
+    status: decisive.status,
+    reasonCode: decisive.reasonCode,
+    observations: applicable
+  };
 }
 
 /**
  * Aggregate gate results into per-claim results and an overall status.
  *
- * 6-step algorithm (per claim):
- * 1. Resolve required gates and owning environments.
- * 2. Any required gate failed → claim failed.
- * 3. No failed but invalidated/unresolved → claim invalidated.
- * 4. No above but owning required gate unsupported → claim unsupported.
- * 5. No above but owning required gate not-run/missing → claim not-run.
- * 6. All required gates passed/reused with coverage complete → claim passed.
+ * Order-independent, owning-environment-aware lattice:
+ * `failed > invalidated > unsupported > not-run > passed`.
  *
- * Overall: `passed` only when every required claim is `passed`.
+ * - Duplicate claim IDs and duplicate gate observations fail closed.
+ * - Non-owning observations never change an owning claim's status.
+ * - Mixed logical proof identity among owning observations invalidates the
+ *   gate unless a real owning failure outranks it.
+ * - Empty claims and empty required gates fail closed (`invalidated` /
+ *   input rejection); no test truth can ever manufacture a `passed`.
+ * - Claim results are emitted in deterministic claimId order so input order
+ *   cannot change the canonical projection.
  */
 export function CodexDevelopmentAggregateVerificationClaimsV1(
   input: VerificationAggregateInputV1
 ): VerificationAggregateResultV1 {
   const snapshot = snapshotVerificationAggregateInputV1(input);
-  const gateMap = new Map<string, VerificationGateResultV1>();
-  for (const gate of snapshot.gateResults) {
-    gateMap.set(gate.gateId, gate);
+  if (snapshot.claims.length === 0) {
+    return {
+      overallStatus: 'invalidated',
+      overallReasonCode: 'selection-unresolved',
+      claimResults: []
+    };
   }
+
+  const gateGroups = new Map<string, VerificationGateResultV1[]>();
+  for (const gate of snapshot.gateResults) {
+    const group = gateGroups.get(gate.gateId) ?? [];
+    group.push(gate);
+    gateGroups.set(gate.gateId, group);
+  }
+
   const customCoverageComplete = snapshot.isCoverageComplete;
   const isCoverageComplete = (
     claim: VerificationClaimDefinitionV1,
-    contributingGates: VerificationGateResultV1[]
+    observations: VerificationGateResultV1[]
   ): boolean => {
-    const builtInCoverageComplete = defaultCoverageComplete(claim, contributingGates);
+    const builtInCoverageComplete = defaultCoverageComplete(claim, observations);
     if (!customCoverageComplete) return builtInCoverageComplete;
     const callbackClaim = CodexDevelopmentSnapshotVerificationDataV1(
       claim,
       'verification coverage callback claim'
     ) as VerificationClaimDefinitionV1;
-    const callbackGates = CodexDevelopmentSnapshotVerificationDataV1(
-      contributingGates,
-      'verification coverage callback gates'
+    const callbackObservations = CodexDevelopmentSnapshotVerificationDataV1(
+      observations,
+      'verification coverage callback observations'
     ) as VerificationGateResultV1[];
-    return builtInCoverageComplete && customCoverageComplete(callbackClaim, callbackGates) === true;
+    return builtInCoverageComplete &&
+      customCoverageComplete(callbackClaim, callbackObservations) === true;
   };
-  const claimResults: VerificationClaimResultV1[] = snapshot.claims.map((claim) => {
-    const contributingGates = claim.requiredGateIds
-      .map((id) => gateMap.get(id))
-      .filter((gate): gate is VerificationGateResultV1 => gate !== undefined);
-    return aggregateClaim(claim, contributingGates, isCoverageComplete);
-  });
-  const { overallStatus, overallReasonCode } = reduceVerificationAggregateOverallV1(claimResults);
-  return { overallStatus, overallReasonCode, claimResults };
+  const claimResults = snapshot.claims
+    .map((claim) => aggregateClaim(claim, gateGroups, isCoverageComplete))
+    .sort((left, right) => (
+      left.claimId < right.claimId ? -1 : left.claimId > right.claimId ? 1 : 0
+    ));
+  const decisive = chooseHighestStatus(claimResults);
+  return {
+    overallStatus: decisive?.status ?? 'invalidated',
+    overallReasonCode: decisive?.reasonCode ?? 'selection-unresolved',
+    claimResults
+  };
 }
 
 function aggregateClaim(
   claim: VerificationClaimDefinitionV1,
-  contributingGates: VerificationGateResultV1[],
+  gateGroups: ReadonlyMap<string, VerificationGateResultV1[]>,
   isCoverageComplete: (
     claim: VerificationClaimDefinitionV1,
-    gates: VerificationGateResultV1[]
+    observations: VerificationGateResultV1[]
   ) => boolean
 ): VerificationClaimResultV1 {
-  const coverageComplete = isCoverageComplete(claim, contributingGates);
+  const decisions = claim.requiredGateIds.map((gateId) =>
+    decideRequiredGate(claim, gateId, gateGroups.get(gateId) ?? [])
+  );
+  const observations = decisions.flatMap((decision) => decision.observations);
+  const contributingGateIds = [...new Set(observations.map((gate) => gate.gateId))].sort();
+  const coverageComplete = isCoverageComplete(claim, observations);
+  const decisive = chooseHighestStatus(decisions);
 
-  // Step 2: any required gate failed → claim failed
-  const failedGate = contributingGates.find((gate) => gate.status === 'failed');
-  if (failedGate) {
-    return {
-      claimId: claim.claimId,
-      status: 'failed',
-      reasonCode: failedGate.reasonCode,
-      contributingGateIds: contributingGates.map((gate) => gate.gateId),
-      coverageComplete
-    };
-  }
-
-  // Step 3: no failed but invalidated/unresolved → claim invalidated
-  const invalidatedGate = contributingGates.find((gate) => gate.status === 'invalidated');
-  if (invalidatedGate) {
+  if (!decisive || (decisive.status === 'passed' && !coverageComplete)) {
     return {
       claimId: claim.claimId,
       status: 'invalidated',
-      reasonCode: invalidatedGate.reasonCode,
-      contributingGateIds: contributingGates.map((gate) => gate.gateId),
-      coverageComplete
+      reasonCode: 'selection-unresolved',
+      contributingGateIds,
+      coverageComplete: false
     };
   }
-
-  // Step 4: owning required gate unsupported → claim unsupported
-  const unsupportedGate = contributingGates.find((gate) => gate.status === 'unsupported');
-  if (unsupportedGate) {
-    return {
-      claimId: claim.claimId,
-      status: 'unsupported',
-      reasonCode: unsupportedGate.reasonCode,
-      contributingGateIds: contributingGates.map((gate) => gate.gateId),
-      coverageComplete
-    };
-  }
-
-  // Step 5: owning required gate not-run/missing → claim not-run
-  const notRunGate = contributingGates.find((gate) => gate.status === 'not-run');
-  const hasMissing = contributingGates.length < claim.requiredGateIds.length;
-  if (notRunGate || hasMissing) {
-    return {
-      claimId: claim.claimId,
-      status: 'not-run',
-      reasonCode: notRunGate?.reasonCode ?? 'not-dispatched',
-      contributingGateIds: contributingGates.map((gate) => gate.gateId),
-      coverageComplete
-    };
-  }
-
-  // Step 6: all passed/reused with coverage complete → claim passed
-  if (coverageComplete) {
-    return {
-      claimId: claim.claimId,
-      status: 'passed',
-      reasonCode: 'executed-success',
-      contributingGateIds: contributingGates.map((gate) => gate.gateId),
-      coverageComplete
-    };
-  }
-
-  // Coverage incomplete → invalidated (selection-unresolved)
   return {
     claimId: claim.claimId,
-    status: 'invalidated',
-    reasonCode: 'selection-unresolved',
-    contributingGateIds: contributingGates.map((gate) => gate.gateId),
+    status: decisive.status,
+    reasonCode: decisive.reasonCode,
+    contributingGateIds,
     coverageComplete
   };
 }

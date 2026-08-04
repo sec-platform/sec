@@ -254,18 +254,19 @@ test('builder rejects invalid input', () => {
 // Aggregate contract
 // ---------------------------------------------------------------------------
 
-test('aggregate returns empty claimResults for empty claims', () => {
+test('aggregate fails closed for empty claims instead of manufacturing passed', () => {
   const result = CodexDevelopmentAggregateVerificationClaimsV1({
     claims: [],
     gateResults: []
   });
-  expect(result.overallStatus).toBe('passed');
+  expect(result.overallStatus).toBe('invalidated');
+  expect(result.overallReasonCode).toBe('selection-unresolved');
   expect(result.claimResults).toEqual([]);
 });
 
 test('aggregate result has correct shape', () => {
   const result = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [{ claimId: 'c1', requiredGateIds: ['g1'], owningEnvironments: ['linux'] }],
+    claims: [{ claimId: 'c1', requiredGateIds: ['g1'], owningEnvironments: ['linux-x64'] }],
     gateResults: []
   });
   expect(result).toHaveProperty('overallStatus');
@@ -277,7 +278,11 @@ test('aggregate result has correct shape', () => {
 
 function canonicalAggregateFixture() {
   const gate = CodexDevelopmentBuildVerificationGateResultV1(minimalValidInput());
-  const claims = [{ claimId: 'claim-1', requiredGateIds: ['gate-1'], owningEnvironments: ['linux'] }];
+  const claims = [{
+    claimId: 'claim-1',
+    requiredGateIds: ['gate-1'],
+    owningEnvironments: ['linux-x64']
+  }];
   const gates = [gate];
   const overall = CodexDevelopmentAggregateVerificationClaimsV1({ claims, gateResults: gates });
   return { overall, claims, gates };
@@ -720,7 +725,11 @@ test('trusted claims and serialized passes cannot close vacuously', () => {
   )).toThrow(/passed status requires non-empty contributingGateIds/);
 
   const callbackCannotCreateCoverage = CodexDevelopmentAggregateVerificationClaimsV1({
-    claims: [{ claimId: 'claim-1', requiredGateIds: ['missing-gate'], owningEnvironments: ['linux'] }],
+    claims: [{
+      claimId: 'claim-1',
+      requiredGateIds: ['missing-gate'],
+      owningEnvironments: ['linux-x64']
+    }],
     gateResults: [],
     isCoverageComplete: () => true
   });
@@ -747,11 +756,11 @@ test('aggregate assertion validates the trusted claim plan identities and exact 
   )).toThrow(/requiredGateIds must not contain duplicate identity gate-1/);
 
   const duplicateOwningEnvironment = structuredClone(canonicalAggregateFixture());
-  duplicateOwningEnvironment.claims[0]!.owningEnvironments.push('linux');
+  duplicateOwningEnvironment.claims[0]!.owningEnvironments.push('linux-x64');
   expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
     duplicateOwningEnvironment.overall,
     aggregateInput(duplicateOwningEnvironment)
-  )).toThrow(/owningEnvironments must not contain duplicate identity linux/);
+  )).toThrow(/owningEnvironments must not contain duplicate identity linux-x64/);
 
   const invalidOwningEnvironment = structuredClone(canonicalAggregateFixture());
   invalidOwningEnvironment.claims[0]!.owningEnvironments = [''];
@@ -832,7 +841,7 @@ test('aggregate assertion rejects invalid and duplicate claim, gate, and contrib
   expect(() => CodexDevelopmentAssertVerificationAggregateResultV1(
     duplicateGate.overall,
     aggregateInput(duplicateGate)
-  )).toThrow(/duplicate gateId/);
+  )).toThrow(/duplicate gate observation/);
 
   const duplicateContributor = structuredClone(canonicalAggregateFixture());
   duplicateContributor.overall.claimResults[0]!.contributingGateIds.push('gate-1');
