@@ -2,16 +2,101 @@ import { availableParallelism } from 'node:os';
 
 export const DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE = 16;
 export const MAX_FAST_TEST_PROCESS_SHARD_SIZE = 16;
+export const MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET = 16;
+export const MAX_FAST_TEST_PROCESS_CONCURRENCY = 8;
+export const DEFAULT_FAST_TEST_TIMEOUT_MS = 180_000;
 
-function resolveAdaptiveConcurrency(min: number, max: number): number {
-  const available = availableParallelism();
-  return Math.max(min, Math.min(max, Math.floor(available / 2)));
+export const FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER = [
+  'independent-process',
+  'shared-host-runtime',
+  'repository-worktree',
+  'host-profile'
+] as const;
+
+export type FastTestProcessResourceClass = typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER[number];
+
+export type FastTestResourceClassLimits = Readonly<Record<FastTestProcessResourceClass, number>>;
+
+export interface FastTestConcurrencyBudget {
+  readonly availableCpuCount: number;
+  readonly globalBudget: number;
+  readonly bunTestMaxConcurrency: number;
+  readonly concurrentProcessLimit: number;
+  readonly resourceClassProcessCaps: FastTestResourceClassLimits;
 }
 
-export const DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY = resolveAdaptiveConcurrency(2, 8);
-export const DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY = resolveAdaptiveConcurrency(4, 8);
-export const MAX_DEFAULT_FAST_TEST_PROCESS_WAVES = 20;
-export const DEFAULT_FAST_TEST_TIMEOUT_MS = 180_000;
+export interface ManagedFastTestConcurrency {
+  readonly innerConcurrency: number;
+  readonly outerProcessConcurrency: number;
+  readonly resourceClassLimits: FastTestResourceClassLimits;
+}
+
+export function resolveFastTestConcurrencyBudget(availableCpuCount: number): FastTestConcurrencyBudget {
+  if (!Number.isSafeInteger(availableCpuCount) || availableCpuCount < 1) {
+    throw new Error('Available CPU count must be a positive safe integer.');
+  }
+
+  const globalBudget = Math.min(MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET, availableCpuCount);
+  const bunTestMaxConcurrency = Math.max(1, Math.min(4, Math.floor(Math.sqrt(globalBudget))));
+  const concurrentProcessLimit = Math.max(1, Math.floor(globalBudget / bunTestMaxConcurrency));
+  const resourceClassProcessCaps = Object.freeze({
+    'independent-process': Math.min(MAX_FAST_TEST_PROCESS_CONCURRENCY, globalBudget),
+    'shared-host-runtime': Math.min(2, globalBudget),
+    'repository-worktree': 1,
+    'host-profile': 1
+  });
+
+  return Object.freeze({
+    availableCpuCount,
+    globalBudget,
+    bunTestMaxConcurrency,
+    concurrentProcessLimit,
+    resourceClassProcessCaps
+  });
+}
+
+export function resolveManagedFastTestConcurrency(
+  budget: FastTestConcurrencyBudget,
+  explicitInnerConcurrency: number | null
+): ManagedFastTestConcurrency {
+  const innerConcurrency = explicitInnerConcurrency ?? budget.bunTestMaxConcurrency;
+  if (!Number.isSafeInteger(innerConcurrency) || innerConcurrency < 1) {
+    throw new Error('Bun --max-concurrency must be a positive safe integer.');
+  }
+  if (innerConcurrency > budget.globalBudget) {
+    throw new Error(
+      `Bun --max-concurrency ${innerConcurrency} exceeds the managed fast-test global budget ${budget.globalBudget}.`
+    );
+  }
+
+  const outerProcessConcurrency = Math.max(1, Math.floor(budget.globalBudget / innerConcurrency));
+  const resourceClassLimits = Object.freeze(Object.fromEntries(
+    FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER.map((resourceClass) => [
+      resourceClass,
+      Math.min(budget.resourceClassProcessCaps[resourceClass], outerProcessConcurrency)
+    ])
+  ) as Record<FastTestProcessResourceClass, number>);
+
+  return Object.freeze({
+    innerConcurrency,
+    outerProcessConcurrency,
+    resourceClassLimits
+  });
+}
+
+export const DEFAULT_FAST_TEST_CONCURRENCY_BUDGET = resolveFastTestConcurrencyBudget(
+  availableParallelism()
+);
+export const DEFAULT_FAST_TEST_MAX_CONCURRENCY =
+  DEFAULT_FAST_TEST_CONCURRENCY_BUDGET.bunTestMaxConcurrency;
+const DEFAULT_MANAGED_FAST_TEST_CONCURRENCY = resolveManagedFastTestConcurrency(
+  DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
+  null
+);
+export const DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY =
+  DEFAULT_MANAGED_FAST_TEST_CONCURRENCY.outerProcessConcurrency;
+export const DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS =
+  DEFAULT_MANAGED_FAST_TEST_CONCURRENCY.resourceClassLimits;
 
 export const DEFAULT_FAST_TEST_EXCLUSION_REGISTRY = [
   { file: 'tests/integration/semantic-mutation-apply.test.ts', reason: 'full-semantic-mutation-transaction' },
@@ -42,15 +127,6 @@ const defaultFastTestExcludedFileSet = new Set<string>(DEFAULT_FAST_TEST_EXCLUDE
 export function isDefaultFastTestFile(file: string): boolean {
   return !defaultFastTestExcludedFileSet.has(file);
 }
-
-export const FAST_TEST_PROCESS_RESOURCE_SCHEDULING = {
-  'independent-process': 'bounded-parallel',
-  'shared-host-runtime': 'bounded-parallel',
-  'repository-worktree': 'bounded-parallel',
-  'host-profile': 'exclusive'
-} as const;
-
-export type FastTestProcessResourceClass = keyof typeof FAST_TEST_PROCESS_RESOURCE_SCHEDULING;
 
 const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
@@ -134,6 +210,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/command-runner.test.ts',
+    reason: 'process-global-mocks',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/windows-appcontainer-executor.test.ts',
     reason: 'production-host-and-runtime-lifecycle',
     resourceClass: 'shared-host-runtime'
@@ -172,54 +253,52 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
 export const FAST_TEST_PROCESS_ISOLATION_REGISTRY = FAST_TEST_PROCESS_ISOLATION_DEFINITIONS
   .map((definition) => ({
     ...definition,
-    scheduling: FAST_TEST_PROCESS_RESOURCE_SCHEDULING[definition.resourceClass]
+    processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[definition.resourceClass]
   }));
 
 export const PROCESS_ISOLATED_FAST_TEST_FILES = FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file }) => file);
-export const BOUNDED_PARALLEL_ISOLATED_FAST_TEST_FILES = FAST_TEST_PROCESS_ISOLATION_REGISTRY
-  .filter(({ scheduling }) => scheduling === 'bounded-parallel')
-  .map(({ file }) => file);
-export const EXCLUSIVE_FAST_TEST_FILES = FAST_TEST_PROCESS_ISOLATION_REGISTRY
-  .filter(({ scheduling }) => scheduling === 'exclusive')
-  .map(({ file }) => file);
-type FastTestProcessScheduling = typeof FAST_TEST_PROCESS_ISOLATION_REGISTRY[number]['scheduling'];
-const isolationByFastTestFile = new Map<string, FastTestProcessScheduling>(
-  FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file, scheduling }) => [file, scheduling])
+const resourceClassByFastTestFile = new Map<string, FastTestProcessResourceClass>(
+  FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file, resourceClass }) => [file, resourceClass])
 );
 
-export function partitionFastTestFiles(files: readonly string[]): {
-  concurrent: string[];
-  isolatedParallel: string[];
-  exclusive: string[];
-} {
+export interface FastTestFilePartition {
+  readonly concurrent: string[];
+  readonly resourceQueues: Record<FastTestProcessResourceClass, string[]>;
+}
+
+export interface FastTestProcessPlan {
+  readonly concurrentShards: string[][];
+  readonly resourceClassOrder: typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER;
+  readonly resourceQueues: Record<FastTestProcessResourceClass, string[]>;
+  readonly resourceLimits: FastTestResourceClassLimits;
+}
+
+function emptyFastTestResourceQueues(): Record<FastTestProcessResourceClass, string[]> {
+  return {
+    'independent-process': [],
+    'shared-host-runtime': [],
+    'repository-worktree': [],
+    'host-profile': []
+  };
+}
+
+export function partitionFastTestFiles(files: readonly string[]): FastTestFilePartition {
   const concurrent: string[] = [];
-  const isolatedParallel: string[] = [];
-  const exclusive: string[] = [];
+  const resourceQueues = emptyFastTestResourceQueues();
 
   for (const file of files) {
-    switch (isolationByFastTestFile.get(file)) {
-      case 'bounded-parallel':
-        isolatedParallel.push(file);
-        break;
-      case 'exclusive':
-        exclusive.push(file);
-        break;
-      default:
-        concurrent.push(file);
-    }
+    const resourceClass = resourceClassByFastTestFile.get(file);
+    if (resourceClass) resourceQueues[resourceClass].push(file);
+    else concurrent.push(file);
   }
 
-  return { concurrent, isolatedParallel, exclusive };
+  return { concurrent, resourceQueues };
 }
 
 export function planFastTestProcesses(
   files: readonly string[],
   concurrentShardSize = DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE
-): {
-  concurrentShards: string[][];
-  isolatedParallel: string[];
-  exclusive: string[];
-} {
+): FastTestProcessPlan {
   if (
     !Number.isSafeInteger(concurrentShardSize) ||
     concurrentShardSize < 1 ||
@@ -241,7 +320,8 @@ export function planFastTestProcesses(
 
   return {
     concurrentShards,
-    isolatedParallel: partition.isolatedParallel,
-    exclusive: partition.exclusive
+    resourceClassOrder: FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
+    resourceQueues: partition.resourceQueues,
+    resourceLimits: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS
   };
 }

@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 
 import { buildPolicyClaimGate } from '../../platform/compiler/verify/run-policy-gate.ts';
 import { buildRuntimeClaimGate } from '../../platform/compiler/verify/run-runtime-verification.ts';
@@ -7,6 +8,13 @@ import {
   buildClaimSummary
 } from '../../platform/compiler/verify/verify-project.ts';
 import type { PolicyReport } from '../../platform/shared/policy-types.ts';
+import {
+  buildProductVerificationClaimPlan,
+  projectProductVerificationGateClaim,
+  projectProductVerificationGateOrder,
+  type ProductVerificationGateKind
+} from '../../platform/shared/product-verification-claim-plan.ts';
+import { CodexDevelopmentAggregateVerificationClaimsV1 } from '../../platform/shared/verification-result-contract.ts';
 import type {
   FastVerificationLaneReport,
   RuntimeVerificationLaneReport
@@ -94,6 +102,183 @@ function createPassedPolicyReport(): PolicyReport {
     violations: []
   };
 }
+
+function productBinding(gate: ProductVerificationGateKind, supportsClaim: boolean = true) {
+  return projectProductVerificationGateClaim(gate, supportsClaim);
+}
+
+test('product verification identifiers and lane plans have one exact shared owner', () => {
+  const owningEnvironments = [`${process.platform}-${process.arch}`];
+  const fast = productBinding('fast');
+  const runtime = productBinding('runtime');
+  const policy = productBinding('policy');
+  expect([
+    fast.gateId,
+    runtime.gateId,
+    policy.gateId,
+    fast.requiredForClaims[0],
+    runtime.requiredForClaims[0],
+    policy.requiredForClaims[0]
+  ]).toEqual([
+    'product-fast-lane',
+    'product-runtime-lane',
+    'product-policy-gate',
+    'product-fast-verification',
+    'product-runtime-verification',
+    'product-policy-verification'
+  ]);
+  expect(buildProductVerificationClaimPlan('fast')).toEqual([
+    {
+      claimId: fast.requiredForClaims[0],
+      requiredGateIds: [fast.gateId],
+      owningEnvironments
+    },
+    {
+      claimId: policy.requiredForClaims[0],
+      requiredGateIds: [policy.gateId],
+      owningEnvironments
+    }
+  ]);
+  expect(buildProductVerificationClaimPlan('runtime')).toEqual([
+    {
+      claimId: runtime.requiredForClaims[0],
+      requiredGateIds: [runtime.gateId],
+      owningEnvironments
+    }
+  ]);
+  expect(buildProductVerificationClaimPlan('all')).toEqual([
+    {
+      claimId: fast.requiredForClaims[0],
+      requiredGateIds: [fast.gateId],
+      owningEnvironments
+    },
+    {
+      claimId: policy.requiredForClaims[0],
+      requiredGateIds: [policy.gateId],
+      owningEnvironments
+    },
+    {
+      claimId: runtime.requiredForClaims[0],
+      requiredGateIds: [runtime.gateId],
+      owningEnvironments
+    }
+  ]);
+
+  const first = buildProductVerificationClaimPlan('all');
+  const second = buildProductVerificationClaimPlan('all');
+  first[0]!.requiredGateIds.push('forged-gate');
+  first[0]!.owningEnvironments.push('forged-environment');
+  expect(second).toEqual(buildProductVerificationClaimPlan('all'));
+
+  const mutableProjection = productBinding('fast');
+  mutableProjection.requiredForClaims.push('forged-claim');
+  mutableProjection.supportedClaims.length = 0;
+  expect(productBinding('fast')).toEqual(fast);
+});
+
+test('product gate order projection is canonical and returns an isolated fresh array', () => {
+  const first = projectProductVerificationGateOrder();
+  expect(first).toEqual(['fast', 'runtime', 'policy']);
+
+  first.reverse();
+  expect(projectProductVerificationGateOrder()).toEqual(['fast', 'runtime', 'policy']);
+});
+
+test('owned production consumers use binding projections without local pairing authority', () => {
+  const fast = productBinding('fast');
+  const runtime = productBinding('runtime');
+  const policy = productBinding('policy');
+  const identities = [
+    fast.gateId,
+    runtime.gateId,
+    policy.gateId,
+    fast.requiredForClaims[0]!,
+    runtime.requiredForClaims[0]!,
+    policy.requiredForClaims[0]!
+  ];
+  const ownerSource = readFileSync(
+    new URL('../../platform/shared/product-verification-claim-plan.ts', import.meta.url),
+    'utf8'
+  );
+  const consumerSources = [
+    '../../platform/shared/verification-result-contract.ts',
+    '../../platform/shared/verification-artifact-contract.ts',
+    '../../platform/compiler/verify/verify-project.ts',
+    '../../platform/compiler/verify/run-runtime-verification.ts',
+    '../../platform/compiler/verify/run-policy-gate.ts',
+    '../../platform/compiler/verify/run-semantic-mutation-isolated-child.ts'
+  ].map((relativePath) => readFileSync(new URL(relativePath, import.meta.url), 'utf8'));
+
+  for (const identity of identities) {
+    expect(ownerSource.split(identity)).toHaveLength(2);
+    for (const consumerSource of consumerSources) {
+      expect(consumerSource).not.toContain(`'${identity}'`);
+      expect(consumerSource).not.toContain(`\"${identity}\"`);
+    }
+  }
+
+  const producerSources = [
+    '../../platform/compiler/verify/verify-project.ts',
+    '../../platform/compiler/verify/run-runtime-verification.ts',
+    '../../platform/compiler/verify/run-policy-gate.ts'
+  ].map((relativePath) => readFileSync(new URL(relativePath, import.meta.url), 'utf8'));
+  for (const producerSource of producerSources) {
+    expect(producerSource).toContain('projectProductVerificationGateClaim');
+    expect(producerSource).not.toMatch(/requiredForClaims:\s*\[/u);
+    expect(producerSource).not.toMatch(/supportedClaims:\s*\[/u);
+  }
+});
+
+test('normal and blocked summaries are byte-equivalent to the canonical plan writer', () => {
+  const fast = createPassedFastLane();
+  const runtime = createPassedRuntimeLane();
+  const policy = createPassedPolicyReport();
+
+  for (const lane of ['fast', 'runtime', 'all'] as const) {
+    const normal = buildClaimSummary(lane, fast, runtime, 'full', policy);
+    const expectedNormal = CodexDevelopmentAggregateVerificationClaimsV1({
+      claims: buildProductVerificationClaimPlan(lane),
+      gateResults: normal.gates
+    });
+    expect(JSON.stringify(normal.overall)).toBe(JSON.stringify(expectedNormal));
+
+    const blocked = buildBlockedClaimSummary(lane);
+    const expectedBlocked = CodexDevelopmentAggregateVerificationClaimsV1({
+      claims: buildProductVerificationClaimPlan(lane),
+      gateResults: blocked.gates
+    });
+    expect(JSON.stringify(blocked.overall)).toBe(JSON.stringify(expectedBlocked));
+  }
+});
+
+test('normal and blocked summaries serialize the literal canonical product gate order', () => {
+  const expectedGateIds = [
+    'product-fast-lane',
+    'product-runtime-lane',
+    'product-policy-gate'
+  ];
+  const normal = buildClaimSummary(
+    'all',
+    createPassedFastLane(),
+    createPassedRuntimeLane(),
+    'full',
+    createPassedPolicyReport()
+  );
+  const blocked = buildBlockedClaimSummary('all');
+
+  expect(normal.gates.map((gate) => gate.gateId)).toEqual(expectedGateIds);
+  expect(blocked.gates.map((gate) => gate.gateId)).toEqual(expectedGateIds);
+});
+
+test('runtime and policy gate builders use canonical identities and claim links', () => {
+  const runtimeGate = buildRuntimeClaimGate(createPassedRuntimeLane(), 'all', 'full');
+  const policyGate = buildPolicyClaimGate(createPassedPolicyReport(), 'all');
+  const runtime = productBinding('runtime');
+  const policy = productBinding('policy');
+
+  expect(runtimeGate).toMatchObject(runtime);
+  expect(policyGate).toMatchObject(policy);
+});
 
 // ---------------------------------------------------------------------------
 // Regression 1: all-lane fast-passed + runtime-skipped → overall NOT passed

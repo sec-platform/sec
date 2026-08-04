@@ -11,6 +11,9 @@ import type {
   PolicyViolation
 } from '../../shared/policy-types.ts';
 import {
+  projectProductVerificationGateClaim
+} from '../../shared/product-verification-claim-plan.ts';
+import {
   CodexDevelopmentBuildVerificationGateResultV1,
   type VerificationGateResultV1
 } from '../../shared/verification-result-contract.ts';
@@ -21,8 +24,6 @@ import {
   type LoadedPolicyScope
 } from '../parse/load-policy-declarations.ts';
 
-const POLICY_GATE_ID = 'product-policy-gate';
-const POLICY_CLAIM_ID = 'product-policy-verification';
 const POLICY_GATE_REVISION = 'product-verification-v1';
 const POLICY_GATE_OWNER = 'product-verify-project';
 const POLICY_GATE_REQUIREMENT_KEY = 'product-verification';
@@ -41,11 +42,10 @@ export function buildPolicyClaimGate(
   policyReport: PolicyReport,
   _requestedLane: VerificationLane
 ): VerificationGateResultV1 {
-  const claims = [POLICY_CLAIM_ID];
-
   if (policyReport.status === 'skipped') {
+    const binding = projectProductVerificationGateClaim('policy', false);
     return CodexDevelopmentBuildVerificationGateResultV1({
-      gateId: POLICY_GATE_ID,
+      gateId: binding.gateId,
       gateRevision: POLICY_GATE_REVISION,
       owner: POLICY_GATE_OWNER,
       requirementKey: POLICY_GATE_REQUIREMENT_KEY,
@@ -55,8 +55,8 @@ export function buildPolicyClaimGate(
       status: 'not-run',
       disposition: 'not-executed',
       reasonCode: 'not-applicable',
-      requiredForClaims: claims,
-      supportedClaims: [],
+      requiredForClaims: binding.requiredForClaims,
+      supportedClaims: binding.supportedClaims,
       environment: null,
       execution: null,
       evidenceRefs: [],
@@ -66,8 +66,9 @@ export function buildPolicyClaimGate(
   }
 
   const isPassed = policyReport.status === 'passed';
+  const binding = projectProductVerificationGateClaim('policy', isPassed);
   return CodexDevelopmentBuildVerificationGateResultV1({
-    gateId: POLICY_GATE_ID,
+    gateId: binding.gateId,
     gateRevision: POLICY_GATE_REVISION,
     owner: POLICY_GATE_OWNER,
     requirementKey: POLICY_GATE_REQUIREMENT_KEY,
@@ -77,8 +78,8 @@ export function buildPolicyClaimGate(
     status: isPassed ? 'passed' : 'failed',
     disposition: 'executed',
     reasonCode: isPassed ? 'executed-success' : 'executed-failure',
-    requiredForClaims: claims,
-    supportedClaims: isPassed ? claims : [],
+    requiredForClaims: binding.requiredForClaims,
+    supportedClaims: binding.supportedClaims,
     environment: {
       runtime: 'bun',
       os: process.platform,

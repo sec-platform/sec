@@ -32,7 +32,12 @@ import {
 } from '../shared/test-budget-contract.ts';
 import { formatSlowImpactNotice } from '../shared/test-impact-contract.ts';
 import type { VerificationGateResultV1 } from '../shared/verification-result-contract.ts';
-import { runDevCommand } from './command-runner.ts';
+import {
+  boundedUtf8TextTail,
+  devCommandObservationExitCode,
+  runDevCommand,
+  type DevCommandObservation
+} from './command-runner.ts';
 import { ensureTestDependencies } from './dependency-bootstrap.ts';
 import {
   cleanStaleTestWorkspaces,
@@ -42,12 +47,16 @@ import {
   TEST_WORKSPACE_NAMESPACE_ENV
 } from './env-manager.ts';
 import {
-  DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY,
+  DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
   DEFAULT_FAST_TEST_TIMEOUT_MS,
-  DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY,
+  FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
   isDefaultFastTestFile,
-  planFastTestProcesses
+  planFastTestProcesses,
+  resolveManagedFastTestConcurrency,
+  type FastTestProcessResourceClass,
+  type FastTestResourceClassLimits
 } from './fast-test-policy.ts';
+import { explicitFastTestMaxConcurrency } from './test-concurrency-policy.ts';
 
 const BUN_TEST_OPTIONS_WITH_VALUE = new Set([
   '--timeout',
@@ -137,11 +146,25 @@ function fastTestArgs(files: string[], options: string[], concurrent: boolean): 
   return ['test', ...(concurrent ? ['--concurrent'] : []), ...files, ...effectiveOptions];
 }
 
-type FastTestInvocationPlan = {
-  concurrentShards: string[][];
-  isolatedParallel: string[][];
-  exclusive: string[][];
+export type FastTestInvocationQueue = 'concurrent-shard' | FastTestProcessResourceClass;
+
+export type FastTestInvocation = {
+  readonly id: string;
+  readonly queue: FastTestInvocationQueue;
+  readonly args: string[];
 };
+
+type FastTestInvocationPlan = {
+  readonly concurrentShards: FastTestInvocation[];
+  readonly concurrentProcessLimit: number;
+  readonly resourceClassOrder: typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER;
+  readonly resourceQueues: Record<FastTestProcessResourceClass, FastTestInvocation[]>;
+  readonly resourceLimits: FastTestResourceClassLimits;
+};
+
+function fastTestInvocationId(queue: FastTestInvocationQueue, index: number): string {
+  return `${queue}:${String(index + 1).padStart(3, '0')}`;
+}
 
 function fastTestInvocations(
   args: string[],
@@ -159,10 +182,31 @@ function fastTestInvocations(
     : completeFastFiles;
   const selectedFiles = selectMatchingTestFiles(availableFiles, selectors, 'fast');
   const plan = planFastTestProcesses(selectedFiles);
+  const managedConcurrency = resolveManagedFastTestConcurrency(
+    DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
+    explicitFastTestMaxConcurrency(options)
+  );
+  const resourceQueues = Object.fromEntries(
+    plan.resourceClassOrder.map((resourceClass) => [
+      resourceClass,
+      plan.resourceQueues[resourceClass].map((file, index) => ({
+        id: fastTestInvocationId(resourceClass, index),
+        queue: resourceClass,
+        args: fastTestArgs([file], options, false)
+      }))
+    ])
+  ) as Record<FastTestProcessResourceClass, FastTestInvocation[]>;
+
   return {
-    concurrentShards: plan.concurrentShards.map((shard) => fastTestArgs(shard, options, true)),
-    isolatedParallel: plan.isolatedParallel.map((file) => fastTestArgs([file], options, false)),
-    exclusive: plan.exclusive.map((file) => fastTestArgs([file], options, false))
+    concurrentShards: plan.concurrentShards.map((shard, index) => ({
+      id: fastTestInvocationId('concurrent-shard', index),
+      queue: 'concurrent-shard',
+      args: fastTestArgs(shard, options, true)
+    })),
+    concurrentProcessLimit: managedConcurrency.outerProcessConcurrency,
+    resourceClassOrder: plan.resourceClassOrder,
+    resourceQueues,
+    resourceLimits: managedConcurrency.resourceClassLimits
   };
 }
 
@@ -238,9 +282,10 @@ function fullTestInvocations(): string[][] {
   const slowSelection = slowTestArgSelection([]);
   const fast = fastTestInvocations([], 'complete');
   return [
-    ...fast.concurrentShards,
-    ...fast.isolatedParallel,
-    ...fast.exclusive,
+    ...fast.concurrentShards.map(({ args }) => args),
+    ...fast.resourceClassOrder.flatMap((resourceClass) => (
+      fast.resourceQueues[resourceClass].map(({ args }) => args)
+    )),
     slowSelection.kind === 'run' ? slowSelection.args : []
   ].filter((invocation) => invocation.length > 0);
 }
@@ -310,39 +355,178 @@ function fastTestWorkspaceEnv(): NodeJS.ProcessEnv {
   };
 }
 
-async function runSequentialInvocations(
-  invocations: string[][],
-  env: NodeJS.ProcessEnv
-): Promise<number> {
-  for (const invocation of invocations) {
-    const code = await runDevCommand('bun', invocation, env);
-    if (code !== 0) return code;
-  }
-  return 0;
+export const FAST_TEST_FAILURE_RECEIPT_PREFIX = 'SEC_FAST_TEST_FAILURE_RECEIPT ';
+const FAST_TEST_FAILURE_RECEIPT_TAIL_MAX_BYTES = 2 * 1024;
+const FAST_TEST_FAILURE_RECEIPT_TEXT_MAX_BYTES = 1024;
+const FAST_TEST_FAILURE_RECEIPT_ARG_MAX_BYTES = 512;
+const FAST_TEST_FAILURE_RECEIPT_MAX_ARGS = 64;
+
+function boundedReceiptText(value: string, maximumBytes: number): string {
+  return boundedUtf8TextTail(value, maximumBytes);
 }
 
-async function runBoundedInvocations(
-  invocations: string[][],
+type FastTestInvocationFailure =
+  | {
+      readonly kind: 'observed-command-failure';
+      readonly invocation: FastTestInvocation;
+      readonly observation: DevCommandObservation;
+    }
+  | {
+      readonly kind: 'observer-rejected';
+      readonly invocation: FastTestInvocation;
+      readonly error: string;
+    };
+
+function receiptArgv(argv: readonly string[]): { argv: string[]; truncated: boolean } {
+  return {
+    argv: argv
+      .slice(0, FAST_TEST_FAILURE_RECEIPT_MAX_ARGS)
+      .map((arg) => boundedReceiptText(arg, FAST_TEST_FAILURE_RECEIPT_ARG_MAX_BYTES)),
+    truncated: argv.length > FAST_TEST_FAILURE_RECEIPT_MAX_ARGS || argv.some(
+      (arg) => Buffer.byteLength(arg) > FAST_TEST_FAILURE_RECEIPT_ARG_MAX_BYTES
+    )
+  };
+}
+
+function emitFastTestFailureReceipt(
+  queue: FastTestInvocationQueue,
+  batchIndex: number,
+  failures: readonly FastTestInvocationFailure[]
+): void {
+  const receipt = {
+    schema: 'sec-fast-test-failure-receipt-v1',
+    queue,
+    batchIndex,
+    failures: failures.map((failure) => {
+      if (failure.kind === 'observer-rejected') {
+        const plannedArgv = receiptArgv(['bun', ...failure.invocation.args]);
+        return {
+          kind: failure.kind,
+          invocationId: failure.invocation.id,
+          plannedArgv: plannedArgv.argv,
+          plannedArgvTruncated: plannedArgv.truncated,
+          error: boundedReceiptText(failure.error, FAST_TEST_FAILURE_RECEIPT_TEXT_MAX_BYTES)
+        };
+      }
+
+      const { invocation, observation } = failure;
+      const effectiveArgv = receiptArgv(observation.effectiveArgv);
+      const terminal = observation.terminal.kind === 'spawn-failed'
+        ? {
+            ...observation.terminal,
+            error: boundedReceiptText(
+              observation.terminal.error,
+              FAST_TEST_FAILURE_RECEIPT_TEXT_MAX_BYTES
+            )
+          }
+        : observation.terminal;
+      const observationIntegrity = observation.observationIntegrity.kind === 'failed'
+        ? {
+            ...observation.observationIntegrity,
+            error: boundedReceiptText(
+              observation.observationIntegrity.error,
+              FAST_TEST_FAILURE_RECEIPT_TEXT_MAX_BYTES
+            )
+          }
+        : observation.observationIntegrity;
+      return {
+        kind: failure.kind,
+        invocationId: invocation.id,
+        effectiveArgv: effectiveArgv.argv,
+        effectiveArgvTruncated: effectiveArgv.truncated,
+        terminal,
+        observationIntegrity,
+        durationMs: observation.durationMs,
+        stdoutTail: boundedReceiptText(
+          observation.stdoutTail,
+          FAST_TEST_FAILURE_RECEIPT_TAIL_MAX_BYTES
+        ),
+        stderrTail: boundedReceiptText(
+          observation.stderrTail,
+          FAST_TEST_FAILURE_RECEIPT_TAIL_MAX_BYTES
+        )
+      };
+    })
+  };
+  console.error(`${FAST_TEST_FAILURE_RECEIPT_PREFIX}${JSON.stringify(receipt)}`);
+}
+
+export type FastTestInvocationBatchResult<TResult> = {
+  readonly batchIndex: number;
+  readonly invocations: readonly FastTestInvocation[];
+  readonly outcomes: readonly PromiseSettledResult<TResult>[];
+};
+
+export async function scheduleBoundedFastTestInvocations<TResult>(
+  invocations: readonly FastTestInvocation[],
+  concurrency: number,
+  dispatch: (invocation: FastTestInvocation) => Promise<TResult>,
+  isFailure: (result: TResult, invocation: FastTestInvocation) => boolean
+): Promise<FastTestInvocationBatchResult<TResult> | null> {
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1) {
+    throw new Error('Fast-test invocation concurrency must be a positive safe integer.');
+  }
+  for (let index = 0; index < invocations.length; index += concurrency) {
+    const batch = invocations.slice(index, index + concurrency);
+    const pending: Promise<TResult>[] = [];
+    for (const invocation of batch) {
+      try {
+        pending.push(dispatch(invocation));
+      } catch (error) {
+        pending.push(Promise.reject(error));
+      }
+    }
+    const outcomes = await Promise.allSettled(pending);
+    if (outcomes.some((outcome, outcomeIndex) => (
+      outcome.status === 'rejected' || isFailure(outcome.value, batch[outcomeIndex]!)
+    ))) {
+      return {
+        batchIndex: Math.floor(index / concurrency),
+        invocations: batch,
+        outcomes
+      };
+    }
+  }
+  return null;
+}
+
+async function runBoundedFastTestInvocations(
+  invocations: readonly FastTestInvocation[],
   env: NodeJS.ProcessEnv,
   concurrency: number
 ): Promise<number> {
-  for (let index = 0; index < invocations.length; index += concurrency) {
-    const batch = invocations.slice(index, index + concurrency);
-    const outcomes = await Promise.allSettled(
-      batch.map((invocation) => runDevCommand('bun', invocation, env))
-    );
-    const rejected = outcomes.find(
-      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected'
-    );
-    if (rejected) throw rejected.reason;
-    const failure = outcomes.find(
-      (outcome): outcome is PromiseFulfilledResult<number> => (
-        outcome.status === 'fulfilled' && outcome.value !== 0
-      )
-    );
-    if (failure) return failure.value;
-  }
-  return 0;
+  const failedBatch = await scheduleBoundedFastTestInvocations(
+    invocations,
+    concurrency,
+    (invocation) => runDevCommand('bun', invocation.args, env, { observe: true }),
+    (observation) => devCommandObservationExitCode(observation) !== 0
+  );
+  if (!failedBatch) return 0;
+
+  const failures = failedBatch.outcomes.flatMap(
+    (outcome, outcomeIndex): FastTestInvocationFailure[] => {
+      const invocation = failedBatch.invocations[outcomeIndex]!;
+      if (outcome.status === 'rejected') {
+        return [{
+          kind: 'observer-rejected',
+          invocation,
+          error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)
+        }];
+      }
+      return devCommandObservationExitCode(outcome.value) === 0
+        ? []
+        : [{ kind: 'observed-command-failure', invocation, observation: outcome.value }];
+    }
+  );
+  emitFastTestFailureReceipt(
+    failedBatch.invocations[0]!.queue,
+    failedBatch.batchIndex,
+    failures
+  );
+  const firstFailure = failures[0]!;
+  return firstFailure.kind === 'observer-rejected'
+    ? 1
+    : devCommandObservationExitCode(firstFailure.observation);
 }
 
 interface AffectedTestSelection {
@@ -598,6 +782,7 @@ export async function runTests(args: string[] = []): Promise<number> {
 export async function runFastTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
   const workspaceEnv = fastTestWorkspaceEnv();
+  let hasPrimaryFailure = false;
   let primaryFailure: unknown;
   // One-time stale workspace cleanup before spawning shards, replacing the
   // previous per-subprocess preload call that caused redundant I/O.
@@ -607,34 +792,36 @@ export async function runFastTests(args: string[] = []): Promise<number> {
       try {
         const plan = fastTestInvocations(args);
         const env = pathEnv(binPath, browserCachePath, workspaceEnv);
-        exitCode = await runBoundedInvocations(
+        exitCode = await runBoundedFastTestInvocations(
           plan.concurrentShards,
           env,
-          DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY
+          plan.concurrentProcessLimit
         );
         if (exitCode !== 0) return;
-        exitCode = await runBoundedInvocations(
-          plan.isolatedParallel,
-          env,
-          DEFAULT_ISOLATED_FAST_TEST_CONCURRENCY
-        );
-        if (exitCode !== 0) return;
-        exitCode = await runSequentialInvocations(plan.exclusive, env);
+        for (const resourceClass of plan.resourceClassOrder) {
+          exitCode = await runBoundedFastTestInvocations(
+            plan.resourceQueues[resourceClass],
+            env,
+            plan.resourceLimits[resourceClass]
+          );
+          if (exitCode !== 0) return;
+        }
       } catch (error) {
         console.error(error instanceof Error ? error.message : String(error));
         exitCode = 1;
       }
     });
   } catch (error) {
+    hasPrimaryFailure = true;
     primaryFailure = error;
   }
   try {
     await cleanTestWorkspaces(workspaceEnv);
   } catch (error) {
     console.error(`Fast test workspace cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
-    if (!primaryFailure) exitCode = 1;
+    if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
   }
-  if (primaryFailure) throw primaryFailure;
+  if (hasPrimaryFailure) throw primaryFailure;
   return exitCode;
 }
 
