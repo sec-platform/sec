@@ -1647,7 +1647,7 @@ test('verifier runtime import closure stays inside the TCB except for the review
     reviewedExternalImports,
     reviewedProcessDispatchers
   } = trustedRuntimeClosure();
-  expect(closure.size).toBe(60);
+  expect(closure.size).toBe(62);
   expect(reviewedProcessDispatchers.size).toBe(16);
   expect([...reviewedEdges].sort()).toEqual([...TCB_REVIEWED_SUT_EDGES].sort());
   expect([...reviewedExternalImports].sort()).toEqual([...TCB_REVIEWED_EXTERNAL_IMPORTS].sort());

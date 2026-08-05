@@ -163,6 +163,8 @@ jobs:
               'platform/shared/documentation-authority-contract.ts',
               'platform/shared/errors.ts',
               'platform/shared/fs.ts',
+              'platform/shared/generated-state-contract.ts',
+              'platform/shared/generated-state-writer-census.ts',
               'platform/shared/heavy-verification-gate-lease.ts',
               'platform/shared/paths.ts',
               'platform/shared/platform-command.ts',

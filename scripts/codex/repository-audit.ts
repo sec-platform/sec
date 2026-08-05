@@ -16,6 +16,7 @@ import {
   type SecAgentSkillId,
   type SecRepositorySurfaceKind
 } from '../../platform/shared/agent-skill-contract.ts';
+import { auditGeneratedStateWriterCensus } from '../../platform/shared/generated-state-writer-census.ts';
 
 const DEFAULT_REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const MAX_TEXT_FILE_BYTES = 2_000_000;
@@ -1002,6 +1003,21 @@ export async function auditRepository(
         severity: 'medium'
       });
     }
+  }
+
+  const writerCensusFiles = tracked.flatMap((repositoryPath) => {
+    const source = textByPath.get(repositoryPath);
+    if (source === null || source === undefined) return [];
+    return [{ path: repositoryPath, text: source }];
+  });
+  for (const finding of auditGeneratedStateWriterCensus(writerCensusFiles)) {
+    pushFinding(findings, {
+      code: finding.code,
+      line: finding.line ?? undefined,
+      message: finding.message,
+      path: finding.file,
+      severity: 'high'
+    });
   }
 
   for (const skillId of SEC_AGENT_SKILL_IDS) {

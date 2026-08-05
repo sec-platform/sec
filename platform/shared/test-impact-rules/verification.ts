@@ -6,6 +6,15 @@ const DEV_RUNNER_FAST_TESTS = [
   'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
+const GENERATED_STATE_FAST_TESTS = [
+  'tests/contract/generated-state-producer-census.test.ts',
+  'tests/contract/dev-runner-contract.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/generated-state-contract.test.ts',
+  'tests/unit/generated-state.test.ts',
+  'tests/unit/generated-state-writer-census.test.ts'
+];
+
 const AFFECTED_TEST_SELECTION_FAST_TESTS = [
   'tests/contract/ci-lanes.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
@@ -74,6 +83,20 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/shared/verification-scope-inventory.ts'
     ],
     fast: AFFECTED_TEST_SELECTION_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'generated-state-lifecycle',
+    identity: { kind: 'architecture-owner', id: 'generated-state-lifecycle' },
+    autoReferenceMode: 'include',
+    sourceFiles: [
+      'platform/shared/generated-state-contract.ts',
+      'platform/shared/generated-state-writer-census.ts',
+      'platform/dev-runner/generated-state.ts',
+      'scripts/codex/environment-settlement.ts',
+      'tests/setup/runtime-deps.setup.ts'
+    ],
+    fast: GENERATED_STATE_FAST_TESTS,
     slow: []
   },
   {

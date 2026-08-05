@@ -2,18 +2,23 @@ import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
 import { cleanTestWorkspaces } from './dev-runner/env-manager.ts';
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:prepare|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:prepare|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|generated-state inspect|clean|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
 async function main(): Promise<void> {
   const [target, ...args] = process.argv.slice(2);
-  if (!target) {
-    usage();
+  if (!target) usage();
+
+  if (target === 'generated-state') {
+    const { runGeneratedStateCommand } = await import('./dev-runner/generated-state.ts');
+    process.exitCode = await runGeneratedStateCommand(args);
+    return;
   }
 
   if (target === 'clean-test-workspaces') {
-    await cleanTestWorkspaces();
+    const receipt = await cleanTestWorkspaces();
+    process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
     return;
   }
 
