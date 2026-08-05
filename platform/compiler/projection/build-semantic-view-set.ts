@@ -3,17 +3,10 @@ import {
   SEMANTIC_VIEW_SET_FORMAT_VERSION,
   type SemanticViewSet
 } from '../../shared/semantic-view-types.ts';
+import { compareCodeUnits, deepFreeze } from '../ir/ir-canonical-primitives.ts';
 import { projectArchitectureView } from './project-architecture-view.ts';
 import { projectScenarioView } from './project-scenario-view.ts';
 import { projectStateView } from './project-state-view.ts';
-
-function deepFreeze<Value>(value: Value): Value {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
-    Object.freeze(value);
-  }
-  return value;
-}
 
 export function buildSemanticViewSet(
   snapshot: ValidatedEngineeringIRSnapshot
@@ -22,11 +15,11 @@ export function buildSemanticViewSet(
   const scenarioIds = ir.entities
     .filter((entity) => entity.kind === 'scenario')
     .map((entity) => entity.id)
-    .sort((left, right) => left.localeCompare(right));
+    .sort(compareCodeUnits);
   const stateIds = ir.entities
     .filter((entity) => entity.kind === 'state')
     .map((entity) => entity.id)
-    .sort((left, right) => left.localeCompare(right));
+    .sort(compareCodeUnits);
 
   return deepFreeze({
     formatVersion: SEMANTIC_VIEW_SET_FORMAT_VERSION,

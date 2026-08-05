@@ -1,144 +1,195 @@
 {
   "build": {
-    "status": "passed"
+    "status": "failed"
   },
   "unit": {
-    "status": "passed",
-    "passed": [
-      "comment-service.test.ts",
-      "customer-attachments.test.ts",
-      "customer-normalizer.test.ts",
-      "ticket-service.test.ts"
-    ]
+    "status": "skipped",
+    "passed": []
   },
   "acceptance": {
-    "status": "passed",
-    "passed": [
-      "agent-classifier-flow.test.ts",
-      "comment-flow.test.ts",
-      "customer-flow.test.ts",
-      "ticket-flow.test.ts"
-    ],
+    "status": "skipped",
+    "passed": [],
     "failed": []
   },
   "policy": {
-    "status": "passed",
+    "status": "skipped",
     "violations": []
   },
   "fast": {
-    "status": "passed",
+    "status": "failed",
     "build": {
-      "status": "passed"
+      "status": "failed"
     },
     "unit": {
-      "status": "passed",
-      "passed": [
-        "comment-service.test.ts",
-        "customer-attachments.test.ts",
-        "customer-normalizer.test.ts",
-        "ticket-service.test.ts"
-      ]
+      "status": "skipped",
+      "passed": []
     },
     "acceptance": {
-      "status": "passed",
-      "passed": [
-        "agent-classifier-flow.test.ts",
-        "comment-flow.test.ts",
-        "customer-flow.test.ts",
-        "ticket-flow.test.ts"
-      ],
+      "status": "skipped",
+      "passed": [],
       "failed": []
     },
     "policy": {
-      "status": "passed",
+      "status": "skipped",
       "violations": []
     },
     "policyReport": {
-      "status": "passed",
+      "status": "skipped",
       "official": {
-        "policies": [
-          "tenant-scope-required"
-        ],
-        "sources": [
-          {
-            "path": "platform/policies/official/policy.spec.yaml",
-            "policyIds": [
-              "tenant-scope-required"
-            ]
-          }
-        ],
+        "policies": [],
+        "sources": [],
         "violations": []
       },
       "project": {
         "policies": [],
-        "sources": [
-          {
-            "path": "source/model/policies/policy.spec.yaml",
-            "policyIds": []
-          }
-        ],
+        "sources": [],
         "violations": []
       },
       "merged": {
-        "policies": [
-          {
-            "id": "tenant-scope-required",
-            "sourceScope": "official",
-            "sourcePath": "platform/policies/official/policy.spec.yaml",
-            "targets": [
-              "src/installed/entity/customer-service.ts",
-              "src/installed/ticket/ticket-service.ts"
-            ]
-          }
-        ]
+        "policies": []
       },
       "violations": []
     },
     "logs": {
-      "stdout": "typecheck:passed unit:comment-service.test.ts,customer-attachments.test.ts,customer-normalizer.test.ts,ticket-service.test.ts acceptance:agent-classifier-flow.test.ts,comment-flow.test.ts,customer-flow.test.ts,ticket-flow.test.ts policy:passed",
-      "stderr": ""
+      "stdout": "",
+      "stderr": "Error: ENOENT: no such file or directory, symlink '/workspace/node_modules' -> '/workspace/project/node_modules'\n    at async withProjectDependencyBridge (/workspace/platform/shared/project-runtime.ts:1270:14)\n    at async typecheckProject (/workspace/platform/compiler/verify/typecheck-project.ts:281:9)\n    at async runFastVerification (/workspace/platform/compiler/verify/verify-project.ts:157:11)\n    at async verifyProject (/workspace/platform/compiler/verify/verify-project.ts:370:89)\n    at async verifyWorkspaceCore (/workspace/platform/orchestrator/verify-orchestrator.ts:127:26)\n    at async executeStageWithContext (/workspace/platform/shared/pipeline-kernel.ts:177:26)\n    at async <anonymous> (/workspace/platform/shared/pipeline-kernel.ts:249:28)\n    at async <anonymous> (/workspace/platform/shared/workspace-write-lease.ts:1897:20)\n    at async withSpinner (/workspace/platform/shared/spinner.ts:10:26)\n    at async <anonymous> (/workspace/platform/cli/register-commands.ts:351:32)"
     }
   },
   "runtime": {
-    "status": "passed",
+    "status": "skipped",
     "build": {
-      "status": "passed",
-      "passed": [
-        "next build"
-      ],
+      "status": "skipped",
+      "passed": [],
       "failed": [],
       "command": "bun run build"
     },
     "unit": {
-      "status": "passed",
-      "passed": [
-        "tests/runtime/unit/customer-runtime.test.ts",
-        "tests/runtime/unit/ticket-runtime.test.ts"
-      ],
+      "status": "skipped",
+      "passed": [],
       "failed": [],
       "command": "bun run test:unit"
     },
     "acceptance": {
-      "status": "passed",
-      "passed": [
-        "tests/runtime/acceptance/customer-flow.spec.ts",
-        "tests/runtime/acceptance/ticket-flow.spec.ts"
-      ],
+      "status": "skipped",
+      "passed": [],
       "failed": [],
       "command": "bun run test:acceptance"
     },
     "logs": {
-      "stdout": "runtime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts,tests/runtime/unit/ticket-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts,tests/runtime/acceptance/ticket-flow.spec.ts\n",
+      "stdout": "",
       "stderr": ""
     }
   },
   "summary": {
-    "status": "passed",
-    "requestedLane": "all",
-    "failedLanes": []
+    "status": "failed",
+    "requestedLane": "fast",
+    "failedLanes": [
+      "fast"
+    ],
+    "claimSummary": {
+      "gates": [
+        {
+          "schema": "sec-verification-gate-result-v1",
+          "gateId": "product-fast-lane",
+          "gateRevision": "product-verification-v1",
+          "owner": "product-verify-project",
+          "requirementKey": "product-verification",
+          "subjectRevision": "0000000000000000000000000000000000000000",
+          "inputDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "applicability": "required",
+          "status": "failed",
+          "disposition": "executed",
+          "reasonCode": "executed-failure",
+          "requiredForClaims": [
+            "product-fast-verification"
+          ],
+          "supportedClaims": [],
+          "environment": {
+            "runtime": "bun",
+            "os": "linux",
+            "arch": "x64",
+            "filesystem": null,
+            "capabilities": [],
+            "toolchainRevision": "ci-verification-v19",
+            "providerRevisions": []
+          },
+          "execution": {
+            "argv": [],
+            "startedAt": "1970-01-01T00:00:00.000Z",
+            "finishedAt": "1970-01-01T00:00:00.000Z",
+            "durationMs": 0,
+            "exitCode": 1,
+            "outputDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "failureFingerprint": "product-failure"
+          },
+          "evidenceRefs": [],
+          "invalidationRules": [],
+          "diagnostic": null
+        },
+        {
+          "schema": "sec-verification-gate-result-v1",
+          "gateId": "product-runtime-lane",
+          "gateRevision": "product-verification-v1",
+          "owner": "product-verify-project",
+          "requirementKey": "product-verification",
+          "subjectRevision": "0000000000000000000000000000000000000000",
+          "inputDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "applicability": "required",
+          "status": "not-run",
+          "disposition": "not-executed",
+          "reasonCode": "fail-fast-prerequisite-failed",
+          "requiredForClaims": [
+            "product-runtime-verification"
+          ],
+          "supportedClaims": [],
+          "environment": null,
+          "execution": null,
+          "evidenceRefs": [],
+          "invalidationRules": [],
+          "diagnostic": null
+        },
+        {
+          "schema": "sec-verification-gate-result-v1",
+          "gateId": "product-policy-gate",
+          "gateRevision": "product-verification-v1",
+          "owner": "product-verify-project",
+          "requirementKey": "product-verification",
+          "subjectRevision": "0000000000000000000000000000000000000000",
+          "inputDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "applicability": "not-applicable",
+          "status": "not-run",
+          "disposition": "not-executed",
+          "reasonCode": "not-applicable",
+          "requiredForClaims": [
+            "product-policy-verification"
+          ],
+          "supportedClaims": [],
+          "environment": null,
+          "execution": null,
+          "evidenceRefs": [],
+          "invalidationRules": [],
+          "diagnostic": "No policy declaration exists; policy gate is not-applicable."
+        }
+      ],
+      "overall": {
+        "overallStatus": "failed",
+        "overallReasonCode": "executed-failure",
+        "claimResults": [
+          {
+            "claimId": "product-fast-verification",
+            "status": "failed",
+            "reasonCode": "executed-failure",
+            "contributingGateIds": [
+              "product-fast-lane"
+            ],
+            "coverageComplete": false
+          }
+        ]
+      }
+    }
   },
   "logs": {
-    "stdout": "typecheck:passed unit:comment-service.test.ts,customer-attachments.test.ts,customer-normalizer.test.ts,ticket-service.test.ts acceptance:agent-classifier-flow.test.ts,comment-flow.test.ts,customer-flow.test.ts,ticket-flow.test.ts policy:passed\nruntime-build:passed\nruntime-unit:passed tests/runtime/unit/customer-runtime.test.ts,tests/runtime/unit/ticket-runtime.test.ts\nplaywright-install:passed\nruntime-acceptance:passed tests/runtime/acceptance/customer-flow.spec.ts,tests/runtime/acceptance/ticket-flow.spec.ts\n",
-    "stderr": ""
+    "stdout": "",
+    "stderr": "Error: ENOENT: no such file or directory, symlink '/workspace/node_modules' -> '/workspace/project/node_modules'\n    at async withProjectDependencyBridge (/workspace/platform/shared/project-runtime.ts:1270:14)\n    at async typecheckProject (/workspace/platform/compiler/verify/typecheck-project.ts:281:9)\n    at async runFastVerification (/workspace/platform/compiler/verify/verify-project.ts:157:11)\n    at async verifyProject (/workspace/platform/compiler/verify/verify-project.ts:370:89)\n    at async verifyWorkspaceCore (/workspace/platform/orchestrator/verify-orchestrator.ts:127:26)\n    at async executeStageWithContext (/workspace/platform/shared/pipeline-kernel.ts:177:26)\n    at async <anonymous> (/workspace/platform/shared/pipeline-kernel.ts:249:28)\n    at async <anonymous> (/workspace/platform/shared/workspace-write-lease.ts:1897:20)\n    at async withSpinner (/workspace/platform/shared/spinner.ts:10:26)\n    at async <anonymous> (/workspace/platform/cli/register-commands.ts:351:32)"
   }
 }

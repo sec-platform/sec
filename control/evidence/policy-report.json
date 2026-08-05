@@ -1,41 +1,17 @@
 {
-  "status": "passed",
+  "status": "skipped",
   "official": {
-    "policies": [
-      "tenant-scope-required"
-    ],
-    "sources": [
-      {
-        "path": "platform/policies/official/policy.spec.yaml",
-        "policyIds": [
-          "tenant-scope-required"
-        ]
-      }
-    ],
+    "policies": [],
+    "sources": [],
     "violations": []
   },
   "project": {
     "policies": [],
-    "sources": [
-      {
-        "path": "source/model/policies/policy.spec.yaml",
-        "policyIds": []
-      }
-    ],
+    "sources": [],
     "violations": []
   },
   "merged": {
-    "policies": [
-      {
-        "id": "tenant-scope-required",
-        "sourceScope": "official",
-        "sourcePath": "platform/policies/official/policy.spec.yaml",
-        "targets": [
-          "src/installed/entity/customer-service.ts",
-          "src/installed/ticket/ticket-service.ts"
-        ]
-      }
-    ]
+    "policies": []
   },
   "violations": []
 }

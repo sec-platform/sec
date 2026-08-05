@@ -13,6 +13,11 @@ import {
   FACT_DELTA_SCOPE
 } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import {
+  cloneAndDeepFreeze,
+  compareCodeUnits,
+  deepFreeze
+} from './ir-canonical-primitives.ts';
 import { digest, semanticRevisionPayload } from './ir-revision.ts';
 
 type CanonicalFactPayload = Omit<SemanticFact, 'assertions'> & {
@@ -21,18 +26,6 @@ type CanonicalFactPayload = Omit<SemanticFact, 'assertions'> & {
 
 function fail(code: string, message: string, details?: Record<string, unknown>): never {
   throw new CompilerError(code, message, details);
-}
-
-function deepFreeze<Value>(value: Value): Value {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
-    Object.freeze(value);
-  }
-  return value;
-}
-
-function clone<Value>(value: Value): Value {
-  return structuredClone(value);
 }
 
 function endpoint(context: FactDeltaEndpointContext): FactDeltaEndpoint {
@@ -172,8 +165,8 @@ function assertionUpdate(
   return {
     assertionId: before.id,
     changedFields,
-    before: { confidence: before.confidence, evidence: clone(before.evidence) },
-    after: { confidence: after.confidence, evidence: clone(after.evidence) }
+    before: { confidence: before.confidence, evidence: cloneAndDeepFreeze(before.evidence) },
+    after: { confidence: after.confidence, evidence: cloneAndDeepFreeze(after.evidence) }
   };
 }
 
@@ -189,24 +182,24 @@ function diffAssertions(before: SemanticFact, after: SemanticFact): SemanticFact
     const toAssertion = after.assertions[toIndex];
 
     if (fromAssertion === undefined) {
-      addedAssertions.push(clone(toAssertion!));
+      addedAssertions.push(cloneAndDeepFreeze(toAssertion!));
       toIndex += 1;
       continue;
     }
     if (toAssertion === undefined) {
-      removedAssertions.push(clone(fromAssertion));
+      removedAssertions.push(cloneAndDeepFreeze(fromAssertion));
       fromIndex += 1;
       continue;
     }
 
-    const comparison = fromAssertion.id.localeCompare(toAssertion.id);
+    const comparison = compareCodeUnits(fromAssertion.id, toAssertion.id);
     if (comparison < 0) {
-      removedAssertions.push(clone(fromAssertion));
+      removedAssertions.push(cloneAndDeepFreeze(fromAssertion));
       fromIndex += 1;
       continue;
     }
     if (comparison > 0) {
-      addedAssertions.push(clone(toAssertion));
+      addedAssertions.push(cloneAndDeepFreeze(toAssertion));
       toIndex += 1;
       continue;
     }
@@ -247,24 +240,24 @@ function diffFacts(
     const toFact = after[toIndex];
 
     if (fromFact === undefined) {
-      added.push(clone(toFact!));
+      added.push(cloneAndDeepFreeze(toFact!));
       toIndex += 1;
       continue;
     }
     if (toFact === undefined) {
-      removed.push(clone(fromFact));
+      removed.push(cloneAndDeepFreeze(fromFact));
       fromIndex += 1;
       continue;
     }
 
-    const comparison = fromFact.id.localeCompare(toFact.id);
+    const comparison = compareCodeUnits(fromFact.id, toFact.id);
     if (comparison < 0) {
-      removed.push(clone(fromFact));
+      removed.push(cloneAndDeepFreeze(fromFact));
       fromIndex += 1;
       continue;
     }
     if (comparison > 0) {
-      added.push(clone(toFact));
+      added.push(cloneAndDeepFreeze(toFact));
       toIndex += 1;
       continue;
     }
@@ -289,7 +282,7 @@ function assertSortedUnique(values: readonly { id: string }[], collection: strin
   for (let index = 0; index < values.length; index += 1) {
     const id = values[index]!.id;
     const previous = values[index - 1]?.id;
-    if (previous !== undefined && previous.localeCompare(id) >= 0) {
+    if (previous !== undefined && compareCodeUnits(previous, id) >= 0) {
       fail('FACT-DELTA-007', `Fact Delta ${collection} must be unique and canonically ordered`, {
         collection,
         previousId: previous,

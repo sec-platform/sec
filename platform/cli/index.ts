@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { cli } from '../shared/cli-output.ts';
 import { buildErrorProtocol } from '../shared/error-protocol.ts';
+import type { CompilerErrorDetails } from '../shared/errors.ts';
 import { formatJson } from './format-utils.ts';
 import { registerCommands } from './register-commands.ts';
 import { registerPipelineCommands } from './register-pipeline-commands.ts';
@@ -20,7 +21,7 @@ program.action(() => {
 });
 
 program.parseAsync().catch((error: unknown) => {
-  const failure = error as { code?: string; message?: string; details?: unknown };
+  const failure = error as { code?: string; message?: string; details?: CompilerErrorDetails };
   const protocol = buildErrorProtocol(failure);
   console.error(cli.error(`${protocol.code} ${protocol.message}`));
   console.error(cli.dim(formatJson({

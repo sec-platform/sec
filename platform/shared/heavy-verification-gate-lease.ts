@@ -43,10 +43,22 @@ const INITIALIZATION_GRACE_MS = 30_000;
 const WINDOWS_WAIT_OBJECT_0 = 0x0000_0000;
 const WINDOWS_WAIT_ABANDONED_0 = 0x0000_0080;
 const WINDOWS_WAIT_TIMEOUT = 0x0000_0102;
-let heavyVerificationGateKernel32Promise: Promise<any> | undefined;
+
+interface HeavyVerificationGateKernel32Symbols {
+  CreateMutexW: (security: null, initialOwner: number, name: Buffer) => bigint;
+  WaitForSingleObject: (handle: bigint, milliseconds: number) => number;
+  ReleaseMutex: (handle: bigint) => number;
+  CloseHandle: (handle: bigint) => number;
+}
+
+interface HeavyVerificationGateKernel32 {
+  symbols: HeavyVerificationGateKernel32Symbols;
+}
+
+let heavyVerificationGateKernel32Promise: Promise<HeavyVerificationGateKernel32> | undefined;
 let windowsHeavyVerificationGateHeld = false;
 
-async function loadHeavyVerificationGateKernel32(): Promise<any> {
+async function loadHeavyVerificationGateKernel32(): Promise<HeavyVerificationGateKernel32> {
   heavyVerificationGateKernel32Promise ??= (async () => {
     const { dlopen, FFIType } = await import('bun:ffi');
     return dlopen('kernel32.dll', {
@@ -54,7 +66,7 @@ async function loadHeavyVerificationGateKernel32(): Promise<any> {
       WaitForSingleObject: { args: [FFIType.u64, FFIType.u32], returns: FFIType.u32 },
       ReleaseMutex: { args: [FFIType.u64], returns: FFIType.i32 },
       CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 }
-    } as const);
+    } as const) as unknown as HeavyVerificationGateKernel32;
   })();
   return heavyVerificationGateKernel32Promise;
 }
@@ -138,7 +150,7 @@ async function reclaimStaleLock(lockPath: string, token: string): Promise<boolea
     await rename(lockPath, reclaimPath);
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error &&
-      (error.code === 'ENOENT' || error.code === 'EEXIST' || error.code === 'EPERM')) {
+      (error.code === 'ENOENT' || error.code === 'EEXIST' || error.code === 'EPERM' || error.code === 'ENOTEMPTY')) {
       return false;
     }
     throw error;
@@ -161,7 +173,7 @@ async function acquireWindowsHeavyVerificationGateLease(
     null,
     0,
     windowsWide(heavyVerificationGateMutexName(physicalWorktreeRoot, namespace))
-  ) as bigint;
+  );
   if (handle === 0n) {
     throw new Error('Heavy verification gate mutex could not be created.');
   }
@@ -244,7 +256,7 @@ export async function acquireHeavyVerificationGateLease(
       });
     } catch (error) {
       if (!(error && typeof error === 'object' && 'code' in error &&
-        (error.code === 'EEXIST' || error.code === 'EPERM'))) {
+        (error.code === 'EEXIST' || error.code === 'EPERM' || error.code === 'ENOTEMPTY'))) {
         throw error;
       }
     }

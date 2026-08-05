@@ -9,6 +9,7 @@ import type {
   SemanticPredicate
 } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { compareCodeUnits } from './ir-canonical-primitives.ts';
 import { factIdentity } from './ir-identity.ts';
 import { normalizeEvidence, normalizeFactObject, normalizeProvenance } from './ir-normalization.ts';
 import { digest } from './ir-revision.ts';
@@ -114,7 +115,7 @@ function appendFactAssertions(existing: SemanticFact, incoming: SemanticFact): S
 
   return {
     ...existing,
-    assertions: [...assertions.values()].sort((left, right) => left.id.localeCompare(right.id))
+    assertions: [...assertions.values()].sort((left, right) => compareCodeUnits(left.id, right.id))
   };
 }
 

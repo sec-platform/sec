@@ -4,6 +4,7 @@ import type {
 } from '../../shared/engineering-ir-types.ts';
 import type { LoadedSemanticContract } from '../../shared/semantic-contract-types.ts';
 import { splitLinkedSemanticReference } from '../semantic-linker.ts';
+import { compareCodeUnits } from './ir-canonical-primitives.ts';
 import type { FactInput } from './ir-fact-store.ts';
 import {
   contractEffectId,
@@ -227,7 +228,7 @@ export function appendSemanticContract(input: LoadedSemanticContract, sink: Buil
     const entryEntityId = linkedEntityId(scenario.entry, contractOperationId);
     sink.addFact({ subject: scenarioId, predicate: 'INVOKES', object: { kind: 'entity', entityId: entryEntityId }, authority: 'authoritative', provenance });
 
-    for (const step of [...scenario.steps].sort((left, right) => left.id.localeCompare(right.id))) {
+    for (const step of [...scenario.steps].sort((left, right) => compareCodeUnits(left.id, right.id))) {
       const stepEntityId = scenarioStepEntityId(scenarioId, step.id);
       const operationEntityId = linkedEntityId(step.operation, contractOperationId);
       addDeclaredEntity(sink, blockId, provenance, semanticEntity(stepEntityId, 'scenario-step', step.id));

@@ -9,6 +9,7 @@ import {
   type SemanticValue,
 } from "../../shared/engineering-ir-types.ts";
 import { CompilerError } from "../../shared/errors.ts";
+import { compareCodeUnits, uniqueSorted } from "./ir-canonical-primitives.ts";
 
 const RESERVED = {
   status: "reserved",
@@ -397,10 +398,6 @@ export const PREDICATE_SIGNATURE_REGISTRY: PredicateSignatureRegistry = {
   VIOLATES: RESERVED,
 };
 
-function sortedUnique<Value extends string>(values: readonly Value[]): Value[] {
-  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-}
-
 function intersects<Value extends string>(
   left: readonly Value[],
   right: readonly Value[],
@@ -513,17 +510,17 @@ function validateValue(
       if (!entity) return `${path} references missing entity "${value}"`;
       return schema.entityKinds.includes(entity.kind)
         ? undefined
-        : `${path} references entity kind "${entity.kind}"; expected ${sortedUnique(schema.entityKinds).join("|")}`;
+        : `${path} references entity kind "${entity.kind}"; expected ${uniqueSorted(schema.entityKinds).join("|")}`;
     }
     case "object": {
       if (value === null || typeof value !== "object" || Array.isArray(value))
         return `${path} must be an object`;
       const valueObject = value as Record<string, SemanticValue>;
       const expectedKeys = Object.keys(schema.fields).sort((left, right) =>
-        left.localeCompare(right),
+        compareCodeUnits(left, right),
       );
       const actualKeys = Object.keys(valueObject).sort((left, right) =>
-        left.localeCompare(right),
+        compareCodeUnits(left, right),
       );
       for (const key of expectedKeys) {
         if (!Object.hasOwn(valueObject, key))
@@ -573,7 +570,7 @@ export function assertEngineeringIRPredicateSignatures(
   );
 
   for (const fact of [...facts].sort((left, right) =>
-    left.id.localeCompare(right.id),
+    compareCodeUnits(left.id, right.id),
   )) {
     const signature = PREDICATE_SIGNATURE_REGISTRY[fact.predicate];
     if (signature.status === "reserved") {
@@ -599,7 +596,7 @@ export function assertEngineeringIRPredicateSignatures(
         {
           ...factContext(fact),
           actualSubjectKind: subjectKind ?? null,
-          expectedSubjectKinds: sortedUnique(
+          expectedSubjectKinds: uniqueSorted(
             signature.variants.flatMap((variant) => variant.subjectKinds),
           ),
         },
@@ -616,7 +613,7 @@ export function assertEngineeringIRPredicateSignatures(
         {
           ...factContext(fact),
           actualSubjectKind: subjectKind,
-          expectedObjectKinds: sortedUnique(
+          expectedObjectKinds: uniqueSorted(
             subjectVariants.map((variant) => variant.object.kind),
           ),
         },
@@ -642,7 +639,7 @@ export function assertEngineeringIRPredicateSignatures(
             ...factContext(fact),
             actualSubjectKind: subjectKind,
             actualEntityObjectKind: objectEntityKind ?? null,
-            expectedEntityObjectKinds: sortedUnique(expectedEntityKinds),
+            expectedEntityObjectKinds: uniqueSorted(expectedEntityKinds),
           },
         );
       }
@@ -680,7 +677,7 @@ export function assertEngineeringIRPredicateSignatures(
           ...factContext(fact),
           actualSubjectKind: subjectKind,
           schemaFailures: failures.sort((left, right) =>
-            left.schemaId.localeCompare(right.schemaId),
+            compareCodeUnits(left.schemaId, right.schemaId),
           ),
         },
       );

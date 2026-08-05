@@ -1,3 +1,5 @@
+import { compareCodeUnits } from './canonical-primitives.ts';
+
 type CountSummary<T extends string> = { id: T; count: number };
 
 export function countPositiveValues(values: Iterable<number>): number {
@@ -26,13 +28,13 @@ export function summarizeCounts<T extends string>(values: Iterable<T>): Array<Co
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return [...counts.entries()]
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([id, count]) => ({ id, count }));
 }
 
 export function uniqueSorted<T extends string>(values: readonly T[]): T[] {
   return [...new Set(values.filter((value) => value.length > 0))]
-    .sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
+    .sort(compareCodeUnits);
 }
 
 export function uniqueSortedLines(value: string): string[] {

@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import type { ValidatedEngineeringIRSnapshot } from '../../shared/engineering-ir-types.ts';
 import type {
   SemanticMutationBaseV2,
@@ -15,6 +13,7 @@ import {
   type SemanticMutationVerificationReportV1,
   type SemanticMutationVerifyAllRunnerV1
 } from '../../shared/verification-types.ts';
+import { cloneAndDeepFreeze, compareCodeUnits, sha256 } from '../ir/ir-canonical-primitives.ts';
 import { forwardSemanticMutationIsolatedRuntimePlanBinding } from './semantic-mutation-isolated-runtime-binding.ts';
 import {
   hasProvenSemanticMutationIsolationCapability,
@@ -25,14 +24,6 @@ import {
 const SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/u;
 const SAFE_SELECTOR = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/u;
 const issuedRunnableCapabilityPlans = new WeakSet<object>();
-
-function sha256(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
 
 function requirementKey(requirement: VerificationRequirementV1): string {
   if (requirement.kind === 'acceptance') return `acceptance\u0000${requirement.acceptanceEntityId}`;
@@ -46,17 +37,6 @@ function normalizeRequirement(requirement: VerificationRequirementV1): Verificat
   }
   if (requirement.kind === 'selector') return { kind: 'selector', selector: requirement.selector };
   return { kind: 'pass', passId: requirement.passId };
-}
-
-function cloneAndDeepFreeze<Value>(value: Value): Value {
-  const clone = structuredClone(value);
-  const freeze = (entry: unknown): void => {
-    if (entry === null || typeof entry !== 'object' || Object.isFrozen(entry)) return;
-    for (const nested of Object.values(entry as Record<string, unknown>)) freeze(nested);
-    Object.freeze(entry);
-  };
-  freeze(clone);
-  return clone;
 }
 
 function selectorIsAuthoritative(snapshot: ValidatedEngineeringIRSnapshot, selector: string): boolean {

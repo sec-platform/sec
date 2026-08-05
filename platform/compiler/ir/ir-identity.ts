@@ -9,7 +9,7 @@ import type {
 } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { LoadedSemanticContract, SemanticContract } from '../../shared/semantic-contract-types.ts';
-import { digest, normalizedArtifactTarget } from './ir-canonical-primitives.ts';
+import { canonicalJson, digest, normalizedArtifactTarget } from './ir-canonical-primitives.ts';
 import { normalizeAttributes, normalizeFactObject } from './ir-normalization.ts';
 
 export { normalizedArtifactTarget };
@@ -124,7 +124,7 @@ function semanticContractOwnerIdentity(input: LoadedSemanticContract): string {
   return digest(JSON.stringify({
     blockId: input.blockId,
     contractPath: input.contractPath,
-    contract: input.contract
+    contract: canonicalJson(input.contract)
   }));
 }
 

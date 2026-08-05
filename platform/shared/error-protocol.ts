@@ -52,7 +52,8 @@ const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [
   { prefix: 'UPGRADE-MIGRATION-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan] },
   { prefix: 'UPGRADE-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-upgrade-dry-run', 'inspect-upgrade-diagnostics'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan] },
   { prefix: 'WORKBENCH-MUTATION-', recoverable: true, issueType: 'spec', suggestedActions: ['inspect-workbench-mutations', 'run-platform-workbench-mutations-apply'], artifactPaths: ['source/views/mutations', CI_ARTIFACT_FILES.viewMutationReport] },
-  { prefix: 'ERROR-DRIFT-', recoverable: false, issueType: 'spec', suggestedActions: ['run-platform-compose', 'run-platform-adapt', 'revert-local-project-changes'], artifactPaths: [CI_ARTIFACT_FILES.provenance] }
+  { prefix: 'ERROR-DRIFT-', recoverable: false, issueType: 'spec', suggestedActions: ['run-platform-compose', 'run-platform-adapt', 'revert-local-project-changes'], artifactPaths: [CI_ARTIFACT_FILES.provenance] },
+  { prefix: 'IMPORT-AUTHORITY-', recoverable: true, issueType: 'usage', suggestedActions: ['install-canonical-bun-version', 'align-packageManager-field', 'verify-bunfig-toolchain-profile'], artifactPaths: [] }
 ];
 
 export function buildErrorProtocol(error: {

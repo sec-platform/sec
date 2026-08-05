@@ -22,6 +22,7 @@ import {
   generatorEntityId,
   normalizedArtifactTarget
 } from './ir/ir-identity.ts';
+import { deepFreeze } from './ir/ir-canonical-primitives.ts';
 import { assertUniqueSemanticOutputPaths } from './semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from './state-transition-plan.ts';
 
@@ -297,12 +298,4 @@ export function buildSemanticGeneratorPlan(
     semanticRevision: snapshot.ir.semanticRevision,
     tasks
   });
-}
-
-function deepFreeze<Value>(value: Value): Value {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
-    Object.freeze(value);
-  }
-  return value;
 }

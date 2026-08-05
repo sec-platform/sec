@@ -252,13 +252,6 @@ async function handleRunNodeSse(context: RouteContext, mutex: WorkbenchMutex): P
 
       try {
         log(`[Runner] Initializing verify worker for ${body.type} "${body.id}"...`);
-        if (body.id === 'nonexistent-block-for-platform-verify') {
-          log('   Matched test suite: mock/test.test.ts');
-          log('[Runner] Execution completed successfully!');
-          controller.enqueue(encodeSse('success', 'passed'));
-          return;
-        }
-
         const command = await commandForNode(context, body, log);
         if (!command) {
           log('[ERROR] Physical slot handler file does not exist.');

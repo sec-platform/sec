@@ -108,7 +108,7 @@ async function detectOverrideConflicts(workspaceRoot: string, blockId: string, i
     throw new CompilerError(
       'UPGRADE-CONFLICT-001',
       `Override "${conflictingOverride.id}" conflicts with upgrade of "${blockId}"`,
-      conflictingOverride
+      { override: conflictingOverride }
     );
   }
 
@@ -498,7 +498,7 @@ function buildTextReplaceRegex(entry: Extract<UpgradeMigrationEntry, { kind: 'te
   try {
     return new RegExp(entry.pattern, entry.flags ?? 'g');
   } catch (error) {
-    throw new CompilerError('UPGRADE-MIGRATION-014', `Invalid text replacement regex for "${entry.id}"`, error);
+    throw new CompilerError('UPGRADE-MIGRATION-014', `Invalid text replacement regex for "${entry.id}"`, { error: error instanceof Error ? error.message : String(error) });
   }
 }
 

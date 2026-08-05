@@ -437,7 +437,7 @@ export async function verifyProject(
       });
     }
     console.error('VERIFY-ACCEPTANCE-003 full report:', JSON.stringify(report, null, 2));
-    throw new CompilerError('VERIFY-ACCEPTANCE-003', 'Project verification failed', report);
+    throw new CompilerError('VERIFY-ACCEPTANCE-003', 'Project verification failed', { verificationReport: report });
   }
 
   return report;

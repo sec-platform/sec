@@ -5,6 +5,7 @@ import {
   CodexDevelopmentBuildSanitizedChildEnvironmentV1,
   type CodexDevelopmentCiExecutionEnvironmentBindingV1
 } from './ci-execution-environment.ts';
+import { digest, sha256 as canonicalSha256 } from './canonical-primitives.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 
 export const CodexDevelopmentEvidenceCompositionPolicyRevisionV1 =
@@ -193,32 +194,12 @@ export type CodexDevelopmentEvidenceCompositionPlanV1 = {
   gates: CodexDevelopmentEvidenceCompositionGateV1[];
 };
 
-type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
-
-function canonicalJson(value: unknown): string {
-  function normalize(input: unknown): JsonValue {
-    if (input === null || typeof input === 'boolean' || typeof input === 'string') return input;
-    if (typeof input === 'number') {
-      if (!Number.isFinite(input)) throw new Error('Evidence composition cannot canonicalize a non-finite number.');
-      return input;
-    }
-    if (Array.isArray(input)) return input.map(normalize);
-    if (typeof input === 'object') {
-      return Object.fromEntries(Object.entries(input as Record<string, unknown>)
-          .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-        .map(([key, nested]) => [key, normalize(nested)]));
-    }
-    throw new Error(`Evidence composition cannot canonicalize ${typeof input}.`);
-  }
-  return JSON.stringify(normalize(value));
-}
-
 export function CodexDevelopmentEvidenceCompositionDigestV1(value: unknown): string {
-  return `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
+  return canonicalSha256(value);
 }
 
 export function CodexDevelopmentEvidenceCompositionRawDigestV1(value: string | Uint8Array): string {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+  return `sha256:${digest(value)}`;
 }
 
 export function CodexDevelopmentVerificationScopeV1(

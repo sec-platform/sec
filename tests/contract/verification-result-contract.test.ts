@@ -7,7 +7,7 @@ import {
   CodexDevelopmentBuildVerificationGateResultV1,
   CodexDevelopmentSnapshotVerificationDataV1,
   CodexDevelopmentVerificationDataEqualV1,
-  mapCiEvidenceV2Status,
+  mapCiEvidenceStatus,
   mapEvidenceDisposition,
   mapProductVerificationStatus,
   mapSemanticMutationBlocked,
@@ -1012,10 +1012,10 @@ test('mapProductVerificationStatus never promotes skipped to passed', () => {
   }
 });
 
-test('mapCiEvidenceV2Status never promotes not-run to passed', () => {
+test('mapCiEvidenceStatus never promotes not-run to passed', () => {
   const reasons = [null, 'unknown reason', 'not-applicable', 'prerequisite failed', 'owning environment', 'artifact missing'];
   for (const reason of reasons) {
-    const result = mapCiEvidenceV2Status('not-run', reason);
+    const result = mapCiEvidenceStatus('not-run', reason);
     expect(result.status).not.toBe('passed');
   }
 });

@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   fsyncSync,
@@ -15,6 +15,7 @@ import {
   CodexDevelopmentAssertCiExecutionEnvironmentBindingV1,
   CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1
 } from './ci-execution-environment.ts';
+import { digest, sha256 as canonicalSha256 } from './canonical-primitives.ts';
 
 import type {
   CodexDevelopmentEvidenceCompositionPlanV1,
@@ -86,39 +87,12 @@ type CodexDevelopmentVerificationEvidenceDraftV2 = Omit<
   'schema' | 'evidenceDigest'
 >;
 
-type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
-
-function canonicalJson(value: unknown): string {
-  function normalize(input: unknown): JsonValue {
-    if (input === null || typeof input === 'boolean' || typeof input === 'string') return input;
-    if (typeof input === 'number') {
-      if (!Number.isFinite(input)) throw new Error('Verification evidence cannot contain a non-finite number.');
-      return input;
-    }
-    if (Array.isArray(input)) return input.map(normalize);
-    if (typeof input === 'object') {
-      return Object.fromEntries(
-        Object.entries(input as Record<string, unknown>)
-          .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-          .map(([key, nested]) => [key, normalize(nested)])
-      );
-    }
-    throw new Error(`Verification evidence cannot canonicalize ${typeof input}.`);
-  }
-
-  return JSON.stringify(normalize(value));
-}
-
-function sha256(value: string): string {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
-}
-
 export function CodexDevelopmentVerificationDigest(value: unknown): string {
-  return sha256(canonicalJson(value));
+  return canonicalSha256(value);
 }
 
 export function CodexDevelopmentVerificationRawOutputDigest(value: string): string {
-  return sha256(value);
+  return `sha256:${digest(value)}`;
 }
 
 export function CodexDevelopmentFinalizeVerificationEvidenceV2(

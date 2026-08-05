@@ -7,22 +7,13 @@ import type {
   SemanticFactObject,
   SemanticValue
 } from '../../shared/engineering-ir-types.ts';
+import { compareCodeUnits, uniqueSorted, uniqueSortedByKey } from './ir-canonical-primitives.ts';
+
+export { uniqueSorted };
 
 interface ManifestProvenanceInput {
   blockId: string;
   manifestPath?: string;
-}
-
-export function uniqueSorted(values: readonly string[]): string[] {
-  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-}
-
-function uniqueSortedByKey<Value>(values: readonly Value[], keyOf: (value: Value) => string): Value[] {
-  const byKey = new Map<string, Value>();
-  for (const value of values) byKey.set(keyOf(value), value);
-  return [...byKey.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, value]) => value);
 }
 
 export function normalizeSemanticValue(value: SemanticValue): SemanticValue {
@@ -30,7 +21,7 @@ export function normalizeSemanticValue(value: SemanticValue): SemanticValue {
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => compareCodeUnits(left, right))
         .map(([key, entry]) => [key, normalizeSemanticValue(entry)])
     );
   }
@@ -50,7 +41,7 @@ function normalizeAttributeValue(value: SemanticAttributeValue): SemanticAttribu
 export function normalizeAttributes(attributes: readonly SemanticAttribute[]): SemanticAttribute[] {
   return [...attributes]
     .map((attribute) => ({ ...attribute, value: normalizeAttributeValue(attribute.value) }))
-    .sort((left, right) => left.key.localeCompare(right.key));
+    .sort((left, right) => compareCodeUnits(left.key, right.key));
 }
 
 function provenanceKey(provenance: FactProvenance): string {
@@ -75,7 +66,7 @@ export function normalizeScenario(scenario: ScenarioDefinition): ScenarioDefinit
     factIds: uniqueSorted(scenario.factIds),
     steps: [...scenario.steps]
       .map((step) => ({ ...step, afterStepIds: uniqueSorted(step.afterStepIds) }))
-      .sort((left, right) => left.id.localeCompare(right.id)),
+      .sort((left, right) => compareCodeUnits(left.id, right.id)),
     acceptanceEntityIds: uniqueSorted(scenario.acceptanceEntityIds)
   };
 }

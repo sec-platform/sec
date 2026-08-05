@@ -1,3 +1,4 @@
+import { isPlainObject } from './canonical-primitives.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
 
 export const DOCUMENT_AUTHORITY_REGISTRY_SCHEMA =
@@ -70,12 +71,6 @@ const NON_OWNING_KINDS = new Set<DocumentationAuthorityKind>([
   'agent-projection',
   'proposal'
 ]);
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
 
 function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!isPlainObject(value)) throw new Error(`${label} must be a plain object.`);

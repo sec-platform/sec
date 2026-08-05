@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { lstat, open, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -50,6 +49,7 @@ import {
   type WorkspaceWriteLeaseToken
 } from '../../shared/workspace-write-lease.ts';
 import { loadWorkspacePlan } from '../parse/load-plan.ts';
+import { cloneAndDeepFreeze, digest } from '../ir/ir-canonical-primitives.ts';
 import {
   buildWorkspaceSemanticBundle,
 } from '../semantic-frontend.ts';
@@ -572,7 +572,7 @@ async function compilerRegistryInputs(
 }
 
 function rawByteDigest(bytes: Uint8Array): string {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  return `sha256:${digest(bytes)}`;
 }
 
 export interface SemanticMutationIsolatedVerificationExecutionRequest {
@@ -1384,17 +1384,6 @@ export interface IsolatedVerificationArtifacts {
   readonly verificationReport: CurrentCanonicalVerificationReport;
 }
 const canonicalProductionRuntimeBindingRoots = new WeakSet<object>();
-
-function cloneAndDeepFreeze<Value>(value: Value): Value {
-  const clone = structuredClone(value);
-  const freeze = (entry: unknown): void => {
-    if (entry === null || typeof entry !== 'object' || Object.isFrozen(entry)) return;
-    for (const nested of Object.values(entry as Record<string, unknown>)) freeze(nested);
-    Object.freeze(entry);
-  };
-  freeze(clone);
-  return clone;
-}
 
 interface NamedArtifactReadResult {
   readonly artifact: Exclude<SemanticMutationIsolatedVerificationArtifact, 'child-outcome' | 'verification-set'>;

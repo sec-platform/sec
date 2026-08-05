@@ -4,6 +4,7 @@ import {
 } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { PREDICATE_SIGNATURE_REGISTRY } from '../ir/predicate-signatures.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 
 export type ImpactPropagationRule =
   | {
@@ -153,8 +154,8 @@ function fail(message: string, details: Record<string, unknown>): never {
 export function assertImpactPropagationRuleRegistry(
   registry: Readonly<Record<SemanticPredicate, ImpactPropagationRule>> = IMPACT_PROPAGATION_RULES
 ): void {
-  const keys = Object.keys(registry).sort((left, right) => left.localeCompare(right));
-  const predicates = [...SEMANTIC_PREDICATES].sort((left, right) => left.localeCompare(right));
+  const keys = Object.keys(registry).sort(compareCodeUnits);
+  const predicates = [...SEMANTIC_PREDICATES].sort(compareCodeUnits);
   if (JSON.stringify(keys) !== JSON.stringify(predicates)) {
     fail('Impact propagation registry must cover every Semantic Predicate exactly once', {
       expected: predicates,
