@@ -2,7 +2,7 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-04
+last-reviewed: 2026-08-05
 ---
 
 # SEC 滚动近期计划
@@ -11,13 +11,11 @@ last-reviewed: 2026-08-04
 
 ## 当前唯一 Work Package
 
-### branch-ref-lifecycle-v1
+### default-branch-health-repair-v1
 
-- Issue #269 / PR #270；唯一 owner 同时观察 local/remote refs、PR、active resolver、全部 worktree、GitHub auto-delete setting 与 clone prune config，并提供 clone-local prune 配置与 readback 入口。
-- 删除前冻结 exact branch/PR identity，并在仓库及所有 worktree 之外创建、校验、摘要和持久写入 recovery bundle。
-- remote 使用 expected-SHA force-with-lease CAS；local 使用 old-SHA `update-ref` CAS；任何 worktree binding、local/remote 分叉或准备后新出现/变化的 local ref 都保护或阻塞，绝不强删。
-- merge bootstrap 删除旧 post-merge pointer patch 和 best-effort cleanup；先 recovery，再 exact-head merge，再 new-main/readback/receipt。
-- 真实临时仓库必须证明：remote branch 删除成功，同时 dirty user-owned worktree 与 local branch 原样保留。
+- 修复 main@4b27555b 的 TCB closure 测试漂移与 default-branch 来源健康状态。
+- 根因：commit 0c9cf1e4 引入 canonical-primitives.ts 使 closure 从 60 扩展到 61，但未更新 toBe(60) 断言。
+- 修复策略：建立 generated exact TCB closure lock，从硬编码计数迁移到 lock identity 断言。
 
 ## 候选 Work Package
 
