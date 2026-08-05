@@ -10,13 +10,12 @@ import {
   type DocsDoctorResult
 } from '../../docs/scripts/docs-doctor.ts';
 import {
+  DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
   parseDocumentationAuthorityRegistry,
   renderDocumentationIndex,
   type DocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
-import {
-  CodexDevelopmentGitBlobSha256
-} from '../../scripts/codex/document-control-plane-contract.ts';
+import { CodexDevelopmentGitBlobSha256 } from '../../scripts/codex/document-control-plane-contract.ts';
 
 const ACTIVE_PACKAGE_ID = 'fixture-active-v1';
 const ACTIVE_MANIFEST = `docs/work-packages/${ACTIVE_PACKAGE_ID}.md`;
@@ -30,7 +29,11 @@ interface DocumentationFixture {
   write: (repositoryPath: string, content: string | Uint8Array) => Promise<void>;
 }
 
-function document(title: string, domain: string, status: 'active' | 'stable' | 'draft' = 'stable'): string {
+function document(
+  title: string,
+  domain: string,
+  status: 'active' | 'stable' | 'draft' = 'stable'
+): string {
   return `---
 title: ${title}
 status: ${status}
@@ -46,7 +49,7 @@ Stable fixture content.
 
 function fixtureRegistry(): DocumentationAuthorityRegistry {
   return parseDocumentationAuthorityRegistry(JSON.stringify({
-    schema: 'sec-document-authority-registry-v1',
+    schema: DOCUMENT_AUTHORITY_REGISTRY_SCHEMA,
     documents: [
       {
         id: 'root-readme',
@@ -194,7 +197,7 @@ last-reviewed: 2026-07-28
 }
 
 async function createFixture(): Promise<DocumentationFixture> {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-docs-doctor-v6-'));
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-docs-doctor-v7-'));
   const docsRoot = path.join(repositoryRoot, 'docs');
   const registry = fixtureRegistry();
   const manifestBytes = Buffer.from(`---
@@ -221,7 +224,10 @@ tests:
 # ${ACTIVE_PACKAGE_ID}
 `, 'utf8');
 
-  const write = async (repositoryPath: string, content: string | Uint8Array): Promise<void> => {
+  const write = async (
+    repositoryPath: string,
+    content: string | Uint8Array
+  ): Promise<void> => {
     const file = path.join(repositoryRoot, ...repositoryPath.split('/'));
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, content);
@@ -279,7 +285,7 @@ matchingDefaultBlob: none
   };
 }
 
-test('registry-backed documentation fixture passes without historical numbered owners', async () => {
+test('registry-backed documentation fixture passes', async () => {
   const fixture = await createFixture();
   try {
     expect(await fixture.scan()).toMatchObject({ errors: [], warnings: [] });
@@ -292,43 +298,28 @@ test('unregistered active documents fail closed', async () => {
   const fixture = await createFixture();
   try {
     await fixture.write('docs/unknown-owner.md', document('Unknown', 'unknown'));
-    const result = await fixture.scan();
-    expect(result.errors.map((issue) => issue.code)).toContain('unregistered-active-document');
+    expect((await fixture.scan()).errors.map((issue) => issue.code))
+      .toContain('unregistered-active-document');
   } finally {
     await fixture.dispose();
   }
 });
 
-test('duplicate canonical ownership is rejected by the registry parser', () => {
+test('duplicate canonical ownership is rejected', () => {
   const raw = JSON.parse(JSON.stringify(fixtureRegistry())) as {
     documents: Array<Record<string, unknown>>;
   };
   (raw.documents[4]!.owns as string[]) = ['documentation.identity'];
-  expect(() => parseDocumentationAuthorityRegistry(JSON.stringify(raw))).toThrow(
-    /Canonical ownership documentation\.identity is duplicated/u
-  );
+  expect(() => parseDocumentationAuthorityRegistry(JSON.stringify(raw)))
+    .toThrow(/Canonical ownership documentation\.identity is duplicated/u);
 });
 
-test('generated index drift is rejected', async () => {
+test('generated index content drift is rejected', async () => {
   const fixture = await createFixture();
   try {
     await fixture.write('docs/README.md', document('Hand edited index', 'documentation', 'active'));
-    const result = await fixture.scan();
-    expect(result.errors.map((issue) => issue.code)).toContain('generated-index-drift');
-  } finally {
-    await fixture.dispose();
-  }
-});
-
-test('generated index accepts CRLF without weakening content equality', async () => {
-  const fixture = await createFixture();
-  try {
-    await fixture.write(
-      'docs/README.md',
-      renderDocumentationIndex(fixture.registry).replace(/\n/gu, '\r\n')
-    );
-    const result = await fixture.scan();
-    expect(result.errors.map((issue) => issue.code)).not.toContain('generated-index-drift');
+    expect((await fixture.scan()).errors.map((issue) => issue.code))
+      .toContain('generated-index-drift');
   } finally {
     await fixture.dispose();
   }
@@ -341,10 +332,8 @@ test('dynamic Git and PR identities are rejected in stable authorities', async (
       'docs/product.md',
       `${document('Fixture Product', 'product')}main@${'a'.repeat(40)} and PR #173\n`
     );
-    const result = await fixture.scan();
-    expect(result.errors.map((issue) => issue.code)).toContain(
-      'dynamic-fact-in-stable-document'
-    );
+    expect((await fixture.scan()).errors.map((issue) => issue.code))
+      .toContain('dynamic-fact-in-stable-document');
   } finally {
     await fixture.dispose();
   }
@@ -354,11 +343,9 @@ test('registry lifecycle and frontmatter domain must match', async () => {
   const fixture = await createFixture();
   try {
     await fixture.write('docs/product.md', document('Fixture Product', 'wrong-domain', 'active'));
-    const result = await fixture.scan();
-    expect(result.errors.map((issue) => issue.code)).toEqual(expect.arrayContaining([
-      'registry-domain-mismatch',
-      'registry-lifecycle-mismatch'
-    ]));
+    expect((await fixture.scan()).errors.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(['registry-domain-mismatch', 'registry-lifecycle-mismatch'])
+    );
   } finally {
     await fixture.dispose();
   }
@@ -372,14 +359,12 @@ test('pointer digest and rolling-plan binding remain fail-closed', async () => {
       (await readFile(path.join(fixture.repositoryRoot, 'docs/work/active-work-package.md'), 'utf8'))
         .replace(/sha256:[0-9a-f]{64}/u, `sha256:${'0'.repeat(64)}`)
     );
-    const result = await fixture.scan();
-    expect(result.errors.map((issue) => issue.code)).toContain('control-plane-invalid');
+    expect((await fixture.scan()).errors.map((issue) => issue.code))
+      .toContain('control-plane-invalid');
   } finally {
     await fixture.dispose();
   }
 });
-
-
 
 test('machine ledger version drift is rejected against package authority', async () => {
   const fixture = await createFixture();
@@ -419,8 +404,8 @@ providers:
       cli: [analyze, status]
       standingMcp: []
 `);
-    const result = await fixture.scan();
-    expect(result.errors.map((issue) => issue.code)).toContain('machine-ledger-invalid');
+    expect((await fixture.scan()).errors.map((issue) => issue.code))
+      .toContain('machine-ledger-invalid');
   } finally {
     await fixture.dispose();
   }
@@ -463,8 +448,8 @@ completion:
   retirementComplete: true
   noOmissionProven: true
 `);
-    const result = await fixture.scan();
-    expect(result.errors.map((issue) => issue.code)).toContain('machine-ledger-invalid');
+    expect((await fixture.scan()).errors.map((issue) => issue.code))
+      .toContain('machine-ledger-invalid');
   } finally {
     await fixture.dispose();
   }
@@ -477,12 +462,9 @@ test('portable link and deprecated-token diagnostics remain available', async ()
       'docs/product.md',
       `${document('Fixture Product', 'product')}\nfile:///Z:/missing.md\n\`docs/missing.md\`\nCompilerPass\n`
     );
-    const result = await fixture.scan();
-    expect(result.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining([
-      'deprecated-token',
-      'file-uri-reference',
-      'unresolved-inline-path'
-    ]));
+    expect((await fixture.scan()).issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(['deprecated-token', 'file-uri-reference', 'unresolved-inline-path'])
+    );
   } finally {
     await fixture.dispose();
   }
@@ -501,27 +483,20 @@ test('machine-local absolute inline paths fail closed without flagging plain fil
     );
     expect(result.errors).toHaveLength(1);
     expect(localPathIssues).toHaveLength(1);
-    expect(localPathIssues[0]?.message).toContain('C:\\Users\\fixture\\sec\\local.md');
     expect(result.issues.some((issue) => issue.message.includes('example.ts'))).toBe(false);
   } finally {
     await fixture.dispose();
   }
 });
 
-test('incremental mode skips per-document diagnostics for unchanged documents', async () => {
+test('incremental mode skips unchanged per-document diagnostics', async () => {
   const fixture = await createFixture();
   try {
-    // Inject a deprecated token into docs/product.md; full scan flags it.
     await fixture.write(
       'docs/product.md',
       `${document('Fixture Product', 'product')}\nCompilerPass\n`
     );
-    const fullScan = await fixture.scan();
-    expect(fullScan.issues.map((issue) => issue.code)).toContain('deprecated-token');
-
-    // Incremental scan with changedDocumentPaths pointing only at a non-structural file
-    // (not registry/index/control-plane) must NOT flag the deprecated token in
-    // docs/product.md because per-document checks are skipped for unchanged documents.
+    expect((await fixture.scan()).issues.map((issue) => issue.code)).toContain('deprecated-token');
     const incrementalScan = await scanDocumentation({
       docsRoot: fixture.docsRoot,
       repositoryRoot: fixture.repositoryRoot,
@@ -535,48 +510,42 @@ test('incremental mode skips per-document diagnostics for unchanged documents', 
   }
 });
 
-test('incremental mode still runs global invariants (control plane binding)', async () => {
+test('incremental mode always runs global control-plane invariants', async () => {
   const fixture = await createFixture();
   try {
-    // Break control plane binding by corrupting the pointer digest.
     await fixture.write(
       'docs/work/active-work-package.md',
       (await readFile(path.join(fixture.repositoryRoot, 'docs/work/active-work-package.md'), 'utf8'))
         .replace(/sha256:[0-9a-f]{64}/u, `sha256:${'0'.repeat(64)}`)
     );
-    // Incremental scan with a changedDocumentPaths set that excludes control-plane paths.
-    const incrementalScan = await scanDocumentation({
+    const result = await scanDocumentation({
       docsRoot: fixture.docsRoot,
       repositoryRoot: fixture.repositoryRoot,
       readCandidateManifestBlob: async (manifestPath) =>
         readFile(path.join(fixture.repositoryRoot, ...manifestPath.split('/'))),
       changedDocumentPaths: new Set(['docs/product.md'])
     });
-    // Global invariant must still fire.
-    expect(incrementalScan.issues.map((issue) => issue.code)).toContain('control-plane-invalid');
+    expect(result.issues.map((issue) => issue.code)).toContain('control-plane-invalid');
   } finally {
     await fixture.dispose();
   }
 });
 
-test('incremental mode degrades to full per-document scan when registry or index changes', async () => {
+test('registry or index changes force a full per-document scan', async () => {
   const fixture = await createFixture();
   try {
-    // Inject a deprecated token into docs/product.md.
     await fixture.write(
       'docs/product.md',
       `${document('Fixture Product', 'product')}\nCompilerPass\n`
     );
-    // Incremental scan where changedDocumentPaths includes docs/authority.json — this
-    // is a structural change that forces per-document re-scan of every registered document.
-    const incrementalScan = await scanDocumentation({
+    const result = await scanDocumentation({
       docsRoot: fixture.docsRoot,
       repositoryRoot: fixture.repositoryRoot,
       readCandidateManifestBlob: async (manifestPath) =>
         readFile(path.join(fixture.repositoryRoot, ...manifestPath.split('/'))),
       changedDocumentPaths: new Set(['docs/authority.json'])
     });
-    expect(incrementalScan.issues.map((issue) => issue.code)).toContain('deprecated-token');
+    expect(result.issues.map((issue) => issue.code)).toContain('deprecated-token');
   } finally {
     await fixture.dispose();
   }

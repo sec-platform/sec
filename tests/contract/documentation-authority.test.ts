@@ -64,42 +64,39 @@ describe('canonical documentation authority', () => {
     expect(roadmap).not.toMatch(/\bPR #\d+\b/u);
   });
 
-  test('rolling plan keeps one active package, five candidates and absorbed design sources', async () => {
+  test('rolling plan keeps one active package, two ordered successors and three bounded candidates', async () => {
     const rollingPlan = await readCompilerFile('docs/work/rolling-plan.md');
-    const migrationEvidence = await readCompilerFile(
-      'docs/evidence/documentation/active-documentation-corpus-v1.md'
-    );
 
     expectContainsAll(rollingPlan, [
-      'canonical-architecture-convergence-v1',
       '## 当前唯一 Work Package',
+      '### active-documentation-corpus-convergence-v2',
+      '## 有序后继 Work Package',
+      '### 1. generated-state-lifecycle-v1',
+      '### 2. skill-applicability-gate-v1',
       '## 候选 Work Package',
-      '### 1. public-publisher-network-removal-v1',
-      '### 2. external-input-security-boundary-v1',
-      '### 3. task-envelope-de-specialization-v1',
-      '### 4. physical-workspace-observation-v1',
-      '### 5. typescript-source-program-model-skeleton-v1',
-      '## 条件候选',
-      '## 冻结设计来源',
-      '#216',
-      '#207',
-      '#248',
-      '#260',
-      '#240/#242'
+      '### 1. merge-authority-hardening-v1',
+      '### 2. parallel-resolver-correctness-v1-1',
+      '### 3. public-publisher-network-removal-v1',
+      'Issue #235',
+      'Issue #271',
+      'Issue #275',
+      'Issue #279',
+      'Issue #207',
+      'Issue #247',
+      'unclassified task = 0',
+      'Linux physical Evidence',
+      '#274/#276 保持 Draft'
     ]);
     expectContainsNone(rollingPlan, [
+      'canonical-architecture-convergence-v1',
+      'branch-ref-lifecycle-v1',
+      'task-envelope-de-specialization-v1',
+      'physical-workspace-observation-v1',
+      'external-input-security-boundary-v1',
       '1B-4 → #216 → #207',
       'PR #196',
       '#232',
       'Failure Epoch → Trusted Bootstrap → Evidence DAG'
-    ]);
-    expectContainsAll(migrationEvidence, [
-      'Target IR 跨层进入门',
-      'provisional snapshot 失效/rebind',
-      'aggregate completion',
-      '两个独立团队',
-      '永久 regression',
-      'PR #197 内容重放'
     ]);
   });
 
@@ -128,7 +125,7 @@ describe('canonical documentation authority', () => {
     ]);
   });
 
-  test('archive preserves historical agent prose only under non-discoverable names', async () => {
+  test('historical agent prose remains non-discoverable and is stored as a fixture', async () => {
     const discoverableArchiveEntries: string[] = [];
     for await (const entry of new Glob('docs/archive/**/AGENTS.md').scan({
       cwd: compilerRoot,
@@ -139,7 +136,7 @@ describe('canonical documentation authority', () => {
 
     expect(discoverableArchiveEntries).toEqual([]);
     expect(
-      await readCompilerFile('docs/archive/authority-v5/root/AGENTS.historical.md')
+      await readCompilerFile('tests/fixtures/documentation-history/AGENTS.authority-v5.historical.md')
     ).toContain('# SEC Codex 工程治理');
   });
 

@@ -7,11 +7,19 @@ export const DOCUMENTATION_LIFECYCLE_TEST_OWNERS = {
   historical: 'historical-documentation'
 } as const;
 
+const DOCUMENTATION_CORPUS_FAST_TESTS = [
+  'tests/contract/documentation-corpus-census.test.ts',
+  'tests/contract/documentation-ownership-closure.test.ts',
+  'tests/contract/docs-doctor-byte-exact.test.ts',
+  'tests/unit/documentation-authority-registry-v2.test.ts'
+];
+
 const DOCUMENTATION_AUTHORITY_FAST_TESTS = [
   'tests/contract/agent-skills.test.ts',
   'tests/contract/ci-lanes.test.ts',
   'tests/contract/document-control-plane-lifecycle.test.ts',
   'tests/contract/documentation-authority.test.ts',
+  ...DOCUMENTATION_CORPUS_FAST_TESTS,
   'tests/contract/docs-doctor-ledgers.test.ts',
   'tests/contract/docs-doctor.test.ts',
   'tests/contract/repository-audit.test.ts',
@@ -24,6 +32,7 @@ const DOCUMENTATION_AUTHORITY_FAST_TESTS = [
 const AGENT_GOVERNANCE_FAST_TESTS = [
   'tests/contract/agent-skills.test.ts',
   'tests/contract/discover-all.test.ts',
+  ...DOCUMENTATION_CORPUS_FAST_TESTS,
   'tests/contract/docs-doctor-ledgers.test.ts',
   'tests/contract/docs-doctor.test.ts',
   'tests/contract/repository-audit.test.ts',
@@ -46,6 +55,7 @@ const FROZEN_WORK_PACKAGE_FAST_TESTS = [
 ];
 
 const NON_ACTIVE_DOCUMENTATION_FAST_TESTS = [
+  ...DOCUMENTATION_CORPUS_FAST_TESTS,
   'tests/contract/agent-skills.test.ts',
   'tests/contract/repository-audit.test.ts',
   'tests/contract/test-impact.test.ts',
@@ -144,7 +154,11 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.historical,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.historical },
     autoReferenceMode: 'declared-only',
-    sourcePrefixes: ['docs/archive/'],
+    sourcePrefixes: [
+      'docs/archive/',
+      'docs/superpowers/',
+      'tests/fixtures/documentation-history/'
+    ],
     fast: HISTORICAL_DOCUMENTATION_FAST_TESTS,
     slow: []
   },
@@ -153,6 +167,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.evidence },
     autoReferenceMode: 'declared-only',
     sourceFiles: [
+      'docs/evidence/2026-07-26-development-throughput-audit.md',
       'docs/evidence/2026-08-03-constraint-thoughts-execution-plan.md',
       'docs/evidence/2026-08-04-canonical-architecture-convergence.md',
       'docs/evidence/2026-08-04-full-architecture-asset-audit.md'
@@ -215,6 +230,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json',
       'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json'
     ],
+    sourcePrefixes: ['tests/fixtures/work-package-gate-manifests/'],
     fast: WORK_PACKAGE_EVIDENCE_FAST_TESTS,
     slow: []
   },
