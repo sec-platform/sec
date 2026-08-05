@@ -13,15 +13,13 @@ last-reviewed: 2026-08-06
 
 ### default-branch-health-repair-v2
 
-- base: `main@b1220ae3`。修复 v1 post-merge closure 审计失败的三类根因：(1) 14 个
-  imports:check 失败（3 trust-root + 11 产品文件）；(2) repository-audit 对合法
-  post-merge 状态产生 false positive high finding；(3) revision-health receipt
-  不合规（过时 headRevision、未来时间戳、自声明 trusted、缺少执行元数据）。
-- trust-root delta：修改 3 个 trust-root 文件（ci-evidence-composition-policy-
-  registry.ts、ci-evidence-contract.ts、ci-evidence-reuse-contract.ts）仅限 import
-  ordering。hosted sec/merge-gate 按设计返回 manual-bootstrap-required。
-- 边界：不修改 #273/#274/#276、tcb-closure-lock.ts、sec-merge-gate.test.ts、
-  merge-gate.ts / sec-merge-bootstrap.ts / document-control-plane 合同。
+- exact base: `main@b1220ae333679ac6bf4a181b0242a31ad3d6975f`；tracking: Issue #280；PR #289 保持 Draft。
+- imports：三个最初报告文件与全树追加发现的 11 个文件均为真实 import-organization defect；本包修复完整 14 文件，不存在 `pre-existing/non-blocking` 排除。
+- control plane：canonical resolver 允许 selected manifest 在 default branch 保留到 successor 原子接管；唯一错误 owner 是 repository-audit 的 `control-plane-selected-manifest-already-on-default` 分支，正向 retained-manifest 与负向 digest-drift/missing-manifest 均须执行验证。
+- revision health：源码只保留 external physical-Evidence schema、严格验证与 exact-subject projection；命令结果、UTC、workspace、artifact digest、producer/recorder identity 必须由执行器从真实 artifact 生成。
+- trust-root delta 共五个路径：三个 evidence contract 文件仅 import organization；`repository-audit.ts` 修错误 owner；新增 revision-health physical Evidence producer。bootstrap 方式必须由最终 exact-head trusted-main 合同与 Gate 实际裁决，不预写成功结论。
+- 完成门：fresh COMMENT Review、exact scope、frozen verification、适用 trust bootstrap、successful `sec/merge-gate`、expected-head squash、new-main readback 与 control-plane/Issue closeout。任何能力缺失时 #280 保持 open。
+- 边界：不修改或启动 #273/#274/#276，不使用 admin merge。
 
 ## 已完成 Work Package
 
