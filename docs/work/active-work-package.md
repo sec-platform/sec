@@ -11,17 +11,17 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/default-branch-health-repair-v2.md
-manifestDigest: sha256:3f2daa9747a1e574d92d72656e621eedf3a1cf2b7cc4a5a3f774d88d1f92452c
+manifestDigest: sha256:aff35bea51ce40a7099903701ba649db661472a55bb774e33a98e7d597fff1d2
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 ```
 
-Work Package `default-branch-health-repair-v2` (Issue #280) 完成 v1 post-merge
-closure 的根因闭包：修复 14 个 imports:check 失败、移除 audit 对合法 post-merge
-状态的 false positive finding、重构 revision-health receipt 为 per-revision
-lattice-derived Evidence。manifest 保留在 `docs/work-packages/` 直到下一个 Work
-Package 接管 pointer 后归档。共享 resolver 只在 candidate manifest Git blob
+Work Package `default-branch-health-repair-v2` (Issue #280) 用于完成 v1 post-merge
+closure 的根因闭包：修复完整 import-organization 缺陷集、统一 audit 与 pointer
+生命周期语义，并将 revision-health 改为 exact-subject external physical Evidence
+的 validated projection。manifest 保留在 `docs/work-packages/` 直到下一个 Work
+Package 原子接管 pointer 后归档。共享 resolver 只在 candidate manifest Git blob
 SHA-256 与 `manifestDigest` 一致、live default branch 不含同 path+digest 时选择
 该唯一 manifest；default branch 包含同一 blob 后返回 `none`。default ref
 stale/unavailable、path 不 canonical、candidate drift 或多个选择均 fail closed。
