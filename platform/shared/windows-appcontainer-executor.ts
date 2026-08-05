@@ -13,8 +13,8 @@ import {
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { canonicalEquals, compareCodeUnits, digest, rawSha256 } from './canonical-primitives.ts';
 import type { Pointer } from 'bun:ffi';
+import { canonicalEquals, compareCodeUnits, digest, rawSha256 } from './canonical-primitives.ts';
 import {
   runObservedCommand,
   type ObservedCommandOutcome

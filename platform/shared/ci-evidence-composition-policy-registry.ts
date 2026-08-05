@@ -1,3 +1,4 @@
+import { canonicalEquals } from './canonical-primitives.ts';
 import {
   CodexDevelopmentEvidenceCompositionDigestV1,
   CodexDevelopmentEvidenceCompositionPolicyRevisionV1,
@@ -15,7 +16,6 @@ import {
 } from './ci-evidence-reuse-contract.ts';
 import type { CodexDevelopmentGitChangedRecordV1 } from './ci-git-changed-files.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
-import { canonicalEquals } from './canonical-primitives.ts';
 
 export const CodexDevelopmentSm3P0EvidencePolicyIdV1 =
   'sm3-p0-local-isolated-runner-v1' as const;

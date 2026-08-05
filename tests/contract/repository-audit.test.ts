@@ -390,6 +390,84 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
   }
 });
 
+test.serial('repository audit does not flag manifest already on default branch (legitimate post-merge state)', async () => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-repository-audit-postmerge-'));
+  try {
+    git(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
+    git(repositoryRoot, ['config', 'user.name', 'SEC Test']);
+    git(repositoryRoot, ['config', 'user.email', 'sec-test@example.invalid']);
+    git(repositoryRoot, ['config', 'core.autocrlf', 'false']);
+    await writeFile(path.join(repositoryRoot, 'README.md'), '# Fixture\n', 'utf8');
+    await mkdir(path.join(repositoryRoot, 'docs', 'work-packages'), { recursive: true });
+    await mkdir(path.join(repositoryRoot, 'docs', 'work'), { recursive: true });
+
+    const manifest = [
+      '---',
+      'schema: codex-development-work-package-v1',
+      'id: fixture',
+      '---',
+      '',
+      '# Fixture',
+      ''
+    ].join('\n');
+    const manifestDigest = createHash('sha256').update(manifest).digest('hex');
+    await writeFile(path.join(repositoryRoot, 'docs', 'work-packages', 'fixture.md'), manifest, 'utf8');
+    await writeFile(
+      path.join(repositoryRoot, 'docs', 'work', 'active-work-package.md'),
+      [
+        '---',
+        'status: conditional',
+        '---',
+        '',
+        '```yaml',
+        'selectionMode: exact-manifest-not-on-default-branch-v1',
+        'defaultBranchRef: refs/heads/main',
+        'defaultRefFreshness: live-platform-match-required',
+        `manifest: docs/work-packages/fixture.md`,
+        `manifestDigest: sha256:${manifestDigest}`,
+        'digestBytes: git-blob',
+        'unavailableDefaultRef: unresolved',
+        'matchingDefaultBlob: none',
+        '```',
+        ''
+      ].join('\n'),
+      'utf8'
+    );
+    await writeFile(
+      path.join(repositoryRoot, 'docs', 'work', 'rolling-plan.md'),
+      [
+        '---',
+        'status: active',
+        '---',
+        '',
+        '# Plan',
+        '',
+        '## 当前唯一 Work Package',
+        '',
+        '### fixture',
+        ''
+      ].join('\n'),
+      'utf8'
+    );
+    git(repositoryRoot, ['add', '-A']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'merge work package']);
+
+    const defaultRef = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    const report = await auditRepository(repositoryRoot, { defaultRef });
+
+    expect(report.findings.some((finding) =>
+      finding.code === 'control-plane-selected-manifest-already-on-default')).toBe(false);
+    expect(report.findings.some((finding) =>
+      finding.code === 'control-plane-digest-drift')).toBe(false);
+    expect(report.findings.some((finding) =>
+      finding.code === 'control-plane-manifest-missing')).toBe(false);
+    expect(report.findings.some((finding) =>
+      finding.code === 'control-plane-rolling-drift')).toBe(false);
+  } finally {
+    await rm(repositoryRoot, { force: true, recursive: true });
+  }
+});
+
 test.serial('full repository audit classifies every tracked path and has no blocking finding', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-repository-audit-clean-'));
   try {

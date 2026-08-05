@@ -2,7 +2,7 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-05
+last-reviewed: 2026-08-06
 ---
 
 # SEC 滚动近期计划
@@ -11,11 +11,25 @@ last-reviewed: 2026-08-05
 
 ## 当前唯一 Work Package
 
-### default-branch-health-repair-v1
+### default-branch-health-repair-v2
 
-- 修复 main@4b27555b 的 TCB closure 测试漂移与 default-branch 来源健康状态。
-- 根因：commit 0c9cf1e4 引入 canonical-primitives.ts 使 closure 从 60 扩展到 61，但未更新 toBe(60) 断言。
-- 修复策略：建立 generated exact TCB closure lock，从硬编码计数迁移到 lock identity 断言。
+- base: `main@b1220ae3`。修复 v1 post-merge closure 审计失败的三类根因：(1) 14 个
+  imports:check 失败（3 trust-root + 11 产品文件）；(2) repository-audit 对合法
+  post-merge 状态产生 false positive high finding；(3) revision-health receipt
+  不合规（过时 headRevision、未来时间戳、自声明 trusted、缺少执行元数据）。
+- trust-root delta：修改 3 个 trust-root 文件（ci-evidence-composition-policy-
+  registry.ts、ci-evidence-contract.ts、ci-evidence-reuse-contract.ts）仅限 import
+  ordering。hosted sec/merge-gate 按设计返回 manual-bootstrap-required。
+- 边界：不修改 #273/#274/#276、tcb-closure-lock.ts、sec-merge-gate.test.ts、
+  merge-gate.ts / sec-merge-bootstrap.ts / document-control-plane 合同。
+
+## 已完成 Work Package
+
+### default-branch-health-repair-v1 (PR #281 + PR #283)
+
+- 已合并至 `main@b2e538ae`（PR #281 admin-squash），receipt 追加于 `main@b1220ae3`（PR #283）。manifest 已归档至 `docs/archive/work-packages/`。
+- 工程结果：Issue #280 v1 — 修复 unauthorized commit `0c9cf1e4` 引入 `canonical-primitives.ts` 导致的 TCB closure 从 60 扩展到 61 但 `sec-merge-gate.test.ts` 仍断言 `toBe(60)` 的 test drift。建立 generated exact TCB closure lock 绑定 61 个模块身份/digest/blob/edge；测试改为断言 lock identity 而非硬编码计数；CRLF→LF 行尾归一化确保跨 worktree 一致。
+- post-merge closure 审计失败：receipt 不合规（headRevision 过时、时间戳为未来、自声明 trusted、缺少执行元数据）、audit 产生 false positive finding、14 个 imports:check 失败未修复。由 v2 接管根因闭包。
 
 ## 候选 Work Package
 

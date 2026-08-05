@@ -17,12 +17,12 @@ import type {
   EngineeringIRIndex
 } from './ir/index-engineering-ir.ts';
 import { indexValidatedEngineeringIR } from './ir/index-engineering-ir.ts';
+import { canonicalEquals, compareCodeUnits, deepFreeze } from './ir/ir-canonical-primitives.ts';
 import {
   artifactEntityId,
   generatorEntityId,
   normalizedArtifactTarget
 } from './ir/ir-identity.ts';
-import { canonicalEquals, compareCodeUnits, deepFreeze } from './ir/ir-canonical-primitives.ts';
 import { assertUniqueSemanticOutputPaths } from './semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from './state-transition-plan.ts';
 

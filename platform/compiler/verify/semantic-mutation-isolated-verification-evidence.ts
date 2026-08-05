@@ -1,7 +1,7 @@
 import { PIPELINE_VERIFY_STAGE_IDS } from '../../shared/pipeline-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
-import type { WorkspaceSemanticBundle } from '../semantic-frontend.ts';
 import { sha256 } from '../ir/ir-canonical-primitives.ts';
+import type { WorkspaceSemanticBundle } from '../semantic-frontend.ts';
 import type { SemanticMutationIsolatedVerificationFailure } from './semantic-mutation-isolated-verification-failure.ts';
 
 const ISOLATED_VERIFICATION_EVIDENCE_DOMAIN =

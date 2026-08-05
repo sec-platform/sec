@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 
+import { canonicalEquals, sha256 as canonicalSha256, digest } from './canonical-primitives.ts';
 import {
   CodexDevelopmentAssertCiExecutionEnvironmentBindingV1,
   CodexDevelopmentBuildSanitizedChildEnvironmentV1,
   type CodexDevelopmentCiExecutionEnvironmentBindingV1
 } from './ci-execution-environment.ts';
-import { canonicalEquals, digest, sha256 as canonicalSha256 } from './canonical-primitives.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 
 export const CodexDevelopmentEvidenceCompositionPolicyRevisionV1 =

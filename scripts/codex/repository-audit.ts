@@ -822,22 +822,14 @@ async function auditControlPlane(
     });
   }
 
-  const defaultManifestBytes = runGitBytes(
-    repositoryRoot,
-    ['show', `${defaultRef}:${manifestPath}`],
-    { allowFailure: true }
-  );
-  if (defaultManifestBytes !== null) {
-    const defaultDigest = createHash('sha256').update(defaultManifestBytes).digest('hex');
-    if (defaultDigest === expectedDigest) {
-      pushFinding(findings, {
-        code: 'control-plane-selected-manifest-already-on-default',
-        message: 'active pointer selects a manifest whose exact digest is already present on the default branch',
-        path: pointerPath,
-        severity: 'high'
-      });
-    }
-  }
+  // The selected manifest may legitimately be on the default branch after merge.
+  // sec-work-package-lifecycle SKILL rule 4: "selected manifest 进入 default branch
+  // 后 resolver 可返回 matchingDefaultBlob: none，但仍被 pointer 引用的 selected
+  // manifest 必须继续保留。" The resolver (document-control-plane-contract.ts)
+  // returns state=none, reason=matching-default-blob in this case. Producing a
+  // finding for this legitimate post-merge state is a false positive.
+  // The previous control-plane-selected-manifest-already-on-default finding was
+  // removed because it contradicted the lifecycle contract.
 
   const manifestId = path.posix.basename(manifestPath, '.md');
   if (rollingPackage !== manifestId) {

@@ -9,7 +9,7 @@ import {
   type SemanticFact,
   type ValidatedEngineeringIRSnapshot
 } from '../../shared/engineering-ir-types.ts';
-import { CompilerError, fail } from '../../shared/errors.ts';
+import { fail } from '../../shared/errors.ts';
 import {
   buildEngineeringIR,
   type BuildEngineeringIRInput
