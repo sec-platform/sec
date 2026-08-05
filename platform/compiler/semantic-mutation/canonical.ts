@@ -6,7 +6,14 @@ import type {
   SemanticMutationDiagnosticV2,
   VerificationRequirementV1
 } from '../../shared/semantic-mutation-types.ts';
-import { digest } from '../ir/ir-revision.ts';
+import {
+  canonicalJson,
+  cloneAndDeepFreeze,
+  compareCodeUnits,
+  digest,
+  isPlainObject,
+  sha256
+} from '../ir/ir-canonical-primitives.ts';
 
 const STAGE_ORDER: readonly SemanticMutationDiagnosticStage[] = [
   'request',
@@ -44,49 +51,15 @@ export class SemanticMutationContractError extends CompilerError {
   }
 }
 
-export function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
-
-export function sha256(value: unknown): string {
-  return `sha256:${digest(JSON.stringify(value))}`;
-}
-
-export function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-export function canonicalJson(value: unknown): unknown {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error('Canonical JSON numbers must be finite');
-    return Object.is(value, -0) ? 0 : value;
-  }
-  if (Array.isArray(value)) return value.map(canonicalJson);
-  if (!isPlainObject(value)) throw new Error('Canonical JSON only accepts arrays and plain objects');
-  return Object.fromEntries(Object.keys(value)
-    .sort(compareCodeUnits)
-    .map((key) => {
-      const entry = value[key];
-      if (entry === undefined || typeof entry === 'bigint' || typeof entry === 'function' || typeof entry === 'symbol') {
-        throw new Error(`Canonical JSON rejects unsupported value at key "${key}"`);
-      }
-      return [key, canonicalJson(entry)];
-    }));
-}
-
-export function cloneAndDeepFreeze<Value>(value: Value): Value {
-  const clone = structuredClone(value);
-  const freeze = (entry: unknown): void => {
-    if (entry === null || typeof entry !== 'object' || Object.isFrozen(entry)) return;
-    for (const nested of Object.values(entry as Record<string, unknown>)) freeze(nested);
-    Object.freeze(entry);
-  };
-  freeze(clone);
-  return clone;
-}
+// Re-export canonical primitives so existing call sites keep working while
+// the canonical owner lives in `../ir/ir-canonical-primitives.ts`.
+export {
+  canonicalJson,
+  cloneAndDeepFreeze,
+  compareCodeUnits,
+  isPlainObject,
+  sha256
+};
 
 export function exactOwnKeys(
   value: Record<string, unknown>,

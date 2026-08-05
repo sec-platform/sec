@@ -26,6 +26,13 @@ import {
 } from '../ir/index-engineering-ir.ts';
 import { digest } from '../ir/ir-revision.ts';
 import {
+  canonicalJson,
+  compareCodeUnits,
+  deepFreeze,
+  sha256,
+  uniqueSorted
+} from '../ir/ir-canonical-primitives.ts';
+import {
   assertImpactPropagationRuleRegistry,
   IMPACT_PROPAGATION_RULES
 } from './propagation-rules.ts';
@@ -61,29 +68,13 @@ function fail(code: string, message: string, details?: Record<string, unknown>):
   throw new CompilerError(code, message, details);
 }
 
-function deepFreeze<Value>(value: Value): Value {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
-    Object.freeze(value);
-  }
-  return value;
-}
-
-function compareString(left: string, right: string): number {
-  return left.localeCompare(right);
-}
-
 function compareStringArrays(left: readonly string[], right: readonly string[]): number {
   const length = Math.min(left.length, right.length);
   for (let index = 0; index < length; index += 1) {
-    const comparison = compareString(left[index]!, right[index]!);
+    const comparison = compareCodeUnits(left[index]!, right[index]!);
     if (comparison !== 0) return comparison;
   }
   return left.length - right.length;
-}
-
-function uniqueSorted(values: readonly string[]): string[] {
-  return [...new Set(values)].sort(compareString);
 }
 
 function pathStepTuple(step: ImpactPathStep): string[] {
@@ -112,20 +103,20 @@ function compareSeedPaths(
   rightSeedId: string,
   rightPath: readonly ImpactPathStep[]
 ): number {
-  const seedComparison = compareString(leftSeedId, rightSeedId);
+  const seedComparison = compareCodeUnits(leftSeedId, rightSeedId);
   return seedComparison !== 0 ? seedComparison : comparePaths(leftPath, rightPath);
 }
 
 function compareSeeds(left: ImpactSeed, right: ImpactSeed): number {
   return BASIS_RANK[left.basis] - BASIS_RANK[right.basis] ||
-    compareString(left.kind, right.kind) ||
-    compareString(left.id, right.id);
+    compareCodeUnits(left.kind, right.kind) ||
+    compareCodeUnits(left.id, right.id);
 }
 
 function compareOccurrences(left: ImpactOccurrence, right: ImpactOccurrence): number {
   return BASIS_RANK[left.basis] - BASIS_RANK[right.basis] ||
     left.distance - right.distance ||
-    compareString(left.entityId, right.entityId);
+    compareCodeUnits(left.entityId, right.entityId);
 }
 
 function uncertaintyIdentity(value: ImpactUncertainty): string[] {
@@ -152,8 +143,8 @@ function verificationTarget(value: VerificationRecommendation): string {
 function compareVerificationReasons(left: VerificationReason, right: VerificationReason): number {
   return BASIS_RANK[left.basis] - BASIS_RANK[right.basis] ||
     SOURCE_LEVEL_RANK[left.sourceLevel] - SOURCE_LEVEL_RANK[right.sourceLevel] ||
-    compareString(left.sourceEntityId, right.sourceEntityId) ||
-    compareString(left.factId ?? '', right.factId ?? '') ||
+    compareCodeUnits(left.sourceEntityId, right.sourceEntityId) ||
+    compareCodeUnits(left.factId ?? '', right.factId ?? '') ||
     compareStringArrays(left.sourceSeedIds, right.sourceSeedIds);
 }
 
@@ -161,7 +152,7 @@ function compareRecommendations(
   left: VerificationRecommendation,
   right: VerificationRecommendation
 ): number {
-  return compareString(left.kind, right.kind) || compareString(verificationTarget(left), verificationTarget(right));
+  return compareCodeUnits(left.kind, right.kind) || compareCodeUnits(verificationTarget(left), verificationTarget(right));
 }
 
 function assertInputBinding(input: ImpactPropagationInput): void {
@@ -221,7 +212,7 @@ function assertCanonicalDelta(
 }
 
 function seedDigest(payload: Record<string, string>): string {
-  return `sha256:${digest(JSON.stringify({ domain: 'engineering-ir-impact-seed-v1', ...payload }))}`;
+  return sha256({ domain: 'engineering-ir-impact-seed-v1', ...payload });
 }
 
 function entitySeed(
@@ -340,7 +331,7 @@ function collectEntitySeeds(
       fromIndex += 1;
       continue;
     }
-    const comparison = compareString(fromEntity.id, toEntity.id);
+    const comparison = compareCodeUnits(fromEntity.id, toEntity.id);
     if (comparison < 0) {
       seeds.push({ seed: entitySeed('entity-removed', 'from', fromEntity.id), propagates: true });
       fromIndex += 1;
@@ -669,7 +660,7 @@ function traverseBasis(
             rightState.canonicalSeedId,
             rightState.canonicalPath
           ) ||
-          compareString(left, right);
+          compareCodeUnits(left, right);
       });
     const nextFrontier = new Set<string>();
     for (const entityId of frontier) {
@@ -732,7 +723,7 @@ function sourcesForVerification(
       seedIds: uniqueSorted([...(existing?.seedIds ?? []), seed.id]),
       canonicalSeedId: existing === undefined
         ? seed.id
-        : [existing.canonicalSeedId, seed.id].sort(compareString)[0]!,
+        : [existing.canonicalSeedId, seed.id].sort(compareCodeUnits)[0]!,
       canonicalPath: []
     });
   }
@@ -754,7 +745,7 @@ function sourcesForVerification(
   return [...sources.values()].sort((left, right) =>
     BASIS_RANK[left.basis] - BASIS_RANK[right.basis] ||
     SOURCE_LEVEL_RANK[left.level] - SOURCE_LEVEL_RANK[right.level] ||
-    compareString(left.entityId, right.entityId)
+    compareCodeUnits(left.entityId, right.entityId)
   );
 }
 
@@ -999,7 +990,7 @@ function assertCanonicalOutput(
 function impactDigestPayload(
   value: Omit<SemanticImpactPropagation, 'impactRevision'>
 ): string {
-  return JSON.stringify({
+  return JSON.stringify(canonicalJson({
     domain: 'engineering-ir-impact-propagation-v1',
     contractVersion: value.contractVersion,
     scope: value.scope,
@@ -1021,7 +1012,7 @@ function impactDigestPayload(
     transitive: value.transitive,
     uncertainties: value.uncertainties,
     verification: value.verification
-  });
+  }));
 }
 
 export function buildImpactPropagation(

@@ -11,6 +11,7 @@ import type { PolicyRule } from '../../shared/policy-types.ts';
 import type { LoadedSemanticContract } from '../../shared/semantic-contract-types.ts';
 import { linkWorkspaceSemanticContracts } from '../semantic-linker.ts';
 import { appendSemanticContract, type BuildSink } from './append-semantic-contract.ts';
+import { compareCodeUnits } from './ir-canonical-primitives.ts';
 import { addFact as addFactToStore } from './ir-fact-store.ts';
 import {
   addEntity as addEntityToStore,
@@ -68,7 +69,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   const sink: BuildSink = { addEntity, addFact, claimSemanticNamespace };
   addEntity(semanticEntity(appId, 'app', input.app.name));
 
-  for (const block of [...input.resolvedBlocks].sort((left, right) => left.id.localeCompare(right.id))) {
+  for (const block of [...input.resolvedBlocks].sort((left, right) => compareCodeUnits(left.id, right.id))) {
     const blockId = `block:${block.id}`;
     addEntity(semanticEntity(blockId, 'block', block.id, [
       valueAttribute('version', block.version),
@@ -79,7 +80,7 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   }
 
   const resolvedBlockIds = new Set(input.resolvedBlocks.map((block) => block.id));
-  for (const entry of [...input.manifests].sort((left, right) => left.blockId.localeCompare(right.blockId))) {
+  for (const entry of [...input.manifests].sort((left, right) => compareCodeUnits(left.blockId, right.blockId))) {
     if (!resolvedBlockIds.has(entry.blockId)) throw new CompilerError('IR-IDENTITY-002', `Manifest input references unresolved block "${entry.blockId}"`);
     const blockId = `block:${entry.blockId}`;
     const provenance = manifestProvenance(entry);
@@ -94,19 +95,19 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
       addEntity(semanticEntity(capabilityId, 'capability', capability));
       addFact({ subject: blockId, predicate: 'PROVIDES', object: { kind: 'entity', entityId: capabilityId }, authority: 'authoritative', provenance });
     }
-    for (const pin of [...entry.manifest.pins.inputs].sort((left, right) => left.id.localeCompare(right.id))) {
+    for (const pin of [...entry.manifest.pins.inputs].sort((left, right) => compareCodeUnits(left.id, right.id))) {
       const portId = `port:${entry.blockId}:input:${pin.id}`;
       addEntity(semanticEntity(portId, 'port', pin.id, [valueAttribute('direction', 'input'), valueAttribute('type', pin.type), valueAttribute('required', pin.required ?? false)]));
       addFact({ subject: blockId, predicate: 'REQUIRES', object: { kind: 'entity', entityId: portId }, authority: 'authoritative', provenance });
     }
-    for (const pin of [...entry.manifest.pins.outputs].sort((left, right) => left.id.localeCompare(right.id))) {
+    for (const pin of [...entry.manifest.pins.outputs].sort((left, right) => compareCodeUnits(left.id, right.id))) {
       const portId = `port:${entry.blockId}:output:${pin.id}`;
       addEntity(semanticEntity(portId, 'port', pin.id, [valueAttribute('direction', 'output'), valueAttribute('type', pin.type), valueAttribute('required', pin.required ?? false)]));
       addFact({ subject: blockId, predicate: 'PROVIDES', object: { kind: 'entity', entityId: portId }, authority: 'authoritative', provenance });
     }
   }
 
-  for (const task of [...input.slotTasks].sort((left, right) => `${left.block}:${left.id}`.localeCompare(`${right.block}:${right.id}`))) {
+  for (const task of [...input.slotTasks].sort((left, right) => compareCodeUnits(`${left.block}:${left.id}`, `${right.block}:${right.id}`))) {
     const blockId = `block:${task.block}`;
     if (!entities.has(blockId)) throw new CompilerError('IR-IDENTITY-003', `Slot "${task.id}" references unknown block "${task.block}"`);
     const slotId = `slot:${task.block}:${task.id}`;
@@ -133,10 +134,10 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
   }
 
   const acceptanceEntityIds = new Set(input.acceptanceIds.map((id) => `acceptance:${id}`));
-  for (const entry of [...input.manifests].sort((left, right) => left.blockId.localeCompare(right.blockId))) {
+  for (const entry of [...input.manifests].sort((left, right) => compareCodeUnits(left.blockId, right.blockId))) {
     const blockId = `block:${entry.blockId}`;
     const provenance = manifestProvenance(entry);
-    for (const declaration of [...(entry.manifest.generators ?? [])].sort((left, right) => left.id.localeCompare(right.id))) {
+    for (const declaration of [...(entry.manifest.generators ?? [])].sort((left, right) => compareCodeUnits(left.id, right.id))) {
       const contractMatches = linkedContracts.filter((candidate) =>
         candidate.blockId === entry.blockId && candidate.contract.id === declaration.contract
       );
@@ -184,9 +185,9 @@ export function buildEngineeringIR(input: BuildEngineeringIRInput): EngineeringI
     }
   }
 
-  const sortedEntities = [...entities.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedEntities = [...entities.values()].sort((left, right) => compareCodeUnits(left.id, right.id));
   const entityIds = new Set(sortedEntities.map((entity) => entity.id));
-  const sortedFacts = [...facts.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedFacts = [...facts.values()].sort((left, right) => compareCodeUnits(left.id, right.id));
   const sortedScenarios = deriveScenarioDefinitions(sortedEntities, sortedFacts);
 
   assertEngineeringIRReferences(entityIds, sortedFacts, sortedScenarios);

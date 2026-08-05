@@ -561,10 +561,10 @@
     "build-ir": "succeeded",
     "compose": "succeeded",
     "adapt": "succeeded",
-    "verify": "succeeded",
-    "repair": "skipped",
-    "lock": "succeeded",
-    "emit": "succeeded"
+    "verify": "failed",
+    "repair": "blocked",
+    "lock": "blocked",
+    "emit": "blocked"
   },
   "semanticLoweringTasks": [
     {

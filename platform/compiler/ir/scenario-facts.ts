@@ -6,6 +6,7 @@ import type {
   SemanticValue
 } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
+import { compareCodeUnits } from './ir-canonical-primitives.ts';
 
 function entityObjectId(fact: SemanticFact): string | undefined {
   return fact.object.kind === 'entity' ? fact.object.entityId : undefined;
@@ -64,7 +65,7 @@ export function deriveScenarioDefinitions(
         .filter((fact) => fact.predicate === 'CONTAINS' && fact.object.kind === 'entity')
         .map((fact) => entityById.get(entityObjectId(fact)!))
         .filter((entity): entity is SemanticEntity => entity?.kind === 'scenario-step')
-        .sort((left, right) => left.id.localeCompare(right.id));
+        .sort((left, right) => compareCodeUnits(left.id, right.id));
       const stepIds = new Set(stepEntities.map((entity) => entity.id));
 
       for (const fact of facts.filter((candidate) => candidate.predicate === 'PRECEDES' || candidate.predicate === 'HANDLES')) {
@@ -97,7 +98,7 @@ export function deriveScenarioDefinitions(
         const afterStepIds = facts
           .filter((fact) => fact.predicate === 'PRECEDES' && entityObjectId(fact) === stepEntity.id)
           .map((fact) => fact.subject)
-          .sort((left, right) => left.localeCompare(right));
+          .sort((left, right) => compareCodeUnits(left, right));
         const handlerFacts = facts.filter((fact) => fact.predicate === 'HANDLES' && entityObjectId(fact) === stepEntity.id);
         if (handlerFacts.length > 1) {
           throw new CompilerError('IR-SCENARIO-006', `Scenario step "${stepEntity.id}" has multiple error handlers`);
@@ -116,7 +117,7 @@ export function deriveScenarioDefinitions(
       const acceptanceEntityIds = scenarioFacts
         .filter((fact) => fact.predicate === 'VERIFIED_BY' && fact.object.kind === 'entity')
         .map((fact) => entityObjectId(fact)!)
-        .sort((left, right) => left.localeCompare(right));
+        .sort((left, right) => compareCodeUnits(left, right));
       const relatedSubjectIds = new Set([scenarioEntity.id, ...stepIds]);
 
       return {
@@ -126,12 +127,12 @@ export function deriveScenarioDefinitions(
         factIds: facts
           .filter((fact) => relatedSubjectIds.has(fact.subject))
           .map((fact) => fact.id)
-          .sort((left, right) => left.localeCompare(right)),
+          .sort((left, right) => compareCodeUnits(left, right)),
         steps,
         acceptanceEntityIds
       };
     })
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
 export function deriveScenarioDefinition(

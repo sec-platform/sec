@@ -3,6 +3,7 @@ import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { loadCanonicalBunRuntimeVersion } from './bun-runtime-version.ts';
+import { compareCodeUnits, digest } from './canonical-primitives.ts';
 import { CompilerError } from './errors.ts';
 import {
   ensureDir,
@@ -257,13 +258,13 @@ async function compilerDependencyIdentity(
   const packageVersions = { ...dependencies, ...devDependencies };
   return {
     ...runtime,
-    manifestHash: crypto.createHash('sha256').update(JSON.stringify({
+    manifestHash: digest(JSON.stringify({
       dependencies,
       devDependencies,
       lockfile,
       runtime
-    })).digest('hex'),
-    packageNames: Object.keys(packageVersions).sort((left, right) => left.localeCompare(right)),
+    })),
+    packageNames: Object.keys(packageVersions).sort(compareCodeUnits),
     packageVersions
   };
 }
@@ -303,10 +304,6 @@ const criticalCompilerDependencyEntries = new Set([
   'ts-morph',
   'typescript'
 ]);
-
-function sha256(value: Buffer | string): string {
-  return crypto.createHash('sha256').update(value).digest('hex');
-}
 
 function isExactPackageVersion(value: string): boolean {
   return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(value);
@@ -348,13 +345,13 @@ async function compilerDependencyPackageBinding(
     }
     entry = {
       path: entryPath,
-      sha256: sha256(await fs.readFile(absoluteEntry))
+      sha256: digest(await fs.readFile(absoluteEntry))
     };
   }
 
   return {
     ...(entry ? { entry } : {}),
-    manifestSha256: sha256(packageJsonBytes),
+    manifestSha256: digest(packageJsonBytes),
     name: packageName,
     version: manifest.version
   };

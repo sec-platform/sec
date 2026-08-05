@@ -12,7 +12,14 @@ import type {
   SemanticContract
 } from '../../shared/semantic-contract-types.ts';
 import type { ManifestGenerator } from '../../shared/semantic-generator-types.ts';
-import { digest, normalizedArtifactTarget } from './ir-canonical-primitives.ts';
+import {
+  compareCodeUnits,
+  digest,
+  normalizedArtifactTarget,
+  stableById,
+  uniqueSorted,
+  uniqueSortedByKey
+} from './ir-canonical-primitives.ts';
 
 export { digest };
 
@@ -32,29 +39,13 @@ export interface InputRevisionDomain {
   semanticContracts?: readonly LoadedSemanticContract[];
 }
 
-function uniqueSorted(values: readonly string[]): string[] {
-  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-}
-
-function uniqueSortedByKey<Value>(values: readonly Value[], keyOf: (value: Value) => string): Value[] {
-  const byKey = new Map<string, Value>();
-  for (const value of values) byKey.set(keyOf(value), value);
-  return [...byKey.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, value]) => value);
-}
-
-function stableById<Value extends { id: string }>(values: readonly Value[]): Value[] {
-  return [...values].sort((left, right) => left.id.localeCompare(right.id));
-}
-
 function canonicalSemanticContract(contract: SemanticContract): object {
   return {
     formatVersion: contract.formatVersion,
     id: contract.id,
     namespace: contract.namespace,
     imports: [...(contract.imports ?? [])]
-      .sort((left, right) => left.alias.localeCompare(right.alias))
+      .sort((left, right) => compareCodeUnits(left.alias, right.alias))
       .map((entry) => ({
         alias: entry.alias,
         namespace: entry.namespace,

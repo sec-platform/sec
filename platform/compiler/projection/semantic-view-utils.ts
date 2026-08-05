@@ -18,7 +18,10 @@ import {
   type ViewOverlay,
   type ViewReference
 } from '../../shared/semantic-view-types.ts';
+import { compareCodeUnits, uniqueSorted } from '../ir/ir-canonical-primitives.ts';
 import { indexValidatedEngineeringIR, type EngineeringIRIndex } from '../ir/index-engineering-ir.ts';
+
+export { uniqueSorted };
 
 export interface FactAssertionSummary {
   status: AuthorityOverlayStatus;
@@ -32,13 +35,9 @@ export interface FactAssertionSummary {
   };
 }
 
-export function uniqueSorted<Value extends string>(values: readonly Value[]): Value[] {
-  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-}
-
 export function summarizeFactAssertions(fact: SemanticFact): FactAssertionSummary {
   const authorities = [...new Set(fact.assertions.map((assertion) => assertion.authority))]
-    .sort((left, right) => left.localeCompare(right));
+    .sort(compareCodeUnits);
   if (authorities.length === 0) {
     throw new CompilerError('IR-AUTHORITY-004', `Semantic fact "${fact.id}" must include at least one assertion`);
   }
@@ -79,7 +78,7 @@ export function uniqueReferences(references: readonly ViewReference[]): ViewRefe
   const byKey = new Map<string, ViewReference>();
   for (const reference of references) byKey.set(`${reference.kind}:${reference.ref}`, reference);
   return [...byKey.values()].sort((left, right) =>
-    `${left.kind}:${left.ref}`.localeCompare(`${right.kind}:${right.ref}`)
+    compareCodeUnits(`${left.kind}:${left.ref}`, `${right.kind}:${right.ref}`)
   );
 }
 
@@ -162,7 +161,7 @@ export function buildSemanticInspector(
   if (!entity) throw new CompilerError('VIEW-INSPECTOR-001', `Unknown inspector subject "${subjectId}"`);
   const outgoing = index.outgoingFactsBySubject.get(subjectId) ?? [];
   const incoming = index.incomingFactsByEntityObject.get(subjectId) ?? [];
-  const allFacts = [...outgoing, ...incoming].sort((left, right) => left.id.localeCompare(right.id));
+  const allFacts = [...outgoing, ...incoming].sort((left, right) => compareCodeUnits(left.id, right.id));
   const entityReference: ViewReference[] = [{ kind: 'entity', ref: entity.id }];
 
   const itemsBySection = new Map<string, InspectorItem[]>();
@@ -270,7 +269,7 @@ export function buildProvenanceOverlay(
 
   return {
     kind: 'provenance-authority',
-    entries: entries.sort((left, right) => left.targetId.localeCompare(right.targetId))
+    entries: entries.sort((left, right) => compareCodeUnits(left.targetId, right.targetId))
   };
 }
 

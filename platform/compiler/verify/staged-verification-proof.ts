@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import type { PolicyReport } from '../../shared/policy-types.ts';
@@ -11,6 +9,7 @@ import type {
   RuntimeVerificationLaneReport,
   VerificationReport
 } from '../../shared/verification-types.ts';
+import { deepFreeze, digest } from '../ir/ir-canonical-primitives.ts';
 import { stagedVerificationProjectInputDigest } from './semantic-mutation-staged-project-input.ts';
 
 const PROOF_FORMAT_REVISION = 'staged-verification-proof-v1' as const;
@@ -85,15 +84,7 @@ const issuedSources = new WeakMap<StagedVerificationProofSource, SourceState>();
 const issuedProofs = new WeakMap<StagedVerificationProof, ProofState>();
 
 function sha256(value: string | Uint8Array): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
-}
-
-function deepFreeze<Value>(value: Value): Value {
-  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
-    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
-    Object.freeze(value);
-  }
-  return value;
+  return `sha256:${digest(value)}`;
 }
 
 function frozenArtifacts(artifacts: StagedVerificationArtifactSet): CanonicalVerificationArtifactSet {

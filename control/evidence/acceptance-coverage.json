@@ -1,30 +1,15 @@
 {
   "formatVersion": "1",
-  "status": "passed",
-  "acceptancePassed": [
-    "user_can_login",
-    "user_can_create_customer",
-    "user_can_list_customers",
-    "tenant_only_sees_own_customers",
-    "ticket_can_be_created",
-    "ticket_status_can_transition",
-    "tenant_only_sees_own_tickets",
-    "assignee_can_filter_tickets",
-    "ticket_attachment_can_be_uploaded",
-    "ticket_comment_can_be_added",
-    "agent_can_be_registered",
-    "agent_can_automatically_classify_ticket"
-  ],
+  "status": "skipped",
+  "acceptancePassed": [],
   "blocks": [
     {
       "id": "auth/basic-session",
       "declaredAcceptance": [
         "user_can_login"
       ],
-      "coveredBy": [
-        "user_can_login"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     },
     {
       "id": "tenant/basic-workspace",
@@ -32,21 +17,16 @@
         "tenant_only_sees_own_customers",
         "tenant_only_sees_own_tickets"
       ],
-      "coveredBy": [
-        "tenant_only_sees_own_customers",
-        "tenant_only_sees_own_tickets"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     },
     {
       "id": "agent/harness",
       "declaredAcceptance": [
         "agent_can_be_registered"
       ],
-      "coveredBy": [
-        "agent_can_be_registered"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     },
     {
       "id": "entity/customer-basic",
@@ -55,12 +35,8 @@
         "user_can_create_customer",
         "user_can_list_customers"
       ],
-      "coveredBy": [
-        "tenant_only_sees_own_customers",
-        "user_can_create_customer",
-        "user_can_list_customers"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     },
     {
       "id": "file/upload",
@@ -80,35 +56,24 @@
         "ticket_comment_can_be_added",
         "ticket_status_can_transition"
       ],
-      "coveredBy": [
-        "assignee_can_filter_tickets",
-        "tenant_only_sees_own_tickets",
-        "ticket_attachment_can_be_uploaded",
-        "ticket_can_be_created",
-        "ticket_comment_can_be_added",
-        "ticket_status_can_transition"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     },
     {
       "id": "comment/basic",
       "declaredAcceptance": [
         "ticket_comment_can_be_added"
       ],
-      "coveredBy": [
-        "ticket_comment_can_be_added"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     },
     {
       "id": "agent/executor",
       "declaredAcceptance": [
         "agent_can_automatically_classify_ticket"
       ],
-      "coveredBy": [
-        "agent_can_automatically_classify_ticket"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     }
   ],
   "slots": [
@@ -118,23 +83,30 @@
         "tenant_only_sees_own_customers",
         "user_can_create_customer"
       ],
-      "coveredBy": [
-        "tenant_only_sees_own_customers",
-        "user_can_create_customer"
-      ],
-      "uncovered": false
+      "coveredBy": [],
+      "uncovered": true
     },
     {
       "id": "ticket_comment_delegate",
-      "declaredAcceptance": [],
+      "declaredAcceptance": [
+        "ticket_comment_can_be_added"
+      ],
       "coveredBy": [],
       "uncovered": true
     }
   ],
   "uncoveredBlocks": [
-    "file/upload"
+    "auth/basic-session",
+    "tenant/basic-workspace",
+    "agent/harness",
+    "entity/customer-basic",
+    "file/upload",
+    "ticket/basic",
+    "comment/basic",
+    "agent/executor"
   ],
   "uncoveredSlots": [
+    "customer_normalizer",
     "ticket_comment_delegate"
   ]
 }

@@ -1295,7 +1295,7 @@ export function mapProductVerificationStatus(
  * V2 `not-run` carries a `notRunReason` text; if it matches a known reason,
  * map to the corresponding reasonCode; otherwise `selection-unresolved`.
  */
-export function mapCiEvidenceV2Status(
+export function mapCiEvidenceStatus(
   status: 'passed' | 'failed' | 'not-run',
   notRunReason: string | null
 ): LegacyMappingResult {

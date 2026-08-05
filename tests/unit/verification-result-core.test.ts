@@ -5,7 +5,7 @@ import {
   CodexDevelopmentAssertVerificationAggregateResultV1,
   CodexDevelopmentAssertVerificationGateResultV1,
   CodexDevelopmentBuildVerificationGateResultV1,
-  mapCiEvidenceV2Status,
+  mapCiEvidenceStatus,
   mapEvidenceDisposition,
   mapProductVerificationStatus,
   mapSemanticMutationBlocked,
@@ -365,21 +365,21 @@ test('regression 9: not-applicable without applicability proof → invalidated',
 test('regression 10: V2 evidence adapter maps without increasing claims', () => {
   // V2 evidence has status passed/failed/not-run. Mapping to unified model
   // must not introduce new supportedClaims.
-  const passedMapping = mapCiEvidenceV2Status('passed', null);
+  const passedMapping = mapCiEvidenceStatus('passed', null);
   expect(passedMapping.status).toBe('passed');
   expect(passedMapping.disposition).toBe('executed');
 
-  const failedMapping = mapCiEvidenceV2Status('failed', null);
+  const failedMapping = mapCiEvidenceStatus('failed', null);
   expect(failedMapping.status).toBe('failed');
   expect(failedMapping.disposition).toBe('executed');
 
-  const notRunMapping = mapCiEvidenceV2Status('not-run', 'not-applicable for this platform');
+  const notRunMapping = mapCiEvidenceStatus('not-run', 'not-applicable for this platform');
   expect(notRunMapping.status).toBe('not-run');
   expect(notRunMapping.disposition).toBe('not-executed');
   expect(notRunMapping.reasonCode).toBe('not-applicable');
 
   // Lossy not-run reason → invalidated, never promoted to passed
-  const lossyMapping = mapCiEvidenceV2Status('not-run', 'some unknown reason');
+  const lossyMapping = mapCiEvidenceStatus('not-run', 'some unknown reason');
   expect(lossyMapping.status).toBe('invalidated');
   expect(lossyMapping.reasonCode).toBe('selection-unresolved');
 });

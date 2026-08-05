@@ -1,4 +1,10 @@
-export type CompilerErrorDetails = Record<string, unknown> | unknown;
+export type CompilerErrorDetails =
+  | Record<string, unknown>
+  | string
+  | number
+  | boolean
+  | null
+  | unknown[];
 
 export class CompilerError extends Error {
   public readonly code: string;

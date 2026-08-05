@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { digest, sha256 } from './canonical-primitives.ts';
 import type { CommitFence } from './fs.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from './process.ts';
 import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
@@ -172,10 +173,6 @@ export interface WorkspaceWriteLeaseManagerOptions {
   readonly processAlive?: (pid: number) => 'alive' | 'dead' | 'unknown';
   /** Internal deterministic fault seam for the owner-publication directory sync only. */
   readonly ownerPublicationDirectorySync?: (directory: string) => Promise<void>;
-}
-
-function sha256(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 }
 
 function safeInteger(value: unknown): value is number {
@@ -494,8 +491,8 @@ function jsonFile(value: unknown): string {
 }
 
 function candidateFileName(kind: string, id: string): string {
-  const digest = createHash('sha256').update(JSON.stringify({ kind, id })).digest('hex');
-  return `.${kind}-${digest}.candidate`;
+  const digestHex = digest(JSON.stringify({ kind, id }));
+  return `.${kind}-${digestHex}.candidate`;
 }
 
 async function createImmutableCandidate(
@@ -722,12 +719,12 @@ function generationTerminalPath(root: string, generation: number): string {
 }
 
 function holderDirectory(holders: string, token: Pick<WorkspaceWriteLeaseToken, 'generation' | 'leaseId'>): string {
-  const digest = createHash('sha256').update(JSON.stringify({
+  const digestHex = digest(JSON.stringify({
     domain: 'workspace-write-lease-holder-v2',
     generation: token.generation,
     leaseId: token.leaseId
-  })).digest('hex');
-  return path.join(holders, `${generationStem(token.generation)}-${digest}`);
+  }));
+  return path.join(holders, `${generationStem(token.generation)}-${digestHex}`);
 }
 
 function workspaceWriteLeasePathsFor(workspaceRoot: string): WorkspaceWriteLeasePaths {

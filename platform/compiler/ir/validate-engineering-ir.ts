@@ -14,6 +14,7 @@ import {
   buildEngineeringIR,
   type BuildEngineeringIRInput
 } from './build-engineering-ir.ts';
+import { compareCodeUnits, deepFreeze } from './ir-canonical-primitives.ts';
 import { factAssertionId } from './ir-fact-store.ts';
 import {
   appEntityId,
@@ -44,7 +45,7 @@ function assertCanonicalIds(values: readonly { id: string }[], collection: strin
   for (let index = 0; index < values.length; index += 1) {
     const current = values[index]!.id;
     const previous = values[index - 1]?.id;
-    if (!current.trim() || (previous !== undefined && previous.localeCompare(current) >= 0)) {
+    if (!current.trim() || (previous !== undefined && compareCodeUnits(previous, current) >= 0)) {
       fail(
         'IR-VALIDATION-005',
         `Engineering IR ${collection} must contain unique ids in canonical order`,
@@ -182,14 +183,6 @@ function assertScenarioCache(ir: EngineeringIR): void {
       { scenarioIds: ir.scenarios.map((scenario) => scenario.id) }
     );
   }
-}
-
-function deepFreeze<Value>(value: Value): Value {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
-    Object.freeze(value);
-  }
-  return value;
 }
 
 export function validateEngineeringIR(

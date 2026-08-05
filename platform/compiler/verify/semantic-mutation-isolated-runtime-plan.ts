@@ -31,6 +31,7 @@ import {
 import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../semantic-mutation/isolated-verification-phase-telemetry.ts';
+import { compareCodeUnits, sha256 } from '../ir/ir-canonical-primitives.ts';
 import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from './runtime-verification-invocation-contract.ts';
 import {
   registerSemanticMutationIsolatedRuntimePlanBinding,
@@ -219,14 +220,6 @@ const MAX_RUNTIME_SOURCE_SNAPSHOTS = 4;
 
 function sha256Bytes(bytes: Uint8Array): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-}
-
-function sha256Value(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-}
-
-function compareCodeUnits(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 async function runCanonicalBatches<T, R>(
@@ -1073,7 +1066,7 @@ async function captureRuntimeSourceSnapshot(
     } satisfies Omit<RuntimeSourceSnapshotV1, 'snapshotRevision'>;
     return Object.freeze({
       ...withoutRevision,
-      snapshotRevision: sha256Value(canonicalRuntimeSourceSnapshotPayload(withoutRevision))
+      snapshotRevision: sha256(canonicalRuntimeSourceSnapshotPayload(withoutRevision))
     });
 }
 
@@ -1124,7 +1117,7 @@ export async function issueSemanticMutationIsolatedRuntimeCapability(input: {
     } satisfies Omit<SemanticMutationIsolatedRuntimePlanV1, 'planRevision'>;
     const plan = Object.freeze({
       ...withoutRevision,
-      planRevision: sha256Value(canonicalPlanPayload(withoutRevision))
+      planRevision: sha256(canonicalPlanPayload(withoutRevision))
     });
     issuedRuntimePlans.add(plan);
     const result = Object.freeze({ status: 'available' as const });
@@ -1177,7 +1170,7 @@ function requireRuntimePlan(binding: unknown): SemanticMutationIsolatedRuntimePl
   }
   const plan = runtimePlansByBinding.get(resolvedBinding);
   if (!plan || !issuedRuntimePlans.has(plan) ||
-      plan.planRevision !== sha256Value(canonicalPlanPayload({
+      plan.planRevision !== sha256(canonicalPlanPayload({
       bootstrapBundle: plan.bootstrapBundle,
       browserExecutableRelativePath: plan.browserExecutableRelativePath,
       dependencyBinding: plan.dependencyBinding,
@@ -1456,7 +1449,7 @@ interface RuntimeSourceSnapshotInputV1 {
 }
 
 function runtimeSourceAuthorityKey(sources: SemanticMutationIsolatedRuntimeInputSources): string {
-  return sha256Value({
+  return sha256({
     domain: 'semantic-mutation-runtime-source-authority-key-v2',
     browserRuntime: {
       browserCachePath: foldedPath(path.resolve(sources.browserRuntime.browserCachePath)),
@@ -1498,7 +1491,7 @@ function normalizedCompilerRegistries(input: {
 }
 
 function runtimeSourceSnapshotLookupKey(input: RuntimeSourceSnapshotInputV1): string {
-  return sha256Value({
+  return sha256({
     domain: 'semantic-mutation-runtime-source-snapshot-lookup-key-v2',
     compilerRegistries: input.compilerRegistries.map((registry) => ({
       destinationRelativePath: registry.destinationRelativePath,
@@ -1521,7 +1514,7 @@ function runtimeSourceSnapshotCacheKey(
   input: RuntimeSourceSnapshotInputV1,
   snapshot: RuntimeSourceSnapshotV1
 ): string {
-  return sha256Value({
+  return sha256({
     domain: 'semantic-mutation-runtime-source-snapshot-cache-key-v3',
     lookupKey: runtimeSourceSnapshotLookupKey(input),
     nodeRuntime: snapshot.nodeRuntime,
@@ -1673,7 +1666,7 @@ async function revalidateRuntimeSourceSnapshot(
   inspector: ReparsePointInspector
 ): Promise<boolean> {
   const { snapshotRevision: _snapshotRevision, ...withoutRevision } = snapshot;
-  if (snapshot.snapshotRevision !== sha256Value(canonicalRuntimeSourceSnapshotPayload(withoutRevision))) {
+  if (snapshot.snapshotRevision !== sha256(canonicalRuntimeSourceSnapshotPayload(withoutRevision))) {
     throw new Error('Semantic Mutation runtime source snapshot is invalid');
   }
   const rootMatches = await runCanonicalBatches(

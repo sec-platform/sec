@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readdir, realpath, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { digest } from './canonical-primitives.ts';
 import { runCommand } from './process.ts';
 
 type DirectoryIdentity = Readonly<{
@@ -131,7 +132,7 @@ function sameDirectoryIdentity(left: DirectoryIdentity, right: DirectoryIdentity
 }
 
 function sha256(value: string): string {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+  return `sha256:${digest(value)}`;
 }
 
 function ordinaryWindowsPath(value: string): string {

@@ -20,11 +20,8 @@ import {
   type SemanticContractTransition
 } from '../../shared/semantic-contract-types.ts';
 import { readYaml } from '../../shared/yaml.ts';
+import { compareCodeUnits, stableById } from '../ir/ir-canonical-primitives.ts';
 import { resolveManifestResource } from './load-manifest.ts';
-
-function stableById<Value extends { id: string }>(values: readonly Value[]): Value[] {
-  return [...values].sort((left, right) => left.id.localeCompare(right.id));
-}
 
 function assertId(value: string | undefined, context: string): asserts value is string {
   if (!value?.trim()) {
@@ -64,7 +61,7 @@ function normalizeState(state: SemanticContractState): SemanticContractState {
     values: uniqueSorted(state.values ?? []),
     transitions: [...(state.transitions ?? [])]
       .map(normalizeTransition)
-      .sort((left, right) => `${left.from}:${left.to}:${left.by}`.localeCompare(`${right.from}:${right.to}:${right.by}`))
+      .sort((left, right) => compareCodeUnits(`${left.from}:${left.to}:${left.by}`, `${right.from}:${right.to}:${right.by}`))
   };
 }
 
@@ -193,7 +190,7 @@ export function normalizeSemanticContract(input: SemanticContract): SemanticCont
     namespace: input.namespace,
     imports: [...(input.imports ?? [])]
       .map(normalizeImport)
-      .sort((left, right) => left.alias.localeCompare(right.alias)),
+      .sort((left, right) => compareCodeUnits(left.alias, right.alias)),
     entities: stableById((input.entities ?? []).map(normalizeEntity)),
     states: stableById((input.states ?? []).map(normalizeState)),
     responsibilities: stableById((input.responsibilities ?? []).map(normalizeResponsibility)),
@@ -320,7 +317,7 @@ export async function loadSemanticContractsForManifestEntry(entry: ManifestEntry
   const seenPaths = new Set<string>();
   const loaded: LoadedSemanticContract[] = [];
 
-  for (const reference of [...entry.manifest.contracts].sort((left, right) => left.path.localeCompare(right.path))) {
+  for (const reference of [...entry.manifest.contracts].sort((left, right) => compareCodeUnits(left.path, right.path))) {
     if (!reference?.path || !isSafeRelativePath(reference.path)) {
       throw new CompilerError('CONTRACT-SEMANTIC-015', `Manifest "${entry.manifest.id}" contract paths must stay inside the block root`);
     }
@@ -338,5 +335,5 @@ export async function loadSemanticContractsForManifestEntry(entry: ManifestEntry
     });
   }
 
-  return loaded.sort((left, right) => `${left.blockId}:${left.contract.id}`.localeCompare(`${right.blockId}:${right.contract.id}`));
+  return loaded.sort((left, right) => compareCodeUnits(`${left.blockId}:${left.contract.id}`, `${right.blockId}:${right.contract.id}`));
 }

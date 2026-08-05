@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 import { registerCommands } from '../../platform/cli/register-commands.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
+import type { CompilerErrorDetails } from '../../platform/shared/errors.ts';
 
 function normalizeCliStderr(stderr: string): string {
   return stderr
@@ -216,7 +217,7 @@ export async function runCliInProcess(workspaceRoot: string, args: string[]): Pr
       await program.parseAsync(args, { from: 'user' });
       return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
     } catch (error: unknown) {
-      const failure = error as { code?: string; message?: string; details?: unknown };
+      const failure = error as { code?: string; message?: string; details?: CompilerErrorDetails };
       if (failure.code === 'commander.help' || failure.code === 'commander.helpDisplayed') {
         return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
       }
