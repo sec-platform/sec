@@ -8,6 +8,7 @@ import {
 import type { SemanticMutationResultV2 } from '../../shared/semantic-mutation-types.ts';
 import {
   canonicalDiagnostics,
+  canonicalEquals,
   cloneAndDeepFreeze,
   digestString,
   exactOwnKeys,
@@ -493,7 +494,7 @@ function assertRejectedResultInvariant(
     (result.attempted !== undefined && !exactBase(result.attempted)) ||
     !Array.isArray(result.sourceChanges) || !Array.isArray(result.diagnostics) ||
     result.diagnostics.length === 0 ||
-    JSON.stringify(result.diagnostics) !== JSON.stringify(canonicalDiagnostics(result.diagnostics))) {
+    !canonicalEquals(result.diagnostics, canonicalDiagnostics(result.diagnostics))) {
     throw new Error('Rejected Semantic Mutation result violates the frozen terminal schema');
   }
   const { resultRevision: supplied, ...withoutRevision } = result;
@@ -567,7 +568,7 @@ export async function writeRejectedSemanticMutationTerminal(
   if (existing) {
     if (existing.requestIdentityDigest !== requestIdentityDigest ||
       existing.requestRevision !== requestRevision || existing.planRevision !== planRevision ||
-      JSON.stringify(existing.result) !== JSON.stringify(result)) {
+      !canonicalEquals(existing.result, result)) {
       throw new Error('Rejected Semantic Mutation terminal identity is already bound to different evidence');
     }
     return existing;

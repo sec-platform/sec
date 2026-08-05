@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { rawSha256 } from './canonical-primitives.ts';
 
 export const CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1 =
   'ci-execution-env-allowlist-v2' as const;
@@ -35,7 +35,7 @@ function assertEnvironmentValue(value: string, label: string): void {
 function canonicalEnvironmentDigest(environment: Readonly<Record<string, string>>): string {
   const entries = Object.entries(environment)
     .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
-  return `sha256:${createHash('sha256').update(JSON.stringify(entries)).digest('hex')}`;
+  return rawSha256(JSON.stringify(entries));
 }
 
 export function CodexDevelopmentBuildSanitizedChildEnvironmentV1(

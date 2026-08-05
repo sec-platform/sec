@@ -1,4 +1,4 @@
-import { isPlainObject } from './canonical-primitives.ts';
+import { compareCodeUnits, isPlainObject } from './canonical-primitives.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
 
 export const DOCUMENT_AUTHORITY_REGISTRY_SCHEMA =
@@ -341,8 +341,8 @@ export function renderDocumentationIndex(
     .filter((record) => record.path !== 'docs/README.md')
     .sort((left, right) => (
       (kindOrder.get(left.kind) ?? 99) - (kindOrder.get(right.kind) ?? 99)
-      || left.domain.localeCompare(right.domain, 'en')
-      || left.path.localeCompare(right.path, 'en')
+      || compareCodeUnits(left.domain, right.domain)
+      || compareCodeUnits(left.path, right.path)
     ));
 
   return [

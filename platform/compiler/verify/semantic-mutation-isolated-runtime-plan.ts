@@ -31,7 +31,7 @@ import {
 import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../semantic-mutation/isolated-verification-phase-telemetry.ts';
-import { compareCodeUnits, sha256 } from '../ir/ir-canonical-primitives.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../ir/ir-canonical-primitives.ts';
 import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from './runtime-verification-invocation-contract.ts';
 import {
   registerSemanticMutationIsolatedRuntimePlanBinding,
@@ -217,10 +217,6 @@ const issuedRuntimePlans = new WeakSet<object>();
 const runtimePlansByBinding = new WeakMap<object, SemanticMutationIsolatedRuntimePlanV1>();
 const runtimeSourceSnapshots = new Map<string, RuntimeSourceSnapshotCacheSlot>();
 const MAX_RUNTIME_SOURCE_SNAPSHOTS = 4;
-
-function sha256Bytes(bytes: Uint8Array): string {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-}
 
 async function runCanonicalBatches<T, R>(
   items: readonly T[],
@@ -742,7 +738,7 @@ function requirePlaywrightBrowserRuntimeAuthority(
 }
 
 function generatedInputFile(destinationRelativePath: string, bytes: Uint8Array): RuntimeInputFileV1 {
-  const rawDigest = sha256Bytes(bytes);
+  const rawDigest = rawSha256(bytes);
   return Object.freeze({
     destinationMode: null,
     destinationRelativePath: canonicalRelativePath(destinationRelativePath),
@@ -756,9 +752,9 @@ function generatedInputFile(destinationRelativePath: string, bytes: Uint8Array):
 function canonicalPlanPayload(plan: Omit<SemanticMutationIsolatedRuntimePlanV1, 'planRevision'>): unknown {
   return {
     domain: 'semantic-mutation-isolated-runtime-plan-v2',
-    bootstrapBundleDigest: sha256Bytes(plan.bootstrapBundle),
+    bootstrapBundleDigest: rawSha256(plan.bootstrapBundle),
     browserExecutableRelativePath: plan.browserExecutableRelativePath,
-    dependencyBindingDigest: sha256Bytes(plan.dependencyBinding),
+    dependencyBindingDigest: rawSha256(plan.dependencyBinding),
     directories: plan.directories,
     files: plan.files.map((file) => ({
       destinationMode: file.destinationMode,
@@ -768,10 +764,10 @@ function canonicalPlanPayload(plan: Omit<SemanticMutationIsolatedRuntimePlanV1, 
       sourceAbsolutePath: file.sourceAbsolutePath,
       sourceIdentity: file.sourceIdentity
     })),
-    loaderBundleDigest: sha256Bytes(plan.loaderBundle),
+    loaderBundleDigest: rawSha256(plan.loaderBundle),
     manifest: plan.manifest,
     nodeRuntime: plan.nodeRuntime,
-    runnerBundleDigest: sha256Bytes(plan.runnerBundle),
+    runnerBundleDigest: rawSha256(plan.runnerBundle),
     stagingRoot: plan.stagingRoot,
     stagingRootIdentity: plan.stagingRootIdentity
   };
@@ -1183,16 +1179,16 @@ function requireRuntimePlan(binding: unknown): SemanticMutationIsolatedRuntimePl
       stagingRoot: plan.stagingRoot,
       stagingRootIdentity: plan.stagingRootIdentity
     })) || !runtimeNodeAuthorityMatchesPlan(plan) || !runtimeBrowserAuthorityMatchesPlan(plan) ||
-    sha256Bytes(plan.bootstrapBundle) !==
+    rawSha256(plan.bootstrapBundle) !==
       plan.files.find((file) => file.destinationRelativePath ===
         SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH)?.rawDigest ||
-    sha256Bytes(plan.dependencyBinding) !==
+    rawSha256(plan.dependencyBinding) !==
       plan.files.find((file) => file.destinationRelativePath ===
         SEMANTIC_MUTATION_ISOLATED_PROJECT_DEPS_BINDING_RELATIVE_PATH)?.rawDigest ||
-    sha256Bytes(plan.loaderBundle) !==
+    rawSha256(plan.loaderBundle) !==
       plan.files.find((file) => file.destinationRelativePath ===
         SEMANTIC_MUTATION_ISOLATED_STAGED_LOADER_RELATIVE_PATH)?.rawDigest ||
-    sha256Bytes(plan.runnerBundle) !==
+    rawSha256(plan.runnerBundle) !==
       plan.files.find((file) => file.destinationRelativePath ===
         SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH)?.rawDigest) {
     throw new Error('Semantic Mutation isolated runtime plan is invalid or forged');
@@ -1239,7 +1235,7 @@ async function writeGeneratedFile(
   bytes: Uint8Array,
   expected: RuntimeInputFileV1
 ): Promise<void> {
-  if (sha256Bytes(bytes) !== expected.rawDigest || bytes.byteLength !== expected.size) {
+  if (rawSha256(bytes) !== expected.rawDigest || bytes.byteLength !== expected.size) {
     throw new Error('Semantic Mutation generated runtime input changed after capability planning');
   }
   const handle = await open(destination, 'wx');
@@ -1498,13 +1494,13 @@ function runtimeSourceSnapshotLookupKey(input: RuntimeSourceSnapshotInputV1): st
       sourceRoot: foldedPath(path.resolve(registry.sourceRoot))
     })),
     generatedDigests: {
-      bootstrap: sha256Bytes(semanticMutationIsolatedBootstrapBytes()),
-      bunfig: sha256Bytes(ISOLATED_BUNFIG_BYTES),
-      loader: sha256Bytes(semanticMutationIsolatedStagedLoaderBytes(Object.freeze({
+      bootstrap: rawSha256(semanticMutationIsolatedBootstrapBytes()),
+      bunfig: rawSha256(ISOLATED_BUNFIG_BYTES),
+      loader: rawSha256(semanticMutationIsolatedStagedLoaderBytes(Object.freeze({
         formatRevision: 'semantic-mutation-isolated-bundled-loader-binding-v1',
         executionRevision: 'semantic-mutation-bundled-core-relocation-v1'
       }))),
-      runner: sha256Bytes(input.runnerBundle)
+      runner: rawSha256(input.runnerBundle)
     },
     sourceAuthorityKey: runtimeSourceAuthorityKey(input.sources)
   });
@@ -1527,9 +1523,9 @@ function canonicalRuntimeSourceSnapshotPayload(
 ): unknown {
   return {
     domain: 'semantic-mutation-runtime-source-snapshot-v2',
-    bootstrapBundleDigest: sha256Bytes(snapshot.bootstrapBundle),
+    bootstrapBundleDigest: rawSha256(snapshot.bootstrapBundle),
     browserExecutableRelativePath: snapshot.browserExecutableRelativePath,
-    dependencyBindingDigest: sha256Bytes(snapshot.dependencyBinding),
+    dependencyBindingDigest: rawSha256(snapshot.dependencyBinding),
     directories: snapshot.directories,
     files: snapshot.files.map((file) => ({
       destinationMode: file.destinationMode,
@@ -1539,10 +1535,10 @@ function canonicalRuntimeSourceSnapshotPayload(
       sourceAbsolutePath: file.sourceAbsolutePath,
       sourceIdentity: file.sourceIdentity
     })),
-    loaderBundleDigest: sha256Bytes(snapshot.loaderBundle),
+    loaderBundleDigest: rawSha256(snapshot.loaderBundle),
     manifest: snapshot.manifest,
     nodeRuntime: snapshot.nodeRuntime,
-    runnerBundleDigest: sha256Bytes(snapshot.runnerBundle)
+    runnerBundleDigest: rawSha256(snapshot.runnerBundle)
   };
 }
 

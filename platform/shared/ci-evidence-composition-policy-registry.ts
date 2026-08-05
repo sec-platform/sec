@@ -15,6 +15,7 @@ import {
 } from './ci-evidence-reuse-contract.ts';
 import type { CodexDevelopmentGitChangedRecordV1 } from './ci-git-changed-files.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
+import { canonicalEquals } from './canonical-primitives.ts';
 
 export const CodexDevelopmentSm3P0EvidencePolicyIdV1 =
   'sm3-p0-local-isolated-runner-v1' as const;
@@ -211,7 +212,7 @@ function sm3P0Policy(
     })();
   if (!applyBlob || !wrapperBlob) throw new Error('SM3 P0 affected inventory omits the production title or wrapper.');
   const riskPaths = riskParent.requiredGitBlobs.map(({ path }) => path);
-  if (JSON.stringify(riskPaths) !== JSON.stringify(EXPECTED_RISK_FILES)) {
+  if (!canonicalEquals(riskPaths, EXPECTED_RISK_FILES)) {
     throw new Error(
       `SM3 P0 risk inventory does not match the seven registered suites: ${JSON.stringify(riskPaths)}.`
     );

@@ -13,6 +13,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { canonicalEquals, compareCodeUnits, digest, rawSha256 } from './canonical-primitives.ts';
 import type { Pointer } from 'bun:ffi';
 import {
   runObservedCommand,
@@ -1377,7 +1378,7 @@ function foldedWindowsPath(filePath: string): string {
 }
 
 function sha256Hex(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex');
+  return digest(JSON.stringify(value));
 }
 
 function isInside(root: string, target: string): boolean {
@@ -1518,11 +1519,7 @@ function validateAndSortEnvironment(
       throw executionError('invalid-input');
     }
   }
-  return entries.sort(([left], [right]) => {
-    const foldedLeft = left.toLocaleUpperCase('en-US');
-    const foldedRight = right.toLocaleUpperCase('en-US');
-    return foldedLeft.localeCompare(foldedRight, 'en-US') || left.localeCompare(right, 'en-US');
-  });
+  return entries.sort(([left], [right]) => compareCodeUnits(left, right));
 }
 
 function buildWindowsEnvironmentBlock(
@@ -2368,8 +2365,8 @@ async function materializeHostBunRuntime(
   ]);
   if (!helperMetadata.isFile() || helperMetadata.isSymbolicLink() || Number(helperMetadata.nlink) !== 1 ||
     foldedWindowsPath(canonicalHelperPath) !== foldedWindowsPath(helperPath) ||
-    createHash('sha256').update(materializedHelper).digest('hex') !==
-      createHash('sha256').update(helperBundle).digest('hex')) {
+    digest(materializedHelper) !==
+      digest(helperBundle)) {
     throw executionError('preparation', undefined, undefined, 'native-helper-materialization');
   }
   return { configPath, helperPath };
@@ -2442,7 +2439,7 @@ function observedDiagnosticCaptureForTests(
 ): WindowsAppContainerObservedNativeHelperDiagnosticCapture {
   return Object.freeze({
     bytes: stderr.byteLength,
-    digest: `sha256:${createHash('sha256').update(stderr).digest('hex')}`,
+    digest: rawSha256(stderr),
     present: stderr.byteLength > 0
   });
 }
@@ -2901,7 +2898,7 @@ async function executeNativeAppContainer(
 }
 
 function exactObjectKeys(value: object, expected: readonly string[]): boolean {
-  return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
+  return canonicalEquals(Object.keys(value).sort(), [...expected].sort());
 }
 
 function recoveryOwnerLooksValid(value: unknown): value is WindowsAppContainerRecoveryOwnerV1 {
@@ -3051,7 +3048,7 @@ async function assertRecoveryOwner(
     throw executionError('cleanup');
   }
   const canonicalOwner = await readRecoveryOwner(recoveryOwnerPath(boundary.transactionRoot));
-  if (!canonicalOwner || JSON.stringify(canonicalOwner) !== JSON.stringify(owner)) {
+  if (!canonicalOwner || !canonicalEquals(canonicalOwner, owner)) {
     throw executionError('cleanup');
   }
 }
@@ -3811,7 +3808,7 @@ async function publishProvisionalOwner(
     testHooks
   );
   const canonical = await readProvisionalOwner(provisionalOwnerPath(transactionRoot));
-  if (!canonical || JSON.stringify(canonical) !== JSON.stringify(owner)) {
+  if (!canonical || !canonicalEquals(canonical, owner)) {
     throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
 }
@@ -3862,7 +3859,7 @@ async function publishRecoveryOwner(
     commitFence
   );
   const canonical = await readRecoveryOwner(recoveryOwnerPath(transactionRoot));
-  if (!canonical || JSON.stringify(canonical) !== JSON.stringify(owner)) {
+  if (!canonical || !canonicalEquals(canonical, owner)) {
     throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
 }
@@ -4103,7 +4100,7 @@ async function runWindowsAppContainerChildInternal(
     await commitFence();
     const canonicalOwner = await readRecoveryOwner(recoveryOwnerPath(validated.transactionRoot));
     if (canonicalOwner) {
-      if (!owner || JSON.stringify(canonicalOwner) !== JSON.stringify(owner)) {
+      if (!owner || !canonicalEquals(canonicalOwner, owner)) {
         throw executionError('cleanup');
       }
       await cleanupPlannedOwner(request, canonicalOwner, validated, commitFence);
@@ -4239,7 +4236,7 @@ async function publishProbeOwner(
     commitFence
   );
   const canonical = await readProbeOwner(probeOwnerPath(probeRoot));
-  if (!canonical || JSON.stringify(canonical) !== JSON.stringify(owner)) {
+  if (!canonical || !canonicalEquals(canonical, owner)) {
     throw executionError('preparation', undefined, undefined, 'owner-publication');
   }
 }

@@ -32,6 +32,11 @@ export function summarizeCounts<T extends string>(values: Iterable<T>): Array<Co
     .map(([id, count]) => ({ id, count }));
 }
 
+/**
+ * Deduplicate and sort string values, filtering out empty strings.
+ * This differs from `canonical-primitives.ts` `uniqueSorted` which does NOT
+ * filter empty strings — the filter is intentional for output/display scenarios.
+ */
 export function uniqueSorted<T extends string>(values: readonly T[]): T[] {
   return [...new Set(values.filter((value) => value.length > 0))]
     .sort(compareCodeUnits);

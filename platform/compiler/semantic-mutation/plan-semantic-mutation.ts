@@ -17,6 +17,7 @@ import { buildFactDelta } from '../ir/build-fact-delta.ts';
 import { buildImpactPropagation } from '../semantic-impact/build-impact-propagation.ts';
 import {
   canonicalDiagnostics,
+  canonicalEquals,
   canonicalVerificationUnion,
   cloneAndDeepFreeze,
   diagnosticRevision,
@@ -451,7 +452,7 @@ export function assertSemanticMutationPlanInvariant(plan: SemanticMutationPlanV2
     ], ['requestId']) ||
       plan.contractVersion !== SEMANTIC_MUTATION_CONTRACT_VERSION ||
       plan.diagnostics.length === 0 ||
-      JSON.stringify(plan.diagnostics) !== JSON.stringify(canonicalDiagnostics(plan.diagnostics)) ||
+      !canonicalEquals(plan.diagnostics, canonicalDiagnostics(plan.diagnostics)) ||
       plan.diagnosticRevision !== diagnosticRevision(plan.diagnostics)) {
       throw new Error('Minimal request rejection violates diagnostic invariants');
     }
@@ -488,7 +489,7 @@ export function assertSemanticMutationPlanInvariant(plan: SemanticMutationPlanV2
     plan.verificationPolicyRevision === SEMANTIC_MUTATION_VERIFICATION_POLICY_REVISION &&
     nonEmptyString(plan.base.transactionId) && nonEmptyString(plan.base.inputRevision) &&
     nonEmptyString(plan.base.semanticRevision) &&
-    JSON.stringify(plan.diagnostics) === JSON.stringify(canonicalDiagnostics(plan.diagnostics));
+    canonicalEquals(plan.diagnostics, canonicalDiagnostics(plan.diagnostics));
   if (!baseIsValid) throw new Error('Semantic mutation plan base or canonical diagnostics are invalid');
   if (plan.status !== 'ready' && plan.status !== 'rejected') {
     throw new Error('Semantic mutation plan status is not a frozen terminal planning status');
@@ -528,7 +529,7 @@ export function assertSemanticMutationPlanInvariant(plan: SemanticMutationPlanV2
     if (!nonEmptyString(plan.verificationAdapterId) || !nonEmptyString(plan.verificationAdapterRevision) ||
       !digestString(plan.verificationPlanningRevision) || !('requiredVerification' in plan) ||
       plan.requiredVerification.length === 0 ||
-      JSON.stringify(plan.requiredVerification) !== JSON.stringify(canonicalVerificationUnion(plan.requiredVerification))) {
+      !canonicalEquals(plan.requiredVerification, canonicalVerificationUnion(plan.requiredVerification))) {
       throw new Error('Semantic mutation verification planning fields are incomplete or non-canonical');
     }
   };

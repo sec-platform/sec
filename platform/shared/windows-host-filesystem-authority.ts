@@ -3,7 +3,7 @@ import { lstat, mkdir, readdir, realpath, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { digest } from './canonical-primitives.ts';
+import { rawSha256 } from './canonical-primitives.ts';
 import { runCommand } from './process.ts';
 
 type DirectoryIdentity = Readonly<{
@@ -129,10 +129,6 @@ function directoryIdentity(metadata: {
 
 function sameDirectoryIdentity(left: DirectoryIdentity, right: DirectoryIdentity): boolean {
   return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode;
-}
-
-function sha256(value: string): string {
-  return `sha256:${digest(value)}`;
 }
 
 function ordinaryWindowsPath(value: string): string {
@@ -266,7 +262,7 @@ async function probeWindowsDirectoryAcl(
     throw new Error('Windows host directory ACL proof is invalid');
   }
   return Object.freeze({
-    aclDigest: sha256(record.sddl),
+    aclDigest: rawSha256(record.sddl),
     ownerSid: record.ownerSid
   });
 }

@@ -15,7 +15,9 @@ import {
 import type { SemanticMutationDiagnosticV2 } from '../../shared/semantic-mutation-types.ts';
 import {
   canonicalDiagnostics,
+  canonicalEquals,
   cloneAndDeepFreeze,
+  compareCodeUnits,
   digestString,
   exactOwnKeys,
   isPlainObject,
@@ -146,7 +148,7 @@ function assertVerificationBinding(record: SemanticMutationRecoveryRecordV1): vo
     verification.adapterId !== plan.verificationAdapterId ||
     verification.adapterRevision !== plan.verificationAdapterRevision ||
     verification.planRevision !== plan.planRevision ||
-    JSON.stringify(verification.attempted) !== JSON.stringify(plan.staged) ||
+    !canonicalEquals(verification.attempted, plan.staged) ||
     verification.stagedSourceDigest !== plan.sourceChanges[0].stagedByteDigest ||
     verification.requiredVerificationDigest !==
       semanticMutationRequiredVerificationDigest(plan.requiredVerification) ||
@@ -180,9 +182,9 @@ function assertRecoveryCrossBindings(record: SemanticMutationRecoveryRecordV1): 
     record.authorizationRevision !== record.plan.authorizationRevision ||
     record.expectedPlanRevision !== record.plan.planRevision ||
     record.planRevision !== record.plan.planRevision ||
-    JSON.stringify(record.base) !== JSON.stringify(record.plan.base) ||
-    JSON.stringify(record.staged) !== JSON.stringify(record.plan.staged) ||
-    JSON.stringify(request.base) !== JSON.stringify(record.base) ||
+    !canonicalEquals(record.base, record.plan.base) ||
+    !canonicalEquals(record.staged, record.plan.staged) ||
+    !canonicalEquals(request.base, record.base) ||
     record.rollbackManifestDigest !== record.plan.rollbackManifestDigest ||
     record.relativePath !== sourceChange.relativePath ||
     record.beforeByteDigest !== sourceChange.beforeByteDigest ||
@@ -193,7 +195,7 @@ function assertRecoveryCrossBindings(record: SemanticMutationRecoveryRecordV1): 
   if (record.result !== undefined) {
     assertSemanticMutationResultInvariant(record.result, record.plan);
     if (record.result.transactionId !== record.transactionId ||
-      JSON.stringify(record.result.diagnostics) !== JSON.stringify(record.diagnostics)) {
+      !canonicalEquals(record.result.diagnostics, record.diagnostics)) {
       throw new Error('Semantic Mutation recovery result does not bind its transaction/diagnostics');
     }
   }
@@ -233,7 +235,7 @@ export function assertSemanticMutationRecoveryRecordInvariant(
     !digestString(record.beforeByteDigest) || !digestString(record.committedByteDigest) ||
     !digestString(record.verificationExecutionRevision) ||
     !digestString(record.verificationReportRevision) || !Array.isArray(record.diagnostics) ||
-    JSON.stringify(record.diagnostics) !== JSON.stringify(canonicalDiagnostics(record.diagnostics)) ||
+    !canonicalEquals(record.diagnostics, canonicalDiagnostics(record.diagnostics)) ||
     !validTerminalSequence ||
     !digestString(revision) || revision !== recordRevision(withoutRevision)) {
     throw new Error('Semantic Mutation recovery record revision chain or content is invalid');
@@ -546,7 +548,7 @@ export async function pruneSemanticMutationTerminalRecords(
     throw new Error('Semantic Mutation terminal records contain duplicate workspace completion sequences');
   }
   terminals.sort((left, right) => right.terminalSequence - left.terminalSequence ||
-    left.requestIdentityDigest.localeCompare(right.requestIdentityDigest));
+    compareCodeUnits(left.requestIdentityDigest, right.requestIdentityDigest));
   for (const { root } of terminals.slice(SEMANTIC_MUTATION_TERMINAL_RETENTION)) {
     await commitFence();
     await rm(root, { recursive: true, force: false });

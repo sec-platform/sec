@@ -7,6 +7,7 @@ import {
   type VerificationRequirementV1
 } from '../../shared/semantic-mutation-types.ts';
 import {
+  canonicalEquals,
   cloneAndDeepFreeze,
   compareVerificationRequirements,
   exactOwnKeys,
@@ -116,7 +117,7 @@ export function evaluateSemanticMutationVerificationPlanning(
   if (context.impactRevision !== impact.impactRevision ||
     context.requiredVerificationDigest !== semanticMutationRequiredVerificationDigest(requiredVerification) ||
     context.planningRevision !== planningRevision(expectedWithoutRevision) ||
-    duplicate || JSON.stringify(capabilityKeys) !== JSON.stringify(expectedKeys)) {
+    duplicate || !canonicalEquals(capabilityKeys, expectedKeys)) {
     diagnostics.push(mutationDiagnostic(
       'SEMANTIC-MUTATION-010',
       'impact-verification',

@@ -4,7 +4,7 @@ import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { countLineDiff } from '../../shared/diff-utils.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { writeJson, type CommitFence } from '../../shared/fs.ts';
+import { ensureDir, writeJson, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { rebaseRelativeImports } from '../../shared/path-imports.ts';
@@ -343,13 +343,13 @@ export async function applyRepairPlan(
 
   for (const { targetPath, slotTask, source } of writeTasks) {
     await commitFence?.();
-    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await ensureDir(path.dirname(targetPath));
     await commitFence?.();
     await fs.writeFile(targetPath, source, 'utf8');
     if (slotTask.sourcePath) {
       const runtimeTargetPath = resolveWorkspaceArtifactPath(workspaceRoot, slotTask.target);
       await commitFence?.();
-      await fs.mkdir(path.dirname(runtimeTargetPath), { recursive: true });
+      await ensureDir(path.dirname(runtimeTargetPath));
       await commitFence?.();
       await fs.writeFile(runtimeTargetPath, rebaseRelativeImports(source, slotTask.sourcePath, toProjectRuntimePath(slotTask.target)), 'utf8');
     }

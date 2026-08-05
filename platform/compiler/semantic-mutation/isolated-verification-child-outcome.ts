@@ -6,6 +6,8 @@ import {
   type PipelineExecutionBoundary
 } from '../../shared/pipeline-types.ts';
 
+import { compareCodeUnits, sortedKeys } from './canonical.ts';
+
 export const SEMANTIC_MUTATION_ISOLATED_CHILD_OUTCOME_FORMAT =
   'semantic-mutation-isolated-child-outcome-v1' as const;
 export const SEMANTIC_MUTATION_ISOLATED_CHILD_OUTCOME_RELATIVE_PATH =
@@ -34,8 +36,8 @@ const CHILD_FAILURE_STAGES = new Set<SemanticMutationIsolatedChildFailureStage>(
 const PIPELINE_BOUNDARIES = new Set<PipelineExecutionBoundary>(PIPELINE_EXECUTION_BOUNDARIES);
 
 function exactObjectKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
-  const actual = Object.keys(value).sort((left, right) => left.localeCompare(right));
-  const sortedExpected = [...expected].sort((left, right) => left.localeCompare(right));
+  const actual = sortedKeys(value);
+  const sortedExpected = [...expected].sort(compareCodeUnits);
   return actual.length === sortedExpected.length &&
     actual.every((key, index) => key === sortedExpected[index]);
 }

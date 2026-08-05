@@ -27,6 +27,7 @@ import type {
   VerificationLane,
   VerificationReport
 } from '../../shared/verification-types.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import {
   assertIsolatedStagingTree,
   type IsolatedStagingTreeOptions
@@ -119,14 +120,14 @@ function createSkippedFastLane(): FastVerificationLaneReport {
 async function listSuiteFiles(rootDir: string, suffix: string): Promise<string[]> {
   return (await listFilesRecursive(rootDir))
     .filter((file) => file.endsWith(suffix))
-    .sort((left, right) => left.localeCompare(right))
+    .sort((left, right) => compareCodeUnits(left, right))
     .map((file) => relativePosixPath(rootDir, file));
 }
 
 async function runSuiteFiles(rootDir: string, suffix: string): Promise<string[]> {
   const files = (await listFilesRecursive(rootDir))
     .filter((file) => file.endsWith(suffix))
-    .sort((left, right) => left.localeCompare(right));
+    .sort((left, right) => compareCodeUnits(left, right));
   const results: string[] = [];
 
   for (const file of files) {

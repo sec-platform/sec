@@ -11,6 +11,7 @@ import type {
 } from '../shared/semantic-generator-types.ts';
 import { CodeBuilder } from './codegen/code-builder.ts';
 import { indexValidatedEngineeringIR } from './ir/index-engineering-ir.ts';
+import { compareCodeUnits, uniqueSorted } from './ir/ir-canonical-primitives.ts';
 
 function constantPrefix(stateId: string): string {
   return stateId.replace(/[^a-zA-Z0-9]+/gu, '_').replace(/^_+|_+$/gu, '').toUpperCase();
@@ -22,11 +23,11 @@ export function renderStateTransitionMapSource(
   const prefix = constantPrefix(task.stateId);
   const boundType = task.typeBinding.name;
   const nextByValue = new Map(task.transitions.map((transition) => [transition.from, transition.to]));
-  const values = [...task.stateValues].sort((left, right) => left.localeCompare(right));
+  const values = [...task.stateValues].sort(compareCodeUnits);
   const transitions = [...task.transitions]
     .map(({ operationEntityId: _operationEntityId, ...transition }) => transition)
     .sort((left, right) =>
-      `${left.from}:${left.to}:${left.by}`.localeCompare(`${right.from}:${right.to}:${right.by}`)
+      compareCodeUnits(`${left.from}:${left.to}:${left.by}`, `${right.from}:${right.to}:${right.by}`)
     );
 
   const valueInitializer = `${JSON.stringify(values)} as const satisfies readonly ${boundType}[]`;
@@ -122,7 +123,7 @@ export async function lowerSemanticTasks(
   }
 
   return {
-    generatedPaths: [...new Set(generatedPaths)].sort((left, right) => left.localeCompare(right)),
+    generatedPaths: uniqueSorted(generatedPaths),
     tasks
   };
 }

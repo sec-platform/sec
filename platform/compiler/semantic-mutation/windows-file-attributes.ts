@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import type { SemanticMutationWindowsFileAttributesV1 } from '../../shared/semantic-mutation-types.ts';
 
+import { canonicalEquals } from './canonical.ts';
+
 const DELETE_ACCESS = 0x0001_0000;
 const FILE_SHARE_READ_WRITE_DELETE = 0x0000_0007;
 const OPEN_EXISTING = 3;
@@ -213,7 +215,7 @@ export async function applySemanticMutationWindowsFileAttributes(
     kernel32.close();
   }
   const restored = await readSemanticMutationWindowsFileAttributes(filePath);
-  if (JSON.stringify(restored) !== JSON.stringify(attributes)) {
+  if (!canonicalEquals(restored, attributes)) {
     throw new Error('Windows file attributes were not restored exactly');
   }
 }

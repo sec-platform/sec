@@ -10,6 +10,7 @@ import type { SemanticMutationVerificationReportV1 } from '../../shared/verifica
 import { assertSemanticMutationVerificationReportInvariant } from '../verify/semantic-mutation-verification-adapter.ts';
 import {
   canonicalDiagnostics,
+  canonicalEquals,
   cloneAndDeepFreeze,
   exactOwnKeys,
   mutationDiagnostic,
@@ -111,8 +112,8 @@ function verificationDiagnostic(
     verification.adapterId === plan.verificationAdapterId &&
     verification.adapterRevision === plan.verificationAdapterRevision &&
     verification.planRevision === plan.planRevision &&
-    JSON.stringify(verification.attempted) === JSON.stringify(attempted) &&
-    JSON.stringify(attempted) === JSON.stringify(plan.staged) &&
+    canonicalEquals(verification.attempted, attempted) &&
+    canonicalEquals(attempted, plan.staged) &&
     verification.stagedSourceDigest === plan.sourceChanges[0].stagedByteDigest &&
     verification.requiredVerificationDigest === expectedRequiredDigest &&
     verification.verificationExecutionRevision === verificationExecutionRevision(withoutRevision);
@@ -161,7 +162,7 @@ export function buildSemanticMutationResult(
     if (diagnostics.length === 0) throw new Error('Rejected terminal result requires non-empty diagnostics');
     const attemptedIsBound = evidence.attempted === undefined || (
       exactEndpoint(evidence.attempted) &&
-      JSON.stringify(evidence.attempted) === JSON.stringify(plan.staged)
+      canonicalEquals(evidence.attempted, plan.staged)
     );
     const attemptedDiagnostics = attemptedIsBound ? [] : [mutationDiagnostic(
       'SEMANTIC-MUTATION-010',
@@ -284,8 +285,8 @@ export function assertSemanticMutationResultInvariant(
   if (result.contractVersion !== SEMANTIC_MUTATION_CONTRACT_VERSION ||
     !exactEndpoint(result.base) ||
     result.requestId !== plan.requestId || result.requestRevision !== plan.requestRevision ||
-    result.planRevision !== plan.planRevision || JSON.stringify(result.base) !== JSON.stringify(plan.base) ||
-    JSON.stringify(result.diagnostics) !== JSON.stringify(canonicalDiagnostics(result.diagnostics)) ||
+    result.planRevision !== plan.planRevision || !canonicalEquals(result.base, plan.base) ||
+    !canonicalEquals(result.diagnostics, canonicalDiagnostics(result.diagnostics)) ||
     revision !== resultRevision(withoutRevision as Omit<SemanticMutationResultV2, 'resultRevision'>)) {
     throw new Error('Semantic mutation resultRevision does not match canonical result content');
   }
@@ -296,7 +297,7 @@ export function assertSemanticMutationResultInvariant(
     const planHasImpact = Object.hasOwn(plan, 'impact');
     const attemptedIsBound = result.attempted === undefined || (
       exactEndpoint(result.attempted) && 'staged' in plan &&
-      JSON.stringify(result.attempted) === JSON.stringify(plan.staged)
+      canonicalEquals(result.attempted, plan.staged)
     );
     const verificationIsBound = result.verification === undefined || (
       plan.status === 'ready' && result.attempted !== undefined &&
@@ -306,15 +307,15 @@ export function assertSemanticMutationResultInvariant(
       result.diagnostics.length === 0 ||
       resultHasActualDelta !== planHasActualDelta || resultHasImpact !== planHasImpact ||
       !attemptedIsBound || !verificationIsBound ||
-      JSON.stringify(result.sourceChanges) !== JSON.stringify(plan.sourceChanges)) {
+      !canonicalEquals(result.sourceChanges, plan.sourceChanges)) {
       throw new Error('Rejected semantic mutation result violates terminal evidence boundaries');
     }
     if (planHasActualDelta && 'actualDelta' in plan &&
-      JSON.stringify(result.actualDelta) !== JSON.stringify(plan.actualDelta)) {
+      !canonicalEquals(result.actualDelta, plan.actualDelta)) {
       throw new Error('Rejected result Fact Delta does not match its canonical plan');
     }
     if (planHasImpact && 'impact' in plan &&
-      JSON.stringify(result.impact) !== JSON.stringify(plan.impact)) {
+      !canonicalEquals(result.impact, plan.impact)) {
       throw new Error('Rejected result Impact does not match its canonical plan');
     }
     return;
@@ -328,9 +329,9 @@ export function assertSemanticMutationResultInvariant(
   ) ||
     result.sourceChanges.length !== 1 ||
     !exactEndpoint(result.attempted) ||
-    JSON.stringify(result.sourceChanges) !== JSON.stringify(plan.sourceChanges) ||
-    JSON.stringify(result.actualDelta) !== JSON.stringify(plan.actualDelta) ||
-    JSON.stringify(result.impact) !== JSON.stringify(plan.impact) ||
+    !canonicalEquals(result.sourceChanges, plan.sourceChanges) ||
+    !canonicalEquals(result.actualDelta, plan.actualDelta) ||
+    !canonicalEquals(result.impact, plan.impact) ||
     verificationDiagnostic(plan, result.verification, result.attempted).length > 0) {
     throw new Error(`${result.status} semantic mutation result does not exactly bind the ready plan`);
   }

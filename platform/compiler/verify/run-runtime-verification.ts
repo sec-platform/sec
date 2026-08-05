@@ -25,6 +25,7 @@ import {
   type VerificationGateResultV1
 } from '../../shared/verification-result-contract.ts';
 import type { RuntimeVerificationLaneReport, VerificationLane, VerificationStatus, VerificationStepReport } from '../../shared/verification-types.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import {
   withSemanticMutationIsolatedPhaseTelemetry,
   type SemanticMutationIsolatedPhase
@@ -1164,7 +1165,7 @@ function appendCommandOutput(
 function relativeFiles(rootDir: string, files: string[]): string[] {
   return files
     .map((file) => relativePosixPath(rootDir, file))
-    .sort((left, right) => left.localeCompare(right));
+    .sort((left, right) => compareCodeUnits(left, right));
 }
 
 async function timed<T>(

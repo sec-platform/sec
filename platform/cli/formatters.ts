@@ -2,6 +2,7 @@ import type {
   AcceptanceCoverageEntry,
   AcceptanceCoverageReport
 } from '../shared/acceptance-types.ts';
+import { compareCodeUnits } from '../shared/canonical-primitives.ts';
 import { buildCiArtifactUploadGroups, CI_ARTIFACT_MANIFEST_PATH } from '../shared/ci-artifact-contract.ts';
 import type { CiArtifactKind, CiArtifactManifest, CiArtifactUploadGroup } from '../shared/ci-artifact-types.ts';
 import { countMatching, uniqueSorted } from '../shared/collections.ts';
@@ -187,7 +188,7 @@ export function formatInstallManifest(manifest: InstallManifestEntry[]): string 
 export function formatBlockUsageMap(usageMap: BlockUsageMap): string {
   const blocks = usageMap.blocks
     .slice()
-    .sort((left, right) => left.installOrder - right.installOrder || left.id.localeCompare(right.id));
+    .sort((left, right) => left.installOrder - right.installOrder || compareCodeUnits(left.id, right.id));
   return [
     `Block usage map ${blocks.length} blocks`,
     `Install order: ${formatList(blocks.map((block) => `${block.installOrder}:${block.id}`))}`
@@ -221,7 +222,7 @@ export function formatLockInspect(lock: LockFile): string {
     `Block order: ${formatList(
       lock.resolvedBlocks
         .slice()
-        .sort((left, right) => left.installOrder - right.installOrder || left.id.localeCompare(right.id))
+        .sort((left, right) => left.installOrder - right.installOrder || compareCodeUnits(left.id, right.id))
         .map((block) => `${block.installOrder}:${block.id}@${block.version}`)
     )}`,
     `Pass status: ${formatCounts(Object.values(lock.passStatus))}`
@@ -506,7 +507,7 @@ export function buildPolicySourceInspect(report: PolicyReport): PolicySourceInsp
       policyCount: source.policyIds.length,
       policyIds: source.policyIds
     }))
-  ].sort((left, right) => left.scope.localeCompare(right.scope) || left.path.localeCompare(right.path));
+  ].sort((left, right) => compareCodeUnits(left.scope, right.scope) || compareCodeUnits(left.path, right.path));
   return {
     formatVersion: CONTRACT_FORMAT_VERSION,
     status: report.status,
@@ -539,7 +540,7 @@ export function formatPolicySources(report: PolicySourceInspect): string {
 
 export function formatPolicyReport(report: NonNullable<ReviewSummary['policySummary']>): string {
   const severity = Object.entries(report.severityCounts)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([level, count]) => `${level}=${count}`);
   const lines = [
     formatFields([
@@ -878,7 +879,7 @@ export function formatUpgradeDiagnostics(diagnostics: UpgradeDiagnostics): strin
 export function formatUpgradeSummary(upgradePlan: UpgradePlan, dryRun: boolean): string {
   const suffix = dryRun ? ' (dry-run)' : '';
   const migrationKinds = Object.entries(upgradePlan.migrationKindCounts)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([kind, count]) => `${kind}=${count}`);
   const requiresVerificationCount = countMatching(
     upgradePlan.migrationSummaries,

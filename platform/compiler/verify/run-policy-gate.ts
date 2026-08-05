@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { uniqueSorted } from '../../shared/collections.ts';
-import { pathExists, readJson, readText } from '../../shared/fs.ts';
+import { pathExists, readOptionalJson, readText } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
 import { getWorkspacePaths, resolveWorkspaceLockPath } from '../../shared/paths.ts';
 import type {
@@ -15,6 +15,7 @@ import {
   type VerificationGateResultV1
 } from '../../shared/verification-result-contract.ts';
 import type { VerificationLane } from '../../shared/verification-types.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import {
   loadPolicyDeclarations,
   type LoadedPolicyDefinition,
@@ -114,7 +115,7 @@ function buildMergedPolicyEntries(
       sourcePath: definition.sourcePath,
       targets: targetFilesForPolicy(lock, definition.policy)
     }))
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
 function targetFilesForPolicy(lock: LockFile | null, policy: PolicyRule): string[] {
@@ -206,7 +207,7 @@ export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport
 
   const violations: PolicyViolation[] = [];
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
-  const lock = (await pathExists(readableLockPath)) ? await readJson<LockFile>(readableLockPath) : null;
+  const lock = await readOptionalJson<LockFile>(readableLockPath);
 
   for (const definition of mergedPolicies.values()) {
     if (definition.policy.rule !== 'tenant_context_must_flow_to_query') {
@@ -231,7 +232,8 @@ export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport
     mergedPolicies,
     lock,
     violations.sort((left, right) =>
-      `${left.id}:${left.sourceScope}:${left.sourcePath}:${left.files.join(',')}:${left.message}`.localeCompare(
+      compareCodeUnits(
+        `${left.id}:${left.sourceScope}:${left.sourcePath}:${left.files.join(',')}:${left.message}`,
         `${right.id}:${right.sourceScope}:${right.sourcePath}:${right.files.join(',')}:${right.message}`
       )
     )

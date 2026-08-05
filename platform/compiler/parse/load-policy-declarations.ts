@@ -13,6 +13,7 @@ import type {
   PolicySpec
 } from '../../shared/policy-types.ts';
 import { readYaml } from '../../shared/yaml.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 
 export interface LoadedPolicyDefinition {
   policy: PolicyRule;
@@ -76,7 +77,7 @@ async function loadPolicyScope(
       absolutePath: filePath,
       normalizedPath: withinScopePath(scope, rootPath, filePath, sourcePrefix)
     }))
-    .sort((left, right) => left.normalizedPath.localeCompare(right.normalizedPath));
+    .sort((left, right) => compareCodeUnits(left.normalizedPath, right.normalizedPath));
 
   const declaredPolicyIds = new Set<string>();
   const sources: PolicySourceFileReport[] = [];
@@ -111,7 +112,7 @@ async function loadPolicyScope(
 function mergePolicyScopes(scopes: readonly LoadedPolicyScope[]): LoadedPolicyScope {
   return {
     policies: uniqueSorted(scopes.flatMap((scope) => scope.policies)),
-    sources: scopes.flatMap((scope) => scope.sources).sort((left, right) => left.path.localeCompare(right.path)),
+    sources: scopes.flatMap((scope) => scope.sources).sort((left, right) => compareCodeUnits(left.path, right.path)),
     definitions: scopes.flatMap((scope) => scope.definitions)
   };
 }
@@ -145,7 +146,7 @@ export async function loadPolicyDeclarations(workspaceRoot: string): Promise<Loa
   const definitions = mergePolicies(official, project);
   const policies = [...definitions.values()]
     .map((definition) => definition.policy)
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
 
   return {
     official,

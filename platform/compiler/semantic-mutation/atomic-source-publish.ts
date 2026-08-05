@@ -7,6 +7,7 @@ import type {
 } from '../../shared/semantic-mutation-types.ts';
 import {
   SemanticMutationContractError,
+  canonicalEquals,
   mutationDiagnostic
 } from './canonical.ts';
 import {
@@ -203,7 +204,7 @@ export async function writeSemanticMutationTransactionArtifacts(
   ] as const) {
     try {
       const current = JSON.parse(await readFile(target, 'utf8')) as unknown;
-      if (JSON.stringify(current) !== JSON.stringify(value)) {
+      if (!canonicalEquals(current, value)) {
         throw contractError(
           'SEMANTIC-MUTATION-007',
           'cas',
@@ -288,7 +289,7 @@ export async function atomicPublishSemanticMutationSource(
   const target = sourcePath(workspaceRoot, plan.relativePath);
   const before = await readSemanticMutationSource(workspaceRoot, transactionRoot, plan.relativePath);
   if (semanticMutationByteDigest(before.bytes) !== plan.beforeByteDigest ||
-    JSON.stringify(before.windowsFileAttributes) !== JSON.stringify(manifest.windowsFileAttributes)) {
+    !canonicalEquals(before.windowsFileAttributes, manifest.windowsFileAttributes)) {
     throw contractError('SEMANTIC-MUTATION-007', 'cas', 'Live source changed before atomic publish', plan.relativePath);
   }
   const stagedPath = path.join(transactionRoot, 'staged-source');
@@ -311,7 +312,7 @@ export async function atomicPublishSemanticMutationSource(
   }
   const finalBefore = await readSemanticMutationSource(workspaceRoot, transactionRoot, plan.relativePath);
   if (semanticMutationByteDigest(finalBefore.bytes) !== plan.beforeByteDigest ||
-    JSON.stringify(finalBefore.windowsFileAttributes) !== JSON.stringify(manifest.windowsFileAttributes)) {
+    !canonicalEquals(finalBefore.windowsFileAttributes, manifest.windowsFileAttributes)) {
     throw contractError('SEMANTIC-MUTATION-007', 'cas', 'Live source changed during final publish CAS', plan.relativePath);
   }
   await commitFence();
@@ -333,7 +334,7 @@ export async function atomicPublishSemanticMutationSource(
   }
   const committedBytesMismatch = semanticMutationByteDigest(committed.bytes) !== plan.stagedByteDigest;
   const committedAttributesMismatch =
-    JSON.stringify(committed.windowsFileAttributes) !== JSON.stringify(manifest.windowsFileAttributes);
+    !canonicalEquals(committed.windowsFileAttributes, manifest.windowsFileAttributes);
   if (committedBytesMismatch || committedAttributesMismatch) {
     const errorCode = committedBytesMismatch && committedAttributesMismatch
       ? 'BYTE_AND_ATTRIBUTE_MISMATCH'
@@ -362,7 +363,7 @@ export async function atomicRestoreSemanticMutationSource(
   const target = sourcePath(workspaceRoot, plan.relativePath);
   const committed = await readSemanticMutationSource(workspaceRoot, transactionRoot, plan.relativePath);
   if (semanticMutationByteDigest(committed.bytes) !== plan.stagedByteDigest ||
-    JSON.stringify(committed.windowsFileAttributes) !== JSON.stringify(manifest.windowsFileAttributes)) {
+    !canonicalEquals(committed.windowsFileAttributes, manifest.windowsFileAttributes)) {
     throw contractError(
       'SEMANTIC-MUTATION-012',
       'rollback',
@@ -386,7 +387,7 @@ export async function atomicRestoreSemanticMutationSource(
     plan.relativePath
   );
   if (semanticMutationByteDigest(finalCommitted.bytes) !== plan.stagedByteDigest ||
-    JSON.stringify(finalCommitted.windowsFileAttributes) !== JSON.stringify(manifest.windowsFileAttributes)) {
+    !canonicalEquals(finalCommitted.windowsFileAttributes, manifest.windowsFileAttributes)) {
     throw contractError(
       'SEMANTIC-MUTATION-012',
       'rollback',
@@ -408,7 +409,7 @@ export async function atomicRestoreSemanticMutationSource(
   }
   const restored = await readSemanticMutationSource(workspaceRoot, transactionRoot, plan.relativePath);
   if (semanticMutationByteDigest(restored.bytes) !== plan.beforeByteDigest ||
-    JSON.stringify(restored.windowsFileAttributes) !== JSON.stringify(manifest.windowsFileAttributes)) {
+    !canonicalEquals(restored.windowsFileAttributes, manifest.windowsFileAttributes)) {
     throw contractError('SEMANTIC-MUTATION-012', 'rollback', 'Restored source digest does not match original bytes', plan.relativePath);
   }
 }

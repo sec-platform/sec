@@ -2,6 +2,7 @@ import type { SemanticFact, SemanticValueObject, ValidatedEngineeringIRSnapshot 
 import { CompilerError } from '../../shared/errors.ts';
 import { SEMANTIC_VIEW_FORMAT_VERSION, type SemanticView, type ViewEdge, type ViewNode } from '../../shared/semantic-view-types.ts';
 import { indexValidatedEngineeringIR } from '../ir/index-engineering-ir.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import {
   buildProvenanceOverlay,
   buildSemanticInspector,
@@ -120,8 +121,8 @@ export function projectStateView(snapshot: ValidatedEngineeringIRSnapshot, subje
     }
   }
 
-  const sortedNodes = [...nodes.values()].sort((left, right) => left.id.localeCompare(right.id));
-  const sortedEdges = [...edges.values()].sort((left, right) => left.id.localeCompare(right.id));
+  const sortedNodes = [...nodes.values()].sort((left, right) => compareCodeUnits(left.id, right.id));
+  const sortedEdges = [...edges.values()].sort((left, right) => compareCodeUnits(left.id, right.id));
   return {
     formatVersion: SEMANTIC_VIEW_FORMAT_VERSION,
     viewKind: 'state',

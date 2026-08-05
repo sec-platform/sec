@@ -11,6 +11,8 @@
  */
 
 export {
+  assertSortedUnique,
+  canonicalEquals,
   canonicalJson,
   cloneAndDeepFreeze,
   compareCodeUnits,
@@ -18,7 +20,10 @@ export {
   digest,
   isPlainObject,
   normalizedArtifactTarget,
+  rawSha256,
   sha256,
+  sortByKey,
+  sortedKeys,
   stableById,
   uniqueSorted,
   uniqueSortedByKey

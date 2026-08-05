@@ -18,6 +18,7 @@ import {
   isFileNotFoundError,
   pathExists,
   readJson,
+  readOptionalJson,
   removeDir,
   writeJson,
   type CommitFence
@@ -2006,7 +2007,7 @@ export async function runUpgradeWorkspaceWithLease(
   const { lockPath, projectRoot, planPath, upgradePlanPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadWorkspacePlan(workspaceRoot);
   const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
-  const existingLock = (await pathExists(readableLockPath)) ? await readJson<LockFile>(readableLockPath) : null;
+  const existingLock = await readOptionalJson<LockFile>(readableLockPath);
   const currentBlock = plan.blocks.find((block) => block.id === blockId);
   let plannedUpgrade: PlannedWorkspaceUpgrade;
   try {

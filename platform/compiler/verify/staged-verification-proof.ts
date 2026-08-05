@@ -9,7 +9,7 @@ import type {
   RuntimeVerificationLaneReport,
   VerificationReport
 } from '../../shared/verification-types.ts';
-import { deepFreeze, digest } from '../ir/ir-canonical-primitives.ts';
+import { cloneAndDeepFreeze, deepFreeze, rawSha256 } from '../ir/ir-canonical-primitives.ts';
 import { stagedVerificationProjectInputDigest } from './semantic-mutation-staged-project-input.ts';
 
 const PROOF_FORMAT_REVISION = 'staged-verification-proof-v1' as const;
@@ -83,10 +83,6 @@ interface ProofState {
 const issuedSources = new WeakMap<StagedVerificationProofSource, SourceState>();
 const issuedProofs = new WeakMap<StagedVerificationProof, ProofState>();
 
-function sha256(value: string | Uint8Array): `sha256:${string}` {
-  return `sha256:${digest(value)}`;
-}
-
 function frozenArtifacts(artifacts: StagedVerificationArtifactSet): CanonicalVerificationArtifactSet {
   const clone = structuredClone({
     verificationReport: artifacts.verificationReport,
@@ -112,7 +108,7 @@ function assertDigest(value: string, label: string): void {
 function rawArtifactSetDigest(
   digests: StagedVerificationRawArtifactDigests
 ): `sha256:${string}` {
-  return sha256(JSON.stringify({
+  return rawSha256(JSON.stringify({
     verificationReport: digests.verificationReport,
     runtimeReport: digests.runtimeReport,
     policyReport: digests.policyReport,
@@ -206,9 +202,9 @@ async function registerProof(input: {
     formatRevision: PROOF_FORMAT_REVISION,
     ...input.binding,
     projectInputDigest: input.projectInputDigest,
-    verificationArtifactDigest: sha256(JSON.stringify(artifacts.verificationReport)),
+    verificationArtifactDigest: rawSha256(JSON.stringify(artifacts.verificationReport)),
     rawArtifactSetDigest: input.rawArtifactSetDigest,
-    artifactSetDigest: sha256(JSON.stringify(artifacts))
+    artifactSetDigest: rawSha256(JSON.stringify(artifacts))
   });
   issuedProofs.set(proof, {
     artifacts,
@@ -286,12 +282,12 @@ async function consumeProof(
   try {
     assertLiveLockBinding(lock, proof);
     if (await stagedVerificationProjectInputDigest(liveProjectRoot) !== proof.projectInputDigest ||
-      sha256(JSON.stringify(state.artifacts)) !== proof.artifactSetDigest ||
-      sha256(JSON.stringify(state.artifacts.verificationReport)) !== proof.verificationArtifactDigest) {
+      rawSha256(JSON.stringify(state.artifacts)) !== proof.artifactSetDigest ||
+      rawSha256(JSON.stringify(state.artifacts.verificationReport)) !== proof.verificationArtifactDigest) {
       throw new Error('Live rebuild inputs do not match the staged Verification proof');
     }
     state.consumed = true;
-    return deepFreeze(structuredClone(state.artifacts));
+    return cloneAndDeepFreeze(state.artifacts);
   } finally {
     state.consuming = false;
   }

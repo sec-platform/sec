@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { isMap, isSeq, parseDocument, type Document, type Node, type YAMLSeq } from 'yaml';
 
 import type {
@@ -12,7 +10,7 @@ import type {
   SemanticMutationSourceLineEnding
 } from '../../shared/semantic-mutation-types.ts';
 import { normalizeSemanticContract } from '../parse/load-semantic-contract.ts';
-import { SemanticMutationContractError, compareCodeUnits, mutationDiagnostic } from './canonical.ts';
+import { SemanticMutationContractError, canonicalEquals, compareCodeUnits, mutationDiagnostic, rawSha256 } from './canonical.ts';
 
 export interface SemanticContractYamlTransformV1 {
   readonly stagedBytes: Uint8Array;
@@ -26,7 +24,7 @@ export interface SemanticContractYamlTransformV1 {
 const UTF8_BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
 
 export function semanticMutationByteDigest(bytes: Uint8Array): string {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  return rawSha256(bytes);
 }
 
 function transformFailure(message: string, operationId?: string): never {
@@ -174,7 +172,7 @@ function transformSemanticContractYamlInternal(
   const { lineEnding, finalNewline } = sourceStyle(text);
   const document = parseContractDocument(text);
   const before = normalizedDocument(document);
-  if (loadedContract !== undefined && JSON.stringify(before) !== JSON.stringify(loadedContract.contract)) {
+  if (loadedContract !== undefined && !canonicalEquals(before, loadedContract.contract)) {
     transformFailure('Current YAML bytes do not match the loaded canonical contract provenance');
   }
   const expected = structuredClone(before);
@@ -182,7 +180,7 @@ function transformSemanticContractYamlInternal(
   const stagedBytes = encodedDocument(document, utf8Bom, lineEnding, finalNewline);
   const stagedText = decodeSource(stagedBytes).text;
   const after = normalizedDocument(parseContractDocument(stagedText));
-  if (JSON.stringify(after) !== JSON.stringify(expected)) {
+  if (!canonicalEquals(after, expected)) {
     transformFailure('YAML transform changed content outside the requested transition set');
   }
   return {

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -10,6 +9,7 @@ import {
   projectAffectedSelectionToVerificationGateResult,
   type AffectedSelectionTrustBoundary
 } from '../shared/affected-test-inventory.ts';
+import { rawSha256 } from '../shared/canonical-primitives.ts';
 import {
   gitChangedFileDiffArgs,
   gitUntrackedFileArgs,
@@ -604,10 +604,7 @@ export interface ResolvedAffectedTestExecutionV1 {
 
 function computeAffectedInputDigest(files: readonly string[]): `sha256:${string}` {
   const sorted = uniqueSorted([...files]);
-  const hash = createHash('sha256');
-  for (const file of sorted) hash.update(file);
-  hash.update('\0');
-  return `sha256:${hash.digest('hex')}` as `sha256:${string}`;
+  return rawSha256(`${sorted.join('')}\0`);
 }
 
 function affectedTestPlan(files: string[]): AffectedTestPlanV1 {

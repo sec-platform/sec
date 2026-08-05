@@ -5,6 +5,7 @@ import { ensureDir, listFilesRecursive, pathExists, readJson, writeJson } from '
 import { getWorkspacePaths, posixPath, workspaceRelativePath } from '../../shared/paths.ts';
 import type { AppMode, PlanFile, PlanSlot, SlotKind } from '../../shared/plan-manifest-types.ts';
 import { writeYaml } from '../../shared/yaml.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { loadPlan } from '../parse/load-plan.ts';
 
 export type ViewMutationKind =
@@ -355,7 +356,7 @@ async function loadMutationFiles(workspaceRoot: string): Promise<Array<{ sourceP
 
   const files = (await listFilesRecursive(sourceViewMutationsRoot))
     .filter((file) => file.endsWith('.json'))
-    .sort((left, right) => left.localeCompare(right));
+    .sort((left, right) => compareCodeUnits(left, right));
   const loaded: Array<{ sourcePath: string; file: ViewMutationFile }> = [];
   for (const file of files) {
     const sourcePath = workspaceRelativePath(workspaceRoot, file);

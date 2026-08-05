@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
+import { compareCodeUnits, rawSha256 } from '../shared/canonical-primitives.ts';
 import {
   buildAcceptanceCoverage,
   buildExplainGraph,
@@ -177,11 +177,11 @@ const PIPELINE_COMPLETION_LOCAL_VIEW_PATHS = [
 ] as const;
 
 function proofJsonDigest(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+  return rawSha256(JSON.stringify(value));
 }
 
 function proofByteDigest(value: Uint8Array): string {
-  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+  return rawSha256(value);
 }
 
 function sameJsonValue(left: unknown, right: unknown): boolean {
@@ -251,8 +251,8 @@ function assertExactKeys(
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object with the exact v1 schema`);
   }
-  const actualKeys = Object.keys(value).sort((left, right) => left.localeCompare(right));
-  const expectedKeys = [...expected].sort((left, right) => left.localeCompare(right));
+  const actualKeys = Object.keys(value).sort(compareCodeUnits);
+  const expectedKeys = [...expected].sort(compareCodeUnits);
   if (!sameOrderedValues(actualKeys, expectedKeys)) {
     throw new Error(`${label} does not match the exact v1 schema`);
   }

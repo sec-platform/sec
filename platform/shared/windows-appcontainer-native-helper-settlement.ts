@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { rawSha256 } from './canonical-primitives.ts';
 
 import type { ObservedCommandOutcome } from './observed-process.ts';
 
@@ -75,7 +75,7 @@ function observedOutputMatches(
   evidence: ObservedCommandOutcome['stdout']
 ): boolean {
   return evidence.bytes === contents.byteLength &&
-    evidence.digest === `sha256:${createHash('sha256').update(contents).digest('hex')}`;
+    evidence.digest === rawSha256(contents);
 }
 
 export function classifyWindowsAppContainerObservedNativeHelperSettlement(

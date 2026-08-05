@@ -11,6 +11,7 @@ import {
   type ViewNode
 } from '../../shared/semantic-view-types.ts';
 import { indexValidatedEngineeringIR } from '../ir/index-engineering-ir.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import {
   buildProvenanceOverlay,
   buildSemanticInspector,
@@ -82,7 +83,7 @@ export function projectArchitectureView(
       facts,
       group: entity.kind
     });
-  }).sort((left, right) => left.id.localeCompare(right.id));
+  }).sort((left, right) => compareCodeUnits(left.id, right.id));
 
   const edges: ViewEdge[] = architectureFacts.map((fact) => ({
     id: viewEdgeId(fact.subject, fact.predicate, fact.object.kind === 'entity' ? fact.object.entityId : '', fact.id),
@@ -91,7 +92,7 @@ export function projectArchitectureView(
     relation: fact.predicate,
     label: relationLabel(fact.predicate),
     references: referencesForFacts([fact])
-  })).sort((left, right) => left.id.localeCompare(right.id));
+  })).sort((left, right) => compareCodeUnits(left.id, right.id));
 
   const subject = subjectId ?? ir.appId;
   return {

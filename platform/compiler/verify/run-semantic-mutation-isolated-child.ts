@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { loadCanonicalBunRuntimeVersion } from '../../shared/bun-runtime-version.ts';
+import { getErrorCode } from '../../shared/errors.ts';
 import { listFilesRecursive, pathExists, type CommitFence } from '../../shared/fs.ts';
 import { readLockFile } from '../../shared/lock-utils.ts';
 import {
@@ -49,7 +50,7 @@ import {
   type WorkspaceWriteLeaseToken
 } from '../../shared/workspace-write-lease.ts';
 import { loadWorkspacePlan } from '../parse/load-plan.ts';
-import { cloneAndDeepFreeze, digest } from '../ir/ir-canonical-primitives.ts';
+import { cloneAndDeepFreeze, rawSha256 } from '../ir/ir-canonical-primitives.ts';
 import {
   buildWorkspaceSemanticBundle,
 } from '../semantic-frontend.ts';
@@ -571,10 +572,6 @@ async function compilerRegistryInputs(
   }];
 }
 
-function rawByteDigest(bytes: Uint8Array): string {
-  return `sha256:${digest(bytes)}`;
-}
-
 export interface SemanticMutationIsolatedVerificationExecutionRequest {
   readonly browserLaunchProofArgument: string;
   readonly commitFence: CommitFence;
@@ -844,10 +841,6 @@ type ChildOutcomePendingReadResult =
 
 const MAX_CHILD_OUTCOME_READ_BYTES = 512;
 
-function errorCode(error: unknown): string | undefined {
-  return error instanceof Error && 'code' in error ? String(error.code) : undefined;
-}
-
 async function readJsonArtifactResult(
   filePath: string,
   commitFence: CommitFence
@@ -857,7 +850,7 @@ async function readJsonArtifactResult(
   try {
     bytes = new Uint8Array(await readFile(filePath));
   } catch (error) {
-    return { status: errorCode(error) === 'ENOENT' ? 'missing' : 'read-error' };
+    return { status: getErrorCode(error) === 'ENOENT' ? 'missing' : 'read-error' };
   }
   try {
     const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -877,7 +870,7 @@ async function readChildOutcomeResult(
   try {
     before = await lstat(outcomePath);
   } catch (error) {
-    return { status: errorCode(error) === 'ENOENT' ? 'absent' : 'read-error' };
+    return { status: getErrorCode(error) === 'ENOENT' ? 'absent' : 'read-error' };
   }
   if (!before.isFile() || before.isSymbolicLink() || Number(before.nlink) !== 1) {
     return { status: 'read-error' };
@@ -887,7 +880,7 @@ async function readChildOutcomeResult(
   try {
     handle = await open(outcomePath, 'r');
   } catch (error) {
-    return { status: errorCode(error) === 'ENOENT' ? 'absent' : 'read-error' };
+    return { status: getErrorCode(error) === 'ENOENT' ? 'absent' : 'read-error' };
   }
   let bytes: Uint8Array | undefined;
   let readFailure: 'parse-error' | 'read-error' | undefined;
@@ -937,7 +930,7 @@ async function readChildOutcomePendingResult(
       ? { status: 'present' }
       : { status: 'read-error' };
   } catch (error) {
-    return { status: errorCode(error) === 'ENOENT' ? 'absent' : 'read-error' };
+    return { status: getErrorCode(error) === 'ENOENT' ? 'absent' : 'read-error' };
   }
 }
 
@@ -1805,10 +1798,10 @@ export async function runSemanticMutationIsolatedVerificationChild(
       acceptanceCoverage: coverage.value as AcceptanceCoverageReport,
       semanticBundle,
       rawDigests: {
-        verificationReport: rawByteDigest(verification.bytes),
-        runtimeReport: rawByteDigest(runtime.bytes),
-        policyReport: rawByteDigest(policy.bytes),
-        acceptanceCoverage: rawByteDigest(coverage.bytes)
+        verificationReport: rawSha256(verification.bytes),
+        runtimeReport: rawSha256(runtime.bytes),
+        policyReport: rawSha256(policy.bytes),
+        acceptanceCoverage: rawSha256(coverage.bytes)
       }
     });
     if (canIssueProofSource && artifacts.status === 'passed') {

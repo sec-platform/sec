@@ -11,7 +11,7 @@ import type {
   VerificationRequirementV1
 } from '../../shared/semantic-mutation-types.ts';
 import { contractOperationId, contractStateId } from '../ir/ir-identity.ts';
-import { compareCodeUnits, mutationDiagnostic } from './canonical.ts';
+import { canonicalEquals, compareCodeUnits, mutationDiagnostic } from './canonical.ts';
 
 export const ADD_STATE_TRANSITION_MINIMUM_VERIFICATION = Object.freeze([
   Object.freeze({ kind: 'pass', passId: 'verify' })
@@ -74,7 +74,7 @@ function valueFact(
   value: unknown
 ): SemanticFact | undefined {
   return facts.find((fact) => fact.subject === subject && fact.predicate === predicate &&
-    fact.object.kind === 'value' && JSON.stringify(fact.object.value) === JSON.stringify(value));
+    fact.object.kind === 'value' && canonicalEquals(fact.object.value, value));
 }
 
 function diagnostic(

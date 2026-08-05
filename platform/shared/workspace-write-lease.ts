@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { digest, sha256 } from './canonical-primitives.ts';
-import type { CommitFence } from './fs.ts';
+import { canonicalEquals, digest, sha256 } from './canonical-primitives.ts';
+import { ensureDir, type CommitFence } from './fs.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from './process.ts';
 import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
 import { resolveWorkspaceLocalStateRoot } from './workspace-path-contract.ts';
@@ -190,7 +190,7 @@ function nonEmpty(value: unknown): value is string {
 function exactKeys(value: object, keys: readonly string[]): boolean {
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
-  return JSON.stringify(actual) === JSON.stringify(expected);
+  return canonicalEquals(actual, expected);
 }
 
 function tokenLooksValid(value: unknown): value is WorkspaceWriteLeaseToken {
@@ -268,14 +268,14 @@ function tokenFromOwner(owner: WorkspaceWriteLeaseOwner): WorkspaceWriteLeaseTok
 }
 
 function sameToken(left: WorkspaceWriteLeaseToken, right: WorkspaceWriteLeaseToken): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return canonicalEquals(left, right);
 }
 
 function sameHeartbeat(
   left: WorkspaceWriteLeaseHeartbeat,
   right: WorkspaceWriteLeaseHeartbeat
 ): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return canonicalEquals(left, right);
 }
 
 function defaultProcessAlive(pid: number): 'alive' | 'dead' | 'unknown' {
@@ -1409,7 +1409,7 @@ export function createWorkspaceWriteLeaseManager(
     executionBoundary: WorkspaceWriteLeaseAcquireOptions['executionBoundary']
   ): Promise<WorkspaceWriteLeasePaths> => {
     const paths = pathsFor(workspaceRoot);
-    await fs.mkdir(paths.parent, { recursive: true });
+    await ensureDir(paths.parent);
     await assertLeaseParent(workspaceRoot, paths.parent, executionBoundary);
     await ensureProtocolRoot(paths, executionBoundary, createId);
     return paths;
@@ -1532,7 +1532,7 @@ export function createWorkspaceWriteLeaseManager(
         Number(ownerMetadata.nlink) !== 2 ||
         !heartbeatMetadata.isFile() || heartbeatMetadata.isSymbolicLink() ||
         Number(heartbeatMetadata.nlink) !== 1 ||
-        JSON.stringify(children.sort()) !== JSON.stringify([HEARTBEAT_FILE, OWNER_FILE].sort())) {
+        !canonicalEquals(children.sort(), [HEARTBEAT_FILE, OWNER_FILE].sort())) {
         throw new WorkspaceWriteLeaseError(
           'WORKSPACE-WRITE-LEASE-002',
           'Workspace writer lease control plane is not canonical'

@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 
+import { compareCodeUnits } from './canonical-primitives.ts';
 import type { CommitFence } from './fs.ts';
 
 const WINDOWS_WAIT_OBJECT_0 = 0x0000_0000;
@@ -341,8 +342,7 @@ function windowsQuoteArgument(value: string): string {
 function windowsEnvironmentBlock(environment: NodeJS.ProcessEnv | undefined): Buffer {
   const entries = Object.entries(environment ?? {})
     .filter((entry): entry is [string, string] => entry[1] !== undefined)
-    .sort(([left], [right]) => left.toLocaleLowerCase('en-US')
-      .localeCompare(right.toLocaleLowerCase('en-US')));
+    .sort(([left], [right]) => compareCodeUnits(left, right));
   return Buffer.from(`${entries.map(([key, value]) => `${key}=${value}`).join('\0')}\0\0`, 'utf16le');
 }
 

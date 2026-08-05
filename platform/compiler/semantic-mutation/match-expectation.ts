@@ -12,6 +12,7 @@ import type {
   SemanticMutationExpectationV1
 } from '../../shared/semantic-mutation-types.ts';
 import {
+  canonicalEquals,
   compareCodeUnits,
   factSelectorKey,
   mutationDiagnostic,
@@ -145,7 +146,7 @@ function assertionMatchesContract(
     assertion?.authority === 'authoritative' &&
     assertion.confidence === 1 &&
     assertion.evidence.length === 0 &&
-    JSON.stringify(assertion.provenance) === JSON.stringify(operation.contractProvenance);
+    canonicalEquals(assertion.provenance, operation.contractProvenance);
 }
 
 export function matchSemanticMutationExpectation(
@@ -156,7 +157,7 @@ export function matchSemanticMutationExpectation(
   operations: readonly ValidatedAddStateTransitionOperation[]
 ): SemanticMutationDiagnosticV2[] {
   const diagnostics: SemanticMutationDiagnosticV2[] = [];
-  if (JSON.stringify(base.ir.entities) !== JSON.stringify(staged.ir.entities)) {
+  if (!canonicalEquals(base.ir.entities, staged.ir.entities)) {
     diagnostics.push(mutationDiagnostic(
       'SEMANTIC-MUTATION-009',
       'expectation',
@@ -165,7 +166,7 @@ export function matchSemanticMutationExpectation(
     ));
   }
   const actualExpectation = expectationFromFactDelta(delta, base, staged);
-  if (JSON.stringify(actualExpectation) !== JSON.stringify(expectation)) {
+  if (!canonicalEquals(actualExpectation, expectation)) {
     diagnostics.push(mutationDiagnostic(
       'SEMANTIC-MUTATION-009',
       'expectation',

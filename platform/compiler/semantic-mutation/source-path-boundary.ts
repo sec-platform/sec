@@ -8,6 +8,7 @@ import {
 } from '../../shared/semantic-mutation-types.ts';
 import {
   SemanticMutationContractError,
+  canonicalEquals,
   cloneAndDeepFreeze,
   mutationDiagnostic,
   sha256
@@ -211,7 +212,7 @@ async function inspectPathBoundary(
 }
 
 function sameIdentity(left: FileIdentity, right: FileIdentity): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return canonicalEquals(left, right);
 }
 
 export async function readSemanticMutationSource(
