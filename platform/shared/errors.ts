@@ -29,3 +29,23 @@ export function formatCompilerFailure(error: unknown): string {
 
   return error.stack ?? error.message;
 }
+
+/**
+ * Extract a string error code from an unknown error object.
+ * Handles both `Error` instances with `code` property and plain objects.
+ */
+export function getErrorCode(error: unknown): string | undefined {
+  if (error && typeof error === 'object' && 'code' in error) {
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+  }
+  return undefined;
+}
+
+/**
+ * Throw a `CompilerError` — shared factory used across compiler modules
+ * to avoid redefining the same `fail` wrapper.
+ */
+export function fail(code: string, message: string, details: CompilerErrorDetails = {}): never {
+  throw new CompilerError(code, message, details);
+}

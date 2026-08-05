@@ -22,7 +22,7 @@ import {
   generatorEntityId,
   normalizedArtifactTarget
 } from './ir/ir-identity.ts';
-import { deepFreeze } from './ir/ir-canonical-primitives.ts';
+import { canonicalEquals, compareCodeUnits, deepFreeze } from './ir/ir-canonical-primitives.ts';
 import { assertUniqueSemanticOutputPaths } from './semantic-output-paths.ts';
 import { assertStateTransitionFunctions } from './state-transition-plan.ts';
 
@@ -35,7 +35,7 @@ function entityTargets(
     .filter((fact) => fact.predicate === predicate && fact.object.kind === 'entity')
     .map((fact) => fact.object.kind === 'entity' ? fact.object.entityId : '')
     .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right));
+    .sort(compareCodeUnits);
 }
 
 function requireSingleTarget(
@@ -133,7 +133,8 @@ function stateTransitions(
       };
     })
     .sort((left, right) =>
-      `${left.from}:${left.to}:${left.operationEntityId}`.localeCompare(
+      compareCodeUnits(
+        `${left.from}:${left.to}:${left.operationEntityId}`,
         `${right.from}:${right.to}:${right.operationEntityId}`
       )
     );
@@ -197,8 +198,8 @@ function buildStateTransitionTask(
     requireStringAttribute(generator, 'produces') !== declaration.produces ||
     requireStringAttribute(generator, 'typeBindingName') !== declaration.typeBinding.name ||
     requireStringAttribute(generator, 'typeBindingImportFrom') !== declaration.typeBinding.importFrom ||
-    JSON.stringify(requireStringArrayAttribute(generator, 'consumes')) !== JSON.stringify(uniqueSorted(declaration.consumes)) ||
-    JSON.stringify(requireStringArrayAttribute(generator, 'verification')) !== JSON.stringify(uniqueSorted(declaration.verification))
+    !canonicalEquals(requireStringArrayAttribute(generator, 'consumes'), uniqueSorted(declaration.consumes)) ||
+    !canonicalEquals(requireStringArrayAttribute(generator, 'verification'), uniqueSorted(declaration.verification))
   ) {
     throw new CompilerError('GENERATOR-PLAN-009', `Generator declaration "${declaration.id}" does not match validated IR`);
   }
@@ -239,8 +240,8 @@ function buildStateTransitionTask(
     declaration.verification.filter((selector) => !index.entityById.has(`acceptance:${selector}`))
   );
   if (
-    JSON.stringify(verifiedByEntityIds) !== JSON.stringify(expectedVerifiedByEntityIds) ||
-    JSON.stringify(verificationSelectors(index, artifactId)) !== JSON.stringify(expectedVerificationSelectors)
+    !canonicalEquals(verifiedByEntityIds, expectedVerifiedByEntityIds) ||
+    !canonicalEquals(verificationSelectors(index, artifactId), expectedVerificationSelectors)
   ) {
     throw new CompilerError('GENERATOR-PLAN-011', `Artifact "${artifactId}" verification Facts do not match its declaration`);
   }
@@ -282,7 +283,7 @@ export function buildSemanticGeneratorPlan(
   const tasks: SemanticGeneratorPlanTask[] = declarations
     .slice()
     .sort((left, right) =>
-      `${left.blockId}:${left.declaration.id}`.localeCompare(`${right.blockId}:${right.declaration.id}`)
+      compareCodeUnits(`${left.blockId}:${left.declaration.id}`, `${right.blockId}:${right.declaration.id}`)
     )
     .map((source) => {
       switch (source.declaration.kind) {

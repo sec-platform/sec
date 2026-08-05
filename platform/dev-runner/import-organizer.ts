@@ -5,7 +5,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 
+import { canonicalEquals } from '../shared/canonical-primitives.ts';
 import { CompilerError } from '../shared/errors.ts';
+import { ensureDir } from '../shared/fs.ts';
 import { compilerRoot, relativePosixPath } from '../shared/paths.ts';
 
 // Inline sync config cache for tsconfig.json parsing.
@@ -417,7 +419,7 @@ function absoluteStagedPath(projectRoot: string, gitPath: string): string {
 async function materializeCandidateIndex(projectRoot: string): Promise<string> {
   const snapshotsRoot = path.join(projectRoot, '.tmp', 'import-candidate-snapshots');
   const snapshotRoot = path.join(snapshotsRoot, randomUUID());
-  await fs.mkdir(snapshotRoot, { recursive: true });
+  await ensureDir(snapshotRoot);
   try {
     const prefix = `${snapshotRoot.replace(/\\/gu, '/')}/`;
     gitBytes(projectRoot, ['checkout-index', '--all', '--force', `--prefix=${prefix}`]);
@@ -536,11 +538,11 @@ function assertIndexUnchanged(
   candidateBase: string | undefined
 ): void {
   const currentTargets = stagedTypeScriptTargets(projectRoot, candidateBase);
-  if (JSON.stringify(currentTargets) !== JSON.stringify(targetPaths)) {
+  if (!canonicalEquals(currentTargets, targetPaths)) {
     throw new Error('Git index changed while organizing staged TypeScript imports');
   }
   const currentEntries = selectStagedEntries(readIndexEntries(projectRoot), targetPaths);
-  if (JSON.stringify(currentEntries) !== JSON.stringify(selectedEntries)) {
+  if (!canonicalEquals(currentEntries, selectedEntries)) {
     throw new Error('Git index entries changed while organizing staged TypeScript imports');
   }
 }

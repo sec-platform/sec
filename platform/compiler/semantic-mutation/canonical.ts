@@ -7,12 +7,15 @@ import type {
   VerificationRequirementV1
 } from '../../shared/semantic-mutation-types.ts';
 import {
+  canonicalEquals,
   canonicalJson,
   cloneAndDeepFreeze,
   compareCodeUnits,
   digest,
   isPlainObject,
-  sha256
+  rawSha256,
+  sha256,
+  sortedKeys
 } from '../ir/ir-canonical-primitives.ts';
 
 const STAGE_ORDER: readonly SemanticMutationDiagnosticStage[] = [
@@ -51,14 +54,18 @@ export class SemanticMutationContractError extends CompilerError {
   }
 }
 
-// Re-export canonical primitives so existing call sites keep working while
-// the canonical owner lives in `../ir/ir-canonical-primitives.ts`.
+// Re-export canonical primitives so existing call sites keep working.
+// The canonical owner lives at `../../shared/canonical-primitives.ts`;
+// `../ir/ir-canonical-primitives.ts` re-exports it for the compiler subsystem.
 export {
+  canonicalEquals,
   canonicalJson,
   cloneAndDeepFreeze,
   compareCodeUnits,
   isPlainObject,
-  sha256
+  rawSha256,
+  sha256,
+  sortedKeys
 };
 
 export function exactOwnKeys(

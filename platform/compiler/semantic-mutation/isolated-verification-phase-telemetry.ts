@@ -2,6 +2,9 @@ import { mkdir, open, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 
+import { getErrorCode } from '../../shared/errors.ts';
+import { sortedKeys } from './canonical.ts';
+
 export const SEMANTIC_MUTATION_ISOLATED_PHASE_TELEMETRY_FORMAT =
   'semantic-mutation-isolated-phase-telemetry-v1' as const;
 
@@ -72,20 +75,13 @@ function eventBytes(event: SemanticMutationIsolatedPhaseTelemetryEventV1): Uint8
   return new TextEncoder().encode(`${JSON.stringify(event)}\n`);
 }
 
-function errorCode(error: unknown): string | undefined {
-  return error && typeof error === 'object' && 'code' in error &&
-    typeof (error as NodeJS.ErrnoException).code === 'string'
-    ? (error as NodeJS.ErrnoException).code
-    : undefined;
-}
-
 async function fsyncDirectory(directory: string): Promise<void> {
   let handle;
   try {
     handle = await open(directory, 'r');
     await handle.sync();
   } catch (error) {
-    const code = errorCode(error);
+    const code = getErrorCode(error);
     if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'EACCES', 'EBADF'].includes(code ?? '')) {
       throw error;
     }
@@ -192,7 +188,7 @@ function parseEvent(
   }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort((left, right) => left.localeCompare(right));
+  const keys = sortedKeys(record);
   if (keys.length !== 4 || keys[0] !== 'durationMs' || keys[1] !== 'formatVersion' ||
     keys[2] !== 'phase' || keys[3] !== 'state' ||
     record.formatVersion !== SEMANTIC_MUTATION_ISOLATED_PHASE_TELEMETRY_FORMAT ||
@@ -218,7 +214,7 @@ async function readOptionalEvent(
   try {
     handle = await open(filePath, 'r');
   } catch (error) {
-    return errorCode(error) === 'ENOENT' ? 'absent' : 'read-error';
+    return getErrorCode(error) === 'ENOENT' ? 'absent' : 'read-error';
   }
   try {
     const buffer = Buffer.alloc(MAX_EVENT_BYTES + 1);
@@ -254,7 +250,7 @@ export async function readSemanticMutationIsolatedPhaseTelemetry(
       return { status: 'protocol-error' };
     }
   } catch (error) {
-    if (errorCode(error) === 'ENOENT') return { status: 'valid', events: Object.freeze([]) };
+    if (getErrorCode(error) === 'ENOENT') return { status: 'valid', events: Object.freeze([]) };
     return { status: 'read-error' };
   }
 

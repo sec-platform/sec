@@ -23,6 +23,7 @@ import { buildReviewUpgradeSummary, upgradeDiagnosticsAttributionParts } from '.
 import { semanticViewFactIds } from '../../shared/semantic-view-types.ts';
 import type { UpgradeDiagnostics } from '../../shared/upgrade-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
@@ -47,7 +48,7 @@ function conflictHintKey(hint: ReviewConflictHint): string {
 }
 
 function compareByKey<T>(key: (value: T) => string): (left: T, right: T) => number {
-  return (left, right) => key(left).localeCompare(key(right));
+  return (left, right) => compareCodeUnits(key(left), key(right));
 }
 
 const compareFailurePoints = compareByKey(failurePointKey);
@@ -167,7 +168,7 @@ function buildPathGroupSummaries<T, K extends string, S>(
   const groups = groupBy([...values], key);
   return Object.entries(groups)
     .map(([group, groupValues]) => buildSummary(group as K, groupValues))
-    .sort((left, right) => sortKey(left).localeCompare(sortKey(right)));
+    .sort((left, right) => compareCodeUnits(sortKey(left), sortKey(right)));
 }
 
 function buildCoverageTargetSummaries(
@@ -181,7 +182,7 @@ function buildCoverageTargetSummaries(
       declaredAcceptance: uniqueSorted(entry.declaredAcceptance),
       coveredBy: uniqueSorted(entry.coveredBy)
     }))
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
 function buildCoverageSummary(coverage: AcceptanceCoverageReport): NonNullable<ReviewSummary['coverageSummary']> {
@@ -288,7 +289,7 @@ function buildRepairTargetSummaries(repairPlan: RepairPlan): NonNullable<ReviewS
   }
   return [...counts.entries()]
     .map(([key, summary]) => ({ id: key.slice(summary.targetType.length + 1), targetType: summary.targetType, count: summary.count }))
-    .sort((left, right) => `${left.targetType}:${left.id}`.localeCompare(`${right.targetType}:${right.id}`));
+    .sort((left, right) => compareCodeUnits(`${left.targetType}:${left.id}`, `${right.targetType}:${right.id}`));
 }
 
 function repairTaskCategory(task: RepairPlan['tasks'][number]): RepairTaskCategory {
@@ -339,10 +340,10 @@ function buildRepairSummary(repairPlan: RepairPlan): ReviewSummary['repairSummar
         testsToPass: review.testsToPass, failureTargets: review.failureTargets
       };
     })
-    .sort((left, right) => left.taskId.localeCompare(right.taskId));
+    .sort((left, right) => compareCodeUnits(left.taskId, right.taskId));
   const blockerSummaries = (repairPlan.blockers ?? [])
     .map((b) => ({ blockerId: b.blockerId, boundary: b.boundary, reason: b.reason, decisionRequired: b.decisionRequired, failurePointCount: b.failurePoints.length }))
-    .sort((left, right) => left.blockerId.localeCompare(right.blockerId));
+    .sort((left, right) => compareCodeUnits(left.blockerId, right.blockerId));
   const changedPreviewCount = countMatching(repairPlan.tasks, (t) => t.preview?.changed === true);
   const targetFiles = uniqueSorted(repairPlan.tasks.map((t) => t.targetFile));
 
@@ -382,7 +383,7 @@ function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
     if (vertical) impact.verticals = uniqueSorted([...impact.verticals, vertical]);
     if (classifyRuntimeEntry(step.to)) impact.runtimeEntries = uniqueSorted([...impact.runtimeEntries, step.to]);
   }
-  return [...impacts.values()].sort((left, right) => left.blockId.localeCompare(right.blockId));
+  return [...impacts.values()].sort((left, right) => compareCodeUnits(left.blockId, right.blockId));
 }
 
 function buildInstallImpactSummary(installImpacts: ReviewInstallImpact[]): ReviewSummary['installImpactSummary'] {
@@ -412,7 +413,7 @@ function buildInstallImpactSummary(installImpacts: ReviewInstallImpact[]): Revie
       runtimeEntryCount: group.runtimeEntries.length, targetPathCount: group.targetPaths.length,
       blocks: group.blocks, actionKinds: group.actionKinds, runtimeEntries: group.runtimeEntries, targetPaths: group.targetPaths
     }))
-    .sort((left, right) => left.vertical.localeCompare(right.vertical));
+    .sort((left, right) => compareCodeUnits(left.vertical, right.vertical));
 
   return {
     impactCount: installImpacts.length, blockCount: blocks.length, actionKindCount: actionKinds.length,

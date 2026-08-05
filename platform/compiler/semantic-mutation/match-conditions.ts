@@ -10,12 +10,12 @@ import type {
   SemanticMutationDiagnosticStage,
   SemanticMutationDiagnosticV2
 } from '../../shared/semantic-mutation-types.ts';
-import { factSelectorKey, mutationDiagnostic, sha256 } from './canonical.ts';
+import { canonicalEquals, factSelectorKey, mutationDiagnostic, sha256 } from './canonical.ts';
 
 function selectorMatches(fact: SemanticFact, selector: SemanticFactSelectorV1): boolean {
   return fact.subject === selector.subject &&
     fact.predicate === selector.predicate &&
-    JSON.stringify(fact.object) === JSON.stringify(selector.object);
+    canonicalEquals(fact.object, selector.object);
 }
 
 function factForSelector(
@@ -64,7 +64,7 @@ export function mergeSemanticMutationConditions(
   for (const collection of collections) {
     for (const condition of collection) {
       const existing = byId.get(condition.conditionId);
-      if (existing && JSON.stringify(existing) !== JSON.stringify(condition)) {
+      if (existing && !canonicalEquals(existing, condition)) {
         throw new Error(`Condition id "${condition.conditionId}" has conflicting definitions`);
       }
       byId.set(condition.conditionId, structuredClone(condition));

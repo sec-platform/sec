@@ -25,6 +25,7 @@ import { pathExists, readJson, writeJson, type CommitFence } from '../../shared/
 import type { LockFile } from '../../shared/lock-types.ts';
 import { readLockFile, writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../shared/paths.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { semanticViewArtifactsAreCurrent } from './semantic-view-artifact-contract.ts';
 import { writeProvenance } from './write-provenance.ts';
 
@@ -39,7 +40,7 @@ function uniqueSortedMissing(entries: CiArtifactMissingEntry[]): CiArtifactMissi
     normalizeCiArtifactPath(entry.path),
     { ...entry, path: normalizeCiArtifactPath(entry.path) }
   ]));
-  return [...entriesByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+  return [...entriesByPath.values()].sort((left, right) => compareCodeUnits(left.path, right.path));
 }
 
 async function readGeneratedPaths(workspaceRoot: string): Promise<GeneratedPathResult> {

@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import { compareCodeUnits } from './canonical-primitives.ts';
 import { CI_ARTIFACT_FILES } from './ci-artifact-contract.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import { CompilerError } from './errors.ts';
@@ -198,10 +199,10 @@ function buildPriorityReviewFiles(reviewSummary: ReviewSummary): ProjectOverview
   }
 
   return Array.from(priorityByPath.entries())
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([priorityPath, reasons]) => ({
       path: priorityPath,
-      reasons: Array.from(reasons).sort((left, right) => left.localeCompare(right))
+      reasons: Array.from(reasons).sort((left, right) => compareCodeUnits(left, right))
     }));
 }
 

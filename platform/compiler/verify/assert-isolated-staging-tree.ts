@@ -9,6 +9,7 @@ import {
   withWorkspaceWriteLeaseControlPlaneQuiesced,
   type WorkspaceWriteLeaseToken
 } from '../../shared/workspace-write-lease.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
 
 type FileMetadata = Awaited<ReturnType<typeof lstat>>;
@@ -182,7 +183,7 @@ async function inspectEntrySnapshot(
     ? Object.freeze((await proveFilesystemOperation(
         'entry-readdir',
         () => readdir(absolutePath)
-      )).sort((left, right) => left.localeCompare(right)))
+      )).sort((left, right) => compareCodeUnits(left, right)))
     : undefined;
   if (!before.isDirectory()) {
     const after = await proveFilesystemOperation('entry-revalidate', () => lstat(absolutePath));
@@ -222,7 +223,7 @@ async function revalidateEntrySnapshot(
   const childNames = Object.freeze((await proveFilesystemOperation(
     'entry-revalidate-readdir',
     () => readdir(snapshot.absolutePath)
-  )).sort((left, right) => left.localeCompare(right)));
+  )).sort((left, right) => compareCodeUnits(left, right)));
   const afterChildren = await proveFilesystemOperation(
     'entry-revalidate',
     () => lstat(snapshot.absolutePath)

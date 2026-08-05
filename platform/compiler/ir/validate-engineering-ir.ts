@@ -9,12 +9,12 @@ import {
   type SemanticFact,
   type ValidatedEngineeringIRSnapshot
 } from '../../shared/engineering-ir-types.ts';
-import { CompilerError } from '../../shared/errors.ts';
+import { CompilerError, fail } from '../../shared/errors.ts';
 import {
   buildEngineeringIR,
   type BuildEngineeringIRInput
 } from './build-engineering-ir.ts';
-import { compareCodeUnits, deepFreeze } from './ir-canonical-primitives.ts';
+import { cloneAndDeepFreeze, compareCodeUnits } from './ir-canonical-primitives.ts';
 import { factAssertionId } from './ir-fact-store.ts';
 import {
   appEntityId,
@@ -36,10 +36,6 @@ const semanticEntityKinds = new Set<string>(SEMANTIC_ENTITY_KINDS);
 const semanticPredicates = new Set<string>(SEMANTIC_PREDICATES);
 const semanticAuthorities = new Set<string>(SEMANTIC_AUTHORITIES);
 const factProvenanceKinds = new Set<string>(FACT_PROVENANCE_KINDS);
-
-function fail(code: string, message: string, details?: Record<string, unknown>): never {
-  throw new CompilerError(code, message, details);
-}
 
 function assertCanonicalIds(values: readonly { id: string }[], collection: string): void {
   for (let index = 0; index < values.length; index += 1) {
@@ -237,7 +233,7 @@ export function validateEngineeringIR(
     );
   }
 
-  const frozenIR = deepFreeze(structuredClone(ir));
+  const frozenIR = cloneAndDeepFreeze(ir);
   return Object.freeze({ ir: frozenIR }) as ValidatedEngineeringIRSnapshot;
 }
 

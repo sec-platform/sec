@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import path from 'node:path';
 
+import { digest } from './canonical-primitives.ts';
 import { compilerRoot } from './paths.ts';
 
 type HeavyVerificationGateOwnerV1 = Readonly<{
@@ -77,12 +78,12 @@ function windowsWide(value: string): Buffer {
 
 export function heavyVerificationGateMutexName(worktreeRoot: string, namespace?: string): string {
   const canonical = path.resolve(worktreeRoot).toLocaleLowerCase('en-US');
-  const digest = createHash('sha256').update(canonical).digest('hex').slice(0, 32);
+  const digestHex = digest(canonical).slice(0, 32);
   if (!namespace) {
-    return `Global\\sec-heavy-verification-gate-${digest}`;
+    return `Global\\sec-heavy-verification-gate-${digestHex}`;
   }
-  const namespaceDigest = createHash('sha256').update(namespace).digest('hex').slice(0, 16);
-  return `Global\\sec-heavy-verification-gate-${digest}-${namespaceDigest}`;
+  const namespaceDigest = digest(namespace).slice(0, 16);
+  return `Global\\sec-heavy-verification-gate-${digestHex}-${namespaceDigest}`;
 }
 
 function validateHeavyVerificationGateNamespace(namespace: string): void {
@@ -92,7 +93,7 @@ function validateHeavyVerificationGateNamespace(namespace: string): void {
 }
 
 function heavyVerificationGateNamespaceSegment(namespace: string): string {
-  return createHash('sha256').update(namespace).digest('hex').slice(0, 16);
+  return digest(namespace).slice(0, 16);
 }
 
 function isProcessAlive(pid: number): boolean {

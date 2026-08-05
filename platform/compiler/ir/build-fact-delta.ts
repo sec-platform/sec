@@ -12,7 +12,7 @@ import {
   FACT_DELTA_CONTRACT_VERSION,
   FACT_DELTA_SCOPE
 } from '../../shared/engineering-ir-types.ts';
-import { CompilerError } from '../../shared/errors.ts';
+import { fail } from '../../shared/errors.ts';
 import {
   cloneAndDeepFreeze,
   compareCodeUnits,
@@ -23,10 +23,6 @@ import { digest, semanticRevisionPayload } from './ir-revision.ts';
 type CanonicalFactPayload = Omit<SemanticFact, 'assertions'> & {
   assertions: Array<Omit<FactAssertion, 'validFromRevision' | 'validToRevision'>>;
 };
-
-function fail(code: string, message: string, details?: Record<string, unknown>): never {
-  throw new CompilerError(code, message, details);
-}
 
 function endpoint(context: FactDeltaEndpointContext): FactDeltaEndpoint {
   return {

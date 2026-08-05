@@ -92,3 +92,57 @@ export function deepFreeze<Value>(value: Value): Value {
 export function cloneAndDeepFreeze<Value>(value: Value): Value {
   return deepFreeze(structuredClone(value));
 }
+
+/**
+ * Raw SHA-256 digest with `sha256:` prefix, without canonical JSON normalization.
+ * Use this for raw byte/string inputs where key-order normalization is not needed.
+ * For structured values, use `sha256` instead.
+ */
+export function rawSha256(value: string | Uint8Array): `sha256:${string}` {
+  return `sha256:${digest(value)}`;
+}
+
+/**
+ * Compare two values for canonical equality (key-order independent).
+ */
+export function canonicalEquals(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
+
+/**
+ * Return object keys sorted via canonical comparison.
+ */
+export function sortedKeys(record: Record<string, unknown>): string[] {
+  return Object.keys(record).sort(compareCodeUnits);
+}
+
+/**
+ * Sort values by a key function without deduplication
+ * (unlike `uniqueSortedByKey` which deduplicates).
+ */
+export function sortByKey<Value>(
+  values: readonly Value[],
+  keyOf: (value: Value) => string
+): Value[] {
+  return [...values].sort((left, right) => compareCodeUnits(keyOf(left), keyOf(right)));
+}
+
+/**
+ * Assert that an array of `{ id: string }` is canonically sorted and unique.
+ */
+export function assertSortedUnique(
+  values: readonly { id: string }[],
+  collection: string,
+  rejectBlank = true
+): void {
+  for (let index = 0; index < values.length; index += 1) {
+    const id = values[index]!.id;
+    const previous = values[index - 1]?.id;
+    if (rejectBlank && !id.trim()) {
+      throw new Error(`Canonical collection "${collection}" contains blank id at index ${index}`);
+    }
+    if (previous !== undefined && compareCodeUnits(previous, id) >= 0) {
+      throw new Error(`Canonical collection "${collection}" must be unique and canonically ordered`);
+    }
+  }
+}

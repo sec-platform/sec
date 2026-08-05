@@ -16,6 +16,7 @@ import {
 } from '../../shared/semantic-mutation-types.ts';
 import {
   SemanticMutationContractError,
+  canonicalEquals,
   cloneAndDeepFreeze,
   digestString,
   exactOwnKeys,
@@ -236,7 +237,7 @@ export async function planSemanticMutationSourceEdit(
     authorization: input.authorization
   });
   const suppliedRevision = 'preflightRevision' in input.preflight ? input.preflight.preflightRevision : '';
-  if (freshPreflight.status !== 'ready' || JSON.stringify(freshPreflight) !== JSON.stringify(input.preflight)) {
+  if (freshPreflight.status !== 'ready' || !canonicalEquals(freshPreflight, input.preflight)) {
     return sourceResolutionFailure(suppliedRevision, 'Source planning requires the exact recomputed ready preflight');
   }
   if (input.sourceAdapterRegistryRevision !== SEMANTIC_MUTATION_SOURCE_ADAPTER_REGISTRY_REVISION ||

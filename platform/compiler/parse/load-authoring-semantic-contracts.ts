@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -10,6 +9,7 @@ import type {
   SemanticMutationSourceKind
 } from '../../shared/semantic-mutation-types.ts';
 import { readYaml } from '../../shared/yaml.ts';
+import { compareCodeUnits, digest } from '../ir/ir-canonical-primitives.ts';
 import { normalizeSemanticContract } from './load-semantic-contract.ts';
 
 export const AUTHORING_SEMANTIC_CONTRACT_INDEX_PATH =
@@ -38,7 +38,7 @@ export function semanticContractSourceRevision(
     contractPath: loadedContract.contractPath,
     contract: loadedContract.contract
   });
-  return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
+  return `sha256:${digest(payload)}`;
 }
 
 export function buildSemanticContractSourceCandidate(
@@ -105,7 +105,7 @@ function validateIndex(
     }
     seenPaths.add(contractPath);
     return { blockId: entry.blockId, path: contractPath };
-  }).sort((left, right) => left.path.localeCompare(right.path));
+  }).sort((left, right) => compareCodeUnits(left.path, right.path));
 }
 
 export async function loadAuthoringSemanticContractSources(

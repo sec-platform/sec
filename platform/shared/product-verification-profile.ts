@@ -1,4 +1,5 @@
 import type { AcceptanceCoverageReport } from './acceptance-types.ts';
+import { canonicalEquals, compareCodeUnits } from './canonical-primitives.ts';
 import type { PolicyReport, PolicyViolation } from './policy-types.ts';
 import {
   CodexDevelopmentAggregateVerificationClaimsV1,
@@ -169,7 +170,7 @@ function canonicalViolationInventory(violations: readonly PolicyViolation[]): st
 
 function localeSortedUnique(values: readonly string[]): boolean {
   if (new Set(values).size !== values.length) return false;
-  const sorted = [...values].sort((left, right) => left.localeCompare(right));
+  const sorted = [...values].sort((left, right) => compareCodeUnits(left, right));
   return sorted.every((value, index) => value === values[index]);
 }
 
@@ -227,7 +228,7 @@ function policyClosureIsValid(report: PolicyReport): boolean {
     ...report.project.violations
   ]);
   const topLevel = canonicalViolationInventory(report.violations);
-  return JSON.stringify(scoped) === JSON.stringify(topLevel);
+  return canonicalEquals(scoped, topLevel);
 }
 
 function policyInventoryIsEmpty(report: PolicyReport): boolean {

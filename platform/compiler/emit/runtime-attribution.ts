@@ -4,6 +4,7 @@ import { pathExists, readText } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { defaultLogger } from '../../shared/logger.ts';
 import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { manifestCache } from '../parse/manifest-cache.ts';
 
 export type RuntimeEntryKind = 'page' | 'api';
@@ -220,7 +221,7 @@ export async function buildRuntimeAttributions(lock: LockFile, targetPaths: stri
       };
     })
     .filter((entry): entry is RuntimeAttribution => entry !== null)
-    .sort((left, right) => left.path.localeCompare(right.path));
+    .sort((left, right) => compareCodeUnits(left.path, right.path));
 }
 
 export function buildVerticalSliceAttributions(entries: RuntimeAttribution[]): VerticalSliceAttribution[] {
@@ -249,5 +250,5 @@ export function buildVerticalSliceAttributions(entries: RuntimeAttribution[]): V
       runtimeEntries: uniqueSorted([...slice.runtimeEntries]),
       relatedBlocks: uniqueSorted([...slice.relatedBlocks])
     }))
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
 }

@@ -14,7 +14,7 @@ import {
 } from '../../shared/semantic-mutation-types.ts';
 import type { SemanticMutationVerificationCapabilityPlanV1 } from '../../shared/verification-types.ts';
 import { buildWorkspaceSemanticBundle } from '../semantic-frontend.ts';
-import { mutationDiagnostic } from './canonical.ts';
+import { compareCodeUnits, mutationDiagnostic } from './canonical.ts';
 import { normalizeSemanticMutationRequest } from './normalize-request.ts';
 import {
   planSemanticMutation,
@@ -90,7 +90,7 @@ async function copyWorkspaceTree(
   await commitFence();
   await mkdir(target, { recursive: true });
   const entries = await readdir(source, { withFileTypes: true });
-  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of entries.sort((left, right) => compareCodeUnits(left.name, right.name))) {
     const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
     if (childRelative === '.git' || childRelative === 'node_modules' ||
       childRelative === '.shared-deps' ||

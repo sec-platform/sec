@@ -3,6 +3,9 @@ import path from 'node:path';
 
 import { RELEASE_ENTRYPOINT_RELATIVE_PATH } from '../../shared/runtime-layout.ts';
 
+import { getErrorCode } from '../../shared/errors.ts';
+import { sortedKeys } from './canonical.ts';
+
 export const SEMANTIC_MUTATION_ISOLATED_PROGRESS_FORMAT =
   'semantic-mutation-isolated-progress-v1' as const;
 export const SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH =
@@ -187,7 +190,7 @@ function parseCheckpointBytes(
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
   const record = parsed as Record<string, unknown>;
-  const keys = Object.keys(record).sort((left, right) => left.localeCompare(right));
+  const keys = sortedKeys(record);
   if (keys.length !== 2 || keys[0] !== 'checkpoint' || keys[1] !== 'formatVersion' ||
     record.formatVersion !== SEMANTIC_MUTATION_ISOLATED_PROGRESS_FORMAT ||
     record.checkpoint !== expected) {
@@ -217,13 +220,6 @@ function isAllowedTransition(
     allowed.slice(0, -1).every((value, index) => value === trace[index]));
 }
 
-function errorCode(error: unknown): string | undefined {
-  return error && typeof error === 'object' && 'code' in error &&
-    typeof (error as NodeJS.ErrnoException).code === 'string'
-    ? (error as NodeJS.ErrnoException).code
-    : undefined;
-}
-
 async function readOptionalBytes(filePath: string): Promise<
   | Readonly<{ readonly status: 'absent' }>
   | Readonly<{ readonly status: 'ok'; readonly bytes: Uint8Array }>
@@ -233,7 +229,7 @@ async function readOptionalBytes(filePath: string): Promise<
   try {
     handle = await open(filePath, 'r');
   } catch (error) {
-    return { status: errorCode(error) === 'ENOENT' ? 'absent' : 'read-error' };
+    return { status: getErrorCode(error) === 'ENOENT' ? 'absent' : 'read-error' };
   }
   let result:
     | Readonly<{ readonly status: 'ok'; readonly bytes: Uint8Array }>
@@ -280,7 +276,7 @@ export async function readSemanticMutationIsolatedProgressTrace(
       return { status: 'protocol-error' };
     }
   } catch (error) {
-    if (errorCode(error) !== 'ENOENT') return { status: 'read-error' };
+    if (getErrorCode(error) !== 'ENOENT') return { status: 'read-error' };
   }
   const checkpoints: SemanticMutationIsolatedProgressCheckpoint[] = [];
   const pending: SemanticMutationIsolatedProgressCheckpoint[] = [];
@@ -323,7 +319,7 @@ async function fsyncDirectory(directory: string): Promise<void> {
     handle = await open(directory, 'r');
     await handle.sync();
   } catch (error) {
-    const code = errorCode(error);
+    const code = getErrorCode(error);
     if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'EACCES', 'EBADF'].includes(code ?? '')) {
       throw error;
     }

@@ -14,6 +14,7 @@ import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
 import type { SemanticViewSet, ViewReference } from '../../shared/semantic-view-types.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
 import { buildRuntimeAttribution } from './runtime-attribution.ts';
 import { requireLockSemanticViews } from './semantic-view-artifact-contract.ts';
@@ -69,8 +70,8 @@ class GraphBuilder {
   build(semanticViews: SemanticViewSet, overlays: ExplainGraph['overlays']): ExplainGraph {
     return {
       semanticViews,
-      nodes: this.nodes.sort((a, b) => a.id.localeCompare(b.id)),
-      edges: this.edges.sort((a, b) => `${a.from}:${a.type}:${a.to}`.localeCompare(`${b.from}:${b.type}:${b.to}`)),
+      nodes: this.nodes.sort((a, b) => compareCodeUnits(a.id, b.id)),
+      edges: this.edges.sort((a, b) => compareCodeUnits(`${a.from}:${a.type}:${a.to}`, `${b.from}:${b.type}:${b.to}`)),
       overlays
     };
   }
@@ -79,7 +80,7 @@ class GraphBuilder {
 function uniqueViewReferences(references: readonly ViewReference[]): ViewReference[] {
   const byId = new Map(references.map((reference) => [`${reference.kind}:${reference.ref}`, reference]));
   return [...byId.values()].sort((left, right) =>
-    `${left.kind}:${left.ref}`.localeCompare(`${right.kind}:${right.ref}`)
+    compareCodeUnits(`${left.kind}:${left.ref}`, `${right.kind}:${right.ref}`)
   );
 }
 

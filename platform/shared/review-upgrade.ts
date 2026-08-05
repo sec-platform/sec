@@ -1,3 +1,4 @@
+import { compareCodeUnits } from './canonical-primitives.ts';
 import { countMatching, uniqueSorted } from './collections.ts';
 import type {
   UpgradeDiagnostics,
@@ -97,7 +98,7 @@ function buildReviewUpgradeMigrationSummaries(plan: UpgradePlan): ReviewUpgradeM
       ...(migration.source ? { source: migration.source } : {}),
       ...(migration.slotId ? { slotId: migration.slotId } : {})
     }))
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
 function buildReviewUpgradeMigrationOperationSummaries(plan: UpgradePlan): ReviewUpgradeMigrationOperationSummary[] {
@@ -107,7 +108,7 @@ function buildReviewUpgradeMigrationOperationSummaries(plan: UpgradePlan): Revie
       ...(operation.writableZones ? { writableZones: [...operation.writableZones] } : {}),
       ...(operation.path ? { path: [...operation.path] } : {})
     }))
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
 export function buildReviewUpgradePreflightSummaries(
@@ -127,7 +128,7 @@ export function buildReviewUpgradePreflightSummaries(
 
   return [...groups.entries()]
     .map(([group, summary]) => ({ group, ...summary }))
-    .sort((left, right) => left.group.localeCompare(right.group));
+    .sort((left, right) => compareCodeUnits(left.group, right.group));
 }
 
 export function buildReviewUpgradeSummary(

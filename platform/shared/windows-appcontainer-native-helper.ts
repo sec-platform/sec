@@ -1,6 +1,8 @@
 import { writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 
+import { canonicalEquals } from './canonical-primitives.ts';
+
 import {
   createWindowsAppContainerProfileForNativeHelper,
   deriveWindowsAppContainerSidForNativeHelper,
@@ -60,7 +62,7 @@ async function loadNativeHelperExit(): Promise<(exitCode: number) => never> {
 }
 
 function exactKeys(value: object, expected: readonly string[]): boolean {
-  return JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
+  return canonicalEquals(Object.keys(value).sort(), [...expected].sort());
 }
 
 function writeNativeHelperOutput(payload: WindowsAppContainerNativeHelperWirePayload): void {

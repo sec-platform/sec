@@ -1,3 +1,4 @@
+import { compareCodeUnits } from './canonical-primitives.ts';
 import { uniqueSorted } from './collections.ts';
 import type { PolicyReport } from './policy-types.ts';
 import type { ReviewPolicySourceSummary, ReviewPolicySummary, ReviewPolicyViolationSummary } from './review-types.ts';
@@ -22,7 +23,7 @@ export function buildReviewPolicySummary(policyReport: PolicyReport): ReviewPoli
       path: source.path,
       policyIds: uniqueSorted(source.policyIds)
     }))
-  ].sort((left, right) => policySourceSummaryKey(left).localeCompare(policySourceSummaryKey(right)));
+  ].sort((left, right) => compareCodeUnits(policySourceSummaryKey(left), policySourceSummaryKey(right)));
   const severityCounts = policyReport.violations.reduce<ReviewPolicySummary['severityCounts']>(
     (counts, violation) => {
       counts[violation.severity] = (counts[violation.severity] ?? 0) + 1;
@@ -48,7 +49,7 @@ export function buildReviewPolicySummary(policyReport: PolicyReport): ReviewPoli
         targetCount: policy.targets.length,
         targets: uniqueSorted(policy.targets)
       }))
-      .sort((left, right) => left.id.localeCompare(right.id)),
+      .sort((left, right) => compareCodeUnits(left.id, right.id)),
     violationSummaries: policyReport.violations
       .map((violation) => ({
         id: violation.id,
@@ -61,6 +62,6 @@ export function buildReviewPolicySummary(policyReport: PolicyReport): ReviewPoli
         sourceScope: violation.sourceScope,
         sourcePath: violation.sourcePath
       }))
-      .sort((left, right) => policyViolationSummaryKey(left).localeCompare(policyViolationSummaryKey(right)))
+      .sort((left, right) => compareCodeUnits(policyViolationSummaryKey(left), policyViolationSummaryKey(right)))
   };
 }

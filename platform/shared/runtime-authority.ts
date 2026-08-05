@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import semver from 'semver';
 
+import { rawSha256 } from './canonical-primitives.ts';
 import { CompilerError } from './errors.ts';
 
 export const TARGET_RUNTIME_PROFILE_SCHEMA = 'sec-target-runtime-profile-v1' as const;
@@ -211,10 +211,7 @@ export function targetRuntimeProfileRevision(
   profile: TargetRuntimeProfile
 ): `sha256:${string}` {
   const canonicalProfile = buildTargetRuntimeProfile(profile);
-  const digest = createHash('sha256')
-    .update(JSON.stringify(canonicalProfile))
-    .digest('hex');
-  return `sha256:${digest}`;
+  return rawSha256(JSON.stringify(canonicalProfile));
 }
 
 export function buildRuntimeExecutionEvidence(input: {

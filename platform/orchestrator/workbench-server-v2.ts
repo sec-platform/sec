@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 
-import { writeJson } from '../shared/fs.ts';
+import { ensureDir, pathExists, writeJson } from '../shared/fs.ts';
 import { defaultLogger } from '../shared/logger.ts';
 import {
   controlWorkbenchViewsRelativePath,
@@ -91,7 +91,7 @@ async function handleBlocksCatalog(_context: RouteContext): Promise<Response> {
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const manifestPath = path.join(registryDir, entry.name, 'block.manifest.yaml');
-    const exists = await fs.access(manifestPath).then(() => true).catch(() => false);
+    const exists = await pathExists(manifestPath);
     if (!exists) continue;
     catalog.push(YAML.parse(await fs.readFile(manifestPath, 'utf8')));
   }
@@ -107,9 +107,9 @@ async function handleBootstrapSlot(context: RouteContext): Promise<Response> {
     const commitFence = () => assertWorkspaceWriteLease(context.workspaceRoot, token);
     const slotsDir = path.join(context.workspaceRoot, sourceSlotsRelativePath);
     await commitFence();
-    await fs.mkdir(slotsDir, { recursive: true });
+    await ensureDir(slotsDir);
     const targetPath = path.join(slotsDir, `${slotId}.ts`);
-    const exists = await fs.access(targetPath).then(() => true).catch(() => false);
+    const exists = await pathExists(targetPath);
 
     if (!exists) {
       const rawCamel = slotId.replace(/_([a-z])/g, (_, character: string) => character.toUpperCase());
@@ -144,7 +144,7 @@ async function handleSlotCode(context: RouteContext): Promise<Response> {
   if (!slotId) return workbenchErrorResponse('Missing slotId parameter', 400);
 
   const targetPath = path.join(context.workspaceRoot, sourceSlotsRelativePath, `${slotId}.ts`);
-  const exists = await fs.access(targetPath).then(() => true).catch(() => false);
+  const exists = await pathExists(targetPath);
   if (!exists) return workbenchJsonResponse({ error: 'Slot code file not found', code: '' }, 404);
   return workbenchJsonResponse({ code: await fs.readFile(targetPath, 'utf8') });
 }
@@ -162,7 +162,7 @@ async function handleMutations(context: RouteContext): Promise<Response> {
   return withWorkbenchWriterLease(context, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(context.workspaceRoot, token);
     await commitFence();
-    await fs.mkdir(context.paths.sourceViewMutationsRoot, { recursive: true });
+    await ensureDir(context.paths.sourceViewMutationsRoot);
     await writeJson(
       path.join(context.paths.sourceViewMutationsRoot, 'graph-action.json'),
       body,
@@ -203,7 +203,7 @@ async function findBlockTest(workspaceRoot: string, blockId: string): Promise<st
 async function commandForNode(context: RouteContext, body: RunNodeBody, log: (message: string) => void): Promise<string[] | null> {
   if (body.type === 'slot') {
     const slotFile = path.join(context.workspaceRoot, sourceSlotsRelativePath, `${body.id}.ts`);
-    const exists = await fs.access(slotFile).then(() => true).catch(() => false);
+    const exists = await pathExists(slotFile);
     if (!exists) return null;
     log(`   Found slot implementation file.`);
     return ['bun', 'test', 'tests/unit/validate-slot-security.test.ts'];

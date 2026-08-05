@@ -1,5 +1,5 @@
-import crypto from 'node:crypto';
 import path from 'node:path';
+import { canonicalEquals, digest, sortedKeys } from './canonical-primitives.ts';
 import { CompilerError } from './errors.ts';
 import { readJson } from './fs.ts';
 import { compilerRoot } from './paths.ts';
@@ -171,7 +171,7 @@ export function isExactPlaywrightPackageAuthority(
       candidate.packages as ExactPlaywrightPackageAuthority['packages'],
       candidate.release
     );
-    return JSON.stringify(value) === JSON.stringify(canonical);
+    return canonicalEquals(value, canonical);
   } catch {
     return false;
   }
@@ -195,7 +195,7 @@ function resolveVersion(rootPackage: RootPackageJson, dependencyName: string): s
 }
 
 function stableHash(value: unknown): string {
-  return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  return digest(JSON.stringify(value));
 }
 
 export function buildRuntimeDependencySpec(rootPackage: RootPackageJson): RuntimeDependencySpec {
@@ -235,7 +235,7 @@ export function isRuntimeDepsPreboundBinding(
 ): value is RuntimeDepsPreboundBinding {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort((left, right) => left.localeCompare(right));
+  const keys = sortedKeys(record);
   return keys.length === 2 && keys[0] === 'formatVersion' && keys[1] === 'manifestHash' &&
     record.formatVersion === RUNTIME_DEPS_PREBOUND_BINDING_FORMAT &&
     record.manifestHash === expectedManifestHash;

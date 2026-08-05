@@ -15,7 +15,7 @@ import {
   CodexDevelopmentAssertCiExecutionEnvironmentBindingV1,
   CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1
 } from './ci-execution-environment.ts';
-import { digest, sha256 as canonicalSha256 } from './canonical-primitives.ts';
+import { canonicalEquals, digest, sha256 as canonicalSha256 } from './canonical-primitives.ts';
 
 import type {
   CodexDevelopmentEvidenceCompositionPlanV1,
@@ -379,7 +379,7 @@ function assertNullableString(value: unknown, label: string): asserts value is s
 function assertCanonicalStringSet(value: unknown, label: string): asserts value is string[] {
   assertStringArray(value, label);
   const sorted = [...value].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
-  if (new Set(value).size !== value.length || JSON.stringify(value) !== JSON.stringify(sorted)) {
+  if (new Set(value).size !== value.length || !canonicalEquals(value, sorted)) {
     throw new Error(`${label} must be unique and canonically ordered.`);
   }
 }
@@ -547,12 +547,12 @@ export function CodexDevelopmentAssertVerificationEvidenceV3(
     .sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
   if (
     new Set(reusedEvidenceIdentities).size !== reusedEvidenceIdentities.length
-    || JSON.stringify(reusedEvidenceIdentities) !== JSON.stringify(canonicalReusedEvidenceIdentities)
+    || !canonicalEquals(reusedEvidenceIdentities, canonicalReusedEvidenceIdentities)
   ) throw new Error('Verification V3 reusedEvidence identities must be unique and canonically ordered.');
   const ledgerEvidenceIdentities = [...new Set(ledger.flatMap((entry) => (
     entry.evidenceIdentity === null ? [] : [entry.evidenceIdentity]
   )))].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
-  if (JSON.stringify(reusedEvidenceIdentities) !== JSON.stringify(ledgerEvidenceIdentities)) {
+  if (!canonicalEquals(reusedEvidenceIdentities, ledgerEvidenceIdentities)) {
     throw new Error('Verification V3 coverageLedger and reusedEvidence identities do not close the same set.');
   }
   assertCanonicalStringSet(value.uncoveredScopes, 'verification V3 uncoveredScopes');
@@ -573,7 +573,7 @@ export function CodexDevelopmentAssertVerificationEvidenceV3(
   for (const gate of gates) {
     const expectedLedger = ledger.filter((entry) => entry.gateId === gate.id);
     const expectedScopes = expectedLedger.map((entry) => entry.scopeId);
-    if (JSON.stringify(gate.coveredScopeIds) !== JSON.stringify(expectedScopes)) {
+    if (!canonicalEquals(gate.coveredScopeIds, expectedScopes)) {
       throw new Error(`Verification V3 gate ${gate.id} covered scopes mismatch.`);
     }
     if (expectedLedger.some((entry) => entry.disposition !== gate.disposition)) {
@@ -615,14 +615,14 @@ export function CodexDevelopmentAssertVerificationEvidenceV3(
     if (
       value.policyId !== expectedPlan.policyId
       || value.profile !== expectedPlan.requiredProfile
-      || JSON.stringify(value.fullChangedFiles) !== JSON.stringify(expectedPlan.fullChangedFiles)
+      || !canonicalEquals(value.fullChangedFiles, expectedPlan.fullChangedFiles)
       || value.fullChangedInputDigest !== expectedPlan.fullChangedInputDigest
       || value.fullSelectionDigest !== expectedPlan.fullSelectionDigest
       || value.refinedSelectionDigest !== expectedPlan.refinedSelectionDigest
-      || JSON.stringify(actualGates) !== JSON.stringify(expectedGates)
-      || JSON.stringify(ledger) !== JSON.stringify(expectedPlan.coverageLedger)
-      || JSON.stringify(reusedEvidence) !== JSON.stringify(expectedPlan.reusedEvidence)
-      || JSON.stringify(value.uncoveredScopes) !== JSON.stringify(expectedPlan.uncoveredScopes)
+      || !canonicalEquals(actualGates, expectedGates)
+      || !canonicalEquals(ledger, expectedPlan.coverageLedger)
+      || !canonicalEquals(reusedEvidence, expectedPlan.reusedEvidence)
+      || !canonicalEquals(value.uncoveredScopes, expectedPlan.uncoveredScopes)
       || value.inputDigest !== CodexDevelopmentVerificationDigest(CodexDevelopmentBuildVerificationInputV3({
         headSha: value.headSha as string | null,
         treeSha: value.treeSha as string | null,

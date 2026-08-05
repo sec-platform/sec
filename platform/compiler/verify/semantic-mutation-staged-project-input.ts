@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { lstat, open, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
+
 const PROJECT_ROOT_EXCLUSIONS = new Set([
   '.next',
   '.runtime-deps.stamp.json',
@@ -76,7 +78,7 @@ async function updateDirectoryDigest(
   }
   const entries = (await readdir(directory, { withFileTypes: true }))
     .filter((entry) => !(root && PROJECT_ROOT_EXCLUSIONS.has(entry.name)))
-    .sort((left, right) => left.name.localeCompare(right.name));
+    .sort((left, right) => compareCodeUnits(left.name, right.name));
   for (const entry of entries) {
     const target = path.join(directory, entry.name);
     if (entry.isSymbolicLink()) {

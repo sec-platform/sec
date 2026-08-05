@@ -1,3 +1,4 @@
+import { canonicalEquals } from './canonical-primitives.ts';
 import { uniqueSorted } from './collections.ts';
 import { isSafeRelativePath, posixPath } from './paths.ts';
 import type {
@@ -89,7 +90,7 @@ function assertBindings(bindings: readonly AcceptanceProofBindingV1[]): void {
       entry.acceptanceIds.length === 0
       || entry.acceptanceIds.some((id) => id.trim().length === 0)
       || new Set(entry.acceptanceIds).size !== entry.acceptanceIds.length
-      || JSON.stringify([...entry.acceptanceIds].sort()) !== JSON.stringify(entry.acceptanceIds)
+      || !canonicalEquals([...entry.acceptanceIds].sort(), entry.acceptanceIds)
     ) {
       throw new Error(`Acceptance proof IDs are invalid for ${entry.testPath}`);
     }

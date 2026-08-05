@@ -5,7 +5,7 @@ import {
   CodexDevelopmentBuildSanitizedChildEnvironmentV1,
   type CodexDevelopmentCiExecutionEnvironmentBindingV1
 } from './ci-execution-environment.ts';
-import { digest, sha256 as canonicalSha256 } from './canonical-primitives.ts';
+import { canonicalEquals, digest, sha256 as canonicalSha256 } from './canonical-primitives.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 
 export const CodexDevelopmentEvidenceCompositionPolicyRevisionV1 =
@@ -541,7 +541,7 @@ function canonicalPath(value: string, label: string): void {
 }
 
 function exactArray<T>(left: readonly T[], right: readonly T[]): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return canonicalEquals(left, right);
 }
 
 function assertCanonicalEnvironment(env: Record<string, string>, label: string): void {
@@ -831,7 +831,7 @@ function assertReusableEvidence(
     argv: binding.argv,
     rerunAllowed: binding.rerunAllowed
   };
-  if (JSON.stringify(projection) !== JSON.stringify(expected)) {
+  if (!canonicalEquals(projection, expected)) {
     throw new Error(`Reusable evidence identity or immutable binding mismatch: ${binding.evidenceIdentity}.`);
   }
   assertSha(binding.testedHead, 'Reusable evidence testedHead');

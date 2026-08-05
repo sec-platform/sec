@@ -3,7 +3,7 @@ import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { loadCanonicalBunRuntimeVersion } from './bun-runtime-version.ts';
-import { compareCodeUnits, digest } from './canonical-primitives.ts';
+import { canonicalEquals, compareCodeUnits, digest, sortedKeys, uniqueSorted } from './canonical-primitives.ts';
 import { CompilerError } from './errors.ts';
 import {
   ensureDir,
@@ -211,7 +211,7 @@ function defaultSharedDepsRoot(): string {
 }
 
 function sortedRecord(record: Record<string, string> | undefined): Record<string, string> {
-  return Object.fromEntries(Object.entries(record ?? {}).sort(([left], [right]) => left.localeCompare(right)));
+  return Object.fromEntries(Object.entries(record ?? {}).sort(([left], [right]) => compareCodeUnits(left, right)));
 }
 
 interface CompilerDependencyIdentity {
@@ -264,7 +264,7 @@ async function compilerDependencyIdentity(
       lockfile,
       runtime
     })),
-    packageNames: Object.keys(packageVersions).sort(compareCodeUnits),
+    packageNames: sortedKeys(packageVersions),
     packageVersions
   };
 }
@@ -365,7 +365,7 @@ async function compilerDependencyPackageBindings(
   if (identity.packageVersions['ts-morph']) {
     packageNames.push('@ts-morph/common', 'code-block-writer');
   }
-  return Promise.all([...new Set(packageNames)].sort().map((packageName) => compilerDependencyPackageBinding(
+  return Promise.all(uniqueSorted(packageNames).map((packageName) => compilerDependencyPackageBinding(
     nodeModulesPath,
     packageName,
     identity.packageVersions[packageName] ?? '*'
@@ -387,7 +387,7 @@ async function compilerDependencyTreeReady(
     binding.architecture !== identity.architecture
   ) return false;
   const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity).catch(() => null);
-  return packages !== null && JSON.stringify(packages) === JSON.stringify(binding.packages);
+  return packages !== null && canonicalEquals(packages, binding.packages);
 }
 
 function buildEnv(
@@ -1217,10 +1217,9 @@ async function copyPhysicalDependencyTree(
     throw new CompilerError('RUNTIME-DEPS-004', 'Preinstalled dependency tree contains a reparse entry');
   }
   if (metadata.isDirectory()) {
-    await commitFence?.();
-    await fs.mkdir(target, { recursive: true });
+    await ensureDir(target, commitFence);
     const entries = await fs.readdir(source);
-    for (const name of entries.sort((left, right) => left.localeCompare(right))) {
+    for (const name of entries.sort((left, right) => compareCodeUnits(left, right))) {
       await copyPhysicalDependencyTree(path.join(source, name), path.join(target, name), commitFence);
     }
     return;
@@ -1286,8 +1285,7 @@ async function stageCompilerDependencyGeneration(
   options: RuntimeDependencyInstallOptions
 ): Promise<{ binding: CompilerDepsBinding; stagingRoot: string }> {
   const stagingParent = path.join(root, '.tmp', 'dependency-installs');
-  await options.beforeCommit?.();
-  await fs.mkdir(stagingParent, { recursive: true });
+  await ensureDir(stagingParent, options.beforeCommit);
   await options.beforeCommit?.();
   const stagingRoot = await fs.mkdtemp(path.join(stagingParent, 'c.staging-'));
   try {
@@ -1452,8 +1450,7 @@ async function publishCompilerDependencyGeneration(
   const backupPath = path.join(backupsRoot, `node_modules-${Date.now()}-${crypto.randomUUID()}`);
   let activeBackedUp = false;
   let published = false;
-  await options.beforeCommit?.();
-  await fs.mkdir(backupsRoot, { recursive: true });
+  await ensureDir(backupsRoot, options.beforeCommit);
   try {
     if (await pathExists(activeNodeModulesPath)) {
       await renameCompilerDependencyDirectory(activeNodeModulesPath, backupPath, options);

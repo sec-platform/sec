@@ -1,7 +1,7 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Node, Project, SyntaxKind } from 'ts-morph';
 import { CompilerError } from '../../shared/errors.ts';
+import { pathExists } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 
@@ -46,9 +46,7 @@ function extractStringLiteralValue(node: { getText(): string }): string | null {
 async function collectActiveSlotFiles(workspaceRoot: string, lock: LockFile): Promise<string[]> {
   const { sourceSlotsRoot } = getWorkspacePaths(workspaceRoot);
 
-  try {
-    await fs.access(sourceSlotsRoot);
-  } catch {
+  if (!(await pathExists(sourceSlotsRoot))) {
     return [];
   }
 
@@ -56,12 +54,10 @@ async function collectActiveSlotFiles(workspaceRoot: string, lock: LockFile): Pr
   for (const task of lock.slotTasks) {
     if (task.sourcePath && (task.status === 'filled' || task.status === 'verified')) {
       const fullPath = path.resolve(workspaceRoot, task.sourcePath);
-      try {
-        await fs.access(fullPath);
-        activeSlotFiles.push(fullPath);
-      } catch {
+      if (!(await pathExists(fullPath))) {
         continue;
       }
+      activeSlotFiles.push(fullPath);
     }
   }
   return activeSlotFiles;

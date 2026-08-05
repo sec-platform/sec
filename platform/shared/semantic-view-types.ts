@@ -1,3 +1,4 @@
+import { uniqueSorted } from './canonical-primitives.ts';
 import type {
   FactProvenanceKind,
   SemanticAuthority,
@@ -114,9 +115,9 @@ export function semanticViewFactIds(view: SemanticView): string[] {
       entry.factIds.map((ref) => ({ kind: 'fact' as const, ref }))
     ))
   ];
-  return [...new Set(
+  return uniqueSorted(
     references
       .filter((reference) => reference.kind === 'fact')
       .map((reference) => reference.ref)
-  )].sort((left, right) => left.localeCompare(right));
+  );
 }

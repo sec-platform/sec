@@ -1,10 +1,11 @@
-import { CompilerError } from '../shared/errors.ts';
+import { CompilerError, fail } from '../shared/errors.ts';
 import type {
   LoadedSemanticContract,
   SemanticContract,
   SemanticContractEntity,
   SemanticContractImport
 } from '../shared/semantic-contract-types.ts';
+import { compareCodeUnits } from './ir/ir-canonical-primitives.ts';
 
 type SymbolKind =
   | 'entity'
@@ -19,10 +20,6 @@ interface ContractRegistryEntry {
   loaded: LoadedSemanticContract;
   entities: ReadonlyMap<string, SemanticContractEntity>;
   symbols: Readonly<Record<SymbolKind, ReadonlySet<string>>>;
-}
-
-function fail(code: string, message: string, details: Record<string, unknown>): never {
-  throw new CompilerError(code, message, details);
 }
 
 function contractOrderKey(entry: LoadedSemanticContract): string {
@@ -186,7 +183,7 @@ function resolveEntityTarget(
 function canonicalImports(imports: readonly SemanticContractImport[] = []): SemanticContractImport[] {
   return [...imports]
     .map((entry) => ({ ...entry }))
-    .sort((left, right) => left.alias.localeCompare(right.alias));
+    .sort((left, right) => compareCodeUnits(left.alias, right.alias));
 }
 
 function linkState(
@@ -282,7 +279,7 @@ export function linkWorkspaceSemanticContracts(
 ): LoadedSemanticContract[] {
   const registryByNamespace = new Map<string, ContractRegistryEntry>();
   const registryByIdentity = new Map<string, ContractRegistryEntry>();
-  const ordered = [...contracts].sort((left, right) => contractOrderKey(left).localeCompare(contractOrderKey(right)));
+  const ordered = [...contracts].sort((left, right) => compareCodeUnits(contractOrderKey(left), contractOrderKey(right)));
 
   for (const loaded of ordered) {
     const existing = registryByNamespace.get(loaded.contract.namespace);
@@ -307,7 +304,7 @@ export function linkWorkspaceSemanticContracts(
 
   const policyIds = new Set(verificationPolicyIds);
   return [...registryByNamespace.values()]
-    .sort((left, right) => contractOrderKey(left.loaded).localeCompare(contractOrderKey(right.loaded)))
+    .sort((left, right) => compareCodeUnits(contractOrderKey(left.loaded), contractOrderKey(right.loaded)))
     .map((owner) => linkContract(owner, importedRegistry(owner, registryByIdentity), policyIds));
 }
 

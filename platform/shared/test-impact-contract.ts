@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { rawSha256 } from './canonical-primitives.ts';
 import { uniqueSorted } from './collections.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
 import { governanceTestOwnershipDeclarations } from './test-impact-rules/governance.ts';
@@ -256,8 +256,7 @@ function readTestSource(testFile: string): string | null {
 
 const TEST_IMPACT_CACHE_SCHEMA_REVISION = 'sec-test-impact-cache-v2' as const;
 const TEST_IMPACT_PARSER_RUNTIME_IDENTITY = 'bun-transpiler-tsx-v1' as const;
-const TEST_IMPACT_PARSER_OPTIONS_DIGEST = 'sha256:' + createHash('sha256')
-  .update(JSON.stringify({ loader: 'tsx' })).digest('hex') as `sha256:${string}`;
+const TEST_IMPACT_PARSER_OPTIONS_DIGEST = rawSha256(JSON.stringify({ loader: 'tsx' }));
 const TEST_IMPACT_CONTRACT_REVISION = 'test-impact-contract-v1' as const;
 
 type TestImportSpecifiersCacheEntry = {
@@ -371,7 +370,7 @@ export type ReadTestImportSpecifiersResult =
   | { kind: 'unresolved'; reason: 'stat-failed' | 'read-failed' };
 
 function computeSourceDigest(bytes: Uint8Array): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}` as `sha256:${string}`;
+  return rawSha256(bytes);
 }
 
 function readTestImportSpecifiers(

@@ -16,6 +16,7 @@ import { getWorkspacePaths } from '../../shared/paths.ts';
 import { calculateCanonicalProjectFileHash } from '../../shared/project-file-hash.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
+import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 
 const provenanceProjectionArtifacts = new Set(CI_PROVENANCE_PROJECTION_ARTIFACT_PATHS);
@@ -220,7 +221,7 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
 
   return {
     formatVersion: '1',
-    artifacts: [...artifacts.values()].sort((left, right) => left.path.localeCompare(right.path))
+    artifacts: [...artifacts.values()].sort((left, right) => compareCodeUnits(left.path, right.path))
   };
 }
 

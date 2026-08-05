@@ -4,7 +4,7 @@ import type {
   SemanticEntity,
   SemanticFact
 } from '../../shared/engineering-ir-types.ts';
-import { CompilerError } from '../../shared/errors.ts';
+import { fail } from '../../shared/errors.ts';
 import {
   IMPACT_CONTRACT_VERSION,
   IMPACT_PROPAGATION_RULE_REVISION,
@@ -63,10 +63,6 @@ interface UncertaintyDraft extends ImpactUncertainty {
 
 const BASIS_RANK: Readonly<Record<ImpactBasis, number>> = { from: 0, to: 1 };
 const SOURCE_LEVEL_RANK = { seed: 0, direct: 1, transitive: 2 } as const;
-
-function fail(code: string, message: string, details?: Record<string, unknown>): never {
-  throw new CompilerError(code, message, details);
-}
 
 function compareStringArrays(left: readonly string[], right: readonly string[]): number {
   const length = Math.min(left.length, right.length);
