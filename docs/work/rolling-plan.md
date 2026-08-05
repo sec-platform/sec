@@ -2,78 +2,102 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-05
+last-reviewed: 2026-08-06
 ---
 
 # SEC 滚动近期计划
 
-本窗口从 `main@4b27555b` 重算。PR #278 与直接提交 `4b27555b` 的代码结果已经进入主干，
-但两个 default-branch transition 都缺少完整 Work Package、独立 Review 和 successful
-`sec/merge-gate`；旧 #273/#274/#276 exact heads 因此全部失效。当前继续只允许一个
-formal writer，并按文档收缩 → generated-state → Skill applicability 的真实依赖顺序收口。
+本窗口从 `main@b1220ae333679ac6bf4a181b0242a31ad3d6975f` 和两次全仓审计重算。
+`main` 已包含 #280 的产品修复与 post-merge provenance 记录；原 PR #281 的转移仍是
+`repaired` 而非 `authorized`，平台防复发继续由 #279 拥有。旧 #282 和旧 PR #273
+停留在此前 `repair-only` 事实，不能继续作为当前执行状态。
+
+近期顺序遵循三条硬约束：
+
+1. 先完成当前文档/信息物理收缩，消除重复 owner、原始聊天、历史正文和叙事 Evidence；
+2. P0/P1 integrity 只做聚焦修复，不扩成新的治理平台；
+3. integrity 闭合后立即回到 Physical Workspace、TypeScript Source Program、Responsibility、
+   Workbench 单写路径和 IR-owned Backend 产品纵切片，禁止治理任务无限饥饿产品线。
 
 ## 当前唯一 Work Package
 
 ### active-documentation-corpus-convergence-v2
 
-- Issue #235 / PR #273；从 `main@4b27555b` 单提交重建，不复用旧 head 的 Review、CI 或授权。
-- registry v2 为 active proposal 绑定 disposition、canonical target、Evidence、
-  activation/reversal 和唯一不可物化 retirement tombstone。
-- 全 tracked 文档 fail closed：未登记 active 文档、重复 owner、失效投影、tracked
-  archive、Evidence/Superpowers 叙事 Markdown 和终态 proposal 残留均阻断。
-- `docs/README.md` 只由 registry byte-exact 生成；CRLF-only drift 也失败。
-- 历史由 Git、PR、Issue、Actions 承担；真实字节消费者迁入显式 `tests/fixtures/`。
-- 主干 canonical primitives 与去冗余结果被保留并成为本包所有新排序/对象判定的唯一 owner。
+- Issue #235；latest-main 重建分支
+  `docs/active-documentation-corpus-convergence-v2-rebuild`。
+- 将两次审计的稳定结论路由到现有 canonical owners，不提交审计全文，也不新建第二架构总纲。
+- 复用旧 #273 的删除、registry v2 和 fixture 迁移作为实现来源；旧 identity、Review 和 Evidence
+  全部失效。
+- 物理删除 `docs/archive/**`、原始 ChatGPT 对话、叙事性 Evidence/superpowers，保留必要
+  fixture 与 byte-exact generated navigation。
+- 完成后关闭 #235 和被取代的旧 #273，从新 `main` 激活 #282。
 
-## 有序后继 Work Package
+## 条件化候选（最多五项）
 
-### 1. generated-state-lifecycle-v1
+### 1. repository-information-lifecycle-v1
 
-- Issue #271 / PR #274；必须在 #273 进入新 `main` 并 readback 后，基于该新主干重建。
-- 保留其 closed `.tmp/**` registry、writer census、cleanup transaction、settlement 和 TCB
-  结果；旧 `a73c0fe5` base/head/Review/Evidence 不得复用。
-- 重建时不得恢复 #273 已删除的 archive、旧 active manifest 或重复文档控制面。
+- Issue #282；对 exact tracked tree 建立唯一信息生命周期分类和 `unknown = 0` 门禁。
+- 扩展现有 repository audit，不创建第二审计系统；报告进入 CI Artifact，默认不 tracked。
+- 检测 raw chat、private URL、占位 Evidence、本机路径、stale provider profile、archive current
+  consumer、重复 instruction owner、临时输出和未知 retention。
 
-### 2. skill-applicability-gate-v1
+### 2. repository-integrity-closeout-sequence
 
-- Issue #275 / PR #276；必须在重建后的 #274 进入新 `main` 后再重建。
-- 保留 bounded Skill guidance、exact applicability decision 和 candidate guidance quarantine；
-  不得继续以旧 #274 branch 为 base。
-- AGENTS、Skills、governance 与 test-impact 属于 trust-root family，必须独立 Review/bootstrap。
+按独立聚焦包串行执行，不合并成巨型治理 PR：
 
-## 候选 Work Package
+1. #247 `public-publisher-network-removal-v1`：删除 live-worktree copy 与 force-push 网络入口；
+2. #244 `external-input-security-boundary-v1`：GitHub 外部自然语言只作 untrusted data；
+3. #248 `ci-git-and-ai-provenance-hygiene-v1`：immutable Action、commit/staged-tree、AI assistance
+   provenance 与 no-bypass readback。
 
-### 1. merge-authority-hardening-v1
+每个 child package 都必须删除真实旁路，不能只新增 schema 或说明文档。
 
-- Issue #279；统一 default-branch transition authority、ruleset readback、post-merge
-  provenance audit、admin bypass incident 与 repair/revert PR 入口。
-- `.github/`、merge workflow 和 branch protection 属于独立 trust-root family，不能塞入
-  #235/#271/#275 自证。
+### 3. verification-single-truth-and-tcb-bootstrap-v1
 
-### 2. parallel-resolver-correctness-v1-1
+- 由 #279、#178、#237、#239 的既有 owner 拆成最小迁移包。
+- Physical execution 直接产生 canonical Gate/Claim result；CI、tracked report、GitHub status 和
+  CLI 只投影同一结果。
+- 删除零 revision/digest、1970 时间、空 argv、自报 health 和 legacy writer 推断。
+- TCB builder、schema、frozen lock 与 trusted-base verifier 分层；候选不能用自身 verifier 自证。
 
-- Issue #207；修正 `requires`、`orderedAfter`、`conflictsWith`、
-  authority/path/resource/global-writer 语义并建立 exact-base Integration Epoch Registry。
-- `unresolved` 永不授权并行；全部有序后继完成 new-main readback 前继续单写者。
+### 4. physical-workspace-and-typescript-source-program-v1
 
-### 3. public-publisher-network-removal-v1
+- 建立只读 exact repository/workspace/package/file/config/test/workflow/resource/unknown inventory
+  和 deterministic snapshot revision。
+- 在真实 SEC TypeScript 子系统上产生 module/symbol/type/span/control/data/state/effect candidates，
+  保留 unknown/opaque；不把 AST 或 Provider 私有 ID 直接升格为 Engineering authority。
+- 与 #224 Responsibility reconstruction 连接，形成首个 Self-Observation / Self-Impact 纵切片。
 
-- Issue #247；删除危险网络写入口，禁止 live-worktree copy、替代历史和 force-push publication。
+### 5. product-self-bootstrap-sequence
 
-## 全任务保全与环境边界
+仍拆成独立 successor，不形成一个大包：
 
-- `unclassified task = 0`、`task without owner = 0`、
-  `task existing only in historical prose/chat = 0` 是完成条件。
-- #192 保留 Node/Bun × Windows/Linux runtime/library physical matrix；缺少 Linux physical Evidence 时 cell 只能是 `not-run/unresolved`。
-- #193 保留 Dependency Boundaries、成熟轮子采用、Provider 隔离和旧依赖退役。
-- #194 保留最新主干 cold/warm benchmark、增量图、资源治理和 clean/incremental parity。
-- R4–R16、Verification、Impact、Mutation、Brownfield、Release、Security、Workbench
-  继续由 canonical roadmap 和 owning Issues 追踪，不复制进近期计划。
+1. `task-envelope-de-specialization-v1`：删除 Customer/Ticket 和固定测试路径特化；
+2. `workbench-operation-unification-v1`：Workbench/CLI/HTTP/AI 只提交 Engineering Operation，
+   退役直接 `source/app.yaml` writer；
+3. `first-ir-owned-backend-v1`：选择一个真实 artifact，经最小 Application/Behavior/Target Program
+   IR 和 Backend 生成，并在同一迁移删除旧 template/writer。
 
-## Gate、单写者与重算
+## 并行与自动化恢复条件
 
-- #235 是当前唯一 formal writer；#274/#276 保持 Draft，不得并行写入控制面。
-- required checks：registry parser、corpus census、ownership closure、byte-exact
-  docs-doctor、control-plane、test-impact、strict typecheck、repository audit 和独立 Review。
-- 任一 `main` 变化、exact-head 变化、CI/Review 阻塞或 authority 假设变化都会使旧 Evidence 失效。
-- 合并后从新 `main` 读回 registry/index/control-plane；不得创建 post-merge pointer 修补提交。
+Issue #207 不再自动排在产品纵切片之前。只有以下事实全部成立后，才激活
+`parallel-resolver-correctness-v1-1`：
+
+- ordinary candidate 的 exact-head Review/Gate/merge/readback 路径已连续稳定；
+- default branch 无 direct-push/admin bypass；
+- Verification 单真值和 TCB bootstrap 已闭合；
+- package/lock、docs/work、workflow、Skill registry 和 mutable resources 有唯一 writer；
+- 至少一个 Source Program/Responsibility 产品纵切片进入 `main`，证明并行不会继续饥饿产品线。
+
+`unresolved` 永不授权并行。并行开发不等于同时写入 `main`；任一 candidate 先合并后，
+剩余 epoch 因 base 变化失效并从新主干重算。
+
+## 可并行只读工作
+
+- #192 Node/Bun × Windows/Linux 物理 capability Evidence；
+- #193 latest dependency/provider consumer census；
+- #194 compiler cold/warm benchmark 与 pass/artifact census；
+- 13K dev-runner authority proof 的独立 oracle、重复 substrate 和 mutation-detection 只读审计。
+
+上述工作不得修改当前 manifest owned paths、package/lock、workflow、control plane 或产品代码；
+结果只进入各自 Issue/Evidence owner，不自动取得合并资格。
