@@ -7,11 +7,12 @@ last-reviewed: 2026-08-06
 
 # SEC 滚动近期计划
 
-本窗口从 `main@2d7187f4fc16301e25a142bdd62340d9670a4a9f` 和持续全仓审计重算。
-`main` 已包含 #280 v1 的产品修复与 post-merge provenance 记录；原 PR #281 的转移仍是
-`repaired` 而非 `authorized`，平台防复发继续由 #279 拥有。PR #289 的 external Evidence、
-audit 与 import 修复方向保留为实现来源，但 exact candidate 已关闭，不能与当前 PR #284
-并行写 control plane、恢复 archive 或复用其 Review/Evidence。
+本窗口从 `main@334c7717e9ed7ed40c250be9a9acc2f2fea77d83` 重算。PR #310（frozen-digest-canonical-form-repair-v1）
+已合并并完成 new-main readback，canonical sha256 修复
+已进入 `main`。PR #308（implementation-resolution-architecture-convergence-v1）从新 main 重建并激活，
+统一承载 Implementation Resolution 设计的 canonical owner 融合。`main` 已包含 #280 v1 的产品修复与
+post-merge provenance 记录；原 PR #281 的转移仍是 `repaired` 而非 `authorized`，平台防复发继续由 #279
+拥有。PR #289 的 external Evidence、audit 与 import 修复方向保留为实现来源，但 exact candidate 已关闭。
 
 近期顺序遵循三条硬约束：
 
@@ -22,17 +23,16 @@ audit 与 import 修复方向保留为实现来源，但 exact candidate 已关�
 
 ## 当前唯一 Work Package
 
-### frozen-digest-canonical-form-repair-v1
+### implementation-resolution-architecture-convergence-v1
 
-- Issue #309；从 `main@6cbe65d8` 重建并激活。
-- 修复 `4b27555b` canonical sha256 refactor 后 9 个 canonical-form 测试文件（8 semantic-mutation + 1 impact-propagation）的
-  frozen digest 不匹配问题：删除本地非 canonical `sha256`，改用
-  `platform/shared/canonical-primitives.ts` 的 canonical `sha256`。
-- 修改 9 个测试文件 + 本 manifest + active pointer + rolling plan；不修改
-  package/lock、workflow、产品源码或 docs authority。
+- Issue #307；PR #308；从 post-#310 新 main `334c7717` 重建并激活。
+- 将 Issue #307 中已审计的 Implementation Resolution 设计融合到现有 canonical owners，
+  不提交并列总设计文档，也不新建第二 resolver/comparator/compatibility evaluator。
+- 修改 14 个 canonical authority docs + `docs/authority.json` + byte-exact generated `docs/README.md`
+  + 本 successor manifest；不修改 package/lock、workflow、产品源码或测试。
 - 前驱 `active-documentation-corpus-convergence-v2`（Issue #235，PR #284）已合并，
   manifest 已退役；旧 Review、Gate、Evidence 不复用。
-- 完成后从新 `main` 重建 #308。
+- 完成后关闭 #307，从新 `main` 激活下一个候选。
 
 ## 候选 Work Package
 

@@ -2,12 +2,12 @@
 title: Registry、Block 与能力协议
 status: stable
 domain: capability-block
-last-reviewed: 2026-07-29
+last-reviewed: 2026-08-06
 ---
 
 # Registry、Block 与能力协议
 
-本文拥有 Registry、Block、Capability、Port、Slot、Semantic Contract 与 Generator 的稳定职责、生命周期和组合关系。精确 manifest/schema、当前 kind、overlay 算法、版本范围和已实现状态由 loader、types、代码 registry 与 tests 拥有。
+本文拥有 Registry、Block、Block Capability、Port、Slot、Semantic Contract、Block Provider Binding 与 Generator 的稳定职责、生命周期和组合关系。精确 manifest/schema、当前 kind、overlay 算法、版本范围和已实现状态由 loader、types、代码 registry 与 tests 拥有。产品级 Implementation Resolution 由 Compiler authority 拥有，本文只提供其可消费的 Block 候选与冻结绑定。
 
 ## Registry
 
@@ -41,19 +41,71 @@ author → validate → publish → resolve → install/materialize
 
 每个阶段必须保留 stable identity 和 revision binding。退役不是从 Registry 隐藏版本；必须裁决现有 workspace、依赖 Block、generated artifacts、Migration、Provenance 和 rollback boundary。
 
-Block version、Semantic Contract format、Generator protocol、Registry protocol 和 target compatibility 是不同版本域。业务 Block major 不能偷偷表达 Contract schema 或 compiler protocol 升级。
+Block version、Semantic Contract format、Generator protocol、Registry protocol、Block Capability revision、Adapter protocol和target compatibility是不同版本域。业务 Block major 不能偷偷表达 Contract schema 或 compiler protocol 升级。
 
-## 组合与 Resolution
+## Block Capability Resolution
 
-Block 级组合使用 `requires`、`provides`、`conflicts` 与 compatibility constraints。Resolver 必须：
+Block 级组合使用版本化的 `requires`、`provides`、`conflicts` 与 compatibility constraints。自由字符串同名不证明两个Provider等价；Capability必须拥有稳定identity、revision/range、contract/type/effect profile和consumer scope。
 
-- 对输入集合、source revision 和 policy 进行 canonical normalization；
-- 检查 self-conflict、missing provider、version incompatibility 和 cycle；
-- 确定性选择候选并产生唯一 installation/lowering order；
-- 对 ambiguity 和 unresolved dependency fail closed；
-- 将结果锁定为 resolution state，而不是重新定义业务语义。
+Block Resolver 必须：
+
+- 对输入集合、Registry/source revision、trust与policy进行 canonical normalization；
+- 枚举Registry中的Block candidates，但不执行install、Generator或任意代码；
+- 检查self-conflict、missing provider、version/contract/Target incompatibility和cycle；
+- 对untrusted、unknown、ambiguous或unsupported fail closed；
+- 由显式selector或版本化approved policy选择，而不是因“只找到一个”自动授权；
+- 确定性产生唯一 BlockProviderBinding 和 installation/lowering order；
+- 锁定manifest/resource/source/capability/trust/compatibility/effect summaries与content digests；
+- 将结果作为resolution state，而不是重新定义业务语义。
+
+最小协议分为：
+
+```text
+BlockCapabilityRequirement
+→ Registry Block candidates
+→ trust / version / contract / effect eligibility
+→ BlockResolutionDecision
+→ frozen BlockProviderBinding
+```
+
+`BlockProviderBinding`进入Lock、Provenance和下游composition输入。后续consumer不得重新扫描live Registry、依赖filesystem顺序或因Provider消失自动换成另一个同名Capability。
 
 Capability 只表达 Block 级可组合能力，不承担完整数据流、状态、Effect、Permission 或 lifecycle semantics。Capability ID 应稳定且与显示名分离。
+
+## 与 Implementation Resolution 的边界
+
+Block Resolver与Compiler拥有的Implementation Resolver是两个不同层级，不得共享一个含糊的`ProviderBinding`或互相复制选择算法。
+
+```text
+Implementation Resolution
+→ 在 native / reference / existing / custom / block-delivered 等实现族中选择
+
+若候选需要 block-delivered capability
+→ 构造受约束的 BlockCapabilityResolutionRequest
+→ Block Resolver返回冻结 BlockProviderBinding 或 typed failure
+→ Implementation Candidate只引用该Binding
+```
+
+固定边界：
+
+- Block Resolver只拥有Registry/Block候选、trust、Block版本/contract/effect兼容、资源闭包和安装顺序；
+- Implementation Resolver拥有产品语义实现候选、hard eligibility、用户/组织constraints、ResolutionPolicy、最终ResolutionDecision与ImplementationBinding；
+- Block Resolver不得比较SEC原生、Reference、repository existing、Custom或非Block实现；
+- Implementation Resolver不得读取manifest目录、Registry source、resource tree或重算Block trust；
+- 两类Requirement、Decision与Binding必须使用不同type、identity、revision、failure和consumer；
+- 一个上层ImplementationBinding可以引用零个或多个冻结BlockProviderBinding，但不能复制其内容形成第二truth。
+
+## Provider、Adapter 与 Reference/Custom 实现
+
+Registry可以分发Provider/Adapter/Reference声明，但分发不等于采信或最终选择：
+
+- **Provider declaration**：声明某Block或包提供哪些Capability及其Target、Effect、resource和限制；
+- **Adapter declaration**：声明如何把一个稳定Contract映射到具体Provider API；Adapter不拥有业务Responsibility；
+- **Reference Provider**：SEC提供的最小、可解释、可conformance基准实现，不自动代表全局最优；
+- **Custom Provider / Private Block**：用户或组织提供的受治理实现，需要owner、Contract、Effect、Permission、Verification与Migration；
+- **Provider/Adapter candidate**：由源码、AI或外部分析产生，未通过Adopt/conformance前不进入正式候选catalog。
+
+Registry只分发这些revision及其签名/摘要/metadata。External Provider policy拥有安全、许可证、freshness和conformance Evidence；Compiler Implementation Resolution拥有最终是否选择它们。
 
 ## Port
 
@@ -67,11 +119,13 @@ Port schema 演进必须说明兼容方向、consumer migration、serialization 
 
 Slot 是有限、局部、可验证的扩展点。它需要 target/source binding、输入输出、writable zone、required symbols、forbidden effects、Verification 和 Provenance。
 
-Slot 不是所有自定义代码的容器。当逻辑出现独立 owner、版本、复用、状态、Effect、升级或迁移时，应提升为 Governed Source Responsibility 或 Private Block。复杂算法也可以长期保留为 Governed Extension；不应为了“全部结构化”无限扩张 Slot 或 Behavior IR。
+Slot 不是所有自定义代码的容器。当逻辑出现独立 owner、版本、复用、状态、Effect、升级或迁移时，应提升为 Governed Source Responsibility、Custom Provider或Private Block。复杂算法也可以长期保留为 Governed Extension；不应为了“全部结构化”无限扩张 Slot 或 Behavior IR。
+
+没有专用Adapter的外部调用可以先作为typed external invocation或Governed Extension存在；不能因它尚未成为Block/Provider就禁止使用，也不能因类型检查通过就虚构Effect、安全或support保证。
 
 ## Semantic Contract
 
-Contract 声明 Entity、Field、Responsibility、Operation、State、Transition、Event、Policy、Permission、Effect、Scenario 与 Acceptance。Contract 的职责是声明语义和边界，不拥有目标源码布局、一次运行结果或 UI 展示。
+Contract 声明 Entity、Field、Responsibility、Operation、State、Transition、Event、Policy、Permission、Effect、Scenario 与 Acceptance。Contract 的职责是声明语义和边界，不拥有目标源码布局、具体库选择、一次运行结果或 UI 展示。
 
 Cross-contract 引用必须显式 import，并同时绑定 alias、namespace、contract identity 和 expected kind：
 
@@ -80,52 +134,56 @@ Cross-contract 引用必须显式 import，并同时绑定 alias、namespace、c
 - duplicate alias、missing target、kind mismatch、同 namespace 不同 Contract 或隐式同名链接全部拒绝；
 - linked Contract 直接进入 canonical semantic build，不持久化第二份 authority graph。
 
-声明 Contract 不等于运行时已经执行 Contract。Policy、State transition、Permission 或 Effect 必须通过 Generator/Lowering、runtime consumer 和 Verification 形成闭环。
+声明 Contract 不等于运行时已经执行 Contract。Policy、State transition、Permission 或 Effect 必须通过Implementation Resolution、Generator/Lowering、runtime consumer 和 Verification 形成闭环。Provider不能以自身默认行为修改Contract；无法满足时只能成为不合格候选或触发显式Semantic Migration。
 
 ## Generator
 
-Generator 按工程动作注册，只消费 validated semantic selector、Target/Profile binding 和 generator declaration，输出结构化 plan 与 Artifact。Lowerer 不重新读取 raw Contract 或 Manifest 形成第二解释器。
+Generator 按工程动作注册，只消费 validated semantic selector、Target/Profile binding、冻结的Implementation/Block bindings和generator declaration，输出结构化 plan 与 Artifact。Lowerer 不重新读取 raw Contract、Manifest、Registry或package catalog形成第二解释器/Resolver。
 
 每种 generator kind 必须有：
 
 - deterministic identity 与版本化 schema；
 - required semantic predicates / selector；
 - consumes、produces 与 target constraints；
+- required ImplementationBinding/BlockProviderBinding references；
 - source owner、Artifact identity 与 collision policy；
 - deterministic ordering、naming 和 bytes；
 - Verification requirements、diagnostics 与 Provenance；
 - migration/retirement policy。
 
-专用字段只能存在于相应 discriminated variant，不能被提升为所有 Generator 的全局必填。缺少 producer 或不支持语义时必须在 emit 前拒绝，不生成 TODO、空实现或按业务名称分支。
+专用字段只能存在于相应 discriminated variant，不能被提升为所有 Generator 的全局必填。缺少producer、Binding或不支持语义时必须在emit前拒绝，不生成TODO、空实现、隐式默认库或按业务名称分支。
 
 ## 单写者与迁移
 
-同一 Artifact path/identity 在一个 candidate 中只有一个 writer。新 Generator 或 target IR 接管旧 file/install producer 时固定执行：
+同一 Artifact path/identity 在一个 candidate 中只有一个 writer。同一Capability/Implementation scope也只有一个有效Resolver和Binding。新 Generator、resolver或target IR接管旧file/install producer时固定执行：
 
 ```text
-read-only shadow → bytes/diagnostics/effect parity
-→ switch consumer and writer → invalidate old plan
-→ remove legacy producer and compatibility path
+read-only shadow
+→ Decision/Binding/bytes/diagnostics/effect parity
+→ switch consumer and writer
+→ invalidate old plan/binding
+→ remove legacy resolver/producer/compatibility path
 ```
 
-新模型存在、测试通过或生成结果看起来相同都不足以证明旧 writer 已被吸收。必须检查失败语义、ordering、Provenance、runtime consumers 和 upgrade behavior。
+新模型存在、测试通过或生成结果看起来相同都不足以证明旧owner已被吸收。必须检查失败语义、ordering、Provenance、runtime consumers、upgrade behavior和旧选择路径是否物理删除。
 
 ## Upgrade 与 Migration
 
-升级必须回答 identity、compatibility、semantic delta、source/artifact/data migration、Verification 与 rollback。Versioned overlay、manifest merge 和 Migration kinds 是代码合同；稳定文档只保留以下不变量：
+升级必须回答 identity、compatibility、semantic/implementation delta、source/artifact/data migration、Verification 与 rollback。Versioned overlay、manifest merge 和 Migration kinds 是代码合同；稳定文档只保留以下不变量：
 
-- 相同 ID 的不兼容 major 不能同时进入一个 resolution；
-- Contract/Generator protocol 升级与 Block version 分域；
+- 相同 ID 的不兼容 major 不能同时进入一个 Block resolution；
+- Contract/Generator/Adapter/Block Capability protocol升级与Block version分域；
+- Provider/Block升级不能静默替换另一个同名Capability或改变timeout/retry/error/effect语义；
 - Migration 必须有 dry-run、apply、diagnostic、idempotency 和 rollback/forward-only 分类；
 - 手工 generated-file override 默认阻止覆盖，直到用户明确保留、转为 rule-backed patch 或丢弃；
-- 升级重编译必须经过统一 pipeline 和 canonical rebuild，不能绕过 Semantic Frontend。
+- 升级重编译必须经过统一 pipeline、Implementation re-resolution和canonical rebuild，不能绕过 Semantic Frontend。
 
 ## Trust 与发布
 
-发布至少绑定 registry identity、content digest、signer/trust policy、declared Effect/Permission、compatibility、tests、Verification status 和 Provenance。AI confidence、下载量、来源名称和多个 Provider 一致都不能代替 trust decision。
+发布至少绑定 registry identity、content digest、signer/trust policy、declared Effect/Permission、compatibility、tests、Verification status 和 Provenance。AI confidence、下载量、来源名称和多个 Provider 一致都不能代替 trust decision或Implementation选择。
 
 引入 remote/community Block 前还必须明确网络、secret、native code、install/build script 和 supply-chain boundary。不受信代码执行需要独立 sandbox authority，不能由普通 compiler validation 冒充。
 
 ## 完成判据
 
-一个 Block 能力只有在 Contract、resolution、Generator/installation、runtime consumer、positive/negative Acceptance、Upgrade/Migration 与 Provenance 全部对齐后，才能被声明为可用。缺少任一环节时，文档和 UI 必须显示 declaration、prototype、verified 或 supported 的真实层级，而不是统一写“已支持”。
+一个 Block 能力只有在 Contract、Block resolution、冻结Binding、Generator/installation、runtime consumer、positive/negative Acceptance、Upgrade/Migration 与 Provenance 全部对齐后，才能被声明为可用。一个Provider只有在External Provider治理和conformance闭合后才可成为正式Implementation candidate；是否被最终选择仍由Compiler Implementation Resolution决定。缺少任一环节时，文档和 UI 必须显示 declaration、prototype、verified 或 supported 的真实层级，而不是统一写“已支持”。
