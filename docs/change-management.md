@@ -2,20 +2,21 @@
 title: 升级、迁移与变更管理
 status: stable
 domain: change-management
-last-reviewed: 2026-08-04
+last-reviewed: 2026-08-06
 ---
 
 # 升级、迁移与变更管理
 
-本文拥有 Upgrade、Migration、Compatibility、Override、Deprecation、Compensation、Forward Recovery 与 irreversible change 的稳定语义。单次 Authoring/Governed Source transaction 的 plan、publish、journal、rollback、recovery 和 terminal state只由 `docs/semantic-mutation.md` 及其代码合同拥有。
+本文拥有 Upgrade、Migration、Compatibility Decision、Implementation Binding migration、Override、Deprecation、Compensation、Forward Recovery 与 irreversible change 的稳定语义。单次 Authoring/Governed Source transaction 的 plan、publish、journal、rollback、recovery 和 terminal state只由 `docs/semantic-mutation.md` 及其代码合同拥有。
 
-精确 migration union、schema、deployment protocol、命令和 diagnostics 由代码与测试唯一拥有。
+旧新Engineering snapshots和Implementation Bindings的确定性结构比较由`docs/delta-and-impact.md`拥有；本文消费`Fact Delta`、`ImplementationBindingDelta`、Impact和physical Evidence，不建立第二Comparator。精确 migration union、schema、deployment protocol、命令和 diagnostics 由代码与测试唯一拥有。
 
 ## 变更对象
 
 SEC 中的升级不是文件替换命令集合。一次变化可能同时影响：
 
 - Block、Registry source和trust；
+- Provider、Adapter、package/version/config与Implementation Binding；
 - Semantic Contract、Entity/Fact/Responsibility identity与Assertion validity；
 - State、Operation、Policy、Permission和Effect；
 - Target Profile、Type Algebra、Application/Behavior/Target Program IR；
@@ -23,7 +24,7 @@ SEC 中的升级不是文件替换命令集合。一次变化可能同时影响�
 - Documentation、Workflow/Gate、Agent Operation、Release和Evidence；
 - 生产数据、外部接口、部署顺序和用户可观察行为。
 
-每个领域保持独立 revision；跨域升级通过显式mapping、ordered operations和aggregate migration协调，不能用一个Block version或文件hash代替所有identity。
+每个领域保持独立 revision；跨域升级通过显式mapping、ordered operations和aggregate migration协调，不能用一个Block version、package version或文件hash代替所有identity。
 
 ## 与 Semantic Mutation 的边界
 
@@ -38,7 +39,8 @@ Change Management不复制上述状态机，不拥有workspace lease、source-by
 
 Change Management拥有跨revision和跨系统的：
 
-- Compatibility判断；
+- Compatibility Assessment / Decision；
+- Implementation Binding迁移；
 - producer/consumer迁移；
 - schema/data/backfill；
 - rollout和deployment ordering；
@@ -46,22 +48,23 @@ Change Management拥有跨revision和跨系统的：
 - irreversible boundary；
 - deprecation、retirement和Support transition。
 
-一个Migration可以调用一个或多个Semantic Mutation transaction，但必须只通过typed plan/result references连接。`accepted | rejected | rolled-back | recovery-required` 是transaction事实；Migration根据这些结果决定继续、补偿、暂停、forward-fix或operator intervention，不能改写transaction结果。
+一个Migration可以调用一个或多个Semantic Mutation transaction、Composition publication或Provider operation，但必须只通过typed plan/result references连接。`accepted | rejected | rolled-back | recovery-required` 是transaction事实；Migration根据这些结果决定继续、补偿、暂停、forward-fix或operator intervention，不能改写transaction结果。
 
 ## Upgrade Plan
 
 升级必须同时回答：
 
 1. **Identity**：哪些对象保持identity，哪些被替换、拆分、合并或退役；
-2. **Compatibility**：producer/consumer、读写、序列化、runtime和release哪些方向兼容；
-3. **Delta / Impact**：哪些canonical facts、types、state、effects、permissions和artifacts改变；
-4. **Migration**：Authoring Source、generated artifact、configuration、runtime state与生产数据如何迁移；
-5. **Verification**：哪些旧保证要重证，哪些新行为和失败模式必须覆盖；
-6. **Deployment**：是否需要顺序发布、双读/双写、feature gate、backfill、canary或停机；
-7. **Recovery strategy**：哪些步骤可由transaction rollback恢复，哪些需要compensation、forward recovery、backup或operator；
-8. **Retirement**：旧owner、adapter、schema、path、Gate和兼容代码何时删除。
+2. **Delta**：Fact、Binding、Artifact与Runtime哪些结构变化已由唯一Delta owner计算；
+3. **Compatibility**：producer/consumer、读写、序列化、runtime、Provider behavior和release哪些方向兼容；
+4. **Impact**：哪些Responsibilities、consumers、effects、permissions、artifacts和support surfaces受影响；
+5. **Migration**：Authoring Source、generated artifact、configuration、Binding、runtime state与生产数据如何迁移；
+6. **Verification**：哪些旧保证要重证，哪些新行为和失败模式必须覆盖；
+7. **Deployment**：是否需要顺序发布、双读/双写、feature gate、backfill、canary或停机；
+8. **Recovery strategy**：哪些步骤可由transaction rollback恢复，哪些需要compensation、forward recovery、backup或operator；
+9. **Retirement**：旧owner、Provider、Adapter、Binding、schema、path、Gate和兼容代码何时删除。
 
-Plan必须绑定exact source/current/target revisions、Compatibility rule revisions、required operations和deployment environment，并在执行前重新验证。旧Plan不能在source、policy、dependency、consumer或environment改变后继续使用。
+Plan必须绑定exact source/current/target revisions、Fact/Binding Delta revisions、old/new Implementation Binding revisions、Compatibility rule revisions、required operations和deployment environment，并在执行前重新验证。旧Plan不能在source、policy、dependency、provider、consumer、Delta、Evidence或environment改变后继续使用。
 
 ## Compatibility
 
@@ -70,6 +73,8 @@ Compatibility不是布尔标签。至少区分：
 - backward read / write；
 - forward read / write；
 - source、binary、schema、wire和behavior compatibility；
+- Semantic Contract compatibility；
+- Provider/Adapter/default behavior compatibility；
 - Host、Toolchain、Target、platform和dependency compatibility；
 - data migration与transaction rollback compatibility；
 - rolling deployment中不同版本同时运行的compatibility。
@@ -80,10 +85,66 @@ Breaking change必须有显式decision、consumer census、migration path、depr
 
 Verification PASS、Compatibility成立、implementation entered main和product support是不同对象；任何一项都不能自动推进另一项。
 
+## Implementation Compatibility Assessment
+
+Change Management消费由Delta/Impact authority生成的`ImplementationBindingDelta`，再结合Semantic Contract、Compatibility rules、Target/Runtime facts、consumer requirements和physical Evidence产生版本化Assessment：
+
+```text
+ImplementationBindingDelta
++ Semantic Contract / Acceptance
++ Compatibility rule revisions
++ Target / Runtime / deployment facts
++ conformance / behavior / consumer Evidence
+→ Compatibility Assessment
+→ Compatibility Decision
+→ Migration obligations
+```
+
+Assessment至少绑定：
+
+- exact `ImplementationBindingDelta` identity/revision；
+- old/new Binding与ResolutionDecision references；
+- affectedSemantic Contract、Responsibility、Operation、Artifact和consumer；
+- source/binary/schema/wire/behavior/Target/dependency方向；
+- timeout、retry、redirect、cancellation、idempotency、consistency、logging、telemetry、error和serialization判断；
+- compatible、compatible-with-adapter、migration-required、breaking、unknown或unsupported；
+- required conformance、deployment、recovery和retirement；
+- rule、Evidence、environment、coverage、expiry与unknown frontier。
+
+Change Management不得：
+
+- 重新比较old/new Binding payload或重新运行Resolver；
+- 按包名、semver、API相似度、作者release note或类型检查结果生成raw Delta；
+- 把未执行、unsupported、stale或coverage不足的Evidence解释为兼容；
+- 用Migration可行性反向修改Delta事实；
+- 用性能、流行度或现有用户数量抵消合同、安全、权限或数据完整性失败。
+
+包名相同、类型检查通过、API签名兼容、semver minor/patch或作者宣称non-breaking都不能替代Behavior Compatibility。
+
+## Implementation Binding Migration
+
+实现升级只有四种合法结果：
+
+1. **Contract preserved**：Assessment证明新Binding完整满足原Semantic Contract；冻结新Decision/Binding并重证。
+2. **Adapter-preserved**：新版默认行为变化，但版本化Adapter/config可以显式恢复原合同；迁移Adapter/Binding并重证。
+3. **Provider switch**：原Provider不再合格，Implementation Resolver基于新的validated inputs选择另一个合格候选；产生新Binding、Binding Delta、Compatibility Decision、consumer/artifact迁移和旧Provider退役。
+4. **Semantic migration**：任何候选都无法保持原合同，且用户/Policy明确接受行为变化；必须先修改Semantic Contract，再重新Resolution。
+
+以下均被禁止：
+
+- dependency bump静默改变语义；
+- 因旧Provider不可用自动换成“最像”的实现；
+- 用户pin绕过hard eligibility、安全、权限或Target限制；
+- Adapter通过吞掉错误、隐藏Effect或降低Acceptance伪装兼容；
+- 新Binding进入Target Program或package materialization前没有Binding Delta和Compatibility Decision。
+
+Implementation Resolver只产生候选Decision/Binding；Delta/Impact owner产生Binding Delta/Impact；Change Management拥有Compatibility与迁移协调；Verification拥有物理结果；Dependency/Runtime owner拥有物理materialization和support事实。
+
 ## Override
 
 - **Manual Override**：直接修改generated target；属于Drift，不能成为canonical semantic source。
 - **Rule-backed Override**：受治理、可重放、可版本化，并绑定target、owner、precondition、Provenance和Verification。
+- **Implementation Override**：用户`require/pin/custom`某实现的受治理输入；只能限制候选，不能绕过hard eligibility。
 - **Emergency Patch**：用于明确事故边界，必须有owner、expiry、回收或正规化计划。
 
 Override不得写 `control/**` 或伪造IR/Evidence。改变Contract、Effect、Permission、Ownership、public API或State semantics的patch必须进入显式Contract/Semantic Operation或Migration decision，不能只留下源码差异。
@@ -97,6 +158,7 @@ Override不得写 `control/**` 或伪造IR/Evidence。改变Contract、Effect、
 - 唯一 discriminated type和version；
 - deterministic identity、ordering和target scope；
 - current/target revision与preconditions；
+- Fact/Binding Delta、old/new Binding、Compatibility Decision和resolver policy references（适用时）；
 - dry-run summary与expected effects；
 - constituent Engineering Operations / transactions；
 - idempotency、reentrancy与resume语义；
@@ -117,7 +179,7 @@ Expand → Backfill / Migrate → Verify → Switch → Contract
 
 但这只是协调模式，不自动保证零停机或零数据丢失。实现前必须具备：
 
-- database/storage Target adapter与exact schema identity；
+- database/storage Target adapter与exact schema/Binding identity；
 - migration job identity、lease和checkpoint；
 - bounded batch、rate/resource limit和resume；
 - dual-read/dual-write或Compatibility policy；
@@ -139,20 +201,21 @@ Semantic identity保持不等于所有Facts永久有效。升级后：
 - Responsibility split/merge/replacement保留显式relation；
 - removed/replaced identity不能复用旧ID表示新对象。
 
-Semantic Migration必须报告Fact/Assertion、Responsibility、state ownership、permission/effect、Generator/Artifact和Verification delta，而不只报告文件变化。
+仅更换实现且合同保持时，不能为方便升级而重写Semantic identity。Semantic Migration必须报告Fact/Assertion、Responsibility、state ownership、permission/effect、Implementation Binding、Generator/Artifact和Verification delta，而不只报告文件变化。
 
 ## Recovery Strategy
 
 Migration recovery至少区分：
 
 - **transaction rollback**：由Semantic Mutation恢复一个写入transaction的exact prior source/canonical state；
+- **binding rollback**：恢复旧validated Binding并从accepted canonical revision重新生成，不复制旧output冒充authority；
 - **compensation**：通过新操作抵消已完成外部Effect，但不声称恢复了原历史；
 - **forward recovery**：无法安全回退时，通过新Migration收敛到受支持状态；
 - **restore from backup**：需要明确backup identity、freshness、loss window和validation；
 - **operator-required**：自动系统无法证明安全下一步；
 - **irreversible-after**：越过某个点后只允许forward recovery。
 
-Artifact rollback必须从accepted canonical revision重新生成，不能把旧output copy当authority。Runtime/config/data recovery取决于Host/Target/Provider和external system可逆性。
+Artifact rollback必须从accepted canonical revision和validated Binding重新生成，不能把旧output copy当authority。Runtime/config/data recovery取决于Host/Target/Provider和external system可逆性。
 
 当任一底层transaction为recovery-required时，Migration不能把整体标为failed后继续；必须暂停并绑定唯一恢复流程。
 
@@ -163,7 +226,7 @@ Artifact rollback必须从accepted canonical revision重新生成，不能把旧
 - ordered deploy；
 - compatibility window；
 - feature flag / canary；
-- shadow read/write；
+- shadow implementation/read/write；
 - backfill；
 - traffic switch；
 - health/SLO/incident observation；
@@ -177,14 +240,14 @@ Deprecation至少包含owner、受影响consumer、替代方案、开始/停止�
 
 Retirement只有在以下全部成立后完成：
 
-- current main不再有producer/consumer；
-- historical data和release仍可解释；
+- current main不再有producer/consumer或accepted Binding引用；
+- historical data、Decision、Binding、Delta、Compatibility Decision和release仍可解释；
 - Compatibility/Support profile已退出；
-- old Gate、schema、adapter、path和docs已删除或归档；
+- old Provider、Adapter、dependency、Gate、schema、path和docs已删除或归档；
 - clean install/build/runtime Evidence闭合；
 - Registry/deployment/operations不再引用旧identity。
 
-保留无人理解的“兼容代码”会形成第二authority，不能无限延期。
+保留无人理解的“兼容代码”或“备用Provider”会形成第二authority，不能无限延期。备用实现只有在真实failover contract、独立health/freshness、重新Resolution和定期physical proof存在时成立。
 
 ## 冲突优先级
 
@@ -194,22 +257,23 @@ Safety / Policy
 > Authoritative Contract and explicit user decision
 > verified Compatibility and Migration plan
 > governed Override
-> automatic upgrade preference
+> automatic upgrade / Resolution preference
 > manual generated-file modification
 ```
 
-AI confidence、最新时间、文件修改更多、Provider多数票或自动merge成功不参与越权裁决。
+AI confidence、最新时间、文件修改更多、Provider多数票、semver标签或自动merge成功不参与越权裁决。
 
 ## 完成判据
 
 Upgrade/Migration只有在：
 
 - 新状态进入唯一主链；
+- Fact/Binding Delta、old/new Binding、Compatibility Decision和Resolution Decision可追溯；
 - required transactions有明确terminal并完成readback；
 - Compatibility方向和consumer迁移闭合；
--数据/外部Effect完成Verification或明确residual risk；
--部署、compensation/forward recovery和irreversible boundary明确；
--旧writer、adapter、schema和兼容路径退役；
--新canonical revision、release/operations状态和Support maturity分别readback；
+- 数据/外部Effect完成Verification或明确residual risk；
+- 部署、compensation/forward recovery和irreversible boundary明确；
+- 旧writer、Provider、Adapter、dependency、schema和兼容路径退役；
+- 新canonical revision、artifact、release/operations状态和Support maturity分别readback；
 
-之后才完成。Plan、dry-run、代码提交、单次测试或PR合并都只证明其中一层。
+之后才完成。Plan、dry-run、代码提交、单次测试、类型检查、依赖安装或PR合并都只证明其中一层。

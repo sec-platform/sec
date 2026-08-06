@@ -116,8 +116,10 @@
         "user"
       ],
       "consumers": [
+        "compiler-target-ir",
         "roadmap",
-        "system-architecture"
+        "system-architecture",
+        "workbench-ai"
       ],
       "updateTriggers": [
         "product-goal-change"
@@ -213,6 +215,8 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "implementation.binding-delta",
+        "implementation.impact",
         "semantic.fact-delta",
         "semantic.impact"
       ],
@@ -221,6 +225,9 @@
         "developer"
       ],
       "consumers": [
+        "change-management",
+        "compiler-target-ir",
+        "runtime-distribution",
         "semantic-mutation",
         "verification-governance",
         "workbench-ai"
@@ -263,6 +270,7 @@
       "owns": [
         "compiler.application-ir",
         "compiler.behavior-ir",
+        "compiler.implementation-resolution",
         "compiler.lowering",
         "compiler.pipeline",
         "compiler.target-profile",
@@ -274,7 +282,11 @@
         "developer"
       ],
       "consumers": [
-        "runtime-distribution"
+        "change-management",
+        "delta-impact",
+        "runtime-distribution",
+        "verification-governance",
+        "workbench-ai"
       ],
       "updateTriggers": [
         "compiler-or-target-ir-boundary-change"
@@ -289,6 +301,7 @@
       "dynamicPolicy": "forbidden",
       "owns": [
         "capability.block",
+        "capability.block-resolution",
         "capability.contract",
         "capability.generator",
         "capability.port",
@@ -315,8 +328,10 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "brownfield.external-library-onboarding",
         "brownfield.lifecycle",
         "brownfield.source-program-model",
+        "brownfield.typed-invocation",
         "brownfield.unknown-opaque"
       ],
       "projects": [],
@@ -324,6 +339,7 @@
         "developer"
       ],
       "consumers": [
+        "compiler-target-ir",
         "system-architecture"
       ],
       "updateTriggers": [
@@ -340,6 +356,7 @@
       "owns": [
         "ai.bounded-proposal",
         "ai.context-packet",
+        "workbench.implementation-projection",
         "workbench.interaction",
         "workbench.projection",
         "workbench.transport"
@@ -367,6 +384,7 @@
         "runtime.distribution",
         "runtime.environment",
         "runtime.host-profile",
+        "runtime.implementation-materialization",
         "runtime.layout",
         "runtime.support",
         "runtime.toolchain"
@@ -393,6 +411,7 @@
         "change.compatibility",
         "change.compensation",
         "change.forward-recovery",
+        "change.implementation-binding-migration",
         "change.migration",
         "change.override",
         "change.upgrade"
@@ -423,6 +442,7 @@
         "verification.environment",
         "verification.evidence",
         "verification.gate",
+        "verification.implementation-conformance",
         "verification.layering",
         "verification.merge-authority",
         "verification.provenance",
@@ -433,7 +453,10 @@
         "developer"
       ],
       "consumers": [
+        "change-management",
         "ci",
+        "compiler-target-ir",
+        "delta-impact",
         "review"
       ],
       "updateTriggers": [
@@ -449,6 +472,7 @@
       "dynamicPolicy": "forbidden",
       "owns": [
         "development.agent-operation",
+        "development.external-capability-governance",
         "development.fact-sources",
         "development.operation-envelope",
         "development.plan-layering",
@@ -477,8 +501,11 @@
       "lifecycle": "stable",
       "dynamicPolicy": "forbidden",
       "owns": [
+        "provider.adapter",
         "provider.adoption",
         "provider.authority",
+        "provider.conformance",
+        "provider.onboarding",
         "provider.retirement",
         "provider.security"
       ],
@@ -488,6 +515,8 @@
         "developer"
       ],
       "consumers": [
+        "brownfield",
+        "compiler-target-ir",
         "external-provider-ledger"
       ],
       "updateTriggers": [

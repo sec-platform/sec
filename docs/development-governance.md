@@ -2,12 +2,12 @@
 title: 自主开发治理
 status: stable
 domain: development-governance
-last-reviewed: 2026-08-04
+last-reviewed: 2026-08-06
 ---
 
 # 自主开发治理
 
-本文拥有 SEC 仓库开发的事实源、计划分层、Role/Operation/Skill 边界、Issue/Work Package/PR/Evidence 生命周期、A0/Worker/Reviewer 权责、可验证续跑和工程自主治理目标。具体启发式闭包只存在于 `.agents/skills/**`；机器可判断的规则必须下沉到代码合同。
+本文拥有 SEC 仓库开发的事实源、计划分层、Role/Operation/Skill 边界、Issue/Work Package/PR/Evidence 生命周期、A0/Worker/Reviewer 权责、成熟轮子采用、可验证续跑和工程自主治理目标。具体启发式闭包只存在于 `.agents/skills/**`；机器可判断的规则必须下沉到代码合同。
 
 ## 自主治理责任
 
@@ -19,12 +19,14 @@ SEC 的产品、架构、实现、测试、文档、CI、Review、分支和主�
 - roadmap 依赖颠倒或横切设施抢占产品主线；
 - canonical owner重复、缺失或被 Proposal/Evidence/Projection竞争；
 - 同类缺陷重复，说明共享抽象、状态 owner、fixture、selector或门禁缺失；
+- 已有成熟轮子、标准或平台原语，却在Core重复实现通用机械能力；
+- 外部库私有类型、AST、ID、默认行为或品牌模型泄漏进Semantic Core；
 - 当前 `main` 已包含结果而旧 PR/branch/plan仍声称未完成；
 - 活动 Work Package、rolling plan、Issue 或文档已被新事实取代；
 - Skill/Agent/context机制复制机器规则或污染上下文；
 - 已正确 candidate 只剩 merge/closeout，而不是继续制造修改。
 
-发现这些情况时，工程动作可以是设计重算、最小修复、合并、关闭、归档、删除临时结构或确认无修改；不能为了保持“持续开发”而制造无证据变化。
+发现这些情况时，工程动作可以是设计重算、最小修复、Provider/Adapter隔离、成熟轮子采用、合并、关闭、归档、删除重复实现或确认无修改；不能为了保持“持续开发”而制造无证据变化。
 
 ## 当前规则与目标机制
 
@@ -70,6 +72,104 @@ Resolver 无法确定 default ref、target repository/workspace、active pointer
 - **`main`**：完成后的唯一产品结果。
 
 Dynamic SHA、run、failure tail 和临时候选不复制进 stable docs。Evidence 可以保存架构裁决、实验和历史计划，但不得自称当前状态源或长期路线 owner。
+
+## 成熟轮子与通用基础设施治理
+
+SEC只应自行拥有自己的工程语义、authority、identity、Contract、Effect、Permission、Transaction、Verification和Migration。解析器、类型检查器、图算法、缓存、schema validator、进程/路径工具、浏览器、数据库驱动、密码学、云SDK等通用机械能力优先使用成熟、可靠、可验证的轮子或标准平台原语。
+
+“轮子优先”不是“发现开源仓库就必须采用”。正式裁决必须以真实consumer和同条件Evidence为基础。
+
+### Capability Census
+
+新增或扩大自定义通用基础设施前，Work Package必须提供最小充分的 capability census：
+
+```text
+problem / real consumer
+→ required capability and contract
+→ current internal implementation and cost
+→ mature external candidates / standards / platform primitives
+→ exact versions, license, security and maintenance
+→ real trial / A-B / corpus evidence
+→ coverage, failure, unknown and integration cost
+→ whether a thin Adapter is sufficient
+→ minimum justified self-built surface
+→ duplicate code / dependency / path to remove
+→ rollback, revalidation and retirement conditions
+```
+
+没有上述Evidence时，不得以“更可控”“以后可能需要”“AI写起来容易”或“自己实现更统一”为由扩大自研面积。
+
+### 采用决策
+
+候选决策只能是明确状态：
+
+- adopt mature substrate/provider；
+- wrap with thin Adapter；
+- absorb proven design into SEC unique owner；
+- retain current focused implementation with evidence；
+- defer with trigger；
+- reject with rationale；
+- retire/remove duplicate。
+
+真实试用发现工具噪声高、覆盖不足、输出不可定位、维护/安装/安全成本过高，可以成为拒绝或限定使用的Evidence。品牌知名、功能列表更长、下载量高或多个工具输出一致都不能替代SEC自己的验证。
+
+### Provider Boundary
+
+具体库、编译器API或外部工具必须通过唯一Provider/Adapter边界接入：
+
+- consumer依赖SEC-owned contract，不依赖Provider私有DTO、AST Node、Symbol/Type对象、随机ID或品牌状态机；
+- package/version/Target/coverage/freshness/failure和resource boundary显式；
+- external output先视为不受信input并canonicalize/validate；
+- Provider只拥有其能力和Evidence，不拥有Engineering Semantic authority、Implementation Resolution、Impact、Verification Result或publish decision；
+- Provider升级、替换和退役有consumer census、parity和旧路径删除。
+
+禁止在Semantic Core、Application/Behavior IR、Operation/Mutation、Impact或Verification truth中散布：
+
+```text
+if library === ...
+if providerVersion >= ...
+import provider-private AST/type/model
+reconstruct semantic meaning from package name
+trust provider default behavior as Contract
+```
+
+库特定代码只能位于Provider、Adapter、Backend recipe、Migration、conformance fixture或明确Target package边界。
+
+### 语言与 Compiler API
+
+同一语言工具链的能力必须拆分管理：
+
+- CLI checker；
+- syntax parser；
+- Program/TypeChecker与module resolution；
+- Language Service；
+- source transform/printer；
+- formatter；
+- build/runtime executable。
+
+不能让一个`typescript`、`ts-morph`或其他品牌包名隐式拥有全部能力和版本authority。Core不能直接依赖Compiler API私有对象；直接import必须收敛在声明的Language/Backend Provider边界。迁移到新版本或新实现时逐能力做parity和retirement，禁止全仓散落版本分支。
+
+### Reference Provider
+
+SEC可以为基础能力提供少量Reference Provider，用于：
+
+- 验证Semantic Contract和IR是否足够完整；
+- 提供最小、可解释、可离线的conformance oracle或fallback candidate；
+- 在生态不存在可靠实现时闭合真实consumer。
+
+Reference Provider不能以“原生”之名免除安全、性能、维护和negative tests，也不能无限扩张为自己的HTTP、ORM、数据库、浏览器、密码学或云生态。存在成熟高质量实现时，Reference只保留其基准职责或退役。
+
+### 自定义实现退出门
+
+自定义通用实现只有在以下之一成立时可长期保留：
+
+- 它表达SEC独有authority/semantic/transaction/verification contract；
+- 外部候选经真实Evidence证明无法满足关键合同；
+- 薄Adapter不足以补齐；
+- 自研面积被限制在最小边界；
+- 具有owner、测试、版本、迁移、替代和退役条件。
+
+一旦成熟轮子、标准原语或上游API达到parity，必须执行consumer迁移和duplicate removal，不能以“备用”名义长期保留双实现，除非存在真实failover contract和定期physical proof。
 
 ## Agent Operation System
 
@@ -150,6 +250,8 @@ Skill只保留需要 Agent 判断的：触发/不触发、输入、分析方法�
 - Evidence/Run State；
 - publication、merge、readback和cleanup owner。
 
+产品Implementation Resolver、Block Resolver、Dependency materializer和Provider catalog分别由其canonical产品领域拥有；Development Skill或Agent不得在仓库开发流程中复制这些算法或用搜索结果/模型判断代替机器结果。
+
 Skill可以消费和解释 service结果，但不能重新实现算法或输出竞争状态。
 
 ## A0、Worker、Reviewer 与 Auditor
@@ -161,7 +263,8 @@ Skill可以消费和解释 service结果，但不能重新实现算法或输出�
 - authority/resource/write-set冲突裁决；
 - Gate custody、independent Review、integration和merge order；
 - new-main readback、Issue/PR收口、branch/worktree/workflow hygiene；
-- 发现全工程设计冲突时建立聚焦 architecture convergence，而不是等待用户拆解。
+- 发现全工程设计冲突时建立聚焦 architecture convergence，而不是等待用户拆解；
+- 发现成熟轮子、自研重复、Provider泄漏或版本迁移缺口时，主动路由到唯一owner并建立最小可执行迁移，不只留聊天建议。
 
 A0不替Worker修改同一owner seam，也不把所有发现塞进一个巨型implementation package。
 
@@ -169,13 +272,19 @@ A0不替Worker修改同一owner seam，也不把所有发现塞进一个巨型im
 
 Worker只在 frozen Envelope 和 owned seam内实现，不自授权跨 owner、扩大路径、降低 Verification、触发 hosted Gate或合并。发现 root assumption、owner、scope或architecture不成立时停止并返回 Reconciliation Delta，不在局部代码继续堆例外。
 
+引入或自研通用能力时，Worker必须引用已冻结的capability census/Provider decision；不得临时安装工具改变candidate环境，不得把库私有模型泄漏进Core，也不得在没有migration的情况下新增长期双实现。
+
 ### Reviewer
 
 Reviewer只读 exact base/head/tree、authority、Evidence和真实diff。它寻找范围越界、第二owner、遗漏consumer、弱化assertion、临时probe、自证、生成物漂移和无法恢复路径。Head变化立即使Review stale；Reviewer不替Worker改码。
 
+涉及外部库或自研基础设施时，Reviewer还必须检查：真实consumer、替代候选、版本/许可证/安全、Adapter边界、direct import graph、duplicate removal、fallback真实性、升级/退役和package/lock唯一writer。
+
 ### Auditor
 
 Repository orientation只建立当前任务最小充分事实。用户要求全仓、重大架构变化、重复系统缺陷或authority/code/test/CI无法解释时，Auditor对全部tracked paths、owner、entry、state、dependency、verification和unknown做exact-revision census。Audit只产生Evidence和聚焦findings，不取得产品authority。
+
+审计发现稳定缺口时，A0必须将其融合到canonical owner、roadmap或focused Issue/Work Package；不能让重大设计长期只存在于聊天或叙事报告。若当前active scope冲突，应建立ordered successor并保留失效/激活条件，而不是越权修改当前frozen candidate。
 
 ## Work Package
 
@@ -194,6 +303,8 @@ Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branc
 完整程序路线不写入一个Work Package。一个包只实现当前阶段中可独立验证、迁移和readback的纵向闭包，但不能降低canonical终态。
 
 完成必须区分：design contract-frozen、implementation entered main、physical verification、package/deployment和product-supported。
+
+Stacked successor可以基于当前exact candidate形成可审查tree，但在前序进入新main并readback前不得激活、复用Review/Evidence或宣称merge-ready。激活时必须从then-latest main重新冻结base、manifest、scope和Evidence。
 
 ## 并行工作
 
@@ -231,7 +342,7 @@ PR Ready只表示允许进入Review/Gate调度，不表示required Evidence已�
 
 ## Impact 与验证选择
 
-修改公共contract、canonical authority、state owner、pipeline、runtime boundary或未知影响前，先消费统一Impact和test/Gate selector；当前能力不足时降级到 exact imports、public API、runtime entry、owner、consumer和test-impact census。不得临时安装工具改变candidate环境。
+修改公共contract、canonical authority、state owner、pipeline、runtime boundary、Provider/Adapter、Implementation Resolution或未知影响前，先消费统一Impact和test/Gate selector；当前能力不足时降级到 exact imports、public API、runtime entry、owner、consumer、dependency closure和test-impact census。不得临时安装工具改变candidate环境。
 
 开发中先运行当前 failing/focused sentinel；candidate稳定后运行由变化类型和Impact选择的local closure；Frozen后由A0触发required hosted Gate。不是每个Work Package固定全跑同一套重门禁。
 
@@ -245,7 +356,7 @@ Failure首先分类：root cause、owner、violated invariant、minimal reproduc
 
 同一 Work Package重复出现同类 frozen invalidation时必须 proof reset：回到 reproduction、authority、state ownership、test architecture或scope重算。再犯同类根因时进入 redesign-required，而不是无限局部修补。
 
-当重复问题跨Work Package出现时，必须检查共享对象、协议、Fixture、Runner、Skill和CI是否缺少唯一owner或合同，并在roadmap对应上游阶段治理。
+当重复问题跨Work Package出现时，必须检查共享对象、协议、Fixture、Runner、Skill、Provider boundary和CI是否缺少唯一owner或合同，并在roadmap对应上游阶段治理。
 
 ## 可验证续跑
 
