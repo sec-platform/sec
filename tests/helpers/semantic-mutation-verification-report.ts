@@ -1,15 +1,10 @@
-import { createHash } from 'node:crypto';
-
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import type { SemanticMutationBaseV2, VerificationRequirementV1 } from '../../platform/shared/semantic-mutation-types.ts';
 import {
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
   type SemanticMutationVerificationReportV1
 } from '../../platform/shared/verification-types.ts';
-
-function sha256(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-}
 
 export function semanticMutationVerificationReportFixture(input: {
   readonly adapterId: string;

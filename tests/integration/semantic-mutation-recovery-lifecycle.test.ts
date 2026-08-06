@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { access, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -35,6 +34,7 @@ import {
   planSemanticMutationTransactionWithTestDependencies,
   recoverSemanticMutationWorkspaceWithTestDependencies
 } from '../../platform/orchestrator/semantic-mutation-orchestrator.ts';
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
 import type { SemanticMutationRecoveryState } from '../../platform/shared/semantic-mutation-transaction-types.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
@@ -90,10 +90,6 @@ const AUTHORING_SOURCE = [
 const TERMINAL_HISTORY_AUTHORING_SOURCE = AUTHORING_SOURCE
   .replace('    values: [closed, open]', '    values: [closed, open, pending]')
   .replace('    transitions: []', '    transitions: [] # retain transition comment');
-
-function sha256(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-}
 
 function endpoint(
   snapshot: Awaited<ReturnType<typeof buildWorkspaceSemanticBundle>>['snapshot'],

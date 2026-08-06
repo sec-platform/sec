@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -15,6 +14,7 @@ import {
   type TrustedLocalSemanticMutationAuthorizationInputV1,
   type TrustedLocalSemanticMutationPolicyDraftV1
 } from '../../platform/compiler/index.ts';
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import type { EngineeringIR } from '../../platform/shared/engineering-ir-types.ts';
 import type { LockFile } from '../../platform/shared/lock-types.ts';
 import {
@@ -31,10 +31,6 @@ import {
   type SemanticMutationSourceEditPlanV1
 } from '../../platform/shared/semantic-mutation-types.ts';
 import type { SemanticViewSet } from '../../platform/shared/semantic-view-types.ts';
-
-function sha256(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-}
 
 function vectors(): {
   readonly manifest: SemanticMutationRollbackManifestV2;

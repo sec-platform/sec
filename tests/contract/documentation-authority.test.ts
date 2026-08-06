@@ -69,7 +69,7 @@ describe('canonical documentation authority', () => {
 
     expectContainsAll(rollingPlan, [
       '## 当前唯一 Work Package',
-      '### active-documentation-corpus-convergence-v2',
+      '### frozen-digest-canonical-form-repair-v1',
       '## 候选 Work Package',
       '### 1. default-branch-health-and-verification-bootstrap-sequence',
       '### 2. repository-information-lifecycle-v1',

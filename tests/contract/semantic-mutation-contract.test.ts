@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -18,6 +17,7 @@ import { SEMANTIC_MUTATION_OPERATION_DESCRIPTORS } from '../../platform/compiler
 import { semanticMutationPlanRevision } from '../../platform/compiler/semantic-mutation/plan-semantic-mutation.ts';
 import { buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import type { CiArtifactManifest } from '../../platform/shared/ci-artifact-types.ts';
 import type {
   EngineeringIR,
@@ -39,10 +39,6 @@ import {
   type VerificationReport
 } from '../../platform/shared/verification-types.ts';
 import { semanticMutationVerificationReportFixture } from '../helpers/semantic-mutation-verification-report.ts';
-
-function sha256(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-}
 
 function request(): SemanticMutationRequestV2 {
   return {

@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { expect, test } from 'bun:test';
 
 import { buildValidatedEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
@@ -15,6 +13,7 @@ import {
   executeSemanticMutationVerification,
   planSemanticMutationVerificationCapabilities
 } from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   buildExpectedProductVerificationClaimSummary
 } from '../../platform/shared/product-verification-profile.ts';
@@ -24,10 +23,6 @@ import {
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_REVISION,
   SEMANTIC_MUTATION_VERIFICATION_REPORT_REVISION
 } from '../../platform/shared/verification-types.ts';
-
-function sha256(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-}
 
 function buildInput(): BuildEngineeringIRInput {
   return {

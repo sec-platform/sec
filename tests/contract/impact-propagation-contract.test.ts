@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
-
 import { expect, test } from 'bun:test';
+
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 
 import {
   buildFactDelta,
@@ -27,10 +27,6 @@ import type { VerificationReport } from '../../platform/shared/verification-type
 
 const FROM_SEMANTIC_REVISION = `sha256:${'1'.repeat(64)}`;
 const TO_SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
-
-function sha256(payload: string): string {
-  return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
-}
 
 function dependencyFact(validFromRevision: string): SemanticFact {
   return {
@@ -164,18 +160,18 @@ test('public Semantic Impact schema, constants, facade, and exclusions stay froz
 
 test('independent vector freezes seeds, reachability, path evidence, and impactRevision', () => {
   const { delta, result } = vector();
-  const fromSeedId = sha256(JSON.stringify({
+  const fromSeedId = sha256({
     domain: 'engineering-ir-impact-seed-v1',
     kind: 'entity-updated',
     basis: 'from',
     entityId: 'responsibility:A'
-  }));
-  const toSeedId = sha256(JSON.stringify({
+  });
+  const toSeedId = sha256({
     domain: 'engineering-ir-impact-seed-v1',
     kind: 'entity-updated',
     basis: 'to',
     entityId: 'responsibility:A'
-  }));
+  });
   const expectedSeeds = [
     {
       id: fromSeedId,
@@ -227,7 +223,7 @@ test('independent vector freezes seeds, reachability, path evidence, and impactR
   expect(result.uncertainties).toEqual([]);
   expect(result.verification).toEqual([]);
 
-  const expectedRevision = sha256(JSON.stringify({
+  const expectedRevision = sha256({
     domain: 'engineering-ir-impact-propagation-v1',
     contractVersion: '1',
     scope: 'fact-delta+validated-graph',
@@ -249,7 +245,7 @@ test('independent vector freezes seeds, reachability, path evidence, and impactR
     transitive: [],
     uncertainties: [],
     verification: []
-  }));
+  });
   expect(result.impactRevision).toBe(expectedRevision);
 });
 

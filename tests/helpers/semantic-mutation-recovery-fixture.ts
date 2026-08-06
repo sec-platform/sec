@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import {
   buildFactDelta,
   buildImpactPropagation,
@@ -20,6 +18,7 @@ import { semanticMutationAuthorizationRevision } from '../../platform/compiler/s
 import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
 import { semanticMutationRequestIdentityDigest } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
 import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
 import type { SemanticMutationRecoveryRecordV1 } from '../../platform/shared/semantic-mutation-transaction-types.ts';
@@ -30,7 +29,7 @@ import {
 import { semanticMutationVerificationReportFixture } from './semantic-mutation-verification-report.ts';
 
 export function digest(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+  return sha256(value);
 }
 
 function contract(withTransition: boolean): LoadedSemanticContract {
