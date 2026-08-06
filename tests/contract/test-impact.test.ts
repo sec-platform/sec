@@ -90,11 +90,15 @@ test('non-active documentation lifecycles have explicit owners without a docs ca
     expect(selectTestsForSources([source])).toEqual({
       fast: [
         'tests/contract/agent-skills.test.ts',
+        'tests/contract/docs-doctor-byte-exact.test.ts',
         'tests/contract/documentation-authority.test.ts',
+        'tests/contract/documentation-corpus-census.test.ts',
+        'tests/contract/documentation-ownership-closure.test.ts',
         'tests/contract/repository-audit.test.ts',
         'tests/contract/test-impact.test.ts',
         'tests/unit/active-documentation-contract.test.ts',
-        'tests/unit/codex-work-package-contract.test.ts'
+        'tests/unit/codex-work-package-contract.test.ts',
+        'tests/unit/documentation-authority-registry-v2.test.ts'
       ],
       slow: [],
       owners: ['historical-documentation']
@@ -117,9 +121,13 @@ test('non-active documentation lifecycles have explicit owners without a docs ca
     expect(selectTestsForSources([evidenceSource])).toEqual({
       fast: [
         'tests/contract/agent-skills.test.ts',
+        'tests/contract/docs-doctor-byte-exact.test.ts',
+        'tests/contract/documentation-corpus-census.test.ts',
+        'tests/contract/documentation-ownership-closure.test.ts',
         'tests/contract/repository-audit.test.ts',
         'tests/contract/test-impact.test.ts',
-        'tests/unit/active-documentation-contract.test.ts'
+        'tests/unit/active-documentation-contract.test.ts',
+        'tests/unit/documentation-authority-registry-v2.test.ts'
       ],
       slow: [],
       owners: ['documentation-evidence']
