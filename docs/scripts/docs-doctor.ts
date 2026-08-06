@@ -60,10 +60,6 @@ export {
   type DocsDoctorScanOptions
 } from './docs-doctor-shared.ts';
 
-function normalizeCrLf(content: string): string {
-  return content.replace(/\r\n/gu, '\n');
-}
-
 function isMachineLocalAbsolutePath(reference: string): boolean {
   return path.win32.isAbsolute(reference) || path.posix.isAbsolute(reference);
 }
@@ -374,7 +370,7 @@ export async function scanDocumentation(
   } else {
     const actual = await fs.readFile(path.join(repositoryRoot, 'docs/README.md'), 'utf8');
     const expected = renderDocumentationIndex(registry);
-    if (normalizeCrLf(actual) !== normalizeCrLf(expected)) {
+    if (actual !== expected) {
       pushIssue(issues, {
         level: 'error',
         code: 'generated-index-drift',
