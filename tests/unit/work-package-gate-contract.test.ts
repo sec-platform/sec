@@ -32,11 +32,11 @@ import {
 
 const repoRoot = path.resolve(import.meta.dir, '../..');
 const executionPath = 'docs/work-packages/sm3-r2-bounded-runtime-gate-v1.md';
-const executionSourcePath = 'docs/archive/work-packages/sm3-r2-bounded-runtime-gate-v1.md';
+const executionSourcePath = 'tests/fixtures/work-package-gate-manifests/sm3-r2-bounded-runtime-gate-v1.md';
 const selectionPath = 'docs/work-packages/sm3-r1-focused-blocker-repair-v1.md';
-const selectionSourcePath = 'docs/archive/work-packages/sm3-r1-focused-blocker-repair-v1.md';
+const selectionSourcePath = 'tests/fixtures/work-package-gate-manifests/sm3-r1-focused-blocker-repair-v1.md';
 const executionPathV4 = 'docs/work-packages/sm3-r3-actionable-runtime-gate-v4.md';
-const executionSourcePathV4 = 'docs/archive/work-packages/sm3-r3-actionable-runtime-gate-v4.md';
+const executionSourcePathV4 = 'tests/fixtures/work-package-gate-manifests/sm3-r3-actionable-runtime-gate-v4.md';
 const emptyIdentitySet = Object.freeze({
   count: 0,
   digest: `sha256:${'0'.repeat(64)}`

@@ -2,15 +2,29 @@
 title: 动态工程控制面
 status: active
 domain: current-control
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-05
 ---
 
 # 动态工程控制面
 
-- `current-state.yaml` 只保存 resolver配置和跨候选稳定的 authority入口，不保存人工完成能力清单。
+- `current-state.yaml` 只保存 resolver 配置和跨候选稳定的 authority 入口。
 - `rolling-plan.md` 只保存一个当前包和二至五个条件候选；候选不是授权。
-- `active-work-package.md` 只保存 frozen manifest path与raw Git blob digest。
+- `active-work-package.md` 只保存 frozen manifest path 与 raw Git blob digest。
 
-当前 Git、PR、CI、Review和resolver状态在运行时生成，不写入稳定文档。历史manifest在新pointer原子接管后移入 `docs/archive/work-packages/`。
+当前 Git、PR、CI、Review 和 resolver 状态在运行时生成，不写入稳定架构文档。
+Work Package manifest 只在被当前 pointer 选择期间存在；新 pointer 原子接管并完成
+new-main readback 后，旧 manifest 直接删除。历史、差异、Review、Evidence 和恢复由
+Git commit、PR、Issue 与 Actions artifact 承担，当前树禁止 tracked `docs/archive/`。
 
-已合并的 Work Package manifest 在 pointer 仍指向它时保持 `conditional` 状态（resolver 返回 `matchingDefaultBlob: none`）；repository audit 使用 trusted exact base（`SEC_CHANGED_BASE`）区分 default branch 上的已合并 manifest 与 active candidate。
+Proposal 的 `retirementTarget` 是不可物化 tombstone identity，不是文件搬迁目的地。
+迁移和 readback 完成后，proposal record 与源文件从当前树删除；corpus census 拒绝
+实际落盘的 archive path，也拒绝 Evidence/Superpowers 叙事 Markdown 回流。
+
+任何默认分支变化都会使旧 candidate base、Review、CI 和 manifest key 失效。即使变化
+已经进入 `main` 并成为当前事实，只要缺少可验证 merge authority，也必须登记 incident、
+冻结旧候选并从新主干重算；不得用“main 已经包含”抹掉来源缺陷，也不得静默 force-reset。
+平台级禁止 admin bypass 由 Issue #279 独立闭环，未完成 ruleset readback 前不得声称
+GitHub 物理保护已经成立。
+
+已合并 Work Package manifest 在 pointer 仍指向它时保持 `conditional`；repository audit
+使用 trusted exact base 区分 default branch 上的已合并 manifest 与 active candidate。

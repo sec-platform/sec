@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 
 import { parseDocument } from 'yaml';
 
@@ -214,13 +214,15 @@ test('built-in Work Package YAML keeps strict mapping and lexical fail-closed se
 test('built-in Work Package YAML preserves every tracked historical manifest value', () => {
   const paths = [
     'docs/work-packages',
-    'docs/archive/work-packages'
-  ].flatMap((directory) => readdirSync(directory)
+    'docs/archive/work-packages',
+    'tests/fixtures/work-package-gate-manifests'
+  ].filter((directory) => existsSync(directory))
+  .flatMap((directory) => readdirSync(directory)
     .filter((file) => file.endsWith('.md'))
     .map((file) => `${directory}/${file}`))
     .sort();
   const ids = new Set<string>();
-  expect(paths.length).toBeGreaterThanOrEqual(61);
+  expect(paths.length).toBeGreaterThanOrEqual(4);
   for (const manifestPath of paths) {
     const source = readFileSync(manifestPath, 'utf8').replaceAll('\r\n', '\n');
     const end = source.indexOf('\n---\n', 4);
