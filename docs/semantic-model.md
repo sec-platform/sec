@@ -2,7 +2,7 @@
 title: Engineering IR 语义模型
 status: stable
 domain: semantic-model
-last-reviewed: 2026-08-04
+last-reviewed: 2026-08-06
 ---
 
 # Engineering IR 语义模型
@@ -11,11 +11,11 @@ last-reviewed: 2026-08-04
 
 ## 定位
 
-Engineering IR 是 SEC 接受的 canonical engineering semantics。它是有向、强类型、带属性的多重图，但不是 AST、Source Program Model、源码符号图、调用图、ExplainGraph、Workbench View Model、Repository inventory 或 AI Knowledge Graph。
+Engineering IR 是 SEC 接受的 canonical engineering semantics。它是有向、强类型、带属性的多重图，但不是 AST、Source Program Model、源码符号图、调用图、Implementation Resolution state、Target Program IR、ExplainGraph、Workbench View Model、Repository inventory 或 AI Knowledge Graph。
 
-它回答“哪些工程对象存在、哪些工程陈述成立、谁以什么依据作出陈述、哪个对象承担哪些工程责任”，不回答目标语言如何打印、文件如何布局、UI 如何排版或某次运行是否通过。
+它回答“哪些工程对象存在、哪些工程陈述成立、谁以什么依据作出陈述、哪个对象承担哪些工程责任”，不回答目标语言如何打印、文件如何布局、选用哪个具体类库、UI 如何排版或某次运行是否通过。
 
-Brownfield governance 与 deterministic generation 共用同一 Engineering IR。源码观察、Contract/Block 声明和显式 Adopt decision只是不同输入来源，不得产生平行语义核心。
+Brownfield governance 与 deterministic generation 共用同一 Engineering IR。源码观察、Contract/Block 声明和显式 Adopt decision只是不同输入来源，不得产生平行语义核心。Implementation Resolution只能消费validated语义并产生下游实现绑定，不能以候选、Provider默认值或源码写法反向修改Semantic Contract。
 
 ## 核心对象
 
@@ -42,7 +42,7 @@ Responsibility 是 SEC 的工程理解和影响传播单位，不等于文件、
 - Authoring/Governed Source、Target Artifact 和 release/public bindings；
 - lifecycle、replacement、split、merge、migration 与 retirement。
 
-Responsibility identity 表示“同一个工程责任是谁”，不能仅从一个文件路径、symbol 名称、Block ID 或当前实现位置派生。合法演进至少区分：
+Responsibility identity 表示“同一个工程责任是谁”，不能仅从一个文件路径、symbol 名称、Block ID、具体类库或当前实现位置派生。合法演进至少区分：
 
 ```text
 same | renamed | moved | split | merged | replaced | ambiguous | unknown
@@ -68,6 +68,7 @@ Reconcile/Adopt 可以接受、拒绝、拆分、合并或保留 opaque candidat
 - Operation 是 Responsibility 提供或消费的受限行为；
 - State/Effect/Permission 是 Responsibility facets，不单独代表完整 Responsibility；
 - Impact 可以传播到 Responsibility，但不拥有其 identity 或 canonical facets；
+- Implementation Requirement可以从Responsibility/Operation/Effect/Permission派生，但不成为新的业务语义来源；
 - Workbench 的 Architecture 节点只是 Responsibility projection。
 
 ## 身份域
@@ -86,12 +87,13 @@ Assertion identity绑定 Fact、authority 与规范化 provenance identity。Evi
 
 ### Revision
 
-输入声明 revision、最终 semantic revision、Source Program revision、Responsibility candidate revision、transaction execution identity、artifact revision 和 Evidence revision 是不同域：
+输入声明 revision、最终 semantic revision、Source Program revision、Responsibility candidate revision、Implementation Requirement/Decision/Binding revision、transaction execution identity、artifact revision 和 Evidence revision 是不同域：
 
 - input revision 表示规范化声明输入；
 - source-program revision 表示对 exact physical workspace 的 observed/derived 模型；
 - semantic revision 表示最终 canonical graph；
 - candidate revision 表示一组尚未 Adopt 的解释；
+- implementation requirement/decision/binding revision表示对既有语义的下游实现选择，不得进入semantic revision；
 - transaction identity 表示一次执行；
 - artifact revision 表示某个生成结果；
 - Evidence revision 表示一个观察或证明记录。
@@ -123,7 +125,7 @@ Assertion 具有明确有效区间。新 revision 可以：
 - 通过显式 Adopt/Reject decision改变候选 assertion 的治理状态；
 - 通过 Responsibility split/merge/replacement 迁移有效关系。
 
-升级或 source change 后，Assertion 不能凭 Entity identity 延续而自动继承。Contract assertions 从新 Contract 重建；derived assertions 由新规则重算；observed assertions绑定新环境或 source revision；inferred assertions可以失效并重新推断。
+升级或 source change 后，Assertion 不能凭 Entity identity 延续而自动继承。Contract assertions 从新 Contract 重建；derived assertions 由新规则重算；observed assertions绑定新环境或 source revision；inferred assertions可以失效并重新推断。Provider或ImplementationBinding升级若保持Semantic Contract，不得无故重写canonical Assertions；无法保持时必须进入显式Semantic Migration。
 
 ## 冲突与未知
 
@@ -137,7 +139,7 @@ Assertion 具有明确有效区间。新 revision 可以：
 - 无法唯一解析 identity/reference：ambiguous，不得选择一个最像的对象；
 - predicate 或 object shape 未获支持：在 canonical boundary 前拒绝。
 
-“没有发现 Fact”只有在输入 inventory、Provider coverage 和验证机制按设计足以发现该 Fact 时，才构成缺失证据；否则仍是 unknown。
+“没有发现 Fact”只有在输入 inventory、Provider coverage 和验证机制按设计足以发现该 Fact 时，才构成缺失证据；否则仍是 unknown。Implementation Resolver也必须消费这一未知边界，不能把缺失Fact、空Provider结果或类型检查成功解释为能力、安全或行为已经证明。
 
 ## Predicate 与 signature
 
@@ -146,9 +148,9 @@ Predicate 描述关系语义，使用唯一、版本化 signature registry 约�
 - active 需要至少一个无歧义 producer 和 signature；
 - reserved 只保留未来语义位置，不能出现在 validated Facts。
 
-Predicate signature 只定义合法 shape，不自动定义 Impact 传播方向、UI 边样式或 Verification runnable mapping。Builder、validator、Fact store、index、Projector 和 consumer 不得各自复制另一套 switch。
+Predicate signature 只定义合法 shape，不自动定义 Impact 传播方向、UI 边样式、Implementation eligibility或 Verification runnable mapping。Builder、validator、Fact store、index、Projector 和 consumer 不得各自复制另一套 switch。
 
-Responsibility 所需的 `OWNS / READS / WRITES / MUTATES / IMPLEMENTS / DEPENDS_ON / REQUIRES / PERFORMS_EFFECT / REQUIRES_PERMISSION / VERIFIED_BY / CONSUMES / PROVIDES / PUBLISHES / LOWERS_TO` 等 relation只有进入 active signature、producer和tests后才是 canonical capability；名称存在不代表已实现。
+Responsibility 所需的 `OWNS / READS / WRITES / MUTATES / IMPLEMENTS / DEPENDS_ON / REQUIRES / PERFORMS_EFFECT / REQUIRES_PERMISSION / VERIFIED_BY / CONSUMES / PROVIDES / PUBLISHES / LOWERS_TO` 等 relation只有进入 active signature、producer和tests后才是 canonical capability；名称存在不代表已实现。Implementation Resolver可以从这些validated relations派生requirement，但不能反向写入或借用同名自由字符串建立Provider等价。
 
 ## Canonical ordering 与确定性
 
@@ -171,14 +173,28 @@ Raw IR 是不受信计算结果。统一 validator 至少验证：
 9. semantic revision 与 canonical payload；
 10. clone 后递归 deep-freeze。
 
-只有该边界可以签发 branded validated snapshot。Lowering、Impact、Projection、Workbench 和 Mutation planner 等 IR-native consumer 只接受 validated snapshot，不接受调用方提供的 index、raw graph、Responsibility candidate 或自行拼装的“已验证”对象。
+只有该边界可以签发 branded validated snapshot。Lowering、Implementation Resolution、Impact、Projection、Workbench 和 Mutation planner 等 IR-native consumer 只接受 validated snapshot，不接受调用方提供的 index、raw graph、Responsibility candidate 或自行拼装的“已验证”对象。
+
+## 与 Implementation Resolution 的边界
+
+Engineering IR只提供稳定语义和可追溯的实现要求来源：Responsibility、Operation、Type、State、Effect、Permission、Policy、Scenario、Acceptance与Verification Requirement。实现解析领域负责从这些validated对象推导`ImplementationRequirement`并选择具体实现闭包。
+
+固定不变量：
+
+- library/package/version/Adapter、performance rank、support maturity和源码写法不进入Engineering semantic identity；
+- Provider manifest、`.d.ts`、源码分析、runtime trace和AI建议不能直接产生authoritative业务Fact；
+- 某个Provider无法满足合同只能淘汰候选，不能降低或修改合同；
+- 用户要求某个Provider属于Implementation constraint/operation input，不自动获得绕过类型、安全、权限或Verification的权力；
+- 若依赖升级无法保持原Semantic Contract，必须由Change Management产生显式Semantic Migration，而不是在Binding层静默改义；
+- Implementation Decision/Binding是可替换、可失效的下游编译状态，不是第二Engineering IR。
 
 ## 与其他模型的边界
 
 - Physical Workspace 表达文件、配置、资源和物理 owner；不自动成为 Engineering IR。
 - Source Program Model 表达模块、符号、类型、引用、flow candidate和observed structure；不自动成为 Engineering IR。
 - Responsibility reconstruction产生 candidate；显式 authority决定后才进入 canonical semantics。
+- Implementation Requirement/Decision/Binding表达具体实现选择，不重新拥有Engineering identity或Semantic Contract。
 - Target/Application/Behavior/Program IR 表达编译计划和目标程序，不重新拥有 Engineering identity 或 authority。
 - ExplainGraph、SemanticView 和 ReviewSummary 是可丢弃投影。
 - Evidence Ledger 拥有 evidence record、freshness、coverage、bias、expiry 和 invalidation；Engineering IR 只保存 assertion 对 evidence identity 的引用。
-- Fact Delta 比较两个 validated semantic endpoints；Impact 在独立规则 registry 下传播，不能由 UI 或 changed-file selector替代。
+- Fact Delta 比较两个 validated semantic endpoints；Impact 在独立规则 registry 下传播，不能由 UI、Implementation Resolver或 changed-file selector替代。

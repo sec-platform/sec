@@ -2,7 +2,7 @@
 title: 系统架构与权威流
 status: stable
 domain: system-architecture
-last-reviewed: 2026-08-04
+last-reviewed: 2026-08-06
 ---
 
 # 系统架构与权威流
@@ -34,13 +34,15 @@ Product Intent / Contract / Block
 → Engineering Semantic Model
 → Application IR
 → Behavior IR
+→ Implementation Resolution
+→ frozen Implementation Binding
 → Target Program IR
 → Backend
 → Source / Test / Config / Artifact
 → Verification / Evidence
 ```
 
-两条链共享 Engineering identity、Responsibility、State、Operation、Policy、Permission、Effect、Scenario、Acceptance、Provenance 和 Verification truth。Brownfield 不能建立一套“源码图语义”，Generator 也不能建立另一套“模板语义”。
+两条链共享 Engineering identity、Responsibility、State、Operation、Policy、Permission、Effect、Scenario、Acceptance、Provenance 和 Verification truth。Brownfield 不能建立一套“源码图语义”，Generator 也不能建立另一套“模板语义”，Implementation Resolver、Block Resolver、Provider Registry和Workbench也不能各自建立实现选择真值。
 
 ### 产品回路
 
@@ -51,13 +53,14 @@ canonical state
 → platform-owned Operation ingress
 → plan without live writes
 → apply under transaction and CAS
-→ canonical rebuild
-→ actual Delta / Impact / Verification
+→ canonical rebuild / implementation re-resolution
+→ actual Semantic / Binding Delta and Impact
+→ Compatibility / Verification / Migration decision where applicable
 → accepted | rejected | rolled-back | recovery-required
 → projections reload from accepted canonical revision
 ```
 
-UI、CLI、HTTP、AI Adapter 和 Provider 都只能通过同一个产品 adapter 消费该回路，不能各自维护写路径或成功状态。
+UI、CLI、HTTP、AI Adapter 和 Provider 都只能通过同一个产品 adapter 消费该回路，不能各自维护写路径、实现选择、兼容性或成功状态。
 
 ## 四种不同身份
 
@@ -72,9 +75,9 @@ UI、CLI、HTTP、AI Adapter 和 Provider 都只能通过同一个产品 adapter
 
 ### 1. Authoring 与显式决策
 
-拥有产品意图、Semantic Contract、Block 引用、Policy、受治理源码、Rule-backed Override、Migration decision 和显式 Adopt decision。
+拥有产品意图、Semantic Contract、Block 引用、Policy、受治理源码、Implementation constraints、Rule-backed Override、Migration decision 和显式 Adopt decision。
 
-Authoring Source 是可修改的权威输入，不等于所有源码。Registry source、generated artifact、cache、Evidence、IR JSON、journal、UI state 和外部 Provider 输出默认都不是 Authoring Source。
+Authoring Source 是可修改的权威输入，不等于所有源码。Registry source、generated artifact、cache、Evidence、IR JSON、ResolutionDecision、journal、UI state 和外部 Provider 输出默认都不是 Authoring Source。
 
 ### 2. Physical Workspace
 
@@ -115,9 +118,15 @@ Source observation、AI interpretation 和 Provider analysis只能产生 observe
 
 Responsibility 是 Engineering Semantic Model 中的稳定工程责任对象；它绑定 owned state、operations、effects、permissions、contracts、resources、source/artifact bindings 和 lifecycle。Responsibility reconstruction 可以从 Source Program Model 生成候选，但候选保持 `authoritative: false`，直到显式 Adopt 或 canonical rule 取得 authority。
 
-Delta 分离 Authoring、Entity、Fact/Assertion、Source、Artifact、Runtime Observation 与 Evidence 变化。Actual semantic Delta 只能比较两个 independently validated endpoints。
+Delta/Impact authority分离并比较 independently validated endpoints：
 
-Impact 以 canonical Delta、两端 graph、版本化 propagation rules 和跨域 references 推导 direct/transitive consumers、certainty、witness、unknown frontier 和 Verification recommendation。Changed files、测试列表、AI 风险评分和 UI 边方向都不能替代 canonical Impact。
+- Fact/Assertion Delta只比较canonical semantics；
+- `ImplementationBindingDelta`只比较old/new exact Binding集合；
+- Semantic / Implementation Impact传播到Responsibility、consumer、Artifact、dependency、runtime、Verification、release和support surfaces；
+- Change Management消费Delta/Impact与Evidence，产生Compatibility Decision和Migration，不重做Comparator；
+- Actual Delta不能由Resolver、UI、Migration或测试结果提交。
+
+实现切换不能伪装成源码文本变化，也不能自动改写Semantic Contract。Changed files、测试列表、AI 风险评分、semver和 UI 边方向都不能替代 canonical Delta/Impact 或 Compatibility。
 
 ### 6. Operation、Authorization 与 Plan
 
@@ -127,6 +136,7 @@ Impact 以 canonical Delta、两端 graph、版本化 propagation rules 和跨�
 intent
 + semantic target
 + expected revision
++ implementation constraints / preferences where applicable
 + requested effects
 + required permissions
 + must-preserve / forbidden effects
@@ -135,7 +145,7 @@ intent
 
 平台从 caller capability、Operation Registry、semantic target、source owner、physical path/region、Policy、Provider capability、minimum Verification 和 current revision 的交集重新派生 authorization。
 
-Planner 只读地解析 owner/path、运行 isolated transform、重建 canonical state、计算 preview Delta/Impact 和 Verification union，产生 immutable plan 或 blocked diagnostics。Caller 不能提交 derived path、Delta、Impact、risk、rollback 或 terminal status。
+Planner 只读地解析 owner/path、运行 isolated transform、重建 canonical state、计算preview Resolution、Delta/Impact和Verification union，产生 immutable plan 或 blocked diagnostics。Caller 不能提交 derived path、Eligibility、Decision、Binding、Delta、Impact、risk、rollback 或 terminal status。实现选择输入只能表达受治理的constraint、preference、require、forbid、pin或custom request；所有derived结果由平台重新计算。
 
 ### 7. Transactional Mutation
 
@@ -144,20 +154,21 @@ Mutation 把合法 Operation 计划应用到 Authoring/Governed Source：
 ```text
 validate expected plan
 → acquire unique writer authority
-→ reread live inputs and re-plan
+→ reread live inputs and re-plan / re-resolve
 → source + semantic CAS
 → durable journal
 → stage exact write set
 → pre-publication Verification
 → publish
-→ live canonical rebuild
-→ actual Delta / Impact
+→ live canonical rebuild / re-resolution
+→ actual Semantic / Binding Delta and Impact
+→ Compatibility / Migration checks where applicable
 → post-publication Verification / readback
 → accepted | rejected | rolled-back | recovery-required
 → cleanup receipt
 ```
 
-不存在 partial-success。无法证明 accepted 或 exact prior-state rollback 时必须进入 recovery-required。Semantic Mutation 唯一拥有单次 source/canonical transaction 的 journal、publish、rollback 和 recovery；Change Management 只拥有跨版本 migration、compensation、forward recovery 与 irreversible boundary。
+不存在 partial-success。无法证明 accepted 或 exact prior-state rollback 时必须进入 recovery-required。Semantic Mutation 唯一拥有单次 source/canonical transaction 的 journal、publish、rollback 和 recovery；Change Management只拥有跨版本Compatibility、migration、compensation、forward recovery 与 irreversible boundary；Delta/Impact只拥有结构变化和传播事实。
 
 ### 8. Verification 与 Evidence
 
@@ -173,34 +184,65 @@ Requirement / Claim
 
 Result 至少区分 `passed | failed | not-run | unsupported | invalidated`，并独立记录 executed/reused/not-executed、applicability、environment、input closure、artifacts、cleanup、expiry 和 invalidation lineage。
 
-Verification PASS 只证明 exact requirement 和 input closure；不能自动证明 Compatibility、packaged/deployed 或 product-supported。Evidence Ledger 拥有 record、freshness、coverage、bias、expiry 和 references；Engineering IR 只保存 Assertion 对 Evidence identity 的引用。
+Verification PASS 只证明 exact requirement 和 input closure；不能自动证明Eligibility、Compatibility、packaged/deployed 或 product-supported。Evidence Ledger 拥有 record、freshness、coverage、bias、expiry 和 references；Engineering IR 只保存 Assertion 对 Evidence identity 的引用。Provider或Implementation candidate的conformance、benchmark、安全、许可证和运行结果都是Resolution/Compatibility的输入Evidence，不是最终实现选择或迁移authority。
 
-### 9. Target Compilation
+### 9. Implementation Resolution
 
-Target compilation 只消费 validated Engineering Semantics 和显式 Target Profile：
+Implementation Resolution 只消费validated Engineering/Application/Behavior requirements、Target capability、repository existing-stack facts、用户/组织约束、Provider/Adapter catalog Evidence与版本化Resolution Policy，产生：
+
+```text
+Implementation Requirement
+→ canonical candidate closures
+→ Eligibility Results
+→ Resolution Decision
+→ exact frozen Implementation Binding
+```
+
+它不拥有：
+
+- 产品或业务Semantic Contract；
+- Source Program观察和Provider分析事实；
+- Registry trust和Block内容绑定；
+- package/lock写入和安装；
+- Host/Target物理支持；
+- Fact/Binding Delta与Impact；
+- Compatibility、Migration或retirement decision；
+- Verification结果；
+- Target Program打印和Artifact发布。
+
+正确性、安全、权限、Target、许可证和dependency闭包等硬条件先过滤；unknown/conflict保持显式；优化policy只作用于合格候选；仍并列时使用稳定tie-break。相同完整输入必须产生相同Decision与Binding。Generator、Backend、Adapter、UI、Block Resolver和package materializer不得重新选择实现。
+
+Block Capability Resolution与Implementation Resolution为上下层不同协议：Implementation Resolver可以请求一个受约束的`block-delivered`候选；Block Resolver只在其Registry/Block领域内返回冻结BlockProviderBinding，不能替产品决定原生、参考、既有、自定义或Block实现谁更优。
+
+### 10. Target Compilation
+
+Target compilation 只消费 validated Engineering Semantics、显式 Target Profile和冻结的ImplementationBinding：
 
 ```text
 Engineering Semantic Model
 → Application IR
 → Behavior IR
+→ Implementation Resolution
+→ exact Implementation Binding
 → Target Program IR
 → Backend
 ```
 
 - **Application IR**：目标无关的 module/service/data/state/operation/policy/effect/verification 结构；
 - **Behavior IR**：SEC 能完整验证和 lowering 的受限控制流、数据流、state/effect/error/authorization/transaction；
+- **Implementation Binding**：每个需要具体实现的能力所选Provider/Reference/Existing/Custom闭包及其exact revisions；
 - **Target Program IR**：目标语言 package/module/declaration/statement/expression/import/export/config/resource binding；
 - **Backend**：AST、printer、formatter、typecheck、package/config lowering 和最终 bytes。
 
-每层只有一个 producer、raw/validated boundary、identity/revision、validator、canonical ordering、diagnostic 和 source map。新层只有在真实 consumer 暴露现有层无法安全表达的 gap 时才物理落地；完整设计已冻结不等于提前实现无消费者的 IR 空壳。
+每层只有一个 producer、raw/validated boundary、identity/revision、validator、canonical ordering、diagnostic 和 source map。Target Program IR和Backend不得重新读取raw Contract、live Registry或依赖catalog来选库。新层只有在真实 consumer 暴露现有层无法安全表达的 gap 时才物理落地；完整设计已冻结不等于提前实现无消费者的 IR 空壳。
 
-### 10. Product Surface
+### 11. Product Surface
 
-CLI、Workbench、ExplainGraph、SemanticView、ReviewSummary、Context Packet、Agent Task、文档、Gate、Release 和 dashboard 都是 canonical state 的消费者。
+CLI、Workbench、ExplainGraph、SemanticView、Implementation View、ReviewSummary、Context Packet、Agent Task、文档、Gate、Release 和 dashboard 都是 canonical state 的消费者。
 
-Workbench 只拥有 view/inspector、interaction、transport/session 和 bounded proposal projection；Operation Envelope、Role、Permission、Candidate、Verification 和 terminal result由 Development/Product/Verification 等 machine owner拥有。
+Workbench 只拥有 view/inspector、interaction、transport/session 和 bounded proposal projection；Operation Envelope、Role、Permission、Implementation Decision、Binding Delta、Compatibility、Verification 和 terminal result由各自 machine owner拥有。
 
-Projection 可以过滤、布局和聚合，但必须保留 stable references、revision、authority、unknown 和 Evidence freshness，不能复制或重算上游裁决。
+Projection 可以过滤、布局和聚合，但必须保留 stable references、revision、authority、unknown 和 Evidence freshness，不能复制或重算上游裁决。实现视图可以解释选了什么、为什么、精确版本、淘汰原因、Binding变化和升级影响，但不能把用户点击或AI建议直接变成Binding、Delta或Compatibility Decision。
 
 ## Workspace 状态与路径类别
 
@@ -211,7 +253,7 @@ Projection 可以过滤、布局和聚合，但必须保留 stable references、
 - `control/**`：Lock、Verification、Provenance、Review、Workflow 等持久治理投影；只有对应 owner 可写；
 - `.sec/cache/**`、派生 build info 与可重建索引：可删除、可重算、不能成为 Evidence 或 authority；
 - `.sec/workspace-write-lease/**`、transaction journal、recovery state 与其他 identity-bound control state：不可按“本地缓存”整体删除；
-- runtime/toolchain materialization：可重建但绑定 package、lock、provider、platform 和 generation identity；ambient cache 不能冒充当前实例。
+- runtime/toolchain materialization：可重建但绑定 package、lock、provider、platform、Implementation Binding和generation identity；ambient cache 不能冒充当前实例。
 
 因此 `.sec/**` 不是一种统一生命周期。任何清理器、fixture、worktree hygiene 或发布逻辑都必须先通过机器分类，unknown 默认拒绝删除、复制或并行共享。
 
@@ -223,6 +265,10 @@ Domain 只通过 stable identity 与 revision 关联：
 Physical source/artifact
 ↔ Source Program object/span
 ↔ Semantic Entity/Fact/Responsibility
+↔ Implementation Requirement/Decision/Binding
+↔ Fact / ImplementationBinding Delta and Impact
+↔ Compatibility Decision / Migration
+↔ Target Program/Artifact
 ↔ Operation/Plan/Transaction
 ↔ Verification Claim/Evidence
 ↔ Documentation owner/consumer
@@ -236,30 +282,30 @@ Physical source/artifact
 
 ## 单写者与依赖方向
 
-每个 canonical type、state、identity/revision algorithm、pipeline stage、writer、selector、cache truth 和 public facade 只有一个 owner。合法依赖方向是：
+每个 canonical type、state、identity/revision algorithm、pipeline stage、writer、resolver、comparator、compatibility evaluator、selector、cache truth 和 public facade 只有一个 owner。合法依赖方向是：
 
 ```text
 authority / validated upstream state
-→ deterministic producer
+→ deterministic producer / resolver / comparator
 → validated downstream state
-→ projection / physical executor
+→ decision / projection / physical executor
 ```
 
-Adapter、Workbench、AI、Provider、测试、文档和 Backend 不得反向拥有上游语义。
+Adapter、Workbench、AI、Provider、测试、文档和 Backend 不得反向拥有上游语义；Block Resolver、Implementation Resolver、Delta comparator、Compatibility evaluator、dependency solver和Backend也不得互相复制算法。
 
 迁移固定执行：
 
 ```text
 retain current owner
 → shadow/read-only compare
-→ prove bytes/diagnostics/effects/consumer parity
+→ prove decisions/bindings/deltas/compatibility/bytes/diagnostics/effects/consumer parity
 → migrate consumers
-→ switch the single writer
+→ switch the single resolver/comparator/writer
 → invalidate old revisions
 → delete or archive old owner
 ```
 
-在 source bytes、diagnostics、副作用、consumer 和 failure parity 未证明前，新旧 writer 不能同时写同一 artifact。
+在 Decision、Binding、Delta、Compatibility、source bytes、diagnostics、副作用、consumer 和 failure parity 未证明前，新旧owner不能同时决定或写入同一scope/artifact。
 
 ## 能力成熟度
 
@@ -276,7 +322,7 @@ proposed
 
 对于 Workspace Domain 可进一步使用：inventory → validated model → query/projection → Delta/Impact → Mutation → Migration → Fault/Recovery → product-supported。
 
-文档、类型、fixture、PR 或单平台测试不能跨越后续层级。目标架构字段只有在 TypeScript contract、producer、consumer、migration、tests 和 main readback闭合后才是当前能力。
+文档、类型、fixture、PR 或单平台测试不能跨越后续层级。Implementation Resolution、Binding Delta和Compatibility只有在各自TypeScript contract、真实producer/consumer、migration、positive/negative/failure/property tests 和 main readback闭合后才是当前能力。
 
 ## Agent Operation System
 
@@ -304,6 +350,9 @@ Repository snapshot、Work Package、Impact selection、Failure/Epoch、Verifica
 
 - 上游 validation 失败，后续 producer blocked，不生成猜测输出；
 - Source observation coverage不足时保留 unknown，不伪装不存在；
+- Implementation eligibility无法证明时保留unknown/unsupported/conflicted，不自动沿用旧Binding或选择近似Provider；
+- old/new Binding无法比较时不生成空Delta；
+- Compatibility无法证明时保持unknown，不自动进入Migration或发布；
 - Projection 失败不回写 canonical state；
 - Evidence 缺失或 stale 不改写事实；适用 Claim 要求它时阻止成功；
 - 发布前失败不得产生 live write；
@@ -317,7 +366,7 @@ Repository snapshot、Work Package、Impact selection、Failure/Epoch、Verifica
 
 - 它拥有独立对象、identity 和 lifecycle；
 - 存在真实 producer 和 consumer；
-- 不建立第二 authority、writer、loader、revision、selector 或 pipeline；
+- 不建立第二 authority、writer、loader、revision、resolver、comparator、compatibility evaluator、selector 或 pipeline；
 - 有 migration、compatibility、negative/fault tests 和 retirement；
 - 对当前主线的收益高于上下文、维护和验证成本。
 
