@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -19,6 +18,7 @@ import {
   applySemanticMutationWindowsFileAttributes,
   readSemanticMutationWindowsFileAttributes
 } from '../../platform/compiler/semantic-mutation/windows-file-attributes.ts';
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   SEMANTIC_CONTRACT_YAML_ADAPTER_ID,
   SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,
@@ -68,7 +68,7 @@ const MANIFEST_KEYS = [
 ] as const;
 
 function jsonDigest(value: unknown): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+  return sha256(value);
 }
 
 function buildArtifacts(

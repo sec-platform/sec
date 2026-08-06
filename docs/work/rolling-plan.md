@@ -22,16 +22,17 @@ audit 与 import 修复方向保留为实现来源，但 exact candidate 已关�
 
 ## 当前唯一 Work Package
 
-### active-documentation-corpus-convergence-v2
+### frozen-digest-canonical-form-repair-v1
 
-- Issue #235；PR #284；latest-main 重建分支
-  `docs/active-documentation-corpus-convergence-v2-rebuild`。
-- 将全仓审计的稳定结论路由到现有 canonical owners，不提交审计全文，也不新建第二架构总纲。
-- 复用旧 #273 的删除、registry v2 和 fixture 迁移作为实现来源；旧 identity、Review 和 Evidence
-  全部失效。
-- 物理删除 `docs/archive/**`、原始 ChatGPT 对话、叙事性 Evidence/superpowers，保留必要
-  fixture 与 byte-exact generated navigation。
-- 完成后关闭 #235，从新 `main` 激活 #280；#282 不再越过 health/trust 根因提前写入主干。
+- Issue #309；从 `main@6cbe65d8` 重建并激活。
+- 修复 `4b27555b` canonical sha256 refactor 后 9 个 canonical-form 测试文件（8 semantic-mutation + 1 impact-propagation）的
+  frozen digest 不匹配问题：删除本地非 canonical `sha256`，改用
+  `platform/shared/canonical-primitives.ts` 的 canonical `sha256`。
+- 修改 9 个测试文件 + 本 manifest + active pointer + rolling plan；不修改
+  package/lock、workflow、产品源码或 docs authority。
+- 前驱 `active-documentation-corpus-convergence-v2`（Issue #235，PR #284）已合并，
+  manifest 已退役；旧 Review、Gate、Evidence 不复用。
+- 完成后从新 `main` 重建 #308。
 
 ## 候选 Work Package
 
