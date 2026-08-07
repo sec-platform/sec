@@ -1,7 +1,11 @@
 import {
+  BRANCH_CLOSEOUT_RECEIPT_COMMENT_MARKER
+} from './branch-closeout-receipt.ts';
+import {
   assertGitBranchName,
   assertGitSha,
   type BranchActiveWorkPackageObservation,
+  type BranchCloseoutReceiptCommentCandidate,
   type BranchPullRequestObservation,
   type BranchRefObservation
 } from './branch-lifecycle-contract.ts';
@@ -113,6 +117,50 @@ export function countPorcelainStatus(
   return { dirtyCount, untrackedCount };
 }
 
+function commentAuthorLogin(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const login = (value as Record<string, unknown>).login;
+  return typeof login === 'string'
+    && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(login)
+    ? login
+    : null;
+}
+
+function flattenedRestComments(source: string): unknown[] {
+  const parsed: unknown = JSON.parse(source);
+  if (!Array.isArray(parsed)) {
+    throw new Error('GitHub issue comments response must be an array.');
+  }
+  return parsed.every(Array.isArray) ? parsed.flat() : parsed;
+}
+
+export function parseRestCloseoutReceiptCommentCandidates(
+  source: string,
+  pullRequestNumber: number
+): BranchCloseoutReceiptCommentCandidate[] {
+  const candidates: BranchCloseoutReceiptCommentCandidate[] = [];
+  for (const [index, comment] of flattenedRestComments(source).entries()) {
+    if (!comment || typeof comment !== 'object' || Array.isArray(comment)) {
+      throw new Error(`PR #${pullRequestNumber} REST comment ${index} must be an object.`);
+    }
+    const record = comment as Record<string, unknown>;
+    if (typeof record.body !== 'string') {
+      throw new Error(`PR #${pullRequestNumber} REST comment ${index}.body must be a string.`);
+    }
+    if (!record.body.includes(BRANCH_CLOSEOUT_RECEIPT_COMMENT_MARKER)) continue;
+    const author = commentAuthorLogin(record.user);
+    if (author === null) continue;
+    candidates.push({
+      body: record.body,
+      author,
+      authorAssociation: typeof record.author_association === 'string'
+        ? record.author_association
+        : null
+    });
+  }
+  return candidates;
+}
+
 export function parsePullRequestObservations(source: string): BranchPullRequestObservation[] {
   const parsed: unknown = JSON.parse(source);
   if (!Array.isArray(parsed)) throw new Error('gh pr list must return an array.');
@@ -125,6 +173,7 @@ export function parsePullRequestObservations(source: string): BranchPullRequestO
     const headBranch = record.headRefName;
     const headSha = record.headRefOid;
     const baseBranch = record.baseRefName;
+    const baseSha = record.baseRefOid;
     const stateValue = record.state;
     const isCrossRepository = record.isCrossRepository;
     if (typeof number !== 'number' || !Number.isSafeInteger(number) || number <= 0) {
@@ -135,12 +184,16 @@ export function parsePullRequestObservations(source: string): BranchPullRequestO
       throw new Error(`PR #${number} head SHA is invalid.`);
     }
     if (typeof baseBranch !== 'string') throw new Error(`PR #${number} base branch is invalid.`);
+    if (baseSha !== undefined && baseSha !== null && typeof baseSha !== 'string') {
+      throw new Error(`PR #${number} base SHA is invalid.`);
+    }
     if (typeof isCrossRepository !== 'boolean') {
       throw new Error(`PR #${number} cross-repository identity is invalid.`);
     }
     assertGitBranchName(headBranch, `PR #${number} head branch`);
     assertGitBranchName(baseBranch, `PR #${number} base branch`);
     if (typeof headSha === 'string') assertGitSha(headSha, `PR #${number} head SHA`);
+    if (typeof baseSha === 'string') assertGitSha(baseSha, `PR #${number} base SHA`);
     const state = typeof stateValue === 'string' ? stateValue.toLowerCase() : '';
     if (state !== 'open' && state !== 'closed' && state !== 'merged') {
       throw new Error(`PR #${number} state is invalid.`);
@@ -153,7 +206,11 @@ export function parsePullRequestObservations(source: string): BranchPullRequestO
       state,
       isDraft: record.isDraft === true,
       isCrossRepository,
-      url: typeof record.url === 'string' ? record.url : null
+      url: typeof record.url === 'string' ? record.url : null,
+      baseSha: typeof baseSha === 'string' ? baseSha : null,
+      closeoutReceiptCommentCandidates: [],
+      publishedCloseoutReceipts: [],
+      invalidCloseoutReceiptComments: []
     };
   }));
 }
