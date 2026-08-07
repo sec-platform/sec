@@ -4,12 +4,15 @@ on:
   push:
     branches:
       - validation/issue-178-workspace-export
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: validation-issue-178-workspace-export
+  group: validation-issue-178-workspace-export-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -33,9 +36,10 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SEC_EXPORT_BASE"
-          git status --porcelain=v1
+          test -z "$(git status --porcelain=v1)"
           git fsck --no-progress
-          git show-ref > .tmp-show-ref.txt
+          mkdir -p .tmp
+          git show-ref > .tmp/show-ref.txt
           git --version
 
       - name: Setup pinned Bun
@@ -66,7 +70,7 @@ jobs:
           cp .bun-version "$out/.bun-version"
           cp bun.lock "$out/bun.lock"
           cp package.json "$out/package.json"
-          cp .tmp-show-ref.txt "$out/git-show-ref.txt"
+          cp .tmp/show-ref.txt "$out/git-show-ref.txt"
 
           {
             printf 'schema=sec-workspace-export-v1\n'
