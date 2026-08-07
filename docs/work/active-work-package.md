@@ -11,14 +11,14 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/verification-control-plane-foundation-v1.md
-manifestDigest: sha256:3c00bf16ebfb7721db11a0f785fb62b3ece97093474e33132aa20e797feafeec
+manifestDigest: sha256:bc3b1cfcd433868d8503ff522192fc1d2a3cf1079fc553cc948ed1680f95503f
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 ```
 
 Work Package `verification-control-plane-foundation-v1`（Issue #311）从
-`main@d04b2e4c4a3986c82dbe717d6a72d0d397cc8a74` 激活。前驱
+`main@409a4466ef7970a97cff4e996245cee2f91bb03d` 激活。前驱
 `branch-ref-lifecycle-enforcement-v1`（#313）已闭合（PR #315/#319 进入 `main`，
 self-closeout 与 #280 protected-pending 结算 receipt 已发布并 readback，
 manifest 保留为完成记录）。新包建立最小 Verification Session：machine registry

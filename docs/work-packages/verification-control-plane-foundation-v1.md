@@ -2,7 +2,7 @@
 schema: codex-development-work-package-v1
 id: verification-control-plane-foundation-v1
 tracking: issue-311
-base: d04b2e4c4a3986c82dbe717d6a72d0d397cc8a74
+base: 409a4466ef7970a97cff4e996245cee2f91bb03d
 manifestState: frozen
 requiredProfile: quick
 ciRevision: ci-verification-v19
