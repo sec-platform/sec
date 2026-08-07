@@ -76,7 +76,7 @@ function defaultRecoveryRoot(inventory: BranchLifecycleInventory): string {
   );
 }
 
-function ensureRecoveryRoot(
+export function ensureRecoveryRoot(
   inventory: BranchLifecycleInventory,
   configuredRoot: string | undefined
 ): string {
@@ -110,10 +110,18 @@ export function createRecoveryBundle(input: {
   inventory: BranchLifecycleInventory;
   branch: string;
   expectedSha: string;
+  refSource?: { kind: 'branch' } | { kind: 'pull'; number: number };
 }): { recovery: BranchRecoveryAuthority; attempts: BranchCloseoutAttempt[] } {
   const { ctx, inventory, branch, expectedSha } = input;
+  const refSource = input.refSource ?? { kind: 'branch' as const };
   assertGitBranchName(branch);
   assertGitSha(expectedSha, 'recovery expected SHA');
+  if (
+    refSource.kind === 'pull'
+    && (!Number.isSafeInteger(refSource.number) || refSource.number <= 0)
+  ) {
+    throw new Error('pull recovery source requires a positive PR number.');
+  }
   const attempts: BranchCloseoutAttempt[] = [];
   const repositoryRoot = inventory.repository.root;
   const recoveryRoot = ensureRecoveryRoot(inventory, ctx.recoveryRoot);
@@ -123,16 +131,22 @@ export function createRecoveryBundle(input: {
   const bundleName = `sec-branch-closeout-${safeBranch}-${token}.bundle`;
   const bundlePath = path.join(recoveryRoot, bundleName);
   const checksumPath = `${bundlePath}.sha256`;
+  const sourceSpec = refSource.kind === 'pull'
+    ? `refs/pull/${refSource.number}/head`
+    : `refs/heads/${branch}`;
+  const sourceLabel = refSource.kind === 'pull'
+    ? `pull/${refSource.number} head`
+    : `remote branch ${branch}`;
 
   try {
     const fetch = runBranchCommand(ctx, 'git', [
       'fetch',
       '--no-tags',
       inventory.repository.remote,
-      `+refs/heads/${branch}:${stagingRef}`
+      `+${sourceSpec}:${stagingRef}`
     ], repositoryRoot);
     if (fetch.status !== 0) {
-      throw new Error(`recovery fetch failed: ${commandErrorText(fetch)}`);
+      throw new Error(`recovery fetch failed (${sourceLabel}): ${commandErrorText(fetch)}`);
     }
     const fetchedSha = requireBranchCommandText(
       ctx,
@@ -143,7 +157,7 @@ export function createRecoveryBundle(input: {
     );
     if (fetchedSha !== expectedSha) {
       throw new Error(
-        `remote SHA raced during recovery preparation: expected ${expectedSha}, fetched ${fetchedSha}`
+        `${sourceLabel} SHA raced during recovery preparation: expected ${expectedSha}, fetched ${fetchedSha}`
       );
     }
 
@@ -169,7 +183,7 @@ export function createRecoveryBundle(input: {
     attempts.push({
       operation: 'recovery-create',
       status: 'success',
-      detail: bundlePath
+      detail: `${bundlePath} (source ${sourceLabel})`
     });
 
     const verify = runBranchCommand(ctx, 'git', ['bundle', 'verify', bundlePath], repositoryRoot);

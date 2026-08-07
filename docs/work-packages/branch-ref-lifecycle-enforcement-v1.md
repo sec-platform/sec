@@ -2,7 +2,7 @@
 schema: codex-development-work-package-v1
 id: branch-ref-lifecycle-enforcement-v1
 tracking: issue-313
-base: 38a5bf80c24ea8703e7ed9a7aff3b7a920d95aff
+base: bd54653bdcb60296b82b1f567de44823ca1a776b
 manifestState: frozen
 requiredProfile: quick
 ciRevision: ci-verification-v19
