@@ -4,6 +4,8 @@ export const BRANCH_CLOSEOUT_PREPARATION_SCHEMA_V1 =
   'sec-branch-closeout-preparation-v1' as const;
 export const BRANCH_CLOSEOUT_RECEIPT_SCHEMA_V1 =
   'sec-branch-closeout-receipt-v1' as const;
+export const BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA_V1 =
+  'sec-branch-closeout-published-receipt-v1' as const;
 export const BRANCH_REF_CLOSEOUT_CAPABILITY_V1 =
   'branch-ref-closeout-v1' as const;
 
@@ -47,6 +49,54 @@ export interface BranchWorktreeObservation {
   reason: string | null;
 }
 
+export interface BranchPublishedCloseoutReceiptV1 {
+  schema: typeof BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA_V1;
+  repository: string;
+  pullRequest: number | null;
+  branch: string;
+  preparedHeadSha: string;
+  preparationDigest: `sha256:${string}`;
+  recoveryDigest: `sha256:${string}`;
+  disposition: BranchCloseoutDisposition;
+  durableGoal: {
+    kind: 'main' | 'issue' | 'evidence';
+    reference: string;
+  };
+  authorization: {
+    remoteAction: 'delete-cas' | 'already-absent' | 'blocked';
+    localAction: 'delete-exact' | 'already-absent' | 'protect-local' | 'blocked';
+  };
+  attempts: ReadonlyArray<{
+    operation: BranchCloseoutAttempt['operation'];
+    status: BranchCloseoutAttempt['status'];
+    detailDigest: `sha256:${string}`;
+  }>;
+  readback: {
+    mainRemoteSha: string | null;
+    remoteBranchSha: string | null;
+    localBranchSha: string | null;
+    boundWorktreeCount: number;
+    unknownCount: number;
+  };
+  closeoutStatus: BranchCloseoutStatus;
+  mainSha: string | null;
+  receiptDigest: `sha256:${string}`;
+  publicationDigest: `sha256:${string}`;
+}
+
+export interface BranchCloseoutReceiptCommentCandidate {
+  body: string;
+  author: string;
+  authorAssociation: string | null;
+}
+
+export interface BranchCloseoutReceiptObservation {
+  requirement: 'required' | 'not-required' | 'unknown';
+  status: 'present' | 'missing' | 'invalid' | 'conflicted' | 'not-required' | 'unknown';
+  receipt: BranchPublishedCloseoutReceiptV1 | null;
+  reason: string | null;
+}
+
 export interface BranchPullRequestObservation {
   number: number;
   headBranch: string;
@@ -56,6 +106,11 @@ export interface BranchPullRequestObservation {
   isDraft: boolean;
   isCrossRepository: boolean;
   url: string | null;
+  baseSha?: string | null;
+  closeoutReceiptCommentCandidates?: BranchCloseoutReceiptCommentCandidate[];
+  publishedCloseoutReceipts?: BranchPublishedCloseoutReceiptV1[];
+  invalidCloseoutReceiptComments?: string[];
+  closeoutReceipt?: BranchCloseoutReceiptObservation;
 }
 
 export interface BranchActiveWorkPackageObservation {
@@ -204,4 +259,15 @@ export interface BranchCloseoutReceipt {
   status: BranchCloseoutStatus;
   residue: string[];
   receiptDigest: `sha256:${string}`;
+}
+
+export interface BranchCloseoutPublicationResult {
+  target:
+    | { kind: 'pull-request'; number: number }
+    | { kind: 'issue'; number: number }
+    | null;
+  publish: 'success' | 'failed' | 'unsupported';
+  readback: 'success' | 'failed' | 'unsupported';
+  receipt: BranchPublishedCloseoutReceiptV1 | null;
+  detail: string;
 }

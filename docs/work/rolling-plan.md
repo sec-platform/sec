@@ -2,164 +2,108 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-07
 ---
 
 # SEC 滚动近期计划
 
-本窗口从 `main@334c7717e9ed7ed40c250be9a9acc2f2fea77d83` 重算。PR #310（frozen-digest-canonical-form-repair-v1）
-已合并并完成 new-main readback，canonical sha256 修复
-已进入 `main`。PR #308（implementation-resolution-architecture-convergence-v1）从新 main 重建并激活，
-统一承载 Implementation Resolution 设计的 canonical owner 融合。`main` 已包含 #280 v1 的产品修复与
-post-merge provenance 记录；原 PR #281 的转移仍是 `repaired` 而非 `authorized`，平台防复发继续由 #279
-拥有。PR #289 的 external Evidence、audit 与 import 修复方向保留为实现来源，但 exact candidate 已关闭。
+本窗口从 `main@38a5bf80c24ea8703e7ed9a7aff3b7a920d95aff` 重算。PR #308 已把
+Implementation Resolution 的稳定架构与 owner 边界融合进 `main`，但没有实现 Resolver、Provider catalog、
+TypedInvocation、Binding comparator、Compatibility evaluator 或 Workbench selector。Issue #307 保持开放。
 
-近期顺序遵循三条硬约束：
+PR #308 后 GitHub 远程 heads 已只剩 `main`，但没有可发现的逐 ref lifecycle receipts、#308 closeout receipt、
+不同 principal 的独立 Review或完整 hosted Gate闭包；静态 pointer/rolling plan也仍停留在已合并candidate。
+因此下一正式包不是继续扩写产品架构，而是闭合 #313 的 terminal enforcement。
 
-1. 先完成当前文档/信息物理收缩，消除重复 owner、原始聊天、历史正文和叙事 Evidence；
-2. 随后闭合 default-branch health/Verification/TCB 根因，使所有后继只消费外部物理 Evidence；
-3. P0/P1 integrity 只做聚焦修复，之后立即回到 Physical Workspace、Source Program、
-   Responsibility、Workbench 单写路径和 IR-owned Backend，禁止治理任务无限饥饿产品线。
+近期执行遵循：
+
+1. 先让所有 merge/close路径不能绕过 branch/ref terminal；
+2. 再建立 #311 最小 Verification Session基础，消除 PR body、single-parent和多Check时序拼接；
+3. #282 对 current tree及PR #284删除的47,287行做claim-level信息生命周期审计；
+4. #314机器区分specified、implemented、verified、enforced、adopted和retired；
+5. 随后推进TS7高收益工具链迁移并迅速回到产品Semantic Compiler纵切片。
 
 ## 当前唯一 Work Package
 
-### implementation-resolution-architecture-convergence-v1
+### branch-ref-lifecycle-enforcement-v1
 
-- Issue #307；PR #308；从 post-#310 新 main `334c7717` 重建并激活。
-- 将 Issue #307 中已审计的 Implementation Resolution 设计融合到现有 canonical owners，
-  不提交并列总设计文档，也不新建第二 resolver/comparator/compatibility evaluator。
-- 修改 14 个 canonical authority docs + `docs/authority.json` + byte-exact generated `docs/README.md`
-  + 本 successor manifest；不修改 package/lock、workflow、产品源码或测试。
-- 前驱 `active-documentation-corpus-convergence-v2`（Issue #235，PR #284）已合并，
-  manifest 已退役；旧 Review、Gate、Evidence 不复用。
-- 完成后关闭 #307，从新 `main` 激活下一个候选。
+- Issue #313；从 `main@38a5bf80` 激活。
+- 原子退役 #308 manifest并结算pointer/rolling plan。
+- 对post-enforcement merged、closed-superseded和completed-spike操作要求durable receipt。
+- merge/bootstrap/manual closeout任一publication/readback失败不得输出clean completion。
+- admin/web/connector旁路由repository health检测为degraded/locked。
+- 保留dirty/worktree-bound本地分支为typed `protected-pending`；CAS drift fail closed。
+- 合并后使用自身机制完成self-closeout。
 
 ## 候选 Work Package
 
-### 1. default-branch-health-and-verification-bootstrap-sequence
+### 1. verification-control-plane-foundation-v1
 
-按独立聚焦包从 then-latest main 执行，不复活 PR #289 的混合 control-plane candidate：
-
-1. Issue #280 A：全树 canonical import baseline closure；所有 frozen TCB blob substitution 生成
-   exact closure delta 并由 trusted-base candidate-as-SUT/bootstrap验证；
-2. Issue #280 B：repository-audit 只消费 canonical pointer/lifecycle resolver，删除
-   `matching-default-blob` false positive，不恢复 `docs/archive/**`；
-3. Issue #280 C：revision health 只由 producer→external artifact→projector 推导，保留真实
-   deterministic/environment/unsupported/unresolved/applicability，不在源码自报 SHA、时间或 trusted；
-4. #291 闭合 canonical ordinary-data、ordering、dedup collision、freeze 与 digest 信任面；
-5. #237/#239 将 Physical execution、Gate/Claim、CI/GitHub/CLI projection 收敛为单一 Verification truth；
-6. #178/#279 分层 TCB builder/schema/frozen lock/trusted-base verifier并完成最终 trust transition。
-
-PR #289 的 commits/patches只作为实现来源；其旧 pointer、rolling plan、archive、Review、Gate和
-Evidence一律不复用。一个 ordinary successor必须证明修复后的主干路径可正常工作。
+- Issue #311 Phase 0与最小foundation。
+- 建立machine WorkPackage registry projection、稳定Manifest与FreezeSession分离、Candidate Tree和单一Session纵切片。
+- base/candidate使用同一trusted plan；最终merge只证明merged tree等于verified candidate tree。
+- 不一次实现完整Evidence DAG、Queue、Hermetic Runtime或Bootstrap平台。
 
 ### 2. repository-information-lifecycle-v1
 
-- Issue #282；在 #280 新主干 readback 后，对 exact tracked tree 建立唯一信息生命周期分类和
-  `unknown = 0` 门禁。
-- 扩展现有 repository audit，不创建第二审计系统；报告进入 CI Artifact，默认不 tracked。
-- 检测 raw chat、private URL、占位 Evidence、本机路径、stale provider profile、archive current
-  consumer、重复 instruction owner、临时输出和未知 retention。
+- Issue #282。
+- 对exact current tree和 `2d7187f4... → 6cbe65d8...` 全部removed/renamed blobs建立disposition。
+- 不恢复47,287行旧archive；逐claim区分code/test-owned、migrated、historical-git-only、extract-required和unresolved。
+- Nexus 29 EPR在ledger `bound: 0 / expected: 29` 的缺口必须逐项绑定或阻塞。
+- 全量claim census已识别两个此前无owner的耐久缺口：#317受限递归Engineering Composition、#318 Semantic Engineering Benchmark；它们只作为后继owner，不把旧对话恢复成authority。
+- 扩展现有repository audit，不建立第二审计系统。
 
-### 3. repository-integrity-closeout-sequence
+### 3. architecture-decision-enforcement-registry-v1
 
-按独立聚焦包串行执行，不合并成巨型治理 PR：
+- Issue #314。
+- 首批登记branch lifecycle、Verification Control Plane、TypeScript 7、Implementation Resolution和canonical digest。
+- 文档、Issue、类型或测试存在不能自动提升到implemented/enforced。
+- known bypass、missing consumer、missing physical Evidence或未退役旧路径阻止成熟度升级。
 
-1. #247 `public-publisher-network-removal-v1`：删除 live-worktree copy 与 force-push 网络入口；
-2. #244 `external-input-security-boundary-v1`：GitHub 外部自然语言、Workbench HTTP/DOM/远程资源和
-   outbound handoff只作 untrusted data/explicit export，普通编译、emit、Verification保持零隐式网络；
-3. #248 `ci-git-and-ai-provenance-hygiene-v1`：immutable Action、commit/staged-tree、logger、Git hooks与
-   AI assistance provenance、no-bypass readback；
-4. #303 `workspace-lifecycle-safety-v1`：普通init不得覆盖现有Plan/package/config/source，reset-derived
-   与显式destroy分离；
-5. #190/#305：普通Verification不得把Workspace测试/Slot代码导入SEC宿主进程；Slot静态禁词降级为
-   lint，未有Capability Profile与隔离Provider时fail closed。
+### 4. typescript-7-dual-provider-phase-0-1
 
-每个 child package 都必须删除真实旁路，不能只新增 schema 或说明文档。
+- Issue #312、#193。
+- Phase 0先做TS6.0.3与TS7 exact diagnostics、platform、determinism、cold/warm性能只读parity。
+- Phase 1只在 #311 最小可信基础和package/lock唯一writer成立后采用TS7 CLI + TS6 Program API双Provider。
+- CLI checker、Program/TypeChecker、Language Service、printer与build executable保持分域。
 
-### 4. physical-workspace-and-typescript-source-program-v1
+### 5. product-semantic-compiler-foundation-sequence
 
-按真实 consumer 分成有序纵切片：
+按独立真实consumer纵切片推进，不合并成巨型基础设施包：
 
-1. Issue #294：先闭合Plan/Registry/Block/Manifest逻辑identity、目录编码、source-bound cache和
-   requested/actual object binding；
-2. Issue #296：为当前 Semantic Frontend 建立只读 exact 多文件 Workspace Observation、raw digest、
-   physical identity、pre/post readback 与 deterministic observation revision；
-3. Issue #306：在扩大Source Program与Responsibility输入前，闭合 Semantic Contract strict raw schema、
-   namespace/import/identity、semantic/source/provider revision、Type/Effect/Scenario基础语义，并把
-   Verification requirement与physical PASS result分离；
-4. 在真实 SEC TypeScript 子系统上消费 Observation，使用 Compiler API Program/TypeChecker产生
-   module/symbol/type/span/control/data/state/effect candidates，保留 unknown/opaque；现有ts-morph代码生成、
-   regex discovery和test-import selector不得冒充Source Program；
-5. Issue #293：在 observed/inferred assertion 大量进入前闭合 Engineering IR raw→validated
-   confidence/provenance/evidence/validity/attribute 边界；
-6. 与 #224 Responsibility reconstruction/reconcile/adopt 和 focused Impact rules连接，形成首个
-   Self-Observation / Self-Impact 纵切片。
+1. #291 canonical ordinary-data；
+2. #294 Registry/Manifest逻辑identity与binding；
+3. #296 exact Physical Workspace Observation；
+4. #306 Semantic Contract strict authority；
+5. #293 Engineering IR raw→validated边界；
+6. #224 TypeScript Source Program / Responsibility；
+7. #299 Block Capability Resolution；
+8. #317 bounded recursive Engineering Composition / containment legality；
+9. #300 Composition transaction；
+10. #290 首个IR-owned Backend；
+11. #307 最小Implementation Resolution Kernel。
 
-### 5. product-self-bootstrap-sequence
+#317必须复用现有Engineering IR/Capability/Contract owner，不建立第二graph或“万能Block树”；只在真实consumer上实现typed containment、identity/revision和negative legality。
 
-仍拆成独立 successor，不形成一个大包：
+## 已路由但不自动抢占近期顺序的任务
 
-1. Issue #287 `task-envelope-de-specialization-v1`：删除 Customer/Ticket、单一 Target、固定测试路径
-   和 runtime attribution业务启发式；
-2. Issue #288 `workbench-operation-unification-v1`：Workbench/CLI/HTTP/AI 只提交 Engineering Operation，
-   退役直接 `source/app.yaml`、slot bootstrap 与 mutation inbox writer；
-3. Issue #299 `block-capability-resolution-v1`：Capability requirement通过显式Provider selector、Registry
-   trust、version/contract/effect compatibility形成冻结ProviderBinding，不再因唯一字符串匹配自动授权；
-4. Issue #300 `block-composition-transaction-v1`：locked inputs形成Artifact owner DAG和staged desired tree，
-   原子或可恢复发布，退役live install/generator/override direct writers；
-5. Issue #290 `first-ir-owned-backend-v1`：以 `generated/routes.ts` 为首个真实 artifact，经过最小
-   Application Route / Target Program IR 和 TypeScript Backend shadow parity，并通过 #300 发布，切换后删除
-   raw-manifest `renderRouteGraph` writer。现有 state-transition semantic generator作为revision/provenance参考，
-   不为未来语言预建无人消费的完整IR字段宇宙；
-6. Issue #307 `implementation-resolution-kernel-v1`：在 #299/#300/#290 已提供真实 ProviderBinding、
-   transactional artifact writer 和 Target Program IR consumer 后，由 `compiler-target-ir` 唯一拥有
-   `semantic requirements → candidate closure → hard eligibility → policy optimization → deterministic tie-break
-   → ResolutionDecision → exact ImplementationBinding → Target Program IR`。Block Resolver只解析
-   Block/Capability依赖，Provider/Adapter/Generator/Workbench不得自行选库；首包只验证一个多候选真实纵切片，
-   同时保留 L0 physical dependency、L1 typed invocation、L2 governed invocation、L3 candidate、
-   L4 verified Provider/Adapter 和可选 L5 Normalize 的渐进接入，不预建全生态空模型。
+以下Issue仍由各自唯一owner保存，不复制为第二backlog；成为当前阻塞或满足进入条件时从最新 `main` 生成聚焦包：
 
-## 已路由但不自动抢占近期顺序的缺陷
-
-以下 finding 已有唯一 owner，只有成为当前阻塞、风险提升或被 selector 选中时才生成正式包；
-不把 rolling plan 退化成永久 backlog：
-
-- #216 release lane credential/fetch修复；
-- #292 Opaque Module manifest/identity/install fail-closed；
-- #295 Frontend Attachment isolation fail-closed；
-- #297 Policy declaration/override/evaluator/Gate fail-closed；
-- #298 Upgrade/Migration事务、dry-run、recovery、prototype path与unsupported operation安全；
-- #301 exact-tree Release Artifact、package manifest、clean install、SBOM/provenance与promotion Evidence；
-- #302 Repair精确失败归因、最小受控Mutation和真实re-verification；
-- #304 CLI成功/失败统一Operation Envelope、纯净JSON、稳定退出码与packed binary测试；
-- #190/#193 dependency bridge、filesystem/process/environment identity、provider与cleanup；
-- #176 fast zero-test、Acceptance case Evidence和非PASS supportedClaims真值；
-- #179 Pipeline Journal事件/CAS/recovery；
-- #188 TypeScript Program驱动的transitive Semantic Test Impact；
-- #194 immutable domain revisions、lock/artifact transaction publication与clean/incremental parity；
-- #167 dormant unsafe microservice lowering 的 quarantine/Target Profile裁决。
-
-## 并行与自动化恢复条件
-
-Issue #207 不再自动排在产品纵切片之前。只有以下事实全部成立后，才激活
-`parallel-resolver-correctness-v1-1`：
-
-- ordinary candidate 的 exact-head Review/Gate/merge/readback 路径已连续稳定；
-- default branch 无 direct-push/admin bypass；
-- Verification 单真值、revision health与TCB bootstrap已闭合；
-- package/lock、docs/work、workflow、Skill registry 和 mutable resources 有唯一 writer；
-- 至少一个 Source Program/Responsibility 产品纵切片进入 `main`，证明并行不会继续饥饿产品线。
-
-`unresolved` 永不授权并行。并行开发不等于同时写入 `main`；任一 candidate 先合并后，
-剩余 epoch 因 base 变化失效并从新主干重算。
+- #176/#177/#178/#179/#188/#190/#191/#194：Verification、Epoch、TCB、Journal、Impact、Hermetic与增量；
+- #237/#239/#244/#247/#248/#275/#279/#280：Evidence、外部输入、publisher、provenance、Skill和default-branch authority；
+- #287/#288/#292/#295/#297/#298/#301/#302/#303/#304/#305：产品去特化、Operation、Opaque/Frontend/Policy、Migration、Release、Repair、Workspace、CLI和Slot安全；
+- #167/#192/#193/#216：Host/Toolchain/Dependency/Release lane；
+- #316：Performance Truth、Resource Budget和Throughput Architecture，只拥有测量/预算/回归，不与Compiler/Test/Verification owner争权；
+- #318：Semantic Engineering Benchmark，拥有Intent→Spec→System→Acceptance任务/corpus/reference truth/anti-gaming；在Source Program、Contract、Workbench Operation和首个IR-owned Backend有真实consumer后启动，完整B5在#307最小纵切片后校准；
+- #207：只有普通candidate Review/Gate/merge/readback连续稳定、mutating resources有唯一writer且产品纵切片已进入main后才恢复并行。
 
 ## 可并行只读工作
 
-- #192 Node/Bun × Windows/Linux 物理 capability Evidence；
+- #282 PR #284 deleted-blob claim census；
+- #192 Node/Bun × Windows/Linux capability Evidence；
 - #193 latest dependency/provider consumer census；
-- #194 compiler cold/warm benchmark 与 pass/artifact census；
-- 13K dev-runner authority proof 的独立 oracle、重复 substrate 和 mutation-detection 只读审计。
+- #194 compiler cold/warm benchmark与pass/artifact census；
+- #312 TS7 Phase 0隔离parity；
+- #316 Phase 0性能Census和#318 benchmark case/reference-truth设计只能作为Evidence/设计输入，不取得当前writer。
 
-上述工作不得修改当前 manifest owned paths、package/lock、workflow、control plane 或产品代码；
-结果只进入各自 Issue/Evidence owner，不自动取得合并资格。
+只读结果进入对应Issue/Evidence owner，不自动取得合并资格。任一正式candidate进入main后，其他候选必须从新主干重算base、scope和Evidence。

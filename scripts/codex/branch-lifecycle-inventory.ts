@@ -2,6 +2,11 @@ import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH,
+  parsePublishedBranchCloseoutReceiptComments,
+  resolveBranchCloseoutReceiptObservation
+} from './branch-closeout-receipt.ts';
+import {
   commandErrorText,
   commandText,
   optionalBranchCommandText,
@@ -13,6 +18,7 @@ import {
   BRANCH_LIFECYCLE_INVENTORY_SCHEMA_V1,
   assertGitBranchName,
   type BranchActiveWorkPackageObservation,
+  type BranchCloseoutReceiptObservation,
   type BranchLifecycleInventory,
   type BranchPruneConfigurationObservation,
   type BranchPullRequestObservation,
@@ -26,10 +32,12 @@ import {
   parseLocalBranchRefs,
   parsePullRequestObservations,
   parseRemoteHeadRefs,
+  parseRestCloseoutReceiptCommentCandidates,
   parseWorktreePorcelain
 } from './branch-lifecycle-parsers.ts';
 
 const DEFAULT_REMOTE = 'origin';
+type CollaboratorPermission = 'trusted' | 'untrusted' | 'unknown';
 
 function stableSortWorktrees(entries: BranchWorktreeObservation[]): BranchWorktreeObservation[] {
   return entries.sort((left, right) => left.path.localeCompare(right.path));
@@ -219,6 +227,218 @@ function listWorktrees(
   }));
 }
 
+function remoteMarkerRequirement(
+  ctx: BranchLifecycleContext,
+  repositoryRoot: string,
+  repositoryFullName: string,
+  baseSha: string
+): BranchCloseoutReceiptObservation['requirement'] {
+  const result = runBranchCommand(ctx, 'gh', [
+    'api',
+    `/repos/${repositoryFullName}/contents/${BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH}?ref=${baseSha}`,
+    '--silent'
+  ], repositoryRoot);
+  if (result.status === 0) return 'required';
+  const error = commandErrorText(result);
+  return /(?:HTTP\s+404|status\s+404|Not Found)/iu.test(error) ? 'not-required' : 'unknown';
+}
+
+function closeoutReceiptRequirement(
+  ctx: BranchLifecycleContext,
+  repositoryRoot: string,
+  repositoryFullName: string,
+  pullRequest: BranchPullRequestObservation
+): BranchCloseoutReceiptObservation['requirement'] {
+  if (pullRequest.isCrossRepository) return 'not-required';
+  if (pullRequest.baseSha === null || pullRequest.baseSha === undefined) return 'unknown';
+  const commit = runBranchCommand(
+    ctx,
+    'git',
+    ['cat-file', '-e', `${pullRequest.baseSha}^{commit}`],
+    repositoryRoot
+  );
+  if (commit.status !== 0) {
+    return remoteMarkerRequirement(
+      ctx,
+      repositoryRoot,
+      repositoryFullName,
+      pullRequest.baseSha
+    );
+  }
+  const marker = runBranchCommand(
+    ctx,
+    'git',
+    ['cat-file', '-e', `${pullRequest.baseSha}:${BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH}`],
+    repositoryRoot
+  );
+  return marker.status === 0 ? 'required' : 'not-required';
+}
+
+function collaboratorPermission(
+  ctx: BranchLifecycleContext,
+  repositoryRoot: string,
+  repositoryFullName: string,
+  author: string,
+  cache: Map<string, { permission: CollaboratorPermission; reason: string | null }>
+): { permission: CollaboratorPermission; reason: string | null } {
+  const cached = cache.get(author);
+  if (cached) return cached;
+  const result = runBranchCommand(ctx, 'gh', [
+    'api',
+    `/repos/${repositoryFullName}/collaborators/${author}/permission`,
+    '--jq',
+    '.role_name // .permission'
+  ], repositoryRoot);
+  if (result.status !== 0) {
+    const observation = {
+      permission: 'unknown' as const,
+      reason: `collaborator permission for ${author} failed: ${commandErrorText(result)}`
+    };
+    cache.set(author, observation);
+    return observation;
+  }
+  const role = commandText(result).toLowerCase();
+  const observation = {
+    permission: role === 'admin' || role === 'maintain'
+      ? 'trusted' as const
+      : 'untrusted' as const,
+    reason: null
+  };
+  cache.set(author, observation);
+  return observation;
+}
+
+function loadCloseoutReceiptCommentCandidates(
+  ctx: BranchLifecycleContext,
+  repositoryRoot: string,
+  repositoryFullName: string,
+  pullRequest: BranchPullRequestObservation
+): { candidates: NonNullable<BranchPullRequestObservation['closeoutReceiptCommentCandidates']> | null; reason: string | null } {
+  const existing = pullRequest.closeoutReceiptCommentCandidates ?? [];
+  if (existing.length > 0) return { candidates: existing, reason: null };
+
+  const result = runBranchCommand(ctx, 'gh', [
+    'api',
+    '--paginate',
+    '--slurp',
+    `/repos/${repositoryFullName}/issues/${pullRequest.number}/comments?per_page=100`
+  ], repositoryRoot);
+  if (result.status !== 0) {
+    return {
+      candidates: null,
+      reason: `comment inventory failed: ${commandErrorText(result)}`
+    };
+  }
+  try {
+    return {
+      candidates: parseRestCloseoutReceiptCommentCandidates(commandText(result), pullRequest.number),
+      reason: null
+    };
+  } catch (error) {
+    return {
+      candidates: null,
+      reason: `comment inventory parse failed: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+}
+
+export function bindCloseoutReceiptObservations(
+  ctx: BranchLifecycleContext,
+  repositoryRoot: string,
+  repositoryFullName: string,
+  pullRequests: BranchPullRequestObservation[]
+): BranchPullRequestObservation[] {
+  const permissionCache = new Map<
+    string,
+    { permission: CollaboratorPermission; reason: string | null }
+  >();
+  return pullRequests.map((pullRequest) => {
+    const requirement = closeoutReceiptRequirement(
+      ctx,
+      repositoryRoot,
+      repositoryFullName,
+      pullRequest
+    );
+    if (requirement !== 'required') {
+      return {
+        ...pullRequest,
+        publishedCloseoutReceipts: [],
+        invalidCloseoutReceiptComments: [],
+        closeoutReceipt: resolveBranchCloseoutReceiptObservation({
+          repository: repositoryFullName,
+          pullRequest,
+          requirement
+        })
+      };
+    }
+
+    const commentInventory = loadCloseoutReceiptCommentCandidates(
+      ctx,
+      repositoryRoot,
+      repositoryFullName,
+      pullRequest
+    );
+    if (commentInventory.candidates === null) {
+      return {
+        ...pullRequest,
+        publishedCloseoutReceipts: [],
+        invalidCloseoutReceiptComments: [],
+        closeoutReceipt: {
+          requirement: 'required',
+          status: 'unknown',
+          receipt: null,
+          reason: commentInventory.reason
+        }
+      };
+    }
+
+    const trustedBodies: string[] = [];
+    const permissionFailures: string[] = [];
+    for (const candidate of commentInventory.candidates) {
+      const permission = collaboratorPermission(
+        ctx,
+        repositoryRoot,
+        repositoryFullName,
+        candidate.author,
+        permissionCache
+      );
+      if (permission.permission === 'trusted') trustedBodies.push(candidate.body);
+      else if (permission.permission === 'unknown') {
+        permissionFailures.push(permission.reason ?? `permission for ${candidate.author} is unknown`);
+      }
+    }
+    if (permissionFailures.length > 0) {
+      return {
+        ...pullRequest,
+        publishedCloseoutReceipts: [],
+        invalidCloseoutReceiptComments: [],
+        closeoutReceipt: {
+          requirement: 'required',
+          status: 'unknown',
+          receipt: null,
+          reason: [...new Set(permissionFailures)].sort().join(' | ')
+        }
+      };
+    }
+
+    const parsed = parsePublishedBranchCloseoutReceiptComments(trustedBodies);
+    const enriched: BranchPullRequestObservation = {
+      ...pullRequest,
+      closeoutReceiptCommentCandidates: commentInventory.candidates,
+      publishedCloseoutReceipts: parsed.receipts,
+      invalidCloseoutReceiptComments: parsed.invalid
+    };
+    return {
+      ...enriched,
+      closeoutReceipt: resolveBranchCloseoutReceiptObservation({
+        repository: repositoryFullName,
+        pullRequest: enriched,
+        requirement
+      })
+    };
+  });
+}
+
 function listPullRequests(
   ctx: BranchLifecycleContext,
   repositoryRoot: string,
@@ -235,7 +455,7 @@ function listPullRequests(
     '--limit',
     '1000',
     '--json',
-    'number,headRefName,headRefOid,baseRefName,state,isDraft,isCrossRepository,url'
+    'number,headRefName,headRefOid,baseRefName,baseRefOid,state,isDraft,isCrossRepository,url'
   ], repositoryRoot);
   if (result.status !== 0) {
     unknowns.push(`PR inventory failed: ${commandErrorText(result)}`);
@@ -246,7 +466,12 @@ function listPullRequests(
     if (observations.length >= 1000) {
       unknowns.push('PR inventory reached its bounded 1000-item limit');
     }
-    return observations;
+    return bindCloseoutReceiptObservations(
+      ctx,
+      repositoryRoot,
+      repositoryFullName,
+      observations
+    );
   } catch (error) {
     unknowns.push(
       `PR inventory parse failed: ${error instanceof Error ? error.message : String(error)}`

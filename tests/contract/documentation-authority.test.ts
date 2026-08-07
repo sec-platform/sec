@@ -1,7 +1,13 @@
+import path from 'node:path';
+
 import { Glob } from 'bun';
 import { describe, expect, test } from 'bun:test';
 
 import { compilerRoot } from '../../platform/shared/paths.ts';
+import {
+  CodexDevelopmentParseActivePointerV2,
+  CodexDevelopmentParseRollingPlanV1
+} from '../../scripts/codex/document-control-plane-contract.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
@@ -64,28 +70,38 @@ describe('canonical documentation authority', () => {
     expect(roadmap).not.toMatch(/\bPR #\d+\b/u);
   });
 
-  test('rolling plan keeps one active package and five bounded sequence candidates', async () => {
-    const rollingPlan = await readCompilerFile('docs/work/rolling-plan.md');
+  test('rolling plan is relationally bound to the active pointer and keeps five candidates', async () => {
+    const [rollingPlanSource, pointerSource] = await Promise.all([
+      readCompilerFile('docs/work/rolling-plan.md'),
+      readCompilerFile('docs/work/active-work-package.md')
+    ]);
+    const rollingPlan = CodexDevelopmentParseRollingPlanV1(rollingPlanSource);
+    const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
+    const selectedManifestId = path.posix.basename(pointer.manifest, '.md');
 
-    expectContainsAll(rollingPlan, [
+    expect(rollingPlan.activePackageId).toBe(selectedManifestId);
+    expect(rollingPlan.candidatePackageIds).toEqual([
+      'verification-control-plane-foundation-v1',
+      'repository-information-lifecycle-v1',
+      'architecture-decision-enforcement-registry-v1',
+      'typescript-7-dual-provider-phase-0-1',
+      'product-semantic-compiler-foundation-sequence'
+    ]);
+    expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',
-      '### implementation-resolution-architecture-convergence-v1',
       '## 候选 Work Package',
-      '### 1. default-branch-health-and-verification-bootstrap-sequence',
-      '### 2. repository-information-lifecycle-v1',
-      '### 3. repository-integrity-closeout-sequence',
-      '### 4. physical-workspace-and-typescript-source-program-v1',
-      '### 5. product-self-bootstrap-sequence',
-      'Issue #235',
+      'Issue #313',
+      'Issue #311',
       'Issue #282',
-      'Issue #207',
-      'parallel-resolver-correctness-v1-1',
-      '## 并行与自动化恢复条件',
+      'Issue #314',
+      'Issue #312',
+      'Issue #307',
+      '## 已路由但不自动抢占近期顺序的任务',
       '## 可并行只读工作'
     ]);
-    expectContainsNone(rollingPlan, [
+    expectContainsNone(rollingPlanSource, [
+      '### implementation-resolution-architecture-convergence-v1',
       'canonical-architecture-convergence-v1',
-      'branch-ref-lifecycle-v1',
       'physical-workspace-observation-v1',
       '1B-4 → #216 → #207',
       'PR #196',
