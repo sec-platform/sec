@@ -35,6 +35,7 @@ import {
   type VerificationRegistryEntryV1
 } from './verification-session-contract.ts';
 import {
+  CodexDevelopmentParseWorkPackageLocator,
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
 
@@ -79,6 +80,87 @@ function collectDefaultManifestEntries(
     }));
 }
 
+export interface OpenPullRequestFactV1 {
+  number: number;
+  headBranch: string;
+  headSha: string;
+  baseSha: string;
+  body: string;
+}
+
+export function collectOpenPullRequestEntries(
+  ctx: BranchLifecycleContext,
+  pullRequests: readonly OpenPullRequestFactV1[]
+): VerificationRegistryEntryV1[] {
+  return pullRequests
+    .map((pullRequest) => {
+      const manifestPath = CodexDevelopmentParseWorkPackageLocator(pullRequest.body);
+      const stagingRef = `refs/sec/verification-session/${pullRequest.number}-${pullRequest.headSha.slice(0, 12)}`;
+      const fetch = runBranchCommand(ctx, 'git', [
+        'fetch',
+        '--no-tags',
+        'origin',
+        `+refs/pull/${pullRequest.number}/head:${stagingRef}`
+      ]);
+      if (fetch.status !== 0) {
+        throw new Error(
+          `Cannot fetch open PR #${pullRequest.number} head: ${commandErrorText(fetch)}`
+        );
+      }
+      const headTreeSha = resolveTreeSha(ctx, stagingRef);
+      const manifestDigest = blobDigest(ctx, stagingRef, manifestPath);
+      runBranchCommand(ctx, 'git', ['update-ref', '-d', stagingRef]);
+      return {
+        manifestPath,
+        manifestDigest,
+        source: 'open-pr' as const,
+        prNumber: pullRequest.number,
+        baseSha: pullRequest.baseSha,
+        headSha: pullRequest.headSha,
+        headTreeSha
+      };
+    })
+    .sort((left, right) => left.prNumber - right.prNumber);
+}
+
+export function parseOpenPullRequestList(
+  source: string
+): OpenPullRequestFactV1[] {
+  const parsed: unknown = JSON.parse(source);
+  if (!Array.isArray(parsed)) throw new Error('Open PR list must be an array.');
+  return parsed.map((entry, index) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error(`Open PR entry ${index} must be an object.`);
+    }
+    const record = entry as Record<string, unknown>;
+    const number = record.number;
+    const headSha = record.headRefOid;
+    const baseSha = record.baseRefOid;
+    const headBranch = record.headRefName;
+    const body = record.body;
+    if (
+      !Number.isSafeInteger(number)
+      || (number as number) <= 0
+      || typeof headSha !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(headSha)
+      || typeof baseSha !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(baseSha)
+      || typeof headBranch !== 'string'
+      || headBranch.length === 0
+      || typeof body !== 'string'
+    ) {
+      throw new Error(`Open PR entry ${index} identity is invalid.`);
+    }
+    return {
+      number: number as number,
+      headBranch,
+      headSha,
+      baseSha,
+      body
+    };
+  });
+}
+
 export function projectWorkPackageRegistry(input: {
   ctx: BranchLifecycleContext;
   observedAt: string;
@@ -86,13 +168,18 @@ export function projectWorkPackageRegistry(input: {
   defaultBranch: string;
   defaultRef: string;
   pullRequestEntries?: VerificationRegistryEntryV1[];
+  openPullRequests?: readonly OpenPullRequestFactV1[];
 }): string {
   const { ctx, observedAt, repository, defaultBranch, defaultRef } = input;
   const defaultTreeSha = resolveTreeSha(ctx, defaultRef);
   const defaultEntries = collectDefaultManifestEntries(ctx, defaultRef);
-  const prEntries = (input.pullRequestEntries ?? [])
+  const suppliedPrEntries = (input.pullRequestEntries ?? [])
     .filter((entry) => entry.source === 'open-pr')
     .map((entry) => ({ ...entry, manifestPath: entry.manifestPath }));
+  const discoveredPrEntries = input.openPullRequests !== undefined
+    ? collectOpenPullRequestEntries(ctx, input.openPullRequests)
+    : [];
+  const prEntries = [...suppliedPrEntries, ...discoveredPrEntries];
   const entries = [...defaultEntries, ...prEntries];
   const paths = entries.map(({ manifestPath }) => manifestPath);
   if (new Set(paths).size !== paths.length) {
@@ -172,7 +259,7 @@ function assertManifestPath(value: string | undefined): string {
 }
 
 const USAGE = `Usage:
-  bun scripts/codex/verification-session.ts project --default-ref <ref> [--repository <owner/name>] [--json]
+  bun scripts/codex/verification-session.ts project --default-ref <ref> [--open-prs] [--repository <owner/name>] [--json]
   bun scripts/codex/verification-session.ts freeze --session <id> --pr <n> --base <sha> --head <sha> --manifest <path> --manifest-digest <sha256> [--repository <owner/name>] [--json]
   bun scripts/codex/verification-session.ts parity --session <id> --merged-tree <sha> [--repository <owner/name>] [--json]
 `;
@@ -208,12 +295,22 @@ function main(argv: string[]): void {
     if (command === 'project') {
       const defaultRef = args.get('--default-ref');
       if (defaultRef === undefined) throw new Error(`--default-ref is required.\n${USAGE}`);
+      const openPullRequests = args.has('--open-prs')
+        ? parseOpenPullRequestList(requireBranchCommandText(
+            ctx,
+            'gh',
+            ['pr', 'list', '--state', 'open', '--json', 'number,headRefName,headRefOid,baseRefOid,body'],
+            'open pull request inventory',
+            ctx.repositoryRoot
+          ))
+        : undefined;
       return projectWorkPackageRegistry({
         ctx,
         observedAt: new Date().toISOString(),
         repository,
         defaultBranch: 'main',
-        defaultRef
+        defaultRef,
+        openPullRequests
       });
     }
     if (command === 'freeze') {
