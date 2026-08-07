@@ -81,7 +81,6 @@ describe('canonical documentation authority', () => {
 
     expect(rollingPlan.activePackageId).toBe(selectedManifestId);
     expect(rollingPlan.candidatePackageIds).toEqual([
-      'repository-information-lifecycle-v1',
       'architecture-decision-enforcement-registry-v1',
       'typescript-7-dual-provider-phase-0-1',
       'product-semantic-compiler-foundation-sequence'
