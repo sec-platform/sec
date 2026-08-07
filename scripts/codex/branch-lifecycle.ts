@@ -1,19 +1,25 @@
 #!/usr/bin/env bun
 /**
- * SEC deterministic branch/ref lifecycle owner (Issue #269).
+ * SEC deterministic branch/ref lifecycle owner (Issue #269/#313).
  *
  * Read-only audit inventories local/remote refs, every worktree, all PR states,
- * the active Work Package resolver and external settings. Destructive closeout
- * is two-phase and delegates durable recovery, exact-SHA CAS and typed readback
- * to focused modules. This entrypoint never resets, stashes, cleans or removes
- * user worktrees.
+ * the active Work Package resolver, external settings and post-enforcement
+ * published closeout receipts. Destructive closeout is two-phase and delegates
+ * durable recovery, exact-SHA CAS and typed readback to focused modules.
+ * This entrypoint never resets, stashes, cleans or removes user worktrees.
  */
+import { parseBranchCloseoutReceipt } from './branch-closeout-contract.ts';
+import {
+  publishAndReadBackBranchCloseoutReceipt
+} from './branch-closeout-receipt.ts';
 import {
   finalizeBranchCloseout,
+  finalizeMergedPullRequestCloseout as finalizeMergedPullRequestCloseoutCore,
   loadPreparedBranchCloseoutEnvelope,
   preparationFilePath,
   prepareBranchCloseout,
-  receiptFilePath
+  receiptFilePath,
+  type PreparedBranchCloseoutEnvelope
 } from './branch-closeout.ts';
 import {
   defaultBranchLifecycleCommandRunner,
@@ -23,16 +29,68 @@ import { configureBranchLifecycleClone } from './branch-lifecycle-config.ts';
 import {
   auditBranchLifecycle,
   type BranchCloseoutDisposition,
+  type BranchCloseoutPublicationResult,
+  type BranchCloseoutReceipt,
   type BranchLifecycleInventory
 } from './branch-lifecycle-contract.ts';
 import { collectBranchLifecycleInventory } from './branch-lifecycle-inventory.ts';
 
+export * from './branch-closeout-receipt.ts';
 export * from './branch-closeout.ts';
+export { branchLifecycleDigest } from './branch-lifecycle-audit.ts';
 export * from './branch-lifecycle-command.ts';
 export * from './branch-lifecycle-config.ts';
+export * from './branch-lifecycle-health.ts';
 export * from './branch-lifecycle-inventory.ts';
 export * from './branch-lifecycle-parsers.ts';
+export {
+  BRANCH_CLOSEOUT_PUBLISHED_RECEIPT_SCHEMA_V1,
+  type BranchCloseoutReceipt,
+  type BranchCloseoutReceiptObservation,
+  type BranchLifecycleInventory,
+  type BranchPublishedCloseoutReceiptV1,
+  type BranchPullRequestObservation
+} from './branch-lifecycle-types.ts';
 export * from './branch-recovery.ts';
+
+export function validateBranchCloseoutReceiptForPublication(
+  receipt: BranchCloseoutReceipt
+): BranchCloseoutReceipt {
+  return parseBranchCloseoutReceipt(JSON.stringify(receipt));
+}
+
+function publishReceiptOrThrow(
+  ctx: BranchLifecycleContext,
+  receipt: BranchCloseoutReceipt
+): BranchCloseoutPublicationResult {
+  const validatedReceipt = validateBranchCloseoutReceiptForPublication(receipt);
+  const publication = publishAndReadBackBranchCloseoutReceipt(ctx, validatedReceipt);
+  if (publication.publish !== 'success' || publication.readback !== 'success') {
+    throw new Error(`Branch closeout receipt publication failed: ${publication.detail}`);
+  }
+  return publication;
+}
+
+/**
+ * The merge bootstrap imports this explicit wrapper from branch-lifecycle.ts.
+ * Physical ref closeout is not a successful terminal until the durable receipt
+ * is published to the bound PR/Issue and read back byte-exactly.
+ */
+export function finalizeMergedPullRequestCloseout(
+  ctx: BranchLifecycleContext,
+  prepared: PreparedBranchCloseoutEnvelope,
+  newMainSha: string,
+  blockingReasons: readonly string[] = []
+): BranchCloseoutReceipt {
+  const receipt = finalizeMergedPullRequestCloseoutCore(
+    ctx,
+    prepared,
+    newMainSha,
+    blockingReasons
+  );
+  publishReceiptOrThrow(ctx, receipt);
+  return receipt;
+}
 
 function formatAuditText(inventory: BranchLifecycleInventory): string {
   const report = auditBranchLifecycle(inventory);
@@ -245,14 +303,30 @@ async function main(): Promise<void> {
       reference: args.durableGoalReference
     }
   });
+  let publication: BranchCloseoutPublicationResult;
+  try {
+    publication = publishReceiptOrThrow(ctx, receipt);
+  } catch (error) {
+    publication = {
+      target: null,
+      publish: 'failed',
+      readback: 'failed',
+      receipt: null,
+      detail: error instanceof Error ? error.message : String(error)
+    };
+  }
   if (args.json) {
-    process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ receipt, publication }, null, 2)}\n`);
   } else {
     process.stdout.write(
-      `Branch closeout ${receipt.status}; receipt=${receiptFilePath(receipt.preparation)}; digest=${receipt.receiptDigest}\n`
+      `Branch closeout ${receipt.status}; receipt=${receiptFilePath(receipt.preparation)}; digest=${receipt.receiptDigest}; publication=${publication.publish}/${publication.readback}\n`
     );
   }
-  if (receipt.status !== 'completed' && receipt.status !== 'protected-pending') {
+  if (
+    (receipt.status !== 'completed' && receipt.status !== 'protected-pending')
+    || publication.publish !== 'success'
+    || publication.readback !== 'success'
+  ) {
     process.exitCode = 1;
   }
 }
