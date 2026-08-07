@@ -22,7 +22,7 @@ env:
 jobs:
   export-workspace:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout exact trusted base with full reachable history
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -47,12 +47,13 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - name: Populate dependency cache from frozen lock
+      - name: Build exact Linux dependency tree from frozen lock
         shell: bash
         run: |
           set -euo pipefail
           bun --revision
           bun install --frozen-lockfile
+          test -d node_modules
 
       - name: Build self-contained workspace export
         shell: bash
@@ -64,25 +65,28 @@ jobs:
           git bundle create "$out/sec-repository.bundle" --all
           git bundle verify "$out/sec-repository.bundle"
 
-          test -d "$HOME/.bun/install/cache"
-          tar -C "$HOME/.bun/install" -czf "$out/bun-install-cache.tar.gz" cache
+          if command -v zstd >/dev/null 2>&1; then
+            tar -I 'zstd -T0 -6' -cf "$out/node_modules.tar.zst" node_modules
+          else
+            tar -czf "$out/node_modules.tar.gz" node_modules
+          fi
 
-          cp .bun-version "$out/.bun-version"
           cp bun.lock "$out/bun.lock"
           cp package.json "$out/package.json"
           cp .tmp/show-ref.txt "$out/git-show-ref.txt"
 
           {
-            printf 'schema=sec-workspace-export-v1\n'
+            printf 'schema=sec-workspace-export-v2\n'
             printf 'base=%s\n' "$SEC_EXPORT_BASE"
             printf 'head=%s\n' "$(git rev-parse HEAD)"
             printf 'tree=%s\n' "$(git rev-parse 'HEAD^{tree}')"
             printf 'git=%s\n' "$(git --version)"
             printf 'bun=%s\n' "$(bun --revision)"
             printf 'os=%s\n' "$(uname -a)"
+            printf 'node_modules_bytes=%s\n' "$(du -sb node_modules | cut -f1)"
           } > "$out/environment.txt"
 
-          (cd "$out" && sha256sum sec-repository.bundle bun-install-cache.tar.gz .bun-version bun.lock package.json git-show-ref.txt environment.txt > SHA256SUMS)
+          (cd "$out" && sha256sum sec-repository.bundle node_modules.tar.* bun.lock package.json git-show-ref.txt environment.txt > SHA256SUMS)
           du -h "$out"/*
           cat "$out/environment.txt"
           cat "$out/SHA256SUMS"
@@ -90,7 +94,7 @@ jobs:
       - name: Upload workspace export artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sec-issue-178-workspace-export-base-${{ env.SEC_EXPORT_BASE }}-run-${{ github.run_id }}
+          name: sec-issue-178-workspace-export-v2-base-${{ env.SEC_EXPORT_BASE }}-run-${{ github.run_id }}
           path: .tmp/issue-178-workspace-export
           if-no-files-found: error
           retention-days: 7
