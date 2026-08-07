@@ -87,10 +87,8 @@ jobs:
         run: |
           set -euo pipefail
           base_dir="$RUNNER_TEMP/sec178-trusted-base"
-          mkdir -p "$base_dir"
-          git -C "$base_dir" init -q
-          git -C "$base_dir" fetch -q --no-tags "$GITHUB_WORKSPACE" "$SEC_BASE"
-          git -C "$base_dir" checkout -q --detach FETCH_HEAD
+          git worktree add --detach "$base_dir" "$SEC_BASE"
+          trap 'git worktree remove --force "$base_dir" >/dev/null 2>&1 || true' EXIT
           cp -a node_modules "$base_dir/node_modules"
           changed="$(git diff --name-only "$SEC_BASE" "$SEC_CANDIDATE")"
           mkdir -p .tmp
