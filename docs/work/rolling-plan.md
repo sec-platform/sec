@@ -7,13 +7,15 @@ last-reviewed: 2026-08-07
 
 # SEC 滚动近期计划
 
-本窗口从 `main@38a5bf80c24ea8703e7ed9a7aff3b7a920d95aff` 重算。PR #308 已把
-Implementation Resolution 的稳定架构与 owner 边界融合进 `main`，但没有实现 Resolver、Provider catalog、
-TypedInvocation、Binding comparator、Compatibility evaluator 或 Workbench selector。Issue #307 保持开放。
-
-PR #308 后 GitHub 远程 heads 已只剩 `main`，但没有可发现的逐 ref lifecycle receipts、#308 closeout receipt、
-不同 principal 的独立 Review或完整 hosted Gate闭包；静态 pointer/rolling plan也仍停留在已合并candidate。
-因此下一正式包不是继续扩写产品架构，而是闭合 #313 的 terminal enforcement。
+本窗口从 `main@d04b2e4c4a3986c82dbe717d6a72d0d397cc8a74` 重算。#313
+`branch-ref-lifecycle-enforcement-v1` 已完全闭合：PR #315 实现进入 `main`，PR #319
+（trust-root 候选）经 trusted-base manual bootstrap 与 admin merge 进入 `main`，
+PR #315/#319 merged terminal closeout 与 `fix/issue-280` protected-pending 结算均
+发布 byte-exact receipt；仓库 lifecycle audit clean。PR #308 已把 Implementation
+Resolution 的稳定架构融合进 `main`，但 Resolver、Provider catalog、TypedInvocation、
+Binding comparator、Compatibility evaluator 或 Workbench selector 仍未实现，
+Issue #307 保持开放。TCB closure lock 在 `d04b2e4c` 自洽；新 trust epoch 生效，
+后续任务须以 `TASK_RESTART_REQUIRED` 语义重载信任根。
 
 近期执行遵循：
 
@@ -25,26 +27,18 @@ PR #308 后 GitHub 远程 heads 已只剩 `main`，但没有可发现的逐 ref 
 
 ## 当前唯一 Work Package
 
-### branch-ref-lifecycle-enforcement-v1
+### verification-control-plane-foundation-v1
 
-- Issue #313；从 `main@bd54653` 收口（PR #315 实现 + PR #319 terminal 收口路径）。
-- 原子退役 #308 manifest并结算pointer/rolling plan。
-- 对post-enforcement merged、closed-superseded和completed-spike操作要求durable receipt。
-- merge/bootstrap/manual closeout任一publication/readback失败不得输出clean completion。
-- admin/web/connector旁路由repository health检测为degraded/locked。
-- 保留dirty/worktree-bound本地分支为typed `protected-pending`；CAS drift fail closed。
-- 合并后使用自身机制完成self-closeout。
+- Issue #311 Phase 0 与最小 foundation：machine WorkPackage registry projection、
+  稳定 Manifest 与 FreezeSession 分离、Candidate Tree 与单一 Session 纵切片。
+- base/candidate 使用同一 trusted plan；最终 merge 只证明 merged tree 等于
+  verified candidate tree。
+- 不一次实现完整 Evidence DAG、Queue、Hermetic Runtime 或 Bootstrap 平台；
+  #313 的 published receipt 机制作为输入事实，不重复建立第二套发布/readback。
 
 ## 候选 Work Package
 
-### 1. verification-control-plane-foundation-v1
-
-- Issue #311 Phase 0与最小foundation。
-- 建立machine WorkPackage registry projection、稳定Manifest与FreezeSession分离、Candidate Tree和单一Session纵切片。
-- base/candidate使用同一trusted plan；最终merge只证明merged tree等于verified candidate tree。
-- 不一次实现完整Evidence DAG、Queue、Hermetic Runtime或Bootstrap平台。
-
-### 2. repository-information-lifecycle-v1
+### 1. repository-information-lifecycle-v1
 
 - Issue #282。
 - 对exact current tree和 `2d7187f4... → 6cbe65d8...` 全部removed/renamed blobs建立disposition。
@@ -53,21 +47,21 @@ PR #308 后 GitHub 远程 heads 已只剩 `main`，但没有可发现的逐 ref 
 - 全量claim census已识别两个此前无owner的耐久缺口：#317受限递归Engineering Composition、#318 Semantic Engineering Benchmark；它们只作为后继owner，不把旧对话恢复成authority。
 - 扩展现有repository audit，不建立第二审计系统。
 
-### 3. architecture-decision-enforcement-registry-v1
+### 2. architecture-decision-enforcement-registry-v1
 
 - Issue #314。
 - 首批登记branch lifecycle、Verification Control Plane、TypeScript 7、Implementation Resolution和canonical digest。
 - 文档、Issue、类型或测试存在不能自动提升到implemented/enforced。
 - known bypass、missing consumer、missing physical Evidence或未退役旧路径阻止成熟度升级。
 
-### 4. typescript-7-dual-provider-phase-0-1
+### 3. typescript-7-dual-provider-phase-0-1
 
 - Issue #312、#193。
 - Phase 0先做TS6.0.3与TS7 exact diagnostics、platform、determinism、cold/warm性能只读parity。
 - Phase 1只在 #311 最小可信基础和package/lock唯一writer成立后采用TS7 CLI + TS6 Program API双Provider。
 - CLI checker、Program/TypeChecker、Language Service、printer与build executable保持分域。
 
-### 5. product-semantic-compiler-foundation-sequence
+### 4. product-semantic-compiler-foundation-sequence
 
 按独立真实consumer纵切片推进，不合并成巨型基础设施包：
 
@@ -96,6 +90,13 @@ PR #308 后 GitHub 远程 heads 已只剩 `main`，但没有可发现的逐 ref 
 - #316：Performance Truth、Resource Budget和Throughput Architecture，只拥有测量/预算/回归，不与Compiler/Test/Verification owner争权；
 - #318：Semantic Engineering Benchmark，拥有Intent→Spec→System→Acceptance任务/corpus/reference truth/anti-gaming；在Source Program、Contract、Workbench Operation和首个IR-owned Backend有真实consumer后启动，完整B5在#307最小纵切片后校准；
 - #207：只有普通candidate Review/Gate/merge/readback连续稳定、mutating resources有唯一writer且产品纵切片已进入main后才恢复并行。
+
+## 已完成 Work Package
+
+- `branch-ref-lifecycle-enforcement-v1`（Issue #313）：PR #315/#319 进入
+  `main@d04b2e4c`；PR #315/#319 merged terminal closeout 与
+  `fix/issue-280-root-cause-closure@c188be8` protected-pending 结算 receipt
+  已发布并 byte-exact readback；manifest 退役为完成记录。
 
 ## 可并行只读工作
 

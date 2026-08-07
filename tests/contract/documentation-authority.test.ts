@@ -70,7 +70,7 @@ describe('canonical documentation authority', () => {
     expect(roadmap).not.toMatch(/\bPR #\d+\b/u);
   });
 
-  test('rolling plan is relationally bound to the active pointer and keeps five candidates', async () => {
+  test('rolling plan is relationally bound to the active pointer and keeps the remaining candidates', async () => {
     const [rollingPlanSource, pointerSource] = await Promise.all([
       readCompilerFile('docs/work/rolling-plan.md'),
       readCompilerFile('docs/work/active-work-package.md')
@@ -81,7 +81,6 @@ describe('canonical documentation authority', () => {
 
     expect(rollingPlan.activePackageId).toBe(selectedManifestId);
     expect(rollingPlan.candidatePackageIds).toEqual([
-      'verification-control-plane-foundation-v1',
       'repository-information-lifecycle-v1',
       'architecture-decision-enforcement-registry-v1',
       'typescript-7-dual-provider-phase-0-1',
