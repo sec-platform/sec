@@ -207,9 +207,21 @@ export interface BranchCloseoutPreparation {
     defaultBranch: string;
   };
   branch: string;
+  /**
+   * Observed ref state at preparation time. `present` binds an existing
+   * remote ref; `absent` settles a ref that is already gone (post-merge
+   * delete-branch-on-merge, or an earlier unrecorded deletion) whose content
+   * is durably covered by a verified recovery bundle or main absorption.
+   */
+  refState: 'present' | 'absent';
   expectedHeadSha: string;
   expectedRemoteSha: string;
   expectedLocalSha: string | null;
+  /**
+   * The exact PR-recorded head SHA when the prepared ref head differs from the
+   * PR head (drift), or the same SHA otherwise. Null only without a PR binding.
+   */
+  expectedPrHeadSha: string | null;
   pullRequestNumber: number | null;
   pullRequestStateAtPreparation: 'open' | 'closed' | 'merged' | null;
   recovery: BranchRecoveryAuthority;

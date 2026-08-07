@@ -166,9 +166,11 @@ function closeoutReceipt(): BranchCloseoutReceipt {
         defaultBranch: 'main'
       },
       branch: 'feat/example',
+      refState: 'present',
       expectedHeadSha: HEAD_SHA,
       expectedRemoteSha: HEAD_SHA,
       expectedLocalSha: null,
+      expectedPrHeadSha: null,
       pullRequestNumber: 42,
       pullRequestStateAtPreparation: 'open',
       recovery: {

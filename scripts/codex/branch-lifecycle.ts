@@ -129,6 +129,9 @@ interface CliArguments {
   json: boolean;
   compact: boolean;
   branch: string | null;
+  refState: 'present' | 'absent';
+  expectedHeadSha: string | null;
+  expectedPrHeadSha: string | null;
   prNumber: number | null;
   preparationPath: string | null;
   disposition: BranchCloseoutDisposition | null;
@@ -161,6 +164,9 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
     json: false,
     compact: false,
     branch: null,
+    refState: 'present',
+    expectedHeadSha: null,
+    expectedPrHeadSha: null,
     prNumber: null,
     preparationPath: null,
     disposition: null,
@@ -174,6 +180,27 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
     else if (arg === '--compact') result.compact = true;
     else if (arg === '--branch') {
       result.branch = argv[index + 1] ?? null;
+      index += 1;
+    } else if (arg === '--ref-state') {
+      const value = argv[index + 1];
+      if (value !== 'present' && value !== 'absent') {
+        throw new Error('--ref-state must be present or absent.');
+      }
+      result.refState = value;
+      index += 1;
+    } else if (arg === '--expected-head-sha') {
+      const value = argv[index + 1];
+      if (value === undefined || !/^[0-9a-f]{40}$/u.test(value)) {
+        throw new Error('--expected-head-sha must be a 40-character SHA.');
+      }
+      result.expectedHeadSha = value;
+      index += 1;
+    } else if (arg === '--pr-head-sha') {
+      const value = argv[index + 1];
+      if (value === undefined || !/^[0-9a-f]{40}$/u.test(value)) {
+        throw new Error('--pr-head-sha must be a 40-character SHA.');
+      }
+      result.expectedPrHeadSha = value;
       index += 1;
     } else if (arg === '--pr') {
       result.prNumber = parsePositiveInteger(argv[index + 1], '--pr');
@@ -219,7 +246,7 @@ function parseCliArguments(argv: readonly string[]): CliArguments {
 const USAGE = `Usage:
   bun scripts/codex/branch-lifecycle.ts audit [--json [--compact]]
   bun scripts/codex/branch-lifecycle.ts configure-clone [--json]
-  bun scripts/codex/branch-lifecycle.ts prepare --branch <name> [--pr <n>] [--recovery-root <absolute-path>] [--json]
+  bun scripts/codex/branch-lifecycle.ts prepare --branch <name> [--pr <n>] [--ref-state <present|absent>] [--expected-head-sha <sha>] [--pr-head-sha <sha>] [--recovery-root <absolute-path>] [--json]
   bun scripts/codex/branch-lifecycle.ts finalize --preparation <file> --disposition <merged|closed-superseded|completed-spike> --durable-goal-kind <main|issue|evidence> --durable-goal <reference> [--json]
 `;
 
@@ -273,6 +300,9 @@ async function main(): Promise<void> {
     if (!args.branch) throw new Error(`--branch is required.\n${USAGE}`);
     const prepared = prepareBranchCloseout(ctx, {
       branch: args.branch,
+      refState: args.refState,
+      expectedHeadSha: args.expectedHeadSha ?? undefined,
+      expectedPrHeadSha: args.expectedPrHeadSha ?? undefined,
       pullRequestNumber: args.prNumber
     });
     const filePath = preparationFilePath(prepared.preparation);
