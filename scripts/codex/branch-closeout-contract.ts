@@ -41,9 +41,13 @@ export function createBranchCloseoutPreparation(input: Omit<
   'schema' | 'preparationDigest'
 >): BranchCloseoutPreparation {
   assertGitBranchName(input.branch);
+  if (input.refState !== 'present' && input.refState !== 'absent') {
+    throw new Error('refState must be present or absent.');
+  }
   assertGitSha(input.expectedHeadSha, 'expectedHeadSha');
   assertGitSha(input.expectedRemoteSha, 'expectedRemoteSha');
   normalizeSha(input.expectedLocalSha, 'expectedLocalSha');
+  normalizeSha(input.expectedPrHeadSha, 'expectedPrHeadSha');
   if (
     input.pullRequestNumber !== null
     && (!Number.isSafeInteger(input.pullRequestNumber) || input.pullRequestNumber <= 0)
@@ -52,6 +56,22 @@ export function createBranchCloseoutPreparation(input: Omit<
   }
   if ((input.pullRequestNumber === null) !== (input.pullRequestStateAtPreparation === null)) {
     throw new Error('pullRequest number and preparation state must either both be present or both be null.');
+  }
+  if (input.refState === 'absent') {
+    if (input.pullRequestNumber === null) {
+      throw new Error('absent-ref closeout requires an exact PR binding.');
+    }
+    if (input.pullRequestStateAtPreparation !== 'merged' && input.pullRequestStateAtPreparation !== 'closed') {
+      throw new Error('absent-ref closeout requires a merged or closed PR state.');
+    }
+    if (input.expectedPrHeadSha === null) {
+      throw new Error('absent-ref closeout requires the exact PR-recorded head SHA.');
+    }
+    if (input.expectedLocalSha !== null) {
+      throw new Error('absent-ref closeout cannot bind a surviving local ref.');
+    }
+  } else if (input.expectedPrHeadSha !== null) {
+    throw new Error('expectedPrHeadSha is only valid for absent-ref closeout.');
   }
   if (!input.recovery.verified) throw new Error('Recovery authority is not verified.');
   const withoutDigest = {
@@ -75,9 +95,13 @@ export function assertBranchCloseoutPreparation(
     throw new Error('Branch closeout preparation digest mismatch.');
   }
   assertGitBranchName(preparation.branch);
+  if (preparation.refState !== 'present' && preparation.refState !== 'absent') {
+    throw new Error('refState must be present or absent.');
+  }
   assertGitSha(preparation.expectedHeadSha, 'expectedHeadSha');
   assertGitSha(preparation.expectedRemoteSha, 'expectedRemoteSha');
   normalizeSha(preparation.expectedLocalSha, 'expectedLocalSha');
+  normalizeSha(preparation.expectedPrHeadSha, 'expectedPrHeadSha');
 }
 
 function resolveClassification(
@@ -164,22 +188,60 @@ export function authorizeBranchCloseout(input: {
     blockers.push('prepared repository identity does not match current inventory');
   }
 
-  const beforeRemote = before.remoteBranches.find(
-    ({ branch }) => branch === preparation.branch
-  );
-  if (!beforeRemote || beforeRemote.sha !== preparation.expectedRemoteSha) {
-    blockers.push('preparation does not bind the exact pre-merge remote ref');
-  }
-
   if (preparation.pullRequestNumber !== null) {
     const beforePullRequest = currentPullRequest(before, preparation.pullRequestNumber);
     if (
       !beforePullRequest
       || beforePullRequest.headBranch !== preparation.branch
-      || beforePullRequest.headSha !== preparation.expectedHeadSha
+      || beforePullRequest.headSha !== (
+        preparation.refState === 'absent'
+          ? preparation.expectedPrHeadSha
+          : preparation.expectedHeadSha
+      )
       || beforePullRequest.state !== preparation.pullRequestStateAtPreparation
     ) {
       blockers.push('preparation does not bind one exact PR head and state');
+    }
+  }
+
+  if (preparation.refState === 'absent') {
+    const beforeRemote = before.remoteBranches.find(
+      ({ branch }) => branch === preparation.branch
+    );
+    const currentRemote = current.remoteBranches.find(
+      ({ branch }) => branch === preparation.branch
+    );
+    const beforeLocal = before.localBranches.find(
+      ({ branch }) => branch === preparation.branch
+    );
+    const currentLocal = current.localBranches.find(
+      ({ branch }) => branch === preparation.branch
+    );
+    if (beforeRemote !== undefined || currentRemote !== undefined) {
+      blockers.push('absent-ref closeout observed a surviving remote ref');
+    }
+    if (beforeLocal !== undefined || currentLocal !== undefined) {
+      blockers.push('absent-ref closeout observed a surviving local ref');
+    }
+    const pr = currentPullRequest(current, preparation.pullRequestNumber ?? -1);
+    if (pr) {
+      if (pr.headBranch !== preparation.branch) {
+        blockers.push('current PR head branch differs from the prepared branch');
+      }
+      if (pr.headSha !== null && pr.headSha !== preparation.expectedPrHeadSha) {
+        blockers.push('current PR head SHA differs from the prepared PR-recorded head');
+      }
+      const expectedState = preparation.pullRequestStateAtPreparation;
+      if (expectedState !== null && pr.state !== expectedState) {
+        blockers.push(`current PR state must be ${expectedState}`);
+      }
+    }
+  } else {
+    const beforeRemote = before.remoteBranches.find(
+      ({ branch }) => branch === preparation.branch
+    );
+    if (!beforeRemote || beforeRemote.sha !== preparation.expectedRemoteSha) {
+      blockers.push('preparation does not bind the exact pre-merge remote ref');
     }
   }
 
@@ -203,7 +265,11 @@ export function authorizeBranchCloseout(input: {
       } else {
         if (
           currentPr.headBranch !== preparation.branch
-          || currentPr.headSha !== preparation.expectedHeadSha
+          || currentPr.headSha !== (
+            preparation.refState === 'absent'
+              ? preparation.expectedPrHeadSha
+              : preparation.expectedHeadSha
+          )
         ) {
           blockers.push('current PR identity differs from the prepared PR');
         }

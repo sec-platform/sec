@@ -27,7 +27,7 @@ PR #308 后 GitHub 远程 heads 已只剩 `main`，但没有可发现的逐 ref 
 
 ### branch-ref-lifecycle-enforcement-v1
 
-- Issue #313；从 `main@38a5bf80` 激活。
+- Issue #313；从 `main@bd54653` 收口（PR #315 实现 + PR #319 terminal 收口路径）。
 - 原子退役 #308 manifest并结算pointer/rolling plan。
 - 对post-enforcement merged、closed-superseded和completed-spike操作要求durable receipt。
 - merge/bootstrap/manual closeout任一publication/readback失败不得输出clean completion。

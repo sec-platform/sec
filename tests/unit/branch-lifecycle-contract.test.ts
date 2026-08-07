@@ -76,9 +76,11 @@ function preparation(
       defaultBranch: before.repository.defaultBranch
     },
     branch: 'feat/example',
+    refState: 'present',
     expectedHeadSha: HEAD_SHA,
     expectedRemoteSha: HEAD_SHA,
     expectedLocalSha,
+    expectedPrHeadSha: null,
     pullRequestNumber: 42,
     pullRequestStateAtPreparation: 'open',
     recovery: {
@@ -532,9 +534,11 @@ function orphanPreparation(before: BranchLifecycleInventory): BranchCloseoutPrep
     preparedAt: '2026-08-04T00:03:00.000Z',
     repository: before.repository,
     branch: 'probe/stale',
+    refState: 'present',
     expectedHeadSha: HEAD_SHA,
     expectedRemoteSha: HEAD_SHA,
     expectedLocalSha: null,
+    expectedPrHeadSha: null,
     pullRequestNumber: null,
     pullRequestStateAtPreparation: null,
     recovery: {
