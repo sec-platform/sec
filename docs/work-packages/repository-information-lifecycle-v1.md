@@ -2,7 +2,7 @@
 schema: codex-development-work-package-v1
 id: repository-information-lifecycle-v1
 tracking: issue-282
-base: f6ddbfe441bdafe3f22e12b1fb08e4899242a7e7
+base: 4db8b904a825858ffca2c0521ad7088e84d35ba3
 manifestState: frozen
 requiredProfile: quick
 ciRevision: ci-verification-v19

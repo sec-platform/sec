@@ -8,6 +8,7 @@ import {
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseRollingPlanV1
 } from '../../scripts/codex/document-control-plane-contract.ts';
+import { NEXUS_EPR_BINDINGS_V1 } from '../../scripts/codex/repository-audit.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
@@ -167,5 +168,54 @@ describe('canonical documentation authority', () => {
     expect(readme).not.toContain('demo:closed-loop');
     expect(readme).not.toMatch(/\b[0-9a-f]{40}\b/u);
     expect(readme).not.toMatch(/\bPR #\d+\b/u);
+  });
+
+  test('Nexus absorption ledger binds the exact corpus baseline and the 29 EPR binding records', async () => {
+    const ledger = await readCompilerFile('docs/governance/nexus-absorption-ledger.yaml');
+    const parsed = Bun.YAML.parse(ledger) as {
+      status: string;
+      source: {
+        repository: string;
+        baselineCommit: string;
+        baselineTree: string;
+        trackedPaths: number;
+      };
+      coverage: { eprBindings: { bound: number; expected: number } };
+      completion: {
+        censusComplete: boolean;
+        parityComplete: boolean;
+        retirementComplete: boolean;
+        noOmissionProven: boolean;
+      };
+    };
+
+    expect(parsed.status).toBe('incomplete');
+    expect(parsed.source.repository).toBe('QzCrane/nexus');
+    expect(parsed.source.baselineCommit).toMatch(/^[0-9a-f]{40}$/);
+    expect(parsed.source.baselineTree).toMatch(/^[0-9a-f]{40}$/);
+    expect(parsed.source.trackedPaths).toBeGreaterThan(0);
+    expect(parsed.coverage.eprBindings.expected).toBe(29);
+    expect(parsed.coverage.eprBindings.bound).toBe(
+      NEXUS_EPR_BINDINGS_V1.filter((entry) => entry.binding === 'bound').length
+    );
+    expect(NEXUS_EPR_BINDINGS_V1).toHaveLength(29);
+    expect(NEXUS_EPR_BINDINGS_V1.filter((entry) => entry.binding === 'blocked')).toHaveLength(
+      29 - parsed.coverage.eprBindings.bound
+    );
+    expect(parsed.completion).toEqual({
+      censusComplete: false,
+      parityComplete: false,
+      retirementComplete: false,
+      noOmissionProven: false
+    });
+    expectContainsAll(ledger, [
+      'status: incomplete',
+      'repository: QzCrane/nexus',
+      'bound: 26',
+      'expected: 29',
+      'EPR-013 Issue #307',
+      'EPR-016 Issue #288',
+      'EPR-017 Issue #222'
+    ]);
   });
 });
