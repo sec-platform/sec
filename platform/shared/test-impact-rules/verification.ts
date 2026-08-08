@@ -27,6 +27,14 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/unit/exact-git-blob.test.ts'
 ];
 
+const TRUSTED_VERIFIER_TCB_FAST_TESTS = [
+  'tests/contract/ci-lanes.test.ts',
+  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/tcb-closure-lock.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/tcb-trust-root-contract.test.ts'
+];
+
 const VERIFICATION_TRUTH_FAST_TESTS = [
   'tests/contract/test-impact.test.ts',
   'tests/unit/acceptance-coverage-closure.test.ts',
@@ -39,6 +47,23 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
 ];
 
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: 'trusted-verifier-tcb',
+    identity: { kind: 'architecture-owner', id: 'trusted-verifier-tcb' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      '.github/workflows/compiler-pr-validation.yml',
+      '.github/workflows/compiler-release-validation.yml',
+      '.github/workflows/sec-merge-gate.yml',
+      '.github/workflows/sec-trusted-bootstrap.yml',
+      'platform/shared/ci-trust-root-registry.json',
+      'platform/shared/tcb-closure-lock.ts',
+      'platform/shared/tcb-trust-root-contract.ts',
+      'scripts/codex/merge-gate.ts'
+    ],
+    fast: TRUSTED_VERIFIER_TCB_FAST_TESTS,
+    slow: []
+  },
   {
     owner: 'verification-evidence-producers',
     identity: { kind: 'architecture-owner', id: 'verification-evidence-producers' },

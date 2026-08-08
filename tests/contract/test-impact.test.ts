@@ -213,6 +213,31 @@ test('runtime dependency authorities select only their exact fast and slow owner
   });
 });
 
+test('trusted verifier TCB surfaces select the causal trust-root contracts', () => {
+  const expected = {
+    fast: [
+      'tests/contract/ci-lanes.test.ts',
+      'tests/contract/sec-merge-gate.test.ts',
+      'tests/contract/tcb-closure-lock.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/tcb-trust-root-contract.test.ts'
+    ],
+    slow: [],
+    owners: ['trusted-verifier-tcb']
+  };
+  for (const source of [
+    '.github/workflows/compiler-pr-validation.yml',
+    '.github/workflows/compiler-release-validation.yml',
+    '.github/workflows/sec-trusted-bootstrap.yml',
+    'platform/shared/ci-trust-root-registry.json',
+    'platform/shared/tcb-closure-lock.ts',
+    'platform/shared/tcb-trust-root-contract.ts',
+    'scripts/codex/merge-gate.ts'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual(expected);
+  }
+});
+
 test('Task Envelope changes select behavior instead of source-text assertions', () => {
   for (const source of [
     'platform/compiler/synthesize/build-task-envelope.ts',

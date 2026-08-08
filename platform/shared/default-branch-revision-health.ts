@@ -17,7 +17,6 @@
  * artifact) is still owned by #279.
  */
 
-import { TCB_CLOSURE_LOCK_RECEIPT } from './tcb-closure-lock.ts';
 
 // ---------------------------------------------------------------------------
 // Receipt types
@@ -41,12 +40,21 @@ export interface DefaultBranchTcbExpansion {
   readonly rationale: string;
 }
 
+export interface DefaultBranchTcbLockReceipt {
+  readonly schema: 'sec-tcb-closure-lock-receipt-v1';
+  readonly trustRevision: string;
+  readonly moduleCount: number;
+  readonly closureDigest: string;
+  readonly generatedAt: string;
+  readonly generatedBy: string;
+}
+
 export interface DefaultBranchTestDriftRepair {
   readonly driftType: 'test-drift';
   readonly staleAssertion: string;
   readonly repairStrategy: string;
   readonly revertedCanonicalModule: false;
-  readonly lockReceipt: typeof TCB_CLOSURE_LOCK_RECEIPT;
+  readonly lockReceipt: DefaultBranchTcbLockReceipt;
 }
 
 export interface DefaultBranchPostMergeProvenance {
@@ -146,7 +154,14 @@ export const DEFAULT_BRANCH_REVISION_HEALTH_RECEIPT: DefaultBranchRevisionHealth
       + 'identity instead of a hard-coded count.'
     ),
     revertedCanonicalModule: false,
-    lockReceipt: TCB_CLOSURE_LOCK_RECEIPT
+    lockReceipt: {
+      schema: 'sec-tcb-closure-lock-receipt-v1',
+      trustRevision: '4b27555bfcaa146e466227beca9f6c7069f68eaf',
+      moduleCount: 61,
+      closureDigest: 'sha256:b6cc794e12adddcb81c6e74c0cc9b0afccc34d3636df3f0c818d49fbe55a00f3',
+      generatedAt: '2026-08-07T00:00:00.000Z',
+      generatedBy: 'tcb-closure-maintainer'
+    }
   },
   postMergeProvenance: {
     mergeCommit: 'b2e538aef7cb478cfd8d8b782da8919117831ccf',

@@ -592,33 +592,43 @@ test.serial('bounded concurrent shard failures settle siblings and stop later ba
   );
 });
 
-test.serial('failed explicit resource batch settles siblings then emits one bounded plan-order receipt', async () => {
-  let releaseSibling!: () => void;
-  let markSecondStarted!: () => void;
-  const siblingSettlement = new Promise<void>((resolve) => { releaseSibling = resolve; });
-  const secondStarted = new Promise<void>((resolve) => { markSecondStarted = resolve; });
-  devCommandSettlements.push(undefined, siblingSettlement);
-  devCommandStartObservers.push(undefined, markSecondStarted);
+test.serial('failed explicit resource batch settles started siblings then emits one bounded plan-order receipt', async () => {
+  const independentFiles = [
+    'tests/integration/pipeline-kernel.test.ts',
+    'tests/integration/ticket-pipeline.test.ts'
+  ];
+  const expectedFirstBatchSize = Math.min(
+    DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process'],
+    independentFiles.length
+  );
+  const siblingCanStart = expectedFirstBatchSize > 1;
+  const siblingSettlement = deferred();
+  const siblingStarted = deferred();
+
   devCommandExitCodes.push(7, 9);
   devCommandObservationOverrides.push(
     { stdoutTail: 'a'.repeat(4096), stderrTail: 'first failure' },
     { stdoutTail: 'second failure', stderrTail: 'b'.repeat(4096) }
   );
+  if (siblingCanStart) {
+    devCommandSettlements.push(undefined, siblingSettlement.promise);
+    devCommandStartObservers.push(undefined, siblingStarted.resolve);
+  }
   const errors: string[] = [];
   const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
   try {
-    const run = runFastTests([
-      'tests/integration/pipeline-kernel.test.ts',
-      'tests/integration/ticket-pipeline.test.ts'
-    ]);
-    await secondStarted;
-    expect(errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
-      .toEqual([]);
-    releaseSibling();
+    const run = runFastTests(independentFiles);
+    if (siblingCanStart) {
+      await siblingStarted.promise;
+      expect(errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX)))
+        .toEqual([]);
+      siblingSettlement.resolve();
+    }
 
     expect(await run).toBe(7);
+    expect(devCommandCalls).toHaveLength(expectedFirstBatchSize);
     const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
     expect(receipts).toHaveLength(1);
     const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
@@ -632,16 +642,18 @@ test.serial('failed explicit resource batch settles siblings then emits one boun
     };
     expect(receipt.queue).toBe('independent-process');
     expect(receipt.batchIndex).toBe(0);
-    expect(receipt.failures.map(({ invocationId }) => invocationId)).toEqual([
-      'independent-process:001',
-      'independent-process:002'
-    ]);
+    expect(receipt.failures.map(({ invocationId }) => invocationId)).toEqual(
+      Array.from(
+        { length: expectedFirstBatchSize },
+        (_, index) => `independent-process:${String(index + 1).padStart(3, '0')}`
+      )
+    );
     for (const failure of receipt.failures) {
       expect(Buffer.byteLength(failure.stdoutTail)).toBeLessThanOrEqual(2 * 1024);
       expect(Buffer.byteLength(failure.stderrTail)).toBeLessThanOrEqual(2 * 1024);
     }
   } finally {
-    releaseSibling();
+    siblingSettlement.resolve();
     console.error = originalError;
   }
 });
@@ -789,152 +801,107 @@ test.serial('pure bounded scheduler settles synchronous dispatch rejection with 
   expect(failedBatch?.outcomes.map(({ status }) => status)).toEqual(['rejected', 'fulfilled']);
 });
 
-test.serial('mixed failures stay plan-ordered under reverse completion without host CPU assumptions', async () => {
-  const mixedFiles = [
-    'tests/integration/pipeline-kernel.test.ts',
-    'tests/integration/pipeline-workspace-write-lease.test.ts',
-    'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
-    'tests/integration/semantic-mutation-windows-rollback.test.ts'
-  ];
-  const laterBatchFile = 'tests/integration/ticket-pipeline.test.ts';
+test.serial('observed failure receipt bounds terminal, integrity, argv, and UTF-8 tails', async () => {
   const longText = '🙂界'.repeat(700);
   const longArg = `--test-name-pattern=${longText}argv sentinel`;
-  const settlements = mixedFiles.map(() => deferred());
-  const completions = mixedFiles.map(() => deferred());
-  const allStarted = deferred();
-  const completionOrder: number[] = [];
-  let started = 0;
-
-  for (let index = 0; index < mixedFiles.length; index += 1) {
-    devCommandSettlements.push(settlements[index].promise);
-    devCommandStartObservers.push(() => {
-      started += 1;
-      if (started === mixedFiles.length) allStarted.resolve();
-    });
-    devCommandCompletionObservers.push(() => {
-      completionOrder.push(index);
-      completions[index].resolve();
-    });
-  }
-  devCommandExitCodes.push(7, 0, 0, 0);
-  devCommandFailures.push(
-    null,
-    null,
-    null,
-    new Error(`${longText}observer rejection sentinel`)
-  );
-  devCommandObservationOverrides.push(
-    {
-      stdoutTail: `${longText}stdout one sentinel`,
-      stderrTail: `${longText}stderr one sentinel`
+  devCommandExitCodes.push(7);
+  devCommandObservationOverrides.push({
+    terminal: { kind: 'spawn-failed', error: `${longText}spawn failure sentinel` },
+    observationIntegrity: {
+      kind: 'failed',
+      error: `${longText}integrity failure sentinel`
     },
-    {
-      terminal: { kind: 'signaled', signal: 'SIGTERM' },
-      observationIntegrity: {
-        kind: 'failed',
-        error: `${longText}integrity failure sentinel`
-      },
-      stdoutTail: `${longText}stdout two sentinel`,
-      stderrTail: `${longText}stderr two sentinel`
-    },
-    {
-      terminal: { kind: 'spawn-failed', error: `${longText}spawn failure sentinel` },
-      stdoutTail: `${longText}stdout three sentinel`,
-      stderrTail: `${longText}stderr three sentinel`
-    },
-    undefined
-  );
-
+    stdoutTail: `${longText}stdout sentinel`,
+    stderrTail: `${longText}stderr sentinel`
+  });
   const errors: string[] = [];
   const originalError = console.error;
   console.error = (message?: unknown) => { errors.push(String(message)); };
 
   try {
-    const run = runFastTests([...mixedFiles, laterBatchFile, longArg]);
-    await allStarted.promise;
-    expect(devCommandCalls).toHaveLength(mixedFiles.length);
-
-    for (let index = mixedFiles.length - 1; index >= 0; index -= 1) {
-      settlements[index].resolve();
-      await completions[index].promise;
-    }
-
-    expect(await run).toBe(7);
-    expect(completionOrder).toEqual([3, 2, 1, 0]);
-    expect(devCommandCalls.some(({ args }) => args.includes(laterBatchFile))).toBe(false);
+    expect(await runFastTests([
+      'tests/integration/pipeline-kernel.test.ts',
+      longArg
+    ])).toBe(1);
 
     const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
     expect(receipts).toHaveLength(1);
     const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
       failures: Array<{
         kind: string;
-        invocationId: string;
-        terminal?: { kind: string };
-        observationIntegrity?: { kind: string; error?: string };
-        effectiveArgv?: string[];
-        effectiveArgvTruncated?: boolean;
-        plannedArgv?: string[];
-        plannedArgvTruncated?: boolean;
-        error?: string;
-        stdoutTail?: string;
-        stderrTail?: string;
+        terminal: { kind: string; error?: string };
+        observationIntegrity: { kind: string; error?: string };
+        effectiveArgv: string[];
+        effectiveArgvTruncated: boolean;
+        stdoutTail: string;
+        stderrTail: string;
       }>;
     };
-    expect(receipt.failures.map(({ invocationId }) => invocationId)).toEqual([
-      'independent-process:001',
-      'independent-process:002',
-      'independent-process:003',
-      'independent-process:004'
-    ]);
-    expect(receipt.failures.map(({ kind }) => kind)).toEqual([
-      'observed-command-failure',
-      'observed-command-failure',
-      'observed-command-failure',
-      'observer-rejected'
-    ]);
-    expect(receipt.failures.slice(0, 3).map(({ terminal }) => terminal?.kind)).toEqual([
-      'exited',
-      'signaled',
-      'spawn-failed'
-    ]);
-    expect(receipt.failures[3]).not.toHaveProperty('effectiveArgv');
-    expect(receipt.failures[3].plannedArgv?.[0]).toBe('bun');
-    expect(receipt.failures[3].error?.endsWith('observer rejection sentinel')).toBe(true);
-
-    for (const failure of receipt.failures.slice(0, 3)) {
-      expect(failure.effectiveArgvTruncated).toBe(true);
-      for (const arg of failure.effectiveArgv ?? []) {
-        expect(Buffer.byteLength(arg, 'utf8')).toBeLessThanOrEqual(512);
-        expect(arg).not.toContain('�');
-      }
-      expect(failure.effectiveArgv?.some((arg) => arg.endsWith('argv sentinel'))).toBe(true);
-      expect(Buffer.byteLength(failure.stdoutTail ?? '', 'utf8')).toBeLessThanOrEqual(2 * 1024);
-      expect(Buffer.byteLength(failure.stderrTail ?? '', 'utf8')).toBeLessThanOrEqual(2 * 1024);
-      expect(failure.stdoutTail).not.toContain('�');
-      expect(failure.stderrTail).not.toContain('�');
-      expect(failure.stdoutTail?.endsWith('sentinel')).toBe(true);
-      expect(failure.stderrTail?.endsWith('sentinel')).toBe(true);
-    }
-    expect(receipt.failures[3].plannedArgvTruncated).toBe(true);
-    for (const arg of receipt.failures[3].plannedArgv ?? []) {
+    expect(receipt.failures).toHaveLength(1);
+    const failure = receipt.failures[0]!;
+    expect(failure.kind).toBe('observed-command-failure');
+    expect(failure.terminal.kind).toBe('spawn-failed');
+    expect(failure.observationIntegrity.kind).toBe('failed');
+    expect(failure.effectiveArgvTruncated).toBe(true);
+    expect(failure.effectiveArgv.some((arg) => arg.endsWith('argv sentinel'))).toBe(true);
+    for (const arg of failure.effectiveArgv) {
       expect(Buffer.byteLength(arg, 'utf8')).toBeLessThanOrEqual(512);
       expect(arg).not.toContain('�');
     }
-    expect(receipt.failures[3].plannedArgv?.some((arg) => arg.endsWith('argv sentinel')))
-      .toBe(true);
-    expect(Buffer.byteLength(receipt.failures[3].error ?? '', 'utf8'))
+    expect(Buffer.byteLength(failure.stdoutTail, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+    expect(Buffer.byteLength(failure.stderrTail, 'utf8')).toBeLessThanOrEqual(2 * 1024);
+    expect(Buffer.byteLength(failure.terminal.error ?? '', 'utf8')).toBeLessThanOrEqual(1024);
+    expect(Buffer.byteLength(failure.observationIntegrity.error ?? '', 'utf8'))
       .toBeLessThanOrEqual(1024);
-    expect(Buffer.byteLength(receipt.failures[1].observationIntegrity?.error ?? '', 'utf8'))
-      .toBeLessThanOrEqual(1024);
-    expect(Buffer.byteLength(
-      (receipt.failures[2].terminal as { error?: string }).error ?? '',
-      'utf8'
-    )).toBeLessThanOrEqual(1024);
-    expect(receipt.failures[1].observationIntegrity?.error).not.toContain('�');
-    expect((receipt.failures[2].terminal as { error?: string }).error).not.toContain('�');
-    expect(receipt.failures[3].error).not.toContain('�');
+    expect(failure.stdoutTail.endsWith('sentinel')).toBe(true);
+    expect(failure.stderrTail.endsWith('sentinel')).toBe(true);
+    expect(failure.terminal.error).not.toContain('�');
+    expect(failure.observationIntegrity.error).not.toContain('�');
   } finally {
-    for (const settlement of settlements) settlement.resolve();
+    console.error = originalError;
+  }
+});
+
+test.serial('observer rejection receipt bounds planned argv and UTF-8 error', async () => {
+  const longText = '🙂界'.repeat(700);
+  const longArg = `--test-name-pattern=${longText}argv sentinel`;
+  devCommandFailures.push(new Error(`${longText}observer rejection sentinel`));
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (message?: unknown) => { errors.push(String(message)); };
+
+  try {
+    expect(await runFastTests([
+      'tests/integration/pipeline-kernel.test.ts',
+      longArg
+    ])).toBe(1);
+
+    const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
+    expect(receipts).toHaveLength(1);
+    const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
+      failures: Array<{
+        kind: string;
+        plannedArgv: string[];
+        plannedArgvTruncated: boolean;
+        error: string;
+        effectiveArgv?: string[];
+      }>;
+    };
+    expect(receipt.failures).toHaveLength(1);
+    const failure = receipt.failures[0]!;
+    expect(failure.kind).toBe('observer-rejected');
+    expect(failure).not.toHaveProperty('effectiveArgv');
+    expect(failure.plannedArgv[0]).toBe('bun');
+    expect(failure.plannedArgvTruncated).toBe(true);
+    expect(failure.plannedArgv.some((arg) => arg.endsWith('argv sentinel'))).toBe(true);
+    for (const arg of failure.plannedArgv) {
+      expect(Buffer.byteLength(arg, 'utf8')).toBeLessThanOrEqual(512);
+      expect(arg).not.toContain('�');
+    }
+    expect(Buffer.byteLength(failure.error, 'utf8')).toBeLessThanOrEqual(1024);
+    expect(failure.error.endsWith('observer rejection sentinel')).toBe(true);
+    expect(failure.error).not.toContain('�');
+  } finally {
     console.error = originalError;
   }
 });

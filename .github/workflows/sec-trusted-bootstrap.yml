@@ -1,0 +1,324 @@
+name: sec-trusted-bootstrap
+run-name: 'trusted bootstrap PR #${{ github.event.client_payload.pull_request }} @ ${{ github.event.client_payload.expected_head }} base ${{ github.event.client_payload.expected_base }}'
+
+on:
+  repository_dispatch:
+    types:
+      - sec-trusted-bootstrap-v1
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: sec-trusted-bootstrap-${{ github.event.client_payload.pull_request }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  trusted-bootstrap-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Resolve trusted bootstrap request from current base
+        id: resolve
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
+          EVENT_TYPE: sec-trusted-bootstrap-v1
+          WORKFLOW_HEAD: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+        with:
+          script: |
+            const crypto = require('crypto');
+            const payload = JSON.parse(process.env.PAYLOAD_JSON);
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+              throw new Error('client_payload must be an object.');
+            }
+            const expectedKeys = [
+              'expected_base', 'expected_head', 'manifest_digest', 'manifest_path', 'pull_request', 'schema'
+            ];
+            if (JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(expectedKeys)) {
+              throw new Error('client_payload keys are invalid.');
+            }
+            if (payload.schema !== 'sec-trusted-bootstrap-request-v1') {
+              throw new Error('client_payload schema is invalid.');
+            }
+            if (!Number.isSafeInteger(payload.pull_request) || payload.pull_request <= 0) {
+              throw new Error('pull_request is invalid.');
+            }
+            for (const key of ['expected_base', 'expected_head']) {
+              if (typeof payload[key] !== 'string' || !/^[0-9a-f]{40}$/.test(payload[key])) {
+                throw new Error(`${key} is invalid.`);
+              }
+            }
+            if (
+              typeof payload.manifest_path !== 'string' ||
+              !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(payload.manifest_path)
+            ) throw new Error('manifest_path is invalid.');
+            if (typeof payload.manifest_digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(payload.manifest_digest)) {
+              throw new Error('manifest_digest is invalid.');
+            }
+            if (process.env.EVENT_TYPE !== 'sec-trusted-bootstrap-v1') {
+              throw new Error('repository_dispatch type is invalid.');
+            }
+
+            const [repository, pull, actorPermission, triggeringPermission] = await Promise.all([
+              github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
+              github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: payload.pull_request
+              }),
+              github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: process.env.ACTOR
+              }),
+              github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: process.env.TRIGGERING_ACTOR
+              })
+            ]);
+            const trusted = (permission) => permission === 'maintain' || permission === 'admin';
+            if (!trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
+              throw new Error('Trusted bootstrap requires maintain/admin actor and triggering actor.');
+            }
+
+            const livePull = pull.data;
+            const [baseBranch, openPulls, headCommit] = await Promise.all([
+              github.rest.repos.getBranch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                branch: repository.data.default_branch
+              }),
+              github.paginate(github.rest.pulls.list, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100
+              }),
+              github.rest.repos.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: payload.expected_head
+              })
+            ]);
+            const currentBase = baseBranch.data.commit.sha;
+            if (
+              process.env.WORKFLOW_HEAD !== currentBase ||
+              currentBase !== payload.expected_base ||
+              livePull.state !== 'open' || livePull.draft ||
+              livePull.base.sha !== currentBase || livePull.head.sha !== payload.expected_head ||
+              livePull.base.repo.id !== repository.data.id || livePull.head.repo?.id !== repository.data.id ||
+              headCommit.data.parents.length !== 1 || headCommit.data.parents[0].sha !== currentBase ||
+              openPulls.filter((candidate) => candidate.head.sha === payload.expected_head).length !== 1
+            ) throw new Error('Trusted bootstrap request is stale or not one open same-repository single-parent PR head.');
+
+            const locatorLines = (livePull.body ?? '').replaceAll('\r\n', '\n').split('\n')
+              .filter((line) => line.startsWith('Work-Package:'));
+            if (locatorLines.length !== 1 || locatorLines[0] !== `Work-Package: ${payload.manifest_path}`) {
+              throw new Error('PR Work-Package locator does not match bootstrap request.');
+            }
+
+            const [headTree, baseTree] = await Promise.all([
+              github.rest.git.getTree({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tree_sha: headCommit.data.commit.tree.sha,
+                recursive: 'true'
+              }),
+              github.rest.git.getTree({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tree_sha: baseBranch.data.commit.commit.tree.sha,
+                recursive: 'true'
+              })
+            ]);
+            if (headTree.data.truncated || baseTree.data.truncated) {
+              throw new Error('Trusted bootstrap tree comparison was truncated.');
+            }
+
+            const readBlobFromTree = async (tree, repositoryPath, label) => {
+              const entry = tree.data.tree.find((candidate) => candidate.path === repositoryPath);
+              if (
+                !entry || entry.type !== 'blob' || entry.mode !== '100644' ||
+                typeof entry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(entry.sha)
+              ) throw new Error(`${label} is unavailable or not one ordinary blob.`);
+              const response = await github.rest.git.getBlob({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                file_sha: entry.sha
+              });
+              if (response.data.encoding !== 'base64' || typeof response.data.content !== 'string') {
+                throw new Error(`${label} blob encoding is invalid.`);
+              }
+              return {
+                bytes: Buffer.from(response.data.content.replaceAll('\n', ''), 'base64'),
+                entry
+              };
+            };
+
+            const manifest = await readBlobFromTree(headTree, payload.manifest_path, 'Work Package manifest');
+            const manifestDigest = `sha256:${crypto.createHash('sha256').update(manifest.bytes).digest('hex')}`;
+            if (manifestDigest !== payload.manifest_digest) {
+              throw new Error('Work Package manifest digest is stale.');
+            }
+
+            const registryPath = 'platform/shared/ci-trust-root-registry.json';
+            const registryBlob = await readBlobFromTree(baseTree, registryPath, 'Trusted-base trust-root registry');
+            let registry;
+            try {
+              registry = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(registryBlob.bytes));
+            } catch {
+              throw new Error('Trusted-base trust-root registry is not strict UTF-8 JSON.');
+            }
+            const registryKeys = [
+              'causalRuntimePaths', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
+              'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
+            ];
+            if (
+              !registry || typeof registry !== 'object' || Array.isArray(registry) ||
+              registry.schema !== 'sec-trusted-bootstrap-registry-v1' ||
+              JSON.stringify(Object.keys(registry).sort()) !== JSON.stringify(registryKeys)
+            ) throw new Error('Trusted-base trust-root registry schema is invalid.');
+            for (const key of ['staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'causalRuntimePaths']) {
+              if (!Array.isArray(registry[key]) || registry[key].some((entry) => typeof entry !== 'string')) {
+                throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);
+              }
+            }
+            const trustFiles = new Set([...registry.staticExactPaths, ...registry.causalRuntimePaths]);
+            const selectTrust = (tree) => Object.fromEntries(tree.data.tree
+              .filter((entry) => entry.path && (
+                trustFiles.has(entry.path) ||
+                registry.staticDirectoryPaths.some((directory) => entry.path.startsWith(directory)) ||
+                registry.staticPrefixes.some((prefix) => entry.path.startsWith(prefix))
+              ))
+              .map((entry) => [entry.path, `${entry.mode}:${entry.type}:${entry.sha}`])
+              .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
+            if (JSON.stringify(selectTrust(headTree)) === JSON.stringify(selectTrust(baseTree))) {
+              throw new Error('Trusted bootstrap is only valid when the exact candidate changes the trusted-base verifier boundary.');
+            }
+
+            const bunVersionBlob = await readBlobFromTree(baseTree, '.bun-version', 'Trusted-base Bun version');
+            const bunVersion = new TextDecoder('utf-8', { fatal: true }).decode(bunVersionBlob.bytes).trim();
+            if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(bunVersion)) {
+              throw new Error('Trusted-base Bun version is invalid.');
+            }
+
+            core.setOutput('base', currentBase);
+            core.setOutput('head', payload.expected_head);
+            core.setOutput('tree', headCommit.data.commit.tree.sha);
+            core.setOutput('manifest', payload.manifest_path);
+            core.setOutput('manifest-digest', manifestDigest);
+            core.setOutput('registry-digest', `sha256:${crypto.createHash('sha256').update(registryBlob.bytes).digest('hex')}`);
+            core.setOutput('bun-version', bunVersion);
+            core.setOutput('pull-request', String(payload.pull_request));
+
+      - name: Checkout exact candidate as SUT
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ steps.resolve.outputs.head }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Materialize immutable P0 fixture objects
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c protocol.version=2 fetch --no-tags --no-recurse-submodules --no-write-fetch-head "$url"             01d5c45a573337bee484d6a9d2effb2a76787b86             ab5d3a839afc1d595ae5c43437eb862cde1500c1             514e6e401659f18ecffca19856a11354d66d05df
+          for sha in             01d5c45a573337bee484d6a9d2effb2a76787b86             ab5d3a839afc1d595ae5c43437eb862cde1500c1             514e6e401659f18ecffca19856a11354d66d05df; do
+            git cat-file -e "${sha}^{commit}"
+          done
+          git cat-file -e 334dd8dbe7162cd35f832257b735e79dd39e5650
+
+      - name: Setup trusted-base Bun runtime
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ steps.resolve.outputs.bun-version }}
+
+      - name: Install candidate dependencies without lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          bun install --frozen-lockfile --ignore-scripts
+
+      - name: Generate candidate TCB closure snapshot
+        shell: bash
+        env:
+          SEC_BOOTSTRAP_BASE: ${{ steps.resolve.outputs.base }}
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          mkdir -p .tmp/sec-trusted-bootstrap
+          bun -e "import { generateTcbClosureLockForRevision } from './platform/shared/tcb-closure-lock.ts'; process.stdout.write(JSON.stringify(generateTcbClosureLockForRevision(process.env.SEC_BOOTSTRAP_BASE), null, 2) + '\\n');" > .tmp/sec-trusted-bootstrap/generated-tcb-lock.json
+
+      - name: Run candidate bootstrap regression suite
+        id: regression
+        shell: bash
+        env:
+          SEC_CHANGED_BASE: ${{ steps.resolve.outputs.base }}
+          SEC_AFFECTED_TESTS_BASE: ${{ steps.resolve.outputs.base }}
+          SEC_WORK_PACKAGE_MANIFEST_PATH: ${{ steps.resolve.outputs.manifest }}
+          SEC_REPOSITORY_AUDIT_DEFAULT_REF: ${{ steps.resolve.outputs.base }}
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          out=.tmp/sec-trusted-bootstrap
+          mkdir -p "$out"
+          git update-ref refs/remotes/origin/main '${{ steps.resolve.outputs.base }}'
+
+          bun run imports:check 2>&1 | tee "$out/imports.log"
+          bun run docs:doctor 2>&1 | tee "$out/docs-doctor.log"
+          bun run typecheck 2>&1 | tee "$out/typecheck.log"
+          git diff --check ${{ steps.resolve.outputs.base }}..${{ steps.resolve.outputs.head }} 2>&1 | tee "$out/diff-check.log"
+          bun test --timeout 180000 \
+            tests/unit/tcb-trust-root-contract.test.ts \
+            tests/unit/test-runner.test.ts \
+            tests/contract/ci-contract.test.ts \
+            tests/contract/sec-merge-gate.test.ts \
+            tests/contract/tcb-closure-lock.test.ts \
+            tests/contract/default-branch-revision-health.test.ts \
+            tests/contract/repository-audit.test.ts \
+            tests/contract/documentation-authority.test.ts \
+            tests/contract/test-impact.test.ts \
+            tests/contract/ci-lanes.test.ts \
+            2>&1 | tee "$out/focused-tests.log"
+          bun scripts/codex/repository-audit.ts --json > "$out/repository-audit.json"
+          bun run check:affected --plan > "$out/affected-plan.json"
+          bun run test:affected 2>&1 | tee "$out/affected-tests.log"
+
+          test -z "$(git status --porcelain=v1)"
+          {
+            printf 'schema=sec-trusted-bootstrap-environment-v1\n'
+            printf 'base=%s\n' '${{ steps.resolve.outputs.base }}'
+            printf 'head=%s\n' "$(git rev-parse HEAD)"
+            printf 'tree=%s\n' "$(git rev-parse 'HEAD^{tree}')"
+            printf 'parent=%s\n' "$(git rev-parse HEAD^1)"
+            printf 'registryDigest=%s\n' '${{ steps.resolve.outputs.registry-digest }}'
+            printf 'manifestDigest=%s\n' '${{ steps.resolve.outputs.manifest-digest }}'
+            printf 'bun=%s\n' "$(bun --revision)"
+            printf 'git=%s\n' "$(git --version)"
+            printf 'os=%s\n' "$(uname -a)"
+          } > "$out/environment.txt"
+          (cd "$out" && sha256sum * > SHA256SUMS)
+
+      - name: Upload trusted bootstrap evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sec-trusted-bootstrap-v1-pr-${{ steps.resolve.outputs.pull-request }}-base-${{ steps.resolve.outputs.base }}-head-${{ steps.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: .tmp/sec-trusted-bootstrap
+          if-no-files-found: error
+          retention-days: 90

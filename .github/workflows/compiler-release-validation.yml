@@ -34,6 +34,7 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           REQUESTED_REF: ${{ inputs.ref || github.sha }}
+          WORKFLOW_HEAD: ${{ github.sha }}
         with:
           script: |
             const requestedRef = process.env.REQUESTED_REF;
@@ -52,6 +53,9 @@ jobs:
               repo: context.repo.repo,
               branch: repository.default_branch
             });
+            if (process.env.WORKFLOW_HEAD !== baseBranch.commit.sha) {
+              throw new Error('Release verifier workflow must execute from the current trusted default branch.');
+            }
             const [headTree, baseTree] = await Promise.all([
               github.rest.git.getTree({
                 owner: context.repo.owner,
@@ -69,68 +73,44 @@ jobs:
             if (headTree.data.truncated || baseTree.data.truncated) {
               throw new Error('Verifier trust-root tree comparison was truncated.');
             }
-            const trustFiles = new Set([
-              '.gitattributes',
-              '.gitignore',
-              '.gitmodules',
-              '.npmrc',
-              'bun.lock',
-              'bunfig.toml',
-              'docs/scripts/docs-doctor-ledgers.ts',
-              'docs/scripts/docs-doctor-shared.ts',
-              'docs/scripts/docs-doctor.ts',
-              'package.json',
-              'platform/dev-runner.ts',
-              'platform/shared/active-documentation-contract.ts',
-              'platform/shared/affected-test-inventory.ts',
-              'platform/shared/bun-runtime-version.ts',
-              'platform/shared/ci-artifact-contract.ts',
-              'platform/shared/ci-artifact-types.ts',
-              'platform/shared/ci-contract.ts',
-              'platform/shared/ci-evidence-composition-policy-registry.ts',
-              'platform/shared/ci-evidence-contract.ts',
-              'platform/shared/ci-evidence-reuse-contract.ts',
-              'platform/shared/ci-execution-environment.ts',
-              'platform/shared/ci-git-changed-files.ts',
-              'platform/shared/ci-pr-risk-selection.ts',
-              'platform/shared/ci-verification-plan.ts',
-              'platform/shared/ci-verification-revision.ts',
-              'platform/shared/collections.ts',
-              'platform/shared/constants.ts',
-              'platform/shared/contract-freeze-contract.ts',
-              'platform/shared/documentation-authority-contract.ts',
-              'platform/shared/errors.ts',
-              'platform/shared/fs.ts',
-              'platform/shared/heavy-verification-gate-lease.ts',
-              'platform/shared/paths.ts',
-              'platform/shared/platform-command.ts',
-              'platform/shared/process.ts',
-              'platform/shared/project-runtime.ts',
-              'platform/shared/repository-path-contract.ts',
-              'platform/shared/runtime-dependency-spec.ts',
-              'platform/shared/runtime-layout.ts',
-              'platform/shared/test-budget-contract.ts',
-              'platform/shared/test-impact-contract.ts',
-              'platform/shared/test-ownership-contract.ts',
-              'platform/shared/verification-scope-inventory.ts',
-              'platform/shared/workspace-path-contract.ts',
-              'scripts/ci-pr-risk.ts',
-              'scripts/ci-verification.ts',
-              'scripts/ci-workspace-fast.ts',
-              'scripts/install-git-hooks.ts',
-              'tests/setup/runtime-deps.setup.ts',
-              'tsconfig.json'
-            ]);
-            const trustDirectories = [
-              '.github/workflows/',
-              '.shared-deps/',
-              'node_modules/',
-              'platform/dev-runner/',
-              'platform/shared/test-impact-rules/',
-              'scripts/codex/',
-              'tests/testkit/'
+            const registryPath = 'platform/shared/ci-trust-root-registry.json';
+            const registryEntry = baseTree.data.tree.find((entry) => entry.path === registryPath);
+            if (
+              !registryEntry || registryEntry.type !== 'blob' || registryEntry.mode !== '100644' ||
+              typeof registryEntry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(registryEntry.sha)
+            ) throw new Error('Trusted-base trust-root registry is unavailable or not one ordinary blob.');
+            const registryResponse = await github.rest.git.getBlob({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              file_sha: registryEntry.sha
+            });
+            if (registryResponse.data.encoding !== 'base64' || typeof registryResponse.data.content !== 'string') {
+              throw new Error('Trusted-base trust-root registry blob encoding is invalid.');
+            }
+            const registryBytes = Buffer.from(registryResponse.data.content.replaceAll('\n', ''), 'base64');
+            let registry;
+            try {
+              registry = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(registryBytes));
+            } catch {
+              throw new Error('Trusted-base trust-root registry is not strict UTF-8 JSON.');
+            }
+            const registryKeys = [
+              'causalRuntimePaths', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
+              'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
             ];
-            const trustPrefixes = ['.env'];
+            if (
+              !registry || typeof registry !== 'object' || Array.isArray(registry) ||
+              registry.schema !== 'sec-trusted-bootstrap-registry-v1' ||
+              JSON.stringify(Object.keys(registry).sort()) !== JSON.stringify(registryKeys)
+            ) throw new Error('Trusted-base trust-root registry schema is invalid.');
+            for (const key of ['staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'causalRuntimePaths']) {
+              if (!Array.isArray(registry[key]) || registry[key].some((entry) => typeof entry !== 'string')) {
+                throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);
+              }
+            }
+            const trustFiles = new Set([...registry.staticExactPaths, ...registry.causalRuntimePaths]);
+            const trustDirectories = registry.staticDirectoryPaths;
+            const trustPrefixes = registry.staticPrefixes;
             const selectTrust = (tree) => Object.fromEntries(tree
               .filter((entry) => entry.path && (
                 trustFiles.has(entry.path) ||
