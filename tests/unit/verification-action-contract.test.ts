@@ -1,20 +1,21 @@
 import { expect, test } from 'bun:test';
 
 import {
-  createVerificationActionKeyV1,
-  createVerificationActionPlanV1,
-  createVerificationActionTerminalV1,
-  isVerificationActionRunnableV1,
-  parseVerificationActionKeyV1,
-  verificationActionDependsOnChangedInputsV1,
-  type VerificationActionKeyInputV1
+  createVerificationActionKeyV2,
+  createVerificationActionPlanV2,
+  createVerificationActionTerminalV2,
+  encodeVerificationActionDataV2,
+  isVerificationActionRunnableV2,
+  parseVerificationActionKeyV2,
+  verificationActionDependsOnChangedInputsV2,
+  type VerificationActionKeyInputV2
 } from '../../scripts/codex/verification-action-contract.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
 const DIGEST_C = `sha256:${'c'.repeat(64)}` as const;
 
-function actionInput(overrides: Partial<VerificationActionKeyInputV1> = {}): VerificationActionKeyInputV1 {
+function actionInput(overrides: Partial<VerificationActionKeyInputV2> = {}): VerificationActionKeyInputV2 {
   return {
     actionKind: 'focused-contract',
     producer: { identity: 'sec-verification-action-test', revision: 'r1' },
@@ -23,7 +24,6 @@ function actionInput(overrides: Partial<VerificationActionKeyInputV1> = {}): Ver
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_B,
       workingDirectory: '.',
-      executionClass: 'expensive',
       declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
     },
     inputClosure: [
@@ -42,15 +42,26 @@ function actionInput(overrides: Partial<VerificationActionKeyInputV1> = {}): Ver
   };
 }
 
-test('ActionKey canonicalizes set-like closure and environment ordering', () => {
-  const first = createVerificationActionKeyV1(actionInput());
-  const second = createVerificationActionKeyV1(actionInput({
+function planFor(action: ReturnType<typeof createVerificationActionKeyV2>) {
+  const dependencies = [
+    ...action.requiredCheapPreflightActionKeys.map((actionKey) => ({ actionKey, kind: 'cheap-preflight' as const })),
+    ...action.upstreamActionKeys.map((actionKey) => ({ actionKey, kind: 'upstream' as const }))
+  ];
+  return createVerificationActionPlanV2({
+    action,
+    executionClass: action.requiredCheapPreflightActionKeys.length > 0 ? 'expensive' : 'cheap-preflight',
+    dependencies
+  });
+}
+
+test('ActionKey canonicalizes set-like closure and excludes scheduler lane identity', () => {
+  const first = createVerificationActionKeyV2(actionInput());
+  const second = createVerificationActionKeyV2(actionInput({
     operation: {
       identity: 'bun-test',
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_B,
       workingDirectory: '.',
-      executionClass: 'expensive',
       declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
     },
     inputClosure: [
@@ -64,254 +75,137 @@ test('ActionKey canonicalizes set-like closure and environment ordering', () => 
     'docs/work-packages/example-v1.md',
     'scripts/codex/example.ts'
   ]);
-  expect(parseVerificationActionKeyV1(JSON.stringify(first))).toEqual(first);
+  expect(parseVerificationActionKeyV2(encodeVerificationActionDataV2(first))).toEqual(first);
+  expect(first.operation).not.toHaveProperty('executionClass');
+  expect(planFor(first).executionClass).toBe('expensive');
 });
 
 test('semantic closure, producer, provider and contract changes change ActionKey', () => {
-  const baseline = createVerificationActionKeyV1(actionInput());
-  expect(createVerificationActionKeyV1(actionInput({
+  const baseline = createVerificationActionKeyV2(actionInput());
+  expect(createVerificationActionKeyV2(actionInput({
     inputClosure: [{ path: 'scripts/codex/example.ts', digest: DIGEST_C }]
   })).actionKey).not.toBe(baseline.actionKey);
-  expect(createVerificationActionKeyV1(actionInput({
+  expect(createVerificationActionKeyV2(actionInput({
     producer: { identity: 'sec-verification-action-test', revision: 'r2' }
   })).actionKey).not.toBe(baseline.actionKey);
-  expect(createVerificationActionKeyV1(actionInput({
+  expect(createVerificationActionKeyV2(actionInput({
     operation: {
       identity: 'bun-test',
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_C,
       workingDirectory: '.',
-      executionClass: 'expensive',
       declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
     }
   })).actionKey).not.toBe(baseline.actionKey);
-  expect(createVerificationActionKeyV1(actionInput({
+  expect(createVerificationActionKeyV2(actionInput({
     environment: {
       toolchainRevision: 'bun@1.3.15',
       providerRevision: 'local-windows',
       contractRevision: 'verification-result-v1'
     }
   })).actionKey).not.toBe(baseline.actionKey);
-  expect(createVerificationActionKeyV1(actionInput({
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_B,
-      workingDirectory: 'scripts',
-      executionClass: 'expensive',
-      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
-    }
-  })).actionKey).not.toBe(baseline.actionKey);
-  expect(createVerificationActionKeyV1(actionInput({
+  expect(createVerificationActionKeyV2(actionInput({
     upstreamActionKeys: [DIGEST_B]
   })).actionKey).not.toBe(baseline.actionKey);
+  const loneSurrogate = createVerificationActionKeyV2(actionInput({
+    producer: { identity: '\uD800', revision: 'r1' }
+  }));
+  const replacementCharacter = createVerificationActionKeyV2(actionInput({
+    producer: { identity: '\uFFFD', revision: 'r1' }
+  }));
+  expect(loneSurrogate.actionKey).not.toBe(replacementCharacter.actionKey);
 });
 
-test('identity rejects duplicate closure refs, raw operation selectors and foreign identity fields', () => {
-  expect(() => createVerificationActionKeyV1(actionInput({
-    inputClosure: [
-      { path: 'scripts/codex/example.ts', digest: DIGEST_A },
-      { path: 'scripts/codex/example.ts', digest: DIGEST_B }
-    ]
-  }))).toThrow('duplicate path');
-  expect(() => createVerificationActionKeyV1(actionInput({
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_A,
-      workingDirectory: '.',
-      executionClass: 'expensive',
-      argv: ['--cwd=C:/Users/QzCrane/AppData/Local/Temp/run'],
-      declaredEnvironment: []
-    }
-  } as never))).toThrow('forbidden semantic identity field argv');
-  expect(() => createVerificationActionKeyV1(actionInput({
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_A,
-      workingDirectory: 'C:/outside',
-      executionClass: 'expensive',
-      declaredEnvironment: []
-    }
-  }))).toThrow('repository-relative directory');
-  expect(() => createVerificationActionKeyV1(actionInput({
-    requiredCheapPreflightActionKeys: []
-  }))).toThrow('expensive actions must declare');
-  expect(() => createVerificationActionKeyV1(actionInput({
-    requiredCheapPreflightActionKeys: [DIGEST_C],
-    upstreamActionKeys: [DIGEST_C]
-  }))).toThrow('sets cannot overlap');
-  expect(() => createVerificationActionKeyV1(actionInput({
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_A,
-      workingDirectory: 'scripts/',
-      executionClass: 'expensive',
-      declaredEnvironment: []
-    }
-  }))).toThrow('repository-relative directory');
-  expect(() => createVerificationActionKeyV1(actionInput({
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_A,
-      workingDirectory: 'C:outside',
-      executionClass: 'expensive',
-      declaredEnvironment: []
-    }
-  }))).toThrow('repository-relative directory');
-  expect(() => createVerificationActionKeyV1(actionInput({
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_A,
-      workingDirectory: '//server/share',
-      executionClass: 'expensive',
-      declaredEnvironment: []
-    }
-  }))).toThrow('repository-relative directory');
-  expect(() => createVerificationActionKeyV1(actionInput({
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_A,
-      workingDirectory: '.',
-      executionClass: 'expensive',
-      branch: 'feature/ephemeral',
-      declaredEnvironment: []
-    }
-  } as never))).toThrow('forbidden semantic identity field branch');
-  expect(() => createVerificationActionKeyV1({
-    ...actionInput(),
-    branchName: 'feature/not-identity'
-  } as VerificationActionKeyInputV1)).toThrow('forbidden semantic identity field');
+test('strict ordinary-data boundary rejects getters, proxies, symbols, custom prototypes, toJSON and cycles', () => {
+  const getterInput = actionInput();
+  Object.defineProperty(getterInput.operation, 'identity', {
+    get: () => { throw new Error('getter executed'); },
+    enumerable: true
+  });
+  expect(() => createVerificationActionKeyV2(getterInput)).toThrow(/data property|accessors/);
+
+  const proxied = new Proxy(actionInput(), {
+    ownKeys: () => { throw new Error('proxy ownKeys executed'); }
+  });
+  expect(() => createVerificationActionKeyV2(proxied)).toThrow(/ordinary data|inspect|proxies/);
+  const transparentProxy = new Proxy(actionInput(), {});
+  expect(() => createVerificationActionKeyV2(transparentProxy)).toThrow('proxies are forbidden');
+
+  const symbolInput = actionInput() as Record<PropertyKey, unknown>;
+  symbolInput[Symbol('identity')] = 'forbidden';
+  expect(() => createVerificationActionKeyV2(symbolInput)).toThrow('symbol properties are forbidden');
+
+  const customPrototype = Object.create({ inherited: true }) as Record<string, unknown>;
+  Object.assign(customPrototype, actionInput());
+  expect(() => createVerificationActionKeyV2(customPrototype)).toThrow('object prototype is noncanonical');
+
+  const toJsonInput = actionInput() as Record<string, unknown>;
+  toJsonInput.toJSON = () => ({ actionKind: 'spoofed' });
+  expect(() => createVerificationActionKeyV2(toJsonInput)).toThrow('toJSON is forbidden');
+
+  const cyclic = actionInput() as Record<string, unknown>;
+  cyclic.cycle = cyclic;
+  expect(() => createVerificationActionKeyV2(cyclic)).toThrow('cyclic reference');
 });
 
-test('cheap preflight gates expensive execution and input invalidation stays dependency-local', () => {
-  const dependency = createVerificationActionKeyV1(actionInput({
+test('V1 key wire records are deterministically rejected after schema migration', () => {
+  const key = createVerificationActionKeyV2(actionInput());
+  const oldWire = { ...key, schema: 'sec-verification-action-key-v1' };
+  expect(() => parseVerificationActionKeyV2(encodeVerificationActionDataV2(oldWire)))
+    .toThrow('V1 journals/keys are not reusable');
+});
+
+test('cheap preflight topology is exact, caller state is never accepted, and lane is derived', () => {
+  const dependency = createVerificationActionKeyV2(actionInput({
     actionKind: 'identity-preflight',
     operation: {
       identity: 'bun-test',
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_B,
       workingDirectory: '.',
-      executionClass: 'cheap-preflight',
       declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
     },
-    requiredCheapPreflightActionKeys: []
+    requiredCheapPreflightActionKeys: [],
+    upstreamActionKeys: []
   }));
-  const action = createVerificationActionKeyV1(actionInput({
-    upstreamActionKeys: [],
-    requiredCheapPreflightActionKeys: [dependency.actionKey]
+  const action = createVerificationActionKeyV2(actionInput({
+    requiredCheapPreflightActionKeys: [dependency.actionKey],
+    upstreamActionKeys: []
   }));
-  expect(() => createVerificationActionPlanV1({
+  expect(() => createVerificationActionPlanV2({
     action,
-    expensive: true,
+    executionClass: 'cheap-preflight',
+    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
+  })).toThrow('must match required cheap-preflight topology');
+  expect(() => createVerificationActionPlanV2({
+    action,
+    executionClass: 'expensive',
     dependencies: []
   })).toThrow('cheap-preflight dependencies must exactly match');
-  expect(() => createVerificationActionPlanV1({
+  expect(() => createVerificationActionPlanV2({
     action,
-    expensive: 'true' as never,
-    dependencies: []
-  })).toThrow('expensive must be a boolean');
-  expect(() => createVerificationActionPlanV1({
-    action,
-    expensive: false,
-    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
-  })).toThrow('must match action executionClass expensive');
-  expect(() => createVerificationActionPlanV1({
-    action,
-    expensive: true,
-    dependencies: [{ actionKey: action.actionKey, kind: 'upstream' }]
-  })).toThrow('cannot contain the action itself');
-  const upstream = createVerificationActionKeyV1(actionInput({
-    actionKind: 'upstream',
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_B,
-      workingDirectory: '.',
-      executionClass: 'cheap-preflight',
-      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
-    },
-    requiredCheapPreflightActionKeys: []
-  }));
-  const actionWithUpstream = createVerificationActionKeyV1(actionInput({
-    upstreamActionKeys: [upstream.actionKey],
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_B,
-      workingDirectory: '.',
-      executionClass: 'cheap-preflight',
-      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
-    },
-    requiredCheapPreflightActionKeys: []
-  }));
-  expect(() => createVerificationActionPlanV1({
-    action: actionWithUpstream,
-    dependencies: []
-  })).toThrow('upstream dependencies must exactly match');
-  expect(() => createVerificationActionPlanV1({
-    action: action,
-    expensive: true,
-    dependencies: [{ actionKey: upstream.actionKey, kind: 'upstream' }]
-  })).toThrow('upstream dependencies must exactly match');
-  expect(() => createVerificationActionPlanV1({
-    action,
-    dependencies: [{ actionKey: upstream.actionKey, kind: 'cheap-preflight', state: 'terminal-passed' } as never]
+    executionClass: 'expensive',
+    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight', state: 'terminal-passed' } as never]
   })).toThrow('must contain exactly');
-  const otherDependency = createVerificationActionKeyV1(actionInput({
-    actionKind: 'other-preflight',
-    operation: {
-      identity: 'bun-test',
-      revision: 'normalizer-v1',
-      semanticDigest: DIGEST_C,
-      workingDirectory: '.',
-      executionClass: 'cheap-preflight',
-      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
-    },
-    requiredCheapPreflightActionKeys: []
-  }));
-  expect(() => createVerificationActionPlanV1({
-    action,
-    dependencies: [{ actionKey: otherDependency.actionKey, kind: 'cheap-preflight' }]
-  })).toThrow('cheap-preflight dependencies must exactly match');
-  expect(() => createVerificationActionPlanV1({
-    action,
-    dependencies: [
-      { actionKey: dependency.actionKey, kind: 'cheap-preflight' },
-      { actionKey: dependency.actionKey, kind: 'upstream' }
-    ]
-  })).toThrow('cannot declare one ActionKey under multiple dependency kinds');
-  const blocked = createVerificationActionPlanV1({
-    action,
-    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
-  });
-  expect(isVerificationActionRunnableV1(blocked)).toEqual({
+  const plan = planFor(action);
+  expect(isVerificationActionRunnableV2(plan)).toEqual({
     runnable: false,
     reason: expect.stringContaining('cheap-preflight')
   });
-  const runnable = createVerificationActionPlanV1({
-    action,
-    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
-  });
-  expect(isVerificationActionRunnableV1(runnable, [{
+  expect(isVerificationActionRunnableV2(plan, [{
     actionKey: dependency.actionKey,
     state: 'terminal-passed'
   }])).toEqual({ runnable: true, reason: null });
-  expect(verificationActionDependsOnChangedInputsV1(
+  expect(verificationActionDependsOnChangedInputsV2(
     action,
     ['docs/work-packages/example-v1.md']
   )).toBe(true);
-  expect(verificationActionDependsOnChangedInputsV1(action, ['tests/unit/other.test.ts'])).toBe(false);
-  expect(verificationActionDependsOnChangedInputsV1(action, null)).toBe(true);
+  expect(verificationActionDependsOnChangedInputsV2(action, ['tests/unit/other.test.ts'])).toBe(false);
+  expect(verificationActionDependsOnChangedInputsV2(action, null)).toBe(true);
 });
 
 test('terminal action adapts canonical result status without adding a reuse status', () => {
-  expect(createVerificationActionTerminalV1({
+  expect(createVerificationActionTerminalV2({
     status: 'passed',
     reasonCode: 'executed-success',
     resultDigest: DIGEST_A
@@ -320,42 +214,32 @@ test('terminal action adapts canonical result status without adding a reuse stat
     reasonCode: 'executed-success',
     resultDigest: DIGEST_A
   });
-  expect(() => createVerificationActionTerminalV1({
+  expect(() => createVerificationActionTerminalV2({
     status: 'passed',
     reasonCode: 'executed-failure',
     resultDigest: null
   })).toThrow('passed status requires reasonCode executed-success');
-  expect(createVerificationActionTerminalV1({
+  expect(createVerificationActionTerminalV2({
     status: 'failed',
     reasonCode: 'timeout',
     resultDigest: null
   }).reasonCode).toBe('timeout');
-  expect(createVerificationActionTerminalV1({
+  expect(createVerificationActionTerminalV2({
     status: 'failed',
     reasonCode: 'cleanup-failed',
     resultDigest: null
   }).reasonCode).toBe('cleanup-failed');
-  expect(createVerificationActionTerminalV1({
+  expect(createVerificationActionTerminalV2({
     status: 'failed',
     reasonCode: 'process-settlement-failed',
     resultDigest: null
   }).reasonCode).toBe('process-settlement-failed');
-  expect(createVerificationActionTerminalV1({
+  expect(createVerificationActionTerminalV2({
     status: 'not-run',
     reasonCode: 'not-dispatched',
     resultDigest: null
   }).status).toBe('not-run');
-  expect(createVerificationActionTerminalV1({
-    status: 'unsupported',
-    reasonCode: 'capability-unsupported',
-    resultDigest: null
-  }).status).toBe('unsupported');
-  expect(createVerificationActionTerminalV1({
-    status: 'invalidated',
-    reasonCode: 'input-invalidated',
-    resultDigest: null
-  }).status).toBe('invalidated');
-  expect(() => createVerificationActionTerminalV1({
+  expect(() => createVerificationActionTerminalV2({
     status: 'not-run',
     reasonCode: 'timeout',
     resultDigest: null

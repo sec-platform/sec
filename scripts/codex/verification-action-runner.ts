@@ -1,70 +1,77 @@
 /**
- * Minimal local VerificationAction execution coordinator.
+ * Minimal local VerificationAction V2 execution coordinator.
  *
  * The coordinator owns physical-start/reuse/join decisions only. It never
  * promotes a journal observation into VerificationResult truth and never
- * invokes the trusted CI/dev-runner surfaces.
+ * invokes trusted CI/dev-runner surfaces.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
-  createVerificationActionPlanV1,
-  createVerificationActionTerminalV1,
-  isVerificationActionRunnableV1,
-  parseVerificationActionKeyV1,
-  verificationActionDependsOnChangedInputsV1,
-  type VerificationActionDependencyResolutionV1,
-  type VerificationActionDependencyStateV1,
-  type VerificationActionDependencyV1,
+  createVerificationActionTerminalV2,
+  encodeVerificationActionDataV2,
+  isVerificationActionRunnableV2,
+  parseVerificationActionKeyV2,
+  parseVerificationActionPlanV2,
+  verificationActionDependsOnChangedInputsV2,
+  type VerificationActionDependencyResolutionV2,
+  type VerificationActionDependencyStateV2,
+  type VerificationActionDependencyV2,
   type VerificationActionKeyDigest,
-  type VerificationActionKeyV1,
-  type VerificationActionPlanV1,
-  type VerificationActionTerminalV1
+  type VerificationActionKeyV2,
+  type VerificationActionPlanV2,
+  type VerificationActionTerminalV2
 } from './verification-action-contract.ts';
 import {
-  appendVerificationActionJournalEventV1,
-  readVerificationActionJournalV1,
-  type VerificationActionJournalReadbackV1,
-  type VerificationActionJournalStateV1
+  appendVerificationActionJournalEventV2,
+  readVerificationActionJournalV2,
+  type VerificationActionJournalReadbackV2,
+  type VerificationActionJournalStateV2
 } from './verification-action-journal.ts';
 
-export type VerificationActionRunDispositionV1 = 'executed' | 'joined' | 'reused' | 'blocked';
+export type VerificationActionRunDispositionV2 = 'executed' | 'joined' | 'reused' | 'blocked';
 
-export interface VerificationActionRunOutcomeV1 {
+export interface VerificationActionRunOutcomeV2 {
   readonly actionKey: VerificationActionKeyDigest;
-  readonly disposition: VerificationActionRunDispositionV1;
-  readonly state: VerificationActionJournalStateV1 | null;
-  readonly terminal: VerificationActionTerminalV1 | null;
+  readonly disposition: VerificationActionRunDispositionV2;
+  readonly state: VerificationActionJournalStateV2 | null;
+  readonly terminal: VerificationActionTerminalV2 | null;
   readonly physicalExecution: boolean;
   readonly reason: string | null;
 }
 
-export type VerificationActionExecutorV1 = (
+export type VerificationActionExecutorV2 = (
   context: Readonly<{
-    action: VerificationActionKeyV1;
+    action: VerificationActionKeyV2;
     executionDomain: string;
   }>
-) => Promise<VerificationActionTerminalV1> | VerificationActionTerminalV1;
+) => Promise<VerificationActionTerminalV2> | VerificationActionTerminalV2;
 
-export interface VerificationActionExecuteInputV1 {
+export interface VerificationActionExecuteInputV2 {
   readonly repositoryRoot: string;
-  readonly action: VerificationActionKeyV1;
+  readonly action: VerificationActionKeyV2;
   readonly executionDomain?: string;
-  readonly plan?: VerificationActionPlanV1;
-  readonly executor: VerificationActionExecutorV1;
+  /** Stable identity of the physical owner; nested calls inherit it. */
+  readonly ownerToken?: string;
+  readonly plan?: VerificationActionPlanV2;
+  readonly executor: VerificationActionExecutorV2;
   readonly recordedAt?: () => string;
 }
 
-type InFlight = Promise<VerificationActionRunOutcomeV1>;
+type InFlight = Promise<VerificationActionRunOutcomeV2>;
+type ExecutionContext = Readonly<{
+  ownerToken: string;
+  ownerKeys: ReadonlySet<string>;
+}>;
 
-// A live execution domain is process-wide. Keeping this registry outside the
-// class prevents two coordinator instances in one process from double-spawning
-// the same semantic ActionKey.
-const IN_FLIGHT_ACTIONS = new Map<string, InFlight>();
-const EXECUTION_CONTEXT = new AsyncLocalStorage<ReadonlySet<string>>();
+// A live flight is process-wide by semantic ActionKey. Execution domain is
+// executor metadata, not a second physical identity.
+const IN_FLIGHT_ACTIONS = new Map<VerificationActionKeyDigest, InFlight>();
+const EXECUTION_CONTEXT = new AsyncLocalStorage<ExecutionContext>();
+let ownerSequence = 0;
 
-function canonicalAction(action: VerificationActionKeyV1): VerificationActionKeyV1 {
-  return parseVerificationActionKeyV1(JSON.stringify(action));
+function canonicalAction(action: unknown): VerificationActionKeyV2 {
+  return parseVerificationActionKeyV2(encodeVerificationActionDataV2(action));
 }
 
 function boundedError(error: unknown): string {
@@ -73,57 +80,107 @@ function boundedError(error: unknown): string {
   return `executor threw: ${sanitized}`.slice(0, 1024);
 }
 
-function resolveDependencyState(
-  repositoryRoot: string,
-  dependency: VerificationActionDependencyV1
-): VerificationActionDependencyStateV1 {
-  const journal = readVerificationActionJournalV1(repositoryRoot, dependency.actionKey);
-  if (dependency.kind === 'cheap-preflight' &&
-    journal.action?.operation.executionClass !== 'cheap-preflight') {
-    return 'unknown';
+function boundedToken(value: string | undefined, label: string, fallback: () => string): string {
+  if (value === undefined) return fallback();
+  if (typeof value !== 'string' || value.length === 0 || value.length > 256 || /[\u0000-\u001f]/u.test(value)) {
+    throw new Error(`${label} must be bounded text.`);
   }
+  return value;
+}
+
+function nextOwnerToken(): string {
+  ownerSequence += 1;
+  return `verification-action-owner-${ownerSequence}`;
+}
+
+function resolveDependency(
+  repositoryRoot: string,
+  dependency: VerificationActionDependencyV2
+): VerificationActionDependencyResolutionV2 {
+  const journal = readVerificationActionJournalV2(repositoryRoot, dependency.actionKey);
+  // A cheap-preflight dependency is a root gate. Its own producer-owned
+  // topology must not require another cheap preflight, independent of lane
+  // or cost policy.
+  if (dependency.kind === 'cheap-preflight' &&
+    journal.action !== null && journal.action.requiredCheapPreflightActionKeys.length > 0) {
+    return {
+      actionKey: dependency.actionKey,
+      state: 'unknown',
+      observationDigest: journal.events.at(-1)?.eventDigest ?? null
+    };
+  }
+  let state: VerificationActionDependencyStateV2;
   switch (journal.latestState) {
     case null:
-      return 'unknown';
+      state = 'unknown';
+      break;
     case 'queued':
-      return 'queued';
+      state = 'queued';
+      break;
     case 'running':
-      return 'running';
+      state = 'running';
+      break;
     case 'invalidated':
-      return 'invalidated';
+      state = 'invalidated';
+      break;
     case 'cancelled':
-      return 'cancelled';
+      state = 'cancelled';
+      break;
     case 'terminal':
     case 'reused':
       switch (journal.terminal?.status) {
         case 'passed':
-          return 'terminal-passed';
+          state = 'terminal-passed';
+          break;
         case 'failed':
-          return 'terminal-failed';
+          state = 'terminal-failed';
+          break;
         case 'not-run':
-          return 'not-run';
+          state = 'not-run';
+          break;
         case 'unsupported':
-          return 'unsupported';
+          state = 'unsupported';
+          break;
         case 'invalidated':
-          return 'invalidated';
+          state = 'invalidated';
+          break;
         default:
-          return 'unknown';
+          state = 'unknown';
+          break;
       }
+      break;
   }
+  return {
+    actionKey: dependency.actionKey,
+    state,
+    observationDigest: journal.events.at(-1)?.eventDigest ?? null
+  };
 }
 
 function resolveDependencyStates(
   repositoryRoot: string,
-  plan: VerificationActionPlanV1
-): readonly VerificationActionDependencyResolutionV1[] {
-  return Object.freeze(plan.dependencies.map((dependency) => Object.freeze({
-    actionKey: dependency.actionKey,
-    state: resolveDependencyState(repositoryRoot, dependency)
-  })));
+  plan: VerificationActionPlanV2
+): readonly VerificationActionDependencyResolutionV2[] {
+  return Object.freeze(plan.dependencies.map((dependency) => Object.freeze(
+    resolveDependency(repositoryRoot, dependency)
+  )));
 }
 
-function failedTerminal(): VerificationActionTerminalV1 {
-  return createVerificationActionTerminalV1({
+function dependencyClosureUnchanged(
+  before: readonly VerificationActionDependencyResolutionV2[],
+  after: readonly VerificationActionDependencyResolutionV2[]
+): boolean {
+  if (before.length !== after.length) return false;
+  return before.every((entry, index) => {
+    const candidate = after[index];
+    return candidate !== undefined && candidate.actionKey === entry.actionKey &&
+      candidate.state === entry.state &&
+      (candidate.observationDigest ?? null) === (entry.observationDigest ?? null);
+  });
+}
+
+function failedTerminal(): VerificationActionTerminalV2 {
+  return createVerificationActionTerminalV2({
     status: 'failed',
     reasonCode: 'executed-failure',
     resultDigest: null
@@ -132,12 +189,12 @@ function failedTerminal(): VerificationActionTerminalV1 {
 
 function outcome(
   actionKey: VerificationActionKeyDigest,
-  disposition: VerificationActionRunDispositionV1,
-  state: VerificationActionJournalStateV1 | null,
-  terminal: VerificationActionTerminalV1 | null,
+  disposition: VerificationActionRunDispositionV2,
+  state: VerificationActionJournalStateV2 | null,
+  terminal: VerificationActionTerminalV2 | null,
   physicalExecution: boolean,
   reason: string | null
-): VerificationActionRunOutcomeV1 {
+): VerificationActionRunOutcomeV2 {
   return Object.freeze({
     actionKey,
     disposition,
@@ -148,18 +205,20 @@ function outcome(
   });
 }
 
-export class VerificationActionRunnerV1 {
-  private flightKey(
-    executionDomain: string,
-    actionKey: VerificationActionKeyDigest
-  ): string {
-    return `${executionDomain}\0${actionKey}`;
-  }
-
-  async execute(input: VerificationActionExecuteInputV1): Promise<VerificationActionRunOutcomeV1> {
+export class VerificationActionRunnerV2 {
+  async execute(input: VerificationActionExecuteInputV2): Promise<VerificationActionRunOutcomeV2> {
     const action = canonicalAction(input.action);
-    const executionDomain = input.executionDomain ?? 'process';
-    const key = this.flightKey(executionDomain, action.actionKey);
+    const executionDomain = boundedToken(input.executionDomain, 'executionDomain', () => 'process');
+    const inheritedContext = EXECUTION_CONTEXT.getStore();
+    if (inheritedContext !== undefined && input.ownerToken !== undefined &&
+      input.ownerToken !== inheritedContext.ownerToken) {
+      throw new Error('ownerToken cannot override the inherited execution owner.');
+    }
+    const ownerToken = boundedToken(
+      inheritedContext?.ownerToken ?? input.ownerToken,
+      'ownerToken',
+      nextOwnerToken
+    );
     if (input.plan === undefined) {
       return outcome(
         action.actionKey,
@@ -167,23 +226,22 @@ export class VerificationActionRunnerV1 {
         null,
         null,
         false,
-        'explicit action plan required; expensive execution must declare a terminal cheap-preflight dependency'
+        'explicit action plan required; scheduler lane and dependency topology are mandatory'
       );
     }
-    const plan = createVerificationActionPlanV1(input.plan);
+    const plan = parseVerificationActionPlanV2(encodeVerificationActionDataV2(input.plan));
     if (plan.action.actionKey !== action.actionKey) {
       throw new Error('VerificationAction plan action key does not match execution action.');
     }
-    const runnable = isVerificationActionRunnableV1(
-      plan,
-      resolveDependencyStates(input.repositoryRoot, plan)
-    );
+    const beforeDependencies = resolveDependencyStates(input.repositoryRoot, plan);
+    const runnable = isVerificationActionRunnableV2(plan, beforeDependencies);
     if (!runnable.runnable) {
       return outcome(action.actionKey, 'blocked', null, null, false, runnable.reason);
     }
 
-    const ownerKeys = EXECUTION_CONTEXT.getStore();
-    if (ownerKeys?.has(key) && IN_FLIGHT_ACTIONS.has(key)) {
+    const ownerKey = `${ownerToken}\0${action.actionKey}`;
+    const ownerKeys = inheritedContext?.ownerKeys;
+    if (ownerKeys?.has(ownerKey) && IN_FLIGHT_ACTIONS.has(action.actionKey)) {
       return outcome(
         action.actionKey,
         'blocked',
@@ -195,9 +253,8 @@ export class VerificationActionRunnerV1 {
     }
 
     // Plan authorization is caller-local. A non-runnable caller must not join
-    // an already-running action and thereby inherit a terminal projection it
-    // was not authorized to request.
-    const existingFlight = IN_FLIGHT_ACTIONS.get(key);
+    // an already-running action and inherit a terminal projection it lacks.
+    const existingFlight = IN_FLIGHT_ACTIONS.get(action.actionKey);
     if (existingFlight !== undefined) {
       const joined = await existingFlight;
       return outcome(
@@ -210,13 +267,13 @@ export class VerificationActionRunnerV1 {
       );
     }
 
-    const journal = readVerificationActionJournalV1(input.repositoryRoot, action.actionKey);
+    const journal = readVerificationActionJournalV2(input.repositoryRoot, action.actionKey);
     if (journal.latestState === 'terminal' || journal.latestState === 'reused') {
       if (journal.terminal === null) {
         throw new Error('VerificationAction journal terminal state has no terminal fact.');
       }
       if (journal.latestState === 'terminal') {
-        appendVerificationActionJournalEventV1({
+        appendVerificationActionJournalEventV2({
           repositoryRoot: input.repositoryRoot,
           action,
           state: 'reused',
@@ -243,11 +300,11 @@ export class VerificationActionRunnerV1 {
         journal.latestState,
         null,
         false,
-        `action is already ${journal.latestState}; delete the disposable journal to execute cleanly`
+        `action is already ${journal.latestState}; delete the disposable V2 journal to execute cleanly`
       );
     }
     if (journal.latestState === 'queued' || journal.latestState === 'running') {
-      appendVerificationActionJournalEventV1({
+      appendVerificationActionJournalEventV2({
         repositoryRoot: input.repositoryRoot,
         action,
         state: 'invalidated',
@@ -264,14 +321,14 @@ export class VerificationActionRunnerV1 {
       );
     }
 
-    appendVerificationActionJournalEventV1({
+    appendVerificationActionJournalEventV2({
       repositoryRoot: input.repositoryRoot,
       action,
       state: 'queued',
       recordedAt: input.recordedAt?.(),
       note: null
     });
-    appendVerificationActionJournalEventV1({
+    appendVerificationActionJournalEventV2({
       repositoryRoot: input.repositoryRoot,
       action,
       state: 'running',
@@ -279,113 +336,147 @@ export class VerificationActionRunnerV1 {
       note: null
     });
 
-    // Yield once before invoking the executor so the process-wide registry is
-    // populated before any reentrant executor callback can request this key.
-    const flight = (async (): Promise<VerificationActionRunOutcomeV1> => {
+    // The map is populated before the executor callback can run. The deferred
+    // body also preserves the owner context for synchronous and awaited nested
+    // dispatches, even when they change executionDomain.
+    let resolveFlight!: (value: VerificationActionRunOutcomeV2) => void;
+    let rejectFlight!: (error: unknown) => void;
+    const flight = new Promise<VerificationActionRunOutcomeV2>((resolve, reject) => {
+      resolveFlight = resolve;
+      rejectFlight = reject;
+    });
+    IN_FLIGHT_ACTIONS.set(action.actionKey, flight);
+    void (async () => {
       await Promise.resolve();
-      let terminal: VerificationActionTerminalV1;
+      let terminal: VerificationActionTerminalV2;
       let note: string | null = null;
       try {
         const currentOwnerKeys = new Set(ownerKeys ?? []);
-        currentOwnerKeys.add(key);
+        currentOwnerKeys.add(ownerKey);
         const executorResult = await EXECUTION_CONTEXT.run(
-          currentOwnerKeys,
+          Object.freeze({ ownerToken, ownerKeys: currentOwnerKeys }),
           () => input.executor({ action, executionDomain })
         );
-        terminal = createVerificationActionTerminalV1(executorResult);
+        terminal = createVerificationActionTerminalV2(executorResult);
       } catch (error) {
         terminal = failedTerminal();
         note = boundedError(error);
       }
-      const afterExecution = readVerificationActionJournalV1(
+      const afterExecution = readVerificationActionJournalV2(
         input.repositoryRoot,
         action.actionKey
       );
       if (afterExecution.latestState === 'invalidated' || afterExecution.latestState === 'cancelled') {
-        return outcome(
+        resolveFlight(outcome(
           action.actionKey,
           'blocked',
           afterExecution.latestState,
           null,
           true,
           `physical result discarded because action was ${afterExecution.latestState}`
-        );
+        ));
+        return;
       }
-      appendVerificationActionJournalEventV1({
-        repositoryRoot: input.repositoryRoot,
-        action,
-        state: 'terminal',
-        recordedAt: input.recordedAt?.(),
-        terminal,
-        note
-      });
-      return outcome(action.actionKey, 'executed', 'terminal', terminal, true, note);
-    })();
-    IN_FLIGHT_ACTIONS.set(key, flight);
+      const afterDependencies = resolveDependencyStates(input.repositoryRoot, plan);
+      const afterRunnable = isVerificationActionRunnableV2(plan, afterDependencies);
+      if (!dependencyClosureUnchanged(beforeDependencies, afterDependencies) || !afterRunnable.runnable) {
+        appendVerificationActionJournalEventV2({
+          repositoryRoot: input.repositoryRoot,
+          action,
+          state: 'invalidated',
+          recordedAt: input.recordedAt?.(),
+          note: `dependency closure changed during physical execution; ${afterRunnable.reason ?? 'terminal commit rejected'}`
+        });
+        resolveFlight(outcome(
+          action.actionKey,
+          'blocked',
+          'invalidated',
+          null,
+          true,
+          'physical result discarded because dependency closure was not stable'
+        ));
+        return;
+      }
+      try {
+        appendVerificationActionJournalEventV2({
+          repositoryRoot: input.repositoryRoot,
+          action,
+          state: 'terminal',
+          recordedAt: input.recordedAt?.(),
+          terminal,
+          note
+        });
+        resolveFlight(outcome(action.actionKey, 'executed', 'terminal', terminal, true, note));
+      } catch (error) {
+        rejectFlight(error);
+      }
+    })().catch((error) => rejectFlight(error));
     try {
       return await flight;
     } finally {
-      IN_FLIGHT_ACTIONS.delete(key);
+      if (IN_FLIGHT_ACTIONS.get(action.actionKey) === flight) {
+        IN_FLIGHT_ACTIONS.delete(action.actionKey);
+      }
     }
   }
 
   invalidate(
     repositoryRoot: string,
-    action: VerificationActionKeyV1,
+    action: VerificationActionKeyV2,
     note = 'action input or upstream closure changed'
-  ): VerificationActionJournalReadbackV1 {
+  ): VerificationActionJournalReadbackV2 {
     const canonical = canonicalAction(action);
-    const current = readVerificationActionJournalV1(repositoryRoot, canonical.actionKey);
+    const current = readVerificationActionJournalV2(repositoryRoot, canonical.actionKey);
     if (current.latestState === null || current.latestState === 'invalidated' ||
       current.latestState === 'cancelled') return current;
-    appendVerificationActionJournalEventV1({
+    appendVerificationActionJournalEventV2({
       repositoryRoot,
       action: canonical,
       state: 'invalidated',
       terminal: null,
       note
     });
-    return readVerificationActionJournalV1(repositoryRoot, canonical.actionKey);
+    return readVerificationActionJournalV2(repositoryRoot, canonical.actionKey);
   }
 
   cancel(
     repositoryRoot: string,
-    action: VerificationActionKeyV1,
+    action: VerificationActionKeyV2,
     note = 'action cancelled before terminal projection'
-  ): VerificationActionJournalReadbackV1 {
+  ): VerificationActionJournalReadbackV2 {
     const canonical = canonicalAction(action);
-    const current = readVerificationActionJournalV1(repositoryRoot, canonical.actionKey);
+    const current = readVerificationActionJournalV2(repositoryRoot, canonical.actionKey);
     if (current.latestState === null || current.latestState === 'invalidated' ||
       current.latestState === 'cancelled') return current;
-    appendVerificationActionJournalEventV1({
+    appendVerificationActionJournalEventV2({
       repositoryRoot,
       action: canonical,
       state: 'cancelled',
       terminal: null,
       note
     });
-    return readVerificationActionJournalV1(repositoryRoot, canonical.actionKey);
+    return readVerificationActionJournalV2(repositoryRoot, canonical.actionKey);
   }
 
   invalidateIfDependent(input: {
     repositoryRoot: string;
-    action: VerificationActionKeyV1;
+    action: VerificationActionKeyV2;
     changedInputPaths: readonly string[] | null;
     changedUpstreamActionKeys?: readonly VerificationActionKeyDigest[];
     note?: string;
-  }): VerificationActionJournalReadbackV1 {
+  }): VerificationActionJournalReadbackV2 {
     const action = canonicalAction(input.action);
-    if (!verificationActionDependsOnChangedInputsV1(
+    if (!verificationActionDependsOnChangedInputsV2(
       action,
       input.changedInputPaths,
       input.changedUpstreamActionKeys ?? []
     )) {
-      return readVerificationActionJournalV1(input.repositoryRoot, action.actionKey);
+      return readVerificationActionJournalV2(input.repositoryRoot, action.actionKey);
     }
     return this.invalidate(input.repositoryRoot, action, input.note);
   }
 }
 
-export function createVerificationActionRunnerV1(): VerificationActionRunnerV1 {
-  return new VerificationActionRunnerV1();
+export function createVerificationActionRunnerV2(): VerificationActionRunnerV2 {
+  return new VerificationActionRunnerV2();
 }
