@@ -67,6 +67,10 @@ migration、Review-Stable Barrier 和 physical merge authorization；不在 T1.1
 
 Owners：#311/#179/#178/#176/#316。
 
+必须先消费并合并 T1.1 ordinary-SUT defect closure；本包只支付一次 trust-root migration
+成本，并在同一切换中修复 Review-Stable Barrier 与 physical merge authorization，禁止把
+三者拆成互相依赖的半 bootstrap。
+
 - 从新 main 消费已经验证的 Action identity；
 - 由 old trusted revision 证明 TCB delta；
 - 将当前 CI Evidence reuse / VerificationSession / dev-runner 接到唯一 Action identity；
