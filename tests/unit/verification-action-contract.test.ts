@@ -22,6 +22,8 @@ function actionInput(overrides: Partial<VerificationActionKeyInputV1> = {}): Ver
       identity: 'bun-test',
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_B,
+      workingDirectory: '.',
+      executionClass: 'expensive',
       declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
     },
     inputClosure: [
@@ -46,6 +48,8 @@ test('ActionKey canonicalizes set-like closure and environment ordering', () => 
       identity: 'bun-test',
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_B,
+      workingDirectory: '.',
+      executionClass: 'expensive',
       declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
     },
     inputClosure: [
@@ -75,6 +79,8 @@ test('semantic closure, producer, provider and contract changes change ActionKey
       identity: 'bun-test',
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_C,
+      workingDirectory: '.',
+      executionClass: 'expensive',
       declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
     }
   })).actionKey).not.toBe(baseline.actionKey);
@@ -83,6 +89,16 @@ test('semantic closure, producer, provider and contract changes change ActionKey
       toolchainRevision: 'bun@1.3.15',
       providerRevision: 'local-windows',
       contractRevision: 'verification-result-v1'
+    }
+  })).actionKey).not.toBe(baseline.actionKey);
+  expect(createVerificationActionKeyV1(actionInput({
+    operation: {
+      identity: 'bun-test',
+      revision: 'normalizer-v1',
+      semanticDigest: DIGEST_B,
+      workingDirectory: 'scripts',
+      executionClass: 'expensive',
+      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
     }
   })).actionKey).not.toBe(baseline.actionKey);
   expect(createVerificationActionKeyV1(actionInput({
@@ -102,15 +118,29 @@ test('identity rejects duplicate closure refs, raw operation selectors and forei
       identity: 'bun-test',
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_A,
+      workingDirectory: '.',
+      executionClass: 'expensive',
       argv: ['--cwd=C:/Users/QzCrane/AppData/Local/Temp/run'],
       declaredEnvironment: []
     }
-  } as never))).toThrow('must contain exactly');
+  } as never))).toThrow('forbidden semantic identity field argv');
   expect(() => createVerificationActionKeyV1(actionInput({
     operation: {
       identity: 'bun-test',
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_A,
+      workingDirectory: 'C:/outside',
+      executionClass: 'expensive',
+      declaredEnvironment: []
+    }
+  }))).toThrow('repository-relative directory');
+  expect(() => createVerificationActionKeyV1(actionInput({
+    operation: {
+      identity: 'bun-test',
+      revision: 'normalizer-v1',
+      semanticDigest: DIGEST_A,
+      workingDirectory: '.',
+      executionClass: 'expensive',
       branch: 'feature/ephemeral',
       declaredEnvironment: []
     }
@@ -137,26 +167,51 @@ test('cheap preflight gates expensive execution and input invalidation stays dep
   expect(() => createVerificationActionPlanV1({
     action,
     expensive: false,
-    dependencies: [{ actionKey: action.actionKey, kind: 'upstream', state: 'terminal-passed' }]
+    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
+  })).toThrow('must match action executionClass expensive');
+  expect(() => createVerificationActionPlanV1({
+    action,
+    expensive: true,
+    dependencies: [{ actionKey: action.actionKey, kind: 'upstream' }]
   })).toThrow('cannot contain the action itself');
-  const upstream = createVerificationActionKeyV1(actionInput({ actionKind: 'upstream' }));
+  const upstream = createVerificationActionKeyV1(actionInput({
+    actionKind: 'upstream',
+    operation: {
+      identity: 'bun-test',
+      revision: 'normalizer-v1',
+      semanticDigest: DIGEST_B,
+      workingDirectory: '.',
+      executionClass: 'cheap-preflight',
+      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
+    }
+  }));
   const actionWithUpstream = createVerificationActionKeyV1(actionInput({
-    upstreamActionKeys: [upstream.actionKey]
+    upstreamActionKeys: [upstream.actionKey],
+    operation: {
+      identity: 'bun-test',
+      revision: 'normalizer-v1',
+      semanticDigest: DIGEST_B,
+      workingDirectory: '.',
+      executionClass: 'cheap-preflight',
+      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
+    }
   }));
   expect(() => createVerificationActionPlanV1({
     action: actionWithUpstream,
-    expensive: false,
     dependencies: []
   })).toThrow('upstream dependencies must exactly match');
   expect(() => createVerificationActionPlanV1({
     action: action,
-    expensive: false,
-    dependencies: [{ actionKey: upstream.actionKey, kind: 'upstream', state: 'terminal-passed' }]
+    expensive: true,
+    dependencies: [{ actionKey: upstream.actionKey, kind: 'upstream' }]
   })).toThrow('upstream dependencies must exactly match');
+  expect(() => createVerificationActionPlanV1({
+    action,
+    dependencies: [{ actionKey: upstream.actionKey, kind: 'cheap-preflight', state: 'terminal-passed' } as never]
+  })).toThrow('must contain exactly');
   const blocked = createVerificationActionPlanV1({
     action,
-    expensive: true,
-    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight', state: 'running' }]
+    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
   });
   expect(isVerificationActionRunnableV1(blocked)).toEqual({
     runnable: false,
@@ -164,10 +219,12 @@ test('cheap preflight gates expensive execution and input invalidation stays dep
   });
   const runnable = createVerificationActionPlanV1({
     action,
-    expensive: true,
-    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight', state: 'terminal-passed' }]
+    dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
   });
-  expect(isVerificationActionRunnableV1(runnable)).toEqual({ runnable: true, reason: null });
+  expect(isVerificationActionRunnableV1(runnable, [{
+    actionKey: dependency.actionKey,
+    state: 'terminal-passed'
+  }])).toEqual({ runnable: true, reason: null });
   expect(verificationActionDependsOnChangedInputsV1(
     action,
     ['docs/work-packages/example-v1.md']
