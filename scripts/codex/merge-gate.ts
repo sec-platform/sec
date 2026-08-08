@@ -40,6 +40,7 @@ import {
   CodexDevelopmentCanonicalChangedFilesV1
 } from '../../platform/shared/ci-verification-plan.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-revision.ts';
+import { matchSecTrustedBootstrapPathV1 } from '../../platform/shared/tcb-trust-root-contract.ts';
 import { isTestFile } from '../../platform/shared/test-budget-contract.ts';
 import { CodexDevelopmentBuildVerificationScopeInventoryV1 } from '../../platform/shared/verification-scope-inventory.ts';
 import {
@@ -60,66 +61,6 @@ export const CodexDevelopmentScopeAttestationFileV1 = 'codex-development-scope-a
 export const CodexDevelopmentVerificationEvidenceFileV2 = 'ci-verification-evidence.json' as const;
 export const CodexDevelopmentArtifactSafetyWindowMs = 24 * 60 * 60 * 1_000;
 
-export const CodexDevelopmentTrustRootPathsV1 = [
-  '.github/workflows/',
-  '.gitattributes',
-  '.gitignore',
-  '.gitmodules',
-  '.npmrc',
-  '.shared-deps/',
-  'bun.lock',
-  'bunfig.toml',
-  'docs/scripts/docs-doctor-ledgers.ts',
-  'docs/scripts/docs-doctor-shared.ts',
-  'docs/scripts/docs-doctor.ts',
-  'node_modules/',
-  'package.json',
-  'platform/dev-runner.ts',
-  'platform/dev-runner/',
-  'platform/shared/active-documentation-contract.ts',
-  'platform/shared/affected-test-inventory.ts',
-  'platform/shared/bun-runtime-version.ts',
-  'platform/shared/ci-artifact-contract.ts',
-  'platform/shared/ci-artifact-types.ts',
-  'platform/shared/ci-contract.ts',
-  'platform/shared/ci-evidence-composition-policy-registry.ts',
-  'platform/shared/ci-evidence-contract.ts',
-  'platform/shared/ci-evidence-reuse-contract.ts',
-  'platform/shared/ci-execution-environment.ts',
-  'platform/shared/ci-git-changed-files.ts',
-  'platform/shared/ci-pr-risk-selection.ts',
-  'platform/shared/ci-verification-plan.ts',
-  'platform/shared/ci-verification-revision.ts',
-  'platform/shared/collections.ts',
-  'platform/shared/constants.ts',
-  'platform/shared/contract-freeze-contract.ts',
-  'platform/shared/documentation-authority-contract.ts',
-  'platform/shared/errors.ts',
-  'platform/shared/fs.ts',
-  'platform/shared/heavy-verification-gate-lease.ts',
-  'platform/shared/paths.ts',
-  'platform/shared/platform-command.ts',
-  'platform/shared/process.ts',
-  'platform/shared/project-runtime.ts',
-  'platform/shared/repository-path-contract.ts',
-  'platform/shared/runtime-dependency-spec.ts',
-  'platform/shared/runtime-layout.ts',
-  'platform/shared/test-budget-contract.ts',
-  'platform/shared/test-impact-contract.ts',
-  'platform/shared/test-ownership-contract.ts',
-  'platform/shared/test-impact-rules/',
-  'platform/shared/verification-scope-inventory.ts',
-  'platform/shared/workspace-path-contract.ts',
-  'scripts/ci-pr-risk.ts',
-  'scripts/ci-verification.ts',
-  'scripts/ci-workspace-fast.ts',
-  'scripts/codex/',
-  'scripts/install-git-hooks.ts',
-  'tests/setup/runtime-deps.setup.ts',
-  'tests/testkit/',
-  'tsconfig.json'
-] as const;
-export const CodexDevelopmentTrustRootPathPrefixesV1 = ['.env'] as const;
 
 type CodexDevelopmentRepositoryPermission = 'read' | 'triage' | 'write' | 'maintain' | 'admin';
 
@@ -497,9 +438,7 @@ function validateArtifact(value: unknown, label: string, checkedAt: Date): Codex
 }
 
 function trustRootMatch(changedPath: string): string | null {
-  return CodexDevelopmentTrustRootPathsV1.find((trustedPath) => (
-    trustedPath.endsWith('/') ? changedPath.startsWith(trustedPath) : changedPath === trustedPath
-  )) ?? CodexDevelopmentTrustRootPathPrefixesV1.find((prefix) => changedPath.startsWith(prefix)) ?? null;
+  return matchSecTrustedBootstrapPathV1(changedPath)?.rule ?? null;
 }
 
 function changedRecordPaths(record: CodexDevelopmentWorkPackageChangedRecordV1): string[] {

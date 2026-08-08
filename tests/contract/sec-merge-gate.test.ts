@@ -40,8 +40,6 @@ import { CodexDevelopmentCiVerificationMain } from '../../scripts/ci-verificatio
 import {
   CodexDevelopmentBuildScopeAttestationV1,
   CodexDevelopmentEvaluateMergeGateV1,
-  CodexDevelopmentTrustRootPathPrefixesV1,
-  CodexDevelopmentTrustRootPathsV1,
   type CodexDevelopmentMergeGateInputV1
 } from '../../scripts/codex/merge-gate.ts';
 import {
@@ -591,18 +589,6 @@ async function p0MergeFixture() {
   };
 }
 
-function workflowTrustArray(
-  source: string,
-  name: 'trustFiles' | 'trustDirectories' | 'trustPrefixes'
-): string[] {
-  const pattern = name === 'trustFiles'
-    ? /const trustFiles = new Set\(\[([\s\S]*?)\]\);/u
-    : new RegExp(`const ${name} = \\[([\\s\\S]*?)\\];`, 'u');
-  const body = pattern.exec(source)?.[1];
-  if (body === undefined) throw new Error(`Missing ${name} declaration in trusted workflow.`);
-  return [...body.matchAll(/'([^']+)'/gu)].map((match) => match[1]!);
-}
-
 test('base-side merge gate binds same-repo single-parent head, frozen scope, attestation, and Evidence V2', () => {
   const value = fixture();
   expect(CodexDevelopmentEvaluateMergeGateV1({
@@ -897,17 +883,21 @@ test('fork, duplicate-head, stale-parent, and expiring artifacts fail closed', (
   })).toThrow('24-hour safety window');
 });
 
-test('trusted workflow TCB declarations exactly equal the canonical base-side trust root', async () => {
-  const canonicalFiles = CodexDevelopmentTrustRootPathsV1.filter((entry) => !entry.endsWith('/'));
-  const canonicalDirectories = CodexDevelopmentTrustRootPathsV1.filter((entry) => entry.endsWith('/'));
+test('trusted workflows consume the trusted-base registry instead of embedding path facts', async () => {
   for (const workflowPath of [
     '.github/workflows/compiler-pr-validation.yml',
     '.github/workflows/compiler-release-validation.yml'
   ]) {
     const source = await readCompilerFile(workflowPath);
-    expect(workflowTrustArray(source, 'trustFiles')).toEqual(canonicalFiles);
-    expect(workflowTrustArray(source, 'trustDirectories')).toEqual(canonicalDirectories);
-    expect(workflowTrustArray(source, 'trustPrefixes')).toEqual([...CodexDevelopmentTrustRootPathPrefixesV1]);
+    expect(source).toContain("const registryPath = 'platform/shared/ci-trust-root-registry.json';");
+    expect(source).toContain('const registryEntry = baseTree.data.tree.find');
+    expect(source).toContain('registry.staticExactPaths');
+    expect(source).toContain('registry.staticDirectoryPaths');
+    expect(source).toContain('registry.staticPrefixes');
+    expect(source).toContain('registry.causalRuntimePaths');
+    expect(source).not.toContain("'scripts/codex/',");
+    expect(source).not.toMatch(/const trustDirectories = \[/u);
+    expect(source).not.toMatch(/const trustPrefixes = \[/u);
   }
 });
 
@@ -1354,16 +1344,37 @@ test('relative ESM closure fails closed on direct and import-bound unmodeled loa
   )).toEqual([]);
 });
 
-test('head manifest cannot authorize edits to the canonical verifier trust root', () => {
-  expect(matchesCanonicalTrustRoot('scripts/codex/merge-gate.ts')).toBe(true);
-  const value = fixture(manifestSource(['source/', 'scripts/codex/merge-gate.ts']));
-  value.rawInput.changedRecords = [{ status: 'changed', path: 'scripts/codex/merge-gate.ts' }];
-  expect(() => CodexDevelopmentEvaluateMergeGateV1({
-    rawInput: value.rawInput,
-    manifestBytes: value.manifestBytes,
-    rawAttestation: value.attestation,
-    rawEvidence: value.rawEvidence
-  })).toThrow('manual-bootstrap-required');
+test('causal trust classification excludes ordinary codex tooling but protects authority-changing surfaces', () => {
+  expect(matchesCanonicalTrustRoot('scripts/codex/repository-audit.ts')).toBe(false);
+  const ordinary = fixture(
+    manifestSource(['scripts/codex/repository-audit.ts']),
+    ['scripts/codex/repository-audit.ts']
+  );
+  expect(CodexDevelopmentEvaluateMergeGateV1({
+    rawInput: ordinary.rawInput,
+    manifestBytes: ordinary.manifestBytes,
+    rawAttestation: ordinary.attestation,
+    rawEvidence: ordinary.rawEvidence
+  })).toMatchObject({ status: 'passed' });
+
+  for (const repositoryPath of [
+    'scripts/codex/merge-gate.ts',
+    'scripts/codex/sec-merge-bootstrap.ts',
+    'platform/shared/tcb-closure-lock.ts',
+    'platform/shared/tcb-trust-root-contract.ts',
+    'platform/shared/ci-trust-root-registry.json',
+    '.github/workflows/compiler-pr-validation.yml',
+    '.github/workflows/sec-trusted-bootstrap.yml'
+  ]) {
+    expect(matchesCanonicalTrustRoot(repositoryPath)).toBe(true);
+    const value = fixture(manifestSource([repositoryPath]), [repositoryPath]);
+    expect(() => CodexDevelopmentEvaluateMergeGateV1({
+      rawInput: value.rawInput,
+      manifestBytes: value.manifestBytes,
+      rawAttestation: value.attestation,
+      rawEvidence: value.rawEvidence
+    })).toThrow('manual-bootstrap-required');
+  }
 });
 
 test('manifest tests remain inert data in pull_request_target merge gate', async () => {

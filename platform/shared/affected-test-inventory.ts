@@ -88,7 +88,7 @@ export function CodexDevelopmentBuildAffectedTestInventoryV1(
 // type-only imports for the VerificationGateResultV1 shape and constructs
 // results with a local schema constant to avoid pulling
 // verification-result-contract.ts into the TCB runtime import closure (it is
-// not in CodexDevelopmentTrustRootPathsV1). The projection results are
+// not in the canonical verifier trust-root registry). The projection results are
 // validated by CodexDevelopmentAssertVerificationGateResultV1 in tests.
 
 /**
