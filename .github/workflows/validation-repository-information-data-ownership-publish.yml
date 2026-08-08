@@ -115,7 +115,9 @@ jobs:
           M	tests/contract/repository-audit.test.ts
           EOF
           sed -i 's/^          //' "$out/expected-changed-files.txt"
-          diff -u "$out/expected-changed-files.txt" "$out/changed-files.txt"
+          LC_ALL=C sort "$out/expected-changed-files.txt" > "$out/expected-changed-files.sorted.txt"
+          LC_ALL=C sort "$out/changed-files.txt" > "$out/changed-files.sorted.txt"
+          diff -u "$out/expected-changed-files.sorted.txt" "$out/changed-files.sorted.txt"
 
           printf '%s  %s\n' "$SEC_MANIFEST_DIGEST" "candidate/$SEC_WORK_PACKAGE_MANIFEST_PATH" | sha256sum -c -
           git -C candidate diff --check "$SEC_BASE"..HEAD
