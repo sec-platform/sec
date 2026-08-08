@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/verification-session-action-reuse-t1-1-defect-closure-v1.md
-manifestDigest: sha256:c931321ea4773de98bc4c84d59cb4cacfa00f9e4d7d7bcdf0ae482e61281e9f7
+manifestDigest: sha256:be4af73ef1d7d690108198cf869d3f2b40c80a6f85d9b2296c4ea018e7087a9b
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
@@ -19,7 +19,7 @@ matchingDefaultBlob: none
 
 Work Package `verification-session-action-reuse-t1-1-defect-closure-v1`（Issue #311 T1.1，
 消费已合并 action-reuse kernel 的 ordinary-SUT 缺陷闭包）从
-`main@1d301987e86cc791bddd8e9fbd27885413b022f8` 激活。
+`main@74924c51c719cb0cfa0fa85c9ce1680854335db9` 激活。
 
 前驱 `trusted-verifier-causal-closure-v1`（Issue #178）已完成并经 new-main readback；
 本次只消费其既有 causal TCB / trusted-bootstrap 事实，不重新打开其产品范围。
