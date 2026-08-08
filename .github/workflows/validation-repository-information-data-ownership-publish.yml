@@ -12,6 +12,7 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   SEC_BASE: 49fdb7cd3be991742061621e3add982107e50367
+  SEC_EXPECTED_HEAD: dc1bdba5bc3972ca2dd44074296bacd085bbac85
   SEC_EXPECTED_TREE: ff489bc199dec86976df0b4c4266f8ada9b4b6ec
   SEC_PATCH_B64_SHA256: d16ffb8690ad82216d492ddf4e9f8129b2414a68bcfe3057252640d394ffc09c
   SEC_PATCH_ZST_SHA256: f774a25ecabf7d65face27609777746a6e09dc0d158995ce0366d69fecee3486
@@ -95,7 +96,10 @@ jobs:
           zstd -q -d "$out/candidate.patch.zst" -o "$out/candidate.patch"
           printf '%s  %s\n' "$SEC_PATCH_SHA256" "$out/candidate.patch" | sha256sum -c -
 
-          git -C candidate am "$out/candidate.patch"
+          git -C candidate config user.name 'SEC candidate builder'
+          git -C candidate config user.email 'sec-candidate@invalid.local'
+          git -C candidate am --committer-date-is-author-date "$out/candidate.patch"
+          test "$(git -C candidate rev-parse HEAD)" = "$SEC_EXPECTED_HEAD"
           test "$(git -C candidate rev-parse HEAD^1)" = "$SEC_BASE"
           test "$(git -C candidate rev-parse 'HEAD^{tree}')" = "$SEC_EXPECTED_TREE"
 
@@ -157,6 +161,7 @@ jobs:
           bun run check:affected --plan > "$out/affected-plan.json"
           bun run test:affected 2>&1 | tee "$out/affected-tests.log"
 
+          test "$(git rev-parse HEAD)" = "$SEC_EXPECTED_HEAD"
           test "$(git rev-parse HEAD^1)" = "$SEC_BASE"
           test "$(git rev-parse 'HEAD^{tree}')" = "$SEC_EXPECTED_TREE"
           test -z "$(git status --porcelain=v1)"
@@ -190,6 +195,7 @@ jobs:
           SEC_VALIDATION_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SEC_EXPECTED_HEAD"
           test "$(git rev-parse HEAD^1)" = "$SEC_BASE"
           test "$(git rev-parse 'HEAD^{tree}')" = "$SEC_EXPECTED_TREE"
           url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
