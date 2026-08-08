@@ -1,9 +1,9 @@
 name: validation publish SEC #327 data ownership candidate
 
 on:
-  push:
+  pull_request:
     branches:
-      - validation/repository-information-data-ownership-publish
+      - main
 
 concurrency:
   group: validation-repository-information-data-ownership-publish
@@ -18,10 +18,15 @@ env:
   SEC_PATCH_SHA256: 42befaec10ada62562dd6e6a0ad0cc521322e376fe5138ff6f134e7a84b1fe45
   SEC_MANIFEST_DIGEST: a29647d7e2a8f952b32e500fc1bdc4eb9e1387d5f0dad9f7347cf906f9b2150b
   SEC_WORK_PACKAGE_MANIFEST_PATH: docs/work-packages/repository-information-data-ownership-v1.md
+  SEC_VALIDATION_BRANCH: validation/repository-information-data-ownership-publish
 
 jobs:
   verify-and-materialize:
-    if: github.repository == 'sec-platform/sec' && github.ref_name == 'validation/repository-information-data-ownership-publish'
+    if: >-
+      github.repository == 'sec-platform/sec' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == 'sec-platform/sec' &&
+      github.event.pull_request.head.ref == 'validation/repository-information-data-ownership-publish'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -30,7 +35,7 @@ jobs:
       - name: Checkout immutable validation payload
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           path: payload
           fetch-depth: 1
           persist-credentials: false
@@ -146,18 +151,20 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish exact verified candidate to this validation ref
+      - name: Publish exact verified candidate to validation ref
         working-directory: candidate
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          SEC_VALIDATION_HEAD: ${{ github.sha }}
+          SEC_VALIDATION_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD^1)" = "$SEC_BASE"
           test "$(git rev-parse 'HEAD^{tree}')" = "$SEC_EXPECTED_TREE"
-          main_remote="$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | cut -f1)"
-          test "$main_remote" = "$SEC_BASE"
           url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push --force-with-lease="refs/heads/${GITHUB_REF_NAME}:${SEC_VALIDATION_HEAD}" \
-            "$url" "HEAD:refs/heads/${GITHUB_REF_NAME}"
+          main_remote="$(git ls-remote "$url" refs/heads/main | cut -f1)"
+          validation_remote="$(git ls-remote "$url" "refs/heads/${SEC_VALIDATION_BRANCH}" | cut -f1)"
+          test "$main_remote" = "$SEC_BASE"
+          test "$validation_remote" = "$SEC_VALIDATION_HEAD"
+          git push --force-with-lease="refs/heads/${SEC_VALIDATION_BRANCH}:${SEC_VALIDATION_HEAD}" \
+            "$url" "HEAD:refs/heads/${SEC_VALIDATION_BRANCH}"
