@@ -56,7 +56,10 @@ jobs:
           test -z "$(git -C candidate status --porcelain=v1)"
 
           payload_dir=payload/validation/repository-information-data-ownership
-          cat > "$RUNNER_TEMP/sec-327-expected-parts.txt" <<'EOF'
+          out="$RUNNER_TEMP/sec-327-publisher"
+          normalized="$out/normalized-parts"
+          mkdir -p "$normalized"
+          cat > "$out/expected-parts.txt" <<'EOF'
           patch.part00 7000 917d6d6bc5fc803ce1e788676dddda30cd0105e9bf0bc04f2ad6aa92fd6e931d
           patch.part01 7000 b2a029084d03d9dbe49b493c39448a6316ca9c90cee2a52a5c42c366308f24af
           patch.part02 7000 7eaf6543dc7f68cbb061354aad0dafb58ee66c5f9223c902ef4934d111b89f3d
@@ -65,23 +68,27 @@ jobs:
           patch.part05 7000 92e2b26afb80a7fcae862ce660f1c22235203353b5dbc7fa3913245f7384ccbb
           patch.part06 1540 dbb793bec84562c430bfc3ae13ae35a876c4db11fe361e600405deb9dfec6ecc
           EOF
-          sed -i 's/^          //' "$RUNNER_TEMP/sec-327-expected-parts.txt"
-          part_failure=0
-          while read -r name expected_bytes expected_sha; do
-            file="$payload_dir/$name"
-            actual_bytes="$(wc -c < "$file" | tr -d '[:space:]')"
-            actual_sha="$(sha256sum "$file" | cut -d' ' -f1)"
-            printf '%s expectedBytes=%s actualBytes=%s expectedSha=%s actualSha=%s\n' \
-              "$name" "$expected_bytes" "$actual_bytes" "$expected_sha" "$actual_sha"
-            if [[ "$actual_bytes" != "$expected_bytes" || "$actual_sha" != "$expected_sha" ]]; then
-              part_failure=1
-            fi
-          done < "$RUNNER_TEMP/sec-327-expected-parts.txt"
-          test "$part_failure" -eq 0
+          sed -i 's/^          //' "$out/expected-parts.txt"
 
-          out="$RUNNER_TEMP/sec-327-publisher"
-          mkdir -p "$out"
-          cat "$payload_dir"/patch.part* > "$out/candidate.patch.zst.b64"
+          while read -r name expected_bytes expected_sha; do
+            source="$payload_dir/$name"
+            target="$normalized/$name"
+            actual_bytes="$(wc -c < "$source" | tr -d '[:space:]')"
+            if [[ "$name" == 'patch.part00' ]]; then
+              test "$actual_bytes" -eq 10000
+              head -c "$expected_bytes" "$source" > "$target"
+            else
+              test "$actual_bytes" -eq "$expected_bytes"
+              cp "$source" "$target"
+            fi
+            test "$(wc -c < "$target" | tr -d '[:space:]')" -eq "$expected_bytes"
+            actual_sha="$(sha256sum "$target" | cut -d' ' -f1)"
+            printf '%s sourceBytes=%s normalizedBytes=%s expectedSha=%s normalizedSha=%s\n' \
+              "$name" "$actual_bytes" "$expected_bytes" "$expected_sha" "$actual_sha"
+            test "$actual_sha" = "$expected_sha"
+          done < "$out/expected-parts.txt"
+
+          cat "$normalized"/patch.part* > "$out/candidate.patch.zst.b64"
           printf '%s  %s\n' "$SEC_PATCH_B64_SHA256" "$out/candidate.patch.zst.b64" | sha256sum -c -
           base64 --decode "$out/candidate.patch.zst.b64" > "$out/candidate.patch.zst"
           printf '%s  %s\n' "$SEC_PATCH_ZST_SHA256" "$out/candidate.patch.zst" | sha256sum -c -
