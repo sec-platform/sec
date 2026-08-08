@@ -6,12 +6,16 @@
  * invokes the trusted CI/dev-runner surfaces.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   createVerificationActionPlanV1,
   createVerificationActionTerminalV1,
   isVerificationActionRunnableV1,
   parseVerificationActionKeyV1,
   verificationActionDependsOnChangedInputsV1,
+  type VerificationActionDependencyResolutionV1,
+  type VerificationActionDependencyStateV1,
+  type VerificationActionDependencyV1,
   type VerificationActionKeyDigest,
   type VerificationActionKeyV1,
   type VerificationActionPlanV1,
@@ -57,6 +61,7 @@ type InFlight = Promise<VerificationActionRunOutcomeV1>;
 // class prevents two coordinator instances in one process from double-spawning
 // the same semantic ActionKey.
 const IN_FLIGHT_ACTIONS = new Map<string, InFlight>();
+const EXECUTION_CONTEXT = new AsyncLocalStorage<ReadonlySet<string>>();
 
 function canonicalAction(action: VerificationActionKeyV1): VerificationActionKeyV1 {
   return parseVerificationActionKeyV1(JSON.stringify(action));
@@ -66,6 +71,55 @@ function boundedError(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
   const sanitized = text.replace(/[\u0000-\u001f]/gu, ' ');
   return `executor threw: ${sanitized}`.slice(0, 1024);
+}
+
+function resolveDependencyState(
+  repositoryRoot: string,
+  dependency: VerificationActionDependencyV1
+): VerificationActionDependencyStateV1 {
+  const journal = readVerificationActionJournalV1(repositoryRoot, dependency.actionKey);
+  if (dependency.kind === 'cheap-preflight' &&
+    journal.action?.operation.executionClass !== 'cheap-preflight') {
+    return 'unknown';
+  }
+  switch (journal.latestState) {
+    case null:
+      return 'unknown';
+    case 'queued':
+      return 'queued';
+    case 'running':
+      return 'running';
+    case 'invalidated':
+      return 'invalidated';
+    case 'cancelled':
+      return 'cancelled';
+    case 'terminal':
+    case 'reused':
+      switch (journal.terminal?.status) {
+        case 'passed':
+          return 'terminal-passed';
+        case 'failed':
+          return 'terminal-failed';
+        case 'not-run':
+          return 'not-run';
+        case 'unsupported':
+          return 'unsupported';
+        case 'invalidated':
+          return 'invalidated';
+        default:
+          return 'unknown';
+      }
+  }
+}
+
+function resolveDependencyStates(
+  repositoryRoot: string,
+  plan: VerificationActionPlanV1
+): readonly VerificationActionDependencyResolutionV1[] {
+  return Object.freeze(plan.dependencies.map((dependency) => Object.freeze({
+    actionKey: dependency.actionKey,
+    state: resolveDependencyState(repositoryRoot, dependency)
+  })));
 }
 
 function failedTerminal(): VerificationActionTerminalV1 {
@@ -120,9 +174,24 @@ export class VerificationActionRunnerV1 {
     if (plan.action.actionKey !== action.actionKey) {
       throw new Error('VerificationAction plan action key does not match execution action.');
     }
-    const runnable = isVerificationActionRunnableV1(plan);
+    const runnable = isVerificationActionRunnableV1(
+      plan,
+      resolveDependencyStates(input.repositoryRoot, plan)
+    );
     if (!runnable.runnable) {
       return outcome(action.actionKey, 'blocked', null, null, false, runnable.reason);
+    }
+
+    const ownerKeys = EXECUTION_CONTEXT.getStore();
+    if (ownerKeys?.has(key)) {
+      return outcome(
+        action.actionKey,
+        'blocked',
+        'running',
+        null,
+        false,
+        'reentrant-cycle: same execution owner cannot await its own live action'
+      );
     }
 
     // Plan authorization is caller-local. A non-runnable caller must not join
@@ -217,10 +286,13 @@ export class VerificationActionRunnerV1 {
       let terminal: VerificationActionTerminalV1;
       let note: string | null = null;
       try {
-        terminal = createVerificationActionTerminalV1(await input.executor({
-          action,
-          executionDomain
-        }));
+        const currentOwnerKeys = new Set(ownerKeys ?? []);
+        currentOwnerKeys.add(key);
+        const executorResult = await EXECUTION_CONTEXT.run(
+          currentOwnerKeys,
+          () => input.executor({ action, executionDomain })
+        );
+        terminal = createVerificationActionTerminalV1(executorResult);
       } catch (error) {
         terminal = failedTerminal();
         note = boundedError(error);

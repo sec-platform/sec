@@ -24,6 +24,8 @@ function action(kind = 'runner-contract', inputPath = 'scripts/codex/example.ts'
       identity: 'bun-test',
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_A,
+      workingDirectory: '.',
+      executionClass: kind === 'cheap-preflight' ? 'cheap-preflight' : 'expensive',
       declaredEnvironment: []
     },
     inputClosure: [{ path: inputPath, digest: DIGEST_A }],
@@ -38,15 +40,42 @@ function action(kind = 'runner-contract', inputPath = 'scripts/codex/example.ts'
   return createVerificationActionKeyV1(input);
 }
 
-function runnablePlan(key: ReturnType<typeof action>) {
+function seedPassedPreflight(repositoryRoot: string): void {
+  const preflight = action('cheap-preflight');
+  const current = readVerificationActionJournalV1(repositoryRoot, preflight.actionKey);
+  if (current.latestState === 'terminal' || current.latestState === 'reused') return;
+  appendVerificationActionJournalEventV1({ repositoryRoot, action: preflight, state: 'queued' });
+  appendVerificationActionJournalEventV1({ repositoryRoot, action: preflight, state: 'running' });
+  appendVerificationActionJournalEventV1({
+    repositoryRoot,
+    action: preflight,
+    state: 'terminal',
+    terminal: { status: 'passed', reasonCode: 'executed-success', resultDigest: null }
+  });
+}
+
+function seedFailedPreflight(repositoryRoot: string): void {
+  const preflight = action('cheap-preflight');
+  const current = readVerificationActionJournalV1(repositoryRoot, preflight.actionKey);
+  if (current.latestState === 'terminal' || current.latestState === 'reused') return;
+  appendVerificationActionJournalEventV1({ repositoryRoot, action: preflight, state: 'queued' });
+  appendVerificationActionJournalEventV1({ repositoryRoot, action: preflight, state: 'running' });
+  appendVerificationActionJournalEventV1({
+    repositoryRoot,
+    action: preflight,
+    state: 'terminal',
+    terminal: { status: 'failed', reasonCode: 'executed-failure', resultDigest: null }
+  });
+}
+
+function runnablePlan(key: ReturnType<typeof action>, repositoryRoot?: string) {
+  if (repositoryRoot !== undefined) seedPassedPreflight(repositoryRoot);
   const preflight = action('cheap-preflight');
   return createVerificationActionPlanV1({
     action: key,
-    expensive: true,
     dependencies: [{
       actionKey: preflight.actionKey,
-      kind: 'cheap-preflight',
-      state: 'terminal-passed'
+      kind: 'cheap-preflight'
     }]
   });
 }
@@ -74,7 +103,7 @@ test('concurrent callers join one physical executor invocation', async () => {
       repositoryRoot,
       action: key,
       executionDomain: 'test-domain',
-      plan: runnablePlan(key),
+      plan: runnablePlan(key, repositoryRoot),
       executor
     });
     await Promise.resolve();
@@ -82,7 +111,7 @@ test('concurrent callers join one physical executor invocation', async () => {
       repositoryRoot: secondRepositoryRoot,
       action: key,
       executionDomain: 'test-domain',
-      plan: runnablePlan(key),
+      plan: runnablePlan(key, secondRepositoryRoot),
       executor
     });
     release();
@@ -125,7 +154,7 @@ test('forged non-boolean expensive plan fails closed before any physical executi
     const key = action('forged-plan-action');
     let invocations = 0;
     const forgedPlan = {
-      ...runnablePlan(key),
+      ...runnablePlan(key, repositoryRoot),
       expensive: 'true'
     } as never;
     await expect(new VerificationActionRunnerV1().execute({
@@ -149,6 +178,7 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
   try {
     const runner = new VerificationActionRunnerV1();
     const key = action('caller-local-plan-action');
+    seedFailedPreflight(secondRepositoryRoot);
     let invocations = 0;
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
@@ -156,7 +186,7 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
       repositoryRoot,
       action: key,
       executionDomain: 'caller-local-plan-domain',
-      plan: runnablePlan(key),
+      plan: runnablePlan(key, repositoryRoot),
       executor: async () => {
         invocations += 1;
         await held;
@@ -170,11 +200,9 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
       executionDomain: 'caller-local-plan-domain',
       plan: createVerificationActionPlanV1({
         action: key,
-        expensive: true,
         dependencies: [{
           actionKey: action('cheap-preflight').actionKey,
-          kind: 'cheap-preflight',
-          state: 'terminal-failed'
+          kind: 'cheap-preflight'
         }]
       }),
       executor: () => {
@@ -204,7 +232,7 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
   }
 });
 
-test('reentrant same-key dispatch joins after the live flight is registered', async () => {
+test('reentrant same-key dispatch is rejected as a cycle without duplicate execution', async () => {
   const repositoryRoot = root();
   try {
     const runner = new VerificationActionRunnerV1();
@@ -217,7 +245,7 @@ test('reentrant same-key dispatch joins after the live flight is registered', as
         repositoryRoot,
         action: key,
         executionDomain: 'reentrant-domain',
-        plan: runnablePlan(key),
+        plan: runnablePlan(key, repositoryRoot),
         executor
       });
       return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
@@ -226,13 +254,71 @@ test('reentrant same-key dispatch joins after the live flight is registered', as
       repositoryRoot,
       action: key,
       executionDomain: 'reentrant-domain',
-      plan: runnablePlan(key),
+      plan: runnablePlan(key, repositoryRoot),
       executor
     });
     const joined = await nested!;
     expect(invocations).toBe(1);
     expect(result.disposition).toBe('executed');
-    expect(joined.disposition).toBe('joined');
+    expect(joined.disposition).toBe('blocked');
+    expect(joined.reason).toContain('reentrant-cycle');
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('awaited nested same-key execution is rejected without self-join deadlock', async () => {
+  const repositoryRoot = root();
+  try {
+    const runner = new VerificationActionRunnerV1();
+    const key = action('awaited-reentrant-action');
+    let invocations = 0;
+    let nested: ReturnType<VerificationActionRunnerV1['execute']> | null = null;
+    const executor = async () => {
+      invocations += 1;
+      nested = runner.execute({
+        repositoryRoot,
+        action: key,
+        executionDomain: 'awaited-reentrant-domain',
+        plan: runnablePlan(key, repositoryRoot),
+        executor
+      });
+      const nestedResult = await nested;
+      expect(nestedResult.disposition).toBe('blocked');
+      expect(nestedResult.reason).toContain('reentrant-cycle');
+      return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+    };
+    const result = await runner.execute({
+      repositoryRoot,
+      action: key,
+      executionDomain: 'awaited-reentrant-domain',
+      plan: runnablePlan(key, repositoryRoot),
+      executor
+    });
+    expect(result.disposition).toBe('executed');
+    expect(invocations).toBe(1);
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('caller-forged terminal-passed state without a journal fact cannot start an expensive action', async () => {
+  const repositoryRoot = root();
+  try {
+    const key = action('missing-machine-preflight-fact');
+    let invocations = 0;
+    const result = await new VerificationActionRunnerV1().execute({
+      repositoryRoot,
+      action: key,
+      plan: runnablePlan(key),
+      executor: () => {
+        invocations += 1;
+        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+      }
+    });
+    expect(result.disposition).toBe('blocked');
+    expect(result.reason).toContain('is unknown');
+    expect(invocations).toBe(0);
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
@@ -247,7 +333,7 @@ test('fresh terminal success reuses without execution and terminal failure never
     const first = await runner.execute({
       repositoryRoot,
       action: passed,
-      plan: runnablePlan(passed),
+      plan: runnablePlan(passed, repositoryRoot),
       executor: () => {
         passedInvocations += 1;
         return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
@@ -256,7 +342,7 @@ test('fresh terminal success reuses without execution and terminal failure never
     const reused = await runner.execute({
       repositoryRoot,
       action: passed,
-      plan: runnablePlan(passed),
+      plan: runnablePlan(passed, repositoryRoot),
       executor: () => {
         passedInvocations += 1;
         return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
@@ -271,7 +357,7 @@ test('fresh terminal success reuses without execution and terminal failure never
     await runner.execute({
       repositoryRoot,
       action: failed,
-      plan: runnablePlan(failed),
+      plan: runnablePlan(failed, repositoryRoot),
       executor: () => {
         failedInvocations += 1;
         return { status: 'failed' as const, reasonCode: 'executed-failure' as const, resultDigest: null };
@@ -280,7 +366,7 @@ test('fresh terminal success reuses without execution and terminal failure never
     const failedReuse = await runner.execute({
       repositoryRoot,
       action: failed,
-      plan: runnablePlan(failed),
+      plan: runnablePlan(failed, repositoryRoot),
       executor: () => {
         failedInvocations += 1;
         return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
@@ -302,7 +388,7 @@ test('executor diagnostics are journal-safe and bounded when failures contain co
     const result = await new VerificationActionRunnerV1().execute({
       repositoryRoot,
       action: key,
-      plan: runnablePlan(key),
+      plan: runnablePlan(key, repositoryRoot),
       executor: () => {
         throw new Error(`line one\nline two\t${'x'.repeat(2000)}`);
       }
@@ -326,10 +412,10 @@ test('cheap preflight failure prevents physical execution', async () => {
     const runner = new VerificationActionRunnerV1();
     const key = action('expensive-action');
     const dependency = action('cheap-preflight');
+    seedFailedPreflight(repositoryRoot);
     const plan = createVerificationActionPlanV1({
       action: key,
-      expensive: true,
-      dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight', state: 'terminal-failed' }]
+      dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
     });
     let invocations = 0;
     const result = await runner.execute({
@@ -359,7 +445,7 @@ test('input invalidation discards an in-flight physical result', async () => {
     const running = runner.execute({
       repositoryRoot,
       action: key,
-      plan: runnablePlan(key),
+      plan: runnablePlan(key, repositoryRoot),
       executor: async () => {
         await held;
         return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
@@ -392,7 +478,7 @@ test('persisted running action without a live owner fails closed on restart', as
     const result = await new VerificationActionRunnerV1().execute({
       repositoryRoot,
       action: key,
-      plan: runnablePlan(key),
+      plan: runnablePlan(key, repositoryRoot),
       executor: () => {
         invocations += 1;
         return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
@@ -417,7 +503,7 @@ test('persisted queued action without a live owner fails closed on restart', asy
     const result = await new VerificationActionRunnerV1().execute({
       repositoryRoot,
       action: key,
-      plan: runnablePlan(key),
+      plan: runnablePlan(key, repositoryRoot),
       executor: () => {
         invocations += 1;
         return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
