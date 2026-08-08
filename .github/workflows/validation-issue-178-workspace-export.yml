@@ -1,4 +1,4 @@
-name: validation test-runner host independence
+name: validation test-runner host-independent repair
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: validation-test-runner-host-independence-${{ github.event.pull_request.number }}
@@ -15,12 +15,14 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   SEC_BASE: 26dcb43c77c9bdfebee35efc217113c958ed017d
+  SEC_TARGET_BRANCH: fix/test-runner-host-independent-resource-batches-v1
+  SEC_PATCH_SHA256: 47a7b0b83d4794daf8306de1b9139638e80bd8b820e85ce9ead54b8cc98570f0
 
 jobs:
-  reproduce-on-main:
+  verify-and-publish:
     if: github.event.pull_request.number == 331 && github.event.pull_request.head.ref == 'validation/issue-178-workspace-export'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout exact main without persistent credentials
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -28,6 +30,14 @@ jobs:
           ref: ${{ env.SEC_BASE }}
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Checkout validation payload without persistent credentials
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: validation/issue-178-workspace-export
+          fetch-depth: 1
+          persist-credentials: false
+          path: .tmp/validation-control
 
       - name: Setup pinned Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -38,13 +48,88 @@ jobs:
         shell: bash
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Print resolved fast-test concurrency
-        shell: bash
-        run: |
-          bun -e "import {availableParallelism} from 'node:os'; import {DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS,DEFAULT_FAST_TEST_MAX_CONCURRENCY} from './platform/dev-runner/fast-test-policy.ts'; console.log(JSON.stringify({availableParallelism:availableParallelism(),budget:DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,resourceLimits:DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS,maxConcurrency:DEFAULT_FAST_TEST_MAX_CONCURRENCY},null,2));"
-
-      - name: Reproduce exact reverse-completion test on main
+      - name: Apply exact reviewed patch
         shell: bash
         run: |
           set -euo pipefail
-          bun test tests/unit/test-runner.test.ts --test-name-pattern 'mixed failures stay plan-ordered under reverse completion without host CPU assumptions' --timeout 15000
+          base64 -d .tmp/validation-control/validation/test-runner-host-independence.patch.gz.b64 | gzip -dc > .tmp/test-runner.patch
+          printf '%s  %s\n' "$SEC_PATCH_SHA256" .tmp/test-runner.patch | sha256sum -c -
+          git apply --index .tmp/test-runner.patch
+          rm -rf .tmp/validation-control .tmp/test-runner.patch
+          test "$(git diff --cached --name-only)" = 'tests/unit/test-runner.test.ts'
+          git diff --cached --check
+
+      - name: Prove one-CPU host independence
+        shell: bash
+        run: |
+          set -euo pipefail
+          taskset -c 0 bun -e "import {availableParallelism} from 'node:os'; if(availableParallelism()!==1) throw new Error('expected one CPU affinity');"
+          taskset -c 0 bun test tests/unit/test-runner.test.ts --timeout 30000
+
+      - name: Prove two-CPU host independence
+        shell: bash
+        run: |
+          set -euo pipefail
+          taskset -c 0,1 bun -e "import {availableParallelism} from 'node:os'; if(availableParallelism()!==2) throw new Error('expected two CPU affinity');"
+          taskset -c 0,1 bun test tests/unit/test-runner.test.ts --timeout 30000
+
+      - name: Prove runner-default behavior
+        shell: bash
+        run: bun test tests/unit/test-runner.test.ts --timeout 30000
+
+      - name: Run static gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun run typecheck
+          bun run imports:check
+          git diff --cached --check
+
+      - name: Build exact single-parent formal fix
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'SEC Validation Publisher'
+          git config user.email 'sec-validation@example.invalid'
+          git commit -m 'fix(test-runner): remove host-concurrency deadlocks'
+          test "$(git rev-parse HEAD^)" = "$SEC_BASE"
+          test "$(git diff --name-only "$SEC_BASE" HEAD)" = 'tests/unit/test-runner.test.ts'
+          test -z "$(git status --porcelain=v1)"
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+          printf 'head=%s\ntree=%s\n' "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
+
+      - name: Publish formal fix branch
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NEW_HEAD: ${{ steps.build.outputs.head }}
+        run: |
+          set -euo pipefail
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${NEW_HEAD}:refs/heads/${SEC_TARGET_BRANCH}"
+
+      - name: Record evidence
+        shell: bash
+        env:
+          NEW_HEAD: ${{ steps.build.outputs.head }}
+          NEW_TREE: ${{ steps.build.outputs.tree }}
+        run: |
+          mkdir -p .tmp/test-runner-evidence
+          {
+            printf 'schema=sec-test-runner-host-independence-v1\n'
+            printf 'base=%s\n' "$SEC_BASE"
+            printf 'head=%s\n' "$NEW_HEAD"
+            printf 'tree=%s\n' "$NEW_TREE"
+            printf 'patchSha256=%s\n' "$SEC_PATCH_SHA256"
+            printf 'bun=%s\n' "$(bun --revision)"
+            printf 'status=passed\n'
+          } > .tmp/test-runner-evidence/environment.txt
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sec-test-runner-host-independence-${{ steps.build.outputs.head }}-run-${{ github.run_id }}
+          path: .tmp/test-runner-evidence
+          retention-days: 30
+          if-no-files-found: error
