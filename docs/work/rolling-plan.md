@@ -7,7 +7,7 @@ last-reviewed: 2026-08-08
 
 # SEC 滚动近期计划
 
-本窗口从 `main@49fdb7cd3be991742061621e3add982107e50367` 重新计算。
+本窗口从合并后的 `main@1d301987e86cc791bddd8e9fbd27885413b022f8` 重新计算。
 
 ## 当前事实与反转原因
 
@@ -34,34 +34,32 @@ last-reviewed: 2026-08-08
 
 ## 当前唯一 Work Package
 
-### verification-session-action-reuse-v1
+### verification-session-action-reuse-t1-1-defect-closure-v1
 
-Owners：Issue #311，消费 #179/#316。
+Owners：Issue #311 T1.1，消费已合并的 #335 action-reuse kernel。
 
-目标：在当前不属于 causal TCB 的 `scripts/codex/verification-session*` seam 上建立：
+目标：在当前不属于 causal TCB 的 `scripts/codex/verification-action-*` seam 上收束：
 
 ```text
-FreezeSession / CandidateTree
-→ VerificationAction plan
-→ content-addressed ActionKey
-→ local Run Journal
+VerificationAction identity + logical cwd/class
+→ static Action plan
+→ local machine-state resolution
 → execute | join-running | reuse-terminal | invalidate | cancel
-→ deterministic terminal projection
+→ deterministic terminal projection with cycle guard
 ```
 
-首包必须：
+T1.1 必须：
 
-- 相同 ActionKey 不重复物理启动；
-- failure 可复用为已知失败事实但永不变 PASS；
-- branch/PR/time/PID/absolute temp path 不参与语义 identity；
-- candidate tree/input closure 未变时 commit history整理不触发 proof reset；
-- 输入变化只失效真实依赖 Action，unknown 保守扩大；
-- cheap preflight 在 expensive Action 前 terminal；
-- process/context restart 只从 machine journal + canonical inputs 恢复；
--复用现有 CI Evidence scope/inventory/environment 设计作为后继迁移输入，不建立第二长期
-  cache/Evidence authority；
--禁止修改 workflow、dev-runner、Test Impact trust rules、TCB lock/registry、
-  CI Evidence、merge-gate、package/lock 和产品 Compiler。
+- logical working directory 与 execution class 进入 producer-owned ActionKey；
+- plan topology 不再携带 caller-authored dependency state，runnable 只消费 journal machine fact；
+- 同一 ActionKey 的外部并发 caller 只 join 一次物理执行；owner 的 awaited nested cycle typed
+  拒绝、不死锁、不重复 spawn；
+- failure 可复用为已知失败事实但永不变 PASS，restart/invalidation/reuse 仍 fail closed；
+- 不修改 workflow、dev-runner、Test Impact trust rules、TCB lock/registry、CI Evidence、
+  merge-gate、package/lock 和产品 Compiler。
+
+T2 `verification-action-trusted-cutover-v1` 再从新的 `main` 冻结，一次性承担 trust-root
+migration、Review-Stable Barrier 和 physical merge authorization；不在 T1.1 提前接线。
 
 ## 候选 Work Package
 
