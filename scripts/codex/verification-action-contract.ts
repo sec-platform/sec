@@ -35,8 +35,14 @@ export type VerificationActionOperationV1 = Readonly<{
    * and configuration-discovery context resolve to content identities.
    */
   semanticDigest: VerificationActionKeyDigest;
+  /** Canonical repository-relative logical cwd; `.` is the repository root. */
+  workingDirectory: string;
+  /** Execution class is semantic policy, not a caller-controlled plan flag. */
+  executionClass: VerificationActionExecutionClassV1;
   declaredEnvironment: readonly VerificationActionEnvironmentBindingV1[];
 }>;
+
+export type VerificationActionExecutionClassV1 = 'cheap-preflight' | 'expensive';
 
 export type VerificationActionEnvironmentBindingV1 = Readonly<{
   name: string;
@@ -82,23 +88,31 @@ export type VerificationActionTerminalV1 = Readonly<{
 
 export type VerificationActionDependencyKindV1 = 'cheap-preflight' | 'upstream';
 export type VerificationActionDependencyStateV1 =
+  | 'queued'
   | 'running'
   | 'terminal-passed'
   | 'terminal-failed'
   | 'not-run'
   | 'unsupported'
   | 'invalidated'
+  | 'cancelled'
   | 'unknown';
 
 export type VerificationActionDependencyV1 = Readonly<{
   actionKey: VerificationActionKeyDigest;
   kind: VerificationActionDependencyKindV1;
+}>;
+
+export type VerificationActionDependencyResolutionV1 = Readonly<{
+  actionKey: VerificationActionKeyDigest;
   state: VerificationActionDependencyStateV1;
 }>;
 
 export type VerificationActionPlanV1 = Readonly<{
   schema: typeof VERIFICATION_ACTION_PLAN_SCHEMA_V1;
   action: VerificationActionKeyV1;
+  executionClass: VerificationActionExecutionClassV1;
+  /** Derived compatibility projection; never accepted from caller input. */
   expensive: boolean;
   dependencies: readonly VerificationActionDependencyV1[];
 }>;
@@ -116,7 +130,11 @@ const FORBIDDEN_IDENTITY_KEYS = new Set([
   'tempPath',
   'temporaryPath',
   'absoluteTempPath',
-  'chat'
+  'chat',
+  'argv',
+  'runtime',
+  'absoluteWorkingDirectory',
+  'configPath'
 ]);
 
 function fail(label: string, message: string): never {
@@ -165,6 +183,22 @@ function relativeInputPath(value: unknown, label: string): string {
     path.posix.normalize(value) !== value || value === '.' || value === '..' ||
     value.startsWith('../') || path.posix.isAbsolute(value)) {
     fail(label, 'must be one canonical repository-relative path.');
+  }
+  return value;
+}
+
+function relativeWorkingDirectory(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.includes('\\') ||
+    path.posix.normalize(value) !== value || value === '..' || value.startsWith('../') ||
+    path.posix.isAbsolute(value) || /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith('//')) {
+    fail(label, 'must be a canonical repository-relative directory or `.` repository-root sentinel.');
+  }
+  return value;
+}
+
+function executionClass(value: unknown, label: string): VerificationActionExecutionClassV1 {
+  if (value !== 'cheap-preflight' && value !== 'expensive') {
+    fail(label, 'must be `cheap-preflight` or `expensive`.');
   }
   return value;
 }
@@ -307,7 +341,10 @@ function canonicalInput(input: VerificationActionKeyInputV1): VerificationAction
   const producer = record(value.producer, 'producer');
   exactKeys(producer, ['identity', 'revision'], 'producer');
   const operation = record(value.operation, 'operation');
-  exactKeys(operation, ['identity', 'revision', 'semanticDigest', 'declaredEnvironment'], 'operation');
+  exactKeys(operation, [
+    'identity', 'revision', 'semanticDigest', 'workingDirectory', 'executionClass',
+    'declaredEnvironment'
+  ], 'operation');
   if (!Array.isArray(operation.declaredEnvironment)) {
     fail('operation.declaredEnvironment', 'must be an array.');
   }
@@ -325,6 +362,8 @@ function canonicalInput(input: VerificationActionKeyInputV1): VerificationAction
       identity: text(operation.identity, 'operation.identity'),
       revision: text(operation.revision, 'operation.revision'),
       semanticDigest: digest(operation.semanticDigest, 'operation.semanticDigest'),
+      workingDirectory: relativeWorkingDirectory(operation.workingDirectory, 'operation.workingDirectory'),
+      executionClass: executionClass(operation.executionClass, 'operation.executionClass'),
       declaredEnvironment: canonicalEnvironmentBindings(operation.declaredEnvironment as readonly VerificationActionEnvironmentBindingV1[])
     }),
     inputClosure: canonicalInputClosure(value.inputClosure as readonly VerificationActionInputRefV1[]),
@@ -396,31 +435,31 @@ export function createVerificationActionTerminalV1(
 
 export function createVerificationActionPlanV1(input: {
   action: VerificationActionKeyV1;
-  expensive: boolean;
+  /** Compatibility assertion only; execution class is derived from ActionKey. */
+  expensive?: unknown;
   dependencies: readonly VerificationActionDependencyV1[];
 }): VerificationActionPlanV1 {
   const action = parseVerificationActionKeyV1(JSON.stringify(input.action));
-  if (typeof input.expensive !== 'boolean') {
-    fail('expensive', 'must be a boolean.');
+  const derivedExpensive = action.operation.executionClass === 'expensive';
+  if (input.expensive !== undefined) {
+    if (typeof input.expensive !== 'boolean') {
+      fail('expensive', 'must be a boolean.');
+    }
+    if (input.expensive !== derivedExpensive) {
+      fail('expensive', `must match action executionClass ${action.operation.executionClass}.`);
+    }
   }
+  if (!Array.isArray(input.dependencies)) fail('dependencies', 'must be an array.');
   const dependencies = input.dependencies.map((candidate, index) => {
     const value = record(candidate, `dependency[${index}]`);
-    exactKeys(value, ['actionKey', 'kind', 'state'], `dependency[${index}]`);
+    exactKeys(value, ['actionKey', 'kind'], `dependency[${index}]`);
     const kind = value.kind;
     if (kind !== 'cheap-preflight' && kind !== 'upstream') {
       fail(`dependency[${index}].kind`, 'is invalid.');
     }
-    const state = value.state;
-    if (![
-      'running', 'terminal-passed', 'terminal-failed', 'not-run', 'unsupported',
-      'invalidated', 'unknown'
-    ].includes(String(state))) {
-      fail(`dependency[${index}].state`, 'is invalid.');
-    }
     return Object.freeze({
       actionKey: digest(value.actionKey, `dependency[${index}].actionKey`),
-      kind: kind as VerificationActionDependencyKindV1,
-      state: state as VerificationActionDependencyStateV1
+      kind: kind as VerificationActionDependencyKindV1
     });
   }).sort((left, right) => compareCanonicalText(
     `${left.kind}\0${left.actionKey}`,
@@ -442,25 +481,51 @@ export function createVerificationActionPlanV1(input: {
     [...plannedUpstreamKeys].some((key) => !declaredUpstreamKeys.has(key))) {
     fail('dependencies', 'upstream dependencies must exactly match action.upstreamActionKeys.');
   }
-  if (input.expensive === true && !dependencies.some(({ kind }) => kind === 'cheap-preflight')) {
+  if (derivedExpensive && !dependencies.some(({ kind }) => kind === 'cheap-preflight')) {
     fail('expensive plan', 'requires at least one cheap-preflight dependency.');
   }
   return Object.freeze({
     schema: VERIFICATION_ACTION_PLAN_SCHEMA_V1,
     action,
-    expensive: input.expensive === true,
+    executionClass: action.operation.executionClass,
+    expensive: derivedExpensive,
     dependencies: Object.freeze(dependencies)
   });
 }
 
+const DEPENDENCY_STATES = new Set<VerificationActionDependencyStateV1>([
+  'queued', 'running', 'terminal-passed', 'terminal-failed', 'not-run', 'unsupported',
+  'invalidated', 'cancelled', 'unknown'
+]);
+
 export function isVerificationActionRunnableV1(
-  plan: VerificationActionPlanV1
+  plan: VerificationActionPlanV1,
+  resolutions: readonly VerificationActionDependencyResolutionV1[] = []
 ): { readonly runnable: boolean; readonly reason: string | null } {
-  for (const dependency of plan.dependencies) {
-    if (dependency.state !== 'terminal-passed') {
+  const resolved = new Map<VerificationActionKeyDigest, VerificationActionDependencyStateV1>();
+  for (const resolution of resolutions) {
+    const actionKey = digest(resolution.actionKey, 'dependency resolution actionKey');
+    if (resolved.has(actionKey)) {
       return Object.freeze({
         runnable: false,
-        reason: `${dependency.kind} dependency ${dependency.actionKey} is ${dependency.state}`
+        reason: `duplicate machine state for dependency ${actionKey}`
+      });
+    }
+    const state = resolution.state;
+    if (!DEPENDENCY_STATES.has(state)) {
+      return Object.freeze({
+        runnable: false,
+        reason: `dependency ${actionKey} has an invalid machine state`
+      });
+    }
+    resolved.set(actionKey, state);
+  }
+  for (const dependency of plan.dependencies) {
+    const state = resolved.get(dependency.actionKey) ?? 'unknown';
+    if (state !== 'terminal-passed') {
+      return Object.freeze({
+        runnable: false,
+        reason: `${dependency.kind} dependency ${dependency.actionKey} is ${state}`
       });
     }
   }

@@ -24,6 +24,8 @@ function action(): ReturnType<typeof createVerificationActionKeyV1> {
       identity: 'bun-test',
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_A,
+      workingDirectory: '.',
+      executionClass: 'expensive',
       declaredEnvironment: []
     },
     inputClosure: [{ path: 'scripts/codex/example.ts', digest: DIGEST_A }],
