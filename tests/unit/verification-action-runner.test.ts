@@ -16,7 +16,12 @@ import { VerificationActionRunnerV1 } from '../../scripts/codex/verification-act
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 
-function action(kind = 'runner-contract', inputPath = 'scripts/codex/example.ts') {
+function createAction(
+  kind: string,
+  inputPath: string,
+  executionClass: 'cheap-preflight' | 'expensive',
+  requiredCheapPreflightActionKeys: readonly `sha256:${string}`[]
+) {
   const input: VerificationActionKeyInputV1 = {
     actionKind: kind,
     producer: { identity: 'runner-test', revision: 'r1' },
@@ -25,7 +30,7 @@ function action(kind = 'runner-contract', inputPath = 'scripts/codex/example.ts'
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_A,
       workingDirectory: '.',
-      executionClass: kind === 'cheap-preflight' ? 'cheap-preflight' : 'expensive',
+      executionClass,
       declaredEnvironment: []
     },
     inputClosure: [{ path: inputPath, digest: DIGEST_A }],
@@ -34,10 +39,21 @@ function action(kind = 'runner-contract', inputPath = 'scripts/codex/example.ts'
       providerRevision: 'local',
       contractRevision: 'verification-result-v1'
     },
+    requiredCheapPreflightActionKeys,
     upstreamActionKeys: [],
     resultSchemaRevision: 'sec-verification-result-v1'
   };
   return createVerificationActionKeyV1(input);
+}
+
+function preflightAction(inputPath = 'scripts/codex/example.ts') {
+  return createAction('cheap-preflight', inputPath, 'cheap-preflight', []);
+}
+
+function action(kind = 'runner-contract', inputPath = 'scripts/codex/example.ts') {
+  return kind === 'cheap-preflight'
+    ? preflightAction(inputPath)
+    : createAction(kind, inputPath, 'expensive', [preflightAction(inputPath).actionKey]);
 }
 
 function seedPassedPreflight(repositoryRoot: string): void {

@@ -35,6 +35,7 @@ function actionInput(overrides: Partial<VerificationActionKeyInputV1> = {}): Ver
       providerRevision: 'local-windows',
       contractRevision: 'verification-result-v1'
     },
+    requiredCheapPreflightActionKeys: [DIGEST_A],
     upstreamActionKeys: [DIGEST_C],
     resultSchemaRevision: 'sec-verification-result-v1',
     ...overrides
@@ -102,7 +103,7 @@ test('semantic closure, producer, provider and contract changes change ActionKey
     }
   })).actionKey).not.toBe(baseline.actionKey);
   expect(createVerificationActionKeyV1(actionInput({
-    upstreamActionKeys: [DIGEST_A]
+    upstreamActionKeys: [DIGEST_B]
   })).actionKey).not.toBe(baseline.actionKey);
 });
 
@@ -135,6 +136,43 @@ test('identity rejects duplicate closure refs, raw operation selectors and forei
     }
   }))).toThrow('repository-relative directory');
   expect(() => createVerificationActionKeyV1(actionInput({
+    requiredCheapPreflightActionKeys: []
+  }))).toThrow('expensive actions must declare');
+  expect(() => createVerificationActionKeyV1(actionInput({
+    requiredCheapPreflightActionKeys: [DIGEST_C],
+    upstreamActionKeys: [DIGEST_C]
+  }))).toThrow('sets cannot overlap');
+  expect(() => createVerificationActionKeyV1(actionInput({
+    operation: {
+      identity: 'bun-test',
+      revision: 'normalizer-v1',
+      semanticDigest: DIGEST_A,
+      workingDirectory: 'scripts/',
+      executionClass: 'expensive',
+      declaredEnvironment: []
+    }
+  }))).toThrow('repository-relative directory');
+  expect(() => createVerificationActionKeyV1(actionInput({
+    operation: {
+      identity: 'bun-test',
+      revision: 'normalizer-v1',
+      semanticDigest: DIGEST_A,
+      workingDirectory: 'C:outside',
+      executionClass: 'expensive',
+      declaredEnvironment: []
+    }
+  }))).toThrow('repository-relative directory');
+  expect(() => createVerificationActionKeyV1(actionInput({
+    operation: {
+      identity: 'bun-test',
+      revision: 'normalizer-v1',
+      semanticDigest: DIGEST_A,
+      workingDirectory: '//server/share',
+      executionClass: 'expensive',
+      declaredEnvironment: []
+    }
+  }))).toThrow('repository-relative directory');
+  expect(() => createVerificationActionKeyV1(actionInput({
     operation: {
       identity: 'bun-test',
       revision: 'normalizer-v1',
@@ -152,13 +190,27 @@ test('identity rejects duplicate closure refs, raw operation selectors and forei
 });
 
 test('cheap preflight gates expensive execution and input invalidation stays dependency-local', () => {
-  const action = createVerificationActionKeyV1(actionInput({ upstreamActionKeys: [] }));
-  const dependency = createVerificationActionKeyV1(actionInput({ actionKind: 'identity-preflight' }));
+  const dependency = createVerificationActionKeyV1(actionInput({
+    actionKind: 'identity-preflight',
+    operation: {
+      identity: 'bun-test',
+      revision: 'normalizer-v1',
+      semanticDigest: DIGEST_B,
+      workingDirectory: '.',
+      executionClass: 'cheap-preflight',
+      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
+    },
+    requiredCheapPreflightActionKeys: []
+  }));
+  const action = createVerificationActionKeyV1(actionInput({
+    upstreamActionKeys: [],
+    requiredCheapPreflightActionKeys: [dependency.actionKey]
+  }));
   expect(() => createVerificationActionPlanV1({
     action,
     expensive: true,
     dependencies: []
-  })).toThrow('requires at least one cheap-preflight dependency');
+  })).toThrow('cheap-preflight dependencies must exactly match');
   expect(() => createVerificationActionPlanV1({
     action,
     expensive: 'true' as never,
@@ -183,7 +235,8 @@ test('cheap preflight gates expensive execution and input invalidation stays dep
       workingDirectory: '.',
       executionClass: 'cheap-preflight',
       declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
-    }
+    },
+    requiredCheapPreflightActionKeys: []
   }));
   const actionWithUpstream = createVerificationActionKeyV1(actionInput({
     upstreamActionKeys: [upstream.actionKey],
@@ -194,7 +247,8 @@ test('cheap preflight gates expensive execution and input invalidation stays dep
       workingDirectory: '.',
       executionClass: 'cheap-preflight',
       declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
-    }
+    },
+    requiredCheapPreflightActionKeys: []
   }));
   expect(() => createVerificationActionPlanV1({
     action: actionWithUpstream,
@@ -209,6 +263,29 @@ test('cheap preflight gates expensive execution and input invalidation stays dep
     action,
     dependencies: [{ actionKey: upstream.actionKey, kind: 'cheap-preflight', state: 'terminal-passed' } as never]
   })).toThrow('must contain exactly');
+  const otherDependency = createVerificationActionKeyV1(actionInput({
+    actionKind: 'other-preflight',
+    operation: {
+      identity: 'bun-test',
+      revision: 'normalizer-v1',
+      semanticDigest: DIGEST_C,
+      workingDirectory: '.',
+      executionClass: 'cheap-preflight',
+      declaredEnvironment: [{ name: 'CI', digest: DIGEST_A }]
+    },
+    requiredCheapPreflightActionKeys: []
+  }));
+  expect(() => createVerificationActionPlanV1({
+    action,
+    dependencies: [{ actionKey: otherDependency.actionKey, kind: 'cheap-preflight' }]
+  })).toThrow('cheap-preflight dependencies must exactly match');
+  expect(() => createVerificationActionPlanV1({
+    action,
+    dependencies: [
+      { actionKey: dependency.actionKey, kind: 'cheap-preflight' },
+      { actionKey: dependency.actionKey, kind: 'upstream' }
+    ]
+  })).toThrow('cannot declare one ActionKey under multiple dependency kinds');
   const blocked = createVerificationActionPlanV1({
     action,
     dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
