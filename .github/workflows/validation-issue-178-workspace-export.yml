@@ -81,6 +81,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git update-ref refs/remotes/origin/main "$SEC_BASE"
           bun run typecheck
           bun run imports:check
           git diff --cached --check
