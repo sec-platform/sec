@@ -1,9 +1,18 @@
 from pathlib import Path
 import hashlib
 import re
+import shutil
+import subprocess
 
 BASE_EXPR = '$' + '{{ steps.resolve.outputs.base }}'
 MANIFEST_EXPR = '$' + '{{ steps.resolve.outputs.manifest }}'
+
+LEGACY_P0_REVISIONS = (
+    ('base', '01d5c45a573337bee484d6a9d2effb2a76787b86'),
+    ('head', 'ab5d3a839afc1d595ae5c43437eb862cde1500c1'),
+    ('tested', '514e6e401659f18ecffca19856a11354d66d05df'),
+)
+LEGACY_P0_REQUIRED_BLOB = '334dd8dbe7162cd35f832257b735e79dd39e5650'
 
 
 def replace_once(source: str, old: str, new: str, label: str) -> str:
@@ -11,6 +20,61 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
         raise SystemExit(f'{label}: expected exactly one anchor, found {source.count(old)}')
     return source.replace(old, new, 1)
 
+
+def run_git(args: list[str], *, secret: str | None = None) -> bytes:
+    completed = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if completed.returncode == 0:
+        return completed.stdout
+    stderr = completed.stderr.decode('utf-8', errors='replace')[-4000:]
+    if secret:
+        stderr = stderr.replace(secret, '<redacted-remote>')
+        stderr = re.sub(r'x-access-token:[^@\s]+@', 'x-access-token:<redacted>@', stderr)
+    raise SystemExit(f"validation Git command failed ({args[0]} {args[1] if len(args) > 1 else ''}): {stderr}")
+
+
+def neutralize_frozen_validation_alternates() -> None:
+    legacy_repositories = [Path(f'.tmp/legacy-p0-{name}') for name, _ in LEGACY_P0_REVISIONS]
+    present = [repository.is_dir() for repository in legacy_repositories]
+    if not any(present):
+        return
+    if not all(present):
+        raise SystemExit('validation legacy P0 repositories are only partially materialized')
+
+    remote_url = run_git(['git', '-C', str(legacy_repositories[0]), 'remote', 'get-url', 'origin']).decode().strip()
+    if not remote_url:
+        raise SystemExit('validation legacy P0 repository has no origin URL')
+
+    # One authenticated fetch imports the exact immutable P0 closure into the candidate repository.
+    # The frozen validation attempt can then keep its immutable step-level environment while the
+    # three alternate directories are deliberately emptied so they carry no Git-object semantics.
+    run_git(
+        [
+            'git',
+            '-c',
+            'protocol.version=2',
+            'fetch',
+            '--no-tags',
+            '--no-recurse-submodules',
+            '--no-write-fetch-head',
+            remote_url,
+            *(revision for _, revision in LEGACY_P0_REVISIONS),
+        ],
+        secret=remote_url,
+    )
+    for _, revision in LEGACY_P0_REVISIONS:
+        run_git(['git', 'cat-file', '-e', f'{revision}^{{commit}}'])
+    run_git(['git', 'cat-file', '-e', LEGACY_P0_REQUIRED_BLOB])
+
+    for repository in legacy_repositories:
+        object_directory = repository / '.git' / 'objects'
+        if not object_directory.is_dir():
+            raise SystemExit(f'validation legacy P0 object directory is missing: {object_directory}')
+        shutil.rmtree(object_directory)
+        (object_directory / 'info').mkdir(parents=True)
+        (object_directory / 'pack').mkdir(parents=True)
+
+
+neutralize_frozen_validation_alternates()
 
 bootstrap_path = Path('.github/workflows/sec-trusted-bootstrap.yml')
 bootstrap = bootstrap_path.read_text()
@@ -37,11 +101,14 @@ new_p0_step = """      - name: Materialize immutable P0 fixture objects
         run: |
           set -euo pipefail
           url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c protocol.version=2 fetch --no-tags --no-recurse-submodules --no-write-fetch-head "$url" \
+            01d5c45a573337bee484d6a9d2effb2a76787b86 \
+            ab5d3a839afc1d595ae5c43437eb862cde1500c1 \
+            514e6e401659f18ecffca19856a11354d66d05df
           for sha in \
             01d5c45a573337bee484d6a9d2effb2a76787b86 \
             ab5d3a839afc1d595ae5c43437eb862cde1500c1 \
             514e6e401659f18ecffca19856a11354d66d05df; do
-            git -c protocol.version=2 fetch --no-tags --no-recurse-submodules "$url" "$sha"
             git cat-file -e "${sha}^{commit}"
           done
           git cat-file -e 334dd8dbe7162cd35f832257b735e79dd39e5650
@@ -155,7 +222,7 @@ new_ci_p0 = """  const bootstrapP0 = workflowStep(bootstrapWorkflow, 'trusted-bo
   expect(bootstrapP0.run).toContain('ab5d3a839afc1d595ae5c43437eb862cde1500c1');
   expect(bootstrapP0.run).toContain('514e6e401659f18ecffca19856a11354d66d05df');
   expect(bootstrapP0.run).toContain('334dd8dbe7162cd35f832257b735e79dd39e5650');
-  expect(bootstrapP0.run).toContain('git -c protocol.version=2 fetch --no-tags --no-recurse-submodules "$url" "$sha"');
+  expect(bootstrapP0.run).toContain('git -c protocol.version=2 fetch --no-tags --no-recurse-submodules --no-write-fetch-head "$url"');
   expect(bootstrapWorkflowSource).not.toContain('GIT_ALTERNATE_OBJECT_DIRECTORIES');
 """
 ci = replace_once(ci, old_ci_p0, new_ci_p0, 'ci contract P0 object store')
