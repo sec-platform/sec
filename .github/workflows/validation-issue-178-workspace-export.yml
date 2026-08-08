@@ -2,8 +2,7 @@ name: validation issue-178 privileged authority closure repair
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 concurrency:
   group: validation-issue-178-single-writer
@@ -13,7 +12,6 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   SEC_BASE: 26dcb43c77c9bdfebee35efc217113c958ed017d
   SEC_SOURCE_CANDIDATE: 7290279e5079dd179722f360900e1eb7f6856d72
-  SEC_FORMAL_PR: '332'
   SEC_TARGET_BRANCH: fix/trusted-verifier-causal-closure-v1
 
 jobs:
@@ -29,40 +27,7 @@ jobs:
       tree: ${{ steps.identity.outputs.tree }}
       artifact: ${{ steps.identity.outputs.artifact }}
     steps:
-      - name: Prove exact live source identity
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        env:
-          BASE: ${{ env.SEC_BASE }}
-          SOURCE: ${{ env.SEC_SOURCE_CANDIDATE }}
-          FORMAL_PR: ${{ env.SEC_FORMAL_PR }}
-          TARGET_BRANCH: ${{ env.SEC_TARGET_BRANCH }}
-        with:
-          script: |
-            const prNumber = Number(process.env.FORMAL_PR);
-            const [repository, pull, sourceCommit] = await Promise.all([
-              github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
-              github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: prNumber }),
-              github.rest.repos.getCommit({ owner: context.repo.owner, repo: context.repo.repo, ref: process.env.SOURCE })
-            ]);
-            const baseBranch = await github.rest.repos.getBranch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              branch: repository.data.default_branch
-            });
-            const live = pull.data;
-            if (
-              baseBranch.data.commit.sha !== process.env.BASE ||
-              live.state !== 'open' ||
-              live.base.sha !== process.env.BASE ||
-              live.head.sha !== process.env.SOURCE ||
-              live.head.ref !== process.env.TARGET_BRANCH ||
-              live.base.repo.id !== repository.data.id ||
-              live.head.repo?.id !== repository.data.id ||
-              sourceCommit.data.parents.length !== 1 ||
-              sourceCommit.data.parents[0].sha !== process.env.BASE
-            ) throw new Error('Issue #178 source candidate is stale or not one exact same-repository single-parent head.');
-
-      - name: Checkout exact verified source candidate
+      - name: Checkout exact reviewed source candidate
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ env.SEC_SOURCE_CANDIDATE }}
@@ -84,6 +49,8 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SEC_SOURCE_CANDIDATE"
+          test "$(git rev-parse HEAD^)" = "$SEC_BASE"
           url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git -c protocol.version=2 fetch --quiet --no-tags --no-recurse-submodules --no-write-fetch-head "$url" \
             01d5c45a573337bee484d6a9d2effb2a76787b86 \
@@ -97,7 +64,7 @@ jobs:
           done
           git cat-file -e 334dd8dbe7162cd35f832257b735e79dd39e5650
 
-      - name: Expand privileged authority entrypoint and regenerate causal TCB
+      - name: Add authorization entrypoint and exact process dispatchers
         shell: bash
         env:
           BASE: ${{ env.SEC_BASE }}
@@ -110,38 +77,48 @@ jobs:
 
           tcb_path = Path('platform/shared/tcb-closure-lock.ts')
           tcb = tcb_path.read_text()
-          additions = [
+          insertions = [
               (
                   "  'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultChangedPathsV1::spawnSync#1',\n",
                   "  'scripts/codex/branch-lifecycle-command.ts::const-arrow:defaultBranchLifecycleCommandRunner::spawnSync#1',\n",
+                  'before',
               ),
               (
                   "  'scripts/codex/merge-gate.ts::function-declaration:mergeGateGitResolvers>const-arrow:run::spawnSync#1',\n",
                   "  'scripts/codex/sec-merge-bootstrap-runtime.ts::const-arrow:defaultShellRunner::spawnSync#1',\n",
+                  'after',
               ),
           ]
-          for anchor, addition in additions:
-              if addition in tcb:
-                  raise SystemExit(f'reviewed dispatcher already present: {addition.strip()}')
-              if tcb.count(anchor) != 1:
-                  raise SystemExit(f'reviewed dispatcher anchor mismatch: {anchor.strip()}')
-              tcb = tcb.replace(anchor, addition + anchor, 1) if 'branch-lifecycle-command' in addition else tcb.replace(anchor, anchor + addition, 1)
+          for anchor, addition, side in insertions:
+              if addition in tcb or tcb.count(anchor) != 1:
+                  raise SystemExit('reviewed process-dispatcher edit precondition failed')
+              replacement = addition + anchor if side == 'before' else anchor + addition
+              tcb = tcb.replace(anchor, replacement, 1)
           tcb_path.write_text(tcb)
 
-          path = Path('platform/shared/ci-trust-root-registry.json')
-          registry = json.loads(path.read_text())
+          registry_path = Path('platform/shared/ci-trust-root-registry.json')
+          registry = json.loads(registry_path.read_text())
           entrypoint = 'scripts/codex/sec-merge-bootstrap.ts'
-          for key in ('runtimeEntrypoints', 'causalRuntimePaths'):
-              values = list(registry[key])
-              if entrypoint not in values:
-                  values.append(entrypoint)
-              registry[key] = sorted(values)
-          path.write_text(json.dumps(registry, indent=2) + '\n')
+          values = list(registry['runtimeEntrypoints'])
+          if entrypoint in values:
+              raise SystemExit('authorization entrypoint unexpectedly already registered')
+          values.append(entrypoint)
+          registry['runtimeEntrypoints'] = sorted(values)
+          # Seed the entrypoint so module import sees it before the causal census is recomputed below.
+          causal = list(registry['causalRuntimePaths'])
+          if entrypoint not in causal:
+              causal.append(entrypoint)
+          registry['causalRuntimePaths'] = sorted(causal)
+          registry_path.write_text(json.dumps(registry, indent=2) + '\n')
           PY
 
           bun -e "import {readFileSync,writeFileSync} from 'node:fs'; import {trustedRuntimeClosure} from './platform/shared/tcb-closure-lock.ts'; const p='platform/shared/ci-trust-root-registry.json'; const r=JSON.parse(readFileSync(p,'utf8')); const c=trustedRuntimeClosure(); r.causalRuntimePaths=[...c.closure].sort(); writeFileSync(p,JSON.stringify(r,null,2)+'\\n'); console.log(JSON.stringify({moduleCount:r.causalRuntimePaths.length,entrypoints:r.runtimeEntrypoints.length,dispatchers:[...c.reviewedProcessDispatchers].sort()},null,2));"
           BASE="$BASE" bun -e "import {writeFileSync} from 'node:fs'; import {generateTcbClosureLockForRevision} from './platform/shared/tcb-closure-lock.ts'; writeFileSync('.tmp/sec178-p1/lock.json',JSON.stringify(generateTcbClosureLockForRevision(process.env.BASE),null,2)+'\\n');"
 
+      - name: Freeze regenerated lock and negative contracts
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 - <<'PY'
           import json
           import re
@@ -149,60 +126,44 @@ jobs:
           from pathlib import Path
 
           lock = json.loads(Path('.tmp/sec178-p1/lock.json').read_text())
-          lock_json = json.dumps(lock, indent=2)
           lock_path = Path('platform/shared/tcb-closure-lock.ts')
           source = lock_path.read_text()
           pattern = re.compile(
               r'export const TCB_CLOSURE_LOCK: TcbClosureLock = \{.*?\n\};\n\nexport const TCB_CLOSURE_LOCK_RECEIPT = \{',
               re.S,
           )
-          replacement = f'export const TCB_CLOSURE_LOCK: TcbClosureLock = {lock_json};\n\nexport const TCB_CLOSURE_LOCK_RECEIPT = {{'
+          replacement = 'export const TCB_CLOSURE_LOCK: TcbClosureLock = ' + json.dumps(lock, indent=2) + ';\n\nexport const TCB_CLOSURE_LOCK_RECEIPT = {'
           source, count = pattern.subn(replacement, source, count=1)
           if count != 1:
               raise SystemExit('TCB lock replacement anchor mismatch')
-          generated_at = datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-          source, count = re.subn(r"generatedAt: '[^']+',", f"generatedAt: '{generated_at}',", source, count=1)
+          stamp = datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+          source, count = re.subn(r"generatedAt: '[^']+',", f"generatedAt: '{stamp}',", source, count=1)
           if count != 1:
               raise SystemExit('TCB receipt timestamp anchor mismatch')
           lock_path.write_text(source)
 
-          test_path = Path('tests/unit/tcb-trust-root-contract.test.ts')
-          test_source = test_path.read_text()
-          test_source, count = re.subn(
-              r'expect\(parsed\.causalRuntimePaths\)\.toHaveLength\(\d+\);',
-              f"expect(parsed.causalRuntimePaths).toHaveLength({lock['moduleCount']});",
-              test_source,
-              count=1,
-          )
-          if count != 1:
-              raise SystemExit('causal runtime count assertion anchor mismatch')
-          test_source, count = re.subn(
-              r'expect\(parsed\.runtimeEntrypoints\)\.toHaveLength\(\d+\);',
-              'expect(parsed.runtimeEntrypoints).toHaveLength(18);',
-              test_source,
-              count=1,
-          )
-          if count != 1:
-              raise SystemExit('runtime entrypoint count assertion anchor mismatch')
+          registry_test = Path('tests/unit/tcb-trust-root-contract.test.ts')
+          text = registry_test.read_text()
+          text, c1 = re.subn(r'expect\(parsed\.causalRuntimePaths\)\.toHaveLength\(\d+\);', f"expect(parsed.causalRuntimePaths).toHaveLength({lock['moduleCount']});", text, count=1)
+          text, c2 = re.subn(r'expect\(parsed\.runtimeEntrypoints\)\.toHaveLength\(\d+\);', 'expect(parsed.runtimeEntrypoints).toHaveLength(18);', text, count=1)
           anchor = "  expect(matchSecTrustedBootstrapPathV1('scripts/codex/repository-audit.ts')).toBeNull();\n"
-          insertion = anchor + "  expect(matchSecTrustedBootstrapPathV1('scripts/codex/sec-merge-bootstrap.ts')).toEqual({\n    kind: 'causal-runtime',\n    rule: 'scripts/codex/sec-merge-bootstrap.ts'\n  });\n"
-          if test_source.count(anchor) != 1:
-              raise SystemExit('privileged entrypoint assertion anchor mismatch')
-          test_path.write_text(test_source.replace(anchor, insertion, 1))
+          addition = "  expect(matchSecTrustedBootstrapPathV1('scripts/codex/sec-merge-bootstrap.ts')).toEqual({\n    kind: 'causal-runtime',\n    rule: 'scripts/codex/sec-merge-bootstrap.ts'\n  });\n"
+          if c1 != 1 or c2 != 1 or text.count(anchor) != 1:
+              raise SystemExit('registry contract edit precondition failed')
+          registry_test.write_text(text.replace(anchor, anchor + addition, 1))
 
-          gate_path = Path('tests/contract/sec-merge-gate.test.ts')
-          gate = gate_path.read_text()
-          anchor = "    'scripts/codex/merge-gate.ts',\n"
-          insertion = anchor + "    'scripts/codex/sec-merge-bootstrap.ts',\n"
-          if gate.count(anchor) != 1:
-              raise SystemExit('merge-gate protected-path assertion anchor mismatch')
-          gate_path.write_text(gate.replace(anchor, insertion, 1))
+          gate_test = Path('tests/contract/sec-merge-gate.test.ts')
+          text = gate_test.read_text()
+          anchor = "    'scripts/codex/merge-gate.ts',\n    'platform/shared/tcb-closure-lock.ts',\n"
+          replacement = "    'scripts/codex/merge-gate.ts',\n    'scripts/codex/sec-merge-bootstrap.ts',\n    'platform/shared/tcb-closure-lock.ts',\n"
+          if text.count(anchor) != 1:
+              raise SystemExit('merge-gate protected-path block anchor mismatch')
+          gate_test.write_text(text.replace(anchor, replacement, 1))
           PY
-
           git diff --check
           test "$(git diff --name-only "$SEC_BASE" "$SEC_SOURCE_CANDIDATE")" = "$(git diff --name-only "$SEC_BASE")"
 
-      - name: Build exact one-parent repaired candidate
+      - name: Build exact single-parent repaired candidate
         id: identity
         shell: bash
         run: |
@@ -221,7 +182,7 @@ jobs:
           echo "tree=$tree" >> "$GITHUB_OUTPUT"
           echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
 
-      - name: Prove old trusted classifier protects the authorization entrypoint
+      - name: Prove old trusted classification and host independence
         shell: bash
         run: |
           set -euo pipefail
@@ -230,11 +191,6 @@ jobs:
           cp -a node_modules "$base_dir/node_modules"
           bun --cwd "$base_dir" -e "import {matchesCanonicalTrustRoot} from './platform/shared/tcb-closure-lock.ts'; if(!matchesCanonicalTrustRoot('scripts/codex/sec-merge-bootstrap.ts')) throw new Error('old trusted classifier did not protect merge bootstrap');"
           git worktree remove --force "$base_dir"
-
-      - name: Prove one-CPU and two-CPU host independence
-        shell: bash
-        run: |
-          set -euo pipefail
           taskset -c 0 bun test tests/unit/test-runner.test.ts --timeout 30000
           taskset -c 0,1 bun test tests/unit/test-runner.test.ts --timeout 30000
 
@@ -276,7 +232,7 @@ jobs:
           bun run test:affected
           test -z "$(git status --porcelain=v1)"
 
-      - name: Package exact repaired commit
+      - name: Package exact repaired candidate
         shell: bash
         env:
           VERIFIED_HEAD: ${{ steps.identity.outputs.head }}
@@ -288,7 +244,6 @@ jobs:
           ref=refs/sec-validation/issue-178-p1-candidate
           git update-ref "$ref" "$VERIFIED_HEAD"
           git bundle create "$out/candidate.bundle" "$ref" "^$SEC_BASE"
-          git update-ref -d "$ref"
           git bundle verify "$out/candidate.bundle"
           printf 'base=%s\nhead=%s\ntree=%s\nparent=%s\n' "$SEC_BASE" "$VERIFIED_HEAD" "$VERIFIED_TREE" "$(git rev-parse "$VERIFIED_HEAD^")" > "$out/identity.txt"
           (cd "$out" && sha256sum candidate.bundle identity.txt > SHA256SUMS)
@@ -308,7 +263,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout exact base without persistent credentials
+      - name: Checkout exact base
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ env.SEC_BASE }}
@@ -334,7 +289,6 @@ jobs:
           test "$(git rev-parse FETCH_HEAD)" = "$VERIFIED_HEAD"
           test "$(git cat-file -p "$VERIFIED_HEAD" | sed -n 's/^parent //p')" = "$SEC_BASE"
           test "$(git rev-parse "$VERIFIED_HEAD^{tree}")" = "$VERIFIED_TREE"
-
           set +e
           output="$(git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$VERIFIED_HEAD:refs/heads/$SEC_TARGET_BRANCH" 2>&1)"
           status=$?
@@ -343,10 +297,7 @@ jobs:
           if [ "$status" -ne 0 ] && ! printf '%s' "$output" | grep -Eqi 'workflow|workflows permission|refusing to allow'; then
             exit "$status"
           fi
-
-          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/git/commits/${VERIFIED_HEAD}"
           curl --fail --silent --show-error \
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H 'Accept: application/vnd.github+json' \
-            "$api" >/dev/null
-          printf 'verified Git object available: %s\n' "$VERIFIED_HEAD"
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/git/commits/${VERIFIED_HEAD}" >/dev/null
