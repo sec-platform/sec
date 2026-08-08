@@ -6,7 +6,7 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: validation-issue-178-repair-${{ github.event.pull_request.number }}
@@ -16,6 +16,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   SEC_BASE: 26dcb43c77c9bdfebee35efc217113c958ed017d
   SEC_CANDIDATE: a3b6e4de97207758ea1a13419801af60e3bbde6b
+  SEC_TARGET_BRANCH: fix/trusted-verifier-causal-closure-v1
 
 jobs:
   repair-candidate-files:
@@ -83,7 +84,7 @@ jobs:
           bun -e "import {generateTcbClosureLockForRevision,TCB_CLOSURE_TRUST_REVISION} from './platform/shared/tcb-closure-lock.ts'; await Bun.write('.tmp/sec178-lock.json', JSON.stringify(generateTcbClosureLockForRevision(TCB_CLOSURE_TRUST_REVISION), null, 2) + '\n');"
           python3 - <<'PY'
           from pathlib import Path
-          import datetime
+          import datetime, re
           lock = Path('.tmp/sec178-lock.json').read_text().rstrip('\n')
           p = Path('platform/shared/tcb-closure-lock.ts')
           s = p.read_text()
@@ -92,7 +93,6 @@ jobs:
           end = s.index('\n\nexport const TCB_CLOSURE_LOCK_RECEIPT', start)
           s = s[:start] + lock + ';' + s[end:]
           now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
-          import re
           s, count = re.subn(r"generatedAt: '[^']+'", f"generatedAt: '{now}'", s, count=1)
           if count != 1:
               raise SystemExit('generatedAt receipt field not found')
@@ -107,8 +107,36 @@ jobs:
           bun -e "import {trustedRuntimeClosure,verifyTcbClosureLock,TCB_CLOSURE_LOCK} from './platform/shared/tcb-closure-lock.ts'; const c=trustedRuntimeClosure(['scripts/codex/merge-gate.ts']); const pkgs=[...c.observedExternalImports].filter(x=>!x.startsWith('node:')&&!x.startsWith('bun:')); if(pkgs.length) throw new Error('merge-gate third-party closure: '+pkgs.join(',')); const full=trustedRuntimeClosure(); const v=verifyTcbClosureLock(full); if(v.status!=='passed') throw new Error(v.failures.join('\n')); if(TCB_CLOSURE_LOCK.moduleCount!==62) throw new Error('unexpected module count'); console.log(JSON.stringify({moduleCount:TCB_CLOSURE_LOCK.moduleCount,closureDigest:TCB_CLOSURE_LOCK.closureDigest,mergeGateThirdPartyPackages:pkgs,verification:v},null,2));"
           git diff --check
 
-      - name: Package exact repaired files
+      - name: Rebuild one exact commit directly on current base
+        id: build
         shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'SEC Trusted Bootstrap Validation'
+          git config user.email 'sec-bootstrap@example.invalid'
+          git reset --soft "$SEC_BASE"
+          git add platform/shared/tcb-trust-root-contract.ts platform/shared/tcb-closure-lock.ts
+          git commit -m 'fix(tcb): converge verifier trust root to causal closure (#178)'
+          test "$(git rev-parse HEAD^)" = "$SEC_BASE"
+          test -z "$(git status --porcelain=v1)"
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+          printf 'newHead=%s\nnewTree=%s\n' "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
+
+      - name: Push exact corrected candidate ref
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NEW_HEAD: ${{ steps.build.outputs.head }}
+        run: |
+          set -euo pipefail
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${NEW_HEAD}:refs/heads/${SEC_TARGET_BRANCH}"
+
+      - name: Package exact repaired identity
+        shell: bash
+        env:
+          NEW_HEAD: ${{ steps.build.outputs.head }}
+          NEW_TREE: ${{ steps.build.outputs.tree }}
         run: |
           set -euo pipefail
           out=.tmp/sec178-repair
@@ -119,18 +147,19 @@ jobs:
             printf 'schema=sec-issue-178-repair-files-v1\n'
             printf 'base=%s\n' "$SEC_BASE"
             printf 'sourceCandidate=%s\n' "$SEC_CANDIDATE"
+            printf 'newHead=%s\n' "$NEW_HEAD"
+            printf 'newTree=%s\n' "$NEW_TREE"
             printf 'contractBlob=%s\n' "$(git hash-object platform/shared/tcb-trust-root-contract.ts)"
             printf 'lockBlob=%s\n' "$(git hash-object platform/shared/tcb-closure-lock.ts)"
             printf 'bun=%s\n' "$(bun --revision)"
           } > "$out/environment.txt"
           (cd "$out" && sha256sum platform/shared/tcb-trust-root-contract.ts platform/shared/tcb-closure-lock.ts environment.txt > SHA256SUMS)
           cat "$out/environment.txt"
-          cat "$out/SHA256SUMS"
 
-      - name: Upload repaired file artifact
+      - name: Upload repaired identity artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sec-issue-178-repaired-files-source-${{ env.SEC_CANDIDATE }}-run-${{ github.run_id }}
+          name: sec-issue-178-corrected-candidate-${{ steps.build.outputs.head }}-run-${{ github.run_id }}
           path: .tmp/sec178-repair
           if-no-files-found: error
           retention-days: 7
