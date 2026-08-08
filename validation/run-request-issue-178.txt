@@ -1,0 +1,8 @@
+schema=sec-validation-run-request-v1
+purpose=execute repaired Issue #178 old-trusted candidate-as-SUT harness
+workflowParent=61b5b3915008624670ef8ba4eb1065e032189664
+base=26dcb43c77c9bdfebee35efc217113c958ed017d
+sourceCandidate=223b99adaeb36f589cdbca394f12bafcb6f91da4
+testRunnerFix=bc026e58f400b644ff3166ad236ea2bf5dee6a78
+mergeAuthority=false
+retention=delete-with-validation-branch
