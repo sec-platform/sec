@@ -7,7 +7,7 @@ last-reviewed: 2026-08-08
 
 # SEC 滚动近期计划
 
-本窗口从合并后的 `main@1d301987e86cc791bddd8e9fbd27885413b022f8` 重新计算。
+本窗口从合并后的 `main@37c8609d5d54b5fb74292cffc83bd7dfcc362988` 重新计算。
 
 ## 当前事实与反转原因
 
@@ -34,23 +34,32 @@ last-reviewed: 2026-08-08
 
 ## 当前唯一 Work Package
 
-### verification-session-action-reuse-t1-1-defect-closure-v1
+### verification-action-kernel-finalization-v1
 
-Owners：Issue #311 T1.1，消费已合并的 #335 action-reuse kernel。
+Owners：Issue #311 ordinary-SUT finalization，消费已合并的 #338 action-reuse kernel。
 
-目标：在当前不属于 causal TCB 的 `scripts/codex/verification-action-*` seam 上收束：
+目标：在当前不属于 causal TCB 的 `scripts/codex/verification-action-*` seam 上一次收束
+post-merge audit 发现的最后四个 correctness seam：
 
 ```text
-VerificationAction identity + logical cwd/class
+VerificationAction semantic identity + logical cwd/topology
 → static Action plan
 → local machine-state resolution
 → execute | join-running | reuse-terminal | invalidate | cancel
-→ deterministic terminal projection with cycle guard
+→ dependency closure readback
+→ deterministic terminal projection with owner cycle guard
 ```
 
 T1.1 必须：
 
-- logical working directory 与 execution class 进入 producer-owned ActionKey；
+- logical working directory 与 required cheap-preflight topology 进入 producer-owned ActionKey；
+- owner identity 固定为 `ownerToken + ActionKey`，executionDomain 变化不能绕过 cycle guard；
+- physical execute 前后都重新读取 dependency closure，closure 改变或 action 被 invalidated/cancelled
+  时绝不提交 terminal；
+- Action/Plan 入口只接受严格 ordinary data，V2 schema 与独立 journal namespace 让旧 disposable
+  journal 确定性失效；
+- `executionClass` 从 ActionKey 移出；它只属于 Plan/Scheduler policy，cheap-before-expensive
+  授权只由 required cheap-preflight topology 表达；
 - plan topology 不再携带 caller-authored dependency state，runnable 只消费 journal machine fact；
 - 同一 ActionKey 的外部并发 caller 只 join 一次物理执行；owner 的 awaited nested cycle typed
   拒绝、不死锁、不重复 spawn；
@@ -58,8 +67,10 @@ T1.1 必须：
 - 不修改 workflow、dev-runner、Test Impact trust rules、TCB lock/registry、CI Evidence、
   merge-gate、package/lock 和产品 Compiler。
 
-T2 `verification-action-trusted-cutover-v1` 再从新的 `main` 冻结，一次性承担 trust-root
-migration、Review-Stable Barrier 和 physical merge authorization；不在 T1.1 提前接线。
+T2 `verification-action-trusted-cutover-v1` 仍须从本包完成 Review receipt、Gate 和 new-main
+readback 后的新 `main` 冻结，一次性承担 trust-root migration、Review-Stable Barrier、
+physical merge authorization、CI Evidence/VerificationSession 接线及 `--admin` bypass
+退役；不在本包提前接线。
 
 ## 候选 Work Package
 

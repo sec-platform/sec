@@ -4,25 +4,24 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  createVerificationActionKeyV1,
-  createVerificationActionPlanV1,
-  type VerificationActionKeyInputV1
+  createVerificationActionKeyV2,
+  createVerificationActionPlanV2,
+  type VerificationActionKeyInputV2
 } from '../../scripts/codex/verification-action-contract.ts';
 import {
-  appendVerificationActionJournalEventV1,
-  readVerificationActionJournalV1
+  appendVerificationActionJournalEventV2,
+  readVerificationActionJournalV2
 } from '../../scripts/codex/verification-action-journal.ts';
-import { VerificationActionRunnerV1 } from '../../scripts/codex/verification-action-runner.ts';
+import { VerificationActionRunnerV2 } from '../../scripts/codex/verification-action-runner.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 
 function createAction(
   kind: string,
   inputPath: string,
-  executionClass: 'cheap-preflight' | 'expensive',
   requiredCheapPreflightActionKeys: readonly `sha256:${string}`[]
 ) {
-  const input: VerificationActionKeyInputV1 = {
+  const input: VerificationActionKeyInputV2 = {
     actionKind: kind,
     producer: { identity: 'runner-test', revision: 'r1' },
     operation: {
@@ -30,7 +29,6 @@ function createAction(
       revision: 'normalizer-v1',
       semanticDigest: DIGEST_A,
       workingDirectory: '.',
-      executionClass,
       declaredEnvironment: []
     },
     inputClosure: [{ path: inputPath, digest: DIGEST_A }],
@@ -43,26 +41,26 @@ function createAction(
     upstreamActionKeys: [],
     resultSchemaRevision: 'sec-verification-result-v1'
   };
-  return createVerificationActionKeyV1(input);
+  return createVerificationActionKeyV2(input);
 }
 
 function preflightAction(inputPath = 'scripts/codex/example.ts') {
-  return createAction('cheap-preflight', inputPath, 'cheap-preflight', []);
+  return createAction('cheap-preflight', inputPath, []);
 }
 
 function action(kind = 'runner-contract', inputPath = 'scripts/codex/example.ts') {
   return kind === 'cheap-preflight'
     ? preflightAction(inputPath)
-    : createAction(kind, inputPath, 'expensive', [preflightAction(inputPath).actionKey]);
+    : createAction(kind, inputPath, [preflightAction(inputPath).actionKey]);
 }
 
-function seedPassedPreflight(repositoryRoot: string): void {
-  const preflight = action('cheap-preflight');
-  const current = readVerificationActionJournalV1(repositoryRoot, preflight.actionKey);
+function seedPassedPreflight(repositoryRoot: string, inputPath = 'scripts/codex/example.ts'): void {
+  const preflight = preflightAction(inputPath);
+  const current = readVerificationActionJournalV2(repositoryRoot, preflight.actionKey);
   if (current.latestState === 'terminal' || current.latestState === 'reused') return;
-  appendVerificationActionJournalEventV1({ repositoryRoot, action: preflight, state: 'queued' });
-  appendVerificationActionJournalEventV1({ repositoryRoot, action: preflight, state: 'running' });
-  appendVerificationActionJournalEventV1({
+  appendVerificationActionJournalEventV2({ repositoryRoot, action: preflight, state: 'queued' });
+  appendVerificationActionJournalEventV2({ repositoryRoot, action: preflight, state: 'running' });
+  appendVerificationActionJournalEventV2({
     repositoryRoot,
     action: preflight,
     state: 'terminal',
@@ -70,13 +68,13 @@ function seedPassedPreflight(repositoryRoot: string): void {
   });
 }
 
-function seedFailedPreflight(repositoryRoot: string): void {
-  const preflight = action('cheap-preflight');
-  const current = readVerificationActionJournalV1(repositoryRoot, preflight.actionKey);
+function seedFailedPreflight(repositoryRoot: string, inputPath = 'scripts/codex/example.ts'): void {
+  const preflight = preflightAction(inputPath);
+  const current = readVerificationActionJournalV2(repositoryRoot, preflight.actionKey);
   if (current.latestState === 'terminal' || current.latestState === 'reused') return;
-  appendVerificationActionJournalEventV1({ repositoryRoot, action: preflight, state: 'queued' });
-  appendVerificationActionJournalEventV1({ repositoryRoot, action: preflight, state: 'running' });
-  appendVerificationActionJournalEventV1({
+  appendVerificationActionJournalEventV2({ repositoryRoot, action: preflight, state: 'queued' });
+  appendVerificationActionJournalEventV2({ repositoryRoot, action: preflight, state: 'running' });
+  appendVerificationActionJournalEventV2({
     repositoryRoot,
     action: preflight,
     state: 'terminal',
@@ -86,26 +84,32 @@ function seedFailedPreflight(repositoryRoot: string): void {
 
 function runnablePlan(key: ReturnType<typeof action>, repositoryRoot?: string) {
   if (repositoryRoot !== undefined) seedPassedPreflight(repositoryRoot);
-  const preflight = action('cheap-preflight');
-  return createVerificationActionPlanV1({
+  const preflight = preflightAction();
+  return createVerificationActionPlanV2({
     action: key,
-    dependencies: [{
-      actionKey: preflight.actionKey,
-      kind: 'cheap-preflight'
-    }]
+    executionClass: 'expensive',
+    dependencies: [{ actionKey: preflight.actionKey, kind: 'cheap-preflight' }]
+  });
+}
+
+function cheapPlan(key: ReturnType<typeof preflightAction>) {
+  return createVerificationActionPlanV2({
+    action: key,
+    executionClass: 'cheap-preflight',
+    dependencies: []
   });
 }
 
 function root(): string {
-  return mkdtempSync(path.join(tmpdir(), 'sec-action-runner-'));
+  return mkdtempSync(path.join(tmpdir(), 'sec-action-runner-v2-'));
 }
 
-test('concurrent callers join one physical executor invocation', async () => {
+test('concurrent callers in different execution domains join one physical executor invocation', async () => {
   const repositoryRoot = root();
   const secondRepositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV1();
-    const secondRunner = new VerificationActionRunnerV1();
+    const runner = new VerificationActionRunnerV2();
+    const secondRunner = new VerificationActionRunnerV2();
     const key = action();
     let invocations = 0;
     let release!: () => void;
@@ -118,7 +122,7 @@ test('concurrent callers join one physical executor invocation', async () => {
     const first = runner.execute({
       repositoryRoot,
       action: key,
-      executionDomain: 'test-domain',
+      executionDomain: 'domain-a',
       plan: runnablePlan(key, repositoryRoot),
       executor
     });
@@ -126,7 +130,7 @@ test('concurrent callers join one physical executor invocation', async () => {
     const second = secondRunner.execute({
       repositoryRoot: secondRepositoryRoot,
       action: key,
-      executionDomain: 'test-domain',
+      executionDomain: 'domain-b',
       plan: runnablePlan(key, secondRepositoryRoot),
       executor
     });
@@ -136,7 +140,7 @@ test('concurrent callers join one physical executor invocation', async () => {
     expect(firstResult.disposition).toBe('executed');
     expect(secondResult.disposition).toBe('joined');
     expect(firstResult.terminal?.status).toBe('passed');
-    expect(readVerificationActionJournalV1(repositoryRoot, key.actionKey).latestState).toBe('terminal');
+    expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState).toBe('terminal');
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
     rmSync(secondRepositoryRoot, { recursive: true, force: true });
@@ -148,7 +152,7 @@ test('missing execution plan fails closed before any physical execution', async 
   try {
     const key = action('missing-plan-action');
     let invocations = 0;
-    const result = await new VerificationActionRunnerV1().execute({
+    const result = await new VerificationActionRunnerV2().execute({
       repositoryRoot,
       action: key,
       executor: () => {
@@ -164,16 +168,16 @@ test('missing execution plan fails closed before any physical execution', async 
   }
 });
 
-test('forged non-boolean expensive plan fails closed before any physical execution', async () => {
+test('forged scheduler lane fails closed before any physical execution', async () => {
   const repositoryRoot = root();
   try {
     const key = action('forged-plan-action');
-    let invocations = 0;
     const forgedPlan = {
       ...runnablePlan(key, repositoryRoot),
-      expensive: 'true'
+      executionClass: 'cheap-preflight'
     } as never;
-    await expect(new VerificationActionRunnerV1().execute({
+    let invocations = 0;
+    await expect(new VerificationActionRunnerV2().execute({
       repositoryRoot,
       action: key,
       plan: forgedPlan,
@@ -181,7 +185,7 @@ test('forged non-boolean expensive plan fails closed before any physical executi
         invocations += 1;
         return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
       }
-    })).rejects.toThrow('expensive must be a boolean');
+    })).rejects.toThrow('must match required cheap-preflight topology');
     expect(invocations).toBe(0);
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
@@ -192,7 +196,7 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
   const repositoryRoot = root();
   const secondRepositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV1();
+    const runner = new VerificationActionRunnerV2();
     const key = action('caller-local-plan-action');
     seedFailedPreflight(secondRepositoryRoot);
     let invocations = 0;
@@ -214,13 +218,7 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
       repositoryRoot: secondRepositoryRoot,
       action: key,
       executionDomain: 'caller-local-plan-domain',
-      plan: createVerificationActionPlanV1({
-        action: key,
-        dependencies: [{
-          actionKey: action('cheap-preflight').actionKey,
-          kind: 'cheap-preflight'
-        }]
-      }),
+      plan: runnablePlan(key),
       executor: () => {
         invocations += 1;
         return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
@@ -248,19 +246,19 @@ test('a non-runnable concurrent caller cannot join an authorized physical flight
   }
 });
 
-test('reentrant same-key dispatch is rejected as a cycle without duplicate execution', async () => {
+test('same-owner cycle cannot bypass guard by changing executionDomain', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV1();
+    const runner = new VerificationActionRunnerV2();
     const key = action('reentrant-action');
     let invocations = 0;
-    let nested: ReturnType<VerificationActionRunnerV1['execute']> | null = null;
+    let nested: Promise<Awaited<ReturnType<VerificationActionRunnerV2['execute']>>> | null = null;
     const executor = () => {
       invocations += 1;
       nested = runner.execute({
         repositoryRoot,
         action: key,
-        executionDomain: 'reentrant-domain',
+        executionDomain: 'different-domain',
         plan: runnablePlan(key, repositoryRoot),
         executor
       });
@@ -269,15 +267,15 @@ test('reentrant same-key dispatch is rejected as a cycle without duplicate execu
     const result = await runner.execute({
       repositoryRoot,
       action: key,
-      executionDomain: 'reentrant-domain',
+      executionDomain: 'initial-domain',
       plan: runnablePlan(key, repositoryRoot),
       executor
     });
-    const joined = await nested!;
+    const nestedResult = await nested!;
     expect(invocations).toBe(1);
     expect(result.disposition).toBe('executed');
-    expect(joined.disposition).toBe('blocked');
-    expect(joined.reason).toContain('reentrant-cycle');
+    expect(nestedResult.disposition).toBe('blocked');
+    expect(nestedResult.reason).toContain('reentrant-cycle');
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
@@ -286,33 +284,64 @@ test('reentrant same-key dispatch is rejected as a cycle without duplicate execu
 test('awaited nested same-key execution is rejected without self-join deadlock', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV1();
+    const runner = new VerificationActionRunnerV2();
     const key = action('awaited-reentrant-action');
     let invocations = 0;
-    let nested: ReturnType<VerificationActionRunnerV1['execute']> | null = null;
     const executor = async () => {
       invocations += 1;
-      nested = runner.execute({
+      const nested = await runner.execute({
         repositoryRoot,
         action: key,
-        executionDomain: 'awaited-reentrant-domain',
+        executionDomain: 'awaited-different-domain',
         plan: runnablePlan(key, repositoryRoot),
         executor
       });
-      const nestedResult = await nested;
-      expect(nestedResult.disposition).toBe('blocked');
-      expect(nestedResult.reason).toContain('reentrant-cycle');
+      expect(nested.disposition).toBe('blocked');
+      expect(nested.reason).toContain('reentrant-cycle');
       return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
     };
     const result = await runner.execute({
       repositoryRoot,
       action: key,
-      executionDomain: 'awaited-reentrant-domain',
+      executionDomain: 'awaited-initial-domain',
       plan: runnablePlan(key, repositoryRoot),
       executor
     });
     expect(result.disposition).toBe('executed');
     expect(invocations).toBe(1);
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('nested execution cannot override its inherited ownerToken', async () => {
+  const repositoryRoot = root();
+  try {
+    const runner = new VerificationActionRunnerV2();
+    const key = action('owner-token-override-action');
+    let invocations = 0;
+    const executor = async () => {
+      invocations += 1;
+      await expect(runner.execute({
+        repositoryRoot,
+        action: key,
+        ownerToken: 'different-owner',
+        executionDomain: 'different-domain',
+        plan: runnablePlan(key, repositoryRoot),
+        executor
+      })).rejects.toThrow('ownerToken cannot override the inherited execution owner');
+      return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+    };
+    const result = await runner.execute({
+      repositoryRoot,
+      action: key,
+      ownerToken: 'outer-owner',
+      executionDomain: 'outer-domain',
+      plan: runnablePlan(key, repositoryRoot),
+      executor
+    });
+    expect(invocations).toBe(1);
+    expect(result.disposition).toBe('executed');
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
@@ -323,7 +352,7 @@ test('caller-forged terminal-passed state without a journal fact cannot start an
   try {
     const key = action('missing-machine-preflight-fact');
     let invocations = 0;
-    const result = await new VerificationActionRunnerV1().execute({
+    const result = await new VerificationActionRunnerV2().execute({
       repositoryRoot,
       action: key,
       plan: runnablePlan(key),
@@ -343,7 +372,7 @@ test('caller-forged terminal-passed state without a journal fact cannot start an
 test('fresh terminal success reuses without execution and terminal failure never becomes PASS', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV1();
+    const runner = new VerificationActionRunnerV2();
     const passed = action('passed-action');
     let passedInvocations = 0;
     const first = await runner.execute({
@@ -401,7 +430,7 @@ test('executor diagnostics are journal-safe and bounded when failures contain co
   const repositoryRoot = root();
   try {
     const key = action('diagnostic-action');
-    const result = await new VerificationActionRunnerV1().execute({
+    const result = await new VerificationActionRunnerV2().execute({
       repositoryRoot,
       action: key,
       plan: runnablePlan(key, repositoryRoot),
@@ -413,7 +442,7 @@ test('executor diagnostics are journal-safe and bounded when failures contain co
     expect(result.terminal?.status).toBe('failed');
     expect(result.reason).toContain('executor threw: line one line two');
     expect(result.reason?.length).toBeLessThanOrEqual(1024);
-    const journal = readVerificationActionJournalV1(repositoryRoot, key.actionKey);
+    const journal = readVerificationActionJournalV2(repositoryRoot, key.actionKey);
     expect(journal.latestState).toBe('terminal');
     expect(journal.events.at(-1)?.note).toBe(result.reason);
     expect(journal.events.at(-1)?.note).not.toMatch(/[\u0000-\u001f]/u);
@@ -425,12 +454,13 @@ test('executor diagnostics are journal-safe and bounded when failures contain co
 test('cheap preflight failure prevents physical execution', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV1();
+    const runner = new VerificationActionRunnerV2();
     const key = action('expensive-action');
-    const dependency = action('cheap-preflight');
+    const dependency = preflightAction();
     seedFailedPreflight(repositoryRoot);
-    const plan = createVerificationActionPlanV1({
+    const plan = createVerificationActionPlanV2({
       action: key,
+      executionClass: 'expensive',
       dependencies: [{ actionKey: dependency.actionKey, kind: 'cheap-preflight' }]
     });
     let invocations = 0;
@@ -451,10 +481,41 @@ test('cheap preflight failure prevents physical execution', async () => {
   }
 });
 
+test('dependency closure is re-read after execution and unstable closure discards physical result', async () => {
+  const repositoryRoot = root();
+  try {
+    const runner = new VerificationActionRunnerV2();
+    const key = action('dependency-race-action');
+    let invocations = 0;
+    const result = await runner.execute({
+      repositoryRoot,
+      action: key,
+      plan: runnablePlan(key, repositoryRoot),
+      executor: () => {
+        invocations += 1;
+        runner.invalidateIfDependent({
+          repositoryRoot,
+          action: preflightAction(),
+          changedInputPaths: null,
+          note: 'preflight changed during action'
+        });
+        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+      }
+    });
+    expect(invocations).toBe(1);
+    expect(result.disposition).toBe('blocked');
+    expect(result.physicalExecution).toBe(true);
+    expect(result.reason).toContain('dependency closure');
+    expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState).toBe('invalidated');
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
 test('input invalidation discards an in-flight physical result', async () => {
   const repositoryRoot = root();
   try {
-    const runner = new VerificationActionRunnerV1();
+    const runner = new VerificationActionRunnerV2();
     const key = action('invalidated-action');
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
@@ -484,52 +545,49 @@ test('input invalidation discards an in-flight physical result', async () => {
   }
 });
 
-test('persisted running action without a live owner fails closed on restart', async () => {
-  const repositoryRoot = root();
-  try {
-    const key = action('orphaned-action');
-    appendVerificationActionJournalEventV1({ repositoryRoot, action: key, state: 'queued' });
-    appendVerificationActionJournalEventV1({ repositoryRoot, action: key, state: 'running' });
-    let invocations = 0;
-    const result = await new VerificationActionRunnerV1().execute({
-      repositoryRoot,
-      action: key,
-      plan: runnablePlan(key, repositoryRoot),
-      executor: () => {
-        invocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+test('persisted running and queued actions without a live owner fail closed on restart', async () => {
+  for (const [state, kind] of [['running', 'orphaned-action'], ['queued', 'queued-orphaned-action']] as const) {
+    const repositoryRoot = root();
+    try {
+      const key = action(kind);
+      appendVerificationActionJournalEventV2({ repositoryRoot, action: key, state: 'queued' });
+      if (state === 'running') {
+        appendVerificationActionJournalEventV2({ repositoryRoot, action: key, state: 'running' });
       }
-    });
-    expect(result.disposition).toBe('blocked');
-    expect(result.reason).toContain('no live execution owner');
-    expect(invocations).toBe(0);
-    expect(readVerificationActionJournalV1(repositoryRoot, key.actionKey).latestState)
-      .toBe('invalidated');
-  } finally {
-    rmSync(repositoryRoot, { recursive: true, force: true });
+      let invocations = 0;
+      const result = await new VerificationActionRunnerV2().execute({
+        repositoryRoot,
+        action: key,
+        plan: runnablePlan(key, repositoryRoot),
+        executor: () => {
+          invocations += 1;
+          return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
+        }
+      });
+      expect(result.disposition).toBe('blocked');
+      expect(result.reason).toContain('no live execution owner');
+      expect(invocations).toBe(0);
+      expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState)
+        .toBe('invalidated');
+    } finally {
+      rmSync(repositoryRoot, { recursive: true, force: true });
+    }
   }
 });
 
-test('persisted queued action without a live owner fails closed on restart', async () => {
+test('cheap actions can be scheduled without an ActionKey cost field', async () => {
   const repositoryRoot = root();
   try {
-    const key = action('queued-orphaned-action');
-    appendVerificationActionJournalEventV1({ repositoryRoot, action: key, state: 'queued' });
-    let invocations = 0;
-    const result = await new VerificationActionRunnerV1().execute({
+    const runner = new VerificationActionRunnerV2();
+    const key = preflightAction('scripts/codex/cheap.ts');
+    const result = await runner.execute({
       repositoryRoot,
       action: key,
-      plan: runnablePlan(key, repositoryRoot),
-      executor: () => {
-        invocations += 1;
-        return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
-      }
+      plan: cheapPlan(key),
+      executor: () => ({ status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null })
     });
-    expect(result.disposition).toBe('blocked');
-    expect(result.reason).toContain('persisted queued action had no live execution owner');
-    expect(invocations).toBe(0);
-    expect(readVerificationActionJournalV1(repositoryRoot, key.actionKey).latestState)
-      .toBe('invalidated');
+    expect(result.disposition).toBe('executed');
+    expect(result.terminal?.status).toBe('passed');
   } finally {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }

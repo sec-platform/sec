@@ -1,9 +1,9 @@
 /**
- * Local append/readback journal for VerificationAction lifecycle facts.
+ * Local append/readback journal for VerificationAction V2 lifecycle facts.
  *
- * The journal is deliberately disposable. It can accelerate resume/reuse, but
- * it is never a verification-result authority and every read validates the
- * complete sequence and digest chain before exposing a projection.
+ * The journal is disposable. V1 records live in a different namespace and
+ * cannot be projected into V2; a stale V1 file in the V2 namespace is reported
+ * as stale and removed only when the next V2 append starts a clean sequence.
  */
 
 import { createHash } from 'node:crypto';
@@ -20,19 +20,22 @@ import {
 import path from 'node:path';
 
 import {
-  createVerificationActionTerminalV1,
-  parseVerificationActionKeyV1,
+  createVerificationActionTerminalV2,
+  encodeVerificationActionDataV2,
+  parseVerificationActionKeyV2,
   type VerificationActionKeyDigest,
-  type VerificationActionKeyV1,
-  type VerificationActionTerminalV1
+  type VerificationActionKeyV2,
+  type VerificationActionTerminalV2
 } from './verification-action-contract.ts';
 
-export const VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V1 =
+export const VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V2 =
+  'sec-verification-action-journal-event-v2' as const;
+const LEGACY_VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V1 =
   'sec-verification-action-journal-event-v1' as const;
-export const VERIFICATION_ACTION_JOURNAL_DIRECTORY =
-  '.tmp/codex/verification-actions' as const;
+export const VERIFICATION_ACTION_JOURNAL_DIRECTORY_V2 =
+  '.tmp/codex/verification-actions/v2' as const;
 
-export type VerificationActionJournalStateV1 =
+export type VerificationActionJournalStateV2 =
   | 'queued'
   | 'running'
   | 'terminal'
@@ -40,25 +43,26 @@ export type VerificationActionJournalStateV1 =
   | 'invalidated'
   | 'cancelled';
 
-export interface VerificationActionJournalEventV1 {
-  schema: typeof VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V1;
+export interface VerificationActionJournalEventV2 {
+  schema: typeof VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V2;
   sequence: number;
   actionKey: VerificationActionKeyDigest;
-  action: VerificationActionKeyV1;
-  state: VerificationActionJournalStateV1;
+  action: VerificationActionKeyV2;
+  state: VerificationActionJournalStateV2;
   recordedAt: string;
-  terminal: VerificationActionTerminalV1 | null;
+  terminal: VerificationActionTerminalV2 | null;
   note: string | null;
   previousDigest: VerificationActionKeyDigest | null;
   eventDigest: VerificationActionKeyDigest;
 }
 
-export interface VerificationActionJournalReadbackV1 {
+export interface VerificationActionJournalReadbackV2 {
   readonly filePath: string;
-  readonly action: VerificationActionKeyV1 | null;
-  readonly events: readonly VerificationActionJournalEventV1[];
-  readonly latestState: VerificationActionJournalStateV1 | null;
-  readonly terminal: VerificationActionTerminalV1 | null;
+  readonly schemaState: 'current' | 'stale';
+  readonly action: VerificationActionKeyV2 | null;
+  readonly events: readonly VerificationActionJournalEventV2[];
+  readonly latestState: VerificationActionJournalStateV2 | null;
+  readonly terminal: VerificationActionTerminalV2 | null;
 }
 
 function fail(message: string): never {
@@ -80,13 +84,13 @@ function assertNote(value: unknown): string | null {
   return value;
 }
 
-function assertState(value: unknown): VerificationActionJournalStateV1 {
+function assertState(value: unknown): VerificationActionJournalStateV2 {
   if (![
     'queued', 'running', 'terminal', 'reused', 'invalidated', 'cancelled'
   ].includes(String(value))) {
     fail('state is invalid.');
   }
-  return value as VerificationActionJournalStateV1;
+  return value as VerificationActionJournalStateV2;
 }
 
 function assertDigest(value: unknown, label: string): VerificationActionKeyDigest | null {
@@ -105,26 +109,32 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[]):
   }
 }
 
-function eventWithoutDigest(event: Omit<VerificationActionJournalEventV1, 'eventDigest'>): string {
-  return JSON.stringify(event);
+function eventWithoutDigest(event: Omit<VerificationActionJournalEventV2, 'eventDigest'>): string {
+  return encodeVerificationActionDataV2(event);
 }
 
-function eventDigest(event: Omit<VerificationActionJournalEventV1, 'eventDigest'>): VerificationActionKeyDigest {
+function eventDigest(
+  event: Omit<VerificationActionJournalEventV2, 'eventDigest'>
+): VerificationActionKeyDigest {
   return `sha256:${createHash('sha256').update(eventWithoutDigest(event)).digest('hex')}`;
 }
 
 function actionPath(repositoryRoot: string, actionKey: VerificationActionKeyDigest): string {
   if (!/^sha256:[0-9a-f]{64}$/u.test(actionKey)) fail('action key is invalid.');
-  return path.join(repositoryRoot, VERIFICATION_ACTION_JOURNAL_DIRECTORY, `${actionKey.slice(7)}.jsonl`);
+  return path.join(
+    repositoryRoot,
+    VERIFICATION_ACTION_JOURNAL_DIRECTORY_V2,
+    `${actionKey.slice(7)}.jsonl`
+  );
 }
 
 function assertTransition(
-  previous: VerificationActionJournalStateV1 | null,
-  next: VerificationActionJournalStateV1
+  previous: VerificationActionJournalStateV2 | null,
+  next: VerificationActionJournalStateV2
 ): void {
   if (previous === null && next !== 'queued') fail('must begin with queued.');
   if (previous === null) return;
-  const allowed: Readonly<Record<VerificationActionJournalStateV1, readonly VerificationActionJournalStateV1[]>> = {
+  const allowed: Readonly<Record<VerificationActionJournalStateV2, readonly VerificationActionJournalStateV2[]>> = {
     queued: ['running', 'invalidated', 'cancelled'],
     running: ['terminal', 'invalidated', 'cancelled'],
     terminal: ['reused', 'invalidated', 'cancelled'],
@@ -140,9 +150,9 @@ function assertTransition(
 function validateEvent(
   candidate: unknown,
   expectedActionKey: VerificationActionKeyDigest,
-  previous: VerificationActionJournalEventV1 | null,
+  previous: VerificationActionJournalEventV2 | null,
   sequence: number
-): VerificationActionJournalEventV1 {
+): VerificationActionJournalEventV2 {
   if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
     fail(`event ${sequence} must be an object.`);
   }
@@ -151,12 +161,12 @@ function validateEvent(
     'schema', 'sequence', 'actionKey', 'action', 'state', 'recordedAt', 'terminal', 'note',
     'previousDigest', 'eventDigest'
   ]);
-  if (value.schema !== VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V1) {
-    fail(`event ${sequence} schema mismatch.`);
+  if (value.schema !== VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V2) {
+    fail(`event ${sequence} schema mismatch; V1 journal records are not reusable.`);
   }
   if (value.sequence !== sequence) fail(`event ${sequence} has a non-contiguous sequence.`);
   if (value.actionKey !== expectedActionKey) fail(`event ${sequence} action key mismatch.`);
-  const action = parseVerificationActionKeyV1(JSON.stringify(value.action));
+  const action = parseVerificationActionKeyV2(encodeVerificationActionDataV2(value.action));
   if (action.actionKey !== expectedActionKey) fail(`event ${sequence} embedded action mismatch.`);
   const state = assertState(value.state);
   assertTransition(previous?.state ?? null, state);
@@ -166,7 +176,7 @@ function validateEvent(
   }
   const terminal = value.terminal === null
     ? null
-    : createVerificationActionTerminalV1(value.terminal as VerificationActionTerminalV1);
+    : createVerificationActionTerminalV2(value.terminal);
   if ((state === 'terminal' || state === 'reused') && terminal === null) {
     fail(`event ${sequence} ${state} state requires a terminal result.`);
   }
@@ -174,7 +184,7 @@ function validateEvent(
     fail(`event ${sequence} ${state} state cannot carry a terminal result.`);
   }
   const withoutDigest = {
-    schema: VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V1,
+    schema: VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V2,
     sequence,
     actionKey: expectedActionKey,
     action,
@@ -183,47 +193,62 @@ function validateEvent(
     terminal,
     note: assertNote(value.note),
     previousDigest
-  } satisfies Omit<VerificationActionJournalEventV1, 'eventDigest'>;
+  } satisfies Omit<VerificationActionJournalEventV2, 'eventDigest'>;
   if (value.eventDigest !== eventDigest(withoutDigest)) {
     fail(`event ${sequence} digest mismatch.`);
   }
   return Object.freeze({ ...withoutDigest, eventDigest: value.eventDigest as VerificationActionKeyDigest });
 }
 
-export function readVerificationActionJournalV1(
+function emptyReadback(
+  filePath: string,
+  schemaState: 'current' | 'stale' = 'current'
+): VerificationActionJournalReadbackV2 {
+  return Object.freeze({
+    filePath,
+    schemaState,
+    action: null,
+    events: Object.freeze([]),
+    latestState: null,
+    terminal: null
+  });
+}
+
+export function readVerificationActionJournalV2(
   repositoryRoot: string,
   actionKey: VerificationActionKeyDigest
-): VerificationActionJournalReadbackV1 {
+): VerificationActionJournalReadbackV2 {
   const filePath = actionPath(repositoryRoot, actionKey);
-  if (!existsSync(filePath)) {
-    return Object.freeze({ filePath, action: null, events: [], latestState: null, terminal: null });
-  }
+  if (!existsSync(filePath)) return emptyReadback(filePath);
   const source = readFileSync(filePath, 'utf8');
   if (source.length === 0 || !source.endsWith('\n')) fail('has a missing or partial final line.');
   const lines = source.slice(0, -1).split('\n');
-  const events: VerificationActionJournalEventV1[] = [];
-  let previous: VerificationActionJournalEventV1 | null = null;
-  for (let index = 0; index < lines.length; index += 1) {
-    let parsed: unknown;
+  const parsedLines = lines.map((line, index) => {
     try {
-      parsed = JSON.parse(lines[index]!);
+      return JSON.parse(line) as unknown;
     } catch (error) {
       throw new Error(`VerificationAction journal event ${index + 1} is invalid JSON.`, { cause: error });
     }
-    const event = validateEvent(parsed, actionKey, previous, index + 1);
+  });
+  const isWhollyLegacy = parsedLines.length > 0 && parsedLines.every((candidate) => (
+    candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate) &&
+    (candidate as Record<string, unknown>).schema === LEGACY_VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V1
+  ));
+  if (isWhollyLegacy) return emptyReadback(filePath, 'stale');
+  const events: VerificationActionJournalEventV2[] = [];
+  let previous: VerificationActionJournalEventV2 | null = null;
+  for (let index = 0; index < parsedLines.length; index += 1) {
+    const event = validateEvent(parsedLines[index], actionKey, previous, index + 1);
     events.push(event);
     previous = event;
   }
   const latest = events.at(-1) ?? null;
-  // A terminal fact remains in the append-only history for auditability, but
-  // invalidation/cancellation removes it from the current projection. This
-  // prevents stale PASS/FAIL observations from being mistaken for reusable
-  // terminal state after the declared closure changed.
   const terminal = latest !== null && (latest.state === 'terminal' || latest.state === 'reused')
     ? latest.terminal
     : null;
   return Object.freeze({
     filePath,
+    schemaState: 'current',
     action: events[0]?.action ?? null,
     events: Object.freeze(events),
     latestState: latest?.state ?? null,
@@ -231,25 +256,26 @@ export function readVerificationActionJournalV1(
   });
 }
 
-export function appendVerificationActionJournalEventV1(input: {
+export function appendVerificationActionJournalEventV2(input: {
   repositoryRoot: string;
-  action: VerificationActionKeyV1;
-  state: VerificationActionJournalStateV1;
+  action: VerificationActionKeyV2;
+  state: VerificationActionJournalStateV2;
   recordedAt?: string;
-  terminal?: VerificationActionTerminalV1 | null;
+  terminal?: VerificationActionTerminalV2 | null;
   note?: string | null;
-}): VerificationActionJournalEventV1 {
-  const action = parseVerificationActionKeyV1(JSON.stringify(input.action));
-  const current = readVerificationActionJournalV1(input.repositoryRoot, action.actionKey);
+}): VerificationActionJournalEventV2 {
+  const action = parseVerificationActionKeyV2(encodeVerificationActionDataV2(input.action));
+  const current = readVerificationActionJournalV2(input.repositoryRoot, action.actionKey);
+  if (current.schemaState === 'stale' && existsSync(current.filePath)) unlinkSync(current.filePath);
   if (current.action !== null && current.action.actionKey !== action.actionKey) {
     fail('embedded action identity changed.');
   }
-  const previous = current.events.at(-1) ?? null;
+  const previous = current.schemaState === 'stale' ? null : current.events.at(-1) ?? null;
   const state = assertState(input.state);
   assertTransition(previous?.state ?? null, state);
   const terminal = input.terminal === undefined || input.terminal === null
     ? null
-    : createVerificationActionTerminalV1(input.terminal);
+    : createVerificationActionTerminalV2(input.terminal);
   if ((state === 'terminal' || state === 'reused') && terminal === null) {
     fail(`${state} state requires a terminal result.`);
   }
@@ -257,8 +283,8 @@ export function appendVerificationActionJournalEventV1(input: {
     fail(`${state} state cannot carry a terminal result.`);
   }
   const withoutDigest = {
-    schema: VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V1,
-    sequence: current.events.length + 1,
+    schema: VERIFICATION_ACTION_JOURNAL_EVENT_SCHEMA_V2,
+    sequence: (previous?.sequence ?? 0) + 1,
     actionKey: action.actionKey,
     action,
     state,
@@ -266,13 +292,13 @@ export function appendVerificationActionJournalEventV1(input: {
     terminal,
     note: assertNote(input.note ?? null),
     previousDigest: previous?.eventDigest ?? null
-  } satisfies Omit<VerificationActionJournalEventV1, 'eventDigest'>;
+  } satisfies Omit<VerificationActionJournalEventV2, 'eventDigest'>;
   const event = Object.freeze({ ...withoutDigest, eventDigest: eventDigest(withoutDigest) });
   const filePath = actionPath(input.repositoryRoot, action.actionKey);
   mkdirSync(path.dirname(filePath), { recursive: true });
   const handle = openSync(filePath, 'a');
   try {
-    appendFileSync(handle, `${JSON.stringify(event)}\n`);
+    appendFileSync(handle, `${encodeVerificationActionDataV2(event)}\n`);
     fsyncSync(handle);
   } finally {
     closeSync(handle);
@@ -280,7 +306,7 @@ export function appendVerificationActionJournalEventV1(input: {
   return event;
 }
 
-export function deleteVerificationActionJournalV1(
+export function deleteVerificationActionJournalV2(
   repositoryRoot: string,
   actionKey: VerificationActionKeyDigest
 ): void {
