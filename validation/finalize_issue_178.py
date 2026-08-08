@@ -1,6 +1,8 @@
 from pathlib import Path
 import hashlib
+import os
 import re
+import shlex
 import shutil
 import subprocess
 
@@ -74,7 +76,43 @@ def neutralize_frozen_validation_alternates() -> None:
         (object_directory / 'pack').mkdir(parents=True)
 
 
+def install_frozen_bundle_transport_shim() -> None:
+    runner_temp = os.environ.get('RUNNER_TEMP')
+    github_path = os.environ.get('GITHUB_PATH')
+    real_git = shutil.which('git')
+    if not runner_temp or not github_path or not real_git:
+        raise SystemExit('validation bundle transport environment is incomplete')
+
+    transport_bin = Path(runner_temp) / 'sec178-bundle-transport-bin'
+    transport_bin.mkdir(parents=True, exist_ok=True)
+    wrapper_path = transport_bin / 'git'
+    wrapper_path.write_text(
+        f'''#!/usr/bin/env bash
+set -euo pipefail
+REAL_GIT={shlex.quote(real_git)}
+if [[ "$#" -eq 5 \
+      && "$1" == "bundle" \
+      && "$2" == "create" \
+      && "$3" == ".tmp/sec178-publish/candidate.bundle" \
+      && "$4" =~ ^[0-9a-f]{{40}}$ \
+      && "$5" =~ ^\\^[0-9a-f]{{40}}$ ]]; then
+  ref="refs/sec-validation/candidate-bundle"
+  "$REAL_GIT" update-ref "$ref" "$4"
+  cleanup() {{ "$REAL_GIT" update-ref -d "$ref" >/dev/null 2>&1 || true; }}
+  trap cleanup EXIT
+  "$REAL_GIT" bundle create "$3" "$ref" "$5"
+  exit $?
+fi
+exec "$REAL_GIT" "$@"
+'''
+    )
+    wrapper_path.chmod(0o755)
+    with Path(github_path).open('a', encoding='utf-8') as path_file:
+        path_file.write(f'{transport_bin}\n')
+
+
 neutralize_frozen_validation_alternates()
+install_frozen_bundle_transport_shim()
 
 bootstrap_path = Path('.github/workflows/sec-trusted-bootstrap.yml')
 bootstrap = bootstrap_path.read_text()
