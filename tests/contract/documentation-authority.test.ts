@@ -82,24 +82,21 @@ describe('canonical documentation authority', () => {
 
     expect(rollingPlan.activePackageId).toBe(selectedManifestId);
     expect(rollingPlan.candidatePackageIds).toEqual([
-      'repository-structural-convergence-v1',
-      'architecture-decision-enforcement-registry-v1',
-      'typescript-7-dual-provider-phase-0-1',
-      'product-semantic-compiler-foundation-sequence'
+      'verification-action-trusted-cutover-v1',
+      'semantic-impact-failure-routing-v1',
+      'feedback-scheduler-hermetic-runtime-v1',
+      'compiler-incremental-toolchain-v1'
     ]);
     expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',
       '## 候选 Work Package',
-      'Issue #313',
       'Issue #311',
-      'Issue #282',
       'Issue #178',
       'Issue #327',
       'Issue #314',
-      'Issue #312',
-      'Issue #307',
-      '## 已路由但不自动抢占近期顺序的任务',
-      '## 可并行只读工作'
+      '## 后续但暂不占 formal writer',
+      '## 重新规划硬触发器',
+      '## 加速验收'
     ]);
     expectContainsNone(rollingPlanSource, [
       '### implementation-resolution-architecture-convergence-v1',

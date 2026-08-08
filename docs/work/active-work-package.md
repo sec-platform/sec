@@ -10,17 +10,22 @@ last-reviewed: 2026-08-08
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/trusted-verifier-causal-closure-v1.md
-manifestDigest: sha256:20a15dabe01606f5da1440c86151460b5cabd75b2e8bef4c48910e5da0cdcb94
+manifest: docs/work-packages/verification-session-action-reuse-v1.md
+manifestDigest: sha256:74803378b99b6d7cfd9b480832138462ac7d2f13e7e46f504589e66ae4b9f07c
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 ```
 
-Work Package `trusted-verifier-causal-closure-v1`（Issue #178）从
-`main@26dcb43c77c9bdfebee35efc217113c958ed017d` 激活。前驱
-`repository-information-lifecycle-v1`（Issue #282）已完成 post-merge trust repair
-并关闭；旧 manifest 的 durable machine consumers 已迁移后从 active directory 删除。
-当前包把 verifier trust-root 从目录近似收敛为唯一 machine registry、explicit static
-privileged surfaces 与 exact causal runtime TCB closure，并由 GitHub Actions 承载物理
-candidate-as-SUT regression。完整执行闭包只存在于本 pointer 选中的 frozen manifest。
+Work Package `verification-session-action-reuse-v1`（Issue #311，消费 Issue #179/#316）
+从 `main@49fdb7cd3be991742061621e3add982107e50367` 激活。
+
+前驱 `trusted-verifier-causal-closure-v1`（Issue #178）已完成并经 new-main readback；
+本次只消费其 causal TCB / trusted-bootstrap 事实，不重新打开其产品范围。2026-08-08
+#327 的数小时执行暴露 scope avalanche、重复昂贵 Action 与 proof-reset amplification，
+因此 Verification/Development Throughput 已从“已路由后继”升级为当前真实 blocker。
+
+当前包只在 ordinary-SUT `scripts/codex/verification-session*` seam 建立
+content-addressed VerificationAction、Run Journal、reuse/invalidation 和 cheap-before-expensive
+调度合同；明确禁止修改 causal TCB、workflow、dev-runner、Test Impact trust rules、
+CI Evidence 与 merge authority。后继 trust-aware cutover 必须从新 `main` 单独冻结。
