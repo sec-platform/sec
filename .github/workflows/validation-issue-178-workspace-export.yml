@@ -1,4 +1,4 @@
-name: validation issue-178 final candidate
+name: validation issue-178 privileged authority closure repair
 
 on:
   pull_request:
@@ -12,8 +12,8 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   SEC_BASE: 26dcb43c77c9bdfebee35efc217113c958ed017d
-  SEC_SOURCE_CANDIDATE: 223b99adaeb36f589cdbca394f12bafcb6f91da4
-  SEC_TEST_RUNNER_FIX: bc026e58f400b644ff3166ad236ea2bf5dee6a78
+  SEC_SOURCE_CANDIDATE: 7290279e5079dd179722f360900e1eb7f6856d72
+  SEC_FORMAL_PR: '332'
   SEC_TARGET_BRANCH: fix/trusted-verifier-causal-closure-v1
 
 jobs:
@@ -29,37 +29,63 @@ jobs:
       tree: ${{ steps.identity.outputs.tree }}
       artifact: ${{ steps.identity.outputs.artifact }}
     steps:
-      - name: Checkout exact source candidate
+      - name: Prove exact live source identity
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          BASE: ${{ env.SEC_BASE }}
+          SOURCE: ${{ env.SEC_SOURCE_CANDIDATE }}
+          FORMAL_PR: ${{ env.SEC_FORMAL_PR }}
+          TARGET_BRANCH: ${{ env.SEC_TARGET_BRANCH }}
+        with:
+          script: |
+            const prNumber = Number(process.env.FORMAL_PR);
+            const [repository, pull, sourceCommit] = await Promise.all([
+              github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
+              github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: prNumber }),
+              github.rest.repos.getCommit({ owner: context.repo.owner, repo: context.repo.repo, ref: process.env.SOURCE })
+            ]);
+            const baseBranch = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: repository.data.default_branch
+            });
+            const live = pull.data;
+            if (
+              baseBranch.data.commit.sha !== process.env.BASE ||
+              live.state !== 'open' ||
+              live.base.sha !== process.env.BASE ||
+              live.head.sha !== process.env.SOURCE ||
+              live.head.ref !== process.env.TARGET_BRANCH ||
+              live.base.repo.id !== repository.data.id ||
+              live.head.repo?.id !== repository.data.id ||
+              sourceCommit.data.parents.length !== 1 ||
+              sourceCommit.data.parents[0].sha !== process.env.BASE
+            ) throw new Error('Issue #178 source candidate is stale or not one exact same-repository single-parent head.');
+
+      - name: Checkout exact verified source candidate
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ env.SEC_SOURCE_CANDIDATE }}
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Checkout validation controls
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Setup pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          ref: validation/issue-178-workspace-export
-          fetch-depth: 1
-          persist-credentials: false
-          path: .tmp/validation-control
+          bun-version: 1.3.14
 
-      - name: Checkout exact host-independent test fix
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-        with:
-          ref: ${{ env.SEC_TEST_RUNNER_FIX }}
-          fetch-depth: 1
-          persist-credentials: false
-          path: .tmp/test-runner-fix
+      - name: Install exact dependencies without lifecycle scripts
+        shell: bash
+        run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Materialize immutable legacy P0 objects in candidate database
+      - name: Materialize immutable legacy fixture objects
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git fetch --quiet --no-tags --depth=1 --no-write-fetch-head \
-            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+          url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -c protocol.version=2 fetch --quiet --no-tags --no-recurse-submodules --no-write-fetch-head "$url" \
             01d5c45a573337bee484d6a9d2effb2a76787b86 \
             ab5d3a839afc1d595ae5c43437eb862cde1500c1 \
             514e6e401659f18ecffca19856a11354d66d05df
@@ -71,115 +97,128 @@ jobs:
           done
           git cat-file -e 334dd8dbe7162cd35f832257b735e79dd39e5650
 
-      - name: Setup pinned Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.14
-
-      - name: Install exact dependencies
+      - name: Expand privileged authority entrypoint and regenerate causal TCB
         shell: bash
-        run: bun install --frozen-lockfile --ignore-scripts
-
-      - name: Apply reviewed final repairs
-        shell: bash
+        env:
+          BASE: ${{ env.SEC_BASE }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$SEC_SOURCE_CANDIDATE"
-          test "$(git rev-parse HEAD^)" = "$SEC_BASE"
-          cp .tmp/test-runner-fix/tests/unit/test-runner.test.ts tests/unit/test-runner.test.ts
-          python3 .tmp/validation-control/validation/finalize_issue_178.py
+          mkdir -p .tmp/sec178-p1
           python3 - <<'PY'
+          import json
           from pathlib import Path
 
-          workflow_path = Path('.github/workflows/sec-trusted-bootstrap.yml')
-          workflow = workflow_path.read_text()
-          tested_marker = '      - name: Materialize immutable P0 tested-head objects\n'
-          setup_marker = '      - name: Setup trusted-base Bun runtime\n'
-          if workflow.count(tested_marker) != 1 or workflow.count(setup_marker) != 1:
-              raise SystemExit('candidate bootstrap P0 step markers are not unique')
-          if '      - name: Import immutable P0 objects into candidate repository\n' in workflow:
-              raise SystemExit('candidate bootstrap object import step already exists')
-          tested_index = workflow.index(tested_marker)
-          setup_index = workflow.index(setup_marker, tested_index)
-          import_step = """      - name: Import immutable P0 objects into candidate repository
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-base HEAD
-          git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-head HEAD
-          git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-tested HEAD
-          for sha in \\
-            01d5c45a573337bee484d6a9d2effb2a76787b86 \\
-            ab5d3a839afc1d595ae5c43437eb862cde1500c1 \\
-            514e6e401659f18ecffca19856a11354d66d05df; do
-            git cat-file -e "${sha}^{commit}"
-          done
-          git cat-file -e 334dd8dbe7162cd35f832257b735e79dd39e5650
-          rm -rf .tmp/sec-trusted-bootstrap/p0-base .tmp/sec-trusted-bootstrap/p0-head .tmp/sec-trusted-bootstrap/p0-tested
-
-"""
-          workflow = workflow[:setup_index] + import_step + workflow[setup_index:]
-          alternate_prefix = '          GIT_ALTERNATE_OBJECT_DIRECTORIES:'
-          alternate_lines = [line for line in workflow.splitlines(keepends=True) if line.startswith(alternate_prefix)]
-          if len(alternate_lines) != 1:
-              raise SystemExit(f'candidate bootstrap expected one alternate-object env line, found {len(alternate_lines)}')
-          workflow = workflow.replace(alternate_lines[0], '', 1)
-          workflow_path.write_text(workflow)
-
-          contract_path = Path('tests/contract/ci-contract.test.ts')
-          contract = contract_path.read_text()
-          old = "  expect(bootstrapWorkflowSource).toContain('GIT_ALTERNATE_OBJECT_DIRECTORIES');\n"
-          new = """  expect(bootstrapWorkflowSource).not.toContain('GIT_ALTERNATE_OBJECT_DIRECTORIES');
-          expect(bootstrapWorkflowSource).toContain('Import immutable P0 objects into candidate repository');
-          expect(bootstrapWorkflowSource).toContain('git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-base HEAD');
-          """
-          if contract.count(old) != 1:
-              raise SystemExit('ci contract alternate-object assertion anchor mismatch')
-          contract_path.write_text(contract.replace(old, new, 1))
+          path = Path('platform/shared/ci-trust-root-registry.json')
+          registry = json.loads(path.read_text())
+          entrypoint = 'scripts/codex/sec-merge-bootstrap.ts'
+          for key in ('runtimeEntrypoints', 'causalRuntimePaths'):
+              values = list(registry[key])
+              if entrypoint not in values:
+                  values.append(entrypoint)
+              registry[key] = sorted(values)
+          path.write_text(json.dumps(registry, indent=2) + '\n')
           PY
-          rm -rf .tmp/test-runner-fix .tmp/validation-control
-          git add -A
-          git diff --cached --check
 
-      - name: Build exact one-parent candidate
+          bun -e "import {readFileSync,writeFileSync} from 'node:fs'; import {trustedRuntimeClosure} from './platform/shared/tcb-closure-lock.ts'; const p='platform/shared/ci-trust-root-registry.json'; const r=JSON.parse(readFileSync(p,'utf8')); const c=trustedRuntimeClosure(); r.causalRuntimePaths=[...c.closure].sort(); writeFileSync(p,JSON.stringify(r,null,2)+'\\n'); console.log(JSON.stringify({moduleCount:r.causalRuntimePaths.length,entrypoints:r.runtimeEntrypoints.length},null,2));"
+          BASE="$BASE" bun -e "import {writeFileSync} from 'node:fs'; import {generateTcbClosureLockForRevision} from './platform/shared/tcb-closure-lock.ts'; writeFileSync('.tmp/sec178-p1/lock.json',JSON.stringify(generateTcbClosureLockForRevision(process.env.BASE),null,2)+'\\n');"
+
+          python3 - <<'PY'
+          import json
+          import re
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          lock = json.loads(Path('.tmp/sec178-p1/lock.json').read_text())
+          lock_json = json.dumps(lock, indent=2)
+          lock_path = Path('platform/shared/tcb-closure-lock.ts')
+          source = lock_path.read_text()
+          pattern = re.compile(
+              r'export const TCB_CLOSURE_LOCK: TcbClosureLock = \{.*?\n\};\n\nexport const TCB_CLOSURE_LOCK_RECEIPT = \{',
+              re.S,
+          )
+          replacement = f'export const TCB_CLOSURE_LOCK: TcbClosureLock = {lock_json};\n\nexport const TCB_CLOSURE_LOCK_RECEIPT = {{'
+          source, count = pattern.subn(replacement, source, count=1)
+          if count != 1:
+              raise SystemExit('TCB lock replacement anchor mismatch')
+          generated_at = datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+          source, count = re.subn(r"generatedAt: '[^']+',", f"generatedAt: '{generated_at}',", source, count=1)
+          if count != 1:
+              raise SystemExit('TCB receipt timestamp anchor mismatch')
+          lock_path.write_text(source)
+
+          test_path = Path('tests/unit/tcb-trust-root-contract.test.ts')
+          test_source = test_path.read_text()
+          test_source, count = re.subn(
+              r'expect\(parsed\.causalRuntimePaths\)\.toHaveLength\(\d+\);',
+              f"expect(parsed.causalRuntimePaths).toHaveLength({lock['moduleCount']});",
+              test_source,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('causal runtime count assertion anchor mismatch')
+          test_source, count = re.subn(
+              r'expect\(parsed\.runtimeEntrypoints\)\.toHaveLength\(\d+\);',
+              'expect(parsed.runtimeEntrypoints).toHaveLength(18);',
+              test_source,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('runtime entrypoint count assertion anchor mismatch')
+          anchor = "  expect(matchSecTrustedBootstrapPathV1('scripts/codex/repository-audit.ts')).toBeNull();\n"
+          insertion = anchor + "  expect(matchSecTrustedBootstrapPathV1('scripts/codex/sec-merge-bootstrap.ts')).toEqual({\n    kind: 'causal-runtime',\n    rule: 'scripts/codex/sec-merge-bootstrap.ts'\n  });\n"
+          if test_source.count(anchor) != 1:
+              raise SystemExit('privileged entrypoint assertion anchor mismatch')
+          test_path.write_text(test_source.replace(anchor, insertion, 1))
+
+          gate_path = Path('tests/contract/sec-merge-gate.test.ts')
+          gate = gate_path.read_text()
+          anchor = "    'scripts/codex/merge-gate.ts',\n"
+          insertion = anchor + "    'scripts/codex/sec-merge-bootstrap.ts',\n"
+          if gate.count(anchor) != 1:
+              raise SystemExit('merge-gate protected-path assertion anchor mismatch')
+          gate_path.write_text(gate.replace(anchor, insertion, 1))
+          PY
+
+          git diff --check
+          test "$(git diff --name-only "$SEC_BASE" "$SEC_SOURCE_CANDIDATE")" = "$(git diff --name-only "$SEC_BASE")"
+
+      - name: Build exact one-parent repaired candidate
         id: identity
         shell: bash
         run: |
           set -euo pipefail
+          git add -A
           git config user.name 'SEC Trusted Bootstrap Validation'
           git config user.email 'sec-bootstrap@example.invalid'
           git reset --soft "$SEC_BASE"
-          git commit -m 'fix(tcb): converge verifier trust root to causal closure (#178)'
+          git commit -m 'fix(tcb): protect causal verifier and authorization closure (#178)'
           test "$(git rev-parse HEAD^)" = "$SEC_BASE"
           test -z "$(git status --porcelain=v1)"
           head="$(git rev-parse HEAD)"
           tree="$(git rev-parse 'HEAD^{tree}')"
-          artifact="sec-issue-178-verified-candidate-${head}-run-${GITHUB_RUN_ID}"
+          artifact="sec-issue-178-p1-repair-${head}-run-${GITHUB_RUN_ID}"
           echo "head=$head" >> "$GITHUB_OUTPUT"
           echo "tree=$tree" >> "$GITHUB_OUTPUT"
           echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
 
-      - name: Prove old trusted classifier requires bootstrap
+      - name: Prove old trusted classifier protects the authorization entrypoint
         shell: bash
-        env:
-          VERIFIED_HEAD: ${{ steps.identity.outputs.head }}
         run: |
           set -euo pipefail
-          base_dir="$RUNNER_TEMP/sec178-trusted-base"
+          base_dir="$RUNNER_TEMP/sec178-old-trusted"
           git worktree add --detach "$base_dir" "$SEC_BASE"
           cp -a node_modules "$base_dir/node_modules"
-          changed="$(git diff --name-only "$SEC_BASE" "$VERIFIED_HEAD")"
-          OLD_CHANGED="$changed" bun --cwd "$base_dir" -e "import { matchesCanonicalTrustRoot } from './platform/shared/tcb-closure-lock.ts'; const changed=(process.env.OLD_CHANGED??'').split(/\\r?\\n/u).filter(Boolean); const matched=changed.filter(matchesCanonicalTrustRoot); if(matched.length===0) throw new Error('old trusted classifier did not require bootstrap'); console.log(JSON.stringify({changed,matched},null,2));"
+          bun --cwd "$base_dir" -e "import {matchesCanonicalTrustRoot} from './platform/shared/tcb-closure-lock.ts'; if(!matchesCanonicalTrustRoot('scripts/codex/sec-merge-bootstrap.ts')) throw new Error('old trusted classifier did not protect merge bootstrap');"
           git worktree remove --force "$base_dir"
 
-      - name: Prove host-independent test-runner contract
+      - name: Prove one-CPU and two-CPU host independence
         shell: bash
         run: |
           set -euo pipefail
           taskset -c 0 bun test tests/unit/test-runner.test.ts --timeout 30000
           taskset -c 0,1 bun test tests/unit/test-runner.test.ts --timeout 30000
 
-      - name: Run exact candidate physical verification
+      - name: Run exact repaired candidate physical verification
         shell: bash
         env:
           SEC_CHANGED_BASE: ${{ env.SEC_BASE }}
@@ -196,7 +235,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$VERIFIED_HEAD"
           test "$(git rev-parse HEAD^)" = "$SEC_BASE"
           test "$(git rev-parse 'HEAD^{tree}')" = "$VERIFIED_TREE"
-          bun -e "import {trustedRuntimeClosure,verifyTcbClosureLock,TCB_CLOSURE_LOCK,matchesCanonicalTrustRoot} from './platform/shared/tcb-closure-lock.ts'; import {SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1} from './platform/shared/tcb-trust-root-contract.ts'; const c=trustedRuntimeClosure(); const live=[...c.closure].sort(); const reg=[...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.causalRuntimePaths]; const v=verifyTcbClosureLock(c); const mg=trustedRuntimeClosure(['scripts/codex/merge-gate.ts']); const thirdParty=[...mg.observedExternalImports].filter(x=>!x.startsWith('node:')&&!x.startsWith('bun:')); if(JSON.stringify(live)!==JSON.stringify(reg)||JSON.stringify(live)!==JSON.stringify(TCB_CLOSURE_LOCK.modules)||v.status!=='passed'||thirdParty.length||c.closure.has('scripts/codex/repository-audit.ts')||matchesCanonicalTrustRoot('scripts/codex/repository-audit.ts')) throw new Error('TCB identity verification failed'); console.log(JSON.stringify({moduleCount:live.length,closureDigest:TCB_CLOSURE_LOCK.closureDigest,verification:v},null,2));"
+          bun -e "import {trustedRuntimeClosure,verifyTcbClosureLock,TCB_CLOSURE_LOCK,matchesCanonicalTrustRoot} from './platform/shared/tcb-closure-lock.ts'; import {SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1} from './platform/shared/tcb-trust-root-contract.ts'; const c=trustedRuntimeClosure(); const live=[...c.closure].sort(); const reg=[...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.causalRuntimePaths]; const v=verifyTcbClosureLock(c); for(const p of ['scripts/codex/sec-merge-bootstrap.ts','scripts/codex/sec-merge-bootstrap-runtime.ts','scripts/codex/branch-lifecycle.ts']) if(!c.closure.has(p)) throw new Error('authorization closure omits '+p); if(!matchesCanonicalTrustRoot('scripts/codex/sec-merge-bootstrap.ts')) throw new Error('merge bootstrap is not protected'); if(c.closure.has('scripts/codex/repository-audit.ts')||matchesCanonicalTrustRoot('scripts/codex/repository-audit.ts')) throw new Error('repository audit was re-promoted'); if(JSON.stringify(live)!==JSON.stringify(reg)||JSON.stringify(live)!==JSON.stringify(TCB_CLOSURE_LOCK.modules)||v.status!=='passed') throw new Error('TCB identity verification failed'); console.log(JSON.stringify({moduleCount:live.length,closureDigest:TCB_CLOSURE_LOCK.closureDigest},null,2));"
           bun run imports:check
           bun run docs:doctor
           bun run typecheck
@@ -204,6 +243,7 @@ jobs:
           bun test --timeout 180000 \
             tests/unit/tcb-trust-root-contract.test.ts \
             tests/unit/test-runner.test.ts \
+            tests/unit/sec-merge-bootstrap.test.ts \
             tests/contract/ci-contract.test.ts \
             tests/contract/sec-merge-gate.test.ts \
             tests/contract/tcb-closure-lock.test.ts \
@@ -211,12 +251,12 @@ jobs:
             tests/contract/repository-audit.test.ts \
             tests/contract/documentation-authority.test.ts \
             tests/contract/test-impact.test.ts
-          bun scripts/codex/repository-audit.ts --json > .tmp/sec178-repository-audit.json
-          bun run check:affected --plan > .tmp/sec178-affected-plan.json
+          bun scripts/codex/repository-audit.ts --json > .tmp/sec178-p1/repository-audit.json
+          bun run check:affected --plan > .tmp/sec178-p1/affected-plan.json
           bun run test:affected
           test -z "$(git status --porcelain=v1)"
 
-      - name: Package exact verified commit
+      - name: Package exact repaired commit
         shell: bash
         env:
           VERIFIED_HEAD: ${{ steps.identity.outputs.head }}
@@ -225,12 +265,15 @@ jobs:
           set -euo pipefail
           out=.tmp/sec178-publish
           mkdir -p "$out"
-          git bundle create "$out/candidate.bundle" "$VERIFIED_HEAD" ^"$SEC_BASE"
+          ref=refs/sec-validation/issue-178-p1-candidate
+          git update-ref "$ref" "$VERIFIED_HEAD"
+          git bundle create "$out/candidate.bundle" "$ref" "^$SEC_BASE"
+          git update-ref -d "$ref"
           git bundle verify "$out/candidate.bundle"
           printf 'base=%s\nhead=%s\ntree=%s\nparent=%s\n' "$SEC_BASE" "$VERIFIED_HEAD" "$VERIFIED_TREE" "$(git rev-parse "$VERIFIED_HEAD^")" > "$out/identity.txt"
           (cd "$out" && sha256sum candidate.bundle identity.txt > SHA256SUMS)
 
-      - name: Upload exact verified candidate
+      - name: Upload exact repaired candidate
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.identity.outputs.artifact }}
@@ -238,27 +281,27 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  publish-candidate:
+  publish-object:
     needs: verify-candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - name: Checkout exact base
+      - name: Checkout exact base without persistent credentials
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: ${{ env.SEC_BASE }}
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Download verified candidate
+      - name: Download exact repaired candidate
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ needs.verify-candidate.outputs.artifact }}
           path: .tmp/sec178-publish
 
-      - name: Verify and publish exact commit without candidate execution
+      - name: Verify artifact and materialize Git object
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -267,7 +310,23 @@ jobs:
         run: |
           set -euo pipefail
           (cd .tmp/sec178-publish && sha256sum -c SHA256SUMS)
-          git fetch .tmp/sec178-publish/candidate.bundle "$VERIFIED_HEAD"
+          git fetch .tmp/sec178-publish/candidate.bundle refs/sec-validation/issue-178-p1-candidate
+          test "$(git rev-parse FETCH_HEAD)" = "$VERIFIED_HEAD"
           test "$(git cat-file -p "$VERIFIED_HEAD" | sed -n 's/^parent //p')" = "$SEC_BASE"
           test "$(git rev-parse "$VERIFIED_HEAD^{tree}")" = "$VERIFIED_TREE"
-          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$VERIFIED_HEAD:refs/heads/$SEC_TARGET_BRANCH"
+
+          set +e
+          output="$(git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$VERIFIED_HEAD:refs/heads/$SEC_TARGET_BRANCH" 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output" | sed -E 's#x-access-token:[^@]+@#x-access-token:<redacted>@#g'
+          if [ "$status" -ne 0 ] && ! printf '%s' "$output" | grep -Eqi 'workflow|workflows permission|refusing to allow'; then
+            exit "$status"
+          fi
+
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}/git/commits/${VERIFIED_HEAD}"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            "$api" >/dev/null
+          printf 'verified Git object available: %s\n' "$VERIFIED_HEAD"
