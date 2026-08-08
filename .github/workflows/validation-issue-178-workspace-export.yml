@@ -1,4 +1,4 @@
-name: validation SEC workspace export
+name: validation compact SEC workspace export
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ jobs:
   export:
     if: github.event.pull_request.number == 331 && github.event.pull_request.head.ref == 'validation/issue-178-workspace-export'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -33,48 +33,37 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      - name: Install frozen dependencies without lifecycle scripts
-        shell: bash
-        run: bun install --frozen-lockfile --ignore-scripts
-
-      - name: Build portable workspace payload
+      - name: Build compact portable payload
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SEC_EXPORT_MAIN"
           test -z "$(git status --porcelain=v1)"
-          out="$RUNNER_TEMP/sec-workspace-export"
-          mkdir -p "$out/bin"
+          out="$RUNNER_TEMP/sec-workspace-export-compact"
+          mkdir -p "$out"
 
           git update-ref refs/heads/sec-export-main "$SEC_EXPORT_MAIN"
           git bundle create "$out/main.bundle" refs/heads/sec-export-main
           git bundle verify "$out/main.bundle"
           git update-ref -d refs/heads/sec-export-main
 
-          cp "$(command -v bun)" "$out/bin/bun"
-          chmod 755 "$out/bin/bun"
-          tar --zstd -cf "$out/node_modules.tar.zst" node_modules
-
-          main_tree="$(git rev-parse 'HEAD^{tree}')"
-          bun_revision="$(bun --revision)"
-          git_version="$(git --version)"
+          zstd -q -10 -T0 "$(command -v bun)" -o "$out/bun.zst"
           {
             printf 'schema=sec-portable-workspace-export-v1\n'
             printf 'main=%s\n' "$SEC_EXPORT_MAIN"
-            printf 'tree=%s\n' "$main_tree"
-            printf 'bun=%s\n' "$bun_revision"
-            printf 'git=%s\n' "$git_version"
-            printf 'os=%s\n' "$(uname -a)"
+            printf 'tree=%s\n' "$(git rev-parse 'HEAD^{tree}')"
+            printf 'bun=%s\n' "$(bun --revision)"
+            printf 'git=%s\n' "$(git --version)"
           } > "$out/identity.txt"
-          (cd "$out" && sha256sum main.bundle node_modules.tar.zst bin/bun identity.txt > SHA256SUMS)
+          (cd "$out" && sha256sum main.bundle bun.zst identity.txt > SHA256SUMS)
           (cd "$out" && sha256sum -c SHA256SUMS)
-          du -h "$out"/* "$out/bin/bun"
+          du -h "$out"/*
 
-      - name: Upload portable workspace
+      - name: Upload compact portable workspace
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: sec-workspace-main-${{ env.SEC_EXPORT_MAIN }}-run-${{ github.run_id }}
-          path: ${{ runner.temp }}/sec-workspace-export
+          name: sec-workspace-compact-${{ env.SEC_EXPORT_MAIN }}-run-${{ github.run_id }}
+          path: ${{ runner.temp }}/sec-workspace-export-compact
           retention-days: 7
           if-no-files-found: error
           compression-level: 0
