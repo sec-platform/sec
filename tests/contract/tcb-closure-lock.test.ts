@@ -8,18 +8,24 @@ import {
   trustedRuntimeClosure,
   verifyTcbClosureLock
 } from '../../platform/shared/tcb-closure-lock.ts';
+import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1 } from '../../platform/shared/tcb-trust-root-contract.ts';
 
 test('TCB closure lock has the correct schema and trust revision', () => {
   expect(TCB_CLOSURE_LOCK.schema).toBe('sec-tcb-closure-lock-v1');
   expect(TCB_CLOSURE_LOCK.trustRevision).toBe(TCB_CLOSURE_TRUST_REVISION);
-  expect(TCB_CLOSURE_LOCK.trustRevision).toBe('4b27555bfcaa146e466227beca9f6c7069f68eaf');
+  expect(TCB_CLOSURE_LOCK.trustRevision).toBe('26dcb43c77c9bdfebee35efc217113c958ed017d');
 });
 
-test('TCB closure lock binds exactly 61 reviewed modules', () => {
-  expect(TCB_CLOSURE_LOCK.moduleCount).toBe(61);
-  expect(TCB_CLOSURE_LOCK.modules).toHaveLength(61);
+test('TCB closure lock binds the reviewed causal module set', () => {
+  expect(TCB_CLOSURE_LOCK.moduleCount).toBe(TCB_CLOSURE_LOCK.modules.length);
   expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/canonical-primitives.ts');
-  expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(61);
+  expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(TCB_CLOSURE_LOCK.moduleCount);
+});
+
+test('TCB closure lock and registry causalRuntimePaths have exact identity parity', () => {
+  expect(TCB_CLOSURE_LOCK.modules).toEqual(SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.causalRuntimePaths);
+  expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/tcb-trust-root-contract.ts');
+  expect(TCB_CLOSURE_LOCK.modules).not.toContain('scripts/codex/repository-audit.ts');
 });
 
 test('TCB closure lock binds Git blobs and content digests for every module', () => {
@@ -27,14 +33,14 @@ test('TCB closure lock binds Git blobs and content digests for every module', ()
     expect(TCB_CLOSURE_LOCK.moduleBlobs[module]).toMatch(/^[0-9a-f]{40}$/);
     expect(TCB_CLOSURE_LOCK.moduleContentDigests[module]).toMatch(/^sha256:[0-9a-f]{64}$/);
   }
-  expect(Object.keys(TCB_CLOSURE_LOCK.moduleBlobs)).toHaveLength(61);
-  expect(Object.keys(TCB_CLOSURE_LOCK.moduleContentDigests)).toHaveLength(61);
+  expect(Object.keys(TCB_CLOSURE_LOCK.moduleBlobs)).toHaveLength(TCB_CLOSURE_LOCK.moduleCount);
+  expect(Object.keys(TCB_CLOSURE_LOCK.moduleContentDigests)).toHaveLength(TCB_CLOSURE_LOCK.moduleCount);
 });
 
 test('TCB closure lock receipt records the generation metadata', () => {
   expect(TCB_CLOSURE_LOCK_RECEIPT.schema).toBe('sec-tcb-closure-lock-receipt-v1');
   expect(TCB_CLOSURE_LOCK_RECEIPT.trustRevision).toBe(TCB_CLOSURE_TRUST_REVISION);
-  expect(TCB_CLOSURE_LOCK_RECEIPT.moduleCount).toBe(61);
+  expect(TCB_CLOSURE_LOCK_RECEIPT.moduleCount).toBe(TCB_CLOSURE_LOCK.moduleCount);
   expect(TCB_CLOSURE_LOCK_RECEIPT.closureDigest).toBe(TCB_CLOSURE_LOCK.closureDigest);
   expect(TCB_CLOSURE_LOCK_RECEIPT.generatedBy).toBe('tcb-closure-maintainer');
 });

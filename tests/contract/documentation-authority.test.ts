@@ -82,6 +82,7 @@ describe('canonical documentation authority', () => {
 
     expect(rollingPlan.activePackageId).toBe(selectedManifestId);
     expect(rollingPlan.candidatePackageIds).toEqual([
+      'repository-structural-convergence-v1',
       'architecture-decision-enforcement-registry-v1',
       'typescript-7-dual-provider-phase-0-1',
       'product-semantic-compiler-foundation-sequence'
@@ -92,6 +93,8 @@ describe('canonical documentation authority', () => {
       'Issue #313',
       'Issue #311',
       'Issue #282',
+      'Issue #178',
+      'Issue #327',
       'Issue #314',
       'Issue #312',
       'Issue #307',

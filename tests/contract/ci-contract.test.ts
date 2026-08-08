@@ -47,9 +47,11 @@ function workflowStep(workflow: Workflow, jobId: string, name: string): Workflow
 test('active GitHub validation workflows structurally enforce fresh exact heads and ordered gates', async () => {
   const prWorkflowSource = await readCompilerFile('.github/workflows/compiler-pr-validation.yml');
   const releaseWorkflowSource = await readCompilerFile('.github/workflows/compiler-release-validation.yml');
+  const bootstrapWorkflowSource = await readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml');
   const verificationSource = await readCompilerFile('scripts/ci-verification.ts');
   const prWorkflow = parseYaml(prWorkflowSource) as Workflow;
   const releaseWorkflow = parseYaml(releaseWorkflowSource) as Workflow;
+  const bootstrapWorkflow = parseYaml(bootstrapWorkflowSource) as Workflow;
   const contract = buildCiContract();
 
   expect(contract.verificationContractRevision).toBe(CI_VERIFICATION_CONTRACT_REVISION);
@@ -115,9 +117,51 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
     'Upload compact verification evidence'
   ]);
 
+  expect(bootstrapWorkflow.on.repository_dispatch?.types).toEqual(['sec-trusted-bootstrap-v1']);
+  expect(bootstrapWorkflow.on.pull_request).toBeUndefined();
+  expect(bootstrapWorkflow.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
+  const bootstrapJob = bootstrapWorkflow.jobs['trusted-bootstrap-regression'];
+  if (!bootstrapJob) throw new Error('Missing trusted-bootstrap-regression job');
+  expect(bootstrapWorkflowSource).toContain("payload.schema !== 'sec-trusted-bootstrap-request-v1'");
+  expect(bootstrapWorkflowSource).toContain("const registryPath = 'platform/shared/ci-trust-root-registry.json';");
+  expect(bootstrapWorkflowSource).toContain(
+    'Trusted bootstrap is only valid when the exact candidate changes the trusted-base verifier boundary.'
+  );
+  expect(bootstrapWorkflowSource).toContain('persist-credentials: false');
+  expect(bootstrapWorkflowSource).toContain('bun install --frozen-lockfile --ignore-scripts');
+  expect(bootstrapWorkflowSource).toContain('ACTIONS_RUNTIME_TOKEN');
+  expect(bootstrapWorkflowSource).toContain('GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY');
+  expect(bootstrapWorkflowSource).toContain('git diff --check');
+  const bootstrapP0 = workflowStep(bootstrapWorkflow, 'trusted-bootstrap-regression', 'Materialize immutable P0 fixture objects');
+  expect(bootstrapP0.env?.GITHUB_TOKEN).toBe('${{ github.token }}');
+  expect(bootstrapP0.run).toContain('01d5c45a573337bee484d6a9d2effb2a76787b86');
+  expect(bootstrapP0.run).toContain('ab5d3a839afc1d595ae5c43437eb862cde1500c1');
+  expect(bootstrapP0.run).toContain('514e6e401659f18ecffca19856a11354d66d05df');
+  expect(bootstrapP0.run).toContain('334dd8dbe7162cd35f832257b735e79dd39e5650');
+  expect(bootstrapP0.run).toContain('git -c protocol.version=2 fetch --no-tags --no-recurse-submodules --no-write-fetch-head "$url"');
+  expect(bootstrapWorkflowSource).not.toContain('GIT_ALTERNATE_OBJECT_DIRECTORIES');
+  const bootstrapSnapshot = workflowStep(bootstrapWorkflow, 'trusted-bootstrap-regression', 'Generate candidate TCB closure snapshot');
+  expect(bootstrapSnapshot.run).toContain('ACTIONS_RUNTIME_TOKEN');
+  expect(bootstrapSnapshot.run).toContain('GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY');
+  const bootstrapRegression = workflowStep(bootstrapWorkflow, 'trusted-bootstrap-regression', 'Run candidate bootstrap regression suite');
+  expect(bootstrapRegression.env).toMatchObject({
+    SEC_REPOSITORY_AUDIT_DEFAULT_REF: '${{ steps.resolve.outputs.base }}'
+  });
+  expect(bootstrapRegression.run).toContain("git update-ref refs/remotes/origin/main '${{ steps.resolve.outputs.base }}'");
+  expect(bootstrapWorkflowSource).toContain('generateTcbClosureLockForRevision');
+  expect(bootstrapWorkflowSource).toContain('tests/unit/tcb-trust-root-contract.test.ts');
+  expect(bootstrapWorkflowSource).toContain('tests/contract/tcb-closure-lock.test.ts');
+  expect(bootstrapWorkflowSource).toContain('tests/contract/default-branch-revision-health.test.ts');
+  expect(bootstrapWorkflowSource).toContain('bun scripts/codex/repository-audit.ts --json');
+  expect(bootstrapWorkflowSource).toContain('bun run test:affected');
+  expect(bootstrapWorkflowSource).not.toContain('statuses: write');
+  expect(bootstrapWorkflowSource).not.toContain('contents: write');
+
   expect(releaseWorkflow.on.workflow_dispatch).toBeDefined();
   expect(releaseWorkflow.on.workflow_call).toBeDefined();
   expect(releaseWorkflow.on.pull_request).toBeUndefined();
+  expect(releaseWorkflowSource).toContain('WORKFLOW_HEAD: ${{ github.sha }}');
+  expect(releaseWorkflowSource).toContain('Release verifier workflow must execute from the current trusted default branch.');
   expect(releaseWorkflow.permissions).toEqual({ contents: 'read' });
   const releaseJob = releaseWorkflow.jobs['compiler-release-verification'];
   if (!releaseJob) throw new Error('Missing compiler-release-verification job');

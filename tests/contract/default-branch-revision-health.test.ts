@@ -41,7 +41,10 @@ test('revision-health receipt records the test drift repair without reverting th
   expect(testDriftRepair.staleAssertion).toBe('expect(closure.size).toBe(60)');
   expect(testDriftRepair.revertedCanonicalModule).toBe(false);
   expect(testDriftRepair.repairStrategy).toContain('generated exact TCB closure lock');
-  expect(testDriftRepair.lockReceipt).toBe(TCB_CLOSURE_LOCK_RECEIPT);
+  expect(testDriftRepair.lockReceipt).not.toBe(TCB_CLOSURE_LOCK_RECEIPT);
+  expect(testDriftRepair.lockReceipt.trustRevision).toBe(
+    '4b27555bfcaa146e466227beca9f6c7069f68eaf'
+  );
 });
 
 test('revision-health receipt records the post-merge trust transition', () => {

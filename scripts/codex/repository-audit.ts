@@ -731,7 +731,7 @@ export const INFORMATION_LIFECYCLE_DISPOSITION_RULES: readonly InformationLifecy
       disposition: 'historical-git-only',
       documentRole: 'completed-work-package-manifest',
       currentOwner: 'work-package-lifecycle owner',
-      currentReferences: ['docs/work-packages/repository-information-lifecycle-v1.md'],
+      currentReferences: ['docs/work/README.md'],
       consumers: [],
       reason: 'completed or superseded Work Package manifests; exact commit/path/blob remains addressable in Git history'
     }),
@@ -792,7 +792,7 @@ export const INFORMATION_LIFECYCLE_DISPOSITION_RULES: readonly InformationLifecy
       disposition: 'historical-git-only',
       documentRole: 'completed-work-package-manifest',
       currentOwner: 'work-package-lifecycle owner',
-      currentReferences: ['docs/work-packages/repository-information-lifecycle-v1.md'],
+      currentReferences: ['docs/work/README.md'],
       consumers: [],
       reason: 'retired manifest superseded by the branch/ref lifecycle enforcement package (#313)'
     })
@@ -956,7 +956,7 @@ export const INFORMATION_LIFECYCLE_CLAIM_FAMILIES: readonly InformationLifecycle
       oldLines: 'docs/archive/work-packages/*.md（2d7187f4…，95 个）',
       disposition: 'historical-git-only',
       currentOwner: 'work-package-lifecycle owner',
-      currentReferences: ['docs/work-packages/repository-information-lifecycle-v1.md'],
+      currentReferences: ['docs/work/README.md'],
       consumers: [],
       positiveEvidence: [],
       negativeEvidence: [],
@@ -1112,7 +1112,7 @@ export const NEXUS_EPR_BINDINGS_V1: readonly NexusEprBindingRecord[] = Object.fr
     eprId: 'EPR-004',
     requirement: 'READY 是完整能力屏障：依赖/owner/resource/health 全满足才可用；不把“对象存在”当“能力可用”。',
     secOwner: ['docs/verification-governance.md'],
-    mechanism: ['platform/shared/ci-verification-plan.ts', 'scripts/codex/merge-gate.ts', 'docs/work-packages/repository-information-lifecycle-v1.md'],
+    mechanism: ['platform/shared/ci-verification-plan.ts', 'scripts/codex/merge-gate.ts'],
     affectedIrEntities: ['verification.gate', 'verification.result', 'verification.environment'],
     positiveAcceptance: '全部 gate 通过后才产生 merge authority。',
     negativeAcceptance: 'skipped/missing/pending/manual-bootstrap-required 不算 PASS。',
