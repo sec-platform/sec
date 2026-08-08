@@ -71,6 +71,8 @@ export type VerificationActionKeyInputV1 = Readonly<{
   operation: VerificationActionOperationV1;
   inputClosure: readonly VerificationActionInputRefV1[];
   environment: VerificationActionEnvironmentV1;
+  /** Producer-owned cheap preflight topology required by an expensive action. */
+  requiredCheapPreflightActionKeys: readonly VerificationActionKeyDigest[];
   upstreamActionKeys: readonly VerificationActionKeyDigest[];
   resultSchemaRevision: string;
 }>;
@@ -190,7 +192,8 @@ function relativeInputPath(value: unknown, label: string): string {
 function relativeWorkingDirectory(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.length === 0 || value.includes('\\') ||
     path.posix.normalize(value) !== value || value === '..' || value.startsWith('../') ||
-    path.posix.isAbsolute(value) || /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith('//')) {
+    path.posix.isAbsolute(value) || /^[A-Za-z]:/u.test(value) || value.startsWith('//') ||
+    (value !== '.' && value.endsWith('/'))) {
     fail(label, 'must be a canonical repository-relative directory or `.` repository-root sentinel.');
   }
   return value;
@@ -320,13 +323,14 @@ function canonicalInputClosure(
   return Object.freeze(refs);
 }
 
-function canonicalUpstreamKeys(
-  input: readonly VerificationActionKeyDigest[]
+function canonicalActionKeys(
+  input: readonly VerificationActionKeyDigest[],
+  label: string
 ): readonly VerificationActionKeyDigest[] {
-  const keys = input.map((candidate, index) => digest(candidate, `upstreamActionKeys[${index}]`));
+  const keys = input.map((candidate, index) => digest(candidate, `${label}[${index}]`));
   keys.sort();
   for (let index = 1; index < keys.length; index += 1) {
-    if (keys[index - 1] === keys[index]) fail('upstreamActionKeys', 'contains a duplicate key.');
+    if (keys[index - 1] === keys[index]) fail(label, 'contains a duplicate key.');
   }
   return Object.freeze(keys);
 }
@@ -336,7 +340,7 @@ function canonicalInput(input: VerificationActionKeyInputV1): VerificationAction
   assertNoIdentityKey(value, 'VerificationAction key input');
   exactKeys(value, [
     'actionKind', 'producer', 'operation', 'inputClosure', 'environment',
-    'upstreamActionKeys', 'resultSchemaRevision'
+    'requiredCheapPreflightActionKeys', 'upstreamActionKeys', 'resultSchemaRevision'
   ], 'VerificationAction key input');
   const producer = record(value.producer, 'producer');
   exactKeys(producer, ['identity', 'revision'], 'producer');
@@ -351,7 +355,17 @@ function canonicalInput(input: VerificationActionKeyInputV1): VerificationAction
   const environment = record(value.environment, 'environment');
   exactKeys(environment, ['toolchainRevision', 'providerRevision', 'contractRevision'], 'environment');
   if (!Array.isArray(value.inputClosure)) fail('inputClosure', 'must be an array.');
+  if (!Array.isArray(value.requiredCheapPreflightActionKeys)) {
+    fail('requiredCheapPreflightActionKeys', 'must be an array.');
+  }
   if (!Array.isArray(value.upstreamActionKeys)) fail('upstreamActionKeys', 'must be an array.');
+  const requiredCheapPreflightActionKeys = canonicalActionKeys(
+    value.requiredCheapPreflightActionKeys as readonly VerificationActionKeyDigest[],
+    'requiredCheapPreflightActionKeys'
+  );
+  if (operation.executionClass === 'cheap-preflight' && requiredCheapPreflightActionKeys.length > 0) {
+    fail('requiredCheapPreflightActionKeys', 'cheap-preflight actions cannot require a cheap preflight.');
+  }
   return Object.freeze({
     actionKind: text(value.actionKind, 'actionKind'),
     producer: Object.freeze({
@@ -372,7 +386,11 @@ function canonicalInput(input: VerificationActionKeyInputV1): VerificationAction
       providerRevision: text(environment.providerRevision, 'environment.providerRevision'),
       contractRevision: text(environment.contractRevision, 'environment.contractRevision')
     }),
-    upstreamActionKeys: canonicalUpstreamKeys(value.upstreamActionKeys as readonly VerificationActionKeyDigest[]),
+    requiredCheapPreflightActionKeys,
+    upstreamActionKeys: canonicalActionKeys(
+      value.upstreamActionKeys as readonly VerificationActionKeyDigest[],
+      'upstreamActionKeys'
+    ),
     resultSchemaRevision: text(value.resultSchemaRevision, 'resultSchemaRevision')
   });
 }
@@ -405,7 +423,7 @@ export function parseVerificationActionKeyV1(source: string): VerificationAction
   const value = record(parsed, 'VerificationAction key');
   exactKeys(value, [
     'schema', 'actionKind', 'producer', 'operation', 'inputClosure', 'environment',
-    'upstreamActionKeys', 'resultSchemaRevision', 'actionKey'
+    'requiredCheapPreflightActionKeys', 'upstreamActionKeys', 'resultSchemaRevision', 'actionKey'
   ], 'VerificationAction key');
   if (value.schema !== VERIFICATION_ACTION_KEY_SCHEMA_V1) {
     fail('VerificationAction key', 'schema mismatch.');
@@ -466,23 +484,38 @@ export function createVerificationActionPlanV1(input: {
     `${right.kind}\0${right.actionKey}`
   ));
   const duplicateKeys = new Set<string>();
+  const plannedActionKeys = new Set<VerificationActionKeyDigest>();
   const declaredUpstreamKeys = new Set(action.upstreamActionKeys);
+  const declaredCheapPreflightKeys = new Set(action.requiredCheapPreflightActionKeys);
+  const plannedCheapPreflightKeys = new Set<VerificationActionKeyDigest>();
   const plannedUpstreamKeys = new Set<VerificationActionKeyDigest>();
   for (const dependency of dependencies) {
     const identity = `${dependency.kind}\0${dependency.actionKey}`;
     if (duplicateKeys.has(identity)) fail('dependencies', 'contains a duplicate dependency.');
     duplicateKeys.add(identity);
+    if (plannedActionKeys.has(dependency.actionKey)) {
+      fail('dependencies', 'cannot declare one ActionKey under multiple dependency kinds.');
+    }
+    plannedActionKeys.add(dependency.actionKey);
     if (dependency.actionKey === action.actionKey) {
       fail('dependencies', 'cannot contain the action itself as a dependency.');
     }
-    if (dependency.kind === 'upstream') plannedUpstreamKeys.add(dependency.actionKey);
+    if (dependency.kind === 'upstream') {
+      plannedUpstreamKeys.add(dependency.actionKey);
+    } else {
+      plannedCheapPreflightKeys.add(dependency.actionKey);
+    }
   }
   if (plannedUpstreamKeys.size !== declaredUpstreamKeys.size ||
     [...plannedUpstreamKeys].some((key) => !declaredUpstreamKeys.has(key))) {
     fail('dependencies', 'upstream dependencies must exactly match action.upstreamActionKeys.');
   }
-  if (derivedExpensive && !dependencies.some(({ kind }) => kind === 'cheap-preflight')) {
-    fail('expensive plan', 'requires at least one cheap-preflight dependency.');
+  if (derivedExpensive && declaredCheapPreflightKeys.size === 0) {
+    fail('expensive plan', 'ActionKey must declare at least one required cheap-preflight dependency.');
+  }
+  if (plannedCheapPreflightKeys.size !== declaredCheapPreflightKeys.size ||
+    [...plannedCheapPreflightKeys].some((key) => !declaredCheapPreflightKeys.has(key))) {
+    fail('dependencies', 'cheap-preflight dependencies must exactly match action.requiredCheapPreflightActionKeys.');
   }
   return Object.freeze({
     schema: VERIFICATION_ACTION_PLAN_SCHEMA_V1,

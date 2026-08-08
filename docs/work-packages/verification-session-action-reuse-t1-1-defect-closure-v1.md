@@ -49,8 +49,8 @@ forbiddenPaths:
   - scripts/codex/sec-merge-bootstrap-runtime.ts
 acceptance:
   - 'This is the ordinary-SUT T1.1 repair of the merged action-reuse kernel; it does not enter the trusted TCB and does not start the T2 trust-root migration.'
-  - 'The canonical ActionKey binds a producer-owned logical working directory and execution class in addition to the existing semantic operation digest; branch, PR, wall-clock, PID, absolute temporary paths and caller prose remain forbidden.'
-  - 'The action plan contains only static topology and execution policy derived from the ActionKey; dependency terminal state is never caller-authored or accepted from a plan payload.'
+  - 'The canonical ActionKey binds a producer-owned logical working directory, execution class and exact required cheap-preflight ActionKey set in addition to the existing semantic operation digest; branch, PR, wall-clock, PID, absolute temporary paths and caller prose remain forbidden.'
+  - 'The action plan contains only static topology and execution policy derived from the ActionKey; its cheap-preflight set must exactly equal the ActionKey declaration, its upstream set must exactly equal upstreamActionKeys, one ActionKey cannot appear under multiple dependency kinds, and dependency terminal state is never caller-authored or accepted from a plan payload.'
   - 'Runner runnability resolves every dependency from validated local journal machine facts; missing, queued, running, failed, unsupported, invalidated, cancelled or unknown facts block execution, and a caller cannot flip the same ActionKey from expensive to cheap.'
   - 'External concurrent callers for one execution-domain/ActionKey still join one physical flight, while a same-owner nested cycle (including awaited nested same-key execution) is rejected deterministically without deadlock or duplicate spawn.'
   - 'Journal persistence remains disposable ordinary-SUT resume/reuse optimization; schema/key/digest/transition validation and current-terminal projection remain fail-closed, with no CI Evidence, remote cache, daemon or database introduced.'
@@ -73,9 +73,10 @@ T2 trust-root migration 时重复付同一轮调度语义迁移成本。
 ## T1.1 invariants
 
 - logical working directory 是 producer-owned、repository-relative 的 canonical identity；
-  repo root 使用 `.` sentinel，绝对路径、父目录逃逸和反斜杠均拒绝；
+  repo root 使用 `.` sentinel，绝对路径、drive-qualified/UNC 路径、trailing slash、父目录逃逸和反斜杠均拒绝；
 - execution class 是 ActionKey 的语义字段，`expensive` 不再是 caller 可翻转的 plan
-  boolean；同一 ActionKey 不能通过另一个 plan 省略 cheap preflight；
+  boolean；expensive ActionKey 必须声明且 plan 必须精确复现其 required cheap-preflight
+  ActionKey 集合，同一 ActionKey 不能通过另一个 plan 省略或替换 cheap preflight；
 - plan 只表达依赖 key/kind 拓扑。runnable 判定消费 journal readback 的 machine state，
   journal 缺失或非 terminal-passed 一律 fail closed；
 - process-wide live-flight join 只服务外部并发 caller。执行 owner 的 async context 发现

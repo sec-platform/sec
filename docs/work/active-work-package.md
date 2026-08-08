@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/verification-session-action-reuse-t1-1-defect-closure-v1.md
-manifestDigest: sha256:c931321ea4773de98bc4c84d59cb4cacfa00f9e4d7d7bcdf0ae482e61281e9f7
+manifestDigest: sha256:4cb1d5cf3f556681dbca01821b61ac1e81931d68fdc21c8dd3a84adde3347d4f
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

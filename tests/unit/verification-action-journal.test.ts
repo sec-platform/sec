@@ -34,6 +34,7 @@ function action(): ReturnType<typeof createVerificationActionKeyV1> {
       providerRevision: 'local',
       contractRevision: 'verification-result-v1'
     },
+    requiredCheapPreflightActionKeys: [],
     upstreamActionKeys: [],
     resultSchemaRevision: 'sec-verification-result-v1'
   };
