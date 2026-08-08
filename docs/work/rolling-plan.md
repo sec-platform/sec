@@ -7,72 +7,70 @@ last-reviewed: 2026-08-08
 
 # SEC 滚动近期计划
 
-本窗口从 `main@26dcb43c77c9bdfebee35efc217113c958ed017d` 重新计算。Issue #313
-branch/ref lifecycle 与 Issue #311 Verification Session foundation 已闭合；Issue #282
-repository information lifecycle 的 #326 历史合并保持
-`authorityAtMerge: unauthorized`，但 trusted-base、candidate-as-SUT 与
-present-main readback 已物理通过，repairStatus 为 repaired，Issue #282 已关闭。
+本窗口从 `main@49fdb7cd3be991742061621e3add982107e50367` 重新计算。
 
-新的物理证据表明：当前 `scripts/codex/merge-gate.ts` 仍把整个
-`scripts/codex/` 目录近似为 verifier trust root；与此同时 #282 replay 已证明
-`scripts/codex/repository-audit.ts` 不在 `TCB_RUNTIME_ENTRYPOINTS`、不在冻结
-61-module historical runtime closure，运行时 closure 也不包含它。目录位置因此正在放大
-普通 repository tooling 变更的 bootstrap 成本。
+Issue #178 `trusted-verifier-causal-closure-v1` 已完成 old-trusted candidate-as-SUT、
+独立 Review、squash merge 和 new-main readback并关闭。当前 main 已拥有唯一
+`sec-trusted-bootstrap-registry-v1`、78-module exact causal TCB closure、18 个 reviewed
+process dispatchers 与 credential-scrubbed candidate-as-SUT workflow；
+`scripts/codex/repository-audit.ts` 是 ordinary SUT，不再因位于 `scripts/codex/` 自动进入 TCB。
+旧 validation-only PR #331 已关闭且不合并。
 
-近期执行遵循：
-
-1. 先由 Issue #178 收敛 causal TCB：static privileged surfaces 与 actual runtime
-   closure 分离，同时保证 trust classifier/lock/merge authority 本身不能自我降级；
-2. 随即进入 Issue #327 repository structural convergence，直接拆解
-   repository-audit 的 domain-data ownership、`scripts/codex` provider leakage、
-   重复 process/Git/parser 机制与 dead compatibility；
-3. 再由 Issue #314 机器投影 architecture decision maturity；
-4. 随后推进 Issue #312 / #193 TypeScript 7 provider migration；
-5. 快速回到产品 Semantic Compiler 纵切片，不让 repository meta-system 长期吞噬产品吞吐。
+当前 #327 首包在实现中发现一个新的真实 trust boundary：Nexus canonical machine ledger
+`docs/governance/nexus-absorption-ledger.yaml` 的 strict schema validator
+`docs/scripts/docs-doctor-ledgers.ts` 属于 causal TCB。因此 Nexus 29 EPR detailed records
+不能与普通 repository-audit 数据拆分机械捆绑；当前包只迁移 #282 records，Nexus 迁移必须
+作为单独 trust-aware slice 走 trusted bootstrap。
 
 ## 当前唯一 Work Package
 
-### trusted-verifier-causal-closure-v1
+### repository-information-data-ownership-v1
 
-- Issue #178：把 verifier trust-root 从目录近似收敛为
-  static privileged surfaces + exact causal runtime TCB closure。
-- `scripts/codex/repository-audit.ts` 不再因目录位置自动成为 bootstrap 对象；
-  真实 merge-gate、selection/result/Evidence、TCB contract/lock、privileged
-  workflow/config 变化仍须 bootstrap。
-- 当前包自身修改 trust registry/classifier/workflows，因此必须由旧 trusted revision识别为 trust transition；物理 regression 统一由 GitHub Actions 执行，禁止使用新 classifier 自证。
+- Issue #327。
+- 把 Issue #282 的 146 条 deleted/renamed blob exact records 与 16 个 durable claim families
+  从 generic `scripts/codex/repository-audit.ts` 迁到
+  `scripts/sec-dev/repository-analysis/repository-information-lifecycle.json` 与严格 data contract。
+- `repository-audit.ts` 保持唯一 CLI/orchestrator，继续拥有 disposition/classification/detectors
+  和 Git physical cross-check，只消费 validated machine data。
+- data JSON 不参与 heuristic instruction extraction，避免 prose-shaped records 变成第二 Agent 指令面。
+- 本包禁止修改 Nexus ledger/docs-doctor TCB、TCB registry/lock/workflows/merge-gate、package/lock、
+  产品 Compiler/IR；不重做 #282 的 47,287 行历史语义审计。
 
 ## 候选 Work Package
 
-### 1. repository-structural-convergence-v1
+### 1. nexus-epr-ledger-ownership-migration-v1
+
+- Issue #327 + #178/#311 trust boundary。
+- 把 29 个 EPR detailed binding records 从 `repository-audit.ts` 迁入唯一 canonical Nexus
+  machine-state owner，同时升级 `sec-nexus-corpus-ledger-v2` strict validator。
+- 因 `docs/scripts/docs-doctor-ledgers.ts` 属于 causal TCB，必须由 old/current trusted bootstrap
+  对 candidate-as-SUT 验证，更新 exact TCB lock，独立 Review 后才能合并。
+- 不借此重写整个 docs-doctor 或 Nexus corpus。
+
+### 2. repository-structural-convergence-next-slice
 
 - Issue #327。
-- 首包优先把 146-row deleted-blob data、Nexus 29 EPR records 与 generic
-  repository-audit algorithm 的物理 ownership 分开，再继续 provider-neutral
-  dev-control-plane 与重复机械 primitive 收敛。
-- 不重做 Issue #282 已完成的 47,287-line 历史语义审计，不恢复 archive。
-- LOC/churn 只作热点信号；以 semantic/ownership/trust/duplicate/compatibility
-  surface 与 change amplification 为真实目标。
+- 从本包与 Nexus migration merge/new-main readback 后的真实 structural census 选择一个 seam：
+  `scripts/codex` provider leakage、重复 Git/process/parser primitive、dead compatibility 或 thin-entrypoint。
+- 只有 consumer/reachability/trust/ownership Evidence 明确后才 MOVE/MERGE/DELETE；LOC/churn 只作触发信号。
 
-### 2. architecture-decision-enforcement-registry-v1
+### 3. architecture-decision-enforcement-registry-v1
 
 - Issue #314。
-- 首批登记 branch lifecycle、Verification Control Plane、TypeScript 7、
-  Implementation Resolution、information lifecycle 与 canonical digest。
-- 文档、Issue、类型、测试或 PR 存在不能自动提升到 implemented/enforced；
-  known bypass、missing consumer、missing physical Evidence 或未退役旧路径阻止升级。
+- 首批登记 branch lifecycle、Verification Control Plane、TypeScript 7、Implementation Resolution、
+  information lifecycle 与 canonical digest。
+- `specified / implemented / verified / enforced / adopted / retired` 由 current-main machine refs、
+  physical Evidence、entrypoint/bypass/consumer/retirement closure 决定。
 
-### 3. typescript-7-dual-provider-phase-0-1
+### 4. typescript-7-dual-provider-phase-0-1
 
 - Issue #312、Issue #193。
-- Phase 0 做 TS6.0.3 与 TS7 exact diagnostics/platform/determinism/cold-warm
-  物理 parity；Phase 1 只有 Evidence 支持时采用 TS7 CLI + TS6 Program API
-  双 Provider。
-- CLI checker、Program/TypeChecker、Language Service、printer 与 build executable
-  保持分域，Provider 不取得 SEC 语义 authority。
+- Phase 0：TS6 与 TS7 exact diagnostics、exit、NodeNext、platform、determinism、cold/warm CPU/memory parity。
+- Phase 1：只有 parity 成立并取得 package/lock single-writer 后，采用 TS7 CLI checker + TS6 Program API 双 Provider。
 
-### 4. product-semantic-compiler-foundation-sequence
+## 产品 Semantic Compiler 后继序列
 
-按独立真实 consumer 纵切片推进，不合并成巨型基础设施包：
+repository meta-system 必须快速收口，随后按真实 consumer 纵切片推进：
 
 1. #291 canonical ordinary-data；
 2. #294 Registry/Manifest logical identity 与 binding；
@@ -86,43 +84,34 @@ present-main readback 已物理通过，repairStatus 为 repaired，Issue #282 �
 10. #290 首个 IR-owned Backend；
 11. Issue #307 最小 Implementation Resolution Kernel。
 
-#317 必须复用现有 Engineering IR / Capability / Contract owner，不建立第二 graph
-或万能 Block 树。
-
 ## 已路由但不自动抢占近期顺序的任务
 
-- Issue #176/#177/#179/#188/#190/#191/#194：Verification Result、failure、
-  Journal、Impact、Hermetic、Queue 与 incremental；
-- Issue #235：两个 active proposal 的 focused retirement；
-- Issue #192/#193/#216：Host/Toolchain/Dependency/Release lane；
-- Issue #316：Performance Truth / Resource Budget / Throughput；
-- Issue #318：Semantic Engineering Benchmark；
-- Issue #321：Development Operation Effect Purity；
-- Issue #325：Architecture Learning Projection；
-- Issue #207：仅当普通 candidate / mutating resource / product vertical 的真实
-  并行需求成立时恢复 integration semantics。
+- #176/#177/#179/#188/#190/#191/#194：Verification Result、failure、Journal、Impact、Hermetic、Queue 与 incremental；
+- #192/#193/#216：Host/Toolchain/Dependency/Release；
+- #316：Performance Truth / Resource Budget / Throughput；
+- #318：Semantic Engineering Benchmark；
+- #321：Development Operation Effect Purity；
+- #325：Architecture Learning Projection；
+- #207：只在真实并行 writer/resource 需求成立时恢复 integration semantics。
 
-这些 owner 只在成为真实阻塞或满足进入条件时从 then-latest `main` 生成聚焦包，
-不能把 Issue 存在当成排队强制。
+Issue 存在不是排队授权。只有成为当前真实阻塞、满足进入条件并与 formal writer 无冲突时，
+才从 then-latest `main` 冻结新的 focused Work Package。
 
 ## 已完成 Work Package
 
-- `branch-ref-lifecycle-enforcement-v1`（Issue #313）：terminal branch/ref closeout
-  与 receipt/readback 已闭合。
-- `verification-control-plane-foundation-v1`（Issue #311）：registry projection、
-  FreezeSession、Candidate Tree parity 已闭合。
-- `repository-information-lifecycle-v1`（Issue #282）：PR #284 removed/renamed
-  information lifecycle machine closure进入 main；PR #326 历史 transition 经
-  post-merge trusted-base/candidate-as-SUT repair 后终结，历史未被改写为 authorized。
+- `branch-ref-lifecycle-enforcement-v1`（Issue #313）。
+- `verification-control-plane-foundation-v1`（Issue #311）。
+- `repository-information-lifecycle-v1`（Issue #282）。
+- `trusted-verifier-causal-closure-v1`（Issue #178）。
 
 ## 可并行只读工作
 
-- Issue #327 current-main structural census；
-- Issue #192 Node/Bun × Windows/Linux capability Evidence；
-- Issue #193 dependency/provider consumer census；
-- Issue #194 compiler cold/warm benchmark 与 pass/artifact census；
-- Issue #312 TS7 Phase 0 isolated parity；
-- Issue #316 performance census 与 Issue #318 benchmark design 只作为 Evidence 输入。
+- #327 current-main structural census；
+- #192 Node/Bun × Windows/Linux capability Evidence；
+- #193 dependency/provider consumer census；
+- #194 compiler cold/warm benchmark 与 pass/artifact census；
+- #312 TS7 Phase 0 isolated parity；
+- #316 performance census 与 #318 benchmark design。
 
-只读 Evidence 不自动取得 writer 或 merge authority。任一正式 candidate 进入 main
-后，其他候选必须从新主干重新计算 base、scope、trust relation 与 Verification。
+只读 Evidence 不自动取得 writer 或 merge authority。任一正式 candidate 进入 main 后，
+其他候选必须从新主干重新计算 base、scope、trust relation 与 Verification。

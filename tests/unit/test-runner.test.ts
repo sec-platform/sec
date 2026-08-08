@@ -167,7 +167,11 @@ const {
   runSlowTests,
   runTests
 } = testRunnerModule;
-const { getFastTestFilesSync, slowTestSuiteFiles } = await import('../../platform/shared/test-budget-contract.ts');
+const {
+  getFastTestFilesSync,
+  getSlowTestSuitesSync,
+  slowTestSuiteFiles
+} = await import('../../platform/shared/test-budget-contract.ts');
 
 function invocationTestFiles(args: readonly string[]): string[] {
   return args.filter((arg) => /^tests\/.+\.(test|spec)\.tsx?$/u.test(arg));
@@ -1313,6 +1317,20 @@ test.serial('slow suite selector expands to the registered suite files', async (
   expect(suiteFiles.length).toBeGreaterThan(0);
   expect(devCommandCalls).toEqual([
     { command: 'bun', args: ['test', ...suiteFiles, '--timeout', '180000'] }
+  ]);
+});
+
+test.serial('slow suite selector applies the registered timeout when no override is supplied', async () => {
+  const suiteId = 'e2e-ticket-semantic-vertical';
+  const suite = getSlowTestSuitesSync().find((candidate) => candidate.id === suiteId);
+  const suiteFiles = slowTestSuiteFiles(suiteId);
+  const code = await runSlowTests(['--suite', suiteId]);
+
+  expect(code).toBe(0);
+  expect(suite).toBeDefined();
+  expect(suiteFiles.length).toBeGreaterThan(0);
+  expect(devCommandCalls).toEqual([
+    { command: 'bun', args: ['test', ...suiteFiles, '--timeout', String(suite!.timeoutMs)] }
   ]);
 });
 

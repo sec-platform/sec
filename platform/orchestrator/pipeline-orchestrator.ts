@@ -1,7 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 
-import { compareCodeUnits, rawSha256 } from '../shared/canonical-primitives.ts';
 import {
   buildAcceptanceCoverage,
   buildExplainGraph,
@@ -14,6 +13,7 @@ import {
   renderExplainGraphDot,
   renderExplainGraphMermaid
 } from '../compiler/index.ts';
+import { compareCodeUnits, rawSha256 } from '../shared/canonical-primitives.ts';
 import type { ExplainGraph } from '../shared/explain-types.ts';
 import { formatJsonFile } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';

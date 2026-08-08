@@ -24,6 +24,7 @@ import { runCommandBytes } from '../shared/process.ts';
 import {
   getFastTestFilesSync,
   getSlowTestFilesSync,
+  getSlowTestSuitesSync,
   isFastTestFile,
   isKnownSlowTestSuiteId,
   isSlowTestFile,
@@ -275,7 +276,18 @@ function slowTestArgSelection(args: string[]): SlowTestArgSelection {
   }
 
   const label = suiteId ? `slow suite ${suiteId}` : 'slow';
-  return { kind: 'run', args: ['test', ...selectMatchingTestFiles(availableFiles, selectors, label), ...options] };
+  const registeredSuite = suiteId
+    ? getSlowTestSuitesSync().find((suite) => suite.id === suiteId)
+    : undefined;
+  const effectiveOptions = suiteId && registeredSuite && !options.some((option) => (
+    option === '--timeout' || option.startsWith('--timeout=')
+  ))
+    ? [...options, '--timeout', String(registeredSuite.timeoutMs)]
+    : options;
+  return {
+    kind: 'run',
+    args: ['test', ...selectMatchingTestFiles(availableFiles, selectors, label), ...effectiveOptions]
+  };
 }
 
 function fullTestInvocations(): string[][] {

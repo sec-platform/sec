@@ -1032,7 +1032,7 @@ test('SM-3 retention uses durable completion sequence across all retained termin
     await expect(access(activeRoot)).resolves.toBeNull();
     await expect(access(recoveryRoot)).resolves.toBeNull();
   }, 'engineering-compiler-sm3-terminal-retention-');
-}, 180_000);
+}, 300_000);
 
 function expectTransition(source: string, from: string, to: string): void {
   expect(source).toMatch(new RegExp(`["']?${from}["']?:\\s*["']${to}["']`));

@@ -11,7 +11,6 @@ import {
   canonicalJson,
   cloneAndDeepFreeze,
   compareCodeUnits,
-  digest,
   isPlainObject,
   rawSha256,
   sha256,

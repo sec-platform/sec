@@ -304,7 +304,10 @@ const frozenManifestPaths = new Map([
   WORK_PACKAGE_GATE_SELECTION_MANIFEST_PATH
 ].map((relativePath) => [
   path.resolve(repoRoot, ...relativePath.split('/')),
-  relativePath
+  path.posix.join(
+    'tests/fixtures/work-package-gate-manifests',
+    path.posix.basename(relativePath)
+  )
 ] as const));
 const frozenManifestTextCache = new Map<string, string>();
 
@@ -645,7 +648,7 @@ test('production collector binds retained recovery generations and their termina
   const ownerRelative = `${snapshotRelative}.owner-v1.json`;
   const namespace = 'gate-d4ecb7717e828f3111ae866fa084e957-owned';
   const retainedNamespace = 'engineering-compiler-sm3-terminal-retention-fSCj2d';
-  const transactionIdentity = 'e16b6426e3e9f84bea8c592c447a623f9f0029a2e1ada2c33f160e7b27f0536d';
+  const transactionIdentity = '84b5f238b922257d20342a72fcdb51ad64fb44e7cb96207f3a9d1afb5e4ac571';
   const frozenRecords = [
     '000001-prepared.json',
     '000002-authoring-committed.json',
@@ -813,6 +816,14 @@ function fakeDependencies(input: {
     protectedLedger: syntheticProtectedLedger,
     filesystemIdentityExpectation: syntheticFilesystemIdentityExpectation,
     protectedPathAuthority: async () => fakeProtectedPathAuthority,
+    // The V4 gate intentionally freezes the retired SM-3 manifest and its
+    // historical test batch. Those test files are no longer part of this
+    // checkout, so the unit seam models their frozen existence while leaving
+    // every live .tmp authority path on the real filesystem probe.
+    pathExists: async (filePath) => {
+      const relative = path.relative(repoRoot, filePath).replaceAll(path.sep, '/');
+      return relative.startsWith('tests/') || pathPresent(filePath);
+    },
     gitRevision: (_root, value) => value === 'HEAD' ? head : tree,
     worktreeDigest: async () => worktree,
     prepareExecutionSnapshot: async () => {

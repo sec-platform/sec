@@ -119,6 +119,14 @@ const WORK_PACKAGE_FIXTURE_FAST_TESTS = [
   'tests/unit/work-package-gate-execution.test.ts'
 ];
 
+export const REPOSITORY_INFORMATION_LIFECYCLE_DATA_PATH =
+  'scripts/sec-dev/repository-analysis/repository-information-lifecycle.json' as const;
+
+const REPOSITORY_INFORMATION_LIFECYCLE_FAST_TESTS = [
+  'tests/contract/repository-audit.test.ts',
+  'tests/contract/test-impact.test.ts'
+];
+
 export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'managed-git-hooks',
@@ -196,6 +204,14 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     ],
     sourcePrefixes: ['.agents/skills/'],
     fast: AGENT_GOVERNANCE_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'repository-information-lifecycle',
+    identity: { kind: 'contract', id: 'repository-information-lifecycle' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [REPOSITORY_INFORMATION_LIFECYCLE_DATA_PATH],
+    fast: REPOSITORY_INFORMATION_LIFECYCLE_FAST_TESTS,
     slow: []
   },
   {

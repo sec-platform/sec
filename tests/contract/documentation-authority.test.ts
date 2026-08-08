@@ -82,10 +82,10 @@ describe('canonical documentation authority', () => {
 
     expect(rollingPlan.activePackageId).toBe(selectedManifestId);
     expect(rollingPlan.candidatePackageIds).toEqual([
-      'repository-structural-convergence-v1',
+      'nexus-epr-ledger-ownership-migration-v1',
+      'repository-structural-convergence-next-slice',
       'architecture-decision-enforcement-registry-v1',
-      'typescript-7-dual-provider-phase-0-1',
-      'product-semantic-compiler-foundation-sequence'
+      'typescript-7-dual-provider-phase-0-1'
     ]);
     expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',

@@ -111,7 +111,7 @@ test('registered synthetic policy partitions every original title scope before e
 
 test('synthetic immutable PASS fixture binds its exact pretty raw bytes', () => {
   const attributes = headBlob('.gitattributes').toString('utf8').split('\n');
-  expect(attributes).toContain('/tests/fixtures/ci-evidence-reuse/synthetic-pass.json text eol=lf');
+  expect(attributes).toContain('*.json      text eol=lf');
   const source = headBlob('tests/fixtures/ci-evidence-reuse/synthetic-pass.json');
   expect(source).toEqual(Buffer.from(CodexDevelopmentSyntheticReusableEvidenceSourceV1, 'utf8'));
   expect(CodexDevelopmentEvidenceCompositionRawDigestV1(source)).toBe(

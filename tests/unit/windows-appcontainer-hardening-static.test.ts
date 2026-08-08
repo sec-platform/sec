@@ -296,7 +296,7 @@ test('optional Windows AppContainer hardening keeps its native ABI and lifecycle
     'const canonicalOwner = await readRecoveryOwner(recoveryOwnerPath(boundary.transactionRoot));'
   );
   expect(sources.appContainer).toContain(
-    'JSON.stringify(canonicalOwner) !== JSON.stringify(owner)'
+    '!canonicalOwner || !canonicalEquals(canonicalOwner, owner)'
   );
   const createProfileHelper = sources.appContainer.indexOf("'create-profile',\n          nativeRequest");
   const suspendedCreateHelper = sources.appContainer.indexOf(

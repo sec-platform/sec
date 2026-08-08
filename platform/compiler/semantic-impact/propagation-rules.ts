@@ -3,8 +3,8 @@ import {
   type SemanticPredicate
 } from '../../shared/engineering-ir-types.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { PREDICATE_SIGNATURE_REGISTRY } from '../ir/predicate-signatures.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
+import { PREDICATE_SIGNATURE_REGISTRY } from '../ir/predicate-signatures.ts';
 
 export type ImpactPropagationRule =
   | {

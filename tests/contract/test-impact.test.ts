@@ -8,7 +8,8 @@ import {
 } from '../../platform/shared/test-impact-contract.ts';
 import {
   DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES,
-  FROZEN_WORK_PACKAGE_TOMBSTONE_FILES
+  FROZEN_WORK_PACKAGE_TOMBSTONE_FILES,
+  REPOSITORY_INFORMATION_LIFECYCLE_DATA_PATH
 } from '../../platform/shared/test-impact-rules/governance.ts';
 import { resolveTestOwnershipAutoReferenceMode } from '../../platform/shared/test-ownership-contract.ts';
 
@@ -35,6 +36,23 @@ test('test impact classifies current source categories deterministically', () =>
     'docs/project-state.json',
     'docs/architecture/unowned.yaml'
   ]) expect(classifyTestImpactSource(file)).toBeNull();
+});
+
+test('repository information lifecycle data has explicit contract ownership', () => {
+  expect(classifyTestImpactSource(REPOSITORY_INFORMATION_LIFECYCLE_DATA_PATH)).toBeNull();
+  expect(selectTestsForSources([REPOSITORY_INFORMATION_LIFECYCLE_DATA_PATH])).toEqual({
+    fast: [
+      'tests/contract/repository-audit.test.ts',
+      'tests/contract/test-impact.test.ts'
+    ],
+    slow: [],
+    owners: ['repository-information-lifecycle']
+  });
+  expect(resolveTestOwnership([REPOSITORY_INFORMATION_LIFECYCLE_DATA_PATH])).toEqual([{
+    source: REPOSITORY_INFORMATION_LIFECYCLE_DATA_PATH,
+    owner: 'repository-information-lifecycle',
+    identity: { kind: 'contract', id: 'repository-information-lifecycle' }
+  }]);
 });
 
 test('test impact selector includes tests that directly import changed sources', () => {

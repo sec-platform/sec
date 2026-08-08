@@ -723,8 +723,10 @@ export function isTrackedDevRunnerHostSource(relativePath: string): boolean {
     return false;
   }
   const [root] = relativePath.split('/');
-  return (root === 'platform' || root === 'scripts') &&
-    EXECUTABLE_SOURCE_EXTENSION_SET.has(path.posix.extname(relativePath).toLowerCase());
+  const extension = path.posix.extname(relativePath).toLowerCase();
+  return (root === 'platform' || root === 'scripts') && (
+    EXECUTABLE_SOURCE_EXTENSION_SET.has(extension) || extension === '.json'
+  );
 }
 
 export function assertDevRunnerHostBudget(

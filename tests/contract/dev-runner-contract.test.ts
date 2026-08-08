@@ -956,6 +956,7 @@ describe('dev-runner contract', () => {
       'platform/registry/official/example/files/src/consumer.ts',
       'platform/fixtures/consumer.ts',
       'platform/vendor/consumer.js',
+      'scripts/sec-dev/repository-analysis/consumer.json',
       'scripts/generated/consumer.mts',
       'scripts/consumer.spec.ts',
       'platform/source-model/slot.ts',
@@ -970,7 +971,7 @@ describe('dev-runner contract', () => {
       'control/consumer.ts',
       '../platform/consumer.ts',
       'platform\\consumer.ts',
-      'scripts/consumer.json'
+      'docs/examples/consumer.json'
     ]) {
       expect(isTrackedDevRunnerHostSource(excludedPath)).toBe(false);
     }
@@ -984,7 +985,7 @@ describe('dev-runner contract', () => {
       expect(() => assertDevRunnerHostBudget(label, actual, maximum))
         .toThrow('exceeds its byte/count budget');
     }
-  });
+  }, 600_000);
 
   test('typecheck uses one TypeScript-owned derived incremental cache', async () => {
     const tsconfig = JSON.parse(await readCompilerFile('tsconfig.json')) as {

@@ -15,15 +15,18 @@ import {
   auditInformationLifecycle,
   auditRepository,
   classifyInformationLifecyclePath,
-  DELETED_BLOB_MACHINE_MANIFEST_V1,
   dispositionForDeletedPath,
   extractHeuristicBehaviorCandidates,
-  INFORMATION_LIFECYCLE_CLAIM_FAMILIES,
   INFORMATION_LIFECYCLE_CLASS_PROFILES,
-  INFORMATION_LIFECYCLE_TRANSITION,
   NEXUS_EPR_BINDINGS_V1,
   repositoryAuditShouldFail
 } from '../../scripts/codex/repository-audit.ts';
+import repositoryInformationLifecycleData from '../../scripts/sec-dev/repository-analysis/repository-information-lifecycle.json' with { type: 'json' };
+import {
+  DELETED_BLOB_MACHINE_MANIFEST_V1,
+  INFORMATION_LIFECYCLE_CLAIM_FAMILIES,
+  INFORMATION_LIFECYCLE_TRANSITION
+} from '../../scripts/sec-dev/repository-analysis/repository-information-lifecycle.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 
@@ -39,6 +42,12 @@ function git(repositoryRoot: string, args: readonly string[]): string {
   }
   return result.stdout.trim();
 }
+
+test('information lifecycle machine data has a direct test-impact edge and canonical schema', () => {
+  expect(repositoryInformationLifecycleData.schema).toBe('sec-repository-information-lifecycle-data-v1');
+  expect(Object.keys(repositoryInformationLifecycleData.deletedBlobs)).toHaveLength(146);
+  expect(repositoryInformationLifecycleData.claimFamilies).toHaveLength(16);
+});
 
 test('information lifecycle machine manifest matches the exact deleted-blob census', () => {
   const entries = Object.entries(DELETED_BLOB_MACHINE_MANIFEST_V1);

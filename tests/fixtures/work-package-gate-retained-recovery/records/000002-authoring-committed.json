@@ -1,14 +1,14 @@
 {
   "formatRevision": "semantic-mutation-recovery-record-v1",
   "sequence": 2,
-  "previousRecordRevision": "sha256:0d81a6001841c32e471f47b53456535cde349fb542a4a8e26e139ec6f8403ecf",
+  "previousRecordRevision": "sha256:30dab006a298d6fc93f2f5c3e4cdcbbac5f04419e08a8c392f6e3ba5e5f48c59",
   "state": "authoring-committed",
   "transactionId": "tx:live",
-  "requestIdentityDigest": "sha256:e16b6426e3e9f84bea8c592c447a623f9f0029a2e1ada2c33f160e7b27f0536d",
-  "requestRevision": "sha256:9879c0bf472bc0ff6a1cc4ef728cbe14554d24f0594e200b7f4b7a2b60f031ea",
-  "authorizationRevision": "sha256:4ca0ce469ba6a2cccaa8260d0e0e60858c8b1315b5f6d85acda3224060bd910a",
-  "expectedPlanRevision": "sha256:ff9d5c80b658f0cf93322ee0629e1bce42d6ba535b3dbe346ec305d384b1d5e2",
-  "planRevision": "sha256:ff9d5c80b658f0cf93322ee0629e1bce42d6ba535b3dbe346ec305d384b1d5e2",
+  "requestIdentityDigest": "sha256:84b5f238b922257d20342a72fcdb51ad64fb44e7cb96207f3a9d1afb5e4ac571",
+  "requestRevision": "sha256:204c4265f580b2352f7ba230f736e79913c9586925769c09c7e2486d9898e1e7",
+  "authorizationRevision": "sha256:b834a93f441e9604f595fcacc81afca87e704e70fc5c7f3804b54f9d413221cb",
+  "expectedPlanRevision": "sha256:c917d6a4314e25cea48c013b577b5f403b6d8f8a4dc5729973d537ac5da2fd78",
+  "planRevision": "sha256:c917d6a4314e25cea48c013b577b5f403b6d8f8a4dc5729973d537ac5da2fd78",
   "editPlanRevision": "sha256:88424ad2ac87a072328a7b0d79fa80da5758411732404f11769535c046517af4",
   "rollbackManifestDigest": "sha256:3770b198a03f18cbf37a3bfd4eba2fbbab9ea2eb9795b207678b45c957a6ce18",
   "relativePath": "source/model/item.yaml",
@@ -24,7 +24,7 @@
     "inputRevision": "sha256:ded9673a8b9438b49600910cd3bab6d4d02d7e988e81fbb41fb639a3bb8dec9a",
     "semanticRevision": "sha256:7a2f83e9b9307a2c2995d75ffb0afe08c5dc54bbb7207771f5b00cc71b91beda"
   },
-  "verificationExecutionRevision": "sha256:f6bcf4d3bd7f8850e63c43ac7271b4a9e27796aa5b4dd642a917be52f99f8031",
+  "verificationExecutionRevision": "sha256:8eaf53e1aa14aeb2626a0083fa8c696ebd42e378b1ec2899613ca87b407de2c5",
   "verificationReportRevision": "sha256:48f062028871b9b6f8e01c56e6cde61b0a0ab929ab62e9204e14827b59eb456f",
   "request": {
     "contractVersion": "2",
@@ -117,13 +117,13 @@
     "requiredPreconditions": [],
     "requiredPostconditions": [],
     "minimumVerification": [],
-    "authorizationRevision": "sha256:4ca0ce469ba6a2cccaa8260d0e0e60858c8b1315b5f6d85acda3224060bd910a"
+    "authorizationRevision": "sha256:b834a93f441e9604f595fcacc81afca87e704e70fc5c7f3804b54f9d413221cb"
   },
   "plan": {
     "contractVersion": "2",
     "requestId": "request:oldest-verified",
-    "requestRevision": "sha256:9879c0bf472bc0ff6a1cc4ef728cbe14554d24f0594e200b7f4b7a2b60f031ea",
-    "authorizationRevision": "sha256:4ca0ce469ba6a2cccaa8260d0e0e60858c8b1315b5f6d85acda3224060bd910a",
+    "requestRevision": "sha256:204c4265f580b2352f7ba230f736e79913c9586925769c09c7e2486d9898e1e7",
+    "authorizationRevision": "sha256:b834a93f441e9604f595fcacc81afca87e704e70fc5c7f3804b54f9d413221cb",
     "operationRegistryRevision": "semantic-mutation-operations-v1",
     "expectationRevision": "semantic-mutation-expectation-v1",
     "verificationPolicyRevision": "semantic-mutation-verification-policy-v1",
@@ -489,13 +489,13 @@
     ],
     "status": "ready",
     "diagnostics": [],
-    "planRevision": "sha256:ff9d5c80b658f0cf93322ee0629e1bce42d6ba535b3dbe346ec305d384b1d5e2"
+    "planRevision": "sha256:c917d6a4314e25cea48c013b577b5f403b6d8f8a4dc5729973d537ac5da2fd78"
   },
   "verification": {
     "adapterId": "semantic-mutation-local-verification",
     "adapterRevision": "semantic-mutation-local-verification-v1",
     "reportRevision": "sha256:48f062028871b9b6f8e01c56e6cde61b0a0ab929ab62e9204e14827b59eb456f",
-    "planRevision": "sha256:ff9d5c80b658f0cf93322ee0629e1bce42d6ba535b3dbe346ec305d384b1d5e2",
+    "planRevision": "sha256:c917d6a4314e25cea48c013b577b5f403b6d8f8a4dc5729973d537ac5da2fd78",
     "attempted": {
       "transactionId": "tx:staged",
       "inputRevision": "sha256:ded9673a8b9438b49600910cd3bab6d4d02d7e988e81fbb41fb639a3bb8dec9a",
@@ -504,8 +504,8 @@
     "stagedSourceDigest": "sha256:e5396a5787cfb54f2f489fc64a419526b04056feae5dd1785217ec70f4dc8b18",
     "requiredVerificationDigest": "sha256:b209ac8b64b33932296e04399549e593a164b9975bc51031c3c2bdebfe814fd0",
     "status": "passed",
-    "verificationExecutionRevision": "sha256:f6bcf4d3bd7f8850e63c43ac7271b4a9e27796aa5b4dd642a917be52f99f8031"
+    "verificationExecutionRevision": "sha256:8eaf53e1aa14aeb2626a0083fa8c696ebd42e378b1ec2899613ca87b407de2c5"
   },
   "diagnostics": [],
-  "recordRevision": "sha256:20b54e472758691a0bffa4716d936da6f2db9b000a6cbce0a9bf066cad13b366"
+  "recordRevision": "sha256:4f4edd28f89068c2216b7b3a6d9bf45a38b5edfe5fd847a54f43431d332edad8"
 }

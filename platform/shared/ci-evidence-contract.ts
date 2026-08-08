@@ -11,11 +11,11 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
+import { canonicalEquals, sha256 as canonicalSha256, digest } from './canonical-primitives.ts';
 import {
   CodexDevelopmentAssertCiExecutionEnvironmentBindingV1,
   CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1
 } from './ci-execution-environment.ts';
-import { canonicalEquals, digest, sha256 as canonicalSha256 } from './canonical-primitives.ts';
 
 import type {
   CodexDevelopmentEvidenceCompositionPlanV1,

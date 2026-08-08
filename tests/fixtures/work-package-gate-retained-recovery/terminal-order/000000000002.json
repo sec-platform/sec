@@ -1,7 +1,7 @@
 {
   "formatRevision": "semantic-mutation-terminal-completion-v1",
   "terminalSequence": 2,
-  "requestIdentityDigest": "sha256:e16b6426e3e9f84bea8c592c447a623f9f0029a2e1ada2c33f160e7b27f0536d",
+  "requestIdentityDigest": "sha256:84b5f238b922257d20342a72fcdb51ad64fb44e7cb96207f3a9d1afb5e4ac571",
   "state": "verified",
-  "completionRevision": "sha256:ba53222cd62a84d7a3150f459b26b1c2bd3fb8865b8792df255ee7c4b4795118"
+  "completionRevision": "sha256:47c3f48a0196d24a4bb58d64a199a8e3d7ccfb4110fdc19fc59a4a9501c580e4"
 }

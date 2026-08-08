@@ -10,17 +10,21 @@ last-reviewed: 2026-08-08
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/trusted-verifier-causal-closure-v1.md
-manifestDigest: sha256:20a15dabe01606f5da1440c86151460b5cabd75b2e8bef4c48910e5da0cdcb94
+manifest: docs/work-packages/repository-information-data-ownership-v1.md
+manifestDigest: sha256:3aca6ada234a31bd1b2ce79edb860b787a5d240879b40fdcde991dcee3ade154
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 ```
 
-Work Package `trusted-verifier-causal-closure-v1`（Issue #178）从
-`main@26dcb43c77c9bdfebee35efc217113c958ed017d` 激活。前驱
-`repository-information-lifecycle-v1`（Issue #282）已完成 post-merge trust repair
-并关闭；旧 manifest 的 durable machine consumers 已迁移后从 active directory 删除。
-当前包把 verifier trust-root 从目录近似收敛为唯一 machine registry、explicit static
-privileged surfaces 与 exact causal runtime TCB closure，并由 GitHub Actions 承载物理
-candidate-as-SUT regression。完整执行闭包只存在于本 pointer 选中的 frozen manifest。
+Work Package `repository-information-data-ownership-v1`（Issue #327）从
+`main@49fdb7cd3be991742061621e3add982107e50367` 激活。前驱
+`trusted-verifier-causal-closure-v1`（Issue #178）已完成 old-trusted candidate-as-SUT、
+独立 Review、squash merge 与 new-main readback并关闭；旧 manifest 由本 candidate
+在 pointer 原子接管时退役。
+
+当前包只拥有 Issue #282 repository information machine data 的首个结构收敛切片：
+把 146 条 deleted/renamed blob exact records 与 16 个 durable claim families 从 generic
+`repository-audit.ts` 中迁到 provider-neutral data/contract owner，同时保持 audit 行为兼容。
+Nexus 29 EPR records 因 canonical ledger strict validator 属于 causal TCB，已回退到后继独立
+trusted-bootstrap-aware slice，不在当前普通 SUT 包中偷改 trust boundary。

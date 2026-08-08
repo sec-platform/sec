@@ -24,7 +24,6 @@ import {
   indexValidatedEngineeringIR,
   type EngineeringIRIndex
 } from '../ir/index-engineering-ir.ts';
-import { digest } from '../ir/ir-revision.ts';
 import {
   canonicalJson,
   compareCodeUnits,
@@ -32,6 +31,7 @@ import {
   sha256,
   uniqueSorted
 } from '../ir/ir-canonical-primitives.ts';
+import { digest } from '../ir/ir-revision.ts';
 import {
   assertImpactPropagationRuleRegistry,
   IMPACT_PROPAGATION_RULES
