@@ -1,37 +1,42 @@
-name: validation test-runner host-independent repair
+name: validation issue-178 final candidate
 
 on:
   pull_request:
     branches:
       - main
 
-permissions:
-  contents: write
-
 concurrency:
-  group: validation-test-runner-host-independence-${{ github.event.pull_request.number }}
+  group: validation-issue-178-single-writer
   cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   SEC_BASE: 26dcb43c77c9bdfebee35efc217113c958ed017d
-  SEC_TARGET_BRANCH: fix/test-runner-host-independent-resource-batches-v1
-  SEC_PATCH_SHA256: 47a7b0b83d4794daf8306de1b9139638e80bd8b820e85ce9ead54b8cc98570f0
+  SEC_SOURCE_CANDIDATE: 223b99adaeb36f589cdbca394f12bafcb6f91da4
+  SEC_TEST_RUNNER_FIX: bc026e58f400b644ff3166ad236ea2bf5dee6a78
+  SEC_TARGET_BRANCH: fix/trusted-verifier-causal-closure-v1
 
 jobs:
-  verify-and-publish:
+  verify-candidate:
     if: github.event.pull_request.number == 331 && github.event.pull_request.head.ref == 'validation/issue-178-workspace-export'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      head: ${{ steps.identity.outputs.head }}
+      tree: ${{ steps.identity.outputs.tree }}
+      artifact: ${{ steps.identity.outputs.artifact }}
     steps:
-      - name: Checkout exact main without persistent credentials
+      - name: Checkout exact source candidate
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
-          ref: ${{ env.SEC_BASE }}
-          fetch-depth: 1
+          ref: ${{ env.SEC_SOURCE_CANDIDATE }}
+          fetch-depth: 2
           persist-credentials: false
 
-      - name: Checkout validation payload without persistent credentials
+      - name: Checkout validation controls
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           ref: validation/issue-178-workspace-export
@@ -39,98 +44,177 @@ jobs:
           persist-credentials: false
           path: .tmp/validation-control
 
+      - name: Checkout exact host-independent test fix
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ env.SEC_TEST_RUNNER_FIX }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: .tmp/test-runner-fix
+
+      - name: Materialize immutable legacy P0 objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in \
+            'base 01d5c45a573337bee484d6a9d2effb2a76787b86' \
+            'head ab5d3a839afc1d595ae5c43437eb862cde1500c1' \
+            'tested 514e6e401659f18ecffca19856a11354d66d05df'; do
+            set -- $pair
+            name="$1"; sha="$2"
+            git clone --no-checkout --filter=blob:none "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" ".tmp/legacy-p0-$name"
+            git -C ".tmp/legacy-p0-$name" fetch --depth=1 origin "$sha"
+          done
+
       - name: Setup pinned Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
 
-      - name: Install exact dependencies without lifecycle scripts
+      - name: Install exact dependencies
         shell: bash
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Apply exact reviewed patch
+      - name: Apply reviewed final repairs
         shell: bash
         run: |
           set -euo pipefail
-          base64 -d .tmp/validation-control/validation/test-runner-host-independence.patch.gz.b64 | gzip -dc > .tmp/test-runner.patch
-          printf '%s  %s\n' "$SEC_PATCH_SHA256" .tmp/test-runner.patch | sha256sum -c -
-          git apply --index .tmp/test-runner.patch
-          rm -rf .tmp/validation-control .tmp/test-runner.patch
-          test "$(git diff --cached --name-only)" = 'tests/unit/test-runner.test.ts'
+          test "$(git rev-parse HEAD)" = "$SEC_SOURCE_CANDIDATE"
+          test "$(git rev-parse HEAD^)" = "$SEC_BASE"
+          cp .tmp/test-runner-fix/tests/unit/test-runner.test.ts tests/unit/test-runner.test.ts
+          python3 .tmp/validation-control/validation/finalize_issue_178.py
+          rm -rf .tmp/test-runner-fix .tmp/validation-control
+          git add -A
           git diff --cached --check
 
-      - name: Prove one-CPU host independence
+      - name: Build exact one-parent candidate
+        id: identity
         shell: bash
         run: |
           set -euo pipefail
-          taskset -c 0 bun -e "import {availableParallelism} from 'node:os'; if(availableParallelism()!==1) throw new Error('expected one CPU affinity');"
-          taskset -c 0 bun test tests/unit/test-runner.test.ts --timeout 30000
+          git config user.name 'SEC Trusted Bootstrap Validation'
+          git config user.email 'sec-bootstrap@example.invalid'
+          git reset --soft "$SEC_BASE"
+          git commit -m 'fix(tcb): converge verifier trust root to causal closure (#178)'
+          test "$(git rev-parse HEAD^)" = "$SEC_BASE"
+          test -z "$(git status --porcelain=v1)"
+          head="$(git rev-parse HEAD)"
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          artifact="sec-issue-178-verified-candidate-${head}-run-${GITHUB_RUN_ID}"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
 
-      - name: Prove two-CPU host independence
+      - name: Prove old trusted classifier requires bootstrap
+        shell: bash
+        env:
+          VERIFIED_HEAD: ${{ steps.identity.outputs.head }}
+        run: |
+          set -euo pipefail
+          base_dir="$RUNNER_TEMP/sec178-trusted-base"
+          git worktree add --detach "$base_dir" "$SEC_BASE"
+          cp -a node_modules "$base_dir/node_modules"
+          changed="$(git diff --name-only "$SEC_BASE" "$VERIFIED_HEAD")"
+          OLD_CHANGED="$changed" bun --cwd "$base_dir" -e "import { matchesCanonicalTrustRoot } from './platform/shared/tcb-closure-lock.ts'; const changed=(process.env.OLD_CHANGED??'').split(/\\r?\\n/u).filter(Boolean); const matched=changed.filter(matchesCanonicalTrustRoot); if(matched.length===0) throw new Error('old trusted classifier did not require bootstrap'); console.log(JSON.stringify({changed,matched},null,2));"
+          git worktree remove --force "$base_dir"
+
+      - name: Prove host-independent test-runner contract
         shell: bash
         run: |
           set -euo pipefail
-          taskset -c 0,1 bun -e "import {availableParallelism} from 'node:os'; if(availableParallelism()!==2) throw new Error('expected two CPU affinity');"
+          taskset -c 0 bun test tests/unit/test-runner.test.ts --timeout 30000
           taskset -c 0,1 bun test tests/unit/test-runner.test.ts --timeout 30000
 
-      - name: Prove runner-default behavior
+      - name: Run exact candidate physical verification
         shell: bash
-        run: bun test tests/unit/test-runner.test.ts --timeout 30000
-
-      - name: Run static gates
-        shell: bash
+        env:
+          GIT_ALTERNATE_OBJECT_DIRECTORIES: ${{ github.workspace }}/.tmp/legacy-p0-base/.git/objects:${{ github.workspace }}/.tmp/legacy-p0-head/.git/objects:${{ github.workspace }}/.tmp/legacy-p0-tested/.git/objects
+          SEC_CHANGED_BASE: ${{ env.SEC_BASE }}
+          SEC_AFFECTED_TESTS_BASE: ${{ env.SEC_BASE }}
+          SEC_WORK_PACKAGE_MANIFEST_PATH: docs/work-packages/trusted-verifier-causal-closure-v1.md
+          SEC_REPOSITORY_AUDIT_DEFAULT_REF: ${{ env.SEC_BASE }}
+          VERIFIED_HEAD: ${{ steps.identity.outputs.head }}
+          VERIFIED_TREE: ${{ steps.identity.outputs.tree }}
         run: |
           set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
           git update-ref refs/remotes/origin/main "$SEC_BASE"
-          bun run typecheck
+          test "$(git rev-parse HEAD)" = "$VERIFIED_HEAD"
+          test "$(git rev-parse HEAD^)" = "$SEC_BASE"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$VERIFIED_TREE"
+          bun -e "import {trustedRuntimeClosure,verifyTcbClosureLock,TCB_CLOSURE_LOCK,matchesCanonicalTrustRoot} from './platform/shared/tcb-closure-lock.ts'; import {SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1} from './platform/shared/tcb-trust-root-contract.ts'; const c=trustedRuntimeClosure(); const live=[...c.closure].sort(); const reg=[...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.causalRuntimePaths]; const v=verifyTcbClosureLock(c); const mg=trustedRuntimeClosure(['scripts/codex/merge-gate.ts']); const thirdParty=[...mg.observedExternalImports].filter(x=>!x.startsWith('node:')&&!x.startsWith('bun:')); if(JSON.stringify(live)!==JSON.stringify(reg)||JSON.stringify(live)!==JSON.stringify(TCB_CLOSURE_LOCK.modules)||v.status!=='passed'||thirdParty.length||c.closure.has('scripts/codex/repository-audit.ts')||matchesCanonicalTrustRoot('scripts/codex/repository-audit.ts')) throw new Error('TCB identity verification failed'); console.log(JSON.stringify({moduleCount:live.length,closureDigest:TCB_CLOSURE_LOCK.closureDigest,verification:v},null,2));"
           bun run imports:check
-          git diff --cached --check
+          bun run docs:doctor
+          bun run typecheck
+          git diff --check "$SEC_BASE".."$VERIFIED_HEAD"
+          bun test --timeout 180000 \
+            tests/unit/tcb-trust-root-contract.test.ts \
+            tests/unit/test-runner.test.ts \
+            tests/contract/ci-contract.test.ts \
+            tests/contract/sec-merge-gate.test.ts \
+            tests/contract/tcb-closure-lock.test.ts \
+            tests/contract/default-branch-revision-health.test.ts \
+            tests/contract/repository-audit.test.ts \
+            tests/contract/documentation-authority.test.ts \
+            tests/contract/test-impact.test.ts
+          bun scripts/codex/repository-audit.ts --json > .tmp/sec178-repository-audit.json
+          bun run check:affected --plan > .tmp/sec178-affected-plan.json
+          bun run test:affected
+          test -z "$(git status --porcelain=v1)"
 
-      - name: Build exact single-parent formal fix
-        id: build
+      - name: Package exact verified commit
         shell: bash
+        env:
+          VERIFIED_HEAD: ${{ steps.identity.outputs.head }}
+          VERIFIED_TREE: ${{ steps.identity.outputs.tree }}
         run: |
           set -euo pipefail
-          git config user.name 'SEC Validation Publisher'
-          git config user.email 'sec-validation@example.invalid'
-          git commit -m 'fix(test-runner): remove host-concurrency deadlocks'
-          test "$(git rev-parse HEAD^)" = "$SEC_BASE"
-          test "$(git diff --name-only "$SEC_BASE" HEAD)" = 'tests/unit/test-runner.test.ts'
-          test -z "$(git status --porcelain=v1)"
-          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
-          printf 'head=%s\ntree=%s\n' "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
+          out=.tmp/sec178-publish
+          mkdir -p "$out"
+          git bundle create "$out/candidate.bundle" "$VERIFIED_HEAD" ^"$SEC_BASE"
+          git bundle verify "$out/candidate.bundle"
+          printf 'base=%s\nhead=%s\ntree=%s\nparent=%s\n' "$SEC_BASE" "$VERIFIED_HEAD" "$VERIFIED_TREE" "$(git rev-parse "$VERIFIED_HEAD^")" > "$out/identity.txt"
+          (cd "$out" && sha256sum candidate.bundle identity.txt > SHA256SUMS)
 
-      - name: Publish formal fix branch
+      - name: Upload exact verified candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.identity.outputs.artifact }}
+          path: .tmp/sec178-publish
+          retention-days: 30
+          if-no-files-found: error
+
+  publish-candidate:
+    needs: verify-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout exact base
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ env.SEC_BASE }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download verified candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.verify-candidate.outputs.artifact }}
+          path: .tmp/sec178-publish
+
+      - name: Verify and publish exact commit without candidate execution
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          NEW_HEAD: ${{ steps.build.outputs.head }}
+          VERIFIED_HEAD: ${{ needs.verify-candidate.outputs.head }}
+          VERIFIED_TREE: ${{ needs.verify-candidate.outputs.tree }}
         run: |
           set -euo pipefail
-          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${NEW_HEAD}:refs/heads/${SEC_TARGET_BRANCH}"
-
-      - name: Record evidence
-        shell: bash
-        env:
-          NEW_HEAD: ${{ steps.build.outputs.head }}
-          NEW_TREE: ${{ steps.build.outputs.tree }}
-        run: |
-          mkdir -p .tmp/test-runner-evidence
-          {
-            printf 'schema=sec-test-runner-host-independence-v1\n'
-            printf 'base=%s\n' "$SEC_BASE"
-            printf 'head=%s\n' "$NEW_HEAD"
-            printf 'tree=%s\n' "$NEW_TREE"
-            printf 'patchSha256=%s\n' "$SEC_PATCH_SHA256"
-            printf 'bun=%s\n' "$(bun --revision)"
-            printf 'status=passed\n'
-          } > .tmp/test-runner-evidence/environment.txt
-
-      - name: Upload evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: sec-test-runner-host-independence-${{ steps.build.outputs.head }}-run-${{ github.run_id }}
-          path: .tmp/test-runner-evidence
-          retention-days: 30
-          if-no-files-found: error
+          (cd .tmp/sec178-publish && sha256sum -c SHA256SUMS)
+          git fetch .tmp/sec178-publish/candidate.bundle "$VERIFIED_HEAD"
+          test "$(git cat-file -p "$VERIFIED_HEAD" | sed -n 's/^parent //p')" = "$SEC_BASE"
+          test "$(git rev-parse "$VERIFIED_HEAD^{tree}")" = "$VERIFIED_TREE"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$VERIFIED_HEAD:refs/heads/$SEC_TARGET_BRANCH"
