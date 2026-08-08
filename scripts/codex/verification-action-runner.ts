@@ -183,7 +183,7 @@ export class VerificationActionRunnerV1 {
     }
 
     const ownerKeys = EXECUTION_CONTEXT.getStore();
-    if (ownerKeys?.has(key)) {
+    if (ownerKeys?.has(key) && IN_FLIGHT_ACTIONS.has(key)) {
       return outcome(
         action.actionKey,
         'blocked',
