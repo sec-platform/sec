@@ -108,6 +108,26 @@ jobs:
           import json
           from pathlib import Path
 
+          tcb_path = Path('platform/shared/tcb-closure-lock.ts')
+          tcb = tcb_path.read_text()
+          additions = [
+              (
+                  "  'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultChangedPathsV1::spawnSync#1',\n",
+                  "  'scripts/codex/branch-lifecycle-command.ts::const-arrow:defaultBranchLifecycleCommandRunner::spawnSync#1',\n",
+              ),
+              (
+                  "  'scripts/codex/merge-gate.ts::function-declaration:mergeGateGitResolvers>const-arrow:run::spawnSync#1',\n",
+                  "  'scripts/codex/sec-merge-bootstrap-runtime.ts::const-arrow:defaultShellRunner::spawnSync#1',\n",
+              ),
+          ]
+          for anchor, addition in additions:
+              if addition in tcb:
+                  raise SystemExit(f'reviewed dispatcher already present: {addition.strip()}')
+              if tcb.count(anchor) != 1:
+                  raise SystemExit(f'reviewed dispatcher anchor mismatch: {anchor.strip()}')
+              tcb = tcb.replace(anchor, addition + anchor, 1) if 'branch-lifecycle-command' in addition else tcb.replace(anchor, anchor + addition, 1)
+          tcb_path.write_text(tcb)
+
           path = Path('platform/shared/ci-trust-root-registry.json')
           registry = json.loads(path.read_text())
           entrypoint = 'scripts/codex/sec-merge-bootstrap.ts'
@@ -119,7 +139,7 @@ jobs:
           path.write_text(json.dumps(registry, indent=2) + '\n')
           PY
 
-          bun -e "import {readFileSync,writeFileSync} from 'node:fs'; import {trustedRuntimeClosure} from './platform/shared/tcb-closure-lock.ts'; const p='platform/shared/ci-trust-root-registry.json'; const r=JSON.parse(readFileSync(p,'utf8')); const c=trustedRuntimeClosure(); r.causalRuntimePaths=[...c.closure].sort(); writeFileSync(p,JSON.stringify(r,null,2)+'\\n'); console.log(JSON.stringify({moduleCount:r.causalRuntimePaths.length,entrypoints:r.runtimeEntrypoints.length},null,2));"
+          bun -e "import {readFileSync,writeFileSync} from 'node:fs'; import {trustedRuntimeClosure} from './platform/shared/tcb-closure-lock.ts'; const p='platform/shared/ci-trust-root-registry.json'; const r=JSON.parse(readFileSync(p,'utf8')); const c=trustedRuntimeClosure(); r.causalRuntimePaths=[...c.closure].sort(); writeFileSync(p,JSON.stringify(r,null,2)+'\\n'); console.log(JSON.stringify({moduleCount:r.causalRuntimePaths.length,entrypoints:r.runtimeEntrypoints.length,dispatchers:[...c.reviewedProcessDispatchers].sort()},null,2));"
           BASE="$BASE" bun -e "import {writeFileSync} from 'node:fs'; import {generateTcbClosureLockForRevision} from './platform/shared/tcb-closure-lock.ts'; writeFileSync('.tmp/sec178-p1/lock.json',JSON.stringify(generateTcbClosureLockForRevision(process.env.BASE),null,2)+'\\n');"
 
           python3 - <<'PY'
@@ -235,7 +255,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$VERIFIED_HEAD"
           test "$(git rev-parse HEAD^)" = "$SEC_BASE"
           test "$(git rev-parse 'HEAD^{tree}')" = "$VERIFIED_TREE"
-          bun -e "import {trustedRuntimeClosure,verifyTcbClosureLock,TCB_CLOSURE_LOCK,matchesCanonicalTrustRoot} from './platform/shared/tcb-closure-lock.ts'; import {SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1} from './platform/shared/tcb-trust-root-contract.ts'; const c=trustedRuntimeClosure(); const live=[...c.closure].sort(); const reg=[...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.causalRuntimePaths]; const v=verifyTcbClosureLock(c); for(const p of ['scripts/codex/sec-merge-bootstrap.ts','scripts/codex/sec-merge-bootstrap-runtime.ts','scripts/codex/branch-lifecycle.ts']) if(!c.closure.has(p)) throw new Error('authorization closure omits '+p); if(!matchesCanonicalTrustRoot('scripts/codex/sec-merge-bootstrap.ts')) throw new Error('merge bootstrap is not protected'); if(c.closure.has('scripts/codex/repository-audit.ts')||matchesCanonicalTrustRoot('scripts/codex/repository-audit.ts')) throw new Error('repository audit was re-promoted'); if(JSON.stringify(live)!==JSON.stringify(reg)||JSON.stringify(live)!==JSON.stringify(TCB_CLOSURE_LOCK.modules)||v.status!=='passed') throw new Error('TCB identity verification failed'); console.log(JSON.stringify({moduleCount:live.length,closureDigest:TCB_CLOSURE_LOCK.closureDigest},null,2));"
+          bun -e "import {trustedRuntimeClosure,verifyTcbClosureLock,TCB_CLOSURE_LOCK,matchesCanonicalTrustRoot} from './platform/shared/tcb-closure-lock.ts'; import {SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1} from './platform/shared/tcb-trust-root-contract.ts'; const c=trustedRuntimeClosure(); const live=[...c.closure].sort(); const reg=[...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.causalRuntimePaths]; const v=verifyTcbClosureLock(c); for(const p of ['scripts/codex/sec-merge-bootstrap.ts','scripts/codex/sec-merge-bootstrap-runtime.ts','scripts/codex/branch-lifecycle.ts','scripts/codex/branch-lifecycle-command.ts']) if(!c.closure.has(p)) throw new Error('authorization closure omits '+p); if(!matchesCanonicalTrustRoot('scripts/codex/sec-merge-bootstrap.ts')) throw new Error('merge bootstrap is not protected'); if(c.closure.has('scripts/codex/repository-audit.ts')||matchesCanonicalTrustRoot('scripts/codex/repository-audit.ts')) throw new Error('repository audit was re-promoted'); if(JSON.stringify(live)!==JSON.stringify(reg)||JSON.stringify(live)!==JSON.stringify(TCB_CLOSURE_LOCK.modules)||v.status!=='passed') throw new Error('TCB identity verification failed'); console.log(JSON.stringify({moduleCount:live.length,closureDigest:TCB_CLOSURE_LOCK.closureDigest,dispatchers:[...c.reviewedProcessDispatchers].sort()},null,2));"
           bun run imports:check
           bun run docs:doctor
           bun run typecheck
