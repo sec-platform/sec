@@ -93,49 +93,48 @@ jobs:
 
           workflow_path = Path('.github/workflows/sec-trusted-bootstrap.yml')
           workflow = workflow_path.read_text()
-          tested_checkout = """      - name: Materialize immutable P0 tested-head objects
-                uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-                with:
-                  ref: 514e6e401659f18ecffca19856a11354d66d05df
-                  path: .tmp/sec-trusted-bootstrap/p0-tested
-                  fetch-depth: 1
-                  persist-credentials: false
-          """
-          import_step = """
-                - name: Import immutable P0 objects into candidate repository
-                  shell: bash
-                  run: |
-                    set -euo pipefail
-                    git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-base HEAD
-                    git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-head HEAD
-                    git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-tested HEAD
-                    for sha in \\
-                      01d5c45a573337bee484d6a9d2effb2a76787b86 \\
-                      ab5d3a839afc1d595ae5c43437eb862cde1500c1 \\
-                      514e6e401659f18ecffca19856a11354d66d05df; do
-                      git cat-file -e \"${sha}^{commit}\"
-                    done
-                    git cat-file -e 334dd8dbe7162cd35f832257b735e79dd39e5650
-                    rm -rf .tmp/sec-trusted-bootstrap/p0-base .tmp/sec-trusted-bootstrap/p0-head .tmp/sec-trusted-bootstrap/p0-tested
-          """
-          if workflow.count(tested_checkout) != 1:
-              raise SystemExit('candidate bootstrap tested checkout anchor mismatch')
-          workflow = workflow.replace(tested_checkout, tested_checkout + import_step, 1)
-          alternate_line = "          GIT_ALTERNATE_OBJECT_DIRECTORIES: ${{ github.workspace }}/.tmp/sec-trusted-bootstrap/p0-base/.git/objects:${{ github.workspace }}/.tmp/sec-trusted-bootstrap/p0-head/.git/objects:${{ github.workspace }}/.tmp/sec-trusted-bootstrap/p0-tested/.git/objects\n"
-          if workflow.count(alternate_line) != 1:
-              raise SystemExit('candidate bootstrap alternate-object anchor mismatch')
-          workflow = workflow.replace(alternate_line, '', 1)
+          tested_marker = '      - name: Materialize immutable P0 tested-head objects\n'
+          setup_marker = '      - name: Setup trusted-base Bun runtime\n'
+          if workflow.count(tested_marker) != 1 or workflow.count(setup_marker) != 1:
+              raise SystemExit('candidate bootstrap P0 step markers are not unique')
+          if '      - name: Import immutable P0 objects into candidate repository\n' in workflow:
+              raise SystemExit('candidate bootstrap object import step already exists')
+          tested_index = workflow.index(tested_marker)
+          setup_index = workflow.index(setup_marker, tested_index)
+          import_step = """      - name: Import immutable P0 objects into candidate repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-base HEAD
+          git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-head HEAD
+          git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-tested HEAD
+          for sha in \\
+            01d5c45a573337bee484d6a9d2effb2a76787b86 \\
+            ab5d3a839afc1d595ae5c43437eb862cde1500c1 \\
+            514e6e401659f18ecffca19856a11354d66d05df; do
+            git cat-file -e "${sha}^{commit}"
+          done
+          git cat-file -e 334dd8dbe7162cd35f832257b735e79dd39e5650
+          rm -rf .tmp/sec-trusted-bootstrap/p0-base .tmp/sec-trusted-bootstrap/p0-head .tmp/sec-trusted-bootstrap/p0-tested
+
+"""
+          workflow = workflow[:setup_index] + import_step + workflow[setup_index:]
+          alternate_prefix = '          GIT_ALTERNATE_OBJECT_DIRECTORIES:'
+          alternate_lines = [line for line in workflow.splitlines(keepends=True) if line.startswith(alternate_prefix)]
+          if len(alternate_lines) != 1:
+              raise SystemExit(f'candidate bootstrap expected one alternate-object env line, found {len(alternate_lines)}')
+          workflow = workflow.replace(alternate_lines[0], '', 1)
           workflow_path.write_text(workflow)
 
           contract_path = Path('tests/contract/ci-contract.test.ts')
           contract = contract_path.read_text()
           old = "  expect(bootstrapWorkflowSource).toContain('GIT_ALTERNATE_OBJECT_DIRECTORIES');\n"
           new = """  expect(bootstrapWorkflowSource).not.toContain('GIT_ALTERNATE_OBJECT_DIRECTORIES');
-            expect(bootstrapWorkflowSource).toContain('Import immutable P0 objects into candidate repository');
-            expect(bootstrapWorkflowSource).toContain('git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-base HEAD');
+          expect(bootstrapWorkflowSource).toContain('Import immutable P0 objects into candidate repository');
+          expect(bootstrapWorkflowSource).toContain('git fetch --no-tags --no-write-fetch-head .tmp/sec-trusted-bootstrap/p0-base HEAD');
           """
           if contract.count(old) != 1:
-              raise SystemExit('ci contract alternate-object anchor mismatch')
+              raise SystemExit('ci contract alternate-object assertion anchor mismatch')
           contract_path.write_text(contract.replace(old, new, 1))
           PY
           rm -rf .tmp/test-runner-fix .tmp/validation-control
