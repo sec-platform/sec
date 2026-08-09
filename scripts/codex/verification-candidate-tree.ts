@@ -3,10 +3,12 @@
  * for a session (Issue #311 Phase 0).
  */
 
+import { spawnSync } from 'node:child_process';
+
 import {
-  commandErrorText,
-  runBranchCommand,
-  type BranchLifecycleContext
+  createBranchLifecycleGitChildEnvironmentV1,
+  decodeBranchLifecycleChildErrorV1,
+  decodeBranchLifecycleChildStdoutV1
 } from './branch-lifecycle-command.ts';
 import {
   createCandidateTreeParityV1,
@@ -15,14 +17,31 @@ import {
 } from './verification-session-contract.ts';
 
 export function resolveTreeSha(
-  ctx: BranchLifecycleContext,
+  repositoryRoot: string,
   ref: string
 ): string {
-  const result = runBranchCommand(ctx, 'git', ['rev-parse', '--verify', `${ref}^{tree}`]);
+  if (ref.includes('\0')) throw new Error('Tree ref contains NUL.');
+  const spawned = spawnSync('git', ['rev-parse', '--verify', `${ref}^{tree}`], {
+    cwd: repositoryRoot,
+    encoding: 'buffer',
+    windowsHide: true,
+    timeout: 60_000,
+    maxBuffer: 32 * 1024 * 1024,
+    env: createBranchLifecycleGitChildEnvironmentV1(process.env)
+  });
+  const result = {
+    status: spawned.status,
+    stdout: Buffer.isBuffer(spawned.stdout)
+      ? spawned.stdout
+      : Buffer.from(String(spawned.stdout ?? '')),
+    stderr: Buffer.isBuffer(spawned.stderr)
+      ? spawned.stderr
+      : Buffer.from(String(spawned.stderr ?? spawned.error?.message ?? ''))
+  };
   if (result.status !== 0) {
-    throw new Error(`Cannot resolve tree for ${ref}: ${commandErrorText(result)}`);
+    throw new Error(`Cannot resolve tree for ${ref}: ${decodeBranchLifecycleChildErrorV1(result)}`);
   }
-  const sha = result.stdout.toString('utf8').trim();
+  const sha = decodeBranchLifecycleChildStdoutV1(result);
   if (!/^[0-9a-f]{40}$/u.test(sha)) {
     throw new Error(`Resolved tree identity is invalid for ${ref}.`);
   }

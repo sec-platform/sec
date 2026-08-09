@@ -34,66 +34,32 @@ last-reviewed: 2026-08-08
 
 ## 当前唯一 Work Package
 
-### verification-action-kernel-finalization-v1
+### verification-action-trusted-cutover-v9
 
-Owners：Issue #311 ordinary-SUT finalization，消费已合并的 #338 action-reuse kernel。
+Owners：#311/#179/#178/#176/#217/#316。
 
-目标：在当前不属于 causal TCB 的 `scripts/codex/verification-action-*` seam 上一次收束
-post-merge audit 发现的最后四个 correctness seam：
+V8 exact-head Review 与 old-main bootstrap 已证明最后两类同一 trust epoch 阻断：
+integration rerun/timeout identity 仍有缺口；dev-runner authority proof 把全仓
+`platform/scripts` executable census 误作 canonical authority closure，使 unrelated source/data
+进入唯一 Program 并把完整 contract 放大到既有 180 秒预算之外。V9 对全部旧证明做一次 reset，
+保留 V8 已完成的产品边界，只关闭这两个已有 exact witness 的根因。
 
-```text
-VerificationAction semantic identity + logical cwd/topology
-→ static Action plan
-→ local machine-state resolution
-→ execute | join-running | reuse-terminal | invalidate | cancel
-→ dependency closure readback
-→ deterministic terminal projection with owner cycle guard
-```
-
-T1.1 必须：
-
-- logical working directory 与 required cheap-preflight topology 进入 producer-owned ActionKey；
-- owner identity 固定为 `ownerToken + ActionKey`，executionDomain 变化不能绕过 cycle guard；
-- physical execute 前后都重新读取 dependency closure，closure 改变或 action 被 invalidated/cancelled
-  时绝不提交 terminal；
-- Action/Plan 入口只接受严格 ordinary data，V2 schema 与独立 journal namespace 让旧 disposable
-  journal 确定性失效；
-- `executionClass` 从 ActionKey 移出；它只属于 Plan/Scheduler policy，cheap-before-expensive
-  授权只由 required cheap-preflight topology 表达；
-- plan topology 不再携带 caller-authored dependency state，runnable 只消费 journal machine fact；
-- 同一 ActionKey 的外部并发 caller 只 join 一次物理执行；owner 的 awaited nested cycle typed
-  拒绝、不死锁、不重复 spawn；
-- failure 可复用为已知失败事实但永不变 PASS，restart/invalidation/reuse 仍 fail closed；
-- 不修改 workflow、dev-runner、Test Impact trust rules、TCB lock/registry、CI Evidence、
-  merge-gate、package/lock 和产品 Compiler。
-
-T2 `verification-action-trusted-cutover-v1` 仍须从本包完成 Review receipt、Gate 和 new-main
-readback 后的新 `main` 冻结，一次性承担 trust-root migration、Review-Stable Barrier、
-physical merge authorization、CI Evidence/VerificationSession 接线及 `--admin` bypass
-退役；不在本包提前接线。
+- integration 每次 attempt 独立 live-authorize original actor 与 triggering actor，恢复 artifact
+  保留 first-effect publication attempt，不被后续 rerun restamp；
+- SUT job timeout 严格大于 3,600 秒 sandbox 上限并保留 terminalization reserve，MainHealth join
+  严格覆盖 producer 上限与完整 poll interval；
+- dev-runner proof 从 live scenario 已声明的 authority roots 构建 tracked、identity-bound transitive
+  executable/data resource closure，不扫描或硬编码 unrelated repository paths；
+- 完整 live closure 与 41 个 adversarial scenarios 继续共享 one Program/TypeChecker/resolver/index/
+  topology/solve，phase counters 证明 canonical parity、exact-once work 与 non-amplification；
+- 不增加 timeout、不删除 scenario、不增加 second analyzer/cache/solver，不修改产品 Compiler、
+  package/toolchain 或 unrelated verifier surface；
+- 最终仍由 old main 把单父 V9 candidate 当 SUT 独立验证，fresh Review、bootstrap、merge 与
+  new-main readback 不得复用任何 V8 receipt。
 
 ## 候选 Work Package
 
-### 1. verification-action-trusted-cutover-v1
-
-Owners：#311/#179/#178/#176/#316。
-
-必须先消费并合并 T1.1 ordinary-SUT defect closure；本包只支付一次 trust-root migration
-成本，并在同一切换中修复 Review-Stable Barrier 与 physical merge authorization，禁止把
-三者拆成互相依赖的半 bootstrap。
-
-- 从新 main 消费已经验证的 Action identity；
-- 由 old trusted revision 证明 TCB delta；
-- 将当前 CI Evidence reuse / VerificationSession / dev-runner 接到唯一 Action identity；
-- same ActionKey across Agent/CLI/workflow 只允许一个 producer；
--建立 MainHealth repair lane 和 candidate scope stability；
-- frozen authorization 后新增 write path 必须 new authorized package/session revision，
-  candidate 不能通过修改 manifest 给自己扩权；
-- baseline imports、verifier、selector、test-runner defect 默认路由独立 repair，
-  不再吸入无关 SUT candidate；
--开始退役重复 dispatch / PR-body refresh / duplicate execution surface。
-
-### 2. semantic-impact-failure-routing-v1
+### 1. semantic-impact-failure-routing-v1
 
 Owners：#188/#177/#205/#176/#314。
 
@@ -107,7 +73,7 @@ Owners：#188/#177/#205/#176/#314。
 - #205 preflight 阻止同类第二次 leaf patch 与无证明 scope expansion；
 - #314 机器禁止 child delivery slice 自动关闭 parent Program。
 
-### 3. feedback-scheduler-hermetic-runtime-v1
+### 2. feedback-scheduler-hermetic-runtime-v1
 
 Owners：#189/#190/#316。
 
@@ -120,7 +86,7 @@ Owners：#189/#190/#316。
 - independent expensive actions 并行，冲突资源有序；
 - cache/environment failure typed 化，不再靠“再跑一次”恢复。
 
-### 4. compiler-incremental-toolchain-v1
+### 3. compiler-incremental-toolchain-v1
 
 Owners：#194/#296/#312/#193/#316。
 

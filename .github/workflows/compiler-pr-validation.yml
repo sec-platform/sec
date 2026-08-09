@@ -1,244 +1,1014 @@
 name: compiler-pr-validation
-run-name: 'verify frozen PR #${{ github.event.client_payload.pull_request }} ${{ github.event.client_payload.profile }} @ ${{ github.event.client_payload.expected_head }} base ${{ github.event.client_payload.expected_base }}'
+run-name: "${{ github.event_name == 'push' && format('SEC main health {0}', github.sha) || github.event.action == 'sec-produce-main-health-v1' && format('SEC main health {0} operation {1}', github.event.client_payload.payload.mainSha, github.event.client_payload.payload.requestOperationId) || github.event.action == 'sec-produce-verification-action-v2' && format('produce Action {0}', github.event.client_payload.payload.proposal.proposedActionKey) || format('verify session PR #{0} session {1}', github.event.client_payload.payload.prNumber, github.event.client_payload.payload.expectedSessionRevision) }}"
 
 on:
+  push:
+    branches:
+      - main
   repository_dispatch:
     types:
-      - sec-verify-frozen-v1
+      - sec-verify-session-v2
+      - sec-produce-verification-action-v2
+      - sec-produce-main-health-v1
 
 permissions:
+  actions: read
   contents: read
   pull-requests: read
 
-concurrency:
-  group: compiler-pr-verification-${{ github.event.client_payload.pull_request }}
-  cancel-in-progress: true
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # Canonical hosted Action wall-clock budget. Job ceilings alias these exact
+  # values, while the Session coordinator derives its complete join window from
+  # the same definition instead of maintaining an independent polling guess.
+  SEC_ACTION_RESOLVER_TIMEOUT_MINUTES: &sec_action_resolver_timeout_minutes 20
+  SEC_ACTION_CLAIM_TIMEOUT_MINUTES: &sec_action_claim_timeout_minutes 35
+  SEC_ACTION_SUT_TIMEOUT_MINUTES: &sec_action_sut_timeout_minutes 75
+  SEC_ACTION_ASSEMBLER_TIMEOUT_MINUTES: &sec_action_assembler_timeout_minutes 30
+  SEC_ACTION_COORDINATION_OVERHEAD_MINUTES: &sec_action_coordination_overhead_minutes 5
+  SEC_ACTION_COORDINATION_POLL_INTERVAL_SECONDS: &sec_action_coordination_poll_interval_seconds 15
+  SEC_SESSION_REVIEW_WINDOW_MINUTES: &sec_session_review_window_minutes 20
+  SEC_SESSION_REVIEW_POLL_INTERVAL_SECONDS: &sec_session_review_poll_interval_seconds 20
+  SEC_SESSION_COORDINATOR_OVERHEAD_MINUTES: &sec_session_coordinator_overhead_minutes 10
+  SEC_SESSION_COORDINATOR_TIMEOUT_MINUTES: &sec_session_coordinator_timeout_minutes 195
 
 jobs:
-  compiler-pr-verification:
-    runs-on: ubuntu-latest
-    timeout-minutes: 75
+  validate-hosted-request:
+    if: ${{ github.event_name == 'repository_dispatch' && github.event.action != 'sec-produce-main-health-v1' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      request-kind: ${{ steps.request.outputs.request-kind }}
+      session-request-base64: ${{ steps.request.outputs.session-request-base64 }}
+      action-envelope-base64: ${{ steps.request.outputs.action-envelope-base64 }}
+      base-sha: ${{ steps.request.outputs.base-sha }}
+      base-tree-sha: ${{ steps.request.outputs.base-tree-sha }}
+      head-sha: ${{ steps.request.outputs.head-sha }}
+      head-tree-sha: ${{ steps.request.outputs.head-tree-sha }}
+      pr-number: ${{ steps.request.outputs.pr-number }}
+      session-revision: ${{ steps.request.outputs.session-revision }}
+      session-revision-hex: ${{ steps.request.outputs.session-revision-hex }}
     steps:
-      - name: Resolve trusted frozen request, exact head, current base, and profile
-        id: verification
+      - name: Resolve proposal against live default, PR, candidate, and actor
+        id: request
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
-          EVENT_TYPE: sec-verify-frozen-v1
-          WORKFLOW_HEAD: ${{ github.sha }}
-          ACTOR: ${{ github.actor }}
-          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          EVENT_TYPE: ${{ github.event.action }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          ACTOR_LOGIN: ${{ github.actor }}
+          TRIGGERING_ACTOR_LOGIN: ${{ github.triggering_actor }}
+          EVENT_SENDER_JSON: ${{ toJSON(github.event.sender) }}
         with:
           script: |
             const crypto = require('crypto');
             const payload = JSON.parse(process.env.PAYLOAD_JSON);
-            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('client_payload must be an object.');
-            const expectedKeys = [
-              'expected_base', 'expected_head', 'manifest_digest', 'manifest_path', 'profile', 'pull_request', 'schema'
-            ];
-            if (JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(expectedKeys)) {
-              throw new Error('client_payload keys are invalid.');
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+              throw new Error('client_payload must be one object.');
             }
-            if (payload.schema !== 'codex-development-frozen-verification-request-v1') throw new Error('client_payload schema is invalid.');
-            if (!Number.isSafeInteger(payload.pull_request) || payload.pull_request <= 0) throw new Error('pull_request is invalid.');
-            for (const key of ['expected_base', 'expected_head']) {
-              if (typeof payload[key] !== 'string' || !/^[0-9a-f]{40}$/.test(payload[key])) throw new Error(`${key} is invalid.`);
+            const sessionKeys = [
+              'schema', 'prNumber', 'expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha',
+              'expectedHeadTreeSha', 'manifestPath', 'manifestDigest', 'profile',
+              'expectedScopeProposalDigest', 'expectedActionPlanDigest', 'expectedSessionRevision',
+              'reviewPolicyDigest', 'requestOperationId'
+            ].sort();
+            const eventType = process.env.EVENT_TYPE;
+            let sessionRequest;
+            let actionEnvelope = null;
+            const wrapperKeys = Object.keys(payload).sort();
+            if (wrapperKeys.length !== 1 || wrapperKeys[0] !== 'payload' ||
+                !payload.payload || typeof payload.payload !== 'object' || Array.isArray(payload.payload)) {
+              throw new Error('Hosted compiler client_payload must be the exact one-key object wrapper.');
             }
-            if (payload.profile !== 'quick' && payload.profile !== 'full') throw new Error('profile is invalid.');
-            if (typeof payload.manifest_path !== 'string' || !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(payload.manifest_path)) {
-              throw new Error('manifest_path is invalid.');
+            if (eventType === 'sec-verify-session-v2') {
+              sessionRequest = payload.payload;
+              const keys = Object.keys(sessionRequest).sort();
+              if (keys.length !== sessionKeys.length || keys.some((key, index) => key !== sessionKeys[index])) {
+                throw new Error('External Session payload has unknown or missing fields.');
+              }
+            } else if (eventType === 'sec-produce-verification-action-v2') {
+              const providerEnvelope = payload.payload;
+              const keys = Object.keys(providerEnvelope).sort();
+              const expected = [
+                'parentDispatchPlanArchiveDigest', 'parentDispatchPlanArtifactId',
+                'parentDispatchPlanArtifactName', 'parentDispatchPlanDigest',
+                'parentDispatchPlanPayloadDigest', 'parentJobId', 'parentJobName',
+                'parentPlanStepName', 'parentRunAttempt', 'parentRunId',
+                'parentWorkflowPath', 'parentWorkflowRef', 'parentWorkflowSha', 'proposal', 'schema'
+              ].sort();
+              if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index]) ||
+                  providerEnvelope.schema !== 'sec-verification-action-provider-envelope-v2') {
+                throw new Error('Internal Action payload is not the exact provider-envelope schema.');
+              }
+              const proposal = providerEnvelope.proposal;
+              const proposalKeys = Object.keys(proposal ?? {}).sort();
+              const exactProposalKeys = ['proposedActionKey', 'schema', 'sessionRequest'];
+              if (proposalKeys.length !== exactProposalKeys.length ||
+                  proposalKeys.some((key, index) => key !== exactProposalKeys[index]) ||
+                  proposal.schema !== 'sec-verification-action-proposal-v2' ||
+                  typeof proposal.proposedActionKey !== 'string' ||
+                  !/^sha256:[0-9a-f]{64}$/.test(proposal.proposedActionKey)) {
+                throw new Error('Internal Action envelope proposal is not canonical.');
+              }
+              sessionRequest = proposal.sessionRequest;
+              actionEnvelope = providerEnvelope;
+              const keys2 = Object.keys(sessionRequest ?? {}).sort();
+              if (keys2.length !== sessionKeys.length || keys2.some((key, index) => key !== sessionKeys[index])) {
+                throw new Error('Internal Action Session request has unknown or missing fields.');
+              }
+            } else {
+              throw new Error('Unknown hosted compiler dispatch type.');
             }
-            if (typeof payload.manifest_digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(payload.manifest_digest)) {
-              throw new Error('manifest_digest is invalid.');
+            if (sessionRequest.schema !== 'sec-verification-session-hosted-request-v1') {
+              throw new Error('Session request schema is invalid.');
             }
-            if (process.env.EVENT_TYPE !== 'sec-verify-frozen-v1') throw new Error('repository_dispatch type is invalid.');
-            const [repository, pull, actorPermission, triggeringPermission] = await Promise.all([
+            const sha = (value, label) => {
+              if (typeof value !== 'string' || !/^[0-9a-f]{40}$/.test(value)) throw new Error(`${label} is invalid.`);
+              return value;
+            };
+            const digest = (value, label) => {
+              if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(value)) throw new Error(`${label} is invalid.`);
+              return value;
+            };
+            if (!Number.isSafeInteger(sessionRequest.prNumber) || sessionRequest.prNumber < 1) throw new Error('prNumber is invalid.');
+            for (const key of ['expectedBaseSha', 'expectedBaseTreeSha', 'expectedHeadSha', 'expectedHeadTreeSha']) sha(sessionRequest[key], key);
+            for (const key of ['manifestDigest', 'expectedScopeProposalDigest', 'expectedActionPlanDigest', 'expectedSessionRevision', 'reviewPolicyDigest', 'requestOperationId']) digest(sessionRequest[key], key);
+            if (!['quick', 'full'].includes(sessionRequest.profile) ||
+                typeof sessionRequest.manifestPath !== 'string' ||
+                !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(sessionRequest.manifestPath)) {
+              throw new Error('Session profile or manifest path is invalid.');
+            }
+            const [repository, pull] = await Promise.all([
               github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
-              github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: payload.pull_request }),
-              github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner, repo: context.repo.repo, username: process.env.ACTOR
-              }),
-              github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner, repo: context.repo.repo, username: process.env.TRIGGERING_ACTOR
-              })
+              github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: sessionRequest.prNumber })
             ]);
             const trusted = (permission) => permission === 'maintain' || permission === 'admin';
-            if (!trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
-              throw new Error('Frozen verification dispatch requires maintain/admin actor and triggering actor.');
-            }
-            const livePull = pull.data;
-            const [baseBranch, openPulls, headCommit] = await Promise.all([
-              github.rest.repos.getBranch({
-                owner: context.repo.owner, repo: context.repo.repo, branch: repository.data.default_branch
-              }),
-              github.paginate(github.rest.pulls.list, {
-                owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100
-              }),
-              github.rest.repos.getCommit({ owner: context.repo.owner, repo: context.repo.repo, ref: payload.expected_head })
-            ]);
-            const currentBase = baseBranch.data.commit.sha;
-            if (
-              process.env.WORKFLOW_HEAD !== currentBase ||
-              currentBase !== payload.expected_base ||
-              livePull.state !== 'open' ||
-              livePull.base.sha !== currentBase ||
-              livePull.head.sha !== payload.expected_head ||
-              livePull.base.repo.id !== repository.data.id ||
-              livePull.head.repo?.id !== repository.data.id ||
-              headCommit.data.parents.length !== 1 ||
-              headCommit.data.parents[0].sha !== currentBase ||
-              openPulls.filter((candidate) => candidate.head.sha === payload.expected_head).length !== 1
-            ) throw new Error('Frozen verification request is stale or not one same-repository single-parent PR head.');
-            const locatorLines = (livePull.body ?? '').replaceAll('\r\n', '\n').split('\n')
-              .filter((line) => line.startsWith('Work-Package:'));
-            if (locatorLines.length !== 1 || locatorLines[0] !== `Work-Package: ${payload.manifest_path}`) {
-              throw new Error('PR Work-Package locator does not match dispatch payload.');
-            }
-            const [headTree, baseTree] = await Promise.all([
-              github.rest.git.getTree({
-                owner: context.repo.owner, repo: context.repo.repo,
-                tree_sha: headCommit.data.commit.tree.sha, recursive: 'true'
-              }),
-              github.rest.git.getTree({
-                owner: context.repo.owner, repo: context.repo.repo,
-                tree_sha: baseBranch.data.commit.commit.tree.sha, recursive: 'true'
-              })
-            ]);
-            if (headTree.data.truncated || baseTree.data.truncated) throw new Error('Verifier trust-root tree comparison was truncated.');
-            const manifestEntry = headTree.data.tree.find((entry) => entry.path === payload.manifest_path);
-            if (
-              !manifestEntry || manifestEntry.type !== 'blob' || manifestEntry.mode !== '100644' ||
-              typeof manifestEntry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(manifestEntry.sha)
-            ) throw new Error('Work Package manifest must be one non-executable ordinary Git blob.');
-            const manifestResponse = await github.rest.git.getBlob({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              file_sha: manifestEntry.sha
-            });
-            if (manifestResponse.data.encoding !== 'base64' || typeof manifestResponse.data.content !== 'string') {
-              throw new Error('Work Package manifest blob encoding is invalid.');
-            }
-            const manifestBytes = Buffer.from(manifestResponse.data.content.replaceAll('\n', ''), 'base64');
-            const manifestBlobSha = crypto.createHash('sha1')
-              .update(`blob ${manifestBytes.byteLength}\0`).update(manifestBytes).digest('hex');
-            const manifestDigest = `sha256:${crypto.createHash('sha256').update(manifestBytes).digest('hex')}`;
-            if (
-              manifestBytes.byteLength <= 0 || manifestBytes.byteLength > 131072 ||
-              manifestResponse.data.size !== manifestBytes.byteLength ||
-              manifestBlobSha !== manifestEntry.sha ||
-              manifestDigest !== payload.manifest_digest
-            ) throw new Error('Work Package manifest blob identity, length, or digest is stale.');
-            const registryPath = 'platform/shared/ci-trust-root-registry.json';
-            const registryEntry = baseTree.data.tree.find((entry) => entry.path === registryPath);
-            if (
-              !registryEntry || registryEntry.type !== 'blob' || registryEntry.mode !== '100644' ||
-              typeof registryEntry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(registryEntry.sha)
-            ) throw new Error('Trusted-base trust-root registry is unavailable or not one ordinary blob.');
-            const registryResponse = await github.rest.git.getBlob({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              file_sha: registryEntry.sha
-            });
-            if (registryResponse.data.encoding !== 'base64' || typeof registryResponse.data.content !== 'string') {
-              throw new Error('Trusted-base trust-root registry blob encoding is invalid.');
-            }
-            const registryBytes = Buffer.from(registryResponse.data.content.replaceAll('\n', ''), 'base64');
-            let registry;
-            try {
-              registry = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(registryBytes));
-            } catch {
-              throw new Error('Trusted-base trust-root registry is not strict UTF-8 JSON.');
-            }
-            const registryKeys = [
-              'causalRuntimePaths', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
-              'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
-            ];
-            if (
-              !registry || typeof registry !== 'object' || Array.isArray(registry) ||
-              registry.schema !== 'sec-trusted-bootstrap-registry-v1' ||
-              JSON.stringify(Object.keys(registry).sort()) !== JSON.stringify(registryKeys)
-            ) throw new Error('Trusted-base trust-root registry schema is invalid.');
-            for (const key of ['staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'causalRuntimePaths']) {
-              if (!Array.isArray(registry[key]) || registry[key].some((entry) => typeof entry !== 'string')) {
-                throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);
+            if (actionEnvelope === null) {
+              const [actorPermission, triggeringPermission] = await Promise.all([
+                github.rest.repos.getCollaboratorPermissionLevel({ owner: context.repo.owner, repo: context.repo.repo, username: process.env.ACTOR_LOGIN }),
+                github.rest.repos.getCollaboratorPermissionLevel({ owner: context.repo.owner, repo: context.repo.repo, username: process.env.TRIGGERING_ACTOR_LOGIN })
+              ]);
+              if (!trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
+                throw new Error('External Session dispatch requires maintain/admin actor and triggering actor.');
+              }
+            } else {
+              const sender = JSON.parse(process.env.EVENT_SENDER_JSON);
+              if (process.env.ACTOR_LOGIN !== 'github-actions[bot]' ||
+                  sender?.login !== 'github-actions[bot]' || sender?.id !== 41898282 ||
+                  sender?.node_id !== 'MDM6Qm90NDE4OTgyODI=' || sender?.type !== 'Bot') {
+                throw new Error('Internal Action dispatch sender is not the canonical Actions bot.');
               }
             }
-            const trustFiles = new Set([...registry.staticExactPaths, ...registry.causalRuntimePaths]);
-            const trustDirectories = registry.staticDirectoryPaths;
-            const trustPrefixes = registry.staticPrefixes;
-            const selectTrust = (tree) => Object.fromEntries(tree
-              .filter((entry) => entry.path && (
-                trustFiles.has(entry.path) ||
-                trustDirectories.some((directory) => entry.path.startsWith(directory)) ||
-                trustPrefixes.some((prefix) => entry.path.startsWith(prefix))
-              ))
-              .map((entry) => [entry.path, `${entry.mode}:${entry.type}:${entry.sha}`])
-              .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
-            if (JSON.stringify(selectTrust(headTree.data.tree)) !== JSON.stringify(selectTrust(baseTree.data.tree))) {
-              throw new Error('manual-bootstrap-required: frozen head changes verifier trust-root blobs.');
+            const [baseBranch, headCommit, openPulls] = await Promise.all([
+              github.rest.repos.getBranch({ owner: context.repo.owner, repo: context.repo.repo, branch: repository.data.default_branch }),
+              github.rest.repos.getCommit({ owner: context.repo.owner, repo: context.repo.repo, ref: sessionRequest.expectedHeadSha }),
+              github.paginate(github.rest.pulls.list, { owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100 })
+            ]);
+            const baseSha = baseBranch.data.commit.sha;
+            const baseTreeSha = baseBranch.data.commit.commit.tree.sha;
+            const pullData = pull.data;
+            const sameHead = openPulls.filter((candidate) => candidate.head.sha === sessionRequest.expectedHeadSha &&
+              candidate.base.ref === repository.data.default_branch && candidate.head.repo?.id === repository.data.id &&
+              candidate.base.repo?.id === repository.data.id);
+            if (process.env.WORKFLOW_SHA !== baseSha || sessionRequest.expectedBaseSha !== baseSha ||
+                sessionRequest.expectedBaseTreeSha !== baseTreeSha || pullData.state !== 'open' || pullData.draft ||
+                pullData.base.ref !== repository.data.default_branch || pullData.base.sha !== baseSha ||
+                pullData.head.sha !== sessionRequest.expectedHeadSha ||
+                headCommit.data.commit.tree.sha !== sessionRequest.expectedHeadTreeSha ||
+                pullData.base.repo?.id !== repository.data.id || pullData.head.repo?.id !== repository.data.id ||
+                sameHead.length !== 1) {
+              throw new Error('Hosted request default/base/head/tree/PR identity is stale or ambiguous.');
             }
-            core.setOutput(
-              'trust-registry-digest',
-              `sha256:${crypto.createHash('sha256').update(registryBytes).digest('hex')}`
-            );
-            core.setOutput('profile', payload.profile);
-            core.setOutput('head', payload.expected_head);
-            core.setOutput('base', currentBase);
-            core.setOutput('affected-base', headCommit.data.parents[0].sha);
-            core.setOutput('manifest', payload.manifest_path);
-            core.setOutput('pull-request', String(payload.pull_request));
+            const comparison = await github.rest.repos.compareCommitsWithBasehead({
+              owner: context.repo.owner, repo: context.repo.repo,
+              basehead: `${baseSha}...${sessionRequest.expectedHeadSha}`
+            });
+            if (comparison.data.behind_by !== 0 || !['ahead', 'identical'].includes(comparison.data.status)) {
+              throw new Error('Candidate must contain the exact current base; multi-commit heads are allowed.');
+            }
+            const locator = (pullData.body ?? '').replaceAll('\r\n', '\n').split('\n')
+              .filter((line) => line.startsWith('Work-Package:'));
+            if (locator.length !== 1 || locator[0] !== `Work-Package: ${sessionRequest.manifestPath}`) {
+              throw new Error('PR Work-Package locator differs from the request.');
+            }
+            const manifest = await github.rest.repos.getContent({
+              owner: context.repo.owner, repo: context.repo.repo,
+              path: sessionRequest.manifestPath, ref: sessionRequest.expectedHeadSha
+            });
+            if (Array.isArray(manifest.data) || manifest.data.type !== 'file' || manifest.data.encoding !== 'base64') {
+              throw new Error('Work Package manifest is not one ordinary Git blob.');
+            }
+            const bytes = Buffer.from(manifest.data.content.replaceAll('\n', ''), 'base64');
+            const blobSha = crypto.createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+            const manifestDigest = `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`;
+            if (bytes.length === 0 || bytes.length > 131072 || blobSha !== manifest.data.sha ||
+                manifestDigest !== sessionRequest.manifestDigest) {
+              throw new Error('Work Package blob identity or digest is stale.');
+            }
+            core.setOutput('request-kind', actionEnvelope === null ? 'session' : 'action');
+            core.setOutput('session-request-base64', Buffer.from(JSON.stringify(sessionRequest)).toString('base64'));
+            core.setOutput('action-envelope-base64', actionEnvelope === null ? '' : Buffer.from(JSON.stringify(actionEnvelope)).toString('base64'));
+            core.setOutput('base-sha', baseSha);
+            core.setOutput('base-tree-sha', baseTreeSha);
+            core.setOutput('head-sha', sessionRequest.expectedHeadSha);
+            core.setOutput('head-tree-sha', sessionRequest.expectedHeadTreeSha);
+            core.setOutput('pr-number', String(sessionRequest.prNumber));
+            core.setOutput('session-revision', sessionRequest.expectedSessionRevision);
+            core.setOutput('session-revision-hex', sessionRequest.expectedSessionRevision.slice(7));
 
-      - name: Checkout exact PR head
+  coordinate-verification-session:
+    name: coordinate-verification-session
+    if: ${{ needs.validate-hosted-request.outputs.request-kind == 'session' }}
+    needs: validate-hosted-request
+    runs-on: ubuntu-24.04
+    # 20m Review + (20m resolver + 35m claim + 75m SUT + 30m assembler)
+    # + 5m Action transition reserve + 10m coordinator setup/finalization.
+    timeout-minutes: *sec_session_coordinator_timeout_minutes
+    permissions:
+      actions: read
+      checks: read
+      contents: write
+      issues: write
+      pull-requests: read
+      statuses: read
+    concurrency:
+      group: sec-verification-session-${{ github.repository_id }}-${{ needs.validate-hosted-request.outputs.session-revision-hex }}
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - name: Checkout trusted exact default base for Session coordination
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
-          ref: ${{ steps.verification.outputs.head }}
-          fetch-depth: 2
+          ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
+          fetch-depth: 0
           persist-credentials: false
 
-      - name: Setup Bun
+      - name: Setup trusted Bun for Session coordination
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
 
-      - name: Cache bun install
-        uses: actions/cache@v4
+      - name: Cache trusted Session coordinator Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Cache tsc incremental build info
-        uses: actions/cache@v4
-        with:
-          path: .tmp/typecheck/tsconfig.tsbuildinfo
-          key: ${{ runner.os }}-tsc-${{ hashFiles('platform/**/*.ts', 'tests/**/*.ts', 'scripts/**/*.ts', 'tsconfig.json', 'bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-tsc-
-
-      - name: Install dependencies once
+      - name: Install trusted Session coordinator dependencies from frozen lock
         run: bun install --frozen-lockfile
 
-      - name: Run exact-head verification
-        id: verify
-        shell: bash
-        run: bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"
+      - name: Materialize exact canonical Session request
         env:
-          profile: ${{ steps.verification.outputs.profile }}
-          SEC_CHANGED_BASE: ${{ steps.verification.outputs.base }}
-          SEC_AFFECTED_TESTS_BASE: ${{ steps.verification.outputs.affected-base }}
-          SEC_EXPECTED_HEAD_SHA: ${{ steps.verification.outputs.head }}
-          SEC_WORK_PACKAGE_MANIFEST_PATH: ${{ steps.verification.outputs.manifest }}
+          SESSION_REQUEST_BASE64: ${{ needs.validate-hosted-request.outputs.session-request-base64 }}
+        run: |
+          mkdir -p .tmp/codex
+          printf '%s' "$SESSION_REQUEST_BASE64" | base64 --decode > .tmp/codex/hosted-request.json
 
-      - name: Upload compact verification evidence
-        id: evidence
-        if: always()
+      - name: Publish or join Review request and wait for exact Review clearance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_WINDOW_MINUTES: *sec_session_review_window_minutes
+          REVIEW_POLL_INTERVAL_SECONDS: *sec_session_review_poll_interval_seconds
+        run: |
+          set -euo pipefail
+          REVIEW_WINDOW_SECONDS=$((60 * REVIEW_WINDOW_MINUTES))
+          REVIEW_MAX_ATTEMPTS=$((REVIEW_WINDOW_SECONDS / REVIEW_POLL_INTERVAL_SECONDS + 1))
+          for attempt in $(seq 1 "$REVIEW_MAX_ATTEMPTS"); do
+            rm -f .tmp/codex/trusted-facts.json
+            bun scripts/codex/verification-session.ts observe-hosted \
+              --request .tmp/codex/hosted-request.json \
+              --output .tmp/codex/trusted-facts.json \
+              --json > .tmp/codex/observe-response.json
+            STATUS="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/observe-response.json").text()); process.stdout.write(value.status)')"
+            if [ "$STATUS" = "observed" ]; then
+              test -s .tmp/codex/trusted-facts.json
+              exit 0
+            fi
+            if [ "$STATUS" != "WAITING_REVIEW" ]; then
+              echo "Unknown observe-hosted status: $STATUS" >&2
+              exit 1
+            fi
+            if [ "$attempt" -lt "$REVIEW_MAX_ATTEMPTS" ]; then
+              sleep "$REVIEW_POLL_INTERVAL_SECONDS"
+            fi
+          done
+          echo 'Review did not become stable within the bounded coordinator window.' >&2
+          exit 1
+
+      - name: Issue fresh trusted Scope, Review, MainHealth, and Session envelope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun scripts/codex/verification-session.ts prepare-hosted
+          --request .tmp/codex/hosted-request.json
+          --facts .tmp/codex/trusted-facts.json
+          --output .tmp/codex/hosted-envelope.json
+          --json
+
+      - name: Prepare canonical parent Action dispatch plan
+        id: parent-plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bun scripts/ci-verification.ts ensure-hosted-action-provider \
+            --intent prepare-parent-plan \
+            --request .tmp/codex/hosted-request.json \
+            --envelope .tmp/codex/hosted-envelope.json \
+            --output .tmp/codex/verification-action-parent-dispatch-plan.json \
+            --json > .tmp/codex/parent-plan-response.json
+          ARTIFACT_NAME="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/parent-plan-response.json").text()); process.stdout.write(value.artifactName)')"
+          PAYLOAD_DIGEST="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/parent-plan-response.json").text()); process.stdout.write(value.payloadDigest)')"
+          echo "artifact-name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+          echo "payload-digest=$PAYLOAD_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Upload canonical parent Action dispatch plan artifact
+        id: parent-plan-upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: sec-verification-v19-${{ steps.verification.outputs.profile }}-pr-${{ steps.verification.outputs.pull-request }}-base-${{ steps.verification.outputs.base }}-head-${{ steps.verification.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: .tmp/ci-verification-evidence.json
+          name: ${{ steps.parent-plan.outputs.artifact-name }}
+          path: .tmp/codex/verification-action-parent-dispatch-plan.json
           if-no-files-found: error
           retention-days: 90
+
+      - name: Read back canonical parent Action dispatch plan artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_ARTIFACT_ID: ${{ steps.parent-plan-upload.outputs.artifact-id }}
+          PARENT_ARCHIVE_DIGEST: ${{ steps.parent-plan-upload.outputs.artifact-digest }}
+        run: >-
+          bun scripts/ci-verification.ts ensure-hosted-action-provider
+          --intent verify-parent-plan
+          --request .tmp/codex/hosted-request.json
+          --envelope .tmp/codex/hosted-envelope.json
+          --parent-plan .tmp/codex/verification-action-parent-dispatch-plan.json
+          --parent-artifact-id "$PARENT_ARTIFACT_ID"
+          --parent-artifact-archive-digest "$PARENT_ARCHIVE_DIGEST"
+          --json
+
+      - name: Dispatch or join canonical ActionKey producers until terminal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_ARTIFACT_ID: ${{ steps.parent-plan-upload.outputs.artifact-id }}
+          PARENT_ARCHIVE_DIGEST: ${{ steps.parent-plan-upload.outputs.artifact-digest }}
+          ACTION_RESOLVER_TIMEOUT_MINUTES: *sec_action_resolver_timeout_minutes
+          ACTION_CLAIM_TIMEOUT_MINUTES: *sec_action_claim_timeout_minutes
+          ACTION_SUT_TIMEOUT_MINUTES: *sec_action_sut_timeout_minutes
+          ACTION_ASSEMBLER_TIMEOUT_MINUTES: *sec_action_assembler_timeout_minutes
+          ACTION_COORDINATION_OVERHEAD_MINUTES: *sec_action_coordination_overhead_minutes
+          ACTION_COORDINATION_POLL_INTERVAL_SECONDS: *sec_action_coordination_poll_interval_seconds
+        run: |
+          set -euo pipefail
+          ACTION_CHAIN_TIMEOUT_SECONDS=$((60 * (
+            ACTION_RESOLVER_TIMEOUT_MINUTES +
+            ACTION_CLAIM_TIMEOUT_MINUTES +
+            ACTION_SUT_TIMEOUT_MINUTES +
+            ACTION_ASSEMBLER_TIMEOUT_MINUTES +
+            ACTION_COORDINATION_OVERHEAD_MINUTES
+          )))
+          ACTION_COORDINATION_MAX_ATTEMPTS=$((
+            ACTION_CHAIN_TIMEOUT_SECONDS / ACTION_COORDINATION_POLL_INTERVAL_SECONDS + 1
+          ))
+          for attempt in $(seq 1 "$ACTION_COORDINATION_MAX_ATTEMPTS"); do
+            bun scripts/ci-verification.ts ensure-hosted-action-provider \
+              --intent coordinate-session \
+              --request .tmp/codex/hosted-request.json \
+              --envelope .tmp/codex/hosted-envelope.json \
+              --parent-plan .tmp/codex/verification-action-parent-dispatch-plan.json \
+              --parent-artifact-id "$PARENT_ARTIFACT_ID" \
+              --parent-artifact-archive-digest "$PARENT_ARCHIVE_DIGEST" \
+              --artifact-index .tmp/codex/hosted-action-index.json \
+              --json > .tmp/codex/coordinate-response.json
+            DISPOSITION="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/coordinate-response.json").text()); process.stdout.write(value.disposition)')"
+            if [ "$DISPOSITION" = "complete" ]; then
+              exit 0
+            fi
+            if [ "$DISPOSITION" = "blocked" ]; then
+              cat .tmp/codex/coordinate-response.json >&2
+              exit 1
+            fi
+            if [ "$DISPOSITION" != "dispatch" ] && [ "$DISPOSITION" != "waiting" ]; then
+              echo "Unknown hosted Action coordination disposition: $DISPOSITION" >&2
+              exit 1
+            fi
+            if [ "$attempt" -lt "$ACTION_COORDINATION_MAX_ATTEMPTS" ]; then
+              sleep "$ACTION_COORDINATION_POLL_INTERVAL_SECONDS"
+            fi
+          done
+          echo 'Hosted Action DAG did not terminate within the bounded coordinator window.' >&2
+          exit 1
+
+      - name: Refresh auth-critical receipts before final Evidence composition
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_ARTIFACT_ID: ${{ steps.parent-plan-upload.outputs.artifact-id }}
+          PARENT_ARCHIVE_DIGEST: ${{ steps.parent-plan-upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          bun scripts/codex/verification-session.ts observe-hosted \
+            --request .tmp/codex/hosted-request.json \
+            --output .tmp/codex/trusted-facts.json \
+            --json > .tmp/codex/final-observe-response.json
+          bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/final-observe-response.json").text()); if(value.status!=="observed") throw new Error("Review drifted before Evidence composition")'
+          bun scripts/codex/verification-session.ts prepare-hosted \
+            --request .tmp/codex/hosted-request.json \
+            --facts .tmp/codex/trusted-facts.json \
+            --output .tmp/codex/hosted-envelope.json \
+            --json
+          bun scripts/ci-verification.ts ensure-hosted-action-provider \
+            --intent observe-session \
+            --request .tmp/codex/hosted-request.json \
+            --envelope .tmp/codex/hosted-envelope.json \
+            --parent-plan .tmp/codex/verification-action-parent-dispatch-plan.json \
+            --parent-artifact-id "$PARENT_ARTIFACT_ID" \
+            --parent-artifact-archive-digest "$PARENT_ARCHIVE_DIGEST" \
+            --artifact-index .tmp/codex/hosted-action-index.json \
+            --json > .tmp/codex/final-coordinate-response.json
+          bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/final-coordinate-response.json").text()); if(value.disposition!=="complete") throw new Error("Action state drifted before Evidence composition")'
+
+      - name: Compose V4 Evidence only from canonical Action terminals
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun scripts/ci-verification.ts compose-hosted-evidence
+          --envelope .tmp/codex/hosted-envelope.json
+          --artifact-index .tmp/codex/hosted-action-index.json
+          --output .tmp/codex/ci-verification-evidence.json
+          --json
+
+      - name: Finalize provenance-bound Verification Session artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun scripts/codex/verification-session.ts finalize-hosted
+          --envelope .tmp/codex/hosted-envelope.json
+          --evidence .tmp/codex/ci-verification-evidence.json
+          --output .tmp/codex/verification-session-artifact.json
+          --json
+
+      - name: Upload sole terminal Verification Session artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sec-verification-session-v2-pr-${{ needs.validate-hosted-request.outputs.pr-number }}-session-${{ needs.validate-hosted-request.outputs.session-revision-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: .tmp/codex/verification-session-artifact.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Preserve exact terminal five-state Session result
+        run: |
+          bun -e '
+            const artifact=JSON.parse(await Bun.file(".tmp/codex/verification-session-artifact.json").text());
+            if(artifact.evidence?.status!=="passed") throw new Error(`Verification Session terminal is ${artifact.evidence?.status ?? "unknown"}`);
+          '
+
+  resolve-verification-action:
+    if: ${{ needs.validate-hosted-request.outputs.request-kind == 'action' }}
+    needs: validate-hosted-request
+    runs-on: ubuntu-24.04
+    timeout-minutes: *sec_action_resolver_timeout_minutes
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: read
+      pull-requests: read
+      statuses: read
+    outputs:
+      action-key-hex: ${{ steps.resolve.outputs.action-key-hex }}
+      provider-disposition: ${{ steps.resolve.outputs.provider-disposition }}
+      resolution-artifact-name: ${{ steps.resolve.outputs.resolution-artifact-name }}
+    steps:
+      - name: Checkout trusted exact default base for Action resolution
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup trusted Bun for Action resolution
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache trusted Action resolver Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install trusted Action resolver dependencies from frozen lock
+        run: bun install --frozen-lockfile
+
+      - name: Materialize internal Action provider envelope and Session proposal
+        env:
+          SESSION_REQUEST_BASE64: ${{ needs.validate-hosted-request.outputs.session-request-base64 }}
+          ACTION_ENVELOPE_BASE64: ${{ needs.validate-hosted-request.outputs.action-envelope-base64 }}
+        run: |
+          mkdir -p .tmp/codex
+          printf '%s' "$SESSION_REQUEST_BASE64" | base64 --decode > .tmp/codex/hosted-request.json
+          printf '%s' "$ACTION_ENVELOPE_BASE64" | base64 --decode > .tmp/codex/verification-action-provider-envelope.json
+
+      - name: Re-observe trusted facts without candidate execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bun scripts/codex/verification-session.ts observe-hosted \
+            --request .tmp/codex/hosted-request.json \
+            --output .tmp/codex/trusted-facts.json \
+            --json > .tmp/codex/observe-response.json
+          bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/observe-response.json").text()); if(value.status!=="observed") throw new Error("Internal Action run cannot precede Review clearance")'
+
+      - name: Rebuild trusted Session envelope and exact ActionKey member
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bun scripts/codex/verification-session.ts prepare-hosted \
+            --request .tmp/codex/hosted-request.json \
+            --facts .tmp/codex/trusted-facts.json \
+            --output .tmp/codex/hosted-envelope.json \
+            --json
+          bun scripts/ci-verification.ts resolve-hosted-action \
+            --provider-envelope .tmp/codex/verification-action-provider-envelope.json \
+            --envelope .tmp/codex/hosted-envelope.json \
+            --output .tmp/codex/hosted-action-resolution.json \
+            --json > .tmp/codex/resolve-response.json
+          bun scripts/ci-verification.ts ensure-hosted-action-provider \
+            --intent observe-action \
+            --provider-envelope .tmp/codex/verification-action-provider-envelope.json \
+            --envelope .tmp/codex/hosted-envelope.json \
+            --resolution .tmp/codex/hosted-action-resolution.json \
+            --artifact-index .tmp/codex/hosted-action-index.json \
+            --json > .tmp/codex/scan-response.json
+          ACTION_KEY_HEX="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/resolve-response.json").text()); process.stdout.write(value.actionKey.slice(7))')"
+          DISPOSITION="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/scan-response.json").text()); process.stdout.write(value.disposition)')"
+          ARTIFACT_NAME="sec-verification-action-resolution-v2-${ACTION_KEY_HEX}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "action-key-hex=$ACTION_KEY_HEX" >> "$GITHUB_OUTPUT"
+          echo "provider-disposition=$DISPOSITION" >> "$GITHUB_OUTPUT"
+          echo "resolution-artifact-name=$ARTIFACT_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload trusted Action resolution transport
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.resolve.outputs.resolution-artifact-name }}
+          path: |
+            .tmp/codex/verification-action-provider-envelope.json
+            .tmp/codex/hosted-action-resolution.json
+            .tmp/codex/hosted-envelope.json
+          if-no-files-found: error
+          retention-days: 1
+
+  claim-verification-action:
+    if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
+    needs:
+      - validate-hosted-request
+      - resolve-verification-action
+    runs-on: ubuntu-24.04
+    timeout-minutes: *sec_action_claim_timeout_minutes
+    permissions:
+      actions: write
+      checks: read
+      contents: read
+      statuses: write
+    concurrency:
+      group: sec-verification-action-${{ github.repository_id }}-${{ needs.resolve-verification-action.outputs.action-key-hex }}
+      cancel-in-progress: false
+      queue: max
+    outputs:
+      prepared-artifact-name: ${{ steps.ticket.outputs.prepared-artifact-name }}
+      ticket-digest: ${{ steps.ticket.outputs.ticket-digest }}
+      ticket-issued: ${{ steps.ticket.outputs.ticket-issued }}
+    steps:
+      - name: Checkout trusted exact default base for Action claim
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup trusted Bun for Action claim
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Download trusted Action resolution transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
+          path: .tmp/codex
+
+      - name: Checkout exact candidate for trusted materialization only
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ needs.validate-hosted-request.outputs.head-sha }}
+          path: .tmp/codex/candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Cache prepared candidate Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: /tmp/sec-hosted-dependency-home/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Materialize dependencies only from exact trusted base inputs
+        run: |
+          set -euo pipefail
+          for dependency_input in .bun-version bun.lock bunfig.toml package.json; do
+            cmp -- "$dependency_input" ".tmp/codex/candidate/$dependency_input"
+          done
+          test ! -e .npmrc
+          test ! -e .tmp/codex/candidate/.npmrc
+          mkdir -p /tmp/sec-hosted-dependency-home /tmp/sec-hosted-dependency-tmp
+          BUN_BIN="$(command -v bun)"
+          env -i \
+            PATH=/usr/bin:/bin \
+            HOME=/tmp/sec-hosted-dependency-home \
+            TMPDIR=/tmp/sec-hosted-dependency-tmp \
+            BUN_INSTALL_CACHE_DIR=/tmp/sec-hosted-dependency-home/.bun/install/cache \
+            LANG=C.UTF-8 \
+            CI=1 \
+            "$BUN_BIN" install --frozen-lockfile --ignore-scripts
+          test ! -e .tmp/codex/candidate/node_modules
+          cp -a node_modules .tmp/codex/candidate/node_modules
+
+      - name: Build authenticated raw candidate and dependency closure before provider start
+        id: prepared-input
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/sec-action-prepared"
+          bun scripts/ci-verification.ts prepare-hosted-action-inputs \
+            --resolution .tmp/codex/hosted-action-resolution.json \
+            --base-root . \
+            --candidate-root .tmp/codex/candidate \
+            --output-directory "${RUNNER_TEMP}/sec-action-prepared" \
+            --json > .tmp/codex/prepared-input-response.json
+          BASE_DEPENDENCY_CLOSURE_DIGEST="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/prepared-input-response.json").text()); process.stdout.write(value.baseDependencyClosureDigest)')"
+          AUTHENTICATED_GIT_CLOSURE_DIGEST="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/prepared-input-response.json").text()); process.stdout.write(value.authenticatedGitClosureDigest)')"
+          echo "base-dependency-closure-digest=$BASE_DEPENDENCY_CLOSURE_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "authenticated-git-closure-digest=$AUTHENTICATED_GIT_CLOSURE_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Preflight hostile SUT sandbox before immutable start
+        run: >-
+          bun scripts/ci-verification.ts self-test-hosted-action-sandbox
+          --resolution .tmp/codex/hosted-action-resolution.json
+          --json
+
+      - name: Create immutable Action start marker from fresh provider census
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun scripts/ci-verification.ts ensure-hosted-action-provider
+          --intent prepare-start-marker
+          --provider-envelope .tmp/codex/verification-action-provider-envelope.json
+          --envelope .tmp/codex/hosted-envelope.json
+          --resolution .tmp/codex/hosted-action-resolution.json
+          --prepared-candidate-archive "${RUNNER_TEMP}/sec-action-prepared/prepared-candidate.tar"
+          --base-dependency-closure-digest "${{ steps.prepared-input.outputs.base-dependency-closure-digest }}"
+          --authenticated-git-closure-digest "${{ steps.prepared-input.outputs.authenticated-git-closure-digest }}"
+          --output .tmp/codex/verification-action-start-marker.json
+          --json
+
+      - name: Upload immutable Action start marker
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sec-verification-action-start-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}
+          path: .tmp/codex/verification-action-start-marker.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish durable start tombstone and issue execution ticket
+        id: ticket
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bun scripts/ci-verification.ts ensure-hosted-action-provider \
+            --intent claim-start \
+            --provider-envelope .tmp/codex/verification-action-provider-envelope.json \
+            --envelope .tmp/codex/hosted-envelope.json \
+            --resolution .tmp/codex/hosted-action-resolution.json \
+            --prepared-candidate-archive "${RUNNER_TEMP}/sec-action-prepared/prepared-candidate.tar" \
+            --base-dependency-closure-digest "${{ steps.prepared-input.outputs.base-dependency-closure-digest }}" \
+            --authenticated-git-closure-digest "${{ steps.prepared-input.outputs.authenticated-git-closure-digest }}" \
+            --output "${RUNNER_TEMP}/sec-action-prepared/verification-action-execution-ticket.json" \
+            --json > .tmp/codex/ticket-response.json
+          TICKET_ISSUED="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/ticket-response.json").text()); process.stdout.write(String(value.issued))')"
+          echo "ticket-issued=$TICKET_ISSUED" >> "$GITHUB_OUTPUT"
+          if [ "$TICKET_ISSUED" != true ]; then
+            exit 0
+          fi
+          PREPARED_NAME="sec-verification-action-prepared-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          TICKET_DIGEST="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/ticket-response.json").text()); process.stdout.write(value.ticketDigest)')"
+          echo "prepared-artifact-name=$PREPARED_NAME" >> "$GITHUB_OUTPUT"
+          echo "ticket-digest=$TICKET_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact prepared candidate and execution ticket transport
+        if: ${{ steps.ticket.outputs.ticket-issued == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.ticket.outputs.prepared-artifact-name }}
+          path: ${{ runner.temp }}/sec-action-prepared
+          if-no-files-found: error
+          retention-days: 1
+
+  execute-verification-action-sut:
+    if: >-
+      ${{ needs.claim-verification-action.result == 'success' &&
+          needs.claim-verification-action.outputs.ticket-issued == 'true' }}
+    needs:
+      - validate-hosted-request
+      - resolve-verification-action
+      - claim-verification-action
+    runs-on: ubuntu-24.04
+    # The sandbox policy permits 3,600 seconds of candidate execution. Retain a
+    # separate 15-minute terminalization reserve for reap, raw-result reduction,
+    # and the untrusted observation artifact upload after RuntimeMaxSec expires.
+    timeout-minutes: *sec_action_sut_timeout_minutes
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      raw-artifact-name: ${{ steps.sut.outputs.raw-artifact-name }}
+      raw-result-digest: ${{ steps.sut.outputs.raw-result-digest }}
+    steps:
+      - name: Checkout trusted exact default base for SUT facade
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup trusted Bun for credential-free SUT facade
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Download trusted Action resolution transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
+          path: .tmp/codex
+
+      - name: Download exact prepared candidate ticket transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.claim-verification-action.outputs.prepared-artifact-name }}
+          path: .tmp/codex/prepared
+
+      - name: Execute one normalized candidate operation without credentials
+        id: sut
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/codex/raw
+          bun scripts/ci-verification.ts execute-hosted-action-sut \
+            --resolution .tmp/codex/hosted-action-resolution.json \
+            --ticket .tmp/codex/prepared/verification-action-execution-ticket.json \
+            --prepared-candidate-archive .tmp/codex/prepared/prepared-candidate.tar \
+            --output .tmp/codex/raw/verification-action-raw-observation.json \
+            --json > .tmp/codex/sut-response.json
+          RAW_DIGEST="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/sut-response.json").text()); process.stdout.write(value.rawResultDigest)')"
+          RAW_NAME="sec-verification-action-raw-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          echo "raw-result-digest=$RAW_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "raw-artifact-name=$RAW_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload untrusted raw SUT transport only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.sut.outputs.raw-artifact-name }}
+          path: .tmp/codex/raw/verification-action-raw-observation.json
+          if-no-files-found: error
+          retention-days: 1
+
+  assemble-verification-action-terminal:
+    if: >-
+      ${{ always() && needs.resolve-verification-action.result == 'success' &&
+          (needs.resolve-verification-action.outputs.provider-disposition == 'repair-terminal-anchor' ||
+           needs.resolve-verification-action.outputs.provider-disposition == 'repair-terminal-status' ||
+           (needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' &&
+            needs.execute-verification-action-sut.result == 'success')) }}
+    needs:
+      - validate-hosted-request
+      - resolve-verification-action
+      - claim-verification-action
+      - execute-verification-action-sut
+    runs-on: ubuntu-24.04
+    timeout-minutes: *sec_action_assembler_timeout_minutes
+    permissions:
+      actions: write
+      checks: read
+      contents: read
+      statuses: write
+    concurrency:
+      group: sec-verification-action-${{ github.repository_id }}-${{ needs.resolve-verification-action.outputs.action-key-hex }}
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - name: Checkout fresh trusted exact default base for terminal assembly
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup fresh trusted Bun for terminal assembly
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache fresh terminal assembler Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install fresh terminal assembler dependencies from frozen lock
+        run: bun install --frozen-lockfile
+
+      - name: Download trusted Action resolution transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
+          path: .tmp/codex
+
+      - name: Download original execution ticket for terminal assembly
+        if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.claim-verification-action.outputs.prepared-artifact-name }}
+          path: .tmp/codex/prepared
+
+      - name: Download raw SUT transport for terminal assembly
+        if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.execute-verification-action-sut.outputs.raw-artifact-name }}
+          path: .tmp/codex/raw
+
+      - name: Assemble canonical five-state terminal artifact
+        if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun scripts/ci-verification.ts assemble-hosted-action-terminal
+          --provider-envelope .tmp/codex/verification-action-provider-envelope.json
+          --envelope .tmp/codex/hosted-envelope.json
+          --resolution .tmp/codex/hosted-action-resolution.json
+          --ticket .tmp/codex/prepared/verification-action-execution-ticket.json
+          --raw-result .tmp/codex/raw/verification-action-raw-observation.json
+          --expected-raw-result-digest "${{ needs.execute-verification-action-sut.outputs.raw-result-digest }}"
+          --output .tmp/codex/verification-action-terminal-artifact.json
+          --json
+
+      - name: Upload canonical terminal Action artifact
+        if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sec-verification-action-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}
+          path: .tmp/codex/verification-action-terminal-artifact.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create exact post-upload terminal anchor
+        if: ${{ needs.resolve-verification-action.outputs.provider-disposition != 'repair-terminal-status' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun scripts/ci-verification.ts ensure-hosted-action-provider
+          --intent prepare-terminal-anchor
+          --provider-envelope .tmp/codex/verification-action-provider-envelope.json
+          --envelope .tmp/codex/hosted-envelope.json
+          --resolution .tmp/codex/hosted-action-resolution.json
+          --output .tmp/codex/verification-action-terminal-status-anchor.json
+          --json
+
+      - name: Upload exact post-upload terminal anchor
+        if: ${{ needs.resolve-verification-action.outputs.provider-disposition != 'repair-terminal-status' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sec-verification-action-terminal-anchor-v2-${{ needs.resolve-verification-action.outputs.action-key-hex }}
+          path: .tmp/codex/verification-action-terminal-status-anchor.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish neutral terminal provider tombstone
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun scripts/ci-verification.ts ensure-hosted-action-provider
+          --intent anchor-terminal
+          --provider-envelope .tmp/codex/verification-action-provider-envelope.json
+          --envelope .tmp/codex/hosted-envelope.json
+          --resolution .tmp/codex/hosted-action-resolution.json
+          --json
+
+  main-health:
+    name: sec/main-health
+    if: >-
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    concurrency:
+      group: sec-main-health-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.payload.mainSha || github.sha }}
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - name: Bind canonical MainHealth request to live main
+        if: ${{ github.event_name == 'repository_dispatch' }}
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        with:
+          script: |
+            const crypto = require('crypto');
+            const wrapper = JSON.parse(process.env.PAYLOAD_JSON);
+            const wrapperKeys = Object.keys(wrapper ?? {}).sort();
+            if (wrapperKeys.length !== 1 || wrapperKeys[0] !== 'payload') {
+              throw new Error('MainHealth client_payload must be the exact one-key wrapper.');
+            }
+            const payload = wrapper.payload;
+            const keys = Object.keys(payload ?? {}).sort();
+            if (keys.length !== 2 || keys[0] !== 'mainSha' || keys[1] !== 'requestOperationId' ||
+                typeof payload.mainSha !== 'string' || !/^[0-9a-f]{40}$/.test(payload.mainSha) ||
+                typeof payload.requestOperationId !== 'string' ||
+                !/^sha256:[0-9a-f]{64}$/.test(payload.requestOperationId)) {
+              throw new Error('MainHealth wrapper payload is not canonical.');
+            }
+            const operationPreimage = JSON.stringify({
+              schema: 'sec-produce-main-health-request-v1',
+              mainSha: payload.mainSha
+            });
+            const expectedOperationId = `sha256:${crypto.createHash('sha256')
+              .update(operationPreimage, 'utf8').digest('hex')}`;
+            const repository = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            const liveMain = await github.rest.repos.getBranch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: repository.data.default_branch
+            });
+            if (repository.data.default_branch !== 'main' ||
+                payload.requestOperationId !== expectedOperationId ||
+                process.env.WORKFLOW_SHA !== payload.mainSha ||
+                liveMain.data.commit.sha !== payload.mainSha) {
+              throw new Error('MainHealth request operation/workflow/live-main identity drifted.');
+            }
+
+      - name: Checkout exact pushed main revision
+        id: checkout-main
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.payload.mainSha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup trusted Bun
+        id: setup-bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache Bun install
+        id: cache-bun
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies from the frozen lock
+        id: install
+        run: bun install --frozen-lockfile
+
+      - name: Reject import organization drift
+        id: imports-check
+        run: bun run imports:check
+
+      - name: Run exact-main TypeScript checks
+        id: typecheck
+        run: bun run typecheck
+
+      - name: Validate active documentation authority
+        id: docs-doctor
+        run: bun run docs:doctor
+
+      - name: Run the complete fast test inventory
+        id: test-fast
+        run: bun run test:fast

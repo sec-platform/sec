@@ -6,11 +6,15 @@ import path from 'node:path';
 import {
   createVerificationActionKeyV2,
   type VerificationActionKeyInputV2
-} from '../../scripts/codex/verification-action-contract.ts';
+} from '../../platform/shared/verification-action-contract.ts';
 import {
+  acquireVerificationActionClaimV1,
   appendVerificationActionJournalEventV2,
   deleteVerificationActionJournalV2,
+  readVerificationActionClaimV1,
   readVerificationActionJournalV2,
+  releaseVerificationActionClaimV1,
+  renewVerificationActionClaimV1,
   VERIFICATION_ACTION_JOURNAL_DIRECTORY_V2
 } from '../../scripts/codex/verification-action-journal.ts';
 
@@ -226,4 +230,51 @@ test('illegal transitions are rejected and deleting the journal returns a clean 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('atomic claim joins one live physical owner and rejects wrong-owner release', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-action-claim-race-'));
+  try {
+    const key = action();
+    const first = acquireVerificationActionClaimV1({ repositoryRoot: root, action: key,
+      ownerToken: 'owner-a', now: '2026-08-09T00:00:00.000Z', leaseDurationMs: 60_000 });
+    const second = acquireVerificationActionClaimV1({ repositoryRoot: root, action: key,
+      ownerToken: 'owner-b', now: '2026-08-09T00:00:01.000Z', leaseDurationMs: 60_000 });
+    expect(first.disposition).toBe('acquired');
+    expect(second.disposition).toBe('joined');
+    expect(() => releaseVerificationActionClaimV1({ repositoryRoot: root, actionKey: key.actionKey,
+      ownerToken: 'owner-b' })).toThrow('owner mismatch');
+    expect(readVerificationActionClaimV1(root, key.actionKey)?.ownerToken).toBe('owner-a');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('expired crash lease permanently blocks blind re-execution under the same ActionKey', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-action-claim-recovery-'));
+  try {
+    const key = action();
+    acquireVerificationActionClaimV1({ repositoryRoot: root, action: key, ownerToken: 'crashed',
+      now: '2026-08-09T00:00:00.000Z', leaseDurationMs: 1_000 });
+    const blocked = acquireVerificationActionClaimV1({ repositoryRoot: root, action: key,
+      ownerToken: 'successor', now: '2026-08-09T00:00:02.000Z', leaseDurationMs: 60_000 });
+    const contender = acquireVerificationActionClaimV1({ repositoryRoot: root, action: key,
+      ownerToken: 'other', now: '2026-08-09T00:00:03.000Z', leaseDurationMs: 60_000 });
+    expect(blocked.disposition).toBe('blocked');
+    expect(blocked.reason).toContain('blind re-execution is forbidden');
+    expect(contender.disposition).toBe('blocked');
+    expect(readVerificationActionClaimV1(root, key.actionKey)?.ownerToken).toBe('crashed');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('only the current owner can renew a live lease', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-action-claim-renew-'));
+  try {
+    const key = action();
+    acquireVerificationActionClaimV1({ repositoryRoot: root, action: key, ownerToken: 'owner-a',
+      now: '2026-08-09T00:00:00.000Z', leaseDurationMs: 1_000 });
+    expect(renewVerificationActionClaimV1({ repositoryRoot: root, actionKey: key.actionKey,
+      ownerToken: 'owner-a', now: '2026-08-09T00:00:00.500Z', leaseDurationMs: 60_000 })).toBe(true);
+    expect(renewVerificationActionClaimV1({ repositoryRoot: root, actionKey: key.actionKey,
+      ownerToken: 'owner-b', now: '2026-08-09T00:00:01.000Z', leaseDurationMs: 60_000 })).toBe(false);
+    expect(readVerificationActionClaimV1(root, key.actionKey)?.expiresAt).toBe('2026-08-09T00:01:00.500Z');
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

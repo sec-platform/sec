@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+
+import type { IntegrationAuthorizationV1 } from '../../platform/shared/integration-authorization-contract.ts';
 import {
   assertDurableRecoveryAuthority,
   assertGitBranchName,
@@ -24,10 +27,231 @@ import {
   type ClassifiedBranchLifecycle
 } from './branch-lifecycle-types.ts';
 
+export const BRANCH_CLOSEOUT_OPERATION_SCHEMA_V1 =
+  'sec-branch-closeout-operation-v1' as const;
+export const BRANCH_CLOSEOUT_OPERATION_JOURNAL_SCHEMA_V1 =
+  'sec-branch-closeout-operation-journal-v1' as const;
+export const BRANCH_CLOSEOUT_OPERATION_RECEIPT_SCHEMA_V1 =
+  'sec-branch-closeout-operation-receipt-v1' as const;
+export const BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_SCHEMA_V1 =
+  'sec-branch-closeout-recovery-artifact-v1' as const;
+export const BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME_V1 =
+  'branch-closeout-recovery.json' as const;
+
+export type BranchCloseoutEffectState =
+  | 'not-started'
+  | 'applied'
+  | 'observed-absent'
+  | 'failed';
+
+export interface BranchCloseoutOperationBindingV1 {
+  schema: typeof BRANCH_CLOSEOUT_OPERATION_SCHEMA_V1;
+  closeoutOperationId: `sha256:${string}`;
+  authorizationId: string;
+  consumptionOperationId: string;
+  integrationAuthorizationReceiptDigest: `sha256:${string}`;
+  repository: string;
+  pullRequestNumber: number;
+  headSha: string;
+  newMainSha: string;
+  newMainTreeSha: string;
+  candidateTreeSha: string;
+  preparationDigest: `sha256:${string}`;
+  recoveryDigest: `sha256:${string}`;
+}
+
+export interface BranchCloseoutEffectV1 {
+  state: BranchCloseoutEffectState;
+  detailDigest: `sha256:${string}` | null;
+}
+
+export interface BranchCloseoutOperationJournalV1 {
+  schema: typeof BRANCH_CLOSEOUT_OPERATION_JOURNAL_SCHEMA_V1;
+  binding: BranchCloseoutOperationBindingV1;
+  writerId: string;
+  remote: BranchCloseoutEffectV1;
+  local: BranchCloseoutEffectV1;
+  prune: BranchCloseoutEffectV1;
+  terminalReceiptDigest: `sha256:${string}` | null;
+  journalDigest: `sha256:${string}`;
+}
+
+export interface BranchCloseoutOperationReceiptV1 {
+  schema: typeof BRANCH_CLOSEOUT_OPERATION_RECEIPT_SCHEMA_V1;
+  binding: BranchCloseoutOperationBindingV1;
+  writerId: string;
+  generatedAt: string;
+  remote: BranchCloseoutEffectV1;
+  local: BranchCloseoutEffectV1;
+  prune: BranchCloseoutEffectV1;
+  receipt: BranchCloseoutReceipt;
+  operationReceiptDigest: `sha256:${string}`;
+}
+
+export interface BranchCloseoutRecoveryArtifactV1 {
+  schema: typeof BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_SCHEMA_V1;
+  repository: string;
+  pullRequestNumber: number;
+  sessionRevision: `sha256:${string}`;
+  headSha: string;
+  headTreeSha: string;
+  preparedEnvelopeBase64: string;
+  preparedEnvelopeByteLength: number;
+  preparedEnvelopeDigest: `sha256:${string}`;
+  recoveryBundleBase64: string;
+  recoveryBundleByteLength: number;
+  recoveryBundleDigest: `sha256:${string}`;
+  artifactDigest: `sha256:${string}`;
+}
+
+export interface BranchCloseoutOperationStoreV1 {
+  read(filePath: string): string | null;
+  createExclusive(filePath: string, bytes: string): boolean;
+  replace(filePath: string, expectedBytes: string, nextBytes: string): void;
+}
+
+/**
+ * Stable closeout preparation identity. Host-local paths, observation time,
+ * worktree inventory, and verifier prose are deliberately excluded so a
+ * trusted hosted retry can reconstruct the same remote operation from a fresh
+ * checkout while independently re-verifying the recovery bytes.
+ */
+function branchCloseoutPreparationIdentity(
+  preparation: Omit<BranchCloseoutPreparation, 'preparationDigest'>
+): object {
+  return {
+    schema: preparation.schema,
+    repository: {
+      fullName: preparation.repository.fullName,
+      remote: preparation.repository.remote,
+      defaultBranch: preparation.repository.defaultBranch
+    },
+    branch: preparation.branch,
+    refState: preparation.refState,
+    expectedHeadSha: preparation.expectedHeadSha,
+    expectedRemoteSha: preparation.expectedRemoteSha,
+    expectedPrHeadSha: preparation.expectedPrHeadSha,
+    pullRequestNumber: preparation.pullRequestNumber,
+    pullRequestStateAtPreparation: preparation.pullRequestStateAtPreparation,
+    recovery: {
+      kind: preparation.recovery.kind,
+      sha256: preparation.recovery.sha256,
+      verified: preparation.recovery.verified
+    }
+  };
+}
+
 function assertRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object.`);
   }
+}
+
+function sha256Bytes(bytes: Uint8Array | string): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+function canonicalBase64(value: unknown, label: string, maximumBytes: number): {
+  base64: string;
+  bytes: Buffer;
+} {
+  if (typeof value !== 'string' || value.length === 0 || /\s/u.test(value)) {
+    throw new Error(`${label} must be non-empty canonical base64.`);
+  }
+  const bytes = Buffer.from(value, 'base64');
+  if (bytes.length === 0 || bytes.length > maximumBytes || bytes.toString('base64') !== value) {
+    throw new Error(`${label} is malformed or exceeds its byte bound.`);
+  }
+  return { base64: value, bytes };
+}
+
+function recoveryArtifactPayload(input: Omit<
+  BranchCloseoutRecoveryArtifactV1,
+  'schema' | 'artifactDigest'
+>): Omit<BranchCloseoutRecoveryArtifactV1, 'artifactDigest'> {
+  return { schema: BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_SCHEMA_V1, ...input };
+}
+
+export function createBranchCloseoutRecoveryArtifactV1(input: {
+  repository: string;
+  pullRequestNumber: number;
+  sessionRevision: `sha256:${string}`;
+  headSha: string;
+  headTreeSha: string;
+  preparedEnvelopeBytes: string;
+  recoveryBundleBytes: Uint8Array;
+}): BranchCloseoutRecoveryArtifactV1 {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(input.repository)) {
+    throw new Error('Branch closeout recovery artifact repository is invalid.');
+  }
+  if (!Number.isSafeInteger(input.pullRequestNumber) || input.pullRequestNumber < 1) {
+    throw new Error('Branch closeout recovery artifact PR must be a positive integer.');
+  }
+  assertDigest(input.sessionRevision, 'sessionRevision');
+  assertGitSha(input.headSha, 'recovery artifact headSha');
+  assertGitSha(input.headTreeSha, 'recovery artifact headTreeSha');
+  const envelopeBytes = Buffer.from(input.preparedEnvelopeBytes, 'utf8');
+  const bundleBytes = Buffer.from(input.recoveryBundleBytes);
+  if (envelopeBytes.length === 0 || envelopeBytes.length > 10 * 1024 * 1024
+    || bundleBytes.length === 0 || bundleBytes.length > 100 * 1024 * 1024) {
+    throw new Error('Branch closeout recovery artifact bytes are empty or oversized.');
+  }
+  const payload = recoveryArtifactPayload({ repository: input.repository,
+    pullRequestNumber: input.pullRequestNumber, sessionRevision: input.sessionRevision,
+    headSha: input.headSha, headTreeSha: input.headTreeSha,
+    preparedEnvelopeBase64: envelopeBytes.toString('base64'),
+    preparedEnvelopeByteLength: envelopeBytes.length,
+    preparedEnvelopeDigest: sha256Bytes(envelopeBytes),
+    recoveryBundleBase64: bundleBytes.toString('base64'),
+    recoveryBundleByteLength: bundleBytes.length,
+    recoveryBundleDigest: sha256Bytes(bundleBytes) });
+  return Object.freeze({ ...payload, artifactDigest: branchLifecycleDigest(payload) });
+}
+
+export function parseBranchCloseoutRecoveryArtifactV1(
+  value: unknown
+): BranchCloseoutRecoveryArtifactV1 {
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch (error) {
+      throw new Error('Branch closeout recovery artifact JSON is invalid.', { cause: error });
+    }
+  }
+  assertRecord(value, 'Branch closeout recovery artifact');
+  const expectedKeys = [
+    'artifactDigest', 'headSha', 'headTreeSha', 'preparedEnvelopeBase64',
+    'preparedEnvelopeByteLength', 'preparedEnvelopeDigest', 'pullRequestNumber',
+    'recoveryBundleBase64', 'recoveryBundleByteLength', 'recoveryBundleDigest',
+    'repository', 'schema', 'sessionRevision'
+  ].sort();
+  const actualKeys = Object.keys(value).sort();
+  if (actualKeys.length !== expectedKeys.length
+    || actualKeys.some((key, index) => key !== expectedKeys[index])) {
+    throw new Error('Branch closeout recovery artifact fields are not exact.');
+  }
+  if (value.schema !== BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_SCHEMA_V1) {
+    throw new Error('Branch closeout recovery artifact schema mismatch.');
+  }
+  const envelope = canonicalBase64(value.preparedEnvelopeBase64,
+    'preparedEnvelopeBase64', 10 * 1024 * 1024);
+  const bundle = canonicalBase64(value.recoveryBundleBase64,
+    'recoveryBundleBase64', 100 * 1024 * 1024);
+  const rebuilt = createBranchCloseoutRecoveryArtifactV1({
+    repository: String(value.repository), pullRequestNumber: Number(value.pullRequestNumber),
+    sessionRevision: value.sessionRevision as `sha256:${string}`,
+    headSha: String(value.headSha), headTreeSha: String(value.headTreeSha),
+    preparedEnvelopeBytes: envelope.bytes.toString('utf8'), recoveryBundleBytes: bundle.bytes
+  });
+  const checks: readonly [unknown, unknown, string][] = [
+    [value.preparedEnvelopeByteLength, envelope.bytes.length, 'prepared envelope byte length'],
+    [value.preparedEnvelopeDigest, sha256Bytes(envelope.bytes), 'prepared envelope digest'],
+    [value.recoveryBundleByteLength, bundle.bytes.length, 'recovery bundle byte length'],
+    [value.recoveryBundleDigest, sha256Bytes(bundle.bytes), 'recovery bundle digest'],
+    [value.artifactDigest, rebuilt.artifactDigest, 'artifact digest']
+  ];
+  for (const [actual, expected, label] of checks) {
+    if (actual !== expected) throw new Error(`Branch closeout recovery artifact ${label} mismatch.`);
+  }
+  return rebuilt;
 }
 
 function normalizeSha(value: string | null, label: string): string | null {
@@ -80,7 +304,7 @@ export function createBranchCloseoutPreparation(input: Omit<
   };
   return {
     ...withoutDigest,
-    preparationDigest: branchLifecycleDigest(withoutDigest)
+    preparationDigest: branchLifecycleDigest(branchCloseoutPreparationIdentity(withoutDigest))
   };
 }
 
@@ -91,7 +315,7 @@ export function assertBranchCloseoutPreparation(
     throw new Error('Branch closeout preparation schema mismatch.');
   }
   const { preparationDigest, ...withoutDigest } = preparation;
-  if (branchLifecycleDigest(withoutDigest) !== preparationDigest) {
+  if (branchLifecycleDigest(branchCloseoutPreparationIdentity(withoutDigest)) !== preparationDigest) {
     throw new Error('Branch closeout preparation digest mismatch.');
   }
   assertGitBranchName(preparation.branch);
@@ -246,7 +470,6 @@ export function authorizeBranchCloseout(input: {
   }
 
   try {
-    assertDurableRecoveryAuthority(preparation.recovery, before);
     assertDurableRecoveryAuthority(preparation.recovery, current);
   } catch (error) {
     blockers.push(error instanceof Error ? error.message : String(error));
@@ -499,6 +722,239 @@ export function parseBranchCloseoutReceipt(source: string): BranchCloseoutReceip
     || JSON.stringify(receipt.residue) !== JSON.stringify(derived.residue)
   ) {
     throw new Error('Branch closeout receipt outcome does not match its evidence.');
+  }
+  return receipt;
+}
+
+function assertDigest(value: string, label: string): asserts value is `sha256:${string}` {
+  if (!/^sha256:[0-9a-f]{64}$/u.test(value)) {
+    throw new Error(`${label} must be a SHA-256 digest.`);
+  }
+}
+
+function assertBoundedIdentity(value: string, label: string): void {
+  if (
+    value.length === 0
+    || value.length > 512
+    || value.trim() !== value
+    || /[\u0000-\u001f]/u.test(value)
+  ) {
+    throw new Error(`${label} must be bounded canonical text.`);
+  }
+}
+
+function operationIdentityPayload(
+  binding: Omit<BranchCloseoutOperationBindingV1, 'schema' | 'closeoutOperationId'>
+): Record<string, unknown> {
+  return {
+    schema: BRANCH_CLOSEOUT_OPERATION_SCHEMA_V1,
+    authorizationId: binding.authorizationId,
+    consumptionOperationId: binding.consumptionOperationId,
+    integrationAuthorizationReceiptDigest: binding.integrationAuthorizationReceiptDigest,
+    repository: binding.repository,
+    pullRequestNumber: binding.pullRequestNumber,
+    headSha: binding.headSha,
+    newMainSha: binding.newMainSha,
+    newMainTreeSha: binding.newMainTreeSha,
+    candidateTreeSha: binding.candidateTreeSha,
+    preparationDigest: binding.preparationDigest,
+    recoveryDigest: binding.recoveryDigest
+  };
+}
+
+export function createBranchCloseoutOperationBindingV1(input: {
+  integrationAuthorization: Pick<
+    IntegrationAuthorizationV1,
+    | 'authorizationId'
+    | 'consumptionOperationId'
+    | 'receiptDigest'
+    | 'repository'
+    | 'prNumber'
+    | 'headSha'
+  >;
+  preparation: BranchCloseoutPreparation;
+  newMainSha: string;
+  newMainTreeSha: string;
+  candidateTreeSha: string;
+}): BranchCloseoutOperationBindingV1 {
+  assertBranchCloseoutPreparation(input.preparation);
+  const authorization = input.integrationAuthorization;
+  assertBoundedIdentity(authorization.authorizationId, 'authorizationId');
+  assertBoundedIdentity(authorization.consumptionOperationId, 'consumptionOperationId');
+  assertDigest(authorization.receiptDigest, 'integrationAuthorization.receiptDigest');
+  assertGitSha(input.newMainSha, 'newMainSha');
+  assertGitSha(input.newMainTreeSha, 'newMainTreeSha');
+  assertGitSha(input.candidateTreeSha, 'candidateTreeSha');
+  if (input.newMainTreeSha !== input.candidateTreeSha) {
+    throw new Error('Post-parity closeout requires newMainTreeSha to match candidateTreeSha.');
+  }
+  if (authorization.repository !== input.preparation.repository.fullName) {
+    throw new Error('IntegrationAuthorization repository does not match closeout preparation.');
+  }
+  if (authorization.prNumber !== input.preparation.pullRequestNumber) {
+    throw new Error('IntegrationAuthorization PR does not match closeout preparation.');
+  }
+  if (authorization.headSha !== input.preparation.expectedHeadSha) {
+    throw new Error('IntegrationAuthorization head does not match closeout preparation.');
+  }
+  const payload = operationIdentityPayload({
+    authorizationId: authorization.authorizationId,
+    consumptionOperationId: authorization.consumptionOperationId,
+    integrationAuthorizationReceiptDigest: authorization.receiptDigest,
+    repository: authorization.repository,
+    pullRequestNumber: authorization.prNumber,
+    headSha: authorization.headSha,
+    newMainSha: input.newMainSha,
+    newMainTreeSha: input.newMainTreeSha,
+    candidateTreeSha: input.candidateTreeSha,
+    preparationDigest: input.preparation.preparationDigest,
+    recoveryDigest: input.preparation.recovery.sha256
+  });
+  return {
+    ...payload,
+    closeoutOperationId: branchLifecycleDigest(payload)
+  } as BranchCloseoutOperationBindingV1;
+}
+
+export function assertBranchCloseoutOperationBindingV1(
+  binding: BranchCloseoutOperationBindingV1
+): void {
+  if (binding.schema !== BRANCH_CLOSEOUT_OPERATION_SCHEMA_V1) {
+    throw new Error('Branch closeout operation schema mismatch.');
+  }
+  assertDigest(binding.closeoutOperationId, 'closeoutOperationId');
+  assertBoundedIdentity(binding.authorizationId, 'authorizationId');
+  assertBoundedIdentity(binding.consumptionOperationId, 'consumptionOperationId');
+  assertDigest(
+    binding.integrationAuthorizationReceiptDigest,
+    'integrationAuthorizationReceiptDigest'
+  );
+  assertGitSha(binding.headSha, 'headSha');
+  assertGitSha(binding.newMainSha, 'newMainSha');
+  assertGitSha(binding.newMainTreeSha, 'newMainTreeSha');
+  assertGitSha(binding.candidateTreeSha, 'candidateTreeSha');
+  assertDigest(binding.preparationDigest, 'preparationDigest');
+  assertDigest(binding.recoveryDigest, 'recoveryDigest');
+  if (binding.newMainTreeSha !== binding.candidateTreeSha) {
+    throw new Error('Branch closeout operation tree parity is not matched.');
+  }
+  const { schema: _schema, closeoutOperationId, ...identity } = binding;
+  if (branchLifecycleDigest(operationIdentityPayload(identity)) !== closeoutOperationId) {
+    throw new Error('Branch closeout operation identity digest mismatch.');
+  }
+}
+
+function assertEffect(effect: BranchCloseoutEffectV1, label: string): void {
+  if (
+    effect.state !== 'not-started'
+    && effect.state !== 'applied'
+    && effect.state !== 'observed-absent'
+    && effect.state !== 'failed'
+  ) {
+    throw new Error(`${label}.state is invalid.`);
+  }
+  if (effect.detailDigest !== null) assertDigest(effect.detailDigest, `${label}.detailDigest`);
+  if (effect.state === 'not-started' && effect.detailDigest !== null) {
+    throw new Error(`${label} not-started state cannot contain a detail digest.`);
+  }
+}
+
+export function createBranchCloseoutOperationJournalV1(input: Omit<
+  BranchCloseoutOperationJournalV1,
+  'schema' | 'journalDigest'
+>): BranchCloseoutOperationJournalV1 {
+  assertBranchCloseoutOperationBindingV1(input.binding);
+  assertBoundedIdentity(input.writerId, 'writerId');
+  assertEffect(input.remote, 'remote');
+  assertEffect(input.local, 'local');
+  assertEffect(input.prune, 'prune');
+  if (input.terminalReceiptDigest !== null) {
+    assertDigest(input.terminalReceiptDigest, 'terminalReceiptDigest');
+  }
+  const payload = { schema: BRANCH_CLOSEOUT_OPERATION_JOURNAL_SCHEMA_V1, ...input };
+  return { ...payload, journalDigest: branchLifecycleDigest(payload) };
+}
+
+export function parseBranchCloseoutOperationJournalV1(
+  source: string
+): BranchCloseoutOperationJournalV1 {
+  const value: unknown = JSON.parse(source);
+  assertRecord(value, 'Branch closeout operation journal');
+  const journal = value as unknown as BranchCloseoutOperationJournalV1;
+  if (journal.schema !== BRANCH_CLOSEOUT_OPERATION_JOURNAL_SCHEMA_V1) {
+    throw new Error('Branch closeout operation journal schema mismatch.');
+  }
+  const { journalDigest, ...payload } = journal;
+  assertDigest(journalDigest, 'journalDigest');
+  if (branchLifecycleDigest(payload) !== journalDigest) {
+    throw new Error('Branch closeout operation journal digest mismatch.');
+  }
+  createBranchCloseoutOperationJournalV1({
+    binding: journal.binding,
+    writerId: journal.writerId,
+    remote: journal.remote,
+    local: journal.local,
+    prune: journal.prune,
+    terminalReceiptDigest: journal.terminalReceiptDigest
+  });
+  if (source !== `${JSON.stringify(journal, null, 2)}\n`) {
+    throw new Error('Branch closeout operation journal bytes are not canonical.');
+  }
+  return journal;
+}
+
+export function createBranchCloseoutOperationReceiptV1(input: Omit<
+  BranchCloseoutOperationReceiptV1,
+  'schema' | 'operationReceiptDigest'
+>): BranchCloseoutOperationReceiptV1 {
+  assertBranchCloseoutOperationBindingV1(input.binding);
+  assertBoundedIdentity(input.writerId, 'writerId');
+  if (new Date(input.generatedAt).toISOString() !== input.generatedAt) {
+    throw new Error('generatedAt must be a canonical ISO timestamp.');
+  }
+  assertEffect(input.remote, 'remote');
+  assertEffect(input.local, 'local');
+  assertEffect(input.prune, 'prune');
+  const receipt = parseBranchCloseoutReceipt(`${JSON.stringify(input.receipt)}\n`);
+  if (receipt.preparation.preparationDigest !== input.binding.preparationDigest) {
+    throw new Error('Terminal receipt preparation does not match closeout operation.');
+  }
+  const payload = {
+    schema: BRANCH_CLOSEOUT_OPERATION_RECEIPT_SCHEMA_V1,
+    ...input,
+    receipt
+  };
+  return { ...payload, operationReceiptDigest: branchLifecycleDigest(payload) };
+}
+
+export function parseBranchCloseoutOperationReceiptV1(
+  source: string
+): BranchCloseoutOperationReceiptV1 {
+  const value: unknown = JSON.parse(source);
+  assertRecord(value, 'Branch closeout operation receipt');
+  const receipt = value as unknown as BranchCloseoutOperationReceiptV1;
+  if (receipt.schema !== BRANCH_CLOSEOUT_OPERATION_RECEIPT_SCHEMA_V1) {
+    throw new Error('Branch closeout operation receipt schema mismatch.');
+  }
+  const { operationReceiptDigest, ...payload } = receipt;
+  assertDigest(operationReceiptDigest, 'operationReceiptDigest');
+  if (branchLifecycleDigest(payload) !== operationReceiptDigest) {
+    throw new Error('Branch closeout operation receipt digest mismatch.');
+  }
+  const rebuilt = createBranchCloseoutOperationReceiptV1({
+    binding: receipt.binding,
+    writerId: receipt.writerId,
+    generatedAt: receipt.generatedAt,
+    remote: receipt.remote,
+    local: receipt.local,
+    prune: receipt.prune,
+    receipt: receipt.receipt
+  });
+  if (rebuilt.operationReceiptDigest !== operationReceiptDigest) {
+    throw new Error('Branch closeout operation receipt bytes are not canonical.');
+  }
+  if (source !== `${JSON.stringify(receipt, null, 2)}\n`) {
+    throw new Error('Branch closeout operation receipt persistence bytes are not canonical.');
   }
   return receipt;
 }

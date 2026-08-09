@@ -7,6 +7,17 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
+import path from 'node:path';
+import { executeVerifiedCiActionPlanV1 } from '../../platform/dev-runner.ts';
+import {
+  parseCiVerificationActionPlanClosureV1,
+  type CiVerificationActionPlanClosureV1,
+  type CiVerificationExecutionEnvironmentV2,
+  type CiVerificationNormalizedOperationV2
+} from '../../platform/shared/verification-action-ci-contract.ts';
 import {
   createVerificationActionTerminalV2,
   encodeVerificationActionDataV2,
@@ -21,10 +32,16 @@ import {
   type VerificationActionKeyV2,
   type VerificationActionPlanV2,
   type VerificationActionTerminalV2
-} from './verification-action-contract.ts';
+} from '../../platform/shared/verification-action-contract.ts';
+import { createBranchLifecycleGitChildEnvironmentV1 } from './branch-lifecycle-command.ts';
 import {
+  acquireVerificationActionClaimV1,
   appendVerificationActionJournalEventV2,
+  commitVerificationActionTerminalUnderClaimV1,
   readVerificationActionJournalV2,
+  releaseVerificationActionClaimV1,
+  renewVerificationActionClaimV1,
+  revokeVerificationActionClaimV1,
   type VerificationActionJournalReadbackV2,
   type VerificationActionJournalStateV2
 } from './verification-action-journal.ts';
@@ -39,6 +56,39 @@ export interface VerificationActionRunOutcomeV2 {
   readonly physicalExecution: boolean;
   readonly reason: string | null;
 }
+
+export const LOCAL_VERIFICATION_ACTION_DAG_RESULT_SCHEMA_V2 =
+  'sec-local-verification-action-dag-result-v2' as const;
+
+export type LocalVerificationActionDagResultV2 = Readonly<{
+  schema: typeof LOCAL_VERIFICATION_ACTION_DAG_RESULT_SCHEMA_V2;
+  actionPlanDigest: VerificationActionKeyDigest;
+  executionEnvironmentRevision: string;
+  status: 'passed' | 'failed' | 'blocked';
+  actionResults: readonly VerificationActionRunOutcomeV2[];
+  terminalDigest: VerificationActionKeyDigest;
+}>;
+
+export type ExecuteLocalVerificationActionDagInputV2 = Readonly<{
+  /** Trusted checkout that owns the durable local Action journal. */
+  authorityRoot: string;
+  /** Detached exact-candidate worktree used only for physical execution. */
+  candidateRoot: string;
+  actionPlanClosure: CiVerificationActionPlanClosureV1;
+  executionEnvironment: CiVerificationExecutionEnvironmentV2;
+  environment?: NodeJS.ProcessEnv;
+  runner?: VerificationActionRunnerV2;
+  recordedAt?: () => string;
+  executeNormalizedOperation?: (
+    operation: CiVerificationNormalizedOperationV2
+  ) => Promise<number> | number;
+  inspectRepository?: (repositoryRoot: string) => Readonly<{
+    headSha: string;
+    headTreeSha: string;
+    trackedClean: boolean;
+    gitCommonDirectory: string;
+  }>;
+}>;
 
 export type VerificationActionExecutorV2 = (
   context: Readonly<{
@@ -56,6 +106,7 @@ export interface VerificationActionExecuteInputV2 {
   readonly plan?: VerificationActionPlanV2;
   readonly executor: VerificationActionExecutorV2;
   readonly recordedAt?: () => string;
+  readonly leaseDurationMs?: number;
 }
 
 type InFlight = Promise<VerificationActionRunOutcomeV2>;
@@ -91,6 +142,37 @@ function boundedToken(value: string | undefined, label: string, fallback: () => 
 function nextOwnerToken(): string {
   ownerSequence += 1;
   return `verification-action-owner-${ownerSequence}`;
+}
+
+function localDagDigest(value: unknown): VerificationActionKeyDigest {
+  return `sha256:${createHash('sha256').update(encodeVerificationActionDataV2(value)).digest('hex')}`;
+}
+
+function inspectLocalRepository(repositoryRoot: string): Readonly<{
+  headSha: string;
+  headTreeSha: string;
+  trackedClean: boolean;
+  gitCommonDirectory: string;
+}> {
+  const git = (...args: string[]): string => {
+    const result = spawnSync('git', ['-C', repositoryRoot, ...args], {
+      encoding: 'utf8',
+      windowsHide: true,
+      env: createBranchLifecycleGitChildEnvironmentV1(process.env)
+    });
+    if (result.status !== 0) {
+      throw new Error(`local VerificationAction candidate Git inspection failed: ${result.stderr.trim()}`);
+    }
+    return result.stdout.trim();
+  };
+  return Object.freeze({
+    headSha: git('rev-parse', 'HEAD'),
+    headTreeSha: git('rev-parse', 'HEAD^{tree}'),
+    trackedClean: git('status', '--porcelain=v1', '--untracked-files=all') === '',
+    gitCommonDirectory: realpathSync.native(
+      git('rev-parse', '--path-format=absolute', '--git-common-dir')
+    )
+  });
 }
 
 function resolveDependency(
@@ -205,6 +287,10 @@ function outcome(
   });
 }
 
+
+
+
+
 export class VerificationActionRunnerV2 {
   async execute(input: VerificationActionExecuteInputV2): Promise<VerificationActionRunOutcomeV2> {
     const action = canonicalAction(input.action);
@@ -267,74 +353,69 @@ export class VerificationActionRunnerV2 {
       );
     }
 
-    const journal = readVerificationActionJournalV2(input.repositoryRoot, action.actionKey);
-    if (journal.latestState === 'terminal' || journal.latestState === 'reused') {
-      if (journal.terminal === null) {
-        throw new Error('VerificationAction journal terminal state has no terminal fact.');
-      }
-      if (journal.latestState === 'terminal') {
-        appendVerificationActionJournalEventV2({
-          repositoryRoot: input.repositoryRoot,
-          action,
-          state: 'reused',
-          recordedAt: input.recordedAt?.(),
-          terminal: journal.terminal,
-          note: 'fresh terminal action reused without physical execution'
-        });
-      }
-      return outcome(
-        action.actionKey,
-        'reused',
-        'reused',
-        journal.terminal,
-        false,
-        journal.terminal.status === 'failed'
-          ? 'known terminal failure reused; never projected as PASS'
-          : null
-      );
+    const claim = acquireVerificationActionClaimV1({
+      repositoryRoot: input.repositoryRoot,
+      action,
+      ownerToken,
+      now: input.recordedAt?.() ?? new Date().toISOString(),
+      leaseDurationMs: input.leaseDurationMs
+    });
+    if (claim.disposition === 'terminal') {
+      return outcome(action.actionKey, 'reused', 'reused', claim.terminal, false,
+        claim.terminal?.status === 'failed' ? 'known terminal failure reused; never projected as PASS' : null);
     }
+    if (claim.disposition === 'joined') {
+      return outcome(action.actionKey, 'joined', 'running', null, false, claim.reason);
+    }
+    if (claim.disposition === 'blocked' || claim.disposition === 'contended') {
+      return outcome(action.actionKey, 'blocked', null, null, false, claim.reason);
+    }
+    const releaseClaim = () => releaseVerificationActionClaimV1({
+      repositoryRoot: input.repositoryRoot,
+      actionKey: action.actionKey,
+      ownerToken
+    });
+    const leaseDurationMs = input.leaseDurationMs ?? 300_000;
+    let leaseLost = false;
+    const heartbeat = setInterval(() => {
+      try {
+        if (!renewVerificationActionClaimV1({
+          repositoryRoot: input.repositoryRoot,
+          actionKey: action.actionKey,
+          ownerToken,
+          now: input.recordedAt?.() ?? new Date().toISOString(),
+          leaseDurationMs
+        })) leaseLost = true;
+      } catch { leaseLost = true; }
+    }, Math.max(250, Math.floor(leaseDurationMs / 3)));
+    heartbeat.unref();
+    const stopHeartbeat = () => clearInterval(heartbeat);
+
+    const journal = readVerificationActionJournalV2(input.repositoryRoot, action.actionKey);
     if (journal.latestState === 'invalidated' || journal.latestState === 'cancelled') {
-      return outcome(
-        action.actionKey,
-        'blocked',
-        journal.latestState,
-        null,
-        false,
-        `action is already ${journal.latestState}; delete the disposable V2 journal to execute cleanly`
-      );
+      stopHeartbeat();
+      releaseClaim();
+      return outcome(action.actionKey, 'blocked', journal.latestState, null, false,
+        `action is already ${journal.latestState}; delete the disposable V2 journal to execute cleanly`);
+    }
+    if (journal.latestState === 'terminal' || journal.latestState === 'reused') {
+      stopHeartbeat();
+      releaseClaim();
+      if (journal.terminal === null) throw new Error('VerificationAction terminal state has no terminal fact.');
+      return outcome(action.actionKey, 'reused', 'reused', journal.terminal, false,
+        journal.terminal.status === 'failed' ? 'known terminal failure reused; never projected as PASS' : null);
     }
     if (journal.latestState === 'queued' || journal.latestState === 'running') {
-      appendVerificationActionJournalEventV2({
-        repositoryRoot: input.repositoryRoot,
-        action,
-        state: 'invalidated',
-        recordedAt: input.recordedAt?.(),
-        note: `persisted ${journal.latestState} action has no live execution owner; fail closed`
-      });
-      return outcome(
-        action.actionKey,
-        'blocked',
-        'invalidated',
-        null,
-        false,
-        `persisted ${journal.latestState} action had no live execution owner`
-      );
+      stopHeartbeat();
+      releaseClaim();
+      return outcome(action.actionKey, 'blocked', journal.latestState, null, false,
+        `persisted ${journal.latestState} action has no provable terminal; blind re-execution is forbidden`);
+    } else {
+      appendVerificationActionJournalEventV2({ repositoryRoot: input.repositoryRoot, action,
+        state: 'queued', recordedAt: input.recordedAt?.(), note: null });
+      appendVerificationActionJournalEventV2({ repositoryRoot: input.repositoryRoot, action,
+        state: 'running', recordedAt: input.recordedAt?.(), note: null });
     }
-
-    appendVerificationActionJournalEventV2({
-      repositoryRoot: input.repositoryRoot,
-      action,
-      state: 'queued',
-      recordedAt: input.recordedAt?.(),
-      note: null
-    });
-    appendVerificationActionJournalEventV2({
-      repositoryRoot: input.repositoryRoot,
-      action,
-      state: 'running',
-      recordedAt: input.recordedAt?.(),
-      note: null
-    });
 
     // The map is populated before the executor callback can run. The deferred
     // body also preserves the owner context for synchronous and awaited nested
@@ -367,6 +448,8 @@ export class VerificationActionRunnerV2 {
         action.actionKey
       );
       if (afterExecution.latestState === 'invalidated' || afterExecution.latestState === 'cancelled') {
+        stopHeartbeat();
+        releaseClaim();
         resolveFlight(outcome(
           action.actionKey,
           'blocked',
@@ -387,6 +470,8 @@ export class VerificationActionRunnerV2 {
           recordedAt: input.recordedAt?.(),
           note: `dependency closure changed during physical execution; ${afterRunnable.reason ?? 'terminal commit rejected'}`
         });
+        stopHeartbeat();
+        releaseClaim();
         resolveFlight(outcome(
           action.actionKey,
           'blocked',
@@ -398,19 +483,37 @@ export class VerificationActionRunnerV2 {
         return;
       }
       try {
-        appendVerificationActionJournalEventV2({
+        stopHeartbeat();
+        if (leaseLost) {
+          resolveFlight(outcome(action.actionKey, 'blocked', 'running', null, true,
+            'physical result discarded because the durable claim lease was lost'));
+          return;
+        }
+        const committed = commitVerificationActionTerminalUnderClaimV1({
           repositoryRoot: input.repositoryRoot,
           action,
-          state: 'terminal',
+          ownerToken,
+          now: input.recordedAt?.() ?? new Date().toISOString(),
           recordedAt: input.recordedAt?.(),
           terminal,
           note
         });
+        if (committed === null) {
+          resolveFlight(outcome(action.actionKey, 'blocked', 'running', null, true,
+            'physical result discarded because terminal commit did not own the live claim'));
+          return;
+        }
         resolveFlight(outcome(action.actionKey, 'executed', 'terminal', terminal, true, note));
       } catch (error) {
+        stopHeartbeat();
+        releaseClaim();
         rejectFlight(error);
       }
-    })().catch((error) => rejectFlight(error));
+    })().catch((error) => {
+      stopHeartbeat();
+      releaseClaim();
+      rejectFlight(error);
+    });
     try {
       return await flight;
     } finally {
@@ -429,14 +532,8 @@ export class VerificationActionRunnerV2 {
     const current = readVerificationActionJournalV2(repositoryRoot, canonical.actionKey);
     if (current.latestState === null || current.latestState === 'invalidated' ||
       current.latestState === 'cancelled') return current;
-    appendVerificationActionJournalEventV2({
-      repositoryRoot,
-      action: canonical,
-      state: 'invalidated',
-      terminal: null,
-      note
-    });
-    return readVerificationActionJournalV2(repositoryRoot, canonical.actionKey);
+    return revokeVerificationActionClaimV1({ repositoryRoot, action: canonical,
+      state: 'invalidated', note });
   }
 
   cancel(
@@ -448,14 +545,8 @@ export class VerificationActionRunnerV2 {
     const current = readVerificationActionJournalV2(repositoryRoot, canonical.actionKey);
     if (current.latestState === null || current.latestState === 'invalidated' ||
       current.latestState === 'cancelled') return current;
-    appendVerificationActionJournalEventV2({
-      repositoryRoot,
-      action: canonical,
-      state: 'cancelled',
-      terminal: null,
-      note
-    });
-    return readVerificationActionJournalV2(repositoryRoot, canonical.actionKey);
+    return revokeVerificationActionClaimV1({ repositoryRoot, action: canonical,
+      state: 'cancelled', note });
   }
 
   invalidateIfDependent(input: {
@@ -479,4 +570,103 @@ export class VerificationActionRunnerV2 {
 
 export function createVerificationActionRunnerV2(): VerificationActionRunnerV2 {
   return new VerificationActionRunnerV2();
+}
+
+/**
+ * Execute one canonical local quick Action DAG for developer feedback.
+ *
+ * This seam deliberately returns only local journal terminals. It never emits,
+ * finalizes, or projects hosted CI Evidence.
+ */
+export async function executeLocalVerificationActionDagV2(
+  input: ExecuteLocalVerificationActionDagInputV2
+): Promise<LocalVerificationActionDagResultV2> {
+  const authorityRoot = realpathSync.native(path.resolve(input.authorityRoot));
+  const candidateRoot = path.resolve(input.candidateRoot);
+  const closure = parseCiVerificationActionPlanClosureV1(
+    encodeVerificationActionDataV2(input.actionPlanClosure)
+  );
+  const executionEnvironment = input.executionEnvironment;
+  if (executionEnvironment.kind !== 'local' || executionEnvironment.runnerImage !== null) {
+    throw new Error('local VerificationAction DAG requires one canonical local execution environment.');
+  }
+  if (closure.actions.length === 0 || closure.actions.length !== closure.normalizedOperations.length) {
+    throw new Error('local VerificationAction DAG requires one non-empty canonical Action closure.');
+  }
+  const firstOperation = closure.normalizedOperations[0]!;
+  if (closure.normalizedOperations.some((operation) =>
+    operation.phase !== 'quick' ||
+    operation.candidate.executionEnvironmentRevision !== executionEnvironment.executionEnvironmentRevision ||
+    operation.candidate.profile !== 'quick'
+  ) || closure.actions.some((plan) =>
+    plan.action.environment.providerRevision !== executionEnvironment.executionEnvironmentRevision ||
+    plan.action.environment.toolchainRevision !== executionEnvironment.toolchainRevision
+  )) {
+    throw new Error('local VerificationAction DAG closure/environment identity mismatch.');
+  }
+  const inspectRepository = input.inspectRepository ?? inspectLocalRepository;
+  const authority = inspectRepository(authorityRoot);
+  const candidate = inspectRepository(candidateRoot);
+  const canonicalCommonDirectory = (value: string): string => (
+    process.platform === 'win32' ? realpathSync.native(value).toLowerCase() : realpathSync.native(value)
+  );
+  if (!authority.trackedClean || !candidate.trackedClean ||
+      canonicalCommonDirectory(authority.gitCommonDirectory) !==
+        canonicalCommonDirectory(candidate.gitCommonDirectory) ||
+      candidate.headSha !== firstOperation.candidate.headSha ||
+      candidate.headTreeSha !== firstOperation.candidate.headTreeSha ||
+      closure.normalizedOperations.some((operation) =>
+        operation.candidate.headSha !== candidate.headSha ||
+        operation.candidate.headTreeSha !== candidate.headTreeSha
+      )) {
+    throw new Error('local VerificationAction DAG requires the exact clean candidate head and tree.');
+  }
+
+  const runner = input.runner ?? createVerificationActionRunnerV2();
+  const actionResults: VerificationActionRunOutcomeV2[] = [];
+  for (let index = 0; index < closure.actions.length; index += 1) {
+    const plan = closure.actions[index]!;
+    const normalizedOperation = closure.normalizedOperations[index]!;
+    const result = await runner.execute({
+      repositoryRoot: authorityRoot,
+      action: plan.action,
+      plan,
+      executionDomain: `local-dev-runner:${executionEnvironment.executionEnvironmentRevision}`,
+      recordedAt: input.recordedAt,
+      executor: async () => {
+        const exitCode = await executeVerifiedCiActionPlanV1({
+          plan,
+          authorizedClosure: closure,
+          repositoryRoot: candidateRoot,
+          environment: input.environment,
+          executeNormalizedOperation: input.executeNormalizedOperation
+        });
+        const status = exitCode === 0 ? 'passed' as const : 'failed' as const;
+        return createVerificationActionTerminalV2({
+          status,
+          reasonCode: status === 'passed' ? 'executed-success' : 'executed-failure',
+          resultDigest: localDagDigest({
+            actionKey: plan.action.actionKey,
+            normalizedOperationDigest: normalizedOperation.semanticDigest,
+            exitCode,
+            executionEnvironmentRevision: executionEnvironment.executionEnvironmentRevision
+          })
+        });
+      }
+    });
+    actionResults.push(result);
+  }
+  const status = actionResults.some((entry) => entry.disposition === 'blocked' || entry.terminal === null)
+    ? 'blocked' as const
+    : actionResults.some((entry) => entry.terminal?.status !== 'passed')
+      ? 'failed' as const
+      : 'passed' as const;
+  const withoutDigest = Object.freeze({
+    schema: LOCAL_VERIFICATION_ACTION_DAG_RESULT_SCHEMA_V2,
+    actionPlanDigest: closure.actionPlanDigest as VerificationActionKeyDigest,
+    executionEnvironmentRevision: executionEnvironment.executionEnvironmentRevision,
+    status,
+    actionResults: Object.freeze(actionResults)
+  });
+  return Object.freeze({ ...withoutDigest, terminalDigest: localDagDigest(withoutDigest) });
 }

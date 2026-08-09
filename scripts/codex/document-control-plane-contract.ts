@@ -1,6 +1,10 @@
-import { createHash } from 'node:crypto';
-
 import { parse as parseYaml } from 'yaml';
+
+import {
+  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentWorkPackageManifestDigest,
+  type CodexDevelopmentWorkPackageManifest
+} from './work-package-contract.ts';
 
 export const CodexDevelopmentCurrentStateSchemaV1 = 'sec-current-state-live-v1' as const;
 export const CodexDevelopmentActivePointerSchemaV2 = 'sec-active-work-package-pointer-v2' as const;
@@ -19,7 +23,14 @@ export type CodexDevelopmentActiveWorkPackageResolution =
   | { state: 'active'; manifest: string; manifestDigest: string }
   | { state: 'invalid'; reason: 'candidate-digest-mismatch' }
   | { state: 'none'; reason: 'matching-default-blob' }
-  | { state: 'unresolved'; reason: 'default-ref-stale' | 'default-ref-unavailable' };
+  | {
+      state: 'unresolved';
+      reason:
+        | 'default-ref-stale'
+        | 'default-ref-unavailable'
+        | 'activation-in-progress'
+        | 'activation-observation-raced';
+    };
 
 export interface CodexDevelopmentCurrentStateSpecV1 {
   schema: typeof CodexDevelopmentCurrentStateSchemaV1;
@@ -49,6 +60,168 @@ export interface CodexDevelopmentActivePointerV2 {
 export interface CodexDevelopmentRollingPlanV1 {
   activePackageId: string;
   candidatePackageIds: string[];
+}
+
+/** Pure platform-neutral vocabulary for the initially-absent T/N/R recovery tuple. */
+export type CodexDevelopmentInitiallyAbsentTuplePlatformV1 = 'win32' | 'linux';
+export type CodexDevelopmentInitiallyAbsentTupleByteClassV1 = 'absent' | 'exact-next' | 'unknown';
+export type CodexDevelopmentInitiallyAbsentTupleStateV1 =
+  | 'win32-w0' | 'win32-w1' | 'win32-w2'
+  | 'linux-l0' | 'linux-l1' | 'linux-l2' | 'linux-l3';
+export type CodexDevelopmentInitiallyAbsentTupleInvalidReasonV1 =
+  | 'unsupported-platform'
+  | 'malformed-observation'
+  | 'unknown-bytes'
+  | 'illegal-topology'
+  | 'identity-mismatch';
+export type CodexDevelopmentInitiallyAbsentTupleEdgeV1 =
+  | 'win32-w0->win32-w1'
+  | 'win32-w1->win32-w2'
+  | 'linux-l0->linux-l1'
+  | 'linux-l1->linux-l2'
+  | 'linux-l2->linux-l3';
+
+export interface CodexDevelopmentInitiallyAbsentTupleEntryV1 {
+  readonly byteClass: CodexDevelopmentInitiallyAbsentTupleByteClassV1;
+  /** Adapter-provided opaque identity. The contract only compares the string. */
+  readonly identity: string | null;
+}
+
+export interface CodexDevelopmentInitiallyAbsentTupleV1 {
+  readonly target: CodexDevelopmentInitiallyAbsentTupleEntryV1;
+  readonly next: CodexDevelopmentInitiallyAbsentTupleEntryV1;
+  readonly retiredNext: CodexDevelopmentInitiallyAbsentTupleEntryV1;
+}
+
+export type CodexDevelopmentInitiallyAbsentTupleResolutionV1 =
+  | Readonly<{ status: 'legal'; state: CodexDevelopmentInitiallyAbsentTupleStateV1 }>
+  | Readonly<{ status: 'invalid'; reason: CodexDevelopmentInitiallyAbsentTupleInvalidReasonV1 }>;
+
+const InitiallyAbsentTupleKeysV1 = ['target', 'next', 'retiredNext'] as const;
+const InitiallyAbsentTupleEntryKeysV1 = ['byteClass', 'identity'] as const;
+
+function initiallyAbsentExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function initiallyAbsentMalformedTuple(tuple: unknown): boolean {
+  if (!initiallyAbsentExactKeys(tuple, InitiallyAbsentTupleKeysV1)) return true;
+  return InitiallyAbsentTupleKeysV1.some((key) => {
+    const entry = tuple[key];
+    if (!initiallyAbsentExactKeys(entry, InitiallyAbsentTupleEntryKeysV1)) return true;
+    const byteClass = entry.byteClass;
+    const identity = entry.identity;
+    if (byteClass !== 'absent' && byteClass !== 'exact-next' && byteClass !== 'unknown') return true;
+    if (identity !== null && typeof identity !== 'string') return true;
+    if ((byteClass === 'exact-next' || byteClass === 'unknown') && identity === '') return true;
+    return (byteClass === 'absent') !== (identity === null);
+  });
+}
+
+function initiallyAbsentInvalid(
+  reason: CodexDevelopmentInitiallyAbsentTupleInvalidReasonV1
+): CodexDevelopmentInitiallyAbsentTupleResolutionV1 {
+  return Object.freeze({ status: 'invalid', reason });
+}
+
+function initiallyAbsentLegal(
+  state: CodexDevelopmentInitiallyAbsentTupleStateV1
+): CodexDevelopmentInitiallyAbsentTupleResolutionV1 {
+  return Object.freeze({ status: 'legal', state });
+}
+
+/**
+ * Sole pure grammar for initial publication. Invalid reasons are selected in
+ * the declared order: platform, observation shape, bytes, topology, identity.
+ */
+export function CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1(
+  input: Readonly<{
+    platform: CodexDevelopmentInitiallyAbsentTuplePlatformV1;
+    tuple: CodexDevelopmentInitiallyAbsentTupleV1;
+  }>
+): CodexDevelopmentInitiallyAbsentTupleResolutionV1 {
+  const rawInput = input !== null && typeof input === 'object'
+    ? input as unknown as Record<string, unknown>
+    : {};
+  if (rawInput.platform !== 'win32' && rawInput.platform !== 'linux') {
+    return initiallyAbsentInvalid('unsupported-platform');
+  }
+  if (initiallyAbsentMalformedTuple(rawInput.tuple)) {
+    return initiallyAbsentInvalid('malformed-observation');
+  }
+  const tuple = rawInput.tuple as CodexDevelopmentInitiallyAbsentTupleV1;
+  const { target, next, retiredNext } = tuple;
+  if ([target, next, retiredNext].some((entry) => entry.byteClass === 'unknown')) {
+    return initiallyAbsentInvalid('unknown-bytes');
+  }
+  const topology = [target.byteClass, next.byteClass, retiredNext.byteClass].join('/');
+  if (rawInput.platform === 'win32') {
+    if (topology === 'absent/absent/absent') return initiallyAbsentLegal('win32-w0');
+    if (topology === 'absent/exact-next/absent') return initiallyAbsentLegal('win32-w1');
+    if (topology === 'exact-next/absent/absent') return initiallyAbsentLegal('win32-w2');
+    return initiallyAbsentInvalid('illegal-topology');
+  }
+  if (topology === 'absent/absent/absent') return initiallyAbsentLegal('linux-l0');
+  if (topology === 'absent/exact-next/absent') return initiallyAbsentLegal('linux-l1');
+  if (topology === 'exact-next/exact-next/absent') {
+    return target.identity === next.identity
+      ? initiallyAbsentLegal('linux-l2')
+      : initiallyAbsentInvalid('identity-mismatch');
+  }
+  if (topology === 'exact-next/absent/exact-next') {
+    return target.identity === retiredNext.identity
+      ? initiallyAbsentLegal('linux-l3')
+      : initiallyAbsentInvalid('identity-mismatch');
+  }
+  return initiallyAbsentInvalid('illegal-topology');
+}
+
+/** Validates one explicitly selected adjacent edge and its cross-observation object continuity. */
+export function CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1(input: Readonly<{
+  platform: CodexDevelopmentInitiallyAbsentTuplePlatformV1;
+  predecessor: CodexDevelopmentInitiallyAbsentTupleV1;
+  successor: CodexDevelopmentInitiallyAbsentTupleV1;
+  expectedEdge: CodexDevelopmentInitiallyAbsentTupleEdgeV1;
+}>): CodexDevelopmentInitiallyAbsentTupleResolutionV1 {
+  const predecessor = CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({
+    platform: input.platform,
+    tuple: input.predecessor
+  });
+  if (predecessor.status === 'invalid') return predecessor;
+  const successor = CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({
+    platform: input.platform,
+    tuple: input.successor
+  });
+  if (successor.status === 'invalid') return successor;
+  const actualEdge = `${predecessor.state}->${successor.state}`;
+  if (actualEdge !== input.expectedEdge) return initiallyAbsentInvalid('illegal-topology');
+  const { predecessor: before, successor: after } = input;
+  switch (input.expectedEdge) {
+    case 'win32-w0->win32-w1':
+    case 'linux-l0->linux-l1':
+      return successor;
+    case 'win32-w1->win32-w2':
+    case 'linux-l1->linux-l2':
+      return before.next.identity === after.target.identity
+        ? successor
+        : initiallyAbsentInvalid('identity-mismatch');
+    case 'linux-l2->linux-l3':
+      return before.target.identity === after.target.identity
+        && before.next.identity === after.retiredNext.identity
+        ? successor
+        : initiallyAbsentInvalid('identity-mismatch');
+  }
+}
+
+export interface CodexDevelopmentFreezeProjectionV1 {
+  readonly manifest: CodexDevelopmentWorkPackageManifest;
+  readonly manifestPath: string;
+  readonly manifestDigest: `sha256:${string}`;
+  readonly pointerSource: string;
+  readonly rollingPlanSource: string;
 }
 
 function assertRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -138,10 +311,6 @@ function parsePointerBlock(source: string): Record<string, unknown> {
   const parsed = parseYaml(match[1]);
   assertRecord(parsed, 'Active pointer YAML block');
   return parsed;
-}
-
-export function CodexDevelopmentGitBlobSha256(bytes: Uint8Array): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
 export function CodexDevelopmentParseCurrentStateSpecV1(
@@ -286,6 +455,193 @@ export function CodexDevelopmentParseRollingPlanV1(
   return { activePackageId, candidatePackageIds };
 }
 
+function uniqueHeadingMatch(source: string, pattern: RegExp, label: string): RegExpMatchArray {
+  const matches = [...source.matchAll(pattern)];
+  const match = matches[0];
+  if (matches.length !== 1 || match?.index === undefined) {
+    throw new Error(`${label} must occur exactly once.`);
+  }
+  return match;
+}
+
+function sourceLineEnding(source: string): '\n' | '\r\n' {
+  return source.includes('\r\n') ? '\r\n' : '\n';
+}
+
+/**
+ * Promote one already-reviewed rolling-plan candidate without interpreting or
+ * regenerating its prose. Only the candidate heading loses its ordinal and the
+ * remaining ordinals are rewritten; candidate bodies and every unrelated byte
+ * are retained exactly.
+ */
+export function CodexDevelopmentPromoteRollingPlanV1(input: {
+  source: string;
+  packageId: string;
+}): string {
+  const parsed = CodexDevelopmentParseRollingPlanV1(input.source);
+  const packageId = stringValue(input.packageId, 'Rolling plan promotion packageId');
+  if (!/^[a-z0-9][a-z0-9-]*$/u.test(packageId)) {
+    throw new Error('Rolling plan promotion packageId must be a canonical Work Package ID.');
+  }
+  if (parsed.activePackageId === packageId) return input.source;
+  if (!parsed.candidatePackageIds.includes(packageId)) {
+    throw new Error('Rolling plan promotion target must be the active package or one unique candidate.');
+  }
+
+  const activeMarker = uniqueHeadingMatch(
+    input.source,
+    /^## 当前唯一 Work Package[ \t]*\r?$/gmu,
+    'Rolling plan active marker'
+  );
+  const candidateMarker = uniqueHeadingMatch(
+    input.source,
+    /^## 候选 Work Package[ \t]*\r?$/gmu,
+    'Rolling plan candidate marker'
+  );
+  const activeMarkerEnd = activeMarker.index! + activeMarker[0].length;
+  const candidateMarkerStart = candidateMarker.index!;
+  const candidateMarkerEnd = candidateMarkerStart + candidateMarker[0].length;
+  const followingSectionPattern = /^## (?!候选 Work Package[ \t]*\r?$).+\r?$/gmu;
+  followingSectionPattern.lastIndex = candidateMarkerEnd;
+  const followingSection = followingSectionPattern.exec(input.source);
+  const candidateSectionEnd = followingSection?.index ?? input.source.length;
+  const candidateSection = input.source.slice(candidateMarkerEnd, candidateSectionEnd);
+  const headingPattern = /^### ([1-9][0-9]*)\. ([a-z0-9][a-z0-9-]*)([ \t]*)(\r?\n|$)/gmu;
+  const headings = [...candidateSection.matchAll(headingPattern)];
+  const targetIndex = headings.findIndex((heading) => heading[2] === packageId);
+  if (targetIndex < 0 || headings.filter((heading) => heading[2] === packageId).length !== 1) {
+    throw new Error('Rolling plan promotion target must occur exactly once in the candidate section.');
+  }
+  const remaining = headings.filter((_, index) => index !== targetIndex);
+  if (remaining.length < 2 || remaining.length > 5) {
+    throw new Error('Rolling plan promotion must retain two to five candidate packages.');
+  }
+
+  const sectionOffset = candidateMarkerEnd;
+  const firstHeadingStart = sectionOffset + headings[0]!.index!;
+  const candidatePrefix = input.source.slice(candidateMarkerEnd, firstHeadingStart);
+  const blocks = headings.map((heading, index) => {
+    const start = sectionOffset + heading.index!;
+    const end = index + 1 < headings.length
+      ? sectionOffset + headings[index + 1]!.index!
+      : candidateSectionEnd;
+    const headingEnd = start + heading[0].length;
+    return {
+      id: heading[2]!,
+      heading: heading[0],
+      body: input.source.slice(headingEnd, end)
+    };
+  });
+  const promoted = blocks[targetIndex]!;
+  const eol = sourceLineEnding(input.source);
+  const promotedHeading = promoted.heading.replace(
+    /^### [1-9][0-9]*\. /u,
+    '### '
+  );
+  const nextActiveSection = `${eol}${eol}${promotedHeading}${promoted.body}`;
+  const nextCandidateSection = candidatePrefix + blocks
+    .filter((_, index) => index !== targetIndex)
+    .map((block, index) => (
+      block.heading.replace(/^### [1-9][0-9]*\. /u, `### ${index + 1}. `) + block.body
+    ))
+    .join('');
+  const next = input.source.slice(0, activeMarkerEnd)
+    + nextActiveSection
+    + input.source.slice(candidateMarkerStart, candidateMarkerEnd)
+    + nextCandidateSection
+    + input.source.slice(candidateSectionEnd);
+  const nextParsed = CodexDevelopmentParseRollingPlanV1(next);
+  if (nextParsed.activePackageId !== packageId) {
+    throw new Error('Rolling plan promotion readback did not select the requested package.');
+  }
+  return next;
+}
+
+export function CodexDevelopmentRenderActivePointerV2(input: {
+  spec: CodexDevelopmentCurrentStateSpecV1;
+  manifestPath: string;
+  manifestDigest: `sha256:${string}`;
+  reviewedOn: string;
+}): string {
+  const manifestPath = manifestPathValue(input.manifestPath, 'Active pointer manifest');
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.manifestDigest)) {
+    throw new Error('Active pointer manifestDigest must be a SHA-256 digest.');
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(input.reviewedOn)) {
+    throw new Error('Active pointer reviewedOn must be an ISO calendar date.');
+  }
+  const source = `---
+schema: ${CodexDevelopmentActivePointerSchemaV2}
+status: conditional
+last-reviewed: ${input.reviewedOn}
+---
+
+# 当前唯一 Active Work Package
+
+\`\`\`yaml
+selectionMode: exact-manifest-not-on-default-branch-v1
+defaultBranchRef: ${input.spec.resolver.defaultRef}
+defaultRefFreshness: live-platform-match-required
+manifest: ${manifestPath}
+manifestDigest: ${input.manifestDigest}
+digestBytes: git-blob
+unavailableDefaultRef: unresolved
+matchingDefaultBlob: none
+\`\`\`
+`;
+  const pointer = CodexDevelopmentParseActivePointerV2(source);
+  CodexDevelopmentAssertControlPlaneBindingV1({ spec: input.spec, pointer });
+  return source;
+}
+
+export function CodexDevelopmentCreateFreezeProjectionV1(input: {
+  spec: CodexDevelopmentCurrentStateSpecV1;
+  currentPointerSource: string;
+  currentRollingPlanSource: string;
+  manifestPath: string;
+  manifestBytes: Uint8Array;
+  baseSha: string;
+  reviewedOn: string;
+}): CodexDevelopmentFreezeProjectionV1 {
+  const manifestPath = manifestPathValue(input.manifestPath, 'Freeze manifest path');
+  let manifestSource: string;
+  try {
+    manifestSource = new TextDecoder('utf-8', { fatal: true }).decode(input.manifestBytes);
+  } catch (error) {
+    throw new Error('Work Package manifest bytes must be valid UTF-8.', { cause: error });
+  }
+  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, manifestPath);
+  if (manifest.base !== input.baseSha) {
+    throw new Error('Work Package manifest base must equal the exact live default revision.');
+  }
+  const currentPointer = CodexDevelopmentParseActivePointerV2(input.currentPointerSource);
+  CodexDevelopmentAssertControlPlaneBindingV1({ spec: input.spec, pointer: currentPointer });
+  const currentRollingPlan = CodexDevelopmentParseRollingPlanV1(input.currentRollingPlanSource);
+  if (currentRollingPlan.activePackageId !== currentPointer.manifest.slice(
+    'docs/work-packages/'.length,
+    -'.md'.length
+  )) {
+    throw new Error('Current rolling plan and active pointer are not bound to the same package.');
+  }
+  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
+    input.manifestBytes
+  ) as `sha256:${string}`;
+  const pointerSource = CodexDevelopmentRenderActivePointerV2({
+    spec: input.spec,
+    manifestPath,
+    manifestDigest,
+    reviewedOn: input.reviewedOn
+  });
+  const rollingPlanSource = CodexDevelopmentPromoteRollingPlanV1({
+    source: input.currentRollingPlanSource,
+    packageId: manifest.id
+  });
+  if (CodexDevelopmentParseRollingPlanV1(rollingPlanSource).activePackageId !== manifest.id) {
+    throw new Error('Freeze projection rolling-plan readback failed.');
+  }
+  return Object.freeze({ manifest, manifestPath, manifestDigest, pointerSource, rollingPlanSource });
+}
+
 export function CodexDevelopmentResolveActiveWorkPackageV1(input: {
   pointer: CodexDevelopmentActivePointerV2;
   candidateManifestBlob: Uint8Array;
@@ -300,12 +656,12 @@ export function CodexDevelopmentResolveActiveWorkPackageV1(input: {
         : 'default-ref-unavailable'
     };
   }
-  if (CodexDevelopmentGitBlobSha256(input.candidateManifestBlob) !== input.pointer.manifestDigest) {
+  if (CodexDevelopmentWorkPackageManifestDigest(input.candidateManifestBlob) !== input.pointer.manifestDigest) {
     return { state: 'invalid', reason: 'candidate-digest-mismatch' };
   }
   if (
     input.defaultManifestBlob !== null
-    && CodexDevelopmentGitBlobSha256(input.defaultManifestBlob) === input.pointer.manifestDigest
+    && CodexDevelopmentWorkPackageManifestDigest(input.defaultManifestBlob) === input.pointer.manifestDigest
   ) {
     return { state: 'none', reason: 'matching-default-blob' };
   }

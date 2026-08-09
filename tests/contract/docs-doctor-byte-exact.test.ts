@@ -10,7 +10,7 @@ import {
   parseDocumentationAuthorityRegistry,
   renderDocumentationIndex
 } from '../../platform/shared/documentation-authority-contract.ts';
-import { CodexDevelopmentGitBlobSha256 } from '../../scripts/codex/document-control-plane-contract.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
 
 const PACKAGE_ID = 'docs-byte-exact-v1';
 const MANIFEST_PATH = `docs/work-packages/${PACKAGE_ID}.md`;
@@ -168,7 +168,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: ${MANIFEST_PATH}
-manifestDigest: ${CodexDevelopmentGitBlobSha256(manifest)}
+manifestDigest: ${CodexDevelopmentWorkPackageManifestDigest(manifest)}
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

@@ -1,0 +1,1644 @@
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import {
+  CodexDevelopmentParseVerificationActionTerminalArtifactV2
+} from '../../platform/shared/ci-evidence-contract.ts';
+import {
+  CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1,
+  CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2,
+  CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE_V2,
+  CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2,
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE
+} from '../../platform/shared/ci-verification-revision.ts';
+import {
+  assertCiVerificationActionProviderEnvelopeMemberV2,
+  ciVerificationActionParentDispatchPlanPayloadDigestV2,
+  parseCiVerificationActionParentDispatchPlanV2,
+  parseCiVerificationActionPlanClosureV1,
+  parseCiVerificationActionProviderEnvelopeV2,
+  type CiVerificationActionPlanClosureV1,
+  type CiVerificationActionProviderEnvelopeV2
+} from '../../platform/shared/verification-action-ci-contract.ts';
+import {
+  encodeVerificationActionDataV2,
+  type VerificationActionKeyDigest
+} from '../../platform/shared/verification-action-contract.ts';
+import {
+  VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE_V2,
+  VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX_V2,
+  VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE_V2,
+  VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX_V2,
+  VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE_V2,
+  VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX_V2,
+  finalizeVerificationActionProviderStatusReadbackV2,
+  parseVerificationActionProviderStartMarkerV2,
+  parseVerificationActionProviderTerminalAnchorV2,
+  reduceVerificationActionProviderStateV2,
+  verificationActionProviderRunTargetUrlV2,
+  verificationActionProviderStartArtifactNameV2,
+  verificationActionProviderStartDescriptionV2,
+  verificationActionProviderStatusContextV2,
+  verificationActionProviderTerminalAnchorNameV2,
+  verificationActionProviderTerminalArtifactNameV2,
+  verificationActionProviderTerminalDescriptionV2,
+  type VerificationActionProviderArtifactObservationV2,
+  type VerificationActionProviderOriginV2,
+  type VerificationActionProviderStartMarkerV2,
+  type VerificationActionProviderStatusObservationV2,
+  type VerificationActionProviderStatusReadbackV2,
+  type VerificationActionProviderTerminalAnchorV2,
+  type VerificationActionProviderTerminalObservationV2
+} from '../../platform/shared/verification-action-provider-contract.ts';
+
+const GITHUB_EXACT_COMMIT_STATUS_HISTORY_SCHEMA_V1 =
+  'sec-github-exact-commit-status-history-v1' as const;
+
+type GitHubExactCommitStatusStateV1 = 'error' | 'failure' | 'pending' | 'success';
+
+type GitHubExactCommitStatusObservationV1 = Readonly<{
+  id: number;
+  nodeId: string;
+  state: GitHubExactCommitStatusStateV1;
+  context: string;
+  /** GitHub permits these optional fields to be null on statuses outside this provider's context. */
+  description: string | null;
+  targetUrl: string | null;
+  commitSha: string;
+  createdAt: string;
+  updatedAt: string;
+  creator: Readonly<{
+    login: string;
+    id: number;
+    nodeId: string;
+    type: string;
+  }>;
+}>;
+
+type GitHubExactCommitStatusProviderObservationV1 =
+  GitHubExactCommitStatusObservationV1 & Readonly<{
+    description: string;
+    targetUrl: string;
+  }>;
+
+type GitHubExactCommitStatusHistoryV1 = Readonly<{
+  schema: typeof GITHUB_EXACT_COMMIT_STATUS_HISTORY_SCHEMA_V1;
+  repository: string;
+  sha: string;
+  perPage: 100;
+  paginationComplete: true;
+  pageDigests: readonly VerificationActionKeyDigest[];
+  statuses: readonly GitHubExactCommitStatusObservationV1[];
+  readbackDigest: VerificationActionKeyDigest;
+}>;
+
+type GitHubProviderPageV1 = Readonly<{
+  records: readonly unknown[];
+  hasNextPage: boolean;
+}>;
+
+type GitHubExactCommitStatusPageV1 = GitHubProviderPageV1 & Readonly<{
+  rawResponseDigest: VerificationActionKeyDigest;
+}>;
+
+interface GitHubExactCommitStatusTransportV1 {
+  listCommitStatusesPage(input: Readonly<{
+    repository: string;
+    sha: string;
+    perPage: 100;
+    page: number;
+  }>): Promise<GitHubExactCommitStatusPageV1>;
+  /** Exactly one REST mutation call. The adapter never retries this method. */
+  createCommitStatus(input: Readonly<{
+    repository: string;
+    sha: string;
+    state: GitHubExactCommitStatusStateV1;
+    context: string;
+    description: string;
+    targetUrl: string;
+  }>): Promise<unknown>;
+}
+
+type GitHubExactCommitStatusPublishResultV1 = Readonly<{
+  disposition: 'created' | 'existing' | 'ambiguous';
+  newlyCreatedByThisInvocation: boolean;
+  status: GitHubExactCommitStatusObservationV1 | null;
+  readback: GitHubExactCommitStatusHistoryV1;
+  reason: string | null;
+}>;
+
+interface VerificationActionGitHubProviderTransportV2
+  extends GitHubExactCommitStatusTransportV1 {
+  listArtifactsPage(input: Readonly<{
+    repository: string;
+    perPage: 100;
+    page: number;
+  }>): Promise<GitHubProviderPageV1>;
+  getWorkflowRun(input: Readonly<{ repository: string; runId: string }>): Promise<unknown>;
+  getWorkflowRunAttempt(input: Readonly<{
+    repository: string;
+    runId: string;
+    runAttempt: number;
+  }>): Promise<unknown>;
+  getCheckSuite(input: Readonly<{ repository: string; checkSuiteId: number }>): Promise<unknown>;
+  getArtifact(input: Readonly<{ repository: string; artifactId: string }>): Promise<unknown>;
+  getRepository(input: Readonly<{ repository: string }>): Promise<unknown>;
+  getWorkflow(input: Readonly<{ repository: string }>): Promise<unknown>;
+  getPrincipalPermission(input: Readonly<{ repository: string; login: string }>): Promise<unknown>;
+  listWorkflowJobsPage(input: Readonly<{
+    repository: string;
+    runId: string;
+    runAttempt: number;
+    page: number;
+  }>): Promise<GitHubProviderPageV1>;
+  downloadArtifact(input: Readonly<{
+    repository: string;
+    artifactId: string;
+  }>): Promise<Readonly<{
+    archiveBytes: Uint8Array;
+    files: Readonly<Record<string, string>>;
+  }>>;
+  /** Exactly one at-least-once wake-up mutation. The adapter never retries it. */
+  createRepositoryDispatch(input: Readonly<{
+    repository: string;
+    eventType: typeof CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2;
+    clientPayload: VerificationActionRepositoryDispatchClientPayloadV2;
+  }>): Promise<void>;
+}
+
+type VerificationActionRepositoryDispatchClientPayloadV2 = Readonly<{
+  payload: CiVerificationActionProviderEnvelopeV2;
+}>;
+
+function createVerificationActionRepositoryDispatchClientPayloadV2(
+  envelope: CiVerificationActionProviderEnvelopeV2
+): VerificationActionRepositoryDispatchClientPayloadV2 {
+  return Object.freeze({ payload: parseCiVerificationActionProviderEnvelopeV2(envelope) });
+}
+
+function dispatchVerificationActionRepositoryWakeupV2(input: Readonly<{
+  repository: string;
+  eventType: typeof CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2;
+  clientPayload: VerificationActionRepositoryDispatchClientPayloadV2;
+}>): void {
+  const body = `${encodeVerificationActionDataV2({
+    event_type: input.eventType,
+    client_payload: createVerificationActionRepositoryDispatchClientPayloadV2(
+      input.clientPayload.payload
+    )
+  })}\n`;
+  const result = spawnSync('gh', [
+    'api', '--method', 'POST',
+    '-H', 'Accept: application/vnd.github+json',
+    `/repos/${repository(input.repository)}/dispatches`,
+    '--input', '-'
+  ], {
+    input: body,
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024,
+    windowsHide: true
+  });
+  if (result.error !== undefined || result.status !== 0) {
+    fail(`repository dispatch outcome is unknown: ${boundedError(result.error ?? result.stderr)}`);
+  }
+}
+
+class GhCliVerificationActionTransportV2 implements VerificationActionGitHubProviderTransportV2 {
+  async createRepositoryDispatch(input: Readonly<{
+    repository: string;
+    eventType: typeof CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2;
+    clientPayload: VerificationActionRepositoryDispatchClientPayloadV2;
+  }>): Promise<void> {
+    dispatchVerificationActionRepositoryWakeupV2(input);
+  }
+
+  async getRepository(input: Readonly<{ repository: string }>): Promise<unknown> {
+    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}`]);
+  }
+
+  async getWorkflow(input: Readonly<{ repository: string }>): Promise<unknown> {
+    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/actions/workflows/compiler-pr-validation.yml`]);
+  }
+
+  async getPrincipalPermission(input: Readonly<{ repository: string; login: string }>): Promise<unknown> {
+    if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(input.login)) fail('principal login is invalid.');
+    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/collaborators/${input.login}/permission`]);
+  }
+
+  async listWorkflowJobsPage(input: Readonly<{
+    repository: string;
+    runId: string;
+    runAttempt: number;
+    page: number;
+  }>): Promise<GitHubProviderPageV1> {
+    if (!Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1 ||
+        !Number.isSafeInteger(input.page) || input.page < 1) fail('workflow job page request is invalid.');
+    const response = record(ghJson([
+      'api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}` +
+        `/attempts/${input.runAttempt}/jobs?per_page=100&page=${input.page}`
+    ]), 'workflow job page');
+    if (!Array.isArray(response.jobs)) fail('workflow job page jobs are invalid.');
+    return Object.freeze({ records: response.jobs, hasNextPage: response.jobs.length === 100 });
+  }
+
+  async listArtifactsPage(input: Readonly<{
+    repository: string;
+    perPage: 100;
+    page: number;
+  }>): Promise<GitHubProviderPageV1> {
+    const response = record(ghJson([
+      'api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/actions/artifacts?per_page=100&page=${input.page}`
+    ]), 'artifact inventory page');
+    if (!Array.isArray(response.artifacts)) fail('artifact inventory page artifacts are invalid.');
+    return Object.freeze({
+      records: response.artifacts,
+      hasNextPage: response.artifacts.length === input.perPage
+    });
+  }
+
+  async listCommitStatusesPage(input: Readonly<{
+    repository: string;
+    sha: string;
+    perPage: 100;
+    page: number;
+  }>): Promise<GitHubExactCommitStatusPageV1> {
+    const response = ghJsonWithRawDigest([
+      'api',
+      '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/commits/${sha(input.sha)}/statuses?per_page=100&page=${input.page}`
+    ]);
+    const records = response.value;
+    if (!Array.isArray(records)) fail('commit status page response is not an array.');
+    return Object.freeze({ records, hasNextPage: records.length === input.perPage,
+      rawResponseDigest: response.rawResponseDigest });
+  }
+
+  async createCommitStatus(input: Readonly<{
+    repository: string;
+    sha: string;
+    state: GitHubExactCommitStatusStateV1;
+    context: string;
+    description: string;
+    targetUrl: string;
+  }>): Promise<unknown> {
+    return ghJson([
+      'api', '--method', 'POST',
+      '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/statuses/${sha(input.sha)}`,
+      '-f', `state=${input.state}`,
+      '-f', `context=${input.context}`,
+      '-f', `description=${input.description}`,
+      '-f', `target_url=${input.targetUrl}`
+    ]);
+  }
+
+  async getWorkflowRun(input: Readonly<{ repository: string; runId: string }>): Promise<unknown> {
+    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}`]);
+  }
+
+  async getWorkflowRunAttempt(input: Readonly<{
+    repository: string;
+    runId: string;
+    runAttempt: number;
+  }>): Promise<unknown> {
+    if (!Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1) {
+      fail('workflow run attempt is invalid.');
+    }
+    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/actions/runs/${positiveId(input.runId, 'run id')}` +
+        `/attempts/${input.runAttempt}`]);
+  }
+
+  async getCheckSuite(input: Readonly<{ repository: string; checkSuiteId: number }>): Promise<unknown> {
+    if (!Number.isSafeInteger(input.checkSuiteId) || input.checkSuiteId < 1) fail('check suite id is invalid.');
+    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/check-suites/${input.checkSuiteId}`]);
+  }
+
+  async getArtifact(input: Readonly<{ repository: string; artifactId: string }>): Promise<unknown> {
+    return ghJson(['api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/actions/artifacts/${positiveId(input.artifactId, 'artifact id')}`]);
+  }
+
+  async downloadArtifact(input: Readonly<{
+    repository: string;
+    artifactId: string;
+  }>): Promise<Readonly<{ archiveBytes: Uint8Array; files: Readonly<Record<string, string>> }>> {
+    const archiveBytes = ghBytes(['api', '-H', 'Accept: application/vnd.github+json',
+      `/repos/${repository(input.repository)}/actions/artifacts/${positiveId(input.artifactId, 'artifact id')}/zip`]);
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-artifact-'));
+    const archivePath = path.join(temporaryRoot, 'artifact.zip');
+    try {
+      writeFileSync(archivePath, archiveBytes);
+      const list = runProcessText('unzip', ['-Z1', archivePath]);
+      const names = list.split(/\r?\n/u).filter((entry) => entry.length > 0);
+      if (names.length === 0 || names.some((entry) =>
+        entry.endsWith('/') || entry.includes('\\') || entry.startsWith('/') ||
+        entry.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
+      )) fail('artifact ZIP inventory is empty or unsafe.');
+      const files: Record<string, string> = {};
+      for (const name of names) {
+        files[name] = runProcessText('unzip', ['-p', archivePath, name]);
+      }
+      return Object.freeze({ archiveBytes, files: Object.freeze(files) });
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+function positiveId(value: string, label: string): string {
+  if (!/^[1-9][0-9]*$/u.test(value)) fail(`${label} is invalid.`);
+  return value;
+}
+
+function runProcessText(command: string, args: readonly string[]): string {
+  const result = spawnSync(command, [...args], {
+    encoding: 'utf8',
+    maxBuffer: 128 * 1024 * 1024,
+    windowsHide: true
+  });
+  if (result.error !== undefined || result.status !== 0 || typeof result.stdout !== 'string') {
+    fail(`${command} failed: ${boundedError(result.error ?? result.stderr)}`);
+  }
+  return result.stdout;
+}
+
+function ghJson(args: readonly string[]): unknown {
+  const source = runProcessText('gh', args);
+  try {
+    return JSON.parse(source) as unknown;
+  } catch (error) {
+    fail(`gh returned invalid JSON: ${boundedError(error)}`);
+  }
+}
+
+function ghJsonWithRawDigest(args: readonly string[]): Readonly<{
+  value: unknown;
+  rawResponseDigest: VerificationActionKeyDigest;
+}> {
+  const source = runProcessText('gh', args);
+  try {
+    return Object.freeze({
+      value: JSON.parse(source) as unknown,
+      rawResponseDigest: bytesDigest(Buffer.from(source, 'utf8'))
+    });
+  } catch (error) {
+    fail(`gh returned invalid JSON: ${boundedError(error)}`);
+  }
+}
+
+function ghBytes(args: readonly string[]): Uint8Array {
+  const result = spawnSync('gh', [...args], {
+    encoding: 'buffer',
+    maxBuffer: 128 * 1024 * 1024,
+    windowsHide: true
+  });
+  if (result.error !== undefined || result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
+    fail(`gh binary download failed: ${boundedError(result.error ?? result.stderr)}`);
+  }
+  return new Uint8Array(result.stdout);
+}
+
+function fail(message: string): never {
+  throw new Error(`VerificationAction GitHub provider ${message}`);
+}
+
+function digest(value: unknown): VerificationActionKeyDigest {
+  return `sha256:${createHash('sha256').update(encodeVerificationActionDataV2(value)).digest('hex')}`;
+}
+
+function bytesDigest(value: Uint8Array): VerificationActionKeyDigest {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function record(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object.`);
+  return value as Record<string, unknown>;
+}
+
+function repository(value: string): string {
+  if (!/^[^/\s]+\/[^/\s]+$/u.test(value)) fail('repository is invalid.');
+  return value;
+}
+
+const VERIFICATION_ACTION_ARTIFACT_FAMILIES_V2 = Object.freeze([
+  VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_PREFIX_V2,
+  VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_PREFIX_V2,
+  VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_PREFIX_V2
+]);
+
+function artifactInventoryName(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || Buffer.byteLength(value, 'utf8') > 1024 ||
+      /[\u0000-\u001f\u007f]/u.test(value)) {
+    fail(`${label} is not bounded opaque provider data.`);
+  }
+  const family = VERIFICATION_ACTION_ARTIFACT_FAMILIES_V2.find((prefix) =>
+    value.startsWith(prefix));
+  if (family !== undefined) {
+    const suffix = value.startsWith(`${family}-`) ? value.slice(family.length + 1) : '';
+    if (!/^[0-9a-f]{64}$/u.test(suffix)) fail(`${label} provider-family name is malformed.`);
+    return value;
+  }
+  return value;
+}
+
+function sha(value: string): string {
+  if (!/^[0-9a-f]{40}$/u.test(value)) fail('exact SHA is invalid.');
+  return value;
+}
+
+function iso(value: unknown, label: string): string {
+  if (typeof value !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(value) ||
+      Number.isNaN(Date.parse(value))) fail(`${label} is invalid.`);
+  return value;
+}
+
+function normalizeStatus(
+  value: unknown,
+  expectedSha: string,
+  label: string,
+  providerContext: string
+): GitHubExactCommitStatusObservationV1 {
+  const status = record(value, label);
+  const creator = record(status.creator, `${label}.creator`);
+  const ownsContext = typeof status.context === 'string' &&
+    status.context.toLowerCase() === providerContext;
+  if (!Number.isSafeInteger(status.id) || Number(status.id) < 1 ||
+      typeof status.node_id !== 'string' || status.node_id.length < 1 ||
+      !['error', 'failure', 'pending', 'success'].includes(String(status.state)) ||
+      typeof status.context !== 'string' || status.context.length < 1 || status.context.length > 100 ||
+      (status.description !== null &&
+        (typeof status.description !== 'string' || status.description.length > 140)) ||
+      (status.target_url !== null &&
+        (typeof status.target_url !== 'string' || status.target_url.length < 1)) ||
+      (ownsContext && (typeof status.description !== 'string' ||
+        typeof status.target_url !== 'string' || status.target_url.length < 1)) ||
+      status.sha !== expectedSha || typeof creator.login !== 'string' ||
+      !Number.isSafeInteger(creator.id) || Number(creator.id) < 1 ||
+      typeof creator.node_id !== 'string' || creator.node_id.length < 1 ||
+      typeof creator.type !== 'string' || creator.type.length < 1) {
+    fail(`${label} fields are invalid.`);
+  }
+  const createdAt = iso(status.created_at, `${label}.created_at`);
+  const updatedAt = iso(status.updated_at, `${label}.updated_at`);
+  if (updatedAt !== createdAt) fail(`${label} was mutated after append.`);
+  return Object.freeze({
+    id: Number(status.id),
+    nodeId: status.node_id,
+    state: status.state as GitHubExactCommitStatusStateV1,
+    context: status.context,
+    description: status.description as string | null,
+    targetUrl: status.target_url as string | null,
+    commitSha: expectedSha,
+    createdAt,
+    updatedAt,
+    creator: Object.freeze({
+      login: creator.login,
+      id: Number(creator.id),
+      nodeId: creator.node_id,
+      type: creator.type
+    })
+  });
+}
+
+async function readGitHubExactCommitStatusHistoryV1(
+  transport: GitHubExactCommitStatusTransportV1,
+  input: Readonly<{ repository: string; sha: string; providerContext: string }>
+): Promise<GitHubExactCommitStatusHistoryV1> {
+  const expectedRepository = repository(input.repository);
+  const expectedSha = sha(input.sha);
+  if (!/^[\x21-\x7e]{1,100}$/u.test(input.providerContext) ||
+      input.providerContext !== input.providerContext.toLowerCase()) {
+    fail('provider status context is invalid.');
+  }
+  const pageDigests: VerificationActionKeyDigest[] = [];
+  const statuses: GitHubExactCommitStatusObservationV1[] = [];
+  const statusIds = new Set<number>();
+  const statusNodeIds = new Set<string>();
+  let leadingBoundaryFingerprint: VerificationActionKeyDigest | null = null;
+  const assertPage = (response: GitHubExactCommitStatusPageV1, page: number): void => {
+    if (response === null || typeof response !== 'object' || !Array.isArray(response.records) ||
+        typeof response.hasNextPage !== 'boolean' || response.records.length > 100 ||
+        (response.hasNextPage && response.records.length !== 100) ||
+        !/^sha256:[0-9a-f]{64}$/u.test(response.rawResponseDigest)) {
+      fail(`status page ${page} is incomplete or malformed.`);
+    }
+  };
+  const boundaryFingerprint = (response: GitHubExactCommitStatusPageV1): VerificationActionKeyDigest =>
+    digest({ schema: 'sec-github-exact-commit-status-leading-boundary-v1', perPage: 100,
+      rawResponseDigest: response.rawResponseDigest, hasNextPage: response.hasNextPage });
+  for (let page = 1; page <= 1000; page += 1) {
+    const response = await transport.listCommitStatusesPage({
+      repository: expectedRepository,
+      sha: expectedSha,
+      perPage: 100,
+      page
+    });
+    assertPage(response, page);
+    if (page === 1) leadingBoundaryFingerprint = boundaryFingerprint(response);
+    pageDigests.push(digest({ page, perPage: 100, rawResponseDigest: response.rawResponseDigest,
+      records: response.records, hasNextPage: response.hasNextPage }));
+    for (const [index, entry] of response.records.entries()) {
+      const status = normalizeStatus(entry, expectedSha,
+        `status page ${page}[${index}]`, input.providerContext);
+      if (statusIds.has(status.id) || statusNodeIds.has(status.nodeId)) {
+        fail('complete status history contains a duplicate status identity.');
+      }
+      statusIds.add(status.id);
+      statusNodeIds.add(status.nodeId);
+      statuses.push(status);
+    }
+    if (!response.hasNextPage) {
+      const stableBoundary = await transport.listCommitStatusesPage({
+        repository: expectedRepository,
+        sha: expectedSha,
+        perPage: 100,
+        page: 1
+      });
+      assertPage(stableBoundary, 1);
+      const stableBoundaryFingerprint = boundaryFingerprint(stableBoundary);
+      if (leadingBoundaryFingerprint === null ||
+          stableBoundaryFingerprint !== leadingBoundaryFingerprint) {
+        fail('commit status history leading boundary changed during offset pagination.');
+      }
+      pageDigests.push(digest({
+        schema: 'sec-github-exact-commit-status-stable-boundary-evidence-v1',
+        leadingBoundaryFingerprint,
+        stableBoundaryFingerprint
+      }));
+      const withoutDigest = Object.freeze({
+        schema: GITHUB_EXACT_COMMIT_STATUS_HISTORY_SCHEMA_V1,
+        repository: expectedRepository,
+        sha: expectedSha,
+        perPage: 100 as const,
+        paginationComplete: true as const,
+        pageDigests: Object.freeze(pageDigests),
+        statuses: Object.freeze(statuses)
+      });
+      return Object.freeze({ ...withoutDigest, readbackDigest: digest(withoutDigest) });
+    }
+  }
+  fail('status pagination exceeded the bounded 1000-page census.');
+}
+
+function sameStatusRequest(
+  status: GitHubExactCommitStatusObservationV1,
+  request: Readonly<{
+    sha: string;
+    state: GitHubExactCommitStatusStateV1;
+    context: string;
+    description: string;
+    targetUrl: string;
+  }>
+): boolean {
+  return status.commitSha === request.sha && status.state === request.state &&
+    status.context.toLowerCase() === request.context.toLowerCase() &&
+    status.description === request.description && status.targetUrl === request.targetUrl;
+}
+
+function providerStatus(
+  status: GitHubExactCommitStatusObservationV1,
+  label: string
+): GitHubExactCommitStatusProviderObservationV1 {
+  if (typeof status.description !== 'string' || typeof status.targetUrl !== 'string') {
+    fail(`${label} optional fields are invalid.`);
+  }
+  return status as GitHubExactCommitStatusProviderObservationV1;
+}
+
+function sameIds(left: readonly number[], right: readonly number[]): boolean {
+  const a = [...left].sort((x, y) => x - y);
+  const b = [...right].sort((x, y) => x - y);
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function ambiguous(
+  readback: GitHubExactCommitStatusHistoryV1,
+  reason: string
+): GitHubExactCommitStatusPublishResultV1 {
+  return Object.freeze({
+    disposition: 'ambiguous',
+    newlyCreatedByThisInvocation: false,
+    status: null,
+    readback,
+    reason
+  });
+}
+
+async function publishGitHubExactCommitStatusOnceV1(
+  transport: GitHubExactCommitStatusTransportV1,
+  input: Readonly<{
+    repository: string;
+    sha: string;
+    state: GitHubExactCommitStatusStateV1;
+    context: string;
+    description: string;
+    targetUrl: string;
+    expectedContextStatusIds: readonly number[];
+  }>
+): Promise<GitHubExactCommitStatusPublishResultV1> {
+  const expectedRepository = repository(input.repository);
+  const expectedSha = sha(input.sha);
+  if (!['error', 'failure', 'pending', 'success'].includes(input.state) ||
+      !/^[\x21-\x7e]{1,100}$/u.test(input.context) || input.context !== input.context.toLowerCase() ||
+      input.description.length < 1 || input.description.length > 140 ||
+      !/^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/actions\/runs\/[1-9][0-9]*\/attempts\/[1-9][0-9]*$/u
+        .test(input.targetUrl) ||
+      input.expectedContextStatusIds.some((id) => !Number.isSafeInteger(id) || id < 1) ||
+      new Set(input.expectedContextStatusIds).size !== input.expectedContextStatusIds.length) {
+    fail('status publication request is invalid.');
+  }
+  const request = Object.freeze({
+    repository: expectedRepository,
+    sha: expectedSha,
+    state: input.state,
+    context: input.context,
+    description: input.description,
+    targetUrl: input.targetUrl
+  });
+  const before = await readGitHubExactCommitStatusHistoryV1(transport, {
+    ...request,
+    providerContext: request.context
+  });
+  const inContext = before.statuses.filter((status) =>
+    status.context.toLowerCase() === request.context.toLowerCase()
+  );
+  const matching = inContext.filter((status) => sameStatusRequest(status, request));
+  if (matching.length > 1) return ambiguous(before, 'multiple exact statuses already exist');
+  if (matching.length === 1) {
+    const expectedWithExisting = [...input.expectedContextStatusIds, matching[0]!.id];
+    if (!sameIds(inContext.map((entry) => entry.id), input.expectedContextStatusIds) &&
+        !sameIds(inContext.map((entry) => entry.id), expectedWithExisting)) {
+      return ambiguous(before, 'existing exact status is accompanied by an unexpected context history');
+    }
+    return Object.freeze({
+      disposition: 'existing',
+      newlyCreatedByThisInvocation: false,
+      status: matching[0]!,
+      readback: before,
+      reason: null
+    });
+  }
+  if (!sameIds(inContext.map((entry) => entry.id), input.expectedContextStatusIds)) {
+    return ambiguous(before, 'provider state changed before the one-shot status publication');
+  }
+
+  let createdRaw: unknown;
+  try {
+    createdRaw = await transport.createCommitStatus(request);
+  } catch (error) {
+    return ambiguous(before, `one-shot status POST outcome is unknown: ${boundedError(error)}`);
+  }
+  let created: GitHubExactCommitStatusObservationV1;
+  try {
+    created = providerStatus(
+      normalizeStatus(createdRaw, expectedSha, 'created status response', request.context),
+      'created status response'
+    );
+  } catch (error) {
+    return ambiguous(before, `one-shot status POST returned malformed bytes: ${boundedError(error)}`);
+  }
+  if (!sameStatusRequest(created, request)) {
+    return ambiguous(before, 'one-shot status POST response differs from the exact request');
+  }
+  let after: GitHubExactCommitStatusHistoryV1;
+  try {
+    after = await readGitHubExactCommitStatusHistoryV1(transport, {
+      ...request,
+      providerContext: request.context
+    });
+  } catch (error) {
+    return ambiguous(before, `post-publication full readback is unknown: ${boundedError(error)}`);
+  }
+  const afterContext = after.statuses.filter((status) =>
+    status.context.toLowerCase() === request.context.toLowerCase()
+  );
+  const afterExact = afterContext.filter((status) => sameStatusRequest(status, request));
+  if (afterExact.length !== 1 || afterExact[0]!.id !== created.id ||
+      !sameIds(afterContext.map((entry) => entry.id), [...input.expectedContextStatusIds, created.id])) {
+    return ambiguous(after, 'one-shot status did not read back as the sole exact new context record');
+  }
+  return Object.freeze({
+    disposition: 'created',
+    newlyCreatedByThisInvocation: true,
+    status: afterExact[0]!,
+    readback: after,
+    reason: null
+  });
+}
+
+function boundedError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error))
+    .replace(/[\u0000-\u001f]/gu, ' ')
+    .slice(0, 256);
+}
+
+function parseRunTarget(targetUrl: string, expectedRepository: string): Readonly<{
+  runId: string;
+  runAttempt: number;
+}> {
+  const match = /^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/actions\/runs\/([1-9][0-9]*)\/attempts\/([1-9][0-9]*)$/u
+    .exec(targetUrl);
+  if (match === null || match[1] !== expectedRepository) fail('status target URL is not an exact repository run attempt.');
+  return Object.freeze({ runId: match[2]!, runAttempt: Number(match[3]) });
+}
+
+async function readVerificationActionExactAttemptOriginV2(
+  transport: VerificationActionGitHubProviderTransportV2,
+  input: Readonly<{
+    repositoryId: number;
+    repository: string;
+    runId: string;
+    runAttempt: number;
+  }>
+): Promise<VerificationActionProviderOriginV2> {
+  if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId < 1
+    || !Number.isSafeInteger(input.runAttempt) || input.runAttempt < 1) {
+    fail('repository or producing-attempt identity is invalid.');
+  }
+  const expectedRepository = repository(input.repository);
+  const runId = positiveId(input.runId, 'producing run id');
+  const run = record(await transport.getWorkflowRunAttempt({
+    repository: expectedRepository,
+    runId,
+    runAttempt: input.runAttempt
+  }), 'exact workflow run attempt readback');
+  const runRepository = record(run.repository, 'exact workflow run attempt repository');
+  if (run.id !== Number(runId) || run.run_attempt !== input.runAttempt ||
+      runRepository.id !== input.repositoryId || runRepository.full_name !== expectedRepository ||
+      run.path !== '.github/workflows/compiler-pr-validation.yml' ||
+      typeof run.head_sha !== 'string' || !/^[0-9a-f]{40}$/u.test(run.head_sha) ||
+      run.event !== 'repository_dispatch' || !Number.isSafeInteger(run.check_suite_id) ||
+      Number(run.check_suite_id) < 1) {
+    fail('exact workflow run attempt does not bind the canonical Action producer origin.');
+  }
+  const suite = record(await transport.getCheckSuite({
+    repository: expectedRepository,
+    checkSuiteId: Number(run.check_suite_id)
+  }), 'check suite readback');
+  const app = record(suite.app, 'check suite app');
+  const suiteRepository = record(suite.repository, 'check suite repository');
+  const expectedApp = CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app;
+  if (suite.id !== run.check_suite_id || suite.head_sha !== run.head_sha
+    || suiteRepository.id !== input.repositoryId || suiteRepository.full_name !== expectedRepository
+    || app.id !== expectedApp.id || app.node_id !== expectedApp.nodeId || app.slug !== expectedApp.slug) {
+    fail('workflow run check suite is not owned by the canonical GitHub Actions App.');
+  }
+  return Object.freeze({
+    repositoryId: input.repositoryId,
+    repository: expectedRepository,
+    workflowPath: '.github/workflows/compiler-pr-validation.yml',
+    workflowRef: `.github/workflows/compiler-pr-validation.yml@${run.head_sha}`,
+    workflowSha: run.head_sha,
+    runId,
+    runAttempt: input.runAttempt,
+    appId: expectedApp.id,
+    appNodeId: expectedApp.nodeId,
+    sourceEvent: 'repository_dispatch'
+  });
+}
+
+async function readVerificationActionReferencedOriginV2(
+  transport: VerificationActionGitHubProviderTransportV2,
+  input: Readonly<{
+    repositoryId: number;
+    repository: string;
+    targetUrl: string;
+  }>
+): Promise<VerificationActionProviderOriginV2> {
+  const expectedRepository = repository(input.repository);
+  const target = parseRunTarget(input.targetUrl, expectedRepository);
+  return readVerificationActionExactAttemptOriginV2(transport, {
+    repositoryId: input.repositoryId,
+    repository: expectedRepository,
+    runId: target.runId,
+    runAttempt: target.runAttempt
+  });
+}
+
+async function readVerificationActionProviderStatusReadbackV2(
+  transport: VerificationActionGitHubProviderTransportV2,
+  input: Readonly<{
+    repositoryId: number;
+    repository: string;
+    candidateSha: string;
+    actionKey: VerificationActionKeyDigest;
+  }>
+): Promise<VerificationActionProviderStatusReadbackV2> {
+  const expectedContext = `sec/action/${input.actionKey.slice(7)}`;
+  const history = await readGitHubExactCommitStatusHistoryV1(transport, {
+    repository: input.repository,
+    sha: input.candidateSha,
+    providerContext: expectedContext
+  });
+  const statuses = await Promise.all(history.statuses
+    .filter((status) => status.context.toLowerCase() === expectedContext)
+    .map(async (status): Promise<VerificationActionProviderStatusObservationV2> => {
+      const ownedStatus = providerStatus(status, 'provider status readback');
+      return Object.freeze({
+        ...ownedStatus,
+        context: ownedStatus.context,
+        referencedOrigin: await readVerificationActionReferencedOriginV2(transport, {
+          repositoryId: input.repositoryId,
+          repository: input.repository,
+          targetUrl: ownedStatus.targetUrl
+        })
+      });
+    }));
+  return finalizeVerificationActionProviderStatusReadbackV2({
+    repositoryId: input.repositoryId,
+    repository: input.repository,
+    actionKey: input.actionKey,
+    candidateSha: input.candidateSha,
+    context: expectedContext,
+    perPage: 100,
+    paginationComplete: true,
+    pageDigests: history.pageDigests,
+    statuses
+  });
+}
+
+type VerificationActionGitHubArtifactInventoryEntryV2 = Readonly<{
+  artifactId: string;
+  artifactName: string;
+  expired: boolean;
+  runId: string;
+}>;
+
+type VerificationActionGitHubArtifactInventoryV2 = Readonly<{
+  repository: string;
+  paginationComplete: true;
+  perPage: 100;
+  pageDigests: readonly VerificationActionKeyDigest[];
+  artifacts: readonly VerificationActionGitHubArtifactInventoryEntryV2[];
+  inventoryDigest: VerificationActionKeyDigest;
+}>;
+
+async function readVerificationActionArtifactInventoryV2(
+  transport: VerificationActionGitHubProviderTransportV2,
+  input: Readonly<{ repository: string }>
+): Promise<VerificationActionGitHubArtifactInventoryV2> {
+  const expectedRepository = repository(input.repository);
+  const pageDigests: VerificationActionKeyDigest[] = [];
+  const artifacts: VerificationActionGitHubArtifactInventoryEntryV2[] = [];
+  const artifactIds = new Set<string>();
+  for (let page = 1; page <= 1000; page += 1) {
+    const response = await transport.listArtifactsPage({
+      repository: expectedRepository,
+      perPage: 100,
+      page
+    });
+    if (response === null || typeof response !== 'object' || !Array.isArray(response.records) ||
+        typeof response.hasNextPage !== 'boolean' || response.records.length > 100 ||
+        (response.hasNextPage && response.records.length !== 100)) {
+      fail(`artifact inventory page ${page} is incomplete or malformed.`);
+    }
+    pageDigests.push(digest({ page, perPage: 100, records: response.records, hasNextPage: response.hasNextPage }));
+    for (const [index, raw] of response.records.entries()) {
+      const entry = record(raw, `artifact inventory page ${page}[${index}]`);
+      const workflowRun = record(entry.workflow_run, `artifact inventory page ${page}[${index}].workflow_run`);
+      if (!Number.isSafeInteger(entry.id) || Number(entry.id) < 1 ||
+          typeof entry.expired !== 'boolean' || !Number.isSafeInteger(workflowRun.id) ||
+          Number(workflowRun.id) < 1) {
+        fail(`artifact inventory page ${page}[${index}] fields are invalid.`);
+      }
+      const artifactName = artifactInventoryName(entry.name,
+        `artifact inventory page ${page}[${index}].name`);
+      const artifactId = String(entry.id);
+      if (artifactIds.has(artifactId)) fail('artifact inventory repeats one provider artifact id.');
+      artifactIds.add(artifactId);
+      artifacts.push(Object.freeze({
+        artifactId,
+        artifactName,
+        expired: entry.expired,
+        runId: String(workflowRun.id)
+      }));
+    }
+    if (!response.hasNextPage) {
+      const withoutDigest = Object.freeze({
+        repository: expectedRepository,
+        paginationComplete: true as const,
+        perPage: 100 as const,
+        pageDigests: Object.freeze(pageDigests),
+        artifacts: Object.freeze(artifacts)
+      });
+      return Object.freeze({ ...withoutDigest, inventoryDigest: digest(withoutDigest) });
+    }
+  }
+  fail('artifact pagination exceeded the bounded 1000-page census.');
+}
+
+async function readVerificationActionArtifactObservationV2<TPayload>(
+  transport: VerificationActionGitHubProviderTransportV2,
+  input: Readonly<{
+    repositoryId: number;
+    repository: string;
+    artifactId: string;
+    expectedArtifactName: string;
+    expectedFileName: string;
+    parsePayload: (source: unknown) => TPayload;
+    producingOrigin: (payload: TPayload) => VerificationActionProviderOriginV2;
+  }>
+): Promise<VerificationActionProviderArtifactObservationV2<TPayload>> {
+  if (!/^[1-9][0-9]*$/u.test(input.artifactId) ||
+      !/^[a-z0-9][a-z0-9-]*$/u.test(input.expectedArtifactName) ||
+      !/^[a-z0-9][a-z0-9.-]*\.json$/u.test(input.expectedFileName)) {
+    fail('artifact observation request is invalid.');
+  }
+  const metadata = record(await transport.getArtifact({
+    repository: repository(input.repository),
+    artifactId: input.artifactId
+  }), 'artifact metadata');
+  const workflowRun = record(metadata.workflow_run, 'artifact workflow run');
+  if (metadata.id !== Number(input.artifactId) || metadata.name !== input.expectedArtifactName ||
+      typeof metadata.expired !== 'boolean' || !Number.isSafeInteger(workflowRun.id) ||
+      Number(workflowRun.id) < 1) {
+    fail('artifact metadata identity mismatch.');
+  }
+  if (metadata.expired) {
+    return Object.freeze({
+      originId: input.artifactId,
+      artifactName: input.expectedArtifactName,
+      archiveDigest: null,
+      expired: true,
+      payload: null,
+      referencedOrigin: null
+    });
+  }
+  const download = await transport.downloadArtifact({
+    repository: input.repository,
+    artifactId: input.artifactId
+  });
+  if (!(download.archiveBytes instanceof Uint8Array) ||
+      Object.keys(download.files).length !== 1 ||
+      typeof download.files[input.expectedFileName] !== 'string') {
+    fail('artifact archive does not contain exactly the canonical payload file.');
+  }
+  const payload = input.parsePayload(JSON.parse(download.files[input.expectedFileName]!));
+  const payloadOrigin = input.producingOrigin(payload);
+  if (payloadOrigin.repositoryId !== input.repositoryId || payloadOrigin.repository !== input.repository
+    || payloadOrigin.runId !== String(workflowRun.id)) {
+    fail('artifact payload producing origin differs from its immutable metadata identity.');
+  }
+  const origin = await readVerificationActionExactAttemptOriginV2(transport, {
+    repositoryId: input.repositoryId,
+    repository: input.repository,
+    runId: payloadOrigin.runId,
+    runAttempt: payloadOrigin.runAttempt
+  });
+  if (!canonicalEquals(origin, payloadOrigin)) {
+    fail('artifact payload producing origin differs from its exact attempt readback.');
+  }
+  return Object.freeze({
+    originId: input.artifactId,
+    artifactName: input.expectedArtifactName,
+    archiveDigest: bytesDigest(download.archiveBytes),
+    expired: false,
+    payload,
+    referencedOrigin: origin
+  });
+}
+
+type VerificationActionGitHubProviderResolutionV2 = Readonly<{
+  repositoryId: number;
+  repository: string;
+  actionKey: VerificationActionKeyDigest;
+  candidateSha: string;
+}>;
+
+export type VerificationActionGitHubProviderAuthorityV2 = Readonly<{
+  envelope: CiVerificationActionProviderEnvelopeV2;
+  actionPlanClosure: CiVerificationActionPlanClosureV1;
+}>;
+
+export type VerificationActionGitHubProviderIntentV2 =
+  | Readonly<{ kind: 'coordinate-parent' }>
+  | Readonly<{ kind: 'dispatch-child' }>
+  | Readonly<{ kind: 'coordinate' }>
+  | Readonly<{
+    kind: 'claim-start';
+    marker: VerificationActionProviderStartMarkerV2;
+  }>
+  | Readonly<{
+    kind: 'anchor-terminal';
+    anchor: VerificationActionProviderTerminalAnchorV2;
+  }>;
+
+export type VerificationActionGitHubProviderSnapshotV2 = Readonly<{
+  statusReadback: VerificationActionProviderStatusReadbackV2;
+  artifactInventory: VerificationActionGitHubArtifactInventoryV2;
+  startObservations: readonly VerificationActionProviderArtifactObservationV2<
+    VerificationActionProviderStartMarkerV2
+  >[];
+  terminalObservations: readonly VerificationActionProviderArtifactObservationV2<unknown>[];
+  terminalAnchorObservations: readonly VerificationActionProviderArtifactObservationV2<
+    VerificationActionProviderTerminalAnchorV2
+  >[];
+}>;
+
+export type VerificationActionGitHubProviderTransactionResultV2 = Readonly<{
+  disposition: 'blocked' | 'started' | 'terminal-anchored' | 'repair' | 'complete' | 'observed' | 'dispatched';
+  actionKey: VerificationActionKeyDigest;
+  newlyCreatedByThisInvocation: boolean;
+  status: VerificationActionProviderStatusObservationV2 | null;
+  snapshot: VerificationActionGitHubProviderSnapshotV2;
+  reason: string | null;
+}>;
+
+function canonicalEquals(left: unknown, right: unknown): boolean {
+  return encodeVerificationActionDataV2(left) === encodeVerificationActionDataV2(right);
+}
+
+function requiredEnvironment(name: string): string {
+  const value = process.env[name];
+  if (value === undefined || value.length === 0 || /[\u0000-\u001f]/u.test(value)) {
+    fail(`trusted runtime environment ${name} is unavailable.`);
+  }
+  return value;
+}
+
+function identityRecord(value: unknown, expected: Readonly<{
+  login: string;
+  id: number;
+  nodeId: string;
+  type: string;
+}>, label: string): void {
+  const actual = record(value, label);
+  if (actual.login !== expected.login || actual.id !== expected.id ||
+      actual.node_id !== expected.nodeId || actual.type !== expected.type) {
+    fail(`${label} is not the canonical GitHub principal.`);
+  }
+}
+
+async function readCompleteParentJobsV2(
+  transport: VerificationActionGitHubProviderTransportV2,
+  repositoryName: string,
+  runId: string,
+  runAttempt: number
+): Promise<readonly Record<string, unknown>[]> {
+  const jobs: Record<string, unknown>[] = [];
+  for (let page = 1; page <= 1000; page += 1) {
+    const response = await transport.listWorkflowJobsPage({
+      repository: repositoryName,
+      runId,
+      runAttempt,
+      page
+    });
+    if (!Array.isArray(response.records) || response.records.length > 100 ||
+        (response.hasNextPage && response.records.length !== 100)) {
+      fail(`parent workflow job page ${page} is incomplete.`);
+    }
+    jobs.push(...response.records.map((entry, index) =>
+      record(entry, `parent workflow job page ${page}[${index}]`)
+    ));
+    if (!response.hasNextPage) return Object.freeze(jobs);
+  }
+  fail('parent workflow job pagination exceeded the bounded 1000-page census.');
+}
+
+async function authenticateVerificationActionAuthorityV2(
+  transport: VerificationActionGitHubProviderTransportV2,
+  authority: VerificationActionGitHubProviderAuthorityV2,
+  currentRole: 'parent-session' | 'child-action'
+): Promise<Readonly<{
+  resolution: VerificationActionGitHubProviderResolutionV2;
+  currentOrigin: VerificationActionProviderOriginV2;
+}>> {
+  const envelope = parseCiVerificationActionProviderEnvelopeV2(authority.envelope);
+  const closure = parseCiVerificationActionPlanClosureV1(
+    encodeVerificationActionDataV2(authority.actionPlanClosure)
+  );
+  const request = record(envelope.proposal.sessionRequest, 'embedded Session request');
+  if (request.expectedActionPlanDigest !== closure.actionPlanDigest ||
+      typeof request.expectedBaseSha !== 'string' || !/^[0-9a-f]{40}$/u.test(request.expectedBaseSha) ||
+      !Number.isSafeInteger(request.prNumber) || Number(request.prNumber) < 1 ||
+      typeof request.expectedSessionRevision !== 'string' ||
+      !/^sha256:[0-9a-f]{64}$/u.test(request.expectedSessionRevision)) {
+    fail('embedded Session request does not bind the supplied Action closure and trusted base.');
+  }
+  const matchingPlans = closure.actions.map((plan, index) => ({ plan, index })).filter(({ plan }) =>
+    plan.action.actionKey === envelope.proposal.proposedActionKey
+  );
+  if (matchingPlans.length !== 1) fail('proposal ActionKey is not one exact member of the Action closure.');
+  const matchingOperation = closure.normalizedOperations[matchingPlans[0]!.index];
+  if (matchingOperation === undefined) fail('proposal Action has no normalized operation member.');
+
+  const repositoryName = repository(requiredEnvironment('GITHUB_REPOSITORY'));
+  const repositoryIdText = requiredEnvironment('GITHUB_REPOSITORY_ID');
+  const repositoryId = Number(repositoryIdText);
+  const runId = positiveId(requiredEnvironment('GITHUB_RUN_ID'), 'current run id');
+  const runAttempt = Number(requiredEnvironment('GITHUB_RUN_ATTEMPT'));
+  if (!Number.isSafeInteger(repositoryId) || repositoryId < 1 ||
+      !Number.isSafeInteger(runAttempt) || runAttempt < 1 ||
+      requiredEnvironment('GITHUB_EVENT_NAME') !== 'repository_dispatch' ||
+      requiredEnvironment('GITHUB_SHA') !== request.expectedBaseSha ||
+      requiredEnvironment('GITHUB_REF') !== 'refs/heads/main' ||
+      requiredEnvironment('GITHUB_WORKFLOW_REF') !==
+        `${repositoryName}/.github/workflows/compiler-pr-validation.yml@refs/heads/main` ||
+      requiredEnvironment('GITHUB_WORKFLOW_SHA') !== request.expectedBaseSha) {
+    fail('current environment is not the exact trusted compiler workflow.');
+  }
+
+  const repositoryReadback = record(await transport.getRepository({ repository: repositoryName }),
+    'repository readback');
+  if (String(repositoryReadback.id ?? '') !== repositoryIdText ||
+      repositoryReadback.full_name !== repositoryName || repositoryReadback.default_branch !== 'main') {
+    fail('repository readback differs from the trusted runtime identity.');
+  }
+
+  const event = record(JSON.parse(readFileSync(requiredEnvironment('GITHUB_EVENT_PATH'), 'utf8')) as unknown,
+    'repository dispatch event');
+  if (String(record(event.repository, 'event repository').id ?? '') !== repositoryIdText) {
+    fail('repository dispatch event repository identity mismatch.');
+  }
+
+  const inventory = await readVerificationActionArtifactInventoryV2(transport, {
+    repository: repositoryName
+  });
+  const parentArtifacts = inventory.artifacts.filter((entry) =>
+    entry.artifactName === envelope.parentDispatchPlanArtifactName
+  );
+  if (parentArtifacts.length !== 1 ||
+      parentArtifacts[0]!.artifactId !== envelope.parentDispatchPlanArtifactId ||
+      parentArtifacts[0]!.runId !== envelope.parentRunId || parentArtifacts[0]!.expired) {
+    fail('parent dispatch plan artifact is not one unique current provider origin.');
+  }
+  const parentMetadata = record(await transport.getArtifact({
+    repository: repositoryName,
+    artifactId: envelope.parentDispatchPlanArtifactId
+  }), 'parent dispatch plan artifact metadata');
+  const parentMetadataRun = record(parentMetadata.workflow_run, 'parent artifact workflow run');
+  if (parentMetadata.id !== Number(envelope.parentDispatchPlanArtifactId) ||
+      parentMetadata.name !== envelope.parentDispatchPlanArtifactName || parentMetadata.expired !== false ||
+      String(parentMetadataRun.id ?? '') !== envelope.parentRunId) {
+    fail('parent dispatch plan artifact metadata differs from its envelope.');
+  }
+  const parentDownload = await transport.downloadArtifact({
+    repository: repositoryName,
+    artifactId: envelope.parentDispatchPlanArtifactId
+  });
+  const parentSource = parentDownload.files[CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE_V2];
+  if (bytesDigest(parentDownload.archiveBytes) !== envelope.parentDispatchPlanArchiveDigest ||
+      Object.keys(parentDownload.files).length !== 1 || typeof parentSource !== 'string') {
+    fail('parent dispatch plan archive bytes differ from the authenticated envelope.');
+  }
+  const parentPlan = parseCiVerificationActionParentDispatchPlanV2(JSON.parse(parentSource) as unknown);
+  const canonicalParentSource = `${encodeVerificationActionDataV2(parentPlan)}\n`;
+  if (parentSource !== canonicalParentSource ||
+      ciVerificationActionParentDispatchPlanPayloadDigestV2(parentPlan) !==
+        envelope.parentDispatchPlanPayloadDigest ||
+      bytesDigest(Buffer.from(parentSource, 'utf8')) !== envelope.parentDispatchPlanPayloadDigest) {
+    fail('parent dispatch plan payload is not the exact canonical line and digest.');
+  }
+  assertCiVerificationActionProviderEnvelopeMemberV2(envelope, parentPlan);
+  if (parentPlan.repository !== repositoryName || parentPlan.repositoryId !== repositoryIdText ||
+      parentPlan.parentWorkflowSha !== request.expectedBaseSha ||
+      parentPlan.parentWorkflowRef !==
+        `${repositoryName}/.github/workflows/compiler-pr-validation.yml@refs/heads/main`) {
+    fail('parent dispatch plan repository or trusted-base identity differs from the Session request.');
+  }
+
+  const parentRun = record(await transport.getWorkflowRun({
+    repository: repositoryName,
+    runId: envelope.parentRunId
+  }), 'parent external Session run');
+  identityRecord(parentRun.actor, parentPlan.parentActor, 'parent external Session actor');
+  if (String(parentRun.id ?? '') !== envelope.parentRunId ||
+      parentRun.run_attempt !== envelope.parentRunAttempt || parentRun.event !== 'repository_dispatch' ||
+      parentRun.path !== envelope.parentWorkflowPath || parentRun.head_sha !== request.expectedBaseSha ||
+      parentRun.head_branch !== 'main' || parentRun.name !== 'compiler-pr-validation' ||
+      parentRun.display_title !==
+        `verify session PR #${request.prNumber} session ${request.expectedSessionRevision}` ||
+      String(record(parentRun.repository, 'parent run repository').id ?? '') !== repositoryIdText) {
+    fail('parent external Session run provenance mismatch.');
+  }
+  const parentOrigin = await readVerificationActionReferencedOriginV2(transport, {
+    repositoryId,
+    repository: repositoryName,
+    targetUrl: `https://github.com/${repositoryName}/actions/runs/${envelope.parentRunId}` +
+      `/attempts/${envelope.parentRunAttempt}`
+  });
+  if (parentOrigin.workflowSha !== request.expectedBaseSha) {
+    fail('parent artifact workflow origin is not the trusted base.');
+  }
+  const permission = record(await transport.getPrincipalPermission({
+    repository: repositoryName,
+    login: parentPlan.parentActor.login
+  }), 'parent actor live permission');
+  identityRecord(permission.user, parentPlan.parentActor, 'parent actor live identity');
+  if (permission.permission !== parentPlan.parentActor.permission) {
+    fail('parent actor live permission differs from the dispatch plan.');
+  }
+  const jobs = await readCompleteParentJobsV2(
+    transport, repositoryName, envelope.parentRunId, envelope.parentRunAttempt
+  );
+  const parentJobs = jobs.filter((job) => String(job.id ?? '') === envelope.parentJobId);
+  const steps = parentJobs.length === 1 && Array.isArray(parentJobs[0]!.steps)
+    ? parentJobs[0]!.steps.map((entry, index) => record(entry, `parent plan job step[${index}]`))
+    : [];
+  const planSteps = steps.filter((step) => step.name === envelope.parentPlanStepName);
+  if (parentJobs.length !== 1 || parentJobs[0]!.name !== envelope.parentJobName ||
+      String(parentJobs[0]!.run_id ?? '') !== envelope.parentRunId ||
+      parentJobs[0]!.run_attempt !== envelope.parentRunAttempt ||
+      parentJobs[0]!.head_sha !== request.expectedBaseSha ||
+      !['in_progress', 'completed'].includes(String(parentJobs[0]!.status)) ||
+      (parentJobs[0]!.status === 'completed' && parentJobs[0]!.conclusion !== 'success') ||
+      planSteps.length !== 1 ||
+      planSteps[0]!.status !== 'completed' || planSteps[0]!.conclusion !== 'success') {
+    fail('parent plan-producing job and step provenance mismatch.');
+  }
+
+  const expectedApp = CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app;
+  if (currentRole === 'parent-session') {
+    if (runId !== envelope.parentRunId || runAttempt !== envelope.parentRunAttempt ||
+        requiredEnvironment('GITHUB_ACTOR') !== parentPlan.parentActor.login ||
+        requiredEnvironment('GITHUB_TRIGGERING_ACTOR') !== parentPlan.parentActor.login) {
+      fail('current environment is not the exact parent external Session run.');
+    }
+    identityRecord(event.sender, parentPlan.parentActor, 'parent event sender');
+    const expectedParentPayload = Object.freeze({ payload: envelope.proposal.sessionRequest });
+    if (event.action !== CI_VERIFICATION_SESSION_DISPATCH_TYPE ||
+        !canonicalEquals(event.client_payload, expectedParentPayload)) {
+      fail('parent repository dispatch event does not carry the exact Session request.');
+    }
+    const parentCheckSuiteId = Number(parentRun.check_suite_id);
+    const parentWorkflowId = Number(parentRun.workflow_id);
+    if (!Number.isSafeInteger(parentCheckSuiteId) || parentCheckSuiteId < 1 ||
+        !Number.isSafeInteger(parentWorkflowId) || parentWorkflowId < 1) {
+      fail('parent external Session run lacks workflow/check-suite provenance.');
+    }
+    const workflow = record(await transport.getWorkflow({ repository: repositoryName }),
+      'parent current workflow readback');
+    if (String(workflow.id ?? '') !== String(parentWorkflowId) ||
+        workflow.path !== '.github/workflows/compiler-pr-validation.yml' || workflow.state !== 'active') {
+      fail('parent current compiler workflow readback mismatch.');
+    }
+    const suite = record(await transport.getCheckSuite({
+      repository: repositoryName,
+      checkSuiteId: parentCheckSuiteId
+    }), 'parent current check suite');
+    const suiteRepository = record(suite.repository, 'parent current check suite repository');
+    const app = record(suite.app, 'parent current check suite App');
+    if (String(suite.id ?? '') !== String(parentCheckSuiteId) ||
+        suite.head_sha !== request.expectedBaseSha ||
+        String(suiteRepository.id ?? '') !== repositoryIdText ||
+        suiteRepository.full_name !== repositoryName || app.id !== expectedApp.id ||
+        app.node_id !== expectedApp.nodeId || app.slug !== expectedApp.slug) {
+      fail('parent current check-suite App/repository/head provenance mismatch.');
+    }
+    return Object.freeze({
+      resolution: Object.freeze({
+        repositoryId,
+        repository: repositoryName,
+        actionKey: envelope.proposal.proposedActionKey,
+        candidateSha: sha(matchingOperation.candidate.headSha)
+      }),
+      currentOrigin: parentOrigin
+    });
+  }
+
+  identityRecord(event.sender, CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot, 'child event sender');
+  const expectedChildPayload = createVerificationActionRepositoryDispatchClientPayloadV2(envelope);
+  if (event.action !== CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2 ||
+      !canonicalEquals(event.client_payload, expectedChildPayload) || runAttempt !== 1 ||
+      requiredEnvironment('GITHUB_ACTOR') !== CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.login ||
+      requiredEnvironment('GITHUB_TRIGGERING_ACTOR') !== CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.login) {
+    fail('current environment/event is not the exact first-attempt internal Action dispatch.');
+  }
+
+  const currentRun = record(await transport.getWorkflowRun({ repository: repositoryName, runId }),
+    'current Action run');
+  identityRecord(currentRun.actor, CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot, 'current run actor');
+  const checkSuiteId = Number(currentRun.check_suite_id);
+  const workflowId = Number(currentRun.workflow_id);
+  if (String(currentRun.id ?? '') !== runId || currentRun.run_attempt !== 1 ||
+      currentRun.event !== 'repository_dispatch' ||
+      currentRun.path !== '.github/workflows/compiler-pr-validation.yml' ||
+      currentRun.head_sha !== request.expectedBaseSha || currentRun.head_branch !== 'main' ||
+      currentRun.name !== 'compiler-pr-validation' ||
+      currentRun.display_title !== `produce Action ${envelope.proposal.proposedActionKey}` ||
+      String(record(currentRun.repository, 'current run repository').id ?? '') !== repositoryIdText ||
+      !Number.isSafeInteger(checkSuiteId) || checkSuiteId < 1 ||
+      !Number.isSafeInteger(workflowId) || workflowId < 1) {
+    fail('current Action workflow run provenance mismatch.');
+  }
+  const workflow = record(await transport.getWorkflow({ repository: repositoryName }),
+    'current workflow readback');
+  if (String(workflow.id ?? '') !== String(workflowId) ||
+      workflow.path !== '.github/workflows/compiler-pr-validation.yml' || workflow.state !== 'active') {
+    fail('current compiler workflow readback mismatch.');
+  }
+  const suite = record(await transport.getCheckSuite({ repository: repositoryName, checkSuiteId }),
+    'current check suite');
+  const suiteRepository = record(suite.repository, 'current check suite repository');
+  const app = record(suite.app, 'current check suite App');
+  if (String(suite.id ?? '') !== String(checkSuiteId) || suite.head_sha !== request.expectedBaseSha ||
+      String(suiteRepository.id ?? '') !== repositoryIdText || suiteRepository.full_name !== repositoryName ||
+      app.id !== expectedApp.id || app.node_id !== expectedApp.nodeId || app.slug !== expectedApp.slug) {
+    fail('current check-suite App/repository/head provenance mismatch.');
+  }
+
+  const currentOrigin = Object.freeze({
+    repositoryId,
+    repository: repositoryName,
+    workflowPath: '.github/workflows/compiler-pr-validation.yml' as const,
+    workflowRef: `.github/workflows/compiler-pr-validation.yml@${request.expectedBaseSha}`,
+    workflowSha: request.expectedBaseSha,
+    runId,
+    runAttempt: 1,
+    appId: expectedApp.id,
+    appNodeId: expectedApp.nodeId,
+    sourceEvent: 'repository_dispatch' as const
+  });
+  return Object.freeze({
+    resolution: Object.freeze({
+      repositoryId,
+      repository: repositoryName,
+      actionKey: envelope.proposal.proposedActionKey,
+      candidateSha: sha(matchingOperation.candidate.headSha)
+    }),
+    currentOrigin
+  });
+}
+
+async function readVerificationActionGitHubProviderSnapshotV2(
+  transport: VerificationActionGitHubProviderTransportV2,
+  resolution: VerificationActionGitHubProviderResolutionV2
+): Promise<VerificationActionGitHubProviderSnapshotV2> {
+  const statusReadback = await readVerificationActionProviderStatusReadbackV2(transport, {
+    repositoryId: resolution.repositoryId,
+    repository: resolution.repository,
+    candidateSha: resolution.candidateSha,
+    actionKey: resolution.actionKey
+  });
+  const artifactInventory = await readVerificationActionArtifactInventoryV2(transport, {
+    repository: resolution.repository
+  });
+  const startName = verificationActionProviderStartArtifactNameV2(resolution.actionKey);
+  const terminalName = verificationActionProviderTerminalArtifactNameV2(resolution.actionKey);
+  const terminalAnchorName = verificationActionProviderTerminalAnchorNameV2(resolution.actionKey);
+  const startObservations: VerificationActionProviderArtifactObservationV2<
+    VerificationActionProviderStartMarkerV2
+  >[] = [];
+  const terminalObservations: VerificationActionProviderArtifactObservationV2<unknown>[] = [];
+  const terminalAnchorObservations: VerificationActionProviderArtifactObservationV2<
+    VerificationActionProviderTerminalAnchorV2
+  >[] = [];
+
+  for (const entry of artifactInventory.artifacts) {
+    if (entry.artifactName === startName) {
+      startObservations.push(await readVerificationActionArtifactObservationV2(transport, {
+        repositoryId: resolution.repositoryId,
+        repository: resolution.repository,
+        artifactId: entry.artifactId,
+        expectedArtifactName: startName,
+        expectedFileName: VERIFICATION_ACTION_PROVIDER_START_ARTIFACT_FILE_V2,
+        parsePayload: parseVerificationActionProviderStartMarkerV2,
+        producingOrigin: (payload) => payload.producer
+      }));
+    } else if (entry.artifactName === terminalName) {
+      terminalObservations.push(await readVerificationActionArtifactObservationV2(transport, {
+        repositoryId: resolution.repositoryId,
+        repository: resolution.repository,
+        artifactId: entry.artifactId,
+        expectedArtifactName: terminalName,
+        expectedFileName: VERIFICATION_ACTION_PROVIDER_TERMINAL_ARTIFACT_FILE_V2,
+        parsePayload: (value) => CodexDevelopmentParseVerificationActionTerminalArtifactV2(
+          encodeVerificationActionDataV2(value)
+        ),
+        producingOrigin: (payload) => payload.producer
+      }));
+    } else if (entry.artifactName === terminalAnchorName) {
+      terminalAnchorObservations.push(await readVerificationActionArtifactObservationV2(transport, {
+        repositoryId: resolution.repositoryId,
+        repository: resolution.repository,
+        artifactId: entry.artifactId,
+        expectedArtifactName: terminalAnchorName,
+        expectedFileName: VERIFICATION_ACTION_PROVIDER_TERMINAL_ANCHOR_FILE_V2,
+        parsePayload: parseVerificationActionProviderTerminalAnchorV2,
+        producingOrigin: (payload) => payload.anchorPublisherOrigin
+      }));
+    }
+  }
+  return Object.freeze({
+    statusReadback,
+    artifactInventory,
+    startObservations: Object.freeze(startObservations),
+    terminalObservations: Object.freeze(terminalObservations),
+    terminalAnchorObservations: Object.freeze(terminalAnchorObservations)
+  });
+}
+
+function reduceVerificationActionGitHubProviderSnapshotV2(
+  resolution: VerificationActionGitHubProviderResolutionV2,
+  snapshot: VerificationActionGitHubProviderSnapshotV2
+) {
+  const terminalObservations: VerificationActionProviderTerminalObservationV2[] =
+    snapshot.terminalObservations.map((observation) => {
+      if (observation.payload === null) {
+        return Object.freeze({ ...observation, payload: null });
+      }
+      const artifact = CodexDevelopmentParseVerificationActionTerminalArtifactV2(
+        encodeVerificationActionDataV2(observation.payload)
+      );
+      return Object.freeze({
+        ...observation,
+        payload: Object.freeze({
+          actionKey: artifact.actionPlan.action.actionKey,
+          candidateSha: artifact.input.headSha,
+          payloadDigest: artifact.artifactDigest as VerificationActionKeyDigest,
+          producer: artifact.producer
+        })
+      });
+    });
+  return reduceVerificationActionProviderStateV2({
+    repositoryId: resolution.repositoryId,
+    repository: resolution.repository,
+    actionKey: resolution.actionKey,
+    candidateSha: resolution.candidateSha,
+    executionEnvironmentRevision: CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2,
+    statusReadback: snapshot.statusReadback,
+    startObservations: snapshot.startObservations,
+    terminalObservations,
+    terminalAnchorObservations: snapshot.terminalAnchorObservations
+  });
+}
+
+function transactionResult(
+  disposition: VerificationActionGitHubProviderTransactionResultV2['disposition'],
+  resolution: VerificationActionGitHubProviderResolutionV2,
+  snapshot: VerificationActionGitHubProviderSnapshotV2,
+  newlyCreatedByThisInvocation: boolean,
+  status: VerificationActionProviderStatusObservationV2 | null,
+  reason: string | null
+): VerificationActionGitHubProviderTransactionResultV2 {
+  return Object.freeze({
+    disposition,
+    actionKey: resolution.actionKey,
+    newlyCreatedByThisInvocation,
+    status,
+    snapshot,
+    reason
+  });
+}
+
+/**
+ * The sole public GitHub provider transaction. Callers choose a semantic
+ * operation and supply canonical Action objects; raw REST paths, status fields,
+ * target URLs, pagination, and the mutation transport remain module-private.
+ */
+export async function ensureVerificationActionGitHubProviderTransactionV2(input: Readonly<{
+  authority: VerificationActionGitHubProviderAuthorityV2;
+  intent: VerificationActionGitHubProviderIntentV2;
+}>): Promise<VerificationActionGitHubProviderTransactionResultV2> {
+  const transport = new GhCliVerificationActionTransportV2();
+  const authenticated = await authenticateVerificationActionAuthorityV2(
+    transport,
+    input.authority,
+    input.intent.kind === 'coordinate-parent' || input.intent.kind === 'dispatch-child'
+      ? 'parent-session'
+      : 'child-action'
+  );
+  const { resolution, currentOrigin } = authenticated;
+  const before = await readVerificationActionGitHubProviderSnapshotV2(transport, resolution);
+  if (input.intent.kind === 'coordinate' || input.intent.kind === 'coordinate-parent') {
+    return transactionResult('observed', resolution, before, false, null, null);
+  }
+  if (input.intent.kind === 'dispatch-child') {
+    const decision = reduceVerificationActionGitHubProviderSnapshotV2(resolution, before);
+    if (!['start-allowed', 'repair-terminal-anchor', 'repair-terminal-status'].includes(
+      decision.disposition
+    )) {
+      return transactionResult(
+        'blocked', resolution, before, false, null,
+        decision.reason ?? `internal Action wake-up is forbidden from ${decision.disposition}`
+      );
+    }
+    await transport.createRepositoryDispatch({
+      repository: resolution.repository,
+      eventType: CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2,
+      clientPayload: createVerificationActionRepositoryDispatchClientPayloadV2(
+        input.authority.envelope
+      )
+    });
+    return transactionResult('dispatched', resolution, before, true, null, null);
+  }
+
+  let state: GitHubExactCommitStatusStateV1;
+  let description: string;
+  let publisher: VerificationActionProviderOriginV2;
+  let expectedContextStatusIds: readonly number[];
+  let completedDisposition: 'started' | 'terminal-anchored';
+
+  if (input.intent.kind === 'claim-start') {
+    const marker = parseVerificationActionProviderStartMarkerV2(input.intent.marker);
+    const observed = before.startObservations;
+    if (marker.actionKey !== resolution.actionKey || marker.candidateSha !== resolution.candidateSha ||
+        marker.producer.repositoryId !== resolution.repositoryId ||
+        marker.producer.repository !== resolution.repository ||
+        !canonicalEquals(marker.producer, currentOrigin) || observed.length !== 1 ||
+        observed[0]?.expired !== false || observed[0].payload === null ||
+        !canonicalEquals(observed[0].payload, marker) ||
+        !canonicalEquals(observed[0].referencedOrigin, marker.producer) ||
+        before.terminalObservations.length !== 0 || before.terminalAnchorObservations.length !== 0) {
+      return transactionResult(
+        'blocked', resolution, before, false, null,
+        'claim-start requires the sole exact authenticated marker and no terminal provider state'
+      );
+    }
+    state = 'pending';
+    description = verificationActionProviderStartDescriptionV2(marker.markerDigest);
+    publisher = marker.producer;
+    expectedContextStatusIds = [];
+    completedDisposition = 'started';
+  } else {
+    const anchor = parseVerificationActionProviderTerminalAnchorV2(input.intent.anchor);
+    const observed = before.terminalAnchorObservations;
+    const startObservation = before.startObservations[0];
+    const terminalObservation = before.terminalObservations[0];
+    const start = before.statusReadback.statuses.find((entry) =>
+      entry.id === anchor.startStatusId && entry.nodeId === anchor.startStatusNodeId &&
+      entry.state === 'pending'
+    );
+    const terminalPayload = terminalObservation?.payload === null ||
+      terminalObservation?.payload === undefined
+      ? null
+      : record(terminalObservation.payload, 'terminal artifact payload');
+    if (anchor.actionKey !== resolution.actionKey || anchor.candidateSha !== resolution.candidateSha ||
+        anchor.anchorPublisherOrigin.repositoryId !== resolution.repositoryId ||
+        anchor.anchorPublisherOrigin.repository !== resolution.repository ||
+        !canonicalEquals(anchor.anchorPublisherOrigin, currentOrigin) || start === undefined ||
+        start.description !== verificationActionProviderStartDescriptionV2(anchor.startMarkerDigest) ||
+        observed.length !== 1 || observed[0]?.expired !== false || observed[0].payload === null ||
+        !canonicalEquals(observed[0].payload, anchor) ||
+        !canonicalEquals(observed[0].referencedOrigin, anchor.anchorPublisherOrigin) ||
+        before.startObservations.length !== 1 || startObservation?.expired !== false ||
+        startObservation.payload === null || startObservation.archiveDigest !== anchor.startArtifactArchiveDigest ||
+        startObservation.originId !== anchor.startArtifactOriginId ||
+        startObservation.artifactName !== anchor.startArtifactName ||
+        startObservation.payload.markerDigest !== anchor.startMarkerDigest ||
+        !canonicalEquals(startObservation.referencedOrigin, start.referencedOrigin) ||
+        before.terminalObservations.length !== 1 || terminalObservation?.expired !== false ||
+        terminalObservation.archiveDigest !== anchor.terminalArtifactArchiveDigest ||
+        terminalObservation.originId !== anchor.terminalArtifactOriginId ||
+        terminalObservation.artifactName !== anchor.terminalArtifactName ||
+        terminalPayload?.artifactDigest !== anchor.terminalArtifactPayloadDigest ||
+        !canonicalEquals(terminalObservation.referencedOrigin, anchor.terminalAssemblerOrigin)) {
+      return transactionResult(
+        'blocked', resolution, before, false, null,
+        'anchor-terminal requires exact authenticated start, terminal, and anchor provider state'
+      );
+    }
+    state = 'success';
+    description = verificationActionProviderTerminalDescriptionV2(anchor.anchorDigest);
+    publisher = anchor.anchorPublisherOrigin;
+    expectedContextStatusIds = [start.id];
+    completedDisposition = 'terminal-anchored';
+  }
+
+  const published = await publishGitHubExactCommitStatusOnceV1(transport, {
+    repository: resolution.repository,
+    sha: resolution.candidateSha,
+    state,
+    context: verificationActionProviderStatusContextV2(resolution.actionKey),
+    description,
+    targetUrl: verificationActionProviderRunTargetUrlV2(publisher),
+    expectedContextStatusIds
+  });
+  if (published.disposition === 'ambiguous' || published.status === null) {
+    return transactionResult(
+      'blocked', resolution, before, false, null,
+      published.reason ?? 'one-shot provider publication is ambiguous'
+    );
+  }
+
+  const after = await readVerificationActionGitHubProviderSnapshotV2(transport, resolution);
+  const canonicalStatus = after.statusReadback.statuses.find((entry) => entry.id === published.status!.id);
+  if (canonicalStatus === undefined || canonicalStatus.state !== state ||
+      canonicalStatus.description !== description ||
+      canonicalStatus.targetUrl !== verificationActionProviderRunTargetUrlV2(publisher)) {
+    return transactionResult(
+      'blocked', resolution, after, published.newlyCreatedByThisInvocation, null,
+      'semantic provider publication did not survive the canonical full readback'
+    );
+  }
+  return transactionResult(
+    published.disposition === 'existing' ? 'complete' : completedDisposition,
+    resolution,
+    after,
+    published.newlyCreatedByThisInvocation,
+    canonicalStatus,
+    null
+  );
+}

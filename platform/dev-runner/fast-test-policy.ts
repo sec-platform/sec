@@ -130,6 +130,16 @@ export function isDefaultFastTestFile(file: string): boolean {
 
 const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
+    file: 'tests/contract/document-control-plane-lifecycle.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/contract/repository-audit.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/integration/pipeline-kernel.test.ts',
     reason: 'workspace-mutation',
     resourceClass: 'independent-process'
@@ -195,6 +205,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/branch-lifecycle-temp-repo.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/project-overview.test.ts',
     reason: 'workspace-overview',
     resourceClass: 'independent-process'
@@ -212,6 +227,21 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
     file: 'tests/unit/command-runner.test.ts',
     reason: 'process-global-mocks',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/verification-action-github-provider.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/verification-action-runner.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/verification-session-runtime.test.ts',
+    reason: 'process-global-environment',
     resourceClass: 'independent-process'
   },
   {

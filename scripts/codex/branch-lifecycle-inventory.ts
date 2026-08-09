@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
@@ -7,12 +8,9 @@ import {
   resolveBranchCloseoutReceiptObservation
 } from './branch-closeout-receipt.ts';
 import {
-  commandErrorText,
-  commandText,
-  optionalBranchCommandText,
-  requireBranchCommandText,
-  runBranchCommand,
-  type BranchLifecycleContext
+  createBranchLifecycleGitChildEnvironmentV1,
+  decodeBranchLifecycleChildErrorV1,
+  decodeBranchLifecycleChildStdoutV1
 } from './branch-lifecycle-command.ts';
 import {
   BRANCH_LIFECYCLE_INVENTORY_SCHEMA_V1,
@@ -37,7 +35,72 @@ import {
 } from './branch-lifecycle-parsers.ts';
 
 const DEFAULT_REMOTE = 'origin';
+const COMMAND_TIMEOUT_MS = 60_000;
+const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
 type CollaboratorPermission = 'trusted' | 'untrusted' | 'unknown';
+
+interface InventoryRuntime {
+  readonly repositoryRoot: string;
+  readonly remote?: string;
+  readonly repositoryFullName?: string;
+  readonly defaultBranch?: string;
+}
+
+function runInventoryCommand(
+  ctx: InventoryRuntime,
+  command: 'bun' | 'gh' | 'git',
+  args: readonly string[],
+  cwd = ctx.repositoryRoot
+) {
+  if (args.some((arg) => arg.includes('\0'))) {
+    throw new Error('Branch inventory argument contains NUL.');
+  }
+  const result = spawnSync(command, [...args], {
+    cwd,
+    encoding: 'buffer',
+    windowsHide: true,
+    timeout: COMMAND_TIMEOUT_MS,
+    maxBuffer: COMMAND_MAX_BUFFER,
+    env: {
+      ...(command === 'git'
+        ? createBranchLifecycleGitChildEnvironmentV1(process.env)
+        : process.env),
+      GH_PROMPT_DISABLED: '1',
+      GIT_TERMINAL_PROMPT: '0'
+    }
+  });
+  return {
+    status: result.status,
+    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? '')),
+    stderr: Buffer.isBuffer(result.stderr)
+      ? result.stderr
+      : Buffer.from(String(result.stderr ?? result.error?.message ?? ''))
+  };
+}
+
+function requireInventoryCommandText(
+  ctx: InventoryRuntime,
+  command: 'bun' | 'gh' | 'git',
+  args: readonly string[],
+  label: string,
+  cwd = ctx.repositoryRoot
+): string {
+  const result = runInventoryCommand(ctx, command, args, cwd);
+  if (result.status !== 0) {
+    throw new Error(`${label} failed: ${decodeBranchLifecycleChildErrorV1(result)}`);
+  }
+  return decodeBranchLifecycleChildStdoutV1(result);
+}
+
+function optionalInventoryCommandText(
+  ctx: InventoryRuntime,
+  command: 'bun' | 'gh' | 'git',
+  args: readonly string[],
+  cwd = ctx.repositoryRoot
+): string | null {
+  const result = runInventoryCommand(ctx, command, args, cwd);
+  return result.status === 0 ? decodeBranchLifecycleChildStdoutV1(result) : null;
+}
 
 function stableSortWorktrees(entries: BranchWorktreeObservation[]): BranchWorktreeObservation[] {
   return entries.sort((left, right) => left.path.localeCompare(right.path));
@@ -57,8 +120,8 @@ export function resolveRealPath(value: string): string {
   }
 }
 
-function resolveRepositoryRoot(ctx: BranchLifecycleContext): string {
-  return resolveRealPath(requireBranchCommandText(
+function resolveRepositoryRoot(ctx: InventoryRuntime): string {
+  return resolveRealPath(requireInventoryCommandText(
     ctx,
     'git',
     ['rev-parse', '--show-toplevel'],
@@ -66,8 +129,8 @@ function resolveRepositoryRoot(ctx: BranchLifecycleContext): string {
   ));
 }
 
-function resolveCommonDir(ctx: BranchLifecycleContext, repositoryRoot: string): string {
-  const raw = requireBranchCommandText(
+function resolveCommonDir(ctx: InventoryRuntime, repositoryRoot: string): string {
+  const raw = requireInventoryCommandText(
     ctx,
     'git',
     ['rev-parse', '--git-common-dir'],
@@ -78,11 +141,11 @@ function resolveCommonDir(ctx: BranchLifecycleContext, repositoryRoot: string): 
 }
 
 function resolveRemoteUrl(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   remote: string
 ): string {
-  return requireBranchCommandText(
+  return requireInventoryCommandText(
     ctx,
     'git',
     ['remote', 'get-url', remote],
@@ -92,7 +155,7 @@ function resolveRemoteUrl(
 }
 
 function resolveRepositoryFullName(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   remoteUrl: string,
   unknowns: string[]
@@ -100,7 +163,7 @@ function resolveRepositoryFullName(
   if (ctx.repositoryFullName) return ctx.repositoryFullName;
   const fromRemote = parseRepositoryFullName(remoteUrl);
   if (fromRemote !== null) return fromRemote;
-  const fromGh = optionalBranchCommandText(
+  const fromGh = optionalInventoryCommandText(
     ctx,
     'gh',
     ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'],
@@ -112,7 +175,7 @@ function resolveRepositoryFullName(
 }
 
 function resolveDefaultBranch(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   remote: string,
   unknowns: string[]
@@ -121,7 +184,7 @@ function resolveDefaultBranch(
     assertGitBranchName(ctx.defaultBranch, 'default branch');
     return ctx.defaultBranch;
   }
-  const symbolic = optionalBranchCommandText(
+  const symbolic = optionalInventoryCommandText(
     ctx,
     'git',
     ['symbolic-ref', '--quiet', '--short', `refs/remotes/${remote}/HEAD`],
@@ -132,7 +195,7 @@ function resolveDefaultBranch(
     assertGitBranchName(branch, 'default branch');
     return branch;
   }
-  const fromGh = optionalBranchCommandText(
+  const fromGh = optionalInventoryCommandText(
     ctx,
     'gh',
     ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
@@ -147,51 +210,51 @@ function resolveDefaultBranch(
 }
 
 function listLocalBranches(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string
 ): BranchRefObservation[] {
-  const result = runBranchCommand(ctx, 'git', [
+  const result = runInventoryCommand(ctx, 'git', [
     'for-each-ref',
     '--format=%(refname:short)%00%(objectname)%00',
     'refs/heads'
   ], repositoryRoot);
   if (result.status !== 0) {
-    throw new Error(`local branch inventory failed: ${commandErrorText(result)}`);
+    throw new Error(`local branch inventory failed: ${decodeBranchLifecycleChildErrorV1(result)}`);
   }
   return parseLocalBranchRefs(result.stdout);
 }
 
 function listRemoteBranches(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   remote: string
 ): BranchRefObservation[] {
-  const result = runBranchCommand(ctx, 'git', ['ls-remote', '--heads', remote], repositoryRoot);
+  const result = runInventoryCommand(ctx, 'git', ['ls-remote', '--heads', remote], repositoryRoot);
   if (result.status !== 0) {
-    throw new Error(`remote branch inventory failed: ${commandErrorText(result)}`);
+    throw new Error(`remote branch inventory failed: ${decodeBranchLifecycleChildErrorV1(result)}`);
   }
-  return parseRemoteHeadRefs(commandText(result));
+  return parseRemoteHeadRefs(decodeBranchLifecycleChildStdoutV1(result));
 }
 
 function listWorktrees(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   unknowns: string[]
 ): BranchWorktreeObservation[] {
-  const result = runBranchCommand(
+  const result = runInventoryCommand(
     ctx,
     'git',
     ['worktree', 'list', '--porcelain', '-z'],
     repositoryRoot
   );
   if (result.status !== 0) {
-    unknowns.push(`worktree inventory failed: ${commandErrorText(result)}`);
+    unknowns.push(`worktree inventory failed: ${decodeBranchLifecycleChildErrorV1(result)}`);
     return [];
   }
 
   return stableSortWorktrees(parseWorktreePorcelain(result.stdout).map((record) => {
     const worktreePath = resolveRealPath(record.path!);
-    const status = runBranchCommand(ctx, 'git', [
+    const status = runInventoryCommand(ctx, 'git', [
       '-C',
       worktreePath,
       'status',
@@ -209,7 +272,7 @@ function listWorktrees(
         locked: record.locked,
         prunable: record.prunable,
         observation: 'unknown',
-        reason: commandErrorText(status)
+        reason: decodeBranchLifecycleChildErrorV1(status)
       };
     }
     const counts = countPorcelainStatus(status.stdout);
@@ -228,30 +291,30 @@ function listWorktrees(
 }
 
 function remoteMarkerRequirement(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   repositoryFullName: string,
   baseSha: string
 ): BranchCloseoutReceiptObservation['requirement'] {
-  const result = runBranchCommand(ctx, 'gh', [
+  const result = runInventoryCommand(ctx, 'gh', [
     'api',
     `/repos/${repositoryFullName}/contents/${BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH}?ref=${baseSha}`,
     '--silent'
   ], repositoryRoot);
   if (result.status === 0) return 'required';
-  const error = commandErrorText(result);
+  const error = decodeBranchLifecycleChildErrorV1(result);
   return /(?:HTTP\s+404|status\s+404|Not Found)/iu.test(error) ? 'not-required' : 'unknown';
 }
 
 function closeoutReceiptRequirement(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   repositoryFullName: string,
   pullRequest: BranchPullRequestObservation
 ): BranchCloseoutReceiptObservation['requirement'] {
   if (pullRequest.isCrossRepository) return 'not-required';
   if (pullRequest.baseSha === null || pullRequest.baseSha === undefined) return 'unknown';
-  const commit = runBranchCommand(
+  const commit = runInventoryCommand(
     ctx,
     'git',
     ['cat-file', '-e', `${pullRequest.baseSha}^{commit}`],
@@ -265,7 +328,7 @@ function closeoutReceiptRequirement(
       pullRequest.baseSha
     );
   }
-  const marker = runBranchCommand(
+  const marker = runInventoryCommand(
     ctx,
     'git',
     ['cat-file', '-e', `${pullRequest.baseSha}:${BRANCH_CLOSEOUT_ENFORCEMENT_MARKER_PATH}`],
@@ -275,7 +338,7 @@ function closeoutReceiptRequirement(
 }
 
 function collaboratorPermission(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   repositoryFullName: string,
   author: string,
@@ -283,7 +346,7 @@ function collaboratorPermission(
 ): { permission: CollaboratorPermission; reason: string | null } {
   const cached = cache.get(author);
   if (cached) return cached;
-  const result = runBranchCommand(ctx, 'gh', [
+  const result = runInventoryCommand(ctx, 'gh', [
     'api',
     `/repos/${repositoryFullName}/collaborators/${author}/permission`,
     '--jq',
@@ -292,12 +355,12 @@ function collaboratorPermission(
   if (result.status !== 0) {
     const observation = {
       permission: 'unknown' as const,
-      reason: `collaborator permission for ${author} failed: ${commandErrorText(result)}`
+      reason: `collaborator permission for ${author} failed: ${decodeBranchLifecycleChildErrorV1(result)}`
     };
     cache.set(author, observation);
     return observation;
   }
-  const role = commandText(result).toLowerCase();
+  const role = decodeBranchLifecycleChildStdoutV1(result).toLowerCase();
   const observation = {
     permission: role === 'admin' || role === 'maintain'
       ? 'trusted' as const
@@ -309,7 +372,7 @@ function collaboratorPermission(
 }
 
 function loadCloseoutReceiptCommentCandidates(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   repositoryFullName: string,
   pullRequest: BranchPullRequestObservation
@@ -317,7 +380,7 @@ function loadCloseoutReceiptCommentCandidates(
   const existing = pullRequest.closeoutReceiptCommentCandidates ?? [];
   if (existing.length > 0) return { candidates: existing, reason: null };
 
-  const result = runBranchCommand(ctx, 'gh', [
+  const result = runInventoryCommand(ctx, 'gh', [
     'api',
     '--paginate',
     '--slurp',
@@ -326,12 +389,15 @@ function loadCloseoutReceiptCommentCandidates(
   if (result.status !== 0) {
     return {
       candidates: null,
-      reason: `comment inventory failed: ${commandErrorText(result)}`
+      reason: `comment inventory failed: ${decodeBranchLifecycleChildErrorV1(result)}`
     };
   }
   try {
     return {
-      candidates: parseRestCloseoutReceiptCommentCandidates(commandText(result), pullRequest.number),
+      candidates: parseRestCloseoutReceiptCommentCandidates(
+        decodeBranchLifecycleChildStdoutV1(result),
+        pullRequest.number
+      ),
       reason: null
     };
   } catch (error) {
@@ -343,11 +409,12 @@ function loadCloseoutReceiptCommentCandidates(
 }
 
 export function bindCloseoutReceiptObservations(
-  ctx: BranchLifecycleContext,
+  scope: Readonly<{ repositoryRoot: string }>,
   repositoryRoot: string,
   repositoryFullName: string,
   pullRequests: BranchPullRequestObservation[]
 ): BranchPullRequestObservation[] {
+  const ctx: InventoryRuntime = scope;
   const permissionCache = new Map<
     string,
     { permission: CollaboratorPermission; reason: string | null }
@@ -440,12 +507,12 @@ export function bindCloseoutReceiptObservations(
 }
 
 function listPullRequests(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   repositoryFullName: string,
   unknowns: string[]
 ): BranchPullRequestObservation[] {
-  const result = runBranchCommand(ctx, 'gh', [
+  const result = runInventoryCommand(ctx, 'gh', [
     'pr',
     'list',
     '--repo',
@@ -458,11 +525,11 @@ function listPullRequests(
     'number,headRefName,headRefOid,baseRefName,baseRefOid,state,isDraft,isCrossRepository,url'
   ], repositoryRoot);
   if (result.status !== 0) {
-    unknowns.push(`PR inventory failed: ${commandErrorText(result)}`);
+    unknowns.push(`PR inventory failed: ${decodeBranchLifecycleChildErrorV1(result)}`);
     return [];
   }
   try {
-    const observations = parsePullRequestObservations(commandText(result));
+    const observations = parsePullRequestObservations(decodeBranchLifecycleChildStdoutV1(result));
     if (observations.length >= 1000) {
       unknowns.push('PR inventory reached its bounded 1000-item limit');
     }
@@ -481,21 +548,21 @@ function listPullRequests(
 }
 
 function resolveActiveWorkPackage(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   defaultBranch: string,
   unknowns: string[]
 ): BranchActiveWorkPackageObservation {
-  const result = runBranchCommand(ctx, 'bun', [
+  const result = runInventoryCommand(ctx, 'bun', [
     'scripts/codex/document-control-plane.ts',
     'status',
     '--json'
   ], repositoryRoot);
   if (result.stdout.length > 0) {
     try {
-      const observation = parseControlPlane(commandText(result), defaultBranch);
+      const observation = parseControlPlane(decodeBranchLifecycleChildStdoutV1(result), defaultBranch);
       if (result.status !== 0) {
-        unknowns.push(`control-plane resolver exited non-zero: ${commandErrorText(result)}`);
+        unknowns.push(`control-plane resolver exited non-zero: ${decodeBranchLifecycleChildErrorV1(result)}`);
       }
       return observation;
     } catch (error) {
@@ -504,7 +571,7 @@ function resolveActiveWorkPackage(
       );
     }
   } else {
-    unknowns.push(`control-plane resolver failed: ${commandErrorText(result)}`);
+    unknowns.push(`control-plane resolver failed: ${decodeBranchLifecycleChildErrorV1(result)}`);
   }
   return {
     state: 'unresolved',
@@ -515,11 +582,11 @@ function resolveActiveWorkPackage(
 }
 
 function resolveRepositorySetting(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   repositoryFullName: string
 ): BranchRepositorySettingObservation {
-  const result = runBranchCommand(ctx, 'gh', [
+  const result = runInventoryCommand(ctx, 'gh', [
     'api',
     `/repos/${repositoryFullName}`,
     '--jq',
@@ -529,10 +596,10 @@ function resolveRepositorySetting(
     return {
       observation: 'unknown',
       deleteBranchOnMerge: null,
-      reason: commandErrorText(result)
+      reason: decodeBranchLifecycleChildErrorV1(result)
     };
   }
-  const value = commandText(result);
+  const value = decodeBranchLifecycleChildStdoutV1(result);
   if (value !== 'true' && value !== 'false') {
     return {
       observation: 'unknown',
@@ -548,20 +615,20 @@ function resolveRepositorySetting(
 }
 
 function readBooleanConfig(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   key: string
 ): boolean | null {
-  const result = runBranchCommand(ctx, 'git', ['config', '--local', '--bool', '--get', key], repositoryRoot);
+  const result = runInventoryCommand(ctx, 'git', ['config', '--local', '--bool', '--get', key], repositoryRoot);
   if (result.status !== 0) return null;
-  const value = commandText(result).toLowerCase();
+  const value = decodeBranchLifecycleChildStdoutV1(result).toLowerCase();
   if (value === 'true') return true;
   if (value === 'false') return false;
   return null;
 }
 
 function resolvePruneConfiguration(
-  ctx: BranchLifecycleContext,
+  ctx: InventoryRuntime,
   repositoryRoot: string,
   remote: string
 ): BranchPruneConfigurationObservation {
@@ -575,8 +642,14 @@ function resolvePruneConfiguration(
 }
 
 export function collectBranchLifecycleInventory(
-  ctx: BranchLifecycleContext
+  input: Readonly<{
+    repositoryRoot: string;
+    remote?: string;
+    repositoryFullName?: string;
+    defaultBranch?: string;
+  }>
 ): BranchLifecycleInventory {
+  const ctx: InventoryRuntime = input;
   const unknowns: string[] = [];
   const repositoryRoot = resolveRepositoryRoot(ctx);
   const commonDir = resolveCommonDir(ctx, repositoryRoot);

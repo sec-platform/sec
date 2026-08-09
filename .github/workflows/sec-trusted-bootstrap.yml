@@ -178,18 +178,30 @@ jobs:
               throw new Error('Trusted-base trust-root registry is not strict UTF-8 JSON.');
             }
             const registryKeys = [
-              'causalRuntimePaths', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
+              'causalRuntimePaths', 'reviewedBoundaryEdges', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
               'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
             ];
             if (
               !registry || typeof registry !== 'object' || Array.isArray(registry) ||
-              registry.schema !== 'sec-trusted-bootstrap-registry-v1' ||
+              registry.schema !== 'sec-trusted-bootstrap-registry-v2' ||
               JSON.stringify(Object.keys(registry).sort()) !== JSON.stringify(registryKeys)
             ) throw new Error('Trusted-base trust-root registry schema is invalid.');
-            for (const key of ['staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'causalRuntimePaths']) {
+            for (const key of [
+              'staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'runtimeEntrypoints',
+              'reviewedSutEdges', 'reviewedBoundaryEdges', 'causalRuntimePaths'
+            ]) {
               if (!Array.isArray(registry[key]) || registry[key].some((entry) => typeof entry !== 'string')) {
                 throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);
               }
+            }
+            if (registry.reviewedBoundaryEdges.some((edge) => !/^[^ ]+ -> [^ ]+$/.test(edge)) ||
+                !registry.reviewedBoundaryEdges.includes(
+                  'scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts'
+                ) ||
+                !registry.reviewedBoundaryEdges.includes(
+                  'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'
+                )) {
+              throw new Error('Trusted-base reviewedBoundaryEdges do not match the canonical V2 boundary shape.');
             }
             const trustFiles = new Set([...registry.staticExactPaths, ...registry.causalRuntimePaths]);
             const selectTrust = (tree) => Object.fromEntries(tree.data.tree
@@ -252,16 +264,16 @@ jobs:
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
           bun install --frozen-lockfile --ignore-scripts
 
-      - name: Generate candidate TCB closure snapshot
+      - name: Check candidate TCB closure lock before bootstrap regression
+        id: tcb-lock-pre
         shell: bash
-        env:
-          SEC_BOOTSTRAP_BASE: ${{ steps.resolve.outputs.base }}
         run: |
           set -euo pipefail
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
           mkdir -p .tmp/sec-trusted-bootstrap
-          bun -e "import { generateTcbClosureLockForRevision } from './platform/shared/tcb-closure-lock.ts'; process.stdout.write(JSON.stringify(generateTcbClosureLockForRevision(process.env.SEC_BOOTSTRAP_BASE), null, 2) + '\\n');" > .tmp/sec-trusted-bootstrap/generated-tcb-lock.json
+          bun scripts/ci-verification.ts tcb-closure-lock --mode check \
+            | tee .tmp/sec-trusted-bootstrap/tcb-lock-pre.json
 
       - name: Run candidate bootstrap regression suite
         id: regression
@@ -312,7 +324,27 @@ jobs:
             printf 'git=%s\n' "$(git --version)"
             printf 'os=%s\n' "$(uname -a)"
           } > "$out/environment.txt"
-          (cd "$out" && sha256sum * > SHA256SUMS)
+      - name: Check candidate TCB closure lock after bootstrap regression
+        id: tcb-lock-post
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
+          mkdir -p .tmp/sec-trusted-bootstrap
+          bun scripts/ci-verification.ts tcb-closure-lock --mode check \
+            | tee .tmp/sec-trusted-bootstrap/tcb-lock-post.json
+
+      - name: Finalize trusted bootstrap evidence checksums
+        if: ${{ always() && !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out=.tmp/sec-trusted-bootstrap
+          mkdir -p "$out"
+          (cd "$out" && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\n' \
+            | sort | xargs -r sha256sum > SHA256SUMS)
 
       - name: Upload trusted bootstrap evidence
         if: always()

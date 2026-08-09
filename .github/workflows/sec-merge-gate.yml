@@ -1,952 +1,607 @@
 name: sec-merge-gate
-run-name: '${{ github.event.action || github.event_name }} PR #${{ github.event.client_payload.pull_request }} head ${{ github.event.client_payload.expected_head }} base ${{ github.event.client_payload.expected_base }} manifest ${{ github.event.client_payload.manifest_digest }}'
+run-name: 'integrate compiler session run ${{ github.event.workflow_run.id }} attempt ${{ github.event.workflow_run.run_attempt }}'
 
 on:
-  pull_request_target:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-      - converted_to_draft
-      - edited
-      - closed
   workflow_run:
     workflows:
       - compiler-pr-validation
     types:
-      - requested
-      - in_progress
       - completed
-  repository_dispatch:
-    types:
-      - sec-scope-attest-v1
-      - sec-verify-frozen-v1
-  push:
-    branches:
-      - main
-    paths:
-      - .github/**
-      - .shared-deps/**
-      - .bun-version
-      - .npmrc
-      - bun.lock
-      - bunfig.toml
-      - package.json
-      - tsconfig.json
-      - platform/**
-      - scripts/**
-      - tests/**
-      - docs/work/**
-  schedule:
-    - cron: '17 */6 * * *'
 
-permissions: {}
+permissions:
+  actions: read
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  SEC_INTEGRATION_DURABLE_DIRECTORY: ${{ github.workspace }}/.tmp/codex
+  # Canonical integration wall-clock budget. The outer job aliases the complete
+  # pre-merge + preceding serialized push producer + queued explicit producer
+  # + terminal poll + closeout window. The join step consumes the same values.
+  SEC_INTEGRATION_PRE_MERGE_BUDGET_MINUTES: &sec_integration_pre_merge_budget_minutes 30
+  SEC_MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES: &sec_main_health_runner_queue_allowance_minutes 10
+  SEC_MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES: &sec_main_health_producer_timeout_minutes 30
+  SEC_MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS: &sec_main_health_join_poll_interval_seconds 10
+  SEC_INTEGRATION_CLOSEOUT_BUDGET_MINUTES: &sec_integration_closeout_budget_minutes 15
+  SEC_INTEGRATION_TIMEOUT_MINUTES: &sec_integration_timeout_minutes 116
 
 jobs:
-  invalidate-dispatch:
-    if: github.event_name == 'repository_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-      statuses: write
-    steps:
-      - name: Invalidate prior merge authority for the dispatched head
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        env:
-          EVENT_TYPE: ${{ github.event.action }}
-          PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
-          ACTOR: ${{ github.actor }}
-          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
-        with:
-          script: |
-            const payload = JSON.parse(process.env.PAYLOAD_JSON);
-            if (!['sec-scope-attest-v1', 'sec-verify-frozen-v1'].includes(process.env.EVENT_TYPE)) {
-              throw new Error('Unsupported control-plane repository dispatch.');
-            }
-            if (
-              !payload || typeof payload !== 'object' || Array.isArray(payload) ||
-              !Number.isSafeInteger(payload.pull_request) || payload.pull_request <= 0 ||
-              typeof payload.expected_head !== 'string' || !/^[0-9a-f]{40}$/.test(payload.expected_head) ||
-              typeof payload.expected_base !== 'string' || !/^[0-9a-f]{40}$/.test(payload.expected_base)
-            ) throw new Error('Control-plane dispatch exact PR/base/head identity is invalid.');
-            const [repository, pull, base, actorPermission, triggeringPermission] = await Promise.all([
-              github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
-              github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: payload.pull_request }),
-              github.rest.repos.getBranch({ owner: context.repo.owner, repo: context.repo.repo, branch: context.payload.repository.default_branch }),
-              github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner, repo: context.repo.repo, username: process.env.ACTOR
-              }),
-              github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner, repo: context.repo.repo, username: process.env.TRIGGERING_ACTOR
-              })
-            ]);
-            const trusted = (permission) => permission === 'maintain' || permission === 'admin';
-            if (
-              !trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission) ||
-              pull.data.state !== 'open' || pull.data.base.ref !== repository.data.default_branch ||
-              pull.data.base.repo?.id !== repository.data.id || pull.data.head.repo?.id !== repository.data.id ||
-              pull.data.base.sha !== payload.expected_base || base.data.commit.sha !== payload.expected_base ||
-              pull.data.head.sha !== payload.expected_head
-            ) throw new Error('Control-plane dispatch no longer matches one live same-repository PR head/base.');
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: payload.expected_head,
-              state: 'pending',
-              context: 'sec/merge-gate',
-              description: 'A newer exact-head control-plane attempt is pending',
-              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            });
-
-  plan-revalidation:
-    if: github.event_name != 'repository_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-      statuses: write
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-    steps:
-      - name: Select open PRs for exact-head revalidation
-        id: plan
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || '' }}
-          EVENT_TITLE: ${{ github.event.workflow_run.display_title || '' }}
-          WORKFLOW_STATUS: ${{ github.event.workflow_run.status || '' }}
-        with:
-          script: |
-            const pulls = await github.paginate(github.rest.pulls.list, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              per_page: 100
-            });
-            const defaultBranch = context.payload.repository.default_branch;
-            const sameRepository = pulls.filter((pull) => (
-              pull.head.repo?.id === pull.base.repo?.id && pull.base.ref === defaultBranch
-            ));
-            let selected;
-            if (['schedule', 'push'].includes(process.env.EVENT_NAME)) {
-              selected = sameRepository;
-            } else if (process.env.EVENT_NAME === 'workflow_run') {
-              const match = /^verify frozen PR #(\d+) (?:quick|full) @ ([0-9a-f]{40}) base [0-9a-f]{40}$/.exec(process.env.EVENT_TITLE ?? '');
-              if (!match) throw new Error('Compiler workflow_run title does not carry one canonical PR/head key.');
-              selected = sameRepository.filter((pull) => (
-                pull.number === Number(match[1]) && pull.head.sha === match[2]
-              ));
-            } else {
-              selected = sameRepository.filter((pull) => pull.head.sha === process.env.EVENT_HEAD);
-            }
-            const selectedHeads = [...new Set(selected.map((pull) => pull.head.sha))].sort();
-            const headSelections = selectedHeads.map((head) => ({
-              head,
-              pulls: sameRepository.filter((pull) => pull.head.sha === head)
-            }));
-            const blockedSelection = headSelections.flatMap(({ head, pulls: headPulls }) => {
-              if (headPulls.length !== 1) {
-                return [{ head, description: 'Multiple open pull requests share one exact head' }];
-              }
-              return headPulls[0].draft
-                ? [{ head, description: 'Draft PR is not eligible for merge-gate execution' }]
-                : [];
-            });
-            const executableSelection = headSelections.flatMap(({ pulls: headPulls }) => (
-              headPulls.length === 1 && !headPulls[0].draft ? headPulls : []
-            ));
-            await Promise.all(blockedSelection.map(({ head, description }) => (
-              github.rest.repos.createCommitStatus({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                sha: head,
-                state: 'failure',
-                context: 'sec/merge-gate',
-                description,
-                target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-              })
-            )));
-            await Promise.all([...new Set(executableSelection.map((pull) => pull.head.sha))].map((head) => (
-              github.rest.repos.createCommitStatus({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                sha: head,
-                state: 'pending',
-                context: 'sec/merge-gate',
-                description: 'Exact-head merge evidence is being revalidated',
-                target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-              })
-            )));
-            const executionSelection = process.env.EVENT_NAME === 'workflow_run' && process.env.WORKFLOW_STATUS !== 'completed'
-              ? []
-              : executableSelection;
-            const include = [...new Set(executionSelection.map((pull) => pull.number))]
-              .sort((left, right) => left - right)
-              .map((pullRequest) => {
-                const pull = executionSelection.find((candidate) => candidate.number === pullRequest);
-                if (!pull) throw new Error(`Selected pull request ${pullRequest} disappeared from the event plan.`);
-                return { pull_request: pullRequest, head: pull.head.sha };
-              });
-            core.setOutput('matrix', JSON.stringify({ include }));
-
-  attest-scope:
-    if: github.event_name == 'repository_dispatch' && github.event.action == 'sec-scope-attest-v1'
+  plan:
+    if: "${{ github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.display_title, 'verify session PR #') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    concurrency:
-      group: sec-scope-attest-${{ github.event.client_payload.pull_request }}-${{ github.event.client_payload.expected_head }}
-      cancel-in-progress: true
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
+    outputs:
+      base-sha: ${{ steps.source.outputs.base-sha }}
+      current-main-sha: ${{ steps.source.outputs.current-main-sha }}
+      pr-number: ${{ steps.source.outputs.pr-number }}
+      session-revision: ${{ steps.source.outputs.session-revision }}
     steps:
-      - name: Checkout trusted current base
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Resolve trusted scope attestation request
-        id: attest
+      - name: Resolve trusted compiler source and current default base
+        id: source
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
-          EVENT_TYPE: sec-scope-attest-v1
-          WORKFLOW_HEAD: ${{ github.sha }}
+          SOURCE_RUN_JSON: ${{ toJSON(github.event.workflow_run) }}
+          WORKFLOW_SHA: ${{ github.sha }}
         with:
           script: |
-            const fs = require('fs');
-            const crypto = require('crypto');
-            const payload = context.payload.client_payload;
-            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('client_payload must be an object.');
-            const keys = Object.keys(payload).sort();
-            const expectedKeys = ['expected_base', 'expected_head', 'manifest_digest', 'pull_request'];
-            if (JSON.stringify(keys) !== JSON.stringify(expectedKeys)) throw new Error('client_payload keys are invalid.');
-            if (!Number.isSafeInteger(payload.pull_request) || payload.pull_request <= 0) throw new Error('pull_request is invalid.');
-            for (const key of ['expected_base', 'expected_head']) {
-              if (typeof payload[key] !== 'string' || !/^[0-9a-f]{40}$/.test(payload[key])) throw new Error(`${key} is invalid.`);
+            const run = JSON.parse(process.env.SOURCE_RUN_JSON);
+            if (run.name !== 'compiler-pr-validation' || run.event !== 'repository_dispatch' ||
+                run.status !== 'completed' || run.conclusion !== 'success' ||
+                !Number.isSafeInteger(run.id) || !Number.isSafeInteger(run.run_attempt) ||
+                typeof run.actor?.login !== 'string' || typeof run.triggering_actor?.login !== 'string') {
+              throw new Error('Only one completed successful compiler repository_dispatch run can enter integration.');
             }
-            if (typeof payload.manifest_digest !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(payload.manifest_digest)) {
-              throw new Error('manifest_digest is invalid.');
+            const terminalTitle = /^verify session PR #([1-9][0-9]*) session (sha256:[0-9a-f]{64})$/u.exec(
+              run.display_title ?? ''
+            );
+            if (terminalTitle === null) {
+              throw new Error('Only an external sec-verify-session-v2 terminal Session run can enter integration.');
             }
-            const [repository, pull, currentRun, workflow, openPulls] = await Promise.all([
-              github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
-              github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: payload.pull_request }),
-              github.rest.actions.getWorkflowRun({ owner: context.repo.owner, repo: context.repo.repo, run_id: context.runId }),
-              github.rest.actions.getWorkflow({ owner: context.repo.owner, repo: context.repo.repo, workflow_id: 'sec-merge-gate.yml' }),
-              github.paginate(github.rest.pulls.list, {
-                owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100
-              })
-            ]);
-            const actor = currentRun.data.actor?.login;
-            const triggeringActor = currentRun.data.triggering_actor?.login;
-            if (!actor || !triggeringActor) throw new Error('Attestation run actor identity is incomplete.');
-            const [actorPermission, triggeringPermission, baseBranch] = await Promise.all([
-              github.rest.repos.getCollaboratorPermissionLevel({ owner: context.repo.owner, repo: context.repo.repo, username: actor }),
-              github.rest.repos.getCollaboratorPermissionLevel({ owner: context.repo.owner, repo: context.repo.repo, username: triggeringActor }),
-              github.rest.repos.getBranch({ owner: context.repo.owner, repo: context.repo.repo, branch: repository.data.default_branch })
-            ]);
+            const sessionBaseSha = run.head_sha;
+            if (typeof sessionBaseSha !== 'string' || !/^[0-9a-f]{40}$/u.test(sessionBaseSha)) {
+              throw new Error('Compiler Session run has no exact trusted base SHA.');
+            }
+            const repository = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            const sourceWorkflow = await github.rest.actions.getWorkflow({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: run.workflow_id
+            });
+            const actorPermission = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: run.actor.login
+            });
+            const triggeringPermission = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: run.triggering_actor.login
+            });
             const trusted = (permission) => permission === 'maintain' || permission === 'admin';
-            if (!trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
-              throw new Error('Scope attestation requires maintain/admin actor and triggering actor.');
+            if (sourceWorkflow.data.path !== '.github/workflows/compiler-pr-validation.yml' ||
+                !trusted(actorPermission.data.permission) || !trusted(triggeringPermission.data.permission)) {
+              throw new Error('Compiler workflow path or dispatch principal is not trusted.');
             }
-            const livePull = pull.data;
-            const currentBase = baseBranch.data.commit.sha;
-            if (
-              currentBase !== payload.expected_base ||
-              currentBase !== process.env.WORKFLOW_HEAD ||
-              currentRun.data.head_sha !== currentBase ||
-              livePull.state !== 'open' ||
-              livePull.base.ref !== repository.data.default_branch ||
-              livePull.base.sha !== currentBase ||
-              livePull.head.sha !== payload.expected_head ||
-              livePull.head.repo?.id !== repository.data.id ||
-              livePull.base.repo?.id !== repository.data.id ||
-              openPulls.filter((candidate) => (
-                candidate.head.sha === payload.expected_head && candidate.base.ref === repository.data.default_branch &&
-                candidate.head.repo?.id === repository.data.id && candidate.base.repo?.id === repository.data.id
-              )).length !== 1
-            ) throw new Error('Scope attestation expected base/head/repository is stale.');
-            const locatorLines = (livePull.body ?? '').replaceAll('\r\n', '\n').split('\n')
-              .filter((line) => line.startsWith('Work-Package:'));
-            if (locatorLines.length !== 1) throw new Error('PR body requires exactly one Work-Package locator.');
-            const locator = /^Work-Package: (docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md)$/.exec(locatorLines[0]);
-            if (!locator) throw new Error('Work Package locator is invalid.');
-            const manifestPath = locator[1];
-            const headCommit = await github.rest.repos.getCommit({
-              owner: context.repo.owner, repo: context.repo.repo, ref: livePull.head.sha
-            });
-            const headTree = await github.rest.git.getTree({
-              owner: context.repo.owner, repo: context.repo.repo,
-              tree_sha: headCommit.data.commit.tree.sha, recursive: 'true'
-            });
-            if (headTree.data.truncated) throw new Error('Work Package manifest tree lookup was truncated.');
-            const manifestEntry = headTree.data.tree.find((entry) => entry.path === manifestPath);
-            if (
-              !manifestEntry || manifestEntry.type !== 'blob' || manifestEntry.mode !== '100644' ||
-              typeof manifestEntry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(manifestEntry.sha)
-            ) throw new Error('Work Package manifest must be one non-executable ordinary Git blob.');
-            const manifestResponse = await github.rest.git.getBlob({
-              owner: context.repo.owner, repo: context.repo.repo, file_sha: manifestEntry.sha
-            });
-            if (manifestResponse.data.encoding !== 'base64' || typeof manifestResponse.data.content !== 'string') {
-              throw new Error('Work Package manifest blob encoding is invalid.');
-            }
-            const manifestBytes = Buffer.from(manifestResponse.data.content.replaceAll('\n', ''), 'base64');
-            const manifestBlobSha = crypto.createHash('sha1')
-              .update(`blob ${manifestBytes.byteLength}\0`).update(manifestBytes).digest('hex');
-            const manifestDigest = `sha256:${crypto.createHash('sha256').update(manifestBytes).digest('hex')}`;
-            if (
-              manifestBytes.byteLength <= 0 || manifestBytes.byteLength > 131072 ||
-              manifestResponse.data.size !== manifestBytes.byteLength ||
-              manifestBlobSha !== manifestEntry.sha || manifestDigest !== payload.manifest_digest
-            ) throw new Error('Scope attestation manifest blob identity, length, or digest is stale.');
-            const request = {
-              schema: 'codex-development-scope-attestation-request-v1',
-              repository: repository.data.full_name,
-              repositoryId: repository.data.id,
-              pullRequest: livePull.number,
-              defaultBranch: repository.data.default_branch,
-              currentBase,
-              exactHead: livePull.head.sha,
-              baseRepoId: livePull.base.repo.id,
-              headRepoId: livePull.head.repo.id,
-              manifestPath,
-              expectedManifestDigest: manifestDigest,
-              expectedManifestBlobSha: manifestBlobSha,
-              expectedManifestByteLength: manifestBytes.byteLength,
-              eventName: currentRun.data.event,
-              eventType: process.env.EVENT_TYPE,
-              workflowId: workflow.data.id,
-              workflowPath: '.github/workflows/sec-merge-gate.yml',
-              workflowHeadSha: currentRun.data.head_sha,
-              runId: currentRun.data.id,
-              runAttempt: currentRun.data.run_attempt,
-              actor,
-              triggeringActor,
-              actorPermission: actorPermission.data.permission,
-              triggeringActorPermission: triggeringPermission.data.permission
-            };
-            fs.mkdirSync('.tmp/codex', { recursive: true });
-            fs.writeFileSync('.tmp/codex/scope-attestation-request.json', JSON.stringify(request));
-            fs.writeFileSync('.tmp/codex/work-package.md', manifestBytes);
-            core.setOutput('pull-request', String(livePull.number));
-            core.setOutput('base', currentBase);
-            core.setOutput('head', livePull.head.sha);
-            core.setOutput('manifest-path', manifestPath);
-            core.setOutput('manifest-digest', manifestDigest);
-            core.setOutput('manifest-blob-sha', manifestBlobSha);
-            core.setOutput('manifest-byte-length', String(manifestBytes.byteLength));
-            core.setOutput('manifest-hex', manifestDigest.slice('sha256:'.length));
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Build canonical scope attestation
-        run: >-
-          bun scripts/codex/merge-gate.ts attest
-          --input .tmp/codex/scope-attestation-request.json
-          --manifest .tmp/codex/work-package.md
-          --output .tmp/codex/codex-development-scope-attestation-v1.json
-
-      - name: Revalidate live scope immediately before upload
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        env:
-          PR_NUMBER: ${{ steps.attest.outputs.pull-request }}
-          EXPECTED_BASE: ${{ steps.attest.outputs.base }}
-          EXPECTED_HEAD: ${{ steps.attest.outputs.head }}
-          MANIFEST_PATH: ${{ steps.attest.outputs.manifest-path }}
-          MANIFEST_DIGEST: ${{ steps.attest.outputs.manifest-digest }}
-          MANIFEST_BLOB_SHA: ${{ steps.attest.outputs.manifest-blob-sha }}
-          MANIFEST_BYTE_LENGTH: ${{ steps.attest.outputs.manifest-byte-length }}
-        with:
-          script: |
-            const crypto = require('crypto');
-            const pullNumber = Number(process.env.PR_NUMBER);
-            const [pull, repository] = await Promise.all([
-              github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: pullNumber }),
-              github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo })
-            ]);
             const base = await github.rest.repos.getBranch({
               owner: context.repo.owner,
               repo: context.repo.repo,
               branch: repository.data.default_branch
             });
-            // Manifest blob re-query is skipped: head SHA is immutable, so manifest blob
-            // SHA/digest/byteLength cannot change when pull.data.head.sha === EXPECTED_HEAD.
-            // Reuse step 1 manifest metadata for revalidation.
-            const locatorLines = (pull.data.body ?? '').replaceAll('\r\n', '\n').split('\n')
-              .filter((line) => line.startsWith('Work-Package:'));
-            if (
-              pull.data.state !== 'open' ||
-              pull.data.base.repo?.id !== repository.data.id || pull.data.head.repo?.id !== repository.data.id ||
-              base.data.commit.sha !== process.env.EXPECTED_BASE ||
-              pull.data.base.sha !== process.env.EXPECTED_BASE ||
-              pull.data.head.sha !== process.env.EXPECTED_HEAD ||
-              locatorLines.length !== 1 || locatorLines[0] !== `Work-Package: ${process.env.MANIFEST_PATH}`
-            ) throw new Error('Live PR/base/head/locator changed before attestation upload.');
+            const currentBase = base.data.commit.sha;
+            if (process.env.WORKFLOW_SHA !== sessionBaseSha) {
+              throw new Error('Trusted merge workflow revision differs from the original Session base.');
+            }
+            const baseToCurrentMain = await github.rest.repos.compareCommitsWithBasehead({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              basehead: `${sessionBaseSha}...${currentBase}`
+            });
+            if ((baseToCurrentMain.data.status !== 'identical' && baseToCurrentMain.data.status !== 'ahead') ||
+                baseToCurrentMain.data.base_commit.sha !== sessionBaseSha ||
+                baseToCurrentMain.data.merge_base_commit.sha !== sessionBaseSha ||
+                baseToCurrentMain.data.behind_by !== 0) {
+              throw new Error('Original Session base is not reachable from the separately observed live main.');
+            }
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: run.id,
+              per_page: 100
+            });
+            const expectedArtifactName =
+              `sec-verification-session-v2-pr-${terminalTitle[1]}-session-${terminalTitle[2].slice(7)}-run-${run.id}-attempt-${run.run_attempt}`;
+            const sessionArtifacts = artifacts.filter((artifact) => artifact.name === expectedArtifactName);
+            const sessionArtifact = sessionArtifacts[0];
+            if (sessionArtifacts.length !== 1 ||
+                sessionArtifact.expired !== false || !Number.isSafeInteger(sessionArtifact.id) ||
+                !Number.isSafeInteger(sessionArtifact.size_in_bytes) || sessionArtifact.size_in_bytes < 1 ||
+                sessionArtifact.workflow_run?.id !== run.id) {
+              throw new Error('Compiler run must expose exactly one live provenance-bound terminal Session artifact.');
+            }
+            core.setOutput('base-sha', sessionBaseSha);
+            core.setOutput('current-main-sha', currentBase);
+            core.setOutput('pr-number', terminalTitle[1]);
+            core.setOutput('session-revision', terminalTitle[2].slice(7));
 
-      - name: Upload append-only scope attestation
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: sec-scope-attestation-v1-pr-${{ steps.attest.outputs.pull-request }}-base-${{ steps.attest.outputs.base }}-head-${{ steps.attest.outputs.head }}-manifest-${{ steps.attest.outputs.manifest-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: .tmp/codex/codex-development-scope-attestation-v1.json
-          if-no-files-found: error
-          retention-days: 90
-
-  merge-gate:
-    if: needs.plan-revalidation.outputs.matrix != '{"include":[]}'
-    needs:
-      - plan-revalidation
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan-revalidation.outputs.matrix) }}
+  integrate:
+    needs: plan
+    if: "${{ github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.display_title, 'verify session PR #') }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    concurrency:
-      group: sec-merge-gate-head-${{ matrix.head }}
-      cancel-in-progress: true
+    timeout-minutes: *sec_integration_timeout_minutes
     permissions:
       actions: read
-      contents: read
-      pull-requests: read
+      checks: read
+      contents: write
+      pull-requests: write
+      issues: write
       statuses: write
+    concurrency:
+      group: sec-integration-${{ github.repository_id }}-${{ github.event.repository.default_branch }}
+      cancel-in-progress: false
+      queue: max
     steps:
-      - name: Checkout trusted current base
+      - name: Checkout trusted current default base
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
+          ref: ${{ needs.plan.outputs.base-sha }}
+          fetch-depth: 0
           persist-credentials: false
 
-      - name: Resolve live PR and exact trusted artifacts
-        id: resolve
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        env:
-          PR_NUMBER: ${{ matrix.pull_request }}
-          EXPECTED_MATRIX_HEAD: ${{ matrix.head }}
-          WORKFLOW_HEAD: ${{ github.sha }}
-        with:
-          script: |
-            const fs = require('fs');
-            const crypto = require('crypto');
-            const { canonicalizeGitHubArtifactMetadataV1 } = require(
-              `${process.env.GITHUB_WORKSPACE}/scripts/codex/github-artifact-metadata.cjs`
-            );
-            const pullNumber = Number(process.env.PR_NUMBER);
-            const pull = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pullNumber
-            });
-            const livePull = pull.data;
-            const exactHead = process.env.EXPECTED_MATRIX_HEAD;
-            if (!exactHead || !/^[0-9a-f]{40}$/.test(exactHead)) throw new Error('Matrix exact head is invalid.');
-            core.setOutput('head', exactHead);
-            await github.rest.repos.createCommitStatus({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              sha: exactHead,
-              state: 'pending',
-              context: 'sec/merge-gate',
-              description: 'Validating trusted exact-head/base artifacts',
-              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            });
-            try {
-              const [repository, openPulls, attestationWorkflow, verificationWorkflow] = await Promise.all([
-                github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
-                github.paginate(github.rest.pulls.list, {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  state: 'open',
-                  per_page: 100
-                }),
-                github.rest.actions.getWorkflow({ owner: context.repo.owner, repo: context.repo.repo, workflow_id: 'sec-merge-gate.yml' }),
-                github.rest.actions.getWorkflow({ owner: context.repo.owner, repo: context.repo.repo, workflow_id: 'compiler-pr-validation.yml' })
-              ]);
-              if (
-                attestationWorkflow.data.path !== '.github/workflows/sec-merge-gate.yml' ||
-                verificationWorkflow.data.path !== '.github/workflows/compiler-pr-validation.yml'
-              ) throw new Error('Trusted workflow path lookup returned an unexpected verifier.');
-              const currentBaseResponse = await github.rest.repos.getBranch({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                branch: repository.data.default_branch
-              });
-              const currentBase = currentBaseResponse.data.commit.sha;
-              core.setOutput('base', currentBase);
-              if (
-                process.env.WORKFLOW_HEAD !== currentBase ||
-                livePull.head.sha !== exactHead ||
-                livePull.state !== 'open' ||
-                livePull.draft ||
-                livePull.base.repo.id !== repository.data.id ||
-                livePull.head.repo?.id !== repository.data.id
-              ) throw new Error('Only open same-repository pull requests are eligible.');
-              if (livePull.base.ref !== repository.data.default_branch) {
-                throw new Error('sec/merge-gate only supports PRs targeting the default branch.');
-              }
-              const sameHead = openPulls.filter((candidate) => (
-                candidate.head.sha === exactHead
-                && candidate.base.ref === repository.data.default_branch
-                && candidate.head.repo?.id === repository.data.id
-                && candidate.base.repo?.id === repository.data.id
-              ));
-              const [headCommit, comparison, changedFiles] = await Promise.all([
-                github.rest.repos.getCommit({ owner: context.repo.owner, repo: context.repo.repo, ref: exactHead }),
-                github.rest.repos.compareCommitsWithBasehead({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  basehead: `${currentBase}...${exactHead}`,
-                  per_page: 100
-                }),
-                github.paginate(github.rest.pulls.listFiles, {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  pull_number: pullNumber,
-                  per_page: 100
-                })
-              ]);
-              if (changedFiles.length === 0 || changedFiles.length >= 3000) throw new Error('Changed-file record count is empty or may be API-truncated.');
-              const statusMap = { added: 'added', modified: 'changed', changed: 'changed', removed: 'removed', renamed: 'renamed', copied: 'copied' };
-              const changedRecords = changedFiles.map((file) => {
-                const status = statusMap[file.status];
-                if (!status) throw new Error(`Unsupported GitHub changed-file status: ${file.status}`);
-                const record = { status, path: file.filename };
-                if (status === 'renamed' || status === 'copied') {
-                  if (!file.previous_filename) throw new Error(`${status} record is missing previous_filename.`);
-                  record.previousPath = file.previous_filename;
-                }
-                return record;
-              });
-              const locatorLines = (livePull.body ?? '').replaceAll('\r\n', '\n').split('\n')
-                .filter((line) => line.startsWith('Work-Package:'));
-              if (locatorLines.length !== 1) throw new Error('PR body requires exactly one Work-Package locator.');
-              const locator = /^Work-Package: (docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md)$/.exec(locatorLines[0]);
-              if (!locator) throw new Error('Work Package locator is invalid.');
-              const manifestPath = locator[1];
-              const headTree = await github.rest.git.getTree({
-                owner: context.repo.owner, repo: context.repo.repo,
-                tree_sha: headCommit.data.commit.tree.sha, recursive: 'true'
-              });
-              if (headTree.data.truncated) throw new Error('Work Package manifest tree lookup was truncated.');
-              const manifestEntry = headTree.data.tree.find((entry) => entry.path === manifestPath);
-              if (
-                !manifestEntry || manifestEntry.type !== 'blob' || manifestEntry.mode !== '100644' ||
-                typeof manifestEntry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(manifestEntry.sha)
-              ) throw new Error('Work Package manifest must be one non-executable ordinary Git blob.');
-              const manifestResponse = await github.rest.git.getBlob({
-                owner: context.repo.owner, repo: context.repo.repo, file_sha: manifestEntry.sha
-              });
-              if (manifestResponse.data.encoding !== 'base64' || typeof manifestResponse.data.content !== 'string') {
-                throw new Error('Work Package manifest blob encoding is invalid.');
-              }
-              const manifestBytes = Buffer.from(manifestResponse.data.content.replaceAll('\n', ''), 'base64');
-              const manifestText = new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes);
-              const manifestBlobSha = crypto.createHash('sha1')
-                .update(`blob ${manifestBytes.byteLength}\0`).update(manifestBytes).digest('hex');
-              const manifestDigest = `sha256:${crypto.createHash('sha256').update(manifestBytes).digest('hex')}`;
-              if (
-                manifestBytes.byteLength <= 0 || manifestBytes.byteLength > 131072 ||
-                manifestResponse.data.size !== manifestBytes.byteLength || manifestBlobSha !== manifestEntry.sha
-              ) throw new Error('Work Package manifest blob identity or length is invalid.');
-              const manifestHex = manifestDigest.slice('sha256:'.length);
-              const checkedAt = new Date();
-              const permission = async (login) => (await github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                username: login
-              })).data.permission;
-              const metadata = async (artifact, run, workflowPath, label) => ({
-                ...canonicalizeGitHubArtifactMetadataV1(artifact, {
-                  checkedAtMs: checkedAt.getTime(),
-                  label
-                }),
-                run: {
-                  workflowId: run.workflow_id,
-                  workflowPath,
-                  runId: run.id,
-                  runAttempt: run.run_attempt,
-                  event: run.event,
-                  headSha: run.head_sha,
-                  headBranch: run.head_branch,
-                  conclusion: run.conclusion,
-                  actor: run.actor.login,
-                  triggeringActor: run.triggering_actor.login,
-                  actorPermission: await permission(run.actor.login),
-                  triggeringActorPermission: await permission(run.triggering_actor.login)
-                }
-              });
-              const attestationRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: attestationWorkflow.data.id,
-                event: 'repository_dispatch',
-                branch: repository.data.default_branch,
-                per_page: 100
-              });
-              const expectedAttestationTitle = `sec-scope-attest-v1 PR #${pullNumber} head ${exactHead} base ${currentBase} manifest ${manifestDigest}`;
-              const relevantAttestationRuns = attestationRuns.filter((candidate) => (
-                candidate.head_sha === currentBase && candidate.display_title === expectedAttestationTitle
-              )).sort((left, right) => (
-                right.run_number - left.run_number || right.run_attempt - left.run_attempt
-              ));
-              if (relevantAttestationRuns.length === 0) throw new Error('No exact-key scope attestation run found.');
-              const selectedAttestationRun = relevantAttestationRuns[0];
-              if (selectedAttestationRun.status !== 'completed' || selectedAttestationRun.conclusion !== 'success') {
-                throw new Error('Latest exact-key scope attestation run is not successful.');
-              }
-              const attestationArtifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                run_id: selectedAttestationRun.id,
-                per_page: 100
-              });
-              const expectedAttestationName = `sec-scope-attestation-v1-pr-${pullNumber}-base-${currentBase}-head-${exactHead}-manifest-${manifestHex}-run-${selectedAttestationRun.id}-attempt-${selectedAttestationRun.run_attempt}`;
-              const exactAttestationArtifacts = attestationArtifacts.filter((artifact) => artifact.name === expectedAttestationName);
-              if (exactAttestationArtifacts.length !== 1) throw new Error('Expected exactly one current-attempt scope attestation artifact.');
-              const selectedAttestation = { run: selectedAttestationRun, artifact: exactAttestationArtifacts[0] };
-              const attestationArtifact = await metadata(
-                selectedAttestation.artifact,
-                selectedAttestation.run,
-                '.github/workflows/sec-merge-gate.yml',
-                'attestation artifact'
-              );
-              const verificationRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                workflow_id: verificationWorkflow.data.id,
-                event: 'repository_dispatch',
-                per_page: 100
-              });
-              const titlePattern = new RegExp(`^verify frozen PR #${pullNumber} (quick|full) @ ${exactHead} base ${currentBase}$`);
-              const relevantRuns = verificationRuns.filter((run) => (
-                run.head_sha === currentBase && titlePattern.test(run.display_title)
-              ))
-                .sort((left, right) => (
-                  right.run_number - left.run_number || right.run_attempt - left.run_attempt
-                ));
-              if (relevantRuns.length === 0) throw new Error('No exact frozen-request verification run found.');
-              const selectedVerificationRun = relevantRuns[0];
-              if (selectedVerificationRun.status !== 'completed' || selectedVerificationRun.conclusion !== 'success') {
-                throw new Error('Latest exact frozen-request verification attempt is not successful.');
-              }
-              const requestedProfile = titlePattern.exec(selectedVerificationRun.display_title)?.[1];
-              if (!requestedProfile) throw new Error('Verification run title/profile key is invalid.');
-              const verificationArtifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                run_id: selectedVerificationRun.id,
-                per_page: 100
-              });
-              const expectedVerificationName = `sec-verification-v19-${requestedProfile}-pr-${pullNumber}-base-${currentBase}-head-${exactHead}-run-${selectedVerificationRun.id}-attempt-${selectedVerificationRun.run_attempt}`;
-              const exactVerification = verificationArtifacts.filter((artifact) => artifact.name === expectedVerificationName);
-              if (exactVerification.length !== 1) throw new Error('Expected exactly one current-attempt verification artifact.');
-              const verificationArtifact = await metadata(
-                exactVerification[0],
-                selectedVerificationRun,
-                '.github/workflows/compiler-pr-validation.yml',
-                'verification artifact'
-              );
-              const input = {
-                schema: 'codex-development-merge-gate-input-v1',
-                repository: repository.data.full_name,
-                repositoryId: repository.data.id,
-                pullRequest: pullNumber,
-                body: livePull.body ?? '',
-                draft: livePull.draft,
-                defaultBranch: repository.data.default_branch,
-                baseRepoId: livePull.base.repo.id,
-                headRepoId: livePull.head.repo.id,
-                currentBase,
-                exactHead,
-                headTree: headCommit.data.commit.tree.sha,
-                headParents: headCommit.data.parents.map((parent) => parent.sha),
-                aheadBy: comparison.data.ahead_by,
-                behindBy: comparison.data.behind_by,
-                headOpenPullRequestCount: sameHead.length,
-                manifestPath,
-                manifestBlobSha,
-                manifestByteLength: manifestBytes.byteLength,
-                changedRecords,
-                checkedAt: checkedAt.toISOString(),
-                attestationWorkflowId: attestationWorkflow.data.id,
-                verificationWorkflowId: verificationWorkflow.data.id,
-                attestationArtifact,
-                verificationArtifact
-              };
-              fs.mkdirSync('.tmp/codex', { recursive: true });
-              fs.writeFileSync('.tmp/codex/merge-gate-input.json', JSON.stringify(input));
-              fs.writeFileSync('.tmp/codex/work-package.md', manifestBytes);
-              core.setOutput('manifest-path', manifestPath);
-              core.setOutput('manifest-digest', manifestDigest);
-              core.setOutput('manifest-blob-sha', manifestBlobSha);
-              core.setOutput('manifest-byte-length', String(manifestBytes.byteLength));
-              core.setOutput(
-                'composition',
-                String(/^schema:\s*codex-development-work-package-v2\s*$/mu.test(manifestText))
-              );
-              core.setOutput('attestation-workflow-id', String(attestationArtifact.run.workflowId));
-              core.setOutput('attestation-run-attempt', String(attestationArtifact.run.runAttempt));
-              core.setOutput('attestation-artifact-expires-at', attestationArtifact.expiresAt);
-              core.setOutput('attestation-artifact-id', String(attestationArtifact.id));
-              core.setOutput('attestation-run-id', String(attestationArtifact.run.runId));
-              core.setOutput('verification-workflow-id', String(verificationArtifact.run.workflowId));
-              core.setOutput('verification-profile', requestedProfile);
-              core.setOutput('verification-run-attempt', String(verificationArtifact.run.runAttempt));
-              core.setOutput('verification-artifact-expires-at', verificationArtifact.expiresAt);
-              core.setOutput('verification-artifact-id', String(verificationArtifact.id));
-              core.setOutput('verification-run-id', String(verificationArtifact.run.runId));
-              core.setOutput('error', '');
-            } catch (error) {
-              core.setOutput('error', error instanceof Error ? error.message : String(error));
-            }
-
-      - name: Materialize exact candidate Git objects without executing candidate code
-        if: steps.resolve.outputs.error == ''
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-        with:
-          ref: ${{ steps.resolve.outputs.head }}
-          path: .tmp/codex/candidate
-          fetch-depth: 2
-          persist-credentials: false
-
-      - name: Materialize immutable legacy evidence Git objects
-        if: steps.resolve.outputs.error == '' && steps.resolve.outputs.composition == 'true'
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-        with:
-          ref: 514e6e401659f18ecffca19856a11354d66d05df
-          path: .tmp/codex/legacy
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Setup Bun
-        if: steps.resolve.outputs.error == ''
+      - name: Setup trusted Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
 
-      - name: Download exact scope attestation artifact
-        if: steps.resolve.outputs.error == ''
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Cache trusted integration Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          artifact-ids: ${{ steps.resolve.outputs.attestation-artifact-id }}
-          path: .tmp/codex/attestation
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.resolve.outputs.attestation-run-id }}
-          merge-multiple: true
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
 
-      - name: Download exact verification artifact
-        if: steps.resolve.outputs.error == ''
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          artifact-ids: ${{ steps.resolve.outputs.verification-artifact-id }}
-          path: .tmp/codex/verification
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.resolve.outputs.verification-run-id }}
-          merge-multiple: true
+      - name: Install trusted integration dependencies from frozen lock
+        run: bun install --frozen-lockfile
 
-      - name: Validate base-side merge gate
-        id: validate
-        if: steps.resolve.outputs.error == ''
+      - name: Create exact integration durable directory
+        run: |
+          set -euo pipefail
+          test ! -L "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+          mkdir -p -- "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+          test -d "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+          test ! -L "${SEC_INTEGRATION_DURABLE_DIRECTORY}"
+
+      - name: Resolve exact hosted integration lane
+        id: prepare-integration
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: >-
-          bun scripts/codex/merge-gate.ts gate
-          --input .tmp/codex/merge-gate-input.json
-          --manifest .tmp/codex/work-package.md
-          --attestation-dir .tmp/codex/attestation
-          --verification-dir .tmp/codex/verification
-          --candidate-git-dir .tmp/codex/candidate/.git
-          --legacy-git-dir .tmp/codex/legacy/.git
+          bun scripts/codex/verification-session.ts prepare-integration-hosted
+          --repository "${{ github.repository }}"
+          --output "${SEC_INTEGRATION_DURABLE_DIRECTORY}/integration-projection.json"
+          --json
 
-      - name: Re-read live state and record sec/merge-gate
-        if: always() && !cancelled()
+      - name: Validate exact hosted integration lane projection
+        env:
+          INTEGRATION_LANE: ${{ steps.prepare-integration.outputs.integration-lane }}
+          ROUTE_FILE: ${{ env.SEC_INTEGRATION_DURABLE_DIRECTORY }}/integration-projection.json
+        run: >-
+          bun -e "const route = await Bun.file(process.env.ROUTE_FILE).json();
+          const lanes = new Set(['open-first-effect', 'merged-recovery', 'blocked']);
+          if (route.schema !== 'sec-verification-session-hosted-integration-route-v1'
+          || route.lane !== process.env.INTEGRATION_LANE || !lanes.has(route.lane))
+          throw new Error('Hosted integration lane projection is not canonical.');"
+
+      - name: Reject blocked hosted integration lane
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'blocked' }}
+        run: |
+          echo 'Hosted integration is blocked; no integration or closeout effect was attempted.' >&2
+          exit 1
+
+      - name: Upload exact branch closeout recovery artifact
+        id: upload-branch-closeout-recovery
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sec-branch-closeout-recovery-v1-pr-${{ needs.plan.outputs.pr-number }}-session-${{ needs.plan.outputs.session-revision }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: .tmp/codex/branch-closeout-recovery.json
+          if-no-files-found: error
+
+      - name: Read back exact branch closeout recovery artifact
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' }}
+        env:
+          ARTIFACT_ID: ${{ steps.upload-branch-closeout-recovery.outputs.artifact-id }}
+          EXPECTED_ARTIFACT_NAME: sec-branch-closeout-recovery-v1-pr-${{ needs.plan.outputs.pr-number }}-session-${{ needs.plan.outputs.session-revision }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          EXPECTED_RUN_ATTEMPT: ${{ github.run_attempt }}
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const artifactId = Number(process.env.ARTIFACT_ID);
+            const expectedRunAttempt = Number(process.env.EXPECTED_RUN_ATTEMPT);
+            if (!Number.isSafeInteger(artifactId) || artifactId < 1 ||
+                !Number.isSafeInteger(expectedRunAttempt) || expectedRunAttempt < 1) {
+              throw new Error('Recovery artifact output identity is invalid.');
+            }
+            const artifact = await github.rest.actions.getArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifactId
+            });
+            const run = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId
+            });
+            if (artifact.data.id !== artifactId || artifact.data.name !== process.env.EXPECTED_ARTIFACT_NAME ||
+                artifact.data.expired !== false || !Number.isSafeInteger(artifact.data.size_in_bytes) ||
+                artifact.data.size_in_bytes < 1 || artifact.data.workflow_run?.id !== context.runId ||
+                run.data.id !== context.runId || run.data.run_attempt !== expectedRunAttempt) {
+              throw new Error('Recovery artifact exact API readback differs from this integration invocation.');
+            }
+
+      - name: Integrate exact hosted Session and publish live readback status
+        id: integrate-hosted
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' || steps.prepare-integration.outputs.integration-lane == 'merged-recovery' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun scripts/codex/verification-session.ts integrate-hosted
+          --repository "${{ github.repository }}"
+          --output "${SEC_INTEGRATION_DURABLE_DIRECTORY}/integration-projection.json"
+          --json
+
+      - name: Dispatch and join exact post-merge MainHealth
+        id: post-merge-main-health
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' || steps.prepare-integration.outputs.integration-lane == 'merged-recovery' }}
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
-          PR_NUMBER: ${{ matrix.pull_request }}
-          EXACT_HEAD: ${{ steps.resolve.outputs.head || matrix.head }}
-          EXPECTED_BASE: ${{ steps.resolve.outputs.base }}
-          WORKFLOW_HEAD: ${{ github.sha }}
-          MANIFEST_PATH: ${{ steps.resolve.outputs.manifest-path }}
-          MANIFEST_DIGEST: ${{ steps.resolve.outputs.manifest-digest }}
-          MANIFEST_BLOB_SHA: ${{ steps.resolve.outputs.manifest-blob-sha }}
-          MANIFEST_BYTE_LENGTH: ${{ steps.resolve.outputs.manifest-byte-length }}
-          ATTESTATION_WORKFLOW_ID: ${{ steps.resolve.outputs.attestation-workflow-id }}
-          ATTESTATION_RUN_ID: ${{ steps.resolve.outputs.attestation-run-id }}
-          ATTESTATION_RUN_ATTEMPT: ${{ steps.resolve.outputs.attestation-run-attempt }}
-          ATTESTATION_ARTIFACT_ID: ${{ steps.resolve.outputs.attestation-artifact-id }}
-          ATTESTATION_ARTIFACT_EXPIRES_AT: ${{ steps.resolve.outputs.attestation-artifact-expires-at }}
-          VERIFICATION_WORKFLOW_ID: ${{ steps.resolve.outputs.verification-workflow-id }}
-          VERIFICATION_PROFILE: ${{ steps.resolve.outputs.verification-profile }}
-          VERIFICATION_RUN_ID: ${{ steps.resolve.outputs.verification-run-id }}
-          VERIFICATION_RUN_ATTEMPT: ${{ steps.resolve.outputs.verification-run-attempt }}
-          VERIFICATION_ARTIFACT_ID: ${{ steps.resolve.outputs.verification-artifact-id }}
-          VERIFICATION_ARTIFACT_EXPIRES_AT: ${{ steps.resolve.outputs.verification-artifact-expires-at }}
-          RESOLUTION_ERROR: ${{ steps.resolve.outputs.error }}
-          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+          PR_NUMBER: ${{ needs.plan.outputs.pr-number }}
+          PRE_MERGE_MAIN_SHA: ${{ needs.plan.outputs.base-sha }}
+          PLANNED_CURRENT_MAIN_SHA: ${{ needs.plan.outputs.current-main-sha }}
+          MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES: *sec_main_health_runner_queue_allowance_minutes
+          MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES: *sec_main_health_producer_timeout_minutes
+          MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS: *sec_main_health_join_poll_interval_seconds
         with:
           script: |
             const crypto = require('crypto');
-            const { canonicalizeGitHubArtifactMetadataV1 } = require(
-              `${process.env.GITHUB_WORKSPACE}/scripts/codex/github-artifact-metadata.cjs`
-            );
-            let state = 'failure';
-            let description = process.env.RESOLUTION_ERROR || 'Base-side merge gate validation failed';
-            try {
-              if (!/^[0-9a-f]{40}$/.test(process.env.EXACT_HEAD ?? '')) throw new Error('Exact head was not resolved.');
-              if (!process.env.RESOLUTION_ERROR && process.env.VALIDATION_OUTCOME === 'success') {
-                const pullNumber = Number(process.env.PR_NUMBER);
-                const integer = (name) => {
-                  const value = Number(process.env[name]);
-                  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} is invalid.`);
-                  return value;
-                };
-                const attestationWorkflowId = integer('ATTESTATION_WORKFLOW_ID');
-                const attestationRunId = integer('ATTESTATION_RUN_ID');
-                const attestationRunAttempt = integer('ATTESTATION_RUN_ATTEMPT');
-                const attestationArtifactId = integer('ATTESTATION_ARTIFACT_ID');
-                const verificationWorkflowId = integer('VERIFICATION_WORKFLOW_ID');
-                const verificationRunId = integer('VERIFICATION_RUN_ID');
-                const verificationRunAttempt = integer('VERIFICATION_RUN_ATTEMPT');
-                const verificationArtifactId = integer('VERIFICATION_ARTIFACT_ID');
-                const [pull, repository, openPulls, attestationWorkflow, verificationWorkflow] = await Promise.all([
-                  github.rest.pulls.get({ owner: context.repo.owner, repo: context.repo.repo, pull_number: pullNumber }),
-                  github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
-                  github.paginate(github.rest.pulls.list, {
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    state: 'open',
-                    per_page: 100
-                  }),
-                  github.rest.actions.getWorkflow({ owner: context.repo.owner, repo: context.repo.repo, workflow_id: attestationWorkflowId }),
-                  github.rest.actions.getWorkflow({ owner: context.repo.owner, repo: context.repo.repo, workflow_id: verificationWorkflowId })
-                ]);
-                const base = await github.rest.repos.getBranch({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  branch: repository.data.default_branch
-                });
-                const currentBase = base.data.commit.sha;
-                if (
-                  process.env.WORKFLOW_HEAD !== currentBase || currentBase !== process.env.EXPECTED_BASE ||
-                  attestationWorkflow.data.path !== '.github/workflows/sec-merge-gate.yml' ||
-                  verificationWorkflow.data.path !== '.github/workflows/compiler-pr-validation.yml'
-                ) throw new Error('Trusted workflow/base identity changed during gate validation.');
-                const locatorLines = (pull.data.body ?? '').replaceAll('\r\n', '\n').split('\n')
-                  .filter((line) => line.startsWith('Work-Package:'));
-                // Manifest blob re-query is skipped: head SHA is immutable, so manifest blob
-                // SHA/digest/byteLength cannot change when pull.data.head.sha === EXPECTED_HEAD.
-                // Reuse step 2 manifest metadata (MANIFEST_DIGEST) for run title reconstruction.
-                const sameHeadCount = openPulls.filter((candidate) => (
-                  candidate.head.sha === process.env.EXACT_HEAD
-                  && candidate.base.ref === repository.data.default_branch
-                  && candidate.head.repo?.id === repository.data.id
-                  && candidate.base.repo?.id === repository.data.id
-                )).length;
-                if (
-                  pull.data.state !== 'open' ||
-                  pull.data.draft ||
-                  pull.data.base.ref !== repository.data.default_branch ||
-                  pull.data.base.repo?.id !== repository.data.id || pull.data.head.repo?.id !== repository.data.id ||
-                  pull.data.head.sha !== process.env.EXACT_HEAD ||
-                  pull.data.base.sha !== process.env.EXPECTED_BASE ||
-                  locatorLines.length !== 1 || locatorLines[0] !== `Work-Package: ${process.env.MANIFEST_PATH}` ||
-                  sameHeadCount !== 1
-                ) throw new Error('Live PR/base/head/locator uniqueness changed during gate validation.');
-                const digest = process.env.MANIFEST_DIGEST;
-
-                const [attestationRuns, verificationRuns] = await Promise.all([
-                  github.paginate(github.rest.actions.listWorkflowRuns, {
-                    owner: context.repo.owner, repo: context.repo.repo, workflow_id: attestationWorkflowId,
-                    event: 'repository_dispatch', branch: repository.data.default_branch, per_page: 100
-                  }),
-                  github.paginate(github.rest.actions.listWorkflowRuns, {
-                    owner: context.repo.owner, repo: context.repo.repo, workflow_id: verificationWorkflowId,
-                    event: 'repository_dispatch', per_page: 100
-                  })
-                ]);
-                const attestationTitle = `sec-scope-attest-v1 PR #${pullNumber} head ${process.env.EXACT_HEAD} base ${currentBase} manifest ${digest}`;
-                const attestationCandidates = attestationRuns.filter((run) => (
-                  run.head_sha === currentBase && run.display_title === attestationTitle
-                )).sort((left, right) => right.run_number - left.run_number || right.run_attempt - left.run_attempt);
-                const verificationTitle = `verify frozen PR #${pullNumber} ${process.env.VERIFICATION_PROFILE} @ ${process.env.EXACT_HEAD} base ${currentBase}`;
-                const verificationCandidates = verificationRuns.filter((run) => (
-                  run.head_sha === currentBase && run.display_title === verificationTitle
-                )).sort((left, right) => right.run_number - left.run_number || right.run_attempt - left.run_attempt);
-                const attestationRun = attestationCandidates[0];
-                const verificationRun = verificationCandidates[0];
-                if (
-                  !attestationRun || attestationRun.id !== attestationRunId || attestationRun.run_attempt !== attestationRunAttempt ||
-                  attestationRun.status !== 'completed' || attestationRun.conclusion !== 'success' ||
-                  !verificationRun || verificationRun.id !== verificationRunId || verificationRun.run_attempt !== verificationRunAttempt ||
-                  verificationRun.status !== 'completed' || verificationRun.conclusion !== 'success'
-                ) throw new Error('A newer or non-successful exact-key workflow attempt superseded validated evidence.');
-                const [attestationArtifacts, verificationArtifacts] = await Promise.all([
-                  github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-                    owner: context.repo.owner, repo: context.repo.repo, run_id: attestationRunId, per_page: 100
-                  }),
-                  github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
-                    owner: context.repo.owner, repo: context.repo.repo, run_id: verificationRunId, per_page: 100
-                  })
-                ]);
-                const attestationName = `sec-scope-attestation-v1-pr-${pullNumber}-base-${currentBase}-head-${process.env.EXACT_HEAD}-manifest-${digest.slice('sha256:'.length)}-run-${attestationRunId}-attempt-${attestationRunAttempt}`;
-                const verificationName = `sec-verification-v19-${process.env.VERIFICATION_PROFILE}-pr-${pullNumber}-base-${currentBase}-head-${process.env.EXACT_HEAD}-run-${verificationRunId}-attempt-${verificationRunAttempt}`;
-                const attestationArtifact = attestationArtifacts.filter((artifact) => (
-                  artifact.id === attestationArtifactId && artifact.name === attestationName
-                ));
-                const verificationArtifact = verificationArtifacts.filter((artifact) => (
-                  artifact.id === verificationArtifactId && artifact.name === verificationName
-                ));
-                for (const [label, matches, expectedExpiry] of [
-                  ['attestation', attestationArtifact, process.env.ATTESTATION_ARTIFACT_EXPIRES_AT],
-                  ['verification', verificationArtifact, process.env.VERIFICATION_ARTIFACT_EXPIRES_AT]
-                ]) {
-                  if (matches.length !== 1) throw new Error(`${label} exact artifact identity changed.`);
-                  const artifact = canonicalizeGitHubArtifactMetadataV1(matches[0], {
-                    checkedAtMs: Date.now(),
-                    label: `${label} artifact`
-                  });
-                  if (artifact.expiresAt !== expectedExpiry) {
-                    throw new Error(`${label} artifact expiry instant changed.`);
-                  }
-                }
-                const trusted = (permission) => permission === 'maintain' || permission === 'admin';
-                const identities = [
-                  attestationRun.actor?.login, attestationRun.triggering_actor?.login,
-                  verificationRun.actor?.login, verificationRun.triggering_actor?.login
-                ];
-                if (identities.some((login) => !login)) throw new Error('Validated workflow actor identity became incomplete.');
-                const permissions = await Promise.all(identities.map(async (login) => (
-                  await github.rest.repos.getCollaboratorPermissionLevel({
-                    owner: context.repo.owner, repo: context.repo.repo, username: login
-                  })
-                ).data.permission));
-                if (permissions.some((permission) => !trusted(permission))) {
-                  throw new Error('Validated workflow actor no longer has maintain/admin permission.');
-                }
-                state = 'success';
-                description = 'Exact head/base manifest and verification artifacts validated';
+            const fs = require('fs');
+            const path = require('path');
+            const sha = (value, label) => {
+              if (typeof value !== 'string' || !/^[0-9a-f]{40}$/u.test(value)) {
+                throw new Error(`${label} is not one lowercase Git SHA.`);
               }
-            } catch (error) {
-              description = error instanceof Error ? error.message : String(error);
+              return value;
+            };
+            const positiveIntegerEnvironment = (name) => {
+              const value = Number(process.env[name]);
+              if (!Number.isSafeInteger(value) || value < 1) {
+                throw new Error(`${name} is not one positive integer budget.`);
+              }
+              return value;
+            };
+            const prNumber = Number(process.env.PR_NUMBER);
+            const preMergeMainSha = sha(process.env.PRE_MERGE_MAIN_SHA, 'pre-merge main SHA');
+            const plannedCurrentMainSha = sha(
+              process.env.PLANNED_CURRENT_MAIN_SHA,
+              'planned current main SHA'
+            );
+            if (!Number.isSafeInteger(prNumber) || prNumber < 1) {
+              throw new Error('Integration PR number is invalid.');
             }
-            await github.rest.repos.createCommitStatus({
+            const workspace = process.env.GITHUB_WORKSPACE;
+            if (typeof workspace !== 'string' || workspace.length === 0) {
+              throw new Error('GitHub workspace is unavailable for integration readback.');
+            }
+            const integration = JSON.parse(fs.readFileSync(
+              path.join(workspace, '.tmp/codex/integration-projection.json'), 'utf8'
+            ));
+            if (integration.schema !== 'sec-verification-session-integration-projection-v1' ||
+                integration.repository !== `${context.repo.owner}/${context.repo.repo}` ||
+                integration.prNumber !== prNumber ||
+                !/^sha256:[0-9a-f]{64}$/u.test(integration.sessionRevision ?? '') ||
+                !/^sha256:[0-9a-f]{64}$/u.test(integration.authorizationPublicationId ?? '') ||
+                typeof integration.authorizationId !== 'string' || integration.authorizationId.length === 0 ||
+                !Number.isSafeInteger(integration.authorizationCommentId) ||
+                integration.authorizationCommentId < 1 ||
+                (integration.lane !== 'open-first-effect' && integration.lane !== 'merged-recovery')) {
+              throw new Error('Integration projection is not one exact successful effect lane readback.');
+            }
+
+            const [repository, pull] = await Promise.all([
+              github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
+              github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber
+              })
+            ]);
+            if (repository.data.default_branch !== 'main' || pull.data.base.ref !== 'main' ||
+                pull.data.merged !== true || pull.data.state !== 'closed' ||
+                pull.data.merge_commit_sha === null) {
+              throw new Error('Post-integration PR is not one merged change on canonical main.');
+            }
+            const main = await github.rest.repos.getBranch({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha: process.env.EXACT_HEAD,
-              state,
-              context: 'sec/merge-gate',
-              description: description.slice(0, 140),
-              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+              branch: repository.data.default_branch
             });
-            if (state !== 'success') core.setFailed(description);
+            const mainSha = sha(main.data.commit.sha, 'live main SHA');
+            const mergeCommitSha = sha(pull.data.merge_commit_sha, 'merge commit SHA');
+            const mergeCommit = await github.rest.repos.getCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: mergeCommitSha
+            });
+            if (mergeCommit.data.sha !== mergeCommitSha) {
+              throw new Error('The PR merge commit readback is not exact.');
+            }
+            if (integration.lane === 'open-first-effect') {
+              if (plannedCurrentMainSha !== preMergeMainSha || mergeCommitSha !== mainSha ||
+                  mainSha === preMergeMainSha ||
+                  mergeCommit.data.parents.length !== 1 ||
+                  mergeCommit.data.parents[0]?.sha !== preMergeMainSha) {
+                throw new Error('First-effect integration did not advance main exactly once from the planned base.');
+              }
+            } else {
+              if (mainSha !== plannedCurrentMainSha) {
+                throw new Error('Main advanced after the merged-recovery lane was planned.');
+              }
+              const relation = await github.rest.repos.compareCommitsWithBasehead({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                basehead: `${mergeCommitSha}...${mainSha}`
+              });
+              if ((relation.data.status !== 'identical' && relation.data.status !== 'ahead') ||
+                  relation.data.base_commit.sha !== mergeCommitSha ||
+                  relation.data.merge_base_commit.sha !== mergeCommitSha ||
+                  relation.data.behind_by !== 0) {
+                throw new Error('Recovered PR merge commit is not an ancestor of the planned live main.');
+              }
+            }
+            const exactMarker = (name) => {
+              const prefix = `${name}: `;
+              const matches = mergeCommit.data.commit.message.split(/\r?\n/u)
+                .filter((line) => line.startsWith(prefix));
+              if (matches.length !== 1 || matches[0].slice(prefix.length).length === 0) {
+                throw new Error(`Integrated merge commit must contain exactly one ${name} marker.`);
+              }
+              return matches[0].slice(prefix.length);
+            };
+            if (exactMarker('Verification-Session') !== integration.sessionRevision ||
+                exactMarker('Integration-Authorization') !== integration.authorizationId ||
+                exactMarker('Integration-Authorization-Publication') !==
+                  integration.authorizationPublicationId ||
+                exactMarker('Integration-Authorization-Comment') !==
+                  String(integration.authorizationCommentId)) {
+              throw new Error('Integrated merge commit is not bound to the recovered Session authorization.');
+            }
+
+            const requestOperationPreimage = JSON.stringify({
+              schema: 'sec-produce-main-health-request-v1',
+              mainSha
+            });
+            const requestOperationId = `sha256:${crypto.createHash('sha256')
+              .update(requestOperationPreimage, 'utf8').digest('hex')}`;
+            const expectedTitle = `SEC main health ${mainSha} operation ${requestOperationId}`;
+            const workflow = await github.rest.actions.getWorkflow({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'compiler-pr-validation.yml'
+            });
+            if (workflow.data.path !== '.github/workflows/compiler-pr-validation.yml' ||
+                workflow.data.state !== 'active') {
+              throw new Error('Canonical MainHealth workflow is not active.');
+            }
+
+            const pageSize = 100;
+            const maximumPages = 1000;
+            const boundedNextPage = ({ label, response, page, expectedTotal, observedCount }) => {
+              const totalCount = response.data.total_count;
+              if (!Number.isSafeInteger(totalCount) || totalCount < 0 ||
+                  (expectedTotal !== null && totalCount !== expectedTotal)) {
+                throw new Error(`${label} census total count is invalid or changed during pagination.`);
+              }
+              const link = response.headers.link;
+              if (link === undefined) {
+                if (observedCount !== totalCount) {
+                  throw new Error(`${label} census ended before every reported item was observed.`);
+                }
+                return { nextPage: null, totalCount };
+              }
+              if (typeof link !== 'string') {
+                throw new Error(`${label} census Link header is invalid.`);
+              }
+              const nextLinks = [...link.matchAll(/<([^>]+)>;\s*rel="next"/gu)];
+              if (nextLinks.length === 0) {
+                if (observedCount !== totalCount) {
+                  throw new Error(`${label} census ended before every reported item was observed.`);
+                }
+                return { nextPage: null, totalCount };
+              }
+              if (nextLinks.length !== 1) {
+                throw new Error(`${label} census has ambiguous next cursor.`);
+              }
+              const nextPageValue = new URL(nextLinks[0][1]).searchParams.get('page');
+              const nextPage = nextPageValue === null ? Number.NaN : Number(nextPageValue);
+              if (!Number.isSafeInteger(nextPage) || nextPage !== page + 1 ||
+                  nextPage > maximumPages) {
+                throw new Error(`${label} census cursor is nonsequential or overbound.`);
+              }
+              if (observedCount >= totalCount) {
+                throw new Error(`${label} census exposes a next cursor after every reported item.`);
+              }
+              return { nextPage, totalCount };
+            };
+
+            const observeExactRuns = async () => {
+              const exactRuns = [];
+              const observedRunIds = new Set();
+              let expectedTotal = null;
+              let observedCount = 0;
+              let page = 1;
+              while (true) {
+                if (!Number.isSafeInteger(page) || page < 1 || page > maximumPages) {
+                  throw new Error('MainHealth workflow-run census cursor is invalid or overbound.');
+                }
+                const runs = await github.rest.actions.listWorkflowRuns({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: workflow.data.id,
+                  event: 'repository_dispatch',
+                  head_sha: mainSha,
+                  per_page: pageSize,
+                  page
+                });
+                for (const run of runs.data.workflow_runs) {
+                  if (!Number.isSafeInteger(run.id) || observedRunIds.has(run.id)) {
+                    throw new Error('MainHealth workflow-run census contains an invalid or duplicate run id.');
+                  }
+                  observedRunIds.add(run.id);
+                }
+                observedCount += runs.data.workflow_runs.length;
+                exactRuns.push(...runs.data.workflow_runs.filter((run) =>
+                  run.name === 'compiler-pr-validation' && run.display_title === expectedTitle &&
+                  run.event === 'repository_dispatch' && run.head_sha === mainSha &&
+                  run.head_branch === repository.data.default_branch && run.workflow_id === workflow.data.id
+                ));
+                const cursor = boundedNextPage({ label: 'MainHealth workflow-run', response: runs,
+                  page, expectedTotal, observedCount });
+                expectedTotal = cursor.totalCount;
+                if (cursor.nextPage === null) return exactRuns;
+                page = cursor.nextPage;
+              }
+            };
+            let matching = await observeExactRuns();
+            if (matching.length > 1) {
+              throw new Error('MainHealth operation already has multiple exact workflow runs.');
+            }
+            if (matching.length === 0) {
+              const dispatch = await github.request('POST /repos/{owner}/{repo}/dispatches', {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                event_type: 'sec-produce-main-health-v1',
+                client_payload: { payload: { mainSha, requestOperationId } }
+              });
+              if (dispatch.status !== 204) {
+                throw new Error(`MainHealth dispatch returned unexpected HTTP ${dispatch.status}.`);
+              }
+            }
+
+            let joined = null;
+            const mainHealthRunnerQueueAllowanceMilliseconds =
+              positiveIntegerEnvironment('MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES') * 60 * 1000;
+            const mainHealthProducerTimeoutMilliseconds =
+              positiveIntegerEnvironment('MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES') * 60 * 1000;
+            const mainHealthJoinPollIntervalMilliseconds =
+              positiveIntegerEnvironment('MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS') * 1000;
+            const deadline = Date.now() + (2 * mainHealthProducerTimeoutMilliseconds) +
+              mainHealthRunnerQueueAllowanceMilliseconds +
+              mainHealthJoinPollIntervalMilliseconds;
+            while (Date.now() < deadline) {
+              matching = await observeExactRuns();
+              if (matching.length > 1) {
+                throw new Error('MainHealth dispatch resolved to multiple exact workflow runs.');
+              }
+              if (matching.length === 1) {
+                const candidate = matching[0];
+                if (candidate.status === 'completed') {
+                  if (candidate.conclusion !== 'success') {
+                    throw new Error(`Exact MainHealth run concluded ${candidate.conclusion ?? 'without conclusion'}.`);
+                  }
+                  joined = candidate;
+                  break;
+                }
+              }
+              await new Promise((resolve) => setTimeout(resolve, mainHealthJoinPollIntervalMilliseconds));
+            }
+            if (joined === null) {
+              throw new Error('Timed out joining the exact post-merge MainHealth run.');
+            }
+
+            const run = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: joined.id
+            });
+            if (run.data.name !== 'compiler-pr-validation' ||
+                run.data.display_title !== expectedTitle || run.data.workflow_id !== workflow.data.id ||
+                run.data.path !== workflow.data.path || run.data.event !== 'repository_dispatch' ||
+                run.data.head_sha !== mainSha || run.data.head_branch !== repository.data.default_branch ||
+                run.data.status !== 'completed' || run.data.conclusion !== 'success' ||
+                !Number.isSafeInteger(run.data.check_suite_id) || Number(run.data.check_suite_id) < 1) {
+              throw new Error('Joined MainHealth workflow API readback is not canonical.');
+            }
+            const matchingChecks = [];
+            const observedCheckIds = new Set();
+            let expectedCheckTotal = null;
+            let observedCheckCount = 0;
+            let checkPage = 1;
+            while (true) {
+              const checks = await github.rest.checks.listForRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: mainSha,
+                check_name: 'sec/main-health',
+                filter: 'latest',
+                per_page: pageSize,
+                page: checkPage
+              });
+              for (const check of checks.data.check_runs) {
+                if (!Number.isSafeInteger(check.id) || observedCheckIds.has(check.id)) {
+                  throw new Error('MainHealth check-run census contains an invalid or duplicate check id.');
+                }
+                observedCheckIds.add(check.id);
+              }
+              observedCheckCount += checks.data.check_runs.length;
+              matchingChecks.push(...checks.data.check_runs.filter((check) =>
+                check.name === 'sec/main-health' && check.head_sha === mainSha &&
+                check.status === 'completed' && check.conclusion === 'success' &&
+                check.check_suite?.id === run.data.check_suite_id && check.app?.slug === 'github-actions'
+              ));
+              const cursor = boundedNextPage({ label: 'MainHealth check-run', response: checks,
+                page: checkPage, expectedTotal: expectedCheckTotal,
+                observedCount: observedCheckCount });
+              expectedCheckTotal = cursor.totalCount;
+              if (cursor.nextPage === null) break;
+              checkPage = cursor.nextPage;
+            }
+            if (matchingChecks.length !== 1) {
+              throw new Error('Exact MainHealth run has no unique successful canonical sec/main-health check.');
+            }
+            core.setOutput('main-sha', mainSha);
+            core.setOutput('request-operation-id', requestOperationId);
+            core.setOutput('workflow-run-id', String(run.data.id));
+
+      - name: Close out exact integrated branch
+        id: closeout-mutate-hosted
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' || steps.prepare-integration.outputs.integration-lane == 'merged-recovery' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun scripts/codex/verification-session.ts closeout-mutate-hosted
+          --repository "${{ github.repository }}"
+          --output "${{ github.workspace }}/.tmp/codex/closeout-mutation-projection.json"
+          --json
+
+      - name: Publish exact branch closeout receipt
+        id: closeout-publish-hosted
+        if: ${{ steps.prepare-integration.outputs.integration-lane == 'open-first-effect' || steps.prepare-integration.outputs.integration-lane == 'merged-recovery' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          bun scripts/codex/verification-session.ts closeout-publish-hosted
+          --repository "${{ github.repository }}"
+          --output "${{ github.workspace }}/.tmp/codex/closeout-publication-projection.json"
+          --json
+
+      - name: Upload diagnostic integration projection
+        if: always() && !cancelled() && hashFiles('.tmp/codex/integration-projection.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sec-integration-projection-v1-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: .tmp/codex/integration-projection.json
+          if-no-files-found: error
+          retention-days: 30

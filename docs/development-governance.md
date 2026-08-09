@@ -2,7 +2,7 @@
 title: 自主开发治理
 status: stable
 domain: development-governance
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-09
 ---
 
 # 自主开发治理
@@ -32,9 +32,10 @@ SEC 的产品、架构、实现、测试、文档、CI、Review、分支和主�
 
 - **当前可强制规则**：`main` authority、一个 formal active Work Package、single writer、frozen manifest、exact candidate Evidence、独立 Review、merge readback 和 branch hygiene。
 - **已实现但尚未成为默认并行运行时**：并行 Work Package resolver（V3 schema、pairwise conflict resolver、global exclusive resource registry）。
-- **已冻结的目标架构**：Agent Operation Compiler、Integration Queue、Development Run Kernel、Run State/Event/Transition、统一 Evidence references 和自动 feedback service。
+- **当前T2候选冻结的目标合同**：VerificationSession、producer-owned Action、Review-Stable Barrier、MainHealth与单次IntegrationAuthorization；只有进入new main并由首个ordinary candidate canary通过后才是active capability。
+- **更后继的目标架构**：Agent Operation Compiler、Integration Queue、统一Hermetic Runtime/resource scheduler、完整Evidence DAG/CAS和自动feedback service。
 
-目标设计不能被文档、Issue、Skill prose 或模拟对象升格为当前能力。在 Integration Queue、Run Kernel、外部 Run State 与自动 feedback service进入 `main` 前，默认继续使用一个 formal active Work Package 和可验证的 manual-shadow 续跑。
+目标设计不能被文档、Issue、Skill prose 或模拟对象升格为当前能力。T2 new-main canary完成前，默认继续使用一个formal active Work Package和可验证的manual-shadow续跑；候选Session只能作为待验证SUT，不能授权自身。后继Integration Queue、统一runtime与自动feedback也分别以其真实consumer和new-main Evidence激活。
 
 ## 事实与授权顺序
 
@@ -44,11 +45,16 @@ latest main + live Git/GitHub facts
 → product / system architecture / roadmap
 → AGENTS.md universal router
 → trusted repository orientation or full audit
-→ selected frozen Work Package
+→ selected frozen Work Package + trusted scope authorization
 → typed Operation / Task Envelope
-→ relevant source, contracts and tests
-→ exact-head Evidence and independent Review
-→ merge → new-main readback → cleanup → replan
+→ candidate implementation + producer-owned Action plan
+→ canonical parent dispatch-plan artifact + exact-ActionKey hosted producer
+→ exact-head Review-Stable Barrier
+→ hosted Evidence + fresh Review readback
+→ single-use IntegrationAuthorization
+→ trusted hosted integration critical section
+→ expected-head merge → candidate-tree parity → idempotent remote closeout readback
+→ new-main trust reload → replan
 ```
 
 `main` 是唯一正式产品事实。Branch、Issue、PR body、聊天、计划、Project 看板、审计报告、代码图、Completion Report 和模型记忆只提供导航、候选、决策或 Evidence，不能证明结果已进入主干。
@@ -67,7 +73,7 @@ Resolver 无法确定 default ref、target repository/workspace、active pointer
 - **Operation / Task Envelope**：一个执行者在 manifest 内的单角色、单 operation、单 seam授权。
 - **Pull Request**：一个 exact candidate diff及其 Review 表面。
 - **Checks/Artifacts/Evidence**：绑定 exact input/environment 的物理证明。
-- **Development Run State（目标 owner）**：run、event、transition、resume和下一合法动作；未实现前由外部 Git/PR/manifest/Evidence重算。
+- **VerificationSession（T2 target owner）**：run、event、transition、resume和下一合法动作的唯一目标运行状态机；它只引用而不重定义Result、Evidence、Review、MainHealth、Work Package或Integration authority。普通resume只query、join或dispatch hosted transition，不持有physical merge/closeout capability。进入new main且ordinary canary通过前，真实下一动作仍从live Git/PR/manifest/Evidence重算。
 - **GitHub Project**：Issue/PR的可视化投影。
 - **`main`**：完成后的唯一产品结果。
 
@@ -298,7 +304,7 @@ Manifest 冻结：
 - acceptance、tests、profile和Evidence；
 - completion、migration、readback和cleanup。
 
-Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。
+Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。Manifest也是scope proposal；只有trusted base/A0签发且绑定exact base/head/tree、manifest revision和authorized write set的scope authorization允许冻结Session。候选修改manifest或write set不能给自己扩权。
 
 完整程序路线不写入一个Work Package。一个包只实现当前阶段中可独立验证、迁移和readback的纵向闭包，但不能降低canonical终态。
 
@@ -338,7 +344,7 @@ Squash merge后按最终tree、contracts和行为结果判断内容是否进入 
 
 Git branch承载代码演进；GitHub Actions的workflow_dispatch/matrix/job/artifact承载测试参数和Evidence。禁止长期创建一次性远端测试分支。
 
-PR Ready只表示允许进入Review/Gate调度，不表示required Evidence已通过。Head/base/manifest/profile变化会使绑定旧identity的Review/Evidence失效。
+PR Ready只表示允许进入Review调度，不表示可以启动expensive hosted Gate或required Evidence已通过。Head/base/tree/manifest/authorized scope/profile/trust变化会使绑定旧identity的Action/Review/Evidence/Session/authorization失效；即使head不变，Review policy、REQUEST_CHANGES或blocking thread变化也会使Review与merge authorization失效。
 
 ## Impact 与验证选择
 
@@ -362,7 +368,7 @@ Failure首先分类：root cause、owner、violated invariant、minimal reproduc
 
 上下文压缩、进程退出、会话/Agent/worktree切换后的目标是：只依赖外部权威状态，重新计算同一合法 next transition；不是恢复模型未外化的隐藏思维。
 
-当前 Run Kernel未实现时：
+VerificationSession尚未由new-main canary激活，或不能完整投影某一外部事实时：
 
 - 每次恢复重新读取 main、PR/Issue、manifest、branch/worktree、dirty state、CI/Review和failure Evidence；
 - 未提交/未外化的“已经做过”视为unknown；
@@ -370,7 +376,7 @@ Failure首先分类：root cause、owner、violated invariant、minimal reproduc
 - identity、instruction、authority或trust fence不一致时停止，不猜测继续；
 - Skill正文按需加载，旧阶段正文不因已经读过而继续取得authority。
 
-目标 Run Kernel只拥有run/capsule/event/transition和resume verification。Epoch/Failure、Verification Result、Evidence、Work Package和Integration各由自己的domain owner拥有，禁止建立第二状态机。
+VerificationSession的目标所有权只包括run/capsule/event/transition和resume verification。Epoch/Failure、Verification Result、Evidence、Review、MainHealth、Work Package和Integration各由自己的domain owner拥有，禁止建立第二状态机。字段、有效性与授权语义只引用verification authority；本文件只规定操作顺序。
 
 ## Merge 与收口
 
@@ -380,12 +386,13 @@ Failure首先分类：root cause、owner、violated invariant、minimal reproduc
 2. `main`尚未包含其有效结果，且未被更新实现取代；
 3. canonical authority、public contract、migration和architecture一致；
 4. exact base/head/tree/manifest/profile清楚；
-5. required CI/Evidence/independent Review通过；
-6. 无unresolved thread、有效REQUEST_CHANGES、probe、临时日志入口或artifact drift；
-7. merge order、conflict和consumer切换已理解。
+5. independent exact-head Review-Stable Barrier在expensive Gate前通过，required CI/Evidence完成后又得到fresh readback；
+6. 无unresolved blocking thread、有效REQUEST_CHANGES、probe、临时日志入口或artifact drift；
+7. exact MainHealth、ruleset/trust revision、merge order、conflict和consumer切换已理解；
+8. 唯一physical executor是在repository/default-branch全局临界区内完成fresh authorization、expected-head merge、tree parity与closeout readback的trusted hosted operation；不存在本地JSON消费、`--admin`或raw merge旁路。
 
 满足时及时合并，不为表现“仍在开发”继续修改正确candidate。大型实验历史优先squash经过验证的最终状态。
 
-Merge后确认产品结果真实进入新 `main`；关闭 absorbed、superseded、mirror、probe和diagnostic PR/Issue；归档manifest；删除已完成使命且工具权限允许安全删除的branch/worktree/workflow；复核开放PR/Issue/CI，并从产品、架构和roadmap重新计算rolling plan。
+Merge后先证明merged tree等于verified candidate tree；信任根变化时从new main重载TCB并使旧Session/Review/Evidence/authorization失效。随后以stable operation id幂等关闭 absorbed、superseded、mirror、probe和diagnostic PR/Issue，归档manifest，删除已完成使命且工具权限允许安全删除的branch/worktree/workflow；复核开放PR/Issue/CI，并从产品、架构和roadmap重新计算rolling plan。
 
 工具不能物理删除或执行某项操作时必须准确说明边界，不能把“已审查、已关闭、内容已包含”表述成“分支已删除、操作已完成”。

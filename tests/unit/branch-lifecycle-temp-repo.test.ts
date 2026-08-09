@@ -1,20 +1,75 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  collectBranchLifecycleInventory,
-  configureBranchLifecycleClone,
-  defaultBranchLifecycleCommandRunner,
-  finalizeBranchCloseout,
-  finalizeMergedPullRequestCloseout,
-  prepareBranchCloseout,
-  prepareMergedPullRequestCloseout,
-  verifyRecoveryAuthorityLive,
-  type BranchLifecycleCommandRunner
-} from '../../scripts/codex/branch-lifecycle.ts';
+  preparationFilePath,
+  prepareBranchCloseout
+} from '../../scripts/codex/branch-closeout.ts';
+import {
+  createBranchLifecycleGitChildEnvironmentV1
+} from '../../scripts/codex/branch-lifecycle-command.ts';
+import { collectBranchLifecycleInventory } from '../../scripts/codex/branch-lifecycle-inventory.ts';
+
+test('canonical Git child environment removes ambient steering and preserves host integration', () => {
+  const environment = createBranchLifecycleGitChildEnvironmentV1({
+    Path: 'trusted-path',
+    PATH: 'duplicate-path',
+    HOME: 'trusted-home',
+    USERPROFILE: 'trusted-profile',
+    SSH_AUTH_SOCK: 'trusted-agent',
+    HTTPS_PROXY: 'trusted-proxy',
+    Git_Dir: 'forged-git-dir',
+    GIT_WORK_TREE: 'forged-worktree',
+    GIT_INDEX_FILE: 'forged-index',
+    GIT_OBJECT_DIRECTORY: 'forged-objects',
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.worktree',
+    GIT_CONFIG_VALUE_0: 'forged-worktree',
+    git_config_key_19: 'core.fsmonitor',
+    git_config_value_19: 'forged-monitor',
+    GIT_CONFIG_GLOBAL: 'forged-config',
+    git_no_replace_objects: '0',
+    GIT_OPTIONAL_LOCKS: '1',
+    GIT_TERMINAL_PROMPT: '1'
+  });
+  expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'PATH'))
+    .toHaveLength(1);
+  expect(environment.Path).toBe('trusted-path');
+  expect(environment.HOME).toBe('trusted-home');
+  expect(environment.USERPROFILE).toBe('trusted-profile');
+  expect(environment.SSH_AUTH_SOCK).toBe('trusted-agent');
+  expect(environment.HTTPS_PROXY).toBe('trusted-proxy');
+  expect(environment.GIT_TERMINAL_PROMPT).toBe('0');
+  expect(environment.GIT_OPTIONAL_LOCKS).toBe('0');
+  expect(environment.GIT_NO_REPLACE_OBJECTS).toBe('1');
+  expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'GIT_NO_REPLACE_OBJECTS'))
+    .toEqual(['GIT_NO_REPLACE_OBJECTS']);
+  for (const name of Object.keys(environment)) {
+    const canonicalName = name.toUpperCase();
+    expect([
+      'GIT_DIR',
+      'GIT_WORK_TREE',
+      'GIT_INDEX_FILE',
+      'GIT_OBJECT_DIRECTORY',
+      'GIT_CONFIG_COUNT',
+      'GIT_CONFIG_GLOBAL'
+    ]).not.toContain(canonicalName);
+    expect(canonicalName).not.toMatch(/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u);
+  }
+});
 
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -28,650 +83,261 @@ function git(cwd: string, args: readonly string[]): string {
   return (result.stdout ?? '').trim();
 }
 
-test('temporary repository closeout deletes the remote exact ref and protects dirty worktree state', () => {
-  // Real git bundle create/verify and fsync can exceed Bun's 5s default on
-  // Windows, so this end-to-end closeout needs an explicit bounded window.
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-lifecycle-'));
+function repositoryFixture(): Readonly<{
+  root: string;
+  remote: string;
+  repository: string;
+  branch: string;
+  headSha: string;
+  mainSha: string;
+}> {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-lifecycle-v6-'));
   const remote = path.join(root, 'remote.git');
   const repository = path.join(root, 'repository');
-  const linkedWorktree = path.join(root, 'candidate-worktree');
-  const recoveryRoot = path.join(root, 'durable-recovery');
-  let pullRequestState: 'OPEN' | 'MERGED' = 'OPEN';
-  let activeState: 'active' | 'none' = 'active';
-  let createdCommentBody: string | null = null;
+  git(root, ['init', '--bare', remote]);
+  git(root, ['clone', remote, repository]);
+  git(repository, ['config', 'user.name', 'SEC Test']);
+  git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
+  git(repository, ['config', '--local', 'fetch.prune', 'true']);
+  git(repository, ['config', '--local', 'remote.origin.prune', 'true']);
+  git(repository, ['config', '--local', 'fetch.pruneTags', 'true']);
+  mkdirSync(path.join(repository, 'scripts/codex'), { recursive: true });
+  writeFileSync(
+    path.join(repository, 'scripts/codex/document-control-plane.ts'),
+    `process.stdout.write(JSON.stringify({activeWorkPackage:{state:'active',manifest:'docs/work-packages/v6-test.md'},workspace:{branch:'feat/v6-closeout'}}));\n`,
+    'utf8'
+  );
+  writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
+  git(repository, ['add', 'README.md', 'scripts/codex/document-control-plane.ts']);
+  git(repository, ['commit', '-m', 'initial main']);
+  git(repository, ['branch', '-M', 'main']);
+  git(repository, ['push', '-u', 'origin', 'main']);
+  const mainSha = git(repository, ['rev-parse', 'HEAD']);
+  const branch = 'feat/v6-closeout';
+  git(repository, ['switch', '-c', branch]);
+  writeFileSync(path.join(repository, 'candidate.txt'), 'candidate\n', 'utf8');
+  git(repository, ['add', 'candidate.txt']);
+  git(repository, ['commit', '-m', 'candidate']);
+  const headSha = git(repository, ['rev-parse', 'HEAD']);
+  git(repository, ['push', '-u', 'origin', branch]);
+  return Object.freeze({ root, remote, repository, branch, headSha, mainSha });
+}
 
+function installGitHubObservationShim(fixture: ReturnType<typeof repositoryFixture>): () => void {
+  const shimRoot = path.join(fixture.root, 'command-shims');
+  mkdirSync(shimRoot, { recursive: true });
+  const program = path.join(shimRoot, 'gh-shim.ts');
+  writeFileSync(program, `
+const args = process.argv.slice(2);
+if (args[0] === 'pr' && args[1] === 'list') {
+  process.stdout.write('[]');
+  process.exit(0);
+}
+if (args[0] === 'api' && args[1] === '/repos/sec-platform/sec') {
+  process.stdout.write('true');
+  process.exit(0);
+}
+process.stderr.write('unsupported test gh observation: ' + args.join(' '));
+process.exit(1);
+`, 'utf8');
+  if (process.platform === 'win32') {
+    const compiled = spawnSync('bun', [
+      'build',
+      '--compile',
+      program,
+      '--outfile',
+      path.join(shimRoot, 'gh.exe')
+    ], { encoding: 'utf8', windowsHide: true });
+    if (compiled.status !== 0) {
+      throw new Error(`cannot compile bounded gh.exe test shim: ${compiled.stderr || compiled.stdout}`);
+    }
+  } else {
+    const shellShim = path.join(shimRoot, 'gh');
+    writeFileSync(shellShim, `#!/usr/bin/env sh\nexec bun "$(dirname "$0")/gh-shim.ts" "$@"\n`, 'utf8');
+    chmodSync(shellShim, 0o755);
+  }
+  const priorPath = process.env.PATH;
+  process.env.PATH = `${shimRoot}${path.delimiter}${priorPath ?? ''}`;
+  return () => {
+    if (priorPath === undefined) delete process.env.PATH;
+    else process.env.PATH = priorPath;
+  };
+}
+
+test('V6 branch preparation is recovery-only and leaves exact local/remote refs intact', () => {
+  const fixture = repositoryFixture();
+  const restorePath = installGitHubObservationShim(fixture);
   try {
-    git(root, ['init', '--bare', remote]);
-    git(root, ['clone', remote, repository]);
-    git(repository, ['config', 'user.name', 'SEC Test']);
-    git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
-    writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
-    git(repository, ['add', 'README.md']);
-    git(repository, ['commit', '-m', 'initial main']);
-    git(repository, ['branch', '-M', 'main']);
-    git(repository, ['push', '-u', 'origin', 'main']);
-    git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
-    git(repository, ['remote', 'set-head', 'origin', '-a']);
-
-    git(repository, ['branch', 'feat/exact-closeout']);
-    git(repository, ['worktree', 'add', linkedWorktree, 'feat/exact-closeout']);
-    writeFileSync(path.join(linkedWorktree, 'feature.txt'), 'feature\n', 'utf8');
-    git(linkedWorktree, ['add', 'feature.txt']);
-    git(linkedWorktree, ['commit', '-m', 'feature']);
-    git(linkedWorktree, ['push', '-u', 'origin', 'feat/exact-closeout']);
-    const headSha = git(linkedWorktree, ['rev-parse', 'HEAD']);
-
-    writeFileSync(path.join(linkedWorktree, 'feature.txt'), 'feature\nuser-owned change\n', 'utf8');
-
-    const run: BranchLifecycleCommandRunner = (command, args, options) => {
-      if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') {
-        const payload = [{
-          number: 7,
-          headRefName: 'feat/exact-closeout',
-          headRefOid: headSha,
-          baseRefName: 'main',
-          state: pullRequestState,
-          isDraft: false,
-          isCrossRepository: false,
-          url: 'https://github.com/sec-platform/sec/pull/7'
-        }];
-        return {
-          status: 0,
-          stdout: Buffer.from(JSON.stringify(payload)),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      if (command === 'gh' && args[0] === 'api') {
-        const joined = args.join(' ');
-        if (joined.includes('/permission')) {
-          return {
-            status: 0,
-            stdout: Buffer.from('admin\n'),
-            stderr: Buffer.alloc(0)
-          };
-        }
-        if (joined.includes(' -X POST ')) {
-          const body = args[args.indexOf('-f') + 1]!.slice('body='.length);
-          createdCommentBody = body;
-          return {
-            status: 0,
-            stdout: Buffer.from(JSON.stringify({
-              id: 4242,
-              body,
-              user: { login: 'QzCrane' },
-              author_association: 'OWNER'
-            })),
-            stderr: Buffer.alloc(0)
-          };
-        }
-        if (/\/issues\/comments\/\d+$/u.test(joined) && createdCommentBody !== null) {
-          return {
-            status: 0,
-            stdout: Buffer.from(JSON.stringify({
-              id: 4242,
-              body: createdCommentBody,
-              user: { login: 'QzCrane' },
-              author_association: 'OWNER'
-            })),
-            stderr: Buffer.alloc(0)
-          };
-        }
-        if (joined.includes(' /repos/sec-platform/sec ') && joined.includes(' --jq ')) {
-          return {
-            status: 0,
-            stdout: Buffer.from('true\n'),
-            stderr: Buffer.alloc(0)
-          };
-        }
-        return {
-          status: 0,
-          stdout: Buffer.from('[]\n'),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      if (command === 'bun') {
-        const payload = {
-          activeWorkPackage: activeState === 'active'
-            ? {
-                state: 'active',
-                manifest: 'docs/work-packages/example-v1.md',
-                manifestDigest: `sha256:${'a'.repeat(64)}`
-              }
-            : { state: 'none', reason: 'matching-default-blob' },
-          workspace: {
-            branch: activeState === 'active' ? 'feat/exact-closeout' : 'main'
-          }
-        };
-        return {
-          status: 0,
-          stdout: Buffer.from(JSON.stringify(payload)),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      return defaultBranchLifecycleCommandRunner(command, args, options);
-    };
-
-    const ctx = {
-      repositoryRoot: repository,
-      run,
+    const scope = {
+      repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
       defaultBranch: 'main',
-      recoveryRoot
+      recoveryRoot: path.join(fixture.root, 'recovery')
     };
-    const pruneConfiguration = configureBranchLifecycleClone(ctx);
-    expect(pruneConfiguration.fetchPrune).toBe(true);
-    expect(pruneConfiguration.remotePrune).toBe(true);
-    expect(pruneConfiguration.fetchPruneTags).toBe(true);
-
-    const prepared = prepareMergedPullRequestCloseout(ctx, {
-      number: 7,
-      headBranch: 'feat/exact-closeout',
-      headSha
+    const prepared = prepareBranchCloseout(scope, {
+      branch: fixture.branch,
+      expectedHeadSha: fixture.headSha
     });
-    expect(prepared.preparation.recovery.path.startsWith(recoveryRoot)).toBe(true);
-    expect(existsSync(prepared.preparation.recovery.path)).toBe(true);
-    git(repository, ['bundle', 'verify', prepared.preparation.recovery.path]);
-
-    git(repository, ['merge', '--squash', 'feat/exact-closeout']);
-    git(repository, ['commit', '-m', 'merge feature']);
-    git(repository, ['push', 'origin', 'main']);
-    const newMainSha = git(repository, ['rev-parse', 'HEAD']);
-    pullRequestState = 'MERGED';
-    activeState = 'none';
-
-    const receipt = finalizeMergedPullRequestCloseout(ctx, prepared, newMainSha);
-    expect(receipt.status).toBe('protected-pending');
-    expect(receipt.authorization.remoteAction).toBe('delete-cas');
-    expect(receipt.authorization.localAction).toBe('protect-local');
-    expect(git(repository, ['ls-remote', '--heads', 'origin', 'feat/exact-closeout'])).toBe('');
-    expect(git(repository, ['rev-parse', '--verify', 'refs/heads/feat/exact-closeout'])).toBe(headSha);
-    expect(readFileSync(path.join(linkedWorktree, 'feature.txt'), 'utf8')).toContain('user-owned change');
-    expect(existsSync(`${prepared.preparation.recovery.path}.receipt.json`)).toBe(true);
-
-    writeFileSync(prepared.preparation.recovery.path, 'tampered recovery', 'utf8');
-    const tamperedRecovery = verifyRecoveryAuthorityLive({
-      ctx,
-      inventory: collectBranchLifecycleInventory(ctx),
-      recovery: prepared.preparation.recovery
-    });
-    expect(tamperedRecovery.status).toBe('failed');
-    expect(tamperedRecovery.detail).toContain('digest mismatch');
+    expect(prepared.preparation.expectedHeadSha).toBe(fixture.headSha);
+    expect(existsSync(preparationFilePath(prepared.preparation))).toBe(true);
+    expect(git(fixture.repository, ['rev-parse', `refs/heads/${fixture.branch}`]))
+      .toBe(fixture.headSha);
+    expect(git(fixture.repository, ['ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`]))
+      .toContain(fixture.headSha);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    restorePath();
+    rmSync(fixture.root, { recursive: true, force: true });
   }
-}, {
-  timeout: 120_000
+}, 180_000);
+
+test('legacy branch-lifecycle finalize CLI is rejected before any ref mutation', () => {
+  const fixture = repositoryFixture();
+  try {
+    const result = spawnSync('bun', [
+      path.resolve('scripts/codex/branch-lifecycle.ts'),
+      'finalize',
+      '--preparation', 'forged.json',
+      '--disposition', 'merged',
+      '--durable-goal-kind', 'main',
+      '--durable-goal', `main@${fixture.headSha}`
+    ], {
+      cwd: fixture.repository,
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout ?? ''}${result.stderr ?? ''}`).toContain('Usage:');
+    expect(git(fixture.repository, ['rev-parse', `refs/heads/${fixture.branch}`]))
+      .toBe(fixture.headSha);
+    expect(git(fixture.repository, ['ls-remote', '--heads', 'origin', `refs/heads/${fixture.branch}`]))
+      .toContain(fixture.headSha);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}, 180_000);
+
+test('branch lifecycle command module exposes no executable or authentic capability mint', async () => {
+  const source = readFileSync(path.resolve('scripts/codex/branch-lifecycle-command.ts'), 'utf8');
+  const exports = Object.keys(await import('../../scripts/codex/branch-lifecycle-command.ts')).sort();
+  expect(exports).toEqual([
+    'createBranchLifecycleGitChildEnvironmentV1',
+    'decodeBranchLifecycleChildErrorV1',
+    'decodeBranchLifecycleChildStdoutV1'
+  ]);
+  for (const executable of ["spawnSync('bun'", "spawnSync('gh'", "spawnSync('git'"]) {
+    expect(source).not.toContain(executable);
+  }
+  for (const symbol of [
+    'BranchLifecycleContext',
+    'createBranchLifecycleContext',
+    'BranchLifecycleCommandResult',
+    'runBranchCommand',
+    'requireBranchCommandText',
+    'optionalBranchCommandText'
+  ]) {
+    expect(source).not.toContain(symbol);
+    expect(exports).not.toContain(symbol);
+  }
 });
 
-test('orphan remote closeout completes while the active candidate is preserved', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-orphan-closeout-'));
-  const remote = path.join(root, 'remote.git');
-  const repository = path.join(root, 'repository');
-  const linkedWorktree = path.join(root, 'candidate-worktree');
-  const recoveryRoot = path.join(root, 'durable-recovery');
-  let activeState: 'active' | 'none' = 'active';
+test('typed inventory boundary ignores ambient repository and index steering without refreshing target index', () => {
+  const fixture = repositoryFixture();
+  const restorePath = installGitHubObservationShim(fixture);
+  const decoy = path.join(fixture.root, 'decoy');
+  const isolatedHome = path.join(fixture.root, 'home');
+  mkdirSync(isolatedHome, { recursive: true });
+  git(fixture.root, ['init', decoy]);
+  git(decoy, ['config', 'user.name', 'SEC Decoy']);
+  git(decoy, ['config', 'user.email', 'sec-decoy@example.invalid']);
+  writeFileSync(path.join(decoy, 'decoy.txt'), 'decoy\n', 'utf8');
+  git(decoy, ['add', 'decoy.txt']);
+  git(decoy, ['commit', '-m', 'decoy']);
+  const decoyGitDirectory = git(decoy, [
+    'rev-parse', '--path-format=absolute', '--absolute-git-dir'
+  ]);
+  const decoyIndex = git(decoy, [
+    'rev-parse', '--path-format=absolute', '--git-path', 'index'
+  ]);
+  const targetIndex = git(fixture.repository, [
+    'rev-parse', '--path-format=absolute', '--git-path', 'index'
+  ]);
+  const targetIndexBytes = readFileSync(targetIndex);
+  const targetIndexStat = statSync(targetIndex);
+  const trackedPath = path.join(fixture.repository, 'candidate.txt');
+  const future = new Date(Date.now() + 5_000);
+  utimesSync(trackedPath, future, future);
 
-  try {
-    git(root, ['init', '--bare', remote]);
-    git(root, ['clone', remote, repository]);
-    git(repository, ['config', 'user.name', 'SEC Test']);
-    git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
-    writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
-    git(repository, ['add', 'README.md']);
-    git(repository, ['commit', '-m', 'initial main']);
-    git(repository, ['branch', '-M', 'main']);
-    git(repository, ['push', '-u', 'origin', 'main']);
-    git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
-    git(repository, ['remote', 'set-head', 'origin', '-a']);
-
-    git(repository, ['branch', 'probe/stale']);
-    git(repository, ['push', '-u', 'origin', 'probe/stale']);
-    const probeSha = git(repository, ['rev-parse', 'probe/stale']);
-
-    git(repository, ['branch', 'feat/exact-closeout']);
-    git(repository, ['worktree', 'add', linkedWorktree, 'feat/exact-closeout']);
-    writeFileSync(path.join(linkedWorktree, 'feature.txt'), 'feature\n', 'utf8');
-    git(linkedWorktree, ['add', 'feature.txt']);
-    git(linkedWorktree, ['commit', '-m', 'feature']);
-    git(linkedWorktree, ['push', '-u', 'origin', 'feat/exact-closeout']);
-    const candidateSha = git(linkedWorktree, ['rev-parse', 'HEAD']);
-
-    const run: BranchLifecycleCommandRunner = (command, args, options) => {
-      if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') {
-        const payload = [{
-          number: 7,
-          headRefName: 'feat/exact-closeout',
-          headRefOid: candidateSha,
-          baseRefName: 'main',
-          state: 'open',
-          isDraft: false,
-          isCrossRepository: false,
-          url: 'https://github.com/sec-platform/sec/pull/7'
-        }];
-        return {
-          status: 0,
-          stdout: Buffer.from(JSON.stringify(payload)),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      if (command === 'gh' && args[0] === 'api') {
-        return {
-          status: 0,
-          stdout: Buffer.from('true\n'),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      if (command === 'bun') {
-        const payload = {
-          activeWorkPackage: activeState === 'active'
-            ? {
-                state: 'active',
-                manifest: 'docs/work-packages/example-v1.md',
-                manifestDigest: `sha256:${'a'.repeat(64)}`
-              }
-            : { state: 'none', reason: 'matching-default-blob' },
-          workspace: {
-            branch: activeState === 'active' ? 'feat/exact-closeout' : 'main'
-          }
-        };
-        return {
-          status: 0,
-          stdout: Buffer.from(JSON.stringify(payload)),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      return defaultBranchLifecycleCommandRunner(command, args, options);
-    };
-
-    const ctx = {
-      repositoryRoot: repository,
-      run,
-      repositoryFullName: 'sec-platform/sec',
-      defaultBranch: 'main',
-      recoveryRoot
-    };
-    const pruneConfiguration = configureBranchLifecycleClone(ctx);
-    expect(pruneConfiguration.fetchPrune).toBe(true);
-    expect(pruneConfiguration.remotePrune).toBe(true);
-    expect(pruneConfiguration.fetchPruneTags).toBe(true);
-
-    const prepared = prepareBranchCloseout(ctx, {
-      branch: 'probe/stale',
-      expectedHeadSha: probeSha
-    });
-    expect(prepared.preparation.recovery.path.startsWith(recoveryRoot)).toBe(true);
-    expect(existsSync(prepared.preparation.recovery.path)).toBe(true);
-
-    const receipt = finalizeBranchCloseout(ctx, {
-      prepared,
-      disposition: 'completed-spike',
-      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#269' }
-    });
-    expect(receipt.status).toBe('completed');
-    expect(receipt.authorization.remoteAction).toBe('delete-cas');
-    expect(receipt.authorization.classification).toBe('orphan-unknown');
-    expect(git(repository, ['ls-remote', '--heads', 'origin', 'probe/stale'])).toBe('');
-    expect(git(repository, ['ls-remote', '--heads', 'origin', 'feat/exact-closeout']))
-      .toContain(candidateSha);
-    expect(existsSync(`${prepared.preparation.recovery.path}.receipt.json`)).toBe(true);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
+  const hostileEnvironment: Readonly<Record<string, string>> = {
+    GIT_DIR: decoyGitDirectory,
+    GIT_WORK_TREE: decoy,
+    GIT_COMMON_DIR: decoyGitDirectory,
+    GIT_INDEX_FILE: decoyIndex,
+    GIT_OBJECT_DIRECTORY: path.join(decoyGitDirectory, 'objects'),
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'core.worktree',
+    GIT_CONFIG_VALUE_0: decoy,
+    HOME: isolatedHome
+  };
+  const priorEnvironment = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(hostileEnvironment)) {
+    priorEnvironment.set(name, process.env[name]);
+    process.env[name] = value;
   }
-}, {
-  timeout: 120_000
-});
-
-test('post-merge absent head closes out through pull-ref recovery after delete-branch-on-merge', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-post-merge-absent-'));
-  const remote = path.join(root, 'remote.git');
-  const repository = path.join(root, 'repository');
-  const recoveryRoot = path.join(root, 'durable-recovery');
-  let pullRequestState: 'OPEN' | 'MERGED' | 'CLOSED' = 'MERGED';
-
   try {
-    git(root, ['init', '--bare', remote]);
-    git(root, ['clone', remote, repository]);
-    git(repository, ['config', 'user.name', 'SEC Test']);
-    git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
-    writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
-    git(repository, ['add', 'README.md']);
-    git(repository, ['commit', '-m', 'initial main']);
-    git(repository, ['branch', '-M', 'main']);
-    git(repository, ['push', '-u', 'origin', 'main']);
-    git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
-    git(repository, ['remote', 'set-head', 'origin', '-a']);
-
-    git(repository, ['switch', '-c', 'feat/post-merged']);
-    writeFileSync(path.join(repository, 'feature.txt'), 'feature\n', 'utf8');
-    git(repository, ['add', 'feature.txt']);
-    git(repository, ['commit', '-m', 'feature']);
-    git(repository, ['push', '-u', 'origin', 'feat/post-merged']);
-    const headSha = git(repository, ['rev-parse', 'HEAD']);
-    git(repository, ['switch', 'main']);
-    const mainSha = git(repository, ['rev-parse', 'main']);
-    const remoteHeadSha = git(remote, ['rev-parse', 'refs/heads/feat/post-merged']);
-    expect(remoteHeadSha).toBe(headSha);
-    git(remote, ['update-ref', 'refs/pull/8/head', remoteHeadSha]);
-
-    const run: BranchLifecycleCommandRunner = (command, args, options) => {
-      if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') {
-        const payload = [{
-          number: 8,
-          headRefName: 'feat/post-merged',
-          headRefOid: headSha,
-          baseRefName: 'main',
-          baseRefOid: mainSha,
-          state: pullRequestState,
-          isDraft: false,
-          isCrossRepository: false,
-          url: 'https://github.com/sec-platform/sec/pull/8'
-        }];
-        return {
-          status: 0,
-          stdout: Buffer.from(JSON.stringify(payload)),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      if (command === 'gh' && args[0] === 'api') {
-        return {
-          status: 0,
-          stdout: Buffer.from('true\n'),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      if (command === 'bun') {
-        const payload = {
-          activeWorkPackage: { state: 'none', reason: 'matching-default-blob' },
-          workspace: { branch: 'main' }
-        };
-        return {
-          status: 0,
-          stdout: Buffer.from(JSON.stringify(payload)),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      return defaultBranchLifecycleCommandRunner(command, args, options);
-    };
-
-    const ctx = {
-      repositoryRoot: repository,
-      run,
+    const inventory = collectBranchLifecycleInventory({
+      repositoryRoot: fixture.repository,
       repositoryFullName: 'sec-platform/sec',
-      defaultBranch: 'main',
-      recoveryRoot
-    };
-    configureBranchLifecycleClone(ctx);
-
-    git(repository, ['merge', '--squash', 'feat/post-merged']);
-    git(repository, ['commit', '-m', 'merge feature']);
-    git(repository, ['push', 'origin', 'main']);
-    git(repository, ['push', 'origin', '--delete', 'feat/post-merged']);
-    git(repository, ['branch', '-D', 'feat/post-merged']);
-
-    const prepared = prepareBranchCloseout(ctx, {
-      branch: 'feat/post-merged',
-      refState: 'absent',
-      expectedHeadSha: headSha,
-      pullRequestNumber: 8
+      defaultBranch: 'main'
     });
-    expect(prepared.preparation.refState).toBe('absent');
-    expect(prepared.preparation.expectedHeadSha).toBe(headSha);
-    expect(prepared.preparation.expectedPrHeadSha).toBe(headSha);
-    expect(prepared.preparation.expectedLocalSha).toBeNull();
-    expect(prepared.preparation.recovery.verified).toBe(true);
-    expect(existsSync(prepared.preparation.recovery.path)).toBe(true);
-    git(repository, ['bundle', 'verify', prepared.preparation.recovery.path]);
-
-    const receipt = finalizeBranchCloseout(ctx, {
-      prepared,
-      disposition: 'merged',
-      durableGoal: { kind: 'main', reference: `main@${git(repository, ['rev-parse', 'HEAD'])}` }
-    });
-    expect(receipt.status).toBe('completed');
-    expect(receipt.authorization.remoteAction).toBe('already-absent');
-    expect(receipt.authorization.localAction).toBe('already-absent');
-    expect(receipt.attempts.some(({ operation, status }) => (
-      operation === 'readback' && status === 'success'
-    ))).toBe(true);
-    expect(existsSync(`${prepared.preparation.recovery.path}.receipt.json`)).toBe(true);
+    expect(inventory.localBranches.find(({ branch }) => branch === fixture.branch)?.sha)
+      .toBe(fixture.headSha);
+    expect(inventory.remoteBranches.find(({ branch }) => branch === fixture.branch)?.sha)
+      .toBe(fixture.headSha);
+    expect(readFileSync(targetIndex)).toEqual(targetIndexBytes);
+    const after = statSync(targetIndex);
+    expect({ dev: after.dev, ino: after.ino, size: after.size, mtimeMs: after.mtimeMs })
+      .toEqual({
+        dev: targetIndexStat.dev,
+        ino: targetIndexStat.ino,
+        size: targetIndexStat.size,
+        mtimeMs: targetIndexStat.mtimeMs
+      });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    restorePath();
+    for (const [name, value] of priorEnvironment) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(fixture.root, { recursive: true, force: true });
   }
-}, {
-  timeout: 120_000
-});
+}, 180_000);
 
-test('closed-unmerged absent ref settles by reusing its verified recovery bundle', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-closed-absent-'));
-  const remote = path.join(root, 'remote.git');
-  const repository = path.join(root, 'repository');
-  const recoveryRoot = path.join(root, 'durable-recovery');
-  let pullRequestState: 'OPEN' | 'MERGED' | 'CLOSED' = 'CLOSED';
-
-  try {
-    git(root, ['init', '--bare', remote]);
-    git(root, ['clone', remote, repository]);
-    git(repository, ['config', 'user.name', 'SEC Test']);
-    git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
-    writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
-    git(repository, ['add', 'README.md']);
-    git(repository, ['commit', '-m', 'initial main']);
-    git(repository, ['branch', '-M', 'main']);
-    git(repository, ['push', '-u', 'origin', 'main']);
-    git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
-    git(repository, ['remote', 'set-head', 'origin', '-a']);
-
-    git(repository, ['switch', '-c', 'fix/drifted-closed']);
-    writeFileSync(path.join(repository, 'fix.txt'), 'fix\n', 'utf8');
-    git(repository, ['add', 'fix.txt']);
-    git(repository, ['commit', '-m', 'fix']);
-    git(repository, ['push', '-u', 'origin', 'fix/drifted-closed']);
-    const refHeadSha = git(repository, ['rev-parse', 'HEAD']);
-    git(repository, ['switch', 'main']);
-    const mainSha = git(repository, ['rev-parse', 'main']);
-    const recordedPrHeadSha = '8cf47aafadbdeb4d5983f06b50bba83950e0084c';
-
-    const run: BranchLifecycleCommandRunner = (command, args, options) => {
-      if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') {
-        const payload = [{
-          number: 9,
-          headRefName: 'fix/drifted-closed',
-          headRefOid: recordedPrHeadSha,
-          baseRefName: 'main',
-          baseRefOid: mainSha,
-          state: pullRequestState,
-          isDraft: false,
-          isCrossRepository: false,
-          url: 'https://github.com/sec-platform/sec/pull/9'
-        }];
-        return {
-          status: 0,
-          stdout: Buffer.from(JSON.stringify(payload)),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      if (command === 'gh' && args[0] === 'api') {
-        return {
-          status: 0,
-          stdout: Buffer.from('true\n'),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      if (command === 'bun') {
-        const payload = {
-          activeWorkPackage: { state: 'none', reason: 'matching-default-blob' },
-          workspace: { branch: 'main' }
-        };
-        return {
-          status: 0,
-          stdout: Buffer.from(JSON.stringify(payload)),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      return defaultBranchLifecycleCommandRunner(command, args, options);
-    };
-
-    const ctx = {
-      repositoryRoot: repository,
-      run,
-      repositoryFullName: 'sec-platform/sec',
-      defaultBranch: 'main',
-      recoveryRoot
-    };
-    configureBranchLifecycleClone(ctx);
-
-    // The durable bundle is created by a present-ref preparation without a PR
-    // binding (the real protected-pending bundle for fix/issue-280 was created
-    // the same way because the PR-recorded head had drifted from the ref).
-    const durable = prepareBranchCloseout(ctx, {
-      branch: 'fix/drifted-closed',
-      expectedHeadSha: refHeadSha
-    });
-    expect(existsSync(durable.preparation.recovery.path)).toBe(true);
-
-    git(repository, ['push', 'origin', '--delete', 'fix/drifted-closed']);
-    git(repository, ['branch', '-D', 'fix/drifted-closed']);
-
-    const prepared = prepareBranchCloseout(ctx, {
-      branch: 'fix/drifted-closed',
-      refState: 'absent',
-      expectedHeadSha: refHeadSha,
-      expectedPrHeadSha: recordedPrHeadSha,
-      pullRequestNumber: 9
-    });
-    expect(prepared.preparation.refState).toBe('absent');
-    expect(prepared.preparation.expectedPrHeadSha).toBe(recordedPrHeadSha);
-    expect(prepared.preparation.recovery.path).toBe(durable.preparation.recovery.path);
-    expect(prepared.attempts.some(({ operation }) => operation === 'recovery-create')).toBe(true);
-
-    const receipt = finalizeBranchCloseout(ctx, {
-      prepared,
-      disposition: 'closed-superseded',
-      durableGoal: { kind: 'issue', reference: 'sec-platform/sec#280' }
-    });
-    expect(receipt.status).toBe('completed');
-    expect(receipt.authorization.classification).toBe('closed-superseded');
-    expect(receipt.authorization.remoteAction).toBe('already-absent');
-    expect(receipt.authorization.localAction).toBe('already-absent');
-    expect(existsSync(`${prepared.preparation.recovery.path}.receipt.json`)).toBe(true);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}, {
-  timeout: 120_000
-});
-
-test('absent-ref preparation fails closed against a surviving ref or unrecoverable closed PR', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sec-absent-negative-'));
-  const remote = path.join(root, 'remote.git');
-  const repository = path.join(root, 'repository');
-  const recoveryRoot = path.join(root, 'durable-recovery');
-
-  try {
-    git(root, ['init', '--bare', remote]);
-    git(root, ['clone', remote, repository]);
-    git(repository, ['config', 'user.name', 'SEC Test']);
-    git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
-    writeFileSync(path.join(repository, 'README.md'), '# main\n', 'utf8');
-    git(repository, ['add', 'README.md']);
-    git(repository, ['commit', '-m', 'initial main']);
-    git(repository, ['branch', '-M', 'main']);
-    git(repository, ['push', '-u', 'origin', 'main']);
-    git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
-    git(repository, ['remote', 'set-head', 'origin', '-a']);
-
-    git(repository, ['branch', 'feat/surviving']);
-    writeFileSync(path.join(repository, 'feature.txt'), 'feature\n', 'utf8');
-    git(repository, ['add', 'feature.txt']);
-    git(repository, ['commit', '-m', 'feature']);
-    git(repository, ['push', '-u', 'origin', 'feat/surviving']);
-    const survivingSha = git(repository, ['rev-parse', 'HEAD']);
-    const mainSha = git(repository, ['rev-parse', 'main']);
-
-    const closedSha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    git(repository, ['branch', 'fix/gone-no-bundle']);
-    git(repository, ['push', '-u', 'origin', 'fix/gone-no-bundle']);
-    git(repository, ['push', 'origin', '--delete', 'fix/gone-no-bundle']);
-    git(repository, ['branch', '-D', 'fix/gone-no-bundle']);
-
-    const run: BranchLifecycleCommandRunner = (command, args, options) => {
-      if (command === 'gh' && args[0] === 'pr' && args[1] === 'list') {
-        const payload = [
-          {
-            number: 10,
-            headRefName: 'feat/surviving',
-            headRefOid: survivingSha,
-            baseRefName: 'main',
-            baseRefOid: mainSha,
-            state: 'CLOSED',
-            isDraft: false,
-            isCrossRepository: false,
-            url: 'https://github.com/sec-platform/sec/pull/10'
-          },
-          {
-            number: 11,
-            headRefName: 'fix/gone-no-bundle',
-            headRefOid: closedSha,
-            baseRefName: 'main',
-            baseRefOid: mainSha,
-            state: 'CLOSED',
-            isDraft: false,
-            isCrossRepository: false,
-            url: 'https://github.com/sec-platform/sec/pull/11'
-          }
-        ];
-        return {
-          status: 0,
-          stdout: Buffer.from(JSON.stringify(payload)),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      if (command === 'gh' && args[0] === 'api') {
-        return {
-          status: 0,
-          stdout: Buffer.from('true\n'),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      if (command === 'bun') {
-        const payload = {
-          activeWorkPackage: { state: 'none', reason: 'matching-default-blob' },
-          workspace: { branch: 'main' }
-        };
-        return {
-          status: 0,
-          stdout: Buffer.from(JSON.stringify(payload)),
-          stderr: Buffer.alloc(0)
-        };
-      }
-      return defaultBranchLifecycleCommandRunner(command, args, options);
-    };
-
-    const ctx = {
-      repositoryRoot: repository,
-      run,
-      repositoryFullName: 'sec-platform/sec',
-      defaultBranch: 'main',
-      recoveryRoot
-    };
-    configureBranchLifecycleClone(ctx);
-
-    expect(() => prepareBranchCloseout(ctx, {
-      branch: 'feat/surviving',
-      refState: 'absent',
-      expectedHeadSha: survivingSha,
-      pullRequestNumber: 10
-    })).toThrow(/surviving remote branch/);
-
-    expect(() => prepareBranchCloseout(ctx, {
-      branch: 'fix/gone-no-bundle',
-      refState: 'absent',
-      expectedHeadSha: closedSha,
-      pullRequestNumber: 11
-    })).toThrow();
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-}, {
-  timeout: 120_000
+test('only VerificationSession source retains integrated ref mutation commands', () => {
+  const lifecycle = readFileSync(
+    path.resolve('scripts/codex/branch-lifecycle.ts'),
+    'utf8'
+  );
+  const closeout = readFileSync(
+    path.resolve('scripts/codex/branch-closeout.ts'),
+    'utf8'
+  );
+  const session = readFileSync(
+    path.resolve('scripts/codex/verification-session.ts'),
+    'utf8'
+  );
+  const command = readFileSync(
+    path.resolve('scripts/codex/branch-lifecycle-command.ts'),
+    'utf8'
+  );
+  expect(lifecycle).not.toContain('finalizeBranchCloseout');
+  expect(lifecycle).not.toContain("command: 'finalize'");
+  expect(lifecycle).not.toContain("export * from './branch-closeout");
+  expect(closeout).not.toContain("'push',\n    '--porcelain'");
+  expect(closeout).not.toContain('finalizeIntegratedBranchCloseout');
+  expect(command).not.toContain('spawnSync');
+  expect(command).not.toContain('runBranchCommand');
+  expect(closeout).not.toContain("'update-ref'");
+  expect(closeout).not.toContain("'worktree', 'remove'");
+  expect(session).toContain('function finalizeHostedBranchCloseoutV1');
+  expect(session).toContain('function deleteHostedRemoteRefCas');
 });

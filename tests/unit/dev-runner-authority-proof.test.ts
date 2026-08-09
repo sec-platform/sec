@@ -5,6 +5,7 @@ import {
   HandleBit,
   ProtectedRoleBit,
   analyzeDevRunnerAuthorityProofWithInventoryForTests,
+  collectTrackedDevRunnerHostClosureForTests,
   computeFiniteSccProjection,
   solveFiniteAuthorityModel,
   type DevRunnerAuthorityScenario,
@@ -76,6 +77,43 @@ const EMPTY_TRACKED_INVENTORY: TrackedDevRunnerHostInventory = Object.freeze({
   manifestBytes: 0,
   totalSourceBytes: 0,
   largestSourceBytes: 0
+});
+
+function trackedCandidateInventory(
+  inputs: readonly { readonly relativePath: string; readonly source: string;
+    readonly sourceBytes?: number }[]
+): TrackedDevRunnerHostInventory {
+  const modules = inputs.map(({ relativePath, source, sourceBytes }) => ({
+    relativePath,
+    source,
+    sourceBytes: sourceBytes ?? Buffer.byteLength(source, 'utf8')
+  }));
+  return {
+    modules,
+    manifestBytes: 256,
+    totalSourceBytes: modules.reduce((total, module) => total + module.sourceBytes, 0),
+    largestSourceBytes: modules.reduce(
+      (largest, module) => Math.max(largest, module.sourceBytes),
+      0
+    )
+  };
+}
+
+const CLOSURE_LIVE_SCENARIO: DevRunnerAuthorityScenario = Object.freeze({
+  scenarioId: 'live',
+  label: 'closure live scenario',
+  moduleScope: '',
+  commandOwnerModuleId: 'platform/dev-runner/command-runner.ts',
+  boundedOwnerModuleId: 'platform/dev-runner/test-runner.ts',
+  processOwnerModuleId: 'platform/shared/process.ts',
+  policyOwnerModuleIds: Object.freeze([
+    'platform/dev-runner/fast-test-policy.ts',
+    'platform/dev-runner/test-concurrency-policy.ts'
+  ]),
+  modules: Object.freeze([]),
+  packageSurfaces: Object.freeze([]),
+  expectedValidation: 'accepted',
+  expectedViolationCodes: Object.freeze([])
 });
 
 function mechanismScenario(
@@ -182,6 +220,207 @@ function mechanismScenario(
 }
 
 describe('finite dev-runner authority kernel', () => {
+  test('live owner roots form one fail-closed executable, declaration, and JSON closure', async () => {
+    const ownedCandidates = [
+      {
+        relativePath: 'platform/dev-runner/command-runner.ts',
+        source: [
+          "export { reached } from './reached.ts';",
+          "import './shadowed-import.ts';",
+          "import './shadowed-local.ts';",
+          "import './shadowed-module.ts';",
+          "import './shadowed-parameter.ts';"
+        ].join('\n')
+      },
+      {
+        relativePath: 'platform/dev-runner/reached.ts',
+        source: [
+          "import type { RuntimeMarker } from './runtime-contract.d.ts';",
+          "import runtime from './runtime.json' with { type: 'json' };",
+          'export const reached: RuntimeMarker = runtime.enabled;'
+        ].join('\n')
+      },
+      {
+        relativePath: 'platform/dev-runner/runtime-contract.d.ts',
+        source: 'export type RuntimeMarker = boolean;'
+      },
+      {
+        relativePath: 'platform/dev-runner/runtime.json',
+        source: '{"enabled":true}'
+      },
+      {
+        relativePath: 'platform/dev-runner/test-runner.ts',
+        source: "export const bounded = require(`./bounded-leaf.ts`);"
+      },
+      {
+        relativePath: 'platform/dev-runner/bounded-leaf.ts',
+        source: 'export const boundedLeaf = true;'
+      },
+      {
+        relativePath: 'platform/shared/process.ts',
+        source: "import processLeaf = require('./process-leaf.ts'); export { processLeaf };"
+      },
+      {
+        relativePath: 'platform/shared/process-leaf.ts',
+        source: 'export = true;'
+      },
+      {
+        relativePath: 'platform/dev-runner/fast-test-policy.ts',
+        source: "export const policy = import('./policy-leaf.ts');"
+      },
+      {
+        relativePath: 'platform/dev-runner/policy-leaf.ts',
+        source: 'export const policyLeaf = true;'
+      },
+      {
+        relativePath: 'platform/dev-runner/test-concurrency-policy.ts',
+        source: [
+          "export const concurrency = module.require('./module-require-leaf.ts');",
+          'declare const loader: { require(path: string): unknown };',
+          "void loader.require('./arbitrary-require-leaf.ts');"
+        ].join('\n')
+      },
+      {
+        relativePath: 'platform/dev-runner/module-require-leaf.ts',
+        source: 'export const moduleRequireLeaf = true;'
+      },
+      {
+        relativePath: 'platform/dev-runner/shadowed-import.ts',
+        source: [
+          "import require from 'node:module';",
+          "void require('./shadowed-import-leaf.ts');"
+        ].join('\n')
+      },
+      {
+        relativePath: 'platform/dev-runner/shadowed-local.ts',
+        source: [
+          'export function shadowedLocal(): unknown {',
+          '  const require = (specifier: string): string => specifier;',
+          "  return require('./shadowed-local-leaf.ts');",
+          '}'
+        ].join('\n')
+      },
+      {
+        relativePath: 'platform/dev-runner/shadowed-module.ts',
+        source: [
+          'export function shadowedModule(): unknown {',
+          '  const module = { require: (specifier: string): string => specifier };',
+          "  return module.require('./shadowed-module-leaf.ts');",
+          '}'
+        ].join('\n')
+      },
+      {
+        relativePath: 'platform/dev-runner/shadowed-parameter.ts',
+        source: [
+          'export function shadowedParameter(',
+          '  require: (specifier: string) => string',
+          '): unknown {',
+          "  return require('./shadowed-parameter-leaf.ts');",
+          '}'
+        ].join('\n')
+      }
+    ] as const;
+    const unrelatedCandidates = [
+      {
+        relativePath: 'platform/dev-runner/arbitrary-require-leaf.ts',
+        source: 'export const arbitraryRequireLeaf = true;'
+      },
+      ...[
+        'shadowed-import-leaf.ts',
+        'shadowed-local-leaf.ts',
+        'shadowed-module-leaf.ts',
+        'shadowed-parameter-leaf.ts'
+      ].map((relativePath) => ({
+        relativePath: `platform/dev-runner/${relativePath}`,
+        source: 'export const mustRemainUnreached = true;'
+      })),
+      {
+        relativePath: 'scripts/publish-public.ts',
+        source: "import payload from './publish-public.json' with { type: 'json' }; void payload;"
+      },
+      { relativePath: 'scripts/publish-public.json', source: '{"unrelated":true}' }
+    ] as const;
+    const selected = await collectTrackedDevRunnerHostClosureForTests(
+      trackedCandidateInventory([...ownedCandidates, ...unrelatedCandidates]),
+      CLOSURE_LIVE_SCENARIO
+    );
+    const selectedWithoutUnrelated = await collectTrackedDevRunnerHostClosureForTests(
+      trackedCandidateInventory(ownedCandidates),
+      CLOSURE_LIVE_SCENARIO
+    );
+
+    expect(selected.modules.map(({ relativePath }) => relativePath)).toEqual([
+      'platform/dev-runner/bounded-leaf.ts',
+      'platform/dev-runner/command-runner.ts',
+      'platform/dev-runner/fast-test-policy.ts',
+      'platform/dev-runner/module-require-leaf.ts',
+      'platform/dev-runner/policy-leaf.ts',
+      'platform/dev-runner/reached.ts',
+      'platform/dev-runner/runtime-contract.d.ts',
+      'platform/dev-runner/runtime.json',
+      'platform/dev-runner/shadowed-import.ts',
+      'platform/dev-runner/shadowed-local.ts',
+      'platform/dev-runner/shadowed-module.ts',
+      'platform/dev-runner/shadowed-parameter.ts',
+      'platform/dev-runner/test-concurrency-policy.ts',
+      'platform/dev-runner/test-runner.ts',
+      'platform/shared/process-leaf.ts',
+      'platform/shared/process.ts'
+    ]);
+    expect(selected.modules).toEqual(selectedWithoutUnrelated.modules);
+    expect(selected.modules.some(({ relativePath }) =>
+      relativePath === 'scripts/publish-public.ts' ||
+      relativePath === 'scripts/publish-public.json' ||
+      relativePath === 'platform/dev-runner/arbitrary-require-leaf.ts' ||
+      relativePath.includes('/shadowed-import-leaf.ts') ||
+      relativePath.includes('/shadowed-local-leaf.ts') ||
+      relativePath.includes('/shadowed-module-leaf.ts') ||
+      relativePath.includes('/shadowed-parameter-leaf.ts'))).toBe(false);
+
+    const replaceCandidateSource = (
+      relativePath: string,
+      source: string,
+      sourceBytes?: number
+    ) =>
+      trackedCandidateInventory(ownedCandidates.map((candidate) =>
+        candidate.relativePath === relativePath
+          ? { ...candidate, source, ...(sourceBytes === undefined ? {} : { sourceBytes }) }
+          : candidate));
+    await expect(collectTrackedDevRunnerHostClosureForTests(
+      replaceCandidateSource(
+        CLOSURE_LIVE_SCENARIO.commandOwnerModuleId,
+        "export { missing } from './missing.ts';"
+      ),
+      CLOSURE_LIVE_SCENARIO
+    )).rejects.toThrow('dependency is unresolved');
+    await expect(collectTrackedDevRunnerHostClosureForTests(
+      replaceCandidateSource(
+        CLOSURE_LIVE_SCENARIO.commandOwnerModuleId,
+        "export { escaped } from '../../../outside.ts';"
+      ),
+      CLOSURE_LIVE_SCENARIO
+    )).rejects.toThrow('escapes the repository root');
+    await expect(collectTrackedDevRunnerHostClosureForTests(
+      replaceCandidateSource(
+        CLOSURE_LIVE_SCENARIO.commandOwnerModuleId,
+        "export { reached } from './reached.ts';",
+        1
+      ),
+      CLOSURE_LIVE_SCENARIO
+    )).rejects.toThrow('stale byte count');
+    await expect(collectTrackedDevRunnerHostClosureForTests(
+      replaceCandidateSource('platform/dev-runner/runtime.json', '{"enabled":'),
+      CLOSURE_LIVE_SCENARIO
+    )).rejects.toThrow('Malformed tracked JSON closure resource');
+    await expect(collectTrackedDevRunnerHostClosureForTests(
+      replaceCandidateSource(
+        'platform/dev-runner/runtime-contract.d.ts',
+        'export type RuntimeMarker = ;'
+      ),
+      CLOSURE_LIVE_SCENARIO
+    )).rejects.toThrow('Malformed tracked declaration closure resource');
+  });
+
   test('random small fixed-bit graphs match a simple reference closure', () => {
     let random = 0x217227;
     const next = (): number => {
