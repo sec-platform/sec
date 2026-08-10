@@ -15,12 +15,21 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import {
+  closeSync,
+  constants as fsConstants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  realpathSync
+} from 'node:fs';
 import path from 'node:path';
 
 import ts from 'typescript';
 
 import { compilerRoot } from './paths.ts';
+import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
 import {
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1,
   matchSecTrustedBootstrapPathV1
@@ -678,30 +687,84 @@ export function runtimeRelativeImports(
   repositoryPath: string,
   reviewedProcessDispatchers: Set<string>,
   reviewedExternalImports: Set<string>,
-  observedExternalImports: Set<string> = new Set()
+  observedExternalImports: Set<string> = new Set(),
+  options: TcbClosureCandidateRootOptions = {}
 ): string[] {
-  const absolutePath = path.join(compilerRoot, ...repositoryPath.split('/'));
-  return runtimeRelativeImportsFromSource(
+  const candidateRoot = resolveTcbClosureCandidateRoot(options);
+  return runtimeRelativeImportsAtCandidateRoot(
+    candidateRoot,
     repositoryPath,
-    readFileSync(absolutePath, 'utf8'),
     reviewedProcessDispatchers,
     reviewedExternalImports,
     observedExternalImports
   );
 }
 
-export function resolveRepositoryImport(from: string, specifier: string): string {
+function runtimeRelativeImportsAtCandidateRoot(
+  candidateRoot: TcbClosureCandidateRootReader,
+  repositoryPath: string,
+  reviewedProcessDispatchers: Set<string>,
+  reviewedExternalImports: Set<string>,
+  observedExternalImports: Set<string>
+): string[] {
+  const bytes = readTcbClosureCandidateModule(candidateRoot, repositoryPath);
+  if (bytes === null) {
+    throw new Error(`TCB candidate module is missing: ${repositoryPath}.`);
+  }
+  return runtimeRelativeImportsFromSource(
+    repositoryPath,
+    Buffer.from(bytes).toString('utf8'),
+    reviewedProcessDispatchers,
+    reviewedExternalImports,
+    observedExternalImports
+  );
+}
+
+export function resolveRepositoryImport(
+  from: string,
+  specifier: string,
+  options: TcbClosureCandidateRootOptions = {}
+): string {
+  return resolveRepositoryImportAtCandidateRoot(
+    resolveTcbClosureCandidateRoot(options),
+    from,
+    specifier
+  );
+}
+
+function resolveRepositoryImportAtCandidateRoot(
+  candidateRoot: TcbClosureCandidateRootReader,
+  from: string,
+  specifier: string
+): string {
   let resolved = path.posix.normalize(path.posix.join(path.posix.dirname(from), specifier));
   if (resolved.endsWith('.js')) resolved = `${resolved.slice(0, -3)}.ts`;
   if (!path.posix.extname(resolved)) resolved = `${resolved}.ts`;
-  if (!existsSync(path.join(compilerRoot, ...resolved.split('/')))) {
+  if (readTcbClosureCandidateModule(candidateRoot, resolved) === null) {
     throw new Error(`TCB runtime import does not resolve: ${from} -> ${specifier} (${resolved}).`);
   }
   return resolved;
 }
 
 export function trustedRuntimeClosure(
-  entrypoints: readonly string[] = TCB_RUNTIME_ENTRYPOINTS
+  entrypoints: readonly string[] = TCB_RUNTIME_ENTRYPOINTS,
+  options: TcbClosureCandidateRootOptions = {}
+): {
+  closure: Set<string>;
+  reviewedEdges: Set<string>;
+  reviewedExternalImports: Set<string>;
+  reviewedProcessDispatchers: Set<string>;
+  observedExternalImports: Set<string>;
+} {
+  return trustedRuntimeClosureAtCandidateRoot(
+    resolveTcbClosureCandidateRoot(options),
+    entrypoints
+  );
+}
+
+function trustedRuntimeClosureAtCandidateRoot(
+  candidateRoot: TcbClosureCandidateRootReader,
+  entrypoints: readonly string[]
 ): {
   closure: Set<string>;
   reviewedEdges: Set<string>;
@@ -719,13 +782,14 @@ export function trustedRuntimeClosure(
     const current = queue.shift()!;
     if (closure.has(current)) continue;
     closure.add(current);
-    for (const specifier of runtimeRelativeImports(
+    for (const specifier of runtimeRelativeImportsAtCandidateRoot(
+      candidateRoot,
       current,
       reviewedProcessDispatchers,
       reviewedExternalImports,
       observedExternalImports
     )) {
-      const resolved = resolveRepositoryImport(current, specifier);
+      const resolved = resolveRepositoryImportAtCandidateRoot(candidateRoot, current, specifier);
       const edge = `${current} -> ${resolved}`;
       if (TCB_REVIEWED_SUT_EDGES.has(edge)) {
         reviewedEdges.add(edge);
@@ -756,6 +820,145 @@ export interface TcbClosureLockInput {
   readonly reviewedEdges: Set<string>;
   readonly reviewedExternalImports: Set<string>;
   readonly reviewedProcessDispatchers: Set<string>;
+}
+
+export interface TcbClosureCandidateRootOptions {
+  readonly candidateRoot?: string;
+}
+
+type TcbClosureCandidateRootReader = Readonly<{
+  root: string;
+  device: number;
+  inode: number;
+}>;
+
+function resolveTcbClosureCandidateRoot(
+  options: TcbClosureCandidateRootOptions
+): TcbClosureCandidateRootReader {
+  const requested = options.candidateRoot ?? compilerRoot;
+  if (typeof requested !== 'string' || requested.length === 0 || !path.isAbsolute(requested)) {
+    throw new Error('TCB candidate root must be one absolute canonical path.');
+  }
+  const resolved = path.resolve(requested);
+  if (requested !== resolved) {
+    throw new Error('TCB candidate root must be one absolute canonical path.');
+  }
+  let metadata: ReturnType<typeof lstatSync>;
+  let physicalRoot: string;
+  try {
+    metadata = lstatSync(resolved);
+    physicalRoot = realpathSync.native(resolved);
+  } catch (error) {
+    throw new Error('TCB candidate root is unavailable.', { cause: error });
+  }
+  if (!metadata.isDirectory() || metadata.isSymbolicLink() || physicalRoot !== resolved) {
+    throw new Error('TCB candidate root must be one physical non-symlink canonical directory.');
+  }
+  return Object.freeze({ root: resolved, device: metadata.dev, inode: metadata.ino });
+}
+
+function assertTcbClosureCandidateRootCurrent(reader: TcbClosureCandidateRootReader): void {
+  let metadata: ReturnType<typeof lstatSync>;
+  let physicalRoot: string;
+  try {
+    metadata = lstatSync(reader.root);
+    physicalRoot = realpathSync.native(reader.root);
+  } catch (error) {
+    throw new Error('TCB candidate root changed during the bounded read.', { cause: error });
+  }
+  if (!metadata.isDirectory() || metadata.isSymbolicLink() ||
+      metadata.dev !== reader.device || metadata.ino !== reader.inode ||
+      physicalRoot !== reader.root) {
+    throw new Error('TCB candidate root changed during the bounded read.');
+  }
+}
+
+function readTcbClosureCandidateModule(
+  candidateRoot: TcbClosureCandidateRootReader,
+  repositoryPath: string
+): Uint8Array | null {
+  if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) {
+    throw new Error(`TCB candidate module path is not canonical: ${repositoryPath}.`);
+  }
+  assertTcbClosureCandidateRootCurrent(candidateRoot);
+  const absolutePath = path.resolve(candidateRoot.root, ...repositoryPath.split('/'));
+  const relative = path.relative(candidateRoot.root, absolutePath);
+  if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`TCB candidate module escapes the canonical root: ${repositoryPath}.`);
+  }
+  let metadata: ReturnType<typeof lstatSync>;
+  try {
+    metadata = lstatSync(absolutePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error(`TCB candidate module metadata is unavailable: ${repositoryPath}.`, { cause: error });
+  }
+  if (!metadata.isFile() || metadata.isSymbolicLink()) {
+    throw new Error(`TCB candidate module must be one physical regular file: ${repositoryPath}.`);
+  }
+  let physicalPathBefore: string;
+  try {
+    physicalPathBefore = realpathSync.native(absolutePath);
+  } catch (error) {
+    throw new Error(`TCB candidate module realpath is unavailable: ${repositoryPath}.`, { cause: error });
+  }
+  if (physicalPathBefore !== absolutePath) {
+    throw new Error(`TCB candidate module path is not canonical: ${repositoryPath}.`);
+  }
+  let descriptor: number | null = null;
+  let bytes: Uint8Array;
+  let descriptorBefore: ReturnType<typeof fstatSync>;
+  let descriptorAfter: ReturnType<typeof fstatSync>;
+  try {
+    descriptor = openSync(
+      absolutePath,
+      fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0)
+    );
+    descriptorBefore = fstatSync(descriptor);
+    if (!descriptorBefore.isFile() || descriptorBefore.dev !== metadata.dev ||
+        descriptorBefore.ino !== metadata.ino || descriptorBefore.size !== metadata.size) {
+      throw new Error(`TCB candidate module changed before its bounded read: ${repositoryPath}.`);
+    }
+    bytes = readFileSync(descriptor);
+    descriptorAfter = fstatSync(descriptor);
+  } catch (error) {
+    throw new Error(`TCB candidate module bounded read failed: ${repositoryPath}.`, { cause: error });
+  } finally {
+    if (descriptor !== null) closeSync(descriptor);
+  }
+  let metadataAfter: ReturnType<typeof lstatSync>;
+  let physicalPathAfter: string;
+  try {
+    metadataAfter = lstatSync(absolutePath);
+    physicalPathAfter = realpathSync.native(absolutePath);
+  } catch (error) {
+    throw new Error(`TCB candidate module changed after its bounded read: ${repositoryPath}.`, { cause: error });
+  }
+  if (!metadataAfter.isFile() || metadataAfter.isSymbolicLink() ||
+      physicalPathAfter !== absolutePath ||
+      metadataAfter.dev !== metadata.dev || metadataAfter.ino !== metadata.ino ||
+      metadataAfter.size !== metadata.size || metadataAfter.mtimeMs !== metadata.mtimeMs ||
+      descriptorAfter.dev !== descriptorBefore.dev || descriptorAfter.ino !== descriptorBefore.ino ||
+      descriptorAfter.size !== descriptorBefore.size || descriptorAfter.mtimeMs !== descriptorBefore.mtimeMs ||
+      bytes.byteLength !== descriptorAfter.size) {
+    throw new Error(`TCB candidate module changed during its bounded read: ${repositoryPath}.`);
+  }
+  assertTcbClosureCandidateRootCurrent(candidateRoot);
+  return bytes;
+}
+
+export function readTcbClosureCandidateFileV1(
+  repositoryPath: string,
+  options: TcbClosureCandidateRootOptions = {}
+): Uint8Array {
+  const bytes = readTcbClosureCandidateModule(
+    resolveTcbClosureCandidateRoot(options),
+    repositoryPath
+  );
+  if (bytes === null) {
+    throw new Error(`TCB candidate module is missing: ${repositoryPath}.`);
+  }
+  return bytes;
 }
 
 export interface TcbClosureLock {
@@ -827,16 +1030,29 @@ function computeClosureDigest(lock: Omit<TcbClosureLock, 'closureDigest'>): stri
 // Lock computation and verification
 // ---------------------------------------------------------------------------
 
-export function computeTcbClosureLock(input: TcbClosureLockInput, trustRevision: string): TcbClosureLock {
+export function computeTcbClosureLock(
+  input: TcbClosureLockInput,
+  trustRevision: string,
+  options: TcbClosureCandidateRootOptions = {}
+): TcbClosureLock {
+  return computeTcbClosureLockAtCandidateRoot(
+    resolveTcbClosureCandidateRoot(options),
+    input,
+    trustRevision
+  );
+}
+
+function computeTcbClosureLockAtCandidateRoot(
+  candidateRoot: TcbClosureCandidateRootReader,
+  input: TcbClosureLockInput,
+  trustRevision: string
+): TcbClosureLock {
   const modules = [...input.closure].sort();
   const moduleBlobs: Record<string, string> = {};
   const moduleContentDigests: Record<string, string> = {};
   for (const module of modules) {
-    const absolutePath = path.join(compilerRoot, ...module.split('/'));
-    let bytes: Uint8Array;
-    try {
-      bytes = readFileSync(absolutePath);
-    } catch {
+    const bytes = readTcbClosureCandidateModule(candidateRoot, module);
+    if (bytes === null) {
       moduleBlobs[module] = 'missing-file';
       moduleContentDigests[module] = 'sha256:missing-file';
       continue;
@@ -862,8 +1078,11 @@ export function computeTcbClosureLock(input: TcbClosureLockInput, trustRevision:
   return { ...partial, closureDigest: computeClosureDigest(partial) };
 }
 
-export function verifyTcbClosureLock(input: TcbClosureLockInput): TcbClosureLockVerification {
-  const actual = computeTcbClosureLock(input, TCB_CLOSURE_TRUST_REVISION);
+export function verifyTcbClosureLock(
+  input: TcbClosureLockInput,
+  options: TcbClosureCandidateRootOptions = {}
+): TcbClosureLockVerification {
+  const actual = computeTcbClosureLock(input, TCB_CLOSURE_TRUST_REVISION, options);
   const expected = TCB_CLOSURE_LOCK;
   const failures: string[] = [];
 
@@ -939,9 +1158,205 @@ export function verifyTcbClosureLock(input: TcbClosureLockInput): TcbClosureLock
   return { status: failures.length === 0 ? 'passed' : 'failed', failures };
 }
 
-export function generateTcbClosureLockForRevision(trustRevision: string): TcbClosureLock {
-  const closure = trustedRuntimeClosure();
-  return computeTcbClosureLock(closure, trustRevision);
+export function generateTcbClosureLockForRevision(
+  trustRevision: string,
+  options: TcbClosureCandidateRootOptions = {}
+): TcbClosureLock {
+  const candidateRoot = resolveTcbClosureCandidateRoot(options);
+  const closure = trustedRuntimeClosureAtCandidateRoot(candidateRoot, TCB_RUNTIME_ENTRYPOINTS);
+  return computeTcbClosureLockAtCandidateRoot(candidateRoot, closure, trustRevision);
+}
+
+function tcbLockJsonValue(node: ts.Expression): unknown {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (ts.isNumericLiteral(node)) {
+    const value = Number(node.text);
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error('TCB frozen lock contains a non-canonical number.');
+    }
+    return value;
+  }
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
+  if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+  if (ts.isArrayLiteralExpression(node)) {
+    if (node.elements.some((element) => ts.isSpreadElement(element) || ts.isOmittedExpression(element))) {
+      throw new Error('TCB frozen lock arrays must contain only explicit JSON values.');
+    }
+    return node.elements.map((element) => tcbLockJsonValue(element as ts.Expression));
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    const result: Record<string, unknown> = {};
+    for (const property of node.properties) {
+      if (!ts.isPropertyAssignment(property) || property.name === undefined ||
+          ts.isComputedPropertyName(property.name)) {
+        throw new Error('TCB frozen lock objects must contain only explicit JSON properties.');
+      }
+      const key = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name) ||
+        ts.isNumericLiteral(property.name)
+        ? property.name.text
+        : null;
+      if (key === null || Object.prototype.hasOwnProperty.call(result, key)) {
+        throw new Error('TCB frozen lock contains an invalid or duplicate property.');
+      }
+      result[key] = tcbLockJsonValue(property.initializer);
+    }
+    return result;
+  }
+  throw new Error('TCB frozen lock initializer must be JSON-compatible literal AST.');
+}
+
+function tcbLockRecord(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value) ||
+      Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new Error(`TCB frozen lock ${label} must be one plain object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function tcbLockExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+  label: string
+): void {
+  const actual = Object.keys(value).sort();
+  const canonical = [...expected].sort();
+  if (actual.length !== canonical.length || actual.some((entry, index) => entry !== canonical[index])) {
+    throw new Error(`TCB frozen lock ${label} fields are unknown or missing.`);
+  }
+}
+
+function tcbLockStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new Error(`TCB frozen lock ${label} must be a string array.`);
+  }
+  const result = [...value] as string[];
+  for (let index = 1; index < result.length; index += 1) {
+    if (result[index - 1]! >= result[index]!) {
+      throw new Error(`TCB frozen lock ${label} must be strictly sorted and unique.`);
+    }
+  }
+  return result;
+}
+
+function tcbLockDigestMap(
+  value: unknown,
+  modules: readonly string[],
+  label: string,
+  pattern: RegExp
+): Record<string, string> {
+  const record = tcbLockRecord(value, label);
+  if (JSON.stringify(Object.keys(record)) !== JSON.stringify(modules) ||
+      Object.values(record).some((entry) => typeof entry !== 'string' || !pattern.test(entry))) {
+    throw new Error(`TCB frozen lock ${label} must exactly bind every canonical module.`);
+  }
+  return record as Record<string, string>;
+}
+
+export function parseTcbClosureLockSourceV1(source: string): TcbClosureLock {
+  if (source.length === 0 || source.length > 4 * 1024 * 1024 || source.includes('\0')) {
+    throw new Error('TCB frozen lock source is empty, oversized, or contains NUL.');
+  }
+  const sourceFile = ts.createSourceFile(
+    'platform/shared/tcb-closure-lock.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const parseDiagnostics = (
+    sourceFile as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }
+  ).parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) {
+    throw new Error('TCB frozen lock source is not valid TypeScript.');
+  }
+  const matches: ts.VariableDeclaration[] = [];
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement) ||
+        !statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
+        (statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === 'TCB_CLOSURE_LOCK') {
+        matches.push(declaration);
+      }
+    }
+  }
+  const declaration = matches.length === 1 ? matches[0]! : null;
+  if (!declaration || !declaration.initializer || !ts.isObjectLiteralExpression(declaration.initializer) ||
+      declaration.type?.getText(sourceFile) !== 'TcbClosureLock') {
+    throw new Error('TCB frozen lock source must contain one exact exported typed const initializer.');
+  }
+  const value = tcbLockRecord(tcbLockJsonValue(declaration.initializer), 'initializer');
+  tcbLockExactKeys(value, [
+    'schema',
+    'trustRevision',
+    'moduleCount',
+    'modules',
+    'reviewedEdges',
+    'reviewedExternalImports',
+    'reviewedProcessDispatchers',
+    'moduleBlobs',
+    'moduleContentDigests',
+    'closureDigest'
+  ], 'initializer');
+  if (value.schema !== 'sec-tcb-closure-lock-v1') {
+    throw new Error('manual-bootstrap-required: TCB frozen lock schema is unknown.');
+  }
+  if (typeof value.trustRevision !== 'string' || !/^[0-9a-f]{40}$/u.test(value.trustRevision)) {
+    throw new Error('TCB frozen lock trustRevision is invalid.');
+  }
+  const modules = tcbLockStringArray(value.modules, 'modules');
+  if (modules.some((entry) => !CodexDevelopmentIsCanonicalRepositoryPathV1(entry)) ||
+      value.moduleCount !== modules.length) {
+    throw new Error('TCB frozen lock module inventory is invalid.');
+  }
+  const reviewedEdges = tcbLockStringArray(value.reviewedEdges, 'reviewedEdges');
+  const reviewedExternalImports = tcbLockStringArray(
+    value.reviewedExternalImports,
+    'reviewedExternalImports'
+  );
+  const reviewedProcessDispatchers = tcbLockStringArray(
+    value.reviewedProcessDispatchers,
+    'reviewedProcessDispatchers'
+  );
+  const moduleBlobs = tcbLockDigestMap(
+    value.moduleBlobs,
+    modules,
+    'moduleBlobs',
+    /^[0-9a-f]{40}$/u
+  );
+  const moduleContentDigests = tcbLockDigestMap(
+    value.moduleContentDigests,
+    modules,
+    'moduleContentDigests',
+    /^sha256:[0-9a-f]{64}$/u
+  );
+  const partial: Omit<TcbClosureLock, 'closureDigest'> = {
+    schema: 'sec-tcb-closure-lock-v1',
+    trustRevision: value.trustRevision,
+    moduleCount: modules.length,
+    modules,
+    reviewedEdges,
+    reviewedExternalImports,
+    reviewedProcessDispatchers,
+    moduleBlobs,
+    moduleContentDigests
+  };
+  if (typeof value.closureDigest !== 'string' ||
+      !/^sha256:[0-9a-f]{64}$/u.test(value.closureDigest) ||
+      value.closureDigest !== computeClosureDigest(partial)) {
+    throw new Error('TCB frozen lock closureDigest is invalid.');
+  }
+  return Object.freeze({ ...partial, closureDigest: value.closureDigest });
+}
+
+export function assertTcbClosureLockDataMatchesV1(
+  parsed: TcbClosureLock,
+  computed: TcbClosureLock
+): void {
+  if (JSON.stringify(parsed) !== JSON.stringify(computed)) {
+    throw new Error('TCB candidate frozen lock does not match the base-computed candidate closure.');
+  }
 }
 
 // ---------------------------------------------------------------------------

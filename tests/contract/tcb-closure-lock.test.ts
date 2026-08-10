@@ -1,14 +1,110 @@
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { expect, test } from 'bun:test';
 
 import {
   TCB_CLOSURE_LOCK,
   TCB_CLOSURE_LOCK_RECEIPT,
   TCB_CLOSURE_TRUST_REVISION,
+  assertTcbClosureLockDataMatchesV1,
   computeTcbClosureLock,
+  parseTcbClosureLockSourceV1,
   trustedRuntimeClosure,
   verifyTcbClosureLock
 } from '../../platform/shared/tcb-closure-lock.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1 } from '../../platform/shared/tcb-trust-root-contract.ts';
+
+test('TCB candidate root exclusively drives closure discovery and hashing', () => {
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-root-')));
+  try {
+    writeFileSync(path.join(root, 'entry.ts'), "import './leaf.ts';\n", 'utf8');
+    writeFileSync(path.join(root, 'leaf.ts'), 'export const leaf = 1;\n', 'utf8');
+    const closure = trustedRuntimeClosure(['entry.ts'], { candidateRoot: root });
+    expect([...closure.closure].sort()).toEqual(['entry.ts', 'leaf.ts']);
+    const lock = computeTcbClosureLock(closure, 'candidate-root-test', { candidateRoot: root });
+    expect(lock.modules).toEqual(['entry.ts', 'leaf.ts']);
+    expect(lock.moduleBlobs['entry.ts']).toMatch(/^[0-9a-f]{40}$/u);
+    expect(lock.moduleContentDigests['leaf.ts']).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('TCB candidate root rejects aliases, traversal, and non-regular candidate leaves', () => {
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-negative-')));
+  const outside = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-outside-')));
+  try {
+    writeFileSync(path.join(root, 'entry.ts'), 'export const entry = 1;\n', 'utf8');
+    writeFileSync(path.join(root, 'root-file'), 'not a directory\n', 'utf8');
+    mkdirSync(path.join(root, 'directory.ts'));
+    writeFileSync(path.join(outside, 'leaf.ts'), 'export const outside = true;\n', 'utf8');
+    symlinkSync(outside, path.join(root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+
+    expect(() => trustedRuntimeClosure(['entry.ts'], {
+      candidateRoot: `${root}${path.sep}`
+    })).toThrow('absolute canonical path');
+    expect(() => trustedRuntimeClosure(['entry.ts'], {
+      candidateRoot: path.join(root, 'root-file')
+    })).toThrow('physical non-symlink canonical directory');
+    expect(() => trustedRuntimeClosure(['../entry.ts'], { candidateRoot: root }))
+      .toThrow('module path is not canonical');
+    expect(() => trustedRuntimeClosure(['directory.ts'], { candidateRoot: root }))
+      .toThrow('physical regular file');
+    expect(() => trustedRuntimeClosure(['linked/leaf.ts'], { candidateRoot: root }))
+      .toThrow('module path is not canonical');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('checker closure strictly parses frozen V1 lock data and compares every field', () => {
+  const canonicalSource = readFileSync(
+    path.resolve(import.meta.dir, '../../platform/shared/tcb-closure-lock.ts'),
+    'utf8'
+  );
+  expect(parseTcbClosureLockSourceV1(canonicalSource)).toEqual(TCB_CLOSURE_LOCK);
+  expect(() => parseTcbClosureLockSourceV1(canonicalSource.replace(
+    '"schema": "sec-tcb-closure-lock-v1"',
+    '"schema": "sec-tcb-closure-lock-v2"'
+  ))).toThrow('manual-bootstrap-required');
+  expect(() => parseTcbClosureLockSourceV1(canonicalSource.replace(
+    '"schema": "sec-tcb-closure-lock-v1",',
+    '"schema": "sec-tcb-closure-lock-v1",\n  "schema": "sec-tcb-closure-lock-v1",'
+  ))).toThrow('duplicate');
+  expect(() => parseTcbClosureLockSourceV1(canonicalSource.replace(
+    '"moduleCount": 78,',
+    '"moduleCount": Number(78),'
+  ))).toThrow('JSON-compatible literal AST');
+
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-lock-data-')));
+  try {
+    writeFileSync(path.join(root, 'entry.ts'), "import './leaf.ts';\n", 'utf8');
+    writeFileSync(path.join(root, 'leaf.ts'), 'export const leaf = 1;\n', 'utf8');
+    const closure = trustedRuntimeClosure(['entry.ts'], { candidateRoot: root });
+    const original = computeTcbClosureLock(closure, '1'.repeat(40), { candidateRoot: root });
+    const parsed = parseTcbClosureLockSourceV1(
+      `export const TCB_CLOSURE_LOCK: TcbClosureLock = ${JSON.stringify(original, null, 2)};\n`
+    );
+    expect(() => assertTcbClosureLockDataMatchesV1(parsed, original)).not.toThrow();
+    writeFileSync(path.join(root, 'leaf.ts'), 'export const leaf = 2;\n', 'utf8');
+    const changed = computeTcbClosureLock(closure, original.trustRevision, { candidateRoot: root });
+    expect(() => assertTcbClosureLockDataMatchesV1(parsed, changed))
+      .toThrow('does not match');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('TCB closure lock has the correct schema and trust revision', () => {
   expect(TCB_CLOSURE_LOCK.schema).toBe('sec-tcb-closure-lock-v1');
