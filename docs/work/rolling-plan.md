@@ -2,182 +2,106 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-08
+last-reviewed: 2026-08-10
 ---
 
 # SEC 滚动近期计划
 
-本窗口从合并后的 `main@37c8609d5d54b5fb74292cffc83bd7dfcc362988` 重新计算。
-
-## 当前事实与反转原因
-
-- Issue #178 causal TCB / trusted bootstrap 已完成并经 new-main readback，保持 CLOSED。
-- Issue #311 过去只完成 registry projection、FreezeSession、Candidate Tree parity 的
-  minimal foundation，却被整体关闭；Completion Definition 的 Unified VerificationSession、
-  MainHealth、Action reuse 与 throughput 尚未完成，因此已重新 OPEN。
-- Issue #279 Integration Transaction Kernel 的统一事务与 legacy
-  `sec-merge-bootstrap` retirement 尚未完成，因此已重新 OPEN。
-- PR #333 的 #327 candidate 从 focused repository-data ownership 扩大到 38 paths，
-  混入 Compiler、Semantic Mutation、CI Evidence、TCB、Test Impact、dev-runner、
-  baseline imports 与 fixtures，形成 scope avalanche；已关闭、未合并。
-- PR #334 是明确 `MUST NOT MERGE` 的 validation transport/payload PR；正式 candidate
-  已可在 GitHub 表达后即失去使命，已关闭、未合并。其远端 ref 仍需 branch lifecycle
-  owner 在工具具备 delete-ref 时物理删除/readback。
-- #327 执行记录证明当前真实 critical-path blocker 是 Verification/Development
-  Throughput：约 23 fast + 5 risk 的初始 closure 扩张为 80+ fast + 11 risk，
-  出现约 924 秒 Semantic Mutation test、多轮 proof reset 与环境型重复执行。
-
-因此旧顺序 `#327 → #314 → #312/TS7 → product` 被新 Evidence 反转。
-在不降低 Verification truth 的前提下，先消灭重复 Action、粗粒度失效、scope avalanche
-与慢测试误选；达到首轮可消费收益后立即恢复产品 Semantic Compiler 并允许后继性能
-切片按真实 authority/resource 冲突并行。
+本窗口从 live `main@33216029c751fd55a1bace1b5ce63d3937a0064c` 重新计算。PR #340
+候选 `702abeca7110b03451cef195a4e17efd3461e536` 已持久化并保持单父/clean，但
+Review `3745507962` 证明 old-main bootstrap 运行 candidate checker 自证。此前对 #340 的
+Review、trusted-bootstrap 与 Gate 结果不能弥补这个 trust-root 缺口。
 
 ## 当前唯一 Work Package
 
-### verification-action-kernel-finalization-v1
+### trusted-bootstrap-base-first-repair-v1
 
-Owners：Issue #311 ordinary-SUT finalization，消费已合并的 #338 action-reuse kernel。
+Owners：Issue #311，`ci-verification-maintainer` 与
+`development-governance-maintainer`。
 
-目标：在当前不属于 causal TCB 的 `scripts/codex/verification-action-*` seam 上一次收束
-post-merge audit 发现的最后四个 correctness seam：
+目标是先用一个直接基于当前 main 的最小 bridge 建立唯一 explicit candidate-root checker：
 
 ```text
-VerificationAction semantic identity + logical cwd/topology
-→ static Action plan
-→ local machine-state resolution
-→ execute | join-running | reuse-terminal | invalidate | cancel
-→ dependency closure readback
-→ deterministic terminal projection with owner cycle guard
+trusted-base code / parser / policy / toolchain / dependencies
+→ validated explicit candidate Git/file data root
+→ trusted PRE closure receipt
+→ credential-free candidate SUT regression
+→ trusted POST closure receipt
+→ exact immutable-field equality
+→ bootstrap verdict
 ```
 
-T1.1 必须：
+Bridge 必须：
 
-- logical working directory 与 required cheap-preflight topology 进入 producer-owned ActionKey；
-- owner identity 固定为 `ownerToken + ActionKey`，executionDomain 变化不能绕过 cycle guard；
-- physical execute 前后都重新读取 dependency closure，closure 改变或 action 被 invalidated/cancelled
-  时绝不提交 terminal；
-- Action/Plan 入口只接受严格 ordinary data，V2 schema 与独立 journal namespace 让旧 disposable
-  journal 确定性失效；
-- `executionClass` 从 ActionKey 移出；它只属于 Plan/Scheduler policy，cheap-before-expensive
-  授权只由 required cheap-preflight topology 表达；
-- plan topology 不再携带 caller-authored dependency state，runnable 只消费 journal machine fact；
-- 同一 ActionKey 的外部并发 caller 只 join 一次物理执行；owner 的 awaited nested cycle typed
-  拒绝、不死锁、不重复 spawn；
-- failure 可复用为已知失败事实但永不变 PASS，restart/invalidation/reuse 仍 fail closed；
-- 不修改 workflow、dev-runner、Test Impact trust rules、TCB lock/registry、CI Evidence、
-  merge-gate、package/lock 和产品 Compiler。
-
-T2 `verification-action-trusted-cutover-v1` 仍须从本包完成 Review receipt、Gate 和 new-main
-readback 后的新 `main` 冻结，一次性承担 trust-root migration、Review-Stable Barrier、
-physical merge authorization、CI Evidence/VerificationSession 接线及 `--admin` bypass
-退役；不在本包提前接线。
+- 只改 bootstrap workflow、TCB closure owner、既有 CI verifier入口、三个直接合同测试和
+  control-plane takeover；不吸收 PR #340 的产品 delta；
+- 为 root、每个 source/import/module read 与 digest 使用一个 canonical reader；选择 root 后
+  不能回退 ambient cwd、环境变量或 module-owned `compilerRoot`；
+- 将候选视为数据，trusted verdict 前不 import/执行 candidate checker、generator、package
+  script、dependency tree 或 tests；
+- 对 base 不理解的 policy/schema/entrypoint/edge 扩展返回
+  `manual-bootstrap-required`；
+- 用 disjoint base/candidate roots、exact SHA/tree/clean/realpath fences、去凭据执行和 PRE/POST
+  receipt 关闭 substitution、path escape 与 TOCTOU；
+- 不能由新 checker 自己授权 merge。只接受冻结 old-base transition evidence、独立
+  exact-head Review、一次 expected-head squash merge 和 exact new-main tree readback；
+- merge 后立即结束旧 epoch并报告 `TASK_RESTART_REQUIRED`。
 
 ## 候选 Work Package
 
-### 1. verification-action-trusted-cutover-v1
+### 1. verification-action-trusted-cutover-v10
 
-Owners：#311/#179/#178/#176/#316。
+Bridge 进入新 main 后，从新的 exact trust revision 重新冻结。V10 以已持久化 V9 tree/diff
+为 preservation input，通过 `(old main, bridge main, V9 candidate)` 三方 blob/mode parity
+重建为新 main 的唯一直接子提交；重叠的 checker/workflow/test 路径以 bridge 为基线语义重放，
+禁止整文件 ours/theirs 覆盖。
 
-必须先消费并合并 T1.1 ordinary-SUT defect closure；本包只支付一次 trust-root migration
-成本，并在同一切换中修复 Review-Stable Barrier 与 physical merge authorization，禁止把
-三者拆成互相依赖的半 bootstrap。
-
-- 从新 main 消费已经验证的 Action identity；
-- 由 old trusted revision 证明 TCB delta；
-- 将当前 CI Evidence reuse / VerificationSession / dev-runner 接到唯一 Action identity；
-- same ActionKey across Agent/CLI/workflow 只允许一个 producer；
--建立 MainHealth repair lane 和 candidate scope stability；
-- frozen authorization 后新增 write path 必须 new authorized package/session revision，
-  candidate 不能通过修改 manifest 给自己扩权；
-- baseline imports、verifier、selector、test-runner defect 默认路由独立 repair，
-  不再吸入无关 SUT candidate；
--开始退役重复 dispatch / PR-body refresh / duplicate execution surface。
+V10 必须创建新的 manifest/base/digest，原子切换 pointer 与 rolling plan，并重新获得
+exact-head Review、trusted-rooted bootstrap、merge authorization。旧 head 的任何 Review、
+Evidence、Session、artifact 或 bootstrap receipt 都是 stale。只有 V10 新 PR/ref/tree parity
+持久化后，才可把旧 PR #340 head 作为 superseded history处理。
 
 ### 2. semantic-impact-failure-routing-v1
 
-Owners：#188/#177/#205/#176/#314。
-
-- selection 收敛为
-  `Source/Contract/Responsibility → Requirement → Test Capability → Concrete Test` witness；
-- `required | not-applicable | unresolved` 明确且 unknown 只扩大/阻断；
-- expensive test 必须有 causal witness 与 duration/resource projection；
-- stable FailureRecord/fingerprint、owner/invariant、minimal repro、retry precondition、
-  typed next action；
--同 input + 同 fingerprint 默认禁止 blind rerun / repeated full investigation；
-- #205 preflight 阻止同类第二次 leaf patch 与无证明 scope expansion；
-- #314 机器禁止 child delivery slice 自动关闭 parent Program。
+Bridge 与 V10 完成 new-main readback 后，才从 then-latest main 重算；本候选不占用当前
+bridge writer，也不能进入当前写集。
 
 ### 3. feedback-scheduler-hermetic-runtime-v1
 
-Owners：#189/#190/#316。
-
-- revision-aware scheduler 只运行 invalidated Action，superseded work 可取消；
-- CPU/I/O/process/browser/workspace/cache/exclusive writer 分资源预算；
-- nested concurrency 统一预算，避免 oversubscription；
-- Bun transpiler/cache、workspace、ports、process tree 与 browser 按 Action/environment
-  隔离并 settlement/readback；
-- fast/medium/slow/risk/release 由真实 duration + resource class 分层；
-- independent expensive actions 并行，冲突资源有序；
-- cache/environment failure typed 化，不再靠“再跑一次”恢复。
+Bridge 与 V10 完成 new-main readback 后，才从 then-latest main 重算；本候选不占用当前
+bridge writer，也不能进入当前写集。
 
 ### 4. compiler-incremental-toolchain-v1
 
-Owners：#194/#296/#312/#193/#316。
-
-- same-process pure Compiler incremental node identity/invalidation 与 clean parity；
--共享 Physical Observation / TypeScript Program / reverse dependency producer，
-  减少重复 read/parse/hash/graph build；
-- unchanged Artifact bytes 不重写、不级联 mtime/Impact；
-- TS7 CLI 只有 exact diagnostics/determinism/platform/cold-warm parity + critical-path
-  Evidence 支持时采用；
-- dependency/provider startup 与 install closure按真实 consumer 精简。
+Bridge 与 V10 完成 new-main readback 后，才从 then-latest main 重算；本候选不占用当前
+bridge writer，也不能进入当前写集。
 
 ## 后续但暂不占 formal writer
 
-- Issue #327 repository structural convergence：保留有效 core delta，吞吐 T1/T2 后从新 main
-  重新建立 focused candidate；不得复用 #333 的 38-path scope。
-- Issue #314 architecture maturity：其 Program/delivery-slice closure guard在候选2进入；
-  其余 registry 工作随后按真实 consumer推进。
-- Issue #279 hosted integration/runtime retirement：随候选1–3实际 consumer逐步接线，
-  不再一次重建巨型 Integration Kernel。
-- Issue #191 Integration Queue：仍只在两条真实并行产品线和 #207 conflict witness 成立时激活。
-- Issue #206/#219：保持 superseded/not-planned CLOSED；其负例与验收迁入当前 canonical owners，
-  不恢复第二 cache/Closure Compiler。
-- Issue #209：保持完成，除非新的 physical line-ending recurrence 反证其完成门。
-- TypeScript 7、dependency、产品 Semantic Compiler 的只读 benchmark/census 可并行，
-  不自动取得 writer authority。
+- Issue #178 的 causal TCB 历史完成事实仅作为 bridge old-base transition 的来源；bridge
+  合并后必须按新 trust revision 重新读取，不能复用旧 Evidence。
+- Issue #327 的 repository structural convergence 继续由 V10 后的新 main 重算；当前 bridge
+  只保存其需求，不吸收其产品 delta。
+- Issue #314 的 architecture maturity 与 delivery closure 继续由后续候选消费；当前 bridge
+  不取得该 Program 的 writer authority。
 
 ## 重新规划硬触发器
 
-任一条件成立，立即从 then-latest `main` 重算，而不是继续旧队列：
+任一条件成立立即停止并从 then-latest main 重算：
 
-1. 当前包发现需要写 forbidden/TCB surface；
-2. candidate write set 比 frozen authorization 扩大；
-3.同一 ActionKey 被第二次物理启动；
-4.相同 failure fingerprint 在因果输入未变时被 blind rerun；
-5.一个 unrelated baseline/verifier defect 试图进入当前 SUT scope；
-6. expensive test 无 causal witness却进入开发关键路径；
-7. cache/environment contamination 需要第二次相同重跑；
-8.新 main / Review / CI / trust revision 使当前 frozen identity失效；
-9.真实critical-path Evidence证明另一 owner 的收益显著更高；
-10.产品线已可安全并行且继续全局 single writer 反而成为主要瓶颈。
+1. bridge 不是 `33216029c751fd55a1bace1b5ce63d3937a0064c` 的唯一直接子提交；
+2. candidate write set 超出 frozen manifest，或出现任何 PR #340 产品 delta；
+3. trusted checker 导入/执行 candidate verifier、generator、config、dependencies 或 tests；
+4. root/path/blob/tree/tool/receipt identity 漂移、reparse、非普通文件或 PRE/POST 不一致；
+5. base 不理解的 closure delta 被解释为 passed，而不是 manual-bootstrap-required；
+6. bridge 试图以自己的 checker、workflow 或 candidate tests授权自己；
+7. exact-head independent Review仍有 P0-P2，或 manual transition evidence未绑定 exact head/tree；
+8. 相同 failure fingerprint 在因果输入未变时被 blind rerun；
+9. main、PR、branch、manifest、trust revision 或 runner input发生漂移；
+10. bridge merge 后没有先完成 new-main readback与 `TASK_RESTART_REQUIRED` 就继续 V10。
 
 ## 加速验收
 
-速度提升不得来自少测、弱化 fail-closed 或扩大 timeout 掩盖缺陷。#316 对每个真实
-Work Package 记录：
-
-- selected-work → new-main readback wall time；
-- time-to-first-actionable-failure；
-- unique ActionKey / physical executions / duplicate ratio；
-- reused / invalidated / recomputed / cancelled；
-- proof-reset count；
-- scope-expansion count；
-- expensive-test critical-path contribution；
-- first-pass candidate yield / avoidable failure；
-- cache/env contamination reruns；
-- CPU/I/O/process/memory/resource wait。
-
-稳定 distribution 存在前不手填虚假 SLO。首个目标是让 #327 类 focused refactor
-不再因 unrelated baseline/verifier变化自动进入 10–15 分钟级语义集成测试，并且任何
-省下的执行都必须有 exact reuse 或 not-applicable/Impact witness。
+只运行一个 bridge-focused 合同批次、一次必要的 typecheck/TCB reconciliation 和一次独立
+manual bootstrap。速度不能来自少测、放宽 parser/path/identity、重复 rerun 或让 candidate
+结果升级成 authority；所有复用与失效都按 exact base/head/tree/manifest/tool/receipt记录。
