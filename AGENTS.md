@@ -5,7 +5,7 @@
 1. 以最新 `main`、开放 PR/Issue、CI、Review 和真实 diff 建立事实；branch、PR body、Issue、聊天和报告不能证明完成。
 2. 由 `sec-repository-orientation` 绑定受信 latest default/base resolver，并把 intended workspace 保持为候选解析目标；结果为 `unresolved` 或 `invalid` 时停止写入。
 3. 只在所选 frozen Work Package 的 owned/forbidden paths、acceptance、tests 和资源边界内工作。
-4. 从 `.agents/skills/**` 选择一个主 Skill；trigger、权限、工具、执行、停止与恢复只由该 Skill 拥有。
+4. 按 `sec-skill-applicability-decision-v1`（`platform/shared/agent-skill-contract.ts`）从 `.agents/skills/**` 选择 zero-or-one applicable trusted Skill；`none-required` 时不加载，`ambiguous`/`conflict`/`stale`/`unresolved` 时停止 reconcile。
 5. 产品与架构读取 `docs/authority.json` 指向的唯一领域 owner；动态选择只读取 `docs/work/**`。
 6. 影响分析先使用 capability ledger 与当前 Capsule 已批准且可调用的能力；不可用时按 `sec-impact-and-validation` 降级到 exact imports、consumer 与 test-impact census，禁止临时安装工具或重建索引。
 7. Worker 不自授权扩大 scope、触发 hosted Gate 或 merge；A0 负责 DAG、integration、Gate custody、merge、readback 与清理。
