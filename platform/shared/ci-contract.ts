@@ -10,6 +10,12 @@ import {
   CI_VERIFICATION_CONTRACT_REVISION,
   CI_VERIFICATION_EXECUTION_MODEL
 } from './ci-verification-plan.ts';
+import {
+  CI_MAIN_HEALTH_POLICY_DIGEST_V1,
+  CI_MAIN_HEALTH_POLICY_V1,
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+  CI_VERIFICATION_SESSION_REQUEST_SCHEMA
+} from './ci-verification-revision.ts';
 import { uniqueSorted } from './collections.ts';
 import { CONTRACT_FORMAT_VERSION, CONTRACT_STATUS_ACTIVE } from './constants.ts';
 import { platformCommand } from './platform-command.ts';
@@ -31,16 +37,20 @@ export type {
 } from './ci-verification-plan.ts';
 
 export const CI_VERIFICATION_PR_EVENT = 'repository_dispatch' as const;
-export const CI_VERIFICATION_PR_DISPATCH_TYPE = 'sec-verify-frozen-v1' as const;
+export const CI_VERIFICATION_PR_DISPATCH_TYPE = CI_VERIFICATION_SESSION_DISPATCH_TYPE;
+export const CI_VERIFICATION_PR_REQUEST_SCHEMA = CI_VERIFICATION_SESSION_REQUEST_SCHEMA;
 export const CI_VERIFICATION_PR_STEP_ORDER = [
-  'Resolve trusted frozen request, exact head, current base, and profile',
-  'Checkout exact PR head',
-  'Setup Bun',
-  'Cache bun install',
-  'Cache tsc incremental build info',
-  'Install dependencies once',
-  'Run exact-head verification',
-  'Upload compact verification evidence'
+  'Resolve proposal against live default, PR, candidate, and actor',
+  'Publish or join Review request and wait for exact Review clearance',
+  'Dispatch or join canonical ActionKey producers until terminal',
+  'Create immutable Action start marker from fresh provider census',
+  'Publish durable start tombstone and issue execution ticket',
+  'Execute one normalized candidate operation without credentials',
+  'Assemble canonical five-state terminal artifact',
+  'Create exact post-upload terminal anchor',
+  'Publish neutral terminal provider tombstone',
+  'Compose V4 Evidence only from canonical Action terminals',
+  'Finalize provenance-bound Verification Session artifact'
 ] as const;
 export const CI_VERIFICATION_RELEASE_STEP_ORDER = [
   'Resolve trusted release request, exact head, and verifier boundary',
@@ -52,6 +62,26 @@ export const CI_VERIFICATION_RELEASE_STEP_ORDER = [
   'Install dependencies once',
   'Run exact-head full verification',
   'Upload compact full verification evidence'
+] as const;
+export const CI_MAIN_HEALTH_JOB_ID = 'main-health' as const;
+export const CI_MAIN_HEALTH_JOB_NAME = CI_MAIN_HEALTH_POLICY_V1.context;
+export const CI_MAIN_HEALTH_STEP_ORDER = [
+  'Bind canonical MainHealth request to live main',
+  'Checkout exact pushed main revision',
+  'Setup trusted Bun',
+  'Cache Bun install',
+  'Install dependencies from the frozen lock',
+  'Reject import organization drift',
+  'Run exact-main TypeScript checks',
+  'Validate active documentation authority',
+  'Run the complete fast test inventory'
+] as const;
+export const CI_MAIN_HEALTH_COMMANDS = [
+  'bun install --frozen-lockfile',
+  'bun run imports:check',
+  'bun run typecheck',
+  'bun run docs:doctor',
+  'bun run test:fast'
 ] as const;
 
 export type CiContractStep = {
@@ -81,6 +111,12 @@ export type CiContract = {
   prWorkflowCommands: string[];
   releaseWorkflowCommandCount: number;
   releaseWorkflowCommands: string[];
+  mainHealthContext: typeof CI_MAIN_HEALTH_JOB_NAME;
+  mainHealthPolicyDigest: typeof CI_MAIN_HEALTH_POLICY_DIGEST_V1;
+  mainHealthStepCount: number;
+  mainHealthStepOrder: string[];
+  mainHealthCommandCount: number;
+  mainHealthCommands: string[];
   prQuickLaneCommandCount: number;
   prQuickLaneCommands: string[];
   prRiskLaneCommandCount: number;
@@ -102,8 +138,17 @@ export type CiContract = {
 };
 
 const prWorkflowCommands = [
-  'bun install --frozen-lockfile',
-  'bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"'
+  'bun scripts/codex/verification-session.ts observe-hosted',
+  'bun scripts/codex/verification-session.ts prepare-hosted',
+  'bun scripts/ci-verification.ts ensure-hosted-action-provider',
+  'bun scripts/ci-verification.ts resolve-hosted-action',
+  'install --frozen-lockfile --ignore-scripts',
+  'bun scripts/ci-verification.ts prepare-hosted-action-inputs',
+  'bun scripts/ci-verification.ts self-test-hosted-action-sandbox',
+  'bun scripts/ci-verification.ts execute-hosted-action-sut',
+  'bun scripts/ci-verification.ts assemble-hosted-action-terminal',
+  'bun scripts/ci-verification.ts compose-hosted-evidence',
+  'bun scripts/codex/verification-session.ts finalize-hosted'
 ];
 
 const releaseWorkflowCommands = [
@@ -317,6 +362,12 @@ export function buildCiContract(): CiContract {
     prWorkflowCommands: [...prWorkflowCommands],
     releaseWorkflowCommandCount: releaseWorkflowCommands.length,
     releaseWorkflowCommands: [...releaseWorkflowCommands],
+    mainHealthContext: CI_MAIN_HEALTH_JOB_NAME,
+    mainHealthPolicyDigest: CI_MAIN_HEALTH_POLICY_DIGEST_V1,
+    mainHealthStepCount: CI_MAIN_HEALTH_STEP_ORDER.length,
+    mainHealthStepOrder: [...CI_MAIN_HEALTH_STEP_ORDER],
+    mainHealthCommandCount: CI_MAIN_HEALTH_COMMANDS.length,
+    mainHealthCommands: [...CI_MAIN_HEALTH_COMMANDS],
     prQuickLaneCommandCount: prQuickLaneCommands.length,
     prQuickLaneCommands: [...prQuickLaneCommands],
     prRiskLaneCommandCount: prRiskLaneCommands.length,

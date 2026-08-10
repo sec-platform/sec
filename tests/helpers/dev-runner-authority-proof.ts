@@ -194,11 +194,25 @@ function snapshotTrackedDevRunnerHostInventory(
     record.largestSourceBytes,
     'tracked host inventory.largestSourceBytes'
   );
+  if (modules.some(({ relativePath }) => !isTrackedDevRunnerProgramResource(relativePath))) {
+    throw new Error('Tracked host inventory contains a non-canonical program resource path.');
+  }
+  if (new Set(modules.map(({ relativePath }) => relativePath)).size !== modules.length) {
+    throw new Error('Tracked host inventory contains duplicate resource paths.');
+  }
   if (modules.reduce((total, module) => total + module.sourceBytes, 0) !== totalSourceBytes ||
     modules.reduce((largest, module) => Math.max(largest, module.sourceBytes), 0) !==
       largestSourceBytes) {
     throw new Error('Tracked host inventory aggregate byte counts are inconsistent.');
   }
+  assertDevRunnerHostBudget('tracked host path manifest', manifestBytes,
+    DEV_RUNNER_HOST_MANIFEST_MAX_BYTES);
+  assertDevRunnerHostBudget('tracked host module count', modules.length,
+    DEV_RUNNER_HOST_MODULE_MAX_COUNT);
+  assertDevRunnerHostBudget('tracked host source total', totalSourceBytes,
+    DEV_RUNNER_HOST_SOURCE_TOTAL_MAX_BYTES);
+  assertDevRunnerHostBudget('tracked host largest source', largestSourceBytes,
+    DEV_RUNNER_HOST_SOURCE_MAX_BYTES);
   return deepFreezeOwned({
     modules,
     manifestBytes,
@@ -724,7 +738,387 @@ export function isTrackedDevRunnerHostSource(relativePath: string): boolean {
   }
   const [root] = relativePath.split('/');
   return (root === 'platform' || root === 'scripts') &&
-    EXECUTABLE_SOURCE_EXTENSION_SET.has(path.posix.extname(relativePath).toLowerCase());
+    isTrackedDevRunnerProgramResource(relativePath);
+}
+
+function isTrackedDevRunnerProgramResource(relativePath: string): boolean {
+  if (relativePath.length === 0 || relativePath.includes('\\') ||
+    path.posix.normalize(relativePath) !== relativePath || relativePath === '..' ||
+    relativePath.startsWith('../') || path.posix.isAbsolute(relativePath)) return false;
+  const extension = path.posix.extname(relativePath).toLowerCase();
+  return extension === '.json' || EXECUTABLE_SOURCE_EXTENSION_SET.has(extension);
+}
+
+function liveOwnerModuleIds(scenario: DevRunnerAuthorityScenario): readonly string[] {
+  if (scenario.scenarioId !== 'live' || scenario.moduleScope !== '') {
+    throw new Error('Tracked host closure requires the exact live scenario.');
+  }
+  const roots = [
+    scenario.commandOwnerModuleId,
+    scenario.boundedOwnerModuleId,
+    scenario.processOwnerModuleId,
+    ...scenario.policyOwnerModuleIds
+  ].sort(compareCanonicalText);
+  const unique = [...new Set(roots)];
+  if (unique.some((relativePath) => !isTrackedDevRunnerHostSource(relativePath) ||
+    !isDevRunnerExecutableSource(relativePath))) {
+    throw new Error('Live owner module ids must be canonical tracked executable resources.');
+  }
+  return Object.freeze(unique);
+}
+
+function parseTrackedClosureResource(
+  relativePath: string,
+  source: string
+): ts.SourceFile | null {
+  if (path.posix.extname(relativePath).toLowerCase() === '.json') {
+    try {
+      JSON.parse(source);
+    } catch {
+      throw new Error(`Malformed tracked JSON closure resource: ${relativePath}.`);
+    }
+    return null;
+  }
+  const sourceFile = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true);
+  if (/\.d\.(?:c|m)?ts$/iu.test(relativePath)) {
+    const diagnostics = (
+      sourceFile as ts.SourceFile & { readonly parseDiagnostics?: readonly ts.Diagnostic[] }
+    ).parseDiagnostics ?? [];
+    if (diagnostics.length > 0) {
+      const messages = diagnostics.map(({ messageText }) =>
+        ts.flattenDiagnosticMessageText(messageText, '\n')).sort(compareCanonicalText);
+      throw new Error(
+        `Malformed tracked declaration closure resource: ${relativePath}: ${messages.join('; ')}`
+      );
+    }
+  }
+  return sourceFile;
+}
+
+type AmbientIdentifierClassifier = (
+  identifier: ts.Identifier,
+  expectedName: 'module' | 'require'
+) => boolean;
+
+function directAmbientRuntimeLoader(
+  expression: ts.Expression,
+  isAmbientIdentifier: AmbientIdentifierClassifier
+): 'require' | null {
+  const value = unwrapExpression(expression);
+  if (ts.isIdentifier(value) && isAmbientIdentifier(value, 'require')) return 'require';
+  if (!ts.isPropertyAccessExpression(value) || value.questionDotToken !== undefined ||
+    value.name.text !== 'require' || !ts.isIdentifier(value.expression) ||
+    !isAmbientIdentifier(value.expression, 'module')) return null;
+  return 'require';
+}
+
+function lexicalAmbientIdentifierClassifier(
+  sourceFile: ts.SourceFile
+): AmbientIdentifierClassifier {
+  const bindingsByScope = new Map<ts.Node, Set<string>>();
+  const add = (scope: ts.Node, name: string): void => {
+    const bindings = bindingsByScope.get(scope) ?? new Set<string>();
+    bindings.add(name);
+    bindingsByScope.set(scope, bindings);
+  };
+  const addBindingName = (scope: ts.Node, name: ts.BindingName): void => {
+    if (ts.isIdentifier(name)) {
+      add(scope, name.text);
+      return;
+    }
+    for (const element of name.elements) {
+      if (!ts.isOmittedExpression(element)) addBindingName(scope, element.name);
+    }
+  };
+  const lexicalScope = (node: ts.Node): ts.Node => {
+    let current: ts.Node | undefined = node;
+    while (current) {
+      if (ts.isBlock(current) || ts.isCaseBlock(current) || ts.isSourceFile(current) ||
+        ts.isForStatement(current) || ts.isForInStatement(current) ||
+        ts.isForOfStatement(current) || ts.isCatchClause(current)) return current;
+      current = current.parent;
+    }
+    return sourceFile;
+  };
+  const functionScope = (node: ts.Node): ts.Node => {
+    let current: ts.Node | undefined = node;
+    while (current) {
+      if (ts.isFunctionLike(current) || ts.isSourceFile(current)) return current;
+      current = current.parent;
+    }
+    return sourceFile;
+  };
+  const visitBindings = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node)) {
+      const declarationList = ts.isVariableDeclarationList(node.parent) ? node.parent : null;
+      const scope = declarationList &&
+        (declarationList.flags & ts.NodeFlags.BlockScoped) === 0
+        ? functionScope(node)
+        : lexicalScope(node);
+      addBindingName(scope, node.name);
+    } else if (ts.isParameter(node) && ts.isFunctionLike(node.parent)) {
+      addBindingName(node.parent, node.name);
+    } else if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) ||
+      ts.isEnumDeclaration(node) || ts.isModuleDeclaration(node)) && node.name) {
+      const name = ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)
+        ? node.name.text
+        : null;
+      if (name !== null) add(lexicalScope(node.parent), name);
+    } else if ((ts.isFunctionExpression(node) || ts.isClassExpression(node)) && node.name) {
+      add(node, node.name.text);
+    } else if (ts.isImportDeclaration(node) && node.importClause &&
+      !node.importClause.isTypeOnly) {
+      if (node.importClause.name) add(sourceFile, node.importClause.name.text);
+      const bindings = node.importClause.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) add(sourceFile, bindings.name.text);
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) {
+          if (!element.isTypeOnly) add(sourceFile, element.name.text);
+        }
+      }
+    } else if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly) {
+      add(sourceFile, node.name.text);
+    } else if (ts.isCatchClause(node) && node.variableDeclaration) {
+      addBindingName(node, node.variableDeclaration.name);
+    }
+    ts.forEachChild(node, visitBindings);
+  };
+  visitBindings(sourceFile);
+  return (identifier, expectedName) => {
+    if (identifier.text !== expectedName) return false;
+    let current: ts.Node | undefined = identifier;
+    while (current) {
+      if (bindingsByScope.get(current)?.has(expectedName)) return false;
+      current = current.parent;
+    }
+    return true;
+  };
+}
+
+function literalRuntimeSpecifiers(relativePath: string, source: string): readonly string[] {
+  const sourceFile = parseTrackedClosureResource(relativePath, source);
+  if (!sourceFile) return Object.freeze([]);
+  const isAmbientIdentifier = lexicalAmbientIdentifierClassifier(sourceFile);
+  const specifiers = new Set<string>();
+  const literalText = (expression: ts.Expression | undefined): string | null =>
+    expression && (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression))
+      ? expression.text
+      : null;
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
+      const specifier = literalText(node.moduleSpecifier);
+      if (specifier !== null) specifiers.add(specifier);
+    } else if (ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference)) {
+      const specifier = literalText(node.moduleReference.expression);
+      if (specifier !== null) specifiers.add(specifier);
+    } else if (ts.isCallExpression(node)) {
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const directLoader = directAmbientRuntimeLoader(node.expression, isAmbientIdentifier);
+      if (isDynamicImport || directLoader !== null) {
+        const specifier = literalText(node.arguments[0]);
+        if (specifier !== null) specifiers.add(specifier);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  for (const reference of ts.preProcessFile(source, true, true).referencedFiles) {
+    specifiers.add(reference.fileName);
+  }
+  return Object.freeze([...specifiers].sort(compareCanonicalText));
+}
+
+interface ProgramResolutionKernel {
+  readonly root: string;
+  readonly options: ts.CompilerOptions;
+  readonly baseHost: ts.CompilerHost;
+  readonly canonicalFileName: (fileName: string) => string;
+  readonly resolutionCache: ts.ModuleResolutionCache;
+}
+
+function createProgramResolutionKernel(
+  lifecycle?: MutableDevRunnerAnalysisLifecycle
+): ProgramResolutionKernel {
+  const root = path.resolve(compilerRoot);
+  const configPath = path.join(root, 'tsconfig.json');
+  const config = ts.readConfigFile(configPath, ts.sys.readFile);
+  if (config.error) {
+    throw new Error(
+      `Unable to parse pinned tsconfig: ${ts.flattenDiagnosticMessageText(
+        config.error.messageText,
+        '\n'
+      )}`
+    );
+  }
+  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root, undefined, configPath);
+  if (parsed.errors.length > 0) {
+    throw new Error(
+      `Pinned tsconfig is invalid: ${parsed.errors.map((diagnostic) =>
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')).join('; ')}`
+    );
+  }
+  const options: ts.CompilerOptions = {
+    ...parsed.options,
+    allowJs: true,
+    checkJs: false,
+    incremental: false,
+    noEmit: true,
+    tsBuildInfoFile: undefined
+  };
+  if (options.module !== ts.ModuleKind.NodeNext ||
+    options.moduleResolution !== ts.ModuleResolutionKind.NodeNext) {
+    throw new Error('Pinned tsconfig must use the NodeNext module and resolver pair.');
+  }
+  const baseHost = ts.createCompilerHost(options, true);
+  const canonicalFileName = (fileName: string): string =>
+    baseHost.getCanonicalFileName(path.resolve(fileName));
+  const resolutionCache = ts.createModuleResolutionCache(root, canonicalFileName, options);
+  if (lifecycle) lifecycle.moduleResolutionCacheBuildCount += 1;
+  return Object.freeze({ root, options, baseHost, canonicalFileName, resolutionCache });
+}
+
+function resolveTrackedRuntimeSpecifier(
+  containingPath: string,
+  specifier: string,
+  trackedPaths: ReadonlySet<string>,
+  trackedDirectories: ReadonlySet<string>,
+  kernel: ProgramResolutionKernel
+): string | null {
+  if (specifier.startsWith('.')) {
+    const requested = path.posix.normalize(
+      path.posix.join(path.posix.dirname(containingPath), specifier)
+    );
+    if (requested === '..' || requested.startsWith('../') || path.posix.isAbsolute(requested)) {
+      throw new Error(
+        `Tracked host dependency escapes the repository root: ${containingPath} -> ${specifier}.`
+      );
+    }
+  } else if (specifier.startsWith('node:') || specifier.startsWith('bun:')) {
+    return null;
+  }
+  const host: ts.ModuleResolutionHost = {
+    fileExists: (fileName) => {
+      const absolutePath = path.resolve(fileName);
+      if (!isContainedPath(kernel.root, absolutePath)) return kernel.baseHost.fileExists(fileName);
+      const relativePath = path.relative(kernel.root, absolutePath);
+      if (relativePath === 'node_modules' || relativePath.startsWith(`node_modules${path.sep}`)) {
+        return kernel.baseHost.fileExists(fileName);
+      }
+      return trackedPaths.has(relativePath.split(path.sep).join('/'));
+    },
+    readFile: (fileName) => {
+      const absolutePath = path.resolve(fileName);
+      if (!isContainedPath(kernel.root, absolutePath)) return kernel.baseHost.readFile(fileName);
+      const relativePath = path.relative(kernel.root, absolutePath);
+      return relativePath === 'node_modules' || relativePath.startsWith(`node_modules${path.sep}`)
+        ? kernel.baseHost.readFile(fileName)
+        : undefined;
+    },
+    directoryExists: (directoryName) => {
+      const absolutePath = path.resolve(directoryName);
+      if (!isContainedPath(kernel.root, absolutePath)) {
+        return kernel.baseHost.directoryExists?.(directoryName) === true;
+      }
+      const relativePath = path.relative(kernel.root, absolutePath);
+      if (relativePath === 'node_modules' || relativePath.startsWith(`node_modules${path.sep}`)) {
+        return kernel.baseHost.directoryExists?.(directoryName) === true;
+      }
+      return trackedDirectories.has(kernel.canonicalFileName(absolutePath));
+    },
+    realpath: (fileName) => path.resolve(fileName),
+    getCurrentDirectory: () => kernel.root,
+    useCaseSensitiveFileNames: kernel.baseHost.useCaseSensitiveFileNames?.() ?? true
+  };
+  const containingFile = path.resolve(kernel.root, ...containingPath.split('/'));
+  const resolution = ts.resolveModuleName(
+    specifier,
+    containingFile,
+    kernel.options,
+    host,
+    kernel.resolutionCache
+  ).resolvedModule;
+  if (!resolution) {
+    throw new Error(`Tracked host dependency is unresolved: ${containingPath} -> ${specifier}.`);
+  }
+  const absoluteResolved = path.resolve(resolution.resolvedFileName);
+  if (!isContainedPath(kernel.root, absoluteResolved)) return null;
+  const relativeResolved = path.relative(kernel.root, absoluteResolved);
+  if (relativeResolved === 'node_modules' ||
+    relativeResolved.startsWith(`node_modules${path.sep}`) || resolution.isExternalLibraryImport) {
+    return null;
+  }
+  const relativePath = relativeResolved.split(path.sep).join('/');
+  if (!isTrackedDevRunnerProgramResource(relativePath) || !trackedPaths.has(relativePath)) {
+    throw new Error(
+      `Tracked host dependency resolved outside the tracked runtime closure: ` +
+      `${containingPath} -> ${specifier} -> ${relativePath}.`
+    );
+  }
+  return relativePath;
+}
+
+async function collectTrackedDevRunnerHostClosure(
+  trackedPaths: ReadonlySet<string>,
+  manifestBytes: number,
+  liveScenario: DevRunnerAuthorityScenario,
+  kernel: ProgramResolutionKernel,
+  readSource: (relativePath: string, remainingTotalBytes: number) =>
+    Promise<{ readonly source: string; readonly sourceBytes: number }>
+): Promise<TrackedDevRunnerHostInventory> {
+  const pending = new Set(liveOwnerModuleIds(liveScenario));
+  const accepted = new Set<string>();
+  const trackedDirectories = virtualDirectorySet(
+    [...trackedPaths].map((relativePath) => path.resolve(
+      kernel.root,
+      ...relativePath.split('/')
+    )),
+    kernel.canonicalFileName
+  );
+  const modules: TrackedDevRunnerHostModule[] = [];
+  let totalSourceBytes = 0;
+  let largestSourceBytes = 0;
+  while (pending.size > 0) {
+    const relativePath = [...pending].sort(compareCanonicalText)[0]!;
+    pending.delete(relativePath);
+    if (accepted.has(relativePath)) continue;
+    if (!trackedPaths.has(relativePath)) {
+      throw new Error(`Live owner or dependency is not tracked: ${relativePath}.`);
+    }
+    const read = await readSource(
+      relativePath,
+      DEV_RUNNER_HOST_SOURCE_TOTAL_MAX_BYTES - totalSourceBytes
+    );
+    if (Buffer.byteLength(read.source, 'utf8') !== read.sourceBytes) {
+      throw new Error(`Tracked host source changed bytes during closure read: ${relativePath}.`);
+    }
+    accepted.add(relativePath);
+    totalSourceBytes += read.sourceBytes;
+    largestSourceBytes = Math.max(largestSourceBytes, read.sourceBytes);
+    modules.push({ relativePath, ...read });
+    for (const specifier of literalRuntimeSpecifiers(relativePath, read.source)) {
+      const dependency = resolveTrackedRuntimeSpecifier(
+        relativePath,
+        specifier,
+        trackedPaths,
+        trackedDirectories,
+        kernel
+      );
+      if (dependency !== null && !accepted.has(dependency)) pending.add(dependency);
+    }
+    assertDevRunnerHostBudget(
+      'tracked host module count',
+      accepted.size + pending.size,
+      DEV_RUNNER_HOST_MODULE_MAX_COUNT
+    );
+  }
+  modules.sort((left, right) => compareCanonicalText(left.relativePath, right.relativePath));
+  assertDevRunnerHostBudget(
+    'tracked host source total',
+    totalSourceBytes,
+    DEV_RUNNER_HOST_SOURCE_TOTAL_MAX_BYTES
+  );
+  return deepFreezeOwned({ modules, manifestBytes, totalSourceBytes, largestSourceBytes });
 }
 
 export function assertDevRunnerHostBudget(
@@ -828,8 +1222,11 @@ async function readIdentityBoundSource(
   }
 }
 
-export async function readTrackedDevRunnerHostSources(): Promise<TrackedDevRunnerHostInventory> {
-  const tracked = Bun.spawnSync(['git', 'ls-files', '-z', '--', 'platform', 'scripts'], {
+export async function readTrackedDevRunnerHostSources(
+  liveScenario: DevRunnerAuthorityScenario,
+  kernel = createProgramResolutionKernel()
+): Promise<TrackedDevRunnerHostInventory> {
+  const tracked = Bun.spawnSync(['git', 'ls-files', '-z'], {
     cwd: compilerRoot,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -849,44 +1246,56 @@ export async function readTrackedDevRunnerHostSources(): Promise<TrackedDevRunne
   }
   const relativePaths = manifest.split('\0')
     .filter((relativePath) => relativePath.length > 0)
-    .filter(isTrackedDevRunnerHostSource)
+    .filter(isTrackedDevRunnerProgramResource)
     .sort(compareCanonicalText);
   if (new Set(relativePaths).size !== relativePaths.length) {
     throw new Error('Tracked host path manifest contains duplicate canonical paths.');
   }
-  assertDevRunnerHostBudget(
-    'tracked host module count',
-    relativePaths.length,
-    DEV_RUNNER_HOST_MODULE_MAX_COUNT
-  );
 
   const root = path.resolve(compilerRoot);
   const canonicalRoot = await realpath(root);
-  const modules: TrackedDevRunnerHostModule[] = [];
-  let totalSourceBytes = 0;
-  let largestSourceBytes = 0;
-  for (const relativePath of relativePaths) {
-    const read = await readIdentityBoundSource(
+  return collectTrackedDevRunnerHostClosure(
+    new Set(relativePaths),
+    tracked.stdout.byteLength,
+    liveScenario,
+    kernel,
+    (relativePath, remainingTotalBytes) => readIdentityBoundSource(
       root,
       canonicalRoot,
       relativePath,
-      DEV_RUNNER_HOST_SOURCE_TOTAL_MAX_BYTES - totalSourceBytes
-    );
-    totalSourceBytes += read.sourceBytes;
-    largestSourceBytes = Math.max(largestSourceBytes, read.sourceBytes);
-    modules.push({ relativePath, ...read });
-  }
-  assertDevRunnerHostBudget(
-    'tracked host source total',
-    totalSourceBytes,
-    DEV_RUNNER_HOST_SOURCE_TOTAL_MAX_BYTES
+      remainingTotalBytes
+    )
   );
-  return deepFreezeOwned({
-    modules,
-    manifestBytes: tracked.stdout.byteLength,
-    totalSourceBytes,
-    largestSourceBytes
-  });
+}
+
+export async function collectTrackedDevRunnerHostClosureForTests(
+  candidateInventory: TrackedDevRunnerHostInventory,
+  liveScenario: DevRunnerAuthorityScenario
+): Promise<TrackedDevRunnerHostInventory> {
+  const candidates = snapshotTrackedDevRunnerHostInventory(candidateInventory);
+  const modulesByPath = new Map(candidates.modules.map((module) => [
+    module.relativePath,
+    module
+  ] as const));
+  if (modulesByPath.size !== candidates.modules.length) {
+    throw new Error('Tracked host closure candidates contain duplicate paths.');
+  }
+  return collectTrackedDevRunnerHostClosure(
+    new Set(modulesByPath.keys()),
+    candidates.manifestBytes,
+    liveScenario,
+    createProgramResolutionKernel(),
+    async (relativePath, remainingTotalBytes) => {
+      const module = modulesByPath.get(relativePath);
+      if (!module) throw new Error(`Tracked host closure candidate disappeared: ${relativePath}.`);
+      assertDevRunnerHostBudget(
+        `tracked host source ${relativePath}`,
+        module.sourceBytes,
+        Math.min(DEV_RUNNER_HOST_SOURCE_MAX_BYTES, remainingTotalBytes)
+      );
+      return { source: module.source, sourceBytes: module.sourceBytes };
+    }
+  );
 }
 
 declare const scenarioPartitionBrand: unique symbol;
@@ -5253,7 +5662,7 @@ function solveFrozenFiniteAuthorityTopology(
   });
 }
 
-type SuiteSourceKind = 'executable' | 'data-package' | 'declaration' | 'fixture';
+type SuiteSourceKind = 'executable' | 'data-package' | 'declaration';
 
 interface SuiteSource {
   readonly scenarioId: string;
@@ -5423,7 +5832,6 @@ function jsonProgramSource(value: unknown): string {
 function suiteSourceKind(relativePath: string): SuiteSourceKind {
   if (path.posix.extname(relativePath).toLowerCase() === '.json') return 'data-package';
   if (/\.d\.(?:c|m)?ts$/iu.test(relativePath)) return 'declaration';
-  if (relativePath.startsWith('platform/registry/')) return 'fixture';
   if (isDevRunnerExecutableSource(relativePath)) return 'executable';
   throw new Error(`Program suite source has an unsupported resource kind: ${relativePath}.`);
 }
@@ -5431,42 +5839,11 @@ function suiteSourceKind(relativePath: string): SuiteSourceKind {
 function buildProgramContext(
   inventory: TrackedDevRunnerHostInventory,
   inputScenarios: readonly DevRunnerAuthorityScenario[],
-  lifecycle: MutableDevRunnerAnalysisLifecycle
+  lifecycle: MutableDevRunnerAnalysisLifecycle,
+  preparedKernel?: ProgramResolutionKernel
 ): ProgramContext {
-  const root = path.resolve(compilerRoot);
-  const configPath = path.join(root, 'tsconfig.json');
-  const config = ts.readConfigFile(configPath, ts.sys.readFile);
-  if (config.error) {
-    throw new Error(
-      `Unable to parse pinned tsconfig: ${ts.flattenDiagnosticMessageText(
-        config.error.messageText,
-        '\n'
-      )}`
-    );
-  }
-  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root, undefined, configPath);
-  if (parsed.errors.length > 0) {
-    throw new Error(
-      `Pinned tsconfig is invalid: ${parsed.errors.map((diagnostic) =>
-        ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')).join('; ')}`
-    );
-  }
-  const options: ts.CompilerOptions = {
-    ...parsed.options,
-    allowJs: true,
-    checkJs: false,
-    incremental: false,
-    noEmit: true,
-    tsBuildInfoFile: undefined
-  };
-  if (options.module !== ts.ModuleKind.NodeNext ||
-    options.moduleResolution !== ts.ModuleResolutionKind.NodeNext) {
-    throw new Error('Pinned tsconfig must use the NodeNext module and resolver pair.');
-  }
-
-  const baseHost = ts.createCompilerHost(options, true);
-  const canonicalFileName = (fileName: string): string =>
-    baseHost.getCanonicalFileName(path.resolve(fileName));
+  const kernel = preparedKernel ?? createProgramResolutionKernel(lifecycle);
+  const { root, options, baseHost, canonicalFileName, resolutionCache } = kernel;
   const scenarios = [...inputScenarios].sort((left, right) =>
     compareCanonicalText(left.scenarioId, right.scenarioId));
   const scenarioIds = new Set<string>();
@@ -5492,11 +5869,15 @@ function buildProgramContext(
     logicalPath: string,
     relativePath: string,
     source: string,
-    isVirtual: boolean
+    isVirtual: boolean,
+    allowExistingLiveRuntimeResource = false
   ): void => {
     const absolutePath = assertCanonicalVirtualPath(root, relativePath);
     const canonical = canonicalFileName(absolutePath);
-    if (sources.has(canonical)) {
+    const existing = sources.get(canonical);
+    if (existing && allowExistingLiveRuntimeResource && scenarioId === 'live' &&
+      existing.scenarioId === 'live' && existing.kind === 'data-package') return;
+    if (existing) {
       throw new Error(`Duplicate suite Program module identity ${relativePath}.`);
     }
     sources.set(canonical, {
@@ -5530,7 +5911,8 @@ function buildProgramContext(
         surface.relativePath,
         devRunnerScenarioModuleId(scenario.scenarioId, surface.relativePath),
         jsonProgramSource(surface.value),
-        scenario.scenarioId !== 'live'
+        scenario.scenarioId !== 'live',
+        true
       );
     }
   }
@@ -5538,8 +5920,12 @@ function buildProgramContext(
     [...sources.values()].map(({ absolutePath }) => absolutePath),
     canonicalFileName
   );
-  const resolutionCache = ts.createModuleResolutionCache(root, canonicalFileName, options);
-  lifecycle.moduleResolutionCacheBuildCount += 1;
+  const isExternalProgramPath = (fileName: string): boolean => {
+    const absolutePath = path.resolve(fileName);
+    if (!isContainedPath(root, absolutePath)) return true;
+    const relativePath = path.relative(root, absolutePath);
+    return relativePath === 'node_modules' || relativePath.startsWith(`node_modules${path.sep}`);
+  };
   let host: ts.CompilerHost;
   const readOverlay = (fileName: string): string | undefined =>
     sources.get(canonicalFileName(fileName))?.source;
@@ -5548,7 +5934,10 @@ function buildProgramContext(
     languageVersionOrOptions: ts.ScriptTarget | ts.CreateSourceFileOptions,
     sourcePath = fileName
   ): ts.SourceFile | undefined => {
-    const source = readOverlay(fileName) ?? readOverlay(sourcePath) ?? baseHost.readFile(fileName);
+    const overlay = readOverlay(fileName) ?? readOverlay(sourcePath);
+    const source = overlay ?? (isExternalProgramPath(fileName)
+      ? baseHost.readFile(fileName)
+      : undefined);
     if (source === undefined) return undefined;
     const sourceFileOptions: ts.CreateSourceFileOptions =
       typeof languageVersionOrOptions === 'number'
@@ -5568,16 +5957,21 @@ function buildProgramContext(
     getCurrentDirectory: () => root,
     getCanonicalFileName: canonicalFileName,
     fileExists: (fileName) => sources.has(canonicalFileName(fileName)) ||
-      baseHost.fileExists(fileName),
-    readFile: (fileName) => readOverlay(fileName) ?? baseHost.readFile(fileName),
+      (isExternalProgramPath(fileName) && baseHost.fileExists(fileName)),
+    readFile: (fileName) => readOverlay(fileName) ??
+      (isExternalProgramPath(fileName) ? baseHost.readFile(fileName) : undefined),
     realpath: (fileName) => sources.get(canonicalFileName(fileName))?.absolutePath ??
-      baseHost.realpath?.(fileName) ?? path.resolve(fileName),
+      (isExternalProgramPath(fileName)
+        ? baseHost.realpath?.(fileName) ?? path.resolve(fileName)
+        : path.resolve(fileName)),
     directoryExists: (directoryName) =>
       virtualDirectories.has(canonicalFileName(directoryName)) ||
-      baseHost.directoryExists?.(directoryName) === true,
+      (isExternalProgramPath(directoryName) && baseHost.directoryExists?.(directoryName) === true),
     getDirectories: (directoryName) => {
       const resolved = path.resolve(directoryName);
-      const discovered = new Set(baseHost.getDirectories?.(resolved) ?? []);
+      const discovered = new Set(isExternalProgramPath(resolved)
+        ? baseHost.getDirectories?.(resolved) ?? []
+        : []);
       for (const source of sources.values()) {
         const relative = path.relative(resolved, source.absolutePath);
         if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) ||
@@ -5608,7 +6002,7 @@ function buildProgramContext(
     ))
   };
   const rootNames = [...sources.values()]
-    .filter(({ kind }) => kind !== 'data-package' && kind !== 'fixture')
+    .filter(({ kind }) => kind !== 'data-package')
     .map(({ absolutePath }) => absolutePath)
     .sort(compareCanonicalText);
   const program = ts.createProgram({ rootNames, options, host });
@@ -10843,6 +11237,10 @@ class ProgramAuthorityLowerer {
     const calleeHint = node.expression.kind === ts.SyntaxKind.ImportKeyword
       ? HandleBit.RequireLoader | HandleBit.ExecutableLoader
       : this.capabilityHintForExpression(node.expression);
+    const directAmbientLoader = node.expression.kind === ts.SyntaxKind.ImportKeyword
+      ? null
+      : directAmbientRuntimeLoader(node.expression, (identifier, expectedName) =>
+          this.exactAmbientIdentifier(identifier, expectedName));
     const requireFactory = this.isExactCreateRequireFactory(normalized.targetExpression);
     if (requireFactory) {
       const handles = HandleBit.RequireLoader | HandleBit.ExecutableLoader;
@@ -10854,7 +11252,8 @@ class ProgramAuthorityLowerer {
         ? null
         : node.expression.kind === ts.SyntaxKind.ImportKeyword
         ? 'import'
-        : (calleeHint & HandleBit.RequireLoader) !== 0 ? 'require' : null;
+        : directAmbientLoader ??
+          ((calleeHint & HandleBit.RequireLoader) !== 0 ? 'require' : null);
     if (loaderMode) {
       const first = node.arguments?.[0];
       const specifier = first ? this.evaluator.evaluate(first) : null;
@@ -13057,17 +13456,30 @@ function validateCompactProof(
   });
 }
 
-function analyzeDevRunnerAuthorityProofWithLifecycle(
+function exactLiveScenario(
+  scenarios: readonly DevRunnerAuthorityScenario[]
+): DevRunnerAuthorityScenario {
+  const liveScenarios = scenarios.filter(({ scenarioId }) => scenarioId === 'live');
+  if (liveScenarios.length !== 1) {
+    throw new Error('Program proof suite requires exactly one live scenario.');
+  }
+  return liveScenarios[0]!;
+}
+
+function analyzeSnapshottedDevRunnerAuthorityProof(
   inventory: TrackedDevRunnerHostInventory,
-  inputScenarios: readonly DevRunnerAuthorityScenario[],
-  lifecycle: MutableDevRunnerAnalysisLifecycle
+  ownedScenarios: readonly DevRunnerAuthorityScenario[],
+  lifecycle: MutableDevRunnerAnalysisLifecycle,
+  preparedKernel?: ProgramResolutionKernel
 ): DevRunnerAuthorityProofSuite {
   const ownedInventory = snapshotTrackedDevRunnerHostInventory(inventory);
   lifecycle.inventorySnapshotCount += 1;
-  const ownedScenarios = snapshotDevRunnerAuthorityScenarios(inputScenarios, () => {
-    lifecycle.packageJsonSnapshotCount += 1;
-  });
-  const context = buildProgramContext(ownedInventory, ownedScenarios, lifecycle);
+  const context = buildProgramContext(
+    ownedInventory,
+    ownedScenarios,
+    lifecycle,
+    preparedKernel
+  );
   const lowered = new ProgramAuthorityLowerer(context, lifecycle).lower();
   const finiteTopology = freezeFiniteAuthorityTopology(lowered.model);
   const finiteProof = solveFrozenFiniteAuthorityTopology(finiteTopology);
@@ -13151,16 +13563,31 @@ export function analyzeDevRunnerAuthorityProofWithInventoryForTests(
 ): DevRunnerAuthorityProofSuite {
   const lifecycle = createDevRunnerAnalysisLifecycle();
   lifecycle.injectedInventoryCount += 1;
-  return analyzeDevRunnerAuthorityProofWithLifecycle(inventory, inputScenarios, lifecycle);
+  const ownedScenarios = snapshotDevRunnerAuthorityScenarios(inputScenarios, () => {
+    lifecycle.packageJsonSnapshotCount += 1;
+  });
+  return analyzeSnapshottedDevRunnerAuthorityProof(inventory, ownedScenarios, lifecycle);
 }
 
 export async function analyzeDevRunnerAuthorityProof(
   inputScenarios: readonly DevRunnerAuthorityScenario[]
 ): Promise<DevRunnerAuthorityProofSuite> {
   const lifecycle = createDevRunnerAnalysisLifecycle();
-  const inventory = await readTrackedDevRunnerHostSources();
+  const ownedScenarios = snapshotDevRunnerAuthorityScenarios(inputScenarios, () => {
+    lifecycle.packageJsonSnapshotCount += 1;
+  });
+  const kernel = createProgramResolutionKernel(lifecycle);
+  const inventory = await readTrackedDevRunnerHostSources(
+    exactLiveScenario(ownedScenarios),
+    kernel
+  );
   lifecycle.inventoryReadCount += 1;
-  return analyzeDevRunnerAuthorityProofWithLifecycle(inventory, inputScenarios, lifecycle);
+  return analyzeSnapshottedDevRunnerAuthorityProof(
+    inventory,
+    ownedScenarios,
+    lifecycle,
+    kernel
+  );
 }
 
 function snapshotScenarioProofForProjection(

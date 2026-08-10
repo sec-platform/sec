@@ -1,20 +1,21 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V1 = 'sec-trusted-bootstrap-registry-v1' as const;
-export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V1 = 'platform/shared/ci-trust-root-registry.json' as const;
+export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V2 = 'sec-trusted-bootstrap-registry-v2' as const;
+export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V2 = 'platform/shared/ci-trust-root-registry.json' as const;
 
-export type SecTrustedBootstrapRegistryV1 = Readonly<{
-  schema: typeof SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V1;
+export type SecTrustedBootstrapRegistryV2 = Readonly<{
+  schema: typeof SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V2;
   staticExactPaths: readonly string[];
   staticDirectoryPaths: readonly string[];
   staticPrefixes: readonly string[];
   runtimeEntrypoints: readonly string[];
   reviewedSutEdges: readonly string[];
+  reviewedBoundaryEdges: readonly string[];
   causalRuntimePaths: readonly string[];
 }>;
 
-export type SecTrustedBootstrapPathMatchV1 = Readonly<{
+export type SecTrustedBootstrapPathMatchV2 = Readonly<{
   kind: 'static-exact' | 'static-directory' | 'static-prefix' | 'causal-runtime';
   rule: string;
 }>;
@@ -26,16 +27,50 @@ const REGISTRY_KEYS = [
   'staticPrefixes',
   'runtimeEntrypoints',
   'reviewedSutEdges',
+  'reviewedBoundaryEdges',
   'causalRuntimePaths'
 ] as const;
 
 const REQUIRED_STATIC_EXACT_PATHS = [
   '.bun-version',
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V1,
-  'platform/shared/tcb-closure-lock.ts'
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V2,
+  'platform/shared/tcb-closure-lock.ts',
+  'scripts/codex/branch-lifecycle.ts'
 ] as const;
 
-const REQUIRED_CAUSAL_RUNTIME_PATHS = ['platform/shared/tcb-trust-root-contract.ts', 'scripts/codex/merge-gate.ts'] as const;
+const REQUIRED_REVIEWED_BOUNDARY_EDGES = [
+  'scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts',
+  'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'
+] as const;
+
+const REQUIRED_CAUSAL_RUNTIME_PATHS = [
+  'platform/shared/ci-evidence-contract.ts',
+  'platform/shared/ci-verification-revision.ts',
+  'platform/shared/integration-authorization-contract.ts',
+  'platform/shared/main-health-contract.ts',
+  'platform/shared/review-stability-contract.ts',
+  'platform/shared/scope-authorization-contract.ts',
+  'platform/shared/semantic-mutation-staging-boundary.ts',
+  'platform/shared/tcb-trust-root-contract.ts',
+  'platform/shared/verification-action-ci-contract.ts',
+  'platform/shared/verification-action-contract.ts',
+  'platform/shared/verification-action-provider-contract.ts',
+  'platform/shared/verification-result-contract.ts',
+  'platform/shared/verification-session-contract.ts',
+  'platform/shared/workspace-write-lease.ts',
+  'scripts/codex/branch-closeout-contract.ts',
+  'scripts/codex/branch-closeout-receipt.ts',
+  'scripts/codex/branch-closeout.ts',
+  'scripts/codex/branch-recovery.ts',
+  'scripts/codex/integration-authorization-publication.ts',
+  'scripts/codex/merge-gate.ts',
+  'scripts/codex/verification-action-github-provider.ts',
+  'scripts/codex/verification-action-journal.ts',
+  'scripts/codex/verification-action-runner.ts',
+  'scripts/codex/verification-session-github.ts',
+  'scripts/codex/verification-session-runtime.ts',
+  'scripts/codex/verification-session.ts'
+] as const;
 
 function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) {
@@ -108,7 +143,7 @@ function stringArray(value: unknown, label: string, maximum = 4_096): string[] {
   return result;
 }
 
-function assertNoStaticOverlap(registry: SecTrustedBootstrapRegistryV1): void {
+function assertNoStaticOverlap(registry: SecTrustedBootstrapRegistryV2): void {
   for (let index = 0; index < registry.staticPrefixes.length; index += 1) {
     const prefix = registry.staticPrefixes[index]!;
     for (const other of registry.staticPrefixes.slice(index + 1)) {
@@ -200,7 +235,7 @@ function topLevelJsonObjectKeys(source: string): string[] {
   return keys;
 }
 
-export function parseSecTrustedBootstrapRegistryV1(source: string): SecTrustedBootstrapRegistryV1 {
+export function parseSecTrustedBootstrapRegistryV2(source: string): SecTrustedBootstrapRegistryV2 {
   assertRegistrySourceEnvelope(source);
   let value: unknown;
   try {
@@ -214,7 +249,7 @@ export function parseSecTrustedBootstrapRegistryV1(source: string): SecTrustedBo
   if (rawKeys.length !== REGISTRY_KEYS.length || new Set(rawKeys).size !== rawKeys.length) {
     throw new Error('Trusted bootstrap registry top-level keys must appear exactly once.');
   }
-  if (value.schema !== SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V1) {
+  if (value.schema !== SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V2) {
     throw new Error('Trusted bootstrap registry schema mismatch.');
   }
 
@@ -223,6 +258,7 @@ export function parseSecTrustedBootstrapRegistryV1(source: string): SecTrustedBo
   const staticPrefixes = stringArray(value.staticPrefixes, 'staticPrefixes', 128);
   const runtimeEntrypoints = stringArray(value.runtimeEntrypoints, 'runtimeEntrypoints');
   const reviewedSutEdges = stringArray(value.reviewedSutEdges, 'reviewedSutEdges');
+  const reviewedBoundaryEdges = stringArray(value.reviewedBoundaryEdges, 'reviewedBoundaryEdges');
   const causalRuntimePaths = stringArray(value.causalRuntimePaths, 'causalRuntimePaths');
 
   staticExactPaths.forEach((entry, index) => assertRepositoryPath(entry, `staticExactPaths[${index}]`, false));
@@ -231,17 +267,26 @@ export function parseSecTrustedBootstrapRegistryV1(source: string): SecTrustedBo
   runtimeEntrypoints.forEach((entry, index) => assertRepositoryPath(entry, `runtimeEntrypoints[${index}]`, false));
   causalRuntimePaths.forEach((entry, index) => assertRepositoryPath(entry, `causalRuntimePaths[${index}]`, false));
 
-  const registry: SecTrustedBootstrapRegistryV1 = Object.freeze({
-    schema: SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V1,
+  const registry: SecTrustedBootstrapRegistryV2 = Object.freeze({
+    schema: SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V2,
     staticExactPaths: Object.freeze(staticExactPaths),
     staticDirectoryPaths: Object.freeze(staticDirectoryPaths),
     staticPrefixes: Object.freeze(staticPrefixes),
     runtimeEntrypoints: Object.freeze(runtimeEntrypoints),
     reviewedSutEdges: Object.freeze(reviewedSutEdges),
+    reviewedBoundaryEdges: Object.freeze(reviewedBoundaryEdges),
     causalRuntimePaths: Object.freeze(causalRuntimePaths)
   });
 
   assertNoStaticOverlap(registry);
+  const causal = new Set(registry.causalRuntimePaths);
+  for (const staticExactPath of registry.staticExactPaths) {
+    if (causal.has(staticExactPath)) {
+      throw new Error(
+        `Trusted bootstrap path cannot be both staticExact and causalRuntime: ${staticExactPath}.`
+      );
+    }
+  }
   if (registry.staticDirectoryPaths.includes('scripts/codex/')) {
     throw new Error('scripts/codex/ cannot be a directory-level verifier trust root.');
   }
@@ -258,7 +303,6 @@ export function parseSecTrustedBootstrapRegistryV1(source: string): SecTrustedBo
   if (registry.causalRuntimePaths.includes('scripts/codex/repository-audit.ts')) {
     throw new Error('repository-audit.ts cannot enter the causal verifier closure without new physical closure evidence.');
   }
-  const causal = new Set(registry.causalRuntimePaths);
   for (const entrypoint of registry.runtimeEntrypoints) {
     if (!causal.has(entrypoint)) {
       throw new Error(`Runtime entrypoint is absent from causalRuntimePaths: ${entrypoint}.`);
@@ -273,32 +317,52 @@ export function parseSecTrustedBootstrapRegistryV1(source: string): SecTrustedBo
       throw new Error(`Reviewed SUT edge source is outside causalRuntimePaths: ${match[1]}.`);
     }
   }
+  for (const [index, edge] of registry.reviewedBoundaryEdges.entries()) {
+    const match = /^([^ ]+) -> ([^ ]+)$/u.exec(edge);
+    if (!match) throw new Error(`reviewedBoundaryEdges[${index}] must use canonical 'from -> to' syntax.`);
+    assertRepositoryPath(match[1]!, `reviewedBoundaryEdges[${index}].from`, false);
+    assertRepositoryPath(match[2]!, `reviewedBoundaryEdges[${index}].to`, false);
+    if (!causal.has(match[1]!)) {
+      throw new Error(`Reviewed boundary source is outside causalRuntimePaths: ${match[1]}.`);
+    }
+    if (!registry.staticExactPaths.includes(match[2]!)) {
+      throw new Error(`Reviewed boundary target is not a staticExactPath: ${match[2]}.`);
+    }
+    if (causal.has(match[2]!)) {
+      throw new Error(`Reviewed boundary target cannot also be a causalRuntimePath: ${match[2]}.`);
+    }
+  }
+  for (const required of REQUIRED_REVIEWED_BOUNDARY_EDGES) {
+    if (!registry.reviewedBoundaryEdges.includes(required)) {
+      throw new Error(`Trusted bootstrap registry omits required privileged boundary ${required}.`);
+    }
+  }
   return registry;
 }
 
-export function loadSecTrustedBootstrapRegistryV1(): SecTrustedBootstrapRegistryV1 {
+export function loadSecTrustedBootstrapRegistryV2(): SecTrustedBootstrapRegistryV2 {
   const absolutePath = path.join(import.meta.dir, 'ci-trust-root-registry.json');
-  return parseSecTrustedBootstrapRegistryV1(readFileSync(absolutePath, 'utf8'));
+  return parseSecTrustedBootstrapRegistryV2(readFileSync(absolutePath, 'utf8'));
 }
 
-export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1 = loadSecTrustedBootstrapRegistryV1();
+export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2 = loadSecTrustedBootstrapRegistryV2();
 
-export const SEC_TRUST_ROOT_PATHS_V1 = Object.freeze(
+export const SEC_TRUST_ROOT_PATHS_V2 = Object.freeze(
   [
     ...new Set([
-      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.staticExactPaths,
-      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.staticDirectoryPaths,
-      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.causalRuntimePaths
+      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.staticExactPaths,
+      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.staticDirectoryPaths,
+      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.causalRuntimePaths
     ])
   ].sort()
 );
 
-export const SEC_TRUST_ROOT_PREFIXES_V1 = SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.staticPrefixes;
+export const SEC_TRUST_ROOT_PREFIXES_V2 = SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.staticPrefixes;
 
-export function matchSecTrustedBootstrapPathV1(
+export function matchSecTrustedBootstrapPathV2(
   repositoryPath: string,
-  registry: SecTrustedBootstrapRegistryV1 = SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1
-): SecTrustedBootstrapPathMatchV1 | null {
+  registry: SecTrustedBootstrapRegistryV2 = SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2
+): SecTrustedBootstrapPathMatchV2 | null {
   assertRepositoryPath(repositoryPath, 'repositoryPath', false);
   if (registry.staticExactPaths.includes(repositoryPath)) {
     return { kind: 'static-exact', rule: repositoryPath };

@@ -1,24 +1,46 @@
+import { dlopen, FFIType, ptr, read } from 'bun:ffi';
 import { spawnSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { constants as fsConstants, readdirSync, realpathSync, statSync } from 'node:fs';
+import {
+  lstat,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { digest, sha256 } from '../../platform/shared/canonical-primitives.ts';
+import { withWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
 import {
   CodexDevelopmentAssertControlPlaneBindingV1,
+  CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1,
+  CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1,
+  CodexDevelopmentCreateFreezeProjectionV1,
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseCurrentStateSpecV1,
+  CodexDevelopmentParseRollingPlanV1,
   CodexDevelopmentResolveActiveWorkPackageV1,
   type CodexDevelopmentActiveWorkPackageResolution,
-  type CodexDevelopmentDefaultRefState
+  type CodexDevelopmentDefaultRefState,
+  type CodexDevelopmentInitiallyAbsentTupleEdgeV1,
+  type CodexDevelopmentInitiallyAbsentTupleEntryV1,
+  type CodexDevelopmentInitiallyAbsentTuplePlatformV1,
+  type CodexDevelopmentInitiallyAbsentTupleStateV1
 } from './document-control-plane-contract.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from './work-package-contract.ts';
 
 export {
   CodexDevelopmentActivePointerSchemaV2,
   CodexDevelopmentAssertControlPlaneBindingV1,
+  CodexDevelopmentCreateFreezeProjectionV1,
   CodexDevelopmentCurrentStateSchemaV1,
-  CodexDevelopmentGitBlobSha256,
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseCurrentStateSpecV1,
   CodexDevelopmentParseRollingPlanV1,
+  CodexDevelopmentPromoteRollingPlanV1,
+  CodexDevelopmentRenderActivePointerV2,
   CodexDevelopmentResolveActiveWorkPackageV1
 } from './document-control-plane-contract.ts';
 export type {
@@ -26,6 +48,7 @@ export type {
   CodexDevelopmentActiveWorkPackageResolution,
   CodexDevelopmentCurrentStateSpecV1,
   CodexDevelopmentDefaultRefState,
+  CodexDevelopmentFreezeProjectionV1,
   CodexDevelopmentRollingPlanV1
 } from './document-control-plane-contract.ts';
 
@@ -35,8 +58,2144 @@ type CommandResult = {
   stderr: string;
 };
 
+type CommandOptions = {
+  readonly input?: string | Uint8Array;
+  readonly environment?: Readonly<Record<string, string>>;
+};
+
 const ExternalCommandTimeoutMs = 30_000;
 const ExternalCommandMaxBufferBytes = 8 * 1024 * 1024;
+const CurrentStatePath = 'docs/work/current-state.yaml';
+const ActivePointerPath = 'docs/work/active-work-package.md';
+const RollingPlanPath = 'docs/work/rolling-plan.md';
+const FreezeJournalSchemaV1 = 'sec-document-control-plane-freeze-journal-v1' as const;
+const FreezeJournalSchemaV2 = 'sec-document-control-plane-freeze-journal-v2' as const;
+const FreezeJournalSchemaV3 = 'sec-document-control-plane-freeze-journal-v3' as const;
+const FreezeResultSchemaV1 = 'sec-document-control-plane-freeze-result-v1' as const;
+const FreezeJournalRelativePath = '.tmp/codex/document-control-plane-freeze-v1/journal.json';
+
+export type CodexDevelopmentFreezeFaultV1 =
+  | 'after-journal-prepare'
+  | 'after-index-lock-write'
+  | 'after-index-pre-quarantine'
+  | 'after-index-next-install'
+  | 'after-index-publish'
+  | 'after-journal-index-published-pre-quarantine'
+  | 'after-journal-index-published-next-install'
+  | 'after-pointer-temp-write'
+  | 'after-pointer-pre-quarantine'
+  | 'after-pointer-next-install'
+  | 'after-pointer-publish'
+  | 'after-journal-pointer-published-pre-quarantine'
+  | 'after-rolling-temp-write'
+  | 'after-rolling-pre-quarantine'
+  | 'after-rolling-next-install'
+  | 'after-rolling-publish'
+  | 'after-journal-rolling-published-pre-quarantine'
+  | 'after-journal-terminal-pre-quarantine'
+  | 'after-journal-terminal-next-install'
+  | 'after-terminal';
+
+export type CodexDevelopmentDurabilityStageV1 =
+  | 'renamed'
+  | 'file-flushed'
+  | 'parent-barrier';
+
+export interface CodexDevelopmentDurabilityEventV1 {
+  readonly label: string;
+  readonly targetPath: string;
+  readonly stage: CodexDevelopmentDurabilityStageV1;
+}
+
+type AnchoredObjectIdentityV1 = Readonly<{ dev: number; ino: number }> | string;
+
+interface RetainedPublishObjectAuthorityV1 {
+  readonly handle?: bigint;
+  readonly fd?: number;
+  readonly parentHandle?: bigint;
+  readonly parentFd?: number;
+}
+
+function sameAnchoredObjectIdentityV1(
+  left: AnchoredObjectIdentityV1,
+  right: AnchoredObjectIdentityV1
+): boolean {
+  if (typeof left === 'string' || typeof right === 'string') {
+    return typeof left === 'string' && left === right;
+  }
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+export type CodexDevelopmentDurabilityObserverV1 = (
+  event: CodexDevelopmentDurabilityEventV1
+) => Promise<void> | void;
+
+export class CodexDevelopmentDurabilityBarrierError extends Error {
+  readonly code = 'DOCUMENT-CONTROL-DURABILITY-001' as const;
+  readonly operation: 'file-flush' | 'parent-directory-barrier';
+  readonly targetPath: string;
+
+  constructor(input: {
+    operation: 'file-flush' | 'parent-directory-barrier';
+    targetPath: string;
+    cause: unknown;
+  }) {
+    super(
+      `Document control ${input.operation} is unsupported or failed for ${input.targetPath}.`,
+      { cause: input.cause }
+    );
+    this.name = 'CodexDevelopmentDurabilityBarrierError';
+    this.operation = input.operation;
+    this.targetPath = input.targetPath;
+  }
+}
+
+export class CodexDevelopmentUnsafeAnchoredPathError extends Error {
+  readonly code = 'DOCUMENT-CONTROL-UNSAFE-PATH-001' as const;
+  readonly targetPath: string;
+  readonly reparseTag: number | null;
+
+  constructor(input: {
+    label: string;
+    targetPath: string;
+    reparseTag?: number;
+    cause?: unknown;
+  }) {
+    super(
+      `${input.label} must not traverse or target a symbolic link, junction, or reparse point.`,
+      input.cause === undefined ? undefined : { cause: input.cause }
+    );
+    this.name = 'CodexDevelopmentUnsafeAnchoredPathError';
+    this.targetPath = input.targetPath;
+    this.reparseTag = input.reparseTag ?? null;
+  }
+}
+
+export class CodexDevelopmentUnsupportedAnchoredPathEffectError extends Error {
+  readonly code = 'DOCUMENT-CONTROL-POSIX-CAPABILITY-001' as const;
+  readonly capability: string;
+
+  constructor(capability: string) {
+    super(`Anchored document-control POSIX effects require the ${capability} capability.`);
+    this.name = 'CodexDevelopmentUnsupportedAnchoredPathEffectError';
+    this.capability = capability;
+  }
+}
+
+interface FreezeDurabilityOptionsV1 {
+  readonly observer?: CodexDevelopmentDurabilityObserverV1;
+  /** Internal deterministic test seam. Production always uses the platform barrier. */
+  readonly parentDirectoryBarrier?: (directoryPath: string) => Promise<void>;
+  /** Internal deterministic test seam invoked only after rename source/parent anchors are open. */
+  readonly beforeAnchoredRename?: (event: Readonly<{
+    label: string;
+    sourcePath: string;
+    targetPath: string;
+  }>) => Promise<void> | void;
+  /** Internal deterministic test seam after namespace mutation and before its retained-object flush. */
+  readonly afterAnchoredNamespaceMutationBeforeFlush?: (event: Readonly<{
+    label: string;
+    sourcePath: string;
+    targetPath: string;
+  }>) => Promise<void> | void;
+  /** Internal deterministic seam after containing-parent anchors are retained and before creation. */
+  readonly beforeAnchoredCreate?: (event: Readonly<{
+    label: string;
+    kind: 'directory' | 'file';
+    parentPath: string;
+    targetPath: string;
+  }>) => void;
+  /** Internal deterministic seam after exact cleanup bytes are read from the opened object. */
+  readonly beforeAnchoredCleanup?: (event: Readonly<{
+    label: string;
+    filePath: string;
+  }>) => Promise<void> | void;
+  /** Internal Linux-only deterministic seam after exact PRE recovery link identity readback. */
+  readonly afterExactPreRecoveryLink?: (event: Readonly<{
+    label: string;
+    targetPath: string;
+    recoveryPath: string;
+  }>) => Promise<void> | void;
+  readonly beforeCreatedParentBarrier?: (event: Readonly<{
+    parentPath: string;
+    createdPath: string;
+  }>) => void;
+  readonly createdParentBarrierObserver?: (event: Readonly<{
+    parentPath: string;
+    createdPath: string;
+  }>) => void;
+}
+
+type FreezeJournalPhaseV1 =
+  | 'prepared'
+  | 'index-published'
+  | 'pointer-published'
+  | 'rolling-published'
+  | 'terminal';
+
+export interface CodexDevelopmentFreezeResultV1 {
+  readonly schema: typeof FreezeResultSchemaV1;
+  readonly status: 'ACTIVATED_INDEX_PENDING_COMMIT';
+  readonly operationId: `sha256:${string}`;
+  readonly baseSha: string;
+  readonly baseTreeSha: string;
+  readonly candidateTreeSha: string;
+  readonly candidateHeadSha: null;
+  readonly manifestPath: string;
+  readonly manifestDigest: `sha256:${string}`;
+  readonly indexPublished: true;
+  readonly worktreeProjected: true;
+}
+
+interface FreezeJournalFileV1 {
+  readonly pre: string;
+  readonly next: string;
+}
+
+interface FreezeJournalV3 {
+  readonly schema: typeof FreezeJournalSchemaV3;
+  readonly operationId: `sha256:${string}`;
+  readonly phase: FreezeJournalPhaseV1;
+  readonly manifestPath: string;
+  readonly manifestDigest: `sha256:${string}`;
+  readonly reviewedOn: string;
+  readonly baseSha: string;
+  readonly baseTreeSha: string;
+  readonly preIndexTreeSha: string;
+  readonly candidateTreeSha: string;
+  readonly files: Readonly<{
+    manifest: FreezeJournalFileV1;
+    pointer: FreezeJournalFileV1;
+    rollingPlan: FreezeJournalFileV1;
+  }>;
+  readonly index: FreezeJournalFileV1;
+  readonly result: CodexDevelopmentFreezeResultV1;
+}
+
+interface ControlIndexSnapshotV1 {
+  readonly treeSha: string;
+  readonly stateSource: string;
+  readonly pointerSource: string;
+  readonly rollingPlanSource: string;
+}
+
+function systemErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) return undefined;
+  return typeof error.code === 'string' ? error.code.toUpperCase() : undefined;
+}
+
+function isMissingError(error: unknown): boolean {
+  return systemErrorCode(error) === 'ENOENT';
+}
+
+function pathComparisonValue(candidate: string): string {
+  const normalized = path.resolve(candidate);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function assertPathContained(root: string, candidate: string, label: string): void {
+  const relative = path.relative(root, candidate);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`${label} escapes its canonical transaction root.`);
+  }
+}
+
+const WindowsInvalidHandleValue = 0xffff_ffff_ffff_ffffn;
+const WindowsFileAttributeDirectory = 0x0000_0010;
+const WindowsFileAttributeNormal = 0x0000_0080;
+const WindowsFileAttributeReparsePoint = 0x0000_0400;
+const WindowsFileFlagBackupSemantics = 0x0200_0000;
+const WindowsFileFlagOpenReparsePoint = 0x0020_0000;
+const WindowsFileListDirectory = 0x0000_0001;
+const WindowsFileReadAttributes = 0x0000_0080;
+const WindowsDeleteAccess = 0x0001_0000;
+const WindowsSynchronizeAccess = 0x0010_0000;
+const WindowsGenericRead = 0x8000_0000;
+const WindowsGenericWrite = 0x4000_0000;
+const WindowsShareReadWriteDelete = 0x0000_0007;
+const WindowsShareReadWrite = 0x0000_0003;
+const WindowsCreateNew = 1;
+const WindowsOpenExisting = 3;
+const WindowsFileAttributeTagInfo = 9;
+const WindowsFileIdInfo = 18;
+const WindowsFileRenameInfo = 3;
+const WindowsFileDispositionInfo = 4;
+const WindowsFileRenameInfoSize64Bit = 24;
+const WindowsFileRenameInformationEx = 65;
+const WindowsFileRenameReplaceIfExists = 0x0000_0001;
+const WindowsFileRenamePosixSemantics = 0x0000_0002;
+const WindowsFileRenameIgnoreReadonly = 0x0000_0040;
+const WindowsErrorAccessDenied = 5;
+const WindowsErrorInvalidParameter = 87;
+const WindowsInvalidFileAttributes = 0xffff_ffff;
+const WindowsFileBegin = 0;
+
+function loadWindowsKernel32() {
+  return dlopen('kernel32.dll', {
+    GetFileAttributesW: { args: ['ptr'], returns: 'u32' },
+    CreateFileW: {
+      args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr],
+      returns: FFIType.u64
+    },
+    CreateDirectoryW: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
+    FlushFileBuffers: { args: [FFIType.u64], returns: FFIType.i32 },
+    SetFilePointerEx: { args: [FFIType.u64, FFIType.i64, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
+    ReadFile: {
+      args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr],
+      returns: FFIType.i32
+    },
+    WriteFile: {
+      args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr],
+      returns: FFIType.i32
+    },
+    GetFileSizeEx: { args: [FFIType.u64, FFIType.ptr], returns: FFIType.i32 },
+    GetFileInformationByHandleEx: {
+      args: [FFIType.u64, FFIType.u32, FFIType.ptr, FFIType.u32],
+      returns: FFIType.i32
+    },
+    GetFinalPathNameByHandleW: {
+      args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.u32],
+      returns: FFIType.u32
+    },
+    SetFileInformationByHandle: {
+      args: [FFIType.u64, FFIType.u32, FFIType.ptr, FFIType.u32],
+      returns: FFIType.i32
+    },
+    CloseHandle: { args: [FFIType.u64], returns: FFIType.i32 },
+    GetLastError: { args: [], returns: FFIType.u32 }
+  } as const);
+}
+
+let windowsKernel32: ReturnType<typeof loadWindowsKernel32> | undefined;
+
+function requireWindowsKernel32(): ReturnType<typeof loadWindowsKernel32> {
+  windowsKernel32 ??= loadWindowsKernel32();
+  return windowsKernel32;
+}
+
+function loadWindowsNtdll() {
+  return dlopen('ntdll.dll', {
+    NtSetInformationFile: {
+      args: [FFIType.u64, FFIType.ptr, FFIType.ptr, FFIType.u32, FFIType.u32],
+      returns: FFIType.i32
+    },
+    RtlNtStatusToDosError: { args: [FFIType.i32], returns: FFIType.u32 }
+  } as const);
+}
+
+let windowsNtdll: ReturnType<typeof loadWindowsNtdll> | undefined;
+
+function requireWindowsNtdll(): ReturnType<typeof loadWindowsNtdll> {
+  windowsNtdll ??= loadWindowsNtdll();
+  return windowsNtdll;
+}
+
+function windowsWidePath(candidate: string): Buffer {
+  return Buffer.from(`${path.toNamespacedPath(path.resolve(candidate))}\0`, 'utf16le');
+}
+
+function windowsOperationError(operation: string, code: number): NodeJS.ErrnoException {
+  const error = new Error(`${operation} failed (Win32 ${code}).`) as NodeJS.ErrnoException;
+  error.code = code === 2 || code === 3 ? 'ENOENT' : code === 80 || code === 183 ? 'EEXIST' : `WIN32_${code}`;
+  return error;
+}
+
+interface WindowsHandleScopeV1 {
+  own(handle: bigint, label: string): bigint;
+}
+
+async function withWindowsHandles<T>(
+  operation: (scope: WindowsHandleScopeV1) => Promise<T> | T
+): Promise<T> {
+  const owned: Array<Readonly<{ handle: bigint; label: string }>> = [];
+  let result: T | undefined;
+  let failure: unknown;
+  try {
+    result = await operation({
+      own(handle, label) {
+        owned.push(Object.freeze({ handle, label }));
+        return handle;
+      }
+    });
+  } catch (error) {
+    failure = error;
+  }
+  const closeFailures: Error[] = [];
+  const library = requireWindowsKernel32();
+  for (const entry of owned.reverse()) {
+    if (library.symbols.CloseHandle(entry.handle) === 0) {
+      const errorCode = library.symbols.GetLastError();
+      closeFailures.push(windowsOperationError(`CloseHandle for ${entry.label}`, errorCode));
+    }
+  }
+  if (failure !== undefined) {
+    if (closeFailures.length > 0) {
+      throw new AggregateError([failure, ...closeFailures], 'Windows anchored operation and handle close both failed.');
+    }
+    throw failure;
+  }
+  if (closeFailures.length > 0) {
+    throw closeFailures.length === 1
+      ? closeFailures[0]
+      : new AggregateError(closeFailures, 'Multiple Windows anchored handles failed to close.');
+  }
+  return result!;
+}
+
+function windowsFinalPath(handle: bigint, label: string): string {
+  const library = requireWindowsKernel32();
+  const output = Buffer.alloc(32_768 * 2);
+  const length = library.symbols.GetFinalPathNameByHandleW(handle, output, 32_768, 0);
+  if (length === 0) {
+    const errorCode = library.symbols.GetLastError();
+    throw windowsOperationError(`GetFinalPathNameByHandleW for ${label}`, errorCode);
+  }
+  if (length >= 32_768) throw new Error(`GetFinalPathNameByHandleW for ${label} exceeded the fixed buffer.`);
+  return output.subarray(0, length * 2).toString('utf16le');
+}
+
+function windowsPathValue(candidate: string): string {
+  const namespaced = candidate.startsWith('\\\\?\\')
+    ? candidate
+    : path.toNamespacedPath(path.resolve(candidate));
+  return namespaced.replace(/[\\/]+$/u, '').toLowerCase();
+}
+
+function assertWindowsExactHandle(
+  handle: bigint,
+  expectedPath: string,
+  label: string,
+  kind: 'file' | 'directory'
+): void {
+  const library = requireWindowsKernel32();
+  const attributes = Buffer.alloc(8);
+  if (library.symbols.GetFileInformationByHandleEx(
+    handle,
+    WindowsFileAttributeTagInfo,
+    attributes,
+    attributes.byteLength
+  ) === 0) {
+    const errorCode = library.symbols.GetLastError();
+    throw windowsOperationError(`GetFileInformationByHandleEx for ${label}`, errorCode);
+  }
+  const mask = attributes.readUInt32LE(0);
+  const isDirectory = (mask & WindowsFileAttributeDirectory) !== 0;
+  if ((mask & WindowsFileAttributeReparsePoint) !== 0) {
+    throw new CodexDevelopmentUnsafeAnchoredPathError({
+      label,
+      targetPath: expectedPath,
+      reparseTag: attributes.readUInt32LE(4)
+    });
+  }
+  if ((kind === 'directory') !== isDirectory) {
+    throw new Error(`${label} must be an exact ${kind}.`);
+  }
+  const finalPath = windowsFinalPath(handle, label);
+  if (windowsPathValue(finalPath) !== windowsPathValue(expectedPath)) {
+    throw new Error(`${label} exact handle escaped or changed its anchored path.`);
+  }
+}
+
+function windowsFileIdentity(handle: bigint, label: string): string {
+  const library = requireWindowsKernel32();
+  const identity = Buffer.alloc(24);
+  if (library.symbols.GetFileInformationByHandleEx(
+    handle,
+    WindowsFileIdInfo,
+    identity,
+    identity.byteLength
+  ) === 0) {
+    const errorCode = library.symbols.GetLastError();
+    throw windowsOperationError(`GetFileInformationByHandleEx(FileIdInfo) for ${label}`, errorCode);
+  }
+  return identity.toString('hex');
+}
+
+function openWindowsExactHandle(input: {
+  scope: WindowsHandleScopeV1;
+  candidatePath: string;
+  expectedPath: string;
+  label: string;
+  kind: 'file' | 'directory';
+  desiredAccess: number;
+  shareMode?: number;
+  allowMissing?: boolean;
+}): bigint | null {
+  const library = requireWindowsKernel32();
+  const handle = library.symbols.CreateFileW(
+    windowsWidePath(input.candidatePath),
+    input.desiredAccess,
+    input.shareMode ?? WindowsShareReadWriteDelete,
+    null,
+    WindowsOpenExisting,
+    WindowsFileFlagOpenReparsePoint | (input.kind === 'directory' ? WindowsFileFlagBackupSemantics : 0),
+    null
+  );
+  if (handle === WindowsInvalidHandleValue) {
+    const errorCode = library.symbols.GetLastError();
+    if (input.allowMissing && (errorCode === 2 || errorCode === 3)) return null;
+    const failure = windowsOperationError(`CreateFileW for ${input.label}`, errorCode);
+    if (errorCode === WindowsErrorAccessDenied) {
+      const attributes = library.symbols.GetFileAttributesW(ptr(windowsWidePath(input.candidatePath)));
+      if (attributes !== WindowsInvalidFileAttributes
+          && (attributes & WindowsFileAttributeReparsePoint) !== 0) {
+        throw new CodexDevelopmentUnsafeAnchoredPathError({
+          label: input.label,
+          targetPath: input.expectedPath,
+          cause: failure
+        });
+      }
+    }
+    throw failure;
+  }
+  input.scope.own(handle, input.label);
+  assertWindowsExactHandle(handle, input.expectedPath, input.label, input.kind);
+  return handle;
+}
+
+function assertNoWindowsReparsePoint(candidate: string, label: string): void {
+  if (process.platform !== 'win32') return;
+  const library = requireWindowsKernel32();
+  const widePath = windowsWidePath(candidate);
+  const attributes = library.symbols.GetFileAttributesW(ptr(widePath));
+  if (attributes === WindowsInvalidFileAttributes) {
+    throw new Error(`${label} attributes could not be read (Win32 ${library.symbols.GetLastError()}).`);
+  }
+  if ((attributes & WindowsFileAttributeReparsePoint) !== 0) {
+    throw new CodexDevelopmentUnsafeAnchoredPathError({ label, targetPath: candidate });
+  }
+}
+
+function loadLinuxLibc() {
+  return dlopen('libc.so.6', {
+    open: { args: [FFIType.ptr, FFIType.i32, FFIType.u32], returns: FFIType.i32 },
+    openat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.u32], returns: FFIType.i32 },
+    mkdirat: { args: [FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
+    renameat: {
+      args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr],
+      returns: FFIType.i32
+    },
+    linkat: {
+      args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.i32],
+      returns: FFIType.i32
+    },
+    write: { args: [FFIType.i32, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
+    fsync: { args: [FFIType.i32], returns: FFIType.i32 },
+    close: { args: [FFIType.i32], returns: FFIType.i32 },
+    __errno_location: { args: [], returns: FFIType.ptr }
+  } as const);
+}
+
+function loadLinuxRenameat2() {
+  return dlopen('libc.so.6', {
+    renameat2: {
+      args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.u32],
+      returns: FFIType.i32
+    }
+  } as const);
+}
+
+let linuxLibc: ReturnType<typeof loadLinuxLibc> | undefined;
+let linuxRenameat2: ReturnType<typeof loadLinuxRenameat2> | undefined;
+// Pinned Linux x64 UAPI: request close-on-exec atomically in open/openat.
+// A later fcntl(F_SETFD) would permit a concurrent fork+exec descriptor leak.
+const DOCUMENT_CONTROL_LINUX_X64_O_CLOEXEC_V1 = 0o2_000_000;
+
+function requireLinuxLibc(): ReturnType<typeof loadLinuxLibc> {
+  if (process.platform !== 'linux') {
+    throw new Error(`Anchored document-control path effects are unsupported on ${process.platform}.`);
+  }
+  linuxLibc ??= loadLinuxLibc();
+  return linuxLibc;
+}
+
+function requireLinuxRenameat2(): ReturnType<typeof loadLinuxRenameat2> {
+  if (process.platform !== 'linux') {
+    throw new CodexDevelopmentUnsupportedAnchoredPathEffectError('libc.renameat2');
+  }
+  try {
+    linuxRenameat2 ??= loadLinuxRenameat2();
+  } catch {
+    throw new CodexDevelopmentUnsupportedAnchoredPathEffectError('libc.renameat2');
+  }
+  return linuxRenameat2;
+}
+
+function requireLinuxX64OpenCloseOnExecFlag(): number {
+  if (process.platform !== 'linux' || process.arch !== 'x64') {
+    throw new CodexDevelopmentUnsupportedAnchoredPathEffectError('pinned Linux x64 O_CLOEXEC UAPI');
+  }
+  return DOCUMENT_CONTROL_LINUX_X64_O_CLOEXEC_V1;
+}
+
+function posixCString(value: string): Buffer {
+  if (value.includes('\0')) throw new Error('Anchored POSIX path contains NUL.');
+  return Buffer.from(`${value}\0`, 'utf8');
+}
+
+function posixErrno(): number {
+  const location = requireLinuxLibc().symbols.__errno_location();
+  if (location === null) throw new Error('POSIX errno location is unavailable.');
+  return read.i32(location);
+}
+
+const LinuxErrorNotDirectory = 20;
+const LinuxErrorSymbolicLinkLoop = 40;
+
+function posixOperationError(operation: string, errno: number): NodeJS.ErrnoException {
+  const error = new Error(`${operation} failed (errno ${errno}).`) as NodeJS.ErrnoException;
+  error.code = errno === 2 ? 'ENOENT' : errno === 17 ? 'EEXIST'
+    : errno === LinuxErrorNotDirectory ? 'ENOTDIR'
+    : errno === LinuxErrorSymbolicLinkLoop ? 'ELOOP' : `ERRNO_${errno}`;
+  return error;
+}
+
+function posixAnchoredAcquisitionError(input: Readonly<{
+  operation: string;
+  errno: number;
+  label: string;
+  targetPath: string;
+}>): Error {
+  const cause = posixOperationError(input.operation, input.errno);
+  if (input.errno !== LinuxErrorNotDirectory && input.errno !== LinuxErrorSymbolicLinkLoop) return cause;
+  return new CodexDevelopmentUnsafeAnchoredPathError({
+    label: input.label,
+    targetPath: input.targetPath,
+    cause
+  });
+}
+
+const LinuxRenameNoReplace = 1;
+const LinuxAtCurrentWorkingDirectory = -100;
+const LinuxAtSymlinkFollow = 0x400;
+const LinuxAtEmptyPath = 0x1000;
+const LinuxErrorPermissionDenied = 13;
+const LinuxErrorOperationNotPermitted = 1;
+const LinuxErrorCrossDeviceLink = 18;
+const LinuxErrorInvalidArgument = 22;
+const LinuxErrorFunctionNotImplemented = 38;
+const LinuxErrorOperationNotSupported = 95;
+
+interface PosixFdScopeV1 {
+  own(fd: number, label: string): number;
+}
+
+async function withPosixFds<T>(operation: (scope: PosixFdScopeV1) => Promise<T> | T): Promise<T> {
+  const owned: Array<Readonly<{ fd: number; label: string }>> = [];
+  let result: T | undefined;
+  let failure: unknown;
+  try {
+    result = await operation({
+      own(fd, label) {
+        owned.push(Object.freeze({ fd, label }));
+        return fd;
+      }
+    });
+  } catch (error) {
+    failure = error;
+  }
+  const closeFailures: Error[] = [];
+  const library = requireLinuxLibc();
+  for (const entry of owned.reverse()) {
+    if (library.symbols.close(entry.fd) !== 0) {
+      const errno = posixErrno();
+      closeFailures.push(posixOperationError(`close for ${entry.label}`, errno));
+    }
+  }
+  if (failure !== undefined) {
+    if (closeFailures.length > 0) {
+      throw new AggregateError([failure, ...closeFailures], 'POSIX anchored operation and fd close both failed.');
+    }
+    throw failure;
+  }
+  if (closeFailures.length > 0) {
+    throw closeFailures.length === 1
+      ? closeFailures[0]
+      : new AggregateError(closeFailures, 'Multiple POSIX anchored fds failed to close.');
+  }
+  return result!;
+}
+
+function assertPosixFdPath(fd: number, expectedPath: string, label: string): void {
+  const actual = realpathSync(`/proc/self/fd/${fd}`);
+  if (pathComparisonValue(actual) !== pathComparisonValue(expectedPath)) {
+    throw new Error(`${label} exact fd escaped or changed its anchored path.`);
+  }
+}
+
+function assertPosixFdIdentity(leftFd: number, rightFd: number, label: string): void {
+  const left = statSync(`/proc/self/fd/${leftFd}`);
+  const right = statSync(`/proc/self/fd/${rightFd}`);
+  if (left.dev !== right.dev || left.ino !== right.ino) {
+    throw new Error(`${label} opened source fd no longer identifies the current source entry.`);
+  }
+}
+
+function flushCreatedPosixParent(input: {
+  parentFd: number;
+  parentPath: string;
+  createdPath: string;
+  durability?: FreezeDurabilityOptionsV1;
+}): void {
+  try {
+    input.durability?.beforeCreatedParentBarrier?.({
+      parentPath: input.parentPath,
+      createdPath: input.createdPath
+    });
+    if (requireLinuxLibc().symbols.fsync(input.parentFd) !== 0) {
+      const errno = posixErrno();
+      throw posixOperationError('fsync anchored newly-created directory parent', errno);
+    }
+    input.durability?.createdParentBarrierObserver?.({
+      parentPath: input.parentPath,
+      createdPath: input.createdPath
+    });
+  } catch (error) {
+    throw new CodexDevelopmentDurabilityBarrierError({
+      operation: 'parent-directory-barrier',
+      targetPath: input.parentPath,
+      cause: error
+    });
+  }
+}
+
+function linkOpenedPosixFileNoReplace(input: {
+  sourceFd: number;
+  targetParentFd: number;
+  targetName: string;
+  targetParentPath: string;
+  label: string;
+}): void {
+  const library = requireLinuxLibc();
+  let linked = library.symbols.linkat(
+    input.sourceFd,
+    posixCString(''),
+    input.targetParentFd,
+    posixCString(input.targetName),
+    LinuxAtEmptyPath
+  );
+  if (linked !== 0) {
+    const emptyPathErrno = posixErrno();
+    if (emptyPathErrno === 17) {
+      throw posixOperationError(`linkat exact opened object for ${input.label}`, emptyPathErrno);
+    }
+    linked = library.symbols.linkat(
+      LinuxAtCurrentWorkingDirectory,
+      posixCString(`/proc/self/fd/${input.sourceFd}`),
+      input.targetParentFd,
+      posixCString(input.targetName),
+      LinuxAtSymlinkFollow
+    );
+    if (linked !== 0) {
+      const procFdErrno = posixErrno();
+      if ([
+        LinuxErrorOperationNotPermitted,
+        LinuxErrorPermissionDenied,
+        LinuxErrorCrossDeviceLink,
+        LinuxErrorFunctionNotImplemented,
+        LinuxErrorOperationNotSupported
+      ].includes(procFdErrno) || procFdErrno === 2) {
+        throw new CodexDevelopmentUnsupportedAnchoredPathEffectError(
+          'unprivileged exact-object linkat via /proc/self/fd'
+        );
+      }
+      throw posixOperationError(`linkat /proc exact opened object for ${input.label}`, procFdErrno);
+    }
+  }
+  if (library.symbols.fsync(input.targetParentFd) !== 0) {
+    const errno = posixErrno();
+    throw new CodexDevelopmentDurabilityBarrierError({
+      operation: 'parent-directory-barrier',
+      targetPath: input.targetParentPath,
+      cause: posixOperationError(`fsync exact-object link parent for ${input.label}`, errno)
+    });
+  }
+}
+
+function openPosixDirectoryPath(input: {
+  scope: PosixFdScopeV1;
+  boundaryRoot: string;
+  directoryPath: string;
+  label: string;
+  createMissing: boolean;
+  durability?: FreezeDurabilityOptionsV1;
+}): Readonly<{ fd: number; canonicalPath: string }> {
+  const closeOnExec = requireLinuxX64OpenCloseOnExecFlag();
+  const library = requireLinuxLibc();
+  const lexicalRoot = path.resolve(input.boundaryRoot);
+  const canonicalRoot = lexicalRoot;
+  const lexicalDirectory = path.resolve(input.directoryPath);
+  assertPathContained(lexicalRoot, lexicalDirectory, input.label);
+  const relative = path.relative(lexicalRoot, lexicalDirectory);
+  const segments = relative === '' ? [] : relative.split(path.sep);
+  const directoryFlags = fsConstants.O_RDONLY | fsConstants.O_DIRECTORY
+    | fsConstants.O_NOFOLLOW | closeOnExec;
+  let currentFd = library.symbols.open(posixCString(canonicalRoot), directoryFlags, 0);
+  if (currentFd === -1) {
+    const errno = posixErrno();
+    throw posixAnchoredAcquisitionError({
+      operation: `open anchored root for ${input.label}`,
+      errno,
+      label: `${input.label} boundary`,
+      targetPath: canonicalRoot
+    });
+  }
+  input.scope.own(currentFd, `${input.label} boundary`);
+  assertPosixFdPath(currentFd, canonicalRoot, `${input.label} boundary`);
+  let canonicalPath = canonicalRoot;
+  for (const segment of segments) {
+    const containingParentPath = canonicalPath;
+    let nextFd = library.symbols.openat(currentFd, posixCString(segment), directoryFlags, 0);
+    if (nextFd === -1) {
+      const errno = posixErrno();
+      if (!input.createMissing || errno !== 2) {
+        throw posixAnchoredAcquisitionError({
+          operation: `openat anchored directory for ${input.label}`,
+          errno,
+          label: input.label,
+          targetPath: path.join(containingParentPath, segment)
+        });
+      }
+      input.durability?.beforeAnchoredCreate?.({
+        label: input.label,
+        kind: 'directory',
+        parentPath: containingParentPath,
+        targetPath: path.join(containingParentPath, segment)
+      });
+      let created = false;
+      if (library.symbols.mkdirat(currentFd, posixCString(segment), 0o700) !== 0) {
+        const mkdirErrno = posixErrno();
+        if (mkdirErrno !== 17) {
+          throw posixOperationError(`mkdirat anchored directory for ${input.label}`, mkdirErrno);
+        }
+      } else {
+        created = true;
+      }
+      if (created) {
+        flushCreatedPosixParent({
+          parentFd: currentFd,
+          parentPath: containingParentPath,
+          createdPath: path.join(containingParentPath, segment),
+          durability: input.durability
+        });
+      }
+      nextFd = library.symbols.openat(currentFd, posixCString(segment), directoryFlags, 0);
+      if (nextFd === -1) {
+        const reopenErrno = posixErrno();
+        throw posixAnchoredAcquisitionError({
+          operation: `openat created directory for ${input.label}`,
+          errno: reopenErrno,
+          label: input.label,
+          targetPath: path.join(containingParentPath, segment)
+        });
+      }
+    }
+    canonicalPath = path.join(canonicalPath, segment);
+    input.scope.own(nextFd, `${input.label} component ${segment}`);
+    assertPosixFdPath(nextFd, canonicalPath, input.label);
+    if (!statSync(`/proc/self/fd/${nextFd}`).isDirectory()) {
+      throw new Error(`${input.label} anchored component must be a directory.`);
+    }
+    currentFd = nextFd;
+  }
+  return Object.freeze({ fd: currentFd, canonicalPath });
+}
+
+function openPosixRegularFile(input: {
+  scope: PosixFdScopeV1;
+  boundaryRoot: string;
+  filePath: string;
+  label: string;
+  flags: number;
+  mode?: number;
+  allowMissing?: boolean;
+  beforeCreate?: () => void;
+}): Readonly<{ fd: number; parentFd: number; name: string; canonicalPath: string }> | null {
+  const closeOnExec = requireLinuxX64OpenCloseOnExecFlag();
+  const lexicalRoot = path.resolve(input.boundaryRoot);
+  const lexicalFile = path.resolve(input.filePath);
+  assertPathContained(lexicalRoot, lexicalFile, input.label);
+  let parent: ReturnType<typeof openPosixDirectoryPath>;
+  try {
+    parent = openPosixDirectoryPath({
+      scope: input.scope,
+      boundaryRoot: lexicalRoot,
+      directoryPath: path.dirname(lexicalFile),
+      label: `${input.label} parent`,
+      createMissing: false
+    });
+  } catch (error) {
+    if (input.allowMissing && isMissingError(error)) return null;
+    throw error;
+  }
+  const name = path.basename(lexicalFile);
+  input.beforeCreate?.();
+  const fd = requireLinuxLibc().symbols.openat(
+    parent.fd,
+    posixCString(name),
+    input.flags | fsConstants.O_NOFOLLOW | closeOnExec,
+    input.mode ?? 0
+  );
+  if (fd === -1) {
+    const errno = posixErrno();
+    if (input.allowMissing && errno === 2) return null;
+    throw posixAnchoredAcquisitionError({
+      operation: `openat anchored file for ${input.label}`,
+      errno,
+      label: input.label,
+      targetPath: lexicalFile
+    });
+  }
+  input.scope.own(fd, input.label);
+  const retainedParentPath = realpathSync(`/proc/self/fd/${parent.fd}`);
+  const canonicalPath = path.join(retainedParentPath, name);
+  assertPosixFdPath(fd, canonicalPath, input.label);
+  if (!statSync(`/proc/self/fd/${fd}`).isFile()) {
+    throw new Error(`${input.label} anchored object must be a regular file.`);
+  }
+  return Object.freeze({ fd, parentFd: parent.fd, name, canonicalPath });
+}
+
+function openWindowsDirectoryPath(input: {
+  scope: WindowsHandleScopeV1;
+  boundaryRoot: string;
+  directoryPath: string;
+  label: string;
+  createMissing: boolean;
+  retainAgainstRename?: boolean;
+  durabilityWrite?: boolean;
+  durability?: FreezeDurabilityOptionsV1;
+}): Readonly<{ handle: bigint; canonicalPath: string }> {
+  const lexicalRoot = path.resolve(input.boundaryRoot);
+  const canonicalRoot = lexicalRoot;
+  const lexicalDirectory = path.resolve(input.directoryPath);
+  assertPathContained(lexicalRoot, lexicalDirectory, input.label);
+  const relative = path.relative(lexicalRoot, lexicalDirectory);
+  const segments = relative === '' ? [] : relative.split(path.sep);
+  const anchorShareMode = input.createMissing || input.retainAgainstRename
+    ? WindowsShareReadWrite
+    : WindowsShareReadWriteDelete;
+  let canonicalPath = canonicalRoot;
+  let handle = openWindowsExactHandle({
+    scope: input.scope,
+    candidatePath: canonicalRoot,
+    expectedPath: canonicalRoot,
+    label: `${input.label} boundary`,
+    kind: 'directory',
+    desiredAccess: (
+      WindowsFileListDirectory | WindowsFileReadAttributes | WindowsSynchronizeAccess
+      | (input.createMissing || input.durabilityWrite ? WindowsGenericWrite : 0)
+    ) >>> 0,
+    shareMode: anchorShareMode
+  })!;
+  for (const segment of segments) {
+    const containingParentPath = canonicalPath;
+    canonicalPath = path.join(canonicalPath, segment);
+    let next = openWindowsExactHandle({
+      scope: input.scope,
+      candidatePath: canonicalPath,
+      expectedPath: canonicalPath,
+      label: `${input.label} component ${segment}`,
+      kind: 'directory',
+      desiredAccess: (
+        WindowsFileListDirectory | WindowsFileReadAttributes | WindowsSynchronizeAccess
+        | (input.createMissing || input.durabilityWrite ? WindowsGenericWrite : 0)
+      ) >>> 0,
+      shareMode: anchorShareMode,
+      allowMissing: input.createMissing
+    });
+    if (next === null) {
+      const library = requireWindowsKernel32();
+      input.durability?.beforeAnchoredCreate?.({
+        label: input.label,
+        kind: 'directory',
+        parentPath: containingParentPath,
+        targetPath: canonicalPath
+      });
+      let created = false;
+      if (library.symbols.CreateDirectoryW(windowsWidePath(canonicalPath), null) === 0) {
+        const errorCode = library.symbols.GetLastError();
+        if (errorCode !== 183) {
+          throw windowsOperationError(`CreateDirectoryW for ${input.label}`, errorCode);
+        }
+      } else {
+        created = true;
+      }
+      if (created) {
+        try {
+          input.durability?.beforeCreatedParentBarrier?.({
+            parentPath: containingParentPath,
+            createdPath: canonicalPath
+          });
+          if (library.symbols.FlushFileBuffers(handle) === 0) {
+            const errorCode = library.symbols.GetLastError();
+            throw windowsOperationError('FlushFileBuffers for anchored newly-created directory parent', errorCode);
+          }
+          input.durability?.createdParentBarrierObserver?.({
+            parentPath: containingParentPath,
+            createdPath: canonicalPath
+          });
+        } catch (error) {
+          throw new CodexDevelopmentDurabilityBarrierError({
+            operation: 'parent-directory-barrier',
+            targetPath: containingParentPath,
+            cause: error
+          });
+        }
+      }
+      next = openWindowsExactHandle({
+        scope: input.scope,
+        candidatePath: canonicalPath,
+        expectedPath: canonicalPath,
+        label: `${input.label} created component ${segment}`,
+        kind: 'directory',
+        desiredAccess: (
+          WindowsFileListDirectory | WindowsFileReadAttributes | WindowsSynchronizeAccess | WindowsGenericWrite
+        ) >>> 0,
+        shareMode: anchorShareMode
+      });
+    }
+    handle = next!;
+  }
+  return Object.freeze({ handle, canonicalPath });
+}
+
+function openWindowsRegularFile(input: {
+  scope: WindowsHandleScopeV1;
+  boundaryRoot: string;
+  filePath: string;
+  label: string;
+  desiredAccess: number;
+  allowMissing?: boolean;
+  retainedParentDurabilityWrite?: boolean;
+}): Readonly<{ handle: bigint; parentHandle: bigint; name: string; canonicalPath: string }> | null {
+  const lexicalRoot = path.resolve(input.boundaryRoot);
+  const lexicalFile = path.resolve(input.filePath);
+  assertPathContained(lexicalRoot, lexicalFile, input.label);
+  let parent: ReturnType<typeof openWindowsDirectoryPath>;
+  try {
+    parent = openWindowsDirectoryPath({
+      scope: input.scope,
+      boundaryRoot: lexicalRoot,
+      directoryPath: path.dirname(lexicalFile),
+      label: `${input.label} parent`,
+      createMissing: false,
+      durabilityWrite: input.retainedParentDurabilityWrite
+    });
+  } catch (error) {
+    if (input.allowMissing && isMissingError(error)) return null;
+    throw error;
+  }
+  const name = path.basename(lexicalFile);
+  const canonicalPath = path.join(parent.canonicalPath, name);
+  const handle = openWindowsExactHandle({
+    scope: input.scope,
+    candidatePath: lexicalFile,
+    expectedPath: canonicalPath,
+    label: input.label,
+    kind: 'file',
+    desiredAccess: input.desiredAccess,
+    allowMissing: input.allowMissing
+  });
+  return handle === null ? null : Object.freeze({
+    handle,
+    parentHandle: parent.handle,
+    name,
+    canonicalPath
+  });
+}
+
+function readWindowsHandleBytes(handle: bigint, label: string): Buffer {
+  const library = requireWindowsKernel32();
+  if (library.symbols.SetFilePointerEx(handle, 0n, null, WindowsFileBegin) === 0) {
+    throw windowsOperationError(`SetFilePointerEx(FILE_BEGIN) for ${label}`, library.symbols.GetLastError());
+  }
+  const sizeBuffer = Buffer.alloc(8);
+  if (library.symbols.GetFileSizeEx(handle, sizeBuffer) === 0) {
+    const errorCode = library.symbols.GetLastError();
+    throw windowsOperationError(`GetFileSizeEx for ${label}`, errorCode);
+  }
+  const size = sizeBuffer.readBigUInt64LE(0);
+  if (size > BigInt(ExternalCommandMaxBufferBytes)) {
+    throw new Error(`${label} exceeds the bounded document-control file size.`);
+  }
+  const bytes = Buffer.alloc(Number(size));
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const readLength = Buffer.alloc(4);
+    if (library.symbols.ReadFile(
+      handle,
+      ptr(bytes, offset),
+      bytes.byteLength - offset,
+      readLength,
+      null
+    ) === 0) {
+      const errorCode = library.symbols.GetLastError();
+      throw windowsOperationError(`ReadFile for ${label}`, errorCode);
+    }
+    const count = readLength.readUInt32LE(0);
+    if (count === 0) throw new Error(`${label} ended before its exact file size.`);
+    offset += count;
+  }
+  return bytes;
+}
+
+function writeWindowsHandleBytes(handle: bigint, bytes: Uint8Array, label: string): void {
+  const library = requireWindowsKernel32();
+  const source = Buffer.from(bytes);
+  let offset = 0;
+  while (offset < source.byteLength) {
+    const written = Buffer.alloc(4);
+    if (library.symbols.WriteFile(
+      handle,
+      ptr(source, offset),
+      source.byteLength - offset,
+      written,
+      null
+    ) === 0) {
+      const errorCode = library.symbols.GetLastError();
+      throw windowsOperationError(`WriteFile for ${label}`, errorCode);
+    }
+    const count = written.readUInt32LE(0);
+    if (count === 0) throw new Error(`${label} wrote zero bytes before completion.`);
+    offset += count;
+  }
+  if (library.symbols.FlushFileBuffers(handle) === 0) {
+    const errorCode = library.symbols.GetLastError();
+    throw windowsOperationError(`FlushFileBuffers for ${label}`, errorCode);
+  }
+}
+
+async function canonicalDirectoryBoundary(root: string, label: string): Promise<string> {
+  const resolved = path.resolve(root);
+  const metadata = await lstat(resolved);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+    throw new Error(`${label} must be a real directory.`);
+  }
+  assertNoWindowsReparsePoint(resolved, label);
+  const canonical = await realpath(resolved);
+  const canonicalMetadata = await lstat(canonical);
+  if (!canonicalMetadata.isDirectory() || canonicalMetadata.isSymbolicLink()) {
+    throw new Error(`${label} canonical path must be a real directory.`);
+  }
+  assertNoWindowsReparsePoint(canonical, `${label} canonical path`);
+  return canonical;
+}
+
+async function inspectSafePath(input: {
+  boundaryRoot: string;
+  candidatePath: string;
+  label: string;
+  finalKind: 'file' | 'directory';
+  allowMissing: boolean;
+}): Promise<string | null> {
+  const lexicalRoot = path.resolve(input.boundaryRoot);
+  const canonicalRoot = await canonicalDirectoryBoundary(lexicalRoot, `${input.label} boundary`);
+  const lexicalCandidate = path.resolve(input.candidatePath);
+  assertPathContained(lexicalRoot, lexicalCandidate, input.label);
+  const relative = path.relative(lexicalRoot, lexicalCandidate);
+  const segments = relative === '' ? [] : relative.split(path.sep);
+  let current = canonicalRoot;
+  for (const [index, segment] of segments.entries()) {
+    current = path.join(current, segment);
+    let metadata;
+    try {
+      metadata = await lstat(current);
+    } catch (error) {
+      if (input.allowMissing && isMissingError(error)) return null;
+      throw error;
+    }
+    if (metadata.isSymbolicLink()) {
+      throw new Error(`${input.label} must not traverse a symbolic link or junction.`);
+    }
+    assertNoWindowsReparsePoint(current, input.label);
+    const final = index === segments.length - 1;
+    if (!final && !metadata.isDirectory()) {
+      throw new Error(`${input.label} has a non-directory path component.`);
+    }
+    if (final && input.finalKind === 'file' && !metadata.isFile()) {
+      throw new Error(`${input.label} must be a regular file.`);
+    }
+    if (final && input.finalKind === 'directory' && !metadata.isDirectory()) {
+      throw new Error(`${input.label} must be a real directory.`);
+    }
+    const canonicalCurrent = await realpath(current);
+    assertPathContained(canonicalRoot, canonicalCurrent, input.label);
+    if (pathComparisonValue(canonicalCurrent) !== pathComparisonValue(current)) {
+      throw new Error(`${input.label} contains a noncanonical path component.`);
+    }
+  }
+  if (segments.length === 0 && input.finalKind !== 'directory') {
+    throw new Error(`${input.label} cannot target the transaction root itself.`);
+  }
+  return current;
+}
+
+async function ensureSafeDirectory(input: {
+  boundaryRoot: string;
+  directoryPath: string;
+  label: string;
+  durability?: FreezeDurabilityOptionsV1;
+}): Promise<string> {
+  const lexicalRoot = path.resolve(input.boundaryRoot);
+  const lexicalDirectory = path.resolve(input.directoryPath);
+  assertPathContained(lexicalRoot, lexicalDirectory, input.label);
+  if (process.platform === 'win32') {
+    return withWindowsHandles((scope) => openWindowsDirectoryPath({
+      scope,
+      boundaryRoot: lexicalRoot,
+      directoryPath: lexicalDirectory,
+      label: input.label,
+      createMissing: true,
+      durability: input.durability
+    }).canonicalPath);
+  }
+  if (process.platform === 'linux') {
+    return withPosixFds((scope) => openPosixDirectoryPath({
+      scope,
+      boundaryRoot: lexicalRoot,
+      directoryPath: lexicalDirectory,
+      label: input.label,
+      createMissing: true,
+      durability: input.durability
+    }).canonicalPath);
+  }
+  throw new Error(`Anchored document-control directory creation is unsupported on ${process.platform}.`);
+}
+
+async function readSafeRegularFile(input: {
+  boundaryRoot: string;
+  filePath: string;
+  label: string;
+}): Promise<Buffer> {
+  if (process.platform === 'win32') {
+    return withWindowsHandles((scope) => {
+      const file = openWindowsRegularFile({
+        scope,
+        ...input,
+        desiredAccess: (WindowsGenericRead | WindowsFileReadAttributes) >>> 0
+      });
+      return readWindowsHandleBytes(file!.handle, input.label);
+    });
+  }
+  if (process.platform === 'linux') {
+    return withPosixFds(async (scope) => {
+      const file = openPosixRegularFile({
+        scope,
+        ...input,
+        flags: fsConstants.O_RDONLY
+      });
+      return readFile(`/proc/self/fd/${file!.fd}`);
+    });
+  }
+  throw new Error(`Anchored document-control reads are unsupported on ${process.platform}.`);
+}
+
+async function readOptionalSafeRegularFile(input: {
+  boundaryRoot: string;
+  filePath: string;
+  label: string;
+}): Promise<Buffer | null> {
+  if (process.platform === 'win32') {
+    return withWindowsHandles((scope) => {
+      const file = openWindowsRegularFile({
+        scope,
+        ...input,
+        desiredAccess: (WindowsGenericRead | WindowsFileReadAttributes) >>> 0,
+        allowMissing: true
+      });
+      return file === null ? null : readWindowsHandleBytes(file.handle, input.label);
+    });
+  }
+  if (process.platform === 'linux') {
+    return withPosixFds(async (scope) => {
+      const file = openPosixRegularFile({
+        scope,
+        ...input,
+        flags: fsConstants.O_RDONLY,
+        allowMissing: true
+      });
+      return file === null ? null : readFile(`/proc/self/fd/${file.fd}`);
+    });
+  }
+  throw new Error(`Anchored document-control reads are unsupported on ${process.platform}.`);
+}
+
+async function removeOptionalSafeRegularFile(input: {
+  boundaryRoot: string;
+  filePath: string;
+  label: string;
+  expectedBytes: Buffer;
+  expectedIdentity?: AnchoredObjectIdentityV1;
+  retained?: RetainedPublishObjectAuthorityV1;
+  durability?: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  if (process.platform === 'win32') {
+    if (input.retained?.handle !== undefined) {
+      if (!readWindowsHandleBytes(input.retained.handle, input.label).equals(input.expectedBytes)) {
+        throw new Error(`${input.label} changed before exact-object cleanup; preserving it.`);
+      }
+      if (input.expectedIdentity !== undefined && !sameAnchoredObjectIdentityV1(
+        windowsFileIdentity(input.retained.handle, `${input.label} retained cleanup identity`), input.expectedIdentity
+      )) throw new Error(`${input.label} identity changed before exact-object cleanup; preserving it.`);
+      await input.durability?.beforeAnchoredCleanup?.({ label: input.label, filePath: input.filePath });
+      const disposition = Buffer.from([1]);
+      const library = requireWindowsKernel32();
+      if (library.symbols.SetFileInformationByHandle(
+        input.retained.handle, WindowsFileDispositionInfo, disposition, disposition.byteLength
+      ) === 0) throw windowsOperationError(`Exact-object deletion for ${input.label}`, library.symbols.GetLastError());
+      return;
+    }
+    await withWindowsHandles(async (scope) => {
+      const file = openWindowsRegularFile({
+        scope,
+        ...input,
+        desiredAccess: (
+          WindowsDeleteAccess | WindowsFileReadAttributes | WindowsSynchronizeAccess | WindowsGenericRead
+        ) >>> 0,
+        allowMissing: true
+      });
+      if (file === null) return;
+      if (!readWindowsHandleBytes(file.handle, input.label).equals(input.expectedBytes)) {
+        throw new Error(`${input.label} changed before exact-object cleanup; preserving it.`);
+      }
+      if (input.expectedIdentity !== undefined
+          && !sameAnchoredObjectIdentityV1(
+            windowsFileIdentity(file.handle, `${input.label} cleanup identity`), input.expectedIdentity
+          )) {
+        throw new Error(`${input.label} identity changed before exact-object cleanup; preserving it.`);
+      }
+      await input.durability?.beforeAnchoredCleanup?.({
+        label: input.label,
+        filePath: input.filePath
+      });
+      const disposition = Buffer.from([1]);
+      const library = requireWindowsKernel32();
+      if (library.symbols.SetFileInformationByHandle(
+        file.handle,
+        WindowsFileDispositionInfo,
+        disposition,
+        disposition.byteLength
+      ) === 0) {
+        const errorCode = library.symbols.GetLastError();
+        throw windowsOperationError(`Exact-object deletion for ${input.label}`, errorCode);
+      }
+    });
+    return;
+  }
+  if (process.platform === 'linux') {
+    if (input.retained?.fd !== undefined) {
+      if (!(await readFile(`/proc/self/fd/${input.retained.fd}`)).equals(input.expectedBytes)) {
+        throw new Error(`${input.label} changed before exact-object cleanup; preserving it.`);
+      }
+      if (input.expectedIdentity !== undefined) {
+        const metadata = statSync(`/proc/self/fd/${input.retained.fd}`);
+        if (!sameAnchoredObjectIdentityV1(
+          Object.freeze({ dev: metadata.dev, ino: metadata.ino }), input.expectedIdentity
+        )) throw new Error(`${input.label} identity changed before exact-object cleanup; preserving it.`);
+      }
+      // Retain exact Linux residue; unlink-by-name after a retained FD check is intentionally forbidden.
+      return;
+    }
+    await withPosixFds(async (scope) => {
+      const file = openPosixRegularFile({
+        scope,
+        ...input,
+        flags: fsConstants.O_RDONLY,
+        allowMissing: true
+      });
+      if (file === null) return;
+      if (!(await readFile(`/proc/self/fd/${file.fd}`)).equals(input.expectedBytes)) {
+        throw new Error(`${input.label} changed before exact-object cleanup; preserving it.`);
+      }
+      if (input.expectedIdentity !== undefined) {
+        const metadata = statSync(`/proc/self/fd/${file.fd}`);
+        if (!sameAnchoredObjectIdentityV1(
+          Object.freeze({ dev: metadata.dev, ino: metadata.ino }), input.expectedIdentity
+        )) throw new Error(`${input.label} identity changed before exact-object cleanup; preserving it.`);
+      }
+      await input.durability?.beforeAnchoredCleanup?.({
+        label: input.label,
+        filePath: input.filePath
+      });
+      // Linux has no race-free unlink-by-opened-fd primitive for regular files. Retain exact
+      // transaction residue instead of resolving the pathname again after validation.
+    });
+    return;
+  }
+  throw new Error(`Anchored document-control deletion is unsupported on ${process.platform}.`);
+}
+
+async function createSafeRegularFileExclusive(input: {
+  boundaryRoot: string;
+  filePath: string;
+  bytes: Uint8Array;
+  label: string;
+  durability?: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  const lexicalRoot = path.resolve(input.boundaryRoot);
+  const lexicalFile = path.resolve(input.filePath);
+  assertPathContained(lexicalRoot, lexicalFile, input.label);
+  if (process.platform === 'win32') {
+    await withWindowsHandles((scope) => {
+      const parent = openWindowsDirectoryPath({
+        scope,
+        boundaryRoot: lexicalRoot,
+        directoryPath: path.dirname(lexicalFile),
+        label: `${input.label} parent`,
+        createMissing: false,
+        retainAgainstRename: true
+      });
+      const library = requireWindowsKernel32();
+      input.durability?.beforeAnchoredCreate?.({
+        label: input.label,
+        kind: 'file',
+        parentPath: parent.canonicalPath,
+        targetPath: lexicalFile
+      });
+      const handle = library.symbols.CreateFileW(
+        windowsWidePath(lexicalFile),
+        (WindowsGenericRead | WindowsGenericWrite | WindowsFileReadAttributes) >>> 0,
+        WindowsShareReadWriteDelete,
+        null,
+        WindowsCreateNew,
+        WindowsFileAttributeNormal | WindowsFileFlagOpenReparsePoint,
+        null
+      );
+      if (handle === WindowsInvalidHandleValue) {
+        const errorCode = library.symbols.GetLastError();
+        throw windowsOperationError(`CreateFileW exclusive create for ${input.label}`, errorCode);
+      }
+      scope.own(handle, input.label);
+      assertWindowsExactHandle(handle, path.join(parent.canonicalPath, path.basename(lexicalFile)), input.label, 'file');
+      writeWindowsHandleBytes(handle, input.bytes, input.label);
+    });
+    return;
+  }
+  if (process.platform === 'linux') {
+    await withPosixFds((scope) => {
+      const file = openPosixRegularFile({
+        scope,
+        boundaryRoot: lexicalRoot,
+        filePath: lexicalFile,
+        label: input.label,
+        flags: fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL,
+        mode: 0o600,
+        beforeCreate: () => input.durability?.beforeAnchoredCreate?.({
+          label: input.label,
+          kind: 'file',
+          parentPath: path.dirname(lexicalFile),
+          targetPath: lexicalFile
+        })
+      })!;
+      const library = requireLinuxLibc();
+      const bytes = Buffer.from(input.bytes);
+      let offset = 0;
+      while (offset < bytes.byteLength) {
+        const count = library.symbols.write(file.fd, ptr(bytes, offset), BigInt(bytes.byteLength - offset));
+        if (count < 0n) {
+          const errno = posixErrno();
+          throw posixOperationError(`write anchored file for ${input.label}`, errno);
+        }
+        if (count === 0n) throw new Error(`${input.label} wrote zero bytes before completion.`);
+        offset += Number(count);
+      }
+      if (library.symbols.fsync(file.fd) !== 0) {
+        const errno = posixErrno();
+        throw posixOperationError(`fsync anchored file for ${input.label}`, errno);
+      }
+    });
+    return;
+  }
+  throw new Error(`Anchored document-control creation is unsupported on ${process.platform}.`);
+}
+
+async function defaultParentDirectoryBarrier(directoryPath: string): Promise<void> {
+  const resolved = path.resolve(directoryPath);
+  if (process.platform === 'linux') {
+    await withPosixFds((scope) => {
+      const directory = openPosixDirectoryPath({
+        scope,
+        boundaryRoot: resolved,
+        directoryPath: resolved,
+        label: 'Parent directory durability barrier',
+        createMissing: false
+      });
+      if (requireLinuxLibc().symbols.fsync(directory.fd) !== 0) {
+        const errno = posixErrno();
+        throw posixOperationError('fsync anchored parent directory', errno);
+      }
+    });
+    return;
+  }
+  if (process.platform !== 'win32') {
+    throw new Error(`Parent directory durability is unsupported on ${process.platform}.`);
+  }
+  const library = requireWindowsKernel32();
+  await withWindowsHandles((scope) => {
+    const handle = openWindowsExactHandle({
+      scope,
+      candidatePath: resolved,
+      expectedPath: resolved,
+      label: 'Parent directory durability barrier',
+      kind: 'directory',
+      desiredAccess: WindowsGenericWrite | WindowsFileReadAttributes | WindowsSynchronizeAccess
+    });
+    if (library.symbols.FlushFileBuffers(handle!) === 0) {
+      const errorCode = library.symbols.GetLastError();
+      throw windowsOperationError('FlushFileBuffers for anchored parent directory', errorCode);
+    }
+  });
+}
+
+async function flushPublishedFile(input: {
+  boundaryRoot: string;
+  targetPath: string;
+  label: string;
+  durability: FreezeDurabilityOptionsV1;
+  expectedBytes?: Buffer;
+  expectedIdentity?: AnchoredObjectIdentityV1;
+  retained?: RetainedPublishObjectAuthorityV1;
+}): Promise<void> {
+  const safeTarget = path.resolve(input.targetPath);
+  assertPathContained(path.resolve(input.boundaryRoot), safeTarget, input.label);
+  try {
+    if (process.platform === 'win32') {
+      if (input.retained?.handle !== undefined && input.retained.parentHandle !== undefined) {
+        const library = requireWindowsKernel32();
+        if (input.expectedBytes !== undefined
+            && !readWindowsHandleBytes(input.retained.handle, input.label).equals(input.expectedBytes)) {
+          throw new Error(`${input.label} bytes changed before exact-object flush.`);
+        }
+        if (input.expectedIdentity !== undefined && !sameAnchoredObjectIdentityV1(
+          windowsFileIdentity(input.retained.handle, `${input.label} retained flush identity`), input.expectedIdentity
+        )) throw new Error(`${input.label} identity changed before exact-object flush.`);
+        if (library.symbols.FlushFileBuffers(input.retained.handle) === 0) {
+          throw windowsOperationError(`FlushFileBuffers for ${input.label}`, library.symbols.GetLastError());
+        }
+      } else {
+        await withWindowsHandles((scope) => {
+          const file = openWindowsRegularFile({
+            scope,
+            boundaryRoot: input.boundaryRoot,
+            filePath: safeTarget,
+            label: input.label,
+            desiredAccess: WindowsGenericWrite | WindowsFileReadAttributes | WindowsSynchronizeAccess
+          });
+          const library = requireWindowsKernel32();
+          if (input.expectedBytes !== undefined && !readWindowsHandleBytes(file!.handle, input.label).equals(input.expectedBytes)) {
+            throw new Error(`${input.label} bytes changed before exact-object flush.`);
+          }
+          if (input.expectedIdentity !== undefined && !sameAnchoredObjectIdentityV1(
+            windowsFileIdentity(file!.handle, `${input.label} flush identity`), input.expectedIdentity
+          )) throw new Error(`${input.label} identity changed before exact-object flush.`);
+          if (library.symbols.FlushFileBuffers(file!.handle) === 0) {
+            const errorCode = library.symbols.GetLastError();
+            throw windowsOperationError(`FlushFileBuffers for ${input.label}`, errorCode);
+          }
+        });
+      }
+    } else if (process.platform === 'linux') {
+      if (input.retained?.fd !== undefined && input.retained.parentFd !== undefined) {
+        if (input.expectedBytes !== undefined
+            && !(await readFile(`/proc/self/fd/${input.retained.fd}`)).equals(input.expectedBytes)) {
+          throw new Error(`${input.label} bytes changed before exact-object flush.`);
+        }
+        if (input.expectedIdentity !== undefined) {
+          const metadata = statSync(`/proc/self/fd/${input.retained.fd}`);
+          if (!sameAnchoredObjectIdentityV1(
+            Object.freeze({ dev: metadata.dev, ino: metadata.ino }), input.expectedIdentity
+          )) throw new Error(`${input.label} identity changed before exact-object flush.`);
+        }
+        if (requireLinuxLibc().symbols.fsync(input.retained.fd) !== 0) {
+          throw posixOperationError(`fsync anchored retained file for ${input.label}`, posixErrno());
+        }
+      } else {
+        await withPosixFds(async (scope) => {
+          const file = openPosixRegularFile({
+            scope,
+            boundaryRoot: input.boundaryRoot,
+            filePath: safeTarget,
+            label: input.label,
+            flags: fsConstants.O_RDONLY
+          });
+          if (input.expectedBytes !== undefined
+              && !(await readFile(`/proc/self/fd/${file!.fd}`)).equals(input.expectedBytes)) {
+            throw new Error(`${input.label} bytes changed before exact-object flush.`);
+          }
+          if (input.expectedIdentity !== undefined) {
+            const metadata = statSync(`/proc/self/fd/${file!.fd}`);
+            if (!sameAnchoredObjectIdentityV1(
+              Object.freeze({ dev: metadata.dev, ino: metadata.ino }), input.expectedIdentity
+            )) throw new Error(`${input.label} identity changed before exact-object flush.`);
+          }
+          if (requireLinuxLibc().symbols.fsync(file!.fd) !== 0) {
+            const errno = posixErrno();
+            throw posixOperationError(`fsync anchored file for ${input.label}`, errno);
+          }
+        });
+      }
+    } else {
+      throw new Error(`Anchored document-control flush is unsupported on ${process.platform}.`);
+    }
+  } catch (error) {
+    throw new CodexDevelopmentDurabilityBarrierError({
+      operation: 'file-flush',
+      targetPath: safeTarget,
+      cause: error
+    });
+  }
+  await input.durability.observer?.({
+    label: input.label,
+    targetPath: safeTarget,
+    stage: 'file-flushed'
+  });
+  const parent = path.dirname(safeTarget);
+  try {
+    if (input.durability.parentDirectoryBarrier !== undefined) {
+      await input.durability.parentDirectoryBarrier(parent);
+    } else if (process.platform === 'win32'
+        && input.retained?.handle !== undefined
+        && input.retained.parentHandle !== undefined) {
+      const library = requireWindowsKernel32();
+      if (library.symbols.FlushFileBuffers(input.retained.parentHandle) === 0) {
+        throw windowsOperationError(
+          `FlushFileBuffers for ${input.label} retained parent`,
+          library.symbols.GetLastError()
+        );
+      }
+    } else if (process.platform === 'linux'
+        && input.retained?.fd !== undefined
+        && input.retained.parentFd !== undefined) {
+      if (requireLinuxLibc().symbols.fsync(input.retained.parentFd) !== 0) {
+        throw posixOperationError(`fsync anchored retained parent for ${input.label}`, posixErrno());
+      }
+    } else {
+      await defaultParentDirectoryBarrier(parent);
+    }
+  } catch (error) {
+    if (error instanceof CodexDevelopmentDurabilityBarrierError) throw error;
+    throw new CodexDevelopmentDurabilityBarrierError({
+      operation: 'parent-directory-barrier',
+      targetPath: parent,
+      cause: error
+    });
+  }
+  await input.durability.observer?.({
+    label: input.label,
+    targetPath: safeTarget,
+    stage: 'parent-barrier'
+  });
+}
+
+async function durableRename(input: {
+  boundaryRoot: string;
+  sourcePath: string;
+  targetPath: string;
+  label: string;
+  durability: FreezeDurabilityOptionsV1;
+  replaceExisting?: boolean;
+  expectedSourceBytes?: Buffer;
+  expectedSourceIdentity?: AnchoredObjectIdentityV1;
+}): Promise<void> {
+  const lexicalRoot = path.resolve(input.boundaryRoot);
+  const sourcePath = path.resolve(input.sourcePath);
+  const targetPath = path.resolve(input.targetPath);
+  assertPathContained(lexicalRoot, sourcePath, `${input.label} rename source`);
+  assertPathContained(lexicalRoot, targetPath, `${input.label} rename target`);
+  if (process.platform === 'win32') {
+    await withWindowsHandles(async (scope) => {
+      const canonicalRoot = lexicalRoot;
+      const sourceExpected = path.join(canonicalRoot, path.relative(lexicalRoot, sourcePath));
+      const targetParentPath = path.dirname(targetPath);
+      const targetParentExpected = path.join(canonicalRoot, path.relative(lexicalRoot, targetParentPath));
+      const sourceHandle = openWindowsExactHandle({
+        scope,
+        candidatePath: sourcePath,
+        expectedPath: sourceExpected,
+        label: `${input.label} rename source`,
+        kind: 'file',
+        desiredAccess: (
+          WindowsGenericRead | WindowsGenericWrite | WindowsDeleteAccess
+          | WindowsFileReadAttributes | WindowsSynchronizeAccess
+        ) >>> 0
+      })!;
+      if (input.expectedSourceBytes !== undefined
+          && !readWindowsHandleBytes(sourceHandle, `${input.label} opened rename source`)
+            .equals(input.expectedSourceBytes)) {
+        throw new Error(`${input.label} opened source bytes do not match the journal-bound image.`);
+      }
+      const targetParentHandle = openWindowsExactHandle({
+        scope,
+        candidatePath: targetParentPath,
+        expectedPath: targetParentExpected,
+        label: `${input.label} rename target parent`,
+        kind: 'directory',
+        desiredAccess: (
+          WindowsGenericWrite | WindowsFileListDirectory | WindowsFileReadAttributes | WindowsSynchronizeAccess
+        ) >>> 0
+      })!;
+      if (input.expectedSourceIdentity !== undefined
+          && !sameAnchoredObjectIdentityV1(
+            windowsFileIdentity(sourceHandle, `${input.label} opened rename source`),
+            input.expectedSourceIdentity
+          )) {
+        throw new Error(`${input.label} opened source identity does not match the classified authority.`);
+      }
+      await input.durability.beforeAnchoredRename?.({
+        label: input.label,
+        sourcePath,
+        targetPath
+      });
+      assertWindowsExactHandle(sourceHandle, sourceExpected, `${input.label} retained rename source`, 'file');
+      const currentSourceHandle = openWindowsExactHandle({
+        scope,
+        candidatePath: sourcePath,
+        expectedPath: sourceExpected,
+        label: `${input.label} current rename source entry`,
+        kind: 'file',
+        desiredAccess: (WindowsGenericRead | WindowsFileReadAttributes | WindowsSynchronizeAccess) >>> 0
+      })!;
+      if (windowsFileIdentity(sourceHandle, `${input.label} opened rename source`)
+          !== windowsFileIdentity(currentSourceHandle, `${input.label} current rename source entry`)) {
+        throw new Error(`${input.label} source entry no longer names the originally opened object.`);
+      }
+      if (input.expectedSourceBytes !== undefined
+          && !readWindowsHandleBytes(currentSourceHandle, `${input.label} current rename source entry`)
+            .equals(input.expectedSourceBytes)) {
+        throw new Error(`${input.label} current source bytes do not match the journal-bound image.`);
+      }
+      const targetName = Buffer.from(path.basename(targetPath), 'utf16le');
+      const renameInfo = Buffer.alloc(WindowsFileRenameInfoSize64Bit + targetName.byteLength);
+      renameInfo.writeUInt8(input.replaceExisting === false ? 0 : 1, 0);
+      renameInfo.writeBigUInt64LE(targetParentHandle, 8);
+      renameInfo.writeUInt32LE(targetName.byteLength, 16);
+      renameInfo.set(targetName, 20);
+      const kernel32 = requireWindowsKernel32();
+      if (kernel32.symbols.SetFileInformationByHandle(
+        sourceHandle,
+        WindowsFileRenameInfo,
+        renameInfo,
+        renameInfo.byteLength
+      ) === 0) {
+        const win32Error = kernel32.symbols.GetLastError();
+        const win32Failure = windowsOperationError(`Handle-relative Win32 rename for ${input.label}`, win32Error);
+        if (win32Error !== WindowsErrorInvalidParameter) throw win32Failure;
+
+        renameInfo.writeUInt32LE(
+          (input.replaceExisting === false ? 0 : WindowsFileRenameReplaceIfExists)
+            | WindowsFileRenamePosixSemantics | WindowsFileRenameIgnoreReadonly,
+          0
+        );
+        const ioStatusBlock = Buffer.alloc(16);
+        const ntdll = requireWindowsNtdll();
+        const status = ntdll.symbols.NtSetInformationFile(
+          sourceHandle,
+          ioStatusBlock,
+          renameInfo,
+          renameInfo.byteLength,
+          WindowsFileRenameInformationEx
+        );
+        if (status !== 0) {
+          const errorCode = ntdll.symbols.RtlNtStatusToDosError(status);
+          if (input.replaceExisting === false && errorCode === WindowsErrorInvalidParameter) {
+            throw new CodexDevelopmentUnsupportedAnchoredPathEffectError(
+              'Windows handle-relative no-replace rename'
+            );
+          }
+          throw new AggregateError(
+            [win32Failure, windowsOperationError(`Handle-relative native rename for ${input.label}`, errorCode)],
+            `Documented and native handle-relative rename both failed for ${input.label}.`
+          );
+        }
+      }
+      await input.durability.observer?.({ label: input.label, targetPath, stage: 'renamed' });
+      await input.durability.afterAnchoredNamespaceMutationBeforeFlush?.({
+        label: input.label,
+        sourcePath,
+        targetPath
+      });
+      await flushPublishedFile({
+        boundaryRoot: input.boundaryRoot,
+        targetPath,
+        label: input.label,
+        durability: input.durability,
+        expectedBytes: input.expectedSourceBytes,
+        expectedIdentity: input.expectedSourceIdentity,
+        retained: Object.freeze({ handle: sourceHandle, parentHandle: targetParentHandle })
+      });
+    });
+  } else if (process.platform === 'linux') {
+    await withPosixFds(async (scope) => {
+      const sourceParent = openPosixDirectoryPath({
+        scope,
+        boundaryRoot: lexicalRoot,
+        directoryPath: path.dirname(sourcePath),
+        label: `${input.label} rename source parent`,
+        createMissing: false
+      });
+      const targetParent = openPosixDirectoryPath({
+        scope,
+        boundaryRoot: lexicalRoot,
+        directoryPath: path.dirname(targetPath),
+        label: `${input.label} rename target parent`,
+        createMissing: false
+      });
+      const source = openPosixRegularFile({
+        scope,
+        boundaryRoot: lexicalRoot,
+        filePath: sourcePath,
+        label: `${input.label} rename source`,
+        flags: fsConstants.O_RDWR
+      })!;
+      if (input.expectedSourceIdentity !== undefined) {
+        const metadata = statSync(`/proc/self/fd/${source.fd}`);
+        if (!sameAnchoredObjectIdentityV1(
+          Object.freeze({ dev: metadata.dev, ino: metadata.ino }), input.expectedSourceIdentity
+        )) throw new Error(`${input.label} opened source identity does not match the classified authority.`);
+      }
+      if (input.expectedSourceBytes !== undefined
+          && !(await readFile(`/proc/self/fd/${source.fd}`)).equals(input.expectedSourceBytes)) {
+        throw new Error(`${input.label} opened source bytes do not match the journal-bound image.`);
+      }
+      await input.durability.beforeAnchoredRename?.({
+        label: input.label,
+        sourcePath,
+        targetPath
+      });
+      assertPosixFdPath(source.fd, sourcePath, `${input.label} retained rename source`);
+      const currentSource = openPosixRegularFile({
+        scope,
+        boundaryRoot: lexicalRoot,
+        filePath: sourcePath,
+        label: `${input.label} current rename source entry`,
+        flags: fsConstants.O_RDONLY
+      })!;
+      assertPosixFdIdentity(source.fd, currentSource.fd, input.label);
+      if (input.expectedSourceBytes !== undefined
+          && !(await readFile(`/proc/self/fd/${currentSource.fd}`)).equals(input.expectedSourceBytes)) {
+        throw new Error(`${input.label} current source bytes do not match the journal-bound image.`);
+      }
+      if (input.replaceExisting === false) {
+        if (requireLinuxRenameat2().symbols.renameat2(
+          sourceParent.fd,
+          posixCString(path.basename(sourcePath)),
+          targetParent.fd,
+          posixCString(path.basename(targetPath)),
+          LinuxRenameNoReplace
+        ) !== 0) {
+          const errno = posixErrno();
+          if ([
+            LinuxErrorInvalidArgument,
+            LinuxErrorFunctionNotImplemented,
+            LinuxErrorOperationNotSupported
+          ].includes(errno)) {
+            throw new CodexDevelopmentUnsupportedAnchoredPathEffectError('renameat2(RENAME_NOREPLACE)');
+          }
+          throw posixOperationError(`renameat2 no-replace anchored entry for ${input.label}`, errno);
+        }
+      } else {
+        const library = requireLinuxLibc();
+        if (library.symbols.renameat(
+          sourceParent.fd,
+          posixCString(path.basename(sourcePath)),
+          targetParent.fd,
+          posixCString(path.basename(targetPath))
+        ) !== 0) {
+          const errno = posixErrno();
+          throw posixOperationError(`renameat anchored file for ${input.label}`, errno);
+        }
+      }
+      await input.durability.observer?.({ label: input.label, targetPath, stage: 'renamed' });
+      await input.durability.afterAnchoredNamespaceMutationBeforeFlush?.({
+        label: input.label,
+        sourcePath,
+        targetPath
+      });
+      await flushPublishedFile({
+        boundaryRoot: input.boundaryRoot,
+        targetPath,
+        label: input.label,
+        durability: input.durability,
+        expectedBytes: input.expectedSourceBytes,
+        expectedIdentity: input.expectedSourceIdentity,
+        retained: Object.freeze({ fd: source.fd, parentFd: targetParent.fd })
+      });
+    });
+  } else {
+    throw new Error(`Anchored document-control rename is unsupported on ${process.platform}.`);
+  }
+}
+
+async function durableLinkOpenedPosixFile(input: {
+  boundaryRoot: string;
+  sourcePath: string;
+  targetPath: string;
+  expectedSourceBytes: Buffer;
+  expectedSourceIdentity?: AnchoredObjectIdentityV1;
+  label: string;
+  durability: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  if (process.platform !== 'linux') {
+    throw new CodexDevelopmentUnsupportedAnchoredPathEffectError('Linux exact-object link publication');
+  }
+  const lexicalRoot = path.resolve(input.boundaryRoot);
+  const sourcePath = path.resolve(input.sourcePath);
+  const targetPath = path.resolve(input.targetPath);
+  assertPathContained(lexicalRoot, sourcePath, `${input.label} link source`);
+  assertPathContained(lexicalRoot, targetPath, `${input.label} link target`);
+  await withPosixFds(async (scope) => {
+    const source = openPosixRegularFile({
+      scope,
+      boundaryRoot: lexicalRoot,
+      filePath: sourcePath,
+      label: `${input.label} opened link source`,
+      flags: fsConstants.O_RDWR
+    })!;
+    if (!(await readFile(`/proc/self/fd/${source.fd}`)).equals(input.expectedSourceBytes)) {
+      throw new Error(`${input.label} opened source bytes do not match the journal-bound image.`);
+    }
+    if (input.expectedSourceIdentity !== undefined) {
+      const metadata = statSync(`/proc/self/fd/${source.fd}`);
+      if (!sameAnchoredObjectIdentityV1(
+        Object.freeze({ dev: metadata.dev, ino: metadata.ino }), input.expectedSourceIdentity
+      )) throw new Error(`${input.label} opened source identity does not match the classified authority.`);
+    }
+    const targetParent = openPosixDirectoryPath({
+      scope,
+      boundaryRoot: lexicalRoot,
+      directoryPath: path.dirname(targetPath),
+      label: `${input.label} link target parent`,
+      createMissing: false
+    });
+    await input.durability.beforeAnchoredRename?.({
+      label: input.label,
+      sourcePath,
+      targetPath
+    });
+    const currentSourceFd = requireLinuxLibc().symbols.openat(
+      source.parentFd,
+      posixCString(source.name),
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | requireLinuxX64OpenCloseOnExecFlag(),
+      0
+    );
+    if (currentSourceFd === -1) {
+      const errno = posixErrno();
+      throw posixAnchoredAcquisitionError({
+        operation: `openat anchored current source entry for ${input.label}`,
+        errno,
+        label: `${input.label} current source entry`,
+        targetPath: sourcePath
+      });
+    }
+    scope.own(currentSourceFd, `${input.label} current link source entry`);
+    if (!statSync(`/proc/self/fd/${currentSourceFd}`).isFile()) {
+      throw new Error(`${input.label} current source entry must remain a regular file.`);
+    }
+    assertPosixFdIdentity(source.fd, currentSourceFd, input.label);
+    if (!(await readFile(`/proc/self/fd/${currentSourceFd}`)).equals(input.expectedSourceBytes)) {
+      throw new Error(`${input.label} current source bytes do not match the journal-bound image.`);
+    }
+    linkOpenedPosixFileNoReplace({
+      sourceFd: source.fd,
+      targetParentFd: targetParent.fd,
+      targetName: path.basename(targetPath),
+      targetParentPath: targetParent.canonicalPath,
+      label: input.label
+    });
+    await input.durability.observer?.({ label: input.label, targetPath, stage: 'renamed' });
+    await input.durability.afterAnchoredNamespaceMutationBeforeFlush?.({
+      label: input.label,
+      sourcePath,
+      targetPath
+    });
+    await flushPublishedFile({
+      boundaryRoot: lexicalRoot,
+      targetPath,
+      label: input.label,
+      durability: input.durability,
+      expectedBytes: input.expectedSourceBytes,
+      expectedIdentity: input.expectedSourceIdentity,
+      retained: Object.freeze({ fd: source.fd, parentFd: targetParent.fd })
+    });
+  });
+}
+
+async function assertPosixEntryIdentity(input: {
+  boundaryRoot: string;
+  leftPath: string;
+  rightPath: string;
+  label: string;
+}): Promise<void> {
+  await withPosixFds((scope) => {
+    const left = openPosixRegularFile({
+      scope,
+      boundaryRoot: input.boundaryRoot,
+      filePath: input.leftPath,
+      label: `${input.label} left entry`,
+      flags: fsConstants.O_RDONLY
+    })!;
+    const right = openPosixRegularFile({
+      scope,
+      boundaryRoot: input.boundaryRoot,
+      filePath: input.rightPath,
+      label: `${input.label} right entry`,
+      flags: fsConstants.O_RDONLY
+    })!;
+    assertPosixFdIdentity(left.fd, right.fd, input.label);
+  });
+}
+
+function byteDigest(bytes: Uint8Array): `sha256:${string}` {
+  return `sha256:${digest(bytes)}`;
+}
+
+function toBase64(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64');
+}
+
+function fromBase64(source: string, label: string): Buffer {
+  if (typeof source !== 'string' || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(source)) {
+    throw new Error(`${label} must be canonical base64.`);
+  }
+  const bytes = Buffer.from(source, 'base64');
+  if (bytes.toString('base64') !== source) throw new Error(`${label} base64 is not canonical.`);
+  return bytes;
+}
+
+function exactKeys(value: Record<string, unknown>, expected: readonly string[], label: string): void {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+    throw new Error(`${label} must contain exactly: ${wanted.join(', ')}.`);
+  }
+}
+
+function recordValue(value: unknown, label: string): Record<string, unknown> {
+  assertRecord(value, label);
+  return value;
+}
+
+function textValue(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
+    throw new Error(`${label} must be non-empty trimmed text.`);
+  }
+  return value;
+}
+
+function shaValue(value: unknown, label: string): string {
+  const sha = textValue(value, label);
+  if (!/^[0-9a-f]{40}$/u.test(sha)) throw new Error(`${label} must be a lowercase 40-character Git SHA.`);
+  return sha;
+}
+
+function digestValue(value: unknown, label: string): `sha256:${string}` {
+  const candidate = textValue(value, label);
+  if (!/^sha256:[0-9a-f]{64}$/u.test(candidate)) throw new Error(`${label} must be a SHA-256 digest.`);
+  return candidate as `sha256:${string}`;
+}
+
+function parseJournalFile(value: unknown, label: string): FreezeJournalFileV1 {
+  const record = recordValue(value, label);
+  exactKeys(record, ['next', 'pre'], label);
+  const pre = textValue(record.pre, `${label}.pre`);
+  const next = textValue(record.next, `${label}.next`);
+  fromBase64(pre, `${label}.pre`);
+  fromBase64(next, `${label}.next`);
+  return Object.freeze({ pre, next });
+}
+
+function freezeOperationIdV3(input: Omit<FreezeJournalV3, 'operationId' | 'phase' | 'result'>): `sha256:${string}` {
+  return sha256(input) as `sha256:${string}`;
+}
+
+function parseFreezeResult(value: unknown): CodexDevelopmentFreezeResultV1 {
+  const record = recordValue(value, 'Freeze journal result');
+  exactKeys(record, [
+    'baseSha', 'baseTreeSha', 'candidateHeadSha', 'candidateTreeSha', 'indexPublished',
+    'manifestDigest', 'manifestPath', 'operationId', 'schema', 'status', 'worktreeProjected'
+  ], 'Freeze journal result');
+  if (record.schema !== FreezeResultSchemaV1 || record.status !== 'ACTIVATED_INDEX_PENDING_COMMIT'
+      || record.candidateHeadSha !== null || record.indexPublished !== true
+      || record.worktreeProjected !== true) {
+    throw new Error('Freeze journal result identity is invalid.');
+  }
+  return Object.freeze({
+    schema: FreezeResultSchemaV1,
+    status: 'ACTIVATED_INDEX_PENDING_COMMIT',
+    operationId: digestValue(record.operationId, 'Freeze result operationId'),
+    baseSha: shaValue(record.baseSha, 'Freeze result baseSha'),
+    baseTreeSha: shaValue(record.baseTreeSha, 'Freeze result baseTreeSha'),
+    candidateTreeSha: shaValue(record.candidateTreeSha, 'Freeze result candidateTreeSha'),
+    candidateHeadSha: null,
+    manifestPath: textValue(record.manifestPath, 'Freeze result manifestPath'),
+    manifestDigest: digestValue(record.manifestDigest, 'Freeze result manifestDigest'),
+    indexPublished: true,
+    worktreeProjected: true
+  });
+}
+
+function parseFreezeJournalV3(source: string): FreezeJournalV3 {
+  let parsed: unknown;
+  try { parsed = JSON.parse(source); } catch (error) {
+    throw new Error('Document control freeze journal is invalid JSON.', { cause: error });
+  }
+  const record = recordValue(parsed, 'Freeze journal');
+  if (record.schema === FreezeJournalSchemaV1) {
+    throw new Error('Freeze journal V1 is legacy and cannot serve as recovery authority.');
+  }
+  if (record.schema === FreezeJournalSchemaV2) {
+    throw new Error('Freeze journal V2 is legacy and cannot serve as recovery authority.');
+  }
+  if (record.schema !== FreezeJournalSchemaV3) throw new Error('Freeze journal schema is invalid.');
+  exactKeys(record, [
+    'baseSha', 'baseTreeSha', 'candidateTreeSha', 'files', 'index', 'manifestDigest',
+    'manifestPath', 'operationId', 'phase', 'preIndexTreeSha', 'result', 'reviewedOn', 'schema'
+  ], 'Freeze journal');
+  if (!['prepared', 'index-published', 'pointer-published', 'rolling-published', 'terminal'].includes(String(record.phase))) {
+    throw new Error('Freeze journal phase is invalid.');
+  }
+  const files = recordValue(record.files, 'Freeze journal files');
+  exactKeys(files, ['manifest', 'pointer', 'rollingPlan'], 'Freeze journal files');
+  const semantic = Object.freeze({
+    schema: FreezeJournalSchemaV3,
+    manifestPath: textValue(record.manifestPath, 'Freeze journal manifestPath'),
+    manifestDigest: digestValue(record.manifestDigest, 'Freeze journal manifestDigest'),
+    reviewedOn: textValue(record.reviewedOn, 'Freeze journal reviewedOn'),
+    baseSha: shaValue(record.baseSha, 'Freeze journal baseSha'),
+    baseTreeSha: shaValue(record.baseTreeSha, 'Freeze journal baseTreeSha'),
+    preIndexTreeSha: shaValue(record.preIndexTreeSha, 'Freeze journal preIndexTreeSha'),
+    candidateTreeSha: shaValue(record.candidateTreeSha, 'Freeze journal candidateTreeSha'),
+    files: Object.freeze({
+      manifest: parseJournalFile(files.manifest, 'Freeze journal manifest file'),
+      pointer: parseJournalFile(files.pointer, 'Freeze journal pointer file'),
+      rollingPlan: parseJournalFile(files.rollingPlan, 'Freeze journal rolling-plan file')
+    }),
+    index: parseJournalFile(record.index, 'Freeze journal index')
+  });
+  const operationId = digestValue(record.operationId, 'Freeze journal operationId');
+  if (freezeOperationIdV3(semantic) !== operationId) throw new Error('Freeze journal operation digest mismatch.');
+  const result = parseFreezeResult(record.result);
+  if (result.operationId !== operationId || result.baseSha !== semantic.baseSha
+      || result.baseTreeSha !== semantic.baseTreeSha || result.candidateTreeSha !== semantic.candidateTreeSha
+      || result.manifestPath !== semantic.manifestPath || result.manifestDigest !== semantic.manifestDigest) {
+    throw new Error('Freeze journal result is not bound to its operation.');
+  }
+  const manifestBytes = fromBase64(semantic.files.manifest.next, 'Freeze journal manifest next bytes');
+  if (CodexDevelopmentWorkPackageManifestDigest(manifestBytes) !== semantic.manifestDigest) {
+    throw new Error('Freeze journal manifest digest does not match its next bytes.');
+  }
+  return Object.freeze({
+    ...semantic,
+    operationId,
+    phase: record.phase as FreezeJournalPhaseV1,
+    result
+  });
+}
+
+function renderFreezeJournalV3(journal: FreezeJournalV3): Buffer {
+  return Buffer.from(`${JSON.stringify(journal, null, 2)}\n`, 'utf8');
+}
 
 function assertRecord(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -44,15 +2203,17 @@ function assertRecord(value: unknown, label: string): asserts value is Record<st
   }
 }
 
-function run(command: string, args: string[], cwd: string): CommandResult {
+function run(command: string, args: string[], cwd: string, options: CommandOptions = {}): CommandResult {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
+    input: options.input,
     windowsHide: true,
     timeout: ExternalCommandTimeoutMs,
     maxBuffer: ExternalCommandMaxBufferBytes,
     env: {
       ...process.env,
+      ...options.environment,
       GH_PROMPT_DISABLED: '1',
       GIT_TERMINAL_PROMPT: '0'
     }
@@ -84,6 +2245,2934 @@ function readGitBlob(cwd: string, spec: string): Buffer | undefined {
     }
   });
   return result.status === 0 ? result.stdout : undefined;
+}
+
+interface ReadOnlyResolverGitV1 {
+  run(args: readonly string[], cwd: string, options?: CommandOptions): CommandResult;
+  readBlob(cwd: string, spec: string): Buffer | undefined;
+}
+
+type ReadOnlyResolverGitObserverV1 = (event: Readonly<{
+  args: readonly string[];
+  environment: Readonly<Record<string, string>>;
+}>) => void;
+
+function createReadOnlyResolverGit(
+  observer?: ReadOnlyResolverGitObserverV1
+): ReadOnlyResolverGitV1 {
+  const childEnvironment = (
+    args: readonly string[],
+    environment: Readonly<Record<string, string>> | undefined
+  ): Readonly<Record<string, string>> => {
+    const forced = Object.freeze({
+      ...environment,
+      GIT_OPTIONAL_LOCKS: '0'
+    });
+    observer?.(Object.freeze({ args: Object.freeze([...args]), environment: forced }));
+    return forced;
+  };
+  return Object.freeze({
+    run(args: readonly string[], cwd: string, options: CommandOptions = {}) {
+      return run('git', [...args], cwd, {
+        ...options,
+        environment: childEnvironment(args, options.environment)
+      });
+    },
+    readBlob(cwd: string, spec: string) {
+      const args = ['show', spec] as const;
+      const result = spawnSync('git', args, {
+        cwd,
+        encoding: 'buffer',
+        windowsHide: true,
+        timeout: ExternalCommandTimeoutMs,
+        maxBuffer: ExternalCommandMaxBufferBytes,
+        env: {
+          ...process.env,
+          ...childEnvironment(args, undefined),
+          GIT_TERMINAL_PROMPT: '0'
+        }
+      });
+      return result.status === 0 ? result.stdout : undefined;
+    }
+  });
+}
+
+function requireGitBlob(cwd: string, spec: string, label: string): Buffer {
+  const blob = readGitBlob(cwd, spec);
+  if (blob === undefined) throw new Error(`${label} is absent from the immutable Git tree.`);
+  return blob;
+}
+
+function decodeUtf8(bytes: Uint8Array, label: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new Error(`${label} must be valid UTF-8.`, { cause: error });
+  }
+}
+
+function parseNulList(source: string): string[] {
+  if (source.length === 0) return [];
+  if (!source.endsWith('\0')) throw new Error('Git NUL-delimited path output is truncated.');
+  return source.slice(0, -1).split('\0');
+}
+
+interface AnchoredIndexSnapshotV1 {
+  readonly bytes: Buffer;
+  readonly identity: string;
+}
+
+async function readAnchoredIndexSnapshot(input: Readonly<{
+  boundaryRoot: string;
+  filePath: string;
+  label: string;
+}>): Promise<AnchoredIndexSnapshotV1> {
+  if (process.platform === 'win32') {
+    return withWindowsHandles((scope) => {
+      const file = openWindowsRegularFile({
+        scope,
+        ...input,
+        desiredAccess: (WindowsGenericRead | WindowsFileReadAttributes) >>> 0
+      })!;
+      return Object.freeze({
+        bytes: readWindowsHandleBytes(file.handle, input.label),
+        identity: windowsFileIdentity(file.handle, input.label)
+      });
+    });
+  }
+  if (process.platform === 'linux') {
+    return withPosixFds(async (scope) => {
+      const file = openPosixRegularFile({
+        scope,
+        ...input,
+        flags: fsConstants.O_RDONLY
+      })!;
+      const metadata = statSync(`/proc/self/fd/${file.fd}`);
+      return Object.freeze({
+        bytes: await readFile(`/proc/self/fd/${file.fd}`),
+        identity: `${metadata.dev}:${metadata.ino}`
+      });
+    });
+  }
+  throw new Error(`Repository index nonmutating observation is unsupported on ${process.platform}.`);
+}
+
+async function captureRepositoryIndexTreeThroughExternalScratch(input: Readonly<{
+  repositoryRoot: string;
+  resolverGit?: ReadOnlyResolverGitV1;
+}>): Promise<string> {
+  const indexPaths = await resolveIndexPaths(input.repositoryRoot);
+  const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-index-'));
+  try {
+    const canonicalScratchRoot = await realpath(scratchRoot);
+    const canonicalRepositoryRoot = await realpath(input.repositoryRoot);
+    const canonicalGitDirectory = await realpath(indexPaths.gitDirectory);
+    if (pathComparisonValue(canonicalScratchRoot).startsWith(`${pathComparisonValue(canonicalRepositoryRoot)}${path.sep}`)
+        || pathComparisonValue(canonicalScratchRoot).startsWith(`${pathComparisonValue(canonicalGitDirectory)}${path.sep}`)) {
+      throw new Error('External scratch index root must not be contained by the repository or Git directory.');
+    }
+    const before = await readAnchoredIndexSnapshot({
+      boundaryRoot: indexPaths.gitDirectory,
+      filePath: indexPaths.indexPath,
+      label: 'Repository index nonmutating source'
+    });
+    const scratchIndex = path.join(canonicalScratchRoot, 'index');
+    await createSafeRegularFileExclusive({
+      boundaryRoot: canonicalScratchRoot,
+      filePath: scratchIndex,
+      bytes: before.bytes,
+      label: 'External scratch Git index',
+      durability: {}
+    });
+    const environment = { GIT_INDEX_FILE: scratchIndex, GIT_OPTIONAL_LOCKS: '0' };
+    const treeSha = shaValue(requireCommand(
+      input.resolverGit === undefined
+        ? run('git', ['write-tree'], input.repositoryRoot, { environment })
+        : input.resolverGit.run(['write-tree'], input.repositoryRoot, { environment }),
+      'Repository index tree through external scratch'
+    ), 'Repository index tree through external scratch');
+    const after = await readAnchoredIndexSnapshot({
+      boundaryRoot: indexPaths.gitDirectory,
+      filePath: indexPaths.indexPath,
+      label: 'Repository index nonmutating readback'
+    });
+    if (!after.bytes.equals(before.bytes) || after.identity !== before.identity) {
+      throw new Error('External scratch Git index tree observation mutated the repository index.');
+    }
+    return treeSha;
+  } finally {
+    await rm(scratchRoot, { recursive: true, force: true });
+    const removed = await lstat(scratchRoot).then(
+      () => false,
+      (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+    );
+    if (!removed) throw new Error('External scratch Git index root remained after cleanup.');
+  }
+}
+
+async function captureControlIndexSnapshot(
+  repositoryRoot: string,
+  resolverGit?: ReadOnlyResolverGitV1
+): Promise<ControlIndexSnapshotV1> {
+  const treeSha = await captureRepositoryIndexTreeThroughExternalScratch({ repositoryRoot, resolverGit });
+  const requireSnapshotBlob = (spec: string, label: string): Buffer => {
+    const blob = resolverGit === undefined ? readGitBlob(repositoryRoot, spec) : resolverGit.readBlob(repositoryRoot, spec);
+    if (blob === undefined) throw new Error(`${label} is absent from the immutable Git tree.`);
+    return blob;
+  };
+  return Object.freeze({
+    treeSha: shaValue(treeSha, 'Git index tree snapshot'),
+    stateSource: decodeUtf8(
+      requireSnapshotBlob(`${treeSha}:${CurrentStatePath}`, 'Current-state spec'),
+      'Current-state spec'
+    ),
+    pointerSource: decodeUtf8(
+      requireSnapshotBlob(`${treeSha}:${ActivePointerPath}`, 'Active pointer'),
+      'Active pointer'
+    ),
+    rollingPlanSource: decodeUtf8(
+      requireSnapshotBlob(`${treeSha}:${RollingPlanPath}`, 'Rolling plan'),
+      'Rolling plan'
+    )
+  });
+}
+
+async function assertRegularRepositoryFile(repositoryRoot: string, repositoryPath: string): Promise<string> {
+  const candidate = path.join(repositoryRoot, ...repositoryPath.split('/'));
+  return (await inspectSafePath({
+    boundaryRoot: repositoryRoot,
+    candidatePath: candidate,
+    label: `Document control target ${repositoryPath}`,
+    finalKind: 'file',
+    allowMissing: false
+  }))!;
+}
+
+async function resolveRecoverableRepositoryFile(
+  repositoryRoot: string,
+  repositoryPath: string
+): Promise<string> {
+  const candidate = path.join(repositoryRoot, ...repositoryPath.split('/'));
+  await inspectSafePath({
+    boundaryRoot: repositoryRoot,
+    candidatePath: candidate,
+    label: `Recoverable document control target ${repositoryPath}`,
+    finalKind: 'file',
+    allowMissing: true
+  });
+  return candidate;
+}
+
+function entryRecoveryPath(input: {
+  artifactRoot: string;
+  targetPath: string;
+  operationId: string;
+  suffix: 'pre' | 'retired-pre' | 'retired-next';
+}): string {
+  const identity = sha256({
+    schema: 'sec-document-control-entry-recovery-path-v1',
+    operationId: input.operationId,
+    targetPath: path.resolve(input.targetPath)
+  }).slice('sha256:'.length);
+  return path.join(input.artifactRoot, `.entry-${identity}.${input.suffix}`);
+}
+
+interface PublishEntryObservationV1 {
+  readonly bytes: Buffer | null;
+  readonly identity: AnchoredObjectIdentityV1 | null;
+  readonly retained?: RetainedPublishObjectAuthorityV1;
+}
+
+interface PublishEntryResolutionV1 {
+  readonly state: PublishEntryStateV1;
+  readonly target: PublishEntryObservationV1;
+  readonly next: PublishEntryObservationV1;
+  readonly quarantine: PublishEntryObservationV1;
+  readonly retiredPre: PublishEntryObservationV1;
+  readonly retiredNext: PublishEntryObservationV1;
+}
+
+type PublishEntryStateV1 =
+  | 'linux-fresh'
+  | 'linux-s0'
+  | 'linux-s1'
+  | 'linux-s2'
+  | 'linux-s3'
+  | 'linux-s4'
+  | 'windows-pristine'
+  | 'windows-prepared'
+  | 'windows-quarantined'
+  | 'windows-installed';
+
+function samePublishEntryIdentity(
+  left: PublishEntryObservationV1,
+  right: PublishEntryObservationV1
+): boolean {
+  if (left.identity === null || right.identity === null) return false;
+  if (typeof left.identity === 'string' || typeof right.identity === 'string') {
+    return typeof left.identity === 'string' && left.identity === right.identity;
+  }
+  return left.identity.dev === right.identity.dev && left.identity.ino === right.identity.ino;
+}
+
+function hasPublishEntryBytes(entry: PublishEntryObservationV1, expected: Buffer): boolean {
+  return entry.bytes !== null && entry.bytes.equals(expected);
+}
+
+/**
+ * Resolve the complete persisted entry tuple before any effect.  This is the
+ * sole authority for recovery legality: callers must never infer a state from
+ * a partial census or from byte equality alone.
+ */
+async function classifyPublishEntryStateV1(input: Readonly<{
+  boundaryRoot: string;
+  targetPath: string;
+  nextPath: string;
+  quarantinePath: string;
+  retiredPrePath: string;
+  retiredNextPath: string;
+  pre: Buffer;
+  next: Buffer;
+  label: string;
+  retainRecoveryEntries?: boolean;
+  observations?: Readonly<{
+    target: PublishEntryObservationV1;
+    next: PublishEntryObservationV1;
+    quarantine: PublishEntryObservationV1;
+    retiredPre: PublishEntryObservationV1;
+    retiredNext: PublishEntryObservationV1;
+  }>;
+}>): Promise<PublishEntryResolutionV1> {
+  const readEntry = async (filePath: string, label: string): Promise<PublishEntryObservationV1> => {
+    if (process.platform === 'win32') {
+      return withWindowsHandles((scope) => {
+        const file = openWindowsRegularFile({
+          scope,
+          boundaryRoot: input.boundaryRoot,
+          filePath,
+          label,
+          desiredAccess: (WindowsGenericRead | WindowsFileReadAttributes) >>> 0,
+          allowMissing: true
+        });
+        if (file === null) return Object.freeze({ bytes: null, identity: null });
+        return Object.freeze({
+          bytes: readWindowsHandleBytes(file.handle, label),
+          identity: windowsFileIdentity(file.handle, `${label} tuple identity`)
+        });
+      });
+    }
+    if (process.platform === 'linux') {
+      return withPosixFds(async (scope) => {
+        const file = openPosixRegularFile({
+          scope,
+          boundaryRoot: input.boundaryRoot,
+          filePath,
+          label,
+          flags: fsConstants.O_RDONLY,
+          allowMissing: true
+        });
+        if (file === null) return Object.freeze({ bytes: null, identity: null });
+        const metadata = statSync(`/proc/self/fd/${file.fd}`);
+        return Object.freeze({
+          bytes: await readFile(`/proc/self/fd/${file.fd}`),
+          identity: Object.freeze({ dev: metadata.dev, ino: metadata.ino })
+        });
+      });
+    }
+    throw new Error(`Entry CAS is unsupported on ${process.platform}.`);
+  };
+  const observed = input.observations ?? Object.freeze({
+    target: await readEntry(input.targetPath, input.label),
+    next: await readEntry(input.nextPath, `${input.label} NEXT recovery entry`),
+    quarantine: await readEntry(input.quarantinePath, `${input.label} PRE quarantine`),
+    retiredPre: await readEntry(input.retiredPrePath, `${input.label} retired PRE entry`),
+    retiredNext: await readEntry(input.retiredNextPath, `${input.label} retired NEXT entry`)
+  });
+  const { target, next, quarantine, retiredPre, retiredNext } = observed;
+  const absent = (entry: PublishEntryObservationV1) => entry.bytes === null;
+  const exact = (entry: PublishEntryObservationV1, bytes: Buffer) => hasPublishEntryBytes(entry, bytes);
+  const fail = (): never => {
+    throw new Error(`${input.label} recovery tuple is not a legal pre-effect state; preserving every entry.`);
+  };
+  const resolve = (state: PublishEntryStateV1): PublishEntryResolutionV1 => Object.freeze({
+    state, target, next, quarantine, retiredPre, retiredNext
+  });
+
+  if (process.platform === 'linux') {
+    if (exact(target, input.pre) && absent(next) && absent(quarantine)
+        && absent(retiredPre) && absent(retiredNext)) return resolve('linux-fresh');
+    if (exact(target, input.pre) && exact(next, input.next) && absent(quarantine)
+        && absent(retiredPre) && absent(retiredNext)) return resolve('linux-s0');
+    if (exact(target, input.pre) && exact(next, input.next) && exact(quarantine, input.pre)
+        && samePublishEntryIdentity(target, quarantine) && absent(retiredPre) && absent(retiredNext)) {
+      return resolve('linux-s1');
+    }
+    if (absent(target) && exact(next, input.next) && exact(quarantine, input.pre)
+        && exact(retiredPre, input.pre) && samePublishEntryIdentity(quarantine, retiredPre)
+        && absent(retiredNext)) return resolve('linux-s2');
+    if (exact(target, input.next) && exact(next, input.next) && exact(quarantine, input.pre)
+        && exact(retiredPre, input.pre) && samePublishEntryIdentity(target, next)
+        && samePublishEntryIdentity(quarantine, retiredPre) && absent(retiredNext)) return resolve('linux-s3');
+    if (exact(target, input.next) && absent(next) && exact(quarantine, input.pre)
+        && exact(retiredPre, input.pre) && exact(retiredNext, input.next)
+        && samePublishEntryIdentity(target, retiredNext)
+        && samePublishEntryIdentity(quarantine, retiredPre)) return resolve('linux-s4');
+    return fail();
+  }
+  if (process.platform === 'win32') {
+    // POSIX recovery names must never participate in the Windows atomic-rename protocol.
+    if (!absent(retiredPre) || !absent(retiredNext)) return fail();
+    if (exact(target, input.pre) && absent(next) && absent(quarantine)) return resolve('windows-pristine');
+    if (exact(target, input.pre) && exact(next, input.next) && absent(quarantine)) return resolve('windows-prepared');
+    if (absent(target) && exact(next, input.next) && exact(quarantine, input.pre)) {
+      return resolve('windows-quarantined');
+    }
+    // A successful rename consumes NEXT.  PRE may remain only while cleanup is retained.
+    if (exact(target, input.next) && absent(next) && exact(quarantine, input.pre)) {
+      return resolve('windows-installed');
+    }
+    if (input.retainRecoveryEntries !== true && exact(target, input.next) && absent(next)
+        && absent(quarantine)) return resolve('windows-installed');
+    return fail();
+  }
+  throw new Error(`Entry CAS is unsupported on ${process.platform}.`);
+}
+
+type PublishTupleClassifierInputV1 = Readonly<{
+  boundaryRoot: string;
+  targetPath: string;
+  nextPath: string;
+  quarantinePath: string;
+  retiredPrePath: string;
+  retiredNextPath: string;
+  pre: Buffer;
+  next: Buffer;
+  label: string;
+  retainRecoveryEntries?: boolean;
+}>;
+
+type PublishTupleClassifierSourceV1 = Readonly<{
+  boundaryRoot: string;
+  artifactRoot: string;
+  targetPath: string;
+  nextPath: string;
+  pre: Buffer;
+  next: Buffer;
+  label: string;
+  operationId: string;
+  retainRecoveryEntries?: boolean;
+}>;
+
+function createPublishTupleClassifierInputV1(
+  input: PublishTupleClassifierSourceV1
+): PublishTupleClassifierInputV1 {
+  return Object.freeze({
+    boundaryRoot: input.boundaryRoot,
+    targetPath: input.targetPath,
+    nextPath: input.nextPath,
+    quarantinePath: entryRecoveryPath({ ...input, suffix: 'pre' }),
+    retiredPrePath: entryRecoveryPath({ ...input, suffix: 'retired-pre' }),
+    retiredNextPath: entryRecoveryPath({ ...input, suffix: 'retired-next' }),
+    pre: input.pre,
+    next: input.next,
+    label: input.label,
+    retainRecoveryEntries: input.retainRecoveryEntries
+  });
+}
+
+/** Retains every extant tuple object and its anchored parent for exactly one selected publisher edge. */
+async function withRetainedPublishEntryTupleV1<T>(
+  input: PublishTupleClassifierInputV1,
+  operation: (resolution: PublishEntryResolutionV1) => Promise<T> | T
+): Promise<T> {
+  const paths = [
+    [input.targetPath, input.label, 'target'],
+    [input.nextPath, `${input.label} NEXT recovery entry`, 'next'],
+    [input.quarantinePath, `${input.label} PRE quarantine`, 'quarantine'],
+    [input.retiredPrePath, `${input.label} retired PRE entry`, 'retiredPre'],
+    [input.retiredNextPath, `${input.label} retired NEXT entry`, 'retiredNext']
+  ] as const;
+  if (process.platform === 'win32') {
+    return withWindowsHandles(async (scope) => {
+      const observations: Record<string, PublishEntryObservationV1> = {};
+      for (const [filePath, label, key] of paths) {
+        const file = openWindowsRegularFile({
+          scope, boundaryRoot: input.boundaryRoot, filePath, label,
+          desiredAccess: (WindowsGenericRead | WindowsGenericWrite | WindowsDeleteAccess | WindowsFileReadAttributes | WindowsSynchronizeAccess) >>> 0,
+          retainedParentDurabilityWrite: true,
+          allowMissing: true
+        });
+        observations[key] = file === null ? Object.freeze({ bytes: null, identity: null }) : Object.freeze({
+          bytes: readWindowsHandleBytes(file.handle, label),
+          identity: windowsFileIdentity(file.handle, `${label} retained tuple identity`),
+          retained: Object.freeze({ handle: file.handle, parentHandle: file.parentHandle })
+        });
+      }
+      return operation(await classifyPublishEntryStateV1({
+        ...input,
+        observations: observations as unknown as Readonly<{
+          target: PublishEntryObservationV1; next: PublishEntryObservationV1;
+          quarantine: PublishEntryObservationV1; retiredPre: PublishEntryObservationV1;
+          retiredNext: PublishEntryObservationV1;
+        }>
+      }));
+    });
+  }
+  if (process.platform === 'linux') {
+    return withPosixFds(async (scope) => {
+      const observations: Record<string, PublishEntryObservationV1> = {};
+      for (const [filePath, label, key] of paths) {
+        const file = openPosixRegularFile({
+          scope, boundaryRoot: input.boundaryRoot, filePath, label,
+          flags: fsConstants.O_RDONLY, allowMissing: true
+        });
+        if (file === null) observations[key] = Object.freeze({ bytes: null, identity: null });
+        else {
+          const metadata = statSync(`/proc/self/fd/${file.fd}`);
+          observations[key] = Object.freeze({
+            bytes: await readFile(`/proc/self/fd/${file.fd}`),
+            identity: Object.freeze({ dev: metadata.dev, ino: metadata.ino }),
+            retained: Object.freeze({ fd: file.fd, parentFd: file.parentFd })
+          });
+        }
+      }
+      return operation(await classifyPublishEntryStateV1({
+        ...input,
+        observations: observations as unknown as Readonly<{
+          target: PublishEntryObservationV1; next: PublishEntryObservationV1;
+          quarantine: PublishEntryObservationV1; retiredPre: PublishEntryObservationV1;
+          retiredNext: PublishEntryObservationV1;
+        }>
+      }));
+    });
+  }
+  throw new Error(`Entry CAS is unsupported on ${process.platform}.`);
+}
+
+function samePublishEntryObservation(
+  left: PublishEntryObservationV1,
+  right: PublishEntryObservationV1
+): boolean {
+  if ((left.bytes === null) !== (right.bytes === null)) return false;
+  if (left.bytes !== null && !left.bytes.equals(right.bytes!)) return false;
+  return (left.identity === null && right.identity === null)
+    || samePublishEntryIdentity(left, right);
+}
+
+async function assertPublishEntryResolutionCurrentV1(input: Readonly<{
+  expected: PublishEntryResolutionV1;
+  classifier: Readonly<{
+    boundaryRoot: string;
+    targetPath: string;
+    nextPath: string;
+    quarantinePath: string;
+    retiredPrePath: string;
+    retiredNextPath: string;
+    pre: Buffer;
+    next: Buffer;
+    label: string;
+    retainRecoveryEntries?: boolean;
+  }>;
+}>): Promise<void> {
+  const current = await classifyPublishEntryStateV1(input.classifier);
+  const expected = input.expected;
+  if (current.state !== expected.state
+      || !samePublishEntryObservation(current.target, expected.target)
+      || !samePublishEntryObservation(current.next, expected.next)
+      || !samePublishEntryObservation(current.quarantine, expected.quarantine)
+      || !samePublishEntryObservation(current.retiredPre, expected.retiredPre)
+      || !samePublishEntryObservation(current.retiredNext, expected.retiredNext)) {
+    throw new Error(`${input.classifier.label} recovery tuple changed after classification; preserving every entry.`);
+  }
+}
+
+function assertPublishEntryTransitionIdentityV1(
+  predecessor: PublishEntryResolutionV1,
+  successor: PublishEntryResolutionV1
+): void {
+  const requireSame = (left: PublishEntryObservationV1, right: PublishEntryObservationV1, label: string): void => {
+    if (!samePublishEntryIdentity(left, right)) {
+      throw new Error(`Publish entry successor did not retain the authorized ${label} identity.`);
+    }
+  };
+  const requireAbsent = (entry: PublishEntryObservationV1, label: string): void => {
+    if (entry.identity !== null || entry.bytes !== null) {
+      throw new Error(`Publish entry successor did not remove the required ${label} entry.`);
+    }
+  };
+  const edge = `${predecessor.state}->${successor.state}`;
+  switch (edge) {
+    case 'windows-prepared->windows-quarantined':
+      requireSame(predecessor.target, successor.quarantine, 'Windows PRE quarantine');
+      requireSame(predecessor.next, successor.next, 'Windows NEXT');
+      requireAbsent(successor.target, 'Windows PRE target');
+      return;
+    case 'windows-quarantined->windows-installed':
+      requireSame(predecessor.next, successor.target, 'Windows installed NEXT');
+      requireSame(predecessor.quarantine, successor.quarantine, 'Windows retained PRE');
+      requireAbsent(successor.next, 'Windows consumed NEXT');
+      return;
+    case 'windows-installed->windows-installed':
+      requireSame(predecessor.target, successor.target, 'Windows installed target');
+      return;
+    case 'linux-s0->linux-s1':
+      requireSame(predecessor.target, successor.target, 'Linux PRE target');
+      requireSame(predecessor.target, successor.quarantine, 'Linux PRE quarantine');
+      requireSame(predecessor.next, successor.next, 'Linux NEXT');
+      return;
+    case 'linux-s1->linux-s2':
+      requireSame(predecessor.target, successor.quarantine, 'Linux retained PRE');
+      requireSame(predecessor.target, successor.retiredPre, 'Linux retired PRE');
+      requireSame(predecessor.next, successor.next, 'Linux NEXT');
+      requireAbsent(successor.target, 'Linux retired target');
+      return;
+    case 'linux-s2->linux-s3':
+      requireSame(predecessor.next, successor.target, 'Linux installed NEXT');
+      requireSame(predecessor.next, successor.next, 'Linux active NEXT');
+      requireSame(predecessor.quarantine, successor.quarantine, 'Linux PRE quarantine');
+      requireSame(predecessor.retiredPre, successor.retiredPre, 'Linux retired PRE');
+      return;
+    case 'linux-s3->linux-s4':
+      requireSame(predecessor.target, successor.target, 'Linux installed NEXT');
+      requireSame(predecessor.next, successor.retiredNext, 'Linux retired NEXT');
+      requireSame(predecessor.quarantine, successor.quarantine, 'Linux PRE quarantine');
+      requireSame(predecessor.retiredPre, successor.retiredPre, 'Linux retired PRE');
+      requireAbsent(successor.next, 'Linux active NEXT');
+      return;
+    default:
+      return;
+  }
+}
+
+async function publishEntryNoReplaceCas(input: {
+  boundaryRoot: string;
+  artifactRoot: string;
+  targetPath: string;
+  nextPath: string;
+  pre: Buffer;
+  next: Buffer;
+  label: string;
+  operationId: string;
+  faultAfterNextPrepared?: () => void;
+  faultAfterPreQuarantine?: () => void;
+  faultAfterNextInstall?: () => void;
+  retainRecoveryEntries?: boolean;
+  durability: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  const classifier = createPublishTupleClassifierInputV1(input);
+  const { quarantinePath, retiredPrePath, retiredNextPath } = classifier;
+  let resolution = await classifyPublishEntryStateV1(classifier);
+  let state = resolution.state;
+  const assertBeforeEffect = async (): Promise<void> => {
+    await withRetainedPublishEntryTupleV1(classifier, async (retained) => {
+      const expected = resolution;
+      if (retained.state !== expected.state
+          || !samePublishEntryObservation(retained.target, expected.target)
+          || !samePublishEntryObservation(retained.next, expected.next)
+          || !samePublishEntryObservation(retained.quarantine, expected.quarantine)
+          || !samePublishEntryObservation(retained.retiredPre, expected.retiredPre)
+          || !samePublishEntryObservation(retained.retiredNext, expected.retiredNext)) {
+        throw new Error(`${input.label} retained tuple changed before its selected edge; preserving every entry.`);
+      }
+    });
+  };
+  const runSelectedRetainedEdge = async <T>(
+    edge: (retained: PublishEntryResolutionV1) => Promise<T>
+  ): Promise<T> => withRetainedPublishEntryTupleV1(classifier, async (retained) => {
+    const expected = resolution;
+    if (retained.state !== expected.state
+        || !samePublishEntryObservation(retained.target, expected.target)
+        || !samePublishEntryObservation(retained.next, expected.next)
+        || !samePublishEntryObservation(retained.quarantine, expected.quarantine)
+        || !samePublishEntryObservation(retained.retiredPre, expected.retiredPre)
+        || !samePublishEntryObservation(retained.retiredNext, expected.retiredNext)) {
+      throw new Error(`${input.label} retained tuple changed before its selected edge; preserving every entry.`);
+    }
+    return edge(retained);
+  });
+  const assertDeclaredSuccessor = async (
+    predecessor: PublishEntryResolutionV1,
+    successor: PublishEntryStateV1
+  ): Promise<void> => {
+    const observed = await classifyPublishEntryStateV1(classifier);
+    if (observed.state !== successor) {
+      throw new Error(`${input.label} effect did not produce its declared ${successor} successor.`);
+    }
+    assertPublishEntryTransitionIdentityV1(predecessor, observed);
+    resolution = observed;
+    state = observed.state;
+  };
+
+  if (state === 'windows-installed') {
+    if (input.retainRecoveryEntries !== true) {
+      await runSelectedRetainedEdge(async (retained) => removeOptionalSafeRegularFile({
+        boundaryRoot: input.boundaryRoot,
+        filePath: quarantinePath,
+        label: `${input.label} exact PRE quarantine cleanup`,
+        expectedBytes: input.pre,
+        expectedIdentity: retained.quarantine.identity!,
+        retained: retained.quarantine.retained,
+        durability: input.durability
+      }));
+      // W2 becomes W3 only after its sole permitted cleanup edge.
+      await assertDeclaredSuccessor(resolution, 'windows-installed');
+    }
+    await runSelectedRetainedEdge(async (retained) => flushPublishedFile({
+      boundaryRoot: input.boundaryRoot,
+      targetPath: input.targetPath,
+      label: input.label,
+      durability: input.durability
+      , expectedBytes: input.next, expectedIdentity: retained.target.identity!
+      , retained: retained.target.retained
+    }));
+    return;
+  }
+
+  if (state === 'linux-s4') {
+    await runSelectedRetainedEdge(async (retained) => flushPublishedFile({
+      boundaryRoot: input.boundaryRoot,
+      targetPath: input.targetPath,
+      label: input.label,
+      durability: input.durability
+      , expectedBytes: input.next, expectedIdentity: retained.target.identity!
+      , retained: retained.target.retained
+    }));
+    return;
+  }
+
+  if (state === 'linux-fresh' || state === 'windows-pristine') {
+    await runSelectedRetainedEdge(async () => createSafeRegularFileExclusive({
+      boundaryRoot: input.boundaryRoot,
+      filePath: input.nextPath,
+      bytes: input.next,
+      label: `${input.label} NEXT recovery entry`,
+      durability: input.durability
+    }));
+    await assertDeclaredSuccessor(resolution, process.platform === 'linux' ? 'linux-s0' : 'windows-prepared');
+    await runSelectedRetainedEdge(async (retained) => flushPublishedFile({
+      boundaryRoot: input.boundaryRoot,
+      targetPath: input.nextPath,
+      label: `${input.label} NEXT recovery entry`,
+      durability: input.durability
+      , expectedBytes: input.next, expectedIdentity: retained.next.identity!
+      , retained: retained.next.retained
+    }));
+    await assertBeforeEffect();
+  }
+  input.faultAfterNextPrepared?.();
+
+  if (state === 'windows-prepared') {
+    if (process.platform === 'win32') {
+      await runSelectedRetainedEdge(async (retained) => durableRename({
+        boundaryRoot: input.boundaryRoot,
+        sourcePath: input.targetPath,
+        targetPath: quarantinePath,
+        label: `${input.label} PRE quarantine`,
+        durability: input.durability,
+        replaceExisting: false,
+        expectedSourceBytes: input.pre,
+        expectedSourceIdentity: retained.target.identity!
+      }));
+    }
+    input.faultAfterPreQuarantine?.();
+    await assertDeclaredSuccessor(resolution, 'windows-quarantined');
+  }
+
+  if (state === 'linux-s0') {
+    await runSelectedRetainedEdge(async (retained) => durableLinkOpenedPosixFile({
+      boundaryRoot: input.boundaryRoot,
+      sourcePath: input.targetPath,
+      targetPath: quarantinePath,
+      expectedSourceBytes: input.pre,
+      expectedSourceIdentity: retained.target.identity!,
+      label: `${input.label} exact PRE recovery link`,
+      durability: input.durability
+    }));
+    await assertPosixEntryIdentity({
+      boundaryRoot: input.boundaryRoot,
+      leftPath: input.targetPath,
+      rightPath: quarantinePath,
+      label: `${input.label} PRE recovery identity`
+    });
+    await input.durability.afterExactPreRecoveryLink?.(Object.freeze({
+      label: input.label,
+      targetPath: input.targetPath,
+      recoveryPath: quarantinePath
+    }));
+    await assertDeclaredSuccessor(resolution, 'linux-s1');
+  }
+  if (state === 'linux-s1') {
+    await runSelectedRetainedEdge(async (retained) => durableRename({
+      boundaryRoot: input.boundaryRoot,
+      sourcePath: input.targetPath,
+      targetPath: retiredPrePath,
+      label: `${input.label} PRE entry retirement`,
+      durability: input.durability,
+      replaceExisting: false,
+      expectedSourceBytes: input.pre,
+      expectedSourceIdentity: retained.target.identity!
+    }));
+    await assertPosixEntryIdentity({
+      boundaryRoot: input.boundaryRoot,
+      leftPath: quarantinePath,
+      rightPath: retiredPrePath,
+      label: `${input.label} retired PRE identity`
+    });
+    input.faultAfterPreQuarantine?.();
+    await assertDeclaredSuccessor(resolution, 'linux-s2');
+  }
+
+  if (state === 'windows-quarantined') {
+    await runSelectedRetainedEdge(async (retained) => durableRename({
+      boundaryRoot: input.boundaryRoot,
+      sourcePath: input.nextPath,
+      targetPath: input.targetPath,
+      label: `${input.label} NEXT install`,
+      durability: input.durability,
+      replaceExisting: false,
+      expectedSourceBytes: input.next,
+      expectedSourceIdentity: retained.next.identity!
+    }));
+    await assertDeclaredSuccessor(resolution, 'windows-installed');
+  } else if (state === 'linux-s2') {
+    await runSelectedRetainedEdge(async (retained) => durableLinkOpenedPosixFile({
+      boundaryRoot: input.boundaryRoot,
+      sourcePath: input.nextPath,
+      targetPath: input.targetPath,
+      expectedSourceBytes: input.next,
+      expectedSourceIdentity: retained.next.identity!,
+      label: `${input.label} exact NEXT install`,
+      durability: input.durability
+    }));
+    await assertDeclaredSuccessor(resolution, 'linux-s3');
+  }
+  input.faultAfterNextInstall?.();
+
+  if (!(await readSafeRegularFile({
+    boundaryRoot: input.boundaryRoot,
+    filePath: input.targetPath,
+    label: `${input.label} NEXT readback`
+  })).equals(input.next)) {
+    throw new Error(`${input.label} NEXT readback failed.`);
+  }
+  if (resolution.state === 'windows-installed' && input.retainRecoveryEntries !== true) {
+    await runSelectedRetainedEdge(async (retained) => removeOptionalSafeRegularFile({
+      boundaryRoot: input.boundaryRoot,
+      filePath: quarantinePath,
+      label: `${input.label} exact PRE quarantine cleanup`,
+      expectedBytes: input.pre,
+      expectedIdentity: retained.quarantine.identity!,
+      retained: retained.quarantine.retained,
+      durability: input.durability
+    }));
+    await assertDeclaredSuccessor(resolution, 'windows-installed');
+  } else if (resolution.state === 'linux-s3') {
+    await runSelectedRetainedEdge(async (retained) => durableRename({
+      boundaryRoot: input.boundaryRoot,
+      sourcePath: input.nextPath,
+      targetPath: retiredNextPath,
+      label: `${input.label} NEXT recovery retirement`,
+      durability: input.durability,
+      replaceExisting: false,
+      expectedSourceBytes: input.next,
+      expectedSourceIdentity: retained.next.identity!
+    }));
+    await assertPosixEntryIdentity({
+      boundaryRoot: input.boundaryRoot,
+      leftPath: input.targetPath,
+      rightPath: retiredNextPath,
+      label: `${input.label} installed NEXT identity`
+    });
+    await assertDeclaredSuccessor(resolution, 'linux-s4');
+  }
+}
+
+function atomicCasNextPath(filePath: string, operationId: string): string {
+  return path.join(
+    path.dirname(filePath),
+    `.${path.basename(filePath)}.${operationId.slice('sha256:'.length)}.next`
+  );
+}
+
+async function writeAtomicCas(input: {
+  repositoryRoot: string;
+  filePath: string;
+  pre: Buffer;
+  next: Buffer;
+  label: string;
+  operationId: string;
+  faultAfterTempWrite?: () => void;
+  faultAfterPreQuarantine?: () => void;
+  faultAfterNextInstall?: () => void;
+  durability: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  const transactionRoot = await resolveFreezeTransactionRoot(input.repositoryRoot, input.durability);
+  const temporaryPath = atomicCasNextPath(input.filePath, input.operationId);
+  await publishEntryNoReplaceCas({
+    boundaryRoot: input.repositoryRoot,
+    artifactRoot: transactionRoot,
+    targetPath: input.filePath,
+    nextPath: temporaryPath,
+    pre: input.pre,
+    next: input.next,
+    label: input.label,
+    operationId: input.operationId,
+    faultAfterNextPrepared: input.faultAfterTempWrite,
+    faultAfterPreQuarantine: input.faultAfterPreQuarantine,
+    faultAfterNextInstall: input.faultAfterNextInstall,
+    durability: input.durability
+  });
+}
+
+interface InitiallyAbsentEntryResolutionV1 {
+  readonly state: CodexDevelopmentInitiallyAbsentTupleStateV1;
+  readonly tuple: Readonly<{
+    target: CodexDevelopmentInitiallyAbsentTupleEntryV1;
+    next: CodexDevelopmentInitiallyAbsentTupleEntryV1;
+    retiredNext: CodexDevelopmentInitiallyAbsentTupleEntryV1;
+  }>;
+  readonly target: PublishEntryObservationV1;
+  readonly next: PublishEntryObservationV1;
+  readonly retiredNext: PublishEntryObservationV1;
+}
+
+type InitiallyAbsentTupleClassifierInputV1 = Readonly<{
+  boundaryRoot: string;
+  targetPath: string;
+  nextPath: string;
+  retiredNextPath: string;
+  next: Buffer;
+  label: string;
+}>;
+
+function initialTupleEntryAdapter(
+  entry: PublishEntryObservationV1,
+  next: Buffer
+): CodexDevelopmentInitiallyAbsentTupleEntryV1 {
+  const identity = entry.identity === null
+    ? null
+    : typeof entry.identity === 'string'
+      ? entry.identity
+      : `${entry.identity.dev}:${entry.identity.ino}`;
+  if (entry.bytes === null) return Object.freeze({ byteClass: 'absent', identity });
+  return Object.freeze({ byteClass: entry.bytes.equals(next) ? 'exact-next' : 'unknown', identity });
+}
+
+function initialTupleResolutionAdapter(input: Readonly<{
+  next: Buffer;
+  target: PublishEntryObservationV1;
+  nextEntry: PublishEntryObservationV1;
+  retiredNext: PublishEntryObservationV1;
+  label: string;
+}>): InitiallyAbsentEntryResolutionV1 {
+  const tuple = Object.freeze({
+    target: initialTupleEntryAdapter(input.target, input.next),
+    next: initialTupleEntryAdapter(input.nextEntry, input.next),
+    retiredNext: initialTupleEntryAdapter(input.retiredNext, input.next)
+  });
+  const resolution = CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({
+    platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatformV1,
+    tuple
+  });
+  if (resolution.status === 'invalid') {
+    throw new Error(`${input.label} initially-absent T/N/R contract rejected the observation (${resolution.reason}); preserving every entry.`);
+  }
+  return Object.freeze({
+    state: resolution.state,
+    tuple,
+    target: input.target,
+    next: input.nextEntry,
+    retiredNext: input.retiredNext
+  });
+}
+
+/** Anchored observation adapter; the T/N/R grammar itself lives in the contract. */
+async function observeInitiallyAbsentEntryTupleV1(
+  input: InitiallyAbsentTupleClassifierInputV1 & Readonly<{
+    observations?: Readonly<{
+      target: PublishEntryObservationV1;
+      next: PublishEntryObservationV1;
+      retiredNext: PublishEntryObservationV1;
+    }>;
+  }>
+): Promise<InitiallyAbsentEntryResolutionV1> {
+  const readEntry = async (filePath: string, label: string): Promise<PublishEntryObservationV1> => {
+    if (process.platform === 'win32') return withWindowsHandles((scope) => {
+      const file = openWindowsRegularFile({
+        scope, boundaryRoot: input.boundaryRoot, filePath, label,
+        desiredAccess: (WindowsGenericRead | WindowsFileReadAttributes) >>> 0, allowMissing: true
+      });
+      return file === null ? Object.freeze({ bytes: null, identity: null }) : Object.freeze({
+        bytes: readWindowsHandleBytes(file.handle, label),
+        identity: windowsFileIdentity(file.handle, `${label} initial tuple identity`)
+      });
+    });
+    if (process.platform === 'linux') return withPosixFds(async (scope) => {
+      const file = openPosixRegularFile({
+        scope, boundaryRoot: input.boundaryRoot, filePath, label, flags: fsConstants.O_RDONLY, allowMissing: true
+      });
+      if (file === null) return Object.freeze({ bytes: null, identity: null });
+      const metadata = statSync(`/proc/self/fd/${file.fd}`);
+      return Object.freeze({
+        bytes: await readFile(`/proc/self/fd/${file.fd}`),
+        identity: Object.freeze({ dev: metadata.dev, ino: metadata.ino })
+      });
+    });
+    throw new Error(`Initially-absent entry publication is unsupported on ${process.platform}.`);
+  };
+  const observed = input.observations ?? Object.freeze({
+    target: await readEntry(input.targetPath, input.label),
+    next: await readEntry(input.nextPath, `${input.label} NEXT recovery entry`),
+    retiredNext: await readEntry(input.retiredNextPath, `${input.label} retired NEXT entry`)
+  });
+  return initialTupleResolutionAdapter({
+    next: input.next,
+    target: observed.target,
+    nextEntry: observed.next,
+    retiredNext: observed.retiredNext,
+    label: input.label
+  });
+}
+
+/** Retains every present initial T/N/R object and parent anchor through exactly one selected edge. */
+async function withRetainedInitiallyAbsentEntryTupleV1<T>(
+  input: InitiallyAbsentTupleClassifierInputV1,
+  operation: (resolution: InitiallyAbsentEntryResolutionV1) => Promise<T> | T
+): Promise<T> {
+  const paths = [
+    [input.targetPath, input.label, 'target'],
+    [input.nextPath, `${input.label} NEXT recovery entry`, 'next'],
+    [input.retiredNextPath, `${input.label} retired NEXT entry`, 'retiredNext']
+  ] as const;
+  if (process.platform === 'win32') return withWindowsHandles(async (scope) => {
+    const observations: Record<string, PublishEntryObservationV1> = {};
+    for (const [filePath, label, key] of paths) {
+      const file = openWindowsRegularFile({
+        scope, boundaryRoot: input.boundaryRoot, filePath, label,
+        desiredAccess: (WindowsGenericRead | WindowsGenericWrite | WindowsDeleteAccess | WindowsFileReadAttributes | WindowsSynchronizeAccess) >>> 0,
+        retainedParentDurabilityWrite: true, allowMissing: true
+      });
+      observations[key] = file === null ? Object.freeze({ bytes: null, identity: null }) : Object.freeze({
+        bytes: readWindowsHandleBytes(file.handle, label),
+        identity: windowsFileIdentity(file.handle, `${label} retained initial tuple identity`),
+        retained: Object.freeze({ handle: file.handle, parentHandle: file.parentHandle })
+      });
+    }
+    return operation(await observeInitiallyAbsentEntryTupleV1({
+      ...input,
+      observations: observations as unknown as Readonly<{
+        target: PublishEntryObservationV1; next: PublishEntryObservationV1; retiredNext: PublishEntryObservationV1;
+      }>
+    }));
+  });
+  if (process.platform === 'linux') return withPosixFds(async (scope) => {
+    const observations: Record<string, PublishEntryObservationV1> = {};
+    for (const [filePath, label, key] of paths) {
+      const file = openPosixRegularFile({
+        scope, boundaryRoot: input.boundaryRoot, filePath, label, flags: fsConstants.O_RDWR, allowMissing: true
+      });
+      if (file === null) observations[key] = Object.freeze({ bytes: null, identity: null });
+      else {
+        const metadata = statSync(`/proc/self/fd/${file.fd}`);
+        observations[key] = Object.freeze({
+          bytes: await readFile(`/proc/self/fd/${file.fd}`),
+          identity: Object.freeze({ dev: metadata.dev, ino: metadata.ino }),
+          retained: Object.freeze({ fd: file.fd, parentFd: file.parentFd })
+        });
+      }
+    }
+    return operation(await observeInitiallyAbsentEntryTupleV1({
+      ...input,
+      observations: observations as unknown as Readonly<{
+        target: PublishEntryObservationV1; next: PublishEntryObservationV1; retiredNext: PublishEntryObservationV1;
+      }>
+    }));
+  });
+  throw new Error(`Initially-absent entry publication is unsupported on ${process.platform}.`);
+}
+
+function assertInitiallyAbsentTransitionFromContractV1(
+  predecessor: InitiallyAbsentEntryResolutionV1,
+  successor: InitiallyAbsentEntryResolutionV1,
+  expectedEdge: CodexDevelopmentInitiallyAbsentTupleEdgeV1,
+  label: string
+): void {
+  const resolution = CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1({
+    platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatformV1,
+    predecessor: predecessor.tuple,
+    successor: successor.tuple,
+    expectedEdge
+  });
+  if (resolution.status === 'invalid') {
+    throw new Error(`${label} initially-absent T/N/R transition contract rejected ${expectedEdge} (${resolution.reason}); preserving every entry.`);
+  }
+}
+
+async function publishInitiallyAbsentEntryNoReplace(input: {
+  boundaryRoot: string;
+  targetPath: string;
+  nextPath: string;
+  next: Buffer;
+  label: string;
+  durability: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  const retiredNextPath = entryRecoveryPath({
+    artifactRoot: input.boundaryRoot,
+    targetPath: input.targetPath,
+    operationId: byteDigest(input.next),
+    suffix: 'retired-next'
+  });
+  const classifier = Object.freeze({
+    boundaryRoot: input.boundaryRoot, targetPath: input.targetPath, nextPath: input.nextPath,
+    retiredNextPath, next: input.next, label: input.label
+  });
+  let resolution = await observeInitiallyAbsentEntryTupleV1(classifier);
+  const runSelectedRetainedEdge = async <T>(
+    edge: (retained: InitiallyAbsentEntryResolutionV1) => Promise<T>
+  ): Promise<T> => withRetainedInitiallyAbsentEntryTupleV1(classifier, async (retained) => {
+    if (retained.state !== resolution.state
+        || !samePublishEntryObservation(retained.target, resolution.target)
+        || !samePublishEntryObservation(retained.next, resolution.next)
+        || !samePublishEntryObservation(retained.retiredNext, resolution.retiredNext)) {
+      throw new Error(`${input.label} initially-absent tuple changed before its selected edge; preserving every entry.`);
+    }
+    return edge(retained);
+  });
+  const assertSuccessor = async (
+    predecessor: InitiallyAbsentEntryResolutionV1,
+    expectedEdge: CodexDevelopmentInitiallyAbsentTupleEdgeV1
+  ): Promise<void> => {
+    const successor = await observeInitiallyAbsentEntryTupleV1(classifier);
+    assertInitiallyAbsentTransitionFromContractV1(predecessor, successor, expectedEdge, input.label);
+    resolution = successor;
+  };
+  if (resolution.state === 'win32-w2' || resolution.state === 'linux-l3') {
+    await runSelectedRetainedEdge(async (retained) => flushPublishedFile({
+      boundaryRoot: input.boundaryRoot, targetPath: input.targetPath, label: input.label, durability: input.durability,
+      expectedBytes: input.next, expectedIdentity: retained.target.identity!, retained: retained.target.retained
+    }));
+    return;
+  }
+  if (resolution.state === 'win32-w0' || resolution.state === 'linux-l0') {
+    await runSelectedRetainedEdge(async () => createSafeRegularFileExclusive({
+      boundaryRoot: input.boundaryRoot, filePath: input.nextPath, bytes: input.next,
+      label: `${input.label} NEXT recovery entry`, durability: input.durability
+    }));
+    await assertSuccessor(
+      resolution,
+      process.platform === 'win32' ? 'win32-w0->win32-w1' : 'linux-l0->linux-l1'
+    );
+    await runSelectedRetainedEdge(async (retained) => flushPublishedFile({
+      boundaryRoot: input.boundaryRoot, targetPath: input.nextPath, label: `${input.label} NEXT recovery entry`,
+      durability: input.durability, expectedBytes: input.next, expectedIdentity: retained.next.identity!, retained: retained.next.retained
+    }));
+  }
+  if (resolution.state === 'win32-w1') {
+    await runSelectedRetainedEdge(async (retained) => durableRename({
+      boundaryRoot: input.boundaryRoot, sourcePath: input.nextPath, targetPath: input.targetPath,
+      label: `${input.label} initial NEXT install`, durability: input.durability, replaceExisting: false,
+      expectedSourceBytes: input.next, expectedSourceIdentity: retained.next.identity!
+    }));
+    await assertSuccessor(resolution, 'win32-w1->win32-w2');
+    return;
+  }
+  if (resolution.state === 'linux-l1') {
+    await runSelectedRetainedEdge(async (retained) => durableLinkOpenedPosixFile({
+      boundaryRoot: input.boundaryRoot, sourcePath: input.nextPath, targetPath: input.targetPath,
+      expectedSourceBytes: input.next, expectedSourceIdentity: retained.next.identity!,
+      label: `${input.label} exact initial NEXT install`, durability: input.durability
+    }));
+    await assertSuccessor(resolution, 'linux-l1->linux-l2');
+  }
+  if (resolution.state === 'linux-l2') {
+    await runSelectedRetainedEdge(async (retained) => durableRename({
+      boundaryRoot: input.boundaryRoot, sourcePath: input.nextPath, targetPath: retiredNextPath,
+      label: `${input.label} initial NEXT recovery retirement`, durability: input.durability, replaceExisting: false,
+      expectedSourceBytes: input.next, expectedSourceIdentity: retained.next.identity!
+    }));
+    await assertSuccessor(resolution, 'linux-l2->linux-l3');
+  }
+}
+
+async function resolveFreezeTransactionRoot(
+  repositoryRoot: string,
+  durability?: FreezeDurabilityOptionsV1
+): Promise<string> {
+  return ensureSafeDirectory({
+    boundaryRoot: repositoryRoot,
+    directoryPath: path.join(repositoryRoot, '.tmp/codex/document-control-plane-freeze-v1'),
+    label: 'Document control transaction directory',
+    durability
+  });
+}
+
+async function writeFreezeJournal(
+  repositoryRoot: string,
+  expectedPreBytes: Buffer | null,
+  journal: FreezeJournalV3,
+  durability: FreezeDurabilityOptionsV1,
+  faultAfter?: CodexDevelopmentFreezeFaultV1
+): Promise<Buffer> {
+  const transactionRoot = await resolveFreezeTransactionRoot(repositoryRoot, durability);
+  const journalPath = path.join(repositoryRoot, FreezeJournalRelativePath);
+  const temporaryPath = `${journalPath}.${journal.operationId.slice('sha256:'.length)}.${journal.phase}.next`;
+  const nextBytes = renderFreezeJournalV3(journal);
+  const label = `Freeze journal ${journal.phase}`;
+  if (expectedPreBytes === null) {
+    await publishInitiallyAbsentEntryNoReplace({
+      boundaryRoot: transactionRoot,
+      nextPath: temporaryPath,
+      targetPath: journalPath,
+      next: nextBytes,
+      label,
+      durability
+    });
+  } else {
+    const preQuarantineFault: Readonly<Partial<Record<FreezeJournalPhaseV1, CodexDevelopmentFreezeFaultV1>>> = {
+      'index-published': 'after-journal-index-published-pre-quarantine',
+      'pointer-published': 'after-journal-pointer-published-pre-quarantine',
+      'rolling-published': 'after-journal-rolling-published-pre-quarantine',
+      terminal: 'after-journal-terminal-pre-quarantine'
+    };
+    const nextInstallFault: Readonly<Partial<Record<FreezeJournalPhaseV1, CodexDevelopmentFreezeFaultV1>>> = {
+      'index-published': 'after-journal-index-published-next-install',
+      terminal: 'after-journal-terminal-next-install'
+    };
+    await publishEntryNoReplaceCas({
+      boundaryRoot: transactionRoot,
+      artifactRoot: transactionRoot,
+      targetPath: journalPath,
+      nextPath: temporaryPath,
+      pre: expectedPreBytes,
+      next: nextBytes,
+      label,
+      operationId: byteDigest(nextBytes),
+      retainRecoveryEntries: true,
+      faultAfterPreQuarantine: () => {
+        const expected = preQuarantineFault[journal.phase];
+        if (expected !== undefined) maybeFault(faultAfter, expected);
+      },
+      faultAfterNextInstall: () => {
+        const expected = nextInstallFault[journal.phase];
+        if (expected !== undefined) maybeFault(faultAfter, expected);
+      },
+      durability
+    });
+  }
+  const readback = await readSafeRegularFile({
+    boundaryRoot: transactionRoot,
+    filePath: journalPath,
+    label: 'Freeze journal readback'
+  });
+  if (!readback.equals(nextBytes)) {
+    throw new Error('Freeze journal readback does not equal the exact requested NEXT bytes.');
+  }
+  parseFreezeJournalV3(readback.toString('utf8'));
+  return nextBytes;
+}
+
+interface AnchoredJournalEntryV1 {
+  readonly name: string;
+  readonly filePath: string;
+  readonly bytes: Buffer;
+  readonly identity: string;
+}
+
+interface AnchoredJournalDirectoryV1 {
+  readonly transactionRoot: string;
+  readonly names: readonly string[];
+  readEntry(name: string, label: string): Promise<AnchoredJournalEntryV1 | null>;
+  listNames(): readonly string[];
+}
+
+interface FreezeJournalRecoveryStateV1 {
+  readonly expectedPreBytes: Buffer | null;
+  readonly nextJournal: FreezeJournalV3;
+  readonly nextBytes: Buffer;
+  readonly nextPath: string;
+  readonly completionMode:
+    | 'canonical-install-required'
+    | 'active-next-retirement-required'
+    | 'complete';
+  readonly durabilityEntries: readonly AnchoredJournalEntryV1[];
+}
+
+interface FreezeJournalSnapshotV1 {
+  readonly journal: FreezeJournalV3;
+  readonly bytes: Buffer;
+  readonly canonicalPresent: boolean;
+  readonly recovery: FreezeJournalRecoveryStateV1 | null;
+  readonly durabilityEntries: readonly AnchoredJournalEntryV1[];
+}
+
+function effectiveFreezeJournal(snapshot: FreezeJournalSnapshotV1 | null): FreezeJournalV3 | null {
+  if (snapshot === null) return null;
+  return snapshot.recovery?.completionMode === 'canonical-install-required'
+    ? snapshot.recovery.nextJournal
+    : snapshot.journal;
+}
+
+const FreezeJournalNextPhaseV1: Readonly<Partial<Record<FreezeJournalPhaseV1, FreezeJournalPhaseV1>>> = Object.freeze({
+  prepared: 'index-published',
+  'index-published': 'pointer-published',
+  'pointer-published': 'rolling-published',
+  'rolling-published': 'terminal'
+});
+
+const FreezeJournalPreviousPhaseV1: Readonly<Partial<Record<FreezeJournalPhaseV1, FreezeJournalPhaseV1>>> = Object.freeze({
+  'index-published': 'prepared',
+  'pointer-published': 'index-published',
+  'rolling-published': 'pointer-published',
+  terminal: 'rolling-published'
+});
+
+const FreezeJournalRecoveryNextNameV1 = /^journal\.json\.([0-9a-f]{64})\.(prepared|index-published|pointer-published|rolling-published|terminal)\.next$/u;
+const FreezeEntryRecoveryNameV1 = /^\.entry-([0-9a-f]{64})\.(pre|retired-pre|retired-next)$/u;
+const FreezeJournalPhasesV1 = Object.freeze([
+  'prepared',
+  'index-published',
+  'pointer-published',
+  'rolling-published',
+  'terminal'
+] as const satisfies readonly FreezeJournalPhaseV1[]);
+
+function freezeJournalAtPhase(journal: FreezeJournalV3, phase: FreezeJournalPhaseV1): FreezeJournalV3 {
+  return Object.freeze({ ...journal, phase });
+}
+
+function parseCanonicalFreezeJournalBytes(bytes: Buffer, label: string): FreezeJournalV3 {
+  const journal = parseFreezeJournalV3(bytes.toString('utf8'));
+  if (!bytes.equals(renderFreezeJournalV3(journal))) {
+    throw new Error(`${label} bytes are valid but noncanonical; preserving the entry.`);
+  }
+  return journal;
+}
+
+function assertDirectJournalEntryName(name: string, label: string): void {
+  if (name.length === 0 || path.basename(name) !== name || name === '.' || name === '..') {
+    throw new Error(`${label} is not an exact direct transaction entry name.`);
+  }
+}
+
+function sortedDirectoryNames(directoryPath: string): readonly string[] {
+  return Object.freeze([...readdirSync(directoryPath)].sort());
+}
+
+async function withAnchoredJournalDirectory<T>(
+  repositoryRoot: string,
+  operation: (directory: AnchoredJournalDirectoryV1) => Promise<T>
+): Promise<T | null> {
+  const transactionRoot = path.join(repositoryRoot, path.dirname(FreezeJournalRelativePath));
+  if (process.platform === 'win32') {
+    try {
+      return await withWindowsHandles(async (scope) => {
+        const directory = openWindowsDirectoryPath({
+          scope,
+          boundaryRoot: repositoryRoot,
+          directoryPath: transactionRoot,
+          label: 'Freeze journal recovery transaction directory',
+          createMissing: false,
+          retainAgainstRename: true
+        });
+        const directoryPath = directory.canonicalPath;
+        return operation(Object.freeze({
+          transactionRoot: directoryPath,
+          names: sortedDirectoryNames(directoryPath),
+          listNames: () => sortedDirectoryNames(directoryPath),
+          readEntry: async (name: string, label: string) => {
+            assertDirectJournalEntryName(name, label);
+            const filePath = path.join(directoryPath, name);
+            const handle = openWindowsExactHandle({
+              scope,
+              candidatePath: filePath,
+              expectedPath: filePath,
+              label,
+              kind: 'file',
+              desiredAccess: (WindowsGenericRead | WindowsFileReadAttributes) >>> 0,
+              shareMode: WindowsShareReadWrite,
+              allowMissing: true
+            });
+            return handle === null ? null : Object.freeze({
+              name,
+              filePath,
+              bytes: readWindowsHandleBytes(handle, label),
+              identity: windowsFileIdentity(handle, label)
+            });
+          }
+        }));
+      });
+    } catch (error) {
+      if (isMissingError(error)) return null;
+      throw error;
+    }
+  }
+  if (process.platform === 'linux') {
+    try {
+      return await withPosixFds(async (scope) => {
+        const directory = openPosixDirectoryPath({
+          scope,
+          boundaryRoot: repositoryRoot,
+          directoryPath: transactionRoot,
+          label: 'Freeze journal recovery transaction directory',
+          createMissing: false
+        });
+        const directoryFdPath = `/proc/self/fd/${directory.fd}`;
+        const readEntry = async (name: string, label: string): Promise<AnchoredJournalEntryV1 | null> => {
+          assertDirectJournalEntryName(name, label);
+          const filePath = path.join(directory.canonicalPath, name);
+          const fd = requireLinuxLibc().symbols.openat(
+            directory.fd,
+            posixCString(name),
+            fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | requireLinuxX64OpenCloseOnExecFlag(),
+            0
+          );
+          if (fd === -1) {
+            const errno = posixErrno();
+            if (errno === 2) return null;
+            throw posixAnchoredAcquisitionError({
+              operation: `openat anchored journal recovery entry for ${label}`,
+              errno,
+              label,
+              targetPath: filePath
+            });
+          }
+          scope.own(fd, label);
+          const fdPath = `/proc/self/fd/${fd}`;
+          const metadata = statSync(fdPath);
+          if (!metadata.isFile()) throw new Error(`${label} must be an exact regular file.`);
+          assertPosixFdPath(fd, filePath, label);
+          return Object.freeze({
+            name,
+            filePath,
+            bytes: await readFile(fdPath),
+            identity: `${metadata.dev}:${metadata.ino}`
+          });
+        };
+        return operation(Object.freeze({
+          transactionRoot: directory.canonicalPath,
+          names: sortedDirectoryNames(directoryFdPath),
+          listNames: () => sortedDirectoryNames(directoryFdPath),
+          readEntry
+        }));
+      });
+    } catch (error) {
+      if (isMissingError(error)) return null;
+      throw error;
+    }
+  }
+  throw new Error(`Anchored freeze journal recovery census is unsupported on ${process.platform}.`);
+}
+
+function sameDirectoryNames(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((name, index) => name === right[index]);
+}
+
+async function assertAnchoredJournalCensusStable(
+  directory: AnchoredJournalDirectoryV1,
+  entries: readonly AnchoredJournalEntryV1[]
+): Promise<void> {
+  const namesReadback = directory.listNames();
+  if (!sameDirectoryNames(directory.names, namesReadback)) {
+    throw new Error('Freeze journal recovery census changed during its anchored readback.');
+  }
+  for (const entry of entries) {
+    const readback = await directory.readEntry(entry.name, `${entry.name} recovery census readback`);
+    if (readback === null || readback.identity !== entry.identity || !readback.bytes.equals(entry.bytes)) {
+      throw new Error(`Freeze journal recovery entry changed during readback: ${entry.name}.`);
+    }
+  }
+}
+
+async function readJournalRecoveryEntry(
+  directory: AnchoredJournalDirectoryV1,
+  filePath: string,
+  expectedBytes: Buffer,
+  label: string
+): Promise<AnchoredJournalEntryV1 | null> {
+  const entry = await directory.readEntry(path.basename(filePath), label);
+  if (entry !== null && !entry.bytes.equals(expectedBytes)) {
+    throw new Error(`${label} contains unknown bytes; preserving the entry.`);
+  }
+  return entry;
+}
+
+function initialJournalTupleEntryAdapter(
+  entry: AnchoredJournalEntryV1 | null,
+  nextBytes: Buffer
+): CodexDevelopmentInitiallyAbsentTupleEntryV1 {
+  return initialTupleEntryAdapter(
+    entry === null
+      ? Object.freeze({ bytes: null, identity: null })
+      : Object.freeze({ bytes: entry.bytes, identity: entry.identity }),
+    nextBytes
+  );
+}
+
+async function inspectJournalTransitionRecovery(input: {
+  directory: AnchoredJournalDirectoryV1;
+  journalPath: string;
+  expectedPreBytes: Buffer | null;
+  nextBytes: Buffer;
+  canonicalEntry: AnchoredJournalEntryV1 | null;
+  nextEntry: AnchoredJournalEntryV1;
+}): Promise<readonly AnchoredJournalEntryV1[]> {
+  const operationId = byteDigest(input.nextBytes);
+  const quarantinePath = entryRecoveryPath({
+    artifactRoot: input.directory.transactionRoot,
+    targetPath: input.journalPath,
+    operationId,
+    suffix: 'pre'
+  });
+  const retiredPrePath = entryRecoveryPath({
+    artifactRoot: input.directory.transactionRoot,
+    targetPath: input.journalPath,
+    operationId,
+    suffix: 'retired-pre'
+  });
+  const retiredNextPath = entryRecoveryPath({
+    artifactRoot: input.directory.transactionRoot,
+    targetPath: input.journalPath,
+    operationId,
+    suffix: 'retired-next'
+  });
+  const quarantine = input.expectedPreBytes === null
+    ? await input.directory.readEntry(path.basename(quarantinePath), 'Freeze journal unexpected PRE quarantine')
+    : await readJournalRecoveryEntry(
+      input.directory,
+      quarantinePath,
+      input.expectedPreBytes,
+      'Freeze journal exact PRE quarantine'
+    );
+  const retiredPre = input.expectedPreBytes === null
+    ? await input.directory.readEntry(path.basename(retiredPrePath), 'Freeze journal unexpected retired PRE entry')
+    : await readJournalRecoveryEntry(
+      input.directory,
+      retiredPrePath,
+      input.expectedPreBytes,
+      'Freeze journal exact retired PRE entry'
+    );
+  const retiredNext = input.expectedPreBytes === null
+    ? await input.directory.readEntry(
+        path.basename(retiredNextPath),
+        'Freeze journal initially-absent retired NEXT entry'
+      )
+    : await readJournalRecoveryEntry(
+        input.directory,
+        retiredNextPath,
+        input.nextBytes,
+        'Freeze journal exact retired NEXT entry'
+      );
+  const present = [quarantine, retiredPre, retiredNext].filter(
+    (entry): entry is AnchoredJournalEntryV1 => entry !== null
+  );
+
+  if (input.expectedPreBytes === null) {
+    if (quarantine !== null || retiredPre !== null) {
+      throw new Error('Initially-absent freeze journal recovery has unexpected PRE artifacts; preserving them.');
+    }
+    const initialResolution = CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({
+      platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatformV1,
+      tuple: Object.freeze({
+        target: initialJournalTupleEntryAdapter(input.canonicalEntry, input.nextBytes),
+        next: initialJournalTupleEntryAdapter(input.nextEntry, input.nextBytes),
+        retiredNext: initialJournalTupleEntryAdapter(retiredNext, input.nextBytes)
+      })
+    });
+    if (initialResolution.status === 'invalid') {
+      throw new Error(`Initially-absent freeze journal T/N/R contract rejected transition recovery (${initialResolution.reason}); preserving every entry.`);
+    }
+    return Object.freeze(present);
+  }
+
+  if (input.canonicalEntry === null) {
+    if (process.platform === 'win32') {
+      if (quarantine === null || retiredPre !== null || retiredNext !== null) {
+        throw new Error('Windows freeze journal PRE quarantine recovery is incomplete or conflicting.');
+      }
+    } else if (process.platform === 'linux') {
+      if (quarantine === null || retiredPre === null || retiredNext !== null
+          || quarantine.identity !== retiredPre.identity) {
+        throw new Error('Linux freeze journal PRE quarantine recovery is incomplete or has unprovable identity.');
+      }
+    }
+    return Object.freeze(present);
+  }
+
+  if (input.canonicalEntry.bytes.equals(input.expectedPreBytes)) {
+    if (process.platform === 'win32') {
+      if (quarantine !== null || retiredPre !== null || retiredNext !== null) {
+        throw new Error('Windows freeze journal pre-quarantine recovery state is conflicting.');
+      }
+    } else if (process.platform === 'linux') {
+      if (retiredPre !== null || retiredNext !== null
+          || (quarantine !== null && quarantine.identity !== input.canonicalEntry.identity)) {
+        throw new Error('Linux freeze journal pre-quarantine recovery identity is conflicting.');
+      }
+    }
+    return Object.freeze(present);
+  }
+
+  if (!input.canonicalEntry.bytes.equals(input.nextBytes)) {
+    throw new Error('Canonical freeze journal is neither the exact recovery PRE nor NEXT.');
+  }
+  if (process.platform === 'win32') {
+    if (quarantine === null || retiredPre !== null || retiredNext !== null) {
+      throw new Error('Windows installed freeze journal NEXT recovery state is incomplete or conflicting.');
+    }
+  } else if (process.platform === 'linux') {
+    if (quarantine === null || retiredPre === null || quarantine.identity !== retiredPre.identity
+        || (retiredNext !== null && retiredNext.identity !== input.canonicalEntry.identity)
+        || (retiredNext === null && input.nextEntry.identity !== input.canonicalEntry.identity)) {
+      throw new Error('Linux installed freeze journal NEXT recovery identity is incomplete or conflicting.');
+    }
+  }
+  return Object.freeze(present);
+}
+
+type FreezeEntryRecoverySuffixV1 = 'pre' | 'retired-pre' | 'retired-next';
+
+interface FreezeEntryRecoveryExpectationV1 {
+  readonly bytes: Buffer;
+  readonly identityGroup: string;
+}
+
+interface FreezeEntryRecoveryNamesV1 {
+  readonly pre: string;
+  readonly retiredPre: string;
+  readonly retiredNext: string;
+}
+
+interface FreezeEntryRecoveryCensusPlanV1 {
+  readonly expectations: ReadonlyMap<string, FreezeEntryRecoveryExpectationV1>;
+  readonly initialRetiredNext: string;
+  readonly journalTransitions: ReadonlyMap<FreezeJournalPhaseV1, FreezeEntryRecoveryNamesV1>;
+  readonly pointer: FreezeEntryRecoveryNamesV1 | null;
+  readonly rollingPlan: FreezeEntryRecoveryNamesV1 | null;
+  readonly effectivePhaseIndex: number;
+}
+
+function freezeJournalPhaseIndex(phase: FreezeJournalPhaseV1): number {
+  const index = FreezeJournalPhasesV1.indexOf(phase);
+  if (index < 0) throw new Error(`Unsupported freeze journal phase for recovery census: ${phase}.`);
+  return index;
+}
+
+function freezeEntryRecoveryNames(input: {
+  artifactRoot: string;
+  targetPath: string;
+  operationId: string;
+}): FreezeEntryRecoveryNamesV1 {
+  const name = (suffix: FreezeEntryRecoverySuffixV1): string => path.basename(entryRecoveryPath({
+    ...input,
+    suffix
+  }));
+  return Object.freeze({
+    pre: name('pre'),
+    retiredPre: name('retired-pre'),
+    retiredNext: name('retired-next')
+  });
+}
+
+function createFreezeEntryRecoveryCensusPlan(input: {
+  repositoryRoot: string;
+  transactionRoot: string;
+  journalPath: string;
+  journal: FreezeJournalV3;
+}): FreezeEntryRecoveryCensusPlanV1 {
+  const phaseBytes = new Map<FreezeJournalPhaseV1, Buffer>(FreezeJournalPhasesV1.map((phase) => [
+    phase,
+    renderFreezeJournalV3(freezeJournalAtPhase(input.journal, phase))
+  ]));
+  const requirePhaseBytes = (phase: FreezeJournalPhaseV1): Buffer => {
+    const bytes = phaseBytes.get(phase);
+    if (bytes === undefined) throw new Error(`Missing canonical freeze journal bytes for phase ${phase}.`);
+    return bytes;
+  };
+  const expectations = new Map<string, FreezeEntryRecoveryExpectationV1>();
+  const add = (name: string, bytes: Buffer, identityGroup: string): void => {
+    const prior = expectations.get(name);
+    if (prior !== undefined && (!prior.bytes.equals(bytes) || prior.identityGroup !== identityGroup)) {
+      throw new Error(`Freeze recovery census expectation collision for ${name}.`);
+    }
+    expectations.set(name, Object.freeze({ bytes, identityGroup }));
+  };
+  const effectivePhaseIndex = freezeJournalPhaseIndex(input.journal.phase);
+  const preparedBytes = requirePhaseBytes('prepared');
+  const initialNames = freezeEntryRecoveryNames({
+    artifactRoot: input.transactionRoot,
+    targetPath: input.journalPath,
+    operationId: byteDigest(preparedBytes)
+  });
+  add(initialNames.retiredNext, preparedBytes, 'journal:prepared');
+
+  const journalTransitions = new Map<FreezeJournalPhaseV1, FreezeEntryRecoveryNamesV1>();
+  for (let index = 1; index <= effectivePhaseIndex; index += 1) {
+    const phase = FreezeJournalPhasesV1[index]!;
+    const previousPhase = FreezeJournalPhasesV1[index - 1]!;
+    const nextBytes = requirePhaseBytes(phase);
+    const previousBytes = requirePhaseBytes(previousPhase);
+    const names = freezeEntryRecoveryNames({
+      artifactRoot: input.transactionRoot,
+      targetPath: input.journalPath,
+      operationId: byteDigest(nextBytes)
+    });
+    journalTransitions.set(phase, names);
+    add(names.pre, previousBytes, `journal:${previousPhase}`);
+    if (process.platform === 'linux') {
+      add(names.retiredPre, previousBytes, `journal:${previousPhase}`);
+      add(names.retiredNext, nextBytes, `journal:${phase}`);
+    }
+  }
+
+  const addProjectionRecovery = (
+    targetPath: string,
+    pre: Buffer,
+    next: Buffer,
+    label: string
+  ): FreezeEntryRecoveryNamesV1 => {
+    const names = freezeEntryRecoveryNames({
+      artifactRoot: input.transactionRoot,
+      targetPath,
+      operationId: input.journal.operationId
+    });
+    add(names.pre, pre, `${label}:pre`);
+    if (process.platform === 'linux') {
+      add(names.retiredPre, pre, `${label}:pre`);
+      add(names.retiredNext, next, `${label}:next`);
+    }
+    return names;
+  };
+
+  const pointer = effectivePhaseIndex >= freezeJournalPhaseIndex('index-published')
+    ? addProjectionRecovery(
+        path.join(input.repositoryRoot, ...ActivePointerPath.split('/')),
+        fromBase64(input.journal.files.pointer.pre, 'Freeze pointer PRE recovery census'),
+        fromBase64(input.journal.files.pointer.next, 'Freeze pointer NEXT recovery census'),
+        'pointer'
+      )
+    : null;
+  const rollingPlan = effectivePhaseIndex >= freezeJournalPhaseIndex('pointer-published')
+    ? addProjectionRecovery(
+        path.join(input.repositoryRoot, ...RollingPlanPath.split('/')),
+        fromBase64(input.journal.files.rollingPlan.pre, 'Freeze rolling-plan PRE recovery census'),
+        fromBase64(input.journal.files.rollingPlan.next, 'Freeze rolling-plan NEXT recovery census'),
+        'rolling-plan'
+      )
+    : null;
+
+  if (process.platform === 'win32') {
+    if (effectivePhaseIndex > freezeJournalPhaseIndex('index-published') && pointer !== null) {
+      expectations.delete(pointer.pre);
+    }
+    if (effectivePhaseIndex > freezeJournalPhaseIndex('pointer-published') && rollingPlan !== null) {
+      expectations.delete(rollingPlan.pre);
+    }
+  }
+  return Object.freeze({
+    expectations,
+    initialRetiredNext: initialNames.retiredNext,
+    journalTransitions,
+    pointer,
+    rollingPlan,
+    effectivePhaseIndex
+  });
+}
+
+async function assertFreezeEntryRecoveryCensus(input: {
+  repositoryRoot: string;
+  plan: FreezeEntryRecoveryCensusPlanV1;
+  entries: readonly AnchoredJournalEntryV1[];
+  canonicalEntry: AnchoredJournalEntryV1 | null;
+  canonicalJournal: FreezeJournalV3 | null;
+  nextEntry: AnchoredJournalEntryV1 | null;
+  nextJournal: FreezeJournalV3 | null;
+}): Promise<void> {
+  const entries = new Map(input.entries.map((entry) => [entry.name, entry]));
+  const present = (name: string): boolean => entries.has(name);
+  const preparedCanonicalEntry = input.canonicalJournal?.phase === 'prepared'
+    ? input.canonicalEntry
+    : null;
+  const preparedNextEntry = input.nextJournal?.phase === 'prepared'
+    ? input.nextEntry
+    : null;
+  const initialPreparedBytes = preparedNextEntry?.bytes ?? preparedCanonicalEntry?.bytes ?? null;
+  for (const entry of input.entries) {
+    const expected = input.plan.expectations.get(entry.name);
+    if (expected === undefined) {
+      throw new Error(`Unbound freeze entry recovery residue is preserved: ${entry.name}.`);
+    }
+    if (initialPreparedBytes !== null && entry.name === input.plan.initialRetiredNext) continue;
+    if (!entry.bytes.equals(expected.bytes)) {
+      throw new Error(`Freeze entry recovery residue contains unknown bytes and is preserved: ${entry.name}.`);
+    }
+  }
+
+  if (process.platform === 'linux') {
+    const identities = new Map<string, string>();
+    const bindIdentity = (group: string, identity: string, name: string): void => {
+      const prior = identities.get(group);
+      if (prior !== undefined && prior !== identity) {
+        throw new Error(`Linux freeze entry recovery identity is unprovable for ${name}.`);
+      }
+      identities.set(group, identity);
+    };
+    if (input.canonicalEntry !== null && input.canonicalJournal !== null
+        && input.canonicalJournal.phase !== 'prepared') {
+      bindIdentity(`journal:${input.canonicalJournal.phase}`, input.canonicalEntry.identity, input.canonicalEntry.name);
+    }
+    if (input.nextEntry !== null && input.nextJournal !== null
+        && input.nextJournal.phase !== 'prepared') {
+      bindIdentity(`journal:${input.nextJournal.phase}`, input.nextEntry.identity, input.nextEntry.name);
+    }
+    for (const entry of input.entries) {
+      if (initialPreparedBytes !== null && entry.name === input.plan.initialRetiredNext) continue;
+      bindIdentity(input.plan.expectations.get(entry.name)!.identityGroup, entry.identity, entry.name);
+    }
+  }
+
+  const requirePresent = (name: string, label: string): void => {
+    if (!present(name)) throw new Error(`${label} recovery residue is missing.`);
+  };
+  const requireAbsent = (name: string, label: string): void => {
+    if (present(name)) throw new Error(`${label} recovery residue is conflicting and preserved.`);
+  };
+  if (initialPreparedBytes !== null) {
+    const initialRetiredNext = entries.get(input.plan.initialRetiredNext) ?? null;
+    const initialResolution = CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({
+      platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatformV1,
+      tuple: Object.freeze({
+        target: initialJournalTupleEntryAdapter(preparedCanonicalEntry, initialPreparedBytes),
+        next: initialJournalTupleEntryAdapter(preparedNextEntry, initialPreparedBytes),
+        retiredNext: initialJournalTupleEntryAdapter(initialRetiredNext, initialPreparedBytes)
+      })
+    });
+    if (initialResolution.status === 'invalid') {
+      throw new Error(`Initial prepared freeze journal T/N/R contract rejected the recovery census (${initialResolution.reason}); preserving every entry.`);
+    }
+  } else if (process.platform === 'linux') {
+    requirePresent(input.plan.initialRetiredNext, 'Retained initial journal NEXT');
+  } else {
+    requireAbsent(input.plan.initialRetiredNext, 'Retained initial journal NEXT');
+  }
+
+  for (const [phase, names] of input.plan.journalTransitions) {
+    const isActive = input.nextJournal?.phase === phase;
+    if (!isActive) {
+      requirePresent(names.pre, `${phase} journal PRE`);
+      if (process.platform === 'linux') {
+        requirePresent(names.retiredPre, `${phase} journal retired PRE`);
+        requirePresent(names.retiredNext, `${phase} journal retired NEXT`);
+      }
+      continue;
+    }
+    if (process.platform === 'win32') {
+      if (input.canonicalEntry === null) requirePresent(names.pre, `${phase} active journal PRE`);
+      else requireAbsent(names.pre, `${phase} pre-quarantine journal PRE`);
+      continue;
+    }
+    if (input.canonicalEntry === null || input.canonicalJournal?.phase === phase) {
+      requirePresent(names.pre, `${phase} active journal PRE`);
+      requirePresent(names.retiredPre, `${phase} active journal retired PRE`);
+      requireAbsent(names.retiredNext, `${phase} active journal retired NEXT`);
+    } else {
+      const hasPre = present(names.pre);
+      const hasRetiredPre = present(names.retiredPre);
+      const hasRetiredNext = present(names.retiredNext);
+      if ((hasPre || hasRetiredPre || hasRetiredNext)
+          && !(hasPre && !hasRetiredPre && !hasRetiredNext)) {
+        throw new Error(`${phase} pre-quarantine journal recovery residue set is incomplete or conflicting and is preserved.`);
+      }
+    }
+  }
+
+  const assertProjectionState = async (
+    names: FreezeEntryRecoveryNamesV1 | null,
+    startPhase: FreezeJournalPhaseV1,
+    label: string,
+    targetPath: string
+  ): Promise<void> => {
+    if (names === null) return;
+    const startIndex = freezeJournalPhaseIndex(startPhase);
+    if (process.platform === 'win32') {
+      if (input.plan.effectivePhaseIndex > startIndex) requireAbsent(names.pre, `${label} completed PRE`);
+      return;
+    }
+    const hasPre = present(names.pre);
+    const hasRetiredPre = present(names.retiredPre);
+    const hasRetiredNext = present(names.retiredNext);
+    if (input.plan.effectivePhaseIndex > startIndex) {
+      requirePresent(names.pre, `${label} completed PRE`);
+      requirePresent(names.retiredPre, `${label} completed retired PRE`);
+      requirePresent(names.retiredNext, `${label} completed retired NEXT`);
+    } else if (hasPre && !hasRetiredPre && !hasRetiredNext) {
+      await assertPosixEntryIdentity({
+        boundaryRoot: input.repositoryRoot,
+        leftPath: targetPath,
+        rightPath: entries.get(names.pre)!.filePath,
+        label: `${label} S1 PRE recovery identity`
+      });
+    } else if ((hasPre || hasRetiredPre || hasRetiredNext)
+        && !(hasPre && hasRetiredPre && !hasRetiredNext)
+        && !(hasPre && hasRetiredPre && hasRetiredNext)) {
+      throw new Error(`${label} active recovery residue set is incomplete or conflicting and is preserved.`);
+    }
+  };
+  await assertProjectionState(
+    input.plan.pointer,
+    'index-published',
+    'Pointer',
+    path.join(input.repositoryRoot, ...ActivePointerPath.split('/'))
+  );
+  await assertProjectionState(
+    input.plan.rollingPlan,
+    'pointer-published',
+    'Rolling-plan',
+    path.join(input.repositoryRoot, ...RollingPlanPath.split('/'))
+  );
+}
+
+async function readFreezeJournalSnapshot(
+  repositoryRoot: string,
+  beforeCensusReadback?: () => Promise<void> | void
+): Promise<FreezeJournalSnapshotV1 | null> {
+  return withAnchoredJournalDirectory(repositoryRoot, async (directory) => {
+    const journalPath = path.join(directory.transactionRoot, path.basename(FreezeJournalRelativePath));
+    const directEntries = new Map<string, AnchoredJournalEntryV1>();
+    for (const name of directory.names) {
+      const entry = await directory.readEntry(name, `Freeze transaction direct residue ${name}`);
+      if (entry === null) throw new Error(`Freeze transaction direct residue disappeared during census: ${name}.`);
+      directEntries.set(name, entry);
+    }
+    const relevantEntries = [...directEntries.values()];
+    await beforeCensusReadback?.();
+    await assertAnchoredJournalCensusStable(directory, relevantEntries);
+
+    const canonicalEntry = directEntries.get('journal.json') ?? null;
+    const journalRecoveryNames = directory.names.filter((name) => name.startsWith('journal.json.'));
+    const malformedName = journalRecoveryNames.find((name) => !FreezeJournalRecoveryNextNameV1.test(name));
+    if (malformedName !== undefined) {
+      throw new Error(`Unknown freeze journal recovery entry name is preserved: ${malformedName}.`);
+    }
+    if (journalRecoveryNames.length > 1) {
+      throw new Error('Duplicate freeze journal active NEXT recovery entries are preserved.');
+    }
+
+    const canonicalJournal = canonicalEntry === null
+      ? null
+      : parseCanonicalFreezeJournalBytes(canonicalEntry.bytes, 'Freeze journal');
+    const nextName = journalRecoveryNames[0];
+    let nextEntry: AnchoredJournalEntryV1 | null = null;
+    let nextJournal: FreezeJournalV3 | null = null;
+    if (nextName !== undefined) {
+      nextEntry = directEntries.get(nextName) ?? null;
+      if (nextEntry === null) throw new Error('Freeze journal active NEXT recovery entry disappeared during census.');
+      nextJournal = parseCanonicalFreezeJournalBytes(nextEntry.bytes, 'Freeze journal active NEXT recovery entry');
+      const match = FreezeJournalRecoveryNextNameV1.exec(nextName)!;
+      if (match[1] !== nextJournal.operationId.slice('sha256:'.length) || match[2] !== nextJournal.phase) {
+        throw new Error('Freeze journal active NEXT recovery filename is not bound to its operation and phase.');
+      }
+    }
+
+    const entryRecoveryNames = directory.names.filter((name) => name.startsWith('.entry-'));
+    const entryRecoveryEntries = entryRecoveryNames.map((name) => directEntries.get(name)!);
+    const malformedEntryRecoveryName = entryRecoveryNames.find((name) => !FreezeEntryRecoveryNameV1.test(name));
+    if (malformedEntryRecoveryName !== undefined) {
+      throw new Error(`Unknown freeze entry recovery residue name is preserved: ${malformedEntryRecoveryName}.`);
+    }
+    const unknownDirectName = directory.names.find((name) => (
+      name !== 'journal.json'
+      && !name.startsWith('journal.json.')
+      && !name.startsWith('.entry-')
+    ));
+
+    if (canonicalJournal === null && nextJournal === null) {
+      if (directory.names.length > 0) {
+        throw new Error('Freeze journal is absent while direct transaction residues remain; preserving every residue.');
+      }
+      return null;
+    }
+
+    if (unknownDirectName !== undefined) {
+      throw new Error(`Unknown freeze transaction direct residue is preserved: ${unknownDirectName}.`);
+    }
+
+    const censusJournal = nextJournal ?? canonicalJournal!;
+    const censusPlan = createFreezeEntryRecoveryCensusPlan({
+      repositoryRoot,
+      transactionRoot: directory.transactionRoot,
+      journalPath,
+      journal: censusJournal
+    });
+    await assertFreezeEntryRecoveryCensus({
+      repositoryRoot,
+      plan: censusPlan,
+      entries: entryRecoveryEntries,
+      canonicalEntry,
+      canonicalJournal,
+      nextEntry,
+      nextJournal
+    });
+
+    if (canonicalJournal === null) {
+      const predecessor = FreezeJournalPreviousPhaseV1[nextJournal!.phase];
+      const expectedPreBytes = predecessor === undefined
+        ? null
+        : renderFreezeJournalV3(freezeJournalAtPhase(nextJournal!, predecessor));
+      const recoveryEntries = await inspectJournalTransitionRecovery({
+        directory,
+        journalPath,
+        expectedPreBytes,
+        nextBytes: nextEntry!.bytes,
+        canonicalEntry: null,
+        nextEntry: nextEntry!
+      });
+      relevantEntries.push(...recoveryEntries);
+      await assertAnchoredJournalCensusStable(directory, relevantEntries);
+      const recovery = Object.freeze({
+        expectedPreBytes,
+        nextJournal: nextJournal!,
+        nextBytes: nextEntry!.bytes,
+        nextPath: nextEntry!.filePath,
+        completionMode: 'canonical-install-required' as const,
+        durabilityEntries: Object.freeze([
+          ...new Map(relevantEntries.map((entry) => [entry.filePath, entry])).values()
+        ])
+      });
+      return Object.freeze({
+        journal: nextJournal!,
+        bytes: nextEntry!.bytes,
+        canonicalPresent: false,
+        recovery,
+        durabilityEntries: recovery.durabilityEntries
+      });
+    }
+
+    let recovery: FreezeJournalRecoveryStateV1 | null = null;
+    if (nextJournal !== null) {
+      let expectedPreBytes: Buffer | null;
+      let completionMode: FreezeJournalRecoveryStateV1['completionMode'];
+      if (nextEntry!.bytes.equals(canonicalEntry!.bytes)) {
+        if (nextEntry!.identity !== canonicalEntry!.identity) {
+          throw new Error('Freeze journal canonical NEXT and active recovery name are different exact objects.');
+        }
+        if (process.platform !== 'linux') {
+          throw new Error('An active freeze journal NEXT beside canonical NEXT is supported only as a Linux exact link.');
+        }
+        const predecessor = FreezeJournalPreviousPhaseV1[nextJournal.phase];
+        expectedPreBytes = predecessor === undefined
+          ? null
+          : renderFreezeJournalV3(freezeJournalAtPhase(nextJournal, predecessor));
+        completionMode = 'active-next-retirement-required';
+      } else {
+        const successor = FreezeJournalNextPhaseV1[canonicalJournal.phase];
+        if (successor === undefined
+            || !nextEntry!.bytes.equals(renderFreezeJournalV3(freezeJournalAtPhase(canonicalJournal, successor)))) {
+          throw new Error('Freeze journal active NEXT is not the exact direct successor of canonical PRE.');
+        }
+        expectedPreBytes = canonicalEntry!.bytes;
+        completionMode = 'canonical-install-required';
+      }
+      const recoveryEntries = await inspectJournalTransitionRecovery({
+        directory,
+        journalPath,
+        expectedPreBytes,
+        nextBytes: nextEntry!.bytes,
+        canonicalEntry,
+        nextEntry: nextEntry!
+      });
+      relevantEntries.push(...recoveryEntries);
+      recovery = Object.freeze({
+        expectedPreBytes,
+        nextJournal,
+        nextBytes: nextEntry!.bytes,
+        nextPath: nextEntry!.filePath,
+        completionMode,
+        durabilityEntries: Object.freeze([
+          ...new Map(relevantEntries.map((entry) => [entry.filePath, entry])).values()
+        ])
+      });
+    } else {
+      const predecessor = FreezeJournalPreviousPhaseV1[canonicalJournal.phase];
+      if (predecessor !== undefined) {
+        const expectedPreBytes = renderFreezeJournalV3(freezeJournalAtPhase(canonicalJournal, predecessor));
+        const syntheticNextEntry: AnchoredJournalEntryV1 = Object.freeze({
+          ...canonicalEntry!,
+          name: 'journal.json'
+        });
+        const recoveryEntries = await inspectJournalTransitionRecovery({
+          directory,
+          journalPath,
+          expectedPreBytes,
+          nextBytes: canonicalEntry!.bytes,
+          canonicalEntry,
+          nextEntry: syntheticNextEntry
+        });
+        relevantEntries.push(...recoveryEntries);
+        if (recoveryEntries.length > 0) {
+          recovery = Object.freeze({
+            expectedPreBytes,
+            nextJournal: canonicalJournal,
+            nextBytes: canonicalEntry!.bytes,
+            nextPath: canonicalEntry!.filePath,
+            completionMode: 'complete',
+            durabilityEntries: recoveryEntries
+          });
+        }
+      } else {
+        const initialRetiredNextPath = entryRecoveryPath({
+          artifactRoot: directory.transactionRoot,
+          targetPath: journalPath,
+          operationId: byteDigest(canonicalEntry!.bytes),
+          suffix: 'retired-next'
+        });
+        const initialRetiredNext = await directory.readEntry(
+          path.basename(initialRetiredNextPath),
+          'Freeze journal initial retired NEXT entry'
+        );
+        const initialResolution = CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({
+          platform: process.platform as CodexDevelopmentInitiallyAbsentTuplePlatformV1,
+          tuple: Object.freeze({
+            target: initialJournalTupleEntryAdapter(canonicalEntry, canonicalEntry!.bytes),
+            next: initialJournalTupleEntryAdapter(null, canonicalEntry!.bytes),
+            retiredNext: initialJournalTupleEntryAdapter(initialRetiredNext, canonicalEntry!.bytes)
+          })
+        });
+        if (initialResolution.status === 'invalid') {
+          throw new Error(`Canonical prepared freeze journal T/N/R contract rejected the no-active-NEXT snapshot (${initialResolution.reason}); preserving every entry.`);
+        }
+        if (initialRetiredNext !== null) {
+          relevantEntries.push(initialRetiredNext);
+          recovery = Object.freeze({
+            expectedPreBytes: null,
+            nextJournal: canonicalJournal,
+            nextBytes: canonicalEntry!.bytes,
+            nextPath: canonicalEntry!.filePath,
+            completionMode: 'complete',
+            durabilityEntries: Object.freeze([initialRetiredNext])
+          });
+        }
+      }
+    }
+    await assertAnchoredJournalCensusStable(directory, relevantEntries);
+    return Object.freeze({
+      journal: canonicalJournal,
+      bytes: canonicalEntry!.bytes,
+      canonicalPresent: true,
+      recovery,
+      durabilityEntries: Object.freeze([
+        ...new Map(relevantEntries.map((entry) => [entry.filePath, entry])).values()
+      ])
+    });
+  });
+}
+
+async function restoreFreezeJournalDurability(
+  repositoryRoot: string,
+  durability: FreezeDurabilityOptionsV1,
+  snapshot: FreezeJournalSnapshotV1
+): Promise<void> {
+  const transactionRoot = await resolveFreezeTransactionRoot(repositoryRoot, durability);
+  const uniqueEntries = new Map(snapshot.durabilityEntries.map((entry) => [entry.filePath, entry]));
+  for (const entry of uniqueEntries.values()) {
+    const readback = await readSafeRegularFile({
+      boundaryRoot: transactionRoot,
+      filePath: entry.filePath,
+      label: `Freeze journal recovery durability ${entry.name}`
+    });
+    if (!readback.equals(entry.bytes)) {
+      throw new Error(`Freeze journal recovery durability entry changed: ${entry.name}.`);
+    }
+    await flushPublishedFile({
+      boundaryRoot: transactionRoot,
+      targetPath: entry.filePath,
+      label: `Freeze journal recovery durability ${entry.name}`,
+      durability
+    });
+  }
+}
+
+function maybeFault(actual: CodexDevelopmentFreezeFaultV1 | undefined, expected: CodexDevelopmentFreezeFaultV1): void {
+  if (actual === expected) throw new Error(`Injected document control freeze fault: ${expected}.`);
+}
+
+interface GitIndexPathsV1 {
+  readonly gitDirectory: string;
+  readonly indexPath: string;
+  readonly lockPath: string;
+}
+
+async function resolveIndexPaths(
+  repositoryRoot: string,
+  allowMissingIndex = false
+): Promise<GitIndexPathsV1> {
+  const gitDirectoryCandidate = requireCommand(
+    run('git', ['rev-parse', '--absolute-git-dir'], repositoryRoot),
+    'Git directory path'
+  );
+  const gitDirectory = await canonicalDirectoryBoundary(gitDirectoryCandidate, 'Git directory');
+  const candidate = requireCommand(run('git', ['rev-parse', '--git-path', 'index'], repositoryRoot), 'Git index path');
+  const resolved = path.isAbsolute(candidate) ? candidate : path.resolve(repositoryRoot, candidate);
+  const indexPath = await inspectSafePath({
+    boundaryRoot: gitDirectory,
+    candidatePath: resolved,
+    label: 'Git index',
+    finalKind: 'file',
+    allowMissing: allowMissingIndex
+  });
+  const resolvedIndexPath = indexPath ?? resolved;
+  const lockPath = `${resolvedIndexPath}.lock`;
+  await inspectSafePath({
+    boundaryRoot: gitDirectory,
+    candidatePath: lockPath,
+    label: 'Git index lock',
+    finalKind: 'file',
+    allowMissing: true
+  });
+  return Object.freeze({ gitDirectory, indexPath: resolvedIndexPath, lockPath });
+}
+
+async function preflightFreezeProjectionEntryStates(
+  repositoryRoot: string,
+  snapshot: FreezeJournalSnapshotV1
+): Promise<void> {
+  const journal = effectiveFreezeJournal(snapshot)!;
+  const transactionRoot = await canonicalDirectoryBoundary(
+    path.join(repositoryRoot, path.dirname(FreezeJournalRelativePath)),
+    'Document control recovery transaction directory'
+  );
+  const indexPaths = await resolveIndexPaths(repositoryRoot, true);
+  const pointerPath = await resolveRecoverableRepositoryFile(repositoryRoot, ActivePointerPath);
+  const rollingPlanPath = await resolveRecoverableRepositoryFile(repositoryRoot, RollingPlanPath);
+  const classifiers = Object.freeze([
+    createPublishTupleClassifierInputV1({
+      boundaryRoot: indexPaths.gitDirectory,
+      artifactRoot: indexPaths.gitDirectory,
+      targetPath: indexPaths.indexPath,
+      nextPath: indexPaths.lockPath,
+      pre: fromBase64(journal.index.pre, 'Freeze preflight index PRE'),
+      next: fromBase64(journal.index.next, 'Freeze preflight index NEXT'),
+      label: 'Git index',
+      operationId: journal.operationId
+    }),
+    createPublishTupleClassifierInputV1({
+      boundaryRoot: repositoryRoot,
+      artifactRoot: transactionRoot,
+      targetPath: pointerPath,
+      nextPath: atomicCasNextPath(pointerPath, journal.operationId),
+      pre: fromBase64(journal.files.pointer.pre, 'Freeze preflight pointer PRE'),
+      next: fromBase64(journal.files.pointer.next, 'Freeze preflight pointer NEXT'),
+      label: 'Active pointer',
+      operationId: journal.operationId
+    }),
+    createPublishTupleClassifierInputV1({
+      boundaryRoot: repositoryRoot,
+      artifactRoot: transactionRoot,
+      targetPath: rollingPlanPath,
+      nextPath: atomicCasNextPath(rollingPlanPath, journal.operationId),
+      pre: fromBase64(journal.files.rollingPlan.pre, 'Freeze preflight rolling-plan PRE'),
+      next: fromBase64(journal.files.rollingPlan.next, 'Freeze preflight rolling-plan NEXT'),
+      label: 'Rolling plan',
+      operationId: journal.operationId
+    })
+  ]);
+  for (const classifier of classifiers) {
+    await classifyPublishEntryStateV1(classifier);
+  }
+}
+
+async function publishIndexCas(input: {
+  gitDirectory: string;
+  indexPath: string;
+  lockPath: string;
+  pre: Buffer;
+  next: Buffer;
+  operationId: string;
+  faultAfterLockWrite?: () => void;
+  faultAfterPreQuarantine?: () => void;
+  faultAfterNextInstall?: () => void;
+  durability: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  await publishEntryNoReplaceCas({
+    boundaryRoot: input.gitDirectory,
+    artifactRoot: input.gitDirectory,
+    targetPath: input.indexPath,
+    nextPath: input.lockPath,
+    pre: input.pre,
+    next: input.next,
+    label: 'Git index',
+    operationId: input.operationId,
+    faultAfterNextPrepared: input.faultAfterLockWrite,
+    faultAfterPreQuarantine: input.faultAfterPreQuarantine,
+    faultAfterNextInstall: input.faultAfterNextInstall,
+    durability: input.durability
+  });
+}
+
+async function buildNextIndex(input: {
+  repositoryRoot: string;
+  gitDirectory: string;
+  indexPath: string;
+  targets: readonly Readonly<{ path: string; bytes: Buffer }>[];
+}): Promise<Readonly<{ bytes: Buffer; treeSha: string }>> {
+  const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-freeze-index-'));
+  try {
+    const canonicalScratchRoot = await realpath(scratchRoot);
+    const canonicalRepositoryRoot = await realpath(input.repositoryRoot);
+    const canonicalGitDirectory = await realpath(input.gitDirectory);
+    if (pathComparisonValue(canonicalScratchRoot).startsWith(`${pathComparisonValue(canonicalRepositoryRoot)}${path.sep}`)
+        || pathComparisonValue(canonicalScratchRoot).startsWith(`${pathComparisonValue(canonicalGitDirectory)}${path.sep}`)) {
+      throw new Error('External freeze scratch index root must not be contained by the repository or Git directory.');
+    }
+    const sourceIndex = await readSafeRegularFile({
+      boundaryRoot: input.gitDirectory,
+      filePath: input.indexPath,
+      label: 'Git index source'
+    });
+    const scratchIndex = path.join(canonicalScratchRoot, 'index');
+    await createSafeRegularFileExclusive({
+      boundaryRoot: canonicalScratchRoot,
+      filePath: scratchIndex,
+      bytes: sourceIndex,
+      label: 'External freeze scratch Git index',
+      durability: {}
+    });
+    const environment = { GIT_INDEX_FILE: scratchIndex };
+    for (const target of input.targets) {
+      const blobSha = requireCommand(
+        run('git', ['hash-object', '-w', '--stdin'], input.repositoryRoot, { input: target.bytes }),
+        `Git blob publication for ${target.path}`
+      );
+      requireCommand(run(
+        'git',
+        ['update-index', '--add', '--cacheinfo', '100644', blobSha, target.path],
+        input.repositoryRoot,
+        { environment }
+      ), `Temporary Git index update for ${target.path}`);
+    }
+    const treeSha = shaValue(
+      requireCommand(run('git', ['write-tree'], input.repositoryRoot, { environment }), 'Candidate tree write'),
+      'Candidate tree'
+    );
+    for (const target of input.targets) {
+      const treeBytes = requireGitBlob(input.repositoryRoot, `${treeSha}:${target.path}`, `Candidate ${target.path}`);
+      if (!treeBytes.equals(target.bytes)) throw new Error(`Candidate tree bytes drifted for ${target.path}.`);
+    }
+    const bytes = await readSafeRegularFile({
+      boundaryRoot: canonicalScratchRoot,
+      filePath: scratchIndex,
+      label: 'External freeze scratch Git index readback'
+    });
+    return Object.freeze({ bytes, treeSha });
+  } finally {
+    await rm(scratchRoot, { recursive: true, force: true });
+    const removed = await lstat(scratchRoot).then(
+      () => false,
+      (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+    );
+    if (!removed) throw new Error('External freeze scratch Git index root remained after cleanup.');
+  }
+}
+
+function assertCanonicalManifestPath(manifestPath: string): void {
+  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(manifestPath)) {
+    throw new Error('freeze --manifest must be one canonical Work Package manifest path.');
+  }
+}
+
+function assertReviewedOn(reviewedOn: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(reviewedOn)) {
+    throw new Error('freeze --reviewed-on must be an ISO calendar date.');
+  }
+  const date = new Date(`${reviewedOn}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== reviewedOn) {
+    throw new Error('freeze --reviewed-on must be a real ISO calendar date.');
+  }
+}
+
+function assertNoUnrelatedStagedChanges(
+  repositoryRoot: string,
+  targets: ReadonlySet<string>,
+  capturedHeadSha: string
+): void {
+  const unmerged = parseNulList(requireCommand(
+    run('git', ['diff', '--name-only', '--diff-filter=U', '-z'], repositoryRoot),
+    'Unmerged index inventory'
+  ));
+  if (unmerged.length > 0) throw new Error('Document control freeze rejects an unmerged Git index.');
+  const staged = parseNulList(requireCommand(
+    run('git', ['diff', '--cached', '--name-only', '-z', capturedHeadSha, '--'], repositoryRoot),
+    'Staged path inventory'
+  ));
+  const unrelated = staged.filter((candidate) => !targets.has(candidate));
+  if (unrelated.length > 0) {
+    throw new Error(`Document control freeze rejects unrelated staged paths: ${unrelated.join(', ')}.`);
+  }
+}
+
+async function assertInitialFreezeObservationFence(input: {
+  repositoryRoot: string;
+  remote: string;
+  defaultBranch: string;
+  defaultRef: string;
+  headSha: string;
+  localDefaultSha: string;
+  liveDefaultSha: string;
+  indexTreeSha: string;
+}): Promise<void> {
+  const headReadback = shaValue(
+    requireCommand(run('git', ['rev-parse', 'HEAD'], input.repositoryRoot), 'Pre-journal candidate HEAD readback'),
+    'Pre-journal candidate HEAD readback'
+  );
+  const localDefaultReadback = shaValue(
+    requireCommand(
+      run('git', ['rev-parse', '--verify', input.defaultRef], input.repositoryRoot),
+      'Pre-journal local default readback'
+    ),
+    'Pre-journal local default readback'
+  );
+  const liveDefaultLine = requireCommand(run(
+    'git',
+    ['ls-remote', '--exit-code', input.remote, `refs/heads/${input.defaultBranch}`],
+    input.repositoryRoot
+  ), 'Pre-journal live default readback');
+  const liveDefaultReadback = shaValue(liveDefaultLine.split(/\s+/u)[0], 'Pre-journal live default readback');
+  const indexTreeReadback = await captureRepositoryIndexTreeThroughExternalScratch({
+    repositoryRoot: input.repositoryRoot
+  });
+  if (
+    headReadback !== input.headSha
+    || localDefaultReadback !== input.localDefaultSha
+    || liveDefaultReadback !== input.liveDefaultSha
+    || indexTreeReadback !== input.indexTreeSha
+  ) {
+    throw new Error('Document control freeze inputs changed before initial journal publication.');
+  }
+}
+
+function assertTargetIndexModes(repositoryRoot: string, targets: readonly string[]): void {
+  const source = requireCommand(
+    run('git', ['ls-files', '--stage', '-z', '--', ...targets], repositoryRoot),
+    'Document control target index inventory'
+  );
+  for (const entry of parseNulList(source)) {
+    const match = /^(\d{6}) ([0-9a-f]{40}) ([0-3])\t(.+)$/u.exec(entry);
+    if (!match) throw new Error('Document control target index entry is malformed.');
+    if (match[1] !== '100644' || match[3] !== '0') {
+      throw new Error(`Document control target must be a stage-zero regular blob: ${match[4]}.`);
+    }
+  }
+}
+
+async function advanceFreezeJournal(input: {
+  repositoryRoot: string;
+  journal: FreezeJournalV3;
+  journalBytes: Buffer;
+  faultAfter?: CodexDevelopmentFreezeFaultV1;
+  durability: FreezeDurabilityOptionsV1;
+}): Promise<CodexDevelopmentFreezeResultV1> {
+  let journal = input.journal;
+  let journalBytes = input.journalBytes;
+  const indexPaths = await resolveIndexPaths(input.repositoryRoot, true);
+  const indexPre = fromBase64(journal.index.pre, 'Freeze journal index PRE');
+  const indexNext = fromBase64(journal.index.next, 'Freeze journal index NEXT');
+  await publishIndexCas({
+    ...indexPaths,
+    pre: indexPre,
+    next: indexNext,
+    operationId: journal.operationId,
+    faultAfterLockWrite: () => maybeFault(input.faultAfter, 'after-index-lock-write'),
+    faultAfterPreQuarantine: () => maybeFault(input.faultAfter, 'after-index-pre-quarantine'),
+    faultAfterNextInstall: () => maybeFault(input.faultAfter, 'after-index-next-install'),
+    durability: input.durability
+  });
+  maybeFault(input.faultAfter, 'after-index-publish');
+  if (journal.phase === 'prepared') {
+    journal = Object.freeze({ ...journal, phase: 'index-published' });
+    journalBytes = await writeFreezeJournal(
+      input.repositoryRoot,
+      journalBytes,
+      journal,
+      input.durability,
+      input.faultAfter
+    );
+  }
+
+  const manifestPath = await assertRegularRepositoryFile(input.repositoryRoot, journal.manifestPath);
+  const manifestNext = fromBase64(journal.files.manifest.next, 'Freeze manifest NEXT');
+  if (!(await readSafeRegularFile({
+    boundaryRoot: input.repositoryRoot,
+    filePath: manifestPath,
+    label: 'Work Package manifest'
+  })).equals(manifestNext)) {
+    throw new Error('Work Package manifest bytes drifted after journal preparation.');
+  }
+  const pointerPath = await resolveRecoverableRepositoryFile(input.repositoryRoot, ActivePointerPath);
+  await writeAtomicCas({
+    repositoryRoot: input.repositoryRoot,
+    filePath: pointerPath,
+    pre: fromBase64(journal.files.pointer.pre, 'Freeze pointer PRE'),
+    next: fromBase64(journal.files.pointer.next, 'Freeze pointer NEXT'),
+    label: 'Active pointer',
+    operationId: journal.operationId,
+    faultAfterTempWrite: () => maybeFault(input.faultAfter, 'after-pointer-temp-write'),
+    faultAfterPreQuarantine: () => maybeFault(input.faultAfter, 'after-pointer-pre-quarantine'),
+    faultAfterNextInstall: () => maybeFault(input.faultAfter, 'after-pointer-next-install'),
+    durability: input.durability
+  });
+  maybeFault(input.faultAfter, 'after-pointer-publish');
+  if (journal.phase === 'prepared' || journal.phase === 'index-published') {
+    journal = Object.freeze({ ...journal, phase: 'pointer-published' });
+    journalBytes = await writeFreezeJournal(
+      input.repositoryRoot,
+      journalBytes,
+      journal,
+      input.durability,
+      input.faultAfter
+    );
+  }
+
+  const rollingPlanPath = await resolveRecoverableRepositoryFile(input.repositoryRoot, RollingPlanPath);
+  await writeAtomicCas({
+    repositoryRoot: input.repositoryRoot,
+    filePath: rollingPlanPath,
+    pre: fromBase64(journal.files.rollingPlan.pre, 'Freeze rolling-plan PRE'),
+    next: fromBase64(journal.files.rollingPlan.next, 'Freeze rolling-plan NEXT'),
+    label: 'Rolling plan',
+    operationId: journal.operationId,
+    faultAfterTempWrite: () => maybeFault(input.faultAfter, 'after-rolling-temp-write'),
+    faultAfterPreQuarantine: () => maybeFault(input.faultAfter, 'after-rolling-pre-quarantine'),
+    faultAfterNextInstall: () => maybeFault(input.faultAfter, 'after-rolling-next-install'),
+    durability: input.durability
+  });
+  maybeFault(input.faultAfter, 'after-rolling-publish');
+  if (journal.phase !== 'rolling-published' && journal.phase !== 'terminal') {
+    journal = Object.freeze({ ...journal, phase: 'rolling-published' });
+    journalBytes = await writeFreezeJournal(
+      input.repositoryRoot,
+      journalBytes,
+      journal,
+      input.durability,
+      input.faultAfter
+    );
+  }
+
+  const readback = await captureControlIndexSnapshot(input.repositoryRoot);
+  if (readback.treeSha !== journal.candidateTreeSha) {
+    throw new Error('Candidate index tree drifted before freeze terminal readback.');
+  }
+  const pointerBytes = fromBase64(journal.files.pointer.next, 'Freeze pointer NEXT');
+  const rollingBytes = fromBase64(journal.files.rollingPlan.next, 'Freeze rolling-plan NEXT');
+  if (!requireGitBlob(input.repositoryRoot, `${readback.treeSha}:${journal.manifestPath}`, 'Frozen manifest')
+      .equals(manifestNext)
+      || !requireGitBlob(input.repositoryRoot, `${readback.treeSha}:${ActivePointerPath}`, 'Frozen pointer')
+        .equals(pointerBytes)
+      || !requireGitBlob(input.repositoryRoot, `${readback.treeSha}:${RollingPlanPath}`, 'Frozen rolling plan')
+        .equals(rollingBytes)) {
+    throw new Error('Candidate tree control bytes do not match the freeze NEXT images.');
+  }
+  const pointer = CodexDevelopmentParseActivePointerV2(decodeUtf8(pointerBytes, 'Freeze pointer NEXT'));
+  const rolling = CodexDevelopmentParseRollingPlanV1(decodeUtf8(rollingBytes, 'Freeze rolling-plan NEXT'));
+  CodexDevelopmentAssertControlPlaneBindingV1({
+    spec: CodexDevelopmentParseCurrentStateSpecV1(readback.stateSource),
+    pointer
+  });
+  if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')
+      || pointer.manifest !== journal.manifestPath
+      || pointer.manifestDigest !== journal.manifestDigest) {
+    throw new Error('Freeze terminal readback is not bound to one manifest/pointer/rolling-plan selection.');
+  }
+  if (journal.phase !== 'terminal') {
+    journal = Object.freeze({ ...journal, phase: 'terminal' });
+    journalBytes = await writeFreezeJournal(
+      input.repositoryRoot,
+      journalBytes,
+      journal,
+      input.durability,
+      input.faultAfter
+    );
+  }
+  maybeFault(input.faultAfter, 'after-terminal');
+  return journal.result;
+}
+
+async function verifyTerminalFreezeJournal(input: {
+  repositoryRoot: string;
+  snapshot: FreezeJournalSnapshotV1;
+  manifestPath: string;
+  manifestDigest: `sha256:${string}`;
+  reviewedOn: string;
+}): Promise<CodexDevelopmentFreezeResultV1> {
+  const journal = input.snapshot.journal;
+  if (!input.snapshot.canonicalPresent || journal.phase !== 'terminal'
+      || (input.snapshot.recovery !== null && input.snapshot.recovery.completionMode !== 'complete')) {
+    throw new Error('Terminal freeze verification requires one complete canonical journal.');
+  }
+  if (journal.manifestPath !== input.manifestPath
+      || journal.manifestDigest !== input.manifestDigest
+      || journal.reviewedOn !== input.reviewedOn) {
+    throw new Error('Terminal freeze journal does not match the exact requested activation.');
+  }
+
+  const indexPaths = await resolveIndexPaths(input.repositoryRoot);
+  const liveIndexBytes = await readSafeRegularFile({
+    boundaryRoot: indexPaths.gitDirectory,
+    filePath: indexPaths.indexPath,
+    label: 'Terminal freeze Git index readback'
+  });
+  const expectedIndexBytes = fromBase64(journal.index.next, 'Terminal freeze Git index NEXT');
+  if (!liveIndexBytes.equals(expectedIndexBytes)) {
+    throw new Error('Terminal freeze Git index bytes do not equal the exact journal NEXT image.');
+  }
+  const lockBytes = await readOptionalSafeRegularFile({
+    boundaryRoot: indexPaths.gitDirectory,
+    filePath: indexPaths.lockPath,
+    label: 'Terminal freeze Git index lock readback'
+  });
+  if (lockBytes !== null) {
+    throw new Error('Terminal freeze verification found an active Git index lock; preserving it.');
+  }
+
+  const terminalGit = createReadOnlyResolverGit();
+  const treeSha = await captureRepositoryIndexTreeThroughExternalScratch({
+    repositoryRoot: input.repositoryRoot,
+    resolverGit: terminalGit
+  });
+  if (treeSha !== journal.candidateTreeSha) {
+    throw new Error('Terminal freeze Git index tree does not equal the journal candidate tree.');
+  }
+  const manifestNext = fromBase64(journal.files.manifest.next, 'Terminal freeze manifest NEXT');
+  const pointerNext = fromBase64(journal.files.pointer.next, 'Terminal freeze pointer NEXT');
+  const rollingNext = fromBase64(journal.files.rollingPlan.next, 'Terminal freeze rolling-plan NEXT');
+  const requireTerminalTreeBlob = (repositoryPath: string, expected: Buffer, label: string): Buffer => {
+    const bytes = terminalGit.readBlob(input.repositoryRoot, `${treeSha}:${repositoryPath}`);
+    if (bytes === undefined || !bytes.equals(expected)) {
+      throw new Error(`${label} does not equal the exact journal NEXT image in the terminal tree.`);
+    }
+    return bytes;
+  };
+  requireTerminalTreeBlob(journal.manifestPath, manifestNext, 'Terminal freeze manifest');
+  requireTerminalTreeBlob(ActivePointerPath, pointerNext, 'Terminal freeze active pointer');
+  requireTerminalTreeBlob(RollingPlanPath, rollingNext, 'Terminal freeze rolling plan');
+
+  const manifestPath = await assertRegularRepositoryFile(input.repositoryRoot, journal.manifestPath);
+  const pointerPath = await assertRegularRepositoryFile(input.repositoryRoot, ActivePointerPath);
+  const rollingPlanPath = await assertRegularRepositoryFile(input.repositoryRoot, RollingPlanPath);
+  const manifestWorktree = await readSafeRegularFile({
+    boundaryRoot: input.repositoryRoot,
+    filePath: manifestPath,
+    label: 'Terminal freeze manifest worktree readback'
+  });
+  const pointerWorktree = await readSafeRegularFile({
+    boundaryRoot: input.repositoryRoot,
+    filePath: pointerPath,
+    label: 'Terminal freeze pointer worktree readback'
+  });
+  const rollingWorktree = await readSafeRegularFile({
+    boundaryRoot: input.repositoryRoot,
+    filePath: rollingPlanPath,
+    label: 'Terminal freeze rolling-plan worktree readback'
+  });
+  if (!manifestWorktree.equals(manifestNext)
+      || !pointerWorktree.equals(pointerNext)
+      || !rollingWorktree.equals(rollingNext)) {
+    throw new Error('Terminal freeze worktree bytes do not equal all exact journal NEXT images.');
+  }
+
+  const stateSource = terminalGit.readBlob(input.repositoryRoot, `${treeSha}:${CurrentStatePath}`);
+  if (stateSource === undefined) throw new Error('Terminal freeze current-state spec is absent from the candidate tree.');
+  const pointer = CodexDevelopmentParseActivePointerV2(decodeUtf8(pointerNext, 'Terminal freeze pointer NEXT'));
+  const rolling = CodexDevelopmentParseRollingPlanV1(decodeUtf8(rollingNext, 'Terminal freeze rolling-plan NEXT'));
+  CodexDevelopmentAssertControlPlaneBindingV1({
+    spec: CodexDevelopmentParseCurrentStateSpecV1(decodeUtf8(stateSource, 'Terminal freeze current-state spec')),
+    pointer
+  });
+  if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')
+      || pointer.manifest !== journal.manifestPath
+      || pointer.manifestDigest !== journal.manifestDigest) {
+    throw new Error('Terminal freeze selection is not bound to one manifest, pointer, and rolling plan.');
+  }
+  return journal.result;
+}
+
+export async function freezeDocumentControlPlaneV1(input: {
+  cwd: string;
+  manifestPath: string;
+  reviewedOn: string;
+  faultAfter?: CodexDevelopmentFreezeFaultV1;
+  /** Internal deterministic contract-test observer for rename durability ordering. */
+  durabilityObserver?: CodexDevelopmentDurabilityObserverV1;
+  /** Internal deterministic contract-test seam for an unsupported directory barrier. */
+  parentDirectoryBarrier?: (directoryPath: string) => Promise<void>;
+  /** Internal deterministic contract-test seam before the first journal's four-value stability fence. */
+  beforeInitialJournalFence?: () => Promise<void> | void;
+  /** Internal deterministic contract-test seam after exact rename source/parent anchors are open. */
+  beforeAnchoredRename?: FreezeDurabilityOptionsV1['beforeAnchoredRename'];
+  /** Internal deterministic seam after namespace mutation and before the retained-object flush. */
+  afterAnchoredNamespaceMutationBeforeFlush?: FreezeDurabilityOptionsV1['afterAnchoredNamespaceMutationBeforeFlush'];
+  /** Internal deterministic seam after containing-parent anchors are retained and before creation. */
+  beforeAnchoredCreate?: FreezeDurabilityOptionsV1['beforeAnchoredCreate'];
+  /** Internal deterministic seam after exact cleanup bytes are read from the opened object. */
+  beforeAnchoredCleanup?: FreezeDurabilityOptionsV1['beforeAnchoredCleanup'];
+  /** Internal Linux-only fault seam after exact PRE recovery link identity readback. */
+  afterExactPreRecoveryLink?: FreezeDurabilityOptionsV1['afterExactPreRecoveryLink'];
+  /** Internal deterministic fault seam immediately before a newly-created directory parent flush. */
+  beforeCreatedParentBarrier?: FreezeDurabilityOptionsV1['beforeCreatedParentBarrier'];
+  /** Internal deterministic observer after a newly-created directory parent is durably flushed. */
+  createdParentBarrierObserver?: FreezeDurabilityOptionsV1['createdParentBarrierObserver'];
+}): Promise<CodexDevelopmentFreezeResultV1> {
+  assertCanonicalManifestPath(input.manifestPath);
+  assertReviewedOn(input.reviewedOn);
+  const repositoryRoot = requireCommand(
+    run('git', ['rev-parse', '--show-toplevel'], input.cwd),
+    'git repository discovery'
+  );
+  const durability: FreezeDurabilityOptionsV1 = Object.freeze({
+    observer: input.durabilityObserver,
+    parentDirectoryBarrier: input.parentDirectoryBarrier,
+    beforeAnchoredRename: input.beforeAnchoredRename,
+    afterAnchoredNamespaceMutationBeforeFlush: input.afterAnchoredNamespaceMutationBeforeFlush,
+    beforeAnchoredCreate: input.beforeAnchoredCreate,
+    beforeAnchoredCleanup: input.beforeAnchoredCleanup,
+    afterExactPreRecoveryLink: input.afterExactPreRecoveryLink,
+    beforeCreatedParentBarrier: input.beforeCreatedParentBarrier,
+    createdParentBarrierObserver: input.createdParentBarrierObserver
+  });
+  return withWorkspaceWriteLease(repositoryRoot, undefined, async () => {
+    let existingJournalSnapshot = await readFreezeJournalSnapshot(repositoryRoot);
+    const existingRecoveryIncomplete = existingJournalSnapshot?.recovery !== undefined
+      && existingJournalSnapshot.recovery !== null
+      && existingJournalSnapshot.recovery.completionMode !== 'complete';
+    if (existingJournalSnapshot !== null
+        && (existingJournalSnapshot.journal.phase !== 'terminal' || existingRecoveryIncomplete)) {
+      await preflightFreezeProjectionEntryStates(repositoryRoot, existingJournalSnapshot);
+      await restoreFreezeJournalDurability(repositoryRoot, durability, existingJournalSnapshot);
+    }
+    if (existingJournalSnapshot?.recovery !== undefined
+        && existingJournalSnapshot.recovery !== null
+        && existingJournalSnapshot.recovery.completionMode !== 'complete') {
+      const recovery = existingJournalSnapshot.recovery;
+      const recoveredBytes = await writeFreezeJournal(
+        repositoryRoot,
+        recovery.expectedPreBytes,
+        recovery.nextJournal,
+        durability,
+        input.faultAfter
+      );
+      const recoveredSnapshot = await readFreezeJournalSnapshot(repositoryRoot);
+      if (recoveredSnapshot === null || !recoveredSnapshot.canonicalPresent
+          || !recoveredSnapshot.bytes.equals(recoveredBytes)
+          || !recoveredSnapshot.bytes.equals(recovery.nextBytes)
+          || (recoveredSnapshot.recovery !== null
+            && recoveredSnapshot.recovery.completionMode !== 'complete')) {
+        throw new Error('Recovered freeze journal CAS is not canonically installed and completely retired.');
+      }
+      existingJournalSnapshot = recoveredSnapshot;
+      await preflightFreezeProjectionEntryStates(repositoryRoot, recoveredSnapshot);
+      await restoreFreezeJournalDurability(repositoryRoot, durability, recoveredSnapshot);
+    }
+    const manifestFile = await assertRegularRepositoryFile(repositoryRoot, input.manifestPath);
+    const manifestBytes = await readSafeRegularFile({
+      boundaryRoot: repositoryRoot,
+      filePath: manifestFile,
+      label: 'Work Package manifest'
+    });
+    const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`;
+    const existingJournal = existingJournalSnapshot?.journal ?? null;
+    if (existingJournal !== null && existingJournal.phase !== 'terminal') {
+      if (existingJournal.manifestPath !== input.manifestPath
+          || existingJournal.manifestDigest !== manifestDigest
+          || existingJournal.reviewedOn !== input.reviewedOn) {
+        throw new Error('A competing nonterminal document control freeze journal exists.');
+      }
+      return advanceFreezeJournal({
+        repositoryRoot,
+        journal: existingJournal,
+        journalBytes: existingJournalSnapshot!.bytes,
+        faultAfter: input.faultAfter,
+        durability
+      });
+    }
+    if (existingJournal !== null && existingJournal.phase === 'terminal'
+        && existingJournal.manifestPath === input.manifestPath
+        && existingJournal.manifestDigest === manifestDigest
+        && existingJournal.reviewedOn === input.reviewedOn) {
+      return verifyTerminalFreezeJournal({
+        repositoryRoot,
+        snapshot: existingJournalSnapshot!,
+        manifestPath: input.manifestPath,
+        manifestDigest,
+        reviewedOn: input.reviewedOn
+      });
+    }
+
+    const snapshot = await captureControlIndexSnapshot(repositoryRoot);
+    const spec = CodexDevelopmentParseCurrentStateSpecV1(snapshot.stateSource);
+    const pointer = CodexDevelopmentParseActivePointerV2(snapshot.pointerSource);
+    CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer });
+    const rolling = CodexDevelopmentParseRollingPlanV1(snapshot.rollingPlanSource);
+    if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
+      throw new Error('The immutable index pointer and rolling plan select different Work Packages.');
+    }
+    const localDefaultSha = shaValue(
+      requireCommand(run('git', ['rev-parse', '--verify', spec.resolver.defaultRef], repositoryRoot), 'Local default ref'),
+      'Local default ref'
+    );
+    const remoteLine = requireCommand(run(
+      'git',
+      ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
+      repositoryRoot
+    ), 'Live default ref');
+    const liveDefaultSha = shaValue(remoteLine.split(/\s+/u)[0], 'Live default ref');
+    if (localDefaultSha !== liveDefaultSha) throw new Error('Live default ref is stale; freeze fails closed.');
+    const headSha = shaValue(requireCommand(run('git', ['rev-parse', 'HEAD'], repositoryRoot), 'Candidate HEAD'), 'Candidate HEAD');
+    if (headSha !== localDefaultSha) {
+      throw new Error('freeze requires HEAD to equal the exact live default revision before candidate publication.');
+    }
+    const baseTreeSha = shaValue(
+      requireCommand(run('git', ['rev-parse', `${localDefaultSha}^{tree}`], repositoryRoot), 'Base tree'),
+      'Base tree'
+    );
+
+    const currentManifestBlob = requireGitBlob(
+      repositoryRoot,
+      `${snapshot.treeSha}:${pointer.manifest}`,
+      'Currently selected Work Package manifest'
+    );
+    const currentResolution = CodexDevelopmentResolveActiveWorkPackageV1({
+      pointer,
+      candidateManifestBlob: currentManifestBlob,
+      defaultManifestBlob: readGitBlob(repositoryRoot, `${localDefaultSha}:${pointer.manifest}`) ?? null,
+      defaultRefState: 'fresh'
+    });
+    if (currentResolution.state === 'invalid' || currentResolution.state === 'unresolved') {
+      throw new Error('Current active Work Package control plane is not resolvable before freeze.');
+    }
+
+    const targets = [input.manifestPath, ActivePointerPath, RollingPlanPath] as const;
+    const targetSet = new Set<string>(targets);
+    assertNoUnrelatedStagedChanges(repositoryRoot, targetSet, headSha);
+    assertTargetIndexModes(repositoryRoot, targets);
+    const pointerFile = await assertRegularRepositoryFile(repositoryRoot, ActivePointerPath);
+    const rollingPlanFile = await assertRegularRepositoryFile(repositoryRoot, RollingPlanPath);
+    const [pointerPre, rollingPlanPre] = await Promise.all([
+      readSafeRegularFile({
+        boundaryRoot: repositoryRoot,
+        filePath: pointerFile,
+        label: 'Active pointer'
+      }),
+      readSafeRegularFile({
+        boundaryRoot: repositoryRoot,
+        filePath: rollingPlanFile,
+        label: 'Rolling plan'
+      })
+    ]);
+    if (!pointerPre.equals(Buffer.from(snapshot.pointerSource, 'utf8'))
+        || !rollingPlanPre.equals(Buffer.from(snapshot.rollingPlanSource, 'utf8'))) {
+      throw new Error('Document control target worktree bytes differ from the immutable index PRE image.');
+    }
+    const indexedTargetManifest = readGitBlob(repositoryRoot, `${snapshot.treeSha}:${input.manifestPath}`);
+    if (indexedTargetManifest !== undefined && !indexedTargetManifest.equals(manifestBytes)) {
+      throw new Error('Work Package manifest worktree bytes differ from its staged candidate bytes.');
+    }
+    const defaultTargetManifest = readGitBlob(repositoryRoot, `${localDefaultSha}:${input.manifestPath}`);
+    if (defaultTargetManifest !== undefined
+        && CodexDevelopmentWorkPackageManifestDigest(defaultTargetManifest) === manifestDigest) {
+      throw new Error('Work Package manifest is already published on the live default ref.');
+    }
+
+    const projection = CodexDevelopmentCreateFreezeProjectionV1({
+      spec,
+      currentPointerSource: snapshot.pointerSource,
+      currentRollingPlanSource: snapshot.rollingPlanSource,
+      manifestPath: input.manifestPath,
+      manifestBytes,
+      baseSha: localDefaultSha,
+      reviewedOn: input.reviewedOn
+    });
+    const pointerNext = Buffer.from(projection.pointerSource, 'utf8');
+    const rollingPlanNext = Buffer.from(projection.rollingPlanSource, 'utf8');
+    const indexPaths = await resolveIndexPaths(repositoryRoot);
+    if ((await captureControlIndexSnapshot(repositoryRoot)).treeSha !== snapshot.treeSha) {
+      throw new Error('Git index changed during freeze preparation.');
+    }
+    const indexPre = await readSafeRegularFile({
+      boundaryRoot: indexPaths.gitDirectory,
+      filePath: indexPaths.indexPath,
+      label: 'Git index PRE'
+    });
+    const built = await buildNextIndex({
+      repositoryRoot,
+      gitDirectory: indexPaths.gitDirectory,
+      indexPath: indexPaths.indexPath,
+      targets: [
+        { path: input.manifestPath, bytes: manifestBytes },
+        { path: ActivePointerPath, bytes: pointerNext },
+        { path: RollingPlanPath, bytes: rollingPlanNext }
+      ]
+    });
+    const semantic = Object.freeze({
+      schema: FreezeJournalSchemaV3,
+      manifestPath: input.manifestPath,
+      manifestDigest: projection.manifestDigest,
+      reviewedOn: input.reviewedOn,
+      baseSha: localDefaultSha,
+      baseTreeSha,
+      preIndexTreeSha: snapshot.treeSha,
+      candidateTreeSha: built.treeSha,
+      files: Object.freeze({
+        manifest: Object.freeze({ pre: toBase64(manifestBytes), next: toBase64(manifestBytes) }),
+        pointer: Object.freeze({ pre: toBase64(pointerPre), next: toBase64(pointerNext) }),
+        rollingPlan: Object.freeze({ pre: toBase64(rollingPlanPre), next: toBase64(rollingPlanNext) })
+      }),
+      index: Object.freeze({ pre: toBase64(indexPre), next: toBase64(built.bytes) })
+    });
+    const operationId = freezeOperationIdV3(semantic);
+    const result: CodexDevelopmentFreezeResultV1 = Object.freeze({
+      schema: FreezeResultSchemaV1,
+      status: 'ACTIVATED_INDEX_PENDING_COMMIT',
+      operationId,
+      baseSha: localDefaultSha,
+      baseTreeSha,
+      candidateTreeSha: built.treeSha,
+      candidateHeadSha: null,
+      manifestPath: input.manifestPath,
+      manifestDigest: projection.manifestDigest,
+      indexPublished: true,
+      worktreeProjected: true
+    });
+    const journal: FreezeJournalV3 = Object.freeze({
+      ...semantic,
+      operationId,
+      phase: 'prepared',
+      result
+    });
+    await input.beforeInitialJournalFence?.();
+    await assertInitialFreezeObservationFence({
+      repositoryRoot,
+      remote: spec.resolver.remote,
+      defaultBranch: spec.resolver.defaultBranch,
+      defaultRef: spec.resolver.defaultRef,
+      headSha,
+      localDefaultSha,
+      liveDefaultSha,
+      indexTreeSha: snapshot.treeSha
+    });
+    const journalBytes = await writeFreezeJournal(
+      repositoryRoot,
+      existingJournalSnapshot?.bytes ?? null,
+      journal,
+      durability,
+      input.faultAfter
+    );
+    maybeFault(input.faultAfter, 'after-journal-prepare');
+    return advanceFreezeJournal({
+      repositoryRoot,
+      journal,
+      journalBytes,
+      faultAfter: input.faultAfter,
+      durability
+    });
+  });
 }
 
 function parseJsonArray(source: string, label: string): unknown[] {
@@ -133,33 +5222,173 @@ function parseReviewThreads(source: string): unknown[] {
   return connection.nodes;
 }
 
-async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unknown>> {
-  const repositoryRoot = requireCommand(
-    run('git', ['rev-parse', '--show-toplevel'], cwd),
-    'git repository discovery'
-  );
-  const statePath = path.join(repositoryRoot, 'docs/work/current-state.yaml');
-  const pointerPath = path.join(repositoryRoot, 'docs/work/active-work-package.md');
-  const [stateSource, pointerSource] = await Promise.all([
-    readFile(statePath, 'utf8'),
-    readFile(pointerPath, 'utf8')
-  ]);
+async function resolveActivationBlockedStatus(input: {
+  repositoryRoot: string;
+  resolverGit: ReadOnlyResolverGitV1;
+  journal: FreezeJournalV3 | null;
+  reason: 'activation-in-progress' | 'activation-observation-raced';
+  terminal?: boolean;
+}): Promise<Record<string, unknown>> {
+  const stateSource = await readFile(path.join(input.repositoryRoot, CurrentStatePath), 'utf8');
   const spec = CodexDevelopmentParseCurrentStateSpecV1(stateSource);
-  const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
-  CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer });
-
-  const localDefaultShaResult = run('git', ['rev-parse', '--verify', spec.resolver.defaultRef], repositoryRoot);
-  const remoteLineResult = run(
-    'git',
-    ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
-    repositoryRoot
+  const localDefaultShaResult = input.resolverGit.run(
+    ['rev-parse', '--verify', spec.resolver.defaultRef],
+    input.repositoryRoot
   );
-  const localDefaultSha = localDefaultShaResult.code === 0
-    ? localDefaultShaResult.stdout.trim()
-    : undefined;
+  const remoteLineResult = input.resolverGit.run(
+    ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
+    input.repositoryRoot
+  );
+  const localDefaultSha = localDefaultShaResult.code === 0 ? localDefaultShaResult.stdout.trim() : undefined;
   const liveDefaultSha = remoteLineResult.code === 0
     ? remoteLineResult.stdout.trim().split(/\s+/u)[0]
     : undefined;
+  const defaultRefState: CodexDevelopmentDefaultRefState = localDefaultSha === undefined || liveDefaultSha === undefined
+    ? 'unavailable'
+    : localDefaultSha === liveDefaultSha ? 'fresh' : 'stale';
+  const headSha = requireCommand(
+    input.resolverGit.run(['rev-parse', 'HEAD'], input.repositoryRoot),
+    'candidate head resolution'
+  );
+  const branch = requireCommand(
+    input.resolverGit.run(['branch', '--show-current'], input.repositoryRoot),
+    'candidate branch resolution'
+  )
+    || '(detached)';
+  const mergeBase = defaultRefState === 'fresh'
+    ? requireCommand(
+        input.resolverGit.run(['merge-base', localDefaultSha!, headSha], input.repositoryRoot),
+        'candidate merge-base resolution'
+      )
+    : undefined;
+  return {
+    schema: 'sec-resolved-current-state-v1',
+    observedAt: new Date().toISOString(),
+    source: CurrentStatePath,
+    repository: {
+      fullName: spec.resolver.repository,
+      defaultBranch: spec.resolver.defaultBranch,
+      localDefaultSha,
+      liveDefaultSha,
+      defaultRefState,
+      tree: undefined
+    },
+    workspace: {
+      headSha,
+      branch,
+      mergeBase,
+      candidateTreeSha: null,
+      status: 'activation observation blocked; worktree status intentionally not observed'
+    },
+    github: {
+      status: 'unresolved',
+      reason: input.reason === 'activation-in-progress'
+        ? 'GitHub observation skipped while activation is nonterminal'
+        : 'GitHub observation skipped because activation changed during status resolution'
+    },
+    activeWorkPackage: { state: 'unresolved', reason: input.reason },
+    activation: input.journal === null ? null : {
+      operationId: input.journal.operationId,
+      phase: input.journal.phase,
+      terminal: input.terminal ?? input.journal.phase === 'terminal'
+    },
+    stableFacts: spec.stableFacts
+  };
+}
+
+function journalObservationIdentity(snapshot: FreezeJournalSnapshotV1 | null): string | null {
+  if (snapshot === null) return null;
+  const journal = effectiveFreezeJournal(snapshot)!;
+  return `${journal.operationId}\0${journal.phase}\0${snapshot.canonicalPresent ? 'canonical' : 'recovery'}\0${snapshot.recovery?.completionMode ?? 'none'}`;
+}
+
+function freezeJournalActivationInProgress(snapshot: FreezeJournalSnapshotV1 | null): boolean {
+  const journal = effectiveFreezeJournal(snapshot);
+  return snapshot !== null && (
+    journal!.phase !== 'terminal'
+    || snapshot.recovery?.completionMode === 'canonical-install-required'
+    || snapshot.recovery?.completionMode === 'active-next-retirement-required'
+  );
+}
+
+function optionalCommandSha(result: CommandResult, label: string): string | undefined {
+  return result.code === 0 ? shaValue(result.stdout.trim(), label) : undefined;
+}
+
+function optionalLiveDefaultSha(result: CommandResult, label: string): string | undefined {
+  if (result.code !== 0) return undefined;
+  return shaValue(result.stdout.trim().split(/\s+/u)[0], label);
+}
+
+export async function resolveLiveControlPlane(
+  cwd: string,
+  options: Readonly<{
+    observeGitHub?: boolean;
+    /** Deterministic contract-test seam for the journal/snapshot double-read race. */
+    afterIndexSnapshot?: () => Promise<void> | void;
+    /** Deterministic contract-test seam for exact-SHA/index/ref readback races. */
+    beforeObservationReadback?: () => Promise<void> | void;
+    /** Deterministic contract-test seam between anchored residue census reads. */
+    beforeJournalRecoveryCensusReadback?: () => Promise<void> | void;
+    /** Deterministic contract-test observation of the final read-only Git child environment. */
+    resolverGitCommandObserver?: ReadOnlyResolverGitObserverV1;
+  }> = {}
+): Promise<Record<string, unknown>> {
+  const resolverGit = createReadOnlyResolverGit(options.resolverGitCommandObserver);
+  const repositoryRoot = requireCommand(
+    resolverGit.run(['rev-parse', '--show-toplevel'], cwd),
+    'git repository discovery'
+  );
+  const activationJournalSnapshot = await readFreezeJournalSnapshot(
+    repositoryRoot,
+    options.beforeJournalRecoveryCensusReadback
+  );
+  const activationJournal = effectiveFreezeJournal(activationJournalSnapshot);
+  if (freezeJournalActivationInProgress(activationJournalSnapshot)) {
+    return resolveActivationBlockedStatus({
+      repositoryRoot,
+      resolverGit,
+      journal: activationJournal,
+      reason: 'activation-in-progress',
+      terminal: false
+    });
+  }
+  let snapshot: ControlIndexSnapshotV1;
+  try {
+    snapshot = await captureControlIndexSnapshot(repositoryRoot, resolverGit);
+  } catch (error) {
+    const racedJournalSnapshot = await readFreezeJournalSnapshot(
+      repositoryRoot,
+      options.beforeJournalRecoveryCensusReadback
+    );
+    const racedJournal = effectiveFreezeJournal(racedJournalSnapshot);
+    if (freezeJournalActivationInProgress(racedJournalSnapshot)) {
+      return resolveActivationBlockedStatus({
+        repositoryRoot,
+        resolverGit,
+        journal: racedJournal,
+        reason: 'activation-in-progress',
+        terminal: false
+      });
+    }
+    throw error;
+  }
+  await options.afterIndexSnapshot?.();
+  const spec = CodexDevelopmentParseCurrentStateSpecV1(snapshot.stateSource);
+  const pointer = CodexDevelopmentParseActivePointerV2(snapshot.pointerSource);
+  const rollingPlan = CodexDevelopmentParseRollingPlanV1(snapshot.rollingPlanSource);
+  CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer });
+  if (rollingPlan.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
+    throw new Error('Immutable index pointer and rolling plan select different Work Packages.');
+  }
+
+  const localDefaultShaResult = resolverGit.run(['rev-parse', '--verify', spec.resolver.defaultRef], repositoryRoot);
+  const remoteLineResult = resolverGit.run(
+    ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
+    repositoryRoot
+  );
+  const localDefaultSha = optionalCommandSha(localDefaultShaResult, 'Local default ref');
+  const liveDefaultSha = optionalLiveDefaultSha(remoteLineResult, 'Live default ref');
   const defaultRefState: CodexDevelopmentDefaultRefState = (
     localDefaultSha === undefined || liveDefaultSha === undefined
       ? 'unavailable'
@@ -168,43 +5397,51 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
         : 'stale'
   );
 
-  const candidateManifestBlob = readGitBlob(repositoryRoot, `:${pointer.manifest}`);
-  if (!candidateManifestBlob) throw new Error('Candidate manifest is absent from the Git index.');
+  const candidateManifestBlob = resolverGit.readBlob(repositoryRoot, `${snapshot.treeSha}:${pointer.manifest}`);
+  if (!candidateManifestBlob) throw new Error('Candidate manifest is absent from the immutable index tree.');
   const defaultManifestBlob = defaultRefState === 'fresh'
-    ? readGitBlob(repositoryRoot, `${spec.resolver.defaultRef}:${pointer.manifest}`) ?? null
+    ? resolverGit.readBlob(repositoryRoot, `${localDefaultSha}:${pointer.manifest}`) ?? null
     : null;
-  const activeWorkPackage = CodexDevelopmentResolveActiveWorkPackageV1({
-    pointer,
-    candidateManifestBlob,
-    defaultManifestBlob,
-    defaultRefState
-  });
+  const activeWorkPackage: CodexDevelopmentActiveWorkPackageResolution =
+    CodexDevelopmentResolveActiveWorkPackageV1({
+      pointer,
+      candidateManifestBlob,
+      defaultManifestBlob,
+      defaultRefState
+    });
 
   const mainTree = defaultRefState === 'fresh'
-    ? requireCommand(
-        run('git', ['rev-parse', `${spec.resolver.defaultRef}^{tree}`], repositoryRoot),
-        'default-branch tree resolution'
+    ? shaValue(
+        requireCommand(
+          resolverGit.run(['rev-parse', `${localDefaultSha}^{tree}`], repositoryRoot),
+          'default-branch tree resolution'
+        ),
+        'Default-branch tree'
       )
     : undefined;
-  const headSha = requireCommand(
-    run('git', ['rev-parse', 'HEAD'], repositoryRoot),
-    'candidate head resolution'
+  const headSha = shaValue(
+    requireCommand(resolverGit.run(['rev-parse', 'HEAD'], repositoryRoot), 'candidate head resolution'),
+    'Candidate HEAD'
   );
   const branch = requireCommand(
-    run('git', ['branch', '--show-current'], repositoryRoot),
+    resolverGit.run(['branch', '--show-current'], repositoryRoot),
     'candidate branch resolution'
   ) || '(detached)';
   const mergeBase = defaultRefState === 'fresh'
-    ? requireCommand(
-        run('git', ['merge-base', spec.resolver.defaultRef, 'HEAD'], repositoryRoot),
-        'candidate merge-base resolution'
+    ? shaValue(
+        requireCommand(
+          resolverGit.run(['merge-base', localDefaultSha!, headSha], repositoryRoot),
+          'candidate merge-base resolution'
+        ),
+        'Candidate merge-base'
       )
     : undefined;
   const worktreeStatus = requireCommand(
-    run('git', ['status', '--short', '--branch'], repositoryRoot),
+    resolverGit.run(['status', '--short', '--branch'], repositoryRoot),
     'worktree status'
   );
-  const pullRequestsResult = run('gh', [
+  const observeGitHub = options.observeGitHub !== false;
+  const pullRequestsResult = observeGitHub ? run('gh', [
     'pr',
     'list',
     '--repo',
@@ -215,8 +5452,8 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
     '100',
     '--json',
     'number,title,isDraft,headRefOid,baseRefOid,mergeStateStatus,reviewDecision,reviewRequests,latestReviews,reviews,comments,statusCheckRollup'
-  ], repositoryRoot);
-  const issuesResult = run('gh', [
+  ], repositoryRoot) : { code: 1, stdout: '', stderr: 'GitHub observation skipped while activation is nonterminal' };
+  const issuesResult = observeGitHub ? run('gh', [
     'issue',
     'list',
     '--repo',
@@ -227,9 +5464,9 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
     '100',
     '--json',
     'number,title'
-  ], repositoryRoot);
+  ], repositoryRoot) : { code: 1, stdout: '', stderr: 'GitHub observation skipped while activation is nonterminal' };
   const [repositoryOwner, repositoryName] = spec.resolver.repository.split('/');
-  const reviewThreadsResult = repositoryOwner && repositoryName
+  const reviewThreadsResult = observeGitHub && repositoryOwner && repositoryName
     ? run('gh', [
         'api',
         'graphql',
@@ -266,7 +5503,68 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
           issuesResult.code === 0 ? undefined : issuesResult.stderr.trim(),
           reviewThreadsResult.code === 0 ? undefined : reviewThreadsResult.stderr.trim()
         ].filter(Boolean).join(' | ')
-      };
+  };
+
+  await options.beforeObservationReadback?.();
+  let indexTreeReadback: string | null = null;
+  try {
+    indexTreeReadback = await captureRepositoryIndexTreeThroughExternalScratch({
+      repositoryRoot,
+      resolverGit
+    });
+  } catch {
+    indexTreeReadback = null;
+  }
+  const headReadbackResult = resolverGit.run(['rev-parse', 'HEAD'], repositoryRoot);
+  const localDefaultReadbackResult = resolverGit.run(
+    ['rev-parse', '--verify', spec.resolver.defaultRef],
+    repositoryRoot
+  );
+  const liveDefaultReadbackResult = resolverGit.run(
+    ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
+    repositoryRoot
+  );
+  const headShaReadback = optionalCommandSha(headReadbackResult, 'Candidate HEAD readback');
+  const localDefaultShaReadback = optionalCommandSha(localDefaultReadbackResult, 'Local default ref readback');
+  const liveDefaultShaReadback = optionalLiveDefaultSha(liveDefaultReadbackResult, 'Live default ref readback');
+  // The journal is the seqlock: activation publishes it before any index/worktree
+  // effect, so this read must be the final volatile observation in the fence.
+  const activationJournalReadbackSnapshot = await readFreezeJournalSnapshot(
+    repositoryRoot,
+    options.beforeJournalRecoveryCensusReadback
+  );
+  const activationJournalReadback = effectiveFreezeJournal(activationJournalReadbackSnapshot);
+  if (freezeJournalActivationInProgress(activationJournalReadbackSnapshot)) {
+    return resolveActivationBlockedStatus({
+      repositoryRoot,
+      resolverGit,
+      journal: activationJournalReadback,
+      reason: 'activation-in-progress',
+      terminal: false
+    });
+  }
+  if (journalObservationIdentity(activationJournalReadbackSnapshot)
+      !== journalObservationIdentity(activationJournalSnapshot)) {
+    return resolveActivationBlockedStatus({
+      repositoryRoot,
+      resolverGit,
+      journal: activationJournalReadback,
+      reason: 'activation-observation-raced'
+    });
+  }
+  if (
+    indexTreeReadback !== snapshot.treeSha
+    || headShaReadback !== headSha
+    || localDefaultShaReadback !== localDefaultSha
+    || liveDefaultShaReadback !== liveDefaultSha
+  ) {
+    return resolveActivationBlockedStatus({
+      repositoryRoot,
+      resolverGit,
+      journal: activationJournalReadback,
+      reason: 'activation-observation-raced'
+    });
+  }
 
   return {
     schema: 'sec-resolved-current-state-v1',
@@ -284,32 +5582,63 @@ async function resolveLiveControlPlane(cwd: string): Promise<Record<string, unkn
       headSha,
       branch,
       mergeBase,
+      candidateTreeSha: snapshot.treeSha,
       status: worktreeStatus
     },
     github: githubState,
     activeWorkPackage,
+    activation: activationJournalReadback === null ? null : {
+      operationId: activationJournalReadback.operationId,
+      phase: activationJournalReadback.phase,
+      terminal: activationJournalReadback.phase === 'terminal'
+    },
     stableFacts: spec.stableFacts
   };
 }
 
 async function main(): Promise<void> {
-  const [command, format] = process.argv.slice(2);
-  if (command !== 'status' || (format !== undefined && format !== '--json')) {
-    throw new Error('Usage: bun scripts/codex/document-control-plane.ts status [--json]');
+  const argv = process.argv.slice(2);
+  const command = argv.shift();
+  const usage = 'Usage:\n'
+    + '  bun scripts/codex/document-control-plane.ts status [--json]\n'
+    + '  bun scripts/codex/document-control-plane.ts freeze --manifest <path> --reviewed-on <YYYY-MM-DD> [--json]';
+  if (command === 'status') {
+    if (argv.some((argument) => argument !== '--json') || argv.filter((argument) => argument === '--json').length > 1) {
+      throw new Error(usage);
+    }
+    const resolved = await resolveLiveControlPlane(process.cwd());
+    process.stdout.write(`${JSON.stringify(resolved, null, 2)}\n`);
+    const repository = resolved.repository as { defaultRefState: CodexDevelopmentDefaultRefState };
+    const github = resolved.github as { status: string };
+    const active = resolved.activeWorkPackage as CodexDevelopmentActiveWorkPackageResolution;
+    if (
+      repository.defaultRefState !== 'fresh'
+      || github.status !== 'resolved'
+      || active.state === 'invalid'
+      || active.state === 'unresolved'
+    ) process.exitCode = 1;
+    return;
   }
-  const resolved = await resolveLiveControlPlane(process.cwd());
-  process.stdout.write(`${JSON.stringify(resolved, null, 2)}\n`);
-  const repository = resolved.repository as { defaultRefState: CodexDevelopmentDefaultRefState };
-  const github = resolved.github as { status: string };
-  const active = resolved.activeWorkPackage as CodexDevelopmentActiveWorkPackageResolution;
-  if (
-    repository.defaultRefState !== 'fresh'
-    || github.status !== 'resolved'
-    || active.state === 'invalid'
-    || active.state === 'unresolved'
-  ) {
-    process.exitCode = 1;
+  if (command === 'freeze') {
+    const values = new Map<string, string>();
+    for (let index = 0; index < argv.length; index += 1) {
+      const argument = argv[index]!;
+      if (argument === '--json') continue;
+      if (argument !== '--manifest' && argument !== '--reviewed-on') throw new Error(usage);
+      if (values.has(argument)) throw new Error(`Duplicate freeze option: ${argument}.`);
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith('--')) throw new Error(`${argument} requires a value.\n${usage}`);
+      values.set(argument, value);
+      index += 1;
+    }
+    const manifestPath = values.get('--manifest');
+    const reviewedOn = values.get('--reviewed-on');
+    if (manifestPath === undefined || reviewedOn === undefined) throw new Error(usage);
+    const result = await freezeDocumentControlPlaneV1({ cwd: process.cwd(), manifestPath, reviewedOn });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
   }
+  throw new Error(usage);
 }
 
 if (import.meta.main) {

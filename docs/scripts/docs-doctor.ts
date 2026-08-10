@@ -14,12 +14,14 @@ import {
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from '../../platform/shared/repository-path-contract.ts';
 import {
   CodexDevelopmentAssertControlPlaneBindingV1,
-  CodexDevelopmentGitBlobSha256,
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseCurrentStateSpecV1,
   CodexDevelopmentParseRollingPlanV1
 } from '../../scripts/codex/document-control-plane-contract.ts';
-import { CodexDevelopmentParseWorkPackageManifest } from '../../scripts/codex/work-package-contract.ts';
+import {
+  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentWorkPackageManifestDigest
+} from '../../scripts/codex/work-package-contract.ts';
 import { scanMachineLedgers } from './docs-doctor-ledgers.ts';
 import {
   ACTIVE_POINTER_STATUS,
@@ -45,6 +47,35 @@ import {
   type DocsDoctorResult,
   type DocsDoctorScanOptions
 } from './docs-doctor-shared.ts';
+
+interface DocsDoctorControlPlaneScanOptions extends DocsDoctorScanOptions {
+  /** One immutable Git-tree reader used by the production CLI control-plane scan. */
+  readonly readControlPlaneBlob?: (repositoryPath: string) => Promise<Uint8Array>;
+}
+
+function decodeUtf8(bytes: Uint8Array, label: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new Error(`${label} must be valid UTF-8.`, { cause: error });
+  }
+}
+
+async function readControlPlaneBlob(
+  options: DocsDoctorControlPlaneScanOptions,
+  repositoryPath: string
+): Promise<Uint8Array> {
+  if (options.readControlPlaneBlob) return options.readControlPlaneBlob(repositoryPath);
+  return fs.readFile(path.join(options.repositoryRoot, ...repositoryPath.split('/')));
+}
+
+async function readControlPlaneText(
+  options: DocsDoctorControlPlaneScanOptions,
+  repositoryPath: string,
+  label: string
+): Promise<string> {
+  return decodeUtf8(await readControlPlaneBlob(options, repositoryPath), label);
+}
 
 export {
   DOCUMENT_AUTHORITY_REGISTRY_PATH,
@@ -93,14 +124,14 @@ async function loadRegistry(
 }
 
 async function scanControlPlanes(
-  options: DocsDoctorScanOptions,
+  options: DocsDoctorControlPlaneScanOptions,
   issues: DocsDoctorIssue[]
 ): Promise<void> {
   try {
     const [currentStateSource, rollingPlanSource, pointerSource] = await Promise.all([
-      fs.readFile(path.join(options.repositoryRoot, CONTROL_PATHS.currentState), 'utf8'),
-      fs.readFile(path.join(options.repositoryRoot, CONTROL_PATHS.rollingPlan), 'utf8'),
-      fs.readFile(path.join(options.repositoryRoot, CONTROL_PATHS.activePointer), 'utf8')
+      readControlPlaneText(options, CONTROL_PATHS.currentState, 'Current-state spec'),
+      readControlPlaneText(options, CONTROL_PATHS.rollingPlan, 'Rolling plan'),
+      readControlPlaneText(options, CONTROL_PATHS.activePointer, 'Active Work Package pointer')
     ]);
     const currentState = CodexDevelopmentParseCurrentStateSpecV1(currentStateSource);
     const rollingPlan = CodexDevelopmentParseRollingPlanV1(rollingPlanSource);
@@ -112,11 +143,16 @@ async function scanControlPlanes(
         `Rolling plan active package ${rollingPlan.activePackageId} does not match pointer ${manifestId}.`
       );
     }
-    if (options.readCandidateManifestBlob) {
-      const manifestBytes = await options.readCandidateManifestBlob(pointer.manifest);
-      if (CodexDevelopmentGitBlobSha256(manifestBytes) !== pointer.manifestDigest) {
+    const readManifestBlob = options.readControlPlaneBlob ?? options.readCandidateManifestBlob;
+    if (readManifestBlob) {
+      const manifestBytes = await readManifestBlob(pointer.manifest);
+      if (CodexDevelopmentWorkPackageManifestDigest(manifestBytes) !== pointer.manifestDigest) {
         throw new Error('Active pointer manifest digest does not match candidate manifest bytes.');
       }
+      CodexDevelopmentParseWorkPackageManifest(
+        decodeUtf8(manifestBytes, 'Selected Work Package manifest'),
+        pointer.manifest
+      );
     }
   } catch (error) {
     pushIssue(issues, {
@@ -129,7 +165,7 @@ async function scanControlPlanes(
 }
 
 export async function scanDocumentation(
-  options: DocsDoctorScanOptions
+  options: DocsDoctorControlPlaneScanOptions
 ): Promise<DocsDoctorResult> {
   const repositoryRoot = path.resolve(options.repositoryRoot);
   const docsRoot = path.resolve(options.docsRoot);
@@ -380,9 +416,10 @@ export async function scanDocumentation(
     }
   }
 
-  const pointerSource = await fs.readFile(
-    path.join(repositoryRoot, CONTROL_PATHS.activePointer),
-    'utf8'
+  const pointerSource = await readControlPlaneText(
+    options,
+    CONTROL_PATHS.activePointer,
+    'Active Work Package pointer'
   );
   try {
     const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
@@ -402,7 +439,11 @@ export async function scanDocumentation(
         }
       }
     }
-    const manifestSource = await fs.readFile(path.join(repositoryRoot, selected), 'utf8');
+    const manifestBytes = await readControlPlaneBlob(options, selected);
+    if (CodexDevelopmentWorkPackageManifestDigest(manifestBytes) !== pointer.manifestDigest) {
+      throw new Error('Selected Work Package digest does not match the active pointer.');
+    }
+    const manifestSource = decodeUtf8(manifestBytes, 'Selected Work Package manifest');
     CodexDevelopmentParseWorkPackageManifest(manifestSource, selected);
   } catch (error) {
     pushIssue(issues, {
@@ -432,7 +473,6 @@ export async function scanDocumentation(
 /**
  * Resolve the set of repository-relative paths changed since `sinceRef` via
  * `git diff --name-only`. Used by the CLI `--since` flag to drive incremental scans.
- * This is the single reviewed spawnSync dispatcher in docs-doctor.ts.
  */
 function resolveChangedDocumentPathsSince(
   repositoryRoot: string,
@@ -443,6 +483,43 @@ function resolveChangedDocumentPathsSince(
     ['diff', '--name-only', `${sinceRef}..HEAD`],
     { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true }
   );
+}
+
+function captureDocsDoctorIndexTree(repositoryRoot: string): string {
+  const result = spawnSync('git', ['write-tree'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  const treeSha = result.stdout?.trim() ?? '';
+  if (result.error || result.status !== 0 || !/^[0-9a-f]{40}$/u.test(treeSha)) {
+    const detail = result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status ?? 1}`;
+    throw new Error(`docs-doctor: immutable Git index tree capture failed: ${detail}`);
+  }
+  return treeSha;
+}
+
+function readCapturedGitTreeBlob(
+  repositoryRoot: string,
+  treeSha: string,
+  repositoryPath: string
+): Buffer {
+  if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) {
+    throw new Error(`docs-doctor: captured-tree path is noncanonical: ${repositoryPath}`);
+  }
+  const result = spawnSync('git', ['show', `${treeSha}:${repositoryPath}`], {
+    cwd: repositoryRoot,
+    encoding: 'buffer',
+    windowsHide: true,
+    maxBuffer: 8 * 1024 * 1024
+  });
+  if (result.error || result.status !== 0 || !result.stdout) {
+    const detail = result.error?.message
+      ?? Buffer.from(result.stderr ?? '').toString('utf8').trim()
+      ?? `exit ${result.status ?? 1}`;
+    throw new Error(`docs-doctor: captured-tree blob read failed for ${repositoryPath}: ${detail}`);
+  }
+  return result.stdout;
 }
 
 if (import.meta.main) {
@@ -499,10 +576,13 @@ if (import.meta.main) {
     }
   }
 
+  const capturedIndexTree = captureDocsDoctorIndexTree(repositoryRoot);
   const result = await scanDocumentation({
     repositoryRoot,
     docsRoot: path.join(repositoryRoot, 'docs'),
-    changedDocumentPaths
+    changedDocumentPaths,
+    readControlPlaneBlob: async (repositoryPath) =>
+      readCapturedGitTreeBlob(repositoryRoot, capturedIndexTree, repositoryPath)
   });
   for (const issue of result.issues) {
     console.error(`[${issue.level}] ${issue.code} ${issue.file}: ${issue.message}`);

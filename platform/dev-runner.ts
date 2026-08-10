@@ -1,5 +1,40 @@
 import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
 import { cleanTestWorkspaces } from './dev-runner/env-manager.ts';
+import {
+  ciVerificationNormalizedOperationArgvV2,
+  resolveCiVerificationDevRunnerTargetV1,
+  type CiVerificationActionPlanClosureV1,
+  type CiVerificationNormalizedOperationV2
+} from './shared/verification-action-ci-contract.ts';
+import type { VerificationActionPlanV2 } from './shared/verification-action-contract.ts';
+
+export async function executeVerifiedCiActionPlanV1(options: {
+  readonly plan: VerificationActionPlanV2;
+  readonly authorizedClosure: CiVerificationActionPlanClosureV1;
+  readonly repositoryRoot?: string;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly executeNormalizedOperation?: (
+    operation: CiVerificationNormalizedOperationV2
+  ) => Promise<number> | number;
+}): Promise<number> {
+  const operation = resolveCiVerificationDevRunnerTargetV1(options);
+  if (options.executeNormalizedOperation !== undefined) {
+    return options.executeNormalizedOperation(operation);
+  }
+  const [, ...args] = ciVerificationNormalizedOperationArgvV2(operation);
+  const argv = [process.execPath, ...args];
+  const child = Bun.spawn(
+    argv,
+    {
+      cwd: options.repositoryRoot,
+      stdin: 'inherit',
+      stdout: 'inherit',
+      stderr: 'inherit',
+      env: options.environment ?? process.env
+    }
+  );
+  return child.exited;
+}
 
 function usage(): never {
   console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:prepare|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
@@ -122,4 +157,4 @@ async function main(): Promise<void> {
             : usage();
 }
 
-await main();
+if (import.meta.main) await main();

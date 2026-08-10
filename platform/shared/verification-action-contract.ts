@@ -14,11 +14,8 @@ import { types as nodeTypes } from 'node:util';
 import type {
   VerificationReasonCode,
   VerificationResultStatus
-} from '../../platform/shared/verification-result-contract.ts';
-import {
-  CodexDevelopmentAssertVerificationGateResultV1,
-  VERIFICATION_GATE_RESULT_SCHEMA_V1
-} from '../../platform/shared/verification-result-contract.ts';
+} from './verification-result-contract.ts';
+import { CodexDevelopmentAssertVerificationStatusReasonV1 } from './verification-result-contract.ts';
 
 export const VERIFICATION_ACTION_KEY_SCHEMA_V2 =
   'sec-verification-action-key-v2' as const;
@@ -349,49 +346,12 @@ function assertCanonicalStatusReason(
   status: unknown,
   reasonCode: unknown
 ): asserts status is VerificationResultStatus {
-  const executed = status === 'passed' || status === 'failed';
-  const applicability = status === 'invalidated' ? 'unresolved' : 'required';
   try {
-    CodexDevelopmentAssertVerificationGateResultV1({
-      schema: VERIFICATION_GATE_RESULT_SCHEMA_V1,
-      gateId: 'verification-action-terminal',
-      gateRevision: 'verification-action-terminal-v2',
-      owner: 'verification-action-runner',
-      requirementKey: 'verification-action-terminal',
-      subjectRevision: 'verification-action-terminal-v2',
-      inputDigest: `sha256:${'0'.repeat(64)}`,
-      applicability,
+    CodexDevelopmentAssertVerificationStatusReasonV1(
       status,
-      disposition: executed ? 'executed' : 'not-executed',
       reasonCode,
-      requiredForClaims: [],
-      supportedClaims: [],
-      environment: executed
-        ? {
-          runtime: 'verification-action',
-          os: 'verification-action',
-          arch: 'verification-action',
-          filesystem: null,
-          capabilities: [],
-          toolchainRevision: 'verification-action-terminal-v2',
-          providerRevisions: []
-        }
-        : null,
-      execution: executed
-        ? {
-          argv: [],
-          startedAt: '1970-01-01T00:00:00.000Z',
-          finishedAt: '1970-01-01T00:00:00.000Z',
-          durationMs: 0,
-          exitCode: status === 'failed' ? 1 : 0,
-          outputDigest: `sha256:${'0'.repeat(64)}`,
-          failureFingerprint: null
-        }
-        : null,
-      evidenceRefs: [],
-      invalidationRules: [],
-      diagnostic: null
-    });
+      'VerificationAction terminal'
+    );
   } catch (error) {
     throw new Error(
       `VerificationAction terminal status/reason is not canonical: ${

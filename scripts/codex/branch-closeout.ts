@@ -1,26 +1,25 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync
+} from 'node:fs';
 import path from 'node:path';
 
 import {
-  commandErrorText,
-  requireBranchCommandText,
-  runBranchCommand,
-  type BranchLifecycleContext
+  createBranchLifecycleGitChildEnvironmentV1,
+  decodeBranchLifecycleChildStdoutV1
 } from './branch-lifecycle-command.ts';
 import {
-  BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+  assertBranchCloseoutPreparation,
   assertGitBranchName,
   assertGitSha,
   auditBranchLifecycle,
-  authorizeBranchCloseout,
   branchLifecycleDigest,
   createBranchCloseoutPreparation,
-  createBranchCloseoutReceipt,
   type BranchCloseoutAttempt,
-  type BranchCloseoutDisposition,
   type BranchCloseoutPreparation,
-  type BranchCloseoutReceipt,
   type BranchLifecycleInventory,
   type BranchRecoveryAuthority
 } from './branch-lifecycle-contract.ts';
@@ -31,6 +30,38 @@ import {
   verifyRecoveryAuthorityLive,
   writeDurableFile
 } from './branch-recovery.ts';
+
+const COMMAND_TIMEOUT_MS = 60_000;
+const COMMAND_MAX_BUFFER = 32 * 1024 * 1024;
+
+export interface BranchCloseoutScopeV1 {
+  repositoryRoot: string;
+  remote?: string;
+  repositoryFullName?: string;
+  defaultBranch?: string;
+  recoveryRoot?: string;
+}
+
+function runCloseoutGit(repositoryRoot: string, args: readonly string[]) {
+  if (args.some((arg) => arg.includes('\0'))) {
+    throw new Error('Branch closeout argument contains NUL.');
+  }
+  const result = spawnSync('git', [...args], {
+    cwd: repositoryRoot,
+    encoding: 'buffer',
+    windowsHide: true,
+    timeout: COMMAND_TIMEOUT_MS,
+    maxBuffer: COMMAND_MAX_BUFFER,
+    env: createBranchLifecycleGitChildEnvironmentV1(process.env)
+  });
+  return {
+    status: result.status,
+    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? '')),
+    stderr: Buffer.isBuffer(result.stderr)
+      ? result.stderr
+      : Buffer.from(String(result.stderr ?? result.error?.message ?? ''))
+  };
+}
 
 export const BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1 =
   'sec-branch-closeout-prepared-envelope-v1' as const;
@@ -55,16 +86,6 @@ export interface PrepareBranchCloseoutInput {
   /** Exact PR-recorded head SHA when it differs from the prepared ref head. */
   expectedPrHeadSha?: string | null;
   pullRequestNumber?: number | null;
-}
-
-export interface FinalizeBranchCloseoutInput {
-  prepared: PreparedBranchCloseoutEnvelope;
-  disposition: BranchCloseoutDisposition;
-  blockingReasons?: readonly string[];
-  durableGoal: {
-    kind: 'main' | 'issue' | 'evidence';
-    reference: string;
-  };
 }
 
 function createPreparedEnvelope(input: Omit<
@@ -105,6 +126,117 @@ export function parsePreparedBranchCloseoutEnvelope(
   return envelope;
 }
 
+/**
+ * Rehydrates a remotely published stable preparation on a fresh hosted
+ * checkout. Remote operation semantics remain byte-identical while all
+ * host-local recovery paths and inventory are independently reconstructed and
+ * verified on the current runner.
+ */
+export function rehydratePreparedBranchCloseoutEnvelopeV1(input: {
+  remote: PreparedBranchCloseoutEnvelope;
+  local: PreparedBranchCloseoutEnvelope;
+}): PreparedBranchCloseoutEnvelope {
+  assertPreparedBranchCloseoutEnvelope(input.remote);
+  assertPreparedBranchCloseoutEnvelope(input.local);
+  if (input.remote.preparation.repository.fullName !== input.local.preparation.repository.fullName
+    || input.remote.preparation.branch !== input.local.preparation.branch
+    || input.remote.preparation.expectedHeadSha !== input.local.preparation.expectedHeadSha
+    || input.remote.preparation.pullRequestNumber !== input.local.preparation.pullRequestNumber
+    || input.remote.preparation.recovery.sha256 !== input.local.preparation.recovery.sha256) {
+    throw new Error('Fresh-host closeout recovery differs from the remotely authorized branch identity.');
+  }
+  const preparation = {
+    ...input.remote.preparation,
+    preparedAt: input.local.preparation.preparedAt,
+    repository: {
+      ...input.remote.preparation.repository,
+      root: input.local.preparation.repository.root,
+      commonDir: input.local.preparation.repository.commonDir
+    },
+    expectedLocalSha: input.local.preparation.expectedLocalSha,
+    recovery: input.local.preparation.recovery,
+    worktreePathsAtPreparation: input.local.preparation.worktreePathsAtPreparation
+  };
+  assertBranchCloseoutPreparation(preparation);
+  return createPreparedEnvelope({ preparation, before: input.remote.before,
+    attempts: [...input.local.attempts] });
+}
+
+/**
+ * Restores the exact pre-merge recovery bytes from a provider-authenticated
+ * Actions artifact on a fresh hosted runner. The stable preparation identity
+ * remains byte-identical; only host-local paths/inventory are reconstructed.
+ */
+export function rehydratePreparedBranchCloseoutRecoveryArtifactV1(input: {
+  scope: BranchCloseoutScopeV1;
+  remote: PreparedBranchCloseoutEnvelope;
+  recoveryBundleBytes: Uint8Array;
+}): PreparedBranchCloseoutEnvelope {
+  assertPreparedBranchCloseoutEnvelope(input.remote);
+  const bytes = Buffer.from(input.recoveryBundleBytes);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  if (`sha256:${digest}` !== input.remote.preparation.recovery.sha256) {
+    throw new Error('Provider recovery bundle digest differs from the authorized preparation.');
+  }
+  const inventory = collectBranchLifecycleInventory(input.scope);
+  const recoveryRoot = ensureRecoveryRoot(inventory, input.scope.recoveryRoot);
+  const bundlePath = path.join(recoveryRoot, `sec-branch-closeout-restored-${digest}.bundle`);
+  if (existsSync(bundlePath)) {
+    if (!readFileSync(bundlePath).equals(bytes)) {
+      throw new Error('Existing restored recovery bundle path contains conflicting bytes.');
+    }
+  } else {
+    writeDurableFile(bundlePath, bytes);
+  }
+  const checksumText = `${digest}  ${path.basename(bundlePath)}\n`;
+  const checksumPath = `${bundlePath}.sha256`;
+  if (existsSync(checksumPath)) {
+    if (readFileSync(checksumPath, 'utf8') !== checksumText) {
+      throw new Error('Existing restored recovery checksum contains conflicting bytes.');
+    }
+  } else {
+    writeDurableFile(checksumPath, checksumText);
+  }
+  const recovery = {
+    ...input.remote.preparation.recovery,
+    path: bundlePath,
+    sha256: `sha256:${digest}` as const
+  };
+  const recoveryReadback = verifyRecoveryAuthorityLive({ inventory, recovery });
+  if (recoveryReadback.status !== 'success') {
+    throw new Error(`Restored provider recovery bundle failed live verification: ${recoveryReadback.detail}`);
+  }
+  const localBranch = inventory.localBranches.find(({ branch }) => (
+    branch === input.remote.preparation.branch
+  ));
+  const preparation = createBranchCloseoutPreparation({
+    preparedAt: new Date().toISOString(),
+    repository: {
+      ...input.remote.preparation.repository,
+      root: inventory.repository.root,
+      commonDir: inventory.repository.commonDir
+    },
+    branch: input.remote.preparation.branch,
+    refState: input.remote.preparation.refState,
+    expectedHeadSha: input.remote.preparation.expectedHeadSha,
+    expectedRemoteSha: input.remote.preparation.expectedRemoteSha,
+    expectedLocalSha: localBranch?.sha ?? null,
+    expectedPrHeadSha: input.remote.preparation.expectedPrHeadSha,
+    pullRequestNumber: input.remote.preparation.pullRequestNumber,
+    pullRequestStateAtPreparation: input.remote.preparation.pullRequestStateAtPreparation,
+    recovery,
+    worktreePathsAtPreparation: inventory.worktrees
+      .filter(({ branch }) => branch === input.remote.preparation.branch)
+      .map(({ path: worktreePath }) => worktreePath)
+      .sort((left, right) => left.localeCompare(right))
+  });
+  if (preparation.preparationDigest !== input.remote.preparation.preparationDigest) {
+    throw new Error('Fresh-host provider recovery changed the stable preparation identity.');
+  }
+  return createPreparedEnvelope({ preparation, before: input.remote.before,
+    attempts: [recoveryReadback] });
+}
+
 export function preparationFilePath(preparation: BranchCloseoutPreparation): string {
   return `${preparation.recovery.path}.preparation.json`;
 }
@@ -113,20 +245,32 @@ export function receiptFilePath(preparation: BranchCloseoutPreparation): string 
   return `${preparation.recovery.path}.receipt.json`;
 }
 
+function operationSuffix(closeoutOperationId: `sha256:${string}`): string {
+  return closeoutOperationId.slice('sha256:'.length);
+}
+
+export function operationJournalFilePath(
+  preparation: BranchCloseoutPreparation,
+  closeoutOperationId: `sha256:${string}`
+): string {
+  return `${preparation.recovery.path}.closeout-${operationSuffix(closeoutOperationId)}.journal.json`;
+}
+
+export function operationReceiptFilePath(
+  preparation: BranchCloseoutPreparation,
+  closeoutOperationId: `sha256:${string}`
+): string {
+  return `${preparation.recovery.path}.closeout-${operationSuffix(closeoutOperationId)}.receipt.json`;
+}
+
 function persistPreparedEnvelope(envelope: PreparedBranchCloseoutEnvelope): string {
   const filePath = preparationFilePath(envelope.preparation);
   writeDurableFile(filePath, `${JSON.stringify(envelope, null, 2)}\n`);
   return filePath;
 }
 
-function persistReceipt(receipt: BranchCloseoutReceipt): string {
-  const filePath = receiptFilePath(receipt.preparation);
-  writeDurableFile(filePath, `${JSON.stringify(receipt, null, 2)}\n`);
-  return filePath;
-}
-
 export function prepareBranchCloseout(
-  ctx: BranchLifecycleContext,
+  scope: BranchCloseoutScopeV1,
   input: PrepareBranchCloseoutInput
 ): PreparedBranchCloseoutEnvelope {
   assertGitBranchName(input.branch);
@@ -148,7 +292,7 @@ export function prepareBranchCloseout(
     throw new Error('pullRequestNumber must be a positive safe integer.');
   }
 
-  const before = collectBranchLifecycleInventory(ctx);
+  const before = collectBranchLifecycleInventory(scope);
   const beforeAudit = auditBranchLifecycle(before);
   if (beforeAudit.status === 'blocked') {
     throw new Error(
@@ -252,12 +396,12 @@ export function prepareBranchCloseout(
     : null;
 
   const { recovery, attempts } = refState === 'absent'
-    ? prepareAbsentRefRecovery(ctx, before, input.branch, expectedHeadSha, pullRequestNumber)
+    ? prepareAbsentRefRecovery(scope, before, input.branch, expectedHeadSha, pullRequestNumber)
     : createRecoveryBundle({
-        ctx,
         inventory: before,
         branch: input.branch,
-        expectedSha: expectedHeadSha
+        expectedSha: expectedHeadSha,
+        recoveryRoot: scope.recoveryRoot
       });
   const preparation = createBranchCloseoutPreparation({
     preparedAt: new Date().toISOString(),
@@ -288,20 +432,20 @@ export function prepareBranchCloseout(
 }
 
 function prepareAbsentRefRecovery(
-  ctx: BranchLifecycleContext,
+  scope: BranchCloseoutScopeV1,
   inventory: BranchLifecycleInventory,
   branch: string,
   expectedSha: string,
   pullRequestNumber: number | null
 ): { recovery: BranchRecoveryAuthority; attempts: BranchCloseoutAttempt[] } {
-  const existing = findMatchingRecoveryBundle(ctx, inventory, branch, expectedSha);
+  const existing = findMatchingRecoveryBundle(scope, inventory, branch, expectedSha);
   if (existing !== null) {
     const attempts: BranchCloseoutAttempt[] = [{
       operation: 'recovery-create',
       status: 'success',
       detail: `${existing.path} (reused verified recovery bundle)`
     }];
-    const live = verifyRecoveryAuthorityLive({ ctx, inventory, recovery: existing });
+    const live = verifyRecoveryAuthorityLive({ inventory, recovery: existing });
     attempts.push(live);
     if (live.status !== 'success') {
       throw new Error(`Reused recovery bundle failed live revalidation: ${live.detail}`);
@@ -310,10 +454,10 @@ function prepareAbsentRefRecovery(
   }
   if (pullRequestNumber !== null) {
     return createRecoveryBundle({
-      ctx,
       inventory,
       branch,
       expectedSha,
+      recoveryRoot: scope.recoveryRoot,
       refSource: { kind: 'pull', number: pullRequestNumber }
     });
   }
@@ -327,12 +471,12 @@ function safeRecoverySegment(branch: string): string {
 }
 
 function findMatchingRecoveryBundle(
-  ctx: BranchLifecycleContext,
+  scope: BranchCloseoutScopeV1,
   inventory: BranchLifecycleInventory,
   branch: string,
   expectedSha: string
 ): BranchRecoveryAuthority | null {
-  const recoveryRoot = ensureRecoveryRoot(inventory, ctx.recoveryRoot);
+  const recoveryRoot = ensureRecoveryRoot(inventory, scope.recoveryRoot);
   const prefix = `sec-branch-closeout-${safeRecoverySegment(branch)}-`;
   const candidates = readdirSync(recoveryRoot)
     .filter((name) => name.startsWith(prefix) && name.endsWith('.bundle'))
@@ -344,20 +488,14 @@ function findMatchingRecoveryBundle(
       const digestMatch = /^([0-9a-f]{64})\s+\S+$/u.exec(checksum.trim());
       const digest = createHash('sha256').update(readFileSync(candidate)).digest('hex');
       if (digestMatch === null || digestMatch[1] !== digest) continue;
-      const verify = runBranchCommand(
-        ctx,
-        'git',
-        ['bundle', 'verify', candidate],
-        inventory.repository.root
-      );
+      const verify = runCloseoutGit(inventory.repository.root, ['bundle', 'verify', candidate]);
       if (verify.status !== 0) continue;
-      const heads = requireBranchCommandText(
-        ctx,
-        'git',
-        ['bundle', 'list-heads', candidate],
-        'recovery bundle head inventory',
-        inventory.repository.root
+      const headsResult = runCloseoutGit(
+        inventory.repository.root,
+        ['bundle', 'list-heads', candidate]
       );
+      if (headsResult.status !== 0) continue;
+      const heads = decodeBranchLifecycleChildStdoutV1(headsResult);
       if (!heads.split(/\r?\n/u).some((line) => line.trim().startsWith(expectedSha))) continue;
       const verifyOutput = [
         verify.stdout.toString('utf8').trim(),
@@ -378,188 +516,13 @@ function findMatchingRecoveryBundle(
 }
 
 export function prepareMergedPullRequestCloseout(
-  ctx: BranchLifecycleContext,
+  scope: BranchCloseoutScopeV1,
   input: { number: number; headBranch: string; headSha: string }
 ): PreparedBranchCloseoutEnvelope {
-  return prepareBranchCloseout(ctx, {
+  return prepareBranchCloseout(scope, {
     branch: input.headBranch,
     expectedHeadSha: input.headSha,
     pullRequestNumber: input.number
-  });
-}
-
-function attempt(
-  attempts: BranchCloseoutAttempt[],
-  operation: BranchCloseoutAttempt['operation'],
-  status: BranchCloseoutAttempt['status'],
-  detail: string
-): void {
-  attempts.push({ operation, status, detail });
-}
-
-function deleteRemoteRefCas(
-  ctx: BranchLifecycleContext,
-  preparation: BranchCloseoutPreparation,
-  attempts: BranchCloseoutAttempt[]
-): void {
-  const result = runBranchCommand(ctx, 'git', [
-    'push',
-    '--porcelain',
-    `--force-with-lease=refs/heads/${preparation.branch}:${preparation.expectedRemoteSha}`,
-    preparation.repository.remote,
-    `:refs/heads/${preparation.branch}`
-  ], preparation.repository.root);
-  attempt(
-    attempts,
-    'remote-delete',
-    result.status === 0 ? 'success' : 'failed',
-    result.status === 0
-      ? `deleted refs/heads/${preparation.branch} at expected ${preparation.expectedRemoteSha}`
-      : commandErrorText(result)
-  );
-}
-
-function deleteLocalRefCas(
-  ctx: BranchLifecycleContext,
-  preparation: BranchCloseoutPreparation,
-  attempts: BranchCloseoutAttempt[]
-): void {
-  const expected = preparation.expectedLocalSha ?? preparation.expectedHeadSha;
-  const result = runBranchCommand(ctx, 'git', [
-    'update-ref',
-    '-d',
-    `refs/heads/${preparation.branch}`,
-    expected
-  ], preparation.repository.root);
-  attempt(
-    attempts,
-    'local-delete',
-    result.status === 0 ? 'success' : 'failed',
-    result.status === 0
-      ? `deleted refs/heads/${preparation.branch} at expected ${expected}`
-      : commandErrorText(result)
-  );
-}
-
-function pruneRemote(
-  ctx: BranchLifecycleContext,
-  preparation: BranchCloseoutPreparation,
-  attempts: BranchCloseoutAttempt[]
-): void {
-  const result = runBranchCommand(ctx, 'git', [
-    'remote',
-    'prune',
-    preparation.repository.remote
-  ], preparation.repository.root);
-  attempt(
-    attempts,
-    'prune',
-    result.status === 0 ? 'success' : 'failed',
-    result.status === 0 ? `pruned ${preparation.repository.remote}` : commandErrorText(result)
-  );
-}
-
-export function finalizeBranchCloseout(
-  ctx: BranchLifecycleContext,
-  input: FinalizeBranchCloseoutInput
-): BranchCloseoutReceipt {
-  assertPreparedBranchCloseoutEnvelope(input.prepared);
-  const observedCurrent = collectBranchLifecycleInventory(ctx);
-  const attempts = [...input.prepared.attempts];
-  const recoveryReadback = verifyRecoveryAuthorityLive({
-    ctx,
-    inventory: observedCurrent,
-    recovery: input.prepared.preparation.recovery
-  });
-  attempts.push(recoveryReadback);
-  const current = {
-    ...observedCurrent,
-    unknowns: [...new Set([
-      ...observedCurrent.unknowns,
-      ...(input.blockingReasons ?? []),
-      ...(recoveryReadback.status === 'success' ? [] : [recoveryReadback.detail])
-    ])].sort((left, right) => left.localeCompare(right))
-  };
-  const request = {
-    capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
-    disposition: input.disposition,
-    durableGoal: input.durableGoal
-  } as const;
-  const authorization = authorizeBranchCloseout({
-    preparation: input.prepared.preparation,
-    request,
-    before: input.prepared.before,
-    current
-  });
-
-  if (authorization.blockers.length === 0) {
-    if (authorization.remoteAction === 'delete-cas') {
-      deleteRemoteRefCas(ctx, input.prepared.preparation, attempts);
-    } else {
-      attempt(attempts, 'remote-delete', 'skipped', authorization.remoteAction);
-    }
-
-    if (authorization.localAction === 'delete-exact') {
-      deleteLocalRefCas(ctx, input.prepared.preparation, attempts);
-    } else {
-      attempt(attempts, 'local-delete', 'skipped', authorization.localAction);
-    }
-
-    pruneRemote(ctx, input.prepared.preparation, attempts);
-  } else {
-    attempt(
-      attempts,
-      'remote-delete',
-      'skipped',
-      `blocked: ${authorization.blockers.join(' | ')}`
-    );
-    attempt(
-      attempts,
-      'local-delete',
-      'skipped',
-      `blocked: ${authorization.blockers.join(' | ')}`
-    );
-    attempt(attempts, 'prune', 'skipped', 'closeout authorization blocked');
-  }
-
-  const after = collectBranchLifecycleInventory(ctx);
-  attempt(
-    attempts,
-    'readback',
-    after.unknowns.length === 0 ? 'success' : 'failed',
-    after.unknowns.length === 0
-      ? `remote/local/PR/worktree readback completed at ${after.observedAt}`
-      : after.unknowns.join(' | ')
-  );
-
-  const receipt = createBranchCloseoutReceipt({
-    generatedAt: new Date().toISOString(),
-    preparation: input.prepared.preparation,
-    request,
-    authorization,
-    attempts,
-    before: input.prepared.before,
-    after
-  });
-  persistReceipt(receipt);
-  return receipt;
-}
-
-export function finalizeMergedPullRequestCloseout(
-  ctx: BranchLifecycleContext,
-  prepared: PreparedBranchCloseoutEnvelope,
-  newMainSha: string,
-  blockingReasons: readonly string[] = []
-): BranchCloseoutReceipt {
-  assertGitSha(newMainSha, 'new main SHA');
-  return finalizeBranchCloseout(ctx, {
-    prepared,
-    disposition: 'merged',
-    blockingReasons,
-    durableGoal: {
-      kind: 'main',
-      reference: `main@${newMainSha}`
-    }
   });
 }
 

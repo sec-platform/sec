@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 
+import { canonicalEquals, sha256 as canonicalSha256, digest } from './canonical-primitives.ts';
 import {
   CodexDevelopmentAssertCiExecutionEnvironmentBindingV1,
   CodexDevelopmentBuildSanitizedChildEnvironmentV1,
   type CodexDevelopmentCiExecutionEnvironmentBindingV1
 } from './ci-execution-environment.ts';
-import { canonicalEquals, digest, sha256 as canonicalSha256 } from './canonical-primitives.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 
 export const CodexDevelopmentEvidenceCompositionPolicyRevisionV1 =
@@ -14,6 +14,20 @@ export const CodexDevelopmentReusableEvidenceFormatV1 =
   'legacy-frozen-exact-production-pass-v1-env-unbound' as const;
 export const CodexDevelopmentSyntheticEvidencePolicyIdV1 =
   'ci-v8-synthetic-composition-v1' as const;
+
+/** V2/V3 are explicit legacy readers only; no active consumer promotes them. */
+export const CodexDevelopmentLegacyEvidencePromotionConsumerCountV1 = 0 as const;
+
+export function CodexDevelopmentRejectLegacyEvidencePromotionV1(value: unknown): never {
+  const schema = value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>).schema
+    : null;
+  if (schema === 'codex-development-verification-evidence-v2' ||
+      schema === 'codex-development-verification-evidence-v3') {
+    throw new Error('Legacy V2/V3 Evidence is reader-only and cannot be promoted to V4.');
+  }
+  throw new Error('Only canonical V4 Evidence can enter the trusted verification lane.');
+}
 
 export type CodexDevelopmentEvidenceDispositionV1 = 'executed' | 'reused' | 'delta';
 

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, expect, mock, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import ts from 'typescript';
 
 import type { DevCommandObservation } from '../../platform/dev-runner/command-runner.ts';
 import * as actualEnvManager from '../../platform/dev-runner/env-manager.ts';
@@ -180,6 +181,107 @@ function plannedProcessFiles(plan: ReturnType<typeof planFastTestProcesses>): st
   ];
 }
 
+type ProcessGlobalHazardKind =
+  | 'mock-module'
+  | 'process-env-assignment'
+  | 'process-env-delete'
+  | 'process-env-object-assign';
+
+interface ProcessGlobalHazard {
+  readonly kind: ProcessGlobalHazardKind;
+  readonly line: number;
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function isNamedMember(
+  expression: ts.Expression,
+  receiverName: string,
+  memberName: string
+): boolean {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isPropertyAccessExpression(unwrapped)) {
+    const receiver = unwrapExpression(unwrapped.expression);
+    return ts.isIdentifier(receiver) &&
+      receiver.text === receiverName &&
+      unwrapped.name.text === memberName;
+  }
+  if (!ts.isElementAccessExpression(unwrapped) || !unwrapped.argumentExpression) return false;
+  const receiver = unwrapExpression(unwrapped.expression);
+  const member = unwrapExpression(unwrapped.argumentExpression);
+  return ts.isIdentifier(receiver) &&
+    receiver.text === receiverName &&
+    (ts.isStringLiteralLike(member) || ts.isNoSubstitutionTemplateLiteral(member)) &&
+    member.text === memberName;
+}
+
+function isProcessEnvExpression(expression: ts.Expression): boolean {
+  return isNamedMember(expression, 'process', 'env');
+}
+
+function targetsProcessEnv(expression: ts.Expression): boolean {
+  const unwrapped = unwrapExpression(expression);
+  if (isProcessEnvExpression(unwrapped)) return true;
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    return targetsProcessEnv(unwrapped.expression);
+  }
+  return false;
+}
+
+function processGlobalHazards(source: string, fileName: string): ProcessGlobalHazard[] {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
+  const hazards: ProcessGlobalHazard[] = [];
+  const record = (kind: ProcessGlobalHazardKind, node: ts.Node): void => {
+    hazards.push({
+      kind,
+      line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1
+    });
+  };
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      targetsProcessEnv(node.left)
+    ) {
+      record('process-env-assignment', node);
+    } else if (ts.isDeleteExpression(node) && targetsProcessEnv(node.expression)) {
+      record('process-env-delete', node);
+    } else if (ts.isCallExpression(node)) {
+      if (isNamedMember(node.expression, 'mock', 'module')) {
+        record('mock-module', node);
+      } else if (
+        isNamedMember(node.expression, 'Object', 'assign') &&
+        node.arguments[0] !== undefined &&
+        isProcessEnvExpression(node.arguments[0])
+      ) {
+        record('process-env-object-assign', node);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return hazards;
+}
+
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   const promise = new Promise<void>((settle) => { resolve = settle; });
@@ -326,6 +428,87 @@ test('fast process planning removes stale isolation and bounds structural proces
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
     ({ file }) => file === 'tests/integration/workspace-engineering-ir.test.ts'
   )?.processLimit).toBe(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']);
+});
+
+test('fast process isolation AST recognizes executable global hazards without text false positives', () => {
+  const hazards = processGlobalHazards(`
+    // process.env.COMMENTED = 'not executable'; mock.module('commented', () => ({}));
+    const text = "delete process.env.STRING_ONLY; Object.assign(process.env, { STRING_ONLY: '1' });";
+    const observed = process.env.READ_ONLY;
+    const copy = { ...process.env };
+    process.env.ASSIGNED = '1';
+    process.env.COALESCED ??= '2';
+    delete process.env.DELETED;
+    Object.assign(process.env, { ASSIGNED_OBJECT: '3' });
+    mock.module('node:fs', () => ({}));
+  `, 'tests/unit/process-global-hazard-sentinel.test.ts');
+
+  expect(hazards.map(({ kind }) => kind)).toEqual([
+    'process-env-assignment',
+    'process-env-assignment',
+    'process-env-delete',
+    'process-env-object-assign',
+    'mock-module'
+  ]);
+});
+
+test('default fast process-global hazards have unique typed isolation and single-file queues', async () => {
+  const newlyIsolatedFiles = [
+    'tests/contract/document-control-plane-lifecycle.test.ts',
+    'tests/contract/repository-audit.test.ts',
+    'tests/unit/branch-lifecycle-temp-repo.test.ts',
+    'tests/unit/verification-action-github-provider.test.ts',
+    'tests/unit/verification-action-runner.test.ts',
+    'tests/unit/verification-session-runtime.test.ts'
+  ];
+  const lockedHazardFiles = [
+    ...newlyIsolatedFiles,
+    'tests/unit/test-runner.test.ts',
+    'tests/unit/command-runner.test.ts'
+  ];
+  const defaultFastFiles = getFastTestFilesSync().filter(isDefaultFastTestFile);
+  const detectedHazards = new Map<string, ProcessGlobalHazard[]>();
+
+  await Promise.all(defaultFastFiles.map(async (file) => {
+    const hazards = processGlobalHazards(await fs.readFile(file, 'utf8'), file);
+    if (hazards.length > 0) detectedHazards.set(file, hazards);
+  }));
+
+  expect([...detectedHazards.keys()]).toEqual(expect.arrayContaining(lockedHazardFiles));
+  for (const [file, hazards] of detectedHazards) {
+    expect(hazards.length).toBeGreaterThan(0);
+    const entries = FAST_TEST_PROCESS_ISOLATION_REGISTRY.filter((entry) => entry.file === file);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      resourceClass: 'independent-process',
+      processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']
+    });
+  }
+  for (const file of newlyIsolatedFiles) {
+    expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.filter((entry) => entry.file === file)).toEqual([
+      expect.objectContaining({
+        reason: 'process-global-environment',
+        resourceClass: 'independent-process'
+      })
+    ]);
+  }
+  for (const file of ['tests/unit/test-runner.test.ts', 'tests/unit/command-runner.test.ts']) {
+    expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.filter((entry) => entry.file === file)).toEqual([
+      expect.objectContaining({
+        reason: 'process-global-mocks',
+        resourceClass: 'independent-process'
+      })
+    ]);
+  }
+
+  const plan = planFastTestProcesses(newlyIsolatedFiles);
+  expect(plan.concurrentShards).toEqual([]);
+  expect(plan.resourceQueues['independent-process']).toEqual(newlyIsolatedFiles);
+  for (const resourceClass of plan.resourceClassOrder.filter(
+    (resourceClass) => resourceClass !== 'independent-process'
+  )) {
+    expect(plan.resourceQueues[resourceClass]).toEqual([]);
+  }
 });
 
 test('fast process resource classes uniquely derive limits and isolate production runtime owners', () => {

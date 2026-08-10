@@ -79,10 +79,16 @@ describe('canonical documentation authority', () => {
     const rollingPlan = CodexDevelopmentParseRollingPlanV1(rollingPlanSource);
     const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
     const selectedManifestId = path.posix.basename(pointer.manifest, '.md');
+    const manifestSource = await readCompilerFile(pointer.manifest);
+    const preservationDigest = manifestSource.match(
+      /sec-v10-preservation-plan-v1 digest (sha256:[0-9a-f]{64})/u
+    )?.[1];
+    const rawManifestDigest = pointerSource.match(
+      /manifestDigest: (sha256:[0-9a-f]{64})/u
+    )?.[1];
 
     expect(rollingPlan.activePackageId).toBe(selectedManifestId);
     expect(rollingPlan.candidatePackageIds).toEqual([
-      'verification-action-trusted-cutover-v10',
       'semantic-impact-failure-routing-v1',
       'feedback-scheduler-hermetic-runtime-v1',
       'compiler-incremental-toolchain-v1'
@@ -98,6 +104,43 @@ describe('canonical documentation authority', () => {
       '## 重新规划硬触发器',
       '## 加速验收'
     ]);
+    expect(preservationDigest).toBeDefined();
+    expect(rawManifestDigest).toBeDefined();
+    expectContainsAll(manifestSource, [
+      'exactly 100 unique paths: 86 exact mechanical non-overlap records',
+      'twelve bridge-overlap semantic replays',
+      '{baseCommit,baseTree,records,schema,sourceBaseCommit,sourceCommit,sourceTree}',
+      '{afterBlob,afterMode,beforeBlob,beforeMode,change,path}',
+      'git diff --no-renames --no-abbrev --raw',
+      '78e7a9eb678d8ac78ec4586f7fe5da8c7ff4d652',
+      'exclude the twelve semantic overlaps named below plus',
+      'The twelve semantic overlaps are',
+      'docs/verification-governance.md',
+      'scripts/codex/verification-action-github-provider.ts',
+      'scripts/codex/verification-session.ts',
+      'tests/unit/verification-action-github-provider.test.ts',
+      'tests/unit/verification-session-runtime.test.ts',
+      'sha256:532d9bebf20e539a956540c07123def5b4950e30b3d1de2a4318f0a54bc865a7',
+      'prior explicit plan, but is superseded by the four Review repairs',
+      'serialization is unreproducible and retired, not reusable Evidence'
+    ]);
+    expectContainsAll(pointerSource, [
+      '86-record mechanical plan',
+      preservationDigest!,
+      '86 个 exact blob/mode mechanical records',
+      '12 个从 M1 bridge',
+      'docs/verification-governance.md',
+      'verification-action-github-provider.ts',
+      'verification-session.ts'
+    ]);
+    expectContainsAll(rollingPlanSource, [
+      '86 exact blob/mode mechanical records',
+      '12 semantic overlap replays',
+      preservationDigest!,
+      '12 个 overlap',
+      'docs/verification-governance.md',
+      `raw manifest digest ${rawManifestDigest!}`
+    ]);
     expectContainsNone(rollingPlanSource, [
       '### implementation-resolution-architecture-convergence-v1',
       'canonical-architecture-convergence-v1',
@@ -107,6 +150,30 @@ describe('canonical documentation authority', () => {
       '#232',
       'Failure Epoch → Trusted Bootstrap → Evidence DAG'
     ]);
+  });
+
+  test('verification governance keeps trusted-cutover activation independent of rotating Work Package ids', async () => {
+    const [verificationGovernance, pointerSource] = await Promise.all([
+      readCompilerFile('docs/verification-governance.md'),
+      readCompilerFile('docs/work/active-work-package.md')
+    ]);
+    const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
+    const activeManifestId = path.posix.basename(pointer.manifest, '.md');
+
+    expectContainsAll(verificationGovernance, [
+      'T2 trusted-cutover epoch',
+      'integrated candidate',
+      'new `main`',
+      'exact commit/tree/',
+      'merged-tree readback',
+      'ordinary candidate canary',
+      '轮换中的Work Package identity只由',
+      'Document Control Plane拥有'
+    ]);
+    expect(verificationGovernance).not.toMatch(
+      /\bverification-action-trusted-cutover-v\d+\b/u
+    );
+    expect(verificationGovernance).not.toContain(activeManifestId);
   });
 
   test('compiler authority binds the pipeline kernel, IR layers, lowering, and single-writer migration', async () => {

@@ -188,18 +188,30 @@ jobs:
               throw new Error('Trusted-base trust-root registry is not strict UTF-8 JSON.');
             }
             const registryKeys = [
-              'causalRuntimePaths', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
+              'causalRuntimePaths', 'reviewedBoundaryEdges', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
               'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
             ];
             if (
               !registry || typeof registry !== 'object' || Array.isArray(registry) ||
-              registry.schema !== 'sec-trusted-bootstrap-registry-v1' ||
+              registry.schema !== 'sec-trusted-bootstrap-registry-v2' ||
               JSON.stringify(Object.keys(registry).sort()) !== JSON.stringify(registryKeys)
             ) throw new Error('Trusted-base trust-root registry schema is invalid.');
-            for (const key of ['staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'causalRuntimePaths']) {
+            for (const key of [
+              'staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'runtimeEntrypoints',
+              'reviewedSutEdges', 'reviewedBoundaryEdges', 'causalRuntimePaths'
+            ]) {
               if (!Array.isArray(registry[key]) || registry[key].some((entry) => typeof entry !== 'string')) {
                 throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);
               }
+            }
+            if (registry.reviewedBoundaryEdges.some((edge) => !/^[^ ]+ -> [^ ]+$/.test(edge)) ||
+                !registry.reviewedBoundaryEdges.includes(
+                  'scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts'
+                ) ||
+                !registry.reviewedBoundaryEdges.includes(
+                  'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'
+                )) {
+              throw new Error('Trusted-base reviewedBoundaryEdges do not match the canonical V2 boundary shape.');
             }
             const trustFiles = new Set([...registry.staticExactPaths, ...registry.causalRuntimePaths]);
             const selectTrust = (tree) => Object.fromEntries(tree.data.tree
@@ -425,8 +437,7 @@ jobs:
                   repositoryPath.split("/").some((segment) => segment.length === 0 || segment === "." || segment === ".."))) {
                 throw new Error("trusted bootstrap candidate changed-path inventory is not canonical.");
               }
-              const hardFailureReasons = new Set();
-              const registryPath = registryContract.SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V1;
+              const registryPath = registryContract.SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V2;
               const baseRegistryBytes = tcb.readTcbClosureCandidateFileV1(registryPath, baseSnapshotOptions);
               const candidateRegistryBytes = tcb.readTcbClosureCandidateFileV1(registryPath, candidateSnapshotOptions);
               const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -435,17 +446,18 @@ jobs:
               if (baseRegistryDigest !== required("SEC_BOOTSTRAP_REGISTRY_DIGEST")) {
                 throw new Error("trusted bootstrap checker base registry digest drifted.");
               }
-              const baseRegistry = registryContract.parseSecTrustedBootstrapRegistryV1(baseRegistryBytes.toString("utf8"));
+              const baseRegistry = registryContract.parseSecTrustedBootstrapRegistryV2(baseRegistryBytes.toString("utf8"));
               const baseUndecidablePaths = changedPaths
                 .filter((repositoryPath) =>
-                  registryContract.matchSecTrustedBootstrapPathV1(repositoryPath, baseRegistry) !== null
+                  registryContract.matchSecTrustedBootstrapPathV2(repositoryPath, baseRegistry) !== null
                 )
                 .sort();
               const manualReasons = new Set(baseUndecidablePaths.length === 0
                 ? []
                 : ["trusted-base-cannot-decide-checker-policy-or-validation-plan-change"]);
+              const hardFailureReasons = new Set();
               try {
-                registryContract.parseSecTrustedBootstrapRegistryV1(Buffer.from(candidateRegistryBytes).toString("utf8"));
+                registryContract.parseSecTrustedBootstrapRegistryV2(Buffer.from(candidateRegistryBytes).toString("utf8"));
               } catch (error) {
                 manualReasons.add(`candidate-registry-schema-or-policy-change:${error instanceof Error ? error.message : String(error)}`);
               }
@@ -457,35 +469,38 @@ jobs:
               if (checkerVerification.status !== "passed") {
                 throw new Error(`trusted bootstrap checker closure is not frozen: ${checkerVerification.failures.join(" | ")}`);
               }
-              const candidateLockSource = tcb.readTcbClosureCandidateFileV1(
-                "platform/shared/tcb-closure-lock.ts",
-                candidateSnapshotOptions
-              );
               let parsedCandidateLock = null;
+              let candidateLockSourceDigest = null;
               try {
-                parsedCandidateLock = tcb.parseTcbClosureLockSourceV1(Buffer.from(candidateLockSource).toString("utf8"));
+                const candidateLockSource = tcb.readTcbClosureCandidateFileV1(
+                  "platform/shared/tcb-closure-lock.ts",
+                  candidateSnapshotOptions
+                );
+                candidateLockSourceDigest = digest(candidateLockSource);
+                const candidateLockText = new TextDecoder("utf-8", { fatal: true }).decode(candidateLockSource);
+                parsedCandidateLock = tcb.parseTcbClosureGeneratedRegionV2(candidateLockText).lock;
               } catch (error) {
-                manualReasons.add(`candidate-lock-schema-or-checker-change:${error instanceof Error ? error.message : String(error)}`);
+                hardFailureReasons.add(`candidate-lock-v2-generated-region-invalid:${error instanceof Error ? error.message : String(error)}`);
               }
-              const expectedTrustRevision = expectedBase;
-              if (parsedCandidateLock && parsedCandidateLock.trustRevision !== expectedTrustRevision) {
-                hardFailureReasons.add("candidate-lock-trust-revision-is-not-exact-base-epoch");
+              let candidateLock = null;
+              try {
+                const candidateClosure = tcb.trustedRuntimeClosure(
+                  baseRegistry.runtimeEntrypoints,
+                  candidateSnapshotOptions
+                );
+                candidateLock = tcb.computeTcbClosureLock(candidateClosure, candidateSnapshotOptions);
+                if (JSON.stringify(candidateLock.modules) !== JSON.stringify(baseRegistry.causalRuntimePaths)) {
+                  manualReasons.add("candidate-causal-closure-differs-from-trusted-base-registry");
+                }
+              } catch (error) {
+                hardFailureReasons.add(`candidate-closure-computation-failed:${error instanceof Error ? error.message : String(error)}`);
               }
-              const candidateClosure = tcb.trustedRuntimeClosure(baseRegistry.runtimeEntrypoints, candidateSnapshotOptions);
-              const candidateLock = tcb.computeTcbClosureLock(
-                candidateClosure,
-                expectedTrustRevision,
-                candidateSnapshotOptions
-              );
-              if (parsedCandidateLock) {
+              if (parsedCandidateLock !== null && candidateLock !== null) {
                 try {
-                  tcb.assertTcbClosureLockDataMatchesV1(parsedCandidateLock, candidateLock);
+                  tcb.assertTcbClosureLockDataMatchesV2(parsedCandidateLock, candidateLock);
                 } catch (error) {
                   hardFailureReasons.add(`candidate-lock-does-not-match-base-computed-closure:${error instanceof Error ? error.message : String(error)}`);
                 }
-              }
-              if (JSON.stringify(candidateLock.modules) !== JSON.stringify(baseRegistry.causalRuntimePaths)) {
-                manualReasons.add("candidate-causal-closure-differs-from-trusted-base-registry");
               }
               const authorityVerdict = hardFailureReasons.size > 0
                 ? "failed"
@@ -518,8 +533,9 @@ jobs:
                   try {
                     const sutRoot = required("SUT_EVIDENCE_ROOT");
                     const evidenceFiles = [
-                      "imports.log", "docs-doctor.log", "typecheck.log", "diff-check.log",
-                      "focused-tests.log", "repository-audit.json", "affected-plan.json", "affected-tests.log"
+                      "tcb-lock-pre.json", "imports.log", "docs-doctor.log", "typecheck.log", "diff-check.log",
+                      "focused-tests.log", "repository-audit.json", "affected-plan.json", "affected-tests.log",
+                      "tcb-lock-post.json"
                     ];
                     const sumsSource = readFileSync(path.join(sutRoot, "SHA256SUMS"), "utf8");
                     const expectedLines = evidenceFiles.map((name) => {
@@ -587,9 +603,11 @@ jobs:
                 candidateParentSha: expectedBase,
                 registryDigest: baseRegistryDigest,
                 checkerClosureDigest: tcb.TCB_CLOSURE_LOCK.closureDigest,
-                candidateClosureDigest: candidateLock.closureDigest,
-                candidateTrustRevision: parsedCandidateLock?.trustRevision ?? null,
-                candidateModuleCount: candidateLock.moduleCount,
+                candidateClosureDigest: candidateLock?.closureDigest ?? null,
+                candidateFrozenClosureDigest: parsedCandidateLock?.closureDigest ?? null,
+                candidateLockSourceDigest,
+                candidateTrustRevision: candidateLock?.trustRevision ?? null,
+                candidateModuleCount: candidateLock?.moduleCount ?? null,
                 checkerProgramDigest: digest(readFileSync(import.meta.path)),
                 checkerToolBlob: blob(trustedRoot, "platform/shared/tcb-closure-lock.ts"),
                 checkerWorkflowBlob: blob(trustedRoot, ".github/workflows/sec-trusted-bootstrap.yml"),
@@ -683,13 +701,16 @@ jobs:
           CANDIDATE_ROOT="$(realpath "$CANDIDATE_ROOT")"
           out="$(realpath -m "$SUT_EVIDENCE_ROOT")"
           mkdir -p "$out"
-          for file in imports.log docs-doctor.log typecheck.log diff-check.log focused-tests.log repository-audit.json affected-plan.json affected-tests.log; do
+          for file in tcb-lock-pre.json imports.log docs-doctor.log typecheck.log diff-check.log focused-tests.log repository-audit.json affected-plan.json affected-tests.log tcb-lock-post.json; do
             : > "$out/$file"
           done
           set +e
           (
             set -euo pipefail
             cd "$CANDIDATE_ROOT"
+            trap 'suite_status=$?; set +e; post_status=0; bun scripts/ci-verification.ts tcb-closure-lock --mode check | tee "$out/tcb-lock-post.json" || post_status=$?; if test "$suite_status" -ne 0; then exit "$suite_status"; fi; exit "$post_status"' EXIT
+            bun scripts/ci-verification.ts tcb-closure-lock --mode check \
+              | tee "$out/tcb-lock-pre.json"
             git update-ref refs/remotes/origin/main "$SEC_BOOTSTRAP_BASE"
             bun run imports:check 2>&1 | tee "$out/imports.log"
             bun run docs:doctor 2>&1 | tee "$out/docs-doctor.log"
@@ -714,7 +735,7 @@ jobs:
           )
           sut_status=$?
           set -e
-          for file in imports.log docs-doctor.log typecheck.log diff-check.log focused-tests.log repository-audit.json affected-plan.json affected-tests.log; do
+          for file in tcb-lock-pre.json imports.log docs-doctor.log typecheck.log diff-check.log focused-tests.log repository-audit.json affected-plan.json affected-tests.log tcb-lock-post.json; do
             artifact="$out/$file"
             if test -L "$artifact" || ! test -f "$artifact"; then
               rm -f -- "$artifact"
@@ -727,7 +748,7 @@ jobs:
           done
           (
             cd "$out"
-            sha256sum imports.log docs-doctor.log typecheck.log diff-check.log focused-tests.log repository-audit.json affected-plan.json affected-tests.log > SHA256SUMS
+            sha256sum tcb-lock-pre.json imports.log docs-doctor.log typecheck.log diff-check.log focused-tests.log repository-audit.json affected-plan.json affected-tests.log tcb-lock-post.json > SHA256SUMS
           )
           export SEC_SUT_STATUS="$sut_status"
           export SEC_SUT_EVIDENCE_SET_DIGEST="sha256:$(sha256sum "$out/SHA256SUMS" | cut -d ' ' -f 1)"
@@ -778,6 +799,7 @@ jobs:
         with:
           name: sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
+            sut-evidence/tcb-lock-pre.json
             sut-evidence/imports.log
             sut-evidence/docs-doctor.log
             sut-evidence/typecheck.log
@@ -786,6 +808,7 @@ jobs:
             sut-evidence/repository-audit.json
             sut-evidence/affected-plan.json
             sut-evidence/affected-tests.log
+            sut-evidence/tcb-lock-post.json
             sut-evidence/SHA256SUMS
             sut-evidence/sut-receipt.json
           if-no-files-found: error
