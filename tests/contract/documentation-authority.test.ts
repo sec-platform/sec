@@ -8,8 +8,8 @@ import {
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseRollingPlanV1
 } from '../../scripts/codex/document-control-plane-contract.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
 import { NEXUS_EPR_BINDINGS_V1 } from '../../scripts/codex/repository-audit.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 

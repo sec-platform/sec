@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/skill-applicability-gate-v1.md
-manifestDigest: sha256:beadbc2343fdfe4f5c118281af244c94a1caa520d5cab66ff5a3807839935d8e
+manifestDigest: sha256:e86fa36469c8fa354d0546c4e679560173909d426df5539f0abed98e78ed2b5a
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

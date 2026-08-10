@@ -17,8 +17,8 @@ tasks:
       - docs/work-packages/skill-applicability-gate-v1.md
       - docs/work-packages/verification-action-trusted-cutover-v10.md
       - platform/shared/agent-skill-contract.ts
-      - platform/shared/test-impact-rules/governance.ts
       - scripts/codex/skill-applicability.ts
+      - tests/contract/documentation-authority.test.ts
       - tests/contract/skill-applicability.test.ts
       - tests/unit/skill-applicability-decision.test.ts
 forbiddenPaths:
@@ -64,6 +64,7 @@ tests:
   - tests/contract/agent-skills.test.ts
   - tests/contract/docs-doctor.test.ts
   - tests/contract/document-control-plane-lifecycle.test.ts
+  - tests/contract/documentation-authority.test.ts
   - tests/contract/skill-applicability.test.ts
   - tests/contract/test-impact.test.ts
   - tests/unit/agent-skill-markdown-classification.test.ts
