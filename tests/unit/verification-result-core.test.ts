@@ -440,7 +440,7 @@ test('validator rejects failed status with not-executed disposition', () => {
       invalidationRules: [],
       diagnostic: null
     });
-  }).toThrow(/failed status requires executed disposition/);
+  }).toThrow(/failed status requires executed or reused disposition/);
 });
 
 test('validator rejects reused disposition without evidenceRefs', () => {

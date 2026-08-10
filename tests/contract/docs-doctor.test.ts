@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -15,7 +16,8 @@ import {
   renderDocumentationIndex,
   type DocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
-import { CodexDevelopmentGitBlobSha256 } from '../../scripts/codex/document-control-plane-contract.ts';
+import { CodexDevelopmentParseActivePointerV2 } from '../../scripts/codex/document-control-plane-contract.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
 
 const ACTIVE_PACKAGE_ID = 'fixture-active-v1';
 const ACTIVE_MANIFEST = `docs/work-packages/${ACTIVE_PACKAGE_ID}.md`;
@@ -262,7 +264,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: ${ACTIVE_MANIFEST}
-manifestDigest: ${CodexDevelopmentGitBlobSha256(manifestBytes)}
+manifestDigest: ${CodexDevelopmentWorkPackageManifestDigest(manifestBytes)}
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
@@ -365,6 +367,66 @@ test('pointer digest and rolling-plan binding remain fail-closed', async () => {
     await fixture.dispose();
   }
 });
+
+test('production docs-doctor CLI rejects a selected manifest digest mismatch from one captured index tree', async () => {
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'sec-docs-doctor-cli-index-'));
+  try {
+    const gitIndexResult = spawnSync('git', ['rev-parse', '--git-path', 'index'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(gitIndexResult.status).toBe(0);
+    const gitIndexCandidate = gitIndexResult.stdout.trim();
+    const gitIndexPath = path.isAbsolute(gitIndexCandidate)
+      ? gitIndexCandidate
+      : path.resolve(process.cwd(), gitIndexCandidate);
+    const isolatedIndex = path.join(temporaryRoot, 'index');
+    await copyFile(gitIndexPath, isolatedIndex);
+    const environment = { ...process.env, GIT_INDEX_FILE: isolatedIndex };
+    const pointerResult = spawnSync('git', ['show', ':docs/work/active-work-package.md'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+      env: environment
+    });
+    expect(pointerResult.status).toBe(0);
+    const pointer = CodexDevelopmentParseActivePointerV2(pointerResult.stdout);
+    const replacementBlob = spawnSync('git', ['rev-parse', 'HEAD:README.md'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(replacementBlob.status).toBe(0);
+    const update = spawnSync('git', [
+      'update-index',
+      '--add',
+      '--cacheinfo',
+      '100644',
+      replacementBlob.stdout.trim(),
+      pointer.manifest
+    ], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+      env: environment
+    });
+    expect(update.status).toBe(0);
+    const cli = spawnSync(process.execPath, [path.resolve('docs/scripts/docs-doctor.ts')], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      windowsHide: true,
+      env: environment,
+      timeout: 60_000
+    });
+    expect(cli.status).toBe(1);
+    expect(`${cli.stderr}\n${cli.stdout}`).toContain(
+      'Active pointer manifest digest does not match candidate manifest bytes.'
+    );
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+}, 60_000);
 
 test('machine ledger version drift is rejected against package authority', async () => {
   const fixture = await createFixture();

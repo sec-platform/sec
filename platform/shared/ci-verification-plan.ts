@@ -11,8 +11,13 @@ export const CI_VERIFICATION_ARTIFACT_NAMESPACE = CI_VERIFICATION_CONTRACT_REVIS
   /^ci-/u,
   'sec-'
 );
-export { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
-export const CI_VERIFICATION_EXECUTION_MODEL = 'frozen-delivery-single-runner' as const;
+export {
+  CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION, CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
+  CI_VERIFICATION_SESSION_CONTRACT_REVISION,
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+  CI_VERIFICATION_SESSION_REQUEST_SCHEMA
+} from './ci-verification-revision.ts';
+export const CI_VERIFICATION_EXECUTION_MODEL = 'verification-session-v2-action-closure' as const;
 
 export type CiVerificationGatePhase = 'quick' | 'risk' | 'full' | 'workspace';
 

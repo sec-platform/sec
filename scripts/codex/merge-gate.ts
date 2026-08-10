@@ -1,952 +1,662 @@
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 import {
-  CodexDevelopmentRegisteredEvidenceCompositionPolicyV1,
-  CodexDevelopmentRequiredEvidenceCompositionPolicyV1,
-  CodexDevelopmentSm3P0EvidencePolicyIdV1,
-  CodexDevelopmentSm3P0LegacyTestedHeadV1,
-  CodexDevelopmentSm3P0WorkPackageIdV1
-} from '../../platform/shared/ci-evidence-composition-policy-registry.ts';
-import {
-  CodexDevelopmentAssertVerificationEvidenceV2,
-  CodexDevelopmentAssertVerificationEvidenceV3,
-  CodexDevelopmentVerificationDigest,
-  type CodexDevelopmentVerificationEvidenceV2,
-  type CodexDevelopmentVerificationEvidenceV3
+  CodexDevelopmentAssertVerificationEvidenceV4,
+  CodexDevelopmentAssertVerificationSessionArtifactV2,
+  type CodexDevelopmentVerificationSessionArtifactV2
 } from '../../platform/shared/ci-evidence-contract.ts';
+import { CI_VERIFICATION_SESSION_ARTIFACT_PREFIX } from '../../platform/shared/ci-verification-revision.ts';
 import {
-  CodexDevelopmentBuildEvidenceCompositionPlanV1,
-  type CodexDevelopmentExactGitBlobBytesV1,
-  type CodexDevelopmentExactGitBlobV1
-} from '../../platform/shared/ci-evidence-reuse-contract.ts';
+  createIntegrationAuthorizationV1,
+  parseIntegrationAuthorizationV1,
+  type IntegrationAuthorizationV1
+} from '../../platform/shared/integration-authorization-contract.ts';
 import {
-  CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1,
-  type CodexDevelopmentCiExecutionEnvironmentBindingV1
-} from '../../platform/shared/ci-execution-environment.ts';
+  parseMainHealthLedgerV1,
+  resolveMainHealthLaneV1,
+  type MainHealthLedgerV1
+} from '../../platform/shared/main-health-contract.ts';
 import {
-  decodeGitPathOutput,
-  gitChangedFileDiffArgs,
-  parseGitChangedRecordsOutput,
-  type CodexDevelopmentGitChangedRecordV1
-} from '../../platform/shared/ci-git-changed-files.ts';
+  assertReviewStabilityReceiptCurrentV1,
+  parseReviewStabilityReceiptV1,
+  type ReviewStabilityReceiptV1
+} from '../../platform/shared/review-stability-contract.ts';
 import {
-  CI_VERIFICATION_ARTIFACT_NAMESPACE,
-  CI_VERIFICATION_CONTRACT_REVISION,
-  CodexDevelopmentBuildVerificationInputV2,
-  CodexDevelopmentBuildVerificationPlanV1,
-  CodexDevelopmentCanonicalChangedFilesV1
-} from '../../platform/shared/ci-verification-plan.ts';
-import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from '../../platform/shared/ci-verification-revision.ts';
-import { matchSecTrustedBootstrapPathV1 } from '../../platform/shared/tcb-trust-root-contract.ts';
-import { isTestFile } from '../../platform/shared/test-budget-contract.ts';
-import { CodexDevelopmentBuildVerificationScopeInventoryV1 } from '../../platform/shared/verification-scope-inventory.ts';
+  assertScopeAuthorizationCurrentV1,
+  type ScopeAuthorizationV1
+} from '../../platform/shared/scope-authorization-contract.ts';
 import {
-  CodexDevelopmentAssertWorkPackageChangedRecords,
-  CodexDevelopmentParseWorkPackageLocator,
-  CodexDevelopmentParseWorkPackageManifest,
-  CodexDevelopmentWorkPackageManifestDigest,
-  CodexDevelopmentWorkPackageSchemaV1,
-  CodexDevelopmentWorkPackageSchemaV2,
-  type CodexDevelopmentWorkPackageChangedRecordV1,
-  type CodexDevelopmentWorkPackageManifest
-} from './work-package-contract.ts';
+  parseCiVerificationActionPlanClosureV1,
+  type CiVerificationActionPlanClosureV1
+} from '../../platform/shared/verification-action-ci-contract.ts';
+import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
+import type { VerificationSessionV2 } from '../../platform/shared/verification-session-contract.ts';
 
-export const CodexDevelopmentScopeAttestationSchemaV1 = 'codex-development-scope-attestation-v1' as const;
-export const CodexDevelopmentScopeAttestationRequestSchemaV1 = 'codex-development-scope-attestation-request-v1' as const;
-export const CodexDevelopmentMergeGateInputSchemaV1 = 'codex-development-merge-gate-input-v1' as const;
-export const CodexDevelopmentScopeAttestationFileV1 = 'codex-development-scope-attestation-v1.json' as const;
-export const CodexDevelopmentVerificationEvidenceFileV2 = 'ci-verification-evidence.json' as const;
-export const CodexDevelopmentArtifactSafetyWindowMs = 24 * 60 * 60 * 1_000;
+export const CodexDevelopmentMergeGateInputSchemaV2 =
+  'codex-development-merge-gate-input-v2' as const;
+export const CodexDevelopmentMergeGateResultSchemaV2 =
+  'codex-development-merge-gate-result-v2' as const;
+export const CodexDevelopmentMergeGateProducerIdentityV2 =
+  'scripts/codex/merge-gate.ts' as const;
 
+export type MergeGateDigestV2 = `sha256:${string}`;
 
-type CodexDevelopmentRepositoryPermission = 'read' | 'triage' | 'write' | 'maintain' | 'admin';
-
-export type CodexDevelopmentScopeAttestationRequestV1 = {
-  schema: typeof CodexDevelopmentScopeAttestationRequestSchemaV1;
-  repository: string;
-  repositoryId: number;
-  pullRequest: number;
-  defaultBranch: string;
-  currentBase: string;
-  exactHead: string;
-  baseRepoId: number;
-  headRepoId: number;
-  manifestPath: string;
-  expectedManifestDigest: string;
-  expectedManifestBlobSha: string;
-  expectedManifestByteLength: number;
-  eventName: 'repository_dispatch';
-  eventType: 'sec-scope-attest-v1';
-  workflowId: number;
-  workflowPath: '.github/workflows/sec-merge-gate.yml';
-  workflowHeadSha: string;
-  runId: number;
-  runAttempt: number;
-  actor: string;
-  triggeringActor: string;
-  actorPermission: CodexDevelopmentRepositoryPermission;
-  triggeringActorPermission: CodexDevelopmentRepositoryPermission;
-};
-
-export type CodexDevelopmentScopeAttestationV1 = {
-  schema: typeof CodexDevelopmentScopeAttestationSchemaV1;
-  repository: string;
-  repositoryId: number;
-  pullRequest: number;
-  defaultBranch: string;
-  currentBase: string;
-  exactHead: string;
-  manifestPath: string;
-  manifestDigest: string;
-  manifestBlobSha: string;
-  manifestByteLength: number;
-  requiredProfile: 'quick' | 'full';
-  ciRevision:
-    | typeof CI_VERIFICATION_CONTRACT_REVISION
-    | typeof CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION;
-  workflowId: number;
-  workflowPath: '.github/workflows/sec-merge-gate.yml';
-  runId: number;
-  runAttempt: number;
-  actor: string;
-  triggeringActor: string;
-};
-
-type CodexDevelopmentWorkflowRunV1 = {
-  workflowId: number;
-  workflowPath: string;
-  runId: number;
-  runAttempt: number;
-  event: string;
-  headSha: string;
-  headBranch: string;
-  conclusion: string;
-  actor: string;
-  triggeringActor: string;
-  actorPermission: CodexDevelopmentRepositoryPermission;
-  triggeringActorPermission: CodexDevelopmentRepositoryPermission;
-};
-
-type CodexDevelopmentArtifactMetadataV1 = {
-  id: number;
-  name: string;
-  digest: string | null;
-  expired: boolean;
-  expiresAt: string;
-  sizeInBytes: number;
-  run: CodexDevelopmentWorkflowRunV1;
-};
-
-export type CodexDevelopmentMergeGateInputV1 = {
-  schema: typeof CodexDevelopmentMergeGateInputSchemaV1;
-  repository: string;
-  repositoryId: number;
-  pullRequest: number;
-  body: string;
-  draft: boolean;
-  defaultBranch: string;
-  baseRepoId: number;
-  headRepoId: number;
-  currentBase: string;
-  exactHead: string;
-  headTree: string;
-  headParents: string[];
-  aheadBy: number;
-  behindBy: number;
-  headOpenPullRequestCount: number;
-  manifestPath: string;
-  manifestBlobSha: string;
-  manifestByteLength: number;
-  changedRecords: CodexDevelopmentWorkPackageChangedRecordV1[];
-  checkedAt: string;
-  attestationWorkflowId: number;
-  verificationWorkflowId: number;
-  attestationArtifact: CodexDevelopmentArtifactMetadataV1;
-  verificationArtifact: CodexDevelopmentArtifactMetadataV1;
-};
-
-export type CodexDevelopmentMergeGateResultV1 = {
-  status: 'passed';
-  context: 'sec/merge-gate';
-  pullRequest: number;
-  exactHead: string;
-  currentBase: string;
-  manifestPath: string;
-  manifestDigest: string;
-  requiredProfile: 'quick' | 'full';
-  evidenceDigest: string;
-};
-
-const SHA_PATTERN = /^[0-9a-f]{40}$/u;
-const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/u;
-const ATTESTATION_REQUEST_KEYS = [
-  'schema', 'repository', 'repositoryId', 'pullRequest', 'defaultBranch', 'currentBase', 'exactHead', 'baseRepoId',
-  'headRepoId', 'manifestPath', 'expectedManifestDigest', 'expectedManifestBlobSha', 'expectedManifestByteLength',
-  'eventName', 'eventType', 'workflowId', 'workflowPath',
-  'workflowHeadSha', 'runId', 'runAttempt', 'actor', 'triggeringActor', 'actorPermission', 'triggeringActorPermission'
-];
-const ATTESTATION_KEYS = [
-  'schema', 'repository', 'repositoryId', 'pullRequest', 'defaultBranch', 'currentBase', 'exactHead', 'manifestPath',
-  'manifestDigest', 'manifestBlobSha', 'manifestByteLength', 'requiredProfile', 'ciRevision', 'workflowId', 'workflowPath', 'runId',
-  'runAttempt', 'actor', 'triggeringActor'
-];
-const RUN_KEYS = [
-  'workflowId', 'workflowPath', 'runId', 'runAttempt', 'event', 'headSha', 'headBranch', 'conclusion', 'actor',
-  'triggeringActor', 'actorPermission', 'triggeringActorPermission'
-];
-const ARTIFACT_KEYS = ['id', 'name', 'digest', 'expired', 'expiresAt', 'sizeInBytes', 'run'];
-const GATE_INPUT_KEYS = [
-  'schema', 'repository', 'repositoryId', 'pullRequest', 'body', 'draft', 'defaultBranch', 'baseRepoId', 'headRepoId',
-  'currentBase', 'exactHead', 'headTree', 'headParents', 'aheadBy', 'behindBy', 'headOpenPullRequestCount',
-  'manifestPath', 'manifestBlobSha', 'manifestByteLength', 'changedRecords', 'checkedAt',
-  'attestationWorkflowId', 'verificationWorkflowId',
-  'attestationArtifact', 'verificationArtifact'
-];
-
-function manifestVerificationBinding(manifest: CodexDevelopmentWorkPackageManifest): {
-  requiredProfile: 'quick' | 'full';
-  ciRevision:
-    | typeof CI_VERIFICATION_CONTRACT_REVISION
-    | typeof CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION;
-} {
-  if (manifest.schema === CodexDevelopmentWorkPackageSchemaV1) {
-    if (manifest.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION) {
-      throw new Error('Work Package manifest CI revision is not current for V1.');
-    }
-    return { requiredProfile: manifest.requiredProfile, ciRevision: manifest.ciRevision };
-  }
-  if (
-    manifest.schema !== CodexDevelopmentWorkPackageSchemaV2
-    || manifest.id !== CodexDevelopmentSm3P0WorkPackageIdV1
-    || manifest.evidenceComposition.policyId !== CodexDevelopmentSm3P0EvidencePolicyIdV1
-  ) {
-    throw new Error('Work Package V2 manifest does not select a base-registered composition policy.');
-  }
-  return { requiredProfile: 'quick', ciRevision: CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION };
+export interface CodexDevelopmentMergeGateProvenanceV2 {
+  readonly workflowPath: '.github/workflows/sec-merge-gate.yml';
+  readonly workflowRef: string;
+  readonly workflowSha: string;
+  readonly eventName: 'workflow_run';
+  readonly sourceRunId: string;
+  readonly sourceRunAttempt: number;
+  readonly actorNodeId: string;
+  readonly actorPermission: 'maintain' | 'admin';
+  readonly sourceDigest: MergeGateDigestV2;
 }
 
-function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) {
-    throw new Error(`${label} must be a plain object.`);
-  }
+export interface CodexDevelopmentMergeGateCandidateV2 {
+  readonly repository: string;
+  readonly prNumber: number;
+  readonly draft: false;
+  readonly headOpenPullRequestCount: 1;
+  readonly currentBaseSha: string;
+  readonly currentBaseTreeSha: string;
+  readonly headSha: string;
+  readonly headTreeSha: string;
+  readonly baseIsAncestor: true;
+  readonly behindBy: 0;
+  readonly manifestPath: string;
+  readonly manifestDigest: MergeGateDigestV2;
+  readonly changedPaths: readonly string[];
 }
 
-function assertExactKeys(value: Record<string, unknown>, keys: string[], label: string): void {
-  const actual = Object.keys(value).sort();
+export interface CodexDevelopmentMergeGatePlatformObservationV2 {
+  readonly status: 'available' | 'platform-enforcement-unavailable';
+  readonly rulesetDigest: MergeGateDigestV2;
+  readonly reason: string | null;
+}
+
+export interface CodexDevelopmentHostedArtifactObservationV2 {
+  readonly artifactId: string;
+  readonly artifactName: string;
+  readonly artifactFileName: 'verification-session-artifact.json';
+  readonly artifactByteDigest: MergeGateDigestV2;
+  readonly artifactByteLength: number;
+  readonly artifactExpired: false;
+  readonly workflowPath: '.github/workflows/compiler-pr-validation.yml';
+  readonly workflowRef: string;
+  readonly workflowSha: string;
+  readonly runId: string;
+  readonly runAttempt: number;
+  readonly eventName: 'repository_dispatch';
+  readonly actorNodeId: string;
+  readonly actorPermission: 'maintain' | 'admin';
+  readonly downloadTransport: 'github-actions-artifact-api';
+}
+
+export interface CodexDevelopmentMergeGateInputV2 {
+  readonly schema: typeof CodexDevelopmentMergeGateInputSchemaV2;
+  readonly provenance: CodexDevelopmentMergeGateProvenanceV2;
+  readonly candidate: CodexDevelopmentMergeGateCandidateV2;
+  readonly artifact: CodexDevelopmentVerificationSessionArtifactV2;
+  readonly hostedArtifactOrigin: CodexDevelopmentHostedArtifactObservationV2;
+  readonly hostedArtifactTransport: CodexDevelopmentHostedArtifactObservationV2;
+  readonly expectedActionPlan: CiVerificationActionPlanClosureV1;
+  readonly reviewReceipt: ReviewStabilityReceiptV1;
+  readonly reviewSnapshotDigest: MergeGateDigestV2;
+  readonly mainHealth: MainHealthLedgerV1;
+  readonly environmentDigest: MergeGateDigestV2;
+  readonly trustRevision: string;
+  readonly platformObservation: CodexDevelopmentMergeGatePlatformObservationV2;
+  readonly consumptionOperationId: MergeGateDigestV2;
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+}
+
+export type CodexDevelopmentMergeGateInputFieldsV2 = Omit<
+  CodexDevelopmentMergeGateInputV2,
+  'schema'
+>;
+
+export interface CodexDevelopmentMergeGateResultV2 {
+  readonly schema: typeof CodexDevelopmentMergeGateResultSchemaV2;
+  readonly status: 'authorized';
+  readonly authorization: IntegrationAuthorizationV1;
+  readonly reviewReceipt: ReviewStabilityReceiptV1;
+  readonly mainHealth: MainHealthLedgerV1;
+  readonly platformObservation: CodexDevelopmentMergeGatePlatformObservationV2;
+  readonly hostedArtifactOrigin: CodexDevelopmentHostedArtifactObservationV2;
+  readonly hostedArtifactTransport: CodexDevelopmentHostedArtifactObservationV2;
+  readonly provenance: CodexDevelopmentMergeGateProvenanceV2;
+  readonly terminalStatusContext: 'sec/merge-gate';
+  readonly resultDigest: MergeGateDigestV2;
+}
+
+function fail(message: string): never { throw new Error(`MergeGate ${message}`); }
+function text(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 512 || /[\u0000-\u001f]/u.test(value)) fail(`${label} must be bounded text.`);
+  return value;
+}
+function sha(value: unknown, label: string): string {
+  const result = text(value, label);
+  if (!/^[0-9a-f]{40}$/u.test(result)) fail(`${label} must be a lowercase Git SHA.`);
+  return result;
+}
+function digest(value: unknown, label: string): MergeGateDigestV2 {
+  if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) fail(`${label} must be a SHA-256 digest.`);
+  return value as MergeGateDigestV2;
+}
+function instant(value: unknown, label: string): string {
+  const result = text(value, label);
+  if (new Date(result).toISOString() !== result) fail(`${label} must be a canonical ISO timestamp.`);
+  return result;
+}
+function hash(value: unknown): MergeGateDigestV2 {
+  return `sha256:${createHash('sha256').update(encodeVerificationActionDataV2(value)).digest('hex')}`;
+}
+function exact(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object.`);
+  const record = value as Record<string, unknown>;
+  const actual = Object.keys(record).sort();
   const expected = [...keys].sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
-    throw new Error(`${label} has unknown or missing fields.`);
+    fail(`${label} must contain exactly: ${expected.join(', ')}.`);
   }
+  return record;
 }
 
-function assertString(value: unknown, label: string, maximum = 4_096): asserts value is string {
-  if (
-    typeof value !== 'string'
-    || value.length === 0
-    || value.length > maximum
-    || value.includes('\0')
-    || value.normalize('NFC') !== value
-  ) {
-    throw new Error(`${label} must be bounded NFC text without NUL characters.`);
+export function createMergeGateProvenanceV2(input: Omit<
+  CodexDevelopmentMergeGateProvenanceV2,
+  'sourceDigest'
+>): CodexDevelopmentMergeGateProvenanceV2 {
+  if (input.workflowPath !== '.github/workflows/sec-merge-gate.yml') fail('workflowPath is not canonical.');
+  const workflowSha = sha(input.workflowSha, 'provenance.workflowSha');
+  const expectedRef = `.github/workflows/sec-merge-gate.yml@${workflowSha}`;
+  if (input.workflowRef !== expectedRef) fail('workflowRef must bind the exact trusted workflow blob revision.');
+  if (input.eventName !== 'workflow_run') fail('authorization can only originate from workflow_run after hosted Evidence.');
+  if (!Number.isSafeInteger(input.sourceRunAttempt) || input.sourceRunAttempt < 1) fail('sourceRunAttempt is invalid.');
+  if (input.actorPermission !== 'maintain' && input.actorPermission !== 'admin') fail('actor permission is insufficient.');
+  const withoutDigest = Object.freeze({
+    workflowPath: input.workflowPath,
+    workflowRef: input.workflowRef,
+    workflowSha,
+    eventName: input.eventName,
+    sourceRunId: text(input.sourceRunId, 'provenance.sourceRunId'),
+    sourceRunAttempt: input.sourceRunAttempt,
+    actorNodeId: text(input.actorNodeId, 'provenance.actorNodeId'),
+    actorPermission: input.actorPermission
+  });
+  return Object.freeze({ ...withoutDigest, sourceDigest: hash(withoutDigest) });
+}
+
+function assertProvenance(
+  provenance: CodexDevelopmentMergeGateProvenanceV2,
+  currentBase: string
+): CodexDevelopmentMergeGateProvenanceV2 {
+  const parsed = exact(provenance, [
+    'workflowPath', 'workflowRef', 'workflowSha', 'eventName', 'sourceRunId', 'sourceRunAttempt',
+    'actorNodeId', 'actorPermission', 'sourceDigest'
+  ], 'provenance');
+  const rebuilt = createMergeGateProvenanceV2(parsed as unknown as Omit<CodexDevelopmentMergeGateProvenanceV2, 'sourceDigest'>);
+  if (rebuilt.sourceDigest !== parsed.sourceDigest) fail('provenance source digest mismatch.');
+  if (rebuilt.workflowSha !== currentBase) fail('candidate/runtime workflow cannot issue authorization; workflow SHA must equal live trusted base.');
+  return rebuilt;
+}
+
+function assertCandidate(candidate: CodexDevelopmentMergeGateCandidateV2): void {
+  exact(candidate, [
+    'repository', 'prNumber', 'draft', 'headOpenPullRequestCount', 'currentBaseSha', 'currentBaseTreeSha',
+    'headSha', 'headTreeSha', 'baseIsAncestor', 'behindBy', 'manifestPath', 'manifestDigest', 'changedPaths'
+  ], 'candidate');
+  text(candidate.repository, 'candidate.repository');
+  if (!Number.isSafeInteger(candidate.prNumber) || candidate.prNumber < 1) fail('candidate.prNumber is invalid.');
+  if (candidate.draft !== false || candidate.headOpenPullRequestCount !== 1) fail('candidate is draft or exact head is ambiguous.');
+  sha(candidate.currentBaseSha, 'candidate.currentBaseSha');
+  sha(candidate.currentBaseTreeSha, 'candidate.currentBaseTreeSha');
+  sha(candidate.headSha, 'candidate.headSha');
+  sha(candidate.headTreeSha, 'candidate.headTreeSha');
+  if (candidate.baseIsAncestor !== true || candidate.behindBy !== 0) {
+    fail('candidate must contain current base and must not be behind; multi-commit candidates are allowed.');
   }
+  text(candidate.manifestPath, 'candidate.manifestPath');
+  digest(candidate.manifestDigest, 'candidate.manifestDigest');
+  if (!Array.isArray(candidate.changedPaths) || candidate.changedPaths.length === 0) fail('candidate.changedPaths is unresolved.');
 }
 
-function assertPositiveInteger(value: unknown, label: string): asserts value is number {
-  if (!Number.isSafeInteger(value) || (value as number) <= 0) throw new Error(`${label} must be a positive integer.`);
-}
-
-function assertSha(value: unknown, label: string): asserts value is string {
-  if (typeof value !== 'string' || !SHA_PATTERN.test(value)) throw new Error(`${label} must be a lowercase Git SHA.`);
-}
-
-function assertDigest(value: unknown, label: string): asserts value is string {
-  if (typeof value !== 'string' || !DIGEST_PATTERN.test(value)) throw new Error(`${label} must be a sha256 digest.`);
-}
-
-function assertPermission(value: unknown, label: string): asserts value is CodexDevelopmentRepositoryPermission {
-  if (!['read', 'triage', 'write', 'maintain', 'admin'].includes(String(value))) throw new Error(`${label} is invalid.`);
-}
-
-function trustedPermission(permission: CodexDevelopmentRepositoryPermission): boolean {
-  return permission === 'maintain' || permission === 'admin';
-}
-
-function strictJson<T>(source: string, label: string): T {
-  let value: unknown;
-  try {
-    value = JSON.parse(source);
-  } catch (error) {
-    throw new Error(`${label} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+function canonicalPlatformObservation(
+  value: CodexDevelopmentMergeGatePlatformObservationV2
+): CodexDevelopmentMergeGatePlatformObservationV2 {
+  exact(value, ['status', 'rulesetDigest', 'reason'], 'platformObservation');
+  if (value.status !== 'available' && value.status !== 'platform-enforcement-unavailable') {
+    fail('platformObservation status is unknown; authorization is locked.');
   }
-  if (JSON.stringify(value) !== source) throw new Error(`${label} must use canonical compact JSON bytes.`);
-  return value as T;
-}
-
-function decodeUtf8(bytes: Uint8Array, label: string): string {
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  } catch {
-    throw new Error(`${label} must be strict UTF-8.`);
-  }
-}
-
-function gitBlobSha(bytes: Uint8Array): string {
-  return createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex');
-}
-
-function readSingleCanonicalJsonArtifact(directory: string, expectedFile: string): unknown {
-  const absoluteDirectory = path.resolve(directory);
-  const directoryStat = lstatSync(absoluteDirectory);
-  if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) throw new Error('Artifact extraction root must be a real directory.');
-  const entries = readdirSync(absoluteDirectory, { withFileTypes: true });
-  if (entries.length !== 1) throw new Error(`Artifact directory must contain exactly one entry; found ${entries.length}.`);
-  const entry = entries[0]!;
-  if (entry.name !== expectedFile || !entry.isFile() || entry.isSymbolicLink()) {
-    throw new Error(`Artifact must contain one regular ${expectedFile} file.`);
-  }
-  const filePath = path.join(absoluteDirectory, entry.name);
-  const stat = lstatSync(filePath);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 1_048_576) {
-    throw new Error('Artifact JSON file type or size is invalid.');
-  }
-  return strictJson(decodeUtf8(readFileSync(filePath), `artifact ${expectedFile}`), `artifact ${expectedFile}`);
-}
-
-function readManifestBytes(filePath: string): Uint8Array {
-  const stat = lstatSync(filePath);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 1_048_576) {
-    throw new Error('Work Package manifest must be one bounded regular file.');
-  }
-  return readFileSync(filePath);
-}
-
-function validateAttestationRequest(value: unknown): CodexDevelopmentScopeAttestationRequestV1 {
-  assertObject(value, 'scope attestation request');
-  assertExactKeys(value, ATTESTATION_REQUEST_KEYS, 'scope attestation request');
-  if (value.schema !== CodexDevelopmentScopeAttestationRequestSchemaV1) throw new Error('Scope attestation request schema mismatch.');
-  assertString(value.repository, 'scope attestation request repository');
-  assertPositiveInteger(value.repositoryId, 'scope attestation request repositoryId');
-  assertPositiveInteger(value.pullRequest, 'scope attestation request pullRequest');
-  assertString(value.defaultBranch, 'scope attestation request defaultBranch');
-  assertSha(value.currentBase, 'scope attestation request currentBase');
-  assertSha(value.exactHead, 'scope attestation request exactHead');
-  assertPositiveInteger(value.baseRepoId, 'scope attestation request baseRepoId');
-  assertPositiveInteger(value.headRepoId, 'scope attestation request headRepoId');
-  assertString(value.manifestPath, 'scope attestation request manifestPath');
-  assertDigest(value.expectedManifestDigest, 'scope attestation request expectedManifestDigest');
-  assertSha(value.expectedManifestBlobSha, 'scope attestation request expectedManifestBlobSha');
-  assertPositiveInteger(value.expectedManifestByteLength, 'scope attestation request expectedManifestByteLength');
-  if (value.eventName !== 'repository_dispatch' || value.eventType !== 'sec-scope-attest-v1') {
-    throw new Error('Scope attestation must originate from sec-scope-attest-v1 repository_dispatch.');
-  }
-  assertPositiveInteger(value.workflowId, 'scope attestation request workflowId');
-  if (value.workflowPath !== '.github/workflows/sec-merge-gate.yml') throw new Error('Scope attestation workflow path mismatch.');
-  assertSha(value.workflowHeadSha, 'scope attestation request workflowHeadSha');
-  assertPositiveInteger(value.runId, 'scope attestation request runId');
-  assertPositiveInteger(value.runAttempt, 'scope attestation request runAttempt');
-  assertString(value.actor, 'scope attestation request actor');
-  assertString(value.triggeringActor, 'scope attestation request triggeringActor');
-  assertPermission(value.actorPermission, 'scope attestation request actorPermission');
-  assertPermission(value.triggeringActorPermission, 'scope attestation request triggeringActorPermission');
-  return value as CodexDevelopmentScopeAttestationRequestV1;
-}
-
-export function CodexDevelopmentBuildScopeAttestationV1(
-  rawRequest: unknown,
-  manifestBytes: Uint8Array
-): CodexDevelopmentScopeAttestationV1 {
-  const request = validateAttestationRequest(rawRequest);
-  if (request.baseRepoId !== request.repositoryId || request.headRepoId !== request.repositoryId) {
-    throw new Error('Scope attestation only supports same-repository pull requests.');
-  }
-  if (request.workflowHeadSha !== request.currentBase) throw new Error('Scope attestation workflow did not run from current base code.');
-  if (!trustedPermission(request.actorPermission) || !trustedPermission(request.triggeringActorPermission)) {
-    throw new Error('Scope attestation requires maintain or admin actor and triggering actor permissions.');
-  }
-  const manifestSource = decodeUtf8(manifestBytes, 'Work Package manifest');
-  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, request.manifestPath);
-  const verificationBinding = manifestVerificationBinding(manifest);
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(manifestBytes);
-  const manifestBlobSha = gitBlobSha(manifestBytes);
-  if (
-    manifest.base !== request.currentBase
-    || manifestDigest !== request.expectedManifestDigest
-    || manifestBlobSha !== request.expectedManifestBlobSha
-    || manifestBytes.byteLength !== request.expectedManifestByteLength
-  ) {
-    throw new Error('Scope attestation manifest/base expectation mismatch.');
-  }
-  return {
-    schema: CodexDevelopmentScopeAttestationSchemaV1,
-    repository: request.repository,
-    repositoryId: request.repositoryId,
-    pullRequest: request.pullRequest,
-    defaultBranch: request.defaultBranch,
-    currentBase: request.currentBase,
-    exactHead: request.exactHead,
-    manifestPath: request.manifestPath,
-    manifestDigest,
-    manifestBlobSha,
-    manifestByteLength: manifestBytes.byteLength,
-    requiredProfile: verificationBinding.requiredProfile,
-    ciRevision: verificationBinding.ciRevision,
-    workflowId: request.workflowId,
-    workflowPath: request.workflowPath,
-    runId: request.runId,
-    runAttempt: request.runAttempt,
-    actor: request.actor,
-    triggeringActor: request.triggeringActor
-  };
-}
-
-function validateRun(value: unknown, label: string): CodexDevelopmentWorkflowRunV1 {
-  assertObject(value, label);
-  assertExactKeys(value, RUN_KEYS, label);
-  for (const key of ['workflowId', 'runId', 'runAttempt'] as const) assertPositiveInteger(value[key], `${label}.${key}`);
-  for (const key of ['workflowPath', 'event', 'headBranch', 'conclusion', 'actor', 'triggeringActor'] as const) {
-    assertString(value[key], `${label}.${key}`);
-  }
-  assertSha(value.headSha, `${label}.headSha`);
-  assertPermission(value.actorPermission, `${label}.actorPermission`);
-  assertPermission(value.triggeringActorPermission, `${label}.triggeringActorPermission`);
-  return value as CodexDevelopmentWorkflowRunV1;
-}
-
-function validateArtifact(value: unknown, label: string, checkedAt: Date): CodexDevelopmentArtifactMetadataV1 {
-  assertObject(value, label);
-  assertExactKeys(value, ARTIFACT_KEYS, label);
-  assertPositiveInteger(value.id, `${label}.id`);
-  assertString(value.name, `${label}.name`);
-  assertDigest(value.digest, `${label}.digest`);
-  if (value.expired !== false) throw new Error(`${label} is expired.`);
-  assertString(value.expiresAt, `${label}.expiresAt`);
-  const expiresAt = new Date(value.expiresAt);
-  if (
-    !Number.isFinite(expiresAt.getTime())
-    || expiresAt.toISOString() !== value.expiresAt
-    || expiresAt.getTime() - checkedAt.getTime() < CodexDevelopmentArtifactSafetyWindowMs
-  ) {
-    throw new Error(`${label} is inside the 24-hour safety window.`);
-  }
-  assertPositiveInteger(value.sizeInBytes, `${label}.sizeInBytes`);
-  if ((value.sizeInBytes as number) > 5_242_880) throw new Error(`${label}.sizeInBytes exceeds the V1 limit.`);
-  const run = validateRun(value.run, `${label}.run`);
-  return { ...value, run } as CodexDevelopmentArtifactMetadataV1;
-}
-
-function trustRootMatch(changedPath: string): string | null {
-  return matchSecTrustedBootstrapPathV1(changedPath)?.rule ?? null;
-}
-
-function changedRecordPaths(record: CodexDevelopmentWorkPackageChangedRecordV1): string[] {
-  return record.previousPath === undefined ? [record.path] : [record.previousPath, record.path];
-}
-
-function canonicalChangedRecords(
-  records: readonly CodexDevelopmentGitChangedRecordV1[]
-): CodexDevelopmentGitChangedRecordV1[] {
-  return records.map((record) => ({
-    status: record.status,
-    path: record.path,
-    ...(record.previousPath === undefined ? {} : { previousPath: record.previousPath })
-  })).sort((left, right) => {
-    const leftKey = `${left.previousPath ?? ''}\0${left.path}\0${left.status}`;
-    const rightKey = `${right.previousPath ?? ''}\0${right.path}\0${right.status}`;
-    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  if (value.reason !== null) text(value.reason, 'platformObservation.reason');
+  return Object.freeze({
+    status: value.status,
+    rulesetDigest: digest(value.rulesetDigest, 'platformObservation.rulesetDigest'),
+    reason: value.reason
   });
 }
 
-function validateAttestation(value: unknown): CodexDevelopmentScopeAttestationV1 {
-  assertObject(value, 'scope attestation');
-  assertExactKeys(value, ATTESTATION_KEYS, 'scope attestation');
-  if (value.schema !== CodexDevelopmentScopeAttestationSchemaV1) throw new Error('Scope attestation schema mismatch.');
-  for (const key of ['repository', 'defaultBranch', 'manifestPath', 'workflowPath', 'actor', 'triggeringActor'] as const) {
-    assertString(value[key], `scope attestation ${key}`);
-  }
-  for (const key of ['repositoryId', 'pullRequest', 'manifestByteLength', 'workflowId', 'runId', 'runAttempt'] as const) {
-    assertPositiveInteger(value[key], `scope attestation ${key}`);
-  }
-  assertSha(value.currentBase, 'scope attestation currentBase');
-  assertSha(value.exactHead, 'scope attestation exactHead');
-  assertDigest(value.manifestDigest, 'scope attestation manifestDigest');
-  assertSha(value.manifestBlobSha, 'scope attestation manifestBlobSha');
-  if (value.requiredProfile !== 'quick' && value.requiredProfile !== 'full') throw new Error('Scope attestation requiredProfile is invalid.');
-  if (
-    value.ciRevision !== CI_VERIFICATION_CONTRACT_REVISION
-    && value.ciRevision !== CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION
-  ) throw new Error('Scope attestation CI revision mismatch.');
-  return value as CodexDevelopmentScopeAttestationV1;
+export function CodexDevelopmentCreateHostedArtifactObservationV2(
+  value: CodexDevelopmentHostedArtifactObservationV2
+): CodexDevelopmentHostedArtifactObservationV2 {
+  exact(value, [
+    'artifactId', 'artifactName', 'artifactFileName', 'artifactByteDigest', 'artifactByteLength',
+    'artifactExpired', 'workflowPath', 'workflowRef', 'workflowSha', 'runId', 'runAttempt',
+    'eventName', 'actorNodeId', 'actorPermission', 'downloadTransport'
+  ], 'hostedArtifactObservation');
+  const artifactId = text(value.artifactId, 'hostedArtifactObservation.artifactId');
+  if (!/^[1-9][0-9]*$/u.test(artifactId)) fail('hostedArtifactObservation.artifactId must be a decimal GitHub artifact id.');
+  if (value.artifactFileName !== 'verification-session-artifact.json') fail('hosted artifact file name is not canonical.');
+  if (!Number.isSafeInteger(value.artifactByteLength) || value.artifactByteLength < 1) fail('hosted artifact byte length is invalid.');
+  if (value.artifactExpired !== false) fail('expired hosted artifacts cannot authorize integration.');
+  if (value.workflowPath !== '.github/workflows/compiler-pr-validation.yml') fail('hosted artifact workflow path is not canonical.');
+  const workflowSha = sha(value.workflowSha, 'hostedArtifactObservation.workflowSha');
+  if (value.workflowRef !== `${value.workflowPath}@${workflowSha}`) fail('hosted artifact workflow ref is not exact.');
+  if (!Number.isSafeInteger(value.runAttempt) || value.runAttempt < 1) fail('hosted artifact run attempt is invalid.');
+  if (value.eventName !== 'repository_dispatch') fail('hosted artifact event is not the Session dispatch.');
+  if (value.actorPermission !== 'maintain' && value.actorPermission !== 'admin') fail('hosted artifact actor permission is insufficient.');
+  if (value.downloadTransport !== 'github-actions-artifact-api') fail('hosted artifact download transport is not canonical.');
+  return Object.freeze({
+    artifactId,
+    artifactName: text(value.artifactName, 'hostedArtifactObservation.artifactName'),
+    artifactFileName: value.artifactFileName,
+    artifactByteDigest: digest(value.artifactByteDigest, 'hostedArtifactObservation.artifactByteDigest'),
+    artifactByteLength: value.artifactByteLength,
+    artifactExpired: false,
+    workflowPath: value.workflowPath,
+    workflowRef: value.workflowRef,
+    workflowSha,
+    runId: text(value.runId, 'hostedArtifactObservation.runId'),
+    runAttempt: value.runAttempt,
+    eventName: value.eventName,
+    actorNodeId: text(value.actorNodeId, 'hostedArtifactObservation.actorNodeId'),
+    actorPermission: value.actorPermission,
+    downloadTransport: value.downloadTransport
+  });
 }
 
-function validateGateInput(value: unknown): CodexDevelopmentMergeGateInputV1 {
-  assertObject(value, 'merge gate input');
-  assertExactKeys(value, GATE_INPUT_KEYS, 'merge gate input');
-  if (value.schema !== CodexDevelopmentMergeGateInputSchemaV1) throw new Error('Merge gate input schema mismatch.');
-  for (const key of ['repository', 'body', 'defaultBranch', 'manifestPath', 'checkedAt'] as const) {
-    assertString(value[key], `merge gate input ${key}`, key === 'body' ? 65_536 : 4_096);
-  }
-  for (const key of [
-    'repositoryId', 'pullRequest', 'baseRepoId', 'headRepoId', 'headOpenPullRequestCount',
-    'attestationWorkflowId', 'verificationWorkflowId'
-  ] as const) assertPositiveInteger(value[key], `merge gate input ${key}`);
-  for (const key of ['currentBase', 'exactHead', 'headTree'] as const) assertSha(value[key], `merge gate input ${key}`);
-  assertSha(value.manifestBlobSha, 'merge gate input manifestBlobSha');
-  assertPositiveInteger(value.manifestByteLength, 'merge gate input manifestByteLength');
-  if (value.draft !== false && value.draft !== true) throw new Error('Merge gate input draft must be boolean.');
-  if (!Number.isSafeInteger(value.aheadBy) || !Number.isSafeInteger(value.behindBy)) throw new Error('Merge gate comparison counts are invalid.');
-  if (!Array.isArray(value.headParents) || value.headParents.length > 2) throw new Error('Merge gate headParents is invalid.');
-  value.headParents.forEach((entry) => assertSha(entry, 'merge gate head parent'));
-  if (!Array.isArray(value.changedRecords) || value.changedRecords.length === 0 || value.changedRecords.length > 3_000) {
-    throw new Error('Merge gate changedRecords must be non-empty and bounded.');
-  }
-  const checkedAt = new Date(value.checkedAt as string);
-  if (!Number.isFinite(checkedAt.getTime()) || checkedAt.toISOString() !== value.checkedAt) {
-    throw new Error('Merge gate checkedAt must be canonical ISO time.');
-  }
-  const attestationArtifact = validateArtifact(value.attestationArtifact, 'attestation artifact', checkedAt);
-  const verificationArtifact = validateArtifact(value.verificationArtifact, 'verification artifact', checkedAt);
-  return { ...value, attestationArtifact, verificationArtifact } as CodexDevelopmentMergeGateInputV1;
+function expectedHostedArtifactName(
+  prNumber: number,
+  sessionRevision: string,
+  observation: CodexDevelopmentHostedArtifactObservationV2
+): string {
+  return `${CI_VERIFICATION_SESSION_ARTIFACT_PREFIX}-pr-${prNumber}-session-${sessionRevision.slice('sha256:'.length)}-run-${observation.runId}-attempt-${observation.runAttempt}`;
 }
 
-export function CodexDevelopmentEvaluateMergeGateV1(options: {
-  rawInput: unknown;
-  manifestBytes: Uint8Array;
-  rawAttestation: unknown;
-  rawEvidence: unknown;
-  runtime?: string;
-  changedRecords?: (
-    baseHead: string,
-    currentHead: string
-  ) => CodexDevelopmentGitChangedRecordV1[] | null;
-  gitBlob?: (ref: string, file: string) => CodexDevelopmentExactGitBlobV1 | null;
-  readGitBlob?: (ref: string, file: string) => CodexDevelopmentExactGitBlobBytesV1 | null;
-  gitFiles?: (ref: string, prefix: string) => string[] | null;
-  gitTree?: (ref: string) => string | null;
-}): CodexDevelopmentMergeGateResultV1 {
-  const input = validateGateInput(options.rawInput);
-  if (input.draft) throw new Error('Draft pull requests cannot pass sec/merge-gate.');
-  if (input.baseRepoId !== input.repositoryId || input.headRepoId !== input.repositoryId) {
-    throw new Error('sec/merge-gate only supports same-repository pull requests.');
-  }
-  if (input.headOpenPullRequestCount !== 1) {
-    throw new Error('Exact head SHA must belong to exactly one open pull request.');
-  }
-  if (
-    input.aheadBy !== 1
-    || input.behindBy !== 0
-    || input.headParents.length !== 1
-    || input.headParents[0] !== input.currentBase
-  ) {
-    throw new Error('Frozen verification requires one exact head commit whose only parent is current base.');
-  }
-  if (CodexDevelopmentParseWorkPackageLocator(input.body) !== input.manifestPath) {
-    throw new Error('PR body Work Package locator does not match merge gate input.');
-  }
-  const manifestSource = decodeUtf8(options.manifestBytes, 'Work Package manifest');
-  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, input.manifestPath);
-  const verificationBinding = manifestVerificationBinding(manifest);
-  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(options.manifestBytes);
-  const manifestBlobSha = gitBlobSha(options.manifestBytes);
-  if (
-    input.manifestBlobSha !== manifestBlobSha
-    || input.manifestByteLength !== options.manifestBytes.byteLength
-  ) throw new Error('Work Package manifest blob identity or byte length mismatch.');
-  if (manifest.base !== input.currentBase) throw new Error('Work Package manifest base is not current base.');
-  const independentlyResolvedRecords = options.changedRecords?.(input.currentBase, input.exactHead) ?? null;
-  if (options.changedRecords && independentlyResolvedRecords === null) {
-    throw new Error('Merge gate cannot independently resolve the exact candidate changed records.');
-  }
-  const effectiveChangedRecords = independentlyResolvedRecords ?? input.changedRecords;
-  if (
-    independentlyResolvedRecords
-    && JSON.stringify(canonicalChangedRecords(independentlyResolvedRecords))
-      !== JSON.stringify(canonicalChangedRecords(input.changedRecords))
-  ) throw new Error('Merge gate API and exact Git changed records disagree.');
-  const requiredPolicyId = options.gitBlob
-    ? CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
-      records: effectiveChangedRecords,
-      baseHead: input.currentBase,
-      currentHead: input.exactHead,
-      gitBlob: options.gitBlob
-    })
-    : null;
-  if (requiredPolicyId !== null && (
-    manifest.schema !== CodexDevelopmentWorkPackageSchemaV2
-    || manifest.id !== CodexDevelopmentSm3P0WorkPackageIdV1
-    || manifest.evidenceComposition.policyId !== requiredPolicyId
-  )) throw new Error(`Protected SM3 P0 inputs require Work Package V2 policy ${requiredPolicyId}.`);
-  for (const record of effectiveChangedRecords) {
-    for (const changedPath of changedRecordPaths(record)) {
-      const trustRoot = trustRootMatch(changedPath);
-      if (trustRoot) throw new Error(`manual-bootstrap-required: changed verifier trust root ${trustRoot}.`);
+function assertHostedArtifactClosure(
+  artifact: CodexDevelopmentVerificationSessionArtifactV2,
+  origin: CodexDevelopmentHostedArtifactObservationV2,
+  transport: CodexDevelopmentHostedArtifactObservationV2,
+  currentBaseSha: string
+): void {
+  const canonicalBytes = `${encodeVerificationActionDataV2(artifact)}\n`;
+  const canonicalByteDigest = `sha256:${createHash('sha256').update(canonicalBytes).digest('hex')}`;
+  const canonicalByteLength = Buffer.byteLength(canonicalBytes, 'utf8');
+  for (const [label, observation] of [['origin', origin], ['transport', transport]] as const) {
+    if (observation.workflowSha !== currentBaseSha ||
+        observation.artifactName !== expectedHostedArtifactName(artifact.session.prNumber, artifact.session.sessionRevision, observation) ||
+        observation.artifactByteDigest !== canonicalByteDigest ||
+        observation.artifactByteLength !== canonicalByteLength) {
+      fail(`hosted artifact ${label} does not bind the exact trusted canonical artifact bytes.`);
     }
   }
-  CodexDevelopmentAssertWorkPackageChangedRecords(manifest, effectiveChangedRecords);
+  const producer = artifact.producer;
+  if (origin.workflowPath !== producer.workflowPath || origin.workflowRef !== producer.workflowRef ||
+      origin.workflowSha !== producer.workflowSha || origin.runId !== producer.runId ||
+      origin.runAttempt !== producer.runAttempt || origin.actorNodeId !== producer.actorNodeId) {
+    fail('hosted artifact origin does not bind the immutable internal producer provenance.');
+  }
+  if (origin.artifactByteDigest !== transport.artifactByteDigest ||
+      origin.artifactByteLength !== transport.artifactByteLength) {
+    fail('hosted artifact origin and transport are not byte-identical.');
+  }
+  const sameRun = origin.runId === transport.runId && origin.runAttempt === transport.runAttempt;
+  if (sameRun !== (origin.artifactId === transport.artifactId)) {
+    fail('hosted artifact transport identity is inconsistent with direct versus reuploaded provenance.');
+  }
+}
 
-  const attestationRun = input.attestationArtifact.run;
-  if (
-    attestationRun.workflowId !== input.attestationWorkflowId
-    || attestationRun.workflowPath !== '.github/workflows/sec-merge-gate.yml'
-    || attestationRun.event !== 'repository_dispatch'
-    || attestationRun.headSha !== input.currentBase
-    || attestationRun.headBranch !== input.defaultBranch
-    || attestationRun.conclusion !== 'success'
-    || !trustedPermission(attestationRun.actorPermission)
-    || !trustedPermission(attestationRun.triggeringActorPermission)
-  ) {
-    throw new Error('Scope attestation workflow run is not trusted current-base evidence.');
+function assertHostedArtifactResultClosure(
+  authorization: IntegrationAuthorizationV1,
+  origin: CodexDevelopmentHostedArtifactObservationV2,
+  transport: CodexDevelopmentHostedArtifactObservationV2
+): void {
+  for (const observation of [origin, transport]) {
+    if (observation.workflowSha !== authorization.baseSha ||
+        observation.artifactName !== expectedHostedArtifactName(
+          authorization.prNumber,
+          authorization.sessionRevision,
+          observation
+        )) {
+      fail('authorization result hosted artifact observation is not exact.');
+    }
   }
-  const expectedAttestationName = [
-    'sec-scope-attestation-v1',
-    `pr-${input.pullRequest}`,
-    `base-${input.currentBase}`,
-    `head-${input.exactHead}`,
-    `manifest-${manifestDigest.slice('sha256:'.length)}`,
-    `run-${attestationRun.runId}`,
-    `attempt-${attestationRun.runAttempt}`
-  ].join('-');
-  if (input.attestationArtifact.name !== expectedAttestationName) throw new Error('Scope attestation artifact name/key mismatch.');
-  const attestation = validateAttestation(options.rawAttestation);
-  const expectedAttestation: CodexDevelopmentScopeAttestationV1 = {
-    schema: CodexDevelopmentScopeAttestationSchemaV1,
-    repository: input.repository,
-    repositoryId: input.repositoryId,
-    pullRequest: input.pullRequest,
-    defaultBranch: input.defaultBranch,
-    currentBase: input.currentBase,
-    exactHead: input.exactHead,
-    manifestPath: input.manifestPath,
-    manifestDigest,
-    manifestBlobSha,
-    manifestByteLength: options.manifestBytes.byteLength,
-    requiredProfile: verificationBinding.requiredProfile,
-    ciRevision: verificationBinding.ciRevision,
-    workflowId: attestationRun.workflowId,
-    workflowPath: '.github/workflows/sec-merge-gate.yml',
-    runId: attestationRun.runId,
-    runAttempt: attestationRun.runAttempt,
-    actor: attestationRun.actor,
-    triggeringActor: attestationRun.triggeringActor
-  };
-  if (JSON.stringify(attestation) !== JSON.stringify(expectedAttestation)) {
-    throw new Error('Scope attestation payload does not match live PR/base/head/manifest/run data.');
+  if (origin.artifactByteDigest !== transport.artifactByteDigest ||
+      origin.artifactByteLength !== transport.artifactByteLength) {
+    fail('authorization result hosted artifact observations are not byte-identical.');
   }
+  const sameRun = origin.runId === transport.runId && origin.runAttempt === transport.runAttempt;
+  if (sameRun !== (origin.artifactId === transport.artifactId)) {
+    fail('authorization result hosted artifact transport identity is inconsistent.');
+  }
+}
 
-  const verificationRun = input.verificationArtifact.run;
-  if (
-    verificationRun.workflowId !== input.verificationWorkflowId
-    || verificationRun.workflowPath !== '.github/workflows/compiler-pr-validation.yml'
-    || verificationRun.event !== 'repository_dispatch'
-    || verificationRun.headSha !== input.currentBase
-    || verificationRun.headBranch !== input.defaultBranch
-    || verificationRun.conclusion !== 'success'
-    || !trustedPermission(verificationRun.actorPermission)
-    || !trustedPermission(verificationRun.triggeringActorPermission)
-  ) {
-    throw new Error('Verification workflow run is not exact-head trusted evidence.');
-  }
-  const expectedVerificationName = [
-    CI_VERIFICATION_ARTIFACT_NAMESPACE,
-    verificationBinding.requiredProfile,
-    `pr-${input.pullRequest}`,
-    `base-${input.currentBase}`,
-    `head-${input.exactHead}`,
-    `run-${verificationRun.runId}`,
-    `attempt-${verificationRun.runAttempt}`
-  ].join('-');
-  if (input.verificationArtifact.name !== expectedVerificationName) throw new Error('Verification artifact name/key mismatch.');
-  const expectedChangedFiles = CodexDevelopmentCanonicalChangedFilesV1(
-    effectiveChangedRecords.flatMap(changedRecordPaths)
+/**
+ * The only constructor for the complete merge-gate wire input. The Session
+ * runtime may supply freshly observed facts, but it cannot emit a parallel
+ * summary schema and ask the authorization CLI to infer the missing authority.
+ */
+export function CodexDevelopmentCreateMergeGateInputV2(
+  input: CodexDevelopmentMergeGateInputFieldsV2
+): CodexDevelopmentMergeGateInputV2 {
+  const candidate = Object.freeze({
+    ...input.candidate,
+    changedPaths: Object.freeze([...input.candidate.changedPaths])
+  });
+  assertCandidate(candidate);
+  const provenance = assertProvenance(input.provenance, candidate.currentBaseSha);
+  CodexDevelopmentAssertVerificationSessionArtifactV2(input.artifact);
+  const hostedArtifactOrigin = CodexDevelopmentCreateHostedArtifactObservationV2(input.hostedArtifactOrigin);
+  const hostedArtifactTransport = CodexDevelopmentCreateHostedArtifactObservationV2(input.hostedArtifactTransport);
+  assertHostedArtifactClosure(
+    input.artifact,
+    hostedArtifactOrigin,
+    hostedArtifactTransport,
+    input.candidate.currentBaseSha
   );
-  let evidence: CodexDevelopmentVerificationEvidenceV2 | CodexDevelopmentVerificationEvidenceV3;
-  if (manifest.schema === CodexDevelopmentWorkPackageSchemaV1) {
-    CodexDevelopmentAssertVerificationEvidenceV2(options.rawEvidence, {
-      kind: 'verification',
-      profile: manifest.requiredProfile,
-      headSha: input.exactHead,
-      treeSha: input.headTree,
-      prBaseSha: input.currentBase,
-      affectedBaseSha: input.currentBase,
-      manifestPath: input.manifestPath,
-      manifestDigest
-    }, new Date(input.checkedAt));
-    evidence = options.rawEvidence;
-    if (evidence.status !== 'passed') throw new Error('Verification evidence did not pass.');
-    const expectedPlan = CodexDevelopmentBuildVerificationPlanV1(manifest.requiredProfile, expectedChangedFiles);
-    if (!expectedPlan.selectionResolved || expectedPlan.gates.length === 0) {
-      throw new Error('Base-side canonical verification plan is unresolved or empty.');
-    }
-    if (JSON.stringify(evidence.changedFiles) !== JSON.stringify(expectedPlan.changedFiles)) {
-      throw new Error('Verification evidence changedFiles do not match the complete live changed-path set.');
-    }
-    const expectedGates = expectedPlan.gates.map((step) => ({ id: step.id, argv: ['bun', ...step.args] }));
-    const actualGates = evidence.gates.map((gate) => ({ id: gate.id, argv: gate.argv }));
-    if (JSON.stringify(actualGates) !== JSON.stringify(expectedGates)) {
-      throw new Error('Verification evidence gate count, order, IDs, or argv do not match the canonical plan.');
-    }
-    const expectedInputDigest = CodexDevelopmentVerificationDigest(CodexDevelopmentBuildVerificationInputV2({
-      profile: manifest.requiredProfile,
-      headSha: input.exactHead,
-      treeSha: input.headTree,
-      prBaseSha: input.currentBase,
-      affectedBaseSha: input.currentBase,
-      manifestPath: input.manifestPath,
-      manifestDigest,
-      changedFiles: expectedPlan.changedFiles,
-      selectionResolved: expectedPlan.selectionResolved,
-      gates: expectedPlan.gates
-    }));
-    if (evidence.inputDigest !== expectedInputDigest) {
-      throw new Error('Verification evidence inputDigest does not match the base-side canonical plan.');
-    }
-  } else {
-    if (!options.gitBlob || !options.readGitBlob || !options.gitFiles || !options.gitTree || !options.changedRecords) {
-      throw new Error('Composition contract requires independent exact candidate Git resolvers.');
-    }
-    CodexDevelopmentAssertVerificationEvidenceV3(options.rawEvidence, {
-      profile: 'quick',
-      policyId: manifest.evidenceComposition.policyId,
-      workPackageId: manifest.id,
-      headSha: input.exactHead,
-      treeSha: input.headTree,
-      prBaseSha: input.currentBase,
-      affectedBaseSha: input.currentBase,
-      manifestPath: input.manifestPath,
-      manifestDigest
-    }, new Date(input.checkedAt));
-    const preliminaryEvidence = options.rawEvidence;
-    if (preliminaryEvidence.status !== 'passed') throw new Error('Verification V3 evidence did not pass.');
-    const testFiles = options.gitFiles(input.exactHead, 'tests');
-    if (!testFiles) throw new Error('Merge gate cannot enumerate exact-head test files.');
-    const testImpactSourceProvider = {
-      testFiles: testFiles.filter(isTestFile),
-      readTestSource: (testFile: string): string | null => {
-        const entry = options.readGitBlob!(input.exactHead, testFile);
-        if (!entry) throw new Error(`Merge gate cannot read exact-head test source: ${testFile}.`);
-        try {
-          return new TextDecoder('utf-8', { fatal: true }).decode(entry.bytes);
-        } catch (error) {
-          throw new Error(`Merge gate exact-head test source is not UTF-8: ${testFile}.`, { cause: error });
-        }
-      }
-    };
-    const runtime = options.runtime ?? `bun@${Bun.version}`;
-    const inventory = CodexDevelopmentBuildVerificationScopeInventoryV1({
-      profile: 'quick',
-      changedFiles: expectedChangedFiles,
-      runtime,
-      currentHead: input.exactHead,
-      baseHead: input.currentBase,
-      changedRecords: effectiveChangedRecords,
-      gitBlob: options.gitBlob,
-      testImpactSourceProvider
-    });
-    const gateEnvironmentBindings: Record<string, CodexDevelopmentCiExecutionEnvironmentBindingV1> =
-      Object.fromEntries(preliminaryEvidence.gates.map((gate) => {
-        if (gate.envAllowlistRevision !== CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1) {
-          throw new Error(`Verification V3 gate ${gate.id} environment allowlist revision mismatch.`);
-        }
-        return [gate.id, {
-          allowlistRevision: CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1,
-          digest: gate.envDigest
-        }];
-      }));
-    const expectedPlan = CodexDevelopmentBuildEvidenceCompositionPlanV1({
-      policyId: manifest.evidenceComposition.policyId,
-      workPackageId: manifest.id,
-      ciRevision: CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION,
-      profile: 'quick',
-      inventory,
-      runtime,
-      currentHead: input.exactHead,
-      currentTree: input.headTree,
-      gitBlob: options.gitBlob,
-      gitTree: options.gitTree,
-      readEvidence: options.readGitBlob,
-      gateEnvironmentBindings,
-      resolvePolicy: (policyId) => CodexDevelopmentRegisteredEvidenceCompositionPolicyV1({
-        policyId,
-        workPackageId: manifest.id,
-        inventory,
-        runtime,
-        currentHead: input.exactHead,
-        gitBlob: options.gitBlob!
-      })
-    });
-    CodexDevelopmentAssertVerificationEvidenceV3(preliminaryEvidence, {
-      profile: 'quick',
-      policyId: manifest.evidenceComposition.policyId,
-      workPackageId: manifest.id,
-      headSha: input.exactHead,
-      treeSha: input.headTree,
-      prBaseSha: input.currentBase,
-      affectedBaseSha: input.currentBase,
-      manifestPath: input.manifestPath,
-      manifestDigest,
-      plan: expectedPlan
-    }, new Date(input.checkedAt));
-    evidence = preliminaryEvidence;
-  }
-  return {
-    status: 'passed',
-    context: 'sec/merge-gate',
-    pullRequest: input.pullRequest,
-    exactHead: input.exactHead,
-    currentBase: input.currentBase,
-    manifestPath: input.manifestPath,
-    manifestDigest,
-    requiredProfile: verificationBinding.requiredProfile,
-    evidenceDigest: evidence.evidenceDigest
-  };
-}
-
-function mergeGateGitResolvers(candidateGitDir: string, legacyGitDir: string): {
-  changedRecords: (baseHead: string, currentHead: string) => CodexDevelopmentGitChangedRecordV1[] | null;
-  gitBlob: (ref: string, file: string) => CodexDevelopmentExactGitBlobV1 | null;
-  readGitBlob: (ref: string, file: string) => CodexDevelopmentExactGitBlobBytesV1 | null;
-  gitFiles: (ref: string, prefix: string) => string[] | null;
-  gitTree: (ref: string) => string | null;
-} {
-  const candidate = path.resolve(candidateGitDir);
-  const legacy = path.resolve(legacyGitDir);
-  const gitDirectory = (ref: string): string => (
-    ref === CodexDevelopmentSm3P0LegacyTestedHeadV1 ? legacy : candidate
+  const expectedActionPlan = parseCiVerificationActionPlanClosureV1(
+    encodeVerificationActionDataV2(input.expectedActionPlan)
   );
-  const run = (
-    gitDir: string,
-    args: string[],
-    encoding: 'utf8' | 'buffer',
-    maxBuffer = 16 * 1024 * 1024
-  ) => spawnSync('git', ['--git-dir', gitDir, ...args], { encoding, maxBuffer });
-  const gitBlob = (ref: string, file: string): CodexDevelopmentExactGitBlobV1 | null => {
-    const result = run(gitDirectory(ref), ['ls-tree', '-z', '--full-tree', ref, '--', file], 'buffer', 1_048_576);
-    if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-    let output: string;
-    try {
-      output = decodeGitPathOutput(result.stdout, 'tree-path');
-    } catch {
-      return null;
-    }
-    if (!output.endsWith('\0')) return null;
-    const entries = output.split('\0').filter(Boolean);
-    if (entries.length !== 1) return null;
-    const match = /^(100644|100755) blob ([0-9a-f]{40})\t(.+)$/u.exec(entries[0]!);
-    if (!match || match[3] !== file) return null;
-    return { mode: match[1] as '100644' | '100755', type: 'blob', blobSha: match[2]! };
-  };
-  return {
-    changedRecords: (baseHead, currentHead) => {
-      const result = run(candidate, gitChangedFileDiffArgs(baseHead, currentHead), 'buffer');
-      if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-      try {
-        return parseGitChangedRecordsOutput(result.stdout);
-      } catch {
-        return null;
-      }
-    },
-    gitBlob,
-    readGitBlob: (ref, file) => {
-      const entry = gitBlob(ref, file);
-      if (!entry) return null;
-      const result = run(gitDirectory(ref), ['cat-file', 'blob', `${ref}:${file}`], 'buffer');
-      if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-      return { ...entry, bytes: new Uint8Array(result.stdout) };
-    },
-    gitFiles: (ref, prefix) => {
-      const result = run(
-        gitDirectory(ref),
-        ['ls-tree', '-r', '-z', '--name-only', '--full-tree', ref, '--', prefix],
-        'buffer'
-      );
-      if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-      let output: string;
-      try {
-        output = decodeGitPathOutput(result.stdout, 'tree-path');
-      } catch {
-        return null;
-      }
-      if (output.length > 0 && !output.endsWith('\0')) return null;
-      return output.split('\0').filter(Boolean);
-    },
-    gitTree: (ref) => {
-      const result = run(gitDirectory(ref), ['rev-parse', `${ref}^{tree}`], 'utf8', 1_048_576);
-      if (result.status !== 0 || typeof result.stdout !== 'string') return null;
-      const value = result.stdout.trim();
-      return SHA_PATTERN.test(value) ? value : null;
-    }
-  };
+  digest(input.reviewSnapshotDigest, 'reviewSnapshotDigest');
+  digest(input.environmentDigest, 'environmentDigest');
+  sha(input.trustRevision, 'trustRevision');
+  const platformObservation = canonicalPlatformObservation(input.platformObservation);
+  digest(input.consumptionOperationId, 'consumptionOperationId');
+  const issuedAt = instant(input.issuedAt, 'issuedAt');
+  const expiresAt = instant(input.expiresAt, 'expiresAt');
+  if (new Date(expiresAt).getTime() <= new Date(issuedAt).getTime()) fail('expiresAt must be after issuedAt.');
+  return Object.freeze({
+    schema: CodexDevelopmentMergeGateInputSchemaV2,
+    provenance,
+    candidate,
+    artifact: input.artifact,
+    hostedArtifactOrigin,
+    hostedArtifactTransport,
+    expectedActionPlan,
+    reviewReceipt: input.reviewReceipt,
+    reviewSnapshotDigest: input.reviewSnapshotDigest,
+    mainHealth: input.mainHealth,
+    environmentDigest: input.environmentDigest,
+    trustRevision: input.trustRevision,
+    platformObservation,
+    consumptionOperationId: input.consumptionOperationId,
+    issuedAt,
+    expiresAt
+  });
 }
 
-function argument(argv: string[], name: string): string {
-  const index = argv.indexOf(name);
-  const value = index >= 0 ? argv[index + 1] : undefined;
-  if (!value || value.startsWith('--')) throw new Error(`${name} requires a value.`);
-  return value;
-}
+export function CodexDevelopmentEvaluateMergeGateV2(
+  input: CodexDevelopmentMergeGateInputV2
+): CodexDevelopmentMergeGateResultV2 {
+  const record = exact(input, [
+    'schema', 'provenance', 'candidate', 'artifact', 'hostedArtifactOrigin', 'hostedArtifactTransport', 'expectedActionPlan',
+    'reviewReceipt', 'reviewSnapshotDigest', 'mainHealth', 'environmentDigest', 'trustRevision', 'platformObservation',
+    'consumptionOperationId', 'issuedAt', 'expiresAt'
+  ], 'input');
+  if (input.schema !== CodexDevelopmentMergeGateInputSchemaV2) fail('input schema mismatch; scope-attestation V1 is retired.');
+  const { schema: _schema, ...fields } = record;
+  input = CodexDevelopmentCreateMergeGateInputV2(
+    fields as unknown as CodexDevelopmentMergeGateInputFieldsV2
+  );
+  assertCandidate(input.candidate);
+  const provenance = assertProvenance(input.provenance, input.candidate.currentBaseSha);
+  const now = instant(input.issuedAt, 'issuedAt');
+  instant(input.expiresAt, 'expiresAt');
+  const trustRevision = sha(input.trustRevision, 'trustRevision');
+  const environmentDigest = digest(input.environmentDigest, 'environmentDigest');
+  const platformObservation = canonicalPlatformObservation(input.platformObservation);
+  const rulesetDigest = platformObservation.rulesetDigest;
+  CodexDevelopmentAssertVerificationSessionArtifactV2(input.artifact);
+  const hostedArtifactOrigin = CodexDevelopmentCreateHostedArtifactObservationV2(input.hostedArtifactOrigin);
+  const hostedArtifactTransport = CodexDevelopmentCreateHostedArtifactObservationV2(input.hostedArtifactTransport);
+  assertHostedArtifactClosure(
+    input.artifact,
+    hostedArtifactOrigin,
+    hostedArtifactTransport,
+    input.candidate.currentBaseSha
+  );
+  const session: VerificationSessionV2 = input.artifact.session;
+  const scopeAuthorization: ScopeAuthorizationV1 = input.artifact.scopeAuthorization;
+  const evidence = input.artifact.evidence;
+  const candidate = input.candidate;
+  const identityChecks: readonly [unknown, unknown, string][] = [
+    [session.repository, candidate.repository, 'session.repository'], [session.prNumber, candidate.prNumber, 'session.prNumber'],
+    [session.baseSha, candidate.currentBaseSha, 'session.baseSha'], [session.baseTreeSha, candidate.currentBaseTreeSha, 'session.baseTreeSha'],
+    [session.headSha, candidate.headSha, 'session.headSha'], [session.headTreeSha, candidate.headTreeSha, 'session.headTreeSha'],
+    [session.manifestPath, candidate.manifestPath, 'session.manifestPath'], [session.manifestDigest, candidate.manifestDigest, 'session.manifestDigest'],
+    [session.sessionProposalDigest, scopeAuthorization.sessionProposalDigest, 'session.sessionProposalDigest'],
+    [session.scopeAuthorizationRevision, scopeAuthorization.authorizationRevision, 'session.scopeAuthorizationRevision'],
+    [session.scopeAuthorizationReceiptDigest, scopeAuthorization.authorizationDigest, 'session.scopeAuthorizationReceiptDigest'],
+    [session.actionPlanClosureDigest, input.expectedActionPlan.actionPlanDigest, 'session.actionPlanClosureDigest'],
+    [session.environmentDigest, environmentDigest, 'session.environmentDigest'], [session.trustRevision, trustRevision, 'session.trustRevision'],
+    [session.mainHealthRef.healthRevision, input.mainHealth.healthRevision, 'session.mainHealthRef.healthRevision'],
+    [session.mainHealthRef.mainSha, candidate.currentBaseSha, 'session.mainHealthRef.mainSha'],
+    [session.mainHealthRef.mainTreeSha, candidate.currentBaseTreeSha, 'session.mainHealthRef.mainTreeSha']
+  ];
+  for (const [actual, expected, label] of identityChecks) if (actual !== expected) fail(`${label} drifted.`);
 
-function writeCanonicalJsonAtomic(filePath: string, value: unknown): void {
-  const absolutePath = path.resolve(filePath);
-  mkdirSync(path.dirname(absolutePath), { recursive: true });
-  const temporaryPath = `${absolutePath}.${process.pid}.tmp`;
-  try {
-    writeFileSync(temporaryPath, JSON.stringify(value), { encoding: 'utf8', flag: 'wx' });
-    renameSync(temporaryPath, absolutePath);
-  } finally {
-    rmSync(temporaryPath, { force: true });
+  assertScopeAuthorizationCurrentV1(scopeAuthorization, {
+    baseSha: candidate.currentBaseSha,
+    baseTreeSha: candidate.currentBaseTreeSha,
+    headSha: candidate.headSha,
+    headTreeSha: candidate.headTreeSha,
+    manifestDigest: candidate.manifestDigest,
+    changedPaths: candidate.changedPaths,
+    sessionProposalDigest: scopeAuthorization.sessionProposalDigest,
+    actionPlanClosureDigest: input.expectedActionPlan.actionPlanDigest,
+    environmentDigest,
+    expectedAuthorizationRevision: scopeAuthorization.authorizationRevision,
+    now
+  });
+  assertReviewStabilityReceiptCurrentV1(input.reviewReceipt, {
+    stage: 'pre-merge',
+    sessionRevision: session.sessionRevision,
+    scopeAuthorizationRevision: scopeAuthorization.authorizationRevision,
+    scopeAuthorizationReceiptDigest: scopeAuthorization.authorizationDigest,
+    headSha: candidate.headSha,
+    headTreeSha: candidate.headTreeSha,
+    expectedPolicyDigest: session.reviewPolicyDigest,
+    snapshotDigest: digest(input.reviewSnapshotDigest, 'reviewSnapshotDigest'),
+    expectedReviewRevision: input.reviewReceipt.reviewRevision,
+    now
+  });
+  const health = resolveMainHealthLaneV1({
+    ledger: input.mainHealth,
+    lane: 'ordinary',
+    now,
+    expectedRepository: candidate.repository,
+    expectedDefaultBranch: 'main',
+    expectedMainSha: candidate.currentBaseSha,
+    expectedMainTreeSha: candidate.currentBaseTreeSha,
+    expectedTrustRevision: trustRevision
+  });
+  if (!health.allowed || health.status !== 'healthy') fail(`ordinary lane is locked: ${health.reason}`);
+  if (input.mainHealth.producer.identity !== 'platform/shared/default-branch-revision-health.ts' ||
+      input.mainHealth.producer.sourceTransport !== 'github-api' ||
+      input.mainHealth.producer.trustRevision !== trustRevision ||
+      input.mainHealth.producer.sourceRef !== provenance.workflowRef) {
+    fail('fresh MainHealth producer provenance is not bound to the trusted merge workflow.');
   }
-}
-
-async function main(): Promise<number> {
-  const argv = process.argv.slice(2);
-  const command = argv[0];
-  try {
-    if (command === 'attest') {
-      const inputPath = argument(argv, '--input');
-      const manifestPath = argument(argv, '--manifest');
-      const outputPath = argument(argv, '--output');
-      const request = strictJson(readFileSync(inputPath, 'utf8'), 'scope attestation request');
-      const attestation = CodexDevelopmentBuildScopeAttestationV1(request, readManifestBytes(manifestPath));
-      writeCanonicalJsonAtomic(outputPath, attestation);
-      console.log(JSON.stringify(attestation));
-      return 0;
-    }
-    if (command === 'gate') {
-      const inputPath = argument(argv, '--input');
-      const manifestPath = argument(argv, '--manifest');
-      const attestationDirectory = argument(argv, '--attestation-dir');
-      const verificationDirectory = argument(argv, '--verification-dir');
-      const candidateGitDirectory = argument(argv, '--candidate-git-dir');
-      const legacyGitDirectory = argument(argv, '--legacy-git-dir');
-      const gitResolvers = mergeGateGitResolvers(candidateGitDirectory, legacyGitDirectory);
-      const rawInput = strictJson(readFileSync(inputPath, 'utf8'), 'merge gate input');
-      const rawAttestation = readSingleCanonicalJsonArtifact(
-        attestationDirectory,
-        CodexDevelopmentScopeAttestationFileV1
-      );
-      const rawEvidence = readSingleCanonicalJsonArtifact(
-        verificationDirectory,
-        CodexDevelopmentVerificationEvidenceFileV2
-      );
-      const result = CodexDevelopmentEvaluateMergeGateV1({
-        rawInput,
-        manifestBytes: readManifestBytes(manifestPath),
-        rawAttestation,
-        rawEvidence,
-        ...gitResolvers
-      });
-      console.log(JSON.stringify(result));
-      return 0;
-    }
-    throw new Error('Usage: merge-gate.ts attest|gate with explicit data-file arguments.');
-  } catch (error) {
-    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-    return 1;
+  CodexDevelopmentAssertVerificationEvidenceV4(evidence, {
+    sessionRevision: session.sessionRevision,
+    sessionProposalDigest: scopeAuthorization.sessionProposalDigest,
+    scopeAuthorizationRevision: scopeAuthorization.authorizationRevision,
+    scopeAuthorizationDigest: scopeAuthorization.authorizationDigest,
+    reviewReceiptDigest: input.artifact.preGateReview.receiptDigest,
+    mainHealthRevision: input.artifact.mainHealth.healthRevision,
+    mainHealthDigest: input.artifact.mainHealth.ledgerDigest,
+    trustRevision,
+    profile: session.profile as 'quick' | 'full',
+    baseSha: candidate.currentBaseSha,
+    baseTreeSha: candidate.currentBaseTreeSha,
+    headSha: candidate.headSha,
+    headTreeSha: candidate.headTreeSha,
+    manifestPath: candidate.manifestPath,
+    manifestDigest: candidate.manifestDigest,
+    actionPlan: input.expectedActionPlan
+  }, new Date(now));
+  if (evidence.status !== 'passed') fail('five-state Evidence is not PASS.');
+  if (evidence.producer.sourceTransport !== 'github-actions' ||
+      evidence.producer.workflowPath !== '.github/workflows/compiler-pr-validation.yml' ||
+      evidence.producer.workflowSha !== candidate.currentBaseSha ||
+      evidence.producer.workflowRef !== `.github/workflows/compiler-pr-validation.yml@${candidate.currentBaseSha}`) {
+    fail('Evidence artifact was not produced by the trusted current-base verification workflow.');
   }
+  const reviewSourceDigestIsCurrent = input.reviewReceipt.producer.sourceTransport === 'github-graphql'
+    ? input.reviewReceipt.producer.sourceDigest === input.reviewReceipt.snapshot.snapshotDigest
+    : input.reviewReceipt.producer.sourceTransport === 'github-rest'
+      ? input.reviewReceipt.snapshot.reviewPageDigests.includes(input.reviewReceipt.producer.sourceDigest)
+      : false;
+  if (input.reviewReceipt.producer.identity !== 'scripts/codex/verification-session-github.ts' ||
+      input.reviewReceipt.producer.sourceRef !==
+        `github://${candidate.repository}/pull/${candidate.prNumber}@${candidate.headSha}` ||
+      !reviewSourceDigestIsCurrent) {
+    fail('Review producer does not bind the independently reread GitHub snapshot.');
+  }
+
+  const authorization = createIntegrationAuthorizationV1({
+    consumptionOperationId: digest(input.consumptionOperationId, 'consumptionOperationId'),
+    repository: candidate.repository,
+    prNumber: candidate.prNumber,
+    sessionRevision: session.sessionRevision,
+    baseSha: candidate.currentBaseSha,
+    baseTreeSha: candidate.currentBaseTreeSha,
+    headSha: candidate.headSha,
+    headTreeSha: candidate.headTreeSha,
+    manifestDigest: candidate.manifestDigest,
+    scopeAuthorizationRevision: scopeAuthorization.authorizationRevision,
+    scopeAuthorizationReceiptDigest: scopeAuthorization.authorizationDigest,
+    actionClosureDigest: input.expectedActionPlan.actionPlanDigest,
+    evidenceDigest: digest(evidence.evidenceDigest, 'evidence.evidenceDigest'),
+    reviewRevision: input.reviewReceipt.reviewRevision,
+    reviewReceiptDigest: input.reviewReceipt.receiptDigest,
+    mainHealthRevision: input.mainHealth.healthRevision,
+    mainHealthReceiptDigest: input.mainHealth.ledgerDigest,
+    trustRevision,
+    rulesetDigest,
+    issuedAt: now,
+    expiresAt: input.expiresAt,
+    issuer: {
+      principalId: provenance.actorNodeId,
+      producerIdentity: CodexDevelopmentMergeGateProducerIdentityV2,
+      trustedRevision: trustRevision,
+      sourceTransport: 'github-actions',
+      sourceRunId: `${provenance.sourceRunId}:${provenance.sourceRunAttempt}`,
+      sourceRef: provenance.workflowRef,
+      sourceDigest: provenance.sourceDigest
+    }
+  });
+  const withoutDigest = Object.freeze({
+    schema: CodexDevelopmentMergeGateResultSchemaV2,
+    status: 'authorized' as const,
+    authorization,
+    reviewReceipt: input.reviewReceipt,
+    mainHealth: input.mainHealth,
+    platformObservation,
+    hostedArtifactOrigin,
+    hostedArtifactTransport,
+    provenance,
+    terminalStatusContext: 'sec/merge-gate' as const
+  });
+  return Object.freeze({ ...withoutDigest, resultDigest: hash(withoutDigest) });
 }
 
-if (import.meta.main) {
-  process.exitCode = await main();
+export function CodexDevelopmentParseMergeGateResultV2(
+  source: string
+): CodexDevelopmentMergeGateResultV2 {
+  const value = exact(JSON.parse(source), [
+    'schema', 'status', 'authorization', 'reviewReceipt', 'mainHealth',
+    'platformObservation', 'hostedArtifactOrigin', 'hostedArtifactTransport', 'provenance', 'terminalStatusContext', 'resultDigest'
+  ], 'merge-gate result');
+  if (value.schema !== CodexDevelopmentMergeGateResultSchemaV2 || value.status !== 'authorized' ||
+      value.terminalStatusContext !== 'sec/merge-gate') {
+    fail('result identity is invalid.');
+  }
+  const authorization = parseIntegrationAuthorizationV1(
+    encodeVerificationActionDataV2(value.authorization)
+  );
+  const reviewReceipt = parseReviewStabilityReceiptV1(
+    encodeVerificationActionDataV2(value.reviewReceipt)
+  );
+  const mainHealth = parseMainHealthLedgerV1(
+    encodeVerificationActionDataV2(value.mainHealth)
+  );
+  const platformObservation = canonicalPlatformObservation(
+    value.platformObservation as unknown as CodexDevelopmentMergeGatePlatformObservationV2
+  );
+  const hostedArtifactOrigin = CodexDevelopmentCreateHostedArtifactObservationV2(
+    value.hostedArtifactOrigin as unknown as CodexDevelopmentHostedArtifactObservationV2
+  );
+  const hostedArtifactTransport = CodexDevelopmentCreateHostedArtifactObservationV2(
+    value.hostedArtifactTransport as unknown as CodexDevelopmentHostedArtifactObservationV2
+  );
+  const provenance = assertProvenance(
+    value.provenance as unknown as CodexDevelopmentMergeGateProvenanceV2,
+    authorization.baseSha
+  );
+  assertHostedArtifactResultClosure(authorization, hostedArtifactOrigin, hostedArtifactTransport);
+  if (authorization.reviewRevision !== reviewReceipt.reviewRevision ||
+      authorization.reviewReceiptDigest !== reviewReceipt.receiptDigest ||
+      authorization.mainHealthRevision !== mainHealth.healthRevision ||
+      authorization.mainHealthReceiptDigest !== mainHealth.ledgerDigest ||
+      authorization.rulesetDigest !== platformObservation.rulesetDigest ||
+      authorization.issuer.principalId !== provenance.actorNodeId ||
+      authorization.issuer.producerIdentity !== CodexDevelopmentMergeGateProducerIdentityV2 ||
+      authorization.issuer.trustedRevision !== provenance.workflowSha ||
+      authorization.issuer.sourceRunId !== `${provenance.sourceRunId}:${provenance.sourceRunAttempt}` ||
+      authorization.issuer.sourceRef !== provenance.workflowRef ||
+      authorization.issuer.sourceDigest !== provenance.sourceDigest) {
+    fail('authorization artifact receipt or issuer closure mismatch.');
+  }
+  const withoutDigest = Object.freeze({
+    schema: CodexDevelopmentMergeGateResultSchemaV2,
+    status: 'authorized' as const,
+    authorization,
+    reviewReceipt,
+    mainHealth,
+    platformObservation,
+    hostedArtifactOrigin,
+    hostedArtifactTransport,
+    provenance,
+    terminalStatusContext: 'sec/merge-gate' as const
+  });
+  const resultDigest = digest(value.resultDigest, 'resultDigest');
+  if (resultDigest !== hash(withoutDigest)) fail('result digest mismatch.');
+  return Object.freeze({ ...withoutDigest, resultDigest });
 }
+
+function parseInput(source: string): CodexDevelopmentMergeGateInputV2 {
+  const value = exact(JSON.parse(source), [
+    'schema', 'provenance', 'candidate', 'artifact', 'hostedArtifactOrigin', 'hostedArtifactTransport', 'expectedActionPlan',
+    'reviewReceipt', 'reviewSnapshotDigest', 'mainHealth', 'environmentDigest', 'trustRevision', 'platformObservation',
+    'consumptionOperationId', 'issuedAt', 'expiresAt'
+  ], 'input');
+  if (value.schema !== CodexDevelopmentMergeGateInputSchemaV2) fail('input schema mismatch.');
+  const { schema: _schema, ...fields } = value;
+  return CodexDevelopmentCreateMergeGateInputV2(
+    fields as unknown as CodexDevelopmentMergeGateInputFieldsV2
+  );
+}
+
+async function main(): Promise<void> {
+  const [command, inputFlag, inputPath, outputFlag, outputPath] = process.argv.slice(2);
+  if (command !== 'authorize' || inputFlag !== '--input' || outputFlag !== '--output' || !inputPath || !outputPath) {
+    throw new Error('Usage: bun scripts/codex/merge-gate.ts authorize --input <json> --output <json>');
+  }
+  const result = CodexDevelopmentEvaluateMergeGateV2(parseInput(readFileSync(inputPath, 'utf8')));
+  writeFileSync(outputPath, `${encodeVerificationActionDataV2(result)}\n`, 'utf8');
+}
+
+if (import.meta.main) await main();

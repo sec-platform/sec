@@ -5,10 +5,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
-  defaultBranchLifecycleCommandRunner,
-  type BranchLifecycleContext
-} from '../../scripts/codex/branch-lifecycle-command.ts';
-import {
   checkCandidateTreeParity,
   resolveTreeSha
 } from '../../scripts/codex/verification-candidate-tree.ts';
@@ -43,10 +39,7 @@ test('candidate tree parity matches merged tree only when trees are identical', 
     git(repository, ['branch', '-M', 'main']);
     git(repository, ['push', '-u', 'origin', 'main']);
 
-    const candidateTree = resolveTreeSha({
-      repositoryRoot: repository,
-      run: defaultBranchLifecycleCommandRunner
-    } as BranchLifecycleContext, 'main');
+    const candidateTree = resolveTreeSha(repository, 'main');
     expect(candidateTree).toMatch(/^[0-9a-f]{40}$/u);
 
     const matched = checkCandidateTreeParity({
@@ -62,10 +55,7 @@ test('candidate tree parity matches merged tree only when trees are identical', 
     writeFileSync(path.join(repository, 'feature.txt'), 'feature\n', 'utf8');
     git(repository, ['add', 'feature.txt']);
     git(repository, ['commit', '-m', 'feature']);
-    const driftedTree = resolveTreeSha({
-      repositoryRoot: repository,
-      run: defaultBranchLifecycleCommandRunner
-    } as BranchLifecycleContext, 'HEAD');
+    const driftedTree = resolveTreeSha(repository, 'HEAD');
     expect(driftedTree).not.toBe(candidateTree);
 
     const drift = checkCandidateTreeParity({
@@ -122,11 +112,7 @@ test('registry projection discovers open-PR manifest entries from pull refs', ()
     expect(parsed).toHaveLength(1);
     expect(parsed[0]!.number).toBe(11);
 
-    const ctx = {
-      repositoryRoot: repository,
-      run: defaultBranchLifecycleCommandRunner
-    } as BranchLifecycleContext;
-    const entries = collectOpenPullRequestEntries(ctx, parsed);
+    const entries = collectOpenPullRequestEntries(repository, parsed);
     expect(entries).toHaveLength(1);
     expect(entries[0]!.source).toBe('open-pr');
     expect(entries[0]!.prNumber).toBe(11);
@@ -154,8 +140,8 @@ test('open PR entry without a Work-Package locator fails closed', () => {
     baseRefOid: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
     body: 'no locator here'
   }]));
-  expect(() => collectOpenPullRequestEntries({
-    repositoryRoot: 'unused',
-    run: defaultBranchLifecycleCommandRunner
-  } as BranchLifecycleContext, parsed)).toThrow('exactly one Work-Package locator');
+  expect(() => collectOpenPullRequestEntries(
+    'unused',
+    parsed
+  )).toThrow('exactly one Work-Package locator');
 });

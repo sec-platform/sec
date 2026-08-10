@@ -1,5 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
@@ -9,7 +12,7 @@ import {
   CodexDevelopmentSm3P0EvidencePolicyIdV1,
   CodexDevelopmentSm3P0WorkPackageIdV1
 } from '../../platform/shared/ci-evidence-composition-policy-registry.ts';
-import type { CodexDevelopmentVerificationEvidenceV3 } from '../../platform/shared/ci-evidence-contract.ts';
+import type { CodexDevelopmentVerificationEvidenceV4 } from '../../platform/shared/ci-evidence-contract.ts';
 import {
   CodexDevelopmentBuildEvidenceCompositionPlanV1,
   CodexDevelopmentEvidenceCompositionDigestV1,
@@ -488,7 +491,8 @@ test('runner rejects V1 and wrong-policy V2 downgrade before the first gate', as
 
 test('runner resolves the real P0 registry and executes its exact direct gate plan once', async () => {
   const calls: Array<{ id: string; argv: string[]; env: NodeJS.ProcessEnv }> = [];
-  let written: CodexDevelopmentVerificationEvidenceV3 | undefined;
+  let written: CodexDevelopmentVerificationEvidenceV4 | undefined;
+  const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-ci-evidence-p0-registry-'));
   const runnerTestFiles = [
     DOCUMENTATION_AUTHORITY_TEST,
     'tests/contract/semantic-mutation-apply-contract.test.ts',
@@ -509,7 +513,9 @@ test('runner resolves the real P0 registry and executes its exact direct gate pl
       return [];
     })
     .join('\n'));
-  const result = await CodexDevelopmentCiVerificationMain({
+  try {
+    const result = await CodexDevelopmentCiVerificationMain({
+    repositoryRoot,
     argv: ['--profile', 'quick', '--expected-head', CURRENT],
     env: {
       SEC_CHANGED_BASE: 'base-ref',
@@ -547,24 +553,29 @@ test('runner resolves the real P0 registry and executes its exact direct gate pl
       calls.push({ id: step.id, argv: [...step.argv], env: { ...step.env } });
       return { code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' };
     },
-    writeEvidenceV3: (_path, evidence) => { written = evidence; }
+    writeEvidenceV4: (_path, evidence) => { written = evidence; }
   });
 
-  expect(result).toBe(0);
-  expect(written).toBeDefined();
-  expect(written?.schema).toBe('codex-development-verification-evidence-v3');
-  expect(written?.policyId).toBe(CodexDevelopmentSm3P0EvidencePolicyIdV1);
-  expect(calls.map(({ id }) => id)).toEqual(
-    written!.gates.map(({ id }) => id)
-  );
-  expect(calls.filter(({ id }) => id === 'sm3-p0-siblings')).toHaveLength(1);
-  expect(calls.filter(({ id }) => id === 'sm3-p0-production-delta')).toHaveLength(1);
-  expect(calls.some(({ argv }) => argv.includes('test:affected'))).toBe(false);
-  expect(calls.some(({ argv }) => argv.includes('scripts/ci-pr-risk.ts'))).toBe(false);
-  expect(calls.some(({ argv }) => argv.some((part) => /playwright/iu.test(part)))).toBe(false);
-  expect(calls.every(({ env }) => env.SEC_CHANGED_BASE === BASE)).toBe(true);
-  expect(calls.every(({ env }) => env.SEC_IMPORTS_CHANGED_ONLY === '1')).toBe(true);
-  expect(calls.find(({ id }) => id === 'sm3-p0-production-delta')?.env).toMatchObject({
-    SEC_RUN_SM3_PRODUCTION_SENTINEL: '1'
-  });
+    expect(result).toBe(0);
+    expect(written).toBeDefined();
+    expect(written?.schema).toBe('codex-development-verification-evidence-v4');
+    expect(calls.map(({ id }) => id)).toEqual(
+      written!.gates.map(({ action }) => action.operation.identity)
+    );
+    expect(written?.actionPlan.normalizedOperations.map(({ gateId }) => gateId)).toEqual(
+      calls.map(({ id }) => id)
+    );
+    expect(calls.filter(({ id }) => id === 'sm3-p0-siblings')).toHaveLength(1);
+    expect(calls.filter(({ id }) => id === 'sm3-p0-production-delta')).toHaveLength(1);
+    expect(calls.some(({ argv }) => argv.includes('test:affected'))).toBe(false);
+    expect(calls.some(({ argv }) => argv.includes('scripts/ci-pr-risk.ts'))).toBe(false);
+    expect(calls.some(({ argv }) => argv.some((part) => /playwright/iu.test(part)))).toBe(false);
+    expect(calls.every(({ env }) => env.SEC_CHANGED_BASE === BASE)).toBe(true);
+    expect(calls.every(({ env }) => env.SEC_IMPORTS_CHANGED_ONLY === '1')).toBe(true);
+    expect(calls.find(({ id }) => id === 'sm3-p0-production-delta')?.env).toMatchObject({
+      SEC_RUN_SM3_PRODUCTION_SENTINEL: '1'
+    });
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
 });

@@ -16,23 +16,44 @@ const AFFECTED_TEST_SELECTION_FAST_TESTS = [
 ];
 
 const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
+  'tests/contract/ci-contract.test.ts',
   'tests/contract/ci-lanes.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
+  'tests/unit/ci-evidence-contract-v4.test.ts',
   'tests/unit/ci-evidence-composition-policy-registry.test.ts',
+  'tests/unit/ci-hosted-sut-observation-contract.test.ts',
   'tests/unit/ci-pr-risk-execution.test.ts',
   'tests/unit/ci-pr-risk-selection.test.ts',
   'tests/unit/ci-verification-execution.test.ts',
   'tests/unit/ci-verification-composition-execution.test.ts',
-  'tests/unit/exact-git-blob.test.ts'
+  'tests/unit/exact-git-blob.test.ts',
+  'tests/unit/tcb-trust-root-contract.test.ts',
+  'tests/unit/verification-action-github-provider.test.ts'
 ];
 
 const TRUSTED_VERIFIER_TCB_FAST_TESTS = [
+  'tests/contract/ci-contract.test.ts',
   'tests/contract/ci-lanes.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/tcb-trust-root-contract.test.ts'
+];
+
+const VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS = [
+  'tests/contract/ci-contract.test.ts',
+  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/tcb-closure-lock.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/branch-closeout-receipt.test.ts',
+  'tests/unit/branch-closeout-rest-comments.test.ts',
+  'tests/unit/branch-lifecycle-temp-repo.test.ts',
+  'tests/unit/integration-authorization-publication.test.ts',
+  'tests/unit/tcb-trust-root-contract.test.ts',
+  'tests/unit/verification-candidate-tree.test.ts',
+  'tests/unit/verification-session-runtime.test.ts'
 ];
 
 const VERIFICATION_TRUTH_FAST_TESTS = [
@@ -47,6 +68,31 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
 ];
 
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: 'verification-session-branch-closeout-authority',
+    identity: {
+      kind: 'architecture-owner',
+      id: 'verification-session-branch-closeout-authority'
+    },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'scripts/codex/branch-closeout-contract.ts',
+      'scripts/codex/branch-closeout-receipt.ts',
+      'scripts/codex/branch-closeout.ts',
+      'scripts/codex/branch-lifecycle-config.ts',
+      'scripts/codex/branch-lifecycle-command.ts',
+      'scripts/codex/branch-lifecycle-inventory.ts',
+      'scripts/codex/branch-lifecycle.ts',
+      'scripts/codex/branch-recovery.ts',
+      'scripts/codex/integration-authorization-publication.ts',
+      'scripts/codex/verification-candidate-tree.ts',
+      'scripts/codex/verification-session-github.ts',
+      'scripts/codex/verification-session-runtime.ts',
+      'scripts/codex/verification-session.ts'
+    ],
+    fast: VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS,
+    slow: []
+  },
   {
     owner: 'trusted-verifier-tcb',
     identity: { kind: 'architecture-owner', id: 'trusted-verifier-tcb' },
@@ -69,10 +115,13 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     identity: { kind: 'architecture-owner', id: 'verification-evidence-producers' },
     autoReferenceMode: 'declared-only',
     sourceFiles: [
+      'platform/shared/ci-evidence-contract.ts',
+      'platform/shared/ci-hosted-sut-observation-contract.ts',
       'scripts/codex/ci-orchestration-core.ts',
       'scripts/ci-pr-risk.ts',
       'scripts/ci-verification.ts',
-      'scripts/codex/exact-git-blob.ts'
+      'scripts/codex/exact-git-blob.ts',
+      'scripts/codex/verification-action-github-provider.ts'
     ],
     fast: VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
     slow: []

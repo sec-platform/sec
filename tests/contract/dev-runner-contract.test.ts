@@ -868,6 +868,8 @@ describe('dev-runner contract', () => {
     expect(suite.scenarioProofs).toHaveLength(41);
     expect(suite.counters).toMatchObject({
       inventoryReadCount: 1,
+      injectedInventoryCount: 0,
+      inventorySnapshotCount: 1,
       programBuildCount: 1,
       typeCheckerBuildCount: 1,
       moduleResolutionCacheBuildCount: 1,
@@ -876,6 +878,8 @@ describe('dev-runner contract', () => {
       graphSolveCount: 1,
       moduleSccProjectionCount: 1,
       callSccProjectionCount: 1,
+      compactValidationIndexBuildCount: 1,
+      publicSuiteFreezeCount: 1,
       postSolveTopologyMutationCount: 0,
       arbitraryCallableFactCount: 0,
       arbitraryNamespaceFactCount: 0,
@@ -947,6 +951,8 @@ describe('dev-runner contract', () => {
     expect(suite.inventory.totalSourceBytes).toBeLessThanOrEqual(
       DEV_RUNNER_HOST_SOURCE_TOTAL_MAX_BYTES
     );
+    expect(suite.inventory.modules.some(({ relativePath }) =>
+      relativePath === 'scripts/publish-public.ts')).toBe(false);
     for (const extension of DEV_RUNNER_EXECUTABLE_SOURCE_EXTENSIONS) {
       expect(isTrackedDevRunnerHostSource(`scripts/consumer${extension}`)).toBe(true);
       expect(isTrackedDevRunnerHostSource(`platform/consumer${extension}`)).toBe(true);
@@ -960,7 +966,8 @@ describe('dev-runner contract', () => {
       'scripts/consumer.spec.ts',
       'platform/source-model/slot.ts',
       'platform/consumer.min.js',
-      'platform/consumer.d.ts'
+      'platform/consumer.d.ts',
+      'scripts/consumer.json'
     ]) {
       expect(isTrackedDevRunnerHostSource(includedPath)).toBe(true);
     }
@@ -969,8 +976,7 @@ describe('dev-runner contract', () => {
       'docs/examples/consumer.mjs',
       'control/consumer.ts',
       '../platform/consumer.ts',
-      'platform\\consumer.ts',
-      'scripts/consumer.json'
+      'platform\\consumer.ts'
     ]) {
       expect(isTrackedDevRunnerHostSource(excludedPath)).toBe(false);
     }

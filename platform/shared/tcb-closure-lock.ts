@@ -5,13 +5,17 @@
  * builder, the frozen TCB closure lock identity, and the lock verifier.
  *
  * The lock binds the exact reviewed modules, their edges, Git blob SHA-1s,
- * raw content SHA-256 digests, reviewed external imports, reviewed process
- * dispatchers, and the single trust revision.  The lock is generated from
+ * raw content SHA-256 digests, reviewed SUT and static-exact boundary edges,
+ * reviewed external imports, reviewed process dispatchers, and the single
+ * trust revision.  The lock is generated from
  * the trusted-runtime closure logic — it is not hand-maintained.
  *
  * The verifier runtime import closure test asserts against the generated lock
  * identity instead of a hard-coded module count.  Any unauthorized expansion,
  * contraction, substitution, or edge addition causes the lock to break.
+ * A reviewed boundary terminates traversal at a separately verified
+ * static-exact trust-root blob, so the runtime can import this lock without
+ * creating a self-hash/module-loader cycle.
  */
 
 import { createHash } from 'node:crypto';
@@ -31,33 +35,41 @@ import ts from 'typescript';
 import { compilerRoot } from './paths.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
 import {
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1,
-  matchSecTrustedBootstrapPathV1
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2,
+  matchSecTrustedBootstrapPathV2
 } from './tcb-trust-root-contract.ts';
 
 // ---------------------------------------------------------------------------
 // TCB closure constants (canonical source — moved from sec-merge-gate.test.ts)
 // ---------------------------------------------------------------------------
 
-export const TCB_RUNTIME_ENTRYPOINTS = SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.runtimeEntrypoints;
+export const TCB_RUNTIME_ENTRYPOINTS = SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.runtimeEntrypoints;
 
 export const TCB_REVIEWED_SUT_EDGES = new Set(
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1.reviewedSutEdges
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.reviewedSutEdges
+);
+
+export const TCB_REVIEWED_BOUNDARY_EDGES = new Set(
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.reviewedBoundaryEdges
 );
 
 export const TCB_REVIEWED_EXTERNAL_IMPORTS = new Set([
-  'platform/shared/heavy-verification-gate-lease.ts -> bun:ffi'
+  'platform/shared/heavy-verification-gate-lease.ts -> bun:ffi',
+  'scripts/ci-verification.ts -> bun:ffi'
 ]);
 
 export const TCB_APPROVED_EXTERNAL_IMPORTS = new Set([
   'globby',
   'lodash-es',
+  'node:async_hooks',
   'node:crypto',
   'node:fs',
   'node:fs/promises',
   'node:os',
   'node:path',
   'node:url',
+  'node:util',
+  'node:util/types',
   'p-limit',
   'ts-morph',
   'typescript',
@@ -76,6 +88,7 @@ const TCB_BUN_SAFE_IMPORTS = new Set([
 ]);
 
 export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
+  'platform/dev-runner.ts::function-declaration:executeVerifiedCiActionPlanV1::Bun.spawn#1',
   'platform/dev-runner/command-runner.ts::function-declaration:runDevCommand::spawn#1',
   'platform/dev-runner/import-organizer.ts::function-declaration:changedTypeScriptFiles::spawnSync#1',
   'platform/dev-runner/import-organizer.ts::function-declaration:gitBytes::spawnSync#1',
@@ -83,16 +96,30 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'platform/dev-runner/import-organizer.ts::function-declaration:tryResolveGitCommit::spawnSync#1',
   'platform/shared/process.ts::function-declaration:runCommandCapture::spawn#1',
   'platform/shared/process.ts::function-declaration:terminateCommandProcessTree::spawn#1',
+  'scripts/ci-verification.ts::function-declaration:CodexDevelopmentInspectHostedActionArchiveV2::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:defaultHostedSutSandboxProcessV1::spawn#1',
   'scripts/ci-verification.ts::function-declaration:defaultGitFiles::spawnSync#1',
-  'scripts/codex/branch-lifecycle-command.ts::const-arrow:defaultBranchLifecycleCommandRunner::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:gitCandidateBytesV2::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:hostedActionGhReadJsonV2::spawnSync#1',
+  'scripts/ci-verification.ts::function-declaration:runHostedMaterializerCommandV2::spawnSync#1',
+  'scripts/codex/branch-closeout-receipt.ts::function-declaration:runCloseoutObservationGh::spawnSync#1',
+  'scripts/codex/branch-closeout.ts::function-declaration:runCloseoutGit::spawnSync#1',
+  'scripts/codex/branch-lifecycle-inventory.ts::function-declaration:runInventoryCommand::spawnSync#1',
+  'scripts/codex/branch-recovery.ts::function-declaration:runRecoveryGit::spawnSync#1',
   'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultChangedPathsV1::spawnSync#1',
   'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultGitRevisionV1::spawnSync#1',
   'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultTrackedTreeIsCleanV1::spawnSync#1',
   'scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentRunGateProcessV1::spawn#1',
   'scripts/codex/exact-git-blob.ts::function-declaration:runGit::spawnSync#1',
-  'scripts/codex/merge-gate.ts::function-declaration:mergeGateGitResolvers>const-arrow:run::spawnSync#1',
-  'scripts/codex/sec-merge-bootstrap-runtime.ts::const-arrow:defaultShellRunner::spawnSync#1',
+  'scripts/codex/verification-action-github-provider.ts::function-declaration:dispatchVerificationActionRepositoryWakeupV2::spawnSync#1',
+  'scripts/codex/verification-action-github-provider.ts::function-declaration:ghBytes::spawnSync#1',
+  'scripts/codex/verification-action-github-provider.ts::function-declaration:runProcessText::spawnSync#1',
+  'scripts/codex/verification-action-runner.ts::function-declaration:inspectLocalRepository>const-arrow:git::spawnSync#1',
+  'scripts/codex/verification-session-github.ts::function-declaration:runVerificationSessionGh::spawnSync#1',
+  'scripts/codex/verification-session.ts::function-declaration:runVerificationSessionCommand::spawnSync#1',
   'scripts/install-git-hooks.ts::function-declaration:gitText::spawnSync#1',
+  'docs/scripts/docs-doctor.ts::function-declaration:captureDocsDoctorIndexTree::spawnSync#1',
+  'docs/scripts/docs-doctor.ts::function-declaration:readCapturedGitTreeBlob::spawnSync#1',
   'docs/scripts/docs-doctor.ts::function-declaration:resolveChangedDocumentPathsSince::spawnSync#1'
 ]);
 
@@ -752,6 +779,7 @@ export function trustedRuntimeClosure(
 ): {
   closure: Set<string>;
   reviewedEdges: Set<string>;
+  reviewedBoundaryEdges: Set<string>;
   reviewedExternalImports: Set<string>;
   reviewedProcessDispatchers: Set<string>;
   observedExternalImports: Set<string>;
@@ -768,12 +796,14 @@ function trustedRuntimeClosureAtCandidateRoot(
 ): {
   closure: Set<string>;
   reviewedEdges: Set<string>;
+  reviewedBoundaryEdges: Set<string>;
   reviewedExternalImports: Set<string>;
   reviewedProcessDispatchers: Set<string>;
   observedExternalImports: Set<string>;
 } {
   const closure = new Set<string>();
   const reviewedEdges = new Set<string>();
+  const reviewedBoundaryEdges = new Set<string>();
   const reviewedExternalImports = new Set<string>();
   const reviewedProcessDispatchers = new Set<string>();
   const observedExternalImports = new Set<string>();
@@ -791,6 +821,10 @@ function trustedRuntimeClosureAtCandidateRoot(
     )) {
       const resolved = resolveRepositoryImportAtCandidateRoot(candidateRoot, current, specifier);
       const edge = `${current} -> ${resolved}`;
+      if (TCB_REVIEWED_BOUNDARY_EDGES.has(edge)) {
+        reviewedBoundaryEdges.add(edge);
+        continue;
+      }
       if (TCB_REVIEWED_SUT_EDGES.has(edge)) {
         reviewedEdges.add(edge);
         continue;
@@ -801,6 +835,7 @@ function trustedRuntimeClosureAtCandidateRoot(
   return {
     closure,
     reviewedEdges,
+    reviewedBoundaryEdges,
     reviewedExternalImports,
     reviewedProcessDispatchers,
     observedExternalImports
@@ -808,7 +843,7 @@ function trustedRuntimeClosureAtCandidateRoot(
 }
 
 export function matchesCanonicalTrustRoot(repositoryPath: string): boolean {
-  return matchSecTrustedBootstrapPathV1(repositoryPath) !== null;
+  return matchSecTrustedBootstrapPathV2(repositoryPath) !== null;
 }
 
 // ---------------------------------------------------------------------------
@@ -818,6 +853,7 @@ export function matchesCanonicalTrustRoot(repositoryPath: string): boolean {
 export interface TcbClosureLockInput {
   readonly closure: Set<string>;
   readonly reviewedEdges: Set<string>;
+  readonly reviewedBoundaryEdges: Set<string>;
   readonly reviewedExternalImports: Set<string>;
   readonly reviewedProcessDispatchers: Set<string>;
 }
@@ -826,6 +862,8 @@ export interface TcbClosureCandidateRootOptions {
   readonly candidateRoot?: string;
   readonly candidateSnapshot?: TcbClosureCandidateSnapshotV1;
 }
+
+export type TcbClosureCandidateRootInput = TcbClosureCandidateRootOptions | string;
 
 export interface TcbClosureCandidateSnapshotV1 {
   readonly root: string;
@@ -923,6 +961,12 @@ function resolveTcbClosureCandidateRoot(
     return reader;
   }
   return createTcbClosureCandidateRootReader(options.candidateRoot);
+}
+
+function normalizeTcbClosureCandidateRootInput(
+  input: TcbClosureCandidateRootInput
+): TcbClosureCandidateRootOptions {
+  return typeof input === 'string' ? { candidateRoot: input } : input;
 }
 
 function assertTcbClosureCandidateRootCurrent(reader: TcbClosureCandidateRootReader): void {
@@ -1125,11 +1169,12 @@ export function readTcbClosureCandidateFileV1(
 }
 
 export interface TcbClosureLock {
-  readonly schema: 'sec-tcb-closure-lock-v1';
+  readonly schema: 'sec-tcb-closure-lock-v2';
   readonly trustRevision: string;
   readonly moduleCount: number;
   readonly modules: readonly string[];
   readonly reviewedEdges: readonly string[];
+  readonly reviewedBoundaryEdges: readonly string[];
   readonly reviewedExternalImports: readonly string[];
   readonly reviewedProcessDispatchers: readonly string[];
   readonly moduleBlobs: Readonly<Record<string, string>>;
@@ -1140,6 +1185,68 @@ export interface TcbClosureLock {
 export interface TcbClosureLockVerification {
   readonly status: 'passed' | 'failed';
   readonly failures: readonly string[];
+}
+
+export interface TcbClosureLockReceiptV2 {
+  readonly schema: 'sec-tcb-closure-lock-receipt-v2';
+  readonly trustRevision: string;
+  readonly moduleCount: number;
+  readonly reviewedBoundaryEdgeCount: number;
+  readonly closureDigest: string;
+  readonly generatedAt: string;
+  readonly generatedBy: 'tcb-closure-maintainer';
+}
+
+export interface TcbClosureGeneratedRegionV2 {
+  readonly lock: TcbClosureLock;
+  readonly receipt: TcbClosureLockReceiptV2;
+  readonly regionStart: number;
+  readonly regionEnd: number;
+  readonly rawRegion: string;
+}
+
+export interface TcbClosureLockSourcePlanV2 {
+  readonly schema: 'sec-tcb-closure-lock-source-plan-v2';
+  readonly status: 'current' | 'update-required';
+  readonly currentLock: TcbClosureLock;
+  readonly nextLock: TcbClosureLock;
+  readonly currentGeneratedAt: string;
+  readonly nextGeneratedAt: string;
+  readonly oldRawSourceDigest: string;
+  readonly nextRawSourceDigest: string;
+  readonly nextSource: string;
+}
+
+const TCB_CLOSURE_GENERATED_REGION_BEGIN_V2 = [
+  '// <sec-tcb-closure-lock',
+  'generated-v2>'
+].join('-');
+
+const TCB_CLOSURE_GENERATED_REGION_END_V2 = [
+  '// </sec-tcb-closure-lock',
+  'generated-v2>'
+].join('-');
+
+function assertCanonicalGeneratedAtV2(generatedAt: string): void {
+  if (!Number.isFinite(Date.parse(generatedAt)) || new Date(generatedAt).toISOString() !== generatedAt) {
+    throw new Error('TCB closure lock receipt generatedAt must be canonical ISO-8601 UTC.');
+  }
+}
+
+export function createTcbClosureLockReceiptV2(
+  lock: TcbClosureLock,
+  generatedAt: string
+): TcbClosureLockReceiptV2 {
+  assertCanonicalGeneratedAtV2(generatedAt);
+  return Object.freeze({
+    schema: 'sec-tcb-closure-lock-receipt-v2',
+    trustRevision: lock.trustRevision,
+    moduleCount: lock.moduleCount,
+    reviewedBoundaryEdgeCount: lock.reviewedBoundaryEdges.length,
+    closureDigest: lock.closureDigest,
+    generatedAt,
+    generatedBy: 'tcb-closure-maintainer'
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1174,6 +1281,14 @@ function computeContentDigest(bytes: Uint8Array): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
+export type TcbClosureLockIdentityMaterialV2 = Omit<TcbClosureLock, 'trustRevision' | 'closureDigest'>;
+
+export function deriveTcbClosureTrustRevisionV2(
+  material: TcbClosureLockIdentityMaterialV2
+): string {
+  return `sha256:${createHash('sha256').update(JSON.stringify(material)).digest('hex')}`;
+}
+
 function computeClosureDigest(lock: Omit<TcbClosureLock, 'closureDigest'>): string {
   const canonical = JSON.stringify({
     schema: lock.schema,
@@ -1181,6 +1296,7 @@ function computeClosureDigest(lock: Omit<TcbClosureLock, 'closureDigest'>): stri
     moduleCount: lock.moduleCount,
     modules: lock.modules,
     reviewedEdges: lock.reviewedEdges,
+    reviewedBoundaryEdges: lock.reviewedBoundaryEdges,
     reviewedExternalImports: lock.reviewedExternalImports,
     reviewedProcessDispatchers: lock.reviewedProcessDispatchers,
     moduleBlobs: lock.moduleBlobs,
@@ -1195,20 +1311,17 @@ function computeClosureDigest(lock: Omit<TcbClosureLock, 'closureDigest'>): stri
 
 export function computeTcbClosureLock(
   input: TcbClosureLockInput,
-  trustRevision: string,
-  options: TcbClosureCandidateRootOptions = {}
+  candidateRoot: TcbClosureCandidateRootInput = {}
 ): TcbClosureLock {
   return computeTcbClosureLockAtCandidateRoot(
-    resolveTcbClosureCandidateRoot(options),
-    input,
-    trustRevision
+    resolveTcbClosureCandidateRoot(normalizeTcbClosureCandidateRootInput(candidateRoot)),
+    input
   );
 }
 
 function computeTcbClosureLockAtCandidateRoot(
   candidateRoot: TcbClosureCandidateRootReader,
-  input: TcbClosureLockInput,
-  trustRevision: string
+  input: TcbClosureLockInput
 ): TcbClosureLock {
   const modules = [...input.closure].sort();
   const moduleBlobs: Record<string, string> = {};
@@ -1216,27 +1329,39 @@ function computeTcbClosureLockAtCandidateRoot(
   for (const module of modules) {
     const bytes = readTcbClosureCandidateModule(candidateRoot, module);
     if (bytes === null) {
-      moduleBlobs[module] = 'missing-file';
-      moduleContentDigests[module] = 'sha256:missing-file';
-      continue;
+      throw new Error(`TCB closure module is missing or unreadable: ${module}.`);
     }
     const normalized = normalizeTextBytes(bytes);
     moduleBlobs[module] = computeGitBlobSha(normalized);
     moduleContentDigests[module] = computeContentDigest(normalized);
   }
   const reviewedEdges = [...input.reviewedEdges].sort();
+  const reviewedBoundaryEdges = [...input.reviewedBoundaryEdges].sort();
   const reviewedExternalImports = [...input.reviewedExternalImports].sort();
   const reviewedProcessDispatchers = [...input.reviewedProcessDispatchers].sort();
-  const partial = {
-    schema: 'sec-tcb-closure-lock-v1' as const,
-    trustRevision,
+  const identityMaterial: TcbClosureLockIdentityMaterialV2 = {
+    schema: 'sec-tcb-closure-lock-v2' as const,
     moduleCount: modules.length,
     modules,
     reviewedEdges,
+    reviewedBoundaryEdges,
     reviewedExternalImports,
     reviewedProcessDispatchers,
     moduleBlobs,
     moduleContentDigests
+  };
+  const trustRevision = deriveTcbClosureTrustRevisionV2(identityMaterial);
+  const partial = {
+    schema: identityMaterial.schema,
+    trustRevision,
+    moduleCount: identityMaterial.moduleCount,
+    modules: identityMaterial.modules,
+    reviewedEdges: identityMaterial.reviewedEdges,
+    reviewedBoundaryEdges: identityMaterial.reviewedBoundaryEdges,
+    reviewedExternalImports: identityMaterial.reviewedExternalImports,
+    reviewedProcessDispatchers: identityMaterial.reviewedProcessDispatchers,
+    moduleBlobs: identityMaterial.moduleBlobs,
+    moduleContentDigests: identityMaterial.moduleContentDigests
   };
   return { ...partial, closureDigest: computeClosureDigest(partial) };
 }
@@ -1245,16 +1370,15 @@ export function verifyTcbClosureLock(
   input: TcbClosureLockInput,
   options: TcbClosureCandidateRootOptions = {}
 ): TcbClosureLockVerification {
-  const actual = computeTcbClosureLock(input, TCB_CLOSURE_TRUST_REVISION, options);
   const expected = TCB_CLOSURE_LOCK;
   const failures: string[] = [];
+  const expectedModules = new Set(expected.modules);
+  const actualModules = new Set(input.closure);
 
-  if (actual.moduleCount !== expected.moduleCount) {
-    failures.push(`module count: expected ${expected.moduleCount}, actual ${actual.moduleCount}`);
+  if (actualModules.size !== expected.moduleCount) {
+    failures.push(`module count: expected ${expected.moduleCount}, actual ${actualModules.size}`);
   }
 
-  const expectedModules = new Set(expected.modules);
-  const actualModules = new Set(actual.modules);
   for (const module of actualModules) {
     if (!expectedModules.has(module)) {
       failures.push(`expansion: unexpected module ${module}`);
@@ -1266,17 +1390,8 @@ export function verifyTcbClosureLock(
     }
   }
 
-  for (const module of expected.modules) {
-    if (actual.moduleBlobs[module] !== expected.moduleBlobs[module]) {
-      failures.push(`substitution: blob mismatch for ${module}`);
-    }
-    if (actual.moduleContentDigests[module] !== expected.moduleContentDigests[module]) {
-      failures.push(`substitution: content digest mismatch for ${module}`);
-    }
-  }
-
   const expectedEdges = new Set(expected.reviewedEdges);
-  const actualEdges = new Set(actual.reviewedEdges);
+  const actualEdges = new Set(input.reviewedEdges);
   for (const edge of actualEdges) {
     if (!expectedEdges.has(edge)) {
       failures.push(`edge addition: unexpected edge ${edge}`);
@@ -1288,8 +1403,21 @@ export function verifyTcbClosureLock(
     }
   }
 
+  const expectedBoundaryEdges = new Set(expected.reviewedBoundaryEdges);
+  const actualBoundaryEdges = new Set(input.reviewedBoundaryEdges);
+  for (const edge of actualBoundaryEdges) {
+    if (!expectedBoundaryEdges.has(edge)) {
+      failures.push(`boundary edge addition: unexpected edge ${edge}`);
+    }
+  }
+  for (const edge of expectedBoundaryEdges) {
+    if (!actualBoundaryEdges.has(edge)) {
+      failures.push(`boundary edge removal: missing edge ${edge}`);
+    }
+  }
+
   const expectedExternalImports = new Set(expected.reviewedExternalImports);
-  const actualExternalImports = new Set(actual.reviewedExternalImports);
+  const actualExternalImports = new Set(input.reviewedExternalImports);
   for (const entry of actualExternalImports) {
     if (!expectedExternalImports.has(entry)) {
       failures.push(`external import addition: unexpected ${entry}`);
@@ -1302,7 +1430,7 @@ export function verifyTcbClosureLock(
   }
 
   const expectedDispatchers = new Set(expected.reviewedProcessDispatchers);
-  const actualDispatchers = new Set(actual.reviewedProcessDispatchers);
+  const actualDispatchers = new Set(input.reviewedProcessDispatchers);
   for (const entry of actualDispatchers) {
     if (!expectedDispatchers.has(entry)) {
       failures.push(`process dispatcher addition: unexpected ${entry}`);
@@ -1314,6 +1442,31 @@ export function verifyTcbClosureLock(
     }
   }
 
+  if (failures.length > 0) {
+    return { status: 'failed', failures };
+  }
+
+  let actual: TcbClosureLock;
+  try {
+    actual = computeTcbClosureLock(input, options);
+  } catch (error) {
+    return {
+      status: 'failed',
+      failures: [
+        `computation failed: ${error instanceof Error ? error.message : String(error)}`
+      ]
+    };
+  }
+
+  for (const module of expected.modules) {
+    if (actual.moduleBlobs[module] !== expected.moduleBlobs[module]) {
+      failures.push(`substitution: blob mismatch for ${module}`);
+    }
+    if (actual.moduleContentDigests[module] !== expected.moduleContentDigests[module]) {
+      failures.push(`substitution: content digest mismatch for ${module}`);
+    }
+  }
+
   if (actual.closureDigest !== expected.closureDigest) {
     failures.push(`closure digest: expected ${expected.closureDigest}, actual ${actual.closureDigest}`);
   }
@@ -1321,219 +1474,315 @@ export function verifyTcbClosureLock(
   return { status: failures.length === 0 ? 'passed' : 'failed', failures };
 }
 
-export function generateTcbClosureLockForRevision(
-  trustRevision: string,
-  options: TcbClosureCandidateRootOptions = {}
-): TcbClosureLock {
-  const candidateRoot = resolveTcbClosureCandidateRoot(options);
-  const closure = trustedRuntimeClosureAtCandidateRoot(candidateRoot, TCB_RUNTIME_ENTRYPOINTS);
-  return computeTcbClosureLockAtCandidateRoot(candidateRoot, closure, trustRevision);
+function assertGeneratedPlainObjectV2(
+  value: unknown,
+  label: string
+): asserts value is Record<string, unknown> {
+  if (
+    value === null
+    || typeof value !== 'object'
+    || Array.isArray(value)
+    || Object.getPrototypeOf(value) !== Object.prototype
+  ) throw new Error(`${label} must be one plain object.`);
 }
 
-function tcbLockJsonValue(node: ts.Expression): unknown {
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-  if (ts.isNumericLiteral(node)) {
-    const value = Number(node.text);
-    if (!Number.isSafeInteger(value) || value < 0) {
-      throw new Error('TCB frozen lock contains a non-canonical number.');
-    }
-    return value;
-  }
-  if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
-  if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
-  if (node.kind === ts.SyntaxKind.NullKeyword) return null;
-  if (ts.isArrayLiteralExpression(node)) {
-    if (node.elements.some((element) => ts.isSpreadElement(element) || ts.isOmittedExpression(element))) {
-      throw new Error('TCB frozen lock arrays must contain only explicit JSON values.');
-    }
-    return node.elements.map((element) => tcbLockJsonValue(element as ts.Expression));
-  }
-  if (ts.isObjectLiteralExpression(node)) {
-    const result: Record<string, unknown> = {};
-    for (const property of node.properties) {
-      if (!ts.isPropertyAssignment(property) || property.name === undefined ||
-          ts.isComputedPropertyName(property.name)) {
-        throw new Error('TCB frozen lock objects must contain only explicit JSON properties.');
-      }
-      const key = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name) ||
-        ts.isNumericLiteral(property.name)
-        ? property.name.text
-        : null;
-      if (key === null || Object.prototype.hasOwnProperty.call(result, key)) {
-        throw new Error('TCB frozen lock contains an invalid or duplicate property.');
-      }
-      result[key] = tcbLockJsonValue(property.initializer);
-    }
-    return result;
-  }
-  throw new Error('TCB frozen lock initializer must be JSON-compatible literal AST.');
-}
-
-function tcbLockRecord(value: unknown, label: string): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value) ||
-      Object.getPrototypeOf(value) !== Object.prototype) {
-    throw new Error(`TCB frozen lock ${label} must be one plain object.`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function tcbLockExactKeys(
+function assertGeneratedExactKeysV2(
   value: Record<string, unknown>,
   expected: readonly string[],
   label: string
 ): void {
   const actual = Object.keys(value).sort();
-  const canonical = [...expected].sort();
-  if (actual.length !== canonical.length || actual.some((entry, index) => entry !== canonical[index])) {
-    throw new Error(`TCB frozen lock ${label} fields are unknown or missing.`);
+  const sortedExpected = [...expected].sort();
+  if (actual.length !== sortedExpected.length || actual.some((entry, index) => entry !== sortedExpected[index])) {
+    throw new Error(`${label} has unknown or missing fields.`);
   }
 }
 
-function tcbLockStringArray(value: unknown, label: string): string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
-    throw new Error(`TCB frozen lock ${label} must be a string array.`);
+function generatedStringArrayV2(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.length > 4_096 || value.some((entry) => typeof entry !== 'string')) {
+    throw new Error(`${label} must be a bounded string array.`);
   }
   const result = [...value] as string[];
   for (let index = 1; index < result.length; index += 1) {
     if (result[index - 1]! >= result[index]!) {
-      throw new Error(`TCB frozen lock ${label} must be strictly sorted and unique.`);
+      throw new Error(`${label} must be strictly code-unit sorted and unique.`);
     }
   }
   return result;
 }
 
-function tcbLockDigestMap(
-  value: unknown,
-  modules: readonly string[],
-  label: string,
-  pattern: RegExp
-): Record<string, string> {
-  const record = tcbLockRecord(value, label);
-  if (JSON.stringify(Object.keys(record)) !== JSON.stringify(modules) ||
-      Object.values(record).some((entry) => typeof entry !== 'string' || !pattern.test(entry))) {
-    throw new Error(`TCB frozen lock ${label} must exactly bind every canonical module.`);
-  }
-  return record as Record<string, string>;
-}
-
-export function parseTcbClosureLockSourceV1(source: string): TcbClosureLock {
-  if (source.length === 0 || source.length > 4 * 1024 * 1024 || source.includes('\0')) {
-    throw new Error('TCB frozen lock source is empty, oversized, or contains NUL.');
-  }
-  const sourceFile = ts.createSourceFile(
-    'platform/shared/tcb-closure-lock.ts',
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS
-  );
-  const parseDiagnostics = (
-    sourceFile as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }
-  ).parseDiagnostics ?? [];
-  if (parseDiagnostics.length > 0) {
-    throw new Error('TCB frozen lock source is not valid TypeScript.');
-  }
-  const matches: ts.VariableDeclaration[] = [];
-  for (const statement of sourceFile.statements) {
-    if (!ts.isVariableStatement(statement) ||
-        !statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
-        (statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      if (ts.isIdentifier(declaration.name) && declaration.name.text === 'TCB_CLOSURE_LOCK') {
-        matches.push(declaration);
-      }
-    }
-  }
-  const declaration = matches.length === 1 ? matches[0]! : null;
-  if (!declaration || !declaration.initializer || !ts.isObjectLiteralExpression(declaration.initializer) ||
-      declaration.type?.getText(sourceFile) !== 'TcbClosureLock') {
-    throw new Error('TCB frozen lock source must contain one exact exported typed const initializer.');
-  }
-  const value = tcbLockRecord(tcbLockJsonValue(declaration.initializer), 'initializer');
-  tcbLockExactKeys(value, [
+function parseTcbClosureLockValueV2(value: unknown): TcbClosureLock {
+  assertGeneratedPlainObjectV2(value, 'TCB closure generated lock');
+  assertGeneratedExactKeysV2(value, [
     'schema',
     'trustRevision',
     'moduleCount',
     'modules',
     'reviewedEdges',
+    'reviewedBoundaryEdges',
     'reviewedExternalImports',
     'reviewedProcessDispatchers',
     'moduleBlobs',
     'moduleContentDigests',
     'closureDigest'
-  ], 'initializer');
-  if (value.schema !== 'sec-tcb-closure-lock-v1') {
-    throw new Error('manual-bootstrap-required: TCB frozen lock schema is unknown.');
+  ], 'TCB closure generated lock');
+  if (value.schema !== 'sec-tcb-closure-lock-v2') {
+    throw new Error('TCB closure generated lock schema mismatch.');
   }
-  if (typeof value.trustRevision !== 'string' || !/^[0-9a-f]{40}$/u.test(value.trustRevision)) {
-    throw new Error('TCB frozen lock trustRevision is invalid.');
+  if (!Number.isSafeInteger(value.moduleCount) || (value.moduleCount as number) < 1) {
+    throw new Error('TCB closure generated lock moduleCount must be a positive safe integer.');
   }
-  const modules = tcbLockStringArray(value.modules, 'modules');
-  if (modules.some((entry) => !CodexDevelopmentIsCanonicalRepositoryPathV1(entry)) ||
-      value.moduleCount !== modules.length) {
-    throw new Error('TCB frozen lock module inventory is invalid.');
-  }
-  const reviewedEdges = tcbLockStringArray(value.reviewedEdges, 'reviewedEdges');
-  const reviewedExternalImports = tcbLockStringArray(
+  const modules = generatedStringArrayV2(value.modules, 'TCB closure generated modules');
+  const reviewedEdges = generatedStringArrayV2(value.reviewedEdges, 'TCB closure generated reviewedEdges');
+  const reviewedBoundaryEdges = generatedStringArrayV2(
+    value.reviewedBoundaryEdges,
+    'TCB closure generated reviewedBoundaryEdges'
+  );
+  const reviewedExternalImports = generatedStringArrayV2(
     value.reviewedExternalImports,
-    'reviewedExternalImports'
+    'TCB closure generated reviewedExternalImports'
   );
-  const reviewedProcessDispatchers = tcbLockStringArray(
+  const reviewedProcessDispatchers = generatedStringArrayV2(
     value.reviewedProcessDispatchers,
-    'reviewedProcessDispatchers'
+    'TCB closure generated reviewedProcessDispatchers'
   );
-  const moduleBlobs = tcbLockDigestMap(
-    value.moduleBlobs,
-    modules,
-    'moduleBlobs',
-    /^[0-9a-f]{40}$/u
-  );
-  const moduleContentDigests = tcbLockDigestMap(
-    value.moduleContentDigests,
-    modules,
-    'moduleContentDigests',
-    /^sha256:[0-9a-f]{64}$/u
-  );
-  const partial: Omit<TcbClosureLock, 'closureDigest'> = {
-    schema: 'sec-tcb-closure-lock-v1',
-    trustRevision: value.trustRevision,
+  if (value.moduleCount !== modules.length) {
+    throw new Error('TCB closure generated lock moduleCount does not match modules.');
+  }
+  assertGeneratedPlainObjectV2(value.moduleBlobs, 'TCB closure generated moduleBlobs');
+  assertGeneratedPlainObjectV2(value.moduleContentDigests, 'TCB closure generated moduleContentDigests');
+  const blobKeys = Object.keys(value.moduleBlobs);
+  const digestKeys = Object.keys(value.moduleContentDigests);
+  if (
+    blobKeys.length !== modules.length
+    || digestKeys.length !== modules.length
+    || blobKeys.some((entry, index) => entry !== modules[index])
+    || digestKeys.some((entry, index) => entry !== modules[index])
+  ) throw new Error('TCB closure generated module identity maps must exactly follow modules.');
+  const moduleBlobs: Record<string, string> = {};
+  const moduleContentDigests: Record<string, string> = {};
+  for (const module of modules) {
+    const blob = value.moduleBlobs[module];
+    const digest = value.moduleContentDigests[module];
+    if (typeof blob !== 'string' || !/^[0-9a-f]{40}$/u.test(blob)) {
+      throw new Error(`TCB closure generated lock has an invalid or missing blob sentinel for ${module}.`);
+    }
+    if (typeof digest !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(digest)) {
+      throw new Error(`TCB closure generated lock has an invalid or missing content sentinel for ${module}.`);
+    }
+    moduleBlobs[module] = blob;
+    moduleContentDigests[module] = digest;
+  }
+  if (typeof value.trustRevision !== 'string') {
+    throw new Error('TCB closure generated trustRevision must be text.');
+  }
+  const identityMaterial: TcbClosureLockIdentityMaterialV2 = {
+    schema: 'sec-tcb-closure-lock-v2',
     moduleCount: modules.length,
     modules,
     reviewedEdges,
+    reviewedBoundaryEdges,
     reviewedExternalImports,
     reviewedProcessDispatchers,
     moduleBlobs,
     moduleContentDigests
   };
-  if (typeof value.closureDigest !== 'string' ||
-      !/^sha256:[0-9a-f]{64}$/u.test(value.closureDigest) ||
-      value.closureDigest !== computeClosureDigest(partial)) {
-    throw new Error('TCB frozen lock closureDigest is invalid.');
+  const derivedTrustRevision = deriveTcbClosureTrustRevisionV2(identityMaterial);
+  if (value.trustRevision !== derivedTrustRevision) {
+    throw new Error('TCB closure generated trustRevision is not derived from the exact closure material.');
   }
-  return Object.freeze({ ...partial, closureDigest: value.closureDigest });
+  const partial = {
+    schema: identityMaterial.schema,
+    trustRevision: value.trustRevision,
+    moduleCount: identityMaterial.moduleCount,
+    modules: identityMaterial.modules,
+    reviewedEdges: identityMaterial.reviewedEdges,
+    reviewedBoundaryEdges: identityMaterial.reviewedBoundaryEdges,
+    reviewedExternalImports: identityMaterial.reviewedExternalImports,
+    reviewedProcessDispatchers: identityMaterial.reviewedProcessDispatchers,
+    moduleBlobs: identityMaterial.moduleBlobs,
+    moduleContentDigests: identityMaterial.moduleContentDigests
+  };
+  const closureDigest = computeClosureDigest(partial);
+  if (value.closureDigest !== closureDigest) {
+    throw new Error('TCB closure generated closureDigest does not match the exact lock material.');
+  }
+  return Object.freeze({ ...partial, closureDigest });
 }
 
-export function assertTcbClosureLockDataMatchesV1(
+function renderTcbClosureGeneratedRegionInternalV2(
+  lock: TcbClosureLock,
+  generatedAt: string
+): string {
+  const parsedLock = parseTcbClosureLockValueV2(lock);
+  assertCanonicalGeneratedAtV2(generatedAt);
+  return [
+    TCB_CLOSURE_GENERATED_REGION_BEGIN_V2,
+    `export const TCB_CLOSURE_TRUST_REVISION = ${JSON.stringify(parsedLock.trustRevision)};`,
+    '',
+    '// Generated from the exact live causal closure. Do not hand-edit this marked region.',
+    'export const TCB_CLOSURE_LOCK: TcbClosureLock = ' + JSON.stringify(parsedLock, null, 2) + ';',
+    '',
+    'export const TCB_CLOSURE_LOCK_RECEIPT = createTcbClosureLockReceiptV2(',
+    '  TCB_CLOSURE_LOCK,',
+    `  ${JSON.stringify(generatedAt)}`,
+    ');',
+    TCB_CLOSURE_GENERATED_REGION_END_V2
+  ].join('\n');
+}
+
+export function renderTcbClosureGeneratedRegionV2(
+  lock: TcbClosureLock,
+  generatedAt: string
+): string {
+  return renderTcbClosureGeneratedRegionInternalV2(lock, generatedAt);
+}
+
+export function parseTcbClosureGeneratedRegionV2(source: string): TcbClosureGeneratedRegionV2 {
+  if (source.length === 0 || source.length > 4 * 1024 * 1024 || source.includes('\0') || source.includes('\r')) {
+    throw new Error('TCB closure lock source must be bounded canonical LF text.');
+  }
+  const regionStart = source.indexOf(TCB_CLOSURE_GENERATED_REGION_BEGIN_V2);
+  const regionEndStart = source.indexOf(TCB_CLOSURE_GENERATED_REGION_END_V2);
+  if (
+    regionStart < 0
+    || regionEndStart < 0
+    || regionEndStart <= regionStart
+    || source.lastIndexOf(TCB_CLOSURE_GENERATED_REGION_BEGIN_V2) !== regionStart
+    || source.lastIndexOf(TCB_CLOSURE_GENERATED_REGION_END_V2) !== regionEndStart
+  ) throw new Error('TCB closure lock source must contain exactly one complete generated-region sentinel pair.');
+  const regionEnd = regionEndStart + TCB_CLOSURE_GENERATED_REGION_END_V2.length;
+  const rawRegion = source.slice(regionStart, regionEnd);
+  const trustPrefix = `${TCB_CLOSURE_GENERATED_REGION_BEGIN_V2}\nexport const TCB_CLOSURE_TRUST_REVISION = `;
+  const lockPrefix = ';\n\n// Generated from the exact live causal closure. Do not hand-edit this marked region.\n'
+    + 'export const TCB_CLOSURE_LOCK: TcbClosureLock = ';
+  const receiptPrefix = ';\n\nexport const TCB_CLOSURE_LOCK_RECEIPT = createTcbClosureLockReceiptV2(\n'
+    + '  TCB_CLOSURE_LOCK,\n  ';
+  const receiptSuffix = `\n);\n${TCB_CLOSURE_GENERATED_REGION_END_V2}`;
+  if (!rawRegion.startsWith(trustPrefix) || !rawRegion.endsWith(receiptSuffix)) {
+    throw new Error('TCB closure generated region is not in canonical form.');
+  }
+  const lockPrefixIndex = rawRegion.indexOf(lockPrefix, trustPrefix.length);
+  const receiptPrefixIndex = rawRegion.indexOf(receiptPrefix, lockPrefixIndex + lockPrefix.length);
+  if (lockPrefixIndex < 0 || receiptPrefixIndex < 0) {
+    throw new Error('TCB closure generated region declarations are incomplete.');
+  }
+  let trustRevision: unknown;
+  let lockValue: unknown;
+  let generatedAt: unknown;
+  try {
+    trustRevision = JSON.parse(rawRegion.slice(trustPrefix.length, lockPrefixIndex));
+    lockValue = JSON.parse(rawRegion.slice(lockPrefixIndex + lockPrefix.length, receiptPrefixIndex));
+    generatedAt = JSON.parse(rawRegion.slice(
+      receiptPrefixIndex + receiptPrefix.length,
+      rawRegion.length - receiptSuffix.length
+    ));
+  } catch (error) {
+    throw new Error(`TCB closure generated region is not canonical JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const lock = parseTcbClosureLockValueV2(lockValue);
+  if (trustRevision !== lock.trustRevision) {
+    throw new Error('TCB closure generated trust revision declaration does not match the lock.');
+  }
+  if (typeof generatedAt !== 'string') {
+    throw new Error('TCB closure generatedAt declaration must be text.');
+  }
+  const receipt = createTcbClosureLockReceiptV2(lock, generatedAt);
+  if (rawRegion !== renderTcbClosureGeneratedRegionInternalV2(lock, generatedAt)) {
+    throw new Error('TCB closure generated region is not byte-canonical.');
+  }
+  return Object.freeze({ lock, receipt, regionStart, regionEnd, rawRegion });
+}
+
+export function assertTcbClosureLockDataMatchesV2(
   parsed: TcbClosureLock,
   computed: TcbClosureLock
 ): void {
-  if (JSON.stringify(parsed) !== JSON.stringify(computed)) {
-    throw new Error('TCB candidate frozen lock does not match the base-computed candidate closure.');
+  const fields: readonly (keyof TcbClosureLock)[] = [
+    'schema',
+    'trustRevision',
+    'moduleCount',
+    'modules',
+    'reviewedEdges',
+    'reviewedBoundaryEdges',
+    'reviewedExternalImports',
+    'reviewedProcessDispatchers',
+    'moduleBlobs',
+    'moduleContentDigests',
+    'closureDigest'
+  ];
+  for (const field of fields) {
+    if (JSON.stringify(parsed[field]) !== JSON.stringify(computed[field])) {
+      throw new Error(`TCB candidate generated lock field does not match the base-computed closure: ${field}.`);
+    }
   }
 }
 
+function tcbClosureRawSourceDigestV2(source: string): string {
+  return `sha256:${createHash('sha256').update(source).digest('hex')}`;
+}
+
+export function planTcbClosureLockSourceV2(input: {
+  readonly source: string;
+  readonly nextLock: TcbClosureLock;
+  readonly generatedAt: string;
+}): TcbClosureLockSourcePlanV2 {
+  const current = parseTcbClosureGeneratedRegionV2(input.source);
+  const nextLock = parseTcbClosureLockValueV2(input.nextLock);
+  assertCanonicalGeneratedAtV2(input.generatedAt);
+  const currentIdentity = JSON.stringify(current.lock);
+  const nextIdentity = JSON.stringify(nextLock);
+  if (currentIdentity === nextIdentity) {
+    return Object.freeze({
+      schema: 'sec-tcb-closure-lock-source-plan-v2',
+      status: 'current',
+      currentLock: current.lock,
+      nextLock,
+      currentGeneratedAt: current.receipt.generatedAt,
+      nextGeneratedAt: current.receipt.generatedAt,
+      oldRawSourceDigest: tcbClosureRawSourceDigestV2(input.source),
+      nextRawSourceDigest: tcbClosureRawSourceDigestV2(input.source),
+      nextSource: input.source
+    });
+  }
+  const nextRegion = renderTcbClosureGeneratedRegionV2(nextLock, input.generatedAt);
+  const nextSource = input.source.slice(0, current.regionStart)
+    + nextRegion
+    + input.source.slice(current.regionEnd);
+  parseTcbClosureGeneratedRegionV2(nextSource);
+  return Object.freeze({
+    schema: 'sec-tcb-closure-lock-source-plan-v2',
+    status: 'update-required',
+    currentLock: current.lock,
+    nextLock,
+    currentGeneratedAt: current.receipt.generatedAt,
+    nextGeneratedAt: input.generatedAt,
+    oldRawSourceDigest: tcbClosureRawSourceDigestV2(input.source),
+    nextRawSourceDigest: tcbClosureRawSourceDigestV2(nextSource),
+    nextSource
+  });
+}
+
+export function generateTcbClosureLockV2(
+  options: TcbClosureCandidateRootOptions = {}
+): TcbClosureLock {
+  const candidateRoot = resolveTcbClosureCandidateRoot(options);
+  const closure = trustedRuntimeClosureAtCandidateRoot(candidateRoot, TCB_RUNTIME_ENTRYPOINTS);
+  return computeTcbClosureLockAtCandidateRoot(candidateRoot, closure);
+}
+
 // ---------------------------------------------------------------------------
-// Frozen lock (generated at trust revision — placeholder, to be filled)
+// Frozen lock — the CLI may replace only this marked region.
 // ---------------------------------------------------------------------------
 
-export const TCB_CLOSURE_TRUST_REVISION = '33216029c751fd55a1bace1b5ce63d3937a0064c';
+// <sec-tcb-closure-lock-generated-v2>
+export const TCB_CLOSURE_TRUST_REVISION = "sha256:8f84b87ec3ff60787bb02f754884bb3bf8d0e233e877ba9b02ad10fb1b33d4a2";
 
-// Generated from the exact live causal closure under the old trusted revision.
-// Do not hand-edit hashes/digests; regenerate with generateTcbClosureLockForRevision().
+// Generated from the exact live causal closure. Do not hand-edit this marked region.
 export const TCB_CLOSURE_LOCK: TcbClosureLock = {
-  "schema": "sec-tcb-closure-lock-v1",
-  "trustRevision": "33216029c751fd55a1bace1b5ce63d3937a0064c",
-  "moduleCount": 78,
+  "schema": "sec-tcb-closure-lock-v2",
+  "trustRevision": "sha256:8f84b87ec3ff60787bb02f754884bb3bf8d0e233e877ba9b02ad10fb1b33d4a2",
+  "moduleCount": 93,
   "modules": [
     "docs/scripts/docs-doctor-ledgers.ts",
     "docs/scripts/docs-doctor-shared.ts",
@@ -1560,6 +1809,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/ci-evidence-reuse-contract.ts",
     "platform/shared/ci-execution-environment.ts",
     "platform/shared/ci-git-changed-files.ts",
+    "platform/shared/ci-hosted-sut-observation-contract.ts",
     "platform/shared/ci-pr-risk-selection.ts",
     "platform/shared/ci-verification-plan.ts",
     "platform/shared/ci-verification-revision.ts",
@@ -1570,13 +1820,18 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/errors.ts",
     "platform/shared/fs.ts",
     "platform/shared/heavy-verification-gate-lease.ts",
+    "platform/shared/integration-authorization-contract.ts",
+    "platform/shared/main-health-contract.ts",
     "platform/shared/paths.ts",
     "platform/shared/platform-command.ts",
     "platform/shared/process.ts",
     "platform/shared/project-runtime.ts",
     "platform/shared/repository-path-contract.ts",
+    "platform/shared/review-stability-contract.ts",
     "platform/shared/runtime-dependency-spec.ts",
     "platform/shared/runtime-layout.ts",
+    "platform/shared/scope-authorization-contract.ts",
+    "platform/shared/semantic-mutation-staging-boundary.ts",
     "platform/shared/tcb-trust-root-contract.ts",
     "platform/shared/test-budget-contract.ts",
     "platform/shared/test-impact-contract.ts",
@@ -1585,8 +1840,14 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/test-impact-rules/semantic.ts",
     "platform/shared/test-impact-rules/verification.ts",
     "platform/shared/test-ownership-contract.ts",
+    "platform/shared/verification-action-ci-contract.ts",
+    "platform/shared/verification-action-contract.ts",
+    "platform/shared/verification-action-provider-contract.ts",
+    "platform/shared/verification-result-contract.ts",
     "platform/shared/verification-scope-inventory.ts",
+    "platform/shared/verification-session-contract.ts",
     "platform/shared/workspace-path-contract.ts",
+    "platform/shared/workspace-write-lease.ts",
     "scripts/ci-pr-risk.ts",
     "scripts/ci-verification.ts",
     "scripts/ci-workspace-fast.ts",
@@ -1595,21 +1856,24 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/branch-closeout.ts",
     "scripts/codex/branch-lifecycle-audit.ts",
     "scripts/codex/branch-lifecycle-command.ts",
-    "scripts/codex/branch-lifecycle-config.ts",
     "scripts/codex/branch-lifecycle-contract.ts",
     "scripts/codex/branch-lifecycle-health.ts",
     "scripts/codex/branch-lifecycle-inventory.ts",
     "scripts/codex/branch-lifecycle-parsers.ts",
     "scripts/codex/branch-lifecycle-types.ts",
-    "scripts/codex/branch-lifecycle.ts",
     "scripts/codex/branch-recovery.ts",
     "scripts/codex/ci-orchestration-core.ts",
     "scripts/codex/document-control-plane-contract.ts",
     "scripts/codex/exact-git-blob.ts",
+    "scripts/codex/integration-authorization-publication.ts",
     "scripts/codex/merge-gate.ts",
-    "scripts/codex/sec-merge-bootstrap-contract.ts",
-    "scripts/codex/sec-merge-bootstrap-runtime.ts",
-    "scripts/codex/sec-merge-bootstrap.ts",
+    "scripts/codex/verification-action-github-provider.ts",
+    "scripts/codex/verification-action-journal.ts",
+    "scripts/codex/verification-action-runner.ts",
+    "scripts/codex/verification-session-github.ts",
+    "scripts/codex/verification-session-journal.ts",
+    "scripts/codex/verification-session-runtime.ts",
+    "scripts/codex/verification-session.ts",
     "scripts/codex/work-package-contract.ts",
     "scripts/install-git-hooks.ts",
     "tests/setup/runtime-deps.setup.ts"
@@ -1617,11 +1881,19 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
   "reviewedEdges": [
     "scripts/ci-workspace-fast.ts -> platform/orchestrator.ts"
   ],
+  "reviewedBoundaryEdges": [
+    "scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts",
+    "scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts"
+  ],
   "reviewedExternalImports": [
-    "platform/shared/heavy-verification-gate-lease.ts -> bun:ffi"
+    "platform/shared/heavy-verification-gate-lease.ts -> bun:ffi",
+    "scripts/ci-verification.ts -> bun:ffi"
   ],
   "reviewedProcessDispatchers": [
+    "docs/scripts/docs-doctor.ts::function-declaration:captureDocsDoctorIndexTree::spawnSync#1",
+    "docs/scripts/docs-doctor.ts::function-declaration:readCapturedGitTreeBlob::spawnSync#1",
     "docs/scripts/docs-doctor.ts::function-declaration:resolveChangedDocumentPathsSince::spawnSync#1",
+    "platform/dev-runner.ts::function-declaration:executeVerifiedCiActionPlanV1::Bun.spawn#1",
     "platform/dev-runner/command-runner.ts::function-declaration:runDevCommand::spawn#1",
     "platform/dev-runner/import-organizer.ts::function-declaration:changedTypeScriptFiles::spawnSync#1",
     "platform/dev-runner/import-organizer.ts::function-declaration:gitBytes::spawnSync#1",
@@ -1629,27 +1901,39 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/dev-runner/import-organizer.ts::function-declaration:tryResolveGitCommit::spawnSync#1",
     "platform/shared/process.ts::function-declaration:runCommandCapture::spawn#1",
     "platform/shared/process.ts::function-declaration:terminateCommandProcessTree::spawn#1",
+    "scripts/ci-verification.ts::function-declaration:CodexDevelopmentInspectHostedActionArchiveV2::spawnSync#1",
     "scripts/ci-verification.ts::function-declaration:defaultGitFiles::spawnSync#1",
-    "scripts/codex/branch-lifecycle-command.ts::const-arrow:defaultBranchLifecycleCommandRunner::spawnSync#1",
+    "scripts/ci-verification.ts::function-declaration:defaultHostedSutSandboxProcessV1::spawn#1",
+    "scripts/ci-verification.ts::function-declaration:gitCandidateBytesV2::spawnSync#1",
+    "scripts/ci-verification.ts::function-declaration:hostedActionGhReadJsonV2::spawnSync#1",
+    "scripts/ci-verification.ts::function-declaration:runHostedMaterializerCommandV2::spawnSync#1",
+    "scripts/codex/branch-closeout-receipt.ts::function-declaration:runCloseoutObservationGh::spawnSync#1",
+    "scripts/codex/branch-closeout.ts::function-declaration:runCloseoutGit::spawnSync#1",
+    "scripts/codex/branch-lifecycle-inventory.ts::function-declaration:runInventoryCommand::spawnSync#1",
+    "scripts/codex/branch-recovery.ts::function-declaration:runRecoveryGit::spawnSync#1",
     "scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultChangedPathsV1::spawnSync#1",
     "scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultGitRevisionV1::spawnSync#1",
     "scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentDefaultTrackedTreeIsCleanV1::spawnSync#1",
     "scripts/codex/ci-orchestration-core.ts::function-declaration:CodexDevelopmentRunGateProcessV1::spawn#1",
     "scripts/codex/exact-git-blob.ts::function-declaration:runGit::spawnSync#1",
-    "scripts/codex/merge-gate.ts::function-declaration:mergeGateGitResolvers>const-arrow:run::spawnSync#1",
-    "scripts/codex/sec-merge-bootstrap-runtime.ts::const-arrow:defaultShellRunner::spawnSync#1",
+    "scripts/codex/verification-action-github-provider.ts::function-declaration:dispatchVerificationActionRepositoryWakeupV2::spawnSync#1",
+    "scripts/codex/verification-action-github-provider.ts::function-declaration:ghBytes::spawnSync#1",
+    "scripts/codex/verification-action-github-provider.ts::function-declaration:runProcessText::spawnSync#1",
+    "scripts/codex/verification-action-runner.ts::function-declaration:inspectLocalRepository>const-arrow:git::spawnSync#1",
+    "scripts/codex/verification-session-github.ts::function-declaration:runVerificationSessionGh::spawnSync#1",
+    "scripts/codex/verification-session.ts::function-declaration:runVerificationSessionCommand::spawnSync#1",
     "scripts/install-git-hooks.ts::function-declaration:gitText::spawnSync#1"
   ],
   "moduleBlobs": {
     "docs/scripts/docs-doctor-ledgers.ts": "174fc586ecf6a80bc5b1eab570919fcd17d282ac",
     "docs/scripts/docs-doctor-shared.ts": "5b1aa8ae950b6cfe371f2c86e62a948d62bde911",
-    "docs/scripts/docs-doctor.ts": "e217ed5fa2a90dfe40c482b9507745fceaa1c3f9",
-    "platform/dev-runner.ts": "accce7aef0a19065d8baba829fc3f803d621b3fc",
+    "docs/scripts/docs-doctor.ts": "0a074b1fb733d1ccd9be06b15ba8ecb5f18e55b5",
+    "platform/dev-runner.ts": "e0f62519581b7075e399324904c1c9d6d583406e",
     "platform/dev-runner/check-runner.ts": "3fa0834597d89111c49f1295f2bd43e8fe9f4e02",
     "platform/dev-runner/command-runner.ts": "1153ba825e53727c8cc72f6727c2d7308a9df2f9",
     "platform/dev-runner/dependency-bootstrap.ts": "42dba87800b232488e356dd52c6fcd413c900351",
     "platform/dev-runner/env-manager.ts": "67a3397e38b5fd754686787ed2d364828402e87c",
-    "platform/dev-runner/fast-test-policy.ts": "9160196ca3c1e30447fe12e39a48ea97e58291e9",
+    "platform/dev-runner/fast-test-policy.ts": "09f1c023e7a3bb960fd237cf73ade98a11da9ed6",
     "platform/dev-runner/import-organizer.ts": "ff2d735a3afd6bfb85ffa02232cf6f69f9c50ac2",
     "platform/dev-runner/test-concurrency-policy.ts": "614dcca876dc8f15dfdcc265fdf33ce54c778e78",
     "platform/dev-runner/test-runner.ts": "d8d51aa962a430bb03fede7541d6cb20d2092e1a",
@@ -1660,15 +1944,16 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/canonical-primitives.ts": "960c2fc4cbf4c16034a2414d7c206db1d70d4941",
     "platform/shared/ci-artifact-contract.ts": "08a347391a575bab2e5fb46e5af5d16cc0182f1f",
     "platform/shared/ci-artifact-types.ts": "0b00a3e5f46f56708b4ee96fae3d7e451e5197b9",
-    "platform/shared/ci-contract.ts": "482b99f84787bce25c03203ecb44ad9fe6bc909c",
+    "platform/shared/ci-contract.ts": "f279fdb4736eddaee583016844fc7922a3bdd3c8",
     "platform/shared/ci-evidence-composition-policy-registry.ts": "440a2ec821b1e816759423ad8de5495875e1c99f",
-    "platform/shared/ci-evidence-contract.ts": "278c8fa73c409432ec5d6c57055ec11450368885",
-    "platform/shared/ci-evidence-reuse-contract.ts": "aed4ed0ede7d9aecf960d4a3e1efa00a9595895f",
+    "platform/shared/ci-evidence-contract.ts": "57f25ad65d30913ca14442292b3ae75c122fcbaf",
+    "platform/shared/ci-evidence-reuse-contract.ts": "671b19777e233533c87e6ce3b759b03bdcec1a2c",
     "platform/shared/ci-execution-environment.ts": "d39f1933d5a75cbce5fb7f979703e0a262a0cc7b",
     "platform/shared/ci-git-changed-files.ts": "bf27b8ad4383390a24d93bc41a0a66de7f0ebac4",
+    "platform/shared/ci-hosted-sut-observation-contract.ts": "c6820279c4832e9b669e3d07e3521b8a7151989a",
     "platform/shared/ci-pr-risk-selection.ts": "4f5c64469299042bee9d1ce8f7b489ad52014fca",
-    "platform/shared/ci-verification-plan.ts": "3b498f2063f6e68f9e12c9124b8d0e8000309e95",
-    "platform/shared/ci-verification-revision.ts": "92985f151988fdd9a859a71669c3fef15b064659",
+    "platform/shared/ci-verification-plan.ts": "a72aec25290bf9725761bf638543fb1508df8e98",
+    "platform/shared/ci-verification-revision.ts": "1961aaf58b47f00922721831adee99148300fb80",
     "platform/shared/collections.ts": "8f8ecb1395714b83e995bcc560304ab1e0d9617f",
     "platform/shared/constants.ts": "78e19d1d79f8d6f5e729d66cb9ee74b4c6538088",
     "platform/shared/contract-freeze-contract.ts": "dcc6ea490001f528fda99787a41c81a330d5042d",
@@ -1676,46 +1961,60 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/errors.ts": "160c3b00d95d8457f59801762ae55c5f89e24784",
     "platform/shared/fs.ts": "cbf7dae627ff588418da759b581135864a3a2c10",
     "platform/shared/heavy-verification-gate-lease.ts": "27e4d5942c9b1467cb3a8df9d29b907eadc9be32",
+    "platform/shared/integration-authorization-contract.ts": "18bc72e4ffb195c44baacc19707c93af7c49e53b",
+    "platform/shared/main-health-contract.ts": "57950ae0ca894acec277a8dddd1921f3c711ecac",
     "platform/shared/paths.ts": "9f224ae82ce73ea65691ec316afb3ec0a9a0964f",
     "platform/shared/platform-command.ts": "6a59e27518b3e5d0b8c17d4d2cda67a987d68ff3",
     "platform/shared/process.ts": "b75c14e9f05723ddbf1b82ae22303aa0c3f49def",
     "platform/shared/project-runtime.ts": "a7b651b6c57da078a148bb1c07b91dd9a1b25ffc",
     "platform/shared/repository-path-contract.ts": "0d655f17a56379651ed3da2de59048db43936f91",
+    "platform/shared/review-stability-contract.ts": "43e114e3c53719cceb97a6d93a326400e74b8fb4",
     "platform/shared/runtime-dependency-spec.ts": "26c48ef3c4c03c88aeca354a03955a220cb595c6",
     "platform/shared/runtime-layout.ts": "67d597cb2845aaa942e5a5e2d2457275dd17624e",
-    "platform/shared/tcb-trust-root-contract.ts": "530219cb8fb1c7008b09d7eabfedbb51626387d5",
+    "platform/shared/scope-authorization-contract.ts": "cbd15a4a0216c64f44b8e07bac84ebffd42b6625",
+    "platform/shared/semantic-mutation-staging-boundary.ts": "87c3fc387147c0b41cfab0c1d176e88cbd00e1b9",
+    "platform/shared/tcb-trust-root-contract.ts": "c80f655102f2b9f530bcefe70f1824deebbbcc5d",
     "platform/shared/test-budget-contract.ts": "0d6079e8bd8c0be8b167fabe367906f7c70fe748",
     "platform/shared/test-impact-contract.ts": "277a229bedee5d8aacfb639b5486d81a7a5858ef",
     "platform/shared/test-impact-rules/governance.ts": "81a62e2e0bf666cbe4f072bd14e42118f1474649",
     "platform/shared/test-impact-rules/pipeline.ts": "795ef711b12cf8b631dba3f17c07e20e4ef79c9c",
     "platform/shared/test-impact-rules/semantic.ts": "c5be3c5a69ae34115706a44dceb08b375dd91068",
-    "platform/shared/test-impact-rules/verification.ts": "08db36043fcc0aae09aed30cd83bc4d2de15474c",
+    "platform/shared/test-impact-rules/verification.ts": "15e2770a66924142b68206e72f917e7cfa2438fe",
     "platform/shared/test-ownership-contract.ts": "7f0397e7343dbd9cc69e3420973822e308eb8e0d",
+    "platform/shared/verification-action-ci-contract.ts": "6ed975ac635d7c6f104a03c5fe14cffeb17d4180",
+    "platform/shared/verification-action-contract.ts": "a2fa94d2757e4caa0067c072764e825c7eea9e43",
+    "platform/shared/verification-action-provider-contract.ts": "7b8aafac41bd2413fd3c394f1ba568457cc789b3",
+    "platform/shared/verification-result-contract.ts": "059b9fd5996beb95eaf7baaff5bea516fd8a3478",
     "platform/shared/verification-scope-inventory.ts": "68c3e1b7511dba0d5c7ee209639f330cdacc342c",
+    "platform/shared/verification-session-contract.ts": "1a1cedc4264ede15887fdf9e629fcb7ca2eb6cdb",
     "platform/shared/workspace-path-contract.ts": "bf0efad0e2f0fe1036880c3aef7ec5c273639ff6",
+    "platform/shared/workspace-write-lease.ts": "5d8a9f876cf6b5c0c20cd14559d13a7237a53e16",
     "scripts/ci-pr-risk.ts": "30d444e88161f76d45a2af87b26c6add566dcb87",
-    "scripts/ci-verification.ts": "b11b9faa75028760f90594dc638cf5d9fdef4a03",
+    "scripts/ci-verification.ts": "4fbee49671544e5a1fca27e5b2445cb86ba6d5cd",
     "scripts/ci-workspace-fast.ts": "053e4ddd2db47e8fed05dd39ed88fdaa1a818c23",
-    "scripts/codex/branch-closeout-contract.ts": "67efd2f6a9d366041f7d4f489cd23346170a7d69",
-    "scripts/codex/branch-closeout-receipt.ts": "1dda78c61747093d6a61530884e97d67928e625e",
-    "scripts/codex/branch-closeout.ts": "f4a2ec8aff9aae6c1accf45a73174824c585f04f",
+    "scripts/codex/branch-closeout-contract.ts": "e1267c00160e8796655ca02a1584de22947ce78c",
+    "scripts/codex/branch-closeout-receipt.ts": "dad9aa9afebdebece60c726c0b146ecefbe1b639",
+    "scripts/codex/branch-closeout.ts": "9190f6a8e6d5fea36366c5d126c636f76ba46dcd",
     "scripts/codex/branch-lifecycle-audit.ts": "2d45069a94ae70c143461798653c7f6c1a3a21ab",
-    "scripts/codex/branch-lifecycle-command.ts": "56ad10a248da310fb5cb65ae270286b261ddeaee",
-    "scripts/codex/branch-lifecycle-config.ts": "5ec7e64a97316647bdd5a4b696b22090e3fd3e95",
+    "scripts/codex/branch-lifecycle-command.ts": "0a43f79e0958fb3574521eba967c331cf82c8efb",
     "scripts/codex/branch-lifecycle-contract.ts": "7be4c7077921505915bd4e6ab53915570ad4dced",
     "scripts/codex/branch-lifecycle-health.ts": "d02460a4df8f2717ed7f23cbadfa180a7d339f6c",
-    "scripts/codex/branch-lifecycle-inventory.ts": "331d9661523c49030c0b55e9aff897bd777ec366",
+    "scripts/codex/branch-lifecycle-inventory.ts": "9da4bf016e2dccdda50fe945c8a3c53056b3ad6d",
     "scripts/codex/branch-lifecycle-parsers.ts": "a7982dbae959b7f124a8f87ded62ae657181d768",
     "scripts/codex/branch-lifecycle-types.ts": "d0f343c3c4491265e6bfcfe0d096b7ad829a3b0c",
-    "scripts/codex/branch-lifecycle.ts": "cf68d4ded003770f007cb36cfc635fd79fba20ef",
-    "scripts/codex/branch-recovery.ts": "f7f675d89be2468db6bd62f5af2979a36eda5452",
+    "scripts/codex/branch-recovery.ts": "d2b86ae33a8c8b4312b19e809d3c8dfa281ce82d",
     "scripts/codex/ci-orchestration-core.ts": "7048c0e36e10a270c4fe646801bf4a2c3834fb91",
-    "scripts/codex/document-control-plane-contract.ts": "2d2aa54ccba3237e13ca4cedd419b0c115900da8",
+    "scripts/codex/document-control-plane-contract.ts": "115b966544fdb19769328563703253488cb5fac6",
     "scripts/codex/exact-git-blob.ts": "c31f795a85cecf3dc9cc1ed4426ef268b95468ba",
-    "scripts/codex/merge-gate.ts": "5f400aedb91ca621dbfcbebb4a29aeadd7f0d207",
-    "scripts/codex/sec-merge-bootstrap-contract.ts": "00d6d8ada133f428469deeaa804addf144f25b8a",
-    "scripts/codex/sec-merge-bootstrap-runtime.ts": "7bb19f76575db93ff11b3bb0fd599af4c2053993",
-    "scripts/codex/sec-merge-bootstrap.ts": "608324dae5ab3158114c710e49cd7776197472b7",
+    "scripts/codex/integration-authorization-publication.ts": "102adb348bbbd33ea92d47b94676ce7e1bbedab8",
+    "scripts/codex/merge-gate.ts": "0efabe6acdf502eb8d65927f04fe5f5b299ac9d8",
+    "scripts/codex/verification-action-github-provider.ts": "9d4c0f80077cc47c07ebebfad339303c4479d8bf",
+    "scripts/codex/verification-action-journal.ts": "c5e7dd3b9a3c0770671bb39270f74b6fe9e41812",
+    "scripts/codex/verification-action-runner.ts": "51657ff55d1e7b191ba16b4ffd0a38e9fa2785a1",
+    "scripts/codex/verification-session-github.ts": "c613b24f92a636abc9889bb85ba8e4038bbbfd66",
+    "scripts/codex/verification-session-journal.ts": "dc938985c8741825ec7864248bc9296fa907bf63",
+    "scripts/codex/verification-session-runtime.ts": "3e36faf69e01c8ba6a633d015c49843ecc53136b",
+    "scripts/codex/verification-session.ts": "5bc8112429395f76e12444b26763aee963ac8f92",
     "scripts/codex/work-package-contract.ts": "21775765b7cfc2fda1063f10672eb803e8e7f418",
     "scripts/install-git-hooks.ts": "23b7f0e5cbe0f50578045546daefd82e7fa3df5e",
     "tests/setup/runtime-deps.setup.ts": "88b15eb0053a2af75bbefb00df3d09a6bd255e08"
@@ -1723,13 +2022,13 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
   "moduleContentDigests": {
     "docs/scripts/docs-doctor-ledgers.ts": "sha256:52a055b99b245eb6229267b32c11c39328f2b736633674c881a84e4045534cbb",
     "docs/scripts/docs-doctor-shared.ts": "sha256:ecf605db8782097832e6de3ca2336f4311a1519a766962e7677d3fafd0cb2132",
-    "docs/scripts/docs-doctor.ts": "sha256:29189c0f49f3b3ac80f29eb8ae6c5e18980b5c2a337972855946e8c0b482ae89",
-    "platform/dev-runner.ts": "sha256:fba46a2672f12ac254400364a2dec2e9c35e04973510cb284b2a0406a7b248ee",
+    "docs/scripts/docs-doctor.ts": "sha256:5d5d2f07ec53c71d708a73156d201ff47f307e213f6f3f303744697bf2fb4e87",
+    "platform/dev-runner.ts": "sha256:4dd30645719a0b5c9da8749e9f57c46e475239f1e2673ae4acef77027e4ab91a",
     "platform/dev-runner/check-runner.ts": "sha256:48757d6ffd40e868d4a7769efa3de4f28b70b95490462e3cb5c65d9d4c73e48b",
     "platform/dev-runner/command-runner.ts": "sha256:b45598f646f81bfd06d3ac4c53997d068d17fb3959bf3f5ff75d98da2d63ae2e",
     "platform/dev-runner/dependency-bootstrap.ts": "sha256:b4cca12f3e0fe2fa5a8c68500ab8d0b4a157160e1c59d392367a9f2355c751f8",
     "platform/dev-runner/env-manager.ts": "sha256:4d39bc7584603d4bb984a568428bae685d60d2381faaf848935730eef4103f56",
-    "platform/dev-runner/fast-test-policy.ts": "sha256:a5b8cc4062b5e63069bb182d3a874ab2c23ef787290148a528cce98a6100fde6",
+    "platform/dev-runner/fast-test-policy.ts": "sha256:103a7e5b1187d227d653bed08168cff00f8b507e4c6f6f2e868e70005752f211",
     "platform/dev-runner/import-organizer.ts": "sha256:f7601322b97f9d31161b6f99d5776390b79696be4118af52d0ea90182a77532b",
     "platform/dev-runner/test-concurrency-policy.ts": "sha256:b0ae5d1f29a528dadf2bd7d91e703e1753baf4991aeb5d65940c05d4f8cf2e4f",
     "platform/dev-runner/test-runner.ts": "sha256:da1a9245bbdc34c84eca1f9204e3b70b9e17d48d6039b8f5428c0e5cdf324036",
@@ -1740,15 +2039,16 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/canonical-primitives.ts": "sha256:5bf7be826e00e5becfbfb0d5395cb03d0c1f9adbec64bd536e4ff6e5f62d38a3",
     "platform/shared/ci-artifact-contract.ts": "sha256:95c4f4ade4a9077f66a98eb5a66c9ea09a15bf4da9d31117f2555f62b93388b0",
     "platform/shared/ci-artifact-types.ts": "sha256:02da37c0130e85dc4289a1ae0aa99d746fa0dac8e541bbe0d86856c2823ca242",
-    "platform/shared/ci-contract.ts": "sha256:de3a768c46471694594d9b9b08ff3345851df4841b21c20d13ae0a428ee0ce73",
+    "platform/shared/ci-contract.ts": "sha256:e606685cc7e65032357f1b051e2e0a2b2871d4ddbf82eeaa27e4951e815d1bd9",
     "platform/shared/ci-evidence-composition-policy-registry.ts": "sha256:f19706e8b83415e80b44b6e54577500b03994dbb381f374c227ba96a2c53bb5d",
-    "platform/shared/ci-evidence-contract.ts": "sha256:feb48a568351d73ad8ed804980e2e6c5a5df579125d62d2c6952964f8a31c881",
-    "platform/shared/ci-evidence-reuse-contract.ts": "sha256:2f110ec688221ee9206a9e3c50524ebb76b05d83d11f7026f70d66496f6f2bcc",
+    "platform/shared/ci-evidence-contract.ts": "sha256:da254087321b3aba653ed57cb087188c73ce252f09b16d10c482b8974a720bc1",
+    "platform/shared/ci-evidence-reuse-contract.ts": "sha256:df74f9439c07f31601dcd2ed5166f2118768795acde2684b59f329a3f02a0a9c",
     "platform/shared/ci-execution-environment.ts": "sha256:e3b2a04262a2b01d1041173c68a352e60ed6bfe26a43d558c3ecda57544121ab",
     "platform/shared/ci-git-changed-files.ts": "sha256:ca7dd603e05e05fe0e061c1406c8c1f728fac359d3ad8f27501f24f65b458098",
+    "platform/shared/ci-hosted-sut-observation-contract.ts": "sha256:b304fa26a0a579364818bbf71b6eed8ed5ae595dbca186d430084115b09946c6",
     "platform/shared/ci-pr-risk-selection.ts": "sha256:28fca7c9edf69fac98e6a4aeca9239c9d1898a23f37e2d34a029b36861436848",
-    "platform/shared/ci-verification-plan.ts": "sha256:991c830d43f9cf6e00c045906ea01188483c8ef0ee20b2762db6cdc60cc87165",
-    "platform/shared/ci-verification-revision.ts": "sha256:c7f112d79d02a0988a3b2fe608b7e84cc212d2113061958fbd0b234634331028",
+    "platform/shared/ci-verification-plan.ts": "sha256:1b3894beb2f8facb29ec188085720772fc8cc22d6bf14b36a85489355c082b76",
+    "platform/shared/ci-verification-revision.ts": "sha256:6fec09561e06db6b93ed6d940f8653de4acd4ed54b2a0dd630c728bbdbc72194",
     "platform/shared/collections.ts": "sha256:8ff70a8bb6f89ba8355d900648d13caa4cc756542d808b7cf7e25efa5886bed4",
     "platform/shared/constants.ts": "sha256:bff35d03ea929d90b6f23a4246919011271bb86f0710cc86f51692ca51af26b5",
     "platform/shared/contract-freeze-contract.ts": "sha256:294ddf1a68d00ac41bff7b117a8e8882f918542e2ea4efe5eb06f8289edceb54",
@@ -1756,58 +2056,69 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/errors.ts": "sha256:6f2c91d5dda872f56f6e344d2b18a8cbf00fd1ffe3b46d5d36e48b11344c7e15",
     "platform/shared/fs.ts": "sha256:a224bb682431c521432c2c35829af3ef8f797a644b176fd9199cf49f6bc4a243",
     "platform/shared/heavy-verification-gate-lease.ts": "sha256:381f6de4f81b27e6fa6950bc76153d7dba03a9f38739c142e35bb57009d809a4",
+    "platform/shared/integration-authorization-contract.ts": "sha256:3d121feb0ac7a8eb48a15becb19d314ad5c4c8486ab154320ac4a8d328c51807",
+    "platform/shared/main-health-contract.ts": "sha256:e80d2ee9cb08e196c10adbc27e81c1d35de20cccb467b9fe421c9216b57e8ff7",
     "platform/shared/paths.ts": "sha256:82737bda5c4efa4f0338d3c3a3434a23daefd9918f440cddd044da62de2e0d20",
     "platform/shared/platform-command.ts": "sha256:dbb654a1697a0d73892b55bbd488f9fc2006a1fafe80f22fb82b8e0e15ba1a9c",
     "platform/shared/process.ts": "sha256:de6846b34674ba96a409b3769083d3a427939fcacfb9c437b59fe612e7493660",
     "platform/shared/project-runtime.ts": "sha256:02b26befcc432bba4055f8b78ffd53f84493b599f51e748a47c44f9e20ee5562",
     "platform/shared/repository-path-contract.ts": "sha256:262d0d7b19105bb20c232b88e0f71de0987956374034bb80f3548d92e27454ba",
+    "platform/shared/review-stability-contract.ts": "sha256:599351c8bad096f3ffe54ec924e018888d320499632372e06c71f7a75a210c91",
     "platform/shared/runtime-dependency-spec.ts": "sha256:f41eb62d9ed4c8beb3655210719fff1ecd324d44a198bbdad3280959b7210f5d",
     "platform/shared/runtime-layout.ts": "sha256:6b7a07641c2504b9a4a2e588483e9e47fddcab308547df4cc10e9000dc2420d0",
-    "platform/shared/tcb-trust-root-contract.ts": "sha256:68c2f6f4265a764f3948a4e031df691f623f5f6546d2835467e75aaf45793250",
+    "platform/shared/scope-authorization-contract.ts": "sha256:fbea121ea41c47ecc5e679e8f5ab935342be9f5c724280185bb2d57879fb2e1c",
+    "platform/shared/semantic-mutation-staging-boundary.ts": "sha256:c1a6db054e6f73b2792b8aa81a8938e1ec276127415f31f42f65838d39984145",
+    "platform/shared/tcb-trust-root-contract.ts": "sha256:abbccc93ccef53143870110ebcdbd7a70ee89e7c4af6404e1ac36b45cab6f3ac",
     "platform/shared/test-budget-contract.ts": "sha256:7cd98f0183a499779a604238fbfc1ec1b6061f866297507453c025c91f8395c6",
     "platform/shared/test-impact-contract.ts": "sha256:9d0fb869dfa226a502a06c1fe8b396b528dd977492084f07cd251653f1a122db",
     "platform/shared/test-impact-rules/governance.ts": "sha256:bd94d76a53e21e958462440c4040d67f4430768f5e9e32b46650ed5863c6de86",
     "platform/shared/test-impact-rules/pipeline.ts": "sha256:60230c98d9aecf6eade848528a6cf097766f6bdfa38f27b3e584d0a385f23981",
     "platform/shared/test-impact-rules/semantic.ts": "sha256:711d4b45d0bb7d91dc09d7e637e671cf1e6024654f64b3a2dd23b20abdeabb72",
-    "platform/shared/test-impact-rules/verification.ts": "sha256:9ff3b8872c9500f7a3bd82d09ebbf8fdba69a9a4a7dd908375f009bac7a55ad5",
+    "platform/shared/test-impact-rules/verification.ts": "sha256:e3cf28967c79bb81ee940b6e68dbb67a0adf30d25d849da2996646a8a76e1c3d",
     "platform/shared/test-ownership-contract.ts": "sha256:622ab63efb28ce13e2023b7e08da72a63b01b2a1c030b70b221327cd5ffda5c7",
+    "platform/shared/verification-action-ci-contract.ts": "sha256:e3e28a0e6855ee8c540f32aa35e7341c9588283c8ed13d821c64aa6337941eec",
+    "platform/shared/verification-action-contract.ts": "sha256:266241ad4eaa75bb58e2ec9c1e3cc04b36a283d82a6a668cf5f874e9732003b9",
+    "platform/shared/verification-action-provider-contract.ts": "sha256:b530f7f683dd7d0c1952f094f729a3add2b6e8e619987f08c5791aa717bbdea8",
+    "platform/shared/verification-result-contract.ts": "sha256:a226b4a0c7475f0fa45f90eb485b697e9751b6f923d2a67f54dbaef9e8720f9c",
     "platform/shared/verification-scope-inventory.ts": "sha256:94b1fb0e198662868b1a658cc6932fb0f5027784cd585fc01c606e97fa209e59",
+    "platform/shared/verification-session-contract.ts": "sha256:f3e0580c99a68ed24f44b56c348423328b2b3bf7f57b265d750615eb576016d9",
     "platform/shared/workspace-path-contract.ts": "sha256:65235f9548e99be1e6b333bb3b018dc7e4eeaf866b7fb052db64b9fdef9df364",
+    "platform/shared/workspace-write-lease.ts": "sha256:12286e61c0283b197279d14115a689c7d22a0e3f255ae71c3f59bed2b9534ff4",
     "scripts/ci-pr-risk.ts": "sha256:47cad822bddd8e10a90e257b92b505ed12fe03597938474dfdbb5b56acd85ed6",
-    "scripts/ci-verification.ts": "sha256:b2a8786e2e1b5bfb5665cbd3c0d15c40cadc7cfc14f089bbdff552302b312ead",
+    "scripts/ci-verification.ts": "sha256:4daaa2096f0084e9d94043e79591ac0a67092bfb1ed106f6abc4afe128951ba0",
     "scripts/ci-workspace-fast.ts": "sha256:a4500b0271ae1251600c1656495a0f970615d229b6ab7cbce885dead0af01d9c",
-    "scripts/codex/branch-closeout-contract.ts": "sha256:d3283c8112a78e549725471c9c1a359cd72dc96e9035e43915740c4f3bab8ab4",
-    "scripts/codex/branch-closeout-receipt.ts": "sha256:d78046a9a9c027d6b648f7ac0b1eb05d37faa940e314973e46f6e729d1682212",
-    "scripts/codex/branch-closeout.ts": "sha256:ca4f06361e721657ff1f083c1d6e7fc39096b1d0ffcba2ad454b9d4907c87111",
+    "scripts/codex/branch-closeout-contract.ts": "sha256:4c3256b7a30505e554b850412dd01fd283bf704ea793485fe363aba024bb0eca",
+    "scripts/codex/branch-closeout-receipt.ts": "sha256:dc8381e6f14dbc5f43d330efa6b9a67a89b92ab373671f22150ff46a1e051314",
+    "scripts/codex/branch-closeout.ts": "sha256:be4262765ca9675e2e75242be69301b321f7204a826b5111aff71821dc8d53a9",
     "scripts/codex/branch-lifecycle-audit.ts": "sha256:f8c453575ef58f49613b5cb79f75cc1377c08ef696866b0ca8b42bd950f6571b",
-    "scripts/codex/branch-lifecycle-command.ts": "sha256:7964a974577f15ee367398d14c1a23767b82acb4d311cdd04b6d156287dfe866",
-    "scripts/codex/branch-lifecycle-config.ts": "sha256:3806c547c3bab603d3cd7fcf8dfcd36e74d96f3f6e7bcc115aeba2a9e0b2611d",
+    "scripts/codex/branch-lifecycle-command.ts": "sha256:35b5bc3ed084b19ce57801b98498d9f169aca9ef0aa2f70a3329da43dcaf6275",
     "scripts/codex/branch-lifecycle-contract.ts": "sha256:c40c8a3474585087f70a5f38200be923ccc9e8f43bc8b811bf14535825758b48",
     "scripts/codex/branch-lifecycle-health.ts": "sha256:4b56e90ac0899279f9637d711d25b403b0a2c23030a6eef1e5d5aa32994811c7",
-    "scripts/codex/branch-lifecycle-inventory.ts": "sha256:482f184e6e97c6649e2b8990abfec28f7617bdc49a73531b821d52e749897e9d",
+    "scripts/codex/branch-lifecycle-inventory.ts": "sha256:03afdfc56205ef1d823a399a70fde9d1346f9d52262dbc873cd3219011a880e5",
     "scripts/codex/branch-lifecycle-parsers.ts": "sha256:4d18ec803915553ea928dd779de0011174889eaa27b6154a28c6b0bf697b6ad0",
     "scripts/codex/branch-lifecycle-types.ts": "sha256:fff26ea4512d3e8c85092638981b37864a762c93b020400dca564883941b5ec4",
-    "scripts/codex/branch-lifecycle.ts": "sha256:14a21bae1d3784c0f4c4ae533b8dc493d890f44d723dc62147fb5b1e0c005c60",
-    "scripts/codex/branch-recovery.ts": "sha256:7e20ef21920493da58520ee6b65515d7f624ff1e030b73007b87eb29871fb73a",
+    "scripts/codex/branch-recovery.ts": "sha256:63beb9e571de9bef0e5b0f5e97bf56c36e84bcad3ed1bb210637336a865d6419",
     "scripts/codex/ci-orchestration-core.ts": "sha256:0e727c9a4d2530c22a954615af2b77a41b9e2023a7ef203989694fddb60ba336",
-    "scripts/codex/document-control-plane-contract.ts": "sha256:4038a5408b4b05093961e0a8df60aa33ed0ab124fc32b41e9edd5e3dcc969034",
+    "scripts/codex/document-control-plane-contract.ts": "sha256:7a1a8b69aefcc33ebd8a22978676d9bdd6240289539261d73ef357a95627554f",
     "scripts/codex/exact-git-blob.ts": "sha256:6bd0052de607521e2a6f1d982de8facbdec5def749af5d1749370ebd5f0269b5",
-    "scripts/codex/merge-gate.ts": "sha256:593b9b798cae82d69a798baf931672662bf2ddc098fc2d463c0b2892589d28f5",
-    "scripts/codex/sec-merge-bootstrap-contract.ts": "sha256:82c58bad4a1654ff6ce19b618fd2ec9b334f9080c814100032bdd81074e3b607",
-    "scripts/codex/sec-merge-bootstrap-runtime.ts": "sha256:7a0b72d75f376a8b6d38f9c53737e8da1b6b89cfce9e202166978afaee596aac",
-    "scripts/codex/sec-merge-bootstrap.ts": "sha256:904e33e320d9b9fb1224ef40813e8b88fd7a16514d34d7eebdaa06d13e0d3906",
+    "scripts/codex/integration-authorization-publication.ts": "sha256:b787d0dfa738d77984864c37da8251c6faae1e27e195136e7cf08d8fee49661b",
+    "scripts/codex/merge-gate.ts": "sha256:a2c2cdb5d4af600fc110f70092de6c1b9d6184f1668cdf6b347b1b600e08d567",
+    "scripts/codex/verification-action-github-provider.ts": "sha256:de24725a9b778f3e2ec75a91df33fe63222992d10f0873bf2e9147fa854185ef",
+    "scripts/codex/verification-action-journal.ts": "sha256:8cdba9e94f7785e9f6eff29027b97b50beee40ed210c1f1646b41bea59099ac2",
+    "scripts/codex/verification-action-runner.ts": "sha256:0261873866177c291028072615d1703807952be947fd2f73237c1a617d9249a6",
+    "scripts/codex/verification-session-github.ts": "sha256:41d8ebe87968288dcac0f6c3e0ba70dd79832ae2b7446e45870313fe8fa3acc9",
+    "scripts/codex/verification-session-journal.ts": "sha256:d85e4eaf49ec509227a977e4ad322a24032967e01167b07690ad1222e505f29b",
+    "scripts/codex/verification-session-runtime.ts": "sha256:63e8e02f6d850a5780125ff62545f7b2ffe88ad890f0bf653ceb98cd2845325c",
+    "scripts/codex/verification-session.ts": "sha256:309c6ff6920f23442bc9272b299b4fc0a46e9fa4ca5b43b67a87ef71eaac765c",
     "scripts/codex/work-package-contract.ts": "sha256:802dbb0f940a4f278d6cccb299cc4f955a162816550314e910a330a9bcaf08f4",
     "scripts/install-git-hooks.ts": "sha256:19f44233a7ed2cd9e897838784ce06a7776efbdf6942a6a04adc144e48808db7",
     "tests/setup/runtime-deps.setup.ts": "sha256:6e6887ffcb8fead51f11fe8b223789f71a9512bd0805313c01035ec035c01441"
   },
-  "closureDigest": "sha256:a9fc8a1c2c175786ff101c7d21a54c0425c01d5771f76cbee71902e63109bc52"
+  "closureDigest": "sha256:a9432b4264dad5f8f4c7e631cb6360dd90e223ed9fad4154874a5b4e63666c35"
 };
 
-export const TCB_CLOSURE_LOCK_RECEIPT = {
-  schema: 'sec-tcb-closure-lock-receipt-v1' as const,
-  trustRevision: TCB_CLOSURE_TRUST_REVISION,
-  moduleCount: TCB_CLOSURE_LOCK.moduleCount,
-  closureDigest: TCB_CLOSURE_LOCK.closureDigest,
-  generatedAt: '2026-08-10T03:54:50.212Z',
-  generatedBy: 'tcb-closure-maintainer'
-} as const;
+export const TCB_CLOSURE_LOCK_RECEIPT = createTcbClosureLockReceiptV2(
+  TCB_CLOSURE_LOCK,
+  "2026-08-10T06:59:19.037Z"
+);
+// </sec-tcb-closure-lock-generated-v2>
