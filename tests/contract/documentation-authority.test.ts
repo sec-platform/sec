@@ -8,8 +8,8 @@ import {
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseRollingPlanV1
 } from '../../scripts/codex/document-control-plane-contract.ts';
-import { NEXUS_EPR_BINDINGS_V1 } from '../../scripts/codex/repository-audit.ts';
 import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
+import { NEXUS_EPR_BINDINGS_V1 } from '../../scripts/codex/repository-audit.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
@@ -103,7 +103,7 @@ describe('canonical documentation authority', () => {
       '## 加速验收'
     ]);
     expect(rawManifestDigest).toBeDefined();
-    expect(CodexDevelopmentWorkPackageManifestDigest(manifestSource)).toBe(rawManifestDigest);
+    expect(CodexDevelopmentWorkPackageManifestDigest(manifestSource)).toBe(rawManifestDigest!);
     expectContainsAll(manifestSource, [
       'skill-applicability-gate-v1',
       'Issue #275',
