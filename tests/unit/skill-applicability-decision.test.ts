@@ -136,6 +136,20 @@ test('Skill write surface beyond the authorized write paths resolves conflict', 
   expect(decision.reasonCodes).toContain('conflict-write-path');
 });
 
+test('any scope conflict fails closed even when another candidate would survive', () => {
+  const decision = evaluateSecSkillApplicabilityV1(envelope({
+    role: 'maintainer',
+    operationKind: 'govern',
+    candidates: ['sec-documentation-governance', 'sec-work-package-lifecycle'],
+    forbiddenPaths: ['docs/']
+  }));
+  expect(decision.status).toBe('conflict');
+  expect(decision.selectedSkillId).toBeNull();
+  expect(decision.scopeConflicts).toEqual([
+    { skillId: 'sec-documentation-governance', kind: 'write-path' }
+  ]);
+});
+
 test('Skill requiring an unauthorized resource or Gate resolves conflict', () => {
   const resourceConflict = evaluateSecSkillApplicabilityV1(envelope({
     role: 'a0',
