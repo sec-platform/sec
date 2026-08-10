@@ -23,12 +23,10 @@ const DOCUMENTATION_AUTHORITY_FAST_TESTS = [
   'tests/contract/docs-doctor-ledgers.test.ts',
   'tests/contract/docs-doctor.test.ts',
   'tests/contract/repository-audit.test.ts',
-  'tests/contract/skill-applicability.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/active-documentation-contract.test.ts',
   'tests/unit/agent-skill-markdown-classification.test.ts',
-  'tests/unit/ci-pr-risk-selection.test.ts',
-  'tests/unit/skill-applicability-decision.test.ts'
+  'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
 const AGENT_GOVERNANCE_FAST_TESTS = [
@@ -38,12 +36,10 @@ const AGENT_GOVERNANCE_FAST_TESTS = [
   'tests/contract/docs-doctor-ledgers.test.ts',
   'tests/contract/docs-doctor.test.ts',
   'tests/contract/repository-audit.test.ts',
-  'tests/contract/skill-applicability.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/active-documentation-contract.test.ts',
   'tests/unit/agent-skill-markdown-classification.test.ts',
   'tests/unit/ci-pr-risk-selection.test.ts',
-  'tests/unit/skill-applicability-decision.test.ts',
   'tests/unit/local-gate-union.test.ts'
 ];
 

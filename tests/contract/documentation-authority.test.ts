@@ -8,6 +8,7 @@ import {
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseRollingPlanV1
 } from '../../scripts/codex/document-control-plane-contract.ts';
+import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
 import { NEXUS_EPR_BINDINGS_V1 } from '../../scripts/codex/repository-audit.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
@@ -80,9 +81,6 @@ describe('canonical documentation authority', () => {
     const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
     const selectedManifestId = path.posix.basename(pointer.manifest, '.md');
     const manifestSource = await readCompilerFile(pointer.manifest);
-    const preservationDigest = manifestSource.match(
-      /sec-v10-preservation-plan-v1 digest (sha256:[0-9a-f]{64})/u
-    )?.[1];
     const rawManifestDigest = pointerSource.match(
       /manifestDigest: (sha256:[0-9a-f]{64})/u
     )?.[1];
@@ -96,7 +94,7 @@ describe('canonical documentation authority', () => {
     expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',
       '## 候选 Work Package',
-      'Issue #311',
+      'Issue #275',
       'Issue #178',
       'Issue #327',
       'Issue #314',
@@ -104,44 +102,30 @@ describe('canonical documentation authority', () => {
       '## 重新规划硬触发器',
       '## 加速验收'
     ]);
-    expect(preservationDigest).toBeDefined();
     expect(rawManifestDigest).toBeDefined();
+    expect(CodexDevelopmentWorkPackageManifestDigest(manifestSource)).toBe(rawManifestDigest);
     expectContainsAll(manifestSource, [
-      'exactly 100 unique paths: 86 exact mechanical non-overlap records',
-      'twelve bridge-overlap semantic replays',
-      '{baseCommit,baseTree,records,schema,sourceBaseCommit,sourceCommit,sourceTree}',
-      '{afterBlob,afterMode,beforeBlob,beforeMode,change,path}',
-      'git diff --no-renames --no-abbrev --raw',
-      '78e7a9eb678d8ac78ec4586f7fe5da8c7ff4d652',
-      'exclude the twelve semantic overlaps named below plus',
-      'The twelve semantic overlaps are',
-      'docs/verification-governance.md',
-      'scripts/codex/verification-action-github-provider.ts',
-      'scripts/codex/verification-session.ts',
-      'tests/unit/verification-action-github-provider.test.ts',
-      'tests/unit/verification-session-runtime.test.ts',
-      'sha256:532d9bebf20e539a956540c07123def5b4950e30b3d1de2a4318f0a54bc865a7',
-      'prior explicit plan, but is superseded by the four Review repairs',
-      'serialization is unreproducible and retired, not reusable Evidence'
+      'skill-applicability-gate-v1',
+      'Issue #275',
+      'applicable | none-required | ambiguous | stale | conflict | not-applicable | unresolved',
+      'trusted-vs-candidate Skill revision quarantine',
+      'platform/shared/agent-skill-contract.ts',
+      'scripts/codex/skill-applicability.ts',
+      'TASK_RESTART_REQUIRED'
     ]);
     expectContainsAll(pointerSource, [
-      '86-record mechanical plan',
-      preservationDigest!,
-      '86 个 exact blob/mode mechanical records',
-      '12 个从 M1 bridge',
-      'docs/verification-governance.md',
-      'verification-action-github-provider.ts',
-      'verification-session.ts'
+      'docs/work-packages/skill-applicability-gate-v1.md',
+      rawManifestDigest!,
+      'TASK_RESTART_REQUIRED'
     ]);
     expectContainsAll(rollingPlanSource, [
-      '86 exact blob/mode mechanical records',
-      '12 semantic overlap replays',
-      preservationDigest!,
-      '12 个 overlap',
-      'docs/verification-governance.md',
-      `raw manifest digest ${rawManifestDigest!}`
+      '### skill-applicability-gate-v1',
+      'Issue #275',
+      'zero-or-one applicable trusted Skill',
+      'TASK_RESTART_REQUIRED'
     ]);
     expectContainsNone(rollingPlanSource, [
+      '### verification-action-trusted-cutover-v10',
       '### implementation-resolution-architecture-convergence-v1',
       'canonical-architecture-convergence-v1',
       'physical-workspace-observation-v1',
