@@ -10,7 +10,6 @@ import {
   SEC_AGENT_SKILL_METADATA_V1,
   SEC_SKILL_APPLICABILITY_SCHEMA,
   SEC_SKILL_QUARANTINE_PATHS,
-  type SecSkillApplicabilityDecisionV1,
   type SecSkillApplicabilityEnvelopeV1
 } from '../../platform/shared/agent-skill-contract.ts';
 

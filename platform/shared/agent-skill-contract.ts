@@ -889,7 +889,7 @@ export function evaluateSecSkillApplicabilityV1(
 
   const requested = [...(input.candidates ?? [...SEC_AGENT_SKILL_IDS])];
   const candidateSkillIds = [...new Set(requested.filter(isSecAgentSkillId))];
-  const unknownCandidateCount = requested.length - new Set(requested.filter(isSecAgentSkillId)).size;
+  const unknownCandidateCount = [...new Set(requested)].filter((candidate) => !isSecAgentSkillId(candidate)).length;
 
   const triggerEvidence: SecSkillApplicabilityTriggerEvidence[] = [];
   const exclusionResults: SecSkillApplicabilityExclusionResult[] = [];
