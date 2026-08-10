@@ -14,6 +14,10 @@ import {
   CI_VERIFICATION_RELEASE_STEP_ORDER,
   CodexDevelopmentBuildVerificationPlanV1
 } from '../../platform/shared/ci-contract.ts';
+import {
+  matchSecTrustedBootstrapPathV1,
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1
+} from '../../platform/shared/tcb-trust-root-contract.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 type WorkflowStep = {
@@ -35,7 +39,12 @@ type Workflow = {
   };
   permissions?: Record<string, string>;
   concurrency?: { group?: string };
-  jobs: Record<string, { if?: string; steps: WorkflowStep[] }>;
+  jobs: Record<string, {
+    if?: string;
+    needs?: string | string[];
+    outputs?: Record<string, string>;
+    steps: WorkflowStep[];
+  }>;
 };
 
 function workflowStep(workflow: Workflow, jobId: string, name: string): WorkflowStep {
@@ -120,8 +129,13 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   expect(bootstrapWorkflow.on.repository_dispatch?.types).toEqual(['sec-trusted-bootstrap-v1']);
   expect(bootstrapWorkflow.on.pull_request).toBeUndefined();
   expect(bootstrapWorkflow.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
-  const bootstrapJob = bootstrapWorkflow.jobs['trusted-bootstrap-regression'];
-  if (!bootstrapJob) throw new Error('Missing trusted-bootstrap-regression job');
+  const bootstrapResolve = bootstrapWorkflow.jobs.resolve;
+  const bootstrapPre = bootstrapWorkflow.jobs['checker-pre'];
+  const bootstrapSut = bootstrapWorkflow.jobs['candidate-sut'];
+  const bootstrapPost = bootstrapWorkflow.jobs['checker-post'];
+  if (!bootstrapResolve || !bootstrapPre || !bootstrapSut || !bootstrapPost) {
+    throw new Error('Missing trusted bootstrap DAG job');
+  }
   expect(bootstrapWorkflowSource).toContain("payload.schema !== 'sec-trusted-bootstrap-request-v1'");
   expect(bootstrapWorkflowSource).toContain("const registryPath = 'platform/shared/ci-trust-root-registry.json';");
   expect(bootstrapWorkflowSource).toContain(
@@ -132,23 +146,24 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   expect(bootstrapWorkflowSource).toContain('ACTIONS_RUNTIME_TOKEN');
   expect(bootstrapWorkflowSource).toContain('GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY');
   expect(bootstrapWorkflowSource).toContain('git diff --check');
-  const bootstrapP0 = workflowStep(bootstrapWorkflow, 'trusted-bootstrap-regression', 'Materialize immutable P0 fixture objects');
-  expect(bootstrapP0.env?.GITHUB_TOKEN).toBe('${{ github.token }}');
-  expect(bootstrapP0.run).toContain('01d5c45a573337bee484d6a9d2effb2a76787b86');
-  expect(bootstrapP0.run).toContain('ab5d3a839afc1d595ae5c43437eb862cde1500c1');
-  expect(bootstrapP0.run).toContain('514e6e401659f18ecffca19856a11354d66d05df');
-  expect(bootstrapP0.run).toContain('334dd8dbe7162cd35f832257b735e79dd39e5650');
-  expect(bootstrapP0.run).toContain('git -c protocol.version=2 fetch --no-tags --no-recurse-submodules --no-write-fetch-head "$url"');
   expect(bootstrapWorkflowSource).not.toContain('GIT_ALTERNATE_OBJECT_DIRECTORIES');
-  const bootstrapSnapshot = workflowStep(bootstrapWorkflow, 'trusted-bootstrap-regression', 'Generate candidate TCB closure snapshot');
-  expect(bootstrapSnapshot.run).toContain('ACTIONS_RUNTIME_TOKEN');
-  expect(bootstrapSnapshot.run).toContain('GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY');
-  const bootstrapRegression = workflowStep(bootstrapWorkflow, 'trusted-bootstrap-regression', 'Run candidate bootstrap regression suite');
+  expect(bootstrapWorkflowSource).not.toContain('x-access-token');
+  const bootstrapRegression = workflowStep(
+    bootstrapWorkflow,
+    'candidate-sut',
+    'Run isolated candidate SUT regression'
+  );
   expect(bootstrapRegression.env).toMatchObject({
-    SEC_REPOSITORY_AUDIT_DEFAULT_REF: '${{ steps.resolve.outputs.base }}'
+    SEC_REPOSITORY_AUDIT_DEFAULT_REF: '${{ needs.resolve.outputs.base }}'
   });
-  expect(bootstrapRegression.run).toContain("git update-ref refs/remotes/origin/main '${{ steps.resolve.outputs.base }}'");
-  expect(bootstrapWorkflowSource).toContain('generateTcbClosureLockForRevision');
+  expect(bootstrapRegression.run).toContain('git update-ref refs/remotes/origin/main "$SEC_BOOTSTRAP_BASE"');
+  expect(bootstrapRegression.run).toContain('auxiliaryStatus: required("SEC_SUT_STATUS")');
+  expect(bootstrapRegression.run).not.toContain('status: required("SEC_SUT_STATUS")');
+  expect(bootstrapWorkflowSource).not.toContain('generateTcbClosureLockForRevision');
+  expect(workflowStep(bootstrapWorkflow, 'checker-pre', 'Produce trusted-base PRE candidate-root receipt').run)
+    .toContain('SEC_BOOTSTRAP_PHASE=pre');
+  expect(workflowStep(bootstrapWorkflow, 'checker-post', 'Recompute POST and reduce exact bootstrap evidence').run)
+    .toContain('SEC_BOOTSTRAP_PHASE=post');
   expect(bootstrapWorkflowSource).toContain('tests/unit/tcb-trust-root-contract.test.ts');
   expect(bootstrapWorkflowSource).toContain('tests/contract/tcb-closure-lock.test.ts');
   expect(bootstrapWorkflowSource).toContain('tests/contract/default-branch-revision-health.test.ts');
@@ -242,4 +257,268 @@ test('active GitHub validation workflows structurally enforce fresh exact heads 
   await expect(readCompilerFile('.github/workflows/compiler-validation.yml')).rejects.toMatchObject({
     code: 'ENOENT'
   });
+});
+
+test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
+  const source = await readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml');
+  const verificationSource = await readCompilerFile('scripts/ci-verification.ts');
+  const workflow = parseYaml(source) as Workflow;
+  expect(workflow.jobs.resolve?.outputs).toMatchObject({
+    base: '${{ steps.resolve.outputs.base }}',
+    'base-tree': '${{ steps.resolve.outputs.base-tree }}',
+    head: '${{ steps.resolve.outputs.head }}',
+    tree: '${{ steps.resolve.outputs.tree }}',
+    manifest: '${{ steps.resolve.outputs.manifest }}',
+    'registry-digest': '${{ steps.resolve.outputs.registry-digest }}',
+    'bun-version': '${{ steps.resolve.outputs.bun-version }}'
+  });
+  expect(workflow.jobs['checker-pre']?.needs).toBe('resolve');
+  expect(workflow.jobs['candidate-sut']?.needs).toEqual(['resolve', 'checker-pre']);
+  expect(workflow.jobs['checker-post']?.needs).toEqual(['resolve', 'checker-pre', 'candidate-sut']);
+  expect(workflow.jobs['checker-post']?.if).toBe("${{ always() && needs.resolve.result == 'success' }}");
+  expect(workflow.jobs['checker-post']?.if).not.toContain('needs.checker-pre.result');
+  const preTrustedCheckout = workflowStep(workflow, 'checker-pre', 'Checkout exact trusted base checker');
+  const preCandidateCheckout = workflowStep(workflow, 'checker-pre', 'Checkout exact candidate as data');
+  expect(preTrustedCheckout.with).toMatchObject({
+    ref: '${{ needs.resolve.outputs.base }}',
+    path: 'trusted-base',
+    'fetch-depth': 1,
+    'persist-credentials': false
+  });
+  expect(preCandidateCheckout.with).toMatchObject({
+    ref: '${{ needs.resolve.outputs.head }}',
+    path: 'candidate-data',
+    'fetch-depth': 2,
+    'persist-credentials': false
+  });
+  const preSteps = workflow.jobs['checker-pre']?.steps ?? [];
+  expect(preSteps.map((step) => step.name)).toEqual([
+    'Checkout exact trusted base checker',
+    'Checkout exact candidate as data',
+    'Preflight exact trusted-base checkout',
+    'Setup trusted-base Bun runtime',
+    'Install trusted-base checker dependencies without lifecycle scripts',
+    'Produce trusted-base PRE candidate-root receipt',
+    'Upload bounded checker PRE artifact'
+  ]);
+  const preflight = workflowStep(workflow, 'checker-pre', 'Preflight exact trusted-base checkout');
+  expect(preflight.env).toEqual({
+    TRUSTED_BASE_ROOT: '${{ github.workspace }}/trusted-base',
+    SEC_BOOTSTRAP_BASE: '${{ needs.resolve.outputs.base }}',
+    SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}'
+  });
+  const pre = workflowStep(workflow, 'checker-pre', 'Produce trusted-base PRE candidate-root receipt');
+  expect(pre.env).toMatchObject({
+    SEC_BOOTSTRAP_BASE: '${{ needs.resolve.outputs.base }}',
+    SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}'
+  });
+  expect(pre.run).toContain('importFromTrustedBase("platform/shared/tcb-closure-lock.ts")');
+  expect(pre.run).toContain('importFromTrustedBase("platform/shared/tcb-trust-root-contract.ts")');
+  expect(pre.run).toContain('parseTcbClosureLockSourceV1');
+  expect(pre.run).toContain('assertTcbClosureLockDataMatchesV1');
+  expect(pre.run).toContain('createTcbClosureCandidateSnapshotV1');
+  expect(pre.run).toContain('finalizeTcbClosureCandidateSnapshotV1(baseSnapshot)');
+  expect(pre.run).toContain('finalizeTcbClosureCandidateSnapshotV1(candidateSnapshot)');
+  expect(pre.run).toContain('const expectedTrustRevision = expectedBase');
+  expect(pre.run).toContain('parsedCandidateLock.trustRevision !== expectedTrustRevision');
+  expect(pre.run).toContain('hardFailureReasons.add("candidate-lock-trust-revision-is-not-exact-base-epoch")');
+  expect(pre.run).toMatch(/candidateClosure,\s+expectedTrustRevision,\s+candidateSnapshotOptions/u);
+  expect(pre.run).not.toMatch(/candidateClosure,\s+parsedCandidateLock\.trustRevision,/u);
+  expect(pre.run).toContain('["rev-list", "--parents", "-n", "1", "HEAD"]');
+  expect(pre.run).toContain('GIT_NO_REPLACE_OBJECTS = "1"');
+  expect(pre.run).not.toContain('HEAD^1');
+  expect(pre.run).toContain('candidate-registry-differs-from-trusted-base-policy');
+  expect(pre.run).toContain('candidate-lock-schema-or-checker-change');
+  expect(pre.run).toContain('candidate-causal-closure-differs-from-trusted-base-registry');
+  expect(pre.run).toContain(
+    'registryContract.matchSecTrustedBootstrapPathV1(repositoryPath, baseRegistry) !== null'
+  );
+  expect(pre.run).not.toContain('!causalRuntimePaths.has(repositoryPath)');
+  expect(pre.run).not.toContain('baseUndecidableCausalPaths');
+  const r2ChangedPaths = [
+    '.github/workflows/sec-trusted-bootstrap.yml',
+    'docs/work-packages/trusted-bootstrap-base-first-repair-v1.md',
+    'docs/work-packages/verification-action-kernel-finalization-v1.md',
+    'docs/work/active-work-package.md',
+    'docs/work/rolling-plan.md',
+    'platform/shared/tcb-closure-lock.ts',
+    'tests/contract/ci-contract.test.ts',
+    'tests/contract/documentation-authority.test.ts',
+    'tests/contract/tcb-closure-lock.test.ts'
+  ];
+  expect(r2ChangedPaths
+    .filter((repositoryPath) =>
+      matchSecTrustedBootstrapPathV1(repositoryPath, SEC_TRUSTED_BOOTSTRAP_REGISTRY_V1) !== null
+    )
+    .sort()).toEqual([
+    '.github/workflows/sec-trusted-bootstrap.yml',
+    'platform/shared/tcb-closure-lock.ts'
+  ]);
+  expect(pre.run).toContain('SEC_BOOTSTRAP_PHASE=pre');
+  const sutSteps = workflow.jobs['candidate-sut']?.steps ?? [];
+  expect(sutSteps.some((step) => step.name === 'Checkout exact trusted base checker')).toBe(false);
+  expect(sutSteps.some((step) => step.uses?.includes('download-artifact'))).toBe(false);
+  expect(JSON.stringify(sutSteps)).not.toContain('bootstrap-pre');
+  expect(JSON.stringify(sutSteps)).not.toContain('checker.mjs');
+  expect(workflowStep(workflow, 'candidate-sut', 'Checkout exact candidate SUT only').with)
+    .toMatchObject({ path: 'candidate-sut', 'persist-credentials': false });
+  const postSteps = workflow.jobs['checker-post']?.steps ?? [];
+  expect(postSteps.map((step) => step.name)).toEqual([
+    'Initialize fail-closed final evidence envelope',
+    'Checkout exact trusted base reducer',
+    'Checkout exact candidate as POST data',
+    'Preflight exact trusted-base checkout',
+    'Setup trusted-base Bun runtime for reducer',
+    'Install trusted-base reducer dependencies without lifecycle scripts',
+    'Download bounded checker PRE artifact',
+    'Download bounded candidate SUT artifact',
+    'Recompute POST and reduce exact bootstrap evidence',
+    'Upload final canonical trusted bootstrap evidence'
+  ]);
+  const postPreflight = workflowStep(workflow, 'checker-post', 'Preflight exact trusted-base checkout');
+  expect(postPreflight.env).toEqual(preflight.env);
+  expect(postPreflight.run).toBe(preflight.run);
+  if (typeof preflight.run !== 'string') {
+    throw new Error('trusted bootstrap preflight must be one workflow-owned shell program.');
+  }
+  for (const binding of [
+    'node <<\'NODE\'',
+    'lstatSync(logicalRoot)',
+    'metadata.isDirectory()',
+    'metadata.isSymbolicLink()',
+    'realpathSync.native(logicalRoot)',
+    'physicalRoot !== logicalRoot',
+    '["rev-parse", "--show-toplevel"]',
+    '["rev-parse", "--verify", "HEAD^{commit}"]',
+    '["rev-parse", "--verify", "HEAD^{tree}"]',
+    '["status", "--porcelain=v1", "--untracked-files=all"]',
+    '.filter(([name]) => !name.startsWith("GIT_"))',
+    'GIT_NO_REPLACE_OBJECTS = "1"',
+    '["--no-replace-objects", "-C", physicalRoot, ...args]'
+  ]) expect(preflight.run).toContain(binding);
+  expect(preflight.run).not.toContain('bun ');
+  expect(preflight.run).not.toContain('checker.mjs');
+  expect(preflight.run).not.toContain('importFromTrustedBase');
+  const initialize = workflowStep(workflow, 'checker-post', 'Initialize fail-closed final evidence envelope');
+  expect(initialize.env).toMatchObject({
+    FINAL_EVIDENCE_ROOT: '${{ github.workspace }}/bootstrap-final',
+    SEC_BOOTSTRAP_BASE: '${{ needs.resolve.outputs.base }}',
+    SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}',
+    SEC_BOOTSTRAP_HEAD: '${{ needs.resolve.outputs.head }}',
+    SEC_BOOTSTRAP_TREE: '${{ needs.resolve.outputs.tree }}',
+    SEC_BOOTSTRAP_RUN_ID: '${{ github.run_id }}',
+    SEC_BOOTSTRAP_RUN_ATTEMPT: '${{ github.run_attempt }}'
+  });
+  const initializeRun = initialize.run;
+  if (typeof initializeRun !== 'string') {
+    throw new Error('trusted bootstrap final evidence initializer must be one shell program.');
+  }
+  for (const binding of [
+    'sec-trusted-bootstrap-final-evidence-v1',
+    'baseSha',
+    'baseTreeSha',
+    'headSha',
+    'treeSha',
+    'runId',
+    'runAttempt',
+    'status: "incomplete"',
+    'reason: "checker-post-not-complete"',
+    'receiptDigest',
+    '^[1-9][0-9]{0,19}$',
+    'final-envelope.json',
+    'sha256sum final-envelope.json > SHA256SUMS.tmp',
+    'mv SHA256SUMS.tmp SHA256SUMS'
+  ]) expect(initializeRun).toContain(binding);
+  expect(initializeRun).toContain('renameSync(temporary, path.join(root, "final-envelope.json"))');
+  expect(initializeRun.indexOf('renameSync(temporary, path.join(root, "final-envelope.json"))'))
+    .toBeLessThan(initializeRun.indexOf('sha256sum final-envelope.json > SHA256SUMS.tmp'));
+  expect(postSteps.some((step) => step.name === 'Install candidate SUT dependencies without lifecycle scripts'))
+    .toBe(false);
+  const post = workflowStep(workflow, 'checker-post', 'Recompute POST and reduce exact bootstrap evidence');
+  expect(post.env).toMatchObject({
+    SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}',
+    SEC_BOOTSTRAP_RUN_ID: '${{ github.run_id }}',
+    SEC_BOOTSTRAP_RUN_ATTEMPT: '${{ github.run_attempt }}'
+  });
+  const postRun = post.run;
+  if (typeof postRun !== 'string') {
+    throw new Error('trusted bootstrap POST reducer must be one shell program.');
+  }
+  expect(postRun).toContain('SEC_BOOTSTRAP_PHASE=post');
+  expect(postRun).toContain('sha256sum -c SHA256SUMS');
+  expect(postRun).toContain("printf 'baseTree=%s\\n' '${{ needs.resolve.outputs.base-tree }}'");
+  expect(postRun).toContain('postReceipt.authorityVerdict === "manual-bootstrap-required"');
+  expect(postRun).toContain('postReceipt.authorityVerdict === "failed"');
+  expect(postRun).toContain('postReceipt.auxiliaryStatus === "passed"');
+  expect(postRun).toContain('status = "incomplete"');
+  expect(postRun).toContain('test "$(node -p');
+  expect(postRun).toContain('renameSync(temporary, envelopePath)');
+  expect(postRun).toContain(
+    'sha256sum environment.txt final-envelope.json post-receipt.json pre-receipt.json sut-diagnostic.json > SHA256SUMS.tmp'
+  );
+  expect(postRun.indexOf('renameSync(temporary, envelopePath)'))
+    .toBeLessThan(postRun.indexOf('sha256sum environment.txt final-envelope.json'));
+  expect(postRun).toContain('mv SHA256SUMS.tmp SHA256SUMS');
+  const preArtifactName = 'sec-trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}';
+  const sutArtifactName = 'sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}';
+  expect(workflowStep(workflow, 'checker-pre', 'Upload bounded checker PRE artifact').with?.name)
+    .toBe(preArtifactName);
+  expect(workflowStep(workflow, 'checker-post', 'Download bounded checker PRE artifact').with?.name)
+    .toBe(preArtifactName);
+  expect(workflowStep(workflow, 'candidate-sut', 'Upload bounded candidate SUT artifact').with?.name)
+    .toBe(sutArtifactName);
+  expect(workflowStep(workflow, 'checker-post', 'Download bounded candidate SUT artifact').with?.name)
+    .toBe(sutArtifactName);
+  const finalUpload = workflowStep(workflow, 'checker-post', 'Upload final canonical trusted bootstrap evidence');
+  expect(finalUpload.if).toBe('always()');
+  expect(finalUpload.with?.['if-no-files-found']).toBe('error');
+  const finalUploadPath = finalUpload.with?.path;
+  if (typeof finalUploadPath !== 'string') {
+    throw new Error('trusted bootstrap final artifact path must be one string.');
+  }
+  expect(finalUploadPath.split('\n')).toEqual([
+    'bootstrap-final/final-envelope.json',
+    'bootstrap-final/SHA256SUMS',
+    'bootstrap-final/environment.txt',
+    'bootstrap-final/post-receipt.json',
+    'bootstrap-final/pre-receipt.json',
+    'bootstrap-final/sut-diagnostic.json',
+    ''
+  ]);
+  expect(finalUpload.with?.path).not.toBe('bootstrap-final');
+  expect(finalUpload.with?.name).toBe(
+    'sec-trusted-bootstrap-v1-pr-${{ needs.resolve.outputs.pull-request }}-base-${{ needs.resolve.outputs.base }}-head-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}'
+  );
+  expect(pre.run).toContain('trusted bootstrap PRE and POST candidate closure receipts differ');
+  for (const binding of [
+    'checkerBaseSha',
+    'baseTreeSha',
+    'candidateHeadSha',
+    'candidateTreeSha',
+    'candidateParentSha',
+    'checkerClosureDigest',
+    'candidateClosureDigest',
+    'checkerToolBlob',
+    'checkerWorkflowBlob',
+    'candidateToolBlob',
+    'candidateWorkflowBlob',
+    'candidateTrustRevision',
+    'checkerProgramDigest',
+    'authorityVerdict',
+    'authorityReason',
+    'baseUndecidablePaths',
+    'auxiliaryStatus',
+    'sutEvidenceDigest',
+    'sutJobResult',
+    'sutDiagnosticDigest',
+    'receiptDigest'
+  ]) expect(pre.run).toContain(binding);
+  expect(pre.run).toContain('trusted-base-cannot-decide-checker-policy-or-validation-plan-change');
+  expect(pre.run).toContain('auxiliaryStatus = "invalid"');
+  expect(source).not.toContain('x-access-token');
+  expect(source).not.toContain('Generate candidate TCB closure snapshot');
+  expect(source).not.toContain("import('./platform/shared/tcb-closure-lock.ts')");
+  expect(source).not.toContain('generateTcbClosureLockForRevision');
+  expect(verificationSource).not.toContain("from '../platform/shared/tcb-closure-lock.ts'");
+  expect(verificationSource).not.toContain('import("../platform/shared/tcb-closure-lock.ts")');
 });

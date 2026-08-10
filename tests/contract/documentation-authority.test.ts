@@ -82,7 +82,7 @@ describe('canonical documentation authority', () => {
 
     expect(rollingPlan.activePackageId).toBe(selectedManifestId);
     expect(rollingPlan.candidatePackageIds).toEqual([
-      'verification-action-trusted-cutover-v1',
+      'verification-action-trusted-cutover-v10',
       'semantic-impact-failure-routing-v1',
       'feedback-scheduler-hermetic-runtime-v1',
       'compiler-incremental-toolchain-v1'
