@@ -185,7 +185,7 @@ Reference Provider不能以“原生”之名免除安全、性能、维护和ne
 Universal Policy
 → explicit Agent Role
 → typed Operation Envelope
-→ exactly one Primary Skill
+→ zero or one applicable trusted Skill
 → deterministic services / contracts / tools
 → typed outcome and legal next transition
 → external Run State / Evidence
@@ -208,7 +208,7 @@ Role不能通过加载 Skill扩大权限。子 Agent 不继承父 Agent 的 Role
 一次 operation 至少绑定：
 
 - repository、exact main/base/target/candidate identity；
-- Role、operation kind、Primary Skill；
+- Role、operation kind、Skill applicability decision；
 - authority reads/writes；
 - path reads/writes与forbidden surface；
 - required capabilities、trust class和resource bounds；
@@ -228,18 +228,50 @@ Role maximum
 
 Skill只能声明 required capabilities，不能扩大交集。
 
-### Primary Skill
+### Skill Applicability（zero-or-one trusted guidance）
 
-一次 operation只有一个 Primary Skill。跨阶段工作通过 typed transition顺序推进：
+运行时 Skill 选择必须是 zero-or-one、trusted、operation-scoped（Issue #275）。
+跨阶段工作通过 typed transition顺序推进：
 
 ```text
 orient
 → audit | diagnose | design | implement | review | integrate | govern | no-change
 ```
 
-禁止同时加载多份 Primary Skill共同解释一个状态转换。Impact、Gate selection、Work Package parser、permission intersection、Failure/Epoch、Evidence reuse和merge legality等机器规则不重复写入 Skill prose。
+每个 operation 由 `sec-skill-applicability-decision-v1`
+（唯一代码 owner：`platform/shared/agent-skill-contract.ts`）裁决，状态：
 
-Skill只保留需要 Agent 判断的：触发/不触发、输入、分析方法、工具选择、解释、停止和 typed outcome。详细 schema、枚举、命令和平台矩阵引用 canonical code或按需 reference，避免长流程连续加载重复正文污染 context。
+```text
+applicable | none-required | ambiguous | stale | conflict | not-applicable | unresolved
+```
+
+- `applicable`：加载唯一 trusted Skill；
+- `none-required`：只在 Universal Policy + WorkPackage/Operation + Task Capsule 下执行，
+  简单读取、格式修复或已明确 Operation 不得被迫加载 catch-all Skill；
+- `ambiguous`：多个候选且无唯一 operation 证据，不得按文件顺序/ID/最新修改选取；
+- `conflict`：Skill 要求超出授权 write/read path、resource、tool、Gate 或 authority，
+  Skill 不得扩大交集；
+- `stale`：goal、role、operation kind、WorkPackage 授权、Task Capsule、candidate 集合
+  或 trusted revision 变化使旧 decision 失效；
+- `not-applicable` / `unresolved`：operation 不进入 Skill 空间或输入不完整，停止写入。
+
+Decision V1 至少绑定：trusted main/control revision、target candidate/workspace
+reference、Role、operation kind、intent/goal digest、WorkPackage/Operation
+authorization ref、Task Capsule ref、trusted registry 的 candidate Skill IDs、
+selected Skill ID or null、trusted/candidate Skill blob revision、trigger evidence、
+exclusion results、capability availability、authority/scope/resource conflicts、
+reason codes 与 invalidation conditions。
+
+path coverage（`resolveSecMarkdownSkillCoverage` / `resolveSecRepositoryHeuristicSkills`）
+只作候选提示，不是 runtime selector。candidate 修改 `AGENTS.md`、`.agents/**`、
+Skill registry、router 或 applicability 代码时，decision 与 Review 绑定 trusted
+base/main 版本；candidate 内容只作为 SUT 差异，不得自授权。
+
+Impact、Gate selection、Work Package parser、permission intersection、Failure/Epoch、
+Evidence reuse和merge legality等机器规则不重复写入 Skill prose；Skill 正文文本永远
+不能扩大 machine authorization。Skill 只保留需要 Agent 判断的：触发/不触发、输入、
+分析方法、工具选择、解释、停止和 typed outcome。详细 schema、枚举、命令和平台矩阵
+引用 canonical code或按需 reference，避免长流程连续加载重复正文污染 context。
 
 ### Deterministic services
 

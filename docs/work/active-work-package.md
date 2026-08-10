@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-08-10
+last-reviewed: 2026-08-11
 ---
 
 # 当前唯一 Active Work Package
@@ -10,26 +10,20 @@ last-reviewed: 2026-08-10
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/verification-action-trusted-cutover-v10.md
-manifestDigest: sha256:91a06d6c531efeb6a7078e07de7b5ccdf7bfec61729eddf7f2ce5e41d1bdd15b
+manifest: docs/work-packages/skill-applicability-gate-v1.md
+manifestDigest: sha256:beadbc2343fdfe4f5c118281af244c94a1caa520d5cab66ff5a3807839935d8e
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 ```
 
-Work Package `verification-action-trusted-cutover-v10` 从受信 bridge main
-`caa4a5a6000c02f47011b3bd192e529b85bb78c3` 激活。其 preservation source 仅为 H340
-`702abeca7110b03451cef195a4e17efd3461e536` / tree
-`73c16e6f3047e568862abe8c0a4c2d18e9e39612`，86-record mechanical plan 固定为
-`sec-v10-preservation-plan-v1` / 19,449 bytes /
-`sha256:8f9eac1d3412523b3494ecc0a225ef105550be127132a59bb5d7a38baaddebd4`。旧的
-90-record explicit digest `sha256:abe25c409edacb06537ef4526e39ff7699ecac53fa5d121617d630edc8c50d47`
-仍可复算，但已被四个 Review repair 转为 semantic overlap 后的计划取代。
+Work Package `skill-applicability-gate-v1` 从受信 `main@7543d37ad733432cbc2ddddd205c98f574e882c4`
+激活（Issue #275）。前一包 `verification-action-trusted-cutover-v10` 已完成 new-main readback：
+其 manifest digest `sha256:91a06d6c531efeb6a7078e07de7b5ccdf7bfec61729eddf7f2ce5e41d1bdd15b`
+与 new main 字节一致，`Independent-Exact-Head-Review: P0=0 P1=0 P2=0`，
+`Manual-Transition-Receipt` 绑定 exact base/head/tree；旧 Review/Gate/Evidence/Session/
+bootstrap receipt 全部 stale，不得复用。`TASK_RESTART_REQUIRED` 已由本新会话满足。
 
-最终 write set 恰为 100 路径：86 个 exact blob/mode mechanical records、12 个从 M1 bridge
-语义重放的 overlaps（包含 `docs/verification-governance.md`、`verification-action-github-provider.ts`
-与 `verification-session.ts`）、V10 manifest 新增与 bridge manifest 删除。V9 与 kernel-finalization
-manifest 均保持不存在；所有旧 Review/Gate/Evidence/Session/bootstrap/merge authorization
-均已 stale。M1 checker 的预期 `manual-bootstrap-required` 不能提升为 PASS，只能进入冻结的
-expected-head manual transition；merge 后必须 exact new-main readback 并报告
-`TASK_RESTART_REQUIRED`。
+本指针由受信 main 上的控制面契约（`scripts/codex/document-control-plane.ts`）解析为
+candidate activation；本包 merge 后必须执行 exact new-main readback 并报告
+`TASK_RESTART_REQUIRED`，之后才允许后续 trust-epoch 或治理工作。
