@@ -9,7 +9,11 @@ import {
   parseVerificationActionKeyV2,
   verificationActionDependsOnChangedInputsV2,
   type VerificationActionKeyInputV2
-} from '../../scripts/codex/verification-action-contract.ts';
+} from '../../platform/shared/verification-action-contract.ts';
+import {
+  CodexDevelopmentAssertVerificationGateResultV1,
+  VERIFICATION_GATE_RESULT_SCHEMA_V1
+} from '../../platform/shared/verification-result-contract.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
@@ -244,4 +248,23 @@ test('terminal action adapts canonical result status without adding a reuse stat
     reasonCode: 'timeout',
     resultDigest: null
   })).toThrow('not-run status requires a not-run reasonCode');
+});
+
+test('canonical Result preserves known failed reuse without promotion', () => {
+  const reusedFailure = {
+    schema: VERIFICATION_GATE_RESULT_SCHEMA_V1, gateId: 'gate', gateRevision: 'v1', owner: 'owner',
+    requirementKey: 'required', subjectRevision: 'subject', inputDigest: DIGEST_A,
+    applicability: 'required', status: 'failed', disposition: 'reused', reasonCode: 'executed-failure',
+    requiredForClaims: ['claim'], supportedClaims: [],
+    environment: { runtime: 'bun', os: 'windows', arch: 'x64', filesystem: null, capabilities: [],
+      toolchainRevision: 'bun@1.3.14', providerRevisions: [] },
+    execution: null, evidenceRefs: ['evidence://original-failure'], invalidationRules: [], diagnostic: null
+  };
+  expect(() => CodexDevelopmentAssertVerificationGateResultV1(reusedFailure)).not.toThrow();
+  expect(() => CodexDevelopmentAssertVerificationGateResultV1({ ...reusedFailure, status: 'passed',
+    reasonCode: 'executed-failure' })).toThrow('passed status requires');
+  expect(() => CodexDevelopmentAssertVerificationGateResultV1({ ...reusedFailure,
+    evidenceRefs: [] })).toThrow('non-empty evidenceRefs');
+  expect(() => CodexDevelopmentAssertVerificationGateResultV1({ ...reusedFailure,
+    environment: null })).toThrow('non-null environment');
 });

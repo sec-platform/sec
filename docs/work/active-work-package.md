@@ -10,20 +10,26 @@ last-reviewed: 2026-08-10
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/trusted-bootstrap-base-first-repair-v1.md
-manifestDigest: sha256:225f64358f4288fd0c1ab90a20bc157c79ff4bf0ad49594e9e853f9fdde07e14
+manifest: docs/work-packages/verification-action-trusted-cutover-v10.md
+manifestDigest: sha256:91a06d6c531efeb6a7078e07de7b5ccdf7bfec61729eddf7f2ce5e41d1bdd15b
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 ```
 
-Work Package `trusted-bootstrap-base-first-repair-v1` 从
-`main@33216029c751fd55a1bace1b5ce63d3937a0064c` 激活。PR #340 的 exact-head
-Review 证明 default-branch bootstrap 在候选 checkout 后执行候选自己的 checker，受信 base
-没有显式 candidate-data root，因此当前 V9 候选不能在同一 trust epoch 内修复并认证自己。
+Work Package `verification-action-trusted-cutover-v10` 从受信 bridge main
+`caa4a5a6000c02f47011b3bd192e529b85bb78c3` 激活。其 preservation source 仅为 H340
+`702abeca7110b03451cef195a4e17efd3461e536` / tree
+`73c16e6f3047e568862abe8c0a4c2d18e9e39612`，86-record mechanical plan 固定为
+`sec-v10-preservation-plan-v1` / 19,449 bytes /
+`sha256:8f9eac1d3412523b3494ecc0a225ef105550be127132a59bb5d7a38baaddebd4`。旧的
+90-record explicit digest `sha256:abe25c409edacb06537ef4526e39ff7699ecac53fa5d121617d630edc8c50d47`
+仍可复算，但已被四个 Review repair 转为 semantic overlap 后的计划取代。
 
-本包只引入 base-owned explicit candidate-root checker、PRE/POST receipt 和 steady-state
-双根 workflow。Bridge 自身必须通过冻结的 old-base transition evidence、独立 exact-head
-Review 与人工 expected-head merge；candidate tests 只能作为旁证。Bridge 进入 main 后立即
-`TASK_RESTART_REQUIRED`，所有旧 Review/Gate/Evidence/Session/bootstrap/merge authorization
-失效，再从新 main 重建 `verification-action-trusted-cutover-v10`。
+最终 write set 恰为 100 路径：86 个 exact blob/mode mechanical records、12 个从 M1 bridge
+语义重放的 overlaps（包含 `docs/verification-governance.md`、`verification-action-github-provider.ts`
+与 `verification-session.ts`）、V10 manifest 新增与 bridge manifest 删除。V9 与 kernel-finalization
+manifest 均保持不存在；所有旧 Review/Gate/Evidence/Session/bootstrap/merge authorization
+均已 stale。M1 checker 的预期 `manual-bootstrap-required` 不能提升为 PASS，只能进入冻结的
+expected-head manual transition；merge 后必须 exact new-main readback 并报告
+`TASK_RESTART_REQUIRED`。

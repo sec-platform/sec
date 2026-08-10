@@ -5,6 +5,8 @@ import { expect, test } from 'bun:test';
 import {
   CodexDevelopmentBuildEvidenceCompositionPlanV1,
   CodexDevelopmentEvidenceCompositionRawDigestV1,
+  CodexDevelopmentLegacyEvidencePromotionConsumerCountV1,
+  CodexDevelopmentRejectLegacyEvidencePromotionV1,
   CodexDevelopmentSyntheticEvidenceCompositionPolicyV1,
   CodexDevelopmentSyntheticEvidencePolicyIdV1,
   CodexDevelopmentSyntheticReusableEvidenceSourceV1,
@@ -13,6 +15,14 @@ import {
   CodexDevelopmentVerificationSelectionDigestV1,
   type CodexDevelopmentEvidenceCompositionPolicyV1
 } from '../../platform/shared/ci-evidence-reuse-contract.ts';
+
+test('legacy V2/V3 Evidence has zero promotion consumers', () => {
+  expect(CodexDevelopmentLegacyEvidencePromotionConsumerCountV1).toBe(0);
+  for (const schema of [
+    'codex-development-verification-evidence-v2',
+    'codex-development-verification-evidence-v3'
+  ]) expect(() => CodexDevelopmentRejectLegacyEvidencePromotionV1({ schema })).toThrow('reader-only');
+});
 
 const WORK_PACKAGE_ID = 'ci-v8-evidence-composition-bootstrap-v1';
 const RUNTIME = 'bun@1.3.6';
@@ -111,7 +121,7 @@ test('registered synthetic policy partitions every original title scope before e
 
 test('synthetic immutable PASS fixture binds its exact pretty raw bytes', () => {
   const attributes = headBlob('.gitattributes').toString('utf8').split('\n');
-  expect(attributes).toContain('/tests/fixtures/ci-evidence-reuse/synthetic-pass.json text eol=lf');
+  expect(attributes).toContain('*.json      text eol=lf');
   const source = headBlob('tests/fixtures/ci-evidence-reuse/synthetic-pass.json');
   expect(source).toEqual(Buffer.from(CodexDevelopmentSyntheticReusableEvidenceSourceV1, 'utf8'));
   expect(CodexDevelopmentEvidenceCompositionRawDigestV1(source)).toBe(

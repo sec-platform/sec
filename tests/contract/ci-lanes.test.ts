@@ -45,12 +45,21 @@ test('CI contract keeps PR lanes bounded and full logical lane complete', () => 
   expectPrFastLaneBoundary(contract);
   expectFullLaneCoversCorrectnessBackstop(contract);
   expectFullLaneCoversSlowSuites(contract, slowTestSuiteIds());
-  expect(contract.executionModel).toBe('frozen-delivery-single-runner');
+  expect(contract.executionModel).toBe('verification-session-v2-action-closure');
   expect(CI_VERIFICATION_PR_EVENT).toBe('repository_dispatch');
-  expect(CI_VERIFICATION_PR_DISPATCH_TYPE).toBe('sec-verify-frozen-v1');
+  expect(CI_VERIFICATION_PR_DISPATCH_TYPE).toBe('sec-verify-session-v2');
   expect(contract.prWorkflowCommands).toEqual([
-    'bun install --frozen-lockfile',
-    'bun scripts/ci-verification.ts --profile "$profile" --expected-head "$SEC_EXPECTED_HEAD_SHA"'
+    'bun scripts/codex/verification-session.ts observe-hosted',
+    'bun scripts/codex/verification-session.ts prepare-hosted',
+    'bun scripts/ci-verification.ts ensure-hosted-action-provider',
+    'bun scripts/ci-verification.ts resolve-hosted-action',
+    'install --frozen-lockfile --ignore-scripts',
+    'bun scripts/ci-verification.ts prepare-hosted-action-inputs',
+    'bun scripts/ci-verification.ts self-test-hosted-action-sandbox',
+    'bun scripts/ci-verification.ts execute-hosted-action-sut',
+    'bun scripts/ci-verification.ts assemble-hosted-action-terminal',
+    'bun scripts/ci-verification.ts compose-hosted-evidence',
+    'bun scripts/codex/verification-session.ts finalize-hosted'
   ]);
   expect(contract.releaseWorkflowCommands).toEqual([
     'bun install --frozen-lockfile',
@@ -63,9 +72,9 @@ test('CI contract counts and formatted projections are self-consistent', () => {
   expectCiContractSelfConsistent(contract);
   const formatted = formatCiContract(contract);
   expect(formatted).toContain('Verification contract revision: ci-verification-v19');
-  expect(formatted).toContain('Execution model: frozen-delivery-single-runner');
+  expect(formatted).toContain('Execution model: verification-session-v2-action-closure');
   expect(formatted).toContain('PR workflow event: repository_dispatch');
-  expect(formatted).toContain('PR dispatch type: sec-verify-frozen-v1');
+  expect(formatted).toContain('PR dispatch type: sec-verify-session-v2');
   expect(formatted).not.toContain('Trigger labels:');
   for (const label of [
     'PR workflow command count:',
@@ -368,14 +377,15 @@ test('CI risk runner keeps fail-fast, exact Git identity, and resumable batch co
   expect(source).not.toContain("from 'node:child_process'");
   expect(verificationSource).toContain('CodexDevelopmentReadExactGitBlobV1');
   expect(verificationSource).toContain('commitSha: headSha');
-  expect(verificationSource).not.toContain('readFileSync');
+  expect(verificationSource).toContain('CodexDevelopmentAssertPreparedHostedActionCandidateV2');
+  expect(verificationSource).toContain("gitCandidateBytesV2(candidateRoot, ['show', `${resolution.artifactInput.headSha}:${entry.path}`])");
+  expect(verificationSource).toContain("gitText('status', '--porcelain=v1', '--untracked-files=all')");
   expect(verificationSource).not.toContain('readManifestBytes');
   expect(verificationSource).toContain("from './codex/ci-orchestration-core.ts'");
   expect(verificationSource).toContain('CodexDevelopmentDefaultChangedPathsV1');
   expect(verificationSource).not.toContain('defaultChangedRecords');
   expect(verificationSource).not.toContain('gitChangedFileDiffArgs');
-  expect(verificationSource).toContain("import { spawnSync } from 'node:child_process'");
-  expect(verificationSource).not.toContain("import { spawn, spawnSync } from 'node:child_process'");
+  expect(verificationSource).toContain("import { spawn, spawnSync } from 'node:child_process'");
   expect(orchestrationSource).toContain('CodexDevelopmentDefaultGitRevisionV1');
   expect(orchestrationSource).toContain('CodexDevelopmentDefaultTrackedTreeIsCleanV1');
   expect(orchestrationSource).toContain('CodexDevelopmentDefaultChangedPathsV1');

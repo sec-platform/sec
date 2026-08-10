@@ -473,10 +473,10 @@ function assertStringSet(value: unknown, allowed: ReadonlySet<string>, label: st
   }
 }
 
-function assertVerificationStatusReason(
+export function CodexDevelopmentAssertVerificationStatusReasonV1(
   statusValue: unknown,
   reasonCodeValue: unknown,
-  label: string
+  label = 'Verification result'
 ): { status: VerificationResultStatus; reasonCode: VerificationReasonCode } {
   assertStringSet(statusValue, new Set(RESULT_STATUSES), `${label}.status`);
   assertStringSet(reasonCodeValue, REASON_CODE_SET, `${label}.reasonCode`);
@@ -589,7 +589,7 @@ export function CodexDevelopmentAssertVerificationGateResultV1(
   assertDigest(candidate.inputDigest, `${label}.inputDigest`);
   assertStringSet(candidate.applicability, new Set(APPLICABILITIES), `${label}.applicability`);
   assertStringSet(candidate.disposition, new Set(DISPOSITIONS), `${label}.disposition`);
-  const { status, reasonCode } = assertVerificationStatusReason(
+  const { status, reasonCode } = CodexDevelopmentAssertVerificationStatusReasonV1(
     candidate.status,
     candidate.reasonCode,
     label
@@ -610,14 +610,14 @@ export function CodexDevelopmentAssertVerificationGateResultV1(
   if (status === 'passed' && disposition === 'not-executed') {
     throw new Error(`${label} passed status cannot pair with not-executed disposition.`);
   }
-  if (status === 'failed' && disposition !== 'executed') {
-    throw new Error(`${label} failed status requires executed disposition.`);
+  if (status === 'failed' && disposition !== 'executed' && disposition !== 'reused') {
+    throw new Error(`${label} failed status requires executed or reused disposition.`);
   }
   if (status === 'not-run' && disposition !== 'not-executed') {
     throw new Error(`${label} not-run status requires not-executed disposition.`);
   }
-  if (disposition === 'reused' && status !== 'passed') {
-    throw new Error(`${label} reused disposition requires passed status.`);
+  if (disposition === 'reused' && status !== 'passed' && status !== 'failed') {
+    throw new Error(`${label} reused disposition requires passed or failed status.`);
   }
 
   // disposition ↔ execution / environment
@@ -1125,7 +1125,7 @@ function assertVerificationClaimResultV1(
   assertObject(value, label);
   assertExactKeys(value, CLAIM_RESULT_KEYS, label);
   assertIdentity(value.claimId, `${label}.claimId`);
-  assertVerificationStatusReason(value.status, value.reasonCode, label);
+  CodexDevelopmentAssertVerificationStatusReasonV1(value.status, value.reasonCode, label);
   assertUniqueIdentityArray(value.contributingGateIds, `${label}.contributingGateIds`);
   if (typeof value.coverageComplete !== 'boolean') {
     throw new Error(`${label}.coverageComplete must be a boolean.`);
@@ -1169,7 +1169,7 @@ export function CodexDevelopmentAssertVerificationAggregateResultV1(
   const candidate = CodexDevelopmentSnapshotVerificationDataV1(value, label);
   assertObject(candidate, label);
   assertExactKeys(candidate, AGGREGATE_RESULT_KEYS, label);
-  assertVerificationStatusReason(
+  CodexDevelopmentAssertVerificationStatusReasonV1(
     candidate.overallStatus,
     candidate.overallReasonCode,
     `${label}.overall`

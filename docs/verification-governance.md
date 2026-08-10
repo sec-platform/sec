@@ -2,7 +2,7 @@
 title: Verification、Evidence 与 CI 治理
 status: stable
 domain: verification-governance
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-10
 ---
 
 # Verification、Evidence 与 CI 治理
@@ -47,6 +47,10 @@ passed | failed | not-run | unsupported | invalidated
 - 机器化Review finding/merge decision平台。
 
 目标设计被接受不等于实现完成。CLI、PR summary、文档或Skill不得把未来状态名投影成当前PASS。
+T2 trusted-cutover epoch只有在 integrated candidate 与 new `main` 完成 exact commit/tree/
+merged-tree readback，并由 ordinary candidate canary 证明新路径后，才把 Action、Session、
+Review和merge authorization从目标变为active capability。轮换中的Work Package identity只由
+Document Control Plane拥有；候选分支中的manifest、类型、测试或workflow不构成激活证明。
 
 ## 验证对象与层级
 
@@ -131,9 +135,120 @@ Gate definition和一次运行实例分离：
 - **Gate contract**：identity、revision、owner、applicability、inputs、capabilities、dependencies、command/runner、timeout policy、Evidence output和invalidation rules；
 - **Execution record**：exact candidate/input/Binding/Delta-subject revisions、runtime/OS/arch/filesystem、toolchain/provider/dependency authority、环境、开始/结束/cleanup、result、artifacts和receipt。
 
-一次执行的唯一key只包含会改变证明语义的input closure；branch名、PR编号、聊天、显示标题和wall-clock不能成为语义key。
+一次执行的唯一 ActionKey 只包含会改变证明语义的 producer、normalized operation、
+input closure、environment/tool/provider/contract revision、result schema和dependency topology；
+branch名、PR编号、聊天、显示标题、session ID、wall-clock、pid、临时路径和scheduler lane
+不能成为语义key。
 
-在完整Execution Ledger实现前，当前writer/artifact/CI evidence继续作为迁移中的唯一实际authority。新Ledger必须逐producer和consumer迁移，不能长期双写两个结果源或用未来schema包装旧不完整Evidence。
+所有正式 producer 必须从同一个 canonical builder 生成 ActionKey。Selector 只拥有“哪些
+scope required”；producer 把 scope 规范化为 Action；runner 只消费经过验证的 ActionPlan。
+CI gate ID、raw argv、scopeId、evidenceIdentity、journal path或workflow run ID不能与
+ActionKey并列成为第二套执行真值。
+
+同一 ActionKey 的正式 hosted 请求必须进入由 trusted resolver 重算 key 的全局 producer
+临界区：只有该 hosted owner 可以物理执行，其他 Agent、CLI 和 workflow 请求只能 dispatch、
+join 或复用同一个 immutable terminal origin。client payload、完整 ActionPlan digest、本机
+workspace lease 与进程内 map 都不能成为全局 owner；本地 dev-runner 只能产生显式不同
+execution-environment revision 的反馈 Action，不能满足 formal hosted Evidence。全局 producer
+在临界区内先完整查找并验证既有 terminal origin，零条时才执行；冲突、重复或未知 provenance
+一律 fail closed。claim/journal/lease 只是可恢复 machine state，不是 Evidence；丢失它们
+最多失去 resume 能力，不能制造或改写 Verification Result。Hosted owner在执行前必须先发布并
+readback immutable ActionKey start marker；marker存在而terminal origin缺失表示physical outcome
+unknown，必须BLOCKED并通过新的显式producer/environment epoch形成新ActionKey，不能对同key
+自动重跑。start marker同样只是machine state，不能被解释为PASS或terminal Evidence。
+
+Hosted provider machine state只有一个pure contract和一个窄GitHub transport owner。trusted
+resolver从base重算ActionKey；job concurrency只能由该输出投影，并必须保留pending请求而不
+cancel/replace。provider对exact candidate SHA的status history做完整分页，`pending`只表示
+start tombstone，一个neutral terminal status只锚定已认证terminal artifact；status不能复制
+五态Result，也不能成为required Check、Evidence或merge authority。每次POST至多一次，网络、
+分页、creator、context、run/App或artifact origin存在任何歧义都只能BLOCK。start已存在而
+terminal artifact缺失时永久禁止同key再次physical spawn；exact terminal artifact已存在而
+terminal status缺失时只允许repair status，executor调用次数仍为零。artifact过期或删除后，
+status仍阻止重放，但不能凭digest恢复或复用原Result；需要跨retention复用时必须另行冻结带
+conditional insert和长期bytes的provider，不能把status提升为永久Evidence。
+
+一次external Session协调多个Action时，协调者必须先在受信workflow内发布并精确读回一个
+canonical parent dispatch-plan artifact；它绑定repository、external parent run/attempt、trusted
+workflow ref/SHA、当前maintain/admin human principal以及按ActionKey排序且无重复的proposal集合。
+每个internal Action event只携带proposal和该parent artifact的provider locator/provenance，属于
+at-least-once wake-up而不是authority。child run必须先验证当前GitHub Actions App/Bot身份，再从
+provider独立读取parent run、job/step、artifact metadata、archive bytes与payload，确认external
+Session事件、trusted base、human权限、plan digest和唯一member全部一致；payload自陈的parent
+字段、同一App的其他workflow或`repository_dispatch`发送者身份都不能单独授权执行。合法event
+重放只能join同一ActionKey，不能产生第二producer或扩大parent plan。
+
+trusted resolution、credential-free candidate execution和fresh trusted terminal assembly必须是
+三个隔离hosted job。candidate只接收normalized physical target与精确input，环境中不含GitHub、
+Actions、OIDC、status、artifact-finalization或merge capability；它只能产生untrusted raw output。
+fresh assembler从trusted base验证subject/plan/argv/environment/process settlement与raw transport，
+然后生成唯一canonical terminal artifact/Result。candidate-owned脚本或同一runner残留不能发布
+terminal Evidence。
+
+其中candidate physical operation必须位于独立OS sandbox：private root与writable tmpfs、只读且
+已认证的input/tool closure、不同uid/gid、独立mount/PID/network namespace与新`/proc`、空
+capability set、`no-new-privileges`、受限CPU/memory/process/file资源，以及关闭除受控
+stdout/stderr外的继承descriptor。host workspace、runner temp、GitHub command file、provider
+socket、credential和parent process state不得在sandbox root中可见；仅把input复制进private
+workspace后执行一个normalized operation。trusted facade必须在start marker前验证sandbox
+capability，并在实际SUT host再次验证；terminate后强制杀死并readback全部descendant与residue，
+随后才可在sandbox外生成raw Result和cleanup receipt。任一隔离能力不可证、超时、资源越界或
+cleanup不完整时，不执行或不重放同一ActionKey，并只产生`unsupported | invalidated | cleanup-failed`
+等非PASS事实；环境denylist、同用户子进程、只读host root或普通temp目录都不能替代这条边界。
+未经验证的archive不得先在host workspace展开；trusted facade先验证raw bytes、entry type/path、
+link target、重复与大小边界，再在private root内展开。候选不能用自己的package/registry配置在
+provider job中物化依赖；当Work Package禁止package/toolchain变化时，只能从exact trusted-base
+package/lock物化并绑定dependency closure，package变化则需要单独授权的install sandbox与新的
+environment epoch。candidate stdout/stderr也只是untrusted bytes，必须bounded capture并转义或
+编码，不能直接进入GitHub workflow command channel、`GITHUB_OUTPUT`、env/path或artifact控制面。
+
+CI Evidence 必须记录 canonical Action closure、五态 Result、execution disposition、exact
+environment/input、cleanup与artifact reference。合法 reuse 保留原始 proof identity；已知
+failure可以复用为失败事实，但 `not-run`、`unsupported`、`invalidated`、stale、cleanup失败
+或旧schema记录不能被包装或重解释为PASS。迁移期间的 legacy scope/evidence identity
+必须明确只读且有consumer-zero删除门槛，不能长期双写两个结果源。
+
+## VerificationSession、Scope 与 MainHealth
+
+VerificationSession 是一次 frozen candidate 从定向到合并/readback 的唯一运行状态机，
+不是第二个Result、Review或Integration owner。稳定 `sessionRevision` 与 `sessionId`、event
+ID和时间戳分离，至少绑定：
+
+- exact repository/default base commit与tree、candidate head与tree；
+- manifest raw digest与trusted-base签发的scope authorization；
+- canonical Action plan/key closure、profile、environment和trust revision；
+- Review policy、MainHealth revision以及所消费Evidence/authorization references。
+
+Manifest是scope proposal，不是自授权。Trusted scope authorization固定manifest revision、
+exact authorized write set、base/head/tree与session inputs；manifest、write set或任一绑定输入
+变化必须产生新authorization/session，并使旧Action、Review、Evidence和merge authorization
+stale。PR body、pointer或候选自己修改的manifest不能扩大已冻结权限。
+
+Work Package激活只由Document Control Plane的recoverable transaction执行。它用canonical
+Work Package parser/digest先在内存生成manifest、active pointer与rolling-plan promotion的全部
+next bytes，在workspace write lease下以preimage CAS发布一个Git index tree，再投影byte-exact
+worktree files。index/worktree混合快照、target drift、unrelated staged entry、symlink/outside path、
+stale main或unknown recovery bytes一律BLOCK；recovery只接受每个target处于exact PRE或NEXT并
+确定性roll forward。未取得显式commit/ref CAS authority时终态只能是
+`ACTIVATED_INDEX_PENDING_COMMIT`，不能称为exact-head Session。Session随后只消费进入一个immutable
+commit/PR head与tree的activation result。
+
+`prepare`在hosted dispatch前从同一selector生成local quick-only feedback closure，并用独立
+`local-dev-runner` environment revision交给canonical Action runner。local Action只在exact clean
+PR-head worktree执行，journal可join/reuse但不是Evidence；complete local PASS才允许进入Review/
+hosted transition，running为WAITING，失败或ambiguous expired claim为BLOCKED。local OS/toolchain/
+ActionKey和aggregate digest不得进入formal hosted Session revision或伪装成hosted PASS。
+
+MainHealth是对exact default commit/tree的live ledger，状态仅为
+`healthy | degraded | locked`，并绑定failure fingerprints、owner、repair Work Package、expiry、
+allowed lane和trust revision。无法完整读取、过期或revision不匹配一律视为`locked`；普通
+candidate不得吸收unrelated baseline/verifier/selector defect。`allowedLanes`只表达exact
+ledger的语义路由限制，不是physical executor、frozen Work Package、Scope、Evidence、Review、
+IntegrationAuthorization或merge authority。当前repair locator仍为proposal-only/not-frozen，
+因此known exact-main failure可以被保存为degraded repair-only事实，但所有production consumer
+仍是ordinary-only：degraded阻断ordinary且不授权任何repair或integration effect。只有后继
+独立冻结的repair Work Package把exact manifest/write set接入Scope、Session、Evidence、Review、
+authorization、merge authority与hosted effect ownership后，production才能选择repair lane。
 
 ## Implementation Conformance 与 Resolution Evidence
 
@@ -294,6 +409,12 @@ Evidence可以形成DAG：node引用inputs、Requirement/Gate contract、environ
 
 Development Run State记录run/capsule/event/transition/resume；Verification Evidence记录proof。二者必须通过typed references连接，不能把Run Journal变成第二Verification Result，也不能把Evidence文件当作当前执行状态。
 
+Session journal使用append-only hash chain和单调transition记录可恢复进度；所有外部副作用
+必须有stable operation identity和provider readback receipt。journal与本机`wx` claim只能
+帮助同一runner恢复，不能授予跨host mutation authority。普通resume只查询、join或重新
+dispatch下一合法hosted transition；同一Action不重复spawn，同一Review head不重复请求，
+同一hosted Gate不重复dispatch，同一authorization不重复merge，同一closeout operation不重复发布。
+
 这些平台未完整实现时，分散日志、计划文档和聊天摘要不能被称为统一Ledger。
 
 ## Trusted Bootstrap
@@ -329,8 +450,57 @@ Predicted Impact、planned selection、Eligibility、Resolution Decision、actua
 
 ## Merge Authority
 
-Merge前由独立owner重新计算：current base/head/tree/manifest/profile、changed scope、required Claims/Evidence、Review、unresolved threads、REQUEST_CHANGES、ruleset、dependency、Binding、Delta/Compatibility requirements和default-branch组合。
+Review-Stable Barrier 在expensive hosted Gate前必须terminal-clear，并在签发merge authorization
+前重新读取。Review receipt绑定exact head/tree/scope/policy、独立principal stable identity、
+reviewed commit、完整分页快照和thread/request-change digest；head不变但review、thread、policy
+或pagination状态变化同样会使receipt stale。可信GitHub App的稳定app/node identity或独立
+human exact-head APPROVED可以成为principal，显示名、PR summary、self-review或未绑定commit
+的COMMENTED状态不能单独授权。
+
+Merge前由 trusted workflow 中的 canonical merge-gate 唯一重算：current base/head/tree/manifest/profile、trusted scope、Action
+closure、required Claims/Evidence、Review、unresolved blocking threads、REQUEST_CHANGES、
+MainHealth、ruleset/trust revision、dependency、Binding、Delta/Compatibility requirements和
+default-branch组合。任一unknown、分页不完整、drift或过期都fail closed。
+
+只有该merge-gate满足全部条件后才可签发provenance-bound、single-use、bounded-expiry的
+IntegrationAuthorization receipt；commit status、Check、PR body、journal terminal或管理员
+身份本身都不是该receipt。签发与消费必须位于同一个trusted hosted integration operation和
+repository/default-branch全局临界区内；serialized authorization JSON不能离开该边界后再由
+本地CLI解释为mutation capability。该operation在effect前重新读取live facts，验证trusted
+workflow/ref/run/artifact provenance、receipt未消费且完全匹配，使用expected-head squash merge，
+不改写candidate，不使用`--admin`或其他authorization bypass。普通CLI只可proposal、dispatch、
+join、status或导出已有projection，不能持有raw merge/branch/comment mutation port。
+
+Integration effect owner是provider创建的exact repository/workflow/run/attempt identity和在effect
+前durably publish/readback的marker，不是本地JSON、claim、lease、issue comment或wall clock。
+只有当前invocation新建并精确读回marker时可以发布authorization receipt并尝试merge；PR仍OPEN时，
+任何existing、expired、reused、ambiguous或conflicting marker都永久BLOCK第二次effect。issue
+comment只是带exact non-null App/source-run provenance的receipt/readback，不能提供唯一性CAS。
+remote marker成功后到physical merge前不得访问本地journal/cache；public GitHub adapter也只能
+暴露typed observe/ensure transaction，raw comment/review-request/dispatch/merge ports保持私有。
+
+全局integration group必须保留多个pending operation而不是以新pending静默替换旧请求。OPEN
+lane在任何effect前要求current default仍等于Session base；若merge请求后runner崩溃，fresh host
+从original trusted-base workflow、merged PR、exact authorization comment ID与merge marker进入
+MERGED recovery lane，此时不再要求current default等于旧base，但必须证明该merge commit/tree
+仍属于live default history且绝不第二次调用merge endpoint。
+
+合并成功必须证明merged tree与verified candidate tree相等，随后以stable closeout operation
+复用既有branch lifecycle的纯inventory、preparation与recovery primitives；VerificationSession
+仍是唯一physical closeout owner。`branch-lifecycle`不得暴露finalize命令、mutation barrel、raw
+runner/context、effect-start issuer、permit consumer或remote/local ref mutation API。未合并的
+orphan、closed-unmerged与superseded分支只能产生只读审计、准备或BLOCKED结果，不能发布
+integration closeout receipt，也不能执行remote/local mutation。
+
+authorization与closeout publication都必须从GitHub全分页、可信
+App/source-run provenance和byte-exact provider receipt恢复；本地operation store只可作cache。
+closeout在branch mutation/POST前同样必须durably publish/readback一个stable pre-effect marker和
+跨fresh-host byte-stable recovery bundle；只有该marker当前owner可执行一次。lost response、空的
+暂时inventory或local claim不能许可第二次POST/delete；exact receipt存在则reuse，否则ambiguous
+attempt永久BLOCK。重复finalize同一receipt不得重复发布、删除或产生新的语义receipt；
+already-absent只在exact merge/authorization/operation、PR-recorded head/tree和live history已证明时
+表示既有effect，而不是一次新的closeout事实。
 
 所有门禁闭合时及时合并，不为表现“仍在开发”继续修改正确candidate。
 
-Merge后必须从新 `main` 读取实际类型、行为、Decision/Binding、Delta/Compatibility、artifacts和支持面，关闭absorbed/superseded结构，归档Work Package，并完成可证明安全的branch/worktree/temporary workflow cleanup。PR body、历史branch、commit ancestry或旧Evidence不能替代readback。
+Merge后必须从新 `main` 读取实际类型、行为、Decision/Binding、Delta/Compatibility、artifacts和支持面，关闭absorbed/superseded结构，归档Work Package，并完成可证明安全的branch/worktree/temporary workflow cleanup。信任根切换还必须重载new-main TCB/trust revision、拒绝旧Session/Review/Evidence/authorization，并由ordinary candidate canary证明新路径。PR body、历史branch、commit ancestry或旧Evidence不能替代readback。

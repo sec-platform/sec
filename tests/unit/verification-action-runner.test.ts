@@ -1,20 +1,38 @@
 import { expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  buildCiVerificationActionPlanClosureV1,
+  CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
+  createCiVerificationLocalExecutionEnvironmentV2,
+  type CiVerificationActionCandidateV1,
+  type CiVerificationProducerGateV1
+} from '../../platform/shared/verification-action-ci-contract.ts';
+import {
   createVerificationActionKeyV2,
   createVerificationActionPlanV2,
   type VerificationActionKeyInputV2
-} from '../../scripts/codex/verification-action-contract.ts';
+} from '../../platform/shared/verification-action-contract.ts';
+import {
+  createBranchLifecycleGitChildEnvironmentV1
+} from '../../scripts/codex/branch-lifecycle-command.ts';
 import {
   appendVerificationActionJournalEventV2,
   readVerificationActionJournalV2
 } from '../../scripts/codex/verification-action-journal.ts';
-import { VerificationActionRunnerV2 } from '../../scripts/codex/verification-action-runner.ts';
+import {
+  executeLocalVerificationActionDagV2,
+  VerificationActionRunnerV2
+} from '../../scripts/codex/verification-action-runner.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
+const BASE_SHA = '1'.repeat(40);
+const BASE_TREE_SHA = '2'.repeat(40);
+const HEAD_SHA = '3'.repeat(40);
+const HEAD_TREE_SHA = '4'.repeat(40);
 
 function createAction(
   kind: string,
@@ -102,6 +120,14 @@ function cheapPlan(key: ReturnType<typeof preflightAction>) {
 
 function root(): string {
   return mkdtempSync(path.join(tmpdir(), 'sec-action-runner-v2-'));
+}
+
+function git(cwd: string, args: readonly string[]): string {
+  const result = spawnSync('git', [...args], { cwd, encoding: 'utf8', windowsHide: true });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
+  }
+  return (result.stdout ?? '').trim();
 }
 
 test('concurrent callers in different execution domains join one physical executor invocation', async () => {
@@ -545,7 +571,7 @@ test('input invalidation discards an in-flight physical result', async () => {
   }
 });
 
-test('persisted running and queued actions without a live owner fail closed on restart', async () => {
+test('persisted running and queued actions without a terminal permanently block blind re-execution', async () => {
   for (const [state, kind] of [['running', 'orphaned-action'], ['queued', 'queued-orphaned-action']] as const) {
     const repositoryRoot = root();
     try {
@@ -565,13 +591,261 @@ test('persisted running and queued actions without a live owner fail closed on r
         }
       });
       expect(result.disposition).toBe('blocked');
-      expect(result.reason).toContain('no live execution owner');
+      expect(result.reason).toContain('no provable terminal');
       expect(invocations).toBe(0);
       expect(readVerificationActionJournalV2(repositoryRoot, key.actionKey).latestState)
-        .toBe('invalidated');
+        .toBe(state);
     } finally {
       rmSync(repositoryRoot, { recursive: true, force: true });
     }
+  }
+});
+
+function localDagFixture(environment = createCiVerificationLocalExecutionEnvironmentV2({
+  os: 'win32',
+  arch: 'x64',
+  bunVersion: '1.3.14'
+}), identity: Partial<Pick<CiVerificationActionCandidateV1,
+  'baseSha' | 'baseTreeSha' | 'headSha' | 'headTreeSha'>> = {}) {
+  const candidate: CiVerificationActionCandidateV1 = {
+    baseSha: BASE_SHA,
+    baseTreeSha: BASE_TREE_SHA,
+    headSha: HEAD_SHA,
+    headTreeSha: HEAD_TREE_SHA,
+    manifestPath: 'docs/work-packages/local-feedback-v1.md',
+    manifestDigest: DIGEST_A,
+    scopeAuthorizationRevision: `sha256:${'b'.repeat(64)}`,
+    profile: 'quick',
+    toolchainRevision: environment.toolchainRevision,
+    providerRevision: environment.executionEnvironmentRevision,
+    contractRevision: 'ci-verification-v19',
+    requiredBlobs: [
+      { path: '.bun-version', digest: DIGEST_A },
+      { path: 'bun.lock', digest: DIGEST_A },
+      { path: 'bunfig.toml', digest: DIGEST_A },
+      { path: 'package.json', digest: DIGEST_A }
+    ],
+    ...identity
+  };
+  const gates: readonly CiVerificationProducerGateV1[] = [Object.freeze({
+    id: 'typecheck',
+    phase: 'quick',
+    argv: Object.freeze(['bun', 'run', 'typecheck']),
+    runtime: 'bun',
+    environment: Object.freeze({ SEC_LOCAL_FEEDBACK: DIGEST_A }),
+    coveredScopeIds: Object.freeze(['gate:typecheck'])
+  })];
+  return {
+    environment,
+    closure: buildCiVerificationActionPlanClosureV1({ candidate, gates })
+  };
+}
+
+test('local quick DAG keeps journal authority separate from the detached candidate executor and reuses terminals', async () => {
+  const authorityRoot = root();
+  const candidateRoot = root();
+  try {
+    const fixture = localDagFixture();
+    let physicalExecutions = 0;
+    const inspectRepository = (repositoryRoot: string) => ({
+      headSha: repositoryRoot === candidateRoot ? HEAD_SHA : BASE_SHA,
+      headTreeSha: repositoryRoot === candidateRoot ? HEAD_TREE_SHA : BASE_TREE_SHA,
+      trackedClean: true,
+      gitCommonDirectory: authorityRoot
+    });
+    const first = await executeLocalVerificationActionDagV2({
+      authorityRoot,
+      candidateRoot,
+      actionPlanClosure: fixture.closure,
+      executionEnvironment: fixture.environment,
+      inspectRepository,
+      executeNormalizedOperation: () => {
+        physicalExecutions += 1;
+        return 0;
+      }
+    });
+    const reused = await executeLocalVerificationActionDagV2({
+      authorityRoot,
+      candidateRoot,
+      actionPlanClosure: fixture.closure,
+      executionEnvironment: fixture.environment,
+      inspectRepository,
+      executeNormalizedOperation: () => {
+        physicalExecutions += 1;
+        return 0;
+      }
+    });
+    expect(first.status).toBe('passed');
+    expect(first.actionResults[0]?.disposition).toBe('executed');
+    expect(reused.actionResults[0]?.disposition).toBe('reused');
+    expect(reused.terminalDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(physicalExecutions).toBe(1);
+    expect(readVerificationActionJournalV2(
+      authorityRoot,
+      fixture.closure.actions[0]!.action.actionKey
+    ).latestState).toBe('terminal');
+  } finally {
+    rmSync(authorityRoot, { recursive: true, force: true });
+    rmSync(candidateRoot, { recursive: true, force: true });
+  }
+});
+
+test('local quick DAG binds the intended detached worktree under hostile ambient Git steering without index refresh', async () => {
+  const workspaceRoot = root();
+  const authorityRoot = path.join(workspaceRoot, 'authority');
+  const candidateRoot = path.join(workspaceRoot, 'candidate');
+  const decoyRoot = path.join(workspaceRoot, 'decoy');
+  try {
+    git(workspaceRoot, ['init', authorityRoot]);
+    git(authorityRoot, ['config', 'user.name', 'SEC Runner']);
+    git(authorityRoot, ['config', 'user.email', 'sec-runner@example.invalid']);
+    writeFileSync(path.join(authorityRoot, '.gitignore'), '.tmp/\n', 'utf8');
+    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'candidate\n', 'utf8');
+    git(authorityRoot, ['add', '.gitignore', 'tracked.txt']);
+    git(authorityRoot, ['commit', '-m', 'candidate']);
+    const headSha = git(authorityRoot, ['rev-parse', 'HEAD']);
+    const headTreeSha = git(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
+    git(authorityRoot, ['worktree', 'add', '--detach', candidateRoot, headSha]);
+    const originalBranch = git(authorityRoot, ['symbolic-ref', '--short', 'HEAD']);
+    git(authorityRoot, ['switch', '-c', 'replacement-view']);
+    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'replacement\n', 'utf8');
+    git(authorityRoot, ['add', 'tracked.txt']);
+    git(authorityRoot, ['commit', '-m', 'replacement object view']);
+    const replacementCommit = git(authorityRoot, ['rev-parse', 'HEAD']);
+    git(authorityRoot, ['switch', originalBranch]);
+    git(authorityRoot, ['replace', headSha, replacementCommit]);
+    expect(git(authorityRoot, ['rev-parse', 'HEAD^{tree}'])).not.toBe(headTreeSha);
+    expect(git(authorityRoot, ['show', `${headSha}:tracked.txt`])).toBe('replacement');
+    const canonicalBlob = spawnSync('git', ['show', `${headSha}:tracked.txt`], {
+      cwd: authorityRoot,
+      encoding: 'buffer',
+      windowsHide: true,
+      env: createBranchLifecycleGitChildEnvironmentV1(process.env)
+    });
+    expect(canonicalBlob.status).toBe(0);
+    expect(canonicalBlob.stdout.toString('utf8').trim()).toBe('candidate');
+
+    git(workspaceRoot, ['init', decoyRoot]);
+    git(decoyRoot, ['config', 'user.name', 'SEC Decoy']);
+    git(decoyRoot, ['config', 'user.email', 'sec-decoy@example.invalid']);
+    writeFileSync(path.join(decoyRoot, 'decoy.txt'), 'decoy\n', 'utf8');
+    git(decoyRoot, ['add', 'decoy.txt']);
+    git(decoyRoot, ['commit', '-m', 'decoy']);
+    const decoyGitDirectory = git(decoyRoot, [
+      'rev-parse', '--path-format=absolute', '--absolute-git-dir'
+    ]);
+    const decoyIndex = git(decoyRoot, [
+      'rev-parse', '--path-format=absolute', '--git-path', 'index'
+    ]);
+    const authorityIndex = git(authorityRoot, [
+      'rev-parse', '--path-format=absolute', '--git-path', 'index'
+    ]);
+    const candidateIndex = git(candidateRoot, [
+      'rev-parse', '--path-format=absolute', '--git-path', 'index'
+    ]);
+    const snapshot = (indexPath: string) => {
+      const stat = statSync(indexPath);
+      return Object.freeze({
+        bytes: readFileSync(indexPath),
+        dev: stat.dev,
+        ino: stat.ino,
+        size: stat.size,
+        mtimeMs: stat.mtimeMs
+      });
+    };
+    const authorityBefore = snapshot(authorityIndex);
+    const candidateBefore = snapshot(candidateIndex);
+    const future = new Date(Date.now() + 5_000);
+    utimesSync(path.join(candidateRoot, 'tracked.txt'), future, future);
+
+    const hostileEnvironment: Readonly<Record<string, string>> = {
+      GIT_DIR: decoyGitDirectory,
+      GIT_WORK_TREE: decoyRoot,
+      GIT_COMMON_DIR: decoyGitDirectory,
+      GIT_INDEX_FILE: decoyIndex,
+      GIT_OBJECT_DIRECTORY: path.join(decoyGitDirectory, 'objects'),
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'core.worktree',
+      GIT_CONFIG_VALUE_0: decoyRoot
+    };
+    const priorEnvironment = new Map<string, string | undefined>();
+    for (const [name, value] of Object.entries(hostileEnvironment)) {
+      priorEnvironment.set(name, process.env[name]);
+      process.env[name] = value;
+    }
+    try {
+      const fixture = localDagFixture(undefined, {
+        baseSha: headSha,
+        baseTreeSha: headTreeSha,
+        headSha,
+        headTreeSha
+      });
+      const result = await executeLocalVerificationActionDagV2({
+        authorityRoot,
+        candidateRoot,
+        actionPlanClosure: fixture.closure,
+        executionEnvironment: fixture.environment,
+        executeNormalizedOperation: () => 0
+      });
+      expect(result.status).toBe('passed');
+      writeFileSync(path.join(candidateRoot, 'tracked.txt'), 'dirty\n', 'utf8');
+      await expect(executeLocalVerificationActionDagV2({
+        authorityRoot,
+        candidateRoot,
+        actionPlanClosure: fixture.closure,
+        executionEnvironment: fixture.environment,
+        executeNormalizedOperation: () => 0
+      })).rejects.toThrow('exact clean candidate head and tree');
+      for (const [indexPath, before] of [
+        [authorityIndex, authorityBefore],
+        [candidateIndex, candidateBefore]
+      ] as const) {
+        const after = snapshot(indexPath);
+        expect(after.bytes).toEqual(before.bytes);
+        expect({ dev: after.dev, ino: after.ino, size: after.size, mtimeMs: after.mtimeMs })
+          .toEqual({
+            dev: before.dev,
+            ino: before.ino,
+            size: before.size,
+            mtimeMs: before.mtimeMs
+          });
+      }
+    } finally {
+      for (const [name, value] of priorEnvironment) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  } finally {
+    rmSync(workspaceRoot, { recursive: true, force: true });
+  }
+}, 180_000);
+
+test('local quick DAG rejects hosted/environment drift and distinct environments produce disjoint ActionKeys', async () => {
+  const authorityRoot = root();
+  const candidateRoot = root();
+  try {
+    const local = localDagFixture();
+    const secondLocal = localDagFixture();
+    const hosted = localDagFixture(CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2);
+    expect(local.closure.actions[0]!.action.actionKey).toBe(secondLocal.closure.actions[0]!.action.actionKey);
+    expect(local.closure.actions[0]!.action.actionKey).not.toBe(hosted.closure.actions[0]!.action.actionKey);
+    await expect(executeLocalVerificationActionDagV2({
+      authorityRoot,
+      candidateRoot,
+      actionPlanClosure: hosted.closure,
+      executionEnvironment: CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
+      inspectRepository: () => ({
+        headSha: HEAD_SHA,
+        headTreeSha: HEAD_TREE_SHA,
+        trackedClean: true,
+        gitCommonDirectory: authorityRoot
+      }),
+      executeNormalizedOperation: () => 0
+    })).rejects.toThrow('canonical local execution environment');
+  } finally {
+    rmSync(authorityRoot, { recursive: true, force: true });
+    rmSync(candidateRoot, { recursive: true, force: true });
   }
 });
 
