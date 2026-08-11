@@ -10,8 +10,8 @@ last-reviewed: 2026-08-12
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/main-health-repair-shared-dependency-authority-v1.md
-manifestDigest: sha256:18514ad20c576f4a56f048c46110c3efd3faddd1baaaf8faa81c423ded76de66
+manifest: docs/work-packages/main-health-repair-tcb-closure-single-owner-v1.md
+manifestDigest: sha256:e134376398be48d457cdf9a3ce877641f61ed420ea4224a6866158303c35cdf6
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

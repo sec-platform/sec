@@ -183,7 +183,7 @@ import {
   CI_VERIFICATION_SESSION_REQUEST_SCHEMA
 } from '../../platform/shared/ci-verification-revision.ts';
 import { TCB_CLOSURE_LOCK } from '../../platform/shared/tcb-closure-lock.ts';
-import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2 } from '../../platform/shared/tcb-trust-root-contract.ts';
+import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';
 import { createVerificationSessionV2, type VerificationSessionV2 } from '../../platform/shared/verification-session-contract.ts';
 import {
   authorizeBranchCloseout,
@@ -2330,7 +2330,7 @@ test('pure runtime excludes the physical TCB inspector and the session CLI priva
     'platform/shared/tcb-trust-root-contract.ts',
     'branch-lifecycle-command.ts',
     'TCB_CLOSURE_LOCK',
-    'SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2',
+    'SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3',
     'createBranchLifecycleContext',
     'runBranchCommand',
     'inspectTrustedRuntimeV1',
@@ -2340,7 +2340,7 @@ test('pure runtime excludes the physical TCB inspector and the session CLI priva
   }
   expect(sessionSource).toContain("import { TCB_CLOSURE_LOCK } from '../../platform/shared/tcb-closure-lock.ts';");
   expect(sessionSource).toContain(
-    "import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2 } from '../../platform/shared/tcb-trust-root-contract.ts';"
+    "import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';"
   );
   expect(sessionSource.match(/function inspectTrustedRuntimeV1\(/gu)).toHaveLength(1);
   expect(sessionSource.match(/inspectTrustedRuntimeV1\(\{/gu)).toHaveLength(5);
@@ -3325,7 +3325,7 @@ function createCloseoutCliScenario(input: {
   mkdirSync(commonDir, { recursive: true });
   const statePath = path.join(root, 'provider-state.json');
   const tcbBlobs: Record<string, string> = { ...TCB_CLOSURE_LOCK.moduleBlobs };
-  for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.reviewedBoundaryEdges) {
+  for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.reviewedBoundaryEdges) {
     const target = edge.split(' -> ')[1];
     if (target !== undefined && tcbBlobs[target] === undefined) tcbBlobs[target] = 'd'.repeat(40);
   }

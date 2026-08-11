@@ -1,21 +1,28 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V2 = 'sec-trusted-bootstrap-registry-v2' as const;
-export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V2 = 'platform/shared/ci-trust-root-registry.json' as const;
+export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V3 = 'sec-trusted-bootstrap-registry-v3' as const;
+export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3 = 'platform/shared/ci-trust-root-registry.json' as const;
 
-export type SecTrustedBootstrapRegistryV2 = Readonly<{
-  schema: typeof SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V2;
+export type SecTrustedBootstrapRegistryV3 = Readonly<{
+  schema: typeof SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V3;
   staticExactPaths: readonly string[];
   staticDirectoryPaths: readonly string[];
   staticPrefixes: readonly string[];
   runtimeEntrypoints: readonly string[];
   reviewedSutEdges: readonly string[];
   reviewedBoundaryEdges: readonly string[];
-  causalRuntimePaths: readonly string[];
 }>;
 
-export type SecTrustedBootstrapPathMatchV2 = Readonly<{
+export type SecTrustedBootstrapTrustRootV3 = Readonly<{
+  schema: 'sec-trusted-bootstrap-trust-root-v3';
+  registry: SecTrustedBootstrapRegistryV3;
+  causalRuntimePaths: readonly string[];
+  paths: readonly string[];
+  prefixes: readonly string[];
+}>;
+
+export type SecTrustedBootstrapPathMatchV3 = Readonly<{
   kind: 'static-exact' | 'static-directory' | 'static-prefix' | 'causal-runtime';
   rule: string;
 }>;
@@ -27,13 +34,12 @@ const REGISTRY_KEYS = [
   'staticPrefixes',
   'runtimeEntrypoints',
   'reviewedSutEdges',
-  'reviewedBoundaryEdges',
-  'causalRuntimePaths'
+  'reviewedBoundaryEdges'
 ] as const;
 
 const REQUIRED_STATIC_EXACT_PATHS = [
   '.bun-version',
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V2,
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3,
   'platform/shared/tcb-closure-lock.ts',
   'scripts/codex/branch-lifecycle.ts'
 ] as const;
@@ -43,7 +49,9 @@ const REQUIRED_REVIEWED_BOUNDARY_EDGES = [
   'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'
 ] as const;
 
-const REQUIRED_CAUSAL_RUNTIME_PATHS = [
+// These are invariant privileged surfaces, not an import-graph inventory. The
+// generated lock remains the sole owner of the complete derived closure.
+const REQUIRED_PRIVILEGED_RUNTIME_SURFACES = [
   'platform/shared/ci-evidence-contract.ts',
   'platform/shared/ci-verification-revision.ts',
   'platform/shared/integration-authorization-contract.ts',
@@ -143,7 +151,7 @@ function stringArray(value: unknown, label: string, maximum = 4_096): string[] {
   return result;
 }
 
-function assertNoStaticOverlap(registry: SecTrustedBootstrapRegistryV2): void {
+function assertNoStaticOverlap(registry: SecTrustedBootstrapRegistryV3): void {
   for (let index = 0; index < registry.staticPrefixes.length; index += 1) {
     const prefix = registry.staticPrefixes[index]!;
     for (const other of registry.staticPrefixes.slice(index + 1)) {
@@ -235,21 +243,10 @@ function topLevelJsonObjectKeys(source: string): string[] {
   return keys;
 }
 
-export function parseSecTrustedBootstrapRegistryV2(source: string): SecTrustedBootstrapRegistryV2 {
-  assertRegistrySourceEnvelope(source);
-  let value: unknown;
-  try {
-    value = JSON.parse(source);
-  } catch (error) {
-    throw new Error(`Trusted bootstrap registry is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
-  }
+function validateSecTrustedBootstrapRegistryValueV3(value: unknown): SecTrustedBootstrapRegistryV3 {
   assertPlainObject(value, 'trusted bootstrap registry');
   assertExactKeys(value);
-  const rawKeys = topLevelJsonObjectKeys(source);
-  if (rawKeys.length !== REGISTRY_KEYS.length || new Set(rawKeys).size !== rawKeys.length) {
-    throw new Error('Trusted bootstrap registry top-level keys must appear exactly once.');
-  }
-  if (value.schema !== SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V2) {
+  if (value.schema !== SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V3) {
     throw new Error('Trusted bootstrap registry schema mismatch.');
   }
 
@@ -259,34 +256,23 @@ export function parseSecTrustedBootstrapRegistryV2(source: string): SecTrustedBo
   const runtimeEntrypoints = stringArray(value.runtimeEntrypoints, 'runtimeEntrypoints');
   const reviewedSutEdges = stringArray(value.reviewedSutEdges, 'reviewedSutEdges');
   const reviewedBoundaryEdges = stringArray(value.reviewedBoundaryEdges, 'reviewedBoundaryEdges');
-  const causalRuntimePaths = stringArray(value.causalRuntimePaths, 'causalRuntimePaths');
 
   staticExactPaths.forEach((entry, index) => assertRepositoryPath(entry, `staticExactPaths[${index}]`, false));
   staticDirectoryPaths.forEach((entry, index) => assertRepositoryPath(entry, `staticDirectoryPaths[${index}]`, true));
   staticPrefixes.forEach((entry, index) => assertPrefix(entry, `staticPrefixes[${index}]`));
   runtimeEntrypoints.forEach((entry, index) => assertRepositoryPath(entry, `runtimeEntrypoints[${index}]`, false));
-  causalRuntimePaths.forEach((entry, index) => assertRepositoryPath(entry, `causalRuntimePaths[${index}]`, false));
 
-  const registry: SecTrustedBootstrapRegistryV2 = Object.freeze({
-    schema: SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V2,
+  const registry: SecTrustedBootstrapRegistryV3 = Object.freeze({
+    schema: SEC_TRUSTED_BOOTSTRAP_REGISTRY_SCHEMA_V3,
     staticExactPaths: Object.freeze(staticExactPaths),
     staticDirectoryPaths: Object.freeze(staticDirectoryPaths),
     staticPrefixes: Object.freeze(staticPrefixes),
     runtimeEntrypoints: Object.freeze(runtimeEntrypoints),
     reviewedSutEdges: Object.freeze(reviewedSutEdges),
-    reviewedBoundaryEdges: Object.freeze(reviewedBoundaryEdges),
-    causalRuntimePaths: Object.freeze(causalRuntimePaths)
+    reviewedBoundaryEdges: Object.freeze(reviewedBoundaryEdges)
   });
 
   assertNoStaticOverlap(registry);
-  const causal = new Set(registry.causalRuntimePaths);
-  for (const staticExactPath of registry.staticExactPaths) {
-    if (causal.has(staticExactPath)) {
-      throw new Error(
-        `Trusted bootstrap path cannot be both staticExact and causalRuntime: ${staticExactPath}.`
-      );
-    }
-  }
   if (registry.staticDirectoryPaths.includes('scripts/codex/')) {
     throw new Error('scripts/codex/ cannot be a directory-level verifier trust root.');
   }
@@ -295,41 +281,19 @@ export function parseSecTrustedBootstrapRegistryV2(source: string): SecTrustedBo
       throw new Error(`Trusted bootstrap registry omits required privileged surface ${required}.`);
     }
   }
-  for (const required of REQUIRED_CAUSAL_RUNTIME_PATHS) {
-    if (!registry.causalRuntimePaths.includes(required)) {
-      throw new Error(`Trusted bootstrap registry causal closure omits required runtime surface ${required}.`);
-    }
-  }
-  if (registry.causalRuntimePaths.includes('scripts/codex/repository-audit.ts')) {
-    throw new Error('repository-audit.ts cannot enter the causal verifier closure without new physical closure evidence.');
-  }
-  for (const entrypoint of registry.runtimeEntrypoints) {
-    if (!causal.has(entrypoint)) {
-      throw new Error(`Runtime entrypoint is absent from causalRuntimePaths: ${entrypoint}.`);
-    }
-  }
   for (const [index, edge] of registry.reviewedSutEdges.entries()) {
     const match = /^([^ ]+) -> ([^ ]+)$/u.exec(edge);
     if (!match) throw new Error(`reviewedSutEdges[${index}] must use canonical 'from -> to' syntax.`);
     assertRepositoryPath(match[1]!, `reviewedSutEdges[${index}].from`, false);
     assertRepositoryPath(match[2]!, `reviewedSutEdges[${index}].to`, false);
-    if (!causal.has(match[1]!)) {
-      throw new Error(`Reviewed SUT edge source is outside causalRuntimePaths: ${match[1]}.`);
-    }
   }
   for (const [index, edge] of registry.reviewedBoundaryEdges.entries()) {
     const match = /^([^ ]+) -> ([^ ]+)$/u.exec(edge);
     if (!match) throw new Error(`reviewedBoundaryEdges[${index}] must use canonical 'from -> to' syntax.`);
     assertRepositoryPath(match[1]!, `reviewedBoundaryEdges[${index}].from`, false);
     assertRepositoryPath(match[2]!, `reviewedBoundaryEdges[${index}].to`, false);
-    if (!causal.has(match[1]!)) {
-      throw new Error(`Reviewed boundary source is outside causalRuntimePaths: ${match[1]}.`);
-    }
     if (!registry.staticExactPaths.includes(match[2]!)) {
       throw new Error(`Reviewed boundary target is not a staticExactPath: ${match[2]}.`);
-    }
-    if (causal.has(match[2]!)) {
-      throw new Error(`Reviewed boundary target cannot also be a causalRuntimePath: ${match[2]}.`);
     }
   }
   for (const required of REQUIRED_REVIEWED_BOUNDARY_EDGES) {
@@ -340,30 +304,95 @@ export function parseSecTrustedBootstrapRegistryV2(source: string): SecTrustedBo
   return registry;
 }
 
-export function loadSecTrustedBootstrapRegistryV2(): SecTrustedBootstrapRegistryV2 {
-  const absolutePath = path.join(import.meta.dir, 'ci-trust-root-registry.json');
-  return parseSecTrustedBootstrapRegistryV2(readFileSync(absolutePath, 'utf8'));
+export function parseSecTrustedBootstrapRegistryV3(source: string): SecTrustedBootstrapRegistryV3 {
+  assertRegistrySourceEnvelope(source);
+  let value: unknown;
+  try {
+    value = JSON.parse(source);
+  } catch (error) {
+    throw new Error(`Trusted bootstrap registry is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const rawKeys = topLevelJsonObjectKeys(source);
+  if (rawKeys.length !== REGISTRY_KEYS.length || new Set(rawKeys).size !== rawKeys.length) {
+    throw new Error('Trusted bootstrap registry top-level keys must appear exactly once.');
+  }
+  return validateSecTrustedBootstrapRegistryValueV3(value);
 }
 
-export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2 = loadSecTrustedBootstrapRegistryV2();
+export function loadSecTrustedBootstrapRegistryV3(): SecTrustedBootstrapRegistryV3 {
+  const absolutePath = path.join(import.meta.dir, 'ci-trust-root-registry.json');
+  return parseSecTrustedBootstrapRegistryV3(readFileSync(absolutePath, 'utf8'));
+}
 
-export const SEC_TRUST_ROOT_PATHS_V2 = Object.freeze(
-  [
-    ...new Set([
-      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.staticExactPaths,
-      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.staticDirectoryPaths,
-      ...SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.causalRuntimePaths
-    ])
-  ].sort()
-);
+export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 = loadSecTrustedBootstrapRegistryV3();
 
-export const SEC_TRUST_ROOT_PREFIXES_V2 = SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.staticPrefixes;
+export function createSecTrustedBootstrapTrustRootV3(input: Readonly<{
+  registry: SecTrustedBootstrapRegistryV3;
+  causalRuntimePaths: readonly string[];
+}>): SecTrustedBootstrapTrustRootV3 {
+  const registry = validateSecTrustedBootstrapRegistryValueV3(input.registry);
+  const causalRuntimePaths = stringArray(input.causalRuntimePaths, 'causalRuntimePaths');
+  causalRuntimePaths.forEach((entry, index) =>
+    assertRepositoryPath(entry, `causalRuntimePaths[${index}]`, false));
+  const causal = new Set(causalRuntimePaths);
+  for (const staticExactPath of registry.staticExactPaths) {
+    if (causal.has(staticExactPath)) {
+      throw new Error(
+        `Trusted bootstrap path cannot be both staticExact and causalRuntime: ${staticExactPath}.`
+      );
+    }
+  }
+  for (const required of REQUIRED_PRIVILEGED_RUNTIME_SURFACES) {
+    if (!causal.has(required)) {
+      throw new Error(`Trusted bootstrap causal closure omits required runtime surface ${required}.`);
+    }
+  }
+  if (causal.has('scripts/codex/repository-audit.ts')) {
+    throw new Error('repository-audit.ts cannot enter the causal verifier closure without new physical closure evidence.');
+  }
+  for (const entrypoint of registry.runtimeEntrypoints) {
+    if (!causal.has(entrypoint)) {
+      throw new Error(`Runtime entrypoint is absent from causalRuntimePaths: ${entrypoint}.`);
+    }
+  }
+  for (const [index, edge] of registry.reviewedSutEdges.entries()) {
+    const source = /^([^ ]+) -> ([^ ]+)$/u.exec(edge)?.[1];
+    if (source === undefined || !causal.has(source)) {
+      throw new Error(`Reviewed SUT edge source is outside causalRuntimePaths: ${source ?? index}.`);
+    }
+  }
+  for (const [index, edge] of registry.reviewedBoundaryEdges.entries()) {
+    const match = /^([^ ]+) -> ([^ ]+)$/u.exec(edge);
+    const source = match?.[1];
+    const target = match?.[2];
+    if (source === undefined || !causal.has(source)) {
+      throw new Error(`Reviewed boundary source is outside causalRuntimePaths: ${source ?? index}.`);
+    }
+    if (target !== undefined && causal.has(target)) {
+      throw new Error(`Reviewed boundary target cannot also be a causalRuntimePath: ${target}.`);
+    }
+  }
+  return Object.freeze({
+    schema: 'sec-trusted-bootstrap-trust-root-v3' as const,
+    registry,
+    causalRuntimePaths: Object.freeze(causalRuntimePaths),
+    paths: Object.freeze([
+      ...new Set([
+        ...registry.staticExactPaths,
+        ...registry.staticDirectoryPaths,
+        ...causalRuntimePaths
+      ])
+    ].sort()),
+    prefixes: registry.staticPrefixes
+  });
+}
 
-export function matchSecTrustedBootstrapPathV2(
+export function matchSecTrustedBootstrapPathV3(
   repositoryPath: string,
-  registry: SecTrustedBootstrapRegistryV2 = SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2
-): SecTrustedBootstrapPathMatchV2 | null {
+  trustRoot: SecTrustedBootstrapTrustRootV3
+): SecTrustedBootstrapPathMatchV3 | null {
   assertRepositoryPath(repositoryPath, 'repositoryPath', false);
+  const registry = trustRoot.registry;
   if (registry.staticExactPaths.includes(repositoryPath)) {
     return { kind: 'static-exact', rule: repositoryPath };
   }
@@ -371,7 +400,7 @@ export function matchSecTrustedBootstrapPathV2(
   if (staticDirectory) return { kind: 'static-directory', rule: staticDirectory };
   const staticPrefix = registry.staticPrefixes.find((entry) => repositoryPath.startsWith(entry));
   if (staticPrefix) return { kind: 'static-prefix', rule: staticPrefix };
-  if (registry.causalRuntimePaths.includes(repositoryPath)) {
+  if (trustRoot.causalRuntimePaths.includes(repositoryPath)) {
     return { kind: 'causal-runtime', rule: repositoryPath };
   }
   return null;

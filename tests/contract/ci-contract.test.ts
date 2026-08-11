@@ -34,9 +34,10 @@ import {
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
   CI_VERIFICATION_SESSION_CONTRACT_REVISION
 } from '../../platform/shared/ci-verification-revision.ts';
+import { TCB_TRUST_ROOT_V3 } from '../../platform/shared/tcb-closure-lock.ts';
 import {
-  matchSecTrustedBootstrapPathV2,
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2
+  matchSecTrustedBootstrapPathV3,
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3
 } from '../../platform/shared/tcb-trust-root-contract.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
@@ -915,9 +916,9 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   expect(preRun).toContain('GIT_NO_REPLACE_OBJECTS = "1"');
   expect(preRun).not.toContain('HEAD^1');
   expect(preRun).toContain('candidate-registry-differs-from-trusted-base-policy');
-  expect(preRun).toContain('candidate-causal-closure-differs-from-trusted-base-registry');
+  expect(preRun).toContain('candidate-causal-closure-differs-from-trusted-base-closure');
   expect(preRun).toContain(
-    'registryContract.matchSecTrustedBootstrapPathV2(repositoryPath, baseRegistry) !== null'
+    'registryContract.matchSecTrustedBootstrapPathV3(repositoryPath, baseTrustRoot) !== null'
   );
   expect(preRun).not.toContain('!causalRuntimePaths.has(repositoryPath)');
   expect(preRun).not.toContain('baseUndecidableCausalPaths');
@@ -934,7 +935,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   ];
   expect(r2ChangedPaths
     .filter((repositoryPath) =>
-      matchSecTrustedBootstrapPathV2(repositoryPath, SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2) !== null
+      matchSecTrustedBootstrapPathV3(repositoryPath, TCB_TRUST_ROOT_V3) !== null
     )
     .sort()).toEqual([
     '.github/workflows/sec-trusted-bootstrap.yml',
@@ -1121,8 +1122,8 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   expect(source).not.toContain('generateTcbClosureLockForRevision');
   expect(tcbSource).not.toContain('generateTcbClosureLockForRevision');
   expect(tcbSource).not.toContain('trustedBaseRevision');
-  expect(source).toContain("registry.schema !== 'sec-trusted-bootstrap-registry-v2'");
-  expect(source).not.toContain('sec-trusted-bootstrap-registry-v1');
+  expect(source).toContain("registry.schema !== 'sec-trusted-bootstrap-registry-v3'");
+  expect(source).not.toContain('sec-trusted-bootstrap-registry-v2');
   expect(source).toContain('reviewedBoundaryEdges.some');
   expect(source.match(/tcb-closure-lock --mode check/gu)).toHaveLength(2);
   expect(verificationSource).toContain("from '../platform/shared/tcb-closure-lock.ts'");
@@ -1130,7 +1131,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
 });
 
 
-test('trusted bootstrap and release readers share the exact registry V2 epoch without merge authority', async () => {
+test('trusted bootstrap and release readers share the exact registry V3 policy plus generated closure owner', async () => {
   const [bootstrapSource, releaseSource] = await Promise.all([
     readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml'),
     readCompilerFile('.github/workflows/compiler-release-validation.yml')
@@ -1138,17 +1139,22 @@ test('trusted bootstrap and release readers share the exact registry V2 epoch wi
   const bootstrap = parseYaml(bootstrapSource) as Workflow;
   const release = parseYaml(releaseSource) as Workflow;
   const registryKeys = [
-    'causalRuntimePaths', 'reviewedBoundaryEdges', 'reviewedSutEdges', 'runtimeEntrypoints',
-    'schema', 'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
+    'reviewedBoundaryEdges', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
+    'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
   ];
   for (const source of [bootstrapSource, releaseSource]) {
-    expect(source).toContain("registry.schema !== 'sec-trusted-bootstrap-registry-v2'");
-    expect(source).not.toContain('sec-trusted-bootstrap-registry-v1');
+    expect(source).toContain("registry.schema !== 'sec-trusted-bootstrap-registry-v3'");
+    expect(source).not.toContain('sec-trusted-bootstrap-registry-v2');
     expect(source).toContain('JSON.stringify(Object.keys(registry).sort()) !== JSON.stringify(registryKeys)');
     expect(source).toContain("'scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts'");
     expect(source).toContain("'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'");
     expect(source).toContain('reviewedBoundaryEdges.some');
     for (const key of registryKeys) expect(source).toContain(`'${key}'`);
+    expect(source).toContain("const lockRegionStartMarker = '// <sec-tcb-closure-lock-generated-v2>\\n'");
+    expect(source).toContain("const lockRegionEndMarker = '\\n// </sec-tcb-closure-lock-generated-v2>'");
+    expect(source).toContain('const lockStart = lockRegion.indexOf(lockPrefix)');
+    expect(source).toContain("const lockPrefix = 'export const TCB_CLOSURE_LOCK: TcbClosureLock = '");
+    expect(source).toContain('const causalRuntimePaths = lock.modules');
   }
   expect(bootstrap.permissions).toEqual({ contents: 'read', 'pull-requests': 'read' });
   expect(release.permissions).toEqual({ contents: 'read' });
