@@ -24,6 +24,7 @@ import {
   parseDocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
 import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
+import { projectRepositorySourceGovernance } from '../../scripts/codex/repository-audit.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const SKILLS_ROOT = path.join(REPOSITORY_ROOT, '.agents', 'skills');
@@ -105,6 +106,18 @@ test('SEC skill inventory conforms to one strict AgentOperation contract', async
   }
 });
 
+test('every exact Skill source passes the production blocking governance projection', async () => {
+  for (const skillId of SEC_AGENT_SKILL_IDS) {
+    const repositoryPath = `.agents/skills/${skillId}/SKILL.md`;
+    const source = await readFile(path.join(REPOSITORY_ROOT, repositoryPath), 'utf8');
+    const projection = projectRepositorySourceGovernance(repositoryPath, source);
+    expect(projection.blockingFindings).toEqual([]);
+    for (const candidate of projection.candidates) {
+      expect(candidate.skills).toEqual([skillId]);
+    }
+  }
+});
+
 test('repository behaviors route to deterministic owners or one bounded Skill', () => {
   const tracked = trackedRepositoryFiles();
   expect(Object.keys(SEC_REPOSITORY_BEHAVIOR_ROUTES).sort()).toEqual(
@@ -158,6 +171,9 @@ test('skills preserve decisive boundaries without retaining retired documentatio
   expect(sources['sec-worker-development']).not.toContain('check:affected');
   expect(sources['sec-repository-audit']).toContain('全部 tracked paths');
   expect(sources['sec-heuristic-governance']).toContain('确定性行为必须有 machine owner 且 Skill 为零');
+  expect(sources['sec-heuristic-governance']).toContain('identity/owner/current-spec census');
+  expect(sources['sec-heuristic-governance']).toContain('规范化 work identity、owner、current spec');
+  expect(sources['sec-heuristic-governance']).toContain('聊天中没有唯一剩余副本');
   expect(sources['sec-architecture-evolution']).toContain('authority first');
   expect(sources['sec-task-delegation']).toContain('production Task Capsule compiler');
   expect(sources['sec-task-delegation']).toContain('是否值得委派');
@@ -180,6 +196,18 @@ test('skills preserve decisive boundaries without retaining retired documentatio
     expect(tracked).not.toContain(`.agents/skills/${retiredId}/SKILL.md`);
     expect(agentsSource).not.toContain(retiredId);
   }
+});
+
+test('heuristic discovery guidance covers existing identity, new identity, and no-write boundaries', async () => {
+  const source = await readFile(
+    path.join(SKILLS_ROOT, 'sec-heuristic-governance', 'SKILL.md'),
+    'utf8'
+  );
+  expect(source).toContain('命中已有 identity 时只更新或引用该 owner');
+  expect(source).toContain('确认没有现存 identity 且问题形成独立验收闭包时');
+  expect(source).toContain('返回包含既有workId与目标owner的 Reconciliation Delta');
+  expect(source).toContain('不得声称已经同步');
+  expect(source).toContain('不以新建 Issue/计划文档代替已有identity census');
 });
 
 test('all tracked Markdown is explicitly classified and active registry paths have coverage', async () => {
@@ -255,8 +283,18 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
 });
 
 test('documentation and Agent trust roots have focused governance ownership', () => {
+  for (const source of SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`)) {
+    const selection = selectTestsForSources([source]);
+    expect(selection.owners).toEqual(['agent-skill-authoring']);
+    expect(selection.fast).toEqual([
+      'tests/contract/agent-skills.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/agent-skill-markdown-classification.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts'
+    ]);
+  }
+
   const sources = [
-    ...SEC_AGENT_SKILL_IDS.map((skillId) => `.agents/skills/${skillId}/SKILL.md`),
     'docs/authority.json',
     'docs/scripts/docs-doctor.ts',
     'docs/scripts/docs-doctor-ledgers.ts',

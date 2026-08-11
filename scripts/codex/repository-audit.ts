@@ -22,9 +22,11 @@ const DEFAULT_REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const MAX_TEXT_FILE_BYTES = 2_000_000;
 const GIT_BATCH_BYTE_BUDGET = 16 * 1024 * 1024;
 const GIT_BATCH_OUTPUT_OVERHEAD = 2 * 1024 * 1024;
-const HEURISTIC_MARKER = /(?:必须|不得|禁止|只允许|仅当|只有|需要|应当|优先|默认|触发|停止|回退|重算|fail[- ]?closed|DO NOT MERGE|reload_if|gate_owner|\bWork\s+Package\b|\bTask\s+Envelope\b|\bAgent\s+Skill\b|\bmust\b|\bshould\b|\bnever\b|\bdo\s+not\b)/iu;
+const HEURISTIC_MARKER = /(?:必须|不得|禁止|只允许|仅当|只有|需要|应当|优先|默认|触发|停止|回退|重算|fail[- ]?closed|DO NOT MERGE|reload_if|gate_owner|\bmust\b|\bshould\b|\bnever\b|\bdo\s+not\b)/iu;
 const AGENT_CONTEXT_MARKER = /(?:\bAgent\b|\bCodex\b|\bWork\s+Package\b|\bTask\s+Envelope\b|\bSkill\b|\bReview\b|\bCI\b|\bGate\b|\bmerge\b|\bbranch\b|\btool\b|工具|文档|验证|仓库|上下文|恢复|分派|权限|\bowner\b|\bauthority\b)/iu;
-const STRONG_AGENT_CONTEXT_MARKER = /(?:\bAgent\b|\bCodex\b|\bWork\s+Package\b|\bTask\s+Envelope\b|\bAgent\s+Skill\b)/iu;
+const STRONG_AGENT_CONTEXT_MARKER = /(?:\bAgent\b|\bCodex\b)/iu;
+const NAVIGATION_AGENT_HEADING_MARKER = /(?:\bAgent\b|\bCodex\b)/iu;
+const NAVIGATION_AGENT_DIRECTIVE_MARKER = /(?:(?:\bAgent\b|\bCodex\b)[^。；\n]{0,48}(?:必须|不得|禁止|只允许|仅当|只有|需要|应当|优先|默认|触发|停止|回退|\bmust\b|\bshould\b|\bnever\b|\bdo\s+not\b)|(?:必须|不得|禁止|只允许|仅当|只有|需要|应当|\bmust\b|\bshould\b|\bnever\b|\bdo\s+not\b)[^。；\n]{0,48}(?:\bAgent\b|\bCodex\b)|\b(?:Agent|Codex)\s+(?:rules?|instructions?)\b)/iu;
 const NON_AUTHORITY_BEHAVIOR_PATH = /^(?:docs\/(?:archive|evidence|superpowers)\/)|(?:^|\/)[^/]+\.min\.(?:css|js)$/iu;
 const MINIFIED_GENERATED_PATH = /(?:^|\/)[^/]+\.min\.(?:css|js)$/iu;
 const JAVASCRIPT_OR_TYPESCRIPT_PATH = /\.(?:[cm]?[jt]sx?)$/iu;
@@ -82,6 +84,11 @@ export interface BehaviorCandidate {
   path: string;
   skills: readonly SecAgentSkillId[];
   text: string;
+}
+
+export interface RepositorySourceGovernanceProjection {
+  candidates: readonly BehaviorCandidate[];
+  blockingFindings: readonly RepositoryAuditFinding[];
 }
 
 export type RepositoryContentCoverageStatus = 'excluded' | 'scanned' | 'unknown';
@@ -2130,8 +2137,14 @@ export function extractHeuristicBehaviorCandidates(
     let inheritedContext = false;
     for (const line of segment) {
       const logical = line.logical.trim();
-      const directContext = contextMarker.test(logical);
-      if (isStructuralHeading(logical)) inheritedContext = directContext;
+      const directContext = markdown?.kind === 'navigation'
+        ? NAVIGATION_AGENT_DIRECTIVE_MARKER.test(logical)
+        : contextMarker.test(logical);
+      if (isStructuralHeading(logical)) {
+        inheritedContext = markdown?.kind === 'navigation'
+          ? NAVIGATION_AGENT_HEADING_MARKER.test(logical)
+          : directContext;
+      }
       if (
         !HEURISTIC_MARKER.test(logical)
         || (!pathImpliesAgentBehavior && !directContext && !inheritedContext)
@@ -2171,6 +2184,40 @@ function pushFinding(
     ...finding,
     skills: finding.skills ? Object.freeze([...finding.skills]) : undefined
   }));
+}
+
+export function projectRepositorySourceGovernance(
+  repositoryPath: string,
+  source: string
+): RepositorySourceGovernanceProjection {
+  const candidates = extractHeuristicBehaviorCandidates(repositoryPath, source);
+  const blockingFindings: RepositoryAuditFinding[] = [];
+  for (const candidate of candidates) {
+    if (candidate.skills.length === 0) {
+      pushFinding(blockingFindings, {
+        code: 'possible-heuristic-outside-governance',
+        line: candidate.line,
+        message: `possible Agent behavior requires deterministic-vs-heuristic triage: ${candidate.text}`,
+        path: candidate.path,
+        severity: 'high'
+      });
+    }
+  }
+  for (const [index, rawLine] of source.split(/\r?\n/u).entries()) {
+    if (MALFORMED_REPOSITORY_REFERENCE.test(rawLine)) {
+      pushFinding(blockingFindings, {
+        code: 'malformed-repository-reference',
+        line: index + 1,
+        message: `malformed repository path reference: ${rawLine.trim()}`,
+        path: repositoryPath,
+        severity: 'high'
+      });
+    }
+  }
+  return Object.freeze({
+    candidates: Object.freeze([...candidates]),
+    blockingFindings: Object.freeze([...blockingFindings])
+  });
 }
 
 function parseActiveManifest(pointer: string): string | null {
@@ -3314,30 +3361,11 @@ export async function auditRepository(
       }
     }
 
-    const extracted = extractHeuristicBehaviorCandidates(repositoryPath, source);
-    candidates.push(...extracted);
-    for (const candidate of extracted) {
-      if (candidate.skills.length === 0) {
-        pushFinding(findings, {
-          code: 'possible-heuristic-outside-governance',
-          line: candidate.line,
-          message: `possible Agent behavior requires deterministic-vs-heuristic triage: ${candidate.text}`,
-          path: candidate.path,
-          severity: 'high'
-        });
-      }
-    }
+    const sourceGovernance = projectRepositorySourceGovernance(repositoryPath, source);
+    candidates.push(...sourceGovernance.candidates);
+    findings.push(...sourceGovernance.blockingFindings);
 
     for (const [index, rawLine] of source.split(/\r?\n/u).entries()) {
-      if (MALFORMED_REPOSITORY_REFERENCE.test(rawLine)) {
-        pushFinding(findings, {
-          code: 'malformed-repository-reference',
-          line: index + 1,
-          message: `malformed repository path reference: ${rawLine.trim()}`,
-          path: repositoryPath,
-          severity: 'high'
-        });
-      }
       if (markdownCoverage?.kind === 'active-authority'
         && !repositoryPath.startsWith('docs/work/')
         && DYNAMIC_IDENTITY.test(rawLine)) {

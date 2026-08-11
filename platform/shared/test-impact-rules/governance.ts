@@ -43,6 +43,13 @@ const AGENT_GOVERNANCE_FAST_TESTS = [
   'tests/unit/local-gate-union.test.ts'
 ];
 
+const AGENT_SKILL_AUTHORING_FAST_TESTS = [
+  'tests/contract/agent-skills.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/agent-skill-markdown-classification.test.ts',
+  'tests/unit/ci-pr-risk-selection.test.ts'
+];
+
 const FROZEN_WORK_PACKAGE_FAST_TESTS = [
   'tests/contract/agent-skills.test.ts',
   'tests/contract/ci-lanes.test.ts',
@@ -120,6 +127,17 @@ const WORK_PACKAGE_FIXTURE_FAST_TESTS = [
 ];
 
 export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: 'work-selection',
+    identity: { kind: 'contract', id: 'work-selection' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: ['platform/shared/work-selection-contract.ts'],
+    fast: [
+      'tests/unit/work-selection-contract.test.ts',
+      'tests/contract/test-impact.test.ts'
+    ],
+    slow: []
+  },
   {
     owner: 'agent-task-capsule',
     identity: { kind: 'contract', id: 'agent-task-capsule' },
@@ -211,6 +229,14 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     slow: []
   },
   {
+    owner: 'agent-skill-authoring',
+    identity: { kind: 'contract', id: 'agent-skill-authoring' },
+    autoReferenceMode: 'declared-only',
+    sourcePrefixes: ['.agents/skills/'],
+    fast: AGENT_SKILL_AUTHORING_FAST_TESTS,
+    slow: []
+  },
+  {
     owner: 'agent-governance',
     identity: { kind: 'architecture-owner', id: 'agent-governance' },
     autoReferenceMode: 'declared-only',
@@ -228,7 +254,6 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'scripts/codex/repository-audit.ts',
       'scripts/discover-all.ts'
     ],
-    sourcePrefixes: ['.agents/skills/'],
     fast: AGENT_GOVERNANCE_FAST_TESTS,
     slow: []
   },
