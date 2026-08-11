@@ -479,6 +479,7 @@ test('trusted merge workflow consumes the Session artifact and exposes one termi
     'cancel-in-progress': false,
     queue: 'max'
   });
+  const closeoutMutationStepName = 'Observe Issue disposition and close out exact integrated branch';
   const phases = [
     'Create exact integration durable directory',
     'Resolve exact hosted integration lane',
@@ -488,7 +489,7 @@ test('trusted merge workflow consumes the Session artifact and exposes one termi
     'Read back exact branch closeout recovery artifact',
     'Integrate exact hosted Session and publish live readback status',
     'Dispatch and join exact post-merge MainHealth',
-    'Close out exact integrated branch',
+    closeoutMutationStepName,
     'Publish exact branch closeout receipt'
   ];
   const names = workflow.jobs.integrate!.steps.map((entry) => entry.name);
@@ -515,7 +516,7 @@ test('trusted merge workflow consumes the Session artifact and exposes one termi
   expect(step(workflow, 'integrate', 'Read back exact branch closeout recovery artifact').if).toBe(openLane);
   for (const name of [
     'Integrate exact hosted Session and publish live readback status',
-    'Close out exact integrated branch',
+    closeoutMutationStepName,
     'Publish exact branch closeout receipt'
   ]) {
     expect(step(workflow, 'integrate', name).if).toBe(effectLane);
@@ -592,7 +593,7 @@ test('trusted merge workflow consumes the Session artifact and exposes one termi
   expect(mainHealthScript).toContain('check.check_suite?.id === run.data.check_suite_id');
   expect(mainHealthScript).toContain("check.app?.slug === 'github-actions'");
   expect(mainHealthScript).toContain("core.setOutput('request-operation-id', requestOperationId)");
-  expect(step(workflow, 'integrate', 'Close out exact integrated branch').env?.GH_TOKEN)
+  expect(step(workflow, 'integrate', closeoutMutationStepName).env?.GH_TOKEN)
     .toBe('${{ github.token }}');
 });
 

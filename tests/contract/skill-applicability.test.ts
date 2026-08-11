@@ -173,7 +173,8 @@ test('multiple surviving metadata candidates resolve ambiguous before any body r
   const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'design',
-    candidates: ['sec-architecture-evolution', 'sec-heuristic-governance']
+    candidates: ['sec-architecture-evolution', 'sec-heuristic-governance'],
+    writePaths: ['.agents/skills/', 'AGENTS.md', 'docs/', 'platform/shared/agent-skill-contract.ts']
   }));
   expect(decision.status).toBe('ambiguous');
   expect(decision.selectedSkillId).toBeNull();
@@ -191,8 +192,10 @@ test('Skill write surface beyond frozen scope resolves conflict', () => {
 });
 
 test('candidate quarantine revisions are derived from exact Git objects', () => {
-  const head = gitOutput(['rev-parse', 'HEAD']);
-  const base = gitOutput(['rev-parse', 'HEAD^']);
+  const head = gitOutput([
+    'log', '-1', '--format=%H', '--', 'platform/shared/agent-skill-contract.ts'
+  ]);
+  const base = gitOutput(['rev-parse', `${head}^`]);
   const decision = evaluatePlan(planInput({ base, head }));
   expect(decision.quarantinePaths).toEqual(expect.arrayContaining([
     'platform/shared/agent-skill-contract.ts'

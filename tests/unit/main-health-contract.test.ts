@@ -82,13 +82,19 @@ test('healthy live exact-main ledger round-trips and exact expiry is allowed', (
     expectedMainTreeSha: ledger.mainTreeSha,
     expectedTrustRevision: ledger.trustRevision
   });
-  expect(exact).toMatchObject({ status: 'healthy', allowed: true });
+  expect(exact).toMatchObject({
+    status: 'healthy', allowed: true,
+    observationValidity: 'valid', reasonCode: 'lane-eligible'
+  });
   expect(resolveMainHealthLaneV1({
     ledger, lane: 'ordinary', now: '2026-08-09T01:00:00.001Z',
     expectedRepository: ledger.repository, expectedDefaultBranch: ledger.defaultBranch,
     expectedMainSha: ledger.mainSha, expectedMainTreeSha: ledger.mainTreeSha,
     expectedTrustRevision: ledger.trustRevision
-  })).toMatchObject({ status: 'locked', allowed: false });
+  })).toMatchObject({
+    status: 'locked', allowed: false,
+    observationValidity: 'invalid', reasonCode: 'ledger-expired'
+  });
 });
 
 test('MainHealth live main/tree/trust/lane drift locks fail closed', () => {
@@ -112,11 +118,49 @@ test('MainHealth live main/tree/trust/lane drift locks fail closed', () => {
     { ...base, lane: 'repair' as const }
   ];
   for (const candidate of cases) {
-    expect(resolveMainHealthLaneV1(candidate)).toMatchObject({ status: 'locked', allowed: false });
+    const result = resolveMainHealthLaneV1(candidate);
+    expect(result).toMatchObject({ status: 'locked', allowed: false });
+    expect(result.observationValidity).toBe(candidate.lane === 'repair' ? 'valid' : 'invalid');
+    expect(result.reasonCode).toBe(candidate.lane === 'repair'
+      ? 'lane-ineligible'
+      : 'ledger-identity-drift');
   }
   for (const unknown of [null, { schema: 'unknown' }, { ...ledger, extra: true }]) {
-    expect(resolveMainHealthLaneV1({ ...base, ledger: unknown })).toMatchObject({ status: 'locked', allowed: false });
+    expect(resolveMainHealthLaneV1({ ...base, ledger: unknown })).toMatchObject({
+      status: 'locked', allowed: false,
+      observationValidity: 'invalid', reasonCode: 'invalid-ledger'
+    });
   }
+});
+
+test('valid degraded lane denial is distinct from expired or identity-drifted observation', () => {
+  const ledger = createMainHealthLedgerV1(degradedInput());
+  const input = {
+    ledger,
+    lane: 'ordinary' as const,
+    now: '2026-08-09T00:30:00.000Z',
+    expectedRepository: ledger.repository,
+    expectedDefaultBranch: ledger.defaultBranch,
+    expectedMainSha: ledger.mainSha,
+    expectedMainTreeSha: ledger.mainTreeSha,
+    expectedTrustRevision: ledger.trustRevision
+  };
+  expect(resolveMainHealthLaneV1(input)).toMatchObject({
+    status: 'locked', allowed: false,
+    observationValidity: 'valid', reasonCode: 'lane-ineligible'
+  });
+  expect(resolveMainHealthLaneV1({
+    ...input, now: '2026-08-09T01:00:00.001Z'
+  })).toMatchObject({
+    status: 'locked', allowed: false,
+    observationValidity: 'invalid', reasonCode: 'ledger-expired'
+  });
+  expect(resolveMainHealthLaneV1({
+    ...input, expectedMainSha: SHA_B
+  })).toMatchObject({
+    status: 'locked', allowed: false,
+    observationValidity: 'invalid', reasonCode: 'ledger-identity-drift'
+  });
 });
 
 test('MainHealth revision changes for every health decision field', () => {
