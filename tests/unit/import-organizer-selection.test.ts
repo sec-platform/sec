@@ -95,6 +95,16 @@ describe('import organizer selection', () => {
     expect(selectChangedImportsOnly({})).toBe(false);
   });
 
+  test('the full selector is the config file set whenever changed-only is disabled', async () => {
+    const source = await Bun.file(path.resolve(import.meta.dir,
+      '../../platform/dev-runner/import-organizer.ts')).text();
+    const loader = source.slice(source.indexOf('async function loadSelectedWorkingTreeFiles'),
+      source.indexOf('/**\n * imports:check'));
+    expect(loader).toContain('selectChangedImportsOnly(env)');
+    expect(loader).toContain('if (!selectChangedImportsOnly(env)) return config.fileNames;');
+    expect(loader.indexOf('workingTreeTypeScriptTargets')).toBeGreaterThan(loader.indexOf('selectChangedImportsOnly(env)'));
+  });
+
   test('diff base prefers explicit base, then pull request base branch, then previous commit', () => {
     expect(resolveImportDiffBase({
       SEC_CHANGED_BASE: 'abc123',

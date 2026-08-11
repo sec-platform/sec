@@ -20,6 +20,7 @@ import {
 import {
   assertReviewStabilityReceiptCurrentV1,
   parseReviewStabilityReceiptV1,
+  renderIndependentReviewTrailerV1,
   type ReviewStabilityReceiptV1
 } from '../../platform/shared/review-stability-contract.ts';
 import {
@@ -635,6 +636,60 @@ export function CodexDevelopmentParseMergeGateResultV2(
   const resultDigest = digest(value.resultDigest, 'resultDigest');
   if (resultDigest !== hash(withoutDigest)) fail('result digest mismatch.');
   return Object.freeze({ ...withoutDigest, resultDigest });
+}
+
+/**
+ * Machine trailer closure for a physical squash merge message. The only
+ * permitted body lines are the canonical IntegrationAuthorization markers;
+ * any `Independent-*` / `Manual-Transition-*` line must be the exact trailer
+ * rendered from a validated review receipt (Issue #347 section G). The
+ * PR #345 free-text `Independent-Exact-Head-Review: P0=0 P1=0 P2=0` shape is
+ * rejected by this validator.
+ */
+export function assertCanonicalMergeMessageV1(input: {
+  authorizationMarkers: readonly string[];
+  reviewReceipt: ReviewStabilityReceiptV1;
+  expectedTitle: string;
+  message: string;
+}): void {
+  if (!Array.isArray(input.authorizationMarkers) || input.authorizationMarkers.length === 0) {
+    fail('merge message validation requires at least one canonical marker.');
+  }
+  if (typeof input.expectedTitle !== 'string' || input.expectedTitle.length === 0
+    || /[\r\n]/u.test(input.expectedTitle)) fail('merge title is not canonical.');
+  const markerPrefixes = [
+    'Integration-Authorization: ',
+    'Integration-Authorization-Receipt: ',
+    'Integration-Authorization-Operation: ',
+    'Integration-Authorization-Publication: ',
+    'Integration-Authorization-Publication-Digest: ',
+    'Integration-Authorization-Comment: ',
+    'Verification-Session: '
+  ] as const;
+  if (input.authorizationMarkers.length !== markerPrefixes.length
+    || new Set(input.authorizationMarkers).size !== input.authorizationMarkers.length) {
+    fail('authorization marker closure must contain each typed marker exactly once.');
+  }
+  for (const prefix of markerPrefixes) {
+    if (input.authorizationMarkers.filter((line) => line.startsWith(prefix)).length !== 1) {
+      fail(`authorization marker closure requires exactly one ${prefix.trim()} marker.`);
+    }
+  }
+  for (const line of input.authorizationMarkers) {
+    if (/^(?:Independent-|Manual-Transition-)/u.test(line)) {
+      fail('unbound merge trailer is forbidden; integration trailers must derive from validated receipts, never model free text.');
+    }
+  }
+  const expected = [
+    input.expectedTitle,
+    ...input.authorizationMarkers,
+    renderIndependentReviewTrailerV1(input.reviewReceipt)
+  ];
+  const actual = input.message.replaceAll('\r\n', '\n').split('\n').filter((line) => line.length > 0);
+  if (actual.length !== expected.length
+    || actual.some((line, index) => line !== expected[index])) {
+    fail('merge message must equal the exact typed title and trailer multiset once each.');
+  }
 }
 
 function parseInput(source: string): CodexDevelopmentMergeGateInputV2 {

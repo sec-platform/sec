@@ -9,6 +9,8 @@ last-reviewed: 2026-08-06
 
 本文拥有外部工具、MCP、语言/编译器基础设施、程序分析器、类库/SDK、构建/测试/发布服务和 Agent 工具的 authority、安全、评估、接入、conformance、吸收、替换与退役政策。具体候选、品牌、版本、当前路由、A/B结果和复核状态只存在于 `docs/governance/external-capability-ledger.yaml` 及相应 Evidence。
 
+Provider quota、billing、credit、rate-limit 与 upsell 原文在类型化归一后可丢弃；它们最多产生 bounded reason code 与内容 digest，删除后的原文绝不能支持 positive availability、Review、Gate、merge 或 completion 声明。availability/health 是路由和同一 epoch 的 negative circuit-breaker projection，不是 effect authorization：Evidence 缺失、过期或无法复核时一律归一为 `unknown`；`unknown` 不能支持 positive availability claim，也不授予 effect，但它本身不禁止一个已由 operation-specific authority、idempotency/recovery 与 exact readback 授权的 provider operation。只有 current-epoch 的 explicit `unavailable` 禁止重复；实际 provider response/readback 才产生 availability evidence。external capability ledger 拥有 projection data，canonical provider capability contract 拥有 shape、freshness、role mapping、normalization 与 retry transition validator。
+
 Provider catalog、manifest和Evidence是Compiler Implementation Resolution的候选输入；本文不拥有最终`ResolutionDecision`、`ImplementationBinding`、`ImplementationBindingDelta`、Compatibility或Migration。
 
 ## 目标

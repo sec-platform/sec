@@ -6,6 +6,10 @@ const DEV_RUNNER_FAST_TESTS = [
   'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
+const IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS = [
+  'tests/unit/import-transform-transaction.test.ts'
+];
+
 const AFFECTED_TEST_SELECTION_FAST_TESTS = [
   'tests/contract/ci-lanes.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
@@ -51,6 +55,7 @@ const VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS = [
   'tests/unit/branch-closeout-rest-comments.test.ts',
   'tests/unit/branch-lifecycle-temp-repo.test.ts',
   'tests/unit/integration-authorization-publication.test.ts',
+  'tests/unit/local-main-closeout.test.ts',
   'tests/unit/tcb-trust-root-contract.test.ts',
   'tests/unit/verification-candidate-tree.test.ts',
   'tests/unit/verification-session-runtime.test.ts'
@@ -69,6 +74,17 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
 
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
+    owner: 'import-transform-transaction',
+    identity: { kind: 'architecture-owner', id: 'import-transform-transaction' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: ['platform/dev-runner/import-transform-transaction.ts'],
+    fast: IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS,
+    slow: [
+      'tests/e2e/import-organizer-staged.test.ts',
+      'tests/e2e/import-organizer-worktree-isolation.test.ts'
+    ]
+  },
+  {
     owner: 'verification-session-branch-closeout-authority',
     identity: {
       kind: 'architecture-owner',
@@ -85,13 +101,14 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/branch-lifecycle.ts',
       'scripts/codex/branch-recovery.ts',
       'scripts/codex/integration-authorization-publication.ts',
+      'scripts/codex/local-main-closeout.ts',
       'scripts/codex/verification-candidate-tree.ts',
       'scripts/codex/verification-session-github.ts',
       'scripts/codex/verification-session-runtime.ts',
       'scripts/codex/verification-session.ts'
     ],
     fast: VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS,
-    slow: []
+    slow: ['tests/e2e/verification-session-closeout-cli.test.ts']
   },
   {
     owner: 'trusted-verifier-tcb',

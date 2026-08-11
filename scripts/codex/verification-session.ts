@@ -25,6 +25,9 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
+import { CompilerError } from '../../platform/shared/errors.ts';
+import { withWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
+
 import {
   CodexDevelopmentCreateVerificationEvidenceProducerV4,
   CodexDevelopmentParseVerificationSessionArtifactV2
@@ -36,6 +39,10 @@ import {
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from '../../platform/shared/ci-verification-revision.ts';
 import { createMainHealthLedgerV1 } from '../../platform/shared/main-health-contract.ts';
+import {
+  renderIndependentReviewTrailerV1,
+  type ReviewStabilityReceiptV1
+} from '../../platform/shared/review-stability-contract.ts';
 import { TCB_CLOSURE_LOCK } from '../../platform/shared/tcb-closure-lock.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2 } from '../../platform/shared/tcb-trust-root-contract.ts';
 import {
@@ -51,6 +58,10 @@ import {
   type CiVerificationExecutionEnvironmentV2
 } from '../../platform/shared/verification-action-ci-contract.ts';
 import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
+import {
+  assertProviderRetryGuardV1,
+  resolveProviderAvailabilityV1
+} from '../../platform/shared/verification-provider-capability-contract.ts';
 import {
   VERIFICATION_REGISTRY_PROJECTION_SCHEMA_V1,
   parseVerificationSessionV2,
@@ -128,12 +139,18 @@ import {
   type IntegrationAuthorizationOperationPublicationV1
 } from './integration-authorization-publication.ts';
 import {
-  CodexDevelopmentEvaluateMergeGateV2
+  createLocalMainCloseoutBindingFromHostedAuthorityV3,
+  executeLocalMainCloseoutV3
+} from './local-main-closeout.ts';
+import {
+  CodexDevelopmentEvaluateMergeGateV2,
+  assertCanonicalMergeMessageV1
 } from './merge-gate.ts';
 import {
   executeLocalVerificationActionDagV2,
   type LocalVerificationActionDagResultV2
 } from './verification-action-runner.ts';
+import { loadVerificationProviderCapabilityLedgerV1 } from './verification-provider-capability-ledger.ts';
 import {
   SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1,
   createVerificationSessionGitHubClientV1,
@@ -560,6 +577,21 @@ function writeDurable(filePath: string, value: unknown): void {
     closeSync(handle);
   }
   renameSync(temporary, target);
+  let directory: number | undefined;
+  try {
+    directory = openSync(path.dirname(target), 'r');
+    fsyncSync(directory);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    // Bun and Node do not expose directory fsync on Windows. This narrowly
+    // preserves protected closeout there; file fsync and rename failures stay
+    // fail-closed, as do all other directory-sync failures.
+    if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'EACCES', 'EBADF'].includes(code ?? '')) {
+      throw error;
+    }
+  } finally {
+    if (directory !== undefined) closeSync(directory);
+  }
 }
 
 function createEphemeralVerificationSessionJournalFs(): VerificationSessionJournalFileSystem {
@@ -1102,6 +1134,23 @@ function loadProviderBranchCloseoutRecoveryArtifact(input: {
 
 function addSeconds(instant: string, seconds: number): string {
   return new Date(new Date(instant).getTime() + seconds * 1000).toISOString();
+}
+
+/**
+ * Deny-only routing guard: ledger observations never permit an effect. They
+ * only suppress a same-epoch retry when the provider is explicitly unavailable.
+ */
+function assertUnavailableProviderCircuitBreakerNotAuthorityV1(input: {
+  ctx: VerificationSessionScope;
+  capability: 'github-writer' | 'github-actions-hosted-verification';
+  now: string;
+}): void {
+  const epoch = loadVerificationProviderCapabilityLedgerV1(input.ctx.repositoryRoot);
+  if (input.now < epoch.observedAt || input.now >= epoch.expiresAt) return;
+  const capability = resolveProviderAvailabilityV1(epoch, input.capability);
+  if (capability.availability !== 'unavailable') return;
+  assertProviderRetryGuardV1({ previous: { availability: capability.availability, epochId: epoch.epochId },
+    requested: { capability: input.capability, epochId: epoch.epochId } });
 }
 
 function githubEvent(environment: Readonly<Record<string, string | undefined>>): Record<string, any> {
@@ -1916,6 +1965,11 @@ function publishHostedCloseoutEffectStartV1(
   const endpoint = `/repos/${publication.binding.repository}`
     + `/issues/${publication.binding.pullRequestNumber}/comments`;
   const body = renderBranchCloseoutEffectStartPublicationComment(publication);
+  assertUnavailableProviderCircuitBreakerNotAuthorityV1({
+    ctx,
+    capability: 'github-writer',
+    now: new Date().toISOString()
+  });
   const posted = runVerificationSessionCommand(ctx, 'gh', [
     'api', '-X', 'POST', endpoint, '-f', `body=${body}`
   ]);
@@ -2137,6 +2191,11 @@ function finalizeHostedBranchCloseoutV1(input: Readonly<{
         + encodeVerificationActionDataV2(evidence)
       );
     }
+    assertUnavailableProviderCircuitBreakerNotAuthorityV1({
+      ctx: input.ctx,
+      capability: 'github-writer',
+      now: input.now()
+    });
     const remoteAttempt = deleteHostedRemoteRefCas(input.ctx, preparation, attempts);
     remoteEffect = closeoutEffect(remoteAttempt);
     if (remoteAttempt.status !== 'success') {
@@ -2369,6 +2428,11 @@ function publishHostedCloseoutTerminalV1(input: Readonly<{
     }
     return Object.freeze({ disposition: 'recovered', ...observed });
   };
+  assertUnavailableProviderCircuitBreakerNotAuthorityV1({
+    ctx: input.ctx,
+    capability: 'github-writer',
+    now: new Date().toISOString()
+  });
   const posted = runVerificationSessionCommand(input.ctx, 'gh', [
     'api', '-X', 'POST', endpoint, '-f', `body=${body}`
   ]);
@@ -2787,7 +2851,8 @@ function evaluateFreshHostedIntegration(input: {
     headSha: artifact.session.headSha,
     excludedPrincipalNodeIds: new Set([candidate.authorNodeId, integrationPrincipalNodeId]) });
   if (barrier.status !== 'clear') {
-    throw new Error(`Hosted integration Review barrier ${barrier.status}: ${barrier.reason}`);
+    throw new Error(`Hosted integration Review barrier ${barrier.status}: ${
+      barrier.status === 'provider-schema-unsupported' ? barrier.reasonCode : barrier.reason}`);
   }
   const operationId = `sha256:${createHash('sha256').update(
     `${artifact.session.sessionRevision}:pre-merge-review`
@@ -2928,6 +2993,11 @@ function publishHostedIntegrationAuthorizationOperationV1(
 
   const endpoint = `/repos/${publication.repository}/issues/${publication.pullRequestNumber}/comments`;
   const body = renderIntegrationAuthorizationOperationPublicationComment(publication);
+  assertUnavailableProviderCircuitBreakerNotAuthorityV1({
+    ctx,
+    capability: 'github-writer',
+    now: new Date().toISOString()
+  });
   const posted = runVerificationSessionCommand(ctx, 'gh', [
     'api', '-X', 'POST', endpoint, '-f', `body=${body}`
   ]);
@@ -2994,6 +3064,11 @@ function ensureHostedReviewRequestV1(
       publicationDigest: observed.publicationDigest
     });
   }
+  assertUnavailableProviderCircuitBreakerNotAuthorityV1({
+    ctx,
+    capability: 'github-writer',
+    now: new Date().toISOString()
+  });
   const posted = runVerificationSessionCommand(ctx, 'gh', [
     'api',
     '-X',
@@ -3049,6 +3124,8 @@ export function assertHostedSquashMergeCompletionV1(input: {
   expectedHeadSha: string;
   expectedHeadTreeSha: string;
   markers: readonly string[];
+  reviewReceipt: ReviewStabilityReceiptV1;
+  expectedTitle: string;
   providerMergeCommitSha?: string | null;
 }): void {
   const { candidate } = input;
@@ -3069,6 +3146,9 @@ export function assertHostedSquashMergeCompletionV1(input: {
   if (!input.markers.every((marker) => messageLines.includes(marker))) {
     throw new Error('hosted exact-head squash merge completed without the exact authorization markers.');
   }
+  assertCanonicalMergeMessageV1({ authorizationMarkers: input.markers,
+    reviewReceipt: input.reviewReceipt, expectedTitle: input.expectedTitle,
+    message: candidate.mergeCommitMessage });
   if (input.providerMergeCommitSha !== undefined && input.providerMergeCommitSha !== null
     && candidate.mergeCommitSha !== input.providerMergeCommitSha) {
     throw new Error('hosted exact-head squash merge provider response does not match the merge commit readback.');
@@ -3111,7 +3191,7 @@ function executeHostedSquashMerge(input: {
   commentId: number;
 }): HostedSynchronousSquashMergeResponseV1 {
   const authorization = input.publication.result.authorization;
-  const markers = integrationAuthorizationMergeMarkersV1({
+  const authorizationMarkers = integrationAuthorizationMergeMarkersV1({
     sessionRevision: input.sessionRevision,
     authorizationId: authorization.authorizationId,
     authorizationReceiptDigest: authorization.receiptDigest,
@@ -3120,6 +3200,8 @@ function executeHostedSquashMerge(input: {
     authorizationPublicationDigest: input.publication.publicationDigest,
     commentId: input.commentId
   });
+  const reviewTrailer = renderIndependentReviewTrailerV1(input.publication.result.reviewReceipt);
+  const markers = [...authorizationMarkers, reviewTrailer];
   const request = JSON.stringify({
     sha: input.headSha,
     merge_method: 'squash',
@@ -3148,6 +3230,7 @@ const USAGE = `Usage:
   bun scripts/codex/verification-session.ts finalize-hosted --envelope <envelope.json> (--evidence <evidence.json> | --previous-artifact <artifact.json>) --output <artifact.json> [--json]
   bun scripts/codex/verification-session.ts prepare-integration-hosted --repository <owner/name> --output <projection.json> [--json]
   bun scripts/codex/verification-session.ts integrate-hosted --repository <owner/name> --output <projection.json> [--json]
+  bun scripts/codex/verification-session.ts local-main-closeout --repository <owner/name> --pr <n> --protected-root <path> --expected-local-head <sha> [--json]
   bun scripts/codex/verification-session.ts closeout-mutate-hosted --repository <owner/name> --output <projection.json> [--json]
   bun scripts/codex/verification-session.ts closeout-publish-hosted --repository <owner/name> --output <projection.json> [--json]
   bun scripts/codex/verification-session.ts resume --request <request.json> [--repository <owner/name>] [--json]
@@ -3165,6 +3248,7 @@ const COMMAND_FLAGS: Readonly<Record<string, ReadonlySet<string>>> = Object.free
   'finalize-hosted': new Set(['--envelope', '--evidence', '--previous-artifact', '--output']),
   'prepare-integration-hosted': new Set(['--output', '--repository']),
   'integrate-hosted': new Set(['--output', '--repository']),
+  'local-main-closeout': new Set(['--repository', '--pr', '--protected-root', '--expected-local-head']),
   'closeout-mutate-hosted': new Set(['--output', '--repository']),
   'closeout-publish-hosted': new Set(['--output', '--repository']),
   resume: new Set(['--request', '--repository']),
@@ -3195,6 +3279,89 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   const ctx = createVerificationSessionScope({ repositoryRoot });
   const githubAdapter = () => createVerificationSessionGitHubClientV1(repositoryRoot);
   const event = () => githubEvent(environment);
+  if (command === 'local-main-closeout') {
+    const prNumber = Number(required(args, '--pr'));
+    if (!Number.isSafeInteger(prNumber) || prNumber < 1) throw new Error('--pr must be a positive integer.');
+    const liveCandidate = githubAdapter().observeCandidate(repository, prNumber);
+    if (liveCandidate.state !== 'MERGED' || liveCandidate.mergeCommitMessage === null) {
+      throw new Error('local-main closeout requires one live merged PR readback.');
+    }
+    const sessionRevision = exactCommitMarker(liveCandidate.mergeCommitMessage, 'Verification-Session');
+    if (!/^sha256:[0-9a-f]{64}$/u.test(sessionRevision)) {
+      throw new Error('merged commit Verification-Session marker is not an exact digest.');
+    }
+    const publications = observeIntegrationAuthorizationOperationPublicationsV1(repositoryRoot, {
+      repository,
+      pullRequestNumber: prNumber,
+      sessionRevision: sessionRevision as `sha256:${string}`
+    });
+    const selected = selectMergedAuthorizationPublication({
+      candidate: liveCandidate,
+      sessionRevision: sessionRevision as `sha256:${string}`,
+      publications
+    });
+    const authorization = selected.publication.result.authorization;
+    if (authorization.repository !== repository || authorization.prNumber !== prNumber
+      || authorization.headSha !== liveCandidate.headSha
+      || authorization.headTreeSha !== liveCandidate.headTreeSha
+      || liveCandidate.mergeCommitTreeSha !== liveCandidate.headTreeSha) {
+      throw new Error('live merged candidate differs from the hosted IntegrationAuthorization closure.');
+    }
+    const markers = integrationAuthorizationMergeMarkersV1({
+      sessionRevision: selected.publication.sessionRevision,
+      authorizationId: selected.publication.authorizationId,
+      authorizationReceiptDigest: selected.publication.authorizationReceiptDigest,
+      consumptionOperationId: selected.publication.consumptionOperationId,
+      authorizationPublicationId: selected.publication.authorizationPublicationId,
+      authorizationPublicationDigest: selected.publication.publicationDigest,
+      commentId: selected.commentId
+    });
+    assertCanonicalMergeMessageV1({
+      authorizationMarkers: markers,
+      reviewReceipt: selected.publication.result.reviewReceipt,
+      expectedTitle: `Verified integration ${sessionRevision.slice(7, 19)}`,
+      message: liveCandidate.mergeCommitMessage
+    });
+    const protectedRoot = required(args, '--protected-root');
+    const expectedLocalPreimageSha = required(args, '--expected-local-head');
+    if (!/^[0-9a-f]{40}$/u.test(expectedLocalPreimageSha)) {
+      throw new Error('--expected-local-head must be an exact commit SHA.');
+    }
+    const gitRunner = (repoRoot: string, gitArgs: readonly string[]) => {
+      const observed = runVerificationSessionCommand(ctx, 'git', gitArgs, repoRoot);
+      return Object.freeze({
+        status: observed.status ?? 1,
+        stdout: observed.stdout.toString('utf8'),
+        stderr: observed.stderr.toString('utf8')
+      });
+    };
+    const expectedLocalTree = gitRunner(protectedRoot, [
+      'rev-parse', '--verify', `${expectedLocalPreimageSha}^{tree}`
+    ]);
+    if (expectedLocalTree.status !== 0 || !/^[0-9a-f]{40}$/u.test(expectedLocalTree.stdout.trim())) {
+      throw new Error('expected local main preimage tree is unavailable.');
+    }
+    const binding = createLocalMainCloseoutBindingFromHostedAuthorityV3({
+      protectedRoot,
+      expectedLocalPreimageSha,
+      expectedLocalPreimageTreeSha: expectedLocalTree.stdout.trim(),
+      livePublication: selected.publication,
+      liveCommentId: selected.commentId,
+      liveCandidate
+    });
+    const result = await withWorkspaceWriteLease(protectedRoot, undefined, async (lease) => (
+      executeLocalMainCloseoutV3(
+        protectedRoot,
+        binding,
+        gitRunner,
+        lease
+      )
+    ));
+    const receipt = Object.freeze({
+      schema: 'sec-local-main-closeout-receipt-v3', binding, result, observedAt: now()
+    });
+    return JSON.stringify(receipt, null, 2);
+  }
   if (command === 'project') {
     const defaultRef = required(args, '--default-ref');
     const openPullRequests = args.get('--open-prs') === 'true'
@@ -3241,6 +3408,16 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       sourceRef: `refs/heads/main@${candidate.baseSha}`, observedAt, reviewBarrier: barrier,
       mainHealthChecks: github.observeChecks(repository, candidate.baseSha), dependencyBlobs });
     writeDurable(required(args, '--request-output'), prepared.request);
+    if (prepared.reviewBarrier.status === 'provider-schema-unsupported') {
+      return JSON.stringify({ status: 'BLOCKED', sessionRevision: prepared.sessionRevision,
+        reviewProvider: Object.freeze({ status: prepared.reviewBarrier.status,
+          reasonCode: prepared.reviewBarrier.reasonCode,
+          responseDigest: prepared.reviewBarrier.responseDigest,
+          observedAt: prepared.reviewBarrier.observedAt }),
+        dispatchSignalSent: false, workflowJoin: null, localVerification: null }, null, 2);
+    }
+    const reviewBarrierAllowsExecution = prepared.reviewBarrier.status === 'clear'
+      || prepared.reviewBarrier.status === 'waiting';
     const journal = readVerificationSessionJournalV1({ repositoryRoot,
       sessionRevision: prepared.sessionRevision });
     if (journal.completedStageIndex < 0) appendVerificationSessionJournalEventV1({ repositoryRoot,
@@ -3253,7 +3430,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       arch: process.arch,
       bunVersion: Bun.version
     });
-    const localVerification = hosted === null && prepared.reviewBarrier.status !== 'blocked'
+    const localVerification = hosted === null && reviewBarrierAllowsExecution
       ? await executePreparedLocalQuickDagV2({
           ctx,
           authorityRoot: repositoryRoot,
@@ -3286,12 +3463,17 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const localAllowsHostedSignal = localVerification === null
       ? hosted !== null
       : localVerification.result.status === 'passed';
-    const dispatchSignalSent = prepared.reviewBarrier.status !== 'blocked'
+    const dispatchSignalSent = reviewBarrierAllowsExecution
       && localAllowsHostedSignal && hosted === null && runJoin.status === 'redispatch-eligible';
     if (dispatchSignalSent) {
       // repository_dispatch is deliberately only an at-least-once wake-up
       // signal. The serialized hosted coordinator owns Review-request and
       // candidate execution dedup; the local journal is cache, not authority.
+      assertUnavailableProviderCircuitBreakerNotAuthorityV1({
+        ctx,
+        capability: 'github-actions-hosted-verification',
+        now: now()
+      });
       github.ensureVerificationSessionWakeup(repository, prepared.request);
     }
     if (prepared.reviewBarrier.status === 'blocked') return JSON.stringify({ status: 'BLOCKED',
@@ -3397,6 +3579,10 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const reviewBarrier = github.observeReviewBarrier({ repository, prNumber: request.prNumber,
       headSha: request.expectedHeadSha,
       excludedPrincipalNodeIds: new Set([candidate.authorNodeId, compilerIdentity.actorNodeId]) });
+    if (reviewBarrier.status === 'provider-schema-unsupported') {
+      return JSON.stringify({ status: 'BLOCKED', sessionRevision: request.expectedSessionRevision,
+        reviewProvider: reviewBarrier, output: null }, null, 2);
+    }
     if (reviewBarrier.status === 'blocked') {
       throw new Error(`observe-hosted Review barrier blocked: ${reviewBarrier.reason}`);
     }
@@ -3405,6 +3591,35 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         sessionRevision: request.expectedSessionRevision,
         operationKind: 'request-review', semanticInputDigest: request.requestOperationId
       });
+      // The review request itself is the provider effect; check the epoch
+      // directly before publishing it rather than treating the barrier read as
+      // an effect permit.
+      const providerEpoch = loadVerificationProviderCapabilityLedgerV1(ctx.repositoryRoot);
+      const providerEpochNow = now();
+      const reviewer = resolveProviderAvailabilityV1(providerEpoch, 'codex-review');
+      const reviewProviderUnavailable = providerEpochNow >= providerEpoch.observedAt
+        && providerEpochNow < providerEpoch.expiresAt
+        && reviewer.availability === 'unavailable';
+      if (reviewProviderUnavailable) {
+        try {
+          assertProviderRetryGuardV1({ previous: { availability: reviewer.availability,
+            epochId: providerEpoch.epochId }, requested: { capability: 'codex-review',
+            epochId: providerEpoch.epochId } });
+        } catch (error) {
+          if (!(error instanceof CompilerError) || error.code !== 'PROVIDER-UNAVAILABLE-NOT-RETRIED') {
+            throw error;
+          }
+          // Expected fail-closed guard: the projection below records the typed
+          // unavailable state without invoking or re-requesting the provider.
+        }
+        // A negative circuit breaker blocks a same-epoch retry. Unknown is not
+        // positive authority; it may still route to the human @codex request.
+        return JSON.stringify({ status: 'WAITING_REVIEW', sessionRevision: request.expectedSessionRevision,
+          reviewProvider: { status: 'review-provider-unavailable', capability: 'codex-review',
+            reasonCode: reviewer.reasonCode, availabilityEpochId: providerEpoch.epochId,
+            availabilityEpochDigest: providerEpoch.epochDigest,
+            receiptRef: reviewer.receiptRef }, output: null }, null, 2);
+      }
       const reviewRequest = ensureHostedReviewRequestV1(ctx, github, { repository,
         prNumber: request.prNumber, sessionRevision: request.expectedSessionRevision,
         operationId, headSha: request.expectedHeadSha,
@@ -3416,18 +3631,29 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }
     if (reviewBarrier.status !== 'clear') throw new Error('observe-hosted Review barrier did not narrow to clear.');
     const observedAt = now();
-    const facts = reconstructVerificationSessionHostedFactsV1({ request, repository, candidate, changedPaths,
+    const observedFacts = reconstructVerificationSessionHostedFactsV1({ request, repository, candidate, changedPaths,
       integrationPrincipalNodeId: compilerIdentity.actorNodeId,
       producerPrincipalNodeId: compilerIdentity.actorNodeId, sourceRunId: compilerIdentity.runId,
       sourceRef: `.github/workflows/compiler-pr-validation.yml@${request.expectedBaseSha}`, observedAt, reviewBarrier,
       mainHealthChecks: github.observeChecks(repository, request.expectedBaseSha), dependencyBlobs });
-    writeDurable(required(args, '--output'), facts);
+    // Facts are diagnostic/reconstruction input only. A Review receipt is
+    // minted later by prepare-hosted from its own fresh private observation.
+    writeDurable(required(args, '--output'), observedFacts);
     return JSON.stringify({ status: 'observed', output: path.resolve(required(args, '--output')) }, null, 2);
   }
   if (command === 'prepare-hosted') {
     const request = parseVerificationSessionHostedRequestV1(readFileSync(path.resolve(required(args, '--request')), 'utf8'));
     const facts = readJson<VerificationSessionHostedFactsV1>(required(args, '--facts'));
-    const envelope = prepareVerificationSessionHostedV1({ request, facts });
+    const github = githubAdapter();
+    const candidate = github.observeCandidate(facts.repository, request.prNumber);
+    const reviewBarrier = github.observeReviewBarrier({ repository: facts.repository, prNumber: request.prNumber,
+      headSha: request.expectedHeadSha,
+      excludedPrincipalNodeIds: new Set([candidate.authorNodeId, facts.integrationPrincipalNodeId]) });
+    if (reviewBarrier.status !== 'clear') {
+      throw new Error(`prepare-hosted fresh Review barrier is ${reviewBarrier.status}.`);
+    }
+    const envelope = prepareVerificationSessionHostedV1({ request,
+      facts: Object.freeze({ ...facts, candidate, reviewBarrier }), now: now() });
     writeDurable(required(args, '--output'), envelope);
     return JSON.stringify({ status: 'prepared', envelopeDigest: envelope.envelopeDigest, output: path.resolve(required(args, '--output')) }, null, 2);
   }
@@ -3492,7 +3718,14 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       actionPlanDigest: request.expectedActionPlanDigest, baseSha: request.expectedBaseSha });
     if (hosted === null) {
       const redispatched = runJoin.status === 'redispatch-eligible';
-      if (redispatched) github.ensureVerificationSessionWakeup(repository, request);
+      if (redispatched) {
+        assertUnavailableProviderCircuitBreakerNotAuthorityV1({
+          ctx,
+          capability: 'github-actions-hosted-verification',
+          now: now()
+        });
+        github.ensureVerificationSessionWakeup(repository, request);
+      }
       return JSON.stringify({ status: 'WAITING_HOSTED_VERIFICATION',
         sessionRevision: request.expectedSessionRevision,
         reason: redispatched
@@ -3509,7 +3742,14 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }
     if (reuse.status !== 'whole-artifact-current') {
       const redispatched = runJoin.status === 'redispatch-eligible';
-      if (redispatched) github.ensureVerificationSessionWakeup(repository, request);
+      if (redispatched) {
+        assertUnavailableProviderCircuitBreakerNotAuthorityV1({
+          ctx,
+          capability: 'github-actions-hosted-verification',
+          now: now()
+        });
+        github.ensureVerificationSessionWakeup(repository, request);
+      }
       return JSON.stringify({ status: 'WAITING_HOSTED_AUTHORITY_REFRESH',
         sessionRevision: request.expectedSessionRevision, reason: reuse.reason,
         candidateState: candidate.state, redispatched, workflowJoin: runJoin,
@@ -3783,6 +4023,11 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       let providerResponse: HostedSynchronousSquashMergeResponseV1 | null = null;
       let mergeCommandFailure: unknown = null;
       try {
+        assertUnavailableProviderCircuitBreakerNotAuthorityV1({
+          ctx,
+          capability: 'github-writer',
+          now: now()
+        });
         providerResponse = executeHostedSquashMerge({ ctx, repository, prNumber: artifact.session.prNumber,
           headSha: artifact.session.headSha, sessionRevision: artifact.session.sessionRevision,
           publication: selected.publication, commentId: selected.commentId });
@@ -3803,7 +4048,9 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       try {
         assertHostedSquashMergeCompletionV1({ candidate: merged,
           expectedHeadSha: artifact.session.headSha, expectedHeadTreeSha: artifact.session.headTreeSha,
-          markers, providerMergeCommitSha: providerResponse?.sha ?? null });
+          markers, reviewReceipt: selected.publication.result.reviewReceipt,
+          expectedTitle: `Verified integration ${artifact.session.sessionRevision.slice(7, 19)}`,
+          providerMergeCommitSha: providerResponse?.sha ?? null });
       } catch (readbackError) {
         const providerReason = mergeCommandFailure instanceof Error
           ? mergeCommandFailure.message
@@ -3815,12 +4062,19 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       synchronizeTrustedRemoteDefaultRefV1({ ctx });
       result = reduce();
     }
+    const mergedProjectionCandidate = github.observeCandidate(repository, artifact.session.prNumber);
     const projection = Object.freeze({ schema: 'sec-verification-session-integration-projection-v1',
       repository, prNumber: artifact.session.prNumber, sessionRevision: artifact.session.sessionRevision,
       lane: route.lane, effects,
       authorizationId: selected.publication.authorizationId,
+      authorizationReceiptDigest: selected.publication.authorizationReceiptDigest,
       authorizationPublicationId: selected.publication.authorizationPublicationId,
       authorizationCommentId: selected.commentId, status: result.status,
+      mergedCommitSha: mergedProjectionCandidate.state === 'MERGED'
+        ? mergedProjectionCandidate.mergeCommitSha : null,
+      mergedCommitTreeSha: mergedProjectionCandidate.state === 'MERGED'
+        ? mergedProjectionCandidate.mergeCommitTreeSha : null,
+      candidateTreeSha: artifact.session.headTreeSha,
       completedStage: result.completedStage, receiptDigest: result.receiptDigest,
       reason: result.reason, observedAt: now() });
     writeDurable(required(args, '--output'), projection);

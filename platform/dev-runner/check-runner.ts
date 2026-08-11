@@ -9,7 +9,7 @@ import {
 } from './test-runner.ts';
 
 export type LocalAffectedGateId =
-  | 'imports:prepare'
+  | 'imports:check'
   | 'typecheck'
   | 'docs:doctor'
   | 'test:affected';
@@ -78,7 +78,7 @@ export function buildLocalAffectedCheckPlan(
   const gates = activeDocsOnly
     ? [gate('docs:doctor')]
     : [
-      ...(typescriptChanged ? [gate('imports:prepare')] : []),
+      ...(typescriptChanged ? [gate('imports:check')] : []),
       ...(typecheckRequired ? [gate('typecheck')] : []),
       ...(activeDocsChanged ? [gate('docs:doctor')] : []),
       ...(testAffectedRequired ? [gate('test:affected')] : [])
@@ -100,9 +100,15 @@ async function executeLocalAffectedGate(
   affectedExecution: ResolvedAffectedTestExecutionV1,
   compilerNodeModulesPath: string | undefined
 ): Promise<number> {
-  if (step.id === 'imports:prepare') {
-    const { runImportPreparation } = await import('./import-organizer.ts');
-    return runImportPreparation();
+  if (step.id === 'imports:check') {
+    const { runImportCheck } = await import('./import-organizer.ts');
+    const outcome = await runImportCheck({});
+    if (outcome.status === 'canonical') return 0;
+    console.error(
+      `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
+      + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:transform.`
+    );
+    return 1;
   }
   if (step.id === 'typecheck') {
     const { runTypecheck, runTypecheckWithBinPath } = await import('./typecheck-runner.ts');
@@ -153,7 +159,7 @@ export async function runLocalAffectedCheck(
   }
 
   const compilerGateSelected = plan.gates.some(({ id }) => (
-    id === 'imports:prepare' || id === 'typecheck'
+    id === 'imports:check' || id === 'typecheck'
   ));
   if (compilerGateSelected && !options.prepareCompilerNodeModulesPath) {
     console.error('Local affected compiler Gates require the canonical dependency preparation capability.');
@@ -183,11 +189,17 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
 
   const compilerNodeModulesPath = await options.prepareCompilerNodeModulesPath();
 
-  console.log('Running fast check: imports:prepare -> docs:doctor + typecheck (parallel) -> test:fast');
+  console.log('Running fast check: imports:check -> docs:doctor + typecheck (parallel) -> test:fast');
 
-  const { runImportPreparation } = await import('./import-organizer.ts');
-  const importsCode = await runImportPreparation();
-  if (importsCode !== 0) return importsCode;
+  const { runImportCheck } = await import('./import-organizer.ts');
+  const importsOutcome = await runImportCheck({});
+  if (importsOutcome.status !== 'canonical') {
+    console.error(
+      `Imports need transform (needs-import-transform) in ${importsOutcome.files.length} file(s):\n`
+      + `${importsOutcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:transform.`
+    );
+    return 1;
+  }
 
   const { runDevCommand } = await import('./command-runner.ts');
   const { runTypecheck, runTypecheckWithBinPath } = await import('./typecheck-runner.ts');

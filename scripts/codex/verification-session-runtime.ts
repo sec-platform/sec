@@ -71,6 +71,7 @@ import {
   type IntegrationAuthorizationOperationPublicationV1
 } from './integration-authorization-publication.ts';
 import {
+  assertCanonicalMergeMessageV1,
   CodexDevelopmentCreateHostedArtifactObservationV2,
   CodexDevelopmentCreateMergeGateInputV2,
   CodexDevelopmentParseMergeGateResultV2,
@@ -82,6 +83,7 @@ import {
   type CodexDevelopmentMergeGateResultV2
 } from './merge-gate.ts';
 import {
+  assertGitHubReviewAuthorityObservationV1,
   type GitHubActionsArtifactObservationV1,
   type GitHubCandidateObservationV1,
   type GitHubCheckObservationV1,
@@ -837,6 +839,10 @@ export function prepareLocalQuickVerificationActionPlanV2(input: {
   if (!plan.selectionResolved) {
     throw new Error('local quick Action preparation verification plan is unresolved.');
   }
+  const quickGates = plan.gates.filter((gate) => gate.phase === 'quick');
+  if (quickGates.length === 0) {
+    throw new Error('local quick Action preparation resolved no quick gates.');
+  }
   return buildCiVerificationActionPlanClosureV1({ candidate: {
     baseSha: input.candidate.baseSha,
     baseTreeSha: input.candidate.baseTreeSha,
@@ -850,7 +856,7 @@ export function prepareLocalQuickVerificationActionPlanV2(input: {
     providerRevision: environment.executionEnvironmentRevision,
     contractRevision: CI_VERIFICATION_CONTRACT_REVISION,
     requiredBlobs: createVerificationSessionActionDependencyRequiredBlobsV2(input.dependencyBlobs)
-  }, gates: plan.gates.map(ciVerificationGateStepV1) });
+  }, gates: quickGates.map(ciVerificationGateStepV1) });
 }
 
 function assertCandidateCurrent(candidate: GitHubCandidateObservationV1, session: VerificationSessionV2): void {
@@ -879,7 +885,8 @@ export function createVerificationSessionReviewReceiptV1(input: {
   producerSourceRef?: string;
   producerSourceRunId?: string;
 }): ReviewStabilityReceiptV1 {
-  return createReviewStabilityReceiptV1({
+  assertGitHubReviewAuthorityObservationV1(input.barrier);
+  const receipt = createReviewStabilityReceiptV1({
     stage: input.stage,
     repository: input.session.repository,
     prNumber: input.session.prNumber,
@@ -896,6 +903,10 @@ export function createVerificationSessionReviewReceiptV1(input: {
     },
     producer: {
       identity: 'scripts/codex/verification-session-github.ts',
+      executionIdentity: input.barrier.authority.executionIdentity,
+      providerIdentity: input.barrier.authority.providerIdentity,
+      candidateWriteCapability: input.barrier.authority.candidateWriteCapability,
+      capabilityReceiptDigest: input.barrier.authority.capabilityReceiptDigest,
       trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
       sourceTransport: input.barrier.authority.sourceTransport,
       sourceRunId: input.producerSourceRunId ?? input.operationId,
@@ -906,6 +917,19 @@ export function createVerificationSessionReviewReceiptV1(input: {
     reviewedAt: input.barrier.observedAt,
     expiresAt: input.expiresAt
   });
+  return receipt;
+}
+
+export const SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY_V1 =
+  'scripts/codex/verification-session.ts' as const;
+
+export function assertReviewReceiptProducerIndependentV1(receipt: ReviewStabilityReceiptV1): void {
+  if (receipt.producer.identity !== 'scripts/codex/verification-session-github.ts'
+    || receipt.producer.executionIdentity === SEC_VERIFICATION_SESSION_IMPLEMENTATION_IDENTITY_V1
+    || receipt.producer.providerIdentity !== 'github'
+    || receipt.producer.candidateWriteCapability !== 'read-only') {
+    throw new Error('VerificationSession implementation session cannot issue an independent Review receipt.');
+  }
 }
 
 export function createVerificationSessionHostedRequestV1(input: {
@@ -974,6 +998,7 @@ export function parseVerificationSessionHostedRequestV1(
 export function prepareVerificationSessionHostedV1(input: {
   request: VerificationSessionHostedRequestV1;
   facts: VerificationSessionHostedFactsV1;
+  now?: string;
 }): VerificationSessionHostedEnvelopeV1 {
   const request = parseVerificationSessionHostedRequestV1(JSON.stringify(input.request));
   const facts = input.facts;
@@ -1065,6 +1090,16 @@ export function prepareVerificationSessionHostedV1(input: {
     integrationPrincipalNodeId: facts.integrationPrincipalNodeId,
     expiresAt: facts.reviewExpiresAt,
     operationId: reviewOperationId
+  });
+  assertReviewStabilityReceiptCurrentV1(preGateReview, {
+    stage: 'pre-expensive', sessionRevision: session.sessionRevision,
+    scopeAuthorizationRevision: scopeAuthorization.authorizationRevision,
+    scopeAuthorizationReceiptDigest: scopeAuthorization.authorizationDigest,
+    headSha: session.headSha, headTreeSha: session.headTreeSha,
+    expectedPolicyDigest: session.reviewPolicyDigest,
+    snapshotDigest: facts.reviewBarrier.snapshot.snapshotDigest,
+    expectedReviewRevision: preGateReview.reviewRevision,
+    now: input.now ?? facts.createdAt
   });
   const withoutDigest = Object.freeze({
     schema: VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA_V1,
@@ -1317,6 +1352,9 @@ export function resumeVerificationSessionV2(input: {
       const barrier = input.github.observeReviewBarrier({ repository: session.repository, prNumber: session.prNumber,
         headSha: session.headSha, excludedPrincipalNodeIds: new Set([candidate.authorNodeId, input.integrationPrincipalNodeId]) });
       if (barrier.status !== 'clear') {
+        if (barrier.status === 'provider-schema-unsupported') return outcome({ status: 'BLOCKED',
+          sessionRevision: session.sessionRevision, reason: barrier.reasonCode,
+          receiptDigest: barrier.responseDigest, completedStage: journal.completedStage });
         if (barrier.status === 'blocked') return outcome({ status: 'BLOCKED', sessionRevision: session.sessionRevision, reason: barrier.reason, receiptDigest: barrier.snapshotDigest, completedStage: journal.completedStage });
         return outcome({ status: 'WAITING_REVIEW', sessionRevision: session.sessionRevision, reason: barrier.reason,
           receiptDigest: barrier.snapshotDigest, completedStage: journal.completedStage });
@@ -1396,7 +1434,10 @@ export function resumeVerificationSessionV2(input: {
     prNumber: session.prNumber, headSha: session.headSha,
     excludedPrincipalNodeIds: new Set([candidate.authorNodeId, input.integrationPrincipalNodeId]) });
   if (barrier !== null && barrier.status !== 'clear') return outcome({ status: barrier.status === 'waiting' ? 'WAITING_REVIEW' : 'BLOCKED',
-    sessionRevision: session.sessionRevision, reason: barrier.reason, receiptDigest: barrier.snapshotDigest, completedStage: journal.completedStage });
+    sessionRevision: session.sessionRevision,
+    reason: barrier.status === 'provider-schema-unsupported' ? barrier.reasonCode : barrier.reason,
+    receiptDigest: barrier.status === 'provider-schema-unsupported' ? barrier.responseDigest : barrier.snapshotDigest,
+    completedStage: journal.completedStage });
   const enforcement = liveMerged ? integrationResult.platformObservation
     : input.github.observePlatformEnforcement(session.repository);
   if (enforcement.status === 'unknown') return outcome({ status: 'BLOCKED', sessionRevision: session.sessionRevision,
@@ -1493,6 +1534,12 @@ export function resumeVerificationSessionV2(input: {
       reason: 'merged commit lacks the exact IntegrationAuthorization consumption marker',
       receiptDigest: authorization.receiptDigest as Digest, completedStage: journal.completedStage });
   }
+  assertCanonicalMergeMessageV1({
+    authorizationMarkers: markers,
+    reviewReceipt: preMergeReceipt,
+    expectedTitle: `Verified integration ${session.sessionRevision.slice(7, 19)}`,
+    message: merged.mergeCommitMessage!
+  });
   if (journal.completedStageIndex < 7) append('merge-readback', hash({ commit: merged.mergeCommitSha, tree: merged.mergeCommitTreeSha }));
   if (merged.mergeCommitTreeSha !== session.headTreeSha) return outcome({ status: 'BLOCKED', sessionRevision: session.sessionRevision,
     reason: 'merged tree does not equal verified candidate tree', receiptDigest: hash({ candidate: session.headTreeSha, merged: merged.mergeCommitTreeSha }), completedStage: journal.completedStage });
