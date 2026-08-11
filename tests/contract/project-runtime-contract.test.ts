@@ -61,21 +61,17 @@ describe('project-runtime contract', () => {
     }, 'engineering-compiler-config-cache-invalidate-');
   });
 
-  test('compiler deps stamp file path is canonical', async () => {
+  test('compiler generation binding is the sole reusable dependency identity', async () => {
     const source = await readCompilerFile('platform/shared/project-runtime.ts');
 
-    // The stamp file lives at the canonical path under .tmp/ and is keyed on
-    // package.json + bun.lock stat identity plus the runtime identity
-    // (architecture, bunVersion, platform) so that runtime environment changes
-    // invalidate the stamp even when package.json/bun.lock are unchanged.
-    expect(source).toContain("'.tmp', 'compiler-deps.stamp.json'");
-    expect(source).toContain('readCompilerDepsStamp');
-    expect(source).toContain('writeCompilerDepsStamp');
-    expect(source).toContain('packageJsonMtimeMs');
-    expect(source).toContain('bunLockMtimeMs');
-    expect(source).toContain('cachedIdentity');
-    expect(source).toContain('compilerDepsRuntimeIdentity');
-    expect(source).toContain('isCompilerDependencyIdentity');
+    expect(source).toContain("'.sec-compiler-deps-binding-v3.json'");
+    expect(source).toContain('runtimeMaterialization');
+    expect(source).toContain('compilerRuntimeMaterializationBinding');
+    expect(source).toContain('currentRuntimeExecutableIdentity(true)');
+    expect(source).toContain('bunExecutableSha256');
+    expect(source).not.toContain('compiler-deps.stamp.json');
+    expect(source).not.toContain('readCompilerDepsStamp');
+    expect(source).not.toContain('writeCompilerDepsStamp');
   });
 
   test('ConfigCache module is exported from the canonical shared path', async () => {

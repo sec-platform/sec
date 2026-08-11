@@ -86,6 +86,7 @@ const SEMANTIC_MUTATION_RUNNER_BUILD_FAST_TESTS = [
 ];
 
 const PROJECT_RUNTIME_AUTHORITY_FAST_TESTS = [
+  "tests/contract/project-runtime-contract.test.ts",
   "tests/contract/test-impact.test.ts",
   "tests/integration/compiler-dependency-installation.test.ts",
   "tests/integration/project-dependency-runtime.test.ts",

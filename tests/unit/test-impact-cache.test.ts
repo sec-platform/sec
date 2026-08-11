@@ -95,7 +95,7 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
     __resetTestImpactCachesForTesting();
     removeCacheFile();
 
-    const realTestFile = 'tests/unit/project-runtime-stamp.test.ts';
+    const realTestFile = 'tests/unit/runtime-dependency-spec.test.ts';
     const realPath = path.join(compilerRoot, realTestFile);
     const realStat = fs.statSync(realPath);
     const realBytes = fs.readFileSync(realPath);
@@ -133,7 +133,7 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
     __resetTestImpactCachesForTesting();
     removeCacheFile();
 
-    const realTestFile = 'tests/unit/project-runtime-stamp.test.ts';
+    const realTestFile = 'tests/unit/runtime-dependency-spec.test.ts';
     const fakeEnvelope: TestImpactCacheEnvelope = {
       schema: 'sec-test-impact-cache-LEGACY',
       parserRuntimeIdentity: EXPECTED_PARSER_RUNTIME,
@@ -267,7 +267,7 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
     __resetTestImpactCachesForTesting();
     removeCacheFile();
 
-    const goodTestFile = 'tests/unit/project-runtime-stamp.test.ts';
+    const goodTestFile = 'tests/unit/runtime-dependency-spec.test.ts';
     const goodPath = path.join(compilerRoot, goodTestFile);
     const goodStat = fs.statSync(goodPath);
     const goodBytes = fs.readFileSync(goodPath);

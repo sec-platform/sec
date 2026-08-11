@@ -1273,13 +1273,17 @@ export const NEXUS_EPR_BINDINGS_V1: readonly NexusEprBindingRecord[] = Object.fr
     eprId: 'EPR-015',
     requirement: '尊重平台原生生命周期：不模拟旁路真实 activation/event/readback；platform boundary 失败是合法结构化失败。',
     secOwner: ['docs/runtime-and-distribution.md', 'docs/brownfield-import.md'],
-    mechanism: ['platform/shared/windows-appcontainer-executor.ts', 'tests/contract/sandbox-architecture-contract.test.ts'],
+    mechanism: [
+      'platform/shared/project-runtime.ts',
+      'platform/shared/windows-appcontainer-executor.ts',
+      'tests/integration/project-dependency-runtime.test.ts'
+    ],
     affectedIrEntities: ['runtime.environment', 'runtime.host-profile', 'brownfield.typed-invocation'],
     positiveAcceptance: '平台边界使用真实 provider 能力。',
     negativeAcceptance: '模拟旁路被架构拒绝。',
     failureAcceptance: 'platform boundary 失败返回结构化错误。',
     historicalRegression: '2d7187f4:docs/archive/authority-v5/governance/nexus-absorption-and-conformance.md 第 19 节',
-    applicableGate: 'sandbox-architecture contract tests',
+    applicableGate: 'runtime dependency and AppContainer contract tests',
     binding: 'bound',
     blockingEvidence: null
   }),
