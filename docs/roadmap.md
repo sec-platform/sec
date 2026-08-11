@@ -618,7 +618,9 @@ plan映射到既有唯一owner，并作为可独立main/readback的纵向Work Pa
 6. **Review / Trust transition**：Review Action、delta packet、new exact-head receipt、Tier 0/1 TCB
    transition；
 7. **Promotion / retirement**：single-use integration、remote/local readback、closeout Actions、
-   legacy journal/API retirement 与 ordinary candidate canary。
+   machine-owned `IssueDisposition`、exact provider close/reopen CAS/readback、legacy journal/API
+   retirement 与 ordinary candidate canary。partial slice 只能发布 progress，PR/commit/comment prose
+   没有 Issue close authority；Program 与 focused Issue 分别计算 remaining acceptance/consumer/child census；
 
 切片顺序表达dependency；某些read-only compiler可以并行开发，但canonical writer、control plane、
 workflow与trust transition仍按single-writer集成。每个切片必须同时声明被替代入口和consumer-zero

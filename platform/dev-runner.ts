@@ -37,8 +37,54 @@ export async function executeVerifiedCiActionPlanV1(options: {
 }
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--remove-unused]|imports:transform [--remove-unused]|imports:remove-unused|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|clean-test-workspaces> [args...]');
   process.exit(1);
+}
+
+type ParsedImportOperationArgs = Readonly<{
+  scope: 'candidate' | 'all';
+  candidateBase?: string;
+  intent: 'sort-and-combine' | 'remove-unused';
+  staged: boolean;
+}>;
+
+function parseImportOperationArgs(
+  args: readonly string[],
+  options: { allowStaged: boolean }
+): ParsedImportOperationArgs {
+  let scope: 'candidate' | 'all' = 'candidate';
+  let candidateBase: string | undefined;
+  let intent: 'sort-and-combine' | 'remove-unused' = 'sort-and-combine';
+  let staged = false;
+  const seen = new Set<string>();
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (seen.has(argument)) usage();
+    seen.add(argument);
+    if (argument === '--all') {
+      scope = 'all';
+      continue;
+    }
+    if (argument === '--remove-unused') {
+      intent = 'remove-unused';
+      continue;
+    }
+    if (argument === '--staged' && options.allowStaged) {
+      staged = true;
+      continue;
+    }
+    if (argument === '--candidate-base') {
+      const value = args[index + 1];
+      if (value === undefined || !/^[0-9a-f]{40,64}$/u.test(value)) usage();
+      candidateBase = value;
+      index += 1;
+      continue;
+    }
+    usage();
+  }
+  if (scope === 'all' && candidateBase !== undefined) usage();
+  if (staged && (scope === 'all' || intent === 'remove-unused')) usage();
+  return Object.freeze({ scope, ...(candidateBase === undefined ? {} : { candidateBase }), intent, staged });
 }
 
 async function main(): Promise<void> {
@@ -100,46 +146,51 @@ async function main(): Promise<void> {
   }
 
   if (
-    target === 'imports:check' || target === 'imports:transform' || target === 'imports:remove-unused' ||
-    target === 'imports:freeze' || target === 'imports:staged'
+    target === 'imports:check' || target === 'imports:apply' || target === 'imports:freeze'
   ) {
     const {
       runCandidateImportCheck,
       runImportCheck,
-      runImportTransform,
-      runStagedImportOrganizer
+      runImportApply,
+      runStagedImportOrganizer,
+      resolveCandidateImportBase
     } = await import('./dev-runner/import-organizer.ts');
-    if (target === 'imports:check' || target === 'imports:transform' || target === 'imports:remove-unused') {
-      if (args.length > 1 || (args.length === 1 && args[0] !== '--remove-unused')) usage();
-      const intent = target === 'imports:remove-unused' || args[0] === '--remove-unused'
-        ? 'remove-unused' as const
-        : 'sort-and-combine' as const;
+    if (target === 'imports:check' || target === 'imports:apply') {
+      const operation = parseImportOperationArgs(args, { allowStaged: target === 'imports:apply' });
+      if (operation.staged) {
+        const candidateBase = resolveCandidateImportBase(undefined, operation.candidateBase);
+        process.exitCode = await runStagedImportOrganizer(undefined, undefined, { candidateBase });
+        return;
+      }
       if (target === 'imports:check') {
-        const outcome = await runImportCheck({ intent });
+        const outcome = await runImportCheck(operation);
         if (outcome.status === 'canonical') {
           console.log('Imports are canonical (zero writes).');
           process.exitCode = 0;
         } else {
-          const recoveryCommand = intent === 'remove-unused'
-            ? 'bun run imports:remove-unused'
-            : 'bun run imports:transform';
+          const recoveryCommand = [
+            'bun run imports:apply',
+            operation.scope === 'all' ? '--all' : undefined,
+            operation.candidateBase === undefined ? undefined : `--candidate-base ${operation.candidateBase}`,
+            operation.intent === 'remove-unused' ? '--remove-unused' : undefined
+          ].filter(Boolean).join(' ');
           console.error(
-            `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
+            `Imports need apply (needs-import-transform) in ${outcome.files.length} file(s):\n`
             + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun ${recoveryCommand}.`
           );
           process.exitCode = 1;
         }
       } else {
-        const outcome = await runImportTransform({ intent });
+        const outcome = await runImportApply(operation);
         if (outcome.status === 'noop') {
-          console.log('Imports are canonical; transform published no bytes.');
+          console.log(`Imports are canonical; plan ${outcome.planDigest} published no bytes.`);
           process.exitCode = 0;
         } else if (outcome.status === 'accepted') {
-          console.log(`Accepted import transform transaction ${outcome.transactionId} in ${outcome.files.length} file(s):\n${outcome.files.map((file) => `- ${file}`).join('\n')}`);
+          console.log(`Accepted import apply plan ${outcome.planDigest} as transaction ${outcome.transactionId} in ${outcome.files.length} file(s):\n${outcome.files.map((file) => `- ${file}`).join('\n')}`);
           process.exitCode = 0;
         } else {
           console.error(
-            `Import transform ${outcome.status} (${outcome.reasonCode}); transaction ${outcome.transactionId}; recovery journal: ${outcome.journalPath}`
+            `Import apply ${outcome.status} (${outcome.reasonCode}); plan ${outcome.planDigest}; transaction ${outcome.transactionId}; recovery journal: ${outcome.journalPath}`
           );
           process.exitCode = 1;
         }
@@ -156,21 +207,12 @@ async function main(): Promise<void> {
         console.error(
           `Candidate imports are non-canonical (needs-import-transform) in ${outcome.files.length} file(s):\n`
           + `${outcome.files.map((file) => `- ${file}`).join('\n')}\n`
-          + 'Run bun run imports:transform, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.'
+          + 'Run bun run imports:apply, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.'
         );
         process.exitCode = 1;
       }
       return;
     }
-    if (args.length !== 0 && (
-      args.length !== 2 || args[0] !== '--candidate-base' || !/^[0-9a-f]{40,64}$/u.test(args[1] ?? '')
-    )) usage();
-    process.exitCode = await runStagedImportOrganizer(
-      undefined,
-      undefined,
-      args.length === 0 ? {} : { candidateBase: args[1] }
-    );
-    return;
   }
 
   if (target === 'typecheck') {

@@ -483,6 +483,41 @@ Repository orientation只建立当前任务最小充分事实。用户要求全�
 
 审计发现稳定缺口时，A0必须将其融合到canonical owner、roadmap或focused Issue/Work Package；不能让重大设计长期只存在于聊天或叙事报告。若当前active scope冲突，应建立ordered successor并保留失效/激活条件，而不是越权修改当前frozen candidate。
 
+## Canonical development lifecycle projection
+
+SEC不建立第二个“全工程状态机”。下面是唯一操作生命周期图：节点只引用各 domain owner
+的状态；`VerificationSession` 组合这些 typed decisions，但不重新拥有 Work、Candidate、Action、
+Review、Integration、Issue 或 Cleanup 的事实。能力当前成熟度只由 `docs/work/**` 与 live resolver
+投影，本图不把 proposed 写成 implemented。
+
+```mermaid
+flowchart LR
+  W["WorkDecision + Task Capsule"] --> R["Operation Read Plan"]
+  R --> C["CandidateContent / CandidateGeneration"]
+  C --> A["Requirement + Action closure"]
+  A --> V["VerificationSession"]
+  V --> RV["Exact-head Review"]
+  RV --> H["Hosted verification when required"]
+  H --> IA["Integration authorization"]
+  IA --> M["Merge + remote/new-main readback"]
+  M --> CL["Closeout + IssueDisposition"]
+  CL --> X["COMPLETED"]
+
+  V -. "WAITING_ACTIONS" .-> A
+  V -. "WAITING_REVIEW" .-> RV
+  V -. "WAITING_HOSTED_VERIFICATION" .-> H
+  V -. "WAITING_INTEGRATION_AUTHORIZATION" .-> IA
+  V -. "READY_TO_INTEGRATE" .-> M
+  V -. "WAITING_MERGE_READBACK" .-> M
+  V -. "READY_TO_CLOSEOUT / WAITING_CLOSEOUT" .-> CL
+  V -. "AMBIGUOUS_SIDE_EFFECT / BLOCKED" .-> B["typed recovery or new authority"]
+  B --> V
+```
+
+这些 runtime outcome 名称由 `scripts/codex/verification-session-runtime.ts` 唯一拥有。图只给出
+人类可读的 stage composition；它不是另一个 parser、journal、transition table 或授权来源。
+`ExecutionWave` 只在 WorkDecision 后编译顺序/冲突引用，也不包裹或替代本图。
+
 ## Work Package
 
 Manifest 冻结：
@@ -503,6 +538,12 @@ freeze 才是 terminal generation；此后语义或 scope 变化创建新 genera
 当前 control plane 未提供该 transition 时，失败属于其唯一 owner 的缺口，不能靠手改 digest、保留
 平行 manifest 或无限 successor package 规避。
 
+Replan publish 必须把 `target bytes == NEXT bytes` 作为成功 NOOP；不得为了制造一次 rename而拒绝
+已经正确安装的pointer/rolling/manifest。Git index的semantic identity是canonical entries/tree，raw
+index bytes包含可由Git刷新且不改变tree的stat cache，只能用于同一未受扰动tuple的传输恢复，不能
+让相同entries/tree变成永久不可恢复。journal recovery必须识别并retire已terminal/superseded operation
+的exact residue；人工删除 recovery 文件不是正常协议。
+
 Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。Manifest也是scope proposal；只有trusted base/A0签发的ScopeGrant与trusted resolver为当前exact base/head/tree产生的CandidateScopeAttestation共同成立时，才允许冻结Session。候选修改manifest或write set不能给自己扩权。
 
 授权与 candidate transport 分两层：`ScopeGrantId` 绑定 trust epoch、manifest semantic revision、
@@ -519,6 +560,15 @@ worktree。generation 数量只作诊断，不设 `<= 1` 假门禁；`FindingSuc
 base/trust/scope 真正变化时进入 rebase/reconcile，而不是把 transport churn伪装成新 Work Package。
 provider不支持同ref replacement时只能先以receipt supersede旧PR/ref，再创建一个新的唯一active ref；
 不得同时保留多个active candidate refs，也不得用新worktree代替provider capability分类。
+
+这条规则的 production enforcement 属于 candidate/control transaction，而不是分支命名约定。
+终态 `CandidateControlMaterializer` 必须先对 `logicalRunId` 取得 expected-old lease，读取 Git common-dir
+worktree registry、local refs、**live provider heads/PRs** 和未终结 closeout receipt；若存在另一个未被
+receipt supersede 的 mutable worktree或active ref，创建/发布第二个 candidate 必须 typed reject。
+本地 `origin/*` 只是可 prune 的投影，不能单独证明远端存在或消失。完成时必须按 exact ref/SHA
+删除并同时读回 provider head absence、PR terminal、tracking ref prune、worktree registry absence 与
+physical target absence。该 materializer 进入 main 前，本段是明确 target contract，不得宣称已经
+机器强制。
 
 完整程序路线不写入一个Work Package。一个包只实现当前阶段中可独立验证、迁移和readback的纵向闭包，但不能降低canonical终态。
 
@@ -563,6 +613,27 @@ Issue completion intent 只能来自 machine-owned `IssueDisposition` 或 valida
 closing-keyword pattern，除非该 exact Issue 位于 fresh authorized completion set，并由 renderer生成
 唯一允许的 closing clause。merge readback逐个比较授权集合与实际 Issue state；误关恢复只允许按
 operation receipt 精确 reopen 被本次 merge 误关的 Issue，禁止文本批量 reopen/close。
+
+`IssueDisposition` 是唯一 close writer，至少绑定：Issue number、current-spec revision、stable
+acceptance IDs、exact new-main commit/tree、required Evidence refs、remaining-work/child/consumer
+census、expected provider state 与 one-use operation ID。partial slice 只能产生 `progressed` receipt；
+只要任一 acceptance 为 `open|unknown|invalidated`，或 remaining work/consumer/child 不为零，就不能
+产生 `close-authorized`。PR/commit/comment 中的 closing lexical pattern 默认一律拒绝渲染。
+
+关闭事务固定为：
+
+```text
+compile disposition from exact new main
+→ validate close-authorized and expected issue=open
+→ one exact provider close effect
+→ provider state readback
+→ closed-readback | ambiguous-side-effect | blocked
+```
+
+Program Issue 与 focused slice 分别计算 acceptance；子切片完成不能继承父 Issue 的关闭权。
+若 merge 或人工操作使未授权 Issue 关闭，reconciler 只按同一 operation receipt 精确 reopen 该号码，
+并保存原因码；不得通过标题、最近时间、文本搜索或批量 API 猜测目标。这一 adapter/receipt cutover
+属于 R14 `Promotion / retirement`，在生产 consumer 切换前 prose 规则不算完成。
 
 worktree closeout 是 branch/ref closeout 的前置 physical Action，不以 `git worktree remove` exit code
 为成功。terminal completion 同时要求 Git common-dir registry absence 与 exact physical target

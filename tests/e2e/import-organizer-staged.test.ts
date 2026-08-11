@@ -9,8 +9,8 @@ import pLimit from 'p-limit';
 import {
   runCandidateImportCheck,
   runCandidateImportOrganizer,
+  runImportApply,
   runImportCheck,
-  runImportTransform,
   runStagedImportOrganizer,
   workingTreeTypeScriptTargets
 } from '../../platform/dev-runner/import-organizer.ts';
@@ -302,7 +302,7 @@ test.concurrent('clean candidate context fails closed if an untracked path appea
   });
 });
 
-test.concurrent('authoring transform normalizes the complete committed, staged, unstaged, and untracked delta', async () => {
+test.concurrent('candidate apply normalizes the complete committed, staged, unstaged, and untracked delta', async () => {
   await withRepository(async (repoRoot) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
     const committedPath = path.join(repoRoot, 'committed.ts');
@@ -324,14 +324,14 @@ test.concurrent('authoring transform normalizes the complete committed, staged, 
     ]);
     await writeFile(nestedUntrackedPath, source('unsorted'), 'utf8');
 
-    expect(workingTreeTypeScriptTargets(repoRoot, {})).toEqual([
+    expect(workingTreeTypeScriptTargets(repoRoot, undefined, {})).toEqual([
       'committed.ts',
       'fixture.ts',
       'staged.ts',
       'untracked.ts',
       'wholly-untracked/nested.ts'
     ]);
-    const transformed = await runImportTransform({}, repoRoot, {});
+    const transformed = await runImportApply({}, repoRoot, {});
     expect(transformed.status).toBe('accepted');
     expect([...transformed.files].sort()).toEqual([
       'committed.ts',
@@ -344,19 +344,19 @@ test.concurrent('authoring transform normalizes the complete committed, staged, 
     for (const filePath of [committedPath, fixturePath, stagedPath, untrackedPath, nestedUntrackedPath]) {
       expect(await readFile(filePath, 'utf8')).toBe(source('sorted'));
     }
-    const noop = await runImportTransform({}, repoRoot, {});
+    const noop = await runImportApply({}, repoRoot, {});
     expect(noop.status).toBe('noop');
     expect(noop.files).toEqual([]);
   });
 });
 
-test.concurrent('authoring transform rejects an inexact candidate base before changing source', async () => {
+test.concurrent('candidate apply rejects an inexact candidate base before changing source', async () => {
   await withRepository(async (repoRoot) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
     await writeFile(fixturePath, source('unsorted'), 'utf8');
     const before = await readFile(fixturePath);
 
-    await expect(runImportTransform({}, repoRoot, { SEC_CHANGED_BASE: 'abc123' }))
+    await expect(runImportApply({}, repoRoot, { SEC_CHANGED_BASE: 'abc123' }))
       .rejects.toThrow('one full Git object ID');
     expect(await readFile(fixturePath)).toEqual(before);
   });
@@ -453,7 +453,7 @@ test.concurrent('true NOOP publishes no source bytes and no mtime churn', async 
     const valuesBefore = (await stat(valuesPath)).mtimeMs;
     const beforeIndex = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
 
-    const outcome = await runImportTransform({}, repoRoot, {});
+    const outcome = await runImportApply({}, repoRoot, {});
     expect(outcome.status).toBe('noop');
     expect(outcome.files).toEqual([]);
     expect(await readFile(fixturePath)).toEqual(beforeFixture);
@@ -480,15 +480,15 @@ test.concurrent('sort-and-combine and remove-unused are independent typed intent
     expect(sortOnly.status).toBe('needs-import-transform');
     expect(sortOnly.files).toEqual(['fixture.ts']);
 
-    const removed = await runImportTransform({ intent: 'remove-unused' }, repoRoot, {});
+    const removed = await runImportApply({ intent: 'remove-unused' }, repoRoot, {});
     expect(removed.status).toBe('accepted');
     const afterRemove = await readFile(fixturePath, 'utf8');
     expect(afterRemove).not.toContain('unusedOne');
     expect(afterRemove).not.toContain('unusedTwo');
 
-    const removeAgain = await runImportTransform({ intent: 'remove-unused' }, repoRoot, {});
+    const removeAgain = await runImportApply({ intent: 'remove-unused' }, repoRoot, {});
     expect(removeAgain.status).toBe('noop');
-    const afterSort = await runImportTransform({ intent: 'sort-and-combine' }, repoRoot, {});
+    const afterSort = await runImportApply({ intent: 'sort-and-combine' }, repoRoot, {});
     expect(afterSort.status).toBe('accepted');
     expect(await readFile(fixturePath, 'utf8')).toContain(
       "import { alpha, beta } from './values.ts';"

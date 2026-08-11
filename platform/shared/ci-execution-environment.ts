@@ -1,7 +1,7 @@
 import { rawSha256 } from './canonical-primitives.ts';
 
 export const CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1 =
-  'ci-execution-env-allowlist-v2' as const;
+  'ci-execution-env-allowlist-v3' as const;
 
 export type CodexDevelopmentCiExecutionEnvironmentBindingV1 = {
   allowlistRevision: typeof CodexDevelopmentCiExecutionEnvironmentAllowlistRevisionV1;
@@ -16,7 +16,6 @@ const FIXED_ENVIRONMENT = Object.freeze({
   LANG: 'C.UTF-8',
   LC_ALL: 'C.UTF-8',
   NO_COLOR: '1',
-  SEC_IMPORTS_CHANGED_ONLY: '1',
   TZ: 'UTC'
 });
 
