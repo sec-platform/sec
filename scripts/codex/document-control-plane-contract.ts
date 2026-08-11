@@ -1,5 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest,
@@ -21,7 +22,10 @@ const LIVE_RESOLVER_COMMAND = 'bun scripts/codex/document-control-plane.ts statu
 export type CodexDevelopmentDefaultRefState = 'fresh' | 'stale' | 'unavailable';
 export type CodexDevelopmentActiveWorkPackageResolution =
   | { state: 'active'; manifest: string; manifestDigest: string }
-  | { state: 'invalid'; reason: 'candidate-digest-mismatch' }
+  | {
+      state: 'invalid';
+      reason: 'candidate-digest-mismatch' | 'manifest-path-already-on-default';
+    }
   | { state: 'none'; reason: 'matching-default-blob' }
   | {
       state: 'unresolved';
@@ -60,6 +64,58 @@ export interface CodexDevelopmentActivePointerV2 {
 export interface CodexDevelopmentRollingPlanV1 {
   activePackageId: string;
   candidatePackageIds: string[];
+}
+
+export const CodexDevelopmentDocumentControlRecoveryTargetKeysV1 = Object.freeze([
+  'freeze-journal',
+  'git-index',
+  'active-pointer',
+  'rolling-plan'
+] as const);
+
+export type CodexDevelopmentDocumentControlRecoveryTargetKeyV1 =
+  typeof CodexDevelopmentDocumentControlRecoveryTargetKeysV1[number];
+
+/**
+ * Stable recovery namespace identity. Physical paths remain effect-time safety
+ * inputs and are deliberately excluded from this semantic key.
+ */
+export function CodexDevelopmentDocumentControlRecoveryEntryStemV1(input: Readonly<{
+  operationId: string;
+  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKeyV1;
+}>): `.entry-${string}` {
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.operationId)) {
+    throw new Error('Document-control recovery operationId must be one SHA-256 digest.');
+  }
+  if (!CodexDevelopmentDocumentControlRecoveryTargetKeysV1.includes(input.targetKey)) {
+    throw new Error('Document-control recovery targetKey is outside the closed target set.');
+  }
+  const identity = sha256({
+    schema: 'sec-document-control-entry-recovery-key-v2',
+    operationId: input.operationId,
+    targetKey: input.targetKey
+  }).slice('sha256:'.length);
+  return `.entry-${identity}`;
+}
+
+export function CodexDevelopmentClassifyTerminalRetirementPrefixV1(
+  presence: readonly boolean[]
+): Readonly<
+  | { status: 'valid'; deletedPrefixCount: number }
+  | { status: 'invalid'; reason: 'non-prefix-hole' }
+> {
+  if (presence.length === 0 || presence.length > 1_024
+      || presence.some((value) => typeof value !== 'boolean')) {
+    throw new Error('Terminal retirement presence must be one non-empty bounded boolean sequence.');
+  }
+  const firstPresent = presence.findIndex(Boolean);
+  if (firstPresent < 0) {
+    return Object.freeze({ status: 'valid', deletedPrefixCount: presence.length });
+  }
+  if (presence.slice(firstPresent).some((value) => !value)) {
+    return Object.freeze({ status: 'invalid', reason: 'non-prefix-hole' });
+  }
+  return Object.freeze({ status: 'valid', deletedPrefixCount: firstPresent });
 }
 
 /** Pure platform-neutral vocabulary for the initially-absent T/N/R recovery tuple. */
@@ -594,10 +650,63 @@ matchingDefaultBlob: none
   return source;
 }
 
+/**
+ * A staged prior projection may retain previously accepted non-selection
+ * rolling-plan bytes, but it never becomes a selection authority. The exact
+ * pointer remains compiler-rendered for the indexed manifest, while active and
+ * ordered candidate identity are re-derived from immutable HEAD.
+ */
+export function CodexDevelopmentAssertPriorFreezeProjectionV1(input: {
+  spec: CodexDevelopmentCurrentStateSpecV1;
+  immutableRollingPlanSource: string;
+  pointerSource: string;
+  rollingPlanSource: string;
+  manifestPath: string;
+  manifestBytes: Uint8Array;
+}): void {
+  const manifestPath = manifestPathValue(input.manifestPath, 'Prior projection manifest path');
+  const pointer = CodexDevelopmentParseActivePointerV2(input.pointerSource);
+  CodexDevelopmentAssertControlPlaneBindingV1({ spec: input.spec, pointer });
+  const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
+    input.manifestBytes
+  ) as `sha256:${string}`;
+  if (pointer.manifest !== manifestPath || pointer.manifestDigest !== manifestDigest) {
+    throw new Error('Prior projection pointer must bind the exact indexed manifest bytes.');
+  }
+  const frontmatter = parseMarkdownFrontmatter(input.pointerSource);
+  const reviewedOn = stringValue(frontmatter['last-reviewed'], 'Prior projection pointer last-reviewed');
+  const expectedPointerSource = CodexDevelopmentRenderActivePointerV2({
+    spec: input.spec,
+    manifestPath,
+    manifestDigest,
+    reviewedOn
+  });
+  if (input.pointerSource !== expectedPointerSource) {
+    throw new Error('Prior projection pointer must be the exact compiler-rendered source.');
+  }
+
+  const packageId = manifestPath.slice('docs/work-packages/'.length, -'.md'.length);
+  const expectedTopology = CodexDevelopmentParseRollingPlanV1(
+    CodexDevelopmentPromoteRollingPlanV1({
+      source: input.immutableRollingPlanSource,
+      packageId
+    })
+  );
+  const observedTopology = CodexDevelopmentParseRollingPlanV1(input.rollingPlanSource);
+  if (observedTopology.activePackageId !== expectedTopology.activePackageId
+      || JSON.stringify(observedTopology.candidatePackageIds)
+        !== JSON.stringify(expectedTopology.candidatePackageIds)) {
+    throw new Error(
+      'Prior projection rolling plan must preserve immutable active and ordered candidate topology.'
+    );
+  }
+}
+
 export function CodexDevelopmentCreateFreezeProjectionV1(input: {
   spec: CodexDevelopmentCurrentStateSpecV1;
   currentPointerSource: string;
   currentRollingPlanSource: string;
+  requestedRollingPlanSource?: string;
   manifestPath: string;
   manifestBytes: Uint8Array;
   baseSha: string;
@@ -632,10 +741,22 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
     manifestDigest,
     reviewedOn: input.reviewedOn
   });
-  const rollingPlanSource = CodexDevelopmentPromoteRollingPlanV1({
+  const promotedRollingPlanSource = CodexDevelopmentPromoteRollingPlanV1({
     source: input.currentRollingPlanSource,
     packageId: manifest.id
   });
+  let rollingPlanSource = promotedRollingPlanSource;
+  if (input.requestedRollingPlanSource !== undefined) {
+    const promoted = CodexDevelopmentParseRollingPlanV1(promotedRollingPlanSource);
+    const requested = CodexDevelopmentParseRollingPlanV1(input.requestedRollingPlanSource);
+    if (requested.activePackageId !== promoted.activePackageId
+        || JSON.stringify(requested.candidatePackageIds) !== JSON.stringify(promoted.candidatePackageIds)) {
+      throw new Error(
+        'Requested rolling-plan projection must preserve the exact deterministic promotion topology.'
+      );
+    }
+    rollingPlanSource = input.requestedRollingPlanSource;
+  }
   if (CodexDevelopmentParseRollingPlanV1(rollingPlanSource).activePackageId !== manifest.id) {
     throw new Error('Freeze projection rolling-plan readback failed.');
   }
@@ -659,11 +780,11 @@ export function CodexDevelopmentResolveActiveWorkPackageV1(input: {
   if (CodexDevelopmentWorkPackageManifestDigest(input.candidateManifestBlob) !== input.pointer.manifestDigest) {
     return { state: 'invalid', reason: 'candidate-digest-mismatch' };
   }
-  if (
-    input.defaultManifestBlob !== null
-    && CodexDevelopmentWorkPackageManifestDigest(input.defaultManifestBlob) === input.pointer.manifestDigest
-  ) {
-    return { state: 'none', reason: 'matching-default-blob' };
+  if (input.defaultManifestBlob !== null) {
+    if (CodexDevelopmentWorkPackageManifestDigest(input.defaultManifestBlob) === input.pointer.manifestDigest) {
+      return { state: 'none', reason: 'matching-default-blob' };
+    }
+    return { state: 'invalid', reason: 'manifest-path-already-on-default' };
   }
   return { state: 'active', manifest: input.pointer.manifest, manifestDigest: input.pointer.manifestDigest };
 }

@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { constants as fsConstants, readdirSync, realpathSync, statSync } from 'node:fs';
 import {
   lstat,
+  mkdir,
   mkdtemp,
   readFile,
   realpath,
@@ -16,24 +17,32 @@ import { withWorkspaceWriteLease } from '../../platform/shared/workspace-write-l
 import {
   CodexDevelopmentAssertControlPlaneBindingV1,
   CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1,
+  CodexDevelopmentAssertPriorFreezeProjectionV1,
   CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1,
+  CodexDevelopmentClassifyTerminalRetirementPrefixV1,
   CodexDevelopmentCreateFreezeProjectionV1,
+  CodexDevelopmentDocumentControlRecoveryEntryStemV1,
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseCurrentStateSpecV1,
   CodexDevelopmentParseRollingPlanV1,
   CodexDevelopmentResolveActiveWorkPackageV1,
   type CodexDevelopmentActiveWorkPackageResolution,
   type CodexDevelopmentDefaultRefState,
+  type CodexDevelopmentDocumentControlRecoveryTargetKeyV1,
   type CodexDevelopmentInitiallyAbsentTupleEdgeV1,
   type CodexDevelopmentInitiallyAbsentTupleEntryV1,
   type CodexDevelopmentInitiallyAbsentTuplePlatformV1,
   type CodexDevelopmentInitiallyAbsentTupleStateV1
 } from './document-control-plane-contract.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from './work-package-contract.ts';
+import {
+  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentWorkPackageManifestDigest
+} from './work-package-contract.ts';
 
 export {
   CodexDevelopmentActivePointerSchemaV2,
   CodexDevelopmentAssertControlPlaneBindingV1,
+  CodexDevelopmentAssertPriorFreezeProjectionV1,
   CodexDevelopmentCreateFreezeProjectionV1,
   CodexDevelopmentCurrentStateSchemaV1,
   CodexDevelopmentParseActivePointerV2,
@@ -68,9 +77,7 @@ const ExternalCommandMaxBufferBytes = 8 * 1024 * 1024;
 const CurrentStatePath = 'docs/work/current-state.yaml';
 const ActivePointerPath = 'docs/work/active-work-package.md';
 const RollingPlanPath = 'docs/work/rolling-plan.md';
-const FreezeJournalSchemaV1 = 'sec-document-control-plane-freeze-journal-v1' as const;
-const FreezeJournalSchemaV2 = 'sec-document-control-plane-freeze-journal-v2' as const;
-const FreezeJournalSchemaV3 = 'sec-document-control-plane-freeze-journal-v3' as const;
+const FreezeJournalSchemaV4 = 'sec-document-control-plane-freeze-journal-v4' as const;
 const FreezeResultSchemaV1 = 'sec-document-control-plane-freeze-result-v1' as const;
 const FreezeJournalRelativePath = '.tmp/codex/document-control-plane-freeze-v1/journal.json';
 
@@ -252,8 +259,8 @@ interface FreezeJournalFileV1 {
   readonly next: string;
 }
 
-interface FreezeJournalV3 {
-  readonly schema: typeof FreezeJournalSchemaV3;
+interface FreezeJournalV4 {
+  readonly schema: typeof FreezeJournalSchemaV4;
   readonly operationId: `sha256:${string}`;
   readonly phase: FreezeJournalPhaseV1;
   readonly manifestPath: string;
@@ -269,14 +276,17 @@ interface FreezeJournalV3 {
     rollingPlan: FreezeJournalFileV1;
   }>;
   readonly index: FreezeJournalFileV1;
+  readonly indexTransportDigest: `sha256:${string}`;
   readonly result: CodexDevelopmentFreezeResultV1;
 }
 
 interface ControlIndexSnapshotV1 {
   readonly treeSha: string;
+  readonly index: AnchoredIndexSnapshotV1;
   readonly stateSource: string;
   readonly pointerSource: string;
   readonly rollingPlanSource: string;
+  readonly candidateManifestBlob: Buffer;
 }
 
 function systemErrorCode(error: unknown): string | undefined {
@@ -579,6 +589,7 @@ function loadLinuxLibc() {
       args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.i32],
       returns: FFIType.i32
     },
+    unlinkat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
     write: { args: [FFIType.i32, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
     fsync: { args: [FFIType.i32], returns: FFIType.i32 },
     close: { args: [FFIType.i32], returns: FFIType.i32 },
@@ -667,6 +678,7 @@ function posixAnchoredAcquisitionError(input: Readonly<{
 
 const LinuxRenameNoReplace = 1;
 const LinuxAtCurrentWorkingDirectory = -100;
+const LinuxAtRemoveDirectory = 0x200;
 const LinuxAtSymlinkFollow = 0x400;
 const LinuxAtEmptyPath = 0x1000;
 const LinuxErrorPermissionDenied = 13;
@@ -963,6 +975,7 @@ function openWindowsDirectoryPath(input: {
   label: string;
   createMissing: boolean;
   retainAgainstRename?: boolean;
+  deleteAccess?: boolean;
   durabilityWrite?: boolean;
   durability?: FreezeDurabilityOptionsV1;
 }): Readonly<{ handle: bigint; canonicalPath: string }> {
@@ -988,9 +1001,10 @@ function openWindowsDirectoryPath(input: {
     ) >>> 0,
     shareMode: anchorShareMode
   })!;
-  for (const segment of segments) {
+  for (const [segmentIndex, segment] of segments.entries()) {
     const containingParentPath = canonicalPath;
     canonicalPath = path.join(canonicalPath, segment);
+    const isTargetDirectory = segmentIndex === segments.length - 1;
     let next = openWindowsExactHandle({
       scope: input.scope,
       candidatePath: canonicalPath,
@@ -999,6 +1013,7 @@ function openWindowsDirectoryPath(input: {
       kind: 'directory',
       desiredAccess: (
         WindowsFileListDirectory | WindowsFileReadAttributes | WindowsSynchronizeAccess
+        | (input.deleteAccess && isTargetDirectory ? WindowsDeleteAccess : 0)
         | (input.createMissing || input.durabilityWrite ? WindowsGenericWrite : 0)
       ) >>> 0,
       shareMode: anchorShareMode,
@@ -1321,6 +1336,133 @@ async function readOptionalSafeRegularFile(input: {
   throw new Error(`Anchored document-control reads are unsupported on ${process.platform}.`);
 }
 
+async function observeOptionalSafeRegularFile(input: {
+  boundaryRoot: string;
+  filePath: string;
+  label: string;
+}): Promise<Readonly<{ bytes: Buffer; identity: AnchoredObjectIdentityV1 }> | null> {
+  if (process.platform === 'win32') {
+    return withWindowsHandles((scope) => {
+      const file = openWindowsRegularFile({
+        scope,
+        ...input,
+        desiredAccess: (WindowsGenericRead | WindowsFileReadAttributes) >>> 0,
+        allowMissing: true
+      });
+      return file === null ? null : Object.freeze({
+        bytes: readWindowsHandleBytes(file.handle, input.label),
+        identity: windowsFileIdentity(file.handle, `${input.label} identity`)
+      });
+    });
+  }
+  if (process.platform === 'linux') {
+    return withPosixFds(async (scope) => {
+      const file = openPosixRegularFile({
+        scope,
+        ...input,
+        flags: fsConstants.O_RDONLY,
+        allowMissing: true
+      });
+      if (file === null) return null;
+      const metadata = statSync(`/proc/self/fd/${file.fd}`);
+      return Object.freeze({
+        bytes: await readFile(`/proc/self/fd/${file.fd}`),
+        identity: Object.freeze({ dev: metadata.dev, ino: metadata.ino })
+      });
+    });
+  }
+  throw new Error(`Anchored document-control observation is unsupported on ${process.platform}.`);
+}
+
+async function unlinkExactPosixRegularFile(input: {
+  boundaryRoot: string;
+  filePath: string;
+  label: string;
+  expectedBytes: Buffer;
+  expectedIdentity?: AnchoredObjectIdentityV1;
+  retained?: RetainedPublishObjectAuthorityV1;
+  durability?: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  await withPosixFds(async (scope) => {
+    const retainedFd = input.retained?.fd;
+    const retainedParentFd = input.retained?.parentFd;
+    const opened = retainedFd === undefined || retainedParentFd === undefined
+      ? openPosixRegularFile({
+          scope,
+          boundaryRoot: input.boundaryRoot,
+          filePath: input.filePath,
+          label: input.label,
+          flags: fsConstants.O_RDONLY,
+          allowMissing: true
+        })
+      : null;
+    if (opened === null && (retainedFd === undefined || retainedParentFd === undefined)) return;
+    const exactFd = retainedFd ?? opened!.fd;
+    const parentFd = retainedParentFd ?? opened!.parentFd;
+    const name = path.basename(input.filePath);
+    const parentPath = path.dirname(path.resolve(input.filePath));
+    assertPosixFdPath(parentFd, parentPath, `${input.label} retained cleanup parent`);
+    if (!(await readFile(`/proc/self/fd/${exactFd}`)).equals(input.expectedBytes)) {
+      throw new Error(`${input.label} changed before exact-object cleanup; preserving it.`);
+    }
+    const exactMetadata = statSync(`/proc/self/fd/${exactFd}`);
+    const exactIdentity = Object.freeze({ dev: exactMetadata.dev, ino: exactMetadata.ino });
+    if (input.expectedIdentity !== undefined
+        && !sameAnchoredObjectIdentityV1(exactIdentity, input.expectedIdentity)) {
+      throw new Error(`${input.label} identity changed before exact-object cleanup; preserving it.`);
+    }
+    await input.durability?.beforeAnchoredCleanup?.({ label: input.label, filePath: input.filePath });
+    const currentFd = requireLinuxLibc().symbols.openat(
+      parentFd,
+      posixCString(name),
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | requireLinuxX64OpenCloseOnExecFlag(),
+      0
+    );
+    if (currentFd === -1) {
+      throw posixAnchoredAcquisitionError({
+        operation: `openat current cleanup entry for ${input.label}`,
+        errno: posixErrno(),
+        label: input.label,
+        targetPath: input.filePath
+      });
+    }
+    scope.own(currentFd, `${input.label} current cleanup entry`);
+    assertPosixFdIdentity(exactFd, currentFd, `${input.label} cleanup`);
+    if (!(await readFile(`/proc/self/fd/${currentFd}`)).equals(input.expectedBytes)) {
+      throw new Error(`${input.label} current cleanup bytes changed; preserving it.`);
+    }
+    const currentMetadata = statSync(`/proc/self/fd/${currentFd}`);
+    if (requireLinuxLibc().symbols.unlinkat(parentFd, posixCString(name), 0) !== 0) {
+      throw posixOperationError(`unlinkat exact cleanup entry for ${input.label}`, posixErrno());
+    }
+    const retiredMetadata = statSync(`/proc/self/fd/${currentFd}`);
+    if (retiredMetadata.nlink !== currentMetadata.nlink - 1) {
+      throw new Error(`${input.label} cleanup did not retire exactly one name for the retained object.`);
+    }
+    const replacementFd = requireLinuxLibc().symbols.openat(
+      parentFd,
+      posixCString(name),
+      fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | requireLinuxX64OpenCloseOnExecFlag(),
+      0
+    );
+    if (replacementFd !== -1) {
+      scope.own(replacementFd, `${input.label} unexpected cleanup replacement`);
+      throw new Error(`${input.label} was replaced during exact-object cleanup; preserving the replacement.`);
+    }
+    const absenceErrno = posixErrno();
+    if (absenceErrno !== 2) {
+      throw posixOperationError(`openat cleanup absence readback for ${input.label}`, absenceErrno);
+    }
+    if (requireLinuxLibc().symbols.fsync(parentFd) !== 0) {
+      throw new CodexDevelopmentDurabilityBarrierError({
+        operation: 'parent-directory-barrier',
+        targetPath: parentPath,
+        cause: posixOperationError(`fsync exact cleanup parent for ${input.label}`, posixErrno())
+      });
+    }
+  });
+}
+
 async function removeOptionalSafeRegularFile(input: {
   boundaryRoot: string;
   filePath: string;
@@ -1384,46 +1526,132 @@ async function removeOptionalSafeRegularFile(input: {
     return;
   }
   if (process.platform === 'linux') {
-    if (input.retained?.fd !== undefined) {
-      if (!(await readFile(`/proc/self/fd/${input.retained.fd}`)).equals(input.expectedBytes)) {
-        throw new Error(`${input.label} changed before exact-object cleanup; preserving it.`);
-      }
-      if (input.expectedIdentity !== undefined) {
-        const metadata = statSync(`/proc/self/fd/${input.retained.fd}`);
-        if (!sameAnchoredObjectIdentityV1(
-          Object.freeze({ dev: metadata.dev, ino: metadata.ino }), input.expectedIdentity
-        )) throw new Error(`${input.label} identity changed before exact-object cleanup; preserving it.`);
-      }
-      // Retain exact Linux residue; unlink-by-name after a retained FD check is intentionally forbidden.
-      return;
-    }
-    await withPosixFds(async (scope) => {
-      const file = openPosixRegularFile({
-        scope,
-        ...input,
-        flags: fsConstants.O_RDONLY,
-        allowMissing: true
-      });
-      if (file === null) return;
-      if (!(await readFile(`/proc/self/fd/${file.fd}`)).equals(input.expectedBytes)) {
-        throw new Error(`${input.label} changed before exact-object cleanup; preserving it.`);
-      }
-      if (input.expectedIdentity !== undefined) {
-        const metadata = statSync(`/proc/self/fd/${file.fd}`);
-        if (!sameAnchoredObjectIdentityV1(
-          Object.freeze({ dev: metadata.dev, ino: metadata.ino }), input.expectedIdentity
-        )) throw new Error(`${input.label} identity changed before exact-object cleanup; preserving it.`);
-      }
-      await input.durability?.beforeAnchoredCleanup?.({
-        label: input.label,
-        filePath: input.filePath
-      });
-      // Linux has no race-free unlink-by-opened-fd primitive for regular files. Retain exact
-      // transaction residue instead of resolving the pathname again after validation.
-    });
+    await unlinkExactPosixRegularFile(input);
     return;
   }
   throw new Error(`Anchored document-control deletion is unsupported on ${process.platform}.`);
+}
+
+async function removeExactEmptyDirectory(input: {
+  boundaryRoot: string;
+  directoryPath: string;
+  label: string;
+  durability: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  const lexicalRoot = path.resolve(input.boundaryRoot);
+  const lexicalDirectory = path.resolve(input.directoryPath);
+  assertPathContained(lexicalRoot, lexicalDirectory, input.label);
+  if (process.platform === 'win32') {
+    await withWindowsHandles(async (scope) => {
+      const directory = openWindowsDirectoryPath({
+        scope,
+        boundaryRoot: lexicalRoot,
+        directoryPath: lexicalDirectory,
+        label: input.label,
+        createMissing: false,
+        retainAgainstRename: true,
+        deleteAccess: true
+      });
+      await input.durability.beforeAnchoredCleanup?.({
+        label: input.label,
+        filePath: lexicalDirectory
+      });
+      const disposition = Buffer.from([1]);
+      const library = requireWindowsKernel32();
+      if (library.symbols.SetFileInformationByHandle(
+        directory.handle,
+        WindowsFileDispositionInfo,
+        disposition,
+        disposition.byteLength
+      ) === 0) {
+        throw windowsOperationError(
+          `Exact empty-directory deletion for ${input.label}`,
+          library.symbols.GetLastError()
+        );
+      }
+    });
+  } else if (process.platform === 'linux') {
+    await withPosixFds(async (scope) => {
+      const parentPath = path.dirname(lexicalDirectory);
+      const name = path.basename(lexicalDirectory);
+      const parent = openPosixDirectoryPath({
+        scope,
+        boundaryRoot: lexicalRoot,
+        directoryPath: parentPath,
+        label: `${input.label} parent`,
+        createMissing: false
+      });
+      const directory = openPosixDirectoryPath({
+        scope,
+        boundaryRoot: lexicalRoot,
+        directoryPath: lexicalDirectory,
+        label: input.label,
+        createMissing: false
+      });
+      await input.durability.beforeAnchoredCleanup?.({
+        label: input.label,
+        filePath: lexicalDirectory
+      });
+      const currentFd = requireLinuxLibc().symbols.openat(
+        parent.fd,
+        posixCString(name),
+        fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW
+          | requireLinuxX64OpenCloseOnExecFlag(),
+        0
+      );
+      if (currentFd === -1) {
+        throw posixAnchoredAcquisitionError({
+          operation: `openat current cleanup directory for ${input.label}`,
+          errno: posixErrno(),
+          label: input.label,
+          targetPath: lexicalDirectory
+        });
+      }
+      scope.own(currentFd, `${input.label} current cleanup directory`);
+      assertPosixFdIdentity(directory.fd, currentFd, `${input.label} cleanup`);
+      if (requireLinuxLibc().symbols.unlinkat(
+        parent.fd,
+        posixCString(name),
+        LinuxAtRemoveDirectory
+      ) !== 0) {
+        throw posixOperationError(`unlinkat exact empty directory for ${input.label}`, posixErrno());
+      }
+      if (statSync(`/proc/self/fd/${currentFd}`).nlink !== 0) {
+        throw new Error(`${input.label} cleanup did not retire the retained directory object.`);
+      }
+      const replacementFd = requireLinuxLibc().symbols.openat(
+        parent.fd,
+        posixCString(name),
+        fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW
+          | requireLinuxX64OpenCloseOnExecFlag(),
+        0
+      );
+      if (replacementFd !== -1) {
+        scope.own(replacementFd, `${input.label} unexpected cleanup replacement`);
+        throw new Error(`${input.label} was replaced during exact cleanup; preserving the replacement.`);
+      }
+      const absenceErrno = posixErrno();
+      if (absenceErrno !== 2) {
+        throw posixOperationError(`openat cleanup absence readback for ${input.label}`, absenceErrno);
+      }
+    });
+  } else {
+    throw new Error(`Anchored document-control directory deletion is unsupported on ${process.platform}.`);
+  }
+  const remained = await lstat(lexicalDirectory).then(
+    () => true,
+    (error: unknown) => {
+      if (isMissingError(error)) return false;
+      throw error;
+    }
+  );
+  if (remained) throw new Error(`${input.label} remained after exact retirement.`);
+  const parentPath = path.dirname(lexicalDirectory);
+  if (input.durability.parentDirectoryBarrier !== undefined) {
+    await input.durability.parentDirectoryBarrier(parentPath);
+  } else {
+    await defaultParentDirectoryBarrier(parentPath);
+  }
 }
 
 async function createSafeRegularFileExclusive(input: {
@@ -2105,8 +2333,21 @@ function parseJournalFile(value: unknown, label: string): FreezeJournalFileV1 {
   return Object.freeze({ pre, next });
 }
 
-function freezeOperationIdV3(input: Omit<FreezeJournalV3, 'operationId' | 'phase' | 'result'>): `sha256:${string}` {
-  return sha256(input) as `sha256:${string}`;
+function freezeIndexTransportDigestV4(index: FreezeJournalFileV1): `sha256:${string}` {
+  return sha256({ schema: 'sec-document-control-index-transport-v1', index }) as `sha256:${string}`;
+}
+
+function freezeOperationIdV4(
+  input: Omit<FreezeJournalV4, 'operationId' | 'phase' | 'result'>
+): `sha256:${string}` {
+  const { index: _indexTransport, indexTransportDigest: _transportDigest, ...semantic } = input;
+  return sha256({
+    ...semantic,
+    indexSemanticIdentity: Object.freeze({
+      preTreeSha: input.preIndexTreeSha,
+      nextTreeSha: input.candidateTreeSha
+    })
+  }) as `sha256:${string}`;
 }
 
 function parseFreezeResult(value: unknown): CodexDevelopmentFreezeResultV1 {
@@ -2135,22 +2376,19 @@ function parseFreezeResult(value: unknown): CodexDevelopmentFreezeResultV1 {
   });
 }
 
-function parseFreezeJournalV3(source: string): FreezeJournalV3 {
+function parseFreezeJournalV4(source: string): FreezeJournalV4 {
   let parsed: unknown;
   try { parsed = JSON.parse(source); } catch (error) {
     throw new Error('Document control freeze journal is invalid JSON.', { cause: error });
   }
   const record = recordValue(parsed, 'Freeze journal');
-  if (record.schema === FreezeJournalSchemaV1) {
-    throw new Error('Freeze journal V1 is legacy and cannot serve as recovery authority.');
+  if (record.schema !== FreezeJournalSchemaV4) {
+    throw new Error('Only freeze journal V4 can serve as recovery authority.');
   }
-  if (record.schema === FreezeJournalSchemaV2) {
-    throw new Error('Freeze journal V2 is legacy and cannot serve as recovery authority.');
-  }
-  if (record.schema !== FreezeJournalSchemaV3) throw new Error('Freeze journal schema is invalid.');
   exactKeys(record, [
     'baseSha', 'baseTreeSha', 'candidateTreeSha', 'files', 'index', 'manifestDigest',
-    'manifestPath', 'operationId', 'phase', 'preIndexTreeSha', 'result', 'reviewedOn', 'schema'
+    'indexTransportDigest', 'manifestPath', 'operationId', 'phase', 'preIndexTreeSha',
+    'result', 'reviewedOn', 'schema'
   ], 'Freeze journal');
   if (!['prepared', 'index-published', 'pointer-published', 'rolling-published', 'terminal'].includes(String(record.phase))) {
     throw new Error('Freeze journal phase is invalid.');
@@ -2158,7 +2396,7 @@ function parseFreezeJournalV3(source: string): FreezeJournalV3 {
   const files = recordValue(record.files, 'Freeze journal files');
   exactKeys(files, ['manifest', 'pointer', 'rollingPlan'], 'Freeze journal files');
   const semantic = Object.freeze({
-    schema: FreezeJournalSchemaV3,
+    schema: FreezeJournalSchemaV4,
     manifestPath: textValue(record.manifestPath, 'Freeze journal manifestPath'),
     manifestDigest: digestValue(record.manifestDigest, 'Freeze journal manifestDigest'),
     reviewedOn: textValue(record.reviewedOn, 'Freeze journal reviewedOn'),
@@ -2171,10 +2409,17 @@ function parseFreezeJournalV3(source: string): FreezeJournalV3 {
       pointer: parseJournalFile(files.pointer, 'Freeze journal pointer file'),
       rollingPlan: parseJournalFile(files.rollingPlan, 'Freeze journal rolling-plan file')
     }),
-    index: parseJournalFile(record.index, 'Freeze journal index')
+    index: parseJournalFile(record.index, 'Freeze journal index'),
+    indexTransportDigest: digestValue(
+      record.indexTransportDigest,
+      'Freeze journal indexTransportDigest'
+    )
   });
+  if (freezeIndexTransportDigestV4(semantic.index) !== semantic.indexTransportDigest) {
+    throw new Error('Freeze journal index transport digest mismatch.');
+  }
   const operationId = digestValue(record.operationId, 'Freeze journal operationId');
-  if (freezeOperationIdV3(semantic) !== operationId) throw new Error('Freeze journal operation digest mismatch.');
+  if (freezeOperationIdV4(semantic) !== operationId) throw new Error('Freeze journal operation digest mismatch.');
   const result = parseFreezeResult(record.result);
   if (result.operationId !== operationId || result.baseSha !== semantic.baseSha
       || result.baseTreeSha !== semantic.baseTreeSha || result.candidateTreeSha !== semantic.candidateTreeSha
@@ -2193,7 +2438,7 @@ function parseFreezeJournalV3(source: string): FreezeJournalV3 {
   });
 }
 
-function renderFreezeJournalV3(journal: FreezeJournalV3): Buffer {
+function renderFreezeJournalV4(journal: FreezeJournalV4): Buffer {
   return Buffer.from(`${JSON.stringify(journal, null, 2)}\n`, 'utf8');
 }
 
@@ -2215,7 +2460,8 @@ function run(command: string, args: string[], cwd: string, options: CommandOptio
       ...process.env,
       ...options.environment,
       GH_PROMPT_DISABLED: '1',
-      GIT_TERMINAL_PROMPT: '0'
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_OPTIONAL_LOCKS: '0'
     }
   });
   return {
@@ -2241,7 +2487,8 @@ function readGitBlob(cwd: string, spec: string): Buffer | undefined {
     maxBuffer: ExternalCommandMaxBufferBytes,
     env: {
       ...process.env,
-      GIT_TERMINAL_PROMPT: '0'
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_OPTIONAL_LOCKS: '0'
     }
   });
   return result.status === 0 ? result.stdout : undefined;
@@ -2360,7 +2607,7 @@ async function readAnchoredIndexSnapshot(input: Readonly<{
 async function captureRepositoryIndexTreeThroughExternalScratch(input: Readonly<{
   repositoryRoot: string;
   resolverGit?: ReadOnlyResolverGitV1;
-}>): Promise<string> {
+}>): Promise<Readonly<{ treeSha: string; index: AnchoredIndexSnapshotV1 }>> {
   const indexPaths = await resolveIndexPaths(input.repositoryRoot);
   const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-index-'));
   try {
@@ -2377,6 +2624,15 @@ async function captureRepositoryIndexTreeThroughExternalScratch(input: Readonly<
       label: 'Repository index nonmutating source'
     });
     const scratchIndex = path.join(canonicalScratchRoot, 'index');
+    const scratchObjects = path.join(canonicalScratchRoot, 'objects');
+    await mkdir(scratchObjects);
+    const repositoryObjectsCandidate = requireCommand(
+      run('git', ['rev-parse', '--git-path', 'objects'], input.repositoryRoot),
+      'Repository object directory path'
+    );
+    const repositoryObjects = await realpath(path.isAbsolute(repositoryObjectsCandidate)
+      ? repositoryObjectsCandidate
+      : path.resolve(input.repositoryRoot, repositoryObjectsCandidate));
     await createSafeRegularFileExclusive({
       boundaryRoot: canonicalScratchRoot,
       filePath: scratchIndex,
@@ -2384,7 +2640,12 @@ async function captureRepositoryIndexTreeThroughExternalScratch(input: Readonly<
       label: 'External scratch Git index',
       durability: {}
     });
-    const environment = { GIT_INDEX_FILE: scratchIndex, GIT_OPTIONAL_LOCKS: '0' };
+    const environment = {
+      GIT_INDEX_FILE: scratchIndex,
+      GIT_OBJECT_DIRECTORY: scratchObjects,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: repositoryObjects,
+      GIT_OPTIONAL_LOCKS: '0'
+    };
     const treeSha = shaValue(requireCommand(
       input.resolverGit === undefined
         ? run('git', ['write-tree'], input.repositoryRoot, { environment })
@@ -2399,7 +2660,7 @@ async function captureRepositoryIndexTreeThroughExternalScratch(input: Readonly<
     if (!after.bytes.equals(before.bytes) || after.identity !== before.identity) {
       throw new Error('External scratch Git index tree observation mutated the repository index.');
     }
-    return treeSha;
+    return Object.freeze({ treeSha, index: after });
   } finally {
     await rm(scratchRoot, { recursive: true, force: true });
     const removed = await lstat(scratchRoot).then(
@@ -2414,26 +2675,47 @@ async function captureControlIndexSnapshot(
   repositoryRoot: string,
   resolverGit?: ReadOnlyResolverGitV1
 ): Promise<ControlIndexSnapshotV1> {
-  const treeSha = await captureRepositoryIndexTreeThroughExternalScratch({ repositoryRoot, resolverGit });
+  const observation = await captureRepositoryIndexTreeThroughExternalScratch({ repositoryRoot, resolverGit });
+  const treeSha = observation.treeSha;
   const requireSnapshotBlob = (spec: string, label: string): Buffer => {
     const blob = resolverGit === undefined ? readGitBlob(repositoryRoot, spec) : resolverGit.readBlob(repositoryRoot, spec);
     if (blob === undefined) throw new Error(`${label} is absent from the immutable Git tree.`);
     return blob;
   };
+  const stateSource = decodeUtf8(
+    requireSnapshotBlob(`:${CurrentStatePath}`, 'Current-state spec'),
+    'Current-state spec'
+  );
+  const pointerSource = decodeUtf8(
+    requireSnapshotBlob(`:${ActivePointerPath}`, 'Active pointer'),
+    'Active pointer'
+  );
+  const rollingPlanSource = decodeUtf8(
+    requireSnapshotBlob(`:${RollingPlanPath}`, 'Rolling plan'),
+    'Rolling plan'
+  );
+  const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
+  const candidateManifestBlob = requireSnapshotBlob(
+    `:${pointer.manifest}`,
+    'Candidate Work Package manifest'
+  );
+  const indexPaths = await resolveIndexPaths(repositoryRoot);
+  const readback = await readAnchoredIndexSnapshot({
+    boundaryRoot: indexPaths.gitDirectory,
+    filePath: indexPaths.indexPath,
+    label: 'Control index snapshot readback'
+  });
+  if (readback.identity !== observation.index.identity
+      || !readback.bytes.equals(observation.index.bytes)) {
+    throw new Error('Control index changed while its exact blobs were observed.');
+  }
   return Object.freeze({
     treeSha: shaValue(treeSha, 'Git index tree snapshot'),
-    stateSource: decodeUtf8(
-      requireSnapshotBlob(`${treeSha}:${CurrentStatePath}`, 'Current-state spec'),
-      'Current-state spec'
-    ),
-    pointerSource: decodeUtf8(
-      requireSnapshotBlob(`${treeSha}:${ActivePointerPath}`, 'Active pointer'),
-      'Active pointer'
-    ),
-    rollingPlanSource: decodeUtf8(
-      requireSnapshotBlob(`${treeSha}:${RollingPlanPath}`, 'Rolling plan'),
-      'Rolling plan'
-    )
+    index: observation.index,
+    stateSource,
+    pointerSource,
+    rollingPlanSource,
+    candidateManifestBlob
   });
 }
 
@@ -2465,16 +2747,15 @@ async function resolveRecoverableRepositoryFile(
 
 function entryRecoveryPath(input: {
   artifactRoot: string;
-  targetPath: string;
   operationId: string;
+  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKeyV1;
   suffix: 'pre' | 'retired-pre' | 'retired-next';
 }): string {
-  const identity = sha256({
-    schema: 'sec-document-control-entry-recovery-path-v1',
+  const stem = CodexDevelopmentDocumentControlRecoveryEntryStemV1({
     operationId: input.operationId,
-    targetPath: path.resolve(input.targetPath)
-  }).slice('sha256:'.length);
-  return path.join(input.artifactRoot, `.entry-${identity}.${input.suffix}`);
+    targetKey: input.targetKey
+  });
+  return path.join(input.artifactRoot, `${stem}.${input.suffix}`);
 }
 
 interface PublishEntryObservationV1 {
@@ -2655,6 +2936,7 @@ type PublishTupleClassifierSourceV1 = Readonly<{
   boundaryRoot: string;
   artifactRoot: string;
   targetPath: string;
+  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKeyV1;
   nextPath: string;
   pre: Buffer;
   next: Buffer;
@@ -2848,6 +3130,7 @@ async function publishEntryNoReplaceCas(input: {
   boundaryRoot: string;
   artifactRoot: string;
   targetPath: string;
+  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKeyV1;
   nextPath: string;
   pre: Buffer;
   next: Buffer;
@@ -2902,6 +3185,12 @@ async function publishEntryNoReplaceCas(input: {
     resolution = observed;
     state = observed.state;
   };
+
+  if (input.pre.equals(input.next)
+      && (state === 'linux-fresh' || state === 'windows-pristine')) {
+    await runSelectedRetainedEdge(async () => undefined);
+    return;
+  }
 
   if (state === 'windows-installed') {
     if (input.retainRecoveryEntries !== true) {
@@ -3097,6 +3386,7 @@ function atomicCasNextPath(filePath: string, operationId: string): string {
 async function writeAtomicCas(input: {
   repositoryRoot: string;
   filePath: string;
+  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKeyV1;
   pre: Buffer;
   next: Buffer;
   label: string;
@@ -3112,6 +3402,7 @@ async function writeAtomicCas(input: {
     boundaryRoot: input.repositoryRoot,
     artifactRoot: transactionRoot,
     targetPath: input.filePath,
+    targetKey: input.targetKey,
     nextPath: temporaryPath,
     pre: input.pre,
     next: input.next,
@@ -3311,6 +3602,7 @@ function assertInitiallyAbsentTransitionFromContractV1(
 async function publishInitiallyAbsentEntryNoReplace(input: {
   boundaryRoot: string;
   targetPath: string;
+  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKeyV1;
   nextPath: string;
   next: Buffer;
   label: string;
@@ -3318,8 +3610,8 @@ async function publishInitiallyAbsentEntryNoReplace(input: {
 }): Promise<void> {
   const retiredNextPath = entryRecoveryPath({
     artifactRoot: input.boundaryRoot,
-    targetPath: input.targetPath,
     operationId: byteDigest(input.next),
+    targetKey: input.targetKey,
     suffix: 'retired-next'
   });
   const classifier = Object.freeze({
@@ -3409,20 +3701,21 @@ async function resolveFreezeTransactionRoot(
 async function writeFreezeJournal(
   repositoryRoot: string,
   expectedPreBytes: Buffer | null,
-  journal: FreezeJournalV3,
+  journal: FreezeJournalV4,
   durability: FreezeDurabilityOptionsV1,
   faultAfter?: CodexDevelopmentFreezeFaultV1
 ): Promise<Buffer> {
   const transactionRoot = await resolveFreezeTransactionRoot(repositoryRoot, durability);
   const journalPath = path.join(repositoryRoot, FreezeJournalRelativePath);
   const temporaryPath = `${journalPath}.${journal.operationId.slice('sha256:'.length)}.${journal.phase}.next`;
-  const nextBytes = renderFreezeJournalV3(journal);
+  const nextBytes = renderFreezeJournalV4(journal);
   const label = `Freeze journal ${journal.phase}`;
   if (expectedPreBytes === null) {
     await publishInitiallyAbsentEntryNoReplace({
       boundaryRoot: transactionRoot,
       nextPath: temporaryPath,
       targetPath: journalPath,
+      targetKey: 'freeze-journal',
       next: nextBytes,
       label,
       durability
@@ -3442,6 +3735,7 @@ async function writeFreezeJournal(
       boundaryRoot: transactionRoot,
       artifactRoot: transactionRoot,
       targetPath: journalPath,
+      targetKey: 'freeze-journal',
       nextPath: temporaryPath,
       pre: expectedPreBytes,
       next: nextBytes,
@@ -3467,7 +3761,7 @@ async function writeFreezeJournal(
   if (!readback.equals(nextBytes)) {
     throw new Error('Freeze journal readback does not equal the exact requested NEXT bytes.');
   }
-  parseFreezeJournalV3(readback.toString('utf8'));
+  parseFreezeJournalV4(readback.toString('utf8'));
   return nextBytes;
 }
 
@@ -3487,7 +3781,7 @@ interface AnchoredJournalDirectoryV1 {
 
 interface FreezeJournalRecoveryStateV1 {
   readonly expectedPreBytes: Buffer | null;
-  readonly nextJournal: FreezeJournalV3;
+  readonly nextJournal: FreezeJournalV4;
   readonly nextBytes: Buffer;
   readonly nextPath: string;
   readonly completionMode:
@@ -3498,14 +3792,14 @@ interface FreezeJournalRecoveryStateV1 {
 }
 
 interface FreezeJournalSnapshotV1 {
-  readonly journal: FreezeJournalV3;
+  readonly journal: FreezeJournalV4;
   readonly bytes: Buffer;
   readonly canonicalPresent: boolean;
   readonly recovery: FreezeJournalRecoveryStateV1 | null;
   readonly durabilityEntries: readonly AnchoredJournalEntryV1[];
 }
 
-function effectiveFreezeJournal(snapshot: FreezeJournalSnapshotV1 | null): FreezeJournalV3 | null {
+function effectiveFreezeJournal(snapshot: FreezeJournalSnapshotV1 | null): FreezeJournalV4 | null {
   if (snapshot === null) return null;
   return snapshot.recovery?.completionMode === 'canonical-install-required'
     ? snapshot.recovery.nextJournal
@@ -3536,13 +3830,13 @@ const FreezeJournalPhasesV1 = Object.freeze([
   'terminal'
 ] as const satisfies readonly FreezeJournalPhaseV1[]);
 
-function freezeJournalAtPhase(journal: FreezeJournalV3, phase: FreezeJournalPhaseV1): FreezeJournalV3 {
+function freezeJournalAtPhase(journal: FreezeJournalV4, phase: FreezeJournalPhaseV1): FreezeJournalV4 {
   return Object.freeze({ ...journal, phase });
 }
 
-function parseCanonicalFreezeJournalBytes(bytes: Buffer, label: string): FreezeJournalV3 {
-  const journal = parseFreezeJournalV3(bytes.toString('utf8'));
-  if (!bytes.equals(renderFreezeJournalV3(journal))) {
+function parseCanonicalFreezeJournalBytes(bytes: Buffer, label: string): FreezeJournalV4 {
+  const journal = parseFreezeJournalV4(bytes.toString('utf8'));
+  if (!bytes.equals(renderFreezeJournalV4(journal))) {
     throw new Error(`${label} bytes are valid but noncanonical; preserving the entry.`);
   }
   return journal;
@@ -3719,20 +4013,20 @@ async function inspectJournalTransitionRecovery(input: {
   const operationId = byteDigest(input.nextBytes);
   const quarantinePath = entryRecoveryPath({
     artifactRoot: input.directory.transactionRoot,
-    targetPath: input.journalPath,
     operationId,
+    targetKey: 'freeze-journal',
     suffix: 'pre'
   });
   const retiredPrePath = entryRecoveryPath({
     artifactRoot: input.directory.transactionRoot,
-    targetPath: input.journalPath,
     operationId,
+    targetKey: 'freeze-journal',
     suffix: 'retired-pre'
   });
   const retiredNextPath = entryRecoveryPath({
     artifactRoot: input.directory.transactionRoot,
-    targetPath: input.journalPath,
     operationId,
+    targetKey: 'freeze-journal',
     suffix: 'retired-next'
   });
   const quarantine = input.expectedPreBytes === null
@@ -3859,8 +4153,8 @@ function freezeJournalPhaseIndex(phase: FreezeJournalPhaseV1): number {
 
 function freezeEntryRecoveryNames(input: {
   artifactRoot: string;
-  targetPath: string;
   operationId: string;
+  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKeyV1;
 }): FreezeEntryRecoveryNamesV1 {
   const name = (suffix: FreezeEntryRecoverySuffixV1): string => path.basename(entryRecoveryPath({
     ...input,
@@ -3877,11 +4171,11 @@ function createFreezeEntryRecoveryCensusPlan(input: {
   repositoryRoot: string;
   transactionRoot: string;
   journalPath: string;
-  journal: FreezeJournalV3;
+  journal: FreezeJournalV4;
 }): FreezeEntryRecoveryCensusPlanV1 {
   const phaseBytes = new Map<FreezeJournalPhaseV1, Buffer>(FreezeJournalPhasesV1.map((phase) => [
     phase,
-    renderFreezeJournalV3(freezeJournalAtPhase(input.journal, phase))
+    renderFreezeJournalV4(freezeJournalAtPhase(input.journal, phase))
   ]));
   const requirePhaseBytes = (phase: FreezeJournalPhaseV1): Buffer => {
     const bytes = phaseBytes.get(phase);
@@ -3900,8 +4194,8 @@ function createFreezeEntryRecoveryCensusPlan(input: {
   const preparedBytes = requirePhaseBytes('prepared');
   const initialNames = freezeEntryRecoveryNames({
     artifactRoot: input.transactionRoot,
-    targetPath: input.journalPath,
-    operationId: byteDigest(preparedBytes)
+    operationId: byteDigest(preparedBytes),
+    targetKey: 'freeze-journal'
   });
   add(initialNames.retiredNext, preparedBytes, 'journal:prepared');
 
@@ -3913,8 +4207,8 @@ function createFreezeEntryRecoveryCensusPlan(input: {
     const previousBytes = requirePhaseBytes(previousPhase);
     const names = freezeEntryRecoveryNames({
       artifactRoot: input.transactionRoot,
-      targetPath: input.journalPath,
-      operationId: byteDigest(nextBytes)
+      operationId: byteDigest(nextBytes),
+      targetKey: 'freeze-journal'
     });
     journalTransitions.set(phase, names);
     add(names.pre, previousBytes, `journal:${previousPhase}`);
@@ -3925,15 +4219,15 @@ function createFreezeEntryRecoveryCensusPlan(input: {
   }
 
   const addProjectionRecovery = (
-    targetPath: string,
+    targetKey: CodexDevelopmentDocumentControlRecoveryTargetKeyV1,
     pre: Buffer,
     next: Buffer,
     label: string
   ): FreezeEntryRecoveryNamesV1 => {
     const names = freezeEntryRecoveryNames({
       artifactRoot: input.transactionRoot,
-      targetPath,
-      operationId: input.journal.operationId
+      operationId: input.journal.operationId,
+      targetKey
     });
     add(names.pre, pre, `${label}:pre`);
     if (process.platform === 'linux') {
@@ -3943,19 +4237,31 @@ function createFreezeEntryRecoveryCensusPlan(input: {
     return names;
   };
 
+  const pointerPre = fromBase64(input.journal.files.pointer.pre, 'Freeze pointer PRE recovery census');
+  const pointerNext = fromBase64(input.journal.files.pointer.next, 'Freeze pointer NEXT recovery census');
+  const rollingPlanPre = fromBase64(
+    input.journal.files.rollingPlan.pre,
+    'Freeze rolling-plan PRE recovery census'
+  );
+  const rollingPlanNext = fromBase64(
+    input.journal.files.rollingPlan.next,
+    'Freeze rolling-plan NEXT recovery census'
+  );
   const pointer = effectivePhaseIndex >= freezeJournalPhaseIndex('index-published')
+      && !pointerPre.equals(pointerNext)
     ? addProjectionRecovery(
-        path.join(input.repositoryRoot, ...ActivePointerPath.split('/')),
-        fromBase64(input.journal.files.pointer.pre, 'Freeze pointer PRE recovery census'),
-        fromBase64(input.journal.files.pointer.next, 'Freeze pointer NEXT recovery census'),
+        'active-pointer',
+        pointerPre,
+        pointerNext,
         'pointer'
       )
     : null;
   const rollingPlan = effectivePhaseIndex >= freezeJournalPhaseIndex('pointer-published')
+      && !rollingPlanPre.equals(rollingPlanNext)
     ? addProjectionRecovery(
-        path.join(input.repositoryRoot, ...RollingPlanPath.split('/')),
-        fromBase64(input.journal.files.rollingPlan.pre, 'Freeze rolling-plan PRE recovery census'),
-        fromBase64(input.journal.files.rollingPlan.next, 'Freeze rolling-plan NEXT recovery census'),
+        'rolling-plan',
+        rollingPlanPre,
+        rollingPlanNext,
         'rolling-plan'
       )
     : null;
@@ -3983,12 +4289,14 @@ async function assertFreezeEntryRecoveryCensus(input: {
   plan: FreezeEntryRecoveryCensusPlanV1;
   entries: readonly AnchoredJournalEntryV1[];
   canonicalEntry: AnchoredJournalEntryV1 | null;
-  canonicalJournal: FreezeJournalV3 | null;
+  canonicalJournal: FreezeJournalV4 | null;
   nextEntry: AnchoredJournalEntryV1 | null;
-  nextJournal: FreezeJournalV3 | null;
+  nextJournal: FreezeJournalV4 | null;
 }): Promise<void> {
   const entries = new Map(input.entries.map((entry) => [entry.name, entry]));
   const present = (name: string): boolean => entries.has(name);
+  const terminalRetirement = input.plan.effectivePhaseIndex === freezeJournalPhaseIndex('terminal')
+    && (input.canonicalJournal?.phase === 'terminal' || input.nextJournal?.phase === 'terminal');
   const preparedCanonicalEntry = input.canonicalJournal?.phase === 'prepared'
     ? input.canonicalEntry
     : null;
@@ -4049,15 +4357,16 @@ async function assertFreezeEntryRecoveryCensus(input: {
     if (initialResolution.status === 'invalid') {
       throw new Error(`Initial prepared freeze journal T/N/R contract rejected the recovery census (${initialResolution.reason}); preserving every entry.`);
     }
-  } else if (process.platform === 'linux') {
+  } else if (process.platform === 'linux' && !terminalRetirement) {
     requirePresent(input.plan.initialRetiredNext, 'Retained initial journal NEXT');
-  } else {
+  } else if (!terminalRetirement) {
     requireAbsent(input.plan.initialRetiredNext, 'Retained initial journal NEXT');
   }
 
   for (const [phase, names] of input.plan.journalTransitions) {
     const isActive = input.nextJournal?.phase === phase;
     if (!isActive) {
+      if (terminalRetirement) continue;
       requirePresent(names.pre, `${phase} journal PRE`);
       if (process.platform === 'linux') {
         requirePresent(names.retiredPre, `${phase} journal retired PRE`);
@@ -4094,6 +4403,7 @@ async function assertFreezeEntryRecoveryCensus(input: {
     if (names === null) return;
     const startIndex = freezeJournalPhaseIndex(startPhase);
     if (process.platform === 'win32') {
+      if (terminalRetirement) return;
       if (input.plan.effectivePhaseIndex > startIndex) requireAbsent(names.pre, `${label} completed PRE`);
       return;
     }
@@ -4101,6 +4411,7 @@ async function assertFreezeEntryRecoveryCensus(input: {
     const hasRetiredPre = present(names.retiredPre);
     const hasRetiredNext = present(names.retiredNext);
     if (input.plan.effectivePhaseIndex > startIndex) {
+      if (terminalRetirement) return;
       requirePresent(names.pre, `${label} completed PRE`);
       requirePresent(names.retiredPre, `${label} completed retired PRE`);
       requirePresent(names.retiredNext, `${label} completed retired NEXT`);
@@ -4129,6 +4440,106 @@ async function assertFreezeEntryRecoveryCensus(input: {
     'Rolling-plan',
     path.join(input.repositoryRoot, ...RollingPlanPath.split('/'))
   );
+}
+
+interface TerminalRetirementPlanEntryV1 {
+  readonly boundaryRoot: string;
+  readonly filePath: string;
+  readonly label: string;
+  readonly expectedBytes: Buffer;
+}
+
+async function assertTerminalRetirementPrefixV1(input: {
+  repositoryRoot: string;
+  transactionRoot: string;
+  journal: FreezeJournalV4;
+  journalBytes: Buffer;
+  transactionPlan?: FreezeEntryRecoveryCensusPlanV1;
+}): Promise<void> {
+  if (input.journal.phase !== 'terminal') {
+    throw new Error('Terminal retirement prefix requires one terminal journal.');
+  }
+  const indexPaths = await resolveIndexPaths(input.repositoryRoot);
+  const indexNames = freezeEntryRecoveryNames({
+    artifactRoot: indexPaths.gitDirectory,
+    operationId: input.journal.operationId,
+    targetKey: 'git-index'
+  });
+  const entries: TerminalRetirementPlanEntryV1[] = [];
+  if (input.journal.preIndexTreeSha !== input.journal.candidateTreeSha) {
+    const indexPre = fromBase64(input.journal.index.pre, 'Terminal retirement index PRE');
+    const indexNext = fromBase64(input.journal.index.next, 'Terminal retirement index NEXT');
+    const orderedIndexNames = process.platform === 'win32'
+      ? [indexNames.pre]
+      : process.platform === 'linux'
+        ? [indexNames.retiredNext, indexNames.retiredPre, indexNames.pre]
+        : (() => { throw new Error(`Terminal retirement is unsupported on ${process.platform}.`); })();
+    for (const name of orderedIndexNames) {
+      entries.push(Object.freeze({
+        boundaryRoot: indexPaths.gitDirectory,
+        filePath: path.join(indexPaths.gitDirectory, name),
+        label: `Terminal retirement Git index ${name}`,
+        expectedBytes: name === indexNames.retiredNext ? indexNext : indexPre
+      }));
+    }
+  }
+  const allowedIndexNames = new Set(entries.map((entry) => path.basename(entry.filePath)));
+  const unknownIndexName = readdirSync(indexPaths.gitDirectory)
+    .filter((name) => name.startsWith('.entry-'))
+    .find((name) => !allowedIndexNames.has(name));
+  if (unknownIndexName !== undefined) {
+    throw new Error(`Terminal retirement found unbound Git index residue and preserves it: ${unknownIndexName}.`);
+  }
+
+  const transactionPlan = input.transactionPlan ?? createFreezeEntryRecoveryCensusPlan({
+    repositoryRoot: input.repositoryRoot,
+    transactionRoot: input.transactionRoot,
+    journalPath: path.join(input.transactionRoot, path.basename(FreezeJournalRelativePath)),
+    journal: input.journal
+  });
+  const transactionExpectations = [...transactionPlan.expectations.entries()]
+    .filter(([name]) => process.platform !== 'win32' || name !== transactionPlan.initialRetiredNext)
+    .sort(([left], [right]) => left.localeCompare(right));
+  for (const [name, expectation] of transactionExpectations) {
+    entries.push(Object.freeze({
+      boundaryRoot: input.transactionRoot,
+      filePath: path.join(input.transactionRoot, name),
+      label: `Terminal retirement transaction ${name}`,
+      expectedBytes: expectation.bytes
+    }));
+  }
+  const allowedTransactionNames = new Set(transactionExpectations.map(([name]) => name));
+  const unknownTransactionName = readdirSync(input.transactionRoot)
+    .filter((name) => name.startsWith('.entry-'))
+    .find((name) => !allowedTransactionNames.has(name));
+  if (unknownTransactionName !== undefined) {
+    throw new Error(
+      `Terminal retirement found unbound transaction residue and preserves it: ${unknownTransactionName}.`
+    );
+  }
+  entries.push(Object.freeze({
+    boundaryRoot: input.transactionRoot,
+    filePath: path.join(input.transactionRoot, path.basename(FreezeJournalRelativePath)),
+    label: 'Terminal retirement canonical journal',
+    expectedBytes: input.journalBytes
+  }));
+
+  const presence: boolean[] = [];
+  for (const entry of entries) {
+    const observation = await observeOptionalSafeRegularFile({
+      boundaryRoot: entry.boundaryRoot,
+      filePath: entry.filePath,
+      label: entry.label
+    });
+    presence.push(observation !== null);
+    if (observation !== null && !observation.bytes.equals(entry.expectedBytes)) {
+      throw new Error(`${entry.label} has unknown bytes and is preserved.`);
+    }
+  }
+  const classification = CodexDevelopmentClassifyTerminalRetirementPrefixV1(presence);
+  if (classification.status === 'invalid') {
+    throw new Error('Terminal retirement residue topology is not one exact canonical deletion prefix; preserving it.');
+  }
 }
 
 async function readFreezeJournalSnapshot(
@@ -4162,7 +4573,7 @@ async function readFreezeJournalSnapshot(
       : parseCanonicalFreezeJournalBytes(canonicalEntry.bytes, 'Freeze journal');
     const nextName = journalRecoveryNames[0];
     let nextEntry: AnchoredJournalEntryV1 | null = null;
-    let nextJournal: FreezeJournalV3 | null = null;
+    let nextJournal: FreezeJournalV4 | null = null;
     if (nextName !== undefined) {
       nextEntry = directEntries.get(nextName) ?? null;
       if (nextEntry === null) throw new Error('Freeze journal active NEXT recovery entry disappeared during census.');
@@ -4212,12 +4623,21 @@ async function readFreezeJournalSnapshot(
       nextEntry,
       nextJournal
     });
+    if (canonicalJournal?.phase === 'terminal' && nextJournal === null) {
+      await assertTerminalRetirementPrefixV1({
+        repositoryRoot,
+        transactionRoot: directory.transactionRoot,
+        journal: canonicalJournal,
+        journalBytes: canonicalEntry!.bytes,
+        transactionPlan: censusPlan
+      });
+    }
 
     if (canonicalJournal === null) {
       const predecessor = FreezeJournalPreviousPhaseV1[nextJournal!.phase];
       const expectedPreBytes = predecessor === undefined
         ? null
-        : renderFreezeJournalV3(freezeJournalAtPhase(nextJournal!, predecessor));
+        : renderFreezeJournalV4(freezeJournalAtPhase(nextJournal!, predecessor));
       const recoveryEntries = await inspectJournalTransitionRecovery({
         directory,
         journalPath,
@@ -4261,12 +4681,12 @@ async function readFreezeJournalSnapshot(
         const predecessor = FreezeJournalPreviousPhaseV1[nextJournal.phase];
         expectedPreBytes = predecessor === undefined
           ? null
-          : renderFreezeJournalV3(freezeJournalAtPhase(nextJournal, predecessor));
+          : renderFreezeJournalV4(freezeJournalAtPhase(nextJournal, predecessor));
         completionMode = 'active-next-retirement-required';
       } else {
         const successor = FreezeJournalNextPhaseV1[canonicalJournal.phase];
         if (successor === undefined
-            || !nextEntry!.bytes.equals(renderFreezeJournalV3(freezeJournalAtPhase(canonicalJournal, successor)))) {
+            || !nextEntry!.bytes.equals(renderFreezeJournalV4(freezeJournalAtPhase(canonicalJournal, successor)))) {
           throw new Error('Freeze journal active NEXT is not the exact direct successor of canonical PRE.');
         }
         expectedPreBytes = canonicalEntry!.bytes;
@@ -4291,10 +4711,22 @@ async function readFreezeJournalSnapshot(
           ...new Map(relevantEntries.map((entry) => [entry.filePath, entry])).values()
         ])
       });
+    } else if (canonicalJournal.phase === 'terminal') {
+      const retainedTerminalEntries = relevantEntries.filter((entry) => entry.name.startsWith('.entry-'));
+      if (retainedTerminalEntries.length > 0) {
+        recovery = Object.freeze({
+          expectedPreBytes: null,
+          nextJournal: canonicalJournal,
+          nextBytes: canonicalEntry!.bytes,
+          nextPath: canonicalEntry!.filePath,
+          completionMode: 'complete',
+          durabilityEntries: Object.freeze(retainedTerminalEntries)
+        });
+      }
     } else {
       const predecessor = FreezeJournalPreviousPhaseV1[canonicalJournal.phase];
       if (predecessor !== undefined) {
-        const expectedPreBytes = renderFreezeJournalV3(freezeJournalAtPhase(canonicalJournal, predecessor));
+        const expectedPreBytes = renderFreezeJournalV4(freezeJournalAtPhase(canonicalJournal, predecessor));
         const syntheticNextEntry: AnchoredJournalEntryV1 = Object.freeze({
           ...canonicalEntry!,
           name: 'journal.json'
@@ -4321,8 +4753,8 @@ async function readFreezeJournalSnapshot(
       } else {
         const initialRetiredNextPath = entryRecoveryPath({
           artifactRoot: directory.transactionRoot,
-          targetPath: journalPath,
           operationId: byteDigest(canonicalEntry!.bytes),
+          targetKey: 'freeze-journal',
           suffix: 'retired-next'
         });
         const initialRetiredNext = await directory.readEntry(
@@ -4443,21 +4875,33 @@ async function preflightFreezeProjectionEntryStates(
   const indexPaths = await resolveIndexPaths(repositoryRoot, true);
   const pointerPath = await resolveRecoverableRepositoryFile(repositoryRoot, ActivePointerPath);
   const rollingPlanPath = await resolveRecoverableRepositoryFile(repositoryRoot, RollingPlanPath);
-  const classifiers = Object.freeze([
-    createPublishTupleClassifierInputV1({
+  const classifiers: PublishTupleClassifierInputV1[] = [];
+  if (journal.preIndexTreeSha === journal.candidateTreeSha) {
+    await assertIndexSemanticIdentity({
+      repositoryRoot,
+      indexPaths,
+      expectedTreeSha: journal.candidateTreeSha,
+      label: 'Freeze preflight Git index semantic NOOP'
+    });
+  } else {
+    classifiers.push(createPublishTupleClassifierInputV1({
       boundaryRoot: indexPaths.gitDirectory,
       artifactRoot: indexPaths.gitDirectory,
       targetPath: indexPaths.indexPath,
+      targetKey: 'git-index',
       nextPath: indexPaths.lockPath,
       pre: fromBase64(journal.index.pre, 'Freeze preflight index PRE'),
       next: fromBase64(journal.index.next, 'Freeze preflight index NEXT'),
       label: 'Git index',
       operationId: journal.operationId
-    }),
+    }));
+  }
+  classifiers.push(
     createPublishTupleClassifierInputV1({
       boundaryRoot: repositoryRoot,
       artifactRoot: transactionRoot,
       targetPath: pointerPath,
+      targetKey: 'active-pointer',
       nextPath: atomicCasNextPath(pointerPath, journal.operationId),
       pre: fromBase64(journal.files.pointer.pre, 'Freeze preflight pointer PRE'),
       next: fromBase64(journal.files.pointer.next, 'Freeze preflight pointer NEXT'),
@@ -4468,15 +4912,37 @@ async function preflightFreezeProjectionEntryStates(
       boundaryRoot: repositoryRoot,
       artifactRoot: transactionRoot,
       targetPath: rollingPlanPath,
+      targetKey: 'rolling-plan',
       nextPath: atomicCasNextPath(rollingPlanPath, journal.operationId),
       pre: fromBase64(journal.files.rollingPlan.pre, 'Freeze preflight rolling-plan PRE'),
       next: fromBase64(journal.files.rollingPlan.next, 'Freeze preflight rolling-plan NEXT'),
       label: 'Rolling plan',
       operationId: journal.operationId
     })
-  ]);
+  );
   for (const classifier of classifiers) {
     await classifyPublishEntryStateV1(classifier);
+  }
+}
+
+async function assertIndexSemanticIdentity(input: {
+  repositoryRoot: string;
+  indexPaths: GitIndexPathsV1;
+  expectedTreeSha: string;
+  label: string;
+}): Promise<void> {
+  const lockBytes = await readOptionalSafeRegularFile({
+    boundaryRoot: input.indexPaths.gitDirectory,
+    filePath: input.indexPaths.lockPath,
+    label: `${input.label} lock`
+  });
+  if (lockBytes !== null) throw new Error(`${input.label} found an active Git index lock; preserving it.`);
+  const { treeSha } = await captureRepositoryIndexTreeThroughExternalScratch({
+    repositoryRoot: input.repositoryRoot,
+    resolverGit: createReadOnlyResolverGit()
+  });
+  if (treeSha !== input.expectedTreeSha) {
+    throw new Error(`${input.label} tree changed; preserving the current Git index.`);
   }
 }
 
@@ -4496,6 +4962,7 @@ async function publishIndexCas(input: {
     boundaryRoot: input.gitDirectory,
     artifactRoot: input.gitDirectory,
     targetPath: input.indexPath,
+    targetKey: 'git-index',
     nextPath: input.lockPath,
     pre: input.pre,
     next: input.next,
@@ -4512,7 +4979,7 @@ async function buildNextIndex(input: {
   repositoryRoot: string;
   gitDirectory: string;
   indexPath: string;
-  targets: readonly Readonly<{ path: string; bytes: Buffer }>[];
+  targets: readonly Readonly<{ path: string; pre: Buffer | undefined; bytes: Buffer }>[];
 }): Promise<Readonly<{ bytes: Buffer; treeSha: string }>> {
   const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-freeze-index-'));
   try {
@@ -4537,17 +5004,22 @@ async function buildNextIndex(input: {
       durability: {}
     });
     const environment = { GIT_INDEX_FILE: scratchIndex };
+    const indexUpdates: string[] = [];
     for (const target of input.targets) {
+      if (target.pre !== undefined && target.pre.equals(target.bytes)) continue;
       const blobSha = requireCommand(
         run('git', ['hash-object', '-w', '--stdin'], input.repositoryRoot, { input: target.bytes }),
         `Git blob publication for ${target.path}`
       );
+      indexUpdates.push(`100644 ${blobSha}\t${target.path}\0`);
+    }
+    if (indexUpdates.length > 0) {
       requireCommand(run(
         'git',
-        ['update-index', '--add', '--cacheinfo', '100644', blobSha, target.path],
+        ['update-index', '-z', '--index-info'],
         input.repositoryRoot,
-        { environment }
-      ), `Temporary Git index update for ${target.path}`);
+        { environment, input: Buffer.from(indexUpdates.join(''), 'utf8') }
+      ), 'Batched temporary Git index update');
     }
     const treeSha = shaValue(
       requireCommand(run('git', ['write-tree'], input.repositoryRoot, { environment }), 'Candidate tree write'),
@@ -4609,15 +5081,96 @@ function assertNoUnrelatedStagedChanges(
   }
 }
 
+function assertCommittedCandidateReplanAuthorityV1(input: {
+  repositoryRoot: string;
+  headSha: string;
+  trustedDefaultSha: string;
+  manifestPath: string;
+}): void {
+  const ancestry = requireCommand(
+    run('git', ['rev-list', '--parents', '-n', '1', input.headSha], input.repositoryRoot),
+    'Committed candidate ancestry'
+  ).split(/\s+/u);
+  if (ancestry.length !== 2 || ancestry[0] !== input.headSha || ancestry[1] !== input.trustedDefaultSha) {
+    throw new Error(
+      'Committed candidate replan requires one exact candidate generation whose sole parent is the live default.'
+    );
+  }
+  const candidateState = requireGitBlob(
+    input.repositoryRoot,
+    `${input.headSha}:${CurrentStatePath}`,
+    'Committed candidate current-state authority'
+  );
+  const trustedState = requireGitBlob(
+    input.repositoryRoot,
+    `${input.trustedDefaultSha}:${CurrentStatePath}`,
+    'Live-default current-state authority'
+  );
+  if (!candidateState.equals(trustedState)) {
+    throw new Error('Committed candidate replan must preserve the exact live-default current-state authority bytes.');
+  }
+  const spec = CodexDevelopmentParseCurrentStateSpecV1(
+    decodeUtf8(candidateState, 'Committed candidate current-state')
+  );
+  const pointer = CodexDevelopmentParseActivePointerV2(decodeUtf8(requireGitBlob(
+    input.repositoryRoot,
+    `${input.headSha}:${ActivePointerPath}`,
+    'Committed candidate active pointer'
+  ), 'Committed candidate active pointer'));
+  CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer });
+  const rolling = CodexDevelopmentParseRollingPlanV1(decodeUtf8(requireGitBlob(
+    input.repositoryRoot,
+    `${input.headSha}:${RollingPlanPath}`,
+    'Committed candidate rolling plan'
+  ), 'Committed candidate rolling plan'));
+  const manifestBytes = requireGitBlob(
+    input.repositoryRoot,
+    `${input.headSha}:${input.manifestPath}`,
+    'Committed candidate Work Package manifest'
+  );
+  const manifest = CodexDevelopmentParseWorkPackageManifest(
+    decodeUtf8(manifestBytes, 'Committed candidate Work Package manifest'),
+    input.manifestPath
+  );
+  if (pointer.manifest !== input.manifestPath
+      || rolling.activePackageId !== manifest.id
+      || manifest.base !== input.trustedDefaultSha) {
+    throw new Error(
+      'Committed candidate replan requires the exact active pointer, rolling plan, manifest path, and base binding.'
+    );
+  }
+  const defaultManifestBlob = readGitBlob(
+    input.repositoryRoot,
+    `${input.trustedDefaultSha}:${input.manifestPath}`
+  );
+  if (defaultManifestBlob !== undefined) {
+    throw new Error('Committed candidate replan rejects a Work Package path already present on the live default.');
+  }
+  const resolution = CodexDevelopmentResolveActiveWorkPackageV1({
+    pointer,
+    candidateManifestBlob: manifestBytes,
+    defaultManifestBlob: null,
+    defaultRefState: 'fresh'
+  });
+  if (resolution.state !== 'active') {
+    throw new Error('Committed candidate replan requires one exact active unpublished Work Package binding.');
+  }
+}
+
 async function assertInitialFreezeObservationFence(input: {
   repositoryRoot: string;
-  remote: string;
-  defaultBranch: string;
   defaultRef: string;
   headSha: string;
   localDefaultSha: string;
-  liveDefaultSha: string;
-  indexTreeSha: string;
+  indexPaths: GitIndexPathsV1;
+  indexSnapshot: AnchoredIndexSnapshotV1;
+  expectedIndexTreeSha: string;
+  allowSemanticIndexDrift: boolean;
+  worktreeFiles: readonly Readonly<{
+    filePath: string;
+    expectedBytes: Buffer;
+    label: string;
+  }>[];
 }): Promise<void> {
   const headReadback = shaValue(
     requireCommand(run('git', ['rev-parse', 'HEAD'], input.repositoryRoot), 'Pre-journal candidate HEAD readback'),
@@ -4630,20 +5183,32 @@ async function assertInitialFreezeObservationFence(input: {
     ),
     'Pre-journal local default readback'
   );
-  const liveDefaultLine = requireCommand(run(
-    'git',
-    ['ls-remote', '--exit-code', input.remote, `refs/heads/${input.defaultBranch}`],
-    input.repositoryRoot
-  ), 'Pre-journal live default readback');
-  const liveDefaultReadback = shaValue(liveDefaultLine.split(/\s+/u)[0], 'Pre-journal live default readback');
-  const indexTreeReadback = await captureRepositoryIndexTreeThroughExternalScratch({
-    repositoryRoot: input.repositoryRoot
+  const indexReadback = await readAnchoredIndexSnapshot({
+    boundaryRoot: input.indexPaths.gitDirectory,
+    filePath: input.indexPaths.indexPath,
+    label: 'Pre-journal Git index readback'
   });
+  let indexStable = indexReadback.identity === input.indexSnapshot.identity
+    && indexReadback.bytes.equals(input.indexSnapshot.bytes);
+  if (!indexStable && input.allowSemanticIndexDrift) {
+    const semanticReadback = await captureRepositoryIndexTreeThroughExternalScratch({
+      repositoryRoot: input.repositoryRoot,
+      resolverGit: createReadOnlyResolverGit()
+    });
+    indexStable = semanticReadback.treeSha === input.expectedIndexTreeSha;
+  }
+  const worktreeStable = (await Promise.all(input.worktreeFiles.map(async (file) => (
+    (await readSafeRegularFile({
+      boundaryRoot: input.repositoryRoot,
+      filePath: file.filePath,
+      label: `Pre-journal ${file.label} readback`
+    })).equals(file.expectedBytes)
+  )))).every(Boolean);
   if (
     headReadback !== input.headSha
     || localDefaultReadback !== input.localDefaultSha
-    || liveDefaultReadback !== input.liveDefaultSha
-    || indexTreeReadback !== input.indexTreeSha
+    || !indexStable
+    || !worktreeStable
   ) {
     throw new Error('Document control freeze inputs changed before initial journal publication.');
   }
@@ -4665,7 +5230,7 @@ function assertTargetIndexModes(repositoryRoot: string, targets: readonly string
 
 async function advanceFreezeJournal(input: {
   repositoryRoot: string;
-  journal: FreezeJournalV3;
+  journal: FreezeJournalV4;
   journalBytes: Buffer;
   faultAfter?: CodexDevelopmentFreezeFaultV1;
   durability: FreezeDurabilityOptionsV1;
@@ -4675,16 +5240,25 @@ async function advanceFreezeJournal(input: {
   const indexPaths = await resolveIndexPaths(input.repositoryRoot, true);
   const indexPre = fromBase64(journal.index.pre, 'Freeze journal index PRE');
   const indexNext = fromBase64(journal.index.next, 'Freeze journal index NEXT');
-  await publishIndexCas({
-    ...indexPaths,
-    pre: indexPre,
-    next: indexNext,
-    operationId: journal.operationId,
-    faultAfterLockWrite: () => maybeFault(input.faultAfter, 'after-index-lock-write'),
-    faultAfterPreQuarantine: () => maybeFault(input.faultAfter, 'after-index-pre-quarantine'),
-    faultAfterNextInstall: () => maybeFault(input.faultAfter, 'after-index-next-install'),
-    durability: input.durability
-  });
+  if (journal.preIndexTreeSha === journal.candidateTreeSha) {
+    await assertIndexSemanticIdentity({
+      repositoryRoot: input.repositoryRoot,
+      indexPaths,
+      expectedTreeSha: journal.candidateTreeSha,
+      label: 'Freeze Git index semantic NOOP'
+    });
+  } else {
+    await publishIndexCas({
+      ...indexPaths,
+      pre: indexPre,
+      next: indexNext,
+      operationId: journal.operationId,
+      faultAfterLockWrite: () => maybeFault(input.faultAfter, 'after-index-lock-write'),
+      faultAfterPreQuarantine: () => maybeFault(input.faultAfter, 'after-index-pre-quarantine'),
+      faultAfterNextInstall: () => maybeFault(input.faultAfter, 'after-index-next-install'),
+      durability: input.durability
+    });
+  }
   maybeFault(input.faultAfter, 'after-index-publish');
   if (journal.phase === 'prepared') {
     journal = Object.freeze({ ...journal, phase: 'index-published' });
@@ -4710,6 +5284,7 @@ async function advanceFreezeJournal(input: {
   await writeAtomicCas({
     repositoryRoot: input.repositoryRoot,
     filePath: pointerPath,
+    targetKey: 'active-pointer',
     pre: fromBase64(journal.files.pointer.pre, 'Freeze pointer PRE'),
     next: fromBase64(journal.files.pointer.next, 'Freeze pointer NEXT'),
     label: 'Active pointer',
@@ -4735,6 +5310,7 @@ async function advanceFreezeJournal(input: {
   await writeAtomicCas({
     repositoryRoot: input.repositoryRoot,
     filePath: rollingPlanPath,
+    targetKey: 'rolling-plan',
     pre: fromBase64(journal.files.rollingPlan.pre, 'Freeze rolling-plan PRE'),
     next: fromBase64(journal.files.rollingPlan.next, 'Freeze rolling-plan NEXT'),
     label: 'Rolling plan',
@@ -4792,6 +5368,20 @@ async function advanceFreezeJournal(input: {
     );
   }
   maybeFault(input.faultAfter, 'after-terminal');
+  const terminalSnapshot = await readFreezeJournalSnapshot(input.repositoryRoot);
+  if (terminalSnapshot === null) throw new Error('Terminal freeze journal disappeared before retirement.');
+  await verifyTerminalFreezeJournal({
+    repositoryRoot: input.repositoryRoot,
+    snapshot: terminalSnapshot,
+    manifestPath: journal.manifestPath,
+    manifestDigest: journal.manifestDigest,
+    reviewedOn: journal.reviewedOn
+  });
+  await retireTerminalFreezeTransaction({
+    repositoryRoot: input.repositoryRoot,
+    snapshot: terminalSnapshot,
+    durability: input.durability
+  });
   return journal.result;
 }
 
@@ -4814,15 +5404,11 @@ async function verifyTerminalFreezeJournal(input: {
   }
 
   const indexPaths = await resolveIndexPaths(input.repositoryRoot);
-  const liveIndexBytes = await readSafeRegularFile({
+  await readSafeRegularFile({
     boundaryRoot: indexPaths.gitDirectory,
     filePath: indexPaths.indexPath,
     label: 'Terminal freeze Git index readback'
   });
-  const expectedIndexBytes = fromBase64(journal.index.next, 'Terminal freeze Git index NEXT');
-  if (!liveIndexBytes.equals(expectedIndexBytes)) {
-    throw new Error('Terminal freeze Git index bytes do not equal the exact journal NEXT image.');
-  }
   const lockBytes = await readOptionalSafeRegularFile({
     boundaryRoot: indexPaths.gitDirectory,
     filePath: indexPaths.lockPath,
@@ -4833,7 +5419,7 @@ async function verifyTerminalFreezeJournal(input: {
   }
 
   const terminalGit = createReadOnlyResolverGit();
-  const treeSha = await captureRepositoryIndexTreeThroughExternalScratch({
+  const { treeSha } = await captureRepositoryIndexTreeThroughExternalScratch({
     repositoryRoot: input.repositoryRoot,
     resolverGit: terminalGit
   });
@@ -4894,6 +5480,208 @@ async function verifyTerminalFreezeJournal(input: {
   return journal.result;
 }
 
+function anchoredJournalEntryIdentity(entry: AnchoredJournalEntryV1): AnchoredObjectIdentityV1 {
+  if (process.platform !== 'linux') return entry.identity;
+  const match = /^(\d+):(\d+)$/u.exec(entry.identity);
+  if (match === null) throw new Error(`Linux freeze recovery identity is malformed: ${entry.name}.`);
+  return Object.freeze({ dev: Number(match[1]), ino: Number(match[2]) });
+}
+
+async function retireTerminalIndexRecovery(input: {
+  repositoryRoot: string;
+  journal: FreezeJournalV4;
+  durability: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  const indexPaths = await resolveIndexPaths(input.repositoryRoot);
+  await assertIndexSemanticIdentity({
+    repositoryRoot: input.repositoryRoot,
+    indexPaths,
+    expectedTreeSha: input.journal.candidateTreeSha,
+    label: 'Terminal freeze Git index semantic readback'
+  });
+  const names = freezeEntryRecoveryNames({
+    artifactRoot: indexPaths.gitDirectory,
+    operationId: input.journal.operationId,
+    targetKey: 'git-index'
+  });
+  const expected = new Map<string, Buffer>([
+    [names.pre, fromBase64(input.journal.index.pre, 'Terminal index PRE retirement')],
+    [names.retiredPre, fromBase64(input.journal.index.pre, 'Terminal index retired PRE retirement')],
+    [names.retiredNext, fromBase64(input.journal.index.next, 'Terminal index retired NEXT retirement')]
+  ]);
+  const directRecoveryNames = readdirSync(indexPaths.gitDirectory)
+    .filter((name) => name.startsWith('.entry-'))
+    .sort();
+  const unknown = directRecoveryNames.find((name) => !expected.has(name));
+  if (unknown !== undefined) {
+    throw new Error(`Unbound Git index recovery residue is preserved: ${unknown}.`);
+  }
+  const observations = new Map<string, NonNullable<Awaited<ReturnType<typeof observeOptionalSafeRegularFile>>>>();
+  for (const [name, bytes] of expected) {
+    const observation = await observeOptionalSafeRegularFile({
+      boundaryRoot: indexPaths.gitDirectory,
+      filePath: path.join(indexPaths.gitDirectory, name),
+      label: `Terminal Git index recovery ${name}`
+    });
+    if (observation === null) continue;
+    if (!observation.bytes.equals(bytes)) {
+      throw new Error(`Terminal Git index recovery residue has unknown bytes and is preserved: ${name}.`);
+    }
+    observations.set(name, observation);
+  }
+  const pre = observations.get(names.pre);
+  const retiredPre = observations.get(names.retiredPre);
+  if (pre !== undefined && retiredPre !== undefined
+      && !sameAnchoredObjectIdentityV1(pre.identity, retiredPre.identity)) {
+    throw new Error('Terminal Git index PRE recovery identity is unprovable; preserving both entries.');
+  }
+  for (const name of [names.retiredNext, names.retiredPre, names.pre]) {
+    const observation = observations.get(name);
+    if (observation === undefined) continue;
+    await removeOptionalSafeRegularFile({
+      boundaryRoot: indexPaths.gitDirectory,
+      filePath: path.join(indexPaths.gitDirectory, name),
+      label: `Terminal Git index recovery retirement ${name}`,
+      expectedBytes: observation.bytes,
+      expectedIdentity: observation.identity,
+      durability: input.durability
+    });
+  }
+  const remaining = readdirSync(indexPaths.gitDirectory).filter((name) => name.startsWith('.entry-'));
+  if (remaining.length > 0) {
+    throw new Error(`Git index recovery residue remained after retirement: ${remaining.sort().join(', ')}.`);
+  }
+  if (process.platform === 'win32') {
+    if (input.durability.parentDirectoryBarrier !== undefined) {
+      await input.durability.parentDirectoryBarrier(indexPaths.gitDirectory);
+    } else {
+      await defaultParentDirectoryBarrier(indexPaths.gitDirectory);
+    }
+  }
+  await assertIndexSemanticIdentity({
+    repositoryRoot: input.repositoryRoot,
+    indexPaths,
+    expectedTreeSha: input.journal.candidateTreeSha,
+    label: 'Terminal freeze Git index semantic retirement readback'
+  });
+}
+
+async function retireTerminalFreezeTransaction(input: {
+  repositoryRoot: string;
+  snapshot: FreezeJournalSnapshotV1;
+  durability: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  const journal = input.snapshot.journal;
+  if (!input.snapshot.canonicalPresent || journal.phase !== 'terminal'
+      || (input.snapshot.recovery !== null && input.snapshot.recovery.completionMode !== 'complete')) {
+    throw new Error('Only one complete terminal freeze journal can authorize recovery retirement.');
+  }
+  await retireTerminalIndexRecovery({
+    repositoryRoot: input.repositoryRoot,
+    journal,
+    durability: input.durability
+  });
+  const transactionRoot = await canonicalDirectoryBoundary(
+    path.join(input.repositoryRoot, path.dirname(FreezeJournalRelativePath)),
+    'Terminal freeze transaction directory'
+  );
+  await assertTerminalRetirementPrefixV1({
+    repositoryRoot: input.repositoryRoot,
+    transactionRoot,
+    journal,
+    journalBytes: input.snapshot.bytes
+  });
+  const journalPath = path.join(transactionRoot, path.basename(FreezeJournalRelativePath));
+  const directEntries = input.snapshot.durabilityEntries.filter(
+    (entry) => pathComparisonValue(path.dirname(entry.filePath)) === pathComparisonValue(transactionRoot)
+  );
+  const canonical = directEntries.find((entry) => entry.name === 'journal.json');
+  if (canonical === undefined || !canonical.bytes.equals(input.snapshot.bytes)) {
+    throw new Error('Terminal freeze retirement lost its canonical journal authority.');
+  }
+  const recoveryEntries = directEntries
+    .filter((entry) => entry.name !== 'journal.json')
+    .sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of recoveryEntries) {
+    await removeOptionalSafeRegularFile({
+      boundaryRoot: transactionRoot,
+      filePath: entry.filePath,
+      label: `Terminal freeze recovery retirement ${entry.name}`,
+      expectedBytes: entry.bytes,
+      expectedIdentity: anchoredJournalEntryIdentity(entry),
+      durability: input.durability
+    });
+  }
+  const journalOnly = await readFreezeJournalSnapshot(input.repositoryRoot);
+  if (journalOnly === null || !journalOnly.canonicalPresent
+      || journalOnly.journal.operationId !== journal.operationId
+      || journalOnly.journal.phase !== 'terminal'
+      || journalOnly.durabilityEntries.some((entry) => entry.name !== 'journal.json')) {
+    throw new Error('Terminal freeze recovery census did not retire to the canonical journal only.');
+  }
+  if (process.platform === 'win32') {
+    if (input.durability.parentDirectoryBarrier !== undefined) {
+      await input.durability.parentDirectoryBarrier(transactionRoot);
+    } else {
+      await defaultParentDirectoryBarrier(transactionRoot);
+    }
+  }
+  await removeOptionalSafeRegularFile({
+    boundaryRoot: transactionRoot,
+    filePath: journalPath,
+    label: 'Terminal freeze canonical journal retirement',
+    expectedBytes: journalOnly.bytes,
+    expectedIdentity: anchoredJournalEntryIdentity(journalOnly.durabilityEntries[0]!),
+    durability: input.durability
+  });
+  if (await readFreezeJournalSnapshot(input.repositoryRoot) !== null) {
+    throw new Error('Terminal freeze journal remained after exact retirement.');
+  }
+  if (process.platform === 'win32') {
+    if (input.durability.parentDirectoryBarrier !== undefined) {
+      await input.durability.parentDirectoryBarrier(transactionRoot);
+    } else {
+      await defaultParentDirectoryBarrier(transactionRoot);
+    }
+  }
+  await removeExactEmptyDirectory({
+    boundaryRoot: input.repositoryRoot,
+    directoryPath: transactionRoot,
+    label: 'Terminal freeze transaction directory retirement',
+    durability: input.durability
+  });
+}
+
+async function retireEmptyFreezeTransactionRootAfterJournalLast(input: {
+  repositoryRoot: string;
+  durability: FreezeDurabilityOptionsV1;
+}): Promise<void> {
+  const transactionRoot = path.join(
+    input.repositoryRoot,
+    path.dirname(FreezeJournalRelativePath)
+  );
+  const observed = await inspectSafePath({
+    boundaryRoot: input.repositoryRoot,
+    candidatePath: transactionRoot,
+    label: 'Journal-last empty freeze transaction directory',
+    finalKind: 'directory',
+    allowMissing: true
+  });
+  if (observed === null) return;
+  const names = readdirSync(observed).sort();
+  if (names.length > 0) {
+    throw new Error(
+      `Freeze transaction directory has no journal authority and preserves direct residues: ${names.join(', ')}.`
+    );
+  }
+  await removeExactEmptyDirectory({
+    boundaryRoot: input.repositoryRoot,
+    directoryPath: observed,
+    label: 'Journal-last empty freeze transaction directory retirement',
+    durability: input.durability
+  });
+}
+
 export async function freezeDocumentControlPlaneV1(input: {
   cwd: string;
   manifestPath: string;
@@ -4903,7 +5691,7 @@ export async function freezeDocumentControlPlaneV1(input: {
   durabilityObserver?: CodexDevelopmentDurabilityObserverV1;
   /** Internal deterministic contract-test seam for an unsupported directory barrier. */
   parentDirectoryBarrier?: (directoryPath: string) => Promise<void>;
-  /** Internal deterministic contract-test seam before the first journal's four-value stability fence. */
+  /** Internal deterministic contract-test seam before the post-admission local stability fence. */
   beforeInitialJournalFence?: () => Promise<void> | void;
   /** Internal deterministic contract-test seam after exact rename source/parent anchors are open. */
   beforeAnchoredRename?: FreezeDurabilityOptionsV1['beforeAnchoredRename'];
@@ -4939,6 +5727,9 @@ export async function freezeDocumentControlPlaneV1(input: {
   });
   return withWorkspaceWriteLease(repositoryRoot, undefined, async () => {
     let existingJournalSnapshot = await readFreezeJournalSnapshot(repositoryRoot);
+    if (existingJournalSnapshot === null) {
+      await retireEmptyFreezeTransactionRootAfterJournalLast({ repositoryRoot, durability });
+    }
     const existingRecoveryIncomplete = existingJournalSnapshot?.recovery !== undefined
       && existingJournalSnapshot.recovery !== null
       && existingJournalSnapshot.recovery.completionMode !== 'complete';
@@ -4992,52 +5783,95 @@ export async function freezeDocumentControlPlaneV1(input: {
         durability
       });
     }
-    if (existingJournal !== null && existingJournal.phase === 'terminal'
-        && existingJournal.manifestPath === input.manifestPath
-        && existingJournal.manifestDigest === manifestDigest
-        && existingJournal.reviewedOn === input.reviewedOn) {
-      return verifyTerminalFreezeJournal({
+    if (existingJournal !== null && existingJournal.phase === 'terminal') {
+      const previousResult = await verifyTerminalFreezeJournal({
         repositoryRoot,
         snapshot: existingJournalSnapshot!,
-        manifestPath: input.manifestPath,
-        manifestDigest,
-        reviewedOn: input.reviewedOn
+        manifestPath: existingJournal.manifestPath,
+        manifestDigest: existingJournal.manifestDigest,
+        reviewedOn: existingJournal.reviewedOn
       });
+      await retireTerminalFreezeTransaction({
+        repositoryRoot,
+        snapshot: existingJournalSnapshot!,
+        durability
+      });
+      existingJournalSnapshot = null;
+      if (existingJournal.manifestPath === input.manifestPath
+          && existingJournal.manifestDigest === manifestDigest
+          && existingJournal.reviewedOn === input.reviewedOn) {
+        return previousResult;
+      }
     }
 
-    const snapshot = await captureControlIndexSnapshot(repositoryRoot);
-    const spec = CodexDevelopmentParseCurrentStateSpecV1(snapshot.stateSource);
-    const pointer = CodexDevelopmentParseActivePointerV2(snapshot.pointerSource);
-    CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer });
-    const rolling = CodexDevelopmentParseRollingPlanV1(snapshot.rollingPlanSource);
-    if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
-      throw new Error('The immutable index pointer and rolling plan select different Work Packages.');
+    const headSha = shaValue(
+      requireCommand(run('git', ['rev-parse', 'HEAD'], repositoryRoot), 'Candidate HEAD'),
+      'Candidate HEAD'
+    );
+    const headStateBytes = requireGitBlob(
+      repositoryRoot,
+      `${headSha}:${CurrentStatePath}`,
+      'Immutable candidate current-state authority'
+    );
+    const indexedStateBytes = requireGitBlob(
+      repositoryRoot,
+      `:${CurrentStatePath}`,
+      'Indexed current-state authority'
+    );
+    if (!indexedStateBytes.equals(headStateBytes)) {
+      throw new Error('Document control freeze rejects staged current-state authority bytes.');
     }
+    const spec = CodexDevelopmentParseCurrentStateSpecV1(
+      decodeUtf8(headStateBytes, 'Immutable candidate current-state authority')
+    );
     const localDefaultSha = shaValue(
       requireCommand(run('git', ['rev-parse', '--verify', spec.resolver.defaultRef], repositoryRoot), 'Local default ref'),
       'Local default ref'
     );
-    const remoteLine = requireCommand(run(
-      'git',
-      ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
-      repositoryRoot
-    ), 'Live default ref');
-    const liveDefaultSha = shaValue(remoteLine.split(/\s+/u)[0], 'Live default ref');
-    if (localDefaultSha !== liveDefaultSha) throw new Error('Live default ref is stale; freeze fails closed.');
-    const headSha = shaValue(requireCommand(run('git', ['rev-parse', 'HEAD'], repositoryRoot), 'Candidate HEAD'), 'Candidate HEAD');
     if (headSha !== localDefaultSha) {
-      throw new Error('freeze requires HEAD to equal the exact live default revision before candidate publication.');
+      assertCommittedCandidateReplanAuthorityV1({
+        repositoryRoot,
+        headSha,
+        trustedDefaultSha: localDefaultSha,
+        manifestPath: input.manifestPath
+      });
     }
     const baseTreeSha = shaValue(
       requireCommand(run('git', ['rev-parse', `${localDefaultSha}^{tree}`], repositoryRoot), 'Base tree'),
       'Base tree'
     );
 
-    const currentManifestBlob = requireGitBlob(
+    // This complete local authority preflight uses an external object directory;
+    // no repository object, index, journal, or control publication is permitted
+    // before both it and the sole live-default admission have succeeded.
+    const snapshot = await captureControlIndexSnapshot(repositoryRoot);
+    if (!Buffer.from(snapshot.stateSource, 'utf8').equals(indexedStateBytes)) {
+      throw new Error('Indexed current-state authority drifted during local freeze preflight.');
+    }
+    const pointer = CodexDevelopmentParseActivePointerV2(snapshot.pointerSource);
+    CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer });
+    const rolling = CodexDevelopmentParseRollingPlanV1(snapshot.rollingPlanSource);
+    if (rolling.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
+      throw new Error('The immutable index pointer and rolling plan select different Work Packages.');
+    }
+    const immutablePointerSource = decodeUtf8(requireGitBlob(
       repositoryRoot,
-      `${snapshot.treeSha}:${pointer.manifest}`,
-      'Currently selected Work Package manifest'
-    );
+      `${headSha}:${ActivePointerPath}`,
+      'Immutable candidate active pointer'
+    ), 'Immutable candidate active pointer');
+    const immutableRollingPlanSource = decodeUtf8(requireGitBlob(
+      repositoryRoot,
+      `${headSha}:${RollingPlanPath}`,
+      'Immutable candidate rolling plan'
+    ), 'Immutable candidate rolling plan');
+    const immutablePointer = CodexDevelopmentParseActivePointerV2(immutablePointerSource);
+    CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer: immutablePointer });
+    const immutableRolling = CodexDevelopmentParseRollingPlanV1(immutableRollingPlanSource);
+    if (immutableRolling.activePackageId !== path.posix.basename(immutablePointer.manifest, '.md')) {
+      throw new Error('Immutable HEAD pointer and rolling plan do not bind one selection baseline.');
+    }
+
+    const currentManifestBlob = snapshot.candidateManifestBlob;
     const currentResolution = CodexDevelopmentResolveActiveWorkPackageV1({
       pointer,
       candidateManifestBlob: currentManifestBlob,
@@ -5054,7 +5888,9 @@ export async function freezeDocumentControlPlaneV1(input: {
     assertTargetIndexModes(repositoryRoot, targets);
     const pointerFile = await assertRegularRepositoryFile(repositoryRoot, ActivePointerPath);
     const rollingPlanFile = await assertRegularRepositoryFile(repositoryRoot, RollingPlanPath);
-    const [pointerPre, rollingPlanPre] = await Promise.all([
+    const pointerPre = Buffer.from(snapshot.pointerSource, 'utf8');
+    const rollingPlanPre = Buffer.from(snapshot.rollingPlanSource, 'utf8');
+    const [pointerWorktree, rollingPlanWorktree] = await Promise.all([
       readSafeRegularFile({
         boundaryRoot: repositoryRoot,
         filePath: pointerFile,
@@ -5066,24 +5902,49 @@ export async function freezeDocumentControlPlaneV1(input: {
         label: 'Rolling plan'
       })
     ]);
-    if (!pointerPre.equals(Buffer.from(snapshot.pointerSource, 'utf8'))
-        || !rollingPlanPre.equals(Buffer.from(snapshot.rollingPlanSource, 'utf8'))) {
-      throw new Error('Document control target worktree bytes differ from the immutable index PRE image.');
+    if (!pointerWorktree.equals(pointerPre)) {
+      throw new Error('Active pointer worktree bytes differ from the immutable index PRE image.');
     }
-    const indexedTargetManifest = readGitBlob(repositoryRoot, `${snapshot.treeSha}:${input.manifestPath}`);
-    if (indexedTargetManifest !== undefined && !indexedTargetManifest.equals(manifestBytes)) {
-      throw new Error('Work Package manifest worktree bytes differ from its staged candidate bytes.');
-    }
+    const indexedTargetManifest = readGitBlob(repositoryRoot, `:${input.manifestPath}`);
     const defaultTargetManifest = readGitBlob(repositoryRoot, `${localDefaultSha}:${input.manifestPath}`);
-    if (defaultTargetManifest !== undefined
-        && CodexDevelopmentWorkPackageManifestDigest(defaultTargetManifest) === manifestDigest) {
-      throw new Error('Work Package manifest is already published on the live default ref.');
+    if (defaultTargetManifest !== undefined) {
+      throw new Error('Work Package manifest path is already published on the live default ref.');
     }
 
+    const indexedControlMatchesImmutableHead = snapshot.pointerSource === immutablePointerSource
+      && snapshot.rollingPlanSource === immutableRollingPlanSource;
+    let indexedControlMatchesPriorProjection = false;
+    let priorProjectionFailure: unknown;
+    if (!indexedControlMatchesImmutableHead && indexedTargetManifest !== undefined) {
+      try {
+        CodexDevelopmentAssertPriorFreezeProjectionV1({
+          spec,
+          immutableRollingPlanSource,
+          pointerSource: snapshot.pointerSource,
+          rollingPlanSource: snapshot.rollingPlanSource,
+          manifestPath: input.manifestPath,
+          manifestBytes: indexedTargetManifest
+        });
+        indexedControlMatchesPriorProjection = true;
+      } catch (error) {
+        priorProjectionFailure = error;
+      }
+    }
+    if (!indexedControlMatchesImmutableHead && !indexedControlMatchesPriorProjection) {
+      throw new Error(
+        'Staged control PRE must equal immutable HEAD or retain its exact immutable selection topology.',
+        { cause: priorProjectionFailure }
+      );
+    }
+
+    const requestedRollingPlanSource = rollingPlanWorktree.equals(rollingPlanPre)
+      ? indexedControlMatchesPriorProjection ? snapshot.rollingPlanSource : undefined
+      : decodeUtf8(rollingPlanWorktree, 'Requested rolling-plan projection');
     const projection = CodexDevelopmentCreateFreezeProjectionV1({
       spec,
-      currentPointerSource: snapshot.pointerSource,
-      currentRollingPlanSource: snapshot.rollingPlanSource,
+      currentPointerSource: immutablePointerSource,
+      currentRollingPlanSource: immutableRollingPlanSource,
+      requestedRollingPlanSource,
       manifestPath: input.manifestPath,
       manifestBytes,
       baseSha: localDefaultSha,
@@ -5092,82 +5953,166 @@ export async function freezeDocumentControlPlaneV1(input: {
     const pointerNext = Buffer.from(projection.pointerSource, 'utf8');
     const rollingPlanNext = Buffer.from(projection.rollingPlanSource, 'utf8');
     const indexPaths = await resolveIndexPaths(repositoryRoot);
-    if ((await captureControlIndexSnapshot(repositoryRoot)).treeSha !== snapshot.treeSha) {
-      throw new Error('Git index changed during freeze preparation.');
+    if (existingJournalSnapshot === null) {
+      const orphanRecovery = readdirSync(indexPaths.gitDirectory)
+        .filter((name) => name.startsWith('.entry-'))
+        .sort();
+      if (orphanRecovery.length > 0) {
+        throw new Error(
+          `Git index recovery residue has no journal authority and is preserved: ${orphanRecovery.join(', ')}.`
+        );
+      }
     }
-    const indexPre = await readSafeRegularFile({
+    if (await readOptionalSafeRegularFile({
+      boundaryRoot: indexPaths.gitDirectory,
+      filePath: indexPaths.lockPath,
+      label: 'Git index preparation lock'
+    }) !== null) {
+      throw new Error('Document control freeze found an active Git index lock; preserving it.');
+    }
+    let indexReadback = await readAnchoredIndexSnapshot({
       boundaryRoot: indexPaths.gitDirectory,
       filePath: indexPaths.indexPath,
-      label: 'Git index PRE'
+      label: 'Git index preparation readback'
     });
+    if (indexReadback.identity !== snapshot.index.identity
+        || !indexReadback.bytes.equals(snapshot.index.bytes)) {
+      const semanticReadback = await captureRepositoryIndexTreeThroughExternalScratch({
+        repositoryRoot,
+        resolverGit: createReadOnlyResolverGit()
+      });
+      if (semanticReadback.treeSha !== snapshot.treeSha) {
+        throw new Error(
+          `Git index semantic tree changed during freeze preparation (before=${snapshot.treeSha}, `
+          + `after=${semanticReadback.treeSha}).`
+        );
+      }
+      indexReadback = semanticReadback.index;
+    }
+    const indexPre = Buffer.from(indexReadback.bytes);
+    const liveDefaultLine = requireCommand(run(
+      'git',
+      ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
+      repositoryRoot
+    ), 'Pre-publication live default admission');
+    const liveDefaultSha = shaValue(
+      liveDefaultLine.split(/\s+/u)[0],
+      'Pre-publication live default admission'
+    );
+    if (liveDefaultSha !== localDefaultSha) {
+      throw new Error('Live default ref is stale before repository object publication; freeze fails closed.');
+    }
+    const createFreezeOperation = (
+      candidateTreeSha: string,
+      indexNext: Buffer
+    ): Readonly<{
+      journal: FreezeJournalV4;
+      result: CodexDevelopmentFreezeResultV1;
+    }> => {
+      const indexTransport = Object.freeze({ pre: toBase64(indexPre), next: toBase64(indexNext) });
+      const semantic = Object.freeze({
+        schema: FreezeJournalSchemaV4,
+        manifestPath: input.manifestPath,
+        manifestDigest: projection.manifestDigest,
+        reviewedOn: input.reviewedOn,
+        baseSha: localDefaultSha,
+        baseTreeSha,
+        preIndexTreeSha: snapshot.treeSha,
+        candidateTreeSha,
+        files: Object.freeze({
+          manifest: Object.freeze({ pre: toBase64(manifestBytes), next: toBase64(manifestBytes) }),
+          pointer: Object.freeze({ pre: toBase64(pointerPre), next: toBase64(pointerNext) }),
+          rollingPlan: Object.freeze({ pre: toBase64(rollingPlanPre), next: toBase64(rollingPlanNext) })
+        }),
+        index: indexTransport,
+        indexTransportDigest: freezeIndexTransportDigestV4(indexTransport)
+      });
+      const operationId = freezeOperationIdV4(semantic);
+      const result: CodexDevelopmentFreezeResultV1 = Object.freeze({
+        schema: FreezeResultSchemaV1,
+        status: 'ACTIVATED_INDEX_PENDING_COMMIT',
+        operationId,
+        baseSha: localDefaultSha,
+        baseTreeSha,
+        candidateTreeSha,
+        candidateHeadSha: null,
+        manifestPath: input.manifestPath,
+        manifestDigest: projection.manifestDigest,
+        indexPublished: true,
+        worktreeProjected: true
+      });
+      return Object.freeze({
+        journal: Object.freeze({
+          ...semantic,
+          operationId,
+          phase: 'prepared',
+          result
+        }),
+        result
+      });
+    };
+    const projectionAlreadyCurrent = indexedTargetManifest !== undefined
+      && indexedTargetManifest.equals(manifestBytes)
+      && pointerPre.equals(pointerNext)
+      && rollingPlanPre.equals(rollingPlanNext);
+    if (projectionAlreadyCurrent) {
+      const noop = createFreezeOperation(snapshot.treeSha, indexPre);
+      await input.beforeInitialJournalFence?.();
+      await assertInitialFreezeObservationFence({
+        repositoryRoot,
+        defaultRef: spec.resolver.defaultRef,
+        headSha,
+        localDefaultSha,
+        indexPaths,
+        indexSnapshot: indexReadback,
+        expectedIndexTreeSha: snapshot.treeSha,
+        allowSemanticIndexDrift: true,
+        worktreeFiles: [
+          { filePath: manifestFile, expectedBytes: manifestBytes, label: 'manifest' },
+          { filePath: pointerFile, expectedBytes: pointerPre, label: 'active pointer' },
+          { filePath: rollingPlanFile, expectedBytes: rollingPlanWorktree, label: 'rolling plan' }
+        ]
+      });
+      return noop.result;
+    }
     const built = await buildNextIndex({
       repositoryRoot,
       gitDirectory: indexPaths.gitDirectory,
       indexPath: indexPaths.indexPath,
       targets: [
-        { path: input.manifestPath, bytes: manifestBytes },
-        { path: ActivePointerPath, bytes: pointerNext },
-        { path: RollingPlanPath, bytes: rollingPlanNext }
+        { path: input.manifestPath, pre: indexedTargetManifest, bytes: manifestBytes },
+        { path: ActivePointerPath, pre: pointerPre, bytes: pointerNext },
+        { path: RollingPlanPath, pre: rollingPlanPre, bytes: rollingPlanNext }
       ]
     });
-    const semantic = Object.freeze({
-      schema: FreezeJournalSchemaV3,
-      manifestPath: input.manifestPath,
-      manifestDigest: projection.manifestDigest,
-      reviewedOn: input.reviewedOn,
-      baseSha: localDefaultSha,
-      baseTreeSha,
-      preIndexTreeSha: snapshot.treeSha,
-      candidateTreeSha: built.treeSha,
-      files: Object.freeze({
-        manifest: Object.freeze({ pre: toBase64(manifestBytes), next: toBase64(manifestBytes) }),
-        pointer: Object.freeze({ pre: toBase64(pointerPre), next: toBase64(pointerNext) }),
-        rollingPlan: Object.freeze({ pre: toBase64(rollingPlanPre), next: toBase64(rollingPlanNext) })
-      }),
-      index: Object.freeze({ pre: toBase64(indexPre), next: toBase64(built.bytes) })
-    });
-    const operationId = freezeOperationIdV3(semantic);
-    const result: CodexDevelopmentFreezeResultV1 = Object.freeze({
-      schema: FreezeResultSchemaV1,
-      status: 'ACTIVATED_INDEX_PENDING_COMMIT',
-      operationId,
-      baseSha: localDefaultSha,
-      baseTreeSha,
-      candidateTreeSha: built.treeSha,
-      candidateHeadSha: null,
-      manifestPath: input.manifestPath,
-      manifestDigest: projection.manifestDigest,
-      indexPublished: true,
-      worktreeProjected: true
-    });
-    const journal: FreezeJournalV3 = Object.freeze({
-      ...semantic,
-      operationId,
-      phase: 'prepared',
-      result
-    });
+    const operation = createFreezeOperation(built.treeSha, built.bytes);
     await input.beforeInitialJournalFence?.();
     await assertInitialFreezeObservationFence({
       repositoryRoot,
-      remote: spec.resolver.remote,
-      defaultBranch: spec.resolver.defaultBranch,
       defaultRef: spec.resolver.defaultRef,
       headSha,
       localDefaultSha,
-      liveDefaultSha,
-      indexTreeSha: snapshot.treeSha
+      indexPaths,
+      indexSnapshot: indexReadback,
+      expectedIndexTreeSha: snapshot.treeSha,
+      allowSemanticIndexDrift: false,
+      worktreeFiles: [
+        { filePath: manifestFile, expectedBytes: manifestBytes, label: 'manifest' },
+        { filePath: pointerFile, expectedBytes: pointerPre, label: 'active pointer' },
+        { filePath: rollingPlanFile, expectedBytes: rollingPlanWorktree, label: 'rolling plan' }
+      ]
     });
     const journalBytes = await writeFreezeJournal(
       repositoryRoot,
       existingJournalSnapshot?.bytes ?? null,
-      journal,
+      operation.journal,
       durability,
       input.faultAfter
     );
     maybeFault(input.faultAfter, 'after-journal-prepare');
     return advanceFreezeJournal({
       repositoryRoot,
-      journal,
+      journal: operation.journal,
       journalBytes,
       faultAfter: input.faultAfter,
       durability
@@ -5225,7 +6170,7 @@ function parseReviewThreads(source: string): unknown[] {
 async function resolveActivationBlockedStatus(input: {
   repositoryRoot: string;
   resolverGit: ReadOnlyResolverGitV1;
-  journal: FreezeJournalV3 | null;
+  journal: FreezeJournalV4 | null;
   reason: 'activation-in-progress' | 'activation-observation-raced';
   terminal?: boolean;
 }): Promise<Record<string, unknown>> {
@@ -5397,8 +6342,7 @@ export async function resolveLiveControlPlane(
         : 'stale'
   );
 
-  const candidateManifestBlob = resolverGit.readBlob(repositoryRoot, `${snapshot.treeSha}:${pointer.manifest}`);
-  if (!candidateManifestBlob) throw new Error('Candidate manifest is absent from the immutable index tree.');
+  const candidateManifestBlob = snapshot.candidateManifestBlob;
   const defaultManifestBlob = defaultRefState === 'fresh'
     ? resolverGit.readBlob(repositoryRoot, `${localDefaultSha}:${pointer.manifest}`) ?? null
     : null;
@@ -5508,10 +6452,10 @@ export async function resolveLiveControlPlane(
   await options.beforeObservationReadback?.();
   let indexTreeReadback: string | null = null;
   try {
-    indexTreeReadback = await captureRepositoryIndexTreeThroughExternalScratch({
+    ({ treeSha: indexTreeReadback } = await captureRepositoryIndexTreeThroughExternalScratch({
       repositoryRoot,
       resolverGit
-    });
+    }));
   } catch {
     indexTreeReadback = null;
   }
