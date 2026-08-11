@@ -2,7 +2,7 @@
 title: 动态工程控制面
 status: active
 domain: current-control
-last-reviewed: 2026-08-05
+last-reviewed: 2026-08-12
 ---
 
 # 动态工程控制面
@@ -15,7 +15,12 @@ last-reviewed: 2026-08-05
 `WorkDecision`拥有eligibility/priority，#207/#349拥有order/conflict，rolling plan只投影结果。
 发现新问题时先做existing identity/owner census；命中则同步原identity，不能用聊天、comment recency、
 AI评分或新增计划文件重建下一步。Phase C writer切换前，人工rolling更新必须标明A0 reconciliation；
-切换后只接受validated decision receipt，投影不一致返回`reconcile`。
+切换后由trusted document-control进程从exact main重新运行#221 live adapter，只接受manifest
+`id + tracking`与`select-next`一致的generated projection；receipt文件本身没有写authority，投影不一致
+返回`reconcile`/`unresolved`。normalized近端记录只内嵌在canonical `docs/roadmap.md`，不得另建计划或
+registry文件。选中manifest保留到下一decision消费，下一纵切片再删除旧manifest和已消费catalog item。
+effectful freeze必须运行clean trusted-main脚本，并用`--workspace`显式指向物理隔离的`codex/*`候选；
+直接运行候选修改过的控制脚本不能给候选授权。
 
 当前 Git、PR、CI、Review 和 resolver 状态在运行时生成，不写入稳定架构文档。
 Work Package manifest 只在被当前 pointer 选择期间存在；新 pointer 原子接管并完成

@@ -106,11 +106,13 @@ test('registry projection discovers open-PR manifest entries from pull refs', ()
       number: 11,
       headRefName: 'feat/session',
       headRefOid: headSha,
+      baseRefName: 'main',
       baseRefOid: baseSha,
       body: 'Work-Package: docs/work-packages/candidate-v1.md'
     }]));
     expect(parsed).toHaveLength(1);
     expect(parsed[0]!.number).toBe(11);
+    expect(parsed[0]!.baseBranch).toBe('main');
 
     const entries = collectOpenPullRequestEntries(repository, parsed);
     expect(entries).toHaveLength(1);
@@ -130,6 +132,7 @@ test('open PR entry without a Work-Package locator fails closed', () => {
     number: 12,
     headRefName: 'feat/no-locator',
     headRefOid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    baseRefName: 'main',
     baseRefOid: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
     body: 'no locator here'
   }]))).not.toThrow();
@@ -137,6 +140,7 @@ test('open PR entry without a Work-Package locator fails closed', () => {
     number: 12,
     headRefName: 'feat/no-locator',
     headRefOid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    baseRefName: 'main',
     baseRefOid: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
     body: 'no locator here'
   }]));
@@ -144,4 +148,14 @@ test('open PR entry without a Work-Package locator fails closed', () => {
     'unused',
     parsed
   )).toThrow('exactly one Work-Package locator');
+});
+
+test('open PR inventory requires the exact base branch identity', () => {
+  expect(() => parseOpenPullRequestList(JSON.stringify([{
+    number: 13,
+    headRefName: 'feat/missing-base-branch',
+    headRefOid: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    baseRefOid: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    body: 'Work-Package: docs/work-packages/candidate-v1.md'
+  }]))).toThrow('identity is invalid');
 });

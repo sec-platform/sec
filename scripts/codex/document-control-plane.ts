@@ -26,18 +26,21 @@ import {
   CodexDevelopmentParseCurrentStateSpecV1,
   CodexDevelopmentParseRollingPlanV1,
   CodexDevelopmentResolveActiveWorkPackageV1,
+  CodexDevelopmentResolveWorkSelectionProjectionModeV1,
   type CodexDevelopmentActiveWorkPackageResolution,
   type CodexDevelopmentDefaultRefState,
   type CodexDevelopmentDocumentControlRecoveryTargetKeyV1,
   type CodexDevelopmentInitiallyAbsentTupleEdgeV1,
   type CodexDevelopmentInitiallyAbsentTupleEntryV1,
   type CodexDevelopmentInitiallyAbsentTuplePlatformV1,
-  type CodexDevelopmentInitiallyAbsentTupleStateV1
+  type CodexDevelopmentInitiallyAbsentTupleStateV1,
+  type CodexDevelopmentWorkSelectionProjectionV1
 } from './document-control-plane-contract.ts';
 import {
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
 } from './work-package-contract.ts';
+import { observeSecWorkSelectionLiveV1 } from './work-selection.ts';
 
 export {
   CodexDevelopmentActivePointerSchemaV2,
@@ -5840,6 +5843,17 @@ export async function freezeDocumentControlPlaneV1(input: {
       requireCommand(run('git', ['rev-parse', `${localDefaultSha}^{tree}`], repositoryRoot), 'Base tree'),
       'Base tree'
     );
+    const defaultStateBytes = requireGitBlob(
+      repositoryRoot,
+      `${localDefaultSha}:${CurrentStatePath}`,
+      'Trusted default current-state authority'
+    );
+    const defaultSpec = CodexDevelopmentParseCurrentStateSpecV1(
+      decodeUtf8(defaultStateBytes, 'Trusted default current-state authority')
+    );
+    const workSelectionProjectionMode = CodexDevelopmentResolveWorkSelectionProjectionModeV1(
+      defaultSpec
+    );
 
     // This complete local authority preflight uses an external object directory;
     // no repository object, index, journal, or control publication is permitted
@@ -5870,6 +5884,11 @@ export async function freezeDocumentControlPlaneV1(input: {
     if (immutableRolling.activePackageId !== path.posix.basename(immutablePointer.manifest, '.md')) {
       throw new Error('Immutable HEAD pointer and rolling plan do not bind one selection baseline.');
     }
+    const immutableCurrentManifestBytes = requireGitBlob(
+      repositoryRoot,
+      `${headSha}:${immutablePointer.manifest}`,
+      'Immutable candidate current Work Package manifest'
+    );
 
     const currentManifestBlob = snapshot.candidateManifestBlob;
     const currentResolution = CodexDevelopmentResolveActiveWorkPackageV1({
@@ -5940,11 +5959,50 @@ export async function freezeDocumentControlPlaneV1(input: {
     const requestedRollingPlanSource = rollingPlanWorktree.equals(rollingPlanPre)
       ? indexedControlMatchesPriorProjection ? snapshot.rollingPlanSource : undefined
       : decodeUtf8(rollingPlanWorktree, 'Requested rolling-plan projection');
+    const targetManifest = CodexDevelopmentParseWorkPackageManifest(
+      decodeUtf8(manifestBytes, 'Work Package manifest'),
+      input.manifestPath
+    );
+    let workSelectionProjection: CodexDevelopmentWorkSelectionProjectionV1 | undefined;
+    if (targetManifest.id !== immutableRolling.activePackageId
+        && workSelectionProjectionMode === 'required-v1') {
+      const candidateBranch = requireCommand(
+        run('git', ['branch', '--show-current'], repositoryRoot),
+        'WorkDecision candidate branch'
+      );
+      if (!candidateBranch.startsWith('codex/')) {
+        throw new Error('A new WorkDecision-selected package requires one codex candidate branch.');
+      }
+      const selection = observeSecWorkSelectionLiveV1({
+        cwd: repositoryRoot,
+        exactMain: localDefaultSha,
+        exactMainTree: baseTreeSha
+      });
+      if (selection.status !== 'resolved') {
+        throw new Error(
+          `WorkDecision observation is unresolved (${selection.reasonCodes.join(',')}): `
+          + selection.blockerRefs.join(',')
+        );
+      }
+      const decision = selection.receipt.decision;
+      const selectedCatalogItem = selection.receipt.catalog.items.find(
+        ({ workId }) => workId === decision.selectedWorkId
+      );
+      if (decision.status !== 'select-next'
+          || selectedCatalogItem === undefined
+          || selectedCatalogItem.packageId !== targetManifest.id
+          || selectedCatalogItem.tracking !== targetManifest.tracking) {
+        throw new Error('Target manifest is not the exact package selected by the live WorkDecision.');
+      }
+      workSelectionProjection = Object.freeze({ receipt: selection.receipt });
+    }
     const projection = CodexDevelopmentCreateFreezeProjectionV1({
       spec,
       currentPointerSource: immutablePointerSource,
       currentRollingPlanSource: immutableRollingPlanSource,
+      currentManifestBytes: immutableCurrentManifestBytes,
       requestedRollingPlanSource,
+      workSelectionProjection,
       manifestPath: input.manifestPath,
       manifestBytes,
       baseSha: localDefaultSha,
@@ -6544,13 +6602,22 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const command = argv.shift();
   const usage = 'Usage:\n'
-    + '  bun scripts/codex/document-control-plane.ts status [--json]\n'
-    + '  bun scripts/codex/document-control-plane.ts freeze --manifest <path> --reviewed-on <YYYY-MM-DD> [--json]';
+    + '  bun scripts/codex/document-control-plane.ts status [--workspace <path>] [--json]\n'
+    + '  bun scripts/codex/document-control-plane.ts freeze --workspace <candidate-path> '
+    + '--manifest <path> --reviewed-on <YYYY-MM-DD> [--json]';
   if (command === 'status') {
-    if (argv.some((argument) => argument !== '--json') || argv.filter((argument) => argument === '--json').length > 1) {
-      throw new Error(usage);
+    let workspace = process.cwd();
+    for (let index = 0; index < argv.length; index += 1) {
+      const argument = argv[index]!;
+      if (argument === '--json') continue;
+      if (argument !== '--workspace' || argv[index + 1] === undefined
+          || argv[index + 1]!.startsWith('--')) throw new Error(usage);
+      workspace = path.resolve(argv[index + 1]!);
+      index += 1;
     }
-    const resolved = await resolveLiveControlPlane(process.cwd());
+    if (argv.filter((argument) => argument === '--json').length > 1
+        || argv.filter((argument) => argument === '--workspace').length > 1) throw new Error(usage);
+    const resolved = await resolveLiveControlPlane(workspace);
     process.stdout.write(`${JSON.stringify(resolved, null, 2)}\n`);
     const repository = resolved.repository as { defaultRefState: CodexDevelopmentDefaultRefState };
     const github = resolved.github as { status: string };
@@ -6568,7 +6635,9 @@ async function main(): Promise<void> {
     for (let index = 0; index < argv.length; index += 1) {
       const argument = argv[index]!;
       if (argument === '--json') continue;
-      if (argument !== '--manifest' && argument !== '--reviewed-on') throw new Error(usage);
+      if (argument !== '--manifest' && argument !== '--reviewed-on' && argument !== '--workspace') {
+        throw new Error(usage);
+      }
       if (values.has(argument)) throw new Error(`Duplicate freeze option: ${argument}.`);
       const value = argv[index + 1];
       if (value === undefined || value.startsWith('--')) throw new Error(`${argument} requires a value.\n${usage}`);
@@ -6577,8 +6646,63 @@ async function main(): Promise<void> {
     }
     const manifestPath = values.get('--manifest');
     const reviewedOn = values.get('--reviewed-on');
-    if (manifestPath === undefined || reviewedOn === undefined) throw new Error(usage);
-    const result = await freezeDocumentControlPlaneV1({ cwd: process.cwd(), manifestPath, reviewedOn });
+    const workspace = values.get('--workspace');
+    if (manifestPath === undefined || reviewedOn === undefined || workspace === undefined) {
+      throw new Error(usage);
+    }
+    const executionRoot = path.resolve(import.meta.dir, '..', '..');
+    const executionBranch = requireCommand(
+      run('git', ['branch', '--show-current'], executionRoot),
+      'Document-control execution branch'
+    );
+    const executionHead = shaValue(
+      requireCommand(run('git', ['rev-parse', 'HEAD'], executionRoot), 'Document-control execution HEAD'),
+      'Document-control execution HEAD'
+    );
+    const executionSpec = CodexDevelopmentParseCurrentStateSpecV1(decodeUtf8(requireGitBlob(
+      executionRoot,
+      `${executionHead}:${CurrentStatePath}`,
+      'Document-control execution current-state authority'
+    ), 'Document-control execution current-state authority'));
+    const executionDefault = shaValue(requireCommand(
+      run('git', ['rev-parse', '--verify', executionSpec.resolver.defaultRef], executionRoot),
+      'Document-control execution default'
+    ), 'Document-control execution default');
+    const executionSurfaceStatus = run('git', [
+      'status', '--porcelain=v1', '--untracked-files=all', '--',
+      'scripts/codex', 'platform/shared', 'package.json', 'bun.lock'
+    ], executionRoot);
+    if (executionBranch !== 'main' || executionHead !== executionDefault
+        || executionSurfaceStatus.code !== 0 || executionSurfaceStatus.stdout.length > 0) {
+      throw new Error(
+        'Document-control freeze must execute from the clean trusted main control surface; '
+        + 'use --workspace to target the isolated candidate.'
+      );
+    }
+    const requestedWorkspace = path.resolve(workspace);
+    const candidateRoot = path.resolve(requireCommand(
+      run('git', ['rev-parse', '--show-toplevel'], requestedWorkspace),
+      'Document-control candidate root'
+    ));
+    const physicalKey = (value: string) => {
+      const resolved = realpathSync(value).replaceAll('\\', '/');
+      return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    };
+    const candidateBranch = requireCommand(
+      run('git', ['branch', '--show-current'], candidateRoot),
+      'Document-control candidate branch'
+    );
+    if (physicalKey(candidateRoot) === physicalKey(executionRoot)
+        || !candidateBranch.startsWith('codex/')) {
+      throw new Error(
+        'Document-control freeze target must be one distinct isolated codex candidate worktree.'
+      );
+    }
+    const result = await freezeDocumentControlPlaneV1({
+      cwd: candidateRoot,
+      manifestPath,
+      reviewedOn
+    });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;
   }

@@ -151,9 +151,17 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     owner: 'work-selection',
     identity: { kind: 'contract', id: 'work-selection' },
     autoReferenceMode: 'declared-only',
-    sourceFiles: ['platform/shared/work-selection-contract.ts'],
+    sourceFiles: [
+      'platform/shared/work-selection-contract.ts',
+      'platform/shared/work-selection-live-contract.ts',
+      'scripts/codex/work-selection.ts'
+    ],
     fast: [
+      'tests/contract/document-control-plane-lifecycle.test.ts',
+      'tests/unit/branch-lifecycle-contract.test.ts',
+      'tests/unit/verification-candidate-tree.test.ts',
       'tests/unit/work-selection-contract.test.ts',
+      'tests/unit/work-selection-live.test.ts',
       'tests/contract/test-impact.test.ts'
     ],
     slow: []

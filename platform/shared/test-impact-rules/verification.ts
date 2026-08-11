@@ -10,6 +10,15 @@ const IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS = [
   'tests/unit/import-transform-transaction.test.ts'
 ];
 
+const MAIN_HEALTH_FAST_TESTS = [
+  'tests/contract/default-branch-revision-health.test.ts',
+  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/main-health-contract.test.ts',
+  'tests/unit/verification-session-runtime.test.ts',
+  'tests/unit/work-selection-live.test.ts'
+];
+
 const AFFECTED_TEST_SELECTION_FAST_TESTS = [
   'tests/contract/ci-lanes.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
@@ -48,17 +57,20 @@ const TRUSTED_VERIFIER_TCB_FAST_TESTS = [
 
 const VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS = [
   'tests/contract/ci-contract.test.ts',
+  'tests/contract/document-control-plane-lifecycle.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/branch-closeout-receipt.test.ts',
   'tests/unit/branch-closeout-rest-comments.test.ts',
+  'tests/unit/branch-lifecycle-contract.test.ts',
   'tests/unit/branch-lifecycle-temp-repo.test.ts',
   'tests/unit/integration-authorization-publication.test.ts',
   'tests/unit/local-main-closeout.test.ts',
   'tests/unit/tcb-trust-root-contract.test.ts',
   'tests/unit/verification-candidate-tree.test.ts',
-  'tests/unit/verification-session-runtime.test.ts'
+  'tests/unit/verification-session-runtime.test.ts',
+  'tests/unit/work-selection-live.test.ts'
 ];
 
 const VERIFICATION_TRUTH_FAST_TESTS = [
@@ -85,6 +97,17 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     ]
   },
   {
+    owner: 'main-health',
+    identity: { kind: 'architecture-owner', id: 'main-health' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'platform/shared/default-branch-revision-health.ts',
+      'platform/shared/main-health-contract.ts'
+    ],
+    fast: MAIN_HEALTH_FAST_TESTS,
+    slow: []
+  },
+  {
     owner: 'verification-session-branch-closeout-authority',
     identity: {
       kind: 'architecture-owner',
@@ -95,6 +118,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/branch-closeout-contract.ts',
       'scripts/codex/branch-closeout-receipt.ts',
       'scripts/codex/branch-closeout.ts',
+      'scripts/codex/branch-lifecycle-audit.ts',
       'scripts/codex/branch-lifecycle-config.ts',
       'scripts/codex/branch-lifecycle-command.ts',
       'scripts/codex/branch-lifecycle-inventory.ts',

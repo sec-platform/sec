@@ -631,6 +631,129 @@ plan映射到既有唯一owner，并作为可独立main/readback的纵向Work Pa
 workflow与trust transition仍按single-writer集成。每个切片必须同时声明被替代入口和consumer-zero
 删除条件，禁止长期dual write或“新平台建完再迁移”的大爆炸。
 
+### R14 机器化近期候选投影
+
+下列JSON是本roadmap内部唯一的bounded normalized stage projection，不是第二roadmap、Issue镜像或
+长期backlog。它只保存维护者已采纳的静态identity、owner、dependency与selection class；live Issue
+状态/current-spec revision、Work Package registry、branch closeout/control冲突与main identity均由#221 adapter
+在运行时从各自owner重新观察。Issue body只计算raw current-spec digest，任何title/body/comment文字均不
+进入字段解释。选中项的manifest进入main后保留到下一次decision消费；下一纵切片同时删除该旧manifest、
+推进本窗口并保证生成投影仍有二至五个候选。不存在有效live facts时返回`unresolved`，不得从rolling
+prose、caller JSON或本block之外猜测。
+依赖必须只指向block中更早的work，因而block自身是acyclic ordered window；successor count和
+`roadmapDirect`从该结构及其位于canonical roadmap这一事实推导，不持久化第二份derived truth。
+
+<!-- sec-work-selection-roadmap-catalog-v1:begin -->
+```json
+{
+  "schema": "sec-roadmap-work-catalog-v1",
+  "stageRef": "r14-agent-operation",
+  "items": [
+    {
+      "packageId": "operation-read-plan-authority-canary-v1",
+      "workId": "issue-346",
+      "tracking": "issue-346",
+      "currentSpecRef": "github:issue/346",
+      "ownerRef": "github:issue/346",
+      "kind": "focused",
+      "disposition": "active",
+      "priorityClass": "active-critical-path",
+      "priorityEvidenceRefs": ["roadmap:r14/read-fast-path"],
+      "prerequisiteWorkIds": [],
+      "orderedAfterWorkIds": [],
+      "reproductionOrEvidenceFreshness": "fresh",
+      "rootCauseState": "repeat-root-cause",
+      "rootCauseRef": "github:issue/346",
+      "scopeClosure": "closed",
+      "exitCriteriaRef": "github:issue/346#acceptance",
+      "nearTermConsumerRef": null,
+      "humanDecisionRef": null
+    },
+    {
+      "packageId": "delegation-consumer-zero-retirement-v1",
+      "workId": "issue-275",
+      "tracking": "issue-275",
+      "currentSpecRef": "github:issue/275",
+      "ownerRef": "github:issue/275",
+      "kind": "program",
+      "disposition": "active",
+      "priorityClass": "active-critical-path",
+      "priorityEvidenceRefs": ["roadmap:r14/guidance-convergence"],
+      "prerequisiteWorkIds": ["issue-346"],
+      "orderedAfterWorkIds": [],
+      "reproductionOrEvidenceFreshness": "fresh",
+      "rootCauseState": "repeat-root-cause",
+      "rootCauseRef": "github:issue/275",
+      "scopeClosure": "closed",
+      "exitCriteriaRef": "github:issue/275#completion",
+      "nearTermConsumerRef": null,
+      "humanDecisionRef": null
+    },
+    {
+      "packageId": "candidate-control-transaction-v1",
+      "workId": "issue-321-candidate-control",
+      "tracking": "issue-321",
+      "currentSpecRef": "github:issue/321",
+      "ownerRef": "github:issue/321#candidate-control-transaction",
+      "kind": "focused",
+      "disposition": "active",
+      "priorityClass": "active-critical-path",
+      "priorityEvidenceRefs": ["roadmap:r14/candidate-control"],
+      "prerequisiteWorkIds": ["issue-275"],
+      "orderedAfterWorkIds": [],
+      "reproductionOrEvidenceFreshness": "fresh",
+      "rootCauseState": "repeat-root-cause",
+      "rootCauseRef": "github:issue/321#candidate-control-transaction",
+      "scopeClosure": "closed",
+      "exitCriteriaRef": "github:issue/321#candidate-control-transaction",
+      "nearTermConsumerRef": null,
+      "humanDecisionRef": null
+    },
+    {
+      "packageId": "typescript-7-checker-acceleration-v1",
+      "workId": "issue-312",
+      "tracking": "issue-312",
+      "currentSpecRef": "github:issue/312",
+      "ownerRef": "github:issue/312",
+      "kind": "focused",
+      "disposition": "active",
+      "priorityClass": "near-term-acceleration",
+      "priorityEvidenceRefs": ["roadmap:r14/read-path-cutover"],
+      "prerequisiteWorkIds": ["issue-346"],
+      "orderedAfterWorkIds": ["issue-275"],
+      "reproductionOrEvidenceFreshness": "fresh",
+      "rootCauseState": "not-repeated",
+      "rootCauseRef": "github:issue/312",
+      "scopeClosure": "closed",
+      "exitCriteriaRef": "github:issue/312#acceptance",
+      "nearTermConsumerRef": "github:issue/316",
+      "humanDecisionRef": null
+    },
+    {
+      "packageId": "execution-wave-v1",
+      "workId": "issue-349",
+      "tracking": "issue-349",
+      "currentSpecRef": "github:issue/349",
+      "ownerRef": "github:issue/349",
+      "kind": "focused",
+      "disposition": "deferred",
+      "priorityClass": "defer",
+      "priorityEvidenceRefs": ["roadmap:r14/execution-wave"],
+      "prerequisiteWorkIds": ["issue-321-candidate-control"],
+      "orderedAfterWorkIds": ["issue-312"],
+      "reproductionOrEvidenceFreshness": "fresh",
+      "rootCauseState": "not-repeated",
+      "rootCauseRef": "github:issue/349",
+      "scopeClosure": "closed",
+      "exitCriteriaRef": "github:issue/349#acceptance",
+      "nearTermConsumerRef": null,
+      "humanDecisionRef": null
+    }
+  ]
+}
+```
+<!-- sec-work-selection-roadmap-catalog-v1:end -->
+
 ### 进入条件
 
 每个收敛切片必须有真实R3–R13 consumer、可重放的编排放大或正确性failure、唯一owner和明确legacy

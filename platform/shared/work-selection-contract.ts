@@ -474,7 +474,7 @@ export function parseSecWorkSelectionInputV1(value: unknown): SecWorkSelectionIn
   });
 }
 
-interface CandidateEvaluation {
+export interface CandidateEvaluation {
   readonly candidate: SecWorkCandidateV1;
   readonly decision: SecWorkCandidateDecisionV1;
 }
@@ -483,7 +483,7 @@ function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort(compareCodeUnits);
 }
 
-function evaluateCandidate(candidate: SecWorkCandidateV1): CandidateEvaluation {
+export function evaluateSecWorkCandidateV1(candidate: SecWorkCandidateV1): CandidateEvaluation {
   const rejected: string[] = [];
   const unresolved: string[] = [];
   const reasons: string[] = [];
@@ -805,7 +805,7 @@ export function compileSecWorkDecisionV1(value: unknown): SecWorkDecisionV1 {
     });
   }
 
-  const evaluations = input.candidates.map(evaluateCandidate);
+  const evaluations = input.candidates.map(evaluateSecWorkCandidateV1);
   const ordered = [...evaluations].sort((left, right) => (
     compareCandidateRank(left.candidate, right.candidate)
   ));

@@ -2,6 +2,11 @@ import { parse as parseYaml } from 'yaml';
 
 import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
+  compileSecWorkRollingProjectionV1,
+  renderSecWorkRollingPlanV1,
+  type SecWorkDecisionReceiptV1
+} from '../../platform/shared/work-selection-live-contract.ts';
+import {
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest,
   type CodexDevelopmentWorkPackageManifest
@@ -64,6 +69,32 @@ export interface CodexDevelopmentActivePointerV2 {
 export interface CodexDevelopmentRollingPlanV1 {
   activePackageId: string;
   candidatePackageIds: string[];
+}
+
+export interface CodexDevelopmentWorkSelectionProjectionV1 {
+  readonly receipt: SecWorkDecisionReceiptV1;
+}
+
+export type CodexDevelopmentWorkSelectionProjectionModeV1 =
+  | 'legacy-bootstrap'
+  | 'required-v1';
+
+export function CodexDevelopmentResolveWorkSelectionProjectionModeV1(
+  spec: CodexDevelopmentCurrentStateSpecV1
+): CodexDevelopmentWorkSelectionProjectionModeV1 {
+  const value = spec.stableFacts.workSelection;
+  if (value === undefined) return 'legacy-bootstrap';
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Current-state workSelection stable fact must be one object.');
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  if (keys.length !== 2 || keys[0] !== 'catalog' || keys[1] !== 'projection'
+      || record.catalog !== 'docs/roadmap.md#sec-work-selection-roadmap-catalog-v1'
+      || record.projection !== 'sec-work-selection-live-v1-required') {
+    throw new Error('Current-state workSelection stable fact is unsupported or incomplete.');
+  }
+  return 'required-v1';
 }
 
 export const CodexDevelopmentDocumentControlRecoveryTargetKeysV1 = Object.freeze([
@@ -706,7 +737,9 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
   spec: CodexDevelopmentCurrentStateSpecV1;
   currentPointerSource: string;
   currentRollingPlanSource: string;
+  currentManifestBytes: Uint8Array;
   requestedRollingPlanSource?: string;
+  workSelectionProjection?: CodexDevelopmentWorkSelectionProjectionV1;
   manifestPath: string;
   manifestBytes: Uint8Array;
   baseSha: string;
@@ -732,6 +765,24 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
   )) {
     throw new Error('Current rolling plan and active pointer are not bound to the same package.');
   }
+  let currentManifestSource: string;
+  try {
+    currentManifestSource = new TextDecoder('utf-8', { fatal: true }).decode(input.currentManifestBytes);
+  } catch (error) {
+    throw new Error('Current Work Package manifest bytes must be valid UTF-8.', { cause: error });
+  }
+  const currentManifest = CodexDevelopmentParseWorkPackageManifest(
+    currentManifestSource,
+    currentPointer.manifest
+  );
+  if (CodexDevelopmentWorkPackageManifestDigest(input.currentManifestBytes)
+      !== currentPointer.manifestDigest
+      || currentManifest.id !== currentRollingPlan.activePackageId) {
+    throw new Error('Current pointer, rolling plan, and manifest bytes do not bind one exact package identity.');
+  }
+  if (manifest.id === currentManifest.id && manifest.tracking !== currentManifest.tracking) {
+    throw new Error('Same-package freeze cannot replace the exact tracking identity.');
+  }
   const manifestDigest = CodexDevelopmentWorkPackageManifestDigest(
     input.manifestBytes
   ) as `sha256:${string}`;
@@ -741,21 +792,54 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
     manifestDigest,
     reviewedOn: input.reviewedOn
   });
-  const promotedRollingPlanSource = CodexDevelopmentPromoteRollingPlanV1({
-    source: input.currentRollingPlanSource,
-    packageId: manifest.id
-  });
-  let rollingPlanSource = promotedRollingPlanSource;
-  if (input.requestedRollingPlanSource !== undefined) {
-    const promoted = CodexDevelopmentParseRollingPlanV1(promotedRollingPlanSource);
-    const requested = CodexDevelopmentParseRollingPlanV1(input.requestedRollingPlanSource);
-    if (requested.activePackageId !== promoted.activePackageId
-        || JSON.stringify(requested.candidatePackageIds) !== JSON.stringify(promoted.candidatePackageIds)) {
-      throw new Error(
-        'Requested rolling-plan projection must preserve the exact deterministic promotion topology.'
-      );
+  const selectionRequired = CodexDevelopmentResolveWorkSelectionProjectionModeV1(input.spec)
+    === 'required-v1' && manifest.id !== currentManifest.id;
+  if (selectionRequired !== (input.workSelectionProjection !== undefined)) {
+    throw new Error(selectionRequired
+      ? 'A new package requires one live WorkDecision projection.'
+      : 'WorkDecision projection is forbidden for legacy or same-package freeze.');
+  }
+  let rollingPlanSource: string;
+  if (input.workSelectionProjection === undefined) {
+    const promotedRollingPlanSource = CodexDevelopmentPromoteRollingPlanV1({
+      source: input.currentRollingPlanSource,
+      packageId: manifest.id
+    });
+    rollingPlanSource = promotedRollingPlanSource;
+    if (input.requestedRollingPlanSource !== undefined) {
+      const promoted = CodexDevelopmentParseRollingPlanV1(promotedRollingPlanSource);
+      const requested = CodexDevelopmentParseRollingPlanV1(input.requestedRollingPlanSource);
+      if (requested.activePackageId !== promoted.activePackageId
+          || JSON.stringify(requested.candidatePackageIds) !== JSON.stringify(promoted.candidatePackageIds)) {
+        throw new Error(
+          'Requested rolling-plan projection must preserve the exact deterministic promotion topology.'
+        );
+      }
+      rollingPlanSource = input.requestedRollingPlanSource;
     }
-    rollingPlanSource = input.requestedRollingPlanSource;
+  } else {
+    const receipt = input.workSelectionProjection.receipt;
+    const selection = compileSecWorkRollingProjectionV1(receipt);
+    if (selection.exactMain !== input.baseSha) {
+      throw new Error('WorkDecision projection must bind the exact freeze base.');
+    }
+    if (selection.active.packageId !== manifest.id
+        || selection.active.tracking !== manifest.tracking) {
+      throw new Error('WorkDecision selection must equal the target manifest package and tracking identity.');
+    }
+    const selectedRollingPlanSource = renderSecWorkRollingPlanV1({
+      receipt,
+      reviewedOn: input.reviewedOn
+    });
+    const selectedRolling = CodexDevelopmentParseRollingPlanV1(selectedRollingPlanSource);
+    if (selectedRolling.activePackageId !== manifest.id) {
+      throw new Error('WorkDecision rolling projection does not activate the selected package.');
+    }
+    if (input.requestedRollingPlanSource !== undefined
+        && input.requestedRollingPlanSource !== selectedRollingPlanSource) {
+      throw new Error('Requested rolling bytes must equal the trusted WorkDecision renderer exactly.');
+    }
+    rollingPlanSource = selectedRollingPlanSource;
   }
   if (CodexDevelopmentParseRollingPlanV1(rollingPlanSource).activePackageId !== manifest.id) {
     throw new Error('Freeze projection rolling-plan readback failed.');
