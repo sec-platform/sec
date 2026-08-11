@@ -7,10 +7,11 @@ last-reviewed: 2026-08-12
 
 # SEC 滚动近期计划
 
-本窗口从受信 `main@eccdfee5280119cfbba82f01d421a5f0ec9765e4`、
-`tree@c5d56eb05852784be11e56b70fe5df48fff16cfa` 重算；local、`origin/main` 与
-live provider default一致，root clean，当前唯一开放候选为PR #357。PR #350、#351、#353、#354与imports
-scope结果已经进入当前tree；旧candidate Review、Gate、Session、manifest或聊天顺序均不迁移。
+本包激活时从受信 `main@41f72db071cbbd5cc9a9bfeaa9c2bcec855ca7d7`、
+`tree@7383e11c405ac1ce232d3cd7e8ef8cd404587237` 重算；当时protected root local main、
+`origin/main`与live provider default一致，root clean，且不存在预先开放PR。该段只记录激活
+snapshot，不替代每次effect前的live resolver。PR #350、#351、#353、#354、#357与imports scope
+结果已经进入该base tree；旧candidate Review、Gate、Session、manifest或聊天顺序均不迁移。
 
 这份文件只投影一个当前包和四个条件候选。长期能力顺序仍由`docs/roadmap.md`拥有，持久工作
 身份与current spec仍由既有Issue拥有，eligibility/priority归#221 `WorkDecision`，order/conflict
@@ -19,36 +20,21 @@ exact facts的显式reconciliation；切换后只能由validated WorkDecision物
 
 ## 当前唯一 Work Package
 
-### issue-disposition-safety-v1
-
-从then-current main执行#352：由现有integration/closeout owner实现machine-owned
-`IssueDisposition`。受控 PR title/body、provider linked closing references 与生成的 merge message始终
-保持零 closing authority；GraphQL closing census拒绝partial errors并以totalCount证明完整。exact
-new-main与MainHealth读回后，当前只产生`progressed`：仓库尚无独立post-main completion assessment，
-且GitHub Issue PATCH没有可证明的原子前置条件。误关只能由provider ClosedEvent精确绑定本次PR和
-merge commit后升级为`manual-action-required`并停止closeout，不执行竞态reopen。
-
-发布读回发现old-main TCB lock落后于#354–#356已合并的五个causal module；ordinary Session与
-trusted-bootstrap PRE均在同一substitution fingerprint前停止，candidate SUT未启动。当前同一branch/
-PR successor同时刷新generated lock、隔离hook执行与安装、在pre-push加入纯TCB check，并使未来
-base-first bootstrap只把严格成对substitution drift降级为`manual-bootstrap-required` Evidence；任何
-结构漂移仍hard fail。本次旧head与run `31520460467`只保留为失败证据，不授权successor。
-
-## 候选 Work Package
-
-### 1. document-control-replan-recovery-v1
+### document-control-replan-recovery-v1
 
 由#321/#311修复真实Windows canary暴露的control-plane recovery缺陷：同manifest pre-publication
 replan在pointer已等于NEXT时必须byte-exact NOOP；Git index recovery identity以semantic
 tree/entries与受保护tuple为准；terminal residue自动consumer-zero retire，人工删除不成为正常路径。
 
-### 2. work-selection-live-projection-v1
+## 候选 Work Package
+
+### 1. work-selection-live-projection-v1
 
 继续#221 Phase B/C：trusted adapter只从repository orientation、#311 registry、#313 closeout、
 #207 conflict与maintainer-adopted normalized identity收集facts，签发decision receipt；rolling writer
 只物化该receipt的当前+二至五候选。不得抓取Issue body/comment、建立第二registry或静默覆盖冲突投影。
 
-### 3. operation-read-plan-authority-canary-v1
+### 2. operation-read-plan-authority-canary-v1
 
 从then-current main完成#346的独立issuer-bound activation receipt与三个真实operation canary：普通
 focused operation、zero-or-one Skill operation和maintainer mutation case。Capsule/Read Plan consumer

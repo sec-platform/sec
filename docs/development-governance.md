@@ -591,11 +591,79 @@ freeze 才是 terminal generation；此后语义或 scope 变化创建新 genera
 当前 control plane 未提供该 transition 时，失败属于其唯一 owner 的缺口，不能靠手改 digest、保留
 平行 manifest 或无限 successor package 规避。
 
+第一次candidate commit之后的replacement仍使用同一worktree/ref和同一manifest path。Freeze只接受
+`HEAD`以then-live default为sole parent，且该immutable HEAD中的current-state bytes、pointer、rolling plan、
+manifest path/digest/base仍精确绑定同一个active且未进入default的package；新projection保持
+`ACTIVATED_INDEX_PENDING_COMMIT`并由amend物化新exact generation。stacked/divergent head、不同package、
+authority bytes漂移或已进入default的manifest一律拒绝。旧head上的Review/Evidence自动失效，不迁移。
+“未进入default”按manifest path判断：live default上该path存在任意blob即表示该package lifecycle已发布；
+修改digest不能复活同一package。复用只能进入另一个被独立授权的package/generation lifecycle。
+
 Replan publish 必须把 `target bytes == NEXT bytes` 作为成功 NOOP；不得为了制造一次 rename而拒绝
 已经正确安装的pointer/rolling/manifest。Git index的semantic identity是canonical entries/tree，raw
 index bytes包含可由Git刷新且不改变tree的stat cache，只能用于同一未受扰动tuple的传输恢复，不能
 让相同entries/tree变成永久不可恢复。journal recovery必须识别并retire已terminal/superseded operation
 的exact residue；人工删除 recovery 文件不是正常协议。
+
+Rolling plan的事实/prose refresh也只能作为freeze transaction的requested projection进入index，禁止
+先手工stage。Compiler先从immutable PRE确定性promotion，再要求requested projection的active ID与有序
+candidate IDs逐项相同；只有非选择内容可更新。任何选择、顺序、增删漂移都拒绝，pointer始终由compiler
+从manifest digest渲染。由此动态事实可更新，但不能借rolling prose绕过WorkDecision/selection owner。
+这里的immutable PRE只能来自exact HEAD/trusted generation；mutable index中的pointer/rolling必须等于该
+原像，或是pointer仍由compiler为同一indexed manifest精确渲染、rolling的active与有序candidate topology
+仍由immutable PRE唯一推导的prior projection。已批准的非选择prose bytes可以跨replan保留，但index bytes
+永远不能成为自己的选择authority。
+
+Document Control recovery 的身份与物理安全固定分层：恢复namespace只绑定
+`operationId + logicalTargetKey`，其中key是closed set
+`freeze-journal | git-index | active-pointer | rolling-plan`；repository/worktree/Git directory的绝对路径、
+cwd和临时目录都不得进入semantic identity。每个真实effect仍必须在所选边上重新验证boundary、
+no-follow/reparse ancestor、retained parent/target object identity、PRE/NEXT bytes和durability readback。
+位置无关不是路径安全的替代物，也不允许用bytes相等绕过physical tuple。
+
+Freeze journal只拥有一次未完成publication的恢复权。V4 `operationId`绑定manifest/control bytes、
+base/pre-index/candidate tree与reviewed revision；raw index PRE/NEXT bytes只是journal内的transport
+recovery material，不进入semantic operation identity。stage-zero index tree相同、或普通target已是exact
+NEXT且没有恢复tuple时，结果为zero-publication NOOP；不得刷新index stat cache、rename相同bytes或为
+NOOP制造journal之外的副作用。新operation在第一次repository object/index/journal/control publication
+之前读取且只读取一次live remote default；通过后最终pre-journal fence只复核local default、HEAD、index
+与worktree。重复远端读取不增加线性化保证，禁止把每次freeze的网络成本翻倍；未通过live admission时
+真实object database也必须byte/census不变。此owner的所有Git子进程默认强制`GIT_OPTIONAL_LOCKS=0`；任何真实
+index/object publication必须是代码中可枚举的显式effect，observer不得借Git的optional stat-cache refresh
+污染自己的PRE observation。
+
+```mermaid
+stateDiagram-v2
+  [*] --> Prepared: durable journal first
+  Prepared --> IndexPublished: index tree changed only
+  Prepared --> PointerPublished: index tree NOOP
+  IndexPublished --> PointerPublished: pointer CAS or byte NOOP
+  PointerPublished --> RollingPublished: rolling CAS or byte NOOP
+  RollingPublished --> Terminal: exact tree/control/worktree readback
+  Terminal --> Retiring: closed recovery census has zero consumers
+  Retiring --> Retiring: delete one exact known residue
+  Retiring --> [*]: delete canonical journal last, then empty transaction directory
+```
+
+`Retiring`从terminal journal编译一个跨Git-index recovery、transaction recovery、canonical journal和
+empty-directory suffix的closed ordered plan，只接受恰好一个prefix cut；unknown name/bytes/identity、
+中间hole、跨namespace倒序、active NEXT、非terminal phase或额外对象全部preserve并
+blocked。journal永远最后删除，因此crash重入能从同一terminal authority继续，且journal消失时不可能
+留下它授权的恢复对象。唯一的journal-last crash suffix是专用transaction directory仍存在且严格为空；
+下一次writer可对该exact empty directory执行anchored retirement。journal缺失但目录含任意名字时没有
+删除authority，必须完整preserve并blocked。旧schema只允许在同一Expand→Migrate→Contract切片中一次性证明terminal
+census并退役；迁移完成后parser、writer、alias和fallback必须consumer-zero，不进入新main。
+
+Windows terminal retirement在journal-last之前必须先完成每个recovery namespace的absence census和
+parent-directory durability barrier；journal删除也必须absence-readback并持久化其父目录，之后才允许
+删除空transaction directory。仅有`SetFileInformationByHandle`成功或逻辑删除顺序不构成crash ordering。
+
+Cleanup 的平台能力边界必须如实建模。Windows 使用已打开对象 handle 的 disposition effect；Linux VFS
+不提供“仅当目录项仍指向某 inode 才 unlink”的原子 CAS，因此唯一受支持的 writer 先持有 workspace
+write lease，再持有 parent/target fd，在effect前最后一次 `openat(O_NOFOLLOW)` 复核identity与bytes，执行
+一次 `unlinkat`，并用retained fd的link-count变化、name absence与parent `fsync`完成readback。lease外的
+同用户恶意namespace mutation不被伪装成可线性化CAS；一旦任何可观察替换、未知identity或link-count
+不闭合即preserve/block。不得用path-only `rm`/`rmdir`或重试循环弱化这条边界。
 
 Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。Manifest也是scope proposal；只有trusted base/A0签发的ScopeGrant与trusted resolver为当前exact base/head/tree产生的CandidateScopeAttestation共同成立时，才允许冻结Session。候选修改manifest或write set不能给自己扩权。
 
