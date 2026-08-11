@@ -110,8 +110,16 @@ describe('canonical documentation authority', () => {
       'SEC_REPOSITORY_BEHAVIOR_ROUTES',
       'FindingSuccessorWorktreeCount = 0',
       'physicalStartsPerActionKey <= 1',
+      'Canonical development lifecycle projection',
+      'WAITING_ACTIONS',
+      'WAITING_MERGE_READBACK',
+      'CandidateControlMaterializer',
+      '`target bytes == NEXT bytes` 作为成功 NOOP',
+      'raw index bytes包含可由Git刷新且不改变tree的stat cache',
       '不拥有 Task Capsule 内容或 compiler',
       'IssueDisposition',
+      'partial slice 只能产生 `progressed` receipt',
+      'closed-readback | ambiguous-side-effect | blocked',
       'registry absence 与 exact physical target',
       'zero residue',
       'typed blocked receipt'
@@ -132,7 +140,9 @@ describe('canonical documentation authority', () => {
       'Read fast path（#205 → #346）',
       'Guidance convergence（#275）',
       'Candidate / Control transaction',
-      'Promotion / retirement'
+      'Promotion / retirement',
+      'machine-owned `IssueDisposition`',
+      'partial slice 只能发布 progress'
     ]);
     expectContainsAll(proposal, [
       '新的顶层 durable Run Kernel state machine 被拒绝',

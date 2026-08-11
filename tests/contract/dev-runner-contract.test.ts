@@ -778,15 +778,16 @@ describe('dev-runner contract', () => {
     expect(scripts['check:affected']).toBe('bun ./platform/dev-runner.ts check:affected');
     expect(scripts['check:fast']).toBe('bun ./platform/dev-runner.ts check:fast');
     expect(scripts['check:full']).toBe(
-      'bun run imports:check && bun run typecheck && bun run docs:doctor && bun run test:full'
+      'bun run imports:check --all && bun run typecheck && bun run docs:doctor && bun run test:full'
     );
     expect(scripts['test:watch']).toBeUndefined();
     expect(scripts['test:coverage']).toBeUndefined();
     expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
-    expect(scripts['imports:transform']).toBe('bun ./platform/dev-runner.ts imports:transform');
-    expect(scripts['imports:remove-unused']).toBe('bun ./platform/dev-runner.ts imports:remove-unused');
+    expect(scripts['imports:apply']).toBe('bun ./platform/dev-runner.ts imports:apply');
     expect(scripts['imports:freeze']).toBe('bun ./platform/dev-runner.ts imports:freeze');
-    expect(scripts['imports:staged']).toBe('bun ./platform/dev-runner.ts imports:staged');
+    expect(scripts['imports:transform']).toBeUndefined();
+    expect(scripts['imports:remove-unused']).toBeUndefined();
+    expect(scripts['imports:staged']).toBeUndefined();
     expect(scripts['deps:ensure']).toBe('bun ./platform/dev-runner.ts deps:ensure');
     expect(scripts['imports:prepare']).toBeUndefined();
     expect(scripts['imports:organize']).toBeUndefined();
@@ -797,10 +798,10 @@ describe('dev-runner contract', () => {
     expectContainsNone(runnerSource, ['reference-clean', 'benchmark-contract']);
   });
 
-  test('candidate import freeze recovery rebuilds the exact candidate after transformation', async () => {
+  test('candidate import freeze recovery rebuilds the exact candidate after apply', async () => {
     const runnerSource = await readCompilerFile('platform/dev-runner.ts');
-    expect(runnerSource).toContain('Run bun run imports:transform, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.');
-    expect(runnerSource).not.toContain('Run bun run imports:staged.');
+    expect(runnerSource).toContain('Run bun run imports:apply, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.');
+    expectContainsNone(runnerSource, ['imports:transform', 'imports:remove-unused', 'imports:staged']);
   });
 
   test('command runner preserves the fixed no-shell process boundary', async () => {

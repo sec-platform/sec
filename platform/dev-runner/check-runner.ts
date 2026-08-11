@@ -106,7 +106,7 @@ async function executeLocalAffectedGate(
     if (outcome.status === 'canonical') return 0;
     console.error(
       `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
-      + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:transform.`
+      + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
     );
     return 1;
   }
@@ -196,7 +196,7 @@ export async function runFastCheck(options: FastCheckExecutionOptions = {}): Pro
   if (importsOutcome.status !== 'canonical') {
     console.error(
       `Imports need transform (needs-import-transform) in ${importsOutcome.files.length} file(s):\n`
-      + `${importsOutcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:transform.`
+      + `${importsOutcome.files.map((file) => `- ${file}`).join('\n')}\nRun bun run imports:apply.`
     );
     return 1;
   }

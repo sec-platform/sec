@@ -10,8 +10,8 @@ last-reviewed: 2026-08-11
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/task-capsule-compiler-v1.md
-manifestDigest: sha256:d908b53aaf916b18724cfd546a2c470306e24a2d881eca95eed76f1ed13ce737
+manifest: docs/work-packages/import-operation-scope-v1.md
+manifestDigest: sha256:cdb941b2b946111149a037360eb75a81de81b2b269645275ffa12e2bcc8225e3
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
