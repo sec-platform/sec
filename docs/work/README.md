@@ -11,6 +11,12 @@ last-reviewed: 2026-08-05
 - `rolling-plan.md` 只保存一个当前包和二至五个条件候选；候选不是授权。
 - `active-work-package.md` 只保存 frozen manifest path 与 raw Git blob digest。
 
+持久工作身份/current spec归既有Issue或canonical machine owner，长期依赖归roadmap，#221
+`WorkDecision`拥有eligibility/priority，#207/#349拥有order/conflict，rolling plan只投影结果。
+发现新问题时先做existing identity/owner census；命中则同步原identity，不能用聊天、comment recency、
+AI评分或新增计划文件重建下一步。Phase C writer切换前，人工rolling更新必须标明A0 reconciliation；
+切换后只接受validated decision receipt，投影不一致返回`reconcile`。
+
 当前 Git、PR、CI、Review 和 resolver 状态在运行时生成，不写入稳定架构文档。
 Work Package manifest 只在被当前 pointer 选择期间存在；新 pointer 原子接管并完成
 new-main readback 后，旧 manifest 直接删除。历史、差异、Review、Evidence 和恢复由

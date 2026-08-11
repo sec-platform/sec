@@ -79,6 +79,59 @@ Resolver 无法确定 default ref、target repository/workspace、active pointer
 
 Dynamic SHA、run、failure tail 和临时候选不复制进 stable docs。Evidence 可以保存架构裁决、实验和历史计划，但不得自称当前状态源或长期路线 owner。
 
+## 发现收敛、current spec 与 WorkDecision
+
+一次执行中发现的问题只有在进入既有canonical owner或一个聚焦work identity后才是durable work；
+聊天、模型记忆、审计叙事和rolling文字都不能成为唯一副本。统一收敛链是：
+
+```text
+observation / accepted decision
+→ existing work identity + owner + current-spec census
+→ normalize into the existing Issue or stronger machine owner
+→ trusted bounded candidate facts
+→ WorkDecision
+→ rolling projection
+→ frozen Work Package
+```
+
+命中已有focused/Program Issue、roadmap capability或canonical domain owner时，更新或引用该identity，
+不得因执行会话、分支或解决方案变化复制一个新Issue/计划。只有没有现存identity、唯一owner与独立
+acceptance闭包同时成立时，才建立新的focused work。Issue comment、Review和聊天是讨论/Evidence；
+其中被接受的执行裁决必须由maintainer action折叠进Issue body或更强machine contract并标出superseded
+source，executor不按comment recency、最后时间或AI摘要重建current spec。
+
+#221 `WorkDecision`只消费trusted current lifecycle、canonical roadmap revision、maintainer/project
+adopted normalized candidate records以及dependency/conflict/readiness facts，不读取Issue title/body/comment、
+模型评分或wall-clock。每个候选必须同时绑定canonical `currentSpecRef`与exact immutable
+`currentSpecRevision`；二者进入candidate-set、input与decision identity，并显式投影到selection、rejection
+witness和precondition。future live adapter只能从maintainer-adopted owner派生这组绑定，current spec任一变化
+都会使旧decision失效，不能按comment时间、caller claim或模型摘要合成revision。裁决优先级固定为：
+
+```text
+active incomplete → continue-active
+closeout obligation → closeout
+control conflict → reconcile
+eligible candidates → select-next
+no necessary work → none
+missing or conflicting facts → unresolved
+irreversible product/legal/security/cost choice → human-escalation
+```
+
+Eligibility要求目标仍有效、唯一owner与exit criteria存在、prerequisite/order facts满足、#207冲突
+已决、required Evidence真实且scope可闭合。排序只使用`integrity-critical → active-critical-path →
+product-critical-path → near-term-acceleration → maintenance-required → defer`，同类再按blocked ready
+successors、当前roadmap直接性、Evidence freshness、scope closure与stable work identity裁决。P0/P1标签、
+“未来可能有用”和自然语言紧急程度都不能自授权。相同normalized input必须产生byte-stable input digest、
+reason codes、preconditions与rejection witnesses。
+
+实现分层保持有限：Phase A是`platform/shared/work-selection-contract.ts`的pure read-only compiler；
+Phase B adapter只从repository orientation、Work Package registry、closeout与conflict owner收集结构化
+facts并签发receipt；Phase C writer只把validated decision物化为一个当前包加二至五候选。人工projection
+在Phase C切换前必须明确是A0 reconciliation；与machine decision冲突时返回`reconcile`，不静默覆盖。
+#349 `ExecutionWave`随后只编译selected work refs的order/conflict/resource/cost，不能复制selector、
+Issue prose、权限、Task Capsule或Verification。bounded automated action只有在下游authorization、Journal、
+rollback和真实consumer成立后才能激活；pure decision本身永远没有branch/PR/merge/write authority。
+
 ## 成熟轮子与通用基础设施治理
 
 SEC只应自行拥有自己的工程语义、authority、identity、Contract、Effect、Permission、Transaction、Verification和Migration。解析器、类型检查器、图算法、缓存、schema validator、进程/路径工具、浏览器、数据库驱动、密码学、云SDK等通用机械能力优先使用成熟、可靠、可验证的轮子或标准平台原语。
