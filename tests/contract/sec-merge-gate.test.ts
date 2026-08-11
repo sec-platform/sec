@@ -12,9 +12,11 @@ import {
 } from '../../platform/shared/ci-evidence-contract.ts';
 import { createMainHealthLedgerV1 } from '../../platform/shared/main-health-contract.ts';
 import {
+  REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
   SEC_REVIEW_STABILITY_POLICY_V1,
   createReviewSnapshotDigestV1,
-  createReviewStabilityReceiptV1
+  createReviewStabilityReceiptV1,
+  renderIndependentReviewTrailerV1
 } from '../../platform/shared/review-stability-contract.ts';
 import { createScopeAuthorizationV1 } from '../../platform/shared/scope-authorization-contract.ts';
 import {
@@ -29,6 +31,7 @@ import {
   CodexDevelopmentEvaluateMergeGateV2,
   CodexDevelopmentMergeGateInputSchemaV2,
   CodexDevelopmentParseMergeGateResultV2,
+  assertCanonicalMergeMessageV1,
   createMergeGateProvenanceV2,
   type CodexDevelopmentMergeGateInputV2
 } from '../../scripts/codex/merge-gate.ts';
@@ -68,7 +71,11 @@ function review(options: {
     },
     independence: { candidateAuthorNodeId: 'USER_author', integrationPrincipalNodeId: 'USER_integrator' },
     producer: {
-      identity: 'scripts/codex/verification-session-github.ts', trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
+      identity: 'scripts/codex/verification-session-github.ts',
+      executionIdentity: `github-review-observer:${REPOSITORY}:${PR}:${HEAD}`,
+      providerIdentity: 'github', candidateWriteCapability: 'read-only',
+      capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
+      trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
       sourceTransport: 'github-graphql', sourceRunId: options.sourceRunId,
       sourceRef: options.sourceRef, sourceDigest: snapshot.snapshotDigest
     },
@@ -425,6 +432,45 @@ test('legacy scope-attestation, raw merge, and admin merge authority are absent'
   expect(source).not.toContain('--admin');
   expect(source).not.toContain('gh pr merge');
   expect(source).toContain("command !== 'authorize'");
+});
+
+test('merge message trailers must derive from validated receipts; PR #345 free text is rejected', () => {
+  const markers = [
+    'Integration-Authorization: auth-1',
+    'Integration-Authorization-Receipt: sha256:' + 'a'.repeat(64),
+    'Integration-Authorization-Operation: sha256:' + 'c'.repeat(64),
+    'Integration-Authorization-Publication: sha256:' + 'd'.repeat(64),
+    'Integration-Authorization-Publication-Digest: sha256:' + 'e'.repeat(64),
+    'Integration-Authorization-Comment: 123',
+    'Verification-Session: sha256:' + 'b'.repeat(64)
+  ];
+  const title = 'Verified integration deadbeef';
+  const reviewReceipt = fixture().reviewReceipt;
+  const canonicalReview = renderIndependentReviewTrailerV1(reviewReceipt);
+  expect(() => assertCanonicalMergeMessageV1({
+    authorizationMarkers: markers, reviewReceipt, expectedTitle: title,
+    message: `${title}\n\n${markers.join('\n')}\n${canonicalReview}`
+  })).not.toThrow();
+  expect(() => assertCanonicalMergeMessageV1({
+    authorizationMarkers: markers, reviewReceipt, expectedTitle: title,
+    message: `${title}\n\n${markers.join('\n')}\nIndependent-Exact-Head-Review: P0=0 P1=0 P2=0`
+  })).toThrow('exact typed title and trailer');
+  expect(() => assertCanonicalMergeMessageV1({
+    authorizationMarkers: markers, reviewReceipt, expectedTitle: title,
+    message: `${title}\n\n${markers.join('\n')}\nManual-Transition-Receipt: sha256:` + 'c'.repeat(64)
+  })).toThrow('exact typed title and trailer');
+  expect(() => assertCanonicalMergeMessageV1({
+    authorizationMarkers: markers, reviewReceipt, expectedTitle: title,
+    message: `${title}\n\n${markers.join('\n')}\n${canonicalReview}\nCo-authored-by: Someone <someone@example.com>`
+  })).toThrow('exact typed title and trailer');
+  expect(() => assertCanonicalMergeMessageV1({
+    authorizationMarkers: [...markers, canonicalReview], reviewReceipt, expectedTitle: title,
+    message: `${title}\n\n${markers.join('\n')}\n${canonicalReview}`
+  })).toThrow('exactly once');
+  expect(() => assertCanonicalMergeMessageV1({
+    authorizationMarkers: markers, reviewReceipt, expectedTitle: title,
+    message: `${title}\n\n${markers.slice(0, -1).join('\n')}\n${canonicalReview}`
+  })).toThrow('exact typed title and trailer');
 });
 
 test('hosted integration workflow delegates one globally serialized live-readback transaction', async () => {

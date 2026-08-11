@@ -17,41 +17,47 @@ bootstrap receipt 均已 stale，不能迁移到本窗口。`TASK_RESTART_REQUIR
 
 ## 当前唯一 Work Package
 
-### skill-applicability-gate-v1
+### bootstrap-repair-348-347-v1
 
-Owners：Issue #275，`development-governance-maintainer`。
+Bootstrap Repair Wave #348 + #347，单个隔离 candidate、一个 frozen Work
+Package、两个独立 owner Task：
 
-目标（#275 第一实施切片）：
+- Task A（Issue #348）Imports Effect-Purity Cutover：统一 pure Import
+  Transform Kernel，`imports:check` 纯比较零写、`imports:transform` 显式
+  有界写、freeze 仅 seal identity 并返回 typed `needs-import-transform`、
+  pre-commit/pre-push 与 `check:*` 永不写 source/index、退役
+  `imports:prepare`、sort-and-combine 与 remove-unused 分责、双 worktree
+  index 隔离 witness；
+- Task B（Issue #347）Verification Fast-Path Integrity：GitHub Review
+  GraphQL `Actor.id` 查询形态修复与 typed `provider-schema-unsupported`、
+  writer/reviewer/hosted-verification provider identity 分离与 availability
+  epoch（quota/credits 原始文本不入工程状态、同 epoch unavailable 不重试）、
+  implementation session 不能签发 independent Review receipt、#345 假
+  Independent Review 路径负向回归、protected root local-main 终态
+  `LOCAL_MAIN_READY | LOCAL_MAIN_SYNC_BLOCKED(reason)`、integration trailer
+  只来自 validated receipt。
 
-- 从真实 Skill registry（`platform/shared/agent-skill-contract.ts`）提取 minimal machine
-  metadata，不新增 Skill、不重写全部 SKILL.md prose；
-- pure applicability validator/decision：状态
-  `applicable | none-required | ambiguous | stale | conflict | not-applicable | unresolved`；
-- `none-required` first-class；multi-match 无唯一证据 → `ambiguous`；授权外要求 → `conflict`；
-- trusted-vs-candidate Skill revision quarantine：candidate 修改 AGENTS、.agents、registry
-  或 applicability 代码时绑定 trusted revision，禁止自授权；
-- 一个真实 repository operation（`scripts/codex/skill-applicability.ts`）消费 decision；
-- path coverage 只作候选提示，不再冒充 runtime selector；
-- `docs/development-governance.md` 与 `AGENTS.md` 同步 zero-or-one applicable trusted Skill 规则；
-- 不实现 LLM 自然语言评分、通用行为 DSL 或新的 Agent OS；
-- focused/adversarial tests、独立 Review、merge 与 new-main readback 完成。
+#207/#311 兼容性已在 exact base `7297da11b11145fa958a8ec468e98e9be4dfa351`
+上由 `resolveParallelConflict` 证明为 `parallel-safe`（witness 记录于
+manifest 正文）。本包完成后返回 `TASK_RESTART_REQUIRED`，等待下一
+trusted-main session；不关闭 parent #321/#311，不继续 #346/#275/#349。
 
 ## 候选 Work Package
 
 ### 1. semantic-impact-failure-routing-v1
 
-当前 #275 writer 完成后，才从 then-latest main 重算；本候选不占用当前 writer，
-也不能进入当前写集。
+当前 bootstrap-repair-348-347-v1 完成并完成 new trusted-main readback 后，才从
+then-latest main 重算；本候选不占用当前 writer，也不能进入当前写集。
 
 ### 2. feedback-scheduler-hermetic-runtime-v1
 
-当前 #275 writer 完成后，才从 then-latest main 重算；本候选不占用当前 writer，
-也不能进入当前写集。
+当前 bootstrap-repair-348-347-v1 完成并完成 new trusted-main readback 后，才从
+then-latest main 重算；本候选不占用当前 writer，也不能进入当前写集。
 
 ### 3. compiler-incremental-toolchain-v1
 
-当前 #275 writer 完成后，才从 then-latest main 重算；本候选不占用当前 writer，
-也不能进入当前写集。
+当前 bootstrap-repair-348-347-v1 完成并完成 new trusted-main readback 后，才从
+then-latest main 重算；本候选不占用当前 writer，也不能进入当前写集。
 
 ## 后续但暂不占 formal writer
 

@@ -94,7 +94,7 @@ describe('canonical documentation authority', () => {
     expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',
       '## 候选 Work Package',
-      'Issue #275',
+      'Issue #348',
       'Issue #178',
       'Issue #327',
       'Issue #314',
@@ -105,23 +105,23 @@ describe('canonical documentation authority', () => {
     expect(rawManifestDigest).toBeDefined();
     expect(CodexDevelopmentWorkPackageManifestDigest(manifestSource)).toBe(rawManifestDigest!);
     expectContainsAll(manifestSource, [
-      'skill-applicability-gate-v1',
-      'Issue #275',
-      'applicable | none-required | ambiguous | stale | conflict | not-applicable | unresolved',
-      'trusted-vs-candidate Skill revision quarantine',
-      'platform/shared/agent-skill-contract.ts',
-      'scripts/codex/skill-applicability.ts',
-      'TASK_RESTART_REQUIRED'
+      'bootstrap-repair-348-347-v1',
+      'Issue #348',
+      'Issue #347',
+      'needs-import-transform',
+      'provider-schema-unsupported',
+      'LOCAL_MAIN_READY',
+      'fresh genuine independent exact-head PASS'
     ]);
     expectContainsAll(pointerSource, [
-      'docs/work-packages/skill-applicability-gate-v1.md',
+      'docs/work-packages/bootstrap-repair-348-347-v1.md',
       rawManifestDigest!,
-      'TASK_RESTART_REQUIRED'
+      'selectionMode: exact-manifest-not-on-default-branch-v1'
     ]);
     expectContainsAll(rollingPlanSource, [
-      '### skill-applicability-gate-v1',
-      'Issue #275',
-      'zero-or-one applicable trusted Skill',
+      '### bootstrap-repair-348-347-v1',
+      'Issue #348',
+      'Issue #347',
       'TASK_RESTART_REQUIRED'
     ]);
     expectContainsNone(rollingPlanSource, [

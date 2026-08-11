@@ -154,7 +154,10 @@ test('CLI exposes test budget as text and JSON contracts', async () => {
     parallelSafe: true,
     resourceClass: 'standard',
     prRiskBaseline: false,
-    files: ['tests/e2e/import-organizer-staged.test.ts']
+    files: [
+      'tests/e2e/import-organizer-staged.test.ts',
+      'tests/e2e/import-organizer-worktree-isolation.test.ts'
+    ]
   });
 
   expectContainsAll(formatted, [

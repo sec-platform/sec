@@ -1,6 +1,7 @@
 import { expect } from 'bun:test';
 
 import type { BenchmarkTaskSuiteContract } from '../../platform/shared/benchmark-contract.ts';
+import { compareCodeUnits } from '../../platform/shared/canonical-primitives.ts';
 import type { CiContract } from '../../platform/shared/ci-contract.ts';
 import type { ContractFreezeContract } from '../../platform/shared/contract-freeze-contract.ts';
 import type { ErrorProtocolContract } from '../../platform/shared/error-protocol-contract.ts';
@@ -15,7 +16,7 @@ type ListKey<T> = {
 }[keyof T];
 
 export function expectSortedUnique(values: readonly string[]): void {
-  expect(values).toEqual([...values].sort((left, right) => left.localeCompare(right)));
+  expect(values).toEqual([...values].sort(compareCodeUnits));
   expect(new Set(values).size).toBe(values.length);
 }
 

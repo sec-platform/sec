@@ -1,15 +1,18 @@
 import { expect, test } from 'bun:test';
 
 import {
+  REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
   REVIEW_STABILITY_POLICY_SCHEMA_V1,
   REVIEW_STABILITY_RECEIPT_SCHEMA_V1,
   SEC_REVIEW_STABILITY_POLICY_V1,
+  assertMergeTrailerLinesV1,
   assertReviewStabilityReceiptCurrentV1,
   createReviewSnapshotDigestV1,
   createReviewStabilityPolicyV1,
   createReviewStabilityReceiptV1,
   parseReviewStabilityPolicyV1,
   parseReviewStabilityReceiptV1,
+  renderIndependentReviewTrailerV1,
   type ReviewSnapshotV1,
   type ReviewStabilityReceiptInputV1
 } from '../../platform/shared/review-stability-contract.ts';
@@ -68,7 +71,11 @@ function input(
       integrationPrincipalNodeId: 'USER_integrator'
     },
     producer: {
-      identity: 'github-review-adapter',
+      identity: 'scripts/codex/verification-session-github.ts',
+      executionIdentity: 'github-review-observer:sec-platform/sec:11:exact-head',
+      providerIdentity: 'github',
+      candidateWriteCapability: 'read-only',
+      capabilityReceiptDigest: REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
       trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision,
       sourceTransport: 'github-graphql',
       sourceRunId: 'comment-1',
@@ -266,7 +273,6 @@ test('Review receipt provenance changes receipt digest but not semantic revision
   const current = receipt();
   const cases: readonly [string, Partial<ReviewStabilityReceiptInputV1>][] = [
     ['scope receipt', { scopeAuthorizationReceiptDigest: D_A }],
-    ['producer identity', { producer: { ...input().producer, identity: 'other-adapter' } }],
     ['source transport', { producer: { ...input().producer, sourceTransport: 'github-rest' } }],
     ['source run', { producer: { ...input().producer, sourceRunId: 'comment-2' } }],
     ['source ref', { producer: { ...input().producer, sourceRef: 'pull/11/review/2' } }],
@@ -352,4 +358,27 @@ test('Review parsers reject schema drift, extra fields, and digest tampering', (
 
 test('Review constructor rejects equal issue/expiry times', () => {
   expect(() => receipt({ expiresAt: '2026-08-09T00:00:00.000Z' })).toThrow('after reviewedAt');
+});
+
+test('an Independent-* trailer derives only from a validated receipt (#345 negative regression)', () => {
+  const current = receipt();
+  const canonical = renderIndependentReviewTrailerV1(current);
+  expect(canonical).toMatch(
+    /^Independent-Exact-Head-Review: receipt=sha256:[0-9a-f]{64} revision=sha256:[0-9a-f]{64} threads=[0-9]+ unresolved=0$/u
+  );
+  expect(canonical).not.toContain('P0=');
+  expect(() => assertMergeTrailerLinesV1([canonical], current)).not.toThrow();
+
+  // PR #345 shape: the implementation-session self-review trailer with
+  // free-text P0/P1/P2 counts never matches a validated receipt trailer.
+  expect(() => assertMergeTrailerLinesV1([
+    'Independent-Exact-Head-Review: P0=0 P1=0 P2=0'
+  ], current)).toThrow('unbound Independent-* trailer');
+  expect(() => assertMergeTrailerLinesV1([
+    'Independent-Exact-Head-Review: review=passed confidence=high'
+  ], current)).toThrow('unbound Independent-* trailer');
+  expect(() => assertMergeTrailerLinesV1([
+    canonical,
+    'Independent-Review: something-else'
+  ], current)).toThrow('unbound Independent-* trailer');
 });

@@ -85,13 +85,13 @@ test('local affected plan forms one ordered union for mixed TypeScript and docs 
   ));
 
   expect(gateIds(plan)).toEqual([
-    'imports:prepare',
+    'imports:check',
     'typecheck',
     'docs:doctor',
     'test:affected'
   ]);
   expect(plan.subsumedStandaloneCommands).toEqual([
-    'bun run imports:prepare',
+    'bun run imports:check',
     'bun run typecheck',
     'bun run docs:doctor',
     'bun run test:affected'

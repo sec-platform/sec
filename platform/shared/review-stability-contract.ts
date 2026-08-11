@@ -36,6 +36,10 @@ export type ReviewPrincipalV1 = Readonly<{
 
 export interface ReviewStabilityProducerV1 {
   readonly identity: string;
+  readonly executionIdentity: string;
+  readonly providerIdentity: 'github';
+  readonly candidateWriteCapability: 'read-only';
+  readonly capabilityReceiptDigest: ReviewStabilityDigest;
   readonly trustedRevision: string;
   readonly sourceTransport: 'github-graphql' | 'github-rest';
   readonly sourceRunId: string;
@@ -188,6 +192,14 @@ export const SEC_REVIEW_STABILITY_POLICY_V1 = createReviewStabilityPolicyV1({
   allowIndependentHumanApproval: true
 });
 
+export const REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1 = hash(Object.freeze({
+  schema: 'sec-review-observer-capability-receipt-v1',
+  producerIdentity: 'scripts/codex/verification-session-github.ts',
+  providerIdentity: 'github',
+  candidateWriteCapability: 'read-only',
+  trustedRevision: SEC_REVIEW_STABILITY_POLICY_V1.trustedRevision
+}));
+
 export function createReviewStabilityReceiptV1(input: ReviewStabilityReceiptInputV1): ReviewStabilityReceiptV1 {
   if (input.stage !== 'pre-expensive' && input.stage !== 'pre-merge') fail('stage is invalid.');
   const policy = parseReviewStabilityPolicyV1(encodeVerificationActionDataV2(input.policy));
@@ -218,9 +230,27 @@ export function createReviewStabilityReceiptV1(input: ReviewStabilityReceiptInpu
   const principalNodeId = principal.kind === 'human' ? principal.nodeId : principal.actorNodeId;
   if (principalNodeId === independence.candidateAuthorNodeId || principalNodeId === independence.integrationPrincipalNodeId) fail('review principal is not independent.');
   const producerValue = record(input.producer, 'producer');
-  exact(producerValue, ['identity', 'trustedRevision', 'sourceTransport', 'sourceRunId', 'sourceRef', 'sourceDigest'], 'producer');
+  exact(producerValue, ['identity', 'executionIdentity', 'providerIdentity', 'candidateWriteCapability',
+    'capabilityReceiptDigest', 'trustedRevision', 'sourceTransport', 'sourceRunId', 'sourceRef', 'sourceDigest'], 'producer');
   if (producerValue.sourceTransport !== 'github-graphql' && producerValue.sourceTransport !== 'github-rest') fail('producer.sourceTransport is invalid.');
-  const producer = Object.freeze({ identity: text(producerValue.identity, 'producer.identity'), trustedRevision: text(producerValue.trustedRevision, 'producer.trustedRevision'), sourceTransport: producerValue.sourceTransport, sourceRunId: text(producerValue.sourceRunId, 'producer.sourceRunId'), sourceRef: text(producerValue.sourceRef, 'producer.sourceRef'), sourceDigest: digest(producerValue.sourceDigest, 'producer.sourceDigest') });
+  if (producerValue.providerIdentity !== 'github'
+    || producerValue.candidateWriteCapability !== 'read-only') {
+    fail('producer must be the GitHub-backed read-only Review observer.');
+  }
+  const producer = Object.freeze({ identity: text(producerValue.identity, 'producer.identity'),
+    executionIdentity: text(producerValue.executionIdentity, 'producer.executionIdentity'),
+    providerIdentity: 'github' as const,
+    candidateWriteCapability: 'read-only' as const,
+    capabilityReceiptDigest: digest(producerValue.capabilityReceiptDigest, 'producer.capabilityReceiptDigest'),
+    trustedRevision: text(producerValue.trustedRevision, 'producer.trustedRevision'),
+    sourceTransport: producerValue.sourceTransport, sourceRunId: text(producerValue.sourceRunId, 'producer.sourceRunId'),
+    sourceRef: text(producerValue.sourceRef, 'producer.sourceRef'),
+    sourceDigest: digest(producerValue.sourceDigest, 'producer.sourceDigest') });
+  if (producer.identity !== 'scripts/codex/verification-session-github.ts'
+    || producer.executionIdentity === 'scripts/codex/verification-session.ts'
+    || producer.capabilityReceiptDigest !== REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1) {
+    fail('producer is not bound to the canonical independent read-only observer execution.');
+  }
   if (producer.trustedRevision !== policy.trustedRevision) fail('producer trustedRevision must match policy.');
   const snapshotValue = record(input.snapshot, 'snapshot');
   exact(snapshotValue, ['paginationComplete', 'reviewedHeadSha', 'reviewPageDigests', 'threadPageDigests', 'reviewCount', 'threadCount', 'unresolvedBlockingThreadCount', 'requestChangesPrincipalIds', 'snapshotDigest'], 'snapshot');
@@ -258,4 +288,28 @@ export function assertReviewStabilityReceiptCurrentV1(receipt: ReviewStabilityRe
   for (const [actual, expected, label] of checks) if (actual !== expected) fail(`${label} drift invalidates receipt.`);
   if (live.expectedReviewRevision !== current.reviewRevision) fail('reviewRevision drift invalidates receipt.');
   if (instant(live.now, 'now') > current.expiresAt) fail('receipt is expired.');
+}
+
+/**
+ * The only origin of an `Independent-*` integration trailer is a validated
+ * ReviewStabilityReceiptV1. Model free text can never fabricate one
+ * (Issue #347 section G; PR #345 negative regression).
+ */
+export function renderIndependentReviewTrailerV1(receipt: ReviewStabilityReceiptV1): string {
+  const current = parseReviewStabilityReceiptV1(encodeVerificationActionDataV2(receipt));
+  return `Independent-Exact-Head-Review: receipt=${current.receiptDigest} `
+    + `revision=${current.reviewRevision} threads=${current.snapshot.threadCount} unresolved=0`;
+}
+
+export function assertMergeTrailerLinesV1(
+  lines: readonly string[],
+  receipt: ReviewStabilityReceiptV1
+): void {
+  const canonical = renderIndependentReviewTrailerV1(receipt);
+  for (const line of lines) {
+    if (!line.startsWith('Independent-')) continue;
+    if (line !== canonical) {
+      fail('unbound Independent-* trailer is forbidden; integration trailers must derive from a validated receipt.');
+    }
+  }
 }
