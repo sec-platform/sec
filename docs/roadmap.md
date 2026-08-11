@@ -2,7 +2,7 @@
 title: 稳定交付路线
 status: active
 domain: roadmap
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-11
 ---
 
 # 稳定交付路线
@@ -59,7 +59,7 @@ R12 General TypeScript Engineering Compiler
         ↓
 R13 Workbench / AI Semantic Operator
  ↓
-R14 Agent Operation Compiler / Run Kernel
+R14 Agent Operation Compiler / VerificationSession Cutover
  ↓
 R15 Release / Deployment / Operations
  ↓
@@ -551,39 +551,82 @@ L0 physical dependency
 - 跨站、越权、stale context和更宽AI proposal均被拒绝；
 - 真实用户可以解释平台选了什么、为什么、哪些候选被拒绝、实际改变了什么和升级会如何迁移。
 
-## R14 — Agent Operation Compiler / Run Kernel
+## R14 — Agent Operation Compiler / VerificationSession Cutover
 
 ### 目标
 
-让 SEC 自身开发也消费结构化 Engineering Operations，而不是靠多份 Skill prose和聊天隐状态维持正确性。
+让 SEC 自身开发消费结构化 Engineering Operations、最小充分Verification closure和可恢复
+physical Actions，而不是靠多份 Skill prose、聊天隐状态或 general Run Kernel 维持正确性。
 
 ### 最终结构
 
 ```text
 Universal Policy
-→ explicit Role
-→ typed Operation Envelope
-→ exactly one Primary Skill
-→ deterministic services/contracts
-→ typed outcome / legal transition
-→ external Run State / Evidence
+→ WorkDecision
+→ Task Capsule Compiler
+→ explicit Role + typed Operation Envelope
+→ zero or one applicable trusted Skill
+→ CandidateContent / CandidateGeneration
+→ Requirement + subject-closure Action DAG
+→ VerificationSession references typed owner decisions
+→ pure NextTransition composition
+→ Review / Promotion / main readback
 ```
+
+不建立 general Run Kernel。Task Capsule 保持独立 pure compiler output；VerificationSession是唯一
+development run coordinator，只保存Task Capsule、Action/Evidence、Review、Provider与Integration的
+typed refs。Evidence、freshness、health、maturity与next-transition projection不是新状态机。
 
 ### 必须具备
 
 - Role与workflow分离；
-- exactly one Primary Skill；
+- zero or one applicable trusted Skill；
+- Task Capsule compiler与VerificationSession ownership分离；
 - Work selection、permission、Work Package conflict、Impact/Gate selection、Failure/Epoch、Evidence reuse、Integration/merge legality由机器owner决定；
-- Skill渐进披露、context budget、implementation state；
+- CandidateContentId、CandidateGenerationRef、ReviewSubjectId与PromotionId分离；
+- 一个logical run只有一个mutable implementation worktree和一个active candidate ref，finding只产生cheap generation；
+- Skill渐进披露、content-addressed Read Plan与context budget；
 - fresh Worker/Reviewer/Integrator context和独立性；
-- Run/Capsule/Event/Transition/Resume state外部化；
+- VerificationSession的Run/Event/Transition/Resume state外部化；
+- Requirement tri-state、subject-closure ActionKey、Evidence reuse/failure reuse/in-flight join与`physicalStartsPerActionKey <= 1`；
+- delta-aware Review input与fresh full exact-head receipt；
+- ProspectiveCandidateControl与ActiveMainControl分离；
+- Tier 0 transition root、Tier 1 evolvable TCB与Tier 2 product分层；
 - Context compression/restart从authority重算同一next transition；
 - candidate Agent/Skill不能自证trust migration；
-- 旧17-Skill compatibility projection和完整retirement。
+- 先清除已证伪stale Skill guidance，替代owner canary后再完整retirement。
+
+### 收敛切片与顺序
+
+不创建一个只做“最终架构”的umbrella Work Package挡在实现前。每个切片由then-current rolling
+plan映射到既有唯一owner，并作为可独立main/readback的纵向Work Package交付：
+
+1. **Read fast path（#346）**：Task Capsule compiler、content-addressed ReadKey/ReadPlan、read receipt、
+   invalidation 与 zero-or-one Skill selector projection；它先减少后续每个切片的重复读取；
+2. **Guidance purge（#275 phase A）**：立即删除已被canonical owner证伪的默认 memory/
+   full-orientation/旧命令/旧path guidance，但暂不删除仍有唯一 heuristic consumer 的 Skill；
+3. **Candidate / Control transaction**：Git-object materializer、one-parent commit、ref CAS、
+   prospective/active control分离、同一worktree/ref generation loop；
+4. **Verification closure**：Requirement tri-state、subject-closure ActionKey、Evidence DAG、heavy
+   test拆成physical Actions、failure/in-flight/unknown outcome resolution；
+5. **ExecutionWave**：只编译work refs、order、conflict、resource与cost，combined candidate必须证明
+   failure isolation和Review/invalidation收益；
+6. **Review / Trust transition**：Review Action、delta packet、new exact-head receipt、Tier 0/1 TCB
+   transition；
+7. **Promotion / retirement（含 #275 phase B）**：single-use integration、remote/local readback、
+   closeout Actions、legacy journal/API与consumer-zero Skill retirement、ordinary candidate canary。
+
+切片顺序表达dependency；某些read-only compiler可以并行开发，但canonical writer、control plane、
+workflow与trust transition仍按single-writer集成。每个切片必须同时声明被替代入口和consumer-zero
+删除条件，禁止长期dual write或“新平台建完再迁移”的大爆炸。
 
 ### 进入条件
 
-R3–R13 已有真实 Observation、Impact、Operation、Mutation、Resolution、Delta/Compatibility、Verification产物。禁止只用治理fixture自我证明 Run Kernel。
+每个收敛切片必须有真实R3–R13 consumer、可重放的编排放大或正确性failure、唯一owner和明确legacy
+retirement；不等待整个R3–R13成熟后再一次性建设R14，也不把R14全部完成作为产品开发前置。
+完整R14退出仍要求真实 Observation、Impact、Operation、Mutation、Resolution、Delta/Compatibility
+与Verification产物。禁止只用治理fixture自我证明VerificationSession、Action reuse或
+NextTransition composition。
 
 ### 退出 Evidence
 
@@ -591,7 +634,10 @@ R3–R13 已有真实 Observation、Impact、Operation、Mutation、Resolution�
 - 恢复不依赖聊天；
 - 每阶段context输入有上限；
 - Skill重复owner和冲突为零；
-- 失败/重跑/merge transition由typed result决定。
+- 一个真实Review finding在同一worktree产生新generation且successor worktree为零；
+- fresh ActionKey不重复执行，failed/in-flight/unknown physical outcome均按合同处理；
+- candidate projection failure不改变live main control；
+- 失败/重跑/merge transition由typed owner decisions决定。
 
 ## R15 — Release / Deployment / Operations
 
@@ -759,7 +805,7 @@ Proposal、类型、实现提交、单平台测试或PR合并只证明相应成�
 - 外部能力先作为可替换Provider/Adapter；Provider catalog、Block Resolver、Workbench、Backend和Dependency materializer不得复制Implementation Resolution、Binding Delta或Compatibility。
 - 阶段顺序表达依赖，不授权第二loader、writer、revision、resolver、comparator、Compatibility evaluator、selector、cache或pipeline。
 - 当前能力、目标设计、物理验证、分发和现实支持分别标记。
-- 基础设施饥饿保护：每完成一个非 P0/P1 的基础设施包，接下来至少完成两个直接推进 R3–R13 产品主脊的包，除非真实 P0/P1 blocker 打断；格式化、Review 平台、Knowledge Closure、完整 Run Kernel 与完整 Evidence DAG 不得形成基础设施长队。
+- 基础设施饥饿保护：每完成一个非 P0/P1 的基础设施包，接下来至少完成两个直接推进 R3–R13 产品主脊的包，除非真实 P0/P1 blocker 打断；格式化、Review 平台、Knowledge Closure、general Run Kernel 与无consumer的完整 Evidence DAG 不得形成基础设施长队。
 - 没有真实阻塞时及时merge/close/cleanup，不制造无证据修改。
 - 新Evidence推翻上游identity、owner、语义、Implementation/Delta/Compatibility边界或产品假设时，返回相应阶段重算，不在下游追加例外。
 

@@ -5,10 +5,18 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  compileSecOperationReadPlanV1,
+  parseSecOperationReadPlanV1,
+  projectSecSkillEnvelopeFromOperationReadPlanV1,
+  SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+  type SecOperationReadPlanV1
+} from '../../platform/shared/agent-operation-read-plan-contract.ts';
+import {
   evaluateSecSkillApplicabilityV1,
-  isSecSkillQuarantinePath,
-  type SecSkillApplicabilityEnvelopeV1
+  isSecSkillQuarantinePath
 } from '../../platform/shared/agent-skill-contract.ts';
+import { canonicalJson } from '../../platform/shared/canonical-primitives.ts';
+import { resolveTrustedWorkerOperationV1 } from './operation-read-plan.ts';
 
 function fail(message: string): never {
   console.error(`skill-applicability: ${message}`);
@@ -20,114 +28,87 @@ function gitOutput(cwd: string, args: string[]): { status: number; stdout: strin
   return { status: result.status ?? -1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
-function changedPathsBetween(cwd: string, base: string, head: string): string[] {
-  const result = gitOutput(cwd, ['diff', '--name-status', base, head]);
-  if (result.status !== 0) {
-    fail(`git diff --name-status ${base} ${head} failed: ${result.stderr.trim()}`);
-  }
-  const paths: string[] = [];
-  for (const line of result.stdout.split(/\r?\n/u)) {
-    if (line.trim().length === 0) continue;
-    const fields = line.split('\t').slice(1).filter((field) => field.trim().length > 0);
-    if (fields.length === 0) continue;
-    paths.push(...fields);
-  }
-  return [...new Set(paths)].sort();
+function requireGitOutput(cwd: string, args: string[], label: string): string {
+  const result = gitOutput(cwd, args);
+  if (result.status !== 0) fail(`${label}: ${result.stderr.trim()}`);
+  return result.stdout.trim();
 }
 
 function blobRevision(cwd: string, revision: string, repositoryPath: string): string | null {
   const result = gitOutput(cwd, ['rev-parse', '--verify', `${revision}:${repositoryPath}`]);
   if (result.status !== 0) return null;
   const sha = result.stdout.trim();
-  return /^[0-9a-f]{40}$/u.test(sha) ? sha : null;
+  return /^[0-9a-f]{40,64}$/u.test(sha) ? sha : null;
 }
 
-async function resolveEnvelope(
-  raw: string,
-  cwd: string
-): Promise<SecSkillApplicabilityEnvelopeV1> {
+async function readJsonArgument(raw: string, cwd: string): Promise<unknown> {
   let source = raw;
   try {
     source = await readFile(path.resolve(cwd, raw), 'utf8');
   } catch {
-    // Treat the argument as inline JSON when it is not an existing file.
+    // A non-file argument is treated as inline JSON; no fallback discovery is performed.
   }
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(source);
+    return JSON.parse(source) as unknown;
   } catch (error) {
-    fail(`--envelope must be inline JSON or a readable JSON file: ${error instanceof Error ? error.message : String(error)}`);
+    fail(`--read-plan must be inline JSON or one readable JSON file: ${
+      error instanceof Error ? error.message : String(error)
+    }`);
   }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    fail('--envelope must be one JSON object.');
-  }
-  return parsed as SecSkillApplicabilityEnvelopeV1;
 }
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const options: { envelope?: string; base?: string; head?: string; cwd?: string } = {};
+  const options: { readPlan?: string; candidateRoot?: string } = {};
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!;
-    if (argument === '--envelope') {
-      options.envelope = args[index + 1];
-      index += 1;
-    } else if (argument === '--base') {
-      options.base = args[index + 1];
-      index += 1;
-    } else if (argument === '--head') {
-      options.head = args[index + 1];
-      index += 1;
-    } else if (argument === '--cwd') {
-      options.cwd = args[index + 1];
-      index += 1;
-    } else {
-      fail(`unknown argument: ${argument}`);
-    }
+    if (argument !== '--read-plan' && argument !== '--candidate-root') fail(`unknown argument: ${argument}`);
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith('--')) fail(`${argument} requires a value.`);
+    const key = argument === '--read-plan' ? 'readPlan' : 'candidateRoot';
+    if (options[key] !== undefined) fail(`duplicate argument: ${argument}`);
+    options[key] = value;
+    index += 1;
   }
-  if (options.envelope === undefined) {
-    fail('--envelope <inline-json|file> is required.');
+  if (options.readPlan === undefined) fail('--read-plan <inline-json|file> is required.');
+  if (options.candidateRoot === undefined) fail('--candidate-root <path> is required.');
+  const runtimeRoot = path.resolve(import.meta.dir, '../..');
+  const invokedRoot = requireGitOutput(process.cwd(), ['rev-parse', '--show-toplevel'], 'runtime repository discovery');
+  if (path.resolve(invokedRoot) !== runtimeRoot) {
+    fail('Skill applicability must be invoked from the exact trusted-runtime repository root.');
   }
-  const cwd = path.resolve(options.cwd ?? process.cwd());
-  const envelope = await resolveEnvelope(options.envelope, cwd);
-
-  const base = options.base ?? (typeof envelope.trustedRevision === 'string' ? envelope.trustedRevision : null);
-  const head = options.head ?? (typeof envelope.targetCandidate === 'string' ? envelope.targetCandidate : null);
-
-  const enrichment: {
-    changedPaths?: string[];
-    trustedSkillRevisions?: Record<string, string>;
-    candidateSkillRevisions?: Record<string, string>;
-  } = {};
-  if (envelope.changedPaths === undefined && base !== null && head !== null) {
-    try {
-      enrichment.changedPaths = changedPathsBetween(cwd, base, head);
-    } catch (error) {
-      // A label-only target candidate is not a Git revision. Degrade to the
-      // pure envelope decision and keep the explicit envelope bindings.
-      console.warn(`skill-applicability: ${error instanceof Error ? error.message : String(error)}`);
-    }
+  let plan: SecOperationReadPlanV1;
+  try {
+    plan = parseSecOperationReadPlanV1(await readJsonArgument(options.readPlan, runtimeRoot));
+  } catch (error) {
+    fail(`Read Plan verification failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const quarantined = (envelope.changedPaths ?? enrichment.changedPaths ?? []).filter(isSecSkillQuarantinePath);
-  if (envelope.trustedSkillRevisions === undefined && base !== null) {
-    const revisions: Record<string, string> = {};
-    for (const repositoryPath of quarantined) {
-      const revision = blobRevision(cwd, base, repositoryPath);
-      if (revision !== null) revisions[repositoryPath] = revision;
-    }
-    if (Object.keys(revisions).length > 0) enrichment.trustedSkillRevisions = revisions;
+  const observation = await resolveTrustedWorkerOperationV1(runtimeRoot, options.candidateRoot);
+  const expectedPlan = compileSecOperationReadPlanV1({
+    ...observation.readClosure,
+    schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+    taskCapsule: observation.taskCapsule
+  });
+  if (JSON.stringify(canonicalJson(expectedPlan)) !== JSON.stringify(canonicalJson(plan))) {
+    fail('Read Plan was not fully produced by the exact trusted-resolver worker/implement projection.');
   }
-  if (envelope.candidateSkillRevisions === undefined && head !== null) {
-    const revisions: Record<string, string> = {};
-    for (const repositoryPath of quarantined) {
-      const revision = blobRevision(cwd, head, repositoryPath);
-      if (revision !== null) revisions[repositoryPath] = revision;
-    }
-    if (Object.keys(revisions).length > 0) enrichment.candidateSkillRevisions = revisions;
+  const envelope = projectSecSkillEnvelopeFromOperationReadPlanV1(plan);
+  const quarantined = observation.changedPaths.filter(isSecSkillQuarantinePath);
+  const trustedSkillRevisions: Record<string, string> = {};
+  const candidateSkillRevisions: Record<string, string> = {};
+  for (const repositoryPath of quarantined) {
+    const trusted = blobRevision(observation.candidateRoot, observation.trustedRevision, repositoryPath);
+    const candidate = blobRevision(observation.candidateRoot, observation.targetCandidate, repositoryPath);
+    if (trusted !== null) trustedSkillRevisions[repositoryPath] = trusted;
+    if (candidate !== null) candidateSkillRevisions[repositoryPath] = candidate;
   }
-
-  const decision = evaluateSecSkillApplicabilityV1({ ...envelope, ...enrichment });
+  const decision = evaluateSecSkillApplicabilityV1({
+    ...envelope,
+    changedPaths: observation.changedPaths,
+    trustedSkillRevisions,
+    candidateSkillRevisions
+  });
   process.stdout.write(`${JSON.stringify(decision, null, 2)}\n`);
 }
 
-void main();
+if (import.meta.main) void main();

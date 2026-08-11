@@ -3,12 +3,12 @@
 本文件只负责启动和行为路由，不拥有产品架构、测试矩阵、当前状态或完整执行状态机。
 
 1. 以最新 `main`、开放 PR/Issue、CI、Review 和真实 diff 建立事实；branch、PR body、Issue、聊天和报告不能证明完成。
-2. 由 `sec-repository-orientation` 绑定受信 latest default/base resolver，并把 intended workspace 保持为候选解析目标；结果为 `unresolved` 或 `invalid` 时停止写入。
-3. 只在所选 frozen Work Package 的 owned/forbidden paths、acceptance、tests 和资源边界内工作。
-4. 按 `sec-skill-applicability-decision-v1`（`platform/shared/agent-skill-contract.ts`）从 `.agents/skills/**` 选择 zero-or-one applicable trusted Skill；`none-required` 时不加载，`ambiguous`/`conflict`/`stale`/`unresolved` 时停止 reconcile。
-5. 产品与架构读取 `docs/authority.json` 指向的唯一领域 owner；动态选择只读取 `docs/work/**`。
-6. 影响分析先使用 capability ledger 与当前 Capsule 已批准且可调用的能力；不可用时按 `sec-impact-and-validation` 降级到 exact imports、consumer 与 test-impact census，禁止临时安装工具或重建索引。
-7. Worker 不自授权扩大 scope、触发 hosted Gate 或 merge；A0 负责 DAG、integration、Gate custody、merge、readback 与清理。
-8. Squash merge 后按新 `main` tree、实际实现和 Evidence 判断结果，不按旧 commit ancestry、分支名或 ahead/behind 判断。
-9. 失败先定位 root cause、owner、invariant 与失效 Evidence；输入和 failure tail 未变时复用失败，只重跑被 delta 影响的最小验证。
-10. 机器可观察的规则必须由类型、Schema、parser、validator、test、Hook 或 CI 拒绝；只写在 prose 中的比例、次数和口号不是硬门禁。
+2. 用 `bun scripts/codex/document-control-plane.ts status --json` 绑定受信 latest default/base resolver、当前 Work Package 与 intended workspace；这是确定性 preflight，不要求预读任何 Skill。结果为 `unresolved` 或 `invalid` 时停止写入。
+3. 调用 `scripts/codex/operation-read-plan.ts compile --input '{"schema":"sec-operation-read-closure-request-v1"}' --candidate-root <path>`；caller 只发起一个无 authority 的空请求，不能提供 Capsule、ref、receipt、frontier、deny policy 或 invalidation。当前 executable profile 由 clean exact live-main resolver 从 candidate pointer、rolling plan、manifest、exact base/head/write set 直接派生完整读取闭包与固定 `worker/implement + git + sec-worker-development` projection；其他 role/capability/resource/gate 在 #205 provenance-verified producer 接入前 fail closed。全部投影字段进入同一个 Capsule digest。新 Agent 先读 trusted-derived `requiredRefs`；只有命中显式 `unresolvedFrontier` 才能读对应 `conditionalRefs`。assistant memory、聊天历史、旧 PR/Issue 评论、全 Issue census 与全部 Skill 正文默认既不是 authority 也不是必读输入。
+4. 只在 Capsule 与 frozen Work Package 的 owned/forbidden paths、acceptance、tests、capability 和资源交集内工作；两者不一致时停止 reconcile，任何 prose 都不能扩大交集。
+5. 从 clean exact live-main TCB 调用 `scripts/codex/skill-applicability.ts --read-plan ... --candidate-root <path>`；CLI 通过 canonical live resolver 固定 trusted base、要求 observed candidate exact head（有 delta 时为 sole-parent commit）、读取 exact candidate manifest bytes，并用 Work Package owner校验 scope/forbidden/changed paths后，重新派生并 byte-compare 整个 Capsule 与 Read Plan authority closure，才从 `.agents/skills/**` 选择 zero-or-one trusted Skill。不存在 raw envelope、caller read-closure 或 candidate-self-issued authority 入口。`none-required` 时不加载，`ambiguous`/`conflict`/`stale`/`unresolved` 时停止 reconcile。Skill body 读取数不得超过 Read Plan 的 `maxSkillBodies`。
+6. 产品与架构只读取 Capsule 指定且由 `docs/authority.json` 定位的唯一领域 owner；动态选择只读取 Capsule 指定的 `docs/work/**`，不得靠全仓预读建立“熟悉度”。
+7. 影响分析先使用 capability ledger 与当前 Capsule 已批准且可调用的能力；不可用时降级到 exact imports、consumer 与 test-impact census。执行集合是 `RequiredClosure ∩ MissingOrStale`；fresh PASS、fresh failure 与 authenticated in-flight 分别复用、停止或 join，禁止临时安装工具、重建索引和机械全跑。
+8. Worker 不自授权扩大 scope、触发 hosted Gate 或 merge；A0 负责 DAG、integration、Gate custody、merge、readback 与本任务可证明安全的清理。一个 logical run 只保留一个 mutable worktree 和一个 active candidate ref；finding 在原 worktree 修复，禁止 v2/v3/v4 舰队。
+9. Squash merge 后按新 `main` tree、实际实现和 Evidence 判断结果，不按旧 commit ancestry、分支名或 ahead/behind 判断。`check:full` 只用于 release/nightly、selector calibration 或 unresolved impact backstop，不属于普通 edit/finding loop。
+10. 失败先定位 root cause、owner、invariant 与失效 Evidence；输入和 failure tail 未变时复用失败，只重跑被 delta 影响的最小验证。外部 maintainer/user 改动使旧 observation stale，当前物理状态优先；恢复 claim 只能由本层分类为“需要独立 verified executor”，不得从裸枚举签发 effect authority。显式用户恢复、Agent 自身越权 rollback receipt 与 operation-owned CAS 分别由其 authority owner 复核 principal/resource/preimage/current/expiry 后执行；否则禁止用 `git fsck`/dangling object/checkout 复活旧状态，冲突返回 typed `external-maintainer-mutation`。机器可观察规则必须由类型、Schema、parser、validator、test、Hook 或 CI 拒绝；哲学与原理放在 canonical owner，AGENTS 只保留启动路由。

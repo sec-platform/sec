@@ -56,11 +56,14 @@ test('metadata table covers every registered Skill exactly once with valid vocab
 test('quarantine covers AGENTS, .agents, the registry, the CLI and the governance authority', () => {
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('AGENTS.md');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('.agents/');
+  expect(SEC_SKILL_QUARANTINE_PATHS).toContain('platform/shared/agent-operation-read-plan-contract.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('platform/shared/agent-skill-contract.ts');
+  expect(SEC_SKILL_QUARANTINE_PATHS).toContain('scripts/codex/operation-read-plan.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('scripts/codex/skill-applicability.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('docs/development-governance.md');
   expect(isSecSkillQuarantinePath('AGENTS.md')).toBe(true);
   expect(isSecSkillQuarantinePath('.agents/skills/sec-worker-development/SKILL.md')).toBe(true);
+  expect(isSecSkillQuarantinePath('platform/shared/agent-operation-read-plan-contract.ts')).toBe(true);
   expect(isSecSkillQuarantinePath('platform/shared/agent-skill-contract.ts')).toBe(true);
   expect(isSecSkillQuarantinePath('docs/development-governance.md')).toBe(true);
   expect(isSecSkillQuarantinePath('platform/shared/ci-contract.ts')).toBe(false);
@@ -191,9 +194,12 @@ test('missing required capability excludes the candidate before scope checks', (
   ]);
 });
 
-test('goal, role, operation, capsule or trusted-revision change invalidates the prior decision as stale', () => {
+test('goal, role, operation, capsule binding or trusted-revision change invalidates the prior decision as stale', () => {
   const prior = evaluateSecSkillApplicabilityV1(envelope({
-    candidates: ['sec-worker-development']
+    candidates: ['sec-worker-development'],
+    taskCapsuleRef: 'capsule-1',
+    taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
+    taskCapsuleRevision: 'task-capsule-compiler-v1'
   }));
   expect(prior.status).toBe('applicable');
   const stale = evaluateSecSkillApplicabilityV1(envelope({
@@ -216,6 +222,16 @@ test('goal, role, operation, capsule or trusted-revision change invalidates the 
   expect(roleStale.invalidationConditions).toEqual(
     expect.arrayContaining(['role', 'operation-kind', 'candidate-set'])
   );
+
+  const capsuleStale = evaluateSecSkillApplicabilityV1(envelope({
+    candidates: ['sec-worker-development'],
+    taskCapsuleRef: 'capsule-1',
+    taskCapsuleDigest: `sha256:${'b'.repeat(64)}`,
+    taskCapsuleRevision: 'task-capsule-compiler-v1',
+    priorDecision: prior
+  }));
+  expect(capsuleStale.status).toBe('stale');
+  expect(capsuleStale.invalidationConditions).toContain('task-capsule-digest');
 });
 
 test('candidate touching a quarantine path binds trusted guidance and never self-authorizes', () => {
@@ -300,7 +316,9 @@ test('decision V1 binds every required field', () => {
   const decision = evaluateSecSkillApplicabilityV1(envelope({
     candidates: ['sec-worker-development'],
     workPackageAuthorizationRef: 'docs/work-packages/skill-applicability-gate-v1.md',
-    taskCapsuleRef: 'capsule-1'
+    taskCapsuleRef: 'capsule-1',
+    taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
+    taskCapsuleRevision: 'task-capsule-compiler-v1'
   }));
   expect(decision.goalDigest).toBe('test-goal');
   expect(decision.trustedRevision).toBe(TRUSTED_REVISION);
@@ -309,6 +327,8 @@ test('decision V1 binds every required field', () => {
     'docs/work-packages/skill-applicability-gate-v1.md'
   );
   expect(decision.taskCapsuleRef).toBe('capsule-1');
+  expect(decision.taskCapsuleDigest).toBe(`sha256:${'a'.repeat(64)}`);
+  expect(decision.taskCapsuleRevision).toBe('task-capsule-compiler-v1');
   expect(decision.candidateSkillIds).toEqual(['sec-worker-development']);
   expect(decision.capabilityAvailability.git).toBe(true);
 });

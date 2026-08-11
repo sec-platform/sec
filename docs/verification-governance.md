@@ -2,7 +2,7 @@
 title: Verification、Evidence 与 CI 治理
 status: stable
 domain: verification-governance
-last-reviewed: 2026-08-10
+last-reviewed: 2026-08-11
 ---
 
 # Verification、Evidence 与 CI 治理
@@ -140,6 +140,11 @@ input closure、environment/tool/provider/contract revision、result schema和de
 branch名、PR编号、聊天、显示标题、session ID、wall-clock、pid、临时路径和scheduler lane
 不能成为语义key。
 
+`input closure` 必须是该 Action 实际读取的 subject closure，不得无条件加入整个 candidate
+tree、manifest raw bytes或所有依赖拓扑。只有 Gate contract 真实观察全树时，whole-tree digest
+才属于该 ActionKey。等价 commit 重新 materialize 而 `CandidateContentId` 与 subject closure 未变时，
+ActionKey 保持不变；exact-head Review、Session revision 与 Promotion 仍重绑新的 Git head。
+
 所有正式 producer 必须从同一个 canonical builder 生成 ActionKey。Selector 只拥有“哪些
 scope required”；producer 把 scope 规范化为 Action；runner 只消费经过验证的 ActionPlan。
 CI gate ID、raw argv、scopeId、evidenceIdentity、journal path或workflow run ID不能与
@@ -157,6 +162,13 @@ readback immutable ActionKey start marker；marker存在而terminal origin缺失
 unknown，必须BLOCKED并通过新的显式producer/environment epoch形成新ActionKey，不能对同key
 自动重跑。start marker同样只是machine state，不能被解释为PASS或terminal Evidence。
 
+正式解析对每个 required ActionKey 只能得到一个结果：fresh PASS `reuse`、fresh FAIL
+`reuse-failure`、authenticated in-flight `join`、missing/stale `execute`、start-without-terminal
+`blocked-unknown-outcome`。`not-applicable` 在 Requirement 层由 proof 决定，不制造 Action；Impact
+`unresolved` 必须扩大 closure 或 BLOCK。全局 hard invariant 是
+`physicalStartsPerActionKey <= 1`；fresh terminal、in-flight 或 unknown outcome 的物理执行次数都
+必须为零，不能用 retry、new session 或不同临时路径绕过。
+
 Hosted provider machine state只有一个pure contract和一个窄GitHub transport owner。trusted
 resolver从base重算ActionKey；job concurrency只能由该输出投影，并必须保留pending请求而不
 cancel/replace。provider对exact candidate SHA的status history做完整分页，`pending`只表示
@@ -167,6 +179,17 @@ terminal artifact缺失时永久禁止同key再次physical spawn；exact termina
 terminal status缺失时只允许repair status，executor调用次数仍为零。artifact过期或删除后，
 status仍阻止重放，但不能凭digest恢复或复用原Result；需要跨retention复用时必须另行冻结带
 conditional insert和长期bytes的provider，不能把status提升为永久Evidence。
+
+Provider availability不是effect authority，也不是Session准备阶段可缓存到结束的布尔值。Review
+request、hosted verification dispatch、GitHub publication、merge和closeout的authority只来自各自的
+operation-specific authorization、idempotency、recovery和exact readback contract。effect owner紧邻
+physical provider effect只重新读取canonical availability epoch，且仅当当前epoch明确标记对应
+capability为unavailable时作为negative circuit breaker阻止重复尝试；availability ledger不得产生
+positive claim、role或effect permit。expired、unknown、unverifiable和degraded既不能支持正向
+authority，也不自行否定已经由该operation contract授权的一次调用；其provider attempt/readback成为
+新的availability evidence。较早的prepare、selector或Review观察不能授权较晚effect；已存在的
+authenticated in-flight exact ActionKey只能join或readback，不能再次physical spawn。这样provider
+状态既不会被Session复制成第二真值，也不会在检查与实际副作用之间形成TOCTOU窗口。
 
 一次external Session协调多个Action时，协调者必须先在受信workflow内发布并精确读回一个
 canonical parent dispatch-plan artifact；它绑定repository、external parent run/attempt、trusted
@@ -211,27 +234,77 @@ failure可以复用为失败事实，但 `not-run`、`unsupported`、`invalidate
 ## VerificationSession、Scope 与 MainHealth
 
 VerificationSession 是一次 frozen candidate 从定向到合并/readback 的唯一运行状态机，
-不是第二个Result、Review或Integration owner。稳定 `sessionRevision` 与 `sessionId`、event
-ID和时间戳分离，至少绑定：
+不是第二个Task Capsule、Result、Review或Integration owner，也不是 general Run Kernel。稳定
+`sessionRevision` 与 `sessionId`、candidate generation、event ID和时间戳分离，至少绑定：
 
-- exact repository/default base commit与tree、candidate head与tree；
-- manifest raw digest与trusted-base签发的scope authorization；
+- exact repository/default base commit与tree、`CandidateContentId` 与
+  `CandidateGenerationRef`；
+- `taskCapsuleRef/digest/revision`、manifest semantic/raw digest、ScopeGrant 与 exact
+  CandidateScopeAttestation；
 - canonical Action plan/key closure、profile、environment和trust revision；
 - Review policy、MainHealth revision以及所消费Evidence/authorization references。
 
-Manifest是scope proposal，不是自授权。Trusted scope authorization固定manifest revision、
-exact authorized write set、base/head/tree与session inputs；manifest、write set或任一绑定输入
-变化必须产生新authorization/session，并使旧Action、Review、Evidence和merge authorization
-stale。PR body、pointer或候选自己修改的manifest不能扩大已冻结权限。
+Manifest是scope proposal，不是自授权。`ScopeGrantId` 固定 trust epoch、manifest semantic
+revision、exact authorized/forbidden write set、capability/resource bounds 与 base authority；trusted
+resolver 为每个 exact base/head/tree 产生 `CandidateScopeAttestation`，证明 candidate diff/effects
+仍是 grant 子集。manifest semantics、write set、authority 或 capability变化必须产生新 grant；
+仅 transport/head 变化时产生新 generation、attestation 与 sessionRevision，不能扩大 scope。
+PR body、pointer或候选自己修改的manifest不能给自己扩权。
 
-Work Package激活只由Document Control Plane的recoverable transaction执行。它用canonical
-Work Package parser/digest先在内存生成manifest、active pointer与rolling-plan promotion的全部
-next bytes，在workspace write lease下以preimage CAS发布一个Git index tree，再投影byte-exact
-worktree files。index/worktree混合快照、target drift、unrelated staged entry、symlink/outside path、
-stale main或unknown recovery bytes一律BLOCK；recovery只接受每个target处于exact PRE或NEXT并
-确定性roll forward。未取得显式commit/ref CAS authority时终态只能是
-`ACTIVATED_INDEX_PENDING_COMMIT`，不能称为exact-head Session。Session随后只消费进入一个immutable
-commit/PR head与tree的activation result。
+`CandidateContentId` 绑定 base semantic/tree dependency、candidate tree、ScopeGrantId 与 manifest
+semantic revision；`CandidateGenerationRef` 绑定 run/session、单调 generation、content ID 与 exact
+head commit。相同 content 被不同 commit metadata 重新 materialize 时 content ID 不变。旧 exact-head
+Review、CandidateScopeAttestation、Session revision与Promotion stale；Action/Evidence仅在其 subject
+closure、contract、environment或trust input变化时失效，不能因 transport churn global invalidate。
+
+identity contract至少等价于：
+
+```text
+CandidateContentId = H(
+  identitySchemaRevision,
+  baseDependencyClosureDigest,
+  candidateTree,
+  ScopeGrantId,
+  manifestSemanticRevision
+)
+
+CandidateGenerationRef = {
+  runId, sessionId, generation,
+  contentId, baseCommit, exactHeadCommit, candidateTree,
+  candidateScopeAttestationDigest
+}
+
+ReviewSubjectId = H(
+  baseCommit, exactHeadCommit, candidateTree,
+  candidateScopeAttestationDigest,
+  reviewPolicyRevision, reviewFactsSnapshotDigest
+)
+
+PromotionId = H(
+  CandidateGenerationRef, evidenceAggregateDigest,
+  ReviewReceiptDigest, trustRevision, expectedLiveMain
+)
+```
+
+`baseDependencyClosureDigest` 由trusted-base dependency/Impact owner计算，不能由candidate缩小；
+`manifestSemanticRevision` 由canonical Work Package parser产生，不能用raw formatting或路径别名替代。
+consumer边界固定为：Impact/Action builder消费content与subject closure，Session/PR transport消费
+generation ref，Review只消费ReviewSubject，merge gate只消费Promotion。任一consumer不得用上游较弱
+identity替代自己要求的exact identity。
+
+Work selection先由trusted ScopeGrant、Task Capsule 与 Session外部记录授权；candidate tracked
+pointer不是运行期授权源。Document Control Plane只纯编译manifest、prospective pointer与rolling-plan
+bytes。candidate稳定后，显式Candidate Materializer在isolated temporary Git index中把这些bytes与
+implementation blobs应用到trusted base，`write-tree`、`commit-tree -p <base>`、验证exact
+one-parent/content binding，再以expected-old ref CAS发布并readback。任何 object/tree/commit/ref
+阶段失败都从immutable inputs恢复或保持旧ref，不创建successor worktree。
+
+Candidate 中的 pointer/rolling/manifest 是 `ProspectiveControlProjection`；只有 live default/main
+commit 中的byte-exact control facts才能成为 `ActiveMainControlState`。worktree projection只是可丢弃
+视图，projection失败只能产生 `CANDIDATE_PROJECTION_FAILED`，不能让 live main进入
+`activation-in-progress`。pure check/freeze不得写source、index、mtime或Git object database；只有
+显式 materialize/transform operation可写。Session只消费已经进入immutable commit/PR head/tree并
+通过ref readback的generation。
 
 `prepare`在hosted dispatch前从同一selector生成local quick-only feedback closure，并用独立
 `local-dev-runner` environment revision交给canonical Action runner。local Action只在exact clean
@@ -352,6 +425,19 @@ Verification Claim可以绑定old Binding、new Binding或exact Delta item，证
 
 已证明无影响的Gate可以合法not-run；可信key未变化且invalidation条件未触发的result可以reused；存在影响时运行最小充分闭包；unknown/unresolved阻止成功。
 
+相对于当前 dependency/Impact model revision，执行集合固定为：
+
+```text
+Execute   = RequiredClosure ∩ MissingOrStale
+Satisfied = RequiredClosure ∩ FreshPass
+Failed    = RequiredClosure ∩ FreshFailure
+Join      = RequiredClosure ∩ AuthenticatedInFlight
+Blocked   = Unresolved ∪ UnknownPhysicalOutcome ∪ InvalidAuthority
+```
+
+Known unnecessary、fresh proof、same failure 与 authenticated in-flight 可以保证不重复；opaque/
+dynamic frontier 无法证明无影响时只能扩大或阻塞，不能承诺超出当前 model 能力的“全知最小集”。
+
 Semantic Impact、Implementation impact、repository/test impact、physical platform applicability、Compatibility和release impact是不同producer。它们可以组合，但不能互相冒充。
 
 Full/Release是selector校准backstop。若Full发现affected漏选，缺陷属于relation/ownership/selector：必须登记漏边、补permanent regression并失效依赖旧selector的Evidence，而不是只把漏掉的测试永久塞进Full。
@@ -362,7 +448,12 @@ Full/Release是selector校准backstop。若Full发现affected漏选，缺陷属�
 Authoring → Candidate → Frozen → Published/Merged → Readback
 ```
 
-只有Frozen candidate和冻结Binding可以签发最终Evidence。任何source/base/head/tree/manifest/profile、Requirement/Candidate catalog/ResolutionPolicy/Binding/BindingDelta subject、required Gate、Claim definition或trust input变化都会产生新epoch或使旧Evidence invalidated。
+只有Frozen candidate content和冻结Binding可以签发最终Evidence。source/manifest semantics/profile、
+Requirement/Candidate catalog/ResolutionPolicy/Binding/BindingDelta subject、required Gate、Claim
+definition、Action subject closure或trust input变化，会产生新content/epoch或只失效其依赖
+descendants。仅 exact Git head/transport变化总会失效CandidateScopeAttestation、Review、Session
+revision和Promotion，但不得自动失效 ActionKey 未变的Evidence；最终 Aggregate仍必须重新绑定新的
+exact generation。
 
 Failure record至少包含：code、phase、Gate、owner、invariant、exact input、minimal reproduction、failure fingerprint、invalidated Evidence、cleanup state、next action和retry policy。
 
@@ -403,9 +494,29 @@ focused failing sentinel
 
 性能目标与正确性Gate分离。单次wall-clock只提供诊断；结构性工作量、固定环境的多样本基线和可重复回归才可形成性能裁决。
 
+编排性能使用分离指标，不能把worktree和ref混成一个比率：
+
+```text
+MutableWorktreeAmplification = mutable worktrees / active logical runs
+ActiveRefAmplification = active candidate refs / active logical runs
+FindingSuccessorWorktreeCount
+ActionExecutionAmplification = physical Action starts / unique required missing ActionKeys
+```
+
+前两项正常目标均为 `1.0`，finding successor worktree目标为 `0`，Action execution目标为
+`1.0`。candidate generation数量只作诊断；同root cause反复frozen invalidation触发proof reset/
+redesign，而不是禁止合法 finding generation。
+
 ## Evidence DAG 与 Run State
 
 Evidence可以形成DAG：node引用inputs、Requirement/Gate contract、environment、producer、Result、artifacts和predecessors。相同未失效node可复用；failure node可复用为诊断但不能变PASS；组合旧baseline Evidence必须同时证明intervening diff coverage和delta validation。
+
+Independent Review 不建立并列顶层 lifecycle state machine。Review request 是具有
+`ReviewRequestActionKey`、provider effect、start/terminal observation 与 immutable receipt 的
+external Verification Action；provider selection/availability与receipt freshness由各自pure resolver
+计算。Review Action可以消费previous receipt、unchanged-byte proof、finding-fix delta 与
+cross-boundary Impact以减少重复读取，但每个新 `ReviewSubjectId` 必须由独立principal签发新的
+full-candidate exact-head ReviewReceipt。旧approved hunks与新delta不得由机器拼装成新批准。
 
 Development Run State记录run/capsule/event/transition/resume；Verification Evidence记录proof。二者必须通过typed references连接，不能把Run Journal变成第二Verification Result，也不能把Evidence文件当作当前执行状态。
 
@@ -425,6 +536,20 @@ Trusted base-side runner把candidate Git tree当不可信输入，在无凭据�
 
 Candidate自带测试只能作为补充，不能授予自身合并权或把自己的Resolution、Delta、Compatibility结果标为正确。Trust migration成功后必须从新main重新加载trust root；旧会话/Review/Evidence不能继续授权新epoch。
 
+长期 trust root 分三层，且不建立第二 Verification pipeline：
+
+- **Tier 0 Transition Root**：只拥有Git object/ref exact identity、CAS/readback、principal
+  verification、canonical digest/schema primitives、old→new TCB closure comparison 与 transition
+  receipt；
+- **Tier 1 Evolvable Verification TCB**：selector、ActionKey/Evidence、Review validator、merge gate、
+  docs/toolchain/provider policies；
+- **Tier 2 Product**：普通产品与工程实现。
+
+Tier 1变化由旧trusted owner计算affected trust closure，candidate nodes只作untrusted SUT，Tier 0
+验证node receipts与完整new-TCB aggregate后签发`TrustEpochTransitionReceipt`；未受影响node可以
+内容寻址复用。只有Tier 0自身变化才进入manual break-glass。selector、docs-doctor、Provider逻辑、
+test-impact或merge policy不得逐步回流Tier 0形成bootstrap monster。
+
 ## Property、Fault 与 Flake
 
 - Pure property优先覆盖identity/revision/normalization/serialization、Fact/Binding Delta、Impact、Requirement/Candidate/Decision/Binding、Compatibility rule、state machine、fixed-point、deterministic ordering、tie-break和clean/incremental parity；
@@ -434,6 +559,15 @@ Candidate自带测试只能作为补充，不能授予自身合并权或把自�
 - Retry只收集flake Evidence；多次中一次绿不能改写失败；
 - Quarantine必须有owner、expiry、替代coverage和退出条件；
 - Mutation testing只用于高价值pure kernel/validator/authorization/eligibility/delta/compatibility/fail-closed/selector校准，不进入普通save loop。
+
+开发控制面cutover的contract/fault corpus至少覆盖：same content/different commit得到相同
+CandidateContentId但不同GenerationRef；两个writer对同expected-old ref只有一个CAS成功；在object、
+tree、commit、ref publication、readback与worktree projection每个边界crash后可确定恢复；scope扩张
+无法沿用旧ScopeGrant；旧Review不能授权新generation；ActionKey未变时fresh PASS/FAIL不重新执行；
+start-without-terminal永久阻止同key replay；candidate projection失败不改变ActiveMainControlState；
+provider epoch在prepare后、effect-start前失效时physical provider调用为零；merge response丢失后只
+readback且不第二次调用effect。历史v2-v6 run必须可replay成一个run、一个mutable worktree、一个
+active ref与多个immutable generations。
 
 ## Evidence 与 Provenance
 
@@ -456,6 +590,13 @@ reviewed commit、完整分页快照和thread/request-change digest；head不变
 或pagination状态变化同样会使receipt stale。可信GitHub App的稳定app/node identity或独立
 human exact-head APPROVED可以成为principal，显示名、PR summary、self-review或未绑定commit
 的COMMENTED状态不能单独授权。
+
+`PromotionId` 绑定exact CandidateGenerationRef、candidate tree、ScopeGrant/attestation、Action
+closure/Aggregate、fresh exact-head ReviewReceipt、trust revision与expected live main。content ID
+相同不能复用旧Promotion；任何exact transport、Review facts、Evidence aggregate或live-main变化都
+必须重算。Promotion/Integration transaction吸收remote merge、tree parity、remote closeout、
+local-main readback与leased cleanup；branch/worktree closeout只作为该transaction的physical Actions，
+不建立第二完成状态机。
 
 Merge前由 trusted workflow 中的 canonical merge-gate 唯一重算：current base/head/tree/manifest/profile、trusted scope、Action
 closure、required Claims/Evidence、Review、unresolved blocking threads、REQUEST_CHANGES、

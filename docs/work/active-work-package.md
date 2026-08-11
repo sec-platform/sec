@@ -10,8 +10,8 @@ last-reviewed: 2026-08-11
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/bootstrap-repair-348-347-v1.md
-manifestDigest: sha256:84e95584666525c55f7a33661f749e25d92231f6b8f5750a290ea6e3b80ee967
+manifest: docs/work-packages/agent-operation-read-plan-v1.md
+manifestDigest: sha256:78b9c19466ce535f5d600f73abcbd2a5a5547dbec2843beb190201a86e67c810
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
