@@ -15,6 +15,47 @@ import type {
   ClassifiedBranchLifecycle
 } from './branch-lifecycle-types.ts';
 
+export const BRANCH_LIFECYCLE_SELECTION_PROJECTION_SCHEMA_V1 =
+  'sec-branch-lifecycle-selection-projection-v1' as const;
+
+export interface BranchLifecycleSelectionRefV1 {
+  readonly branch: string;
+  readonly sha: string;
+}
+
+export interface BranchLifecycleSelectionWorktreeV1 {
+  readonly worktreeRef: `sha256:${string}`;
+  readonly branch: string | null;
+  readonly headSha: string;
+}
+
+export interface BranchLifecycleSelectionPullRequestV1 {
+  readonly number: number;
+  readonly headBranch: string;
+  readonly headSha: string;
+  readonly baseBranch: string;
+  readonly baseSha: string;
+}
+
+export interface BranchLifecycleProspectiveTransportV1 {
+  readonly branch: string;
+  readonly headSha: string;
+  readonly worktreeRef: `sha256:${string}`;
+}
+
+export interface BranchLifecycleSelectionProjectionV1 {
+  readonly schema: typeof BRANCH_LIFECYCLE_SELECTION_PROJECTION_SCHEMA_V1;
+  readonly exactMain: string;
+  readonly defaultBranch: string;
+  readonly activeState: 'none' | 'incomplete';
+  readonly activeBranch: string | null;
+  readonly activeHeadSha: string | null;
+  readonly activeLegality: 'not-applicable' | 'legal' | 'invalid';
+  readonly closeoutState: 'none' | 'required';
+  readonly blockerRefs: readonly `sha256:${string}`[];
+  readonly projectionDigest: `sha256:${string}`;
+}
+
 export function assertGitSha(value: string, label = 'Git SHA'): void {
   if (!/^[0-9a-f]{40}$/u.test(value)) {
     throw new Error(`${label} must be a lowercase 40-character Git SHA.`);
@@ -68,6 +109,169 @@ export function branchLifecycleDigest(value: unknown): `sha256:${string}` {
   return `sha256:${createHash('sha256')
     .update(JSON.stringify(stableValue(value)))
     .digest('hex')}`;
+}
+
+function selectionDigest(value: unknown, label: string): `sha256:${string}` {
+  if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/u.test(value)) {
+    throw new Error(`${label} must be one SHA-256 digest.`);
+  }
+  return value as `sha256:${string}`;
+}
+
+function compareSelectionText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function normalizeSelectionRefs(
+  entries: readonly BranchLifecycleSelectionRefV1[],
+  label: string
+): readonly BranchLifecycleSelectionRefV1[] {
+  const normalized = entries.map((entry, index) => {
+    assertGitBranchName(entry.branch, `${label}[${index}].branch`);
+    assertGitSha(entry.sha, `${label}[${index}].sha`);
+    return Object.freeze({ branch: entry.branch, sha: entry.sha });
+  }).sort((left, right) => (
+    compareSelectionText(left.branch, right.branch)
+    || compareSelectionText(left.sha, right.sha)
+  ));
+  if (new Set(normalized.map(({ branch }) => branch)).size !== normalized.length) {
+    throw new Error(`${label} contains a duplicate branch identity.`);
+  }
+  return Object.freeze(normalized);
+}
+
+function normalizeSelectionWorktrees(
+  entries: readonly BranchLifecycleSelectionWorktreeV1[]
+): readonly BranchLifecycleSelectionWorktreeV1[] {
+  const normalized = entries.map((entry, index) => {
+    const worktreeRef = selectionDigest(entry.worktreeRef, `worktrees[${index}].worktreeRef`);
+    if (entry.branch !== null) {
+      assertGitBranchName(entry.branch, `worktrees[${index}].branch`);
+    }
+    assertGitSha(entry.headSha, `worktrees[${index}].headSha`);
+    return Object.freeze({ worktreeRef, branch: entry.branch, headSha: entry.headSha });
+  }).sort((left, right) => compareSelectionText(left.worktreeRef, right.worktreeRef));
+  if (new Set(normalized.map(({ worktreeRef }) => worktreeRef)).size !== normalized.length) {
+    throw new Error('Work-selection lifecycle projection contains a duplicate worktree identity.');
+  }
+  return Object.freeze(normalized);
+}
+
+/**
+ * Bounded #313 projection for Work Selection. The caller observes only the
+ * non-default ref/worktree namespace and at most one OPEN pull request; this owner
+ * validates the exact prospective or active transport and decides whether any
+ * remaining physical subject requires closeout. It deliberately does not scan
+ * historical PRs, comments, or artifacts and does not authorize mutation.
+ */
+export function projectBranchLifecycleForWorkSelectionV1(input: Readonly<{
+  exactMain: string;
+  defaultBranch: string;
+  localRefs: readonly BranchLifecycleSelectionRefV1[];
+  remoteRefs: readonly BranchLifecycleSelectionRefV1[];
+  worktrees: readonly BranchLifecycleSelectionWorktreeV1[];
+  openPullRequests: readonly BranchLifecycleSelectionPullRequestV1[];
+  prospectiveTransport: BranchLifecycleProspectiveTransportV1 | null;
+}>): BranchLifecycleSelectionProjectionV1 {
+  assertGitSha(input.exactMain, 'Work-selection lifecycle exactMain');
+  assertGitBranchName(input.defaultBranch, 'Work-selection lifecycle defaultBranch');
+  const localRefs = normalizeSelectionRefs(input.localRefs, 'localRefs');
+  const remoteRefs = normalizeSelectionRefs(input.remoteRefs, 'remoteRefs');
+  const worktrees = normalizeSelectionWorktrees(input.worktrees);
+  if (input.openPullRequests.length > 1) {
+    throw new Error('Work-selection lifecycle projection accepts at most one OPEN pull request.');
+  }
+  const openPullRequests = Object.freeze(input.openPullRequests.map((pullRequest, index) => {
+    if (!Number.isSafeInteger(pullRequest.number) || pullRequest.number < 1) {
+      throw new Error(`openPullRequests[${index}].number must be positive.`);
+    }
+    assertGitBranchName(pullRequest.headBranch, `openPullRequests[${index}].headBranch`);
+    if (!pullRequest.headBranch.startsWith('codex/')) {
+      throw new Error(`openPullRequests[${index}] must use one codex transport branch.`);
+    }
+    assertGitSha(pullRequest.headSha, `openPullRequests[${index}].headSha`);
+    assertGitBranchName(pullRequest.baseBranch, `openPullRequests[${index}].baseBranch`);
+    assertGitSha(pullRequest.baseSha, `openPullRequests[${index}].baseSha`);
+    return Object.freeze({ ...pullRequest });
+  }));
+  const prospectiveTransport = input.prospectiveTransport === null
+    ? null
+    : (() => {
+        assertGitBranchName(input.prospectiveTransport.branch, 'prospectiveTransport.branch');
+        if (!input.prospectiveTransport.branch.startsWith('codex/')) {
+          throw new Error('Prospective transport must use one codex branch.');
+        }
+        assertGitSha(input.prospectiveTransport.headSha, 'prospectiveTransport.headSha');
+        const worktreeRef = selectionDigest(
+          input.prospectiveTransport.worktreeRef,
+          'prospectiveTransport.worktreeRef'
+        );
+        return Object.freeze({ ...input.prospectiveTransport, worktreeRef });
+      })();
+
+  const active = openPullRequests[0] ?? null;
+  let activeLegality: BranchLifecycleSelectionProjectionV1['activeLegality'] = 'not-applicable';
+  const allowedBranches = new Map<string, string>();
+  const allowedWorktrees = new Map<`sha256:${string}`, Readonly<{ branch: string; headSha: string }>>();
+  if (active !== null) {
+    const local = localRefs.find(({ branch }) => branch === active.headBranch);
+    const remote = remoteRefs.find(({ branch }) => branch === active.headBranch);
+    const boundWorktrees = worktrees.filter(({ branch }) => branch === active.headBranch);
+    activeLegality = active.baseBranch === input.defaultBranch
+      && active.baseSha === input.exactMain
+      && remote?.sha === active.headSha
+      && (local === undefined || local.sha === active.headSha)
+      && boundWorktrees.every(({ headSha }) => headSha === active.headSha)
+      ? 'legal'
+      : 'invalid';
+    allowedBranches.set(active.headBranch, active.headSha);
+    for (const worktree of boundWorktrees) {
+      allowedWorktrees.set(worktree.worktreeRef, {
+        branch: active.headBranch,
+        headSha: active.headSha
+      });
+    }
+  } else if (prospectiveTransport !== null) {
+    if (prospectiveTransport.headSha !== input.exactMain) {
+      throw new Error('Prospective transport must still point at the exact main preimage.');
+    }
+    const local = localRefs.find(({ branch }) => branch === prospectiveTransport.branch);
+    const worktree = worktrees.find(({ worktreeRef }) => worktreeRef === prospectiveTransport.worktreeRef);
+    if (local?.sha !== input.exactMain || worktree === undefined
+        || worktree.branch !== prospectiveTransport.branch
+        || worktree.headSha !== input.exactMain
+        || remoteRefs.some(({ branch }) => branch === prospectiveTransport.branch)) {
+      throw new Error('Prospective transport is not the exact local branch/worktree preimage.');
+    }
+    allowedBranches.set(prospectiveTransport.branch, input.exactMain);
+    allowedWorktrees.set(prospectiveTransport.worktreeRef, {
+      branch: prospectiveTransport.branch,
+      headSha: input.exactMain
+    });
+  }
+
+  const unexpected = [
+    ...localRefs.filter(({ branch, sha }) => allowedBranches.get(branch) !== sha)
+      .map((entry) => branchLifecycleDigest({ kind: 'local-ref', ...entry })),
+    ...remoteRefs.filter(({ branch, sha }) => allowedBranches.get(branch) !== sha)
+      .map((entry) => branchLifecycleDigest({ kind: 'remote-ref', ...entry })),
+    ...worktrees.filter((entry) => {
+      const allowed = allowedWorktrees.get(entry.worktreeRef);
+      return allowed === undefined || entry.branch !== allowed.branch || entry.headSha !== allowed.headSha;
+    }).map((entry) => branchLifecycleDigest({ kind: 'worktree', ...entry }))
+  ].sort();
+  const material = Object.freeze({
+    schema: BRANCH_LIFECYCLE_SELECTION_PROJECTION_SCHEMA_V1,
+    exactMain: input.exactMain,
+    defaultBranch: input.defaultBranch,
+    activeState: active === null ? 'none' as const : 'incomplete' as const,
+    activeBranch: active?.headBranch ?? null,
+    activeHeadSha: active?.headSha ?? null,
+    activeLegality,
+    closeoutState: unexpected.length === 0 ? 'none' as const : 'required' as const,
+    blockerRefs: Object.freeze(unexpected)
+  });
+  return Object.freeze({ ...material, projectionDigest: branchLifecycleDigest(material) });
 }
 
 function normalizeAbsolutePath(value: string): string {
