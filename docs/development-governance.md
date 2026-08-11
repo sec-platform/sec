@@ -230,10 +230,10 @@ Skill只能声明 required capabilities，不能扩大交集。
 
 ### Task Capsule
 
-Task Capsule 由独立 `TaskCapsuleCompiler` 从 typed WorkDecision、canonical owner facts、root
-cause、scope、Impact 与 Verification obligations 纯编译；相同输入必须得到 byte-identical
-Capsule。它是 Operation 的不可变执行输入，不是 current state、Work Package 副本、聊天摘要或
-VerificationSession 子对象。
+Task Capsule 由独立 `TaskCapsuleCompiler` 从 typed planning context、owner bindings、root
+cause、scope proposal、Impact 与 Verification obligations 纯编译；相同输入必须得到 byte-identical
+Capsule。Phase A Capsule 是 Operation 的不可变 **unbound planning content**，不是 current state、
+Work Package 副本、聊天摘要、issuer receipt、effect grant 或 VerificationSession 子对象。
 
 Task Capsule 唯一拥有其内容 schema、编译规则和 revision。Operation Envelope 与
 VerificationSession 只能保存 `taskCapsuleRef`、`taskCapsuleDigest`、`taskCapsuleRevision`，并在
@@ -241,12 +241,35 @@ VerificationSession 只能保存 `taskCapsuleRef`、`taskCapsuleDigest`、`taskC
 改写 Capsule。work selection、owner、scope 或 obligations 变化时重新编译 Capsule 并使引用旧
 revision 的下游 decision stale。
 
+当前 machine owner 是 `platform/shared/agent-task-capsule-contract.ts`；它纯编译
+`sec-task-capsule-v1` 并拥有 operation role/kind vocabulary、严格 parser、canonical ordering、revision
+与完整 digest。该 schema 强制 `authorityStatus=unbound-planning-content`、`effectAuthority=none`、
+`scopeGrantId=null`；Work Package 只能以 `proposalRef/proposalDigest/projectionId` 进入 planning context，
+禁止把 manifest、pointer、candidate tree、freeze/recovery journal 或普通 self-digest命名为 authorization、
+activation receipt 或 ScopeGrant。Skill registry 只校验 Capsule 中的候选 guidance ID，不反向拥有
+operation identity。
+
+`scripts/codex/task-capsule.ts` 在 Phase A 只提供 content verification 与一个显式关闭的 production seam。
+所有 public Task Capsule projection、Read Plan compile 与 Skill production selection 在真实 issuer接入前
+统一返回 typed `trusted-activation-authority-unavailable`；不存在 candidate journal positive path、raw
+Capsule/envelope、caller authority fields、测试 mint seam或兼容alias。freeze journal 只拥有 crash recovery、
+CAS 与 consistency projection，绝不是 authority credential。只给 journal增加 issuer 字段、普通 digest、
+本地文件或同用户 ACL 不构成修复：在没有进程隔离、受保护凭证库或签名信任根时仍可由candidate重算。
+
+下一 #346 authority/canary slice 必须由独立 document-control/A0 owner签发 durable、issuer-bound 且绑定
+exact repository、trusted base、candidate head/tree、manifest path/digest 与 control-byte digests 的 receipt。
+Task Capsule adapter只能消费与live revalidate该receipt，不能签发或从candidate facts推断issuer；control
+bytes必须先按 raw bytes 比较，再以 fatal UTF-8 解码后进入parser。直到该 owner 进入 new main，现行
+A0/Work Package operation authorization仍是唯一 effect grant，unbound Capsule不得驱动production读取、
+Skill、executor、Gate、Review或merge。Root-Cause Preflight、其他role、外部capability/resource/gate或
+多任务orchestration在各自provenance producer接入前同样fail closed。
+
 ### Operation Read Plan（Issue #346）
 
-独立 pure `OperationReadPlanCompiler` 消费 #205 Task Capsule 的一个 content-addressed authority
-projection 并产出 `sec-operation-read-plan-v1`。projection 的同一个 digest 必须完整覆盖 role、operation
+独立 pure `OperationReadPlanCompiler` 消费 #205 的 exact content-addressed Task Capsule
+并产出 `sec-operation-read-plan-v1`。Capsule 的同一个 digest 必须完整覆盖 role、operation
 kind、goal、owner facts、scope、capability/resource/gate、Verification obligations、Skill candidates、
-exact trusted base/head 与 Work Package authorization；Read Plan 不接受这些字段的平行 caller claims，
+exact trusted base/head 与 Work Package proposal/projection；Read Plan 不接受这些字段的平行 caller claims，
 也不重新定义 #205 的完整 Capsule schema或取得 Root-Cause Preflight owner。它不是模型缓存、prompt、
 聊天摘要或新的状态机，而是一次 Operation 的最小读取闭包，至少拥有：
 
@@ -274,21 +297,18 @@ receipt 时，执行器传递 ref、relevant symbols 和 delta 即可，不重�
 
 机器入口是 `platform/shared/agent-operation-read-plan-contract.ts` 与
 `scripts/codex/operation-read-plan.ts`。pure compile/verify 只证明 canonical bytes 与 digest 完整性，不把
-caller 输入升级为 authority；production `compile` 只接受仅含 schema 的 authority-free closure request。
-caller 不能提供 ref、owner、revision、receipt、frontier、forbidden-source policy 或 invalidation。当前首个
-executable profile 由 clean exact live-main TCB 的 canonical resolver 直接派生：它观察显式
-`candidate-root` 的 exact HEAD/sole parent，从 candidate exact objects 读取 pointer、rolling plan 与
-manifest，以现有 Work Package parser 重算 owner、goal、verification、write/forbidden/changed paths，
-并固定为 `worker/implement`、实际已证明的 `git` capability、零 resource/gate、唯一
-`sec-worker-development` candidate。它同时从 trusted base blobs、exact candidate manifest、owned paths
-与固定 mandatory deny baseline 派生 repository-only required refs、零 conditional/external ref、零
-caller receipt和零 additional invalidation；每个 repository ref 必须落入 Capsule read scope，external
-ref 必须由 exact authorized resource覆盖。其他 role、capability、resource、gate 与 Skill candidate 在
-#205 provenance-verified producer 接入同一 projection 接口前 fail closed。Skill selector 必须重新执行
-同一 trusted observation并要求整个 Capsule 与 authority-bearing Read Plan closure byte-exact相等，才重算 quarantine
-blob revisions。raw envelope、caller-selected comparison pair 或 candidate-self-issued authority 入口都
-不存在。不得在读取 Skill body 后反推或改写 Read Plan。缓存实现可以替换或完全不存在，正确性只
-依赖 trusted projection、plan、receipt 与 invalidation contract。
+caller 输入升级为 authority；production `compile` 只接受仅含 schema 的 authority-free closure request，
+但在issuer receipt owner接入前必须返回上述typed blocked结果。caller不能提供Capsule、ref、owner、
+revision、receipt、frontier、forbidden-source policy 或 invalidation，也不能通过直接调用Skill selector
+绕过blocked seam。
+
+未来 trusted adapter 只在issuer-bound Capsule之上从 trusted base blobs、exact receipt-bound manifest、
+scope与mandatory deny baseline派生repository-only required refs；每个repository ref必须落入Capsule read
+scope，external ref必须由exact authorized resource覆盖。Skill selector必须重新执行同一trusted observation
+并要求整个Capsule与scope-bearing Read Plan closure byte-exact相等，才重算quarantine blob revisions。
+raw envelope、caller-selected comparison pair、candidate-only manifest或candidate-self-issued authority入口
+始终不存在。不得在读取Skill body后反推或改写Read Plan。缓存实现可以替换或完全不存在，正确性只依赖
+issuer receipt、Capsule、plan、read receipt与invalidation contract。
 
 Read Plan 同时绑定 `current-physical-state-authoritative-v1`：非 Agent-owned scope 中的明确
 maintainer/user 改动是新的外部事件，旧 observation 立即 stale，当前物理状态成为 authoritative。
@@ -318,18 +338,18 @@ applicable | none-required | ambiguous | stale | conflict | not-applicable | unr
 ```
 
 - `applicable`：加载唯一 trusted Skill；
-- `none-required`：只在 Universal Policy + WorkPackage/Operation + Task Capsule 下执行，
+- `none-required`：只在 Universal Policy + WorkPackage/Operation + issuer-bound Task Capsule 下执行，
   简单读取、格式修复或已明确 Operation 不得被迫加载 catch-all Skill；
 - `ambiguous`：多个候选且无唯一 operation 证据，不得按文件顺序/ID/最新修改选取；
 - `conflict`：Skill 要求超出授权 write/read path、resource、tool、Gate 或 authority，
   Skill 不得扩大交集；
-- `stale`：goal、role、operation kind、WorkPackage 授权、Task Capsule、candidate 集合
+- `stale`：goal、role、operation kind、WorkPackage proposal/receipt、Task Capsule、candidate 集合
   或 trusted revision 变化使旧 decision 失效；
 - `not-applicable` / `unresolved`：operation 不进入 Skill 空间或输入不完整，停止写入。
 
 Decision V1 至少绑定：trusted main/control revision、target candidate/workspace
 reference、Role、operation kind、intent/goal digest、WorkPackage/Operation
-authorization ref、Task Capsule ref、trusted registry 的 candidate Skill IDs、
+proposal/receipt ref、Task Capsule ref、trusted registry 的 candidate Skill IDs、
 selected Skill ID or null、trusted/candidate Skill blob revision、trigger evidence、
 exclusion results、capability availability、authority/scope/resource conflicts、
 reason codes 与 invalidation conditions。
@@ -345,8 +365,8 @@ Evidence reuse和merge legality等机器规则不重复写入 Skill prose；Skil
 分析方法、工具选择、解释、停止和 typed outcome。详细 schema、枚举、命令和平台矩阵
 引用 canonical code或按需 reference，避免长流程连续加载重复正文污染 context。
 
-当前可执行 Skill 集合为八个：七个终态 durable judgement owner，加上一个在 #205
-production Task Capsule compiler 完成真实 consumer cutover 前仍不可删除的 transitional owner：
+当前可执行 Skill 集合为八个：七个终态 durable judgement owner，加上一个在 #205 pure
+Task Capsule compiler 与 #346 issuer-bound consumer完成真实cutover前仍不可删除的 transitional owner：
 
 ```text
 sec-repository-audit
@@ -365,7 +385,7 @@ selection 由 test-impact/Requirement selector 拥有，documentation 由 author
 拥有，toolchain 由 runtime dependency
 spec/manifest-lock 拥有，trust transition 由 TCB closure 拥有，CI/merge 由 Integration Transaction
 拥有。delegation 当前仍由 `sec-task-delegation` 拥有不可纯计算的收益/隔离判断；只有 #205 的
-Task Capsule compiler 成为真实 production owner、完成 consumer cutover 与 canary 后，才把该 route
+Task Capsule compiler 与独立issuer成为真实production链、完成consumer cutover与canary后，才把该 route
 迁移为 deterministic 并删除第八个 Skill。精确 route 与 canonical ref 只由
 `SEC_REPOSITORY_BEHAVIOR_ROUTES` 维护；本段只定义边界。
 
@@ -549,6 +569,12 @@ worktree closeout 是 branch/ref closeout 的前置 physical Action，不以 `gi
 absence；unregister 后目录残留进入 durable `residue`，只能从 target 外的 authorization receipt
 重入。dirty/unknown/reparse/identity mismatch fail closed，后代 reparse 只 unlink entry 不遍历 target；
 completed worktree receipt 之后 branch owner 才能继续 local/remote ref CAS。
+
+`residue`、recovery ref 与 quarantine 都是事务中间态，不是长期归档。只有语义归属、target identity
+或物理删除仍未确定时才允许保留；一旦 exact disposition 已确定，同一 closeout 必须清除 worktree、
+branch/ref、recovery root、dependency link 和 residue，并读回 zero residue。宿主锁或权限使清除仍不
+可能时，唯一合法终态是 typed blocked receipt，绑定 owner、exact target、reason、retained state 与
+可重试条件。无 receipt 的目录、无限期 recovery ref 或 `v2/v3/...` quarantine 永远不算完成。
 
 PR Ready只表示允许进入Review调度，不表示可以启动expensive hosted Gate或required Evidence已通过。Head/base/tree/manifest/authorized scope/profile/trust变化总会使绑定旧 exact subject 的Review、Session revision与merge authorization失效；Action/Evidence仅在其canonical subject closure、contract、environment或trust input变化时失效，trusted resolver必须为新 generation 重算reuse。即使head不变，Review policy、REQUEST_CHANGES或blocking thread变化也会使Review与merge authorization失效。
 

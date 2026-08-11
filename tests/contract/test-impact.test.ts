@@ -432,6 +432,54 @@ test('branch closeout and VerificationSession authority select one exact fast cl
   })));
 });
 
+test('test impact keeps Task Capsule and Read Plan verification in direct fast owners', () => {
+  const taskCapsuleFast = [
+    'tests/contract/operation-read-plan.test.ts',
+    'tests/contract/skill-applicability.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/agent-operation-read-plan.test.ts',
+    'tests/unit/agent-task-capsule.test.ts',
+    'tests/unit/skill-applicability-decision.test.ts'
+  ].sort();
+  for (const source of [
+    'platform/shared/agent-task-capsule-contract.ts',
+    'scripts/codex/task-capsule.ts'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual({
+      fast: taskCapsuleFast,
+      slow: [],
+      owners: ['agent-task-capsule']
+    });
+    expect(resolveTestOwnership([source])).toEqual([{
+      source,
+      owner: 'agent-task-capsule',
+      identity: { kind: 'contract', id: 'agent-task-capsule' }
+    }]);
+  }
+
+  const readPlanFast = [
+    'tests/contract/operation-read-plan.test.ts',
+    'tests/contract/skill-applicability.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/agent-operation-read-plan.test.ts'
+  ].sort();
+  for (const source of [
+    'platform/shared/agent-operation-read-plan-contract.ts',
+    'scripts/codex/operation-read-plan.ts'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual({
+      fast: readPlanFast,
+      slow: [],
+      owners: ['agent-operation-read-plan']
+    });
+    expect(resolveTestOwnership([source])).toEqual([{
+      source,
+      owner: 'agent-operation-read-plan',
+      identity: { kind: 'contract', id: 'agent-operation-read-plan' }
+    }]);
+  }
+});
+
 test('test impact assigns focused governance and frozen work-package ownership', () => {
   const agentGovernance = selectTestsForSources([
     'AGENTS.md',
