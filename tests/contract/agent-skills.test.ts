@@ -10,12 +10,12 @@ import {
   classifySecRepositorySurface,
   isSecRepositoryHeuristicSurface,
   resolveSecMarkdownSkillCoverage,
-  resolveSecRepositoryBehaviorOwner,
+  resolveSecRepositoryBehaviorRoute,
   resolveSecRepositoryHeuristicSkills,
   SEC_AGENT_SKILL_IDS,
   SEC_AGENT_SKILL_STANDARD_SECTIONS,
   SEC_REPOSITORY_BEHAVIOR_IDS,
-  SEC_REPOSITORY_BEHAVIOR_OWNERS,
+  SEC_REPOSITORY_BEHAVIOR_ROUTES,
   type SecAgentSkillId
 } from '../../platform/shared/agent-skill-contract.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
@@ -105,13 +105,28 @@ test('SEC skill inventory conforms to one strict AgentOperation contract', async
   }
 });
 
-test('every repository behavior has one Skill owner and every Skill owns one behavior', () => {
-  expect(Object.keys(SEC_REPOSITORY_BEHAVIOR_OWNERS).sort()).toEqual(
+test('repository behaviors route to deterministic owners or one bounded Skill', () => {
+  const tracked = trackedRepositoryFiles();
+  expect(Object.keys(SEC_REPOSITORY_BEHAVIOR_ROUTES).sort()).toEqual(
     [...SEC_REPOSITORY_BEHAVIOR_IDS].sort()
   );
-  const owners = SEC_REPOSITORY_BEHAVIOR_IDS.map(resolveSecRepositoryBehaviorOwner);
-  expect(new Set(owners)).toEqual(new Set(SEC_AGENT_SKILL_IDS));
-  expect(owners).toHaveLength(SEC_AGENT_SKILL_IDS.length);
+  const routes = SEC_REPOSITORY_BEHAVIOR_IDS.map(resolveSecRepositoryBehaviorRoute);
+  const skillOwners = routes
+    .filter((route) => route.kind === 'skill')
+    .map((route) => route.owner);
+  expect(new Set(skillOwners)).toEqual(new Set(SEC_AGENT_SKILL_IDS));
+  expect(routes.filter((route) => route.kind === 'deterministic').length).toBeGreaterThan(0);
+  expect(SEC_REPOSITORY_BEHAVIOR_IDS.length).toBeGreaterThan(SEC_AGENT_SKILL_IDS.length);
+  expect(resolveSecRepositoryBehaviorRoute('task-delegation')).toEqual({
+    kind: 'skill',
+    owner: 'sec-task-delegation',
+    authorityRef: '.agents/skills/sec-task-delegation/SKILL.md'
+  });
+  for (const route of routes) {
+    expect(route.owner.length).toBeGreaterThan(0);
+    expect(route.authorityRef.length).toBeGreaterThan(0);
+    expect(tracked).toContain(route.authorityRef);
+  }
 });
 
 test('skills preserve decisive boundaries without retaining retired documentation routes', async () => {
@@ -120,6 +135,7 @@ test('skills preserve decisive boundaries without retaining retired documentatio
     await readFile(path.join(SKILLS_ROOT, skillId, 'SKILL.md'), 'utf8')
   ]))) as Record<SecAgentSkillId, string>;
   const agentsSource = await readFile(path.join(REPOSITORY_ROOT, 'AGENTS.md'), 'utf8');
+  const tracked = trackedRepositoryFiles();
 
   for (const source of Object.values(sources)) {
     const executableGuidance = executableSkillGuidance(source);
@@ -137,22 +153,33 @@ test('skills preserve decisive boundaries without retaining retired documentatio
     ]) expect(executableGuidance).not.toContain(retired);
   }
 
-  expect(sources['sec-ci-and-merge']).toContain('client_payload[pull_request]');
-  expect(sources['sec-ci-and-merge']).toContain('merged: true');
-  expect(sources['sec-work-package-lifecycle']).toContain('codex-development-work-package-v1');
-  expect(sources['sec-worker-development']).toContain('bun run check:affected --plan');
-  expect(sources['sec-worker-development']).toContain('bun run imports:freeze');
-  expect(sources['sec-failure-recovery']).toContain('STOP_PROOF_RESET');
+  expect(sources['sec-worker-development']).toContain('RequiredClosure ∩ MissingOrStale');
+  expect(sources['sec-worker-development']).not.toContain('imports:freeze');
+  expect(sources['sec-worker-development']).not.toContain('check:affected');
   expect(sources['sec-repository-audit']).toContain('全部 tracked paths');
-  expect(sources['sec-heuristic-governance']).toContain('唯一 Skill');
+  expect(sources['sec-heuristic-governance']).toContain('确定性行为必须有 machine owner 且 Skill 为零');
   expect(sources['sec-architecture-evolution']).toContain('authority first');
-  expect(sources['sec-repository-orientation']).toContain('保持intended workspace作为resolver cwd或显式target');
-  expect(agentsSource).toContain('`sec-repository-orientation`');
-  expect(agentsSource).not.toContain('bun scripts/codex/document-control-plane.ts status --json');
-  expect(sources['sec-impact-and-validation']).toContain('禁止为满足optional impact临时安装、动态解析package或重建索引');
+  expect(sources['sec-task-delegation']).toContain('production Task Capsule compiler');
+  expect(sources['sec-task-delegation']).toContain('是否值得委派');
+  expect(agentsSource).toContain('document-control-plane.ts status --json');
   expect(sources['sec-failure-recovery']).toContain('输入与failure tail未变时复用失败证据并停止');
   expect(agentsSource).not.toContain('GitNexus upstream impact');
-  expect(sources['sec-impact-and-validation']).not.toContain('GitNexus impact');
+
+  const retiredIds = [
+    'sec-a0-integrator',
+    'sec-ci-and-merge',
+    'sec-context-resume',
+    'sec-documentation-governance',
+    'sec-impact-and-validation',
+    'sec-repository-orientation',
+    'sec-toolchain-and-dependencies',
+    'sec-trust-root-bootstrap',
+    'sec-work-package-lifecycle'
+  ];
+  for (const retiredId of retiredIds) {
+    expect(tracked).not.toContain(`.agents/skills/${retiredId}/SKILL.md`);
+    expect(agentsSource).not.toContain(retiredId);
+  }
 });
 
 test('all tracked Markdown is explicitly classified and active registry paths have coverage', async () => {
@@ -165,9 +192,7 @@ test('all tracked Markdown is explicitly classified and active registry paths ha
   for (const file of tracked.filter((candidate) => candidate.endsWith('.md'))) {
     const coverage = resolveSecMarkdownSkillCoverage(file);
     if (!coverage) throw new Error(`Tracked Markdown is unclassified: ${file}`);
-    if (active.has(file) && coverage.skills.length === 0) {
-      throw new Error(`Active Markdown has no Skill coverage: ${file}`);
-    }
+    if (active.has(file)) expect(coverage.kind).toBeDefined();
   }
 
   for (const unknown of [
@@ -204,21 +229,15 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
   expect(agentsCoverage).toEqual({
     kind: 'agent-projection',
     skills: [
-      'sec-a0-integrator',
-      'sec-context-resume',
-      'sec-external-capability-governance',
       'sec-heuristic-governance',
-      'sec-impact-and-validation',
       'sec-repository-audit',
-      'sec-repository-orientation'
+      'sec-task-delegation'
     ]
   });
   expect(resolveSecRepositoryHeuristicSkills('AGENTS.md')).toEqual(agentsCoverage!.skills);
   expect(resolveSecRepositoryHeuristicSkills('docs/authority.json')).toEqual([
-    'sec-documentation-governance',
     'sec-heuristic-governance',
-    'sec-repository-audit',
-    'sec-trust-root-bootstrap'
+    'sec-repository-audit'
   ]);
   expect(resolveSecRepositoryHeuristicSkills(
     'docs/governance/external-capability-ledger.yaml'
@@ -227,13 +246,11 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
     'docs/governance/nexus-absorption-ledger.yaml'
   )).toEqual([
     'sec-external-capability-governance',
-    'sec-repository-audit',
-    'sec-repository-orientation'
+    'sec-repository-audit'
   ]);
   expect(resolveSecRepositoryHeuristicSkills('scripts/codex/ci-orchestration-core.ts')).toEqual([
-    'sec-ci-and-merge',
-    'sec-impact-and-validation',
-    'sec-trust-root-bootstrap'
+  ]);
+  expect(resolveSecRepositoryHeuristicSkills('package.json')).toEqual([
   ]);
 });
 

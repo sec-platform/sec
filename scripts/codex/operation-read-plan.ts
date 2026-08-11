@@ -199,10 +199,6 @@ export async function resolveTrustedWorkerOperationV1(
   if (taskOwners.length !== 1 || taskOwner !== 'development-governance-owner') {
     fail('bounded worker/implement projection requires one development-governance owner.');
   }
-  const readPaths = [...new Set([
-    ...manifest.tasks.flatMap((task) => task.ownedPaths),
-    '.agents/skills/sec-worker-development/SKILL.md'
-  ])].sort(compareCodeUnits);
   const requiredRefs = Object.freeze([
     Object.freeze({
       id: 'agents-entry',
@@ -233,6 +229,11 @@ export async function resolveTrustedWorkerOperationV1(
       reasonCode: 'bind-operation-scope'
     })
   ]);
+  const readPaths = [...new Set([
+    ...manifest.tasks.flatMap((task) => task.ownedPaths),
+    ...requiredRefs.map((reference) => reference.ref),
+    '.agents/skills/sec-worker-development/SKILL.md'
+  ])].sort(compareCodeUnits);
   const readClosure: SecTrustedReadClosureV1 = Object.freeze({
     requiredRefs,
     conditionalRefs: Object.freeze([]),

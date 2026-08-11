@@ -13,7 +13,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 
 ## 不触发
 - frozen Task Envelope 内已证明为局部叶节点的普通实现、修复或重构。
-- 只需建立 latest main/PR/Issue/CI/Review 最小事实快照；该任务属于 `sec-repository-orientation`。
+- 只需建立 latest main/PR/Issue/CI/Review 最小事实快照；该行为由受信 control-plane resolver 确定性完成。
 
 ## 输入
 - exact repository/default/head/tree identity、clean index/worktree、全部 tracked paths、open PR/Issue、CI/Review、active pointer与manifest。
@@ -24,11 +24,11 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - 只有 frozen Work Package 明确拥有时，才写审计脚本、Skill/coverage合同、控制面或绑定 exact revision 的机器报告；不直接修改产品 owner seam。
 
 ## 允许工具与操作
-- `git ls-tree -r -z -l <exact-head>`、raw Git blob batch、`scripts/codex/repository-audit.ts`、精确 Git/GitHub读取、docs doctor、dependency/impact/static analysis、GitNexus/Graphify只读 Evidence。
+- exact-tree/raw-blob census、`scripts/codex/repository-audit.ts`、精确 Git/GitHub读取、受信 documentation/impact/static analysis 和已批准外部只读 Evidence。
 - 按 tracked-path census 下钻 authority、types、tests、source、runtime、workflow和配置；允许生成 JSON 审计结果，不生成第二事实源式叙述文档。
 
 ## 前置门禁
-- `sec-repository-orientation` 已解析 latest default branch、exact revision、GitHub facts和active control plane。
+- 受信 document-control-plane snapshot 已解析 latest default branch、exact revision、GitHub facts和active control plane。
 - 仓库可完整读取；任何路径、submodule、生成输入或外部 authority 不可访问时必须记录 unknown，禁止假定已覆盖。
 
 ## 执行
@@ -37,8 +37,8 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 3. 对齐长期 Goal、阶段 DAG、registry owner、当前代码、测试、CI/Gate、PR/Issue/Review和真实产物；冲突时追踪唯一 canonical owner，不以文档或代码任一方自动胜出。
 4. 主动寻找第二 writer/loader/revision/pipeline、隐式状态、循环依赖、孤儿入口、重复规则、宽泛 catch-all、无消费者配置、过期当前事实、弱测试、错误成功声明和不可恢复路径。
 5. 对每项 finding 绑定 exact path/line/symbol、机制、影响、证据、最强反例、未知和反转条件，并区分事实、机制推导、现实推断和候选优化。
-6. 将 Agent 启发式缺口交给 `sec-heuristic-governance`，跨 owner 架构缺口交给 `sec-architecture-evolution`，产品实现交给 A0 冻结独立 Work Package；全仓审计本身不扩张为无限修改包。
-7. 保留每个行为候选的 path/line/text/Skill ledger；unowned候选与unknown在默认执行中fail closed。只有显式diagnostic模式可以保留unknown而不作为Evidence退出失败。
+6. 将 Agent 启发式缺口交给 `sec-heuristic-governance`，跨 owner 架构缺口交给 `sec-architecture-evolution`，产品实现交给受信 work selector/Work Package owner；全仓审计本身不扩张为无限修改包。
+7. 保留每个行为候选的 path/line/text/deterministic-or-Skill route ledger；unowned候选与unknown在默认执行中fail closed。只有显式diagnostic模式可以保留unknown而不作为Evidence退出失败。
 8. 输出按严重度、控制半径、不可逆风险、依赖顺序和修复收益排序的机器可读报告及有限候选闭包。
 
 ## 完成证据

@@ -345,11 +345,33 @@ Evidence reuse和merge legality等机器规则不重复写入 Skill prose；Skil
 分析方法、工具选择、解释、停止和 typed outcome。详细 schema、枚举、命令和平台矩阵
 引用 canonical code或按需 reference，避免长流程连续加载重复正文污染 context。
 
-Skill 迁移采用两阶段而不是等待全部 deterministic owner 完成后一次性处理：已被 canonical
-owner 证伪的默认 memory/full-orientation 预读、旧 schema/命令、mutating freeze、draft Run
-Kernel authority 与 retired path 必须在早期 stale-guidance purge 中删除；只有替代 machine
-owner、consumer cutover 和 new-main canary 已闭合后，才执行 Skill ID/file 的最终 retirement。
-早期 purge 不能提前删除仍承担唯一判断的 guidance，后期 retirement 也不能保留第二算法。
+当前可执行 Skill 集合为八个：七个终态 durable judgement owner，加上一个在 #205
+production Task Capsule compiler 完成真实 consumer cutover 前仍不可删除的 transitional owner：
+
+```text
+sec-repository-audit
+sec-architecture-evolution
+sec-worker-development
+sec-exact-head-review
+sec-failure-recovery
+sec-external-capability-governance
+sec-heuristic-governance
+sec-task-delegation
+```
+
+其余 repository behavior 不得为“有 owner”而制造 Skill：orientation 与 Work Package lifecycle
+由 document control plane 拥有，resume/A0 orchestration 由 VerificationSession 拥有，impact/Gate
+selection 由 test-impact/Requirement selector 拥有，documentation 由 authority registry/docs-doctor
+拥有，toolchain 由 runtime dependency
+spec/manifest-lock 拥有，trust transition 由 TCB closure 拥有，CI/merge 由 Integration Transaction
+拥有。delegation 当前仍由 `sec-task-delegation` 拥有不可纯计算的收益/隔离判断；只有 #205 的
+Task Capsule compiler 成为真实 production owner、完成 consumer cutover 与 canary 后，才把该 route
+迁移为 deterministic 并删除第八个 Skill。精确 route 与 canonical ref 只由
+`SEC_REPOSITORY_BEHAVIOR_ROUTES` 维护；本段只定义边界。
+
+retired Skill ID/file 不保留 alias、stub 或 prose compatibility。新增行为先判断 deterministic 或
+heuristic：前者进入现有 machine owner，后者才允许在当前八个 owner 中扩展；只有触发、权限、停止和
+判断闭包都无法归入现有 Skill 时才可提议新 ID，并同时声明 consumer、成本与退役条件。
 
 ### Deterministic services
 
@@ -391,14 +413,15 @@ compiler/resolver 或 derived view，不能升格为 state machine。
 | `VerificationSession` 大实现/大测试 | 唯一 run/event/transition/resume coordinator | **retain/split**；不重写、不另建 Session | public contract 不变，内部按 pure decision、provider observation、Git/closeout、crash/recovery、hosted partitions 拆分；fast selector永不选择 slow/hosted partition | 每个 partition 有独立 Action/consumer/test-impact，普通 focused edit 不再触发整文件分钟级测试 |
 | `check:affected` / selector | 把 delta 映射到最小充分验证 | **evolve** 为 Requirement/subject closure | `Impact → tri-state Requirement → ActionKey → reuse/failure-reuse/join/execute/block`；unknown 保守扩大或 block | file-name fallback 只处理 unsupported closure；已知 unrelated/fresh Action 不再物理启动 |
 | `check:full` | release/nightly、selector calibration、unknown-impact backstop | **retain as backstop**，从日常路径退役 | 不接 pre-commit/pre-push、普通 edit、finding loop；只由明确 profile/trigger 调度 | default local/PR fast path 无 consumer，仍有 release/nightly/calibration owner 和预算 |
-| 17 个 repository Skills | 对需要 Agent 判断的触发、分析、工具选择和停止提供 guidance | **two-phase converge** 到实际仍有 heuristic consumer 的小集合，不以数量为宪法 | 先 purge 已证伪 memory/full-orientation/旧 schema/命令/retired path；替代 machine owner canary 后再删 consumer-zero ID/file | registry、AGENTS、agent projection、tests、docs 的旧 ID consumer 为零；剩余每个 Skill 有唯一非机器化判断 |
+| repository Skill corpus | 对需要 Agent 判断的触发、分析、工具选择和停止提供 guidance | **当前 8、终态 7**：delegation 在 #205 production compiler 切换前保留；deterministic behavior 为 zero-Skill | `SEC_REPOSITORY_BEHAVIOR_ROUTES` 显式区分 `skill` 与 `deterministic`；禁止 path catch-all 制造 guidance | 九个已退役 ID/file/consumer/alias 为零；#205 有真实 production consumer、canary 与 consumer-zero readback 后再退役 delegation；其余每个 Skill 有唯一非机器化判断 |
 | v2/v3/v4… candidate worktrees/refs | 曾用于 finding 后重建 exact one-parent candidate | **retire** 为 transport residue | 一个 logical run 只保留一个 mutable worktree + 一个 active ref；finding 原地修复、materialize 新 generation、expected-old CAS；旧 generation 留 immutable object/artifact | `FindingSuccessorWorktreeCount = 0`，completed run 的临时 worktree/ref 经 exact inventory/readback 自动清理 |
 
 实施不是“先补完七项，再开始真实开发”，也不是忽略七项继续堆功能。依赖顺序固定为：
 
 ```text
-#346 Task Capsule / Read Plan
-→ #275 stale-guidance purge + consumer migration
+#205 Task Capsule compiler
+→ #346 Operation Read Plan
+→ #275 final delegation route migration + consumer-zero Skill retirement
 → candidate/control materializer and projection cutover
 → VerificationSession/test partitions + affected Requirement closure
 → consumer-zero retirement and residue cleanup
@@ -451,6 +474,14 @@ Manifest 冻结：
 - dependencies、conflicts、ordered relations；
 - acceptance、tests、profile和Evidence；
 - completion、migration、readback和cleanup。
+
+Work Package planning 与 Verification freeze 是两个状态边界。首次 candidate publication、外部
+Evidence 或 Review 之前，A0 必须能以 expected-old CAS 执行 `replan` 或 `abort`：撤销 prospective
+pointer/rolling projection、使旧 ScopeGrant proposal失效并在同一 worktree/ref 重算 manifest；不得
+为了补一个 owned path 建 v2/v3 successor worktree。只有已有外部 Evidence/Review/side effect 的
+freeze 才是 terminal generation；此后语义或 scope 变化创建新 generation 并显式失效下游证明。
+当前 control plane 未提供该 transition 时，失败属于其唯一 owner 的缺口，不能靠手改 digest、保留
+平行 manifest 或无限 successor package 规避。
 
 Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。Manifest也是scope proposal；只有trusted base/A0签发的ScopeGrant与trusted resolver为当前exact base/head/tree产生的CandidateScopeAttestation共同成立时，才允许冻结Session。候选修改manifest或write set不能给自己扩权。
 
@@ -506,6 +537,18 @@ Branch是演进路线，不是等待机械合并的功能包。并行正式结�
 Squash merge后按最终tree、contracts和行为结果判断内容是否进入 `main`，不能仅用commit ancestry或ahead/behind判断遗漏。
 
 Git branch承载代码演进；GitHub Actions的workflow_dispatch/matrix/job/artifact承载测试参数和Evidence。禁止长期创建一次性远端测试分支。
+
+Issue completion intent 只能来自 machine-owned `IssueDisposition` 或 validated closeout receipt。
+任意 PR title/body/comment 中的自然语言都不是 lifecycle state；PR renderer 必须拒绝 GitHub lexical
+closing-keyword pattern，除非该 exact Issue 位于 fresh authorized completion set，并由 renderer生成
+唯一允许的 closing clause。merge readback逐个比较授权集合与实际 Issue state；误关恢复只允许按
+operation receipt 精确 reopen 被本次 merge 误关的 Issue，禁止文本批量 reopen/close。
+
+worktree closeout 是 branch/ref closeout 的前置 physical Action，不以 `git worktree remove` exit code
+为成功。terminal completion 同时要求 Git common-dir registry absence 与 exact physical target
+absence；unregister 后目录残留进入 durable `residue`，只能从 target 外的 authorization receipt
+重入。dirty/unknown/reparse/identity mismatch fail closed，后代 reparse 只 unlink entry 不遍历 target；
+completed worktree receipt 之后 branch owner 才能继续 local/remote ref CAS。
 
 PR Ready只表示允许进入Review调度，不表示可以启动expensive hosted Gate或required Evidence已通过。Head/base/tree/manifest/authorized scope/profile/trust变化总会使绑定旧 exact subject 的Review、Session revision与merge authorization失效；Action/Evidence仅在其canonical subject closure、contract、environment或trust input变化时失效，trusted resolver必须为新 generation 重算reuse。即使head不变，Review policy、REQUEST_CHANGES或blocking thread变化也会使Review与merge authorization失效。
 

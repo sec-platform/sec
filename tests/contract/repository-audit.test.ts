@@ -9,7 +9,7 @@ import { expect, test } from 'bun:test';
 import {
   SEC_AGENT_SKILL_IDS,
   SEC_REPOSITORY_BEHAVIOR_IDS,
-  SEC_REPOSITORY_BEHAVIOR_OWNERS
+  SEC_REPOSITORY_BEHAVIOR_ROUTES
 } from '../../platform/shared/agent-skill-contract.ts';
 import {
   auditInformationLifecycle,
@@ -284,11 +284,13 @@ test.serial('information lifecycle clean fixture produces no detector findings',
   }
 });
 
-test('behavior registry is a one-to-one closed inventory', () => {
-  expect(SEC_REPOSITORY_BEHAVIOR_IDS).toHaveLength(SEC_AGENT_SKILL_IDS.length);
-  expect(new Set(Object.values(SEC_REPOSITORY_BEHAVIOR_OWNERS))).toEqual(
-    new Set(SEC_AGENT_SKILL_IDS)
-  );
+test('behavior registry separates deterministic routes from bounded Skills', () => {
+  expect(SEC_REPOSITORY_BEHAVIOR_IDS.length).toBeGreaterThan(SEC_AGENT_SKILL_IDS.length);
+  const routes = Object.values(SEC_REPOSITORY_BEHAVIOR_ROUTES);
+  expect(routes.filter((route) => route.kind === 'deterministic').length).toBeGreaterThan(0);
+  expect(new Set(routes
+    .filter((route) => route.kind === 'skill')
+    .map((route) => route.owner))).toEqual(new Set(SEC_AGENT_SKILL_IDS));
 });
 
 test('heuristic candidate extraction ignores historical authority but exposes hidden Agent rules', () => {
@@ -651,7 +653,7 @@ test.serial('full repository audit classifies every tracked path and has no bloc
     const defaultRef = process.env.SEC_CHANGED_BASE ?? undefined;
     const report = await auditRepository(repositoryRoot, { defaultRef });
 
-    expect(report.schema).toBe('sec-repository-audit-v1');
+    expect(report.schema).toBe('sec-repository-audit-v2');
     expect(report.summary.trackedPaths).toBeGreaterThan(0);
     expect(report.summary.skills).toBe(SEC_AGENT_SKILL_IDS.length);
     expect(report.behaviorCandidates).toHaveLength(report.summary.behaviorCandidates);
