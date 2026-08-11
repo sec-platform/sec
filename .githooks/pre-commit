@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
 set -eu
 
+export SEC_GIT_HOOK_ACTIVE=1
+
 bun ./platform/dev-runner.ts imports:freeze

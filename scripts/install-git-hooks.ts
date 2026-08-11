@@ -38,12 +38,14 @@ function gitText(
     encoding: 'utf8',
     windowsHide: true
   });
-  if (options.allowMissing && result.status === 1 && result.stdout.trim().length === 0) return null;
+  const stdout = result.stdout ?? '';
+  const stderr = result.stderr ?? '';
+  if (options.allowMissing && result.status === 1 && stdout.trim().length === 0) return null;
   if (result.error || result.status !== 0) {
-    const detail = result.stderr.trim();
+    const detail = stderr.trim();
     throw new Error(`git ${args[0] ?? 'command'} failed${detail.length > 0 ? `: ${detail}` : ''}`);
   }
-  return result.stdout.trim();
+  return stdout.trim();
 }
 
 async function pathExists(target: string): Promise<boolean> {

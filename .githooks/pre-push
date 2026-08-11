@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
+export SEC_GIT_HOOK_ACTIVE=1
+
 # imports:freeze is a pure identity seal (zero source/index writes); push
 # never mutates the working tree or the index.
 if ! git diff --cached --quiet HEAD --; then
@@ -9,3 +11,4 @@ if ! git diff --cached --quiet HEAD --; then
 fi
 
 bun ./platform/dev-runner.ts imports:freeze
+bun ./scripts/ci-verification.ts tcb-closure-lock --mode check

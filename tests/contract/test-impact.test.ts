@@ -56,6 +56,33 @@ test('local-main closeout routes to its focused authority and physical Risk clos
   expect(selection.slow).toEqual(['tests/e2e/verification-session-closeout-cli.test.ts']);
 });
 
+test('IssueDisposition sources select the bounded lifecycle and merge seams only', () => {
+  const sourceFiles = [
+    'platform/shared/issue-disposition-contract.ts',
+    'scripts/codex/issue-disposition-github.ts',
+    'scripts/codex/issue-disposition.ts'
+  ];
+  const expected = {
+    fast: [
+      'tests/contract/sec-merge-gate.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/issue-disposition-contract.test.ts',
+      'tests/unit/issue-disposition-github.test.ts',
+      'tests/unit/verification-session-runtime.test.ts'
+    ],
+    slow: [],
+    owners: ['issue-disposition']
+  };
+  for (const source of sourceFiles) {
+    expect(selectTestsForSources([source])).toEqual(expected);
+    expect(resolveTestOwnership([source])).toEqual([{
+      source,
+      owner: 'issue-disposition',
+      identity: { kind: 'contract', id: 'issue-disposition' }
+    }]);
+  }
+});
+
 test('repository and documentation changes select registry-backed owner contracts', () => {
   for (const source of [
     'README.md',

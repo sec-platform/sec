@@ -896,6 +896,13 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   expect(preRun).toContain('candidate-closure-computation-failed');
   expect(preRun).toContain('candidate-lock-does-not-match-base-computed-closure');
   expect(preRun).toContain('const hardFailureReasons = new Set()');
+  expect(preRun).toContain('trusted-base-lock-substitution-drift');
+  expect(preRun).toContain('const substitutionKinds = new Map()');
+  expect(preRun).toContain('closureDigestFailureCount === 1');
+  expect(preRun).toContain('kinds.has("blob") && kinds.has("content digest")');
+  expect(preRun).toContain('if (!substitutionOnlyDrift)');
+  expect(preRun.indexOf('if (!substitutionOnlyDrift)'))
+    .toBeLessThan(preRun.indexOf('manualReasons.add("trusted-base-lock-substitution-drift")'));
   expect(preRun).toContain('hardFailureReasons.size > 0');
   expect(preRun.indexOf('hardFailureReasons.size > 0'))
     .toBeLessThan(preRun.indexOf('manualReasons.size > 0'));

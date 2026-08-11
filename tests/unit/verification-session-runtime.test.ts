@@ -320,7 +320,8 @@ test('hosted integration router separates first effect, merged recovery, and blo
     repository: 'sec-platform/sec', number: 42, state: 'OPEN', isDraft: false,
     isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
     baseTreeSha: BASE, headBranch: 'feat/example', headSha: HEAD, headTreeSha: HEAD,
-    body: '', mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
+    title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
+    mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
   };
   const open = routeHostedIntegrationV1({ repository: 'sec-platform/sec', session, candidate,
     priorEffectStarted: false, authorizationPublicationCount: 0 });
@@ -441,7 +442,8 @@ class FakeTransport implements VerificationSessionReviewObservationTransactionV1
       repository: 'sec-platform/sec', number: 42, state: 'OPEN', isDraft: false,
       isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
       baseTreeSha: BASE, headBranch: 'feat/example', headSha: HEAD, headTreeSha: HEAD,
-      body: '', mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
+      title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
+      mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
     };
   }
   private at<T>(pages: T[][], after: string | null, digestCharacter: string): GitHubPageV1<T> {
@@ -547,7 +549,8 @@ function observePrivateGhProviderBarrier(
   const candidate = {
     number: 42, state: 'OPEN', isDraft: false, isCrossRepository: false,
     author: { id: 'AUTHOR' }, baseRefName: 'main', baseRefOid: BASE,
-    headRefName: 'feature/provider-shape', headRefOid: HEAD, body: '', mergeCommit: null
+    headRefName: 'feature/provider-shape', headRefOid: HEAD,
+    title: 'Safe provider shape candidate', body: '', mergeCommit: null
   };
   const reviewAuthor = mode === 'trusted-app'
     ? { __typename: 'Bot', id: BOT, login: 'codex-review[bot]',
@@ -572,6 +575,12 @@ if (endpoint === 'graphql') {
   const query = args.find((argument) => argument.startsWith('query=')) || '';
   const page = (connection) => [{ data: { repository: { pullRequest: connection } } }];
   const terminal = { hasNextPage: false, endCursor: null };
+  if (query.includes('closingIssuesReferences(first:100')) {
+    out({ data: { repository: { pullRequest: { number: candidate.number,
+      title: candidate.title, body: candidate.body, state: candidate.state,
+      mergeCommit: candidate.mergeCommit,
+      closingIssuesReferences: { totalCount: 0, nodes: [], pageInfo: terminal } } } } });
+  }
   if (query.includes('reviews(first')) {
     out(page({ reviews: { nodes: [{ id: 'R1',
       state: mode === 'review-post-normalization' ? malformedSource : 'APPROVED',
@@ -2053,7 +2062,8 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
     repository: 'sec-platform/sec', number: 42, state: 'OPEN', isDraft: false,
     isCrossRepository: false, authorNodeId: 'AUTHOR', baseBranch: 'main', baseSha: BASE,
     baseTreeSha: BASE, headBranch: 'feat/example', headSha: HEAD, headTreeSha: HEAD,
-    body: '', mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
+    title: 'Safe candidate', body: 'Issue-Disposition: progress-only',
+    mergeCommitSha: null, mergeCommitTreeSha: null, mergeCommitMessage: null
   };
   expect(() => assertHostedSquashMergeCompletionV1({ candidate: queued,
     expectedHeadSha: HEAD, expectedHeadTreeSha: HEAD, ...closure,
@@ -2095,7 +2105,10 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
   expect(executor).toContain("'--input', '-'");
   expect(executor).toContain('sha: input.headSha');
   expect(executor).toContain("merge_method: 'squash'");
-  expect(executor).toContain('commit_title: `Verified integration');
+  expect(executor).toContain('const commitTitle = `Verified integration');
+  expect(executor).toContain('commit_title: commitTitle');
+  expect(executor).toContain('Issue-Disposition-Plan:');
+  expect(executor).toContain('parseGitHubClosingKeywordOccurrencesV1');
   expect(executor).toContain("commit_message: markers.join('\\n')");
   expect(executor).toContain('renderIndependentReviewTrailerV1(input.publication.result.reviewReceipt)');
   expect(executor).toContain('if (result.status !== 0)');
@@ -2122,6 +2135,43 @@ test('synchronous hosted merge rejects queued effects and requires exact physica
   expect(integration).toContain('AMBIGUOUS_SIDE_EFFECT: synchronous hosted merge attempt requires recovery');
   expect(completedReduction).toBeGreaterThan(completionReadback);
   expect(projectionWrite).toBeGreaterThan(completedReduction);
+});
+
+test('hosted IssueDisposition is pre-merge guarded and post-readback observation is effect-free', async () => {
+  const [sessionSource, githubSource] = await Promise.all([
+    Bun.file(new URL('../../scripts/codex/verification-session.ts', import.meta.url)).text(),
+    Bun.file(new URL('../../scripts/codex/verification-session-github.ts', import.meta.url)).text()
+  ]);
+  const integrateStart = sessionSource.indexOf("if (command === 'integrate-hosted')");
+  const closeoutStart = sessionSource.indexOf("if (command === 'closeout-mutate-hosted')");
+  const integrate = sessionSource.slice(integrateStart, closeoutStart);
+  const closeout = sessionSource.slice(closeoutStart);
+  expect(integrateStart).toBeGreaterThan(-1);
+  expect(closeoutStart).toBeGreaterThan(integrateStart);
+  expect(integrate.indexOf('github.observePullRequestClosingFacts(')).toBeLessThan(
+    integrate.indexOf('executeHostedSquashMerge({')
+  );
+  expect(integrate.indexOf('assertHostedSquashMergeCompletionV1')).toBeLessThan(
+    integrate.lastIndexOf('observeUnexpectedGitHubIssueClosuresV1({')
+  );
+  expect(integrate).not.toContain("capability: 'github-writer'");
+  expect(integrate).toContain("issueDispositionCommitMarkerStateV1(mergedProjectionCandidate.mergeCommitMessage) === 'complete'");
+  expect(integrate).toContain("status: 'legacy-no-effect'");
+  expect(closeout.indexOf('observeHostedTrackingIssueDispositionV1({')).toBeLessThan(
+    closeout.indexOf('observeBranchCloseoutOperationPublicationV1(')
+  );
+  expect(closeout.slice(0, closeout.indexOf('observeBranchCloseoutOperationPublicationV1(')))
+    .not.toContain("capability: 'github-writer'");
+  expect(sessionSource).not.toContain("status: 'satisfied' as const");
+  expect(sessionSource).not.toContain('remainingWorkCount: 0');
+  expect(sessionSource).toContain('status: disposition.kind, receipt: disposition');
+  expect(sessionSource).toContain("return Object.freeze({ status: 'legacy-no-effect', reason: 'issue-disposition-markers-absent' });");
+  expect(sessionSource.indexOf('const closingFacts = github.observePullRequestClosingFacts(')).toBeLessThan(
+    sessionSource.indexOf("throw new Error('IssueDisposition merge markers differ from the exact live plan.')")
+  );
+  expect(githubSource).toContain("'number,state,isDraft,isCrossRepository,author,baseRefName,baseRefOid,headRefName,headRefOid,title,body,mergeCommit'");
+  expect(githubSource).toContain("const args = ['api', 'graphql', '-f', `query=${query}`]");
+  expect(githubSource).not.toContain('sec-github-graphql-');
 });
 
 test('public prepare owns one exact detached worktree and completes local DAG before hosted wake-up', () => {
@@ -3050,7 +3100,8 @@ if (args[0] === 'run' && args[1] === 'download') {
 if (args[0] === 'pr' && args[1] === 'view') {
   out({ number: 42, state: 'MERGED', isDraft: false, isCrossRepository: false,
     author: { id: 'AUTHOR' }, baseRefName: 'main', baseRefOid: state.baseSha,
-    headRefName: state.branch, headRefOid: state.headSha, body: '',
+    headRefName: state.branch, headRefOid: state.headSha,
+    title: 'Legacy marker-bound closeout candidate', body: '',
     mergeCommit: { oid: state.mergeCommitSha } });
 }
 if (args[0] === 'pr' && args[1] === 'list') {
