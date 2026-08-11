@@ -550,6 +550,14 @@ Tier 1变化由旧trusted owner计算affected trust closure，candidate nodes只
 内容寻址复用。只有Tier 0自身变化才进入manual break-glass。selector、docs-doctor、Provider逻辑、
 test-impact或merge policy不得逐步回流Tier 0形成bootstrap monster。
 
+trust-root policy registry只拥有static path、runtime entrypoint与reviewed boundary等人工策略输入；
+不得复制或手工维护import graph派生的causal module清单。`TCB_CLOSURE_LOCK.modules`是唯一frozen
+causal-runtime identity，runtime consumer必须把它与registry policy经同一纯compiler组合成trust-root
+view。bootstrap/release的pre-check只能从exact trusted-base generated lock读取该清单，并在后续由
+trusted runtime重算、校验；registry/lock双列表、人工同步或“补漏路径”均属于 competing owner。
+contract内用于防止关键安全面被移出closure的required-surface下界属于policy invariant，不是完整
+import-graph inventory；它不得被用于枚举closure，也不随普通依赖边扩张而同步更新。
+
 如果old-main generated closure lock已经落后于同一Git tree，base-first checker仍不得把它升级为
 PASS，也不得因自身lock失配而形成不可恢复死锁。它只可在failure集合严格由每个既有module的
 `blob + content digest`成对substitution以及唯一closure-digest差异构成时继续收集candidate SUT，

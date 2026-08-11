@@ -95,17 +95,17 @@ jobs:
               throw new Error('Trusted-base trust-root registry is not strict UTF-8 JSON.');
             }
             const registryKeys = [
-              'causalRuntimePaths', 'reviewedBoundaryEdges', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
+              'reviewedBoundaryEdges', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
               'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
             ];
             if (
               !registry || typeof registry !== 'object' || Array.isArray(registry) ||
-              registry.schema !== 'sec-trusted-bootstrap-registry-v2' ||
+              registry.schema !== 'sec-trusted-bootstrap-registry-v3' ||
               JSON.stringify(Object.keys(registry).sort()) !== JSON.stringify(registryKeys)
             ) throw new Error('Trusted-base trust-root registry schema is invalid.');
             for (const key of [
               'staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'runtimeEntrypoints',
-              'reviewedSutEdges', 'reviewedBoundaryEdges', 'causalRuntimePaths'
+              'reviewedSutEdges', 'reviewedBoundaryEdges'
             ]) {
               if (!Array.isArray(registry[key]) || registry[key].some((entry) => typeof entry !== 'string')) {
                 throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);
@@ -118,9 +118,73 @@ jobs:
                 !registry.reviewedBoundaryEdges.includes(
                   'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'
                 )) {
-              throw new Error('Trusted-base reviewedBoundaryEdges do not match the canonical V2 boundary shape.');
+              throw new Error('Trusted-base reviewedBoundaryEdges do not match the canonical V3 boundary shape.');
             }
-            const trustFiles = new Set([...registry.staticExactPaths, ...registry.causalRuntimePaths]);
+            const lockPath = 'platform/shared/tcb-closure-lock.ts';
+            const lockEntry = baseTree.data.tree.find((entry) => entry.path === lockPath);
+            if (
+              !lockEntry || lockEntry.type !== 'blob' || lockEntry.mode !== '100644' ||
+              typeof lockEntry.sha !== 'string' || !/^[0-9a-f]{40}$/.test(lockEntry.sha)
+            ) throw new Error('Trusted-base generated TCB closure lock is unavailable or not one ordinary blob.');
+            const lockResponse = await github.rest.git.getBlob({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              file_sha: lockEntry.sha
+            });
+            if (lockResponse.data.encoding !== 'base64' || typeof lockResponse.data.content !== 'string') {
+              throw new Error('Trusted-base generated TCB closure lock blob encoding is invalid.');
+            }
+            const lockBytes = Buffer.from(lockResponse.data.content.replaceAll('\n', ''), 'base64');
+            const lockSource = new TextDecoder('utf-8', { fatal: true }).decode(lockBytes);
+            const lockRegionStartMarker = '// <sec-tcb-closure-lock-generated-v2>\n';
+            const lockRegionEndMarker = '\n// </sec-tcb-closure-lock-generated-v2>';
+            const lockRegionStart = lockSource.indexOf(lockRegionStartMarker);
+            const lockRegionEnd = lockSource.indexOf(
+              lockRegionEndMarker,
+              lockRegionStart + lockRegionStartMarker.length
+            );
+            if (lockRegionStart < 0 || lockRegionEnd < 0 ||
+                lockSource.indexOf(lockRegionStartMarker, lockRegionStart + 1) >= 0 ||
+                lockSource.indexOf(lockRegionEndMarker, lockRegionEnd + 1) >= 0 ||
+                lockSource.includes('\r') || lockSource.includes('\0')) {
+              throw new Error('Trusted-base generated TCB closure region is invalid.');
+            }
+            const lockRegion = lockSource.slice(
+              lockRegionStart + lockRegionStartMarker.length,
+              lockRegionEnd
+            );
+            const lockPrefix = 'export const TCB_CLOSURE_LOCK: TcbClosureLock = ';
+            const lockSuffix = ';\n\nexport const TCB_CLOSURE_LOCK_RECEIPT';
+            const lockStart = lockRegion.indexOf(lockPrefix);
+            const lockEnd = lockRegion.indexOf(lockSuffix, lockStart + lockPrefix.length);
+            if (lockStart < 0 || lockEnd < 0 || lockRegion.indexOf(lockPrefix, lockStart + 1) >= 0 ||
+                lockRegion.indexOf(lockSuffix, lockEnd + 1) >= 0) {
+              throw new Error('Trusted-base generated TCB closure lock envelope is invalid.');
+            }
+            let lock;
+            try {
+              lock = JSON.parse(lockRegion.slice(lockStart + lockPrefix.length, lockEnd));
+            } catch {
+              throw new Error('Trusted-base generated TCB closure lock is not canonical JSON.');
+            }
+            const lockKeys = [
+              'closureDigest', 'moduleBlobs', 'moduleContentDigests', 'moduleCount', 'modules',
+              'reviewedBoundaryEdges', 'reviewedEdges', 'reviewedExternalImports',
+              'reviewedProcessDispatchers', 'schema', 'trustRevision'
+            ];
+            if (!lock || typeof lock !== 'object' || Array.isArray(lock) ||
+                lock.schema !== 'sec-tcb-closure-lock-v2' ||
+                JSON.stringify(Object.keys(lock).sort()) !== JSON.stringify(lockKeys) ||
+                !Number.isSafeInteger(lock.moduleCount) || lock.moduleCount <= 0 ||
+                !Array.isArray(lock.modules) || lock.modules.length !== lock.moduleCount ||
+                lock.modules.some((entry) => typeof entry !== 'string' || entry.length === 0 ||
+                  entry.includes('\\') || entry.startsWith('/') || entry.includes('//') ||
+                  entry.split('/').some((segment) => segment.length === 0 || segment === '.' || segment === '..')) ||
+                lock.modules.some((entry, index) => index > 0 && lock.modules[index - 1] >= entry)) {
+              throw new Error('Trusted-base generated TCB closure module identity is invalid.');
+            }
+            const causalRuntimePaths = lock.modules;
+            const trustFiles = new Set([...registry.staticExactPaths, ...causalRuntimePaths]);
             const trustDirectories = registry.staticDirectoryPaths;
             const trustPrefixes = registry.staticPrefixes;
             const selectTrust = (tree) => Object.fromEntries(tree
