@@ -6,17 +6,21 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { digest, sha256 } from '../../platform/shared/canonical-primitives.ts';
+import { digest } from '../../platform/shared/canonical-primitives.ts';
 import {
   CodexDevelopmentAssertControlPlaneBindingV1,
   CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1,
+  CodexDevelopmentAssertPriorFreezeProjectionV1,
   CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1,
+  CodexDevelopmentClassifyTerminalRetirementPrefixV1,
   CodexDevelopmentCreateFreezeProjectionV1,
+  CodexDevelopmentDocumentControlRecoveryEntryStemV1,
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseCurrentStateSpecV1,
   CodexDevelopmentParseRollingPlanV1,
   CodexDevelopmentResolveActiveWorkPackageV1,
   type CodexDevelopmentActivePointerV2,
+  type CodexDevelopmentDocumentControlRecoveryTargetKeyV1,
   type CodexDevelopmentInitiallyAbsentTupleByteClassV1,
   type CodexDevelopmentInitiallyAbsentTupleEdgeV1,
   type CodexDevelopmentInitiallyAbsentTupleEntryV1,
@@ -385,6 +389,23 @@ tests:
   };
 }
 
+test('terminal retirement accepts every canonical prefix cut and rejects namespace holes', () => {
+  const entryCount = 9;
+  for (let deletedPrefixCount = 0; deletedPrefixCount <= entryCount; deletedPrefixCount += 1) {
+    expect(CodexDevelopmentClassifyTerminalRetirementPrefixV1(
+      Array.from({ length: entryCount }, (_, index) => index >= deletedPrefixCount)
+    )).toEqual({ status: 'valid', deletedPrefixCount });
+  }
+  for (const hole of [1, 3, 7]) {
+    const presence = Array.from({ length: entryCount }, () => true);
+    presence[hole] = false;
+    expect(CodexDevelopmentClassifyTerminalRetirementPrefixV1(presence)).toEqual({
+      status: 'invalid',
+      reason: 'non-prefix-hole'
+    });
+  }
+});
+
 test('shared resolver fails closed for stale, unavailable, malformed, and checkout-byte drift', () => {
   const gitBlob = Buffer.from('schema: frozen\n', 'utf8');
   const oldDefaultBlob = Buffer.from('schema: old\n', 'utf8');
@@ -409,6 +430,12 @@ test('shared resolver fails closed for stale, unavailable, malformed, and checko
     defaultManifestBlob: oldDefaultBlob,
     defaultRefState: 'fresh'
   })).toEqual({ state: 'invalid', reason: 'candidate-digest-mismatch' });
+  expect(CodexDevelopmentResolveActiveWorkPackageV1({
+    pointer,
+    candidateManifestBlob: gitBlob,
+    defaultManifestBlob: oldDefaultBlob,
+    defaultRefState: 'fresh'
+  })).toEqual({ state: 'invalid', reason: 'manifest-path-already-on-default' });
 
   const malformedPointer = `---
 schema: sec-active-work-package-pointer-v2
@@ -610,10 +637,86 @@ test('freeze projection promotes one unique candidate without rewriting candidat
       manifest: FREEZE_TARGET_PATH,
       manifestDigest: projection.manifestDigest
     });
+    const requestedRollingPlanSource = projection.rollingPlanSource
+      .replace('last-reviewed: 2026-08-08', 'last-reviewed: 2026-08-09')
+      .replace('- fixture tail remains exact.', '- refreshed facts remain exact.');
+    const requestedProjection = CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
+      currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
+      currentRollingPlanSource: rollingPlanSource(),
+      requestedRollingPlanSource,
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      reviewedOn: '2026-08-09'
+    });
+    expect(requestedProjection.rollingPlanSource).toBe(requestedRollingPlanSource);
+    expect(() => CodexDevelopmentAssertPriorFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
+      immutableRollingPlanSource: rollingPlanSource(),
+      pointerSource: requestedProjection.pointerSource,
+      rollingPlanSource: requestedProjection.rollingPlanSource,
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes
+    })).not.toThrow();
+    const reorderedProjection = requestedRollingPlanSource
+      .replace('### 1. candidate-two-v1', '### 1. candidate-swap-v1')
+      .replace('### 2. candidate-three-v1', '### 2. candidate-two-v1')
+      .replace('### 1. candidate-swap-v1', '### 1. candidate-three-v1');
+    expect(() => CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
+      currentPointerSource: activePointerSource('docs/work-packages/current-active-v1.md', Buffer.from('current active manifest bytes\n')),
+      currentRollingPlanSource: rollingPlanSource(),
+      requestedRollingPlanSource: reorderedProjection,
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      reviewedOn: '2026-08-09'
+    })).toThrow('preserve the exact deterministic promotion topology');
+    expect(() => CodexDevelopmentAssertPriorFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
+      immutableRollingPlanSource: rollingPlanSource(),
+      pointerSource: requestedProjection.pointerSource,
+      rollingPlanSource: reorderedProjection,
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes
+    })).toThrow('preserve immutable active and ordered candidate topology');
   } finally {
     await fixture.dispose();
   }
 });
+
+test('freeze rejects a manually staged pointer and rolling-plan selection baseline', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const manifestBytes = await readFile(path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/')));
+    const canonical = CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
+      currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
+      currentRollingPlanSource: rollingPlanSource(),
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      reviewedOn: '2026-08-09'
+    });
+    const reorderedRolling = canonical.rollingPlanSource
+      .replace('### 1. candidate-two-v1', '### 1. candidate-swap-v1')
+      .replace('### 2. candidate-three-v1', '### 2. candidate-two-v1')
+      .replace('### 1. candidate-swap-v1', '### 1. candidate-three-v1');
+    await writeFile(path.join(fixture.repositoryRoot, POINTER_PATH), canonical.pointerSource);
+    await writeFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'), reorderedRolling);
+    runGit(fixture.repositoryRoot, ['add', FREEZE_TARGET_PATH, POINTER_PATH, 'docs/work/rolling-plan.md']);
+    const objectCensusBefore = runGit(fixture.repositoryRoot, ['count-objects', '-v']);
+    await expect(freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09'
+    })).rejects.toThrow('must equal immutable HEAD or retain its exact immutable selection topology');
+    expect(runGit(fixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensusBefore);
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
 
 test('freeze publishes one exact index tree, projects worktree bytes, and is idempotent', async () => {
   const fixture = await createFreezeFixture();
@@ -638,17 +741,146 @@ test('freeze publishes one exact index tree, projects worktree bytes, and is ide
     expect(pointer.manifest).toBe(FREEZE_TARGET_PATH);
     expect(rolling.activePackageId).toBe(FREEZE_TARGET_ID);
     expect(rolling.candidatePackageIds).toEqual(['candidate-two-v1', 'candidate-three-v1']);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    const indexBeforeNoop = await readFile(repositoryIndexPath(fixture.repositoryRoot));
+    const pointerBeforeNoop = await readFile(path.join(fixture.repositoryRoot, POINTER_PATH));
+    const rollingBeforeNoop = await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'));
     const second = await freezeDocumentControlPlaneV1({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09'
     });
-    expect(second).toEqual(result);
+    expect(second).toMatchObject({
+      baseSha: result.baseSha,
+      baseTreeSha: result.baseTreeSha,
+      candidateTreeSha: result.candidateTreeSha,
+      manifestPath: result.manifestPath,
+      manifestDigest: result.manifestDigest
+    });
+    expect(await readFile(repositoryIndexPath(fixture.repositoryRoot))).toEqual(indexBeforeNoop);
+    expect(await readFile(path.join(fixture.repositoryRoot, POINTER_PATH))).toEqual(pointerBeforeNoop);
+    expect(await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'))).toEqual(rollingBeforeNoop);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
     expect(runGit(fixture.repositoryRoot, ['diff', '--cached', '--name-only'])).toBe([
       POINTER_PATH,
       'docs/work/rolling-plan.md',
       FREEZE_TARGET_PATH
     ].sort().join('\n'));
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
+test('pre-evidence replan replaces one staged manifest generation in the same worktree', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const manifestPath = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
+    const firstManifest = await readFile(manifestPath);
+    const requestedPriorRolling = CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
+      currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
+      currentRollingPlanSource: rollingPlanSource(),
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes: firstManifest,
+      baseSha: fixture.baseSha,
+      reviewedOn: '2026-08-09'
+    }).rollingPlanSource.replace(
+      '- fixture tail remains exact.',
+      '- approved non-selection facts survive replan.'
+    );
+    await writeFile(
+      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      requestedPriorRolling
+    );
+    const first = await freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09'
+    });
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    const nextManifest = Buffer.concat([
+      await readFile(manifestPath),
+      Buffer.from('\nReplanned in the same candidate transport.\n', 'utf8')
+    ]);
+    await writeFile(manifestPath, nextManifest);
+    const replanned = await freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-10'
+    });
+    expect(replanned.candidateTreeSha).not.toBe(first.candidateTreeSha);
+    const pointer = CodexDevelopmentParseActivePointerV2(
+      await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
+    );
+    expect(pointer.manifestDigest).toBe(CodexDevelopmentWorkPackageManifestDigest(nextManifest));
+    expect(await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'))
+      .toContain('last-reviewed: 2026-08-10');
+    expect(await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'), 'utf8'))
+      .toBe(requestedPriorRolling);
+    expect(readGitBlob(fixture.repositoryRoot, `:${FREEZE_TARGET_PATH}`)).toEqual(nextManifest);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
+test('pre-evidence replan replaces one committed candidate generation pending amend', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const first = await freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09'
+    });
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'candidate generation']);
+    const committedHead = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    expect(runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD^'])).toBe(fixture.baseSha);
+    const manifestPath = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
+    const nextManifest = Buffer.concat([
+      await readFile(manifestPath),
+      Buffer.from('\nReplanned after exact-head review in the same candidate transport.\n', 'utf8')
+    ]);
+    await writeFile(manifestPath, nextManifest);
+    const replanned = await freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09'
+    });
+    expect(runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD'])).toBe(committedHead);
+    expect(replanned).toMatchObject({
+      status: 'ACTIVATED_INDEX_PENDING_COMMIT',
+      baseSha: fixture.baseSha,
+      candidateHeadSha: null,
+      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(nextManifest)
+    });
+    expect(replanned.candidateTreeSha).not.toBe(first.candidateTreeSha);
+    expect(readGitBlob(fixture.repositoryRoot, `:${FREEZE_TARGET_PATH}`)).toEqual(nextManifest);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
+test('committed candidate replan rejects a stacked generation', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    await freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09'
+    });
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'candidate generation']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '--allow-empty', '-m', 'stacked generation']);
+    const manifestPath = path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'));
+    await writeFile(manifestPath, Buffer.concat([
+      await readFile(manifestPath),
+      Buffer.from('\nUntrusted stacked replan.\n', 'utf8')
+    ]));
+    await expect(freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09'
+    })).rejects.toThrow('sole parent is the live default');
   } finally {
     await fixture.dispose();
   }
@@ -688,19 +920,15 @@ for (const faultAfter of [
       });
       expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
       expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(recovered.candidateTreeSha);
-      const journal = JSON.parse(await readFile(
-        path.join(fixture.repositoryRoot, '.tmp/codex/document-control-plane-freeze-v1/journal.json'),
-        'utf8'
-      )) as { phase: string };
-      expect(journal.phase).toBe('terminal');
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
     } finally {
       await fixture.dispose();
     }
   }, 30_000);
 }
 
-type RecoveryJournalViewV3 = Readonly<{
-  schema: 'sec-document-control-plane-freeze-journal-v3';
+type RecoveryJournalViewV4 = Readonly<{
+  schema: 'sec-document-control-plane-freeze-journal-v4';
   operationId: `sha256:${string}`;
   phase: string;
   candidateTreeSha: string;
@@ -709,6 +937,7 @@ type RecoveryJournalViewV3 = Readonly<{
     rollingPlan: Readonly<{ pre: string; next: string }>;
   }>;
   index: Readonly<{ pre: string; next: string }>;
+  indexTransportDigest: `sha256:${string}`;
   result: CodexDevelopmentFreezeResultV1;
 }>;
 
@@ -718,26 +947,21 @@ const FreezeEntryRecoveryNameForTestV1 = /^\.entry-[0-9a-f]{64}\.(pre|retired-pr
 
 function entryRecoveryPathForTest(
   transactionRoot: string,
-  targetPath: string,
+  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKeyV1,
   operationId: string,
   suffix: 'pre' | 'retired-pre' | 'retired-next'
 ): string {
-  const identity = sha256({
-    schema: 'sec-document-control-entry-recovery-path-v1',
-    operationId,
-    targetPath: path.resolve(targetPath)
-  }).slice('sha256:'.length);
-  return path.join(transactionRoot, `.entry-${identity}.${suffix}`);
+  const stem = CodexDevelopmentDocumentControlRecoveryEntryStemV1({ operationId, targetKey });
+  return path.join(transactionRoot, `${stem}.${suffix}`);
 }
 
 function journalRetiredNextPath(
   transactionRoot: string,
-  canonicalJournalPath: string,
   nextBytes: Uint8Array
 ): string {
   return entryRecoveryPathForTest(
     transactionRoot,
-    canonicalJournalPath,
+    'freeze-journal',
     `sha256:${digest(nextBytes)}`,
     'retired-next'
   );
@@ -746,6 +970,7 @@ function journalRetiredNextPath(
 async function expectLinuxExactS1(input: {
   artifactRoot: string;
   targetPath: string;
+  targetKey: CodexDevelopmentDocumentControlRecoveryTargetKeyV1;
   operationId: string;
   expectedPre: Uint8Array;
 }): Promise<Readonly<{
@@ -754,16 +979,16 @@ async function expectLinuxExactS1(input: {
   retiredNextPath: string;
 }>> {
   expect(process.platform).toBe('linux');
-  const quarantinePath = entryRecoveryPathForTest(input.artifactRoot, input.targetPath, input.operationId, 'pre');
+  const quarantinePath = entryRecoveryPathForTest(input.artifactRoot, input.targetKey, input.operationId, 'pre');
   const retiredPrePath = entryRecoveryPathForTest(
     input.artifactRoot,
-    input.targetPath,
+    input.targetKey,
     input.operationId,
     'retired-pre'
   );
   const retiredNextPath = entryRecoveryPathForTest(
     input.artifactRoot,
-    input.targetPath,
+    input.targetKey,
     input.operationId,
     'retired-next'
   );
@@ -790,7 +1015,7 @@ async function readSingleActiveJournalRecovery(repositoryRoot: string): Promise<
   name: string;
   filePath: string;
   bytes: Buffer;
-  journal: RecoveryJournalViewV3;
+  journal: RecoveryJournalViewV4;
 }>> {
   const transactionRoot = path.join(repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
   const names = (await readdir(transactionRoot)).filter((name) => JOURNAL_ACTIVE_NEXT.test(name));
@@ -798,7 +1023,7 @@ async function readSingleActiveJournalRecovery(repositoryRoot: string): Promise<
   const name = names[0]!;
   const filePath = path.join(transactionRoot, name);
   const bytes = await readFile(filePath);
-  const journal = JSON.parse(bytes.toString('utf8')) as RecoveryJournalViewV3;
+  const journal = JSON.parse(bytes.toString('utf8')) as RecoveryJournalViewV4;
   expect(bytes).toEqual(Buffer.from(`${JSON.stringify(journal, null, 2)}\n`, 'utf8'));
   expect(JOURNAL_ACTIVE_NEXT.exec(name)![1]).toBe(journal.operationId.slice('sha256:'.length));
   expect(JOURNAL_ACTIVE_NEXT.exec(name)![2]).toBe(journal.phase);
@@ -824,7 +1049,10 @@ async function readDirectTransactionByteSnapshot(transactionRoot: string): Promi
   name: string;
   bytes: string;
 }>[]> {
-  const names = [...await readdir(transactionRoot)].sort();
+  const names = [...await readdir(transactionRoot).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [] as string[];
+    throw error;
+  })].sort();
   const snapshot: Array<Readonly<{ name: string; bytes: string }>> = [];
   for (const name of names) {
     snapshot.push(Object.freeze({
@@ -834,6 +1062,28 @@ async function readDirectTransactionByteSnapshot(transactionRoot: string): Promi
   }
   return Object.freeze(snapshot);
 }
+
+async function expectFreezeTransactionRetired(repositoryRoot: string): Promise<void> {
+  const transactionRoot = path.join(repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
+  await expect(lstat(transactionRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+  const gitDirectory = path.dirname(repositoryIndexPath(repositoryRoot));
+  expect((await readdir(gitDirectory)).filter((name) => name.startsWith('.entry-'))).toEqual([]);
+}
+
+test('recovery entry identity is operation plus closed logical target and contains no physical location', () => {
+  const operationId = `sha256:${'a'.repeat(64)}`;
+  const keys = ['freeze-journal', 'git-index', 'active-pointer', 'rolling-plan'] as const;
+  const stems = keys.map((targetKey) => (
+    CodexDevelopmentDocumentControlRecoveryEntryStemV1({ operationId, targetKey })
+  ));
+  expect(new Set(stems).size).toBe(keys.length);
+  expect(stems.every((stem) => /^\.entry-[0-9a-f]{64}$/u.test(stem))).toBe(true);
+  expect(stems.join('\n')).not.toContain(path.sep);
+  expect(() => CodexDevelopmentDocumentControlRecoveryEntryStemV1({
+    operationId,
+    targetKey: 'D:\\moved\\repository\\.git\\index' as CodexDevelopmentDocumentControlRecoveryTargetKeyV1
+  })).toThrow('outside the closed target set');
+});
 
 async function readFreezeEffectSnapshot(repositoryRoot: string): Promise<Readonly<{
   transaction: readonly Readonly<{ name: string; bytes: string }>[];
@@ -882,7 +1132,7 @@ async function writeOptionalEntry(filePath: string, bytes: Buffer | null): Promi
 
 interface PublishTupleFixtureV1 {
   readonly fixture: FreezeFixture;
-  readonly journal: RecoveryJournalViewV3;
+  readonly journal: RecoveryJournalViewV4;
   readonly paths: Readonly<{
     target: string;
     next: string;
@@ -904,7 +1154,7 @@ async function prepareIndexPublishTupleFixture(): Promise<PublishTupleFixtureV1>
     faultAfter: 'after-journal-prepare'
   })).rejects.toThrow('after-journal-prepare');
   const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
-  const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3;
+  const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
   const indexPath = repositoryIndexPath(fixture.repositoryRoot);
   const artifactRoot = path.dirname(indexPath);
   const operationId = journal.operationId;
@@ -914,9 +1164,9 @@ async function prepareIndexPublishTupleFixture(): Promise<PublishTupleFixtureV1>
     paths: Object.freeze({
       target: indexPath,
       next: `${indexPath}.lock`,
-      quarantine: entryRecoveryPathForTest(artifactRoot, indexPath, operationId, 'pre'),
-      retiredPre: entryRecoveryPathForTest(artifactRoot, indexPath, operationId, 'retired-pre'),
-      retiredNext: entryRecoveryPathForTest(artifactRoot, indexPath, operationId, 'retired-next'),
+      quarantine: entryRecoveryPathForTest(artifactRoot, 'git-index', operationId, 'pre'),
+      retiredPre: entryRecoveryPathForTest(artifactRoot, 'git-index', operationId, 'retired-pre'),
+      retiredNext: entryRecoveryPathForTest(artifactRoot, 'git-index', operationId, 'retired-next'),
       journal: journalPath
     }),
     pre: Buffer.from(journal.index.pre, 'base64'),
@@ -1072,7 +1322,14 @@ if (process.platform === 'win32') {
         manifestPath: FREEZE_TARGET_PATH,
         reviewedOn: '2026-08-09'
       });
-      expect(second).toEqual(first);
+      expect(second).toMatchObject({
+        baseSha: first.baseSha,
+        baseTreeSha: first.baseTreeSha,
+        candidateTreeSha: first.candidateTreeSha,
+        manifestPath: first.manifestPath,
+        manifestDigest: first.manifestDigest
+      });
+      await expectFreezeTransactionRetired(prepared.fixture.repositoryRoot);
     } finally {
       await prepared.fixture.dispose();
     }
@@ -1130,7 +1387,7 @@ if (process.platform === 'win32') {
         reviewedOn: '2026-08-09',
         durabilityObserver: (event) => { durability.push(event); },
         beforeAnchoredCleanup: (event) => { cleanups.push(event); }
-      })).rejects.toThrow('Terminal freeze verification found an active Git index lock; preserving it.');
+      })).rejects.toThrow('Document control freeze found an active Git index lock; preserving it.');
       expect(await readPreEffectTupleSnapshot(prepared)).toEqual(before);
       const journalRecoveryDurability = durability.filter((event) => (
         event.label === 'Freeze journal recovery durability journal.json'
@@ -1348,12 +1605,7 @@ for (const recoveryCase of [
       expect(recovered.operationId).toBe(active.journal.operationId);
       expect(recovered.candidateTreeSha).toBe(active.journal.candidateTreeSha);
       expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(active.journal.candidateTreeSha);
-      const terminal = JSON.parse(await readFile(canonicalPath, 'utf8')) as RecoveryJournalViewV3;
-      expect(terminal.phase).toBe('terminal');
-      expect(terminal.operationId).toBe(active.journal.operationId);
-      expect(terminal.candidateTreeSha).toBe(active.journal.candidateTreeSha);
-      const remainingActive = (await readdir(active.transactionRoot)).filter((name) => JOURNAL_ACTIVE_NEXT.test(name));
-      expect(remainingActive).toEqual([]);
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
     } finally {
       await fixture.dispose();
     }
@@ -1371,8 +1623,7 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
     })).rejects.toThrow('after-journal-index-published-next-install');
     const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
     const installedBytes = await readFile(journalPath);
-    const installedMetadata = await lstat(journalPath);
-    const installed = JSON.parse(installedBytes.toString('utf8')) as RecoveryJournalViewV3;
+    const installed = JSON.parse(installedBytes.toString('utf8')) as RecoveryJournalViewV4;
     expect(installed.phase).toBe('index-published');
     const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
     expect(status.activation).toEqual({
@@ -1387,35 +1638,17 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
     });
     expect(recovered.operationId).toBe(installed.operationId);
     expect(recovered.candidateTreeSha).toBe(installed.candidateTreeSha);
-    const transactionRoot = path.dirname(journalPath);
-    expect((await readdir(transactionRoot)).filter((name) => JOURNAL_ACTIVE_NEXT.test(name))).toEqual([]);
-    if (process.platform === 'linux') {
-      const retiredNextPath = journalRetiredNextPath(transactionRoot, journalPath, installedBytes);
-      expect(await readFile(retiredNextPath)).toEqual(Buffer.from(installedBytes));
-      const retiredMetadata = await lstat(retiredNextPath);
-      expect({ dev: retiredMetadata.dev, ino: retiredMetadata.ino }).toEqual({
-        dev: installedMetadata.dev,
-        ino: installedMetadata.ino
-      });
-    }
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
     const indexPath = repositoryIndexPath(fixture.repositoryRoot);
     const indexLockPath = `${indexPath}.lock`;
-    const terminalJournalBeforeStatus = await readFile(journalPath);
-    const terminalJournal = JSON.parse(terminalJournalBeforeStatus.toString('utf8')) as RecoveryJournalViewV3;
     const indexBeforeStatus = await readFile(indexPath);
-    expect(indexBeforeStatus).toEqual(Buffer.from(terminalJournal.index.next, 'base64'));
+    expect(indexBeforeStatus).toEqual(Buffer.from(installed.index.next, 'base64'));
     const treeBeforeStatus = runGit(fixture.repositoryRoot, ['write-tree']);
-    const entriesBeforeStatus = [...await readdir(transactionRoot)].sort();
     const terminalStatus = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
-    expect(terminalStatus.activation).toEqual({
-      operationId: installed.operationId,
-      phase: 'terminal',
-      terminal: true
-    });
+    expect(terminalStatus.activation).toBeNull();
     expect(await readFile(indexPath)).toEqual(Buffer.from(indexBeforeStatus));
-    expect(await readFile(journalPath)).toEqual(Buffer.from(terminalJournalBeforeStatus));
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBeforeStatus);
-    expect([...await readdir(transactionRoot)].sort()).toEqual(entriesBeforeStatus);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
     let renameEffects = 0;
     let cleanupEffects = 0;
     const durabilityEffects: CodexDevelopmentDurabilityEventV1[] = [];
@@ -1427,11 +1660,16 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
       beforeAnchoredRename: () => { renameEffects += 1; },
       beforeAnchoredCleanup: () => { cleanupEffects += 1; }
     });
-    expect(second).toEqual(recovered);
+    expect(second).toMatchObject({
+      baseSha: recovered.baseSha,
+      baseTreeSha: recovered.baseTreeSha,
+      candidateTreeSha: recovered.candidateTreeSha,
+      manifestPath: recovered.manifestPath,
+      manifestDigest: recovered.manifestDigest
+    });
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(installed.candidateTreeSha);
     expect(await readFile(indexPath)).toEqual(Buffer.from(indexBeforeStatus));
-    expect(await readFile(journalPath)).toEqual(Buffer.from(terminalJournalBeforeStatus));
-    expect([...await readdir(transactionRoot)].sort()).toEqual(entriesBeforeStatus);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
     await expect(readFile(indexLockPath)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(durabilityEffects).toEqual([]);
     expect(renameEffects).toBe(0);
@@ -1454,7 +1692,7 @@ if (process.platform === 'linux') {
       const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
       const terminalBytes = await readFile(journalPath);
       const terminalMetadata = await lstat(journalPath);
-      const terminal = JSON.parse(terminalBytes.toString('utf8')) as RecoveryJournalViewV3;
+      const terminal = JSON.parse(terminalBytes.toString('utf8')) as RecoveryJournalViewV4;
       expect(terminal.phase).toBe('terminal');
       const active = await readSingleActiveJournalRecovery(fixture.repositoryRoot);
       expect(active.bytes).toEqual(Buffer.from(terminalBytes));
@@ -1477,26 +1715,19 @@ if (process.platform === 'linux') {
         reviewedOn: '2026-08-09'
       });
       expect(recovered).toEqual(terminal.result);
-      expect((await readdir(active.transactionRoot)).filter((name) => JOURNAL_ACTIVE_NEXT.test(name))).toEqual([]);
-      const retiredNextPath = journalRetiredNextPath(active.transactionRoot, journalPath, terminalBytes);
-      expect(await readFile(retiredNextPath)).toEqual(Buffer.from(terminalBytes));
-      const retiredMetadata = await lstat(retiredNextPath);
-      expect({ dev: retiredMetadata.dev, ino: retiredMetadata.ino }).toEqual({
-        dev: terminalMetadata.dev,
-        ino: terminalMetadata.ino
-      });
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
       const terminalStatus = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
-      expect(terminalStatus.activation).toEqual({
-        operationId: terminal.operationId,
-        phase: 'terminal',
-        terminal: true
-      });
+      expect(terminalStatus.activation).toBeNull();
       const second = await freezeDocumentControlPlaneV1({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
         reviewedOn: '2026-08-09'
       });
-      expect(second).toEqual(recovered);
+      expect(second).toMatchObject({
+        candidateTreeSha: recovered.candidateTreeSha,
+        manifestDigest: recovered.manifestDigest,
+        manifestPath: recovered.manifestPath
+      });
     } finally {
       await fixture.dispose();
     }
@@ -1572,11 +1803,12 @@ if (process.platform === 'linux') {
       expect(active.journal.phase).toBe('index-published');
       const journalPath = path.join(active.transactionRoot, 'journal.json');
       const canonicalBytes = await readFile(journalPath);
-      const canonical = JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalViewV3;
+      const canonical = JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalViewV4;
       expect(canonical.phase).toBe('prepared');
       await expectLinuxExactS1({
         artifactRoot: active.transactionRoot,
         targetPath: journalPath,
+        targetKey: 'freeze-journal',
         operationId: `sha256:${digest(active.bytes)}`,
         expectedPre: canonicalBytes
       });
@@ -1598,13 +1830,13 @@ if (process.platform === 'linux') {
       });
       expect(recovered.operationId).toBe(active.journal.operationId);
       expect(recovered.candidateTreeSha).toBe(active.journal.candidateTreeSha);
-      const terminal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3;
-      expect(terminal.phase).toBe('terminal');
-      expect(await freezeDocumentControlPlaneV1({
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
+      const repeated = await freezeDocumentControlPlaneV1({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
         reviewedOn: '2026-08-09'
-      })).toEqual(recovered);
+      });
+      expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
     } finally {
       await fixture.dispose();
     }
@@ -1628,12 +1860,13 @@ if (process.platform === 'linux') {
       expect(selectedHooks).toBe(1);
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
       const journalPath = path.join(transactionRoot, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
       expect(journal.phase).toBe('index-published');
       const pointerPath = path.join(fixture.repositoryRoot, POINTER_PATH);
       await expectLinuxExactS1({
         artifactRoot: transactionRoot,
         targetPath: pointerPath,
+        targetKey: 'active-pointer',
         operationId: journal.operationId,
         expectedPre: Buffer.from(journal.files.pointer.pre, 'base64')
       });
@@ -1653,12 +1886,13 @@ if (process.platform === 'linux') {
       });
       expect(recovered.operationId).toBe(journal.operationId);
       expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(journal.candidateTreeSha);
-      expect((JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3).phase).toBe('terminal');
-      expect(await freezeDocumentControlPlaneV1({
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
+      const repeated = await freezeDocumentControlPlaneV1({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
         reviewedOn: '2026-08-09'
-      })).toEqual(recovered);
+      });
+      expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
     } finally {
       await fixture.dispose();
     }
@@ -1682,12 +1916,13 @@ if (process.platform === 'linux') {
       expect(selectedHooks).toBe(1);
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
       const journalPath = path.join(transactionRoot, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
       expect(journal.phase).toBe('prepared');
       const indexPath = repositoryIndexPath(fixture.repositoryRoot);
       await expectLinuxExactS1({
         artifactRoot: path.dirname(indexPath),
         targetPath: indexPath,
+        targetKey: 'git-index',
         operationId: journal.operationId,
         expectedPre: Buffer.from(journal.index.pre, 'base64')
       });
@@ -1710,12 +1945,13 @@ if (process.platform === 'linux') {
       });
       expect(recovered.operationId).toBe(journal.operationId);
       expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(journal.candidateTreeSha);
-      expect((JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3).phase).toBe('terminal');
-      expect(await freezeDocumentControlPlaneV1({
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
+      const repeated = await freezeDocumentControlPlaneV1({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
         reviewedOn: '2026-08-09'
-      })).toEqual(recovered);
+      });
+      expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
     } finally {
       await fixture.dispose();
     }
@@ -1737,11 +1973,12 @@ if (process.platform === 'linux') {
       expect(active.journal.phase).toBe('terminal');
       const journalPath = path.join(active.transactionRoot, 'journal.json');
       const canonicalBytes = await readFile(journalPath);
-      expect((JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalViewV3).phase)
+      expect((JSON.parse(canonicalBytes.toString('utf8')) as RecoveryJournalViewV4).phase)
         .toBe('rolling-published');
       await expectLinuxExactS1({
         artifactRoot: active.transactionRoot,
         targetPath: journalPath,
+        targetKey: 'freeze-journal',
         operationId: `sha256:${digest(active.bytes)}`,
         expectedPre: canonicalBytes
       });
@@ -1759,12 +1996,13 @@ if (process.platform === 'linux') {
         reviewedOn: '2026-08-09'
       });
       expect(recovered).toEqual(active.journal.result);
-      expect((JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3).phase).toBe('terminal');
-      expect(await freezeDocumentControlPlaneV1({
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
+      const repeated = await freezeDocumentControlPlaneV1({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
         reviewedOn: '2026-08-09'
-      })).toEqual(recovered);
+      });
+      expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
     } finally {
       await fixture.dispose();
     }
@@ -1784,12 +2022,13 @@ if (process.platform === 'linux') {
       })).rejects.toBe(fault);
       const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
       const journalPath = path.join(transactionRoot, 'journal.json');
-      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3;
+      const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
       expect(journal.phase).toBe('pointer-published');
       const rollingPlanPath = path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md');
       await expectLinuxExactS1({
         artifactRoot: transactionRoot,
         targetPath: rollingPlanPath,
+        targetKey: 'rolling-plan',
         operationId: journal.operationId,
         expectedPre: Buffer.from(journal.files.rollingPlan.pre, 'base64')
       });
@@ -1808,12 +2047,13 @@ if (process.platform === 'linux') {
       });
       expect(recovered.operationId).toBe(journal.operationId);
       expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(journal.candidateTreeSha);
-      expect((JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3).phase).toBe('terminal');
-      expect(await freezeDocumentControlPlaneV1({
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
+      const repeated = await freezeDocumentControlPlaneV1({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
         reviewedOn: '2026-08-09'
-      })).toEqual(recovered);
+      });
+      expect(repeated.candidateTreeSha).toBe(recovered.candidateTreeSha);
     } finally {
       await fixture.dispose();
     }
@@ -1846,7 +2086,7 @@ if (process.platform === 'linux') {
           })).rejects.toThrow(installedCase.faultAfter);
           const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
           const journal = (
-            JSON.parse(await readFile(path.join(transactionRoot, 'journal.json'), 'utf8')) as RecoveryJournalViewV3
+            JSON.parse(await readFile(path.join(transactionRoot, 'journal.json'), 'utf8')) as RecoveryJournalViewV4
           );
           const indexPath = repositoryIndexPath(fixture.repositoryRoot);
           const targetPath = installedCase.kind === 'index'
@@ -1863,7 +2103,9 @@ if (process.platform === 'linux') {
           const artifactRoot = installedCase.kind === 'index' ? path.dirname(indexPath) : transactionRoot;
           const retiredNextPath = entryRecoveryPathForTest(
             artifactRoot,
-            targetPath,
+            installedCase.kind === 'index'
+              ? 'git-index'
+              : installedCase.kind === 'pointer' ? 'active-pointer' : 'rolling-plan',
             journal.operationId,
             'retired-next'
           );
@@ -1953,7 +2195,7 @@ test('read-only status overrides inherited optional locks and preserves the exac
   const fixture = await createFreezeFixture();
   const previousOptionalLocks = process.env.GIT_OPTIONAL_LOCKS;
   try {
-    const frozen = await freezeDocumentControlPlaneV1({
+    await freezeDocumentControlPlaneV1({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09'
@@ -1961,8 +2203,8 @@ test('read-only status overrides inherited optional locks and preserves the exac
     const indexPath = repositoryIndexPath(fixture.repositoryRoot);
     const indexBefore = await readFile(indexPath);
     const treeBefore = runGit(fixture.repositoryRoot, ['write-tree']);
-    const journalPath = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json');
-    const journalBefore = await readFile(journalPath);
+    const objectCensusBefore = runGit(fixture.repositoryRoot, ['count-objects', '-v']);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
     const observations: Array<Readonly<{
       args: readonly string[];
       environment: Readonly<Record<string, string>>;
@@ -1972,20 +2214,23 @@ test('read-only status overrides inherited optional locks and preserves the exac
       observeGitHub: false,
       resolverGitCommandObserver: (event) => observations.push(event)
     });
-    expect(status.activation).toEqual({
-      operationId: frozen.operationId,
-      phase: 'terminal',
-      terminal: true
-    });
+    expect(status.activation).toBeNull();
     expect(observations.length).toBeGreaterThan(0);
     expect(observations.every((event) => event.environment.GIT_OPTIONAL_LOCKS === '0')).toBe(true);
     const commands = observations.map((event) => event.args.join(' '));
     expect(commands).toContain('status --short --branch');
     expect(commands.filter((command) => command === 'write-tree')).toHaveLength(2);
+    expect(observations
+      .filter((event) => event.args.join(' ') === 'write-tree')
+      .every((event) => (
+        typeof event.environment.GIT_OBJECT_DIRECTORY === 'string'
+        && typeof event.environment.GIT_ALTERNATE_OBJECT_DIRECTORIES === 'string'
+      ))).toBe(true);
     expect(commands.some((command) => command.startsWith('show '))).toBe(true);
     expect(await readFile(indexPath)).toEqual(Buffer.from(indexBefore));
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBefore);
-    expect(await readFile(journalPath)).toEqual(Buffer.from(journalBefore));
+    expect(runGit(fixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensusBefore);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
     if (previousOptionalLocks === undefined) delete process.env.GIT_OPTIONAL_LOCKS;
     else process.env.GIT_OPTIONAL_LOCKS = previousOptionalLocks;
@@ -1993,7 +2238,7 @@ test('read-only status overrides inherited optional locks and preserves the exac
   }
 }, 60_000);
 
-test('terminal idempotence blocks same-tree raw index stat drift without effects', async () => {
+test('same-tree raw index stat drift is a semantic NOOP without effects', async () => {
   const fixture = await createFreezeFixture();
   try {
     const frozen = await freezeDocumentControlPlaneV1({
@@ -2012,19 +2257,34 @@ test('terminal idempotence blocks same-tree raw index stat drift without effects
     const driftedIndex = await readFile(indexPath);
     expect(driftedIndex.equals(exactIndex)).toBe(false);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBefore);
+    const objectCensusBefore = runGit(fixture.repositoryRoot, ['count-objects', '-v']);
     const durabilityEffects: CodexDevelopmentDurabilityEventV1[] = [];
     let renameEffects = 0;
-    await expect(freezeDocumentControlPlaneV1({
+    let cleanupEffects = 0;
+    let fenceIndex: Buffer | undefined;
+    const repeated = await freezeDocumentControlPlaneV1({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09',
       durabilityObserver: (event) => { durabilityEffects.push(event); },
-      beforeAnchoredRename: () => { renameEffects += 1; }
-    })).rejects.toThrow('Terminal freeze Git index bytes do not equal the exact journal NEXT image.');
-    expect(await readFile(indexPath)).toEqual(Buffer.from(driftedIndex));
+      beforeAnchoredRename: () => { renameEffects += 1; },
+      beforeAnchoredCleanup: () => { cleanupEffects += 1; },
+      beforeInitialJournalFence: async () => {
+        const later = new Date(future.getTime() + 60_000);
+        await utimes(pointerPath, later, later);
+        runGit(fixture.repositoryRoot, ['update-index', '--refresh']);
+        fenceIndex = await readFile(indexPath);
+      }
+    });
+    expect(repeated.candidateTreeSha).toBe(frozen.candidateTreeSha);
+    expect(fenceIndex).toBeDefined();
+    expect(await readFile(indexPath)).toEqual(fenceIndex!);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBefore);
+    expect(runGit(fixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensusBefore);
     expect(durabilityEffects).toEqual([]);
     expect(renameEffects).toBe(0);
+    expect(cleanupEffects).toBe(0);
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
     await fixture.dispose();
   }
@@ -2079,15 +2339,16 @@ test('journal recovery census blocks and preserves duplicate active NEXT artifac
 test('journal residue census blocks canonical absence with an exact retired NEXT and preserves every entry', async () => {
   const fixture = await createFreezeFixture();
   try {
-    await freezeDocumentControlPlaneV1({
+    await expect(freezeDocumentControlPlaneV1({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09'
-    });
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-terminal'
+    })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journalPath = path.join(transactionRoot, 'journal.json');
     const journalBytes = await readFile(journalPath);
-    const retiredNextPath = journalRetiredNextPath(transactionRoot, journalPath, journalBytes);
+    const retiredNextPath = journalRetiredNextPath(transactionRoot, journalBytes);
     if (process.platform === 'win32') await writeFile(retiredNextPath, journalBytes);
     expect(await readFile(retiredNextPath)).toEqual(Buffer.from(journalBytes));
     const residuesBefore = await readEntryRecoveryByteSnapshot(transactionRoot);
@@ -2125,11 +2386,12 @@ test('journal residue census blocks an unbound direct entry beside canonical ter
   const fixture = await createFreezeFixture();
   const unknown = Buffer.from('unbound entry recovery bytes\n', 'utf8');
   try {
-    await freezeDocumentControlPlaneV1({
+    await expect(freezeDocumentControlPlaneV1({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09'
-    });
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-terminal'
+    })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journalPath = path.join(transactionRoot, 'journal.json');
     const journalBefore = await readFile(journalPath);
@@ -2150,11 +2412,12 @@ test('journal residue census double-read blocks content or exact-object identity
   const fixture = await createFreezeFixture();
   const replacement = Buffer.from('raced replacement residue bytes\n', 'utf8');
   try {
-    await freezeDocumentControlPlaneV1({
+    await expect(freezeDocumentControlPlaneV1({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09'
-    });
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-terminal'
+    })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const residueNames = (await readdir(transactionRoot)).filter((name) => FreezeEntryRecoveryNameForTestV1.test(name));
     expect(residueNames.length).toBeGreaterThan(0);
@@ -2208,11 +2471,12 @@ test('closed-world transaction census blocks an arbitrary direct sibling beside 
   const fixture = await createFreezeFixture();
   const unknown = Buffer.from('unknown direct transaction sibling\n', 'utf8');
   try {
-    await freezeDocumentControlPlaneV1({
+    await expect(freezeDocumentControlPlaneV1({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09'
-    });
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-terminal'
+    })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journalPath = path.join(transactionRoot, 'journal.json');
     const journalBefore = await readFile(journalPath);
@@ -2227,31 +2491,32 @@ test('closed-world transaction census blocks an arbitrary direct sibling beside 
   }
 }, 60_000);
 
-test('freeze journal V3 owns exact next-index bytes and conservatively rejects legacy V1/V2 authority', async () => {
+test('freeze journal V4 separates index transport integrity and rejects every legacy authority', async () => {
   const legacyFixture = await createFreezeFixture();
   try {
-    await freezeDocumentControlPlaneV1({
+    await expect(freezeDocumentControlPlaneV1({
       cwd: legacyFixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09'
-    });
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-terminal'
+    })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(legacyFixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journalPath = path.join(transactionRoot, 'journal.json');
-    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3;
-    expect(journal.schema).toBe('sec-document-control-plane-freeze-journal-v3');
+    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
+    expect(journal.schema).toBe('sec-document-control-plane-freeze-journal-v4');
     expect(journal).not.toHaveProperty('retainedTemporaryIndexName');
     expect(Buffer.from(journal.index.next, 'base64').byteLength).toBeGreaterThan(0);
     expect((await resolveLiveControlPlane(legacyFixture.repositoryRoot, { observeGitHub: false })).activation)
       .toMatchObject({ operationId: journal.operationId, phase: 'terminal', terminal: true });
 
-    for (const legacyVersion of ['v1', 'v2'] as const) {
+    for (const legacyVersion of ['v1', 'v2', 'v3'] as const) {
       const legacy: Record<string, unknown> = { ...journal };
       legacy.schema = `sec-document-control-plane-freeze-journal-${legacyVersion}`;
       if (legacyVersion === 'v2') legacy.retainedTemporaryIndexName = 'index-123-456.next';
       await writeFile(journalPath, `${JSON.stringify(legacy, null, 2)}\n`, 'utf8');
       const beforeLegacyRejection = await readFreezeEffectSnapshot(legacyFixture.repositoryRoot);
       await expect(resolveLiveControlPlane(legacyFixture.repositoryRoot, { observeGitHub: false }))
-        .rejects.toThrow(`Freeze journal ${legacyVersion.toUpperCase()} is legacy and cannot serve as recovery authority`);
+        .rejects.toThrow('Only freeze journal V4 can serve as recovery authority');
       expect(await readFreezeEffectSnapshot(legacyFixture.repositoryRoot)).toEqual(beforeLegacyRejection);
     }
   } finally {
@@ -2260,14 +2525,15 @@ test('freeze journal V3 owns exact next-index bytes and conservatively rejects l
 
   const digestFixture = await createFreezeFixture();
   try {
-    await freezeDocumentControlPlaneV1({
+    await expect(freezeDocumentControlPlaneV1({
       cwd: digestFixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09'
-    });
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-terminal'
+    })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(digestFixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journalPath = path.join(transactionRoot, 'journal.json');
-    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV3;
+    const journal = JSON.parse(await readFile(journalPath, 'utf8')) as RecoveryJournalViewV4;
     const mutatedIndex = Buffer.from(journal.index.next, 'base64');
     mutatedIndex[0] = mutatedIndex[0]! ^ 0xff;
     const mutated = {
@@ -2277,7 +2543,7 @@ test('freeze journal V3 owns exact next-index bytes and conservatively rejects l
     await writeFile(journalPath, `${JSON.stringify(mutated, null, 2)}\n`, 'utf8');
     const beforeDigestRejection = await readFreezeEffectSnapshot(digestFixture.repositoryRoot);
     await expect(resolveLiveControlPlane(digestFixture.repositoryRoot, { observeGitHub: false }))
-      .rejects.toThrow('Freeze journal operation digest mismatch');
+      .rejects.toThrow('Freeze journal index transport digest mismatch');
     expect(await readFreezeEffectSnapshot(digestFixture.repositoryRoot)).toEqual(beforeDigestRejection);
   } finally {
     await digestFixture.dispose();
@@ -2318,15 +2584,16 @@ test('candidate index staging stays outside the transaction root before journal 
 test('closed-world transaction census rejects a legacy temporary-index residue beside canonical authority', async () => {
   const fixture = await createFreezeFixture();
   try {
-    await freezeDocumentControlPlaneV1({
+    await expect(freezeDocumentControlPlaneV1({
       cwd: fixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
-      reviewedOn: '2026-08-09'
-    });
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-terminal'
+    })).rejects.toThrow('after-terminal');
     const transactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
     const journal = JSON.parse(
       await readFile(path.join(transactionRoot, 'journal.json'), 'utf8')
-    ) as RecoveryJournalViewV3;
+    ) as RecoveryJournalViewV4;
     expect((await readdir(transactionRoot)).filter((name) => /^index-.*\.next$/u.test(name))).toEqual([]);
     const residueName = 'index-123-456.next';
     const residuePath = path.join(transactionRoot, residueName);
@@ -2355,6 +2622,24 @@ test('optional journal reads accept an absent parent while required control read
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09'
     })).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
+test('freeze retires the sole journal-last empty-directory suffix before starting a new operation', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const emptyTransactionRoot = path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE);
+    await mkdir(emptyTransactionRoot, { recursive: true });
+    expect(await readdir(emptyTransactionRoot)).toEqual([]);
+    const result = await freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09'
+    });
+    expect(result.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
     await fixture.dispose();
   }
@@ -2509,11 +2794,13 @@ test('freeze fails closed for stale main, symlink-mode targets, and index CAS co
     runGit(staleFixture.repositoryRoot, ['push', '--quiet', 'origin', `${advanced}:refs/heads/main`]);
     runGit(staleFixture.repositoryRoot, ['update-ref', 'refs/heads/main', staleFixture.baseSha]);
     runGit(staleFixture.repositoryRoot, ['update-ref', 'refs/remotes/origin/main', staleFixture.baseSha]);
+    const objectCensusBefore = runGit(staleFixture.repositoryRoot, ['count-objects', '-v']);
     await expect(freezeDocumentControlPlaneV1({
       cwd: staleFixture.repositoryRoot,
       manifestPath: FREEZE_TARGET_PATH,
       reviewedOn: '2026-08-09'
     })).rejects.toThrow('Live default ref is stale');
+    expect(runGit(staleFixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensusBefore);
   } finally {
     await staleFixture.dispose();
   }
@@ -2555,8 +2842,8 @@ test('freeze fails closed for stale main, symlink-mode targets, and index CAS co
   }
 }, 60_000);
 
-for (const raceKind of ['head', 'local-default', 'live-default', 'index'] as const) {
-  test(`freeze rejects ${raceKind} drift at the pre-first-journal four-value fence`, async () => {
+for (const raceKind of ['head', 'local-default', 'index'] as const) {
+  test(`freeze rejects ${raceKind} drift at the post-admission local fence`, async () => {
     const fixture = await createFreezeFixture();
     try {
       const alternate = runGit(fixture.repositoryRoot, [
@@ -2567,11 +2854,6 @@ for (const raceKind of ['head', 'local-default', 'live-default', 'index'] as con
         '-m',
         `${raceKind} pre-journal race`
       ]);
-      if (raceKind === 'live-default') {
-        runGit(fixture.repositoryRoot, [
-          'push', '--quiet', 'origin', `${alternate}:refs/heads/pre-journal-race-source`
-        ]);
-      }
       await expect(freezeDocumentControlPlaneV1({
         cwd: fixture.repositoryRoot,
         manifestPath: FREEZE_TARGET_PATH,
@@ -2581,8 +2863,6 @@ for (const raceKind of ['head', 'local-default', 'live-default', 'index'] as con
             runGit(fixture.repositoryRoot, ['update-ref', 'HEAD', alternate]);
           } else if (raceKind === 'local-default') {
             runGit(fixture.repositoryRoot, ['update-ref', 'refs/remotes/origin/main', alternate]);
-          } else if (raceKind === 'live-default') {
-            runGit(fixture.remoteRoot, ['update-ref', 'refs/heads/main', alternate]);
           } else {
             await writeFile(path.join(fixture.repositoryRoot, 'pre-journal-index-race.txt'), 'race\n', 'utf8');
             runGit(fixture.repositoryRoot, ['add', 'pre-journal-index-race.txt']);
@@ -2968,7 +3248,7 @@ for (const createKind of ['directory', 'file'] as const) {
         expect(await lstat(heldTargetPath)).toBeDefined();
         if (createKind === 'file') {
           expect(JSON.parse(await readFile(heldTargetPath, 'utf8'))).toMatchObject({
-            schema: 'sec-document-control-plane-freeze-journal-v3',
+            schema: 'sec-document-control-plane-freeze-journal-v4',
             phase: 'prepared'
           });
         }
@@ -3062,6 +3342,7 @@ test('platform path effects lock exact Win32 handles and POSIX dirfd operations'
   expect(windowsHandleOpenEnd).toBeGreaterThan(windowsHandleOpenStart);
   const windowsHandleOpen = source.slice(windowsHandleOpenStart, windowsHandleOpenEnd);
   expect(source).toContain('const WindowsInvalidHandleValue = 0xffff_ffff_ffff_ffffn;');
+  expect(source).toContain("GIT_OPTIONAL_LOCKS: '0'");
   expect(source).toContain('returns: FFIType.u64');
   expect(source).toContain(
     'SetFilePointerEx: { args: [FFIType.u64, FFIType.i64, FFIType.ptr, FFIType.u32], returns: FFIType.i32 }'
@@ -3103,11 +3384,19 @@ test('platform path effects lock exact Win32 handles and POSIX dirfd operations'
   expect(source).toContain(
     '(input.replaceExisting === false ? 0 : WindowsFileRenameReplaceIfExists)'
   );
-  expect(source).not.toContain('unlinkat:');
-  expect(source).not.toContain('library.symbols.unlinkat(');
+  expect(source).toContain('unlinkat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32]');
+  expect(source).toContain('async function unlinkExactPosixRegularFile(');
+  expect(source).toContain('requireLinuxLibc().symbols.unlinkat(parentFd, posixCString(name), 0)');
+  expect(source).toContain('retiredMetadata.nlink !== currentMetadata.nlink - 1');
+  expect(source).toContain('async function removeExactEmptyDirectory(');
+  expect(source).toContain('LinuxAtRemoveDirectory');
+  expect(source).toContain("statSync(`/proc/self/fd/${currentFd}`).nlink !== 0");
   expect(source).toContain('const anchorShareMode = input.createMissing || input.retainAgainstRename');
   expect(source).toContain('? WindowsShareReadWrite');
   expect(source).toContain('retainAgainstRename: true');
+  expect(source).toContain('const isTargetDirectory = segmentIndex === segments.length - 1;');
+  expect(source).toContain('(input.deleteAccess && isTargetDirectory ? WindowsDeleteAccess : 0)');
+  expect(source).not.toContain('| (input.deleteAccess ? WindowsDeleteAccess : 0)');
   expect(source).toContain('publishInitiallyAbsentEntryNoReplace({');
   const entryCasStart = source.indexOf('async function publishEntryNoReplaceCas(');
   const entryCasEnd = source.indexOf('async function writeAtomicCas(', entryCasStart);
@@ -3232,9 +3521,11 @@ test('platform path effects lock exact Win32 handles and POSIX dirfd operations'
   expect(transitionRecovery).toContain('CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({');
   expect(recoveryCensus).toContain('CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({');
   expect(journalReader).toContain('CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({');
-  expect(source).toContain("const FreezeJournalSchemaV3 = 'sec-document-control-plane-freeze-journal-v3' as const;");
-  expect(source).toContain('Freeze journal V1 is legacy and cannot serve as recovery authority.');
-  expect(source).toContain('Freeze journal V2 is legacy and cannot serve as recovery authority.');
+  expect(source).toContain("const FreezeJournalSchemaV4 = 'sec-document-control-plane-freeze-journal-v4' as const;");
+  expect(source).toContain('Only freeze journal V4 can serve as recovery authority.');
+  expect(source).not.toContain('FreezeJournalSchemaV1');
+  expect(source).not.toContain('FreezeJournalSchemaV2');
+  expect(source).not.toContain('FreezeJournalSchemaV3');
   expect(source).not.toContain('retainedTemporaryIndexName');
   const buildNextIndexStart = source.indexOf('async function buildNextIndex(');
   const buildNextIndexEnd = source.indexOf('function assertCanonicalManifestPath(', buildNextIndexStart);
@@ -3242,6 +3533,9 @@ test('platform path effects lock exact Win32 handles and POSIX dirfd operations'
   expect(buildNextIndexEnd).toBeGreaterThan(buildNextIndexStart);
   const buildNextIndex = source.slice(buildNextIndexStart, buildNextIndexEnd);
   expect(buildNextIndex).toContain("mkdtemp(path.join(tmpdir(), 'sec-document-control-freeze-index-'))");
+  expect(buildNextIndex).toContain('if (target.pre !== undefined && target.pre.equals(target.bytes)) continue;');
+  expect(buildNextIndex).toContain("['update-index', '-z', '--index-info']");
+  expect(buildNextIndex.match(/\['update-index'/gu)).toHaveLength(1);
   expect(buildNextIndex).toContain('await rm(scratchRoot, { recursive: true, force: true });');
   expect(buildNextIndex).toContain("if (!removed) throw new Error('External freeze scratch Git index root remained after cleanup.');");
   expect(buildNextIndex).not.toContain('resolveFreezeTransactionRoot(');
@@ -3250,6 +3544,18 @@ test('platform path effects lock exact Win32 handles and POSIX dirfd operations'
   expect(freezeStart).toBeGreaterThan(-1);
   expect(freezeEnd).toBeGreaterThan(freezeStart);
   const freezeSource = source.slice(freezeStart, freezeEnd);
+  const noopDecision = freezeSource.indexOf('if (projectionAlreadyCurrent)');
+  const candidateBuild = freezeSource.indexOf('const built = await buildNextIndex({');
+  const journalPublication = freezeSource.indexOf('const journalBytes = await writeFreezeJournal(');
+  expect(noopDecision).toBeGreaterThan(-1);
+  expect(candidateBuild).toBeGreaterThan(noopDecision);
+  expect(journalPublication).toBeGreaterThan(candidateBuild);
+  const noopBranch = freezeSource.slice(noopDecision, candidateBuild);
+  expect(noopBranch).not.toContain('hash-object');
+  expect(noopBranch).not.toContain('writeFreezeJournal(');
+  expect(noopBranch).toContain('return noop.result;');
+  expect(freezeSource).toContain('if (semanticReadback.treeSha !== snapshot.treeSha)');
+  expect(freezeSource).toContain('indexReadback = semanticReadback.index;');
   const preflightCalls = [...freezeSource.matchAll(/await preflightFreezeProjectionEntryStates\(/gu)]
     .map((match) => match.index ?? -1);
   const durabilityRestoreCalls = [...freezeSource.matchAll(/await restoreFreezeJournalDurability\(/gu)]
@@ -3299,7 +3605,7 @@ test('platform path effects lock exact Win32 handles and POSIX dirfd operations'
   expect(source).not.toContain('.O_CLOEXEC');
   expect(source).not.toContain('readonly fcntl:');
   expect(source).not.toContain('fcntl: { args:');
-  expect(source.match(/requireLinuxX64OpenCloseOnExecFlag\(\)/gu)).toHaveLength(5);
+  expect((source.match(/requireLinuxX64OpenCloseOnExecFlag\(\)/gu) ?? []).length).toBeGreaterThanOrEqual(6);
   expect(source.match(/const closeOnExec = requireLinuxX64OpenCloseOnExecFlag\(\);/gu)).toHaveLength(2);
 });
 
@@ -3537,7 +3843,7 @@ test('unsupported parent barrier fails typed before index advancement and remain
     expect(preparedBytes).toEqual(Buffer.from(`${JSON.stringify(prepared, null, 2)}\n`, 'utf8'));
     const preparedOperationId = prepared.operationId;
     const preparedManifestDigest = prepared.manifestDigest;
-    expect(prepared.schema).toBe('sec-document-control-plane-freeze-journal-v3');
+    expect(prepared.schema).toBe('sec-document-control-plane-freeze-journal-v4');
     expect(prepared.phase).toBe('prepared');
     expect(prepared).not.toHaveProperty('retainedTemporaryIndexName');
     expect(preparedOperationId).toMatch(/^sha256:[0-9a-f]{64}$/u);
@@ -3560,7 +3866,7 @@ test('unsupported parent barrier fails typed before index advancement and remain
     expect((await readdir(transactionRoot)).filter((entry) => JOURNAL_ACTIVE_NEXT.test(entry))).toEqual([]);
     expect(await readFile(canonicalJournalPath)).toEqual(Buffer.from(preparedBytes));
     if (process.platform === 'linux') {
-      const retiredNextPath = journalRetiredNextPath(transactionRoot, canonicalJournalPath, preparedBytes);
+      const retiredNextPath = journalRetiredNextPath(transactionRoot, preparedBytes);
       expect(await readFile(retiredNextPath)).toEqual(Buffer.from(preparedBytes));
       const canonicalMetadata = await lstat(canonicalJournalPath);
       const retiredMetadata = await lstat(retiredNextPath);
@@ -3581,16 +3887,7 @@ test('unsupported parent barrier fails typed before index advancement and remain
     expect(finalTree).toBe(recovered.candidateTreeSha);
     expect(finalTree).toBe(prepared.candidateTreeSha);
     expect(finalTree).not.toBe(preTree);
-    const finalJournal = JSON.parse(await readFile(canonicalJournalPath, 'utf8')) as {
-      phase: string;
-      operationId: string;
-      candidateTreeSha: string;
-    };
-    expect(finalJournal).toEqual(expect.objectContaining({
-      phase: 'terminal',
-      operationId: validatedPreparedOperationId,
-      candidateTreeSha: finalTree
-    }));
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
     await fixture.dispose();
   }
@@ -3618,10 +3915,93 @@ test('after-terminal fault preserves the terminal result and idempotent recovery
     expect(recovered).toEqual(journal.result);
     expect(recovered.candidateHeadSha).toBeNull();
     expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
+    await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
     await fixture.dispose();
   }
 }, 30_000);
+
+test('a complete terminal transaction recovers after the whole worktree moves', async () => {
+  const fixture = await createFreezeFixture();
+  const movedRoot = path.join(fixture.parent, 'repository-moved');
+  try {
+    await expect(freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09',
+      faultAfter: 'after-terminal'
+    })).rejects.toThrow('after-terminal');
+    const terminal = JSON.parse(await readFile(
+      path.join(fixture.repositoryRoot, JOURNAL_TRANSACTION_RELATIVE, 'journal.json'),
+      'utf8'
+    )) as RecoveryJournalViewV4;
+    await rename(fixture.repositoryRoot, movedRoot);
+    const recovered = await freezeDocumentControlPlaneV1({
+      cwd: movedRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09'
+    });
+    expect(recovered).toEqual(terminal.result);
+    await expectFreezeTransactionRetired(movedRoot);
+  } finally {
+    await fixture.dispose();
+  }
+}, 60_000);
+
+if (process.platform === 'linux') {
+  test('terminal retirement resumes from one exact already-deleted recovery prefix', async () => {
+    const fixture = await createFreezeFixture();
+    try {
+      await expect(freezeDocumentControlPlaneV1({
+        cwd: fixture.repositoryRoot,
+        manifestPath: FREEZE_TARGET_PATH,
+        reviewedOn: '2026-08-09',
+        faultAfter: 'after-terminal'
+      })).rejects.toThrow('after-terminal');
+      const gitDirectory = path.dirname(repositoryIndexPath(fixture.repositoryRoot));
+      const firstCanonicalDeletion = (await readdir(gitDirectory))
+        .find((name) => name.startsWith('.entry-') && name.endsWith('.retired-next'));
+      expect(firstCanonicalDeletion).toBeDefined();
+      await unlink(path.join(gitDirectory, firstCanonicalDeletion!));
+      const recovered = await freezeDocumentControlPlaneV1({
+        cwd: fixture.repositoryRoot,
+        manifestPath: FREEZE_TARGET_PATH,
+        reviewedOn: '2026-08-09'
+      });
+      expect(recovered.status).toBe('ACTIVATED_INDEX_PENDING_COMMIT');
+      await expectFreezeTransactionRetired(fixture.repositoryRoot);
+    } finally {
+      await fixture.dispose();
+    }
+  }, 60_000);
+
+  test('terminal retirement preserves and blocks one non-prefix Git-index hole', async () => {
+    const fixture = await createFreezeFixture();
+    try {
+      await expect(freezeDocumentControlPlaneV1({
+        cwd: fixture.repositoryRoot,
+        manifestPath: FREEZE_TARGET_PATH,
+        reviewedOn: '2026-08-09',
+        faultAfter: 'after-terminal'
+      })).rejects.toThrow('after-terminal');
+      const gitDirectory = path.dirname(repositoryIndexPath(fixture.repositoryRoot));
+      const lastIndexDeletion = (await readdir(gitDirectory))
+        .find((name) => name.startsWith('.entry-') && name.endsWith('.pre'));
+      expect(lastIndexDeletion).toBeDefined();
+      await unlink(path.join(gitDirectory, lastIndexDeletion!));
+      const preservedBefore = (await readdir(gitDirectory)).filter((name) => name.startsWith('.entry-')).sort();
+      await expect(freezeDocumentControlPlaneV1({
+        cwd: fixture.repositoryRoot,
+        manifestPath: FREEZE_TARGET_PATH,
+        reviewedOn: '2026-08-09'
+      })).rejects.toThrow('not one exact canonical deletion prefix');
+      expect((await readdir(gitDirectory)).filter((name) => name.startsWith('.entry-')).sort())
+        .toEqual(preservedBefore);
+    } finally {
+      await fixture.dispose();
+    }
+  }, 60_000);
+}
 
 test('repository controls use the shared live resolver and preserve one bounded rolling window', async () => {
   const [currentStateSource, pointerSource, lifecycleAuthority, rollingPlan] = await Promise.all([
@@ -3662,11 +4042,12 @@ test('repository controls use the shared live resolver and preserve one bounded 
     defaultManifestBlob,
     defaultRefState: 'fresh'
   });
-  if (
-    defaultManifestBlob
-    && CodexDevelopmentWorkPackageManifestDigest(defaultManifestBlob) === pointer.manifestDigest
-  ) {
-    expect(repositoryResolution).toEqual({ state: 'none', reason: 'matching-default-blob' });
+  if (defaultManifestBlob) {
+    if (CodexDevelopmentWorkPackageManifestDigest(defaultManifestBlob) === pointer.manifestDigest) {
+      expect(repositoryResolution).toEqual({ state: 'none', reason: 'matching-default-blob' });
+    } else {
+      expect(repositoryResolution).toEqual({ state: 'invalid', reason: 'manifest-path-already-on-default' });
+    }
   } else {
     expect(repositoryResolution).toEqual({
       state: 'active',
