@@ -550,6 +550,18 @@ Tier 1变化由旧trusted owner计算affected trust closure，candidate nodes只
 内容寻址复用。只有Tier 0自身变化才进入manual break-glass。selector、docs-doctor、Provider逻辑、
 test-impact或merge policy不得逐步回流Tier 0形成bootstrap monster。
 
+如果old-main generated closure lock已经落后于同一Git tree，base-first checker仍不得把它升级为
+PASS，也不得因自身lock失配而形成不可恢复死锁。它只可在failure集合严格由每个既有module的
+`blob + content digest`成对substitution以及唯一closure-digest差异构成时继续收集candidate SUT，
+并固定输出`manual-bootstrap-required`；module增删、edge、loader、dispatcher、registry或任意未知
+差异仍是hard failure。manual transition必须绑定exact base/head/tree、通过candidate lock纯检查、
+独立exact-head Review与远端tree parity，且不得伪造ordinary Session/Review/Authorization receipt。
+
+Git hook是执行上下文，不是hook安装生命周期入口。所有managed hook必须显式设置同一个active
+marker；dependency bootstrap在该marker下即使首次物化依赖也不得递归安装hook。pre-push只执行
+零写imports seal与TCB closure check；generated lock仍只能由显式apply writer更新。这样普通push
+在进入provider前拦截causal-runtime/lock漂移，而break-glass仍保持独立、稀有且可审计。
+
 ## Property、Fault 与 Flake
 
 - Pure property优先覆盖identity/revision/normalization/serialization、Fact/Binding Delta、Impact、Requirement/Candidate/Decision/Binding、Compatibility rule、state machine、fixed-point、deterministic ordering、tie-break和clean/incremental parity；

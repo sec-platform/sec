@@ -26,6 +26,14 @@ import {
 import path from 'node:path';
 
 import { CompilerError } from '../../platform/shared/errors.ts';
+import {
+  compileIssueDispositionV1,
+  createIssueAcceptanceIdV1,
+  createIssueDispositionPlanV1,
+  parseGitHubClosingKeywordOccurrencesV1,
+  type IssueDispositionPlanV1,
+  type IssueDispositionV1
+} from '../../platform/shared/issue-disposition-contract.ts';
 import { withWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
 
 import {
@@ -138,6 +146,10 @@ import {
   type HostedIntegrationPhaseV1,
   type IntegrationAuthorizationOperationPublicationV1
 } from './integration-authorization-publication.ts';
+import {
+  observeGitHubIssueV1,
+  observeUnexpectedGitHubIssueClosuresV1
+} from './issue-disposition-github.ts';
 import {
   createLocalMainCloseoutBindingFromHostedAuthorityV3,
   executeLocalMainCloseoutV3
@@ -1349,6 +1361,24 @@ function exactCommitMarker(message: string, name: string): string {
   return matches[0]!.slice(prefix.length);
 }
 
+const ISSUE_DISPOSITION_COMMIT_MARKERS_V1 = Object.freeze([
+  'Issue-Disposition-Plan',
+  'Issue-Disposition-Mode',
+  'Issue-Disposition-Tracking',
+  'Issue-Disposition-Prose'
+] as const);
+
+function issueDispositionCommitMarkerStateV1(message: string): 'complete' | 'legacy-none' {
+  const lines = message.split(/\r?\n/u);
+  const counts = ISSUE_DISPOSITION_COMMIT_MARKERS_V1.map((name) => {
+    const prefix = `${name}:`;
+    return lines.filter((line) => line.startsWith(prefix)).length;
+  });
+  if (counts.every((count) => count === 0)) return 'legacy-none';
+  if (counts.every((count) => count === 1)) return 'complete';
+  throw new Error('Merged commit contains a partial or duplicate IssueDisposition marker set.');
+}
+
 function selectMergedAuthorizationPublication(input: {
   candidate: GitHubCandidateObservationV1;
   sessionRevision: `sha256:${string}`;
@@ -1914,6 +1944,100 @@ function loadMergedHostedCloseoutContext(input: {
     preparation: recovery.prepared.preparation, newMainSha: candidate.mergeCommitSha,
     newMainTreeSha: candidate.mergeCommitTreeSha, candidateTreeSha: artifact.session.headTreeSha });
   return Object.freeze({ hosted, candidate, identity, selected, recovery, binding });
+}
+
+type HostedTrackingIssueDispositionObservationV1 =
+  | Readonly<{ status: 'legacy-no-effect'; reason: 'issue-disposition-markers-absent' }>
+  | Readonly<{ status: 'no-tracking-issue'; planDigest: `sha256:${string}` }>
+  | Readonly<{ status: 'progressed'; receipt: IssueDispositionV1 }>;
+
+function observeHostedTrackingIssueDispositionV1(input: Readonly<{
+  github: VerificationSessionGitHubClientV1;
+  repository: string;
+  closeout: ReturnType<typeof loadMergedHostedCloseoutContext>;
+}>): HostedTrackingIssueDispositionObservationV1 {
+  const { closeout, github, repository } = input;
+  const artifact = closeout.hosted.artifact;
+  const session = artifact.session;
+  const candidate = closeout.candidate;
+  if (candidate.mergeCommitSha === null || candidate.mergeCommitTreeSha === null
+    || candidate.mergeCommitMessage === null) {
+    throw new Error('IssueDisposition hosted closeout requires exact merge readback.');
+  }
+  if (issueDispositionCommitMarkerStateV1(candidate.mergeCommitMessage) === 'legacy-none') {
+    // Recovery for merges created before IssueDisposition existed is deliberately
+    // effect-free. New merges cannot enter this lane because the current merge
+    // renderer and readback contract require the complete marker set.
+    return Object.freeze({ status: 'legacy-no-effect', reason: 'issue-disposition-markers-absent' });
+  }
+  const mode = exactCommitMarker(candidate.mergeCommitMessage, 'Issue-Disposition-Mode');
+  if (mode !== 'progress-only' && mode !== 'close-tracking-after-readback') {
+    throw new Error('Merged IssueDisposition mode marker is invalid.');
+  }
+  const trackingMarker = exactCommitMarker(candidate.mergeCommitMessage,
+    'Issue-Disposition-Tracking');
+  if (trackingMarker !== 'none' && !/^[1-9][0-9]*$/u.test(trackingMarker)) {
+    throw new Error('Merged IssueDisposition tracking marker is invalid.');
+  }
+  const trackingIssueNumber = trackingMarker === 'none' ? null : Number(trackingMarker);
+  if (trackingIssueNumber !== null && !Number.isSafeInteger(trackingIssueNumber)) {
+    throw new Error('Merged IssueDisposition tracking marker exceeds safe integer range.');
+  }
+  const manifestSource = github.readBlobText(repository, session.headSha, session.manifestPath);
+  if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== session.manifestDigest) {
+    throw new Error('IssueDisposition exact merged manifest bytes differ from the Session.');
+  }
+  const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, session.manifestPath);
+  const closingFacts = github.observePullRequestClosingFacts(repository, session.prNumber);
+  if (closingFacts.state !== candidate.state || closingFacts.title !== candidate.title
+    || closingFacts.body !== candidate.body || closingFacts.mergeCommitSha !== candidate.mergeCommitSha) {
+    throw new Error('IssueDisposition closeout PR prose or provider closing references drifted.');
+  }
+  const plan = createIssueDispositionPlanV1({ repository, prNumber: session.prNumber,
+    manifestPath: session.manifestPath, manifestDigest: session.manifestDigest,
+    tracking: manifest.tracking, title: candidate.title, body: candidate.body,
+    linkedClosingIssues: closingFacts.closingIssues });
+  if (plan.mode !== mode || plan.trackingIssueNumber !== trackingIssueNumber
+    || plan.titleBodyDigest !== exactCommitMarker(candidate.mergeCommitMessage,
+      'Issue-Disposition-Prose')
+    || plan.planDigest !== exactCommitMarker(candidate.mergeCommitMessage,
+      'Issue-Disposition-Plan')) {
+    throw new Error('IssueDisposition merge markers differ from the exact live plan.');
+  }
+  if (trackingIssueNumber === null) {
+    return Object.freeze({ status: 'no-tracking-issue', planDigest: plan.planDigest });
+  }
+  const issue = observeGitHubIssueV1(repository, trackingIssueNumber);
+  const acceptanceIds = manifest.acceptance.map((text, index) =>
+    createIssueAcceptanceIdV1({ manifestDigest: session.manifestDigest, index, text }));
+  const reviewReceipt = closeout.selected.publication.result.reviewReceipt;
+  const authorization = closeout.selected.publication.result.authorization;
+  const untypedEvidenceRefs = [artifact.evidence.evidenceDigest, reviewReceipt.receiptDigest,
+    authorization.receiptDigest];
+  if (untypedEvidenceRefs.some((value) => !/^sha256:[0-9a-f]{64}$/u.test(value))) {
+    throw new Error('IssueDisposition evidence reference is not one SHA-256 digest.');
+  }
+  const evidenceRefs = untypedEvidenceRefs as `sha256:${string}`[];
+  const mainHealthChecks = mode === 'close-tracking-after-readback'
+    ? github.observeChecks(repository, candidate.mergeCommitSha)
+      .filter((check) => check.name === 'sec/main-health'
+        && check.headSha === candidate.mergeCommitSha
+        && check.status === 'completed' && check.conclusion === 'success'
+        && check.appSlug === 'github-actions')
+    : [];
+  if (mode === 'close-tracking-after-readback' && mainHealthChecks.length !== 1) {
+    throw new Error('IssueDisposition progress receipt requires one exact successful post-merge sec/main-health readback.');
+  }
+  const postMainEvidenceRefs = mainHealthChecks.length === 1
+    ? [...evidenceRefs, `sha256:${createHash('sha256').update(
+      encodeVerificationActionDataV2(mainHealthChecks)
+    ).digest('hex')}` as const]
+    : evidenceRefs;
+  const disposition = compileIssueDispositionV1({ plan,
+    currentSpecRevision: issue.specRevision, acceptanceIds,
+    newMainSha: candidate.mergeCommitSha, newMainTreeSha: candidate.mergeCommitTreeSha,
+    evidenceRefs: postMainEvidenceRefs, expectedProviderState: issue.state });
+  return Object.freeze({ status: disposition.kind, receipt: disposition });
 }
 
 function observeExactRemoteCloseoutBranch(
@@ -2832,6 +2956,7 @@ function evaluateFreshHostedIntegration(input: {
 }): Readonly<{
   result: ReturnType<typeof CodexDevelopmentEvaluateMergeGateV2>;
   changedPaths: readonly string[];
+  issueDispositionPlan: IssueDispositionPlanV1;
 }> {
   const { github, repository, hosted, candidate, provenance, observedAt } = input;
   const artifact = hosted.artifact;
@@ -2846,6 +2971,23 @@ function evaluateFreshHostedIntegration(input: {
     || candidate.isDraft || candidate.isCrossRepository) {
     throw new Error('Hosted integration OPEN candidate identity drifted.');
   }
+  const manifestSource = github.readBlobText(repository, candidate.headSha, artifact.session.manifestPath);
+  if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== artifact.session.manifestDigest) {
+    throw new Error('Hosted integration Issue disposition manifest bytes drifted.');
+  }
+  const manifest = CodexDevelopmentParseWorkPackageManifest(
+    manifestSource,
+    artifact.session.manifestPath
+  );
+  const closingFacts = github.observePullRequestClosingFacts(repository, artifact.session.prNumber);
+  if (closingFacts.state !== candidate.state || closingFacts.title !== candidate.title
+    || closingFacts.body !== candidate.body || closingFacts.mergeCommitSha !== candidate.mergeCommitSha) {
+    throw new Error('Hosted integration PR prose or closing references drifted across observation owners.');
+  }
+  const issueDispositionPlan = createIssueDispositionPlanV1({ repository,
+    prNumber: artifact.session.prNumber, manifestPath: artifact.session.manifestPath,
+    manifestDigest: artifact.session.manifestDigest, tracking: manifest.tracking,
+    title: candidate.title, body: candidate.body, linkedClosingIssues: closingFacts.closingIssues });
   const integrationPrincipalNodeId = provenance.actorNodeId;
   const barrier = github.observeReviewBarrier({ repository, prNumber: artifact.session.prNumber,
     headSha: artifact.session.headSha,
@@ -2895,7 +3037,7 @@ function evaluateFreshHostedIntegration(input: {
     mainHealth: freshMainHealth, platform: github.observePlatformEnforcement(repository),
     consumptionOperationId, issuedAt, expiresAt: addSeconds(issuedAt, 300) });
   return Object.freeze({ result: CodexDevelopmentEvaluateMergeGateV2(mergeInput),
-    changedPaths: Object.freeze([...changedPaths]) });
+    changedPaths: Object.freeze([...changedPaths]), issueDispositionPlan });
 }
 
 type HostedIntegrationAuthorizationPublicationResultV1 = Readonly<{
@@ -3189,6 +3331,7 @@ function executeHostedSquashMerge(input: {
   sessionRevision: `sha256:${string}`;
   publication: IntegrationAuthorizationOperationPublicationV1;
   commentId: number;
+  issueDispositionPlan: IssueDispositionPlanV1;
 }): HostedSynchronousSquashMergeResponseV1 {
   const authorization = input.publication.result.authorization;
   const authorizationMarkers = integrationAuthorizationMergeMarkersV1({
@@ -3201,11 +3344,24 @@ function executeHostedSquashMerge(input: {
     commentId: input.commentId
   });
   const reviewTrailer = renderIndependentReviewTrailerV1(input.publication.result.reviewReceipt);
-  const markers = [...authorizationMarkers, reviewTrailer];
+  const issueMarkers = [
+    `Issue-Disposition-Plan: ${input.issueDispositionPlan.planDigest}`,
+    `Issue-Disposition-Mode: ${input.issueDispositionPlan.mode}`,
+    `Issue-Disposition-Tracking: ${input.issueDispositionPlan.trackingIssueNumber ?? 'none'}`,
+    `Issue-Disposition-Prose: ${input.issueDispositionPlan.titleBodyDigest}`
+  ];
+  const markers = [...authorizationMarkers, ...issueMarkers, reviewTrailer];
+  const commitTitle = `Verified integration ${input.sessionRevision.slice(7, 19)}`;
+  if (parseGitHubClosingKeywordOccurrencesV1(
+    `${commitTitle}\n${markers.join('\n')}`,
+    input.repository
+  ).length > 0) {
+    throw new Error('Canonical merge renderer produced a forbidden GitHub closing-keyword pattern.');
+  }
   const request = JSON.stringify({
     sha: input.headSha,
     merge_method: 'squash',
-    commit_title: `Verified integration ${input.sessionRevision.slice(7, 19)}`,
+    commit_title: commitTitle,
     commit_message: markers.join('\n')
   });
   const result = runVerificationSessionCommand(input.ctx, 'gh', [
@@ -3863,6 +4019,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       publication: IntegrationAuthorizationOperationPublicationV1 }>;
     let selectedRecovery: ReturnType<typeof loadProviderBranchCloseoutRecoveryArtifact>;
     let ownsUnambiguousMergeStart = false;
+    let issueDispositionPlan: IssueDispositionPlanV1 | null = null;
 
     if (route.lane === 'merged-recovery') {
       const original = loadMarkerBoundMergedAuthorizationRecoveryV1({ ctx, github, repository,
@@ -3889,6 +4046,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       }
       const evaluation = evaluateFreshHostedIntegration({ github, repository, hosted, candidate,
         provenance: hostedProvenance, observedAt: integrationNow });
+      issueDispositionPlan = evaluation.issueDispositionPlan;
       const freshlyEvaluated = evaluation.result;
       if (freshlyEvaluated.authorization.consumptionOperationId !== expectedConsumptionOperationId) {
         throw new Error('Fresh merge-gate evaluation changed the stable consumption operation identity.');
@@ -4012,6 +4170,29 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         || fresh.operationId !== authorizationResult.authorization.consumptionOperationId) {
         throw new Error(`integrate-hosted effect guard changed before merge: ${fresh.status} ${fresh.reason}`);
       }
+      const immediateClosingFacts = github.observePullRequestClosingFacts(
+        repository,
+        artifact.session.prNumber
+      );
+      if (immediateClosingFacts.state !== candidate.state
+        || immediateClosingFacts.title !== candidate.title
+        || immediateClosingFacts.body !== candidate.body
+        || immediateClosingFacts.mergeCommitSha !== candidate.mergeCommitSha) {
+        throw new Error('integrate-hosted closing-reference observation drifted immediately before merge.');
+      }
+      const immediatePlan = createIssueDispositionPlanV1({ repository,
+        prNumber: artifact.session.prNumber, manifestPath: artifact.session.manifestPath,
+        manifestDigest: artifact.session.manifestDigest,
+        tracking: CodexDevelopmentParseWorkPackageManifest(
+          github.readBlobText(repository, artifact.session.headSha, artifact.session.manifestPath),
+          artifact.session.manifestPath
+        ).tracking,
+        title: candidate.title, body: candidate.body,
+        linkedClosingIssues: immediateClosingFacts.closingIssues });
+      if (issueDispositionPlan === null
+        || immediatePlan.planDigest !== issueDispositionPlan.planDigest) {
+        throw new Error('integrate-hosted Issue disposition plan drifted immediately before merge.');
+      }
       const markers = integrationAuthorizationMergeMarkersV1({
         sessionRevision: artifact.session.sessionRevision,
         authorizationId: selected.publication.authorizationId,
@@ -4020,6 +4201,12 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         authorizationPublicationId: selected.publication.authorizationPublicationId,
         authorizationPublicationDigest: selected.publication.publicationDigest,
         commentId: selected.commentId });
+      const issueMarkers = [
+        `Issue-Disposition-Plan: ${issueDispositionPlan.planDigest}`,
+        `Issue-Disposition-Mode: ${issueDispositionPlan.mode}`,
+        `Issue-Disposition-Tracking: ${issueDispositionPlan.trackingIssueNumber ?? 'none'}`,
+        `Issue-Disposition-Prose: ${issueDispositionPlan.titleBodyDigest}`
+      ];
       let providerResponse: HostedSynchronousSquashMergeResponseV1 | null = null;
       let mergeCommandFailure: unknown = null;
       try {
@@ -4030,7 +4217,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         });
         providerResponse = executeHostedSquashMerge({ ctx, repository, prNumber: artifact.session.prNumber,
           headSha: artifact.session.headSha, sessionRevision: artifact.session.sessionRevision,
-          publication: selected.publication, commentId: selected.commentId });
+          publication: selected.publication, commentId: selected.commentId, issueDispositionPlan });
       } catch (error) {
         mergeCommandFailure = error;
       }
@@ -4048,7 +4235,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       try {
         assertHostedSquashMergeCompletionV1({ candidate: merged,
           expectedHeadSha: artifact.session.headSha, expectedHeadTreeSha: artifact.session.headTreeSha,
-          markers, reviewReceipt: selected.publication.result.reviewReceipt,
+          markers: [...markers, ...issueMarkers], reviewReceipt: selected.publication.result.reviewReceipt,
           expectedTitle: `Verified integration ${artifact.session.sessionRevision.slice(7, 19)}`,
           providerMergeCommitSha: providerResponse?.sha ?? null });
       } catch (readbackError) {
@@ -4063,6 +4250,19 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       result = reduce();
     }
     const mergedProjectionCandidate = github.observeCandidate(repository, artifact.session.prNumber);
+    let issueReconciliation: Readonly<Record<string, unknown>>;
+    if (mergedProjectionCandidate.state === 'MERGED'
+      && mergedProjectionCandidate.mergeCommitSha !== null
+      && mergedProjectionCandidate.mergeCommitMessage !== null
+      && issueDispositionCommitMarkerStateV1(mergedProjectionCandidate.mergeCommitMessage) === 'complete') {
+      issueReconciliation = Object.freeze({ status: 'observed',
+        results: observeUnexpectedGitHubIssueClosuresV1({ repository,
+          prNumber: artifact.session.prNumber,
+          mergeCommitSha: mergedProjectionCandidate.mergeCommitSha }) });
+    } else {
+      issueReconciliation = Object.freeze({ status: 'legacy-no-effect',
+        results: Object.freeze([]) });
+    }
     const projection = Object.freeze({ schema: 'sec-verification-session-integration-projection-v1',
       repository, prNumber: artifact.session.prNumber, sessionRevision: artifact.session.sessionRevision,
       lane: route.lane, effects,
@@ -4070,6 +4270,8 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       authorizationReceiptDigest: selected.publication.authorizationReceiptDigest,
       authorizationPublicationId: selected.publication.authorizationPublicationId,
       authorizationCommentId: selected.commentId, status: result.status,
+      issueDispositionPlan,
+      issueReconciliation,
       mergedCommitSha: mergedProjectionCandidate.state === 'MERGED'
         ? mergedProjectionCandidate.mergeCommitSha : null,
       mergedCommitTreeSha: mergedProjectionCandidate.state === 'MERGED'
@@ -4086,6 +4288,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const closeout = loadMergedHostedCloseoutContext({ ctx, github, repository,
       event: eventPayload, environment, repositoryRoot, phase: 'closeoutMutation' });
     const session = closeout.hosted.artifact.session;
+    const issueDisposition = observeHostedTrackingIssueDispositionV1({ github, repository, closeout });
     const existing = observeBranchCloseoutOperationPublicationV1(ctx.repositoryRoot, { repository,
       pullRequestNumber: session.prNumber, closeoutOperationId: closeout.binding.closeoutOperationId });
     if (existing !== null) {
@@ -4096,6 +4299,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       const projection = Object.freeze({ schema: 'sec-verification-session-closeout-mutation-v1',
         repository, prNumber: session.prNumber, sessionRevision: session.sessionRevision,
         closeoutOperationId: closeout.binding.closeoutOperationId,
+        issueDisposition,
         disposition: 'reused-terminal', closeoutStatus: terminalStatus,
         publicationDigest: existing.publication.publicationDigest,
         closeoutCommentId: existing.commentId, observedAt: now() });
@@ -4186,6 +4390,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const projection = Object.freeze({ schema: 'sec-verification-session-closeout-mutation-v1',
       repository, prNumber: session.prNumber, sessionRevision: session.sessionRevision,
       closeoutOperationId: closeout.binding.closeoutOperationId,
+      issueDisposition,
       disposition: effectStart.disposition === 'existing'
         ? 'recovered-after-effect-start' : 'executed',
       effectStartId: effectStart.publication.effectStartId,

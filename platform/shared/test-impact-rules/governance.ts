@@ -50,6 +50,14 @@ const AGENT_SKILL_AUTHORING_FAST_TESTS = [
   'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
+const ISSUE_DISPOSITION_FAST_TESTS = [
+  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/issue-disposition-contract.test.ts',
+  'tests/unit/issue-disposition-github.test.ts',
+  'tests/unit/verification-session-runtime.test.ts'
+];
+
 const FROZEN_WORK_PACKAGE_FAST_TESTS = [
   'tests/contract/agent-skills.test.ts',
   'tests/contract/ci-lanes.test.ts',
@@ -127,6 +135,18 @@ const WORK_PACKAGE_FIXTURE_FAST_TESTS = [
 ];
 
 export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: 'issue-disposition',
+    identity: { kind: 'contract', id: 'issue-disposition' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'platform/shared/issue-disposition-contract.ts',
+      'scripts/codex/issue-disposition-github.ts',
+      'scripts/codex/issue-disposition.ts'
+    ],
+    fast: ISSUE_DISPOSITION_FAST_TESTS,
+    slow: []
+  },
   {
     owner: 'work-selection',
     identity: { kind: 'contract', id: 'work-selection' },

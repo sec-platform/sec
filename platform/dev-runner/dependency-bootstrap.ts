@@ -23,7 +23,7 @@ interface CompilerDependencyBootstrapOptions {
 
 interface DevDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
   readonly ensureHooks?: (repoRoot: string) => Promise<void>;
-  readonly hookPolicy?: 'always' | 'if-installed';
+  readonly hookPolicy?: 'always' | 'if-installed' | 'never';
 }
 
 interface TestDependencyBootstrapOptions extends CompilerDependencyBootstrapOptions {
@@ -48,7 +48,8 @@ export async function ensureDevDependencies(
   options: DevDependencyBootstrapOptions = {}
 ): Promise<DevDependencyBootstrapResult> {
   const ready = await (options.ensureCompilerDeps ?? (() => ensureCompilerDepsReady()))();
-  if (options.hookPolicy !== 'if-installed' || ready.source === 'installed') {
+  if (options.hookPolicy !== 'never'
+    && (options.hookPolicy !== 'if-installed' || ready.source === 'installed')) {
     await (options.ensureHooks ?? ensureManagedHooks)(ready.root);
   }
   return dependencyBootstrapResult(ready);

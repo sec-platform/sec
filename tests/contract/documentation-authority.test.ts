@@ -115,11 +115,15 @@ describe('canonical documentation authority', () => {
       'WAITING_MERGE_READBACK',
       'CandidateControlMaterializer',
       '`target bytes == NEXT bytes` 作为成功 NOOP',
-      'raw index bytes包含可由Git刷新且不改变tree的stat cache',
       '不拥有 Task Capsule 内容或 compiler',
       'IssueDisposition',
-      'partial slice 只能产生 `progressed` receipt',
-      'closed-readback | ambiguous-side-effect | blocked',
+      '当前仓库尚无该 trusted post-main assessment owner',
+      '普通 Issue `PATCH` 不是 CAS',
+      '`manual-action-required`',
+      'closingIssuesReferences',
+      '`ClosedEvent.closer`',
+      '`legacy-no-effect`',
+      '不得暴露 compile/apply/reconcile',
       'registry absence 与 exact physical target',
       'zero residue',
       'typed blocked receipt'
@@ -142,7 +146,8 @@ describe('canonical documentation authority', () => {
       'Candidate / Control transaction',
       'Promotion / retirement',
       'machine-owned `IssueDisposition`',
-      'partial slice 只能发布 progress'
+      'partial slice 只能发布 progress',
+      'exact new-main + MainHealth'
     ]);
     expectContainsAll(proposal, [
       '新的顶层 durable Run Kernel state machine 被拒绝',
