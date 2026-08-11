@@ -170,6 +170,14 @@ export interface MainHealthLaneDecisionV1 {
   readonly status: MainHealthStatusV1;
   /** Ledger-level routing eligibility only; never physical effect authority. */
   readonly allowed: boolean;
+  /** Parse, freshness, and exact identity validity, independent of lane eligibility. */
+  readonly observationValidity: 'valid' | 'invalid';
+  readonly reasonCode:
+    | 'invalid-ledger'
+    | 'ledger-expired'
+    | 'ledger-identity-drift'
+    | 'lane-eligible'
+    | 'lane-ineligible';
   readonly reason: string;
   readonly ledger: MainHealthLedgerV1 | null;
 }
@@ -190,19 +198,33 @@ export function resolveMainHealthLaneV1(input: {
       ? parseMainHealthLedgerV1(input.ledger)
       : parseMainHealthLedgerV1(encodeVerificationActionDataV2(input.ledger));
   } catch {
-    return Object.freeze({ status: 'locked', allowed: false, reason: 'unknown or invalid MainHealth locks all lanes', ledger: null });
+    return Object.freeze({
+      status: 'locked', allowed: false, observationValidity: 'invalid', reasonCode: 'invalid-ledger',
+      reason: 'unknown or invalid MainHealth locks all lanes', ledger: null
+    });
   }
   const now = instant(input.now, 'now');
-  if (now > ledger.expiresAt) return Object.freeze({ status: 'locked', allowed: false, reason: 'MainHealth ledger expired', ledger });
+  if (now > ledger.expiresAt) {
+    return Object.freeze({
+      status: 'locked', allowed: false, observationValidity: 'invalid', reasonCode: 'ledger-expired',
+      reason: 'MainHealth ledger expired', ledger
+    });
+  }
   if (ledger.repository !== input.expectedRepository || ledger.defaultBranch !== input.expectedDefaultBranch ||
     ledger.mainSha !== input.expectedMainSha || ledger.mainTreeSha !== input.expectedMainTreeSha ||
     ledger.trustRevision !== input.expectedTrustRevision) {
-    return Object.freeze({ status: 'locked', allowed: false, reason: 'MainHealth repository/branch/main/tree/trust identity drifted', ledger });
+    return Object.freeze({
+      status: 'locked', allowed: false, observationValidity: 'invalid',
+      reasonCode: 'ledger-identity-drift',
+      reason: 'MainHealth repository/branch/main/tree/trust identity drifted', ledger
+    });
   }
   const allowed = ledger.status !== 'locked' && ledger.allowedLanes.includes(input.lane);
   return Object.freeze({
     status: allowed ? ledger.status : 'locked',
     allowed,
+    observationValidity: 'valid',
+    reasonCode: allowed ? 'lane-eligible' : 'lane-ineligible',
     reason: allowed
       ? `${input.lane} lane is eligible under the live ${ledger.status} ledger`
       : `${input.lane} lane is not eligible under the live ledger`,

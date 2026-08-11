@@ -513,10 +513,9 @@ function observeCanonicalMainHealth(input: {
     sourceRef: `github-check-runs:${input.repository}@${input.exactMain}`,
     checks
   }));
-  const lane = ledger.status === 'degraded' ? 'repair' as const : 'ordinary' as const;
   const decision = resolveMainHealthLaneV1({
     ledger,
-    lane,
+    lane: 'ordinary',
     now: observedAt,
     expectedRepository: input.repository,
     expectedDefaultBranch: input.defaultBranch,
@@ -524,12 +523,18 @@ function observeCanonicalMainHealth(input: {
     expectedMainTreeSha: input.exactMainTree,
     expectedTrustRevision: input.exactMain
   });
-  const state: SecCurrentWorkLifecycleV1['mainHealthState'] = decision.ledger === null
-      || !decision.allowed || ledger.status === 'locked'
+  // Work Selection observes the canonical ledger; it never acquires the
+  // proposal-only repair lane. A valid degraded ledger is still an unhealthy
+  // lifecycle fact, while an invalid/locked observation remains unresolved.
+  const state: SecCurrentWorkLifecycleV1['mainHealthState'] = decision.observationValidity === 'invalid'
+      || decision.ledger === null
+      || ledger.status === 'locked'
     ? 'unresolved'
-    : ledger.status === 'healthy'
-      ? 'healthy'
-      : 'unhealthy';
+    : ledger.status === 'degraded'
+      ? 'unhealthy'
+      : decision.allowed
+        ? 'healthy'
+        : 'unresolved';
   return Object.freeze({ state, ref: ledger.ledgerDigest as SecWorkDigestV1 });
 }
 

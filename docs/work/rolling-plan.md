@@ -7,20 +7,20 @@ last-reviewed: 2026-08-12
 
 # SEC 滚动近期计划
 
-本投影绑定受信 `main@498e8613f9749d3a1fcb6399852ff0206d545a0b`。长期阶段DAG仍只由
+本投影绑定受信 `main@7bab4faa3a4e251c39a423d2b89769950573d0b1`。长期阶段DAG仍只由
 `docs/roadmap.md`拥有，current spec仍只由下列Issue或更强machine owner拥有；本文件不解释Issue
-正文、不拥有优先级，也不是backlog/registry。canonical check run `93939281853`已证明imports与
-typecheck通过，唯一失败是active目录仍有一个stale Work Package。本Work Package只执行该
-consumer-zero document reconciliation；候选拓扑保持不变，健康恢复后仍由exact-main上的validated
-`WorkDecision`选择下一项。
+正文、不拥有优先级，也不是backlog/registry。canonical check run `93941027024`已证明imports、
+typecheck与docs authority通过，并把剩余失败收敛为六个fast contract consumer drift。本Work Package
+只闭合这些exact producer/consumer关系；候选拓扑保持不变。健康恢复后只能消费 validated WorkDecision；
+rolling prose 或 caller receipt 都不能选择、重排或授权下一项。
 
 ## 当前唯一 Work Package
 
-### main-health-repair-docs-doctor-v1
+### main-health-repair-fast-contracts-v1
 
-Issue #221 MainHealth document reconciliation：删除exact census中的两个published predecessor
-manifest并只保留本次selected frozen manifest。不得建立tombstone、alias、tracked Evidence或第二
-registry，不改变Tier 0/Tier 1实现owner、roadmap catalog或候选顺序。新main的canonical health
+Issue #221 MainHealth fast-contract reconciliation：production WorkSelection固定消费ordinary lane，
+并同步workflow、Agent router、rolling projection与Skill fixture的直接契约。删除已发布predecessor
+manifest且不建立tombstone、alias、tracked Evidence或第二registry；新main的canonical health
 readback仍是唯一恢复条件。
 
 ## 候选 Work Package
