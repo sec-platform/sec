@@ -52,7 +52,7 @@ import {
   type ReviewStabilityReceiptV1
 } from '../../platform/shared/review-stability-contract.ts';
 import { TCB_CLOSURE_LOCK } from '../../platform/shared/tcb-closure-lock.ts';
-import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2 } from '../../platform/shared/tcb-trust-root-contract.ts';
+import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';
 import {
   assertCiVerificationActionProviderEnvelopeMemberV2,
   ciVerificationActionParentDispatchPlanFileV2,
@@ -319,9 +319,9 @@ function inspectTrustedRuntimeV1(input: {
     ctx, 'git', ['rev-parse', `${currentHeadSha}:${entrypointPath}`], 'runtime entrypoint trusted blob'
   ) === requireCommand(ctx, 'git', ['hash-object', '--', entrypointPath], 'runtime entrypoint working blob');
   let boundaryTargetsMatched = true;
-  for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.reviewedBoundaryEdges) {
+  for (const edge of SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.reviewedBoundaryEdges) {
     const target = edge.split(' -> ')[1];
-    if (target === undefined || !SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.staticExactPaths.includes(target)) {
+    if (target === undefined || !SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.staticExactPaths.includes(target)) {
       boundaryTargetsMatched = false;
       break;
     }

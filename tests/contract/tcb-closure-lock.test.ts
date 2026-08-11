@@ -18,6 +18,7 @@ import {
   TCB_CLOSURE_LOCK_RECEIPT,
   TCB_CLOSURE_TRUST_REVISION,
   TCB_REVIEWED_PROCESS_DISPATCHERS,
+  TCB_TRUST_ROOT_V3,
   assertTcbClosureLockDataMatchesV2,
   computeTcbClosureLock,
   createTcbClosureCandidateSnapshotV1,
@@ -31,7 +32,7 @@ import {
   trustedRuntimeClosure,
   verifyTcbClosureLock
 } from '../../platform/shared/tcb-closure-lock.ts';
-import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2 } from '../../platform/shared/tcb-trust-root-contract.ts';
+import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';
 
 test('TCB candidate root exclusively drives closure discovery and hashing', () => {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-root-')));
@@ -132,15 +133,15 @@ test('TCB closure lock binds the reviewed causal module set', () => {
   expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(TCB_CLOSURE_LOCK.moduleCount);
 });
 
-test('TCB closure lock and registry causalRuntimePaths have exact identity parity', () => {
-  expect(TCB_CLOSURE_LOCK.modules).toEqual(SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.causalRuntimePaths);
+test('TCB closure lock is the sole causal-runtime identity consumed by the trust-root view', () => {
+  expect(TCB_TRUST_ROOT_V3.causalRuntimePaths).toEqual(TCB_CLOSURE_LOCK.modules);
   expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/tcb-trust-root-contract.ts');
   expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/verification-action-ci-contract.ts');
   expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/verification-session-contract.ts');
   expect(TCB_CLOSURE_LOCK.modules).toContain('scripts/codex/verification-session-runtime.ts');
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.staticExactPaths)
+  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.staticExactPaths)
     .toContain('scripts/codex/branch-lifecycle.ts');
-  expect(SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.causalRuntimePaths)
+  expect(TCB_TRUST_ROOT_V3.causalRuntimePaths)
     .not.toContain('scripts/codex/branch-lifecycle.ts');
   expect(TCB_CLOSURE_LOCK.modules).not.toContain('scripts/codex/branch-lifecycle.ts');
   expect(TCB_CLOSURE_LOCK.modules.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);

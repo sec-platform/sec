@@ -188,17 +188,17 @@ jobs:
               throw new Error('Trusted-base trust-root registry is not strict UTF-8 JSON.');
             }
             const registryKeys = [
-              'causalRuntimePaths', 'reviewedBoundaryEdges', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
+              'reviewedBoundaryEdges', 'reviewedSutEdges', 'runtimeEntrypoints', 'schema',
               'staticDirectoryPaths', 'staticExactPaths', 'staticPrefixes'
             ];
             if (
               !registry || typeof registry !== 'object' || Array.isArray(registry) ||
-              registry.schema !== 'sec-trusted-bootstrap-registry-v2' ||
+              registry.schema !== 'sec-trusted-bootstrap-registry-v3' ||
               JSON.stringify(Object.keys(registry).sort()) !== JSON.stringify(registryKeys)
             ) throw new Error('Trusted-base trust-root registry schema is invalid.');
             for (const key of [
               'staticExactPaths', 'staticDirectoryPaths', 'staticPrefixes', 'runtimeEntrypoints',
-              'reviewedSutEdges', 'reviewedBoundaryEdges', 'causalRuntimePaths'
+              'reviewedSutEdges', 'reviewedBoundaryEdges'
             ]) {
               if (!Array.isArray(registry[key]) || registry[key].some((entry) => typeof entry !== 'string')) {
                 throw new Error(`Trusted-base trust-root registry ${key} is invalid.`);
@@ -211,9 +211,63 @@ jobs:
                 !registry.reviewedBoundaryEdges.includes(
                   'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'
                 )) {
-              throw new Error('Trusted-base reviewedBoundaryEdges do not match the canonical V2 boundary shape.');
+              throw new Error('Trusted-base reviewedBoundaryEdges do not match the canonical V3 boundary shape.');
             }
-            const trustFiles = new Set([...registry.staticExactPaths, ...registry.causalRuntimePaths]);
+            const lockBlob = await readBlobFromTree(
+              baseTree,
+              'platform/shared/tcb-closure-lock.ts',
+              'Trusted-base generated TCB closure lock'
+            );
+            const lockSource = new TextDecoder('utf-8', { fatal: true }).decode(lockBlob.bytes);
+            const lockRegionStartMarker = '// <sec-tcb-closure-lock-generated-v2>\n';
+            const lockRegionEndMarker = '\n// </sec-tcb-closure-lock-generated-v2>';
+            const lockRegionStart = lockSource.indexOf(lockRegionStartMarker);
+            const lockRegionEnd = lockSource.indexOf(
+              lockRegionEndMarker,
+              lockRegionStart + lockRegionStartMarker.length
+            );
+            if (lockRegionStart < 0 || lockRegionEnd < 0 ||
+                lockSource.indexOf(lockRegionStartMarker, lockRegionStart + 1) >= 0 ||
+                lockSource.indexOf(lockRegionEndMarker, lockRegionEnd + 1) >= 0 ||
+                lockSource.includes('\r') || lockSource.includes('\0')) {
+              throw new Error('Trusted-base generated TCB closure region is invalid.');
+            }
+            const lockRegion = lockSource.slice(
+              lockRegionStart + lockRegionStartMarker.length,
+              lockRegionEnd
+            );
+            const lockPrefix = 'export const TCB_CLOSURE_LOCK: TcbClosureLock = ';
+            const lockSuffix = ';\n\nexport const TCB_CLOSURE_LOCK_RECEIPT';
+            const lockStart = lockRegion.indexOf(lockPrefix);
+            const lockEnd = lockRegion.indexOf(lockSuffix, lockStart + lockPrefix.length);
+            if (lockStart < 0 || lockEnd < 0 || lockRegion.indexOf(lockPrefix, lockStart + 1) >= 0 ||
+                lockRegion.indexOf(lockSuffix, lockEnd + 1) >= 0) {
+              throw new Error('Trusted-base generated TCB closure lock envelope is invalid.');
+            }
+            let lock;
+            try {
+              lock = JSON.parse(lockRegion.slice(lockStart + lockPrefix.length, lockEnd));
+            } catch {
+              throw new Error('Trusted-base generated TCB closure lock is not canonical JSON.');
+            }
+            const lockKeys = [
+              'closureDigest', 'moduleBlobs', 'moduleContentDigests', 'moduleCount', 'modules',
+              'reviewedBoundaryEdges', 'reviewedEdges', 'reviewedExternalImports',
+              'reviewedProcessDispatchers', 'schema', 'trustRevision'
+            ];
+            if (!lock || typeof lock !== 'object' || Array.isArray(lock) ||
+                lock.schema !== 'sec-tcb-closure-lock-v2' ||
+                JSON.stringify(Object.keys(lock).sort()) !== JSON.stringify(lockKeys) ||
+                !Number.isSafeInteger(lock.moduleCount) || lock.moduleCount <= 0 ||
+                !Array.isArray(lock.modules) || lock.modules.length !== lock.moduleCount ||
+                lock.modules.some((entry) => typeof entry !== 'string' || entry.length === 0 ||
+                  entry.includes('\\') || entry.startsWith('/') || entry.includes('//') ||
+                  entry.split('/').some((segment) => segment.length === 0 || segment === '.' || segment === '..')) ||
+                lock.modules.some((entry, index) => index > 0 && lock.modules[index - 1] >= entry)) {
+              throw new Error('Trusted-base generated TCB closure module identity is invalid.');
+            }
+            const causalRuntimePaths = lock.modules;
+            const trustFiles = new Set([...registry.staticExactPaths, ...causalRuntimePaths]);
             const selectTrust = (tree) => Object.fromEntries(tree.data.tree
               .filter((entry) => entry.path && (
                 trustFiles.has(entry.path) ||
@@ -437,7 +491,7 @@ jobs:
                   repositoryPath.split("/").some((segment) => segment.length === 0 || segment === "." || segment === ".."))) {
                 throw new Error("trusted bootstrap candidate changed-path inventory is not canonical.");
               }
-              const registryPath = registryContract.SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V2;
+              const registryPath = registryContract.SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3;
               const baseRegistryBytes = tcb.readTcbClosureCandidateFileV1(registryPath, baseSnapshotOptions);
               const candidateRegistryBytes = tcb.readTcbClosureCandidateFileV1(registryPath, candidateSnapshotOptions);
               const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -446,10 +500,15 @@ jobs:
               if (baseRegistryDigest !== required("SEC_BOOTSTRAP_REGISTRY_DIGEST")) {
                 throw new Error("trusted bootstrap checker base registry digest drifted.");
               }
-              const baseRegistry = registryContract.parseSecTrustedBootstrapRegistryV2(baseRegistryBytes.toString("utf8"));
+              const baseRegistry = registryContract.parseSecTrustedBootstrapRegistryV3(baseRegistryBytes.toString("utf8"));
+              const checkerClosure = tcb.trustedRuntimeClosure(baseRegistry.runtimeEntrypoints, baseSnapshotOptions);
+              const baseTrustRoot = registryContract.createSecTrustedBootstrapTrustRootV3({
+                registry: baseRegistry,
+                causalRuntimePaths: [...checkerClosure.closure].sort()
+              });
               const baseUndecidablePaths = changedPaths
                 .filter((repositoryPath) =>
-                  registryContract.matchSecTrustedBootstrapPathV2(repositoryPath, baseRegistry) !== null
+                  registryContract.matchSecTrustedBootstrapPathV3(repositoryPath, baseTrustRoot) !== null
                 )
                 .sort();
               const manualReasons = new Set(baseUndecidablePaths.length === 0
@@ -457,14 +516,13 @@ jobs:
                 : ["trusted-base-cannot-decide-checker-policy-or-validation-plan-change"]);
               const hardFailureReasons = new Set();
               try {
-                registryContract.parseSecTrustedBootstrapRegistryV2(Buffer.from(candidateRegistryBytes).toString("utf8"));
+                registryContract.parseSecTrustedBootstrapRegistryV3(Buffer.from(candidateRegistryBytes).toString("utf8"));
               } catch (error) {
                 manualReasons.add(`candidate-registry-schema-or-policy-change:${error instanceof Error ? error.message : String(error)}`);
               }
               if (candidateRegistryDigest !== baseRegistryDigest) {
                 manualReasons.add("candidate-registry-differs-from-trusted-base-policy");
               }
-            const checkerClosure = tcb.trustedRuntimeClosure(baseRegistry.runtimeEntrypoints, baseSnapshotOptions);
             const checkerVerification = tcb.verifyTcbClosureLock(checkerClosure, baseSnapshotOptions);
             if (checkerVerification.status !== "passed") {
               const substitutionKinds = new Map();
@@ -515,8 +573,8 @@ jobs:
                   candidateSnapshotOptions
                 );
                 candidateLock = tcb.computeTcbClosureLock(candidateClosure, candidateSnapshotOptions);
-                if (JSON.stringify(candidateLock.modules) !== JSON.stringify(baseRegistry.causalRuntimePaths)) {
-                  manualReasons.add("candidate-causal-closure-differs-from-trusted-base-registry");
+                if (JSON.stringify(candidateLock.modules) !== JSON.stringify(baseTrustRoot.causalRuntimePaths)) {
+                  manualReasons.add("candidate-causal-closure-differs-from-trusted-base-closure");
                 }
               } catch (error) {
                 hardFailureReasons.add(`candidate-closure-computation-failed:${error instanceof Error ? error.message : String(error)}`);

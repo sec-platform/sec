@@ -47,7 +47,7 @@ import {
   type TcbClosureLockInput
 } from '../../platform/shared/tcb-closure-lock.ts';
 import {
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V2
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3
 } from '../../platform/shared/tcb-trust-root-contract.ts';
 import {
   buildCiVerificationActionPlanClosureV1,
@@ -753,7 +753,7 @@ function createTcbClosureCommandFixture(): TcbClosureCommandFixture {
     }
     copiedPaths.add(edge.slice(delimiterIndex + delimiter.length));
   }
-  copiedPaths.add(SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V2);
+  copiedPaths.add(SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3);
   copiedPaths.add(CI_TCB_CLOSURE_LOCK_TARGET_V1);
   for (const repositoryPath of copiedPaths) {
     if (

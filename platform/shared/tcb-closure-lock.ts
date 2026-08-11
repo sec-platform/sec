@@ -35,22 +35,23 @@ import ts from 'typescript';
 import { compilerRoot } from './paths.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
 import {
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2,
-  matchSecTrustedBootstrapPathV2
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3,
+  createSecTrustedBootstrapTrustRootV3,
+  matchSecTrustedBootstrapPathV3
 } from './tcb-trust-root-contract.ts';
 
 // ---------------------------------------------------------------------------
 // TCB closure constants (canonical source — moved from sec-merge-gate.test.ts)
 // ---------------------------------------------------------------------------
 
-export const TCB_RUNTIME_ENTRYPOINTS = SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.runtimeEntrypoints;
+export const TCB_RUNTIME_ENTRYPOINTS = SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.runtimeEntrypoints;
 
 export const TCB_REVIEWED_SUT_EDGES = new Set(
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.reviewedSutEdges
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.reviewedSutEdges
 );
 
 export const TCB_REVIEWED_BOUNDARY_EDGES = new Set(
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V2.reviewedBoundaryEdges
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.reviewedBoundaryEdges
 );
 
 export const TCB_REVIEWED_EXTERNAL_IMPORTS = new Set([
@@ -844,7 +845,7 @@ function trustedRuntimeClosureAtCandidateRoot(
 }
 
 export function matchesCanonicalTrustRoot(repositoryPath: string): boolean {
-  return matchSecTrustedBootstrapPathV2(repositoryPath) !== null;
+  return matchSecTrustedBootstrapPathV3(repositoryPath, TCB_TRUST_ROOT_V3) !== null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1769,7 +1770,12 @@ export function generateTcbClosureLockV2(
 ): TcbClosureLock {
   const candidateRoot = resolveTcbClosureCandidateRoot(options);
   const closure = trustedRuntimeClosureAtCandidateRoot(candidateRoot, TCB_RUNTIME_ENTRYPOINTS);
-  return computeTcbClosureLockAtCandidateRoot(candidateRoot, closure);
+  const lock = computeTcbClosureLockAtCandidateRoot(candidateRoot, closure);
+  createSecTrustedBootstrapTrustRootV3({
+    registry: SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3,
+    causalRuntimePaths: lock.modules
+  });
+  return lock;
 }
 
 // ---------------------------------------------------------------------------
@@ -1777,12 +1783,12 @@ export function generateTcbClosureLockV2(
 // ---------------------------------------------------------------------------
 
 // <sec-tcb-closure-lock-generated-v2>
-export const TCB_CLOSURE_TRUST_REVISION = "sha256:d2b37aea4ed3a7308e00cec954e94a18cc45a3b1237cd5931762587e78e6af00";
+export const TCB_CLOSURE_TRUST_REVISION = "sha256:468a519b8b1f206cf755effbd366532e59e910045f0755a05996bc237c764d82";
 
 // Generated from the exact live causal closure. Do not hand-edit this marked region.
 export const TCB_CLOSURE_LOCK: TcbClosureLock = {
   "schema": "sec-tcb-closure-lock-v2",
-  "trustRevision": "sha256:d2b37aea4ed3a7308e00cec954e94a18cc45a3b1237cd5931762587e78e6af00",
+  "trustRevision": "sha256:468a519b8b1f206cf755effbd366532e59e910045f0755a05996bc237c764d82",
   "moduleCount": 101,
   "modules": [
     "docs/scripts/docs-doctor-ledgers.ts",
@@ -1985,7 +1991,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/runtime-layout.ts": "67d597cb2845aaa942e5a5e2d2457275dd17624e",
     "platform/shared/scope-authorization-contract.ts": "cbd15a4a0216c64f44b8e07bac84ebffd42b6625",
     "platform/shared/semantic-mutation-staging-boundary.ts": "87c3fc387147c0b41cfab0c1d176e88cbd00e1b9",
-    "platform/shared/tcb-trust-root-contract.ts": "c80f655102f2b9f530bcefe70f1824deebbbcc5d",
+    "platform/shared/tcb-trust-root-contract.ts": "6142d04af05c6ddf99f7b2a3d132b8768809c412",
     "platform/shared/test-budget-contract.ts": "55bbc0da6f967ef764b138bfcf7a06f6622ce395",
     "platform/shared/test-impact-contract.ts": "277a229bedee5d8aacfb639b5486d81a7a5858ef",
     "platform/shared/test-impact-rules/governance.ts": "b0b30d1ad6beffc6864413111382988cb8d25267",
@@ -2032,7 +2038,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/verification-session-github.ts": "fd36f3a9dcd2b0512066d58e1f0a992ec21ca1cc",
     "scripts/codex/verification-session-journal.ts": "dc938985c8741825ec7864248bc9296fa907bf63",
     "scripts/codex/verification-session-runtime.ts": "8a9d67ee56294a606b2c215d45dbaffd45005f33",
-    "scripts/codex/verification-session.ts": "6b9062fb54469404e0c6f7cc74478664d10c0331",
+    "scripts/codex/verification-session.ts": "2828c09baf4b2969233700fd0dba181998c58bb7",
     "scripts/codex/work-package-contract.ts": "21775765b7cfc2fda1063f10672eb803e8e7f418",
     "scripts/install-git-hooks.ts": "b13fb3af64e67a67908698f4698002877aa7713b",
     "tests/setup/runtime-deps.setup.ts": "88b15eb0053a2af75bbefb00df3d09a6bd255e08"
@@ -2088,7 +2094,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/runtime-layout.ts": "sha256:6b7a07641c2504b9a4a2e588483e9e47fddcab308547df4cc10e9000dc2420d0",
     "platform/shared/scope-authorization-contract.ts": "sha256:fbea121ea41c47ecc5e679e8f5ab935342be9f5c724280185bb2d57879fb2e1c",
     "platform/shared/semantic-mutation-staging-boundary.ts": "sha256:c1a6db054e6f73b2792b8aa81a8938e1ec276127415f31f42f65838d39984145",
-    "platform/shared/tcb-trust-root-contract.ts": "sha256:abbccc93ccef53143870110ebcdbd7a70ee89e7c4af6404e1ac36b45cab6f3ac",
+    "platform/shared/tcb-trust-root-contract.ts": "sha256:cc09db2e8235b0a55213dc33b99d0c04b49d2ceef4bb906d7c6b343175157bc2",
     "platform/shared/test-budget-contract.ts": "sha256:dd1d4330c461ec58568e2af74a09aa2151fec9dd5f010eed8d38e06b9c1f856e",
     "platform/shared/test-impact-contract.ts": "sha256:9d0fb869dfa226a502a06c1fe8b396b528dd977492084f07cd251653f1a122db",
     "platform/shared/test-impact-rules/governance.ts": "sha256:fb0bf2e09551b28daa23680a6e2ed89ddae960c01fb16771559009ee9426e697",
@@ -2135,16 +2141,21 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/verification-session-github.ts": "sha256:11ee9e41a270d020cdacdd7fd2d4814eca58cc9d2a14c5eebcd34f99568c7d5a",
     "scripts/codex/verification-session-journal.ts": "sha256:d85e4eaf49ec509227a977e4ad322a24032967e01167b07690ad1222e505f29b",
     "scripts/codex/verification-session-runtime.ts": "sha256:9b44a9494ee0a7f32b3306f25ac6c734cb209ba62ceb98c38aae085fe94b6404",
-    "scripts/codex/verification-session.ts": "sha256:1a9963bd263b4d884bb82314c34b6d939604ce33ccd6841e0f998fcfb948915d",
+    "scripts/codex/verification-session.ts": "sha256:4d7071a694958e9d00765dfa79c883e0be3d6dd88cb38762199aca2a87b5dc7b",
     "scripts/codex/work-package-contract.ts": "sha256:802dbb0f940a4f278d6cccb299cc4f955a162816550314e910a330a9bcaf08f4",
     "scripts/install-git-hooks.ts": "sha256:effb6154d7b41002086df75dc4acea3eaa68cc92cbe99357307c937f8e73098f",
     "tests/setup/runtime-deps.setup.ts": "sha256:6e6887ffcb8fead51f11fe8b223789f71a9512bd0805313c01035ec035c01441"
   },
-  "closureDigest": "sha256:140f5d9a19e3e1e3753788879048ca862015ad61d9d9fad5f788c610eaff773e"
+  "closureDigest": "sha256:858cc987c744495169b3d66b629dd600579f046ce2f7112bd9de8db54d91c0fd"
 };
 
 export const TCB_CLOSURE_LOCK_RECEIPT = createTcbClosureLockReceiptV2(
   TCB_CLOSURE_LOCK,
-  "2026-08-11T23:22:37.254Z"
+  "2026-08-11T23:49:09.806Z"
 );
 // </sec-tcb-closure-lock-generated-v2>
+
+export const TCB_TRUST_ROOT_V3 = createSecTrustedBootstrapTrustRootV3({
+  registry: SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3,
+  causalRuntimePaths: TCB_CLOSURE_LOCK.modules
+});
