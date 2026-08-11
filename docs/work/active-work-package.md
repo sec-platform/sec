@@ -10,8 +10,8 @@ last-reviewed: 2026-08-12
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/main-health-repair-work-selection-v1.md
-manifestDigest: sha256:60b44a7892ff6006a769d849a5250f2cc5bc5ab3dfba55da1c07cb89d3645cab
+manifest: docs/work-packages/main-health-repair-docs-doctor-v1.md
+manifestDigest: sha256:796a2e05aa81453208da46b0ab46b0fb5be5dae4a5a70b98008b21307c4bd4d7
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
