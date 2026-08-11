@@ -14,10 +14,7 @@ SEC 不是低代码运行时、模板市场或自由式整仓 AI 编码器。Can
 
 ## 开发入口
 
-```bash
-bun install
-bun run check:affected --plan
-bun run check:affected
-```
-
-当前 Git、PR、CI、Review 与活动 Work Package 由 `sec-repository-orientation` 通过受信 resolver 实时解析；README 不保存命令实现、SHA、PR、完成能力清单或当前 blocker。
+从 [仓库开发入口](AGENTS.md) 进入。当前 Git、PR、CI、Review 与活动 Work Package 由
+document control plane 的受信 resolver 实时解析；Verification 执行集合是 selector 投影
+`RequiredClosure ∩ MissingOrStale`。README 是导航，不保存命令实现、SHA、PR、完成能力清单
+或当前 blocker。

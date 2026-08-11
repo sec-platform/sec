@@ -13,7 +13,7 @@ import {
   resolveSecRepositoryHeuristicSkills,
   SEC_AGENT_SKILL_IDS,
   SEC_REPOSITORY_BEHAVIOR_IDS,
-  SEC_REPOSITORY_BEHAVIOR_OWNERS,
+  SEC_REPOSITORY_BEHAVIOR_ROUTES,
   type SecAgentSkillId,
   type SecRepositorySurfaceKind
 } from '../../platform/shared/agent-skill-contract.ts';
@@ -48,7 +48,7 @@ export interface RepositoryAuditFinding {
 
 export interface RepositoryAuditReport {
   behaviorCandidates: readonly BehaviorCandidate[];
-  behaviorOwners: typeof SEC_REPOSITORY_BEHAVIOR_OWNERS;
+  behaviorRoutes: typeof SEC_REPOSITORY_BEHAVIOR_ROUTES;
   contentCoverage: readonly RepositoryContentCoverage[];
   findings: readonly RepositoryAuditFinding[];
   informationLifecycle: InformationLifecycleReport;
@@ -62,7 +62,7 @@ export interface RepositoryAuditReport {
     tree: string;
     worktree: 'clean' | 'dirty' | 'unresolved';
   }>;
-  schema: 'sec-repository-audit-v1';
+  schema: 'sec-repository-audit-v2';
   summary: Readonly<{
     activeMarkdown: number;
     behaviorCandidates: number;
@@ -2112,6 +2112,7 @@ export function extractHeuristicBehaviorCandidates(
     markdown.kind === 'historical'
     || markdown.kind === 'evidence'
     || markdown.kind === 'frozen-work-package'
+    || markdown.kind === 'control-projection'
     || markdown.kind === 'verification-fixture'
   )) {
     return [];
@@ -3302,14 +3303,6 @@ export async function auditRepository(
     if (markdownCoverage?.kind === 'active-authority'
       || markdownCoverage?.kind === 'agent-projection') {
       activeMarkdown += 1;
-      if (markdownCoverage.skills.length === 0) {
-        pushFinding(findings, {
-          code: 'active-markdown-unowned',
-          message: 'active Markdown has no Skill coverage',
-          path: repositoryPath,
-          severity: 'critical'
-        });
-      }
       const status = markdownStatus(source);
       if (repositoryPath.startsWith('docs/') && status === null) {
         pushFinding(findings, {
@@ -3331,18 +3324,6 @@ export async function auditRepository(
           message: `possible Agent behavior requires deterministic-vs-heuristic triage: ${candidate.text}`,
           path: candidate.path,
           severity: 'high'
-        });
-      } else if (
-        markdownCoverage?.kind !== 'skill-definition'
-        && candidate.skills.every((skill) => skill === 'sec-documentation-governance')
-      ) {
-        pushFinding(findings, {
-          code: 'heuristic-catch-all-only',
-          line: candidate.line,
-          message: `Agent behavior resolves only to documentation governance: ${candidate.text}`,
-          path: candidate.path,
-          severity: 'high',
-          skills: candidate.skills
         });
       }
     }
@@ -3383,13 +3364,16 @@ export async function auditRepository(
   }
 
   for (const skillId of SEC_AGENT_SKILL_IDS) {
-    const owned = SEC_REPOSITORY_BEHAVIOR_IDS.filter(
-      (behavior) => SEC_REPOSITORY_BEHAVIOR_OWNERS[behavior] === skillId
+    const routed = SEC_REPOSITORY_BEHAVIOR_IDS.filter(
+      (behavior) => {
+        const route = SEC_REPOSITORY_BEHAVIOR_ROUTES[behavior];
+        return route.kind === 'skill' && route.owner === skillId;
+      }
     );
-    if (owned.length === 0) {
+    if (routed.length === 0) {
       pushFinding(findings, {
-        code: 'skill-without-behavior-owner',
-        message: `${skillId} does not own any registered repository behavior`,
+        code: 'skill-without-heuristic-route',
+        message: `${skillId} does not own any registered heuristic behavior route`,
         path: `.agents/skills/${skillId}/SKILL.md`,
         severity: 'high',
         skills: [skillId]
@@ -3453,7 +3437,7 @@ export async function auditRepository(
 
   return Object.freeze({
     behaviorCandidates: Object.freeze([...candidates]),
-    behaviorOwners: SEC_REPOSITORY_BEHAVIOR_OWNERS,
+    behaviorRoutes: SEC_REPOSITORY_BEHAVIOR_ROUTES,
     contentCoverage,
     findings: Object.freeze(findings),
     informationLifecycle,
@@ -3472,7 +3456,7 @@ export async function auditRepository(
       tree,
       worktree
     }),
-    schema: 'sec-repository-audit-v1',
+    schema: 'sec-repository-audit-v2',
     summary: Object.freeze({
       activeMarkdown,
       behaviorCandidates: candidates.length,

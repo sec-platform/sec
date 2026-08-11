@@ -1,47 +1,58 @@
 ---
 name: sec-task-delegation
-description: 用于把 frozen Work Package 收窄为单个 Worker、Reviewer 或验证角色的 Task Envelope；不用于把同一 authority 并发交给多个写者。
+description: 用于判断 frozen Work Package 是否值得拆成互不重叠的角色任务，并约束 Worker、Reviewer 与 A0 的责任边界；不用于单一纵切片或同一 authority 的并发写入。
 compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行。
 ---
 
 # sec-task-delegation
 
 ## 触发
-- Work Package 存在两个以上角色或需要独立 Reviewer。
+- frozen Work Package 存在两个以上真正独立、并行收益大于协调成本的 seam，或必须隔离独立 Reviewer。
 
 ## 不触发
-- 单一纵向切片由 Root直接完成更快；没有真实不重叠 seam。
+- 单一纵向切片由当前 writer 直接完成更快。
+- 候选角色共享 canonical writer、owned path、前置结果或外部 effect，无法形成物理独立闭包。
+- 只是希望“多看一眼”或扩大探索面，没有可交付的独立结果。
 
 ## 输入
-- exact base、branch、owner、owned/forbidden paths、prerequisites、acceptance、tests、gate owner、stop、reload_if。
+- exact base 与 frozen Work Package ref/digest。
+- 当前用户授权、角色候选、owned/forbidden path closure、依赖、资源冲突、停止条件和独立性要求。
+- 若 production Task Capsule compiler 已可用，消费其 typed output；不得从 prose 重建竞争 Capsule。
 
 ## 权限与路径
-- 只签发/读取Task Envelope和角色配置；不得替角色写owned路径。
+- 委派只能保持或收窄当前 Work Package 与用户授权，不能新增写入路径、外部 effect、merge 或发布权限。
+- 主线程保留最新用户授权、canonical writer、架构裁决、集成与最终验证责任。
 
 ## 允许工具与操作
-- Agent spawn、Task Envelope、只读Reviewer、完成事件消费。
+- 形成 bounded role projection、owner/path disjoint proof、启动已授权的独立 Agent，以及消费角色完成结果。
+- 在 #205 的 production Task Capsule compiler 完成切换前，本 Skill 只拥有“是否值得委派”的判断，不签发第二份 canonical Capsule 状态。
 
 ## 前置门禁
-- Work Package frozen；至少两个seam完全不重叠且可独立提交，或存在独立Review需要。
+- repository resolver 与 frozen Work Package 均有效。
+- 每个角色都有单一 owner、可独立收口的结果和明确的依赖边界；否则保持单 writer。
 
 ## 执行
-1. 每个 Task Envelope只含一个角色和一个可收口结果。
-2. 同一 canonical type/revision/builder/pipeline order/authority章节保持单写者。
-3. Worker默认 DO NOT MERGE、不得触发 hosted Gate、不得递归分派。
-4. Reviewer只读；发现问题返回 exact path/symbol/invariant，不扩大产品 scope。
+1. 先比较并行节省与协调、上下文、冲突和复核成本；收益不明确时不委派。
+2. 每个角色只接收一个 bounded outcome，并继承同一 exact base 与更窄权限。
+3. 同一 canonical type、revision、builder、pipeline order 或 authority 段落保持单写者。
+4. Worker 不 merge、不触发 hosted Gate、不递归扩权；Reviewer 保持 read-only，只返回 exact path、symbol 与 invariant。
+5. 主线程只集成与 frozen package 一致的结果；冲突或越界结果 fail-closed。
 
 ## 完成证据
-- Task Envelopes、owner/path disjoint proof、角色结果与Reconciliation Delta。
+- role projection、owner/path disjoint proof、角色结果与 Reconciliation Delta。
+- 若没有实际并行收益，`no-delegation` 是合法且优先的结果。
 
 ## 停止与恢复
-- 角色完成并返回 Reconciliation Delta，或明确 blocker后停止。
-- Agent失联不polling；继续本地工作或交还A0重算。
+- 出现 owner 重叠、依赖未闭合、授权不明或独立性不成立时停止委派并返回 typed blocker。
+- 角色完成、明确 blocker 或用户改变优先级后停止；不以轮询维持虚假进度。
 
 ## 禁止捷径
-- 禁止为了“多看一眼”创建 Agent。
-- 禁止主动 list/wait polling。
+- 禁止同一文件或 authority 的多个写者。
+- 禁止递归分派、主动轮询、为 finding 创建 successor worktree，或把 Agent 输出当作自动 merge 授权。
+- 禁止在真实 production Task Capsule compiler 和 consumer cutover 之前仅凭目标架构删除本 Skill。
 
 ## 权威
 - `AGENTS.md`
 - `docs/development-governance.md`
+- `platform/shared/agent-skill-contract.ts`
 - `.codex/agents/`

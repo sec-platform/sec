@@ -32,14 +32,14 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 ## 执行
 1. 以中英文显式指令和已登记 Agent surface 识别候选；测试名、断言样例和历史证据不作为新行为 authority。再将候选规则分类为确定性事实/算法/状态/验证，或需要 Agent 判断的启发式行为；两者不得混合。
 2. 对启发式行为建立 trigger、exclusions、inputs、authority、owner、permissions、tools、prerequisite gates、execution、completion evidence、stop/reload/recovery与prohibited shortcuts。
-3. 与现有 Skill 做语义去重：同一行为只能有一个唯一 Skill owner；其他文档和角色只保留窄链接/投影。
+3. 与现有 Skill 做语义去重：同一真正启发式行为只能有一个 Skill owner；确定性行为必须有 machine owner 且 Skill 为零，其他文档和角色只保留窄链接/投影。
 4. 现有 Skill 自然容纳时扩展该 Skill；只有触发、权限、状态机、完成证据或停止条件形成独立闭包时才新增 Skill。
-5. 更新 `SEC_AGENT_SKILL_IDS`、行为 owner registry、全部受影响 path coverage和focused test ownership；未知或仅靠默认 catch-all 的行为 fail closed。
+5. 更新 `SEC_AGENT_SKILL_IDS`、behavior route、受影响 candidate hints和focused test ownership；禁止恢复 behavior-to-Skill bijection，未知或仅靠默认 catch-all 的行为 fail closed。
 6. 删除或改写测试注释、PR模板、脚本说明和active文档中的重复操作指令，使其引用 canonical authority/Skill，而不是保留错综第二套规则。
-7. 运行 Skill合同、repository audit、docs doctor、test-impact和适用trust-root验证；trust-root candidate不得自证。
+7. 消费 selector 给出的最小 Skill contract/audit/documentation closure；相同 ActionKey 不重复，trust-root candidate不得自证。
 
 ## 完成证据
-- 每个候选行为的 path/line/text、分类、唯一 owner Skill、authority refs、消费者、删除/收窄的重复表面、coverage与focused tests。
+- 每个候选行为的 path/line/text、deterministic-or-heuristic 分类、machine owner 或唯一 owner Skill、authority refs、消费者、删除/收窄的重复表面、coverage与focused tests。
 - 全部活动启发式候选要么解析到唯一 Skill，要么被证明并迁移为确定性合同；无 orphan/catch-all-only行为。
 
 ## 停止与恢复

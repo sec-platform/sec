@@ -103,9 +103,12 @@ describe('canonical documentation authority', () => {
       'caller-selected comparison pair',
       '永远不签发 effect',
       'Development control-plane 七项终态裁决',
+      'SEC_REPOSITORY_BEHAVIOR_ROUTES',
       'FindingSuccessorWorktreeCount = 0',
       'physicalStartsPerActionKey <= 1',
-      '不拥有 Task Capsule 内容或 compiler'
+      '不拥有 Task Capsule 内容或 compiler',
+      'IssueDisposition',
+      'registry absence 与 exact physical target'
     ]);
     expectContainsAll(verification, [
       '`CandidateContentId` 绑定',
@@ -120,10 +123,10 @@ describe('canonical documentation authority', () => {
     expectContainsAll(roadmap, [
       'R14 — Agent Operation Compiler / VerificationSession Cutover',
       '不创建一个只做“最终架构”的umbrella Work Package',
-      'Read fast path（#346）',
-      'Guidance purge（#275 phase A）',
+      'Read fast path（#205 → #346）',
+      'Guidance convergence（#275）',
       'Candidate / Control transaction',
-      'Promotion / retirement（含 #275 phase B）'
+      'Promotion / retirement'
     ]);
     expectContainsAll(proposal, [
       '新的顶层 durable Run Kernel state machine 被拒绝',
@@ -157,7 +160,7 @@ describe('canonical documentation authority', () => {
     expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',
       '## 候选 Work Package',
-      'Issue #346',
+      '#275',
       'Issue #178',
       'Issue #327',
       'Issue #314',
@@ -168,23 +171,24 @@ describe('canonical documentation authority', () => {
     expect(rawManifestDigest).toBeDefined();
     expect(CodexDevelopmentWorkPackageManifestDigest(manifestSource)).toBe(rawManifestDigest!);
     expectContainsAll(manifestSource, [
-      'agent-operation-read-plan-v1',
-      'Issue #346',
-      'requiredRefs',
-      'conditionalRefs',
-      'current-physical-state-authoritative-v1',
-      'three different real operations'
+      'skill-system-convergence-v2',
+      'Issue #275',
+      'exactly eight current Skill IDs remain',
+      'task delegation remains a bounded Skill until Issue 205',
+      'repository behavior routing distinguishes deterministic machine owners',
+      'one physical execution for each unique missing',
+      'first real post-merge consumer of Issue #346'
     ]);
     expectContainsAll(pointerSource, [
-      'docs/work-packages/agent-operation-read-plan-v1.md',
+      'docs/work-packages/skill-system-convergence-v2.md',
       rawManifestDigest!,
       'selectionMode: exact-manifest-not-on-default-branch-v1'
     ]);
     expectContainsAll(rollingPlanSource, [
-      '### agent-operation-read-plan-v1',
-      'Issue #346',
-      'Task Capsule identity-bound Read Plan',
-      '三次真实 operation canary'
+      '### skill-system-convergence-v2',
+      '#275',
+      'deterministic-owner',
+      'consumer-zero Skill'
     ]);
     expectContainsNone(rollingPlanSource, [
       '### verification-action-trusted-cutover-v10',
@@ -273,8 +277,9 @@ describe('canonical documentation authority', () => {
       '[语义模型](docs/semantic-model.md)',
       '[编译与目标 IR](docs/compiler-target-ir.md)',
       '[文档导航](docs/README.md)',
-      'bun run check:affected --plan',
-      'sec-repository-orientation'
+      '[仓库开发入口](AGENTS.md)',
+      'document control plane',
+      'RequiredClosure ∩ MissingOrStale'
     ]);
     expect(readme.match(/^\d+\. /gmu)).toHaveLength(5);
     expect(readme).not.toContain('bun run sec -- <command>');
