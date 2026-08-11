@@ -64,7 +64,7 @@ function externalLedger(): Record<string, unknown> {
     forbiddenAuthority: [...FORBIDDEN_AUTHORITY]
   });
   return {
-    schema: 'sec-external-capability-ledger-v3',
+    schema: 'sec-external-capability-ledger-v4',
     status: 'revalidation-required',
     binding: {
       repository: 'sec-platform/sec',
@@ -72,6 +72,25 @@ function externalLedger(): Record<string, unknown> {
       lockAuthority: 'bun.lock'
     },
     policy: { owner: 'docs/external-provider-policy.md' },
+    verification: {
+      schema: 'sec-verification-provider-availability-ledger-v1',
+      epochId: 'test-epoch-v1',
+      observedAt: '2026-08-11T00:00:00.000Z',
+      expiresAt: '2026-08-12T00:00:00.000Z',
+      diagnosticRetention: {
+        rawProviderProse: 'disposable-after-normalization',
+        positiveClaimsRequireDurableEvidence: true
+      },
+      capabilities: [{
+        capability: 'codex-review',
+        role: 'reviewer',
+        provider: 'codex-code-review',
+        availability: 'unknown',
+        reasonCode: 'provider-not-observed',
+        receiptRef: null,
+        observedAt: '2026-08-11T00:00:00.000Z'
+      }]
+    },
     providers: [
       {
         id: 'codegraph',
@@ -316,6 +335,38 @@ test('external provider state transitions are ledger-only and graph standing cou
   });
 });
 
+test('docs doctor uses the hosted capability epoch window for every observation', async () => {
+  await withLedgerFixture(async (root, registry) => {
+    const state = fixtureState();
+    const capability = (state.external.verification as Record<string, unknown>).capabilities as Array<Record<string, unknown>>;
+    capability[0]!.observedAt = '2026-08-10T23:59:59.999Z';
+    await expectOneError(root, registry, state, 'docs/governance/external-capability-ledger.yaml',
+      'VerificationProviderCapability capability codex-review observation must fall within the availability epoch.');
+  });
+});
+
+test('docs doctor delegates static positive capability projections to the canonical normalizer', async () => {
+  await withLedgerFixture(async (root, registry) => {
+    const state = fixtureState();
+    const capability = (state.external.verification as Record<string, unknown>)
+      .capabilities as Array<Record<string, unknown>>;
+    capability[0]!.availability = 'available';
+    capability[0]!.reasonCode = null;
+    capability[0]!.receiptRef = `sha256:${'a'.repeat(64)}`;
+    await expectZeroErrors(root, registry, state);
+  });
+});
+
+test('external provider policy keeps availability as a deny-only routing projection', async () => {
+  const policy = await readFile(path.join(REPOSITORY_ROOT, 'docs/external-provider-policy.md'), 'utf8');
+  expect(policy).toContain('availability/health 是路由和同一 epoch 的 negative circuit-breaker projection，不是 effect authorization');
+  expect(policy).toContain('`unknown` 不能支持 positive availability claim，也不授予 effect');
+  expect(policy).toContain('operation-specific authority、idempotency/recovery 与 exact readback 授权的 provider operation');
+  expect(policy).toContain('只有 current-epoch 的 explicit `unavailable` 禁止重复');
+  expect(policy).toContain('实际 provider response/readback 才产生 availability evidence');
+  expect(policy).not.toContain('Evidence 缺失、过期或无法复核时一律解析为 `unknown` 并阻止调用');
+});
+
 test('external provider schema and cross-field negatives report the exact failing field', async () => {
   await withLedgerFixture(async (root, registry) => {
     const base = fixtureState();
@@ -329,7 +380,7 @@ test('external provider schema and cross-field negatives report the exact failin
       registry,
       wrongSchema,
       file,
-      'External capability ledger schema must be sec-external-capability-ledger-v3.'
+      'External capability ledger schema must be sec-external-capability-ledger-v4.'
     );
 
     const wrongStatus = structuredClone(base);

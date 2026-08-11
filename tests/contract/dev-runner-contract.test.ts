@@ -778,21 +778,29 @@ describe('dev-runner contract', () => {
     expect(scripts['check:affected']).toBe('bun ./platform/dev-runner.ts check:affected');
     expect(scripts['check:fast']).toBe('bun ./platform/dev-runner.ts check:fast');
     expect(scripts['check:full']).toBe(
-      'bun run imports:prepare && bun run typecheck && bun run docs:doctor && bun run test:full'
+      'bun run imports:check && bun run typecheck && bun run docs:doctor && bun run test:full'
     );
     expect(scripts['test:watch']).toBeUndefined();
     expect(scripts['test:coverage']).toBeUndefined();
-    expect(scripts['imports:prepare']).toBe('bun ./platform/dev-runner.ts imports:prepare');
-    expect(scripts['imports:organize']).toBe('bun ./platform/dev-runner.ts imports:organize');
     expect(scripts['imports:check']).toBe('bun ./platform/dev-runner.ts imports:check');
+    expect(scripts['imports:transform']).toBe('bun ./platform/dev-runner.ts imports:transform');
+    expect(scripts['imports:remove-unused']).toBe('bun ./platform/dev-runner.ts imports:remove-unused');
     expect(scripts['imports:freeze']).toBe('bun ./platform/dev-runner.ts imports:freeze');
     expect(scripts['imports:staged']).toBe('bun ./platform/dev-runner.ts imports:staged');
     expect(scripts['deps:ensure']).toBe('bun ./platform/dev-runner.ts deps:ensure');
+    expect(scripts['imports:prepare']).toBeUndefined();
+    expect(scripts['imports:organize']).toBeUndefined();
   });
 
   test('runner surface excludes contracts owned by direct package scripts', async () => {
     const runnerSource = await readCompilerFile('platform/dev-runner.ts');
     expectContainsNone(runnerSource, ['reference-clean', 'benchmark-contract']);
+  });
+
+  test('candidate import freeze recovery rebuilds the exact candidate after transformation', async () => {
+    const runnerSource = await readCompilerFile('platform/dev-runner.ts');
+    expect(runnerSource).toContain('Run bun run imports:transform, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.');
+    expect(runnerSource).not.toContain('Run bun run imports:staged.');
   });
 
   test('command runner preserves the fixed no-shell process boundary', async () => {
@@ -1060,15 +1068,15 @@ describe('dev-runner contract', () => {
     ]);
   });
 
-  test('runFastCheck runs docs:doctor in parallel with typecheck after imports:prepare', async () => {
+  test('runFastCheck runs docs:doctor in parallel with typecheck after a pure imports:check', async () => {
     const checkRunnerSource = await readCompilerFile('platform/dev-runner/check-runner.ts');
     const fastCheckStart = checkRunnerSource.indexOf('export async function runFastCheck');
     expect(fastCheckStart).toBeGreaterThanOrEqual(0);
     const fastCheckSource = checkRunnerSource.slice(fastCheckStart);
 
     expectContainsAll(fastCheckSource, [
-      'imports:prepare -> docs:doctor + typecheck (parallel) -> test:fast',
-      'await runImportPreparation()',
+      'imports:check -> docs:doctor + typecheck (parallel) -> test:fast',
+      'await runImportCheck({})',
       'Promise.all([',
       "runDevCommand('bun', ['docs/scripts/docs-doctor.ts'], {})",
       'typecheck()',
@@ -1076,10 +1084,11 @@ describe('dev-runner contract', () => {
       'waitTimeoutMs: 5000'
     ]);
     expectContainsNone(fastCheckSource, [
-      'imports:prepare + docs:doctor (parallel) -> typecheck'
+      'imports:prepare + docs:doctor (parallel) -> typecheck',
+      'runImportPreparation'
     ]);
 
-    const importsIndex = fastCheckSource.indexOf('await runImportPreparation()');
+    const importsIndex = fastCheckSource.indexOf('await runImportCheck({})');
     const parallelIndex = fastCheckSource.indexOf('Promise.all([');
     const docsIndex = fastCheckSource.indexOf("runDevCommand('bun', ['docs/scripts/docs-doctor.ts']");
     const typecheckIndex = fastCheckSource.indexOf('typecheck()');

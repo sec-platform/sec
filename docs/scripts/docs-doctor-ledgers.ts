@@ -8,6 +8,10 @@ import {
   type DocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
 import {
+  createVerificationProviderAvailabilityEpochV1,
+  type VerificationProviderCapabilityInputV1
+} from '../../platform/shared/verification-provider-capability-contract.ts';
+import {
   pushIssue,
   recordValue,
   stringArrayValue,
@@ -260,11 +264,11 @@ function validateExternalCapabilityLedger(
 ): void {
   exactKeys(
     parsed,
-    ['schema', 'status', 'binding', 'policy', 'providers', 'invariants'],
+    ['schema', 'status', 'binding', 'policy', 'verification', 'providers', 'invariants'],
     'External capability ledger'
   );
-  if (parsed.schema !== 'sec-external-capability-ledger-v3') {
-    throw new Error('External capability ledger schema must be sec-external-capability-ledger-v3.');
+  if (parsed.schema !== 'sec-external-capability-ledger-v4') {
+    throw new Error('External capability ledger schema must be sec-external-capability-ledger-v4.');
   }
   const status = boundedId(parsed.status, 'External capability ledger status');
   if (!EXTERNAL_LEDGER_STATUSES.has(status)) {
@@ -288,6 +292,54 @@ function validateExternalCapabilityLedger(
   if (policy.owner !== 'docs/external-provider-policy.md') {
     throw new Error('External capability ledger policy owner must be docs/external-provider-policy.md.');
   }
+  const verification = recordValue(parsed.verification, 'External capability ledger.verification');
+  exactKeys(verification, [
+    'schema', 'epochId', 'observedAt', 'expiresAt', 'diagnosticRetention', 'capabilities'
+  ], 'External capability ledger.verification');
+  if (verification.schema !== 'sec-verification-provider-availability-ledger-v1') {
+    throw new Error('External capability ledger.verification schema is invalid.');
+  }
+  boundedId(verification.epochId, 'External capability ledger.verification.epochId');
+  const observedAt = String(verification.observedAt);
+  const expiresAt = String(verification.expiresAt);
+  if (new Date(observedAt).toISOString() !== observedAt
+    || new Date(expiresAt).toISOString() !== expiresAt || expiresAt <= observedAt) {
+    throw new Error('External capability ledger.verification availability epoch is invalid.');
+  }
+  const diagnosticRetention = recordValue(
+    verification.diagnosticRetention,
+    'External capability ledger.verification.diagnosticRetention'
+  );
+  exactKeys(diagnosticRetention, ['rawProviderProse', 'positiveClaimsRequireDurableEvidence'],
+    'External capability ledger.verification.diagnosticRetention');
+  if (diagnosticRetention.rawProviderProse !== 'disposable-after-normalization'
+    || diagnosticRetention.positiveClaimsRequireDurableEvidence !== true) {
+    throw new Error('External capability ledger verification diagnostic retention must be fail-closed.');
+  }
+  if (!Array.isArray(verification.capabilities) || verification.capabilities.length === 0) {
+    throw new Error('External capability ledger verification capabilities must be a non-empty array.');
+  }
+  const verificationIds = new Set<string>();
+  for (const [index, entry] of verification.capabilities.entries()) {
+    const capability = recordValue(entry, `External capability ledger verification capability ${index}`);
+    exactKeys(capability, [
+      'capability', 'role', 'provider', 'availability', 'reasonCode', 'receiptRef', 'observedAt'
+    ], `External capability ledger verification capability ${index}`);
+    const capabilityId = boundedId(capability.capability, `verification capability ${index}.capability`);
+    if (verificationIds.has(capabilityId)) {
+      throw new Error(`External capability ledger verification capability ${capabilityId} is duplicate or unknown.`);
+    }
+    verificationIds.add(capabilityId);
+  }
+  // The hosted session uses this exact shared contract; keep docs:doctor from
+  // accepting a ledger whose capability timestamps or availability semantics
+  // it would later reject.
+  createVerificationProviderAvailabilityEpochV1({
+    epochId: String(verification.epochId),
+    observedAt,
+    expiresAt,
+    capabilities: verification.capabilities as VerificationProviderCapabilityInputV1[]
+  });
   if (!Array.isArray(parsed.providers) || parsed.providers.length === 0) {
     throw new Error('External capability providers must be a non-empty array.');
   }

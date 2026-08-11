@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { access, cp, link, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, cp, link, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -7,8 +7,10 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import pLimit from 'p-limit';
 
 import {
+  runCandidateImportCheck,
   runCandidateImportOrganizer,
-  runImportPreparation,
+  runImportCheck,
+  runImportTransform,
   runStagedImportOrganizer,
   workingTreeTypeScriptTargets
 } from '../../platform/dev-runner/import-organizer.ts';
@@ -300,12 +302,13 @@ test.concurrent('clean candidate context fails closed if an untracked path appea
   });
 });
 
-test.concurrent('authoring preparation normalizes the complete committed, staged, unstaged, and untracked delta', async () => {
+test.concurrent('authoring transform normalizes the complete committed, staged, unstaged, and untracked delta', async () => {
   await withRepository(async (repoRoot) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
     const committedPath = path.join(repoRoot, 'committed.ts');
     const stagedPath = path.join(repoRoot, 'staged.ts');
     const untrackedPath = path.join(repoRoot, 'untracked.ts');
+    const nestedUntrackedPath = path.join(repoRoot, 'wholly-untracked', 'nested.ts');
     const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
     git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
 
@@ -316,33 +319,180 @@ test.concurrent('authoring preparation normalizes the complete committed, staged
     git(repoRoot, ['add', 'staged.ts']);
     await Promise.all([
       writeFile(fixturePath, source('unsorted'), 'utf8'),
-      writeFile(untrackedPath, source('unsorted'), 'utf8')
+      writeFile(untrackedPath, source('unsorted'), 'utf8'),
+      mkdir(path.dirname(nestedUntrackedPath), { recursive: true })
     ]);
+    await writeFile(nestedUntrackedPath, source('unsorted'), 'utf8');
 
     expect(workingTreeTypeScriptTargets(repoRoot, {})).toEqual([
       'committed.ts',
       'fixture.ts',
       'staged.ts',
-      'untracked.ts'
+      'untracked.ts',
+      'wholly-untracked/nested.ts'
     ]);
-    expect(await runImportPreparation(repoRoot, {})).toBe(0);
+    const transformed = await runImportTransform({}, repoRoot, {});
+    expect(transformed.status).toBe('accepted');
+    expect([...transformed.files].sort()).toEqual([
+      'committed.ts',
+      'fixture.ts',
+      'staged.ts',
+      'untracked.ts',
+      'wholly-untracked/nested.ts'
+    ]);
 
-    for (const filePath of [committedPath, fixturePath, stagedPath, untrackedPath]) {
+    for (const filePath of [committedPath, fixturePath, stagedPath, untrackedPath, nestedUntrackedPath]) {
       expect(await readFile(filePath, 'utf8')).toBe(source('sorted'));
     }
-    expect(await runImportPreparation(repoRoot, {})).toBe(0);
+    const noop = await runImportTransform({}, repoRoot, {});
+    expect(noop.status).toBe('noop');
+    expect(noop.files).toEqual([]);
   });
 });
 
-test.concurrent('authoring preparation rejects an inexact candidate base before changing source', async () => {
+test.concurrent('authoring transform rejects an inexact candidate base before changing source', async () => {
   await withRepository(async (repoRoot) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
     await writeFile(fixturePath, source('unsorted'), 'utf8');
     const before = await readFile(fixturePath);
 
-    await expect(runImportPreparation(repoRoot, { SEC_CHANGED_BASE: 'abc123' }))
+    await expect(runImportTransform({}, repoRoot, { SEC_CHANGED_BASE: 'abc123' }))
       .rejects.toThrow('one full Git object ID');
     expect(await readFile(fixturePath)).toEqual(before);
+  });
+});
+
+test.concurrent('imports check is a pure compare and publishes zero bytes', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    const stagedPath = path.join(repoRoot, 'staged.ts');
+    await writeFile(fixturePath, source('unsorted'), 'utf8');
+    await writeFile(stagedPath, source('unsorted'), 'utf8');
+    git(repoRoot, ['add', 'staged.ts']);
+    const beforeFixture = await readFile(fixturePath);
+    const beforeStaged = await readFile(stagedPath);
+    const beforeIndex = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
+    const rawIndexPath = path.join(repoRoot, '.git', 'index');
+    const beforeRawIndex = await readFile(rawIndexPath);
+    // Stale stat metadata is the Git path that would otherwise refresh the
+    // raw index while bytes and staged identities remain unchanged.
+    const nextMtime = new Date((await stat(stagedPath)).mtimeMs + 2_000);
+    await utimes(stagedPath, nextMtime, nextMtime);
+
+    const outcome = await runImportCheck({}, repoRoot, {});
+    expect(outcome.status).toBe('needs-import-transform');
+    expect([...outcome.files].sort()).toEqual(['fixture.ts', 'staged.ts']);
+
+    expect(await readFile(fixturePath)).toEqual(beforeFixture);
+    expect(await readFile(stagedPath)).toEqual(beforeStaged);
+    expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(beforeIndex);
+    expect(await readFile(rawIndexPath)).toEqual(beforeRawIndex);
+    expect(String(git(repoRoot, ['diff', '--cached', '--name-only'])).trim()).toBe('staged.ts');
+  });
+});
+
+test.concurrent('freeze seals identity by pure compare and never publishes to the index', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
+    const staged = `${source('unsorted')}export const freezeChange = answer;\n`;
+    await writeFile(fixturePath, staged, 'utf8');
+    git(repoRoot, ['add', 'fixture.ts']);
+    const beforeIndex = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
+    const rawIndexPath = path.join(repoRoot, '.git', 'index');
+    const beforeRawIndex = await readFile(rawIndexPath);
+    const beforeObjects = git(repoRoot, ['count-objects', '-v']);
+    // candidateContext runs a pure git diff; stale stat metadata must not let
+    // that comparison refresh the raw index cache.
+    const staleMtime = new Date((await stat(fixturePath)).mtimeMs + 2_000);
+    await utimes(fixturePath, staleMtime, staleMtime);
+
+    const firstFreeze = await runCandidateImportCheck(repoRoot, {}, {});
+    expect(firstFreeze.status).toBe('needs-import-transform');
+    expect(firstFreeze.files).toEqual(['fixture.ts']);
+    expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(beforeIndex);
+    expect(await readFile(rawIndexPath)).toEqual(beforeRawIndex);
+    expect(git(repoRoot, ['count-objects', '-v'])).toBe(beforeObjects);
+
+    expect(await runCandidateImportOrganizer(repoRoot, {}, {})).toBe(0);
+    const afterTransformIndex = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
+    const afterTransformObjects = git(repoRoot, ['count-objects', '-v']);
+    const secondFreeze = await runCandidateImportCheck(repoRoot, {}, {});
+    expect(secondFreeze.status).toBe('canonical');
+    expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(afterTransformIndex);
+    expect(git(repoRoot, ['count-objects', '-v'])).toBe(afterTransformObjects);
+  });
+});
+
+test.concurrent('freeze returns typed needs-import-transform on a non-canonical staged state without index writes', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
+    const staged = `${source('unsorted')}export const freezeChange = answer;\n`;
+    await writeFile(fixturePath, staged, 'utf8');
+    git(repoRoot, ['add', 'fixture.ts']);
+    const beforeIndex = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
+
+    const frozen = await runCandidateImportCheck(repoRoot, {}, {});
+    expect(frozen.status).toBe('needs-import-transform');
+    expect(frozen.files).toEqual(['fixture.ts']);
+    expect(await readFile(fixturePath)).toEqual(Buffer.from(staged));
+    expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(beforeIndex);
+  });
+});
+
+test.concurrent('true NOOP publishes no source bytes and no mtime churn', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    const valuesPath = path.join(repoRoot, 'values.ts');
+    const beforeFixture = await readFile(fixturePath);
+    const beforeValues = await readFile(valuesPath);
+    const fixtureBefore = (await stat(fixturePath)).mtimeMs;
+    const valuesBefore = (await stat(valuesPath)).mtimeMs;
+    const beforeIndex = git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true });
+
+    const outcome = await runImportTransform({}, repoRoot, {});
+    expect(outcome.status).toBe('noop');
+    expect(outcome.files).toEqual([]);
+    expect(await readFile(fixturePath)).toEqual(beforeFixture);
+    expect(await readFile(valuesPath)).toEqual(beforeValues);
+    expect((await stat(fixturePath)).mtimeMs).toBe(fixtureBefore);
+    expect((await stat(valuesPath)).mtimeMs).toBe(valuesBefore);
+    expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(beforeIndex);
+  });
+});
+
+test.concurrent('sort-and-combine and remove-unused are independent typed intents', async () => {
+  await withRepository(async (repoRoot) => {
+    const fixturePath = path.join(repoRoot, 'fixture.ts');
+    await writeFile(fixturePath, [
+      "import { beta, alpha } from './values.ts';",
+      "import { unusedOne, unusedTwo } from './values.ts';",
+      '',
+      'const answer = alpha + beta;',
+      'export { answer };',
+      ''
+    ].join('\n'), 'utf8');
+
+    const sortOnly = await runImportCheck({ intent: 'sort-and-combine' }, repoRoot, {});
+    expect(sortOnly.status).toBe('needs-import-transform');
+    expect(sortOnly.files).toEqual(['fixture.ts']);
+
+    const removed = await runImportTransform({ intent: 'remove-unused' }, repoRoot, {});
+    expect(removed.status).toBe('accepted');
+    const afterRemove = await readFile(fixturePath, 'utf8');
+    expect(afterRemove).not.toContain('unusedOne');
+    expect(afterRemove).not.toContain('unusedTwo');
+
+    const removeAgain = await runImportTransform({ intent: 'remove-unused' }, repoRoot, {});
+    expect(removeAgain.status).toBe('noop');
+    const afterSort = await runImportTransform({ intent: 'sort-and-combine' }, repoRoot, {});
+    expect(afterSort.status).toBe('accepted');
+    expect(await readFile(fixturePath, 'utf8')).toContain(
+      "import { alpha, beta } from './values.ts';"
+    );
   });
 });
 

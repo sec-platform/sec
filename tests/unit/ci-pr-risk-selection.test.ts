@@ -65,7 +65,20 @@ test('dev-runner changes use exact owned slow sentinels instead of the bounded b
 
   expect(selectCiPrRiskSlowSuites(['platform/dev-runner/import-organizer.ts'])).toMatchObject({
     suites: ['e2e-import-organizer-staged'],
-    affectedSlowTests: ['tests/e2e/import-organizer-staged.test.ts'],
+    affectedSlowTests: [
+      'tests/e2e/import-organizer-staged.test.ts',
+      'tests/e2e/import-organizer-worktree-isolation.test.ts'
+    ],
+    reasons: ['ownership-impact'],
+    resolved: true
+  });
+  expect(selectCiPrRiskSlowSuites(['platform/dev-runner/import-transform-transaction.ts'])).toMatchObject({
+    suites: ['e2e-import-organizer-staged'],
+    affectedSlowTests: [
+      'tests/e2e/import-organizer-staged.test.ts',
+      'tests/e2e/import-organizer-worktree-isolation.test.ts'
+    ],
+    owners: expect.arrayContaining(['import-transform-transaction']),
     reasons: ['ownership-impact'],
     resolved: true
   });
@@ -189,7 +202,8 @@ test('explicit documentation ownership and direct slow tests remain resolved', (
   expect(directSlowTest.suites).toContain('e2e-dry-run-plan');
 
   const importOrganizerAcceptance = selectCiPrRiskSlowSuites([
-    'tests/e2e/import-organizer-staged.test.ts'
+    'tests/e2e/import-organizer-staged.test.ts',
+    'tests/e2e/import-organizer-worktree-isolation.test.ts'
   ]);
   expect(importOrganizerAcceptance.resolved).toBe(true);
   expect(importOrganizerAcceptance.reasons).toContain('direct-slow-test');

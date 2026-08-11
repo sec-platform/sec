@@ -1,4 +1,4 @@
-schema: sec-external-capability-ledger-v3
+schema: sec-external-capability-ledger-v4
 status: revalidation-required
 binding:
   repository: sec-platform/sec
@@ -6,6 +6,43 @@ binding:
   lockAuthority: bun.lock
 policy:
   owner: docs/external-provider-policy.md
+verification:
+  schema: sec-verification-provider-availability-ledger-v1
+  epochId: bootstrap-348-347-2026-08-11-v3
+  observedAt: 2026-08-11T01:00:00.000Z
+  expiresAt: 2026-08-12T01:00:00.000Z
+  diagnosticRetention:
+    rawProviderProse: disposable-after-normalization
+    positiveClaimsRequireDurableEvidence: true
+  capabilities:
+    - capability: github-writer
+      role: writer
+      provider: github-api
+      availability: unknown
+      reasonCode: provider-receipt-unverified
+      receiptRef: null
+      observedAt: 2026-08-11T01:00:00.000Z
+    - capability: codex-review
+      role: reviewer
+      provider: codex-code-review
+      availability: unknown
+      reasonCode: provider-receipt-unverified
+      receiptRef: null
+      observedAt: 2026-08-11T03:59:35.000Z
+    - capability: deepseek-independent-review
+      role: reviewer
+      provider: deepseek-independent-execution
+      availability: unknown
+      reasonCode: provider-not-provisioned
+      receiptRef: null
+      observedAt: 2026-08-11T01:00:00.000Z
+    - capability: github-actions-hosted-verification
+      role: hosted-verification
+      provider: github-actions
+      availability: unknown
+      reasonCode: provider-receipt-unverified
+      receiptRef: null
+      observedAt: 2026-08-11T01:00:00.000Z
 providers:
   - id: codegraph
     category: graph

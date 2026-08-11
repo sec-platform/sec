@@ -37,7 +37,7 @@ export async function executeVerifiedCiActionPlanV1(options: {
 }
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:prepare|imports:check|imports:organize|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--remove-unused]|imports:transform [--remove-unused]|imports:remove-unused|imports:freeze|imports:staged [--candidate-base <sha>]|clean-test-workspaces> [args...]');
   process.exit(1);
 }
 
@@ -100,27 +100,66 @@ async function main(): Promise<void> {
   }
 
   if (
-    target === 'imports:prepare' || target === 'imports:check' || target === 'imports:organize' ||
+    target === 'imports:check' || target === 'imports:transform' || target === 'imports:remove-unused' ||
     target === 'imports:freeze' || target === 'imports:staged'
   ) {
     const {
-      runCandidateImportOrganizer,
-      runImportOrganizer,
-      runImportPreparation,
+      runCandidateImportCheck,
+      runImportCheck,
+      runImportTransform,
       runStagedImportOrganizer
     } = await import('./dev-runner/import-organizer.ts');
-    if (target === 'imports:prepare') {
-      if (args.length !== 0) usage();
-      process.exitCode = await runImportPreparation();
-      return;
-    }
-    if (target === 'imports:check' || target === 'imports:organize') {
-      process.exitCode = await runImportOrganizer({ check: target === 'imports:check' });
+    if (target === 'imports:check' || target === 'imports:transform' || target === 'imports:remove-unused') {
+      if (args.length > 1 || (args.length === 1 && args[0] !== '--remove-unused')) usage();
+      const intent = target === 'imports:remove-unused' || args[0] === '--remove-unused'
+        ? 'remove-unused' as const
+        : 'sort-and-combine' as const;
+      if (target === 'imports:check') {
+        const outcome = await runImportCheck({ intent });
+        if (outcome.status === 'canonical') {
+          console.log('Imports are canonical (zero writes).');
+          process.exitCode = 0;
+        } else {
+          const recoveryCommand = intent === 'remove-unused'
+            ? 'bun run imports:remove-unused'
+            : 'bun run imports:transform';
+          console.error(
+            `Imports need transform (needs-import-transform) in ${outcome.files.length} file(s):\n`
+            + `${outcome.files.map((file) => `- ${file}`).join('\n')}\nRun ${recoveryCommand}.`
+          );
+          process.exitCode = 1;
+        }
+      } else {
+        const outcome = await runImportTransform({ intent });
+        if (outcome.status === 'noop') {
+          console.log('Imports are canonical; transform published no bytes.');
+          process.exitCode = 0;
+        } else if (outcome.status === 'accepted') {
+          console.log(`Accepted import transform transaction ${outcome.transactionId} in ${outcome.files.length} file(s):\n${outcome.files.map((file) => `- ${file}`).join('\n')}`);
+          process.exitCode = 0;
+        } else {
+          console.error(
+            `Import transform ${outcome.status} (${outcome.reasonCode}); transaction ${outcome.transactionId}; recovery journal: ${outcome.journalPath}`
+          );
+          process.exitCode = 1;
+        }
+      }
       return;
     }
     if (target === 'imports:freeze') {
       if (args.length !== 0) usage();
-      process.exitCode = await runCandidateImportOrganizer();
+      const outcome = await runCandidateImportCheck();
+      if (outcome.status === 'canonical') {
+        console.log('Candidate imports identity sealed (canonical).');
+        process.exitCode = 0;
+      } else {
+        console.error(
+          `Candidate imports are non-canonical (needs-import-transform) in ${outcome.files.length} file(s):\n`
+          + `${outcome.files.map((file) => `- ${file}`).join('\n')}\n`
+          + 'Run bun run imports:transform, stage the exact files, rebuild the exact candidate, then rerun bun run imports:freeze.'
+        );
+        process.exitCode = 1;
+      }
       return;
     }
     if (args.length !== 0 && (

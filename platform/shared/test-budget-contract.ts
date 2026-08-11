@@ -1,5 +1,6 @@
 import { Glob } from 'bun';
 
+import { compareCodeUnits } from './canonical-primitives.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import { platformCommand } from './platform-command.ts';
 
@@ -104,9 +105,15 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
     resourceClass: 'runtime-heavy'
   }),
   slowFileSuite('e2e-graph', 'graph', 'compiler-graph-e2e', 120_000, { parallelSafe: true }),
-  slowFileSuite('e2e-import-organizer-staged', 'import-organizer-staged', 'compiler-import-organizer-staged-e2e', 120_000, {
-    parallelSafe: true
-  }),
+  {
+    ...slowFileSuite('e2e-import-organizer-staged', 'import-organizer-staged', 'compiler-import-organizer-staged-e2e', 120_000, {
+      parallelSafe: true
+    }),
+    files: [
+      e2eTestFile('import-organizer-staged'),
+      e2eTestFile('import-organizer-worktree-isolation')
+    ]
+  },
   slowFileSuite('e2e-install-git-hooks', 'install-git-hooks', 'managed-git-hooks-e2e', 120_000, {
     parallelSafe: true
   }),
@@ -139,7 +146,16 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
     300_000
   ),
   slowFileSuite('e2e-upgrade', 'upgrade', 'compiler-upgrade-e2e', 180_000, { parallelSafe: true }),
-  slowFileSuite('e2e-verify-lock', 'verification', 'compiler-verify-lock-e2e', 180_000, { parallelSafe: true, prRiskBaseline: true }),
+  {
+    ...slowFileSuite('e2e-verify-lock', 'verification', 'compiler-verify-lock-e2e', 900_000, {
+      parallelSafe: true,
+      prRiskBaseline: true
+    }),
+    files: [
+      e2eTestFile('verification'),
+      e2eTestFile('verification-session-closeout-cli')
+    ]
+  },
   slowFileSuite('e2e-windows-appcontainer-executor', 'windows-appcontainer-executor', 'windows-appcontainer-native-e2e', 180_000, {
     resourceClass: 'runtime-heavy'
   }),
@@ -154,7 +170,7 @@ function scanTestFilesSync(): string[] {
       files.add(file.replaceAll('\\', '/'));
     }
   }
-  return [...files].sort();
+  return [...files].sort(compareCodeUnits);
 }
 
 export class TestBudgetCache {
@@ -209,7 +225,7 @@ export class TestBudgetCache {
     const assigned = new Set<string>();
     const suites: SlowTestSuite[] = slowTestSuiteDefinitions
       .map((definition) => {
-        const files = definition.files.filter((file) => slowFileSet.has(file));
+        const files = definition.files.filter((file) => slowFileSet.has(file)).sort(compareCodeUnits);
         for (const file of files) {
           if (assigned.has(file)) {
             throw new Error(`Slow test file assigned to multiple suites: ${file}`);

@@ -9,6 +9,10 @@ import { canonicalEquals } from '../shared/canonical-primitives.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { ensureDir } from '../shared/fs.ts';
 import { compilerRoot, relativePosixPath } from '../shared/paths.ts';
+import {
+  publishImportTransformTransactionV1,
+  type ImportTransformTransactionTestHooksV1
+} from './import-transform-transaction.ts';
 
 // Inline sync config cache for tsconfig.json parsing.
 // Inlined here to avoid expanding the TCB runtime closure with config-cache.ts.
@@ -25,6 +29,43 @@ function cachedParseConfigFile(configPath: string): { config?: unknown; error?: 
 }
 
 type ImportSelectionEnvironment = Record<string, string | undefined>;
+
+/**
+ * One deterministic pure import transform kernel with two explicit intents.
+ * Snapshot selectors (working-tree / staged / candidate / CI changed-only)
+ * choose which bytes to compare or transform; the kernel itself is shared and
+ * never performs I/O. Sorting/combining is repository authoring
+ * representation; unused-removal is a separate typed transform.
+ */
+export type ImportTransformIntentV1 = 'sort-and-combine' | 'remove-unused';
+
+export type ImportCheckOutcomeV1 = Readonly<{
+  schema: 'sec-import-check-outcome-v1';
+  status: 'canonical' | 'needs-import-transform';
+  files: readonly string[];
+}>;
+
+export type ImportTransformOutcomeV1 =
+  | Readonly<{
+    schema: 'sec-import-transform-outcome-v1';
+    status: 'noop';
+    files: readonly string[];
+  }>
+  | Readonly<{
+    schema: 'sec-import-transform-outcome-v1';
+    status: 'accepted';
+    files: readonly string[];
+    transactionId: string;
+    journalPath: string;
+  }>
+  | Readonly<{
+    schema: 'sec-import-transform-outcome-v1';
+    status: 'rolled-back' | 'recovery-required';
+    files: readonly string[];
+    transactionId: string;
+    journalPath: string;
+    reasonCode: string;
+  }>;
 
 interface StagedIndexEntry {
   readonly mode: string;
@@ -121,11 +162,15 @@ function applyTextChanges(source: string, changes: readonly ts.TextChange[]): st
 export function organizeImportsInSource(
   service: Pick<ts.LanguageService, 'organizeImports'>,
   fileName: string,
-  source: string
+  source: string,
+  intent: ImportTransformIntentV1 = 'sort-and-combine'
 ): string {
+  const mode = intent === 'remove-unused'
+    ? ts.OrganizeImportsMode.RemoveUnused
+    : ts.OrganizeImportsMode.SortAndCombine;
   const edits = service
     .organizeImports(
-      { type: 'file', fileName, mode: ts.OrganizeImportsMode.All },
+      { type: 'file', fileName, mode },
       { ...importFormatOptions, newLineCharacter: sourceNewLine(source) },
       importPreferences
     )
@@ -153,10 +198,16 @@ function gitError(args: readonly string[], stderr: Buffer | string | null): Erro
   return new Error(`git ${args[0] ?? 'command'} failed${detail.length > 0 ? `: ${detail}` : ''}`);
 }
 
-function gitText(projectRoot: string, args: readonly string[], input?: Buffer): string {
+function gitText(
+  projectRoot: string,
+  args: readonly string[],
+  input?: Buffer,
+  env: NodeJS.ProcessEnv = pureGitReadEnvironment(process.env)
+): string {
   const result = spawnSync('git', [...args], {
     cwd: projectRoot,
     encoding: 'utf8',
+    env,
     input,
     maxBuffer: 128 * 1024 * 1024,
     windowsHide: true
@@ -171,7 +222,7 @@ function gitBytes(
   projectRoot: string,
   args: readonly string[],
   input?: Buffer,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = pureGitReadEnvironment(process.env)
 ): Buffer {
   const result = spawnSync('git', [...args], {
     cwd: projectRoot,
@@ -185,6 +236,10 @@ function gitBytes(
     throw gitError(args, result.stderr);
   }
   return Buffer.from(result.stdout);
+}
+
+function pureGitReadEnvironment(env: ImportSelectionEnvironment): NodeJS.ProcessEnv {
+  return { ...process.env, ...env, GIT_OPTIONAL_LOCKS: '0' };
 }
 
 function nulFields(bytes: Buffer, source: string): string[] {
@@ -293,10 +348,15 @@ function resolvedCandidateBase(projectRoot: string, candidateBase: string | unde
   return resolved;
 }
 
-function tryResolveGitCommit(projectRoot: string, args: readonly string[]): string | undefined {
+function tryResolveGitCommit(
+  projectRoot: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv = pureGitReadEnvironment(process.env)
+): string | undefined {
   const result = spawnSync('git', [...args], {
     cwd: projectRoot,
     encoding: 'utf8',
+    env,
     windowsHide: true
   });
   if (result.error || result.status !== 0) return undefined;
@@ -311,8 +371,9 @@ export function resolveCandidateImportBase(
   if (env.SEC_CHANGED_BASE) {
     return resolvedCandidateBase(projectRoot, env.SEC_CHANGED_BASE)!;
   }
-  return tryResolveGitCommit(projectRoot, ['merge-base', 'HEAD', 'refs/remotes/origin/main'])
-    ?? tryResolveGitCommit(projectRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])
+  const readEnvironment = pureGitReadEnvironment(env);
+  return tryResolveGitCommit(projectRoot, ['merge-base', 'HEAD', 'refs/remotes/origin/main'], readEnvironment)
+    ?? tryResolveGitCommit(projectRoot, ['rev-parse', '--verify', 'HEAD^{commit}'], readEnvironment)
     ?? (() => {
       throw new Error('Candidate import base is unavailable');
     })();
@@ -342,7 +403,7 @@ export function workingTreeTypeScriptTargets(
     gitBytes(projectRoot, [
       'diff', '--name-only', '-z', '--diff-filter=ACMR', '--find-renames',
       candidateBase, 'HEAD', '--'
-    ]),
+    ], undefined, pureGitReadEnvironment(env)),
     'git diff candidate base HEAD'
   )) {
     if (isTypeScriptPath(target)) targets.add(target);
@@ -352,7 +413,7 @@ export function workingTreeTypeScriptTargets(
   // call replaces the former --cached, working-tree, and ls-files --others
   // calls, deriving all working-tree targets in one pass).
   for (const target of typeScriptTargetsFromPorcelain(
-    gitBytes(projectRoot, ['status', '--porcelain=v1', '-z']),
+    gitBytes(projectRoot, ['status', '--porcelain=v1', '--untracked-files=all', '-z'], undefined, pureGitReadEnvironment(env)),
     'git status --porcelain=v1'
   )) {
     targets.add(target);
@@ -388,16 +449,29 @@ function selectStagedEntries(
 ): readonly StagedIndexEntry[] {
   const unresolved = entries.find((entry) => entry.stage !== 0 && isTypeScriptPath(entry.path));
   if (unresolved) {
-    throw new Error(`Cannot organize unresolved TypeScript index stages: ${unresolved.path}`);
+    // Typed partial-stage fail-closed: no stash/restore, no index mutation.
+    throw new CompilerError(
+      'IMPORT-PARTIAL-STAGE-CONFLICT',
+      `Cannot organize unresolved TypeScript index stages: ${unresolved.path}`,
+      { path: unresolved.path }
+    );
   }
   const selected = targetPaths.map((targetPath) => {
     const matches = entries.filter((entry) => entry.path === targetPath);
     if (matches.length !== 1 || matches[0]!.stage !== 0) {
-      throw new Error(`TypeScript staged entry is unavailable or ambiguous: ${targetPath}`);
+      throw new CompilerError(
+        'IMPORT-STAGED-ENTRY-UNAVAILABLE',
+        `TypeScript staged entry is unavailable or ambiguous: ${targetPath}`,
+        { path: targetPath }
+      );
     }
     const entry = matches[0]!;
     if (entry.mode !== '100644' && entry.mode !== '100755') {
-      throw new Error(`TypeScript staged entry is not an ordinary file: ${targetPath}`);
+      throw new CompilerError(
+        'IMPORT-STAGED-NOT-ORDINARY',
+        `TypeScript staged entry is not an ordinary file: ${targetPath}`,
+        { path: targetPath, mode: entry.mode }
+      );
     }
     return entry;
   });
@@ -582,6 +656,17 @@ async function publishStagedIndex(
 
     await testHooks.afterIndexLock?.();
     assertIndexUnchanged(projectRoot, targetPaths, selectedEntries, candidateBase);
+    for (const update of updates) {
+      const publishedObjectId = gitText(
+        projectRoot,
+        ['hash-object', '-w', '--stdin'],
+        update.normalizedBytes,
+        process.env
+      ).trim();
+      if (publishedObjectId !== update.normalizedObjectId) {
+        throw new Error(`Published Git object identity changed for ${update.entry.path}`);
+      }
+    }
     const seed = await fs.readFile(indexPath);
     await fs.writeFile(alternateIndexPath, seed, {
       flag: 'wx',
@@ -614,19 +699,37 @@ async function publishStagedIndex(
   }
 }
 
-export async function runStagedImportOrganizer(
-  projectRoot = compilerRoot,
-  testHooks: StagedImportOrganizerTestHooks = {},
-  selection: StagedImportSelection = {}
-): Promise<number> {
+type StagedImportComputationV1 = Readonly<{
+  candidateBase: string | undefined;
+  targetPaths: readonly string[];
+  selectedEntries: readonly StagedIndexEntry[];
+  updates: readonly StagedImportUpdate[];
+  context: Readonly<{ root: string; snapshotRoot: string | null; mode: 'working-tree' | 'snapshot' }>;
+  service: ts.LanguageService;
+}>;
+
+async function computeStagedImportUpdates(
+  projectRoot: string,
+  testHooks: StagedImportOrganizerTestHooks,
+  selection: StagedImportSelection
+): Promise<StagedImportComputationV1 | null> {
   const candidateBase = resolvedCandidateBase(projectRoot, selection.candidateBase);
   const targetPaths = stagedTypeScriptTargets(projectRoot, candidateBase);
   const indexEntries = readIndexEntries(projectRoot);
-  const selectedEntries = selectStagedEntries(indexEntries, targetPaths);
   if (targetPaths.length === 0) {
-    console.log('No staged TypeScript import targets selected.');
-    return 0;
+    // Typed partial-stage fail-closed even when no staged diff targets are
+    // selected: unresolved TypeScript stages are never silently bypassed.
+    const unresolved = indexEntries.find((entry) => entry.stage !== 0 && isTypeScriptPath(entry.path));
+    if (unresolved) {
+      throw new CompilerError(
+        'IMPORT-PARTIAL-STAGE-CONFLICT',
+        `Cannot organize unresolved TypeScript index stages: ${unresolved.path}`,
+        { path: unresolved.path }
+      );
+    }
+    return null;
   }
+  const selectedEntries = selectStagedEntries(indexEntries, targetPaths);
 
   const context = candidateBase === undefined
     ? Object.freeze({
@@ -636,26 +739,24 @@ export async function runStagedImportOrganizer(
     })
     : await candidateContext(projectRoot, testHooks);
   const contextRoot = context.root;
-  let service: ts.LanguageService | undefined;
+  const config = loadProjectConfig(contextRoot);
+  const stagedFiles = new Map<string, { version: number; content: string }>();
+  const originals = new Map<string, Buffer>();
+  const blobs = readStagedBlobs(projectRoot, selectedEntries);
+  for (const entry of selectedEntries) {
+    const absolutePath = absoluteStagedPath(contextRoot, entry.path);
+    const bytes = blobs.get(entry.path);
+    if (!bytes) throw new Error(`TypeScript staged blob was not batch-loaded: ${entry.path}`);
+    originals.set(entry.path, bytes);
+    stagedFiles.set(absolutePath, {
+      version: 0,
+      content: decodeTypeScriptBlob(bytes, entry.path)
+    });
+  }
+  const projectFileNames = importServiceRootFileNames(config, [...stagedFiles.keys()]);
+  const service = createImportService(config, contextRoot, projectFileNames, stagedFiles);
   try {
-    const config = loadProjectConfig(contextRoot);
-    const stagedFiles = new Map<string, { version: number; content: string }>();
-    const originals = new Map<string, Buffer>();
-    const blobs = readStagedBlobs(projectRoot, selectedEntries);
-    for (const entry of selectedEntries) {
-      const absolutePath = absoluteStagedPath(contextRoot, entry.path);
-      const bytes = blobs.get(entry.path);
-      if (!bytes) throw new Error(`TypeScript staged blob was not batch-loaded: ${entry.path}`);
-      originals.set(entry.path, bytes);
-      stagedFiles.set(absolutePath, {
-        version: 0,
-        content: decodeTypeScriptBlob(bytes, entry.path)
-      });
-    }
-    const projectFileNames = importServiceRootFileNames(config, [...stagedFiles.keys()]);
-    service = createImportService(config, contextRoot, projectFileNames, stagedFiles);
     const updates: StagedImportUpdate[] = [];
-
     for (const entry of selectedEntries) {
       const absolutePath = absoluteStagedPath(contextRoot, entry.path);
       const file = stagedFiles.get(absolutePath);
@@ -667,7 +768,7 @@ export async function runStagedImportOrganizer(
       const normalizedBytes = Buffer.from(normalized, 'utf8');
       if (normalizedBytes.equals(originalBytes)) continue;
       testHooks.beforeHash?.(entry.path);
-      const normalizedObjectId = gitText(projectRoot, ['hash-object', '-w', '--stdin'], normalizedBytes).trim();
+      const normalizedObjectId = gitText(projectRoot, ['hash-object', '--stdin'], normalizedBytes).trim();
       if (!/^[0-9a-f]{40,64}$/u.test(normalizedObjectId)) {
         throw new Error(`git hash-object returned an invalid object ID for ${entry.path}`);
       }
@@ -682,29 +783,82 @@ export async function runStagedImportOrganizer(
       throw new Error('Working tree or untracked paths changed while organizing candidate imports');
     }
 
-    if (updates.length === 0) {
-      console.log('Staged TypeScript imports are organized.');
-      return 0;
-    }
-
-    await publishStagedIndex(
-      projectRoot,
-      targetPaths,
-      selectedEntries,
-      updates,
-      testHooks,
-      candidateBase
-    );
-
-    const fileList = updates.map((update) => `- ${update.entry.path}`).join('\n');
-    const scope = candidateBase === undefined ? 'staged' : 'candidate';
-    console.log(`Organized ${scope} imports in ${updates.length} file(s); working tree unchanged:\n${fileList}`);
-    return 0;
-  } finally {
-    service?.dispose();
+    return Object.freeze({ candidateBase, targetPaths, selectedEntries,
+      updates: Object.freeze(updates), context, service });
+  } catch (error) {
+    service.dispose();
     if (context.snapshotRoot !== null) {
       await fs.rm(context.snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
     }
+    throw error;
+  }
+}
+
+function disposeStagedComputation(computation: StagedImportComputationV1): Promise<void> {
+  computation.service.dispose();
+  return computation.context.snapshotRoot === null
+    ? Promise.resolve()
+    : fs.rm(computation.context.snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
+}
+
+/**
+ * Freeze = identity seal for staged/candidate snapshots. Pure compare only:
+ * zero source writes, zero index writes, zero rename/chmod/mtime publication.
+ */
+export async function runStagedImportCheck(
+  projectRoot = compilerRoot,
+  testHooks: StagedImportOrganizerTestHooks = {},
+  selection: StagedImportSelection = {}
+): Promise<ImportCheckOutcomeV1> {
+  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection);
+  if (computed === null) {
+    return Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
+      status: 'canonical' as const, files: Object.freeze([]) });
+  }
+  try {
+    if (computed.updates.length === 0) {
+      return Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
+        status: 'canonical' as const, files: Object.freeze([]) });
+    }
+    return Object.freeze({
+      schema: 'sec-import-check-outcome-v1' as const,
+      status: 'needs-import-transform' as const,
+      files: Object.freeze(computed.updates.map((update) => update.entry.path))
+    });
+  } finally {
+    await disposeStagedComputation(computed);
+  }
+}
+
+export async function runStagedImportOrganizer(
+  projectRoot = compilerRoot,
+  testHooks: StagedImportOrganizerTestHooks = {},
+  selection: StagedImportSelection = {}
+): Promise<number> {
+  const computed = await computeStagedImportUpdates(projectRoot, testHooks, selection);
+  if (computed === null) {
+    console.log('No staged TypeScript import targets selected.');
+    return 0;
+  }
+  try {
+    if (computed.updates.length === 0) {
+      console.log('Staged TypeScript imports are organized.');
+      return 0;
+    }
+    await publishStagedIndex(
+      projectRoot,
+      computed.targetPaths,
+      computed.selectedEntries,
+      computed.updates,
+      testHooks,
+      computed.candidateBase
+    );
+    const fileList = computed.updates.map((update) => `- ${update.entry.path}`).join('\n');
+    const scope = computed.candidateBase === undefined ? 'staged' : 'candidate';
+    console.log(`Organized ${scope} imports in ${computed.updates.length} file(s); working tree unchanged:\n${fileList}`);
+    return 0;
+  } finally {
+    await disposeStagedComputation(computed);
   }
 }
 
@@ -717,6 +871,15 @@ export async function runCandidateImportOrganizer(
   return runStagedImportOrganizer(projectRoot, testHooks, { candidateBase });
 }
 
+export async function runCandidateImportCheck(
+  projectRoot = compilerRoot,
+  testHooks: StagedImportOrganizerTestHooks = {},
+  env: ImportSelectionEnvironment = process.env
+): Promise<ImportCheckOutcomeV1> {
+  const candidateBase = resolveCandidateImportBase(projectRoot, env);
+  return runStagedImportCheck(projectRoot, testHooks, { candidateBase });
+}
+
 export function changedTypeScriptFiles(
   projectRoot = compilerRoot,
   env: ImportSelectionEnvironment = process.env
@@ -724,7 +887,8 @@ export function changedTypeScriptFiles(
   const baseRef = resolveImportDiffBase(env);
   const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
     cwd: projectRoot,
-    encoding: 'utf8'
+    encoding: 'utf8',
+    env: pureGitReadEnvironment(env)
   });
   if (result.error || result.status !== 0) {
     const detail = result.error?.message ?? result.stderr.trim();
@@ -742,104 +906,117 @@ export function changedTypeScriptFiles(
   );
 }
 
-function selectedFileNames(
-  config: ts.ParsedCommandLine,
-  projectRoot = compilerRoot,
-  env: ImportSelectionEnvironment = process.env
-): string[] {
-  if (!selectChangedImportsOnly(env)) {
-    return config.fileNames;
-  }
-
-  const changedFiles = changedTypeScriptFiles(projectRoot, env);
-
-  return config.fileNames.filter((fileName) => changedFiles.has(relativePosixPath(projectRoot, fileName)));
-}
-
-async function runImportOrganizerForTargets(
-  config: ts.ParsedCommandLine,
+async function loadSelectedWorkingTreeFiles(
   projectRoot: string,
-  targetFileNames: readonly string[],
-  options: { check: boolean; mode: 'check' | 'organize' | 'prepare' }
-): Promise<number> {
-  if (targetFileNames.length === 0) {
-    console.log(options.mode === 'prepare'
-      ? 'No changed TypeScript authoring targets selected.'
-      : 'No TypeScript import targets selected.');
-    return 0;
-  }
-
-  const files = new Map<string, { version: number; content: string }>(
-    await Promise.all(targetFileNames.map(async (fileName): Promise<[string, { version: number; content: string }]> => [
+  env: ImportSelectionEnvironment
+): Promise<{ config: ts.ParsedCommandLine; selected: readonly string[]; files: Map<string, string> }> {
+  const config = loadProjectConfig(projectRoot);
+  const selected = (() => {
+    if (!selectChangedImportsOnly(env)) return config.fileNames;
+    const targets = new Set(workingTreeTypeScriptTargets(projectRoot, env));
+    return config.fileNames.filter((fileName) => targets.has(relativePosixPath(projectRoot, fileName)));
+  })();
+  const files = new Map<string, string>(
+    await Promise.all(selected.map(async (fileName): Promise<[string, string]> => [
       fileName,
-      {
-        version: 0,
-        content: await fs.readFile(fileName, 'utf8')
-      }
+      await fs.readFile(fileName, 'utf8')
     ]))
   );
-  const projectFileNames = importServiceRootFileNames(config, targetFileNames);
-  const service = createImportService(config, projectRoot, projectFileNames, files);
+  return { config, selected: Object.freeze(selected), files };
+}
+
+/**
+ * imports:check — pure compare over the working-tree selector. Zero source
+ * writes, zero index writes, zero rename/chmod/mtime publication.
+ */
+export async function runImportCheck(
+  options: { intent?: ImportTransformIntentV1 } = {},
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): Promise<ImportCheckOutcomeV1> {
+  const { config, selected, files } = await loadSelectedWorkingTreeFiles(projectRoot, env);
+  if (selected.length === 0) {
+    return Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
+      status: 'canonical' as const, files: Object.freeze([]) });
+  }
+  const serviceFiles = new Map<string, { version: number; content: string }>(
+    [...files].map(([fileName, content]) => [fileName, { version: 0, content }])
+  );
+  const service = createImportService(config, projectRoot,
+    importServiceRootFileNames(config, selected), serviceFiles);
   try {
-    const changedFiles: string[] = [];
-
-    for (const fileName of targetFileNames) {
-      const file = files.get(fileName);
-      if (!file) {
-        continue;
-      }
-
-      const updated = organizeImportsInSource(service, fileName, file.content);
-      if (updated === file.content) {
-        continue;
-      }
-
-      changedFiles.push(relativePosixPath(projectRoot, fileName));
-      if (!options.check) {
-        await fs.writeFile(fileName, updated, 'utf8');
-        file.content = updated;
-        file.version += 1;
-      }
+    const noncanonical: string[] = [];
+    for (const fileName of selected) {
+      const source = files.get(fileName)!;
+      const updated = organizeImportsInSource(service, fileName, source, options.intent);
+      if (updated !== source) noncanonical.push(relativePosixPath(projectRoot, fileName));
     }
-
-    if (changedFiles.length === 0) {
-      console.log('Imports are organized.');
-      return 0;
-    }
-
-    const fileList = changedFiles.map((fileName) => `- ${fileName}`).join('\n');
-    if (options.check) {
-      console.error(`Imports need organizing in ${changedFiles.length} file(s):\n${fileList}\nRun bun run imports:organize.`);
-      return 1;
-    }
-
-    console.log(`${options.mode === 'prepare' ? 'Prepared' : 'Organized'} imports in ${changedFiles.length} file(s):\n${fileList}`);
-    return 0;
+    return noncanonical.length === 0
+      ? Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
+        status: 'canonical' as const, files: Object.freeze([]) })
+      : Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
+        status: 'needs-import-transform' as const, files: Object.freeze(noncanonical) });
   } finally {
     service.dispose();
   }
 }
 
-export async function runImportOrganizer(
-  options: { check: boolean },
+/**
+ * imports:transform — explicit authoring transform over the working-tree
+ * selector; the only ordinary source-writing import operation. The complete
+ * write set is published under the canonical workspace writer lease with
+ * supported-writer preimage CAS, durable recovery material, rollback, and
+ * exact readback. Every supported SEC writer participates in that lease.
+ * A true NOOP publishes zero source/index/rename/chmod/mtime changes.
+ */
+export async function runImportTransform(
+  options: {
+    intent?: ImportTransformIntentV1;
+    transactionTestHooks?: ImportTransformTransactionTestHooksV1;
+  } = {},
   projectRoot = compilerRoot,
   env: ImportSelectionEnvironment = process.env
-): Promise<number> {
-  const config = loadProjectConfig(projectRoot);
-  return runImportOrganizerForTargets(
-    config,
-    projectRoot,
-    selectedFileNames(config, projectRoot, env),
-    { check: options.check, mode: options.check ? 'check' : 'organize' }
+): Promise<ImportTransformOutcomeV1> {
+  const { config, selected, files } = await loadSelectedWorkingTreeFiles(projectRoot, env);
+  if (selected.length === 0) {
+    return Object.freeze({ schema: 'sec-import-transform-outcome-v1' as const,
+      status: 'noop' as const, files: Object.freeze([]) });
+  }
+  const serviceFiles = new Map<string, { version: number; content: string }>(
+    [...files].map(([fileName, content]) => [fileName, { version: 0, content }])
   );
-}
-
-export async function runImportPreparation(
-  projectRoot = compilerRoot,
-  env: ImportSelectionEnvironment = process.env
-): Promise<number> {
-  const config = loadProjectConfig(projectRoot);
-  const targets = new Set(workingTreeTypeScriptTargets(projectRoot, env));
-  const selected = config.fileNames.filter((fileName) => targets.has(relativePosixPath(projectRoot, fileName)));
-  return runImportOrganizerForTargets(config, projectRoot, selected, { check: false, mode: 'prepare' });
+  const service = createImportService(config, projectRoot,
+    importServiceRootFileNames(config, selected), serviceFiles);
+  try {
+    const writes: Array<{
+      relativePath: string;
+      expectedBytes: Buffer;
+      replacementBytes: Buffer;
+    }> = [];
+    for (const fileName of selected) {
+      const source = files.get(fileName)!;
+      const updated = organizeImportsInSource(service, fileName, source, options.intent);
+      if (updated === source) continue;
+      writes.push({
+        relativePath: relativePosixPath(projectRoot, fileName),
+        expectedBytes: Buffer.from(source, 'utf8'),
+        replacementBytes: Buffer.from(updated, 'utf8')
+      });
+    }
+    if (writes.length === 0) {
+      return Object.freeze({ schema: 'sec-import-transform-outcome-v1' as const,
+        status: 'noop' as const, files: Object.freeze([]) });
+    }
+    const outcome = await publishImportTransformTransactionV1(projectRoot, writes, options.transactionTestHooks);
+    return Object.freeze({
+      schema: 'sec-import-transform-outcome-v1' as const,
+      status: outcome.status,
+      files: outcome.files,
+      transactionId: outcome.transactionId,
+      journalPath: outcome.journalPath,
+      ...(outcome.status === 'accepted' ? {} : { reasonCode: outcome.reasonCode })
+    }) as ImportTransformOutcomeV1;
+  } finally {
+    service.dispose();
+  }
 }

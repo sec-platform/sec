@@ -45,6 +45,17 @@ test('test impact selector includes tests that directly import changed sources',
   expect(selection.slow).not.toContain('tests/contract/test-impact.test.ts');
 });
 
+test('local-main closeout routes to its focused authority and physical Risk closure', () => {
+  const selection = selectTestsForSources(['scripts/codex/local-main-closeout.ts']);
+
+  expect(selection.owners).toContain('verification-session-branch-closeout-authority');
+  expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/unit/local-main-closeout.test.ts',
+    'tests/unit/verification-session-runtime.test.ts'
+  ]));
+  expect(selection.slow).toEqual(['tests/e2e/verification-session-closeout-cli.test.ts']);
+});
+
 test('repository and documentation changes select registry-backed owner contracts', () => {
   for (const source of [
     'README.md',
@@ -384,6 +395,7 @@ test('branch closeout and VerificationSession authority select one exact fast cl
     'scripts/codex/branch-lifecycle.ts',
     'scripts/codex/branch-recovery.ts',
     'scripts/codex/integration-authorization-publication.ts',
+    'scripts/codex/local-main-closeout.ts',
     'scripts/codex/verification-candidate-tree.ts',
     'scripts/codex/verification-session-github.ts',
     'scripts/codex/verification-session-runtime.ts',
@@ -399,11 +411,12 @@ test('branch closeout and VerificationSession authority select one exact fast cl
       'tests/unit/branch-closeout-rest-comments.test.ts',
       'tests/unit/branch-lifecycle-temp-repo.test.ts',
       'tests/unit/integration-authorization-publication.test.ts',
+      'tests/unit/local-main-closeout.test.ts',
       'tests/unit/tcb-trust-root-contract.test.ts',
       'tests/unit/verification-candidate-tree.test.ts',
       'tests/unit/verification-session-runtime.test.ts'
     ],
-    slow: [],
+    slow: ['tests/e2e/verification-session-closeout-cli.test.ts'],
     owners: ['verification-session-branch-closeout-authority']
   };
   for (const source of sources) {
