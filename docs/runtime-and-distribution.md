@@ -189,6 +189,21 @@ WSL/Linux Evidence不替代Windows native，Windows Evidence也不替代Linux/ma
 
 `package.json`与lockfile保持单一writer。ImplementationBinding只能请求一个exact dependency closure；Dependency authority验证并materialize它，不能让Resolver、Backend、Adapter或Workbench直接修改package/lock。
 
+派生dependency root只允许保存canonical manifest投影、materialized modules、cache、lease与readiness
+stamp；它不是第二个package authority，不能持有lockfile、package-manager config或workspace config。
+唯一resolution effect由根`package.json + bun.lock + bunfig.toml + canonical Bun executable/version`生成compiler dependency
+generation；shared/project root不得再次调用package manager，只能从该generation复制完整有界closure或建立
+exact bridge。Materialization binding必须同时绑定lock、根manifest与install config raw digest、Bun物理可执行文件与digest、
+platform/architecture、每个direct/transitive package manifest和resolution edge。首次publish必须验证source
+generation与staged projection，后续cache hit只验证current root/toolchain、strict stamp与目标tree，不重复扫描
+已不参与运行的source generation。任何竞争authority残留一律保留并typed-block；只有显式
+generation-retirement transaction拥有删除权，readiness不得借自动cleanup、测试cleanup或全局cache断言成立。
+Compiler generation本身的binding是唯一可复用identity；不得再用`.tmp` stamp复制并自签package、lock、
+toolchain或readiness facts。Shared/project stamp只缓存已验证的完整materialization binding，不能替代source与
+target whole-object readback。
+允许生成的manifest/stamp也必须以non-reparse physical file与retained-handle identity读写；名称或inode漂移
+必须typed-block，不能沿路径重查后写入替换对象。
+
 引入、升级或删除依赖前必须检查：
 
 - actual old/new Binding与适用`ImplementationBindingDelta`；

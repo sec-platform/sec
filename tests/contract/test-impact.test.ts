@@ -216,6 +216,7 @@ test('documentation migrations retain exact tombstone ownership without reactiva
 test('runtime dependency authorities select only their exact fast and slow owners', () => {
   expect(selectTestsForSources(['platform/shared/project-runtime.ts'])).toEqual({
     fast: [
+      'tests/contract/project-runtime-contract.test.ts',
       'tests/contract/test-impact.test.ts',
       'tests/integration/compiler-dependency-installation.test.ts',
       'tests/integration/project-dependency-runtime.test.ts',

@@ -7,21 +7,24 @@ last-reviewed: 2026-08-12
 
 # SEC 滚动近期计划
 
-本投影绑定受信 `main@7bab4faa3a4e251c39a423d2b89769950573d0b1`。长期阶段DAG仍只由
+本投影绑定受信 `main@63760884c5529b7b7194008a2589ab256d8f7320`。长期阶段DAG仍只由
 `docs/roadmap.md`拥有，current spec仍只由下列Issue或更强machine owner拥有；本文件不解释Issue
-正文、不拥有优先级，也不是backlog/registry。canonical check run `93941027024`已证明imports、
-typecheck与docs authority通过，并把剩余失败收敛为六个fast contract consumer drift。本Work Package
-只闭合这些exact producer/consumer关系；候选拓扑保持不变。健康恢复后只能消费 validated WorkDecision；
-rolling prose 或 caller receipt 都不能选择、重排或授权下一项。
+正文、不拥有优先级，也不是backlog/registry。canonical MainHealth job `93945212264`已证明imports、
+typecheck、docs authority和其他fast tests通过，唯一失败是同一shard的dependency warmup使用历史
+`--no-lockfile`后生成`.shared-deps/bun.lock`。本Work Package把根manifest/lock/install config、Bun与compiler generation收敛为唯一
+resolution authority，shared/project只做完整closure投影，同时删除全局cache耦合的重复test file；候选
+拓扑保持不变。健康恢复后只能消费validated WorkDecision；
+rolling prose或caller receipt都不能选择、重排或授权下一项。
 
 ## 当前唯一 Work Package
 
-### main-health-repair-fast-contracts-v1
+### main-health-repair-shared-dependency-authority-v1
 
-Issue #221 MainHealth fast-contract reconciliation：production WorkSelection固定消费ordinary lane，
-并同步workflow、Agent router、rolling projection与Skill fixture的直接契约。删除已发布predecessor
-manifest且不建立tombstone、alias、tracked Evidence或第二registry；新main的canonical health
-readback仍是唯一恢复条件。
+Issue #221 MainHealth shared dependency authority repair：派生root不拥有第二lock/config/resolution authority；
+materializer只从canonical compiler generation投影完整direct/transitive closure，竞争控制文件保留并阻断，
+不再执行第二次Bun install。删除读取仓库全局可变cache的重复sandbox contract，把有效行为并入既有
+dependency-owner test surface；不建立tombstone、alias、tracked Evidence或第二registry。新main的
+canonical health readback仍是唯一恢复条件。
 
 ## 候选 Work Package
 
