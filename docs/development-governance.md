@@ -2,7 +2,7 @@
 title: 自主开发治理
 status: stable
 domain: development-governance
-last-reviewed: 2026-08-09
+last-reviewed: 2026-08-11
 ---
 
 # 自主开发治理
@@ -228,6 +228,78 @@ Role maximum
 
 Skill只能声明 required capabilities，不能扩大交集。
 
+### Task Capsule
+
+Task Capsule 由独立 `TaskCapsuleCompiler` 从 typed WorkDecision、canonical owner facts、root
+cause、scope、Impact 与 Verification obligations 纯编译；相同输入必须得到 byte-identical
+Capsule。它是 Operation 的不可变执行输入，不是 current state、Work Package 副本、聊天摘要或
+VerificationSession 子对象。
+
+Task Capsule 唯一拥有其内容 schema、编译规则和 revision。Operation Envelope 与
+VerificationSession 只能保存 `taskCapsuleRef`、`taskCapsuleDigest`、`taskCapsuleRevision`，并在
+使用前验证引用；不得复制 Capsule 字段后形成第二 owner，也不得由 Session event 或 Skill prose
+改写 Capsule。work selection、owner、scope 或 obligations 变化时重新编译 Capsule 并使引用旧
+revision 的下游 decision stale。
+
+### Operation Read Plan（Issue #346）
+
+独立 pure `OperationReadPlanCompiler` 消费 #205 Task Capsule 的一个 content-addressed authority
+projection 并产出 `sec-operation-read-plan-v1`。projection 的同一个 digest 必须完整覆盖 role、operation
+kind、goal、owner facts、scope、capability/resource/gate、Verification obligations、Skill candidates、
+exact trusted base/head 与 Work Package authorization；Read Plan 不接受这些字段的平行 caller claims，
+也不重新定义 #205 的完整 Capsule schema或取得 Root-Cause Preflight owner。它不是模型缓存、prompt、
+聊天摘要或新的状态机，而是一次 Operation 的最小读取闭包，至少拥有：
+
+```text
+requiredRefs
+conditionalRefs
+forbiddenSources
+maxSkillBodies = 0 | 1
+unresolvedFrontier
+readReceipts
+invalidationInputs
+```
+
+`requiredRefs` 的每项绑定 `ref + canonical owner + revision + reasonCode`。Agent 先消费这些引用，
+不得为了“熟悉工程”默认读取 assistant memory、聊天历史、旧 PR/Issue comments、全部开放 Issue、
+全仓文档或全部 Skill 正文。只有一个显式 `unresolvedFrontier` 尚未闭合时，才允许读取该 frontier
+列出的 `conditionalRefs`；conditional ref 必须反向绑定同一 frontier，禁止 unrestricted search。
+
+同一 source ref 在一个有效 operation context 中只能出现一次。`readReceipts` 绑定 planned ref ID、
+canonical owner、exact revision、content digest 与 reason。它们只证明
+读取了哪些 exact bytes，不证明内容正确，也不把外部 memory 提升为 authority。owner revision、
+goal、scope、Skill candidate set、Verification obligations、Work Package 或 trusted main 任一变化，
+对应 `invalidationInputs` 变化并使旧 Capsule/Read Plan/Skill decision stale。相同 path/blob 已有 fresh
+receipt 时，执行器传递 ref、relevant symbols 和 delta 即可，不重复把全文塞入上下文。
+
+机器入口是 `platform/shared/agent-operation-read-plan-contract.ts` 与
+`scripts/codex/operation-read-plan.ts`。pure compile/verify 只证明 canonical bytes 与 digest 完整性，不把
+caller 输入升级为 authority；production `compile` 只接受仅含 schema 的 authority-free closure request。
+caller 不能提供 ref、owner、revision、receipt、frontier、forbidden-source policy 或 invalidation。当前首个
+executable profile 由 clean exact live-main TCB 的 canonical resolver 直接派生：它观察显式
+`candidate-root` 的 exact HEAD/sole parent，从 candidate exact objects 读取 pointer、rolling plan 与
+manifest，以现有 Work Package parser 重算 owner、goal、verification、write/forbidden/changed paths，
+并固定为 `worker/implement`、实际已证明的 `git` capability、零 resource/gate、唯一
+`sec-worker-development` candidate。它同时从 trusted base blobs、exact candidate manifest、owned paths
+与固定 mandatory deny baseline 派生 repository-only required refs、零 conditional/external ref、零
+caller receipt和零 additional invalidation；每个 repository ref 必须落入 Capsule read scope，external
+ref 必须由 exact authorized resource覆盖。其他 role、capability、resource、gate 与 Skill candidate 在
+#205 provenance-verified producer 接入同一 projection 接口前 fail closed。Skill selector 必须重新执行
+同一 trusted observation并要求整个 Capsule 与 authority-bearing Read Plan closure byte-exact相等，才重算 quarantine
+blob revisions。raw envelope、caller-selected comparison pair 或 candidate-self-issued authority 入口都
+不存在。不得在读取 Skill body 后反推或改写 Read Plan。缓存实现可以替换或完全不存在，正确性只
+依赖 trusted projection、plan、receipt 与 invalidation contract。
+
+Read Plan 同时绑定 `current-physical-state-authoritative-v1`：非 Agent-owned scope 中的明确
+maintainer/user 改动是新的外部事件，旧 observation 立即 stale，当前物理状态成为 authoritative。
+无冲突时接受当前状态；冲突时返回 typed `external-maintainer-mutation`。本层 pure resolver 只分类
+`accept-current | conflict | recovery-authority-required | operation-owned-cas-eligible`，永远不签发 effect
+authority。恢复旧状态只有三类独立 executor 可以在重新验证 principal、request/receipt provenance、
+resource identity、preimage/current revision、expiry 与 CAS 后执行：用户明确请求恢复；回滚本 Agent
+自身已证明的越权 mutation；operation-owned resource 的匹配 CAS。protected interactive root 始终在
+candidate write authority 之外，裸枚举或 claim 不能授权恢复，也不能用 `git fsck`、dangling-object
+forensic、checkout 或“上下文恢复”默认复活旧 index/tree。
+
 ### Skill Applicability（zero-or-one trusted guidance）
 
 运行时 Skill 选择必须是 zero-or-one、trusted、operation-scoped（Issue #275）。
@@ -273,24 +345,68 @@ Evidence reuse和merge legality等机器规则不重复写入 Skill prose；Skil
 分析方法、工具选择、解释、停止和 typed outcome。详细 schema、枚举、命令和平台矩阵
 引用 canonical code或按需 reference，避免长流程连续加载重复正文污染 context。
 
+Skill 迁移采用两阶段而不是等待全部 deterministic owner 完成后一次性处理：已被 canonical
+owner 证伪的默认 memory/full-orientation 预读、旧 schema/命令、mutating freeze、draft Run
+Kernel authority 与 retired path 必须在早期 stale-guidance purge 中删除；只有替代 machine
+owner、consumer cutover 和 new-main canary 已闭合后，才执行 Skill ID/file 的最终 retirement。
+早期 purge 不能提前删除仍承担唯一判断的 guidance，后期 retirement 也不能保留第二算法。
+
 ### Deterministic services
 
 以下能力必须由唯一代码 owner 提供：
 
 - repository snapshot resolver；
 - work selector；
+- Task Capsule compiler；
 - Work Package / Integration conflict resolver；
 - Change Closure compiler；
 - impact/test/Gate selector；
 - permission evaluator；
 - candidate epoch/failure classifier；
 - Verification aggregator；
-- Evidence/Run State；
+- Action/Evidence state 与 VerificationSession；
+- NextTransition composition resolver；
 - publication、merge、readback和cleanup owner。
 
 产品Implementation Resolver、Block Resolver、Dependency materializer和Provider catalog分别由其canonical产品领域拥有；Development Skill或Agent不得在仓库开发流程中复制这些算法或用搜索结果/模型判断代替机器结果。
 
 Skill可以消费和解释 service结果，但不能重新实现算法或输出竞争状态。
+
+NextTransition composition resolver 只消费 owner 已形成的 WorkDecision、FailureDecision、
+ImpactDecision、ActionState、SessionState、ReviewFreshness、ProviderAvailability 和
+IntegrationState。它不能自行选择 work、分类 failure、扩缩 Impact、裁决 Review 或签发 merge
+authorization；输入缺失或互相冲突时只能 `blocked`，不能猜测一个下一 phase。
+
+### Development control-plane 七项终态裁决
+
+成熟工程团队需要下表中的**能力**，不需要七套重叠的 bespoke workflow。SEC 的准入标准不是
+“流程越多越专业”，而是每个持久 surface 都必须有不可由已有事实纯计算的真实状态、唯一 writer、
+生产 consumer、crash/concurrency 语义、迁移与删除条件。只做导航、组合或投影的能力必须是 pure
+compiler/resolver 或 derived view，不能升格为 state machine。
+
+| Surface | 实际作用 | 终态 | 自动化边界 | 完成/退役条件 |
+| --- | --- | --- | --- | --- |
+| General Run Kernel proposal | 汇总 run/capsule/transition 的早期设计输入 | **retire**；不实现第 2 个 coordinator | useful contracts 分别进入 TaskCapsuleCompiler、VerificationSession、Action/Evidence、Integration owner；`NextTransitionCompiler` 只纯组合 typed decisions | 所有目标 consumer cut over，proposal/Skill/agent projection 的 Run Kernel authority 引用为零后归档 |
+| `current-state.yaml` + active pointer + rolling plan | resolver 稳定配置、exact candidate selection、A0/人的近期投影 | **retain/adapt**；三个文件不是三个状态机 | parser/freeze owner 机器维护；candidate 为 `ProspectiveControlProjection`，live main 为 `ActiveMainControlState`，rolling plan 从选择结果派生 | candidate 投影失败不再污染 main；无 writer 会手工维护竞争 active truth；consumer contract 全部切换 |
+| `VerificationSession` 大实现/大测试 | 唯一 run/event/transition/resume coordinator | **retain/split**；不重写、不另建 Session | public contract 不变，内部按 pure decision、provider observation、Git/closeout、crash/recovery、hosted partitions 拆分；fast selector永不选择 slow/hosted partition | 每个 partition 有独立 Action/consumer/test-impact，普通 focused edit 不再触发整文件分钟级测试 |
+| `check:affected` / selector | 把 delta 映射到最小充分验证 | **evolve** 为 Requirement/subject closure | `Impact → tri-state Requirement → ActionKey → reuse/failure-reuse/join/execute/block`；unknown 保守扩大或 block | file-name fallback 只处理 unsupported closure；已知 unrelated/fresh Action 不再物理启动 |
+| `check:full` | release/nightly、selector calibration、unknown-impact backstop | **retain as backstop**，从日常路径退役 | 不接 pre-commit/pre-push、普通 edit、finding loop；只由明确 profile/trigger 调度 | default local/PR fast path 无 consumer，仍有 release/nightly/calibration owner 和预算 |
+| 17 个 repository Skills | 对需要 Agent 判断的触发、分析、工具选择和停止提供 guidance | **two-phase converge** 到实际仍有 heuristic consumer 的小集合，不以数量为宪法 | 先 purge 已证伪 memory/full-orientation/旧 schema/命令/retired path；替代 machine owner canary 后再删 consumer-zero ID/file | registry、AGENTS、agent projection、tests、docs 的旧 ID consumer 为零；剩余每个 Skill 有唯一非机器化判断 |
+| v2/v3/v4… candidate worktrees/refs | 曾用于 finding 后重建 exact one-parent candidate | **retire** 为 transport residue | 一个 logical run 只保留一个 mutable worktree + 一个 active ref；finding 原地修复、materialize 新 generation、expected-old CAS；旧 generation 留 immutable object/artifact | `FindingSuccessorWorktreeCount = 0`，completed run 的临时 worktree/ref 经 exact inventory/readback 自动清理 |
+
+实施不是“先补完七项，再开始真实开发”，也不是忽略七项继续堆功能。依赖顺序固定为：
+
+```text
+#346 Task Capsule / Read Plan
+→ #275 stale-guidance purge + consumer migration
+→ candidate/control materializer and projection cutover
+→ VerificationSession/test partitions + affected Requirement closure
+→ consumer-zero retirement and residue cleanup
+```
+
+每一阶段必须直接减少当前物理放大，并由真实 consumer 接管后再删除旧 surface；禁止建立独立的
+“最终架构包”挡在实现前。为防工程控制面吞噬产品开发，每完成一个非 P0/P1 的基础设施纵切片，
+后续至少完成两个直接推进产品主脊的 Work Package，除非有新的机器证据证明该基础设施仍是 blocker。
 
 ## A0、Worker、Reviewer 与 Auditor
 
@@ -336,7 +452,22 @@ Manifest 冻结：
 - acceptance、tests、profile和Evidence；
 - completion、migration、readback和cleanup。
 
-Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。Manifest也是scope proposal；只有trusted base/A0签发且绑定exact base/head/tree、manifest revision和authorized write set的scope authorization允许冻结Session。候选修改manifest或write set不能给自己扩权。
+Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。Manifest也是scope proposal；只有trusted base/A0签发的ScopeGrant与trusted resolver为当前exact base/head/tree产生的CandidateScopeAttestation共同成立时，才允许冻结Session。候选修改manifest或write set不能给自己扩权。
+
+授权与 candidate transport 分两层：`ScopeGrantId` 绑定 trust epoch、manifest semantic revision、
+owned/forbidden paths、capability/resource bounds 与 base authority；trusted resolver 再为每个 exact
+head/tree 签发 `CandidateScopeAttestation`，证明 changed paths 与 effects 仍是 ScopeGrant 的子集。
+内容、scope 或 authority 未变而只是等价 Git commit 重新 materialize 时，ScopeGrant 保持稳定；
+exact attestation、Review 与 Promotion 必须重绑新 head。
+
+一个 logical run 默认只有一个 mutable implementation worktree和一个 active candidate PR ref。
+Review finding 在同一 worktree 修复并 materialize 新 generation，以provider支持的expected-old CAS
+更新同一 ref（remote non-fast-forward只有ruleset明确允许时才使用force-with-lease）；旧 generation 用
+immutable object/ref/artifact 保存，不得建立 `v2/v3/...` successor
+worktree。generation 数量只作诊断，不设 `<= 1` 假门禁；`FindingSuccessorWorktreeCount` 必须为零。
+base/trust/scope 真正变化时进入 rebase/reconcile，而不是把 transport churn伪装成新 Work Package。
+provider不支持同ref replacement时只能先以receipt supersede旧PR/ref，再创建一个新的唯一active ref；
+不得同时保留多个active candidate refs，也不得用新worktree代替provider capability分类。
 
 完整程序路线不写入一个Work Package。一个包只实现当前阶段中可独立验证、迁移和readback的纵向闭包，但不能降低canonical终态。
 
@@ -376,7 +507,7 @@ Squash merge后按最终tree、contracts和行为结果判断内容是否进入 
 
 Git branch承载代码演进；GitHub Actions的workflow_dispatch/matrix/job/artifact承载测试参数和Evidence。禁止长期创建一次性远端测试分支。
 
-PR Ready只表示允许进入Review调度，不表示可以启动expensive hosted Gate或required Evidence已通过。Head/base/tree/manifest/authorized scope/profile/trust变化会使绑定旧identity的Action/Review/Evidence/Session/authorization失效；即使head不变，Review policy、REQUEST_CHANGES或blocking thread变化也会使Review与merge authorization失效。
+PR Ready只表示允许进入Review调度，不表示可以启动expensive hosted Gate或required Evidence已通过。Head/base/tree/manifest/authorized scope/profile/trust变化总会使绑定旧 exact subject 的Review、Session revision与merge authorization失效；Action/Evidence仅在其canonical subject closure、contract、environment或trust input变化时失效，trusted resolver必须为新 generation 重算reuse。即使head不变，Review policy、REQUEST_CHANGES或blocking thread变化也会使Review与merge authorization失效。
 
 ## Impact 与验证选择
 
@@ -385,6 +516,19 @@ PR Ready只表示允许进入Review调度，不表示可以启动expensive hoste
 开发中先运行当前 failing/focused sentinel；candidate稳定后运行由变化类型和Impact选择的local closure；Frozen后由A0触发required hosted Gate。不是每个Work Package固定全跑同一套重门禁。
 
 相同未失效 Gate identity复用；输入和failure fingerprint未变时不重复确定性失败。无法证明不受影响不是“无需测试”。
+
+相对于当前受支持的 dependency/Impact model，系统必须执行最小充分 closure：known
+not-applicable 全部跳过，fresh terminal PASS/FAIL 全部复用，authenticated in-flight 只 join，
+unknown physical outcome block，只有 missing/stale Action 才允许 physical start。同一个
+ActionKey 的 physical start 不得超过一次；Impact unresolved 时扩大 closure 或停止，不能假装
+不适用。性能预算限制重复物理工作而不是合法 generation：
+
+```text
+MutableWorktreeAmplification = mutable worktrees / active logical runs = 1.0
+ActiveRefAmplification = active candidate refs / active logical runs = 1.0
+FindingSuccessorWorktreeCount = 0
+physicalStartsPerActionKey <= 1
+```
 
 ## Failure、重试与 Proof Reset
 
@@ -408,7 +552,11 @@ VerificationSession尚未由new-main canary激活，或不能完整投影某一�
 - identity、instruction、authority或trust fence不一致时停止，不猜测继续；
 - Skill正文按需加载，旧阶段正文不因已经读过而继续取得authority。
 
-VerificationSession的目标所有权只包括run/capsule/event/transition和resume verification。Epoch/Failure、Verification Result、Evidence、Review、MainHealth、Work Package和Integration各由自己的domain owner拥有，禁止建立第二状态机。字段、有效性与授权语义只引用verification authority；本文件只规定操作顺序。
+VerificationSession的目标所有权只包括run/session identity、event、transition、owner decisions 的
+typed references 与 resume verification。它只引用 `taskCapsuleRef/digest/revision`；它不拥有 Task Capsule 内容或 compiler。
+Epoch/Failure、Verification Result、Action/Evidence、Review、MainHealth、
+Work Package和Integration各由自己的domain owner拥有，禁止建立第二状态机或 general Run
+Kernel。字段、有效性与授权语义只引用verification authority；本文件只规定操作顺序。
 
 ## Merge 与收口
 

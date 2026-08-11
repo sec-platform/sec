@@ -320,7 +320,8 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
       'sec-repository-audit'
     );
   }
-  if (path === 'platform/shared/agent-skill-contract.ts') {
+  if (path === 'platform/shared/agent-skill-contract.ts'
+    || path === 'platform/shared/agent-operation-read-plan-contract.ts') {
     return skills(
       'sec-documentation-governance',
       'sec-context-resume',
@@ -682,7 +683,9 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
 export const SEC_SKILL_QUARANTINE_PATHS = [
   'AGENTS.md',
   '.agents/',
+  'platform/shared/agent-operation-read-plan-contract.ts',
   'platform/shared/agent-skill-contract.ts',
+  'scripts/codex/operation-read-plan.ts',
   'scripts/codex/skill-applicability.ts',
   'docs/development-governance.md'
 ] as const;
@@ -719,6 +722,8 @@ export interface SecSkillApplicabilityDecisionV1 {
   readonly targetCandidate: string;
   readonly workPackageAuthorizationRef: string | null;
   readonly taskCapsuleRef: string | null;
+  readonly taskCapsuleDigest: string | null;
+  readonly taskCapsuleRevision: string | null;
   readonly candidateSkillIds: readonly SecAgentSkillId[];
   readonly selectedSkillId: SecAgentSkillId | null;
   readonly trustedSkillRevision: string | null;
@@ -740,6 +745,8 @@ export interface SecSkillApplicabilityEnvelopeV1 {
   readonly targetCandidate: string;
   readonly workPackageAuthorizationRef?: string | null;
   readonly taskCapsuleRef?: string | null;
+  readonly taskCapsuleDigest?: string | null;
+  readonly taskCapsuleRevision?: string | null;
   readonly candidates?: readonly unknown[];
   readonly availableCapabilities?: readonly string[];
   readonly authorizedResources?: readonly string[];
@@ -773,6 +780,12 @@ function computeInvalidationConditions(
     conditions.push('work-package-authorization');
   }
   if ((prior.taskCapsuleRef ?? null) !== (input.taskCapsuleRef ?? null)) conditions.push('task-capsule');
+  if ((prior.taskCapsuleDigest ?? null) !== (input.taskCapsuleDigest ?? null)) {
+    conditions.push('task-capsule-digest');
+  }
+  if ((prior.taskCapsuleRevision ?? null) !== (input.taskCapsuleRevision ?? null)) {
+    conditions.push('task-capsule-revision');
+  }
   if (prior.trustedRevision !== input.trustedRevision) conditions.push('trusted-revision');
   if (prior.candidateSkillIds.length > 0) {
     const priorSet = new Set(prior.candidateSkillIds);
@@ -798,6 +811,8 @@ function buildUnresolvedDecision(
     targetCandidate: input.targetCandidate,
     workPackageAuthorizationRef: input.workPackageAuthorizationRef ?? null,
     taskCapsuleRef: input.taskCapsuleRef ?? null,
+    taskCapsuleDigest: input.taskCapsuleDigest ?? null,
+    taskCapsuleRevision: input.taskCapsuleRevision ?? null,
     candidateSkillIds: [],
     selectedSkillId: null,
     trustedSkillRevision: null,
@@ -855,6 +870,8 @@ export function evaluateSecSkillApplicabilityV1(
         targetCandidate: input.targetCandidate,
         workPackageAuthorizationRef: input.workPackageAuthorizationRef ?? null,
         taskCapsuleRef: input.taskCapsuleRef ?? null,
+        taskCapsuleDigest: input.taskCapsuleDigest ?? null,
+        taskCapsuleRevision: input.taskCapsuleRevision ?? null,
         candidateSkillIds: [...new Set((input.candidates ?? [...SEC_AGENT_SKILL_IDS]).filter(isSecAgentSkillId))],
         selectedSkillId: null,
         trustedSkillRevision: null,
@@ -984,6 +1001,8 @@ export function evaluateSecSkillApplicabilityV1(
     targetCandidate: input.targetCandidate,
     workPackageAuthorizationRef: input.workPackageAuthorizationRef ?? null,
     taskCapsuleRef: input.taskCapsuleRef ?? null,
+    taskCapsuleDigest: input.taskCapsuleDigest ?? null,
+    taskCapsuleRevision: input.taskCapsuleRevision ?? null,
     candidateSkillIds,
     selectedSkillId,
     trustedSkillRevision,
