@@ -7,20 +7,22 @@ last-reviewed: 2026-08-12
 
 # SEC 滚动近期计划
 
-本投影绑定受信 `main@20d50bd9ecc5ab156b5728f724bf658eded15b44`。长期阶段DAG仍只由
+本投影绑定受信 `main@eb5cc38382f8b4932e9e47bce45762a7fb97aebc`。长期阶段DAG仍只由
 `docs/roadmap.md`拥有，current spec仍只由下列Issue或更强machine owner拥有；本文件不解释Issue
-正文、不拥有优先级，也不是backlog/registry。当前迁移因旧拓扑只剩两个候选而无法完成正常promotion，
-故由本Work Package作一次性reviewed bootstrap；本包进入main后，任何候选补充或替换都必须来自
-exact-main上重新推导的validated `WorkDecision`，失败只返回`unresolved`或`reconcile`。
+正文、不拥有优先级，也不是backlog/registry。canonical `sec/main-health`在该exact main上报告两个
+TypeScript source diagnostics，WorkDecision因而正确返回`reconcile(main-unhealthy)`。本Work Package
+只修复该健康回归的测试源；候选拓扑保持不变，健康恢复后仍由exact-main上的
+validated `WorkDecision`选择下一项。
 
 ## 当前唯一 Work Package
 
-### work-selection-live-projection-v1
+### main-health-repair-work-selection-v1
 
-Issue #221 Phase B/C：在canonical roadmap内部建立唯一bounded normalized stage projection；live adapter
-只组合exact repository、#311 registry、#313 lifecycle、single-writer control/conflict frontier和current-spec digest；rolling
-projection只物化validated decision。不得读取Issue/comment prose作为指令，不建立第二roadmap/registry，
-不让caller receipt自授权。
+Issue #221 MainHealth reconciliation：只修check run `93934094079`报告的两个document-control测试源
+类型错误，保持digest字符串等值与index fence字节等值语义。不得把failed check解释成healthy，
+不运行ordinary selection写入，不改变Tier 0/Tier 1实现owner或roadmap catalog。本包是当前维护者
+授权的exact failure reconciliation，不是Tier 0 break-glass；新main的canonical health readback仍是
+唯一恢复条件。digest producer精确返回类型和`reconcile` owner ref进入健康main后的普通后继包。
 
 ## 候选 Work Package
 
