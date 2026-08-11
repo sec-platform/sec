@@ -640,11 +640,13 @@
         "disposition": "adapt",
         "canonicalTargets": [
           "development-governance",
+          "roadmap",
+          "system-architecture",
           "verification-governance"
         ],
-        "activationTrigger": "candidate-closure-or-run-journal-focused-work-package",
+        "activationTrigger": "verification-session-candidate-generation-action-closure-and-promotion-consumer-cutover",
         "retirementTarget": "docs/archive/proposals/development-run-kernel.md",
-        "evidenceRequirement": "historical-run-replay-state-owner-separation-and-consumer-cutover",
+        "evidenceRequirement": "historical-run-replay-state-owner-separation-finding-generation-action-reuse-promotion-readback-and-consumer-zero-retirement",
         "reversalCondition": null
       },
       "audience": [

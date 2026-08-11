@@ -31,7 +31,7 @@ describe('canonical documentation authority', () => {
       'R11 — Application / Behavior / Target Program Lowering',
       'R12 — General TypeScript Engineering Compiler',
       'R13 — Workbench / AI Semantic Operator',
-      'R14 — Agent Operation Compiler / Run Kernel',
+      'R14 — Agent Operation Compiler / VerificationSession Cutover',
       'R15 — Release / Deployment / Operations',
       'R16 — Registry Ecosystem / Additional Languages'
     ];
@@ -72,6 +72,69 @@ describe('canonical documentation authority', () => {
     expect(roadmap).not.toMatch(/\bPR #\d+\b/u);
   });
 
+  test('development control-plane convergence keeps one run coordinator and separated identities', async () => {
+    const [architecture, development, verification, roadmap, proposal] = await Promise.all([
+      readCompilerFile('docs/system-architecture.md'),
+      readCompilerFile('docs/development-governance.md'),
+      readCompilerFile('docs/verification-governance.md'),
+      readCompilerFile('docs/roadmap.md'),
+      readCompilerFile('docs/proposals/development-run-kernel.md')
+    ]);
+
+    expectContainsAll(architecture, [
+      'Task Capsule 是独立 pure compiler 的不可变输出',
+      'VerificationSession 是唯一 development run coordinator',
+      '系统不建立',
+      'general Run Kernel',
+      'NextTransitionCompiler 只组合各 owner 已签发的 typed decisions',
+      'CandidateContentId',
+      'CandidateGenerationRef',
+      'ReviewSubjectId',
+      'PromotionId'
+    ]);
+    expectContainsAll(development, [
+      'Task Capsule 唯一拥有其内容 schema、编译规则和 revision',
+      '`taskCapsuleRef`、`taskCapsuleDigest`、`taskCapsuleRevision`',
+      '`sec-operation-read-plan-v1`',
+      'requiredRefs',
+      'conditionalRefs',
+      'forbiddenSources',
+      'maxSkillBodies = 0 | 1',
+      'caller-selected comparison pair',
+      '永远不签发 effect',
+      'Development control-plane 七项终态裁决',
+      'FindingSuccessorWorktreeCount = 0',
+      'physicalStartsPerActionKey <= 1',
+      '不拥有 Task Capsule 内容或 compiler'
+    ]);
+    expectContainsAll(verification, [
+      '`CandidateContentId` 绑定',
+      '`CandidateGenerationRef` 绑定',
+      '`ProspectiveControlProjection`',
+      '`ActiveMainControlState`',
+      '`ReviewRequestActionKey`',
+      '`physicalStartsPerActionKey <= 1`',
+      'Tier 0 Transition Root',
+      '`PromotionId` 绑定'
+    ]);
+    expectContainsAll(roadmap, [
+      'R14 — Agent Operation Compiler / VerificationSession Cutover',
+      '不创建一个只做“最终架构”的umbrella Work Package',
+      'Read fast path（#346）',
+      'Guidance purge（#275 phase A）',
+      'Candidate / Control transaction',
+      'Promotion / retirement（含 #275 phase B）'
+    ]);
+    expectContainsAll(proposal, [
+      '新的顶层 durable Run Kernel state machine 被拒绝',
+      'Task Capsule',
+      'VerificationSession',
+      'NextTransitionCompiler',
+      'proposal-only'
+    ]);
+    expectContainsNone(architecture, ['Run Kernel 未实现时']);
+  });
+
   test('rolling plan is relationally bound to the active pointer and keeps the remaining candidates', async () => {
     const [rollingPlanSource, pointerSource] = await Promise.all([
       readCompilerFile('docs/work/rolling-plan.md'),
@@ -94,7 +157,7 @@ describe('canonical documentation authority', () => {
     expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',
       '## 候选 Work Package',
-      'Issue #348',
+      'Issue #346',
       'Issue #178',
       'Issue #327',
       'Issue #314',
@@ -105,24 +168,23 @@ describe('canonical documentation authority', () => {
     expect(rawManifestDigest).toBeDefined();
     expect(CodexDevelopmentWorkPackageManifestDigest(manifestSource)).toBe(rawManifestDigest!);
     expectContainsAll(manifestSource, [
-      'bootstrap-repair-348-347-v1',
-      'Issue #348',
-      'Issue #347',
-      'needs-import-transform',
-      'provider-schema-unsupported',
-      'LOCAL_MAIN_READY',
-      'fresh genuine independent exact-head PASS'
+      'agent-operation-read-plan-v1',
+      'Issue #346',
+      'requiredRefs',
+      'conditionalRefs',
+      'current-physical-state-authoritative-v1',
+      'three different real operations'
     ]);
     expectContainsAll(pointerSource, [
-      'docs/work-packages/bootstrap-repair-348-347-v1.md',
+      'docs/work-packages/agent-operation-read-plan-v1.md',
       rawManifestDigest!,
       'selectionMode: exact-manifest-not-on-default-branch-v1'
     ]);
     expectContainsAll(rollingPlanSource, [
-      '### bootstrap-repair-348-347-v1',
-      'Issue #348',
-      'Issue #347',
-      'TASK_RESTART_REQUIRED'
+      '### agent-operation-read-plan-v1',
+      'Issue #346',
+      'Task Capsule identity-bound Read Plan',
+      '三次真实 operation canary'
     ]);
     expectContainsNone(rollingPlanSource, [
       '### verification-action-trusted-cutover-v10',

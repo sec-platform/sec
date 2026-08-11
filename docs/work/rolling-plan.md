@@ -17,30 +17,12 @@ bootstrap receipt 均已 stale，不能迁移到本窗口。`TASK_RESTART_REQUIR
 
 ## 当前唯一 Work Package
 
-### bootstrap-repair-348-347-v1
+### agent-operation-read-plan-v1
 
-Bootstrap Repair Wave #348 + #347，单个隔离 candidate、一个 frozen Work
-Package、两个独立 owner Task：
-
-- Task A（Issue #348）Imports Effect-Purity Cutover：统一 pure Import
-  Transform Kernel，`imports:check` 纯比较零写、`imports:transform` 显式
-  有界写、freeze 仅 seal identity 并返回 typed `needs-import-transform`、
-  pre-commit/pre-push 与 `check:*` 永不写 source/index、退役
-  `imports:prepare`、sort-and-combine 与 remove-unused 分责、双 worktree
-  index 隔离 witness；
-- Task B（Issue #347）Verification Fast-Path Integrity：GitHub Review
-  GraphQL `Actor.id` 查询形态修复与 typed `provider-schema-unsupported`、
-  writer/reviewer/hosted-verification provider identity 分离与 availability
-  epoch（quota/credits 原始文本不入工程状态、同 epoch unavailable 不重试）、
-  implementation session 不能签发 independent Review receipt、#345 假
-  Independent Review 路径负向回归、protected root local-main 终态
-  `LOCAL_MAIN_READY | LOCAL_MAIN_SYNC_BLOCKED(reason)`、integration trailer
-  只来自 validated receipt。
-
-#207/#311 兼容性已在 exact base `7297da11b11145fa958a8ec468e98e9be4dfa351`
-上由 `resolveParallelConflict` 证明为 `parallel-safe`（witness 记录于
-manifest 正文）。本包完成后返回 `TASK_RESTART_REQUIRED`，等待下一
-trusted-main session；不关闭 parent #321/#311，不继续 #346/#275/#349。
+实现 Issue #346 的 Task Capsule identity-bound Read Plan 与 zero-or-one Skill 正常入口，
+并固化 development control-plane 七项收敛裁决。该纵切片不取得 #205 整体 Task Capsule /
+Root-Cause Preflight owner，也不因合入而提前关闭 #346；三次真实 operation canary 与
+maintainer-mutation consumer readback 完成后才关闭，随后进入 #275。
 
 ## 候选 Work Package
 

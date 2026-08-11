@@ -2,7 +2,7 @@
 title: 系统架构与权威流
 status: stable
 domain: system-architecture
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-11
 ---
 
 # 系统架构与权威流
@@ -330,17 +330,67 @@ SEC 自身开发最终使用：
 
 ```text
 Universal repository policy
-→ explicit Agent Role
-→ typed Operation Envelope
-→ exactly one Primary Skill
-→ deterministic services/contracts/tools
-→ typed outcome and legal next transition
-→ external Run State / Evidence
+→ typed WorkDecision
+→ Task Capsule Compiler
+→ explicit Agent Role + typed Operation Envelope
+→ zero or one applicable trusted Skill
+→ deterministic domain decisions and physical Actions
+→ VerificationSession composition and legal next transition
+→ external Evidence / Review / Integration / main readback
 ```
 
-Role 拥有职责和可申请权限上限；Envelope 授予当前 operation 的 exact target、path、capability 和 completion claims；Skill 只是需要 Agent 判断的 workflow recipe。
+Role 拥有职责和可申请权限上限；Envelope 授予当前 operation 的 exact target、path、
+capability 和 completion claims；Skill 只是需要 Agent 判断的 workflow recipe。
+Task Capsule 是独立 pure compiler 的不可变输出，拥有 selected work、owner/root-cause、
+scope、Impact 与 Verification obligations；VerificationSession 只能引用其 ref、digest 和
+revision，不能拥有 Capsule 内容、编译规则或 lifecycle。
 
-Repository snapshot、Work Package、Impact selection、Failure/Epoch、Verification Result、Evidence reuse、permission intersection、Integration 和 merge legality必须由机器 owner决定，不能重复写进多个 Skill。Run Kernel 未实现时只能从 Git/PR/manifest/Evidence 做 manual-shadow 恢复，不能用聊天摘要冒充外部状态。
+VerificationSession 是唯一 development run coordinator，拥有 run/session identity、event、
+transition、resume verification 和所引用事实的 composition；它不重新拥有 Work、Task
+Capsule、Impact、Failure、Action、Evidence、Review、Provider 或 Integration。系统不建立
+general Run Kernel，也不以另一个 current-phase ledger 包装这些 owner。
+
+NextTransitionCompiler 只组合各 owner 已签发的 typed decisions：WorkDecision、FailureDecision、
+ImpactDecision、ActionState、SessionState、ReviewFreshness、ProviderAvailability 与
+IntegrationState。它必须是同输入 byte-stable 的 pure composition resolver，只能输出
+`execute | join | wait | blocked | complete` 及前置条件，不能选择 Issue、重算 Impact、判断
+failure owner、Review freshness 或 merge legality。
+
+Repository snapshot、Work Package、Impact selection、Failure/Epoch、Verification Result、
+Evidence reuse、permission intersection、Integration 和 merge legality必须由机器 owner决定，
+不能重复写进多个 Skill。VerificationSession production consumer 未由 new-main canary 激活时，
+只能从 Git/PR/manifest/Evidence 做 manual-shadow 恢复，不能用聊天摘要冒充外部状态。
+
+### 开发控制面 identity 分层
+
+开发控制面不得把内容、Git transport、Review 和发布身份压成一个 SHA：
+
+```text
+ScopeGrantId
+→ CandidateContentId
+→ CandidateGenerationRef
+→ ActionKey / Evidence identity
+→ ReviewSubjectId
+→ PromotionId
+→ merged main readback identity
+```
+
+- `CandidateContentId` 只绑定会改变候选内容语义的 base dependency、candidate tree、
+  ScopeGrant 与 manifest semantic revision；等价内容重新 materialize 时保持不变；
+- `CandidateGenerationRef` 绑定 run、单调 generation、content identity 与 exact Git head，
+  用于恢复、PR transport 和 invalidation history；
+- Action 只绑定其实际 subject closure；整个 candidate tree 只有在 Gate contract 真实读取
+  全树时才进入该 ActionKey；
+- ReviewSubject 与 Promotion 始终绑定 exact head/tree 和各自 live policy/facts，不能仅凭
+  content identity 复用授权。
+
+### 持久状态准入
+
+domain 数量由 `docs/authority.json` 推导，state-machine 数量也不是架构常量。只有某对象同时
+具备真实跨进程世界状态、外部副作用或竞争、crash recovery/CAS/lease 需求、无法从其他
+canonical facts 纯计算、唯一 writer/consumer 以及 migration/retirement 时，才允许建立 durable
+state machine。Evidence、freshness、health、applicability、maturity 和 next-transition projection
+优先保持 immutable record、truth lattice 或 pure evaluator；不得为了展示 phase 再建状态机。
 
 ## 生命周期与失败
 

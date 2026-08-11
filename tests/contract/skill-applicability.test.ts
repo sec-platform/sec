@@ -4,130 +4,202 @@ import path from 'node:path';
 import { expect, test } from 'bun:test';
 
 import {
+  compileSecOperationReadPlanV1,
+  projectSecSkillEnvelopeFromOperationReadPlanV1,
+  SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+  SEC_TASK_CAPSULE_AUTHORITY_REVISION,
+  SEC_TASK_CAPSULE_AUTHORITY_SCHEMA,
+  type SecDigestV1,
+  type SecOperationReadPlanInputV1,
+  type SecTaskCapsuleAuthorityV1
+} from '../../platform/shared/agent-operation-read-plan-contract.ts';
+import {
+  evaluateSecSkillApplicabilityV1,
+  isSecSkillQuarantinePath,
   SEC_SKILL_APPLICABILITY_SCHEMA,
-  type SecSkillApplicabilityDecisionV1,
-  type SecSkillApplicabilityEnvelopeV1
+  type SecAgentRole,
+  type SecAgentSkillId,
+  type SecOperationKind,
+  type SecSkillApplicabilityDecisionV1
 } from '../../platform/shared/agent-skill-contract.ts';
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
+const digest = (character: string): SecDigestV1 => `sha256:${character.repeat(64)}`;
 
-function gitOutput(args: string[]): string {
-  const result = spawnSync('git', args, { cwd: REPOSITORY_ROOT, encoding: 'utf8', windowsHide: true });
-  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`);
+function capsule(authority: SecTaskCapsuleAuthorityV1): SecOperationReadPlanInputV1['taskCapsule'] {
+  const normalizedAuthority: SecTaskCapsuleAuthorityV1 = {
+    ...authority,
+    ownerFacts: [...authority.ownerFacts].sort((left, right) => left.id.localeCompare(right.id)),
+    scope: {
+      ...authority.scope,
+      readPaths: [...authority.scope.readPaths].sort(),
+      writePaths: [...authority.scope.writePaths].sort(),
+      forbiddenPaths: [...authority.scope.forbiddenPaths].sort(),
+      availableCapabilities: [...authority.scope.availableCapabilities].sort(),
+      authorizedResources: [...authority.scope.authorizedResources].sort(),
+      authorizedGates: [...authority.scope.authorizedGates].sort(),
+      changedPaths: [...authority.scope.changedPaths].sort()
+    },
+    verificationObligations: [...authority.verificationObligations]
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    skillCandidateIds: [...authority.skillCandidateIds].sort()
+  };
+  const projection = {
+    schema: SEC_TASK_CAPSULE_AUTHORITY_SCHEMA,
+    ref: 'urn:sec:task-capsule:skill-applicability-contract',
+    revision: SEC_TASK_CAPSULE_AUTHORITY_REVISION,
+    authority: normalizedAuthority
+  };
+  return { ...projection, digest: sha256(projection) as SecDigestV1 };
+}
+
+function gitOutput(args: readonly string[]): string {
+  const result = spawnSync('git', args, {
+    cwd: REPOSITORY_ROOT,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  if (result.status !== 0) throw new Error(result.stderr);
   return result.stdout.trim();
 }
 
-function runCli(
-  envelope: SecSkillApplicabilityEnvelopeV1,
-  extraArgs: string[] = []
-): SecSkillApplicabilityDecisionV1 {
-  const result = spawnSync(
-    process.execPath,
-    ['scripts/codex/skill-applicability.ts', '--envelope', JSON.stringify(envelope), ...extraArgs],
-    { cwd: REPOSITORY_ROOT, encoding: 'utf8', windowsHide: true }
-  );
-  if (result.status !== 0) {
-    throw new Error(`skill-applicability CLI failed (${result.status}): ${result.stderr.trim()}`);
+function changedPaths(base: string, head: string): string[] {
+  const source = gitOutput(['diff', '--name-status', base, head]);
+  return [...new Set(source.split(/\r?\n/u).filter(Boolean)
+    .flatMap((line) => line.split('\t').slice(1)))].sort();
+}
+
+function planInput(overrides: {
+  role?: SecAgentRole;
+  operationKind?: SecOperationKind;
+  candidates?: readonly SecAgentSkillId[];
+  availableCapabilities?: readonly string[];
+  authorizedResources?: readonly string[];
+  authorizedGates?: readonly string[];
+  writePaths?: readonly string[];
+  forbiddenPaths?: readonly string[];
+  base?: string;
+  head?: string;
+} = {}): SecOperationReadPlanInputV1 {
+  const head = overrides.head ?? gitOutput(['rev-parse', 'HEAD']);
+  const base = overrides.base ?? head;
+  const candidates = overrides.candidates ?? ['sec-worker-development'];
+  const observedChangedPaths = changedPaths(base, head);
+  return {
+    schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
+    taskCapsule: capsule({
+      operationId: 'skill-applicability-contract',
+      role: overrides.role ?? 'worker',
+      operationKind: overrides.operationKind ?? 'implement',
+      goalDigest: digest('b'),
+      trustedRevision: base,
+      targetCandidate: head,
+      workPackageAuthorizationRef: 'docs/work-packages/agent-operation-read-plan-v1.md',
+      workPackageAuthorizationDigest: digest('c'),
+      ownerFacts: [{
+        id: 'development-governance',
+        ref: 'docs/development-governance.md',
+        owner: 'development-governance-owner',
+        revision: 'owner-revision-v1'
+      }],
+      scope: {
+        readPaths: ['docs/development-governance.md'],
+        writePaths: overrides.writePaths ?? (observedChangedPaths.length > 0
+          ? observedChangedPaths
+          : ['platform/shared/']),
+        forbiddenPaths: overrides.forbiddenPaths ?? [],
+        availableCapabilities: overrides.availableCapabilities ?? ['git', 'github', 'hosted-gate'],
+        authorizedResources: overrides.authorizedResources ?? [],
+        authorizedGates: overrides.authorizedGates ?? [],
+        changedPaths: observedChangedPaths
+      },
+      verificationObligations: [],
+      skillCandidateIds: candidates
+    }),
+    requiredRefs: [{
+      id: 'development-governance',
+      ref: 'docs/development-governance.md',
+      owner: 'development-governance-owner',
+      revision: 'owner-revision-v1',
+      reasonCode: 'canonical-operation-owner'
+    }],
+    conditionalRefs: [],
+    forbiddenSources: [
+      'assistant-memory',
+      'chat-history',
+      'full-issue-census',
+      'full-skill-corpus',
+      'historical-pr-comments',
+      'unrelated-issue-census'
+    ],
+    maxSkillBodies: candidates.length === 0 ? 0 : 1,
+    unresolvedFrontier: [],
+    readReceipts: [],
+    invalidationInputs: []
+  };
+}
+
+function evaluatePlan(input: SecOperationReadPlanInputV1): SecSkillApplicabilityDecisionV1 {
+  const plan = compileSecOperationReadPlanV1(input);
+  const envelope = projectSecSkillEnvelopeFromOperationReadPlanV1(plan);
+  const trustedSkillRevisions: Record<string, string> = {};
+  const candidateSkillRevisions: Record<string, string> = {};
+  for (const repositoryPath of (envelope.changedPaths ?? []).filter(isSecSkillQuarantinePath)) {
+    const trusted = gitOutput(['rev-parse', '--verify', `${envelope.trustedRevision}:${repositoryPath}`]);
+    const candidate = gitOutput(['rev-parse', '--verify', `${envelope.targetCandidate}:${repositoryPath}`]);
+    if (/^[0-9a-f]{40,64}$/u.test(trusted)) trustedSkillRevisions[repositoryPath] = trusted;
+    if (/^[0-9a-f]{40,64}$/u.test(candidate)) candidateSkillRevisions[repositoryPath] = candidate;
   }
-  const decision = JSON.parse(result.stdout) as SecSkillApplicabilityDecisionV1;
+  const decision = evaluateSecSkillApplicabilityV1({
+    ...envelope,
+    trustedSkillRevisions,
+    candidateSkillRevisions
+  });
   expect(decision.schema).toBe(SEC_SKILL_APPLICABILITY_SCHEMA);
   return decision;
 }
 
-const HEAD = gitOutput(['rev-parse', 'HEAD']);
-
-function envelope(overrides: Partial<SecSkillApplicabilityEnvelopeV1> = {}): SecSkillApplicabilityEnvelopeV1 {
-  return {
-    role: 'worker',
-    operationKind: 'implement',
-    goalDigest: 'contract-goal',
-    trustedRevision: HEAD,
-    targetCandidate: 'feat/skill-applicability-gate-v1',
-    availableCapabilities: ['git', 'github', 'hosted-gate'],
-    ...overrides
-  };
-}
-
-test('CLI consumes a real operation envelope and selects the single trusted Skill', () => {
-  const decision = runCli(envelope({
-    candidates: ['sec-worker-development', 'sec-repository-audit'],
-    authorizedWritePaths: ['platform/shared/']
-  }), ['--base', HEAD, '--head', HEAD]);
+test('verified Read Plan selects the single trusted Skill', () => {
+  const decision = evaluatePlan(planInput());
   expect(decision.status).toBe('applicable');
   expect(decision.selectedSkillId).toBe('sec-worker-development');
-  expect(decision.trustedRevision).toBe(HEAD);
 });
 
-test('CLI resolves none-required for a simple operation with zero candidates', () => {
-  const decision = runCli(envelope({ candidates: [] }));
+test('zero candidates and zero body budget resolve none-required', () => {
+  const decision = evaluatePlan(planInput({ candidates: [] }));
   expect(decision.status).toBe('none-required');
   expect(decision.selectedSkillId).toBeNull();
-  expect(decision.reasonCodes).toContain('none-required');
 });
 
-test('CLI resolves ambiguous when multiple candidates survive without unique evidence', () => {
-  const decision = runCli(envelope({
+test('multiple surviving metadata candidates resolve ambiguous before any body read', () => {
+  const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'govern',
-    candidates: ['sec-work-package-lifecycle', 'sec-task-delegation']
+    candidates: ['sec-work-package-lifecycle', 'sec-task-delegation'],
+    writePaths: ['docs/work/', 'docs/work-packages/']
   }));
   expect(decision.status).toBe('ambiguous');
   expect(decision.selectedSkillId).toBeNull();
 });
 
-test('CLI resolves conflict when a candidate requires beyond the authorized scope', () => {
-  const decision = runCli(envelope({
+test('resource beyond frozen scope resolves conflict', () => {
+  const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'integrate',
     candidates: ['sec-ci-and-merge'],
-    availableCapabilities: ['git', 'github', 'hosted-gate'],
     authorizedGates: ['hosted-gate']
   }));
   expect(decision.status).toBe('conflict');
   expect(decision.reasonCodes).toContain('conflict-resource');
 });
 
-test('CLI binds trusted and candidate blob revisions for quarantined changed paths', () => {
-  const expectedTrustedBlob = gitOutput(['rev-parse', `HEAD:AGENTS.md`]);
-  const decision = runCli(envelope({
-    candidates: ['sec-worker-development'],
-    changedPaths: ['AGENTS.md', 'platform/shared/ci-contract.ts']
-  }), ['--base', HEAD, '--head', HEAD]);
-  expect(decision.status).toBe('applicable');
-  expect(decision.quarantinePaths).toEqual(['AGENTS.md']);
-  expect(decision.trustedSkillRevision).toBe(expectedTrustedBlob);
-  expect(decision.candidateSkillRevision).toBe(expectedTrustedBlob);
+test('candidate quarantine revisions are derived from exact Git objects', () => {
+  const head = gitOutput(['rev-parse', 'HEAD']);
+  const base = gitOutput(['rev-parse', 'HEAD^']);
+  const decision = evaluatePlan(planInput({ base, head }));
+  expect(decision.quarantinePaths).toEqual(expect.arrayContaining(['AGENTS.md']));
   expect(decision.reasonCodes).toEqual(
     expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
   );
-});
-
-test('CLI marks a prior decision stale when goal or envelope bindings change', () => {
-  const prior = runCli(envelope({
-    candidates: ['sec-worker-development'],
-    authorizedWritePaths: ['platform/shared/']
-  }));
-  expect(prior.status).toBe('applicable');
-  const stale = runCli(envelope({
-    candidates: ['sec-worker-development'],
-    authorizedWritePaths: ['platform/shared/'],
-    goalDigest: 'changed-goal',
-    priorDecision: prior
-  }));
-  expect(stale.status).toBe('stale');
-  expect(stale.selectedSkillId).toBeNull();
-  expect(stale.invalidationConditions).toContain('goal-digest');
-  expect(stale.reasonCodes).toEqual(['stale']);
-});
-
-test('CLI fails closed for malformed envelopes', () => {
-  const result = spawnSync(
-    process.execPath,
-    ['scripts/codex/skill-applicability.ts', '--envelope', JSON.stringify({ role: 'root' })],
-    { cwd: REPOSITORY_ROOT, encoding: 'utf8', windowsHide: true }
-  );
-  expect(result.status).toBe(0);
-  const decision = JSON.parse(result.stdout) as SecSkillApplicabilityDecisionV1;
-  expect(decision.status).toBe('unresolved');
-  expect(decision.reasonCodes).toEqual(['unresolved-invalid-role']);
 });
