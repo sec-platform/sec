@@ -1101,7 +1101,8 @@ test('pre-evidence replan replaces one staged manifest generation in the same wo
     const pointer = CodexDevelopmentParseActivePointerV2(
       await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8')
     );
-    expect(pointer.manifestDigest).toBe(CodexDevelopmentWorkPackageManifestDigest(nextManifest));
+    expect<string>(pointer.manifestDigest)
+      .toBe(CodexDevelopmentWorkPackageManifestDigest(nextManifest));
     expect(await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'))
       .toContain('last-reviewed: 2026-08-10');
     expect(await readFile(path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'), 'utf8'))
@@ -2567,7 +2568,7 @@ test('same-tree raw index stat drift is a semantic NOOP without effects', async 
     });
     expect(repeated.candidateTreeSha).toBe(frozen.candidateTreeSha);
     expect(fenceIndex).toBeDefined();
-    expect(await readFile(indexPath)).toEqual(fenceIndex!);
+    expect((await readFile(indexPath)).equals(fenceIndex!)).toBe(true);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBefore);
     expect(runGit(fixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensusBefore);
     expect(durabilityEffects).toEqual([]);
