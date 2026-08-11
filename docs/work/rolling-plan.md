@@ -2,14 +2,14 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-11
+last-reviewed: 2026-08-12
 ---
 
 # SEC 滚动近期计划
 
-本窗口从受信 `main@985bc5ab8f7422f7135d8e10c23c52ffd060d75a`、
-`tree@a2629c5a2b708f0c4947c3dac8ed63954bf6b92b` 重算；local、`origin/main` 与
-live provider default一致，root clean，开放 PR 为零。PR #350、#351、#353、#354与imports
+本窗口从受信 `main@eccdfee5280119cfbba82f01d421a5f0ec9765e4`、
+`tree@c5d56eb05852784be11e56b70fe5df48fff16cfa` 重算；local、`origin/main` 与
+live provider default一致，root clean，当前唯一开放候选为PR #357。PR #350、#351、#353、#354与imports
 scope结果已经进入当前tree；旧candidate Review、Gate、Session、manifest或聊天顺序均不迁移。
 
 这份文件只投影一个当前包和四个条件候选。长期能力顺序仍由`docs/roadmap.md`拥有，持久工作
@@ -19,37 +19,36 @@ exact facts的显式reconciliation；切换后只能由validated WorkDecision物
 
 ## 当前唯一 Work Package
 
-### work-discovery-and-plan-convergence-v1
+### issue-disposition-safety-v1
 
-完成#221 Phase A与发现行为收敛：新增只消费bounded normalized facts的pure WorkDecision compiler，
-把“发现问题后先解析既有work identity、owner与current spec，再固化/排序”的不可遗忘行为写入
-唯一Skill和治理短投影，并修复repository audit把导航文字或裸对象名误报为Agent启发式的根因。
-普通`.agents/skills/**` authoring也从泛化`agent-governance`重闭包拆为四个直接contract owner tests；
-其中`agent-skills`用production pure source-governance projection扫描每个exact Skill字节与全部blocking
-finding，而不为单个Skill修改启动物理全仓audit。authority/runtime变化仍保留原重闭包。当前包不读取raw Issue prose、不自动改Issue、不写GitHub、
-不实现ExecutionWave，也不关闭#221。
+从then-current main执行#352：由现有integration/closeout owner实现machine-owned
+`IssueDisposition`。受控 PR title/body、provider linked closing references 与生成的 merge message始终
+保持零 closing authority；GraphQL closing census拒绝partial errors并以totalCount证明完整。exact
+new-main与MainHealth读回后，当前只产生`progressed`：仓库尚无独立post-main completion assessment，
+且GitHub Issue PATCH没有可证明的原子前置条件。误关只能由provider ClosedEvent精确绑定本次PR和
+merge commit后升级为`manual-action-required`并停止closeout，不执行竞态reopen。
+
+发布读回发现old-main TCB lock落后于#354–#356已合并的五个causal module；ordinary Session与
+trusted-bootstrap PRE均在同一substitution fingerprint前停止，candidate SUT未启动。当前同一branch/
+PR successor同时刷新generated lock、隔离hook执行与安装、在pre-push加入纯TCB check，并使未来
+base-first bootstrap只把严格成对substitution drift降级为`manual-bootstrap-required` Evidence；任何
+结构漂移仍hard fail。本次旧head与run `31520460467`只保留为失败证据，不授权successor。
 
 ## 候选 Work Package
 
-### 1. issue-disposition-safety-v1
-
-从then-current main执行#352：由现有integration/closeout owner实现machine-owned
-`IssueDisposition`，PR renderer默认拒绝closing lexical pattern，只允许fresh authorized completion
-set生成唯一closing clause；merge后按operation receipt逐Issue readback，并只精确reopen本次误关目标。
-
-### 2. document-control-replan-recovery-v1
+### 1. document-control-replan-recovery-v1
 
 由#321/#311修复真实Windows canary暴露的control-plane recovery缺陷：同manifest pre-publication
 replan在pointer已等于NEXT时必须byte-exact NOOP；Git index recovery identity以semantic
 tree/entries与受保护tuple为准；terminal residue自动consumer-zero retire，人工删除不成为正常路径。
 
-### 3. work-selection-live-projection-v1
+### 2. work-selection-live-projection-v1
 
 继续#221 Phase B/C：trusted adapter只从repository orientation、#311 registry、#313 closeout、
 #207 conflict与maintainer-adopted normalized identity收集facts，签发decision receipt；rolling writer
 只物化该receipt的当前+二至五候选。不得抓取Issue body/comment、建立第二registry或静默覆盖冲突投影。
 
-### 4. operation-read-plan-authority-canary-v1
+### 3. operation-read-plan-authority-canary-v1
 
 从then-current main完成#346的独立issuer-bound activation receipt与三个真实operation canary：普通
 focused operation、zero-or-one Skill operation和maintainer mutation case。Capsule/Read Plan consumer
@@ -78,6 +77,9 @@ focused operation、zero-or-one Skill operation和maintainer mutation case。Cap
 - candidate/control transaction之后依次进入VerificationSession physical partition + Requirement
   closure、#349 ExecutionWave、Review/trust transition与promotion/retirement；每项是then-current main
   上可独立readback的纵切片，不使用长期umbrella branch。
+- #352保持开放，直到Review/trust transition提供独立、post-main、逐acceptance Evidence与完整
+  work/child/consumer census的completion assessment；Issue writer仍须等待provider capability证明真实
+  conditional mutation。两项任一缺失都只允许progress，不为提前关Issue建立临时maintainer flag。
 
 ## 重新规划硬触发器
 

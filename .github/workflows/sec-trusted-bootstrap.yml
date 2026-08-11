@@ -464,11 +464,37 @@ jobs:
               if (candidateRegistryDigest !== baseRegistryDigest) {
                 manualReasons.add("candidate-registry-differs-from-trusted-base-policy");
               }
-              const checkerClosure = tcb.trustedRuntimeClosure(baseRegistry.runtimeEntrypoints, baseSnapshotOptions);
-              const checkerVerification = tcb.verifyTcbClosureLock(checkerClosure, baseSnapshotOptions);
-              if (checkerVerification.status !== "passed") {
+            const checkerClosure = tcb.trustedRuntimeClosure(baseRegistry.runtimeEntrypoints, baseSnapshotOptions);
+            const checkerVerification = tcb.verifyTcbClosureLock(checkerClosure, baseSnapshotOptions);
+            if (checkerVerification.status !== "passed") {
+              const substitutionKinds = new Map();
+              let closureDigestFailureCount = 0;
+              let unsupportedFailure = false;
+              for (const failure of checkerVerification.failures) {
+                const substitution = /^substitution: (blob|content digest) mismatch for ([A-Za-z0-9._/-]+)$/u.exec(failure);
+                if (substitution !== null) {
+                  const kinds = substitutionKinds.get(substitution[2]) ?? new Set();
+                  kinds.add(substitution[1]);
+                  substitutionKinds.set(substitution[2], kinds);
+                  continue;
+                }
+                if (/^closure digest: expected sha256:[0-9a-f]{64}, actual sha256:[0-9a-f]{64}$/u.test(failure)) {
+                  closureDigestFailureCount += 1;
+                  continue;
+                }
+                unsupportedFailure = true;
+              }
+              const substitutionOnlyDrift = !unsupportedFailure
+                && closureDigestFailureCount === 1
+                && substitutionKinds.size > 0
+                && [...substitutionKinds.values()].every((kinds) =>
+                  kinds.size === 2 && kinds.has("blob") && kinds.has("content digest")
+                );
+              if (!substitutionOnlyDrift) {
                 throw new Error(`trusted bootstrap checker closure is not frozen: ${checkerVerification.failures.join(" | ")}`);
               }
+              manualReasons.add("trusted-base-lock-substitution-drift");
+            }
               let parsedCandidateLock = null;
               let candidateLockSourceDigest = null;
               try {

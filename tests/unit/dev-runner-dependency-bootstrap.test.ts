@@ -51,6 +51,27 @@ for (const source of ['existing', 'installed'] as const) {
   });
 }
 
+for (const source of ['existing', 'installed'] as const) {
+  test(`active Git hook execution never recursively installs hooks (${source})`, async () => {
+    const hookRoots: string[] = [];
+    await ensureDevDependencies({
+      ensureCompilerDeps: async () => ({
+        manifestHash: 'manifest-hash',
+        nodeModulesPath: 'compiler-node-modules',
+        packageManager: 'bun',
+        root: 'compiler-root',
+        source
+      }),
+      ensureHooks: async (repoRoot) => {
+        hookRoots.push(repoRoot);
+      },
+      hookPolicy: 'never'
+    });
+
+    expect(hookRoots).toEqual([]);
+  });
+}
+
 test('test dependency bootstrap composes compiler and browser readiness without hook lifecycle', async () => {
   const calls: string[] = [];
   const result = await ensureTestDependencies({

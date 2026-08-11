@@ -551,8 +551,9 @@ test('hosted integration workflow delegates one globally serialized live-readbac
     'Read back exact branch closeout recovery artifact',
     'Integrate exact hosted Session and publish live readback status',
     'Dispatch and join exact post-merge MainHealth',
-    'Close out exact integrated branch',
+    'Observe Issue disposition and close out exact integrated branch',
     'Publish exact branch closeout receipt',
+    'Retain exact closeout and Issue disposition projections',
     'Upload diagnostic integration projection'
   ]);
   expect(integrate.steps.filter(({ run }) => run !== undefined)).toHaveLength(8);
@@ -581,7 +582,8 @@ test('hosted integration workflow delegates one globally serialized live-readbac
   });
   expect(integrate.steps[8]?.if).toBe(openLane);
   expect(integrate.steps[8]?.with).toMatchObject({
-    path: '.tmp/codex/branch-closeout-recovery.json'
+    path: '.tmp/codex/branch-closeout-recovery.json',
+    'include-hidden-files': true
   });
   expect(integrate.steps[9]?.if).toBe(openLane);
 
@@ -608,6 +610,12 @@ test('hosted integration workflow delegates one globally serialized live-readbac
   expect(mainHealthScript).toContain("integration.lane === 'open-first-effect'");
   expect(mainHealthScript).toContain('mergeCommit.data.parents[0]?.sha !== preMergeMainSha');
   expect(mainHealthScript).toContain("exactMarker('Verification-Session') !== integration.sessionRevision");
+  expect(mainHealthScript).toContain("integration.issueReconciliation.status === 'legacy-no-effect'");
+  expect(mainHealthScript).toContain("integration.issueReconciliation.status !== 'observed'");
+  expect(mainHealthScript).toContain('provider conditional writes are unsupported');
+  expect(mainHealthScript).toContain("exactMarker('Issue-Disposition-Plan')");
+  expect(mainHealthScript).toContain('integration.issueDispositionPlan.planDigest');
+  expect(mainHealthScript).toContain("integration.lane !== 'merged-recovery' || !issueMarkersAbsent");
   expect(mainHealthScript).toContain('plannedCurrentMainSha !== preMergeMainSha');
   expect(mainHealthScript).toContain('mergeCommitSha !== mainSha');
   expect(mainHealthScript).toContain('mainSha === preMergeMainSha');
@@ -619,7 +627,7 @@ test('hosted integration workflow delegates one globally serialized live-readbac
   expect(mainHealthScript).toContain('relation.data.merge_base_commit.sha !== mergeCommitSha');
 
   expect(integrate.steps[12]).toMatchObject({
-    name: 'Close out exact integrated branch',
+    name: 'Observe Issue disposition and close out exact integrated branch',
     id: 'closeout-mutate-hosted',
     if: effectLane
   });
@@ -629,11 +637,24 @@ test('hosted integration workflow delegates one globally serialized live-readbac
     if: effectLane
   });
 
-  const diagnostic = integrate.steps[14]!;
+  const closeoutProjection = integrate.steps[14]!;
+  expect(closeoutProjection.uses)
+    .toBe('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
+  expect(closeoutProjection.with).toMatchObject({
+    name: 'sec-closeout-projections-v1-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}',
+    'include-hidden-files': true
+  });
+  expect(String(closeoutProjection.with?.path))
+    .toContain('.tmp/codex/closeout-mutation-projection.json');
+  expect(String(closeoutProjection.with?.path))
+    .toContain('.tmp/codex/closeout-publication-projection.json');
+
+  const diagnostic = integrate.steps[15]!;
   expect(diagnostic.uses).toBe('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
   expect(diagnostic.with).toMatchObject({
     name: 'sec-integration-projection-v1-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}',
-    path: '.tmp/codex/integration-projection.json'
+    path: '.tmp/codex/integration-projection.json',
+    'include-hidden-files': true
   });
 });
 

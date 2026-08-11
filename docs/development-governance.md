@@ -663,30 +663,49 @@ Git branch承载代码演进；GitHub Actions的workflow_dispatch/matrix/job/art
 
 Issue completion intent 只能来自 machine-owned `IssueDisposition` 或 validated closeout receipt。
 任意 PR title/body/comment 中的自然语言都不是 lifecycle state；PR renderer 必须拒绝 GitHub lexical
-closing-keyword pattern，除非该 exact Issue 位于 fresh authorized completion set，并由 renderer生成
-唯一允许的 closing clause。merge readback逐个比较授权集合与实际 Issue state；误关恢复只允许按
-operation receipt 精确 reopen 被本次 merge 误关的 Issue，禁止文本批量 reopen/close。
+closing-keyword pattern，受控 PR 和生成的 merge message 即使准备完成 Issue 也不得渲染 closing
+clause。PR 只携带一个 `progress-only | close-tracking-after-readback` 非 effect 计划；pre-merge 必须
+同时读回 title/body 和完整 bounded `closingIssuesReferences`，两者均为零 closing authority 才能 merge。
+provider 的 auto-close setting 只能作为 defense-in-depth，不能进入可证明的 authority chain。
 
-`IssueDisposition` 是唯一 close writer，至少绑定：Issue number、current-spec revision、stable
-acceptance IDs、exact new-main commit/tree、required Evidence refs、remaining-work/child/consumer
-census、expected provider state 与 one-use operation ID。partial slice 只能产生 `progressed` receipt；
-只要任一 acceptance 为 `open|unknown|invalidated`，或 remaining work/consumer/child 不为零，就不能
-产生 `close-authorized`。PR/commit/comment 中的 closing lexical pattern 默认一律拒绝渲染。
+`IssueDisposition` 是唯一 lifecycle decision owner；close writer 只有在 provider 能执行真实原子前置条件
+时才可激活。完成评估至少绑定：Issue number、current-spec revision、stable acceptance IDs、exact
+new-main commit/tree、逐 acceptance Evidence provenance，以及同 revision 的 remaining-work/child/consumer
+census。`VerificationSession` 只能消费该独立 typed assessment，禁止自行填充 `satisfied` 或零 census。
+当前仓库尚无该 trusted post-main assessment owner，因此只能产生 `progressed` receipt。
+hosted closeout 必须把完整 canonical typed receipt 保存在 run artifact 中；只保留摘要、裸 digest 或
+无法由 consumer 重新 parse 的 `Record<string, unknown>` 不构成可复用 Evidence。
+PR/commit/comment 中的 closing lexical pattern 默认一律拒绝渲染，并覆盖 `#N`、`owner/repo#N` 与
+完整 `https://github.com/owner/repo/issues/N` 引用。
+公开 CLI 只允许渲染安全 PR body 和观察非 effect plan；不得暴露 compile/apply/reconcile 或通用
+Issue mutation 命令。provider close/reopen adapter 的唯一 production consumer 是现有
+`VerificationSession` hosted integration/closeout，consumer census 必须由 focused contract 锁定。
 
-关闭事务固定为：
+GitHub 文档明确说明 unsafe method 的 conditional request 默认不受支持，`Update an issue` endpoint
+也没有声明例外。因此普通 Issue `PATCH` 不是 CAS；当前 production adapter 不暴露 close/reopen
+mutation、effect-start 或 terminal receipt，也不以 read→PATCH→readback 冒充原子操作。其现行事务为：
 
 ```text
-compile disposition from exact new main
-→ validate close-authorized and expected issue=open
-→ one exact provider close effect
-→ provider state readback
-→ closed-readback | ambiguous-side-effect | blocked
+safe PR plan + zero provider closing references
+→ exact merge commit/tree readback
+→ successful exact post-merge MainHealth
+→ bind exact Issue/current-spec and acceptance IDs
+→ completion-assessment-unavailable + provider-conditional-write-unsupported
+→ progressed (zero Issue mutation)
 ```
 
+未来只有 provider capability receipt 证明同一资源支持可审计的条件写，且 trusted post-main completion
+assessment 已存在时，才允许升级为 `close-authorized → conditional effect → exact readback`；该迁移必须
+作为新的 trust/capability cutover，不能在协调器内添加 caller flags。
+
 Program Issue 与 focused slice 分别计算 acceptance；子切片完成不能继承父 Issue 的关闭权。
-若 merge 或人工操作使未授权 Issue 关闭，reconciler 只按同一 operation receipt 精确 reopen 该号码，
-并保存原因码；不得通过标题、最近时间、文本搜索或批量 API 猜测目标。这一 adapter/receipt cutover
-属于 R14 `Promotion / retirement`，在生产 consumer 切换前 prose 规则不算完成。
+若 provider 仍在 merge 时关闭未授权 Issue，read-only reconciler 只有在 provider
+`ClosedEvent.closer` 同时绑定 exact PR number 与 merge commit 时，才返回 typed
+`manual-action-required`；由于 provider 不支持条件写，它不得自动 reopen，也不得通过标题、最近时间、
+文本搜索或批量 API 猜测目标。workflow 在该结果上停止 closeout，由 maintainer 重新观察后处置。
+`closingIssuesReferences` 的 GraphQL envelope 必须拒绝任意非空 `errors`，跨页锁定 `totalCount` 并证明
+terminal accumulated count相等。迁移前缺少完整 IssueDisposition markers 的历史 merged closeout
+只能 `legacy-no-effect`，部分或重复 markers 必须 fail closed。
 
 worktree closeout 是 branch/ref closeout 的前置 physical Action，不以 `git worktree remove` exit code
 为成功。terminal completion 同时要求 Git common-dir registry absence 与 exact physical target
@@ -762,7 +781,7 @@ Kernel。字段、有效性与授权语义只引用verification authority；本�
 5. independent exact-head Review-Stable Barrier在expensive Gate前通过，required CI/Evidence完成后又得到fresh readback；
 6. 无unresolved blocking thread、有效REQUEST_CHANGES、probe、临时日志入口或artifact drift；
 7. exact MainHealth、ruleset/trust revision、merge order、conflict和consumer切换已理解；
-8. 唯一physical executor是在repository/default-branch全局临界区内完成fresh authorization、expected-head merge、tree parity与closeout readback的trusted hosted operation；不存在本地JSON消费、`--admin`或raw merge旁路。
+8. 唯一ordinary physical executor是在repository/default-branch全局临界区内完成fresh authorization、expected-head merge、tree parity与closeout readback的trusted hosted operation；不存在本地JSON消费、`--admin`或raw merge旁路。唯一例外是`docs/verification-governance.md`定义的Tier 0 manual break-glass：它不能冒充ordinary receipt，只能修复受信路径本身并满足其exact-object、candidate-lock、independent Review与remote readback约束。
 
 满足时及时合并，不为表现“仍在开发”继续修改正确candidate。大型实验历史优先squash经过验证的最终状态。
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
+export SEC_GIT_HOOK_ACTIVE=1
+
 if [ "${3-0}" = "1" ] || [ ! -e node_modules ]; then
   bun ./platform/dev-runner.ts deps:ensure
 fi

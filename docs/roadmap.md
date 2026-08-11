@@ -593,6 +593,8 @@ typed refs。Evidence、freshness、health、maturity与next-transition projecti
 - delta-aware Review input与fresh full exact-head receipt；
 - ProspectiveCandidateControl与ActiveMainControl分离；
 - Tier 0 transition root、Tier 1 evolvable TCB与Tier 2 product分层；
+- generated TCB lock在push前纯检查，hook执行与hook安装隔离；old-main仅对成对substitution lock漂移
+  产生typed manual-bootstrap Evidence，任何结构漂移继续hard fail；
 - Context compression/restart从authority重算同一next transition；
 - candidate Agent/Skill不能自证trust migration；
 - deterministic behavior 显式路由到 machine owner，Skill corpus 只保留 bounded judgement；替代owner canary后立即 consumer-zero retirement，不留 alias。
@@ -616,11 +618,14 @@ plan映射到既有唯一owner，并作为可独立main/readback的纵向Work Pa
 5. **ExecutionWave**：只编译work refs、order、conflict、resource与cost，combined candidate必须证明
    failure isolation和Review/invalidation收益；
 6. **Review / Trust transition**：Review Action、delta packet、new exact-head receipt、Tier 0/1 TCB
-   transition；
+   transition、generated-lock drift prevention与bounded stale-base recovery；
 7. **Promotion / retirement**：single-use integration、remote/local readback、closeout Actions、
-   machine-owned `IssueDisposition`、exact provider close/reopen CAS/readback、legacy journal/API
+   machine-owned `IssueDisposition`、provider-capability-gated conditional close/reopen、legacy journal/API
    retirement 与 ordinary candidate canary。partial slice 只能发布 progress，PR/commit/comment prose
-   没有 Issue close authority；Program 与 focused Issue 分别计算 remaining acceptance/consumer/child census；
+   没有 Issue close authority；受控 PR/merge message 永不生成 GitHub closing lexical pattern，完成只能在
+   exact new-main + MainHealth 后由独立 completion assessment 授权；Program 与 focused Issue 分别计算
+   remaining acceptance/consumer/child census。当前 GitHub Issue PATCH 无原子前置条件，因此 production
+   只发布 `progressed` 与 read-only reconciliation，不能把 read→PATCH→readback 称为 CAS；
 
 切片顺序表达dependency；某些read-only compiler可以并行开发，但canonical writer、control plane、
 workflow与trust transition仍按single-writer集成。每个切片必须同时声明被替代入口和consumer-zero
@@ -644,7 +649,9 @@ NextTransition composition。
 - fresh ActionKey不重复执行，failed/in-flight/unknown physical outcome均按合同处理；
 - candidate projection failure不改变live main control；
 - worktree closeout同时证明registry与physical target absence，residue从外部durable receipt重入；
-- Issue completion由machine `IssueDisposition`控制，PR prose不能以closing keyword意外改变Issue状态；
+- Issue completion由machine `IssueDisposition`控制；PR title/body、provider closing references 与生成的
+  merge message在 merge 前必须证明零 closing authority；只有 provider capability证明真实条件写且
+  trusted post-main completion assessment存在时才可执行close/reopen，否则保持progress并停止猜测；
 - 失败/重跑/merge transition由typed owner decisions决定。
 
 ## R15 — Release / Deployment / Operations

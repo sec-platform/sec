@@ -138,7 +138,9 @@ async function main(): Promise<void> {
   }
 
   const dependencies = await ensureDevDependencies({
-    hookPolicy: target === 'deps:ensure' ? 'always' : 'if-installed'
+    hookPolicy: process.env.SEC_GIT_HOOK_ACTIVE === '1'
+      ? 'never'
+      : target === 'deps:ensure' ? 'always' : 'if-installed'
   });
   if (target === 'deps:ensure') {
     console.log(`Compiler dependencies ready (${dependencies.source}, ${dependencies.manifestHash}).`);

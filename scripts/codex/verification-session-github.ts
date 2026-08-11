@@ -11,6 +11,12 @@ import {
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from '../../platform/shared/ci-verification-revision.ts';
+import {
+  GITHUB_PULL_REQUEST_CLOSING_QUERY_V1,
+  parseGitHubPullRequestClosingFactsPageV1,
+  type GitHubIssueReferenceV1,
+  type GitHubPullRequestClosingFactsV1
+} from '../../platform/shared/issue-disposition-contract.ts';
 import type {
   ReviewPrincipalV1,
   ReviewSnapshotV1
@@ -57,6 +63,7 @@ export interface GitHubCandidateObservationV1 {
   headBranch: string;
   headSha: string;
   headTreeSha: string;
+  title: string;
   body: string;
   mergeCommitSha: string | null;
   mergeCommitTreeSha: string | null;
@@ -254,6 +261,7 @@ interface GitHubApiFailure extends Error {
 
 interface VerificationSessionGitHubTransport {
   candidate(repository: string, prNumber: number): GitHubCandidateObservationV1;
+  pullRequestClosingFacts(repository: string, prNumber: number): GitHubPullRequestClosingFactsV1;
   reviewPage(repository: string, prNumber: number, after: string | null): GitHubPageV1<GitHubReviewObservationV1>;
   threadPage(repository: string, prNumber: number, after: string | null): GitHubPageV1<GitHubReviewThreadObservationV1>;
   reviewRequestPage(repository: string, prNumber: number, after: string | null): GitHubPageV1<GitHubReviewRequestObservationV1>;
@@ -1211,6 +1219,10 @@ class VerificationSessionGitHubAdapter {
       assertSha(candidate.baseTreeSha, 'candidate baseTreeSha');
       assertSha(candidate.headSha, 'candidate headSha');
       assertSha(candidate.headTreeSha, 'candidate headTreeSha');
+      if (typeof candidate.title !== 'string' || candidate.title.length === 0
+        || typeof candidate.body !== 'string') {
+        fail('candidate title or body is invalid.');
+      }
       if (candidate.mergeCommitSha !== null) assertSha(candidate.mergeCommitSha, 'mergeCommitSha');
       if (candidate.mergeCommitTreeSha !== null) assertSha(candidate.mergeCommitTreeSha, 'mergeCommitTreeSha');
       if ((candidate.mergeCommitSha === null) !== (candidate.mergeCommitTreeSha === null)
@@ -1220,6 +1232,27 @@ class VerificationSessionGitHubAdapter {
     } catch (error) {
       return rethrowProviderResponseShape(error, 'github-candidate-pr-tree-merge', providerShapeSource(candidate));
     }
+  }
+
+  observePullRequestClosingFacts(
+    repository: string,
+    prNumber: number
+  ): GitHubPullRequestClosingFactsV1 {
+    const facts = this.#transport.pullRequestClosingFacts(repository, prNumber);
+    if (facts.repository !== repository || facts.prNumber !== prNumber
+      || !/^sha256:[0-9a-f]{64}$/u.test(facts.responseDigest)
+      || !Array.isArray(facts.closingIssues) || facts.closingIssues.length > 256) {
+      fail('pull request closing facts identity, digest, or bound is invalid.');
+    }
+    const keys = facts.closingIssues.map((issue, index) => {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(issue.repository)
+        || !Number.isSafeInteger(issue.issueNumber) || issue.issueNumber < 1) {
+        fail(`pull request closing facts issue ${index} is invalid.`);
+      }
+      return `${issue.repository.toLowerCase()}#${issue.issueNumber}`;
+    });
+    if (new Set(keys).size !== keys.length) fail('pull request closing facts contain duplicates.');
+    return Object.freeze({ ...facts, closingIssues: Object.freeze([...facts.closingIssues]) });
   }
 
   private observeReviewBarrierUnchecked(input: {
@@ -1864,6 +1897,7 @@ class VerificationSessionGitHubAdapter {
 export type VerificationSessionGitHubClientV1 = Readonly<Pick<
   VerificationSessionGitHubAdapter,
   | 'observeCandidate'
+  | 'observePullRequestClosingFacts'
   | 'observeReviewBarrier'
   | 'observeChecks'
   | 'observeWorkflowRuns'
@@ -2309,9 +2343,71 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
     return decodeBranchLifecycleChildStdoutV1(result);
   }
 
+  private graphql(query: string, variables: Readonly<Record<string, unknown>>, label: string): string {
+    const args = ['api', 'graphql', '-f', `query=${query}`];
+    for (const [name, value] of Object.entries(variables)) {
+      if (value !== null) args.push('-F', `${name}=${String(value)}`);
+    }
+    return this.gh(args, label);
+  }
+
+  pullRequestClosingFacts(
+    repository: string,
+    prNumber: number
+  ): GitHubPullRequestClosingFactsV1 {
+    const [owner, name] = repository.split('/');
+    if (owner === undefined || name === undefined || repository !== `${owner}/${name}`) {
+      fail('repository must be owner/name.');
+    }
+    let cursor: string | null = null;
+    let common: ReturnType<typeof parseGitHubPullRequestClosingFactsPageV1>['facts'] | null = null;
+    let expectedTotal: number | null = null;
+    let terminalObserved = false;
+    const closingIssues: GitHubIssueReferenceV1[] = [];
+    const pageDigests: SessionDigest[] = [];
+    for (let page = 0; page < 256; page += 1) {
+      const parsed = parseGitHubPullRequestClosingFactsPageV1({
+        source: this.graphql(GITHUB_PULL_REQUEST_CLOSING_QUERY_V1,
+          { owner, name, number: prNumber, cursor }, 'PR closing issue page'), repository, prNumber,
+        expectedCursor: cursor, observedBeforeCount: closingIssues.length,
+        expectedTotalCount: expectedTotal
+      });
+      if (common === null) common = parsed.facts;
+      else if (encodeVerificationActionDataV2(common)
+        !== encodeVerificationActionDataV2(parsed.facts)) {
+        fail('PR prose or identity changed during closing issue pagination.');
+      }
+      if (expectedTotal === null) expectedTotal = parsed.totalCount;
+      else if (parsed.totalCount !== expectedTotal) {
+        fail('PR closing issue totalCount changed during pagination.');
+      }
+      if (closingIssues.length + parsed.closingIssues.length > 256
+        || closingIssues.length + parsed.closingIssues.length > parsed.totalCount) {
+        fail('PR closing issue inventory exceeded its bound or totalCount.');
+      }
+      closingIssues.push(...parsed.closingIssues);
+      pageDigests.push(parsed.responseDigest);
+      if (parsed.nextCursor === null) {
+        terminalObserved = true;
+        break;
+      }
+      cursor = parsed.nextCursor;
+      if (page === 255) fail('PR closing issue pagination exceeded its bound.');
+    }
+    if (common === null || expectedTotal === null || !terminalObserved
+      || closingIssues.length !== expectedTotal) {
+      fail('PR closing issue observation is incomplete against totalCount.');
+    }
+    const keys = closingIssues.map((issue) => `${issue.repository.toLowerCase()}#${issue.issueNumber}`);
+    if (new Set(keys).size !== keys.length) fail('PR closing issue observation contains duplicates.');
+    return Object.freeze({ ...common, closingIssues: Object.freeze(closingIssues),
+      responseDigest: hash(Object.freeze({ pages: pageDigests, facts: common,
+        providerTotalCount: expectedTotal, closingIssues })) });
+  }
+
   candidate(repository: string, prNumber: number): GitHubCandidateObservationV1 {
     const prSource = this.gh(['pr', 'view', String(prNumber), '--repo', repository, '--json',
-      'number,state,isDraft,isCrossRepository,author,baseRefName,baseRefOid,headRefName,headRefOid,body,mergeCommit'], 'PR readback');
+      'number,state,isDraft,isCrossRepository,author,baseRefName,baseRefOid,headRefName,headRefOid,title,body,mergeCommit'], 'PR readback');
     let prValue: Record<string, any> | undefined;
     let baseTreeSource: string | undefined;
     let headTreeSource: string | undefined;
@@ -2352,7 +2448,8 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
         isCrossRepository: prValue.isCrossRepository, authorNodeId: prValue.author?.id,
         baseBranch: prValue.baseRefName, baseSha: prValue.baseRefOid, baseTreeSha: baseTreeSource.trim(),
         headBranch: prValue.headRefName, headSha: prValue.headRefOid, headTreeSha: headTreeSource.trim(),
-        body: prValue.body, mergeCommitSha, mergeCommitTreeSha: mergeCommitValue?.tree?.sha ?? null,
+        title: prValue.title, body: prValue.body,
+        mergeCommitSha, mergeCommitTreeSha: mergeCommitValue?.tree?.sha ?? null,
         mergeCommitMessage: mergeCommitValue?.message ?? null
       });
       return bindProviderShapeSource(observation, sourceBundle());
