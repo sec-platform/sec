@@ -1,3 +1,19 @@
+import {
+  isSecAgentRole,
+  isSecOperationKind,
+  type SecAgentRole,
+  type SecOperationKind
+} from './agent-task-capsule-contract.ts';
+
+export {
+  isSecAgentRole,
+  isSecOperationKind,
+  SEC_AGENT_ROLES,
+  SEC_OPERATION_KINDS,
+  type SecAgentRole,
+  type SecOperationKind
+} from './agent-task-capsule-contract.ts';
+
 export const SEC_AGENT_SKILL_IDS = [
   'sec-architecture-evolution',
   'sec-exact-head-review',
@@ -362,30 +378,6 @@ export function classifySecRepositorySurface(path: string): SecRepositorySurface
  * authorization.
  */
 
-export const SEC_AGENT_ROLES = [
-  'a0',
-  'worker',
-  'reviewer',
-  'auditor',
-  'maintainer'
-] as const;
-
-export type SecAgentRole = (typeof SEC_AGENT_ROLES)[number];
-
-export const SEC_OPERATION_KINDS = [
-  'orient',
-  'audit',
-  'diagnose',
-  'design',
-  'implement',
-  'review',
-  'integrate',
-  'govern',
-  'no-change'
-] as const;
-
-export type SecOperationKind = (typeof SEC_OPERATION_KINDS)[number];
-
 export const SEC_SKILL_APPLICABILITY_STATUSES = [
   'applicable',
   'none-required',
@@ -410,14 +402,6 @@ export type SecSkillApplicabilityConflictKind =
   | 'write-path'
   | 'resource'
   | 'gate';
-
-export function isSecAgentRole(value: unknown): value is SecAgentRole {
-  return typeof value === 'string' && (SEC_AGENT_ROLES as readonly string[]).includes(value);
-}
-
-export function isSecOperationKind(value: unknown): value is SecOperationKind {
-  return typeof value === 'string' && (SEC_OPERATION_KINDS as readonly string[]).includes(value);
-}
 
 export function isSecAgentSkillId(value: unknown): value is SecAgentSkillId {
   return typeof value === 'string' && (SEC_AGENT_SKILL_IDS as readonly string[]).includes(value);
@@ -531,8 +515,10 @@ export const SEC_SKILL_QUARANTINE_PATHS = [
   '.agents/',
   'platform/shared/agent-operation-read-plan-contract.ts',
   'platform/shared/agent-skill-contract.ts',
+  'platform/shared/agent-task-capsule-contract.ts',
   'scripts/codex/operation-read-plan.ts',
   'scripts/codex/skill-applicability.ts',
+  'scripts/codex/task-capsule.ts',
   'docs/development-governance.md'
 ] as const;
 
@@ -566,7 +552,7 @@ export interface SecSkillApplicabilityDecisionV1 {
   readonly goalDigest: string;
   readonly trustedRevision: string;
   readonly targetCandidate: string;
-  readonly workPackageAuthorizationRef: string | null;
+  readonly workPackageProposalRef: string | null;
   readonly taskCapsuleRef: string | null;
   readonly taskCapsuleDigest: string | null;
   readonly taskCapsuleRevision: string | null;
@@ -589,7 +575,7 @@ export interface SecSkillApplicabilityEnvelopeV1 {
   readonly goalDigest: string;
   readonly trustedRevision: string;
   readonly targetCandidate: string;
-  readonly workPackageAuthorizationRef?: string | null;
+  readonly workPackageProposalRef?: string | null;
   readonly taskCapsuleRef?: string | null;
   readonly taskCapsuleDigest?: string | null;
   readonly taskCapsuleRevision?: string | null;
@@ -622,8 +608,8 @@ function computeInvalidationConditions(
   if (prior.operationKind !== null && prior.operationKind !== input.operationKind) {
     conditions.push('operation-kind');
   }
-  if ((prior.workPackageAuthorizationRef ?? null) !== (input.workPackageAuthorizationRef ?? null)) {
-    conditions.push('work-package-authorization');
+  if ((prior.workPackageProposalRef ?? null) !== (input.workPackageProposalRef ?? null)) {
+    conditions.push('work-package-proposal');
   }
   if ((prior.taskCapsuleRef ?? null) !== (input.taskCapsuleRef ?? null)) conditions.push('task-capsule');
   if ((prior.taskCapsuleDigest ?? null) !== (input.taskCapsuleDigest ?? null)) {
@@ -655,7 +641,7 @@ function buildUnresolvedDecision(
     goalDigest: input.goalDigest,
     trustedRevision: input.trustedRevision,
     targetCandidate: input.targetCandidate,
-    workPackageAuthorizationRef: input.workPackageAuthorizationRef ?? null,
+    workPackageProposalRef: input.workPackageProposalRef ?? null,
     taskCapsuleRef: input.taskCapsuleRef ?? null,
     taskCapsuleDigest: input.taskCapsuleDigest ?? null,
     taskCapsuleRevision: input.taskCapsuleRevision ?? null,
@@ -714,7 +700,7 @@ export function evaluateSecSkillApplicabilityV1(
         goalDigest: input.goalDigest,
         trustedRevision: input.trustedRevision,
         targetCandidate: input.targetCandidate,
-        workPackageAuthorizationRef: input.workPackageAuthorizationRef ?? null,
+        workPackageProposalRef: input.workPackageProposalRef ?? null,
         taskCapsuleRef: input.taskCapsuleRef ?? null,
         taskCapsuleDigest: input.taskCapsuleDigest ?? null,
         taskCapsuleRevision: input.taskCapsuleRevision ?? null,
@@ -845,7 +831,7 @@ export function evaluateSecSkillApplicabilityV1(
     goalDigest: input.goalDigest,
     trustedRevision: input.trustedRevision,
     targetCandidate: input.targetCandidate,
-    workPackageAuthorizationRef: input.workPackageAuthorizationRef ?? null,
+    workPackageProposalRef: input.workPackageProposalRef ?? null,
     taskCapsuleRef: input.taskCapsuleRef ?? null,
     taskCapsuleDigest: input.taskCapsuleDigest ?? null,
     taskCapsuleRevision: input.taskCapsuleRevision ?? null,

@@ -6,41 +6,23 @@ import {
   projectSecSkillEnvelopeFromOperationReadPlanV1,
   resolveSecMaintainerMutationV1,
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  SEC_TASK_CAPSULE_AUTHORITY_REVISION,
-  SEC_TASK_CAPSULE_AUTHORITY_SCHEMA,
-  type SecDigestV1,
-  type SecOperationReadPlanInputV1,
-  type SecTaskCapsuleAuthorityV1
+  type SecOperationReadPlanInputV1
 } from '../../platform/shared/agent-operation-read-plan-contract.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
+import {
+  compileSecTaskCapsuleV1,
+  SEC_TASK_CAPSULE_INPUT_SCHEMA,
+  type SecDigestV1,
+  type SecTaskCapsulePlanningContextV1
+} from '../../platform/shared/agent-task-capsule-contract.ts';
 
 const digest = (character: string): SecDigestV1 => `sha256:${character.repeat(64)}`;
 
-function capsule(authority: SecTaskCapsuleAuthorityV1): SecOperationReadPlanInputV1['taskCapsule'] {
-  const normalizedAuthority: SecTaskCapsuleAuthorityV1 = {
-    ...authority,
-    ownerFacts: [...authority.ownerFacts].sort((left, right) => left.id.localeCompare(right.id)),
-    scope: {
-      ...authority.scope,
-      readPaths: [...authority.scope.readPaths].sort(),
-      writePaths: [...authority.scope.writePaths].sort(),
-      forbiddenPaths: [...authority.scope.forbiddenPaths].sort(),
-      availableCapabilities: [...authority.scope.availableCapabilities].sort(),
-      authorizedResources: [...authority.scope.authorizedResources].sort(),
-      authorizedGates: [...authority.scope.authorizedGates].sort(),
-      changedPaths: [...authority.scope.changedPaths].sort()
-    },
-    verificationObligations: [...authority.verificationObligations]
-      .sort((left, right) => left.id.localeCompare(right.id)),
-    skillCandidateIds: [...authority.skillCandidateIds].sort()
-  };
-  const projection = {
-    schema: SEC_TASK_CAPSULE_AUTHORITY_SCHEMA,
+function capsule(planningContext: SecTaskCapsulePlanningContextV1): SecOperationReadPlanInputV1['taskCapsule'] {
+  return compileSecTaskCapsuleV1({
+    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:issue-346',
-    revision: SEC_TASK_CAPSULE_AUTHORITY_REVISION,
-    authority: normalizedAuthority
-  };
-  return { ...projection, digest: sha256(projection) as SecDigestV1 };
+    planningContext
+  });
 }
 
 function input(): SecOperationReadPlanInputV1 {
@@ -53,12 +35,14 @@ function input(): SecOperationReadPlanInputV1 {
       goalDigest: digest('b'),
       trustedRevision: '6b7f1a3f54b0b4bdd8eef4c065e1e83607f6bbcb',
       targetCandidate: 'ef922744393d451a037349197fe4dd57d6ae8497',
-      workPackageAuthorizationRef: 'docs/work-packages/agent-operation-read-plan-v1.md',
-      workPackageAuthorizationDigest: digest('c'),
+      workPackageProposalRef: 'docs/work-packages/task-capsule-compiler-v1.md',
+      workPackageProposalDigest: digest('c'),
+      workPackageProjectionId: digest('e'),
+      scopeGrantId: null,
       ownerFacts: [
         {
           id: 'work-package',
-          ref: 'docs/work-packages/agent-operation-read-plan-v1.md',
+          ref: 'docs/work-packages/task-capsule-compiler-v1.md',
           owner: 'development-governance-owner',
           revision: digest('c')
         },
@@ -69,7 +53,7 @@ function input(): SecOperationReadPlanInputV1 {
           revision: 'blob-authority-v1'
         }
       ],
-      scope: {
+      scopeProposal: {
         readPaths: ['docs/', 'platform/shared/'],
         writePaths: ['platform/shared/'],
         forbiddenPaths: ['.agents/skills/', '.github/workflows/'],
@@ -93,7 +77,7 @@ function input(): SecOperationReadPlanInputV1 {
       },
       {
         id: 'manifest',
-        ref: 'docs/work-packages/agent-operation-read-plan-v1.md',
+        ref: 'docs/work-packages/task-capsule-compiler-v1.md',
         owner: 'development-governance-owner',
         revision: digest('c'),
         reasonCode: 'bind-operation-scope'
@@ -145,12 +129,12 @@ test('Read Plan compiles deterministically while referencing rather than redefin
     ...source,
     taskCapsule: {
       ...source.taskCapsule,
-      authority: {
-        ...source.taskCapsule.authority,
-        ownerFacts: [...source.taskCapsule.authority.ownerFacts].reverse(),
-        scope: {
-          ...source.taskCapsule.authority.scope,
-          readPaths: [...source.taskCapsule.authority.scope.readPaths].reverse()
+      planningContext: {
+        ...source.taskCapsule.planningContext,
+        ownerFacts: [...source.taskCapsule.planningContext.ownerFacts].reverse(),
+        scopeProposal: {
+          ...source.taskCapsule.planningContext.scopeProposal,
+          readPaths: [...source.taskCapsule.planningContext.scopeProposal.readPaths].reverse()
         }
       }
     },
@@ -224,23 +208,37 @@ test('zero Skill-body budget rejects selectable candidates', () => {
   })).toThrow(/skillCandidateIds must be empty/u);
 });
 
-test('Task Capsule digest binds every authority field and scope rejects ancestor overlap or changed-path escape', () => {
+test('Skill registry validates Capsule guidance candidates without owning Capsule identity', () => {
+  const source = input();
+  const planningContext = source.taskCapsule.planningContext;
+  const plan = compileSecOperationReadPlanV1({
+    ...source,
+    taskCapsule: capsule({
+      ...planningContext,
+      skillCandidateIds: ['candidate-defined-skill']
+    })
+  });
+  expect(() => projectSecSkillEnvelopeFromOperationReadPlanV1(plan))
+    .toThrow(/not in the trusted Skill registry/u);
+});
+
+test('Task Capsule digest binds all planning content and scope proposal rejects escape', () => {
   const malformed = input();
   expect(() => compileSecOperationReadPlanV1({
     ...malformed,
     taskCapsule: {
       ...malformed.taskCapsule,
-      authority: { ...malformed.taskCapsule.authority, role: 'a0' }
+      planningContext: { ...malformed.taskCapsule.planningContext, role: 'a0' }
     }
-  })).toThrow(/complete authority projection/u);
+  })).toThrow(/complete planning content/u);
 
-  const authority = malformed.taskCapsule.authority;
+  const planningContext = malformed.taskCapsule.planningContext;
   expect(() => compileSecOperationReadPlanV1({
     ...malformed,
     taskCapsule: capsule({
-      ...authority,
-      scope: {
-        ...authority.scope,
+      ...planningContext,
+      scopeProposal: {
+        ...planningContext.scopeProposal,
         writePaths: ['scripts/'],
         forbiddenPaths: ['scripts/codex/protected.ts'],
         changedPaths: []
@@ -251,14 +249,14 @@ test('Task Capsule digest binds every authority field and scope rejects ancestor
   expect(() => compileSecOperationReadPlanV1({
     ...malformed,
     taskCapsule: capsule({
-      ...authority,
-      scope: {
-        ...authority.scope,
+      ...planningContext,
+      scopeProposal: {
+        ...planningContext.scopeProposal,
         writePaths: ['docs/'],
         changedPaths: ['platform/shared/agent-operation-read-plan-contract.ts']
       }
     })
-  })).toThrow(/outside every authorized write path/u);
+  })).toThrow(/outside every proposed write path/u);
 });
 
 test('maintainer mutation accepts current state or returns typed conflict without resurrection', () => {

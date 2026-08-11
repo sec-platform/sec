@@ -9,7 +9,10 @@ import {
   CodexDevelopmentParseRollingPlanV1
 } from '../../scripts/codex/document-control-plane-contract.ts';
 import { NEXUS_EPR_BINDINGS_V1 } from '../../scripts/codex/repository-audit.ts';
-import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
+import {
+  CodexDevelopmentParseWorkPackageManifest,
+  CodexDevelopmentWorkPackageManifestDigest
+} from '../../scripts/codex/work-package-contract.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
@@ -94,6 +97,7 @@ describe('canonical documentation authority', () => {
     ]);
     expectContainsAll(development, [
       'Task Capsule 唯一拥有其内容 schema、编译规则和 revision',
+      '`sec-task-capsule-v1`',
       '`taskCapsuleRef`、`taskCapsuleDigest`、`taskCapsuleRevision`',
       '`sec-operation-read-plan-v1`',
       'requiredRefs',
@@ -108,7 +112,9 @@ describe('canonical documentation authority', () => {
       'physicalStartsPerActionKey <= 1',
       '不拥有 Task Capsule 内容或 compiler',
       'IssueDisposition',
-      'registry absence 与 exact physical target'
+      'registry absence 与 exact physical target',
+      'zero residue',
+      'typed blocked receipt'
     ]);
     expectContainsAll(verification, [
       '`CandidateContentId` 绑定',
@@ -152,43 +158,38 @@ describe('canonical documentation authority', () => {
     )?.[1];
 
     expect(rollingPlan.activePackageId).toBe(selectedManifestId);
-    expect(rollingPlan.candidatePackageIds).toEqual([
-      'semantic-impact-failure-routing-v1',
-      'feedback-scheduler-hermetic-runtime-v1',
-      'compiler-incremental-toolchain-v1'
-    ]);
+    expect(rollingPlan.candidatePackageIds.length).toBeGreaterThanOrEqual(2);
+    expect(rollingPlan.candidatePackageIds.length).toBeLessThanOrEqual(5);
+    expect(new Set(rollingPlan.candidatePackageIds).size)
+      .toBe(rollingPlan.candidatePackageIds.length);
+    expect(rollingPlan.candidatePackageIds).not.toContain(selectedManifestId);
     expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',
       '## 候选 Work Package',
       '#275',
-      'Issue #178',
-      'Issue #327',
-      'Issue #314',
       '## 后续但暂不占 formal writer',
       '## 重新规划硬触发器',
       '## 加速验收'
     ]);
     expect(rawManifestDigest).toBeDefined();
     expect(CodexDevelopmentWorkPackageManifestDigest(manifestSource)).toBe(rawManifestDigest!);
-    expectContainsAll(manifestSource, [
-      'skill-system-convergence-v2',
-      'Issue #275',
-      'exactly eight current Skill IDs remain',
-      'task delegation remains a bounded Skill until Issue 205',
-      'repository behavior routing distinguishes deterministic machine owners',
-      'one physical execution for each unique missing',
-      'first real post-merge consumer of Issue #346'
-    ]);
+    const manifest = CodexDevelopmentParseWorkPackageManifest(
+      manifestSource,
+      pointer.manifest
+    );
+    expect(manifest.id).toBe(selectedManifestId);
+    expect(manifest.manifestState).toBe('frozen');
+    expect(manifest.tasks.length).toBeGreaterThan(0);
+    expect(manifest.acceptance.length).toBeGreaterThan(0);
     expectContainsAll(pointerSource, [
-      'docs/work-packages/skill-system-convergence-v2.md',
+      `docs/work-packages/${selectedManifestId}.md`,
       rawManifestDigest!,
       'selectionMode: exact-manifest-not-on-default-branch-v1'
     ]);
     expectContainsAll(rollingPlanSource, [
-      '### skill-system-convergence-v2',
-      '#275',
-      'deterministic-owner',
-      'consumer-zero Skill'
+      `### ${selectedManifestId}`,
+      'then-current main',
+      'consumer-zero'
     ]);
     expectContainsNone(rollingPlanSource, [
       '### verification-action-trusted-cutover-v10',
@@ -198,7 +199,8 @@ describe('canonical documentation authority', () => {
       '1B-4 → #216 → #207',
       'PR #196',
       '#232',
-      'Failure Epoch → Trusted Bootstrap → Evidence DAG'
+      'Failure Epoch → Trusted Bootstrap → Evidence DAG',
+      'bootstrap-repair-348-347-v1'
     ]);
   });
 

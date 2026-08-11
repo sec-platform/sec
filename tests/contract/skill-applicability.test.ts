@@ -7,11 +7,7 @@ import {
   compileSecOperationReadPlanV1,
   projectSecSkillEnvelopeFromOperationReadPlanV1,
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  SEC_TASK_CAPSULE_AUTHORITY_REVISION,
-  SEC_TASK_CAPSULE_AUTHORITY_SCHEMA,
-  type SecDigestV1,
-  type SecOperationReadPlanInputV1,
-  type SecTaskCapsuleAuthorityV1
+  type SecOperationReadPlanInputV1
 } from '../../platform/shared/agent-operation-read-plan-contract.ts';
 import {
   evaluateSecSkillApplicabilityV1,
@@ -22,36 +18,22 @@ import {
   type SecOperationKind,
   type SecSkillApplicabilityDecisionV1
 } from '../../platform/shared/agent-skill-contract.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
+import {
+  compileSecTaskCapsuleV1,
+  SEC_TASK_CAPSULE_INPUT_SCHEMA,
+  type SecDigestV1,
+  type SecTaskCapsulePlanningContextV1
+} from '../../platform/shared/agent-task-capsule-contract.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const digest = (character: string): SecDigestV1 => `sha256:${character.repeat(64)}`;
 
-function capsule(authority: SecTaskCapsuleAuthorityV1): SecOperationReadPlanInputV1['taskCapsule'] {
-  const normalizedAuthority: SecTaskCapsuleAuthorityV1 = {
-    ...authority,
-    ownerFacts: [...authority.ownerFacts].sort((left, right) => left.id.localeCompare(right.id)),
-    scope: {
-      ...authority.scope,
-      readPaths: [...authority.scope.readPaths].sort(),
-      writePaths: [...authority.scope.writePaths].sort(),
-      forbiddenPaths: [...authority.scope.forbiddenPaths].sort(),
-      availableCapabilities: [...authority.scope.availableCapabilities].sort(),
-      authorizedResources: [...authority.scope.authorizedResources].sort(),
-      authorizedGates: [...authority.scope.authorizedGates].sort(),
-      changedPaths: [...authority.scope.changedPaths].sort()
-    },
-    verificationObligations: [...authority.verificationObligations]
-      .sort((left, right) => left.id.localeCompare(right.id)),
-    skillCandidateIds: [...authority.skillCandidateIds].sort()
-  };
-  const projection = {
-    schema: SEC_TASK_CAPSULE_AUTHORITY_SCHEMA,
+function capsule(planningContext: SecTaskCapsulePlanningContextV1): SecOperationReadPlanInputV1['taskCapsule'] {
+  return compileSecTaskCapsuleV1({
+    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:skill-applicability-contract',
-    revision: SEC_TASK_CAPSULE_AUTHORITY_REVISION,
-    authority: normalizedAuthority
-  };
-  return { ...projection, digest: sha256(projection) as SecDigestV1 };
+    planningContext
+  });
 }
 
 function gitOutput(args: readonly string[]): string {
@@ -104,15 +86,17 @@ function planInput(overrides: {
       goalDigest: digest('b'),
       trustedRevision: base,
       targetCandidate: head,
-      workPackageAuthorizationRef: 'docs/work-packages/agent-operation-read-plan-v1.md',
-      workPackageAuthorizationDigest: digest('c'),
+      workPackageProposalRef: 'docs/work-packages/task-capsule-compiler-v1.md',
+      workPackageProposalDigest: digest('c'),
+      workPackageProjectionId: digest('e'),
+      scopeGrantId: null,
       ownerFacts: [{
         id: 'development-governance',
         ref: 'docs/development-governance.md',
         owner: 'development-governance-owner',
         revision: 'owner-revision-v1'
       }],
-      scope: {
+      scopeProposal: {
         readPaths: ['docs/development-governance.md'],
         writePaths: overrides.writePaths ?? (observedChangedPaths.length > 0
           ? observedChangedPaths

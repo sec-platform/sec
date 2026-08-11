@@ -1,12 +1,13 @@
 import {
-  isSecAgentRole,
   isSecAgentSkillId,
-  isSecOperationKind,
-  type SecAgentRole,
   type SecAgentSkillId,
-  type SecOperationKind,
   type SecSkillApplicabilityEnvelopeV1
 } from './agent-skill-contract.ts';
+import {
+  parseSecTaskCapsuleV1,
+  type SecDigestV1,
+  type SecTaskCapsuleV1
+} from './agent-task-capsule-contract.ts';
 import {
   canonicalJson,
   compareCodeUnits,
@@ -19,8 +20,6 @@ export const SEC_OPERATION_READ_PLAN_INPUT_SCHEMA = 'sec-operation-read-plan-inp
 export const SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA = 'sec-operation-read-closure-request-v1' as const;
 export const SEC_OPERATION_READ_PLAN_SCHEMA = 'sec-operation-read-plan-v1' as const;
 export const SEC_OPERATION_READ_PLAN_REVISION = 'operation-read-plan-compiler-v1' as const;
-export const SEC_TASK_CAPSULE_AUTHORITY_SCHEMA = 'sec-task-capsule-authority-projection-v1' as const;
-export const SEC_TASK_CAPSULE_AUTHORITY_REVISION = 'task-capsule-compiler-v1' as const;
 export const SEC_MAINTAINER_MUTATION_POLICY = 'current-physical-state-authoritative-v1' as const;
 export const SEC_PROTECTED_ROOT_POLICY = 'outside-candidate-write-authority-v1' as const;
 export const SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES = Object.freeze([
@@ -31,36 +30,6 @@ export const SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES = Object.freeze([
   'historical-pr-comments',
   'unrelated-issue-census'
 ] as const);
-
-export type SecDigestV1 = `sha256:${string}`;
-
-export interface SecTaskCapsuleAuthorityV1 {
-  readonly operationId: string;
-  readonly role: SecAgentRole;
-  readonly operationKind: SecOperationKind;
-  readonly goalDigest: SecDigestV1;
-  readonly trustedRevision: string;
-  readonly targetCandidate: string;
-  readonly workPackageAuthorizationRef: string;
-  readonly workPackageAuthorizationDigest: SecDigestV1;
-  readonly ownerFacts: readonly SecAgentOwnerFactV1[];
-  readonly scope: SecAgentOperationScopeV1;
-  readonly verificationObligations: readonly SecAgentVerificationObligationV1[];
-  readonly skillCandidateIds: readonly SecAgentSkillId[];
-}
-
-/**
- * Content-addressed projection issued by the upstream #205 Task Capsule owner.
- * This contract verifies integrity only; trusted execution provenance and live
- * repository facts are verified by the consuming adapter.
- */
-export interface SecTaskCapsuleBindingV1 {
-  readonly schema: typeof SEC_TASK_CAPSULE_AUTHORITY_SCHEMA;
-  readonly ref: string;
-  readonly revision: typeof SEC_TASK_CAPSULE_AUTHORITY_REVISION;
-  readonly authority: SecTaskCapsuleAuthorityV1;
-  readonly digest: SecDigestV1;
-}
 
 export interface SecOperationReadReferenceV1 {
   readonly id: string;
@@ -93,32 +62,9 @@ export interface SecOperationInvalidationInputV1 {
   readonly revision: string;
 }
 
-export interface SecAgentOwnerFactV1 {
-  readonly id: string;
-  readonly ref: string;
-  readonly owner: string;
-  readonly revision: string;
-}
-
-export interface SecAgentOperationScopeV1 {
-  readonly readPaths: readonly string[];
-  readonly writePaths: readonly string[];
-  readonly forbiddenPaths: readonly string[];
-  readonly availableCapabilities: readonly string[];
-  readonly authorizedResources: readonly string[];
-  readonly authorizedGates: readonly string[];
-  readonly changedPaths: readonly string[];
-}
-
-export interface SecAgentVerificationObligationV1 {
-  readonly id: string;
-  readonly revision: string;
-  readonly reasonCode: string;
-}
-
 export interface SecOperationReadPlanInputV1 {
   readonly schema: typeof SEC_OPERATION_READ_PLAN_INPUT_SCHEMA;
-  readonly taskCapsule: SecTaskCapsuleBindingV1;
+  readonly taskCapsule: SecTaskCapsuleV1;
   readonly requiredRefs: readonly SecOperationReadReferenceV1[];
   readonly conditionalRefs: readonly SecConditionalReadReferenceV1[];
   readonly forbiddenSources: readonly string[];
@@ -183,27 +129,15 @@ const PLAN_KEYS = [
   'preApplicabilitySkillBodiesRead', 'maintainerMutationPolicy', 'protectedRootPolicy',
   'readPlanDigest'
 ] as const;
-const CAPSULE_KEYS = ['schema', 'ref', 'revision', 'authority', 'digest'] as const;
-const CAPSULE_AUTHORITY_KEYS = [
-  'operationId', 'role', 'operationKind', 'goalDigest', 'trustedRevision',
-  'targetCandidate', 'workPackageAuthorizationRef', 'workPackageAuthorizationDigest',
-  'ownerFacts', 'scope', 'verificationObligations', 'skillCandidateIds'
-] as const;
-const OWNER_FACT_KEYS = ['id', 'ref', 'owner', 'revision'] as const;
-const SCOPE_KEYS = [
-  'readPaths', 'writePaths', 'forbiddenPaths', 'availableCapabilities',
-  'authorizedResources', 'authorizedGates', 'changedPaths'
-] as const;
-const VERIFICATION_KEYS = ['id', 'revision', 'reasonCode'] as const;
 const READ_REF_KEYS = ['id', 'ref', 'owner', 'revision', 'reasonCode'] as const;
 const CONDITIONAL_REF_KEYS = [...READ_REF_KEYS, 'frontierId'] as const;
 const FRONTIER_KEYS = ['id', 'reasonCode', 'allowedRefIds'] as const;
 const RECEIPT_KEYS = ['refId', 'owner', 'revision', 'reasonCode', 'contentDigest'] as const;
 const INVALIDATION_KEYS = ['id', 'revision'] as const;
 const CORE_INVALIDATION_IDS = [
-  'goal-digest', 'owner-facts', 'scope', 'skill-candidates', 'task-capsule',
+  'goal-digest', 'owner-facts', 'scope-proposal', 'scope-grant', 'skill-candidates', 'task-capsule',
   'trusted-revision', 'target-candidate', 'verification-obligations',
-  'work-package-authorization'
+  'work-package-projection', 'work-package-proposal'
 ] as const;
 
 function fail(message: string): never {
@@ -242,21 +176,6 @@ function digest(value: unknown, label: string): SecDigestV1 {
   return normalized as SecDigestV1;
 }
 
-function gitRevision(value: unknown, label: string): string {
-  const normalized = text(value, label);
-  if (!/^[0-9a-f]{40,64}$/u.test(normalized)) fail(`${label} must be one exact lowercase Git object ID.`);
-  return normalized;
-}
-
-function repositoryScope(value: unknown, label: string): string {
-  const normalized = text(value, label);
-  const exact = normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
-  if (!CodexDevelopmentIsCanonicalRepositoryPathV1(exact)) {
-    fail(`${label} must be one canonical repository path or directory prefix.`);
-  }
-  return normalized;
-}
-
 function array(value: unknown, label: string): readonly unknown[] {
   if (!Array.isArray(value)) fail(`${label} must be one array.`);
   return value;
@@ -275,130 +194,6 @@ function sortedUniqueStrings(
 function sortedById<Value extends { readonly id: string }>(values: readonly Value[], label: string): Value[] {
   if (new Set(values.map((value) => value.id)).size !== values.length) fail(`${label} contains a duplicate id.`);
   return [...values].sort((left, right) => compareCodeUnits(left.id, right.id));
-}
-
-function parseTaskCapsule(value: unknown): SecTaskCapsuleBindingV1 {
-  const item = record(value, 'taskCapsule');
-  exactKeys(item, CAPSULE_KEYS, 'taskCapsule');
-  if (item.schema !== SEC_TASK_CAPSULE_AUTHORITY_SCHEMA
-      || item.revision !== SEC_TASK_CAPSULE_AUTHORITY_REVISION) {
-    fail('taskCapsule schema or compiler revision is unsupported.');
-  }
-  const rawAuthority = record(item.authority, 'taskCapsule.authority');
-  exactKeys(rawAuthority, CAPSULE_AUTHORITY_KEYS, 'taskCapsule.authority');
-  if (!isSecAgentRole(rawAuthority.role)) fail('taskCapsule.authority.role is unsupported.');
-  if (!isSecOperationKind(rawAuthority.operationKind)) {
-    fail('taskCapsule.authority.operationKind is unsupported.');
-  }
-  const rawSkillIds = array(rawAuthority.skillCandidateIds, 'taskCapsule.authority.skillCandidateIds');
-  const skillCandidateIds = rawSkillIds.map((candidate, index) => {
-    if (!isSecAgentSkillId(candidate)) {
-      fail(`taskCapsule.authority.skillCandidateIds[${index}] is not registered.`);
-    }
-    return candidate;
-  }).sort(compareCodeUnits);
-  if (new Set(skillCandidateIds).size !== skillCandidateIds.length) {
-    fail('taskCapsule.authority.skillCandidateIds contains a duplicate.');
-  }
-  const authority: SecTaskCapsuleAuthorityV1 = {
-    operationId: token(rawAuthority.operationId, 'taskCapsule.authority.operationId'),
-    role: rawAuthority.role,
-    operationKind: rawAuthority.operationKind,
-    goalDigest: digest(rawAuthority.goalDigest, 'taskCapsule.authority.goalDigest'),
-    trustedRevision: gitRevision(rawAuthority.trustedRevision, 'taskCapsule.authority.trustedRevision'),
-    targetCandidate: gitRevision(rawAuthority.targetCandidate, 'taskCapsule.authority.targetCandidate'),
-    workPackageAuthorizationRef: repositoryScope(
-      rawAuthority.workPackageAuthorizationRef,
-      'taskCapsule.authority.workPackageAuthorizationRef'
-    ),
-    workPackageAuthorizationDigest: digest(
-      rawAuthority.workPackageAuthorizationDigest,
-      'taskCapsule.authority.workPackageAuthorizationDigest'
-    ),
-    ownerFacts: parseOwnerFacts(rawAuthority.ownerFacts),
-    scope: parseScope(rawAuthority.scope),
-    verificationObligations: parseVerification(rawAuthority.verificationObligations),
-    skillCandidateIds
-  };
-  const withoutDigest = {
-    schema: SEC_TASK_CAPSULE_AUTHORITY_SCHEMA,
-    ref: text(item.ref, 'taskCapsule.ref'),
-    revision: SEC_TASK_CAPSULE_AUTHORITY_REVISION,
-    authority
-  };
-  const observedDigest = digest(item.digest, 'taskCapsule.digest');
-  if (sha256(withoutDigest) !== observedDigest) {
-    fail('taskCapsule digest does not bind its complete authority projection.');
-  }
-  return deepFreeze({ ...withoutDigest, digest: observedDigest });
-}
-
-function parseOwnerFacts(value: unknown): SecAgentOwnerFactV1[] {
-  const facts = array(value, 'ownerFacts').map((entry, index) => {
-    const item = record(entry, `ownerFacts[${index}]`);
-    exactKeys(item, OWNER_FACT_KEYS, `ownerFacts[${index}]`);
-    return {
-      id: token(item.id, `ownerFacts[${index}].id`),
-      ref: text(item.ref, `ownerFacts[${index}].ref`),
-      owner: token(item.owner, `ownerFacts[${index}].owner`),
-      revision: text(item.revision, `ownerFacts[${index}].revision`)
-    };
-  });
-  if (facts.length === 0) fail('ownerFacts must bind at least one canonical owner.');
-  return sortedById(facts, 'ownerFacts');
-}
-
-function parseScope(value: unknown): SecAgentOperationScopeV1 {
-  const item = record(value, 'scope');
-  exactKeys(item, SCOPE_KEYS, 'scope');
-  const writePaths = sortedUniqueStrings(item.writePaths, 'scope.writePaths', repositoryScope);
-  const forbiddenPaths = sortedUniqueStrings(item.forbiddenPaths, 'scope.forbiddenPaths', repositoryScope);
-  const overlaps = (left: string, right: string): boolean => {
-    const leftExact = left.endsWith('/') ? left.slice(0, -1) : left;
-    const rightExact = right.endsWith('/') ? right.slice(0, -1) : right;
-    return leftExact === rightExact
-      || (left.endsWith('/') && rightExact.startsWith(`${leftExact}/`))
-      || (right.endsWith('/') && leftExact.startsWith(`${rightExact}/`));
-  };
-  for (const writePath of writePaths) {
-    if (forbiddenPaths.some((forbidden) => overlaps(writePath, forbidden))) {
-      fail(`scope.writePaths overlaps forbidden path ${writePath}.`);
-    }
-  }
-  const changedPaths = sortedUniqueStrings(item.changedPaths, 'scope.changedPaths', repositoryScope);
-  const covers = (scope: string, changedPath: string): boolean => {
-    const exact = scope.endsWith('/') ? scope.slice(0, -1) : scope;
-    return changedPath === exact || (scope.endsWith('/') && changedPath.startsWith(`${exact}/`));
-  };
-  for (const changedPath of changedPaths) {
-    if (!writePaths.some((writePath) => covers(writePath, changedPath))) {
-      fail(`scope.changedPaths is outside every authorized write path: ${changedPath}.`);
-    }
-    if (forbiddenPaths.some((forbiddenPath) => covers(forbiddenPath, changedPath))) {
-      fail(`scope.changedPaths enters forbidden scope: ${changedPath}.`);
-    }
-  }
-  return {
-    readPaths: sortedUniqueStrings(item.readPaths, 'scope.readPaths', repositoryScope),
-    writePaths,
-    forbiddenPaths,
-    availableCapabilities: sortedUniqueStrings(item.availableCapabilities, 'scope.availableCapabilities'),
-    authorizedResources: sortedUniqueStrings(item.authorizedResources, 'scope.authorizedResources'),
-    authorizedGates: sortedUniqueStrings(item.authorizedGates, 'scope.authorizedGates'),
-    changedPaths
-  };
-}
-
-function parseVerification(value: unknown): SecAgentVerificationObligationV1[] {
-  return sortedById(array(value, 'verificationObligations').map((entry, index) => {
-    const item = record(entry, `verificationObligations[${index}]`);
-    exactKeys(item, VERIFICATION_KEYS, `verificationObligations[${index}]`);
-    return {
-      id: token(item.id, `verificationObligations[${index}].id`),
-      revision: text(item.revision, `verificationObligations[${index}].revision`),
-      reasonCode: token(item.reasonCode, `verificationObligations[${index}].reasonCode`)
-    };
-  }), 'verificationObligations');
 }
 
 function parseReadRefs(value: unknown, conditional: false): SecOperationReadReferenceV1[];
@@ -447,8 +242,8 @@ function scopeCoversRepositoryPath(scope: string, repositoryPath: string): boole
 function compileFromRecord(input: Record<string, unknown>): SecOperationReadPlanV1 {
   exactKeys(input, INPUT_KEYS, 'input');
   if (input.schema !== SEC_OPERATION_READ_PLAN_INPUT_SCHEMA) fail('input schema is unsupported.');
-  const taskCapsule = parseTaskCapsule(input.taskCapsule);
-  const authority = taskCapsule.authority;
+  const taskCapsule = parseSecTaskCapsuleV1(input.taskCapsule);
+  const planningContext = taskCapsule.planningContext;
   const requiredRefs = parseReadRefs(input.requiredRefs, false);
   const conditionalRefs = parseReadRefs(input.conditionalRefs, true);
   if (requiredRefs.length === 0) fail('requiredRefs must bind at least one exact owner ref.');
@@ -462,11 +257,13 @@ function compileFromRecord(input: Record<string, unknown>): SecOperationReadPlan
   }
   for (const reference of allRefs) {
     if (CodexDevelopmentIsCanonicalRepositoryPathV1(reference.ref)) {
-      if (!authority.scope.readPaths.some((readPath) => scopeCoversRepositoryPath(readPath, reference.ref))) {
-        fail(`repository read ref is outside the trusted Capsule read scope: ${reference.id}.`);
+      if (!planningContext.scopeProposal.readPaths.some(
+        (readPath) => scopeCoversRepositoryPath(readPath, reference.ref)
+      )) {
+        fail(`repository read ref is outside the Capsule read proposal: ${reference.id}.`);
       }
-    } else if (!authority.scope.authorizedResources.includes(reference.ref)) {
-      fail(`external read ref is not an exact trusted Capsule resource: ${reference.id}.`);
+    } else if (!planningContext.scopeProposal.authorizedResources.includes(reference.ref)) {
+      fail(`external read ref is not an exact Capsule resource proposal: ${reference.id}.`);
     }
   }
   const unresolvedFrontier = parseFrontier(input.unresolvedFrontier);
@@ -512,20 +309,22 @@ function compileFromRecord(input: Record<string, unknown>): SecOperationReadPlan
 
   const maxSkillBodies = input.maxSkillBodies;
   if (maxSkillBodies !== 0 && maxSkillBodies !== 1) fail('maxSkillBodies must be zero or one.');
-  if (maxSkillBodies === 0 && authority.skillCandidateIds.length > 0) {
+  if (maxSkillBodies === 0 && planningContext.skillCandidateIds.length > 0) {
     fail('skillCandidateIds must be empty when maxSkillBodies is zero.');
   }
 
   const coreInvalidation: SecOperationInvalidationInputV1[] = [
-    { id: 'goal-digest', revision: authority.goalDigest },
-    { id: 'owner-facts', revision: sha256(authority.ownerFacts) },
-    { id: 'scope', revision: sha256(authority.scope) },
-    { id: 'skill-candidates', revision: sha256(authority.skillCandidateIds) },
+    { id: 'goal-digest', revision: planningContext.goalDigest },
+    { id: 'owner-facts', revision: sha256(planningContext.ownerFacts) },
+    { id: 'scope-proposal', revision: sha256(planningContext.scopeProposal) },
+    { id: 'scope-grant', revision: sha256({ scopeGrantId: planningContext.scopeGrantId }) },
+    { id: 'skill-candidates', revision: sha256(planningContext.skillCandidateIds) },
     { id: 'task-capsule', revision: taskCapsule.digest },
-    { id: 'target-candidate', revision: authority.targetCandidate },
-    { id: 'trusted-revision', revision: authority.trustedRevision },
-    { id: 'verification-obligations', revision: sha256(authority.verificationObligations) },
-    { id: 'work-package-authorization', revision: authority.workPackageAuthorizationDigest }
+    { id: 'target-candidate', revision: planningContext.targetCandidate },
+    { id: 'trusted-revision', revision: planningContext.trustedRevision },
+    { id: 'verification-obligations', revision: sha256(planningContext.verificationObligations) },
+    { id: 'work-package-projection', revision: planningContext.workPackageProjectionId },
+    { id: 'work-package-proposal', revision: planningContext.workPackageProposalDigest }
   ];
   const additionalInvalidation = sortedById(array(input.invalidationInputs, 'invalidationInputs')
     .map((entry, index) => {
@@ -589,7 +388,7 @@ export function parseSecOperationReadPlanV1(value: unknown): SecOperationReadPla
   }
   const input: SecOperationReadPlanInputV1 = {
     schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-    taskCapsule: plan.taskCapsule as SecTaskCapsuleBindingV1,
+    taskCapsule: plan.taskCapsule as SecTaskCapsuleV1,
     requiredRefs: plan.requiredRefs as readonly SecOperationReadReferenceV1[],
     conditionalRefs: plan.conditionalRefs as readonly SecConditionalReadReferenceV1[],
     forbiddenSources: plan.forbiddenSources as readonly string[],
@@ -612,24 +411,30 @@ export function projectSecSkillEnvelopeFromOperationReadPlanV1(
   plan: SecOperationReadPlanV1
 ): SecSkillApplicabilityEnvelopeV1 {
   const verified = parseSecOperationReadPlanV1(plan);
-  const authority = verified.taskCapsule.authority;
+  const planningContext = verified.taskCapsule.planningContext;
+  const candidates = planningContext.skillCandidateIds.map((candidate) => {
+    if (!isSecAgentSkillId(candidate)) {
+      fail(`Task Capsule Skill candidate is not in the trusted Skill registry: ${candidate}.`);
+    }
+    return candidate;
+  }) as SecAgentSkillId[];
   return deepFreeze({
-    role: authority.role,
-    operationKind: authority.operationKind,
-    goalDigest: authority.goalDigest,
-    trustedRevision: authority.trustedRevision,
-    targetCandidate: authority.targetCandidate,
-    workPackageAuthorizationRef: authority.workPackageAuthorizationRef,
+    role: planningContext.role,
+    operationKind: planningContext.operationKind,
+    goalDigest: planningContext.goalDigest,
+    trustedRevision: planningContext.trustedRevision,
+    targetCandidate: planningContext.targetCandidate,
+    workPackageProposalRef: planningContext.workPackageProposalRef,
     taskCapsuleRef: verified.taskCapsule.ref,
     taskCapsuleDigest: verified.taskCapsule.digest,
     taskCapsuleRevision: verified.taskCapsule.revision,
-    candidates: authority.skillCandidateIds,
-    availableCapabilities: authority.scope.availableCapabilities,
-    authorizedResources: authority.scope.authorizedResources,
-    authorizedGates: authority.scope.authorizedGates,
-    authorizedWritePaths: authority.scope.writePaths,
-    forbiddenPaths: authority.scope.forbiddenPaths,
-    changedPaths: authority.scope.changedPaths
+    candidates,
+    availableCapabilities: planningContext.scopeProposal.availableCapabilities,
+    authorizedResources: planningContext.scopeProposal.authorizedResources,
+    authorizedGates: planningContext.scopeProposal.authorizedGates,
+    authorizedWritePaths: planningContext.scopeProposal.writePaths,
+    forbiddenPaths: planningContext.scopeProposal.forbiddenPaths,
+    changedPaths: planningContext.scopeProposal.changedPaths
   });
 }
 
