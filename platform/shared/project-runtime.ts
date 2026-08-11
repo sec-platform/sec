@@ -3,14 +3,19 @@ import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { loadCanonicalBunRuntimeVersion } from './bun-runtime-version.ts';
-import { canonicalEquals, compareCodeUnits, digest, sortedKeys, uniqueSorted } from './canonical-primitives.ts';
+import {
+  canonicalEquals,
+  compareCodeUnits,
+  digest,
+  sortedKeys,
+  uniqueSorted
+} from './canonical-primitives.ts';
 import { CompilerError } from './errors.ts';
 import {
   ensureDir,
   formatJsonFile,
   pathExists,
   readJson,
-  readText,
   writeJson,
   writeText,
   type CommitFence
@@ -26,9 +31,12 @@ import {
 } from './process.ts';
 import {
   buildExactPlaywrightPackageAuthority,
+  buildRuntimeDependencyMaterializationBinding,
   buildRuntimePackageManifest,
   EXACT_PLAYWRIGHT_PACKAGE_NAMES,
+  isRuntimeDependencyMaterializationBinding,
   isRuntimeDependencyPackageManifest,
+  isRuntimeDependencyPackageName,
   isRuntimeDepsPreboundBinding,
   loadRuntimeDependencySpec,
   RUNTIME_DEPENDENCY_PACKAGE_NAMES,
@@ -36,31 +44,23 @@ import {
   type ExactPlaywrightPackageAuthority,
   type ExactPlaywrightPackageName,
   type RootPackageJson,
-  type RuntimeDependencySpec
+  type RuntimeDependencyMaterializationBinding,
+  type RuntimeDependencyResolutionEdge,
+  type RuntimeDependencyResolvedPackage,
+  type RuntimeDependencySpec,
+  type RuntimeDependencyToolchainBinding
 } from './runtime-dependency-spec.ts';
 
-// Inline config cache for package.json/bun.lock parsing.
-// Inlined here to avoid expanding the TCB runtime closure with config-cache.ts.
-interface ConfigCacheEntry { readonly signature: string; readonly value: unknown }
-const configCache = new Map<string, ConfigCacheEntry>();
-async function cachedRead<T>(filePath: string, parser: (content: string) => T): Promise<T> {
-  const stat = await fs.stat(filePath);
-  const signature = `${filePath}:${stat.mtimeMs}:${stat.size}`;
-  const existing = configCache.get(filePath);
-  if (existing !== undefined && existing.signature === signature) return existing.value as T;
-  const content = await fs.readFile(filePath, 'utf8');
-  const value = parser(content);
-  configCache.set(filePath, { signature, value: value as unknown });
-  return value;
-}
-
 export interface RuntimeDepsStamp {
+  binding: Readonly<RuntimeDependencyMaterializationBinding>;
+  formatVersion: 'runtime-deps-stamp-v2';
   manifestHash: string;
   packageManager: 'bun';
   installedAt: string;
 }
 
 export interface SharedDepsReadyState {
+  binding: Readonly<RuntimeDependencyMaterializationBinding>;
   packageManager: 'bun';
   root: string;
   nodeModulesPath: string;
@@ -72,6 +72,7 @@ export interface CompilerDepsReadyState {
   nodeModulesPath: string;
   packageManager: 'bun';
   root: string;
+  readonly runtimeMaterialization?: Readonly<RuntimeDependencyMaterializationBinding> | null;
   source: 'existing' | 'installed';
 }
 
@@ -93,14 +94,22 @@ interface CompilerDependencyPackageBinding {
 }
 
 interface CompilerDepsBinding {
-  architecture: string;
-  bunVersion: string;
-  declaredBunVersion: string;
-  formatVersion: 'compiler-deps-binding-v2';
-  manifestHash: string;
-  packages: readonly CompilerDependencyPackageBinding[];
-  platform: NodeJS.Platform;
+  readonly architecture: string;
+  readonly bunExecutablePath: string;
+  readonly bunExecutableSha256: string;
+  readonly bunVersion: string;
+  readonly declaredBunVersion: string;
+  readonly formatVersion: 'compiler-deps-binding-v3';
+  readonly installConfigSha256: string | null;
+  readonly lockSha256: string;
+  readonly manifestHash: string;
+  readonly packageManifestSha256: string;
+  readonly packages: readonly CompilerDependencyPackageBinding[];
+  readonly platform: NodeJS.Platform;
+  readonly runtimeMaterialization: Readonly<RuntimeDependencyMaterializationBinding> | null;
 }
+
+const COMPILER_DEPS_BINDING_FILE = '.sec-compiler-deps-binding-v3.json' as const;
 
 export interface RuntimeDependencyInstallOptions {
   beforeCommit?: CommitFence;
@@ -109,11 +118,7 @@ export interface RuntimeDependencyInstallOptions {
   lockTimeoutMs?: number;
   now?: () => string;
   pollIntervalMs?: number;
-  preferSharedCopy?: boolean;
   rematerialize?: boolean;
-  runtimeArchitecture?: string;
-  runtimePlatform?: NodeJS.Platform;
-  runtimeVersion?: string;
   sharedDepsRoot?: string;
   signal?: AbortSignal;
   skipSharedDepsWarmup?: boolean;
@@ -174,6 +179,19 @@ export interface PlaywrightBrowserRuntimeAuthority {
 export type PlaywrightBrowserCacheReadyState = Readonly<PlaywrightBrowserRuntimeAuthority>;
 
 export const EXTERNAL_NODE_MINIMUM_MAJOR_VERSION = 22;
+export const SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES = Object.freeze([
+  '.npmrc',
+  '.yarnrc',
+  '.yarnrc.yml',
+  'bun.lock',
+  'bun.lockb',
+  'bunfig.toml',
+  'npm-shrinkwrap.json',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+  'yarn.lock'
+] as const);
 const PLAYWRIGHT_BROWSER_INSTALL_TIMEOUT_MS = 600_000;
 const EXTERNAL_NODE_RUNTIME_PROBE = [
   "process.stdout.write(JSON.stringify({",
@@ -216,23 +234,72 @@ function sortedRecord(record: Record<string, string> | undefined): Record<string
 
 interface CompilerDependencyIdentity {
   architecture: string;
+  bunExecutablePath: string;
+  bunExecutableSha256: string;
   bunVersion: string;
   declaredBunVersion: string;
+  installConfigSha256: string | null;
+  lockSha256: string;
   manifestHash: string;
   packageNames: string[];
+  packageManifestSha256: string;
   packageVersions: Record<string, string>;
   platform: NodeJS.Platform;
 }
 
-async function compilerDependencyIdentity(
-  root: string,
-  options: RuntimeDependencyInstallOptions
-): Promise<CompilerDependencyIdentity> {
-  const packageJson = await cachedRead(
-    path.join(root, 'package.json'),
-    (text) => JSON.parse(text) as RootPackageJson & { packageManager?: string }
-  );
-  const lockfile = await cachedRead(path.join(root, 'bun.lock'), (text) => text);
+type RuntimeExecutableIdentity = Readonly<{
+  path: string;
+  sha256: string;
+  signature: string;
+}>;
+
+let runtimeExecutableIdentityCache: RuntimeExecutableIdentity | null = null;
+
+async function currentRuntimeExecutableIdentity(refresh = false): Promise<RuntimeExecutableIdentity> {
+  const executablePath = await fs.realpath(process.execPath);
+  const metadata = await fs.lstat(executablePath, { bigint: true });
+  if (!metadata.isFile() || metadata.isSymbolicLink()) {
+    throw new CompilerError('IMPORT-AUTHORITY-001', 'Bun runtime executable must be one physical file');
+  }
+  const signature = [
+    executablePath,
+    metadata.dev,
+    metadata.ino,
+    metadata.mode,
+    metadata.size,
+    metadata.mtimeNs
+  ].join(':');
+  if (!refresh && runtimeExecutableIdentityCache?.signature === signature) {
+    return runtimeExecutableIdentityCache;
+  }
+  const executableBytes = await fs.readFile(executablePath);
+  const after = await fs.lstat(executablePath, { bigint: true });
+  if (metadata.dev !== after.dev || metadata.ino !== after.ino || metadata.mode !== after.mode ||
+    metadata.size !== after.size || metadata.mtimeNs !== after.mtimeNs ||
+    !sameHostPath(await fs.realpath(process.execPath), executablePath)) {
+    throw new CompilerError('IMPORT-AUTHORITY-001', 'Bun runtime executable changed during observation');
+  }
+  const identity = Object.freeze({
+    path: executablePath,
+    sha256: digest(executableBytes),
+    signature
+  });
+  runtimeExecutableIdentityCache = identity;
+  return identity;
+}
+
+async function compilerDependencyIdentity(root: string): Promise<CompilerDependencyIdentity> {
+  const [packageJsonBytes, lockfileBytes, installConfigBytes, runtimeExecutable] = await Promise.all([
+    fs.readFile(path.join(root, 'package.json')),
+    fs.readFile(path.join(root, 'bun.lock')),
+    fs.readFile(path.join(root, 'bunfig.toml')).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }),
+    currentRuntimeExecutableIdentity()
+  ]);
+  const packageJson = JSON.parse(packageJsonBytes.toString('utf8')) as
+    RootPackageJson & { packageManager?: string };
   const dependencies = sortedRecord(packageJson.dependencies);
   const devDependencies = sortedRecord(packageJson.devDependencies);
   const canonicalBunVersion = await loadCanonicalBunRuntimeVersion(root);
@@ -241,10 +308,10 @@ async function compilerDependencyIdentity(
     throw new CompilerError('IMPORT-AUTHORITY-001', 'Root packageManager must pin one Bun version exactly');
   }
   const runtime = {
-    architecture: options.runtimeArchitecture ?? process.arch,
-    bunVersion: options.runtimeVersion ?? process.versions.bun ?? 'unknown',
+    architecture: process.arch,
+    bunVersion: process.versions.bun ?? 'unknown',
     declaredBunVersion: packageManagerMatch[1]!,
-    platform: options.runtimePlatform ?? process.platform
+    platform: process.platform
   };
   if (runtime.bunVersion === 'unknown') {
     throw new CompilerError('IMPORT-AUTHORITY-001', 'Compiler dependency bootstrap must run under Bun');
@@ -256,15 +323,29 @@ async function compilerDependencyIdentity(
     );
   }
   const packageVersions = { ...dependencies, ...devDependencies };
+  const lockSha256 = digest(lockfileBytes);
+  const packageManifestSha256 = digest(packageJsonBytes);
+  const installConfigSha256 = installConfigBytes === null ? null : digest(installConfigBytes);
   return {
     ...runtime,
+    bunExecutablePath: runtimeExecutable.path,
+    bunExecutableSha256: runtimeExecutable.sha256,
+    installConfigSha256,
+    lockSha256,
     manifestHash: digest(JSON.stringify({
       dependencies,
       devDependencies,
-      lockfile,
-      runtime
+      installConfigSha256,
+      lockSha256,
+      packageManifestSha256,
+      runtime: {
+        ...runtime,
+        bunExecutablePath: runtimeExecutable.path,
+        bunExecutableSha256: runtimeExecutable.sha256
+      }
     })),
     packageNames: sortedKeys(packageVersions),
+    packageManifestSha256,
     packageVersions
   };
 }
@@ -372,22 +453,77 @@ async function compilerDependencyPackageBindings(
   )));
 }
 
-async function compilerDependencyTreeReady(
+async function compilerDependencyGenerationBinding(
+  root: string,
   nodeModulesPath: string,
   bindingPath: string,
   identity: CompilerDependencyIdentity
-): Promise<boolean> {
+): Promise<Readonly<CompilerDepsBinding> | null> {
   const binding = await readJson<CompilerDepsBinding>(bindingPath).catch(() => null);
-  if (
-    binding?.formatVersion !== 'compiler-deps-binding-v2' ||
-    binding.manifestHash !== identity.manifestHash ||
+  if (binding === null || binding.formatVersion !== 'compiler-deps-binding-v3' ||
+    binding.architecture !== identity.architecture ||
+    binding.bunExecutablePath !== identity.bunExecutablePath ||
+    binding.bunExecutableSha256 !== identity.bunExecutableSha256 ||
     binding.bunVersion !== identity.bunVersion ||
     binding.declaredBunVersion !== identity.declaredBunVersion ||
-    binding.platform !== identity.platform ||
-    binding.architecture !== identity.architecture
-  ) return false;
+    binding.installConfigSha256 !== identity.installConfigSha256 ||
+    binding.lockSha256 !== identity.lockSha256 ||
+    binding.manifestHash !== identity.manifestHash ||
+    binding.packageManifestSha256 !== identity.packageManifestSha256 ||
+    binding.platform !== identity.platform) return null;
   const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity).catch(() => null);
-  return packages !== null && canonicalEquals(packages, binding.packages);
+  if (packages === null || !canonicalEquals(binding.packages, packages)) return null;
+  const runtimeMaterialization = await compilerRuntimeMaterializationBinding(
+    root,
+    nodeModulesPath,
+    identity
+  ).catch(() => undefined);
+  if (runtimeMaterialization === undefined) return null;
+  const expected = {
+    architecture: identity.architecture,
+    bunExecutablePath: identity.bunExecutablePath,
+    bunExecutableSha256: identity.bunExecutableSha256,
+    bunVersion: identity.bunVersion,
+    declaredBunVersion: identity.declaredBunVersion,
+    formatVersion: 'compiler-deps-binding-v3',
+    installConfigSha256: identity.installConfigSha256,
+    lockSha256: identity.lockSha256,
+    manifestHash: identity.manifestHash,
+    packageManifestSha256: identity.packageManifestSha256,
+    packages,
+    platform: identity.platform,
+    runtimeMaterialization
+  } satisfies CompilerDepsBinding;
+  return canonicalEquals(binding, expected) ? Object.freeze(expected) : null;
+}
+
+async function compilerRuntimeMaterializationBinding(
+  root: string,
+  nodeModulesPath: string,
+  identity: CompilerDependencyIdentity
+): Promise<Readonly<RuntimeDependencyMaterializationBinding> | null> {
+  if (!RUNTIME_DEPENDENCY_PACKAGE_NAMES.every((name) => identity.packageVersions[name] !== undefined)) {
+    return null;
+  }
+  const runtimeSpec = await loadRuntimeDependencySpec(path.join(root, 'package.json'));
+  return observeRuntimeDependencyMaterializationBinding({
+    nodeModulesPath,
+    root,
+    runtimeSpec,
+    toolchain: {
+      architecture: identity.architecture,
+      bunExecutablePath: identity.bunExecutablePath,
+      bunExecutableSha256: identity.bunExecutableSha256,
+      bunVersion: identity.bunVersion,
+      canonicalBunVersion: identity.bunVersion,
+      compilerGenerationRevision: identity.manifestHash,
+      declaredBunVersion: identity.declaredBunVersion,
+      installConfigSha256: identity.installConfigSha256,
+      lockSha256: identity.lockSha256,
+      packageManifestSha256: identity.packageManifestSha256,
+      platform: identity.platform
+    }
+  });
 }
 
 function buildEnv(
@@ -435,25 +571,458 @@ async function hasCompleteRuntimeDeps(
   }
 }
 
+type RuntimePackageManifestObservation = Readonly<{
+  dependencies: Readonly<Record<string, string>>;
+  manifestSha256: string;
+  name: string;
+  optionalDependencies: Readonly<Record<string, string>>;
+  optionalPeers: ReadonlySet<string>;
+  peerDependencies: Readonly<Record<string, string>>;
+  version: string;
+}>;
+
+type RuntimePackageClosureState = {
+  edges: RuntimeDependencyResolutionEdge[];
+  manifestSha256: string;
+  name: string;
+  relativePath: string;
+  version: string;
+};
+
+function dependencyRecord(value: unknown, label: string): Readonly<Record<string, string>> {
+  if (value === undefined) return Object.freeze({});
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new CompilerError('RUNTIME-DEPS-002', `${label} must be one dependency record`);
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => compareCodeUnits(left, right));
+  if (entries.some(([name, version]) => !isRuntimeDependencyPackageName(name) ||
+    typeof version !== 'string' || !version)) {
+    throw new CompilerError('RUNTIME-DEPS-002', `${label} contains an invalid dependency`);
+  }
+  return Object.freeze(Object.fromEntries(entries) as Record<string, string>);
+}
+
+function optionalPeerNames(value: unknown): ReadonlySet<string> {
+  if (value === undefined) return new Set<string>();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency peer metadata is invalid');
+  }
+  const optional = new Set<string>();
+  for (const [name, metadata] of Object.entries(value as Record<string, unknown>)) {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency peer metadata is invalid');
+    }
+    const record = metadata as Record<string, unknown>;
+    if (record.optional === true) optional.add(name);
+  }
+  return optional;
+}
+
+async function observeRuntimePackageManifest(
+  packageRoot: string
+): Promise<RuntimePackageManifestObservation> {
+  const packageJsonPath = path.join(packageRoot, 'package.json');
+  const metadata = await fs.lstat(packageJsonPath, { bigint: true });
+  if (!metadata.isFile() || metadata.isSymbolicLink() ||
+    !sameHostPath(await fs.realpath(packageJsonPath), packageJsonPath)) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency package manifest is not one physical file');
+  }
+  const bytes = await fs.readFile(packageJsonPath);
+  const after = await fs.lstat(packageJsonPath, { bigint: true });
+  if (metadata.dev !== after.dev || metadata.ino !== after.ino || metadata.mode !== after.mode) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency package manifest changed during observation');
+  }
+  const parsed = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+    !isRuntimeDependencyPackageName(parsed.name) ||
+    typeof parsed.version !== 'string' || !parsed.version) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency package manifest is invalid');
+  }
+  return Object.freeze({
+    dependencies: dependencyRecord(parsed.dependencies, 'Runtime dependency dependencies'),
+    manifestSha256: digest(bytes),
+    name: parsed.name,
+    optionalDependencies: dependencyRecord(
+      parsed.optionalDependencies,
+      'Runtime dependency optionalDependencies'
+    ),
+    optionalPeers: optionalPeerNames(parsed.peerDependenciesMeta),
+    peerDependencies: dependencyRecord(
+      parsed.peerDependencies,
+      'Runtime dependency peerDependencies'
+    ),
+    version: parsed.version
+  });
+}
+
+function runtimePackageRelativePath(nodeModulesPath: string, packageRoot: string): string {
+  const relative = path.relative(path.resolve(nodeModulesPath), path.resolve(packageRoot));
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency package escapes node_modules');
+  }
+  return relative.replaceAll('\\', '/');
+}
+
+async function physicalRuntimePackageRoot(
+  nodeModulesPath: string,
+  candidate: string
+): Promise<string | null> {
+  try {
+    const absolute = path.resolve(candidate);
+    if (!isPathInside(nodeModulesPath, absolute)) return null;
+    const metadata = await fs.lstat(absolute);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency closure contains a reparse entry');
+    }
+    const physical = await fs.realpath(absolute);
+    if (!sameHostPath(physical, absolute) || !isPathInside(nodeModulesPath, physical)) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency package is not physically contained');
+    }
+    return absolute;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function resolveRuntimePackageRoot(
+  nodeModulesPath: string,
+  fromPackageRoot: string | null,
+  dependencyName: string
+): Promise<string | null> {
+  const relativeSegments = dependencyName.split('/');
+  if (fromPackageRoot === null) {
+    return physicalRuntimePackageRoot(nodeModulesPath, path.join(nodeModulesPath, ...relativeSegments));
+  }
+  let cursor = path.resolve(fromPackageRoot);
+  const modulesRoot = path.resolve(nodeModulesPath);
+  while (isPathInside(modulesRoot, cursor)) {
+    const candidate = path.basename(cursor).toLocaleLowerCase('en-US') === 'node_modules'
+      ? path.join(cursor, ...relativeSegments)
+      : path.join(cursor, 'node_modules', ...relativeSegments);
+    const physical = await physicalRuntimePackageRoot(modulesRoot, candidate);
+    if (physical !== null) return physical;
+    if (sameHostPath(cursor, modulesRoot)) break;
+    cursor = path.dirname(cursor);
+  }
+  return null;
+}
+
+async function observeRuntimeDependencyMaterializationBinding(input: Readonly<{
+  nodeModulesPath: string;
+  runtimeSpec: RuntimeDependencySpec;
+  root: string;
+  toolchain: Readonly<RuntimeDependencyToolchainBinding>;
+}>): Promise<Readonly<RuntimeDependencyMaterializationBinding>> {
+  const [
+    lockfileBytes,
+    packageManifestBytes,
+    installConfigBytes,
+    canonicalBunVersion,
+    runtimeExecutable
+  ] = await Promise.all([
+    fs.readFile(path.join(input.root, 'bun.lock')),
+    fs.readFile(path.join(input.root, 'package.json')),
+    fs.readFile(path.join(input.root, 'bunfig.toml')).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }),
+    loadCanonicalBunRuntimeVersion(input.root),
+    currentRuntimeExecutableIdentity()
+  ]);
+  if (digest(lockfileBytes) !== input.toolchain.lockSha256 ||
+    digest(packageManifestBytes) !== input.toolchain.packageManifestSha256 ||
+    (installConfigBytes === null ? null : digest(installConfigBytes)) !== input.toolchain.installConfigSha256 ||
+    runtimeExecutable.path !== input.toolchain.bunExecutablePath ||
+    runtimeExecutable.sha256 !== input.toolchain.bunExecutableSha256 ||
+    canonicalBunVersion !== input.toolchain.bunVersion ||
+    canonicalBunVersion !== input.toolchain.canonicalBunVersion ||
+    canonicalBunVersion !== input.toolchain.declaredBunVersion ||
+    process.arch !== input.toolchain.architecture ||
+    process.platform !== input.toolchain.platform) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency authority changed during observation');
+  }
+  const packages = new Map<string, RuntimePackageClosureState>();
+
+  const visit = async (
+    packageRoot: string,
+    resolutionName: string
+  ): Promise<string> => {
+    const relativePath = runtimePackageRelativePath(input.nodeModulesPath, packageRoot);
+    const existing = packages.get(relativePath);
+    if (existing !== undefined) return existing.relativePath;
+    const manifest = await observeRuntimePackageManifest(packageRoot);
+    const state: RuntimePackageClosureState = {
+      edges: [],
+      manifestSha256: manifest.manifestSha256,
+      name: manifest.name,
+      relativePath,
+      version: manifest.version
+    };
+    packages.set(relativePath, state);
+
+    const dependencyKinds = new Map<string, RuntimeDependencyResolutionEdge['kind']>();
+    for (const name of Object.keys(manifest.dependencies)) dependencyKinds.set(name, 'dependency');
+    for (const name of Object.keys(manifest.optionalDependencies)) dependencyKinds.set(name, 'optional');
+    for (const name of Object.keys(manifest.peerDependencies)) {
+      if (!dependencyKinds.has(name)) dependencyKinds.set(name, 'peer');
+    }
+    for (const [dependencyName, kind] of [...dependencyKinds.entries()]
+      .sort(([left], [right]) => compareCodeUnits(left, right))) {
+      const targetRoot = await resolveRuntimePackageRoot(
+        input.nodeModulesPath,
+        packageRoot,
+        dependencyName
+      );
+      const optional = kind === 'optional' ||
+        (kind === 'peer' && manifest.optionalPeers.has(dependencyName));
+      if (targetRoot === null) {
+        if (optional) continue;
+        throw new CompilerError(
+          'RUNTIME-DEPS-002',
+          `Runtime dependency closure is missing ${dependencyName} required by ${resolutionName}`
+        );
+      }
+      state.edges.push(Object.freeze({
+        kind,
+        name: dependencyName,
+        target: await visit(targetRoot, dependencyName)
+      }));
+    }
+    return relativePath;
+  };
+
+  const exactVersions = { ...input.runtimeSpec.dependencies, ...input.runtimeSpec.devDependencies };
+  const rootPackages: { name: string; target: string }[] = [];
+  for (const packageName of [...RUNTIME_DEPENDENCY_PACKAGE_NAMES].sort(compareCodeUnits)) {
+    const packageRoot = await resolveRuntimePackageRoot(input.nodeModulesPath, null, packageName);
+    if (packageRoot === null) {
+      throw new CompilerError('RUNTIME-DEPS-002', `Runtime dependency root package is absent: ${packageName}`);
+    }
+    const target = await visit(packageRoot, packageName);
+    const observed = packages.get(target)!;
+    if (observed.name !== packageName || observed.version !== exactVersions[packageName]) {
+      throw new CompilerError('RUNTIME-DEPS-002', `Runtime dependency root package drifted: ${packageName}`);
+    }
+    rootPackages.push(Object.freeze({ name: packageName, target }));
+  }
+
+  return buildRuntimeDependencyMaterializationBinding({
+    manifestHash: input.runtimeSpec.manifestHash,
+    packages: [...packages.values()] as RuntimeDependencyResolvedPackage[],
+    rootPackages,
+    toolchain: input.toolchain
+  });
+}
+
+async function installedRuntimePackagePaths(nodeModulesPath: string): Promise<readonly string[]> {
+  const root = path.resolve(nodeModulesPath);
+  const packages: string[] = [];
+  const visitModules = async (modulesPath: string): Promise<void> => {
+    const absoluteModulesPath = path.resolve(modulesPath);
+    const before = await fs.lstat(modulesPath, { bigint: true });
+    if (!before.isDirectory() || before.isSymbolicLink() ||
+      !sameHostPath(await fs.realpath(modulesPath), modulesPath) ||
+      !(sameHostPath(root, absoluteModulesPath) || isPathInside(root, absoluteModulesPath))) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency projection has a reparse modules root');
+    }
+    const entries = (await fs.readdir(modulesPath, { withFileTypes: true }))
+      .sort((left, right) => compareCodeUnits(left.name, right.name));
+    for (const entry of entries) {
+      const entryPath = path.join(modulesPath, entry.name);
+      if (!entry.isDirectory() || entry.isSymbolicLink()) {
+        throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency projection has an unknown root entry');
+      }
+      const packageRoots = entry.name.startsWith('@')
+        ? (await fs.readdir(entryPath, { withFileTypes: true }))
+          .sort((left, right) => compareCodeUnits(left.name, right.name))
+          .map((scoped) => {
+            if (!scoped.isDirectory() || scoped.isSymbolicLink()) {
+              throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency projection scope is invalid');
+            }
+            return path.join(entryPath, scoped.name);
+          })
+        : [entryPath];
+      for (const packageRoot of packageRoots) {
+        const manifestMetadata = await fs.lstat(path.join(packageRoot, 'package.json'));
+        if (!manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()) {
+          throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency projection package is invalid');
+        }
+        packages.push(runtimePackageRelativePath(root, packageRoot));
+        const nestedModules = path.join(packageRoot, 'node_modules');
+        if (await pathExists(nestedModules)) await visitModules(nestedModules);
+      }
+    }
+    const after = await fs.lstat(modulesPath, { bigint: true });
+    const namesAfter = (await fs.readdir(modulesPath)).sort(compareCodeUnits);
+    if (before.dev !== after.dev || before.ino !== after.ino || before.mode !== after.mode ||
+      !canonicalEquals(namesAfter, entries.map((entry) => entry.name))) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency projection changed during census');
+    }
+  };
+  await visitModules(root);
+  return Object.freeze(packages.sort(compareCodeUnits));
+}
+
+type PhysicalControlFileIdentity = Readonly<{
+  dev: string;
+  ino: string;
+  mode: string;
+  nlink: string;
+}>;
+
+function physicalControlFileIdentity(metadata: Readonly<{
+  dev: bigint | number;
+  ino: bigint | number;
+  mode: bigint | number;
+  nlink: bigint | number;
+}>): PhysicalControlFileIdentity {
+  return Object.freeze({
+    dev: String(metadata.dev),
+    ino: String(metadata.ino),
+    mode: String(metadata.mode),
+    nlink: String(metadata.nlink)
+  });
+}
+
+function samePhysicalControlFileIdentity(
+  left: PhysicalControlFileIdentity,
+  right: PhysicalControlFileIdentity
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode &&
+    left.nlink === right.nlink;
+}
+
+async function observePhysicalControlFile(filePath: string): Promise<PhysicalControlFileIdentity> {
+  const metadata = await fs.lstat(filePath, { bigint: true });
+  if (!metadata.isFile() || metadata.isSymbolicLink() ||
+    metadata.nlink !== 1n ||
+    !sameHostPath(await fs.realpath(filePath), filePath)) {
+    throw new CompilerError('RUNTIME-DEPS-002', `Runtime dependency control file is not physical: ${filePath}`);
+  }
+  return physicalControlFileIdentity(metadata);
+}
+
+async function readPhysicalControlText(filePath: string): Promise<string> {
+  const before = await observePhysicalControlFile(filePath);
+  const handle = await fs.open(filePath, 'r');
+  try {
+    const opened = physicalControlFileIdentity(await handle.stat({ bigint: true }));
+    if (!samePhysicalControlFileIdentity(before, opened)) {
+      throw new CompilerError('RUNTIME-DEPS-002', `Runtime dependency control file changed: ${filePath}`);
+    }
+    const text = await handle.readFile('utf8');
+    const after = physicalControlFileIdentity(await handle.stat({ bigint: true }));
+    const current = await observePhysicalControlFile(filePath);
+    if (!samePhysicalControlFileIdentity(opened, after) ||
+      !samePhysicalControlFileIdentity(after, current)) {
+      throw new CompilerError('RUNTIME-DEPS-002', `Runtime dependency control file changed: ${filePath}`);
+    }
+    return text;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function writePhysicalControlText(
+  filePath: string,
+  text: string,
+  commitFence?: CommitFence
+): Promise<void> {
+  let observed: PhysicalControlFileIdentity | null;
+  try {
+    observed = await observePhysicalControlFile(filePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    observed = null;
+  }
+  await commitFence?.();
+  let handle: FileHandle | null = null;
+  try {
+    handle = await fs.open(filePath, observed === null ? 'wx+' : 'r+');
+    const opened = physicalControlFileIdentity(await handle.stat({ bigint: true }));
+    if (observed !== null && !samePhysicalControlFileIdentity(opened, observed)) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency control file identity changed before write');
+    }
+    const current = await observePhysicalControlFile(filePath);
+    if (!samePhysicalControlFileIdentity(opened, current)) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency control file name changed before write');
+    }
+    await commitFence?.();
+    await handle.truncate(0);
+    await handle.writeFile(text, 'utf8');
+    await handle.sync();
+    const after = physicalControlFileIdentity(await handle.stat({ bigint: true }));
+    const published = await observePhysicalControlFile(filePath);
+    if (!samePhysicalControlFileIdentity(opened, after) ||
+      !samePhysicalControlFileIdentity(after, published)) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency control file identity changed during write');
+    }
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+async function assertPhysicalControlEntries(paths: readonly string[]): Promise<void> {
+  for (const filePath of paths) {
+    try {
+      await observePhysicalControlFile(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+}
+
 async function writeManifestIfChanged(
   filePath: string,
   value: unknown,
   commitFence?: CommitFence
 ): Promise<void> {
   const nextText = formatJsonFile(value);
-  if ((await pathExists(filePath)) && (await readText(filePath)) === nextText) {
-    return;
+  try {
+    if (await readPhysicalControlText(filePath) === nextText) return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
-  await writeText(filePath, nextText, commitFence);
+  await writePhysicalControlText(filePath, nextText, commitFence);
 }
 
 export async function readRuntimeDepsStamp(stampPath: string): Promise<RuntimeDepsStamp | null> {
-  if (!(await pathExists(stampPath))) {
-    return null;
+  let stampText: string;
+  try {
+    stampText = await readPhysicalControlText(stampPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
   }
 
   try {
-    return await readJson<RuntimeDepsStamp>(stampPath);
+    const value = JSON.parse(stampText) as unknown;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const stamp = value as Partial<RuntimeDepsStamp>;
+    if (stamp.formatVersion !== 'runtime-deps-stamp-v2' ||
+      stamp.packageManager !== 'bun' ||
+      typeof stamp.manifestHash !== 'string' ||
+      typeof stamp.installedAt !== 'string' ||
+      Number.isNaN(Date.parse(stamp.installedAt)) ||
+      new Date(stamp.installedAt).toISOString() !== stamp.installedAt ||
+      !isRuntimeDependencyMaterializationBinding(stamp.binding) ||
+      stamp.binding.manifestHash !== stamp.manifestHash) return null;
+    const binding = buildRuntimeDependencyMaterializationBinding({
+      manifestHash: stamp.binding.manifestHash,
+      packages: stamp.binding.packages,
+      rootPackages: stamp.binding.rootPackages,
+      toolchain: stamp.binding.toolchain
+    });
+    const canonical: RuntimeDepsStamp = {
+      binding,
+      formatVersion: 'runtime-deps-stamp-v2',
+      installedAt: stamp.installedAt,
+      manifestHash: stamp.manifestHash,
+      packageManager: 'bun'
+    };
+    return canonicalEquals(value, canonical) ? Object.freeze(canonical) : null;
   } catch {
     return null;
   }
@@ -464,19 +1033,341 @@ export async function writeRuntimeDepsStamp(
   stamp: RuntimeDepsStamp,
   commitFence?: CommitFence
 ): Promise<void> {
-  await writeJson(stampPath, stamp, commitFence);
+  const canonical: RuntimeDepsStamp = {
+    binding: stamp.binding,
+    formatVersion: 'runtime-deps-stamp-v2',
+    installedAt: stamp.installedAt,
+    manifestHash: stamp.manifestHash,
+    packageManager: 'bun'
+  };
+  if (stamp.formatVersion !== 'runtime-deps-stamp-v2' ||
+    stamp.packageManager !== 'bun' ||
+    stamp.binding.manifestHash !== stamp.manifestHash ||
+    !isRuntimeDependencyMaterializationBinding(stamp.binding) ||
+    Number.isNaN(Date.parse(stamp.installedAt)) ||
+    new Date(stamp.installedAt).toISOString() !== stamp.installedAt ||
+    !canonicalEquals(stamp, canonical)) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency stamp is non-canonical');
+  }
+  await writePhysicalControlText(stampPath, formatJsonFile(canonical), commitFence);
 }
 
-async function isCacheReady(
-  nodeModulesPath: string,
-  stampPath: string,
-  spec: RuntimeDependencySpec
+async function runtimeDependencyTreeMatchesBinding(input: Readonly<{
+  expected: Readonly<RuntimeDependencyMaterializationBinding>;
+  nodeModulesPath: string;
+  root: string;
+  runtimeSpec: RuntimeDependencySpec;
+}>): Promise<boolean> {
+  try {
+    const [observed, installedPaths] = await Promise.all([
+      observeRuntimeDependencyMaterializationBinding({
+        nodeModulesPath: input.nodeModulesPath,
+        root: input.root,
+        runtimeSpec: input.runtimeSpec,
+        toolchain: input.expected.toolchain
+      }),
+      installedRuntimePackagePaths(input.nodeModulesPath)
+    ]);
+    return canonicalEquals(observed, input.expected) &&
+      canonicalEquals(
+        installedPaths,
+        input.expected.packages.map((entry) => entry.relativePath).sort(compareCodeUnits)
+      );
+  } catch {
+    return false;
+  }
+}
+
+async function sharedDependencyAuthorityResidue(sharedDepsRoot: string): Promise<string[]> {
+  const observed = await Promise.all(SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES.map(async (name) => {
+    try {
+      await fs.lstat(path.join(sharedDepsRoot, name));
+      return name;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+  }));
+  return observed.filter((name): name is (typeof SHARED_DEPENDENCY_FORBIDDEN_AUTHORITY_FILES)[number] =>
+    name !== null);
+}
+
+type SharedDependencyRootIdentity = Readonly<{
+  dev: string;
+  ino: string;
+  mode: string;
+  rootPath: string;
+}>;
+
+function sameHostPath(left: string, right: string): boolean {
+  const normalize = (value: string): string => {
+    const resolved = path.resolve(value);
+    if (process.platform !== 'win32') return resolved;
+    const withoutDevicePrefix = resolved.startsWith('\\\\?\\UNC\\')
+      ? `\\\\${resolved.slice('\\\\?\\UNC\\'.length)}`
+      : resolved.startsWith('\\\\?\\')
+        ? resolved.slice('\\\\?\\'.length)
+        : resolved;
+    return withoutDevicePrefix.toLocaleLowerCase('en-US');
+  };
+  const resolvedLeft = normalize(left);
+  const resolvedRight = normalize(right);
+  return process.platform === 'win32'
+    ? resolvedLeft === resolvedRight
+    : resolvedLeft === resolvedRight;
+}
+
+async function physicalSharedDependencyDirectory(
+  directoryPath: string,
+  allowMissing: boolean
+): Promise<SharedDependencyRootIdentity | null> {
+  const rootPath = path.resolve(directoryPath);
+  try {
+    const metadata = await fs.lstat(rootPath, { bigint: true });
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+      throw new CompilerError(
+        'RUNTIME-DEPS-002',
+        `Shared dependency authority must be a physical directory: ${rootPath}`
+      );
+    }
+    const physicalPath = await fs.realpath(rootPath);
+    if (!sameHostPath(physicalPath, rootPath)) {
+      throw new CompilerError(
+        'RUNTIME-DEPS-002',
+        `Shared dependency authority must not traverse an alias: ${rootPath}`
+      );
+    }
+    return Object.freeze({
+      dev: String(metadata.dev),
+      ino: String(metadata.ino),
+      mode: String(metadata.mode),
+      rootPath
+    });
+  } catch (error) {
+    if (allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function sameSharedDependencyRootIdentity(
+  left: SharedDependencyRootIdentity,
+  right: SharedDependencyRootIdentity
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode &&
+    sameHostPath(left.rootPath, right.rootPath);
+}
+
+async function ensurePhysicalSharedDependencyRoot(
+  sharedDepsRoot: string,
+  commitFence?: CommitFence
+): Promise<SharedDependencyRootIdentity> {
+  const existing = await physicalSharedDependencyDirectory(sharedDepsRoot, true);
+  if (existing !== null) return existing;
+  const parentPath = path.dirname(path.resolve(sharedDepsRoot));
+  const parent = await physicalSharedDependencyDirectory(parentPath, false);
+  if (parent === null) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Shared dependency authority parent is unavailable');
+  }
+  await commitFence?.();
+  const currentParent = await physicalSharedDependencyDirectory(parentPath, false);
+  if (currentParent === null || !sameSharedDependencyRootIdentity(currentParent, parent)) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Shared dependency authority parent changed before creation');
+  }
+  try {
+    await fs.mkdir(path.resolve(sharedDepsRoot));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
+  const created = await physicalSharedDependencyDirectory(sharedDepsRoot, false);
+  if (created === null) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Shared dependency authority was not created');
+  }
+  return created;
+}
+
+async function assertSharedDependencyRootIdentity(
+  expected: SharedDependencyRootIdentity
+): Promise<void> {
+  const current = await physicalSharedDependencyDirectory(expected.rootPath, false);
+  if (current === null || !sameSharedDependencyRootIdentity(current, expected)) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Shared dependency authority identity changed');
+  }
+}
+
+async function assertNoSharedDependencyAuthorityResidue(sharedDepsRoot: string): Promise<void> {
+  const residue = await sharedDependencyAuthorityResidue(sharedDepsRoot);
+  if (residue.length > 0) {
+    throw new CompilerError(
+      'RUNTIME-DEPS-002',
+      `Shared dependency root contains competing authority files: ${residue.join(', ')}`,
+      { residue }
+    );
+  }
+}
+
+async function copyRuntimePackageTree(
+  source: string,
+  target: string,
+  commitFence?: CommitFence
+): Promise<void> {
+  const visit = async (sourceDirectory: string, targetDirectory: string): Promise<void> => {
+    const before = await fs.lstat(sourceDirectory, { bigint: true });
+    if (!before.isDirectory() || before.isSymbolicLink()) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency source contains a reparse entry');
+    }
+    await ensureDir(targetDirectory, commitFence);
+    const names = (await fs.readdir(sourceDirectory)).sort(compareCodeUnits);
+    for (const name of names) {
+      if (name === 'node_modules') continue;
+      const sourceChild = path.join(sourceDirectory, name);
+      const targetChild = path.join(targetDirectory, name);
+      const metadata = await fs.lstat(sourceChild);
+      if (metadata.isSymbolicLink()) {
+        throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency source contains a reparse entry');
+      }
+      if (metadata.isDirectory()) {
+        await visit(sourceChild, targetChild);
+      } else if (metadata.isFile()) {
+        await commitFence?.();
+        await fs.copyFile(sourceChild, targetChild);
+      } else {
+        throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency source contains a special entry');
+      }
+    }
+    const after = await fs.lstat(sourceDirectory, { bigint: true });
+    const namesAfter = (await fs.readdir(sourceDirectory)).sort(compareCodeUnits);
+    if (before.dev !== after.dev || before.ino !== after.ino || before.mode !== after.mode ||
+      JSON.stringify(namesAfter) !== JSON.stringify(names)) {
+      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency source changed during projection');
+    }
+  };
+  await visit(source, target);
+}
+
+async function stageRuntimeDependencyProjection(input: Readonly<{
+  binding: Readonly<RuntimeDependencyMaterializationBinding>;
+  commitFence: CommitFence;
+  sharedDepsRoot: string;
+  sourceNodeModulesPath: string;
+}>): Promise<{ nodeModulesPath: string; root: string }> {
+  await input.commitFence();
+  const stagingRoot = await fs.mkdtemp(path.join(input.sharedDepsRoot, '.runtime-generation-'));
+  const nodeModulesPath = path.join(stagingRoot, 'node_modules');
+  try {
+    await ensureDir(nodeModulesPath, input.commitFence);
+    for (const packageIdentity of input.binding.packages) {
+      await copyRuntimePackageTree(
+        path.join(input.sourceNodeModulesPath, ...packageIdentity.relativePath.split('/')),
+        path.join(nodeModulesPath, ...packageIdentity.relativePath.split('/')),
+        input.commitFence
+      );
+    }
+    return { nodeModulesPath, root: stagingRoot };
+  } catch (error) {
+    await fs.rm(stagingRoot, { force: true, recursive: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function publishRuntimeDependencyProjection(input: Readonly<{
+  activeNodeModulesPath: string;
+  commitFence: CommitFence;
+  options: RuntimeDependencyInstallOptions;
+  stagingNodeModulesPath: string;
+  stagingRoot: string;
+}>): Promise<void> {
+  const backupPath = path.join(input.stagingRoot, 'previous-node-modules');
+  const publishOptions: RuntimeDependencyInstallOptions = {
+    ...input.options,
+    beforeCommit: input.commitFence
+  };
+  let activeBackedUp = false;
+  try {
+    if (await pathExists(input.activeNodeModulesPath)) {
+      await renameCompilerDependencyDirectory(
+        input.activeNodeModulesPath,
+        backupPath,
+        publishOptions
+      );
+      activeBackedUp = true;
+    }
+    await renameCompilerDependencyDirectory(
+      input.stagingNodeModulesPath,
+      input.activeNodeModulesPath,
+      publishOptions
+    );
+  } catch (error) {
+    if (activeBackedUp && !(await pathExists(input.activeNodeModulesPath))) {
+      await renameCompilerDependencyDirectory(
+        backupPath,
+        input.activeNodeModulesPath,
+        publishOptions
+      ).catch(() => undefined);
+    }
+    throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency projection publish failed', {
+      cause: error instanceof Error ? error.message : String(error)
+    });
+  }
+  await input.commitFence();
+  await fs.rm(input.stagingRoot, { force: true, recursive: true });
+}
+
+async function sharedDependencyManifestMatches(
+  sharedPackagePath: string,
+  manifest: unknown
 ): Promise<boolean> {
-  const [stamp, installed] = await Promise.all([
-    readRuntimeDepsStamp(stampPath),
-    hasCompleteRuntimeDeps(nodeModulesPath, spec)
+  try {
+    return await readPhysicalControlText(sharedPackagePath) === formatJsonFile(manifest);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function sharedDependencyGenerationReady(input: Readonly<{
+  binding?: Readonly<RuntimeDependencyMaterializationBinding>;
+  compilerRoot: string;
+  manifest: unknown;
+  nodeModulesPath: string;
+  packagePath: string;
+  root: string;
+  spec: RuntimeDependencySpec;
+  stampPath: string;
+}>): Promise<RuntimeDepsStamp | null> {
+  const stamp = await readRuntimeDepsStamp(input.stampPath);
+  if (stamp === null || stamp.manifestHash !== input.spec.manifestHash) return null;
+  const binding = input.binding ?? stamp.binding;
+  if (stamp.binding.revision !== binding.revision ||
+    !canonicalEquals(stamp.binding, binding)) return null;
+  const [treeMatches, manifestMatches, residue] = await Promise.all([
+    runtimeDependencyTreeMatchesBinding({
+      expected: binding,
+      nodeModulesPath: input.nodeModulesPath,
+      root: input.compilerRoot,
+      runtimeSpec: input.spec
+    }),
+    sharedDependencyManifestMatches(input.packagePath, input.manifest),
+    sharedDependencyAuthorityResidue(input.root)
   ]);
-  return installed && stamp?.manifestHash === spec.manifestHash;
+  return treeMatches && manifestMatches && residue.length === 0 ? stamp : null;
+}
+
+async function assertSharedDependencyMaterializationPostcondition(input: Readonly<{
+  manifest: unknown;
+  packagePath: string;
+  root: string;
+}>): Promise<void> {
+  const [manifestMatches, residue] = await Promise.all([
+    sharedDependencyManifestMatches(input.packagePath, input.manifest),
+    sharedDependencyAuthorityResidue(input.root)
+  ]);
+  if (!manifestMatches || residue.length > 0) {
+    throw new CompilerError(
+      'RUNTIME-DEPS-002',
+      'Shared dependency install attempted to publish competing package authority',
+      { manifestMatches, residue }
+    );
+  }
 }
 
 function projectStampPath(projectRoot: string): string {
@@ -615,7 +1506,7 @@ async function runBunInstall(
   const commandArgs = isolated
     ? ['--no-env-file', `--config=${isolatedConfigPath}`, ...bunArgs]
     : bunArgs;
-  const bunResult = await commandRunner(isolated ? process.execPath : 'bun', commandArgs, {
+  const bunResult = await commandRunner(process.execPath, commandArgs, {
     beforeSpawn: options.beforeCommit,
     cwd: workingDirectory,
     env: buildEnv(cacheDir ? {
@@ -676,11 +1567,7 @@ async function physicalExecutablePath(candidatePath: string): Promise<string | n
 }
 
 function sameExecutablePath(left: string, right: string): boolean {
-  const resolvedLeft = path.resolve(left);
-  const resolvedRight = path.resolve(right);
-  return process.platform === 'win32'
-    ? resolvedLeft.toLocaleLowerCase('en-US') === resolvedRight.toLocaleLowerCase('en-US')
-    : resolvedLeft === resolvedRight;
+  return sameHostPath(left, right);
 }
 
 function externalNodeEnvironment(environment: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
@@ -1232,33 +2119,30 @@ async function copyPhysicalDependencyTree(
 }
 
 async function materializeIsolatedNodeModules(
-  sharedDepsRoot: string,
+  source: string,
   target: string,
-  spec: RuntimeDependencySpec,
   commitFence?: CommitFence
 ): Promise<void> {
-  const source = path.join(sharedDepsRoot, 'node_modules');
-  if (!(await hasCompleteRuntimeDeps(source, spec))) {
-    throw new CompilerError('RUNTIME-DEPS-004', 'Preinstalled dependency tree is unavailable for isolated verification');
-  }
   await commitFence?.();
   await fs.rm(target, { recursive: true, force: true });
   await copyPhysicalDependencyTree(source, target, commitFence);
 }
 
+async function dependencyBridgeTargets(
+  bridgePath: string,
+  expectedTarget: string
+): Promise<boolean> {
+  try {
+    const metadata = await fs.lstat(bridgePath);
+    if (!metadata.isSymbolicLink()) return false;
+    return sameHostPath(await fs.realpath(bridgePath), await fs.realpath(expectedTarget));
+  } catch {
+    return false;
+  }
+}
+
 async function resolveProjectDependencyBridgeTarget(): Promise<string> {
-  const runtimeSpec = await loadRuntimeDependencySpec();
-  const compilerNodeModules = dependencyAuthorityPaths().compilerModulesRoot;
-  if (await hasCompleteRuntimeDeps(compilerNodeModules, runtimeSpec)) {
-    return compilerNodeModules;
-  }
-
-  const sharedNodeModules = path.join(defaultSharedDepsRoot(), 'node_modules');
-  if (await hasCompleteRuntimeDeps(sharedNodeModules, runtimeSpec)) {
-    return sharedNodeModules;
-  }
-
-  return compilerNodeModules;
+  return dependencyAuthorityPaths().compilerModulesRoot;
 }
 
 export async function withProjectDependencyBridge<T>(projectRoot: string, callback: () => Promise<T>): Promise<T> {
@@ -1289,34 +2173,72 @@ async function stageCompilerDependencyGeneration(
   await options.beforeCommit?.();
   const stagingRoot = await fs.mkdtemp(path.join(stagingParent, 'c.staging-'));
   try {
-    const rootPackage = await cachedRead(
-      path.join(root, 'package.json'),
-      (text) => JSON.parse(text) as Record<string, unknown>
-    );
-    await writeJson(path.join(stagingRoot, 'package.json'), rootPackage, options.beforeCommit);
+    const sourcePackagePath = path.join(root, 'package.json');
+    const sourceLockPath = path.join(root, 'bun.lock');
+    const stagedPackagePath = path.join(stagingRoot, 'package.json');
+    const stagedLockPath = path.join(stagingRoot, 'bun.lock');
+    const sourceInstallConfigPath = path.join(root, 'bunfig.toml');
+    const stagedInstallConfigPath = path.join(stagingRoot, 'bunfig.toml');
     await options.beforeCommit?.();
-    await fs.copyFile(path.join(root, 'bun.lock'), path.join(stagingRoot, 'bun.lock'));
-    const rootBunfig = path.join(root, 'bunfig.toml');
-    if (await pathExists(rootBunfig)) {
+    await Promise.all([
+      fs.copyFile(sourcePackagePath, stagedPackagePath),
+      fs.copyFile(sourceLockPath, stagedLockPath)
+    ]);
+    const [sourcePackageBytes, sourceLockBytes, stagedPackageBytes, stagedLockBytes] = await Promise.all([
+      fs.readFile(sourcePackagePath),
+      fs.readFile(sourceLockPath),
+      fs.readFile(stagedPackagePath),
+      fs.readFile(stagedLockPath)
+    ]);
+    if (digest(sourcePackageBytes) !== identity.packageManifestSha256 ||
+      digest(sourceLockBytes) !== identity.lockSha256 ||
+      digest(stagedPackageBytes) !== identity.packageManifestSha256 ||
+      digest(stagedLockBytes) !== identity.lockSha256) {
+      throw new CompilerError('IMPORT-AUTHORITY-001', 'Compiler dependency inputs changed before staging');
+    }
+    const installConfigBytes = await fs.readFile(sourceInstallConfigPath)
+      .catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+    if ((installConfigBytes === null ? null : digest(installConfigBytes)) !== identity.installConfigSha256) {
+      throw new CompilerError('IMPORT-AUTHORITY-001', 'Compiler dependency install config changed before staging');
+    }
+    if (installConfigBytes !== null) {
       await options.beforeCommit?.();
-      await fs.copyFile(rootBunfig, path.join(stagingRoot, 'bunfig.toml'));
+      await fs.writeFile(stagedInstallConfigPath, installConfigBytes);
+      if (digest(await fs.readFile(stagedInstallConfigPath)) !== identity.installConfigSha256) {
+        throw new CompilerError('IMPORT-AUTHORITY-001', 'Compiler dependency install config staging failed');
+      }
     }
 
     const cacheDir = path.join(root, '.shared-deps', '.bun-cache');
+    const runtimeExecutable = await currentRuntimeExecutableIdentity(true);
+    if (runtimeExecutable.path !== identity.bunExecutablePath ||
+      runtimeExecutable.sha256 !== identity.bunExecutableSha256) {
+      throw new CompilerError('IMPORT-AUTHORITY-001', 'Bun executable changed before dependency materialization');
+    }
     await runBunInstall(stagingRoot, options, ['install', '--frozen-lockfile', '--ignore-scripts'], cacheDir);
     const nodeModulesPath = path.join(stagingRoot, 'node_modules');
     const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity);
+    const runtimeMaterialization = await compilerRuntimeMaterializationBinding(root, nodeModulesPath, identity);
     const binding = {
       architecture: identity.architecture,
+      bunExecutablePath: identity.bunExecutablePath,
+      bunExecutableSha256: identity.bunExecutableSha256,
       bunVersion: identity.bunVersion,
       declaredBunVersion: identity.declaredBunVersion,
-      formatVersion: 'compiler-deps-binding-v2',
+      formatVersion: 'compiler-deps-binding-v3',
+      installConfigSha256: identity.installConfigSha256,
+      lockSha256: identity.lockSha256,
       manifestHash: identity.manifestHash,
+      packageManifestSha256: identity.packageManifestSha256,
       packages,
-      platform: identity.platform
+      platform: identity.platform,
+      runtimeMaterialization
     } satisfies CompilerDepsBinding;
     await writeJson(
-      path.join(nodeModulesPath, '.sec-compiler-deps-binding-v2.json'),
+      path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE),
       binding,
       options.beforeCommit
     );
@@ -1480,227 +2402,54 @@ async function publishCompilerDependencyGeneration(
   }
 }
 
-interface CompilerDepsRuntimeIdentity {
-  architecture: string;
-  bunVersion: string;
-  platform: NodeJS.Platform;
-}
-
-interface CompilerDepsStamp {
-  packageJsonMtimeMs: number;
-  bunLockMtimeMs: number;
-  packageJsonSize: number;
-  bunLockSize: number;
-  cachedIdentity: CompilerDependencyIdentity;
-  lastReadyState: CompilerDepsReadyState;
-}
-
-function isCompilerDepsRuntimeIdentity(value: unknown): value is CompilerDepsRuntimeIdentity {
-  const identity = value as Partial<CompilerDepsRuntimeIdentity> | null;
-  return identity !== null && typeof identity === 'object' &&
-    typeof identity.architecture === 'string' &&
-    typeof identity.bunVersion === 'string' &&
-    typeof identity.platform === 'string';
-}
-
-function isCompilerDependencyIdentity(value: unknown): value is CompilerDependencyIdentity {
-  const identity = value as Partial<CompilerDependencyIdentity> | null;
-  return identity !== null && typeof identity === 'object' &&
-    typeof identity.architecture === 'string' &&
-    typeof identity.bunVersion === 'string' &&
-    typeof identity.declaredBunVersion === 'string' &&
-    typeof identity.manifestHash === 'string' &&
-    Array.isArray(identity.packageNames) &&
-    identity.packageNames.every((name: unknown) => typeof name === 'string') &&
-    typeof identity.packageVersions === 'object' && identity.packageVersions !== null &&
-    typeof identity.platform === 'string';
-}
-
-function isCompilerDepsStamp(value: unknown): value is CompilerDepsStamp {
-  const stamp = value as Partial<CompilerDepsStamp> | null;
-  return stamp !== null && typeof stamp === 'object' &&
-    typeof stamp.packageJsonMtimeMs === 'number' &&
-    typeof stamp.bunLockMtimeMs === 'number' &&
-    typeof stamp.packageJsonSize === 'number' &&
-    typeof stamp.bunLockSize === 'number' &&
-    isCompilerDependencyIdentity(stamp.cachedIdentity) &&
-    stamp.lastReadyState !== null && typeof stamp.lastReadyState === 'object';
-}
-
-// Computes the current runtime identity from options + process without reading
-// any files. This is an O(1) pre-check so the stamp short-circuit can detect
-// runtime environment changes (bun version, architecture, platform) without
-// waiting for the full compilerDependencyIdentity validation.
-function compilerDepsRuntimeIdentity(
-  options: RuntimeDependencyInstallOptions
-): CompilerDepsRuntimeIdentity {
-  return {
-    architecture: options.runtimeArchitecture ?? process.arch,
-    bunVersion: options.runtimeVersion ?? process.versions.bun ?? 'unknown',
-    platform: options.runtimePlatform ?? process.platform
-  };
-}
-
-// Returns the cached identity and ready state when the stamp file matches the
-// current stat(package.json).mtimeMs + size, stat(bun.lock).mtimeMs + size,
-// the current runtime identity (architecture, bunVersion, platform), and
-// node_modules still exists. Returns null on any mismatch or parse error so
-// the caller falls through to the full validation path.
-//
-// The caller MUST still run compilerDependencyTreeReady with the cached
-// identity to verify node_modules integrity (entry SHA-256 hashes). The stamp
-// only skips the expensive compilerDependencyIdentity computation (package.json
-// parsing, bun.lock reading, canonical bun version loading, manifest hash).
-async function readCompilerDepsStamp(
-  stampPath: string,
-  packageJsonPath: string,
-  bunLockPath: string,
-  nodeModulesPath: string,
-  runtimeIdentity: CompilerDepsRuntimeIdentity
-): Promise<{ identity: CompilerDependencyIdentity; readyState: CompilerDepsReadyState } | null> {
-  let stamp: unknown;
-  try {
-    stamp = await readJson<unknown>(stampPath);
-  } catch {
-    return null;
-  }
-  if (!isCompilerDepsStamp(stamp)) return null;
-
-  const [packageJsonStat, bunLockStat, nodeModulesExists] = await Promise.all([
-    fs.stat(packageJsonPath).catch(() => null),
-    fs.stat(bunLockPath).catch(() => null),
-    pathExists(nodeModulesPath)
-  ]);
-  if (packageJsonStat === null || bunLockStat === null || !nodeModulesExists) {
-    return null;
-  }
-  if (
-    packageJsonStat.mtimeMs !== stamp.packageJsonMtimeMs ||
-    packageJsonStat.size !== stamp.packageJsonSize ||
-    bunLockStat.mtimeMs !== stamp.bunLockMtimeMs ||
-    bunLockStat.size !== stamp.bunLockSize
-  ) {
-    return null;
-  }
-  if (
-    stamp.cachedIdentity.architecture !== runtimeIdentity.architecture ||
-    stamp.cachedIdentity.bunVersion !== runtimeIdentity.bunVersion ||
-    stamp.cachedIdentity.platform !== runtimeIdentity.platform
-  ) {
-    return null;
-  }
-  return { identity: stamp.cachedIdentity, readyState: stamp.lastReadyState };
-}
-
-// Writes the stamp file with the current package.json/bun.lock stats and the
-// full compiler dependency identity. The stamp normalizes source to 'existing'
-// because it represents a known-good state for future calls — the deps already
-// exist regardless of whether the current call installed them.
-async function writeCompilerDepsStamp(
-  stampPath: string,
-  packageJsonPath: string,
-  bunLockPath: string,
-  readyState: CompilerDepsReadyState,
-  identity: CompilerDependencyIdentity,
-  commitFence?: CommitFence
-): Promise<void> {
-  const [packageJsonStat, bunLockStat] = await Promise.all([
-    fs.stat(packageJsonPath),
-    fs.stat(bunLockPath)
-  ]);
-  const stamp: CompilerDepsStamp = {
-    packageJsonMtimeMs: packageJsonStat.mtimeMs,
-    bunLockMtimeMs: bunLockStat.mtimeMs,
-    packageJsonSize: packageJsonStat.size,
-    bunLockSize: bunLockStat.size,
-    cachedIdentity: identity,
-    lastReadyState: readyState.source === 'existing'
-      ? readyState
-      : { ...readyState, source: 'existing' as const }
-  };
-  await writeJson(stampPath, stamp, commitFence);
-}
-
 export async function ensureCompilerDepsReady(
   options: RuntimeDependencyInstallOptions = {},
   compilerDependencyRoot = compilerRoot
 ): Promise<CompilerDepsReadyState> {
   const root = path.resolve(compilerDependencyRoot);
   const nodeModulesPath = dependencyAuthorityPaths(root).compilerModulesRoot;
-  const bindingPath = path.join(nodeModulesPath, '.sec-compiler-deps-binding-v2.json');
+  const bindingPath = path.join(nodeModulesPath, COMPILER_DEPS_BINDING_FILE);
   const installLockPath = path.join(root, '.tmp', 'dependency-installs', 'compiler.lock');
-  const stampPath = path.join(root, '.tmp', 'compiler-deps.stamp.json');
-  const packageJsonPath = path.join(root, 'package.json');
-  const bunLockPath = path.join(root, 'bun.lock');
 
-  const runtimeIdentity = compilerDepsRuntimeIdentity(options);
-  const stampHit = await readCompilerDepsStamp(
-    stampPath,
-    packageJsonPath,
-    bunLockPath,
-    nodeModulesPath,
-    runtimeIdentity
-  );
-  if (stampHit !== null) {
-    // Stamp matched: skip compilerDependencyIdentity (saves package.json parsing,
-    // bun.lock reading, canonical bun version loading, manifest hash computation)
-    // but STILL verify node_modules integrity via compilerDependencyTreeReady.
-    // This detects entry corruption that the stamp's mtime/size check cannot.
-    if (await compilerDependencyTreeReady(nodeModulesPath, bindingPath, stampHit.identity)) {
-      return stampHit.readyState;
-    }
-    // Stamp said ready but integrity check failed — fall through to full path.
-  }
-
-  const identity = await compilerDependencyIdentity(root, options);
-  const ready = () => compilerDependencyTreeReady(
+  const identity = await compilerDependencyIdentity(root);
+  const ready = () => compilerDependencyGenerationBinding(
+    root,
     nodeModulesPath,
     bindingPath,
     identity
   );
 
-  if (await ready()) {
+  const existing = await ready();
+  if (existing !== null) {
     const readyState: CompilerDepsReadyState = {
       manifestHash: identity.manifestHash,
       nodeModulesPath,
       packageManager: 'bun',
       root,
+      runtimeMaterialization: existing.runtimeMaterialization,
       source: 'existing'
     };
-    await writeCompilerDepsStamp(
-      stampPath,
-      packageJsonPath,
-      bunLockPath,
-      readyState,
-      identity,
-      options.beforeCommit
-    );
     return readyState;
   }
 
   return withInstallLock(installLockPath, options, async () => {
-    if (await ready()) {
+    const lockedExisting = await ready();
+    if (lockedExisting !== null) {
       const readyState: CompilerDepsReadyState = {
         manifestHash: identity.manifestHash,
         nodeModulesPath,
         packageManager: 'bun' as const,
         root,
+        runtimeMaterialization: lockedExisting.runtimeMaterialization,
         source: 'existing' as const
       };
-      await writeCompilerDepsStamp(
-        stampPath,
-        packageJsonPath,
-        bunLockPath,
-        readyState,
-        identity,
-        options.beforeCommit
-      );
       return readyState;
     }
 
     const staged = await stageCompilerDependencyGeneration(root, identity, options);
     await publishCompilerDependencyGeneration(root, nodeModulesPath, staged.stagingRoot, options);
-    if (!(await compilerDependencyTreeReady(nodeModulesPath, bindingPath, identity))) {
+    const published = await ready();
+    if (published === null) {
       throw new CompilerError('IMPORT-AUTHORITY-002', 'Published compiler dependency generation failed validation');
     }
 
@@ -1709,16 +2458,9 @@ export async function ensureCompilerDepsReady(
       nodeModulesPath,
       packageManager: 'bun',
       root,
+      runtimeMaterialization: published.runtimeMaterialization,
       source: 'installed'
     };
-    await writeCompilerDepsStamp(
-      stampPath,
-      packageJsonPath,
-      bunLockPath,
-      readyState,
-      identity,
-      options.beforeCommit
-    );
     return readyState;
   });
 }
@@ -1727,59 +2469,133 @@ export async function ensureSharedDepsReady(
   options: RuntimeDependencyInstallOptions = {}
 ): Promise<SharedDepsReadyState> {
   const runtimeSpec = await loadRuntimeDependencySpec();
-  const sharedDepsRoot = options.sharedDepsRoot ?? defaultSharedDepsRoot();
+  const sharedDepsRoot = path.resolve(options.sharedDepsRoot ?? defaultSharedDepsRoot());
+  const compilerDependencyRoot = path.resolve(compilerRoot);
   const sharedPackagePath = path.join(sharedDepsRoot, 'package.json');
   const sharedNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
   const sharedStampPath = path.join(sharedDepsRoot, 'runtime-deps.stamp.json');
   const sharedLockPath = path.join(sharedDepsRoot, 'install.lock');
   const manifest = buildRuntimePackageManifest('shared-runtime-deps', runtimeSpec);
 
-  await ensureDir(sharedDepsRoot, options.beforeCommit);
-  await writeManifestIfChanged(sharedPackagePath, manifest, options.beforeCommit);
-
-  if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec)) {
-    const sharedStamp = await readRuntimeDepsStamp(sharedStampPath);
+  const observedRoot = await physicalSharedDependencyDirectory(sharedDepsRoot, true);
+  if (observedRoot !== null) {
+    await assertNoSharedDependencyAuthorityResidue(sharedDepsRoot);
+    await assertPhysicalControlEntries([sharedPackagePath, sharedStampPath, sharedLockPath]);
+  }
+  const observedGeneration = observedRoot === null ? null : await sharedDependencyGenerationReady({
+    compilerRoot: compilerDependencyRoot,
+    manifest,
+    nodeModulesPath: sharedNodeModulesPath,
+    packagePath: sharedPackagePath,
+    root: sharedDepsRoot,
+    spec: runtimeSpec,
+    stampPath: sharedStampPath
+  });
+  if (observedGeneration !== null) {
     return {
-      packageManager: sharedStamp?.packageManager ?? 'bun',
+      binding: observedGeneration.binding,
+      packageManager: observedGeneration.packageManager,
       root: sharedDepsRoot,
       nodeModulesPath: sharedNodeModulesPath,
       manifestHash: runtimeSpec.manifestHash
     };
   }
 
-  return withInstallLock(sharedLockPath, options, async () => {
-    await writeManifestIfChanged(sharedPackagePath, manifest, options.beforeCommit);
+  const compilerReady = await ensureCompilerDepsReady(options, compilerDependencyRoot);
+  const binding = compilerReady.runtimeMaterialization;
+  if (binding === null || binding === undefined || binding.manifestHash !== runtimeSpec.manifestHash) {
+    throw new CompilerError('RUNTIME-DEPS-002', 'Compiler dependency generation has no runtime closure');
+  }
 
-    if (await isCacheReady(sharedNodeModulesPath, sharedStampPath, runtimeSpec)) {
-      const sharedStamp = await readRuntimeDepsStamp(sharedStampPath);
+  const rootIdentity = await ensurePhysicalSharedDependencyRoot(sharedDepsRoot, options.beforeCommit);
+  const rootFence = async (): Promise<void> => {
+    await options.beforeCommit?.();
+    await assertSharedDependencyRootIdentity(rootIdentity);
+  };
+  const authorityFence = async (): Promise<void> => {
+    await rootFence();
+    await assertNoSharedDependencyAuthorityResidue(sharedDepsRoot);
+  };
+  const lockedOptions: RuntimeDependencyInstallOptions = { ...options, beforeCommit: rootFence };
+
+  return withInstallLock(sharedLockPath, lockedOptions, async () => {
+    await authorityFence();
+    await writeManifestIfChanged(sharedPackagePath, manifest, authorityFence);
+
+    const lockedGeneration = await sharedDependencyGenerationReady({
+      binding,
+      compilerRoot: compilerDependencyRoot,
+      manifest,
+      nodeModulesPath: sharedNodeModulesPath,
+      packagePath: sharedPackagePath,
+      root: sharedDepsRoot,
+      spec: runtimeSpec,
+      stampPath: sharedStampPath
+    });
+    if (lockedGeneration !== null) {
       return {
-        packageManager: sharedStamp?.packageManager ?? 'bun',
+        binding: lockedGeneration.binding,
+        packageManager: lockedGeneration.packageManager,
         root: sharedDepsRoot,
         nodeModulesPath: sharedNodeModulesPath,
         manifestHash: runtimeSpec.manifestHash
       };
     }
 
-    const sharedCacheDir = path.join(sharedDepsRoot, '.bun-cache');
-    // --no-lockfile prevents bun from creating .shared-deps/bun.lock, which would
-    // violate the sandbox-architecture contract (no competing lockfiles in shared deps root).
-    // The lockfile is unnecessary here because package.json is generated with pinned versions.
-    const { packageManager } = await runBunInstall(sharedDepsRoot, options, ['install', '--no-lockfile'], sharedCacheDir);
-    if (!(await hasCompleteRuntimeDeps(sharedNodeModulesPath, runtimeSpec))) {
+    const staged = await stageRuntimeDependencyProjection({
+      binding,
+      commitFence: authorityFence,
+      sharedDepsRoot,
+      sourceNodeModulesPath: compilerReady.nodeModulesPath
+    });
+    if (!await runtimeDependencyTreeMatchesBinding({
+      expected: binding,
+      nodeModulesPath: staged.nodeModulesPath,
+      root: compilerDependencyRoot,
+      runtimeSpec
+    })) {
+      await fs.rm(staged.root, { force: true, recursive: true }).catch(() => undefined);
+      throw new CompilerError('RUNTIME-DEPS-002', 'Staged runtime dependency projection is incomplete');
+    }
+    await publishRuntimeDependencyProjection({
+      activeNodeModulesPath: sharedNodeModulesPath,
+      commitFence: authorityFence,
+      options,
+      stagingNodeModulesPath: staged.nodeModulesPath,
+      stagingRoot: staged.root
+    });
+    await assertSharedDependencyMaterializationPostcondition({
+      manifest,
+      packagePath: sharedPackagePath,
+      root: sharedDepsRoot
+    });
+    await writeRuntimeDepsStamp(sharedStampPath, {
+      binding,
+      formatVersion: 'runtime-deps-stamp-v2',
+      manifestHash: runtimeSpec.manifestHash,
+      packageManager: 'bun',
+      installedAt: (options.now ?? (() => new Date().toISOString()))()
+    }, authorityFence);
+
+    if (await sharedDependencyGenerationReady({
+      binding,
+      compilerRoot: compilerDependencyRoot,
+      manifest,
+      nodeModulesPath: sharedNodeModulesPath,
+      packagePath: sharedPackagePath,
+      root: sharedDepsRoot,
+      spec: runtimeSpec,
+      stampPath: sharedStampPath
+    }) === null) {
       throw new CompilerError(
         'RUNTIME-DEPS-002',
-        'Installed shared runtime dependency generation failed complete package validation'
+        'Shared dependency generation failed its exact readiness readback'
       );
     }
 
-    await writeRuntimeDepsStamp(sharedStampPath, {
-      manifestHash: runtimeSpec.manifestHash,
-      packageManager,
-      installedAt: (options.now ?? (() => new Date().toISOString()))()
-    }, options.beforeCommit);
-
     return {
-      packageManager,
+      binding,
+      packageManager: 'bun',
       root: sharedDepsRoot,
       nodeModulesPath: sharedNodeModulesPath,
       manifestHash: runtimeSpec.manifestHash
@@ -1810,13 +2626,60 @@ export async function ensureProjectDependencies(
     return;
   }
   const isolated = options.installMode === 'offline-copy-only';
-  const sharedDeps =
-    isolated || options.skipSharedDepsWarmup === true ? null : await ensureSharedDepsReady(options);
-  const sharedDepsRoot = options.sharedDepsRoot ?? sharedDeps?.root ?? defaultSharedDepsRoot();
+  const sharedDepsRoot = path.resolve(options.sharedDepsRoot ?? defaultSharedDepsRoot());
+  const compilerDependencyRoot = path.resolve(compilerRoot);
+  let sourceNodeModulesPath: string;
+  let binding: Readonly<RuntimeDependencyMaterializationBinding>;
+
+  if (isolated) {
+    const sharedStamp = await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'));
+    sourceNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
+    if (sharedStamp === null || !await runtimeDependencyTreeMatchesBinding({
+      expected: sharedStamp.binding,
+      nodeModulesPath: sourceNodeModulesPath,
+      root: compilerDependencyRoot,
+      runtimeSpec
+    })) {
+      throw new CompilerError(
+        'RUNTIME-DEPS-004',
+        'Canonical shared dependency projection is unavailable for isolated verification'
+      );
+    }
+    binding = sharedStamp.binding;
+  } else if (options.skipSharedDepsWarmup === true) {
+    const compilerIdentity = await compilerDependencyIdentity(compilerDependencyRoot);
+    sourceNodeModulesPath = dependencyAuthorityPaths(compilerDependencyRoot).compilerModulesRoot;
+    const compilerBindingPath = path.join(sourceNodeModulesPath, COMPILER_DEPS_BINDING_FILE);
+    const compilerBinding = await compilerDependencyGenerationBinding(
+      compilerDependencyRoot,
+      sourceNodeModulesPath,
+      compilerBindingPath,
+      compilerIdentity
+    );
+    if (compilerBinding === null || compilerBinding.runtimeMaterialization === null) {
+      throw new CompilerError('RUNTIME-DEPS-004', 'Canonical compiler dependency generation is unavailable');
+    }
+    binding = compilerBinding.runtimeMaterialization;
+  } else {
+    const sharedDeps = await ensureSharedDepsReady(options);
+    sourceNodeModulesPath = sharedDeps.nodeModulesPath;
+    binding = sharedDeps.binding;
+  }
+
   const stampPath = projectStampPath(projectRoot);
   await options.beforeCommit?.();
+  const currentStamp = await readRuntimeDepsStamp(stampPath);
   const cacheReady = !options.rematerialize &&
-    await isCacheReady(nodeModulesPath, stampPath, runtimeSpec);
+    currentStamp?.binding.revision === binding.revision &&
+    canonicalEquals(currentStamp.binding, binding) &&
+    (isolated
+      ? await runtimeDependencyTreeMatchesBinding({
+        expected: binding,
+        nodeModulesPath,
+        root: compilerDependencyRoot,
+        runtimeSpec
+      })
+      : await dependencyBridgeTargets(nodeModulesPath, sourceNodeModulesPath));
   await options.beforeCommit?.();
   if (cacheReady) {
     return;
@@ -1828,8 +2691,18 @@ export async function ensureProjectDependencies(
   }
 
   if (isolated) {
-    await materializeIsolatedNodeModules(sharedDepsRoot, nodeModulesPath, runtimeSpec, options.beforeCommit);
+    await materializeIsolatedNodeModules(sourceNodeModulesPath, nodeModulesPath, options.beforeCommit);
+    if (!await runtimeDependencyTreeMatchesBinding({
+      expected: binding,
+      nodeModulesPath,
+      root: compilerDependencyRoot,
+      runtimeSpec
+    })) {
+      throw new CompilerError('RUNTIME-DEPS-004', 'Isolated dependency projection failed exact readback');
+    }
     await writeRuntimeDepsStamp(stampPath, {
+      binding,
+      formatVersion: 'runtime-deps-stamp-v2',
       manifestHash: runtimeSpec.manifestHash,
       packageManager: 'bun',
       installedAt: (options.now ?? (() => new Date().toISOString()))()
@@ -1837,52 +2710,16 @@ export async function ensureProjectDependencies(
     return;
   }
 
-  if (!isolated && options.skipSharedDepsWarmup === true && options.preferSharedCopy !== false) {
-    const compilerNodeModules = dependencyAuthorityPaths().compilerModulesRoot;
-    if (await hasCompleteRuntimeDeps(compilerNodeModules, runtimeSpec)) {
-      await options.beforeCommit?.();
-      await fs.symlink(compilerNodeModules, nodeModulesPath, 'junction');
-      await writeRuntimeDepsStamp(stampPath, {
-        manifestHash: runtimeSpec.manifestHash,
-        packageManager: 'bun',
-        installedAt: (options.now ?? (() => new Date().toISOString()))()
-      }, options.beforeCommit);
-      return;
-    }
+  await options.beforeCommit?.();
+  await fs.symlink(sourceNodeModulesPath, nodeModulesPath, 'junction');
+  if (!await dependencyBridgeTargets(nodeModulesPath, sourceNodeModulesPath)) {
+    throw new CompilerError('RUNTIME-DEPS-004', 'Project dependency bridge failed exact target readback');
   }
-
-  if (!isolated && options.preferSharedCopy !== false) {
-    const sharedStamp = await readRuntimeDepsStamp(path.join(sharedDepsRoot, 'runtime-deps.stamp.json'));
-    const sharedNodeModulesPath = path.join(sharedDepsRoot, 'node_modules');
-    if (sharedStamp && (await hasCompleteRuntimeDeps(sharedNodeModulesPath, runtimeSpec))) {
-      try {
-        await options.beforeCommit?.();
-        await fs.symlink(sharedNodeModulesPath, nodeModulesPath, 'junction');
-        await writeRuntimeDepsStamp(stampPath, {
-          manifestHash: runtimeSpec.manifestHash,
-          packageManager: sharedStamp.packageManager,
-          installedAt: (options.now ?? (() => new Date().toISOString()))()
-        }, options.beforeCommit);
-        return;
-      } catch {
-        if (await pathExists(nodeModulesPath)) {
-          await options.beforeCommit?.();
-          await fs.rm(nodeModulesPath, { recursive: true, force: true });
-        }
-      }
-    }
-  }
-
-  const { packageManager } = await runBunInstall(
-    projectRoot,
-    options,
-    ['install', '--no-save', '--frozen-lockfile=false'],
-    path.join(sharedDepsRoot, '.bun-cache')
-  );
-
   await writeRuntimeDepsStamp(stampPath, {
+    binding,
+    formatVersion: 'runtime-deps-stamp-v2',
     manifestHash: runtimeSpec.manifestHash,
-    packageManager,
+    packageManager: 'bun',
     installedAt: (options.now ?? (() => new Date().toISOString()))()
   }, options.beforeCommit);
 }

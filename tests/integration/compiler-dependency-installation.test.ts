@@ -38,7 +38,7 @@ async function installCompilerDependencyFixture(workingDirectory: string, marker
 async function writeCompilerDependencyRoot(
   root: string,
   lockfile = 'lock-v1\n',
-  bunVersion = '1.3.6'
+  bunVersion = process.versions.bun!
 ): Promise<void> {
   await Promise.all([
     fs.writeFile(path.join(root, 'package.json'), `${JSON.stringify({
@@ -70,7 +70,7 @@ describe('compiler dependency installation', () => {
         await installCompilerDependencyFixture(options.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
       };
-      const options = { commandRunner, pollIntervalMs: 10, runtimeVersion: '1.3.6' };
+      const options = { commandRunner, pollIntervalMs: 10 };
 
       const first = await Promise.all([
         ensureCompilerDepsReady(options, tempRoot),
@@ -87,25 +87,27 @@ describe('compiler dependency installation', () => {
       expect(await fs.readFile(path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js'), 'utf8'))
         .toBe('generation-2:typescript\n');
 
-      await expect(ensureCompilerDepsReady({ ...options, runtimeVersion: '1.3.14' }, tempRoot))
+      await writeCompilerDependencyRoot(tempRoot, 'lock-v2\n', '0.0.0');
+      await expect(ensureCompilerDepsReady(options, tempRoot))
         .rejects.toMatchObject({ code: 'IMPORT-AUTHORITY-001' });
       expect(installCalls).toBe(2);
-      await writeCompilerDependencyRoot(tempRoot, 'lock-v2\n', '1.3.14');
-      expect((await ensureCompilerDepsReady({ ...options, runtimeVersion: '1.3.14' }, tempRoot)).source)
-        .toBe('installed');
-      expect(installCalls).toBe(3);
-      expect(stagingRoots.size).toBe(3);
+      await writeCompilerDependencyRoot(tempRoot, 'lock-v2\n');
+      expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('existing');
+      expect(installCalls).toBe(2);
+      expect(stagingRoots.size).toBe(2);
       for (const stagingRoot of stagingRoots) {
         await expect(fs.stat(stagingRoot)).rejects.toMatchObject({ code: 'ENOENT' });
       }
       expect(await readJson(path.join(
         tempRoot,
         'node_modules',
-        '.sec-compiler-deps-binding-v2.json'
+        '.sec-compiler-deps-binding-v3.json'
       ))).toMatchObject({
-        bunVersion: '1.3.14',
-        declaredBunVersion: '1.3.14',
-        formatVersion: 'compiler-deps-binding-v2'
+        bunExecutablePath: expect.any(String),
+        bunExecutableSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        bunVersion: process.versions.bun,
+        declaredBunVersion: process.versions.bun,
+        formatVersion: 'compiler-deps-binding-v3'
       });
     }, 'engineering-compiler-dev-deps-');
   });
@@ -119,8 +121,7 @@ describe('compiler dependency installation', () => {
           installCalls += 1;
           await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
           return { code: 0, stdout: 'ok', stderr: '' };
-        },
-        runtimeVersion: '1.3.6'
+        }
       };
       await ensureCompilerDepsReady(options, tempRoot);
       const entryPath = path.join(tempRoot, 'node_modules', '@ts-morph', 'common', 'dist', 'ts-morph-common.js');
@@ -143,10 +144,10 @@ describe('compiler dependency installation', () => {
         await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
       };
-      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      const baseOptions = { commandRunner };
       await ensureCompilerDepsReady(baseOptions, tempRoot);
       const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
-      const bindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding-v2.json');
+      const bindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding-v3.json');
       const originalEntry = await fs.readFile(entryPath);
       const originalBinding = await fs.readFile(bindingPath);
 
@@ -185,7 +186,7 @@ describe('compiler dependency installation', () => {
         await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
       };
-      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      const baseOptions = { commandRunner };
       await ensureCompilerDepsReady(baseOptions, tempRoot);
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
 
@@ -227,7 +228,7 @@ describe('compiler dependency installation', () => {
         await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
       };
-      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      const baseOptions = { commandRunner };
       await ensureCompilerDepsReady(baseOptions, tempRoot);
       const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
       const originalEntry = await fs.readFile(entryPath);
@@ -271,7 +272,7 @@ describe('compiler dependency installation', () => {
         await installCompilerDependencyFixture(command.cwd, `generation-${installCalls}`);
         return { code: 0, stdout: 'ok', stderr: '' };
       };
-      const baseOptions = { commandRunner, runtimeVersion: '1.3.6' };
+      const baseOptions = { commandRunner };
       await ensureCompilerDepsReady(baseOptions, tempRoot);
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n');
       let failures = 0;
@@ -318,7 +319,6 @@ describe('compiler dependency installation', () => {
         },
         lockTimeoutMs: 1000,
         pollIntervalMs: 10,
-        runtimeVersion: '1.3.6'
       }, tempRoot);
 
       expect(ready.source).toBe('installed');

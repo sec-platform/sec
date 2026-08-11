@@ -10,8 +10,8 @@ last-reviewed: 2026-08-12
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/main-health-repair-fast-contracts-v1.md
-manifestDigest: sha256:af207ef63b6833c397f68a1884f79455c31e3ba039b978c2e3672ec7038464e8
+manifest: docs/work-packages/main-health-repair-shared-dependency-authority-v1.md
+manifestDigest: sha256:18514ad20c576f4a56f048c46110c3efd3faddd1baaaf8faa81c423ded76de66
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
