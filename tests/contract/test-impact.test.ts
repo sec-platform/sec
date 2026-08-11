@@ -480,6 +480,42 @@ test('test impact keeps Task Capsule and Read Plan verification in direct fast o
   }
 });
 
+test('test impact keeps WorkDecision Phase A in one direct fast owner', () => {
+  const source = 'platform/shared/work-selection-contract.ts';
+  expect(selectTestsForSources([source])).toEqual({
+    fast: [
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/work-selection-contract.test.ts'
+    ],
+    slow: [],
+    owners: ['work-selection']
+  });
+  expect(resolveTestOwnership([source])).toEqual([{
+    source,
+    owner: 'work-selection',
+    identity: { kind: 'contract', id: 'work-selection' }
+  }]);
+});
+
+test('ordinary Skill authoring selects only its causal contract closure', () => {
+  const source = '.agents/skills/sec-heuristic-governance/SKILL.md';
+  expect(selectTestsForSources([source])).toEqual({
+    fast: [
+      'tests/contract/agent-skills.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/agent-skill-markdown-classification.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts'
+    ],
+    slow: [],
+    owners: ['agent-skill-authoring']
+  });
+  expect(resolveTestOwnership([source])).toEqual([{
+    source,
+    owner: 'agent-skill-authoring',
+    identity: { kind: 'contract', id: 'agent-skill-authoring' }
+  }]);
+});
+
 test('test impact assigns focused governance and frozen work-package ownership', () => {
   const agentGovernance = selectTestsForSources([
     'AGENTS.md',

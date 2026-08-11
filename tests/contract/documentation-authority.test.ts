@@ -176,7 +176,10 @@ describe('canonical documentation authority', () => {
     expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',
       '## 候选 Work Package',
+      '#221',
       '#275',
+      '#349',
+      '#352',
       '## 后续但暂不占 formal writer',
       '## 重新规划硬触发器',
       '## 加速验收'

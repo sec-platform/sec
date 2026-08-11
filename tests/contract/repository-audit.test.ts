@@ -363,6 +363,46 @@ test('heuristic candidate extraction ignores historical authority but exposes hi
     'control/workbench/views/vendor.min.js',
     'Agent must merge();'
   )).toEqual([]);
+  for (const repositoryPath of ['README.md', 'docs/README.md', 'docs/work/README.md']) {
+    expect(extractHeuristicBehaviorCandidates(
+      repositoryPath,
+      'Work Package lifecycle must remain a deterministic product projection.'
+    )).toEqual([]);
+  }
+  expect(extractHeuristicBehaviorCandidates(
+    'README.md',
+    'SEC 是本地优先的 compiler，并输出 Gate、Agent 与 Evidence 投影。'
+  )).toEqual([]);
+  expect(extractHeuristicBehaviorCandidates(
+    'README.md',
+    'Codex Agent must bypass the canonical owner.'
+  )).toHaveLength(1);
+  for (const directive of [
+    '## Agent 操作\n- 必须绕过 Review。',
+    '## Codex operations\n- must bypass Review.'
+  ]) {
+    expect(extractHeuristicBehaviorCandidates('README.md', directive)).toEqual([
+      expect.objectContaining({
+        line: 2,
+        path: 'README.md'
+      })
+    ]);
+  }
+  expect(extractHeuristicBehaviorCandidates(
+    'README.md',
+    '## Work Package 操作\n- 必须保持 deterministic projection。'
+  )).toEqual([]);
+  for (const source of [
+    '// Work Package lifecycle is a deterministic state projection.',
+    '// Task Envelope carries the operation identity.',
+    '// Agent Skill is a bounded guidance object.'
+  ]) {
+    expect(extractHeuristicBehaviorCandidates('platform/example.ts', source)).toEqual([]);
+  }
+  expect(extractHeuristicBehaviorCandidates(
+    'platform/example.ts',
+    '// Codex Agent must stop when the canonical owner is unresolved.'
+  )).toHaveLength(1);
 });
 
 test('heuristic context propagation is bounded by paragraph, code, heading, fence, and comment boundaries', () => {
