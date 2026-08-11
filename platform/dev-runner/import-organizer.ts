@@ -5,7 +5,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 
-import { canonicalEquals } from '../shared/canonical-primitives.ts';
+import {
+  canonicalEquals,
+  rawSha256,
+  sha256
+} from '../shared/canonical-primitives.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { ensureDir } from '../shared/fs.ts';
 import { compilerRoot, relativePosixPath } from '../shared/paths.ts';
@@ -39,29 +43,66 @@ type ImportSelectionEnvironment = Record<string, string | undefined>;
  */
 export type ImportTransformIntentV1 = 'sort-and-combine' | 'remove-unused';
 
+export type ImportOperationScopeV1 = 'candidate' | 'all';
+
+export type ImportOperationOptionsV1 = Readonly<{
+  intent?: ImportTransformIntentV1;
+  scope?: ImportOperationScopeV1;
+  candidateBase?: string;
+}>;
+
+export type ImportOperationPlanV1 = Readonly<{
+  schema: 'sec-import-operation-plan-v1';
+  intent: ImportTransformIntentV1;
+  scope: ImportOperationScopeV1;
+  candidateBase: string | null;
+  providerRevision: string;
+  projectConfigDigest: `sha256:${string}`;
+  targets: readonly Readonly<{
+    relativePath: string;
+    preimageDigest: `sha256:${string}`;
+    replacementDigest: `sha256:${string}`;
+    changed: boolean;
+  }>[];
+  writePaths: readonly string[];
+  planDigest: `sha256:${string}`;
+}>;
+
+type CompiledImportOperationPlanV1 = Readonly<{
+  plan: ImportOperationPlanV1;
+  writes: readonly Readonly<{
+    relativePath: string;
+    expectedBytes: Buffer;
+    replacementBytes: Buffer;
+  }>[];
+}>;
+
 export type ImportCheckOutcomeV1 = Readonly<{
   schema: 'sec-import-check-outcome-v1';
   status: 'canonical' | 'needs-import-transform';
   files: readonly string[];
 }>;
 
-export type ImportTransformOutcomeV1 =
+export type ImportApplyOutcomeV1 =
   | Readonly<{
-    schema: 'sec-import-transform-outcome-v1';
+    schema: 'sec-import-apply-outcome-v1';
     status: 'noop';
     files: readonly string[];
+    planDigest: `sha256:${string}`;
   }>
   | Readonly<{
-    schema: 'sec-import-transform-outcome-v1';
+    schema: 'sec-import-apply-outcome-v1';
     status: 'accepted';
     files: readonly string[];
+    planDigest: `sha256:${string}`;
     transactionId: string;
     journalPath: string;
   }>
   | Readonly<{
-    schema: 'sec-import-transform-outcome-v1';
+    schema: 'sec-import-apply-outcome-v1';
     status: 'rolled-back' | 'recovery-required';
     files: readonly string[];
+    planDigest: `sha256:${string}`;
     transactionId: string;
     journalPath: string;
     reasonCode: string;
@@ -176,21 +217,6 @@ export function organizeImportsInSource(
     )
     .flatMap((change) => isSameFilePath(change.fileName, fileName) ? change.textChanges : []);
   return applyTextChanges(source, edits);
-}
-
-export function selectChangedImportsOnly(env: ImportSelectionEnvironment = process.env): boolean {
-  if (env.SEC_IMPORTS_CHANGED_ONLY === '1') return true;
-  if (env.SEC_IMPORTS_CHANGED_ONLY === '0') return false;
-  if (env.SEC_CHANGED_BASE) return true;
-  return env.CI === 'true' && env.GITHUB_EVENT_NAME === 'pull_request';
-}
-
-export function resolveImportDiffBase(env: ImportSelectionEnvironment = process.env): string {
-  if (env.SEC_CHANGED_BASE) return env.SEC_CHANGED_BASE;
-  if (env.GITHUB_EVENT_NAME === 'pull_request' && env.GITHUB_BASE_REF) {
-    return `origin/${env.GITHUB_BASE_REF}`;
-  }
-  return 'HEAD^1';
 }
 
 function gitError(args: readonly string[], stderr: Buffer | string | null): Error {
@@ -364,18 +390,47 @@ function tryResolveGitCommit(
   return /^[0-9a-f]{40,64}$/u.test(resolved) ? resolved : undefined;
 }
 
+function changedTypeScriptFiles(
+  projectRoot: string,
+  candidateBase: string,
+  env: ImportSelectionEnvironment
+): readonly string[] {
+  const result = spawnSync('git', [
+    'diff', '--name-only', '-z', '--diff-filter=ACMR', '--find-renames',
+    candidateBase, 'HEAD', '--'
+  ], {
+    cwd: projectRoot,
+    encoding: 'buffer',
+    env: pureGitReadEnvironment(env),
+    maxBuffer: 128 * 1024 * 1024,
+    windowsHide: true
+  });
+  if (result.error || result.status !== 0) {
+    throw gitError(['diff'], result.stderr);
+  }
+  return Object.freeze(nulFields(Buffer.from(result.stdout), 'git diff candidate base HEAD')
+    .filter(isTypeScriptPath));
+}
+
 export function resolveCandidateImportBase(
   projectRoot = compilerRoot,
+  requestedBase?: string,
   env: ImportSelectionEnvironment = process.env
 ): string {
-  if (env.SEC_CHANGED_BASE) {
-    return resolvedCandidateBase(projectRoot, env.SEC_CHANGED_BASE)!;
+  const ambientBase = env.SEC_CHANGED_BASE;
+  if (requestedBase !== undefined && ambientBase !== undefined && requestedBase !== ambientBase) {
+    throw new Error('Candidate import base conflicts with the exact ambient verification base');
+  }
+  const exactBase = requestedBase ?? ambientBase;
+  if (exactBase !== undefined) {
+    return resolvedCandidateBase(projectRoot, exactBase)!;
   }
   const readEnvironment = pureGitReadEnvironment(env);
   return tryResolveGitCommit(projectRoot, ['merge-base', 'HEAD', 'refs/remotes/origin/main'], readEnvironment)
-    ?? tryResolveGitCommit(projectRoot, ['rev-parse', '--verify', 'HEAD^{commit}'], readEnvironment)
     ?? (() => {
-      throw new Error('Candidate import base is unavailable');
+      throw new Error(
+        'Candidate import base is unavailable; supply --candidate-base or SEC_CHANGED_BASE after trusted default readback'
+      );
     })();
 }
 
@@ -392,21 +447,15 @@ function stagedTypeScriptTargets(
 
 export function workingTreeTypeScriptTargets(
   projectRoot = compilerRoot,
+  candidateBase?: string,
   env: ImportSelectionEnvironment = process.env
 ): readonly string[] {
-  const candidateBase = resolveCandidateImportBase(projectRoot, env);
+  const resolvedBase = resolveCandidateImportBase(projectRoot, candidateBase, env);
   const targets = new Set<string>();
 
-  // Committed changes since the candidate base (single git diff --name-only
-  // call replaces the former candidate-base-to-HEAD name-status diff).
-  for (const target of nulFields(
-    gitBytes(projectRoot, [
-      'diff', '--name-only', '-z', '--diff-filter=ACMR', '--find-renames',
-      candidateBase, 'HEAD', '--'
-    ], undefined, pureGitReadEnvironment(env)),
-    'git diff candidate base HEAD'
-  )) {
-    if (isTypeScriptPath(target)) targets.add(target);
+  // Committed candidate delta is one NUL-delimited, read-only Git query.
+  for (const target of changedTypeScriptFiles(projectRoot, resolvedBase, env)) {
+    targets.add(target);
   }
 
   // Working tree changes: staged, unstaged, and untracked (single porcelain
@@ -867,7 +916,7 @@ export async function runCandidateImportOrganizer(
   testHooks: StagedImportOrganizerTestHooks = {},
   env: ImportSelectionEnvironment = process.env
 ): Promise<number> {
-  const candidateBase = resolveCandidateImportBase(projectRoot, env);
+  const candidateBase = resolveCandidateImportBase(projectRoot, undefined, env);
   return runStagedImportOrganizer(projectRoot, testHooks, { candidateBase });
 }
 
@@ -876,53 +925,109 @@ export async function runCandidateImportCheck(
   testHooks: StagedImportOrganizerTestHooks = {},
   env: ImportSelectionEnvironment = process.env
 ): Promise<ImportCheckOutcomeV1> {
-  const candidateBase = resolveCandidateImportBase(projectRoot, env);
+  const candidateBase = resolveCandidateImportBase(projectRoot, undefined, env);
   return runStagedImportCheck(projectRoot, testHooks, { candidateBase });
 }
 
-export function changedTypeScriptFiles(
+async function compileImportOperationExecutionV1(
+  options: ImportOperationOptionsV1 = {},
   projectRoot = compilerRoot,
   env: ImportSelectionEnvironment = process.env
-): Set<string> {
-  const baseRef = resolveImportDiffBase(env);
-  const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMR', baseRef, 'HEAD'], {
-    cwd: projectRoot,
-    encoding: 'utf8',
-    env: pureGitReadEnvironment(env)
-  });
-  if (result.error || result.status !== 0) {
-    const detail = result.error?.message ?? result.stderr.trim();
-    throw new CompilerError('IMPORT-AUTHORITY-003', `Import diff base is invalid: ${baseRef}`, {
-      baseRef,
-      detail
-    });
+): Promise<CompiledImportOperationPlanV1> {
+  const intent = options.intent ?? 'sort-and-combine';
+  const scope = options.scope ?? 'candidate';
+  if (scope === 'all' && options.candidateBase !== undefined) {
+    throw new Error('Full-repository import scope cannot also select a candidate base');
   }
 
-  return new Set(
-    result.stdout
-      .split(/\r?\n/u)
-      .map((line) => line.trim().replace(/\\/g, '/'))
-      .filter((line) => /\.[cm]?tsx?$/u.test(line))
+  const config = loadProjectConfig(projectRoot);
+  const candidateBase = scope === 'candidate'
+    ? resolveCandidateImportBase(projectRoot, options.candidateBase, env)
+    : null;
+  const selectedPaths = scope === 'candidate'
+    ? new Set(workingTreeTypeScriptTargets(projectRoot, candidateBase!, env))
+    : null;
+  const selected = Object.freeze(config.fileNames
+    .filter((fileName) => selectedPaths === null
+      || selectedPaths.has(relativePosixPath(projectRoot, fileName)))
+    .sort((left, right) => {
+      const leftPath = relativePosixPath(projectRoot, left);
+      const rightPath = relativePosixPath(projectRoot, right);
+      return leftPath < rightPath ? -1 : leftPath > rightPath ? 1 : 0;
+    }));
+
+  const sourceEntries = await Promise.all(selected.map(async (fileName) => {
+    const bytes = await fs.readFile(fileName);
+    const text = bytes.toString('utf8');
+    if (!Buffer.from(text, 'utf8').equals(bytes)) {
+      throw new Error(`Import target is not exact UTF-8: ${relativePosixPath(projectRoot, fileName)}`);
+    }
+    return [fileName, Object.freeze({ bytes, text })] as const;
+  }));
+  const sources = new Map<string, { bytes: Buffer; text: string }>(sourceEntries);
+
+  const serviceFiles = new Map<string, { version: number; content: string }>(
+    [...sources].map(([fileName, source]) => [fileName, { version: 0, content: source.text }])
   );
+  const service = createImportService(
+    config,
+    projectRoot,
+    importServiceRootFileNames(config, selected),
+    serviceFiles
+  );
+  try {
+    const targets: Array<ImportOperationPlanV1['targets'][number]> = [];
+    const writes: Array<CompiledImportOperationPlanV1['writes'][number]> = [];
+    for (const fileName of selected) {
+      const source = sources.get(fileName)!;
+      const replacementText = organizeImportsInSource(service, fileName, source.text, intent);
+      const replacementBytes = Buffer.from(replacementText, 'utf8');
+      const relativePath = relativePosixPath(projectRoot, fileName);
+      const changed = !replacementBytes.equals(source.bytes);
+      targets.push(Object.freeze({
+        relativePath,
+        preimageDigest: rawSha256(source.bytes),
+        replacementDigest: rawSha256(replacementBytes),
+        changed
+      }));
+      if (changed) {
+        writes.push(Object.freeze({
+          relativePath,
+          expectedBytes: source.bytes,
+          replacementBytes
+        }));
+      }
+    }
+
+    const projectConfigDigest = sha256({
+      rawProjectConfig: JSON.parse(JSON.stringify(config.raw ?? {})) as unknown
+    }) as `sha256:${string}`;
+    const identity = Object.freeze({
+      schema: 'sec-import-operation-plan-v1' as const,
+      intent,
+      scope,
+      candidateBase,
+      providerRevision: `typescript@${ts.version}`,
+      projectConfigDigest,
+      targets: Object.freeze(targets),
+      writePaths: Object.freeze(writes.map((write) => write.relativePath))
+    });
+    const plan = Object.freeze({
+      ...identity,
+      planDigest: sha256(identity) as `sha256:${string}`
+    });
+    return Object.freeze({ plan, writes: Object.freeze(writes) });
+  } finally {
+    service.dispose();
+  }
 }
 
-async function loadSelectedWorkingTreeFiles(
-  projectRoot: string,
-  env: ImportSelectionEnvironment
-): Promise<{ config: ts.ParsedCommandLine; selected: readonly string[]; files: Map<string, string> }> {
-  const config = loadProjectConfig(projectRoot);
-  const selected = (() => {
-    if (!selectChangedImportsOnly(env)) return config.fileNames;
-    const targets = new Set(workingTreeTypeScriptTargets(projectRoot, env));
-    return config.fileNames.filter((fileName) => targets.has(relativePosixPath(projectRoot, fileName)));
-  })();
-  const files = new Map<string, string>(
-    await Promise.all(selected.map(async (fileName): Promise<[string, string]> => [
-      fileName,
-      await fs.readFile(fileName, 'utf8')
-    ]))
-  );
-  return { config, selected: Object.freeze(selected), files };
+export async function compileImportOperationPlanV1(
+  options: ImportOperationOptionsV1 = {},
+  projectRoot = compilerRoot,
+  env: ImportSelectionEnvironment = process.env
+): Promise<ImportOperationPlanV1> {
+  return (await compileImportOperationExecutionV1(options, projectRoot, env)).plan;
 }
 
 /**
@@ -930,93 +1035,55 @@ async function loadSelectedWorkingTreeFiles(
  * writes, zero index writes, zero rename/chmod/mtime publication.
  */
 export async function runImportCheck(
-  options: { intent?: ImportTransformIntentV1 } = {},
+  options: ImportOperationOptionsV1 = {},
   projectRoot = compilerRoot,
   env: ImportSelectionEnvironment = process.env
 ): Promise<ImportCheckOutcomeV1> {
-  const { config, selected, files } = await loadSelectedWorkingTreeFiles(projectRoot, env);
-  if (selected.length === 0) {
-    return Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
-      status: 'canonical' as const, files: Object.freeze([]) });
-  }
-  const serviceFiles = new Map<string, { version: number; content: string }>(
-    [...files].map(([fileName, content]) => [fileName, { version: 0, content }])
-  );
-  const service = createImportService(config, projectRoot,
-    importServiceRootFileNames(config, selected), serviceFiles);
-  try {
-    const noncanonical: string[] = [];
-    for (const fileName of selected) {
-      const source = files.get(fileName)!;
-      const updated = organizeImportsInSource(service, fileName, source, options.intent);
-      if (updated !== source) noncanonical.push(relativePosixPath(projectRoot, fileName));
-    }
-    return noncanonical.length === 0
-      ? Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
-        status: 'canonical' as const, files: Object.freeze([]) })
-      : Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
-        status: 'needs-import-transform' as const, files: Object.freeze(noncanonical) });
-  } finally {
-    service.dispose();
-  }
+  const { plan } = await compileImportOperationExecutionV1(options, projectRoot, env);
+  return plan.writePaths.length === 0
+    ? Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
+      status: 'canonical' as const, files: Object.freeze([]) })
+    : Object.freeze({ schema: 'sec-import-check-outcome-v1' as const,
+      status: 'needs-import-transform' as const, files: plan.writePaths });
 }
 
 /**
- * imports:transform — explicit authoring transform over the working-tree
+ * imports:apply — explicit authoring operation over one immutable working-tree
  * selector; the only ordinary source-writing import operation. The complete
- * write set is published under the canonical workspace writer lease with
+ * plan write set is published under the canonical workspace writer lease with
  * supported-writer preimage CAS, durable recovery material, rollback, and
  * exact readback. Every supported SEC writer participates in that lease.
  * A true NOOP publishes zero source/index/rename/chmod/mtime changes.
  */
-export async function runImportTransform(
-  options: {
-    intent?: ImportTransformIntentV1;
+export async function runImportApply(
+  options: ImportOperationOptionsV1 & {
     transactionTestHooks?: ImportTransformTransactionTestHooksV1;
   } = {},
   projectRoot = compilerRoot,
   env: ImportSelectionEnvironment = process.env
-): Promise<ImportTransformOutcomeV1> {
-  const { config, selected, files } = await loadSelectedWorkingTreeFiles(projectRoot, env);
-  if (selected.length === 0) {
-    return Object.freeze({ schema: 'sec-import-transform-outcome-v1' as const,
-      status: 'noop' as const, files: Object.freeze([]) });
-  }
-  const serviceFiles = new Map<string, { version: number; content: string }>(
-    [...files].map(([fileName, content]) => [fileName, { version: 0, content }])
-  );
-  const service = createImportService(config, projectRoot,
-    importServiceRootFileNames(config, selected), serviceFiles);
-  try {
-    const writes: Array<{
-      relativePath: string;
-      expectedBytes: Buffer;
-      replacementBytes: Buffer;
-    }> = [];
-    for (const fileName of selected) {
-      const source = files.get(fileName)!;
-      const updated = organizeImportsInSource(service, fileName, source, options.intent);
-      if (updated === source) continue;
-      writes.push({
-        relativePath: relativePosixPath(projectRoot, fileName),
-        expectedBytes: Buffer.from(source, 'utf8'),
-        replacementBytes: Buffer.from(updated, 'utf8')
-      });
-    }
-    if (writes.length === 0) {
-      return Object.freeze({ schema: 'sec-import-transform-outcome-v1' as const,
-        status: 'noop' as const, files: Object.freeze([]) });
-    }
-    const outcome = await publishImportTransformTransactionV1(projectRoot, writes, options.transactionTestHooks);
+): Promise<ImportApplyOutcomeV1> {
+  const { transactionTestHooks, ...planOptions } = options;
+  const compiled = await compileImportOperationExecutionV1(planOptions, projectRoot, env);
+  if (compiled.writes.length === 0) {
     return Object.freeze({
-      schema: 'sec-import-transform-outcome-v1' as const,
-      status: outcome.status,
-      files: outcome.files,
-      transactionId: outcome.transactionId,
-      journalPath: outcome.journalPath,
-      ...(outcome.status === 'accepted' ? {} : { reasonCode: outcome.reasonCode })
-    }) as ImportTransformOutcomeV1;
-  } finally {
-    service.dispose();
+      schema: 'sec-import-apply-outcome-v1' as const,
+      status: 'noop' as const,
+      files: Object.freeze([]),
+      planDigest: compiled.plan.planDigest
+    });
   }
+  const outcome = await publishImportTransformTransactionV1(
+    projectRoot,
+    compiled.writes,
+    transactionTestHooks
+  );
+  return Object.freeze({
+    schema: 'sec-import-apply-outcome-v1' as const,
+    status: outcome.status,
+    files: outcome.files,
+    planDigest: compiled.plan.planDigest,
+    transactionId: outcome.transactionId,
+    journalPath: outcome.journalPath,
+    ...(outcome.status === 'accepted' ? {} : { reasonCode: outcome.reasonCode })
+  }) as ImportApplyOutcomeV1;
 }

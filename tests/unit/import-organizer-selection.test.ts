@@ -6,11 +6,10 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import {
-  changedTypeScriptFiles,
+  compileImportOperationPlanV1,
   importServiceRootFileNames,
   organizeImportsInSource,
-  resolveImportDiffBase,
-  selectChangedImportsOnly
+  resolveCandidateImportBase
 } from '../../platform/dev-runner/import-organizer.ts';
 
 function organizeFixtureImports(source: string, roots: 'full' | 'focused' = 'full'): string {
@@ -65,81 +64,83 @@ describe('import organizer selection', () => {
     ].sort());
   });
 
-  test('explicit changed-only setting overrides CI context', () => {
-    expect(selectChangedImportsOnly({ SEC_IMPORTS_CHANGED_ONLY: '1' })).toBe(true);
-    expect(selectChangedImportsOnly({
-      SEC_IMPORTS_CHANGED_ONLY: '0',
-      SEC_CHANGED_BASE: 'abc123',
-      CI: 'true',
-      GITHUB_EVENT_NAME: 'repository_dispatch'
-    })).toBe(false);
-  });
-
-  test('an explicit diff base selects changed files for repository dispatch', () => {
-    expect(selectChangedImportsOnly({
-      SEC_CHANGED_BASE: 'abc123',
-      CI: 'true',
-      GITHUB_EVENT_NAME: 'repository_dispatch'
-    })).toBe(true);
-  });
-
-  test('pull request CI checks changed files while a schedule without a base remains global', () => {
-    expect(selectChangedImportsOnly({
-      CI: 'true',
-      GITHUB_EVENT_NAME: 'pull_request'
-    })).toBe(true);
-    expect(selectChangedImportsOnly({
-      CI: 'true',
-      GITHUB_EVENT_NAME: 'schedule'
-    })).toBe(false);
-    expect(selectChangedImportsOnly({})).toBe(false);
-  });
-
-  test('the full selector is the config file set whenever changed-only is disabled', async () => {
+  test('candidate is the code default and the ambient changed-only switch is retired', async () => {
     const source = await Bun.file(path.resolve(import.meta.dir,
       '../../platform/dev-runner/import-organizer.ts')).text();
-    const loader = source.slice(source.indexOf('async function loadSelectedWorkingTreeFiles'),
+    const compiler = source.slice(source.indexOf('async function compileImportOperationExecutionV1'),
       source.indexOf('/**\n * imports:check'));
-    expect(loader).toContain('selectChangedImportsOnly(env)');
-    expect(loader).toContain('if (!selectChangedImportsOnly(env)) return config.fileNames;');
-    expect(loader.indexOf('workingTreeTypeScriptTargets')).toBeGreaterThan(loader.indexOf('selectChangedImportsOnly(env)'));
+    expect(compiler).toContain("const scope = options.scope ?? 'candidate'");
+    expect(compiler).toContain("scope === 'all'");
+    expect(source).not.toContain('SEC_IMPORTS_CHANGED_ONLY');
+    expect(source).not.toContain('selectChangedImportsOnly');
   });
 
-  test('diff base prefers explicit base, then pull request base branch, then previous commit', () => {
-    expect(resolveImportDiffBase({
-      SEC_CHANGED_BASE: 'abc123',
-      GITHUB_EVENT_NAME: 'pull_request',
-      GITHUB_BASE_REF: 'main'
-    })).toBe('abc123');
-    expect(resolveImportDiffBase({
-      GITHUB_EVENT_NAME: 'pull_request',
-      GITHUB_BASE_REF: 'main'
-    })).toBe('origin/main');
-    expect(resolveImportDiffBase({})).toBe('HEAD^1');
-  });
-
-  test('invalid changed-only bases fail closed instead of selecting the full repository', async () => {
+  test('candidate and full scopes compile different immutable exact plans', async () => {
     const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-import-base-'));
     try {
-      const git = (args: readonly string[]) => {
+      const git = (args: readonly string[]): string => {
         const result = spawnSync('git', [...args], { cwd: repoRoot, encoding: 'utf8', windowsHide: true });
         if (result.status !== 0) throw new Error(result.stderr);
+        return result.stdout.trim();
       };
       git(['init', '--quiet']);
       git(['config', 'user.email', 'tests@example.com']);
       git(['config', 'user.name', 'SEC Tests']);
-      await writeFile(path.join(repoRoot, 'fixture.ts'), 'export const fixture = true;\n');
-      git(['add', 'fixture.ts']);
+      await writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
+        compilerOptions: {
+          allowImportingTsExtensions: true,
+          module: 'ESNext',
+          moduleResolution: 'Bundler',
+          noEmit: true,
+          target: 'ES2022'
+        },
+        include: ['**/*.ts']
+      }, null, 2)}\n`);
+      await writeFile(path.join(repoRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n');
+      await writeFile(path.join(repoRoot, 'fixture.ts'), [
+        "import { beta, alpha } from './values.ts';",
+        'export const answer = alpha + beta;',
+        ''
+      ].join('\n'));
+      git(['add', '--all']);
       git(['commit', '--quiet', '-m', 'initial']);
+      const head = git(['rev-parse', 'HEAD']);
+      git(['update-ref', 'refs/remotes/origin/main', head]);
 
-      expect(() => changedTypeScriptFiles(repoRoot, { SEC_CHANGED_BASE: 'missing-base' }))
-        .toThrow('Import diff base is invalid: missing-base');
-      try {
-        changedTypeScriptFiles(repoRoot, { SEC_CHANGED_BASE: 'missing-base' });
-        throw new Error('expected invalid import base');
-      } catch (error) {
-        expect(error).toMatchObject({ code: 'IMPORT-AUTHORITY-003' });
-      }
+      const candidate = await compileImportOperationPlanV1({}, repoRoot, {});
+      expect(candidate.scope).toBe('candidate');
+      expect(candidate.candidateBase).toBe(head);
+      expect(candidate.targets).toEqual([]);
+      expect(candidate.writePaths).toEqual([]);
+
+      const full = await compileImportOperationPlanV1({ scope: 'all' }, repoRoot, {});
+      expect(full.scope).toBe('all');
+      expect(full.candidateBase).toBeNull();
+      expect(full.writePaths).toEqual(['fixture.ts']);
+      expect(full.planDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+
+      await writeFile(path.join(repoRoot, 'fixture.ts'), [
+        "import { beta, alpha } from './values.ts';",
+        'export const answer = alpha + beta;',
+        'export const changed = answer;',
+        ''
+      ].join('\n'));
+      const changed = await compileImportOperationPlanV1({}, repoRoot, {});
+      expect(changed.targets.map((target) => target.relativePath)).toEqual(['fixture.ts']);
+      expect(changed.writePaths).toEqual(['fixture.ts']);
+      expect((await compileImportOperationPlanV1({}, repoRoot, {})).planDigest)
+        .toBe(changed.planDigest);
+
+      expect(() => resolveCandidateImportBase(repoRoot, 'a'.repeat(40), {}))
+        .toThrow('git rev-parse failed');
+      expect(() => resolveCandidateImportBase(repoRoot, head, { SEC_CHANGED_BASE: 'b'.repeat(40) }))
+        .toThrow('Candidate import base conflicts with the exact ambient verification base');
+      await expect(compileImportOperationPlanV1({ scope: 'all', candidateBase: head }, repoRoot, {}))
+        .rejects.toThrow('Full-repository import scope cannot also select a candidate base');
+
+      git(['update-ref', '-d', 'refs/remotes/origin/main']);
+      expect(() => resolveCandidateImportBase(repoRoot, undefined, {}))
+        .toThrow('Candidate import base is unavailable');
     } finally {
       await rm(repoRoot, { recursive: true, force: true });
     }

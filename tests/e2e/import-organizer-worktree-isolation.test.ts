@@ -9,12 +9,12 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import {
   runCandidateImportCheck,
   runCandidateImportOrganizer,
+  runImportApply,
   runImportCheck,
-  runImportTransform
 } from '../../platform/dev-runner/import-organizer.ts';
 
 /**
- * Physical two-worktree isolation witness (Issue #348): WT-A check/transform/
+ * Physical two-worktree isolation witness (Issue #348): WT-A check/apply/
  * freeze must never change WT-B index or worktree. The real linked-worktree
  * layout is created here; `git rev-parse --git-path index` is recorded for
  * both trees and every operation in WT-A is followed by an exact index/worktree
@@ -127,7 +127,7 @@ afterAll(async () => {
   }
 });
 
-test('WT-A freeze/check/transform leave the WT-B index and worktree byte-identical', async () => {
+test('WT-A freeze/check/apply leave the WT-B index and worktree byte-identical', async () => {
   expect(worktreeA).toBeDefined();
   expect(worktreeB).toBeDefined();
   const aIndexConfigured = git(worktreeA!, ['rev-parse', '--git-path', 'index']).trim();
@@ -171,8 +171,8 @@ test('WT-A freeze/check/transform leave the WT-B index and worktree byte-identic
   git(worktreeA!, ['add', 'fixture.ts']);
   const checkOutcome = await runImportCheck({}, worktreeA!, {});
   expect(checkOutcome.status).toBe('needs-import-transform');
-  const transformOutcome = await runImportTransform({}, worktreeA!, {});
-  expect(transformOutcome.status).toBe('accepted');
+  const applyOutcome = await runImportApply({}, worktreeA!, {});
+  expect(applyOutcome.status).toBe('accepted');
   expect((await readFile(fixturePath, 'utf8')).startsWith(source('sorted'))).toBe(true);
   expect(await digestTree(worktreeB!)).toEqual(beforeB);
   expect(worktreeBIndexPath).toBe(

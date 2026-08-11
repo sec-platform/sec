@@ -29,10 +29,8 @@
     "test:contract-freeze": "bun ./platform/dev-runner.ts contract-freeze",
     "test:benchmark-contract": "bun run sec -- benchmark suite --json",
     "imports:check": "bun ./platform/dev-runner.ts imports:check",
-    "imports:transform": "bun ./platform/dev-runner.ts imports:transform",
-    "imports:remove-unused": "bun ./platform/dev-runner.ts imports:remove-unused",
+    "imports:apply": "bun ./platform/dev-runner.ts imports:apply",
     "imports:freeze": "bun ./platform/dev-runner.ts imports:freeze",
-    "imports:staged": "bun ./platform/dev-runner.ts imports:staged",
     "deps:ensure": "bun ./platform/dev-runner.ts deps:ensure",
     "hooks:install": "bun ./scripts/install-git-hooks.ts",
     "postinstall": "bun ./scripts/install-git-hooks.ts --lifecycle",
@@ -55,7 +53,7 @@
     "check": "bun run check:fast",
     "check:affected": "bun ./platform/dev-runner.ts check:affected",
     "check:fast": "bun ./platform/dev-runner.ts check:fast",
-    "check:full": "bun run imports:check && bun run typecheck && bun run docs:doctor && bun run test:full"
+    "check:full": "bun run imports:check --all && bun run typecheck && bun run docs:doctor && bun run test:full"
   },
   "dependencies": {
     "change-case": "^5.4.4",
