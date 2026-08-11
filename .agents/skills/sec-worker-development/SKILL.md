@@ -13,34 +13,34 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - active pointer unresolved；需要改 Work Package、authority或跨 owner设计。
 
 ## 输入
-- Task Envelope、相关 types/tests/source、当前 failing reproduction。
+- Task Capsule/Operation Envelope、相关 owner/types/source、当前 failing reproduction 与已选择的 Action closure。
 
 ## 权限与路径
 - 仅修改Envelope owned paths；forbidden paths和其他owner只读。
 
 ## 允许工具与操作
-- 代码编辑、focused test、typecheck/docs/affected按需、imports:freeze、Git commit/push。
+- 代码编辑、Envelope 已授权的显式 transform、selector 选择的 focused Action、Git candidate materialization。
 
 ## 前置门禁
 - Envelope完整、base未漂移、用户修正已reconcile。
 
 ## 执行
-1. inspect相关 authority/types/tests，禁止默认全仓扫描。
-2. 实现最小完整纵切片。
-3. 开发中只跑当前 failing/focused sentinel；candidate冻结前可执行 `bun run check:affected --plan`。
-4. 稳定后按变化类型运行一次适用 typecheck/docs/final affected；只有resolved plan才运行 `bun run check:affected`。
-5. 显式 stage owned paths并运行 `bun run imports:freeze`。
-6. commit/push后返回 tested head/base、changed symbols、Evidence delta、blocker、next seam和计数器。
+1. 只读 Capsule 指定的 authority/types/source 与 unresolved frontier；禁止默认全仓扫描。
+2. 实现最小完整纵切片；检查与变换保持不同 effect owner，检查不得隐式改写 source/index。
+3. 开发中只执行会改变当前实现选择的 failing/focused sentinel；即将被后续编辑失效的 Action 不启动。
+4. candidate 稳定后消费 selector 的 `RequiredClosure ∩ MissingOrStale`，每个 ActionKey 最多一次 physical start；fresh PASS、unchanged FAIL 与 authenticated in-flight 分别 reuse、stop、join。
+5. 只 stage Envelope owned paths，materialize 同一 logical run 的新 generation；finding 在同一 worktree/ref 修复，不创建 successor worktree。
+6. 返回 exact base/head/tree、changed symbols、Action/Evidence delta、blocker 与 next seam。
 
 ## 完成证据
-- Reconciliation Delta、tested head/base、changed symbols、focused results、Evidence delta。
+- Reconciliation Delta、exact base/head/tree、changed symbols、Action results与Evidence delta。
 
 ## 停止与恢复
 - acceptance满足并提交 Reconciliation Delta；或触发 proof reset/authority blocker。
-- 普通失败回实现；frozen同根因二次失效返回STOP_PROOF_RESET。
+- 普通失败回实现；重复 frozen root-cause invalidation 交给 failure owner 产生 typed proof-reset decision。
 
 ## 禁止捷径
-- 不运行重复 Risk/Full。
+- 不运行重复 Action、日常 Full 或未被 selector 选择的 Risk。
 - 不删除测试、弱化 assertion、扩大 timeout或顺手重构。
 - 普通测试失败不自动计为 candidate invalidation。
 

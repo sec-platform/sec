@@ -105,8 +105,8 @@ test('exactly one surviving candidate resolves applicable and selects it', () =>
 test('multiple surviving candidates without unique operation evidence resolve ambiguous', () => {
   const decision = evaluateSecSkillApplicabilityV1(envelope({
     role: 'a0',
-    operationKind: 'govern',
-    candidates: ['sec-work-package-lifecycle', 'sec-task-delegation']
+    operationKind: 'design',
+    candidates: ['sec-architecture-evolution', 'sec-heuristic-governance']
   }));
   expect(decision.status).toBe('ambiguous');
   expect(decision.selectedSkillId).toBeNull();
@@ -116,14 +116,14 @@ test('multiple surviving candidates without unique operation evidence resolve am
 test('Skill requiring a forbidden write path resolves conflict and never selects', () => {
   const decision = evaluateSecSkillApplicabilityV1(envelope({
     role: 'maintainer',
-    operationKind: 'govern',
-    candidates: ['sec-documentation-governance'],
+    operationKind: 'design',
+    candidates: ['sec-architecture-evolution'],
     forbiddenPaths: ['docs/']
   }));
   expect(decision.status).toBe('conflict');
   expect(decision.selectedSkillId).toBeNull();
   expect(decision.scopeConflicts).toEqual([
-    { skillId: 'sec-documentation-governance', kind: 'write-path' }
+    { skillId: 'sec-architecture-evolution', kind: 'write-path' }
   ]);
   expect(decision.reasonCodes).toContain('conflict-write-path');
 });
@@ -131,8 +131,8 @@ test('Skill requiring a forbidden write path resolves conflict and never selects
 test('Skill write surface beyond the authorized write paths resolves conflict', () => {
   const decision = evaluateSecSkillApplicabilityV1(envelope({
     role: 'maintainer',
-    operationKind: 'govern',
-    candidates: ['sec-documentation-governance'],
+    operationKind: 'design',
+    candidates: ['sec-architecture-evolution'],
     authorizedWritePaths: ['AGENTS.md']
   }));
   expect(decision.status).toBe('conflict');
@@ -141,56 +141,66 @@ test('Skill write surface beyond the authorized write paths resolves conflict', 
 
 test('any scope conflict fails closed even when another candidate would survive', () => {
   const decision = evaluateSecSkillApplicabilityV1(envelope({
-    role: 'maintainer',
-    operationKind: 'govern',
-    candidates: ['sec-documentation-governance', 'sec-work-package-lifecycle'],
+    role: 'a0',
+    operationKind: 'design',
+    candidates: ['sec-architecture-evolution', 'sec-heuristic-governance'],
     forbiddenPaths: ['docs/']
   }));
   expect(decision.status).toBe('conflict');
   expect(decision.selectedSkillId).toBeNull();
   expect(decision.scopeConflicts).toEqual([
-    { skillId: 'sec-documentation-governance', kind: 'write-path' }
+    { skillId: 'sec-architecture-evolution', kind: 'write-path' }
   ]);
 });
 
 test('Skill requiring an unauthorized resource or Gate resolves conflict', () => {
   const resourceConflict = evaluateSecSkillApplicabilityV1(envelope({
-    role: 'a0',
-    operationKind: 'integrate',
-    candidates: ['sec-ci-and-merge'],
+    candidates: ['sec-worker-development'],
     availableCapabilities: ['git', 'github', 'hosted-gate'],
-    authorizedGates: ['hosted-gate']
+    authorizedGates: ['hosted-gate'],
+    metadataOverrides: {
+      'sec-worker-development': {
+        ...SEC_AGENT_SKILL_METADATA_V1['sec-worker-development'],
+        requiredResources: ['github-api']
+      }
+    }
   }));
   expect(resourceConflict.status).toBe('conflict');
   expect(resourceConflict.scopeConflicts).toEqual([
-    { skillId: 'sec-ci-and-merge', kind: 'resource' }
+    { skillId: 'sec-worker-development', kind: 'resource' }
   ]);
 
   const gateConflict = evaluateSecSkillApplicabilityV1(envelope({
-    role: 'a0',
-    operationKind: 'integrate',
-    candidates: ['sec-ci-and-merge'],
+    candidates: ['sec-worker-development'],
     availableCapabilities: ['git', 'github', 'hosted-gate'],
-    authorizedResources: ['github-api']
+    authorizedResources: ['github-api'],
+    metadataOverrides: {
+      'sec-worker-development': {
+        ...SEC_AGENT_SKILL_METADATA_V1['sec-worker-development'],
+        requiredGates: ['hosted-gate']
+      }
+    }
   }));
   expect(gateConflict.status).toBe('conflict');
   expect(gateConflict.scopeConflicts).toEqual([
-    { skillId: 'sec-ci-and-merge', kind: 'gate' }
+    { skillId: 'sec-worker-development', kind: 'gate' }
   ]);
 });
 
 test('missing required capability excludes the candidate before scope checks', () => {
   const decision = evaluateSecSkillApplicabilityV1(envelope({
-    role: 'a0',
-    operationKind: 'integrate',
-    candidates: ['sec-ci-and-merge'],
-    availableCapabilities: ['git', 'github'],
-    authorizedResources: ['github-api'],
-    authorizedGates: ['hosted-gate']
+    candidates: ['sec-worker-development'],
+    availableCapabilities: ['git'],
+    metadataOverrides: {
+      'sec-worker-development': {
+        ...SEC_AGENT_SKILL_METADATA_V1['sec-worker-development'],
+        requiredCapabilities: ['git', 'hosted-gate']
+      }
+    }
   }));
   expect(decision.status).toBe('none-required');
   expect(decision.exclusionResults).toEqual([
-    { skillId: 'sec-ci-and-merge', reason: 'capability-unavailable' }
+    { skillId: 'sec-worker-development', reason: 'capability-unavailable' }
   ]);
 });
 
@@ -214,8 +224,8 @@ test('goal, role, operation, capsule binding or trusted-revision change invalida
 
   const roleStale = evaluateSecSkillApplicabilityV1(envelope({
     role: 'a0',
-    operationKind: 'govern',
-    candidates: ['sec-work-package-lifecycle'],
+    operationKind: 'design',
+    candidates: ['sec-architecture-evolution'],
     priorDecision: prior
   }));
   expect(roleStale.status).toBe('stale');
@@ -257,7 +267,7 @@ test('superseded Skill is excluded even when its trigger and coverage would othe
     metadataOverrides: {
       'sec-worker-development': {
         ...SEC_AGENT_SKILL_METADATA_V1['sec-worker-development'],
-        supersededBy: 'sec-impact-and-validation'
+        supersededBy: 'sec-failure-recovery'
       }
     }
   }));

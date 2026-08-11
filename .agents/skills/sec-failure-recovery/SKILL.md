@@ -28,8 +28,8 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 1. 分类为产品、合同、Review、用户scope、authority、环境瞬态、基础设施、stale remote或unknown。
 2. 只重跑被delta失效的最小sentinel；环境瞬态只有在锁owner结束、cache修复、network恢复等具体因果输入变化后才允许现有primitive定义的受限重试，输入与failure tail未变时复用失败证据并停止。
 3. transient failure不生成新candidate；用户scope变化先reconcile。
-4. 第二次同根因frozen invalidation返回 `STOP_PROOF_RESET`。
-5. proof reset后再次同类失败进入 `BLOCKED_REDESIGN_REQUIRED`。
+4. 重复同根因 frozen invalidation 请求 failure owner 签发 typed proof-reset decision，不由 Skill 发明状态。
+5. proof reset后再次同类失败返回架构重算所需的 root-cause evidence，不继续补丁循环。
 6. capsule/chain损坏从最后合法generation恢复；无合法generation则fail closed。
 
 ## 完成证据
@@ -37,7 +37,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 
 ## 停止与恢复
 - 根因、owner、invariant、下一动作和失效Evidence明确。
-- 瞬态受限重试；二次同根因STOP_PROOF_RESET；再犯BLOCKED_REDESIGN_REQUIRED。
+- 瞬态仅在因果输入变化后受限重试；重复根因交给 deterministic failure/proof-reset owner。
 
 ## 禁止捷径
 - 不硬重置或删除未审计工作。

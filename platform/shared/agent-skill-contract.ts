@@ -1,20 +1,11 @@
 export const SEC_AGENT_SKILL_IDS = [
-  'sec-a0-integrator',
   'sec-architecture-evolution',
-  'sec-ci-and-merge',
-  'sec-context-resume',
-  'sec-documentation-governance',
   'sec-exact-head-review',
   'sec-external-capability-governance',
   'sec-failure-recovery',
   'sec-heuristic-governance',
-  'sec-impact-and-validation',
   'sec-repository-audit',
-  'sec-repository-orientation',
   'sec-task-delegation',
-  'sec-toolchain-and-dependencies',
-  'sec-trust-root-bootstrap',
-  'sec-work-package-lifecycle',
   'sec-worker-development'
 ] as const;
 
@@ -42,25 +33,87 @@ export const SEC_REPOSITORY_BEHAVIOR_IDS = [
 
 export type SecRepositoryBehaviorId = (typeof SEC_REPOSITORY_BEHAVIOR_IDS)[number];
 
-export const SEC_REPOSITORY_BEHAVIOR_OWNERS = {
-  'a0-integration': 'sec-a0-integrator',
-  'architecture-evolution': 'sec-architecture-evolution',
-  'ci-and-merge': 'sec-ci-and-merge',
-  'context-resume': 'sec-context-resume',
-  'documentation-governance': 'sec-documentation-governance',
-  'exact-head-review': 'sec-exact-head-review',
-  'external-capability-governance': 'sec-external-capability-governance',
-  'failure-recovery': 'sec-failure-recovery',
-  'heuristic-governance': 'sec-heuristic-governance',
-  'impact-and-validation': 'sec-impact-and-validation',
-  'repository-audit': 'sec-repository-audit',
-  'repository-orientation': 'sec-repository-orientation',
-  'task-delegation': 'sec-task-delegation',
-  'toolchain-and-dependencies': 'sec-toolchain-and-dependencies',
-  'trust-root-bootstrap': 'sec-trust-root-bootstrap',
-  'work-package-lifecycle': 'sec-work-package-lifecycle',
-  'worker-development': 'sec-worker-development'
-} as const satisfies Record<SecRepositoryBehaviorId, SecAgentSkillId>;
+export interface SecRepositorySkillBehaviorRoute {
+  readonly kind: 'skill';
+  readonly owner: SecAgentSkillId;
+  readonly authorityRef: `.agents/skills/${SecAgentSkillId}/SKILL.md`;
+}
+
+export interface SecRepositoryDeterministicBehaviorRoute {
+  readonly kind: 'deterministic';
+  readonly owner: string;
+  readonly authorityRef: string;
+}
+
+export type SecRepositoryBehaviorRoute =
+  | SecRepositorySkillBehaviorRoute
+  | SecRepositoryDeterministicBehaviorRoute;
+
+const skillRoute = <SkillId extends SecAgentSkillId>(
+  owner: SkillId
+): SecRepositorySkillBehaviorRoute => Object.freeze({
+  kind: 'skill',
+  owner,
+  authorityRef: `.agents/skills/${owner}/SKILL.md` as const
+});
+
+const deterministicRoute = (
+  owner: string,
+  authorityRef: string
+): SecRepositoryDeterministicBehaviorRoute => Object.freeze({
+  kind: 'deterministic',
+  owner,
+  authorityRef
+});
+
+/**
+ * Repository behavior routing is deliberately not a behavior-to-Skill
+ * bijection. Machine-decidable behavior has a deterministic code owner and
+ * requires no Skill body; only irreducible judgement routes to one Skill.
+ */
+export const SEC_REPOSITORY_BEHAVIOR_ROUTES = Object.freeze({
+  'a0-integration': deterministicRoute(
+    'verification-session',
+    'platform/shared/verification-session-contract.ts'
+  ),
+  'architecture-evolution': skillRoute('sec-architecture-evolution'),
+  'ci-and-merge': deterministicRoute('integration-transaction', 'scripts/codex/merge-gate.ts'),
+  'context-resume': deterministicRoute(
+    'verification-session-runtime',
+    'scripts/codex/verification-session-runtime.ts'
+  ),
+  'documentation-governance': deterministicRoute(
+    'documentation-authority',
+    'platform/shared/documentation-authority-contract.ts'
+  ),
+  'exact-head-review': skillRoute('sec-exact-head-review'),
+  'external-capability-governance': skillRoute('sec-external-capability-governance'),
+  'failure-recovery': skillRoute('sec-failure-recovery'),
+  'heuristic-governance': skillRoute('sec-heuristic-governance'),
+  'impact-and-validation': deterministicRoute(
+    'test-impact-selector',
+    'platform/shared/test-impact-contract.ts'
+  ),
+  'repository-audit': skillRoute('sec-repository-audit'),
+  'repository-orientation': deterministicRoute(
+    'document-control-plane',
+    'scripts/codex/document-control-plane.ts'
+  ),
+  'task-delegation': skillRoute('sec-task-delegation'),
+  'toolchain-and-dependencies': deterministicRoute(
+    'runtime-dependency-spec',
+    'platform/shared/runtime-dependency-spec.ts'
+  ),
+  'trust-root-bootstrap': deterministicRoute(
+    'tcb-closure',
+    'platform/shared/tcb-closure-lock.ts'
+  ),
+  'work-package-lifecycle': deterministicRoute(
+    'document-control-plane',
+    'scripts/codex/document-control-plane-contract.ts'
+  ),
+  'worker-development': skillRoute('sec-worker-development')
+} satisfies Record<SecRepositoryBehaviorId, SecRepositoryBehaviorRoute>);
 
 export const SEC_AGENT_SKILL_STANDARD_SECTIONS = [
   '## 触发',
@@ -81,6 +134,7 @@ export type SecMarkdownSurfaceKind =
   | 'agent-projection'
   | 'active-authority'
   | 'active-proposal'
+  | 'control-projection'
   | 'navigation'
   | 'frozen-work-package'
   | 'evidence'
@@ -120,10 +174,10 @@ const ARCHITECTURE_DOCUMENTS = new Set([
   'docs/change-management.md'
 ]);
 
-export function resolveSecRepositoryBehaviorOwner(
+export function resolveSecRepositoryBehaviorRoute(
   behavior: SecRepositoryBehaviorId
-): SecAgentSkillId {
-  return SEC_REPOSITORY_BEHAVIOR_OWNERS[behavior];
+): SecRepositoryBehaviorRoute {
+  return SEC_REPOSITORY_BEHAVIOR_ROUTES[behavior];
 }
 
 export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillCoverage | null {
@@ -136,12 +190,8 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return {
       kind: 'agent-projection',
       skills: skills(
-        'sec-repository-orientation',
         'sec-repository-audit',
-        'sec-a0-integrator',
-        'sec-context-resume',
-        'sec-external-capability-governance',
-        'sec-impact-and-validation',
+        'sec-task-delegation',
         'sec-heuristic-governance'
       )
     };
@@ -149,11 +199,7 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
   if (path === 'README.md' || path === 'docs/README.md' || path === 'docs/work/README.md') {
     return {
       kind: 'navigation',
-      skills: skills(
-        'sec-documentation-governance',
-        'sec-repository-orientation',
-        'sec-repository-audit'
-      )
+      skills: []
     };
   }
   if (/^tests\/.*\.md$/u.test(path)) {
@@ -174,10 +220,6 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       kind: 'active-authority',
       skills: skills(
         'sec-architecture-evolution',
-        'sec-worker-development',
-        'sec-impact-and-validation',
-        'sec-exact-head-review',
-        'sec-documentation-governance',
         'sec-repository-audit'
       )
     };
@@ -186,20 +228,12 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return {
       kind: 'active-authority',
       skills: skills(
-        'sec-a0-integrator',
         'sec-architecture-evolution',
-        'sec-ci-and-merge',
-        'sec-context-resume',
-        'sec-documentation-governance',
         'sec-exact-head-review',
         'sec-failure-recovery',
         'sec-heuristic-governance',
-        'sec-impact-and-validation',
         'sec-repository-audit',
-        'sec-repository-orientation',
         'sec-task-delegation',
-        'sec-trust-root-bootstrap',
-        'sec-work-package-lifecycle',
         'sec-worker-development'
       )
     };
@@ -208,9 +242,7 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
     return {
       kind: 'active-authority',
       skills: skills(
-        'sec-impact-and-validation',
-        'sec-ci-and-merge',
-        'sec-trust-root-bootstrap',
+        'sec-exact-head-review',
         'sec-failure-recovery',
         'sec-repository-audit'
       )
@@ -231,7 +263,6 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       kind: 'active-authority',
       skills: skills(
         'sec-external-capability-governance',
-        'sec-repository-orientation',
         'sec-repository-audit'
       )
     };
@@ -241,21 +272,14 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       kind: 'active-proposal',
       skills: skills(
         'sec-architecture-evolution',
-        'sec-documentation-governance',
         'sec-repository-audit'
       )
     };
   }
   if (/^docs\/work\/(?:rolling-plan|active-work-package)\.md$/u.test(path)) {
     return {
-      kind: 'active-authority',
-      skills: skills(
-        'sec-a0-integrator',
-        'sec-work-package-lifecycle',
-        'sec-documentation-governance',
-        'sec-repository-orientation',
-        'sec-repository-audit'
-      )
+      kind: 'control-projection',
+      skills: []
     };
   }
 
@@ -280,120 +304,32 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   const skillId = skillIdFromPath(path);
   if (skillId) return [skillId];
   if (path === 'AGENTS.md') {
-    return skills(
-      'sec-repository-orientation',
-      'sec-repository-audit',
-      'sec-a0-integrator',
-      'sec-context-resume',
-      'sec-external-capability-governance',
-      'sec-impact-and-validation',
-      'sec-heuristic-governance'
-    );
-  }
-  if (/^docs\/work\//u.test(path)) {
-    return skills(
-      'sec-a0-integrator',
-      'sec-documentation-governance',
-      'sec-repository-orientation',
-      'sec-repository-audit',
-      'sec-work-package-lifecycle'
-    );
+    return skills('sec-heuristic-governance', 'sec-repository-audit', 'sec-task-delegation');
   }
   if (path === 'docs/authority.json'
     || path === 'platform/shared/documentation-authority-contract.ts'
     || path === 'platform/shared/active-documentation-contract.ts'
     || path === 'docs/scripts/docs-doctor.ts') {
-    return skills(
-      'sec-documentation-governance',
-      'sec-repository-audit',
-      'sec-heuristic-governance',
-      'sec-trust-root-bootstrap'
-    );
+    return skills('sec-heuristic-governance', 'sec-repository-audit');
   }
   if (path === 'docs/governance/external-capability-ledger.yaml') {
     return skills('sec-external-capability-governance', 'sec-heuristic-governance');
   }
   if (path === 'docs/governance/nexus-absorption-ledger.yaml') {
-    return skills(
-      'sec-external-capability-governance',
-      'sec-repository-orientation',
-      'sec-repository-audit'
-    );
+    return skills('sec-external-capability-governance', 'sec-repository-audit');
   }
   if (path === 'platform/shared/agent-skill-contract.ts'
     || path === 'platform/shared/agent-operation-read-plan-contract.ts') {
-    return skills(
-      'sec-documentation-governance',
-      'sec-context-resume',
-      'sec-trust-root-bootstrap',
-      'sec-repository-audit',
-      'sec-heuristic-governance'
-    );
+    return skills('sec-architecture-evolution', 'sec-heuristic-governance', 'sec-repository-audit');
   }
   if (/^\.codex\//u.test(path)) {
-    return skills(
-      'sec-task-delegation',
-      'sec-worker-development',
-      'sec-exact-head-review',
-      'sec-context-resume',
-      'sec-heuristic-governance'
-    );
-  }
-  if (/^\.github\//u.test(path)) {
-    return skills('sec-ci-and-merge', 'sec-trust-root-bootstrap', 'sec-documentation-governance');
-  }
-  if (/^\.githooks\//u.test(path)) {
-    return skills('sec-impact-and-validation', 'sec-toolchain-and-dependencies');
-  }
-  if (path === 'scripts/codex/ci-orchestration-core.ts') {
-    return skills('sec-impact-and-validation', 'sec-ci-and-merge', 'sec-trust-root-bootstrap');
+    return skills('sec-exact-head-review', 'sec-heuristic-governance', 'sec-task-delegation');
   }
   if (path === 'scripts/codex/repository-audit.ts') {
     return skills('sec-repository-audit', 'sec-heuristic-governance');
   }
-  if (/^scripts\/codex\//u.test(path)) {
-    return skills(
-      'sec-a0-integrator',
-      'sec-work-package-lifecycle',
-      'sec-ci-and-merge',
-      'sec-trust-root-bootstrap',
-      'sec-context-resume',
-      'sec-failure-recovery',
-      'sec-heuristic-governance'
-    );
-  }
-  if (/^docs\/scripts\//u.test(path)) {
-    return skills(
-      'sec-documentation-governance',
-      'sec-trust-root-bootstrap',
-      'sec-heuristic-governance'
-    );
-  }
-  if (path === 'platform/dev-runner.ts' || /^platform\/dev-runner\//u.test(path)) {
-    return skills('sec-impact-and-validation', 'sec-toolchain-and-dependencies');
-  }
-  if (/^scripts\/ci-[^/]+\.ts$/u.test(path) || path === 'scripts/run-work-package-gate.ts') {
-    return skills('sec-ci-and-merge', 'sec-trust-root-bootstrap');
-  }
-  if (path === 'scripts/install-git-hooks.ts') {
-    return skills('sec-impact-and-validation', 'sec-toolchain-and-dependencies');
-  }
   if (path === 'scripts/discover-all.ts') {
-    return skills(
-      'sec-repository-audit',
-      'sec-impact-and-validation',
-      'sec-toolchain-and-dependencies'
-    );
-  }
-  if (/^scripts\//u.test(path)) {
-    return skills('sec-toolchain-and-dependencies', 'sec-impact-and-validation');
-  }
-  if (/^platform\/shared\/(?:active-documentation|affected-test|ci-|contract-freeze|documentation-authority|heavy-verification|repository-path|runtime-dependency|test-|verification-scope)/u.test(path)
-    || /^platform\/shared\/test-impact-rules\//u.test(path)) {
-    return skills('sec-impact-and-validation', 'sec-ci-and-merge', 'sec-trust-root-bootstrap');
-  }
-  if (/^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig\.json|\.bun-version|\.gitignore|\.gitattributes|\.npmrc|\.dependency-cruiser\.json)$/u.test(path)) {
-    return skills('sec-toolchain-and-dependencies', 'sec-repository-audit');
+    return skills('sec-repository-audit');
   }
   return [];
 }
@@ -503,16 +439,6 @@ export interface SecAgentSkillMetadataV1 {
 }
 
 export const SEC_AGENT_SKILL_METADATA_V1 = {
-  'sec-a0-integrator': {
-    id: 'sec-a0-integrator',
-    roles: ['a0'],
-    operationKinds: ['orient', 'govern', 'integrate'],
-    requiredCapabilities: ['git', 'github'],
-    requiredResources: [],
-    requiredGates: [],
-    writeSurface: ['docs/work/', 'docs/work-packages/'],
-    supersededBy: null
-  },
   'sec-architecture-evolution': {
     id: 'sec-architecture-evolution',
     roles: ['a0', 'auditor', 'maintainer'],
@@ -521,36 +447,6 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
     requiredResources: [],
     requiredGates: [],
     writeSurface: ['docs/'],
-    supersededBy: null
-  },
-  'sec-ci-and-merge': {
-    id: 'sec-ci-and-merge',
-    roles: ['a0'],
-    operationKinds: ['integrate'],
-    requiredCapabilities: ['git', 'github', 'hosted-gate'],
-    requiredResources: ['github-api'],
-    requiredGates: ['hosted-gate'],
-    writeSurface: [],
-    supersededBy: null
-  },
-  'sec-context-resume': {
-    id: 'sec-context-resume',
-    roles: ['a0', 'worker', 'reviewer', 'auditor', 'maintainer'],
-    operationKinds: ['orient'],
-    requiredCapabilities: ['git'],
-    requiredResources: [],
-    requiredGates: [],
-    writeSurface: [],
-    supersededBy: null
-  },
-  'sec-documentation-governance': {
-    id: 'sec-documentation-governance',
-    roles: ['a0', 'maintainer'],
-    operationKinds: ['govern'],
-    requiredCapabilities: ['git'],
-    requiredResources: [],
-    requiredGates: [],
-    writeSurface: ['docs/', 'AGENTS.md'],
     supersededBy: null
   },
   'sec-exact-head-review': {
@@ -593,30 +489,10 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
     writeSurface: ['.agents/skills/', 'platform/shared/agent-skill-contract.ts', 'AGENTS.md'],
     supersededBy: null
   },
-  'sec-impact-and-validation': {
-    id: 'sec-impact-and-validation',
-    roles: ['worker', 'reviewer', 'maintainer'],
-    operationKinds: ['implement', 'review', 'govern'],
-    requiredCapabilities: ['git'],
-    requiredResources: [],
-    requiredGates: [],
-    writeSurface: [],
-    supersededBy: null
-  },
   'sec-repository-audit': {
     id: 'sec-repository-audit',
     roles: ['auditor'],
     operationKinds: ['audit'],
-    requiredCapabilities: ['git', 'github'],
-    requiredResources: [],
-    requiredGates: [],
-    writeSurface: [],
-    supersededBy: null
-  },
-  'sec-repository-orientation': {
-    id: 'sec-repository-orientation',
-    roles: ['a0', 'worker', 'reviewer', 'auditor', 'maintainer'],
-    operationKinds: ['orient'],
     requiredCapabilities: ['git', 'github'],
     requiredResources: [],
     requiredGates: [],
@@ -631,36 +507,6 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
     requiredResources: [],
     requiredGates: [],
     writeSurface: [],
-    supersededBy: null
-  },
-  'sec-toolchain-and-dependencies': {
-    id: 'sec-toolchain-and-dependencies',
-    roles: ['maintainer'],
-    operationKinds: ['govern'],
-    requiredCapabilities: ['git', 'github'],
-    requiredResources: [],
-    requiredGates: [],
-    writeSurface: ['package.json', 'bun.lock', 'bunfig.toml', 'tsconfig.json', '.github/workflows/', '.githooks/'],
-    supersededBy: null
-  },
-  'sec-trust-root-bootstrap': {
-    id: 'sec-trust-root-bootstrap',
-    roles: ['a0', 'reviewer', 'maintainer'],
-    operationKinds: ['govern', 'design', 'review', 'integrate'],
-    requiredCapabilities: ['git', 'github', 'hosted-gate'],
-    requiredResources: ['github-api'],
-    requiredGates: ['hosted-gate'],
-    writeSurface: [],
-    supersededBy: null
-  },
-  'sec-work-package-lifecycle': {
-    id: 'sec-work-package-lifecycle',
-    roles: ['a0'],
-    operationKinds: ['govern', 'orient'],
-    requiredCapabilities: ['git'],
-    requiredResources: [],
-    requiredGates: [],
-    writeSurface: ['docs/work/', 'docs/work-packages/'],
     supersededBy: null
   },
   'sec-worker-development': {

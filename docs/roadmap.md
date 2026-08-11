@@ -585,6 +585,7 @@ typed refs。Evidence、freshness、health、maturity与next-transition projecti
 - Work selection、permission、Work Package conflict、Impact/Gate selection、Failure/Epoch、Evidence reuse、Integration/merge legality由机器owner决定；
 - CandidateContentId、CandidateGenerationRef、ReviewSubjectId与PromotionId分离；
 - 一个logical run只有一个mutable implementation worktree和一个active candidate ref，finding只产生cheap generation；
+- 首次外部 Evidence/Review/effect 前支持同一 run 的 expected-old `replan|abort`，freeze 不再迫使 scope finding 生成 successor worktree；
 - Skill渐进披露、content-addressed Read Plan与context budget；
 - fresh Worker/Reviewer/Integrator context和独立性；
 - VerificationSession的Run/Event/Transition/Resume state外部化；
@@ -594,17 +595,20 @@ typed refs。Evidence、freshness、health、maturity与next-transition projecti
 - Tier 0 transition root、Tier 1 evolvable TCB与Tier 2 product分层；
 - Context compression/restart从authority重算同一next transition；
 - candidate Agent/Skill不能自证trust migration；
-- 先清除已证伪stale Skill guidance，替代owner canary后再完整retirement。
+- deterministic behavior 显式路由到 machine owner，Skill corpus 只保留 bounded judgement；替代owner canary后立即 consumer-zero retirement，不留 alias。
 
 ### 收敛切片与顺序
 
 不创建一个只做“最终架构”的umbrella Work Package挡在实现前。每个切片由then-current rolling
 plan映射到既有唯一owner，并作为可独立main/readback的纵向Work Package交付：
 
-1. **Read fast path（#346）**：Task Capsule compiler、content-addressed ReadKey/ReadPlan、read receipt、
-   invalidation 与 zero-or-one Skill selector projection；它先减少后续每个切片的重复读取；
-2. **Guidance purge（#275 phase A）**：立即删除已被canonical owner证伪的默认 memory/
-   full-orientation/旧命令/旧path guidance，但暂不删除仍有唯一 heuristic consumer 的 Skill；
+1. **Read fast path（#205 → #346）**：#205 独立编译 Task Capsule，#346 只消费其
+   ref/digest/revision 并编译 content-addressed ReadKey/ReadPlan、read receipt、invalidation 与
+   zero-or-one Skill selector projection；VerificationSession 也只保存 Capsule 引用，不拥有其内容或 lifecycle；
+2. **Guidance convergence（#275）**：删除默认 memory/full-orientation/旧命令/旧path guidance，
+   将已有 deterministic behavior 路由到真实 machine owner，并在 consumer-zero readback 后一次退役
+   冗余 Skill ID/file；当前保留八个 bounded Skill。#205 的 production Task Capsule compiler 完成
+   consumer cutover、canary 与 readback 后，delegation route 才转为 deterministic 并收敛到终态七个；
 3. **Candidate / Control transaction**：Git-object materializer、one-parent commit、ref CAS、
    prospective/active control分离、同一worktree/ref generation loop；
 4. **Verification closure**：Requirement tri-state、subject-closure ActionKey、Evidence DAG、heavy
@@ -613,8 +617,8 @@ plan映射到既有唯一owner，并作为可独立main/readback的纵向Work Pa
    failure isolation和Review/invalidation收益；
 6. **Review / Trust transition**：Review Action、delta packet、new exact-head receipt、Tier 0/1 TCB
    transition；
-7. **Promotion / retirement（含 #275 phase B）**：single-use integration、remote/local readback、
-   closeout Actions、legacy journal/API与consumer-zero Skill retirement、ordinary candidate canary。
+7. **Promotion / retirement**：single-use integration、remote/local readback、closeout Actions、
+   legacy journal/API retirement 与 ordinary candidate canary。
 
 切片顺序表达dependency；某些read-only compiler可以并行开发，但canonical writer、control plane、
 workflow与trust transition仍按single-writer集成。每个切片必须同时声明被替代入口和consumer-zero
@@ -637,6 +641,8 @@ NextTransition composition。
 - 一个真实Review finding在同一worktree产生新generation且successor worktree为零；
 - fresh ActionKey不重复执行，failed/in-flight/unknown physical outcome均按合同处理；
 - candidate projection failure不改变live main control；
+- worktree closeout同时证明registry与physical target absence，residue从外部durable receipt重入；
+- Issue completion由machine `IssueDisposition`控制，PR prose不能以closing keyword意外改变Issue状态；
 - 失败/重跑/merge transition由typed owner decisions决定。
 
 ## R15 — Release / Deployment / Operations

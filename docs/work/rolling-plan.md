@@ -17,12 +17,12 @@ bootstrap receipt 均已 stale，不能迁移到本窗口。`TASK_RESTART_REQUIR
 
 ## 当前唯一 Work Package
 
-### agent-operation-read-plan-v1
+### skill-system-convergence-v2
 
-实现 Issue #346 的 Task Capsule identity-bound Read Plan 与 zero-or-one Skill 正常入口，
-并固化 development control-plane 七项收敛裁决。该纵切片不取得 #205 整体 Task Capsule /
-Root-Cause Preflight owner，也不因合入而提前关闭 #346；三次真实 operation canary 与
-maintainer-mutation consumer readback 完成后才关闭，随后进入 #275。
+从 then-current `main` 消费 #346 Read Plan，完成 #275 的 deterministic-owner
+consumer migration、九个 consumer-zero Skill 退役、当前八个 bounded Skill 收束与
+agent projection 修复。#205 production Task Capsule compiler 完成 consumer cutover、
+canary 与 readback 后，才退役 delegation 并收敛到终态七个。
 
 ## 候选 Work Package
 

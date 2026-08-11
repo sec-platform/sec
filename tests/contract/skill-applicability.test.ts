@@ -64,6 +64,15 @@ function gitOutput(args: readonly string[]): string {
   return result.stdout.trim();
 }
 
+function gitOutputOrNull(args: readonly string[]): string | null {
+  const result = spawnSync('git', args, {
+    cwd: REPOSITORY_ROOT,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
 function changedPaths(base: string, head: string): string[] {
   const source = gitOutput(['diff', '--name-status', base, head]);
   return [...new Set(source.split(/\r?\n/u).filter(Boolean)
@@ -146,10 +155,14 @@ function evaluatePlan(input: SecOperationReadPlanInputV1): SecSkillApplicability
   const trustedSkillRevisions: Record<string, string> = {};
   const candidateSkillRevisions: Record<string, string> = {};
   for (const repositoryPath of (envelope.changedPaths ?? []).filter(isSecSkillQuarantinePath)) {
-    const trusted = gitOutput(['rev-parse', '--verify', `${envelope.trustedRevision}:${repositoryPath}`]);
-    const candidate = gitOutput(['rev-parse', '--verify', `${envelope.targetCandidate}:${repositoryPath}`]);
-    if (/^[0-9a-f]{40,64}$/u.test(trusted)) trustedSkillRevisions[repositoryPath] = trusted;
-    if (/^[0-9a-f]{40,64}$/u.test(candidate)) candidateSkillRevisions[repositoryPath] = candidate;
+    const trusted = gitOutputOrNull(['rev-parse', '--verify', `${envelope.trustedRevision}:${repositoryPath}`]);
+    const candidate = gitOutputOrNull(['rev-parse', '--verify', `${envelope.targetCandidate}:${repositoryPath}`]);
+    if (trusted !== null && /^[0-9a-f]{40,64}$/u.test(trusted)) {
+      trustedSkillRevisions[repositoryPath] = trusted;
+    }
+    if (candidate !== null && /^[0-9a-f]{40,64}$/u.test(candidate)) {
+      candidateSkillRevisions[repositoryPath] = candidate;
+    }
   }
   const decision = evaluateSecSkillApplicabilityV1({
     ...envelope,
@@ -175,30 +188,31 @@ test('zero candidates and zero body budget resolve none-required', () => {
 test('multiple surviving metadata candidates resolve ambiguous before any body read', () => {
   const decision = evaluatePlan(planInput({
     role: 'a0',
-    operationKind: 'govern',
-    candidates: ['sec-work-package-lifecycle', 'sec-task-delegation'],
-    writePaths: ['docs/work/', 'docs/work-packages/']
+    operationKind: 'design',
+    candidates: ['sec-architecture-evolution', 'sec-heuristic-governance']
   }));
   expect(decision.status).toBe('ambiguous');
   expect(decision.selectedSkillId).toBeNull();
 });
 
-test('resource beyond frozen scope resolves conflict', () => {
+test('Skill write surface beyond frozen scope resolves conflict', () => {
   const decision = evaluatePlan(planInput({
     role: 'a0',
-    operationKind: 'integrate',
-    candidates: ['sec-ci-and-merge'],
-    authorizedGates: ['hosted-gate']
+    operationKind: 'design',
+    candidates: ['sec-architecture-evolution'],
+    forbiddenPaths: ['docs/']
   }));
   expect(decision.status).toBe('conflict');
-  expect(decision.reasonCodes).toContain('conflict-resource');
+  expect(decision.reasonCodes).toContain('conflict-write-path');
 });
 
 test('candidate quarantine revisions are derived from exact Git objects', () => {
   const head = gitOutput(['rev-parse', 'HEAD']);
   const base = gitOutput(['rev-parse', 'HEAD^']);
   const decision = evaluatePlan(planInput({ base, head }));
-  expect(decision.quarantinePaths).toEqual(expect.arrayContaining(['AGENTS.md']));
+  expect(decision.quarantinePaths).toEqual(expect.arrayContaining([
+    'platform/shared/agent-skill-contract.ts'
+  ]));
   expect(decision.reasonCodes).toEqual(
     expect.arrayContaining(['candidate-quarantine', 'quarantine-binds-trusted-revision'])
   );

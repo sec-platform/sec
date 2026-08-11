@@ -26,7 +26,7 @@ compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行
 - repository audit、first-principles mechanism reconstruction、impact/dependency分析、代码/测试/历史Evidence读取、有限 spike、authority与contract test编辑。
 
 ## 前置门禁
-- `sec-repository-orientation` 已解析；跨仓/广泛变化先完成 `sec-repository-audit` 或等价的全量影响证据。
+- 受信 control-plane snapshot 已解析；跨仓/广泛变化先完成 `sec-repository-audit` 或等价的全量影响证据。
 - 当前 canonical owner、消费者、写权限、迁移起点和完成定义明确；未知项必须显式。
 
 ## 执行
