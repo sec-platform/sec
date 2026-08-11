@@ -10,8 +10,8 @@ last-reviewed: 2026-08-12
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/document-control-replan-recovery-v1.md
-manifestDigest: sha256:d45ac4cf551d394ecf65b883bbb492e57a749bfe28941de848944c5579a7102c
+manifest: docs/work-packages/work-selection-live-projection-v1.md
+manifestDigest: sha256:f968e95f124fd1405d61d05fcfd4c5bdcd982119d43c37947df103c7911359d3
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

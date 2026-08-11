@@ -6,7 +6,17 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { digest } from '../../platform/shared/canonical-primitives.ts';
+import { digest, rawSha256 } from '../../platform/shared/canonical-primitives.ts';
+import {
+  SEC_ROADMAP_WORK_CATALOG_BEGIN,
+  SEC_ROADMAP_WORK_CATALOG_END,
+  createSecWorkCurrentSpecObservationV1,
+  createSecWorkDecisionReceiptV1,
+  createSecWorkRegistryObservationV1,
+  currentSpecRevisionFromBodyV1,
+  parseSecRoadmapWorkCatalogV1,
+  renderSecWorkRollingPlanV1
+} from '../../platform/shared/work-selection-live-contract.ts';
 import {
   CodexDevelopmentAssertControlPlaneBindingV1,
   CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1,
@@ -19,6 +29,7 @@ import {
   CodexDevelopmentParseCurrentStateSpecV1,
   CodexDevelopmentParseRollingPlanV1,
   CodexDevelopmentResolveActiveWorkPackageV1,
+  CodexDevelopmentResolveWorkSelectionProjectionModeV1,
   type CodexDevelopmentActivePointerV2,
   type CodexDevelopmentDocumentControlRecoveryTargetKeyV1,
   type CodexDevelopmentInitiallyAbsentTupleByteClassV1,
@@ -42,6 +53,8 @@ import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/w
 const CURRENT_STATE_PATH = 'docs/work/current-state.yaml';
 const POINTER_PATH = 'docs/work/active-work-package.md';
 const FIXTURE_MANIFEST_PATH = 'docs/work-packages/control-plane-lifecycle-fixture-v1.md';
+const CURRENT_ACTIVE_ID = 'current-active-v1';
+const CURRENT_ACTIVE_PATH = `docs/work-packages/${CURRENT_ACTIVE_ID}.md`;
 const FREEZE_TARGET_ID = 'freeze-target-v1';
 const FREEZE_TARGET_PATH = `docs/work-packages/${FREEZE_TARGET_ID}.md`;
 
@@ -255,7 +268,7 @@ interface FreezeFixture {
   dispose(): Promise<void>;
 }
 
-function currentStateSource(remoteName = 'origin'): string {
+function currentStateSource(remoteName = 'origin', workSelectionRequired = false): string {
   return `schema: sec-current-state-live-v1
 resolver:
   command: bun scripts/codex/document-control-plane.ts status --json
@@ -264,7 +277,10 @@ resolver:
   defaultBranch: main
   defaultRef: refs/remotes/${remoteName}/main
   requireRemoteMatch: true
-stableFacts: {}
+stableFacts:${workSelectionRequired ? `
+  workSelection:
+    catalog: docs/roadmap.md#sec-work-selection-roadmap-catalog-v1
+    projection: sec-work-selection-live-v1-required` : ' {}'}
 `;
 }
 
@@ -287,6 +303,35 @@ digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
 \`\`\`
+`;
+}
+
+function currentActiveManifestSource(
+  tracking = 'issue-310',
+  base = '0'.repeat(40)
+): string {
+  return `---
+schema: codex-development-work-package-v1
+id: ${CURRENT_ACTIVE_ID}
+tracking: ${tracking}
+base: ${base}
+manifestState: frozen
+requiredProfile: quick
+ciRevision: ci-verification-v19
+tasks:
+  - id: current-active
+    owner: development-governance-maintainer
+    ownedPaths:
+      - ${CURRENT_ACTIVE_PATH}
+forbiddenPaths:
+  - platform/compiler/
+acceptance:
+  - "Current fixture remains exact."
+tests:
+  - tests/contract/document-control-plane-lifecycle.test.ts
+---
+
+# ${CURRENT_ACTIVE_ID}
 `;
 }
 
@@ -326,6 +371,105 @@ last-reviewed: 2026-08-08
 `;
 }
 
+function workSelectionReceiptFixture(input: {
+  exactMain: string;
+  exactMainTree: string;
+  targetTracking?: string;
+}) {
+  const targetTracking = input.targetTracking ?? 'issue-311';
+  const targetIssue = targetTracking.slice('issue-'.length);
+  const item = (value: {
+    packageId: string;
+    workId: string;
+    tracking: string;
+    prerequisiteWorkIds: string[];
+    orderedAfterWorkIds: string[];
+    disposition: 'active' | 'deferred';
+    priorityClass: 'active-critical-path' | 'defer';
+  }) => ({
+    ...value,
+    currentSpecRef: `github:issue/${value.tracking.slice('issue-'.length)}`,
+    ownerRef: `github:${value.tracking}`,
+    kind: 'focused',
+    priorityEvidenceRefs: value.priorityClass === 'defer' ? [] : ['fixture:priority'],
+    reproductionOrEvidenceFreshness: 'fresh',
+    rootCauseState: 'not-repeated',
+    rootCauseRef: `github:${value.tracking}`,
+    scopeClosure: 'closed',
+    exitCriteriaRef: `github:${value.tracking}#acceptance`,
+    nearTermConsumerRef: null,
+    humanDecisionRef: null
+  });
+  const catalogSource = `${SEC_ROADMAP_WORK_CATALOG_BEGIN}
+\`\`\`json
+${JSON.stringify({
+    schema: 'sec-roadmap-work-catalog-v1',
+    stageRef: 'fixture-stage',
+    items: [
+      item({
+        packageId: FREEZE_TARGET_ID,
+        workId: `issue-${targetIssue}`,
+        tracking: targetTracking,
+        prerequisiteWorkIds: [],
+        orderedAfterWorkIds: [],
+        disposition: 'active',
+        priorityClass: 'active-critical-path'
+      }),
+      item({
+        packageId: 'candidate-two-v1',
+        workId: 'issue-312',
+        tracking: 'issue-312',
+        prerequisiteWorkIds: [`issue-${targetIssue}`],
+        orderedAfterWorkIds: [],
+        disposition: 'deferred',
+        priorityClass: 'defer'
+      }),
+      item({
+        packageId: 'candidate-three-v1',
+        workId: 'issue-313',
+        tracking: 'issue-313',
+        prerequisiteWorkIds: [],
+        orderedAfterWorkIds: ['issue-312'],
+        disposition: 'deferred',
+        priorityClass: 'defer'
+      })
+    ]
+  }, null, 2)}
+\`\`\`
+${SEC_ROADMAP_WORK_CATALOG_END}`;
+  const catalog = parseSecRoadmapWorkCatalogV1(catalogSource);
+  return createSecWorkDecisionReceiptV1({
+    repository: 'sec-platform/sec',
+    exactMain: input.exactMain,
+    exactMainTree: input.exactMainTree,
+    roadmapRevision: rawSha256(catalogSource),
+    catalog,
+    registry: createSecWorkRegistryObservationV1({
+      defaultTreeSha: input.exactMainTree,
+      entries: []
+    }),
+    current: {
+      activeWorkId: null,
+      activeRef: null,
+      activeState: 'none',
+      activeLegality: 'not-applicable',
+      mainHealthState: 'healthy',
+      mainHealthRef: 'fixture:main-health',
+      closeoutState: 'none',
+      closeoutRef: 'fixture:closeout',
+      controlState: 'consistent',
+      controlRef: 'fixture:control'
+    },
+    currentSpecs: catalog.items.map((catalogItem) => createSecWorkCurrentSpecObservationV1({
+      workId: catalogItem.workId,
+      currentSpecRef: catalogItem.currentSpecRef,
+      providerResourceRef: `github-node:${catalogItem.tracking}`,
+      providerState: 'open',
+      currentSpecRevision: currentSpecRevisionFromBodyV1(`fixture ${catalogItem.workId}`)
+    }))
+  });
+}
+
 async function createFreezeFixture(): Promise<FreezeFixture> {
   const parent = await mkdtemp(path.join(tmpdir(), 'sec-control-freeze-'));
   const repositoryRoot = path.join(parent, 'repository');
@@ -335,14 +479,13 @@ async function createFreezeFixture(): Promise<FreezeFixture> {
   runGit(repositoryRoot, ['init', '--quiet', '--initial-branch=main']);
   runGit(repositoryRoot, ['config', 'user.email', 'sec-control-plane@example.invalid']);
   runGit(repositoryRoot, ['config', 'user.name', 'SEC Control Plane Test']);
-  const currentManifestPath = 'docs/work-packages/current-active-v1.md';
-  const currentManifestBytes = Buffer.from('current active manifest bytes\n', 'utf8');
+  const currentManifestBytes = Buffer.from(currentActiveManifestSource(), 'utf8');
   const initialFiles: Readonly<Record<string, string | Uint8Array>> = {
     'README.md': '# freeze fixture\n',
     [CURRENT_STATE_PATH]: currentStateSource(),
-    [POINTER_PATH]: activePointerSource(currentManifestPath, currentManifestBytes),
+    [POINTER_PATH]: activePointerSource(CURRENT_ACTIVE_PATH, currentManifestBytes),
     'docs/work/rolling-plan.md': rollingPlanSource(),
-    [currentManifestPath]: currentManifestBytes
+    [CURRENT_ACTIVE_PATH]: currentManifestBytes
   };
   for (const [repositoryPath, content] of Object.entries(initialFiles)) {
     const filePath = path.join(repositoryRoot, ...repositoryPath.split('/'));
@@ -507,6 +650,28 @@ resolver:
   requireRemoteMatch: true
 stableFacts: {}
 `);
+  expect(CodexDevelopmentResolveWorkSelectionProjectionModeV1(validSpec))
+    .toBe('legacy-bootstrap');
+  const requiredWorkSelectionSpec = CodexDevelopmentParseCurrentStateSpecV1(`
+schema: sec-current-state-live-v1
+resolver:
+  command: bun scripts/codex/document-control-plane.ts status --json
+  repository: sec-platform/sec
+  remote: origin
+  defaultBranch: main
+  defaultRef: refs/remotes/origin/main
+  requireRemoteMatch: true
+stableFacts:
+  workSelection:
+    catalog: docs/roadmap.md#sec-work-selection-roadmap-catalog-v1
+    projection: sec-work-selection-live-v1-required
+`);
+  expect(CodexDevelopmentResolveWorkSelectionProjectionModeV1(requiredWorkSelectionSpec))
+    .toBe('required-v1');
+  expect(() => CodexDevelopmentResolveWorkSelectionProjectionModeV1({
+    ...requiredWorkSelectionSpec,
+    stableFacts: { workSelection: { projection: 'candidate-controlled' } }
+  })).toThrow('unsupported or incomplete');
   for (const invalidSource of [
     'remote: --upload-pack=malicious',
     'defaultBranch: -unsafe',
@@ -611,10 +776,15 @@ test('freeze projection promotes one unique candidate without rewriting candidat
   const fixture = await createFreezeFixture();
   try {
     const manifestBytes = await readFile(path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/')));
+    const currentPointerSource = await readFile(
+      path.join(fixture.repositoryRoot, POINTER_PATH),
+      'utf8'
+    );
     const projection = CodexDevelopmentCreateFreezeProjectionV1({
       spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
-      currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
+      currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes,
       baseSha: fixture.baseSha,
@@ -642,8 +812,9 @@ test('freeze projection promotes one unique candidate without rewriting candidat
       .replace('- fixture tail remains exact.', '- refreshed facts remain exact.');
     const requestedProjection = CodexDevelopmentCreateFreezeProjectionV1({
       spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
-      currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
+      currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
       requestedRollingPlanSource,
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes,
@@ -665,8 +836,9 @@ test('freeze projection promotes one unique candidate without rewriting candidat
       .replace('### 1. candidate-swap-v1', '### 1. candidate-three-v1');
     expect(() => CodexDevelopmentCreateFreezeProjectionV1({
       spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
-      currentPointerSource: activePointerSource('docs/work-packages/current-active-v1.md', Buffer.from('current active manifest bytes\n')),
+      currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
       requestedRollingPlanSource: reorderedProjection,
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes,
@@ -686,6 +858,121 @@ test('freeze projection promotes one unique candidate without rewriting candidat
   }
 });
 
+test('same-package freeze preserves the exact current tracking identity', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const currentManifestBytes = Buffer.from(currentActiveManifestSource(), 'utf8');
+    const replacementBytes = Buffer.from(
+      currentActiveManifestSource('issue-999', fixture.baseSha),
+      'utf8'
+    );
+    const currentPointerSource = await readFile(
+      path.join(fixture.repositoryRoot, POINTER_PATH),
+      'utf8'
+    );
+    expect(() => CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes,
+      manifestPath: CURRENT_ACTIVE_PATH,
+      manifestBytes: replacementBytes,
+      baseSha: fixture.baseSha,
+      reviewedOn: '2026-08-09'
+    })).toThrow('cannot replace the exact tracking identity');
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test('freeze projection replaces topology only with an exact WorkDecision binding', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const manifestBytes = await readFile(path.join(
+      fixture.repositoryRoot,
+      ...FREEZE_TARGET_PATH.split('/')
+    ));
+    const exactMainTree = runGit(fixture.repositoryRoot, ['rev-parse', `${fixture.baseSha}^{tree}`]);
+    const currentPointerSource = await readFile(
+      path.join(fixture.repositoryRoot, POINTER_PATH),
+      'utf8'
+    );
+    const receipt = workSelectionReceiptFixture({ exactMain: fixture.baseSha, exactMainTree });
+    const selection = { receipt };
+    const selectedRollingPlanSource = renderSecWorkRollingPlanV1({
+      receipt,
+      reviewedOn: '2026-08-12'
+    });
+    const requiredSpec = CodexDevelopmentParseCurrentStateSpecV1(currentStateSource('origin', true));
+    const projection = CodexDevelopmentCreateFreezeProjectionV1({
+      spec: requiredSpec,
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      workSelectionProjection: selection,
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      reviewedOn: '2026-08-12'
+    });
+    expect(projection.rollingPlanSource).toBe(selectedRollingPlanSource);
+    expect(CodexDevelopmentParseRollingPlanV1(projection.rollingPlanSource)).toEqual({
+      activePackageId: FREEZE_TARGET_ID,
+      candidatePackageIds: ['candidate-two-v1', 'candidate-three-v1']
+    });
+    expect(() => CodexDevelopmentCreateFreezeProjectionV1({
+      spec: requiredSpec,
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      requestedRollingPlanSource: `${selectedRollingPlanSource}\nmanual drift\n`,
+      workSelectionProjection: selection,
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      reviewedOn: '2026-08-12'
+    })).toThrow('must equal the trusted WorkDecision renderer exactly');
+    expect(() => CodexDevelopmentCreateFreezeProjectionV1({
+      spec: requiredSpec,
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      workSelectionProjection: { receipt: workSelectionReceiptFixture({
+        exactMain: fixture.baseSha,
+        exactMainTree,
+        targetTracking: 'issue-999'
+      }) },
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      reviewedOn: '2026-08-12'
+    })).toThrow('must equal the target manifest package and tracking identity');
+    expect(() => CodexDevelopmentCreateFreezeProjectionV1({
+      spec: requiredSpec,
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      reviewedOn: '2026-08-12'
+    })).toThrow('requires one live WorkDecision projection');
+    expect(() => CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      workSelectionProjection: selection,
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      reviewedOn: '2026-08-12'
+    })).toThrow('forbidden for legacy or same-package freeze');
+  } finally {
+    await fixture.dispose();
+  }
+});
+
 test('freeze rejects a manually staged pointer and rolling-plan selection baseline', async () => {
   const fixture = await createFreezeFixture();
   try {
@@ -694,6 +981,7 @@ test('freeze rejects a manually staged pointer and rolling-plan selection baseli
       spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
       currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
       currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes,
       baseSha: fixture.baseSha,
@@ -780,6 +1068,7 @@ test('pre-evidence replan replaces one staged manifest generation in the same wo
       spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
       currentPointerSource: await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8'),
       currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes: firstManifest,
       baseSha: fixture.baseSha,

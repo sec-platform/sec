@@ -4,6 +4,7 @@ import { Glob } from 'bun';
 import { describe, expect, test } from 'bun:test';
 
 import { compilerRoot } from '../../platform/shared/paths.ts';
+import { parseSecRoadmapWorkCatalogV1 } from '../../platform/shared/work-selection-live-contract.ts';
 import {
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseRollingPlanV1
@@ -19,6 +20,7 @@ import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 describe('canonical documentation authority', () => {
   test('roadmap owns the stable capability DAG without dynamic project state', async () => {
     const roadmap = await readCompilerFile('docs/roadmap.md');
+    const workCatalog = parseSecRoadmapWorkCatalogV1(roadmap);
     const orderedStages = [
       'R0 — Theory / Authority Convergence',
       'R1 — Canonical Engineering Semantic Kernel',
@@ -60,6 +62,11 @@ describe('canonical documentation authority', () => {
       '无竞争writer',
       'public contract、migration和retirement一致'
     ]);
+    expect(workCatalog.stageRef).toBe('r14-agent-operation');
+    expect(workCatalog.items.length).toBeGreaterThanOrEqual(3);
+    expect(workCatalog.items.length).toBeLessThanOrEqual(7);
+    expect(new Set(workCatalog.items.map(({ workId }) => workId)).size)
+      .toBe(workCatalog.items.length);
     for (let index = 1; index < orderedStages.length; index += 1) {
       expect(roadmap.indexOf(orderedStages[index]!)).toBeGreaterThan(
         roadmap.indexOf(orderedStages[index - 1]!)
@@ -185,7 +192,7 @@ describe('canonical documentation authority', () => {
       '#275',
       '#349',
       '#352',
-      '## 后续但暂不占 formal writer',
+      '## 后续与唯一 owner',
       '## 重新规划硬触发器',
       '## 加速验收'
     ]);
@@ -206,7 +213,8 @@ describe('canonical documentation authority', () => {
     ]);
     expectContainsAll(rollingPlanSource, [
       `### ${selectedManifestId}`,
-      'then-current main',
+      'validated WorkDecision',
+      'caller receipt',
       'consumer-zero'
     ]);
     expectContainsNone(rollingPlanSource, [

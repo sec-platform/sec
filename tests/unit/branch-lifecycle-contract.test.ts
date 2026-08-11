@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { projectBranchLifecycleForWorkSelectionV1 } from '../../scripts/codex/branch-lifecycle-audit.ts';
 import {
   BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
   auditBranchLifecycle,
@@ -16,6 +17,7 @@ import {
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
 const RACE_SHA = '3333333333333333333333333333333333333333';
+const WORKTREE_REF = `sha256:${'a'.repeat(64)}` as const;
 
 function inventory(overrides: Partial<BranchLifecycleInventory> = {}): BranchLifecycleInventory {
   const base: BranchLifecycleInventory = {
@@ -98,6 +100,106 @@ test('idle lifecycle is clean only when the remote contains main', () => {
   const report = auditBranchLifecycle(inventory());
   expect(report.status).toBe('clean');
   expect(report.findings).toEqual([]);
+});
+
+test('bounded selection lifecycle admits one exact prospective transport', () => {
+  const projection = projectBranchLifecycleForWorkSelectionV1({
+    exactMain: MAIN_SHA,
+    defaultBranch: 'main',
+    localRefs: [{ branch: 'codex/next', sha: MAIN_SHA }],
+    remoteRefs: [],
+    worktrees: [{ worktreeRef: WORKTREE_REF, branch: 'codex/next', headSha: MAIN_SHA }],
+    openPullRequests: [],
+    prospectiveTransport: {
+      branch: 'codex/next',
+      headSha: MAIN_SHA,
+      worktreeRef: WORKTREE_REF
+    }
+  });
+  expect(projection).toMatchObject({
+    activeState: 'none',
+    activeLegality: 'not-applicable',
+    closeoutState: 'none',
+    blockerRefs: []
+  });
+});
+
+test('bounded selection lifecycle retains extra transport residue as closeout authority', () => {
+  const projection = projectBranchLifecycleForWorkSelectionV1({
+    exactMain: MAIN_SHA,
+    defaultBranch: 'main',
+    localRefs: [{ branch: 'codex/next', sha: MAIN_SHA }],
+    remoteRefs: [{ branch: 'feat/stale', sha: HEAD_SHA }],
+    worktrees: [{ worktreeRef: WORKTREE_REF, branch: 'codex/next', headSha: MAIN_SHA }],
+    openPullRequests: [],
+    prospectiveTransport: {
+      branch: 'codex/next',
+      headSha: MAIN_SHA,
+      worktreeRef: WORKTREE_REF
+    }
+  });
+  expect(projection.closeoutState).toBe('required');
+  expect(projection.blockerRefs).toHaveLength(1);
+});
+
+test('bounded selection lifecycle validates one exact open pull-request transport', () => {
+  const projection = projectBranchLifecycleForWorkSelectionV1({
+    exactMain: MAIN_SHA,
+    defaultBranch: 'main',
+    localRefs: [],
+    remoteRefs: [{ branch: 'codex/active', sha: HEAD_SHA }],
+    worktrees: [],
+    openPullRequests: [{
+      number: 42,
+      headBranch: 'codex/active',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      baseSha: MAIN_SHA
+    }],
+    prospectiveTransport: null
+  });
+  expect(projection).toMatchObject({
+    activeState: 'incomplete',
+    activeBranch: 'codex/active',
+    activeHeadSha: HEAD_SHA,
+    activeLegality: 'legal',
+    closeoutState: 'none'
+  });
+});
+
+test('bounded selection lifecycle rejects a pull request targeting another branch', () => {
+  const projection = projectBranchLifecycleForWorkSelectionV1({
+    exactMain: MAIN_SHA,
+    defaultBranch: 'main',
+    localRefs: [],
+    remoteRefs: [{ branch: 'codex/active', sha: HEAD_SHA }],
+    worktrees: [],
+    openPullRequests: [{
+      number: 42,
+      headBranch: 'codex/active',
+      headSha: HEAD_SHA,
+      baseBranch: 'release',
+      baseSha: MAIN_SHA
+    }],
+    prospectiveTransport: null
+  });
+  expect(projection.activeLegality).toBe('invalid');
+});
+
+test('bounded selection lifecycle rejects a self-asserted prospective transport', () => {
+  expect(() => projectBranchLifecycleForWorkSelectionV1({
+    exactMain: MAIN_SHA,
+    defaultBranch: 'main',
+    localRefs: [{ branch: 'codex/next', sha: MAIN_SHA }],
+    remoteRefs: [],
+    worktrees: [],
+    openPullRequests: [],
+    prospectiveTransport: {
+      branch: 'codex/next',
+      headSha: MAIN_SHA,
+      worktreeRef: WORKTREE_REF
+    }
+  })).toThrow('exact local branch/worktree preimage');
 });
 
 test('idle lifecycle rejects every non-main remote head', () => {

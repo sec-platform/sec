@@ -416,6 +416,7 @@ test('branch closeout and VerificationSession authority select one exact fast cl
     'scripts/codex/branch-closeout-contract.ts',
     'scripts/codex/branch-closeout-receipt.ts',
     'scripts/codex/branch-closeout.ts',
+    'scripts/codex/branch-lifecycle-audit.ts',
     'scripts/codex/branch-lifecycle-config.ts',
     'scripts/codex/branch-lifecycle-command.ts',
     'scripts/codex/branch-lifecycle-inventory.ts',
@@ -431,17 +432,20 @@ test('branch closeout and VerificationSession authority select one exact fast cl
   const expected = {
     fast: [
       'tests/contract/ci-contract.test.ts',
+      'tests/contract/document-control-plane-lifecycle.test.ts',
       'tests/contract/sec-merge-gate.test.ts',
       'tests/contract/tcb-closure-lock.test.ts',
       'tests/contract/test-impact.test.ts',
       'tests/unit/branch-closeout-receipt.test.ts',
       'tests/unit/branch-closeout-rest-comments.test.ts',
+      'tests/unit/branch-lifecycle-contract.test.ts',
       'tests/unit/branch-lifecycle-temp-repo.test.ts',
       'tests/unit/integration-authorization-publication.test.ts',
       'tests/unit/local-main-closeout.test.ts',
       'tests/unit/tcb-trust-root-contract.test.ts',
       'tests/unit/verification-candidate-tree.test.ts',
-      'tests/unit/verification-session-runtime.test.ts'
+      'tests/unit/verification-session-runtime.test.ts',
+      'tests/unit/work-selection-live.test.ts'
     ],
     slow: ['tests/e2e/verification-session-closeout-cli.test.ts'],
     owners: ['verification-session-branch-closeout-authority']
@@ -507,21 +511,57 @@ test('test impact keeps Task Capsule and Read Plan verification in direct fast o
   }
 });
 
-test('test impact keeps WorkDecision Phase A in one direct fast owner', () => {
-  const source = 'platform/shared/work-selection-contract.ts';
-  expect(selectTestsForSources([source])).toEqual({
-    fast: [
-      'tests/contract/test-impact.test.ts',
-      'tests/unit/work-selection-contract.test.ts'
-    ],
-    slow: [],
-    owners: ['work-selection']
-  });
-  expect(resolveTestOwnership([source])).toEqual([{
-    source,
-    owner: 'work-selection',
-    identity: { kind: 'contract', id: 'work-selection' }
-  }]);
+test('test impact keeps WorkDecision Phase A B C in one direct fast owner', () => {
+  const fast = [
+    'tests/contract/document-control-plane-lifecycle.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/branch-lifecycle-contract.test.ts',
+    'tests/unit/verification-candidate-tree.test.ts',
+    'tests/unit/work-selection-contract.test.ts',
+    'tests/unit/work-selection-live.test.ts'
+  ];
+  for (const source of [
+    'platform/shared/work-selection-contract.ts',
+    'platform/shared/work-selection-live-contract.ts',
+    'scripts/codex/work-selection.ts'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual({
+      fast,
+      slow: [],
+      owners: ['work-selection']
+    });
+    expect(resolveTestOwnership([source])).toEqual([{
+      source,
+      owner: 'work-selection',
+      identity: { kind: 'contract', id: 'work-selection' }
+    }]);
+  }
+});
+
+test('MainHealth owner selects its Work Selection cross-owner consumer', () => {
+  const fast = [
+    'tests/contract/default-branch-revision-health.test.ts',
+    'tests/contract/sec-merge-gate.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/main-health-contract.test.ts',
+    'tests/unit/verification-session-runtime.test.ts',
+    'tests/unit/work-selection-live.test.ts'
+  ];
+  for (const source of [
+    'platform/shared/default-branch-revision-health.ts',
+    'platform/shared/main-health-contract.ts'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual({
+      fast,
+      slow: [],
+      owners: ['main-health']
+    });
+    expect(resolveTestOwnership([source])).toEqual([{
+      source,
+      owner: 'main-health',
+      identity: { kind: 'architecture-owner', id: 'main-health' }
+    }]);
+  }
 });
 
 test('ordinary Skill authoring selects only its causal contract closure', () => {

@@ -473,6 +473,7 @@ export interface OpenPullRequestFactV1 {
   number: number;
   headBranch: string;
   headSha: string;
+  baseBranch: string;
   baseSha: string;
   body: string;
 }
@@ -515,6 +516,7 @@ export function parseOpenPullRequestList(
     const headSha = record.headRefOid;
     const baseSha = record.baseRefOid;
     const headBranch = record.headRefName;
+    const baseBranch = record.baseRefName;
     const body = record.body;
     if (
       !Number.isSafeInteger(number)
@@ -525,6 +527,8 @@ export function parseOpenPullRequestList(
       || !/^[0-9a-f]{40}$/u.test(baseSha)
       || typeof headBranch !== 'string'
       || headBranch.length === 0
+      || typeof baseBranch !== 'string'
+      || baseBranch.length === 0
       || typeof body !== 'string'
     ) {
       throw new Error(`Open PR entry ${index} identity is invalid.`);
@@ -533,6 +537,7 @@ export function parseOpenPullRequestList(
       number: number as number,
       headBranch,
       headSha,
+      baseBranch,
       baseSha,
       body
     };
@@ -3523,7 +3528,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const openPullRequests = args.get('--open-prs') === 'true'
       ? parseOpenPullRequestList(requireVerificationSessionCommandText(ctx, 'gh', [
           'pr', 'list', '--repo', repository, '--state', 'open', '--json',
-          'number,headRefName,headRefOid,baseRefOid,body'
+          'number,headRefName,headRefOid,baseRefName,baseRefOid,body'
         ], 'open pull request inventory', ctx.repositoryRoot))
       : undefined;
     return projectWorkPackageRegistry({ repositoryRoot, observedAt: now(), repository,

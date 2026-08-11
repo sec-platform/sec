@@ -124,6 +124,11 @@ successors、当前roadmap直接性、Evidence freshness、scope closure与stabl
 “未来可能有用”和自然语言紧急程度都不能自授权。相同normalized input必须产生byte-stable input digest、
 reason codes、preconditions与rejection witnesses。
 
+`blocked ready successor`不是transitive descendant数量。它只计数引用当前候选为一个未满足直接依赖、
+并且在仅把该依赖假设为`satisfied`后由Phase A完整eligibility evaluator判为`eligible`的后继。因此deferred、
+already-in-main/superseded、仍有第二个未满足依赖、scope/Evidence/owner不闭合或其他原因不可选的后继均不
+计数；compiler不得用图可达数量、候选总数或另一套简化readiness规则替代这个定义。
+
 实现分层保持有限：Phase A是`platform/shared/work-selection-contract.ts`的pure read-only compiler；
 Phase B adapter只从repository orientation、Work Package registry、closeout与conflict owner收集结构化
 facts并签发receipt；Phase C writer只把validated decision物化为一个当前包加二至五候选。人工projection
@@ -131,6 +136,81 @@ facts并签发receipt；Phase C writer只把validated decision物化为一个当
 #349 `ExecutionWave`随后只编译selected work refs的order/conflict/resource/cost，不能复制selector、
 Issue prose、权限、Task Capsule或Verification。bounded automated action只有在下游authorization、Journal、
 rollback和真实consumer成立后才能激活；pure decision本身永远没有branch/PR/merge/write authority。
+
+Phase B/C的project-owned normalized records只存在于`docs/roadmap.md`的strict
+`sec-roadmap-work-catalog-v1` block；这是roadmap自身的bounded current-stage machine projection，不能
+扩展成第二文件、第二backlog或全Issue镜像。block只保存package/work/tracking/current-spec/owner、静态
+priority class、dependency和exit-criteria refs。GitHub Provider只批量观察catalog中已列出的Issue
+resource identity、open/closed和body bytes；body bytes只形成raw current-spec digest，title/body/comment
+内容不被解析、复制或当作instruction。GitHub Projects不是必需authority；将来接入也只能替换事实
+adapter，不能拥有selection或绕过canonical roadmap。
+
+Catalog JSON边界使用duplicate-aware、bounded、depth-limited parser；任何object层级的重复decoded key都
+必须拒绝，不能先经过`JSON.parse`的last-key-wins语义再做schema校验。Phase B不自造`healthy`、`none`或
+`consistent`：MainHealth必须由exact-main check observation经canonical MainHealth ledger和fresh lane
+resolver产生；candidate/PR/ref/worktree与closeout必须由#313 branch-lifecycle owner的bounded projection
+产生；该projection只排除canonical default branch，任何其他命名空间的ref或非默认worktree都属于
+必须解释的transport/residue，不能因不使用`codex/*`前缀而漏检。pointer、rolling与active manifest必须
+由document-control binding owner逐项核对。任一owner输入
+缺失、过期、locked、身份不符或无法解析时只能`unresolved`。
+OPEN PR只有在`baseRefName`等于canonical default branch、`baseRefOid`等于exact live main，且head
+branch/SHA与live remote ref及可选worktree一致时才是legal active transport；仅SHA偶然相同不能让指向
+其他base branch的PR取得active或closeout authority。
+跨owner consumer edge由被消费的canonical producer owner登记到test-impact：MainHealth contract或
+default-branch health producer变化时，除自身focused tests外必须直接选择Work Selection consumer test。
+consumer不得复制MainHealth语义来获得自己的测试闭包，direct-import自动发现也不能代替这条传递边。
+
+Live receipt同时绑定exact live-default commit/tree、roadmap raw digest、catalog digest、#311 registry
+stable projection、current lifecycle digest、每个current-spec observation、Phase A input和decision。它是
+可重放Evidence而非signature：caller提供的receipt文件永远不能单独授权pointer/rolling写入。新package
+freeze必须在trusted `document-control-plane`进程内对exact base重新运行live adapter，并要求manifest
+`id + tracking`与`select-next`逐项相同；任一Provider/registry/lifecycle/schema/current-spec缺失、malformed、
+stale或冲突均返回typed `unresolved`。同manifest finding replan不改变selection，继续走零Provider的
+pure fast path，但fast path身份是exact `(package id, tracking)` tuple：同id改变tracking必须在任何
+repository object/index/journal/control effect前拒绝，不能把tracking替换伪装成同包replan。
+
+Effectful `freeze`的控制代码必须来自clean protected `main`，其HEAD等于canonical local-default投影；
+候选只能作为显式`--workspace`目标，且必须是物理不同的`codex/*` worktree。live adapter从唯一remote
+HEAD symbolic projection定位default ref，再读取exact-main current-state；不得先读取候选HEAD来决定
+repository/remote/default branch。required projection规则由pure freeze contract再次强制，CLI wiring不是
+唯一门禁。roadmap catalog不保存可从依赖图推导的successor count或`roadmapDirect` bit：两者由compiler
+计算，避免人工derived-state漂移。
+Phase B只在current lifecycle证明没有active candidate、closeout residue、control conflict或unhealthy main时，
+把候选的#207 pairwise conflict投影为`clear`：此时不存在第二个并行subject。只要存在并行subject或其
+身份不完整，selector先返回`continue-active | closeout | reconcile | unresolved`，不得硬编码clear；真正
+多work的order/path/resource编译仍归#207/#349，不复制进selector。
+
+```mermaid
+stateDiagram-v2
+  [*] --> Observe: exact main and bounded owner facts
+  Observe --> Unresolved: missing malformed stale or conflict
+  Observe --> Decide: normalized catalog and current spec digests
+  Decide --> Continue: active candidate incomplete
+  Decide --> Closeout: lifecycle residue exists
+  Decide --> Reconcile: control or main conflict
+  Decide --> Selected: select-next and exact package tracking match
+  Selected --> Projected: render one active plus two to five candidates
+  Projected --> Frozen: document-control single writer publication
+  Frozen --> Reviewed: exact-head independent static Review
+  Reviewed --> Main: authorized integration and exact readback
+  Main --> Observe: keep selected manifest until next decision consumes it
+  Unresolved --> [*]
+  Continue --> [*]
+  Closeout --> [*]
+  Reconcile --> [*]
+```
+
+Catalog采用一项延迟删除handoff：本轮选中的manifest进入main后仍存在，下一次adapter把该项投影为
+`already-in-main`并用它满足直接后继；下一纵切片才删除该旧manifest和已消费catalog item，同时把近端
+窗口补足到能继续生成二至五候选。这样不保留tombstone/history文件，也不会因manifest先删除而把已完成
+前置重新解释为未完成。catalog最多保存七条近端记录，live adapter只做一次bounded Issue GraphQL和
+既有owner投影，不扫描Issue历史、comment或全backlog。
+
+首次Phase C迁移是唯一bootstrap例外：旧rolling只含两个候选，而旧promotion要求提升后仍至少两个，
+因此不存在可执行的旧transition。本迁移在一个exact candidate中同时安装catalog、adapter、consumer与
+新projection并接受trust/control Review；进入main后不存在手工topology兼容入口。以后耗尽、补充、增删、
+排序或selected identity变化必须由live WorkDecision产生，否则freeze在任何repository object/index/
+journal/control effect前拒绝。
 
 ## 成熟轮子与通用基础设施治理
 
