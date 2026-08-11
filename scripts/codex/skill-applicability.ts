@@ -16,7 +16,11 @@ import {
   isSecSkillQuarantinePath
 } from '../../platform/shared/agent-skill-contract.ts';
 import { canonicalJson } from '../../platform/shared/canonical-primitives.ts';
-import { resolveTrustedWorkerOperationV1 } from './operation-read-plan.ts';
+import { resolveProspectiveWorkerOperationV1 } from './operation-read-plan.ts';
+import {
+  SecTaskCapsuleProjectionUnavailableError,
+  taskCapsuleProjectionBlockedV1
+} from './task-capsule.ts';
 
 function fail(message: string): never {
   console.error(`skill-applicability: ${message}`);
@@ -83,7 +87,7 @@ async function main(): Promise<void> {
   } catch (error) {
     fail(`Read Plan verification failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const observation = await resolveTrustedWorkerOperationV1(runtimeRoot, options.candidateRoot);
+  const observation = await resolveProspectiveWorkerOperationV1(runtimeRoot, options.candidateRoot);
   const expectedPlan = compileSecOperationReadPlanV1({
     ...observation.readClosure,
     schema: SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
@@ -111,4 +115,17 @@ async function main(): Promise<void> {
   process.stdout.write(`${JSON.stringify(decision, null, 2)}\n`);
 }
 
-if (import.meta.main) void main();
+if (import.meta.main) {
+  try {
+    await main();
+  }
+  catch (error) {
+    if (error instanceof SecTaskCapsuleProjectionUnavailableError) {
+      console.error(JSON.stringify(taskCapsuleProjectionBlockedV1()));
+    }
+    else {
+      console.error(error instanceof Error ? error.message : String(error));
+    }
+    process.exitCode = 2;
+  }
+}

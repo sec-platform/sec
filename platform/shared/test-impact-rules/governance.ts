@@ -121,6 +121,40 @@ const WORK_PACKAGE_FIXTURE_FAST_TESTS = [
 
 export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
+    owner: 'agent-task-capsule',
+    identity: { kind: 'contract', id: 'agent-task-capsule' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'platform/shared/agent-task-capsule-contract.ts',
+      'scripts/codex/task-capsule.ts'
+    ],
+    fast: [
+      'tests/unit/agent-task-capsule.test.ts',
+      'tests/unit/agent-operation-read-plan.test.ts',
+      'tests/contract/operation-read-plan.test.ts',
+      'tests/contract/skill-applicability.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/skill-applicability-decision.test.ts'
+    ],
+    slow: []
+  },
+  {
+    owner: 'agent-operation-read-plan',
+    identity: { kind: 'contract', id: 'agent-operation-read-plan' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'platform/shared/agent-operation-read-plan-contract.ts',
+      'scripts/codex/operation-read-plan.ts'
+    ],
+    fast: [
+      'tests/unit/agent-operation-read-plan.test.ts',
+      'tests/contract/operation-read-plan.test.ts',
+      'tests/contract/skill-applicability.test.ts',
+      'tests/contract/test-impact.test.ts'
+    ],
+    slow: []
+  },
+  {
     owner: 'managed-git-hooks',
     identity: { kind: 'architecture-owner', id: 'managed-git-hooks' },
     sourceFiles: [

@@ -58,13 +58,17 @@ test('quarantine covers AGENTS, .agents, the registry, the CLI and the governanc
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('.agents/');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('platform/shared/agent-operation-read-plan-contract.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('platform/shared/agent-skill-contract.ts');
+  expect(SEC_SKILL_QUARANTINE_PATHS).toContain('platform/shared/agent-task-capsule-contract.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('scripts/codex/operation-read-plan.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('scripts/codex/skill-applicability.ts');
+  expect(SEC_SKILL_QUARANTINE_PATHS).toContain('scripts/codex/task-capsule.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('docs/development-governance.md');
   expect(isSecSkillQuarantinePath('AGENTS.md')).toBe(true);
   expect(isSecSkillQuarantinePath('.agents/skills/sec-worker-development/SKILL.md')).toBe(true);
   expect(isSecSkillQuarantinePath('platform/shared/agent-operation-read-plan-contract.ts')).toBe(true);
   expect(isSecSkillQuarantinePath('platform/shared/agent-skill-contract.ts')).toBe(true);
+  expect(isSecSkillQuarantinePath('platform/shared/agent-task-capsule-contract.ts')).toBe(true);
+  expect(isSecSkillQuarantinePath('scripts/codex/task-capsule.ts')).toBe(true);
   expect(isSecSkillQuarantinePath('docs/development-governance.md')).toBe(true);
   expect(isSecSkillQuarantinePath('platform/shared/ci-contract.ts')).toBe(false);
   expect(isSecSkillQuarantinePath('docs/work/rolling-plan.md')).toBe(false);
@@ -325,7 +329,7 @@ test('Skill prose bytes never influence the machine decision', () => {
 test('decision V1 binds every required field', () => {
   const decision = evaluateSecSkillApplicabilityV1(envelope({
     candidates: ['sec-worker-development'],
-    workPackageAuthorizationRef: 'docs/work-packages/skill-applicability-gate-v1.md',
+    workPackageProposalRef: 'docs/work-packages/skill-applicability-gate-v1.md',
     taskCapsuleRef: 'capsule-1',
     taskCapsuleDigest: `sha256:${'a'.repeat(64)}`,
     taskCapsuleRevision: 'task-capsule-compiler-v1'
@@ -333,7 +337,7 @@ test('decision V1 binds every required field', () => {
   expect(decision.goalDigest).toBe('test-goal');
   expect(decision.trustedRevision).toBe(TRUSTED_REVISION);
   expect(decision.targetCandidate).toBe('feat/skill-applicability-gate-v1');
-  expect(decision.workPackageAuthorizationRef).toBe(
+  expect(decision.workPackageProposalRef).toBe(
     'docs/work-packages/skill-applicability-gate-v1.md'
   );
   expect(decision.taskCapsuleRef).toBe('capsule-1');

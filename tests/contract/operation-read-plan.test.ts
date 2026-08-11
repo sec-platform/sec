@@ -7,26 +7,26 @@ import {
   compileSecOperationReadPlanV1,
   SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA,
   SEC_OPERATION_READ_PLAN_INPUT_SCHEMA,
-  SEC_TASK_CAPSULE_AUTHORITY_REVISION,
-  SEC_TASK_CAPSULE_AUTHORITY_SCHEMA,
-  type SecDigestV1,
   type SecOperationReadPlanInputV1,
-  type SecOperationReadPlanV1,
-  type SecTaskCapsuleAuthorityV1
+  type SecOperationReadPlanV1
 } from '../../platform/shared/agent-operation-read-plan-contract.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
+import {
+  compileSecTaskCapsuleV1,
+  SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
+  SEC_TASK_CAPSULE_INPUT_SCHEMA,
+  type SecDigestV1,
+  type SecTaskCapsulePlanningContextV1
+} from '../../platform/shared/agent-task-capsule-contract.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const digest = (character: string): SecDigestV1 => `sha256:${character.repeat(64)}`;
 
-function capsule(authority: SecTaskCapsuleAuthorityV1): SecOperationReadPlanInputV1['taskCapsule'] {
-  const projection = {
-    schema: SEC_TASK_CAPSULE_AUTHORITY_SCHEMA,
+function capsule(planningContext: SecTaskCapsulePlanningContextV1): SecOperationReadPlanInputV1['taskCapsule'] {
+  return compileSecTaskCapsuleV1({
+    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
     ref: 'urn:sec:task-capsule:issue-346-contract',
-    revision: SEC_TASK_CAPSULE_AUTHORITY_REVISION,
-    authority
-  };
-  return { ...projection, digest: sha256(projection) as SecDigestV1 };
+    planningContext
+  });
 }
 
 function gitHead(): string {
@@ -50,15 +50,17 @@ function input(): SecOperationReadPlanInputV1 {
       goalDigest: digest('b'),
       trustedRevision: head,
       targetCandidate: head,
-      workPackageAuthorizationRef: 'docs/work-packages/agent-operation-read-plan-v1.md',
-      workPackageAuthorizationDigest: digest('c'),
+      workPackageProposalRef: 'docs/work-packages/task-capsule-compiler-v1.md',
+      workPackageProposalDigest: digest('c'),
+      workPackageProjectionId: digest('e'),
+      scopeGrantId: null,
       ownerFacts: [{
         id: 'development-governance',
         ref: 'docs/development-governance.md',
         owner: 'development-governance-owner',
         revision: 'owner-revision-v1'
       }],
-      scope: {
+      scopeProposal: {
         readPaths: ['docs/development-governance.md'],
         writePaths: ['platform/shared/'],
         forbiddenPaths: ['.agents/skills/'],
@@ -121,9 +123,49 @@ test('pure compiler and verify CLI produce one content-bound Read Plan without c
   expect(verified.status).toBe(0);
   expect(JSON.parse(verified.stdout)).toMatchObject({
     status: 'content-valid',
-    authorityStatus: 'requires-trusted-consumer-live-binding',
+    authorityStatus: 'unbound-planning-content',
+    effectAuthority: 'none',
     taskCapsuleDigest: plan.taskCapsule.digest,
     readPlanDigest: plan.readPlanDigest
+  });
+});
+
+test('Task Capsule verify is content-only and compile rejects caller authority before observation', () => {
+  const compiled = input().taskCapsule;
+  const verified = run('scripts/codex/task-capsule.ts', [
+    'verify', '--capsule', JSON.stringify(compiled)
+  ]);
+  expect(verified.status).toBe(0);
+  expect(JSON.parse(verified.stdout)).toMatchObject({
+    status: 'content-valid',
+    authorityStatus: 'unbound-planning-content',
+    effectAuthority: 'none',
+    taskCapsuleDigest: compiled.digest
+  });
+
+  const rejected = run('scripts/codex/task-capsule.ts', [
+    'compile',
+    '--input',
+    JSON.stringify({ schema: SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA, authority: {} }),
+    '--candidate-root',
+    REPOSITORY_ROOT
+  ]);
+  expect(rejected.status).not.toBe(0);
+  expect(rejected.stderr).toContain('authority-free schema-only request');
+
+  const blocked = run('scripts/codex/task-capsule.ts', [
+    'compile',
+    '--input',
+    JSON.stringify({ schema: SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA }),
+    '--candidate-root',
+    REPOSITORY_ROOT
+  ]);
+  expect(blocked.status).not.toBe(0);
+  expect(JSON.parse(blocked.stderr)).toMatchObject({
+    status: 'blocked',
+    reasonCode: 'trusted-activation-authority-unavailable',
+    authorityStatus: 'unbound-planning-content',
+    effectAuthority: 'none'
   });
 });
 
@@ -154,6 +196,21 @@ test('compile CLI rejects caller-provided read refs and policy before live obser
   ]);
   expect(result.status).not.toBe(0);
   expect(result.stderr).toContain('refs, receipts, and policy are trusted-derived');
+});
+
+test('schema-only Read Plan production compile fails closed without a trusted issuer', () => {
+  const result = run('scripts/codex/operation-read-plan.ts', [
+    'compile',
+    '--input',
+    JSON.stringify({ schema: SEC_OPERATION_READ_CLOSURE_REQUEST_SCHEMA }),
+    '--candidate-root',
+    REPOSITORY_ROOT
+  ]);
+  expect(result.status).not.toBe(0);
+  expect(JSON.parse(result.stderr)).toMatchObject({
+    status: 'blocked',
+    reasonCode: 'trusted-activation-authority-unavailable'
+  });
 });
 
 test('Skill CLI rejects the retired raw envelope path', () => {
