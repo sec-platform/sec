@@ -407,13 +407,16 @@ test('exact blob reader and both Evidence producers share one direct execution o
     'platform/shared/ci-evidence-contract.ts',
     'platform/shared/ci-hosted-sut-observation-contract.ts',
     'scripts/codex/ci-orchestration-core.ts',
-    'scripts/ci-pr-risk.ts',
     'scripts/ci-verification.ts',
     'scripts/codex/exact-git-blob.ts',
     'scripts/codex/verification-action-github-provider.ts'
   ]) {
     expect(selectTestsForSources([source])).toEqual(expected);
   }
+  expect(selectTestsForSources(['scripts/ci-pr-risk.ts'])).toEqual({
+    ...expected,
+    fast: [...expected.fast, 'tests/unit/heavy-verification-gate-lease.test.ts'].sort()
+  });
 });
 
 test('canonical VerificationAction fixture selects only its direct consumer and selector contract', () => {
@@ -862,6 +865,7 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
       'tests/contract/dev-runner-contract.test.ts',
       'tests/contract/test-impact.test.ts',
       'tests/unit/ci-pr-risk-selection.test.ts',
+      'tests/unit/heavy-verification-gate-lease.test.ts',
       'tests/unit/verification-action-ci-contract.test.ts'
     ],
     slow: [],
@@ -903,6 +907,38 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
     owner: 'managed-git-hooks',
     identity: { kind: 'architecture-owner', id: 'managed-git-hooks' }
   }]);
+
+  const heavyGateSelection = selectTestsForSources([
+    'platform/shared/heavy-verification-gate-lease.ts'
+  ]);
+  expect(heavyGateSelection).toEqual({
+    fast: [
+      'tests/contract/ci-contract.test.ts',
+      'tests/contract/ci-lanes.test.ts',
+      'tests/contract/dev-runner-contract.test.ts',
+      'tests/contract/sec-merge-gate.test.ts',
+      'tests/contract/tcb-closure-lock.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/agent-operation-activation.test.ts',
+      'tests/unit/heavy-verification-gate-lease.test.ts',
+      'tests/unit/tcb-trust-root-contract.test.ts'
+    ],
+    slow: [],
+    owners: ['auto-reference', 'heavy-verification-gate']
+  });
+  expect(resolveTestOwnership(['platform/shared/heavy-verification-gate-lease.ts']))
+    .toEqual([{
+      source: 'platform/shared/heavy-verification-gate-lease.ts',
+      owner: 'heavy-verification-gate',
+      identity: { kind: 'architecture-owner', id: 'heavy-verification-gate' }
+    }]);
+  for (const unrelatedSource of [
+    'platform/dev-runner/typecheck-runner.ts',
+    'scripts/ci-verification.ts'
+  ]) {
+    expect(selectTestsForSources([unrelatedSource]).fast)
+      .not.toContain('tests/unit/heavy-verification-gate-lease.test.ts');
+  }
 });
 
 test('test impact selector uses auto-reference for CI contract coverage', () => {
