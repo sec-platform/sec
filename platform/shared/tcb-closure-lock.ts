@@ -100,7 +100,6 @@ export const TCB_REVIEWED_PROCESS_DISPATCHERS = new Set([
   'platform/shared/process.ts::function-declaration:terminateCommandProcessTree::spawn#1',
   'scripts/ci-verification.ts::function-declaration:CodexDevelopmentInspectHostedActionArchiveV2::spawnSync#1',
   'scripts/ci-verification.ts::function-declaration:defaultHostedSutSandboxProcessV1::spawn#1',
-  'scripts/ci-verification.ts::function-declaration:defaultGitFiles::spawnSync#1',
   'scripts/ci-verification.ts::function-declaration:gitCandidateBytesV2::spawnSync#1',
   'scripts/ci-verification.ts::function-declaration:hostedActionGhReadJsonV2::spawnSync#1',
   'scripts/ci-verification.ts::function-declaration:runHostedMaterializerCommandV2::spawnSync#1',
@@ -1776,6 +1775,13 @@ export function generateTcbClosureLockV2(
 ): TcbClosureLock {
   const candidateRoot = resolveTcbClosureCandidateRoot(options);
   const closure = trustedRuntimeClosureAtCandidateRoot(candidateRoot, TCB_RUNTIME_ENTRYPOINTS);
+  const authorizedProcessDispatchers = [...TCB_REVIEWED_PROCESS_DISPATCHERS].sort();
+  const observedProcessDispatchers = [...closure.reviewedProcessDispatchers].sort();
+  if (JSON.stringify(authorizedProcessDispatchers) !== JSON.stringify(observedProcessDispatchers)) {
+    throw new Error(
+      'TCB reviewed process dispatcher allowlist must exactly equal the live causal dispatcher census.'
+    );
+  }
   const lock = computeTcbClosureLockAtCandidateRoot(candidateRoot, closure);
   createSecTrustedBootstrapTrustRootV3({
     registry: SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3,
@@ -1789,12 +1795,12 @@ export function generateTcbClosureLockV2(
 // ---------------------------------------------------------------------------
 
 // <sec-tcb-closure-lock-generated-v2>
-export const TCB_CLOSURE_TRUST_REVISION = "sha256:3dd2541ac270471befb138105509ec76fe9f56f4d9739f5d825ad7e017f52eb3";
+export const TCB_CLOSURE_TRUST_REVISION = "sha256:86aa2e48a828b70022cf2796e080f8be16c2dd37a4a981091639c831551da170";
 
 // Generated from the exact live causal closure. Do not hand-edit this marked region.
 export const TCB_CLOSURE_LOCK: TcbClosureLock = {
   "schema": "sec-tcb-closure-lock-v2",
-  "trustRevision": "sha256:3dd2541ac270471befb138105509ec76fe9f56f4d9739f5d825ad7e017f52eb3",
+  "trustRevision": "sha256:86aa2e48a828b70022cf2796e080f8be16c2dd37a4a981091639c831551da170",
   "moduleCount": 108,
   "modules": [
     "docs/scripts/docs-doctor-ledgers.ts",
@@ -1985,7 +1991,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/ci-contract.ts": "f279fdb4736eddaee583016844fc7922a3bdd3c8",
     "platform/shared/ci-evidence-contract.ts": "57f25ad65d30913ca14442292b3ae75c122fcbaf",
     "platform/shared/ci-execution-environment.ts": "d39098bf12edaf89a630363852c8b9e34d34376a",
-    "platform/shared/ci-git-changed-files.ts": "adcc3074c1f7858e968b41ee8845b849a344ef36",
+    "platform/shared/ci-git-changed-files.ts": "809e77bd39b6d739d2ff1e8fd57d9559be296366",
     "platform/shared/ci-hosted-sut-observation-contract.ts": "c6820279c4832e9b669e3d07e3521b8a7151989a",
     "platform/shared/ci-pr-risk-selection.ts": "9afefaa343421641674b9592f7544137379e4949",
     "platform/shared/ci-verification-plan.ts": "8f59bb169115012c48222a61f59f62508e930a71",
@@ -2095,7 +2101,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/ci-contract.ts": "sha256:e606685cc7e65032357f1b051e2e0a2b2871d4ddbf82eeaa27e4951e815d1bd9",
     "platform/shared/ci-evidence-contract.ts": "sha256:da254087321b3aba653ed57cb087188c73ce252f09b16d10c482b8974a720bc1",
     "platform/shared/ci-execution-environment.ts": "sha256:b5dad090ac0b540bac75be683a62f745f07d4de39edd08017b3d74c2298d4240",
-    "platform/shared/ci-git-changed-files.ts": "sha256:cd4dc63f8a9c1c0e6e87cc3c7df65ae68988b54867b81aa9749829f7cef66380",
+    "platform/shared/ci-git-changed-files.ts": "sha256:8b67505c283779d922d0983e28fe9201c766c52487ea7a154377bee9ff0b7fda",
     "platform/shared/ci-hosted-sut-observation-contract.ts": "sha256:b304fa26a0a579364818bbf71b6eed8ed5ae595dbca186d430084115b09946c6",
     "platform/shared/ci-pr-risk-selection.ts": "sha256:bc7cbefc5d1dcaebd31a754068d3cb95628e5a6b7ab661b43057c7fb4651d444",
     "platform/shared/ci-verification-plan.ts": "sha256:00a12c349c616537c1a6e7bcb2442778b6473f3732e2b676315147d6e7052116",
@@ -2177,12 +2183,12 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/install-git-hooks.ts": "sha256:effb6154d7b41002086df75dc4acea3eaa68cc92cbe99357307c937f8e73098f",
     "tests/setup/runtime-deps.setup.ts": "sha256:6e6887ffcb8fead51f11fe8b223789f71a9512bd0805313c01035ec035c01441"
   },
-  "closureDigest": "sha256:89afd70e02907cedb4033c891f38ac869813e035ed91f9aaffe3712841530365"
+  "closureDigest": "sha256:1f37ebea8eaae9300265ac12370efd7a0d1de0611e0925e691715beed7c48fae"
 };
 
 export const TCB_CLOSURE_LOCK_RECEIPT = createTcbClosureLockReceiptV2(
   TCB_CLOSURE_LOCK,
-  "2026-08-12T11:50:30.308Z"
+  "2026-08-12T12:41:48.429Z"
 );
 // </sec-tcb-closure-lock-generated-v2>
 
