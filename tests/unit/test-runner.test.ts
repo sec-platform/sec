@@ -51,6 +51,8 @@ const isolatedFastTestFileSet = new Set<string>(PROCESS_ISOLATED_FAST_TEST_FILES
 let changedFiles = ['platform/unmapped-source.ts'];
 let materializeTestWorkspace = false;
 let previousTestWorkspaceNamespace: string | undefined;
+let previousAffectedTestsBase: string | undefined;
+let previousChangedBase: string | undefined;
 
 mock.module('../../platform/shared/fs.ts', () => ({
   pathExists: async (targetPath: string) => {
@@ -295,7 +297,11 @@ function configureTestDependencyBootstrapFailure(value: unknown): void {
 
 beforeEach(() => {
   previousTestWorkspaceNamespace = process.env[TEST_WORKSPACE_NAMESPACE_ENV];
+  previousAffectedTestsBase = process.env.SEC_AFFECTED_TESTS_BASE;
+  previousChangedBase = process.env.SEC_CHANGED_BASE;
   delete process.env[TEST_WORKSPACE_NAMESPACE_ENV];
+  delete process.env.SEC_AFFECTED_TESTS_BASE;
+  delete process.env.SEC_CHANGED_BASE;
   commandCalls.length = 0;
   devCommandCalls.length = 0;
   devCommandEnvironments.length = 0;
@@ -319,6 +325,16 @@ afterEach(() => {
     delete process.env[TEST_WORKSPACE_NAMESPACE_ENV];
   } else {
     process.env[TEST_WORKSPACE_NAMESPACE_ENV] = previousTestWorkspaceNamespace;
+  }
+  if (previousAffectedTestsBase === undefined) {
+    delete process.env.SEC_AFFECTED_TESTS_BASE;
+  } else {
+    process.env.SEC_AFFECTED_TESTS_BASE = previousAffectedTestsBase;
+  }
+  if (previousChangedBase === undefined) {
+    delete process.env.SEC_CHANGED_BASE;
+  } else {
+    process.env.SEC_CHANGED_BASE = previousChangedBase;
   }
 });
 

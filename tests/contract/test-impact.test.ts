@@ -780,8 +780,8 @@ test('retired evidence transition ownership rejects path-only, re-add, modify, w
   const headSha = 'b'.repeat(40);
   const observation = (
     status: 'added' | 'changed' | 'removed',
-    baseSha = retired.baseSha,
-    baseBlobSha = retired.baseBlobSha,
+    baseSha: string = retired.baseSha,
+    baseBlobSha: string = retired.baseBlobSha,
     baseMode: '100644' | '100755' = retired.baseMode
   ) => CodexDevelopmentCreateTestImpactTransitionObservationV1({
     baseSha,
