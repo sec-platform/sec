@@ -106,6 +106,11 @@ const VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS = [
   'tests/unit/work-selection-live.test.ts'
 ];
 
+const VERIFICATION_SESSION_SOURCE_LOCK_FAST_TESTS = [
+  ...VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS,
+  'tests/unit/sec-merge-bootstrap.test.ts'
+];
+
 const VERIFICATION_TRUTH_FAST_TESTS = [
   'tests/contract/test-impact.test.ts',
   'tests/unit/acceptance-coverage-closure.test.ts',
@@ -169,14 +174,29 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/branch-lifecycle-inventory.ts',
       'scripts/codex/branch-lifecycle.ts',
       'scripts/codex/branch-recovery.ts',
-      'scripts/codex/integration-authorization-publication.ts',
       'scripts/codex/local-main-closeout.ts',
       'scripts/codex/verification-candidate-tree.ts',
-      'scripts/codex/verification-session-github.ts',
-      'scripts/codex/verification-session-runtime.ts',
-      'scripts/codex/verification-session.ts'
+      'scripts/codex/verification-session-runtime.ts'
     ],
     fast: VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS,
+    slow: ['tests/e2e/verification-session-closeout-cli.test.ts']
+  },
+  {
+    owner: 'verification-session-branch-closeout-authority',
+    identity: {
+      kind: 'architecture-owner',
+      id: 'verification-session-branch-closeout-authority'
+    },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'scripts/codex/sec-merge-bootstrap-contract.ts',
+      'scripts/codex/sec-merge-bootstrap-runtime.ts',
+      'scripts/codex/sec-merge-bootstrap.ts',
+      'scripts/codex/integration-authorization-publication.ts',
+      'scripts/codex/verification-session-github.ts',
+      'scripts/codex/verification-session.ts'
+    ],
+    fast: VERIFICATION_SESSION_SOURCE_LOCK_FAST_TESTS,
     slow: ['tests/e2e/verification-session-closeout-cli.test.ts']
   },
   {

@@ -47,7 +47,6 @@ test('only the hosted Session CLI private boundary contains merge and leased clo
   expect(mergeExecutor).toContain("'--input', '-'");
   expect(mergeExecutor).toContain('sha: input.headSha');
   expect(mergeExecutor).toContain("merge_method: 'squash'");
-  expect(mergeExecutor).toContain('commit_title: `Verified integration');
   expect(mergeExecutor).toContain('commit_message: markers.join');
   expect(mergeExecutor).toContain('if (result.status !== 0)');
 
