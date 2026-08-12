@@ -431,7 +431,15 @@ test('canonical VerificationAction fixture selects only its direct consumer and 
 });
 
 test('branch closeout and VerificationSession authority select one exact fast closure', () => {
-  const sources = [
+  const sourceLockSources = [
+    'scripts/codex/sec-merge-bootstrap-contract.ts',
+    'scripts/codex/sec-merge-bootstrap-runtime.ts',
+    'scripts/codex/sec-merge-bootstrap.ts',
+    'scripts/codex/integration-authorization-publication.ts',
+    'scripts/codex/verification-session-github.ts',
+    'scripts/codex/verification-session.ts'
+  ];
+  const otherSources = [
     'platform/shared/verification-session-contract.ts',
     'scripts/codex/branch-closeout-contract.ts',
     'scripts/codex/branch-closeout-receipt.ts',
@@ -442,12 +450,9 @@ test('branch closeout and VerificationSession authority select one exact fast cl
     'scripts/codex/branch-lifecycle-inventory.ts',
     'scripts/codex/branch-lifecycle.ts',
     'scripts/codex/branch-recovery.ts',
-    'scripts/codex/integration-authorization-publication.ts',
     'scripts/codex/local-main-closeout.ts',
     'scripts/codex/verification-candidate-tree.ts',
-    'scripts/codex/verification-session-github.ts',
-    'scripts/codex/verification-session-runtime.ts',
-    'scripts/codex/verification-session.ts'
+    'scripts/codex/verification-session-runtime.ts'
   ];
   const expected = {
     fast: [
@@ -473,9 +478,16 @@ test('branch closeout and VerificationSession authority select one exact fast cl
     slow: ['tests/e2e/verification-session-closeout-cli.test.ts'],
     owners: ['verification-session-branch-closeout-authority']
   };
-  for (const source of sources) {
+  for (const source of otherSources) {
     expect(selectTestsForSources([source])).toEqual(expected);
   }
+  for (const source of sourceLockSources) {
+    expect(selectTestsForSources([source])).toEqual({
+      ...expected,
+      fast: [...expected.fast, 'tests/unit/sec-merge-bootstrap.test.ts'].sort()
+    });
+  }
+  const sources = [...otherSources, ...sourceLockSources];
   expect(resolveTestOwnership(sources)).toEqual(sources.map((source) => ({
     source,
     owner: 'verification-session-branch-closeout-authority',
