@@ -1,4 +1,5 @@
 import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
+import { TRUSTED_VERIFIER_TCB_FAST_TESTS } from './verification.ts';
 
 export const DOCUMENTATION_LIFECYCLE_TEST_OWNERS = {
   authority: 'documentation-authority',
@@ -35,12 +36,24 @@ const AGENT_GOVERNANCE_FAST_TESTS = [
   ...DOCUMENTATION_CORPUS_FAST_TESTS,
   'tests/contract/docs-doctor-ledgers.test.ts',
   'tests/contract/docs-doctor.test.ts',
+  'tests/contract/operation-read-plan.test.ts',
   'tests/contract/repository-audit.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/active-documentation-contract.test.ts',
+  'tests/unit/agent-operation-activation.test.ts',
   'tests/unit/agent-skill-markdown-classification.test.ts',
   'tests/unit/ci-pr-risk-selection.test.ts',
   'tests/unit/local-gate-union.test.ts'
+];
+
+const WORK_PACKAGE_CONTRACT_FAST_TESTS = [
+  'tests/contract/document-control-plane-lifecycle.test.ts',
+  'tests/contract/documentation-authority.test.ts',
+  'tests/contract/docs-doctor.test.ts',
+  'tests/contract/operation-read-plan.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/agent-operation-activation.test.ts',
+  'tests/unit/codex-work-package-contract.test.ts'
 ];
 
 const AGENT_SKILL_AUTHORING_FAST_TESTS = [
@@ -157,12 +170,28 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'scripts/codex/work-selection.ts'
     ],
     fast: [
+      'tests/unit/agent-operation-activation.test.ts',
       'tests/contract/document-control-plane-lifecycle.test.ts',
       'tests/unit/branch-lifecycle-contract.test.ts',
       'tests/unit/verification-candidate-tree.test.ts',
       'tests/unit/work-selection-contract.test.ts',
       'tests/unit/work-selection-live.test.ts',
       'tests/contract/test-impact.test.ts'
+    ],
+    slow: []
+  },
+  {
+    owner: 'agent-operation-activation',
+    identity: { kind: 'contract', id: 'agent-operation-activation' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'platform/shared/agent-operation-activation-contract.ts',
+      'scripts/codex/agent-operation-activation.ts'
+    ],
+    fast: [
+      ...TRUSTED_VERIFIER_TCB_FAST_TESTS,
+      'tests/contract/operation-read-plan.test.ts',
+      'tests/contract/skill-applicability.test.ts'
     ],
     slow: []
   },
@@ -283,6 +312,14 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'scripts/discover-all.ts'
     ],
     fast: AGENT_GOVERNANCE_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'work-package-contract',
+    identity: { kind: 'contract', id: 'work-package-contract' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: ['scripts/codex/work-package-contract.ts'],
+    fast: WORK_PACKAGE_CONTRACT_FAST_TESTS,
     slow: []
   },
   {

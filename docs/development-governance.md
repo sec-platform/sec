@@ -386,20 +386,105 @@ operation identity。
 `proposal / proposed / unbound`词汇，不得在错误断言、fixture或测试名称中把相同scope/resource提升为
 `trusted / authorized / granted`。只有真实typed authority transition才允许两侧在同一tree原子迁移术语。
 
-`scripts/codex/task-capsule.ts` 在 Phase A 只提供 content verification 与一个显式关闭的 production seam。
-所有 public Task Capsule projection、Read Plan compile 与 Skill production selection 在真实 issuer接入前
-统一返回 typed `trusted-activation-authority-unavailable`；不存在 candidate journal positive path、raw
-Capsule/envelope、caller authority fields、测试 mint seam或兼容alias。freeze journal 只拥有 crash recovery、
-CAS 与 consistency projection，绝不是 authority credential。只给 journal增加 issuer 字段、普通 digest、
-本地文件或同用户 ACL 不构成修复：在没有进程隔离、受保护凭证库或签名信任根时仍可由candidate重算。
+`scripts/codex/agent-operation-activation.ts` 是document-control/A0 hosted issuer adapter；
+`platform/shared/agent-operation-activation-contract.ts`唯一拥有严格request/provider/PRE/FINAL/publication schema。
+本地实现会话只能发送at-least-once wake-up，不能签发credential。协议保持两阶段：
 
-下一 #346 authority/canary slice 必须由独立 document-control/A0 owner签发 durable、issuer-bound 且绑定
-exact repository、trusted base、candidate head/tree、manifest path/digest 与 control-byte digests 的 receipt。
-Task Capsule adapter只能消费与live revalidate该receipt，不能签发或从candidate facts推断issuer；control
-bytes必须先按 raw bytes 比较，再以 fatal UTF-8 解码后进入parser。直到该 owner 进入 new main，现行
-A0/Work Package operation authorization仍是唯一 effect grant，unbound Capsule不得驱动production读取、
-Skill、executor、Gate、Review或merge。Root-Cause Preflight、其他role、外部capability/resource/gate或
-多任务orchestration在各自provenance producer接入前同样fail closed。
+```text
+manifest-only draft PR + maintainer repository_dispatch wake-up
+→ trusted default-branch workflow rederives live main / PR / manifest / WorkDecision / scope
+→ immutable PRE artifact + GitHub Actions App comment locator
+→ implementation commits on the same PR / branch / worktree
+→ live continue-active WorkDecision
+→ immutable FINAL artifact + GitHub Actions App comment locator
+→ Task Capsule / Read Plan / Skill rederive provider and whole values
+```
+
+PRE必须来自default branch上的固定workflow SHA，只接受同一仓库具备admin/maintain权限且actor、triggering actor、
+event sender一致的请求；它绑定exact repository/base/tree、一个draft PR及linear proposal head、manifest raw digest、
+三个control raw-byte digest、proposal whole delta、manifest全部owned/forbidden scope、current spec、WorkDecision与
+worker/implement/git-only vocabulary。trusted checkout独占只读remote credential以完成WorkDecision的remote-ref与
+check-runs闭包，candidate checkout永不持有credential；依赖从frozen lock与Bun cache安装并禁用lifecycle scripts，
+避免issuer observation触发hook或其他安装副作用。FINAL引用同一PRE comment ID，要求同一PR/base/branch/manifest、PRE head为
+final head祖先、final whole delta仍在PRE scope内，并绑定新的live `continue-active` WorkDecision。PRE的active/candidate
+rolling topology必须由Work Selection唯一的topology compiler重派生；它在PR创建前后的`select-next`与
+`continue-active`对同一active work保持相同有序拓扑。FINAL receipt再次携带三个control digest并与PRE逐值相等，
+因此已授权control路径也不能在PRE后改变选择或projection bytes。
+
+canonical PRE/FINAL payload只保存在该trusted run的immutable Actions artifact；GitHub Actions App comment只保存
+request、artifact ID/name/file/archive digest与provider locator。consumer必须同时read back App identity、repository、
+workflow path/SHA、run/attempt、event、job、upload/publication steps、triggering maintainer permission、artifact metadata/
+bytes以及PR/WorkDecision/manifest/scope。repository_dispatch本身只是wake-up；candidate workflow、本地Git ref、
+本地blob/file、journal、普通digest、同用户ACL或caller JSON均可由实现者重算，永远不是credential。provider、
+artifact、bytes、identity、current-spec或scope任一漂移都以bounded reasonCode与raw detail digest fail closed。
+同一canonical request digest拥有唯一hosted concurrency group；重复wake-up在重验既有App locator、artifact与
+provider后返回`existing`，不产生第二artifact/comment。只有GitHub Actions App发布的canonical marker进入协议，
+普通用户或其他actor的同名marker作为非authority噪声忽略；App marker malformed或同一request出现多个App locator
+才是provider conflict。App comment成功写入就是publication effect的authenticated terminal observation，consumer要求
+upload step已成功且publication step存在，但不把该step随后是否以success结束当作第二份credential；因此comment写入后
+进程崩溃或runner失联不会永久毒化已完整发布的artifact。并发或历史duplicate identity一律冲突停止，不能
+last-writer-wins。
+
+Provider格式只在workflow adapter边界归一化一次：`upload-artifact`输出的裸SHA-256 hex转成REST metadata使用的
+`sha256:<hex>`，内部schema、comment locator、archive byte readback只接受后一种canonical表示；禁止在consumer里
+同时容忍两种格式。artifact metadata还必须把workflow run的repository与head repository ID都绑定到同一repository ID。
+
+```mermaid
+stateDiagram-v2
+  [*] --> Proposal: manifest-only draft PR
+  Proposal --> Blocked: live main / actor / PR / WorkDecision / scope conflict
+  Proposal --> Prepared: hosted PRE artifact + App locator
+  Prepared --> Implementing: same PR branch and Work Package scope
+  Implementing --> Finalized: hosted FINAL artifact + continue-active
+  Finalized --> Consumed: App + artifact + provider + whole values rederived
+  Consumed --> Stale: main / spec / PR / artifact / provider / scope drift
+  Stale --> Proposal
+  Blocked --> [*]
+```
+
+这是一个有限activation协议，不是新的run coordinator；candidate generation、VerificationSession、Review、
+merge、Issue disposition与retirement仍分别由既有owner拥有。
+
+本地public command surface只有两个意图：`request --phase prepare|finalize --candidate-root <path>`从live
+WorkDecision、PR registry、candidate control和App publication inventory自动派生所有identity；FINAL从同一PR/base/
+manifest且head为当前head祖先的validated PRE世代中选择唯一maximal祖先自动取得comment ID：线性finding修复自然淘汰
+较旧PRE，零个为absent，并行或不可比较的多个maximal PRE才是conflict；
+`observe --candidate-root <path> --request-id <digest>`只join/read back hosted publication。caller不手填base、head、
+manifest、scope、provider或receipt字段，也没有publish/ref-write命令；`produce-hosted`与`publish-hosted`只供固定
+default-branch workflow调用。
+
+activation producer和最终`skill-applicability` consumer必须同时是
+`platform/shared/ci-trust-root-registry.json`的runtime entrypoint；TCB contract强制producer、Task Capsule、
+Read Plan、Skill与Work Selection整条closure存在，generated lock只从该registry与真实imports推导。不得
+只把新issuer文件加入manifest或Review范围，却让可执行authority chain落在TCB之外。
+
+registry→generated-lock迁移和production trust-root加载顺序只由`docs/verification-governance.md`拥有；
+activation切片不得另造bootstrap规则或绕开其strict next-closure admission。
+
+workflow必须先用GitHub live readback完成actor、default branch、exact draft PR、linear ancestry与manifest bytes
+admission，再由trusted-main producer读取candidate SUT；payload upload在comment publication之前，comment不能内嵌
+或替代payload。实现前consumer从manifest-only exact head和唯一open PR枚举PRE locator并重派生完整PRE，随后才编译
+planning Capsule、Read Plan与Skill decision；实现后同一consumer优先枚举FINAL locator，反向验证PRE locator/artifact，
+并在exact final head重新观察WorkDecision、PR registry、head/tree/ancestry/manifest/control/owner closure/scope与provider。
+producer没有injectable authority evaluator seam，本地路径已无ref/file credential兼容入口。当前exact head既无有效PRE
+也无有效FINAL时，public consumer保留`activation-receipt-absent | activation-stale | activation-scope-conflict |
+activation-issuer-unavailable | activation-provider-unavailable | activation-provider-readback-conflict`之一及detail digest。
+
+WorkDecision的MainHealth binding必须使用MainHealth owner的稳定`healthRevision`，不能使用包含
+`observedAt/expiresAt/provider receipt`的`ledgerDigest`；后者会让相同健康事实的live replay自行失效。状态、
+failure fingerprint、owner、lane或main identity变化仍会改变`healthRevision`并使完整WorkDecision及FINAL
+receipt失效，纯观察时间变化则不会。consumer因此仍可整值比较完整receipt/decision digest，无需另造弱语义投影。
+
+该receipt只是activation provenance，不是effect grant。Task Capsule继续强制
+`authorityStatus=unbound-planning-content`、`effectAuthority=none`、`scopeGrantId=null`；现行A0/Work Package
+operation authorization仍是唯一effect grant。V1刻意只开放`worker/implement`且capability只投影实际使用的
+local `git`；其他role、Root-Cause Preflight、外部resource/gate或多任务orchestration在各自provenance owner
+接入前保持fail closed，不以硬编码“available”扩大能力。
+
+issuer所在实现PR只能发布 progress：producer尚未进入trusted main时不能给自身candidate签发有效receipt。
+进入new main后，#275必须成为第一个真实PRE→FINAL candidate canary；#346保持开放，直到至少三个不同真实operation
+证明read/tool-call下降且不遗漏owner/contract facts，并包含一次真实maintainer/user mutation observation。不得
+伪造mutation、用本实现候选冒充canary或因production cutover合并就提前关闭Issue。
 
 ### Operation Read Plan（Issue #346）
 
@@ -434,18 +519,29 @@ receipt 时，执行器传递 ref、relevant symbols 和 delta 即可，不重�
 
 机器入口是 `platform/shared/agent-operation-read-plan-contract.ts` 与
 `scripts/codex/operation-read-plan.ts`。pure compile/verify 只证明 canonical bytes 与 digest 完整性，不把
-caller 输入升级为 authority；production `compile` 只接受仅含 schema 的 authority-free closure request，
-但在issuer receipt owner接入前必须返回上述typed blocked结果。caller不能提供Capsule、ref、owner、
+caller 输入升级为 authority；production `compile` 只接受仅含 schema 的 authority-free closure request；
+manifest-only proposal head必须消费有效PRE，exact implementation head必须消费有效FINAL，二者都由同一adapter
+整值重派生，否则返回上述typed blocked结果。caller不能提供Capsule、ref、owner、
 revision、receipt、frontier、forbidden-source policy 或 invalidation，也不能通过直接调用Skill selector
 绕过blocked seam。
 
-未来 trusted adapter 只在issuer-bound Capsule之上从 trusted base blobs、exact receipt-bound manifest、
-scope与mandatory deny baseline派生repository-only required refs；每个repository ref必须落入Capsule read
-scope，external ref必须由exact authorized resource覆盖。Skill selector必须重新执行同一trusted observation
+trusted adapter在PRE-bound planning Capsule与FINAL-bound reconciliation Capsule上都解析trusted-base
+`docs/authority.json`。frozen Work Package的
+`authorityRefs`把非文档source scope显式映射到canonical domain owner；每个changed registered document再加入
+自身owning record，navigation/agent/control projection则加入registry声明的projection target。未知、非owning、
+inactive、重复、未排序或缺少`development-governance`均fail closed。由此得到AGENTS、registry、manifest和最小
+domain owner closure，不扫描全部文档，也不把candidate prose变成owner identity。changed owner blob以exact
+candidate revision作为SUT，未变owner来自trusted base；scope authorization仍只来自此前hosted PRE。
+每个repository ref必须落入Capsule read scope，external ref必须由exact authorized resource覆盖。Skill selector必须重新执行同一trusted observation
 并要求整个Capsule与scope-bearing Read Plan closure byte-exact相等，才重算quarantine blob revisions。
 raw envelope、caller-selected comparison pair、candidate-only manifest或candidate-self-issued authority入口
 始终不存在。不得在读取Skill body后反推或改写Read Plan。缓存实现可以替换或完全不存在，正确性只依赖
 issuer receipt、Capsule、plan、read receipt与invalidation contract。
+
+production closure读取上述registry-derived owner refs与candidate-head exact manifest；每个ref形成OID revision与
+raw content digest，Task Capsule owner facts和Read Plan receipt共同绑定同一closure。activation receipt digest和current-spec revision进入
+额外invalidation keys。rolling plan的测试只比较parser得到的active/candidate topology与roadmap catalog的
+有序package projection；不得硬编码历史Issue marker或手工把旧`#221/#352` prose补回机器渲染结果。
 
 Read Plan 同时绑定 `current-physical-state-authoritative-v1`：非 Agent-owned scope 中的明确
 maintainer/user 改动是新的外部事件，旧 observation 立即 stale，当前物理状态成为 authoritative。

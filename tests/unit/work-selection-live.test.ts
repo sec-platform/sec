@@ -8,6 +8,7 @@ import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   assertSecWorkDecisionReceiptV1,
   compileSecWorkRollingProjectionV1,
+  compileSecWorkRollingTopologyV1,
   createSecWorkCurrentSpecObservationV1,
   createSecWorkDecisionReceiptV1,
   createSecWorkRegistryObservationV1,
@@ -72,7 +73,8 @@ function registry(
 
 function receiptForCatalog(
   catalog: SecRoadmapWorkCatalogV1,
-  completedWorkIds: readonly string[] = []
+  completedWorkIds: readonly string[] = [],
+  current: SecCurrentWorkLifecycleV1 = lifecycle()
 ) {
   return createSecWorkDecisionReceiptV1({
     repository: 'sec-platform/sec',
@@ -81,7 +83,7 @@ function receiptForCatalog(
     roadmapRevision: rawSha256(roadmapSource),
     catalog,
     registry: registry(catalog, completedWorkIds),
-    current: lifecycle(),
+    current,
     currentSpecs: specs(catalog)
   });
 }
@@ -158,6 +160,24 @@ describe('work-selection live contract', () => {
       'operation-read-plan-authority-canary-v1'
     );
     expect(projection.candidates).toHaveLength(3);
+  });
+
+  test('rolling topology remains canonical when the selected draft PR becomes continue-active', () => {
+    const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
+    const selected = receiptForCatalog(catalog, ['issue-346']);
+    const continued = receiptForCatalog(catalog, ['issue-346'], {
+      ...lifecycle(),
+      activeWorkId: 'issue-275',
+      activeRef: 'active:issue-275',
+      activeState: 'incomplete',
+      activeLegality: 'legal'
+    });
+    expect(selected.decision.status).toBe('select-next');
+    expect(continued.decision.status).toBe('continue-active');
+    expect(compileSecWorkRollingTopologyV1(continued)).toEqual({
+      activePackageId: compileSecWorkRollingProjectionV1(selected).active.packageId,
+      candidatePackageIds: compileSecWorkRollingProjectionV1(selected).candidates.map(({ packageId }) => packageId)
+    });
   });
 
   test('ready-successor count excludes a direct deferred successor', () => {

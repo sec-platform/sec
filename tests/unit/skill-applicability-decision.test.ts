@@ -56,15 +56,18 @@ test('metadata table covers every registered Skill exactly once with valid vocab
 test('quarantine covers AGENTS, .agents, the registry, the CLI and the governance authority', () => {
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('AGENTS.md');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('.agents/');
+  expect(SEC_SKILL_QUARANTINE_PATHS).toContain('platform/shared/agent-operation-activation-contract.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('platform/shared/agent-operation-read-plan-contract.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('platform/shared/agent-skill-contract.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('platform/shared/agent-task-capsule-contract.ts');
+  expect(SEC_SKILL_QUARANTINE_PATHS).toContain('scripts/codex/agent-operation-activation.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('scripts/codex/operation-read-plan.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('scripts/codex/skill-applicability.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('scripts/codex/task-capsule.ts');
   expect(SEC_SKILL_QUARANTINE_PATHS).toContain('docs/development-governance.md');
   expect(isSecSkillQuarantinePath('AGENTS.md')).toBe(true);
   expect(isSecSkillQuarantinePath('.agents/skills/sec-worker-development/SKILL.md')).toBe(true);
+  expect(isSecSkillQuarantinePath('scripts/codex/agent-operation-activation.ts')).toBe(true);
   expect(isSecSkillQuarantinePath('platform/shared/agent-operation-read-plan-contract.ts')).toBe(true);
   expect(isSecSkillQuarantinePath('platform/shared/agent-skill-contract.ts')).toBe(true);
   expect(isSecSkillQuarantinePath('platform/shared/agent-task-capsule-contract.ts')).toBe(true);

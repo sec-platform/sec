@@ -7,47 +7,43 @@ last-reviewed: 2026-08-12
 
 # SEC 滚动近期计划
 
-本投影绑定受信 `main@56285ba26b776f12dd2a93c4d9908366d997d13a`。长期阶段DAG仍只由
-`docs/roadmap.md`拥有，current spec仍只由下列Issue或更强machine owner拥有；本文件不解释Issue
-正文、不拥有优先级，也不是backlog/registry。canonical MainHealth run `31548322778`、job
-`93965413087`已证明imports、TypeScript与docs authority通过，且TCB single-owner旧失败不再出现。唯一
-failure receipt是一个101项通过的fast batch中两条negative assertion：production均正确拒绝输入，但测试
-仍把unbound scope proposal写成`trusted/authorized`。本Work Package只把断言改回canonical
-`proposal/proposed`词汇，并在development-governance固化同一authority-level规则；不改production行为，
-不重跑unchanged failure input。健康恢复后只能消费validated WorkDecision；
-rolling prose或caller receipt都不能选择、重排或授权下一项。
+本投影绑定受信 `main@67a1d5d5a3b63deec1f051d07dc9e298ad177d11` 与
+`docs/roadmap.md` 的有序 R14 catalog。长期DAG、current spec与选择权仍只归其canonical owner；本文件
+不解释Issue正文、不拥有优先级，也不是backlog/registry。MainHealth run `31549135962`、job
+`93967780894`中imports、TypeScript和docs authority command通过，complete-fast为118 pass且唯一失败是
+documentation-authority对旧Issue marker的硬编码。当前unhealthy main使普通selector进入reconcile；本次在
+用户明确授权下由A0把此前唯一选中的Issue 346与同一关系修复收敛进一个candidate，不宣称普通freeze或
+activation receipt已运行。issuer进入new main后，planning consumer先消费PRE，exact实现head再消费FINAL，完整operation
+必须走同一PR上的PRE→FINAL hosted artifact路径。
 
 ## 当前唯一 Work Package
 
-### main-health-repair-unbound-vocabulary-v1
+### operation-read-plan-authority-canary-v1
 
-Issue #346 MainHealth semantic assertion repair：Task Capsule仍是`unbound-planning-content`、
-`effectAuthority=none`、`scopeGrantId=null`；两条negative tests不得在真实issuer receipt前把proposal称为
-trusted/authorized。只消费exact hosted failure tail、independent exact-object静态Review与new-main health
-readback；不建立alias、tracked Evidence、第二plan或临时production adapter。
+Issue #346 production cutover：本地caller只dispatch wake-up；default-branch GitHub Actions/App producer对
+manifest-only draft PR签发immutable PRE artifact与App locator，同一PR完成实现后再为exact final head签发FINAL。
+Task Capsule、Read Plan与Skill重验provider、artifact、WorkDecision、PR、manifest、owner closure和whole delta，
+PRE用于实现前的最小读取/Skill选择，FINAL用于实现后的exact reconciliation，二者都不自行签发。当前PR只发布机制与legacy marker根修，不把自身冒充canary；Issue保持开放直到三个真实operation
+与一次真实maintainer mutation observation完成。
 
 ## 候选 Work Package
 
-### 1. operation-read-plan-authority-canary-v1
+### 1. delegation-consumer-zero-retirement-v1
 
-Issue #346；完成独立issuer-bound activation receipt和三个真实operation readback。它是当前R14
-read-fast-path的直接后继。
+Issue #275；#346机制进入new main后立即作为第一个真实PRE→FINAL canary，迁移最后consumer并把Skill集合由八
+收敛到七，不保留alias。其结果计入#346的三次真实operation，但不因此提前关闭#346。
 
-### 2. delegation-consumer-zero-retirement-v1
-
-Issue #275；仅在#346真实canary完成后迁移最后consumer并把Skill集合由八收敛到七，不保留alias。
-
-### 3. candidate-control-transaction-v1
+### 2. candidate-control-transaction-v1
 
 Issue #321 focused slice；实现一个logical run一个mutable worktree/ref的机器lease、generation replacement
 和provider/local双readback，根治v2/v3 candidate分裂。
 
-### 4. typescript-7-checker-acceleration-v1
+### 3. typescript-7-checker-acceleration-v1
 
 Issue #312/#193；只在read-path cutover及package/lock单写者成立后做TS7 native checker parity，TS6继续
 拥有programmatic Compiler API、Language Service与imports kernel，直到迁移Evidence成立。
 
-### 5. execution-wave-v1
+### 4. execution-wave-v1
 
 Issue #349；等待WorkDecision、#207 order/conflict和前置control/verification closure可消费后，只编译
 work refs、order、resource和cost，不复制Issue/Skill prose、权限或Verification算法。

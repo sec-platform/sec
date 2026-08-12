@@ -97,7 +97,8 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(workflow.on.repository_dispatch?.types).toEqual([
     CI_VERIFICATION_PR_DISPATCH_TYPE,
     CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2,
-    'sec-produce-main-health-v1'
+    'sec-produce-main-health-v1',
+    'sec-produce-agent-operation-activation-v1'
   ]);
   expect(workflow.permissions).toEqual({ actions: 'read', contents: 'read', 'pull-requests': 'read' });
   expect(workflow.concurrency).toBeUndefined();
@@ -119,8 +120,13 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(source).toContain(`sender?.id !== ${CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.id}`);
   expect(source).toContain(`sender?.node_id !== '${CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.nodeId}'`);
   expect(source).toContain("comparison.data.behind_by !== 0");
-  expect(source).not.toContain('parents.length !== 1');
-  expect(source).not.toContain('parents[0].sha');
+  const sessionRequestScript = String(step(
+    workflow,
+    'validate-hosted-request',
+    'Resolve proposal against live default, PR, candidate, and actor'
+  ).with?.script ?? '');
+  expect(sessionRequestScript).not.toContain('parents.length !== 1');
+  expect(sessionRequestScript).not.toContain('parents[0].sha');
   expect(source).not.toContain('sec-verify-frozen-v1');
   expect(source).not.toContain('codex-development-frozen-verification-request-v1');
   expect(source).not.toContain('artifact-status');
@@ -313,6 +319,79 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   });
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.runtimeBinaries).toContain('/usr/bin/tar');
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.runtimeDirectories).toEqual(['/usr/lib/git-core']);
+});
+
+test('hosted activation is a lightweight trusted-main artifact producer, not a candidate credential', async () => {
+  const workflow = parseYaml(
+    await readCompilerFile('.github/workflows/compiler-pr-validation.yml')
+  ) as Workflow;
+  const validation = workflow.jobs['validate-agent-operation-activation-request']!;
+  const activation = workflow.jobs['agent-operation-activation']!;
+  expect(validation.if).toContain("github.event.action == 'sec-produce-agent-operation-activation-v1'");
+  expect(activation.name).toBe('agent-operation-activation');
+  expect(activation.needs).toBe('validate-agent-operation-activation-request');
+  expect(activation.concurrency).toEqual({
+    group: 'sec-agent-operation-activation-${{ github.repository_id }}-${{ needs.validate-agent-operation-activation-request.outputs.request-operation-hex }}',
+    'cancel-in-progress': false
+  });
+  expect(activation.permissions).toEqual({
+    actions: 'read',
+    checks: 'read',
+    contents: 'read',
+    issues: 'write',
+    'pull-requests': 'read'
+  });
+  const validationScript = String(step(
+    workflow,
+    'validate-agent-operation-activation-request',
+    'Bind activation request to live main, exact draft PR, manifest, and maintainer'
+  ).with?.script ?? '');
+  expect(validationScript).toContain('comparison.data.commits.some');
+  expect(validationScript).toContain('comparison.data.total_commits !== comparison.data.commits.length');
+  expect(validationScript).toContain('(commit.parents ?? []).length !== 1');
+  expect(validationScript).toContain('!pullData.draft');
+  expect(validationScript).toContain('getCollaboratorPermissionLevel');
+  const trustedCheckout = step(
+    workflow,
+    'agent-operation-activation',
+    'Checkout exact trusted main producer'
+  );
+  const candidateCheckout = step(
+    workflow,
+    'agent-operation-activation',
+    'Checkout exact candidate SUT'
+  );
+  expect(trustedCheckout.with?.['persist-credentials']).toBe(true);
+  expect(candidateCheckout.with?.['persist-credentials']).toBe(false);
+  const activationInstall = step(
+    workflow,
+    'agent-operation-activation',
+    'Install trusted activation dependencies from frozen lock'
+  );
+  expect(activationInstall.run).toBe('bun install --frozen-lockfile --ignore-scripts');
+  const upload = step(
+    workflow,
+    'agent-operation-activation',
+    'Upload exact Agent operation activation receipt'
+  );
+  const publication = step(
+    workflow,
+    'agent-operation-activation',
+    'Publish exact Agent operation activation receipt'
+  );
+  expect(upload.uses).toBe('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
+  expect(upload.if).toContain("steps.compile-activation.outputs.disposition == 'created'");
+  expect(upload.with?.['retention-days']).toBe(90);
+  expect(publication.if).toContain("steps.compile-activation.outputs.disposition == 'created'");
+  expect(publication.run).toContain('publish-hosted');
+  expect(publication.run).not.toContain('gh api');
+  expect(publication.env?.ARTIFACT_DIGEST).toBe(
+    'sha256:${{ steps.activation-upload.outputs.artifact-digest }}'
+  );
+  const activationRuns = activation.steps.map(({ run }) => run ?? '').join('\n');
+  expect(activationRuns).not.toMatch(/bun (?:test|run typecheck|run check:)/u);
+  expect(activationRuns).not.toContain('git update-ref');
+  expect(activationRuns).not.toContain('hash-object -w');
 });
 
 test('exact-head workflow review findings install clean TS jobs and grant provider observers status read', async () => {

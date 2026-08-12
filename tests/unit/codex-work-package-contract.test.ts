@@ -113,6 +113,22 @@ test('frozen Work Package V1 binds strict task ownership and full manifest bytes
   });
 });
 
+test('Work Package V1 authorityRefs are an optional canonical owner-ID projection', () => {
+  const withAuthority = manifest().replace(
+    'tasks:\n',
+    'authorityRefs:\n  - development-governance\n  - verification-governance\ntasks:\n'
+  );
+  expect(CodexDevelopmentParseWorkPackageManifestV1(withAuthority).authorityRefs).toEqual([
+    'development-governance',
+    'verification-governance'
+  ]);
+  expect(CodexDevelopmentParseWorkPackageManifestV1(manifest()).authorityRefs).toBeUndefined();
+  expect(() => CodexDevelopmentParseWorkPackageManifestV1(withAuthority.replace(
+    '  - development-governance\n  - verification-governance',
+    '  - verification-governance\n  - development-governance'
+  ))).toThrow(/canonical code-unit order/u);
+});
+
 test('Work Package V2 exposes only one immutable evidence-composition policy reference', () => {
   const parsed = CodexDevelopmentParseWorkPackageManifestV2(
     manifestV2(),

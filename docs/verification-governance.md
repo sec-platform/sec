@@ -558,6 +558,16 @@ trusted runtime重算、校验；registry/lock双列表、人工同步或“补�
 contract内用于防止关键安全面被移出closure的required-surface下界属于policy invariant，不是完整
 import-graph inventory；它不得被用于枚举closure，也不随普通依赖边扩张而同步更新。
 
+任何新privileged runtime entrypoint进入registry时，其source owner的affected-test closure必须按引用
+组合唯一`TRUSTED_VERIFIER_TCB_FAST_TESTS`，使generated-lock、trust-root与canonical CI sentinel成为
+不可遗漏的直接consumer；`declared-only` owner不得依赖import discovery补边，也不得复制一个较小的TCB
+测试清单。这只是跨owner consumer edge，不建立第二个TCB owner或手工module inventory。
+
+registry发生受权变更时，显式apply writer必须能加载pure closure compiler并计算next lock，不能因模块加载
+阶段把旧lock与新registry提前组合而自锁；production trust-root延迟到首次真实消费时严格组合registry与
+checked-in lock，generator则在publication前对next closure执行同一完整校验。该延迟只解决合法迁移顺序，
+不提供lenient trust view、fallback或双owner；普通consumer读取旧组合仍立即fail closed。
+
 如果old-main generated closure lock已经落后于同一Git tree，base-first checker仍不得把它升级为
 PASS，也不得因自身lock失配而形成不可恢复死锁。它只可在failure集合严格由每个既有module的
 `blob + content digest`成对substitution以及唯一closure-digest差异构成时继续收集candidate SUT，

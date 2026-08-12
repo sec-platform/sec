@@ -13,6 +13,7 @@ import {
   type SecOperationReadPlanInputV1
 } from '../../platform/shared/agent-operation-read-plan-contract.ts';
 import type { SecTaskCapsuleV1 } from '../../platform/shared/agent-task-capsule-contract.ts';
+import { rawSha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   resolveTrustedWorkerTaskCapsuleV1,
   SecTaskCapsuleProjectionUnavailableError,
@@ -28,11 +29,33 @@ function gitOutput(cwd: string, args: readonly string[]): {
   readonly stdout: string;
   readonly stderr: string;
 } {
-  const result = spawnSync('git', [...args], { cwd, encoding: 'utf8', windowsHide: true });
+  const result = spawnSync('git', [...args], {
+    cwd,
+    encoding: 'utf8',
+    windowsHide: true,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+  });
   return {
     status: result.status ?? -1,
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? ''
+  };
+}
+
+function gitBytesOutput(cwd: string, args: readonly string[]): {
+  readonly status: number;
+  readonly stdout: Buffer;
+  readonly stderr: Buffer;
+} {
+  const result = spawnSync('git', [...args], {
+    cwd,
+    windowsHide: true,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+  });
+  return {
+    status: result.status ?? -1,
+    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? ''),
+    stderr: Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(result.stderr ?? '')
   };
 }
 
@@ -42,7 +65,10 @@ function requireGitOutput(cwd: string, args: readonly string[], label: string): 
   return result.stdout.trim();
 }
 
-function requireBlobRevision(cwd: string, revision: string, repositoryPath: string): string {
+function requireBlobObservation(cwd: string, revision: string, repositoryPath: string): Readonly<{
+  revision: string;
+  contentDigest: `sha256:${string}`;
+}> {
   const value = requireGitOutput(
     cwd,
     ['rev-parse', '--verify', `${revision}:${repositoryPath}`],
@@ -51,7 +77,11 @@ function requireBlobRevision(cwd: string, revision: string, repositoryPath: stri
   if (!/^[0-9a-f]{40,64}$/u.test(value)) {
     fail(`exact blob revision is malformed for ${repositoryPath}.`);
   }
-  return value;
+  const content = gitBytesOutput(cwd, ['cat-file', 'blob', value]);
+  if (content.status !== 0) {
+    fail(`exact blob content for ${repositoryPath}: ${rawSha256(content.stderr)}`);
+  }
+  return Object.freeze({ revision: value, contentDigest: rawSha256(content.stdout) });
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -77,10 +107,11 @@ export interface SecProspectiveWorkerOperationObservationV1 {
 }
 
 /**
- * Reserved Read Plan adapter. Phase A cannot enter this positive path until
- * the upstream document-control/A0 owner supplies an issuer-bound activation
- * receipt. The pure Read Plan compiler remains independently usable for
- * content construction and verification.
+ * Hosted phase-bound Read Plan adapter. PRE drives the manifest-only proposal
+ * head before implementation; FINAL rebinds the exact implementation head for
+ * reconciliation. Both paths fail closed until the independent default-branch
+ * producer supplies the matching provider-verified artifact. The pure compiler
+ * remains independently usable for content-only construction and verification.
  */
 export async function resolveProspectiveWorkerOperationV1(
   runtimeRootInput: string,
@@ -90,56 +121,67 @@ export async function resolveProspectiveWorkerOperationV1(
     runtimeRootInput,
     candidateRootInput
   );
-  const requiredRefs = Object.freeze([
-    Object.freeze({
-      id: 'agents-entry',
-      ref: 'AGENTS.md',
-      owner: observation.taskOwner,
-      revision: requireBlobRevision(
-        observation.candidateRoot,
-        observation.trustedRevision,
-        'AGENTS.md'
-      ),
-      reasonCode: 'agent-entry-route'
-    }),
-    Object.freeze({
-      id: 'development-governance',
-      ref: 'docs/development-governance.md',
-      owner: observation.taskOwner,
-      revision: requireBlobRevision(
-        observation.candidateRoot,
-        observation.trustedRevision,
-        'docs/development-governance.md'
-      ),
-      reasonCode: 'operation-governance-owner'
-    }),
-    Object.freeze({
-      id: 'documentation-authority',
-      ref: 'docs/authority.json',
-      owner: observation.taskOwner,
-      revision: requireBlobRevision(
-        observation.candidateRoot,
-        observation.trustedRevision,
-        'docs/authority.json'
-      ),
-      reasonCode: 'document-authority-registry'
-    }),
+  const manifestObservation = requireBlobObservation(
+    observation.candidateRoot,
+    observation.targetCandidate,
+    observation.manifestPath
+  );
+  const sources = Object.freeze([
+    ...observation.authorityOwners.map((source) => Object.freeze({
+      id: source.id,
+      ref: source.ref,
+      owner: source.owner,
+      reasonCode: source.id === 'agents-entry'
+        ? 'agent-entry-route'
+        : source.id === 'documentation-registry'
+          ? 'document-authority-registry'
+          : 'canonical-domain-owner',
+      revision: source.revision,
+      contentDigest: source.contentDigest
+    })),
     Object.freeze({
       id: 'work-package-manifest',
       ref: observation.manifestPath,
-      owner: observation.taskOwner,
-      revision: observation.manifestDigest,
-      reasonCode: 'bind-operation-scope'
+      owner: 'document-control-a0',
+      reasonCode: 'bind-operation-scope',
+      revision: manifestObservation.revision,
+      contentDigest: manifestObservation.contentDigest
     })
   ]);
+  const requiredRefs = Object.freeze(sources.map((source) => Object.freeze({
+    id: source.id,
+    ref: source.ref,
+    owner: source.owner,
+    reasonCode: source.reasonCode,
+    revision: source.revision
+  })));
+  const readReceipts = Object.freeze(requiredRefs.map((reference) => Object.freeze({
+    refId: reference.id,
+    owner: reference.owner,
+    revision: reference.revision,
+    reasonCode: reference.reasonCode,
+    contentDigest: sources.find(({ id }) => id === reference.id)!.contentDigest
+  })));
+  if (manifestObservation.contentDigest !== observation.manifestDigest) {
+    fail('manifest raw content digest differs from the activation receipt.');
+  }
   const readClosure: SecCompiledReadClosureV1 = Object.freeze({
     requiredRefs,
     conditionalRefs: Object.freeze([]),
     forbiddenSources: SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES,
     maxSkillBodies: 1,
     unresolvedFrontier: Object.freeze([]),
-    readReceipts: Object.freeze([]),
-    invalidationInputs: Object.freeze([])
+    readReceipts,
+    invalidationInputs: Object.freeze([
+      Object.freeze({
+        id: 'activation-artifact',
+        revision: observation.activationDigest
+      }),
+      Object.freeze({
+        id: 'current-spec',
+        revision: observation.currentSpecRevision
+      })
+    ])
   });
   return Object.freeze({
     taskCapsule: observation.taskCapsule,
@@ -240,7 +282,7 @@ if (import.meta.main) {
   }
   catch (error) {
     if (error instanceof SecTaskCapsuleProjectionUnavailableError) {
-      console.error(JSON.stringify(taskCapsuleProjectionBlockedV1()));
+      console.error(JSON.stringify(taskCapsuleProjectionBlockedV1(error)));
     }
     else {
       console.error(error instanceof Error ? error.message : String(error));

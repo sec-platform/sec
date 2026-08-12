@@ -463,6 +463,67 @@ export function documentationRecordById(
   return registry.documents.find((record) => record.id === id);
 }
 
+const OPERATION_OWNER_KINDS = new Set<DocumentationAuthorityKind>([
+  'authority',
+  'corpus-contract'
+]);
+
+/**
+ * Resolve the smallest canonical documentation-owner closure for one frozen
+ * operation. Work Package authorityRefs map non-document source scope to its
+ * domain owners; changed registered documents add their own owner or declared
+ * projection targets. The registry is an input from trusted base, so candidate
+ * prose can never create an owner identity or expand this closure.
+ */
+export function resolveDocumentationOperationOwnersV1(input: Readonly<{
+  registry: DocumentationAuthorityRegistry;
+  authorityRefs: readonly string[];
+  changedPaths: readonly string[];
+}>): readonly DocumentationAuthorityRecord[] {
+  if (input.authorityRefs.length === 0) {
+    throw new Error('Operation documentation authorityRefs must not be empty.');
+  }
+  const sortedRefs = [...input.authorityRefs].sort(compareCodeUnits);
+  if (new Set(sortedRefs).size !== sortedRefs.length
+      || sortedRefs.some((entry, index) => entry !== input.authorityRefs[index])) {
+    throw new Error('Operation documentation authorityRefs must be sorted and unique.');
+  }
+  const changedPaths = input.changedPaths.map((repositoryPath, index) => canonicalRepositoryPath(
+    repositoryPath,
+    `Operation changedPaths[${index}]`
+  )).sort(compareCodeUnits);
+  if (new Set(changedPaths).size !== changedPaths.length
+      || changedPaths.some((entry, index) => entry !== input.changedPaths[index])) {
+    throw new Error('Operation changed paths must be sorted and unique.');
+  }
+  const selected = new Map<string, DocumentationAuthorityRecord>();
+  const addOwningRecord = (id: string, reason: string): void => {
+    const record = documentationRecordById(input.registry, id);
+    if (record === undefined) throw new Error(`${reason} references unknown document owner ${id}.`);
+    if (!OPERATION_OWNER_KINDS.has(record.kind)
+        || (record.lifecycle !== 'active' && record.lifecycle !== 'stable')) {
+      throw new Error(`${reason} references non-owning or inactive document ${id}.`);
+    }
+    selected.set(record.id, record);
+  };
+  for (const id of input.authorityRefs) addOwningRecord(id, 'Work Package authorityRefs');
+  if (!selected.has('development-governance')) {
+    throw new Error('Operation documentation authorityRefs must include development-governance.');
+  }
+  for (const repositoryPath of changedPaths) {
+    const changed = documentationRecordByPath(input.registry, repositoryPath);
+    if (changed === undefined) continue;
+    if (OPERATION_OWNER_KINDS.has(changed.kind)) {
+      addOwningRecord(changed.id, `Changed document ${repositoryPath}`);
+      continue;
+    }
+    for (const projectedOwner of changed.projects) {
+      addOwningRecord(projectedOwner, `Changed projection ${repositoryPath}`);
+    }
+  }
+  return Object.freeze([...selected.values()].sort((left, right) => compareCodeUnits(left.id, right.id)));
+}
+
 export function activeDocumentationPaths(registry: DocumentationAuthorityRegistry): string[] {
   return registry.documents.map((record) => record.path).sort(compareCodeUnits);
 }

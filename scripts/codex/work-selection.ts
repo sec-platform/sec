@@ -535,7 +535,11 @@ function observeCanonicalMainHealth(input: {
       : decision.allowed
         ? 'healthy'
         : 'unresolved';
-  return Object.freeze({ state, ref: ledger.ledgerDigest as SecWorkDigestV1 });
+  // Selection identity follows semantic health facts, not observation time or
+  // transport provenance. MainHealth already owns this exact split:
+  // healthRevision changes with status/failures/owner/lanes/main identity,
+  // while ledgerDigest also changes for every fresh observation receipt.
+  return Object.freeze({ state, ref: ledger.healthRevision as SecWorkDigestV1 });
 }
 
 function observeCanonicalControl(input: {
