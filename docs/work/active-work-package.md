@@ -10,8 +10,8 @@ last-reviewed: 2026-08-13
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/default-branch-health-repair-693000cf64941f3536340a66aa086f45f3898514-358b7c441b6ffc7020bc0b41c9016a320801b777e5519c5ee677cfebf8b128bd.md
-manifestDigest: sha256:586d7a2340e9663a5d2fa73d309cfcba934ab3989da44c252d50a282492b5575
+manifest: docs/work-packages/default-branch-health-repair-3f78965551272d7cbfec70f66927003c55521aea-7d07a88ab40ad024785d4bb5d532ef21cea018bd7d2b35eab1bbe0ac1e6679df.md
+manifestDigest: sha256:210b548b46e7aa3a3b21e29a2824e4d20a50d6226e0fc34496a6e6aaaa8d0284
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
