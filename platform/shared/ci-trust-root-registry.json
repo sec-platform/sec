@@ -49,8 +49,10 @@
     "scripts/ci-pr-risk.ts",
     "scripts/ci-verification.ts",
     "scripts/ci-workspace-fast.ts",
+    "scripts/codex/agent-operation-activation.ts",
     "scripts/codex/exact-git-blob.ts",
     "scripts/codex/merge-gate.ts",
+    "scripts/codex/skill-applicability.ts",
     "scripts/codex/verification-session.ts",
     "scripts/codex/work-package-contract.ts",
     "tests/setup/runtime-deps.setup.ts"

@@ -260,6 +260,7 @@ test('trusted verifier TCB surfaces select the causal trust-root contracts', () 
       'tests/contract/sec-merge-gate.test.ts',
       'tests/contract/tcb-closure-lock.test.ts',
       'tests/contract/test-impact.test.ts',
+      'tests/unit/agent-operation-activation.test.ts',
       'tests/unit/tcb-trust-root-contract.test.ts'
     ],
     slow: [],
@@ -437,6 +438,7 @@ test('branch closeout and VerificationSession authority select one exact fast cl
       'tests/contract/sec-merge-gate.test.ts',
       'tests/contract/tcb-closure-lock.test.ts',
       'tests/contract/test-impact.test.ts',
+      'tests/unit/agent-operation-activation.test.ts',
       'tests/unit/branch-closeout-receipt.test.ts',
       'tests/unit/branch-closeout-rest-comments.test.ts',
       'tests/unit/branch-lifecycle-contract.test.ts',
@@ -465,6 +467,33 @@ test('branch closeout and VerificationSession authority select one exact fast cl
 });
 
 test('test impact keeps Task Capsule and Read Plan verification in direct fast owners', () => {
+  const activationFast = [
+    'tests/contract/ci-contract.test.ts',
+    'tests/contract/ci-lanes.test.ts',
+    'tests/contract/operation-read-plan.test.ts',
+    'tests/contract/sec-merge-gate.test.ts',
+    'tests/contract/skill-applicability.test.ts',
+    'tests/contract/tcb-closure-lock.test.ts',
+    'tests/contract/test-impact.test.ts',
+    'tests/unit/agent-operation-activation.test.ts',
+    'tests/unit/tcb-trust-root-contract.test.ts'
+  ].sort();
+  for (const source of [
+    'platform/shared/agent-operation-activation-contract.ts',
+    'scripts/codex/agent-operation-activation.ts'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual({
+      fast: activationFast,
+      slow: [],
+      owners: ['agent-operation-activation']
+    });
+    expect(resolveTestOwnership([source])).toEqual([{
+      source,
+      owner: 'agent-operation-activation',
+      identity: { kind: 'contract', id: 'agent-operation-activation' }
+    }]);
+  }
+
   const taskCapsuleFast = [
     'tests/contract/operation-read-plan.test.ts',
     'tests/contract/skill-applicability.test.ts',
@@ -512,10 +541,33 @@ test('test impact keeps Task Capsule and Read Plan verification in direct fast o
   }
 });
 
+test('Work Package authorityRefs parser routes every direct activation and owner-closure consumer', () => {
+  const source = 'scripts/codex/work-package-contract.ts';
+  expect(selectTestsForSources([source])).toEqual({
+    fast: [
+      'tests/contract/document-control-plane-lifecycle.test.ts',
+      'tests/contract/documentation-authority.test.ts',
+      'tests/contract/docs-doctor.test.ts',
+      'tests/contract/operation-read-plan.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/agent-operation-activation.test.ts',
+      'tests/unit/codex-work-package-contract.test.ts'
+    ],
+    slow: [],
+    owners: ['work-package-contract']
+  });
+  expect(resolveTestOwnership([source])).toEqual([{
+    source,
+    owner: 'work-package-contract',
+    identity: { kind: 'contract', id: 'work-package-contract' }
+  }]);
+});
+
 test('test impact keeps WorkDecision Phase A B C in one direct fast owner', () => {
   const fast = [
     'tests/contract/document-control-plane-lifecycle.test.ts',
     'tests/contract/test-impact.test.ts',
+    'tests/unit/agent-operation-activation.test.ts',
     'tests/unit/branch-lifecycle-contract.test.ts',
     'tests/unit/verification-candidate-tree.test.ts',
     'tests/unit/work-selection-contract.test.ts',

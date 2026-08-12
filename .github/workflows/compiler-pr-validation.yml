@@ -1,5 +1,5 @@
 name: compiler-pr-validation
-run-name: "${{ github.event_name == 'push' && format('SEC main health {0}', github.sha) || github.event.action == 'sec-produce-main-health-v1' && format('SEC main health {0} operation {1}', github.event.client_payload.payload.mainSha, github.event.client_payload.payload.requestOperationId) || github.event.action == 'sec-produce-verification-action-v2' && format('produce Action {0}', github.event.client_payload.payload.proposal.proposedActionKey) || format('verify session PR #{0} session {1}', github.event.client_payload.payload.prNumber, github.event.client_payload.payload.expectedSessionRevision) }}"
+run-name: "${{ github.event_name == 'push' && format('SEC main health {0}', github.sha) || github.event.action == 'sec-produce-main-health-v1' && format('SEC main health {0} operation {1}', github.event.client_payload.payload.mainSha, github.event.client_payload.payload.requestOperationId) || github.event.action == 'sec-produce-agent-operation-activation-v1' && format('activate {0} PR #{1}', github.event.client_payload.payload.phase, github.event.client_payload.payload.pullRequestNumber) || github.event.action == 'sec-produce-verification-action-v2' && format('produce Action {0}', github.event.client_payload.payload.proposal.proposedActionKey) || format('verify session PR #{0} session {1}', github.event.client_payload.payload.prNumber, github.event.client_payload.payload.expectedSessionRevision) }}"
 
 on:
   push:
@@ -10,6 +10,7 @@ on:
       - sec-verify-session-v2
       - sec-produce-verification-action-v2
       - sec-produce-main-health-v1
+      - sec-produce-agent-operation-activation-v1
 
 permissions:
   actions: read
@@ -34,7 +35,7 @@ env:
 
 jobs:
   validate-hosted-request:
-    if: ${{ github.event_name == 'repository_dispatch' && github.event.action != 'sec-produce-main-health-v1' }}
+    if: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'sec-verify-session-v2' || github.event.action == 'sec-produce-verification-action-v2') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -215,6 +216,292 @@ jobs:
             core.setOutput('pr-number', String(sessionRequest.prNumber));
             core.setOutput('session-revision', sessionRequest.expectedSessionRevision);
             core.setOutput('session-revision-hex', sessionRequest.expectedSessionRevision.slice(7));
+
+  validate-agent-operation-activation-request:
+    name: validate-agent-operation-activation-request
+    if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-agent-operation-activation-v1' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      request-base64: ${{ steps.request.outputs.request-base64 }}
+      request-operation-id: ${{ steps.request.outputs.request-operation-id }}
+      request-operation-hex: ${{ steps.request.outputs.request-operation-hex }}
+      phase: ${{ steps.request.outputs.phase }}
+      base-sha: ${{ steps.request.outputs.base-sha }}
+      head-sha: ${{ steps.request.outputs.head-sha }}
+      head-ref: ${{ steps.request.outputs.head-ref }}
+      pr-number: ${{ steps.request.outputs.pr-number }}
+      actor-node-id: ${{ steps.request.outputs.actor-node-id }}
+      actor-permission: ${{ steps.request.outputs.actor-permission }}
+    steps:
+      - name: Bind activation request to live main, exact draft PR, manifest, and maintainer
+        id: request
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PAYLOAD_JSON: ${{ toJSON(github.event.client_payload) }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          ACTOR_LOGIN: ${{ github.actor }}
+          TRIGGERING_ACTOR_LOGIN: ${{ github.triggering_actor }}
+          EVENT_SENDER_JSON: ${{ toJSON(github.event.sender) }}
+        with:
+          script: |
+            const crypto = require('crypto');
+            const wrapper = JSON.parse(process.env.PAYLOAD_JSON);
+            const wrapperKeys = Object.keys(wrapper ?? {}).sort();
+            if (!wrapper || typeof wrapper !== 'object' || Array.isArray(wrapper) ||
+                wrapperKeys.length !== 1 || wrapperKeys[0] !== 'payload' ||
+                !wrapper.payload || typeof wrapper.payload !== 'object' || Array.isArray(wrapper.payload)) {
+              throw new Error('Activation client_payload must be the exact one-key wrapper.');
+            }
+            const request = wrapper.payload;
+            const requestKeys = [
+              'schema', 'phase', 'pullRequestNumber', 'expectedBaseSha', 'expectedHeadSha',
+              'manifestPath', 'manifestDigest', 'preparationCommentId', 'requestOperationId'
+            ].sort();
+            const actualKeys = Object.keys(request).sort();
+            if (actualKeys.length !== requestKeys.length ||
+                actualKeys.some((key, index) => key !== requestKeys[index]) ||
+                request.schema !== 'sec-agent-operation-activation-request-v1') {
+              throw new Error('Activation request keys or schema are invalid.');
+            }
+            const canonical = (value) => {
+              if (value === null || typeof value !== 'object') return value;
+              if (Array.isArray(value)) return value.map(canonical);
+              return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+            };
+            const digest = (value) => `sha256:${crypto.createHash('sha256')
+              .update(JSON.stringify(canonical(value))).digest('hex')}`;
+            const sha = (value, label) => {
+              if (typeof value !== 'string' || !/^[0-9a-f]{40}$/.test(value)) {
+                throw new Error(`${label} is invalid.`);
+              }
+              return value;
+            };
+            const sha256 = (value, label) => {
+              if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(value)) {
+                throw new Error(`${label} is invalid.`);
+              }
+              return value;
+            };
+            const material = Object.fromEntries(Object.entries(request)
+              .filter(([key]) => key !== 'requestOperationId'));
+            if ((request.phase !== 'prepare' && request.phase !== 'finalize') ||
+                !Number.isSafeInteger(request.pullRequestNumber) || request.pullRequestNumber < 1 ||
+                (request.phase === 'prepare' ? request.preparationCommentId !== null :
+                  !Number.isSafeInteger(request.preparationCommentId) || request.preparationCommentId < 1) ||
+                typeof request.manifestPath !== 'string' ||
+                !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/.test(request.manifestPath) ||
+                sha256(request.manifestDigest, 'manifestDigest') !== request.manifestDigest ||
+                sha256(request.requestOperationId, 'requestOperationId') !== digest(material)) {
+              throw new Error('Activation request content or digest is invalid.');
+            }
+            sha(request.expectedBaseSha, 'expectedBaseSha');
+            sha(request.expectedHeadSha, 'expectedHeadSha');
+            const sender = JSON.parse(process.env.EVENT_SENDER_JSON);
+            if (process.env.ACTOR_LOGIN !== process.env.TRIGGERING_ACTOR_LOGIN ||
+                sender?.login?.toLowerCase() !== process.env.ACTOR_LOGIN.toLowerCase() ||
+                typeof sender?.node_id !== 'string') {
+              throw new Error('Activation actor, triggering actor, and event sender differ.');
+            }
+            const [repository, actorPermission, pull, openPulls] = await Promise.all([
+              github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo }),
+              github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner, repo: context.repo.repo, username: process.env.ACTOR_LOGIN
+              }),
+              github.rest.pulls.get({
+                owner: context.repo.owner, repo: context.repo.repo, pull_number: request.pullRequestNumber
+              }),
+              github.paginate(github.rest.pulls.list, {
+                owner: context.repo.owner, repo: context.repo.repo, state: 'open', per_page: 100
+              })
+            ]);
+            const permission = actorPermission.data.permission;
+            if (permission !== 'admin' && permission !== 'maintain') {
+              throw new Error('Activation dispatch requires maintain or admin permission.');
+            }
+            const [baseBranch, headCommit, comparison] = await Promise.all([
+              github.rest.repos.getBranch({
+                owner: context.repo.owner, repo: context.repo.repo,
+                branch: repository.data.default_branch
+              }),
+              github.rest.repos.getCommit({
+                owner: context.repo.owner, repo: context.repo.repo, ref: request.expectedHeadSha
+              }),
+              github.rest.repos.compareCommitsWithBasehead({
+                owner: context.repo.owner, repo: context.repo.repo,
+                basehead: `${request.expectedBaseSha}...${request.expectedHeadSha}`
+              })
+            ]);
+            const baseSha = baseBranch.data.commit.sha;
+            const pullData = pull.data;
+            const matching = openPulls.filter((candidate) =>
+              candidate.number === request.pullRequestNumber &&
+              candidate.head.sha === request.expectedHeadSha &&
+              candidate.base.sha === request.expectedBaseSha &&
+              candidate.head.repo?.id === repository.data.id &&
+              candidate.base.repo?.id === repository.data.id);
+            if (repository.data.default_branch !== 'main' || process.env.WORKFLOW_SHA !== baseSha ||
+                request.expectedBaseSha !== baseSha || pullData.state !== 'open' || !pullData.draft ||
+                pullData.base.ref !== 'main' || pullData.base.sha !== baseSha ||
+                pullData.head.sha !== request.expectedHeadSha ||
+                !pullData.head.ref.startsWith('codex/') ||
+                pullData.base.repo?.id !== repository.data.id || pullData.head.repo?.id !== repository.data.id ||
+                headCommit.data.commit.tree.sha.length !== 40 || matching.length !== 1 ||
+                comparison.data.behind_by !== 0 || comparison.data.ahead_by < 1 ||
+                comparison.data.total_commits !== comparison.data.commits.length ||
+                comparison.data.commits.some((commit) => (commit.parents ?? []).length !== 1)) {
+              throw new Error('Activation live main, PR, head, or linear ancestry is stale or ambiguous.');
+            }
+            const locator = (pullData.body ?? '').replaceAll('\r\n', '\n').split('\n')
+              .filter((line) => line.startsWith('Work-Package:'));
+            if (locator.length !== 1 || locator[0] !== `Work-Package: ${request.manifestPath}`) {
+              throw new Error('PR Work-Package locator differs from the request.');
+            }
+            const manifest = await github.rest.repos.getContent({
+              owner: context.repo.owner, repo: context.repo.repo,
+              path: request.manifestPath, ref: request.expectedHeadSha
+            });
+            if (Array.isArray(manifest.data) || manifest.data.type !== 'file' ||
+                manifest.data.encoding !== 'base64') {
+              throw new Error('Work Package manifest is not one ordinary Git blob.');
+            }
+            const bytes = Buffer.from(manifest.data.content.replaceAll('\n', ''), 'base64');
+            const blobSha = crypto.createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+            const manifestDigest = `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`;
+            if (bytes.length === 0 || bytes.length > 131072 || blobSha !== manifest.data.sha ||
+                manifestDigest !== request.manifestDigest) {
+              throw new Error('Work Package blob identity or digest is stale.');
+            }
+            core.setOutput('request-base64', Buffer.from(JSON.stringify(canonical(request))).toString('base64'));
+            core.setOutput('request-operation-id', request.requestOperationId);
+            core.setOutput('request-operation-hex', request.requestOperationId.slice(7));
+            core.setOutput('phase', request.phase);
+            core.setOutput('base-sha', request.expectedBaseSha);
+            core.setOutput('head-sha', request.expectedHeadSha);
+            core.setOutput('head-ref', pullData.head.ref);
+            core.setOutput('pr-number', String(request.pullRequestNumber));
+            core.setOutput('actor-node-id', sender.node_id);
+            core.setOutput('actor-permission', permission);
+
+  agent-operation-activation:
+    name: agent-operation-activation
+    if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-agent-operation-activation-v1' }}
+    needs: validate-agent-operation-activation-request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: sec-agent-operation-activation-${{ github.repository_id }}-${{ needs.validate-agent-operation-activation-request.outputs.request-operation-hex }}
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Checkout exact trusted main producer
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ needs.validate-agent-operation-activation-request.outputs.base-sha }}
+          fetch-depth: 0
+          # WorkDecision performs the canonical authenticated remote-ref census
+          # from this trusted checkout. The sibling candidate checkout never
+          # receives or persists the token.
+          persist-credentials: true
+          path: trusted
+
+      - name: Checkout exact candidate SUT
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ needs.validate-agent-operation-activation-request.outputs.head-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          path: candidate
+
+      - name: Setup trusted Bun for activation projection
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: trusted/.bun-version
+
+      - name: Cache trusted activation Bun install
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('trusted/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install trusted activation dependencies from frozen lock
+        working-directory: trusted
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Materialize exact activation request
+        env:
+          REQUEST_BASE64: ${{ needs.validate-agent-operation-activation-request.outputs.request-base64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$REQUEST_BASE64" | base64 --decode > "$RUNNER_TEMP/agent-operation-activation-request.json"
+
+      - name: Compile exact hosted activation payload
+        id: compile-activation
+        working-directory: trusted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          SEC_ACTIVATION_ACTOR_LOGIN: ${{ github.actor }}
+          SEC_ACTIVATION_ACTOR_NODE_ID: ${{ needs.validate-agent-operation-activation-request.outputs.actor-node-id }}
+          SEC_ACTIVATION_ACTOR_PERMISSION: ${{ needs.validate-agent-operation-activation-request.outputs.actor-permission }}
+          SEC_ACTIVATION_HEAD_REF: ${{ needs.validate-agent-operation-activation-request.outputs.head-ref }}
+        run: |
+          set -euo pipefail
+          RESULT=$(bun scripts/codex/agent-operation-activation.ts produce-hosted \
+            --runtime-root . \
+            --candidate-root ../candidate \
+            --request "$RUNNER_TEMP/agent-operation-activation-request.json" \
+            --output "$RUNNER_TEMP/agent-operation-activation.json" \
+            --json)
+          printf '%s\n' "$RESULT"
+          DISPOSITION=$(printf '%s' "$RESULT" | bun -e \
+            "const value=JSON.parse(await Bun.stdin.text()); console.log(value.disposition)")
+          if [[ "$DISPOSITION" != 'created' && "$DISPOSITION" != 'existing' ]]; then
+            echo 'Activation producer returned an invalid disposition.' >&2
+            exit 2
+          fi
+          echo "disposition=$DISPOSITION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload exact Agent operation activation receipt
+        id: activation-upload
+        if: ${{ steps.compile-activation.outputs.disposition == 'created' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sec-agent-operation-activation-${{ needs.validate-agent-operation-activation-request.outputs.phase }}-${{ needs.validate-agent-operation-activation-request.outputs.request-operation-hex }}
+          path: ${{ runner.temp }}/agent-operation-activation.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish exact Agent operation activation receipt
+        if: ${{ steps.compile-activation.outputs.disposition == 'created' }}
+        working-directory: trusted
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          SEC_ACTIVATION_ACTOR_LOGIN: ${{ github.actor }}
+          SEC_ACTIVATION_ACTOR_NODE_ID: ${{ needs.validate-agent-operation-activation-request.outputs.actor-node-id }}
+          SEC_ACTIVATION_ACTOR_PERMISSION: ${{ needs.validate-agent-operation-activation-request.outputs.actor-permission }}
+          SEC_ACTIVATION_HEAD_REF: ${{ needs.validate-agent-operation-activation-request.outputs.head-ref }}
+          ARTIFACT_ID: ${{ steps.activation-upload.outputs.artifact-id }}
+          # upload-artifact exposes bare hexadecimal while the REST artifact
+          # metadata uses the canonical sha256:<hex> representation.
+          ARTIFACT_DIGEST: sha256:${{ steps.activation-upload.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          bun scripts/codex/agent-operation-activation.ts publish-hosted \
+            --runtime-root . \
+            --request "$RUNNER_TEMP/agent-operation-activation-request.json" \
+            --payload "$RUNNER_TEMP/agent-operation-activation.json" \
+            --artifact-id "$ARTIFACT_ID" \
+            --artifact-digest "$ARTIFACT_DIGEST" \
+            --json
 
   coordinate-verification-session:
     name: coordinate-verification-session

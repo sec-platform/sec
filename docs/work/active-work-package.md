@@ -10,8 +10,8 @@ last-reviewed: 2026-08-12
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/main-health-repair-unbound-vocabulary-v1.md
-manifestDigest: sha256:e31ba9ec8c326d8eb82f21f5fb15b8a9f5cb098de200d9bd9bb6ed3039505021
+manifest: docs/work-packages/operation-read-plan-authority-canary-v1.md
+manifestDigest: sha256:709331f88faae14bd1bd2d327fad8c9363b58e710cff2b1bdd201cc8b68cc24d
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

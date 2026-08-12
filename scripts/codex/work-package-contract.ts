@@ -20,6 +20,7 @@ export type CodexDevelopmentWorkPackageManifestV1 = {
   manifestState: typeof CodexDevelopmentWorkPackageManifestStateFrozen;
   requiredProfile: 'quick' | 'full';
   ciRevision: CodexDevelopmentCiVerificationRevision;
+  authorityRefs?: string[];
   tasks: CodexDevelopmentWorkPackageTaskV1[];
   forbiddenPaths: string[];
   acceptance: string[];
@@ -71,6 +72,7 @@ const TOP_LEVEL_KEYS = [
   'acceptance',
   'tests'
 ] as const;
+const TOP_LEVEL_KEYS_WITH_AUTHORITY_REFS = [...TOP_LEVEL_KEYS, 'authorityRefs'] as const;
 const TOP_LEVEL_KEYS_V2 = [
   'schema',
   'id',
@@ -120,6 +122,16 @@ function stringArray(value: unknown, label: string): string[] {
   }
   const entries = value.map((entry, index) => stringValue(entry, `${label}[${index}]`));
   if (new Set(entries).size !== entries.length) throw new Error(`${label} contains duplicate entries.`);
+  return entries;
+}
+
+function stableIdArray(value: unknown, label: string): string[] {
+  const entries = stringArray(value, label);
+  entries.forEach((entry, index) => assertStableId(entry, `${label}[${index}]`));
+  const canonical = [...entries].sort();
+  if (canonical.some((entry, index) => entry !== entries[index])) {
+    throw new Error(`${label} must be in canonical code-unit order.`);
+  }
   return entries;
 }
 
@@ -340,7 +352,11 @@ export function CodexDevelopmentParseWorkPackageManifestV1(
   expectedPath?: string
 ): CodexDevelopmentWorkPackageManifestV1 {
   const raw = parseManifestRaw(source);
-  assertExactKeys(raw, TOP_LEVEL_KEYS, 'Work Package manifest');
+  assertExactKeys(
+    raw,
+    raw.authorityRefs === undefined ? TOP_LEVEL_KEYS : TOP_LEVEL_KEYS_WITH_AUTHORITY_REFS,
+    'Work Package manifest'
+  );
 
   const id = stringValue(raw.id, 'Work Package manifest id');
   assertStableId(id, 'Work Package manifest id');
@@ -398,6 +414,9 @@ export function CodexDevelopmentParseWorkPackageManifestV1(
 
   const acceptance = stringArray(raw.acceptance, 'Work Package manifest acceptance');
   const tests = stringArray(raw.tests, 'Work Package manifest tests');
+  const authorityRefs = raw.authorityRefs === undefined
+    ? undefined
+    : stableIdArray(raw.authorityRefs, 'Work Package manifest authorityRefs');
   const manifest: CodexDevelopmentWorkPackageManifestV1 = {
     schema: CodexDevelopmentWorkPackageSchemaV1,
     id,
@@ -406,6 +425,7 @@ export function CodexDevelopmentParseWorkPackageManifestV1(
     manifestState: CodexDevelopmentWorkPackageManifestStateFrozen,
     requiredProfile: raw.requiredProfile,
     ciRevision: ciRevision as CodexDevelopmentCiVerificationRevision,
+    ...(authorityRefs === undefined ? {} : { authorityRefs }),
     tasks,
     forbiddenPaths,
     acceptance,

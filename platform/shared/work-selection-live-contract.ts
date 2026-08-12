@@ -133,6 +133,11 @@ export interface SecWorkRollingProjectionV1 {
   readonly projectionDigest: SecWorkDigestV1;
 }
 
+export interface SecWorkRollingTopologyV1 {
+  readonly activePackageId: string;
+  readonly candidatePackageIds: readonly string[];
+}
+
 export type SecWorkSelectionLiveResultV1 = Readonly<
   | {
     schema: typeof SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA_V1;
@@ -863,9 +868,7 @@ function projectionItem(
   });
 }
 
-export function compileSecWorkRollingProjectionV1(
-  receipt: SecWorkDecisionReceiptV1
-): SecWorkRollingProjectionV1 {
+function assertRollingDecisionReceiptV1(receipt: SecWorkDecisionReceiptV1): void {
   const receiptMaterial = {
     schema: receipt.schema,
     issuer: receipt.issuer,
@@ -883,26 +886,59 @@ export function compileSecWorkRollingProjectionV1(
   };
   if (receipt.schema !== SEC_WORK_DECISION_RECEIPT_SCHEMA_V1
       || receipt.receiptDigest !== sha256(receiptMaterial)) {
-    fail('rolling projection requires one internally valid decision receipt.');
+    fail('rolling topology requires one internally valid decision receipt.');
   }
   assertSecWorkDecisionV1(receipt.decision, receipt.input);
-  if (receipt.decision.status !== 'select-next' || receipt.decision.selectedWorkId === null) {
-    fail('rolling projection requires a select-next decision.');
+}
+
+function rollingTopologyFromValidatedReceiptV1(
+  receipt: SecWorkDecisionReceiptV1
+): SecWorkRollingTopologyV1 {
+  if ((receipt.decision.status !== 'select-next' && receipt.decision.status !== 'continue-active')
+      || receipt.decision.selectedWorkId === null) {
+    fail('rolling topology requires a select-next or continue-active decision.');
   }
-  const selected = receipt.catalog.items.find(({ workId }) => workId === receipt.decision.selectedWorkId);
-  if (selected === undefined) fail('selected work is absent from the bound roadmap catalog.');
+  const active = receipt.catalog.items.find(({ workId }) => workId === receipt.decision.selectedWorkId);
+  if (active === undefined) fail('rolling topology active work is absent from the bound roadmap catalog.');
   const candidatesByWorkId = new Map(receipt.input.candidates.map((candidate) => [candidate.workId, candidate]));
-  const witnessByWorkId = new Map(receipt.decision.rejectionWitnesses.map((witness) => [witness.workId, witness]));
-  const futureItems = receipt.catalog.items.filter((item) => {
-    if (item.workId === selected.workId) return false;
+  const activeCandidate = candidatesByWorkId.get(active.workId);
+  if (activeCandidate === undefined || activeCandidate.lifecycle === 'already-in-main'
+      || activeCandidate.lifecycle === 'superseded') {
+    fail('rolling topology active work is absent or terminal in the bound candidate set.');
+  }
+  const candidatePackageIds = receipt.catalog.items.filter((item) => {
+    if (item.workId === active.workId) return false;
     const candidate = candidatesByWorkId.get(item.workId);
     return candidate !== undefined
       && candidate.lifecycle !== 'already-in-main'
       && candidate.lifecycle !== 'superseded';
-  });
-  if (futureItems.length < 2 || futureItems.length > 5) {
-    fail('rolling projection must retain two to five nonterminal candidates after selection.');
+  }).map(({ packageId }) => packageId);
+  if (candidatePackageIds.length < 2 || candidatePackageIds.length > 5) {
+    fail('rolling topology must retain two to five nonterminal candidates after selection.');
   }
+  return deepFreeze({ activePackageId: active.packageId, candidatePackageIds });
+}
+
+export function compileSecWorkRollingTopologyV1(
+  receipt: SecWorkDecisionReceiptV1
+): SecWorkRollingTopologyV1 {
+  assertRollingDecisionReceiptV1(receipt);
+  return rollingTopologyFromValidatedReceiptV1(receipt);
+}
+
+export function compileSecWorkRollingProjectionV1(
+  receipt: SecWorkDecisionReceiptV1
+): SecWorkRollingProjectionV1 {
+  assertRollingDecisionReceiptV1(receipt);
+  if (receipt.decision.status !== 'select-next' || receipt.decision.selectedWorkId === null) {
+    fail('rolling projection requires a select-next decision.');
+  }
+  const topology = rollingTopologyFromValidatedReceiptV1(receipt);
+  const selected = receipt.catalog.items.find(({ packageId }) => packageId === topology.activePackageId);
+  if (selected === undefined) fail('selected work is absent from the bound roadmap catalog.');
+  const witnessByWorkId = new Map(receipt.decision.rejectionWitnesses.map((witness) => [witness.workId, witness]));
+  const candidatesByPackageId = new Map(receipt.catalog.items.map((item) => [item.packageId, item]));
+  const futureItems = topology.candidatePackageIds.map((packageId) => candidatesByPackageId.get(packageId)!);
   const withoutDigest = {
     schema: SEC_WORK_ROLLING_PROJECTION_SCHEMA_V1,
     exactMain: receipt.exactMain,

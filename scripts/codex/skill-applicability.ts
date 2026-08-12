@@ -121,7 +121,7 @@ if (import.meta.main) {
   }
   catch (error) {
     if (error instanceof SecTaskCapsuleProjectionUnavailableError) {
-      console.error(JSON.stringify(taskCapsuleProjectionBlockedV1()));
+      console.error(JSON.stringify(taskCapsuleProjectionBlockedV1(error)));
     }
     else {
       console.error(error instanceof Error ? error.message : String(error));

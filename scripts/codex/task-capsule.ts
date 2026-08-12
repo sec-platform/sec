@@ -3,44 +3,62 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { SEC_AGENT_SKILL_IDS } from '../../platform/shared/agent-skill-contract.ts';
 import {
+  compileSecTaskCapsuleV1,
   parseSecTaskCapsuleV1,
   SEC_TASK_CAPSULE_AUTHORITY_STATUS,
   SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA,
+  SEC_TASK_CAPSULE_INPUT_SCHEMA,
   type SecDigestV1,
   type SecTaskCapsuleV1
 } from '../../platform/shared/agent-task-capsule-contract.ts';
+import { compareCodeUnits, sha256 } from '../../platform/shared/canonical-primitives.ts';
+import {
+  resolveSecAgentOperationActivationV1,
+  SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES,
+  SecAgentOperationActivationUnavailableError,
+  type SecAgentOperationActivationReasonCodeV1,
+  type SecOperationAuthorityOwnerObservationV1
+} from './agent-operation-activation.ts';
 
 export const SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA =
   'sec-task-capsule-projection-blocked-v1' as const;
-export const SEC_TASK_CAPSULE_PROJECTION_BLOCKED_REASON =
-  'trusted-activation-authority-unavailable' as const;
+export const SEC_TASK_CAPSULE_PROJECTION_BLOCKED_REASONS =
+  SEC_AGENT_OPERATION_ACTIVATION_REASON_CODES;
 
 export interface SecTaskCapsuleProjectionBlockedV1 {
   readonly schema: typeof SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA;
   readonly status: 'blocked';
-  readonly reasonCode: typeof SEC_TASK_CAPSULE_PROJECTION_BLOCKED_REASON;
+  readonly reasonCode: SecAgentOperationActivationReasonCodeV1;
+  readonly blockerDigest: SecDigestV1;
   readonly authorityStatus: typeof SEC_TASK_CAPSULE_AUTHORITY_STATUS;
   readonly effectAuthority: 'none';
   readonly retryOwner: 'document-control-a0-activation-authority';
 }
 
 export class SecTaskCapsuleProjectionUnavailableError extends Error {
-  readonly code = SEC_TASK_CAPSULE_PROJECTION_BLOCKED_REASON;
+  readonly code: SecAgentOperationActivationReasonCodeV1;
+  readonly blockerDigest: SecDigestV1;
 
-  constructor() {
+  constructor(code: SecAgentOperationActivationReasonCodeV1, blockerDigest: SecDigestV1) {
     super(
-      'trusted activation authority is unavailable; candidate files and recovery journals cannot issue a Task Capsule projection.'
+      `trusted activation authority is unavailable (${code}); candidate state cannot issue a Task Capsule projection.`
     );
     this.name = 'SecTaskCapsuleProjectionUnavailableError';
+    this.code = code;
+    this.blockerDigest = blockerDigest;
   }
 }
 
-export function taskCapsuleProjectionBlockedV1(): SecTaskCapsuleProjectionBlockedV1 {
+export function taskCapsuleProjectionBlockedV1(
+  error: SecTaskCapsuleProjectionUnavailableError
+): SecTaskCapsuleProjectionBlockedV1 {
   return Object.freeze({
     schema: SEC_TASK_CAPSULE_PROJECTION_BLOCKED_SCHEMA,
     status: 'blocked',
-    reasonCode: SEC_TASK_CAPSULE_PROJECTION_BLOCKED_REASON,
+    reasonCode: error.code,
+    blockerDigest: error.blockerDigest,
     authorityStatus: SEC_TASK_CAPSULE_AUTHORITY_STATUS,
     effectAuthority: 'none',
     retryOwner: 'document-control-a0-activation-authority'
@@ -56,22 +74,110 @@ export interface SecTrustedWorkerTaskCapsuleObservationV1 {
   readonly changedPaths: readonly string[];
   readonly manifestPath: string;
   readonly manifestDigest: SecDigestV1;
-  readonly taskOwner: string;
+  readonly activationPhase: 'prepare' | 'finalize';
+  readonly activationDigest: SecDigestV1;
+  readonly currentSpecRevision: SecDigestV1;
+  readonly authorityOwners: readonly SecOperationAuthorityOwnerObservationV1[];
 }
 
 /**
- * Reserved production seam. Phase A intentionally has no positive local
- * adapter: a candidate-controlled journal is recovery state, not an issuer
- * credential. The future document-control/A0 owner must provide a durable,
- * issuer-bound, exact-candidate-bound receipt before this seam can resolve.
+ * Resolve the separate document-control/A0 activation authority, then compile
+ * immutable unbound planning content from its exact manifest/scope facts. PRE
+ * drives the proposal head; FINAL rebinds the implementation head. The Capsule
+ * never becomes an effect credential: candidate files, journals and caller JSON
+ * remain unable to issue or replace either hosted activation artifact.
  */
 export async function resolveTrustedWorkerTaskCapsuleV1(
   runtimeRootInput: string,
   candidateRootInput: string
 ): Promise<SecTrustedWorkerTaskCapsuleObservationV1> {
-  void runtimeRootInput;
-  void candidateRootInput;
-  throw new SecTaskCapsuleProjectionUnavailableError();
+  let activation: ReturnType<typeof resolveSecAgentOperationActivationV1>;
+  try {
+    activation = resolveSecAgentOperationActivationV1(runtimeRootInput, candidateRootInput);
+  } catch (error) {
+    if (error instanceof SecAgentOperationActivationUnavailableError) {
+      throw new SecTaskCapsuleProjectionUnavailableError(error.reasonCode, error.blockerDigest);
+    }
+    throw error;
+  }
+  const { preparation } = activation;
+  const ownerFacts = [
+    ...activation.manifest.tasks.map((task) => Object.freeze({
+      id: task.id,
+      ref: activation.manifestPath,
+      owner: task.owner,
+      revision: activation.manifestDigest
+    })),
+    ...activation.authorityOwners.map((owner) => Object.freeze({
+      id: `authority-${owner.id}`,
+      ref: owner.ref,
+      owner: owner.owner,
+      revision: owner.revision
+    }))
+  ];
+  const writePaths = activation.manifest.tasks
+    .flatMap(({ ownedPaths }) => ownedPaths)
+    .sort(compareCodeUnits);
+  const readPaths = [...new Set([
+    'AGENTS.md',
+    'docs/authority.json',
+    activation.manifestPath,
+    ...activation.authorityOwners.map(({ ref }) => ref),
+    ...writePaths
+  ])].sort(compareCodeUnits);
+  const verificationObligations = activation.manifest.schema === 'codex-development-work-package-v1'
+    ? activation.manifest.tests.map((testPath, index) => Object.freeze({
+        id: `test-${String(index + 1).padStart(3, '0')}`,
+        revision: testPath,
+        reasonCode: 'work-package-test'
+      }))
+    : [Object.freeze({
+        id: 'evidence-policy',
+        revision: activation.manifest.evidenceComposition.policyId,
+        reasonCode: 'work-package-evidence-policy'
+      })];
+  const taskCapsule = compileSecTaskCapsuleV1({
+    schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
+    ref: `activation:${activation.activationDigest}`,
+    planningContext: {
+      operationId: preparation.operationId,
+      role: preparation.role,
+      operationKind: preparation.operationKind,
+      goalDigest: preparation.currentSpecRevision,
+      trustedRevision: preparation.trustedBaseSha,
+      targetCandidate: activation.targetCandidate,
+      workPackageProposalRef: preparation.proposal.manifestPath,
+      workPackageProposalDigest: preparation.proposal.manifestDigest,
+      workPackageProjectionId: sha256(preparation.controlDigests),
+      scopeGrantId: null,
+      ownerFacts,
+      scopeProposal: {
+        readPaths,
+        writePaths,
+        forbiddenPaths: activation.manifest.forbiddenPaths,
+        availableCapabilities: preparation.availableCapabilities,
+        authorizedResources: [],
+        authorizedGates: [],
+        changedPaths: activation.changedPaths
+      },
+      verificationObligations,
+      skillCandidateIds: SEC_AGENT_SKILL_IDS
+    }
+  });
+  return Object.freeze({
+    taskCapsule,
+    runtimeRoot: activation.runtimeRoot,
+    candidateRoot: activation.candidateRoot,
+    trustedRevision: activation.trustedRevision,
+    targetCandidate: activation.targetCandidate,
+    changedPaths: activation.changedPaths,
+    manifestPath: activation.manifestPath,
+    manifestDigest: activation.manifestDigest,
+    activationPhase: activation.phase,
+    activationDigest: activation.activationDigest,
+    currentSpecRevision: preparation.currentSpecRevision,
+    authorityOwners: activation.authorityOwners
+  });
 }
 
 function fail(message: string): never {
@@ -130,7 +236,9 @@ async function main(): Promise<void> {
     if (request.schema !== SEC_TASK_CAPSULE_COMPILE_REQUEST_SCHEMA || Object.keys(request).length !== 1) {
       fail('compile input must be one authority-free schema-only request.');
     }
-    await resolveTrustedWorkerTaskCapsuleV1(runtimeRoot, options.candidateRoot);
+    const observation = await resolveTrustedWorkerTaskCapsuleV1(runtimeRoot, options.candidateRoot);
+    process.stdout.write(`${JSON.stringify(observation.taskCapsule, null, 2)}\n`);
+    return;
   }
   if (command === 'verify') {
     if (options.capsule === undefined || options.input !== undefined || options.candidateRoot !== undefined) {
@@ -159,7 +267,7 @@ if (import.meta.main) {
   }
   catch (error) {
     if (error instanceof SecTaskCapsuleProjectionUnavailableError) {
-      console.error(JSON.stringify(taskCapsuleProjectionBlockedV1()));
+      console.error(JSON.stringify(taskCapsuleProjectionBlockedV1(error)));
     }
     else {
       console.error(error instanceof Error ? error.message : String(error));
