@@ -65,6 +65,11 @@ export const TRUSTED_VERIFIER_TCB_FAST_TESTS = [
   'tests/unit/tcb-trust-root-contract.test.ts'
 ];
 
+const GIT_CHANGED_FILE_OBSERVATION_FAST_TESTS = [
+  ...TRUSTED_VERIFIER_TCB_FAST_TESTS,
+  'tests/contract/dev-runner-contract.test.ts'
+];
+
 const VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS = [
   'tests/contract/ci-contract.test.ts',
   'tests/contract/document-control-plane-lifecycle.test.ts',
@@ -98,6 +103,14 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
 ];
 
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: 'git-changed-file-observation',
+    identity: { kind: 'architecture-owner', id: 'git-changed-file-observation' },
+    autoReferenceMode: 'include',
+    sourceFiles: ['platform/shared/ci-git-changed-files.ts'],
+    fast: GIT_CHANGED_FILE_OBSERVATION_FAST_TESTS,
+    slow: []
+  },
   {
     owner: 'import-transform-transaction',
     identity: { kind: 'architecture-owner', id: 'import-transform-transaction' },

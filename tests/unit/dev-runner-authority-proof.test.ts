@@ -212,10 +212,15 @@ function mechanismScenario(
     packageSurfaces: Object.freeze(scenarioId === 'live'
       ? [{ relativePath: 'package.json', value: { name: 'sec' } }]
       : []),
-    expectedValidation: scenarioId === 'protected-unknown' ? 'rejected' : 'accepted',
-    expectedViolationCodes: Object.freeze(
-      scenarioId === 'protected-unknown' ? ['UNKNOWN_PROPERTY_FRONTIER'] : []
-    )
+    expectedValidation: 'rejected',
+    expectedViolationCodes: Object.freeze(scenarioId === 'protected-unknown'
+      ? [
+          'BOUNDED_EXPOSURE',
+          'BOUNDED_OWNER_CONTRACT',
+          'PROCESS_OWNER_CONTRACT',
+          'UNKNOWN_PROPERTY_FRONTIER'
+        ]
+      : ['PROCESS_OWNER_CONTRACT'])
   });
 }
 
@@ -696,9 +701,16 @@ describe('finite dev-runner authority kernel', () => {
     expect(suite.counters.typeCheckerBuildCount).toBe(1);
     expect(suite.counters.moduleResolutionCacheBuildCount).toBe(1);
     expect(suite.counters.programSymbolIndexBuildCount).toBe(1);
-    expect(suite.scenarioProofsById.get('live')?.violations).toEqual([]);
-    expect(suite.scenarioProofsById.get('protected-unknown')?.violationCodes)
-      .toContain('UNKNOWN_PROPERTY_FRONTIER');
+    expect([...new Set(suite.scenarioProofsById.get('live')?.violationCodes)].sort())
+      .toEqual(['PROCESS_OWNER_CONTRACT']);
+    expect([
+      ...new Set(suite.scenarioProofsById.get('protected-unknown')?.violationCodes)
+    ].sort()).toEqual([
+      'BOUNDED_EXPOSURE',
+      'BOUNDED_OWNER_CONTRACT',
+      'PROCESS_OWNER_CONTRACT',
+      'UNKNOWN_PROPERTY_FRONTIER'
+    ]);
     expect(suite.moduleEdges.some((edge) =>
       edge.sourceModuleId === 'scripts/release.ts' &&
       edge.targetModuleId === 'package.json')).toBe(false);
