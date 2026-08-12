@@ -1338,7 +1338,8 @@ export const HandleBit = Object.freeze({
   RequireLoader: 1 << 14,
   ReflectGet: 1 << 15,
   ObjectAssign: 1 << 16,
-  ObjectDefineProperty: 1 << 17
+  ObjectDefineProperty: 1 << 17,
+  RuntimeImportMeta: 1 << 18
 } as const);
 
 export const ProtectedRoleBit = Object.freeze({
@@ -1346,7 +1347,8 @@ export const ProtectedRoleBit = Object.freeze({
   BoundedExecutor: 1 << 1,
   SharedProcessBytes: 1 << 2,
   SharedProcessAlternative: 1 << 3,
-  SensitiveAggregate: 1 << 4
+  SensitiveAggregate: 1 << 4,
+  GitChangedFileObservationOwner: 1 << 5
 } as const);
 
 export const EffectBit = Object.freeze({
@@ -7498,9 +7500,19 @@ type CapabilityRegistryEntry =
       readonly handles: number;
     }
   | {
+      readonly kind: 'ambient-meta';
+      readonly name: 'import.meta';
+      readonly handles: number;
+    }
+  | {
       readonly kind: 'external-export';
       readonly specifier: string;
       readonly exportName: string;
+      readonly handles: number;
+    }
+  | {
+      readonly kind: 'external-namespace';
+      readonly specifier: string;
       readonly handles: number;
     }
   | {
@@ -7508,6 +7520,11 @@ type CapabilityRegistryEntry =
       readonly sourceHandle: HandleBitValue;
       readonly property: string;
       readonly targetHandles: number;
+    }
+  | {
+      readonly kind: 'immutable-property';
+      readonly sourceHandle: HandleBitValue;
+      readonly property: string;
     }
   | {
       readonly kind: 'owner-binding';
@@ -7525,9 +7542,15 @@ const CAPABILITY_REGISTRY: readonly CapabilityRegistryEntry[] = Object.freeze([
   { kind: 'ambient-global', name: 'Reflect', handles: HandleBit.RuntimeReflect },
   { kind: 'ambient-global', name: 'Worker', handles: HandleBit.WorkerAuthority },
   { kind: 'ambient-global', name: 'eval', handles: HandleBit.ExecutableLoader },
+  { kind: 'ambient-global', name: 'global', handles: HandleBit.RuntimeGlobal },
   { kind: 'ambient-global', name: 'globalThis', handles: HandleBit.RuntimeGlobal },
   { kind: 'ambient-global', name: 'module', handles: HandleBit.RuntimeModule },
   { kind: 'ambient-global', name: 'process', handles: HandleBit.RuntimeProcess },
+  {
+    kind: 'ambient-meta',
+    name: 'import.meta',
+    handles: HandleBit.RuntimeImportMeta
+  },
   {
     kind: 'ambient-global',
     name: 'require',
@@ -7565,6 +7588,29 @@ const CAPABILITY_REGISTRY: readonly CapabilityRegistryEntry[] = Object.freeze([
   },
   {
     kind: 'external-export',
+    specifier: 'node:process',
+    exportName: 'default',
+    handles: HandleBit.RuntimeProcess
+  },
+  {
+    kind: 'external-export',
+    specifier: 'node:process',
+    exportName: '*',
+    handles: HandleBit.RuntimeProcess
+  },
+  {
+    kind: 'external-export',
+    specifier: 'node:process',
+    exportName: 'env',
+    handles: HandleBit.ProcessEnvironment
+  },
+  {
+    kind: 'external-namespace',
+    specifier: 'bun',
+    handles: HandleBit.RuntimeBun
+  },
+  {
+    kind: 'external-export',
     specifier: 'node:module',
     exportName: 'createRequire',
     handles: HandleBit.RequireLoader | HandleBit.ExecutableLoader
@@ -7574,6 +7620,12 @@ const CAPABILITY_REGISTRY: readonly CapabilityRegistryEntry[] = Object.freeze([
     sourceHandle: HandleBit.RuntimeBun,
     property: '$',
     targetHandles: HandleBit.ChildAuthority
+  },
+  {
+    kind: 'property-derivation',
+    sourceHandle: HandleBit.RuntimeBun,
+    property: 'env',
+    targetHandles: HandleBit.ProcessEnvironment
   },
   {
     kind: 'property-derivation',
@@ -7625,6 +7677,17 @@ const CAPABILITY_REGISTRY: readonly CapabilityRegistryEntry[] = Object.freeze([
   },
   {
     kind: 'property-derivation',
+    sourceHandle: HandleBit.RuntimeImportMeta,
+    property: 'env',
+    targetHandles: HandleBit.ProcessEnvironment
+  },
+  ...['dir', 'dirname', 'file', 'filename', 'main', 'path', 'url'].map((property) => ({
+    kind: 'immutable-property' as const,
+    sourceHandle: HandleBit.RuntimeImportMeta,
+    property
+  })),
+  {
+    kind: 'property-derivation',
     sourceHandle: HandleBit.RuntimeProcess,
     property: 'env',
     targetHandles: HandleBit.ProcessEnvironment
@@ -7673,6 +7736,12 @@ const CAPABILITY_REGISTRY: readonly CapabilityRegistryEntry[] = Object.freeze([
   },
   {
     kind: 'owner-binding',
+    moduleRole: 'bounded',
+    exportName: 'gitChangedFiles',
+    roles: ProtectedRoleBit.GitChangedFileObservationOwner
+  },
+  {
+    kind: 'owner-binding',
     moduleRole: 'process',
     exportName: 'runCommandBytes',
     roles: ProtectedRoleBit.SharedProcessBytes
@@ -7711,7 +7780,7 @@ const EXTERNAL_CALLBACK_EXECUTION_CONTRACTS: readonly ExternalCallbackExecutionC
   })]);
 
 const BUILTIN_SPECIFIERS = new Set([
-  'child_process', 'cluster', 'module', 'os', 'worker_threads'
+  'child_process', 'cluster', 'module', 'os', 'process', 'worker_threads'
 ]);
 
 function normalizeBuiltinSpecifier(specifier: string): string {
@@ -7724,10 +7793,44 @@ function externalCapabilityMask(specifier: string, exportName: string): number {
   const normalized = normalizeBuiltinSpecifier(specifier);
   let handles = 0;
   for (const entry of CAPABILITY_REGISTRY) {
-    if (entry.kind !== 'external-export' || entry.specifier !== normalized) continue;
+    if (entry.kind === 'external-namespace') {
+      if (entry.specifier !== normalized) continue;
+      if (exportName === '*') {
+        handles |= entry.handles;
+      } else {
+        eachSetBit(entry.handles, HANDLE_BITS, (sourceHandle) => {
+          for (const projection of CAPABILITY_REGISTRY) {
+            if (projection.kind === 'property-derivation' &&
+              projection.sourceHandle === sourceHandle &&
+              projection.property === exportName) {
+              handles |= projection.targetHandles;
+            }
+          }
+        });
+      }
+      continue;
+    }
+    if (entry.kind !== 'external-export') continue;
+    if (entry.specifier !== normalized) continue;
     if (entry.exportName === exportName || entry.exportName === '*') handles |= entry.handles;
   }
   return handles;
+}
+
+function externalNamespaceProtectedExportNames(specifier: string): readonly string[] {
+  const normalized = normalizeBuiltinSpecifier(specifier);
+  const handles = new Set<HandleBitValue>();
+  for (const entry of CAPABILITY_REGISTRY) {
+    if (entry.kind !== 'external-namespace' || entry.specifier !== normalized) continue;
+    eachSetBit(entry.handles, HANDLE_BITS, (handle) => handles.add(handle as HandleBitValue));
+  }
+  const names = new Set<string>();
+  for (const entry of CAPABILITY_REGISTRY) {
+    if (entry.kind === 'property-derivation' && handles.has(entry.sourceHandle)) {
+      names.add(entry.property);
+    }
+  }
+  return Object.freeze([...names].sort(compareCanonicalText));
 }
 
 interface ModuleAcquisition {
@@ -7737,6 +7840,12 @@ interface ModuleAcquisition {
     { readonly kind: 'external'; readonly specifier: string };
 }
 
+type AmbientAuthorityUseKind =
+  | 'computed-property'
+  | 'fixed-property-read'
+  | 'mutation'
+  | 'whole-value';
+
 interface CompactUseSite {
   readonly scenarioId: string;
   readonly node: FiniteProofNodeRef;
@@ -7744,8 +7853,25 @@ interface CompactUseSite {
   readonly ownerCallableId: CallableId | null;
   readonly callSiteId: string | null;
   readonly kind: 'call-callee' | 'property-base' | 'whole';
+  readonly ambientAuthorityUseKind: AmbientAuthorityUseKind;
+  readonly ambientPropertyNames: readonly string[] | null;
   readonly location: string;
 }
+
+type GitChangedFileReadOperation =
+  | 'changed-diff'
+  | 'path-blob'
+  | 'rev-parse-base'
+  | 'rev-parse-head'
+  | 'untracked-files';
+
+const GIT_CHANGED_FILE_READ_OPERATIONS = Object.freeze<readonly GitChangedFileReadOperation[]>([
+  'changed-diff',
+  'path-blob',
+  'rev-parse-base',
+  'rev-parse-head',
+  'untracked-files'
+]);
 
 interface CompactCallSite {
   readonly id: string;
@@ -7758,6 +7884,7 @@ interface CompactCallSite {
   readonly boundedClosureNested: boolean;
   readonly location: string;
   readonly firstArgumentLiteral: string | null;
+  readonly gitChangedFileReadOperation: GitChangedFileReadOperation | null;
   readonly directCapabilityHandles: number;
 }
 
@@ -7791,7 +7918,11 @@ interface CompactScenarioBinding {
   readonly commandCallableId: CallableId | null;
   readonly boundedCallableId: CallableId | null;
   readonly runFastTestsCallableId: CallableId | null;
+  readonly affectedTestsBaseRefCallableId: CallableId | null;
+  readonly affectedTestsBaseRefExact: boolean;
   readonly gitChangedFilesCallableId: CallableId | null;
+  readonly gitChangedFilesPrivateOwner: boolean;
+  readonly resolveAffectedTestExecutionCallableId: CallableId | null;
   readonly runCommandBytesCallableId: CallableId | null;
   readonly commandModuleId: string | null;
   readonly boundedModuleId: string | null;
@@ -7843,6 +7974,12 @@ interface RawStaticModuleActivationEdge {
 interface RawStarExport {
   readonly source: ProgramModule;
   readonly target: ProgramModule;
+  readonly identity: string;
+}
+
+interface RawExternalStarExport {
+  readonly source: ProgramModule;
+  readonly specifier: string;
   readonly identity: string;
 }
 
@@ -7906,6 +8043,9 @@ class ProgramAuthorityLowerer {
   private readonly staticModuleActivationEdges: RawStaticModuleActivationEdge[] = [];
   private readonly starExports: RawStarExport[] = [];
   private readonly starExportKeys = new Set<string>();
+  private readonly externalStarExports: RawExternalStarExport[] = [];
+  private readonly externalStarExportKeys = new Set<string>();
+  private readonly directExportNamesByModule = new Map<string, Set<string>>();
   private readonly moduleEdgeKeys = new Set<string>();
   private readonly staticModuleActivationEdgeKeys = new Set<string>();
   private readonly namespaceExports: Array<{
@@ -8075,6 +8215,9 @@ class ProgramAuthorityLowerer {
             firstArgumentLiteral: rawNode?.arguments?.[0] &&
               ts.isStringLiteral(rawNode.arguments[0])
               ? rawNode.arguments[0].text
+              : null,
+            gitChangedFileReadOperation: rawNode
+              ? this.gitChangedFileReadOperationFor(rawNode)
               : null,
             directCapabilityHandles: rawNode
               ? this.directCapabilityHandles(
@@ -8479,10 +8622,11 @@ class ProgramAuthorityLowerer {
           );
         }
       } else if (acquisition?.target.kind === 'external') {
-        const slot = this.exportSlot(module, '*');
-        this.assembler.seed(slot, module.scenarioId, {
-          handles: externalCapabilityMask(acquisition.target.specifier, '*')
-        });
+        this.addExternalStarExport(
+          module,
+          acquisition.target.specifier,
+          `esm-external-star:${module.relativePath}:${statement.pos}:${statement.end}`
+        );
         this.externalAcquisitions.push({
           scenarioId: module.scenarioId,
           moduleId: module.relativePath,
@@ -8495,6 +8639,7 @@ class ProgramAuthorityLowerer {
       return;
     }
     if (ts.isNamespaceExport(statement.exportClause)) {
+      this.markDirectExportName(module, statement.exportClause.name.text);
       if (acquisition?.target.kind === 'executable') {
         const target = this.context.modulesById.get(acquisition.target.moduleId);
         if (target) {
@@ -8527,6 +8672,7 @@ class ProgramAuthorityLowerer {
       if (element.isTypeOnly) continue;
       const importedName = element.propertyName?.text ?? element.name.text;
       const ownName = element.name.text;
+      this.markDirectExportName(module, ownName);
       if (acquisition?.target.kind === 'executable') {
         const target = this.context.modulesById.get(acquisition.target.moduleId);
         if (target) {
@@ -8579,6 +8725,7 @@ class ProgramAuthorityLowerer {
     source: FiniteProofNodeRef,
     identity: string
   ): void {
+    this.markDirectExportName(module, exportName);
     const slot = this.exportSlot(module, exportName);
     this.assembler.addConstraint({
       id: `${module.relativePath}:${identity}`,
@@ -8588,6 +8735,27 @@ class ProgramAuthorityLowerer {
       source,
       target: slot
     });
+  }
+
+  private markDirectExportName(module: ProgramModule, exportName: string): void {
+    let names = this.directExportNamesByModule.get(module.relativePath);
+    if (!names) {
+      names = new Set();
+      this.directExportNamesByModule.set(module.relativePath, names);
+    }
+    names.add(exportName);
+  }
+
+  private addExternalStarExport(
+    source: ProgramModule,
+    specifier: string,
+    identity: string
+  ): void {
+    const normalized = normalizeBuiltinSpecifier(specifier);
+    const key = `${source.scenarioId}\0${source.relativePath}\0${normalized}`;
+    if (this.externalStarExportKeys.has(key)) return;
+    this.externalStarExportKeys.add(key);
+    this.externalStarExports.push({ source, specifier: normalized, identity });
   }
 
   private addStarExport(source: ProgramModule, target: ProgramModule, identity: string): void {
@@ -9192,6 +9360,16 @@ class ProgramAuthorityLowerer {
 
     if (ts.isIdentifier(node) && isReferenceIdentifier(node)) {
       this.wireIdentifierReference(node, module, owner);
+    } else if (ts.isMetaProperty(node) &&
+      node.keywordToken === ts.SyntaxKind.ImportKeyword && node.name.text === 'meta') {
+      const value = this.index.valueForExpression(node, module);
+      const entry = CAPABILITY_REGISTRY.find((candidate) =>
+        candidate.kind === 'ambient-meta' && candidate.name === 'import.meta');
+      if (entry?.kind !== 'ambient-meta') {
+        throw new Error('Canonical import.meta capability is not registered.');
+      }
+      this.assembler.seed(value, module.scenarioId, { handles: entry.handles });
+      this.recordExpressionUse(node, value, module, owner);
     } else if (ts.isPropertyAccessExpression(node)) {
       const base = this.index.valueForExpression(node.expression, module);
       const target = this.index.valueForExpression(node, module);
@@ -9609,6 +9787,34 @@ class ProgramAuthorityLowerer {
           parent.expression === node)
           ? 'property-base'
           : 'whole';
+    const propertyUse = kind === 'property-base' &&
+      (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent))
+      ? parent
+      : null;
+    const ambientPropertyNames = propertyUse === null
+      ? null
+      : ts.isPropertyAccessExpression(propertyUse)
+        ? Object.freeze([propertyUse.name.text])
+        : propertyUse.argumentExpression
+          ? this.evaluator.evaluatePropertyKeys(propertyUse.argumentExpression)
+          : null;
+    const mutationTarget = propertyUse ?? node;
+    const mutationParent = mutationTarget.parent;
+    const isMutation =
+      (ts.isBinaryExpression(mutationParent) && mutationParent.left === mutationTarget &&
+        isAssignmentOperator(mutationParent.operatorToken.kind)) ||
+      ((ts.isPrefixUnaryExpression(mutationParent) ||
+          ts.isPostfixUnaryExpression(mutationParent)) &&
+        mutationParent.operand === mutationTarget) ||
+      (ts.isDeleteExpression(mutationParent) &&
+        mutationParent.expression === mutationTarget);
+    const ambientAuthorityUseKind: AmbientAuthorityUseKind = isMutation
+      ? 'mutation'
+      : ts.isElementAccessExpression(node) && ambientPropertyNames === null
+        ? 'computed-property'
+        : kind === 'property-base'
+          ? 'fixed-property-read'
+          : 'whole-value';
     this.uses.push({
       scenarioId: module.scenarioId,
       node: value,
@@ -9616,6 +9822,8 @@ class ProgramAuthorityLowerer {
       ownerCallableId: owner.id,
       callSiteId: callSite ? programCallSiteId(module, callSite) : null,
       kind,
+      ambientAuthorityUseKind,
+      ambientPropertyNames,
       location: programLocation(module, node)
     });
     if (kind !== 'whole') return;
@@ -10499,6 +10707,591 @@ class ProgramAuthorityLowerer {
       (ts.isFunctionDeclaration(declarations[0]) ||
         ts.isClassDeclaration(declarations[0])) &&
       declarations[0].name?.text === value.text;
+  }
+
+  private isExactNamedImport(
+    expression: ts.Expression,
+    moduleSpecifier: string,
+    importedName: string
+  ): boolean {
+    const value = unwrapExpression(expression);
+    if (!ts.isIdentifier(value)) return false;
+    const symbol = this.index.lexicalSymbol(value);
+    const declarations = symbol?.declarations ?? [];
+    if (declarations.length !== 1 || !ts.isImportSpecifier(declarations[0])) return false;
+    const declaration = declarations[0];
+    const namedImports = declaration.parent;
+    if (!ts.isNamedImports(namedImports)) return false;
+    const importClause = namedImports.parent;
+    if (!ts.isImportClause(importClause) || importClause.isTypeOnly || declaration.isTypeOnly) {
+      return false;
+    }
+    const importDeclaration = importClause.parent;
+    return ts.isImportDeclaration(importDeclaration) &&
+      ts.isStringLiteralLike(importDeclaration.moduleSpecifier) &&
+      importDeclaration.moduleSpecifier.text === moduleSpecifier &&
+      declaration.name.text === value.text &&
+      (declaration.propertyName?.text ?? declaration.name.text) === importedName;
+  }
+
+  private hasExactGitObservationOptions(expression: ts.Expression): boolean {
+    const value = unwrapExpression(expression);
+    if (!ts.isObjectLiteralExpression(value) || value.properties.length !== 1) return false;
+    const property = value.properties[0];
+    return ts.isPropertyAssignment(property) && semanticPropertyName(property.name) === 'cwd' &&
+      this.isExactNamedImport(property.initializer, '../shared/paths.ts', 'compilerRoot');
+  }
+
+  private exactLocalDeclaration(expression: ts.Expression): ts.Declaration | null {
+    const value = unwrapExpression(expression);
+    if (!ts.isIdentifier(value)) return null;
+    const symbol = this.index.lexicalSymbol(value);
+    const declarations = symbol?.declarations ?? [];
+    return symbol && !this.evaluator.hasObservedWrite(symbol) && declarations.length === 1
+      ? declarations[0]!
+      : null;
+  }
+
+  private referencesDeclaration(
+    expression: ts.Expression,
+    declaration: ts.Declaration
+  ): boolean {
+    return this.exactLocalDeclaration(expression) === declaration;
+  }
+
+  private exactConstVariableDeclaration(expression: ts.Expression): ts.VariableDeclaration | null {
+    const declaration = this.exactLocalDeclaration(expression);
+    return declaration && ts.isVariableDeclaration(declaration) &&
+      ts.isIdentifier(declaration.name) && declaration.initializer &&
+      ts.isVariableDeclarationList(declaration.parent) &&
+      (declaration.parent.flags & ts.NodeFlags.Const) !== 0
+      ? declaration
+      : null;
+  }
+
+  private isExactUndefined(expression: ts.Expression): boolean {
+    const value = unwrapExpression(expression);
+    if (!ts.isIdentifier(value) || value.text !== 'undefined') return false;
+    const symbol = this.index.lexicalSymbol(value);
+    return symbol !== null && (symbol.declarations?.length ?? 0) === 0;
+  }
+
+  private isExactNull(expression: ts.Expression): boolean {
+    return unwrapExpression(expression).kind === ts.SyntaxKind.NullKeyword;
+  }
+
+  private isExactProcessEnvProperty(expression: ts.Expression, propertyName: string): boolean {
+    const value = unwrapExpression(expression);
+    if (!ts.isPropertyAccessExpression(value) || value.name.text !== propertyName) return false;
+    const env = unwrapExpression(value.expression);
+    return ts.isPropertyAccessExpression(env) && env.name.text === 'env' &&
+      this.isExactPinnedAmbientValue(env.expression, 'process');
+  }
+
+  private isExactAffectedTestsBaseRefDeclaration(
+    declaration: ts.Declaration
+  ): declaration is ts.FunctionDeclaration {
+    if (!ts.isFunctionDeclaration(declaration) ||
+      declaration.parent !== declaration.getSourceFile() ||
+      declaration.name?.text !== 'affectedTestsBaseRef' || declaration.parameters.length !== 0 ||
+      nodeHasModifier(declaration, ts.SyntaxKind.ExportKeyword) ||
+      nodeHasModifier(declaration, ts.SyntaxKind.DefaultKeyword) ||
+      !declaration.body || declaration.body.statements.length !== 1) return false;
+    const symbol = this.index.symbolAt(declaration.name, true);
+    if (!symbol || symbol.declarations?.length !== 1 ||
+      symbol.declarations[0] !== declaration) return false;
+    const statement = declaration.body.statements[0];
+    if (!ts.isReturnStatement(statement) || !statement.expression) return false;
+    const returned = unwrapExpression(statement.expression);
+    return ts.isBinaryExpression(returned) &&
+      returned.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken &&
+      this.isExactProcessEnvProperty(returned.left, 'SEC_AFFECTED_TESTS_BASE') &&
+      this.isExactProcessEnvProperty(returned.right, 'SEC_CHANGED_BASE');
+  }
+
+  private isExactAffectedTestsBaseRefCall(expression: ts.Expression): boolean {
+    const value = unwrapExpression(expression);
+    if (!ts.isCallExpression(value) || value.arguments.length !== 0) return false;
+    const callable = this.index.exactCallableAt(value.expression);
+    const declaration = callable?.declaration;
+    return declaration !== undefined &&
+      this.isExactAffectedTestsBaseRefDeclaration(declaration);
+  }
+
+  private exactAffectedTestsBaseRefDeclaration(
+    expression: ts.Expression
+  ): ts.VariableDeclaration | null {
+    const declaration = this.exactConstVariableDeclaration(expression);
+    return declaration && declaration.initializer &&
+      this.isExactAffectedTestsBaseRefCall(declaration.initializer)
+      ? declaration
+      : null;
+  }
+
+  private isExactRunCommandBytesCall(
+    expression: ts.Expression,
+    argv: (expression: ts.Expression) => boolean
+  ): expression is ts.CallExpression {
+    const value = unwrapExpression(expression);
+    return ts.isCallExpression(value) && value.arguments.length === 3 &&
+      this.isExactNamedImport(value.expression, '../shared/process.ts', 'runCommandBytes') &&
+      ts.isStringLiteralLike(value.arguments[0]!) && value.arguments[0].text === 'git' &&
+      argv(value.arguments[1]!) && this.hasExactGitObservationOptions(value.arguments[2]!);
+  }
+
+  private isExactRevParseCall(
+    expression: ts.Expression,
+    role: 'base' | 'head',
+    baseRefDeclaration: ts.VariableDeclaration
+  ): boolean {
+    return this.isExactRunCommandBytesCall(expression, (argvExpression) => {
+      const argv = unwrapExpression(argvExpression);
+      if (!ts.isArrayLiteralExpression(argv) || argv.elements.length !== 3 ||
+        argv.elements.some(ts.isSpreadElement) ||
+        !ts.isStringLiteralLike(argv.elements[0]!) || argv.elements[0].text !== 'rev-parse' ||
+        !ts.isStringLiteralLike(argv.elements[1]!) || argv.elements[1].text !== '--verify') {
+        return false;
+      }
+      const revision = argv.elements[2]!;
+      if (role === 'head') {
+        return ts.isStringLiteralLike(revision) && revision.text === 'HEAD^{commit}';
+      }
+      return ts.isTemplateExpression(revision) && revision.head.text === '' &&
+        revision.templateSpans.length === 1 &&
+        this.referencesDeclaration(
+          revision.templateSpans[0]!.expression,
+          baseRefDeclaration
+        ) && revision.templateSpans[0]!.literal.text === '^{commit}';
+    });
+  }
+
+  private exactRevisionResultBinding(
+    expression: ts.Expression,
+    role: 'base' | 'head'
+  ): ts.BindingElement | null {
+    const declaration = this.exactLocalDeclaration(expression);
+    if (!declaration || !ts.isBindingElement(declaration) ||
+      !ts.isIdentifier(declaration.name) || !ts.isArrayBindingPattern(declaration.parent)) return null;
+    const bindingPattern = declaration.parent;
+    if (bindingPattern.elements.length !== 2 ||
+      bindingPattern.elements.some(ts.isOmittedExpression) ||
+      bindingPattern.elements[role === 'base' ? 0 : 1] !== declaration) return null;
+    const variable = bindingPattern.parent;
+    if (!ts.isVariableDeclaration(variable) || variable.name !== bindingPattern ||
+      !variable.initializer || !ts.isVariableDeclarationList(variable.parent) ||
+      (variable.parent.flags & ts.NodeFlags.Const) === 0) return null;
+    const initializer = unwrapExpression(variable.initializer);
+    if (!ts.isConditionalExpression(initializer)) return null;
+    const condition = unwrapExpression(initializer.condition);
+    if (!ts.isBinaryExpression(condition) ||
+      condition.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      !this.isExactUndefined(condition.right)) return null;
+    const baseRefDeclaration = this.exactAffectedTestsBaseRefDeclaration(condition.left);
+    if (!baseRefDeclaration) return null;
+    const whenTrue = unwrapExpression(initializer.whenTrue);
+    if (!ts.isArrayLiteralExpression(whenTrue) || whenTrue.elements.length !== 2 ||
+      !whenTrue.elements.every((element) => this.isExactNull(element))) return null;
+    const whenFalse = unwrapExpression(initializer.whenFalse);
+    if (!ts.isCallExpression(whenFalse) || !ts.isPropertyAccessExpression(whenFalse.expression) ||
+      whenFalse.expression.name.text !== 'all' ||
+      !this.isExactDefaultLibraryValue(whenFalse.expression.expression, 'Promise') ||
+      whenFalse.arguments.length !== 1) return null;
+    const observations = unwrapExpression(whenFalse.arguments[0]!);
+    return ts.isArrayLiteralExpression(observations) && observations.elements.length === 2 &&
+      this.isExactRevParseCall(observations.elements[0]!, 'base', baseRefDeclaration) &&
+      this.isExactRevParseCall(observations.elements[1]!, 'head', baseRefDeclaration)
+      ? declaration
+      : null;
+  }
+
+  private isExactRevisionParserCall(
+    expression: ts.Expression,
+    resultDeclaration: ts.BindingElement
+  ): boolean {
+    const value = unwrapExpression(expression);
+    if (!ts.isCallExpression(value) || value.arguments.length !== 1) return false;
+    const callable = this.index.exactCallableAt(value.expression);
+    const declaration = callable?.declaration;
+    if (!declaration || !ts.isFunctionDeclaration(declaration) ||
+      declaration.parent !== declaration.getSourceFile() ||
+      declaration.name?.text !== 'exactRevision' || declaration.parameters.length !== 1 ||
+      declaration.getSourceFile() !== value.getSourceFile() ||
+      !this.isExactRevisionParserDeclaration(declaration) ||
+      !this.isPrivateRevisionParserSymbol(declaration)) {
+      return false;
+    }
+    const stdout = unwrapExpression(value.arguments[0]!);
+    return ts.isPropertyAccessExpression(stdout) && stdout.name.text === 'stdout' &&
+      this.referencesDeclaration(stdout.expression, resultDeclaration);
+  }
+
+  private isPrivateRevisionParserSymbol(declaration: ts.FunctionDeclaration): boolean {
+    if (!declaration.name || nodeHasModifier(declaration, ts.SyntaxKind.ExportKeyword) ||
+      nodeHasModifier(declaration, ts.SyntaxKind.DefaultKeyword)) return false;
+    const symbol = this.index.symbolAt(declaration.name, true);
+    if (!symbol || symbol.declarations?.length !== 1 ||
+      symbol.declarations[0] !== declaration) return false;
+    const module = this.context.modulesBySourceFile.get(declaration.getSourceFile());
+    if (!module) return false;
+    const owners = this.index.allCallables().filter((callable) => {
+      const candidate = callable.declaration;
+      return callable.module === module && callable.parentCallableId === null &&
+        ts.isFunctionDeclaration(candidate) && candidate.parent === module.sourceFile &&
+        candidate.name?.text === 'gitChangedFiles';
+    });
+    if (owners.length !== 1 || !this.isPrivateGitChangedFilesOwner(owners[0]!)) return false;
+    const owner = owners[0]!;
+    const parserIdentities = new Set(this.checkerSymbolIdentities(symbol));
+    let escaped = false;
+    const visit = (node: ts.Node): void => {
+      if (escaped) return;
+      if (ts.isIdentifier(node)) {
+        const candidate = this.index.symbolAt(node, true);
+        const isParser = candidate !== null && this.checkerSymbolIdentities(candidate)
+          .some((identity) => parserIdentities.has(identity));
+        if (isParser && node !== declaration.name) {
+          const parent = node.parent;
+          if (!ts.isCallExpression(parent) || parent.expression !== node ||
+            this.enclosingCallable(parent)?.id !== owner.id) {
+            escaped = true;
+            return;
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(module.sourceFile);
+    return !escaped;
+  }
+
+  private enclosingCallable(node: ts.Node): CallableModel | null {
+    let current: ts.Node | undefined = node.parent;
+    while (current && !ts.isSourceFile(current)) {
+      if (isFunctionLikeWithBody(current)) {
+        return this.index.callableForDeclaration(current);
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  private isPrivateGitChangedFilesOwner(callable: CallableModel): boolean {
+    const declaration = callable.declaration;
+    if (!ts.isFunctionDeclaration(declaration) || !declaration.name ||
+      declaration.parent !== callable.module.sourceFile ||
+      declaration.name.text !== 'gitChangedFiles' ||
+      nodeHasModifier(declaration, ts.SyntaxKind.ExportKeyword) ||
+      nodeHasModifier(declaration, ts.SyntaxKind.DefaultKeyword)) return false;
+    const symbol = this.index.symbolAt(declaration.name, true);
+    return symbol !== null && symbol.declarations?.length === 1 &&
+      symbol.declarations[0] === declaration;
+  }
+
+  private isExactRevisionParserDeclaration(declaration: ts.FunctionDeclaration): boolean {
+    if (!declaration.body || declaration.asteriskToken ||
+      nodeHasModifier(declaration, ts.SyntaxKind.AsyncKeyword) ||
+      declaration.parameters.length !== 1) return false;
+    const parameter = declaration.parameters[0]!;
+    if (!ts.isIdentifier(parameter.name) || parameter.initializer || parameter.dotDotDotToken ||
+      parameter.questionToken) return false;
+    const parameterSymbol = this.index.lexicalSymbol(parameter.name);
+    if (!parameterSymbol || this.evaluator.hasObservedWrite(parameterSymbol)) return false;
+    const statements = declaration.body.statements;
+    if (statements.length !== 1 || !ts.isTryStatement(statements[0]!)) return false;
+    const tryStatement = statements[0]!;
+    if (tryStatement.finallyBlock || !tryStatement.catchClause ||
+      tryStatement.catchClause.variableDeclaration ||
+      tryStatement.catchClause.block.statements.length !== 1 ||
+      !this.isExactNullReturn(tryStatement.catchClause.block.statements[0]!)) return false;
+    if (tryStatement.tryBlock.statements.length !== 2) return false;
+    const valueStatement = tryStatement.tryBlock.statements[0]!;
+    if (!ts.isVariableStatement(valueStatement) ||
+      valueStatement.declarationList.declarations.length !== 1 ||
+      (valueStatement.declarationList.flags & ts.NodeFlags.Const) === 0) return false;
+    const valueDeclaration = valueStatement.declarationList.declarations[0]!;
+    if (!ts.isIdentifier(valueDeclaration.name) || !valueDeclaration.initializer ||
+      !this.isExactDecodedTrimmedRevision(
+        valueDeclaration.initializer,
+        parameter,
+        parameterSymbol
+      )) return false;
+    const valueSymbol = this.index.lexicalSymbol(valueDeclaration.name);
+    if (!valueSymbol || this.evaluator.hasObservedWrite(valueSymbol)) return false;
+    const returnStatement = tryStatement.tryBlock.statements[1]!;
+    if (!ts.isReturnStatement(returnStatement) || !returnStatement.expression) return false;
+    const returned = unwrapExpression(returnStatement.expression);
+    if (!ts.isConditionalExpression(returned) || !this.isExactNull(returned.whenFalse) ||
+      !this.referencesDeclaration(returned.whenTrue, valueDeclaration)) return false;
+    const condition = unwrapExpression(returned.condition);
+    if (!ts.isCallExpression(condition) || condition.arguments.length !== 1 ||
+      !this.referencesDeclaration(condition.arguments[0]!, valueDeclaration) ||
+      !ts.isPropertyAccessExpression(condition.expression) ||
+      condition.expression.name.text !== 'test') return false;
+    const pattern = unwrapExpression(condition.expression.expression);
+    return ts.isRegularExpressionLiteral(pattern) &&
+      pattern.text === '/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u';
+  }
+
+  private isExactNullReturn(statement: ts.Statement): boolean {
+    return ts.isReturnStatement(statement) && statement.expression !== undefined &&
+      this.isExactNull(statement.expression);
+  }
+
+  private isExactDecodedTrimmedRevision(
+    expression: ts.Expression,
+    parameter: ts.ParameterDeclaration,
+    parameterSymbol: ts.Symbol
+  ): boolean {
+    const trimCall = unwrapExpression(expression);
+    if (!ts.isCallExpression(trimCall) || trimCall.arguments.length !== 0 ||
+      !ts.isPropertyAccessExpression(trimCall.expression) ||
+      trimCall.expression.name.text !== 'trim') return false;
+    const decodeCall = unwrapExpression(trimCall.expression.expression);
+    if (!ts.isCallExpression(decodeCall) || decodeCall.arguments.length !== 1 ||
+      !ts.isPropertyAccessExpression(decodeCall.expression) ||
+      decodeCall.expression.name.text !== 'decode') return false;
+    const stdout = unwrapExpression(decodeCall.arguments[0]!);
+    if (!ts.isIdentifier(stdout) || this.index.lexicalSymbol(stdout) !== parameterSymbol ||
+      this.index.lexicalSymbol(parameter.name) !== parameterSymbol) return false;
+    const decoder = unwrapExpression(decodeCall.expression.expression);
+    if (!ts.isNewExpression(decoder) || decoder.arguments?.length !== 2 ||
+      !this.isExactPinnedAmbientValue(decoder.expression, 'TextDecoder') ||
+      !ts.isStringLiteralLike(decoder.arguments[0]!) ||
+      decoder.arguments[0].text !== 'utf-8') return false;
+    const options = unwrapExpression(decoder.arguments[1]!);
+    if (!ts.isObjectLiteralExpression(options) || options.properties.length !== 1) return false;
+    const fatal = options.properties[0]!;
+    return ts.isPropertyAssignment(fatal) && semanticPropertyName(fatal.name) === 'fatal' &&
+      unwrapExpression(fatal.initializer).kind === ts.SyntaxKind.TrueKeyword;
+  }
+
+  private exactRevisionShaDeclaration(
+    expression: ts.Expression,
+    role: 'base' | 'head'
+  ): ts.VariableDeclaration | null {
+    const declaration = this.exactConstVariableDeclaration(expression);
+    if (!declaration?.initializer) return null;
+    const initializer = unwrapExpression(declaration.initializer);
+    if (!ts.isConditionalExpression(initializer) || !this.isExactNull(initializer.whenFalse)) {
+      return null;
+    }
+    const condition = unwrapExpression(initializer.condition);
+    if (!ts.isBinaryExpression(condition) ||
+      condition.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      !ts.isNumericLiteral(condition.right) || condition.right.text !== '0') return null;
+    const code = unwrapExpression(condition.left);
+    if (!ts.isPropertyAccessExpression(code) || code.name.text !== 'code' ||
+      code.questionDotToken === undefined) return null;
+    const resultDeclaration = this.exactRevisionResultBinding(code.expression, role);
+    return resultDeclaration &&
+      this.isExactRevisionParserCall(initializer.whenTrue, resultDeclaration)
+      ? declaration
+      : null;
+  }
+
+  private isExactRevisionShaFallback(
+    expression: ts.Expression,
+    role: 'base' | 'head'
+  ): boolean {
+    const value = unwrapExpression(expression);
+    if (!ts.isBinaryExpression(value) ||
+      value.operatorToken.kind !== ts.SyntaxKind.QuestionQuestionToken ||
+      !this.exactRevisionShaDeclaration(value.left, role)) return false;
+    return role === 'base'
+      ? this.isExactUndefined(value.right)
+      : ts.isStringLiteralLike(value.right) && value.right.text === 'HEAD';
+  }
+
+  private isExactChangedDiffBuilderCall(expression: ts.Expression): boolean {
+    const value = unwrapExpression(expression);
+    return ts.isCallExpression(value) && value.arguments.length === 2 &&
+      this.isExactNamedImport(
+        value.expression,
+        '../shared/ci-git-changed-files.ts',
+        'gitChangedFileDiffArgs'
+      ) && this.isExactRevisionShaFallback(value.arguments[0]!, 'base') &&
+      this.isExactRevisionShaFallback(value.arguments[1]!, 'head');
+  }
+
+  private isExactUntrackedBuilderCall(expression: ts.Expression): boolean {
+    const value = unwrapExpression(expression);
+    return ts.isCallExpression(value) && value.arguments.length === 0 &&
+      this.isExactNamedImport(
+        value.expression,
+        '../shared/ci-git-changed-files.ts',
+        'gitUntrackedFileArgs'
+      );
+  }
+
+  private exactTrackedResultBinding(expression: ts.Expression): ts.BindingElement | null {
+    const declaration = this.exactLocalDeclaration(expression);
+    if (!declaration || !ts.isBindingElement(declaration) ||
+      !ts.isIdentifier(declaration.name) || !ts.isArrayBindingPattern(declaration.parent)) return null;
+    const bindingPattern = declaration.parent;
+    if (bindingPattern.elements.length !== 2 || bindingPattern.elements[0] !== declaration ||
+      bindingPattern.elements.some(ts.isOmittedExpression)) return null;
+    const variable = bindingPattern.parent;
+    if (!ts.isVariableDeclaration(variable) || !variable.initializer ||
+      !ts.isVariableDeclarationList(variable.parent) ||
+      (variable.parent.flags & ts.NodeFlags.Const) === 0) return null;
+    const initializer = unwrapExpression(variable.initializer);
+    if (!ts.isCallExpression(initializer) ||
+      !ts.isPropertyAccessExpression(initializer.expression) ||
+      initializer.expression.name.text !== 'all' ||
+      !this.isExactDefaultLibraryValue(initializer.expression.expression, 'Promise') ||
+      initializer.arguments.length !== 1) return null;
+    const observations = unwrapExpression(initializer.arguments[0]!);
+    return ts.isArrayLiteralExpression(observations) && observations.elements.length === 2 &&
+      this.isExactRunCommandBytesCall(
+        observations.elements[0]!,
+        (argv) => this.isExactChangedDiffBuilderCall(argv)
+      ) && this.isExactRunCommandBytesCall(
+        observations.elements[1]!,
+        (argv) => this.isExactUntrackedBuilderCall(argv)
+      )
+      ? declaration
+      : null;
+  }
+
+  private exactChangedRecordsDeclaration(
+    expression: ts.Expression
+  ): ts.VariableDeclaration | null {
+    const declaration = this.exactConstVariableDeclaration(expression);
+    if (!declaration?.initializer) return null;
+    const initializer = unwrapExpression(declaration.initializer);
+    if (!ts.isCallExpression(initializer) || initializer.arguments.length !== 1 ||
+      !this.isExactNamedImport(
+        initializer.expression,
+        '../shared/ci-git-changed-files.ts',
+        'parseGitChangedRecordsOutput'
+      )) return null;
+    const stdout = unwrapExpression(initializer.arguments[0]!);
+    return ts.isPropertyAccessExpression(stdout) && stdout.name.text === 'stdout' &&
+      this.exactTrackedResultBinding(stdout.expression)
+      ? declaration
+      : null;
+  }
+
+  private isExactRemovedRecordFilter(expression: ts.Expression): boolean {
+    const value = unwrapExpression(expression);
+    if (!ts.isArrowFunction(value) || value.parameters.length !== 1 ||
+      !ts.isIdentifier(value.parameters[0]!.name)) return false;
+    const body = unwrapExpression(value.body as ts.Expression);
+    if (!ts.isBinaryExpression(body) ||
+      body.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      !ts.isStringLiteralLike(body.right) || body.right.text !== 'removed') return false;
+    const status = unwrapExpression(body.left);
+    return ts.isPropertyAccessExpression(status) && status.name.text === 'status' &&
+      this.referencesDeclaration(status.expression, value.parameters[0]!);
+  }
+
+  private isExactRemovedRecordPathMap(expression: ts.Expression): boolean {
+    const value = unwrapExpression(expression);
+    if (!ts.isArrowFunction(value) || value.parameters.length !== 1 ||
+      !ts.isIdentifier(value.parameters[0]!.name)) return false;
+    const body = unwrapExpression(value.body as ts.Expression);
+    return ts.isPropertyAccessExpression(body) && body.name.text === 'path' &&
+      this.referencesDeclaration(body.expression, value.parameters[0]!);
+  }
+
+  private exactRemovedPathsDeclaration(
+    expression: ts.Expression
+  ): ts.VariableDeclaration | null {
+    const declaration = this.exactConstVariableDeclaration(expression);
+    if (!declaration?.initializer) return null;
+    const unique = unwrapExpression(declaration.initializer);
+    if (!ts.isCallExpression(unique) || unique.arguments.length !== 1 ||
+      !this.isExactNamedImport(unique.expression, '../shared/collections.ts', 'uniqueSorted')) {
+      return null;
+    }
+    const mapped = unwrapExpression(unique.arguments[0]!);
+    if (!ts.isCallExpression(mapped) || mapped.arguments.length !== 1 ||
+      !ts.isPropertyAccessExpression(mapped.expression) || mapped.expression.name.text !== 'map' ||
+      !this.isExactRemovedRecordPathMap(mapped.arguments[0]!)) return null;
+    const filtered = unwrapExpression(mapped.expression.expression);
+    if (!ts.isCallExpression(filtered) || filtered.arguments.length !== 1 ||
+      !ts.isPropertyAccessExpression(filtered.expression) ||
+      filtered.expression.name.text !== 'filter' ||
+      !this.isExactRemovedRecordFilter(filtered.arguments[0]!)) return null;
+    return this.exactChangedRecordsDeclaration(filtered.expression.expression)
+      ? declaration
+      : null;
+  }
+
+  private exactForOfVariable(
+    expression: ts.Expression
+  ): { readonly declaration: ts.VariableDeclaration; readonly loop: ts.ForOfStatement } | null {
+    const declaration = this.exactLocalDeclaration(expression);
+    if (!declaration || !ts.isVariableDeclaration(declaration) ||
+      !ts.isIdentifier(declaration.name) || declaration.initializer ||
+      !ts.isVariableDeclarationList(declaration.parent) ||
+      (declaration.parent.flags & ts.NodeFlags.Const) === 0 ||
+      declaration.parent.declarations.length !== 1 ||
+      !ts.isForOfStatement(declaration.parent.parent)) return null;
+    return Object.freeze({ declaration, loop: declaration.parent.parent });
+  }
+
+  private isNodeWithin(node: ts.Node, ancestor: ts.Node): boolean {
+    let current: ts.Node | undefined = node;
+    while (current) {
+      if (current === ancestor) return true;
+      current = current.parent;
+    }
+    return false;
+  }
+
+  private isExactPathBlobBuilderCall(
+    expression: ts.Expression,
+    callNode: ts.CallExpression
+  ): boolean {
+    const value = unwrapExpression(expression);
+    if (!ts.isCallExpression(value) || value.arguments.length !== 2 ||
+      !this.isExactNamedImport(
+        value.expression,
+        '../shared/ci-git-changed-files.ts',
+        'gitPathBlobArgs'
+      )) return false;
+    const revision = this.exactForOfVariable(value.arguments[0]!);
+    const repositoryPath = this.exactForOfVariable(value.arguments[1]!);
+    if (!revision || !repositoryPath ||
+      !this.isNodeWithin(callNode, revision.loop.statement) ||
+      !this.isNodeWithin(revision.loop, repositoryPath.loop.statement)) return false;
+    const revisions = unwrapExpression(revision.loop.expression);
+    if (!ts.isArrayLiteralExpression(revisions) || revisions.elements.length !== 2 ||
+      !this.exactRevisionShaDeclaration(revisions.elements[0]!, 'base') ||
+      !this.exactRevisionShaDeclaration(revisions.elements[1]!, 'head')) return false;
+    return this.exactRemovedPathsDeclaration(repositoryPath.loop.expression) !== null;
+  }
+
+  private gitChangedFileReadOperationFor(
+    node: ts.CallExpression | ts.NewExpression
+  ): GitChangedFileReadOperation | null {
+    if (!ts.isCallExpression(node) || node.arguments.length !== 3 ||
+      !this.hasExactGitObservationOptions(node.arguments[2]!)) return null;
+    const argv = unwrapExpression(node.arguments[1]!);
+    if (ts.isArrayLiteralExpression(argv) && argv.elements.length === 3 &&
+      argv.elements.every((element) => !ts.isSpreadElement(element)) &&
+      ts.isStringLiteralLike(argv.elements[0]!) && argv.elements[0].text === 'rev-parse' &&
+      ts.isStringLiteralLike(argv.elements[1]!) && argv.elements[1].text === '--verify') {
+      const revision = argv.elements[2]!;
+      if (ts.isStringLiteralLike(revision) && revision.text === 'HEAD^{commit}') {
+        return 'rev-parse-head';
+      }
+      if (ts.isTemplateExpression(revision) && revision.head.text === '' &&
+        revision.templateSpans.length === 1 &&
+        this.exactAffectedTestsBaseRefDeclaration(
+          revision.templateSpans[0]!.expression
+        ) && revision.templateSpans[0]!.literal.text === '^{commit}') {
+        return 'rev-parse-base';
+      }
+      return null;
+    }
+    if (this.isExactChangedDiffBuilderCall(argv)) return 'changed-diff';
+    if (this.isExactUntrackedBuilderCall(argv)) return 'untracked-files';
+    if (ts.isCallExpression(node) && this.isExactPathBlobBuilderCall(argv, node)) {
+      return 'path-blob';
+    }
+    return null;
   }
 
   private specifierHasObservedWrite(expression: ts.Expression): boolean {
@@ -11607,6 +12400,16 @@ class ProgramAuthorityLowerer {
   }
 
   private finalizeModuleSurfaces(): FiniteSccProjection {
+    for (const edge of this.externalStarExports) {
+      const directNames = this.directExportNamesByModule.get(edge.source.relativePath) ?? new Set();
+      for (const exportName of externalNamespaceProtectedExportNames(edge.specifier)) {
+        if (exportName === 'default' || directNames.has(exportName)) continue;
+        const slot = this.exportSlot(edge.source, exportName);
+        this.assembler.seed(slot, edge.source.scenarioId, {
+          handles: externalCapabilityMask(edge.specifier, exportName)
+        });
+      }
+    }
     const moduleSccProjection = computeFiniteSccProjection(
       this.context.modules.map(({ relativePath }) => relativePath),
       this.starExports.map(({ source, target }) => ({
@@ -11703,6 +12506,7 @@ class ProgramAuthorityLowerer {
       const targetSlots = this.exportSlotsByModule.get(edge.target.relativePath) ?? new Map();
       for (const [name, targetSlot] of targetSlots) {
         if (name === 'default') continue;
+        if (this.directExportNamesByModule.get(edge.source.relativePath)?.has(name)) continue;
         const sourceSlot = this.exportSlot(edge.source, name);
         this.assembler.addConstraint({
           id: `star-slot:${edge.identity}:${JSON.stringify(name)}`,
@@ -11889,8 +12693,14 @@ class ProgramAuthorityLowerer {
       const runFastTests = boundedModule
         ? this.topLevelCallable(boundedModule, 'runFastTests')
         : null;
+      const affectedTestsBaseRef = boundedModule
+        ? this.topLevelCallable(boundedModule, 'affectedTestsBaseRef')
+        : null;
       const gitChangedFiles = boundedModule
         ? this.topLevelCallable(boundedModule, 'gitChangedFiles')
+        : null;
+      const resolveAffectedTestExecution = boundedModule
+        ? this.topLevelCallable(boundedModule, 'resolveAffectedTestExecution')
         : null;
       const runCommandBytes = processModule
         ? this.topLevelCallable(processModule, 'runCommandBytes')
@@ -11987,7 +12797,13 @@ class ProgramAuthorityLowerer {
         commandCallableId: command?.id ?? null,
         boundedCallableId: bounded?.id ?? null,
         runFastTestsCallableId: runFastTests?.id ?? null,
+        affectedTestsBaseRefCallableId: affectedTestsBaseRef?.id ?? null,
+        affectedTestsBaseRefExact: affectedTestsBaseRef !== null &&
+          this.isExactAffectedTestsBaseRefDeclaration(affectedTestsBaseRef.declaration),
         gitChangedFilesCallableId: gitChangedFiles?.id ?? null,
+        gitChangedFilesPrivateOwner: gitChangedFiles !== null &&
+          this.isPrivateGitChangedFilesOwner(gitChangedFiles),
+        resolveAffectedTestExecutionCallableId: resolveAffectedTestExecution?.id ?? null,
         runCommandBytesCallableId: runCommandBytes?.id ?? null,
         commandModuleId: commandModule?.relativePath ?? null,
         boundedModuleId: boundedModule?.relativePath ?? null,
@@ -12853,6 +13669,13 @@ function validateCompactProof(
     if (use.ownerCallableId !== null) {
       requireCallable(use.ownerCallableId, use.scenarioId, `Compact use ${use.location}`);
     }
+    if ((use.ambientPropertyNames !== null &&
+      (use.ambientPropertyNames.length === 0 ||
+        new Set(use.ambientPropertyNames).size !== use.ambientPropertyNames.length)) ||
+      !['computed-property', 'fixed-property-read', 'mutation', 'whole-value']
+        .includes(use.ambientAuthorityUseKind)) {
+      throw new Error(`Compact use ${use.location} has invalid ambient authority metadata.`);
+    }
     const identity = `${use.scenarioId}\0${use.moduleId}\0${use.location}\0${use.kind}\0` +
       `${use.ownerCallableId ?? ''}\0${use.callSiteId ?? ''}\0${nodeKey(use.node)}`;
     if (compactUseIds.has(identity)) {
@@ -13003,7 +13826,9 @@ function validateCompactProof(
       binding.commandCallableId,
       binding.boundedCallableId,
       binding.runFastTestsCallableId,
+      binding.affectedTestsBaseRefCallableId,
       binding.gitChangedFilesCallableId,
+      binding.resolveAffectedTestExecutionCallableId,
       binding.runCommandBytesCallableId,
       binding.commandModuleInitializerId,
       binding.boundedModuleInitializerId,
@@ -13329,10 +14154,129 @@ function validateCompactProof(
       }
     }
 
+    if (binding.boundedModuleId && binding.gitChangedFilesCallableId) {
+      const affectedBaseKeys = new Set(['SEC_AFFECTED_TESTS_BASE', 'SEC_CHANGED_BASE']);
+      const exactAffectedBaseReads = new Map<string, number>(
+        [...affectedBaseKeys].map((key) => [key, 0])
+      );
+      let environmentAuthorityClosed = binding.affectedTestsBaseRefExact &&
+        binding.affectedTestsBaseRefCallableId !== null;
+      for (const use of scenarioUses) {
+        if (use.moduleId !== binding.boundedModuleId) continue;
+        const handles = state(use.node).handles;
+        const isRuntimeGlobal = (handles & HandleBit.RuntimeGlobal) !== 0;
+        const isRuntimeBun = (handles & HandleBit.RuntimeBun) !== 0;
+        const isRuntimeImportMeta = (handles & HandleBit.RuntimeImportMeta) !== 0;
+        const isRuntimeProcess = (handles & HandleBit.RuntimeProcess) !== 0;
+        const isProcessEnvironment = (handles & HandleBit.ProcessEnvironment) !== 0;
+        if (!isRuntimeGlobal && !isRuntimeBun && !isRuntimeImportMeta &&
+          !isRuntimeProcess && !isProcessEnvironment) continue;
+        const properties = use.ambientPropertyNames;
+        const exactAffectedBaseRead = isProcessEnvironment &&
+          use.ambientAuthorityUseKind === 'fixed-property-read' &&
+          use.ownerCallableId === binding.affectedTestsBaseRefCallableId &&
+          properties !== null && properties.length === 1 &&
+          affectedBaseKeys.has(properties[0]!);
+        const fixedPropertyRead = use.ambientAuthorityUseKind === 'fixed-property-read' &&
+          properties !== null && properties.length === 1;
+        const ordinaryEnvironmentRead = isProcessEnvironment && fixedPropertyRead &&
+          !affectedBaseKeys.has(properties[0]!);
+        const ordinaryProcessRead = isRuntimeProcess && !isProcessEnvironment &&
+          fixedPropertyRead;
+        const ordinaryGlobalRead = isRuntimeGlobal && !isRuntimeProcess &&
+          !isProcessEnvironment && fixedPropertyRead && properties[0] === 'process';
+        const ordinaryBunEnvironmentRead = isRuntimeBun && !isProcessEnvironment &&
+          fixedPropertyRead && properties[0] === 'env';
+        const ordinaryImportMetaEnvironmentRead = isRuntimeImportMeta &&
+          !isProcessEnvironment && fixedPropertyRead && properties[0] === 'env';
+        const ordinaryImportMetaIdentityRead = isRuntimeImportMeta &&
+          !isProcessEnvironment && fixedPropertyRead &&
+          CAPABILITY_REGISTRY.some((entry) => entry.kind === 'immutable-property' &&
+            entry.sourceHandle === HandleBit.RuntimeImportMeta &&
+            entry.property === properties[0]!);
+        if (exactAffectedBaseRead) {
+          const key = properties[0]!;
+          exactAffectedBaseReads.set(key, exactAffectedBaseReads.get(key)! + 1);
+        } else if (!ordinaryEnvironmentRead && !ordinaryProcessRead &&
+          !ordinaryGlobalRead && !ordinaryBunEnvironmentRead &&
+          !ordinaryImportMetaEnvironmentRead && !ordinaryImportMetaIdentityRead) {
+          environmentAuthorityClosed = false;
+        }
+      }
+      if ([...exactAffectedBaseReads.values()].some((count) => count !== 1)) {
+        environmentAuthorityClosed = false;
+      }
+      const observationCalls = scenarioCalls.filter((call) =>
+        hasExactDirectTarget(call, binding.gitChangedFilesCallableId!));
+      const validObservationOwner = binding.gitChangedFilesPrivateOwner &&
+        environmentAuthorityClosed &&
+        binding.resolveAffectedTestExecutionCallableId !== null &&
+        observationCalls.length === 1 &&
+        observationCalls[0]!.ownerCallableId ===
+          binding.resolveAffectedTestExecutionCallableId &&
+        !hasExecutionRoot(observationCalls[0]!, ExecutionRootBit.ModuleInitialization) &&
+        hasProtectedCallUse(
+          observationCalls[0]!,
+          'role',
+          ProtectedRoleBit.GitChangedFileObservationOwner
+        );
+      if (!validObservationOwner) {
+        addFinding(
+          scenarioId,
+          'PROCESS_OWNER_CONTRACT',
+          `${binding.boundedModuleId}: gitChangedFiles must be one private observation owner ` +
+            `with one direct resolveAffectedTestExecution consumer`,
+          `process-observation-owner:${binding.boundedModuleId}`,
+          binding.gitChangedFilesCallableId,
+          binding.resolveAffectedTestExecutionCallableId,
+          null
+        );
+      }
+      const allowedObservationCallSiteId = validObservationOwner
+        ? observationCalls[0]!.id
+        : null;
+      for (const use of scenarioUses) {
+        if ((state(use.node).roles & ProtectedRoleBit.GitChangedFileObservationOwner) === 0) {
+          continue;
+        }
+        if (use.kind === 'call-callee' && use.callSiteId === allowedObservationCallSiteId &&
+          use.ownerCallableId === binding.resolveAffectedTestExecutionCallableId) continue;
+        addFinding(
+          scenarioId,
+          'PROCESS_OWNER_CONTRACT',
+          `${use.location}: gitChangedFiles observation authority is aliased or exposed`,
+          `process-observation-owner-use:${use.location}:${nodeKey(use.node)}`,
+          use.ownerCallableId,
+          nodeKey(use.node),
+          use.location
+        );
+      }
+      for (const [exportName, slot] of moduleExportSlots(binding.boundedModuleId)) {
+        if ((state(slot).roles & ProtectedRoleBit.GitChangedFileObservationOwner) === 0) continue;
+        addFinding(
+          scenarioId,
+          'PROCESS_OWNER_CONTRACT',
+          `${binding.boundedModuleId}: gitChangedFiles observation authority is exported as ` +
+            exportName,
+          `process-observation-owner-export:${binding.boundedModuleId}:${exportName}`,
+          binding.gitChangedFilesCallableId,
+          `${binding.boundedModuleId}#${exportName}`,
+          null
+        );
+      }
+    }
+
     if (binding.boundedModuleId && binding.runCommandBytesCallableId) {
       const processCalls = scenarioCalls.filter((call) =>
         hasExactDirectTarget(call, binding.runCommandBytesCallableId!));
-      const valid = processCalls.length === 2 && binding.gitChangedFilesCallableId !== null &&
+      const operationCensus = processCalls
+        .map(({ gitChangedFileReadOperation }) => gitChangedFileReadOperation)
+        .sort((left, right) => compareCanonicalText(left ?? '', right ?? ''));
+      const hasExactReadOperationCensus =
+        operationCensus.length === GIT_CHANGED_FILE_READ_OPERATIONS.length &&
+        operationCensus.every((operation, index) =>
+          operation === GIT_CHANGED_FILE_READ_OPERATIONS[index]);
+      const valid = hasExactReadOperationCensus && binding.gitChangedFilesCallableId !== null &&
         processCalls.every((call) =>
           !hasExecutionRoot(call, ExecutionRootBit.ModuleInitialization) &&
           call.ownerCallableId === binding.gitChangedFilesCallableId &&
@@ -13345,8 +14289,10 @@ function validateCompactProof(
         addFinding(
           scenarioId,
           'PROCESS_OWNER_CONTRACT',
-          `${binding.boundedModuleId}: runCommandBytes is limited to two literal gitChangedFiles('git', ...) calls`,
-          `process-owner-call-count:${binding.boundedModuleId}`,
+          `${binding.boundedModuleId}: gitChangedFiles must own exactly the canonical read-only ` +
+            `Git operation census; observed ${operationCensus.map((operation) =>
+              operation ?? 'unclassified').join(', ')}`,
+          `process-owner-direct-use:${binding.boundedModuleId}`,
           binding.gitChangedFilesCallableId,
           binding.runCommandBytesCallableId,
           null
