@@ -513,9 +513,11 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
 export const SEC_SKILL_QUARANTINE_PATHS = [
   'AGENTS.md',
   '.agents/',
+  'platform/shared/agent-operation-activation-contract.ts',
   'platform/shared/agent-operation-read-plan-contract.ts',
   'platform/shared/agent-skill-contract.ts',
   'platform/shared/agent-task-capsule-contract.ts',
+  'scripts/codex/agent-operation-activation.ts',
   'scripts/codex/operation-read-plan.ts',
   'scripts/codex/skill-applicability.ts',
   'scripts/codex/task-capsule.ts',

@@ -161,12 +161,14 @@ test('Task Capsule verify is content-only and compile rejects caller authority b
     REPOSITORY_ROOT
   ]);
   expect(blocked.status).not.toBe(0);
-  expect(JSON.parse(blocked.stderr)).toMatchObject({
+  const blockedProjection = JSON.parse(blocked.stderr);
+  expect(blockedProjection).toMatchObject({
     status: 'blocked',
-    reasonCode: 'trusted-activation-authority-unavailable',
     authorityStatus: 'unbound-planning-content',
     effectAuthority: 'none'
   });
+  expect(blockedProjection.reasonCode).toMatch(/^activation-/u);
+  expect(blockedProjection.blockerDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
 test('compile CLI rejects caller-provided Capsule authority before live observation', () => {
@@ -207,10 +209,10 @@ test('schema-only Read Plan production compile fails closed without a trusted is
     REPOSITORY_ROOT
   ]);
   expect(result.status).not.toBe(0);
-  expect(JSON.parse(result.stderr)).toMatchObject({
-    status: 'blocked',
-    reasonCode: 'trusted-activation-authority-unavailable'
-  });
+  const blocked = JSON.parse(result.stderr);
+  expect(blocked.status).toBe('blocked');
+  expect(blocked.reasonCode).toMatch(/^activation-/u);
+  expect(blocked.blockerDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
 test('Skill CLI rejects the retired raw envelope path', () => {

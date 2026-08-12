@@ -46,12 +46,13 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/unit/verification-action-github-provider.test.ts'
 ];
 
-const TRUSTED_VERIFIER_TCB_FAST_TESTS = [
+export const TRUSTED_VERIFIER_TCB_FAST_TESTS = [
   'tests/contract/ci-contract.test.ts',
   'tests/contract/ci-lanes.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
+  'tests/unit/agent-operation-activation.test.ts',
   'tests/unit/tcb-trust-root-contract.test.ts'
 ];
 
@@ -61,6 +62,7 @@ const VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS = [
   'tests/contract/sec-merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
+  'tests/unit/agent-operation-activation.test.ts',
   'tests/unit/branch-closeout-receipt.test.ts',
   'tests/unit/branch-closeout-rest-comments.test.ts',
   'tests/unit/branch-lifecycle-contract.test.ts',

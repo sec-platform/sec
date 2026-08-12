@@ -3,6 +3,10 @@ import path from 'node:path';
 import { Glob } from 'bun';
 import { describe, expect, test } from 'bun:test';
 
+import {
+  parseDocumentationAuthorityRegistry,
+  resolveDocumentationOperationOwnersV1
+} from '../../platform/shared/documentation-authority-contract.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
 import { parseSecRoadmapWorkCatalogV1 } from '../../platform/shared/work-selection-live-contract.ts';
 import {
@@ -18,6 +22,57 @@ import { expectContainsAll, expectContainsNone } from '../helpers/assertion-help
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 describe('canonical documentation authority', () => {
+  test('operation owner closure derives explicit source owners and changed document projections', async () => {
+    const registry = parseDocumentationAuthorityRegistry(
+      await readCompilerFile('docs/authority.json')
+    );
+    const changedPaths = [
+      'AGENTS.md',
+      'docs/verification-governance.md',
+      'docs/work/active-work-package.md',
+      'docs/work/rolling-plan.md'
+    ].sort();
+    expect(resolveDocumentationOperationOwnersV1({
+      registry,
+      authorityRefs: ['development-governance', 'verification-governance'],
+      changedPaths
+    }).map(({ id }) => id)).toEqual([
+      'development-governance',
+      'roadmap',
+      'verification-governance'
+    ]);
+    expect(() => resolveDocumentationOperationOwnersV1({
+      registry,
+      authorityRefs: ['agents-entry'],
+      changedPaths: []
+    })).toThrow(/non-owning/u);
+    expect(() => resolveDocumentationOperationOwnersV1({
+      registry,
+      authorityRefs: ['verification-governance'],
+      changedPaths: []
+    })).toThrow(/development-governance/u);
+    expect(resolveDocumentationOperationOwnersV1({
+      registry,
+      authorityRefs: ['development-governance', 'product'],
+      changedPaths: []
+    }).map(({ id }) => id)).toEqual(['development-governance', 'product']);
+    expect(resolveDocumentationOperationOwnersV1({
+      registry,
+      authorityRefs: ['development-governance', 'system-architecture'],
+      changedPaths: []
+    }).map(({ id }) => id)).toEqual(['development-governance', 'system-architecture']);
+    expect(() => resolveDocumentationOperationOwnersV1({
+      registry,
+      authorityRefs: ['development-governance', 'development-governance'],
+      changedPaths: []
+    })).toThrow(/sorted and unique/u);
+    expect(() => resolveDocumentationOperationOwnersV1({
+      registry,
+      authorityRefs: ['development-governance', 'unknown-owner'],
+      changedPaths: []
+    })).toThrow(/unknown document owner/u);
+  });
+
   test('roadmap owns the stable capability DAG without dynamic project state', async () => {
     const roadmap = await readCompilerFile('docs/roadmap.md');
     const workCatalog = parseSecRoadmapWorkCatalogV1(roadmap);
@@ -167,12 +222,14 @@ describe('canonical documentation authority', () => {
   });
 
   test('rolling plan is relationally bound to the active pointer and keeps the remaining candidates', async () => {
-    const [rollingPlanSource, pointerSource] = await Promise.all([
+    const [rollingPlanSource, pointerSource, roadmapSource] = await Promise.all([
       readCompilerFile('docs/work/rolling-plan.md'),
-      readCompilerFile('docs/work/active-work-package.md')
+      readCompilerFile('docs/work/active-work-package.md'),
+      readCompilerFile('docs/roadmap.md')
     ]);
     const rollingPlan = CodexDevelopmentParseRollingPlanV1(rollingPlanSource);
     const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
+    const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
     const selectedManifestId = path.posix.basename(pointer.manifest, '.md');
     const manifestSource = await readCompilerFile(pointer.manifest);
     const rawManifestDigest = pointerSource.match(
@@ -185,14 +242,11 @@ describe('canonical documentation authority', () => {
     expect(new Set(rollingPlan.candidatePackageIds).size)
       .toBe(rollingPlan.candidatePackageIds.length);
     expect(rollingPlan.candidatePackageIds).not.toContain(selectedManifestId);
+    expect([rollingPlan.activePackageId, ...rollingPlan.candidatePackageIds])
+      .toEqual(catalog.items.map(({ packageId }) => packageId));
     expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',
       '## 候选 Work Package',
-      '#221',
-      '#275',
-      '#349',
-      '#352',
-      '## 后续与唯一 owner',
       '## 重新规划硬触发器',
       '## 加速验收'
     ]);
@@ -212,10 +266,7 @@ describe('canonical documentation authority', () => {
       'selectionMode: exact-manifest-not-on-default-branch-v1'
     ]);
     expectContainsAll(rollingPlanSource, [
-      `### ${selectedManifestId}`,
-      'validated WorkDecision',
-      'caller receipt',
-      'consumer-zero'
+      `### ${selectedManifestId}`
     ]);
     expectContainsNone(rollingPlanSource, [
       '### verification-action-trusted-cutover-v10',

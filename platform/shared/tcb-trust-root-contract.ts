@@ -52,6 +52,10 @@ const REQUIRED_REVIEWED_BOUNDARY_EDGES = [
 // These are invariant privileged surfaces, not an import-graph inventory. The
 // generated lock remains the sole owner of the complete derived closure.
 const REQUIRED_PRIVILEGED_RUNTIME_SURFACES = [
+  'platform/shared/agent-operation-activation-contract.ts',
+  'platform/shared/agent-operation-read-plan-contract.ts',
+  'platform/shared/agent-skill-contract.ts',
+  'platform/shared/agent-task-capsule-contract.ts',
   'platform/shared/ci-evidence-contract.ts',
   'platform/shared/ci-verification-revision.ts',
   'platform/shared/integration-authorization-contract.ts',
@@ -66,18 +70,23 @@ const REQUIRED_PRIVILEGED_RUNTIME_SURFACES = [
   'platform/shared/verification-result-contract.ts',
   'platform/shared/verification-session-contract.ts',
   'platform/shared/workspace-write-lease.ts',
+  'scripts/codex/agent-operation-activation.ts',
   'scripts/codex/branch-closeout-contract.ts',
   'scripts/codex/branch-closeout-receipt.ts',
   'scripts/codex/branch-closeout.ts',
   'scripts/codex/branch-recovery.ts',
   'scripts/codex/integration-authorization-publication.ts',
   'scripts/codex/merge-gate.ts',
+  'scripts/codex/operation-read-plan.ts',
+  'scripts/codex/skill-applicability.ts',
+  'scripts/codex/task-capsule.ts',
   'scripts/codex/verification-action-github-provider.ts',
   'scripts/codex/verification-action-journal.ts',
   'scripts/codex/verification-action-runner.ts',
   'scripts/codex/verification-session-github.ts',
   'scripts/codex/verification-session-runtime.ts',
-  'scripts/codex/verification-session.ts'
+  'scripts/codex/verification-session.ts',
+  'scripts/codex/work-selection.ts'
 ] as const;
 
 function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
