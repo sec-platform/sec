@@ -1,3 +1,4 @@
+import type { CodexDevelopmentTestImpactTransitionObservationV1 } from './ci-git-changed-files.ts';
 import { uniqueSorted } from './collections.ts';
 import { isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
 import {
@@ -44,12 +45,13 @@ export function CodexDevelopmentAffectedInventoryInputsV1(
 
 export function CodexDevelopmentBuildAffectedTestInventoryV1(
   files: readonly string[],
-  provider?: CodexDevelopmentTestImpactSourceProviderV1
+  provider?: CodexDevelopmentTestImpactSourceProviderV1,
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): CodexDevelopmentAffectedTestInventoryV1 {
   const changedFastTests = uniqueSorted(files.filter(isFastTestFile));
   const changedSlowTests = uniqueSorted(files.filter(isSlowTestFile));
-  const impactSourceFiles = files.filter(isTestImpactSourceFile);
-  const impact = selectTestsForSources(impactSourceFiles, provider);
+  const impactSourceFiles = files.filter((file) => isTestImpactSourceFile(file, transition));
+  const impact = selectTestsForSources(impactSourceFiles, provider, transition);
   // The reverse-import-map is built once during selectTestsForSources (cached
   // for the default provider). Re-fetch the trust boundary from the same cache
   // to avoid a second scan; in provider mode it rebuilds but the provider's

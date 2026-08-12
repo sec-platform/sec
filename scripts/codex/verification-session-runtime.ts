@@ -11,6 +11,10 @@ import {
   type CodexDevelopmentVerificationEvidenceV4,
   type CodexDevelopmentVerificationSessionArtifactV2
 } from '../../platform/shared/ci-evidence-contract.ts';
+import {
+  CodexDevelopmentAssertTestImpactTransitionSelectionV1,
+  type CodexDevelopmentTestImpactTransitionObservationV1
+} from '../../platform/shared/ci-git-changed-files.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION, CodexDevelopmentBuildVerificationPlanV1 } from '../../platform/shared/ci-verification-plan.ts';
 import {
   CI_MAIN_HEALTH_POLICY_DIGEST_V1,
@@ -227,9 +231,32 @@ export function createVerificationSessionScopeProposalDigestV1(input: {
   repository: string; prNumber: number; baseSha: string; baseTreeSha: string;
   headSha: string; headTreeSha: string; manifestPath: string; manifestDigest: Digest;
   authorizedPaths: readonly string[]; profile: string; environmentDigest: Digest; trustRevision: string;
+  testImpactTransitionDigest: Digest;
 }): Digest {
   return hash(Object.freeze({ schema: 'sec-scope-proposal-v1', ...input,
     authorizedPaths: Object.freeze([...input.authorizedPaths].sort()) }));
+}
+
+function bindVerificationSessionTestImpactTransitionV1(input: {
+  baseSha: string;
+  headSha: string;
+  changedPaths: readonly string[];
+  transition: CodexDevelopmentTestImpactTransitionObservationV1;
+  expectedDigest?: Digest;
+}): Readonly<{
+  digest: Digest;
+  observation: CodexDevelopmentTestImpactTransitionObservationV1;
+}> {
+  const digest = CodexDevelopmentAssertTestImpactTransitionSelectionV1({
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+    changedPaths: input.changedPaths,
+    observation: input.transition
+  });
+  if (input.expectedDigest !== undefined && digest !== input.expectedDigest) {
+    throw new Error('VerificationSession test-impact transition differs from exact candidate selection input.');
+  }
+  return Object.freeze({ digest, observation: input.transition });
 }
 
 export function reconstructVerificationSessionHostedFactsV1(input: {
@@ -237,6 +264,7 @@ export function reconstructVerificationSessionHostedFactsV1(input: {
   repository: string;
   candidate: GitHubCandidateObservationV1;
   changedPaths: readonly string[];
+  testImpactTransition: CodexDevelopmentTestImpactTransitionObservationV1;
   integrationPrincipalNodeId: string;
   producerPrincipalNodeId: string;
   sourceRunId: string;
@@ -247,6 +275,12 @@ export function reconstructVerificationSessionHostedFactsV1(input: {
   dependencyBlobs: readonly VerificationSessionActionDependencyBlobObservationV2[];
 }): VerificationSessionHostedFactsV1 {
   const request = input.request;
+  const transition = bindVerificationSessionTestImpactTransitionV1({
+    baseSha: request.expectedBaseSha,
+    headSha: request.expectedHeadSha,
+    changedPaths: input.changedPaths,
+    transition: input.testImpactTransition
+  });
   const environmentDigest = hash(Object.freeze({
     schema: 'sec-hosted-verification-environment-v1',
     toolchainRevision: `bun@${Bun.version}`,
@@ -266,7 +300,8 @@ export function reconstructVerificationSessionHostedFactsV1(input: {
     headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
     manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
     authorizedPaths: input.changedPaths, profile: request.profile,
-    environmentDigest, trustRevision: request.expectedBaseSha
+    environmentDigest, trustRevision: request.expectedBaseSha,
+    testImpactTransitionDigest: transition.digest
   });
   if (proposalDigest !== request.expectedScopeProposalDigest) {
     throw new Error('observe-hosted reconstructed Scope proposal digest differs from request.');
@@ -279,7 +314,12 @@ export function reconstructVerificationSessionHostedFactsV1(input: {
     proposalDigest, authorizedPaths: input.changedPaths, profile: request.profile,
     environmentDigest, issuer: issuerSemantic
   });
-  const plan = CodexDevelopmentBuildVerificationPlanV1(request.profile as 'quick' | 'full', input.changedPaths);
+  const plan = CodexDevelopmentBuildVerificationPlanV1(
+    request.profile as 'quick' | 'full',
+    input.changedPaths,
+    undefined,
+    transition.observation
+  );
   if (!plan.selectionResolved) throw new Error('observe-hosted verification plan selection is unresolved.');
   const actionPlanClosure = buildCiVerificationActionPlanClosureV1({
     candidate: {
@@ -301,6 +341,7 @@ export function reconstructVerificationSessionHostedFactsV1(input: {
     baseSha: request.expectedBaseSha, baseTreeSha: request.expectedBaseTreeSha,
     headSha: request.expectedHeadSha, headTreeSha: request.expectedHeadTreeSha,
     manifestPath: request.manifestPath, manifestDigest: request.manifestDigest,
+    testImpactTransitionDigest: transition.digest,
     scopeProposalDigest: proposalDigest, actionPlanClosureDigest: actionPlanClosure.actionPlanDigest,
     profile: request.profile, environmentDigest, trustRevision: request.expectedBaseSha,
     reviewPolicyDigest: request.reviewPolicyDigest, mainHealthPolicyDigest: SEC_MAIN_HEALTH_POLICY_DIGEST_V1
@@ -330,7 +371,8 @@ export function reconstructVerificationSessionHostedFactsV1(input: {
     scopeIssuer: { ...issuerSemantic, sourceTransport: 'github-actions' as const, sourceRunId: input.sourceRunId,
       sourceRef: input.sourceRef, sourceDigest: hash({ requestOperationId: request.requestOperationId, proposalDigest }) },
     scopeIssuedAt: input.observedAt, scopeExpiresAt: new Date(new Date(input.observedAt).getTime() + 600_000).toISOString(),
-    environmentDigest, actionPlanClosure, mainHealth: mainHealthInput,
+    environmentDigest, actionPlanClosure, testImpactTransitionDigest: transition.digest,
+    mainHealth: mainHealthInput,
     evidenceRequirementDigest: SEC_EVIDENCE_REQUIREMENT_DIGEST_V1,
     integrationPolicyDigest: SEC_INTEGRATION_PLATFORM_POLICY_DIGEST_V1,
     reviewBarrier: input.reviewBarrier,
@@ -379,6 +421,7 @@ export interface VerificationSessionHostedFactsV1 {
   scopeExpiresAt: string;
   environmentDigest: Digest;
   actionPlanClosure: CiVerificationActionPlanClosureV1;
+  testImpactTransitionDigest: Digest;
   mainHealth: MainHealthLedgerInputV1;
   evidenceRequirementDigest: Digest;
   integrationPolicyDigest: Digest;
@@ -736,6 +779,7 @@ export function prepareTrustedMainVerificationSessionV1(input: {
   manifestPath: string;
   manifestDigest: Digest;
   changedPaths: readonly string[];
+  testImpactTransition: CodexDevelopmentTestImpactTransitionObservationV1;
   profile: 'quick' | 'full';
   integrationPrincipalNodeId: string;
   producerPrincipalNodeId: string;
@@ -751,9 +795,16 @@ export function prepareTrustedMainVerificationSessionV1(input: {
   scopeAuthorizationRevision: Digest;
   sessionProposalDigest: Digest;
   actionPlanClosure: CiVerificationActionPlanClosureV1;
+  testImpactTransitionDigest: Digest;
   reviewBarrier: GitHubReviewBarrierObservationV1;
 }> {
   const candidate = input.candidate;
+  const transition = bindVerificationSessionTestImpactTransitionV1({
+    baseSha: candidate.baseSha,
+    headSha: candidate.headSha,
+    changedPaths: input.changedPaths,
+    transition: input.testImpactTransition
+  });
   const environmentDigest = hash(Object.freeze({ schema: 'sec-hosted-verification-environment-v1',
     toolchainRevision: `bun@${Bun.version}`, providerRevision: 'github-actions@trusted-default',
     contractRevision: CI_VERIFICATION_CONTRACT_REVISION, trustRevision: candidate.baseSha }));
@@ -763,12 +814,18 @@ export function prepareTrustedMainVerificationSessionV1(input: {
     prNumber: candidate.number, baseSha: candidate.baseSha, baseTreeSha: candidate.baseTreeSha,
     headSha: candidate.headSha, headTreeSha: candidate.headTreeSha, manifestPath: input.manifestPath,
     manifestDigest: input.manifestDigest, authorizedPaths: input.changedPaths, profile: input.profile,
-    environmentDigest, trustRevision: candidate.baseSha });
+    environmentDigest, trustRevision: candidate.baseSha,
+    testImpactTransitionDigest: transition.digest });
   const scopeRevision = createScopeAuthorizationRevisionV1({ repository: input.repository, prNumber: candidate.number,
     baseSha: candidate.baseSha, baseTreeSha: candidate.baseTreeSha, headSha: candidate.headSha,
     headTreeSha: candidate.headTreeSha, manifestPath: input.manifestPath, manifestDigest: input.manifestDigest,
     proposalDigest, authorizedPaths: input.changedPaths, profile: input.profile, environmentDigest, issuer: issuerSemantic });
-  const plan = CodexDevelopmentBuildVerificationPlanV1(input.profile, input.changedPaths);
+  const plan = CodexDevelopmentBuildVerificationPlanV1(
+    input.profile,
+    input.changedPaths,
+    undefined,
+    transition.observation
+  );
   if (!plan.selectionResolved) throw new Error('trusted-main preparation verification plan is unresolved.');
   const actionPlan = buildCiVerificationActionPlanClosureV1({ candidate: { baseSha: candidate.baseSha,
     baseTreeSha: candidate.baseTreeSha, headSha: candidate.headSha, headTreeSha: candidate.headTreeSha,
@@ -780,7 +837,8 @@ export function prepareTrustedMainVerificationSessionV1(input: {
   const sessionProposalDigest = createVerificationSessionProposalDigestV1({ repository: input.repository,
     prNumber: candidate.number, baseSha: candidate.baseSha, baseTreeSha: candidate.baseTreeSha,
     headSha: candidate.headSha, headTreeSha: candidate.headTreeSha, manifestPath: input.manifestPath,
-    manifestDigest: input.manifestDigest, scopeProposalDigest: proposalDigest,
+    manifestDigest: input.manifestDigest, testImpactTransitionDigest: transition.digest,
+    scopeProposalDigest: proposalDigest,
     actionPlanClosureDigest: actionPlan.actionPlanDigest, profile: input.profile, environmentDigest,
     trustRevision: candidate.baseSha, reviewPolicyDigest: SEC_REVIEW_STABILITY_POLICY_V1.policyDigest,
     mainHealthPolicyDigest: SEC_MAIN_HEALTH_POLICY_DIGEST_V1 });
@@ -808,7 +866,8 @@ export function prepareTrustedMainVerificationSessionV1(input: {
     semanticInputDigest: hash(semanticRequest) });
   const request = Object.freeze({ ...semanticRequest, requestOperationId });
   return Object.freeze({ request, sessionRevision, scopeAuthorizationRevision: scopeRevision,
-    sessionProposalDigest, actionPlanClosure: actionPlan, reviewBarrier: input.reviewBarrier });
+    sessionProposalDigest, actionPlanClosure: actionPlan,
+    testImpactTransitionDigest: transition.digest, reviewBarrier: input.reviewBarrier });
 }
 
 /**
@@ -821,6 +880,8 @@ export function prepareLocalQuickVerificationActionPlanV2(input: {
   manifestPath: string;
   manifestDigest: Digest;
   changedPaths: readonly string[];
+  testImpactTransition: CodexDevelopmentTestImpactTransitionObservationV1;
+  expectedTestImpactTransitionDigest: Digest;
   scopeAuthorizationRevision: Digest;
   executionEnvironment: CiVerificationExecutionEnvironmentV2;
   dependencyBlobs: readonly VerificationSessionActionDependencyBlobObservationV2[];
@@ -829,7 +890,19 @@ export function prepareLocalQuickVerificationActionPlanV2(input: {
   if (environment.kind !== 'local' || environment.runnerImage !== null) {
     throw new Error('local quick Action preparation requires one canonical local execution environment.');
   }
-  const plan = CodexDevelopmentBuildVerificationPlanV1('quick', input.changedPaths);
+  const transition = bindVerificationSessionTestImpactTransitionV1({
+    baseSha: input.candidate.baseSha,
+    headSha: input.candidate.headSha,
+    changedPaths: input.changedPaths,
+    transition: input.testImpactTransition,
+    expectedDigest: input.expectedTestImpactTransitionDigest
+  });
+  const plan = CodexDevelopmentBuildVerificationPlanV1(
+    'quick',
+    input.changedPaths,
+    undefined,
+    transition.observation
+  );
   if (!plan.selectionResolved) {
     throw new Error('local quick Action preparation verification plan is unresolved.');
   }
@@ -929,8 +1002,27 @@ export function assertReviewReceiptProducerIndependentV1(receipt: ReviewStabilit
 export function createVerificationSessionHostedRequestV1(input: {
   session: VerificationSessionV2;
   scope: ScopeAuthorizationV1;
+  testImpactTransitionDigest: Digest;
 }): VerificationSessionHostedRequestV1 {
   const { session, scope } = input;
+  const proposalDigest = createVerificationSessionScopeProposalDigestV1({
+    repository: session.repository,
+    prNumber: session.prNumber,
+    baseSha: session.baseSha,
+    baseTreeSha: session.baseTreeSha,
+    headSha: session.headSha,
+    headTreeSha: session.headTreeSha,
+    manifestPath: session.manifestPath,
+    manifestDigest: session.manifestDigest,
+    authorizedPaths: scope.authorizedPaths,
+    profile: session.profile,
+    environmentDigest: session.environmentDigest,
+    trustRevision: session.trustRevision,
+    testImpactTransitionDigest: input.testImpactTransitionDigest
+  });
+  if (proposalDigest !== scope.proposalDigest) {
+    throw new Error('Hosted request test-impact transition differs from the authorized Scope proposal.');
+  }
   const semanticRequest = Object.freeze({
     schema: VERIFICATION_SESSION_HOSTED_REQUEST_SCHEMA_V1,
     prNumber: session.prNumber,
@@ -1013,6 +1105,24 @@ export function prepareVerificationSessionHostedV1(input: {
   }
   if (facts.integrationPolicyDigest !== SEC_INTEGRATION_PLATFORM_POLICY_DIGEST_V1) {
     throw new Error('prepare-hosted integration policy is not canonical.');
+  }
+  const reconstructedScopeProposalDigest = createVerificationSessionScopeProposalDigestV1({
+    repository: facts.repository,
+    prNumber: request.prNumber,
+    baseSha: request.expectedBaseSha,
+    baseTreeSha: request.expectedBaseTreeSha,
+    headSha: request.expectedHeadSha,
+    headTreeSha: request.expectedHeadTreeSha,
+    manifestPath: request.manifestPath,
+    manifestDigest: request.manifestDigest,
+    authorizedPaths: facts.authorizedPaths,
+    profile: request.profile,
+    environmentDigest: facts.environmentDigest,
+    trustRevision: request.expectedBaseSha,
+    testImpactTransitionDigest: facts.testImpactTransitionDigest
+  });
+  if (reconstructedScopeProposalDigest !== request.expectedScopeProposalDigest) {
+    throw new Error('prepare-hosted test-impact transition differs from the proposed Scope identity.');
   }
   const actionPlanClosure = parseCiVerificationActionPlanClosureV1(
     encodeVerificationActionDataV2(facts.actionPlanClosure)
@@ -1282,6 +1392,7 @@ export function resumeVerificationSessionV2(input: {
   session: VerificationSessionV2;
   scopeAuthorization: ScopeAuthorizationV1;
   changedPaths: readonly string[];
+  testImpactTransition?: CodexDevelopmentTestImpactTransitionObservationV1;
   integrationPrincipalNodeId: string;
   github: VerificationSessionGitHubClientV1;
   external: VerificationSessionRuntimeExternal;
@@ -1363,7 +1474,20 @@ export function resumeVerificationSessionV2(input: {
 
   if (journal.completedStageIndex < 3) {
     if (hosted === null) {
-      const request = createVerificationSessionHostedRequestV1({ session, scope });
+      if (input.testImpactTransition === undefined) {
+        throw new Error('VerificationSession hosted dispatch requires one exact test-impact transition observation.');
+      }
+      const transition = bindVerificationSessionTestImpactTransitionV1({
+        baseSha: session.baseSha,
+        headSha: session.headSha,
+        changedPaths: input.changedPaths,
+        transition: input.testImpactTransition
+      });
+      const request = createVerificationSessionHostedRequestV1({
+        session,
+        scope,
+        testImpactTransitionDigest: transition.digest
+      });
       const claim = claimVerificationSessionOperationV1({ repositoryRoot: input.repositoryRoot, sessionRevision: session.sessionRevision,
         operationId: request.requestOperationId, operationKind: 'hosted-dispatch', fs });
       if (claim.claimed) input.github.ensureVerificationSessionWakeup(session.repository, request);

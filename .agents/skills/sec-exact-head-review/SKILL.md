@@ -1,7 +1,6 @@
 ---
 name: sec-exact-head-review
 description: 用于 frozen exact head 的独立架构、证据、权限和范围审查；不用于边实现边审查或用 PR body 代替 diff。
-compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行。
 ---
 
 # sec-exact-head-review

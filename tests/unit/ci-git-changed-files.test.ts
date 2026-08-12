@@ -1,10 +1,15 @@
 import { expect, test } from 'bun:test';
 
 import {
+  CodexDevelopmentAssertTestImpactTransitionSelectionV1,
+  CodexDevelopmentCreateTestImpactTransitionObservationV1,
+  CodexDevelopmentTestImpactTransitionDigestV1,
   decodeGitPathOutput,
   gitChangedFileDiffArgs,
+  gitPathBlobArgs,
   gitUntrackedFileArgs,
   parseGitChangedFileOutput,
+  parseGitPathBlobOutput,
   parseGitUntrackedFileOutput
 } from '../../platform/shared/ci-git-changed-files.ts';
 
@@ -44,6 +49,84 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     '--exclude-standard',
     '-z'
   ]);
+});
+
+test('Git deletion transition binds exact base blob and target absence', () => {
+  const baseSha = 'a'.repeat(40);
+  const headSha = 'b'.repeat(40);
+  const blobSha = 'c'.repeat(40);
+  const repositoryPath = 'docs/evidence/retired.json';
+  expect(gitPathBlobArgs(baseSha, repositoryPath)).toEqual([
+    'ls-tree', '-z', '--full-tree', baseSha, '--', repositoryPath
+  ]);
+  expect(parseGitPathBlobOutput(
+    utf8(`100644 blob ${blobSha}\t${repositoryPath}\0`),
+    repositoryPath
+  )).toEqual({ mode: '100644', blobSha });
+  expect(parseGitPathBlobOutput(new Uint8Array(), repositoryPath)).toBeNull();
+  const transition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha,
+    headSha,
+    records: [{ status: 'removed', path: repositoryPath }],
+    readPathBlob: (revision) => revision === baseSha ? { mode: '100644', blobSha } : null
+  });
+  expect(transition.removedPathBlobs).toEqual([{
+    path: repositoryPath,
+    baseMode: '100644',
+    baseBlobSha: blobSha,
+    headMode: null,
+    headBlobSha: null
+  }]);
+  expect(() => CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha,
+    headSha,
+    records: [{ status: 'removed', path: repositoryPath }],
+    readPathBlob: () => ({ mode: '100644', blobSha })
+  })).toThrow('exact head absence');
+});
+
+test('transition selection binds canonical records, derived files, and exact base/head identity', () => {
+  const baseSha = 'a'.repeat(40);
+  const headSha = 'b'.repeat(40);
+  const repositoryPath = 'docs/evidence/retired.json';
+  const records = [
+    { status: 'changed' as const, path: 'scripts/ci-verification.ts' },
+    { status: 'removed' as const, path: repositoryPath }
+  ];
+  const transition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha,
+    headSha,
+    records: [...records].reverse(),
+    readPathBlob: (revision) => revision === baseSha
+      ? { mode: '100644', blobSha: 'c'.repeat(40) }
+      : null
+  });
+  const digest = CodexDevelopmentTestImpactTransitionDigestV1(transition);
+  expect(CodexDevelopmentAssertTestImpactTransitionSelectionV1({
+    baseSha,
+    headSha,
+    changedPaths: [repositoryPath, 'scripts/ci-verification.ts'],
+    records,
+    observation: transition
+  })).toBe(digest);
+  for (const input of [
+    { baseSha: 'd'.repeat(40), headSha, changedPaths: [repositoryPath, 'scripts/ci-verification.ts'] },
+    { baseSha, headSha: 'e'.repeat(40), changedPaths: [repositoryPath, 'scripts/ci-verification.ts'] },
+    { baseSha, headSha, changedPaths: [repositoryPath] }
+  ]) {
+    expect(() => CodexDevelopmentAssertTestImpactTransitionSelectionV1({
+      ...input,
+      records,
+      observation: transition
+    })).toThrow('exact candidate selection input');
+  }
+  expect(() => CodexDevelopmentAssertTestImpactTransitionSelectionV1({
+    baseSha,
+    headSha,
+    changedPaths: [repositoryPath, 'scripts/ci-verification.ts'],
+    records: [{ status: 'added', path: repositoryPath }, records[0]!],
+    observation: transition
+  })).toThrow('exact candidate selection input');
 });
 
 test('Git status output includes deletes, type changes, and both rename endpoints', () => {

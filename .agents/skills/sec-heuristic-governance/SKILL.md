@@ -1,7 +1,6 @@
 ---
 name: sec-heuristic-governance
 description: 用于任何 active authority、脚本、配置、Workflow、Agent投影或审计 finding 中出现新的 Agent 启发式行为时，区分确定性合同与行为选择，去重并编译到唯一 Skill；不用于把产品事实、算法或字段表复制成提示词。
-compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行。
 ---
 
 # sec-heuristic-governance

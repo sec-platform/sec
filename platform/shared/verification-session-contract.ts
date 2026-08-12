@@ -362,6 +362,7 @@ export interface VerificationSessionProposalInputV1 {
   readonly headTreeSha: string;
   readonly manifestPath: string;
   readonly manifestDigest: `sha256:${string}`;
+  readonly testImpactTransitionDigest: `sha256:${string}`;
   readonly scopeProposalDigest: `sha256:${string}`;
   readonly actionPlanClosureDigest: `sha256:${string}`;
   readonly profile: string;
@@ -389,6 +390,10 @@ export function createVerificationSessionProposalDigestV1(
     headTreeSha: assertSha(input.headTreeSha, 'Session proposal headTreeSha'),
     manifestPath: assertManifestPath(input.manifestPath),
     manifestDigest: assertDigest(input.manifestDigest, 'Session proposal manifestDigest'),
+    testImpactTransitionDigest: assertDigest(
+      input.testImpactTransitionDigest,
+      'Session proposal testImpactTransitionDigest'
+    ),
     scopeProposalDigest: assertDigest(input.scopeProposalDigest, 'Session proposal scopeProposalDigest'),
     actionPlanClosureDigest: assertDigest(input.actionPlanClosureDigest, 'Session proposal actionPlanClosureDigest'),
     profile: assertText(input.profile, 'Session proposal profile'),

@@ -40,7 +40,6 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/ci-evidence-contract-v4.test.ts',
-  'tests/unit/ci-evidence-composition-policy-registry.test.ts',
   'tests/unit/ci-hosted-sut-observation-contract.test.ts',
   'tests/unit/ci-pr-risk-execution.test.ts',
   'tests/unit/ci-pr-risk-selection.test.ts',
@@ -80,7 +79,9 @@ const VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS = [
   'tests/unit/integration-authorization-publication.test.ts',
   'tests/unit/local-main-closeout.test.ts',
   'tests/unit/tcb-trust-root-contract.test.ts',
+  'tests/unit/verification-action-ci-contract.test.ts',
   'tests/unit/verification-candidate-tree.test.ts',
+  'tests/unit/verification-session-contract.test.ts',
   'tests/unit/verification-session-runtime.test.ts',
   'tests/unit/work-selection-live.test.ts'
 ];
@@ -130,6 +131,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     },
     autoReferenceMode: 'declared-only',
     sourceFiles: [
+      'platform/shared/verification-session-contract.ts',
       'scripts/codex/branch-closeout-contract.ts',
       'scripts/codex/branch-closeout-receipt.ts',
       'scripts/codex/branch-closeout.ts',

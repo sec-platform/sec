@@ -3,11 +3,14 @@ import { createHash } from 'node:crypto';
 
 import type { CodexDevelopmentVerificationGateEvidenceV2 } from '../../platform/shared/ci-evidence-contract.ts';
 import {
+  CodexDevelopmentCreateTestImpactTransitionObservationV1,
   gitChangedFileDiffArgs,
   parseGitChangedRecordsOutput,
-  type CodexDevelopmentGitChangedRecordV1
+  type CodexDevelopmentGitChangedRecordV1,
+  type CodexDevelopmentTestImpactTransitionObservationV1
 } from '../../platform/shared/ci-git-changed-files.ts';
 import { uniqueSorted } from '../../platform/shared/collections.ts';
+import { CodexDevelopmentReadExactGitBlobEntryV1 } from './exact-git-blob.ts';
 
 export const CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT_V1 = 24_000;
 
@@ -26,6 +29,7 @@ export type CodexDevelopmentGateProcessStepV1 = {
 export type CodexDevelopmentChangedPathSnapshotV1 = {
   records: CodexDevelopmentGitChangedRecordV1[];
   files: string[];
+  transitionObservation: CodexDevelopmentTestImpactTransitionObservationV1;
 };
 
 export function CodexDevelopmentDefaultGitRevisionV1(
@@ -64,9 +68,12 @@ export function CodexDevelopmentChangedFilesFromRecordsV1(
 
 export function CodexDevelopmentDefaultChangedPathsV1(
   repositoryRoot: string,
-  baseRef: string
+  baseSha: string,
+  headSha: string
 ): CodexDevelopmentChangedPathSnapshotV1 | null {
-  const result = spawnSync('git', gitChangedFileDiffArgs(baseRef), {
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(baseSha)
+      || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(headSha)) return null;
+  const result = spawnSync('git', gitChangedFileDiffArgs(baseSha, headSha), {
     cwd: repositoryRoot,
     encoding: 'buffer'
   });
@@ -75,7 +82,28 @@ export function CodexDevelopmentDefaultChangedPathsV1(
     const records = parseGitChangedRecordsOutput(result.stdout);
     return {
       records,
-      files: CodexDevelopmentChangedFilesFromRecordsV1(records)
+      files: CodexDevelopmentChangedFilesFromRecordsV1(records),
+      transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservationV1({
+        baseSha,
+        headSha,
+        records,
+        readPathBlob: (revision, repositoryPath) => {
+          try {
+            const entry = CodexDevelopmentReadExactGitBlobEntryV1({
+              repositoryRoot,
+              commitSha: revision,
+              repositoryPath
+            });
+            return { mode: entry.mode, blobSha: entry.blobSha };
+          } catch (error) {
+            if (error instanceof Error
+                && error.message === `Exact Git blob path is missing at ${revision}: ${repositoryPath}.`) {
+              return null;
+            }
+            throw error;
+          }
+        }
+      })
     };
   } catch {
     return null;
@@ -84,9 +112,10 @@ export function CodexDevelopmentDefaultChangedPathsV1(
 
 export function CodexDevelopmentDefaultChangedFilesV1(
   repositoryRoot: string,
-  baseRef: string
+  baseSha: string,
+  headSha: string
 ): string[] | null {
-  return CodexDevelopmentDefaultChangedPathsV1(repositoryRoot, baseRef)?.files ?? null;
+  return CodexDevelopmentDefaultChangedPathsV1(repositoryRoot, baseSha, headSha)?.files ?? null;
 }
 
 export function CodexDevelopmentRunGateProcessV1(

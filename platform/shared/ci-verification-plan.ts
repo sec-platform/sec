@@ -1,4 +1,5 @@
 import type { CodexDevelopmentEvidenceCompositionPlanV1 } from './ci-evidence-reuse-contract.ts';
+import type { CodexDevelopmentTestImpactTransitionObservationV1 } from './ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from './ci-pr-risk-selection.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 import { uniqueSorted } from './collections.ts';
@@ -113,10 +114,11 @@ function hasDocumentationLifecycleChange(owners: readonly string[]): boolean {
 export function CodexDevelopmentBuildVerificationPlanV1(
   profile: CodexDevelopmentVerificationPlanProfileV1,
   rawChangedFiles: readonly string[] | null,
-  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProviderV1
+  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProviderV1,
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): CodexDevelopmentVerificationPlanV1 {
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFilesV1(rawChangedFiles);
-  const selection = selectCiPrRiskSlowSuites(changedFiles, testImpactSourceProvider);
+  const selection = selectCiPrRiskSlowSuites(changedFiles, testImpactSourceProvider, transition);
   const includeRisk = !selection.resolved || selection.suites.length > 0 || selection.slowTests.length > 0;
   const hasDocsLifecycleChange = changedFiles === null || hasDocumentationLifecycleChange(selection.owners);
   const gates = profile === 'full'

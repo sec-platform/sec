@@ -18,14 +18,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-import { CodexDevelopmentBuildSanitizedChildEnvironmentV1 } from '../platform/shared/ci-execution-environment.ts';
-
 import { executeVerifiedCiActionPlanV1 } from '../platform/dev-runner.ts';
-import {
-  CodexDevelopmentRegisteredEvidenceCompositionPolicyV1,
-  CodexDevelopmentRequiredEvidenceCompositionPolicyV1,
-  CodexDevelopmentSm3P0WorkPackageIdV1
-} from '../platform/shared/ci-evidence-composition-policy-registry.ts';
 import {
   aggregateV4Status,
   CodexDevelopmentAssertVerificationActionTerminalArtifactV2,
@@ -43,24 +36,18 @@ import {
   type CodexDevelopmentVerificationActionArtifactProducerV2,
   type CodexDevelopmentVerificationActionTerminalArtifactV2,
   type CodexDevelopmentVerificationEvidenceV2,
-  type CodexDevelopmentVerificationEvidenceV3,
   type CodexDevelopmentVerificationEvidenceV4,
   type CodexDevelopmentVerificationGateEvidenceV2,
-  type CodexDevelopmentVerificationGateEvidenceV3,
   type CodexDevelopmentVerificationGateEvidenceV4
 } from '../platform/shared/ci-evidence-contract.ts';
 import {
-  CodexDevelopmentBuildEvidenceCompositionPlanV1,
-  type CodexDevelopmentEvidenceCompositionGateV1,
-  type CodexDevelopmentEvidenceCompositionPlanV1,
-  type CodexDevelopmentEvidenceCompositionPolicyV1,
-  type CodexDevelopmentExactGitBlobBytesV1,
-  type CodexDevelopmentExactGitBlobV1
+  type CodexDevelopmentExactGitBlobBytesV1
 } from '../platform/shared/ci-evidence-reuse-contract.ts';
-import {
-  decodeGitPathOutput,
-  type CodexDevelopmentGitChangedRecordV1
+import type {
+  CodexDevelopmentGitChangedRecordV1,
+  CodexDevelopmentTestImpactTransitionObservationV1
 } from '../platform/shared/ci-git-changed-files.ts';
+import { CodexDevelopmentAssertTestImpactTransitionSelectionV1 } from '../platform/shared/ci-git-changed-files.ts';
 import {
   CI_VERIFICATION_ACTION_PHYSICAL_COMMAND_SCHEMA_V1,
   CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_SCHEMA_V1,
@@ -88,7 +75,6 @@ import {
 import {
   CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1,
   CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2,
-  CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION,
   CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2,
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1,
@@ -100,7 +86,6 @@ import type {
   TcbClosureLock,
   TcbClosureLockSourcePlanV2
 } from '../platform/shared/tcb-closure-lock.ts';
-import { isTestFile } from '../platform/shared/test-budget-contract.ts';
 import {
   buildCiVerificationActionPlanClosureV1,
   CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
@@ -158,7 +143,6 @@ import {
   CodexDevelopmentBuildVerificationGateResultV1,
   type VerificationGateResultV1
 } from '../platform/shared/verification-result-contract.ts';
-import { CodexDevelopmentBuildVerificationScopeInventoryV1 } from '../platform/shared/verification-scope-inventory.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease
@@ -174,7 +158,6 @@ import {
   type CodexDevelopmentGateProcessResultV1
 } from './codex/ci-orchestration-core.ts';
 import {
-  CodexDevelopmentReadExactGitBlobEntryV1,
   CodexDevelopmentReadExactGitBlobV1,
   type CodexDevelopmentExactGitBlobReadOptionsV1
 } from './codex/exact-git-blob.ts';
@@ -201,7 +184,6 @@ import {
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest,
   CodexDevelopmentWorkPackageSchemaV1,
-  CodexDevelopmentWorkPackageSchemaV2,
   type CodexDevelopmentWorkPackageManifest
 } from './codex/work-package-contract.ts';
 export {
@@ -212,9 +194,6 @@ export {
 } from '../platform/shared/ci-hosted-sut-observation-contract.ts';
 
 const VERIFICATION_EVIDENCE_PATH = '.tmp/ci-verification-evidence.json';
-function isCompositionProtectedEnvKey(key: string): boolean {
-  return key === 'SEC_TEST_WORKSPACE_NAMESPACE' || key.startsWith('SEC_RUN_');
-}
 const FORMAL_HOSTED_ENV_KEYS = Object.freeze([
   'SEC_SESSION_REVISION', 'SEC_SESSION_PROPOSAL_DIGEST', 'SEC_SCOPE_AUTHORIZATION_REVISION',
   'SEC_SCOPE_AUTHORIZATION_DIGEST',
@@ -2750,15 +2729,12 @@ export type CodexDevelopmentCiVerificationMainOptions = {
   trackedTreeIsClean?: () => boolean;
   changedFiles?: (baseRef: string) => string[] | null;
   changedRecords?: (baseRef: string) => CodexDevelopmentGitChangedRecordV1[] | null;
-  gitBlob?: (ref: string, file: string) => CodexDevelopmentExactGitBlobV1 | null;
+  transitionObservation?: CodexDevelopmentTestImpactTransitionObservationV1;
   readGitBlob?: (ref: string, file: string) => CodexDevelopmentExactGitBlobBytesV1 | null;
-  gitFiles?: (ref: string, prefix: string) => string[] | null;
   runGate?: (
     step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }
   ) => Promise<CodexDevelopmentGateProcessResultV1>;
   writeEvidence?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV2) => void;
-  /** Legacy test injection only. V3 publication is retired and this callback is never invoked. */
-  writeEvidenceV3?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV3) => void;
   writeEvidenceV4?: (filePath: string, evidence: CodexDevelopmentVerificationEvidenceV4) => void;
   actionRunner?: VerificationActionRunnerV2;
   readDurableActionResult?: (actionKey: VerificationActionKeyDigest) => Readonly<{
@@ -2766,7 +2742,6 @@ export type CodexDevelopmentCiVerificationMainOptions = {
     evidenceRefs: readonly string[];
   }> | null;
   readExactGitBlob?: typeof CodexDevelopmentReadExactGitBlobV1;
-  resolvePolicy?: (policyId: string) => CodexDevelopmentEvidenceCompositionPolicyV1;
 };
 
 export interface CodexDevelopmentCiActionExecutionV1 {
@@ -3036,23 +3011,6 @@ function parseProfile(argv: string[]): { profile: CodexDevelopmentVerificationPl
   return { profile, expectedHead };
 }
 
-function defaultGitBlob(
-  repositoryRoot: string,
-  ref: string,
-  file: string
-): CodexDevelopmentExactGitBlobV1 | null {
-  try {
-    const entry = CodexDevelopmentReadExactGitBlobEntryV1({
-      repositoryRoot,
-      commitSha: ref,
-      repositoryPath: file
-    });
-    return { mode: entry.mode, type: entry.type, blobSha: entry.blobSha };
-  } catch {
-    return null;
-  }
-}
-
 function defaultReadGitBlob(
   repositoryRoot: string,
   readExactGitBlob: (
@@ -3070,23 +3028,6 @@ function defaultReadGitBlob(
   } catch {
     return null;
   }
-}
-
-function defaultGitFiles(repositoryRoot: string, ref: string, prefix: string): string[] | null {
-  const result = spawnSync('git', ['ls-tree', '-r', '-z', '--name-only', '--full-tree', ref, '--', prefix], {
-    cwd: repositoryRoot,
-    encoding: 'buffer',
-    maxBuffer: 16 * 1024 * 1024
-  });
-  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
-  let output: string;
-  try {
-    output = decodeGitPathOutput(result.stdout, 'tree-path');
-  } catch {
-    return null;
-  }
-  if (output.length > 0 && !output.endsWith('\0')) return null;
-  return output.split('\0').filter(Boolean);
 }
 
 function notRunGate(step: CiVerificationGateStep): CodexDevelopmentVerificationGateEvidenceV2 {
@@ -3140,28 +3081,6 @@ function afterRetention(date: Date): string {
   ).toISOString();
 }
 
-function notRunCompositionGate(
-  gate: CodexDevelopmentEvidenceCompositionGateV1
-): CodexDevelopmentVerificationGateEvidenceV3 {
-  return {
-    id: gate.gateId,
-    argv: [...gate.argv],
-    runtime: gate.runtime,
-    envAllowlistRevision: gate.envAllowlistRevision,
-    envDigest: gate.envDigest,
-    disposition: gate.disposition,
-    coveredScopeIds: [...gate.coveredScopeIds],
-    status: 'not-run',
-    exitCode: null,
-    startedAt: null,
-    finishedAt: null,
-    durationMs: null,
-    failureTail: null,
-    rawOutputDigest: null,
-    notRunReason: 'Gate was not reached because preflight or an earlier fail-fast gate did not complete.'
-  };
-}
-
 export async function CodexDevelopmentCiVerificationMain(
   options: CodexDevelopmentCiVerificationMainOptions = {}
 ): Promise<number> {
@@ -3176,13 +3095,9 @@ export async function CodexDevelopmentCiVerificationMain(
     ?? (() => CodexDevelopmentDefaultTrackedTreeIsCleanV1(repositoryRoot));
   const changedFileResolver = options.changedFiles;
   const changedRecordResolver = options.changedRecords;
-  const gitBlob = options.gitBlob
-    ?? ((ref: string, file: string) => defaultGitBlob(repositoryRoot, ref, file));
   const readGitBlob = options.readGitBlob
     ?? ((ref: string, file: string) =>
       defaultReadGitBlob(repositoryRoot, readExactGitBlob, ref, file));
-  const gitFiles = options.gitFiles
-    ?? ((ref: string, prefix: string) => defaultGitFiles(repositoryRoot, ref, prefix));
   const runGate = options.runGate
     ?? ((step) => CodexDevelopmentRunGateProcessV1(repositoryRoot, step));
   const writeEvidence = options.writeEvidence;
@@ -3203,9 +3118,6 @@ export async function CodexDevelopmentCiVerificationMain(
   let selectionResolved = false;
   let steps: CiVerificationGateStep[] = [];
   let gates: CodexDevelopmentVerificationGateEvidenceV2[] = [];
-  let compositionPlan: CodexDevelopmentEvidenceCompositionPlanV1 | null = null;
-  let compositionExecutionEnvironment: NodeJS.ProcessEnv | null = null;
-  let compositionGates: CodexDevelopmentVerificationGateEvidenceV3[] = [];
   let actionPlan: CiVerificationActionPlanClosureV1 | null = null;
   let actionCandidate: CiVerificationActionCandidateV1 | null = null;
   let actionGates: readonly CodexDevelopmentVerificationGateEvidenceV4[] = [];
@@ -3255,117 +3167,58 @@ export async function CodexDevelopmentCiVerificationMain(
       throw new Error('Frozen verification requires the exact affected base to equal the current PR base.');
     }
     formalBinding = formalHostedBinding(env);
-    let changedRecords: CodexDevelopmentGitChangedRecordV1[] | null;
     let rawChangedFiles: string[] | null;
+    let transitionObservation: CodexDevelopmentTestImpactTransitionObservationV1 | undefined;
+    let injectedChangedRecords: CodexDevelopmentGitChangedRecordV1[] | null | undefined;
     if (changedRecordResolver) {
-      changedRecords = changedRecordResolver(prBaseSha);
+      const changedRecords = changedRecordResolver(prBaseSha);
+      injectedChangedRecords = changedRecords;
       rawChangedFiles = changedRecords === null
         ? null
         : CodexDevelopmentChangedFilesFromRecordsV1(changedRecords);
+      transitionObservation = options.transitionObservation;
     } else if (changedFileResolver) {
+      if (options.transitionObservation !== undefined) {
+        throw new Error('CI verification transition injection requires the exact changed-record test seam.');
+      }
       rawChangedFiles = changedFileResolver(prBaseSha);
-      changedRecords = rawChangedFiles?.map((file) => ({ status: 'changed' as const, path: file })) ?? null;
     } else {
-      const snapshot = CodexDevelopmentDefaultChangedPathsV1(repositoryRoot, prBaseSha);
-      changedRecords = snapshot?.records ?? null;
+      if (options.transitionObservation !== undefined) {
+        throw new Error('CI verification transition injection requires an explicit changed-input test seam.');
+      }
+      const snapshot = CodexDevelopmentDefaultChangedPathsV1(repositoryRoot, prBaseSha, headSha);
       rawChangedFiles = snapshot?.files ?? null;
+      transitionObservation = snapshot?.transitionObservation;
     }
-    const requiredPolicyId = changedRecords === null
-      ? null
-      : CodexDevelopmentRequiredEvidenceCompositionPolicyV1({
-        records: changedRecords,
-        baseHead: prBaseSha,
-        currentHead: headSha,
-        gitBlob
+    if (rawChangedFiles !== null && transitionObservation !== undefined) {
+      CodexDevelopmentAssertTestImpactTransitionSelectionV1({
+        baseSha: prBaseSha,
+        headSha,
+        changedPaths: rawChangedFiles,
+        ...(injectedChangedRecords === undefined || injectedChangedRecords === null
+          ? {}
+          : { records: injectedChangedRecords }),
+        observation: transitionObservation
       });
-    if (requiredPolicyId !== null && (
-      binding.manifest?.schema !== CodexDevelopmentWorkPackageSchemaV2
-      || binding.manifest.id !== CodexDevelopmentSm3P0WorkPackageIdV1
-      || binding.manifest.evidenceComposition.policyId !== requiredPolicyId
-    )) {
-      throw new Error(`Protected SM3 P0 inputs require Work Package V2 policy ${requiredPolicyId}.`);
     }
-    if (binding.manifest?.schema === CodexDevelopmentWorkPackageSchemaV2) {
-      if (profile !== 'quick') throw new Error('Composition verification supports --profile quick only.');
-      if (!rawChangedFiles) throw new Error('Composition verification cannot resolve the complete changed-path set.');
-      const testFiles = gitFiles(headSha, 'tests');
-      if (!testFiles) throw new Error('Composition verification cannot enumerate exact-head test files.');
-      const testImpactSourceProvider = {
-        testFiles: testFiles.filter(isTestFile),
-        readTestSource: (testFile: string): string | null => {
-          const entry = readGitBlob(headSha!, testFile);
-          if (!entry) throw new Error(`Composition verification cannot read exact-head test source: ${testFile}.`);
-          try {
-            return new TextDecoder('utf-8', { fatal: true }).decode(entry.bytes);
-          } catch (error) {
-            throw new Error(`Composition verification exact-head test source is not UTF-8: ${testFile}.`, { cause: error });
-          }
-        }
-      };
-      const inventory = CodexDevelopmentBuildVerificationScopeInventoryV1({
-        profile,
-        changedFiles: rawChangedFiles,
-        runtime: `bun@${Bun.version}`,
-        currentHead: headSha,
-        baseHead: prBaseSha,
-        changedRecords: changedRecords!,
-        gitBlob,
-        testImpactSourceProvider
-      });
-      files = inventory.fullChangedFiles;
-      selectionResolved = true;
-      compositionExecutionEnvironment = { ...env, SEC_CHANGED_BASE: prBaseSha };
-      compositionPlan = CodexDevelopmentBuildEvidenceCompositionPlanV1({
-        policyId: binding.manifest.evidenceComposition.policyId,
-        workPackageId: binding.manifest.id,
-        ciRevision: CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION,
-        profile,
-        inventory,
-        runtime: `bun@${Bun.version}`,
-        currentHead: headSha,
-        currentTree: treeSha,
-        gitBlob,
-        gitTree: (ref) => gitRevision(`${ref}^{tree}`),
-        readEvidence: readGitBlob,
-        resolvePolicy: options.resolvePolicy ?? ((policyId) => (
-          CodexDevelopmentRegisteredEvidenceCompositionPolicyV1({
-            policyId,
-            workPackageId: binding.manifest!.id,
-            inventory,
-            runtime: `bun@${Bun.version}`,
-            currentHead: headSha!,
-            gitBlob
-          })
-        )),
-        executionEnvironment: compositionExecutionEnvironment
-      });
-      compositionGates = compositionPlan.gates.map(notRunCompositionGate);
-      for (const gate of compositionPlan.gates) {
-        for (const [key, value] of Object.entries(gate.env)) {
-          if (
-            !isCompositionProtectedEnvKey(key)
-            && env[key] !== undefined
-            && env[key] !== value
-          ) {
-            throw new Error(`Composition verification inherited environment conflicts with ${gate.gateId}:${key}.`);
-          }
-        }
-      }
+    const plan = CodexDevelopmentBuildVerificationPlanV1(
+      profile,
+      rawChangedFiles,
+      undefined,
+      transitionObservation
+    );
+    files = plan.changedFiles;
+    selectionResolved = plan.selectionResolved;
+    steps = plan.gates;
+    gates = steps.map(notRunGate);
+    if (steps.some((step) => step.id === 'impact-risk')) {
+      console.log(`CI verification: risk gate required; reasons=[${plan.selectionReasons.join(', ')}]; owners=[${plan.affectedOwners.join(', ')}]`);
     } else {
-      const plan = CodexDevelopmentBuildVerificationPlanV1(profile, rawChangedFiles);
-      files = plan.changedFiles;
-      selectionResolved = plan.selectionResolved;
-      steps = plan.gates;
-      gates = steps.map(notRunGate);
-      if (steps.some((step) => step.id === 'impact-risk')) {
-        console.log(`CI verification: risk gate required; reasons=[${plan.selectionReasons.join(', ')}]; owners=[${plan.affectedOwners.join(', ')}]`);
-      } else {
-        console.log('CI verification: no slow/workspace risk impact detected; risk gate skipped.');
-      }
-      if (!plan.selectionResolved) throw new Error('CI verification changed-file selection is unresolved.');
+      console.log('CI verification: no slow/workspace risk impact detected; risk gate skipped.');
     }
+    if (!plan.selectionResolved) throw new Error('CI verification changed-file selection is unresolved.');
 
-    console.log(`SEC verification contract revision: ${compositionPlan ? CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION : CI_VERIFICATION_CONTRACT_REVISION}`);
+    console.log(`SEC verification contract revision: ${CI_VERIFICATION_CONTRACT_REVISION}`);
     console.log(`SEC verification profile: ${profile}`);
     console.log(`SEC verification exact head: ${headSha}`);
     console.log(`SEC verification tree: ${treeSha}`);
@@ -3419,39 +3272,14 @@ export async function CodexDevelopmentCiVerificationMain(
       requiredBlobs: formalBinding?.requiredBlobs ?? localDependencyBlobs
     };
     actionCandidate = candidate;
-    const producerGates: readonly CiVerificationProducerGateV1[] = compositionPlan
-      ? compositionPlan.gates.map((gate) => Object.freeze({
-          id: gate.gateId,
-          phase: 'quick' as const,
-          argv: Object.freeze([...gate.argv]),
-          runtime: 'bun' as const,
-          environment: Object.freeze({
-            [`${gate.envAllowlistRevision}:environment`]: gate.envDigest as `sha256:${string}`
-          }),
-          coveredScopeIds: Object.freeze([...gate.coveredScopeIds])
-        }))
-      : steps.map(ciVerificationGateStepV1);
-    const descriptors = producerGates.map((gate, index) => {
-      if (!compositionPlan) return Object.freeze({
-        gate,
-        env: {
-          ...env,
-          SEC_TEST_WORKSPACE_NAMESPACE: `verification-${gate.id.replace(/[^a-z0-9]+/giu, '-').toLowerCase()}`
-        }
-      });
-      if (!compositionExecutionEnvironment) throw new Error('Composition verification execution environment was not initialized.');
-      const source = compositionPlan.gates[index]!;
-      const childEnvironment = CodexDevelopmentBuildSanitizedChildEnvironmentV1(
-        compositionExecutionEnvironment,
-        source.env,
-        source.gateId
-      );
-      if (childEnvironment.binding.allowlistRevision !== source.envAllowlistRevision ||
-          childEnvironment.binding.digest !== source.envDigest) {
-        throw new Error(`Composition verification execution environment drifted for ${source.gateId}.`);
+    const producerGates: readonly CiVerificationProducerGateV1[] = steps.map(ciVerificationGateStepV1);
+    const descriptors = producerGates.map((gate) => Object.freeze({
+      gate,
+      env: {
+        ...env,
+        SEC_TEST_WORKSPACE_NAMESPACE: `verification-${gate.id.replace(/[^a-z0-9]+/giu, '-').toLowerCase()}`
       }
-      return Object.freeze({ gate, env: childEnvironment.environment });
-    });
+    }));
     actionPlan = buildCiVerificationActionPlanClosureV1({ candidate, gates: producerGates });
     if (formalBinding !== null && actionPlan.actionPlanDigest !== formalBinding.actionPlanDigest) {
       throw new Error('Formal hosted Action plan digest differs from the trusted dispatcher reconstruction.');

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { rawSha256 } from './canonical-primitives.ts';
+import type { CodexDevelopmentTestImpactTransitionObservationV1 } from './ci-git-changed-files.ts';
 import { uniqueSorted } from './collections.ts';
 import { getTestFilesSync, isFastTestFile, isSlowTestFile } from './test-budget-contract.ts';
 import { governanceTestOwnershipDeclarations } from './test-impact-rules/governance.ts';
@@ -55,10 +56,13 @@ export const testOwnershipDeclarations: TestOwnershipDeclaration[] = [
   ...verificationTestOwnershipDeclarations
 ];
 
-export function isTestImpactSourceFile(file: string): boolean {
+export function isTestImpactSourceFile(
+  file: string,
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
+): boolean {
   if (/^tests\/.+\.(?:test|spec)\.tsx?$/u.test(file)) return false;
   return classifyTestImpactSource(file) !== null || testOwnershipDeclarations.some((declaration) => (
-    matchesTestOwnershipDeclaration(declaration, file)
+    matchesTestOwnershipDeclaration(declaration, file, transition)
   ));
 }
 
@@ -582,10 +586,11 @@ function testsReferencingSources(
  */
 export function hasTestImpactForFile(
   file: string,
-  provider?: CodexDevelopmentTestImpactSourceProviderV1
+  provider?: CodexDevelopmentTestImpactSourceProviderV1,
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): boolean {
   const declarations = testOwnershipDeclarations.filter((declaration) => (
-    matchesTestOwnershipDeclaration(declaration, file)
+    matchesTestOwnershipDeclaration(declaration, file, transition)
   ));
   if (declarations.length > 0) return true;
   if (testImpactFallbackRules.some((rule) => rule.sourcePattern.test(file))) return true;
@@ -600,13 +605,17 @@ export function __resetTestImpactCachesForTesting(): void {
   persistentCacheDirty = false;
 }
 
-export function resolveTestOwnership(files: string[]): ResolvedTestOwnership[] {
-  return resolveDeclaredTestOwnership(files, testOwnershipDeclarations);
+export function resolveTestOwnership(
+  files: string[],
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
+): ResolvedTestOwnership[] {
+  return resolveDeclaredTestOwnership(files, testOwnershipDeclarations, transition);
 }
 
 export function selectTestsForSources(
   files: string[],
-  provider?: CodexDevelopmentTestImpactSourceProviderV1
+  provider?: CodexDevelopmentTestImpactSourceProviderV1,
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): TestImpactSelection {
   const fast = new Set<string>();
   const slow = new Set<string>();
@@ -614,7 +623,7 @@ export function selectTestsForSources(
 
   for (const file of files) {
     const declarations = testOwnershipDeclarations.filter((declaration) => (
-      matchesTestOwnershipDeclaration(declaration, file)
+      matchesTestOwnershipDeclaration(declaration, file, transition)
     ));
     if (resolveTestOwnershipAutoReferenceMode(declarations) === 'include') {
       const referencedTests = testsReferencingSources([file], provider);

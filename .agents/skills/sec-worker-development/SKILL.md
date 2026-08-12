@@ -1,7 +1,6 @@
 ---
 name: sec-worker-development
 description: 用于在 frozen Task Envelope 内实现一个 SEC 产品、修复或重构纵切片并提交 Reconciliation Delta；不用于 DAG、merge、hosted Gate 或跨 owner 改动。
-compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行。
 ---
 
 # sec-worker-development

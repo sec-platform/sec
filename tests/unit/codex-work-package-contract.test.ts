@@ -9,7 +9,6 @@ import {
   CodexDevelopmentParseWorkPackageLocator,
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentParseWorkPackageManifestV1,
-  CodexDevelopmentParseWorkPackageManifestV2,
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../scripts/codex/work-package-contract.ts';
 
@@ -42,7 +41,7 @@ ${overrides}---
 `;
 }
 
-function manifestV2(overrides = ''): string {
+function retiredManifestV2(): string {
   return `---
 schema: codex-development-work-package-v2
 id: ci-v8-evidence-composition-bootstrap-v1
@@ -60,7 +59,7 @@ forbiddenPaths:
   - platform/compiler/
 acceptance:
   - exact-composition
-${overrides}---
+---
 
 # CI V8 Bootstrap
 `;
@@ -129,37 +128,12 @@ test('Work Package V1 authorityRefs are an optional canonical owner-ID projectio
   ))).toThrow(/canonical code-unit order/u);
 });
 
-test('Work Package V2 exposes only one immutable evidence-composition policy reference', () => {
-  const parsed = CodexDevelopmentParseWorkPackageManifestV2(
-    manifestV2(),
-    'docs/work-packages/ci-v8-evidence-composition-bootstrap-v1.md'
-  );
-  expect(parsed).toMatchObject({
-    schema: 'codex-development-work-package-v2',
-    id: 'ci-v8-evidence-composition-bootstrap-v1',
-    evidenceComposition: { policyId: 'ci-v8-synthetic-composition-v1' }
-  });
-  expect('requiredProfile' in parsed).toBe(false);
-  expect('ciRevision' in parsed).toBe(false);
-  expect('tests' in parsed).toBe(false);
-  expect(CodexDevelopmentParseWorkPackageManifest(manifestV2())).toEqual(parsed);
+test('Work Package parser exposes one V1 authority route and rejects retired V2 bytes', () => {
   expect(CodexDevelopmentParseWorkPackageManifest(manifest())).toEqual(
     CodexDevelopmentParseWorkPackageManifestV1(manifest())
   );
-});
-
-test('Work Package V2 rejects commands, exclusions, evidence claims, and unknown policy fields', () => {
-  for (const injected of [
-    '  argv: [bun, test]\n',
-    '  exclude: tests/e2e/**\n',
-    '  evidencePath: docs/evidence/candidate.json\n',
-    '  scopeIds: [fast-test:any]\n',
-    'tests:\n  - bun run typecheck\n',
-    'requiredProfile: quick\n',
-    'ciRevision: ci-verification-v8\n'
-  ]) {
-    expect(() => CodexDevelopmentParseWorkPackageManifestV2(manifestV2(injected))).toThrow();
-  }
+  expect(() => CodexDevelopmentParseWorkPackageManifest(retiredManifestV2()))
+    .toThrow('schema is unsupported');
 });
 
 test('Work Package parser rejects unknown, duplicate, mutable, and ambiguous scope', () => {
@@ -195,12 +169,6 @@ test('built-in Work Package YAML keeps strict mapping and lexical fail-closed se
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(
     manifest().replace('    owner: b0-writer', '    owner: b0-writer\n    owner: duplicate-writer')
   )).toThrow('duplicate mapping key "owner"');
-  expect(() => CodexDevelopmentParseWorkPackageManifestV2(
-    manifestV2().replace(
-      '  policyId: ci-v8-synthetic-composition-v1',
-      '  policyId: ci-v8-synthetic-composition-v1\n  policyId: duplicate-policy'
-    )
-  )).toThrow('duplicate mapping key "policyId"');
   expect(() => CodexDevelopmentParseWorkPackageManifestV1(
     manifest().replace('id: b0-bootstrap-v1', 'id: &manifest-id b0-bootstrap-v1')
   )).toThrow('anchors, aliases, and merge keys are forbidden');

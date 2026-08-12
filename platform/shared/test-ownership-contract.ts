@@ -1,4 +1,5 @@
 import { CodexDevelopmentIsActiveDocumentationPathV1 } from './active-documentation-contract.ts';
+import type { CodexDevelopmentTestImpactTransitionObservationV1 } from './ci-git-changed-files.ts';
 import type { PassId } from './pipeline-types.ts';
 
 export const TEST_IMPACT_SOURCE_KINDS = [
@@ -26,6 +27,12 @@ export type TestOwnershipDeclaration = {
   excludedSourceFiles?: readonly string[];
   sourcePrefixes?: readonly string[];
   sourceKinds?: readonly TestImpactSourceKind[];
+  removedSourceTransitions?: readonly Readonly<{
+    path: string;
+    baseSha: string;
+    baseMode: '100644' | '100755';
+    baseBlobSha: string;
+  }>[];
   fast: readonly string[];
   slow: readonly string[];
 };
@@ -62,21 +69,40 @@ export function classifyTestImpactSource(file: string): TestImpactSourceKind | n
 
 export function matchesTestOwnershipDeclaration(
   declaration: TestOwnershipDeclaration,
-  file: string
+  file: string,
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): boolean {
   if (declaration.excludedSourceFiles?.includes(file) === true) return false;
   const sourceKind = classifyTestImpactSource(file);
   return declaration.sourceFiles?.includes(file) === true
     || declaration.sourcePrefixes?.some((prefix) => file.startsWith(prefix)) === true
-    || (sourceKind !== null && declaration.sourceKinds?.includes(sourceKind) === true);
+    || (sourceKind !== null && declaration.sourceKinds?.includes(sourceKind) === true)
+    || declaration.removedSourceTransitions?.some((rule) => (
+      transition?.baseSha === rule.baseSha
+      && transition.records.filter((record) => (
+        record.path === file || record.previousPath === file
+      )).length === 1
+      && transition.records.some((record) => (
+        record.status === 'removed' && record.path === file && record.previousPath === undefined
+      ))
+      && transition.removedPathBlobs.some((observation) => (
+        observation.path === file
+        && observation.baseMode === rule.baseMode
+        && observation.baseBlobSha === rule.baseBlobSha
+        && observation.headMode === null
+        && observation.headBlobSha === null
+      ))
+      && rule.path === file
+    )) === true;
 }
 
 export function resolveDeclaredTestOwnership(
   files: readonly string[],
-  declarations: readonly TestOwnershipDeclaration[]
+  declarations: readonly TestOwnershipDeclaration[],
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): ResolvedTestOwnership[] {
   return files.flatMap((source) => declarations
-    .filter((declaration) => matchesTestOwnershipDeclaration(declaration, source))
+    .filter((declaration) => matchesTestOwnershipDeclaration(declaration, source, transition))
     .map((declaration) => ({
       source,
       owner: declaration.owner,

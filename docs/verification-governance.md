@@ -336,12 +336,36 @@ healthy ordinary-only ledger并引用其ledger digest；`length === 1`、只验a
 competing authority，必须由test/source-lock阻止。
 
 `allowedLanes`和repair decision只表达exact ledger的语义路由限制，不是physical executor、Scope、
-Evidence、Review、IntegrationAuthorization或merge authority。document-control只能在无active package、
-manifest path/package/base/tree/trust全绑定且现有Work Package授权的情况下冻结该projection；后续仍须
+Evidence、Review、IntegrationAuthorization或merge authority。document-control所称无active package必须由
+current pointer manifest candidate bytes与fresh exact-default bytes raw-byte相等、digest一致来证明已经published；
+此时repair rolling只退休该completed active并原序保留全部未完成candidates。default缺失、mismatch、stale、
+unresolved、截断或容量溢出一律fail closed。manifest path/package/base/tree/trust全绑定且现有Work Package授权时
+才可冻结该projection；后续仍须
 通过exact Scope、Session、Evidence、独立Review、authorization、hosted merge与new-main readback。
-当前`default-branch-health-repair-v2`是trusted main缺少上述consumer时唯一一次人工bootstrap bridge；
-它进入main后，future degraded generation只走内容寻址的production repair route，不保留caller JSON、
-手工pointer staging或第二repair入口。
+先前的manual bootstrap已安装production repair route，但其trusted-main generation尚缺少对exact-default
+published active的退休能力，因而无法从bounded candidate capacity移除已经发布的旧active。当前由exact
+main/tree/health/failure fingerprint绑定的content-addressed repair package，是补齐这一capacity defect的唯一且
+最后一次manual-bootstrap bridge；它的exact new-main readback完成后，future degraded generation只走production
+repair route，不保留caller JSON、手工pointer staging或第二repair package入口。该例外由能力缺口与exact base
+共同界定，canonical verification authority不得用轮换中的Work Package ID重新定义或延长它。
+
+删除一个旧输入时，candidate tree中的consumer-zero不能让`base..candidate`删除路径失去test-impact归属。
+允许在唯一test-impact registry中保留一个只覆盖该迁移代的exact deletion-impact transition：只有trusted
+base/head、Git `removed` record、base ordinary-blob mode/OID与head absence全部匹配才选择focused tests；路径
+字符串本身没有ownership。它不保存或恢复旧bytes，不签发Evidence/Scope/authority，也不是兼容alias；同路径
+re-add、modify、wrong base/blob/mode或缺失exact observation全部保持unresolved。删除进入exact default后，未来
+candidate的base与record已不可能匹配，该transition行为自动失效并可随普通registry变更退休；未知
+`docs/evidence/**`路径仍保持unresolved并fail closed。
+
+`TestImpactTransitionObservation`只由唯一exact Git diff/blob observer从外层已经冻结的base/head编译；
+caller path数组、可注入JSON、默认`HEAD`或另一次ref解析都不是transition Evidence。CI、risk、affected、
+Scope与VerificationSession consumer必须整值验证base/head、canonical records、derived paths、删除blob
+mode/OID和head absence；测试注入只允许与同一次exact changed-record seam逐值相等，path-only seam不能携带
+transition。`TestImpactTransitionDigest`进入Scope proposal；ScopeAuthorization revision继而进入Action plan，
+同一digest同时进入Session proposal，所以hosted request既有的expected Scope/Action/Session digests已经绑定
+完整transition而无需新增第二个wire schema字段。trusted prepare、hosted reconstruction与local quick从同一
+candidate identity重派生并比较该链；顺序或transport变化先canonicalize，base/head/record/blob/mode/status
+任一变化都产生新identity或fail closed。
 
 ## Implementation Conformance 与 Resolution Evidence
 
@@ -545,6 +569,12 @@ Session journal使用append-only hash chain和单调transition记录可恢复进
 帮助同一runner恢复，不能授予跨host mutation authority。普通resume只查询、join或重新
 dispatch下一合法hosted transition；同一Action不重复spawn，同一Review head不重复请求，
 同一hosted Gate不重复dispatch，同一authorization不重复merge，同一closeout operation不重复发布。
+
+Trust epoch rollover是resume的强制边界而不是一个新的Verification Result：exact new-main readback后旧
+Session/Review/Evidence/authorization全部失效，长期A0立即从new-main canonical control facts重建下一
+session并继续。它不得携带旧PASS来覆盖新Requirement，也不得因为旧epoch已终止就把仍有合法下一动作的
+用户任务标记完成或要求人工重启。只有control unresolved/invalid、external authority或independent Review
+不可用、必须用户决策等typed blocker才允许结束自动推进。
 
 这些平台未完整实现时，分散日志、计划文档和聊天摘要不能被称为统一Ledger。
 

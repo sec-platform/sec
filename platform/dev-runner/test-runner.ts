@@ -11,10 +11,14 @@ import {
 } from '../shared/affected-test-inventory.ts';
 import { rawSha256 } from '../shared/canonical-primitives.ts';
 import {
+  CodexDevelopmentCreateTestImpactTransitionObservationV1,
   gitChangedFileDiffArgs,
+  gitPathBlobArgs,
   gitUntrackedFileArgs,
-  parseGitChangedFileOutput,
-  parseGitUntrackedFileOutput
+  parseGitChangedRecordsOutput,
+  parseGitPathBlobOutput,
+  parseGitUntrackedFileOutput,
+  type CodexDevelopmentTestImpactTransitionObservationV1
 } from '../shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../shared/ci-pr-risk-selection.ts';
 import { uniqueSorted, uniqueSortedLines } from '../shared/collections.ts';
@@ -294,20 +298,68 @@ function affectedTestsBaseRef(): string | undefined {
   return process.env.SEC_AFFECTED_TESTS_BASE ?? process.env.SEC_CHANGED_BASE;
 }
 
-async function gitChangedFiles(): Promise<string[] | null> {
+type GitChangedFilesResult = Readonly<{
+  files: string[];
+  transitionObservation?: CodexDevelopmentTestImpactTransitionObservationV1;
+}>;
+
+function exactRevision(stdout: Uint8Array): string | null {
+  try {
+    const value = new TextDecoder('utf-8', { fatal: true }).decode(stdout).trim();
+    return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function gitChangedFiles(): Promise<GitChangedFilesResult | null> {
   const baseRef = affectedTestsBaseRef();
+  const [baseRevision, headRevision] = baseRef === undefined
+    ? [null, null]
+    : await Promise.all([
+        runCommandBytes('git', ['rev-parse', '--verify', `${baseRef}^{commit}`], { cwd: compilerRoot }),
+        runCommandBytes('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd: compilerRoot })
+      ]);
+  const baseSha = baseRevision?.code === 0 ? exactRevision(baseRevision.stdout) : null;
+  const headSha = headRevision?.code === 0 ? exactRevision(headRevision.stdout) : null;
+  if (baseRef !== undefined && (baseSha === null || headSha === null)) return null;
   const [tracked, untracked] = await Promise.all([
-    runCommandBytes('git', gitChangedFileDiffArgs(baseRef), { cwd: compilerRoot }),
+    runCommandBytes('git', gitChangedFileDiffArgs(baseSha ?? undefined, headSha ?? 'HEAD'), { cwd: compilerRoot }),
     runCommandBytes('git', gitUntrackedFileArgs(), { cwd: compilerRoot })
   ]);
   if (tracked.code !== 0 || untracked.code !== 0) {
     return null;
   }
   try {
-    return uniqueSorted([
-      ...parseGitChangedFileOutput(tracked.stdout),
+    const records = parseGitChangedRecordsOutput(tracked.stdout);
+    const files = uniqueSorted([
+      ...records.flatMap((record) => (
+        record.previousPath === undefined ? [record.path] : [record.previousPath, record.path]
+      )),
       ...parseGitUntrackedFileOutput(untracked.stdout)
     ]);
+    if (baseSha === null || headSha === null) return { files };
+    const removedPaths = uniqueSorted(records
+      .filter((record) => record.status === 'removed')
+      .map((record) => record.path));
+    const blobEntries = await Promise.all(removedPaths.flatMap((repositoryPath) => [
+      { revision: baseSha, repositoryPath },
+      { revision: headSha, repositoryPath }
+    ]).map(async ({ revision, repositoryPath }) => {
+      const result = await runCommandBytes('git', gitPathBlobArgs(revision, repositoryPath), { cwd: compilerRoot });
+      if (result.code !== 0) throw new Error('Git path blob observation failed.');
+      return [`${revision}\0${repositoryPath}`, parseGitPathBlobOutput(result.stdout, repositoryPath)] as const;
+    }));
+    const blobs = new Map(blobEntries);
+    return {
+      files,
+      transitionObservation: CodexDevelopmentCreateTestImpactTransitionObservationV1({
+        baseSha,
+        headSha,
+        records,
+        readPathBlob: (revision, repositoryPath) => blobs.get(`${revision}\0${repositoryPath}`) ?? null
+      })
+    };
   } catch {
     return null;
   }
@@ -540,13 +592,18 @@ interface AffectedTestSelection {
   readonly unresolvedTestFiles: readonly string[];
 }
 
-function affectedTestSelection(files: string[]): AffectedTestSelection {
+function affectedTestSelection(
+  files: string[],
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
+): AffectedTestSelection {
   const currentTestFiles = new Set([
     ...getFastTestFilesSync(),
     ...getSlowTestFilesSync()
   ]);
   const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(
-    CodexDevelopmentAffectedInventoryInputsV1(files, (file) => currentTestFiles.has(file))
+    CodexDevelopmentAffectedInventoryInputsV1(files, (file) => currentTestFiles.has(file)),
+    undefined,
+    transition
   );
   return {
     tests: inventory.changedFastTests,
@@ -564,8 +621,11 @@ function unionTestFiles(...groups: string[][]): string[] {
   return uniqueSortedLines(groups.flat().join('\n'));
 }
 
-function unresolvedRiskPaths(files: string[]): string[] {
-  return files.filter((file) => !selectCiPrRiskSlowSuites([file]).resolved);
+function unresolvedRiskPaths(
+  files: string[],
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
+): string[] {
+  return files.filter((file) => !selectCiPrRiskSlowSuites([file], undefined, transition).resolved);
 }
 
 export interface AffectedTestPlanV1 {
@@ -607,10 +667,13 @@ function computeAffectedInputDigest(files: readonly string[]): `sha256:${string}
   return rawSha256(`${sorted.join('')}\0`);
 }
 
-function affectedTestPlan(files: string[]): AffectedTestPlanV1 {
-  const risk = selectCiPrRiskSlowSuites(files);
-  const selection = affectedTestSelection(files);
-  const unresolvedPaths = unresolvedRiskPaths(files);
+function affectedTestPlan(
+  files: string[],
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
+): AffectedTestPlanV1 {
+  const risk = selectCiPrRiskSlowSuites(files, undefined, transition);
+  const selection = affectedTestSelection(files, transition);
+  const unresolvedPaths = unresolvedRiskPaths(files, transition);
   const selectedFastTests = unionTestFiles([...selection.tests], [...selection.affectedTests]);
   const ownershipResolved = risk.resolved && unresolvedPaths.length === 0;
   const trustBoundary = classifyAffectedSelectionTrustBoundary({
@@ -736,9 +799,9 @@ async function runAffectedTestPlan(plan: AffectedTestPlanV1): Promise<number> {
 }
 
 export async function resolveAffectedTestExecution(): Promise<ResolvedAffectedTestExecutionV1 | null> {
-  const files = await gitChangedFiles();
-  if (!files) return null;
-  const plan = freezeAffectedTestPlan(affectedTestPlan(files));
+  const changed = await gitChangedFiles();
+  if (!changed) return null;
+  const plan = freezeAffectedTestPlan(affectedTestPlan(changed.files, changed.transitionObservation));
   return Object.freeze({
     plan,
     run: () => runAffectedTestPlan(plan)

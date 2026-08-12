@@ -189,6 +189,7 @@ test('scope revision constructs ActionPlan, then SessionProposal and SessionRevi
     baseSha: candidate.baseSha, baseTreeSha: candidate.baseTreeSha,
     headSha: candidate.headSha, headTreeSha: candidate.headTreeSha,
     manifestPath: candidate.manifestPath, manifestDigest: candidate.manifestDigest,
+    testImpactTransitionDigest: digest('0'),
     scopeProposalDigest: digest('d'),
     actionPlanClosureDigest: actionPlan.actionPlanDigest,
     profile: candidate.profile, environmentDigest: digest('f'), trustRevision: candidate.baseSha,

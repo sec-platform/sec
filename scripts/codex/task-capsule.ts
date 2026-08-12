@@ -125,17 +125,11 @@ export async function resolveTrustedWorkerTaskCapsuleV1(
     ...activation.authorityOwners.map(({ ref }) => ref),
     ...writePaths
   ])].sort(compareCodeUnits);
-  const verificationObligations = activation.manifest.schema === 'codex-development-work-package-v1'
-    ? activation.manifest.tests.map((testPath, index) => Object.freeze({
-        id: `test-${String(index + 1).padStart(3, '0')}`,
-        revision: testPath,
-        reasonCode: 'work-package-test'
-      }))
-    : [Object.freeze({
-        id: 'evidence-policy',
-        revision: activation.manifest.evidenceComposition.policyId,
-        reasonCode: 'work-package-evidence-policy'
-      })];
+  const verificationObligations = activation.manifest.tests.map((testPath, index) => Object.freeze({
+    id: `test-${String(index + 1).padStart(3, '0')}`,
+    revision: testPath,
+    reasonCode: 'work-package-test'
+  }));
   const taskCapsule = compileSecTaskCapsuleV1({
     schema: SEC_TASK_CAPSULE_INPUT_SCHEMA,
     ref: `activation:${activation.activationDigest}`,
