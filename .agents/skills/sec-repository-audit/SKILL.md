@@ -1,7 +1,6 @@
 ---
 name: sec-repository-audit
 description: 用于用户要求全面分析 SEC 仓库、重大架构变更前、重复系统性缺陷或 authority/code/test/CI 漂移时，对 exact revision 执行全量 tracked-path census、行为与约束审计并给出证据化优化；不用于普通叶节点开发或用抽样搜索冒充全仓覆盖。
-compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行。
 ---
 
 # sec-repository-audit

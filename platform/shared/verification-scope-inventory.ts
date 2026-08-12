@@ -10,7 +10,10 @@ import {
   type CodexDevelopmentRequiredGitBlobV1,
   type CodexDevelopmentVerificationScopeInventoryV1
 } from './ci-evidence-reuse-contract.ts';
-import type { CodexDevelopmentGitChangedRecordV1 } from './ci-git-changed-files.ts';
+import {
+  CodexDevelopmentCreateTestImpactTransitionObservationV1,
+  type CodexDevelopmentGitChangedRecordV1
+} from './ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from './ci-pr-risk-selection.ts';
 import { CodexDevelopmentBuildVerificationPlanV1 } from './ci-verification-plan.ts';
 import { uniqueSorted } from './collections.ts';
@@ -50,10 +53,20 @@ export function CodexDevelopmentBuildVerificationScopeInventoryV1(options: {
   if (new Set(fullChangedFiles).size !== options.changedFiles.length) {
     throw new Error('Verification scope inventory changed files must be unique.');
   }
+  const transition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha: options.baseHead,
+    headSha: options.currentHead,
+    records: options.changedRecords,
+    readPathBlob: (revision, repositoryPath) => {
+      const blob = options.gitBlob(revision, repositoryPath);
+      return blob === null ? null : { mode: blob.mode, blobSha: blob.blobSha };
+    }
+  });
   const canonicalPlan = CodexDevelopmentBuildVerificationPlanV1(
     options.profile,
     fullChangedFiles,
-    options.testImpactSourceProvider
+    options.testImpactSourceProvider,
+    transition
   );
   if (!canonicalPlan.selectionResolved) {
     throw new Error('Verification scope inventory cannot compose unresolved changed-path selection.');
@@ -63,9 +76,10 @@ export function CodexDevelopmentBuildVerificationScopeInventoryV1(options: {
       fullChangedFiles,
       (file) => options.gitBlob(options.currentHead, file)?.type === 'blob'
     ),
-    options.testImpactSourceProvider
+    options.testImpactSourceProvider,
+    transition
   );
-  const risk = selectCiPrRiskSlowSuites(fullChangedFiles, options.testImpactSourceProvider);
+  const risk = selectCiPrRiskSlowSuites(fullChangedFiles, options.testImpactSourceProvider, transition);
   if (!risk.resolved) {
     throw new Error('Verification scope inventory cannot compose unresolved changed-path selection.');
   }

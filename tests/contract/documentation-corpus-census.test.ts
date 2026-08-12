@@ -8,17 +8,13 @@ import { compareCodeUnits } from '../../platform/shared/canonical-primitives.ts'
 import {
   parseDocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
-import {
-  CodexDevelopmentWorkPackageSchemaV1,
-  CodexDevelopmentWorkPackageSchemaV2
-} from '../../scripts/codex/work-package-contract.ts';
+import { CodexDevelopmentWorkPackageSchemaV1 } from '../../scripts/codex/work-package-contract.ts';
 
 const ROOT = path.resolve(import.meta.dir, '../..');
 const DOCS_ROOT = path.join(ROOT, 'docs');
 const DOCUMENT_EXTENSIONS = new Set(['.json', '.md', '.yaml', '.yml']);
 const WORK_PACKAGE_SCHEMAS = new Set<string>([
-  CodexDevelopmentWorkPackageSchemaV1,
-  CodexDevelopmentWorkPackageSchemaV2
+  CodexDevelopmentWorkPackageSchemaV1
 ]);
 const FORBIDDEN_TRACKED_PREFIXES = [
   'docs/archive/'
@@ -109,7 +105,7 @@ async function ordinaryTrackedFiles(files: readonly string[]): Promise<string[]>
   return invalid;
 }
 
-test('only Markdown may carry either canonical Work Package schema', () => {
+test('only Markdown may carry the one canonical Work Package schema', () => {
   for (const schema of WORK_PACKAGE_SCHEMAS) {
     expect(excludedDocumentClaimsAuthority(
       'docs/work-packages/example.md',

@@ -1,7 +1,6 @@
 ---
 name: sec-task-delegation
 description: 用于判断 frozen Work Package 是否值得拆成互不重叠的角色任务，并约束 Worker、Reviewer 与 A0 的责任边界；不用于单一纵切片或同一 authority 的并发写入。
-compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行。
 ---
 
 # sec-task-delegation

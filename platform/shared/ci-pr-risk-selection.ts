@@ -1,5 +1,6 @@
 import { CodexDevelopmentIsActiveDocumentationPathV1 } from './active-documentation-contract.ts';
 import { CodexDevelopmentBuildAffectedTestInventoryV1 } from './affected-test-inventory.ts';
+import type { CodexDevelopmentTestImpactTransitionObservationV1 } from './ci-git-changed-files.ts';
 import { uniqueSorted } from './collections.ts';
 import {
   getSlowTestSuitesSync,
@@ -66,7 +67,8 @@ function suitesForSlowTests(slowTests: string[]): string[] {
 
 export function selectCiPrRiskSlowSuites(
   files: string[] | null,
-  provider?: CodexDevelopmentTestImpactSourceProviderV1
+  provider?: CodexDevelopmentTestImpactSourceProviderV1,
+  transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): CiPrRiskSlowSuiteSelection {
   if (!files) {
     return {
@@ -85,7 +87,7 @@ export function selectCiPrRiskSlowSuites(
   const mandatorySentinelsRequired = files.some((file) =>
     MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
   );
-  const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(files, provider);
+  const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(files, provider, transition);
   const directlyChangedSlowTests = inventory.changedSlowTests;
   // Use the batch inventory + hasTestImpactForFile (which leverages the
   // reverse-import-map) instead of per-file CodexDevelopmentBuildAffectedTestInventoryV1
@@ -99,8 +101,8 @@ export function selectCiPrRiskSlowSuites(
       || BOUNDED_BASELINE_PATTERNS.some((pattern) => pattern.test(file))
       || MANDATORY_SENTINEL_PATTERNS.some((pattern) => pattern.test(file))
     ) return false;
-    if (!isTestImpactSourceFile(file)) return true;
-    return !hasTestImpactForFile(file, provider);
+    if (!isTestImpactSourceFile(file, transition)) return true;
+    return !hasTestImpactForFile(file, provider, transition);
   });
   const selectionResolved = unresolvedFiles.length === 0;
   const affectedSlowTests = uniqueSorted([

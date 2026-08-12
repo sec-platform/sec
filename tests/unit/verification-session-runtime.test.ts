@@ -154,6 +154,11 @@ import {
   CodexDevelopmentFinalizeVerificationEvidenceV4,
   CodexDevelopmentFinalizeVerificationSessionArtifactV2
 } from '../../platform/shared/ci-evidence-contract.ts';
+import {
+  CodexDevelopmentCreateTestImpactTransitionObservationV1,
+  CodexDevelopmentTestImpactTransitionDigestV1,
+  type CodexDevelopmentTestImpactTransitionObservationV1
+} from '../../platform/shared/ci-git-changed-files.ts';
 import { createIntegrationAuthorizationV1 } from '../../platform/shared/integration-authorization-contract.ts';
 import {
   createMainHealthLedgerV1,
@@ -306,6 +311,20 @@ const BOT = 'BOT_kgDOC98s_g';
 const PAGE = `sha256:${'a'.repeat(64)}` as const;
 const JOIN_SESSION = `sha256:${'6'.repeat(64)}` as const;
 const JOIN_ACTION = `sha256:${'7'.repeat(64)}` as const;
+
+function changedTransition(
+  changedPaths: readonly string[],
+  baseSha = BASE,
+  headSha = HEAD
+): CodexDevelopmentTestImpactTransitionObservationV1 {
+  return CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha,
+    headSha,
+    records: changedPaths.map((changedPath) => ({ status: 'changed' as const, path: changedPath })),
+    readPathBlob: () => null
+  });
+}
+
 const JOIN_REQUEST: VerificationSessionHostedRequestV1 = Object.freeze({
   schema: CI_VERIFICATION_SESSION_REQUEST_SCHEMA, prNumber: 42,
   expectedBaseSha: BASE, expectedBaseTreeSha: HEAD, expectedHeadSha: HEAD,
@@ -805,15 +824,16 @@ function reducerFixture(options: {
     headSha: HEAD, excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']), observedAt: VERIFIED_AT });
   if (barrier.status !== 'clear') throw new Error('fixture Review must be clear');
   const changedPaths = ['scripts/codex/verification-session.ts'];
+  const testImpactTransition = changedTransition(changedPaths);
   const local = prepareTrustedMainVerificationSessionV1({ repository: 'sec-platform/sec',
     candidate: transport.candidate(), manifestPath: V6_MANIFEST_PATH, manifestDigest: V6_MANIFEST_DIGEST,
-    changedPaths, profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
+    changedPaths, testImpactTransition, profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '100',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: VERIFIED_AT,
     reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
     dependencyBlobs: actionDependencyBlobs() });
   const facts = reconstructVerificationSessionHostedFactsV1({ request: local.request,
-    repository: 'sec-platform/sec', candidate: transport.candidate(), changedPaths,
+    repository: 'sec-platform/sec', candidate: transport.candidate(), changedPaths, testImpactTransition,
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
     sourceRunId: '100', sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`,
     observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
@@ -983,7 +1003,8 @@ function reducerFixture(options: {
     options.baseToMerge ?? { status: 'ahead', behindBy: 0 });
   transport.comparisons.set(`${mergeCommitSha}...${mergedDefaultSha}`,
     options.mergeToDefault ?? { status: 'ahead', behindBy: 0 });
-  return { repositoryRoot, transport, github, artifact, result, external, counters, changedPaths, markers,
+  return { repositoryRoot, transport, github, artifact, result, external, counters, changedPaths,
+    testImpactTransition, markers,
     request: local.request, preparation,
     setAuthorizationResult: (next: CodexDevelopmentMergeGateResultV2 | string) => {
       trustedAuthorization = typeof next === 'string'
@@ -997,7 +1018,8 @@ function reducerFixture(options: {
 function runReducer(fixture: ReturnType<typeof reducerFixture>) {
   return resumeVerificationSessionV2({ repositoryRoot: fixture.repositoryRoot,
     session: fixture.artifact.session, scopeAuthorization: fixture.artifact.scopeAuthorization,
-    changedPaths: fixture.changedPaths, integrationPrincipalNodeId: 'INTEGRATOR',
+    changedPaths: fixture.changedPaths, testImpactTransition: fixture.testImpactTransition,
+    integrationPrincipalNodeId: 'INTEGRATOR',
     github: fixture.github, external: fixture.external });
 }
 
@@ -1958,14 +1980,16 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
   if (barrier.status !== 'clear') throw new Error('expected clear review');
   const candidate = transport.candidate();
   const changedPaths = ['scripts/codex/verification-session.ts'];
+  const testImpactTransition = changedTransition(changedPaths);
   const manifestDigest = `sha256:${'b'.repeat(64)}` as const;
   const local = prepareTrustedMainVerificationSessionV1({ repository: candidate.repository, candidate,
-    manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, profile: 'quick',
+    manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition, profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '1',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
     mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs() });
   const facts = reconstructVerificationSessionHostedFactsV1({ request: local.request,
-    repository: candidate.repository, candidate, changedPaths, integrationPrincipalNodeId: 'INTEGRATOR',
+    repository: candidate.repository, candidate, changedPaths, testImpactTransition,
+    integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '2',
     sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, observedAt: barrier.observedAt,
     reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
@@ -1982,18 +2006,143 @@ test('trusted-main proposal and hosted sole issuer reconstruct the same stable S
       dependencyPaths.has(inputPath))).toHaveLength(4);
   }
   expect(() => prepareTrustedMainVerificationSessionV1({ repository: candidate.repository, candidate,
-    manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, profile: 'quick',
+    manifestPath: 'docs/work-packages/example.md', manifestDigest, changedPaths, testImpactTransition, profile: 'quick',
     integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '1',
     sourceRef: `refs/heads/main@${BASE}`, observedAt: barrier.observedAt, reviewBarrier: barrier,
     mainHealthChecks: [mainHealthCheck()], dependencyBlobs: actionDependencyBlobs('bun.lock') }))
     .toThrow(/bun\.lock drifted from the trusted base/i);
   expect(() => reconstructVerificationSessionHostedFactsV1({ request: local.request,
-    repository: candidate.repository, candidate, changedPaths, integrationPrincipalNodeId: 'INTEGRATOR',
+    repository: candidate.repository, candidate, changedPaths, testImpactTransition,
+    integrationPrincipalNodeId: 'INTEGRATOR',
     producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: '2',
     sourceRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`, observedAt: barrier.observedAt,
     reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
     dependencyBlobs: actionDependencyBlobs('package.json') }))
     .toThrow(/package\.json drifted from the trusted base/i);
+});
+
+test('VerificationSession binds the exact deletion transition through Scope, Action, Session, and hosted reconstruction', () => {
+  const baseSha = '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b';
+  const headSha = 'b'.repeat(40);
+  const retiredPath =
+    'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json';
+  const changedPaths = [retiredPath, 'scripts/codex/verification-session.ts'];
+  const records = [
+    { status: 'changed' as const, path: 'scripts/codex/verification-session.ts' },
+    { status: 'removed' as const, path: retiredPath }
+  ];
+  const readPathBlob = (revision: string, repositoryPath: string) => (
+    revision === baseSha && repositoryPath === retiredPath
+      ? { mode: '100644' as const, blobSha: '3fbfa041119f70429b5f6cc4440816b50ab3a0ef' }
+      : null
+  );
+  const testImpactTransition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha, headSha, records, readPathBlob
+  });
+  const reordered = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha, headSha, records: [...records].reverse(), readPathBlob
+  });
+  expect(CodexDevelopmentTestImpactTransitionDigestV1(reordered))
+    .toBe(CodexDevelopmentTestImpactTransitionDigestV1(testImpactTransition));
+
+  const transport = new FakeTransport();
+  transport.issueComments = [[botIssueComment()]];
+  const github = fakeGitHubClient(transport, (input) => observePrivateClearReviewBarrier(
+    input.observedAt ?? VERIFIED_AT
+  ));
+  const candidate = Object.freeze({
+    ...transport.candidate(),
+    baseSha,
+    baseTreeSha: 'c'.repeat(40),
+    headSha,
+    headTreeSha: 'd'.repeat(40)
+  });
+  const barrier = github.observeReviewBarrier({
+    repository: candidate.repository,
+    prNumber: candidate.number,
+    headSha,
+    excludedPrincipalNodeIds: new Set(['AUTHOR', 'INTEGRATOR']),
+    observedAt: VERIFIED_AT
+  });
+  if (barrier.status !== 'clear') throw new Error('expected clear review');
+  const mainHealthChecks = [mainHealthCheck({
+    headSha: baseSha,
+    workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${baseSha}`
+  })];
+  const manifestDigest = `sha256:${'e'.repeat(64)}` as const;
+  const prepared = prepareTrustedMainVerificationSessionV1({
+    repository: candidate.repository, candidate,
+    manifestPath: 'docs/work-packages/example.md', manifestDigest,
+    changedPaths, testImpactTransition, profile: 'quick',
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
+    sourceRunId: 'deletion-prepare', sourceRef: `refs/heads/main@${baseSha}`,
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
+    dependencyBlobs: actionDependencyBlobs()
+  });
+  const facts = reconstructVerificationSessionHostedFactsV1({
+    request: prepared.request, repository: candidate.repository, candidate, changedPaths,
+    testImpactTransition: reordered, integrationPrincipalNodeId: 'INTEGRATOR',
+    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: 'deletion-hosted',
+    sourceRef: `.github/workflows/compiler-pr-validation.yml@${baseSha}`,
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
+    dependencyBlobs: actionDependencyBlobs()
+  });
+  expect(facts.testImpactTransitionDigest).toBe(prepared.testImpactTransitionDigest);
+  expect(facts.sessionProposalDigest).toBe(prepared.sessionProposalDigest);
+  expect(facts.actionPlanClosure.actionPlanDigest).toBe(prepared.actionPlanClosure.actionPlanDigest);
+  const localQuick = prepareLocalQuickVerificationActionPlanV2({
+    candidate,
+    manifestPath: 'docs/work-packages/example.md',
+    manifestDigest,
+    changedPaths,
+    testImpactTransition,
+    expectedTestImpactTransitionDigest: prepared.testImpactTransitionDigest,
+    scopeAuthorizationRevision: prepared.scopeAuthorizationRevision,
+    executionEnvironment: createCiVerificationLocalExecutionEnvironmentV2({
+      os: process.platform, arch: process.arch, bunVersion: Bun.version
+    }),
+    dependencyBlobs: actionDependencyBlobs()
+  });
+  expect(localQuick.actions.length).toBeGreaterThan(0);
+  expect(() => reconstructVerificationSessionHostedFactsV1({
+    request: prepared.request, repository: candidate.repository, candidate, changedPaths,
+    testImpactTransition: { ...testImpactTransition, headSha: 'f'.repeat(40) },
+    integrationPrincipalNodeId: 'INTEGRATOR', producerPrincipalNodeId: 'INTEGRATOR',
+    sourceRunId: 'deletion-hosted',
+    sourceRef: `.github/workflows/compiler-pr-validation.yml@${baseSha}`,
+    observedAt: VERIFIED_AT, reviewBarrier: barrier, mainHealthChecks,
+    dependencyBlobs: actionDependencyBlobs()
+  })).toThrow(/exact candidate selection input/i);
+});
+
+test('same paths with a different Git transition change the complete VerificationSession identity chain', () => {
+  const transport = new FakeTransport();
+  transport.issueComments = [[botIssueComment()]];
+  const barrier = observe(transport);
+  if (barrier.status !== 'clear') throw new Error('expected clear review');
+  const candidate = transport.candidate();
+  const changedPaths = ['scripts/codex/verification-session.ts'];
+  const prepare = (status: 'added' | 'changed') => prepareTrustedMainVerificationSessionV1({
+    repository: candidate.repository, candidate,
+    manifestPath: 'docs/work-packages/example.md', manifestDigest: `sha256:${'e'.repeat(64)}`,
+    changedPaths,
+    testImpactTransition: CodexDevelopmentCreateTestImpactTransitionObservationV1({
+      baseSha: candidate.baseSha, headSha: candidate.headSha,
+      records: [{ status, path: changedPaths[0]! }], readPathBlob: () => null
+    }),
+    profile: 'quick', integrationPrincipalNodeId: 'INTEGRATOR',
+    producerPrincipalNodeId: 'INTEGRATOR', sourceRunId: `transition-${status}`,
+    sourceRef: `refs/heads/main@${candidate.baseSha}`, observedAt: VERIFIED_AT,
+    reviewBarrier: barrier, mainHealthChecks: [mainHealthCheck()],
+    dependencyBlobs: actionDependencyBlobs()
+  });
+  const added = prepare('added');
+  const changed = prepare('changed');
+  expect(added.testImpactTransitionDigest).not.toBe(changed.testImpactTransitionDigest);
+  expect(added.scopeAuthorizationRevision).not.toBe(changed.scopeAuthorizationRevision);
+  expect(added.actionPlanClosure.actionPlanDigest).not.toBe(changed.actionPlanClosure.actionPlanDigest);
+  expect(added.sessionRevision).not.toBe(changed.sessionRevision);
+  expect(added.request.requestOperationId).not.toBe(changed.request.requestOperationId);
 });
 
 test('Session local quick DAG keeps durable journals in authority root and executes exact detached candidate', async () => {
@@ -2007,9 +2156,14 @@ test('Session local quick DAG keeps durable journals in authority root and execu
     runGit(authorityRoot, ['init', '-b', 'main']);
     runGit(authorityRoot, ['config', 'user.name', 'Session Test']);
     runGit(authorityRoot, ['config', 'user.email', 'session-test@example.invalid']);
-    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'exact candidate\n', 'utf8');
+    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'base\n', 'utf8');
     writeFileSync(path.join(authorityRoot, '.gitignore'), '.tmp/\n', 'utf8');
     runGit(authorityRoot, ['add', 'tracked.txt', '.gitignore']);
+    runGit(authorityRoot, ['commit', '-m', 'base']);
+    const baseSha = runGit(authorityRoot, ['rev-parse', 'HEAD']);
+    const baseTreeSha = runGit(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
+    writeFileSync(path.join(authorityRoot, 'tracked.txt'), 'exact candidate\n', 'utf8');
+    runGit(authorityRoot, ['add', 'tracked.txt']);
     runGit(authorityRoot, ['commit', '-m', 'exact candidate']);
     const headSha = runGit(authorityRoot, ['rev-parse', 'HEAD']);
     const headTreeSha = runGit(authorityRoot, ['rev-parse', 'HEAD^{tree}']);
@@ -2018,18 +2172,28 @@ test('Session local quick DAG keeps durable journals in authority root and execu
     mkdirSync(path.dirname(candidateRoot), { recursive: true });
     runGit(authorityRoot, ['worktree', 'add', '--detach', candidateRoot, headSha]);
     const candidate = Object.freeze({ ...new FakeTransport().candidate(),
-      baseSha: headSha, baseTreeSha: headTreeSha, headSha, headTreeSha });
+      baseSha, baseTreeSha, headSha, headTreeSha });
     const executionEnvironment = createCiVerificationLocalExecutionEnvironmentV2({
       os: process.platform, arch: process.arch, bunVersion: Bun.version
     });
+    const testImpactTransition = changedTransition(
+      ['scripts/codex/verification-session.ts'],
+      baseSha,
+      headSha
+    );
+    const testImpactTransitionDigest = CodexDevelopmentTestImpactTransitionDigestV1(testImpactTransition);
     const closure = prepareLocalQuickVerificationActionPlanV2({ candidate,
       manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v6.md',
       manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['scripts/codex/verification-session.ts'],
+      testImpactTransition,
+      expectedTestImpactTransitionDigest: testImpactTransitionDigest,
       scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
       dependencyBlobs: actionDependencyBlobs() });
     expect(() => prepareLocalQuickVerificationActionPlanV2({ candidate,
       manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v6.md',
       manifestDigest: `sha256:${'9'.repeat(64)}`, changedPaths: ['scripts/codex/verification-session.ts'],
+      testImpactTransition,
+      expectedTestImpactTransitionDigest: testImpactTransitionDigest,
       scopeAuthorizationRevision: `sha256:${'8'.repeat(64)}`, executionEnvironment,
       dependencyBlobs: actionDependencyBlobs('.bun-version') }))
       .toThrow(/\.bun-version drifted from the trusted base/i);

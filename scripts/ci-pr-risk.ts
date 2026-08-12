@@ -9,13 +9,19 @@ import {
   type CodexDevelopmentVerificationEvidenceV2,
   type CodexDevelopmentVerificationGateEvidenceV2
 } from '../platform/shared/ci-evidence-contract.ts';
+import {
+  CodexDevelopmentAssertTestImpactTransitionSelectionV1,
+  type CodexDevelopmentGitChangedRecordV1,
+  type CodexDevelopmentTestImpactTransitionObservationV1
+} from '../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../platform/shared/ci-pr-risk-selection.ts';
 import { CI_VERIFICATION_CONTRACT_REVISION } from '../platform/shared/ci-verification-plan.ts';
 import { withHeavyVerificationGateLease } from '../platform/shared/heavy-verification-gate-lease.ts';
 import { getSlowTestSuitesSync, slowTestSuiteIds } from '../platform/shared/test-budget-contract.ts';
 import {
+  CodexDevelopmentChangedFilesFromRecordsV1,
   CodexDevelopmentCreateNotRunGateV2,
-  CodexDevelopmentDefaultChangedFilesV1,
+  CodexDevelopmentDefaultChangedPathsV1,
   CodexDevelopmentDefaultGitRevisionV1,
   CodexDevelopmentDefaultTrackedTreeIsCleanV1,
   CodexDevelopmentFailureTailV1,
@@ -50,6 +56,8 @@ export type CodexDevelopmentCiPrRiskMainOptions = {
   gitRevision?: (ref: string) => string | null;
   trackedTreeIsClean?: () => boolean;
   changedFiles?: (baseRef: string) => string[] | null;
+  changedRecords?: (baseRef: string) => CodexDevelopmentGitChangedRecordV1[] | null;
+  transitionObservation?: CodexDevelopmentTestImpactTransitionObservationV1;
   readExactGitBlob?: typeof CodexDevelopmentReadExactGitBlobV1;
   runGate?: (
     step: { id: string; argv: string[]; env: NodeJS.ProcessEnv }
@@ -187,8 +195,8 @@ export async function CodexDevelopmentCiPrRiskMain(
     ?? ((ref: string) => CodexDevelopmentDefaultGitRevisionV1(repositoryRoot, ref));
   const trackedTreeIsClean = options.trackedTreeIsClean
     ?? (() => CodexDevelopmentDefaultTrackedTreeIsCleanV1(repositoryRoot));
-  const changedFileResolver = options.changedFiles
-    ?? ((baseRef: string) => CodexDevelopmentDefaultChangedFilesV1(repositoryRoot, baseRef));
+  const changedFileResolver = options.changedFiles;
+  const changedRecordResolver = options.changedRecords;
   const readExactGitBlob = options.readExactGitBlob ?? CodexDevelopmentReadExactGitBlobV1;
   const runGate = options.runGate
     ?? ((step) => CodexDevelopmentRunGateProcessV1(repositoryRoot, step));
@@ -285,8 +293,40 @@ export async function CodexDevelopmentCiPrRiskMain(
     stage = 'manifest';
     binding = manifestBinding(env, repositoryRoot, headSha, readExactGitBlob);
     stage = 'preflight';
-    files = changedFileResolver(prBaseSha);
-    const selection = selectCiPrRiskSlowSuites(files);
+    if (changedRecordResolver !== undefined && changedFileResolver !== undefined) {
+      throw new Error('CI risk accepts at most one changed-input test seam.');
+    }
+    const changedSnapshot = changedFileResolver === undefined && changedRecordResolver === undefined
+      ? CodexDevelopmentDefaultChangedPathsV1(repositoryRoot, prBaseSha, headSha)
+      : null;
+    const injectedChangedRecords = changedRecordResolver?.(prBaseSha);
+    files = injectedChangedRecords === undefined
+      ? changedFileResolver?.(prBaseSha) ?? changedSnapshot?.files ?? null
+      : injectedChangedRecords === null
+        ? null
+        : CodexDevelopmentChangedFilesFromRecordsV1(injectedChangedRecords);
+    if (options.transitionObservation !== undefined && changedRecordResolver === undefined) {
+      throw new Error('CI risk transition injection requires the exact changed-record test seam.');
+    }
+    const transitionObservation = changedRecordResolver === undefined
+      ? changedSnapshot?.transitionObservation
+      : options.transitionObservation;
+    if (files !== null && transitionObservation !== undefined) {
+      CodexDevelopmentAssertTestImpactTransitionSelectionV1({
+        baseSha: prBaseSha,
+        headSha,
+        changedPaths: files,
+        ...(injectedChangedRecords === undefined || injectedChangedRecords === null
+          ? {}
+          : { records: injectedChangedRecords }),
+        observation: transitionObservation
+      });
+    }
+    const selection = selectCiPrRiskSlowSuites(
+      files,
+      undefined,
+      transitionObservation
+    );
     selectionResolved = selection.resolved;
     selectedSlowSuites = parsed.requestedSlowSuites.length > 0
       ? parsed.requestedSlowSuites

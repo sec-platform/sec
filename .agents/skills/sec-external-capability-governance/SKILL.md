@@ -1,7 +1,6 @@
 ---
 name: sec-external-capability-governance
 description: 用于引入、升级、调用、替换或退役外部工具、Provider、MCP、Nexus、Graphify及其他能力时，验证必要性、边界、版本、许可证、安全和唯一owner；不用于默认把外部输出当事实。
-compatibility: SEC 仓库；按本 Skill 的权威、权限和验证边界执行。
 ---
 
 # sec-external-capability-governance

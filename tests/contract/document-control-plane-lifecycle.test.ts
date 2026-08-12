@@ -24,6 +24,7 @@ import {
   renderSecWorkRollingPlanV1
 } from '../../platform/shared/work-selection-live-contract.ts';
 import {
+  CodexDevelopmentActivateMainHealthRepairRollingPlanV1,
   CodexDevelopmentAssertControlPlaneBindingV1,
   CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1,
   CodexDevelopmentAssertPriorFreezeProjectionV1,
@@ -1063,12 +1064,19 @@ tests:
 ---
 `, 'utf8');
     const currentPointerSource = await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8');
+    const currentManifestBytes = Buffer.from(currentActiveManifestSource(), 'utf8');
+    const currentPointer = CodexDevelopmentParseActivePointerV2(currentPointerSource);
+    const publishedActivePackage = Object.freeze({
+      manifestPath: currentPointer.manifest,
+      manifestDigest: currentPointer.manifestDigest,
+      defaultManifestBytes: currentManifestBytes
+    });
     const projection = CodexDevelopmentCreateFreezeProjectionV1({
       spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource('origin', true)),
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-      mainHealthRepairProjection: { decision },
+      currentManifestBytes,
+      mainHealthRepairProjection: { decision, publishedActivePackage },
       manifestPath: repairPath,
       manifestBytes,
       baseSha: fixture.baseSha,
@@ -1078,14 +1086,38 @@ tests:
     expect(CodexDevelopmentParseRollingPlanV1(projection.rollingPlanSource)).toEqual({
       activePackageId: repairId,
       candidatePackageIds: [
-        CURRENT_ACTIVE_ID,
         FREEZE_TARGET_ID,
         'candidate-two-v1',
         'candidate-three-v1'
       ]
     });
-    expect(projection.rollingPlanSource).toContain('- current-body: exact-current-bytes');
+    expect(projection.rollingPlanSource).not.toContain('- current-body: exact-current-bytes');
     expect(projection.rollingPlanSource).toContain('- target-body: exact-target-bytes');
+    expect(projection.rollingPlanSource).toContain(`main@${fixture.baseSha}`);
+    expect(projection.rollingPlanSource).toContain(exactMainTree);
+    expect(projection.rollingPlanSource).toContain(decision.binding!.healthRevision);
+    expect(projection.rollingPlanSource).toContain(repairFailure);
+    expect(projection.rollingPlanSource).not.toContain('last-reviewed: 2026-08-08\n---\n\n# Freeze fixture\n\n## 当前唯一');
+    const trailingHeadingBytes = rollingPlanSource().replace(
+      '### 2. candidate-two-v1\n',
+      '### 2. candidate-two-v1  \n'
+    );
+    const trailingHeadingBlock = '### 2. candidate-two-v1  \n\n- second-body: exact-second-bytes\n\n';
+    const trailingHeadingProjection = CodexDevelopmentActivateMainHealthRepairRollingPlanV1({
+      source: trailingHeadingBytes,
+      packageId: repairId,
+      mainSha: fixture.baseSha,
+      mainTreeSha: exactMainTree,
+      healthRevision: decision.binding!.healthRevision,
+      failureFingerprints: decision.binding!.failureFingerprints,
+      publishedActivePackageId: CURRENT_ACTIVE_ID
+    });
+    const trailingHeadingStart = trailingHeadingProjection.indexOf('### 2. candidate-two-v1');
+    const trailingHeadingEnd = trailingHeadingProjection.indexOf('### 3. candidate-three-v1');
+    expect(trailingHeadingStart).toBeGreaterThanOrEqual(0);
+    expect(trailingHeadingEnd).toBeGreaterThan(trailingHeadingStart);
+    expect(trailingHeadingProjection.slice(trailingHeadingStart, trailingHeadingEnd))
+      .toBe(trailingHeadingBlock);
     const maximalPriorTopology = rollingPlanSource().replace(
       '## Gate、单写者与重算',
       `### 4. candidate-four-v1
@@ -1098,18 +1130,46 @@ tests:
 
 ## Gate、单写者与重算`
     );
-    expect(() => CodexDevelopmentCreateFreezeProjectionV1({
+    const maximalProjection = CodexDevelopmentCreateFreezeProjectionV1({
       spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource('origin', true)),
       currentPointerSource,
       currentRollingPlanSource: maximalPriorTopology,
-      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-      mainHealthRepairProjection: { decision },
+      currentManifestBytes,
+      mainHealthRepairProjection: { decision, publishedActivePackage },
       manifestPath: repairPath,
       manifestBytes,
       baseSha: fixture.baseSha,
       baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
+    });
+    expect(CodexDevelopmentParseRollingPlanV1(maximalProjection.rollingPlanSource).candidatePackageIds)
+      .toEqual([
+        FREEZE_TARGET_ID,
+        'candidate-two-v1',
+        'candidate-three-v1',
+        'candidate-four-v1',
+        'candidate-five-v1'
+      ]);
+    expect(() => CodexDevelopmentActivateMainHealthRepairRollingPlanV1({
+      source: maximalPriorTopology,
+      packageId: repairId,
+      mainSha: fixture.baseSha,
+      mainTreeSha: exactMainTree,
+      healthRevision: decision.binding!.healthRevision,
+      failureFingerprints: decision.binding!.failureFingerprints,
+      publishedActivePackageId: null
     })).toThrow('cannot preserve all prior identities within the five-candidate bound');
+    const unpublishedProjection = CodexDevelopmentActivateMainHealthRepairRollingPlanV1({
+      source: rollingPlanSource(),
+      packageId: repairId,
+      mainSha: fixture.baseSha,
+      mainTreeSha: exactMainTree,
+      healthRevision: decision.binding!.healthRevision,
+      failureFingerprints: decision.binding!.failureFingerprints,
+      publishedActivePackageId: null
+    });
+    expect(CodexDevelopmentParseRollingPlanV1(unpublishedProjection).candidatePackageIds[0])
+      .toBe(CURRENT_ACTIVE_ID);
     const wrongManifestBytes = await readFile(
       path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'))
     );
@@ -1117,14 +1177,32 @@ tests:
       spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource('origin', true)),
       currentPointerSource,
       currentRollingPlanSource: rollingPlanSource(),
-      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
-      mainHealthRepairProjection: { decision },
+      currentManifestBytes,
+      mainHealthRepairProjection: { decision, publishedActivePackage },
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes: wrongManifestBytes,
       baseSha: fixture.baseSha,
       baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
     })).toThrow('differs from the exact manifest or repository identity');
+    expect(() => CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource('origin', true)),
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes,
+      mainHealthRepairProjection: {
+        decision,
+        publishedActivePackage: {
+          ...publishedActivePackage,
+          defaultManifestBytes: Buffer.from(`${currentActiveManifestSource()}\n`, 'utf8')
+        }
+      },
+      manifestPath: repairPath,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      baseTreeSha: exactMainTree,
+      reviewedOn: '2026-08-12'
+    })).toThrow('does not prove the current active package is byte-identical on exact default');
   } finally {
     await fixture.dispose();
   }

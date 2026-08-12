@@ -189,6 +189,10 @@ describe('canonical documentation authority', () => {
       'registry absence 与 exact physical target',
       'zero residue',
       'typed blocked receipt',
+      'Automatic Trust-Epoch Rollover',
+      '历史性的`TASK_RESTART_REQUIRED`不是当前runtime outcome',
+      'A0自动进入新epoch并继续`RequiredClosure ∩ MissingOrStale`',
+      '终止的是旧授权，不是仍获用户授权的长期任务',
       '额外保留至多一个被canonical roadmap引用',
       '下一ordinary slice必须同时删除recovery manifest'
     ]);
@@ -203,9 +207,28 @@ describe('canonical documentation authority', () => {
       '`PromotionId` 绑定',
       '`ordinary-only | repair-only | locked`',
       'repair路径因此不依赖全Issue census',
+      '尚缺少对exact-default',
+      'published active的退休能力',
+      '唯一且',
+      '最后一次manual-bootstrap bridge',
+      'exact new-main readback完成后',
+      '不保留caller JSON、手工pointer staging或第二repair package入口',
+      '不得用轮换中的Work Package ID重新定义或延长它',
+      'exact deletion-impact transition',
+      'base ordinary-blob mode/OID与head absence全部匹配',
+      '路径字符串本身没有ownership',
+      '不保存或恢复旧bytes',
+      '未知`docs/evidence/**`路径仍',
+      '`TestImpactTransitionObservation`只由唯一exact Git diff/blob observer',
+      'path-only seam不能携带',
+      '`TestImpactTransitionDigest`进入Scope proposal',
+      'expected Scope/Action/Session digests已经绑定',
+      'Trust epoch rollover是resume的强制边界',
+      '不得因为旧epoch已终止就把仍有合法下一动作的',
       '不是physical executor、Scope'
     ]);
     expect(verification).not.toContain('当前repair locator仍为proposal-only/not-frozen');
+    expect(verification).not.toContain('default-branch-health-repair-v2');
     expectContainsAll(roadmap, [
       'R14 — Agent Operation Compiler / VerificationSession Cutover',
       '不创建一个只做“最终架构”的umbrella Work Package',
