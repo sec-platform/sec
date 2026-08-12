@@ -486,6 +486,14 @@ Semantic Impact、Implementation impact、repository/test impact、physical plat
 
 Full/Release是selector校准backstop。若Full发现affected漏选，缺陷属于relation/ownership/selector：必须登记漏边、补permanent regression并失效依赖旧selector的Evidence，而不是只把漏掉的测试永久塞进Full。
 
+通过exact source read、source-lock、文件census或其他动态读取消费实现、但不形成静态import边的测试，必须由该source的唯一test-impact owner显式登记为direct consumer；generic fallback只处理尚无owner的未知输入，不能替代这条边。若source属于privileged runtime，owner同时组合canonical TCB fast closure；不得靠固定调用次数、整套Full或重复测试清单维持偶然通过。有限权限证明约束的是封闭operation及其exact subject/provenance/dataflow，包括中间parser的fail-closed语义；只验证callee名称、参数数量、局部变量名或危险命令黑名单都不是权限证明。
+
+当operation subject由进程环境选择时，环境输入也是authority dataflow：唯一私有reader必须绑定exact key与读取次数，所在bounded module必须把冻结Node/Bun runtime允许的全部acquisition（`process.env`、`globalThis.process.env`、Node `global.process.env`、`node:process`、`import.meta.env`、`Bun.env`及`bun`模块的named/namespace `env`）归一为一个`ProcessEnvironment` capability，并沿canonical capability graph census其环境对象及父能力槽的写入、删除、更新、动态索引、别名、整值传播或反射替换；外部模块若是某个runtime namespace的canonical alias，其namespace、named export以及直接或多级`export *` surface必须统一复用该runtime的property derivation，且遵守显式own export优先级，不能维护第二份手工能力表或把benign export整体taint。`RuntimeGlobal`、`RuntimeProcess`、`RuntimeImportMeta`与`RuntimeBun`只可按封闭属性词表取得所需下一层能力，未分类属性、自别名或未来新增入口一律fail-closed，且caller不得在observation前重写preimage。把某一种环境拼写视为普通可注入参数、只检查reader正文、依赖变量名或只约束子对象而不约束其他acquisition与父槽，均不能证明subject未被candidate改写。
+
+只验证lowering、SCC、field sensitivity、frontier或其他证明机制的synthetic fixture若有意省略完整production authority owner，必须声明为`rejected`并断言其唯一预期violation-code集合；不得把这种夹具命名或解释为canonical positive，也不得复制一份不断漂移的production实现来换取零finding。只有读取完整canonical owner或由唯一canonical fixture constructor生成的正向场景可以断言零finding；机制夹具出现新的错误类别时仍须失败，从而同时避免假PASS与无关消息/数量耦合。
+
+跨进程contract fixture不得把`Error.stack`、console格式或OS/runtime堆栈文本当作语义transport：同一boundary-scoped pure contract/compiler/renderer/parser把已知safe failure映射为closed-schema、bounded、redacted envelope，未知、超长、带host path或任意code的错误只得到固定sanitized projection；parent严格解析exact keys、byte/code-point bounds、canonical encoding与允许tuple，再按`name`、nullable typed `code`与`message`断言。stack只属于调试diagnostic；Node、Bun、Windows或Linux省略message、改变frame或换行时不能改变同一failure的contract identity，也不能用文本substring重新分类authority。
+
 ## Candidate、Epoch 与 Failure
 
 ```text

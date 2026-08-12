@@ -342,14 +342,27 @@ async function gitChangedFiles(): Promise<GitChangedFilesResult | null> {
     const removedPaths = uniqueSorted(records
       .filter((record) => record.status === 'removed')
       .map((record) => record.path));
-    const blobEntries = await Promise.all(removedPaths.flatMap((repositoryPath) => [
-      { revision: baseSha, repositoryPath },
-      { revision: headSha, repositoryPath }
-    ]).map(async ({ revision, repositoryPath }) => {
-      const result = await runCommandBytes('git', gitPathBlobArgs(revision, repositoryPath), { cwd: compilerRoot });
-      if (result.code !== 0) throw new Error('Git path blob observation failed.');
-      return [`${revision}\0${repositoryPath}`, parseGitPathBlobOutput(result.stdout, repositoryPath)] as const;
-    }));
+    const blobEntryPromises: Array<Promise<readonly [
+      string,
+      ReturnType<typeof parseGitPathBlobOutput>
+    ]>> = [];
+    for (const repositoryPath of removedPaths) {
+      for (const revision of [baseSha, headSha]) {
+        const observation = runCommandBytes(
+          'git',
+          gitPathBlobArgs(revision, repositoryPath),
+          { cwd: compilerRoot }
+        ).then((result) => {
+          if (result.code !== 0) throw new Error('Git path blob observation failed.');
+          return [
+            `${revision}\0${repositoryPath}`,
+            parseGitPathBlobOutput(result.stdout, repositoryPath)
+          ] as const;
+        });
+        blobEntryPromises.push(observation);
+      }
+    }
+    const blobEntries = await Promise.all(blobEntryPromises);
     const blobs = new Map(blobEntries);
     return {
       files,
@@ -388,7 +401,7 @@ function pathEnv(
   additionalEnv: NodeJS.ProcessEnv = {}
 ): NodeJS.ProcessEnv {
   return {
-    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env[pathEnvKey()] ?? ''}`,
+    [pathEnvKey()]: `${binPath}${path.delimiter}${process.env.PATH ?? ''}`,
     PLAYWRIGHT_BROWSERS_PATH: browserCachePath,
     SEC_SKIP_RUNTIME_DEPS_SETUP: '1',
     ...additionalEnv
@@ -398,7 +411,7 @@ function pathEnv(
 let fastTestRunSequence = 0;
 
 function fastTestWorkspaceEnv(): NodeJS.ProcessEnv {
-  const configured = resolveTestWorkspaceNamespace(process.env);
+  const configured = resolveTestWorkspaceNamespace();
   fastTestRunSequence += 1;
   return {
     [TEST_WORKSPACE_NAMESPACE_ENV]: configured ?? (

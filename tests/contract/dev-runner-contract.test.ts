@@ -35,20 +35,94 @@ function jsonProgramSource(value: unknown): string {
   return source;
 }
 
+function exactRevisionReplacement(input: {
+  readonly decoderOptions?: string;
+  readonly pattern?: string;
+  readonly returnSource?: string;
+} = {}): string {
+  if (input.returnSource !== undefined) {
+    return `function exactRevision(stdout: Uint8Array): string | null {
+  ${input.returnSource}
+}`;
+  }
+  return `function exactRevision(stdout: Uint8Array): string | null {
+  try {
+    const value = new TextDecoder('utf-8', ${input.decoderOptions ?? '{ fatal: true }'})
+      .decode(stdout).trim();
+    return ${input.pattern ?? '/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u'}.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}`;
+}
+
 function boundedOwnerReplacement(input: {
+  readonly baseRefInitializer?: string;
   readonly modulePrelude?: string;
   readonly boundedPrelude?: string;
+  readonly diffArguments?: string;
+  readonly exactRevisionSource?: string;
+  readonly gitChangedExtra?: string;
+  readonly gitChangedPrelude?: string;
+  readonly gitChangedOwnerPrefix?: string;
+  readonly moduleEnvironmentMutation?: string;
+  readonly pathBlobArguments?: string;
+  readonly resolveAffectedPrelude?: string;
   readonly dispatch?: string;
   readonly fastCalls?: string;
   readonly exportBounded?: boolean;
 } = {}): string {
   return `
 import { runCommandBytes } from '../shared/process.ts';
+import {
+  gitChangedFileDiffArgs,
+  gitPathBlobArgs,
+  gitUntrackedFileArgs,
+  parseGitChangedRecordsOutput
+} from '../shared/ci-git-changed-files.ts';
+import { uniqueSorted } from '../shared/collections.ts';
+import { compilerRoot } from '../shared/paths.ts';
 import { runDevCommand } from './command-runner.ts';
 ${input.modulePrelude ?? ''}
-async function gitChangedFiles(): Promise<void> {
-  await runCommandBytes('git', ['diff'], {});
-  await runCommandBytes('git', ['status'], {});
+${input.moduleEnvironmentMutation ?? ''}
+function affectedTestsBaseRef(): string | undefined {
+  return process.env.SEC_AFFECTED_TESTS_BASE ?? process.env.SEC_CHANGED_BASE;
+}
+${input.exactRevisionSource ?? exactRevisionReplacement()}
+${input.gitChangedOwnerPrefix ?? 'async function'} gitChangedFiles(): Promise<void> {
+  ${input.gitChangedPrelude ?? ''}
+  const baseRef = ${input.baseRefInitializer ?? 'affectedTestsBaseRef()'};
+  const [baseRevision, headRevision] = baseRef === undefined
+    ? [null, null]
+    : await Promise.all([
+        runCommandBytes('git', ['rev-parse', '--verify', \`\${baseRef}^{commit}\`], { cwd: compilerRoot }),
+        runCommandBytes('git', ['rev-parse', '--verify', 'HEAD^{commit}'], { cwd: compilerRoot })
+      ]);
+  const baseSha = baseRevision?.code === 0 ? exactRevision(baseRevision.stdout) : null;
+  const headSha = headRevision?.code === 0 ? exactRevision(headRevision.stdout) : null;
+  const [tracked, untracked] = await Promise.all([
+    runCommandBytes(
+      'git',
+      gitChangedFileDiffArgs(${input.diffArguments ?? "baseSha ?? undefined, headSha ?? 'HEAD'"}),
+      { cwd: compilerRoot }
+    ),
+    runCommandBytes('git', gitUntrackedFileArgs(), { cwd: compilerRoot })
+  ]);
+  const records = parseGitChangedRecordsOutput(tracked.stdout);
+  const removedPaths = uniqueSorted(records
+    .filter((record) => record.status === 'removed')
+    .map((record) => record.path));
+  for (const repositoryPath of removedPaths) {
+    for (const revision of [baseSha, headSha]) {
+      await runCommandBytes(
+        'git',
+        gitPathBlobArgs(${input.pathBlobArguments ?? 'revision, repositoryPath'}),
+        { cwd: compilerRoot }
+      );
+    }
+  }
+  void untracked;
+  ${input.gitChangedExtra ?? ''}
 }
 export async function scheduleBoundedFastTestInvocations<T>(
   values: readonly T[],
@@ -81,7 +155,10 @@ export async function runFastTests(): Promise<number> {
   await runBoundedFastTestInvocations();`}
   return 0;
 }
-void gitChangedFiles;
+export async function resolveAffectedTestExecution(): Promise<void> {
+  ${input.resolveAffectedPrelude ?? ''}
+  await gitChangedFiles();
+}
 `;
 }
 
@@ -96,7 +173,10 @@ ${input.suffix ?? ''}
 }
 
 const STANDARD_PROCESS_OWNER_SOURCE = `
-export async function runCommandBytes(..._args: unknown[]): Promise<void> {}
+export async function runCommandBytes(..._args: unknown[]): Promise<{
+  code: number;
+  stdout: Uint8Array;
+}> { return { code: 0, stdout: new Uint8Array() }; }
 export function runCommand(..._args: unknown[]): void {}
 export async function runCommandWithRetry(..._args: unknown[]): Promise<void> {}
 `;
@@ -136,6 +216,23 @@ function createVirtualScenario(input: ScenarioCatalogInput): DevRunnerAuthorityS
     input.boundedSource ?? boundedOwnerReplacement()
   );
   addModule('platform/shared/process.ts', STANDARD_PROCESS_OWNER_SOURCE);
+  addModule(
+    'platform/shared/ci-git-changed-files.ts',
+    `
+export function gitChangedFileDiffArgs(..._args: unknown[]): string[] { return []; }
+export function gitPathBlobArgs(..._args: unknown[]): string[] { return []; }
+export function gitUntrackedFileArgs(): string[] { return []; }
+export function parseGitChangedRecordsOutput(_stdout: Uint8Array): Array<{
+  status: string;
+  path: string;
+}> { return []; }
+`
+  );
+  addModule(
+    'platform/shared/collections.ts',
+    'export function uniqueSorted<T>(values: readonly T[]): T[] { return [...values]; }'
+  );
+  addModule('platform/shared/paths.ts', "export const compilerRoot = '.';");
   addModule('platform/dev-runner/fast-test-policy.ts', STANDARD_FAST_POLICY_SOURCE);
   addModule(
     'platform/dev-runner/test-concurrency-policy.ts',
@@ -178,7 +275,16 @@ function createVirtualScenario(input: ScenarioCatalogInput): DevRunnerAuthorityS
 const EXPECTED_SCENARIO_IDS = Object.freeze([
   'alternate-shared-dispatcher',
   'available-parallelism-import',
+  'bun-env-prewrite',
+  'bun-module-dollar-import',
+  'bun-module-named-env-prewrite',
+  'bun-module-namespace-env-prewrite',
+  'bun-module-spawn-import',
+  'bun-module-spawn-sync-import',
   'bun-reflect-destructure',
+  'changed-files-exported-owner',
+  'changed-files-owner-env-prewrite',
+  'changed-files-reexported-owner',
   'command-child-alias',
   'command-child-export',
   'command-child-pass',
@@ -190,24 +296,61 @@ const EXPECTED_SCENARIO_IDS = Object.freeze([
   'cyclic-multilevel-barrels',
   'default-through-named-barrel',
   'deno-global-this',
+  'diff-builder-same-head',
+  'diff-builder-undefined-base',
+  'dynamic-env-prewrite',
+  'dynamic-git-operation-args',
   'dynamic-immutable-template-specifier',
   'esm-named-import',
   'esm-namespace-import',
+  'external-bun-star-benign-barrel',
+  'external-bun-star-env-barrel',
+  'external-bun-star-spawn-barrel',
+  'external-bun-star-transitive-shell-barrel',
+  'extra-mutating-git-operation',
   'extra-shared-bytes-dispatch',
   'factory-returned-dispatch',
+  'forged-base-ref-provenance',
+  'forged-revision-constant',
+  'forged-revision-decoder',
+  'forged-revision-pattern',
+  'global-process-env-alias-prewrite',
+  'global-process-env-prewrite',
+  'global-process-slot-assign-prewrite',
+  'global-process-slot-define-prewrite',
+  'global-process-slot-node-alias-prewrite',
+  'global-process-slot-reflect-prewrite',
+  'global-process-slot-self-alias-assign-prewrite',
+  'global-process-slot-self-alias-define-prewrite',
+  'global-process-slot-self-alias-reflect-prewrite',
   'higher-order-dispatch',
   'import-equals-child-namespace',
   'import-equals-namespace',
+  'import-meta-dynamic-property',
+  'import-meta-env-alias-prewrite',
+  'import-meta-env-prewrite',
+  'import-meta-identity-mutation',
+  'import-meta-safe-identities',
+  'import-meta-unknown-property',
+  'import-meta-whole-alias',
   'js-extension-ts-index',
   'live',
   'local-wrapper-dispatch',
+  'module-env-alias-prewrite',
+  'module-initializer-env-prewrite',
   'module-require-namespace',
   'module-second-reviewed-dispatch',
   'mutable-dynamic-module-specifier',
   'mutable-loader-target-fails-closed',
   'node-child-named-import',
+  'node-process-default-env-prewrite',
+  'node-process-named-env-prewrite',
   'package-barrel-surface',
   'package-import-require-conditions',
+  'parser-exported-authority',
+  'parser-imported-authority',
+  'parser-reexported-authority',
+  'path-blob-swapped-subject',
   'policy-alias-chain',
   'process-builtin-loader',
   'process-environment-read',
@@ -216,7 +359,8 @@ const EXPECTED_SCENARIO_IDS = Object.freeze([
   'safe-runtime-consumers',
   'valid-bounded-owner',
   'valid-command-owner',
-  'wrapper-consumer'
+  'wrapper-consumer',
+  'wrapper-env-prewrite'
 ] as const);
 
 function buildProgramProofCatalog(packageJson: unknown): readonly DevRunnerAuthorityScenario[] {
@@ -392,6 +536,76 @@ function buildProgramProofCatalog(packageJson: unknown): readonly DevRunnerAutho
       code: 'BOUNDED_OWNER_CONTRACT'
     },
     {
+      scenarioId: 'diff-builder-same-head',
+      label: 'approved diff builder receives head as both subjects',
+      source: boundedOwnerReplacement({
+        diffArguments: "headSha ?? undefined, headSha ?? 'HEAD'"
+      }),
+      code: 'PROCESS_OWNER_CONTRACT'
+    },
+    {
+      scenarioId: 'diff-builder-undefined-base',
+      label: 'approved diff builder discards the observed base subject',
+      source: boundedOwnerReplacement({
+        diffArguments: "undefined, headSha ?? 'HEAD'"
+      }),
+      code: 'PROCESS_OWNER_CONTRACT'
+    },
+    {
+      scenarioId: 'dynamic-git-operation-args',
+      label: 'dynamic Git operation args in the exact process owner',
+      source: boundedOwnerReplacement({
+        gitChangedExtra: "const args = ['show']; await runCommandBytes('git', args, { cwd: compilerRoot });"
+      }),
+      code: 'PROCESS_OWNER_CONTRACT'
+    },
+    {
+      scenarioId: 'extra-mutating-git-operation',
+      label: 'mutating Git operation in the exact process owner',
+      source: boundedOwnerReplacement({
+        gitChangedExtra: "await runCommandBytes('git', ['clean', '-fdx'], { cwd: compilerRoot });"
+      }),
+      code: 'PROCESS_OWNER_CONTRACT'
+    },
+    {
+      scenarioId: 'forged-base-ref-provenance',
+      label: 'base ref name retains a forged constant source',
+      source: boundedOwnerReplacement({ baseRefInitializer: "'HEAD'" }),
+      code: 'PROCESS_OWNER_CONTRACT'
+    },
+    {
+      scenarioId: 'forged-revision-constant',
+      label: 'exact revision parser returns one forged constant SHA',
+      source: boundedOwnerReplacement({
+        exactRevisionSource: exactRevisionReplacement({
+          returnSource: "void stdout; return 'a'.repeat(40);"
+        })
+      }),
+      code: 'PROCESS_OWNER_CONTRACT'
+    },
+    {
+      scenarioId: 'forged-revision-decoder',
+      label: 'exact revision parser disables fatal UTF-8 decoding',
+      source: boundedOwnerReplacement({
+        exactRevisionSource: exactRevisionReplacement({ decoderOptions: '{}' })
+      }),
+      code: 'PROCESS_OWNER_CONTRACT'
+    },
+    {
+      scenarioId: 'forged-revision-pattern',
+      label: 'exact revision parser accepts unbounded lowercase hex',
+      source: boundedOwnerReplacement({
+        exactRevisionSource: exactRevisionReplacement({ pattern: '/^[0-9a-f]+$/u' })
+      }),
+      code: 'PROCESS_OWNER_CONTRACT'
+    },
+    {
+      scenarioId: 'path-blob-swapped-subject',
+      label: 'approved path blob builder swaps revision and path subjects',
+      source: boundedOwnerReplacement({ pathBlobArguments: 'repositoryPath, revision' }),
+      code: 'PROCESS_OWNER_CONTRACT'
+    },
+    {
       scenarioId: 'extra-shared-bytes-dispatch',
       label: 'extra shared bytes dispatch',
       source: boundedOwnerReplacement({
@@ -408,6 +622,439 @@ function buildProgramProofCatalog(packageJson: unknown): readonly DevRunnerAutho
       expectedViolationCodes: [input.code]
     });
   }
+
+  add({
+    scenarioId: 'changed-files-exported-owner',
+    label: 'changed file observation owner is directly exported',
+    boundedSource: boundedOwnerReplacement({
+      gitChangedOwnerPrefix: 'export async function'
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'changed-files-reexported-owner',
+    label: 'changed file observation owner is separately renamed and exported',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: 'export { gitChangedFiles as observeChangedFiles };'
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'changed-files-owner-env-prewrite',
+    label: 'changed file observation owner overwrites its base environment',
+    boundedSource: boundedOwnerReplacement({
+      gitChangedPrelude: "process.env.SEC_AFFECTED_TESTS_BASE = 'HEAD';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'dynamic-env-prewrite',
+    label: 'dynamic environment access may overwrite the changed file base',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        "const affectedBaseKey = 'SEC_' + 'CHANGED_BASE';",
+        "process.env[affectedBaseKey] = 'HEAD';"
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'import-meta-safe-identities',
+    label: 'frozen Bun import meta scalar identities remain readable',
+    boundedSource: boundedOwnerReplacement({
+      boundedPrelude: [
+        'void import.meta.url;',
+        'void import.meta.path;',
+        'void import.meta.dir;',
+        'void import.meta.file;',
+        'void import.meta.main;',
+        'void import.meta.dirname;',
+        'void import.meta.filename;'
+      ].join('\n')
+    }),
+    expectedValidation: 'accepted'
+  });
+  add({
+    scenarioId: 'import-meta-unknown-property',
+    label: 'unclassified import meta property is not ordinary identity',
+    boundedSource: boundedOwnerReplacement({
+      boundedPrelude: 'void import.meta.futureIdentity;'
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'import-meta-dynamic-property',
+    label: 'dynamic import meta property cannot escape the closed identity vocabulary',
+    boundedSource: boundedOwnerReplacement({
+      boundedPrelude: [
+        "let importMetaKey = 'url';",
+        "importMetaKey += '';",
+        'void import.meta[importMetaKey];'
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'import-meta-identity-mutation',
+    label: 'reviewed import meta identity remains immutable',
+    boundedSource: boundedOwnerReplacement({
+      boundedPrelude: "import.meta.url = 'file:///forged.ts';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'import-meta-whole-alias',
+    label: 'whole import meta namespace cannot escape the closed property vocabulary',
+    boundedSource: boundedOwnerReplacement({
+      boundedPrelude: 'const runtimeMeta = import.meta; void runtimeMeta;'
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'bun-env-prewrite',
+    label: 'Bun environment acquisition overwrites the changed file base',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: "Bun.env.SEC_AFFECTED_TESTS_BASE = 'HEAD';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'external-bun-star-benign-barrel',
+    label: 'external Bun star barrel leaves benign named exports unprivileged',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import { file as bunFile } from './bun-barrel.ts';",
+      boundedPrelude: 'void bunFile;'
+    }),
+    extraModules: [{
+      logicalPath: 'platform/dev-runner/bun-barrel.ts',
+      source: "export * from 'bun';"
+    }],
+    expectedValidation: 'accepted'
+  });
+  add({
+    scenarioId: 'external-bun-star-env-barrel',
+    label: 'external Bun star barrel retains named environment authority',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import { env as runtimeEnvironment } from './bun-barrel.ts';",
+      moduleEnvironmentMutation: "runtimeEnvironment.SEC_CHANGED_BASE = 'HEAD';"
+    }),
+    extraModules: [{
+      logicalPath: 'platform/dev-runner/bun-barrel.ts',
+      source: "export * from 'bun';"
+    }],
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'external-bun-star-spawn-barrel',
+    label: 'external Bun star barrel retains named child authority',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import { spawn as start } from './bun-barrel.ts';",
+      boundedPrelude: 'void start;'
+    }),
+    extraModules: [{
+      logicalPath: 'platform/dev-runner/bun-barrel.ts',
+      source: "export * from 'bun';"
+    }],
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['BOUNDED_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'external-bun-star-transitive-shell-barrel',
+    label: 'transitive external Bun star barrel retains named shell authority',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import { $ as shell } from './bun-barrel-two.ts';",
+      boundedPrelude: 'void shell;'
+    }),
+    extraModules: [
+      {
+        logicalPath: 'platform/dev-runner/bun-barrel-one.ts',
+        source: "export * from 'bun';"
+      },
+      {
+        logicalPath: 'platform/dev-runner/bun-barrel-two.ts',
+        source: "export * from './bun-barrel-one.ts';"
+      }
+    ],
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['BOUNDED_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'bun-module-dollar-import',
+    label: 'Bun module named shell export retains child authority',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import { $ as shell } from 'bun';",
+      boundedPrelude: 'void shell;'
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['BOUNDED_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'bun-module-named-env-prewrite',
+    label: 'Bun module named environment export overwrites the changed file base',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import { env as runtimeEnvironment } from 'bun';",
+      moduleEnvironmentMutation:
+        "runtimeEnvironment.SEC_CHANGED_BASE = 'HEAD';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'bun-module-spawn-import',
+    label: 'Bun module named spawn export retains child authority',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import { spawn as start } from 'bun';",
+      boundedPrelude: 'void start;'
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['BOUNDED_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'bun-module-spawn-sync-import',
+    label: 'Bun module named spawnSync export retains child authority',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import { spawnSync as start } from 'bun';",
+      boundedPrelude: 'void start;'
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['BOUNDED_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'bun-module-namespace-env-prewrite',
+    label: 'Bun module namespace environment export overwrites the changed file base',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import * as BunRuntime from 'bun';",
+      moduleEnvironmentMutation:
+        "BunRuntime.env.SEC_AFFECTED_TESTS_BASE = 'HEAD';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'import-meta-env-prewrite',
+    label: 'import meta environment acquisition overwrites the changed file base',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: "import.meta.env.SEC_CHANGED_BASE = 'HEAD';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'import-meta-env-alias-prewrite',
+    label: 'import meta environment alias overwrites the changed file base',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        'const runtimeEnvironment = import.meta.env;',
+        "runtimeEnvironment.SEC_AFFECTED_TESTS_BASE = 'HEAD';"
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'module-env-alias-prewrite',
+    label: 'module initializer aliases and overwrites the process environment',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        'const mutableEnvironment = process.env;',
+        "mutableEnvironment.SEC_CHANGED_BASE = 'HEAD';"
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'module-initializer-env-prewrite',
+    label: 'module initializer overwrites the changed file base environment',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: "process.env.SEC_CHANGED_BASE = 'HEAD';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'wrapper-env-prewrite',
+    label: 'only changed file observation wrapper overwrites its base environment',
+    boundedSource: boundedOwnerReplacement({
+      resolveAffectedPrelude: "process.env.SEC_AFFECTED_TESTS_BASE = 'HEAD';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'global-process-env-prewrite',
+    label: 'canonical global process path overwrites the changed file base',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation:
+        "globalThis.process.env.SEC_AFFECTED_TESTS_BASE = 'HEAD';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'global-process-env-alias-prewrite',
+    label: 'canonical global process path is aliased before an environment overwrite',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        'const runtimeProcess = globalThis.process;',
+        "runtimeProcess.env.SEC_CHANGED_BASE = 'HEAD';"
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'global-process-slot-node-alias-prewrite',
+    label: 'node global alias replaces the canonical process slot',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        "const forgedProcess = { env: { SEC_CHANGED_BASE: 'HEAD' } };",
+        'Object.assign(global, { process: forgedProcess });'
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'global-process-slot-assign-prewrite',
+    label: 'object property copy replaces the canonical global process slot',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        "const forgedProcess = { env: { SEC_CHANGED_BASE: 'HEAD' } };",
+        'Object.assign(globalThis, { process: forgedProcess });'
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'global-process-slot-self-alias-assign-prewrite',
+    label: 'global self alias cannot hide an object property-copy process replacement',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        "const forgedProcess = { env: { SEC_CHANGED_BASE: 'HEAD' } };",
+        'Object.assign((globalThis as any).globalThis, { process: forgedProcess });'
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'global-process-slot-self-alias-define-prewrite',
+    label: 'global self alias cannot hide a property-definition process replacement',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        "const forgedProcess = { env: { SEC_CHANGED_BASE: 'HEAD' } };",
+        "Object.defineProperty((globalThis as any).globalThis, 'process', { value: forgedProcess });"
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'global-process-slot-self-alias-reflect-prewrite',
+    label: 'global self alias cannot hide a reflective process replacement',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        "const forgedProcess = { env: { SEC_CHANGED_BASE: 'HEAD' } };",
+        "Reflect.set((globalThis as any).globalThis, 'process', forgedProcess);"
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'global-process-slot-define-prewrite',
+    label: 'property definition replaces the canonical global process slot',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        "const forgedProcess = { env: { SEC_CHANGED_BASE: 'HEAD' } };",
+        "Object.defineProperty(globalThis, 'process', { value: forgedProcess });"
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'global-process-slot-reflect-prewrite',
+    label: 'reflective write replaces the canonical global process slot',
+    boundedSource: boundedOwnerReplacement({
+      moduleEnvironmentMutation: [
+        "const forgedProcess = { env: { SEC_CHANGED_BASE: 'HEAD' } };",
+        "Reflect.set(globalThis, 'process', forgedProcess);"
+      ].join('\n')
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'node-process-default-env-prewrite',
+    label: 'node process default import overwrites the changed file base',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import runtimeProcess from 'node:process';",
+      moduleEnvironmentMutation:
+        "runtimeProcess.env.SEC_AFFECTED_TESTS_BASE = 'HEAD';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'node-process-named-env-prewrite',
+    label: 'node process named environment import overwrites the changed file base',
+    boundedSource: boundedOwnerReplacement({
+      modulePrelude: "import { env as runtimeEnvironment } from 'node:process';",
+      moduleEnvironmentMutation:
+        "runtimeEnvironment.SEC_CHANGED_BASE = 'HEAD';"
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'parser-exported-authority',
+    label: 'exact revision parser is exported from the bounded owner module',
+    boundedSource: boundedOwnerReplacement({
+      exactRevisionSource: exactRevisionReplacement().replace(
+        'function exactRevision',
+        'export function exactRevision'
+      )
+    }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'parser-imported-authority',
+    label: 'exact revision parser is imported from another module',
+    boundedSource: boundedOwnerReplacement({
+      exactRevisionSource: '',
+      modulePrelude: "import { exactRevision } from './exact-revision.ts';"
+    }),
+    extraModules: [{
+      logicalPath: 'platform/dev-runner/exact-revision.ts',
+      source: exactRevisionReplacement().replace(
+        'function exactRevision',
+        'export function exactRevision'
+      )
+    }],
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
+  add({
+    scenarioId: 'parser-reexported-authority',
+    label: 'private exact revision parser is re-exported by name',
+    boundedSource: boundedOwnerReplacement({ modulePrelude: 'export { exactRevision };' }),
+    expectedValidation: 'rejected',
+    expectedViolationCodes: ['PROCESS_OWNER_CONTRACT']
+  });
 
   add({
     scenarioId: 'valid-command-owner',
@@ -872,9 +1519,9 @@ describe('dev-runner contract', () => {
     const scenarioIds = suite.scenarioIds;
 
     expect(scenarioIds).toEqual(EXPECTED_SCENARIO_IDS);
-    expect(scenarioIds).toHaveLength(41);
-    expect(new Set(scenarioIds).size).toBe(41);
-    expect(suite.scenarioProofs).toHaveLength(41);
+    expect(scenarioIds).toHaveLength(88);
+    expect(new Set(scenarioIds).size).toBe(88);
+    expect(suite.scenarioProofs).toHaveLength(88);
     expect(suite.counters).toMatchObject({
       inventoryReadCount: 1,
       injectedInventoryCount: 0,
@@ -929,7 +1576,7 @@ describe('dev-runner contract', () => {
         }
       }
     }
-    expect({ accepted, rejected }).toEqual({ accepted: 4, rejected: 37 });
+    expect({ accepted, rejected }).toEqual({ accepted: 6, rejected: 82 });
 
     for (const edge of suite.moduleEdges) {
       expect(suite.moduleOwners[edge.sourceModuleId]).toBe(edge.scenarioId);
@@ -1020,22 +1667,27 @@ describe('dev-runner contract', () => {
     expect(typecheckRunnerSource).not.toContain('tsBuildInfoFile');
   });
 
-  test('affected runner shares canonical changed-file parsing and impact ownership', async () => {
+  test('affected runner shares canonical transition observation and impact ownership', async () => {
     const testRunnerSource = await readCompilerFile('platform/dev-runner/test-runner.ts');
 
     expectContainsAll(testRunnerSource, [
       'gitChangedFileDiffArgs',
+      'gitPathBlobArgs',
       'gitUntrackedFileArgs',
-      'parseGitChangedFileOutput',
+      'parseGitChangedRecordsOutput',
+      'parseGitPathBlobOutput',
+      'parseGitUntrackedFileOutput',
+      'CodexDevelopmentCreateTestImpactTransitionObservationV1',
       "from '../shared/affected-test-inventory.ts'",
       "from '../shared/ci-pr-risk-selection.ts'",
       'CodexDevelopmentAffectedInventoryInputsV1(files, (file) => currentTestFiles.has(file))',
-      'selectCiPrRiskSlowSuites(files)',
-      'selectCiPrRiskSlowSuites([file])'
+      'selectCiPrRiskSlowSuites(files, undefined, transition)',
+      'selectCiPrRiskSlowSuites([file], undefined, transition)'
     ]);
     expectContainsNone(testRunnerSource, [
       'isTestImpactSourceFile',
       'function impactSourceFile',
+      'parseGitChangedFileOutput',
       "['diff', '--name-only', '--diff-filter=ACMR'"
     ]);
   });

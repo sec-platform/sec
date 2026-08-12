@@ -56,6 +56,14 @@ import {
   type CodexDevelopmentFreezeResultV1
 } from '../../scripts/codex/document-control-plane.ts';
 import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
+import {
+  SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1,
+  SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
+  SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1,
+  compileSecDocumentControlFreezeChildFailureV1,
+  parseSecDocumentControlFreezeChildFailureV1,
+  renderSecDocumentControlFreezeChildFailureV1
+} from '../helpers/document-control-freeze-child-failure.ts';
 
 const CURRENT_STATE_PATH = 'docs/work/current-state.yaml';
 const POINTER_PATH = 'docs/work/active-work-package.md';
@@ -244,26 +252,84 @@ function runFreezeApiInChild(
   environment: Readonly<Record<string, string>> = {}
 ) {
   const moduleHref = pathToFileURL(path.resolve('scripts/codex/document-control-plane.ts')).href;
+  const failureContractHref = pathToFileURL(path.resolve(
+    'tests/helpers/document-control-freeze-child-failure.ts'
+  )).href;
+  const fallbackEnvelope = `${JSON.stringify(
+    SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1
+  )}\n`;
   const source = `
-const { freezeDocumentControlPlaneV1 } = await import(${JSON.stringify(moduleHref)});
 try {
+  const { renderSecDocumentControlFreezeChildFailureV1 } =
+    await import(${JSON.stringify(failureContractHref)});
+  try {
+  const { freezeDocumentControlPlaneV1 } = await import(${JSON.stringify(moduleHref)});
   await freezeDocumentControlPlaneV1({
     cwd: ${JSON.stringify(cwd)},
     manifestPath: ${JSON.stringify(FREEZE_TARGET_PATH)},
     reviewedOn: '2026-08-09'
   });
-} catch (error) {
-  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+  } catch (error) {
+    process.stderr.write(renderSecDocumentControlFreezeChildFailureV1(error));
+    process.exitCode = 1;
+  }
+} catch {
+  process.stderr.write(${JSON.stringify(fallbackEnvelope)});
   process.exitCode = 1;
 }
 `;
   return spawnSync(process.execPath, ['-e', source], {
     cwd,
-    encoding: 'utf8',
+    encoding: 'buffer',
     windowsHide: true,
     env: { ...process.env, ...environment }
   });
 }
+
+test('freeze child failure envelope is bounded canonical and redacts unknown errors', () => {
+  expect(compileSecDocumentControlFreezeChildFailureV1(
+    new Error('Git index escapes its canonical transaction root.')
+  )).toEqual(SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1);
+  const secret = 'C:\\private\\workspace\\credential.txt';
+  const unexpected = Object.assign(new Error(`${secret}:${'x'.repeat(4096)}`), {
+    code: 'ESECRET'
+  });
+  const rendered = renderSecDocumentControlFreezeChildFailureV1(unexpected);
+  expect(Buffer.byteLength(rendered, 'utf8')).toBeLessThanOrEqual(
+    SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1
+  );
+  expect(rendered).not.toContain(secret);
+  expect(rendered).not.toContain('ESECRET');
+  expect(parseSecDocumentControlFreezeChildFailureV1(rendered)).toEqual(
+    SEC_DOCUMENT_CONTROL_FREEZE_UNEXPECTED_CHILD_FAILURE_V1
+  );
+  for (const malformed of [
+    'x'.repeat(SEC_DOCUMENT_CONTROL_FREEZE_CHILD_FAILURE_MAX_BYTES_V1 + 1),
+    new Uint8Array([0xff]),
+    `${JSON.stringify({
+      schema: SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1.schema,
+      name: SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1.name,
+      code: null
+    })}\n`,
+    `${JSON.stringify({
+      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
+      stack: 'forbidden diagnostic'
+    })}\n`,
+    `${JSON.stringify({
+      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
+      message: secret
+    })}\n`,
+    `${JSON.stringify({
+      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
+      code: 'ESECRET'
+    })}\n`,
+    `${JSON.stringify({
+      ...SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1,
+      message: '🧪'.repeat(129)
+    })}\n`,
+    ` ${JSON.stringify(SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1)}\n`
+  ]) expect(() => parseSecDocumentControlFreezeChildFailureV1(malformed)).toThrow();
+});
 
 function pointerFor(blob: Uint8Array): CodexDevelopmentActivePointerV2 {
   return {
@@ -4278,7 +4344,10 @@ test('freeze rejects reparse, nonregular, and outside auxiliary transaction path
       GIT_INDEX_FILE: outsideIndex
     });
     expect(result.status).not.toBe(0);
-    expect(`${result.stderr}\n${result.stdout}`).toContain('escapes its canonical transaction root');
+    expect(result.stdout).toEqual(Buffer.alloc(0));
+    expect(parseSecDocumentControlFreezeChildFailureV1(result.stderr)).toEqual(
+      SEC_DOCUMENT_CONTROL_FREEZE_OUTSIDE_INDEX_FAILURE_V1
+    );
   } finally {
     await outsideIndexFixture.dispose();
   }

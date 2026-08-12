@@ -643,6 +643,34 @@ test('MainHealth owner selects its Work Selection cross-owner consumer', () => {
   }
 });
 
+test('changed-file observation owns dynamic dev-runner and privileged TCB consumers', () => {
+  const source = 'platform/shared/ci-git-changed-files.ts';
+  expect(selectTestsForSources([source])).toEqual({
+    fast: [
+      'tests/contract/ci-contract.test.ts',
+      'tests/contract/ci-lanes.test.ts',
+      'tests/contract/dev-runner-contract.test.ts',
+      'tests/contract/sec-merge-gate.test.ts',
+      'tests/contract/tcb-closure-lock.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/agent-operation-activation.test.ts',
+      'tests/unit/ci-git-changed-files.test.ts',
+      'tests/unit/ci-pr-risk-execution.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts',
+      'tests/unit/ci-verification-execution.test.ts',
+      'tests/unit/tcb-trust-root-contract.test.ts',
+      'tests/unit/verification-session-runtime.test.ts'
+    ],
+    slow: [],
+    owners: ['auto-reference', 'git-changed-file-observation']
+  });
+  expect(resolveTestOwnership([source])).toEqual([{
+    source,
+    owner: 'git-changed-file-observation',
+    identity: { kind: 'architecture-owner', id: 'git-changed-file-observation' }
+  }]);
+});
+
 test('ordinary Skill authoring selects only its causal contract closure', () => {
   const source = '.agents/skills/sec-heuristic-governance/SKILL.md';
   expect(selectTestsForSources([source])).toEqual({
