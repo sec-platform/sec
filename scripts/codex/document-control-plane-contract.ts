@@ -1,8 +1,10 @@
 import { parse as parseYaml } from 'yaml';
 
 import { sha256 } from '../../platform/shared/canonical-primitives.ts';
+import type { MainHealthRepairDecisionV1 } from '../../platform/shared/main-health-repair-contract.ts';
 import {
   compileSecWorkRollingProjectionV1,
+  parseSecRoadmapWorkCatalogV1,
   renderSecWorkRollingPlanV1,
   type SecWorkDecisionReceiptV1
 } from '../../platform/shared/work-selection-live-contract.ts';
@@ -73,6 +75,10 @@ export interface CodexDevelopmentRollingPlanV1 {
 
 export interface CodexDevelopmentWorkSelectionProjectionV1 {
   readonly receipt: SecWorkDecisionReceiptV1;
+}
+
+export interface CodexDevelopmentMainHealthRepairProjectionV1 {
+  readonly decision: MainHealthRepairDecisionV1;
 }
 
 export type CodexDevelopmentWorkSelectionProjectionModeV1 =
@@ -542,6 +548,101 @@ export function CodexDevelopmentParseRollingPlanV1(
   return { activePackageId, candidatePackageIds };
 }
 
+export interface CodexDevelopmentWorkPackageCensusEntryV1 {
+  readonly path: string;
+  readonly candidateBytes: Uint8Array;
+  readonly defaultBytes: Uint8Array | null;
+}
+
+export interface CodexDevelopmentWorkPackageCensusV1 {
+  readonly delayedPredecessorPath: string | null;
+  readonly ambiguousPredecessorPaths: readonly string[];
+  readonly stalePackagePaths: readonly string[];
+}
+
+function censusBytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index++) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+function decodeCensusManifest(bytes: Uint8Array, label: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new Error(`${label} must be valid UTF-8.`, { cause: error });
+  }
+}
+
+/**
+ * Classifies the exact candidate-tree Work Package census once for every
+ * control-plane consumer. A non-catalog recovery package may retain one and
+ * only one catalog predecessor when the candidate and default Git bytes are
+ * identical. The function is pure: callers own immutable Git observation,
+ * while this contract alone owns the delayed-handoff decision.
+ */
+export function CodexDevelopmentClassifyWorkPackageCensusV1(input: Readonly<{
+  selectedManifestPath: string;
+  entries: readonly CodexDevelopmentWorkPackageCensusEntryV1[];
+  roadmapSource?: string;
+}>): CodexDevelopmentWorkPackageCensusV1 {
+  if (!/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(input.selectedManifestPath)) {
+    throw new Error('Work Package census selected manifest path is noncanonical.');
+  }
+  const entries = [...input.entries].sort((left, right) => left.path.localeCompare(right.path));
+  if (entries.length === 0
+      || entries.some(({ path: entryPath }) =>
+        !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(entryPath))
+      || new Set(entries.map(({ path: entryPath }) => entryPath)).size !== entries.length) {
+    throw new Error('Work Package census entries must be non-empty, canonical, and unique.');
+  }
+  const selectedEntry = entries.find(({ path: entryPath }) => entryPath === input.selectedManifestPath);
+  if (selectedEntry === undefined) {
+    throw new Error('Work Package census does not contain the selected manifest.');
+  }
+  const selectedManifest = CodexDevelopmentParseWorkPackageManifest(
+    decodeCensusManifest(selectedEntry.candidateBytes, 'Selected Work Package census manifest'),
+    selectedEntry.path
+  );
+  const nonSelected = entries.filter(({ path: entryPath }) => entryPath !== selectedEntry.path);
+  if (nonSelected.length === 0 || selectedManifest.tracking !== 'none') {
+    return Object.freeze({
+      delayedPredecessorPath: null,
+      ambiguousPredecessorPaths: Object.freeze([]),
+      stalePackagePaths: Object.freeze(nonSelected.map(({ path: entryPath }) => entryPath))
+    });
+  }
+  if (input.roadmapSource === undefined) {
+    throw new Error('Untracked recovery Work Package census requires the canonical roadmap.');
+  }
+  const catalogByPath = new Map(parseSecRoadmapWorkCatalogV1(input.roadmapSource).items.map((item) => [
+    `docs/work-packages/${item.packageId}.md`,
+    item
+  ]));
+  const eligible = nonSelected.filter((entry) => {
+    const item = catalogByPath.get(entry.path);
+    if (item === undefined || entry.defaultBytes === null
+        || !censusBytesEqual(entry.candidateBytes, entry.defaultBytes)) return false;
+    const predecessor = CodexDevelopmentParseWorkPackageManifest(
+      decodeCensusManifest(entry.candidateBytes, `Published predecessor ${entry.path}`),
+      entry.path
+    );
+    return predecessor.id === item.packageId && predecessor.tracking === item.tracking;
+  });
+  const delayedPredecessorPath = eligible.length === 1 ? eligible[0]!.path : null;
+  return Object.freeze({
+    delayedPredecessorPath,
+    ambiguousPredecessorPaths: Object.freeze(
+      eligible.length > 1 ? eligible.map(({ path: entryPath }) => entryPath) : []
+    ),
+    stalePackagePaths: Object.freeze(nonSelected
+      .filter(({ path: entryPath }) => entryPath !== delayedPredecessorPath)
+      .map(({ path: entryPath }) => entryPath))
+  });
+}
+
 function uniqueHeadingMatch(source: string, pattern: RegExp, label: string): RegExpMatchArray {
   const matches = [...source.matchAll(pattern)];
   const match = matches[0];
@@ -644,6 +745,97 @@ export function CodexDevelopmentPromoteRollingPlanV1(input: {
   return next;
 }
 
+/**
+ * Temporarily places one exact degraded-main repair in front of the existing
+ * ordered topology. The previous active package becomes candidate one and no
+ * prior candidate is reordered or invented. A later healthy WorkDecision owns
+ * the normal topology replacement.
+ */
+export function CodexDevelopmentActivateMainHealthRepairRollingPlanV1(input: {
+  source: string;
+  packageId: string;
+  mainSha: string;
+  healthRevision: `sha256:${string}`;
+}): string {
+  const parsed = CodexDevelopmentParseRollingPlanV1(input.source);
+  const packageId = stringValue(input.packageId, 'MainHealth repair packageId');
+  if (!/^[a-z0-9][a-z0-9-]*$/u.test(packageId) || parsed.activePackageId === packageId
+      || parsed.candidatePackageIds.includes(packageId)) {
+    throw new Error('MainHealth repair package must be one new canonical package ID.');
+  }
+  if (!/^[0-9a-f]{40}$/u.test(input.mainSha)
+      || !/^sha256:[0-9a-f]{64}$/u.test(input.healthRevision)) {
+    throw new Error('MainHealth repair rolling identity is invalid.');
+  }
+  const activeMarker = uniqueHeadingMatch(
+    input.source,
+    /^## 当前唯一 Work Package[ \t]*\r?$/gmu,
+    'Rolling plan active marker'
+  );
+  const candidateMarker = uniqueHeadingMatch(
+    input.source,
+    /^## 候选 Work Package[ \t]*\r?$/gmu,
+    'Rolling plan candidate marker'
+  );
+  const activeMarkerEnd = activeMarker.index! + activeMarker[0].length;
+  const candidateMarkerStart = candidateMarker.index!;
+  const candidateMarkerEnd = candidateMarkerStart + candidateMarker[0].length;
+  const followingSectionPattern = /^## (?!候选 Work Package[ \t]*\r?$).+\r?$/gmu;
+  followingSectionPattern.lastIndex = candidateMarkerEnd;
+  const followingSection = followingSectionPattern.exec(input.source);
+  const candidateSectionEnd = followingSection?.index ?? input.source.length;
+  const activeSection = input.source.slice(activeMarkerEnd, candidateMarkerStart);
+  const candidateSection = input.source.slice(candidateMarkerEnd, candidateSectionEnd);
+  const activeHeading = uniqueHeadingMatch(
+    activeSection,
+    /^### ([a-z0-9][a-z0-9-]*)[ \t]*\r?$/gmu,
+    'Rolling plan active package heading'
+  );
+  if (activeHeading[1] !== parsed.activePackageId) {
+    throw new Error('MainHealth repair rolling active package identity drifted.');
+  }
+  const activeHeadingEnd = activeHeading.index! + activeHeading[0].length;
+  const activeBody = activeSection.slice(activeHeadingEnd);
+  const headingPattern = /^### ([1-9][0-9]*)\. ([a-z0-9][a-z0-9-]*)([ \t]*)(\r?\n|$)/gmu;
+  const headings = [...candidateSection.matchAll(headingPattern)];
+  const candidateBlocks = headings.map((heading, index) => {
+    const start = heading.index!;
+    const end = index + 1 < headings.length ? headings[index + 1]!.index! : candidateSection.length;
+    return { id: heading[2]!, body: candidateSection.slice(start + heading[0].length, end) };
+  });
+  const retained = [
+    { id: parsed.activePackageId, body: activeBody },
+    ...candidateBlocks
+  ];
+  if (retained.length > 5) {
+    throw new Error(
+      'MainHealth repair rolling projection cannot preserve all prior identities within the five-candidate bound.'
+    );
+  }
+  if (retained.length < 2 || new Set(retained.map(({ id }) => id)).size !== retained.length) {
+    throw new Error('MainHealth repair rolling projection cannot preserve a bounded unique topology.');
+  }
+  const eol = sourceLineEnding(input.source);
+  const activeReplacement = `${activeMarker[0]}${eol}${eol}### ${packageId}${eol}${eol}`
+    + `Exact degraded-main repair for \`main@${input.mainSha}\` and health `
+    + `\`${input.healthRevision}\`. This temporary projection has no ordinary work-selection authority.`
+    + `${eol}${eol}`;
+  const candidatePrefixMatch = /^(?:[ \t]*\r?\n)*/u.exec(candidateSection);
+  const candidatePrefix = candidatePrefixMatch?.[0] ?? `${eol}${eol}`;
+  const candidateReplacement = `${candidateMarker[0]}${candidatePrefix}`
+    + retained.map(({ id, body }, index) => `### ${index + 1}. ${id}${eol}${body}`).join('');
+  const rendered = input.source.slice(0, activeMarker.index!)
+    + activeReplacement
+    + candidateReplacement
+    + input.source.slice(candidateSectionEnd);
+  const result = CodexDevelopmentParseRollingPlanV1(rendered);
+  if (result.activePackageId !== packageId
+      || JSON.stringify(result.candidatePackageIds) !== JSON.stringify(retained.map(({ id }) => id))) {
+    throw new Error('MainHealth repair rolling projection readback failed.');
+  }
+  return rendered;
+}
+
 export function CodexDevelopmentRenderActivePointerV2(input: {
   spec: CodexDevelopmentCurrentStateSpecV1;
   manifestPath: string;
@@ -740,9 +932,11 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
   currentManifestBytes: Uint8Array;
   requestedRollingPlanSource?: string;
   workSelectionProjection?: CodexDevelopmentWorkSelectionProjectionV1;
+  mainHealthRepairProjection?: CodexDevelopmentMainHealthRepairProjectionV1;
   manifestPath: string;
   manifestBytes: Uint8Array;
   baseSha: string;
+  baseTreeSha?: string;
   reviewedOn: string;
 }): CodexDevelopmentFreezeProjectionV1 {
   const manifestPath = manifestPathValue(input.manifestPath, 'Freeze manifest path');
@@ -792,15 +986,17 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
     manifestDigest,
     reviewedOn: input.reviewedOn
   });
-  const selectionRequired = CodexDevelopmentResolveWorkSelectionProjectionModeV1(input.spec)
+  const externalProjectionRequired = CodexDevelopmentResolveWorkSelectionProjectionModeV1(input.spec)
     === 'required-v1' && manifest.id !== currentManifest.id;
-  if (selectionRequired !== (input.workSelectionProjection !== undefined)) {
-    throw new Error(selectionRequired
-      ? 'A new package requires one live WorkDecision projection.'
-      : 'WorkDecision projection is forbidden for legacy or same-package freeze.');
+  const projectionCount = Number(input.workSelectionProjection !== undefined)
+    + Number(input.mainHealthRepairProjection !== undefined);
+  if (externalProjectionRequired ? projectionCount !== 1 : projectionCount !== 0) {
+    throw new Error(externalProjectionRequired
+      ? 'A new package requires exactly one live WorkDecision or MainHealth repair projection.'
+      : 'External selection projections are forbidden for legacy or same-package freeze.');
   }
   let rollingPlanSource: string;
-  if (input.workSelectionProjection === undefined) {
+  if (!externalProjectionRequired) {
     const promotedRollingPlanSource = CodexDevelopmentPromoteRollingPlanV1({
       source: input.currentRollingPlanSource,
       packageId: manifest.id
@@ -817,11 +1013,13 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
       }
       rollingPlanSource = input.requestedRollingPlanSource;
     }
-  } else {
+  } else if (input.workSelectionProjection !== undefined) {
     const receipt = input.workSelectionProjection.receipt;
     const selection = compileSecWorkRollingProjectionV1(receipt);
-    if (selection.exactMain !== input.baseSha) {
-      throw new Error('WorkDecision projection must bind the exact freeze base.');
+    if (input.baseTreeSha === undefined
+        || selection.exactMain !== input.baseSha
+        || input.workSelectionProjection.receipt.exactMainTree !== input.baseTreeSha) {
+      throw new Error('WorkDecision projection must bind the exact freeze base and tree.');
     }
     if (selection.active.packageId !== manifest.id
         || selection.active.tracking !== manifest.tracking) {
@@ -840,6 +1038,35 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
       throw new Error('Requested rolling bytes must equal the trusted WorkDecision renderer exactly.');
     }
     rollingPlanSource = selectedRollingPlanSource;
+  } else {
+    const decision = input.mainHealthRepairProjection!.decision;
+    const binding = decision.binding;
+    if (decision.status !== 'repair-ready' || decision.reasonCode !== 'repair-ready'
+        || binding === null) {
+      throw new Error('MainHealth repair projection is not repair-ready.');
+    }
+    if (input.baseTreeSha === undefined
+        || binding.repository !== input.spec.resolver.repository
+        || binding.defaultBranch !== input.spec.resolver.defaultBranch
+        || binding.mainSha !== input.baseSha
+        || binding.mainTreeSha !== input.baseTreeSha
+        || binding.trustRevision !== input.baseSha
+        || binding.manifestPath !== manifestPath
+        || binding.packageId !== manifest.id
+        || manifest.tracking !== 'none') {
+      throw new Error('MainHealth repair projection differs from the exact manifest or repository identity.');
+    }
+    const repairedRollingPlanSource = CodexDevelopmentActivateMainHealthRepairRollingPlanV1({
+      source: input.currentRollingPlanSource,
+      packageId: manifest.id,
+      mainSha: binding.mainSha,
+      healthRevision: binding.healthRevision
+    });
+    if (input.requestedRollingPlanSource !== undefined
+        && input.requestedRollingPlanSource !== repairedRollingPlanSource) {
+      throw new Error('Requested repair rolling bytes must equal the canonical repair projection exactly.');
+    }
+    rollingPlanSource = repairedRollingPlanSource;
   }
   if (CodexDevelopmentParseRollingPlanV1(rollingPlanSource).activePackageId !== manifest.id) {
     throw new Error('Freeze projection rolling-plan readback failed.');

@@ -70,6 +70,7 @@ import {
   parseIntegrationAuthorizationOperationPublicationV1,
   type IntegrationAuthorizationOperationPublicationV1
 } from './integration-authorization-publication.ts';
+import { createObservedMainHealthInputV1 } from './main-health-observation.ts';
 import {
   assertCanonicalMergeMessageV1,
   CodexDevelopmentCreateHostedArtifactObservationV2,
@@ -102,6 +103,51 @@ import {
 export const VERIFICATION_SESSION_HOSTED_REQUEST_SCHEMA_V1 =
   CI_VERIFICATION_SESSION_REQUEST_SCHEMA;
 export const VERIFICATION_SESSION_HOSTED_EVENT_V2 = CI_VERIFICATION_SESSION_DISPATCH_TYPE;
+
+/**
+ * Canonical post-new-main health consumer for IssueDisposition evidence.
+ * Callers supply provider observations only; exact-main identity, freshness,
+ * producer matching, convergence, and ordinary-lane eligibility remain owned
+ * by MainHealth.
+ */
+export function compilePostMainIssueDispositionHealthReadbackV1(input: Readonly<{
+  repository: string;
+  newMainSha: string;
+  newMainTreeSha: string;
+  observedAt: string;
+  sourceRunId: string;
+  sourceRef: string;
+  checks: readonly GitHubCheckObservationV1[];
+}>): MainHealthLedgerV1 {
+  const expiresAt = new Date(new Date(input.observedAt).getTime() + 300_000).toISOString();
+  const ledger = createMainHealthLedgerV1(createObservedMainHealthInputV1({
+    repository: input.repository,
+    mainSha: input.newMainSha,
+    mainTreeSha: input.newMainTreeSha,
+    trustRevision: input.newMainSha,
+    observedAt: input.observedAt,
+    expiresAt,
+    sourceRunId: input.sourceRunId,
+    sourceRef: input.sourceRef,
+    checks: input.checks
+  }));
+  const lane = resolveMainHealthLaneV1({
+    ledger,
+    lane: 'ordinary',
+    now: input.observedAt,
+    expectedRepository: input.repository,
+    expectedDefaultBranch: 'main',
+    expectedMainSha: input.newMainSha,
+    expectedMainTreeSha: input.newMainTreeSha,
+    expectedTrustRevision: input.newMainSha
+  });
+  if (!lane.allowed || lane.status !== 'healthy' || lane.observationValidity !== 'valid'
+    || lane.ledger === null || lane.ledger.allowedLanes.length !== 1
+    || lane.ledger.allowedLanes[0] !== 'ordinary') {
+    throw new Error('IssueDisposition post-main evidence requires canonical fresh healthy ordinary-only MainHealth.');
+  }
+  return lane.ledger;
+}
 export const VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA_V1 =
   'sec-verification-session-hosted-envelope-v1' as const;
 
@@ -175,58 +221,6 @@ export function createVerificationSessionMergeOperationIdV1(input: {
 }): Digest {
   return createVerificationSessionOperationId({ sessionRevision: input.sessionRevision, operationKind: 'merge',
     semanticInputDigest: hash(Object.freeze({ headSha: input.headSha, actionPlanDigest: input.actionPlanDigest })) });
-}
-
-export function createObservedMainHealthInputV1(input: {
-  repository: string; mainSha: string; mainTreeSha: string; trustRevision: string;
-  observedAt: string; expiresAt: string; sourceRunId: string; sourceRef: string;
-  checks: readonly GitHubCheckObservationV1[];
-}): MainHealthLedgerInputV1 {
-  const expectedRef = CI_MAIN_HEALTH_POLICY_V1.producer.workflowRefFormat.replace('<exact-main-sha>', input.mainSha);
-  const eventRank = (eventName: string | null): number =>
-    CI_MAIN_HEALTH_POLICY_V1.producer.eventNames.findIndex((candidate) => candidate === eventName);
-  const matching = input.checks.filter((check) => check.headSha === input.mainSha
-    && check.name === CI_MAIN_HEALTH_POLICY_V1.context
-    && check.appId === CI_MAIN_HEALTH_POLICY_V1.app.id
-    && check.appNodeId === CI_MAIN_HEALTH_POLICY_V1.app.nodeId
-    && check.appSlug === CI_MAIN_HEALTH_POLICY_V1.app.slug
-    && check.workflowPath === CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath
-    && check.workflowRef === expectedRef
-    && CI_MAIN_HEALTH_POLICY_V1.producer.eventNames.some(
-      (eventName) => check.eventName === eventName
-    )).sort((left, right) => eventRank(left.eventName) - eventRank(right.eventName) || left.id - right.id);
-  const successful = (check: GitHubCheckObservationV1): boolean =>
-    check.status === CI_MAIN_HEALTH_POLICY_V1.terminal.status
-      && check.conclusion === CI_MAIN_HEALTH_POLICY_V1.terminal.conclusion;
-  const uniqueEventSuccessfulProducers = matching.length > 1
-    && new Set(matching.map((check) => check.eventName)).size === matching.length
-    && matching.every(successful);
-  // eventNames is the canonical producer priority. Cross-event success is one
-  // equivalent health observation; same-event duplicates or mixed outcomes
-  // remain ambiguous and fail closed.
-  const selected = matching.length === 1 || uniqueEventSuccessfulProducers ? matching[0]! : null;
-  const healthy = selected !== null && successful(selected);
-  const degraded = selected !== null && matching.length === 1
-    && selected.status === CI_MAIN_HEALTH_POLICY_V1.terminal.status
-    && selected.conclusion !== null && selected.conclusion !== CI_MAIN_HEALTH_POLICY_V1.terminal.conclusion;
-  const status = healthy ? 'healthy' as const : degraded ? 'degraded' as const : 'locked' as const;
-  const fingerprints = healthy ? [] : [hash(degraded ? {
-    status: 'main-health-check-failed', policyDigest: CI_MAIN_HEALTH_POLICY_DIGEST_V1,
-    check: { id: selected!.id, name: selected!.name, conclusion: selected!.conclusion, headSha: selected!.headSha }
-  } : { status: 'main-health-policy-mismatch', policyDigest: CI_MAIN_HEALTH_POLICY_DIGEST_V1,
-    mainSha: input.mainSha, matching })];
-  return Object.freeze({
-    repository: input.repository, defaultBranch: 'main', mainSha: input.mainSha, mainTreeSha: input.mainTreeSha,
-    status, failureFingerprints: Object.freeze(fingerprints),
-    owner: degraded ? CI_MAIN_HEALTH_POLICY_V1.degraded.owner : null,
-    repairWorkPackage: degraded ? CI_MAIN_HEALTH_POLICY_V1.degraded.repairWorkPackageLocator : null,
-    expiresAt: input.expiresAt, allowedLanes: healthy ? Object.freeze(['ordinary'] as const)
-      : degraded ? CI_MAIN_HEALTH_POLICY_V1.degraded.allowedLanes : CI_MAIN_HEALTH_POLICY_V1.locked.allowedLanes,
-    trustRevision: input.trustRevision, observedAt: input.observedAt,
-    producer: Object.freeze({ identity: 'platform/shared/default-branch-revision-health.ts',
-      trustRevision: input.trustRevision, sourceTransport: 'github-api' as const, sourceRunId: input.sourceRunId,
-      sourceRef: input.sourceRef, sourceDigest: hash({ policyDigest: CI_MAIN_HEALTH_POLICY_DIGEST_V1, matching }) })
-  });
 }
 
 export function createVerificationSessionScopeProposalDigestV1(input: {

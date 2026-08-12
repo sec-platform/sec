@@ -33,8 +33,8 @@ import {
   CodexDevelopmentParseCurrentStateSpecV1,
   CodexDevelopmentParseRollingPlanV1
 } from './document-control-plane-contract.ts';
+import { createObservedMainHealthInputV1 } from './main-health-observation.ts';
 import { createVerificationSessionGitHubClientV1 } from './verification-session-github.ts';
-import { createObservedMainHealthInputV1 } from './verification-session-runtime.ts';
 import {
   parseOpenPullRequestList,
   projectWorkPackageRegistry

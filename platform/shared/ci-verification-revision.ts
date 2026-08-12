@@ -172,8 +172,8 @@ export const CI_GITHUB_ACTIONS_IDENTITY_POLICY_DIGEST_V1 = `sha256:${createHash(
 
 /** The only exact-main health producer accepted by the ordinary Session lane. */
 export const CI_MAIN_HEALTH_POLICY_V1 = Object.freeze({
-  schema: 'sec-ci-main-health-policy-v1' as const,
-  policyRevision: 'sec-ci-main-health-policy-v1' as const,
+  schema: 'sec-ci-main-health-policy-v3' as const,
+  policyRevision: 'sec-ci-main-health-policy-v3' as const,
   context: 'sec/main-health' as const,
   app: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app,
   producer: Object.freeze({
@@ -184,13 +184,25 @@ export const CI_MAIN_HEALTH_POLICY_V1 = Object.freeze({
     eventNames: Object.freeze(['push', 'repository_dispatch'] as const),
     branch: 'main' as const
   }),
-  terminal: Object.freeze({ status: 'completed' as const, conclusion: 'success' as const }),
+  terminal: Object.freeze({
+    status: 'completed' as const,
+    conclusion: 'success' as const,
+    recognizedConclusions: Object.freeze([
+      'success', 'failure', 'cancelled', 'skipped', 'timed_out',
+      'action_required', 'neutral', 'stale', 'startup_failure'
+    ] as const)
+  }),
+  convergence: Object.freeze({
+    eventCardinality: 'at-most-one-per-allowed-event' as const,
+    terminalOutcomeIdentity: 'status-conclusion' as const,
+    failureFingerprintIdentity: 'policy-context-head-status-conclusion' as const,
+    sourceDigestIdentity: 'policy-and-canonical-matching-subset' as const,
+    ambiguousDisposition: 'locked' as const
+  }),
   degraded: Object.freeze({
     owner: 'ci-verification-maintainer' as const,
-    repairWorkPackageLocator: 'docs/work-packages/default-branch-health-repair-v2.md' as const,
-    repairWorkPackageLocatorStatus: 'proposal-only' as const,
-    activation: 'not-frozen' as const,
-    // Routing truth only. No production repair consumer exists in this epoch.
+    repairIdentityPolicy: 'exact-main-tree-failure-v1' as const,
+    // Routing truth only. Document control remains the sole freeze effect owner.
     allowedLanes: Object.freeze(['repair'] as const)
   }),
   locked: Object.freeze({ allowedLanes: Object.freeze([] as const) })

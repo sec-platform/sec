@@ -35,6 +35,7 @@ import {
   verificationActionProviderTerminalArtifactNameV2,
   type VerificationActionProviderOriginV2
 } from '../../platform/shared/verification-action-provider-contract.ts';
+import { buildUnsupportedVerificationActionTerminalArtifactV2 } from '../helpers/verification-action-fixtures.ts';
 
 const REPOSITORY = 'openai/sec';
 const REPOSITORY_ID = 311;
@@ -938,7 +939,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       executionEnvironmentRevision: 'hosted',
       producer: { ...currentOrigin, runId: '9999' }
     });
-    fakeGh = new FakeGh().withMarker(forgedMarker);
+    fakeGh = new FakeGh().withMarker(forgedMarker, 9999);
     const result = await ensureTransaction({ authority: authority(),
       intent: { kind: 'claim-start', marker: forgedMarker } });
     expect(result.disposition).toBe('blocked');
@@ -946,6 +947,17 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
   });
 
   test('terminal publication binds the authenticated current run and full artifact chain', async () => {
+    const terminalArtifact = buildUnsupportedVerificationActionTerminalArtifactV2({
+      actionPlan: closure.actions[0]!,
+      normalizedOperation: closure.normalizedOperations[0]!,
+      baseSha: BASE,
+      baseTreeSha: '3'.repeat(40),
+      headSha: HEAD,
+      headTreeSha: '4'.repeat(40),
+      manifestPath: 'docs/work-packages/verification-action-trusted-cutover-v5.md',
+      manifestDigest: digest('a'),
+      producer: currentOrigin
+    });
     const terminalAnchor = createVerificationActionProviderTerminalAnchorV2({
       actionKey: ACTION,
       candidateSha: HEAD,
@@ -958,7 +970,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       terminalArtifactOriginId: '7002',
       terminalArtifactName: verificationActionProviderTerminalArtifactNameV2(ACTION),
       terminalArtifactArchiveDigest: fixtureDigest('zip-7002'),
-      terminalArtifactPayloadDigest: TERMINAL_PAYLOAD_DIGEST,
+      terminalArtifactPayloadDigest: terminalArtifact.artifactDigest as VerificationActionKeyDigest,
       terminalAssemblerOrigin: currentOrigin,
       anchorPublisherOrigin: currentOrigin
     });
@@ -967,7 +979,7 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
     fakeGh.artifacts.push(
       { id: 7002, name: verificationActionProviderTerminalArtifactNameV2(ACTION), expired: false,
         runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-artifact.json',
-        source: JSON.stringify({ artifactDigest: TERMINAL_PAYLOAD_DIGEST }) },
+        source: JSON.stringify(terminalArtifact) },
       { id: 7003, name: verificationActionProviderTerminalAnchorNameV2(ACTION), expired: false,
         runId: Number(CURRENT_RUN_ID), fileName: 'verification-action-terminal-status-anchor.json',
         source: JSON.stringify(terminalAnchor) }

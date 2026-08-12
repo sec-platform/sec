@@ -155,7 +155,11 @@ import {
   CodexDevelopmentFinalizeVerificationSessionArtifactV2
 } from '../../platform/shared/ci-evidence-contract.ts';
 import { createIntegrationAuthorizationV1 } from '../../platform/shared/integration-authorization-contract.ts';
-import { createMainHealthLedgerV1, resolveMainHealthLaneV1 } from '../../platform/shared/main-health-contract.ts';
+import {
+  createMainHealthLedgerV1,
+  createMainHealthRepairWorkPackagePathV1,
+  resolveMainHealthLaneV1
+} from '../../platform/shared/main-health-contract.ts';
 import {
   createReviewSnapshotDigestV1,
   createReviewStabilityReceiptV1,
@@ -217,6 +221,7 @@ import {
   HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1,
   renderIntegrationAuthorizationOperationPublicationComment
 } from '../../scripts/codex/integration-authorization-publication.ts';
+import { createObservedMainHealthInputV1 } from '../../scripts/codex/main-health-observation.ts';
 import {
   CodexDevelopmentEvaluateMergeGateV2,
   type CodexDevelopmentMergeGateResultV2
@@ -263,8 +268,8 @@ import {
   assertTrustedMergedRequestRuntimeReachabilityV1,
   assertTrustedRuntimeV1,
   classifyVerificationSessionArtifactReuseV1,
+  compilePostMainIssueDispositionHealthReadbackV1,
   createHostedArtifactObservationV2,
-  createObservedMainHealthInputV1,
   createTrustedHostedArtifactProvenanceV1,
   createTrustedIntegrationAuthorizationArtifactV1,
   createVerificationSessionMergeOperationIdV1,
@@ -1804,9 +1809,16 @@ test('MainHealth preserves exact states while repair remains semantic routing wi
   });
   expect(degradedInput).toMatchObject({
     status: 'degraded', allowedLanes: CI_MAIN_HEALTH_POLICY_V1.degraded.allowedLanes,
-    owner: CI_MAIN_HEALTH_POLICY_V1.degraded.owner,
-    repairWorkPackage: CI_MAIN_HEALTH_POLICY_V1.degraded.repairWorkPackageLocator
+    owner: CI_MAIN_HEALTH_POLICY_V1.degraded.owner
   });
+  expect(degradedInput.repairWorkPackage).toBe(createMainHealthRepairWorkPackagePathV1({
+    repository: common.repository,
+    defaultBranch: 'main',
+    mainSha: common.mainSha,
+    mainTreeSha: common.mainTreeSha,
+    owner: CI_MAIN_HEALTH_POLICY_V1.degraded.owner,
+    failureFingerprints: degradedInput.failureFingerprints
+  }));
   const degradedLedger = createMainHealthLedgerV1(degradedInput);
   expect(resolveMainHealthLaneV1({
     ledger: degradedLedger, lane: 'repair', now: '2026-08-09T14:01:00.000Z',
@@ -1821,8 +1833,7 @@ test('MainHealth preserves exact states while repair remains semantic routing wi
     expectedTrustRevision: common.trustRevision
   })).toMatchObject({ status: 'locked', allowed: false });
   expect(CI_MAIN_HEALTH_POLICY_V1.degraded).toMatchObject({
-    repairWorkPackageLocatorStatus: 'proposal-only',
-    activation: 'not-frozen',
+    repairIdentityPolicy: 'exact-main-tree-failure-v1',
     allowedLanes: ['repair']
   });
   const productionRepairConsumers = [
@@ -1850,7 +1861,7 @@ test('MainHealth preserves exact states while repair remains semantic routing wi
   }
 });
 
-test('MainHealth folds unique cross-event success deterministically and locks conflicting producers', () => {
+test('MainHealth converges equivalent cross-event terminal outcomes and locks conflicting producers', () => {
   const common = { repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
     observedAt: '2026-08-09T14:00:00.000Z', expiresAt: '2026-08-09T14:10:00.000Z', sourceRunId: '7',
     sourceRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${BASE}` };
@@ -1862,15 +1873,81 @@ test('MainHealth folds unique cross-event success deterministically and locks co
     status: 'healthy', allowedLanes: ['ordinary'], failureFingerprints: []
   });
   expect(reversed).toEqual(ordered);
+  expect(createObservedMainHealthInputV1({
+    ...common,
+    checks: [mainHealthCheck({ id: 99, appId: 1 }), dispatched, push]
+  })).toEqual(ordered);
+
+  const failedPush = mainHealthCheck({ id: 7, eventName: 'push', conclusion: 'failure' });
+  const failedDispatch = mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'failure' });
+  const singleFailure = createObservedMainHealthInputV1({ ...common, checks: [failedPush] });
+  const alternateTransportFailure = createObservedMainHealthInputV1({ ...common, checks: [failedDispatch] });
+  expect(alternateTransportFailure.failureFingerprints).toEqual(singleFailure.failureFingerprints);
+  expect(alternateTransportFailure.repairWorkPackage).toBe(singleFailure.repairWorkPackage);
+  const convergedFailure = createObservedMainHealthInputV1({
+    ...common,
+    checks: [failedDispatch, failedPush]
+  });
+  expect(convergedFailure).toMatchObject({
+    status: 'degraded', allowedLanes: CI_MAIN_HEALTH_POLICY_V1.degraded.allowedLanes,
+    failureFingerprints: singleFailure.failureFingerprints,
+    repairWorkPackage: singleFailure.repairWorkPackage
+  });
+  expect(createObservedMainHealthInputV1({
+    ...common,
+    checks: [failedPush, failedDispatch]
+  })).toEqual(convergedFailure);
 
   for (const checks of [
     [push, mainHealthCheck({ id: 9, eventName: 'push' })],
     [push, mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'failure' })],
-    [push, mainHealthCheck({ id: 8, eventName: 'repository_dispatch', status: 'in_progress', conclusion: null })]
+    [push, mainHealthCheck({ id: 8, eventName: 'repository_dispatch', status: 'in_progress', conclusion: null })],
+    [failedPush, mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'cancelled' })],
+    [mainHealthCheck({ conclusion: 'forged-terminal' })],
+    [mainHealthCheck({ status: 'forged-status', conclusion: 'failure' })],
+    [mainHealthCheck({ eventName: 'push', conclusion: 'forged-terminal' }),
+      mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'forged-terminal' })]
   ]) {
     expect(createObservedMainHealthInputV1({ ...common, checks })).toMatchObject({
       status: 'locked', allowedLanes: [], failureFingerprints: [expect.stringMatching(/^sha256:/)]
     });
+  }
+});
+
+test('IssueDisposition post-main readback consumes the canonical exact MainHealth decision', () => {
+  const common = {
+    repository: 'sec-platform/sec', newMainSha: BASE, newMainTreeSha: HEAD,
+    observedAt: '2026-08-09T14:00:00.000Z', sourceRunId: '200',
+    sourceRef: `.github/workflows/sec-merge-gate.yml@${BASE}`
+  };
+  const push = mainHealthCheck({ id: 7, eventName: 'push' });
+  const dispatched = mainHealthCheck({ id: 8, eventName: 'repository_dispatch' });
+  const single = compilePostMainIssueDispositionHealthReadbackV1({ ...common, checks: [push] });
+  const converged = compilePostMainIssueDispositionHealthReadbackV1({
+    ...common, checks: [dispatched, push]
+  });
+  expect(single).toMatchObject({
+    repository: common.repository, mainSha: common.newMainSha, mainTreeSha: common.newMainTreeSha,
+    trustRevision: common.newMainSha, status: 'healthy', allowedLanes: ['ordinary']
+  });
+  expect(converged.healthRevision).toBe(single.healthRevision);
+  expect(compilePostMainIssueDispositionHealthReadbackV1({
+    ...common, checks: [push, dispatched]
+  })).toEqual(converged);
+
+  for (const checks of [
+    [mainHealthCheck({ appId: 1 })],
+    [mainHealthCheck({ appNodeId: 'forged-app-node' })],
+    [mainHealthCheck({ workflowPath: '.github/workflows/forged.yml' })],
+    [mainHealthCheck({ workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${HEAD}` })],
+    [mainHealthCheck({ eventName: 'workflow_run' })],
+    [push, mainHealthCheck({ id: 9, eventName: 'push' })],
+    [mainHealthCheck({ conclusion: 'forged-terminal' })],
+    [mainHealthCheck({ status: 'forged-status', conclusion: 'success' })],
+    [push, mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'failure' })]
+  ]) {
+    expect(() => compilePostMainIssueDispositionHealthReadbackV1({ ...common, checks }))
+      .toThrow('canonical fresh healthy ordinary-only MainHealth');
   }
 });
 
@@ -2146,15 +2223,25 @@ test('hosted IssueDisposition is pre-merge guarded and post-readback observation
   const closeoutStart = sessionSource.indexOf("if (command === 'closeout-mutate-hosted')");
   const integrate = sessionSource.slice(integrateStart, closeoutStart);
   const closeout = sessionSource.slice(closeoutStart);
+  const issueDisposition = sessionSource.slice(
+    sessionSource.indexOf('function observeHostedTrackingIssueDispositionV1('),
+    sessionSource.indexOf('function observeExactRemoteCloseoutBranch(')
+  );
+  const mergeEffect = integrate.indexOf('executeHostedSquashMerge({');
+  const writerCircuitBreaker = integrate.indexOf("capability: 'github-writer'");
   expect(integrateStart).toBeGreaterThan(-1);
   expect(closeoutStart).toBeGreaterThan(integrateStart);
+  expect(mergeEffect).toBeGreaterThan(-1);
   expect(integrate.indexOf('github.observePullRequestClosingFacts(')).toBeLessThan(
-    integrate.indexOf('executeHostedSquashMerge({')
+    mergeEffect
   );
   expect(integrate.indexOf('assertHostedSquashMergeCompletionV1')).toBeLessThan(
     integrate.lastIndexOf('observeUnexpectedGitHubIssueClosuresV1({')
   );
-  expect(integrate).not.toContain("capability: 'github-writer'");
+  expect(integrate.match(/capability: 'github-writer'/gu) ?? []).toHaveLength(1);
+  expect(writerCircuitBreaker).toBeGreaterThan(-1);
+  expect(writerCircuitBreaker).toBeLessThan(mergeEffect);
+  expect(integrate.slice(mergeEffect)).not.toContain("capability: 'github-writer'");
   expect(integrate).toContain("issueDispositionCommitMarkerStateV1(mergedProjectionCandidate.mergeCommitMessage) === 'complete'");
   expect(integrate).toContain("status: 'legacy-no-effect'");
   expect(closeout.indexOf('observeHostedTrackingIssueDispositionV1({')).toBeLessThan(
@@ -2162,6 +2249,11 @@ test('hosted IssueDisposition is pre-merge guarded and post-readback observation
   );
   expect(closeout.slice(0, closeout.indexOf('observeBranchCloseoutOperationPublicationV1(')))
     .not.toContain("capability: 'github-writer'");
+  expect(issueDisposition).toContain('compilePostMainIssueDispositionHealthReadbackV1({');
+  expect(issueDisposition).toContain('checks: github.observeChecks(repository, candidate.mergeCommitSha)');
+  expect(issueDisposition).toContain('mainHealth.ledgerDigest');
+  expect(issueDisposition).not.toContain('.filter((check)');
+  expect(issueDisposition).not.toContain('mainHealthChecks.length');
   expect(sessionSource).not.toContain("status: 'satisfied' as const");
   expect(sessionSource).not.toContain('remainingWorkCount: 0');
   expect(sessionSource).toContain('status: disposition.kind, receipt: disposition');

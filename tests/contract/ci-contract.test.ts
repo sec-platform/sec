@@ -274,6 +274,10 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
     'Materialize dependencies only from exact trusted base inputs');
   const preparedInput = step(workflow, 'claim-verification-action',
     'Build authenticated raw candidate and dependency closure before provider start');
+  const preparedInputRun = preparedInput.run;
+  if (preparedInputRun === undefined) {
+    throw new Error('Authenticated candidate materialization step must be one run step.');
+  }
   const sandboxPreflight = step(workflow, 'claim-verification-action',
     'Preflight hostile SUT sandbox before immutable start');
   const marker = step(workflow, 'claim-verification-action',
@@ -285,8 +289,8 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   for (const dependencyPath of CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2) {
     expect(install.run).toContain(dependencyPath);
   }
-  expect(preparedInput.run).toContain('prepare-hosted-action-inputs');
-  expect(preparedInput.run).toContain('--candidate-root .tmp/codex/candidate');
+  expect(preparedInputRun).toContain('prepare-hosted-action-inputs');
+  expect(preparedInputRun).toContain('--candidate-root .tmp/codex/candidate');
   expect(sandboxPreflight.run).toContain('self-test-hosted-action-sandbox');
   expect(marker.run).toContain('--prepared-candidate-archive');
   expect(marker.run).toContain('--base-dependency-closure-digest');
@@ -294,7 +298,11 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect([install.name, preparedInput.name, sandboxPreflight.name, marker.name].map((name) =>
     source.indexOf(name))).toEqual([install.name, preparedInput.name, sandboxPreflight.name, marker.name].map(
     (name) => source.indexOf(name)).sort((left, right) => left - right));
-  expect(source.match(/--candidate-root/gu)).toHaveLength(1);
+  // `--candidate-root` is also a legitimate input of the separately owned
+  // Agent activation producer. Scope this invariant to the hosted Action
+  // materializer instead of coupling unrelated workflow operations by a
+  // whole-file token count.
+  expect(preparedInputRun.match(/--candidate-root/gu)).toHaveLength(1);
   const sutRun = step(workflow, 'execute-verification-action-sut',
     'Execute one normalized candidate operation without credentials');
   expect(sutRun.run).toContain('execute-hosted-action-sut');
@@ -845,8 +853,8 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
 
 test('exact-main health policy binds one stable GitHub Actions app and terminal context', async () => {
   expect(CI_MAIN_HEALTH_POLICY_V1).toEqual({
-    schema: 'sec-ci-main-health-policy-v1',
-    policyRevision: 'sec-ci-main-health-policy-v1',
+    schema: 'sec-ci-main-health-policy-v3',
+    policyRevision: 'sec-ci-main-health-policy-v3',
     context: 'sec/main-health',
     app: { id: 15368, nodeId: 'MDM6QXBwMTUzNjg=', slug: 'github-actions' },
     producer: {
@@ -857,12 +865,24 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
       eventNames: ['push', 'repository_dispatch'],
       branch: 'main'
     },
-    terminal: { status: 'completed', conclusion: 'success' },
+    terminal: {
+      status: 'completed',
+      conclusion: 'success',
+      recognizedConclusions: [
+        'success', 'failure', 'cancelled', 'skipped', 'timed_out',
+        'action_required', 'neutral', 'stale', 'startup_failure'
+      ]
+    },
+    convergence: {
+      eventCardinality: 'at-most-one-per-allowed-event',
+      terminalOutcomeIdentity: 'status-conclusion',
+      failureFingerprintIdentity: 'policy-context-head-status-conclusion',
+      sourceDigestIdentity: 'policy-and-canonical-matching-subset',
+      ambiguousDisposition: 'locked'
+    },
     degraded: {
       owner: 'ci-verification-maintainer',
-      repairWorkPackageLocator: 'docs/work-packages/default-branch-health-repair-v2.md',
-      repairWorkPackageLocatorStatus: 'proposal-only',
-      activation: 'not-frozen',
+      repairIdentityPolicy: 'exact-main-tree-failure-v1',
       allowedLanes: ['repair']
     },
     locked: { allowedLanes: [] }

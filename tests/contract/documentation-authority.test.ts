@@ -188,7 +188,9 @@ describe('canonical documentation authority', () => {
       '不得暴露 compile/apply/reconcile',
       'registry absence 与 exact physical target',
       'zero residue',
-      'typed blocked receipt'
+      'typed blocked receipt',
+      '额外保留至多一个被canonical roadmap引用',
+      '下一ordinary slice必须同时删除recovery manifest'
     ]);
     expectContainsAll(verification, [
       '`CandidateContentId` 绑定',
@@ -198,8 +200,12 @@ describe('canonical documentation authority', () => {
       '`ReviewRequestActionKey`',
       '`physicalStartsPerActionKey <= 1`',
       'Tier 0 Transition Root',
-      '`PromotionId` 绑定'
+      '`PromotionId` 绑定',
+      '`ordinary-only | repair-only | locked`',
+      'repair路径因此不依赖全Issue census',
+      '不是physical executor、Scope'
     ]);
+    expect(verification).not.toContain('当前repair locator仍为proposal-only/not-frozen');
     expectContainsAll(roadmap, [
       'R14 — Agent Operation Compiler / VerificationSession Cutover',
       '不创建一个只做“最终架构”的umbrella Work Package',
@@ -242,8 +248,22 @@ describe('canonical documentation authority', () => {
     expect(new Set(rollingPlan.candidatePackageIds).size)
       .toBe(rollingPlan.candidatePackageIds.length);
     expect(rollingPlan.candidatePackageIds).not.toContain(selectedManifestId);
-    expect([rollingPlan.activePackageId, ...rollingPlan.candidatePackageIds])
-      .toEqual(catalog.items.map(({ packageId }) => packageId));
+    const catalogPackageIds = catalog.items.map(({ packageId }) => packageId);
+    const activeCatalogIndex = catalogPackageIds.indexOf(rollingPlan.activePackageId);
+    if (activeCatalogIndex >= 0) {
+      expect([rollingPlan.activePackageId, ...rollingPlan.candidatePackageIds])
+        .toEqual(catalogPackageIds.slice(
+          activeCatalogIndex,
+          activeCatalogIndex + rollingPlan.candidatePackageIds.length + 1
+        ));
+    } else {
+      expect(rollingPlan.activePackageId).toMatch(/^default-branch-health-repair-/u);
+      const retainedCatalogIndexes = rollingPlan.candidatePackageIds.map((packageId) =>
+        catalogPackageIds.indexOf(packageId));
+      expect(retainedCatalogIndexes[0]).toBe(0);
+      expect(retainedCatalogIndexes.every((index) => index >= 0)).toBe(true);
+      expect(retainedCatalogIndexes).toEqual([...retainedCatalogIndexes].sort((left, right) => left - right));
+    }
     expectContainsAll(rollingPlanSource, [
       '## 当前唯一 Work Package',
       '## 候选 Work Package',
@@ -258,6 +278,7 @@ describe('canonical documentation authority', () => {
     );
     expect(manifest.id).toBe(selectedManifestId);
     expect(manifest.manifestState).toBe('frozen');
+    if (activeCatalogIndex < 0) expect(manifest.tracking).toBe('none');
     expect(manifest.tasks.length).toBeGreaterThan(0);
     expect(manifest.acceptance.length).toBeGreaterThan(0);
     expectContainsAll(pointerSource, [
@@ -299,10 +320,14 @@ describe('canonical documentation authority', () => {
       '轮换中的Work Package identity只由',
       'Document Control Plane拥有'
     ]);
-    expect(verificationGovernance).not.toMatch(
+    const activationContract = verificationGovernance.match(
+      /T2 trusted-cutover epoch[\s\S]*?Document Control Plane拥有；/u
+    )?.[0];
+    expect(activationContract).toBeDefined();
+    expect(activationContract!).not.toMatch(
       /\bverification-action-trusted-cutover-v\d+\b/u
     );
-    expect(verificationGovernance).not.toContain(activeManifestId);
+    expect(activationContract!).not.toContain(activeManifestId);
   });
 
   test('compiler authority binds the pipeline kernel, IR layers, lowering, and single-writer migration', async () => {

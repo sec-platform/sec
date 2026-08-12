@@ -34,8 +34,10 @@ import {
   type CodexDevelopmentInitiallyAbsentTupleEntryV1,
   type CodexDevelopmentInitiallyAbsentTuplePlatformV1,
   type CodexDevelopmentInitiallyAbsentTupleStateV1,
+  type CodexDevelopmentMainHealthRepairProjectionV1,
   type CodexDevelopmentWorkSelectionProjectionV1
 } from './document-control-plane-contract.ts';
+import { observeMainHealthRepairDecisionV1 } from './main-health-repair.ts';
 import {
   CodexDevelopmentParseWorkPackageManifest,
   CodexDevelopmentWorkPackageManifestDigest
@@ -286,10 +288,16 @@ interface FreezeJournalV4 {
 interface ControlIndexSnapshotV1 {
   readonly treeSha: string;
   readonly index: AnchoredIndexSnapshotV1;
+  readonly stateBytes: Buffer;
+  readonly pointerBytes: Buffer;
+  readonly rollingPlanBytes: Buffer;
   readonly stateSource: string;
   readonly pointerSource: string;
   readonly rollingPlanSource: string;
   readonly candidateManifestBlob: Buffer;
+  readonly targetManifestBlob: Buffer | undefined;
+  readonly stagedPaths: readonly string[];
+  readonly worktreeStatus: string;
 }
 
 function systemErrorCode(error: unknown): string | undefined {
@@ -2481,7 +2489,18 @@ function requireCommand(result: CommandResult, label: string): string {
   return result.stdout.trim();
 }
 
-function readGitBlob(cwd: string, spec: string): Buffer | undefined {
+function requireCommandOutput(result: CommandResult, label: string): string {
+  if (result.code !== 0) {
+    throw new Error(`${label} failed: ${result.stderr.trim() || `exit ${result.code}`}`);
+  }
+  return result.stdout;
+}
+
+function readGitBlob(
+  cwd: string,
+  spec: string,
+  environment: Readonly<Record<string, string>> = {}
+): Buffer | undefined {
   const result = spawnSync('git', ['show', spec], {
     cwd,
     encoding: 'buffer',
@@ -2490,6 +2509,7 @@ function readGitBlob(cwd: string, spec: string): Buffer | undefined {
     maxBuffer: ExternalCommandMaxBufferBytes,
     env: {
       ...process.env,
+      ...environment,
       GIT_TERMINAL_PROMPT: '0',
       GIT_OPTIONAL_LOCKS: '0'
     }
@@ -2499,7 +2519,7 @@ function readGitBlob(cwd: string, spec: string): Buffer | undefined {
 
 interface ReadOnlyResolverGitV1 {
   run(args: readonly string[], cwd: string, options?: CommandOptions): CommandResult;
-  readBlob(cwd: string, spec: string): Buffer | undefined;
+  readBlob(cwd: string, spec: string, options?: CommandOptions): Buffer | undefined;
 }
 
 type ReadOnlyResolverGitObserverV1 = (event: Readonly<{
@@ -2528,7 +2548,7 @@ function createReadOnlyResolverGit(
         environment: childEnvironment(args, options.environment)
       });
     },
-    readBlob(cwd: string, spec: string) {
+    readBlob(cwd: string, spec: string, options: CommandOptions = {}) {
       const args = ['show', spec] as const;
       const result = spawnSync('git', args, {
         cwd,
@@ -2538,7 +2558,7 @@ function createReadOnlyResolverGit(
         maxBuffer: ExternalCommandMaxBufferBytes,
         env: {
           ...process.env,
-          ...childEnvironment(args, undefined),
+          ...childEnvironment(args, options.environment),
           GIT_TERMINAL_PROMPT: '0'
         }
       });
@@ -2607,10 +2627,17 @@ async function readAnchoredIndexSnapshot(input: Readonly<{
   throw new Error(`Repository index nonmutating observation is unsupported on ${process.platform}.`);
 }
 
-async function captureRepositoryIndexTreeThroughExternalScratch(input: Readonly<{
-  repositoryRoot: string;
-  resolverGit?: ReadOnlyResolverGitV1;
-}>): Promise<Readonly<{ treeSha: string; index: AnchoredIndexSnapshotV1 }>> {
+interface ExternalScratchIndexV1 {
+  readonly treeSha: string;
+  readonly index: AnchoredIndexSnapshotV1;
+  run(args: readonly string[], options?: CommandOptions): CommandResult;
+  readBlob(spec: string): Buffer | undefined;
+}
+
+async function withRepositoryIndexTreeThroughExternalScratch<T>(
+  input: Readonly<{ repositoryRoot: string; resolverGit?: ReadOnlyResolverGitV1 }>,
+  observe: (snapshot: ExternalScratchIndexV1) => Promise<T> | T
+): Promise<T> {
   const indexPaths = await resolveIndexPaths(input.repositoryRoot);
   const scratchRoot = await mkdtemp(path.join(tmpdir(), 'sec-document-control-index-'));
   try {
@@ -2626,44 +2653,66 @@ async function captureRepositoryIndexTreeThroughExternalScratch(input: Readonly<
       filePath: indexPaths.indexPath,
       label: 'Repository index nonmutating source'
     });
-    const scratchIndex = path.join(canonicalScratchRoot, 'index');
-    const scratchObjects = path.join(canonicalScratchRoot, 'objects');
-    await mkdir(scratchObjects);
-    const repositoryObjectsCandidate = requireCommand(
-      run('git', ['rev-parse', '--git-path', 'objects'], input.repositoryRoot),
-      'Repository object directory path'
-    );
-    const repositoryObjects = await realpath(path.isAbsolute(repositoryObjectsCandidate)
-      ? repositoryObjectsCandidate
-      : path.resolve(input.repositoryRoot, repositoryObjectsCandidate));
-    await createSafeRegularFileExclusive({
-      boundaryRoot: canonicalScratchRoot,
-      filePath: scratchIndex,
-      bytes: before.bytes,
-      label: 'External scratch Git index',
-      durability: {}
-    });
-    const environment = {
-      GIT_INDEX_FILE: scratchIndex,
-      GIT_OBJECT_DIRECTORY: scratchObjects,
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: repositoryObjects,
-      GIT_OPTIONAL_LOCKS: '0'
-    };
-    const treeSha = shaValue(requireCommand(
-      input.resolverGit === undefined
-        ? run('git', ['write-tree'], input.repositoryRoot, { environment })
-        : input.resolverGit.run(['write-tree'], input.repositoryRoot, { environment }),
-      'Repository index tree through external scratch'
-    ), 'Repository index tree through external scratch');
-    const after = await readAnchoredIndexSnapshot({
-      boundaryRoot: indexPaths.gitDirectory,
-      filePath: indexPaths.indexPath,
-      label: 'Repository index nonmutating readback'
-    });
-    if (!after.bytes.equals(before.bytes) || after.identity !== before.identity) {
-      throw new Error('External scratch Git index tree observation mutated the repository index.');
+    try {
+      const scratchIndex = path.join(canonicalScratchRoot, 'index');
+      const scratchObjects = path.join(canonicalScratchRoot, 'objects');
+      await mkdir(scratchObjects);
+      const repositoryObjectsCandidate = requireCommand(
+        run('git', ['rev-parse', '--git-path', 'objects'], input.repositoryRoot),
+        'Repository object directory path'
+      );
+      const repositoryObjects = await realpath(path.isAbsolute(repositoryObjectsCandidate)
+        ? repositoryObjectsCandidate
+        : path.resolve(input.repositoryRoot, repositoryObjectsCandidate));
+      await createSafeRegularFileExclusive({
+        boundaryRoot: canonicalScratchRoot,
+        filePath: scratchIndex,
+        bytes: before.bytes,
+        label: 'External scratch Git index',
+        durability: {}
+      });
+      const environment = {
+        GIT_INDEX_FILE: scratchIndex,
+        GIT_OBJECT_DIRECTORY: scratchObjects,
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: repositoryObjects,
+        GIT_OPTIONAL_LOCKS: '0'
+      };
+      const treeSha = shaValue(requireCommand(
+        input.resolverGit === undefined
+          ? run('git', ['write-tree'], input.repositoryRoot, { environment })
+          : input.resolverGit.run(['write-tree'], input.repositoryRoot, { environment }),
+        'Repository index tree through external scratch'
+      ), 'Repository index tree through external scratch');
+      const scratchEnvironment = (options: CommandOptions = {}): CommandOptions => Object.freeze({
+        ...options,
+        environment: Object.freeze({ ...options.environment, ...environment })
+      });
+      return await observe(Object.freeze({
+        treeSha,
+        index: before,
+        run(args: readonly string[], options: CommandOptions = {}) {
+          const scratchOptions = scratchEnvironment(options);
+          return input.resolverGit === undefined
+            ? run('git', [...args], input.repositoryRoot, scratchOptions)
+            : input.resolverGit.run(args, input.repositoryRoot, scratchOptions);
+        },
+        readBlob(spec: string) {
+          const options = scratchEnvironment();
+          return input.resolverGit === undefined
+            ? readGitBlob(input.repositoryRoot, spec, options.environment)
+            : input.resolverGit.readBlob(input.repositoryRoot, spec, options);
+        }
+      }));
+    } finally {
+      const after = await readAnchoredIndexSnapshot({
+        boundaryRoot: indexPaths.gitDirectory,
+        filePath: indexPaths.indexPath,
+        label: 'Repository index nonmutating readback'
+      });
+      if (!after.bytes.equals(before.bytes) || after.identity !== before.identity) {
+        throw new Error('External scratch Git index tree observation mutated the repository index.');
+      }
     }
-    return Object.freeze({ treeSha, index: after });
   } finally {
     await rm(scratchRoot, { recursive: true, force: true });
     const removed = await lstat(scratchRoot).then(
@@ -2674,52 +2723,93 @@ async function captureRepositoryIndexTreeThroughExternalScratch(input: Readonly<
   }
 }
 
+async function captureRepositoryIndexTreeThroughExternalScratch(input: Readonly<{
+  repositoryRoot: string;
+  resolverGit?: ReadOnlyResolverGitV1;
+}>): Promise<Readonly<{ treeSha: string; index: AnchoredIndexSnapshotV1 }>> {
+  return withRepositoryIndexTreeThroughExternalScratch(input, ({ treeSha, index }) => (
+    Object.freeze({ treeSha, index })
+  ));
+}
+
 async function captureControlIndexSnapshot(
   repositoryRoot: string,
-  resolverGit?: ReadOnlyResolverGitV1
+  options: Readonly<{
+    resolverGit?: ReadOnlyResolverGitV1;
+    targetManifestPath?: string;
+    stagedBaseSha?: string;
+    requiredStageZeroPaths?: readonly string[];
+  }> = {}
 ): Promise<ControlIndexSnapshotV1> {
-  const observation = await captureRepositoryIndexTreeThroughExternalScratch({ repositoryRoot, resolverGit });
-  const treeSha = observation.treeSha;
-  const requireSnapshotBlob = (spec: string, label: string): Buffer => {
-    const blob = resolverGit === undefined ? readGitBlob(repositoryRoot, spec) : resolverGit.readBlob(repositoryRoot, spec);
-    if (blob === undefined) throw new Error(`${label} is absent from the immutable Git tree.`);
-    return blob;
-  };
-  const stateSource = decodeUtf8(
-    requireSnapshotBlob(`:${CurrentStatePath}`, 'Current-state spec'),
-    'Current-state spec'
+  return withRepositoryIndexTreeThroughExternalScratch(
+    {
+      repositoryRoot,
+      ...(options.resolverGit === undefined ? {} : { resolverGit: options.resolverGit })
+    },
+    ({ treeSha, index, run: runScratch, readBlob }) => {
+      const requireSnapshotBlob = (repositoryPath: string, label: string): Buffer => {
+        const blob = readBlob(`:${repositoryPath}`);
+        if (blob === undefined) throw new Error(`${label} is absent from the immutable Git index snapshot.`);
+        return blob;
+      };
+      const stateBytes = requireSnapshotBlob(CurrentStatePath, 'Current-state spec');
+      const pointerBytes = requireSnapshotBlob(ActivePointerPath, 'Active pointer');
+      const rollingPlanBytes = requireSnapshotBlob(RollingPlanPath, 'Rolling plan');
+      const stateSource = decodeUtf8(stateBytes, 'Current-state spec');
+      const pointerSource = decodeUtf8(pointerBytes, 'Active pointer');
+      const rollingPlanSource = decodeUtf8(rollingPlanBytes, 'Rolling plan');
+      const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
+      const candidateManifestBlob = requireSnapshotBlob(
+        pointer.manifest,
+        'Candidate Work Package manifest'
+      );
+      const targetManifestBlob = options.targetManifestPath === undefined
+        ? undefined
+        : readBlob(`:${options.targetManifestPath}`);
+      let stagedPaths: readonly string[] = Object.freeze([]);
+      if (options.stagedBaseSha !== undefined) {
+        const unmerged = parseNulList(requireCommandOutput(
+          runScratch(['ls-files', '--unmerged', '-z']),
+          'Unmerged external index snapshot inventory'
+        ));
+        if (unmerged.length > 0) throw new Error('Document control freeze rejects an unmerged Git index.');
+        stagedPaths = Object.freeze(parseNulList(requireCommandOutput(
+          runScratch(['diff', '--cached', '--name-only', '-z', options.stagedBaseSha, '--']),
+          'Staged external index snapshot inventory'
+        )));
+      }
+      if (options.requiredStageZeroPaths !== undefined) {
+        const source = requireCommandOutput(runScratch(
+          ['ls-files', '--stage', '-z', '--', ...options.requiredStageZeroPaths]
+        ), 'Document control external index target inventory');
+        for (const entry of parseNulList(source)) {
+          const match = /^(\d{6}) ([0-9a-f]{40}) ([0-3])\t(.+)$/u.exec(entry);
+          if (!match) throw new Error('Document control target index entry is malformed.');
+          if (match[1] !== '100644' || match[3] !== '0') {
+            throw new Error(`Document control target must be a stage-zero regular blob: ${match[4]}.`);
+          }
+        }
+      }
+      const worktreeStatus = requireCommand(
+        runScratch(['status', '--short', '--branch']),
+        'Worktree status through external index snapshot'
+      );
+      return Object.freeze({
+        treeSha: shaValue(treeSha, 'Git index tree snapshot'),
+        index,
+        stateBytes,
+        pointerBytes,
+        rollingPlanBytes,
+        stateSource,
+        pointerSource,
+        rollingPlanSource,
+        candidateManifestBlob,
+        targetManifestBlob,
+        stagedPaths,
+        worktreeStatus
+      });
+    }
   );
-  const pointerSource = decodeUtf8(
-    requireSnapshotBlob(`:${ActivePointerPath}`, 'Active pointer'),
-    'Active pointer'
-  );
-  const rollingPlanSource = decodeUtf8(
-    requireSnapshotBlob(`:${RollingPlanPath}`, 'Rolling plan'),
-    'Rolling plan'
-  );
-  const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
-  const candidateManifestBlob = requireSnapshotBlob(
-    `:${pointer.manifest}`,
-    'Candidate Work Package manifest'
-  );
-  const indexPaths = await resolveIndexPaths(repositoryRoot);
-  const readback = await readAnchoredIndexSnapshot({
-    boundaryRoot: indexPaths.gitDirectory,
-    filePath: indexPaths.indexPath,
-    label: 'Control index snapshot readback'
-  });
-  if (readback.identity !== observation.index.identity
-      || !readback.bytes.equals(observation.index.bytes)) {
-    throw new Error('Control index changed while its exact blobs were observed.');
-  }
-  return Object.freeze({
-    treeSha: shaValue(treeSha, 'Git index tree snapshot'),
-    index: observation.index,
-    stateSource,
-    pointerSource,
-    rollingPlanSource,
-    candidateManifestBlob
-  });
 }
 
 async function assertRegularRepositoryFile(repositoryRoot: string, repositoryPath: string): Promise<string> {
@@ -5065,20 +5155,10 @@ function assertReviewedOn(reviewedOn: string): void {
 }
 
 function assertNoUnrelatedStagedChanges(
-  repositoryRoot: string,
-  targets: ReadonlySet<string>,
-  capturedHeadSha: string
+  stagedPaths: readonly string[],
+  targets: ReadonlySet<string>
 ): void {
-  const unmerged = parseNulList(requireCommand(
-    run('git', ['diff', '--name-only', '--diff-filter=U', '-z'], repositoryRoot),
-    'Unmerged index inventory'
-  ));
-  if (unmerged.length > 0) throw new Error('Document control freeze rejects an unmerged Git index.');
-  const staged = parseNulList(requireCommand(
-    run('git', ['diff', '--cached', '--name-only', '-z', capturedHeadSha, '--'], repositoryRoot),
-    'Staged path inventory'
-  ));
-  const unrelated = staged.filter((candidate) => !targets.has(candidate));
+  const unrelated = stagedPaths.filter((candidate) => !targets.has(candidate));
   if (unrelated.length > 0) {
     throw new Error(`Document control freeze rejects unrelated staged paths: ${unrelated.join(', ')}.`);
   }
@@ -5214,20 +5294,6 @@ async function assertInitialFreezeObservationFence(input: {
     || !worktreeStable
   ) {
     throw new Error('Document control freeze inputs changed before initial journal publication.');
-  }
-}
-
-function assertTargetIndexModes(repositoryRoot: string, targets: readonly string[]): void {
-  const source = requireCommand(
-    run('git', ['ls-files', '--stage', '-z', '--', ...targets], repositoryRoot),
-    'Document control target index inventory'
-  );
-  for (const entry of parseNulList(source)) {
-    const match = /^(\d{6}) ([0-9a-f]{40}) ([0-3])\t(.+)$/u.exec(entry);
-    if (!match) throw new Error('Document control target index entry is malformed.');
-    if (match[1] !== '100644' || match[3] !== '0') {
-      throw new Error(`Document control target must be a stage-zero regular blob: ${match[4]}.`);
-    }
   }
 }
 
@@ -5816,14 +5882,6 @@ export async function freezeDocumentControlPlaneV1(input: {
       `${headSha}:${CurrentStatePath}`,
       'Immutable candidate current-state authority'
     );
-    const indexedStateBytes = requireGitBlob(
-      repositoryRoot,
-      `:${CurrentStatePath}`,
-      'Indexed current-state authority'
-    );
-    if (!indexedStateBytes.equals(headStateBytes)) {
-      throw new Error('Document control freeze rejects staged current-state authority bytes.');
-    }
     const spec = CodexDevelopmentParseCurrentStateSpecV1(
       decodeUtf8(headStateBytes, 'Immutable candidate current-state authority')
     );
@@ -5858,9 +5916,15 @@ export async function freezeDocumentControlPlaneV1(input: {
     // This complete local authority preflight uses an external object directory;
     // no repository object, index, journal, or control publication is permitted
     // before both it and the sole live-default admission have succeeded.
-    const snapshot = await captureControlIndexSnapshot(repositoryRoot);
-    if (!Buffer.from(snapshot.stateSource, 'utf8').equals(indexedStateBytes)) {
-      throw new Error('Indexed current-state authority drifted during local freeze preflight.');
+    const targets = [input.manifestPath, ActivePointerPath, RollingPlanPath] as const;
+    const targetSet = new Set<string>(targets);
+    const snapshot = await captureControlIndexSnapshot(repositoryRoot, {
+      targetManifestPath: input.manifestPath,
+      stagedBaseSha: headSha,
+      requiredStageZeroPaths: targets
+    });
+    if (!snapshot.stateBytes.equals(headStateBytes)) {
+      throw new Error('Document control freeze rejects staged current-state authority bytes.');
     }
     const pointer = CodexDevelopmentParseActivePointerV2(snapshot.pointerSource);
     CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer });
@@ -5901,14 +5965,11 @@ export async function freezeDocumentControlPlaneV1(input: {
       throw new Error('Current active Work Package control plane is not resolvable before freeze.');
     }
 
-    const targets = [input.manifestPath, ActivePointerPath, RollingPlanPath] as const;
-    const targetSet = new Set<string>(targets);
-    assertNoUnrelatedStagedChanges(repositoryRoot, targetSet, headSha);
-    assertTargetIndexModes(repositoryRoot, targets);
+    assertNoUnrelatedStagedChanges(snapshot.stagedPaths, targetSet);
     const pointerFile = await assertRegularRepositoryFile(repositoryRoot, ActivePointerPath);
     const rollingPlanFile = await assertRegularRepositoryFile(repositoryRoot, RollingPlanPath);
-    const pointerPre = Buffer.from(snapshot.pointerSource, 'utf8');
-    const rollingPlanPre = Buffer.from(snapshot.rollingPlanSource, 'utf8');
+    const pointerPre = Buffer.from(snapshot.pointerBytes);
+    const rollingPlanPre = Buffer.from(snapshot.rollingPlanBytes);
     const [pointerWorktree, rollingPlanWorktree] = await Promise.all([
       readSafeRegularFile({
         boundaryRoot: repositoryRoot,
@@ -5924,7 +5985,7 @@ export async function freezeDocumentControlPlaneV1(input: {
     if (!pointerWorktree.equals(pointerPre)) {
       throw new Error('Active pointer worktree bytes differ from the immutable index PRE image.');
     }
-    const indexedTargetManifest = readGitBlob(repositoryRoot, `:${input.manifestPath}`);
+    const indexedTargetManifest = snapshot.targetManifestBlob;
     const defaultTargetManifest = readGitBlob(repositoryRoot, `${localDefaultSha}:${input.manifestPath}`);
     if (defaultTargetManifest !== undefined) {
       throw new Error('Work Package manifest path is already published on the live default ref.');
@@ -5964,6 +6025,7 @@ export async function freezeDocumentControlPlaneV1(input: {
       input.manifestPath
     );
     let workSelectionProjection: CodexDevelopmentWorkSelectionProjectionV1 | undefined;
+    let mainHealthRepairProjection: CodexDevelopmentMainHealthRepairProjectionV1 | undefined;
     if (targetManifest.id !== immutableRolling.activePackageId
         && workSelectionProjectionMode === 'required-v1') {
       const candidateBranch = requireCommand(
@@ -5973,28 +6035,51 @@ export async function freezeDocumentControlPlaneV1(input: {
       if (!candidateBranch.startsWith('codex/')) {
         throw new Error('A new WorkDecision-selected package requires one codex candidate branch.');
       }
-      const selection = observeSecWorkSelectionLiveV1({
-        cwd: repositoryRoot,
-        exactMain: localDefaultSha,
-        exactMainTree: baseTreeSha
+      const repairDecision = observeMainHealthRepairDecisionV1({
+        repositoryRoot,
+        repository: spec.resolver.repository,
+        defaultBranch: spec.resolver.defaultBranch,
+        exactMainSha: localDefaultSha,
+        exactMainTreeSha: baseTreeSha
       });
-      if (selection.status !== 'resolved') {
+      if (repairDecision.routingState === 'repair-only') {
+        if (currentResolution.state !== 'none'
+            || repairDecision.status !== 'repair-ready'
+            || repairDecision.binding === null
+            || repairDecision.binding.manifestPath !== input.manifestPath) {
+          throw new Error(
+            `MainHealth repair projection is unavailable, stale, or conflicts with an active package (${repairDecision.reasonCode}).`
+          );
+        }
+        mainHealthRepairProjection = Object.freeze({ decision: repairDecision });
+      } else if (repairDecision.routingState === 'locked') {
         throw new Error(
-          `WorkDecision observation is unresolved (${selection.reasonCodes.join(',')}): `
-          + selection.blockerRefs.join(',')
+          `MainHealth locks ordinary selection and repair (${repairDecision.reasonCode}).`
         );
+      } else {
+        const selection = observeSecWorkSelectionLiveV1({
+          cwd: repositoryRoot,
+          exactMain: localDefaultSha,
+          exactMainTree: baseTreeSha
+        });
+        if (selection.status !== 'resolved') {
+          throw new Error(
+            `WorkDecision observation is unresolved (${selection.reasonCodes.join(',')}): `
+            + selection.blockerRefs.join(',')
+          );
+        }
+        const decision = selection.receipt.decision;
+        const selectedCatalogItem = selection.receipt.catalog.items.find(
+          ({ workId }) => workId === decision.selectedWorkId
+        );
+        if (decision.status !== 'select-next'
+            || selectedCatalogItem === undefined
+            || selectedCatalogItem.packageId !== targetManifest.id
+            || selectedCatalogItem.tracking !== targetManifest.tracking) {
+          throw new Error('Target manifest is not the exact package selected by the live WorkDecision.');
+        }
+        workSelectionProjection = Object.freeze({ receipt: selection.receipt });
       }
-      const decision = selection.receipt.decision;
-      const selectedCatalogItem = selection.receipt.catalog.items.find(
-        ({ workId }) => workId === decision.selectedWorkId
-      );
-      if (decision.status !== 'select-next'
-          || selectedCatalogItem === undefined
-          || selectedCatalogItem.packageId !== targetManifest.id
-          || selectedCatalogItem.tracking !== targetManifest.tracking) {
-        throw new Error('Target manifest is not the exact package selected by the live WorkDecision.');
-      }
-      workSelectionProjection = Object.freeze({ receipt: selection.receipt });
     }
     const projection = CodexDevelopmentCreateFreezeProjectionV1({
       spec,
@@ -6003,9 +6088,11 @@ export async function freezeDocumentControlPlaneV1(input: {
       currentManifestBytes: immutableCurrentManifestBytes,
       requestedRollingPlanSource,
       workSelectionProjection,
+      mainHealthRepairProjection,
       manifestPath: input.manifestPath,
       manifestBytes,
       baseSha: localDefaultSha,
+      baseTreeSha,
       reviewedOn: input.reviewedOn
     });
     const pointerNext = Buffer.from(projection.pointerSource, 'utf8');
@@ -6080,7 +6167,10 @@ export async function freezeDocumentControlPlaneV1(input: {
         files: Object.freeze({
           manifest: Object.freeze({ pre: toBase64(manifestBytes), next: toBase64(manifestBytes) }),
           pointer: Object.freeze({ pre: toBase64(pointerPre), next: toBase64(pointerNext) }),
-          rollingPlan: Object.freeze({ pre: toBase64(rollingPlanPre), next: toBase64(rollingPlanNext) })
+          rollingPlan: Object.freeze({
+            pre: toBase64(rollingPlanWorktree),
+            next: toBase64(rollingPlanNext)
+          })
         }),
         index: indexTransport,
         indexTransportDigest: freezeIndexTransportDigestV4(indexTransport)
@@ -6112,7 +6202,8 @@ export async function freezeDocumentControlPlaneV1(input: {
     const projectionAlreadyCurrent = indexedTargetManifest !== undefined
       && indexedTargetManifest.equals(manifestBytes)
       && pointerPre.equals(pointerNext)
-      && rollingPlanPre.equals(rollingPlanNext);
+      && rollingPlanPre.equals(rollingPlanNext)
+      && rollingPlanWorktree.equals(rollingPlanNext);
     if (projectionAlreadyCurrent) {
       const noop = createFreezeOperation(snapshot.treeSha, indexPre);
       await input.beforeInitialJournalFence?.();
@@ -6358,7 +6449,7 @@ export async function resolveLiveControlPlane(
   }
   let snapshot: ControlIndexSnapshotV1;
   try {
-    snapshot = await captureControlIndexSnapshot(repositoryRoot, resolverGit);
+    snapshot = await captureControlIndexSnapshot(repositoryRoot, { resolverGit });
   } catch (error) {
     const racedJournalSnapshot = await readFreezeJournalSnapshot(
       repositoryRoot,
@@ -6438,10 +6529,7 @@ export async function resolveLiveControlPlane(
         'Candidate merge-base'
       )
     : undefined;
-  const worktreeStatus = requireCommand(
-    resolverGit.run(['status', '--short', '--branch'], repositoryRoot),
-    'worktree status'
-  );
+  const worktreeStatus = snapshot.worktreeStatus;
   const observeGitHub = options.observeGitHub !== false;
   const pullRequestsResult = observeGitHub ? run('gh', [
     'pr',

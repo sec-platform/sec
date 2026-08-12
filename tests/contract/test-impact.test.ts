@@ -413,6 +413,17 @@ test('exact blob reader and both Evidence producers share one direct execution o
   }
 });
 
+test('canonical VerificationAction fixture selects only its direct consumer and selector contract', () => {
+  expect(selectTestsForSources(['tests/helpers/verification-action-fixtures.ts'])).toEqual({
+    fast: [
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/verification-action-github-provider.test.ts'
+    ],
+    slow: [],
+    owners: ['auto-reference', 'verification-action-test-fixture']
+  });
+});
+
 test('branch closeout and VerificationSession authority select one exact fast closure', () => {
   const sources = [
     'scripts/codex/branch-closeout-contract.ts',
@@ -545,9 +556,9 @@ test('Work Package authorityRefs parser routes every direct activation and owner
   const source = 'scripts/codex/work-package-contract.ts';
   expect(selectTestsForSources([source])).toEqual({
     fast: [
+      'tests/contract/docs-doctor.test.ts',
       'tests/contract/document-control-plane-lifecycle.test.ts',
       'tests/contract/documentation-authority.test.ts',
-      'tests/contract/docs-doctor.test.ts',
       'tests/contract/operation-read-plan.test.ts',
       'tests/contract/test-impact.test.ts',
       'tests/unit/agent-operation-activation.test.ts',
@@ -565,6 +576,7 @@ test('Work Package authorityRefs parser routes every direct activation and owner
 
 test('test impact keeps WorkDecision Phase A B C in one direct fast owner', () => {
   const fast = [
+    'tests/contract/docs-doctor.test.ts',
     'tests/contract/document-control-plane-lifecycle.test.ts',
     'tests/contract/test-impact.test.ts',
     'tests/unit/agent-operation-activation.test.ts',
@@ -593,16 +605,24 @@ test('test impact keeps WorkDecision Phase A B C in one direct fast owner', () =
 
 test('MainHealth owner selects its Work Selection cross-owner consumer', () => {
   const fast = [
+    'tests/contract/ci-contract.test.ts',
     'tests/contract/default-branch-revision-health.test.ts',
+    'tests/contract/document-control-plane-lifecycle.test.ts',
     'tests/contract/sec-merge-gate.test.ts',
+    'tests/contract/tcb-closure-lock.test.ts',
     'tests/contract/test-impact.test.ts',
     'tests/unit/main-health-contract.test.ts',
+    'tests/unit/main-health-repair-contract.test.ts',
+    'tests/unit/tcb-trust-root-contract.test.ts',
     'tests/unit/verification-session-runtime.test.ts',
     'tests/unit/work-selection-live.test.ts'
   ];
   for (const source of [
     'platform/shared/default-branch-revision-health.ts',
-    'platform/shared/main-health-contract.ts'
+    'platform/shared/main-health-contract.ts',
+    'platform/shared/main-health-repair-contract.ts',
+    'scripts/codex/main-health-observation.ts',
+    'scripts/codex/main-health-repair.ts'
   ]) {
     expect(selectTestsForSources([source])).toEqual({
       fast,

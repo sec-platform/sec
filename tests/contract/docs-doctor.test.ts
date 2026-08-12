@@ -16,6 +16,10 @@ import {
   renderDocumentationIndex,
   type DocumentationAuthorityRegistry
 } from '../../platform/shared/documentation-authority-contract.ts';
+import {
+  SEC_ROADMAP_WORK_CATALOG_BEGIN,
+  SEC_ROADMAP_WORK_CATALOG_END
+} from '../../platform/shared/work-selection-live-contract.ts';
 import { CodexDevelopmentParseActivePointerV2 } from '../../scripts/codex/document-control-plane-contract.ts';
 import { CodexDevelopmentWorkPackageManifestDigest } from '../../scripts/codex/work-package-contract.ts';
 
@@ -27,7 +31,14 @@ interface DocumentationFixture {
   docsRoot: string;
   repositoryRoot: string;
   registry: DocumentationAuthorityRegistry;
-  scan: () => Promise<DocsDoctorResult>;
+  scan: (overrides?: Readonly<{
+    readControlPlaneBlob?: (repositoryPath: string) => Promise<Uint8Array>;
+    listControlPlanePackagePaths?: () => Promise<readonly string[]>;
+    readDefaultBranchBlob?: (
+      defaultBranchRef: string,
+      repositoryPath: string
+    ) => Promise<Uint8Array | null>;
+  }>) => Promise<DocsDoctorResult>;
   write: (repositoryPath: string, content: string | Uint8Array) => Promise<void>;
 }
 
@@ -198,6 +209,67 @@ last-reviewed: 2026-07-28
 `;
 }
 
+function catalogSource(): string {
+  const item = (packageId: string, issue: number) => ({
+    packageId,
+    workId: `issue-${issue}`,
+    tracking: `issue-${issue}`,
+    currentSpecRef: `github:issue/${issue}`,
+    ownerRef: `github:issue/${issue}`,
+    kind: 'focused',
+    disposition: 'active',
+    priorityClass: 'active-critical-path',
+    priorityEvidenceRefs: [`fixture:priority/${issue}`],
+    prerequisiteWorkIds: [],
+    orderedAfterWorkIds: [],
+    reproductionOrEvidenceFreshness: 'fresh',
+    rootCauseState: 'not-repeated',
+    rootCauseRef: `github:issue/${issue}`,
+    scopeClosure: 'closed',
+    exitCriteriaRef: `github:issue/${issue}#acceptance`,
+    nearTermConsumerRef: null,
+    humanDecisionRef: null
+  });
+  return `${SEC_ROADMAP_WORK_CATALOG_BEGIN}
+\`\`\`json
+${JSON.stringify({
+    schema: 'sec-roadmap-work-catalog-v1',
+    stageRef: 'fixture-stage',
+    items: [
+      item('fixture-predecessor-v1', 1),
+      item('fixture-second-predecessor-v1', 2),
+      item('fixture-future-v1', 3)
+    ]
+  }, null, 2)}
+\`\`\`
+${SEC_ROADMAP_WORK_CATALOG_END}
+`;
+}
+
+function packageManifest(packageId: string, tracking: string): Buffer {
+  return Buffer.from(`---
+schema: codex-development-work-package-v1
+id: ${packageId}
+tracking: ${tracking}
+base: "${'2'.repeat(40)}"
+manifestState: frozen
+requiredProfile: quick
+ciRevision: ci-verification-v19
+tasks:
+  - id: fixture-task
+    owner: a0
+    ownedPaths:
+      - docs/work-packages/${packageId}.md
+forbiddenPaths:
+  - platform/compiler/
+acceptance:
+  - "Published predecessor fixture remains exact."
+tests:
+  - "bun run docs:doctor"
+---
+`, 'utf8');
+}
+
 async function createFixture(): Promise<DocumentationFixture> {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-docs-doctor-v7-'));
   const docsRoot = path.join(repositoryRoot, 'docs');
@@ -205,7 +277,7 @@ async function createFixture(): Promise<DocumentationFixture> {
   const manifestBytes = Buffer.from(`---
 schema: codex-development-work-package-v1
 id: ${ACTIVE_PACKAGE_ID}
-tracking: issue-173
+tracking: none
 base: "${'1'.repeat(40)}"
 manifestState: frozen
 requiredProfile: full
@@ -277,11 +349,12 @@ matchingDefaultBlob: none
     docsRoot,
     repositoryRoot,
     registry,
-    scan: () => scanDocumentation({
+    scan: (overrides = {}) => scanDocumentation({
       docsRoot,
       repositoryRoot,
       readCandidateManifestBlob: async (manifestPath) =>
-        readFile(path.join(repositoryRoot, ...manifestPath.split('/')))
+        readFile(path.join(repositoryRoot, ...manifestPath.split('/'))),
+      ...overrides
     }),
     write
   };
@@ -291,6 +364,43 @@ test('registry-backed documentation fixture passes', async () => {
   const fixture = await createFixture();
   try {
     expect(await fixture.scan()).toMatchObject({ errors: [], warnings: [] });
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test('an untracked recovery package retains exactly one byte-exact catalog predecessor', async () => {
+  const fixture = await createFixture();
+  const predecessorPath = 'docs/work-packages/fixture-predecessor-v1.md';
+  const secondPath = 'docs/work-packages/fixture-second-predecessor-v1.md';
+  const predecessorBytes = packageManifest('fixture-predecessor-v1', 'issue-1');
+  const secondBytes = packageManifest('fixture-second-predecessor-v1', 'issue-2');
+  try {
+    await fixture.write(predecessorPath, predecessorBytes);
+    const readControlPlaneBlob = async (repositoryPath: string): Promise<Uint8Array> => (
+      repositoryPath === 'docs/roadmap.md'
+        ? Buffer.from(catalogSource(), 'utf8')
+        : readFile(path.join(fixture.repositoryRoot, ...repositoryPath.split('/')))
+    );
+    const exactDefault = new Map([[predecessorPath, predecessorBytes]]);
+    const readDefaultBranchBlob = async (
+      defaultBranchRef: string,
+      repositoryPath: string
+    ): Promise<Uint8Array | null> => {
+      expect(defaultBranchRef).toBe('refs/remotes/origin/main');
+      return exactDefault.get(repositoryPath) ?? null;
+    };
+    expect(await fixture.scan({ readControlPlaneBlob, readDefaultBranchBlob }))
+      .toMatchObject({ errors: [] });
+
+    await fixture.write(secondPath, secondBytes);
+    exactDefault.set(secondPath, secondBytes);
+    expect((await fixture.scan({ readControlPlaneBlob, readDefaultBranchBlob })).errors.map(
+      ({ code }) => code
+    )).toEqual(expect.arrayContaining([
+      'ambiguous-published-work-package-predecessor',
+      'stale-work-package'
+    ]));
   } finally {
     await fixture.dispose();
   }
