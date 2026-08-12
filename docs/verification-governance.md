@@ -351,11 +351,11 @@ repair route，不保留caller JSON、手工pointer staging或第二repair packa
 
 删除一个旧输入时，candidate tree中的consumer-zero不能让`base..candidate`删除路径失去test-impact归属。
 允许在唯一test-impact registry中保留一个只覆盖该迁移代的exact deletion-impact transition：只有trusted
-base/head、Git `removed` record、base ordinary-blob mode/OID与head absence全部匹配才选择focused tests；路径
-字符串本身没有ownership。它不保存或恢复旧bytes，不签发Evidence/Scope/authority，也不是兼容alias；同路径
+base/head、Git `removed` record、base ordinary-blob mode/OID与head absence全部匹配才选择focused tests；
+路径字符串本身没有ownership。它不保存或恢复旧bytes，不签发Evidence/Scope/authority，也不是兼容alias；同路径
 re-add、modify、wrong base/blob/mode或缺失exact observation全部保持unresolved。删除进入exact default后，未来
-candidate的base与record已不可能匹配，该transition行为自动失效并可随普通registry变更退休；未知
-`docs/evidence/**`路径仍保持unresolved并fail closed。
+candidate的base与record已不可能匹配，该transition行为自动失效并可随普通registry变更退休；
+未知`docs/evidence/**`路径仍保持unresolved并fail closed。
 
 `TestImpactTransitionObservation`只由唯一exact Git diff/blob observer从外层已经冻结的base/head编译；
 caller path数组、可注入JSON、默认`HEAD`或另一次ref解析都不是transition Evidence。CI、risk、affected、
@@ -504,6 +504,20 @@ Failure record至少包含：code、phase、Gate、owner、invariant、exact inp
 输入与failure fingerprint未变化时复用失败并停止；重复运行同一确定性失败不是进展。Transient retry必须绑定可观察因果变化，例如锁owner退出、网络/外部服务恢复、cache按authority重建或runner incident结束。
 
 重复同类frozen invalidation要求proof reset，回到reproduction、owner、contract、fixture、Resolver、Delta comparator、Compatibility evaluator或test architecture；再次出现说明需要redesign，不能继续补丁循环。
+
+### 静态编译证明不是代码测试
+
+TypeScript `typecheck`拥有source与public contract在指定compiler/toolchain下可构造的静态证明；unit、
+integration、browser、provider与runtime test拥有行为证明。二者不可互相替代，Independent Review也不能
+代替compiler求值。用户要求“不运行代码测试”时，默认只移除会执行产品或fixture行为的test，不移除纯、
+零写的compiler proof；只有用户显式禁止静态编译器执行时才可省略，并且该generation只能标为
+`progress-only / compiler-proof-missing`，不能表述为healthy、verified或completed。
+
+普通TypeScript delta只在source、generated trust closure与imports最终稳定后运行一次post-delta typecheck，
+不在每个finding后重复。same-input compiler failure直接复用；修复后只执行被该delta失效的compiler proof，
+不因此升级到affected、full、release或nightly。自动MainHealth若发现此前省略的compiler defect，该failure是
+新的exact-main事实并进入content-addressed repair lane；长期A0任务按new-main epoch自动继续，不能把
+Independent Review PASS、manual merge成功或用户未再次输入“继续”解释成任务完成。
 
 ## Hermetic Runtime
 

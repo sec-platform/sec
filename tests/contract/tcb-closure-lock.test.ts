@@ -246,14 +246,13 @@ test('TCB generated region renderer, parser and planner are canonical and preser
   }
 });
 
-test('Action provider preflight binds the exact nine dispatchers and rejects near-name or ordinal expansion', () => {
+test('Action provider preflight binds the exact eight dispatchers and rejects near-name or ordinal expansion', () => {
   const actionDispatchers = [...TCB_REVIEWED_PROCESS_DISPATCHERS].filter((identity) =>
     identity.startsWith('scripts/ci-verification.ts::') ||
     identity.startsWith('scripts/codex/verification-action-github-provider.ts::')
   ).sort();
   expect(actionDispatchers).toEqual([
     'scripts/ci-verification.ts::function-declaration:CodexDevelopmentInspectHostedActionArchiveV2::spawnSync#1',
-    'scripts/ci-verification.ts::function-declaration:defaultGitFiles::spawnSync#1',
     'scripts/ci-verification.ts::function-declaration:defaultHostedSutSandboxProcessV1::spawn#1',
     'scripts/ci-verification.ts::function-declaration:gitCandidateBytesV2::spawnSync#1',
     'scripts/ci-verification.ts::function-declaration:hostedActionGhReadJsonV2::spawnSync#1',
@@ -559,6 +558,21 @@ test('live process dispatcher allowlist exactly matches the frozen lock', () => 
   expect([...TCB_REVIEWED_PROCESS_DISPATCHERS].sort()).toEqual(
     [...TCB_CLOSURE_LOCK.reviewedProcessDispatchers].sort()
   );
+});
+
+test.serial('TCB generation rejects a stale reviewed dispatcher authorization', () => {
+  const stale =
+    'scripts/ci-verification.ts::function-declaration:retiredDispatcher::spawnSync#1';
+  expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(stale)).toBe(false);
+  TCB_REVIEWED_PROCESS_DISPATCHERS.add(stale);
+  try {
+    expect(() => generateTcbClosureLockV2()).toThrow(
+      'TCB reviewed process dispatcher allowlist must exactly equal the live causal dispatcher census.'
+    );
+  } finally {
+    TCB_REVIEWED_PROCESS_DISPATCHERS.delete(stale);
+  }
+  expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(stale)).toBe(false);
 });
 
 test('computeTcbClosureLock produces a closure digest that matches the frozen lock', () => {

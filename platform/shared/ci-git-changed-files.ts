@@ -37,7 +37,7 @@ function canonicalChangedRecords(
   if (!Array.isArray(records)) {
     throw new Error('Test-impact transition changed records must be one array.');
   }
-  const canonical = records.map((record) => {
+  const canonical = records.map((record): CodexDevelopmentGitChangedRecordV1 => {
     if (record === null || typeof record !== 'object' || Array.isArray(record)) {
       throw new Error('Test-impact transition contains a malformed changed record.');
     }
@@ -49,20 +49,27 @@ function canonicalChangedRecords(
     if (JSON.stringify(actualKeys) !== JSON.stringify(expectedKeys)) {
       throw new Error('Test-impact transition changed-record shape is not exact.');
     }
-    if (!['added', 'changed', 'removed', 'renamed', 'copied'].includes(record.status)
-        || !CodexDevelopmentIsCanonicalRepositoryPathV1(record.path)) {
+    if (!['added', 'changed', 'removed', 'renamed', 'copied'].includes(record.status)) {
       throw new Error('Test-impact transition contains a malformed changed record.');
     }
+    if (!CodexDevelopmentIsCanonicalRepositoryPathV1(record.path)) {
+      throw new Error(
+        'Test-impact transition changed-record path is not canonical repository-relative POSIX.'
+      );
+    }
     const paired = record.status === 'renamed' || record.status === 'copied';
-    if (paired !== hasPreviousPath
-        || (record.previousPath !== undefined
-          && (!CodexDevelopmentIsCanonicalRepositoryPathV1(record.previousPath)
-            || record.previousPath === record.path))) {
+    if (paired !== hasPreviousPath) {
       throw new Error('Test-impact transition changed-record pairing is invalid.');
     }
-    return paired
-      ? Object.freeze({ status: record.status, path: record.path, previousPath: record.previousPath! })
-      : Object.freeze({ status: record.status, path: record.path });
+    if (paired) {
+      const previousPath = record.previousPath;
+      if (!CodexDevelopmentIsCanonicalRepositoryPathV1(previousPath)
+          || previousPath === record.path) {
+        throw new Error('Test-impact transition changed-record pairing is invalid.');
+      }
+      return Object.freeze({ status: record.status, path: record.path, previousPath });
+    }
+    return Object.freeze({ status: record.status, path: record.path });
   }).sort((left, right) => {
     const leftKey = `${left.previousPath ?? ''}\0${left.path}\0${left.status}`;
     const rightKey = `${right.previousPath ?? ''}\0${right.path}\0${right.status}`;
