@@ -382,6 +382,10 @@ revision 的下游 decision stale。
 activation receipt 或 ScopeGrant。Skill registry 只校验 Capsule 中的候选 guidance ID，不反向拥有
 operation identity。
 
+这一authority level也约束diagnostic与negative contract test：issuer-bound receipt尚未成立时只能使用
+`proposal / proposed / unbound`词汇，不得在错误断言、fixture或测试名称中把相同scope/resource提升为
+`trusted / authorized / granted`。只有真实typed authority transition才允许两侧在同一tree原子迁移术语。
+
 `scripts/codex/task-capsule.ts` 在 Phase A 只提供 content verification 与一个显式关闭的 production seam。
 所有 public Task Capsule projection、Read Plan compile 与 Skill production selection 在真实 issuer接入前
 统一返回 typed `trusted-activation-authority-unavailable`；不存在 candidate journal positive path、raw

@@ -7,26 +7,24 @@ last-reviewed: 2026-08-12
 
 # SEC 滚动近期计划
 
-本投影绑定受信 `main@dae660a84b469e9e6666f3dddab0e7e3ca90a749`。长期阶段DAG仍只由
+本投影绑定受信 `main@56285ba26b776f12dd2a93c4d9908366d997d13a`。长期阶段DAG仍只由
 `docs/roadmap.md`拥有，current spec仍只由下列Issue或更强machine owner拥有；本文件不解释Issue
-正文、不拥有优先级，也不是backlog/registry。canonical MainHealth run `31546571774`、job
-`93960264719`已证明imports、typecheck、docs authority以及278项fast tests通过；missing/version-drifted
-transitive、stale residue、reparse root、child alias、hardlink、zero competing package-manager authority和
-no-second-install均已通过。唯一失败是generated `TCB_CLOSURE_LOCK.modules`有101项，而provider policy
-registry仍手工保存97项旧副本。本Work Package删除第二份derived inventory：registry只拥有policy inputs，
-generated lock唯一拥有因果closure，所有consumer使用同一个pure compiled trust-root view。已通过的运行
-证据按exact main复用，不重跑278项。健康恢复后只能消费validated WorkDecision；
+正文、不拥有优先级，也不是backlog/registry。canonical MainHealth run `31548322778`、job
+`93965413087`已证明imports、TypeScript与docs authority通过，且TCB single-owner旧失败不再出现。唯一
+failure receipt是一个101项通过的fast batch中两条negative assertion：production均正确拒绝输入，但测试
+仍把unbound scope proposal写成`trusted/authorized`。本Work Package只把断言改回canonical
+`proposal/proposed`词汇，并在development-governance固化同一authority-level规则；不改production行为，
+不重跑unchanged failure input。健康恢复后只能消费validated WorkDecision；
 rolling prose或caller receipt都不能选择、重排或授权下一项。
 
 ## 当前唯一 Work Package
 
-### main-health-repair-tcb-closure-single-owner-v1
+### main-health-repair-unbound-vocabulary-v1
 
-Issue #221 MainHealth TCB closure single-owner repair：registry schema v3只保存static paths、runtime
-entrypoints和reviewed edges；`TCB_CLOSURE_LOCK.modules`是唯一frozen derived closure。trusted bootstrap、
-release provider reader、checker、VerificationSession和tests在同一tree迁移，不留v2 reader、alias、
-tombstone、tracked Evidence或第二module list。仅做机械lock generation、independent exact-object静态Review
-和new-main canonical health readback；此前exact-main成功项不重跑。
+Issue #346 MainHealth semantic assertion repair：Task Capsule仍是`unbound-planning-content`、
+`effectAuthority=none`、`scopeGrantId=null`；两条negative tests不得在真实issuer receipt前把proposal称为
+trusted/authorized。只消费exact hosted failure tail、independent exact-object静态Review与new-main health
+readback；不建立alias、tracked Evidence、第二plan或临时production adapter。
 
 ## 候选 Work Package
 

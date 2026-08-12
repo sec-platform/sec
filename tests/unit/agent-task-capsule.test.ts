@@ -129,7 +129,7 @@ test('Task Capsule scope rejects write-forbidden overlap and changed-path escape
         changedPaths: ['platform/shared/agent-task-capsule-contract.ts']
       }
     }
-  }))).toThrow(/outside every authorized write path/u);
+  }))).toThrow(/outside every proposed write path/u);
 });
 
 test('Task Capsule requires exact Git and Work Package identities plus a real owner fact', () => {

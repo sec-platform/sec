@@ -173,7 +173,7 @@ test('read refs stay inside Capsule scope and mandatory deny sources cannot be r
   expect(() => compileSecOperationReadPlanV1({
     ...source,
     requiredRefs: [{ ...source.requiredRefs[0]!, ref: 'README.md' }]
-  })).toThrow(/outside the trusted Capsule read scope/u);
+  })).toThrow(/outside the Capsule read proposal/u);
   expect(() => compileSecOperationReadPlanV1({
     ...source,
     forbiddenSources: source.forbiddenSources.filter((value) => value !== 'assistant-memory')
