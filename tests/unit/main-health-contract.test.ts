@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import {
   MAIN_HEALTH_LEDGER_SCHEMA_V1,
   createMainHealthLedgerV1,
+  createMainHealthRepairWorkPackagePathV1,
   createMainHealthRevisionV1,
   parseMainHealthLedgerV1,
   resolveMainHealthLaneV1,
@@ -49,14 +50,27 @@ function healthyInput(overrides: Partial<MainHealthLedgerInputV1> = {}): MainHea
 }
 
 function degradedInput(overrides: Partial<MainHealthLedgerInputV1> = {}): MainHealthLedgerInputV1 {
-  return healthyInput({
+  const value: MainHealthLedgerInputV1 = healthyInput({
     status: 'degraded',
     failureFingerprints: [D_A],
     owner: 'verification-repair-owner',
-    repairWorkPackage: 'verification-repair-v1',
+    repairWorkPackage: null,
     allowedLanes: ['repair'],
     ...overrides
   });
+  return {
+    ...value,
+    repairWorkPackage: Object.hasOwn(overrides, 'repairWorkPackage')
+      ? overrides.repairWorkPackage ?? null
+      : createMainHealthRepairWorkPackagePathV1({
+          repository: value.repository,
+          defaultBranch: value.defaultBranch,
+          mainSha: value.mainSha,
+          mainTreeSha: value.mainTreeSha,
+          owner: value.owner!,
+          failureFingerprints: value.failureFingerprints
+        })
+  };
 }
 
 function lockedInput(overrides: Partial<MainHealthLedgerInputV1> = {}): MainHealthLedgerInputV1 {
@@ -173,7 +187,6 @@ test('MainHealth revision changes for every health decision field', () => {
     ['status', lockedInput()],
     ['failure fingerprint', degradedInput({ failureFingerprints: [D_B] })],
     ['owner', degradedInput({ owner: 'other-owner' })],
-    ['repair Work Package', degradedInput({ repairWorkPackage: 'other-repair-v1' })],
     ['allowed lanes', healthyInput({ allowedLanes: ['ordinary', 'repair'] })],
     ['trustRevision', healthyInput({
       trustRevision: SHA_B,
@@ -206,16 +219,8 @@ test('MainHealth observation provenance changes receipt digest but not health re
 });
 
 test('MainHealth canonicalizes set ordering and rejects duplicate/unknown members', () => {
-  const left = createMainHealthLedgerV1(lockedInput({
-    failureFingerprints: [D_B, D_A],
-    owner: 'owner',
-    repairWorkPackage: 'repair-v1'
-  }));
-  const right = createMainHealthLedgerV1(lockedInput({
-    failureFingerprints: [D_A, D_B],
-    owner: 'owner',
-    repairWorkPackage: 'repair-v1'
-  }));
+  const left = createMainHealthLedgerV1(degradedInput({ failureFingerprints: [D_B, D_A] }));
+  const right = createMainHealthLedgerV1(degradedInput({ failureFingerprints: [D_A, D_B] }));
   expect(left.healthRevision).toBe(right.healthRevision);
   const laneLeft = createMainHealthLedgerV1(healthyInput({ allowedLanes: ['repair', 'ordinary'] }));
   const laneRight = createMainHealthLedgerV1(healthyInput({ allowedLanes: ['ordinary', 'repair'] }));
@@ -250,6 +255,7 @@ test('MainHealth rejects invalid producer provenance and status invariants', () 
     ['healthy failure', healthyInput({ failureFingerprints: [D_A] })],
     ['degraded ordinary lane', degradedInput({ allowedLanes: ['ordinary'] })],
     ['degraded missing repair', degradedInput({ repairWorkPackage: null })],
+    ['degraded noncanonical repair', degradedInput({ repairWorkPackage: 'docs/work-packages/repair-v1.md' })],
     ['locked lane', lockedInput({ allowedLanes: ['repair'] })]
   ];
   for (const [label, candidate] of invalid) {

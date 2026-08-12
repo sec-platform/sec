@@ -14,6 +14,7 @@ import {
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from '../../platform/shared/repository-path-contract.ts';
 import {
   CodexDevelopmentAssertControlPlaneBindingV1,
+  CodexDevelopmentClassifyWorkPackageCensusV1,
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseCurrentStateSpecV1,
   CodexDevelopmentParseRollingPlanV1
@@ -51,6 +52,13 @@ import {
 interface DocsDoctorControlPlaneScanOptions extends DocsDoctorScanOptions {
   /** One immutable Git-tree reader used by the production CLI control-plane scan. */
   readonly readControlPlaneBlob?: (repositoryPath: string) => Promise<Uint8Array>;
+  /** Exact candidate-tree Work Package census; never mix an index snapshot with worktree readdir. */
+  readonly listControlPlanePackagePaths?: () => Promise<readonly string[]>;
+  /** Immutable default-ref reader used only to prove one byte-exact delayed predecessor. */
+  readonly readDefaultBranchBlob?: (
+    defaultBranchRef: string,
+    repositoryPath: string
+  ) => Promise<Uint8Array | null>;
 }
 
 function decodeUtf8(bytes: Uint8Array, label: string): string {
@@ -75,6 +83,26 @@ async function readControlPlaneText(
   label: string
 ): Promise<string> {
   return decodeUtf8(await readControlPlaneBlob(options, repositoryPath), label);
+}
+
+async function listControlPlanePackagePaths(
+  options: DocsDoctorControlPlaneScanOptions,
+  repositoryRoot: string
+): Promise<readonly string[]> {
+  if (options.listControlPlanePackagePaths) {
+    const paths = [...await options.listControlPlanePackagePaths()];
+    if (paths.some((entry) => !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(entry))
+        || new Set(paths).size !== paths.length) {
+      throw new Error('Work Package tree census is noncanonical or duplicated.');
+    }
+    return paths.sort();
+  }
+  const packageRoot = path.join(repositoryRoot, 'docs/work-packages');
+  if (!(await exists(packageRoot))) return [];
+  return (await fs.readdir(packageRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => `docs/work-packages/${entry.name}`)
+    .sort();
 }
 
 export {
@@ -424,27 +452,46 @@ export async function scanDocumentation(
   try {
     const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
     const selected = pointer.manifest;
-    const packageRoot = path.join(repositoryRoot, 'docs/work-packages');
-    if (await exists(packageRoot)) {
-      for (const entry of await fs.readdir(packageRoot, { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
-        const packagePath = `docs/work-packages/${entry.name}`;
-        if (packagePath !== selected) {
-          pushIssue(issues, {
-            level: 'error',
-            code: 'stale-work-package',
-            file: packagePath,
-            message: 'only the selected frozen Work Package may remain in the active directory'
-          });
-        }
-      }
-    }
     const manifestBytes = await readControlPlaneBlob(options, selected);
     if (CodexDevelopmentWorkPackageManifestDigest(manifestBytes) !== pointer.manifestDigest) {
       throw new Error('Selected Work Package digest does not match the active pointer.');
     }
     const manifestSource = decodeUtf8(manifestBytes, 'Selected Work Package manifest');
-    CodexDevelopmentParseWorkPackageManifest(manifestSource, selected);
+    const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, selected);
+    const packagePaths = await listControlPlanePackagePaths(options, repositoryRoot);
+    const nonSelectedPaths = packagePaths.filter((packagePath) => packagePath !== selected);
+    const packageEntries = await Promise.all(packagePaths.map(async (packagePath) => ({
+      path: packagePath,
+      candidateBytes: packagePath === selected
+        ? manifestBytes
+        : await readControlPlaneBlob(options, packagePath),
+      defaultBytes: packagePath === selected || options.readDefaultBranchBlob === undefined
+        ? null
+        : await options.readDefaultBranchBlob(pointer.defaultBranchRef, packagePath)
+    })));
+    const census = CodexDevelopmentClassifyWorkPackageCensusV1({
+      selectedManifestPath: selected,
+      entries: packageEntries,
+      roadmapSource: manifest.tracking === 'none' && nonSelectedPaths.length > 0
+        ? await readControlPlaneText(options, 'docs/roadmap.md', 'Roadmap Work Selection catalog')
+        : undefined
+    });
+    if (census.ambiguousPredecessorPaths.length > 0) {
+      pushIssue(issues, {
+        level: 'error',
+        code: 'ambiguous-published-work-package-predecessor',
+        file: 'docs/work-packages/',
+        message: 'an untracked recovery package may retain exactly one byte-exact catalog predecessor'
+      });
+    }
+    for (const packagePath of census.stalePackagePaths) {
+      pushIssue(issues, {
+        level: 'error',
+        code: 'stale-work-package',
+        file: packagePath,
+        message: 'only the selected package and one proven delayed predecessor may remain'
+      });
+    }
   } catch (error) {
     pushIssue(issues, {
       level: 'error',
@@ -499,27 +546,64 @@ function captureDocsDoctorIndexTree(repositoryRoot: string): string {
   return treeSha;
 }
 
+/**
+ * The single reviewed process boundary for exact Git-tree object reads. Its
+ * closed modes expose either raw blob bytes or direct tree-entry names without
+ * opening another process capability.
+ */
 function readCapturedGitTreeBlob(
   repositoryRoot: string,
   treeSha: string,
-  repositoryPath: string
+  repositoryPath: string,
+  observationKind: 'blob-bytes' | 'direct-entry-names' = 'blob-bytes'
 ): Buffer {
+  if (!/^(?:[0-9a-f]{40}|refs\/remotes\/[A-Za-z0-9._-]+\/[A-Za-z0-9._\/-]+)$/u.test(treeSha)) {
+    throw new Error(`docs-doctor: captured-tree revision is noncanonical: ${treeSha}`);
+  }
   if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) {
     throw new Error(`docs-doctor: captured-tree path is noncanonical: ${repositoryPath}`);
   }
-  const result = spawnSync('git', ['show', `${treeSha}:${repositoryPath}`], {
-    cwd: repositoryRoot,
-    encoding: 'buffer',
-    windowsHide: true,
-    maxBuffer: 8 * 1024 * 1024
-  });
+  const args = observationKind === 'blob-bytes'
+    ? ['show', '--no-color', '--no-ext-diff', '--no-textconv', `${treeSha}:${repositoryPath}`]
+    : ['ls-tree', '--name-only', `${treeSha}:${repositoryPath}`];
+  const result = spawnSync(
+    'git',
+    args,
+    {
+      cwd: repositoryRoot,
+      encoding: 'buffer',
+      windowsHide: true,
+      maxBuffer: 8 * 1024 * 1024
+    }
+  );
   if (result.error || result.status !== 0 || !result.stdout) {
     const detail = result.error?.message
       ?? Buffer.from(result.stderr ?? '').toString('utf8').trim()
       ?? `exit ${result.status ?? 1}`;
-    throw new Error(`docs-doctor: captured-tree blob read failed for ${repositoryPath}: ${detail}`);
+    throw new Error(`docs-doctor: captured-tree object read failed for ${repositoryPath}: ${detail}`);
   }
   return result.stdout;
+}
+
+function listCapturedWorkPackagePaths(repositoryRoot: string, treeSha: string): readonly string[] {
+  const packageRoot = 'docs/work-packages';
+  const source = decodeUtf8(
+    readCapturedGitTreeBlob(repositoryRoot, treeSha, packageRoot, 'direct-entry-names'),
+    'Captured Work Package tree listing'
+  );
+  if (!source.endsWith('\n') || source.includes('\r')) {
+    throw new Error('docs-doctor: captured-tree Work Package listing has noncanonical framing.');
+  }
+  const names = source.slice(0, -1).split('\n');
+  const paths = names.map((name) => `${packageRoot}/${name}`);
+  if (names.length === 0
+      || names.some((name) => name.length === 0 || name.includes('/'))
+      || paths.some((entry) => !/^docs\/work-packages\/[a-z0-9][a-z0-9-]*\.md$/u.test(entry))
+      || new Set(paths).size !== paths.length
+      || [...paths].sort().some((entry, index) => entry !== paths[index])) {
+    throw new Error('docs-doctor: captured-tree Work Package listing is noncanonical or duplicated.');
+  }
+  return paths;
 }
 
 if (import.meta.main) {
@@ -582,7 +666,19 @@ if (import.meta.main) {
     docsRoot: path.join(repositoryRoot, 'docs'),
     changedDocumentPaths,
     readControlPlaneBlob: async (repositoryPath) =>
-      readCapturedGitTreeBlob(repositoryRoot, capturedIndexTree, repositoryPath)
+      readCapturedGitTreeBlob(repositoryRoot, capturedIndexTree, repositoryPath),
+    listControlPlanePackagePaths: async () =>
+      listCapturedWorkPackagePaths(repositoryRoot, capturedIndexTree),
+    readDefaultBranchBlob: async (defaultBranchRef, repositoryPath) => {
+      if (!/^refs\/remotes\/[A-Za-z0-9._-]+\/[A-Za-z0-9._\/-]+$/u.test(defaultBranchRef)) {
+        throw new Error('docs-doctor: default-ref predecessor lookup is noncanonical.');
+      }
+      try {
+        return readCapturedGitTreeBlob(repositoryRoot, defaultBranchRef, repositoryPath);
+      } catch {
+        return null;
+      }
+    }
   });
   for (const issue of result.issues) {
     console.error(`[${issue.level}] ${issue.code} ${issue.file}: ${issue.message}`);

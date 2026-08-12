@@ -1,12 +1,18 @@
 import { spawnSync } from 'node:child_process';
-import { renameSync, symlinkSync } from 'node:fs';
-import { copyFile, link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, unlink, utimes, writeFile } from 'node:fs/promises';
+import { renameSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFile, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { expect, test } from 'bun:test';
 
 import { digest, rawSha256 } from '../../platform/shared/canonical-primitives.ts';
+import {
+  createMainHealthLedgerV1,
+  createMainHealthRepairWorkPackagePathV1
+} from '../../platform/shared/main-health-contract.ts';
+import { compileMainHealthRepairDecisionV1 } from '../../platform/shared/main-health-repair-contract.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
   SEC_ROADMAP_WORK_CATALOG_END,
@@ -202,7 +208,8 @@ function readGitBlob(cwd: string, spec: string): Buffer | undefined {
   const result = spawnSync('git', ['show', spec], {
     cwd,
     encoding: 'buffer',
-    windowsHide: true
+    windowsHide: true,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
   });
   return result.status === 0 ? result.stdout : undefined;
 }
@@ -211,7 +218,8 @@ function runGit(cwd: string, args: string[]): string {
   const result = spawnSync('git', args, {
     cwd,
     encoding: 'utf8',
-    windowsHide: true
+    windowsHide: true,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
   });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
@@ -230,20 +238,30 @@ async function expectUnsafeReparseRejection(operation: Promise<unknown>): Promis
   expect((failure as Error).message).toMatch(/reparse point|symbolic link|junction/u);
 }
 
-function runFreezeCli(cwd: string): CodexDevelopmentFreezeResultV1 {
-  const result = spawnSync(process.execPath, [
-    path.resolve('scripts/codex/document-control-plane.ts'),
-    'freeze',
-    '--manifest',
-    FREEZE_TARGET_PATH,
-    '--reviewed-on',
-    '2026-08-09',
-    '--json'
-  ], { cwd, encoding: 'utf8', windowsHide: true });
-  if (result.status !== 0) {
-    throw new Error(`document control freeze CLI failed: ${result.stderr || result.stdout}`);
-  }
-  return JSON.parse(result.stdout) as CodexDevelopmentFreezeResultV1;
+function runFreezeApiInChild(
+  cwd: string,
+  environment: Readonly<Record<string, string>> = {}
+) {
+  const moduleHref = pathToFileURL(path.resolve('scripts/codex/document-control-plane.ts')).href;
+  const source = `
+const { freezeDocumentControlPlaneV1 } = await import(${JSON.stringify(moduleHref)});
+try {
+  await freezeDocumentControlPlaneV1({
+    cwd: ${JSON.stringify(cwd)},
+    manifestPath: ${JSON.stringify(FREEZE_TARGET_PATH)},
+    reviewedOn: '2026-08-09'
+  });
+} catch (error) {
+  console.error(error instanceof Error ? (error.stack ?? error.message) : String(error));
+  process.exitCode = 1;
+}
+`;
+  return spawnSync(process.execPath, ['-e', source], {
+    cwd,
+    encoding: 'utf8',
+    windowsHide: true,
+    env: { ...process.env, ...environment }
+  });
 }
 
 function pointerFor(blob: Uint8Array): CodexDevelopmentActivePointerV2 {
@@ -314,7 +332,7 @@ function currentActiveManifestSource(
 schema: codex-development-work-package-v1
 id: ${CURRENT_ACTIVE_ID}
 tracking: ${tracking}
-base: ${base}
+base: '${base}'
 manifestState: frozen
 requiredProfile: quick
 ciRevision: ci-verification-v19
@@ -913,6 +931,7 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes,
       baseSha: fixture.baseSha,
+      baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
     });
     expect(projection.rollingPlanSource).toBe(selectedRollingPlanSource);
@@ -930,6 +949,7 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes,
       baseSha: fixture.baseSha,
+      baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
     })).toThrow('must equal the trusted WorkDecision renderer exactly');
     expect(() => CodexDevelopmentCreateFreezeProjectionV1({
@@ -945,6 +965,7 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes,
       baseSha: fixture.baseSha,
+      baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
     })).toThrow('must equal the target manifest package and tracking identity');
     expect(() => CodexDevelopmentCreateFreezeProjectionV1({
@@ -955,8 +976,9 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
       manifestPath: FREEZE_TARGET_PATH,
       manifestBytes,
       baseSha: fixture.baseSha,
+      baseTreeSha: exactMainTree,
       reviewedOn: '2026-08-12'
-    })).toThrow('requires one live WorkDecision projection');
+    })).toThrow('requires exactly one live WorkDecision or MainHealth repair projection');
     expect(() => CodexDevelopmentCreateFreezeProjectionV1({
       spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource()),
       currentPointerSource,
@@ -968,6 +990,141 @@ test('freeze projection replaces topology only with an exact WorkDecision bindin
       baseSha: fixture.baseSha,
       reviewedOn: '2026-08-12'
     })).toThrow('forbidden for legacy or same-package freeze');
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test('freeze projection admits only the exact degraded-main repair and preserves prior topology', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const exactMainTree = runGit(fixture.repositoryRoot, ['rev-parse', `${fixture.baseSha}^{tree}`]);
+    const observedAt = '2026-08-12T00:00:00.000Z';
+    const repairFailure = rawSha256('fixture-main-health-failure');
+    const repairPath = createMainHealthRepairWorkPackagePathV1({
+      repository: 'sec-platform/sec',
+      defaultBranch: 'main',
+      mainSha: fixture.baseSha,
+      mainTreeSha: exactMainTree,
+      owner: 'ci-verification-maintainer',
+      failureFingerprints: [repairFailure]
+    });
+    const repairId = repairPath.slice('docs/work-packages/'.length, -'.md'.length);
+    const ledger = createMainHealthLedgerV1({
+      repository: 'sec-platform/sec',
+      defaultBranch: 'main',
+      mainSha: fixture.baseSha,
+      mainTreeSha: exactMainTree,
+      status: 'degraded',
+      failureFingerprints: [repairFailure],
+      owner: 'ci-verification-maintainer',
+      repairWorkPackage: repairPath,
+      expiresAt: '2026-08-12T00:05:00.000Z',
+      allowedLanes: ['repair'],
+      trustRevision: fixture.baseSha,
+      observedAt,
+      producer: {
+        identity: 'fixture-main-health-producer',
+        trustRevision: fixture.baseSha,
+        sourceTransport: 'trusted-local-readback',
+        sourceRunId: 'fixture-run',
+        sourceRef: 'fixture:main-health',
+        sourceDigest: rawSha256('fixture-main-health-source')
+      }
+    });
+    const decision = compileMainHealthRepairDecisionV1({
+      ledger,
+      now: observedAt,
+      expectedRepository: 'sec-platform/sec',
+      expectedDefaultBranch: 'main',
+      expectedMainSha: fixture.baseSha,
+      expectedMainTreeSha: exactMainTree,
+      expectedTrustRevision: fixture.baseSha
+    });
+    const manifestBytes = Buffer.from(`---
+schema: codex-development-work-package-v1
+id: ${repairId}
+tracking: none
+base: '${fixture.baseSha}'
+manifestState: frozen
+requiredProfile: quick
+ciRevision: ci-verification-v19
+tasks:
+  - id: repair
+    owner: ci-verification-maintainer
+    ownedPaths:
+      - docs/work-packages/${repairId}.md
+forbiddenPaths:
+  - platform/compiler/
+acceptance:
+  - exact degraded-main repair remains bounded
+tests:
+  - tests/contract/document-control-plane-lifecycle.test.ts
+---
+`, 'utf8');
+    const currentPointerSource = await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8');
+    const projection = CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource('origin', true)),
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      mainHealthRepairProjection: { decision },
+      manifestPath: repairPath,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      baseTreeSha: exactMainTree,
+      reviewedOn: '2026-08-12'
+    });
+    expect(CodexDevelopmentParseRollingPlanV1(projection.rollingPlanSource)).toEqual({
+      activePackageId: repairId,
+      candidatePackageIds: [
+        CURRENT_ACTIVE_ID,
+        FREEZE_TARGET_ID,
+        'candidate-two-v1',
+        'candidate-three-v1'
+      ]
+    });
+    expect(projection.rollingPlanSource).toContain('- current-body: exact-current-bytes');
+    expect(projection.rollingPlanSource).toContain('- target-body: exact-target-bytes');
+    const maximalPriorTopology = rollingPlanSource().replace(
+      '## Gate、单写者与重算',
+      `### 4. candidate-four-v1
+
+- fourth-body: exact-fourth-bytes
+
+### 5. candidate-five-v1
+
+- fifth-body: exact-fifth-bytes
+
+## Gate、单写者与重算`
+    );
+    expect(() => CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource('origin', true)),
+      currentPointerSource,
+      currentRollingPlanSource: maximalPriorTopology,
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      mainHealthRepairProjection: { decision },
+      manifestPath: repairPath,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      baseTreeSha: exactMainTree,
+      reviewedOn: '2026-08-12'
+    })).toThrow('cannot preserve all prior identities within the five-candidate bound');
+    const wrongManifestBytes = await readFile(
+      path.join(fixture.repositoryRoot, ...FREEZE_TARGET_PATH.split('/'))
+    );
+    expect(() => CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource('origin', true)),
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      mainHealthRepairProjection: { decision },
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes: wrongManifestBytes,
+      baseSha: fixture.baseSha,
+      baseTreeSha: exactMainTree,
+      reviewedOn: '2026-08-12'
+    })).toThrow('differs from the exact manifest or repository identity');
   } finally {
     await fixture.dispose();
   }
@@ -1009,7 +1166,11 @@ test('freeze rejects a manually staged pointer and rolling-plan selection baseli
 test('freeze publishes one exact index tree, projects worktree bytes, and is idempotent', async () => {
   const fixture = await createFreezeFixture();
   try {
-    const result = runFreezeCli(fixture.repositoryRoot);
+    const result = await freezeDocumentControlPlaneV1({
+      cwd: fixture.repositoryRoot,
+      manifestPath: FREEZE_TARGET_PATH,
+      reviewedOn: '2026-08-09'
+    });
     expect(result).toMatchObject({
       schema: 'sec-document-control-plane-freeze-result-v1',
       status: 'ACTIVATED_INDEX_PENDING_COMMIT',
@@ -1931,13 +2092,15 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
     const indexPath = repositoryIndexPath(fixture.repositoryRoot);
     const indexLockPath = `${indexPath}.lock`;
-    const indexBeforeStatus = await readFile(indexPath);
-    expect(indexBeforeStatus).toEqual(Buffer.from(installed.index.next, 'base64'));
+    const installedIndexBytes = await readFile(indexPath);
+    expect(installedIndexBytes).toEqual(Buffer.from(installed.index.next, 'base64'));
     const treeBeforeStatus = runGit(fixture.repositoryRoot, ['write-tree']);
+    const indexBeforeStatus = await readFile(indexPath);
     const terminalStatus = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
     expect(terminalStatus.activation).toBeNull();
-    expect(await readFile(indexPath)).toEqual(Buffer.from(indexBeforeStatus));
+    expect(await readFile(indexPath)).toEqual(indexBeforeStatus);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBeforeStatus);
+    const indexBeforeSecondFreeze = await readFile(indexPath);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
     let renameEffects = 0;
     let cleanupEffects = 0;
@@ -1957,8 +2120,8 @@ test('journal recovery census accepts the exact installed NEXT boundary and resu
       manifestPath: recovered.manifestPath,
       manifestDigest: recovered.manifestDigest
     });
+    expect(await readFile(indexPath)).toEqual(indexBeforeSecondFreeze);
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(installed.candidateTreeSha);
-    expect(await readFile(indexPath)).toEqual(Buffer.from(indexBeforeStatus));
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
     await expect(readFile(indexLockPath)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(durabilityEffects).toEqual([]);
@@ -2510,12 +2673,58 @@ test('read-only status overrides inherited optional locks and preserves the exac
     const commands = observations.map((event) => event.args.join(' '));
     expect(commands).toContain('status --short --branch');
     expect(commands.filter((command) => command === 'write-tree')).toHaveLength(2);
-    expect(observations
-      .filter((event) => event.args.join(' ') === 'write-tree')
-      .every((event) => (
-        typeof event.environment.GIT_OBJECT_DIRECTORY === 'string'
-        && typeof event.environment.GIT_ALTERNATE_OBJECT_DIRECTORIES === 'string'
-      ))).toBe(true);
+    const indexInterpretingObservations = observations.filter((event) => (
+      event.args[0] === 'write-tree'
+      || event.args[0] === 'status'
+      || event.args[0] === 'ls-files'
+      || (event.args[0] === 'diff' && event.args.includes('--cached'))
+      || (event.args[0] === 'show' && event.args[1]?.startsWith(':') === true)
+    ));
+    expect(indexInterpretingObservations.length).toBeGreaterThan(0);
+    const repositoryObjectsCandidate = runGit(fixture.repositoryRoot, ['rev-parse', '--git-path', 'objects']);
+    const repositoryObjects = await realpath(path.isAbsolute(repositoryObjectsCandidate)
+      ? repositoryObjectsCandidate
+      : path.resolve(fixture.repositoryRoot, repositoryObjectsCandidate));
+    const usesExactExternalScratch = (event: Readonly<{
+      args: readonly string[];
+      environment: Readonly<Record<string, string>>;
+    }>): boolean => {
+      const scratchIndex = event.environment.GIT_INDEX_FILE;
+      const scratchObjects = event.environment.GIT_OBJECT_DIRECTORY;
+      const alternates = event.environment.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+      if (scratchIndex === undefined || scratchObjects === undefined || alternates === undefined) return false;
+      const scratchRoot = path.dirname(scratchIndex);
+      const relativeToRepository = path.relative(fixture.repositoryRoot, scratchRoot);
+      const outsideRepository = path.isAbsolute(relativeToRepository)
+        || relativeToRepository === '..'
+        || relativeToRepository.startsWith(`..${path.sep}`);
+      return outsideRepository
+        && path.dirname(scratchObjects) === scratchRoot
+        && alternates === repositoryObjects;
+    };
+    expect(indexInterpretingObservations.every(usesExactExternalScratch)).toBe(true);
+    const indexBeforeFailedStatus = await readFile(indexPath);
+    const identityBeforeFailedStatus = await lstat(indexPath);
+    let failedStatusObservation: Readonly<{
+      args: readonly string[];
+      environment: Readonly<Record<string, string>>;
+    }> | undefined;
+    await expect(resolveLiveControlPlane(fixture.repositoryRoot, {
+      observeGitHub: false,
+      resolverGitCommandObserver: (event) => {
+        if (event.args.join(' ') !== 'status --short --branch') return;
+        failedStatusObservation = event;
+        writeFileSync(event.environment.GIT_INDEX_FILE!, Buffer.from('invalid scratch index', 'utf8'));
+      }
+    })).rejects.toThrow('Worktree status through external index snapshot failed');
+    expect(failedStatusObservation).toBeDefined();
+    expect(usesExactExternalScratch(failedStatusObservation!)).toBe(true);
+    expect(await readFile(indexPath)).toEqual(indexBeforeFailedStatus);
+    const identityAfterFailedStatus = await lstat(indexPath);
+    expect({ dev: identityAfterFailedStatus.dev, ino: identityAfterFailedStatus.ino }).toEqual({
+      dev: identityBeforeFailedStatus.dev,
+      ino: identityBeforeFailedStatus.ino
+    });
     expect(commands.some((command) => command.startsWith('show '))).toBe(true);
     expect(await readFile(indexPath)).toEqual(Buffer.from(indexBefore));
     expect(runGit(fixture.repositoryRoot, ['write-tree'])).toBe(treeBefore);
@@ -3718,6 +3927,14 @@ test('platform path effects lock exact Win32 handles and POSIX dirfd operations'
   expect(entryCas).toContain("if (state === 'windows-prepared')");
   expect(entryCas).toContain("if (state === 'windows-quarantined')");
   expect(entryCas).not.toContain('target.equals(input.next)');
+  expect(source).toContain('async function withRepositoryIndexTreeThroughExternalScratch<T>(');
+  expect(source).toContain('GIT_INDEX_FILE: scratchIndex');
+  expect(source).toContain('environment: Object.freeze({ ...options.environment, ...environment })');
+  expect(source).toContain("runScratch(['diff', '--cached', '--name-only'");
+  expect(source).toContain("runScratch(['status', '--short', '--branch'])");
+  expect(source).not.toContain("resolverGit.run(['status', '--short', '--branch']");
+  expect(source).toContain('pre: toBase64(rollingPlanWorktree)');
+  expect(source).toContain('&& rollingPlanWorktree.equals(rollingPlanNext);');
   const retainedEdgeStart = entryCas.indexOf('const runSelectedRetainedEdge = async');
   expect(retainedEdgeStart).toBeGreaterThan(classifierSuccess);
   expect(entryCas).toContain('withRetainedPublishEntryTupleV1(classifier');
@@ -3979,19 +4196,8 @@ test('freeze rejects reparse, nonregular, and outside auxiliary transaction path
       : path.resolve(outsideIndexFixture.repositoryRoot, indexCandidate);
     const outsideIndex = path.join(outsideIndexFixture.parent, 'outside.index');
     await copyFile(indexPath, outsideIndex);
-    const result = spawnSync(process.execPath, [
-      path.resolve('scripts/codex/document-control-plane.ts'),
-      'freeze',
-      '--manifest',
-      FREEZE_TARGET_PATH,
-      '--reviewed-on',
-      '2026-08-09',
-      '--json'
-    ], {
-      cwd: outsideIndexFixture.repositoryRoot,
-      encoding: 'utf8',
-      windowsHide: true,
-      env: { ...process.env, GIT_INDEX_FILE: outsideIndex }
+    const result = runFreezeApiInChild(outsideIndexFixture.repositoryRoot, {
+      GIT_INDEX_FILE: outsideIndex
     });
     expect(result.status).not.toBe(0);
     expect(`${result.stderr}\n${result.stdout}`).toContain('escapes its canonical transaction root');

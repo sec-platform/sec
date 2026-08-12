@@ -392,7 +392,7 @@ test('verification-action runner dispatcher binds exact local Git observations a
   }
 });
 
-test('docs-doctor index-tree preflight binds three exact read-only dispatchers and rejects semantic drift', async () => {
+test('docs-doctor index-tree preflight binds every exact read-only dispatcher and rejects semantic drift', async () => {
   const repositoryPath = 'docs/scripts/docs-doctor.ts';
   const lexicalFixtures = [
     {
@@ -419,9 +419,10 @@ test('docs-doctor index-tree preflight binds three exact read-only dispatchers a
       name: 'readCapturedGitTreeBlob',
       identity: 'docs/scripts/docs-doctor.ts::function-declaration:readCapturedGitTreeBlob::spawnSync#1',
       body: [
-        'function readCapturedGitTreeBlob(repositoryRoot: string, treeSha: string, repositoryPath: string) {',
+        "function readCapturedGitTreeBlob(repositoryRoot: string, treeSha: string, repositoryPath: string, observationKind: 'blob-bytes' | 'direct-entry-names' = 'blob-bytes') {",
         '  if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) throw new Error("noncanonical");',
-        "  const result = spawnSync('git', ['show', `${treeSha}:${repositoryPath}`], { cwd: repositoryRoot, encoding: 'buffer', windowsHide: true, maxBuffer: 8 * 1024 * 1024 });",
+        "  const args = observationKind === 'blob-bytes' ? ['show', '--no-color', '--no-ext-diff', '--no-textconv', `${treeSha}:${repositoryPath}`] : ['ls-tree', '--name-only', `${treeSha}:${repositoryPath}`];",
+        "  const result = spawnSync('git', args, { cwd: repositoryRoot, encoding: 'buffer', windowsHide: true, maxBuffer: 8 * 1024 * 1024 });",
         '  return result.stdout;',
         '}'
       ]
@@ -481,13 +482,17 @@ test('docs-doctor index-tree preflight binds three exact read-only dispatchers a
   expect(resolveSource).not.toContain('env:');
 
   const readerStart = docsDoctorSource.indexOf('function readCapturedGitTreeBlob(');
-  const readerEnd = docsDoctorSource.indexOf('\nif (import.meta.main)', readerStart);
+  const readerEnd = docsDoctorSource.indexOf('\nfunction listCapturedWorkPackagePaths(', readerStart);
   expect(readerStart).toBeGreaterThanOrEqual(0);
   expect(readerEnd).toBeGreaterThan(readerStart);
   const readerSource = docsDoctorSource.slice(readerStart, readerEnd);
   expect(readerSource.match(/spawnSync\(/gu)).toHaveLength(1);
+  expect(readerSource).toContain("refs\\/remotes\\/[A-Za-z0-9._-]+\\/[A-Za-z0-9._\\/-]+");
   expect(readerSource).toContain('CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)');
-  expect(readerSource).toContain("spawnSync('git', ['show', `${treeSha}:${repositoryPath}`], {");
+  expect(readerSource).toContain("observationKind: 'blob-bytes' | 'direct-entry-names' = 'blob-bytes'");
+  expect(readerSource).toContain("? ['show', '--no-color', '--no-ext-diff', '--no-textconv', `${treeSha}:${repositoryPath}`]");
+  expect(readerSource).toContain(": ['ls-tree', '--name-only', `${treeSha}:${repositoryPath}`]");
+  expect(readerSource).toContain("spawnSync(\n    'git',\n    args,");
   expect(readerSource).toContain('cwd: repositoryRoot');
   expect(readerSource).toContain("encoding: 'buffer'");
   expect(readerSource).toContain('windowsHide: true');
@@ -496,6 +501,18 @@ test('docs-doctor index-tree preflight binds three exact read-only dispatchers a
   expect(readerSource).not.toContain('env:');
   expect(readerSource).not.toContain('shell:');
   expect(readerSource).not.toContain('input:');
+
+  const censusStart = readerEnd;
+  const censusEnd = docsDoctorSource.indexOf('\nif (import.meta.main)', censusStart);
+  expect(censusEnd).toBeGreaterThan(censusStart);
+  const censusSource = docsDoctorSource.slice(censusStart, censusEnd);
+  expect(censusSource).not.toContain('spawnSync(');
+  expect(censusSource).toContain(
+    "readCapturedGitTreeBlob(repositoryRoot, treeSha, packageRoot, 'direct-entry-names')"
+  );
+  expect(censusSource).toContain('source.includes(\'\\r\')');
+  expect(censusSource).toContain("name.includes('/')");
+  expect(censusSource).toContain('new Set(paths).size !== paths.length');
 
   const digest = (source: string) => createHash('sha256').update(source).digest('hex');
   for (const hostileSource of [
@@ -508,8 +525,13 @@ test('docs-doctor index-tree preflight binds three exact read-only dispatchers a
   }
   for (const hostileSource of [
     readerSource.replace('readCapturedGitTreeBlob', 'readCapturedGitTreeBlobs'),
-    readerSource.replace("['show', `${treeSha}:${repositoryPath}`]", "['show', `HEAD:${repositoryPath}`]"),
-    readerSource.replace("['show', `${treeSha}:${repositoryPath}`]", "['cat-file', 'blob', `${treeSha}:${repositoryPath}`]"),
+    readerSource.replace("`${treeSha}:${repositoryPath}`", "`HEAD:${repositoryPath}`"),
+    readerSource.replace("? ['show'", "? ['cat-file', 'blob'"),
+    readerSource.replace("['ls-tree', '--name-only'", "['status', '--short'"),
+    readerSource.replace("'blob-bytes' | 'direct-entry-names'", "string"),
+    readerSource.replace("'--no-color'", "'--color=always'"),
+    readerSource.replace("'--no-ext-diff'", "'--ext-diff'"),
+    readerSource.replace("'--no-textconv'", "'--textconv'"),
     readerSource.replace('cwd: repositoryRoot', "cwd: repositoryRoot + '/.git'"),
     readerSource.replace('cwd: repositoryRoot,', "cwd: repositoryRoot, env: { GIT_INDEX_FILE: 'forged' },"),
     readerSource.replace('windowsHide: true', 'windowsHide: false'),

@@ -154,6 +154,7 @@ import {
   createLocalMainCloseoutBindingFromHostedAuthorityV3,
   executeLocalMainCloseoutV3
 } from './local-main-closeout.ts';
+import { createObservedMainHealthInputV1 } from './main-health-observation.ts';
 import {
   CodexDevelopmentEvaluateMergeGateV2,
   assertCanonicalMergeMessageV1
@@ -183,8 +184,8 @@ import {
   assertTrustedMergedRequestRuntimeReachabilityV1,
   assertTrustedMergedRuntimeReachabilityV1,
   classifyVerificationSessionArtifactReuseV1,
+  compilePostMainIssueDispositionHealthReadbackV1,
   createHostedArtifactObservationV2,
-  createObservedMainHealthInputV1,
   createTrustedHostedArtifactProvenanceV1,
   createTrustedIntegrationAuthorizationPublicationSourceV1,
   createVerificationSessionMergeOperationIdV1,
@@ -1960,6 +1961,7 @@ function observeHostedTrackingIssueDispositionV1(input: Readonly<{
   github: VerificationSessionGitHubClientV1;
   repository: string;
   closeout: ReturnType<typeof loadMergedHostedCloseoutContext>;
+  observedAt: string;
 }>): HostedTrackingIssueDispositionObservationV1 {
   const { closeout, github, repository } = input;
   const artifact = closeout.hosted.artifact;
@@ -2023,20 +2025,19 @@ function observeHostedTrackingIssueDispositionV1(input: Readonly<{
     throw new Error('IssueDisposition evidence reference is not one SHA-256 digest.');
   }
   const evidenceRefs = untypedEvidenceRefs as `sha256:${string}`[];
-  const mainHealthChecks = mode === 'close-tracking-after-readback'
-    ? github.observeChecks(repository, candidate.mergeCommitSha)
-      .filter((check) => check.name === 'sec/main-health'
-        && check.headSha === candidate.mergeCommitSha
-        && check.status === 'completed' && check.conclusion === 'success'
-        && check.appSlug === 'github-actions')
-    : [];
-  if (mode === 'close-tracking-after-readback' && mainHealthChecks.length !== 1) {
-    throw new Error('IssueDisposition progress receipt requires one exact successful post-merge sec/main-health readback.');
-  }
-  const postMainEvidenceRefs = mainHealthChecks.length === 1
-    ? [...evidenceRefs, `sha256:${createHash('sha256').update(
-      encodeVerificationActionDataV2(mainHealthChecks)
-    ).digest('hex')}` as const]
+  const mainHealth = mode === 'close-tracking-after-readback'
+    ? compilePostMainIssueDispositionHealthReadbackV1({
+        repository,
+        newMainSha: candidate.mergeCommitSha,
+        newMainTreeSha: candidate.mergeCommitTreeSha,
+        observedAt: input.observedAt,
+        sourceRunId: closeout.identity.provenance.runId,
+        sourceRef: closeout.identity.provenance.workflowRef,
+        checks: github.observeChecks(repository, candidate.mergeCommitSha)
+      })
+    : null;
+  const postMainEvidenceRefs = mainHealth !== null
+    ? [...evidenceRefs, mainHealth.ledgerDigest]
     : evidenceRefs;
   const disposition = compileIssueDispositionV1({ plan,
     currentSpecRevision: issue.specRevision, acceptanceIds,
@@ -4293,7 +4294,9 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const closeout = loadMergedHostedCloseoutContext({ ctx, github, repository,
       event: eventPayload, environment, repositoryRoot, phase: 'closeoutMutation' });
     const session = closeout.hosted.artifact.session;
-    const issueDisposition = observeHostedTrackingIssueDispositionV1({ github, repository, closeout });
+    const issueDisposition = observeHostedTrackingIssueDispositionV1({
+      github, repository, closeout, observedAt: now()
+    });
     const existing = observeBranchCloseoutOperationPublicationV1(ctx.repositoryRoot, { repository,
       pullRequestNumber: session.prNumber, closeoutOperationId: closeout.binding.closeoutOperationId });
     if (existing !== null) {

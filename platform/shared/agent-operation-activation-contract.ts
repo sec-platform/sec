@@ -338,15 +338,16 @@ export function createSecAgentOperationActivationRequestV1(
   const input = record(value, 'request input');
   exactKeys(input, REQUEST_INPUT_KEYS, 'request input');
   if (input.phase !== 'prepare' && input.phase !== 'finalize') fail('request phase is unsupported.');
+  const phase: SecAgentOperationActivationRequestV1['phase'] = input.phase;
   const preparationCommentId = input.preparationCommentId === null
     ? null
     : positiveInteger(input.preparationCommentId, 'preparationCommentId');
-  if ((input.phase === 'prepare') !== (preparationCommentId === null)) {
+  if ((phase === 'prepare') !== (preparationCommentId === null)) {
     fail('prepare requires null and finalize requires one preparationCommentId.');
   }
   const normalized = deepFreeze({
     schema: SEC_AGENT_OPERATION_ACTIVATION_REQUEST_SCHEMA,
-    phase: input.phase,
+    phase,
     pullRequestNumber: positiveInteger(input.pullRequestNumber, 'pullRequestNumber'),
     expectedBaseSha: gitSha(input.expectedBaseSha, 'expectedBaseSha'),
     expectedHeadSha: gitSha(input.expectedHeadSha, 'expectedHeadSha'),
@@ -377,13 +378,16 @@ export function createSecAgentOperationActivationProviderV1(
   const input = record(value, 'provider input');
   exactKeys(input, PROVIDER_INPUT_KEYS, 'provider input');
   const workflowSha = gitSha(input.workflowSha, 'provider.workflowSha');
+  if (input.actorPermission !== 'admin' && input.actorPermission !== 'maintain') {
+    fail('provider workflow, event, job, steps, or actor permission is unsupported.');
+  }
+  const actorPermission: SecAgentOperationActivationProviderV1['actorPermission'] = input.actorPermission;
   if (input.workflowPath !== SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH
       || input.workflowRef !== `${SEC_AGENT_OPERATION_ACTIVATION_WORKFLOW_PATH}@${workflowSha}`
       || input.eventName !== 'repository_dispatch'
       || input.jobName !== SEC_AGENT_OPERATION_ACTIVATION_JOB_NAME
       || input.uploadStepName !== SEC_AGENT_OPERATION_ACTIVATION_UPLOAD_STEP_NAME
-      || input.publicationStepName !== SEC_AGENT_OPERATION_ACTIVATION_STEP_NAME
-      || (input.actorPermission !== 'admin' && input.actorPermission !== 'maintain')) {
+      || input.publicationStepName !== SEC_AGENT_OPERATION_ACTIVATION_STEP_NAME) {
     fail('provider workflow, event, job, steps, or actor permission is unsupported.');
   }
   const actorLogin = text(input.actorLogin, 'provider.actorLogin').toLowerCase();
@@ -402,7 +406,7 @@ export function createSecAgentOperationActivationProviderV1(
     publicationStepName: SEC_AGENT_OPERATION_ACTIVATION_STEP_NAME,
     actorLogin,
     actorNodeId: text(input.actorNodeId, 'provider.actorNodeId'),
-    actorPermission: input.actorPermission
+    actorPermission
   });
   return deepFreeze({ ...normalized, providerDigest: sha256(normalized) as SecDigestV1 });
 }

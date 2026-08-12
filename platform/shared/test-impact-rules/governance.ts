@@ -172,6 +172,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     fast: [
       'tests/unit/agent-operation-activation.test.ts',
       'tests/contract/document-control-plane-lifecycle.test.ts',
+      'tests/contract/docs-doctor.test.ts',
       'tests/unit/branch-lifecycle-contract.test.ts',
       'tests/unit/verification-candidate-tree.test.ts',
       'tests/unit/work-selection-contract.test.ts',

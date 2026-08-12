@@ -11,10 +11,15 @@ const IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS = [
 ];
 
 const MAIN_HEALTH_FAST_TESTS = [
+  'tests/contract/ci-contract.test.ts',
   'tests/contract/default-branch-revision-health.test.ts',
+  'tests/contract/document-control-plane-lifecycle.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/main-health-contract.test.ts',
+  'tests/unit/main-health-repair-contract.test.ts',
+  'tests/unit/tcb-trust-root-contract.test.ts',
   'tests/unit/verification-session-runtime.test.ts',
   'tests/unit/work-selection-live.test.ts'
 ];
@@ -43,6 +48,11 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/unit/ci-verification-composition-execution.test.ts',
   'tests/unit/exact-git-blob.test.ts',
   'tests/unit/tcb-trust-root-contract.test.ts',
+  'tests/unit/verification-action-github-provider.test.ts'
+];
+
+const VERIFICATION_ACTION_TEST_FIXTURE_FAST_TESTS = [
+  'tests/contract/test-impact.test.ts',
   'tests/unit/verification-action-github-provider.test.ts'
 ];
 
@@ -104,7 +114,10 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/default-branch-revision-health.ts',
-      'platform/shared/main-health-contract.ts'
+      'platform/shared/main-health-contract.ts',
+      'platform/shared/main-health-repair-contract.ts',
+      'scripts/codex/main-health-observation.ts',
+      'scripts/codex/main-health-repair.ts'
     ],
     fast: MAIN_HEALTH_FAST_TESTS,
     slow: []
@@ -167,6 +180,14 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/verification-action-github-provider.ts'
     ],
     fast: VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'verification-action-test-fixture',
+    identity: { kind: 'architecture-owner', id: 'verification-action-test-fixture' },
+    autoReferenceMode: 'include',
+    sourceFiles: ['tests/helpers/verification-action-fixtures.ts'],
+    fast: VERIFICATION_ACTION_TEST_FIXTURE_FAST_TESTS,
     slow: []
   },
   {
