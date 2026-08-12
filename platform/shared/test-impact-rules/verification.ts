@@ -50,6 +50,16 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/unit/verification-action-github-provider.test.ts'
 ];
 
+const CI_PR_RISK_FAST_TESTS = [
+  ...VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
+  'tests/unit/heavy-verification-gate-lease.test.ts'
+];
+
+const DEV_RUNNER_ENTRYPOINT_FAST_TESTS = [
+  ...DEV_RUNNER_FAST_TESTS,
+  'tests/unit/heavy-verification-gate-lease.test.ts'
+];
+
 const VERIFICATION_ACTION_TEST_FIXTURE_FAST_TESTS = [
   'tests/contract/test-impact.test.ts',
   'tests/unit/verification-action-github-provider.test.ts'
@@ -63,6 +73,11 @@ export const TRUSTED_VERIFIER_TCB_FAST_TESTS = [
   'tests/contract/test-impact.test.ts',
   'tests/unit/agent-operation-activation.test.ts',
   'tests/unit/tcb-trust-root-contract.test.ts'
+];
+
+const HEAVY_VERIFICATION_GATE_FAST_TESTS = [
+  ...TRUSTED_VERIFIER_TCB_FAST_TESTS,
+  'tests/unit/heavy-verification-gate-lease.test.ts'
 ];
 
 const GIT_CHANGED_FILE_OBSERVATION_FAST_TESTS = [
@@ -189,12 +204,19 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/shared/ci-evidence-contract.ts',
       'platform/shared/ci-hosted-sut-observation-contract.ts',
       'scripts/codex/ci-orchestration-core.ts',
-      'scripts/ci-pr-risk.ts',
       'scripts/ci-verification.ts',
       'scripts/codex/exact-git-blob.ts',
       'scripts/codex/verification-action-github-provider.ts'
     ],
     fast: VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'verification-evidence-producers',
+    identity: { kind: 'architecture-owner', id: 'verification-evidence-producers' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: ['scripts/ci-pr-risk.ts'],
+    fast: CI_PR_RISK_FAST_TESTS,
     slow: []
   },
   {
@@ -233,7 +255,6 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     owner: 'dev-runner',
     identity: { kind: 'architecture-owner', id: 'dev-runner' },
     sourceFiles: [
-      'platform/dev-runner.ts',
       'platform/dev-runner/check-runner.ts',
       'platform/dev-runner/command-runner.ts',
       'platform/dev-runner/env-manager.ts',
@@ -244,6 +265,21 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/typecheck-runner.ts'
     ],
     fast: DEV_RUNNER_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'dev-runner',
+    identity: { kind: 'architecture-owner', id: 'dev-runner' },
+    sourceFiles: ['platform/dev-runner.ts'],
+    fast: DEV_RUNNER_ENTRYPOINT_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'heavy-verification-gate',
+    identity: { kind: 'architecture-owner', id: 'heavy-verification-gate' },
+    autoReferenceMode: 'include',
+    sourceFiles: ['platform/shared/heavy-verification-gate-lease.ts'],
+    fast: HEAVY_VERIFICATION_GATE_FAST_TESTS,
     slow: []
   }
 ];
