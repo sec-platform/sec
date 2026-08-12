@@ -8,6 +8,8 @@ export const MAIN_HEALTH_LEDGER_SCHEMA_V1 = 'sec-main-health-ledger-v1' as const
 export type MainHealthStatusV1 = 'healthy' | 'degraded' | 'locked';
 export type MainHealthLaneV1 = 'ordinary' | 'repair';
 export type MainHealthDigest = `sha256:${string}`;
+export const MAIN_HEALTH_REPAIR_IDENTITY_SCHEMA_V1 =
+  'sec-main-health-repair-work-package-identity-v1' as const;
 
 export interface MainHealthProducerV1 {
   readonly identity: string;
@@ -72,6 +74,41 @@ function optionalText(value: unknown, label: string): string | null {
 function hash(value: unknown): MainHealthDigest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionDataV2(value)).digest('hex')}`;
 }
+
+/**
+ * Derives the sole future repair locator from the exact failed main identity.
+ * The full content digest remains in the path so a new failure generation
+ * cannot alias or resurrect an already-published repair package.
+ */
+export function createMainHealthRepairWorkPackagePathV1(input: Readonly<{
+  repository: string;
+  defaultBranch: string;
+  mainSha: string;
+  mainTreeSha: string;
+  owner: string;
+  failureFingerprints: readonly MainHealthDigest[];
+}>): string {
+  if (!Array.isArray(input.failureFingerprints) || input.failureFingerprints.length === 0) {
+    fail('repair identity requires at least one failure fingerprint.');
+  }
+  const failureFingerprints = input.failureFingerprints
+    .map((value, index) => digest(value, `repair failureFingerprints[${index}]`))
+    .sort();
+  if (new Set(failureFingerprints).size !== failureFingerprints.length) {
+    fail('repair failureFingerprints must be unique.');
+  }
+  const mainSha = sha(input.mainSha, 'repair mainSha');
+  const identity = hash(Object.freeze({
+    schema: MAIN_HEALTH_REPAIR_IDENTITY_SCHEMA_V1,
+    repository: text(input.repository, 'repair repository'),
+    defaultBranch: text(input.defaultBranch, 'repair defaultBranch'),
+    mainSha,
+    mainTreeSha: sha(input.mainTreeSha, 'repair mainTreeSha'),
+    owner: text(input.owner, 'repair owner'),
+    failureFingerprints: Object.freeze(failureFingerprints)
+  })).slice('sha256:'.length);
+  return `docs/work-packages/default-branch-health-repair-${mainSha}-${identity}.md`;
+}
 function record(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('ledger must be an object.');
   return value as Record<string, unknown>;
@@ -106,8 +143,20 @@ function normalizeMainHealthSemanticInputV1(input: MainHealthSemanticInputV1) {
     failureFingerprints.length === 0 || input.owner === null || input.repairWorkPackage === null ||
     allowedLanes.includes('ordinary') || !allowedLanes.includes('repair')
   )) fail('degraded ledger requires fingerprint, owner, repair Work Package, and repair-only lane.');
-  if (input.status === 'locked' && allowedLanes.length !== 0) {
-    fail('locked ledger cannot allow a lane.');
+  if (input.status === 'degraded' && input.repairWorkPackage !== createMainHealthRepairWorkPackagePathV1({
+    repository: input.repository,
+    defaultBranch: input.defaultBranch,
+    mainSha: input.mainSha,
+    mainTreeSha: input.mainTreeSha,
+    owner: input.owner!,
+    failureFingerprints
+  })) {
+    fail('degraded ledger repair Work Package identity is not canonical.');
+  }
+  if (input.status === 'locked' && (
+    allowedLanes.length !== 0 || input.owner !== null || input.repairWorkPackage !== null
+  )) {
+    fail('locked ledger cannot allow a lane or expose repair identity.');
   }
   return Object.freeze({
     schema: MAIN_HEALTH_LEDGER_SCHEMA_V1,

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 import { describe, expect, test } from 'bun:test';
 
@@ -88,8 +88,12 @@ function receiptForCatalog(
   });
 }
 
-function receipt(completedWorkIds: readonly string[] = []) {
-  return receiptForCatalog(parseSecRoadmapWorkCatalogV1(roadmapSource), completedWorkIds);
+function receipt(completedWorkIds?: readonly string[]) {
+  const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
+  const exactRepositoryCompletion = catalog.items.filter(({ packageId }) => (
+    existsSync(`docs/work-packages/${packageId}.md`)
+  )).map(({ workId }) => workId);
+  return receiptForCatalog(catalog, completedWorkIds ?? exactRepositoryCompletion);
 }
 
 describe('work-selection live contract', () => {
@@ -98,6 +102,8 @@ describe('work-selection live contract', () => {
     expect(catalog.stageRef).toBe('r14-agent-operation');
     expect(catalog.items.map(({ packageId }) => packageId)).toEqual([
       'operation-read-plan-authority-canary-v1',
+      'controlled-pr-issue-disposition-single-writer-v1',
+      'git-worktree-physical-closeout-v1',
       'delegation-consumer-zero-retirement-v1',
       'candidate-control-transaction-v1',
       'typescript-7-checker-acceleration-v1',
@@ -124,42 +130,41 @@ describe('work-selection live contract', () => {
     ))).toThrow(/duplicate key "tracking"/u);
   });
 
-  test('exact live facts select #346 and render one active plus four candidates', () => {
+  test('exact repository package census consumes published #346 and selects #352', () => {
     const result = receipt();
     expect(result.decision.status).toBe('select-next');
-    expect(result.decision.selectedWorkId).toBe('issue-346');
+    expect(result.decision.selectedWorkId).toBe('issue-352');
     expect(result.input.candidates.find(({ workId }) => workId === 'issue-346')).toMatchObject({
-      blockedReadySuccessorCount: 1,
-      roadmapDirect: true,
-      conflictStatus: 'clear'
+      lifecycle: 'already-in-main',
+      blockedReadySuccessorCount: 0
     });
     expect(result.input.candidates.find(({ workId }) => workId === 'issue-312')).toMatchObject({
       readiness: 'not-ready'
     });
     const projection = compileSecWorkRollingProjectionV1(result);
-    expect(projection.active.packageId).toBe('operation-read-plan-authority-canary-v1');
-    expect(projection.candidates).toHaveLength(4);
+    expect(projection.active.packageId).toBe('controlled-pr-issue-disposition-single-writer-v1');
+    expect(projection.candidates).toHaveLength(5);
     expect(projection.receiptDigest).toBe(result.receiptDigest);
     const rendered = renderSecWorkRollingPlanV1({ receipt: result, reviewedOn: '2026-08-12' });
     expect(rendered).toContain(`### ${projection.active.packageId}`);
     expect(rendered).toContain(`"receiptDigest": "${result.receiptDigest}"`);
-    expect(rendered.match(/^### [1-9][0-9]*\. /gmu)).toHaveLength(4);
+    expect(rendered.match(/^### [1-9][0-9]*\. /gmu)).toHaveLength(5);
   });
 
-  test('published #346 manifest is consumed once and advances selection to #275', () => {
-    const result = receipt(['issue-346']);
+  test('published #352 manifest is consumed once and advances selection to #186', () => {
+    const result = receipt(['issue-346', 'issue-352']);
     expect(result.decision.status).toBe('select-next');
-    expect(result.decision.selectedWorkId).toBe('issue-275');
-    expect(result.input.candidates.find(({ workId }) => workId === 'issue-346'))
+    expect(result.decision.selectedWorkId).toBe('issue-186');
+    expect(result.input.candidates.find(({ workId }) => workId === 'issue-352'))
       .toMatchObject({ lifecycle: 'already-in-main', blockedReadySuccessorCount: 0 });
-    expect(result.input.candidates.find(({ workId }) => workId === 'issue-275'))
-      .toMatchObject({ blockedReadySuccessorCount: 2 });
+    expect(result.input.candidates.find(({ workId }) => workId === 'issue-186'))
+      .toMatchObject({ blockedReadySuccessorCount: 1 });
     const projection = compileSecWorkRollingProjectionV1(result);
-    expect(projection.active.packageId).toBe('delegation-consumer-zero-retirement-v1');
+    expect(projection.active.packageId).toBe('git-worktree-physical-closeout-v1');
     expect(projection.candidates.map(({ packageId }) => packageId)).not.toContain(
       'operation-read-plan-authority-canary-v1'
     );
-    expect(projection.candidates).toHaveLength(3);
+    expect(projection.candidates).toHaveLength(4);
   });
 
   test('rolling topology remains canonical when the selected draft PR becomes continue-active', () => {
@@ -167,8 +172,8 @@ describe('work-selection live contract', () => {
     const selected = receiptForCatalog(catalog, ['issue-346']);
     const continued = receiptForCatalog(catalog, ['issue-346'], {
       ...lifecycle(),
-      activeWorkId: 'issue-275',
-      activeRef: 'active:issue-275',
+      activeWorkId: 'issue-352',
+      activeRef: 'active:issue-352',
       activeState: 'incomplete',
       activeLegality: 'legal'
     });
@@ -209,7 +214,7 @@ describe('work-selection live contract', () => {
       exactMainTree,
       roadmapRevision: rawSha256(roadmapSource),
       catalog,
-      registry: registry(catalog),
+      registry: registry(catalog, ['issue-346']),
       current: lifecycle(),
       currentSpecs
     });

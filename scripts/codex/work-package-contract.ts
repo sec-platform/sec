@@ -560,7 +560,7 @@ export function CodexDevelopmentAssertWorkPackageOwnership(
 
 export function CodexDevelopmentAssertWorkPackageChangedRecords(
   manifest: CodexDevelopmentWorkPackageManifest,
-  records: CodexDevelopmentWorkPackageChangedRecordV1[]
+  records: readonly CodexDevelopmentWorkPackageChangedRecordV1[]
 ): CodexDevelopmentWorkPackageOwnershipResult {
   if (records.length === 0 || records.length > 3_000) throw new Error('Changed-file records must be non-empty and bounded.');
   const seenRecords = new Set<string>();

@@ -180,6 +180,48 @@ Phase B只在current lifecycle证明没有active candidate、closeout residue、
 身份不完整，selector先返回`continue-active | closeout | reconcile | unresolved`，不得硬编码clear；真正
 多work的order/path/resource编译仍归#207/#349，不复制进selector。
 
+MainHealth recovery不是Work Selection的候选特例，也不允许形成`repair → 全Issue census → reconcile`
+的循环依赖。一个fresh exact-main ledger必须先由MainHealth owner投影成互斥的
+`ordinary-only | repair-only | locked`：只有`ordinary-only`调用WorkDecision；`repair-only`只调用pure
+`MainHealthRepairDecision`；`locked`不调用任何选择器。这样普通catalog与稀有恢复路径共享同一上游真值，
+但彼此不串联、不重复远端观察。repair decision完整绑定repository/default/main/tree/trust、ledger、owner、
+failure fingerprints与manifest identity，只提供routing eligibility，不提供scope、implementation、provider、
+Review或merge authority。
+
+每个future degraded generation的repair manifest locator由
+`(repository, default branch, exact main, exact tree, owner, sorted failure fingerprints)`内容寻址派生，并把
+完整digest保留在path；已进入default的path永不复活，finding只在同一manifest/worktree/ref内产生新head。
+健康或locked ledger不暴露repair locator。`default-branch-health-repair-v2`只是trusted main尚无repair
+consumer时、由用户显式授权并经exact Review/new-main readback约束的一次manual-bootstrap bridge；它不跟踪
+Issue、不伪造ordinary WorkDecision或activation receipt，进入main后不得保留第二手工入口。#177继续只拥有
+failure classification；MainHealth routing与document-control effect owner不迁入#177。
+
+同一exact main可以由policy列出的不同GitHub event各产生一次MainHealth check。MainHealth owner先按
+MainHealth policy拥有封闭的recognized conclusion集合，并按`(terminal status, conclusion)`归一语义outcome：
+每个allowed event至多一个producer且全部recognized terminal outcome
+相同时才收敛；一致成功进入healthy，一致非成功进入degraded。same-event重复、nonterminal或不同conclusion
+以及unknown status/conclusion一律locked。failure fingerprint只绑定policy/context/head与归一outcome，不绑定provider check id或event，
+因此等价的第二producer到达不会制造新的repair identity。provider adapter先完成bounded pagination与shape
+admission；MainHealth producer source digest只绑定policy与排序后的matching normalized subset，不匹配的其他
+check不是decision input且不得仅凭噪声改变ledger provenance。raw response审计属于独立provider observation
+receipt owner，不能由MainHealth decision自行发明或用不完整bytes冒充。
+
+```mermaid
+stateDiagram-v2
+  [*] --> ObserveMain: one exact check-runs observation
+  ObserveMain --> OrdinaryOnly: healthy and fresh
+  ObserveMain --> RepairOnly: degraded and fresh
+  ObserveMain --> Locked: missing ambiguous stale or drifted
+  OrdinaryOnly --> WorkDecision: bounded roadmap and Issue facts
+  RepairOnly --> RepairDecision: exact failure-generation locator
+  RepairDecision --> Freeze: no active package and exact manifest binding
+  WorkDecision --> Freeze: exact select-next binding
+  Locked --> Stop
+  Freeze --> Review
+  Review --> NewMainReadback
+  NewMainReadback --> OrdinaryOnly: repaired MainHealth
+```
+
 ```mermaid
 stateDiagram-v2
   [*] --> Observe: exact main and bounded owner facts
@@ -205,6 +247,16 @@ Catalog采用一项延迟删除handoff：本轮选中的manifest进入main后仍
 窗口补足到能继续生成二至五候选。这样不保留tombstone/history文件，也不会因manifest先删除而把已完成
 前置重新解释为未完成。catalog最多保存七条近端记录，live adapter只做一次bounded Issue GraphQL和
 既有owner投影，不扫描Issue历史、comment或全backlog。
+
+非catalog recovery package临时插入时也不能破坏该完成事实。`docs:doctor`与`repository-audit`消费同一个
+pure package-census contract；各自从同一个immutable candidate tree读取pointer、manifest、roadmap与
+package census，不能复制第二套“仅一个manifest”算法。exact tree blob与directory membership必须复用
+同一个已reviewed、只读、参数受限的Git object observer；目录枚举不得为了便利另开process dispatcher或
+由candidate扩写TCB allowlist。只有selected manifest的tracking为`none`时，才可
+额外保留至多一个被canonical roadmap引用、在exact default ref存在且candidate/default bytes完全相同的
+published predecessor。第二个匹配项、非catalog文件、byte drift或普通tracked package下的额外manifest
+全部fail closed。下一ordinary slice必须同时删除recovery manifest、已消费predecessor及对应catalog item；
+Git历史承担审计，不把旧manifest复制到`docs/evidence/**`或另建tombstone。
 
 首次Phase C迁移是唯一bootstrap例外：旧rolling只含两个候选，而旧promotion要求提升后仍至少两个，
 因此不存在可执行的旧transition。本迁移在一个exact candidate中同时安装catalog、adapter、consumer与
@@ -803,14 +855,19 @@ no-follow/reparse ancestor、retained parent/target object identity、PRE/NEXT b
 
 Freeze journal只拥有一次未完成publication的恢复权。V4 `operationId`绑定manifest/control bytes、
 base/pre-index/candidate tree与reviewed revision；raw index PRE/NEXT bytes只是journal内的transport
-recovery material，不进入semantic operation identity。stage-zero index tree相同、或普通target已是exact
-NEXT且没有恢复tuple时，结果为zero-publication NOOP；不得刷新index stat cache、rename相同bytes或为
-NOOP制造journal之外的副作用。新operation在第一次repository object/index/journal/control publication
+recovery material，不进入semantic operation identity。index transport PRE与每个worktree target的物理PRE
+是不同事实：requested rolling bytes已经存在于worktree时，journal必须记录该exact worktree PRE，不能把
+旧index blob伪装成一次未发生的worktree CAS并发明recovery residue。stage-zero index tree相同、或普通
+target的真实PRE已等于exact NEXT且没有恢复tuple时，结果为zero-publication NOOP；不得刷新index stat
+cache、rename相同bytes或为NOOP制造journal之外的副作用。新operation在第一次repository object/index/journal/control publication
 之前读取且只读取一次live remote default；通过后最终pre-journal fence只复核local default、HEAD、index
 与worktree。重复远端读取不增加线性化保证，禁止把每次freeze的网络成本翻倍；未通过live admission时
-真实object database也必须byte/census不变。此owner的所有Git子进程默认强制`GIT_OPTIONAL_LOCKS=0`；任何真实
-index/object publication必须是代码中可枚举的显式effect，observer不得借Git的optional stat-cache refresh
-污染自己的PRE observation。
+真实object database也必须byte/census不变。此owner的所有Git子进程默认强制`GIT_OPTIONAL_LOCKS=0`，但该
+开关只是defense in depth，不是物理zero-write证明。任何解析index blob、stage、mode、tree或diff的Git命令
+都必须只看到repository外的exact scratch index/object directory；真实index只允许retained handle/fd
+raw-byte observation、显式CAS publication与紧邻readback；scratch解释无论成功或失败，都必须在传播结果或
+错误之前完成真实index的byte+identity readback。任何真实index/object publication必须是代码中
+可枚举的显式effect，observer不得借Git的stat-cache refresh污染自己的PRE observation。
 
 ```mermaid
 stateDiagram-v2
@@ -923,6 +980,10 @@ census。`VerificationSession` 只能消费该独立 typed assessment，禁止�
 当前仓库尚无该 trusted post-main assessment owner，因此只能产生 `progressed` receipt。
 hosted closeout 必须把完整 canonical typed receipt 保存在 run artifact 中；只保留摘要、裸 digest 或
 无法由 consumer 重新 parse 的 `Record<string, unknown>` 不构成可复用 Evidence。
+IssueDisposition的post-new-main health evidence也只是consumer：它必须把完整check observation交给唯一
+MainHealth compiler，以exact new-main commit/tree作为main与trust identity，消费fresh healthy
+ordinary-only ledger及其ledger digest。它不得再按name/appSlug/`length === 1`私自过滤或重定义成功；
+双event等价成功合法收敛，错误app完整identity、workflow ref/event、duplicate、unknown或conflict统一fail closed。
 PR/commit/comment 中的 closing lexical pattern 默认一律拒绝渲染，并覆盖 `#N`、`owner/repo#N` 与
 完整 `https://github.com/owner/repo/issues/N` 引用。
 公开 CLI 只允许渲染安全 PR body 和观察非 effect plan；不得暴露 compile/apply/reconcile 或通用

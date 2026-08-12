@@ -17,6 +17,7 @@ import {
   type SecAgentSkillId,
   type SecRepositorySurfaceKind
 } from '../../platform/shared/agent-skill-contract.ts';
+import { CodexDevelopmentClassifyWorkPackageCensusV1 } from './document-control-plane-contract.ts';
 
 const DEFAULT_REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const MAX_TEXT_FILE_BYTES = 2_000_000;
@@ -3279,12 +3280,50 @@ async function auditControlPlane(
   }
 
   const liveManifests = tracked.filter((file) => /^docs\/work-packages\/[^/]+\.md$/u.test(file));
-  if (liveManifests.length !== 1 || liveManifests[0] !== manifestPath) {
+  try {
+    const entries = liveManifests.map((packagePath) => {
+      const candidateBytes = bytesByPath.get(packagePath);
+      if (candidateBytes === undefined) {
+        throw new Error(`candidate Git bytes are unavailable for ${packagePath}`);
+      }
+      return {
+        path: packagePath,
+        candidateBytes,
+        defaultBytes: packagePath === manifestPath
+          ? null
+          : runGitBytes(repositoryRoot, ['show', `${defaultRef}:${packagePath}`], { allowFailure: true })
+      };
+    });
+    const roadmapSource = textByPath.get('docs/roadmap.md');
+    const census = CodexDevelopmentClassifyWorkPackageCensusV1({
+      selectedManifestPath: manifestPath,
+      entries,
+      roadmapSource: liveManifests.length > 1 && roadmapSource !== null
+        ? roadmapSource
+        : undefined
+    });
+    if (census.ambiguousPredecessorPaths.length > 0) {
+      pushFinding(findings, {
+        code: 'control-plane-live-manifest-census',
+        message: `multiple byte-exact published predecessors remain: ${census.ambiguousPredecessorPaths.join(', ')}`,
+        path: 'docs/work-packages',
+        severity: 'high'
+      });
+    }
+    for (const stalePath of census.stalePackagePaths) {
+      pushFinding(findings, {
+        code: 'control-plane-live-manifest-census',
+        message: `stale or unauthorized Work Package remains beside the selected manifest: ${stalePath}`,
+        path: stalePath,
+        severity: 'high'
+      });
+    }
+  } catch (error) {
     pushFinding(findings, {
       code: 'control-plane-live-manifest-census',
-      message: `docs/work-packages must contain only the selected manifest; found ${liveManifests.join(', ') || '<none>'}`,
+      message: error instanceof Error ? error.message : String(error),
       path: 'docs/work-packages',
-      severity: 'high'
+      severity: 'critical'
     });
   }
   return { pointerManifestOnDefault };

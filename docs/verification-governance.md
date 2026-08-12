@@ -313,15 +313,35 @@ hosted transition，running为WAITING，失败或ambiguous expired claim为BLOCK
 ActionKey和aggregate digest不得进入formal hosted Session revision或伪装成hosted PASS。
 
 MainHealth是对exact default commit/tree的live ledger，状态仅为
-`healthy | degraded | locked`，并绑定failure fingerprints、owner、repair Work Package、expiry、
-allowed lane和trust revision。无法完整读取、过期或revision不匹配一律视为`locked`；普通
-candidate不得吸收unrelated baseline/verifier/selector defect。`allowedLanes`只表达exact
-ledger的语义路由限制，不是physical executor、frozen Work Package、Scope、Evidence、Review、
-IntegrationAuthorization或merge authority。当前repair locator仍为proposal-only/not-frozen，
-因此known exact-main failure可以被保存为degraded repair-only事实，但所有production consumer
-仍是ordinary-only：degraded阻断ordinary且不授权任何repair或integration effect。只有后继
-独立冻结的repair Work Package把exact manifest/write set接入Scope、Session、Evidence、Review、
-authorization、merge authority与hosted effect ownership后，production才能选择repair lane。
+`healthy | degraded | locked`，并绑定failure fingerprints、owner、content-addressed repair Work Package、
+expiry、allowed lane和trust revision。无法完整读取、过期或revision不匹配一律视为`locked`；普通
+candidate不得吸收unrelated baseline/verifier/selector defect。一个fresh ledger先由MainHealth owner
+互斥投影为`ordinary-only | repair-only | locked`：只有`ordinary-only`调用WorkDecision与Issue catalog；
+`repair-only`只调用pure `MainHealthRepairDecision`并把exact repository/default/main/tree/trust、ledger、
+owner、failure fingerprints与manifest identity交给document-control；`locked`不调用任何选择器。
+repair路径因此不依赖全Issue census，也不能与ordinary选择同时运行。
+
+多个受信event producer不是天然冲突，也不能以“任意一个成功”投票。唯一MainHealth compiler只在每个
+allowed event至多一个check且全部给出相同`terminal status + conclusion`时收敛：一致成功是healthy，
+一致终态失败是degraded；terminal conclusion词汇由MainHealth policy封闭拥有，同event重复、nonterminal、
+unknown status/conclusion或结论分歧都是locked。语义failure fingerprint排除
+check id/event等transport identity以保持等价观察稳定。adapter必须先闭合bounded pagination与shape；MainHealth
+source digest绑定policy与canonical matching subset，nonmatching provider noise不参与health decision也不引起
+provenance churn。完整raw response若需审计，必须由独立provider observation receipt owner签发，不能在
+MainHealth compiler里复制transport authority。
+
+所有post-main consumer同样不得复制MainHealth判断。IssueDisposition readback把完整normalized check inventory、
+exact new-main commit/tree/trust和fresh observation时间交给canonical compiler/lane resolver，只接受
+healthy ordinary-only ledger并引用其ledger digest；`length === 1`、只验appSlug或局部name/status filter都是
+competing authority，必须由test/source-lock阻止。
+
+`allowedLanes`和repair decision只表达exact ledger的语义路由限制，不是physical executor、Scope、
+Evidence、Review、IntegrationAuthorization或merge authority。document-control只能在无active package、
+manifest path/package/base/tree/trust全绑定且现有Work Package授权的情况下冻结该projection；后续仍须
+通过exact Scope、Session、Evidence、独立Review、authorization、hosted merge与new-main readback。
+当前`default-branch-health-repair-v2`是trusted main缺少上述consumer时唯一一次人工bootstrap bridge；
+它进入main后，future degraded generation只走内容寻址的production repair route，不保留caller JSON、
+手工pointer staging或第二repair入口。
 
 ## Implementation Conformance 与 Resolution Evidence
 
@@ -611,6 +631,13 @@ active ref与多个immutable generations。
 - Compatibility Decision Evidence：规则、Delta、Result、环境与用户decision references。
 
 Predicted Impact、planned selection、Eligibility、Resolution Decision、actual Delta、Compatibility Decision、executed Result、Aggregate和上层Decision是不同对象。它们之间必须有显式references，不能复制字段后当作同一事实。
+
+代表成功或可消费provider artifact的contract fixture必须通过当前canonical constructor、reducer与finalizer
+生成完整对象；手写旧schema片段、payload与metadata自相矛盾的fixture只能用于明确的malformed负向用例，
+不能替代目标authority boundary。source-lock必须约束真实因果阶段、唯一调用数和effect前后顺序，不能以
+跨阶段token禁令误杀合法的pre-effect guard；merge/readback后的观察面仍保持writer capability为零。
+共享test fixture使用独立的最小test-impact owner，只选择其直接consumer与selector contract，不得挂入
+无关的宽production closure，也不得成为无owner的selection空洞。
 
 ## Merge Authority
 

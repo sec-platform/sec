@@ -56,16 +56,43 @@ function trackedRepositoryFiles(): string[] {
   return result.stdout.split('\0').filter(Boolean).sort();
 }
 
-function readHeadBlob(repositoryPath: string): Uint8Array {
-  const result = spawnSync('git', ['show', `HEAD:${repositoryPath}`], {
+function readGitBlob(repositoryRef: string, repositoryPath: string): Uint8Array;
+function readGitBlob(repositoryRef: string, repositoryPath: string, allowMissing: true): Uint8Array | null;
+function readGitBlob(
+  repositoryRef: string,
+  repositoryPath: string,
+  allowMissing = false
+): Uint8Array | null {
+  if (repositoryRef !== 'HEAD'
+      && !/^(?:[0-9a-f]{40}|refs\/remotes\/[A-Za-z0-9._-]+\/[A-Za-z0-9._\/-]+)$/u.test(repositoryRef)) {
+    throw new Error(`Git fixture ref is noncanonical: ${repositoryRef}`);
+  }
+  if (!/^docs\/[A-Za-z0-9._\/-]+$/u.test(repositoryPath)) {
+    throw new Error(`Git fixture path is noncanonical: ${repositoryPath}`);
+  }
+  const result = spawnSync('git', ['show', `${repositoryRef}:${repositoryPath}`], {
     cwd: REPOSITORY_ROOT,
     windowsHide: true
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    throw new Error(`git show HEAD:${repositoryPath} failed: ${result.stderr.toString().trim()}`);
+    if (allowMissing) return null;
+    throw new Error(`git show ${repositoryRef}:${repositoryPath} failed: ${result.stderr.toString().trim()}`);
   }
   return new Uint8Array(result.stdout);
+}
+
+function listGitWorkPackagePaths(repositoryRef: string): readonly string[] {
+  const result = spawnSync(
+    'git',
+    ['ls-tree', '-r', '--name-only', repositoryRef, '--', 'docs/work-packages'],
+    { cwd: REPOSITORY_ROOT, encoding: 'utf8', windowsHide: true }
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`git ls-tree ${repositoryRef} failed: ${result.stderr.trim()}`);
+  }
+  return result.stdout.split('\n').filter(Boolean);
 }
 
 function executableSkillGuidance(source: string): string {
@@ -383,11 +410,14 @@ test('external capability ledger binds current package authority without a self-
   expect(graphItLive?.lifecycle).toBe('retired');
 });
 
-test('repository documentation resolves registry, one selected Work Package, and zero docs errors', async () => {
+test('repository documentation resolves registry, the exact package census, and zero docs errors', async () => {
   const result = await scanDocumentation({
     docsRoot: path.join(REPOSITORY_ROOT, 'docs'),
     repositoryRoot: REPOSITORY_ROOT,
-    readCandidateManifestBlob: async (manifestPath) => readHeadBlob(manifestPath)
+    readControlPlaneBlob: async (repositoryPath) => readGitBlob('HEAD', repositoryPath),
+    listControlPlanePackagePaths: async () => listGitWorkPackagePaths('HEAD'),
+    readDefaultBranchBlob: async (defaultBranchRef, repositoryPath) =>
+      readGitBlob(defaultBranchRef, repositoryPath, true)
   });
   expect(result.errors).toEqual([]);
 });

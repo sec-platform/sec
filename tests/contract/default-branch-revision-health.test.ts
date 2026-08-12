@@ -4,7 +4,10 @@ import path from 'node:path';
 import ts from 'typescript';
 
 import { resolveDefaultBranchRevisionHealthV1 } from '../../platform/shared/default-branch-revision-health.ts';
-import { createMainHealthLedgerV1 } from '../../platform/shared/main-health-contract.ts';
+import {
+  createMainHealthLedgerV1,
+  createMainHealthRepairWorkPackagePathV1
+} from '../../platform/shared/main-health-contract.ts';
 
 const SHA = '1'.repeat(40);
 const TREE = '2'.repeat(40);
@@ -32,10 +35,12 @@ function healthy() {
 }
 
 function degraded() {
+  const owner = 'default-branch-health-maintainer';
   return createMainHealthLedgerV1({
     repository: 'sec-platform/sec', defaultBranch: 'main', mainSha: SHA, mainTreeSha: TREE,
-    status: 'degraded', failureFingerprints: [DIGEST], owner: 'default-branch-health-maintainer',
-    repairWorkPackage: 'docs/work-packages/default-branch-health-repair-v2.md',
+    status: 'degraded', failureFingerprints: [DIGEST], owner,
+    repairWorkPackage: createMainHealthRepairWorkPackagePathV1({ repository: 'sec-platform/sec',
+      defaultBranch: 'main', mainSha: SHA, mainTreeSha: TREE, owner, failureFingerprints: [DIGEST] }),
     observedAt: '2026-08-09T00:00:00.000Z', expiresAt: '2026-08-09T01:00:00.000Z',
     allowedLanes: ['repair'], trustRevision: SHA,
     producer: { identity: 'main-health-runtime', trustRevision: SHA, sourceTransport: 'github-api',
@@ -51,7 +56,7 @@ test('live exact-main health selects ordinary routing eligibility', () => {
   expect(result.status).toBe('healthy');
 });
 
-test('default-branch production projection cannot select a proposal-only repair lane', () => {
+test('ordinary default-branch projection cannot consume the separately owned repair lane', () => {
   const result = resolveDefaultBranchRevisionHealthV1({
     ledger: degraded(), lane: 'repair',
     now: '2026-08-09T00:30:00.000Z', repository: 'sec-platform/sec', defaultBranch: 'main',
@@ -61,8 +66,9 @@ test('default-branch production projection cannot select a proposal-only repair 
   expect(result.reason).toContain('ordinary lane is not eligible');
 });
 
-test('every production MainHealth lane consumer is AST-bound to literal ordinary', () => {
+test('every production MainHealth lane consumer is AST-bound to its sole ordinary or repair owner', () => {
   const violations: string[] = [];
+  const repairConsumers: string[] = [];
   const repositoryRoot = process.cwd();
   for (const absolutePath of [
     ...productionTypeScriptFiles(path.join(repositoryRoot, 'platform', 'shared')),
@@ -94,7 +100,12 @@ test('every production MainHealth lane consumer is AST-bound to literal ordinary
           ? argument.properties.find((property): property is ts.PropertyAssignment =>
             ts.isPropertyAssignment(property) && property.name.getText(sourceFile) === 'lane')
           : undefined;
-        if (lane === undefined || !ts.isStringLiteral(lane.initializer) || lane.initializer.text !== 'ordinary') {
+        const literal = lane !== undefined && ts.isStringLiteral(lane.initializer)
+          ? lane.initializer.text : null;
+        if (literal === 'repair'
+            && relativePath === 'platform/shared/main-health-repair-contract.ts') {
+          repairConsumers.push(relativePath);
+        } else if (literal !== 'ordinary') {
           violations.push(`${relativePath}:${sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
         }
       }
@@ -103,6 +114,7 @@ test('every production MainHealth lane consumer is AST-bound to literal ordinary
     visit(sourceFile);
   }
   expect(violations).toEqual([]);
+  expect(repairConsumers).toEqual(['platform/shared/main-health-repair-contract.ts']);
 });
 
 test('missing, malformed, expired, or revision-drifted health locks fail closed', () => {
