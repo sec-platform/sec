@@ -25,6 +25,7 @@ import {
   CodexDevelopmentVerificationDigest,
   type CodexDevelopmentVerificationEvidenceV4
 } from '../../platform/shared/ci-evidence-contract.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservationV1 } from '../../platform/shared/ci-git-changed-files.ts';
 import {
   CodexDevelopmentCreateHostedSutExecutionAuthorizationV1,
   CodexDevelopmentFinalizeHostedActionRawResultV2,
@@ -1402,6 +1403,33 @@ test('CI runner executes every ordinary gate through Action and publishes only V
     expect(() => CodexDevelopmentAssertVerificationEvidenceV4(captured, {
       actionPlan: captured!.actionPlan
     }, new Date('2026-08-09T00:01:00.000Z'))).not.toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('CI runner accepts transition injection only with matching exact changed records', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-transition-binding-'));
+  try {
+    const transition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+      baseSha: BASE,
+      headSha: HEAD,
+      records: [{ status: 'changed', path: 'platform/orchestrator.ts' }],
+      readPathBlob: () => null
+    });
+    expect(await CodexDevelopmentCiVerificationMain({
+      ...baseOptions(root),
+      transitionObservation: transition,
+      writeEvidenceV4: () => undefined
+    })).toBe(1);
+    const { changedFiles: _changedFiles, ...recordOptions } = baseOptions(root);
+    void _changedFiles;
+    expect(await CodexDevelopmentCiVerificationMain({
+      ...recordOptions,
+      changedRecords: () => [{ status: 'added', path: 'platform/orchestrator.ts' }],
+      transitionObservation: transition,
+      writeEvidenceV4: () => undefined
+    })).toBe(1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

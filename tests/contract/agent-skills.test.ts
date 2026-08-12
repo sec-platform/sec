@@ -30,7 +30,6 @@ const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const SKILLS_ROOT = path.join(REPOSITORY_ROOT, '.agents', 'skills');
 
 interface SkillFrontmatter {
-  compatibility?: unknown;
   description?: unknown;
   name?: unknown;
 }
@@ -115,14 +114,13 @@ test('SEC skill inventory conforms to one strict AgentOperation contract', async
   for (const skillId of SEC_AGENT_SKILL_IDS) {
     const source = await readFile(path.join(SKILLS_ROOT, skillId, 'SKILL.md'), 'utf8');
     const { body, frontmatter } = parseSkill(source);
-    expect(Object.keys(frontmatter).sort()).toEqual(['compatibility', 'description', 'name']);
+    expect(Object.keys(frontmatter).sort()).toEqual(['description', 'name']);
     expect(frontmatter.name).toBe(skillId);
     expect(typeof frontmatter.description).toBe('string');
     expect((frontmatter.description as string).length).toBeGreaterThan(0);
     expect((frontmatter.description as string).length).toBeLessThanOrEqual(1024);
     expect(descriptions.has(frontmatter.description as string)).toBe(false);
     descriptions.add(frontmatter.description as string);
-    expect(typeof frontmatter.compatibility).toBe('string');
     expect(body.match(/^#\s+/gmu)).toHaveLength(1);
     let previousIndex = -1;
     for (const section of SEC_AGENT_SKILL_STANDARD_SECTIONS) {
@@ -206,6 +204,11 @@ test('skills preserve decisive boundaries without retaining retired documentatio
   expect(sources['sec-task-delegation']).toContain('是否值得委派');
   expect(agentsSource).toContain('document-control-plane.ts status --json');
   expect(sources['sec-failure-recovery']).toContain('输入与failure tail未变时复用失败证据并停止');
+  expect(sources['sec-failure-recovery']).toContain('自动从exact new main运行canonical document-control status');
+  expect(sources['sec-failure-recovery']).toContain('信任代际变化本身不是用户交互点');
+  expect(sources['sec-failure-recovery']).toContain('不得把`TASK_RESTART_REQUIRED`当作普通停止理由');
+  expect(sources['sec-failure-recovery']).toContain('status unresolved/invalid');
+  expect(agentsSource).toContain('不得仅因代际变化返回历史性的 `TASK_RESTART_REQUIRED`');
   expect(agentsSource).not.toContain('GitNexus upstream impact');
 
   const retiredIds = [

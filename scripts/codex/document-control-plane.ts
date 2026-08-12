@@ -5955,10 +5955,14 @@ export async function freezeDocumentControlPlaneV1(input: {
     );
 
     const currentManifestBlob = snapshot.candidateManifestBlob;
+    const currentDefaultManifestBlob = readGitBlob(
+      repositoryRoot,
+      `${localDefaultSha}:${pointer.manifest}`
+    ) ?? null;
     const currentResolution = CodexDevelopmentResolveActiveWorkPackageV1({
       pointer,
       candidateManifestBlob: currentManifestBlob,
-      defaultManifestBlob: readGitBlob(repositoryRoot, `${localDefaultSha}:${pointer.manifest}`) ?? null,
+      defaultManifestBlob: currentDefaultManifestBlob,
       defaultRefState: 'fresh'
     });
     if (currentResolution.state === 'invalid' || currentResolution.state === 'unresolved') {
@@ -6044,6 +6048,7 @@ export async function freezeDocumentControlPlaneV1(input: {
       });
       if (repairDecision.routingState === 'repair-only') {
         if (currentResolution.state !== 'none'
+            || currentDefaultManifestBlob === null
             || repairDecision.status !== 'repair-ready'
             || repairDecision.binding === null
             || repairDecision.binding.manifestPath !== input.manifestPath) {
@@ -6051,7 +6056,14 @@ export async function freezeDocumentControlPlaneV1(input: {
             `MainHealth repair projection is unavailable, stale, or conflicts with an active package (${repairDecision.reasonCode}).`
           );
         }
-        mainHealthRepairProjection = Object.freeze({ decision: repairDecision });
+        mainHealthRepairProjection = Object.freeze({
+          decision: repairDecision,
+          publishedActivePackage: Object.freeze({
+            manifestPath: pointer.manifest,
+            manifestDigest: pointer.manifestDigest,
+            defaultManifestBytes: currentDefaultManifestBlob
+          })
+        });
       } else if (repairDecision.routingState === 'locked') {
         throw new Error(
           `MainHealth locks ordinary selection and repair (${repairDecision.reasonCode}).`

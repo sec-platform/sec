@@ -40,6 +40,7 @@ import {
   CodexDevelopmentCreateVerificationEvidenceProducerV4,
   CodexDevelopmentParseVerificationSessionArtifactV2
 } from '../../platform/shared/ci-evidence-contract.ts';
+import type { CodexDevelopmentTestImpactTransitionObservationV1 } from '../../platform/shared/ci-git-changed-files.ts';
 import {
   CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1,
   CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2,
@@ -134,6 +135,7 @@ import {
   type BranchLifecycleInventory
 } from './branch-lifecycle-types.ts';
 import { verifyRecoveryAuthorityLive } from './branch-recovery.ts';
+import { CodexDevelopmentDefaultChangedPathsV1 } from './ci-orchestration-core.ts';
 import {
   assertHostedIntegrationPhaseOwnershipV1,
   createIntegrationAuthorizationOperationPublicationV1,
@@ -224,6 +226,38 @@ interface VerificationSessionScope {
 
 function createVerificationSessionScope(input: VerificationSessionScope): VerificationSessionScope {
   return Object.freeze({ ...input });
+}
+
+function observeVerificationSessionChangedSelectionV1(input: {
+  repositoryRoot: string;
+  repository: string;
+  prNumber: number;
+  candidate: GitHubCandidateObservationV1;
+  github: VerificationSessionGitHubClientV1;
+}): Readonly<{
+  changedPaths: readonly string[];
+  testImpactTransition: CodexDevelopmentTestImpactTransitionObservationV1;
+}> {
+  const provider = input.github.observeChangedPaths({
+    repository: input.repository,
+    prNumber: input.prNumber,
+    state: 'OPEN',
+    draft: false,
+    baseSha: input.candidate.baseSha,
+    headSha: input.candidate.headSha
+  });
+  const exact = CodexDevelopmentDefaultChangedPathsV1(
+    input.repositoryRoot,
+    input.candidate.baseSha,
+    input.candidate.headSha
+  );
+  if (exact === null || JSON.stringify(exact.files) !== JSON.stringify(provider.paths)) {
+    throw new Error('VerificationSession provider inventory differs from the exact Git base/head transition.');
+  }
+  return Object.freeze({
+    changedPaths: Object.freeze([...provider.paths]),
+    testImpactTransition: exact.transitionObservation
+  });
 }
 
 function runVerificationSessionCommand(
@@ -3552,8 +3586,14 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     if (manifest.schema !== 'codex-development-work-package-v1') {
       throw new Error('prepare currently requires the canonical V1 Work Package requiredProfile field.');
     }
-    const changedPaths = github.observeChangedPaths({ repository, prNumber,
-      state: 'OPEN', draft: false, baseSha: candidate.baseSha, headSha: candidate.headSha }).paths;
+    const changedSelection = observeVerificationSessionChangedSelectionV1({
+      repositoryRoot,
+      repository,
+      prNumber,
+      candidate,
+      github
+    });
+    const changedPaths = changedSelection.changedPaths;
     CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changedPaths]);
     const dependencyBlobs = observeVerificationSessionActionDependencyBlobsV2({ github, repository,
       baseSha: candidate.baseSha, headSha: candidate.headSha });
@@ -3565,7 +3605,8 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       excludedPrincipalNodeIds: new Set([candidate.authorNodeId, principal.nodeId]) });
     const observedAt = now();
     const prepared = prepareTrustedMainVerificationSessionV1({ repository, candidate, manifestPath, manifestDigest,
-      changedPaths, profile: manifest.requiredProfile, integrationPrincipalNodeId: principal.nodeId,
+      changedPaths, testImpactTransition: changedSelection.testImpactTransition,
+      profile: manifest.requiredProfile, integrationPrincipalNodeId: principal.nodeId,
       producerPrincipalNodeId: principal.nodeId, sourceRunId: environment.GITHUB_RUN_ID ?? `local-${process.pid}`,
       sourceRef: `refs/heads/main@${candidate.baseSha}`, observedAt, reviewBarrier: barrier,
       mainHealthChecks: github.observeChecks(repository, candidate.baseSha), dependencyBlobs });
@@ -3603,6 +3644,8 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
             manifestPath,
             manifestDigest,
             changedPaths,
+            testImpactTransition: changedSelection.testImpactTransition,
+            expectedTestImpactTransitionDigest: prepared.testImpactTransitionDigest,
             scopeAuthorizationRevision: prepared.scopeAuthorizationRevision,
             executionEnvironment: localExecutionEnvironment,
             dependencyBlobs
@@ -3732,9 +3775,14 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     const manifestSource = github.readBlobText(repository, request.expectedHeadSha, request.manifestPath);
     if (CodexDevelopmentWorkPackageManifestDigest(manifestSource) !== request.manifestDigest) throw new Error('observe-hosted manifest digest drifted.');
     const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource);
-    const changedPaths = github.observeChangedPaths({ repository, prNumber: request.prNumber,
-      state: 'OPEN', draft: false,
-      baseSha: request.expectedBaseSha, headSha: request.expectedHeadSha }).paths;
+    const changedSelection = observeVerificationSessionChangedSelectionV1({
+      repositoryRoot,
+      repository,
+      prNumber: request.prNumber,
+      candidate,
+      github
+    });
+    const changedPaths = changedSelection.changedPaths;
     CodexDevelopmentAssertWorkPackageOwnership(manifest, [...changedPaths]);
     const dependencyBlobs = observeVerificationSessionActionDependencyBlobsV2({ github, repository,
       baseSha: request.expectedBaseSha, headSha: request.expectedHeadSha });
@@ -3793,7 +3841,9 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }
     if (reviewBarrier.status !== 'clear') throw new Error('observe-hosted Review barrier did not narrow to clear.');
     const observedAt = now();
-    const observedFacts = reconstructVerificationSessionHostedFactsV1({ request, repository, candidate, changedPaths,
+    const observedFacts = reconstructVerificationSessionHostedFactsV1({
+      request, repository, candidate, changedPaths,
+      testImpactTransition: changedSelection.testImpactTransition,
       integrationPrincipalNodeId: compilerIdentity.actorNodeId,
       producerPrincipalNodeId: compilerIdentity.actorNodeId, sourceRunId: compilerIdentity.runId,
       sourceRef: `.github/workflows/compiler-pr-validation.yml@${request.expectedBaseSha}`, observedAt, reviewBarrier,

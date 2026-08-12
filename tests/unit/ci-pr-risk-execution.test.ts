@@ -16,6 +16,7 @@ import {
   CodexDevelopmentAssertVerificationEvidenceV2,
   type CodexDevelopmentVerificationEvidenceV2
 } from '../../platform/shared/ci-evidence-contract.ts';
+import { CodexDevelopmentCreateTestImpactTransitionObservationV1 } from '../../platform/shared/ci-git-changed-files.ts';
 import {
   CodexDevelopmentCiPrRiskMain
 } from '../../scripts/ci-pr-risk.ts';
@@ -138,6 +139,33 @@ test('CI risk resolves changed files against the immutable PR base SHA', async (
 
   expect(code).toBe(0);
   expect(observedChangedBases).toEqual([BASE]);
+});
+
+test('CI risk rejects path-only transition injection and records that differ from its exact observation', async () => {
+  const transition = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha: BASE,
+    headSha: HEAD,
+    records: [{ status: 'changed', path: 'scripts/ci-pr-risk.ts' }],
+    readPathBlob: () => null
+  });
+  const common = {
+    argv: [],
+    env: { SEC_CHANGED_BASE: BASE, SEC_AFFECTED_TESTS_BASE: BASE },
+    now: clock(),
+    gitRevision,
+    trackedTreeIsClean: () => true,
+    transitionObservation: transition,
+    runGate: async () => ({ code: 0, rawOutputDigest: `sha256:${'0'.repeat(64)}`, failureTail: '' }),
+    writeEvidence: () => undefined
+  };
+  expect(await CodexDevelopmentCiPrRiskMain({
+    ...common,
+    changedFiles: () => ['scripts/ci-pr-risk.ts']
+  })).toBe(1);
+  expect(await CodexDevelopmentCiPrRiskMain({
+    ...common,
+    changedRecords: () => [{ status: 'added', path: 'scripts/ci-pr-risk.ts' }]
+  })).toBe(1);
 });
 
 test('CI risk fail-fast evidence retains raw digest, failure tail, and not-run gates', async () => {

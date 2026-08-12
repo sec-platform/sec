@@ -79,6 +79,11 @@ export interface CodexDevelopmentWorkSelectionProjectionV1 {
 
 export interface CodexDevelopmentMainHealthRepairProjectionV1 {
   readonly decision: MainHealthRepairDecisionV1;
+  readonly publishedActivePackage: Readonly<{
+    manifestPath: string;
+    manifestDigest: `sha256:${string}`;
+    defaultManifestBytes: Uint8Array;
+  }>;
 }
 
 export type CodexDevelopmentWorkSelectionProjectionModeV1 =
@@ -560,7 +565,7 @@ export interface CodexDevelopmentWorkPackageCensusV1 {
   readonly stalePackagePaths: readonly string[];
 }
 
-function censusBytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+function rawBytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;
   for (let index = 0; index < left.byteLength; index++) {
     if (left[index] !== right[index]) return false;
@@ -624,7 +629,7 @@ export function CodexDevelopmentClassifyWorkPackageCensusV1(input: Readonly<{
   const eligible = nonSelected.filter((entry) => {
     const item = catalogByPath.get(entry.path);
     if (item === undefined || entry.defaultBytes === null
-        || !censusBytesEqual(entry.candidateBytes, entry.defaultBytes)) return false;
+        || !rawBytesEqual(entry.candidateBytes, entry.defaultBytes)) return false;
     const predecessor = CodexDevelopmentParseWorkPackageManifest(
       decodeCensusManifest(entry.candidateBytes, `Published predecessor ${entry.path}`),
       entry.path
@@ -747,15 +752,19 @@ export function CodexDevelopmentPromoteRollingPlanV1(input: {
 
 /**
  * Temporarily places one exact degraded-main repair in front of the existing
- * ordered topology. The previous active package becomes candidate one and no
- * prior candidate is reordered or invented. A later healthy WorkDecision owns
- * the normal topology replacement.
+ * ordered topology. A byte-identical active package already published on the
+ * exact default ref is complete and retires; otherwise it remains candidate
+ * one. No unresolved candidate is reordered, invented, or truncated. A later
+ * healthy WorkDecision owns the normal topology replacement.
  */
 export function CodexDevelopmentActivateMainHealthRepairRollingPlanV1(input: {
   source: string;
   packageId: string;
   mainSha: string;
+  mainTreeSha: string;
   healthRevision: `sha256:${string}`;
+  failureFingerprints: readonly `sha256:${string}`[];
+  publishedActivePackageId: string | null;
 }): string {
   const parsed = CodexDevelopmentParseRollingPlanV1(input.source);
   const packageId = stringValue(input.packageId, 'MainHealth repair packageId');
@@ -764,8 +773,19 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlanV1(input: {
     throw new Error('MainHealth repair package must be one new canonical package ID.');
   }
   if (!/^[0-9a-f]{40}$/u.test(input.mainSha)
+      || !/^[0-9a-f]{40}$/u.test(input.mainTreeSha)
       || !/^sha256:[0-9a-f]{64}$/u.test(input.healthRevision)) {
     throw new Error('MainHealth repair rolling identity is invalid.');
+  }
+  if (input.failureFingerprints.length === 0
+      || input.failureFingerprints.some((fingerprint) => !/^sha256:[0-9a-f]{64}$/u.test(fingerprint))
+      || JSON.stringify(input.failureFingerprints)
+        !== JSON.stringify([...new Set(input.failureFingerprints)].sort())) {
+    throw new Error('MainHealth repair rolling failure fingerprints must be non-empty canonical digests.');
+  }
+  if (input.publishedActivePackageId !== null
+      && input.publishedActivePackageId !== parsed.activePackageId) {
+    throw new Error('Published active package identity differs from the current rolling topology.');
   }
   const activeMarker = uniqueHeadingMatch(
     input.source,
@@ -778,6 +798,15 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlanV1(input: {
     'Rolling plan candidate marker'
   );
   const activeMarkerEnd = activeMarker.index! + activeMarker[0].length;
+  const titleHeading = uniqueHeadingMatch(
+    input.source,
+    /^# (?!#).+\r?$/gmu,
+    'Rolling plan title heading'
+  );
+  const titleHeadingEnd = titleHeading.index! + titleHeading[0].length;
+  if (titleHeadingEnd >= activeMarker.index!) {
+    throw new Error('Rolling plan title must precede the active package section.');
+  }
   const candidateMarkerStart = candidateMarker.index!;
   const candidateMarkerEnd = candidateMarkerStart + candidateMarker[0].length;
   const followingSectionPattern = /^## (?!候选 Work Package[ \t]*\r?$).+\r?$/gmu;
@@ -794,6 +823,7 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlanV1(input: {
   if (activeHeading[1] !== parsed.activePackageId) {
     throw new Error('MainHealth repair rolling active package identity drifted.');
   }
+  const eol = sourceLineEnding(input.source);
   const activeHeadingEnd = activeHeading.index! + activeHeading[0].length;
   const activeBody = activeSection.slice(activeHeadingEnd);
   const headingPattern = /^### ([1-9][0-9]*)\. ([a-z0-9][a-z0-9-]*)([ \t]*)(\r?\n|$)/gmu;
@@ -801,10 +831,24 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlanV1(input: {
   const candidateBlocks = headings.map((heading, index) => {
     const start = heading.index!;
     const end = index + 1 < headings.length ? headings[index + 1]!.index! : candidateSection.length;
-    return { id: heading[2]!, body: candidateSection.slice(start + heading[0].length, end) };
+    return {
+      id: heading[2]!,
+      ordinal: Number(heading[1]),
+      headingSuffix: `${heading[3]!}${heading[4]!}`,
+      body: candidateSection.slice(start + heading[0].length, end),
+      rawBlock: candidateSection.slice(start, end)
+    };
   });
   const retained = [
-    { id: parsed.activePackageId, body: activeBody },
+    ...(input.publishedActivePackageId === null
+      ? [{
+          id: parsed.activePackageId,
+          ordinal: 0,
+          headingSuffix: eol,
+          body: activeBody,
+          rawBlock: null
+        }]
+      : []),
     ...candidateBlocks
   ];
   if (retained.length > 5) {
@@ -815,7 +859,11 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlanV1(input: {
   if (retained.length < 2 || new Set(retained.map(({ id }) => id)).size !== retained.length) {
     throw new Error('MainHealth repair rolling projection cannot preserve a bounded unique topology.');
   }
-  const eol = sourceLineEnding(input.source);
+  const repairOverview = `${eol}${eol}`
+    + `本投影由唯一MainHealth repair renderer绑定exact \`main@${input.mainSha}\`、tree `
+    + `\`${input.mainTreeSha}\`、health \`${input.healthRevision}\`与排序failure fingerprints `
+    + `\`${input.failureFingerprints.join(',')}\`。旧epoch说明、caller prose与普通WorkDecision都不能参与本次`
+    + `repair projection；长期DAG、current spec和普通选择权仍归其canonical owner。${eol}${eol}`;
   const activeReplacement = `${activeMarker[0]}${eol}${eol}### ${packageId}${eol}${eol}`
     + `Exact degraded-main repair for \`main@${input.mainSha}\` and health `
     + `\`${input.healthRevision}\`. This temporary projection has no ordinary work-selection authority.`
@@ -823,8 +871,13 @@ export function CodexDevelopmentActivateMainHealthRepairRollingPlanV1(input: {
   const candidatePrefixMatch = /^(?:[ \t]*\r?\n)*/u.exec(candidateSection);
   const candidatePrefix = candidatePrefixMatch?.[0] ?? `${eol}${eol}`;
   const candidateReplacement = `${candidateMarker[0]}${candidatePrefix}`
-    + retained.map(({ id, body }, index) => `### ${index + 1}. ${id}${eol}${body}`).join('');
-  const rendered = input.source.slice(0, activeMarker.index!)
+    + retained.map(({ id, ordinal, headingSuffix, body, rawBlock }, index) => {
+      const nextOrdinal = index + 1;
+      if (rawBlock !== null && ordinal === nextOrdinal) return rawBlock;
+      return `### ${nextOrdinal}. ${id}${headingSuffix}${body}`;
+    }).join('');
+  const rendered = input.source.slice(0, titleHeadingEnd)
+    + repairOverview
     + activeReplacement
     + candidateReplacement
     + input.source.slice(candidateSectionEnd);
@@ -1039,7 +1092,8 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
     }
     rollingPlanSource = selectedRollingPlanSource;
   } else {
-    const decision = input.mainHealthRepairProjection!.decision;
+    const repairProjection = input.mainHealthRepairProjection!;
+    const decision = repairProjection.decision;
     const binding = decision.binding;
     if (decision.status !== 'repair-ready' || decision.reasonCode !== 'repair-ready'
         || binding === null) {
@@ -1056,11 +1110,24 @@ export function CodexDevelopmentCreateFreezeProjectionV1(input: {
         || manifest.tracking !== 'none') {
       throw new Error('MainHealth repair projection differs from the exact manifest or repository identity.');
     }
+    const publishedActive = repairProjection.publishedActivePackage;
+    if (publishedActive.manifestPath !== currentPointer.manifest
+        || publishedActive.manifestDigest !== currentPointer.manifestDigest
+        || CodexDevelopmentWorkPackageManifestDigest(publishedActive.defaultManifestBytes)
+          !== currentPointer.manifestDigest
+        || !rawBytesEqual(publishedActive.defaultManifestBytes, input.currentManifestBytes)) {
+      throw new Error(
+        'MainHealth repair projection does not prove the current active package is byte-identical on exact default.'
+      );
+    }
     const repairedRollingPlanSource = CodexDevelopmentActivateMainHealthRepairRollingPlanV1({
       source: input.currentRollingPlanSource,
       packageId: manifest.id,
       mainSha: binding.mainSha,
-      healthRevision: binding.healthRevision
+      mainTreeSha: binding.mainTreeSha,
+      healthRevision: binding.healthRevision,
+      failureFingerprints: binding.failureFingerprints,
+      publishedActivePackageId: currentManifest.id
     });
     if (input.requestedRollingPlanSource !== undefined
         && input.requestedRollingPlanSource !== repairedRollingPlanSource) {

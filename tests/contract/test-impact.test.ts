@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
 
 import {
+  CodexDevelopmentCreateTestImpactTransitionObservationV1
+} from '../../platform/shared/ci-git-changed-files.ts';
+import {
   classifyTestImpactSource,
   resolveTestOwnership,
   selectTestsForSources,
@@ -8,7 +11,8 @@ import {
 } from '../../platform/shared/test-impact-contract.ts';
 import {
   DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES,
-  FROZEN_WORK_PACKAGE_TOMBSTONE_FILES
+  FROZEN_WORK_PACKAGE_TOMBSTONE_FILES,
+  RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS
 } from '../../platform/shared/test-impact-rules/governance.ts';
 import { resolveTestOwnershipAutoReferenceMode } from '../../platform/shared/test-ownership-contract.ts';
 
@@ -386,7 +390,6 @@ test('exact blob reader and both Evidence producers share one direct execution o
       'tests/contract/sec-merge-gate.test.ts',
       'tests/contract/tcb-closure-lock.test.ts',
       'tests/contract/test-impact.test.ts',
-      'tests/unit/ci-evidence-composition-policy-registry.test.ts',
       'tests/unit/ci-evidence-contract-v4.test.ts',
       'tests/unit/ci-hosted-sut-observation-contract.test.ts',
       'tests/unit/ci-pr-risk-execution.test.ts',
@@ -426,6 +429,7 @@ test('canonical VerificationAction fixture selects only its direct consumer and 
 
 test('branch closeout and VerificationSession authority select one exact fast closure', () => {
   const sources = [
+    'platform/shared/verification-session-contract.ts',
     'scripts/codex/branch-closeout-contract.ts',
     'scripts/codex/branch-closeout-receipt.ts',
     'scripts/codex/branch-closeout.ts',
@@ -457,7 +461,9 @@ test('branch closeout and VerificationSession authority select one exact fast cl
       'tests/unit/integration-authorization-publication.test.ts',
       'tests/unit/local-main-closeout.test.ts',
       'tests/unit/tcb-trust-root-contract.test.ts',
+      'tests/unit/verification-action-ci-contract.test.ts',
       'tests/unit/verification-candidate-tree.test.ts',
+      'tests/unit/verification-session-contract.test.ts',
       'tests/unit/verification-session-runtime.test.ts',
       'tests/unit/work-selection-live.test.ts'
     ],
@@ -710,7 +716,17 @@ test('test impact assigns focused governance and frozen work-package ownership',
     }]);
   }
 
+  const retiredEvidence = RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS[0]!;
+  const exactDeletion = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha: retiredEvidence.baseSha,
+    headSha: 'b'.repeat(40),
+    records: [{ status: 'removed', path: retiredEvidence.path }],
+    readPathBlob: (revision) => revision === retiredEvidence.baseSha
+      ? { mode: retiredEvidence.baseMode, blobSha: retiredEvidence.baseBlobSha }
+      : null
+  });
   const workPackageEvidenceSources = [
+    retiredEvidence.path,
     'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
     'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
     'docs/evidence/v0-4-semantic-mutation-bounded-isolation-scan-exact-stop-record-2026-07-17.json',
@@ -719,10 +735,9 @@ test('test impact assigns focused governance and frozen work-package ownership',
     'docs/evidence/v0-4-semantic-mutation-local-child-host-alias-exact-public-stop-record-2026-07-17.json',
     'docs/evidence/v0-4-semantic-mutation-proof-reuse-exact-timeout-stop-record-2026-07-17.json',
     'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-durable-exact-stop-record-2026-07-18.json',
-    'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json',
-    'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json'
+    'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json'
   ];
-  const workPackageEvidence = selectTestsForSources(workPackageEvidenceSources);
+  const workPackageEvidence = selectTestsForSources(workPackageEvidenceSources, undefined, exactDeletion);
   expect(workPackageEvidence.owners).toEqual(['work-package-gate']);
   expect(workPackageEvidence.fast).toEqual(expect.arrayContaining([
     'tests/unit/ci-pr-risk-selection.test.ts',
@@ -749,12 +764,46 @@ test('test impact assigns focused governance and frozen work-package ownership',
   expect(workPackageFixtures.fast).not.toContain('tests/unit/work-package-gate-contract.test.ts');
   expect(workPackageFixtures.slow).toEqual([]);
   for (const source of [...workPackageEvidenceSources, ...workPackageFixtureSources]) {
-    expect(resolveTestOwnership([source])).toEqual([{
+    expect(resolveTestOwnership(
+      [source],
+      source === retiredEvidence.path ? exactDeletion : undefined
+    )).toEqual([{
       source,
       owner: 'work-package-gate',
       identity: { kind: 'contract', id: 'work-package-gate' }
     }]);
   }
+});
+
+test('retired evidence transition ownership rejects path-only, re-add, modify, wrong-base, and wrong-blob inputs', () => {
+  const retired = RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS[0]!;
+  const headSha = 'b'.repeat(40);
+  const observation = (
+    status: 'added' | 'changed' | 'removed',
+    baseSha = retired.baseSha,
+    baseBlobSha = retired.baseBlobSha,
+    baseMode: '100644' | '100755' = retired.baseMode
+  ) => CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha,
+    headSha,
+    records: [{ status, path: retired.path }],
+    readPathBlob: (revision) => status === 'removed' && revision === baseSha
+      ? { mode: baseMode, blobSha: baseBlobSha }
+      : null
+  });
+  expect(selectTestsForSources([retired.path])).toEqual({ fast: [], slow: [], owners: [] });
+  for (const transition of [
+    observation('added'),
+    observation('changed'),
+    observation('removed', 'c'.repeat(40)),
+    observation('removed', retired.baseSha, 'd'.repeat(40)),
+    observation('removed', retired.baseSha, retired.baseBlobSha, '100755')
+  ]) {
+    expect(selectTestsForSources([retired.path], undefined, transition))
+      .toEqual({ fast: [], slow: [], owners: [] });
+  }
+  expect(selectTestsForSources(['docs/evidence/unowned.json'], undefined, observation('removed')))
+    .toEqual({ fast: [], slow: [], owners: [] });
 });
 
 test('test impact keeps managed Git hooks fast contract coverage and slow real-repository acceptance distinct', () => {

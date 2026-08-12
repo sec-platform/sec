@@ -118,9 +118,10 @@ test('V2 revision is stable across run identity and timestamps and binds semanti
 });
 
 test('session proposal digest is precomputable without session identity or receipt provenance',()=>{
-  const proposal={repository:'sec-platform/sec',prNumber:7,baseSha:BASE_SHA,baseTreeSha:MERGED_TREE_SHA,headSha:HEAD_SHA,headTreeSha:TREE_SHA,manifestPath:'docs/work-packages/example-v1.md',manifestDigest:MANIFEST_DIGEST,scopeProposalDigest:`sha256:${'5'.repeat(64)}` as const,actionPlanClosureDigest:`sha256:${'6'.repeat(64)}` as const,profile:'full',environmentDigest:`sha256:${'7'.repeat(64)}` as const,trustRevision:BASE_SHA,reviewPolicyDigest:`sha256:${'8'.repeat(64)}` as const,mainHealthPolicyDigest:`sha256:${'9'.repeat(64)}` as const};
+  const proposal={repository:'sec-platform/sec',prNumber:7,baseSha:BASE_SHA,baseTreeSha:MERGED_TREE_SHA,headSha:HEAD_SHA,headTreeSha:TREE_SHA,manifestPath:'docs/work-packages/example-v1.md',manifestDigest:MANIFEST_DIGEST,testImpactTransitionDigest:`sha256:${'4'.repeat(64)}` as const,scopeProposalDigest:`sha256:${'5'.repeat(64)}` as const,actionPlanClosureDigest:`sha256:${'6'.repeat(64)}` as const,profile:'full',environmentDigest:`sha256:${'7'.repeat(64)}` as const,trustRevision:BASE_SHA,reviewPolicyDigest:`sha256:${'8'.repeat(64)}` as const,mainHealthPolicyDigest:`sha256:${'9'.repeat(64)}` as const};
   const digest=createVerificationSessionProposalDigestV1(proposal);
   expect(createVerificationSessionProposalDigestV1({...proposal,actionPlanClosureDigest:`sha256:${'a'.repeat(64)}`})).not.toBe(digest);
+  expect(createVerificationSessionProposalDigestV1({...proposal,testImpactTransitionDigest:`sha256:${'b'.repeat(64)}`})).not.toBe(digest);
 });
 
 test('candidate tree parity is matched only for identical trees', () => {

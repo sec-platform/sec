@@ -191,10 +191,16 @@ Review或merge authority。
 每个future degraded generation的repair manifest locator由
 `(repository, default branch, exact main, exact tree, owner, sorted failure fingerprints)`内容寻址派生，并把
 完整digest保留在path；已进入default的path永不复活，finding只在同一manifest/worktree/ref内产生新head。
-健康或locked ledger不暴露repair locator。`default-branch-health-repair-v2`只是trusted main尚无repair
-consumer时、由用户显式授权并经exact Review/new-main readback约束的一次manual-bootstrap bridge；它不跟踪
-Issue、不伪造ordinary WorkDecision或activation receipt，进入main后不得保留第二手工入口。#177继续只拥有
-failure classification；MainHealth routing与document-control effect owner不迁入#177。
+健康或locked ledger不暴露repair locator。Repair effect admission必须同时读取current pointer manifest的
+candidate bytes和exact default bytes：只有两者raw-byte相等且digest等于pointer时，旧active才被证明已经
+published并从临时repair rolling topology退休；其余未完成candidates保持原bytes与原顺序。default缺失、bytes
+不等、stale、unresolved或仍超出五候选上限都fail closed，禁止截断、发明或重排身份。
+
+已具备production repair consumer但尚不能从容量中退休published active的trusted-main generation，只允许一个由
+exact repair manifest绑定、用户显式授权并经独立Review/new-main readback约束的最后manual-bootstrap bridge。
+该package不跟踪Issue、不伪造ordinary WorkDecision或activation receipt，并必须删除这项capacity defect；规则
+进入new main后不得再保留caller JSON、手工pointer staging或第二repair package入口。#177继续只拥有failure
+classification；MainHealth routing与document-control effect owner不迁入#177。
 
 同一exact main可以由policy列出的不同GitHub event各产生一次MainHealth check。MainHealth owner先按
 MainHealth policy拥有封闭的recognized conclusion集合，并按`(terminal status, conclusion)`归一语义outcome：
@@ -1095,5 +1101,33 @@ Kernel。字段、有效性与授权语义只引用verification authority；本�
 满足时及时合并，不为表现“仍在开发”继续修改正确candidate。大型实验历史优先squash经过验证的最终状态。
 
 Merge后先证明merged tree等于verified candidate tree；信任根变化时从new main重载TCB并使旧Session/Review/Evidence/authorization失效。随后以stable operation id幂等关闭 absorbed、superseded、mirror、probe和diagnostic PR/Issue，归档manifest，删除已完成使命且工具权限允许安全删除的branch/worktree/workflow；复核开放PR/Issue/CI，并从产品、架构和roadmap重新计算rolling plan。
+
+### Automatic Trust-Epoch Rollover
+
+信任代际终止的是旧授权，不是仍获用户授权的长期任务。`VerificationSession`拥有epoch/session transition，
+Document Control Plane拥有new-main reorientation输入；Agent Skill只负责把非机器化的停止判断路由到这两个
+owner，不建立第三状态机。历史性的`TASK_RESTART_REQUIRED`不是当前runtime outcome，也不得被Agent当作
+routine terminal state。
+
+```mermaid
+stateDiagram-v2
+  [*] --> EpochActive
+  EpochActive --> MergeEffect: fresh integration authorization
+  MergeEffect --> NewMainReadback: exact remote commit/tree/control readback
+  NewMainReadback --> OldEpochSealed: invalidate old grants/review/evidence/cache
+  OldEpochSealed --> Reorienting: canonical status on exact new main
+  Reorienting --> EpochActive: resolved + current user authority
+  Reorienting --> ExternalBlocker: unresolved/invalid/external authority/user choice
+  ExternalBlocker --> Reorienting: causal input or explicit user decision changes
+```
+
+必须满足以下不变量：
+
+1. `NewMainReadback`成功后，旧epoch的effect grant、Review、Evidence、scope与缓存facts一律不能授权下一动作；
+2. reorientation只从exact new main、live resolver、`AGENTS.md`、selected manifest及`docs/authority.json`派生的owner closure重建输入，不继承聊天、旧PR正文或旧session结论；
+3. 当前用户授权仍覆盖目标且resolver为resolved时，A0自动进入新epoch并继续`RequiredClosure ∩ MissingOrStale`，不等待用户再次输入“继续”；
+4. 只有`unresolved/invalid` control state、缺少外部authority、独立Review不可用、必须用户裁决或其他typed external blocker才结束本次自动推进；
+5. same-input PASS/FAIL/in-flight按其owner复用或join；epoch rollover不授权全量重跑，也不把旧failure改写成PASS；
+6. 自动继续不得扩展原用户目标、写入范围或外部权限；新main选择了不同Work Package时，只能在原授权覆盖时继续，否则返回typed scope decision。
 
 工具不能物理删除或执行某项操作时必须准确说明边界，不能把“已审查、已关闭、内容已包含”表述成“分支已删除、操作已完成”。

@@ -7,22 +7,13 @@ last-reviewed: 2026-08-12
 
 # SEC 滚动近期计划
 
-本投影绑定受信 `main@879af721ef6a3cd952a8b255ceb2d459021f567e`、tree
-`b39cebc0c043d6709659d649b8178eb712163976` 与 `docs/roadmap.md` 的有序 R14 catalog。长期DAG、current
-spec与选择权仍只归其canonical owner；本文件不解释Issue正文、不拥有优先级，也不是backlog/registry。
-MainHealth run `31568797707`、job `94026162914` 的imports通过而TypeScript以三个稳定diagnostic失败；相同
-输入不重跑。普通selector因degraded ledger停在reconcile，本次是用户明确授权的唯一manual-bootstrap
-bridge：它不伪造ordinary WorkDecision、activation或Review receipt。进入new main后，MainHealth的一次
-fresh observation在`ordinary-only | repair-only | locked`三态间互斥路由，后续repair不再依赖全Issue census。
+本投影由唯一MainHealth repair renderer绑定exact `main@9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b`、tree `e7316576e3834cf188503a288a97e521fe3765db`、health `sha256:e04c73b761f5f0510c01cdb124cabf74d54c3f333c9da908480894a909157237`与排序failure fingerprints `sha256:af8ab47c80bec684c3861730348891d87e391586d76fffc701f81066f4fd9d7a`。旧epoch说明、caller prose与普通WorkDecision都不能参与本次repair projection；长期DAG、current spec和普通选择权仍归其canonical owner。
 
 ## 当前唯一 Work Package
 
-### default-branch-health-repair-v2
+### default-branch-health-repair-9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b-3f2c46ad9f2ce6b136b42e2bd36aeabc67cd129aa7ec10a4d902df54b1e37b29
 
-Exact `879af721` MainHealth repair：修复三个TypeScript产生边界，并安装future-safe repair lane、动态
-failure-generation locator与O(1) routing。该bootstrap package不跟踪Issue；#177只拥有failure classification，
-不拥有MainHealth或repair effect。此次manual projection由当前用户授权、exact diff、独立Review和new-main
-readback共同约束，进入main后不保留第二手工入口。
+Exact degraded-main repair for `main@9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b` and health `sha256:e04c73b761f5f0510c01cdb124cabf74d54c3f333c9da908480894a909157237`. This temporary projection has no ordinary work-selection authority.
 
 ## 候选 Work Package
 

@@ -147,6 +147,17 @@ const WORK_PACKAGE_FIXTURE_FAST_TESTS = [
   'tests/unit/work-package-gate-execution.test.ts'
 ];
 
+// Deletion-impact only. Matching also requires an exact Git removed record,
+// this base blob identity, and target absence; the path alone has no owner.
+export const RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS = [
+  {
+    path: 'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json',
+    baseSha: '9ed0291a0b51b4f3f6769ab317c4cc1a2753cb4b',
+    baseMode: '100644',
+    baseBlobSha: '3fbfa041119f70429b5f6cc4440816b50ab3a0ef'
+  }
+] as const;
+
 export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'issue-disposition',
@@ -343,6 +354,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'work-package-gate',
     identity: { kind: 'contract', id: 'work-package-gate' },
+    removedSourceTransitions: RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS,
     sourceFiles: [
       'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
       'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
@@ -352,8 +364,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'docs/evidence/v0-4-semantic-mutation-local-child-host-alias-exact-public-stop-record-2026-07-17.json',
       'docs/evidence/v0-4-semantic-mutation-proof-reuse-exact-timeout-stop-record-2026-07-17.json',
       'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-durable-exact-stop-record-2026-07-18.json',
-      'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json',
-      'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json'
+      'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json'
     ],
     sourcePrefixes: ['tests/fixtures/work-package-gate-manifests/'],
     fast: WORK_PACKAGE_EVIDENCE_FAST_TESTS,

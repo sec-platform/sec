@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test';
 
+import { CodexDevelopmentCreateTestImpactTransitionObservationV1 } from '../../platform/shared/ci-git-changed-files.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import { slowTestPrRiskBaselineSuiteIds } from '../../platform/shared/test-budget-contract.ts';
 import {
-  DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES
+  DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES,
+  RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS
 } from '../../platform/shared/test-impact-rules/governance.ts';
 
 const baselineSuites = slowTestPrRiskBaselineSuiteIds();
@@ -244,7 +246,17 @@ test('agent governance and frozen work-package inputs use focused owners without
   expect(agentGovernance.owners).toEqual(['agent-governance', 'documentation-authority']);
   expect(agentGovernance.suites).toEqual([]);
 
+  const retired = RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS[0]!;
+  const exactDeletion = CodexDevelopmentCreateTestImpactTransitionObservationV1({
+    baseSha: retired.baseSha,
+    headSha: 'b'.repeat(40),
+    records: [{ status: 'removed', path: retired.path }],
+    readPathBlob: (revision) => revision === retired.baseSha
+      ? { mode: retired.baseMode, blobSha: retired.baseBlobSha }
+      : null
+  });
   const workPackageGate = selectCiPrRiskSlowSuites([
+    retired.path,
     'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
     'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
     'docs/evidence/v0-4-semantic-mutation-bounded-isolation-scan-exact-stop-record-2026-07-17.json',
@@ -254,17 +266,19 @@ test('agent governance and frozen work-package inputs use focused owners without
     'docs/evidence/v0-4-semantic-mutation-proof-reuse-exact-timeout-stop-record-2026-07-17.json',
     'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-durable-exact-stop-record-2026-07-18.json',
     'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json',
-    'docs/evidence/v0-4-semantic-mutation-single-job-owner-production-pass-2026-07-18.json',
     'tests/fixtures/work-package-gate-retained-recovery/records/000001-prepared.json',
     'tests/fixtures/work-package-gate-retained-recovery/records/000002-authoring-committed.json',
     'tests/fixtures/work-package-gate-retained-recovery/records/000003-verified.json',
     'tests/fixtures/work-package-gate-retained-recovery/terminal-order/000000000002.json',
     'tests/fixtures/work-package-gate-retained-recovery/terminal-order/.sequence-head.json'
-  ]);
+  ], undefined, exactDeletion);
   expect(workPackageGate.resolved).toBe(true);
   expect(workPackageGate.reasons).toContain('ownership-impact');
   expect(workPackageGate.owners).toEqual(['work-package-gate']);
   expect(workPackageGate.suites).toEqual([]);
+  const pathOnlyRetirement = selectCiPrRiskSlowSuites([retired.path]);
+  expect(pathOnlyRetirement.resolved).toBe(false);
+  expect(pathOnlyRetirement.reasons).toContain('changed-files-unresolved');
 
   for (const file of [
     'docs/project-state.json',
