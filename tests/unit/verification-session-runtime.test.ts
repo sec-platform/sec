@@ -189,7 +189,8 @@ import {
   CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2,
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
   CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-  CI_VERIFICATION_SESSION_REQUEST_SCHEMA
+  CI_VERIFICATION_SESSION_REQUEST_SCHEMA,
+  createCiMainHealthRequestOperationIdV1
 } from '../../platform/shared/ci-verification-revision.ts';
 import { TCB_CLOSURE_LOCK } from '../../platform/shared/tcb-closure-lock.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';
@@ -692,13 +693,21 @@ function fakeGitHubClient(
 }
 
 function mainHealthCheck(overrides: Partial<GitHubCheckObservationV1> = {}): GitHubCheckObservationV1 {
+  const eventName = overrides.eventName ?? CI_MAIN_HEALTH_POLICY_V1.producer.eventNames[0];
+  const workflowRunDisplayTitle = eventName === 'push'
+    ? CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.push.replace('<exact-main-sha>', BASE)
+    : CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.repositoryDispatch
+        .replace('<exact-main-sha>', BASE)
+        .replace('<request-operation-id>', createCiMainHealthRequestOperationIdV1(BASE));
   return {
     id: 7, name: CI_MAIN_HEALTH_POLICY_V1.context, status: 'completed', conclusion: 'success',
     headSha: BASE, detailsUrl: 'https://github.example/actions/runs/7', appId: CI_MAIN_HEALTH_POLICY_V1.app.id,
     appNodeId: CI_MAIN_HEALTH_POLICY_V1.app.nodeId, appSlug: CI_MAIN_HEALTH_POLICY_V1.app.slug,
     workflowPath: CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath,
     workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${BASE}`,
-    eventName: CI_MAIN_HEALTH_POLICY_V1.producer.eventNames[0],
+    eventName,
+    workflowRunId: '7',
+    workflowRunDisplayTitle,
     ...overrides
   };
 }
@@ -1889,6 +1898,7 @@ test('MainHealth converges equivalent cross-event terminal outcomes and locks co
     sourceRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${BASE}` };
   const push = mainHealthCheck({ id: 7, eventName: 'push' });
   const dispatched = mainHealthCheck({ id: 8, eventName: 'repository_dispatch' });
+  const pushOnly = createObservedMainHealthInputV1({ ...common, checks: [push] });
   const ordered = createObservedMainHealthInputV1({ ...common, checks: [push, dispatched] });
   const reversed = createObservedMainHealthInputV1({ ...common, checks: [dispatched, push] });
   expect(ordered).toMatchObject({
@@ -1899,6 +1909,46 @@ test('MainHealth converges equivalent cross-event terminal outcomes and locks co
     ...common,
     checks: [mainHealthCheck({ id: 99, appId: 1 }), dispatched, push]
   })).toEqual(ordered);
+
+  const unrelatedActivation = mainHealthCheck({
+    id: 10,
+    eventName: 'repository_dispatch',
+    conclusion: 'skipped',
+    workflowRunId: '31683485879',
+    workflowRunDisplayTitle: 'activate prepare PR #376'
+  });
+  expect(createObservedMainHealthInputV1({
+    ...common,
+    checks: [push, unrelatedActivation]
+  })).toEqual(pushOnly);
+  expect(createObservedMainHealthInputV1({
+    ...common,
+    checks: [unrelatedActivation]
+  })).toMatchObject({ status: 'locked', allowedLanes: [] });
+  const wrongOperationDispatch = mainHealthCheck({
+    id: 12,
+    eventName: 'repository_dispatch',
+    conclusion: 'skipped',
+    workflowRunDisplayTitle: CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.repositoryDispatch
+      .replace('<exact-main-sha>', BASE)
+      .replace('<request-operation-id>', `sha256:${'a'.repeat(64)}`)
+  });
+  expect(createObservedMainHealthInputV1({
+    ...common,
+    checks: [push, wrongOperationDispatch]
+  })).toEqual(pushOnly);
+  expect(createObservedMainHealthInputV1({
+    ...common,
+    checks: [wrongOperationDispatch]
+  })).toMatchObject({ status: 'locked', allowedLanes: [] });
+  expect(createObservedMainHealthInputV1({
+    ...common,
+    checks: [push, mainHealthCheck({
+      id: 11,
+      eventName: 'repository_dispatch',
+      conclusion: 'skipped'
+    })]
+  })).toMatchObject({ status: 'locked', allowedLanes: [] });
 
   const failedPush = mainHealthCheck({ id: 7, eventName: 'push', conclusion: 'failure' });
   const failedDispatch = mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'failure' });
@@ -1963,6 +2013,12 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
     [mainHealthCheck({ workflowPath: '.github/workflows/forged.yml' })],
     [mainHealthCheck({ workflowRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${HEAD}` })],
     [mainHealthCheck({ eventName: 'workflow_run' })],
+    [mainHealthCheck({
+      eventName: 'repository_dispatch',
+      workflowRunDisplayTitle: CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.repositoryDispatch
+        .replace('<exact-main-sha>', BASE)
+        .replace('<request-operation-id>', `sha256:${'a'.repeat(64)}`)
+    })],
     [push, mainHealthCheck({ id: 9, eventName: 'push' })],
     [mainHealthCheck({ conclusion: 'forged-terminal' })],
     [mainHealthCheck({ status: 'forged-status', conclusion: 'success' })],

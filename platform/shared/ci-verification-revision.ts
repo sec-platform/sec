@@ -170,10 +170,22 @@ export const CI_GITHUB_ACTIONS_IDENTITY_POLICY_DIGEST_V1 = `sha256:${createHash(
   .update(JSON.stringify(CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1))
   .digest('hex')}` as const;
 
+export const CI_MAIN_HEALTH_REQUEST_SCHEMA_V1 = 'sec-produce-main-health-request-v1' as const;
+
+export function createCiMainHealthRequestOperationIdV1(mainSha: string): `sha256:${string}` {
+  if (!/^[0-9a-f]{40}$/u.test(mainSha)) {
+    throw new Error('MainHealth request operation identity requires an exact lowercase main SHA.');
+  }
+  return `sha256:${createHash('sha256').update(JSON.stringify({
+    schema: CI_MAIN_HEALTH_REQUEST_SCHEMA_V1,
+    mainSha
+  })).digest('hex')}`;
+}
+
 /** The only exact-main health producer accepted by the ordinary Session lane. */
 export const CI_MAIN_HEALTH_POLICY_V1 = Object.freeze({
-  schema: 'sec-ci-main-health-policy-v3' as const,
-  policyRevision: 'sec-ci-main-health-policy-v3' as const,
+  schema: 'sec-ci-main-health-policy-v5' as const,
+  policyRevision: 'sec-ci-main-health-policy-v5' as const,
   context: 'sec/main-health' as const,
   app: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app,
   producer: Object.freeze({
@@ -182,6 +194,13 @@ export const CI_MAIN_HEALTH_POLICY_V1 = Object.freeze({
     workflowPath: '.github/workflows/compiler-pr-validation.yml' as const,
     workflowRefFormat: '.github/workflows/compiler-pr-validation.yml@<exact-main-sha>' as const,
     eventNames: Object.freeze(['push', 'repository_dispatch'] as const),
+    runTitleFormats: Object.freeze({
+      push: 'SEC main health <exact-main-sha>' as const,
+      repositoryDispatch: 'SEC main health <exact-main-sha> operation <request-operation-id>' as const,
+      requestOperationId: 'sha256:<64-lowercase-hex>' as const,
+      requestSchema: CI_MAIN_HEALTH_REQUEST_SCHEMA_V1,
+      requestOperationIdentity: 'sha256-json-exact-main-v1' as const
+    }),
     branch: 'main' as const
   }),
   terminal: Object.freeze({
