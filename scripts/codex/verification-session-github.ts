@@ -145,6 +145,8 @@ export interface GitHubCheckObservationV1 {
   workflowPath: string | null;
   workflowRef: string | null;
   eventName: string | null;
+  workflowRunId: string | null;
+  workflowRunDisplayTitle: string | null;
 }
 
 export interface GitHubWorkflowRunObservationV1 {
@@ -2825,7 +2827,9 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
         appNodeId: typeof node.app?.node_id === 'string' ? node.app.node_id : null,
         appSlug: typeof node.app?.slug === 'string' ? node.app.slug : null,
         workflowPath, workflowRef: workflowPath === null ? null : `${workflowPath}@${node.head_sha}`,
-        eventName: typeof run?.event === 'string' ? run.event : null };
+        eventName: typeof run?.event === 'string' ? run.event : null,
+        workflowRunId: typeof run?.id === 'number' && Number.isSafeInteger(run.id) ? String(run.id) : null,
+        workflowRunDisplayTitle: typeof run?.display_title === 'string' ? run.display_title : null };
     });
     return { nodes, hasNextPage: false, endCursor: null, pageDigest: hash(pages) };
   }

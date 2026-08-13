@@ -32,7 +32,8 @@ import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1,
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
-  CI_VERIFICATION_SESSION_CONTRACT_REVISION
+  CI_VERIFICATION_SESSION_CONTRACT_REVISION,
+  createCiMainHealthRequestOperationIdV1
 } from '../../platform/shared/ci-verification-revision.ts';
 import { TCB_TRUST_ROOT_V3 } from '../../platform/shared/tcb-closure-lock.ts';
 import {
@@ -853,8 +854,8 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
 
 test('exact-main health policy binds one stable GitHub Actions app and terminal context', async () => {
   expect(CI_MAIN_HEALTH_POLICY_V1).toEqual({
-    schema: 'sec-ci-main-health-policy-v3',
-    policyRevision: 'sec-ci-main-health-policy-v3',
+    schema: 'sec-ci-main-health-policy-v5',
+    policyRevision: 'sec-ci-main-health-policy-v5',
     context: 'sec/main-health',
     app: { id: 15368, nodeId: 'MDM6QXBwMTUzNjg=', slug: 'github-actions' },
     producer: {
@@ -863,6 +864,13 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
       workflowPath: '.github/workflows/compiler-pr-validation.yml',
       workflowRefFormat: '.github/workflows/compiler-pr-validation.yml@<exact-main-sha>',
       eventNames: ['push', 'repository_dispatch'],
+      runTitleFormats: {
+        push: 'SEC main health <exact-main-sha>',
+        repositoryDispatch: 'SEC main health <exact-main-sha> operation <request-operation-id>',
+        requestOperationId: 'sha256:<64-lowercase-hex>',
+        requestSchema: 'sec-produce-main-health-request-v1',
+        requestOperationIdentity: 'sha256-json-exact-main-v1'
+      },
       branch: 'main'
     },
     terminal: {
@@ -887,6 +895,8 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
     },
     locked: { allowedLanes: [] }
   });
+  expect(createCiMainHealthRequestOperationIdV1('93dde9e44bbcffdd7fa1d6be726df1725947f6e2'))
+    .toBe('sha256:1062f573e4a315b308f46c6abd9a82815fdaa97a3b2171f0cb8b806467473a78');
   expect(CI_MAIN_HEALTH_POLICY_DIGEST_V1).toMatch(/^sha256:[0-9a-f]{64}$/);
   expect(CI_MAIN_HEALTH_JOB_ID).toBe('main-health');
   expect(CI_MAIN_HEALTH_JOB_NAME).toBe('sec/main-health');

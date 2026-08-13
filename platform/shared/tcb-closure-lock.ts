@@ -1795,12 +1795,12 @@ export function generateTcbClosureLockV2(
 // ---------------------------------------------------------------------------
 
 // <sec-tcb-closure-lock-generated-v2>
-export const TCB_CLOSURE_TRUST_REVISION = "sha256:a0b7dadd0530c63e2d040297609913f5f8f02e67b25561140273ec328a29c7cd";
+export const TCB_CLOSURE_TRUST_REVISION = "sha256:edc2aa1bc21d5009e9d6ae55301f9598e4172674637a384e35a82cca35e6b8d0";
 
 // Generated from the exact live causal closure. Do not hand-edit this marked region.
 export const TCB_CLOSURE_LOCK: TcbClosureLock = {
   "schema": "sec-tcb-closure-lock-v2",
-  "trustRevision": "sha256:a0b7dadd0530c63e2d040297609913f5f8f02e67b25561140273ec328a29c7cd",
+  "trustRevision": "sha256:edc2aa1bc21d5009e9d6ae55301f9598e4172674637a384e35a82cca35e6b8d0",
   "moduleCount": 108,
   "modules": [
     "docs/scripts/docs-doctor-ledgers.ts",
@@ -1995,7 +1995,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/ci-hosted-sut-observation-contract.ts": "c6820279c4832e9b669e3d07e3521b8a7151989a",
     "platform/shared/ci-pr-risk-selection.ts": "9afefaa343421641674b9592f7544137379e4949",
     "platform/shared/ci-verification-plan.ts": "8f59bb169115012c48222a61f59f62508e930a71",
-    "platform/shared/ci-verification-revision.ts": "8a2fd41aef8c4af2d9336d61651f625287287ec5",
+    "platform/shared/ci-verification-revision.ts": "754fcd1517affb5ea718a0a389c6ad64c2b36469",
     "platform/shared/collections.ts": "8f8ecb1395714b83e995bcc560304ab1e0d9617f",
     "platform/shared/constants.ts": "78e19d1d79f8d6f5e729d66cb9ee74b4c6538088",
     "platform/shared/contract-freeze-contract.ts": "dcc6ea490001f528fda99787a41c81a330d5042d",
@@ -2055,7 +2055,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/integration-authorization-publication.ts": "102adb348bbbd33ea92d47b94676ce7e1bbedab8",
     "scripts/codex/issue-disposition-github.ts": "10aac92f5aadd8d8aa706bc74c11d3c86a7b9810",
     "scripts/codex/local-main-closeout.ts": "4772672fee4897a3cc908cd873032638367b1fdb",
-    "scripts/codex/main-health-observation.ts": "bdcd0db49e01f9ba2b5d10aee3cae02d9daa373d",
+    "scripts/codex/main-health-observation.ts": "5f4cd897b319ef4ebaad5a8ea60d933e210cce29",
     "scripts/codex/merge-gate.ts": "5da050dfed603f33922028f730018163be69b6e8",
     "scripts/codex/operation-read-plan.ts": "be7e4a99b7f5b1bdf5291d33e9118afda9846c5c",
     "scripts/codex/skill-applicability.ts": "c8bc7c82b6eb33b8146bc611c9b0570fd764ec16",
@@ -2064,7 +2064,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/verification-action-journal.ts": "c5e7dd3b9a3c0770671bb39270f74b6fe9e41812",
     "scripts/codex/verification-action-runner.ts": "51657ff55d1e7b191ba16b4ffd0a38e9fa2785a1",
     "scripts/codex/verification-provider-capability-ledger.ts": "4dd028e20a7d975ba2f05dc23f384802c1e1a99d",
-    "scripts/codex/verification-session-github.ts": "fd36f3a9dcd2b0512066d58e1f0a992ec21ca1cc",
+    "scripts/codex/verification-session-github.ts": "7e1e32e726e1113ac24ab5a5f1f1d39076603a49",
     "scripts/codex/verification-session-journal.ts": "dc938985c8741825ec7864248bc9296fa907bf63",
     "scripts/codex/verification-session-runtime.ts": "978652c4565f9364d56463ce14435cb3fb7a9191",
     "scripts/codex/verification-session.ts": "7480c3f7e8e4d8e5cba58b6bcdffa1fd3ca98e7c",
@@ -2105,7 +2105,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "platform/shared/ci-hosted-sut-observation-contract.ts": "sha256:b304fa26a0a579364818bbf71b6eed8ed5ae595dbca186d430084115b09946c6",
     "platform/shared/ci-pr-risk-selection.ts": "sha256:bc7cbefc5d1dcaebd31a754068d3cb95628e5a6b7ab661b43057c7fb4651d444",
     "platform/shared/ci-verification-plan.ts": "sha256:00a12c349c616537c1a6e7bcb2442778b6473f3732e2b676315147d6e7052116",
-    "platform/shared/ci-verification-revision.ts": "sha256:677ed51f36116419bd575d27bcabebb983ee86266af83b50f891d7430dd434d3",
+    "platform/shared/ci-verification-revision.ts": "sha256:b9f33754f6e62e33f63a429fd4be6070ab9e1df9f0681d4f2c99a7aa586ed0c4",
     "platform/shared/collections.ts": "sha256:8ff70a8bb6f89ba8355d900648d13caa4cc756542d808b7cf7e25efa5886bed4",
     "platform/shared/constants.ts": "sha256:bff35d03ea929d90b6f23a4246919011271bb86f0710cc86f51692ca51af26b5",
     "platform/shared/contract-freeze-contract.ts": "sha256:294ddf1a68d00ac41bff7b117a8e8882f918542e2ea4efe5eb06f8289edceb54",
@@ -2165,7 +2165,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/integration-authorization-publication.ts": "sha256:b787d0dfa738d77984864c37da8251c6faae1e27e195136e7cf08d8fee49661b",
     "scripts/codex/issue-disposition-github.ts": "sha256:fe05b1fed0ec46e1af6b1363bf5695046d72757065802ef51242270a6ac4c0cf",
     "scripts/codex/local-main-closeout.ts": "sha256:c4f48d5497cce32607b21f4fa3b130e7e04b93ade7850158426709c90cf8a351",
-    "scripts/codex/main-health-observation.ts": "sha256:ed109885897113f6123ddd32859088f6f1325e4949aefe4f3f1894bf6fc5c1aa",
+    "scripts/codex/main-health-observation.ts": "sha256:c1c8e8894d812fbee4d4c8a9d229471c314a78821e43977040f98f9ff3195493",
     "scripts/codex/merge-gate.ts": "sha256:b80495c21ae16bdabc8f0b3a5e9507afc262a19bc2c86650c01b834a6ee001d9",
     "scripts/codex/operation-read-plan.ts": "sha256:d03763294c3ca6d128a1c4721dcb0670a7fb3fe59a4197d7ff427dfd01cede1c",
     "scripts/codex/skill-applicability.ts": "sha256:b6817f146e6598d8b43ecee411775be2e6451e86e44fbb86a0c48c4ca8f825fc",
@@ -2174,7 +2174,7 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/codex/verification-action-journal.ts": "sha256:8cdba9e94f7785e9f6eff29027b97b50beee40ed210c1f1646b41bea59099ac2",
     "scripts/codex/verification-action-runner.ts": "sha256:0261873866177c291028072615d1703807952be947fd2f73237c1a617d9249a6",
     "scripts/codex/verification-provider-capability-ledger.ts": "sha256:3fec5e9372337d62e8906367126946ebddf54227e97af15ad86246a165818794",
-    "scripts/codex/verification-session-github.ts": "sha256:11ee9e41a270d020cdacdd7fd2d4814eca58cc9d2a14c5eebcd34f99568c7d5a",
+    "scripts/codex/verification-session-github.ts": "sha256:7b446c2bcf9e84ac8e937b7c617faf9c6b63796ba1c4d8935d95c351f7d1d9b4",
     "scripts/codex/verification-session-journal.ts": "sha256:d85e4eaf49ec509227a977e4ad322a24032967e01167b07690ad1222e505f29b",
     "scripts/codex/verification-session-runtime.ts": "sha256:37d4374bec715bb77b4c16b35d0c0bf6554cd213e495c4c789cc82f6350a6f88",
     "scripts/codex/verification-session.ts": "sha256:e7192cd5d73e55b64ed2d26f8853b1e17bb6a54d1bab6b3e2e6ff00dfdc9350a",
@@ -2183,12 +2183,12 @@ export const TCB_CLOSURE_LOCK: TcbClosureLock = {
     "scripts/install-git-hooks.ts": "sha256:effb6154d7b41002086df75dc4acea3eaa68cc92cbe99357307c937f8e73098f",
     "tests/setup/runtime-deps.setup.ts": "sha256:6e6887ffcb8fead51f11fe8b223789f71a9512bd0805313c01035ec035c01441"
   },
-  "closureDigest": "sha256:9c2629a714b7165565a8526d7ba4b652d8fc07257bb8beb0a16b02b69cf1740d"
+  "closureDigest": "sha256:8915d93a2d0a39c6d5d2976c43d9f2c08fc65b9bbe4e5b98d8ae2d12c02895db"
 };
 
 export const TCB_CLOSURE_LOCK_RECEIPT = createTcbClosureLockReceiptV2(
   TCB_CLOSURE_LOCK,
-  "2026-08-13T06:46:33.149Z"
+  "2026-08-13T09:16:07.510Z"
 );
 // </sec-tcb-closure-lock-generated-v2>
 
