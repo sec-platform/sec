@@ -26,6 +26,15 @@ import {
 } from '../../scripts/codex/repository-audit.ts';
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
+const DEFAULT_BRANCH_REMOTE_REF = 'refs/remotes/origin/main';
+const EXACT_COMMIT_PATTERN = /^[0-9a-f]{40}$/u;
+
+type RealRepositoryAuditDefaultContext = Readonly<{
+  explicitDefaultCommit?: string;
+  githubActions?: string;
+  githubRef?: string;
+  githubSha?: string;
+}>;
 
 function git(repositoryRoot: string, args: readonly string[]): string {
   const result = spawnSync('git', [...args], {
@@ -38,6 +47,70 @@ function git(repositoryRoot: string, args: readonly string[]): string {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr.trim()}`);
   }
   return result.stdout.trim();
+}
+
+function resolveExactCommit(repositoryRoot: string, value: string, label: string): string {
+  if (!EXACT_COMMIT_PATTERN.test(value)) {
+    throw new Error(`${label} must be an exact lowercase 40-character commit SHA.`);
+  }
+  const resolved = git(repositoryRoot, ['rev-parse', '--verify', `${value}^{commit}`]);
+  if (resolved !== value) throw new Error(`${label} did not resolve to its exact commit identity.`);
+  return resolved;
+}
+
+function resolveRealRepositoryAuditDefaultCommit(
+  repositoryRoot: string,
+  context: RealRepositoryAuditDefaultContext
+): string {
+  if (context.explicitDefaultCommit !== undefined) {
+    return resolveExactCommit(
+      repositoryRoot,
+      context.explicitDefaultCommit,
+      'Real repository audit explicit default commit'
+    );
+  }
+
+  const defaultRef = spawnSync(
+    'git',
+    ['show-ref', '--verify', '--quiet', DEFAULT_BRANCH_REMOTE_REF],
+    { cwd: repositoryRoot, encoding: 'utf8', windowsHide: true }
+  );
+  if (defaultRef.error) throw defaultRef.error;
+  if (defaultRef.status === 0) {
+    const resolved = git(repositoryRoot, [
+      'rev-parse', '--verify', `${DEFAULT_BRANCH_REMOTE_REF}^{commit}`
+    ]);
+    if (!EXACT_COMMIT_PATTERN.test(resolved)) {
+      throw new Error('Real repository audit source default ref did not resolve to an exact commit.');
+    }
+    return resolved;
+  }
+  if (defaultRef.status !== 1) {
+    throw new Error(
+      `git show-ref --verify --quiet ${DEFAULT_BRANCH_REMOTE_REF} failed: `
+      + defaultRef.stderr.trim()
+    );
+  }
+
+  const sourceHead = git(repositoryRoot, ['rev-parse', '--verify', 'HEAD^{commit}']);
+  const exactGithubActionsMainCheckoutContext = context.githubActions === 'true'
+    && context.githubRef === 'refs/heads/main'
+    && context.githubSha !== undefined;
+  if (!exactGithubActionsMainCheckoutContext) {
+    throw new Error(
+      'Real repository audit default commit is unavailable without an explicit commit, '
+      + 'a source default ref, or an exact GitHub Actions main checkout tuple.'
+    );
+  }
+  const githubSha = resolveExactCommit(
+    repositoryRoot,
+    context.githubSha!,
+    'Real repository audit GitHub main commit'
+  );
+  if (githubSha !== sourceHead) {
+    throw new Error('Real repository audit GitHub main commit does not match source HEAD.');
+  }
+  return githubSha;
 }
 
 test('information lifecycle machine manifest matches the exact deleted-blob census', () => {
@@ -687,11 +760,17 @@ test.serial('repository audit reads one immutable HEAD tree and fails closed on 
 test.serial('full repository audit classifies every tracked path and has no blocking finding', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-repository-audit-clean-'));
   try {
+    const defaultCommit = resolveRealRepositoryAuditDefaultCommit(
+      REPOSITORY_ROOT,
+      {
+        explicitDefaultCommit: process.env.SEC_CHANGED_BASE,
+        githubActions: process.env.GITHUB_ACTIONS,
+        githubRef: process.env.GITHUB_REF,
+        githubSha: process.env.GITHUB_SHA
+      }
+    );
     git(tmpdir(), ['clone', '--quiet', '--no-local', REPOSITORY_ROOT, repositoryRoot]);
-    // In CI shallow checkout, refs/remotes/origin/main may not exist.
-    // Use SEC_CHANGED_BASE (trusted exact base SHA) when available.
-    const defaultRef = process.env.SEC_CHANGED_BASE ?? undefined;
-    const report = await auditRepository(repositoryRoot, { defaultRef });
+    const report = await auditRepository(repositoryRoot, { defaultRef: defaultCommit });
 
     expect(report.schema).toBe('sec-repository-audit-v2');
     expect(report.summary.trackedPaths).toBeGreaterThan(0);
@@ -728,6 +807,94 @@ async function createTempRepo(prefix: string): Promise<{ root: string; headSha: 
   const headSha = git(root, ['rev-parse', 'HEAD']);
   return { root, headSha };
 }
+
+test.serial(
+  'real repository audit default commit preserves the source default branch before HEAD fallback',
+  async () => {
+    const { root, headSha: defaultHead } = await createTempRepo('sec-audit-default-commit-');
+    try {
+      git(root, ['update-ref', DEFAULT_BRANCH_REMOTE_REF, defaultHead]);
+      await writeFile(path.join(root, 'candidate.txt'), 'candidate\n', 'utf8');
+      git(root, ['add', 'candidate.txt']);
+      git(root, ['commit', '--quiet', '-m', 'wip']);
+      const candidateHead = git(root, ['rev-parse', '--verify', 'HEAD^{commit}']);
+
+      expect(resolveRealRepositoryAuditDefaultCommit(root, {})).toBe(defaultHead);
+      expect(resolveRealRepositoryAuditDefaultCommit(root, {
+        explicitDefaultCommit: candidateHead
+      })).toBe(candidateHead);
+      for (const symbolicDefault of ['HEAD', DEFAULT_BRANCH_REMOTE_REF, ' origin/main ']) {
+        expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
+          explicitDefaultCommit: symbolicDefault
+        })).toThrow('must be an exact lowercase 40-character commit SHA');
+      }
+
+      const findings: Parameters<typeof auditInformationLifecycle>[5] = [];
+      const unknowns: string[] = [];
+      await auditInformationLifecycle(
+        root,
+        ['README.md', 'candidate.txt'],
+        resolveRealRepositoryAuditDefaultCommit(root, {}),
+        new Map(),
+        new Map([
+          ['README.md', '# Fixture\n'],
+          ['candidate.txt', 'candidate\n']
+        ]),
+        findings,
+        unknowns,
+        false
+      );
+      expect(findings).toContainEqual(expect.objectContaining({
+        code: 'information-lifecycle-meaningless-commit-subject'
+      }));
+
+      const defaultTree = git(root, ['rev-parse', '--verify', `${defaultHead}^{tree}`]);
+      git(root, ['update-ref', DEFAULT_BRANCH_REMOTE_REF, defaultTree]);
+      expect(resolveRealRepositoryAuditDefaultCommit(root, {
+        explicitDefaultCommit: candidateHead
+      })).toBe(candidateHead);
+      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {})).toThrow(
+        `git rev-parse --verify ${DEFAULT_BRANCH_REMOTE_REF}^{commit} failed`
+      );
+
+      git(root, ['update-ref', '-d', DEFAULT_BRANCH_REMOTE_REF]);
+      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {})).toThrow(
+        'default commit is unavailable'
+      );
+      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
+        githubActions: 'true',
+        githubRef: 'refs/pull/374/merge',
+        githubSha: candidateHead
+      })).toThrow('default commit is unavailable');
+      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
+        githubActions: 'false',
+        githubRef: 'refs/heads/main',
+        githubSha: candidateHead
+      })).toThrow('default commit is unavailable');
+      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
+        githubActions: 'true',
+        githubRef: 'refs/heads/main'
+      })).toThrow('default commit is unavailable');
+      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
+        githubActions: 'true',
+        githubRef: 'refs/heads/main',
+        githubSha: 'HEAD'
+      })).toThrow('must be an exact lowercase 40-character commit SHA');
+      expect(resolveRealRepositoryAuditDefaultCommit(root, {
+        githubActions: 'true',
+        githubRef: 'refs/heads/main',
+        githubSha: candidateHead
+      })).toBe(candidateHead);
+      expect(() => resolveRealRepositoryAuditDefaultCommit(root, {
+        githubActions: 'true',
+        githubRef: 'refs/heads/main',
+        githubSha: defaultHead
+      })).toThrow('does not match source HEAD');
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  }
+);
 
 test.serial('exact SHA default-ref resolves without remote-tracking ref', async () => {
   const { root, headSha: parentSha } = await createTempRepo('sec-repository-audit-default-ref-sha-');
