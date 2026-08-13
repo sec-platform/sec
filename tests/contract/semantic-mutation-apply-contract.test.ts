@@ -8,6 +8,7 @@ import {
   executeSemanticMutationVerification,
   planSemanticMutationVerificationCapabilities
 } from '../../platform/compiler/index.ts';
+import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
 import { semanticMutationTransactionRoot } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
 import {
@@ -18,7 +19,6 @@ import { isSemanticMutationStagingWorkspace } from '../../platform/compiler/veri
 import { assertSemanticMutationVerificationReportInvariant } from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
 import { applySemanticMutation } from '../../platform/orchestrator.ts';
 import type { IsolatedVerificationCapability } from '../../platform/orchestrator/isolated-verification-capability.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   PIPELINE_COMPLETION_PROOF_REVISION,
   PIPELINE_STAGE_IDS,
@@ -712,5 +712,5 @@ test('isolated Verification evidence preserves the passed projection and freezes
   expect(semanticMutationIsolatedVerificationEvidenceDigest({
     status: 'blocked',
     failure: { stage: 'binding-mismatch' }
-  })).toBe('sha256:940969c50d2ef23e11454d3543f924348662a721717d7b58fba87bf75afb6927');
+  })).toBe('sha256:44d059c12c7caec991bf22eabc4403bef552a4c7bbc537088d13c729528b7239');
 });

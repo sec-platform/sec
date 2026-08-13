@@ -1,4 +1,4 @@
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
+import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import type { SemanticMutationBaseV2, VerificationRequirementV1 } from '../../platform/shared/semantic-mutation-types.ts';
 import {
   SEMANTIC_MUTATION_LOCAL_VERIFICATION_ADAPTER_ID,

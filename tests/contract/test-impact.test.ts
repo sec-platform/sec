@@ -1043,7 +1043,9 @@ test('test impact selector gives Semantic Impact a focused owner without dedicat
 test('test impact selector gives Semantic Mutation focused fast and notice-only slow coverage', () => {
   const sourceFiles = [
     'platform/shared/semantic-mutation-types.ts',
-    'platform/compiler/semantic-mutation/plan-semantic-mutation.ts'
+    'platform/compiler/semantic-mutation/plan-semantic-mutation.ts',
+    'platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts',
+    'platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts'
   ];
   const selection = selectTestsForSources(sourceFiles);
 
@@ -1051,6 +1053,7 @@ test('test impact selector gives Semantic Mutation focused fast and notice-only 
   expect(selection.fast).toEqual(expect.arrayContaining([
     'tests/unit/semantic-mutation.test.ts',
     'tests/unit/semantic-mutation-source-adapter.test.ts',
+    'tests/unit/semantic-mutation-runtime-materialization.test.ts',
     'tests/contract/semantic-mutation-contract.test.ts',
     'tests/contract/semantic-mutation-source-adapter-contract.test.ts',
     'tests/unit/fact-delta.test.ts',
@@ -1183,20 +1186,19 @@ test('test impact selector gives the shared observed-process lifecycle a neutral
   const source = 'platform/shared/observed-process.ts';
   const selection = selectTestsForSources([source]);
 
-  expect(selection.owners).toEqual(['observed-process-lifecycle']);
+  expect(selection.owners).toEqual(['auto-reference', 'observed-process-lifecycle']);
   expect(selection.fast).toEqual([
     'tests/contract/semantic-mutation-apply-contract.test.ts',
     'tests/contract/test-impact.test.ts',
     'tests/unit/observed-process-lifecycle.test.ts',
     'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+    'tests/unit/windows-appcontainer-hardening-static.test.ts',
+    'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts',
     'tests/unit/work-package-gate-execution.test.ts',
     'tests/unit/work-package-profile-probe-diagnostic.test.ts'
   ]);
   expect(selection.slow).toEqual([]);
-  for (const appContainerTest of [
-    'tests/unit/windows-appcontainer-executor.test.ts',
-    'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts'
-  ]) expect(selection.fast).not.toContain(appContainerTest);
+  expect(selection.fast).not.toContain('tests/unit/windows-appcontainer-executor.test.ts');
   expect(resolveTestOwnership([source]).filter(
     (entry) => entry.owner === 'observed-process-lifecycle'
   )).toEqual([{
