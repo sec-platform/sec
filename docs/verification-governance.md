@@ -321,7 +321,10 @@ candidate不得吸收unrelated baseline/verifier/selector defect。一个fresh l
 owner、failure fingerprints与manifest identity交给document-control；`locked`不调用任何选择器。
 repair路径因此不依赖全Issue census，也不能与ordinary选择同时运行。
 
-多个受信event producer不是天然冲突，也不能以“任意一个成功”投票。唯一MainHealth compiler只在每个
+多个受信event producer不是天然冲突，也不能以“任意一个成功”投票。raw `repository_dispatch` event不是
+MainHealth action credential；normalized check必须包含workflow run ID/display title，policy必须先验证push或
+exact-main MainHealth request对应的event-specific title。其他dispatch的同名skipped job是nonmatching noise，
+不得把activation producer自身变成MainHealth blocker。唯一MainHealth compiler只在每个
 allowed event至多一个check且全部给出相同`terminal status + conclusion`时收敛：一致成功是healthy，
 一致终态失败是degraded；terminal conclusion词汇由MainHealth policy封闭拥有，同event重复、nonterminal、
 unknown status/conclusion或结论分歧都是locked。语义failure fingerprint排除

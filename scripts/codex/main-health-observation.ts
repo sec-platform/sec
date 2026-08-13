@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 
 import {
   CI_MAIN_HEALTH_POLICY_DIGEST_V1,
-  CI_MAIN_HEALTH_POLICY_V1
+  CI_MAIN_HEALTH_POLICY_V1,
+  createCiMainHealthRequestOperationIdV1
 } from '../../platform/shared/ci-verification-revision.ts';
 import {
   createMainHealthRepairWorkPackagePathV1,
@@ -31,6 +32,31 @@ export function createObservedMainHealthInputV1(input: {
   checks: readonly GitHubCheckObservationV1[];
 }): MainHealthLedgerInputV1 {
   const expectedRef = CI_MAIN_HEALTH_POLICY_V1.producer.workflowRefFormat.replace('<exact-main-sha>', input.mainSha);
+  const expectedPushTitle = CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.push
+    .replace('<exact-main-sha>', input.mainSha);
+  const dispatchTitleParts = CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.repositoryDispatch
+    .replace('<exact-main-sha>', input.mainSha)
+    .split('<request-operation-id>');
+  if (dispatchTitleParts.length !== 2) {
+    throw new Error('MainHealth repository-dispatch title policy must contain one request-operation placeholder.');
+  }
+  const [dispatchTitlePrefix, dispatchTitleSuffix] = dispatchTitleParts as [string, string];
+  if (CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.requestOperationId !== 'sha256:<64-lowercase-hex>') {
+    throw new Error('MainHealth request-operation identity policy is unsupported.');
+  }
+  const expectedRequestOperationId = createCiMainHealthRequestOperationIdV1(input.mainSha);
+  const matchesRunTitle = (check: GitHubCheckObservationV1): boolean => {
+    if (check.workflowRunId === null || check.workflowRunDisplayTitle === null) return false;
+    if (check.eventName === 'push') return check.workflowRunDisplayTitle === expectedPushTitle;
+    if (check.eventName !== 'repository_dispatch'
+        || !check.workflowRunDisplayTitle.startsWith(dispatchTitlePrefix)
+        || !check.workflowRunDisplayTitle.endsWith(dispatchTitleSuffix)) return false;
+    const operationId = check.workflowRunDisplayTitle.slice(
+      dispatchTitlePrefix.length,
+      check.workflowRunDisplayTitle.length - dispatchTitleSuffix.length
+    );
+    return operationId === expectedRequestOperationId;
+  };
   const eventRank = (eventName: string | null): number =>
     CI_MAIN_HEALTH_POLICY_V1.producer.eventNames.findIndex((candidate) => candidate === eventName);
   const matching = input.checks.filter((check) => check.headSha === input.mainSha
@@ -40,6 +66,7 @@ export function createObservedMainHealthInputV1(input: {
     && check.appSlug === CI_MAIN_HEALTH_POLICY_V1.app.slug
     && check.workflowPath === CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath
     && check.workflowRef === expectedRef
+    && matchesRunTitle(check)
     && CI_MAIN_HEALTH_POLICY_V1.producer.eventNames.some(
       (eventName) => check.eventName === eventName
     )).sort((left, right) => eventRank(left.eventName) - eventRank(right.eventName) || left.id - right.id);

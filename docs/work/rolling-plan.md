@@ -2,72 +2,118 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-12
+last-reviewed: 2026-08-13
 ---
 
 # SEC 滚动近期计划
 
-本投影由唯一MainHealth repair renderer绑定exact `main@8f55bd9e900b2bbbfa4a71f83987420b4688e0be`、tree `950c26c542472c2f112a2bc0893f4e895f47a357`、health `sha256:ce4b22b1dbcfe8e7a6a8fc6adb4d09321015cf84b6aacf7bed3a5f1fd4ca34a4`与排序failure fingerprints `sha256:f6d9ecd9eb1201144a262cea944ac3b63a77ebc683e12b173c0cca0a2d6661f0`。旧epoch说明、caller prose与普通WorkDecision都不能参与本次repair projection；长期DAG、current spec和普通选择权仍归其canonical owner。
+本文件是validated WorkDecision的只读投影，不是roadmap、registry、current spec或selection authority。
+任何选择变化都从exact main重新观察；Issue/comment prose、AI评分、wall-clock、caller JSON和本文件自身
+均不能成为输入。receipt只能用于replay；effectful consumer必须调用trusted live adapter重新推导。
+
+```json
+{
+  "active": {
+    "currentSpecRef": "github:issue/352",
+    "currentSpecRevision": "sha256:363e771392f5b5e046a8e86cd9db9cf937b4cedc6cfc8b95ad9e1aaaecc07e89",
+    "decisionStatus": "selected",
+    "packageId": "controlled-pr-issue-disposition-single-writer-v1",
+    "tracking": "issue-352",
+    "workId": "issue-352"
+  },
+  "candidates": [
+    {
+      "currentSpecRef": "github:issue/186",
+      "currentSpecRevision": "sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a",
+      "decisionStatus": "rejected",
+      "packageId": "git-worktree-physical-closeout-v1",
+      "tracking": "issue-186",
+      "workId": "issue-186"
+    },
+    {
+      "currentSpecRef": "github:issue/275",
+      "currentSpecRevision": "sha256:b8fc75c138ab7541f5a29736e6abf275f191bce6bb5df26fc1182e8e438b88a4",
+      "decisionStatus": "rejected",
+      "packageId": "delegation-consumer-zero-retirement-v1",
+      "tracking": "issue-275",
+      "workId": "issue-275"
+    },
+    {
+      "currentSpecRef": "github:issue/321",
+      "currentSpecRevision": "sha256:0cce9c5ae5ceb15227d7b89633d8a99b83a94a5dd235a0b8a041536ce4fef332",
+      "decisionStatus": "rejected",
+      "packageId": "candidate-control-transaction-v1",
+      "tracking": "issue-321",
+      "workId": "issue-321-candidate-control"
+    },
+    {
+      "currentSpecRef": "github:issue/312",
+      "currentSpecRevision": "sha256:5ddcc63bf3a8b1b13239b99a00a4e13fd933e54fa1e3c0f976ebe443721e9335",
+      "decisionStatus": "rejected",
+      "packageId": "typescript-7-checker-acceleration-v1",
+      "tracking": "issue-312",
+      "workId": "issue-312"
+    },
+    {
+      "currentSpecRef": "github:issue/349",
+      "currentSpecRevision": "sha256:d46c5e43e887f702f93fd8d394cdd7d46a6a73a77ac77c138430726946e24af5",
+      "decisionStatus": "rejected",
+      "packageId": "execution-wave-v1",
+      "tracking": "issue-349",
+      "workId": "issue-349"
+    }
+  ],
+  "catalogDigest": "sha256:66e1ae49a02cbec9c9e98446ba1617356f5692503d1ad4e19a5fee05201e5ab1",
+  "decisionDigest": "sha256:d3ef30cec518f501f1e361c03f473ce0b2e93149722a233c59a3061e6052b11e",
+  "exactMain": "93dde9e44bbcffdd7fa1d6be726df1725947f6e2",
+  "projectionDigest": "sha256:672f17813b092d83f7f707b89ac538887688635c5cc1d6784af382fe0932664b",
+  "receiptDigest": "sha256:e47b007888375d5f59e1bdbf1c8051fd55b36bfd0f6c6a9a627a61638d5422a9",
+  "roadmapRevision": "sha256:d6fdab676cbb8ec7b2b61c1a60d62b0f59fc6c75f79b65ec72b9d823793c54e8",
+  "schema": "sec-work-rolling-projection-v1"
+}
+```
 
 ## 当前唯一 Work Package
 
-### default-branch-health-repair-8f55bd9e900b2bbbfa4a71f83987420b4688e0be-9b49dde8a89251e9d2d153527267156efb617964d9944c928f18d1eb482ad3f5
+### controlled-pr-issue-disposition-single-writer-v1
 
-Exact degraded-main repair for `main@8f55bd9e900b2bbbfa4a71f83987420b4688e0be` and health `sha256:ce4b22b1dbcfe8e7a6a8fc6adb4d09321015cf84b6aacf7bed3a5f1fd4ca34a4`. This temporary projection has no ordinary work-selection authority.
+Work identity `issue-352`; current spec `github:issue/352` at
+`sha256:363e771392f5b5e046a8e86cd9db9cf937b4cedc6cfc8b95ad9e1aaaecc07e89`; decision `sha256:d3ef30cec518f501f1e361c03f473ce0b2e93149722a233c59a3061e6052b11e`.
 
 ## 候选 Work Package
 
-### 1. operation-read-plan-authority-canary-v1
+### 1. git-worktree-physical-closeout-v1
 
-Issue #346 production cutover：本地caller只dispatch wake-up；default-branch GitHub Actions/App producer对
-manifest-only draft PR签发immutable PRE artifact与App locator，同一PR完成实现后再为exact final head签发FINAL。
-Task Capsule、Read Plan与Skill重验provider、artifact、WorkDecision、PR、manifest、owner closure和whole delta，
-PRE用于实现前的最小读取/Skill选择，FINAL用于实现后的exact reconciliation，二者都不自行签发。当前PR只发布机制与legacy marker根修，不把自身冒充canary；Issue保持开放直到三个真实operation
-与一次真实maintainer mutation observation完成。
+Work identity `issue-186`; current spec `github:issue/186` at
+`sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a`; current decision status `rejected`.
 
 ### 2. delegation-consumer-zero-retirement-v1
 
-Issue #275；#346机制进入new main后立即作为第一个真实PRE→FINAL canary，迁移最后consumer并把Skill集合由八
-收敛到七，不保留alias。其结果计入#346的三次真实operation，但不因此提前关闭#346。
+Work identity `issue-275`; current spec `github:issue/275` at
+`sha256:b8fc75c138ab7541f5a29736e6abf275f191bce6bb5df26fc1182e8e438b88a4`; current decision status `rejected`.
 
 ### 3. candidate-control-transaction-v1
 
-Issue #321 focused slice；实现一个logical run一个mutable worktree/ref的机器lease、generation replacement
-和provider/local双readback，根治v2/v3 candidate分裂。
+Work identity `issue-321-candidate-control`; current spec `github:issue/321` at
+`sha256:0cce9c5ae5ceb15227d7b89633d8a99b83a94a5dd235a0b8a041536ce4fef332`; current decision status `rejected`.
 
 ### 4. typescript-7-checker-acceleration-v1
 
-Issue #312/#193；只在read-path cutover及package/lock单写者成立后做TS7 native checker parity，TS6继续
-拥有programmatic Compiler API、Language Service与imports kernel，直到迁移Evidence成立。
+Work identity `issue-312`; current spec `github:issue/312` at
+`sha256:5ddcc63bf3a8b1b13239b99a00a4e13fd933e54fa1e3c0f976ebe443721e9335`; current decision status `rejected`.
 
 ### 5. execution-wave-v1
 
-Issue #349；等待WorkDecision、#207 order/conflict和前置control/verification closure可消费后，只编译
-work refs、order、resource和cost，不复制Issue/Skill prose、权限或Verification算法。
-
-## 后续与唯一 owner
-
-- `docs/roadmap.md`拥有完整R14顺序；当前bounded catalog只保留能形成未来二至五候选的近端窗口。
-- #327拥有repository path/module-specifier/primitive census以及`docs/evidence/**` consumer-zero retirement；
-  #348继续唯一拥有import representation/effect，导入自动化不回退到手改名单。
-- #193拥有每个真实重复机制的wheel/provider adoption与package/lock单写者；#316拥有性能真值。
-- #346的production cutover已进入main但Issue保持开放，直到三个真实operation和一次真实maintainer
-  mutation observation；#352与#186分别保留自己的完成条件，不因本repair或后继progress提前关闭。
-- #349在#321/#312之后；它只编译work refs、order、resource和cost，不复制Issue/Skill prose、权限或
-  Verification算法。
+Work identity `issue-349`; current spec `github:issue/349` at
+`sha256:d46c5e43e887f702f93fd8d394cdd7d46a6a73a77ac77c138430726946e24af5`; current decision status `rejected`.
 
 ## 重新规划硬触发器
 
-1. live main、catalog、current spec、registry、lifecycle、conflict或provider observation发生漂移；
-2. selected package/tracking与WorkDecision不一致，或候选少于二、多于五、重复、手工重排或增删；
-3. candidate changed path超出frozen ownedPaths、命中forbiddenPaths或出现第二mutable worktree/ref；
-4. Issue title/body/comment、AI评分、wall-clock、rolling prose或caller JSON开始影响selection；
-5. exact-head independent Review存在P0/P1/P2，或head/tree/base/manifest digest在Review后改变；
-6. merge后尚未完成remote/new-main/local-main和branch/worktree/ref absence readback。
+1. exact main、roadmap/catalog、registry/lifecycle/conflict或current-spec revision漂移；
+2. active/tracking/package与decision不一致，或候选少于二、多于五、重复、手工重排、增删；
+3. WorkDecision不是select-next，或任何required fact为unknown/unresolved；
+4. independent Review之后head/tree/base/manifest或本projection bytes改变。
 
 ## 加速验收
 
-默认执行`RequiredClosure ∩ MissingOrStale`：本repair只运行一次post-delta TypeScript check、直接改动的
-MainHealth/document-control contract、必要的docs/imports/TCB机械检查与独立exact-object Review；不运行
-affected/full/release/nightly或重复同一失败。不得以少验证放宽parser、identity、unknown、authority或
-readback；fresh PASS直接复用，same-input failure直接复用。
+只执行delta直接拥有的最小验证；同一input/failure复用结果，不运行无因果consumer的全工程Gate。

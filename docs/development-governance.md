@@ -202,7 +202,11 @@ exact repair manifest绑定、用户显式授权并经独立Review/new-main read
 进入new main后不得再保留caller JSON、手工pointer staging或第二repair package入口。#177继续只拥有failure
 classification；MainHealth routing与document-control effect owner不迁入#177。
 
-同一exact main可以由policy列出的不同GitHub event各产生一次MainHealth check。MainHealth owner先按
+同一exact main可以由policy列出的不同GitHub event各产生一次MainHealth check。event name本身不证明
+`repository_dispatch`的action身份；provider adapter必须同时观察workflow run ID与display title，MainHealth
+policy再按exact main和request-operation identity验证event-specific run title。activation、verification-action及
+其他dispatch中同名但skipped的job属于nonmatching provider noise，不能参与ledger或污染source digest。
+MainHealth owner先按
 MainHealth policy拥有封闭的recognized conclusion集合，并按`(terminal status, conclusion)`归一语义outcome：
 每个allowed event至多一个producer且全部recognized terminal outcome
 相同时才收敛；一致成功进入healthy，一致非成功进入degraded。same-event重复、nonterminal或不同conclusion
