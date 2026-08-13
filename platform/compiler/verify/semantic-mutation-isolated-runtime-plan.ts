@@ -21,6 +21,7 @@ import {
   RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH,
   type CompilerRuntimeResourceMap
 } from '../../shared/runtime-layout.ts';
+import { compareCodeUnits, rawSha256, sha256 } from '../semantic-mutation/canonical.ts';
 import {
   SEMANTIC_MUTATION_ISOLATED_BOOTSTRAP_RELATIVE_PATH,
   SEMANTIC_MUTATION_ISOLATED_RUNNER_CORE_RELATIVE_PATH,
@@ -31,7 +32,6 @@ import {
 import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../semantic-mutation/isolated-verification-phase-telemetry.ts';
-import { compareCodeUnits, rawSha256, sha256 } from '../ir/ir-canonical-primitives.ts';
 import { RUNTIME_VERIFICATION_INVOCATION_CONTRACT } from './runtime-verification-invocation-contract.ts';
 import {
   registerSemanticMutationIsolatedRuntimePlanBinding,

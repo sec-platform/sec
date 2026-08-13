@@ -14,7 +14,7 @@ import {
   type TrustedLocalSemanticMutationAuthorizationInputV1,
   type TrustedLocalSemanticMutationPolicyDraftV1
 } from '../../platform/compiler/index.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
+import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import type { EngineeringIR } from '../../platform/shared/engineering-ir-types.ts';
 import type { LockFile } from '../../platform/shared/lock-types.ts';
 import {

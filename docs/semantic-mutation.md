@@ -2,7 +2,7 @@
 title: Semantic Mutation 事务
 status: stable
 domain: semantic-mutation
-last-reviewed: 2026-07-29
+last-reviewed: 2026-08-13
 ---
 
 # Semantic Mutation 事务
@@ -202,6 +202,21 @@ Journal是append-only或等价durable transaction governance state，至少绑�
 - recovery preconditions和retention/compaction lineage。
 
 Journal不是Engineering IR、Authoring Source、Evidence替代品或UI状态。Terminal replay只能返回retained result，不重新执行副作用。Compaction必须保留active/uncertain/recovery generations和terminal lineage；不能按时间或文件数量删除唯一恢复证据。
+
+### 持久 revision 的序列化版本
+
+已发布的 Semantic Mutation v1 journal format 与 v2 contract revision domain 使用普通
+`JSON.stringify` 的 insertion-order bytes 计算结构化 `sha256:` identity；这项序列化是对应
+版本的一部分，不随平台通用 canonical primitive 的实现变化。Reader 与 writer 必须通过
+`platform/compiler/semantic-mutation/canonical.ts` 的唯一 digest owner 计算这些 revision，
+包括 request、authorization、plan、verification、result、recovery、terminal 及 isolated
+verification bindings；source、artifact、bundle 与 stream bytes 仍使用 raw byte digest。
+
+同一 format/contract revision 不能同时接受或生成第二种结构化序列化，不能在读取时重算、
+改写或删除历史 journal。若未来采用 sorted-key canonical JSON，必须先发布新的显式
+format/contract revision，由 version-dispatched reader、migration receipt、retention 与旧 writer
+consumer-zero 退出条件共同完成迁移；未声明版本的算法漂移必须 fail closed 并作为 compatibility
+defect 修复，不能用 fixture refresh 或永久 dual-read 掩盖。
 
 ## Crash 与 Recovery
 

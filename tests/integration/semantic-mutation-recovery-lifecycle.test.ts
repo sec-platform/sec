@@ -10,6 +10,7 @@ import {
   type SemanticMutationBaseV2,
   type SemanticMutationRequestV2
 } from '../../platform/compiler/index.ts';
+import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import { expectationFromFactDelta } from '../../platform/compiler/semantic-mutation/match-expectation.ts';
 import { loadSemanticMutationRecoveryRecords } from '../../platform/compiler/semantic-mutation/mutation-recovery-record.ts';
 import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
@@ -34,7 +35,6 @@ import {
   planSemanticMutationTransactionWithTestDependencies,
   recoverSemanticMutationWorkspaceWithTestDependencies
 } from '../../platform/orchestrator/semantic-mutation-orchestrator.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
 import type { SemanticMutationRecoveryState } from '../../platform/shared/semantic-mutation-transaction-types.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';

@@ -1036,13 +1036,14 @@ async function terminateWindowsProcessTree(
     if (remainingBudgetMs(request.deadlineAtMs, request.runtime) === 0) {
       return { commandSucceeded: false, helperTreeClosed: true };
     }
+    const systemDirectory = path.win32.join(request.runtime.systemRoot, 'System32');
     let killer: ChildProcess;
     try {
       killer = await request.runtime.spawnChild(
-        path.join(request.runtime.systemRoot, 'System32', 'taskkill.exe'),
+        path.win32.join(systemDirectory, 'taskkill.exe'),
         ['/PID', String(pid), '/T', ...(force ? ['/F'] : [])],
         {
-          cwd: path.join(request.runtime.systemRoot, 'System32'),
+          cwd: systemDirectory,
           env: {
             SystemRoot: request.runtime.systemRoot,
             SYSTEMROOT: request.runtime.systemRoot,

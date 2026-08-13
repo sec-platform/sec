@@ -13,7 +13,7 @@ import {
   type SemanticMutationVerificationReportV1,
   type SemanticMutationVerifyAllRunnerV1
 } from '../../shared/verification-types.ts';
-import { cloneAndDeepFreeze, compareCodeUnits, sha256 } from '../ir/ir-canonical-primitives.ts';
+import { cloneAndDeepFreeze, compareCodeUnits, sha256 } from '../semantic-mutation/canonical.ts';
 import { forwardSemanticMutationIsolatedRuntimePlanBinding } from './semantic-mutation-isolated-runtime-binding.ts';
 import {
   hasProvenSemanticMutationIsolationCapability,

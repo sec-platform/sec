@@ -11,10 +11,8 @@ import {
   canonicalJson,
   cloneAndDeepFreeze,
   compareCodeUnits,
-  digest,
   isPlainObject,
   rawSha256,
-  sha256,
   sortedKeys
 } from '../ir/ir-canonical-primitives.ts';
 
@@ -54,9 +52,9 @@ export class SemanticMutationContractError extends CompilerError {
   }
 }
 
-// Re-export canonical primitives so existing call sites keep working.
-// The canonical owner lives at `../../shared/canonical-primitives.ts`;
-// `../ir/ir-canonical-primitives.ts` re-exports it for the compiler subsystem.
+// Re-export representation-independent primitives so existing call sites keep
+// working. Structured Semantic Mutation revisions are deliberately owned below:
+// their published v1/v2 identities predate the platform-wide sorted-key hash.
 export {
   canonicalEquals,
   canonicalJson,
@@ -64,9 +62,21 @@ export {
   compareCodeUnits,
   isPlainObject,
   rawSha256,
-  sha256,
   sortedKeys
 };
+
+/**
+ * Frozen structured digest for the already-published Semantic Mutation v1/v2
+ * revision domains. Object insertion order is part of those identities.
+ * A different serialization requires a new declared protocol/format revision.
+ */
+export function sha256(value: unknown): string {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) {
+    throw new Error('Semantic Mutation revision input is not JSON serializable');
+  }
+  return rawSha256(serialized);
+}
 
 export function exactOwnKeys(
   value: Record<string, unknown>,
