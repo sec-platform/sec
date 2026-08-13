@@ -1332,17 +1332,21 @@ test('synchronous continuous-fence failure is absorbed and keeps fence-lost as f
 test('default Windows terminator proves graceful taskkill tree closure through injected primitives', async () => {
   const root = fakeChild();
   const taskkillArgs: string[][] = [];
+  const taskkillCommands: string[] = [];
+  const taskkillCwds: Array<string | undefined> = [];
   const outcome = await runObservedCommand('host-tool.exe', [], {
-    cwd: String.raw`C:\Windows\System32`,
+    cwd: String.raw`D:\WinRoot\System32`,
     terminationDeadlineMs: 50,
     terminationGraceMs: 10,
     timeoutMs: 5,
     dependencies: {
       platform: 'win32',
-      systemRoot: String.raw`C:\Windows`,
-      spawnChild: (command, args) => {
+      systemRoot: String.raw`D:\WinRoot`,
+      spawnChild: (command, args, options) => {
         if (command === 'host-tool.exe') return root as unknown as ChildProcess;
+        taskkillCommands.push(command);
         taskkillArgs.push([...args]);
+        taskkillCwds.push(options.cwd === undefined ? undefined : String(options.cwd));
         const killer = fakeChild(50_001 + taskkillArgs.length);
         setTimeout(() => {
           closeChild(killer);
@@ -1353,7 +1357,9 @@ test('default Windows terminator proves graceful taskkill tree closure through i
     }
   });
 
+  expect(taskkillCommands).toEqual([String.raw`D:\WinRoot\System32\taskkill.exe`]);
   expect(taskkillArgs).toEqual([['/PID', '42424', '/T']]);
+  expect(taskkillCwds).toEqual([String.raw`D:\WinRoot\System32`]);
   expect(outcome.status).toBe('timed-out');
   expect(outcome.termination).toMatchObject({
     gracefulAttempted: true,
@@ -1365,6 +1371,7 @@ test('default Windows terminator proves graceful taskkill tree closure through i
 test('production Job-controller termination still attempts graceful taskkill before stable force', async () => {
   const root = fakeChild();
   const taskkillArgs: string[][] = [];
+  const taskkillCommands: string[] = [];
   const taskkillCwds: Array<string | undefined> = [];
   let taskkillJobCloseCalls = 0;
   let active = 1;
@@ -1389,6 +1396,7 @@ test('production Job-controller termination still attempts graceful taskkill bef
       systemRoot: String.raw`C:\Windows`,
       spawnChild: (command, args, options) => {
         if (command === 'host-tool.exe') return root as unknown as ChildProcess;
+        taskkillCommands.push(command);
         taskkillArgs.push([...args]);
         taskkillCwds.push(options.cwd === undefined ? undefined : String(options.cwd));
         const killer = fakeChild(50_500);
@@ -1404,6 +1412,7 @@ test('production Job-controller termination still attempts graceful taskkill bef
       }
     }
   });
+  expect(taskkillCommands).toEqual([String.raw`C:\Windows\System32\taskkill.exe`]);
   expect(taskkillArgs).toEqual([['/PID', '42424', '/T']]);
   expect(taskkillCwds).toEqual([String.raw`C:\Windows\System32`]);
   expect(taskkillJobCloseCalls).toBe(1);

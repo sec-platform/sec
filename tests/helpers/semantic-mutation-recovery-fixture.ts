@@ -12,13 +12,12 @@ import {
   type SemanticMutationRequestV2,
   type VerificationRequirementV1
 } from '../../platform/compiler/index.ts';
-import { canonicalVerificationUnion } from '../../platform/compiler/semantic-mutation/canonical.ts';
+import { canonicalVerificationUnion, sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import { expectationFromFactDelta } from '../../platform/compiler/semantic-mutation/match-expectation.ts';
 import { semanticMutationAuthorizationRevision } from '../../platform/compiler/semantic-mutation/normalize-request.ts';
 import { buildSemanticMutationVerificationExecutionRef } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
 import { semanticMutationRequestIdentityDigest } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import type { FactDeltaEndpointContext } from '../../platform/shared/engineering-ir-types.ts';
 import type { LoadedSemanticContract } from '../../platform/shared/semantic-contract-types.ts';
 import type { SemanticMutationRecoveryRecordV1 } from '../../platform/shared/semantic-mutation-transaction-types.ts';

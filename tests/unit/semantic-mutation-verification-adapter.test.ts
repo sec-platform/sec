@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { buildValidatedEngineeringIR, type BuildEngineeringIRInput } from '../../platform/compiler/index.ts';
+import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import {
   classifySemanticMutationIsolatedVerificationArtifactSet,
   classifySemanticMutationIsolatedVerificationOutcome,
@@ -13,7 +14,6 @@ import {
   executeSemanticMutationVerification,
   planSemanticMutationVerificationCapabilities
 } from '../../platform/compiler/verify/semantic-mutation-verification-adapter.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   buildExpectedProductVerificationClaimSummary
 } from '../../platform/shared/product-verification-profile.ts';

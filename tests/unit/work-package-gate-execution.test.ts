@@ -41,6 +41,7 @@ import {
   assertWorkPackageGateEvidenceBundleV4,
   assertWorkPackageGateEvidenceV4,
   finalizeWorkPackageGateEventV4,
+  parseFrozenWorkPackageGateSelectionV4,
   type WorkPackageGateChildEvidenceV1,
   type WorkPackageGateResidueCensusV4
 } from '../../scripts/work-package-gate-contract.ts';
@@ -299,14 +300,25 @@ function addHookIsolatedDetachedWorktree(snapshotRoot: string): void {
   }
 }
 
+const frozenExecutionManifestSourcePath =
+  'tests/fixtures/work-package-gate-manifests/sm3-r3-actionable-runtime-gate-v4.md';
+const frozenSelectionManifestSourcePath =
+  'tests/fixtures/work-package-gate-manifests/sm3-r1-focused-blocker-repair-v1.md';
 const frozenManifestPaths = new Map([
-  WORK_PACKAGE_GATE_EXECUTION_MANIFEST_PATH_V4,
-  WORK_PACKAGE_GATE_SELECTION_MANIFEST_PATH
-].map((relativePath) => [
-  path.resolve(repoRoot, ...relativePath.split('/')),
-  relativePath
+  [
+    WORK_PACKAGE_GATE_EXECUTION_MANIFEST_PATH_V4,
+    frozenExecutionManifestSourcePath
+  ],
+  [
+    WORK_PACKAGE_GATE_SELECTION_MANIFEST_PATH,
+    frozenSelectionManifestSourcePath
+  ]
+].map(([logicalPath, sourcePath]) => [
+  path.resolve(repoRoot, ...logicalPath.split('/')),
+  sourcePath
 ] as const));
 const frozenManifestTextCache = new Map<string, string>();
+let frozenHistoricalTestPaths: ReadonlySet<string> | undefined;
 
 function frozenManifestText(relativePath: string): string {
   const cached = frozenManifestTextCache.get(relativePath);
@@ -320,6 +332,17 @@ function frozenManifestText(relativePath: string): string {
   expect(result.status).toBe(0);
   frozenManifestTextCache.set(relativePath, result.stdout);
   return result.stdout;
+}
+
+function historicalFrozenTestPaths(): ReadonlySet<string> {
+  frozenHistoricalTestPaths ??= new Set(parseFrozenWorkPackageGateSelectionV4({
+    executionManifestSource: frozenManifestText(frozenExecutionManifestSourcePath),
+    executionManifestPath: WORK_PACKAGE_GATE_EXECUTION_MANIFEST_PATH_V4,
+    selectionManifestSource: frozenManifestText(frozenSelectionManifestSourcePath),
+    selectionManifestPath: WORK_PACKAGE_GATE_SELECTION_MANIFEST_PATH,
+    selectionIndex: v4Options.selectionIndex
+  }).testFiles.map((relativePath) => path.resolve(repoRoot, ...relativePath.split('/'))));
+  return frozenHistoricalTestPaths;
 }
 
 test('execution snapshot materializes the exact dirty tree in a detached worktree', async () => {
@@ -804,6 +827,8 @@ function fakeDependencies(input: {
   let censusIndex = 0;
   let now = 0;
   const overrides: Partial<WorkPackageGateDependencies> = {
+    pathExists: async (filePath) => historicalFrozenTestPaths().has(path.resolve(filePath)) ||
+      pathPresent(filePath),
     readText: async (filePath) => {
       const trackedManifest = frozenManifestPaths.get(path.resolve(filePath));
       return trackedManifest === undefined

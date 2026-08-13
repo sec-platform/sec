@@ -10,7 +10,7 @@ import {
   readSemanticMutationTransactionArtifacts,
   writeSemanticMutationTransactionArtifacts
 } from '../../platform/compiler/semantic-mutation/atomic-source-publish.ts';
-import { SemanticMutationContractError } from '../../platform/compiler/semantic-mutation/canonical.ts';
+import { SemanticMutationContractError, sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import { semanticMutationByteDigest } from '../../platform/compiler/semantic-mutation/semantic-contract-yaml-adapter.ts';
 import { readSemanticMutationSource } from '../../platform/compiler/semantic-mutation/source-path-boundary.ts';
 import { semanticMutationTransactionRoot } from '../../platform/compiler/semantic-mutation/transaction-identity.ts';
@@ -18,7 +18,6 @@ import {
   applySemanticMutationWindowsFileAttributes,
   readSemanticMutationWindowsFileAttributes
 } from '../../platform/compiler/semantic-mutation/windows-file-attributes.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   SEMANTIC_CONTRACT_YAML_ADAPTER_ID,
   SEMANTIC_CONTRACT_YAML_ADAPTER_REVISION,

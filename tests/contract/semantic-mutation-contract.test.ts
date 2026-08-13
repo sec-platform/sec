@@ -13,11 +13,11 @@ import {
   type SemanticMutationPlanV2,
   type SemanticMutationRequestV2
 } from '../../platform/compiler/index.ts';
+import { sha256 } from '../../platform/compiler/semantic-mutation/canonical.ts';
 import { SEMANTIC_MUTATION_OPERATION_DESCRIPTORS } from '../../platform/compiler/semantic-mutation/operation-registry.ts';
 import { semanticMutationPlanRevision } from '../../platform/compiler/semantic-mutation/plan-semantic-mutation.ts';
 import { buildSemanticMutationVerificationExecutionRef, semanticMutationResultRevision } from '../../platform/compiler/semantic-mutation/semantic-mutation-result.ts';
 import { semanticMutationRequiredVerificationDigest } from '../../platform/compiler/semantic-mutation/verification-policy.ts';
-import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import type { CiArtifactManifest } from '../../platform/shared/ci-artifact-types.ts';
 import type {
   EngineeringIR,
@@ -91,6 +91,16 @@ test('Semantic Mutation v2 public constants, request shape, and independent dige
   });
   expect(Object.isFrozen(SEMANTIC_MUTATION_OPERATION_DESCRIPTORS)).toBe(true);
   expect(Object.isFrozen(SEMANTIC_MUTATION_OPERATION_DESCRIPTORS['add-state-transition'])).toBe(true);
+  expect(sha256({
+    domain: 'semantic-mutation-frozen-digest-regression-v1',
+    zeta: 1,
+    alpha: 2
+  })).toBe('sha256:333a024149bce48bf2d92332e11ddcaecea611e2debb7804372956892d7568ce');
+  expect(sha256({
+    domain: 'semantic-mutation-frozen-digest-regression-v1',
+    alpha: 2,
+    zeta: 1
+  })).toBe('sha256:f201719a21aecf5e4228ca94463efd06a483dc82b883c038961c55f6655a3c71');
 
   const raw = request();
   const normalized = normalizeSemanticMutationRequest(raw);

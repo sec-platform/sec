@@ -57,6 +57,7 @@ const SEMANTIC_MUTATION_FAST_TESTS = [
   "tests/unit/semantic-mutation-apply.test.ts",
   "tests/unit/semantic-mutation-verification-adapter.test.ts",
   "tests/unit/semantic-mutation-isolated-child-fence.test.ts",
+  "tests/unit/semantic-mutation-runtime-materialization.test.ts",
   "tests/unit/workspace-write-lease.test.ts",
   "tests/contract/semantic-mutation-contract.test.ts",
   "tests/contract/semantic-mutation-source-adapter-contract.test.ts",
@@ -142,7 +143,6 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: "observed-process-lifecycle",
     identity: { kind: "architecture-owner", id: "observed-process-lifecycle" },
-    autoReferenceMode: "declared-only",
     sourceFiles: ["platform/shared/observed-process.ts"],
     fast: OBSERVED_PROCESS_LIFECYCLE_FAST_TESTS,
     slow: [],
@@ -219,6 +219,7 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/compiler/verify/run-semantic-mutation-isolated-child.ts",
       "platform/compiler/verify/semantic-mutation-isolated-runtime-binding.ts",
       "platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts",
+      "platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts",
       "platform/compiler/verify/semantic-mutation-isolation-capability.ts",
       "platform/compiler/verify/semantic-mutation-staging-boundary.ts",
       "platform/compiler/verify/semantic-mutation-verification-adapter.ts",
