@@ -356,8 +356,12 @@ test('physical closeout subprocesses exist only in private VerificationSession t
   expect(session).toContain('function publishHostedCloseoutEffectStartV1');
   expect(session).toContain('function finalizeHostedBranchCloseoutV1');
   expect(session).toContain('function publishHostedCloseoutTerminalV1');
-  expect(session.indexOf('publishHostedCloseoutEffectStartV1(ctx, publication)'))
-    .toBeLessThan(session.indexOf('finalizeHostedBranchCloseoutV1({'));
+  const sameInvocation = session.slice(
+    session.indexOf('async function finalizeSameInvocationCloseoutV1('),
+    session.indexOf('function publishHostedCloseoutTerminalV1(')
+  );
+  expect(sameInvocation.indexOf('publishHostedCloseoutEffectStartV1(input.ctx, effectStart)'))
+    .toBeLessThan(sameInvocation.indexOf('finalizeHostedBranchCloseoutV1({'));
   expect(closeout).not.toContain('finalizeIntegratedBranchCloseout');
   expect(closeout).not.toContain("'push',\n    '--porcelain'");
   expect(receipt).not.toContain('export function publishAndReadBack');

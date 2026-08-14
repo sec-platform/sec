@@ -26,6 +26,10 @@ import {
   type BranchPullRequestObservation,
   type ClassifiedBranchLifecycle
 } from './branch-lifecycle-types.ts';
+import {
+  assertTrustedCompletedWorktreePhysicalCloseoutV1,
+  type WorktreePhysicalCloseoutConsumptionTokenV1
+} from './worktree-physical-closeout.ts';
 
 export const BRANCH_CLOSEOUT_OPERATION_SCHEMA_V1 =
   'sec-branch-closeout-operation-v1' as const;
@@ -383,6 +387,16 @@ export function authorizeBranchCloseout(input: {
   request: BranchCloseoutRequest;
   before: BranchLifecycleInventory;
   current: BranchLifecycleInventory;
+  worktreeCleanupTokens?: readonly WorktreePhysicalCloseoutConsumptionTokenV1[];
+  expectedHeadTreeSha?: string;
+  /**
+   * A fresh host may observe that another host owned a registered worktree,
+   * but it cannot convert its own absence readback into that host's completed
+   * physical closeout.  The normal path is original-host physical completion
+   * followed by a newly prepared closeout with no foreign observation;
+   * merged recovery otherwise needs an explicit external maintainer decision.
+   */
+  foreignWorktreeObservationDigests?: readonly `sha256:${string}`[];
 }): BranchCloseoutAuthorization {
   const { preparation, request, before, current } = input;
   const blockers: string[] = [];
@@ -553,6 +567,48 @@ export function authorizeBranchCloseout(input: {
     ({ branch }) => branch === preparation.branch
   );
   const boundWorktrees = matchingWorktrees(current, preparation.branch);
+  const preparedBoundPaths = [...new Set(preparation.worktreePathsAtPreparation)]
+    .sort((left, right) => left.localeCompare(right));
+
+  const foreignObservations = [...new Set(input.foreignWorktreeObservationDigests ?? [])]
+    .sort((left, right) => left.localeCompare(right));
+  if (foreignObservations.some((digest) => !/^sha256:[0-9a-f]{64}$/u.test(digest))) {
+    blockers.push('foreign worktree closeout observation identity is invalid');
+  } else if (foreignObservations.length > 0) {
+    // Do not accept a caller locator, raw receipt, self-digest, or this host's
+    // inventory absence as a substitute for the foreign host's terminal fact.
+    blockers.push('external-maintainer-disposition-required');
+  }
+
+  if (boundWorktrees.length > 0) {
+    blockers.push('registered worktree must reach completed physical closeout before branch/ref CAS');
+  } else if (preparedBoundPaths.length > 0) {
+    if (input.expectedHeadTreeSha === undefined || !/^[0-9a-f]{40}$/u.test(input.expectedHeadTreeSha)) {
+      blockers.push('exact prepared head tree is required to consume worktree cleanup receipts');
+    }
+    const tokens = input.worktreeCleanupTokens ?? [];
+    for (const targetPath of preparedBoundPaths) {
+      const matches = tokens.filter((token) => {
+        try {
+          assertTrustedCompletedWorktreePhysicalCloseoutV1({
+            token,
+            repositoryRoot: current.repository.root,
+            targetPath,
+            branch: preparation.branch,
+            headSha: preparation.expectedHeadSha,
+            treeSha: input.expectedHeadTreeSha ?? '',
+            recoveryAuthorityDigest: preparation.recovery.sha256
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      if (matches.length !== 1) {
+        blockers.push(`exact completed worktree cleanup receipt is required for ${targetPath}`);
+      }
+    }
+  }
 
   let remoteAction: BranchCloseoutAuthorization['remoteAction'];
   if (currentRemote === undefined) {

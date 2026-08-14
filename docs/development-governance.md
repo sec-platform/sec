@@ -721,15 +721,15 @@ authorization；输入缺失或互相冲突时只能 `blocked`，不能猜测一
 生产 consumer、crash/concurrency 语义、迁移与删除条件。只做导航、组合或投影的能力必须是 pure
 compiler/resolver 或 derived view，不能升格为 state machine。
 
-| Surface | 实际作用 | 终态 | 自动化边界 | 完成/退役条件 |
-| --- | --- | --- | --- | --- |
-| General Run Kernel proposal | 汇总 run/capsule/transition 的早期设计输入 | **retire**；不实现第 2 个 coordinator | useful contracts 分别进入 TaskCapsuleCompiler、VerificationSession、Action/Evidence、Integration owner；`NextTransitionCompiler` 只纯组合 typed decisions | 所有目标 consumer cut over，proposal/Skill/agent projection 的 Run Kernel authority 引用为零后归档 |
-| `current-state.yaml` + active pointer + rolling plan | resolver 稳定配置、exact candidate selection、A0/人的近期投影 | **retain/adapt**；三个文件不是三个状态机 | parser/freeze owner 机器维护；candidate 为 `ProspectiveControlProjection`，live main 为 `ActiveMainControlState`，rolling plan 从选择结果派生 | candidate 投影失败不再污染 main；无 writer 会手工维护竞争 active truth；consumer contract 全部切换 |
-| `VerificationSession` 大实现/大测试 | 唯一 run/event/transition/resume coordinator | **retain/split**；不重写、不另建 Session | public contract 不变，内部按 pure decision、provider observation、Git/closeout、crash/recovery、hosted partitions 拆分；fast selector永不选择 slow/hosted partition | 每个 partition 有独立 Action/consumer/test-impact，普通 focused edit 不再触发整文件分钟级测试 |
-| `check:affected` / selector | 把 delta 映射到最小充分验证 | **evolve** 为 Requirement/subject closure | `Impact → tri-state Requirement → ActionKey → reuse/failure-reuse/join/execute/block`；unknown 保守扩大或 block | file-name fallback 只处理 unsupported closure；已知 unrelated/fresh Action 不再物理启动 |
-| `check:full` | release/nightly、selector calibration、unknown-impact backstop | **retain as backstop**，从日常路径退役 | 不接 pre-commit/pre-push、普通 edit、finding loop；只由明确 profile/trigger 调度 | default local/PR fast path 无 consumer，仍有 release/nightly/calibration owner 和预算 |
-| repository Skill corpus | 对需要 Agent 判断的触发、分析、工具选择和停止提供 guidance | **当前 8、终态 7**：delegation 在 #205 production compiler 切换前保留；deterministic behavior 为 zero-Skill | `SEC_REPOSITORY_BEHAVIOR_ROUTES` 显式区分 `skill` 与 `deterministic`；禁止 path catch-all 制造 guidance | 九个已退役 ID/file/consumer/alias 为零；#205 有真实 production consumer、canary 与 consumer-zero readback 后再退役 delegation；其余每个 Skill 有唯一非机器化判断 |
-| v2/v3/v4… candidate worktrees/refs | 曾用于 finding 后重建 exact one-parent candidate | **retire** 为 transport residue | 一个 logical run 只保留一个 mutable worktree + 一个 active ref；finding 原地修复、materialize 新 generation、expected-old CAS；旧 generation 留 immutable object/artifact | `FindingSuccessorWorktreeCount = 0`，completed run 的临时 worktree/ref 经 exact inventory/readback 自动清理 |
+| Surface                                              | 实际作用                                                       | 终态                                                                                                        | 自动化边界                                                                                                                                                                | 完成/退役条件                                                                                                                                                    |
+| ---------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| General Run Kernel proposal                          | 汇总 run/capsule/transition 的早期设计输入                     | **retire**；不实现第 2 个 coordinator                                                                       | useful contracts 分别进入 TaskCapsuleCompiler、VerificationSession、Action/Evidence、Integration owner；`NextTransitionCompiler` 只纯组合 typed decisions                 | 所有目标 consumer cut over，proposal/Skill/agent projection 的 Run Kernel authority 引用为零后归档                                                               |
+| `current-state.yaml` + active pointer + rolling plan | resolver 稳定配置、exact candidate selection、A0/人的近期投影  | **retain/adapt**；三个文件不是三个状态机                                                                    | parser/freeze owner 机器维护；candidate 为 `ProspectiveControlProjection`，live main 为 `ActiveMainControlState`，rolling plan 从选择结果派生                             | candidate 投影失败不再污染 main；无 writer 会手工维护竞争 active truth；consumer contract 全部切换                                                               |
+| `VerificationSession` 大实现/大测试                  | 唯一 run/event/transition/resume coordinator                   | **retain/split**；不重写、不另建 Session                                                                    | public contract 不变，内部按 pure decision、provider observation、Git/closeout、crash/recovery、hosted partitions 拆分；fast selector永不选择 slow/hosted partition       | 每个 partition 有独立 Action/consumer/test-impact，普通 focused edit 不再触发整文件分钟级测试                                                                    |
+| `check:affected` / selector                          | 把 delta 映射到最小充分验证                                    | **evolve** 为 Requirement/subject closure                                                                   | `Impact → tri-state Requirement → ActionKey → reuse/failure-reuse/join/execute/block`；unknown 保守扩大或 block                                                           | file-name fallback 只处理 unsupported closure；已知 unrelated/fresh Action 不再物理启动                                                                          |
+| `check:full`                                         | release/nightly、selector calibration、unknown-impact backstop | **retain as backstop**，从日常路径退役                                                                      | 不接 pre-commit/pre-push、普通 edit、finding loop；只由明确 profile/trigger 调度                                                                                          | default local/PR fast path 无 consumer，仍有 release/nightly/calibration owner 和预算                                                                            |
+| repository Skill corpus                              | 对需要 Agent 判断的触发、分析、工具选择和停止提供 guidance     | **当前 8、终态 7**：delegation 在 #205 production compiler 切换前保留；deterministic behavior 为 zero-Skill | `SEC_REPOSITORY_BEHAVIOR_ROUTES` 显式区分 `skill` 与 `deterministic`；禁止 path catch-all 制造 guidance                                                                   | 九个已退役 ID/file/consumer/alias 为零；#205 有真实 production consumer、canary 与 consumer-zero readback 后再退役 delegation；其余每个 Skill 有唯一非机器化判断 |
+| v2/v3/v4… candidate worktrees/refs                   | 曾用于 finding 后重建 exact one-parent candidate               | **retire** 为 transport residue                                                                             | 一个 logical run 只保留一个 mutable worktree + 一个 active ref；finding 原地修复、materialize 新 generation、expected-old CAS；旧 generation 留 immutable object/artifact | `FindingSuccessorWorktreeCount = 0`，completed run 的临时 worktree/ref 经 exact inventory/readback 自动清理                                                      |
 
 实施不是“先补完七项，再开始真实开发”，也不是忽略七项继续堆功能。依赖顺序固定为：
 
@@ -908,9 +908,10 @@ parent-directory durability barrier；journal删除也必须absence-readback并�
 Cleanup 的平台能力边界必须如实建模。Windows 使用已打开对象 handle 的 disposition effect；Linux VFS
 不提供“仅当目录项仍指向某 inode 才 unlink”的原子 CAS，因此唯一受支持的 writer 先持有 workspace
 write lease，再持有 parent/target fd，在effect前最后一次 `openat(O_NOFOLLOW)` 复核identity与bytes，执行
-一次 `unlinkat`，并用retained fd的link-count变化、name absence与parent `fsync`完成readback。lease外的
-同用户恶意namespace mutation不被伪装成可线性化CAS；一旦任何可观察替换、未知identity或link-count
-不闭合即preserve/block。不得用path-only `rm`/`rmdir`或重试循环弱化这条边界。
+一次 `unlinkat`，并用retained fd证明已打开对象未被替换、用selected parent/name absence与parent
+`fsync`完成本次effect readback。其他名字持有的同inode hardlink不在本次删除authority内，link-count只作
+诊断、不能要求归零；lease外的同用户恶意namespace mutation不被伪装成可线性化CAS，一旦selected name
+发生可观察替换或出现未知identity即preserve/block。不得用path-only `rm`/`rmdir`或重试循环弱化这条边界。
 
 Pointer只保存manifest path、raw blob digest和选择模式。Pointer、branch、PR或candidate存在都不是执行/合并授权。Manifest也是scope proposal；只有trusted base/A0签发的ScopeGrant与trusted resolver为当前exact base/head/tree产生的CandidateScopeAttestation共同成立时，才允许冻结Session。候选修改manifest或write set不能给自己扩权。
 
@@ -1030,7 +1031,27 @@ worktree closeout 是 branch/ref closeout 的前置 physical Action，不以 `gi
 为成功。terminal completion 同时要求 Git common-dir registry absence 与 exact physical target
 absence；unregister 后目录残留进入 durable `residue`，只能从 target 外的 authorization receipt
 重入。dirty/unknown/reparse/identity mismatch fail closed，后代 reparse 只 unlink entry 不遍历 target；
-completed worktree receipt 之后 branch owner 才能继续 local/remote ref CAS。
+completed worktree receipt 之后 branch owner 才能继续 local/remote ref CAS。`git worktree list
+--porcelain -z` 必须逐字段 strict UTF-8/NUL 解析，unknown、duplicate、unsupported、截断和互斥字段
+全部拒绝；authorization 在 unregister 前以 canonical bytes 持久化到 target 外的 Git common-dir，绑定
+repository/common-dir/target 的物理身份、branch/head/tree、recovery authority、working state、registry
+和 physical inventory。terminal 由 registry + physical readback 机械推导，caller 不能声明 completed。
+每次结果先发布为内容寻址的 immutable receipt generation，再由 durable atomic latest pointer 指向该
+generation；`residue`或`blocked`不能覆盖旧证据，条件解除后同一operation可追加`completed`generation。
+destructive cleanup必须持有parent/leaf handle：Linux用`openat(O_NOFOLLOW)`、`unlinkat`、retained
+selected-parent/name absence readback和parent `fsync`，同inode的其他hardlink不在本次删除authority内、
+不得导致已授权名字被误报为残留；Windows用`OPEN_REPARSE_POINT`、FileId/final-path fence和handle
+disposition；禁止path-only `unlink`、`rmdir`或`chmod` retry effect。
+
+branch owner 只消费同一 common-dir、同一 prepare 观察到的 exact target receipts；fresh host rehydrate
+不得继承另一主机的绝对 worktree path，也不得把“当前 runner 没有该路径”解释成外部主机已完成清理。
+同一主机上只要 prepared binding 仍存在、receipt 缺失/非 completed/identity 不符，或 receipt 后 fresh
+inventory 又出现 binding，remote 与 local ref CAS 都在 effect-start marker 前 fail closed；实际 CAS 前
+再读一次 inventory，避免 marker 与 effect 之间的重新注册竞态。
+跨主机observation只保留host/observation digest，不携带或重放foreign absolute path，也不能由artifact
+成功、当前job状态、raw JSON、locator或self-digest消除。正常收敛要求原host先完成physical closeout，
+再从新物理状态生成不含foreign observation的preparation；已merge的旧recovery仍携带foreign
+observation时返回`external-maintainer-disposition-required`，在存在独立disposition authority前零ref effect。
 
 `residue`、recovery ref 与 quarantine 都是事务中间态，不是长期归档。只有语义归属、target identity
 或物理删除仍未确定时才允许保留；一旦 exact disposition 已确定，同一 closeout 必须清除 worktree、

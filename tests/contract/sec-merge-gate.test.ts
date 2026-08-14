@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
@@ -549,14 +551,11 @@ test('hosted integration workflow delegates one globally serialized live-readbac
     'Reject blocked hosted integration lane',
     'Upload exact branch closeout recovery artifact',
     'Read back exact branch closeout recovery artifact',
-    'Integrate exact hosted Session and publish live readback status',
-    'Dispatch and join exact post-merge MainHealth',
-    'Observe Issue disposition and close out exact integrated branch',
+    'Close out exact integrated branch',
     'Publish exact branch closeout receipt',
-    'Retain exact closeout and Issue disposition projections',
-    'Upload diagnostic integration projection'
+    'Retain exact integration and closeout publication projections'
   ]);
-  expect(integrate.steps.filter(({ run }) => run !== undefined)).toHaveLength(8);
+  expect(integrate.steps.filter(({ run }) => run !== undefined)).toHaveLength(7);
 
   const checkout = integrate.steps[0]!;
   expect(checkout.uses).toBe('actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd');
@@ -600,44 +599,31 @@ test('hosted integration workflow delegates one globally serialized live-readbac
   expect(source).not.toContain('path: .tmp/codex/candidate');
   expect(source).not.toContain('createCommitStatus');
 
-  const postMergeMainHealth = integrate.steps[11]!;
-  expect(postMergeMainHealth).toMatchObject({
-    name: 'Dispatch and join exact post-merge MainHealth',
-    id: 'post-merge-main-health',
-    if: effectLane
-  });
-  const mainHealthScript = String(postMergeMainHealth.with?.script ?? '');
-  expect(mainHealthScript).toContain("integration.lane === 'open-first-effect'");
-  expect(mainHealthScript).toContain('mergeCommit.data.parents[0]?.sha !== preMergeMainSha');
-  expect(mainHealthScript).toContain("exactMarker('Verification-Session') !== integration.sessionRevision");
-  expect(mainHealthScript).toContain("integration.issueReconciliation.status === 'legacy-no-effect'");
-  expect(mainHealthScript).toContain("integration.issueReconciliation.status !== 'observed'");
-  expect(mainHealthScript).toContain('provider conditional writes are unsupported');
-  expect(mainHealthScript).toContain("exactMarker('Issue-Disposition-Plan')");
-  expect(mainHealthScript).toContain('integration.issueDispositionPlan.planDigest');
-  expect(mainHealthScript).toContain("integration.lane !== 'merged-recovery' || !issueMarkersAbsent");
-  expect(mainHealthScript).toContain('plannedCurrentMainSha !== preMergeMainSha');
-  expect(mainHealthScript).toContain('mergeCommitSha !== mainSha');
-  expect(mainHealthScript).toContain('mainSha === preMergeMainSha');
-  expect(mainHealthScript).toContain('if (mainSha !== plannedCurrentMainSha)');
-  expect(mainHealthScript).toContain('compareCommitsWithBasehead');
-  expect(mainHealthScript).toContain('basehead: `${mergeCommitSha}...${mainSha}`');
-  expect(mainHealthScript).toContain("relation.data.status !== 'identical'");
-  expect(mainHealthScript).toContain("relation.data.status !== 'ahead'");
-  expect(mainHealthScript).toContain('relation.data.merge_base_commit.sha !== mergeCommitSha');
-
-  expect(integrate.steps[12]).toMatchObject({
-    name: 'Observe Issue disposition and close out exact integrated branch',
-    id: 'closeout-mutate-hosted',
-    if: effectLane
-  });
-  expect(integrate.steps[13]).toMatchObject({
+  const sessionSource = readFileSync(path.resolve(import.meta.dir,
+    '../../scripts/codex/verification-session.ts'), 'utf8');
+  expect(sessionSource).toContain('async function joinExactPostMergeMainHealthV1');
+  expect(sessionSource).toContain('createCiMainHealthRequestOperationIdV1(input.mainSha)');
+  expect(sessionSource).not.toContain("encodeVerificationActionDataV2({\n    schema: 'sec-produce-main-health-request-v1'");
+  expect(sessionSource).toContain("'sec-produce-main-health-v1'");
+  expect(sessionSource).toContain('Canonical MainHealth workflow is not active.');
+  expect(sessionSource).toContain('MainHealth dispatch resolved to multiple exact workflow runs.');
+  expect(sessionSource).toContain('Exact MainHealth run has no unique successful canonical sec/main-health check.');
+  expect(sessionSource).toContain('function assertBoundPostMergeMainV1');
+  expect(sessionSource).toContain('First-effect merge commit ancestry or tree readback drifted.');
+  expect(sessionSource).toContain('Recovered PR merge commit is not an ancestor of the planned live main.');
+  expect(sessionSource.indexOf('assertBoundPostMergeMainV1'))
+    .toBeLessThan(sessionSource.indexOf('await joinExactPostMergeMainHealthV1'));
+  const integrateSource = sessionSource.slice(sessionSource.indexOf("if (command === 'integrate-hosted')"),
+    sessionSource.indexOf("if (command === 'closeout-mutate-hosted')"));
+  expect(integrateSource.indexOf('await joinExactPostMergeMainHealthV1'))
+    .toBeLessThan(integrateSource.indexOf('consumeSameHostWorktreeCloseoutV1'));
+  expect(integrate.steps[11]).toMatchObject({
     name: 'Publish exact branch closeout receipt',
     id: 'closeout-publish-hosted',
     if: effectLane
   });
 
-  const closeoutProjection = integrate.steps[14]!;
+  const closeoutProjection = integrate.steps[12]!;
   expect(closeoutProjection.uses)
     .toBe('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
   expect(closeoutProjection.with).toMatchObject({
@@ -645,17 +631,13 @@ test('hosted integration workflow delegates one globally serialized live-readbac
     'include-hidden-files': true
   });
   expect(String(closeoutProjection.with?.path))
-    .toContain('.tmp/codex/closeout-mutation-projection.json');
+    .toContain('.tmp/codex/integration-projection.json');
   expect(String(closeoutProjection.with?.path))
     .toContain('.tmp/codex/closeout-publication-projection.json');
-
-  const diagnostic = integrate.steps[15]!;
-  expect(diagnostic.uses).toBe('actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02');
-  expect(diagnostic.with).toMatchObject({
-    name: 'sec-integration-projection-v1-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}',
-    path: '.tmp/codex/integration-projection.json',
-    'include-hidden-files': true
-  });
+  expect(closeoutProjection.if)
+    .toBe("always() && !cancelled() && hashFiles('.tmp/codex/integration-projection.json') != ''");
+  expect(source).not.toContain('closeout-mutation-projection.json');
+  expect(source).not.toContain('Upload diagnostic integration projection');
 });
 
 test('exact-head workflow review findings preserve recovery base and install merge TS dependencies', async () => {
@@ -716,39 +698,23 @@ test('exact-head workflow review findings preserve recovery base and install mer
     .toBe('actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830');
   expect(integrate.steps[installIndex]?.run).toBe('bun install --frozen-lockfile');
 
-  const postMerge = integrate.steps.find(
-    ({ name }) => name === 'Dispatch and join exact post-merge MainHealth'
+  const integrateCloseout = integrate.steps.find(
+    ({ name }) => name === 'Close out exact integrated branch'
   )!;
-  expect(postMerge.env?.PLANNED_CURRENT_MAIN_SHA).toBe('${{ needs.plan.outputs.current-main-sha }}');
-  const postMergeScript = String(postMerge.with?.script ?? '');
-  expect(postMerge.env).toMatchObject({
+  expect(integrateCloseout.env).toMatchObject({
+    PRE_MERGE_MAIN_SHA: '${{ needs.plan.outputs.base-sha }}',
+    PLANNED_CURRENT_MAIN_SHA: '${{ needs.plan.outputs.current-main-sha }}',
     MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES: 10,
     MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES: 30,
     MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS: 10
   });
-  expect(postMergeScript).toContain('plannedCurrentMainSha !== preMergeMainSha');
-  expect(postMergeScript).toContain('mainSha !== plannedCurrentMainSha');
-  expect(postMergeScript).toContain('basehead: `${mergeCommitSha}...${mainSha}`');
-  expect(postMergeScript).toContain('const maximumPages = 1000;');
-  expect(postMergeScript).toContain('const boundedNextPage =');
-  expect(postMergeScript).toContain('observedCount !== totalCount');
-  expect(postMergeScript).toContain('nextPage !== page + 1');
-  expect(postMergeScript).toContain('per_page: pageSize,\n      page');
-  expect(postMergeScript).toContain("const nextLinks = [...link.matchAll(/<([^>]+)>;\\s*rel=\"next\"/gu)];");
-  expect(postMergeScript).toContain('nextLinks.length !== 1');
-  expect(postMergeScript).toContain('MainHealth check-run census');
-  expect(postMergeScript).toContain('page: checkPage');
-  expect(postMergeScript).toContain('expectedCheckTotal');
-  expect(postMergeScript).toContain(
-    'census ended before every reported item was observed.'
-  );
-  expect(postMergeScript).toContain(
-    'const deadline = Date.now() + (2 * mainHealthProducerTimeoutMilliseconds) +\n' +
-      '  mainHealthRunnerQueueAllowanceMilliseconds +\n' +
-      '  mainHealthJoinPollIntervalMilliseconds;'
-  );
-  expect(postMergeScript).not.toContain('MAIN_HEALTH_PRECEDING_PRODUCER_TIMEOUT_MINUTES');
-  expect(postMergeScript.indexOf('return exactRuns;')).toBeLessThan(
-    postMergeScript.indexOf('let matching = await observeExactRuns();')
-  );
+  const sessionSource = await Bun.file(new URL('../../scripts/codex/verification-session.ts', import.meta.url)).text();
+  expect(sessionSource).toContain('async function joinExactPostMergeMainHealthV1');
+  expect(sessionSource).toContain('Canonical MainHealth workflow is not active.');
+  expect(sessionSource).toContain('MainHealth dispatch resolved to multiple exact workflow runs.');
+  expect(sessionSource).toContain('Exact MainHealth run has no unique successful canonical sec/main-health check.');
+  expect(sessionSource).not.toContain('MAIN_HEALTH_PRECEDING_PRODUCER_TIMEOUT_MINUTES');
+  expect(sessionSource).toContain('queueAllowance * 60 * 1000');
+  expect(sessionSource).toContain('producerTimeout * 60 * 1000');
+  expect(sessionSource).toContain('pollSeconds * 1000');
 });
