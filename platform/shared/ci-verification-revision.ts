@@ -41,7 +41,7 @@ export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2 = Object.freeze([
   'package.json'
 ] as const);
 export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2 =
-  'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0:node-24.19.0:python-3.12.3:image-sha256-6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e:bun-1.3.14:action-producer-v2:sandbox-v4' as const;
+  'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0:node-24.19.0:python-3.12.3:unzip-6.00:image-sha256-a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf:bun-1.3.14:action-producer-v2:sandbox-v4' as const;
 
 /**
  * The hosted SUT isolation policy is part of Action identity through
@@ -192,8 +192,8 @@ export function createCiMainHealthRequestOperationIdV1(mainSha: string): `sha256
 
 /** The only exact-main health producer accepted by the ordinary Session lane. */
 export const CI_MAIN_HEALTH_POLICY_V1 = Object.freeze({
-  schema: 'sec-ci-main-health-policy-v5' as const,
-  policyRevision: 'sec-ci-main-health-policy-v5' as const,
+  schema: 'sec-ci-main-health-policy-v6' as const,
+  policyRevision: 'sec-ci-main-health-policy-v6' as const,
   context: 'sec/main-health' as const,
   app: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app,
   producer: Object.freeze({
@@ -201,9 +201,8 @@ export const CI_MAIN_HEALTH_POLICY_V1 = Object.freeze({
     sourceTransport: 'github-api' as const,
     workflowPath: '.github/workflows/compiler-pr-validation.yml' as const,
     workflowRefFormat: '.github/workflows/compiler-pr-validation.yml@<exact-main-sha>' as const,
-    eventNames: Object.freeze(['push', 'repository_dispatch'] as const),
+    eventNames: Object.freeze(['repository_dispatch'] as const),
     runTitleFormats: Object.freeze({
-      push: 'SEC main health <exact-main-sha>' as const,
       repositoryDispatch: 'SEC main health <exact-main-sha> operation <request-operation-id>' as const,
       requestOperationId: 'sha256:<64-lowercase-hex>' as const,
       requestSchema: CI_MAIN_HEALTH_REQUEST_SCHEMA_V1,
