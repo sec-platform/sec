@@ -911,10 +911,11 @@ function rollingTopologyFromValidatedReceiptV1(
     const candidate = candidatesByWorkId.get(item.workId);
     return candidate !== undefined
       && candidate.lifecycle !== 'already-in-main'
-      && candidate.lifecycle !== 'superseded';
+      && candidate.lifecycle !== 'superseded'
+      && candidate.lifecycle !== 'deferred';
   }).map(({ packageId }) => packageId);
   if (candidatePackageIds.length < 2 || candidatePackageIds.length > 5) {
-    fail('rolling topology must retain two to five nonterminal candidates after selection.');
+    fail('rolling topology must retain two to five nondeferred, nonterminal candidates after selection.');
   }
   return deepFreeze({ activePackageId: active.packageId, candidatePackageIds });
 }
