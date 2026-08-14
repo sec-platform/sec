@@ -202,6 +202,54 @@ test('first same-branch completed token remains target-valid after a second regi
   }
 }, 60_000);
 
+test('a collapsed ignored control ancestor admits only the exact held lease namespace', async () => {
+  for (const foreignSibling of [false, true]) {
+    const value = fixture();
+    try {
+      writeFileSync(path.join(value.target, '.gitignore'), '.sec/\n', 'utf8');
+      git(value.target, ['add', '.gitignore']);
+      git(value.target, ['commit', '-m', 'ignore control state']);
+      value.headSha = git(value.target, ['rev-parse', 'HEAD']);
+      value.treeSha = git(value.target, ['rev-parse', 'HEAD^{tree}']);
+      if (foreignSibling) {
+        mkdirSync(path.join(value.target, '.sec'), { recursive: true });
+        writeFileSync(path.join(value.target, '.sec', 'foreign.txt'), 'foreign\n', 'utf8');
+        await expect(prepareWorktreePhysicalCloseoutV1({
+          repositoryRoot: value.repository,
+          targetPath: value.target,
+          expectedBranch: value.branch,
+          expectedHeadSha: value.headSha,
+          expectedTreeSha: value.treeSha,
+          expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+        })).rejects.toThrow('working-state-not-clean');
+        expect(existsSync(path.join(value.target, '.sec', 'foreign.txt'))).toBe(true);
+        continue;
+      }
+      const authorization = await prepareWorktreePhysicalCloseoutV1({
+        repositoryRoot: value.repository,
+        targetPath: value.target,
+        expectedBranch: value.branch,
+        expectedHeadSha: value.headSha,
+        expectedTreeSha: value.treeSha,
+        expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+      });
+      const receipt = await executeWorktreePhysicalCloseoutV1({
+        repositoryRoot: value.repository,
+        targetPath: value.target,
+        expectedBranch: value.branch,
+        expectedHeadSha: value.headSha,
+        expectedTreeSha: value.treeSha,
+        expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+        authorizationPath: authorization.authorizationPath
+      });
+      expect(receipt.terminal).toBe('completed');
+      expect(existsSync(value.target)).toBe(false);
+    } finally {
+      rmSync(value.root, { recursive: true, force: true });
+    }
+  }
+}, 60_000);
+
 test('self-signed unregister receipt cannot elevate a token without this-process retained admin effect', async () => {
   const value = fixture();
   try {

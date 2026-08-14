@@ -172,27 +172,29 @@ describe('root package scripts', () => {
     expect(competingDefinitions).toEqual([]);
   });
 
-  test('common workspace write authority uses the portable generation ledger without Bun APIs', async () => {
+  test('common workspace write authority binds the V3 retained-identity retirement ledger', async () => {
     const leaseAuthority = await readCompilerFile('platform/shared/workspace-write-lease.ts');
 
     expectContainsAll(leaseAuthority, [
-      "WORKSPACE_WRITE_LEASE_TOKEN_VERSION = 'workspace-write-lease-token-v2'",
-      "WORKSPACE_WRITE_LEASE_PROTOCOL_VERSION = 'workspace-write-lease-protocol-v2'",
+      "WORKSPACE_WRITE_LEASE_TOKEN_VERSION = 'workspace-write-lease-token-v3'",
+      "WORKSPACE_WRITE_LEASE_PROTOCOL_VERSION = 'workspace-write-lease-protocol-v3'",
       'type ImmutablePublicationOutcome =',
       'await fs.link(candidate, target)',
       'const ownerPublication = await linkImmutableCandidateNoReplace(',
       "if (ownerPublication.state === 'not-published')",
       "if (ownerPublication.state === 'durability-unknown')",
-      'publishTerminal(paths, tokenFromOwner(finalState.owner), \'recovered\')',
-      'firstInventory.highestGeneration !== token.generation'
+      "publishTerminal(paths, tokenFromOwner(finalState.owner), 'recovered')",
+      'firstInventory.highestGeneration !== token.generation',
+      'relocateRetainedNoFollowDirectoryAcrossParentsV1',
+      'assertWorkspaceWriteLeaseRetirementProofV1',
+      'resumeWorkspaceWriteLeaseRetirementV1',
+      'retireOwnedNamespace'
     ]);
     expectContainsNone(leaseAuthority, [
       "from 'bun'",
       "import('bun')",
       'bun:ffi',
       'Bun.',
-      'renameat2',
-      'RENAME_NOREPLACE',
       'leaseTargetExists'
     ]);
   });

@@ -111,6 +111,7 @@ const WORKTREE_PHYSICAL_CLOSEOUT_FAST_TESTS = [
 // owner so #186 changes select both ordinary lease coverage and the real
 // cross-process closeout recovery evidence exactly once.
 const WORKSPACE_WRITE_LEASE_FAST_TESTS = [
+  'tests/contract/repository-runtime.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/contract/semantic-mutation-apply-contract.test.ts',
   'tests/integration/pipeline-workspace-write-lease.test.ts',
