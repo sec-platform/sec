@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/operation-read-plan-authority-canary-v1.md
-manifestDigest: sha256:359195ede8ef78211ace717a9385d8ffe351936277ff7d4f7ce71d8c3174bbb1
+manifestDigest: sha256:adb919c0633a017b5d714b0ffd39ba1e0dc2d90a89b152d6e063eb728d2bf6fc
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

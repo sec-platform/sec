@@ -22,6 +22,7 @@ tasks:
     owner: development-governance-owner
     ownedPaths:
       - docs/development-governance.md
+      - docs/work-packages/default-branch-health-repair-5c5200fddddd9e6601bb514d61141579867f1a3b-67789605f8d93b4ef6027add252b1c84819ba4ef38869e3222dedc34b73c11db.md
       - docs/work-packages/operation-read-plan-authority-canary-v1.md
       - docs/work/active-work-package.md
       - docs/work/rolling-plan.md
@@ -50,6 +51,7 @@ forbiddenPaths:
 acceptance:
   - the canary is bound to exact main 93491f07a3b6c8fc94880be3bb6d18f41cda443b tree 9658bc583ea826c730def70ed407269c90e0de83 and Issue 346 current spec sha256 b1b350a7bc0a9cc741fee5d8688580a419ad737c028a383e33153844fee5e729
   - one manifest-only draft PR obtains its immutable hosted PRE from the exact default-branch producer before implementation and the exact implementation head later obtains FINAL on the same linear PR
+  - the superseded default-branch MainHealth repair manifest is deleted in the same proposal and no second active Work Package remains
   - the activation resolver returns the exact manifest Git blob revision and raw content digest from its already validated candidate control observation and Task Capsule preserves those values without reopening the path
   - Operation Read Plan consumes that retained observation directly and no longer performs a second rev-parse cat-file type or cat-file blob sequence for the same manifest revision
   - the read receipt still binds exact path owner Git blob revision reason and raw content digest and any activation manifest revision or digest drift fails closed
