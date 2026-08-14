@@ -6,6 +6,7 @@ import {
   assertExactLocalGitHubActionsRunnerProfileInventoryV3,
   assertInitialLocalGitHubActionsProviderLedgerV3,
   assertLocalGitHubActionsProviderLedgerTransitionV3,
+  assertLocalGitHubActionsRunnerImageIdentityV1,
   assertOwnedLocalGitHubActionsRunnerV2,
   assertRepositoryIdentityMatchesOriginV2,
   assertRepositoryIdentityMatchesRemoteUrlsV2,
@@ -23,6 +24,7 @@ import {
   LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
   LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2,
+  LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_LABELS_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS_V2,
@@ -187,6 +189,8 @@ describe('local GitHub Actions runner contract', () => {
     expect(LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1).toBe('3.12.3');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2)
       .toBe('trust-domains-node24-python312-v6');
+    expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1)
+      .toBe('sec-local-github-actions-provider-state-v2');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1)
       .toBe('sec-actions-runner:2.336.0-trust-domains-node24-python312-v6');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2).toBe(
@@ -211,8 +215,52 @@ describe('local GitHub Actions runner contract', () => {
     expect(dockerfile).toContain('apt-get -o Acquire::Retries=5 install');
     expect(dockerfile).toContain(`test "$(node --version)" = "v${LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1}"`);
     expect(dockerfile).toContain(`test "$(python3 --version)" = "Python ${LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1}"`);
+    expect(dockerfile).toContain(
+      `LABEL sec.local-runner.image-schema=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1}`
+    );
+    expect(dockerfile).not.toContain(
+      `LABEL sec.local-runner.image-schema=${LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3}`
+    );
     expect(dockerfile).not.toContain(':latest');
     expect(dockerfile).not.toMatch(/apt-get install[^\n]*\bnodejs\b/u);
+
+    const frozenImage = {
+      Id: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+      Config: { Labels: {
+        'sec.local-runner.image-schema': LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1,
+        'sec.local-runner.image-revision': LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2,
+        'sec.local-runner.runner-version': LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1,
+        'sec.local-runner.node-version': LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1,
+        'sec.local-runner.node-archive-sha256': LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1,
+        'sec.local-runner.python-version': LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1
+      } }
+    } as const;
+    expect(() => assertLocalGitHubActionsRunnerImageIdentityV1(frozenImage)).not.toThrow();
+    expect(() => assertLocalGitHubActionsRunnerImageIdentityV1({
+      ...frozenImage,
+      Config: { Labels: {
+        ...frozenImage.Config.Labels,
+        'sec.local-runner.image-schema': LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3
+      } }
+    })).toThrow('cached runner image labels differ from the frozen provider revision');
+    expect(() => assertLocalGitHubActionsRunnerImageIdentityV1({
+      ...frozenImage,
+      Id: 'sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+    })).toThrow('cached runner image ID differs from the frozen provider revision');
+    for (const label of [
+      'sec.local-runner.image-revision',
+      'sec.local-runner.runner-version',
+      'sec.local-runner.node-version',
+      'sec.local-runner.node-archive-sha256',
+      'sec.local-runner.python-version'
+    ] as const) {
+      const labels = { ...frozenImage.Config.Labels } as Record<string, string>;
+      delete labels[label];
+      expect(() => assertLocalGitHubActionsRunnerImageIdentityV1({
+        ...frozenImage,
+        Config: { Labels: labels }
+      })).toThrow('cached runner image labels differ from the frozen provider revision');
+    }
   });
 
   test('remote CAS ledger is the authority and local state is only its exact projection', () => {
