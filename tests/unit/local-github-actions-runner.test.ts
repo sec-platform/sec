@@ -21,6 +21,7 @@ import {
   LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1,
+  LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_CUSTOM_LABEL_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
   LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2,
@@ -103,11 +104,13 @@ function container(role: LocalGitHubActionsRunnerRoleV2, overrides: Record<strin
         'sec.local-runner.provider-name': providerName,
         'sec.local-runner.instance-name': instance.name,
         'sec.local-runner.role': role,
+        'sec.local-runner.container-init': LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1,
         'sec.local-runner.image-id': LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
         'sec.local-runner.operation-label': operationLabel
       }
     },
     HostConfig: {
+      Init: true,
       CapAdd: isSut
         ? CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outerSutContainerCapabilities
           .map((capability) => `CAP_${capability}`)
@@ -480,6 +483,15 @@ describe('local GitHub Actions runner contract', () => {
       providerName,
       operationLabel
     })).toThrow('final readiness census is not running');
+    const withoutInit = container('trusted');
+    withoutInit.HostConfig.Init = false;
+    expect(() => assertExactLocalGitHubActionsRunnerProfileContainersV3({
+      containers: [containers[0]!, withoutInit, containers[2]!],
+      instances,
+      repository,
+      providerName,
+      operationLabel
+    })).toThrow('container capability boundary changed');
   });
 
   test('binds repository and every external effect to frozen endpoints and exact IDs', async () => {
@@ -506,7 +518,8 @@ describe('local GitHub Actions runner contract', () => {
     expect(source).toContain('githubToken: session.token');
     expect(source).toContain('childEnvironment.GH_TOKEN = options.githubToken');
     expect(source).not.toContain('environment?: Readonly<Record<string, string>>');
-    expect(source).toContain("'run', '--detach', '--name', name");
+    expect(source).toContain("'run', '--detach', '--init', '--name', name");
+    expect(source).toContain('host.Init !== true');
     expect(source).toContain('LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2');
     expect(source).toContain("'exec', '--interactive', containerId");
     expect(source).toContain("['rm', '--force', retained.containerId]");

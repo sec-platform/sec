@@ -48,6 +48,8 @@ SUT污染trusted容器。
   mutable apt结果静默冒充旧revision；
 - 注册 token 只经进程 stdin 进入一次性配置，不进入argv、environment、image、日志或durable state；
 - container 不挂载host path或Docker socket，不接收repository secret目录；
+- 三个持久runner container均由Docker `--init`提供PID-1 child reaper；start与每次readback都必须验证
+  `HostConfig.Init=true`和`docker-init-v1` container label，禁止把无reaper旧实例或同名替换实例解释为合规capacity；
 - control/trusted container显式drop全部capability；只有sut container的受信构造层获得精确
   `CHOWN + SETGID + SETPCAP + SETUID + SYS_ADMIN + SYS_CHROOT`，分别只用于构造私有tmpfs/chroot、切换到
   UID/GID 65532并清空bounding set。候选进程本身必须实时证明`CapEff=0`、`NoNewPrivs=1`、私有

@@ -42,6 +42,8 @@ export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1 =
 // inputs under the same semantic provider revision must fail this identity.
 export const LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2 =
   'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf' as const;
+export const LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1 =
+  'docker-init-v1' as const;
 export const LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3 = Object.freeze([
   Object.freeze({
     imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
@@ -962,6 +964,7 @@ function assertOwnedContainer(
       || record['sec.local-runner.provider-name'] !== input.providerName
       || record['sec.local-runner.instance-name'] !== input.instanceName
       || record['sec.local-runner.role'] !== input.role
+      || record['sec.local-runner.container-init'] !== LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1
       || record['sec.local-runner.image-id'] !== LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2) {
     fail('container is foreign and is preserved');
   }
@@ -985,7 +988,7 @@ function assertOwnedContainer(
   if (JSON.stringify(observedCapabilities) !== JSON.stringify(expectedCapabilities)
       || !Array.isArray(host.CapDrop) || JSON.stringify(host.CapDrop) !== JSON.stringify(['ALL'])
       || !Array.isArray(host.SecurityOpt) || !host.SecurityOpt.includes('no-new-privileges:true')
-      || host.Privileged !== false || host.Binds !== null) {
+      || host.Init !== true || host.Privileged !== false || host.Binds !== null) {
     fail('container capability boundary changed and is preserved');
   }
   if (input.role === 'sut' &&
@@ -1894,7 +1897,7 @@ async function startRunnerInstanceV3(input: Readonly<{
     fail(`Docker container ${name} already exists and is preserved`);
   }
   const args = [
-    'run', '--detach', '--name', name,
+    'run', '--detach', '--init', '--name', name,
     '--entrypoint', '/usr/bin/sleep', '--user', '0',
     '--cap-drop', 'ALL',
     ...(input.role === 'sut'
@@ -1910,6 +1913,7 @@ async function startRunnerInstanceV3(input: Readonly<{
     '--label', `sec.local-runner.instance-name=${name}`,
     '--label', `sec.local-runner.role=${input.role}`,
     '--label', `sec.local-runner.operation-label=${input.cursor.ledger.operationLabel}`,
+    '--label', `sec.local-runner.container-init=${LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1}`,
     '--label', `sec.local-runner.image-id=${LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2}`,
     '--env', 'RUNNER_ALLOW_RUNASROOT=1', '--env', `RUNNER_NAME=${name}`,
     LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2, 'infinity'

@@ -207,7 +207,7 @@ function validateVersionAuthority(
       [
         'kind', 'release', 'artifact', 'artifactSha256', 'baseImage', 'imageId',
         'imageBuildRevision', 'nodeVersion', 'nodeArtifact', 'nodeArtifactSha256',
-        'pythonVersion', 'zipExtractionCapability', 'sandboxRevision',
+        'pythonVersion', 'zipExtractionCapability', 'containerInitCapability', 'sandboxRevision',
         'outerSutContainerCapabilities', 'sutResources',
         'roleProfiles', 'providerLeaseRef', 'providerLedgerSchema', 'providerLedgerAuthority',
         'providerLedgerObjectModel',
@@ -256,6 +256,9 @@ function validateVersionAuthority(
     }
     if (authority.zipExtractionCapability !== 'info-zip-unzip-6.00') {
       throw new Error(`${label}.versionAuthority.zipExtractionCapability must bind setup archive extraction.`);
+    }
+    if (authority.containerInitCapability !== 'docker-init-v1') {
+      throw new Error(`${label}.versionAuthority.containerInitCapability must bind persistent child reaping.`);
     }
     if (authority.sandboxRevision !== 'sandbox-v4') {
       throw new Error(`${label}.versionAuthority.sandboxRevision must bind the exact SUT sandbox.`);
