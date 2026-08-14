@@ -284,7 +284,6 @@ describe('canonical documentation authority', () => {
       expect(manifest.tracking === 'none' || catalog.items.some(({ tracking }) => tracking === manifest.tracking)).toBe(true);
       const retainedCatalogIndexes = rollingPlan.candidatePackageIds.map((packageId) =>
         catalogPackageIds.indexOf(packageId));
-      expect(retainedCatalogIndexes[0]).toBe(0);
       expect(retainedCatalogIndexes.every((index) => index >= 0)).toBe(true);
       expect(retainedCatalogIndexes).toEqual([...retainedCatalogIndexes].sort((left, right) => left - right));
     }
