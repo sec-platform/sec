@@ -17,6 +17,12 @@ import {
 
 export const LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3 =
   'sec-local-github-actions-provider-state-v3' as const;
+// The frozen image is an execution artifact, not a provider-state projection.
+// Keep its immutable lineage label independent from later state/ledger schema
+// revisions so a control-plane migration cannot invalidate byte-identical
+// cached Linux capacity or silently demand a mutable rebuild.
+export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1 =
+  'sec-local-github-actions-provider-state-v2' as const;
 export const LOCAL_GITHUB_ACTIONS_PROVIDER_LEDGER_SCHEMA_V3 =
   'sec-local-github-actions-provider-ledger-v3' as const;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1 = '2.336.0' as const;
@@ -473,7 +479,7 @@ export function createLocalGitHubActionsRunnerDockerfileV1(): string {
     // GitHub publishes the archive with uid/gid 1001. The runtime deliberately drops
     // CAP_DAC_OVERRIDE, so normalize archive ownership to the fixed container root owner.
     + 'RUN tar --no-same-owner -xzf runner.tar.gz && rm runner.tar.gz\n'
-    + `LABEL sec.local-runner.image-schema=${LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3} `
+    + `LABEL sec.local-runner.image-schema=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1} `
     + `sec.local-runner.image-revision=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2} `
     + `sec.local-runner.runner-version=${LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1} `
     + `sec.local-runner.node-version=${LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1} `
@@ -1259,7 +1265,9 @@ async function cleanupLedgerInstanceV3(
   }
 }
 
-function assertImageIdentity(value: Record<string, unknown>): void {
+export function assertLocalGitHubActionsRunnerImageIdentityV1(
+  value: Readonly<Record<string, unknown>>
+): void {
   if (value.Id !== LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2) {
     fail('cached runner image ID differs from the frozen provider revision');
   }
@@ -1268,7 +1276,7 @@ function assertImageIdentity(value: Record<string, unknown>): void {
   const labels = (config as Record<string, unknown>).Labels;
   if (labels === null || typeof labels !== 'object' || Array.isArray(labels)) fail('image labels are invalid');
   const record = labels as Record<string, unknown>;
-  if (record['sec.local-runner.image-schema'] !== LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3
+  if (record['sec.local-runner.image-schema'] !== LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1
       || record['sec.local-runner.image-revision'] !== LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2
       || record['sec.local-runner.runner-version'] !== LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1
       || record['sec.local-runner.node-version'] !== LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1
@@ -1328,7 +1336,7 @@ async function ensureImage(cwd: string, endpoint: DockerEndpointIdentityV3): Pro
     present = await inspectImage(cwd, endpoint);
     if (present === null) fail('runner image build has no exact readback');
   }
-  assertImageIdentity(present);
+  assertLocalGitHubActionsRunnerImageIdentityV1(present);
 }
 
 function providerResourceState(value: unknown): LocalGitHubActionsProviderResourceStateV3 {
@@ -2455,7 +2463,7 @@ export async function observeLocalGitHubActionsProviderV3(input: Readonly<{ cwd:
     operationLabel: cursor.ledger.operationLabel
   });
   const image = await inspectImage(context.repositoryRoot, cursor.ledger.dockerEndpoint);
-  if (image !== null) assertImageIdentity(image);
+  if (image !== null) assertLocalGitHubActionsRunnerImageIdentityV1(image);
   const observations = instances.map((instance) => {
     const runner = runners.find((candidate) =>
       candidate.name === instance.name && candidate.id === instance.runnerId) ?? null;
@@ -2502,7 +2510,7 @@ export async function retireSupersededLocalGitHubActionsRunnerImageV3(input: Rea
     endpoint
   );
   if (replacement === null) fail('superseding frozen image is absent');
-  assertImageIdentity(replacement);
+  assertLocalGitHubActionsRunnerImageIdentityV1(replacement);
   const references = await listContainerIdentityRows(context.repositoryRoot, endpoint, [
     '--filter', `ancestor=${decision.imageId}`
   ]);
