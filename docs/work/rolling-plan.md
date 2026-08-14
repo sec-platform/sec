@@ -7,13 +7,13 @@ last-reviewed: 2026-08-14
 
 # SEC 滚动近期计划
 
-本投影由真实 Issue 186 closeout failure 绑定 exact `main@e8242316ca0c20807bbe5edf87bfec5da6658d7a`、tree `98fb2b6062565a354e4000b0278b7e9f317d63d3` 与 failure fingerprint `sha256:55b3afd72a8587f3bae44dc4ecb0cc04890a84f0ae849c535b307d756dbf9687`。旧epoch说明、caller prose与普通WorkDecision都不能扩大本次 exact-leaf repair；长期DAG、current spec和普通选择权仍归其canonical owner。
+本投影由唯一MainHealth repair renderer绑定exact `main@5c5200fddddd9e6601bb514d61141579867f1a3b`、tree `e801feacca5d8259e44ef393c4ef057cd7c19806`、health `sha256:054c993bd5ccf440b0e4b8c7bbe77d42572a8f688be9dec9bd8746a974c15356`与排序failure fingerprints `sha256:dd012957024cabf435e7113f96ac3a8f82c7c94617bd3fffee5877700003ccd5`。旧epoch说明、caller prose与普通WorkDecision都不能参与本次repair projection；长期DAG、current spec和普通选择权仍归其canonical owner。
 
 ## 当前唯一 Work Package
 
-### issue-186-retirement-fence-exact-leaf-repair-e8242316ca0c20807bbe5edf87bfec5da6658d7a-55b3afd72a8587f3bae44dc4ecb0cc04890a84f0ae849c535b307d756dbf9687
+### default-branch-health-repair-5c5200fddddd9e6601bb514d61141579867f1a3b-67789605f8d93b4ef6027add252b1c84819ba4ef38869e3222dedc34b73c11db
 
-Exact Issue 186 closeout repair for one retained retirement-fence leaf. It removes the unrelated parent-tree scan while retaining the existing 64 MiB single-leaf bound and all no-follow identity checks. This temporary projection has no ordinary work-selection authority.
+Exact degraded-main repair for `main@5c5200fddddd9e6601bb514d61141579867f1a3b` and health `sha256:054c993bd5ccf440b0e4b8c7bbe77d42572a8f688be9dec9bd8746a974c15356`. This temporary projection has no ordinary work-selection authority.
 
 ## 候选 Work Package
 

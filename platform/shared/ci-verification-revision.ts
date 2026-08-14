@@ -41,7 +41,7 @@ export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2 = Object.freeze([
   'package.json'
 ] as const);
 export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2 =
-  'github-actions:ubuntu-24.04:x64:bun-1.3.14:action-producer-v2:sandbox-v2' as const;
+  'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0:node-24.19.0:python-3.12.3:image-sha256-6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e:bun-1.3.14:action-producer-v2:sandbox-v4' as const;
 
 /**
  * The hosted SUT isolation policy is part of Action identity through
@@ -50,17 +50,20 @@ export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2 =
  */
 export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 = Object.freeze({
   schema: 'sec-ci-verification-hosted-sandbox-policy-v1' as const,
-  policyRevision: 'sandbox-v2' as const,
+  policyRevision: 'sandbox-v4' as const,
   runnerImage: 'ubuntu-24.04' as const,
   substrate: 'util-linux-unshare' as const,
   namespaces: Object.freeze(['mount', 'pid', 'network'] as const),
-  rootIsolation: 'private-tmpfs-pivot-root' as const,
+  rootIsolation: 'private-tmpfs-chroot-no-retained-fd' as const,
   proc: 'new-proc-hidepid-2' as const,
   isolatedUid: 65532 as const,
   isolatedGid: 65532 as const,
   network: 'none' as const,
   noNewPrivileges: true as const,
   capabilitySet: 'empty' as const,
+  outerSutContainerCapabilities: Object.freeze([
+    'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
+  ] as const),
   inheritedFileDescriptors: 'stdio-only-at-exec' as const,
   inputMount: 'read-only-authenticated-canonical-tar-v1' as const,
   archiveValidation: Object.freeze({
@@ -70,7 +73,7 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 = Object.freeze({
     rejectDuplicateOrCaseConflict: true as const,
     hostExtraction: false as const
   }),
-  workspace: 'private-tmpfs-extract-after-pivot' as const,
+  workspace: 'private-tmpfs-extract-inside-chroot' as const,
   toolClosure: 'private-explicit-runtime-binaries-and-dynamic-libraries-v2' as const,
   runtimeBinaries: Object.freeze([
     '/usr/bin/awk',
@@ -134,7 +137,12 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 = Object.freeze({
     overflowDisposition: 'invalidated' as const
   }),
   limits: Object.freeze({
-    cpuSeconds: 1_800 as const,
+    // The outer SUT cgroup is capped at two CPUs and the unit is killed after
+    // 3,600 wall seconds, so 7,200 is the aggregate CPU-time ceiling across
+    // every descendant. RLIMIT_CPU uses the same value only as a redundant
+    // per-process ceiling; it is not represented as aggregate enforcement.
+    aggregateCpuSeconds: 7_200 as const,
+    perProcessCpuSeconds: 7_200 as const,
     wallSeconds: 3_600 as const,
     addressSpaceBytes: 4_294_967_296 as const,
     fileSizeBytes: 268_435_456 as const,
@@ -142,9 +150,9 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 = Object.freeze({
     processes: 256 as const,
     workspaceBytes: 4_294_967_296 as const
   }),
-  resourceController: 'systemd-cgroup-v2-plus-prlimit' as const,
-  capabilitySelfTest: 'pre-start-and-fresh-sut-host' as const,
-  teardown: 'kill-child-reap-and-residue-readback' as const
+  resourceController: 'two-cpu-outer-cgroup-times-wall-aggregate-plus-per-process-prlimit' as const,
+  capabilitySelfTest: 'dedicated-pre-start-sut-role' as const,
+  teardown: 'unshare-kill-child-process-close-readback' as const
 });
 
 export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 = `sha256:${createHash('sha256')

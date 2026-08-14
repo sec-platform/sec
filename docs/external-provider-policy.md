@@ -2,7 +2,7 @@
 title: 外部 Provider 政策
 status: stable
 domain: external-provider
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-15
 ---
 
 # 外部 Provider 政策
@@ -20,6 +20,91 @@ SEC 不应因目标宏大而重造所有轮子，也不能把外部工具的能�
 外部能力的目标是：
 
 > 以最小、可替换、可验证的组合补足 SEC 缺失能力；把结果纳入统一 identity、Evidence、authority、transaction、Verification 和 lifecycle 边界；成熟机制被吸收后删除重复实现。
+
+## 本地 Linux Workflow Runner 边界
+
+GitHub Actions 的 dispatch、App/check identity 与 GitHub-hosted compute 是三个不同能力，不能因当前
+workflow 同时消费它们就合并成一个不可替换 Provider。SEC 的
+`sec-linux-verification-v1` route 使用仓库范围的 self-hosted runner 作为物理计算 Adapter；GitHub 只保留
+dispatch、repository identity、check 与协作投影。hosted runner quota 不再是 required Linux 计算的唯一能力。
+该 route 名是位置无关的 capability identity，不是本机名称：本机隔离 container 与未来远端
+self-hosted executor 必须先通过同一 conformance contract。同一 repository 在任一时刻只能有一个
+atomic provider lease 持有该 profile；该 Provider 必须同时注册恰好一个`control`、一个`trusted`和一个
+`sut`角色实例。任何会dispatch并等待下游producer的任务（包括Session coordinator与post-merge
+MainHealth join）只在control实例；不等待同角色下游的credential/readback/assembler叶任务在trusted
+实例；candidate或dependency可执行内容只在sut实例。不得让等待者占用被等待的唯一角色实例，也不得让
+SUT污染trusted容器。
+切换物理 Provider 只替换 lifecycle binding 与 provider/environment revision；Workflow 不改名、不改 job，
+也不得让两个 Provider 同时竞争同一 profile。标准 GitHub-hosted image 不能
+冒充该自定义 capability；若未来重新采用 hosted compute，必须作为新的受控 routing profile 迁移。
+
+该 Adapter 必须同时满足：
+
+- runner release、archive digest、Node LTS官方archive digest、Python archive-inspection runtime、Ubuntu base image digest、最终Docker image ID、
+  三角色label profile与lifecycle owner全部进入
+  `docs/governance/external-capability-ledger.yaml`；
+- image首次构建才下载并校验这些exact artifacts；后续启动必须按final image ID复用本地content-addressed
+  Docker layers。cache absent才允许重新下载，重建出的image ID不同则需要新的provider revision，禁止把
+  mutable apt结果静默冒充旧revision；
+- 注册 token 只经进程 stdin 进入一次性配置，不进入argv、environment、image、日志或durable state；
+- container 不挂载host path或Docker socket，不接收repository secret目录；
+- control/trusted container显式drop全部capability；只有sut container的受信构造层获得精确
+  `CHOWN + SETGID + SETPCAP + SETUID + SYS_ADMIN + SYS_CHROOT`，分别只用于构造私有tmpfs/chroot、切换到
+  UID/GID 65532并清空bounding set。候选进程本身必须实时证明`CapEff=0`、`NoNewPrivs=1`、私有
+  mount/PID/network namespace、固定cgroup/prlimit、runner根与继承FD不可见，且只消费authenticated input archive；
+- SUT直接使用`unshare --mount --pid --fork --kill-child=KILL --net`和retained private tmpfs `chroot`，
+  不依赖systemd、sudo、host bind mount、Docker socket或unconfined seccomp。namespace内trap只做best-effort
+  mount teardown；外层唯一teardown owner在unshare关闭后对deterministic root与sentinel做exact absence readback；
+- persistent runner workflow只能从实时default branch的`repository_dispatch`加载受信workflow与仓库字节；
+  `workflow_dispatch`/`workflow_call`不得把caller-selected ref带入runner root。非default release/candidate必须
+  走authenticated archive到private SUT chroot或一次性runner，禁止root checkout/install/test。archive
+  inventory由镜像内显式冻结并在构建时导入验证的Python 3.12.3标准库`tarfile`解析canonical tar，并在解压前拒绝
+  checksum、type、path/link、mode、size或trusted digest漂移；Python版本、镜像label与最终image ID共同进入
+  provider revision，缺失`hashlib/json/tarfile`时镜像构建和provider启动都fail closed；
+- provider以固定remote CAS tag持有一个bounded operation的immutable generation ledger；首代先绑定
+  GitHub API host/principal/repository、Docker context endpoint/daemon identity、exact image ID、三角色预期name与
+  operation identity，之后每个container create、runner registration、active、teardown和terminal effect都必须在
+  下一effect前用expected-old object SHA推进一代并readback。三实例共用operation identity但不共用
+  filesystem/process/container；本地state只可缓存当前remote generation，self-digest、name、tag、label和当前census
+  都不能签发destructive ownership。effect后、generation前的process death只能保留为typed external residue，恢复者
+  不得从当前对象反推或自签exact ID；
+- 每次status/stop/recover必须从remote generation重载并显式重用已绑定的GitHub API host/principal与Docker
+  context/endpoint/daemon；GitHub credential在进程内解析一次、验证principal后只通过子进程environment复用，Docker
+  effect直接发送到retained local `npipe://`或`unix://` endpoint host而不是mutable context name；远端provider必须在
+  远端executor本机运行adapter，不能把未绑定TLS/principal的`tcp://`或`ssh://` daemon冒充同一能力。ambient `GH_HOST`、`DOCKER_HOST`、变化的keyring
+  或另一个config/context不能把错误endpoint上的空集解释为absence。container必须以frozen image ID启动，registration token和全部`exec`只发送给刚按exact ID重验的container；
+  结束时只以remote-retained runner ID和container ID执行effect，并分别证明ID与retained name都absent。缺失、额外、
+  duplicate、cross-role、case-varied或同名替换对象全部fail closed；standing offline runner、prefix cleanup和foreign
+  object adoption都禁止；
+- provider stop默认只删除remote ledger精确绑定的runner、container、local projection和remote ledger，保留已验证的
+  active final image及content-addressed dependency/browser cache供后续exact revision复用。active image retirement不属于
+  ordinary stop；只可由独立authority-bound retirement operation消费canonical superseded decision，在exact daemon上
+  证明零引用后按immutable image ID删除并readback。禁止caller布尔开关、mutable tag、`docker system/image/container
+  prune`、prefix/glob清理或触及其他工程的container、image、volume与cache；
+- provider ledger是固定tag上的非源码control ref；它只允许exact absent-create、object-SHA
+  `force-with-lease` generation advance和terminal generation后的CAS删除。每代是一个Git commit，parent是上一代，
+  tree中只有canonical `provider-ledger.json`，因此ref的reachability保留完整历史而不依赖unreachable-object宽限期。
+  恢复必须从generation 0逐代验证commit parent、tree、payload与exact单effect transition；本地object存在时zero-network
+  读取，缺失时只fetch一次exact ledger ref，不为每一代重复调用API。该窄通道不执行用于源码/index sealing的pre-push hook，普通branch/tag push仍必须经过原Gate；脚本与
+  contract必须拒绝任意ref、任意remote、非CAS advance/delete或用local projection替代remote readback；
+- provider name在lease发布前为最长role suffix预留8字符；GitHub labels以case-insensitive集合比较，fetch URL和
+  全部effective push URL必须同仓。即使local state丢失，status/recovery也必须查询remote lease、全部profile/role
+  eligible runner与repository-labeled container，禁止把未知第四实例或大小写变体误报为absent；
+- SUT cgroup固定2 CPU并由3600秒wall kill界定整棵descendant tree，真实aggregate上限为7200 CPU秒；同值
+  per-process `prlimit`只作冗余。candidate依赖由exact trusted-base lock/package以`--ignore-scripts`物化，下载cache
+  保留在runner私有路径且不进入chroot，命中cache不得重复下载；
+- workflow route、runner version或sandbox substrate变化会改变provider/environment revision并使对应
+  Evidence失效，但branch、PR、amend和无因果文档变化不会单独要求重跑Linux SUT；
+- Playwright/Chromium 是 Web runtime acceptance capability，不是所有 job 的默认执行义务；runner image
+  提供其系统动态库，browser binary 由锁定的 Playwright dependency closure 按需安装和缓存，只有
+  test-impact 图命中 browser/runtime owner 或无法证明 not-applicable 时才安装/启动真实浏览器；非browser
+  closure必须在selector阶段立即跳过，不排队、不等待安装锁。local与remote provider消费同一cache contract，
+  cache miss只影响安装节点，不改变workflow route；
+- GitHub不可用时本地runner输出只保留为诊断或产品Evidence；在独立local issuer上线前，不能伪造
+  GitHub check、MainHealth或merge authority。
+
+退出条件：机器拥有的local Evidence issuer与provider-independent MainHealth projection进入main并完成
+parity后，删除GitHub Actions runner Adapter和workflow route，不保留双执行writer。
 
 引入一个工具不是成果。只有它解决了明确问题、现实提升经过同条件验证、failure/security/upgrade成本可接受、consumer已迁移且没有第二 authority，才形成工程结果。
 

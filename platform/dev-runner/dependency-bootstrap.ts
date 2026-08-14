@@ -55,6 +55,19 @@ export async function ensureDevDependencies(
   return dependencyBootstrapResult(ready);
 }
 
+/**
+ * Fast/affected tests are contract and unit closures. They need the exact compiler
+ * dependency tree but must not materialize the conditional browser capability or
+ * mutate the managed hook lifecycle.
+ */
+export async function ensureFastTestDependencies(
+  options: CompilerDependencyBootstrapOptions = {}
+): Promise<DevDependencyBootstrapResult> {
+  return dependencyBootstrapResult(
+    await (options.ensureCompilerDeps ?? (() => ensureCompilerDepsReady()))()
+  );
+}
+
 export async function ensureTestDependencies(
   options: TestDependencyBootstrapOptions = {}
 ): Promise<TestDependencyBootstrapResult> {

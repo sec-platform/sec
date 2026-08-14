@@ -132,7 +132,11 @@ const EXTERNAL_PROVIDER_CAPABILITIES: Readonly<Record<string, {
   'brownfield-census': { category: 'graph', routingProfiles: ['brownfield-census'] },
   'security-analysis': { category: 'security', routingProfiles: ['security'] },
   'conformance-check': { category: 'conformance', routingProfiles: [] },
-  'runtime-observation': { category: 'runtime', routingProfiles: [] }
+  'runtime-observation': { category: 'runtime', routingProfiles: [] },
+  'workflow-execution': {
+    category: 'workflow-runtime',
+    routingProfiles: ['sec-linux-verification-v1']
+  }
 };
 
 const PROVIDER_FORBIDDEN_AUTHORITY_VOCABULARY = [
@@ -177,7 +181,14 @@ function validateVersionAuthority(
   bunLock: Record<string, unknown>
 ): void {
   const label = `External capability provider ${providerId}`;
+  const requiresWorkflowRunnerReleaseAuthority = provider.capability === 'workflow-execution'
+    || provider.activeRoutingProfile === 'sec-linux-verification-v1';
   if (provider.versionAuthority === null) {
+    if (requiresWorkflowRunnerReleaseAuthority) {
+      throw new Error(
+        `${label}.versionAuthority must use external-release for the workflow-execution capability.`
+      );
+    }
     if (provider.observedVersion !== null) {
       throw new Error(`${label}.observedVersion must be null when versionAuthority is null.`);
     }
@@ -185,6 +196,191 @@ function validateVersionAuthority(
   }
 
   const authority = recordValue(provider.versionAuthority, `${label}.versionAuthority`);
+  if (requiresWorkflowRunnerReleaseAuthority && authority.kind !== 'external-release') {
+    throw new Error(
+      `${label}.versionAuthority.kind must be external-release for the workflow-execution capability.`
+    );
+  }
+  if (authority.kind === 'external-release') {
+    exactKeys(
+      authority,
+      [
+        'kind', 'release', 'artifact', 'artifactSha256', 'baseImage', 'imageId',
+        'imageBuildRevision', 'nodeVersion', 'nodeArtifact', 'nodeArtifactSha256',
+        'pythonVersion', 'sandboxRevision', 'outerSutContainerCapabilities', 'sutResources',
+        'roleProfiles', 'providerLeaseRef', 'providerLedgerSchema', 'providerLedgerAuthority',
+        'providerLedgerObjectModel',
+        'destructiveIdentityAuthority', 'imageRetirement', 'license'
+      ],
+      `${label}.versionAuthority`
+    );
+    const observedVersion = provider.observedVersion;
+    if (typeof observedVersion !== 'string'
+        || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(observedVersion)) {
+      throw new Error(`${label}.observedVersion must be an exact semantic version.`);
+    }
+    const expectedPrefix = 'https://github.com/actions/runner/releases/';
+    if (authority.release !== `${expectedPrefix}tag/v${observedVersion}`
+        || authority.artifact !== `${expectedPrefix}download/v${observedVersion}/`
+          + `actions-runner-linux-x64-${observedVersion}.tar.gz`) {
+      throw new Error(`${label}.versionAuthority GitHub Actions runner release identity is invalid.`);
+    }
+    if (authority.artifactSha256
+        !== '04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d') {
+      throw new Error(`${label}.versionAuthority.artifactSha256 must be an exact SHA-256 digest.`);
+    }
+    if (authority.baseImage
+        !== 'ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea') {
+      throw new Error(`${label}.versionAuthority.baseImage must be an exact Ubuntu image digest.`);
+    }
+    if (authority.imageId
+        !== 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e') {
+      throw new Error(`${label}.versionAuthority.imageId must be an exact built image digest.`);
+    }
+    if (authority.imageBuildRevision !== 'trust-domains-node24-python312-v6') {
+      throw new Error(`${label}.versionAuthority.imageBuildRevision must bind the image recipe revision.`);
+    }
+    if (authority.nodeVersion !== '24.19.0') {
+      throw new Error(`${label}.versionAuthority.nodeVersion must bind the observed shell Node runtime.`);
+    }
+    if (authority.nodeArtifact !== 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz') {
+      throw new Error(`${label}.versionAuthority.nodeArtifact must bind the official Node.js binary.`);
+    }
+    if (authority.nodeArtifactSha256
+        !== '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647') {
+      throw new Error(`${label}.versionAuthority.nodeArtifactSha256 must bind the exact Node.js binary.`);
+    }
+    if (authority.pythonVersion !== '3.12.3') {
+      throw new Error(`${label}.versionAuthority.pythonVersion must bind the archive-inspection runtime.`);
+    }
+    if (authority.sandboxRevision !== 'sandbox-v4') {
+      throw new Error(`${label}.versionAuthority.sandboxRevision must bind the exact SUT sandbox.`);
+    }
+    const sutCapabilities = uniqueStrings(
+      authority.outerSutContainerCapabilities,
+      `${label}.versionAuthority.outerSutContainerCapabilities`
+    );
+    const expectedSutCapabilities = [
+      'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
+    ];
+    if (sutCapabilities.length !== expectedSutCapabilities.length ||
+        sutCapabilities.some((capability, index) => capability !== expectedSutCapabilities[index])) {
+      throw new Error(
+        `${label}.versionAuthority.outerSutContainerCapabilities must bind the exact constructor boundary.`
+      );
+    }
+    const sutResources = authority.sutResources;
+    if (sutResources === null || typeof sutResources !== 'object' || Array.isArray(sutResources)) {
+      throw new Error(`${label}.versionAuthority.sutResources must be one exact resource object.`);
+    }
+    exactKeys(sutResources as Record<string, unknown>, [
+      'cpus', 'wallSeconds', 'aggregateCpuSeconds', 'perProcessCpuSeconds', 'memoryBytes', 'pids'
+    ],
+      `${label}.versionAuthority.sutResources`);
+    if ((sutResources as Record<string, unknown>).cpus !== 2 ||
+        (sutResources as Record<string, unknown>).wallSeconds !== 3_600 ||
+        (sutResources as Record<string, unknown>).aggregateCpuSeconds !== 7_200 ||
+        (sutResources as Record<string, unknown>).perProcessCpuSeconds !== 7_200 ||
+        (sutResources as Record<string, unknown>).memoryBytes !== 4_294_967_296 ||
+        (sutResources as Record<string, unknown>).pids !== 256) {
+      throw new Error(`${label}.versionAuthority.sutResources must bind the exact cgroup limits.`);
+    }
+    const roleProfiles = uniqueStrings(authority.roleProfiles, `${label}.versionAuthority.roleProfiles`);
+    const expectedRoles = [
+      'sec-linux-verification-control-v1',
+      'sec-linux-verification-sut-v1',
+      'sec-linux-verification-trusted-v1'
+    ];
+    if (roleProfiles.length !== expectedRoles.length
+        || roleProfiles.some((role, index) => role !== expectedRoles[index])) {
+      throw new Error(`${label}.versionAuthority.roleProfiles must bind the exact trust-domain roles.`);
+    }
+    if (authority.providerLeaseRef !== 'refs/tags/sec-provider-lease-sec-linux-verification-v1') {
+      throw new Error(`${label}.versionAuthority.providerLeaseRef must bind the atomic provider lease.`);
+    }
+    if (authority.providerLedgerSchema !== 'sec-local-github-actions-provider-ledger-v3'
+        || authority.providerLedgerAuthority !== 'remote-cas-immutable-generations'
+        || authority.providerLedgerObjectModel
+          !== 'git-commit-parent-chain-with-canonical-ledger-tree') {
+      throw new Error(`${label}.versionAuthority provider ledger identity is invalid.`);
+    }
+    const destructiveIdentity = recordValue(
+      authority.destructiveIdentityAuthority,
+      `${label}.versionAuthority.destructiveIdentityAuthority`
+    );
+    exactKeys(destructiveIdentity, [
+      'endpointBinding', 'immutableEffects', 'localState', 'mutableLocators'
+    ], `${label}.versionAuthority.destructiveIdentityAuthority`);
+    const expectedEndpointBinding = [
+      'github-api-host-principal-repository', 'docker-context-endpoint-daemon'
+    ];
+    const expectedImmutableEffects = ['exact-image-id', 'exact-container-id', 'exact-runner-id'];
+    const expectedMutableLocators = ['image-tag', 'container-name', 'runner-name', 'labels'];
+    if (JSON.stringify(uniqueStrings(
+      destructiveIdentity.endpointBinding,
+      `${label}.versionAuthority.destructiveIdentityAuthority.endpointBinding`
+    )) !== JSON.stringify(expectedEndpointBinding)
+        || JSON.stringify(uniqueStrings(
+          destructiveIdentity.immutableEffects,
+          `${label}.versionAuthority.destructiveIdentityAuthority.immutableEffects`
+        )) !== JSON.stringify(expectedImmutableEffects)
+        || destructiveIdentity.localState !== 'projection-only'
+        || JSON.stringify(uniqueStrings(
+          destructiveIdentity.mutableLocators,
+          `${label}.versionAuthority.destructiveIdentityAuthority.mutableLocators`
+        )) !== JSON.stringify(expectedMutableLocators)) {
+      throw new Error(`${label}.versionAuthority destructive identity authority is invalid.`);
+    }
+    const imageRetirement = recordValue(
+      authority.imageRetirement,
+      `${label}.versionAuthority.imageRetirement`
+    );
+    exactKeys(imageRetirement, ['ordinaryStopAuthority', 'superseded', 'requires'],
+      `${label}.versionAuthority.imageRetirement`);
+    const superseded = imageRetirement.superseded;
+    if (!Array.isArray(superseded) || superseded.length !== 2) {
+      throw new Error(`${label}.versionAuthority.imageRetirement.superseded must bind two decisions.`);
+    }
+    const expectedSuperseded = [
+      {
+        imageId: 'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
+        imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v4',
+        replacementImageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
+        decision: 'superseded-by-trust-domains-node24-python312-v6'
+      },
+      {
+        imageId: 'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a',
+        imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-v3',
+        replacementImageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
+        decision: 'superseded-by-trust-domains-node24-python312-v6'
+      }
+    ];
+    for (const [index, entry] of superseded.entries()) {
+      const decision = recordValue(entry, `${label}.versionAuthority.imageRetirement.superseded[${index}]`);
+      exactKeys(decision, ['imageId', 'imageTag', 'replacementImageId', 'decision'],
+        `${label}.versionAuthority.imageRetirement.superseded[${index}]`);
+      if (Object.entries(expectedSuperseded[index]!).some(([key, expected]) =>
+        decision[key] !== expected)) {
+        throw new Error(`${label}.versionAuthority.imageRetirement superseded decision is invalid.`);
+      }
+    }
+    const expectedRetirementRequirements = [
+      'canonical-superseded-decision',
+      'exact-daemon-zero-reference-readback',
+      'immutable-image-id-effect-and-readback'
+    ];
+    if (imageRetirement.ordinaryStopAuthority !== 'none'
+        || JSON.stringify(uniqueStrings(
+          imageRetirement.requires,
+          `${label}.versionAuthority.imageRetirement.requires`
+        )) !== JSON.stringify(expectedRetirementRequirements)) {
+      throw new Error(`${label}.versionAuthority image retirement authority is invalid.`);
+    }
+    if (authority.license !== 'MIT') {
+      throw new Error(`${label}.versionAuthority.license must be MIT.`);
+    }
+    return;
+  }
   exactKeys(
     authority,
     ['kind', 'dependency', 'section', 'declaredSpec'],
@@ -257,6 +453,64 @@ function validateVersionAuthority(
   }
 }
 
+function validateExecutionTopology(value: unknown): void {
+  const label = 'External capability ledger.executionTopology';
+  const topology = recordValue(value, label);
+  exactKeys(topology, ['schema', 'semanticControlPlane', 'selection', 'environments', 'invariants'], label);
+  if (topology.schema !== 'sec-verification-execution-topology-v1'
+      || topology.semanticControlPlane !== 'platform-neutral'
+      || topology.selection !== 'required-closure-intersect-missing-or-stale') {
+    throw new Error(`${label} identity is invalid.`);
+  }
+  if (!Array.isArray(topology.environments) || topology.environments.length !== 4) {
+    throw new Error(`${label}.environments must contain the exact four capability environments.`);
+  }
+  const environments = topology.environments.map((entry, index) =>
+    recordValue(entry, `${label}.environments[${index}]`));
+  const [windows, linux, web, darwin] = environments;
+  exactKeys(windows!, ['id', 'availability', 'capabilities', 'evidenceRole'], `${label}.windows`);
+  exactKeys(linux!, [
+    'id', 'availability', 'capabilities', 'substrate', 'localRemoteSwitch'
+  ], `${label}.linux`);
+  exactKeys(web!, [
+    'id', 'availability', 'capabilities', 'applicability', 'cache'
+  ], `${label}.web`);
+  exactKeys(darwin!, [
+    'id', 'availability', 'capabilities', 'unrelatedDelta', 'requiredDelta'
+  ], `${label}.darwin`);
+  const linuxSubstrate = recordValue(linux!.substrate, `${label}.linux.substrate`);
+  exactKeys(linuxSubstrate, ['wsl2'], `${label}.linux.substrate`);
+  if (windows!.id !== 'windows-native-control' || windows!.availability !== 'available'
+      || JSON.stringify(uniqueStrings(windows!.capabilities, `${label}.windows.capabilities`))
+        !== JSON.stringify(['semantic-control', 'windows-native'])
+      || windows!.evidenceRole !== 'owning-environment-only'
+      || linux!.id !== 'docker-linux-x64' || linux!.availability !== 'available'
+      || JSON.stringify(uniqueStrings(linux!.capabilities, `${label}.linux.capabilities`))
+        !== JSON.stringify(['linux-native-runtime'])
+      || linuxSubstrate.wsl2 !== 'implementation-only-not-independent-evidence'
+      || linux!.localRemoteSwitch !== 'same-profile-conformance-no-workflow-change'
+      || web!.id !== 'web-runtime' || web!.availability !== 'on-demand'
+      || JSON.stringify(uniqueStrings(web!.capabilities, `${label}.web.capabilities`))
+        !== JSON.stringify(['chromium-playwright'])
+      || web!.applicability !== 'browser-impact-only'
+      || web!.cache !== 'exact-revision-content-addressed'
+      || darwin!.id !== 'darwin-native' || darwin!.availability !== 'unavailable'
+      || JSON.stringify(uniqueStrings(darwin!.capabilities, `${label}.darwin.capabilities`))
+        !== JSON.stringify(['darwin-native'])
+      || darwin!.unrelatedDelta !== 'not-applicable'
+      || darwin!.requiredDelta !== 'typed-provider-unavailable') {
+    throw new Error(`${label} capability mapping is invalid.`);
+  }
+  const invariants = recordValue(topology.invariants, `${label}.invariants`);
+  exactKeys(invariants, [
+    'noPlatformSubstitution', 'noSubstrateDoubleCounting',
+    'noUnavailableProviderPass', 'noWorkflowEditForLocalRemoteSwitch'
+  ], `${label}.invariants`);
+  if (Object.values(invariants).some((entry) => entry !== true)) {
+    throw new Error(`${label}.invariants must all be true.`);
+  }
+}
+
 function validateExternalCapabilityLedger(
   parsed: Record<string, unknown>,
   packageJson: Record<string, unknown>,
@@ -264,7 +518,10 @@ function validateExternalCapabilityLedger(
 ): void {
   exactKeys(
     parsed,
-    ['schema', 'status', 'binding', 'policy', 'verification', 'providers', 'invariants'],
+    [
+      'schema', 'status', 'binding', 'policy', 'verification', 'executionTopology',
+      'providers', 'invariants'
+    ],
     'External capability ledger'
   );
   if (parsed.schema !== 'sec-external-capability-ledger-v4') {
@@ -340,6 +597,7 @@ function validateExternalCapabilityLedger(
     expiresAt,
     capabilities: verification.capabilities as VerificationProviderCapabilityInputV1[]
   });
+  validateExecutionTopology(parsed.executionTopology);
   if (!Array.isArray(parsed.providers) || parsed.providers.length === 0) {
     throw new Error('External capability providers must be a non-empty array.');
   }

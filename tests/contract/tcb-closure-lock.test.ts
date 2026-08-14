@@ -252,7 +252,7 @@ test('Action provider preflight binds the exact eight dispatchers and rejects ne
     identity.startsWith('scripts/codex/verification-action-github-provider.ts::')
   ).sort();
   expect(actionDispatchers).toEqual([
-    'scripts/ci-verification.ts::function-declaration:CodexDevelopmentInspectHostedActionArchiveV2::spawnSync#1',
+    'scripts/ci-verification.ts::function-declaration:inspectHostedActionArchiveMetadataV2::spawnSync#1',
     'scripts/ci-verification.ts::function-declaration:defaultHostedSutSandboxProcessV1::spawn#1',
     'scripts/ci-verification.ts::function-declaration:gitCandidateBytesV2::spawnSync#1',
     'scripts/ci-verification.ts::function-declaration:hostedActionGhReadJsonV2::spawnSync#1',
@@ -282,6 +282,61 @@ test('Action provider preflight binds the exact eight dispatchers and rejects ne
   const digest = (source: string) => createHash('sha256').update(source).digest('hex');
   expect(digest(canonicalSource.replace('["bun"]', '["bun","--forged"]'))).not.toBe(digest(canonicalSource));
   expect(digest(canonicalSource.replace('cwd:"."', 'cwd:"../"'))).not.toBe(digest(canonicalSource));
+});
+
+test('Hosted archive inventory has one fixed bounded dispatcher shared by every trusted materializer', async () => {
+  const repositoryPath = 'scripts/ci-verification.ts';
+  const identity =
+    'scripts/ci-verification.ts::function-declaration:inspectHostedActionArchiveMetadataV2::spawnSync#1';
+  expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(true);
+  const source = (await Bun.file(
+    new URL('../../scripts/ci-verification.ts', import.meta.url)
+  ).text()).replace(/\r\n/gu, '\n');
+  const start = source.indexOf('function inspectHostedActionArchiveMetadataV2(');
+  const end = source.indexOf('\nfunction canonicalHostedArchivePathV2(', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const dispatcher = source.slice(start, end);
+  const assertDispatcher = (candidate: string): void => {
+    expect(candidate).toContain(
+      'function inspectHostedActionArchiveMetadataV2(archive: string, label: string): unknown {'
+    );
+    expect(candidate.match(/spawnSync\(/gu)).toHaveLength(1);
+    expect(candidate).toContain("    '/usr/bin/python3',");
+    expect(candidate).toContain("    ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V2, archive],");
+    expect(candidate).toContain("      encoding: 'utf8',");
+    expect(candidate).toContain('      windowsHide: true,');
+    expect(candidate).toContain('      maxBuffer: 128 * 1024 * 1024,');
+    expect(candidate).toContain("      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }");
+    expect(candidate).not.toContain('cwd:');
+    expect(candidate).not.toContain('shell:');
+    expect(candidate).not.toContain('execSync');
+    expect(candidate).not.toContain('process.env');
+  };
+  assertDispatcher(dispatcher);
+  for (const [label, hostile] of [
+    ['name', dispatcher.replace('inspectHostedActionArchiveMetadataV2', 'inspectHostedActionArchiveMetadataNearNameV2')],
+    ['command', dispatcher.replace("'/usr/bin/python3'", "'/usr/local/bin/python3'")],
+    ['script', dispatcher.replace('HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V2', 'HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_NEAR_V2')],
+    ['archive', dispatcher.replace(', archive],', ", `${archive}.candidate`],")],
+    ['cwd', dispatcher.replace("encoding: 'utf8',", "cwd: archive, encoding: 'utf8',")],
+    ['environment', dispatcher.replace("{ PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }", 'process.env')],
+    ['output-bound', dispatcher.replace('128 * 1024 * 1024', '256 * 1024 * 1024')],
+    ['ordinal', dispatcher.replace(
+      '  const inventory = spawnSync(',
+      "  spawnSync('/usr/bin/python3', ['--version']);\n  const inventory = spawnSync("
+    )]
+  ] as const) {
+    expect(hostile).not.toBe(dispatcher);
+    let rejected = false;
+    try { assertDispatcher(hostile); } catch { rejected = true; }
+    if (!rejected) throw new Error(`Hosted archive dispatcher mutation was not rejected: ${label}`);
+  }
+  const observed = new Set<string>();
+  runtimeRelativeImportsFromSource(repositoryPath, source, observed, new Set(), new Set());
+  expect(observed.has(identity)).toBe(true);
+  expect([...observed].filter((value) => value.includes('inspectHostedActionArchiveMetadataV2')))
+    .toEqual([identity]);
 });
 
 test('verification-action runner dispatcher binds exact local Git observations and rejects semantic drift', async () => {
@@ -437,6 +492,69 @@ test('worktree physical closeout introduces no dispatcher and constrains the can
   expect(source).not.toContain('runRepositoryGit(targetPath,');
 });
 
+test('local Actions runner dispatcher binds executable domain, cwd, environment, bounds, and ordinal', async () => {
+  const repositoryPath = 'scripts/codex/local-github-actions-runner.ts';
+  const identity =
+    'scripts/codex/local-github-actions-runner.ts::function-declaration:runCommand::spawn#1';
+  expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(true);
+  const source = (await Bun.file(
+    new URL('../../scripts/codex/local-github-actions-runner.ts', import.meta.url)
+  ).text()).replace(/\r\n/gu, '\n');
+  const start = source.indexOf('async function runCommand(');
+  const end = source.indexOf('\nasync function resolveRepositoryContext(', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const dispatcher = source.slice(start, end);
+  const assertDispatcher = (candidate: string): void => {
+    expect(candidate).toContain('async function runCommand(\n');
+    expect(candidate).toContain("  command: 'docker' | 'gh' | 'git',\n");
+    expect(candidate.match(/spawn\(/gu)).toHaveLength(1);
+    expect(candidate).toContain('const child = spawn(command, [...args], {');
+    expect(candidate).toContain('cwd: options.cwd,\n');
+    expect(candidate).toContain('const childEnvironment = commandEnvironment(command);');
+    expect(candidate).toContain("if (command !== 'gh'");
+    expect(candidate).toContain('childEnvironment.GH_TOKEN = options.githubToken;');
+    expect(candidate).toContain('env: childEnvironment,');
+    expect(candidate).not.toContain('environment?: Readonly<Record<string, string>>');
+    expect(candidate).toContain('shell: false,');
+    expect(candidate).toContain('windowsHide: true,');
+    expect(candidate).toContain("stdio: ['pipe', 'pipe', 'pipe']");
+    expect(candidate).toContain('const timeoutMs = options.timeoutMs ?? 120_000;');
+    expect(candidate).toContain('if (outputBytes > MAX_COMMAND_OUTPUT_BYTES) {');
+    expect(candidate).not.toContain('env: process.env');
+    expect(candidate).not.toContain('shell: true');
+    expect(candidate).not.toContain('execSync');
+    expect(candidate).not.toContain('spawnSync');
+  };
+  assertDispatcher(dispatcher);
+  for (const [label, hostile] of [
+    ['name', dispatcher.replace('runCommand(', 'runCommandNearName(')],
+    ['command', dispatcher.replace("'docker' | 'gh' | 'git'", "'docker' | 'gh' | 'git' | 'powershell'")],
+    ['spawn-command', dispatcher.replace('spawn(command, [...args]', "spawn('powershell', [...args]")],
+    ['cwd', dispatcher.replace('cwd: options.cwd', "cwd: options.cwd + '/nested'")],
+    ['environment', dispatcher.replace('env: childEnvironment', 'env: process.env')],
+    ['credential-domain', dispatcher.replace("command !== 'gh'", "command !== 'docker'")],
+    ['shell', dispatcher.replace('shell: false', 'shell: true')],
+    ['timeout', dispatcher.replace('options.timeoutMs ?? 120_000', 'options.timeoutMs ?? 0')],
+    ['output-bound', dispatcher.replace(
+      'outputBytes > MAX_COMMAND_OUTPUT_BYTES',
+      'outputBytes > MAX_COMMAND_OUTPUT_BYTES * 2'
+    )],
+    ['ordinal', dispatcher.replace(
+      'const child = spawn(command, [...args], {',
+      "spawn('git', ['status']);\n    const child = spawn(command, [...args], {"
+    )]
+  ] as const) {
+    expect(hostile).not.toBe(dispatcher);
+    let rejected = false;
+    try { assertDispatcher(hostile); } catch { rejected = true; }
+    if (!rejected) throw new Error(`local runner dispatcher mutation was not rejected: ${label}`);
+  }
+  const observed = new Set<string>();
+  runtimeRelativeImportsFromSource(repositoryPath, source, observed, new Set(), new Set());
+  expect(observed).toEqual(new Set([identity]));
+});
+
 test('docs-doctor index-tree preflight binds every exact read-only dispatcher and rejects semantic drift', async () => {
   const repositoryPath = 'docs/scripts/docs-doctor.ts';
   const lexicalFixtures = [
@@ -466,8 +584,9 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
       body: [
         "function readCapturedGitTreeBlob(repositoryRoot: string, treeSha: string, repositoryPath: string, observationKind: 'blob-bytes' | 'direct-entry-names' = 'blob-bytes') {",
         '  if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) throw new Error("noncanonical");',
-        "  const args = observationKind === 'blob-bytes' ? ['show', '--no-color', '--no-ext-diff', '--no-textconv', `${treeSha}:${repositoryPath}`] : ['ls-tree', '--name-only', `${treeSha}:${repositoryPath}`];",
-        "  const result = spawnSync('git', args, { cwd: repositoryRoot, encoding: 'buffer', windowsHide: true, maxBuffer: 8 * 1024 * 1024 });",
+        '  const objectExpression = `${treeSha}:${repositoryPath}`;',
+        "  const args = observationKind === 'blob-bytes' ? ['cat-file', '--batch'] : ['ls-tree', '--name-only', objectExpression];",
+        "  const result = spawnSync('git', args, { cwd: repositoryRoot, encoding: 'buffer', input: observationKind === 'blob-bytes' ? Buffer.from(`${objectExpression}\\n`, 'utf8') : undefined, windowsHide: true, maxBuffer: 8 * 1024 * 1024 });",
         '  return result.stdout;',
         '}'
       ]
@@ -505,7 +624,7 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
     new URL('../../docs/scripts/docs-doctor.ts', import.meta.url)
   ).text()).replace(/\r\n/gu, '\n');
   const captureStart = docsDoctorSource.indexOf('function captureDocsDoctorIndexTree(');
-  const captureEnd = docsDoctorSource.indexOf('\nfunction readCapturedGitTreeBlob(', captureStart);
+  const captureEnd = docsDoctorSource.indexOf('\nexport function readCapturedGitTreeBlob(', captureStart);
   expect(captureStart).toBeGreaterThanOrEqual(0);
   expect(captureEnd).toBeGreaterThan(captureStart);
   const captureSource = docsDoctorSource.slice(captureStart, captureEnd);
@@ -526,7 +645,18 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   expect(resolveSource).toContain('windowsHide: true');
   expect(resolveSource).not.toContain('env:');
 
-  const readerStart = docsDoctorSource.indexOf('function readCapturedGitTreeBlob(');
+  const parserStart = docsDoctorSource.indexOf('export function parseCapturedGitTreeBlobFrameV1(');
+  const parserEnd = docsDoctorSource.indexOf('\nexport function readCapturedGitTreeBlob(', parserStart);
+  expect(parserStart).toBeGreaterThanOrEqual(0);
+  expect(parserEnd).toBeGreaterThan(parserStart);
+  const parserSource = docsDoctorSource.slice(parserStart, parserEnd);
+  expect(parserSource).toContain('/^([0-9a-f]{40}) blob ([1-9][0-9]*|0)$/u.exec(header)');
+  expect(parserSource).toContain('bodyEnd + 1 !== frame.length');
+  expect(parserSource).toContain('frame[bodyEnd] !== 0x0a');
+  expect(parserSource).toContain('return frame.subarray(bodyStart, bodyEnd);');
+  expect(parserSource).not.toContain('spawnSync(');
+
+  const readerStart = docsDoctorSource.indexOf('export function readCapturedGitTreeBlob(');
   const readerEnd = docsDoctorSource.indexOf('\nfunction listCapturedWorkPackagePaths(', readerStart);
   expect(readerStart).toBeGreaterThanOrEqual(0);
   expect(readerEnd).toBeGreaterThan(readerStart);
@@ -535,17 +665,20 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   expect(readerSource).toContain("refs\\/remotes\\/[A-Za-z0-9._-]+\\/[A-Za-z0-9._\\/-]+");
   expect(readerSource).toContain('CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)');
   expect(readerSource).toContain("observationKind: 'blob-bytes' | 'direct-entry-names' = 'blob-bytes'");
-  expect(readerSource).toContain("? ['show', '--no-color', '--no-ext-diff', '--no-textconv', `${treeSha}:${repositoryPath}`]");
-  expect(readerSource).toContain(": ['ls-tree', '--name-only', `${treeSha}:${repositoryPath}`]");
+  expect(readerSource).toContain('const objectExpression = `${treeSha}:${repositoryPath}`;');
+  expect(readerSource).toContain("? ['cat-file', '--batch']");
+  expect(readerSource).toContain(": ['ls-tree', '--name-only', objectExpression]");
   expect(readerSource).toContain("spawnSync(\n    'git',\n    args,");
   expect(readerSource).toContain('cwd: repositoryRoot');
   expect(readerSource).toContain("encoding: 'buffer'");
+  expect(readerSource).toContain("input: observationKind === 'blob-bytes'");
+  expect(readerSource).toContain("Buffer.from(`${objectExpression}\\n`, 'utf8')");
   expect(readerSource).toContain('windowsHide: true');
   expect(readerSource).toContain('maxBuffer: 8 * 1024 * 1024');
-  expect(readerSource).toContain('return result.stdout;');
+  expect(readerSource).toContain('return parseCapturedGitTreeBlobFrameV1(result.stdout, repositoryPath);');
   expect(readerSource).not.toContain('env:');
   expect(readerSource).not.toContain('shell:');
-  expect(readerSource).not.toContain('input:');
+  expect(readerSource).not.toContain("['show'");
 
   const censusStart = readerEnd;
   const censusEnd = docsDoctorSource.indexOf('\nif (import.meta.main)', censusStart);
@@ -569,18 +702,25 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
     expect(digest(hostileSource)).not.toBe(digest(captureSource));
   }
   for (const hostileSource of [
+    parserSource.replace('parseCapturedGitTreeBlobFrameV1', 'parseCapturedGitTreeBlobFrameNearNameV1'),
+    parserSource.replace('bodyEnd + 1 !== frame.length', 'bodyEnd > frame.length'),
+    parserSource.replace('frame[bodyEnd] !== 0x0a', 'false'),
+    parserSource.replace('return frame.subarray(bodyStart, bodyEnd);', 'return frame;')
+  ]) {
+    expect(hostileSource).not.toBe(parserSource);
+    expect(digest(hostileSource)).not.toBe(digest(parserSource));
+  }
+  for (const hostileSource of [
     readerSource.replace('readCapturedGitTreeBlob', 'readCapturedGitTreeBlobs'),
     readerSource.replace("`${treeSha}:${repositoryPath}`", "`HEAD:${repositoryPath}`"),
-    readerSource.replace("? ['show'", "? ['cat-file', 'blob'"),
+    readerSource.replace("? ['cat-file', '--batch']", "? ['show', objectExpression]"),
     readerSource.replace("['ls-tree', '--name-only'", "['status', '--short'"),
     readerSource.replace("'blob-bytes' | 'direct-entry-names'", "string"),
-    readerSource.replace("'--no-color'", "'--color=always'"),
-    readerSource.replace("'--no-ext-diff'", "'--ext-diff'"),
-    readerSource.replace("'--no-textconv'", "'--textconv'"),
+    readerSource.replace("Buffer.from(`${objectExpression}\\n`, 'utf8')", 'Buffer.alloc(0)'),
     readerSource.replace('cwd: repositoryRoot', "cwd: repositoryRoot + '/.git'"),
     readerSource.replace('cwd: repositoryRoot,', "cwd: repositoryRoot, env: { GIT_INDEX_FILE: 'forged' },"),
     readerSource.replace('windowsHide: true', 'windowsHide: false'),
-    readerSource.replace('windowsHide: true,', 'windowsHide: true, shell: true, input: Buffer.alloc(0),'),
+    readerSource.replace('windowsHide: true,', 'windowsHide: true, shell: true,'),
     readerSource.replace("encoding: 'buffer'", "encoding: 'utf8'"),
     readerSource.replace('maxBuffer: 8 * 1024 * 1024', 'maxBuffer: 16 * 1024 * 1024'),
     readerSource.replace(

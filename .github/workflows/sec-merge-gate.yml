@@ -28,7 +28,7 @@ env:
 jobs:
   plan:
     if: "${{ github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.display_title, 'verify session PR #') }}"
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 10
     outputs:
       base-sha: ${{ steps.source.outputs.base-sha }}
@@ -129,7 +129,10 @@ jobs:
   integrate:
     needs: plan
     if: "${{ github.event.workflow_run.event == 'repository_dispatch' && github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.display_title, 'verify session PR #') }}"
-    runs-on: ubuntu-latest
+    # Integration dispatches and joins MainHealth. It must occupy the control
+    # role so the sole trusted leaf runner remains available to execute that
+    # downstream producer.
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-control-v1]
     timeout-minutes: *sec_integration_timeout_minutes
     permissions:
       actions: read

@@ -139,7 +139,7 @@ export function buildUnsupportedVerificationActionTerminalArtifactV2(input: Read
     reap: Object.freeze({
       namespacePid1Exited: false,
       killChildEnabled: true,
-      systemdUnitStopped: true
+      unshareProcessClosed: true
     }),
     residue: Object.freeze({
       cgroupEmpty: true,
