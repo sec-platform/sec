@@ -397,7 +397,7 @@ jobs:
       checks: read
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
     steps:
       - name: Checkout exact trusted main producer
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -528,7 +528,7 @@ jobs:
       checks: read
       contents: write
       issues: write
-      pull-requests: read
+      pull-requests: write
       statuses: read
     concurrency:
       group: sec-verification-session-${{ github.repository_id }}-${{ needs.validate-hosted-request.outputs.session-revision-hex }}

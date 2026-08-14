@@ -14,7 +14,7 @@ import {
 import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
 
 const REPOSITORY = 'sec-platform/sec';
-const MANIFEST = 'docs/work-packages/issue-disposition-safety-v1.md';
+const MANIFEST = 'docs/work-packages/controlled-pr-issue-disposition-single-writer-v1.md';
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const DIGEST_B = `sha256:${'b'.repeat(64)}` as const;
 const DIGEST_C = `sha256:${'c'.repeat(64)}` as const;

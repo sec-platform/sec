@@ -484,6 +484,10 @@ workflow path/SHA、run/attempt、event、job、upload/publication steps、trigg
 bytes以及PR/WorkDecision/manifest/scope。repository_dispatch本身只是wake-up；candidate workflow、本地Git ref、
 本地blob/file、journal、普通digest、同用户ACL或caller JSON均可由实现者重算，永远不是credential。provider、
 artifact、bytes、identity、current-spec或scope任一漂移都以bounded reasonCode与raw detail digest fail closed。
+凡通过Issues timeline endpoint向Pull Request发布GitHub Actions App locator或Review控制marker的trusted job，必须
+同时显式声明`issues: write`与`pull-requests: write`；仓库默认只读权限、其中任一单独权限或ambient runner配置都
+不能代替这对effect capability。workflow contract必须结构化锁定所有真实publication consumers，防止artifact已
+持久化但locator以`Resource not accessible by integration`失败的半发布状态再次进入main。
 同一canonical request digest拥有唯一hosted concurrency group；重复wake-up在重验既有App locator、artifact与
 provider后返回`existing`，不产生第二artifact/comment。只有GitHub Actions App发布的canonical marker进入协议，
 普通用户或其他actor的同名marker作为非authority噪声忽略；App marker malformed或同一request出现多个App locator

@@ -263,7 +263,7 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   ]);
   expect(coordinator.permissions).toEqual({
     actions: 'read', checks: 'read', contents: 'write', issues: 'write',
-    'pull-requests': 'read', statuses: 'read'
+    'pull-requests': 'write', statuses: 'read'
   });
   expect(coordinator.concurrency).toEqual({
     group: 'sec-verification-session-${{ github.repository_id }}-${{ needs.validate-hosted-request.outputs.session-revision-hex }}',
@@ -495,7 +495,7 @@ test('hosted activation is a lightweight trusted-main artifact producer, not a c
     checks: 'read',
     contents: 'read',
     issues: 'write',
-    'pull-requests': 'read'
+    'pull-requests': 'write'
   });
   const validationScript = String(step(
     workflow,
