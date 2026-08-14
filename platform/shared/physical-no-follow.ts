@@ -9,6 +9,7 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  readSync,
   writeFileSync
 } from 'node:fs';
 import path from 'node:path';
@@ -19,6 +20,7 @@ import path from 'node:path';
  * observations to their own contracts.
  */
 export const PHYSICAL_NO_FOLLOW_SCHEMA_V1 = 'sec-physical-no-follow-v1' as const;
+const NO_FOLLOW_FILE_READ_LIMIT_BYTES = 64 * 1024 * 1024;
 
 export type PhysicalNoFollowFailureCode =
   | 'PHYSICAL_NO_FOLLOW_ABSENT'
@@ -125,6 +127,7 @@ const LINUX_O_CLOEXEC = 0x0008_0000;
 const LINUX_O_PATH = 0x0020_0000;
 const LINUX_O_CREAT = 0x40;
 const LINUX_O_EXCL = 0x80;
+const LINUX_O_NONBLOCK = 0x800;
 const LINUX_AT_FDCWD = -100;
 const LINUX_AT_REMOVEDIR = 0x0200;
 const LINUX_RENAME_NOREPLACE = 1;
@@ -228,7 +231,8 @@ function linuxOpenReadableLeafAt(parentFd: number, component: string, label: str
     throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} has an invalid no-follow leaf.`);
   }
   const fd = requireLinuxLibc().symbols.openat(
-    parentFd, Buffer.from(`${component}\0`, 'utf8'), LINUX_O_RDONLY | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC, 0
+    parentFd, Buffer.from(`${component}\0`, 'utf8'),
+    LINUX_O_RDONLY | LINUX_O_NONBLOCK | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC, 0
   );
   if (fd < 0) {
     const errno = linuxErrno();
@@ -824,11 +828,32 @@ function readWindowsRetainedFile(handle: bigint, label: string): Uint8Array {
     const count = received.readUInt32LE(0);
     if (count === 0) break;
     total += count;
-    if (total > 64 * 1024 * 1024) {
+    if (total > NO_FOLLOW_FILE_READ_LIMIT_BYTES) {
       throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} exceeds the bounded no-follow read size.`);
     }
     chunks.push(chunk.subarray(0, count));
     if (count < chunk.byteLength) break;
+  }
+  return Buffer.concat(chunks, total);
+}
+
+function readLinuxRetainedFile(fd: number, label: string): Uint8Array {
+  const initial = fstatSync(fd, { bigint: true });
+  if (!initial.isFile()) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} is not an ordinary file.`);
+  if (initial.size > BigInt(NO_FOLLOW_FILE_READ_LIMIT_BYTES)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} exceeds the bounded no-follow read size.`);
+  }
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const chunk = Buffer.alloc(64 * 1024);
+    const count = readSync(fd, chunk, 0, chunk.byteLength, null);
+    if (count === 0) break;
+    total += count;
+    if (total > NO_FOLLOW_FILE_READ_LIMIT_BYTES) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} exceeds the bounded no-follow read size.`);
+    }
+    chunks.push(chunk.subarray(0, count));
   }
   return Buffer.concat(chunks, total);
 }
@@ -1757,30 +1782,43 @@ export function deleteRetainedNoFollowEntryV1(input: {
   }
 }
 
-/** Reads one ordinary leaf file below a revalidated no-follow parent, or null only for ENOENT. */
-export function readNoFollowOrdinaryFileV1(
+/**
+ * Observes one ordinary leaf below a retained parent. This is intentionally
+ * O(1): proving one control file must never scan unrelated siblings or trees.
+ */
+export function inspectNoFollowOrdinaryFileEntryV1(
   parent: PhysicalDirectoryIdentityV1,
   name: string
-): Uint8Array | null {
+): NoFollowDirectoryTreeEntryV1 | null {
   ensureLeafName(name);
   const checked = assertSameNoFollowDirectoryIdentityV1(parent, 'No-follow file parent').target;
   const target = path.join(checked.path, name);
   if (process.platform === 'win32') {
-    let handle: bigint | null = null;
+    let parentHandle: bigint | null = null;
+    let leafHandle: bigint | null = null;
     try {
-      handle = windowsOpenNoFollowLeaf(target, 'No-follow file', WINDOWS_GENERIC_READ);
-      windowsRetainedLeafIdentity(handle, target, 'file', 'No-follow file');
-      const bytes = readWindowsRetainedFile(handle, 'No-follow file');
-      assertSameNoFollowDirectoryIdentityV1(checked, 'No-follow file parent');
-      return bytes;
+      parentHandle = windowsOpenDirectory(checked.path, 'No-follow file retained parent');
+      if (!sameIdentity(checked, windowsIdentity(parentHandle, checked.path, 'No-follow file retained parent'))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow file parent changed before retained leaf open.');
+      }
+      leafHandle = windowsOpenRelativeLeaf(
+        parentHandle, checked, name, target, WINDOWS_GENERIC_READ, WINDOWS_FILE_OPEN, 'No-follow file', true
+      );
+      if (leafHandle === null) return null;
+      const identity = windowsRetainedLeafIdentity(leafHandle, target, 'file', 'No-follow file');
+      const bytes = readWindowsRetainedFile(leafHandle, 'No-follow file');
+      if (!sameIdentity(checked, windowsIdentity(parentHandle, checked.path, 'No-follow file retained parent readback'))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow file parent changed during retained leaf read.');
+      }
+      return Object.freeze({ relativePath: name, kind: 'file', ...identity, size: bytes.byteLength, bytes, linkTarget: null });
     } catch (error) {
-      if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
       if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED') {
         throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow file is not an ordinary non-reparse leaf.', error);
       }
       throw error;
     } finally {
-      if (handle !== null) closeWindowsHandle(handle);
+      if (leafHandle !== null) closeWindowsHandle(leafHandle);
+      if (parentHandle !== null) closeWindowsHandle(parentHandle);
     }
   }
   if (process.platform === 'linux') {
@@ -1794,19 +1832,34 @@ export function readNoFollowOrdinaryFileV1(
         if (parentFd !== rootFd) closeSync(parentFd);
         parentFd = next;
       }
-      leafFd = linuxOpenReadableLeafAt(parentFd, name, 'No-follow file');
+      if (!sameIdentity(checked, linuxIdentity(parentFd, checked.path))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow file parent changed before retained leaf open.');
+      }
+      try {
+        leafFd = linuxOpenReadableLeafAt(parentFd, name, 'No-follow file');
+      } catch (error) {
+        if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
+        throw error;
+      }
       const stat = fstatSync(leafFd, { bigint: true });
       if (!stat.isFile()) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow file is not an ordinary file.');
-      const bytes = readFileSync(leafFd);
+      const bytes = readLinuxRetainedFile(leafFd, 'No-follow file');
       const after = fstatSync(leafFd, { bigint: true });
       if (stat.dev !== after.dev || stat.ino !== after.ino || !after.isFile()) {
         throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow file retained identity changed during read.');
       }
-      assertSameNoFollowDirectoryIdentityV1(checked, 'No-follow file parent');
-      return bytes;
-    } catch (error) {
-      if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
-      throw error;
+      if (!sameIdentity(checked, linuxIdentity(parentFd, checked.path))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow file parent changed during retained leaf read.');
+      }
+      return Object.freeze({
+        relativePath: name,
+        kind: 'file',
+        device: String(stat.dev),
+        inode: String(stat.ino),
+        size: bytes.byteLength,
+        bytes,
+        linkTarget: null
+      });
     } finally {
       if (leafFd !== null) closeSync(leafFd);
       if (parentFd !== rootFd) closeSync(parentFd);
@@ -1814,4 +1867,12 @@ export function readNoFollowOrdinaryFileV1(
     }
   }
   throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow ordinary file reader backend is unavailable.');
+}
+
+/** Reads one ordinary leaf file below a revalidated no-follow parent, or null only for ENOENT. */
+export function readNoFollowOrdinaryFileV1(
+  parent: PhysicalDirectoryIdentityV1,
+  name: string
+): Uint8Array | null {
+  return inspectNoFollowOrdinaryFileEntryV1(parent, name)?.bytes ?? null;
 }

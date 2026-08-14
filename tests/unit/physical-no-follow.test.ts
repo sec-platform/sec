@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import {
   existsSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -20,6 +21,7 @@ import {
   deleteRetainedNoFollowEntryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
+  inspectNoFollowOrdinaryFileEntryV1,
   publishExclusiveDurableCanonicalFileV1,
   readNoFollowOrdinaryFileV1,
   relocateRetainedNoFollowDirectoryV1,
@@ -151,6 +153,125 @@ test('ordinary no-follow reader rejects dangling/reparse leaves and a replaced r
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('exact ordinary leaf observation does not scan unrelated parent entries', () => {
+  const root = fixtureRoot();
+  try {
+    writeFileSync(path.join(root, 'fence.json'), '{"safe":true}\n', 'utf8');
+    writeFileSync(path.join(root, 'unrelated-large.bin'), Buffer.alloc(65 * 1024 * 1024));
+    const parent = inspectNoFollowDirectoryChainV1(root, 'exact leaf parent').target;
+
+    const entry = inspectNoFollowOrdinaryFileEntryV1(parent, 'fence.json');
+
+    expect(entry?.relativePath).toBe('fence.json');
+    expect(entry?.kind).toBe('file');
+    expect(entry?.size).toBe(Buffer.byteLength('{"safe":true}\n'));
+    expect(Buffer.from(entry?.bytes ?? []).toString('utf8')).toBe('{"safe":true}\n');
+    if (process.platform === 'linux') {
+      const metadata = lstatSync(path.join(root, 'fence.json'), { bigint: true });
+      expect(entry?.device).toBe(String(metadata.dev));
+      expect(entry?.inode).toBe(String(metadata.ino));
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('exact ordinary leaf observation enforces the same selected-leaf bound', () => {
+  const root = fixtureRoot();
+  try {
+    writeFileSync(path.join(root, 'oversized-fence.json'), Buffer.alloc(65 * 1024 * 1024));
+    const parent = inspectNoFollowDirectoryChainV1(root, 'oversized leaf parent').target;
+    expectPhysicalCode(
+      () => inspectNoFollowOrdinaryFileEntryV1(parent, 'oversized-fence.json'),
+      'PHYSICAL_NO_FOLLOW_UNSAFE_PATH'
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('exact ordinary leaf identity follows the retained physical file rather than its name or bytes', () => {
+  const root = fixtureRoot();
+  try {
+    const originalPath = path.join(root, 'original.json');
+    const aliasPath = path.join(root, 'alias.json');
+    writeFileSync(originalPath, '{"same":true}\n', 'utf8');
+    linkSync(originalPath, aliasPath);
+    const parent = inspectNoFollowDirectoryChainV1(root, 'identity leaf parent').target;
+    const original = inspectNoFollowOrdinaryFileEntryV1(parent, 'original.json');
+    const alias = inspectNoFollowOrdinaryFileEntryV1(parent, 'alias.json');
+    expect(alias?.device).toBe(original?.device);
+    expect(alias?.inode).toBe(original?.inode);
+    expect(alias?.size).toBe(original?.size);
+    expect(Buffer.from(alias?.bytes ?? [])).toEqual(Buffer.from(original?.bytes ?? []));
+
+    rmSync(aliasPath);
+    writeFileSync(aliasPath, '{"same":true}\n', 'utf8');
+    const replacement = inspectNoFollowOrdinaryFileEntryV1(parent, 'alias.json');
+    expect(`${replacement?.device}:${replacement?.inode}`).not.toBe(`${original?.device}:${original?.inode}`);
+    expect(Buffer.from(replacement?.bytes ?? [])).toEqual(Buffer.from(original?.bytes ?? []));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('exact ordinary leaf observation is retained-parent relative on both native backends', async () => {
+  const source = await Bun.file(new URL('../../platform/shared/physical-no-follow.ts', import.meta.url)).text();
+  const start = source.indexOf('export function inspectNoFollowOrdinaryFileEntryV1(');
+  const end = source.indexOf('\n/** Reads one ordinary leaf file', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const implementation = source.slice(start, end);
+  expect(implementation).toContain('windowsOpenRelativeLeaf(');
+  expect(implementation).not.toContain("windowsOpenNoFollowLeaf(target, 'No-follow file'");
+  expect(implementation).toContain('sameIdentity(checked, linuxIdentity(parentFd, checked.path))');
+  expect(implementation).toContain("readLinuxRetainedFile(leafFd, 'No-follow file')");
+  expect(implementation.indexOf('linuxIdentity(parentFd, checked.path)')).toBeLessThan(
+    implementation.indexOf("linuxOpenReadableLeafAt(parentFd, name, 'No-follow file')")
+  );
+  const linuxOpenStart = source.indexOf('function linuxOpenReadableLeafAt(');
+  const linuxOpenEnd = source.indexOf('\n}', linuxOpenStart);
+  const linuxOpen = source.slice(linuxOpenStart, linuxOpenEnd);
+  expect(linuxOpen).toContain('LINUX_O_NONBLOCK');
+});
+
+test('Linux exact ordinary leaf rejects a FIFO without a blocking open', async () => {
+  if (process.platform !== 'linux') return;
+  const root = fixtureRoot();
+  const fifoPath = path.join(root, 'retirement-fence.json');
+  try {
+    const created = Bun.spawnSync({ cmd: ['mkfifo', fifoPath], stdout: 'pipe', stderr: 'pipe' });
+    expect(created.exitCode).toBe(0);
+    const moduleUrl = new URL('../../platform/shared/physical-no-follow.ts', import.meta.url).href;
+    const child = Bun.spawn({
+      cmd: [process.execPath, '-e', `
+        import { inspectNoFollowDirectoryChainV1, inspectNoFollowOrdinaryFileEntryV1 } from ${JSON.stringify(moduleUrl)};
+        const parent = inspectNoFollowDirectoryChainV1(${JSON.stringify(root)}, 'fifo parent').target;
+        try {
+          inspectNoFollowOrdinaryFileEntryV1(parent, 'retirement-fence.json');
+          process.exit(2);
+        } catch (error) {
+          process.exit(error?.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' ? 0 : 3);
+        }
+      `],
+      stdout: 'pipe',
+      stderr: 'pipe'
+    });
+    const result = await Promise.race([
+      child.exited.then((exitCode) => ({ exitCode, timedOut: false })),
+      new Promise<{ exitCode: number; timedOut: true }>((resolve) => setTimeout(() => resolve({ exitCode: -1, timedOut: true }), 3_000))
+    ]);
+    if (result.timedOut) {
+      child.kill('SIGKILL');
+      await child.exited;
+    }
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 5_000);
 
 test('retained directory relocation makes the original path absent and rejects a substituted tombstone', () => {
   const root = fixtureRoot();

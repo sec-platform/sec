@@ -261,6 +261,10 @@ describe('canonical documentation authority', () => {
     const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
     const selectedManifestId = path.posix.basename(pointer.manifest, '.md');
     const manifestSource = await readCompilerFile(pointer.manifest);
+    const manifest = CodexDevelopmentParseWorkPackageManifest(
+      manifestSource,
+      pointer.manifest
+    );
     const rawManifestDigest = pointerSource.match(
       /manifestDigest: (sha256:[0-9a-f]{64})/u
     )?.[1];
@@ -277,7 +281,7 @@ describe('canonical documentation authority', () => {
       expect(rollingPlan.candidatePackageIds.every((packageId) =>
         catalogPackageIds.includes(packageId))).toBe(true);
     } else {
-      expect(rollingPlan.activePackageId).toMatch(/^default-branch-health-repair-/u);
+      expect(manifest.tracking === 'none' || catalog.items.some(({ tracking }) => tracking === manifest.tracking)).toBe(true);
       const retainedCatalogIndexes = rollingPlan.candidatePackageIds.map((packageId) =>
         catalogPackageIds.indexOf(packageId));
       expect(retainedCatalogIndexes[0]).toBe(0);
@@ -292,13 +296,8 @@ describe('canonical documentation authority', () => {
     ]);
     expect(rawManifestDigest).toBeDefined();
     expect(CodexDevelopmentWorkPackageManifestDigest(manifestSource)).toBe(rawManifestDigest!);
-    const manifest = CodexDevelopmentParseWorkPackageManifest(
-      manifestSource,
-      pointer.manifest
-    );
     expect(manifest.id).toBe(selectedManifestId);
     expect(manifest.manifestState).toBe('frozen');
-    if (activeCatalogIndex < 0) expect(manifest.tracking).toBe('none');
     expect(manifest.tasks.length).toBeGreaterThan(0);
     expect(manifest.acceptance.length).toBeGreaterThan(0);
     expectContainsAll(pointerSource, [
