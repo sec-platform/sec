@@ -54,7 +54,7 @@ async function execute(bindingValue: ReturnType<typeof binding>) {
   ));
 }
 
-test('protected ff-only publication disables every repository hook surface', async () => {
+test.serial('protected ff-only publication disables every repository hook surface', async () => {
   const source = await Bun.file(path.resolve(import.meta.dir,
     '../../scripts/codex/local-main-closeout.ts')).text();
   expect(source).toContain("['-c', 'core.hooksPath=/dev/null', 'merge', '--ff-only', binding.expectedRemoteMainSha]");
@@ -88,7 +88,7 @@ afterAll(async () => {
   if (baseRoot) await rm(baseRoot, { recursive: true, force: true });
 });
 
-test('clean fast-forwardable protected main ends in LOCAL_MAIN_READY via ff-only with exact readback', async () => {
+test.serial('clean fast-forwardable protected main ends in LOCAL_MAIN_READY via ff-only with exact readback', async () => {
   const head = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
   const tree = git(protectedRoot!, ['rev-parse', 'HEAD^{tree}']).trim();
   // remote advances
@@ -110,13 +110,13 @@ test('clean fast-forwardable protected main ends in LOCAL_MAIN_READY via ff-only
   expect(tree).not.toBe(remoteTree);
 });
 
-test('already-current protected main returns LOCAL_MAIN_READY without mutation', () => {
+test.serial('already-current protected main returns LOCAL_MAIN_READY without mutation', () => {
   const status = inspectLocalMainCloseoutV3(protectedRoot!, binding(), gitRunner);
   expect(status.status).toBe('LOCAL_MAIN_READY');
   if (status.status === 'LOCAL_MAIN_READY') expect(status.action).toBe('already-current');
 });
 
-test('effectful already-current closeout fetches and re-inspects the exact tracking ref first', async () => {
+test.serial('effectful already-current closeout fetches and re-inspects the exact tracking ref first', async () => {
   const source = await Bun.file(path.resolve(import.meta.dir,
     '../../scripts/codex/local-main-closeout.ts')).text();
   const execute = source.slice(source.indexOf('export async function executeLocalMainCloseoutV3'),
@@ -125,7 +125,7 @@ test('effectful already-current closeout fetches and re-inspects the exact track
   expect(execute).not.toContain('localHeadBeforeFetch');
 });
 
-test('pure local-main status inspection disables optional locks and forces untracked inventory', async () => {
+test.serial('pure local-main status inspection disables optional locks and forces untracked inventory', async () => {
   const source = await Bun.file(path.resolve(import.meta.dir,
     '../../scripts/codex/local-main-closeout.ts')).text();
   expect(source.match(
@@ -133,7 +133,7 @@ test('pure local-main status inspection disables optional locks and forces untra
   )).toHaveLength(2);
 });
 
-test('a dirty protected main returns LOCAL_MAIN_SYNC_BLOCKED(dirty) and never mutates', async () => {
+test.serial('a dirty protected main returns LOCAL_MAIN_SYNC_BLOCKED(dirty) and never mutates', async () => {
   const remoteSha = git(protectedRoot!, ['rev-parse', 'origin/main']).trim();
   const beforeHead = git(protectedRoot!, ['rev-parse', 'HEAD']).trim();
   const dirtyPath = path.join(protectedRoot!, 'main.txt');
@@ -149,7 +149,7 @@ test('a dirty protected main returns LOCAL_MAIN_SYNC_BLOCKED(dirty) and never mu
   expect(git(protectedRoot!, ['status', '--porcelain=v1']).trim()).toBe('');
 });
 
-test('local-only commits return LOCAL_MAIN_SYNC_BLOCKED(local-only-commits) without mutation', async () => {
+test.serial('local-only commits return LOCAL_MAIN_SYNC_BLOCKED(local-only-commits) without mutation', async () => {
   const remoteSha = git(protectedRoot!, ['rev-parse', 'origin/main']).trim();
   writeFileSync(path.join(protectedRoot!, 'local.txt'), 'local\n');
   git(protectedRoot!, ['add', 'local.txt']);
@@ -165,7 +165,7 @@ test('local-only commits return LOCAL_MAIN_SYNC_BLOCKED(local-only-commits) with
   git(protectedRoot!, ['reset', '--hard', 'origin/main']);
 });
 
-test('a diverged protected main returns LOCAL_MAIN_SYNC_BLOCKED without mutation', async () => {
+test.serial('a diverged protected main returns LOCAL_MAIN_SYNC_BLOCKED without mutation', async () => {
   developerPush('v3\n');
   const remoteSha = git(remoteRoot!, ['rev-parse', 'main']).trim();
   writeFileSync(path.join(protectedRoot!, 'diverged.txt'), 'diverged\n');
@@ -184,7 +184,7 @@ test('a diverged protected main returns LOCAL_MAIN_SYNC_BLOCKED without mutation
   git(protectedRoot!, ['reset', '--hard', 'origin/main']);
 });
 
-test('an ignored local path colliding with the incoming tracked write set blocks ff-only publication', async () => {
+test.serial('an ignored local path colliding with the incoming tracked write set blocks ff-only publication', async () => {
   const localPath = path.join(protectedRoot!, 'generated.ts');
   const excludePath = path.join(protectedRoot!, '.git', 'info', 'exclude');
   writeFileSync(excludePath, 'generated.ts\n');

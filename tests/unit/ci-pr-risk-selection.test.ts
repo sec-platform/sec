@@ -85,8 +85,10 @@ test('dev-runner changes use exact owned slow sentinels instead of the bounded b
     resolved: true
   });
   expect(selectCiPrRiskSlowSuites(['platform/dev-runner/dependency-bootstrap.ts'])).toMatchObject({
-    suites: ['e2e-install-git-hooks'],
-    affectedSlowTests: ['tests/e2e/install-git-hooks.test.ts'],
+    suites: [],
+    slowTests: [],
+    affectedSlowTests: [],
+    owners: ['auto-reference', 'dev-runner'],
     reasons: ['ownership-impact'],
     resolved: true
   });
