@@ -90,9 +90,14 @@ SUT污染trusted容器。
 - provider name在lease发布前为最长role suffix预留8字符；GitHub labels以case-insensitive集合比较，fetch URL和
   全部effective push URL必须同仓。即使local state丢失，status/recovery也必须查询remote lease、全部profile/role
   eligible runner与repository-labeled container，禁止把未知第四实例或大小写变体误报为absent；
+- MainHealth不由`main` push直接占用尚未active的本地runner。control plane先对exact live main建立remote ledger、
+  三角色container/runner完整census和active projection，再发布唯一`sec-produce-main-health-v1` repository dispatch；
+  本地、远端或未来其他平台provider只改变受治理execution binding，不要求修改workflow/job/check合同；
 - SUT cgroup固定2 CPU并由3600秒wall kill界定整棵descendant tree，真实aggregate上限为7200 CPU秒；同值
   per-process `prlimit`只作冗余。candidate依赖由exact trusted-base lock/package以`--ignore-scripts`物化，下载cache
-  保留在runner私有路径且不进入chroot，命中cache不得重复下载；
+  保留在runner私有路径且不进入chroot，命中cache不得重复下载。runner image还必须冻结workflow setup所需的
+  archive tools：Node `.tar.xz`由`xz`处理，`setup-bun`的`.zip`由Info-ZIP `unzip 6.00`处理；两者都在
+  Docker build内做可执行readback并由build revision与最终image ID绑定，缺少能力不得延迟到job内重复安装；
 - workflow route、runner version或sandbox substrate变化会改变provider/environment revision并使对应
   Evidence失效，但branch、PR、amend和无因果文档变化不会单独要求重跑Linux SUT；
 - Playwright/Chromium 是 Web runtime acceptance capability，不是所有 job 的默认执行义务；runner image

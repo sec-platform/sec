@@ -32,8 +32,6 @@ export function createObservedMainHealthInputV1(input: {
   checks: readonly GitHubCheckObservationV1[];
 }): MainHealthLedgerInputV1 {
   const expectedRef = CI_MAIN_HEALTH_POLICY_V1.producer.workflowRefFormat.replace('<exact-main-sha>', input.mainSha);
-  const expectedPushTitle = CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.push
-    .replace('<exact-main-sha>', input.mainSha);
   const dispatchTitleParts = CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.repositoryDispatch
     .replace('<exact-main-sha>', input.mainSha)
     .split('<request-operation-id>');
@@ -47,7 +45,6 @@ export function createObservedMainHealthInputV1(input: {
   const expectedRequestOperationId = createCiMainHealthRequestOperationIdV1(input.mainSha);
   const matchesRunTitle = (check: GitHubCheckObservationV1): boolean => {
     if (check.workflowRunId === null || check.workflowRunDisplayTitle === null) return false;
-    if (check.eventName === 'push') return check.workflowRunDisplayTitle === expectedPushTitle;
     if (check.eventName !== 'repository_dispatch'
         || !check.workflowRunDisplayTitle.startsWith(dispatchTitlePrefix)
         || !check.workflowRunDisplayTitle.endsWith(dispatchTitleSuffix)) return false;
@@ -57,8 +54,6 @@ export function createObservedMainHealthInputV1(input: {
     );
     return operationId === expectedRequestOperationId;
   };
-  const eventRank = (eventName: string | null): number =>
-    CI_MAIN_HEALTH_POLICY_V1.producer.eventNames.findIndex((candidate) => candidate === eventName);
   const matching = input.checks.filter((check) => check.headSha === input.mainSha
     && check.name === CI_MAIN_HEALTH_POLICY_V1.context
     && check.appId === CI_MAIN_HEALTH_POLICY_V1.app.id
@@ -67,9 +62,9 @@ export function createObservedMainHealthInputV1(input: {
     && check.workflowPath === CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath
     && check.workflowRef === expectedRef
     && matchesRunTitle(check)
-    && CI_MAIN_HEALTH_POLICY_V1.producer.eventNames.some(
-      (eventName) => check.eventName === eventName
-    )).sort((left, right) => eventRank(left.eventName) - eventRank(right.eventName) || left.id - right.id);
+    && check.eventName === CI_MAIN_HEALTH_POLICY_V1.producer.eventNames[0]).sort(
+      (left, right) => left.id - right.id
+    );
   const successful = (check: GitHubCheckObservationV1): boolean =>
     check.status === CI_MAIN_HEALTH_POLICY_V1.terminal.status
       && check.conclusion === CI_MAIN_HEALTH_POLICY_V1.terminal.conclusion;
@@ -81,16 +76,9 @@ export function createObservedMainHealthInputV1(input: {
       )
       ? check.conclusion
       : null;
-  const canonicalTerminalConclusion = matching.length > 0 ? terminalConclusion(matching[0]!) : null;
-  const uniqueEventEquivalentTerminalProducers = matching.length > 1
-    && new Set(matching.map((check) => check.eventName)).size === matching.length
-    && canonicalTerminalConclusion !== null
-    && matching.every((check) => terminalConclusion(check) === canonicalTerminalConclusion);
-  // eventNames is the canonical producer priority. One observation per allowed
-  // event may converge only when every producer reports the same terminal
-  // status/conclusion outcome. Same-event duplicates, nonterminal observations,
-  // and conflicting conclusions remain ambiguous and fail closed.
-  const selected = matching.length === 1 || uniqueEventEquivalentTerminalProducers ? matching[0]! : null;
+  // One exact repository-dispatch operation is the only producer. Duplicates,
+  // nonterminal observations, and any other event remain ambiguous and fail closed.
+  const selected = matching.length === 1 ? matching[0]! : null;
   const selectedConclusion = selected === null ? null : terminalConclusion(selected);
   const healthy = selected !== null && successful(selected);
   const degraded = selectedConclusion !== null

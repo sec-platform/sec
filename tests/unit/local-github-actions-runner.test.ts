@@ -188,16 +188,17 @@ describe('local GitHub Actions runner contract', () => {
     );
     expect(LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1).toBe('3.12.3');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2)
-      .toBe('trust-domains-node24-python312-v6');
+      .toBe('trust-domains-node24-python312-archive-v7');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1)
       .toBe('sec-local-github-actions-provider-state-v2');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1)
-      .toBe('sec-actions-runner:2.336.0-trust-domains-node24-python312-v6');
+      .toBe('sec-actions-runner:2.336.0-trust-domains-node24-python312-archive-v7');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2).toBe(
-      'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e'
+      'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf'
     );
     expect(LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3.map(({ imageId }) => imageId))
       .toEqual([
+        'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
         'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
         'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a'
       ]);
@@ -213,6 +214,8 @@ describe('local GitHub Actions runner contract', () => {
     expect(dockerfile).toContain('tar --no-same-owner -xzf runner.tar.gz');
     expect(dockerfile).toContain('apt-get -o Acquire::Retries=5 update');
     expect(dockerfile).toContain('apt-get -o Acquire::Retries=5 install');
+    expect(dockerfile).toContain('python3 unzip xz-utils');
+    expect(dockerfile).toContain('command -v unzip >/dev/null');
     expect(dockerfile).toContain(`test "$(node --version)" = "v${LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1}"`);
     expect(dockerfile).toContain(`test "$(python3 --version)" = "Python ${LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1}"`);
     expect(dockerfile).toContain(

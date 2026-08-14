@@ -697,11 +697,9 @@ function fakeGitHubClient(
 
 function mainHealthCheck(overrides: Partial<GitHubCheckObservationV1> = {}): GitHubCheckObservationV1 {
   const eventName = overrides.eventName ?? CI_MAIN_HEALTH_POLICY_V1.producer.eventNames[0];
-  const workflowRunDisplayTitle = eventName === 'push'
-    ? CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.push.replace('<exact-main-sha>', BASE)
-    : CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.repositoryDispatch
-        .replace('<exact-main-sha>', BASE)
-        .replace('<request-operation-id>', createCiMainHealthRequestOperationIdV1(BASE));
+  const workflowRunDisplayTitle = CI_MAIN_HEALTH_POLICY_V1.producer.runTitleFormats.repositoryDispatch
+    .replace('<exact-main-sha>', BASE)
+    .replace('<request-operation-id>', createCiMainHealthRequestOperationIdV1(BASE));
   return {
     id: 7, name: CI_MAIN_HEALTH_POLICY_V1.context, status: 'completed', conclusion: 'success',
     headSha: BASE, detailsUrl: 'https://github.example/actions/runs/7', appId: CI_MAIN_HEALTH_POLICY_V1.app.id,
@@ -1895,23 +1893,19 @@ test('MainHealth preserves exact states while repair remains semantic routing wi
   }
 });
 
-test('MainHealth converges equivalent cross-event terminal outcomes and locks conflicting producers', () => {
+test('MainHealth accepts one exact dispatch and locks duplicate or foreign producers', () => {
   const common = { repository: 'sec-platform/sec', mainSha: BASE, mainTreeSha: BASE, trustRevision: BASE,
     observedAt: '2026-08-09T14:00:00.000Z', expiresAt: '2026-08-09T14:10:00.000Z', sourceRunId: '7',
     sourceRef: `${CI_MAIN_HEALTH_POLICY_V1.producer.workflowPath}@${BASE}` };
-  const push = mainHealthCheck({ id: 7, eventName: 'push' });
-  const dispatched = mainHealthCheck({ id: 8, eventName: 'repository_dispatch' });
-  const pushOnly = createObservedMainHealthInputV1({ ...common, checks: [push] });
-  const ordered = createObservedMainHealthInputV1({ ...common, checks: [push, dispatched] });
-  const reversed = createObservedMainHealthInputV1({ ...common, checks: [dispatched, push] });
-  expect(ordered).toMatchObject({
+  const dispatched = mainHealthCheck({ id: 8 });
+  const exact = createObservedMainHealthInputV1({ ...common, checks: [dispatched] });
+  expect(exact).toMatchObject({
     status: 'healthy', allowedLanes: ['ordinary'], failureFingerprints: []
   });
-  expect(reversed).toEqual(ordered);
   expect(createObservedMainHealthInputV1({
     ...common,
-    checks: [mainHealthCheck({ id: 99, appId: 1 }), dispatched, push]
-  })).toEqual(ordered);
+    checks: [mainHealthCheck({ id: 99, appId: 1 }), dispatched]
+  })).toEqual(exact);
 
   const unrelatedActivation = mainHealthCheck({
     id: 10,
@@ -1922,8 +1916,8 @@ test('MainHealth converges equivalent cross-event terminal outcomes and locks co
   });
   expect(createObservedMainHealthInputV1({
     ...common,
-    checks: [push, unrelatedActivation]
-  })).toEqual(pushOnly);
+    checks: [dispatched, unrelatedActivation]
+  })).toEqual(exact);
   expect(createObservedMainHealthInputV1({
     ...common,
     checks: [unrelatedActivation]
@@ -1938,50 +1932,27 @@ test('MainHealth converges equivalent cross-event terminal outcomes and locks co
   });
   expect(createObservedMainHealthInputV1({
     ...common,
-    checks: [push, wrongOperationDispatch]
-  })).toEqual(pushOnly);
+    checks: [dispatched, wrongOperationDispatch]
+  })).toEqual(exact);
   expect(createObservedMainHealthInputV1({
     ...common,
     checks: [wrongOperationDispatch]
   })).toMatchObject({ status: 'locked', allowedLanes: [] });
-  expect(createObservedMainHealthInputV1({
-    ...common,
-    checks: [push, mainHealthCheck({
-      id: 11,
-      eventName: 'repository_dispatch',
-      conclusion: 'skipped'
-    })]
-  })).toMatchObject({ status: 'locked', allowedLanes: [] });
-
-  const failedPush = mainHealthCheck({ id: 7, eventName: 'push', conclusion: 'failure' });
-  const failedDispatch = mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'failure' });
-  const singleFailure = createObservedMainHealthInputV1({ ...common, checks: [failedPush] });
-  const alternateTransportFailure = createObservedMainHealthInputV1({ ...common, checks: [failedDispatch] });
-  expect(alternateTransportFailure.failureFingerprints).toEqual(singleFailure.failureFingerprints);
-  expect(alternateTransportFailure.repairWorkPackage).toBe(singleFailure.repairWorkPackage);
-  const convergedFailure = createObservedMainHealthInputV1({
-    ...common,
-    checks: [failedDispatch, failedPush]
-  });
-  expect(convergedFailure).toMatchObject({
+  const failedDispatch = mainHealthCheck({ id: 8, conclusion: 'failure' });
+  const singleFailure = createObservedMainHealthInputV1({ ...common, checks: [failedDispatch] });
+  expect(singleFailure).toMatchObject({
     status: 'degraded', allowedLanes: CI_MAIN_HEALTH_POLICY_V1.degraded.allowedLanes,
-    failureFingerprints: singleFailure.failureFingerprints,
-    repairWorkPackage: singleFailure.repairWorkPackage
+    failureFingerprints: [expect.stringMatching(/^sha256:/)],
+    repairWorkPackage: expect.stringContaining('default-branch-health-repair-')
   });
-  expect(createObservedMainHealthInputV1({
-    ...common,
-    checks: [failedPush, failedDispatch]
-  })).toEqual(convergedFailure);
 
   for (const checks of [
-    [push, mainHealthCheck({ id: 9, eventName: 'push' })],
-    [push, mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'failure' })],
-    [push, mainHealthCheck({ id: 8, eventName: 'repository_dispatch', status: 'in_progress', conclusion: null })],
-    [failedPush, mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'cancelled' })],
+    [dispatched, mainHealthCheck({ id: 9 })],
+    [dispatched, mainHealthCheck({ id: 9, conclusion: 'failure' })],
+    [mainHealthCheck({ status: 'in_progress', conclusion: null })],
     [mainHealthCheck({ conclusion: 'forged-terminal' })],
     [mainHealthCheck({ status: 'forged-status', conclusion: 'failure' })],
-    [mainHealthCheck({ eventName: 'push', conclusion: 'forged-terminal' }),
-      mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'forged-terminal' })]
+    [mainHealthCheck({ eventName: 'push' })]
   ]) {
     expect(createObservedMainHealthInputV1({ ...common, checks })).toMatchObject({
       status: 'locked', allowedLanes: [], failureFingerprints: [expect.stringMatching(/^sha256:/)]
@@ -1995,21 +1966,12 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
     observedAt: '2026-08-09T14:00:00.000Z', sourceRunId: '200',
     sourceRef: `.github/workflows/sec-merge-gate.yml@${BASE}`
   };
-  const push = mainHealthCheck({ id: 7, eventName: 'push' });
-  const dispatched = mainHealthCheck({ id: 8, eventName: 'repository_dispatch' });
-  const single = compilePostMainIssueDispositionHealthReadbackV1({ ...common, checks: [push] });
-  const converged = compilePostMainIssueDispositionHealthReadbackV1({
-    ...common, checks: [dispatched, push]
-  });
+  const dispatched = mainHealthCheck({ id: 8 });
+  const single = compilePostMainIssueDispositionHealthReadbackV1({ ...common, checks: [dispatched] });
   expect(single).toMatchObject({
     repository: common.repository, mainSha: common.newMainSha, mainTreeSha: common.newMainTreeSha,
     trustRevision: common.newMainSha, status: 'healthy', allowedLanes: ['ordinary']
   });
-  expect(converged.healthRevision).toBe(single.healthRevision);
-  expect(compilePostMainIssueDispositionHealthReadbackV1({
-    ...common, checks: [push, dispatched]
-  })).toEqual(converged);
-
   for (const checks of [
     [mainHealthCheck({ appId: 1 })],
     [mainHealthCheck({ appNodeId: 'forged-app-node' })],
@@ -2022,10 +1984,10 @@ test('IssueDisposition post-main readback consumes the canonical exact MainHealt
         .replace('<exact-main-sha>', BASE)
         .replace('<request-operation-id>', `sha256:${'a'.repeat(64)}`)
     })],
-    [push, mainHealthCheck({ id: 9, eventName: 'push' })],
+    [dispatched, mainHealthCheck({ id: 9 })],
     [mainHealthCheck({ conclusion: 'forged-terminal' })],
     [mainHealthCheck({ status: 'forged-status', conclusion: 'success' })],
-    [push, mainHealthCheck({ id: 8, eventName: 'repository_dispatch', conclusion: 'failure' })]
+    [mainHealthCheck({ eventName: 'push' })]
   ]) {
     expect(() => compilePostMainIssueDispositionHealthReadbackV1({ ...common, checks }))
       .toThrow('canonical fresh healthy ordinary-only MainHealth');
