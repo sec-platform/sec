@@ -551,7 +551,35 @@ function captureDocsDoctorIndexTree(repositoryRoot: string): string {
  * closed modes expose either raw blob bytes or direct tree-entry names without
  * opening another process capability.
  */
-function readCapturedGitTreeBlob(
+export function parseCapturedGitTreeBlobFrameV1(
+  source: Uint8Array,
+  repositoryPath: string
+): Buffer {
+  if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) {
+    throw new Error(`docs-doctor: captured-tree path is noncanonical: ${repositoryPath}`);
+  }
+  const frame = Buffer.from(source);
+  const headerEnd = frame.indexOf(0x0a);
+  if (headerEnd < 0) {
+    throw new Error(`docs-doctor: captured-tree blob header is incomplete for ${repositoryPath}.`);
+  }
+  const header = frame.subarray(0, headerEnd).toString('ascii');
+  const match = /^([0-9a-f]{40}) blob ([1-9][0-9]*|0)$/u.exec(header);
+  if (match === null) {
+    throw new Error(`docs-doctor: captured-tree blob header is invalid for ${repositoryPath}.`);
+  }
+  const byteLength = Number(match[2]);
+  const bodyStart = headerEnd + 1;
+  const bodyEnd = bodyStart + byteLength;
+  if (!Number.isSafeInteger(byteLength)
+      || bodyEnd + 1 !== frame.length
+      || frame[bodyEnd] !== 0x0a) {
+    throw new Error(`docs-doctor: captured-tree blob framing is invalid for ${repositoryPath}.`);
+  }
+  return frame.subarray(bodyStart, bodyEnd);
+}
+
+export function readCapturedGitTreeBlob(
   repositoryRoot: string,
   treeSha: string,
   repositoryPath: string,
@@ -563,15 +591,19 @@ function readCapturedGitTreeBlob(
   if (!CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)) {
     throw new Error(`docs-doctor: captured-tree path is noncanonical: ${repositoryPath}`);
   }
+  const objectExpression = `${treeSha}:${repositoryPath}`;
   const args = observationKind === 'blob-bytes'
-    ? ['show', '--no-color', '--no-ext-diff', '--no-textconv', `${treeSha}:${repositoryPath}`]
-    : ['ls-tree', '--name-only', `${treeSha}:${repositoryPath}`];
+    ? ['cat-file', '--batch']
+    : ['ls-tree', '--name-only', objectExpression];
   const result = spawnSync(
     'git',
     args,
     {
       cwd: repositoryRoot,
       encoding: 'buffer',
+      input: observationKind === 'blob-bytes'
+        ? Buffer.from(`${objectExpression}\n`, 'utf8')
+        : undefined,
       windowsHide: true,
       maxBuffer: 8 * 1024 * 1024
     }
@@ -582,7 +614,8 @@ function readCapturedGitTreeBlob(
       ?? `exit ${result.status ?? 1}`;
     throw new Error(`docs-doctor: captured-tree object read failed for ${repositoryPath}: ${detail}`);
   }
-  return result.stdout;
+  if (observationKind === 'direct-entry-names') return result.stdout;
+  return parseCapturedGitTreeBlobFrameV1(result.stdout, repositoryPath);
 }
 
 function listCapturedWorkPackagePaths(repositoryRoot: string, treeSha: string): readonly string[] {

@@ -2,7 +2,7 @@
 title: Verification、Evidence 与 CI 治理
 status: stable
 domain: verification-governance
-last-reviewed: 2026-08-11
+last-reviewed: 2026-08-15
 ---
 
 # Verification、Evidence 与 CI 治理
@@ -333,6 +333,118 @@ source digest绑定policy与canonical matching subset，nonmatching provider noi
 provenance churn。完整raw response若需审计，必须由独立provider observation receipt owner签发，不能在
 MainHealth compiler里复制transport authority。
 
+MainHealth的GitHub check/App投影与Linux物理计算不是同一authority。required workflow可在固定
+`self-hosted + Linux + X64 + sec-linux-verification-v1` capability profile上执行；runner必须由canonical lifecycle owner
+按exact release/base-image/Node archive/Python archive-inspection runtime/final image digest建立，operation结束即注销和删除。一个atomic
+provider lease下固定运行`control/trusted/sut`三个隔离角色：任何dispatch并join下游producer的
+Session或integration coordinator必须在control，不能占用被等待的唯一trusted executor；trusted
+readback不能复用candidate SUT容器。SUT外层构造域只有`CHOWN/SETGID/SETPCAP/SETUID/SYS_ADMIN/SYS_CHROOT`，
+用于direct unshare、private tmpfs chroot、降权和清空bounding set；候选域仍为UID/GID 65532、zero-capability、
+NoNewPrivs、无网络且看不到runner根或继承FD。control/trusted保持capability空集。GitHub继续拥有event、repository、App与
+check transport identity，但hosted runner quota不拥有Linux结果语义。物理executor变化必须进入
+environment/provider revision；相同semantic Action在相同toolchain、sandbox与platform profile下可复用，
+不得因branch、PR、amend或squash identity机械重跑。当前local runner仍通过GitHub Actions投影formal result；
+在`trusted-local-readback` producer正式上线前，普通local process或self-digest文件不能签发MainHealth。
+
+持久self-hosted runner绝不消费由caller选择workflow/ref的`workflow_dispatch`或`workflow_call`仓库字节。
+只执行当前trusted default内容的诊断与release-main workflow必须由default-branch
+`repository_dispatch`加载workflow，在checkout前用GitHub API把`context.ref/context.sha`重新绑定到实时
+default branch，并禁用checkout credential persistence。任何非default release/candidate都只能作为
+authenticated archive进入`execute-verification-action-sut`的private tmpfs chroot，或使用一次性disposable
+runner；禁止先checkout候选再在持久runner root执行`bun install`、测试或仓库script。archive inventory由
+镜像内显式冻结的Python 3.12.3标准库`tarfile`在解压前验证checksum、entry type、path/link、mode、payload
+bound和trusted content digest；构建配方必须先离线导入`hashlib/json/tarfile`，镜像label、最终image ID与
+provider revision共同拒绝版本、模块或配方漂移，不再存在隐式可执行依赖。
+
+`sec-linux-verification-v1`只表达已验证的Linux能力，不表达机器位置。local与remote self-hosted provider
+通过同一umbrella label、角色label和conformance接线；canonical lifecycle在注册token前以remote CAS lease
+要求该profile全仓唯一。lease所在checkout的`origin` fetch URL与全部effective push URL必须都解析为与runner
+API目标相同的`owner/name`；start、status、stop和recovery都对完整repository runner/container inventory做集合
+相等验证。GitHub label按其真实case-insensitive语义规范化，umbrella、任一role、operation、保留name或ID任一命中
+即进入eligible全集；不同大小写、意外第四实例、local state缺失或lease缺失都不能从census中消失。provider base name
+预留最长role suffix，确保lease发布前最终instance name已满足100字符上限。任何额外eligible对象均分类为external
+maintainer mutation，保留lease且拒绝继续。因而Provider切换不会改写五份Workflow。Node/runner进入content-addressed image，
+同一final image ID不重复下载；cache miss才执行exact archive下载和digest校验，结果身份漂移即形成新provider
+revision。Playwright/Chromium是该profile可提供的条件子能力：现有test-impact owner把
+`project-base`、runtime dependency、runtime host等因果source映射到browser slow closure；selector在启动
+测试进程前一次性编译closure，未命中browser的变化立即标记not-applicable，不创建浏览器进程、不等待浏览器
+timeout，也不抢安装锁；命中时才按锁定Playwright revision读取或填充provider-independent browser cache。
+operation closeout只注销并删除三个exact runner/container与remote lease，默认保留已验证final image和
+content-addressed cache。显式image retirement必须先证明零owned container和exact image ID，只删除已superseded的
+SEC revision；全局Docker prune、prefix/glob删除和其他工程对象永远不属于该lifecycle authority。
+
+### Capability Delta选择图
+
+角色不是“只有三类可执行文件”：`control/trusted/sut`是进程与证据的信任域，Bun、Node、Git、Docker、
+Playwright/Chromium及测试二进制仍由各自tool/dependency closure精确绑定。一次candidate只编译一次
+base→candidate delta，后续执行只取`RequiredClosure ∩ MissingOrStale`；已fresh PASS直接复用，fresh failure
+直接停止同一无效路径，not-applicable在启动Provider或等待锁之前立即形成typed skip。
+
+SEC 的平台目标是一套平台无关的 Truth Kernel、Action/Result/Evidence identity 与控制状态机，加上按真实
+物理语义划分的 replaceable execution adapter；它不是把所有东西都塞进 Linux，也不是让每个平台重复跑
+同一 closure。当前能力矩阵是：
+
+| capability | owning environment | exact proof | selection rule |
+| --- | --- | --- | --- |
+| semantic/control | 当前 Windows 主控制工作区，未来可迁移 | schema、selector、DAG、ledger、authority、pure contract | 同一 ActionKey 只执行、join 或 reuse 一次 |
+| windows-native | Windows x64 | NTFS/reparse、PowerShell、Windows process/native host | Linux/WSL不能替代 |
+| linux-native-runtime | Docker Linux x86_64 | Ubuntu toolchain、namespace、cgroup、Linux filesystem/process | WSL2只作Docker substrate，不另算一份Evidence |
+| web-runtime | impact选中的真实Chromium/Playwright provider | navigation/render/runtime acceptance | 非browser closure在selector内立即not-applicable，不安装browser |
+| darwin-native | 当前无provider | Darwin专属filesystem/process/runtime | 未命中Darwin owner时not-applicable；命中时typed unavailable，禁止Linux冒充PASS |
+
+因此“全平台”表示公共contract、identity、错误和provider conformance可移植；某次delta只消费其Requirement
+声明的owning environment。WSL2、Docker VM与container属于同一Linux provider实现层，不是三个验证环境。
+local与remote executor共享`sec-linux-verification-v1`、environment revision、cache与conformance，切换只
+替换受控provider binding，不修改Workflow、job或Claim identity，也不允许双writer。
+
+```mermaid
+flowchart LR
+  delta["Exact base to candidate delta"] --> owner["Canonical owner and test-impact closure"]
+  owner --> applicable{"Capability applicable?"}
+  applicable -->|"No"| skip["Immediate typed not-applicable; zero process, queue, lock"]
+  applicable -->|"Yes"| fresh{"Fresh exact evidence?"}
+  fresh -->|"PASS"| reuse["Reuse receipt"]
+  fresh -->|"Failure"| stop["Stop unchanged failure path"]
+  fresh -->|"Missing or stale"| role{"Trust role"}
+  role --> control["control coordinator and downstream join"]
+  role --> trusted["trusted readback and assembly"]
+  role --> sut["candidate SUT sandbox"]
+  sut --> browser{"Browser capability selected?"}
+  browser -->|"No"| nobrowser["No install, launch, timeout, or browser lock"]
+  browser -->|"Yes"| cache["Exact Playwright revision and browser cache"]
+  cache --> cached{"Exact cache present?"}
+  cached -->|"Yes"| run["Run browser acceptance"]
+  cached -->|"No"| install["Single locked install, digest and path readback"]
+  install --> run
+```
+
+该图是local/remote provider共同消费的唯一选择语义。位置切换只改变provider lifecycle binding；delta、owner、
+role label、cache identity和skip receipt不变，因此不需要反复改Workflow或为remote另建一套测试定义。
+Linux capability只在provider/sandbox revision或对应owner发生变化、缓存Evidence缺失/过期时重证；普通业务delta
+不会重新校准Linux substrate。Playwright也只有browser closure命中且exact revision cache缺失时才下载，缓存命中
+直接复用；不存在“每次运行先等待安装再决定skip”的路径。
+
+`sandbox-v4`把CPU语义写成真实聚合边界：outer SUT cgroup固定2 CPU，unit wall bound固定3600秒且
+`--kill-child=KILL`关闭全部descendant，所以整棵进程树最多消费7200 CPU秒；同值`RLIMIT_CPU`只是冗余的
+per-process ceiling，不能被描述为聚合controller。trusted-bootstrap candidate job也必须由exact base checkout中的
+固定CLI创建authenticated archive，并调用同一namespace/chroot command plan；candidate checkout只作数据，不能在
+runner root执行install、script或test。base lock/package驱动的`--ignore-scripts`依赖物化可复用runner私有content cache，
+cache不会挂入candidate chroot，候选也不能写入或读取它。
+
+### 重复缺陷封闭规则
+
+Review finding只有在同一根因的完整机器闭包落地后才算关闭：canonical owner中的不变量、production拒绝路径、
+focused正向与负向contract、test-impact归属、provider/runtime精确身份和TCB因果闭包必须同时更新。当前持久runner
+尤其强制以下五项：caller-selected ref在checkout前被event与live-default binding拒绝；镜像所用每个可执行能力都由
+构建探针、label、final image ID、capability ledger与provider revision共同声明；selector必须在进程、队列、下载和锁
+之前产生not-applicable；下载只在content cache miss时以有限重试执行；TCB仅在普通source/import/dispatcher全部稳定后
+apply一次，此后只运行zero-write check。provider repository与runner eligible-set必须是exact identity和exact set，
+不能只验证expected subset。任一层缺失都不能以单个happy-path测试或Review回复宣称完成。
+`imports:apply`只拥有确定性的import/declaration ordering，不拥有全文件格式化或语义改写；authoring阶段只有
+`imports:check`报告真实delta时才执行一次apply。任何source-lock或故障注入测试必须锚定函数/AST identity或唯一语义
+token，禁止依赖两个import相邻、空行、缩进或formatter输出；canonical import合法重排后仍失败的测试属于测试合同缺陷，
+不得通过关闭organizer、反复格式化或手工改回排版解决。
+
 所有post-main consumer同样不得复制MainHealth判断。IssueDisposition readback把完整normalized check inventory、
 exact new-main commit/tree/trust和fresh observation时间交给canonical compiler/lane resolver，只接受
 healthy ordinary-only ledger并引用其ledger digest；`length === 1`、只验appSlug或局部name/status filter都是
@@ -484,6 +596,20 @@ Blocked   = Unresolved ∪ UnknownPhysicalOutcome ∪ InvalidAuthority
 
 Known unnecessary、fresh proof、same failure 与 authenticated in-flight 可以保证不重复；opaque/
 dynamic frontier 无法证明无影响时只能扩大或阻塞，不能承诺超出当前 model 能力的“全知最小集”。
+
+`affected` selector只编译delta、owner和test-impact closure；它不得为了判断skip而启动测试、浏览器、
+Linux provider、安装锁或完整Gate。普通fast test可以合并为bounded shard，但包含复制仓库、真实子进程、
+TCB/物理恢复或其他长时状态机的文件必须在canonical process-isolation registry中成为单文件
+invocation，使failure receipt的`selectedTestFiles`精确等于失败文件，而不是整个普通shard。failure
+receipt只拥有diagnostic定位，`replayAuthority=none-diagnostic-only`；修复后必须重新编译当前delta的
+affected closure，并只把精确旧失败与修复新增影响合并。裸argv、旧receipt或Agent手选清单不能跳过
+新影响，也不能把局部authoring PASS升级为formal Evidence。
+
+开发循环只运行被当前编辑直接影响的owner-local sentinel；昂贵的Program、物理恢复、Linux或浏览器
+closure必须等candidate source、manifest和生成锁全部冻结后，编译成一个并行frozen union且只执行一次。
+测试夹具中的production logger必须被捕获并断言，未断言的mock日志不得写入用户终端或伪装成真实
+execution。frozen union之后若发生finding修复，只失效failure invocation与该修复delta新增的impact边；
+不得因命令组织、生成物更新或报告格式变化重新执行输入闭包未变的PASS。
 
 Semantic Impact、Implementation impact、repository/test impact、physical platform applicability、Compatibility和release impact是不同producer。它们可以组合，但不能互相冒充。
 

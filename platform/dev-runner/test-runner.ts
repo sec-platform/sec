@@ -42,7 +42,10 @@ import {
   runDevCommand,
   type DevCommandObservation
 } from './command-runner.ts';
-import { ensureTestDependencies } from './dependency-bootstrap.ts';
+import {
+  ensureFastTestDependencies,
+  ensureTestDependencies
+} from './dependency-bootstrap.ts';
 import {
   cleanStaleTestWorkspaces,
   cleanTestWorkspaces,
@@ -387,6 +390,17 @@ type DependencyContext = {
   browserCachePath: string;
 };
 
+type FastDependencyContext = {
+  binPath: string;
+};
+
+async function withFastTestDependencies<T>(
+  callback: (context: FastDependencyContext) => Promise<T>
+): Promise<T> {
+  const dependencies = await ensureFastTestDependencies();
+  return callback({ binPath: path.join(dependencies.nodeModulesPath, '.bin') });
+}
+
 async function withTestDependencies<T>(callback: (context: DependencyContext) => Promise<T>): Promise<T> {
   const dependencies = await ensureTestDependencies();
   return callback({
@@ -397,12 +411,14 @@ async function withTestDependencies<T>(callback: (context: DependencyContext) =>
 
 function pathEnv(
   binPath: string,
-  browserCachePath: string,
+  browserCachePath: string | null,
   additionalEnv: NodeJS.ProcessEnv = {}
 ): NodeJS.ProcessEnv {
   return {
     [pathEnvKey()]: `${binPath}${path.delimiter}${process.env.PATH ?? ''}`,
-    PLAYWRIGHT_BROWSERS_PATH: browserCachePath,
+    // Explicit undefined values scrub inherited browser state in runDevCommand.
+    PLAYWRIGHT_BROWSERS_PATH: browserCachePath ?? undefined,
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: browserCachePath === null ? '1' : undefined,
     SEC_SKIP_RUNTIME_DEPS_SETUP: '1',
     ...additionalEnv
   };
@@ -453,13 +469,18 @@ function receiptArgv(argv: readonly string[]): { argv: string[]; truncated: bool
   };
 }
 
+function invocationTestFiles(invocation: FastTestInvocation): string[] {
+  return invocation.args.filter(isTestFileSelector);
+}
+
 function emitFastTestFailureReceipt(
   queue: FastTestInvocationQueue,
   batchIndex: number,
   failures: readonly FastTestInvocationFailure[]
 ): void {
   const receipt = {
-    schema: 'sec-fast-test-failure-receipt-v1',
+    schema: 'sec-fast-test-failure-receipt-v2',
+    replayAuthority: 'none-diagnostic-only',
     queue,
     batchIndex,
     failures: failures.map((failure) => {
@@ -468,6 +489,7 @@ function emitFastTestFailureReceipt(
         return {
           kind: failure.kind,
           invocationId: failure.invocation.id,
+          selectedTestFiles: invocationTestFiles(failure.invocation),
           plannedArgv: plannedArgv.argv,
           plannedArgvTruncated: plannedArgv.truncated,
           error: boundedReceiptText(failure.error, FAST_TEST_FAILURE_RECEIPT_TEXT_MAX_BYTES)
@@ -497,6 +519,7 @@ function emitFastTestFailureReceipt(
       return {
         kind: failure.kind,
         invocationId: invocation.id,
+        selectedTestFiles: invocationTestFiles(invocation),
         effectiveArgv: effectiveArgv.argv,
         effectiveArgvTruncated: effectiveArgv.truncated,
         terminal,
@@ -842,6 +865,15 @@ export async function runAffectedTests(args: string[] = []): Promise<number> {
 
 export async function runTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
+  if (args.length > 0) {
+    const { selectors } = partitionBunTestArgs(args);
+    if (selectors.length > 0 && selectors.every(isFastTestFile)) {
+      await withFastTestDependencies(async ({ binPath }) => {
+        exitCode = await runDevCommand('bun', ['test', ...args], pathEnv(binPath, null));
+      });
+      return exitCode;
+    }
+  }
   await withTestDependencies(async ({ binPath, browserCachePath }) => {
     const invocations = args.length > 0 ? [['test', ...args]] : fullTestInvocations();
     for (const invocation of invocations) {
@@ -861,10 +893,10 @@ export async function runFastTests(args: string[] = []): Promise<number> {
   // previous per-subprocess preload call that caused redundant I/O.
   try { await cleanStaleTestWorkspaces(); } catch { /* non-critical */ }
   try {
-    await withTestDependencies(async ({ binPath, browserCachePath }) => {
+    await withFastTestDependencies(async ({ binPath }) => {
       try {
         const plan = fastTestInvocations(args);
-        const env = pathEnv(binPath, browserCachePath, workspaceEnv);
+        const env = pathEnv(binPath, null, workspaceEnv);
         exitCode = await runBoundedFastTestInvocations(
           plan.concurrentShards,
           env,
@@ -900,15 +932,19 @@ export async function runFastTests(args: string[] = []): Promise<number> {
 
 export async function runSlowTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
+  let selection: SlowTestArgSelection;
+  try {
+    selection = slowTestArgSelection(args);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+  if (selection.kind === 'skip') {
+    console.log(selection.message);
+    return 0;
+  }
   await withTestDependencies(async ({ binPath, browserCachePath }) => {
     try {
-      const selection = slowTestArgSelection(args);
-      if (selection.kind === 'skip') {
-        console.log(selection.message);
-        exitCode = 0;
-        return;
-      }
-
       exitCode = await runDevCommand('bun', selection.args, pathEnv(binPath, browserCachePath));
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));

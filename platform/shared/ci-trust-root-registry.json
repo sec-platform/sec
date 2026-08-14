@@ -49,6 +49,7 @@
     "scripts/ci-workspace-fast.ts",
     "scripts/codex/agent-operation-activation.ts",
     "scripts/codex/exact-git-blob.ts",
+    "scripts/codex/local-github-actions-runner.ts",
     "scripts/codex/merge-gate.ts",
     "scripts/codex/skill-applicability.ts",
     "scripts/codex/verification-session.ts",

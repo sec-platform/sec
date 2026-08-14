@@ -65,7 +65,7 @@ type Workflow = Readonly<{
   jobs: Readonly<Record<string, Readonly<{
     name?: string;
     if?: string;
-    'runs-on'?: string;
+    'runs-on'?: string | readonly string[];
     'timeout-minutes'?: number;
     needs?: string | readonly string[];
     outputs?: Readonly<Record<string, string>>;
@@ -81,6 +81,117 @@ function step(workflow: Workflow, job: string, name: string): WorkflowStep {
   if (!found) throw new Error(`Missing workflow step ${job}/${name}.`);
   return found;
 }
+
+const LOCAL_LINUX_RUNNER_LABELS = Object.freeze([
+  'self-hosted', 'Linux', 'X64', 'sec-linux-verification-v1'
+] as const);
+const LOCAL_LINUX_RUNNER_ROLE_LABELS = Object.freeze({
+  control: 'sec-linux-verification-control-v1',
+  trusted: 'sec-linux-verification-trusted-v1',
+  sut: 'sec-linux-verification-sut-v1'
+} as const);
+const WORKFLOW_RUNNER_ROLES = Object.freeze({
+  '.github/workflows/architecture-tools.yml': { 'architecture-tools': 'sut' },
+  '.github/workflows/compiler-pr-validation.yml': {
+    'validate-hosted-request': 'trusted',
+    'validate-agent-operation-activation-request': 'trusted',
+    'agent-operation-activation': 'trusted',
+    'coordinate-verification-session': 'control',
+    'resolve-verification-action': 'trusted',
+    'preflight-verification-action-sut': 'sut',
+    'claim-verification-action': 'trusted',
+    'execute-verification-action-sut': 'sut',
+    'assemble-verification-action-terminal': 'trusted',
+    'main-health': 'trusted'
+  },
+  '.github/workflows/compiler-release-validation.yml': { 'compiler-release-verification': 'sut' },
+  '.github/workflows/sec-merge-gate.yml': { plan: 'trusted', integrate: 'control' },
+  '.github/workflows/sec-trusted-bootstrap.yml': {
+    resolve: 'trusted',
+    'checker-pre': 'trusted',
+    'candidate-sut': 'sut',
+    'checker-post': 'trusted'
+  }
+} as const);
+
+test('all repository workflows route compute through the exact local Linux runner profile', async () => {
+  for (const file of [
+    '.github/workflows/architecture-tools.yml',
+    '.github/workflows/compiler-pr-validation.yml',
+    '.github/workflows/compiler-release-validation.yml',
+    '.github/workflows/sec-merge-gate.yml',
+    '.github/workflows/sec-trusted-bootstrap.yml'
+  ]) {
+    const source = await readCompilerFile(file);
+    const workflow = parseYaml(source) as Workflow;
+    const jobs = Object.entries(workflow.jobs);
+    const roles = WORKFLOW_RUNNER_ROLES[file as keyof typeof WORKFLOW_RUNNER_ROLES];
+    expect(jobs.length, file).toBeGreaterThan(0);
+    expect(Object.keys(roles).sort(), file).toEqual(Object.keys(workflow.jobs).sort());
+    for (const [jobId, job] of jobs) {
+      const role = roles[jobId as keyof typeof roles];
+      expect(job['runs-on'], `${file}:${jobId}`).toEqual([
+        ...LOCAL_LINUX_RUNNER_LABELS,
+        LOCAL_LINUX_RUNNER_ROLE_LABELS[role]
+      ]);
+    }
+    expect(source, file).not.toContain('runs-on: ubuntu-latest');
+    expect(source, file).not.toContain('runs-on: ubuntu-24.04');
+  }
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(
+    'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0'
+  );
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':node-24.19.0:');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':python-3.12.3:');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(
+    ':image-sha256-6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e:'
+  );
+});
+
+test('persistent runners never load a workflow or repository bytes from a caller-selected ref', async () => {
+  const [architectureSource, releaseSource] = await Promise.all([
+    readCompilerFile('.github/workflows/architecture-tools.yml'),
+    readCompilerFile('.github/workflows/compiler-release-validation.yml')
+  ]);
+  const architecture = parseYaml(architectureSource) as Workflow;
+  const release = parseYaml(releaseSource) as Workflow;
+  expect(architecture.on).toEqual({
+    repository_dispatch: { types: ['sec-run-architecture-tools-v1'] }
+  });
+  expect(release.on).toEqual({
+    repository_dispatch: { types: ['sec-verify-release-main-v1'] }
+  });
+  for (const source of [architectureSource, releaseSource]) {
+    expect(source).not.toContain('workflow_dispatch:');
+    expect(source).not.toContain('workflow_call:');
+    expect(source).not.toContain('inputs.ref');
+    expect(source).toContain('context.sha');
+    expect(source).toContain('repository.default_branch');
+  }
+  expect(architectureSource).toContain('context.ref !== `refs/heads/${repository.default_branch}`');
+  expect(architectureSource).toContain('context.sha !== branch.commit.sha');
+  expect(architectureSource).toContain('ref: ${{ steps.trusted-default.outputs.sha }}');
+  expect(architectureSource).toContain('persist-credentials: false');
+  expect(releaseSource).toContain('const requestedRef = context.sha');
+  expect(releaseSource).toContain('context.ref !== `refs/heads/${repository.default_branch}`');
+  expect(releaseSource).toContain('context.sha !== baseBranch.commit.sha');
+});
+
+test('coordinators never occupy the sole role of a downstream producer they join', () => {
+  const compilerRoles = WORKFLOW_RUNNER_ROLES['.github/workflows/compiler-pr-validation.yml'];
+  const sessionCoordinatorRole = compilerRoles['coordinate-verification-session'];
+  for (const downstream of [
+    'resolve-verification-action',
+    'preflight-verification-action-sut',
+    'claim-verification-action',
+    'execute-verification-action-sut',
+    'assemble-verification-action-terminal'
+  ] as const) {
+    expect(sessionCoordinatorRole, downstream).not.toBe(compilerRoles[downstream]);
+  }
+  const integrationRole = WORKFLOW_RUNNER_ROLES['.github/workflows/sec-merge-gate.yml'].integrate;
+  expect(integrationRole, 'post-merge MainHealth join').not.toBe(compilerRoles['main-health']);
+});
 
 test('active PR contract has one V2 Session dispatch and no legacy verification authority', async () => {
   const source = await readCompilerFile('.github/workflows/compiler-pr-validation.yml');
@@ -136,7 +247,9 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(source).not.toContain('Reuse one trusted terminal artifact');
 
   const coordinator = workflow.jobs['coordinate-verification-session']!;
-  expect(coordinator['runs-on']).toBe('ubuntu-24.04');
+  expect(coordinator['runs-on']).toEqual([
+    ...LOCAL_LINUX_RUNNER_LABELS, LOCAL_LINUX_RUNNER_ROLE_LABELS.control
+  ]);
   expect(coordinator.permissions).toEqual({
     actions: 'read', checks: 'read', contents: 'write', issues: 'write',
     'pull-requests': 'read', statuses: 'read'
@@ -186,11 +299,13 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   ].map((name) => source.indexOf(name)).sort((left, right) => left - right));
 
   const resolver = workflow.jobs['resolve-verification-action']!;
+  const preflight = workflow.jobs['preflight-verification-action-sut']!;
   const claim = workflow.jobs['claim-verification-action']!;
   const sut = workflow.jobs['execute-verification-action-sut']!;
   const assembler = workflow.jobs['assemble-verification-action-terminal']!;
   const actionBudget = {
     resolver: Number(workflow.env?.SEC_ACTION_RESOLVER_TIMEOUT_MINUTES),
+    preflight: Number(workflow.env?.SEC_ACTION_SUT_PREFLIGHT_TIMEOUT_MINUTES),
     claim: Number(workflow.env?.SEC_ACTION_CLAIM_TIMEOUT_MINUTES),
     sut: Number(workflow.env?.SEC_ACTION_SUT_TIMEOUT_MINUTES),
     assembler: Number(workflow.env?.SEC_ACTION_ASSEMBLER_TIMEOUT_MINUTES),
@@ -201,16 +316,17 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
     coordinator: Number(workflow.env?.SEC_SESSION_COORDINATOR_OVERHEAD_MINUTES)
   };
   expect(actionBudget).toEqual({
-    resolver: 20, claim: 35, sut: 75, assembler: 30, transition: 5,
+    resolver: 20, preflight: 10, claim: 35, sut: 75, assembler: 30, transition: 5,
     pollSeconds: 15, review: 20, reviewPollSeconds: 20, coordinator: 10
   });
   expect(reviewWait.env).toMatchObject({
     REVIEW_WINDOW_MINUTES: actionBudget.review,
     REVIEW_POLL_INTERVAL_SECONDS: actionBudget.reviewPollSeconds
   });
-  const completeSequentialActionMinutes = actionBudget.resolver + actionBudget.claim +
+  const completeSequentialActionMinutes = actionBudget.resolver + actionBudget.preflight + actionBudget.claim +
     actionBudget.sut + actionBudget.assembler;
   expect(resolver['timeout-minutes']).toBe(actionBudget.resolver);
+  expect(preflight['timeout-minutes']).toBe(actionBudget.preflight);
   expect(claim['timeout-minutes']).toBe(actionBudget.claim);
   expect(sut['timeout-minutes']).toBe(actionBudget.sut);
   expect(assembler['timeout-minutes']).toBe(actionBudget.assembler);
@@ -223,6 +339,7 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   const actionDispatchBudget = actionDispatch.env ?? {};
   expect(actionDispatchBudget).toMatchObject({
     ACTION_RESOLVER_TIMEOUT_MINUTES: actionBudget.resolver,
+    ACTION_SUT_PREFLIGHT_TIMEOUT_MINUTES: actionBudget.preflight,
     ACTION_CLAIM_TIMEOUT_MINUTES: actionBudget.claim,
     ACTION_SUT_TIMEOUT_MINUTES: actionBudget.sut,
     ACTION_ASSEMBLER_TIMEOUT_MINUTES: actionBudget.assembler,
@@ -238,7 +355,12 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
     '[ "$attempt" -lt "$ACTION_COORDINATION_MAX_ATTEMPTS" ]'
   );
   expect(actionDispatch.run).not.toContain('seq 1 240');
-  for (const job of [claim, sut, assembler]) expect(job['runs-on']).toBe('ubuntu-24.04');
+  for (const job of [claim, assembler]) expect(job['runs-on']).toEqual([
+    ...LOCAL_LINUX_RUNNER_LABELS, LOCAL_LINUX_RUNNER_ROLE_LABELS.trusted
+  ]);
+  for (const job of [preflight, sut]) expect(job['runs-on']).toEqual([
+    ...LOCAL_LINUX_RUNNER_LABELS, LOCAL_LINUX_RUNNER_ROLE_LABELS.sut
+  ]);
   for (const job of [claim, assembler]) expect(job.concurrency).toEqual({
     group: 'sec-verification-action-${{ github.repository_id }}-${{ needs.resolve-verification-action.outputs.action-key-hex }}',
     'cancel-in-progress': false,
@@ -251,6 +373,7 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(claim.permissions).toEqual({
     actions: 'write', checks: 'read', contents: 'read', statuses: 'write'
   });
+  expect(preflight.permissions).toEqual({ actions: 'read', contents: 'read' });
   expect(sut.permissions).toEqual({ actions: 'read', contents: 'read' });
   expect(assembler.permissions).toEqual({
     actions: 'write', checks: 'read', contents: 'read', statuses: 'write'
@@ -280,8 +403,10 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   if (preparedInputRun === undefined) {
     throw new Error('Authenticated candidate materialization step must be one run step.');
   }
-  const sandboxPreflight = step(workflow, 'claim-verification-action',
-    'Preflight hostile SUT sandbox before immutable start');
+  const sandboxPreflight = step(workflow, 'preflight-verification-action-sut',
+    'Prove hostile SUT sandbox on the capability-bearing role');
+  const capabilityReadback = step(workflow, 'claim-verification-action',
+    'Verify exact SUT capability before candidate materialization');
   const marker = step(workflow, 'claim-verification-action',
     'Create immutable Action start marker from fresh provider census');
   expect(install.run).toContain('env -i');
@@ -294,11 +419,12 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(preparedInputRun).toContain('prepare-hosted-action-inputs');
   expect(preparedInputRun).toContain('--candidate-root .tmp/codex/candidate');
   expect(sandboxPreflight.run).toContain('self-test-hosted-action-sandbox');
+  expect(capabilityReadback.run).toContain('SUT capability observation is not the exact supported trusted artifact');
   expect(marker.run).toContain('--prepared-candidate-archive');
   expect(marker.run).toContain('--base-dependency-closure-digest');
   expect(marker.run).toContain('--authenticated-git-closure-digest');
-  expect([install.name, preparedInput.name, sandboxPreflight.name, marker.name].map((name) =>
-    source.indexOf(name))).toEqual([install.name, preparedInput.name, sandboxPreflight.name, marker.name].map(
+  expect([sandboxPreflight.name, capabilityReadback.name, install.name, preparedInput.name, marker.name].map((name) =>
+    source.indexOf(name))).toEqual([sandboxPreflight.name, capabilityReadback.name, install.name, preparedInput.name, marker.name].map(
     (name) => source.indexOf(name)).sort((left, right) => left - right));
   // `--candidate-root` is also a legitimate input of the separately owned
   // Agent activation producer. Scope this invariant to the hosted Action
@@ -320,13 +446,22 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(source).toContain('--intent anchor-terminal');
   expect(source).not.toContain('working-directory: .tmp/codex/candidate\n        run: bun scripts/ci-verification.ts');
   expect(source).toContain(`${CI_VERIFICATION_SESSION_ARTIFACT_PREFIX}-pr-`);
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':sandbox-v2');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':sandbox-v4');
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1).toMatchObject({
-    rootIsolation: 'private-tmpfs-pivot-root',
+    rootIsolation: 'private-tmpfs-chroot-no-retained-fd',
     toolClosure: 'private-explicit-runtime-binaries-and-dynamic-libraries-v2',
     network: 'none',
-    inheritedFileDescriptors: 'stdio-only-at-exec'
+    inheritedFileDescriptors: 'stdio-only-at-exec',
+    resourceController: 'two-cpu-outer-cgroup-times-wall-aggregate-plus-per-process-prlimit'
   });
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits).toMatchObject({
+    aggregateCpuSeconds: 7200,
+    perProcessCpuSeconds: 7200,
+    wallSeconds: 3600
+  });
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outerSutContainerCapabilities).toEqual([
+    'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
+  ]);
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.runtimeBinaries).toContain('/usr/bin/tar');
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.runtimeDirectories).toEqual(['/usr/lib/git-core']);
 });
@@ -486,7 +621,7 @@ test('exact-head workflow review findings install clean TS jobs and grant provid
   expect(claimSteps[claimInstallIndex]?.run).toContain('install --frozen-lockfile --ignore-scripts');
 });
 
-test('hosted sandbox runtime closure covers pivot mount tools without non-canonical aliases', async () => {
+test('hosted sandbox runtime closure covers private-root mount tools without non-canonical aliases', async () => {
   const source = await readCompilerFile('scripts/ci-verification.ts');
   const invokedPivotTools = ['mount', 'umount'].filter((tool) =>
     source.includes(`'${tool} `)
@@ -1051,16 +1186,40 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   expect(sutSteps.some((step) => step.uses?.includes('download-artifact'))).toBe(false);
   expect(JSON.stringify(sutSteps)).not.toContain('bootstrap-pre');
   expect(JSON.stringify(sutSteps)).not.toContain('checker.mjs');
+  expect(step(workflow, 'candidate-sut', 'Checkout exact trusted base sandbox owner').with)
+    .toMatchObject({
+      ref: '${{ needs.resolve.outputs.base }}',
+      'fetch-depth': 0,
+      'persist-credentials': false
+    });
   expect(step(workflow, 'candidate-sut', 'Checkout exact candidate SUT only').with)
     .toMatchObject({ path: 'candidate-sut', 'persist-credentials': false });
-  const sutRun = step(workflow, 'candidate-sut', 'Run isolated candidate SUT regression').run;
+  expect(step(workflow, 'candidate-sut', 'Restore exact-base dependency download cache').with)
+    .toMatchObject({
+      path: '/tmp/sec-hosted-dependency-home/.bun/install/cache',
+      key: "${{ runner.os }}-trusted-bootstrap-bun-${{ hashFiles('bun.lock') }}"
+    });
+  const sutRun = step(workflow, 'candidate-sut', 'Run candidate SUT through trusted private sandbox').run;
   if (typeof sutRun !== 'string') {
     throw new Error('candidate SUT regression must be one shell program.');
   }
-  expect(sutRun.match(/tcb-closure-lock --mode check/gu)).toHaveLength(2);
-  expect(sutRun).toContain('tcb-lock-pre.json');
-  expect(sutRun).toContain('tcb-lock-post.json');
-  expect(sutRun).toContain("trap 'suite_status=$?");
+  expect(sutRun).toContain('bun scripts/ci-verification.ts execute-trusted-bootstrap-sut');
+  expect(sutRun).toContain('--base-root "$GITHUB_WORKSPACE"');
+  expect(sutRun).toContain('--candidate-root "$CANDIDATE_ROOT"');
+  expect(sutRun).not.toContain('cd "$CANDIDATE_ROOT"');
+  expect(sutRun).not.toContain('bun run imports:check');
+  expect(sutRun).not.toContain('bun test');
+  expect(sutSteps.some((candidate) =>
+    candidate.name === 'Install candidate SUT dependencies without lifecycle scripts')).toBe(false);
+  expect(verificationSource).toContain("phase: 'capability-self-test' | 'execute' | 'bootstrap-execute' | 'teardown'");
+  expect(verificationSource).toContain('CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1');
+  expect(verificationSource).toContain("'--mount', '--pid', '--fork', '--kill-child=KILL', '--net'");
+  expect(verificationSource).toContain('CodexDevelopmentTrustedBootstrapSutHarnessV1');
+  expect(verificationSource).toContain("'-C', candidateRoot, '.', '-C', baseRoot, 'node_modules'");
+  expect(verificationSource).not.toContain("['-a', '--', baseNodeModules, candidateRoot]");
+  expect(verificationSource).toContain('CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1');
+  expect(verificationSource).toContain("schema: 'sec-trusted-bootstrap-sut-receipt-v2'");
+  expect(verificationSource).toContain("BUN_INSTALL_CACHE_DIR: '/tmp/sec-hosted-dependency-home/.bun/install/cache'");
   expect(JSON.stringify(preSteps)).not.toContain('tcb-closure-lock --mode check');
   const postSteps = workflow.jobs['checker-post']?.steps ?? [];
   expect(JSON.stringify(postSteps)).not.toContain('tcb-closure-lock --mode check');
@@ -1229,16 +1388,18 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   expect(source).toContain("registry.schema !== 'sec-trusted-bootstrap-registry-v3'");
   expect(source).not.toContain('sec-trusted-bootstrap-registry-v2');
   expect(source).toContain('reviewedBoundaryEdges.some');
-  expect(source.match(/tcb-closure-lock --mode check/gu)).toHaveLength(2);
+  expect(source.match(/tcb-closure-lock --mode check/gu) ?? []).toHaveLength(0);
+  expect(verificationSource.match(/"tcb-closure-lock", "--mode", "check"/gu) ?? []).toHaveLength(2);
   expect(verificationSource).toContain("from '../platform/shared/tcb-closure-lock.ts'");
   expect(verificationSource).toContain("import('../platform/shared/tcb-closure-lock.ts')");
 });
 
 
 test('trusted bootstrap and release readers share the exact registry V3 policy plus generated closure owner', async () => {
-  const [bootstrapSource, releaseSource] = await Promise.all([
+  const [bootstrapSource, releaseSource, verificationSource] = await Promise.all([
     readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml'),
-    readCompilerFile('.github/workflows/compiler-release-validation.yml')
+    readCompilerFile('.github/workflows/compiler-release-validation.yml'),
+    readCompilerFile('scripts/ci-verification.ts')
   ]);
   const bootstrap = parseYaml(bootstrapSource) as Workflow;
   const release = parseYaml(releaseSource) as Workflow;
@@ -1274,7 +1435,8 @@ test('trusted bootstrap and release readers share the exact registry V3 policy p
     expect(actionRefs.length).toBeGreaterThan(0);
     expect(actionRefs.every((ref) => /^[0-9a-f]{40}$/u.test(ref))).toBe(true);
   }
-  expect(bootstrapSource.match(/tcb-closure-lock --mode check/gu)).toHaveLength(2);
+  expect(bootstrapSource.match(/tcb-closure-lock --mode check/gu) ?? []).toHaveLength(0);
+  expect(verificationSource.match(/"tcb-closure-lock", "--mode", "check"/gu) ?? []).toHaveLength(2);
   expect(releaseSource.match(/tcb-closure-lock --mode check/gu)).toHaveLength(1);
   expect(bootstrapSource).not.toContain('generateTcbClosureLockForRevision');
 });

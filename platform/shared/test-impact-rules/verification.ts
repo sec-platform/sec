@@ -6,6 +6,13 @@ const DEV_RUNNER_FAST_TESTS = [
   'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
+const DEV_RUNNER_DEPENDENCY_BOOTSTRAP_FAST_TESTS = [
+  'tests/contract/dev-runner-contract.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/dev-runner-dependency-bootstrap.test.ts',
+  'tests/unit/test-runner.test.ts'
+];
+
 const IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS = ['tests/unit/import-transform-transaction.test.ts'];
 
 const MAIN_HEALTH_FAST_TESTS = [
@@ -64,6 +71,7 @@ export const TRUSTED_VERIFIER_TCB_FAST_TESTS = [
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/agent-operation-activation.test.ts',
+  'tests/unit/local-github-actions-runner.test.ts',
   'tests/unit/tcb-trust-root-contract.test.ts'
 ];
 
@@ -239,6 +247,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/shared/ci-trust-root-registry.json',
       'platform/shared/tcb-closure-lock.ts',
       'platform/shared/tcb-trust-root-contract.ts',
+      'scripts/codex/local-github-actions-runner.ts',
       'scripts/codex/merge-gate.ts'
     ],
     fast: TRUSTED_VERIFIER_TCB_FAST_TESTS,
@@ -294,6 +303,13 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     autoReferenceMode: 'declared-only',
     sourceFiles: ['platform/shared/affected-test-inventory.ts', 'platform/shared/verification-scope-inventory.ts'],
     fast: AFFECTED_TEST_SELECTION_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'dev-runner',
+    identity: { kind: 'architecture-owner', id: 'dev-runner' },
+    sourceFiles: ['platform/dev-runner/dependency-bootstrap.ts'],
+    fast: DEV_RUNNER_DEPENDENCY_BOOTSTRAP_FAST_TESTS,
     slow: []
   },
   {

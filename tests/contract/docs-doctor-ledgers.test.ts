@@ -44,6 +44,49 @@ function sha256(value: string): string {
   return `sha256:${createHash('sha256').update(value).digest('hex')}`;
 }
 
+function executionTopology(): Record<string, unknown> {
+  return {
+    schema: 'sec-verification-execution-topology-v1',
+    semanticControlPlane: 'platform-neutral',
+    selection: 'required-closure-intersect-missing-or-stale',
+    environments: [
+      {
+        id: 'windows-native-control',
+        availability: 'available',
+        capabilities: ['semantic-control', 'windows-native'],
+        evidenceRole: 'owning-environment-only'
+      },
+      {
+        id: 'docker-linux-x64',
+        availability: 'available',
+        capabilities: ['linux-native-runtime'],
+        substrate: { wsl2: 'implementation-only-not-independent-evidence' },
+        localRemoteSwitch: 'same-profile-conformance-no-workflow-change'
+      },
+      {
+        id: 'web-runtime',
+        availability: 'on-demand',
+        capabilities: ['chromium-playwright'],
+        applicability: 'browser-impact-only',
+        cache: 'exact-revision-content-addressed'
+      },
+      {
+        id: 'darwin-native',
+        availability: 'unavailable',
+        capabilities: ['darwin-native'],
+        unrelatedDelta: 'not-applicable',
+        requiredDelta: 'typed-provider-unavailable'
+      }
+    ],
+    invariants: {
+      noPlatformSubstitution: true,
+      noSubstrateDoubleCounting: true,
+      noUnavailableProviderPass: true,
+      noWorkflowEditForLocalRemoteSwitch: true
+    }
+  };
+}
+
 function externalLedger(): Record<string, unknown> {
   const provider = (
     id: string,
@@ -91,6 +134,7 @@ function externalLedger(): Record<string, unknown> {
         observedAt: '2026-08-11T00:00:00.000Z'
       }]
     },
+    executionTopology: executionTopology(),
     providers: [
       {
         id: 'codegraph',
@@ -401,6 +445,17 @@ test('external provider schema and cross-field negatives report the exact failin
       wrongCapability,
       file,
       'External capability provider package-graph.capability security-analysis requires category security.'
+    );
+
+    const platformSubstitution = structuredClone(base);
+    fixtureRecord(fixtureRecord(platformSubstitution.external.executionTopology).invariants)
+      .noPlatformSubstitution = false;
+    await expectOneError(
+      root,
+      registry,
+      platformSubstitution,
+      file,
+      'External capability ledger.executionTopology.invariants must all be true.'
     );
 
     const weakAuthority = structuredClone(base);
@@ -840,6 +895,203 @@ test('every package version authority binds package.json and bun.lock exact iden
       resolvedDrift,
       file,
       'bun.lock packages.gitnexus resolved gitnexus@1.6.4 does not match gitnexus@1.6.3.'
+    );
+  });
+});
+
+test('external runner release authority binds exact primary-source archive and base image digests', async () => {
+  await withLedgerFixture(async (root, registry) => {
+    const base = fixtureState();
+    const localRunner = {
+      id: 'github-actions-local-runner',
+      category: 'workflow-runtime',
+      capability: 'workflow-execution',
+      decision: 'integrate-adapter',
+      lifecycle: 'active',
+      observedVersion: '2.336.0',
+      versionAuthority: {
+        kind: 'external-release',
+        release: 'https://github.com/actions/runner/releases/tag/v2.336.0',
+        artifact: 'https://github.com/actions/runner/releases/download/v2.336.0/'
+          + 'actions-runner-linux-x64-2.336.0.tar.gz',
+        artifactSha256: '04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d',
+        baseImage: 'ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea',
+        imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
+        imageBuildRevision: 'trust-domains-node24-python312-v6',
+        nodeVersion: '24.19.0',
+        nodeArtifact: 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz',
+        nodeArtifactSha256: '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647',
+        pythonVersion: '3.12.3',
+        sandboxRevision: 'sandbox-v4',
+        outerSutContainerCapabilities: [
+          'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
+        ],
+        sutResources: {
+          cpus: 2,
+          wallSeconds: 3_600,
+          aggregateCpuSeconds: 7_200,
+          perProcessCpuSeconds: 7_200,
+          memoryBytes: 4_294_967_296,
+          pids: 256
+        },
+        roleProfiles: [
+          'sec-linux-verification-control-v1',
+          'sec-linux-verification-sut-v1',
+          'sec-linux-verification-trusted-v1'
+        ],
+        providerLeaseRef: 'refs/tags/sec-provider-lease-sec-linux-verification-v1',
+        providerLedgerSchema: 'sec-local-github-actions-provider-ledger-v3',
+        providerLedgerAuthority: 'remote-cas-immutable-generations',
+        providerLedgerObjectModel: 'git-commit-parent-chain-with-canonical-ledger-tree',
+        destructiveIdentityAuthority: {
+          endpointBinding: [
+            'github-api-host-principal-repository', 'docker-context-endpoint-daemon'
+          ],
+          immutableEffects: ['exact-image-id', 'exact-container-id', 'exact-runner-id'],
+          localState: 'projection-only',
+          mutableLocators: ['image-tag', 'container-name', 'runner-name', 'labels']
+        },
+        imageRetirement: {
+          ordinaryStopAuthority: 'none',
+          superseded: [
+            {
+              imageId: 'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
+              imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v4',
+              replacementImageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
+              decision: 'superseded-by-trust-domains-node24-python312-v6'
+            },
+            {
+              imageId: 'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a',
+              imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-v3',
+              replacementImageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
+              decision: 'superseded-by-trust-domains-node24-python312-v6'
+            }
+          ],
+          requires: [
+            'canonical-superseded-decision',
+            'exact-daemon-zero-reference-readback',
+            'immutable-image-id-effect-and-readback'
+          ]
+        },
+        license: 'MIT'
+      },
+      activeRoutingProfile: 'sec-linux-verification-v1',
+      surfaces: {
+        cli: ['scripts/codex/local-github-actions-runner.ts'],
+        standingMcp: []
+      },
+      forbiddenAuthority: [...FORBIDDEN_AUTHORITY]
+    };
+    (base.external.providers as Array<Record<string, unknown>>).push(localRunner);
+    await expectZeroErrors(root, registry, base);
+
+    const digestDrift = structuredClone(base);
+    const drifted = provider(digestDrift.external, 'github-actions-local-runner');
+    (drifted.versionAuthority as Record<string, unknown>).artifactSha256 = 'bad';
+    await expectOneError(
+      root,
+      registry,
+      digestDrift,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority.artifactSha256 '
+        + 'must be an exact SHA-256 digest.'
+    );
+
+    const capabilityDrift = structuredClone(base);
+    const capabilityProvider = provider(capabilityDrift.external, 'github-actions-local-runner');
+    (capabilityProvider.versionAuthority as Record<string, unknown>).outerSutContainerCapabilities = [
+      'SYS_ADMIN', 'SYS_CHROOT'
+    ];
+    await expectOneError(
+      root,
+      registry,
+      capabilityDrift,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority.'
+        + 'outerSutContainerCapabilities must bind the exact constructor boundary.'
+    );
+
+    const releaseDrift = structuredClone(base);
+    const release = provider(releaseDrift.external, 'github-actions-local-runner');
+    (release.versionAuthority as Record<string, unknown>).release =
+      'https://github.com/actions/runner/releases/tag/v2.335.0';
+    await expectOneError(
+      root,
+      registry,
+      releaseDrift,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority '
+        + 'GitHub Actions runner release identity is invalid.'
+    );
+
+    const nodeDigestDrift = structuredClone(base);
+    const nodeAuthority = provider(nodeDigestDrift.external, 'github-actions-local-runner')
+      .versionAuthority as Record<string, unknown>;
+    nodeAuthority.nodeArtifactSha256 = '0'.repeat(64);
+    await expectOneError(
+      root,
+      registry,
+      nodeDigestDrift,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority.nodeArtifactSha256 '
+        + 'must bind the exact Node.js binary.'
+    );
+
+    const pythonDrift = structuredClone(base);
+    const pythonAuthority = provider(pythonDrift.external, 'github-actions-local-runner')
+      .versionAuthority as Record<string, unknown>;
+    pythonAuthority.pythonVersion = '3.12.2';
+    await expectOneError(
+      root,
+      registry,
+      pythonDrift,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority.pythonVersion '
+        + 'must bind the archive-inspection runtime.'
+    );
+
+    const imageDrift = structuredClone(base);
+    const imageAuthority = provider(imageDrift.external, 'github-actions-local-runner')
+      .versionAuthority as Record<string, unknown>;
+    imageAuthority.imageId = `sha256:${'f'.repeat(64)}`;
+    await expectOneError(
+      root,
+      registry,
+      imageDrift,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority.imageId '
+        + 'must be an exact built image digest.'
+    );
+
+    const roleDrift = structuredClone(base);
+    const roleAuthority = provider(roleDrift.external, 'github-actions-local-runner')
+      .versionAuthority as Record<string, unknown>;
+    roleAuthority.roleProfiles = ['sec-linux-verification-sut-v1'];
+    await expectOneError(
+      root,
+      registry,
+      roleDrift,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority.roleProfiles '
+        + 'must bind the exact trust-domain roles.'
+    );
+
+    const authorityKindEscape = structuredClone(base);
+    const escaped = provider(authorityKindEscape.external, 'github-actions-local-runner');
+    escaped.observedVersion = '1.6.3';
+    escaped.versionAuthority = {
+      kind: 'package',
+      dependency: 'gitnexus',
+      section: 'devDependencies',
+      declaredSpec: '1.6.3'
+    };
+    await expectOneError(
+      root,
+      registry,
+      authorityKindEscape,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority.kind '
+        + 'must be external-release for the workflow-execution capability.'
     );
   });
 });

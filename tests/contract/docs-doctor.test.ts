@@ -7,6 +7,8 @@ import { expect, test } from 'bun:test';
 
 import {
   DOCUMENT_AUTHORITY_REGISTRY_PATH,
+  parseCapturedGitTreeBlobFrameV1,
+  readCapturedGitTreeBlob,
   scanDocumentation,
   type DocsDoctorResult
 } from '../../docs/scripts/docs-doctor.ts';
@@ -537,6 +539,74 @@ test('production docs-doctor CLI rejects a selected manifest digest mismatch fro
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 }, 60_000);
+
+test('captured-tree reader validates complete batch framing and reads a deep content-addressed path', async () => {
+  const repositoryPath = `docs/work-packages/captured-tree-${'a'.repeat(64)}.md`;
+  const objectSha = 'b'.repeat(40);
+  const payload = Buffer.from([0x00, 0x0a, 0xff, 0x41]);
+  const validFrame = Buffer.concat([
+    Buffer.from(`${objectSha} blob ${payload.length}\n`, 'ascii'),
+    payload,
+    Buffer.from('\n', 'ascii')
+  ]);
+  expect(parseCapturedGitTreeBlobFrameV1(validFrame, repositoryPath)).toEqual(payload);
+  expect(() => parseCapturedGitTreeBlobFrameV1(
+    Buffer.from(`${objectSha} blob ${payload.length}\n`, 'ascii'),
+    repositoryPath
+  )).toThrow('framing is invalid');
+  expect(() => parseCapturedGitTreeBlobFrameV1(
+    Buffer.concat([validFrame, Buffer.from('extra')]),
+    repositoryPath
+  )).toThrow('framing is invalid');
+  expect(() => parseCapturedGitTreeBlobFrameV1(
+    Buffer.from(`${objectSha} tree 0\n\n`, 'ascii'),
+    repositoryPath
+  )).toThrow('header is invalid');
+
+  const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'sec-docs-doctor-batch-'));
+  const deepRepositoryRoot = path.join(
+    temporaryRoot,
+    'captured-tree-workspace-0001',
+    'captured-tree-workspace-0002',
+    'captured-tree-workspace-0003',
+    'captured-tree-workspace-0004'
+  );
+  try {
+    await mkdir(path.dirname(path.join(deepRepositoryRoot, repositoryPath)), { recursive: true });
+    await writeFile(path.join(deepRepositoryRoot, repositoryPath), payload);
+    const init = spawnSync('git', ['init', '--quiet'], {
+      cwd: deepRepositoryRoot,
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(init.status).toBe(0);
+    const longPaths = spawnSync('git', ['config', 'core.longpaths', 'true'], {
+      cwd: deepRepositoryRoot,
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(longPaths.status).toBe(0);
+    const add = spawnSync('git', ['add', '--', repositoryPath], {
+      cwd: deepRepositoryRoot,
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(add.status).toBe(0);
+    const tree = spawnSync('git', ['write-tree'], {
+      cwd: deepRepositoryRoot,
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(tree.status).toBe(0);
+    expect(readCapturedGitTreeBlob(
+      deepRepositoryRoot,
+      tree.stdout.trim(),
+      repositoryPath
+    )).toEqual(payload);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
 
 test('machine ledger version drift is rejected against package authority', async () => {
   const fixture = await createFixture();

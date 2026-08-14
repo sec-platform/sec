@@ -245,8 +245,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     owner: 'managed-git-hooks',
     identity: { kind: 'architecture-owner', id: 'managed-git-hooks' },
     sourceFiles: [
-      'scripts/install-git-hooks.ts',
-      'platform/dev-runner/dependency-bootstrap.ts'
+      'scripts/install-git-hooks.ts'
     ],
     sourcePrefixes: ['.githooks/'],
     fast: [

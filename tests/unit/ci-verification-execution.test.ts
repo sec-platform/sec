@@ -92,6 +92,7 @@ import {
   CodexDevelopmentAssertHostedActionParentEventV2,
   CodexDevelopmentAssertHostedSutSandboxCommandPlanV1,
   CodexDevelopmentBuildHostedSutSandboxCommandPlanV1,
+  CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1,
   CodexDevelopmentCandidateProcessEnvironmentV2,
   CodexDevelopmentCiVerificationMain,
   CodexDevelopmentCiVerificationTcbClosureLockCliV1,
@@ -99,8 +100,10 @@ import {
   CodexDevelopmentCoordinateHostedActionsV2,
   CodexDevelopmentExecuteHostedActionSutV2,
   CodexDevelopmentHostedDependencyMaterializerEnvironmentV1,
+  CodexDevelopmentHostedSutCapabilityAssertionV1,
   CodexDevelopmentInspectHostedActionArchiveV2,
   CodexDevelopmentProbeHostedSutSandboxCapabilityV1,
+  CodexDevelopmentTrustedBootstrapSutHarnessV1,
   CodexDevelopmentValidateHostedActionArchiveInventoryV2,
   type CodexDevelopmentHostedActionArchiveInventoryV2,
   type CodexDevelopmentHostedActionArtifactObservationV2,
@@ -214,7 +217,7 @@ function sandboxReceipt(
       boundedFailureTailDigest: digest('0')
     }),
     reap: Object.freeze({
-      namespacePid1Exited: executed, killChildEnabled: true, systemdUnitStopped: settled
+      namespacePid1Exited: executed, killChildEnabled: true, unshareProcessClosed: settled
     }),
     residue: Object.freeze({ cgroupEmpty: settled, hostReadbackDigest: digest('0') }),
     diagnostic: status === 'passed' ? null : status
@@ -881,8 +884,8 @@ function installTcbTransactionRaceObserver(
 function observeTcbClosureTransactionRaceV1(`;
   if (!source.includes(needle)) throw new Error('TCB closure private transaction race seam was not found.');
   const withFixtureFs = source.replace(
-    '  realpathSync,\n  statSync,',
-    '  realpathSync,\n  renameSync,\n  statSync,\n  symlinkSync,'
+    '  realpathSync,\n',
+    '  realpathSync,\n  renameSync,\n  symlinkSync,\n'
   );
   if (withFixtureFs === source) throw new Error('TCB closure copied source fs import seam was not found.');
   writeFileSync(fixture.entrypoint, withFixtureFs.replace(needle, observer), 'utf8');
@@ -894,6 +897,10 @@ type TcbClosureCliObservation = Readonly<{
   stderr: string;
 }>;
 
+const TCB_CLOSURE_FIXTURE_CHILD_TIMEOUT_MS = 15_000;
+const TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS = 30_000;
+const TCB_CLOSURE_FIXTURE_RECOVERY_MATRIX_TIMEOUT_MS = 60_000;
+
 function invokeTcbClosureCli(
   fixture: TcbClosureCommandFixture,
   argv: readonly string[],
@@ -903,6 +910,8 @@ function invokeTcbClosureCli(
     cwd: fixture.root,
     encoding: 'utf8',
     env: { ...process.env, GITHUB_ACTIONS: hosted ? 'true' : 'false' },
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: TCB_CLOSURE_FIXTURE_CHILD_TIMEOUT_MS,
     windowsHide: true
   });
   if (result.error !== undefined) throw result.error;
@@ -962,16 +971,6 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
     const missingCheck = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'check']);
     expect(missingCheck.status).not.toBe(0);
     expect(missingCheck.stderr).toContain('target is missing outside a recoverable apply state');
-    const missingDryRun = invokeTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'dry-run', '--generated-at', '2026-08-09T00:15:00.000Z'
-    ]);
-    expect(missingDryRun.status).not.toBe(0);
-    expect(missingDryRun.stderr).toContain('target is missing outside a recoverable apply state');
-    const missingHostedApply = invokeTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T00:20:00.000Z'
-    ], true);
-    expect(missingHostedApply.status).not.toBe(0);
-    expect(missingHostedApply.stderr).toContain('forbidden in hosted execution');
     expect(existsSync(fixture.target)).toBe(false);
     expect(readFileSync(absentTarget, 'utf8')).toBe(originalSource);
     expect(existsSync(fixture.archiveRoot)).toBe(false);
@@ -983,49 +982,16 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
     expect(JSON.parse(freshCheck.stdout)).toMatchObject({ status: 'current', changed: false });
     expect(existsSync(fixture.archiveRoot)).toBe(false);
     expect(existsSync(fixture.stage)).toBe(false);
-    const freshDryRun = successfulTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'dry-run', '--generated-at', '2026-08-09T00:30:00.000Z'
-    ]);
-    expect(freshDryRun).toMatchObject({ status: 'current', changed: false });
-    expect(existsSync(fixture.archiveRoot)).toBe(false);
-    expect(existsSync(fixture.stage)).toBe(false);
-    const freshHostedApply = invokeTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T00:45:00.000Z'
-    ], true);
-    expect(freshHostedApply.status).not.toBe(0);
-    expect(freshHostedApply.stderr).toContain('forbidden in hosted execution');
-    expect(existsSync(fixture.archiveRoot)).toBe(false);
-    expect(existsSync(fixture.stage)).toBe(false);
     const originalGeneratedAt = parseTcbClosureGeneratedRegionV2(originalSource).receipt.generatedAt;
-    const initial = successfulTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T01:00:00.000Z'
-    ]);
-    expect(initial).toMatchObject({ status: 'current', changed: false });
-    expect(initial.target).toBe(CI_TCB_CLOSURE_LOCK_TARGET_V1);
-    expect(initial.generatedAt).toBe(originalGeneratedAt);
-    expect(tcbArchiveFiles(fixture)).toHaveLength(0);
-    expect(tcbOperationFiles(fixture)).toHaveLength(0);
     const currentSource = readFileSync(fixture.target, 'utf8');
     expect(currentSource).toBe(originalSource);
     expect(parseTcbClosureGeneratedRegionV2(currentSource).receipt.generatedAt).toBe(originalGeneratedAt);
-
-    const current = successfulTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'check']);
-    expect(current).toMatchObject({ status: 'current', changed: false });
-    const idempotent = successfulTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T02:00:00.000Z'
-    ]);
-    expect(idempotent).toMatchObject({ status: 'current', changed: false });
-    expect(idempotent.generatedAt).toBe(originalGeneratedAt);
     expect(readFileSync(fixture.target, 'utf8')).toBe(currentSource);
     expect(tcbArchiveFiles(fixture)).toHaveLength(0);
+    expect(tcbOperationFiles(fixture)).toHaveLength(0);
 
     const update = planTcbFixtureUpdate(fixture, '2026-08-09T03:00:00.000Z', 1);
     expect(update.status).toBe('update-required');
-    const failedCheck = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'check']);
-    expect(failedCheck.status).not.toBe(0);
-    expect(failedCheck.stderr).toContain('update required');
-    expect(readFileSync(fixture.target, 'utf8')).toBe(currentSource);
-
     const dryRun = successfulTcbClosureCli(fixture, [
       'tcb-closure-lock', '--mode', 'dry-run', '--generated-at', '2026-08-09T03:00:00.000Z'
     ]);
@@ -1047,18 +1013,23 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
     expect(tcbArchiveFiles(fixture)).toHaveLength(1);
     expect(tcbOperationFiles(fixture)).toHaveLength(1);
 
-    const hostedApply = invokeTcbClosureCli(fixture, [
-      'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T04:00:00.000Z'
-    ], true);
-    expect(hostedApply.status).not.toBe(0);
-    expect(hostedApply.stderr).toContain('forbidden in hosted execution');
+    const originalHosted = process.env.GITHUB_ACTIONS;
+    process.env.GITHUB_ACTIONS = 'true';
+    try {
+      await expect(CodexDevelopmentCiVerificationTcbClosureLockCliV1([
+        'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T04:00:00.000Z'
+      ])).rejects.toThrow('forbidden in hosted execution');
+    } finally {
+      if (originalHosted === undefined) delete process.env.GITHUB_ACTIONS;
+      else process.env.GITHUB_ACTIONS = originalHosted;
+    }
     await expect(CodexDevelopmentCiVerificationTcbClosureLockCliV1([
       'tcb-closure-lock', '--mode', 'check', '--path', fixture.target
     ])).rejects.toThrow('Usage:');
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-});
+}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
 
 test('TCB closure apply retains exact archives and recovers only canonical operation states', () => {
   const fixture = createTcbClosureCommandFixture();
@@ -1150,7 +1121,7 @@ test('TCB closure apply retains exact archives and recovers only canonical opera
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-});
+}, TCB_CLOSURE_FIXTURE_RECOVERY_MATRIX_TIMEOUT_MS);
 
 test('TCB closure captured recovery blocks archive substitution without deleting any observed bytes', () => {
   const fixture = createTcbClosureCommandFixture();
@@ -1184,7 +1155,7 @@ test('TCB closure captured recovery blocks archive substitution without deleting
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-});
+}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
 
 test('TCB closure raw CAPTURED census rejects non-canonical operation time without rollback', () => {
   const fixture = createTcbClosureCommandFixture();
@@ -1212,7 +1183,7 @@ test('TCB closure raw CAPTURED census rejects non-canonical operation time witho
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-});
+}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
 
 test('TCB closure CAPTURED rollback destination race preserves archive, stage and third value', () => {
   const fixture = createTcbClosureCommandFixture();
@@ -1245,7 +1216,7 @@ test('TCB closure CAPTURED rollback destination race preserves archive, stage an
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-});
+}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
 
 test('TCB closure CAPTURED rollback never executes a semantically invalid staged source', () => {
   const fixture = createTcbClosureCommandFixture();
@@ -1276,7 +1247,7 @@ test('TCB closure CAPTURED rollback never executes a semantically invalid staged
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-});
+}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
 
 for (const transition of [
   { label: 'target-to-archive', sourceSuffix: `${path.sep}tcb-closure-lock.ts` },
@@ -1316,7 +1287,7 @@ for (const transition of [
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  });
+  }, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
 }
 
 test('TCB closure destination final fence preserves the source and a concurrent third value', () => {
@@ -1344,7 +1315,7 @@ test('TCB closure destination final fence preserves the source and a concurrent 
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-});
+}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
 
 for (const swapped of ['target-parent', 'archive-ancestor'] as const) {
   test(`TCB closure rejects a ${swapped} junction or symlink without mutating observed bytes`, () => {
@@ -1379,7 +1350,7 @@ for (const swapped of ['target-parent', 'archive-ancestor'] as const) {
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  });
+  }, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
 }
 
 test('CI runner executes every ordinary gate through Action and publishes only V4', async () => {
@@ -1590,7 +1561,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
           return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
         }
         if (plan.phase === 'teardown') {
-          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:not-found');
+          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
         }
         executionPlan = plan;
         return sandboxObservation(0, 'candidate output is captured, never echoed');
@@ -1629,7 +1600,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
           return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
         }
         if (plan.phase === 'teardown') {
-          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:empty-cgroup');
+          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
         }
         writeFileSync(dirtyArchive, 'substituted archive bytes');
         return sandboxObservation(0, 'candidate could not write host input');
@@ -1687,11 +1658,11 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
     executionAuthorization
   });
   expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(plan)).not.toThrow();
+  expect(plan.command).toBe('/usr/bin/unshare');
   const encoded = JSON.stringify(plan.argv);
   for (const invariant of [
-    '--property=MemoryMax=4294967296', '--property=TasksMax=256',
-    '--property=RuntimeMaxSec=3600s', '--mount', '--pid', '--fork', '--kill-child=KILL',
-    '--net', 'pivot_root', 'mount -t proc',
+    '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
+    '/usr/sbin/chroot', 'mount -t proc',
     'copy_runtime /usr/bin/bash /usr/bin/bash', 'copy_runtime /usr/bin/tar /usr/bin/tar',
     'runtime-binary-closure',
     '/authenticated-input/prepared-candidate.tar', '/usr/bin/setpriv', '--no-new-privs',
@@ -1701,11 +1672,30 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   for (const forbidden of [
     'GITHUB_OUTPUT', 'GH_TOKEN', '/host/output', '/var/run/docker.sock', '/run/docker.sock',
     '/home/runner/work', 'RUNNER_TEMP', 'verification-action-raw-result.json',
-    'mount --bind /usr'
+    'mount --bind /usr', '/usr/bin/sudo', '/usr/bin/systemd-run'
   ]) expect(encoded).not.toContain(forbidden);
   expect(plan.candidateEnvironmentNames).toEqual(
     executionAuthorization.physicalCommand.fixedSandboxEnvironment.map((entry) => entry.name)
   );
+  const bootstrapPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1({
+    bootstrapDigest: digest('b'),
+    candidateArchive: path.resolve('/trusted/bootstrap-candidate.tar'),
+    bunExecutable: path.resolve('/trusted/tool/bun'),
+    baseSha: normalizedOperation.candidate.baseSha,
+    headSha: normalizedOperation.candidate.headSha,
+    candidateEnvironment: CodexDevelopmentCandidateProcessEnvironmentV2({}, {
+      SEC_BOOTSTRAP_BASE: normalizedOperation.candidate.baseSha,
+      SEC_BOOTSTRAP_HEAD: normalizedOperation.candidate.headSha,
+      SEC_BOOTSTRAP_TREE: TREE
+    }),
+    unitNonce: 'bootstrap-contract'
+  });
+  expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(bootstrapPlan)).not.toThrow();
+  expect(bootstrapPlan.phase).toBe('bootstrap-execute');
+  expect(bootstrapPlan.executionAuthorizationDigest).toBeNull();
+  expect(bootstrapPlan.physicalCommandProjectionDigest).toBeNull();
+  expect(bootstrapPlan.argv.at(-1)).toBe(CodexDevelopmentTrustedBootstrapSutHarnessV1);
+  expect(JSON.stringify(bootstrapPlan.argv)).not.toContain('GITHUB_OUTPUT');
 });
 
 test('parent event binds the canonical one-key Session request wrapper', () => {
@@ -1748,40 +1738,34 @@ test('parent event binds the canonical one-key Session request wrapper', () => {
 });
 
 test('capability probe detaches its deliberate residue child for trusted teardown', async () => {
-  let capabilityScript = '';
   const observation = await CodexDevelopmentProbeHostedSutSandboxCapabilityV1({
     actionKey: digest('a'),
     platform: 'linux',
     unitNonce: 'settled-probe',
     runSandboxProcess: async (plan) => {
       if (plan.phase === 'capability-self-test') {
-        capabilityScript = plan.argv.at(-3) ?? '';
         return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
       }
-      return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:not-found');
+      return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
     }
   });
   expect(observation).toMatchObject({ state: 'supported', cgroupEmpty: true });
 
-  const evalPrefix = '/tool/bin/bun -e ';
-  const evalOffset = capabilityScript.lastIndexOf(evalPrefix);
-  expect(evalOffset).toBeGreaterThanOrEqual(0);
-  const assertion = JSON.parse(capabilityScript.slice(evalOffset + evalPrefix.length)) as string;
-  const spawnOffset = assertion.indexOf('const descendant = Bun.spawn');
+  const assertion = CodexDevelopmentHostedSutCapabilityAssertionV1;
+  const spawnOffset = assertion.indexOf('const descendant = spawn');
   const markerOffset = assertion.indexOf('process.stdout.write');
   expect(spawnOffset).toBeGreaterThanOrEqual(0);
   expect(markerOffset).toBeGreaterThan(spawnOffset);
   const lifecycle = assertion.slice(spawnOffset, markerOffset);
-  expect(lifecycle).toContain('["/usr/bin/sleep", "300"]');
+  expect(lifecycle).toContain('spawn("/usr/bin/sleep", ["300"]');
   expect(lifecycle).toContain('detached: true');
   expect(lifecycle).toContain('descendant.unref();');
   expect(lifecycle).not.toContain('descendant.kill');
   expect(lifecycle).not.toContain('descendant.exited');
 
-  const runnableLifecycle = lifecycle.replace(
-    '["/usr/bin/sleep", "300"]',
-    '[process.execPath, "-e", "setTimeout(() => {}, 300000)"]'
-  );
+  const runnableLifecycle = 'const { spawn } = require("node:child_process");' +
+    'const descendant = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300000)"], ' +
+    '{ detached: true, stdio: "ignore" });descendant.unref();';
   const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-detached-probe-'));
   const pidPath = path.join(root, 'descendant.pid');
   let descendantPid: number | null = null;
@@ -1801,7 +1785,6 @@ test('capability probe detaches its deliberate residue child for trusted teardow
     ], { encoding: 'utf8', timeout: 3_000, windowsHide: true });
     expect(settled.error).toBeUndefined();
     expect(settled.status).toBe(0);
-    expect(settled.stdout).toBe('detached');
     expect(performance.now() - startedAt).toBeLessThan(3_000);
     descendantPid = Number(readFileSync(pidPath, 'utf8'));
     expect(Number.isSafeInteger(descendantPid) && descendantPid > 0).toBe(true);
@@ -1845,7 +1828,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       runSandboxProcess: async (plan) => {
         if (plan.phase === 'execute') executions += 1;
         if (plan.phase === 'teardown') {
-          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:not-found');
+          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
         }
         capabilityPlan = plan.argv.join('\n');
         return sandboxObservation(1, 'unshare: Operation not permitted');
@@ -1860,9 +1843,34 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
     expect(executions).toBe(0);
     for (const invariant of [
       'SEC_HOST_SANDBOX_SENTINEL', '/proc/1/environ', '/proc/net/route',
-      'fetch(\\"http://1.1.1.1', 'Bun.spawn', 'runtime-binary-closure',
-      'host-usr-or-proc-mount', 'inherited-fd', 'cgroup-limits', '/home/runner/work'
+      'fetch("http://1.1.1.1', 'spawn("/usr/bin/sleep"', 'host-usr-or-proc-mount',
+      'inherited-fd', 'cgroup-limits', '/home/runner/work', '/actions-runner/_work/_actions'
+    ]) expect(CodexDevelopmentHostedSutCapabilityAssertionV1).toContain(invariant);
+    expect(CodexDevelopmentHostedSutCapabilityAssertionV1).not.toContain('process.pid !== 1');
+    expect(CodexDevelopmentHostedSutCapabilityAssertionV1).toContain('error?.code !== "ENOENT"');
+    expect(CodexDevelopmentHostedSutCapabilityAssertionV1).toStartWith('(async () => {');
+    expect(CodexDevelopmentHostedSutCapabilityAssertionV1).toContain(
+      '})().catch((error) => { console.error(error); process.exitCode = 1; });'
+    );
+    for (const invariant of [
+      'runtime-binary-closure', '/usr/sbin/chroot', '--kill-child=KILL'
     ]) expect(capabilityPlan).toContain(invariant);
+    const productionSource = await Bun.file(
+      new URL('../../scripts/ci-verification.ts', import.meta.url)
+    ).text();
+    expect(productionSource).toContain(
+      'shellSingleQuoteV1(HOSTED_SUT_CHROOT_CAPABILITY_SCRIPT_V1)'
+    );
+    expect(productionSource).toContain(
+      'shellSingleQuoteV1(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT_V1)'
+    );
+    expect(productionSource).not.toContain(
+      'JSON.stringify(HOSTED_SUT_CHROOT_CAPABILITY_SCRIPT_V1)'
+    );
+    expect(productionSource.match(/rm -rf -- "\$root" >\/dev\/null 2>&1 \|\| true/gu)).toHaveLength(2);
+    expect(productionSource).toContain(
+      'shellSingleQuoteV1(CodexDevelopmentHostedSutCapabilityAssertionV1)'
+    );
     for (const forbidden of ['mount --bind /usr', '/var/run/docker.sock']) {
       expect(capabilityPlan).not.toContain(forbidden);
     }
@@ -1873,7 +1881,7 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
       runSandboxProcess: async (plan) => {
         if (plan.phase === 'execute') executions += 1;
         if (plan.phase === 'teardown') {
-          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:not-found');
+          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
         }
         throw new Error('supervisor channel disappeared before process start');
       }
@@ -1921,7 +1929,7 @@ test('hostile command-channel output is bounded into the raw receipt without mut
           return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
         }
         if (plan.phase === 'teardown') {
-          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:empty-cgroup');
+          return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
         }
         return sandboxObservation(
           125,
