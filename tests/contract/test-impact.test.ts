@@ -498,6 +498,29 @@ test('branch closeout and VerificationSession authority select one exact fast cl
   })));
 });
 
+test('worktree physical closeout selects its focused owner closure', () => {
+  const expected = {
+    fast: [
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/branch-lifecycle-contract.test.ts',
+      'tests/unit/physical-no-follow.test.ts',
+      'tests/unit/worktree-physical-closeout-contract.test.ts',
+      'tests/unit/worktree-physical-closeout-crash-recovery.test.ts',
+      'tests/unit/worktree-physical-closeout-temp-repo.test.ts'
+    ],
+    slow: [],
+    owners: ['git-worktree-physical-closeout']
+  };
+  for (const source of [
+    'platform/shared/physical-no-follow.ts',
+    'scripts/codex/worktree-physical-closeout-contract.ts',
+    'scripts/codex/worktree-physical-closeout.ts',
+    'tests/unit/worktree-physical-closeout-crash-fixture.ts'
+  ]) {
+    expect(selectTestsForSources([source])).toEqual(expected);
+  }
+});
+
 test('test impact keeps Task Capsule and Read Plan verification in direct fast owners', () => {
   const activationFast = [
     'tests/contract/ci-contract.test.ts',
@@ -1085,7 +1108,7 @@ test('test impact selector gives Semantic Mutation focused fast and notice-only 
   }
 });
 
-test('test impact selector owns the SM-3 lease and local isolated child boundary', () => {
+test('test impact selector separates the shared lease owner from the SM-3 local isolated child boundary', () => {
   const sourceFiles = [
     'platform/shared/semantic-mutation-staging-boundary.ts',
     'platform/shared/workspace-path-contract.ts',
@@ -1096,13 +1119,14 @@ test('test impact selector owns the SM-3 lease and local isolated child boundary
   const selection = selectTestsForSources(sourceFiles);
 
   expect(selection.owners).toContain('semantic-mutation');
+  expect(selection.owners).toContain('workspace-write-lease');
   expect(selection.fast).toEqual(expect.arrayContaining([
     'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
     'tests/unit/workspace-write-lease.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts',
     'tests/contract/semantic-mutation-apply-contract.test.ts'
   ]));
-  for (const source of sourceFiles) {
+  for (const source of sourceFiles.filter((source) => source !== 'platform/shared/workspace-write-lease.ts')) {
     expect(resolveTestOwnership([source]).filter((entry) => entry.owner === 'semantic-mutation'))
       .toEqual([{
         source,
@@ -1110,6 +1134,20 @@ test('test impact selector owns the SM-3 lease and local isolated child boundary
         identity: { kind: 'architecture-owner', id: 'semantic-mutation' }
       }]);
   }
+  expect(resolveTestOwnership(['platform/shared/workspace-write-lease.ts'])).toEqual([{
+    source: 'platform/shared/workspace-write-lease.ts',
+    owner: 'workspace-write-lease',
+    identity: { kind: 'architecture-owner', id: 'workspace-write-lease' }
+  }]);
+  const leaseOnly = selectTestsForSources(['platform/shared/workspace-write-lease.ts']);
+  expect(leaseOnly.owners).toEqual(['workspace-write-lease']);
+  expect(leaseOnly.fast).toEqual(expect.arrayContaining([
+    'tests/contract/semantic-mutation-apply-contract.test.ts',
+    'tests/integration/pipeline-workspace-write-lease.test.ts',
+    'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+    'tests/unit/workspace-write-lease.test.ts',
+    'tests/unit/worktree-physical-closeout-crash-recovery.test.ts'
+  ]));
 });
 
 test('test impact selector gives runner build boundaries a focused semantic-mutation owner', () => {

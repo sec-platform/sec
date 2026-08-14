@@ -27,6 +27,8 @@ export interface RunCommandOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   envMode?: 'inherit' | 'replace';
+  maxStderrBytes?: number;
+  maxStdoutBytes?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -164,6 +166,14 @@ async function runCommandCapture(
   options: RunCommandOptions,
   stdoutMode: 'bytes' | 'text'
 ): Promise<CommandResult | ByteCommandResult> {
+  for (const [label, limit] of [
+    ['maxStderrBytes', options.maxStderrBytes],
+    ['maxStdoutBytes', options.maxStdoutBytes]
+  ] as const) {
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) {
+      throw new Error(`${label} must be a non-negative safe integer`);
+    }
+  }
   const inheritedEnv = options.envMode === 'replace' ? {} : process.env;
   const env = Object.fromEntries(
     Object.entries({
@@ -185,6 +195,8 @@ async function runCommandCapture(
     let stdout = '';
     const stdoutChunks: Buffer[] = [];
     let stderr = '';
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
 
     let settled = false;
     let terminating = false;
@@ -222,14 +234,28 @@ async function runCommandCapture(
     }
 
     child.stdout.on('data', (chunk) => {
+      if (settled || terminating) return;
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      if (options.maxStdoutBytes !== undefined && stdoutBytes + bytes.byteLength > options.maxStdoutBytes) {
+        terminateAndReject(`Command "${command}" stdout exceeded ${options.maxStdoutBytes} bytes`);
+        return;
+      }
+      stdoutBytes += bytes.byteLength;
       if (stdoutMode === 'bytes') {
-        stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        stdoutChunks.push(bytes);
       } else {
-        stdout += String(chunk);
+        stdout += bytes.toString();
       }
     });
     child.stderr.on('data', (chunk) => {
-      stderr += String(chunk);
+      if (settled || terminating) return;
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      if (options.maxStderrBytes !== undefined && stderrBytes + bytes.byteLength > options.maxStderrBytes) {
+        terminateAndReject(`Command "${command}" stderr exceeded ${options.maxStderrBytes} bytes`);
+        return;
+      }
+      stderrBytes += bytes.byteLength;
+      stderr += bytes.toString();
     });
     child.on('error', (error) => {
       if (!terminating) settleReject(error);

@@ -14,21 +14,21 @@ last-reviewed: 2026-08-13
 ```json
 {
   "active": {
-    "currentSpecRef": "github:issue/352",
-    "currentSpecRevision": "sha256:363e771392f5b5e046a8e86cd9db9cf937b4cedc6cfc8b95ad9e1aaaecc07e89",
+    "currentSpecRef": "github:issue/186",
+    "currentSpecRevision": "sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a",
     "decisionStatus": "selected",
-    "packageId": "controlled-pr-issue-disposition-single-writer-v1",
-    "tracking": "issue-352",
-    "workId": "issue-352"
+    "packageId": "git-worktree-physical-closeout-v1",
+    "tracking": "issue-186",
+    "workId": "issue-186"
   },
   "candidates": [
     {
-      "currentSpecRef": "github:issue/186",
-      "currentSpecRevision": "sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a",
-      "decisionStatus": "rejected",
-      "packageId": "git-worktree-physical-closeout-v1",
-      "tracking": "issue-186",
-      "workId": "issue-186"
+      "currentSpecRef": "github:issue/346",
+      "currentSpecRevision": "sha256:b1b350a7bc0a9cc741fee5d8688580a419ad737c028a383e33153844fee5e729",
+      "decisionStatus": "eligible",
+      "packageId": "operation-read-plan-authority-canary-v1",
+      "tracking": "issue-346",
+      "workId": "issue-346"
     },
     {
       "currentSpecRef": "github:issue/275",
@@ -56,7 +56,7 @@ last-reviewed: 2026-08-13
     },
     {
       "currentSpecRef": "github:issue/349",
-      "currentSpecRevision": "sha256:d46c5e43e887f702f93fd8d394cdd7d46a6a73a77ac77c138430726946e24af5",
+      "currentSpecRevision": "sha256:2511c8cf2f52506c4bb7b54acc54bfb0a793e94d2b9e8604e22b1b7260e64fe9",
       "decisionStatus": "rejected",
       "packageId": "execution-wave-v1",
       "tracking": "issue-349",
@@ -64,10 +64,10 @@ last-reviewed: 2026-08-13
     }
   ],
   "catalogDigest": "sha256:66e1ae49a02cbec9c9e98446ba1617356f5692503d1ad4e19a5fee05201e5ab1",
-  "decisionDigest": "sha256:d3ef30cec518f501f1e361c03f473ce0b2e93149722a233c59a3061e6052b11e",
-  "exactMain": "93dde9e44bbcffdd7fa1d6be726df1725947f6e2",
-  "projectionDigest": "sha256:672f17813b092d83f7f707b89ac538887688635c5cc1d6784af382fe0932664b",
-  "receiptDigest": "sha256:e47b007888375d5f59e1bdbf1c8051fd55b36bfd0f6c6a9a627a61638d5422a9",
+  "decisionDigest": "sha256:1e95cc8235cdc2c13436e27166a548b8c1a27b84256445d335afdb3d3f1fee8c",
+  "exactMain": "4c2dfbac5bfd5a2edf38e5ec7e8c6ed394c152dd",
+  "projectionDigest": "sha256:e932efcb0a7f01a4bcb2cafdc6653c903bab319b5aacff7807e0653e98276022",
+  "receiptDigest": "sha256:d828313cfe4e383d3695ec91f0ac0cc1b48851482c180899ef2b74971a134b90",
   "roadmapRevision": "sha256:d6fdab676cbb8ec7b2b61c1a60d62b0f59fc6c75f79b65ec72b9d823793c54e8",
   "schema": "sec-work-rolling-projection-v1"
 }
@@ -75,17 +75,17 @@ last-reviewed: 2026-08-13
 
 ## 当前唯一 Work Package
 
-### controlled-pr-issue-disposition-single-writer-v1
+### git-worktree-physical-closeout-v1
 
-Work identity `issue-352`; current spec `github:issue/352` at
-`sha256:363e771392f5b5e046a8e86cd9db9cf937b4cedc6cfc8b95ad9e1aaaecc07e89`; decision `sha256:d3ef30cec518f501f1e361c03f473ce0b2e93149722a233c59a3061e6052b11e`.
+Work identity `issue-186`; current spec `github:issue/186` at
+`sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a`; decision `sha256:1e95cc8235cdc2c13436e27166a548b8c1a27b84256445d335afdb3d3f1fee8c`.
 
 ## 候选 Work Package
 
-### 1. git-worktree-physical-closeout-v1
+### 1. operation-read-plan-authority-canary-v1
 
-Work identity `issue-186`; current spec `github:issue/186` at
-`sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a`; current decision status `rejected`.
+Work identity `issue-346`; current spec `github:issue/346` at
+`sha256:b1b350a7bc0a9cc741fee5d8688580a419ad737c028a383e33153844fee5e729`; current decision status `eligible`.
 
 ### 2. delegation-consumer-zero-retirement-v1
 
@@ -105,7 +105,7 @@ Work identity `issue-312`; current spec `github:issue/312` at
 ### 5. execution-wave-v1
 
 Work identity `issue-349`; current spec `github:issue/349` at
-`sha256:d46c5e43e887f702f93fd8d394cdd7d46a6a73a77ac77c138430726946e24af5`; current decision status `rejected`.
+`sha256:2511c8cf2f52506c4bb7b54acc54bfb0a793e94d2b9e8604e22b1b7260e64fe9`; current decision status `rejected`.
 
 ## 重新规划硬触发器
 

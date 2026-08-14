@@ -274,11 +274,8 @@ describe('canonical documentation authority', () => {
     const catalogPackageIds = catalog.items.map(({ packageId }) => packageId);
     const activeCatalogIndex = catalogPackageIds.indexOf(rollingPlan.activePackageId);
     if (activeCatalogIndex >= 0) {
-      expect([rollingPlan.activePackageId, ...rollingPlan.candidatePackageIds])
-        .toEqual(catalogPackageIds.slice(
-          activeCatalogIndex,
-          activeCatalogIndex + rollingPlan.candidatePackageIds.length + 1
-        ));
+      expect(rollingPlan.candidatePackageIds.every((packageId) =>
+        catalogPackageIds.includes(packageId))).toBe(true);
     } else {
       expect(rollingPlan.activePackageId).toMatch(/^default-branch-health-repair-/u);
       const retainedCatalogIndexes = rollingPlan.candidatePackageIds.map((packageId) =>

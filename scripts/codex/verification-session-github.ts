@@ -855,7 +855,7 @@ const SESSION_ATTEMPT_BOUND_ARTIFACT_NAME_PATTERNS_V1 = Object.freeze([
   /^sec-verification-action-(?:resolution|prepared|raw)-v2-[0-9a-f]{64}-run-([1-9][0-9]*)-attempt-([1-9][0-9]*)$/u,
   /^sec-merge-gate-result-v2-pr-[1-9][0-9]*-session-[0-9a-f]{64}-run-([1-9][0-9]*)-attempt-([1-9][0-9]*)$/u,
   /^sec-branch-closeout-recovery-v1-pr-[1-9][0-9]*-session-[0-9a-f]{64}-run-([1-9][0-9]*)-attempt-([1-9][0-9]*)$/u,
-  /^sec-integration-projection-v1-run-([1-9][0-9]*)-attempt-([1-9][0-9]*)$/u
+  /^sec-closeout-projections-v1-run-([1-9][0-9]*)-attempt-([1-9][0-9]*)$/u
 ]);
 
 const SESSION_ATTEMPT_BOUND_ARTIFACT_PREFIXES_V1 = Object.freeze([
@@ -866,7 +866,7 @@ const SESSION_ATTEMPT_BOUND_ARTIFACT_PREFIXES_V1 = Object.freeze([
   'sec-verification-action-raw-v2-',
   'sec-merge-gate-result-v2-',
   'sec-branch-closeout-recovery-v1-',
-  'sec-integration-projection-v1-'
+  'sec-closeout-projections-v1-'
 ]);
 
 function classifyActionsArtifactAttemptAuthorityV1(

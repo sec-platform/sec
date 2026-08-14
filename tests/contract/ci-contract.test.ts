@@ -48,6 +48,7 @@ type WorkflowStep = Readonly<{
   if?: string;
   uses?: string;
   run?: string;
+  'working-directory'?: string;
   env?: Readonly<Record<string, string | number>>;
   with?: Readonly<Record<string, unknown>>;
 }>;
@@ -360,6 +361,8 @@ test('hosted activation is a lightweight trusted-main artifact producer, not a c
   expect(validationScript).toContain('(commit.parents ?? []).length !== 1');
   expect(validationScript).toContain('!pullData.draft');
   expect(validationScript).toContain('getCollaboratorPermissionLevel');
+  expect(validation.outputs?.['default-branch']).toBe('${{ steps.request.outputs.default-branch }}');
+  expect(validationScript).toContain("core.setOutput('default-branch', repository.data.default_branch)");
   const trustedCheckout = step(
     workflow,
     'agent-operation-activation',
@@ -372,6 +375,28 @@ test('hosted activation is a lightweight trusted-main artifact producer, not a c
   );
   expect(trustedCheckout.with?.['persist-credentials']).toBe(true);
   expect(candidateCheckout.with?.['persist-credentials']).toBe(false);
+  const remoteHeadBinding = step(
+    workflow,
+    'agent-operation-activation',
+    'Bind canonical trusted remote HEAD projection'
+  );
+  expect(remoteHeadBinding['working-directory']).toBe('trusted');
+  expect(remoteHeadBinding.env).toEqual({
+    SEC_ACTIVATION_BASE_SHA: '${{ needs.validate-agent-operation-activation-request.outputs.base-sha }}',
+    SEC_ACTIVATION_DEFAULT_BRANCH: '${{ needs.validate-agent-operation-activation-request.outputs.default-branch }}'
+  });
+  expect(remoteHeadBinding.run).toContain(
+    'git symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$SEC_ACTIVATION_DEFAULT_BRANCH"'
+  );
+  expect(remoteHeadBinding.run).toContain(
+    'test "$(git rev-parse --verify "refs/remotes/origin/$SEC_ACTIVATION_DEFAULT_BRANCH^{commit}")" = "$SEC_ACTIVATION_BASE_SHA"'
+  );
+  expect(activation.steps.indexOf(remoteHeadBinding)).toBeGreaterThan(
+    activation.steps.indexOf(candidateCheckout)
+  );
+  expect(activation.steps.indexOf(remoteHeadBinding)).toBeLessThan(
+    activation.steps.findIndex(({ name }) => name === 'Setup trusted Bun for activation projection')
+  );
   const activationInstall = step(
     workflow,
     'agent-operation-activation',
@@ -541,7 +566,7 @@ test('trusted merge workflow consumes the Session artifact and exposes one termi
   expect(source).toContain('workflow_run');
   expect(source).toContain('bun scripts/codex/verification-session.ts prepare-integration-hosted');
   expect(source).toContain('bun scripts/codex/verification-session.ts integrate-hosted');
-  expect(source).toContain('bun scripts/codex/verification-session.ts closeout-mutate-hosted');
+  expect(source).not.toContain('bun scripts/codex/verification-session.ts closeout-mutate-hosted');
   expect(source).toContain('bun scripts/codex/verification-session.ts closeout-publish-hosted');
   expect(source).toContain('sec-verification-session-hosted-integration-route-v1');
   expect(source).toContain('open-first-effect');
@@ -553,9 +578,7 @@ test('trusted merge workflow consumes the Session artifact and exposes one termi
   expect(source).not.toContain('prepare-merge-gate');
   expect(source).not.toContain('merge-gate.ts authorize');
   expect(source).not.toContain('ahead_by !== 1');
-  const postMergeMainHealthIndex = source.indexOf('- name: Dispatch and join exact post-merge MainHealth');
-  expect(postMergeMainHealthIndex).toBeGreaterThan(-1);
-  expect(source.slice(0, postMergeMainHealthIndex)).not.toContain('parents.length !== 1');
+  expect(source).not.toContain('- name: Dispatch and join exact post-merge MainHealth');
   expect(source).not.toContain('scope-attest');
   expect(source).not.toContain('sec-merge-bootstrap');
   expect(source).not.toContain('pull_request_review');
@@ -568,7 +591,6 @@ test('trusted merge workflow consumes the Session artifact and exposes one termi
     'cancel-in-progress': false,
     queue: 'max'
   });
-  const closeoutMutationStepName = 'Observe Issue disposition and close out exact integrated branch';
   const phases = [
     'Create exact integration durable directory',
     'Resolve exact hosted integration lane',
@@ -576,9 +598,7 @@ test('trusted merge workflow consumes the Session artifact and exposes one termi
     'Reject blocked hosted integration lane',
     'Upload exact branch closeout recovery artifact',
     'Read back exact branch closeout recovery artifact',
-    'Integrate exact hosted Session and publish live readback status',
-    'Dispatch and join exact post-merge MainHealth',
-    closeoutMutationStepName,
+    'Close out exact integrated branch',
     'Publish exact branch closeout receipt'
   ];
   const names = workflow.jobs.integrate!.steps.map((entry) => entry.name);
@@ -604,86 +624,61 @@ test('trusted merge workflow consumes the Session artifact and exposes one termi
   expect(step(workflow, 'integrate', 'Upload exact branch closeout recovery artifact').if).toBe(openLane);
   expect(step(workflow, 'integrate', 'Read back exact branch closeout recovery artifact').if).toBe(openLane);
   for (const name of [
-    'Integrate exact hosted Session and publish live readback status',
-    closeoutMutationStepName,
+    'Close out exact integrated branch',
     'Publish exact branch closeout receipt'
   ]) {
     expect(step(workflow, 'integrate', name).if).toBe(effectLane);
   }
-  expect(step(workflow, 'integrate', 'Integrate exact hosted Session and publish live readback status').env?.GH_TOKEN)
-    .toBe('${{ github.token }}');
-  const postMergeMainHealth = step(workflow, 'integrate', 'Dispatch and join exact post-merge MainHealth');
-  expect(postMergeMainHealth.if).toBe(effectLane);
-  expect(postMergeMainHealth.uses)
-    .toBe('actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b');
-  expect(postMergeMainHealth.env).toEqual({
-    PR_NUMBER: '${{ needs.plan.outputs.pr-number }}',
+  const closeout = step(workflow, 'integrate', 'Close out exact integrated branch');
+  expect(closeout.env).toEqual({
+    GH_TOKEN: '${{ github.token }}',
     PRE_MERGE_MAIN_SHA: '${{ needs.plan.outputs.base-sha }}',
     PLANNED_CURRENT_MAIN_SHA: '${{ needs.plan.outputs.current-main-sha }}',
     MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES: mainHealthRunnerQueueAllowanceMinutes,
     MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES: mainHealthProducerBudgetMinutes,
     MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS: mainHealthJoinPollIntervalSeconds
   });
-  const mainHealthScript = String(postMergeMainHealth.with?.script);
-  expect(mainHealthScript).toContain("schema: 'sec-produce-main-health-request-v1',\n  mainSha");
-  expect(mainHealthScript).toContain("event_type: 'sec-produce-main-health-v1'");
-  expect(mainHealthScript).toContain('client_payload: { payload: { mainSha, requestOperationId } }');
-  expect(mainHealthScript).toContain("integration.lane === 'open-first-effect'");
-  expect(mainHealthScript).toContain('mergeCommit.data.parents[0]?.sha !== preMergeMainSha');
-  expect(mainHealthScript).toContain("exactMarker('Verification-Session') !== integration.sessionRevision");
-  expect(mainHealthScript).toContain('plannedCurrentMainSha !== preMergeMainSha');
-  expect(mainHealthScript).toContain('mergeCommitSha !== mainSha');
-  expect(mainHealthScript).toContain('mainSha === preMergeMainSha');
-  expect(mainHealthScript).toContain('if (mainSha !== plannedCurrentMainSha)');
-  expect(mainHealthScript).toContain('compareCommitsWithBasehead');
-  expect(mainHealthScript).toContain('basehead: `${mergeCommitSha}...${mainSha}`');
-  expect(mainHealthScript).toContain('relation.data.merge_base_commit.sha !== mergeCommitSha');
-  expect(mainHealthScript).toContain('if (matching.length === 0)');
-  expect(mainHealthScript).toContain('const maximumPages = 1000;');
-  expect(mainHealthScript).toContain('const boundedNextPage =');
-  expect(mainHealthScript).toContain('observedCount !== totalCount');
-  expect(mainHealthScript).toContain('nextPage !== page + 1');
-  expect(mainHealthScript).toContain('per_page: pageSize,\n      page');
-  expect(mainHealthScript).toContain("const nextLinks = [...link.matchAll(/<([^>]+)>;\\s*rel=\"next\"/gu)];");
-  expect(mainHealthScript).toContain('MainHealth check-run census');
-  expect(mainHealthScript).toContain('page: checkPage');
-  expect(mainHealthScript).toContain('expectedCheckTotal');
-  expect(mainHealthScript).toContain(
-    'census ended before every reported item was observed.'
-  );
-  expect(mainHealthScript.indexOf('return exactRuns;')).toBeLessThan(
-    mainHealthScript.indexOf('let matching = await observeExactRuns();')
-  );
   const mainHealthProducerTimeoutMinutes = compilerWorkflow.jobs['main-health']?.['timeout-minutes'];
   expect(mainHealthProducerTimeoutMinutes).toBe(mainHealthProducerBudgetMinutes);
-  expect(mainHealthScript).toContain('const positiveIntegerEnvironment = (name) => {');
-  expect(mainHealthScript).toContain(
-    "positiveIntegerEnvironment('MAIN_HEALTH_RUNNER_QUEUE_ALLOWANCE_MINUTES') * 60 * 1000;"
+  const sessionSource = await readCompilerFile('scripts/codex/verification-session.ts');
+  expect(sessionSource).toContain('async function joinExactPostMergeMainHealthV1');
+  expect(sessionSource).toContain("'sec-produce-main-health-v1'");
+  expect(sessionSource).toContain('Canonical MainHealth workflow is not active.');
+  expect(sessionSource).toContain('queueAllowance * 60 * 1000');
+  expect(sessionSource).toContain('producerTimeout * 60 * 1000');
+  expect(sessionSource).toContain('pollSeconds * 1000');
+  expect(sessionSource).toContain('function assertBoundPostMergeMainV1');
+  expect(sessionSource).toContain('First-effect integration did not advance main exactly once from the planned base.');
+  expect(sessionSource).toContain('Recovered PR merge commit is not an ancestor of the planned live main.');
+  expect(sessionSource).toContain('boundPostMergeMainSha');
+  const integrateSource = sessionSource.slice(sessionSource.indexOf("if (command === 'integrate-hosted')"),
+    sessionSource.indexOf("if (command === 'closeout-mutate-hosted')"));
+  expect(integrateSource.indexOf('await joinExactPostMergeMainHealthV1'))
+    .toBeLessThan(integrateSource.indexOf('consumeSameHostWorktreeCloseoutV1'));
+  expect(integrateSource).toContain('await finalizeSameInvocationCloseoutV1');
+  const reconciliationHelper = sessionSource.slice(
+    sessionSource.indexOf('function observePostMergeIssueReconciliationV1('),
+    sessionSource.indexOf('function selectMergedAuthorizationPublication(')
   );
-  expect(mainHealthScript).toContain(
-    "positiveIntegerEnvironment('MAIN_HEALTH_PRODUCER_TIMEOUT_MINUTES') * 60 * 1000;"
-  );
-  expect(mainHealthScript).toContain(
-    "positiveIntegerEnvironment('MAIN_HEALTH_JOIN_POLL_INTERVAL_SECONDS') * 1000;"
-  );
-  expect(mainHealthScript).toContain(
-    'const deadline = Date.now() + (2 * mainHealthProducerTimeoutMilliseconds) +\n' +
-      '  mainHealthRunnerQueueAllowanceMilliseconds +\n' +
-      '  mainHealthJoinPollIntervalMilliseconds;'
-  );
-  expect(mainHealthScript).not.toContain('MAIN_HEALTH_PRECEDING_PRODUCER_TIMEOUT_MINUTES');
-  expect(mainHealthScript).toContain(
-    'setTimeout(resolve, mainHealthJoinPollIntervalMilliseconds)'
-  );
-  expect(mainHealthScript).not.toContain('25 * 60 * 1000');
-  expect(mainHealthScript).not.toContain('const mainHealthProducerTimeoutMilliseconds = 30');
-  expect(mainHealthScript).toContain('SEC main health ${mainSha} operation ${requestOperationId}');
-  expect(mainHealthScript).toContain("check_name: 'sec/main-health'");
-  expect(mainHealthScript).toContain('check.check_suite?.id === run.data.check_suite_id');
-  expect(mainHealthScript).toContain("check.app?.slug === 'github-actions'");
-  expect(mainHealthScript).toContain("core.setOutput('request-operation-id', requestOperationId)");
-  expect(step(workflow, 'integrate', closeoutMutationStepName).env?.GH_TOKEN)
-    .toBe('${{ github.token }}');
+  expect(reconciliationHelper).toContain('observeUnexpectedGitHubIssueClosuresV1');
+  expect(reconciliationHelper).toContain("? 'no-op'");
+  expect(reconciliationHelper).toContain(": 'manual-action-required'");
+  expect(reconciliationHelper).toContain("? 'blocked'");
+  expect(integrateSource).toContain('stopCloseoutForIssueReconciliation');
+  expect(integrateSource.indexOf('observePostMergeIssueReconciliationV1({ repository,'))
+    .toBeLessThan(integrateSource.indexOf('await joinExactPostMergeMainHealthV1'));
+  expect(integrateSource.indexOf('stopCloseoutForIssueReconciliation(merged)'))
+    .toBeLessThan(integrateSource.indexOf('await joinExactPostMergeMainHealthV1'));
+  const retainedProjection = step(workflow, 'integrate', 'Retain exact integration and closeout publication projections');
+  expect(retainedProjection.if)
+    .toBe("always() && !cancelled() && hashFiles('.tmp/codex/integration-projection.json') != ''");
+  expect(String(retainedProjection.with?.path)).toContain('.tmp/codex/integration-projection.json');
+  expect(String(retainedProjection.with?.path)).toContain('.tmp/codex/closeout-publication-projection.json');
+  expect(String(retainedProjection.with?.path)).not.toContain('closeout-mutation-projection.json');
+  const githubAdapterSource = await readCompilerFile('scripts/codex/verification-session-github.ts');
+  expect(githubAdapterSource).toContain('sec-closeout-projections-v1-run-([1-9][0-9]*)-attempt-([1-9][0-9]*)');
+  expect(githubAdapterSource).toContain("'sec-closeout-projections-v1-'");
+  expect(githubAdapterSource).not.toContain('sec-integration-projection-v1-');
 });
 
 test('Action execution and V4 publication are the only active CI producer path', async () => {
@@ -1282,4 +1277,18 @@ test('trusted bootstrap and release readers share the exact registry V3 policy p
   expect(bootstrapSource.match(/tcb-closure-lock --mode check/gu)).toHaveLength(2);
   expect(releaseSource.match(/tcb-closure-lock --mode check/gu)).toHaveLength(1);
   expect(bootstrapSource).not.toContain('generateTcbClosureLockForRevision');
+});
+
+test('VerificationSession assigns detached local scratch cleanup solely to Issue 186 physical closeout', async () => {
+  const source = await readCompilerFile('scripts/codex/verification-session.ts');
+  const cleanup = source.slice(source.indexOf('async function removeLocalCandidateWorktreeV1('),
+    source.indexOf('async function executePreparedLocalQuickDagV2('));
+  expect(cleanup).toContain('prepareDetachedScratchWorktreePhysicalCloseoutV1');
+  expect(cleanup).toContain('executeDetachedScratchWorktreePhysicalCloseoutV1');
+  expect(cleanup).toContain('expectedRecoveryAuthorityDigest: observed.ownerDigest');
+  expect(cleanup).toContain("receipt.terminal !== 'completed'");
+  expect(cleanup).toContain('receipt.readback.registryPresent || receipt.readback.physicalPresent');
+  expect(cleanup).not.toContain("'worktree', 'remove'");
+  expect(cleanup).not.toContain('WorktreePhysicalCloseoutConsumptionTokenV1');
+  expect(cleanup).not.toContain('assertTrustedCompletedWorktreePhysicalCloseoutV1');
 });

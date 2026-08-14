@@ -33,3 +33,26 @@ test('runCommand keeps the default stdout contract textual', async () => {
 
   expect(result).toEqual({ code: 0, stdout: 'text-output', stderr: '' });
 });
+
+test('runCommandBytes enforces stdout and stderr byte limits before accumulation', async () => {
+  const stdout = runCommandBytes(process.execPath, [
+    '--no-env-file',
+    '--eval',
+    "process.stdout.write('12345')"
+  ], { cwd: compilerRoot, maxStdoutBytes: 4, timeoutMs: 5_000 });
+  await expect(stdout).rejects.toThrow('stdout exceeded 4 bytes');
+
+  const stderr = runCommandBytes(process.execPath, [
+    '--no-env-file',
+    '--eval',
+    "process.stderr.write('12345')"
+  ], { cwd: compilerRoot, maxStderrBytes: 4, timeoutMs: 5_000 });
+  await expect(stderr).rejects.toThrow('stderr exceeded 4 bytes');
+
+  const exact = await runCommandBytes(process.execPath, [
+    '--no-env-file',
+    '--eval',
+    "process.stdout.write('1234'); process.stderr.write('5678')"
+  ], { cwd: compilerRoot, maxStdoutBytes: 4, maxStderrBytes: 4, timeoutMs: 5_000 });
+  expect(exact).toEqual({ code: 0, stdout: new TextEncoder().encode('1234'), stderr: '5678' });
+});
