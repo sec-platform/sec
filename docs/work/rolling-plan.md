@@ -7,78 +7,13 @@ last-reviewed: 2026-08-15
 
 # SEC 滚动近期计划
 
-本文件是validated WorkDecision的只读投影，不是roadmap、registry、current spec或selection authority。
-任何选择变化都从exact main重新观察；Issue/comment prose、AI评分、wall-clock、caller JSON和本文件自身
-均不能成为输入。receipt只能用于replay；effectful consumer必须调用trusted live adapter重新推导。
-
-```json
-{
-  "active": {
-    "currentSpecRef": "github:issue/346",
-    "currentSpecRevision": "sha256:b1b350a7bc0a9cc741fee5d8688580a419ad737c028a383e33153844fee5e729",
-    "decisionStatus": "selected",
-    "packageId": "operation-read-plan-authority-canary-v1",
-    "tracking": "issue-346",
-    "workId": "issue-346"
-  },
-  "candidates": [
-    {
-      "currentSpecRef": "github:issue/352",
-      "currentSpecRevision": "sha256:363e771392f5b5e046a8e86cd9db9cf937b4cedc6cfc8b95ad9e1aaaecc07e89",
-      "decisionStatus": "rejected",
-      "packageId": "controlled-pr-issue-disposition-single-writer-v1",
-      "tracking": "issue-352",
-      "workId": "issue-352"
-    },
-    {
-      "currentSpecRef": "github:issue/186",
-      "currentSpecRevision": "sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a",
-      "decisionStatus": "rejected",
-      "packageId": "git-worktree-physical-closeout-v1",
-      "tracking": "issue-186",
-      "workId": "issue-186"
-    },
-    {
-      "currentSpecRef": "github:issue/275",
-      "currentSpecRevision": "sha256:b8fc75c138ab7541f5a29736e6abf275f191bce6bb5df26fc1182e8e438b88a4",
-      "decisionStatus": "rejected",
-      "packageId": "delegation-consumer-zero-retirement-v1",
-      "tracking": "issue-275",
-      "workId": "issue-275"
-    },
-    {
-      "currentSpecRef": "github:issue/321",
-      "currentSpecRevision": "sha256:0cce9c5ae5ceb15227d7b89633d8a99b83a94a5dd235a0b8a041536ce4fef332",
-      "decisionStatus": "rejected",
-      "packageId": "candidate-control-transaction-v1",
-      "tracking": "issue-321",
-      "workId": "issue-321-candidate-control"
-    },
-    {
-      "currentSpecRef": "github:issue/312",
-      "currentSpecRevision": "sha256:5ddcc63bf3a8b1b13239b99a00a4e13fd933e54fa1e3c0f976ebe443721e9335",
-      "decisionStatus": "rejected",
-      "packageId": "typescript-7-checker-acceleration-v1",
-      "tracking": "issue-312",
-      "workId": "issue-312"
-    }
-  ],
-  "catalogDigest": "sha256:66e1ae49a02cbec9c9e98446ba1617356f5692503d1ad4e19a5fee05201e5ab1",
-  "decisionDigest": "sha256:5eb491351d4ba3ec10dd05b17bb3dbc2c5f7638899b8d5121022c79395fcebfe",
-  "exactMain": "93491f07a3b6c8fc94880be3bb6d18f41cda443b",
-  "projectionDigest": "sha256:fcd30e1f8e7ec376d959b5eec6304ee88f0731c6b64e2a697e01ad60059eb9c0",
-  "receiptDigest": "sha256:b4da7af49596dfa0e7d5f9adf508dafb83c0bb5fb9630a78ca9797815b664c2e",
-  "roadmapRevision": "sha256:d6fdab676cbb8ec7b2b61c1a60d62b0f59fc6c75f79b65ec72b9d823793c54e8",
-  "schema": "sec-work-rolling-projection-v1"
-}
-```
+本投影由唯一MainHealth repair renderer绑定exact `main@3bb47145c58b19aef2b1981ac3a28d2561949f4b`、tree `721e088bfa8ea90a4f9ec4cad9798eb1e9ec4a45`、health `sha256:015341cb14e6214264069935faf0b1a3827212674f93fa41a0e2f944cefc4306`与排序failure fingerprints `sha256:ebe771353763e62a5473ac81a02b75407c0f8264c471817e4082378ea8cd3dff`。旧epoch说明、caller prose与普通WorkDecision都不能参与本次repair projection；长期DAG、current spec和普通选择权仍归其canonical owner。
 
 ## 当前唯一 Work Package
 
-### operation-read-plan-authority-canary-v1
+### default-branch-health-repair-3bb47145c58b19aef2b1981ac3a28d2561949f4b-01a7d6fd95bcca50355668a87c7b0eeebb0aec6a5344a4c08974bca8e82f07ae
 
-Work identity `issue-346`; current spec `github:issue/346` at
-`sha256:b1b350a7bc0a9cc741fee5d8688580a419ad737c028a383e33153844fee5e729`; decision `sha256:5eb491351d4ba3ec10dd05b17bb3dbc2c5f7638899b8d5121022c79395fcebfe`.
+Exact degraded-main repair for `main@3bb47145c58b19aef2b1981ac3a28d2561949f4b` and health `sha256:015341cb14e6214264069935faf0b1a3827212674f93fa41a0e2f944cefc4306`. This temporary projection has no ordinary work-selection authority.
 
 ## 候选 Work Package
 

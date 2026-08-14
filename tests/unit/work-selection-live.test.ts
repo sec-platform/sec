@@ -6,6 +6,7 @@ import { rawSha256, sha256 } from '../../platform/shared/canonical-primitives.ts
 import type { SecCurrentWorkLifecycleV1 } from '../../platform/shared/work-selection-contract.ts';
 import {
   SEC_ROADMAP_WORK_CATALOG_BEGIN,
+  SEC_ROADMAP_WORK_CATALOG_END,
   assertSecWorkDecisionReceiptV1,
   compileSecWorkRollingProjectionV1,
   compileSecWorkRollingTopologyV1,
@@ -24,6 +25,98 @@ import {
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);
 const roadmapSource = readFileSync('docs/roadmap.md', 'utf8');
+
+type CatalogObservationV1 = Readonly<{
+  source: string;
+  roadmapRevision: ReturnType<typeof rawSha256>;
+  catalog: SecRoadmapWorkCatalogV1;
+}>;
+
+function observeCatalog(source: string): CatalogObservationV1 {
+  return Object.freeze({
+    source,
+    roadmapRevision: rawSha256(source),
+    catalog: parseSecRoadmapWorkCatalogV1(source)
+  });
+}
+
+function transitionCatalog(): CatalogObservationV1 {
+  const items = [
+    {
+      packageId: 'operation-read-plan-authority-canary-v1',
+      workId: 'issue-346', tracking: 'issue-346', currentSpecRef: 'github:issue/346',
+      ownerRef: 'github:issue/346', kind: 'focused', disposition: 'active',
+      priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:read-fast-path'],
+      prerequisiteWorkIds: [], orderedAfterWorkIds: [],
+      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
+      rootCauseRef: 'github:issue/346', scopeClosure: 'closed',
+      exitCriteriaRef: 'github:issue/346#acceptance', nearTermConsumerRef: null,
+      humanDecisionRef: null
+    },
+    {
+      packageId: 'controlled-pr-issue-disposition-single-writer-v1',
+      workId: 'issue-352', tracking: 'issue-352', currentSpecRef: 'github:issue/352',
+      ownerRef: 'github:issue/352', kind: 'focused', disposition: 'active',
+      priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:controlled-pr-single-writer'],
+      prerequisiteWorkIds: ['issue-346'], orderedAfterWorkIds: [],
+      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
+      rootCauseRef: 'github:issue/352', scopeClosure: 'closed',
+      exitCriteriaRef: 'github:issue/352#root-design', nearTermConsumerRef: 'github:issue/186',
+      humanDecisionRef: null
+    },
+    {
+      packageId: 'git-worktree-physical-closeout-v1',
+      workId: 'issue-186', tracking: 'issue-186', currentSpecRef: 'github:issue/186',
+      ownerRef: 'github:issue/186', kind: 'program', disposition: 'active',
+      priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:worktree-closeout'],
+      prerequisiteWorkIds: ['issue-352'], orderedAfterWorkIds: [],
+      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
+      rootCauseRef: 'github:issue/186', scopeClosure: 'closed',
+      exitCriteriaRef: 'github:issue/186#completion', nearTermConsumerRef: null,
+      humanDecisionRef: null
+    },
+    {
+      packageId: 'delegation-consumer-zero-retirement-v1',
+      workId: 'issue-275', tracking: 'issue-275', currentSpecRef: 'github:issue/275',
+      ownerRef: 'github:issue/275', kind: 'program', disposition: 'active',
+      priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:guidance-convergence'],
+      prerequisiteWorkIds: ['issue-186'], orderedAfterWorkIds: [],
+      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
+      rootCauseRef: 'github:issue/275', scopeClosure: 'closed',
+      exitCriteriaRef: 'github:issue/275#completion', nearTermConsumerRef: null,
+      humanDecisionRef: null
+    },
+    {
+      packageId: 'candidate-control-transaction-v1',
+      workId: 'issue-321-candidate-control', tracking: 'issue-321',
+      currentSpecRef: 'github:issue/321', ownerRef: 'github:issue/321#candidate-control-transaction',
+      kind: 'focused', disposition: 'active', priorityClass: 'active-critical-path',
+      priorityEvidenceRefs: ['fixture:candidate-control'], prerequisiteWorkIds: ['issue-275'],
+      orderedAfterWorkIds: [], reproductionOrEvidenceFreshness: 'fresh',
+      rootCauseState: 'repeat-root-cause', rootCauseRef: 'github:issue/321#candidate-control-transaction',
+      scopeClosure: 'closed', exitCriteriaRef: 'github:issue/321#candidate-control-transaction',
+      nearTermConsumerRef: null, humanDecisionRef: null
+    },
+    {
+      packageId: 'typescript-7-checker-acceleration-v1',
+      workId: 'issue-312', tracking: 'issue-312', currentSpecRef: 'github:issue/312',
+      ownerRef: 'github:issue/312', kind: 'focused', disposition: 'deferred',
+      priorityClass: 'near-term-acceleration', priorityEvidenceRefs: ['fixture:checker-acceleration'],
+      prerequisiteWorkIds: ['issue-346'], orderedAfterWorkIds: [],
+      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'not-repeated',
+      rootCauseRef: 'github:issue/312', scopeClosure: 'closed',
+      exitCriteriaRef: 'github:issue/312#acceptance', nearTermConsumerRef: 'github:issue/316',
+      humanDecisionRef: null
+    }
+  ];
+  return observeCatalog(
+    `${SEC_ROADMAP_WORK_CATALOG_BEGIN}\n\`\`\`json\n${JSON.stringify({
+      schema: 'sec-roadmap-work-catalog-v1',
+      stageRef: 'fixture-work-selection-transition',
+      items
+    }, null, 2)}\n\`\`\`\n${SEC_ROADMAP_WORK_CATALOG_END}`
+  );
+}
 
 function lifecycle(): SecCurrentWorkLifecycleV1 {
   return {
@@ -60,7 +153,7 @@ function registry(
       const item = catalog.items.find((candidate) => candidate.workId === workId)!;
       return {
         manifestPath: `docs/work-packages/${item.packageId}.md`,
-        manifestDigest: `sha256:${String(index + 1).padStart(64, '0')}` as `sha256:${string}`,
+        manifestDigest: sha256({ fixture: 'registry-manifest', workId, index }) as `sha256:${string}`,
         source: 'default' as const,
         prNumber: null,
         baseSha: null,
@@ -72,15 +165,16 @@ function registry(
 }
 
 function receiptForCatalog(
-  catalog: SecRoadmapWorkCatalogV1,
+  observation: CatalogObservationV1,
   completedWorkIds: readonly string[] = [],
   current: SecCurrentWorkLifecycleV1 = lifecycle()
 ) {
+  const { catalog, roadmapRevision } = observation;
   return createSecWorkDecisionReceiptV1({
     repository: 'sec-platform/sec',
     exactMain,
     exactMainTree,
-    roadmapRevision: rawSha256(roadmapSource),
+    roadmapRevision,
     catalog,
     registry: registry(catalog, completedWorkIds),
     current,
@@ -89,51 +183,95 @@ function receiptForCatalog(
 }
 
 function receipt(completedWorkIds?: readonly string[]) {
-  const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
+  const observation = observeCatalog(roadmapSource);
+  const { catalog } = observation;
   const exactRepositoryCompletion = catalog.items.filter(({ packageId }) => (
     existsSync(`docs/work-packages/${packageId}.md`)
   )).map(({ workId }) => workId);
-  return receiptForCatalog(catalog, completedWorkIds ?? exactRepositoryCompletion);
+  return receiptForCatalog(observation, completedWorkIds ?? exactRepositoryCompletion);
 }
 
 describe('work-selection live contract', () => {
   test('canonical roadmap embeds one bounded normalized catalog', () => {
     const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
     expect(catalog.stageRef).toBe('r14-agent-operation');
-    expect(catalog.items.map(({ packageId }) => packageId)).toEqual([
-      'operation-read-plan-authority-canary-v1',
-      'controlled-pr-issue-disposition-single-writer-v1',
-      'git-worktree-physical-closeout-v1',
-      'delegation-consumer-zero-retirement-v1',
-      'candidate-control-transaction-v1',
-      'typescript-7-checker-acceleration-v1',
-      'execution-wave-v1'
-    ]);
+    expect(catalog.items.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(catalog.items.map(({ packageId }) => packageId)).size)
+      .toBe(catalog.items.length);
     expect(() => parseSecRoadmapWorkCatalogV1(
       `${roadmapSource}\n${SEC_ROADMAP_WORK_CATALOG_BEGIN}`
     )).toThrow(/exactly one ordered catalog marker pair/u);
+    const first = catalog.items[0]!;
+    const last = catalog.items.at(-1)!;
     expect(() => parseSecRoadmapWorkCatalogV1(roadmapSource.replace(
-      '"currentSpecRef": "github:issue/346"',
+      `"currentSpecRef": "${first.currentSpecRef}"`,
       '"currentSpecRef": "github:issue/999"'
     ))).toThrow(/must bind the same Issue identity/u);
     expect(() => parseSecRoadmapWorkCatalogV1(roadmapSource.replace(
       '"prerequisiteWorkIds": [],\n      "orderedAfterWorkIds": []',
-      '"prerequisiteWorkIds": ["issue-275"],\n      "orderedAfterWorkIds": []'
+      `"prerequisiteWorkIds": ["${last.workId}"],\n      "orderedAfterWorkIds": []`
     ))).toThrow(/must precede it in roadmap order/u);
     expect(() => parseSecRoadmapWorkCatalogV1(roadmapSource.replace(
       '"schema": "sec-roadmap-work-catalog-v1",',
       '"schema": "sec-roadmap-work-catalog-v1",\n  "schema": "sec-roadmap-work-catalog-v1",'
     ))).toThrow(/duplicate key "schema"/u);
     expect(() => parseSecRoadmapWorkCatalogV1(roadmapSource.replace(
-      '"tracking": "issue-346",',
-      '"tracking": "issue-346",\n      "tracking": "issue-346",'
+      `"tracking": "${first.tracking}",`,
+      `"tracking": "${first.tracking}",\n      "tracking": "${first.tracking}",`
     ))).toThrow(/duplicate key "tracking"/u);
   });
 
-  test('exact repository package census keeps #186 open until closeout and selects issue-346', () => {
+  test('synthetic catalog revision is derived only from its exact fixture source', () => {
+    const observation = transitionCatalog();
+    const changedSynthetic = observeCatalog(observation.source.replace(
+      'fixture-work-selection-transition',
+      'fixture-work-selection-transition-changed'
+    ));
+    const changedLiveRevision = rawSha256(`${roadmapSource}\n<!-- unrelated live change -->\n`);
+
+    expect(observation.roadmapRevision).toBe(rawSha256(observation.source));
+    expect(changedSynthetic.roadmapRevision).not.toBe(observation.roadmapRevision);
+    expect(changedLiveRevision).not.toBe(rawSha256(roadmapSource));
+    expect(transitionCatalog().roadmapRevision).toBe(observation.roadmapRevision);
+  });
+
+  test('exact repository package census validates current selection without a transient Issue constant', () => {
+    const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
     const result = receipt();
+    expect(['select-next', 'none']).toContain(result.decision.status);
+    const readyOpenWorkIds = result.input.candidates.filter((candidate) => (
+      candidate.lifecycle === 'open' && candidate.readiness === 'ready'
+    )).map(({ workId }) => workId);
+    if (result.decision.status === 'none') {
+      expect(result.decision.selectedWorkId).toBeNull();
+      expect(readyOpenWorkIds).toHaveLength(0);
+      return;
+    }
+    const selectedWorkId = result.decision.selectedWorkId!;
+    expect(readyOpenWorkIds).toContain(selectedWorkId);
+    const selectedCatalogItem = catalog.items.find(({ workId }) => workId === selectedWorkId)!;
+    const selectedCandidate = result.input.candidates.find(({ workId }) => workId === selectedWorkId)!;
+    expect(selectedCandidate).toMatchObject({ lifecycle: 'open', readiness: 'ready' });
+    expect(existsSync(`docs/work-packages/${selectedCatalogItem.packageId}.md`)).toBeFalse();
+    const projection = compileSecWorkRollingProjectionV1(result);
+    expect(projection.active.packageId).toBe(selectedCatalogItem.packageId);
+    expect(projection.candidates.length).toBeLessThanOrEqual(5);
+    expect(new Set(projection.candidates.map(({ packageId }) => packageId)).size)
+      .toBe(projection.candidates.length);
+    expect(projection.receiptDigest).toBe(result.receiptDigest);
+    const rendered = renderSecWorkRollingPlanV1({ receipt: result, reviewedOn: '2026-08-12' });
+    expect(rendered).toContain(`### ${projection.active.packageId}`);
+    expect(rendered).toContain(`"receiptDigest": "${result.receiptDigest}"`);
+    expect(rendered.match(/^### [1-9][0-9]*\. /gmu) ?? [])
+      .toHaveLength(projection.candidates.length);
+  });
+
+  test('#352 completion evidence is the stable prerequisite transition for #186', () => {
+    const observation = transitionCatalog();
+    const { catalog } = observation;
+    const result = receiptForCatalog(observation, ['issue-346']);
     expect(result.decision.status).toBe('select-next');
-    expect(result.decision.selectedWorkId).toBe('issue-346');
+    expect(result.decision.selectedWorkId).toBe('issue-352');
     expect(result.input.candidates.find(({ workId }) => workId === 'issue-186')).toMatchObject({
       lifecycle: 'open',
       readiness: 'not-ready',
@@ -149,18 +287,16 @@ describe('work-selection live contract', () => {
       readiness: 'not-ready'
     });
     const projection = compileSecWorkRollingProjectionV1(result);
-    expect(projection.active.packageId).toBe('operation-read-plan-authority-canary-v1');
-    expect(projection.candidates).toHaveLength(5);
+    expect(projection.active.packageId).toBe('controlled-pr-issue-disposition-single-writer-v1');
+    expect(projection.candidates.map(({ packageId }) => packageId))
+      .not.toContain('operation-read-plan-authority-canary-v1');
     expect(projection.candidates.map(({ packageId }) => packageId)).not.toContain('execution-wave-v1');
-    expect(projection.receiptDigest).toBe(result.receiptDigest);
-    const rendered = renderSecWorkRollingPlanV1({ receipt: result, reviewedOn: '2026-08-12' });
-    expect(rendered).toContain(`### ${projection.active.packageId}`);
-    expect(rendered).toContain(`"receiptDigest": "${result.receiptDigest}"`);
-    expect(rendered.match(/^### [1-9][0-9]*\. /gmu)).toHaveLength(5);
   });
 
   test('published #352 manifest is consumed once and advances selection to #186', () => {
-    const result = receipt(['issue-346', 'issue-352']);
+    const observation = transitionCatalog();
+    const { catalog } = observation;
+    const result = receiptForCatalog(observation, ['issue-346', 'issue-352']);
     expect(result.decision.status).toBe('select-next');
     expect(result.decision.selectedWorkId).toBe('issue-186');
     expect(result.input.candidates.find(({ workId }) => workId === 'issue-352'))
@@ -175,13 +311,16 @@ describe('work-selection live contract', () => {
     expect(projection.candidates.map(({ packageId }) => packageId)).not.toContain(
       'execution-wave-v1'
     );
-    expect(projection.candidates).toHaveLength(3);
+    expect(projection.candidates.map(({ packageId }) => packageId)).toEqual([
+      'delegation-consumer-zero-retirement-v1',
+      'candidate-control-transaction-v1'
+    ]);
   });
 
   test('rolling topology remains canonical when the selected draft PR becomes continue-active', () => {
-    const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
-    const selected = receiptForCatalog(catalog, ['issue-346']);
-    const continued = receiptForCatalog(catalog, ['issue-346'], {
+    const observation = transitionCatalog();
+    const selected = receiptForCatalog(observation, ['issue-346']);
+    const continued = receiptForCatalog(observation, ['issue-346'], {
       ...lifecycle(),
       activeWorkId: 'issue-352',
       activeRef: 'active:issue-352',
@@ -197,12 +336,10 @@ describe('work-selection live contract', () => {
   });
 
   test('ready-successor count excludes a direct deferred successor', () => {
-    const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource.replace(
-      '"prerequisiteWorkIds": ["issue-321-candidate-control"],\n      "orderedAfterWorkIds": ["issue-312"]',
-      '"prerequisiteWorkIds": ["issue-346"],\n      "orderedAfterWorkIds": []'
-    ));
-    const result = receiptForCatalog(catalog);
-    expect(result.input.candidates.find(({ workId }) => workId === 'issue-349'))
+    const observation = transitionCatalog();
+    const { catalog } = observation;
+    const result = receiptForCatalog(observation);
+    expect(result.input.candidates.find(({ workId }) => workId === 'issue-312'))
       .toMatchObject({ lifecycle: 'deferred', readiness: 'not-ready' });
     expect(result.input.candidates.find(({ workId }) => workId === 'issue-346'))
       .toMatchObject({ blockedReadySuccessorCount: 1 });
@@ -225,7 +362,7 @@ describe('work-selection live contract', () => {
       exactMainTree,
       roadmapRevision: rawSha256(roadmapSource),
       catalog,
-      registry: registry(catalog, ['issue-346']),
+      registry: registry(catalog),
       current: lifecycle(),
       currentSpecs
     });

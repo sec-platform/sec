@@ -188,6 +188,11 @@ MainHealth recovery不是Work Selection的候选特例，也不允许形成`repa
 failure fingerprints与manifest identity，只提供routing eligibility，不提供scope、implementation、provider、
 Review或merge authority。
 
+依赖exact repository状态的合同测试只校验编译后选择的通用不变量，不把当前Issue或package identity写成
+永久期望；需要验证特定Issue依赖关系时，必须使用完整、冻结的synthetic catalog与completion registry。这样一个Work
+Package进入main只改变输入事实，不会要求手工改写下一项选择。pointer、rolling projection、manifest digest、
+TCB与其他内容身份均由其唯一compiler生成，文档只维护语义源，zero-write check负责拒绝派生值漂移。
+
 每个future degraded generation的repair manifest locator由
 `(repository, default branch, exact main, exact tree, owner, sorted failure fingerprints)`内容寻址派生，并把
 完整digest保留在path；已进入default的path永不复活，finding只在同一manifest/worktree/ref内产生新head。
