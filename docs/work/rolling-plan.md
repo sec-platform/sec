@@ -2,18 +2,18 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-13
+last-reviewed: 2026-08-14
 ---
 
 # SEC 滚动近期计划
 
-本投影由唯一MainHealth repair renderer绑定exact `main@7387e967776b3990ff1c77dc0fb2008b51d37fe0`、tree `6dec537c4383bc9dbe5d180410528aee391ccf77`、health `sha256:087b450ed61d7314c3f1d067e89717f1e1d409a578fa6e4d210a9d512dffe975`与排序failure fingerprints `sha256:a4638c7e8ff4a345a283501cfdf1dacf4460d102446be926a9b694705cc75546`。旧epoch说明、caller prose与普通WorkDecision都不能参与本次repair projection；长期DAG、current spec和普通选择权仍归其canonical owner。
+本投影由真实 Issue 186 closeout failure 绑定 exact `main@e8242316ca0c20807bbe5edf87bfec5da6658d7a`、tree `98fb2b6062565a354e4000b0278b7e9f317d63d3` 与 failure fingerprint `sha256:55b3afd72a8587f3bae44dc4ecb0cc04890a84f0ae849c535b307d756dbf9687`。旧epoch说明、caller prose与普通WorkDecision都不能扩大本次 exact-leaf repair；长期DAG、current spec和普通选择权仍归其canonical owner。
 
 ## 当前唯一 Work Package
 
-### default-branch-health-repair-7387e967776b3990ff1c77dc0fb2008b51d37fe0-ef4b810b0c1980ad476439d33089bad8f117b2b32c137f4b28bf1aec99fae80f
+### issue-186-retirement-fence-exact-leaf-repair-e8242316ca0c20807bbe5edf87bfec5da6658d7a-55b3afd72a8587f3bae44dc4ecb0cc04890a84f0ae849c535b307d756dbf9687
 
-Exact degraded-main repair for `main@7387e967776b3990ff1c77dc0fb2008b51d37fe0` and health `sha256:087b450ed61d7314c3f1d067e89717f1e1d409a578fa6e4d210a9d512dffe975`. This temporary projection has no ordinary work-selection authority.
+Exact Issue 186 closeout repair for one retained retirement-fence leaf. It removes the unrelated parent-tree scan while retaining the existing 64 MiB single-leaf bound and all no-follow identity checks. This temporary projection has no ordinary work-selection authority.
 
 ## 候选 Work Package
 
