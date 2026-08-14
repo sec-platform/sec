@@ -41,7 +41,7 @@ export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2 = Object.freeze([
   'package.json'
 ] as const);
 export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2 =
-  'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0:node-24.19.0:python-3.12.3:unzip-6.00:image-sha256-a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf:bun-1.3.14:action-producer-v2:sandbox-v4' as const;
+  'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0:node-24.19.0:python-3.12.3:unzip-6.00:image-sha256-a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf:container-init-v1:bun-1.3.14:action-producer-v2:sandbox-v4' as const;
 
 /**
  * The hosted SUT isolation policy is part of Action identity through
