@@ -1121,6 +1121,7 @@ test('test impact selector separates the shared lease owner from the SM-3 local 
   expect(selection.owners).toContain('semantic-mutation');
   expect(selection.owners).toContain('workspace-write-lease');
   expect(selection.fast).toEqual(expect.arrayContaining([
+    'tests/contract/repository-runtime.test.ts',
     'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
     'tests/unit/workspace-write-lease.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts',
@@ -1142,6 +1143,7 @@ test('test impact selector separates the shared lease owner from the SM-3 local 
   const leaseOnly = selectTestsForSources(['platform/shared/workspace-write-lease.ts']);
   expect(leaseOnly.owners).toEqual(['workspace-write-lease']);
   expect(leaseOnly.fast).toEqual(expect.arrayContaining([
+    'tests/contract/repository-runtime.test.ts',
     'tests/contract/semantic-mutation-apply-contract.test.ts',
     'tests/integration/pipeline-workspace-write-lease.test.ts',
     'tests/unit/semantic-mutation-isolated-child-fence.test.ts',

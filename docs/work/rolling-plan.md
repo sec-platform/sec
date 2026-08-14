@@ -7,78 +7,13 @@ last-reviewed: 2026-08-13
 
 # SEC 滚动近期计划
 
-本文件是validated WorkDecision的只读投影，不是roadmap、registry、current spec或selection authority。
-任何选择变化都从exact main重新观察；Issue/comment prose、AI评分、wall-clock、caller JSON和本文件自身
-均不能成为输入。receipt只能用于replay；effectful consumer必须调用trusted live adapter重新推导。
-
-```json
-{
-  "active": {
-    "currentSpecRef": "github:issue/186",
-    "currentSpecRevision": "sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a",
-    "decisionStatus": "selected",
-    "packageId": "git-worktree-physical-closeout-v1",
-    "tracking": "issue-186",
-    "workId": "issue-186"
-  },
-  "candidates": [
-    {
-      "currentSpecRef": "github:issue/346",
-      "currentSpecRevision": "sha256:b1b350a7bc0a9cc741fee5d8688580a419ad737c028a383e33153844fee5e729",
-      "decisionStatus": "eligible",
-      "packageId": "operation-read-plan-authority-canary-v1",
-      "tracking": "issue-346",
-      "workId": "issue-346"
-    },
-    {
-      "currentSpecRef": "github:issue/275",
-      "currentSpecRevision": "sha256:b8fc75c138ab7541f5a29736e6abf275f191bce6bb5df26fc1182e8e438b88a4",
-      "decisionStatus": "rejected",
-      "packageId": "delegation-consumer-zero-retirement-v1",
-      "tracking": "issue-275",
-      "workId": "issue-275"
-    },
-    {
-      "currentSpecRef": "github:issue/321",
-      "currentSpecRevision": "sha256:0cce9c5ae5ceb15227d7b89633d8a99b83a94a5dd235a0b8a041536ce4fef332",
-      "decisionStatus": "rejected",
-      "packageId": "candidate-control-transaction-v1",
-      "tracking": "issue-321",
-      "workId": "issue-321-candidate-control"
-    },
-    {
-      "currentSpecRef": "github:issue/312",
-      "currentSpecRevision": "sha256:5ddcc63bf3a8b1b13239b99a00a4e13fd933e54fa1e3c0f976ebe443721e9335",
-      "decisionStatus": "rejected",
-      "packageId": "typescript-7-checker-acceleration-v1",
-      "tracking": "issue-312",
-      "workId": "issue-312"
-    },
-    {
-      "currentSpecRef": "github:issue/349",
-      "currentSpecRevision": "sha256:2511c8cf2f52506c4bb7b54acc54bfb0a793e94d2b9e8604e22b1b7260e64fe9",
-      "decisionStatus": "rejected",
-      "packageId": "execution-wave-v1",
-      "tracking": "issue-349",
-      "workId": "issue-349"
-    }
-  ],
-  "catalogDigest": "sha256:66e1ae49a02cbec9c9e98446ba1617356f5692503d1ad4e19a5fee05201e5ab1",
-  "decisionDigest": "sha256:1e95cc8235cdc2c13436e27166a548b8c1a27b84256445d335afdb3d3f1fee8c",
-  "exactMain": "4c2dfbac5bfd5a2edf38e5ec7e8c6ed394c152dd",
-  "projectionDigest": "sha256:e932efcb0a7f01a4bcb2cafdc6653c903bab319b5aacff7807e0653e98276022",
-  "receiptDigest": "sha256:d828313cfe4e383d3695ec91f0ac0cc1b48851482c180899ef2b74971a134b90",
-  "roadmapRevision": "sha256:d6fdab676cbb8ec7b2b61c1a60d62b0f59fc6c75f79b65ec72b9d823793c54e8",
-  "schema": "sec-work-rolling-projection-v1"
-}
-```
+本投影由唯一MainHealth repair renderer绑定exact `main@918578feb1557302bbec23c735fc0de5c6bce8eb`、tree `c5a3e6c366d9795e29be3e52b31871d3b3484a84`、health `sha256:dd487615c38abb569a36891ec9d8b841c30317a3770ddd2c1c28ab194d54f01e`与排序failure fingerprints `sha256:108b94e78a55084fa14ba8fda7d2cf38b308f02c5dec42735b3f8280a4d6cd1b`。旧epoch说明、caller prose与普通WorkDecision都不能参与本次repair projection；长期DAG、current spec和普通选择权仍归其canonical owner。
 
 ## 当前唯一 Work Package
 
-### git-worktree-physical-closeout-v1
+### default-branch-health-repair-918578feb1557302bbec23c735fc0de5c6bce8eb-21fdeeea25e3879ad4140f254c3ab673f61923adfb79826d8ca87fe4f6e764a6
 
-Work identity `issue-186`; current spec `github:issue/186` at
-`sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a`; decision `sha256:1e95cc8235cdc2c13436e27166a548b8c1a27b84256445d335afdb3d3f1fee8c`.
+Exact degraded-main repair for `main@918578feb1557302bbec23c735fc0de5c6bce8eb` and health `sha256:dd487615c38abb569a36891ec9d8b841c30317a3770ddd2c1c28ab194d54f01e`. This temporary projection has no ordinary work-selection authority.
 
 ## 候选 Work Package
 
