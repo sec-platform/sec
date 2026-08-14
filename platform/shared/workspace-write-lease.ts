@@ -6,14 +6,17 @@ import path from 'node:path';
 import { canonicalEquals, digest, sha256 } from './canonical-primitives.ts';
 import { ensureDir, type CommitFence } from './fs.ts';
 import {
+  PHYSICAL_NO_FOLLOW_SCHEMA_V1,
   assertSameNoFollowDirectoryIdentityV1,
   deleteRetainedNoFollowEntryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
+  inspectNoFollowOrdinaryFileEntryV1,
   publishExclusiveDurableCanonicalFileV1,
   readNoFollowOrdinaryFileV1,
   relocateRetainedNoFollowDirectoryAcrossParentsV1,
-  scanNoFollowDirectoryTreeV1
+  scanNoFollowDirectoryTreeV1,
+  type PhysicalDirectoryIdentityV1
 } from './physical-no-follow.ts';
 import { ISOLATED_VERIFICATION_ENV_KEY } from './process.ts';
 import { isSemanticMutationStagingWorkspace } from './semantic-mutation-staging-boundary.ts';
@@ -165,7 +168,7 @@ export interface WorkspaceWriteLeaseHandle {
   relocate(nextWorkspaceRoot: string): Promise<void>;
   /** Exact active mutable subtree; valid only after `assertOwned()`. */
   ownedNamespace(): Promise<Readonly<{ workspaceRoot: string; relativePath: '.sec/workspace-write-lease' }>>;
-  retireOwnedNamespace(intentDigest: string, proofParent?: import('./physical-no-follow.ts').PhysicalDirectoryIdentityV1): Promise<WorkspaceWriteLeaseRetirementReceipt>;
+  retireOwnedNamespace(intentDigest: string, proofParent: import('./physical-no-follow.ts').PhysicalDirectoryIdentityV1): Promise<WorkspaceWriteLeaseRetirementReceipt>;
   release(): Promise<void>;
 }
 
@@ -892,6 +895,52 @@ function physicalWorkspaceIdentityDigestV2(workspace: Pick<import('./physical-no
   });
 }
 
+type WorkspaceWriteLeaseRetirementRecoveryInputV1 = Readonly<{
+  workspaceRoot: string;
+  intentDigest: string;
+  proofParent: PhysicalDirectoryIdentityV1;
+}>;
+
+function snapshotRetirementRecoveryInputV1(input: WorkspaceWriteLeaseRetirementRecoveryInputV1): WorkspaceWriteLeaseRetirementRecoveryInputV1 {
+  let workspaceRoot: unknown;
+  let intentDigest: unknown;
+  let suppliedProofParent: unknown;
+  try {
+    workspaceRoot = input.workspaceRoot;
+    intentDigest = input.intentDigest;
+    suppliedProofParent = input.proofParent;
+  } catch {
+    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease recovery input cannot be observed');
+  }
+  if (typeof workspaceRoot !== 'string' || typeof intentDigest !== 'string' ||
+    !/^sha256:[0-9a-f]{64}$/u.test(intentDigest) || suppliedProofParent === null ||
+    typeof suppliedProofParent !== 'object' || Array.isArray(suppliedProofParent)) {
+    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease recovery input is invalid');
+  }
+  let proofParent: PhysicalDirectoryIdentityV1;
+  try {
+    const candidate = suppliedProofParent as Partial<PhysicalDirectoryIdentityV1>;
+    const snapshot = Object.freeze({
+      schema: candidate.schema,
+      path: candidate.path,
+      finalPath: candidate.finalPath,
+      device: candidate.device,
+      inode: candidate.inode,
+      objectId: candidate.objectId
+    });
+    if (snapshot.schema !== PHYSICAL_NO_FOLLOW_SCHEMA_V1 || typeof snapshot.path !== 'string' ||
+      typeof snapshot.finalPath !== 'string' || typeof snapshot.device !== 'string' ||
+      typeof snapshot.inode !== 'string' || typeof snapshot.objectId !== 'string') {
+      throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease recovery proof parent is invalid');
+    }
+    proofParent = assertSameNoFollowDirectoryIdentityV1(snapshot as PhysicalDirectoryIdentityV1, 'Workspace lease retirement recovery proof parent').target;
+  } catch (error) {
+    if (error instanceof WorkspaceWriteLeaseError) throw error;
+    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease recovery proof parent cannot be observed');
+  }
+  return Object.freeze({ workspaceRoot: path.resolve(workspaceRoot), intentDigest, proofParent });
+}
+
 function retirementTerminalTokenDigest(token: WorkspaceWriteLeaseToken): string {
   return sha256({ domain: 'workspace-write-lease-retirement-terminal-token-v1', token });
 }
@@ -958,8 +1007,12 @@ export function assertWorkspaceWriteLeaseRetirementV1(input: {
   if (physicalWorkspaceIdentityDigestV2(workspace) !== receipt.workspaceIdentityDigest) {
     throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement identity digest does not bind the live workspace');
   }
-  const bytes = readNoFollowOrdinaryFileV1(parent, receipt.fenceName);
-  if (bytes === null) throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement fence is absent');
+  const entry = inspectNoFollowOrdinaryFileEntryV1(parent, receipt.fenceName);
+  if (entry === null) throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement fence is absent');
+  if (entry.kind !== 'file' || entry.bytes === null) {
+    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement fence changed before completion');
+  }
+  const bytes = entry.bytes;
   let current: WorkspaceWriteLeaseRetirementReceipt;
   try { current = JSON.parse(Buffer.from(bytes).toString('utf8')) as WorkspaceWriteLeaseRetirementReceipt; } catch {
     throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement fence is malformed');
@@ -968,8 +1021,6 @@ export function assertWorkspaceWriteLeaseRetirementV1(input: {
   if (currentReceipt.retirementDigest !== receipt.retirementDigest || !canonicalEquals(currentReceipt, receipt)) {
     throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement fence differs from its receipt');
   }
-  const entry = scanNoFollowDirectoryTreeV1(parent).find((candidate) => candidate.relativePath === receipt.fenceName);
-  if (!entry || entry.kind !== 'file') throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement fence changed before completion');
   return Object.freeze({ parent, entry });
 }
 
@@ -1087,43 +1138,26 @@ export function assertWorkspaceWriteLeaseRetirementProofV1(input: {
  * Callers supply just the live tombstone locator and the already-durable
  * closeout intent digest; no JSON receipt supplied by a caller is trusted.
  */
-export function recoverWorkspaceWriteLeaseRetirementV1(input: {
-  readonly workspaceRoot: string;
-  readonly intentDigest: string;
-  readonly proofParent?: import('./physical-no-follow.ts').PhysicalDirectoryIdentityV1;
-}): WorkspaceWriteLeaseRetirementReceipt {
-  if (!/^sha256:[0-9a-f]{64}$/u.test(input.intentDigest)) {
-    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease recovery intent digest is invalid');
+export function recoverWorkspaceWriteLeaseRetirementV1(input: WorkspaceWriteLeaseRetirementRecoveryInputV1): WorkspaceWriteLeaseRetirementReceipt {
+  const stableInput = snapshotRetirementRecoveryInputV1(input);
+  const workspace = inspectNoFollowDirectoryChainV1(stableInput.workspaceRoot, 'Workspace lease retirement recovery workspace').target;
+  const parent = inspectNoFollowDirectoryChainV1(retirementFenceParent(stableInput.workspaceRoot), 'Workspace lease retirement recovery parent').target;
+  const proofParent = stableInput.proofParent;
+  const expectedFenceName = retirementFenceName(physicalWorkspaceIdentityDigestV2(workspace));
+  const fenceEntry = inspectNoFollowOrdinaryFileEntryV1(parent, expectedFenceName);
+  if (fenceEntry === null || fenceEntry.kind !== 'file' || fenceEntry.bytes === null) {
+    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement recovery fence is absent for this tombstone identity');
   }
-  const workspace = inspectNoFollowDirectoryChainV1(input.workspaceRoot, 'Workspace lease retirement recovery workspace').target;
-  const parent = inspectNoFollowDirectoryChainV1(retirementFenceParent(input.workspaceRoot), 'Workspace lease retirement recovery parent').target;
-  const proofParent = input.proofParent === undefined
-    ? parent
-    : assertSameNoFollowDirectoryIdentityV1(input.proofParent, 'Workspace lease retirement recovery proof parent').target;
-  const candidates = scanNoFollowDirectoryTreeV1(parent)
-    .filter((entry) => /^\.workspace-write-lease-retired-[0-9a-f]{64}\.json$/u.test(entry.relativePath));
-  const matches: WorkspaceWriteLeaseRetirementReceipt[] = [];
-  for (const entry of candidates) {
-    // Other same-parent worktrees legitimately retain their own independent
-    // terminal fences.  They are neither a namespace nor an authority for
-    // this tombstone, so select by the live physical object instead of asking
-    // for global sibling uniqueness.
-    if (entry.kind !== 'file') continue;
-    const bytes = readNoFollowOrdinaryFileV1(parent, entry.relativePath);
-    if (bytes === null) continue;
-    try {
-      const receipt = validateRetirementReceipt(JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown);
-      if (receipt.fenceName === entry.relativePath && receipt.intentDigest === input.intentDigest &&
-        receipt.workspaceDevice === workspace.device && receipt.workspaceInode === workspace.inode) matches.push(receipt);
-    } catch {
-      // A malformed fence for a different sibling cannot impersonate this
-      // identity.  A matching identity still requires a fully valid receipt.
-    }
+  let receipt: WorkspaceWriteLeaseRetirementReceipt;
+  try {
+    receipt = validateRetirementReceipt(JSON.parse(Buffer.from(fenceEntry.bytes).toString('utf8')) as unknown);
+  } catch {
+    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement recovery fence is malformed');
   }
-  if (matches.length !== 1) {
-    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement recovery fence is absent or ambiguous for this tombstone identity');
+  if (receipt.fenceName !== expectedFenceName || receipt.intentDigest !== stableInput.intentDigest ||
+    receipt.workspaceDevice !== workspace.device || receipt.workspaceInode !== workspace.inode) {
+    throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement recovery fence does not bind this tombstone identity and intent');
   }
-  const receipt = matches[0]!;
   if (physicalWorkspaceIdentityDigestV2(workspace) !== receipt.workspaceIdentityDigest) {
     throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement recovery identity digest differs from the live tombstone');
   }
@@ -1131,7 +1165,7 @@ export function recoverWorkspaceWriteLeaseRetirementV1(input: {
   if (transition.workspaceDevice !== workspace.device || transition.workspaceInode !== workspace.inode) {
     throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement transition does not bind the fence identity');
   }
-  const paths = workspaceWriteLeasePathsFor(input.workspaceRoot);
+  const paths = workspaceWriteLeasePathsFor(stableInput.workspaceRoot);
   const namespacePresence = inspectExactNoFollowDirectoryPresenceV1(paths.root, 'Workspace lease retirement recovery namespace');
   if (transition.namespaceTombstoneParentDevice !== proofParent.device || transition.namespaceTombstoneParentInode !== proofParent.inode) {
     throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease recovery proof parent differs from transition');
@@ -1164,7 +1198,7 @@ export function recoverWorkspaceWriteLeaseRetirementV1(input: {
 function readPreterminalRetirementReceiptV1(input: {
   readonly workspaceRoot: string;
   readonly intentDigest: string;
-  readonly proofParent?: import('./physical-no-follow.ts').PhysicalDirectoryIdentityV1;
+  readonly proofParent: PhysicalDirectoryIdentityV1;
 }): WorkspaceWriteLeaseRetirementReceipt | null {
   const workspace = inspectNoFollowDirectoryChainV1(input.workspaceRoot, 'Preterminal retirement workspace').target;
   const fenceParent = inspectNoFollowDirectoryChainV1(
@@ -1180,9 +1214,7 @@ function readPreterminalRetirementReceiptV1(input: {
     receipt.workspaceInode !== workspace.inode || receipt.workspaceIdentityDigest !== physicalWorkspaceIdentityDigestV2(workspace)) {
     throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Preterminal retirement fence does not bind the live workspace and intent');
   }
-  const proofParent = input.proofParent === undefined
-    ? fenceParent
-    : assertSameNoFollowDirectoryIdentityV1(input.proofParent, 'Preterminal retirement proof parent').target;
+  const proofParent = assertSameNoFollowDirectoryIdentityV1(input.proofParent, 'Preterminal retirement proof parent').target;
   const transition = readRetirementTransitionProof(proofParent, receipt);
   const namespace = inspectNoFollowDirectoryChainV1(
     workspaceWriteLeasePathsFor(input.workspaceRoot).root, 'Preterminal retirement namespace'
@@ -1205,12 +1237,10 @@ function readPreterminalRetirementReceiptV1(input: {
 function discardExactPreFenceTransitionV1(input: {
   readonly workspaceRoot: string;
   readonly intentDigest: string;
-  readonly proofParent?: import('./physical-no-follow.ts').PhysicalDirectoryIdentityV1;
+  readonly proofParent: import('./physical-no-follow.ts').PhysicalDirectoryIdentityV1;
 }): void {
   const workspace = inspectNoFollowDirectoryChainV1(input.workspaceRoot, 'Pre-fence transition workspace').target;
-  const parent = input.proofParent === undefined
-    ? inspectNoFollowDirectoryChainV1(retirementFenceParent(input.workspaceRoot), 'Pre-fence transition parent').target
-    : assertSameNoFollowDirectoryIdentityV1(input.proofParent, 'Pre-fence transition proof parent').target;
+  const parent = assertSameNoFollowDirectoryIdentityV1(input.proofParent, 'Pre-fence transition proof parent').target;
   const entries = scanNoFollowDirectoryTreeV1(parent);
   if (entries.length === 0) return;
   const transitionNamePattern = /^\.workspace-write-lease-transition-[0-9a-f]{64}\.json$/u;
@@ -1276,21 +1306,18 @@ function discardExactPreFenceTransitionV1(input: {
  * authority from the canonical lease ledger/fence, and never accepts a caller
  * supplied receipt or namespace list.
  */
-export async function resumeWorkspaceWriteLeaseRetirementV1(input: {
-  readonly workspaceRoot: string;
-  readonly intentDigest: string;
-  readonly proofParent?: import('./physical-no-follow.ts').PhysicalDirectoryIdentityV1;
-}): Promise<WorkspaceWriteLeaseRetirementReceipt> {
+export async function resumeWorkspaceWriteLeaseRetirementV1(input: WorkspaceWriteLeaseRetirementRecoveryInputV1): Promise<WorkspaceWriteLeaseRetirementReceipt> {
+  const stableInput = snapshotRetirementRecoveryInputV1(input);
   try {
-    const recovered = recoverWorkspaceWriteLeaseRetirementV1(input);
+    const recovered = recoverWorkspaceWriteLeaseRetirementV1(stableInput);
     return recovered;
   } catch (error) {
     if (!(error instanceof WorkspaceWriteLeaseError) || error.code !== 'WORKSPACE-WRITE-LEASE-003') throw error;
   }
-  const preterminal = readPreterminalRetirementReceiptV1(input);
+  const preterminal = readPreterminalRetirementReceiptV1(stableInput);
   if (preterminal !== null) {
     try {
-      const unexpected = await acquireWorkspaceWriteLease(input.workspaceRoot, {
+      const unexpected = await acquireWorkspaceWriteLease(stableInput.workspaceRoot, {
         [RETIREMENT_RECOVERY_ACQUIRE_V1]: preterminal
       } as InternalWorkspaceWriteLeaseAcquireOptions);
       await unexpected.release().catch(() => undefined);
@@ -1298,19 +1325,19 @@ export async function resumeWorkspaceWriteLeaseRetirementV1(input: {
     } catch (error) {
       if (error instanceof WorkspaceWriteLeaseRetirementRecoveryReadyV1 &&
         error.receipt.retirementDigest === preterminal.retirementDigest) {
-        return recoverWorkspaceWriteLeaseRetirementV1(input);
+        return recoverWorkspaceWriteLeaseRetirementV1(stableInput);
       }
       throw error;
     }
   }
-  discardExactPreFenceTransitionV1(input);
+  discardExactPreFenceTransitionV1(stableInput);
   // No valid completed fence: only an intact canonical active lease can
   // continue the transition.  `acquire` verifies the ledger and refuses live,
   // foreign, malformed, or unknown owner states; it is not a JSON authority.
-  const lease = await acquireWorkspaceWriteLease(input.workspaceRoot);
+  const lease = await acquireWorkspaceWriteLease(stableInput.workspaceRoot);
   try {
     await lease.assertOwned();
-    return await lease.retireOwnedNamespace(input.intentDigest, input.proofParent);
+    return await lease.retireOwnedNamespace(stableInput.intentDigest, stableInput.proofParent);
   } finally {
     await lease.release().catch(() => undefined);
   }
@@ -1332,16 +1359,18 @@ export function completeWorkspaceWriteLeaseRetirementV1(input: {
   } else {
     const receipt = validateRetirementReceipt(input.receipt);
     const parent = inspectNoFollowDirectoryChainV1(retirementFenceParent(input.workspaceRoot), 'Workspace lease retirement completion parent').target;
-    const bytes = readNoFollowOrdinaryFileV1(parent, receipt.fenceName);
-    if (bytes === null) throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement completion fence is absent');
+    const entry = inspectNoFollowOrdinaryFileEntryV1(parent, receipt.fenceName);
+    if (entry === null) throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement completion fence is absent');
+    if (entry.kind !== 'file' || entry.bytes === null) {
+      throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement completion fence changed');
+    }
+    const bytes = entry.bytes;
     let current: unknown;
     try { current = JSON.parse(Buffer.from(bytes).toString('utf8')) as unknown; } catch {
       throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement completion fence is malformed');
     }
     const currentReceipt = validateRetirementReceipt(current);
     if (!canonicalEquals(currentReceipt, receipt)) throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement completion fence differs from receipt');
-    const entry = scanNoFollowDirectoryTreeV1(parent).find((candidate) => candidate.relativePath === receipt.fenceName);
-    if (!entry || entry.kind !== 'file') throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement completion fence changed');
     validated = Object.freeze({ parent, entry });
   }
   deleteRetainedNoFollowEntryV1({
@@ -2554,7 +2583,7 @@ export function createWorkspaceWriteLeaseManager(
         await assertHandle();
         return Object.freeze({ workspaceRoot: currentWorkspaceRoot, relativePath: '.sec/workspace-write-lease' as const });
       };
-      const retireOwnedNamespace = async (intentDigest: string, suppliedProofParent?: import('./physical-no-follow.ts').PhysicalDirectoryIdentityV1): Promise<WorkspaceWriteLeaseRetirementReceipt> => {
+      const retireOwnedNamespace = async (intentDigest: string, suppliedProofParent: import('./physical-no-follow.ts').PhysicalDirectoryIdentityV1): Promise<WorkspaceWriteLeaseRetirementReceipt> => {
         await assertHandle();
         if (!/^sha256:[0-9a-f]{64}$/u.test(intentDigest)) throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement intent digest is invalid');
         return withControlPlaneLock(token, async () => {
@@ -2577,9 +2606,7 @@ export function createWorkspaceWriteLeaseManager(
           const fenceParent = inspectNoFollowDirectoryChainV1(
             retirementFenceParent(currentWorkspaceRoot), 'Workspace lease retirement fence parent'
           ).target;
-          const proofParent = suppliedProofParent === undefined
-            ? fenceParent
-            : assertSameNoFollowDirectoryIdentityV1(suppliedProofParent, 'Workspace lease retirement proof parent').target;
+          const proofParent = assertSameNoFollowDirectoryIdentityV1(suppliedProofParent, 'Workspace lease retirement proof parent').target;
           const transition = createRetirementTransition({
             workspaceIdentityDigest: token.workspaceIdentityDigest,
             workspaceDevice: workspace.device,
