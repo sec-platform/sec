@@ -91,6 +91,7 @@ import {
   CodexDevelopmentAssertHostedActionDependencyInputsV1,
   CodexDevelopmentAssertHostedActionParentEventV2,
   CodexDevelopmentAssertHostedSutSandboxCommandPlanV1,
+  CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1,
   CodexDevelopmentBuildHostedSutSandboxCommandPlanV1,
   CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1,
   CodexDevelopmentCandidateProcessEnvironmentV2,
@@ -124,6 +125,16 @@ const BASE = '3'.repeat(40);
 const BASE_TREE = '4'.repeat(40);
 const MANIFEST_PATH = 'docs/work-packages/exact-verification-v1.md';
 const RAW = `sha256:${'a'.repeat(64)}` as const;
+
+function gitFixture(root: string, args: readonly string[]): string {
+  const result = spawnSync('git', ['-C', root, ...args], {
+    encoding: 'utf8', windowsHide: true, timeout: 30_000
+  });
+  if (result.status !== 0) {
+    throw new Error(`Git fixture command failed: ${result.stderr || result.stdout}`);
+  }
+  return result.stdout.trim();
+}
 
 const digest = (value: string): VerificationActionKeyDigest =>
   `sha256:${value.repeat(64).slice(0, 64)}` as VerificationActionKeyDigest;
@@ -1503,6 +1514,71 @@ test('durable known failure reuse remains failed and never executes or promotes 
     const second = reused as unknown as CodexDevelopmentVerificationEvidenceV4;
     expect(second.status).toBe('failed');
     expect(second.gates[0]!.result).toMatchObject({ status: 'failed', disposition: 'reused' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('trusted bootstrap cleanliness excludes only its exact nested candidate checkout', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-bootstrap-nested-candidate-'));
+  const baseRoot = path.join(root, 'base');
+  const candidateRoot = path.join(baseRoot, 'candidate-sut');
+  try {
+    mkdirSync(baseRoot, { recursive: true });
+    gitFixture(baseRoot, ['init', '--quiet']);
+    gitFixture(baseRoot, ['config', 'user.email', 'sec-test@example.invalid']);
+    gitFixture(baseRoot, ['config', 'user.name', 'SEC Test']);
+    writeFileSync(path.join(baseRoot, '.gitignore'), 'ignored-residue.txt\n');
+    writeFileSync(path.join(baseRoot, 'base.txt'), 'base\n');
+    gitFixture(baseRoot, ['add', '.gitignore', 'base.txt']);
+    gitFixture(baseRoot, ['commit', '--quiet', '-m', 'base']);
+    const clone = spawnSync('git', ['clone', '--quiet', baseRoot, candidateRoot], {
+      encoding: 'utf8', windowsHide: true, timeout: 30_000
+    });
+    if (clone.status !== 0) throw new Error(`Git fixture clone failed: ${clone.stderr || clone.stdout}`);
+    gitFixture(candidateRoot, ['config', 'user.email', 'sec-test@example.invalid']);
+    gitFixture(candidateRoot, ['config', 'user.name', 'SEC Test']);
+    writeFileSync(path.join(candidateRoot, 'candidate.txt'), 'candidate\n');
+    gitFixture(candidateRoot, ['add', 'candidate.txt']);
+    gitFixture(candidateRoot, ['commit', '--quiet', '-m', 'candidate']);
+
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+      baseRoot, candidateRoot
+    })).not.toThrow();
+
+    const foreignBasePath = path.join(baseRoot, 'foreign.txt');
+    writeFileSync(foreignBasePath, 'foreign\n');
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+      baseRoot, candidateRoot
+    })).toThrow(/clean base and candidate/);
+    rmSync(foreignBasePath);
+
+    const ignoredBasePath = path.join(baseRoot, 'ignored-residue.txt');
+    writeFileSync(ignoredBasePath, 'ignored foreign base bytes\n');
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+      baseRoot, candidateRoot
+    })).toThrow(/clean base and candidate/);
+    rmSync(ignoredBasePath);
+
+    const dirtyCandidatePath = path.join(candidateRoot, 'dirty.txt');
+    writeFileSync(dirtyCandidatePath, 'dirty\n');
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+      baseRoot, candidateRoot
+    })).toThrow(/clean base and candidate/);
+    rmSync(dirtyCandidatePath);
+
+    const ignoredCandidatePath = path.join(candidateRoot, 'ignored-residue.txt');
+    writeFileSync(ignoredCandidatePath, 'ignored foreign candidate bytes\n');
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+      baseRoot, candidateRoot
+    })).toThrow(/clean base and candidate/);
+    rmSync(ignoredCandidatePath);
+
+    const candidateSubdirectory = path.join(candidateRoot, 'nested');
+    mkdirSync(candidateSubdirectory);
+    expect(() => CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({
+      baseRoot, candidateRoot: candidateSubdirectory
+    })).toThrow(/two exact Git checkout roots/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

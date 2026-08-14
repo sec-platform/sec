@@ -207,6 +207,7 @@ function validateVersionAuthority(
       [
         'kind', 'release', 'artifact', 'artifactSha256', 'baseImage', 'imageId',
         'imageBuildRevision', 'nodeVersion', 'nodeArtifact', 'nodeArtifactSha256',
+        'githubCliVersion', 'githubCliArtifact', 'githubCliArtifactSha256',
         'pythonVersion', 'zipExtractionCapability', 'containerInitCapability', 'sandboxRevision',
         'outerSutContainerCapabilities', 'sutResources',
         'roleProfiles', 'providerLeaseRef', 'providerLedgerSchema', 'providerLedgerAuthority',
@@ -235,10 +236,10 @@ function validateVersionAuthority(
       throw new Error(`${label}.versionAuthority.baseImage must be an exact Ubuntu image digest.`);
     }
     if (authority.imageId
-        !== 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf') {
+        !== 'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f') {
       throw new Error(`${label}.versionAuthority.imageId must be an exact built image digest.`);
     }
-    if (authority.imageBuildRevision !== 'trust-domains-node24-python312-archive-v7') {
+    if (authority.imageBuildRevision !== 'trust-domains-node24-python312-gh297-archive-v8') {
       throw new Error(`${label}.versionAuthority.imageBuildRevision must bind the image recipe revision.`);
     }
     if (authority.nodeVersion !== '24.19.0') {
@@ -250,6 +251,13 @@ function validateVersionAuthority(
     if (authority.nodeArtifactSha256
         !== '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647') {
       throw new Error(`${label}.versionAuthority.nodeArtifactSha256 must bind the exact Node.js binary.`);
+    }
+    if (authority.githubCliVersion !== '2.97.0'
+        || authority.githubCliArtifact
+          !== 'https://github.com/cli/cli/releases/download/v2.97.0/gh_2.97.0_linux_amd64.tar.gz'
+        || authority.githubCliArtifactSha256
+          !== 'a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112') {
+      throw new Error(`${label}.versionAuthority GitHub CLI identity is invalid.`);
     }
     if (authority.pythonVersion !== '3.12.3') {
       throw new Error(`${label}.versionAuthority.pythonVersion must bind the archive-inspection runtime.`);
@@ -345,10 +353,16 @@ function validateVersionAuthority(
     exactKeys(imageRetirement, ['ordinaryStopAuthority', 'superseded', 'requires'],
       `${label}.versionAuthority.imageRetirement`);
     const superseded = imageRetirement.superseded;
-    if (!Array.isArray(superseded) || superseded.length !== 3) {
-      throw new Error(`${label}.versionAuthority.imageRetirement.superseded must bind three decisions.`);
+    if (!Array.isArray(superseded) || superseded.length !== 4) {
+      throw new Error(`${label}.versionAuthority.imageRetirement.superseded must bind four decisions.`);
     }
     const expectedSuperseded = [
+      {
+        imageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
+        imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-archive-v7',
+        replacementImageId: 'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f',
+        decision: 'superseded-by-trust-domains-node24-python312-gh297-archive-v8'
+      },
       {
         imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
         imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v6',
