@@ -11,7 +11,7 @@ selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
 manifest: docs/work-packages/default-branch-health-repair-5c5200fddddd9e6601bb514d61141579867f1a3b-67789605f8d93b4ef6027add252b1c84819ba4ef38869e3222dedc34b73c11db.md
-manifestDigest: sha256:1eb32ac56c3025869012c8737f31f4ebaa3478e9aea9dae8ca75f88259afa243
+manifestDigest: sha256:4b9b729db9b87628d7a2c64806cc704b66bd24bf96d340106e2d88269d4145f6
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none
