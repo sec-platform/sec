@@ -337,8 +337,37 @@ async function observeWorkingState(
   // Every other status record, including `.sec` siblings, remains a blocker.
   const retained = records.filter((entry) => {
     if (leaseOwnedRelativePath === null) return true;
-    const candidate = entry.startsWith('?? ') || entry.startsWith('!! ') ? entry.slice(3).replaceAll('\\', '/') : null;
-    return candidate === null || (candidate !== leaseOwnedRelativePath && !candidate.startsWith(`${leaseOwnedRelativePath}/`));
+    const candidate = entry.startsWith('?? ') || entry.startsWith('!! ')
+      ? entry.slice(3).replaceAll('\\', '/').replace(/\/+$/u, '')
+      : null;
+    if (candidate === null) return true;
+    if (candidate === leaseOwnedRelativePath || candidate.startsWith(`${leaseOwnedRelativePath}/`)) {
+      return false;
+    }
+    if (!leaseOwnedRelativePath.startsWith(`${candidate}/`)) return true;
+
+    // Git collapses a fully ignored directory to its nearest ignored ancestor.
+    // Accept that projection only when a retained no-follow census proves the
+    // ancestor contains exactly this held lease namespace and no sibling.
+    // A reparse node, unsupported entry, oversized leaf, missing namespace, or
+    // any foreign sibling keeps the ignored record as a blocker.
+    try {
+      const ancestor = inspectNoFollowDirectoryChainV1(
+        path.join(targetPath, ...candidate.split('/')),
+        'Lease-owned collapsed ignored ancestor'
+      ).target;
+      const ownedSuffix = leaseOwnedRelativePath.slice(candidate.length + 1);
+      const entries = scanNoFollowDirectoryTreeV1(ancestor);
+      return !entries.some((observed) => (
+        observed.relativePath === ownedSuffix
+        || observed.relativePath.startsWith(`${ownedSuffix}/`)
+      )) || entries.some((observed) => (
+        observed.relativePath !== ownedSuffix
+        && !observed.relativePath.startsWith(`${ownedSuffix}/`)
+      ));
+    } catch {
+      return true;
+    }
   });
   const digest = detailDigestV1({ records: retained });
   if (retained.length === 0) return { digest, blocker: null };
@@ -647,6 +676,14 @@ async function prepareWorktreePhysicalCloseoutUnderLeaseV1(
   const targetLeaseNamespace = physicalDirectory(path.join(ownedNamespace.workspaceRoot, ownedNamespace.relativePath), 'Target writer lease namespace');
   const rawInventory = observeWorktreePhysicalInventoryV1(targetPath);
   const inventory = withoutLeaseOwnedNamespace(rawInventory);
+  const workingReadback = await observeWorkingState(
+    repository.root,
+    targetPath,
+    ownedNamespace.relativePath
+  );
+  if (workingReadback.blocker !== null || workingReadback.digest !== working.digest) {
+    blockers.push(workingReadback.blocker ?? 'working-state-changed-during-authorization');
+  }
   const repositoryBinding = {
     root: repository.root,
     rootDevice: repository.rootDevice,
