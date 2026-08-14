@@ -40,12 +40,16 @@ SUT污染trusted容器。
 
 该 Adapter 必须同时满足：
 
-- runner release、archive digest、Node LTS官方archive digest、Python archive-inspection runtime、Ubuntu base image digest、最终Docker image ID、
+- runner release、archive digest、Node LTS官方archive digest、GitHub CLI官方archive digest、Python archive-inspection runtime、Ubuntu base image digest、最终Docker image ID、
   三角色label profile与lifecycle owner全部进入
   `docs/governance/external-capability-ledger.yaml`；
-- image首次构建才下载并校验这些exact artifacts；后续启动必须按final image ID复用本地content-addressed
+- image首次构建才下载并校验这些exact artifacts；`gh`是trusted WorkDecision/activation的必需API capability，
+  必须在任何runner registration token effect之前由固定版本、archive SHA-256、镜像label和实际`gh --version`
+  build readback共同证明，禁止在job内`apt install`、临时下载或因ambient host工具碰巧存在而通过。后续启动必须按final image ID复用本地content-addressed
   Docker layers。cache absent才允许重新下载，重建出的image ID不同则需要新的provider revision，禁止把
-  mutable apt结果静默冒充旧revision；
+  mutable apt结果静默冒充旧revision。Action/Evidence所消费的hosted provider revision必须显式绑定同一
+  GitHub CLI version、archive SHA-256与final image ID；focused CI contract直接把runner owner常量与revision projection比较，
+  禁止ledger、image、revision或测试fixture只更新其中一部分；
 - 注册 token 只经进程 stdin 进入一次性配置，不进入argv、environment、image、日志或durable state；
 - container 不挂载host path或Docker socket，不接收repository secret目录；
 - 三个持久runner container均由Docker `--init`提供PID-1 child reaper；start与每次readback都必须验证
@@ -100,6 +104,12 @@ SUT污染trusted容器。
   保留在runner私有路径且不进入chroot，命中cache不得重复下载。runner image还必须冻结workflow setup所需的
   archive tools：Node `.tar.xz`由`xz`处理，`setup-bun`的`.zip`由Info-ZIP `unzip 6.00`处理；两者都在
   Docker build内做可执行readback并由build revision与最终image ID绑定，缺少能力不得延迟到job内重复安装；
+- image rebuild只由其canonical capability tuple变化触发：base digest、runner/Node/GitHub CLI/Python或系统库、
+  sandbox substrate、entrypoint/label recipe。仓库业务源码、`package.json`/`bun.lock`、TypeScript、Prettier、
+  Playwright package/browser cache、测试或Workflow内容变化只失效各自dependency/Evidence节点，不重建runner
+  image；新增能力层追加在稳定base/Node/runner层之后，使单一工具升级只失效自身及后续label层。版本检查只
+  产生候选decision，不自动升级；只有consumer需要、security/support触发或量化收益成立才一次性更新tuple、
+  重建、冻结新image ID并将旧ID登记为superseded；
 - workflow route、runner version或sandbox substrate变化会改变provider/environment revision并使对应
   Evidence失效，但branch、PR、amend和无因果文档变化不会单独要求重跑Linux SUT；
 - Playwright/Chromium 是 Web runtime acceptance capability，不是所有 job 的默认执行义务；runner image

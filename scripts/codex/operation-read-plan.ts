@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 
-import { spawnSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -13,7 +12,6 @@ import {
   type SecOperationReadPlanInputV1
 } from '../../platform/shared/agent-operation-read-plan-contract.ts';
 import type { SecTaskCapsuleV1 } from '../../platform/shared/agent-task-capsule-contract.ts';
-import { rawSha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   resolveTrustedWorkerTaskCapsuleV1,
   SecTaskCapsuleProjectionUnavailableError,
@@ -22,66 +20,6 @@ import {
 
 function fail(message: string): never {
   throw new Error(`operation-read-plan: ${message}`);
-}
-
-function gitOutput(cwd: string, args: readonly string[]): {
-  readonly status: number;
-  readonly stdout: string;
-  readonly stderr: string;
-} {
-  const result = spawnSync('git', [...args], {
-    cwd,
-    encoding: 'utf8',
-    windowsHide: true,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
-  });
-  return {
-    status: result.status ?? -1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? ''
-  };
-}
-
-function gitBytesOutput(cwd: string, args: readonly string[]): {
-  readonly status: number;
-  readonly stdout: Buffer;
-  readonly stderr: Buffer;
-} {
-  const result = spawnSync('git', [...args], {
-    cwd,
-    windowsHide: true,
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
-  });
-  return {
-    status: result.status ?? -1,
-    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? ''),
-    stderr: Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(result.stderr ?? '')
-  };
-}
-
-function requireGitOutput(cwd: string, args: readonly string[], label: string): string {
-  const result = gitOutput(cwd, args);
-  if (result.status !== 0) fail(`${label}: ${result.stderr.trim()}`);
-  return result.stdout.trim();
-}
-
-function requireBlobObservation(cwd: string, revision: string, repositoryPath: string): Readonly<{
-  revision: string;
-  contentDigest: `sha256:${string}`;
-}> {
-  const value = requireGitOutput(
-    cwd,
-    ['rev-parse', '--verify', `${revision}:${repositoryPath}`],
-    `exact blob revision for ${repositoryPath}`
-  );
-  if (!/^[0-9a-f]{40,64}$/u.test(value)) {
-    fail(`exact blob revision is malformed for ${repositoryPath}.`);
-  }
-  const content = gitBytesOutput(cwd, ['cat-file', 'blob', value]);
-  if (content.status !== 0) {
-    fail(`exact blob content for ${repositoryPath}: ${rawSha256(content.stderr)}`);
-  }
-  return Object.freeze({ revision: value, contentDigest: rawSha256(content.stdout) });
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -121,11 +59,6 @@ export async function resolveProspectiveWorkerOperationV1(
     runtimeRootInput,
     candidateRootInput
   );
-  const manifestObservation = requireBlobObservation(
-    observation.candidateRoot,
-    observation.targetCandidate,
-    observation.manifestPath
-  );
   const sources = Object.freeze([
     ...observation.authorityOwners.map((source) => Object.freeze({
       id: source.id,
@@ -144,8 +77,8 @@ export async function resolveProspectiveWorkerOperationV1(
       ref: observation.manifestPath,
       owner: 'document-control-a0',
       reasonCode: 'bind-operation-scope',
-      revision: manifestObservation.revision,
-      contentDigest: manifestObservation.contentDigest
+      revision: observation.manifestRevision,
+      contentDigest: observation.manifestDigest
     })
   ]);
   const requiredRefs = Object.freeze(sources.map((source) => Object.freeze({
@@ -162,9 +95,6 @@ export async function resolveProspectiveWorkerOperationV1(
     reasonCode: reference.reasonCode,
     contentDigest: sources.find(({ id }) => id === reference.id)!.contentDigest
   })));
-  if (manifestObservation.contentDigest !== observation.manifestDigest) {
-    fail('manifest raw content digest differs from the activation receipt.');
-  }
   const readClosure: SecCompiledReadClosureV1 = Object.freeze({
     requiredRefs,
     conditionalRefs: Object.freeze([]),

@@ -10,8 +10,8 @@ last-reviewed: 2026-08-15
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/default-branch-health-repair-5c5200fddddd9e6601bb514d61141579867f1a3b-67789605f8d93b4ef6027add252b1c84819ba4ef38869e3222dedc34b73c11db.md
-manifestDigest: sha256:82b7b1431a49ec7e3873f7e296193cdb4d8d9d989ca9fc0f0862c69a54a3215b
+manifest: docs/work-packages/operation-read-plan-authority-canary-v1.md
+manifestDigest: sha256:a72e1aa39cc636f97656a95499a6a1cf82e53bf36c6b6ea9e0340f36e4aca47c
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

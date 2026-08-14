@@ -7,6 +7,7 @@ import {
   assertInitialLocalGitHubActionsProviderLedgerV3,
   assertLocalGitHubActionsProviderLedgerTransitionV3,
   assertLocalGitHubActionsRunnerImageIdentityV1,
+  assertLocalGitHubActionsRunnerReplacementImageIdentityV3,
   assertOwnedLocalGitHubActionsRunnerV2,
   assertRepositoryIdentityMatchesOriginV2,
   assertRepositoryIdentityMatchesRemoteUrlsV2,
@@ -14,6 +15,8 @@ import {
   createLocalGitHubActionsProviderLedgerV3,
   createLocalGitHubActionsRunnerDockerfileV1,
   createLocalGitHubActionsRunnerStateV3,
+  LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1,
+  LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1,
   LOCAL_GITHUB_ACTIONS_GITHUB_HOST_V3,
   LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1,
   LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1,
@@ -28,6 +31,7 @@ import {
   LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_LABELS_V1,
+  LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
   LOCAL_GITHUB_ACTIONS_RUNNER_ROLE_LABELS_V2,
   LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3,
   LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1,
@@ -190,21 +194,45 @@ describe('local GitHub Actions runner contract', () => {
       '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647'
     );
     expect(LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1).toBe('3.12.3');
+    expect(LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1).toBe('2.97.0');
+    expect(LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1).toBe(
+      'a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112'
+    );
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2)
-      .toBe('trust-domains-node24-python312-archive-v7');
+      .toBe('trust-domains-node24-python312-gh297-archive-v8');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1)
       .toBe('sec-local-github-actions-provider-state-v2');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1)
-      .toBe('sec-actions-runner:2.336.0-trust-domains-node24-python312-archive-v7');
+      .toBe('sec-actions-runner:2.336.0-trust-domains-node24-python312-gh297-archive-v8');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2).toBe(
-      'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf'
+      'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f'
     );
     expect(LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3.map(({ imageId }) => imageId))
       .toEqual([
+        'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
         'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
         'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
         'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a'
       ]);
+    expect(LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1).toBe(
+      'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf'
+    );
+    expect(LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3.map(
+      ({ replacementImageId }) => replacementImageId
+    )).toEqual([
+      LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+      LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
+      LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
+      LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1
+    ]);
+    expect(() => assertLocalGitHubActionsRunnerReplacementImageIdentityV3(
+      { Id: LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1 },
+      LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1
+    )).not.toThrow();
+    expect(() => assertLocalGitHubActionsRunnerReplacementImageIdentityV3(
+      { Id: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2 },
+      LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1
+    )).toThrow('superseding frozen image identity differs from its decision');
     expect(LOCAL_GITHUB_ACTIONS_RUNNER_LABELS_V1).toEqual([
       'self-hosted', 'Linux', 'X64', 'sec-linux-verification-v1'
     ]);
@@ -213,6 +241,15 @@ describe('local GitHub Actions runner contract', () => {
     expect(dockerfile).toContain(`FROM ${LOCAL_GITHUB_ACTIONS_RUNNER_BASE_IMAGE_V1}`);
     expect(dockerfile).toContain(`${LOCAL_GITHUB_ACTIONS_RUNNER_ARCHIVE_SHA256_V1}  runner.tar.gz`);
     expect(dockerfile).toContain(`${LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1}  node.tar.xz`);
+    expect(dockerfile).toContain(
+      `${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1}  gh.tar.gz`
+    );
+    expect(dockerfile).toContain(
+      `gh_${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}_linux_amd64/bin/gh`
+    );
+    expect(dockerfile).toContain(
+      `grep -E '^gh version ${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1.replaceAll('.', '\\.')}`
+    );
     expect(dockerfile).toContain('sha256sum --check --strict');
     expect(dockerfile).toContain('tar --no-same-owner -xzf runner.tar.gz');
     expect(dockerfile).toContain('apt-get -o Acquire::Retries=5 update');
@@ -238,6 +275,9 @@ describe('local GitHub Actions runner contract', () => {
         'sec.local-runner.runner-version': LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1,
         'sec.local-runner.node-version': LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1,
         'sec.local-runner.node-archive-sha256': LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1,
+        'sec.local-runner.github-cli-version': LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1,
+        'sec.local-runner.github-cli-archive-sha256':
+          LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1,
         'sec.local-runner.python-version': LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1
       } }
     } as const;
@@ -253,11 +293,22 @@ describe('local GitHub Actions runner contract', () => {
       ...frozenImage,
       Id: 'sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
     })).toThrow('cached runner image ID differs from the frozen provider revision');
+    for (const [label, value] of [
+      ['sec.local-runner.github-cli-version', '2.96.0'],
+      ['sec.local-runner.github-cli-archive-sha256', 'f'.repeat(64)]
+    ] as const) {
+      expect(() => assertLocalGitHubActionsRunnerImageIdentityV1({
+        ...frozenImage,
+        Config: { Labels: { ...frozenImage.Config.Labels, [label]: value } }
+      })).toThrow('cached runner image labels differ from the frozen provider revision');
+    }
     for (const label of [
       'sec.local-runner.image-revision',
       'sec.local-runner.runner-version',
       'sec.local-runner.node-version',
       'sec.local-runner.node-archive-sha256',
+      'sec.local-runner.github-cli-version',
+      'sec.local-runner.github-cli-archive-sha256',
       'sec.local-runner.python-version'
     ] as const) {
       const labels = { ...frozenImage.Config.Labels } as Record<string, string>;

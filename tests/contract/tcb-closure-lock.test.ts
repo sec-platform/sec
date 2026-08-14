@@ -746,6 +746,23 @@ test('live process dispatcher allowlist exactly matches the frozen lock', () => 
   );
 });
 
+test('Read Plan manifest reuse retires both duplicate Git process dispatchers', () => {
+  const retired = [
+    'scripts/codex/operation-read-plan.ts::function-declaration:gitBytesOutput::spawnSync#1',
+    'scripts/codex/operation-read-plan.ts::function-declaration:gitOutput::spawnSync#1'
+  ];
+  for (const identity of retired) {
+    expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(false);
+    expect(TCB_CLOSURE_LOCK.reviewedProcessDispatchers).not.toContain(identity);
+  }
+  const source = readFileSync(
+    path.resolve(import.meta.dir, '../../scripts/codex/operation-read-plan.ts'),
+    'utf8'
+  );
+  expect(source).not.toContain("from 'node:child_process'");
+  expect(source).not.toContain('spawnSync(');
+});
+
 test.serial('TCB generation rejects a stale reviewed dispatcher authorization', () => {
   const stale =
     'scripts/ci-verification.ts::function-declaration:retiredDispatcher::spawnSync#1';

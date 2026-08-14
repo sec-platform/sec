@@ -1331,6 +1331,39 @@ export type CodexDevelopmentPreparedTrustedBootstrapSutInputsV1 = Readonly<{
   totalFileBytes: number;
 }>;
 
+export function CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1(input: Readonly<{
+  baseRoot: string;
+  candidateRoot: string;
+}>): void {
+  const baseRoot = realpathSync.native(path.resolve(input.baseRoot));
+  const candidateRoot = realpathSync.native(path.resolve(input.candidateRoot));
+  const baseTopLevel = realpathSync.native(gitCandidateBytesV2(
+    baseRoot, ['rev-parse', '--show-toplevel']
+  ).toString('utf8').trim());
+  const candidateTopLevel = realpathSync.native(gitCandidateBytesV2(
+    candidateRoot, ['rev-parse', '--show-toplevel']
+  ).toString('utf8').trim());
+  if (baseTopLevel !== baseRoot || candidateTopLevel !== candidateRoot || baseRoot === candidateRoot) {
+    throw new Error('Trusted bootstrap SUT materialization requires two exact Git checkout roots.');
+  }
+
+  const relativeCandidateRoot = path.relative(baseRoot, candidateRoot);
+  const candidateIsContained = relativeCandidateRoot !== '' && relativeCandidateRoot !== '..' &&
+    !relativeCandidateRoot.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeCandidateRoot);
+  const baseStatusArgs = candidateIsContained
+    ? [
+        'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching', '--', '.',
+        `:(top,exclude,literal)${relativeCandidateRoot.split(path.sep).join('/')}`
+      ]
+    : ['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching'];
+  if (gitCandidateBytesV2(baseRoot, baseStatusArgs).length !== 0 ||
+      gitCandidateBytesV2(candidateRoot, [
+        'status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching'
+      ]).length !== 0) {
+    throw new Error('Trusted bootstrap SUT materialization requires clean base and candidate checkouts.');
+  }
+}
+
 export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readonly<{
   baseRoot: string;
   candidateRoot: string;
@@ -1358,10 +1391,7 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readon
       candidateParents[1] !== input.baseSha) {
     throw new Error('Trusted bootstrap SUT checkouts are not the exact base and single-parent candidate.');
   }
-  if (gitCandidateBytesV2(baseRoot, ['status', '--porcelain=v1']).length !== 0 ||
-      gitCandidateBytesV2(candidateRoot, ['status', '--porcelain=v1']).length !== 0) {
-    throw new Error('Trusted bootstrap SUT materialization requires clean base and candidate checkouts.');
-  }
+  CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1({ baseRoot, candidateRoot });
   const dependencyClosure = hostedActionDependencyClosureV1({
     baseRoot, candidateRoot, baseSha: input.baseSha
   });
