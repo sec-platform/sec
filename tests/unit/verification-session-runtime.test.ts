@@ -136,6 +136,8 @@ test('provider ledger is a deny-only, in-epoch circuit breaker at physical GitHu
   const closeout = source.slice(source.indexOf('function finalizeHostedBranchCloseoutV1('),
     source.indexOf('function publishHostedCloseoutTerminalV1('));
   expectGuardImmediatelyBefore(closeout, closeout.lastIndexOf('deleteHostedRemoteRefCas('));
+  expect(closeout).toContain('authorizeHostedCloseoutEffectUnderLeaseV1');
+  expect(closeout).toContain('await assertWorkspaceWriteLease(preparation.repository.root, input.lease);');
   expect(closeout).not.toContain("capability: 'github-writer',\n        now: input.now()\n      });\n      const localAttempt");
   expect(closeout).not.toContain("capability: 'github-writer',\n        now: input.now()\n      });\n      const pruneAttempt");
 
@@ -303,6 +305,7 @@ import {
   parseHostedSynchronousSquashMergeResponseV1,
   planHostedIntegrationEffectsV1,
   routeHostedIntegrationV1,
+  routePreparedWorktreeCleanupAttemptV1,
   verificationSessionCli
 } from '../../scripts/codex/verification-session.ts';
 
@@ -2268,6 +2271,53 @@ test('Session local quick DAG keeps durable journals in authority root and execu
   }
 });
 
+test('local quick detached scratch cleanup is owned by the physical closeout engine', async () => {
+  const source = await Bun.file(path.resolve(import.meta.dir,
+    '../../scripts/codex/verification-session.ts')).text();
+  const cleanup = source.slice(source.indexOf('async function removeLocalCandidateWorktreeV1('),
+    source.indexOf('async function executePreparedLocalQuickDagV2('));
+  expect(cleanup).toContain('prepareDetachedScratchWorktreePhysicalCloseoutV1({');
+  expect(cleanup).toContain('executeDetachedScratchWorktreePhysicalCloseoutV1({');
+  expect(cleanup.indexOf('prepareDetachedScratchWorktreePhysicalCloseoutV1({'))
+    .toBeLessThan(cleanup.indexOf('executeDetachedScratchWorktreePhysicalCloseoutV1({'));
+  expect(cleanup).toContain("receipt.terminal !== 'completed'");
+  expect(cleanup).toContain('receipt.readback.registryPresent || receipt.readback.physicalPresent');
+  expect(cleanup).toContain('!receipt.readback.authorizationValid');
+  expect(cleanup).toContain("return 'retained-physical-closeout-blocked';");
+  expect(cleanup).toContain('unlinkSync(input.lease.markerPath);');
+  expect(cleanup).not.toContain("'worktree', 'remove'");
+  expect(cleanup).not.toContain('prepareTrustedWorktreePhysicalCloseoutV1');
+  expect(cleanup).not.toContain('assertTrustedCompletedWorktreePhysicalCloseoutV1');
+
+  const localQuick = source.slice(source.indexOf('async function executePreparedLocalQuickDagV2('),
+    source.indexOf('function branchCloseoutStore()'));
+  expect(localQuick).toContain('const scratchCloseout = await removeLocalCandidateWorktreeV1');
+  expect(localQuick).toContain("worktreeDisposition: scratchCloseout");
+});
+
+test('closeout projection artifact family is attempt-bound to its producing integration run', async () => {
+  const githubSource = await Bun.file(path.resolve(import.meta.dir,
+    '../../scripts/codex/verification-session-github.ts')).text();
+  const classifier = githubSource.slice(
+    githubSource.indexOf('const SESSION_ATTEMPT_BOUND_ARTIFACT_NAME_PATTERNS_V1'),
+    githubSource.indexOf('type GitHubRepositoryActionsArtifactSummaryV1')
+  );
+  expect(classifier).toContain(
+    '/^sec-closeout-projections-v1-run-([1-9][0-9]*)-attempt-([1-9][0-9]*)$/u'
+  );
+  expect(classifier).toContain("'sec-closeout-projections-v1-'");
+  expect(classifier).not.toContain('sec-integration-projection-v1-');
+  expect(classifier).toContain('identity[1] !== runId');
+  expect(classifier).toContain('const producingRunAttempt = Number(identity[2]);');
+
+  const workflowSource = await Bun.file(path.resolve(import.meta.dir,
+    '../../.github/workflows/sec-merge-gate.yml')).text();
+  expect(workflowSource).toContain(
+    'name: sec-closeout-projections-v1-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}'
+  );
+  expect(workflowSource).not.toContain('sec-integration-projection-v1-run-');
+});
+
 test('trusted-main preparation rejects candidate/dirty/boundary runtime proof', () => {
   const proof = { currentHeadSha: BASE, currentBranch: 'main', localDefaultSha: BASE, remoteDefaultSha: BASE,
     workingTreeClean: true, tcbClosureMatched: true, runtimeEntrypointBlobMatched: true, boundaryTargetsMatched: true };
@@ -2455,15 +2505,27 @@ test('hosted IssueDisposition is pre-merge guarded and post-readback observation
   expect(integrate.indexOf('github.observePullRequestClosingFacts(')).toBeLessThan(
     mergeEffect
   );
-  expect(integrate.indexOf('assertHostedSquashMergeCompletionV1')).toBeLessThan(
-    integrate.lastIndexOf('observeUnexpectedGitHubIssueClosuresV1({')
-  );
+  const issueReconciliationGuard = integrate.indexOf("if (issueReconciliation.status !== 'no-op')");
+  const mainHealthJoin = integrate.indexOf('await joinExactPostMergeMainHealthV1');
+  const physicalCloseout = integrate.indexOf('consumeSameHostWorktreeCloseoutV1');
+  const finalizer = integrate.indexOf('await finalizeSameInvocationCloseoutV1');
+  expect(integrate.indexOf('assertHostedSquashMergeCompletionV1')).toBeLessThan(issueReconciliationGuard);
+  expect(issueReconciliationGuard).toBeGreaterThan(-1);
+  expect(issueReconciliationGuard).toBeLessThan(mainHealthJoin);
+  expect(issueReconciliationGuard).toBeLessThan(physicalCloseout);
+  expect(issueReconciliationGuard).toBeLessThan(finalizer);
+  expect(integrate.indexOf('stopCloseoutForIssueReconciliation(merged)'))
+    .toBeLessThan(mainHealthJoin);
   expect(integrate.match(/capability: 'github-writer'/gu) ?? []).toHaveLength(1);
   expect(writerCircuitBreaker).toBeGreaterThan(-1);
   expect(writerCircuitBreaker).toBeLessThan(mergeEffect);
   expect(integrate.slice(mergeEffect)).not.toContain("capability: 'github-writer'");
-  expect(integrate).toContain("issueDispositionCommitMarkerStateV1(mergedProjectionCandidate.mergeCommitMessage) === 'complete'");
-  expect(integrate).toContain("status: 'legacy-no-effect'");
+  expect(sessionSource).toContain('function observePostMergeIssueReconciliationV1');
+  expect(sessionSource).toContain("status: 'legacy-no-effect'");
+  expect(sessionSource).toContain(": 'manual-action-required'");
+  expect(sessionSource).toContain("? 'blocked'");
+  expect(integrate).toContain("status: 'BLOCKED'");
+  expect(integrate).toContain('unexpected GitHub Issue closure requires reconciliation before closeout.');
   expect(closeout.indexOf('observeHostedTrackingIssueDispositionV1({')).toBeLessThan(
     closeout.indexOf('observeBranchCloseoutOperationPublicationV1(')
   );
@@ -2493,7 +2555,14 @@ test('public prepare owns one exact detached worktree and completes local DAG be
     source.indexOf("if (command === 'freeze')"));
   expect(source).toContain("'.tmp', 'codex', 'verification-session-candidates'");
   expect(source).toContain("['worktree', 'add', '--detach', candidateRoot, input.candidate.headSha]");
-  expect(source).toContain("['worktree', 'remove', '--force', observed.candidateRoot]");
+  const scratchCleanup = source.slice(source.indexOf('async function removeLocalCandidateWorktreeV1('),
+    source.indexOf('async function executePreparedLocalQuickDagV2('));
+  expect(scratchCleanup).toContain('prepareDetachedScratchWorktreePhysicalCloseoutV1({');
+  expect(scratchCleanup).toContain('executeDetachedScratchWorktreePhysicalCloseoutV1({');
+  expect(scratchCleanup.indexOf('prepareDetachedScratchWorktreePhysicalCloseoutV1({'))
+    .toBeLessThan(scratchCleanup.indexOf('executeDetachedScratchWorktreePhysicalCloseoutV1({'));
+  expect(scratchCleanup).toContain("return 'retained-physical-closeout-blocked';");
+  expect(scratchCleanup).not.toContain("'worktree', 'remove'");
   expect(source).not.toContain("['worktree', 'prune'");
   expect(prepare).not.toContain("args.get('--candidate-root')");
   const schemaUnsupported = prepare.indexOf(
@@ -2693,7 +2762,12 @@ test('hosted effect commands preserve provider artifact, remote receipt, and pha
   expect(recoveryReadback).toBeGreaterThan(0);
   expect(authorizationReceipt).toBeGreaterThan(recoveryReadback);
   expect(mergeEffect).toBeGreaterThan(authorizationReceipt);
-  const claimedEffectBoundary = integration.slice(authorizationReceipt, mergeEffect);
+  // A merged-recovery blocker above this branch durably projects the required
+  // maintainer action. The OPEN merge lane itself must still have no local
+  // durable claim between its fresh effect guard and the provider merge.
+  const readyToIntegrate = integration.indexOf("if (result.status === 'READY_TO_INTEGRATE')");
+  expect(readyToIntegrate).toBeGreaterThan(authorizationReceipt);
+  const claimedEffectBoundary = integration.slice(readyToIntegrate, mergeEffect);
   expect(claimedEffectBoundary).not.toContain('writeDurable(');
   expect(claimedEffectBoundary).not.toContain('claimVerificationSessionOperationV1');
   expect(integration).toContain('!effects.executePhysicalMerge || !ownsUnambiguousMergeStart');
@@ -2709,8 +2783,17 @@ test('hosted effect commands preserve provider artifact, remote receipt, and pha
     .toBeLessThan(mutation.indexOf('observeExactRemoteCloseoutBranch'));
   expect(mutation.indexOf('priorAttemptStarted'))
     .toBeLessThan(mutation.indexOf('finalizeHostedBranchCloseoutV1'));
+  const preMarkerLease = mutation.indexOf('await withWorkspaceWriteLease(');
+  const preMarkerAuthorization = mutation.indexOf('const preMarkerGuard = await authorizeHostedCloseoutEffectUnderLeaseV1');
   const effectStartReadback = mutation.indexOf('publishHostedCloseoutEffectStartV1');
   const closeoutEffect = mutation.indexOf('finalizeHostedBranchCloseoutV1');
+  expect(preMarkerLease).toBeGreaterThan(0);
+  expect(preMarkerAuthorization).toBeGreaterThan(preMarkerLease);
+  expect(effectStartReadback).toBeGreaterThan(preMarkerAuthorization);
+  expect(mutation).toContain('worktreeCleanupTokens');
+  expect(mutation).toContain('foreignWorktreeObservationDigests');
+  expect(mutation).not.toContain('worktree-cleanup-authorizations');
+  expect(source).not.toContain('loadTrustedCompletedWorktreePhysicalCloseoutV1');
   expect(effectStartReadback).toBeGreaterThan(0);
   expect(effectStartReadback).toBeLessThan(closeoutEffect);
   const effectStartBoundary = mutation.slice(effectStartReadback, closeoutEffect);
@@ -4259,6 +4342,50 @@ async function withCloseoutCliPartitionSettled<T>(run: (input: Readonly<{
   }
 }
 
+test('prepared cleanup route never calls a local consumer for foreign observations', async () => {
+  const calls: string[] = [];
+  const foreign = await routePreparedWorktreeCleanupAttemptV1({
+    foreignWorktreeObservationDigests: [PAGE],
+    targetCount: 1,
+    consumeLocalPreparedTargets: async () => {
+      calls.push('physical');
+      return ['unreachable'];
+    }
+  });
+  expect(foreign).toEqual([]);
+  expect(calls).toEqual([]);
+
+  const noTarget = await routePreparedWorktreeCleanupAttemptV1({
+    foreignWorktreeObservationDigests: [],
+    targetCount: 0,
+    consumeLocalPreparedTargets: async () => {
+      calls.push('empty-target');
+      return ['unreachable'];
+    }
+  });
+  expect(noTarget).toEqual([]);
+  expect(calls).toEqual([]);
+});
+
+test('prepared cleanup route invokes the local sequence once for the exact target count', async () => {
+  const calls: string[] = [];
+  const tokens = await routePreparedWorktreeCleanupAttemptV1({
+    foreignWorktreeObservationDigests: [],
+    targetCount: 2,
+    consumeLocalPreparedTargets: async () => {
+      calls.push('prepare', 'execute', 'assert');
+      return ['opaque-one', 'opaque-two'];
+    }
+  });
+  expect(calls).toEqual(['prepare', 'execute', 'assert']);
+  expect(tokens).toEqual(['opaque-one', 'opaque-two']);
+  await expect(routePreparedWorktreeCleanupAttemptV1({
+    foreignWorktreeObservationDigests: [],
+    targetCount: 2,
+    consumeLocalPreparedTargets: async () => ['one']
+  })).rejects.toThrow('same-host-worktree-closeout-required');
+});
+
 closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', () => {
   const source = readFileSync(path.resolve(import.meta.dir,
     '../../scripts/codex/verification-session.ts'), 'utf8');
@@ -4601,8 +4728,12 @@ closeoutCliE2eTest('V9 integration reruns retain producing attempts and authoriz
     'sec-verification-action-raw-v2-',
     'sec-merge-gate-result-v2-',
     'sec-branch-closeout-recovery-v1-',
-    'sec-integration-projection-v1-'
+    'sec-closeout-projections-v1-'
   ]) expect(githubSource).toContain(family);
+  expect(githubSource).not.toContain('sec-integration-projection-v1-');
+  expect(githubSource).toContain(
+    '/^sec-closeout-projections-v1-run-([1-9][0-9]*)-attempt-([1-9][0-9]*)$/u'
+  );
   expect(artifactSource).toContain('classifyActionsArtifactAttemptAuthorityV1(');
   expect(artifactSource).toContain('Number(run.run_attempt)');
   expect(artifactSource).toContain('runAttempt: attemptAuthority.runAttempt');
@@ -4724,6 +4855,8 @@ test('rehydrated prepared envelope preserves remote history and composes with cl
   expect(rehydrated.preparation.repository.root).toBe(localRoot);
   expect(rehydrated.preparation.recovery.path).toBe(localRecoveryPath);
   expect(rehydrated.preparation.worktreePathsAtPreparation).toEqual([]);
+  expect(rehydrated.foreignWorktreeObservations).toHaveLength(1);
+  expect(JSON.stringify(rehydrated.foreignWorktreeObservations)).not.toContain(remoteWorktreePath);
   expect(rehydrated.attempts).toEqual(local.attempts);
   expect(rehydrated.preparation.preparationDigest).toBe(remotePreparation.preparationDigest);
   const authorization = authorizeBranchCloseout({
@@ -4731,10 +4864,65 @@ test('rehydrated prepared envelope preserves remote history and composes with cl
     request: { capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1, disposition: 'merged',
       durableGoal: { kind: 'main', reference: `main@${'9'.repeat(40)}` } },
     before: rehydrated.before,
-    current: localBefore
+    current: localBefore,
+    foreignWorktreeObservationDigests: rehydrated.foreignWorktreeObservations
+      .map(({ observationDigest }) => observationDigest)
   });
-  expect(authorization.blockers).toEqual([]);
-  expect(authorization.remoteAction).toBe('delete-cas');
+  expect(authorization.blockers).toContain('external-maintainer-disposition-required');
+  expect(authorization.remoteAction).toBe('blocked');
+  expect(authorization.localAction).toBe('blocked');
+});
+
+test('foreign closeout observations remain fail-closed across host recovery', () => {
+  const source = readFileSync(path.resolve(import.meta.dir,
+    '../../scripts/codex/verification-session.ts'), 'utf8');
+  const contract = readFileSync(path.resolve(import.meta.dir,
+    '../../scripts/codex/branch-closeout-contract.ts'), 'utf8');
+  expect(contract).toContain("blockers.push('external-maintainer-disposition-required')");
+  expect(contract).not.toContain('ForeignWorktreeTerminalObservationV1');
+  expect(contract).not.toContain('new WeakMap');
+  expect(source).not.toContain('providerVerifiedForeignWorktreeDispositionV1');
+  expect(source).not.toContain('bindForeignWorktreeObservationsToProviderHostV1');
+  expect(source).not.toContain('worktree-cleanup-authorizations');
+
+  const mutation = source.slice(source.indexOf("if (command === 'closeout-mutate-hosted')"),
+    source.indexOf("if (command === 'closeout-publish-hosted')"));
+  const preMarker = mutation.slice(mutation.indexOf('const preMarkerGuard'),
+    mutation.indexOf('const publication = createBranchCloseoutEffectStartPublicationV1'));
+  expect(preMarker).toContain('foreignWorktreeObservationDigests');
+  const finalizer = source.slice(source.indexOf('function finalizeHostedBranchCloseoutV1('),
+    source.indexOf('function publishHostedCloseoutTerminalV1('));
+  expect(finalizer).toContain('foreignWorktreeObservationDigests');
+});
+
+test('authenticated hosted closeout consumes physical tokens only for local immutable targets', () => {
+  const source = readFileSync(path.resolve(import.meta.dir,
+    '../../scripts/codex/verification-session.ts'), 'utf8');
+  const helper = source.slice(source.indexOf('async function consumeSameHostWorktreeCloseoutV1('),
+    source.indexOf('async function finalizeHostedBranchCloseoutV1('));
+  expect(helper).toContain('same-host-worktree-closeout-required: no immutable locally registered target is available.');
+  expect(helper).toContain('preparation.worktreePathsAtPreparation');
+  expect(helper.indexOf('await prepareTrustedWorktreePhysicalCloseoutV1('))
+    .toBeLessThan(helper.indexOf('await executeWorktreePhysicalCloseoutV1('));
+  expect(helper.indexOf('await executeWorktreePhysicalCloseoutV1('))
+    .toBeLessThan(helper.indexOf('assertTrustedCompletedWorktreePhysicalCloseoutV1('));
+  expect(helper).toContain('authorizationPath: trusted.authorization.authorizationPath');
+  expect(helper).toContain('tokens.length !== targets.length || tokens.length === 0');
+  expect(helper).not.toContain('loadTrustedCompletedWorktreePhysicalCloseoutV1');
+  expect(helper).not.toContain('readFileSync(');
+
+  const mutation = source.slice(source.indexOf("if (command === 'closeout-mutate-hosted'"),
+    source.indexOf("if (command === 'closeout-publish-hosted')"));
+  expect(source).not.toContain('closeout-mutate-same-host');
+  expect(mutation).not.toContain('sameHost');
+  expect(mutation).toContain('closeout.recovery.prepared.foreignWorktreeObservations');
+  expect(mutation).toContain('worktreeCleanupTokens = await routePreparedWorktreeCleanupAttemptV1');
+  expect(mutation).toContain('targetCount: new Set(closeout.recovery.prepared.preparation.worktreePathsAtPreparation).size');
+  expect(mutation).toContain('consumeLocalPreparedTargets: () => consumeSameHostWorktreeCloseoutV1');
+  expect(mutation.indexOf('if (existing !== null)'))
+    .toBeLessThan(mutation.indexOf('worktreeCleanupTokens = await routePreparedWorktreeCleanupAttemptV1'));
+  expect(mutation).toContain('foreignWorktreeObservationDigests');
+  expect(source.match(/prepareTrustedWorktreePhysicalCloseoutV1\(/gu)).toHaveLength(1);
 });
 
 test('GitHub GraphQL schema drift is classified as typed provider-schema-unsupported (#347 section C)', () => {

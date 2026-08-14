@@ -130,11 +130,11 @@ describe('work-selection live contract', () => {
     ))).toThrow(/duplicate key "tracking"/u);
   });
 
-  test('exact repository package census consumes published #352 and selects #186', () => {
+  test('exact repository package census consumes the candidate manifest and advances beyond #186', () => {
     const result = receipt();
     expect(result.decision.status).toBe('select-next');
-    expect(result.decision.selectedWorkId).toBe('issue-186');
-    expect(result.input.candidates.find(({ workId }) => workId === 'issue-352')).toMatchObject({
+    expect(result.decision.selectedWorkId).toBe('issue-275');
+    expect(result.input.candidates.find(({ workId }) => workId === 'issue-186')).toMatchObject({
       lifecycle: 'already-in-main',
       blockedReadySuccessorCount: 0
     });
@@ -142,7 +142,7 @@ describe('work-selection live contract', () => {
       readiness: 'not-ready'
     });
     const projection = compileSecWorkRollingProjectionV1(result);
-    expect(projection.active.packageId).toBe('git-worktree-physical-closeout-v1');
+    expect(projection.active.packageId).toBe('delegation-consumer-zero-retirement-v1');
     expect(projection.candidates).toHaveLength(5);
     expect(projection.receiptDigest).toBe(result.receiptDigest);
     const rendered = renderSecWorkRollingPlanV1({ receipt: result, reviewedOn: '2026-08-12' });

@@ -1,16 +1,38 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { link, lstat, mkdir, open, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { link, lstat, mkdir, open, readFile, readdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
+import { sha256 as canonicalSha256 } from '../../platform/shared/canonical-primitives.ts';
 import { pathExists } from '../../platform/shared/fs.ts';
 import {
+  inspectNoFollowDirectoryChainV1,
+  scanNoFollowDirectoryTreeV1
+} from '../../platform/shared/physical-no-follow.ts';
+import {
   WorkspaceWriteLeaseError,
+  completeWorkspaceWriteLeaseRetirementV1,
   createWorkspaceWriteLeaseManager,
   inspectWorkspaceWriteLease,
+  resumeWorkspaceWriteLeaseRetirementV1,
   type WorkspaceWriteLeaseToken
 } from '../../platform/shared/workspace-write-lease.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
+
+test('retirement publishes its acquisition fence before terminalization and rejects holder residue', async () => {
+  const source = await Bun.file(new URL('../../platform/shared/workspace-write-lease.ts', import.meta.url)).text();
+  const start = source.indexOf('const retireOwnedNamespace = async (');
+  const end = source.indexOf('\n      const releaseHandle = async', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const retirement = source.slice(start, end);
+  expect(retirement.indexOf('parent: fenceParent, name: receipt.fenceName')).toBeLessThan(
+    retirement.indexOf("await publishTerminal(paths, token, 'released')")
+  );
+  expect(retirement).toContain("entries.some((entry) => entry.relativePath.startsWith(`${HOLDERS_DIRECTORY}/`))");
+  expect(retirement).toContain('retirement holder namespace remains after terminal publication');
+});
 
 function ids(prefix: string): () => string {
   let next = 0;
@@ -20,6 +42,10 @@ function ids(prefix: string): () => string {
 function immutableCandidateName(kind: string, id: string): string {
   const digest = createHash('sha256').update(JSON.stringify({ kind, id })).digest('hex');
   return `.${kind}-${digest}.candidate`;
+}
+
+function sha256(value: unknown): `sha256:${string}` {
+  return canonicalSha256(value) as `sha256:${string}`;
 }
 
 async function writeDurableJsonCandidate(candidate: string, value: unknown): Promise<void> {
@@ -34,9 +60,74 @@ async function writeDurableJsonCandidate(candidate: string, value: unknown): Pro
 
 async function writeDurableProtocolCandidate(candidate: string): Promise<void> {
   await writeDurableJsonCandidate(candidate, {
-    formatVersion: 'workspace-write-lease-protocol-v2'
+    formatVersion: 'workspace-write-lease-protocol-v3'
   });
 }
+
+test('pre-fence recovery removes one exact no-replace publication candidate before stale takeover', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 1_000_000,
+      staleAfterMs: 2_000_000,
+      hostname: os.hostname(),
+      pid: 2_147_483_000,
+      processNonce: 'process:pre-fence-candidate',
+      now: () => 0,
+      createId: ids('pre-fence-candidate'),
+      processAlive: () => 'dead'
+    });
+    const lease = await manager.acquire(workspaceRoot);
+    const proofRootPath = path.join(workspaceRoot, 'retirement-proof');
+    await mkdir(proofRootPath);
+    const workspace = inspectNoFollowDirectoryChainV1(workspaceRoot, 'test workspace').target;
+    const namespace = inspectNoFollowDirectoryChainV1(
+      path.join(workspaceRoot, '.sec', 'workspace-write-lease'),
+      'test lease namespace'
+    ).target;
+    const proofParent = inspectNoFollowDirectoryChainV1(proofRootPath, 'test proof root').target;
+    const intentDigest = sha256({ domain: 'pre-fence-candidate-test' });
+    const namespaceEntries = scanNoFollowDirectoryTreeV1(namespace).map((entry) => ({
+      relativePath: entry.relativePath,
+      kind: entry.kind,
+      device: entry.device,
+      inode: entry.inode,
+      size: entry.size,
+      bytes: entry.bytes === null ? null : Buffer.from(entry.bytes).toString('hex')
+    }));
+    const material = {
+      formatVersion: 'workspace-write-lease-retirement-transition-v1' as const,
+      workspaceIdentityDigest: lease.token.workspaceIdentityDigest,
+      workspaceDevice: workspace.device,
+      workspaceInode: workspace.inode,
+      intentDigest,
+      token: lease.token,
+      namespaceDevice: namespace.device,
+      namespaceInode: namespace.inode,
+      namespaceTombstoneParentDevice: proofParent.device,
+      namespaceTombstoneParentInode: proofParent.inode,
+      namespaceEntries
+    };
+    const transition = { ...material, transitionDigest: sha256(material) };
+    const finalName = `.workspace-write-lease-transition-${transition.transitionDigest.slice('sha256:'.length)}.json`;
+    const candidateName = `.${finalName}.00000000-0000-4000-8000-000000000000.candidate`;
+    await writeFile(path.join(proofRootPath, candidateName), `${JSON.stringify(transition)}\n`, 'utf8');
+
+    try {
+      const receipt = await resumeWorkspaceWriteLeaseRetirementV1({
+        workspaceRoot,
+        intentDigest,
+        proofParent
+      });
+      completeWorkspaceWriteLeaseRetirementV1({ workspaceRoot, receipt });
+      expect(receipt.intentDigest).toBe(intentDigest);
+      expect(await pathExists(path.join(path.dirname(workspaceRoot), receipt.fenceName))).toBe(false);
+      expect(await pathExists(path.join(proofRootPath, candidateName))).toBe(false);
+      expect((await readdir(proofRootPath)).some((name) => name.endsWith('.candidate'))).toBe(false);
+    } finally {
+      await lease.release().catch(() => undefined);
+    }
+  }, 'workspace-write-lease-pre-fence-candidate-');
+}, 20_000);
 
 test('workspace writer lease is exclusive, exactly reentrant, and rejects mismatched release', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -102,6 +193,60 @@ test('workspace writer lease is exclusive, exactly reentrant, and rejects mismat
     await lease.release();
     await expect(lease.assertOwned()).rejects.toBeInstanceOf(WorkspaceWriteLeaseError);
   }, 'engineering-compiler-workspace-lease-exclusive-');
+});
+
+test('retained physical relocation preserves one lease token across a same-parent rename', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000, staleAfterMs: 20_000,
+      hostname: 'lease-relocation-host', pid: 333, processNonce: 'relocation', createId: ids('relocation'), processAlive: () => 'alive'
+    });
+    const original = path.join(workspaceRoot, 'target');
+    const tombstone = path.join(workspaceRoot, 'target-tombstone');
+    const other = path.join(workspaceRoot, 'other');
+    await Promise.all([mkdir(original), mkdir(other)]);
+    const lease = await manager.acquire(original);
+    await rename(original, tombstone);
+    await expect(manager.assertOwned(original, lease.token)).rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-002' });
+    await lease.relocate(tombstone);
+    await lease.assertOwned();
+    await expect(lease.ownedNamespace()).resolves.toEqual({
+      workspaceRoot: tombstone,
+      relativePath: '.sec/workspace-write-lease'
+    });
+    await lease.heartbeat();
+    await expect(lease.relocate(other)).rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-002' });
+    await expect(manager.acquire(tombstone)).rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-001' });
+    await lease.release();
+    const successor = await manager.acquire(tombstone);
+    await successor.release();
+  }, 'engineering-compiler-workspace-lease-relocation-');
+});
+
+test('incomplete V2 protocol remains a typed migration boundary', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const leaseDirectory = path.join(workspaceRoot, '.sec', 'workspace-write-lease');
+    await mkdir(leaseDirectory, { recursive: true });
+    await writeFile(path.join(leaseDirectory, 'protocol.json'), '{"formatVersion":"workspace-write-lease-protocol-v2"}\n');
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000, staleAfterMs: 20_000,
+      hostname: 'lease-v3-host', pid: 334, processNonce: 'v3', createId: ids('v3'), processAlive: () => 'alive'
+    });
+    await expect(manager.acquire(workspaceRoot)).rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-003' });
+  }, 'engineering-compiler-workspace-lease-v3-migration-');
+});
+
+test('a complete V2 ledger remains an external typed migration boundary', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const leaseDirectory = path.join(workspaceRoot, '.sec', 'workspace-write-lease');
+    await mkdir(path.join(leaseDirectory, 'holders'), { recursive: true });
+    await writeFile(path.join(leaseDirectory, 'protocol.json'), '{"formatVersion":"workspace-write-lease-protocol-v2"}\n');
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000, staleAfterMs: 20_000,
+      hostname: 'lease-v2-boundary', pid: 335, processNonce: 'v2-boundary', createId: ids('v2-boundary'), processAlive: () => 'dead'
+    });
+    await expect(manager.acquire(workspaceRoot)).rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-003' });
+  }, 'engineering-compiler-workspace-lease-v2-boundary-');
 });
 
 test('same-host dead stale lease is terminalized while live, foreign, and unknown owners fail closed', async () => {
@@ -225,7 +370,7 @@ test('an empty protocol root is completed without ever exposing an incomplete ow
     expect(activeOwner).toBeDefined();
     const owner = JSON.parse(await readFile(path.join(fixedLease, activeOwner!), 'utf8'));
     expect(owner).toMatchObject({
-      formatVersion: 'workspace-write-lease-token-v2',
+      formatVersion: 'workspace-write-lease-token-v3',
       generation: 1,
       leaseId: handle.token.leaseId
     });
@@ -357,7 +502,7 @@ test('protocol alias recovery rejects external, noncanonical, multiple, and iden
   }
 });
 
-test('a terminal publication alias is non-authoritative and cannot block successor quiescence', async () => {
+test('a public same-token terminal cannot retire a live holder and only stale dead recovery admits a successor', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const original = createWorkspaceWriteLeaseManager({
       heartbeatIntervalMs: 10_000,
@@ -374,7 +519,7 @@ test('a terminal publication alias is non-authoritative and cannot block success
     const alias = path.join(holders, immutableCandidateName('terminal', 'crash-after-link'));
     const target = path.join(fixedLease, '0000000000000001.terminal.json');
     await writeDurableJsonCandidate(alias, {
-      formatVersion: 'workspace-write-lease-terminal-v2',
+      formatVersion: 'workspace-write-lease-terminal-v3',
       token: abandoned.token,
       outcome: 'released',
       terminalAtMs: Date.now()
@@ -388,13 +533,28 @@ test('a terminal publication alias is non-authoritative and cannot block success
     expect(targetMetadata.ino).toBe(aliasMetadata.ino);
     expect(targetMetadata.nlink).toBe(2n);
 
-    const successorManager = createWorkspaceWriteLeaseManager({
+    const liveContender = createWorkspaceWriteLeaseManager({
       heartbeatIntervalMs: 10_000,
       staleAfterMs: 20_000,
       hostname: 'lease-test-host',
       pid: 200,
       processNonce: 'process:terminal-successor',
       createId: ids('terminal-successor'),
+      processAlive: () => 'alive'
+    });
+    await expect(liveContender.acquire(workspaceRoot)).rejects.toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-001'
+    });
+    expect((await readdir(holders, { withFileTypes: true })).some((entry) => entry.isDirectory())).toBe(true);
+
+    const successorManager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000,
+      staleAfterMs: 20_000,
+      hostname: 'lease-test-host',
+      pid: 200,
+      processNonce: 'process:terminal-stale-successor',
+      createId: ids('terminal-stale-successor'),
+      now: () => Date.now() + 30_000,
       processAlive: () => 'dead'
     });
     const successor = await successorManager.acquire(workspaceRoot);

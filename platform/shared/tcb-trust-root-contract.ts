@@ -86,6 +86,8 @@ const REQUIRED_PRIVILEGED_RUNTIME_SURFACES = [
   'scripts/codex/verification-session-github.ts',
   'scripts/codex/verification-session-runtime.ts',
   'scripts/codex/verification-session.ts',
+  'scripts/codex/worktree-physical-closeout-contract.ts',
+  'scripts/codex/worktree-physical-closeout.ts',
   'scripts/codex/work-selection.ts'
 ] as const;
 
@@ -335,20 +337,19 @@ export function loadSecTrustedBootstrapRegistryV3(): SecTrustedBootstrapRegistry
 
 export const SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 = loadSecTrustedBootstrapRegistryV3();
 
-export function createSecTrustedBootstrapTrustRootV3(input: Readonly<{
-  registry: SecTrustedBootstrapRegistryV3;
-  causalRuntimePaths: readonly string[];
-}>): SecTrustedBootstrapTrustRootV3 {
+export function createSecTrustedBootstrapTrustRootV3(
+  input: Readonly<{
+    registry: SecTrustedBootstrapRegistryV3;
+    causalRuntimePaths: readonly string[];
+  }>
+): SecTrustedBootstrapTrustRootV3 {
   const registry = validateSecTrustedBootstrapRegistryValueV3(input.registry);
   const causalRuntimePaths = stringArray(input.causalRuntimePaths, 'causalRuntimePaths');
-  causalRuntimePaths.forEach((entry, index) =>
-    assertRepositoryPath(entry, `causalRuntimePaths[${index}]`, false));
+  causalRuntimePaths.forEach((entry, index) => assertRepositoryPath(entry, `causalRuntimePaths[${index}]`, false));
   const causal = new Set(causalRuntimePaths);
   for (const staticExactPath of registry.staticExactPaths) {
     if (causal.has(staticExactPath)) {
-      throw new Error(
-        `Trusted bootstrap path cannot be both staticExact and causalRuntime: ${staticExactPath}.`
-      );
+      throw new Error(`Trusted bootstrap path cannot be both staticExact and causalRuntime: ${staticExactPath}.`);
     }
   }
   for (const required of REQUIRED_PRIVILEGED_RUNTIME_SURFACES) {
@@ -385,13 +386,7 @@ export function createSecTrustedBootstrapTrustRootV3(input: Readonly<{
     schema: 'sec-trusted-bootstrap-trust-root-v3' as const,
     registry,
     causalRuntimePaths: Object.freeze(causalRuntimePaths),
-    paths: Object.freeze([
-      ...new Set([
-        ...registry.staticExactPaths,
-        ...registry.staticDirectoryPaths,
-        ...causalRuntimePaths
-      ])
-    ].sort()),
+    paths: Object.freeze([...new Set([...registry.staticExactPaths, ...registry.staticDirectoryPaths, ...causalRuntimePaths])].sort()),
     prefixes: registry.staticPrefixes
   });
 }

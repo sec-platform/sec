@@ -22,9 +22,7 @@
     "platform/shared/test-impact-rules/",
     "tests/testkit/"
   ],
-  "staticPrefixes": [
-    ".env"
-  ],
+  "staticPrefixes": [".env"],
   "runtimeEntrypoints": [
     "docs/scripts/docs-doctor.ts",
     "platform/dev-runner.ts",
@@ -55,11 +53,10 @@
     "scripts/codex/skill-applicability.ts",
     "scripts/codex/verification-session.ts",
     "scripts/codex/work-package-contract.ts",
+    "scripts/codex/worktree-physical-closeout.ts",
     "tests/setup/runtime-deps.setup.ts"
   ],
-  "reviewedSutEdges": [
-    "scripts/ci-workspace-fast.ts -> platform/orchestrator.ts"
-  ],
+  "reviewedSutEdges": ["scripts/ci-workspace-fast.ts -> platform/orchestrator.ts"],
   "reviewedBoundaryEdges": [
     "scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts",
     "scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts"

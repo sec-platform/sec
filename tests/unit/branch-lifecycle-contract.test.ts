@@ -66,7 +66,8 @@ function inventory(overrides: Partial<BranchLifecycleInventory> = {}): BranchLif
 
 function preparation(
   before: BranchLifecycleInventory,
-  expectedLocalSha: string | null = HEAD_SHA
+  expectedLocalSha: string | null = HEAD_SHA,
+  worktreePathsAtPreparation: string[] = []
 ) {
   return createBranchCloseoutPreparation({
     preparedAt: '2026-08-04T00:01:00.000Z',
@@ -92,7 +93,7 @@ function preparation(
       verified: true,
       verifyOutput: 'verified'
     },
-    worktreePathsAtPreparation: []
+    worktreePathsAtPreparation
   });
 }
 
@@ -507,7 +508,7 @@ test('divergent local branch is protected because remote recovery does not cover
   expect(authorization.protections[0]).toContain('diverges from recovered remote head');
 });
 
-test('merged closeout can delete remote while protecting a dirty local worktree', () => {
+test('merged closeout cannot delete either ref while a registered worktree remains', () => {
   const before = inventory({
     localBranches: [
       { branch: 'main', sha: MAIN_SHA },
@@ -585,36 +586,120 @@ test('merged closeout can delete remote while protecting a dirty local worktree'
     durableGoal: { kind: 'main' as const, reference: `main@${MAIN_SHA}` }
   };
   const authorization = authorizeBranchCloseout({ preparation: prepared, request, before, current });
-  expect(authorization.remoteAction).toBe('delete-cas');
+  expect(authorization.remoteAction).toBe('blocked');
   expect(authorization.localAction).toBe('protect-local');
+  expect(authorization.blockers).toContain('registered worktree must reach completed physical closeout before branch/ref CAS');
 
-  const after = inventory({
-    localBranches: current.localBranches,
-    remoteBranches: [{ branch: 'main', sha: MAIN_SHA }],
-    worktrees: current.worktrees,
-    pullRequests: current.pullRequests
-  });
   const receipt = createBranchCloseoutReceipt({
     generatedAt: '2026-08-04T00:02:00.000Z',
     preparation: prepared,
     request,
     authorization,
-    attempts: [
-      { operation: 'recovery-create', status: 'success', detail: prepared.recovery.path },
-      { operation: 'recovery-verify', status: 'success', detail: prepared.recovery.sha256 },
-      { operation: 'remote-delete', status: 'success', detail: 'deleted' },
-      { operation: 'local-delete', status: 'skipped', detail: 'protect-local' },
-      { operation: 'prune', status: 'success', detail: 'pruned' },
-      { operation: 'readback', status: 'success', detail: 'read back' }
-    ],
+    attempts: [],
     before,
-    after
+    after: current
   });
-  expect(receipt.status).toBe('protected-pending');
+  expect(receipt.status).toBe('blocked');
   expect(parseBranchCloseoutReceipt(JSON.stringify(receipt)).receiptDigest).toBe(receipt.receiptDigest);
+});
 
-  const tampered = JSON.stringify({ ...receipt, status: 'completed' });
-  expect(() => parseBranchCloseoutReceipt(tampered)).toThrow('digest mismatch');
+test('branch/ref CAS rejects missing or caller-forged worktree cleanup authority', () => {
+  const targetPath = '/workspace/sec-worktrees/example';
+  const before = inventory({
+    localBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/example', sha: HEAD_SHA }
+    ],
+    remoteBranches: [
+      { branch: 'main', sha: MAIN_SHA },
+      { branch: 'feat/example', sha: HEAD_SHA }
+    ],
+    worktrees: [
+      inventory().worktrees[0]!,
+      {
+        path: targetPath,
+        headSha: HEAD_SHA,
+        branch: 'feat/example',
+        dirtyCount: 0,
+        untrackedCount: 0,
+        locked: false,
+        prunable: false,
+        observation: 'resolved',
+        reason: null
+      }
+    ],
+    pullRequests: [{
+      number: 42,
+      headBranch: 'feat/example',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      state: 'open',
+      isDraft: false,
+      isCrossRepository: false,
+      url: null
+    }],
+    activeWorkPackage: {
+      state: 'active',
+      branch: 'feat/example',
+      manifest: 'docs/work-packages/example-v1.md',
+      reason: null
+    }
+  });
+  const current = inventory({
+    localBranches: before.localBranches,
+    remoteBranches: before.remoteBranches,
+    pullRequests: [{ ...before.pullRequests[0]!, state: 'merged' }]
+  });
+  const prepared = preparation(before, HEAD_SHA, [targetPath]);
+  const request = {
+    capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+    disposition: 'merged' as const,
+    durableGoal: { kind: 'main' as const, reference: `main@${MAIN_SHA}` }
+  };
+  const withoutReceipt = authorizeBranchCloseout({ preparation: prepared, request, before, current });
+  expect(withoutReceipt.remoteAction).toBe('blocked');
+  expect(withoutReceipt.localAction).toBe('blocked');
+  expect(withoutReceipt.blockers).toContain(`exact completed worktree cleanup receipt is required for ${targetPath}`);
+
+  const forged = authorizeBranchCloseout({
+    preparation: prepared,
+    request,
+    before,
+    current,
+    // A shape-compatible value is not in the physical module's private token
+    // ledger and therefore cannot turn caller JSON/digests into authority.
+    worktreeCleanupTokens: [{} as never],
+    expectedHeadTreeSha: '4'.repeat(40)
+  });
+  expect(forged.remoteAction).toBe('blocked');
+  expect(forged.localAction).toBe('blocked');
+  expect(forged.blockers).toContain(`exact completed worktree cleanup receipt is required for ${targetPath}`);
+});
+
+test('foreign observations require a new preparation after original-host physical completion', () => {
+  const observed = orphanRemoteInventory();
+  const prepared = orphanPreparation(observed);
+  const foreignDigest = `sha256:${'b'.repeat(64)}` as const;
+  const request = {
+    capability: BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
+    disposition: 'completed-spike' as const,
+    durableGoal: { kind: 'issue' as const, reference: 'sec-platform/sec#269' }
+  };
+  const foreign = authorizeBranchCloseout({
+    preparation: prepared,
+    request,
+    before: observed,
+    current: observed,
+    foreignWorktreeObservationDigests: [foreignDigest]
+  });
+  expect(foreign.blockers).toContain('external-maintainer-disposition-required');
+  expect(foreign.remoteAction).toBe('blocked');
+  // A local, post-physical-closeout fresh preparation has no foreign fact and
+  // may be considered normally; no artifact/job success can erase it.
+  const refreshed = authorizeBranchCloseout({ preparation: prepared, request, before: observed,
+    current: observed });
+  expect(refreshed.blockers).toEqual([]);
+  expect(refreshed.remoteAction).toBe('delete-cas');
 });
 
 function orphanRemoteInventory(): BranchLifecycleInventory {

@@ -65,12 +65,22 @@ function runCloseoutGit(repositoryRoot: string, args: readonly string[]) {
 
 export const BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1 =
   'sec-branch-closeout-prepared-envelope-v1' as const;
+export const BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V2 =
+  'sec-branch-closeout-prepared-envelope-v2' as const;
+
+/** A non-reversible observation of a worktree seen by a different host. */
+export interface ForeignWorktreeCloseoutObservationV1 {
+  readonly schema: 'sec-branch-closeout-foreign-worktree-observation-v1';
+  readonly hostBindingDigest: `sha256:${string}`;
+  readonly observationDigest: `sha256:${string}`;
+}
 
 export interface PreparedBranchCloseoutEnvelope {
-  schema: typeof BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1;
+  schema: typeof BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V2;
   preparation: BranchCloseoutPreparation;
   before: BranchLifecycleInventory;
   attempts: BranchCloseoutAttempt[];
+  foreignWorktreeObservations: readonly ForeignWorktreeCloseoutObservationV1[];
   envelopeDigest: `sha256:${string}`;
 }
 
@@ -93,7 +103,7 @@ function createPreparedEnvelope(input: Omit<
   'schema' | 'envelopeDigest'
 >): PreparedBranchCloseoutEnvelope {
   const withoutDigest = {
-    schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1,
+    schema: BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V2,
     ...input
   };
   return {
@@ -102,16 +112,55 @@ function createPreparedEnvelope(input: Omit<
   };
 }
 
+function foreignWorktreeObservationV1(input: {
+  repository: BranchCloseoutPreparation['repository'];
+  targetPath: string;
+  branch: string;
+  headSha: string;
+}): ForeignWorktreeCloseoutObservationV1 {
+  const hostBindingDigest = branchLifecycleDigest({
+    schema: 'sec-branch-closeout-foreign-host-binding-v1',
+    root: input.repository.root,
+    commonDir: input.repository.commonDir
+  });
+  const observationDigest = branchLifecycleDigest({
+    schema: 'sec-branch-closeout-foreign-worktree-observation-v1',
+    hostBindingDigest,
+    targetPath: input.targetPath,
+    branch: input.branch,
+    headSha: input.headSha
+  });
+  return Object.freeze({ schema: 'sec-branch-closeout-foreign-worktree-observation-v1',
+    hostBindingDigest, observationDigest });
+}
+
+function normalizeForeignWorktreeObservations(
+  values: readonly ForeignWorktreeCloseoutObservationV1[]
+): readonly ForeignWorktreeCloseoutObservationV1[] {
+  const normalized = values.map((value) => {
+    if (value.schema !== 'sec-branch-closeout-foreign-worktree-observation-v1'
+      || !/^sha256:[0-9a-f]{64}$/u.test(value.hostBindingDigest)
+      || !/^sha256:[0-9a-f]{64}$/u.test(value.observationDigest)) {
+      throw new Error('Foreign worktree closeout observation is invalid.');
+    }
+    return Object.freeze({ ...value });
+  }).sort((left, right) => left.observationDigest.localeCompare(right.observationDigest));
+  return Object.freeze(normalized.filter((value, index) => (
+    index === 0 || normalized[index - 1]!.observationDigest !== value.observationDigest
+  )));
+}
+
 function assertPreparedBranchCloseoutEnvelope(
   envelope: PreparedBranchCloseoutEnvelope
 ): void {
-  if (envelope.schema !== BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1) {
+  if (envelope.schema !== BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V2) {
     throw new Error('Prepared branch closeout envelope schema mismatch.');
   }
   const { envelopeDigest, ...withoutDigest } = envelope;
   if (branchLifecycleDigest(withoutDigest) !== envelopeDigest) {
     throw new Error('Prepared branch closeout envelope digest mismatch.');
   }
+  normalizeForeignWorktreeObservations(envelope.foreignWorktreeObservations);
 }
 
 export function parsePreparedBranchCloseoutEnvelope(
@@ -121,7 +170,32 @@ export function parsePreparedBranchCloseoutEnvelope(
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Prepared branch closeout envelope must be an object.');
   }
-  const envelope = parsed as PreparedBranchCloseoutEnvelope;
+  const raw = parsed as Record<string, unknown>;
+  if (raw.schema === BRANCH_CLOSEOUT_PREPARED_ENVELOPE_SCHEMA_V1) {
+    const { envelopeDigest, ...withoutDigest } = raw;
+    if (typeof envelopeDigest !== 'string' || branchLifecycleDigest(withoutDigest) !== envelopeDigest) {
+      throw new Error('Legacy prepared branch closeout envelope digest mismatch.');
+    }
+    const preparation = raw.preparation as BranchCloseoutPreparation;
+    assertBranchCloseoutPreparation(preparation);
+    if (!Array.isArray(raw.attempts) || !raw.before || typeof raw.before !== 'object') {
+      throw new Error('Legacy prepared branch closeout envelope shape is invalid.');
+    }
+    return createPreparedEnvelope({
+      preparation,
+      before: raw.before as BranchLifecycleInventory,
+      attempts: raw.attempts as BranchCloseoutAttempt[],
+      foreignWorktreeObservations: normalizeForeignWorktreeObservations(
+        preparation.worktreePathsAtPreparation.map((targetPath) => foreignWorktreeObservationV1({
+          repository: preparation.repository,
+          targetPath,
+          branch: preparation.branch,
+          headSha: preparation.expectedHeadSha
+        }))
+      )
+    });
+  }
+  const envelope = raw as unknown as PreparedBranchCloseoutEnvelope;
   assertPreparedBranchCloseoutEnvelope(envelope);
   return envelope;
 }
@@ -155,11 +229,22 @@ export function rehydratePreparedBranchCloseoutEnvelopeV1(input: {
     },
     expectedLocalSha: input.local.preparation.expectedLocalSha,
     recovery: input.local.preparation.recovery,
-    worktreePathsAtPreparation: input.local.preparation.worktreePathsAtPreparation
+    // A fresh host may retain only its own paths.  Foreign paths are reduced
+    // below to host-qualified digests and can never become local completion.
+    worktreePathsAtPreparation: [...input.local.preparation.worktreePathsAtPreparation]
+      .sort((left, right) => left.localeCompare(right))
   };
   assertBranchCloseoutPreparation(preparation);
   return createPreparedEnvelope({ preparation, before: input.remote.before,
-    attempts: [...input.local.attempts] });
+    attempts: [...input.local.attempts],
+    foreignWorktreeObservations: normalizeForeignWorktreeObservations([
+      ...input.remote.foreignWorktreeObservations,
+      ...input.local.foreignWorktreeObservations,
+      ...input.remote.preparation.worktreePathsAtPreparation.map((targetPath) =>
+        foreignWorktreeObservationV1({ repository: input.remote.preparation.repository, targetPath,
+          branch: input.remote.preparation.branch,
+          headSha: input.remote.preparation.expectedHeadSha }))
+    ]) });
 }
 
 /**
@@ -226,15 +311,22 @@ export function rehydratePreparedBranchCloseoutRecoveryArtifactV1(input: {
     pullRequestStateAtPreparation: input.remote.preparation.pullRequestStateAtPreparation,
     recovery,
     worktreePathsAtPreparation: inventory.worktrees
-      .filter(({ branch }) => branch === input.remote.preparation.branch)
-      .map(({ path: worktreePath }) => worktreePath)
-      .sort((left, right) => left.localeCompare(right))
+        .filter(({ branch }) => branch === input.remote.preparation.branch)
+        .map(({ path: worktreePath }) => worktreePath)
+        .sort((left, right) => left.localeCompare(right))
   });
   if (preparation.preparationDigest !== input.remote.preparation.preparationDigest) {
     throw new Error('Fresh-host provider recovery changed the stable preparation identity.');
   }
   return createPreparedEnvelope({ preparation, before: input.remote.before,
-    attempts: [recoveryReadback] });
+    attempts: [recoveryReadback],
+    foreignWorktreeObservations: normalizeForeignWorktreeObservations([
+      ...input.remote.foreignWorktreeObservations,
+      ...input.remote.preparation.worktreePathsAtPreparation.map((targetPath) =>
+        foreignWorktreeObservationV1({ repository: input.remote.preparation.repository, targetPath,
+          branch: input.remote.preparation.branch,
+          headSha: input.remote.preparation.expectedHeadSha }))
+    ]) });
 }
 
 export function preparationFilePath(preparation: BranchCloseoutPreparation): string {
@@ -426,7 +518,8 @@ export function prepareBranchCloseout(
       .map(({ path: worktreePath }) => worktreePath)
       .sort((left, right) => left.localeCompare(right))
   });
-  const envelope = createPreparedEnvelope({ preparation, before, attempts });
+  const envelope = createPreparedEnvelope({ preparation, before, attempts,
+    foreignWorktreeObservations: [] });
   persistPreparedEnvelope(envelope);
   return envelope;
 }

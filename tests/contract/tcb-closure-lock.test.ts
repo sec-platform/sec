@@ -391,6 +391,52 @@ test('verification-action runner dispatcher binds exact local Git observations a
   }
 });
 
+test('worktree physical closeout introduces no dispatcher and constrains the canonical shared process owner', async () => {
+  const identity = 'scripts/codex/worktree-physical-closeout.ts::function-declaration:runRepositoryGit::spawnSync#1';
+  expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(false);
+  const source = (await Bun.file(
+    new URL('../../scripts/codex/worktree-physical-closeout.ts', import.meta.url)
+  ).text()).replace(/\r\n/gu, '\n');
+  const start = source.indexOf('async function runRepositoryGit(');
+  const end = source.indexOf('\nasync function requireRepositoryGit(', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const dispatcher = source.slice(start, end);
+  const assertDispatcher = (candidate: string): void => {
+    expect(candidate).toContain('async function runRepositoryGit(repositoryRoot: string, args: readonly string[]): Promise<CommandResult> {');
+    expect(candidate.match(/runCommandBytes\(/gu)).toHaveLength(1);
+    expect(candidate).toContain("await runCommandBytes('git', ['-C', repositoryRoot, ...args], {");
+    expect(candidate).toContain('    cwd: repositoryRoot,');
+    expect(candidate).toContain('env: createBranchLifecycleGitChildEnvironmentV1(process.env)');
+    expect(candidate).toContain("envMode: 'replace'");
+    expect(candidate).toContain('    maxStderrBytes: MAX_BUFFER,\n');
+    expect(candidate).toContain('    maxStdoutBytes: MAX_BUFFER\n');
+    expect(candidate).not.toContain('spawnSync');
+    expect(candidate).not.toContain('shell:');
+    expect(candidate).not.toContain('execSync');
+  };
+  assertDispatcher(dispatcher);
+  for (const [label, hostile] of [
+    ['name', dispatcher.replace('runRepositoryGit', 'runRepositoryGitNearName')],
+    ['command', dispatcher.replace("runCommandBytes('git'", "runCommandBytes('git-near-name'")],
+    ['arguments', dispatcher.replace("['-C', repositoryRoot, ...args]", '[repositoryRoot, ...args]')],
+    ['repository-argument', dispatcher.replace('repositoryRoot, ...args', "repositoryRoot + '/nested', ...args")],
+    ['cwd', dispatcher.replace('cwd: repositoryRoot', "cwd: repositoryRoot + '/nested'")],
+    ['environment', dispatcher.replace('createBranchLifecycleGitChildEnvironmentV1(process.env)', 'process.env')],
+    ['environment-mode', dispatcher.replace("envMode: 'replace'", "envMode: 'inherit'")],
+    ['stderr-boundary', dispatcher.replace('maxStderrBytes: MAX_BUFFER', 'maxStderrBytes: MAX_BUFFER * 2')],
+    ['stdout-boundary', dispatcher.replace('maxStdoutBytes: MAX_BUFFER', 'maxStdoutBytes: MAX_BUFFER * 2')],
+    ['ordinal', dispatcher.replace('  return {', "  runCommandBytes('git', ['status'], { cwd: repositoryRoot });\n  return {")]
+  ] as const) {
+    expect(hostile).not.toBe(dispatcher);
+    let rejected = false;
+    try { assertDispatcher(hostile); } catch { rejected = true; }
+    if (!rejected) throw new Error(`worktree process-boundary mutation was not rejected: ${label}`);
+  }
+  expect(source).toContain('observeWorkingState(repository.root, input.targetPath, ownedNamespace.relativePath)');
+  expect(source).not.toContain('runRepositoryGit(targetPath,');
+});
+
 test('docs-doctor index-tree preflight binds every exact read-only dispatcher and rejects semantic drift', async () => {
   const repositoryPath = 'docs/scripts/docs-doctor.ts';
   const lexicalFixtures = [

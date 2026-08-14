@@ -6,9 +6,7 @@ const DEV_RUNNER_FAST_TESTS = [
   'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
-const IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS = [
-  'tests/unit/import-transform-transaction.test.ts'
-];
+const IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS = ['tests/unit/import-transform-transaction.test.ts'];
 
 const MAIN_HEALTH_FAST_TESTS = [
   'tests/contract/ci-contract.test.ts',
@@ -50,15 +48,9 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
   'tests/unit/verification-action-github-provider.test.ts'
 ];
 
-const CI_PR_RISK_FAST_TESTS = [
-  ...VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
-  'tests/unit/heavy-verification-gate-lease.test.ts'
-];
+const CI_PR_RISK_FAST_TESTS = [...VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS, 'tests/unit/heavy-verification-gate-lease.test.ts'];
 
-const DEV_RUNNER_ENTRYPOINT_FAST_TESTS = [
-  ...DEV_RUNNER_FAST_TESTS,
-  'tests/unit/heavy-verification-gate-lease.test.ts'
-];
+const DEV_RUNNER_ENTRYPOINT_FAST_TESTS = [...DEV_RUNNER_FAST_TESTS, 'tests/unit/heavy-verification-gate-lease.test.ts'];
 
 const VERIFICATION_ACTION_TEST_FIXTURE_FAST_TESTS = [
   'tests/contract/test-impact.test.ts',
@@ -75,15 +67,9 @@ export const TRUSTED_VERIFIER_TCB_FAST_TESTS = [
   'tests/unit/tcb-trust-root-contract.test.ts'
 ];
 
-const HEAVY_VERIFICATION_GATE_FAST_TESTS = [
-  ...TRUSTED_VERIFIER_TCB_FAST_TESTS,
-  'tests/unit/heavy-verification-gate-lease.test.ts'
-];
+const HEAVY_VERIFICATION_GATE_FAST_TESTS = [...TRUSTED_VERIFIER_TCB_FAST_TESTS, 'tests/unit/heavy-verification-gate-lease.test.ts'];
 
-const GIT_CHANGED_FILE_OBSERVATION_FAST_TESTS = [
-  ...TRUSTED_VERIFIER_TCB_FAST_TESTS,
-  'tests/contract/dev-runner-contract.test.ts'
-];
+const GIT_CHANGED_FILE_OBSERVATION_FAST_TESTS = [...TRUSTED_VERIFIER_TCB_FAST_TESTS, 'tests/contract/dev-runner-contract.test.ts'];
 
 const VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS = [
   'tests/contract/ci-contract.test.ts',
@@ -111,6 +97,29 @@ const VERIFICATION_SESSION_SOURCE_LOCK_FAST_TESTS = [
   'tests/unit/sec-merge-bootstrap.test.ts'
 ];
 
+const WORKTREE_PHYSICAL_CLOSEOUT_FAST_TESTS = [
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/branch-lifecycle-contract.test.ts',
+  'tests/unit/physical-no-follow.test.ts',
+  'tests/unit/worktree-physical-closeout-contract.test.ts',
+  'tests/unit/worktree-physical-closeout-crash-recovery.test.ts',
+  'tests/unit/worktree-physical-closeout-temp-repo.test.ts'
+];
+
+// The lease is shared coordination infrastructure, not a semantic-mutation
+// implementation detail.  Its physical-retirement protocol has an explicit
+// owner so #186 changes select both ordinary lease coverage and the real
+// cross-process closeout recovery evidence exactly once.
+const WORKSPACE_WRITE_LEASE_FAST_TESTS = [
+  'tests/contract/test-impact.test.ts',
+  'tests/contract/semantic-mutation-apply-contract.test.ts',
+  'tests/integration/pipeline-workspace-write-lease.test.ts',
+  'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
+  'tests/unit/workspace-write-lease.test.ts',
+  'tests/unit/worktree-physical-closeout-crash-recovery.test.ts',
+  'tests/unit/worktree-physical-closeout-temp-repo.test.ts'
+];
+
 const VERIFICATION_TRUTH_FAST_TESTS = [
   'tests/contract/test-impact.test.ts',
   'tests/unit/acceptance-coverage-closure.test.ts',
@@ -123,6 +132,27 @@ const VERIFICATION_TRUTH_FAST_TESTS = [
 ];
 
 export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
+  {
+    owner: 'workspace-write-lease',
+    identity: { kind: 'architecture-owner', id: 'workspace-write-lease' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: ['platform/shared/workspace-write-lease.ts'],
+    fast: WORKSPACE_WRITE_LEASE_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'git-worktree-physical-closeout',
+    identity: { kind: 'architecture-owner', id: 'git-worktree-physical-closeout' },
+    autoReferenceMode: 'declared-only',
+    sourceFiles: [
+      'platform/shared/physical-no-follow.ts',
+      'scripts/codex/worktree-physical-closeout-contract.ts',
+      'scripts/codex/worktree-physical-closeout.ts',
+      'tests/unit/worktree-physical-closeout-crash-fixture.ts'
+    ],
+    fast: WORKTREE_PHYSICAL_CLOSEOUT_FAST_TESTS,
+    slow: []
+  },
   {
     owner: 'git-changed-file-observation',
     identity: { kind: 'architecture-owner', id: 'git-changed-file-observation' },
@@ -137,10 +167,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     autoReferenceMode: 'declared-only',
     sourceFiles: ['platform/dev-runner/import-transform-transaction.ts'],
     fast: IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS,
-    slow: [
-      'tests/e2e/import-organizer-staged.test.ts',
-      'tests/e2e/import-organizer-worktree-isolation.test.ts'
-    ]
+    slow: ['tests/e2e/import-organizer-staged.test.ts', 'tests/e2e/import-organizer-worktree-isolation.test.ts']
   },
   {
     owner: 'main-health',
@@ -264,10 +291,7 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     owner: 'affected-test-selection',
     identity: { kind: 'architecture-owner', id: 'affected-test-selection' },
     autoReferenceMode: 'declared-only',
-    sourceFiles: [
-      'platform/shared/affected-test-inventory.ts',
-      'platform/shared/verification-scope-inventory.ts'
-    ],
+    sourceFiles: ['platform/shared/affected-test-inventory.ts', 'platform/shared/verification-scope-inventory.ts'],
     fast: AFFECTED_TEST_SELECTION_FAST_TESTS,
     slow: []
   },
