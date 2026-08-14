@@ -35,25 +35,31 @@ export const LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1 =
   '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647' as const;
 export const LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1 = '3.12.3' as const;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2 =
-  'trust-domains-node24-python312-v6' as const;
+  'trust-domains-node24-python312-archive-v7' as const;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1 =
   `sec-actions-runner:${LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1}-${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2}` as const;
 // Frozen after the canonical Dockerfile is built once. Rebuilding mutable apt
 // inputs under the same semantic provider revision must fail this identity.
 export const LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2 =
-  'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e' as const;
+  'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf' as const;
 export const LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3 = Object.freeze([
+  Object.freeze({
+    imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
+    imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v6',
+    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
+  }),
   Object.freeze({
     imageId: 'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
     imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v4',
     replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
-    decision: 'superseded-by-trust-domains-node24-python312-v6'
+    decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
   }),
   Object.freeze({
     imageId: 'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a',
     imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-v3',
     replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
-    decision: 'superseded-by-trust-domains-node24-python312-v6'
+    decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
   })
 ] as const);
 export const LOCAL_GITHUB_ACTIONS_RUNNER_LABELS_V1 = Object.freeze([
@@ -456,12 +462,13 @@ export function createLocalGitHubActionsRunnerDockerfileV1(): string {
     + 'ARG DEBIAN_FRONTEND=noninteractive\n'
     + 'RUN apt-get -o Acquire::Retries=5 update '
     + '&& apt-get -o Acquire::Retries=5 install -y --no-install-recommends '
-    + 'ca-certificates curl git jq python3 xz-utils libicu74 libssl3 libkrb5-3 zlib1g '
+    + 'ca-certificates curl git jq python3 unzip xz-utils libicu74 libssl3 libkrb5-3 zlib1g '
     + 'libasound2t64 libatk-bridge2.0-0 libatk1.0-0 libcairo2 libcups2 libdbus-1-3 '
     + 'libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 '
     + 'libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 '
     + 'libxkbcommon0 libxrandr2 '
     + `&& test "$(python3 --version)" = "Python ${LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1}" `
+    + '&& command -v unzip >/dev/null '
     + '&& python3 -c "import hashlib,json,tarfile" '
     + '&& rm -rf /var/lib/apt/lists/*\n'
     + `RUN curl --fail --location --proto '=https' --tlsv1.2 --retry 3 `

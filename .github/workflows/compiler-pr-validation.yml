@@ -1,10 +1,7 @@
 name: compiler-pr-validation
-run-name: "${{ github.event_name == 'push' && format('SEC main health {0}', github.sha) || github.event.action == 'sec-produce-main-health-v1' && format('SEC main health {0} operation {1}', github.event.client_payload.payload.mainSha, github.event.client_payload.payload.requestOperationId) || github.event.action == 'sec-produce-agent-operation-activation-v1' && format('activate {0} PR #{1}', github.event.client_payload.payload.phase, github.event.client_payload.payload.pullRequestNumber) || github.event.action == 'sec-produce-verification-action-v2' && format('produce Action {0}', github.event.client_payload.payload.proposal.proposedActionKey) || format('verify session PR #{0} session {1}', github.event.client_payload.payload.prNumber, github.event.client_payload.payload.expectedSessionRevision) }}"
+run-name: "${{ github.event.action == 'sec-produce-main-health-v1' && format('SEC main health {0} operation {1}', github.event.client_payload.payload.mainSha, github.event.client_payload.payload.requestOperationId) || github.event.action == 'sec-produce-agent-operation-activation-v1' && format('activate {0} PR #{1}', github.event.client_payload.payload.phase, github.event.client_payload.payload.pullRequestNumber) || github.event.action == 'sec-produce-verification-action-v2' && format('produce Action {0}', github.event.client_payload.payload.proposal.proposedActionKey) || format('verify session PR #{0} session {1}', github.event.client_payload.payload.prNumber, github.event.client_payload.payload.expectedSessionRevision) }}"
 
 on:
-  push:
-    branches:
-      - main
   repository_dispatch:
     types:
       - sec-verify-session-v2
@@ -1282,15 +1279,13 @@ jobs:
 
   main-health:
     name: sec/main-health
-    if: >-
-      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-          (github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1') }}
+    if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1' }}
     runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 30
     permissions:
       contents: read
     concurrency:
-      group: sec-main-health-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.payload.mainSha || github.sha }}
+      group: sec-main-health-${{ github.event.client_payload.payload.mainSha }}
       cancel-in-progress: false
       queue: max
     steps:
@@ -1342,7 +1337,7 @@ jobs:
         id: checkout-main
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
-          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.payload.mainSha || github.sha }}
+          ref: ${{ github.event.client_payload.payload.mainSha }}
           fetch-depth: 0
           persist-credentials: false
 

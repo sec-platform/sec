@@ -916,12 +916,13 @@ test('external runner release authority binds exact primary-source archive and b
           + 'actions-runner-linux-x64-2.336.0.tar.gz',
         artifactSha256: '04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d',
         baseImage: 'ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea',
-        imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
-        imageBuildRevision: 'trust-domains-node24-python312-v6',
+        imageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
+        imageBuildRevision: 'trust-domains-node24-python312-archive-v7',
         nodeVersion: '24.19.0',
         nodeArtifact: 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz',
         nodeArtifactSha256: '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647',
         pythonVersion: '3.12.3',
+        zipExtractionCapability: 'info-zip-unzip-6.00',
         sandboxRevision: 'sandbox-v4',
         outerSutContainerCapabilities: [
           'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
@@ -955,16 +956,22 @@ test('external runner release authority binds exact primary-source archive and b
           ordinaryStopAuthority: 'none',
           superseded: [
             {
+              imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
+              imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v6',
+              replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
+              decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
+            },
+            {
               imageId: 'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
               imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v4',
-              replacementImageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
-              decision: 'superseded-by-trust-domains-node24-python312-v6'
+              replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
+              decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
             },
             {
               imageId: 'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a',
               imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-v3',
-              replacementImageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
-              decision: 'superseded-by-trust-domains-node24-python312-v6'
+              replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
+              decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
             }
           ],
           requires: [
@@ -1048,6 +1055,19 @@ test('external runner release authority binds exact primary-source archive and b
       'docs/governance/external-capability-ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.pythonVersion '
         + 'must bind the archive-inspection runtime.'
+    );
+
+    const zipDrift = structuredClone(base);
+    const zipAuthority = provider(zipDrift.external, 'github-actions-local-runner')
+      .versionAuthority as Record<string, unknown>;
+    zipAuthority.zipExtractionCapability = 'missing';
+    await expectOneError(
+      root,
+      registry,
+      zipDrift,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority.'
+        + 'zipExtractionCapability must bind setup archive extraction.'
     );
 
     const imageDrift = structuredClone(base);

@@ -207,7 +207,8 @@ function validateVersionAuthority(
       [
         'kind', 'release', 'artifact', 'artifactSha256', 'baseImage', 'imageId',
         'imageBuildRevision', 'nodeVersion', 'nodeArtifact', 'nodeArtifactSha256',
-        'pythonVersion', 'sandboxRevision', 'outerSutContainerCapabilities', 'sutResources',
+        'pythonVersion', 'zipExtractionCapability', 'sandboxRevision',
+        'outerSutContainerCapabilities', 'sutResources',
         'roleProfiles', 'providerLeaseRef', 'providerLedgerSchema', 'providerLedgerAuthority',
         'providerLedgerObjectModel',
         'destructiveIdentityAuthority', 'imageRetirement', 'license'
@@ -234,10 +235,10 @@ function validateVersionAuthority(
       throw new Error(`${label}.versionAuthority.baseImage must be an exact Ubuntu image digest.`);
     }
     if (authority.imageId
-        !== 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e') {
+        !== 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf') {
       throw new Error(`${label}.versionAuthority.imageId must be an exact built image digest.`);
     }
-    if (authority.imageBuildRevision !== 'trust-domains-node24-python312-v6') {
+    if (authority.imageBuildRevision !== 'trust-domains-node24-python312-archive-v7') {
       throw new Error(`${label}.versionAuthority.imageBuildRevision must bind the image recipe revision.`);
     }
     if (authority.nodeVersion !== '24.19.0') {
@@ -252,6 +253,9 @@ function validateVersionAuthority(
     }
     if (authority.pythonVersion !== '3.12.3') {
       throw new Error(`${label}.versionAuthority.pythonVersion must bind the archive-inspection runtime.`);
+    }
+    if (authority.zipExtractionCapability !== 'info-zip-unzip-6.00') {
+      throw new Error(`${label}.versionAuthority.zipExtractionCapability must bind setup archive extraction.`);
     }
     if (authority.sandboxRevision !== 'sandbox-v4') {
       throw new Error(`${label}.versionAuthority.sandboxRevision must bind the exact SUT sandbox.`);
@@ -338,21 +342,27 @@ function validateVersionAuthority(
     exactKeys(imageRetirement, ['ordinaryStopAuthority', 'superseded', 'requires'],
       `${label}.versionAuthority.imageRetirement`);
     const superseded = imageRetirement.superseded;
-    if (!Array.isArray(superseded) || superseded.length !== 2) {
-      throw new Error(`${label}.versionAuthority.imageRetirement.superseded must bind two decisions.`);
+    if (!Array.isArray(superseded) || superseded.length !== 3) {
+      throw new Error(`${label}.versionAuthority.imageRetirement.superseded must bind three decisions.`);
     }
     const expectedSuperseded = [
       {
+        imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
+        imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v6',
+        replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
+        decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
+      },
+      {
         imageId: 'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
         imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v4',
-        replacementImageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
-        decision: 'superseded-by-trust-domains-node24-python312-v6'
+        replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
+        decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
       },
       {
         imageId: 'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a',
         imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-v3',
-        replacementImageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
-        decision: 'superseded-by-trust-domains-node24-python312-v6'
+        replacementImageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
+        decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
       }
     ];
     for (const [index, entry] of superseded.entries()) {

@@ -144,7 +144,7 @@ test('all repository workflows route compute through the exact local Linux runne
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':node-24.19.0:');
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':python-3.12.3:');
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(
-    ':image-sha256-6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e:'
+    ':unzip-6.00:image-sha256-a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf:'
   );
 });
 
@@ -215,7 +215,7 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   ]);
   expect(workflow.permissions).toEqual({ actions: 'read', contents: 'read', 'pull-requests': 'read' });
   expect(workflow.concurrency).toBeUndefined();
-  expect(workflow.on.push?.branches).toEqual(['main']);
+  expect(workflow.on.push).toBeUndefined();
   expect(contract.prWorkflowCommands.filter((command) => !source.includes(command))).toEqual([]);
   for (const name of CI_VERIFICATION_PR_STEP_ORDER) expect(source).toContain(`name: ${name}`);
 
@@ -984,8 +984,8 @@ test('Quick and Full plan topology remains deterministic behind the Action norma
 
 test('exact-main health policy binds one stable GitHub Actions app and terminal context', async () => {
   expect(CI_MAIN_HEALTH_POLICY_V1).toEqual({
-    schema: 'sec-ci-main-health-policy-v5',
-    policyRevision: 'sec-ci-main-health-policy-v5',
+    schema: 'sec-ci-main-health-policy-v6',
+    policyRevision: 'sec-ci-main-health-policy-v6',
     context: 'sec/main-health',
     app: { id: 15368, nodeId: 'MDM6QXBwMTUzNjg=', slug: 'github-actions' },
     producer: {
@@ -993,9 +993,8 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
       sourceTransport: 'github-api',
       workflowPath: '.github/workflows/compiler-pr-validation.yml',
       workflowRefFormat: '.github/workflows/compiler-pr-validation.yml@<exact-main-sha>',
-      eventNames: ['push', 'repository_dispatch'],
+      eventNames: ['repository_dispatch'],
       runTitleFormats: {
-        push: 'SEC main health <exact-main-sha>',
         repositoryDispatch: 'SEC main health <exact-main-sha> operation <request-operation-id>',
         requestOperationId: 'sha256:<64-lowercase-hex>',
         requestSchema: 'sec-produce-main-health-request-v1',
@@ -1046,9 +1045,9 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
   const workflow = parseYaml(await readCompilerFile('.github/workflows/compiler-pr-validation.yml')) as Workflow;
   const job = workflow.jobs[CI_MAIN_HEALTH_JOB_ID]!;
   expect(job.name).toBe(CI_MAIN_HEALTH_JOB_NAME);
-  expect(job.if).toBe("${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') ||\n    (github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1') }}");
+  expect(job.if).toBe("${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1' }}");
   expect(job.concurrency).toEqual({
-    group: "sec-main-health-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.payload.mainSha || github.sha }}",
+    group: 'sec-main-health-${{ github.event.client_payload.payload.mainSha }}',
     'cancel-in-progress': false,
     queue: 'max'
   });
@@ -1058,9 +1057,10 @@ test('exact-main health policy binds one stable GitHub Actions app and terminal 
     'docs-doctor', 'test-fast'
   ]);
   expect(job.steps.filter((step) => step.run).map((step) => step.run)).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
+  expect((workflow.on as Record<string, unknown>).push).toBeUndefined();
   expect(job.steps[0]?.if).toBe("${{ github.event_name == 'repository_dispatch' }}");
   expect(job.steps[1]?.with).toMatchObject({
-    ref: "${{ github.event_name == 'repository_dispatch' && github.event.client_payload.payload.mainSha || github.sha }}",
+    ref: '${{ github.event.client_payload.payload.mainSha }}',
     'persist-credentials': false
   });
   expect(job.steps[2]?.with).toMatchObject({ 'bun-version-file': '.bun-version' });

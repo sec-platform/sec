@@ -321,13 +321,12 @@ candidate不得吸收unrelated baseline/verifier/selector defect。一个fresh l
 owner、failure fingerprints与manifest identity交给document-control；`locked`不调用任何选择器。
 repair路径因此不依赖全Issue census，也不能与ordinary选择同时运行。
 
-多个受信event producer不是天然冲突，也不能以“任意一个成功”投票。raw `repository_dispatch` event不是
-MainHealth action credential；normalized check必须包含workflow run ID/display title，policy必须先验证push或
-exact-main MainHealth request对应的event-specific title。其他dispatch的同名skipped job是nonmatching noise，
-不得把activation producer自身变成MainHealth blocker。唯一MainHealth compiler只在每个
-allowed event至多一个check且全部给出相同`terminal status + conclusion`时收敛：一致成功是healthy，
-一致终态失败是degraded；terminal conclusion词汇由MainHealth policy封闭拥有，同event重复、nonterminal、
-unknown status/conclusion或结论分歧都是locked。语义failure fingerprint排除
+raw `repository_dispatch` event不是MainHealth action credential；normalized check必须包含workflow run ID/display
+title，policy必须验证exact-main request operation ID与唯一event-specific title。main push不直接排队Linux job：
+控制面必须先完成provider active三角色census，再为readback后的exact main发布一次canonical dispatch，避免runner在
+active publication前被push job抢占。其他dispatch的同名skipped job是nonmatching noise，不得把activation producer
+自身变成MainHealth blocker。唯一MainHealth compiler只在恰好一个matching terminal check时收敛：成功是healthy，
+受支持的终态失败是degraded；duplicate、nonterminal、unknown status/conclusion或其他event都是locked。语义failure fingerprint排除
 check id/event等transport identity以保持等价观察稳定。adapter必须先闭合bounded pagination与shape；MainHealth
 source digest绑定policy与canonical matching subset，nonmatching provider noise不参与health decision也不引起
 provenance churn。完整raw response若需审计，必须由独立provider observation receipt owner签发，不能在
@@ -344,7 +343,8 @@ NoNewPrivs、无网络且看不到runner根或继承FD。control/trusted保持ca
 check transport identity，但hosted runner quota不拥有Linux结果语义。物理executor变化必须进入
 environment/provider revision；相同semantic Action在相同toolchain、sandbox与platform profile下可复用，
 不得因branch、PR、amend或squash identity机械重跑。当前local runner仍通过GitHub Actions投影formal result；
-在`trusted-local-readback` producer正式上线前，普通local process或self-digest文件不能签发MainHealth。
+在`trusted-local-readback` producer正式上线前，普通local process或self-digest文件不能签发MainHealth。local、remote
+或未来Darwin provider只替换同一operation的受治理execution binding，不修改workflow/job/check语义。
 
 持久self-hosted runner绝不消费由caller选择workflow/ref的`workflow_dispatch`或`workflow_call`仓库字节。
 只执行当前trusted default内容的诊断与release-main workflow必须由default-branch
