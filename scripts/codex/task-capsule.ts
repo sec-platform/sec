@@ -73,6 +73,7 @@ export interface SecTrustedWorkerTaskCapsuleObservationV1 {
   readonly targetCandidate: string;
   readonly changedPaths: readonly string[];
   readonly manifestPath: string;
+  readonly manifestRevision: string;
   readonly manifestDigest: SecDigestV1;
   readonly activationPhase: 'prepare' | 'finalize';
   readonly activationDigest: SecDigestV1;
@@ -166,6 +167,7 @@ export async function resolveTrustedWorkerTaskCapsuleV1(
     targetCandidate: activation.targetCandidate,
     changedPaths: activation.changedPaths,
     manifestPath: activation.manifestPath,
+    manifestRevision: activation.manifestRevision,
     manifestDigest: activation.manifestDigest,
     activationPhase: activation.phase,
     activationDigest: activation.activationDigest,

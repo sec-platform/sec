@@ -424,6 +424,7 @@ function workBinding(
 
 interface CandidateControlSnapshot {
   readonly manifestPath: string;
+  readonly manifestRevision: string;
   readonly manifestDigest: `sha256:${string}`;
   readonly manifest: CodexDevelopmentWorkPackageManifest;
   readonly rollingTopology: Readonly<{
@@ -467,7 +468,8 @@ function readCandidateControl(
       || state.resolver.defaultRef !== `refs/remotes/${state.resolver.remote}/${state.resolver.defaultBranch}`) {
     unavailable('activation-stale', 'candidate-current-state-identity-drift');
   }
-  const manifestBytes = readGitBlob(candidateRoot, `${revision}:${pointer.manifest}`).bytes;
+  const manifestBlob = readGitBlob(candidateRoot, `${revision}:${pointer.manifest}`);
+  const manifestBytes = manifestBlob.bytes;
   const manifest = CodexDevelopmentParseWorkPackageManifest(
     decodeUtf8(manifestBytes, 'activation-stale'), pointer.manifest
   );
@@ -479,6 +481,7 @@ function readCandidateControl(
   }
   return Object.freeze({
     manifestPath: pointer.manifest,
+    manifestRevision: manifestBlob.oid,
     manifestDigest,
     manifest,
     rollingTopology: Object.freeze({
@@ -1201,6 +1204,7 @@ interface SecResolvedAgentOperationActivationCommonV1 {
   readonly targetCandidate: string;
   readonly changedPaths: readonly string[];
   readonly manifestPath: string;
+  readonly manifestRevision: string;
   readonly manifestDigest: `sha256:${string}`;
   readonly authorityOwners: readonly SecOperationAuthorityOwnerObservationV1[];
 }
@@ -1322,6 +1326,7 @@ function resolveSecAgentOperationActivationUncheckedV1(
       targetCandidate,
       changedPaths: paths,
       manifestPath: control.manifestPath,
+      manifestRevision: control.manifestRevision,
       manifestDigest: control.manifestDigest,
       authorityOwners
     });
@@ -1394,6 +1399,7 @@ function resolveSecAgentOperationActivationUncheckedV1(
     targetCandidate,
     changedPaths: paths,
     manifestPath: control.manifestPath,
+    manifestRevision: control.manifestRevision,
     manifestDigest: control.manifestDigest,
     authorityOwners
   });

@@ -40,6 +40,11 @@ import {
   matchSecTrustedBootstrapPathV3,
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3
 } from '../../platform/shared/tcb-trust-root-contract.ts';
+import {
+  LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1,
+  LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1,
+  LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2
+} from '../../scripts/codex/local-github-actions-runner.ts';
 import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 
 type WorkflowStep = Readonly<{
@@ -144,7 +149,12 @@ test('all repository workflows route compute through the exact local Linux runne
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':node-24.19.0:');
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':python-3.12.3:');
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(
-    ':unzip-6.00:image-sha256-a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf:'
+    `:unzip-6.00:gh-${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}:`
+      + `gh-archive-sha256-${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1}:`
+      + `image-${LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2.replace(':', '-')}:`
+  );
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).not.toContain(
+    'a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf'
   );
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':container-init-v1:');
 });
@@ -1120,6 +1130,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   });
   const pre = step(workflow, 'checker-pre', 'Produce trusted-base PRE candidate-root receipt');
   expect(pre.env).toMatchObject({
+    BOOTSTRAP_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}',
     SEC_BOOTSTRAP_BASE: '${{ needs.resolve.outputs.base }}',
     SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}'
   });
@@ -1207,6 +1218,15 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   expect(sutRun).toContain('bun scripts/ci-verification.ts execute-trusted-bootstrap-sut');
   expect(sutRun).toContain('--base-root "$GITHUB_WORKSPACE"');
   expect(sutRun).toContain('--candidate-root "$CANDIDATE_ROOT"');
+  expect(step(workflow, 'candidate-sut', 'Run candidate SUT through trusted private sandbox').env)
+    .toMatchObject({
+      SUT_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}'
+    });
+  expect(verificationSource).toContain('CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1');
+  expect(verificationSource).toContain(':(top,exclude,literal)');
+  expect(verificationSource).toContain(
+    "['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching']"
+  );
   expect(sutRun).not.toContain('cd "$CANDIDATE_ROOT"');
   expect(sutRun).not.toContain('bun run imports:check');
   expect(sutRun).not.toContain('bun test');
@@ -1262,7 +1282,7 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   expect(preflight.run).not.toContain('importFromTrustedBase');
   const initialize = step(workflow, 'checker-post', 'Initialize fail-closed final evidence envelope');
   expect(initialize.env).toMatchObject({
-    FINAL_EVIDENCE_ROOT: '${{ github.workspace }}/bootstrap-final',
+    FINAL_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}',
     SEC_BOOTSTRAP_BASE: '${{ needs.resolve.outputs.base }}',
     SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}',
     SEC_BOOTSTRAP_HEAD: '${{ needs.resolve.outputs.head }}',
@@ -1297,6 +1317,9 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     .toBe(false);
   const post = step(workflow, 'checker-post', 'Recompute POST and reduce exact bootstrap evidence');
   expect(post.env).toMatchObject({
+    BOOTSTRAP_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}',
+    SUT_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}',
+    FINAL_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}',
     SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}',
     SEC_BOOTSTRAP_RUN_ID: '${{ github.run_id }}',
     SEC_BOOTSTRAP_RUN_ATTEMPT: '${{ github.run_attempt }}'
@@ -1324,14 +1347,26 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   expect(postRun).toContain('mv SHA256SUMS.tmp SHA256SUMS');
   const preArtifactName = 'sec-trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}';
   const sutArtifactName = 'sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}';
-  expect(step(workflow, 'checker-pre', 'Upload bounded checker PRE artifact').with?.name)
-    .toBe(preArtifactName);
-  expect(step(workflow, 'checker-post', 'Download bounded checker PRE artifact').with?.name)
-    .toBe(preArtifactName);
-  expect(step(workflow, 'candidate-sut', 'Upload bounded candidate SUT artifact').with?.name)
-    .toBe(sutArtifactName);
-  expect(step(workflow, 'checker-post', 'Download bounded candidate SUT artifact').with?.name)
-    .toBe(sutArtifactName);
+  const preArtifactRoot = '${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}';
+  const sutArtifactRoot = '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}';
+  const finalArtifactRoot = '${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}';
+  const preUpload = step(workflow, 'checker-pre', 'Upload bounded checker PRE artifact');
+  const preDownload = step(workflow, 'checker-post', 'Download bounded checker PRE artifact');
+  const sutUpload = step(workflow, 'candidate-sut', 'Upload bounded candidate SUT artifact');
+  const sutDownload = step(workflow, 'checker-post', 'Download bounded candidate SUT artifact');
+  expect(preUpload.with?.name).toBe(preArtifactName);
+  expect(preDownload.with?.name).toBe(preArtifactName);
+  expect(sutUpload.with?.name).toBe(sutArtifactName);
+  expect(sutDownload.with?.name).toBe(sutArtifactName);
+  expect(preUpload.with?.path).toBe(preArtifactRoot);
+  expect(preDownload.with?.path).toBe(preArtifactRoot);
+  expect(sutDownload.with?.path).toBe(sutArtifactRoot);
+  const sutUploadPath = sutUpload.with?.path;
+  if (typeof sutUploadPath !== 'string') {
+    throw new Error('trusted bootstrap SUT artifact path must be one string.');
+  }
+  expect(sutUploadPath.split('\n').filter(Boolean).every((path) => path.startsWith(`${sutArtifactRoot}/`)))
+    .toBe(true);
   const finalUpload = step(workflow, 'checker-post', 'Upload final canonical trusted bootstrap evidence');
   expect(finalUpload.if).toBe('always()');
   expect(finalUpload.with?.['if-no-files-found']).toBe('error');
@@ -1340,15 +1375,28 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
     throw new Error('trusted bootstrap final artifact path must be one string.');
   }
   expect(finalUploadPath.split('\n')).toEqual([
-    'bootstrap-final/final-envelope.json',
-    'bootstrap-final/SHA256SUMS',
-    'bootstrap-final/environment.txt',
-    'bootstrap-final/post-receipt.json',
-    'bootstrap-final/pre-receipt.json',
-    'bootstrap-final/sut-diagnostic.json',
+    `${finalArtifactRoot}/final-envelope.json`,
+    `${finalArtifactRoot}/SHA256SUMS`,
+    `${finalArtifactRoot}/environment.txt`,
+    `${finalArtifactRoot}/post-receipt.json`,
+    `${finalArtifactRoot}/pre-receipt.json`,
+    `${finalArtifactRoot}/sut-diagnostic.json`,
     ''
   ]);
-  expect(finalUpload.with?.path).not.toBe('bootstrap-final');
+  const workflowTransport = JSON.stringify([
+    pre.env,
+    preUpload.with,
+    step(workflow, 'candidate-sut', 'Run candidate SUT through trusted private sandbox').env,
+    sutUpload.with,
+    initialize.env,
+    preDownload.with,
+    sutDownload.with,
+    post.env,
+    finalUpload.with
+  ]);
+  expect(workflowTransport).not.toContain('${{ github.workspace }}/bootstrap-pre');
+  expect(workflowTransport).not.toContain('${{ github.workspace }}/sut-evidence');
+  expect(workflowTransport).not.toContain('${{ github.workspace }}/bootstrap-final');
   expect(finalUpload.with?.name).toBe(
     'sec-trusted-bootstrap-v1-pr-${{ needs.resolve.outputs.pull-request }}-base-${{ needs.resolve.outputs.base }}-head-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}'
   );

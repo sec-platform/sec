@@ -34,33 +34,44 @@ export const LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1 = '24.19.0' as const;
 export const LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1 =
   '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647' as const;
 export const LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1 = '3.12.3' as const;
+export const LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1 = '2.97.0' as const;
+export const LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1 =
+  'a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112' as const;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2 =
-  'trust-domains-node24-python312-archive-v7' as const;
+  'trust-domains-node24-python312-gh297-archive-v8' as const;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1 =
   `sec-actions-runner:${LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1}-${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2}` as const;
 // Frozen after the canonical Dockerfile is built once. Rebuilding mutable apt
 // inputs under the same semantic provider revision must fail this identity.
 export const LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2 =
+  'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f' as const;
+export const LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1 =
   'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf' as const;
 export const LOCAL_GITHUB_ACTIONS_RUNNER_CONTAINER_INIT_CAPABILITY_V1 =
   'docker-init-v1' as const;
 export const LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3 = Object.freeze([
   Object.freeze({
+    imageId: LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
+    imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-archive-v7',
+    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    decision: 'superseded-by-trust-domains-node24-python312-gh297-archive-v8'
+  }),
+  Object.freeze({
     imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
     imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v6',
-    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
     decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
   }),
   Object.freeze({
     imageId: 'sha256:60d1c338f85133d997cc2fb3b0353d79a52fc297e84188963e3e9c2cf98cf209',
     imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v4',
-    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
     decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
   }),
   Object.freeze({
     imageId: 'sha256:2fce0e62d0db84341fb2c76f4038879fbfceaf9babcb167c61b93f6b76ae906a',
     imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-v3',
-    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2,
+    replacementImageId: LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1,
     decision: 'superseded-by-trust-domains-node24-python312-archive-v7'
   })
 ] as const);
@@ -488,11 +499,26 @@ export function createLocalGitHubActionsRunnerDockerfileV1(): string {
     // GitHub publishes the archive with uid/gid 1001. The runtime deliberately drops
     // CAP_DAC_OVERRIDE, so normalize archive ownership to the fixed container root owner.
     + 'RUN tar --no-same-owner -xzf runner.tar.gz && rm runner.tar.gz\n'
+    // Additive image capabilities are appended after the stable base/Node/runner
+    // layers, so changing this pinned tool does not redownload unrelated archives.
+    + `RUN curl --fail --location --proto '=https' --tlsv1.2 --retry 3 `
+    + `https://github.com/cli/cli/releases/download/v${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}/`
+    + `gh_${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}_linux_amd64.tar.gz -o gh.tar.gz `
+    + `&& echo '${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1}  gh.tar.gz' `
+    + '| sha256sum --check --strict '
+    + '&& tar --no-same-owner -xzf gh.tar.gz '
+    + `&& install -m 0755 gh_${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}_linux_amd64/bin/gh `
+    + '/usr/local/bin/gh '
+    + `&& gh --version | head -n 1 | grep -E '^gh version ${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1.replaceAll('.', '\\.')}`
+    + " ' "
+    + `&& rm -rf gh.tar.gz gh_${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1}_linux_amd64\n`
     + `LABEL sec.local-runner.image-schema=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_SCHEMA_V1} `
     + `sec.local-runner.image-revision=${LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_BUILD_REVISION_V2} `
     + `sec.local-runner.runner-version=${LOCAL_GITHUB_ACTIONS_RUNNER_VERSION_V1} `
     + `sec.local-runner.node-version=${LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1} `
     + `sec.local-runner.node-archive-sha256=${LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1} `
+    + `sec.local-runner.github-cli-version=${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1} `
+    + `sec.local-runner.github-cli-archive-sha256=${LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1} `
     + `sec.local-runner.python-version=${LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1}\n`
     + 'ENV RUNNER_ALLOW_RUNASROOT=1\n'
     + 'ENTRYPOINT ["/bin/bash","-lc"]\n';
@@ -1292,8 +1318,24 @@ export function assertLocalGitHubActionsRunnerImageIdentityV1(
       || record['sec.local-runner.node-version'] !== LOCAL_GITHUB_ACTIONS_NODE_VERSION_V1
       || record['sec.local-runner.node-archive-sha256']
         !== LOCAL_GITHUB_ACTIONS_NODE_ARCHIVE_SHA256_V1
+      || record['sec.local-runner.github-cli-version']
+        !== LOCAL_GITHUB_ACTIONS_GITHUB_CLI_VERSION_V1
+      || record['sec.local-runner.github-cli-archive-sha256']
+        !== LOCAL_GITHUB_ACTIONS_GITHUB_CLI_ARCHIVE_SHA256_V1
       || record['sec.local-runner.python-version'] !== LOCAL_GITHUB_ACTIONS_PYTHON_VERSION_V1) {
     fail('cached runner image labels differ from the frozen provider revision');
+  }
+}
+
+export function assertLocalGitHubActionsRunnerReplacementImageIdentityV3(
+  value: Readonly<Record<string, unknown>>,
+  expectedImageId: typeof LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3[number]['replacementImageId']
+): void {
+  if (value.Id !== expectedImageId) fail('superseding frozen image identity differs from its decision');
+  if (expectedImageId === LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2) {
+    assertLocalGitHubActionsRunnerImageIdentityV1(value);
+  } else if (expectedImageId !== LOCAL_GITHUB_ACTIONS_RUNNER_RETIRED_V7_IMAGE_ID_V1) {
+    fail('superseding frozen image identity has no canonical lineage');
   }
 }
 
@@ -2497,7 +2539,7 @@ export async function retireSupersededLocalGitHubActionsRunnerImageV3(input: Rea
 }>): Promise<Readonly<{
   schema: 'sec-local-github-actions-image-retirement-v3';
   imageId: string;
-  replacementImageId: typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2;
+  replacementImageId: typeof LOCAL_GITHUB_ACTIONS_SUPERSEDED_IMAGE_RETIREMENTS_V3[number]['replacementImageId'];
   decision: string;
   zeroContainerReferences: true;
   imageAbsent: true;
@@ -2521,7 +2563,7 @@ export async function retireSupersededLocalGitHubActionsRunnerImageV3(input: Rea
     endpoint
   );
   if (replacement === null) fail('superseding frozen image is absent');
-  assertLocalGitHubActionsRunnerImageIdentityV1(replacement);
+  assertLocalGitHubActionsRunnerReplacementImageIdentityV3(replacement, decision.replacementImageId);
   const references = await listContainerIdentityRows(context.repositoryRoot, endpoint, [
     '--filter', `ancestor=${decision.imageId}`
   ]);

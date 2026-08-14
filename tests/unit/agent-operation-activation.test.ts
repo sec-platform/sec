@@ -238,6 +238,9 @@ test('public activation CLI derives identity and exposes no local credential wri
   expect(source).toContain("String(workflowRun.repository_id ?? '') !== publication.provider.repositoryId");
   expect(source).toContain("unavailable('activation-provider-readback-conflict', repoObservation.bytes)");
   expect(source).toContain("unavailable('activation-provider-readback-conflict', jobsBytes)");
+  expect(source).toContain('const manifestBlob = readGitBlob(candidateRoot, `${revision}:${pointer.manifest}`)');
+  expect(source).toContain('manifestRevision: manifestBlob.oid');
+  expect(source.match(/manifestRevision: control\.manifestRevision/gu)?.length).toBe(2);
   const markerFilter = source.indexOf('comment.body.includes(SEC_AGENT_OPERATION_ACTIVATION_COMMENT_MARKER)');
   const publisherFilter = source.indexOf('hostedPublisherMatches(comment)', markerFilter);
   const markerParser = source.indexOf('parseSecAgentOperationActivationPublicationCommentV1(comment.body)', publisherFilter);

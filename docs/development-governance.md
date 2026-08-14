@@ -605,6 +605,12 @@ raw content digest，Task Capsule owner facts和Read Plan receipt共同绑定同
 额外invalidation keys。rolling plan的测试只比较parser得到的active/candidate topology与roadmap catalog的
 有序package projection；不得硬编码历史Issue marker或手工把旧`#221/#352` prose补回机器渲染结果。
 
+candidate-head manifest只允许由activation adapter物理读取一次：同一次`readGitBlob`必须同时产出blob OID与
+raw-byte digest，并把二者经trusted Task Capsule observation传给Read Plan。下游不得再对同一
+`targetCandidate:manifestPath`执行`rev-parse`、`cat-file -t`或`cat-file blob`；receipt直接复用已认证的
+OID/digest。candidate head、pointer、manifest bytes或issuer binding任一漂移仍使整个observation失效，
+read-once不允许用path cache或caller字段降低fail-closed边界。
+
 Read Plan 同时绑定 `current-physical-state-authoritative-v1`：非 Agent-owned scope 中的明确
 maintainer/user 改动是新的外部事件，旧 observation 立即 stale，当前物理状态成为 authoritative。
 无冲突时接受当前状态；冲突时返回 typed `external-maintainer-mutation`。本层 pure resolver 只分类

@@ -394,7 +394,7 @@ jobs:
         env:
           TRUSTED_BASE_ROOT: ${{ github.workspace }}/trusted-base
           CANDIDATE_ROOT: ${{ github.workspace }}/candidate-data
-          BOOTSTRAP_EVIDENCE_ROOT: ${{ github.workspace }}/bootstrap-pre
+          BOOTSTRAP_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}
           SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
           SEC_BOOTSTRAP_BASE_TREE: ${{ needs.resolve.outputs.base-tree }}
           SEC_BOOTSTRAP_HEAD: ${{ needs.resolve.outputs.head }}
@@ -743,7 +743,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sec-trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: bootstrap-pre
+          path: ${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: error
           retention-days: 1
 
@@ -786,7 +786,7 @@ jobs:
         shell: bash
         env:
           CANDIDATE_ROOT: ${{ github.workspace }}/candidate-sut
-          SUT_EVIDENCE_ROOT: ${{ github.workspace }}/sut-evidence
+          SUT_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}
           SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
           SEC_BOOTSTRAP_HEAD: ${{ needs.resolve.outputs.head }}
           SEC_BOOTSTRAP_TREE: ${{ needs.resolve.outputs.tree }}
@@ -813,18 +813,18 @@ jobs:
         with:
           name: sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
-            sut-evidence/tcb-lock-pre.json
-            sut-evidence/imports.log
-            sut-evidence/docs-doctor.log
-            sut-evidence/typecheck.log
-            sut-evidence/diff-check.log
-            sut-evidence/focused-tests.log
-            sut-evidence/repository-audit.json
-            sut-evidence/affected-plan.json
-            sut-evidence/affected-tests.log
-            sut-evidence/tcb-lock-post.json
-            sut-evidence/SHA256SUMS
-            sut-evidence/sut-receipt.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/tcb-lock-pre.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/imports.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/docs-doctor.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/typecheck.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/diff-check.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/focused-tests.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/repository-audit.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/affected-plan.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/affected-tests.log
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/tcb-lock-post.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/SHA256SUMS
+            ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}/sut-receipt.json
           if-no-files-found: error
           retention-days: 1
 
@@ -840,7 +840,7 @@ jobs:
       - name: Initialize fail-closed final evidence envelope
         shell: bash
         env:
-          FINAL_EVIDENCE_ROOT: ${{ github.workspace }}/bootstrap-final
+          FINAL_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}
           SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
           SEC_BOOTSTRAP_BASE_TREE: ${{ needs.resolve.outputs.base-tree }}
           SEC_BOOTSTRAP_HEAD: ${{ needs.resolve.outputs.head }}
@@ -979,7 +979,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sec-trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: bootstrap-pre
+          path: ${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Download bounded candidate SUT artifact
         id: download-sut
@@ -987,16 +987,16 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: sut-evidence
+          path: ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Recompute POST and reduce exact bootstrap evidence
         shell: bash
         env:
           TRUSTED_BASE_ROOT: ${{ github.workspace }}/trusted-base
           CANDIDATE_ROOT: ${{ github.workspace }}/candidate-data
-          BOOTSTRAP_EVIDENCE_ROOT: ${{ github.workspace }}/bootstrap-pre
-          SUT_EVIDENCE_ROOT: ${{ github.workspace }}/sut-evidence
-          FINAL_EVIDENCE_ROOT: ${{ github.workspace }}/bootstrap-final
+          BOOTSTRAP_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}
+          SUT_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}
+          FINAL_EVIDENCE_ROOT: ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}
           SEC_BOOTSTRAP_BASE: ${{ needs.resolve.outputs.base }}
           SEC_BOOTSTRAP_BASE_TREE: ${{ needs.resolve.outputs.base-tree }}
           SEC_BOOTSTRAP_HEAD: ${{ needs.resolve.outputs.head }}
@@ -1105,11 +1105,11 @@ jobs:
         with:
           name: sec-trusted-bootstrap-v1-pr-${{ needs.resolve.outputs.pull-request }}-base-${{ needs.resolve.outputs.base }}-head-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
-            bootstrap-final/final-envelope.json
-            bootstrap-final/SHA256SUMS
-            bootstrap-final/environment.txt
-            bootstrap-final/post-receipt.json
-            bootstrap-final/pre-receipt.json
-            bootstrap-final/sut-diagnostic.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/final-envelope.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/SHA256SUMS
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/environment.txt
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/post-receipt.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/pre-receipt.json
+            ${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}/sut-diagnostic.json
           if-no-files-found: error
           retention-days: 90

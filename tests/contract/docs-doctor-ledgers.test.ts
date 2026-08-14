@@ -916,11 +916,14 @@ test('external runner release authority binds exact primary-source archive and b
           + 'actions-runner-linux-x64-2.336.0.tar.gz',
         artifactSha256: '04cf0be1aff4c3ec3554466c39124ca250e3effd8873bb7e8d68535aa9505d5d',
         baseImage: 'ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea',
-        imageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
-        imageBuildRevision: 'trust-domains-node24-python312-archive-v7',
+        imageId: 'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f',
+        imageBuildRevision: 'trust-domains-node24-python312-gh297-archive-v8',
         nodeVersion: '24.19.0',
         nodeArtifact: 'https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-x64.tar.xz',
         nodeArtifactSha256: '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647',
+        githubCliVersion: '2.97.0',
+        githubCliArtifact: 'https://github.com/cli/cli/releases/download/v2.97.0/gh_2.97.0_linux_amd64.tar.gz',
+        githubCliArtifactSha256: 'a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112',
         pythonVersion: '3.12.3',
         zipExtractionCapability: 'info-zip-unzip-6.00',
         containerInitCapability: 'docker-init-v1',
@@ -956,6 +959,12 @@ test('external runner release authority binds exact primary-source archive and b
         imageRetirement: {
           ordinaryStopAuthority: 'none',
           superseded: [
+            {
+              imageId: 'sha256:a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf',
+              imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-archive-v7',
+              replacementImageId: 'sha256:418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f',
+              decision: 'superseded-by-trust-domains-node24-python312-gh297-archive-v8'
+            },
             {
               imageId: 'sha256:6ec6d4c46a92a8b9c64e33c3c864b0f817c296725b4a617f2c0e2aae9b40060e',
               imageTag: 'sec-actions-runner:2.336.0-trust-domains-node24-python312-v6',
@@ -1043,6 +1052,21 @@ test('external runner release authority binds exact primary-source archive and b
       'docs/governance/external-capability-ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.nodeArtifactSha256 '
         + 'must bind the exact Node.js binary.'
+    );
+
+    const githubCliDigestDrift = structuredClone(base);
+    const githubCliAuthority = provider(
+      githubCliDigestDrift.external,
+      'github-actions-local-runner'
+    ).versionAuthority as Record<string, unknown>;
+    githubCliAuthority.githubCliArtifactSha256 = '0'.repeat(64);
+    await expectOneError(
+      root,
+      registry,
+      githubCliDigestDrift,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority '
+        + 'GitHub CLI identity is invalid.'
     );
 
     const pythonDrift = structuredClone(base);
