@@ -130,6 +130,11 @@ export function isDefaultFastTestFile(file: string): boolean {
 
 const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
+    file: 'tests/contract/dev-runner-contract.test.ts',
+    reason: 'finite-program-proof-and-process-contract',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/contract/document-control-plane-lifecycle.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
@@ -207,6 +212,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
     file: 'tests/unit/branch-lifecycle-temp-repo.test.ts',
     reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/ci-verification-execution.test.ts',
+    reason: 'copied-tcb-cli-and-child-process-recovery',
     resourceClass: 'independent-process'
   },
   {

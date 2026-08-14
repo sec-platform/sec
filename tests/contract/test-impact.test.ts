@@ -265,6 +265,7 @@ test('trusted verifier TCB surfaces select the causal trust-root contracts', () 
       'tests/contract/tcb-closure-lock.test.ts',
       'tests/contract/test-impact.test.ts',
       'tests/unit/agent-operation-activation.test.ts',
+      'tests/unit/local-github-actions-runner.test.ts',
       'tests/unit/tcb-trust-root-contract.test.ts'
     ],
     slow: [],
@@ -277,6 +278,7 @@ test('trusted verifier TCB surfaces select the causal trust-root contracts', () 
     'platform/shared/ci-trust-root-registry.json',
     'platform/shared/tcb-closure-lock.ts',
     'platform/shared/tcb-trust-root-contract.ts',
+    'scripts/codex/local-github-actions-runner.ts',
     'scripts/codex/merge-gate.ts'
   ]) {
     expect(selectTestsForSources([source])).toEqual(expected);
@@ -531,6 +533,7 @@ test('test impact keeps Task Capsule and Read Plan verification in direct fast o
     'tests/contract/tcb-closure-lock.test.ts',
     'tests/contract/test-impact.test.ts',
     'tests/unit/agent-operation-activation.test.ts',
+    'tests/unit/local-github-actions-runner.test.ts',
     'tests/unit/tcb-trust-root-contract.test.ts'
   ].sort();
   for (const source of [
@@ -696,6 +699,7 @@ test('changed-file observation owns dynamic dev-runner and privileged TCB consum
       'tests/unit/ci-pr-risk-execution.test.ts',
       'tests/unit/ci-pr-risk-selection.test.ts',
       'tests/unit/ci-verification-execution.test.ts',
+      'tests/unit/local-github-actions-runner.test.ts',
       'tests/unit/tcb-trust-root-contract.test.ts',
       'tests/unit/verification-session-runtime.test.ts'
     ],
@@ -875,7 +879,6 @@ test('retired evidence transition ownership rejects path-only, re-add, modify, w
 test('test impact keeps managed Git hooks fast contract coverage and slow real-repository acceptance distinct', () => {
   const sources = [
     'scripts/install-git-hooks.ts',
-    'platform/dev-runner/dependency-bootstrap.ts',
     '.githooks/pre-commit'
   ];
   const selection = selectTestsForSources(sources);
@@ -883,7 +886,6 @@ test('test impact keeps managed Git hooks fast contract coverage and slow real-r
   expect(selection.owners).toEqual(['auto-reference', 'managed-git-hooks']);
   expect(selection.fast).toEqual([
     'tests/contract/test-impact.test.ts',
-    'tests/unit/dev-runner-dependency-bootstrap.test.ts',
     'tests/unit/install-git-hooks.test.ts'
   ]);
   expect(selection.slow).toEqual(['tests/e2e/install-git-hooks.test.ts']);
@@ -937,10 +939,23 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
     'tests/unit/ci-pr-risk-selection.test.ts'
   ]);
 
+  const bootstrapSelection = selectTestsForSources([
+    'platform/dev-runner/dependency-bootstrap.ts'
+  ]);
+  expect(bootstrapSelection).toEqual({
+    fast: [
+      'tests/contract/dev-runner-contract.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/dev-runner-dependency-bootstrap.test.ts',
+      'tests/unit/test-runner.test.ts'
+    ],
+    slow: [],
+    owners: ['auto-reference', 'dev-runner']
+  });
   expect(resolveTestOwnership(['platform/dev-runner/dependency-bootstrap.ts'])).toEqual([{
     source: 'platform/dev-runner/dependency-bootstrap.ts',
-    owner: 'managed-git-hooks',
-    identity: { kind: 'architecture-owner', id: 'managed-git-hooks' }
+    owner: 'dev-runner',
+    identity: { kind: 'architecture-owner', id: 'dev-runner' }
   }]);
 
   const heavyGateSelection = selectTestsForSources([
@@ -956,6 +971,7 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
       'tests/contract/test-impact.test.ts',
       'tests/unit/agent-operation-activation.test.ts',
       'tests/unit/heavy-verification-gate-lease.test.ts',
+      'tests/unit/local-github-actions-runner.test.ts',
       'tests/unit/tcb-trust-root-contract.test.ts'
     ],
     slow: [],

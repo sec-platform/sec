@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import {
   ensureDevDependencies,
+  ensureFastTestDependencies,
   ensureTestDependencies
 } from '../../platform/dev-runner/dependency-bootstrap.ts';
 
@@ -115,4 +116,27 @@ test('test dependency bootstrap composes compiler and browser readiness without 
     source: 'existing'
   });
   expect(calls).toEqual(['compiler', 'browser:compiler-root']);
+});
+
+test('fast dependency bootstrap proves compiler readiness with zero browser or hook effect', async () => {
+  const calls: string[] = [];
+  const result = await ensureFastTestDependencies({
+    ensureCompilerDeps: async () => {
+      calls.push('compiler');
+      return {
+        manifestHash: 'manifest-hash',
+        nodeModulesPath: 'compiler-node-modules',
+        packageManager: 'bun',
+        root: 'compiler-root',
+        source: 'existing'
+      };
+    }
+  });
+
+  expect(result).toEqual({
+    manifestHash: 'manifest-hash',
+    nodeModulesPath: 'compiler-node-modules',
+    source: 'existing'
+  });
+  expect(calls).toEqual(['compiler']);
 });

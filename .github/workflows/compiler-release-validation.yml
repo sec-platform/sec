@@ -1,24 +1,16 @@
 name: compiler-release-validation
-run-name: release verify ${{ inputs.ref || github.sha }}
+run-name: release verify exact main ${{ github.sha }}
 
 on:
-  workflow_call:
-    inputs:
-      ref:
-        required: false
-        type: string
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: Exact branch, tag, or commit to verify
-        required: false
-        type: string
+  repository_dispatch:
+    types:
+      - sec-verify-release-main-v1
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
 env:
@@ -26,18 +18,15 @@ env:
 
 jobs:
   compiler-release-verification:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-sut-v1]
     timeout-minutes: 90
     steps:
       - name: Resolve trusted release request, exact head, and verifier boundary
         id: verification
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        env:
-          REQUESTED_REF: ${{ inputs.ref || github.sha }}
-          WORKFLOW_HEAD: ${{ github.sha }}
         with:
           script: |
-            const requestedRef = process.env.REQUESTED_REF;
+            const requestedRef = context.sha;
             const { data: commit } = await github.rest.repos.getCommit({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -53,7 +42,7 @@ jobs:
               repo: context.repo.repo,
               branch: repository.default_branch
             });
-            if (process.env.WORKFLOW_HEAD !== baseBranch.commit.sha) {
+            if (context.ref !== `refs/heads/${repository.default_branch}` || context.sha !== baseBranch.commit.sha) {
               throw new Error('Release verifier workflow must execute from the current trusted default branch.');
             }
             const [headTree, baseTree] = await Promise.all([

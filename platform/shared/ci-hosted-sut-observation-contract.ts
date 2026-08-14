@@ -239,7 +239,7 @@ export type CodexDevelopmentHostedSutSandboxReceiptV1 = Readonly<{
   reap: Readonly<{
     namespacePid1Exited: boolean;
     killChildEnabled: boolean;
-    systemdUnitStopped: boolean;
+    unshareProcessClosed: boolean;
   }>;
   residue: Readonly<{
     cgroupEmpty: boolean;
@@ -273,7 +273,7 @@ export type CodexDevelopmentHostedSutExecutionAuthorizationV1 = Readonly<{
   sandboxPolicyDigest: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1;
   toolPolicy: Readonly<{
     runtime: 'bun';
-    supervisor: '/usr/bin/sudo';
+    supervisor: '/usr/bin/unshare';
     substrate: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.substrate;
     outputTransport: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outputTransport;
   }>;
@@ -415,11 +415,11 @@ export function CodexDevelopmentParseHostedSutSandboxReceiptV1(
     digest(execution[key], `execution ${key}`);
   }
   const reap = exactObject(receipt.reap, [
-    'namespacePid1Exited', 'killChildEnabled', 'systemdUnitStopped'
+    'namespacePid1Exited', 'killChildEnabled', 'unshareProcessClosed'
   ], 'reap observation');
   const residue = exactObject(receipt.residue, ['cgroupEmpty', 'hostReadbackDigest'], 'residue observation');
   if (typeof reap.namespacePid1Exited !== 'boolean' || typeof reap.killChildEnabled !== 'boolean' ||
-      typeof reap.systemdUnitStopped !== 'boolean' || typeof residue.cgroupEmpty !== 'boolean') {
+      typeof reap.unshareProcessClosed !== 'boolean' || typeof residue.cgroupEmpty !== 'boolean') {
     fail('reap or residue primitive observation is invalid.');
   }
   digest(residue.hostReadbackDigest, 'residue host readback');
@@ -532,7 +532,7 @@ function parseAuthorization(
   const toolPolicy = exactObject(authorization.toolPolicy, [
     'runtime', 'supervisor', 'substrate', 'outputTransport'
   ], 'tool policy');
-  if (toolPolicy.runtime !== 'bun' || toolPolicy.supervisor !== '/usr/bin/sudo' ||
+  if (toolPolicy.runtime !== 'bun' || toolPolicy.supervisor !== '/usr/bin/unshare' ||
       toolPolicy.substrate !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.substrate ||
       toolPolicy.outputTransport !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outputTransport) {
     fail('execution authorization tool policy is invalid.');
@@ -556,7 +556,7 @@ function parseAuthorization(
     sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
     toolPolicy: Object.freeze({
       runtime: 'bun' as const,
-      supervisor: '/usr/bin/sudo' as const,
+      supervisor: '/usr/bin/unshare' as const,
       substrate: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.substrate,
       outputTransport: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outputTransport
     }),
@@ -613,7 +613,7 @@ export function CodexDevelopmentCreateHostedSutExecutionAuthorizationV1(input: R
     sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
     toolPolicy: Object.freeze({
       runtime: 'bun' as const,
-      supervisor: '/usr/bin/sudo' as const,
+      supervisor: '/usr/bin/unshare' as const,
       substrate: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.substrate,
       outputTransport: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.outputTransport
     }),
@@ -763,13 +763,13 @@ export function CodexDevelopmentReduceHostedSutObservationV1(input: Readonly<{
     Number.isSafeInteger(receipt.execution.exitCode) &&
     outputBound &&
     receipt.reap.namespacePid1Exited && receipt.reap.killChildEnabled &&
-    receipt.reap.systemdUnitStopped && receipt.residue.cgroupEmpty;
+    receipt.reap.unshareProcessClosed && receipt.residue.cgroupEmpty;
   const unsupported = capabilityUnsupported && command === null &&
     !receipt.execution.started && !receipt.execution.commandStarted &&
     receipt.execution.exitCode === null && receipt.execution.authenticatedInputDigest === null &&
     receipt.execution.postExecutionInputDigest === null &&
     receipt.execution.postExecutionReadbackErrorDigest === null &&
-    receipt.reap.killChildEnabled && receipt.reap.systemdUnitStopped && receipt.residue.cgroupEmpty;
+    receipt.reap.killChildEnabled && receipt.reap.unshareProcessClosed && receipt.residue.cgroupEmpty;
   const cleanPass = executionClean && receipt.execution.exitCode === 0 && receipt.diagnostic === null;
   const status = unsupported ? 'unsupported' as const
     : cleanPass ? 'passed' as const
@@ -802,7 +802,7 @@ export function CodexDevelopmentReduceHostedSutObservationV1(input: Readonly<{
       runtime: 'bun',
       os: authorization.executionEnvironment.os,
       arch: authorization.executionEnvironment.arch,
-      filesystem: 'private-tmpfs-pivot-root',
+      filesystem: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.rootIsolation,
       capabilities: [authorization.sandboxPolicyDigest],
       toolchainRevision: authorization.executionEnvironment.toolchainRevision,
       providerRevisions: [CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2]

@@ -12,6 +12,7 @@ import {
   readFileSync,
   readSync,
   realpathSync,
+  rmSync,
   statSync,
   writeFileSync,
   writeSync
@@ -235,9 +236,9 @@ const CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_REF_PREFIX_V1 =
 export type CodexDevelopmentHostedSutSandboxCommandPlanV1 = Readonly<{
   schema: typeof CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA_V1;
   policyDigest: typeof CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1;
-  phase: 'capability-self-test' | 'execute' | 'teardown';
+  phase: 'capability-self-test' | 'execute' | 'bootstrap-execute' | 'teardown';
   unitName: string;
-  command: '/usr/bin/sudo';
+  command: '/usr/bin/unshare' | '/usr/bin/bash';
   argv: readonly string[];
   candidateEnvironmentNames: readonly string[];
   executionAuthorizationDigest: VerificationActionKeyDigest | null;
@@ -892,6 +893,9 @@ export function CodexDevelopmentHostedDependencyMaterializerEnvironmentV1(): Nod
     HOME: '/tmp/sec-hosted-dependency-home',
     TMPDIR: '/tmp/sec-hosted-dependency-tmp',
     LANG: 'C.UTF-8',
+    // Cache transport may restore this runner-private path before the trusted
+    // materializer runs. Candidate code never sees the host path; every install
+    // is driven by the exact trusted-base closure with lifecycle scripts off.
     BUN_INSTALL_CACHE_DIR: '/tmp/sec-hosted-dependency-home/.bun/install/cache',
     CI: '1'
   });
@@ -987,6 +991,23 @@ const HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V2 = [
   '    result.append({"path": member.name, "type": kind, "linkTarget": member.linkname if member.issym() or member.islnk() else None, "size": member.size, "mode": member.mode, "contentDigest": digest})',
   'sys.stdout.write(json.dumps(result, ensure_ascii=True, separators=(",", ":"), sort_keys=True))'
 ].join('\n');
+
+function inspectHostedActionArchiveMetadataV2(archive: string, label: string): unknown {
+  const inventory = spawnSync(
+    '/usr/bin/python3',
+    ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V2, archive],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+      maxBuffer: 128 * 1024 * 1024,
+      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }
+    }
+  );
+  if (inventory.status !== 0 || typeof inventory.stdout !== 'string') {
+    throw new Error(`${label} metadata is unreadable without extraction.`);
+  }
+  return JSON.parse(inventory.stdout) as unknown;
+}
 
 function canonicalHostedArchivePathV2(source: string, label: string, allowRoot: boolean): string | null {
   if (source.includes('\0') || source.includes('\\') || source.startsWith('/')) {
@@ -1140,14 +1161,10 @@ export function CodexDevelopmentInspectHostedActionArchiveV2(input: Readonly<{
   if (input.inspectArchive !== undefined) {
     rawInventory = input.inspectArchive(archive);
   } else {
-    const inventory = spawnSync('/usr/bin/python3', ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V2, archive], {
-      encoding: 'utf8', windowsHide: true, maxBuffer: 128 * 1024 * 1024,
-      env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }
-    });
-    if (inventory.status !== 0 || typeof inventory.stdout !== 'string') {
-      throw new Error('Hosted Action prepared candidate archive metadata is unreadable without extraction.');
-    }
-    rawInventory = JSON.parse(inventory.stdout) as unknown;
+    rawInventory = inspectHostedActionArchiveMetadataV2(
+      archive,
+      'Hosted Action prepared candidate archive'
+    );
   }
   const validated = CodexDevelopmentValidateHostedActionArchiveInventoryV2(rawInventory);
   for (const required of [
@@ -1191,13 +1208,15 @@ export type CodexDevelopmentPreparedHostedActionInputsV2 = Readonly<{
 function runHostedMaterializerCommandV2(
   executable: string,
   args: readonly string[],
-  label: string
+  label: string,
+  options: Readonly<{ cwd?: string; env?: NodeJS.ProcessEnv }> = {}
 ): void {
   const result = spawnSync(executable, [...args], {
     encoding: 'utf8',
     windowsHide: true,
     maxBuffer: 16 * 1024 * 1024,
-    env: {
+    cwd: options.cwd,
+    env: options.env ?? {
       PATH: '/usr/bin:/bin',
       HOME: '/tmp/sec-hosted-materializer-home',
       LANG: 'C.UTF-8',
@@ -1302,6 +1321,145 @@ export function CodexDevelopmentPrepareHostedActionInputsV2(input: Readonly<{
   });
 }
 
+export type CodexDevelopmentPreparedTrustedBootstrapSutInputsV1 = Readonly<{
+  preparedCandidateArchive: string;
+  archiveDigest: VerificationActionKeyDigest;
+  archiveInventoryDigest: VerificationActionKeyDigest;
+  dependencyClosureDigest: VerificationActionKeyDigest;
+  authenticatedGitClosureDigest: VerificationActionKeyDigest;
+  entryCount: number;
+  totalFileBytes: number;
+}>;
+
+export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readonly<{
+  baseRoot: string;
+  candidateRoot: string;
+  outputDirectory: string;
+  baseSha: string;
+  headSha: string;
+  treeSha: string;
+}>): CodexDevelopmentPreparedTrustedBootstrapSutInputsV1 {
+  if (process.platform !== 'linux' || !/^[0-9a-f]{40}$/u.test(input.baseSha) ||
+      !/^[0-9a-f]{40}$/u.test(input.headSha) || !/^[0-9a-f]{40}$/u.test(input.treeSha)) {
+    throw new Error('Trusted bootstrap SUT input identity is invalid or unsupported on this host.');
+  }
+  const baseRoot = realpathSync.native(path.resolve(input.baseRoot));
+  const candidateRoot = realpathSync.native(path.resolve(input.candidateRoot));
+  const baseHead = gitCandidateBytesV2(baseRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])
+    .toString('utf8').trim();
+  const candidateHead = gitCandidateBytesV2(candidateRoot, ['rev-parse', '--verify', 'HEAD^{commit}'])
+    .toString('utf8').trim();
+  const candidateTree = gitCandidateBytesV2(candidateRoot, ['rev-parse', '--verify', 'HEAD^{tree}'])
+    .toString('utf8').trim();
+  const candidateParents = gitCandidateBytesV2(candidateRoot, ['rev-list', '--parents', '-n', '1', 'HEAD'])
+    .toString('utf8').trim().split(/\s+/u);
+  if (baseHead !== input.baseSha || candidateHead !== input.headSha || candidateTree !== input.treeSha ||
+      candidateParents.length !== 2 || candidateParents[0] !== input.headSha ||
+      candidateParents[1] !== input.baseSha) {
+    throw new Error('Trusted bootstrap SUT checkouts are not the exact base and single-parent candidate.');
+  }
+  if (gitCandidateBytesV2(baseRoot, ['status', '--porcelain=v1']).length !== 0 ||
+      gitCandidateBytesV2(candidateRoot, ['status', '--porcelain=v1']).length !== 0) {
+    throw new Error('Trusted bootstrap SUT materialization requires clean base and candidate checkouts.');
+  }
+  const dependencyClosure = hostedActionDependencyClosureV1({
+    baseRoot, candidateRoot, baseSha: input.baseSha
+  });
+  const materializerEnvironment = CodexDevelopmentHostedDependencyMaterializerEnvironmentV1();
+  mkdirSync(materializerEnvironment.BUN_INSTALL_CACHE_DIR!, { recursive: true });
+  mkdirSync(materializerEnvironment.HOME!, { recursive: true });
+  mkdirSync(materializerEnvironment.TMPDIR!, { recursive: true });
+  runHostedMaterializerCommandV2(
+    realpathSync.native(process.execPath),
+    ['install', '--frozen-lockfile', '--ignore-scripts'],
+    'Trusted bootstrap exact-base dependency materialization',
+    { cwd: baseRoot, env: materializerEnvironment }
+  );
+  const baseNodeModules = path.resolve(baseRoot, 'node_modules');
+  const candidateNodeModules = path.resolve(candidateRoot, 'node_modules');
+  if (!lstatSync(baseNodeModules).isDirectory() || realpathSync.native(baseNodeModules) !== baseNodeModules) {
+    throw new Error('Trusted bootstrap exact-base dependency materialization has no ordinary node_modules.');
+  }
+  if (existsSync(candidateNodeModules)) {
+    throw new Error('Trusted bootstrap candidate node_modules already exists.');
+  }
+  const outputDirectory = path.resolve(input.outputDirectory);
+  mkdirSync(outputDirectory, { recursive: true });
+  if (!lstatSync(outputDirectory).isDirectory() || realpathSync.native(outputDirectory) !== outputDirectory) {
+    throw new Error('Trusted bootstrap transport root is not one ordinary directory.');
+  }
+  const trustedInputDirectory = path.resolve(candidateRoot, '.sec-trusted-input');
+  if (existsSync(trustedInputDirectory)) {
+    throw new Error('Trusted bootstrap candidate collides with the reserved trusted-input directory.');
+  }
+  mkdirSync(trustedInputDirectory, { recursive: false });
+  const dependencyClosurePath = path.resolve(trustedInputDirectory, 'dependency-closure.json');
+  const gitBundlePath = path.resolve(trustedInputDirectory, 'candidate.bundle');
+  const preparedCandidateArchive = path.resolve(outputDirectory, 'prepared-candidate.tar');
+  try {
+    writeHostedActionJson(dependencyClosurePath, dependencyClosure);
+    for (const revision of [input.baseSha, input.headSha]) {
+      runHostedMaterializerCommandV2(
+        '/usr/bin/git', ['-C', candidateRoot, 'cat-file', '-e', `${revision}^{commit}`],
+        `Trusted bootstrap Git object readback ${revision}`
+      );
+    }
+    runHostedMaterializerCommandV2(
+      '/usr/bin/git', ['-C', candidateRoot, 'update-ref', 'refs/sec/base', input.baseSha],
+      'Trusted bootstrap exact base ref materialization'
+    );
+    runHostedMaterializerCommandV2(
+      '/usr/bin/git', ['-C', candidateRoot, 'update-ref', 'refs/sec/head', input.headSha],
+      'Trusted bootstrap exact head ref materialization'
+    );
+    runHostedMaterializerCommandV2(
+      '/usr/bin/git', ['-C', candidateRoot, 'bundle', 'create', gitBundlePath, 'refs/sec/base', 'refs/sec/head'],
+      'Trusted bootstrap authenticated candidate Git bundle materialization'
+    );
+    runHostedMaterializerCommandV2(
+      '/usr/bin/git', ['-C', candidateRoot, 'bundle', 'verify', gitBundlePath],
+      'Trusted bootstrap authenticated candidate Git bundle verification'
+    );
+    if (existsSync(preparedCandidateArchive)) {
+      throw new Error('Trusted bootstrap prepared candidate archive already exists.');
+    }
+    runHostedMaterializerCommandV2('/usr/bin/tar', [
+      '--sort=name', '--mtime=UTC 1970-01-01', '--owner=0', '--group=0', '--numeric-owner',
+      '--exclude=./.git', '--exclude=./node_modules', '-cf', preparedCandidateArchive,
+      '-C', candidateRoot, '.', '-C', baseRoot, 'node_modules'
+    ], 'Trusted bootstrap prepared candidate archive materialization');
+    const validated = CodexDevelopmentValidateHostedActionArchiveInventoryV2(
+      inspectHostedActionArchiveMetadataV2(
+        preparedCandidateArchive,
+        'Trusted bootstrap prepared candidate archive inventory'
+      )
+    );
+    const bundleEntry = validated.entries.find(
+      (entry) => entry.path === '.sec-trusted-input/candidate.bundle'
+    );
+    const dependencyEntry = validated.entries.find(
+      (entry) => entry.path === '.sec-trusted-input/dependency-closure.json'
+    );
+    const authenticatedGitClosureDigest = hostedActionFileDigestV2(gitBundlePath);
+    const dependencyClosureDigest = hostedActionFileDigestV2(dependencyClosurePath);
+    if (bundleEntry?.type !== 'file' || bundleEntry.contentDigest !== authenticatedGitClosureDigest ||
+        dependencyEntry?.type !== 'file' || dependencyEntry.contentDigest !== dependencyClosureDigest) {
+      throw new Error('Trusted bootstrap archive lost its authenticated Git or dependency closure.');
+    }
+    return Object.freeze({
+      preparedCandidateArchive,
+      archiveDigest: hostedActionFileDigestV2(preparedCandidateArchive),
+      archiveInventoryDigest: validated.inventoryDigest,
+      dependencyClosureDigest,
+      authenticatedGitClosureDigest,
+      entryCount: validated.entries.length,
+      totalFileBytes: validated.totalFileBytes
+    });
+  } finally {
+    rmSync(trustedInputDirectory, { recursive: true, force: true });
+  }
+}
+
 export function CodexDevelopmentMaterializeHostedActionCandidateV2(input: Readonly<{
   resolution: CodexDevelopmentHostedActionResolutionV2;
   ticket: CodexDevelopmentHostedActionExecutionTicketV2;
@@ -1339,11 +1497,15 @@ const HOSTED_SUT_SEMANTIC_ENVIRONMENT_NAMES_V1 = Object.freeze([
   'SEC_ACTION_PLAN_DIGEST',
   'SEC_AFFECTED_TESTS_BASE',
   'SEC_BASE_TREE_SHA',
+  'SEC_BOOTSTRAP_BASE',
+  'SEC_BOOTSTRAP_HEAD',
+  'SEC_BOOTSTRAP_TREE',
   'SEC_CHANGED_BASE',
   'SEC_MAIN_HEALTH_DIGEST',
   'SEC_MAIN_HEALTH_REVISION',
   'SEC_REQUIRED_BLOB_CLOSURE_JSON',
   'SEC_REVIEW_RECEIPT_DIGEST',
+  'SEC_REPOSITORY_AUDIT_DEFAULT_REF',
   'SEC_SCOPE_AUTHORIZATION_DIGEST',
   'SEC_SCOPE_AUTHORIZATION_REVISION',
   'SEC_SESSION_PROPOSAL_DIGEST',
@@ -1376,6 +1538,10 @@ export function CodexDevelopmentCandidateProcessEnvironmentV2(
   return Object.fromEntries(Object.entries(result).sort(([left], [right]) => left.localeCompare(right)));
 }
 
+function shellSingleQuoteV1(value: string): string {
+  return `'${value.replaceAll("'", `'\"'\"'`)}'`;
+}
+
 const HOSTED_SUT_RUNTIME_COPY_FUNCTION_V2 = Object.freeze([
   'copy_runtime() {',
   '  source="$1"',
@@ -1405,48 +1571,14 @@ const HOSTED_SUT_RUNTIME_TOOL_CLOSURE_V2 = Object.freeze([
   )
 ]);
 
-const HOSTED_SUT_NAMESPACE_SCRIPT_V1 = [
-  'candidate_archive="$1"',
-  'bun_host="$2"',
-  'base_sha="$3"',
-  'head_sha="$4"',
-  'environment_count="$5"',
-  'shift 5',
+const HOSTED_SUT_CHROOT_EXECUTION_SCRIPT_V1 = [
+  'base_sha="$1"',
+  'head_sha="$2"',
+  'environment_count="$3"',
+  'shift 3',
   'environment=()',
   'while [ "$environment_count" -gt 0 ]; do environment+=("$1"); shift; environment_count=$((environment_count-1)); done',
-  '[ "$#" -ge 2 ]',
-  '[ "$1" = "bun" ]',
-  'shift',
-  'mount --make-rprivate /',
-  'root="$(mktemp -d /tmp/sec-hosted-sut.XXXXXX)"',
-  'trap \u0027umount -R "$root" >/dev/null 2>&1 || true; rm -rf -- "$root"\u0027 EXIT',
-  `mount -t tmpfs -o nodev,nosuid,mode=0755,size=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes} tmpfs "$root"`,
-  'mkdir -p "$root/tool/bin" "$root/authenticated-input" "$root/workspace" "$root/tmp" "$root/home/sut" "$root/dev" "$root/proc" "$root/etc" "$root/.oldroot"',
-  ...HOSTED_SUT_RUNTIME_TOOL_CLOSURE_V2,
-  'touch "$root/authenticated-input/prepared-candidate.tar"',
-  'mount --bind "$candidate_archive" "$root/authenticated-input/prepared-candidate.tar"',
-  'mount -o remount,bind,ro,nosuid,nodev,noexec "$root/authenticated-input/prepared-candidate.tar"',
-  'mount -t tmpfs -o nodev,nosuid,mode=0755,size=' +
-    CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes + ' tmpfs "$root/workspace"',
-  'mount -t tmpfs -o nodev,nosuid,noexec,mode=1777,size=268435456 tmpfs "$root/tmp"',
-  'mount -t tmpfs -o nodev,nosuid,noexec,mode=0755,size=268435456 tmpfs "$root/home"',
-  'mkdir -p "$root/home/sut"',
-  'mount -t tmpfs -o nosuid,noexec,mode=0755,size=16777216 tmpfs "$root/dev"',
-  'mknod -m 0666 "$root/dev/null" c 1 3',
-  'mknod -m 0666 "$root/dev/zero" c 1 5',
-  'mknod -m 0666 "$root/dev/random" c 1 8',
-  'mknod -m 0666 "$root/dev/urandom" c 1 9',
-  'ln -s /proc/self/fd "$root/dev/fd"',
-  'ln -s /proc/self/fd/0 "$root/dev/stdin"',
-  'ln -s /proc/self/fd/1 "$root/dev/stdout"',
-  'ln -s /proc/self/fd/2 "$root/dev/stderr"',
-  'printf \u0027sut:x:65532:65532:SEC hosted SUT:/home/sut:/usr/sbin/nologin\\n\u0027 > "$root/etc/passwd"',
-  'printf \u0027sut:x:65532:\\n\u0027 > "$root/etc/group"',
-  `chown -R ${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid}:${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} "$root/workspace" "$root/home/sut" "$root/tmp"`,
-  'pivot_root "$root" "$root/.oldroot"',
-  'cd /',
-  'umount -l /.oldroot',
-  'rmdir /.oldroot',
+  '[ "$#" -ge 1 ]',
   'mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /proc',
   '/usr/bin/tar --extract --file=/authenticated-input/prepared-candidate.tar --directory=/workspace --no-same-owner --no-same-permissions --delay-directory-restore',
   'umount /authenticated-input/prepared-candidate.tar',
@@ -1461,20 +1593,146 @@ const HOSTED_SUT_NAMESPACE_SCRIPT_V1 = [
   'rm -rf -- /workspace/.sec-trusted-input',
   '[ -z "$(/usr/bin/git -C /workspace config --local --get-regexp \u0027^(credential\\.|remote\\.|http\\.|core\\.(worktree|sshCommand)|include)\u0027 || true)" ]',
   `chown -R ${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid}:${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} /workspace`,
-  'for fd_path in /proc/self/fd/*; do fd="${fd_path##*/}"; if [ "$fd" -gt 2 ] 2>/dev/null; then eval "exec ${fd}>&-"; fi; done',
   'cd /workspace',
-  `exec /usr/bin/setpriv --reuid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid} --regid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all --ambient-caps=-all /usr/bin/prlimit --cpu=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.cpuSeconds} --as=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.addressSpaceBytes} --fsize=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.fileSizeBytes} --nofile=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.openFiles} --nproc=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.processes} -- /usr/bin/env -i "\${environment[@]}" /tool/bin/bun "$@"`
+  `exec /usr/bin/setpriv --reuid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid} --regid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all --ambient-caps=-all /usr/bin/prlimit --cpu=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.perProcessCpuSeconds} --as=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.addressSpaceBytes} --fsize=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.fileSizeBytes} --nofile=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.openFiles} --nproc=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.processes} -- /usr/bin/env -i "\${environment[@]}" /tool/bin/bun "$@"`
 ].join('\n');
 
-const HOSTED_SUT_CAPABILITY_ASSERTION_V1 = [
+const HOSTED_SUT_NAMESPACE_SCRIPT_V1 = [
+  'unit_name="$1"',
+  'candidate_archive="$2"',
+  'bun_host="$3"',
+  'base_sha="$4"',
+  'head_sha="$5"',
+  'environment_count="$6"',
+  'shift 6',
+  'environment=()',
+  'while [ "$environment_count" -gt 0 ]; do environment+=("$1"); shift; environment_count=$((environment_count-1)); done',
+  '[ "$#" -ge 2 ]',
+  '[ "$1" = "bun" ]',
+  'shift',
+  'mount --make-rprivate /',
+  'root="/tmp/$unit_name"',
+  '[ ! -e "$root" ]',
+  'mkdir -- "$root"',
+  'trap \u0027umount -R "$root" >/dev/null 2>&1 || true; rm -rf -- "$root" >/dev/null 2>&1 || true\u0027 EXIT',
+  `mount -t tmpfs -o nodev,nosuid,mode=0755,size=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes} tmpfs "$root"`,
+  'mkdir -p "$root/tool/bin" "$root/authenticated-input" "$root/workspace" "$root/tmp" "$root/home/sut" "$root/dev" "$root/proc" "$root/etc"',
+  ...HOSTED_SUT_RUNTIME_TOOL_CLOSURE_V2,
+  'touch "$root/authenticated-input/prepared-candidate.tar"',
+  'mount --bind "$candidate_archive" "$root/authenticated-input/prepared-candidate.tar"',
+  'mount -o remount,bind,ro,nosuid,nodev,noexec "$root/authenticated-input/prepared-candidate.tar"',
+  'mount -t tmpfs -o nodev,nosuid,mode=0755,size=' +
+    CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes + ' tmpfs "$root/workspace"',
+  'mount -t tmpfs -o nodev,nosuid,noexec,mode=1777,size=268435456 tmpfs "$root/tmp"',
+  'mount -t tmpfs -o nodev,nosuid,noexec,mode=0755,size=268435456 tmpfs "$root/home"',
+  'mkdir -p "$root/home/sut"',
+  'mount -t tmpfs -o nosuid,noexec,mode=0755,size=16777216 tmpfs "$root/dev"',
+  'for device in null zero random urandom; do touch "$root/dev/$device"; mount --bind "/dev/$device" "$root/dev/$device"; mount -o remount,bind,nosuid,noexec "$root/dev/$device"; done',
+  'ln -s /proc/self/fd "$root/dev/fd"',
+  'ln -s /proc/self/fd/0 "$root/dev/stdin"',
+  'ln -s /proc/self/fd/1 "$root/dev/stdout"',
+  'ln -s /proc/self/fd/2 "$root/dev/stderr"',
+  'printf \u0027sut:x:65532:65532:SEC hosted SUT:/home/sut:/usr/sbin/nologin\\n\u0027 > "$root/etc/passwd"',
+  'printf \u0027sut:x:65532:\\n\u0027 > "$root/etc/group"',
+  `chown -R ${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid}:${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} "$root/workspace" "$root/home/sut" "$root/tmp"`,
+  'for fd_path in /proc/self/fd/*; do fd="${fd_path##*/}"; if [ "$fd" -gt 2 ] 2>/dev/null; then eval "exec ${fd}>&-"; fi; done',
+  `/usr/sbin/chroot "$root" /usr/bin/bash -ceu ${shellSingleQuoteV1(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT_V1)} sec-hosted-sut-root "$base_sha" "$head_sha" "\${#environment[@]}" "\${environment[@]}" "$@"`
+].join('\n');
+
+const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS_V1 = Object.freeze([
+  'tests/unit/tcb-trust-root-contract.test.ts',
+  'tests/unit/test-runner.test.ts',
+  'tests/contract/ci-contract.test.ts',
+  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/tcb-closure-lock.test.ts',
+  'tests/contract/default-branch-revision-health.test.ts',
+  'tests/contract/repository-audit.test.ts',
+  'tests/contract/documentation-authority.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/contract/ci-lanes.test.ts'
+] as const);
+
+// This program is frozen in the trusted base CLI and is the only command the
+// bootstrap candidate may execute. Child output is streamed into bounded
+// digest/tail observations; it never reaches GitHub command files or the host
+// runner's inherited stdout directly.
+export const CodexDevelopmentTrustedBootstrapSutHarnessV1 = [
+  '(async () => {',
+  'const { createHash } = require("node:crypto");',
+  'const CAP = 2097152;',
+  'const TAIL = 512;',
+  'const required = (name) => process.env[name] ?? (() => { throw new Error(`missing:${name}`); })();',
+  'const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;',
+  'const results = [];',
+  'const collect = async (stream, state, child) => {',
+  '  const reader = stream.getReader();',
+  '  for (;;) {',
+  '    const { done, value } = await reader.read();',
+  '    if (done) break;',
+  '    const chunk = Buffer.from(value);',
+  '    state.bytes += chunk.byteLength;',
+  '    const remaining = Math.max(0, CAP - state.hashed);',
+  '    if (remaining > 0) { const retained = chunk.subarray(0, remaining); state.hash.update(retained); state.hashed += retained.byteLength; }',
+  '    state.tail = Buffer.concat([state.tail, chunk]).subarray(-TAIL);',
+  '    if (state.bytes > CAP && !state.truncated) { state.truncated = true; child.kill(9); }',
+  '  }',
+  '};',
+  'const run = async (label, argv) => {',
+  '  const child = Bun.spawn(argv, { cwd: "/workspace", env: process.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });',
+  '  const stdout = { hash: createHash("sha256"), bytes: 0, hashed: 0, tail: Buffer.alloc(0), truncated: false };',
+  '  const stderr = { hash: createHash("sha256"), bytes: 0, hashed: 0, tail: Buffer.alloc(0), truncated: false };',
+  '  const exitPromise = child.exited;',
+  '  await Promise.all([collect(child.stdout, stdout, child), collect(child.stderr, stderr, child)]);',
+  '  const exitCode = await exitPromise;',
+  '  const result = { label, argvDigest: digest(JSON.stringify(argv)), exitCode, stdoutDigest: `sha256:${stdout.hash.digest("hex")}`, stderrDigest: `sha256:${stderr.hash.digest("hex")}`, stdoutBytes: stdout.bytes, stderrBytes: stderr.bytes, truncated: stdout.truncated || stderr.truncated, stdoutTail: stdout.tail.toString("utf8"), stderrTail: stderr.tail.toString("utf8") };',
+  '  results.push(result);',
+  '  return result;',
+  '};',
+  'const execute = async (label, argv) => { const result = await run(label, argv); if (result.exitCode !== 0 || result.truncated) throw new Error(`${label}:${result.exitCode}:${result.truncated}`); return result; };',
+  'const baseSha = required("SEC_BOOTSTRAP_BASE");',
+  'const expectedHead = required("SEC_BOOTSTRAP_HEAD");',
+  'const expectedTree = required("SEC_BOOTSTRAP_TREE");',
+  'let status = "passed";',
+  'let diagnostic = null;',
+  'let parentSha = null;',
+  'try {',
+  '  const head = (await execute("identity-head", ["git", "rev-parse", "--verify", "HEAD^{commit}"])).stdoutTail.trim();',
+  '  const tree = (await execute("identity-tree", ["git", "rev-parse", "--verify", "HEAD^{tree}"])).stdoutTail.trim();',
+  '  const parents = (await execute("identity-parents", ["git", "rev-list", "--parents", "-n", "1", "HEAD"])).stdoutTail.trim().split(/\\s+/u);',
+  '  if (head !== expectedHead || tree !== expectedTree || parents.length !== 2 || parents[0] !== expectedHead || parents[1] !== baseSha) throw new Error("candidate-identity");',
+  '  parentSha = parents[1];',
+  '  await execute("bind-origin-main", ["git", "update-ref", "refs/remotes/origin/main", baseSha]);',
+  '  await execute("tcb-lock-pre", ["bun", "scripts/ci-verification.ts", "tcb-closure-lock", "--mode", "check"]);',
+  '  await execute("imports", ["bun", "run", "imports:check"]);',
+  '  await execute("docs-doctor", ["bun", "run", "docs:doctor"]);',
+  '  await execute("typecheck", ["bun", "run", "typecheck"]);',
+  '  await execute("diff-check", ["git", "diff", "--check", `${baseSha}..${expectedHead}`]);',
+  `  await execute("focused-tests", ${JSON.stringify([
+    'bun', 'test', '--timeout', '180000', ...TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS_V1
+  ])});`,
+  '  await execute("repository-audit", ["bun", "scripts/codex/repository-audit.ts", "--json"]);',
+  '  await execute("affected-plan", ["bun", "run", "check:affected", "--plan"]);',
+  '  await execute("affected-tests", ["bun", "run", "test:affected"]);',
+  '  const worktree = await execute("worktree-readback", ["git", "status", "--porcelain=v1"]);',
+  '  if (worktree.stdoutTail.length !== 0) throw new Error("tracked-worktree-not-clean");',
+  '} catch (error) { status = "failed"; diagnostic = error instanceof Error ? error.message : String(error); }',
+  'try { await execute("tcb-lock-post", ["bun", "scripts/ci-verification.ts", "tcb-closure-lock", "--mode", "check"]); } catch (error) { status = "failed"; diagnostic = `${diagnostic ?? ""}|post:${error instanceof Error ? error.message : String(error)}`; }',
+  'const summary = { schema: "sec-trusted-bootstrap-sandbox-summary-v1", baseSha, headSha: expectedHead, treeSha: expectedTree, parentSha, status, diagnostic, results };',
+  'process.stdout.write(`${JSON.stringify(summary)}\\n`);',
+  'if (status !== "passed") process.exitCode = 1;',
+  '})().catch((error) => { process.stdout.write(`${JSON.stringify({ schema: "sec-trusted-bootstrap-sandbox-summary-v1", status: "failed", diagnostic: error instanceof Error ? error.message : String(error), results: [] })}\\n`); process.exitCode = 1; });'
+].join('');
+
+export const CodexDevelopmentHostedSutCapabilityAssertionV1 = [
+  '(async () => {',
   'const fs = require("node:fs");',
+  'const { execFileSync, spawn } = require("node:child_process");',
   'const fail = (message) => { throw new Error(message); };',
-  'if (process.getuid() !== 65532 || process.getgid() !== 65532 || process.pid !== 1) fail("uid-gid-pid");',
+  'if (process.getuid() !== 65532 || process.getgid() !== 65532) fail(`uid-gid:${process.getuid()}:${process.getgid()}`);',
   'const status = fs.readFileSync("/proc/self/status", "utf8");',
   'if (!/^CapEff:\\s+0+$/m.test(status) || !/^NoNewPrivs:\\s+1$/m.test(status)) fail("privileges");',
-  'const parentEnvironment = fs.readFileSync("/proc/1/environ");',
-  'if (parentEnvironment.includes(Buffer.from("SEC_HOST_SANDBOX_SENTINEL"))) fail("parent-environment");',
-  'for (const hidden of ["/.oldroot", "/home/runner/work", "/runner/_work", "/run", "/var/run", "/tmp/sec-host-sentinel"]) if (fs.existsSync(hidden)) fail(`host-path:${hidden}`);',
+  'try { const parentEnvironment = fs.readFileSync("/proc/1/environ"); if (parentEnvironment.includes(Buffer.from("SEC_HOST_SANDBOX_SENTINEL"))) fail("parent-environment"); } catch (error) { if (error?.code !== "ENOENT" && error?.code !== "EACCES") throw error; }',
+  'for (const hidden of ["/.oldroot", "/actions-runner", "/actions-runner/_work/_actions", "/home/runner/work", "/runner/_work", "/run", "/var/run", "/tmp/sec-host-sentinel"]) if (fs.existsSync(hidden)) fail(`host-path:${hidden}`);',
   'const routes = fs.readFileSync("/proc/net/route", "utf8").trim().split(/\\r?\\n/);',
   'if (routes.length > 1) fail("network-route");',
   'const mounts = fs.readFileSync("/proc/self/mountinfo", "utf8");',
@@ -1490,36 +1748,44 @@ const HOSTED_SUT_CAPABILITY_ASSERTION_V1 = [
   'if (JSON.stringify(actualUsrBin) !== JSON.stringify(expectedUsrBin)) fail("runtime-binary-closure");',
   'if (JSON.stringify(fs.readdirSync("/tool/bin").sort()) !== JSON.stringify(["bun", "node"])) fail("runtime-tool-aliases");',
   'if (!fs.statSync("/usr/lib/git-core").isDirectory()) fail("git-runtime-closure");',
-  'for (const descriptor of fs.readdirSync("/proc/self/fd")) { try { const target = fs.readlinkSync(`/proc/self/fd/${descriptor}`); if (/\\/(?:home\\/runner|runner\\/_work|run|var\\/run|workspace)|\\.oldroot|prepared-candidate\\.tar/u.test(target)) fail(`inherited-fd:${descriptor}`); } catch {} }',
+  'for (const descriptor of fs.readdirSync("/proc/self/fd")) { try { const target = fs.readlinkSync(`/proc/self/fd/${descriptor}`); if (/\\/(?:actions-runner|home\\/runner|runner\\/_work|run|var\\/run|workspace)|\\.oldroot|prepared-candidate\\.tar/u.test(target)) fail(`inherited-fd:${descriptor}`); } catch {} }',
   'const cgroup = JSON.parse(fs.readFileSync("/capability/cgroup.json", "utf8"));',
   'if (cgroup.memoryMax !== "4294967296" || cgroup.pidsMax !== "256" || cgroup.cpuMax !== "200000 100000") fail("cgroup-limits");',
+  'const softLimit = (name) => execFileSync("/usr/bin/prlimit", ["--pid", String(process.pid), `--${name}`, "--noheadings", "--output", "SOFT"], { encoding: "utf8" }).trim();',
+  `if (softLimit("cpu") !== "${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.perProcessCpuSeconds}" || softLimit("as") !== "4294967296" || softLimit("fsize") !== "268435456" || softLimit("nofile") !== "1024" || softLimit("nproc") !== "256") fail("prlimit-limits");`,
   'let connected = false;',
   'try { await fetch("http://1.1.1.1", { signal: AbortSignal.timeout(200) }); connected = true; } catch {}',
   'if (connected) fail("network-egress");',
-  'const descendant = Bun.spawn({ cmd: ["/usr/bin/sleep", "300"], detached: true, stdin: "ignore", stdout: "ignore", stderr: "ignore" });',
+  'const descendant = spawn("/usr/bin/sleep", ["300"], { detached: true, stdio: "ignore" });',
   'descendant.unref();',
-  `process.stdout.write("${CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER_V1}\\n");`
+  `process.stdout.write("${CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER_V1}\\n");`,
+  '})().catch((error) => { console.error(error); process.exitCode = 1; });'
 ].join('');
 
+const HOSTED_SUT_CHROOT_CAPABILITY_SCRIPT_V1 = [
+  'mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /proc',
+  `exec /usr/bin/setpriv --reuid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid} --regid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all --ambient-caps=-all /usr/bin/prlimit --cpu=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.perProcessCpuSeconds} --as=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.addressSpaceBytes} --fsize=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.fileSizeBytes} --nofile=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.openFiles} --nproc=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.processes} -- /usr/bin/env -i PATH=/tool/bin:/usr/bin:/bin HOME=/home/sut TMPDIR=/tmp LANG=C /tool/bin/bun -e ${shellSingleQuoteV1(CodexDevelopmentHostedSutCapabilityAssertionV1)}`
+].join('\n');
+
 const HOSTED_SUT_CAPABILITY_SCRIPT_V1 = [
-  'bun_host="$1"',
+  'unit_name="$1"',
+  'bun_host="$2"',
   'export SEC_HOST_SANDBOX_SENTINEL=must-not-cross-boundary',
   'touch /tmp/sec-host-sentinel',
   'mount --make-rprivate /',
-  'root="$(mktemp -d /tmp/sec-hosted-capability.XXXXXX)"',
-  'trap \u0027umount -R "$root" >/dev/null 2>&1 || true; rm -rf -- "$root"\u0027 EXIT',
+  'root="/tmp/$unit_name"',
+  '[ ! -e "$root" ]',
+  'mkdir -- "$root"',
+  'trap \u0027umount -R "$root" >/dev/null 2>&1 || true; rm -rf -- "$root" >/dev/null 2>&1 || true; rm -f -- /tmp/sec-host-sentinel\u0027 EXIT',
   'mount -t tmpfs -o nodev,nosuid,mode=0755,size=268435456 tmpfs "$root"',
-  'mkdir -p "$root/tool/bin" "$root/workspace" "$root/tmp" "$root/home/sut" "$root/dev" "$root/proc" "$root/capability" "$root/.oldroot"',
+  'mkdir -p "$root/tool/bin" "$root/workspace" "$root/tmp" "$root/home/sut" "$root/dev" "$root/proc" "$root/capability"',
   ...HOSTED_SUT_RUNTIME_TOOL_CLOSURE_V2,
   'mount -t tmpfs -o nodev,nosuid,mode=0755,size=67108864 tmpfs "$root/workspace"',
   'mount -t tmpfs -o nodev,nosuid,noexec,mode=1777,size=16777216 tmpfs "$root/tmp"',
   'mount -t tmpfs -o nodev,nosuid,noexec,mode=0755,size=16777216 tmpfs "$root/home"',
   'mkdir -p "$root/home/sut"',
   'mount -t tmpfs -o nosuid,noexec,mode=0755,size=16777216 tmpfs "$root/dev"',
-  'mknod -m 0666 "$root/dev/null" c 1 3',
-  'mknod -m 0666 "$root/dev/zero" c 1 5',
-  'mknod -m 0666 "$root/dev/random" c 1 8',
-  'mknod -m 0666 "$root/dev/urandom" c 1 9',
+  'for device in null zero random urandom; do touch "$root/dev/$device"; mount --bind "/dev/$device" "$root/dev/$device"; mount -o remount,bind,nosuid,noexec "$root/dev/$device"; done',
   'ln -s /proc/self/fd "$root/dev/fd"',
   'ln -s /proc/self/fd/0 "$root/dev/stdin"',
   'ln -s /proc/self/fd/1 "$root/dev/stdout"',
@@ -1529,35 +1795,18 @@ const HOSTED_SUT_CAPABILITY_SCRIPT_V1 = [
   'pids_max="$(cat "/sys/fs/cgroup${cgroup_path}/pids.max")"',
   'cpu_max="$(cat "/sys/fs/cgroup${cgroup_path}/cpu.max")"',
   'printf \u0027{"cpuMax":"%s","memoryMax":"%s","pidsMax":"%s"}\\n\u0027 "$cpu_max" "$memory_max" "$pids_max" > "$root/capability/cgroup.json"',
-  '[ "$(/usr/bin/prlimit --pid $$ --cpu --noheadings --output SOFT | /usr/bin/xargs)" = "1800" ]',
-  '[ "$(/usr/bin/prlimit --pid $$ --as --noheadings --output SOFT | /usr/bin/xargs)" = "4294967296" ]',
-  '[ "$(/usr/bin/prlimit --pid $$ --fsize --noheadings --output SOFT | /usr/bin/xargs)" = "268435456" ]',
-  '[ "$(/usr/bin/prlimit --pid $$ --nofile --noheadings --output SOFT | /usr/bin/xargs)" = "1024" ]',
-  '[ "$(/usr/bin/prlimit --pid $$ --nproc --noheadings --output SOFT | /usr/bin/xargs)" = "256" ]',
-  `chown -R ${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid}:${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} "$root/home/sut" "$root/tmp" "$root/workspace" "$root/capability"`,
-  'pivot_root "$root" "$root/.oldroot"',
-  'cd /',
-  'umount -l /.oldroot',
-  'rmdir /.oldroot',
-  'mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /proc',
+  `chown -R ${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid}:${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} "$root/home/sut" "$root/tmp" "$root/workspace"`,
   'for fd_path in /proc/self/fd/*; do fd="${fd_path##*/}"; if [ "$fd" -gt 2 ] 2>/dev/null; then eval "exec ${fd}>&-"; fi; done',
-  `exec /usr/bin/setpriv --reuid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid} --regid=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all --ambient-caps=-all /usr/bin/prlimit --cpu=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.cpuSeconds} --as=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.addressSpaceBytes} --fsize=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.fileSizeBytes} --nofile=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.openFiles} --nproc=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.processes} -- /usr/bin/env -i PATH=/tool/bin:/usr/bin:/bin HOME=/home/sut TMPDIR=/tmp LANG=C /tool/bin/bun -e ${JSON.stringify(HOSTED_SUT_CAPABILITY_ASSERTION_V1)}`
+  `/usr/sbin/chroot "$root" /usr/bin/bash -ceu ${shellSingleQuoteV1(HOSTED_SUT_CHROOT_CAPABILITY_SCRIPT_V1)} sec-hosted-capability-root`
 ].join('\n');
 
 const HOSTED_SUT_TEARDOWN_SCRIPT_V1 = [
-  'unit="$1"',
-  '/usr/bin/systemctl kill --kill-who=all --signal=KILL "$unit" >/dev/null 2>&1 || true',
-  '/usr/bin/systemctl stop "$unit" >/dev/null 2>&1 || true',
-  'properties="$(/usr/bin/systemctl show "$unit" --property=LoadState --property=ActiveState --property=SubState --property=ControlGroup --no-pager 2>/dev/null || true)"',
-  'load="$(printf \u0027%s\\n\u0027 "$properties" | /usr/bin/sed -n \u0027s/^LoadState=//p\u0027)"',
-  `if [ "$load" = "not-found" ]; then printf \u0027${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:not-found\\n%s\\n\u0027 "$properties"; exit 0; fi`,
-  '[ "$load" = "loaded" ]',
-  'active="$(printf \u0027%s\\n\u0027 "$properties" | /usr/bin/sed -n \u0027s/^ActiveState=//p\u0027)"',
-  'case "$active" in active|activating|reloading|deactivating) exit 91;; esac',
-  'control_group="$(printf \u0027%s\\n\u0027 "$properties" | /usr/bin/sed -n \u0027s/^ControlGroup=//p\u0027)"',
-  'if [ -n "$control_group" ] && [ -e "/sys/fs/cgroup${control_group}/cgroup.procs" ]; then remaining="$(cat "/sys/fs/cgroup${control_group}/cgroup.procs")"; [ -z "$(printf \u0027%s\u0027 "$remaining" | /usr/bin/tr -d \u0027[:space:]\u0027)" ]; fi',
-  `printf \u0027${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:empty-cgroup\\n%s\\n\u0027 "$properties"`,
-  '/usr/bin/systemctl reset-failed "$unit" >/dev/null 2>&1 || true'
+  'unit_name="$1"',
+  'root="/tmp/$unit_name"',
+  'if [ -e "$root" ]; then [ -d "$root" ] && [ ! -L "$root" ]; rmdir -- "$root"; fi',
+  '[ ! -e "$root" ]',
+  'rm -f -- /tmp/sec-host-sentinel',
+  `printf \u0027${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:direct-process-closed\\n\u0027`
 ].join('\n');
 
 function hostedSutSandboxUnitNameV1(actionKey: VerificationActionKeyDigest, nonce: string): string {
@@ -1567,26 +1816,9 @@ function hostedSutSandboxUnitNameV1(actionKey: VerificationActionKeyDigest, nonc
   return `sec-sut-${actionKey.slice('sha256:'.length, 'sha256:'.length + 16)}-${nonce}`;
 }
 
-function hostedSutSystemdPropertiesV1(): readonly string[] {
-  return Object.freeze([
-    '--property=Type=exec',
-    '--property=KillMode=control-group',
-    '--property=TimeoutStopSec=15s',
-    `--property=RuntimeMaxSec=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.wallSeconds}s`,
-    `--property=MemoryMax=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.addressSpaceBytes}`,
-    `--property=TasksMax=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.processes}`,
-    '--property=CPUQuota=200%',
-    `--property=LimitCPU=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.cpuSeconds}`,
-    `--property=LimitAS=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.addressSpaceBytes}`,
-    `--property=LimitFSIZE=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.fileSizeBytes}`,
-    `--property=LimitNOFILE=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.openFiles}`,
-    `--property=LimitNPROC=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.processes}`,
-    '--property=PrivateTmp=yes'
-  ]);
-}
-
 function finalizeHostedSutSandboxCommandPlanV1(input: Readonly<{
   phase: CodexDevelopmentHostedSutSandboxCommandPlanV1['phase'];
+  command: CodexDevelopmentHostedSutSandboxCommandPlanV1['command'];
   unitName: string;
   argv: readonly string[];
   candidateEnvironmentNames: readonly string[];
@@ -1607,7 +1839,7 @@ function finalizeHostedSutSandboxCommandPlanV1(input: Readonly<{
     policyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
     phase: input.phase,
     unitName: input.unitName,
-    command: '/usr/bin/sudo' as const,
+    command: input.command,
     argv: Object.freeze([...input.argv]),
     candidateEnvironmentNames,
     executionAuthorizationDigest: input.executionAuthorizationDigest,
@@ -1624,10 +1856,14 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(
     'candidateEnvironmentNames', 'executionAuthorizationDigest',
     'physicalCommandProjectionDigest', 'planDigest'
   ], 'Hosted SUT sandbox command plan V1');
+  const phase = String(value.phase);
+  const commandMatchesPhase = phase === 'teardown'
+    ? value.command === '/usr/bin/bash'
+    : value.command === '/usr/bin/unshare';
   if (value.schema !== CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA_V1 ||
       value.policyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 ||
-      value.command !== '/usr/bin/sudo' ||
-      !['capability-self-test', 'execute', 'teardown'].includes(String(value.phase)) ||
+      !commandMatchesPhase ||
+      !['capability-self-test', 'execute', 'bootstrap-execute', 'teardown'].includes(phase) ||
       typeof value.unitName !== 'string' ||
       !/^sec-sut-[0-9a-f]{16}-[A-Za-z0-9_.-]{1,32}$/u.test(value.unitName) ||
       !Array.isArray(value.argv) || value.argv.some((entry) => typeof entry !== 'string') ||
@@ -1646,16 +1882,19 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(
   if (planDigest !== ciActionDigest(withoutDigest)) {
     throw new Error('Hosted SUT sandbox command plan digest mismatch.');
   }
-  if (value.phase === 'execute') {
-    if (value.executionAuthorizationDigest === null || value.physicalCommandProjectionDigest === null) {
+  if (value.phase === 'execute' || value.phase === 'bootstrap-execute') {
+    if (value.phase === 'execute' &&
+        (value.executionAuthorizationDigest === null || value.physicalCommandProjectionDigest === null)) {
       throw new Error('Hosted SUT execution command plan is not bound to its authorization.');
+    }
+    if (value.phase === 'bootstrap-execute' &&
+        (value.executionAuthorizationDigest !== null || value.physicalCommandProjectionDigest !== null)) {
+      throw new Error('Trusted bootstrap SUT command plan cannot claim Action authorization.');
     }
     const encoded = encodeVerificationActionDataV2(value.argv);
     for (const invariant of [
-      '/usr/bin/systemd-run', '--property=KillMode=control-group',
-      `--property=RuntimeMaxSec=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.wallSeconds}s`,
-      '/usr/bin/unshare', '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
-      'pivot_root', 'mount -t proc', '--no-new-privs', '--bounding-set=-all',
+      '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
+      '/usr/sbin/chroot', 'mount -t proc', '--no-new-privs', '--bounding-set=-all',
       '/usr/bin/env -i', '/authenticated-input/prepared-candidate.tar',
       'copy_runtime /usr/bin/bash /usr/bin/bash',
       'copy_runtime /usr/bin/tar /usr/bin/tar',
@@ -1665,7 +1904,8 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(
     }
     for (const forbidden of [
       'GITHUB_OUTPUT', 'GITHUB_ENV', 'GITHUB_STEP_SUMMARY', 'ACTIONS_RUNTIME_TOKEN',
-      '/var/run/docker.sock', '/run/docker.sock', '${RUNNER_TEMP}', 'mount --bind /usr'
+      '/var/run/docker.sock', '/run/docker.sock', '${RUNNER_TEMP}', 'mount --bind /usr',
+      '/usr/bin/sudo', '/usr/bin/systemd-run'
     ]) {
       if (encoded.includes(forbidden)) throw new Error(`Hosted SUT sandbox command plan exposes ${forbidden}.`);
     }
@@ -1730,18 +1970,55 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlanV1(input: Readon
   const unitName = authorization.physicalCommand.unitName;
   const plan = finalizeHostedSutSandboxCommandPlanV1({
     phase: 'execute',
+    command: '/usr/bin/unshare',
     unitName,
     candidateEnvironmentNames: names,
     executionAuthorizationDigest: authorization.authorizationDigest,
     physicalCommandProjectionDigest: authorization.physicalCommand.projectionDigest,
     argv: [
-      '--non-interactive', '--', '/usr/bin/systemd-run', '--quiet', '--wait', '--pipe',
-      `--unit=${unitName}`, ...hostedSutSystemdPropertiesV1(), '--',
-      '/usr/bin/unshare', '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
+      '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
       '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT_V1, 'sec-hosted-sut',
-      input.candidateArchive, input.bunExecutable, input.baseSha, input.headSha,
+      unitName, input.candidateArchive, input.bunExecutable, input.baseSha, input.headSha,
       String(environment.length),
       ...environment.map(([name, value]) => `${name}=${value}`), ...input.normalizedArgv
+    ]
+  });
+  CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(plan);
+  return plan;
+}
+
+export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1(input: Readonly<{
+  bootstrapDigest: VerificationActionKeyDigest;
+  candidateArchive: string;
+  bunExecutable: string;
+  baseSha: string;
+  headSha: string;
+  candidateEnvironment: NodeJS.ProcessEnv;
+  unitNonce: string;
+}>): CodexDevelopmentHostedSutSandboxCommandPlanV1 {
+  if (!/^sha256:[0-9a-f]{64}$/u.test(input.bootstrapDigest) ||
+      !path.isAbsolute(input.candidateArchive) || !path.isAbsolute(input.bunExecutable) ||
+      !/^[0-9a-f]{40}$/u.test(input.baseSha) || !/^[0-9a-f]{40}$/u.test(input.headSha)) {
+    throw new Error('Trusted bootstrap SUT sandbox execution input is invalid.');
+  }
+  const environment = Object.entries(input.candidateEnvironment)
+    .filter((entry): entry is [string, string] => entry[1] !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right));
+  const unitName = hostedSutSandboxUnitNameV1(input.bootstrapDigest, input.unitNonce);
+  const plan = finalizeHostedSutSandboxCommandPlanV1({
+    phase: 'bootstrap-execute',
+    command: '/usr/bin/unshare',
+    unitName,
+    candidateEnvironmentNames: environment.map(([name]) => name),
+    executionAuthorizationDigest: null,
+    physicalCommandProjectionDigest: null,
+    argv: [
+      '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
+      '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT_V1, 'sec-hosted-sut',
+      unitName, input.candidateArchive, input.bunExecutable, input.baseSha, input.headSha,
+      String(environment.length),
+      ...environment.map(([name, value]) => `${name}=${value}`),
+      'bun', '-e', CodexDevelopmentTrustedBootstrapSutHarnessV1
     ]
   });
   CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(plan);
@@ -1762,16 +2039,15 @@ function hostedSutCapabilityCommandPlanV1(input: Readonly<{
     hostedSutSandboxUnitNameV1(input.actionKey, input.unitNonce);
   return finalizeHostedSutSandboxCommandPlanV1({
     phase: 'capability-self-test',
+    command: '/usr/bin/unshare',
     unitName,
     candidateEnvironmentNames: [],
     executionAuthorizationDigest: input.executionAuthorization?.authorizationDigest ?? null,
     physicalCommandProjectionDigest: input.executionAuthorization?.physicalCommand.projectionDigest ?? null,
     argv: [
-      '--non-interactive', '--', '/usr/bin/systemd-run', '--quiet', '--wait', '--pipe',
-      `--unit=${unitName}`, ...hostedSutSystemdPropertiesV1(), '--',
-      '/usr/bin/unshare', '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
+      '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
       '/usr/bin/bash', '-ceu', HOSTED_SUT_CAPABILITY_SCRIPT_V1, 'sec-hosted-capability',
-      input.bunExecutable
+      unitName, input.bunExecutable
     ]
   });
 }
@@ -1782,13 +2058,13 @@ function hostedSutTeardownCommandPlanV1(input: Readonly<{
 }>): CodexDevelopmentHostedSutSandboxCommandPlanV1 {
   return finalizeHostedSutSandboxCommandPlanV1({
     phase: 'teardown',
+    command: '/usr/bin/bash',
     unitName: input.unitName,
     candidateEnvironmentNames: [],
     executionAuthorizationDigest: null,
     physicalCommandProjectionDigest: null,
     argv: [
-      '--non-interactive', '--', '/usr/bin/bash', '-ceu', HOSTED_SUT_TEARDOWN_SCRIPT_V1,
-      'sec-hosted-teardown', input.unitName
+      '-ceu', HOSTED_SUT_TEARDOWN_SCRIPT_V1, 'sec-hosted-teardown', input.unitName
     ]
   });
 }
@@ -1810,8 +2086,10 @@ function defaultHostedSutSandboxProcessV1(
       stderr: { hash: createHash('sha256'), bytes: 0, hashed: 0, tail: Buffer.alloc(0) }
     };
     let outputTruncated = false;
+    let wallTimedOut = false;
     let commandStarted = false;
     let settled = false;
+    let wallTimer: ReturnType<typeof setTimeout> | null = null;
     const observe = (kind: 'stdout' | 'stderr', chunk: Buffer): void => {
       const stream = streams[kind];
       stream.bytes += chunk.byteLength;
@@ -1833,9 +2111,12 @@ function defaultHostedSutSandboxProcessV1(
     const finish = (code: number): void => {
       if (settled) return;
       settled = true;
+      if (wallTimer !== null) clearTimeout(wallTimer);
       const stdoutDigest = `sha256:${streams.stdout.hash.digest('hex')}` as VerificationActionKeyDigest;
       const stderrDigest = `sha256:${streams.stderr.hash.digest('hex')}` as VerificationActionKeyDigest;
-      const failureTail = outputTruncated
+      const failureTail = wallTimedOut
+        ? 'Hosted SUT exceeded the trusted wall-clock bound and the unshare process was terminated.'
+        : outputTruncated
         ? 'Hosted SUT stdout/stderr exceeded the trusted capture bound and the whole unit was terminated.'
         : [streams.stdout.tail.toString('utf8'), streams.stderr.tail.toString('utf8')]
             .filter((entry) => entry.length > 0).join('\n').trim();
@@ -1847,8 +2128,8 @@ function defaultHostedSutSandboxProcessV1(
         commandStarted
       });
       resolve(Object.freeze({
-        code: outputTruncated ? 125 : code,
-        rawOutputDigest: ciActionDigest(outputProjection),
+        code: wallTimedOut ? 124 : outputTruncated ? 125 : code,
+        rawOutputDigest: ciActionDigest({ ...outputProjection, wallTimedOut }),
         failureTail,
         ...outputProjection
       }));
@@ -1859,6 +2140,12 @@ function defaultHostedSutSandboxProcessV1(
       finish(1);
     });
     child.on('close', (code) => finish(code ?? 1));
+    wallTimer = setTimeout(() => {
+      if (settled) return;
+      wallTimedOut = true;
+      child.kill('SIGKILL');
+    }, CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.wallSeconds * 1_000);
+    wallTimer.unref();
   });
 }
 
@@ -1879,6 +2166,173 @@ function syntheticHostedSutSandboxProcessObservationV1(
     outputTruncated: false,
     commandStarted: false
   });
+}
+
+const TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES_V1 = Object.freeze([
+  ['tcb-lock-pre.json', 'tcb-lock-pre'],
+  ['imports.log', 'imports'],
+  ['docs-doctor.log', 'docs-doctor'],
+  ['typecheck.log', 'typecheck'],
+  ['diff-check.log', 'diff-check'],
+  ['focused-tests.log', 'focused-tests'],
+  ['repository-audit.json', 'repository-audit'],
+  ['affected-plan.json', 'affected-plan'],
+  ['affected-tests.log', 'affected-tests'],
+  ['tcb-lock-post.json', 'tcb-lock-post']
+] as const);
+
+export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readonly<{
+  baseRoot: string;
+  candidateRoot: string;
+  outputDirectory: string;
+  baseSha: string;
+  headSha: string;
+  treeSha: string;
+  manifestPath: string;
+}>): Promise<Readonly<{
+  status: 'passed' | 'failed';
+  bootstrapDigest: VerificationActionKeyDigest;
+  receiptDigest: VerificationActionKeyDigest;
+}>> {
+  if (!/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9_./-]{1,1024}$/u.test(input.manifestPath)) {
+    throw new Error('Trusted bootstrap SUT manifest path is invalid.');
+  }
+  const outputDirectory = path.resolve(input.outputDirectory);
+  if (existsSync(outputDirectory) && readdirSync(outputDirectory).length !== 0) {
+    throw new Error('Trusted bootstrap SUT evidence root must begin empty.');
+  }
+  mkdirSync(outputDirectory, { recursive: true });
+  const transportDirectory = path.resolve(outputDirectory, '.transport');
+  const candidateNodeModules = path.resolve(input.candidateRoot, 'node_modules');
+  let prepared: CodexDevelopmentPreparedTrustedBootstrapSutInputsV1 | null = null;
+  try {
+    prepared = CodexDevelopmentPrepareTrustedBootstrapSutInputsV1({
+      baseRoot: input.baseRoot,
+      candidateRoot: input.candidateRoot,
+      outputDirectory: transportDirectory,
+      baseSha: input.baseSha,
+      headSha: input.headSha,
+      treeSha: input.treeSha
+    });
+    const bootstrapDigest = ciActionDigest(Object.freeze({
+      schema: 'sec-trusted-bootstrap-sut-operation-v1',
+      baseSha: input.baseSha,
+      headSha: input.headSha,
+      treeSha: input.treeSha,
+      manifestPath: input.manifestPath,
+      archiveDigest: prepared.archiveDigest,
+      archiveInventoryDigest: prepared.archiveInventoryDigest,
+      sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1
+    }));
+    const candidateEnvironment = CodexDevelopmentCandidateProcessEnvironmentV2({}, {
+      SEC_BOOTSTRAP_BASE: input.baseSha,
+      SEC_BOOTSTRAP_HEAD: input.headSha,
+      SEC_BOOTSTRAP_TREE: input.treeSha,
+      SEC_CHANGED_BASE: input.baseSha,
+      SEC_AFFECTED_TESTS_BASE: input.baseSha,
+      SEC_REPOSITORY_AUDIT_DEFAULT_REF: input.baseSha,
+      SEC_WORK_PACKAGE_MANIFEST_PATH: input.manifestPath
+    });
+    const capability = await CodexDevelopmentProbeHostedSutSandboxCapabilityV1({
+      actionKey: bootstrapDigest
+    });
+    let commandPlan: CodexDevelopmentHostedSutSandboxCommandPlanV1 | null = null;
+    let execution = syntheticHostedSutSandboxProcessObservationV1(
+      1, capability.diagnostic ?? `sandbox-capability:${capability.state}`
+    );
+    let teardown = syntheticHostedSutSandboxProcessObservationV1(1, 'sandbox-not-started');
+    if (capability.state === 'supported') {
+      commandPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1({
+        bootstrapDigest,
+        candidateArchive: realpathSync.native(prepared.preparedCandidateArchive),
+        bunExecutable: realpathSync.native(process.execPath),
+        baseSha: input.baseSha,
+        headSha: input.headSha,
+        candidateEnvironment,
+        unitNonce: `${process.pid}-${Date.now()}`.slice(0, 32)
+      });
+      try {
+        execution = await defaultHostedSutSandboxProcessV1(commandPlan);
+      } finally {
+        teardown = await defaultHostedSutSandboxProcessV1(hostedSutTeardownCommandPlanV1({
+          actionKey: bootstrapDigest,
+          unitName: commandPlan.unitName
+        }));
+      }
+    }
+    let summary: Record<string, unknown> | null = null;
+    try {
+      const parsed = JSON.parse(execution.failureTail) as unknown;
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        summary = parsed as Record<string, unknown>;
+      }
+    } catch {
+      summary = null;
+    }
+    const results = Array.isArray(summary?.results)
+      ? summary.results.filter((entry): entry is Record<string, unknown> =>
+          entry !== null && typeof entry === 'object' && !Array.isArray(entry))
+      : [];
+    const resultByLabel = new Map(results.map((result) => [String(result.label), result] as const));
+    for (const [fileName, label] of TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES_V1) {
+      writeHostedActionJson(path.resolve(outputDirectory, fileName), Object.freeze({
+        schema: 'sec-trusted-bootstrap-sandbox-step-observation-v1',
+        bootstrapDigest,
+        sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
+        label,
+        observation: resultByLabel.get(label) ?? null
+      }));
+    }
+    const sumsSource = `${TRUSTED_BOOTSTRAP_SUT_EVIDENCE_FILES_V1.map(([fileName]) =>
+      `${createHash('sha256').update(readFileSync(path.resolve(outputDirectory, fileName))).digest('hex')}  ${fileName}`
+    ).join('\n')}\n`;
+    writeFileSync(path.resolve(outputDirectory, 'SHA256SUMS'), sumsSource, { encoding: 'utf8', flag: 'wx' });
+    const residuePassed = teardown.commandStarted && teardown.code === 0 &&
+      teardown.failureTail.includes(`${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:direct-process-closed`);
+    const archiveStable = hostedActionFileDigestV2(prepared.preparedCandidateArchive) === prepared.archiveDigest;
+    const summaryIdentityPassed = summary?.schema === 'sec-trusted-bootstrap-sandbox-summary-v1' &&
+      summary.baseSha === input.baseSha && summary.headSha === input.headSha &&
+      summary.treeSha === input.treeSha && summary.parentSha === input.baseSha;
+    const status = capability.state === 'supported' && commandPlan !== null && execution.commandStarted &&
+      execution.code === 0 && !execution.outputTruncated && residuePassed && archiveStable &&
+      summaryIdentityPassed && summary?.status === 'passed'
+      ? 'passed' as const : 'failed' as const;
+    const semantic = Object.freeze({
+      schema: 'sec-trusted-bootstrap-sut-receipt-v2' as const,
+      baseSha: input.baseSha,
+      headSha: input.headSha,
+      treeSha: input.treeSha,
+      parentSha: input.baseSha,
+      auxiliaryStatus: status,
+      evidenceSetDigest: `sha256:${createHash('sha256').update(sumsSource).digest('hex')}`,
+      bootstrapDigest,
+      sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
+      commandPlanDigest: commandPlan?.planDigest ?? null,
+      archiveDigest: prepared.archiveDigest,
+      archiveInventoryDigest: prepared.archiveInventoryDigest,
+      executionOutputDigest: execution.rawOutputDigest,
+      residueReadbackDigest: teardown.rawOutputDigest
+    });
+    const receiptDigest = (`sha256:${createHash('sha256').update(JSON.stringify(semantic)).digest('hex')}`) as VerificationActionKeyDigest;
+    writeFileSync(
+      path.resolve(outputDirectory, 'sut-receipt.json'),
+      `${JSON.stringify({ ...semantic, receiptDigest }, null, 2)}\n`,
+      { encoding: 'utf8', flag: 'wx' }
+    );
+    if (status !== 'passed') {
+      throw new Error(
+        `Trusted bootstrap candidate SUT failed inside the private sandbox: ${
+          summary?.diagnostic ?? capability.diagnostic ?? execution.failureTail}`.slice(0, 2048)
+      );
+    }
+    return Object.freeze({ status, bootstrapDigest, receiptDigest });
+  } finally {
+    if (prepared !== null && existsSync(prepared.preparedCandidateArchive)) {
+      rmSync(prepared.preparedCandidateArchive, { force: true });
+    }
+    if (existsSync(transportDirectory)) rmSync(transportDirectory, { recursive: true, force: true });
+    if (existsSync(candidateNodeModules)) rmSync(candidateNodeModules, { recursive: true, force: true });
+  }
 }
 
 function hostedSutDiagnosticV1(value: string, fallback: string): string {
@@ -1919,13 +2373,13 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapabilityV1(input: R
       commandStarted: false, exitCode: null, markerObserved: false,
       outputDigest: ciActionDigest(diagnostic),
       teardownCommandStarted: false, teardownExitCode: null, residueMarkerObserved: false,
-      residueReadbackDigest: ciActionDigest('no-systemd-unit'), cgroupEmpty: true, diagnostic
+      residueReadbackDigest: ciActionDigest('no-unshare-process'), cgroupEmpty: true, diagnostic
     });
   }
   const run = input.runSandboxProcess ?? defaultHostedSutSandboxProcessV1;
   const plan = hostedSutCapabilityCommandPlanV1({
     actionKey: input.actionKey,
-    bunExecutable: path.resolve(input.bunExecutable ?? process.execPath),
+    bunExecutable: input.bunExecutable ?? process.execPath,
     unitNonce: input.unitNonce ?? `${process.pid}`,
     executionAuthorization: input.executionAuthorization
   });
@@ -1948,12 +2402,11 @@ export async function CodexDevelopmentProbeHostedSutSandboxCapabilityV1(input: R
   }
   const selfTestPassed = observed.commandStarted && observed.code === 0 &&
     observed.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_CAPABILITY_MARKER_V1);
-  const collectedUnit = teardown.failureTail.includes(
-    `${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:not-found`
+  const directProcessClosed = teardown.failureTail.includes(
+    `${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:direct-process-closed`
   );
   const residuePassed = teardown.commandStarted && teardown.code === 0 &&
-    teardown.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1) &&
-    (!collectedUnit || observed.commandStarted);
+    directProcessClosed && observed.commandStarted;
   if (selfTestPassed && residuePassed) {
     return Object.freeze({
       state: 'supported',
@@ -2154,7 +2607,7 @@ export async function CodexDevelopmentExecuteHostedActionSutV2(input: Readonly<{
       }),
       reap: Object.freeze({
         namespacePid1Exited: false, killChildEnabled: true,
-        systemdUnitStopped: capability.cgroupEmpty
+        unshareProcessClosed: capability.cgroupEmpty
       }),
       residue: Object.freeze({
         cgroupEmpty: capability.cgroupEmpty,
@@ -2224,12 +2677,11 @@ export async function CodexDevelopmentExecuteHostedActionSutV2(input: Readonly<{
       1, error instanceof Error ? error.message : String(error)
     );
   }
-  const collectedUnit = teardown.failureTail.includes(
-    `${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:not-found`
+  const directProcessClosed = teardown.failureTail.includes(
+    `${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:direct-process-closed`
   );
   const residuePassed = teardown.commandStarted && teardown.code === 0 &&
-    teardown.failureTail.includes(CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1) &&
-    (!collectedUnit || processResult.commandStarted);
+    directProcessClosed && processResult.commandStarted;
   let postExecutionArchiveDigest: VerificationActionKeyDigest | null = null;
   let archiveReadbackDiagnostic: string | null = null;
   try {
@@ -2290,7 +2742,7 @@ export async function CodexDevelopmentExecuteHostedActionSutV2(input: Readonly<{
     reap: Object.freeze({
       namespacePid1Exited: processResult.commandStarted,
       killChildEnabled: true,
-      systemdUnitStopped: residuePassed
+      unshareProcessClosed: residuePassed
     }),
     residue: Object.freeze({
       cgroupEmpty: residuePassed,
@@ -5255,6 +5707,7 @@ const HOSTED_ACTION_COMMANDS = new Set([
   'ensure-hosted-action-provider',
   'resolve-hosted-action',
   'prepare-hosted-action-inputs',
+  'execute-trusted-bootstrap-sut',
   'self-test-hosted-action-sandbox',
   'execute-hosted-action-sut',
   'assemble-hosted-action-terminal',
@@ -5621,6 +6074,22 @@ async function coordinateHostedSessionProviderV2(input: Readonly<{
 
 export async function CodexDevelopmentCiVerificationHostedActionCli(argv: string[]): Promise<string> {
   const command = argv[0];
+  if (command === 'execute-trusted-bootstrap-sut') {
+    const args = hostedActionCliArgs(argv, [
+      '--base-root', '--candidate-root', '--output-directory', '--base-sha',
+      '--head-sha', '--tree-sha', '--manifest-path'
+    ]);
+    const result = await CodexDevelopmentExecuteTrustedBootstrapSutV1({
+      baseRoot: args.get('--base-root')!,
+      candidateRoot: args.get('--candidate-root')!,
+      outputDirectory: args.get('--output-directory')!,
+      baseSha: args.get('--base-sha')!,
+      headSha: args.get('--head-sha')!,
+      treeSha: args.get('--tree-sha')!,
+      manifestPath: args.get('--manifest-path')!
+    });
+    return JSON.stringify(result);
+  }
   if (command === 'ensure-hosted-action-provider') {
     const intentIndex = argv.indexOf('--intent');
     const intent = intentIndex >= 0 ? argv[intentIndex + 1] : undefined;

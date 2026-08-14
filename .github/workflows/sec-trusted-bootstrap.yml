@@ -19,7 +19,7 @@ env:
 
 jobs:
   resolve:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 15
     outputs:
       base: ${{ steps.resolve.outputs.base }}
@@ -298,7 +298,7 @@ jobs:
 
   checker-pre:
     needs: resolve
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 30
     steps:
       - name: Checkout exact trusted base checker
@@ -632,13 +632,25 @@ jobs:
                     const sutReceipt = JSON.parse(readFileSync(path.join(sutRoot, "sut-receipt.json"), "utf8"));
                     exactKeys(sutReceipt, [
                       "schema", "baseSha", "headSha", "treeSha", "parentSha", "auxiliaryStatus",
-                      "evidenceSetDigest", "receiptDigest"
+                      "evidenceSetDigest", "bootstrapDigest", "sandboxPolicyDigest", "commandPlanDigest",
+                      "archiveDigest", "archiveInventoryDigest", "executionOutputDigest",
+                      "residueReadbackDigest", "receiptDigest"
                     ], "trusted bootstrap SUT receipt");
                     const { receiptDigest: sutReceiptDigest, ...sutSemantic } = sutReceipt;
-                    if (sutReceipt.schema !== "sec-trusted-bootstrap-sut-receipt-v1" ||
+                    const digestFields = [
+                      sutReceipt.evidenceSetDigest, sutReceipt.bootstrapDigest, sutReceipt.sandboxPolicyDigest,
+                      sutReceipt.archiveDigest, sutReceipt.archiveInventoryDigest,
+                      sutReceipt.executionOutputDigest, sutReceipt.residueReadbackDigest
+                    ];
+                    if (sutReceipt.schema !== "sec-trusted-bootstrap-sut-receipt-v2" ||
                         sutReceipt.baseSha !== expectedBase || sutReceipt.headSha !== expectedHead ||
                         sutReceipt.treeSha !== expectedTree || sutReceipt.parentSha !== expectedBase ||
                         (sutReceipt.auxiliaryStatus !== "passed" && sutReceipt.auxiliaryStatus !== "failed") ||
+                        digestFields.some((value) => typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value)) ||
+                        (sutReceipt.commandPlanDigest !== null &&
+                          (typeof sutReceipt.commandPlanDigest !== "string" ||
+                            !/^sha256:[0-9a-f]{64}$/.test(sutReceipt.commandPlanDigest))) ||
+                        (sutReceipt.auxiliaryStatus === "passed" && sutReceipt.commandPlanDigest === null) ||
                         sutReceipt.evidenceSetDigest !== digest(Buffer.from(sumsSource, "utf8")) ||
                         sutReceiptDigest !== digest(Buffer.from(JSON.stringify(sutSemantic), "utf8")) ||
                         (sutReceipt.auxiliaryStatus === "passed") !== (sutJobResult === "success")) {
@@ -739,9 +751,16 @@ jobs:
     needs:
       - resolve
       - checker-pre
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-sut-v1]
     timeout-minutes: 90
     steps:
+      - name: Checkout exact trusted base sandbox owner
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ needs.resolve.outputs.base }}
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Checkout exact candidate SUT only
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
@@ -755,18 +774,15 @@ jobs:
         with:
           bun-version: ${{ needs.resolve.outputs.bun-version }}
 
-      - name: Install candidate SUT dependencies without lifecycle scripts
-        shell: bash
-        env:
-          CANDIDATE_ROOT: ${{ github.workspace }}/candidate-sut
-        run: |
-          set -euo pipefail
-          unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
-          unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
-          cd "$CANDIDATE_ROOT"
-          bun install --frozen-lockfile --ignore-scripts
+      - name: Restore exact-base dependency download cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: /tmp/sec-hosted-dependency-home/.bun/install/cache
+          key: ${{ runner.os }}-trusted-bootstrap-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-trusted-bootstrap-bun-
 
-      - name: Run isolated candidate SUT regression
+      - name: Run candidate SUT through trusted private sandbox
         shell: bash
         env:
           CANDIDATE_ROOT: ${{ github.workspace }}/candidate-sut
@@ -782,100 +798,14 @@ jobs:
           set -euo pipefail
           unset GH_TOKEN GITHUB_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
           unset GITHUB_ENV GITHUB_OUTPUT GITHUB_PATH GITHUB_STEP_SUMMARY
-          CANDIDATE_ROOT="$(realpath "$CANDIDATE_ROOT")"
-          out="$(realpath -m "$SUT_EVIDENCE_ROOT")"
-          mkdir -p "$out"
-          for file in tcb-lock-pre.json imports.log docs-doctor.log typecheck.log diff-check.log focused-tests.log repository-audit.json affected-plan.json affected-tests.log tcb-lock-post.json; do
-            : > "$out/$file"
-          done
-          set +e
-          (
-            set -euo pipefail
-            cd "$CANDIDATE_ROOT"
-            trap 'suite_status=$?; set +e; post_status=0; bun scripts/ci-verification.ts tcb-closure-lock --mode check | tee "$out/tcb-lock-post.json" || post_status=$?; if test "$suite_status" -ne 0; then exit "$suite_status"; fi; exit "$post_status"' EXIT
-            bun scripts/ci-verification.ts tcb-closure-lock --mode check \
-              | tee "$out/tcb-lock-pre.json"
-            git update-ref refs/remotes/origin/main "$SEC_BOOTSTRAP_BASE"
-            bun run imports:check 2>&1 | tee "$out/imports.log"
-            bun run docs:doctor 2>&1 | tee "$out/docs-doctor.log"
-            bun run typecheck 2>&1 | tee "$out/typecheck.log"
-            git diff --check "$SEC_BOOTSTRAP_BASE..$SEC_BOOTSTRAP_HEAD" 2>&1 | tee "$out/diff-check.log"
-            bun test --timeout 180000 \
-              tests/unit/tcb-trust-root-contract.test.ts \
-              tests/unit/test-runner.test.ts \
-              tests/contract/ci-contract.test.ts \
-              tests/contract/sec-merge-gate.test.ts \
-              tests/contract/tcb-closure-lock.test.ts \
-              tests/contract/default-branch-revision-health.test.ts \
-              tests/contract/repository-audit.test.ts \
-              tests/contract/documentation-authority.test.ts \
-              tests/contract/test-impact.test.ts \
-              tests/contract/ci-lanes.test.ts \
-              2>&1 | tee "$out/focused-tests.log"
-            bun scripts/codex/repository-audit.ts --json > "$out/repository-audit.json"
-            bun run check:affected --plan > "$out/affected-plan.json"
-            bun run test:affected 2>&1 | tee "$out/affected-tests.log"
-            test -z "$(git status --porcelain=v1)"
-          )
-          sut_status=$?
-          set -e
-          for file in tcb-lock-pre.json imports.log docs-doctor.log typecheck.log diff-check.log focused-tests.log repository-audit.json affected-plan.json affected-tests.log tcb-lock-post.json; do
-            artifact="$out/$file"
-            if test -L "$artifact" || ! test -f "$artifact"; then
-              rm -f -- "$artifact"
-              printf 'invalid candidate SUT evidence node\n' > "$artifact"
-              sut_status=1
-            elif test "$(stat -c %s "$artifact")" -gt 16777216; then
-              printf 'oversized candidate SUT evidence suppressed\n' > "$artifact"
-              sut_status=1
-            fi
-          done
-          (
-            cd "$out"
-            sha256sum tcb-lock-pre.json imports.log docs-doctor.log typecheck.log diff-check.log focused-tests.log repository-audit.json affected-plan.json affected-tests.log tcb-lock-post.json > SHA256SUMS
-          )
-          export SEC_SUT_STATUS="$sut_status"
-          export SEC_SUT_EVIDENCE_SET_DIGEST="sha256:$(sha256sum "$out/SHA256SUMS" | cut -d ' ' -f 1)"
-          bun -e '
-            import { createHash } from "node:crypto";
-            import { writeFileSync } from "node:fs";
-            import path from "node:path";
-            const required = (name) => process.env[name] ?? (() => { throw new Error(`missing ${name}`); })();
-            const gitEnvironment = Object.fromEntries(Object.entries(process.env)
-              .filter(([name]) => !name.startsWith("GIT_")));
-            gitEnvironment.GIT_NO_REPLACE_OBJECTS = "1";
-            const gitText = (args) => {
-              const result = Bun.spawnSync(
-                ["git", "--no-replace-objects", "-C", required("CANDIDATE_ROOT"), ...args],
-                { stdout: "pipe", stderr: "pipe", env: gitEnvironment }
-              );
-              if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed`);
-              return result.stdout.toString().trim();
-            };
-            const head = gitText(["rev-parse", "--verify", "HEAD^{commit}"]);
-            const tree = gitText(["rev-parse", "--verify", "HEAD^{tree}"]);
-            const parents = gitText(["rev-list", "--parents", "-n", "1", "HEAD"]).split(/\s+/u);
-            const expectedBase = required("SEC_BOOTSTRAP_BASE");
-            const expectedHead = required("SEC_BOOTSTRAP_HEAD");
-            const expectedTree = required("SEC_BOOTSTRAP_TREE");
-            if (![expectedBase, expectedHead, expectedTree, head, tree].every((value) => /^[0-9a-f]{40}$/u.test(value)) ||
-                head !== expectedHead || tree !== expectedTree || parents.length !== 2 ||
-                parents[0] !== expectedHead || parents[1] !== expectedBase) {
-              throw new Error("candidate SUT Git identity is not exact and single-parent.");
-            }
-            const semantic = {
-              schema: "sec-trusted-bootstrap-sut-receipt-v1",
-              baseSha: expectedBase,
-              headSha: head,
-              treeSha: tree,
-              parentSha: parents[1],
-              auxiliaryStatus: required("SEC_SUT_STATUS") === "0" ? "passed" : "failed",
-              evidenceSetDigest: required("SEC_SUT_EVIDENCE_SET_DIGEST")
-            };
-            const receiptDigest = `sha256:${createHash("sha256").update(JSON.stringify(semantic)).digest("hex")}`;
-            writeFileSync(path.join(required("SUT_EVIDENCE_ROOT"), "sut-receipt.json"), `${JSON.stringify({ ...semantic, receiptDigest }, null, 2)}\n`, { flag: "wx" });
-          '
-          exit "$sut_status"
+          bun scripts/ci-verification.ts execute-trusted-bootstrap-sut \
+            --base-root "$GITHUB_WORKSPACE" \
+            --candidate-root "$CANDIDATE_ROOT" \
+            --output-directory "$SUT_EVIDENCE_ROOT" \
+            --base-sha "$SEC_BOOTSTRAP_BASE" \
+            --head-sha "$SEC_BOOTSTRAP_HEAD" \
+            --tree-sha "$SEC_BOOTSTRAP_TREE" \
+            --manifest-path "$SEC_WORK_PACKAGE_MANIFEST_PATH"
 
       - name: Upload bounded candidate SUT artifact
         if: always()
@@ -904,7 +834,7 @@ jobs:
       - resolve
       - checker-pre
       - candidate-sut
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 30
     steps:
       - name: Initialize fail-closed final evidence envelope

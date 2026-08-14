@@ -458,7 +458,8 @@ test('internal Action provider envelope rejects rerun, substitution, extra field
   }
   const forgedPlan = {
     ...plan,
-    proposals: [member, other],
+    proposals: [member, other]
+      .sort((left, right) => left.proposedActionKey.localeCompare(right.proposedActionKey)),
     parentDispatchPlanDigest: plan.parentDispatchPlanDigest
   };
   expect(() => parseCiVerificationActionParentDispatchPlanV2(forgedPlan)).toThrow('digest');

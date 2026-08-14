@@ -154,7 +154,7 @@ function receipt(input: Readonly<{
     reap: Object.freeze({
       namespacePid1Exited: executed,
       killChildEnabled: true,
-      systemdUnitStopped: clean
+      unshareProcessClosed: clean
     }),
     residue: Object.freeze({ cgroupEmpty: clean, hostReadbackDigest: digest('e') }),
     diagnostic: executed && (input.exitCode ?? 0) === 0 ? null

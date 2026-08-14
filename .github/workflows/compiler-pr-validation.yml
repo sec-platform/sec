@@ -23,6 +23,7 @@ env:
   # values, while the Session coordinator derives its complete join window from
   # the same definition instead of maintaining an independent polling guess.
   SEC_ACTION_RESOLVER_TIMEOUT_MINUTES: &sec_action_resolver_timeout_minutes 20
+  SEC_ACTION_SUT_PREFLIGHT_TIMEOUT_MINUTES: &sec_action_sut_preflight_timeout_minutes 10
   SEC_ACTION_CLAIM_TIMEOUT_MINUTES: &sec_action_claim_timeout_minutes 35
   SEC_ACTION_SUT_TIMEOUT_MINUTES: &sec_action_sut_timeout_minutes 75
   SEC_ACTION_ASSEMBLER_TIMEOUT_MINUTES: &sec_action_assembler_timeout_minutes 30
@@ -31,12 +32,12 @@ env:
   SEC_SESSION_REVIEW_WINDOW_MINUTES: &sec_session_review_window_minutes 20
   SEC_SESSION_REVIEW_POLL_INTERVAL_SECONDS: &sec_session_review_poll_interval_seconds 20
   SEC_SESSION_COORDINATOR_OVERHEAD_MINUTES: &sec_session_coordinator_overhead_minutes 10
-  SEC_SESSION_COORDINATOR_TIMEOUT_MINUTES: &sec_session_coordinator_timeout_minutes 195
+  SEC_SESSION_COORDINATOR_TIMEOUT_MINUTES: &sec_session_coordinator_timeout_minutes 205
 
 jobs:
   validate-hosted-request:
     if: ${{ github.event_name == 'repository_dispatch' && (github.event.action == 'sec-verify-session-v2' || github.event.action == 'sec-produce-verification-action-v2') }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 10
     outputs:
       request-kind: ${{ steps.request.outputs.request-kind }}
@@ -220,7 +221,7 @@ jobs:
   validate-agent-operation-activation-request:
     name: validate-agent-operation-activation-request
     if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-agent-operation-activation-v1' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 5
     outputs:
       request-base64: ${{ steps.request.outputs.request-base64 }}
@@ -389,7 +390,7 @@ jobs:
     name: agent-operation-activation
     if: ${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-agent-operation-activation-v1' }}
     needs: validate-agent-operation-activation-request
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 10
     concurrency:
       group: sec-agent-operation-activation-${{ github.repository_id }}-${{ needs.validate-agent-operation-activation-request.outputs.request-operation-hex }}
@@ -521,7 +522,7 @@ jobs:
     name: coordinate-verification-session
     if: ${{ needs.validate-hosted-request.outputs.request-kind == 'session' }}
     needs: validate-hosted-request
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-control-v1]
     # 20m Review + (20m resolver + 35m claim + 75m SUT + 30m assembler)
     # + 5m Action transition reserve + 10m coordinator setup/finalization.
     timeout-minutes: *sec_session_coordinator_timeout_minutes
@@ -655,6 +656,7 @@ jobs:
           PARENT_ARTIFACT_ID: ${{ steps.parent-plan-upload.outputs.artifact-id }}
           PARENT_ARCHIVE_DIGEST: ${{ steps.parent-plan-upload.outputs.artifact-digest }}
           ACTION_RESOLVER_TIMEOUT_MINUTES: *sec_action_resolver_timeout_minutes
+          ACTION_SUT_PREFLIGHT_TIMEOUT_MINUTES: *sec_action_sut_preflight_timeout_minutes
           ACTION_CLAIM_TIMEOUT_MINUTES: *sec_action_claim_timeout_minutes
           ACTION_SUT_TIMEOUT_MINUTES: *sec_action_sut_timeout_minutes
           ACTION_ASSEMBLER_TIMEOUT_MINUTES: *sec_action_assembler_timeout_minutes
@@ -664,6 +666,7 @@ jobs:
           set -euo pipefail
           ACTION_CHAIN_TIMEOUT_SECONDS=$((60 * (
             ACTION_RESOLVER_TIMEOUT_MINUTES +
+            ACTION_SUT_PREFLIGHT_TIMEOUT_MINUTES +
             ACTION_CLAIM_TIMEOUT_MINUTES +
             ACTION_SUT_TIMEOUT_MINUTES +
             ACTION_ASSEMBLER_TIMEOUT_MINUTES +
@@ -767,7 +770,7 @@ jobs:
   resolve-verification-action:
     if: ${{ needs.validate-hosted-request.outputs.request-kind == 'action' }}
     needs: validate-hosted-request
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: *sec_action_resolver_timeout_minutes
     permissions:
       actions: read
@@ -865,12 +868,57 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  preflight-verification-action-sut:
+    if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
+    needs:
+      - validate-hosted-request
+      - resolve-verification-action
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-sut-v1]
+    timeout-minutes: *sec_action_sut_preflight_timeout_minutes
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout trusted exact default base for SUT capability preflight
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ needs.validate-hosted-request.outputs.base-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup trusted Bun for SUT capability preflight
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Download trusted Action resolution for SUT capability preflight
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
+          path: .tmp/codex
+
+      - name: Prove hostile SUT sandbox on the capability-bearing role
+        run: |
+          set -euo pipefail
+          bun scripts/ci-verification.ts self-test-hosted-action-sandbox \
+            --resolution .tmp/codex/hosted-action-resolution.json \
+            --json > .tmp/codex/hosted-sut-capability.json
+
+      - name: Upload exact SUT capability observation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sec-verification-action-sut-capability-v1-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: .tmp/codex/hosted-sut-capability.json
+          if-no-files-found: error
+          retention-days: 1
+
   claim-verification-action:
     if: ${{ needs.resolve-verification-action.outputs.provider-disposition == 'start-allowed' }}
     needs:
       - validate-hosted-request
       - resolve-verification-action
-    runs-on: ubuntu-24.04
+      - preflight-verification-action-sut
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: *sec_action_claim_timeout_minutes
     permissions:
       actions: write
@@ -903,6 +951,31 @@ jobs:
         with:
           name: ${{ needs.resolve-verification-action.outputs.resolution-artifact-name }}
           path: .tmp/codex
+
+      - name: Download exact SUT capability observation
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: sec-verification-action-sut-capability-v1-${{ needs.resolve-verification-action.outputs.action-key-hex }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: .tmp/codex/sut-capability
+
+      - name: Verify exact SUT capability before candidate materialization
+        run: |
+          set -euo pipefail
+          bun -e '
+            import { CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 } from "./platform/shared/ci-verification-revision.ts";
+            const capability = JSON.parse(await Bun.file(".tmp/codex/sut-capability/hosted-sut-capability.json").text());
+            const resolution = JSON.parse(await Bun.file(".tmp/codex/hosted-action-resolution.json").text());
+            const keys = Object.keys(capability).sort();
+            const expectedKeys = ["actionKey", "commandPlanDigest", "diagnostic", "outputDigest", "policyDigest", "residueReadbackDigest", "status"].sort();
+            const digest = (value) => typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value);
+            if (JSON.stringify(keys) !== JSON.stringify(expectedKeys) || capability.status !== "supported" ||
+                capability.actionKey !== resolution.actionPlan?.action?.actionKey ||
+                capability.policyDigest !== CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1 ||
+                !digest(capability.commandPlanDigest) || !digest(capability.outputDigest) ||
+                !digest(capability.residueReadbackDigest) || capability.diagnostic !== null) {
+              throw new Error("SUT capability observation is not the exact supported trusted artifact.");
+            }
+          '
 
       - name: Checkout exact candidate for trusted materialization only
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -956,12 +1029,6 @@ jobs:
           AUTHENTICATED_GIT_CLOSURE_DIGEST="$(bun -e 'const value=JSON.parse(await Bun.file(".tmp/codex/prepared-input-response.json").text()); process.stdout.write(value.authenticatedGitClosureDigest)')"
           echo "base-dependency-closure-digest=$BASE_DEPENDENCY_CLOSURE_DIGEST" >> "$GITHUB_OUTPUT"
           echo "authenticated-git-closure-digest=$AUTHENTICATED_GIT_CLOSURE_DIGEST" >> "$GITHUB_OUTPUT"
-
-      - name: Preflight hostile SUT sandbox before immutable start
-        run: >-
-          bun scripts/ci-verification.ts self-test-hosted-action-sandbox
-          --resolution .tmp/codex/hosted-action-resolution.json
-          --json
 
       - name: Create immutable Action start marker from fresh provider census
         env:
@@ -1029,10 +1096,10 @@ jobs:
       - validate-hosted-request
       - resolve-verification-action
       - claim-verification-action
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-sut-v1]
     # The sandbox policy permits 3,600 seconds of candidate execution. Retain a
-    # separate 15-minute terminalization reserve for reap, raw-result reduction,
-    # and the untrusted observation artifact upload after RuntimeMaxSec expires.
+    # separate 15-minute terminalization reserve for unshare reap, raw-result
+    # reduction, and artifact upload after the trusted wall timer expires.
     timeout-minutes: *sec_action_sut_timeout_minutes
     permissions:
       actions: read
@@ -1101,7 +1168,7 @@ jobs:
       - resolve-verification-action
       - claim-verification-action
       - execute-verification-action-sut
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: *sec_action_assembler_timeout_minutes
     permissions:
       actions: write
@@ -1218,7 +1285,7 @@ jobs:
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
           (github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1') }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64, sec-linux-verification-v1, sec-linux-verification-trusted-v1]
     timeout-minutes: 30
     permissions:
       contents: read

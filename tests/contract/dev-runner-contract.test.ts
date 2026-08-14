@@ -1495,6 +1495,9 @@ describe('dev-runner contract', () => {
       'plan.resourceQueues[resourceClass]',
       'Promise.allSettled(',
       "SEC_FAST_TEST_FAILURE_RECEIPT '",
+      "schema: 'sec-fast-test-failure-receipt-v2'",
+      "replayAuthority: 'none-diagnostic-only'",
+      'selectedTestFiles: invocationTestFiles(',
       'devCommandObservationExitCode',
       'boundedUtf8TextTail(value, maximumBytes)',
       'export async function scheduleBoundedFastTestInvocations<TResult>(',
@@ -1505,6 +1508,13 @@ describe('dev-runner contract', () => {
       'let hasPrimaryFailure = false',
       'if (!hasPrimaryFailure && exitCode === 0) exitCode = 1',
       'if (hasPrimaryFailure) throw primaryFailure'
+    ]);
+    expectContainsAll(fastTestPolicySource, [
+      "file: 'tests/contract/dev-runner-contract.test.ts'",
+      "reason: 'finite-program-proof-and-process-contract'",
+      "file: 'tests/unit/ci-verification-execution.test.ts'",
+      "reason: 'copied-tcb-cli-and-child-process-recovery'",
+      "resourceClass: 'independent-process'"
     ]);
     expect(testRunnerSource).not.toContain(
       'export async function runBoundedFastTestInvocations('
@@ -1692,7 +1702,7 @@ describe('dev-runner contract', () => {
     ]);
   });
 
-  test('fast runner owns test dependency readiness without production runtime setup', async () => {
+  test('fast runner owns compiler readiness and skips browser materialization before fanout', async () => {
     const runnerSource = await readCompilerFile('platform/dev-runner.ts');
     const testRunnerSource = await readCompilerFile('platform/dev-runner/test-runner.ts');
     const setupSource = await readCompilerFile('tests/setup/runtime-deps.setup.ts');
@@ -1703,10 +1713,22 @@ describe('dev-runner contract', () => {
     expectContainsAll(runnerSource, ['test:fast']);
     expectContainsAll(testRunnerSource, [
       'fastTestArgs',
+      'ensureFastTestDependencies',
       'ensureTestDependencies',
       'PLAYWRIGHT_BROWSERS_PATH',
+      'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD',
       'SEC_SKIP_RUNTIME_DEPS_SETUP'
     ]);
+    const fastStart = testRunnerSource.indexOf('export async function runFastTests');
+    const slowStart = testRunnerSource.indexOf('export async function runSlowTests');
+    expect(fastStart).toBeGreaterThanOrEqual(0);
+    expect(slowStart).toBeGreaterThan(fastStart);
+    const fastSource = testRunnerSource.slice(fastStart, slowStart);
+    expectContainsAll(fastSource, [
+      'withFastTestDependencies',
+      'pathEnv(binPath, null, workspaceEnv)'
+    ]);
+    expectContainsNone(fastSource, ['withTestDependencies', 'browserCachePath']);
     expectContainsAll(setupSource, [
       "process.env.SEC_SKIP_RUNTIME_DEPS_SETUP !== '1'",
       'ensureTestDependencies',

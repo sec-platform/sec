@@ -43,6 +43,7 @@ const devCommandSettlements: Array<Promise<void> | undefined> = [];
 const devCommandStartObservers: Array<(() => void) | undefined> = [];
 const devCommandCompletionObservers: Array<(() => void) | undefined> = [];
 const canonicalBrowserCachePath = path.resolve('.shared-deps', '.playwright-browsers');
+let fastDependencyBootstrapCalls = 0;
 let testDependencyBootstrapCalls = 0;
 let hasTestDependencyBootstrapFailure = false;
 let testDependencyBootstrapFailure: unknown;
@@ -53,6 +54,8 @@ let materializeTestWorkspace = false;
 let previousTestWorkspaceNamespace: string | undefined;
 let previousAffectedTestsBase: string | undefined;
 let previousChangedBase: string | undefined;
+let previousConsoleLog: typeof console.log;
+let previousConsoleError: typeof console.error;
 
 mock.module('../../platform/shared/fs.ts', () => ({
   pathExists: async (targetPath: string) => {
@@ -148,6 +151,15 @@ mock.module('../../platform/dev-runner/command-runner.ts', () => ({
 }));
 
 mock.module('../../platform/dev-runner/dependency-bootstrap.ts', () => ({
+  ensureFastTestDependencies: async () => {
+    fastDependencyBootstrapCalls += 1;
+    if (hasTestDependencyBootstrapFailure) throw testDependencyBootstrapFailure;
+    return {
+      manifestHash: 'test-manifest',
+      nodeModulesPath: path.resolve('node_modules'),
+      source: 'existing'
+    };
+  },
   ensureTestDependencies: async () => {
     testDependencyBootstrapCalls += 1;
     if (hasTestDependencyBootstrapFailure) throw testDependencyBootstrapFailure;
@@ -296,6 +308,10 @@ function configureTestDependencyBootstrapFailure(value: unknown): void {
 }
 
 beforeEach(() => {
+  previousConsoleLog = console.log;
+  previousConsoleError = console.error;
+  console.log = () => undefined;
+  console.error = () => undefined;
   previousTestWorkspaceNamespace = process.env[TEST_WORKSPACE_NAMESPACE_ENV];
   previousAffectedTestsBase = process.env.SEC_AFFECTED_TESTS_BASE;
   previousChangedBase = process.env.SEC_CHANGED_BASE;
@@ -311,6 +327,7 @@ beforeEach(() => {
   devCommandSettlements.length = 0;
   devCommandStartObservers.length = 0;
   devCommandCompletionObservers.length = 0;
+  fastDependencyBootstrapCalls = 0;
   testDependencyBootstrapCalls = 0;
   hasTestDependencyBootstrapFailure = false;
   testDependencyBootstrapFailure = undefined;
@@ -321,6 +338,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  console.log = previousConsoleLog;
+  console.error = previousConsoleError;
   if (previousTestWorkspaceNamespace === undefined) {
     delete process.env[TEST_WORKSPACE_NAMESPACE_ENV];
   } else {
@@ -405,6 +424,7 @@ test('fast process planning removes stale isolation and bounds structural proces
     ), 0);
 
   expect([...registeredFiles]).toEqual(expect.arrayContaining([
+    'tests/contract/dev-runner-contract.test.ts',
     'tests/unit/command-runner.test.ts',
     'tests/unit/work-package-gate-execution.test.ts',
     'tests/unit/work-package-profile-census-repair.test.ts',
@@ -414,7 +434,8 @@ test('fast process planning removes stale isolation and bounds structural proces
     'tests/integration/semantic-mutation-apply.test.ts',
     'tests/integration/semantic-mutation-recovery-lifecycle.test.ts',
     'tests/integration/workbench-writer-lease.test.ts',
-    'tests/integration/workspace-engineering-ir.test.ts'
+    'tests/integration/workspace-engineering-ir.test.ts',
+    'tests/unit/ci-verification-execution.test.ts'
   ]));
   expect([...registeredFiles]).not.toContain('tests/integration/overview.test.ts');
   expect([...registeredFiles]).not.toContain('tests/integration/semantic-core-vertical.test.ts');
@@ -444,6 +465,20 @@ test('fast process planning removes stale isolation and bounds structural proces
   expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
     ({ file }) => file === 'tests/integration/workspace-engineering-ir.test.ts'
   )?.processLimit).toBe(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']);
+  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
+    ({ file }) => file === 'tests/unit/ci-verification-execution.test.ts'
+  )).toMatchObject({
+    reason: 'copied-tcb-cli-and-child-process-recovery',
+    resourceClass: 'independent-process',
+    processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']
+  });
+  expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.find(
+    ({ file }) => file === 'tests/contract/dev-runner-contract.test.ts'
+  )).toMatchObject({
+    reason: 'finite-program-proof-and-process-contract',
+    resourceClass: 'independent-process',
+    processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']
+  });
 });
 
 test('fast process isolation AST recognizes executable global hazards without text false positives', () => {
@@ -601,9 +636,11 @@ test.serial('targeted concurrent-safe fast tests run only the requested files', 
   const code = await runFastTests(['tests/unit/path-containment.test.ts']);
 
   expect(code).toBe(0);
-  expect(testDependencyBootstrapCalls).toBe(1);
+  expect(fastDependencyBootstrapCalls).toBe(1);
+  expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandEnvironments).toHaveLength(1);
-  expect(devCommandEnvironments[0]?.PLAYWRIGHT_BROWSERS_PATH).toBe(canonicalBrowserCachePath);
+  expect(devCommandEnvironments[0]?.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
+  expect(devCommandEnvironments[0]?.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
   expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
   expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-\d+-[a-z0-9]+-\d+$/u);
   expect(devCommandCalls).toEqual([
@@ -620,7 +657,7 @@ test.serial('targeted concurrent-safe fast tests run only the requested files', 
   ]);
 });
 
-test.serial('one pre-fanout bootstrap overwrites poisoned browser state for every managed child', async () => {
+test.serial('fast pre-fanout bootstrap scrubs poisoned browser state without materializing it', async () => {
   const previousBrowserCachePath = process.env.PLAYWRIGHT_BROWSERS_PATH;
   process.env.PLAYWRIGHT_BROWSERS_PATH = 'poisoned-browser-cache';
   try {
@@ -630,11 +667,13 @@ test.serial('one pre-fanout bootstrap overwrites poisoned browser state for ever
     ]);
 
     expect(code).toBe(0);
-    expect(testDependencyBootstrapCalls).toBe(1);
+    expect(fastDependencyBootstrapCalls).toBe(1);
+    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toHaveLength(2);
     expect(devCommandEnvironments).toHaveLength(2);
     expect(devCommandEnvironments.every((env) =>
-      env.PLAYWRIGHT_BROWSERS_PATH === canonicalBrowserCachePath &&
+      env.PLAYWRIGHT_BROWSERS_PATH === undefined &&
+      env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD === '1' &&
       env.SEC_SKIP_RUNTIME_DEPS_SETUP === '1')).toBe(true);
   } finally {
     if (previousBrowserCachePath === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH;
@@ -642,12 +681,13 @@ test.serial('one pre-fanout bootstrap overwrites poisoned browser state for ever
   }
 });
 
-test.serial('bootstrap failure launches no managed test child', async () => {
-  configureTestDependencyBootstrapFailure(new Error('browser bootstrap failed'));
+test.serial('fast compiler bootstrap failure launches no managed test child', async () => {
+  configureTestDependencyBootstrapFailure(new Error('compiler bootstrap failed'));
 
   await expect(runFastTests(['tests/unit/path-containment.test.ts']))
-    .rejects.toThrow('browser bootstrap failed');
-  expect(testDependencyBootstrapCalls).toBe(1);
+    .rejects.toThrow('compiler bootstrap failed');
+  expect(fastDependencyBootstrapCalls).toBe(1);
+  expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toEqual([]);
   expect(devCommandEnvironments).toEqual([]);
 });
@@ -853,6 +893,45 @@ test.serial('failed explicit resource batch settles started siblings then emits 
     }
   } finally {
     siblingSettlement.resolve();
+    console.error = originalError;
+  }
+});
+
+test.serial('copied TCB recovery is one-file isolated and emits an exact diagnostic-only failure receipt', async () => {
+  const file = 'tests/unit/ci-verification-execution.test.ts';
+  const plan = planFastTestProcesses([file]);
+  expect(plan.concurrentShards).toEqual([]);
+  expect(plan.resourceQueues['independent-process']).toEqual([file]);
+  devCommandExitCodes.push(7);
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (message?: unknown) => { errors.push(String(message)); };
+
+  try {
+    expect(await runFastTests([file])).toBe(7);
+    expect(devCommandCalls).toEqual([{
+      command: 'bun',
+      args: ['test', file, '--timeout', '180000']
+    }]);
+    const receipts = errors.filter((message) => message.startsWith(FAST_TEST_FAILURE_RECEIPT_PREFIX));
+    expect(receipts).toHaveLength(1);
+    const receipt = JSON.parse(receipts[0].slice(FAST_TEST_FAILURE_RECEIPT_PREFIX.length)) as {
+      schema: string;
+      replayAuthority: string;
+      queue: string;
+      failures: Array<{ selectedTestFiles: string[]; effectiveArgv: string[] }>;
+    };
+    expect(receipt).toMatchObject({
+      schema: 'sec-fast-test-failure-receipt-v2',
+      replayAuthority: 'none-diagnostic-only',
+      queue: 'independent-process'
+    });
+    expect(receipt.failures).toHaveLength(1);
+    expect(receipt.failures[0].selectedTestFiles).toEqual([file]);
+    expect(receipt.failures[0].effectiveArgv.filter((argument) => (
+      /^tests\/.+\.(test|spec)\.tsx?$/u.test(argument)
+    ))).toEqual([file]);
+  } finally {
     console.error = originalError;
   }
 });
@@ -1337,6 +1416,20 @@ test.serial('full test planning retains every default-excluded fast owner', asyn
   expect(invokedFiles).toEqual(expect.arrayContaining(DEFAULT_FAST_TEST_EXCLUDED_FILES));
 });
 
+test.serial('explicit fast test files skip browser dependency bootstrap entirely', async () => {
+  const code = await runTests(['tests/unit/path-containment.test.ts', '--timeout', '10000']);
+
+  expect(code).toBe(0);
+  expect(fastDependencyBootstrapCalls).toBe(1);
+  expect(testDependencyBootstrapCalls).toBe(0);
+  expect(devCommandCalls).toEqual([{
+    command: 'bun',
+    args: ['test', 'tests/unit/path-containment.test.ts', '--timeout', '10000']
+  }]);
+  expect(devCommandEnvironments[0]?.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
+  expect(devCommandEnvironments[0]?.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
+});
+
 test.serial('failed fast children leave no run-owned workspace residue', async () => {
   materializeTestWorkspace = true;
   devCommandExitCodes.push(7);
@@ -1497,6 +1590,7 @@ test.serial('fast tests reject explicit slow file selectors', async () => {
     const code = await runFastTests(['tests/e2e/registry.test.ts']);
 
     expect(code).toBe(1);
+    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
     expect(errors).toContain('Fast test runner cannot run slow test files: tests/e2e/registry.test.ts');
   } finally {
@@ -1526,6 +1620,7 @@ test.serial('slow suite selector rejects unknown suite ids', async () => {
     const code = await runSlowTests(['--suite', 'not-a-suite']);
 
     expect(code).toBe(1);
+    expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
     expect(errors[0]).toContain('Unknown slow test suite "not-a-suite". Available suites:');
   } finally {
@@ -1636,7 +1731,8 @@ test.serial('resolved affected plan executes without repeating Git discovery', a
 
   expect(code).toBe(0);
   expect(commandCalls).toHaveLength(2);
-  expect(testDependencyBootstrapCalls).toBe(1);
+  expect(fastDependencyBootstrapCalls).toBe(1);
+  expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toHaveLength(1);
 });
 
