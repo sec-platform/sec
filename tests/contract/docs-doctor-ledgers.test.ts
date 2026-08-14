@@ -923,6 +923,7 @@ test('external runner release authority binds exact primary-source archive and b
         nodeArtifactSha256: '14b342e71204f811bde6153be8e04b62aef63c236fef92b55f9c83154b409647',
         pythonVersion: '3.12.3',
         zipExtractionCapability: 'info-zip-unzip-6.00',
+        containerInitCapability: 'docker-init-v1',
         sandboxRevision: 'sandbox-v4',
         outerSutContainerCapabilities: [
           'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
@@ -1081,6 +1082,19 @@ test('external runner release authority binds exact primary-source archive and b
       'docs/governance/external-capability-ledger.yaml',
       'External capability provider github-actions-local-runner.versionAuthority.imageId '
         + 'must be an exact built image digest.'
+    );
+
+    const initDrift = structuredClone(base);
+    const initAuthority = provider(initDrift.external, 'github-actions-local-runner')
+      .versionAuthority as Record<string, unknown>;
+    initAuthority.containerInitCapability = 'ambient-pid1';
+    await expectOneError(
+      root,
+      registry,
+      initDrift,
+      'docs/governance/external-capability-ledger.yaml',
+      'External capability provider github-actions-local-runner.versionAuthority.containerInitCapability '
+        + 'must bind persistent child reaping.'
     );
 
     const roleDrift = structuredClone(base);

@@ -146,6 +146,7 @@ test('all repository workflows route compute through the exact local Linux runne
   expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(
     ':unzip-6.00:image-sha256-a51fddb5b7b5374cd7d48bd1843bb8eede70739b9a85953782c1b10a1064a6cf:'
   );
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':container-init-v1:');
 });
 
 test('persistent runners never load a workflow or repository bytes from a caller-selected ref', async () => {
