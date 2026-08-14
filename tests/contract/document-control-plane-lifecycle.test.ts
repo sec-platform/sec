@@ -506,8 +506,8 @@ ${JSON.stringify({
         tracking: 'issue-312',
         prerequisiteWorkIds: [`issue-${targetIssue}`],
         orderedAfterWorkIds: [],
-        disposition: 'deferred',
-        priorityClass: 'defer'
+        disposition: 'active',
+        priorityClass: 'active-critical-path'
       }),
       item({
         packageId: 'candidate-three-v1',
@@ -515,8 +515,8 @@ ${JSON.stringify({
         tracking: 'issue-313',
         prerequisiteWorkIds: [],
         orderedAfterWorkIds: ['issue-312'],
-        disposition: 'deferred',
-        priorityClass: 'defer'
+        disposition: 'active',
+        priorityClass: 'active-critical-path'
       })
     ]
   }, null, 2)}

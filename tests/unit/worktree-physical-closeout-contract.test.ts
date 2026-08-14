@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+
 import { expect, test } from 'bun:test';
 
 import {
+  assertStableWorktreePhysicalWorkingStateV1,
   assertWorktreePhysicalCloseoutAuthorizationV1,
   assertWorktreePhysicalCloseoutReceiptV1,
   classifyAuthorizedWorktreeResidueV1,
@@ -83,6 +86,32 @@ test('proof-root binding is authorization-digest-bound without operation-id circ
   expect(finalized.operationId).toBe(provisional.operationId);
   expect(finalized.authorizationDigest).not.toBe(provisional.authorizationDigest);
   expect(assertWorktreePhysicalCloseoutAuthorizationV1(finalized)).toEqual(finalized);
+});
+
+test('working-state readback drift is a pure pre-effect rejection ordered before authorization publication', () => {
+  const clean = detailDigestV1('clean-working-state');
+  expect(() => assertStableWorktreePhysicalWorkingStateV1(clean, {
+    digest: clean,
+    blocker: 'working-state-not-clean'
+  })).toThrow('working-state-not-clean');
+  expect(() => assertStableWorktreePhysicalWorkingStateV1(clean, {
+    digest: detailDigestV1('changed-working-state'),
+    blocker: null
+  })).toThrow('working-state-changed-during-authorization');
+  expect(() => assertStableWorktreePhysicalWorkingStateV1(clean, {
+    digest: clean,
+    blocker: null
+  })).not.toThrow();
+
+  const engine = readFileSync('scripts/codex/worktree-physical-closeout.ts', 'utf8');
+  const readback = engine.indexOf('const workingReadback = await observeWorkingState(');
+  const stableFence = engine.indexOf('assertStableWorktreePhysicalWorkingStateV1(working.digest, workingReadback);', readback);
+  const recoveryEffect = engine.indexOf('const recoveryRoot = createNoFollowDirectoryChainV1(', readback);
+  const authorizationEffect = engine.indexOf("persistCanonical(recoveryRoot, 'authorization.json', authorization);", readback);
+  expect(readback).toBeGreaterThanOrEqual(0);
+  expect(stableFence).toBeGreaterThan(readback);
+  expect(recoveryEffect).toBeGreaterThan(stableFence);
+  expect(authorizationEffect).toBeGreaterThan(recoveryEffect);
 });
 
 test('strict porcelain-z parser accepts canonical records and retains provider flags', () => {

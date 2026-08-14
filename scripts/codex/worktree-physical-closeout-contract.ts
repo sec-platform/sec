@@ -5,6 +5,21 @@ export const WORKTREE_PHYSICAL_CLOSEOUT_RECEIPT_SCHEMA_V1 = 'sec-worktree-cleanu
 
 export type Digest = `sha256:${string}`;
 
+export function assertStableWorktreePhysicalWorkingStateV1(
+  initialDigest: Digest,
+  readback: Readonly<{ readonly digest: Digest; readonly blocker: string | null }>
+): void {
+  const blockers = [
+    ...(readback.blocker === null ? [] : [readback.blocker]),
+    ...(readback.digest === initialDigest ? [] : ['working-state-changed-during-authorization'])
+  ];
+  if (blockers.length > 0) {
+    throw new Error(
+      `Worktree closeout preparation blocked: ${[...new Set(blockers)].sort().join(',')}`
+    );
+  }
+}
+
 export interface WorktreePorcelainRecordV1 {
   readonly path: string;
   readonly headSha: string | null;

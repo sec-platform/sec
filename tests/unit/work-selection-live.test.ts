@@ -130,20 +130,28 @@ describe('work-selection live contract', () => {
     ))).toThrow(/duplicate key "tracking"/u);
   });
 
-  test('exact repository package census consumes the candidate manifest and advances beyond #186', () => {
+  test('exact repository package census keeps #186 open until closeout and selects issue-346', () => {
     const result = receipt();
     expect(result.decision.status).toBe('select-next');
-    expect(result.decision.selectedWorkId).toBe('issue-275');
+    expect(result.decision.selectedWorkId).toBe('issue-346');
     expect(result.input.candidates.find(({ workId }) => workId === 'issue-186')).toMatchObject({
-      lifecycle: 'already-in-main',
-      blockedReadySuccessorCount: 0
+      lifecycle: 'open',
+      readiness: 'not-ready',
+      blockedReadySuccessorCount: 1,
+      prerequisiteFacts: [
+        {
+          ref: 'work-package:controlled-pr-issue-disposition-single-writer-v1',
+          status: 'unsatisfied'
+        }
+      ]
     });
     expect(result.input.candidates.find(({ workId }) => workId === 'issue-312')).toMatchObject({
       readiness: 'not-ready'
     });
     const projection = compileSecWorkRollingProjectionV1(result);
-    expect(projection.active.packageId).toBe('delegation-consumer-zero-retirement-v1');
+    expect(projection.active.packageId).toBe('operation-read-plan-authority-canary-v1');
     expect(projection.candidates).toHaveLength(5);
+    expect(projection.candidates.map(({ packageId }) => packageId)).not.toContain('execution-wave-v1');
     expect(projection.receiptDigest).toBe(result.receiptDigest);
     const rendered = renderSecWorkRollingPlanV1({ receipt: result, reviewedOn: '2026-08-12' });
     expect(rendered).toContain(`### ${projection.active.packageId}`);
@@ -164,7 +172,10 @@ describe('work-selection live contract', () => {
     expect(projection.candidates.map(({ packageId }) => packageId)).not.toContain(
       'operation-read-plan-authority-canary-v1'
     );
-    expect(projection.candidates).toHaveLength(4);
+    expect(projection.candidates.map(({ packageId }) => packageId)).not.toContain(
+      'execution-wave-v1'
+    );
+    expect(projection.candidates).toHaveLength(3);
   });
 
   test('rolling topology remains canonical when the selected draft PR becomes continue-active', () => {

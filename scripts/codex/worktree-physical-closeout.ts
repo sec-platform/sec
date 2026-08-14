@@ -30,6 +30,7 @@ import {
 } from '../../platform/shared/workspace-write-lease.ts';
 import { createBranchLifecycleGitChildEnvironmentV1 } from './branch-lifecycle-command.ts';
 import {
+  assertStableWorktreePhysicalWorkingStateV1,
   assertWorktreePhysicalCloseoutAuthorizationV1,
   assertWorktreePhysicalCloseoutReceiptV1,
   classifyAuthorizedWorktreeResidueV1,
@@ -681,9 +682,7 @@ async function prepareWorktreePhysicalCloseoutUnderLeaseV1(
     targetPath,
     ownedNamespace.relativePath
   );
-  if (workingReadback.blocker !== null || workingReadback.digest !== working.digest) {
-    blockers.push(workingReadback.blocker ?? 'working-state-changed-during-authorization');
-  }
+  assertStableWorktreePhysicalWorkingStateV1(working.digest, workingReadback);
   const repositoryBinding = {
     root: repository.root,
     rootDevice: repository.rootDevice,
