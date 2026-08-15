@@ -198,6 +198,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/agent-operation-activation-contract.ts',
+      'scripts/codex/agent-operation-activation-census.ts',
       'scripts/codex/agent-operation-activation.ts'
     ],
     fast: [

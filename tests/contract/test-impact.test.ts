@@ -538,6 +538,7 @@ test('test impact keeps Task Capsule and Read Plan verification in direct fast o
   ].sort();
   for (const source of [
     'platform/shared/agent-operation-activation-contract.ts',
+    'scripts/codex/agent-operation-activation-census.ts',
     'scripts/codex/agent-operation-activation.ts'
   ]) {
     expect(selectTestsForSources([source])).toEqual({
