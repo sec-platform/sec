@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'bun:test';
+import ts from 'typescript';
 
 import {
   COMPILER_RUNTIME_RESOURCE_POSIX_PATHS,
@@ -14,6 +15,73 @@ import { expectContainsAll, expectContainsNone } from '../helpers/assertion-help
 import { readCompilerFile, readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
+
+function hasOwnerPublicationOutcomeContract(source: string): boolean {
+  const sourceFile = ts.createSourceFile(
+    'workspace-write-lease.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
+  const matchingCalls: ts.CallExpression[] = [];
+  const visitCalls = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'linkImmutableCandidateNoReplace'
+      && node.arguments.length === 4
+      && node.arguments[3]?.getText(sourceFile) === 'ownerPublicationDirectorySync'
+    ) matchingCalls.push(node);
+    ts.forEachChild(node, visitCalls);
+  };
+  visitCalls(sourceFile);
+  const call = matchingCalls[0];
+  if (matchingCalls.length !== 1 || call === undefined || !ts.isAwaitExpression(call.parent)) return false;
+
+  const awaitExpression = call.parent;
+  const binding = ts.isBinaryExpression(awaitExpression.parent)
+      && awaitExpression.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && ts.isIdentifier(awaitExpression.parent.left)
+    ? awaitExpression.parent.left
+    : ts.isVariableDeclaration(awaitExpression.parent)
+        && ts.isIdentifier(awaitExpression.parent.name)
+        && awaitExpression.parent.initializer === awaitExpression
+      ? awaitExpression.parent.name
+      : undefined;
+  if (binding === undefined) return false;
+
+  let ownerFunction: ts.Node = call;
+  while (ownerFunction.parent !== undefined && !ts.isFunctionLike(ownerFunction)) {
+    ownerFunction = ownerFunction.parent;
+  }
+  if (!ts.isFunctionLike(ownerFunction)) return false;
+
+  const guardedLiterals = new Set<string>();
+  let systemCodeReads = 0;
+  const visitContract = (node: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(node)
+      && node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken
+      && ts.isPropertyAccessExpression(node.left)
+      && ts.isIdentifier(node.left.expression)
+      && node.left.expression.text === binding.text
+      && ts.isStringLiteral(node.right)
+    ) guardedLiterals.add(`${node.left.name.text}:${node.right.text}`);
+    if (
+      ts.isPropertyAccessExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === binding.text
+      && node.name.text === 'systemCode'
+    ) systemCodeReads += 1;
+    ts.forEachChild(node, visitContract);
+  };
+  visitContract(ownerFunction);
+  return guardedLiterals.has('state:not-published')
+    && guardedLiterals.has('reason:target-exists')
+    && guardedLiterals.has('state:durability-unknown')
+    && systemCodeReads >= 2;
+}
 
 describe('root package scripts', () => {
   test('canonical Bun version is projected into package and every setup workflow', async () => {
@@ -180,9 +248,6 @@ describe('root package scripts', () => {
       "WORKSPACE_WRITE_LEASE_PROTOCOL_VERSION = 'workspace-write-lease-protocol-v3'",
       'type ImmutablePublicationOutcome =',
       'await fs.link(candidate, target)',
-      'const ownerPublication = await linkImmutableCandidateNoReplace(',
-      "if (ownerPublication.state === 'not-published')",
-      "if (ownerPublication.state === 'durability-unknown')",
       "publishTerminal(paths, tokenFromOwner(finalState.owner), 'recovered')",
       'firstInventory.highestGeneration !== token.generation',
       'relocateRetainedNoFollowDirectoryAcrossParentsV1',
@@ -197,6 +262,14 @@ describe('root package scripts', () => {
       'Bun.',
       'leaseTargetExists'
     ]);
+    expect(hasOwnerPublicationOutcomeContract(leaseAuthority)).toBe(true);
+    expect(hasOwnerPublicationOutcomeContract(
+      leaseAuthority.replaceAll(/\bownerPublication\b/gu, 'renamedPublicationOutcome')
+    )).toBe(true);
+    expect(hasOwnerPublicationOutcomeContract(
+      leaseAuthority.replace("ownerPublication.state === 'durability-unknown'", "false")
+        + "\n// ownerPublication.state === 'durability-unknown'"
+    )).toBe(false);
   });
 
   test('demo scripts follow the documented platform chain', async () => {

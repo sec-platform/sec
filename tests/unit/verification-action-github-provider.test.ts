@@ -324,7 +324,8 @@ class FakeGh {
         return this.success(JSON.stringify({
           id: Number(PARENT_RUN_ID), run_attempt: 1, workflow_id: 300, check_suite_id: 5001,
           event: 'repository_dispatch', path: '.github/workflows/compiler-pr-validation.yml',
-          head_sha: BASE, head_branch: 'main', name: 'compiler-pr-validation',
+          head_sha: BASE, head_branch: 'main',
+          name: `verify session PR #42 session ${SESSION}`,
           display_title: `verify session PR #42 session ${SESSION}`, actor: {
             login: parentActor.login, id: parentActor.id, node_id: parentActor.nodeId, type: 'User'
           }, repository: { id: REPOSITORY_ID, full_name: REPOSITORY }
@@ -334,7 +335,7 @@ class FakeGh {
         id: Number(id), run_attempt: this.latestRunAttempts[id] ?? 1,
         workflow_id: 300, check_suite_id: id === CURRENT_RUN_ID ? 5002 : 5003,
         event: 'repository_dispatch', path: '.github/workflows/compiler-pr-validation.yml',
-        head_sha: BASE, head_branch: 'main', name: 'compiler-pr-validation',
+        head_sha: BASE, head_branch: 'main', name: `produce Action ${ACTION}`,
         display_title: `produce Action ${ACTION}`, actor: botRecord,
         repository: { id: REPOSITORY_ID, full_name: REPOSITORY },
         ...this.currentRunOverrides
@@ -795,6 +796,8 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
       () => { process.env.GITHUB_WORKFLOW_REF = `${REPOSITORY}/wrong.yml@refs/heads/main`; },
       () => { fakeGh.currentRunOverrides = { head_sha: '9'.repeat(40) }; },
       () => { fakeGh.currentRunOverrides = { run_attempt: 2 }; },
+      () => { fakeGh.currentRunOverrides = { path: '.github/workflows/foreign.yml' }; },
+      () => { fakeGh.currentRunOverrides = { display_title: 'foreign Action' }; },
       () => { fakeGh.currentRunOverrides = { actor: { ...botRecord, id: 1 } }; },
       () => { fakeGh.currentSuiteOverrides = { app: { id: 1, node_id: 'forged', slug: 'github-actions' } }; }
     ];

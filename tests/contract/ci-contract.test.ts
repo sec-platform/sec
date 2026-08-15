@@ -20,6 +20,7 @@ import {
   CodexDevelopmentBuildVerificationPlanV1
 } from '../../platform/shared/ci-contract.ts';
 import {
+  CI_COMPILER_WORKFLOW_RUN_IDENTITY_V1,
   CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1,
   CI_MAIN_HEALTH_POLICY_DIGEST_V1,
   CI_MAIN_HEALTH_POLICY_V1,
@@ -33,7 +34,9 @@ import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1,
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
   CI_VERIFICATION_SESSION_CONTRACT_REVISION,
-  createCiMainHealthRequestOperationIdV1
+  createCiMainHealthRequestOperationIdV1,
+  matchesCiCompilerWorkflowRunIdentityV1,
+  matchesCiWorkflowRunIdentityV1
 } from '../../platform/shared/ci-verification-revision.ts';
 import { TCB_TRUST_ROOT_V3 } from '../../platform/shared/tcb-closure-lock.ts';
 import {
@@ -118,6 +121,61 @@ const WORKFLOW_RUNNER_ROLES = Object.freeze({
     'checker-post': 'trusted'
   }
 } as const);
+
+test('all hosted workflow-run consumers exclude mutable provider name from identity', async () => {
+  const headSha = 'a'.repeat(40);
+  const compilerTitle = `verify session PR #42 session sha256:${'b'.repeat(64)}`;
+  const compilerIdentity = {
+    workflowPath: CI_COMPILER_WORKFLOW_RUN_IDENTITY_V1.workflowPath,
+    eventName: CI_COMPILER_WORKFLOW_RUN_IDENTITY_V1.eventName,
+    displayTitle: compilerTitle,
+    headSha,
+    expectedDisplayTitle: compilerTitle,
+    expectedHeadSha: headSha
+  } as const;
+  expect(matchesCiCompilerWorkflowRunIdentityV1(compilerIdentity)).toBe(true);
+  expect(matchesCiCompilerWorkflowRunIdentityV1({
+    ...compilerIdentity,
+    workflowPath: '.github/workflows/foreign.yml'
+  })).toBe(false);
+  expect(matchesCiCompilerWorkflowRunIdentityV1({
+    ...compilerIdentity,
+    eventName: 'workflow_run'
+  })).toBe(false);
+  expect(matchesCiCompilerWorkflowRunIdentityV1({
+    ...compilerIdentity,
+    displayTitle: 'foreign title'
+  })).toBe(false);
+  expect(matchesCiCompilerWorkflowRunIdentityV1({
+    ...compilerIdentity,
+    headSha: 'c'.repeat(40)
+  })).toBe(false);
+  expect(matchesCiWorkflowRunIdentityV1({
+    workflowPath: '.github/workflows/sec-merge-gate.yml',
+    eventName: 'workflow_run',
+    displayTitle: 'integrate compiler session run 100 attempt 1',
+    headSha,
+    expectedWorkflowPath: '.github/workflows/sec-merge-gate.yml',
+    expectedEventName: 'workflow_run',
+    expectedDisplayTitle: 'integrate compiler session run 100 attempt 1',
+    expectedHeadSha: headSha
+  })).toBe(true);
+
+  const consumers = await Promise.all([
+    readCompilerFile('scripts/codex/verification-session-github.ts'),
+    readCompilerFile('scripts/codex/verification-session.ts'),
+    readCompilerFile('scripts/codex/verification-action-github-provider.ts'),
+    readCompilerFile('scripts/codex/integration-authorization-publication.ts')
+  ]);
+  const combined = consumers.join('\n');
+  expect(combined).not.toContain("name !== 'compiler-pr-validation'");
+  expect(combined).not.toContain("name === 'compiler-pr-validation'");
+  expect(combined).not.toContain("run.name !== 'sec-merge-gate'");
+  expect(consumers[0]).toContain('matchesCiCompilerWorkflowRunIdentityV1');
+  expect(consumers[1]).toContain('matchesCiCompilerWorkflowRunIdentityV1');
+  expect(consumers[2]).toContain('matchesCiCompilerWorkflowRunIdentityV1');
+  expect(consumers[3]).toContain('matchesCiWorkflowRunIdentityV1');
+});
 
 test('all repository workflows route compute through the exact local Linux runner profile', async () => {
   for (const file of [
@@ -718,6 +776,11 @@ test('trusted merge workflow consumes the Session artifact and exposes one termi
     'pull-requests': 'write', issues: 'write', statuses: 'write'
   });
   expect(source).toContain('workflow_run');
+  expect(source).not.toContain("run.name !== 'compiler-pr-validation'");
+  expect(source).toContain('github.rest.actions.getWorkflow');
+  expect(source).toContain(
+    "sourceWorkflow.data.path !== '.github/workflows/compiler-pr-validation.yml'"
+  );
   expect(source).toContain('bun scripts/codex/verification-session.ts prepare-integration-hosted');
   expect(source).toContain('bun scripts/codex/verification-session.ts integrate-hosted');
   expect(source).not.toContain('bun scripts/codex/verification-session.ts closeout-mutate-hosted');
