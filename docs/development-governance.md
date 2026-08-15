@@ -678,8 +678,7 @@ Evidence reuse和merge legality等机器规则不重复写入 Skill prose；Skil
 分析方法、工具选择、解释、停止和 typed outcome。详细 schema、枚举、命令和平台矩阵
 引用 canonical code或按需 reference，避免长流程连续加载重复正文污染 context。
 
-当前可执行 Skill 集合为八个：七个终态 durable judgement owner，加上一个在 #205 pure
-Task Capsule compiler 与 #346 issuer-bound consumer完成真实cutover前仍不可删除的 transitional owner：
+当前可执行 Skill 集合为七个 durable judgement owner：
 
 ```text
 sec-repository-audit
@@ -689,7 +688,6 @@ sec-exact-head-review
 sec-failure-recovery
 sec-external-capability-governance
 sec-heuristic-governance
-sec-task-delegation
 ```
 
 其余 repository behavior 不得为“有 owner”而制造 Skill：orientation 与 Work Package lifecycle
@@ -697,13 +695,12 @@ sec-task-delegation
 selection 由 test-impact/Requirement selector 拥有，documentation 由 authority registry/docs-doctor
 拥有，toolchain 由 runtime dependency
 spec/manifest-lock 拥有，trust transition 由 TCB closure 拥有，CI/merge 由 Integration Transaction
-拥有。delegation 当前仍由 `sec-task-delegation` 拥有不可纯计算的收益/隔离判断；只有 #205 的
-Task Capsule compiler 与独立issuer成为真实production链、完成consumer cutover与canary后，才把该 route
-迁移为 deterministic 并删除第八个 Skill。精确 route 与 canonical ref 只由
+拥有。delegation由typed Task Capsule/Operation Envelope与role profile确定任务边界、capability和隔离责任，
+其production consumer cutover与PRE canary完成后不再拥有独立Skill。精确 route 与 canonical ref 只由
 `SEC_REPOSITORY_BEHAVIOR_ROUTES` 维护；本段只定义边界。
 
 retired Skill ID/file 不保留 alias、stub 或 prose compatibility。新增行为先判断 deterministic 或
-heuristic：前者进入现有 machine owner，后者才允许在当前八个 owner 中扩展；只有触发、权限、停止和
+heuristic：前者进入现有 machine owner，后者才允许在当前七个 owner 中扩展；只有触发、权限、停止和
 判断闭包都无法归入现有 Skill 时才可提议新 ID，并同时声明 consumer、成本与退役条件。
 
 ### Deterministic services
@@ -1085,6 +1082,10 @@ branch lifecycle command owner提供唯一pure argv prefix：先以空值重置g
 `http.https://github.com/.extraheader`，再清空ambient credential helpers并只启用`gh auth git-credential`；
 inventory、single-ref readback、ref-only fetch与remote CAS必须全部复用。branch suffix只由canonical
 `assertGitBranchName`解析，不能在consumer另造ASCII子集而拒绝合法Unicode ref。
+Work Selection的exact default-ref与full branch inventory属于同一remote observation authority，必须复用上述argv prefix
+与Git child environment scrubber；`persist-credentials: false`、job级`GH_TOKEN`或host-level Git config都不能隐式代替该边界。
+#313的ref lifecycle只接收具有branch binding的非default worktree；detached trusted checkout与detached scratch subject由
+各自physical lifecycle owner管理，不得因host checkout形态差异进入branch closeout并改变whole WorkDecision identity。
 跨主机observation只保留host/observation digest，不携带或重放foreign absolute path，也不能由artifact
 成功、当前job状态、raw JSON、locator或self-digest消除。正常收敛要求原host先完成physical closeout，
 再从新物理状态生成不含foreign observation的preparation；已merge的旧recovery仍携带foreign

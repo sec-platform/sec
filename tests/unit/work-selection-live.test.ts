@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 
 import { describe, expect, test } from 'bun:test';
@@ -21,10 +22,75 @@ import {
   type SecWorkCurrentSpecObservationV1,
   type SecWorkRegistryObservationV1
 } from '../../platform/shared/work-selection-live-contract.ts';
+import {
+  createBranchLifecycleGitChildEnvironmentV1,
+  createBranchLifecycleGitHubCredentialArgsV1
+} from '../../scripts/codex/branch-lifecycle-command.ts';
 
 const exactMain = 'a'.repeat(40);
 const exactMainTree = 'b'.repeat(40);
+const repositoryRoot = import.meta.dir.replace(/[\\/]tests[\\/]unit$/u, '');
 const roadmapSource = readFileSync('docs/roadmap.md', 'utf8');
+const workSelectionSource = readFileSync('scripts/codex/work-selection.ts', 'utf8');
+
+type WorkSelectionBoundaryProbeV1 = Readonly<{
+  environment: NodeJS.ProcessEnv;
+  exactDefaultArgs: readonly string[];
+  branchInventoryArgs: readonly string[];
+  branchBoundWorktrees: ReadonlyArray<Readonly<{
+    root: string;
+    branch: string;
+    headSha: string;
+  }>>;
+}>;
+
+let cachedWorkSelectionBoundaryProbeV1: WorkSelectionBoundaryProbeV1 | null = null;
+
+function executeWorkSelectionBoundaryProbeV1(): WorkSelectionBoundaryProbeV1 {
+  if (cachedWorkSelectionBoundaryProbeV1 !== null) return cachedWorkSelectionBoundaryProbeV1;
+  const probe = spawnSync(process.execPath, ['-e', `
+    import {
+      createWorkSelectionCommandEnvironmentV1,
+      createWorkSelectionGitHubRemoteObservationArgsV1,
+      selectBranchBoundWorktreesForWorkSelectionV1
+    } from './scripts/codex/work-selection.ts';
+    const environment = createWorkSelectionCommandEnvironmentV1('git', {
+      GH_TOKEN: 'retained-job-token',
+      GH_PROMPT_DISABLED: '1',
+      GIT_CONFIG_COUNT: '2',
+      git_config_key_0: 'http.extraHeader',
+      GIT_CONFIG_VALUE_0: 'authorization: foreign',
+      GIT_CONFIG_GLOBAL: 'foreign-global-config',
+      GIT_DIR: 'foreign-git-dir',
+      PATH: 'retained-path'
+    });
+    process.stdout.write(JSON.stringify({
+      environment,
+      exactDefaultArgs: createWorkSelectionGitHubRemoteObservationArgsV1({
+        kind: 'exact-default', remote: 'origin', defaultBranch: 'main'
+      }),
+      branchInventoryArgs: createWorkSelectionGitHubRemoteObservationArgsV1({
+        kind: 'branch-inventory', remote: 'origin'
+      }),
+      branchBoundWorktrees: selectBranchBoundWorktreesForWorkSelectionV1([
+        { root: '/trusted/main', branch: null, headSha: '${exactMain}' },
+        { root: '/local/main', branch: 'main', headSha: '${exactMain}' },
+        { root: '/scratch/detached', branch: null, headSha: '${'c'.repeat(40)}' },
+        { root: '/candidate', branch: 'codex/issue-275', headSha: '${'d'.repeat(40)}' }
+      ], 'main')
+    }));
+    process.exit(0);
+  `], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    timeout: 10_000,
+    windowsHide: true
+  });
+  if (probe.error) throw probe.error;
+  if (probe.status !== 0) throw new Error(`Work Selection boundary probe failed: ${probe.stderr}`);
+  cachedWorkSelectionBoundaryProbeV1 = JSON.parse(probe.stdout) as WorkSelectionBoundaryProbeV1;
+  return cachedWorkSelectionBoundaryProbeV1;
+}
 
 type CatalogObservationV1 = Readonly<{
   source: string;
@@ -203,6 +269,78 @@ function receipt(completedWorkIds?: readonly string[]) {
 }
 
 describe('work-selection live contract', () => {
+  test('trusted remote observations scrub ambient Git authority and use one explicit credential prefix', () => {
+    const expectedEnvironment = createBranchLifecycleGitChildEnvironmentV1({
+      GH_TOKEN: 'retained-job-token',
+      GH_PROMPT_DISABLED: '1',
+      GIT_CONFIG_COUNT: '2',
+      git_config_key_0: 'http.extraHeader',
+      GIT_CONFIG_VALUE_0: 'authorization: foreign',
+      GIT_CONFIG_GLOBAL: 'foreign-global-config',
+      GIT_DIR: 'foreign-git-dir',
+      PATH: 'retained-path'
+    });
+    const probe = executeWorkSelectionBoundaryProbeV1();
+    expect(probe.environment).toEqual(expectedEnvironment);
+    expect(probe.environment).toMatchObject({
+      GH_TOKEN: 'retained-job-token',
+      PATH: 'retained-path',
+      GH_PROMPT_DISABLED: '1',
+      GIT_OPTIONAL_LOCKS: '0',
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_NO_REPLACE_OBJECTS: '1'
+    });
+    expect(probe.environment.GIT_CONFIG_COUNT).toBeUndefined();
+    expect(probe.environment.git_config_key_0).toBeUndefined();
+    expect(probe.environment.GIT_CONFIG_VALUE_0).toBeUndefined();
+    expect(probe.environment.GIT_CONFIG_GLOBAL).toBeUndefined();
+    expect(probe.environment.GIT_DIR).toBeUndefined();
+
+    const prefix = [
+      '-c', 'http.extraHeader=',
+      '-c', 'http.https://github.com/.extraheader=',
+      '-c', 'credential.helper=',
+      '-c', 'credential.helper=!gh auth git-credential'
+    ];
+    expect(createBranchLifecycleGitHubCredentialArgsV1()).toEqual(prefix);
+    expect(probe.exactDefaultArgs)
+      .toEqual([...prefix, 'ls-remote', '--exit-code', 'origin', 'refs/heads/main']);
+    expect(probe.branchInventoryArgs).toEqual([...prefix, 'ls-remote', '--heads', 'origin']);
+    const dispatcher = workSelectionSource.slice(
+      workSelectionSource.indexOf('function runDefault('),
+      workSelectionSource.indexOf('\nfunction combinedFailureBytes(')
+    );
+    const remoteArgs = workSelectionSource.slice(
+      workSelectionSource.indexOf('function createWorkSelectionGitHubRemoteObservationArgsV1('),
+      workSelectionSource.indexOf('\nfunction runDefault(')
+    );
+    expect(dispatcher).toContain('createWorkSelectionCommandEnvironmentV1(command, process.env)');
+    expect(remoteArgs).toContain('createBranchLifecycleGitHubCredentialArgsV1()');
+    expect(remoteArgs).toContain("['ls-remote', '--exit-code', input.remote");
+    expect(remoteArgs).toContain("['ls-remote', '--heads', input.remote]");
+    expect(workSelectionSource.match(/createWorkSelectionGitHubRemoteObservationArgsV1\(\{/gu))
+      .toHaveLength(2);
+  });
+
+  test('branch lifecycle excludes detached and default worktrees without hiding branch-bound candidates', () => {
+    expect(executeWorkSelectionBoundaryProbeV1().branchBoundWorktrees).toEqual([
+      { root: '/candidate', branch: 'codex/issue-275', headSha: 'd'.repeat(40) }
+    ]);
+    const selector = workSelectionSource.slice(
+      workSelectionSource.indexOf('function selectBranchBoundWorktreesForWorkSelectionV1('),
+      workSelectionSource.indexOf('\nfunction observeCanonicalBranchLifecycle(')
+    );
+    const lifecycle = workSelectionSource.slice(
+      workSelectionSource.indexOf('function observeCanonicalBranchLifecycle('),
+      workSelectionSource.indexOf('\nfunction observeCanonicalMainHealth(')
+    );
+    expect(selector).toContain('worktree.branch !== null && worktree.branch !== defaultBranch');
+    expect(lifecycle).toContain(
+      'worktrees: selectBranchBoundWorktreesForWorkSelectionV1(worktrees, input.defaultBranch)'
+    );
+    expect(lifecycle).not.toContain('worktrees.filter(({ branch }) => branch !== input.defaultBranch)');
+  });
+
   test('canonical roadmap embeds one bounded normalized catalog', () => {
     const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
     expect(catalog.stageRef).toBe('r14-agent-operation');

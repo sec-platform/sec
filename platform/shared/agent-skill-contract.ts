@@ -21,7 +21,6 @@ export const SEC_AGENT_SKILL_IDS = [
   'sec-failure-recovery',
   'sec-heuristic-governance',
   'sec-repository-audit',
-  'sec-task-delegation',
   'sec-worker-development'
 ] as const;
 
@@ -115,7 +114,10 @@ export const SEC_REPOSITORY_BEHAVIOR_ROUTES = Object.freeze({
     'document-control-plane',
     'scripts/codex/document-control-plane.ts'
   ),
-  'task-delegation': skillRoute('sec-task-delegation'),
+  'task-delegation': deterministicRoute(
+    'agent-task-capsule',
+    'platform/shared/agent-task-capsule-contract.ts'
+  ),
   'toolchain-and-dependencies': deterministicRoute(
     'runtime-dependency-spec',
     'platform/shared/runtime-dependency-spec.ts'
@@ -207,7 +209,6 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
       kind: 'agent-projection',
       skills: skills(
         'sec-repository-audit',
-        'sec-task-delegation',
         'sec-heuristic-governance'
       )
     };
@@ -249,7 +250,6 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
         'sec-failure-recovery',
         'sec-heuristic-governance',
         'sec-repository-audit',
-        'sec-task-delegation',
         'sec-worker-development'
       )
     };
@@ -320,7 +320,7 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
   const skillId = skillIdFromPath(path);
   if (skillId) return [skillId];
   if (path === 'AGENTS.md') {
-    return skills('sec-heuristic-governance', 'sec-repository-audit', 'sec-task-delegation');
+    return skills('sec-heuristic-governance', 'sec-repository-audit');
   }
   if (path === 'docs/authority.json'
     || path === 'platform/shared/documentation-authority-contract.ts'
@@ -339,7 +339,7 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
     return skills('sec-architecture-evolution', 'sec-heuristic-governance', 'sec-repository-audit');
   }
   if (/^\.codex\//u.test(path)) {
-    return skills('sec-exact-head-review', 'sec-heuristic-governance', 'sec-task-delegation');
+    return skills('sec-exact-head-review', 'sec-heuristic-governance');
   }
   if (path === 'scripts/codex/repository-audit.ts') {
     return skills('sec-repository-audit', 'sec-heuristic-governance');
@@ -478,16 +478,6 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
     roles: ['auditor'],
     operationKinds: ['audit'],
     requiredCapabilities: ['git', 'github'],
-    requiredResources: [],
-    requiredGates: [],
-    writeSurface: [],
-    supersededBy: null
-  },
-  'sec-task-delegation': {
-    id: 'sec-task-delegation',
-    roles: ['a0'],
-    operationKinds: ['govern', 'orient'],
-    requiredCapabilities: ['git'],
     requiredResources: [],
     requiredGates: [],
     writeSurface: [],

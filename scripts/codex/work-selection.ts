@@ -28,6 +28,10 @@ import {
 } from '../../platform/shared/work-selection-live-contract.ts';
 import { projectBranchLifecycleForWorkSelectionV1 } from './branch-lifecycle-audit.ts';
 import {
+  createBranchLifecycleGitChildEnvironmentV1,
+  createBranchLifecycleGitHubCredentialArgsV1
+} from './branch-lifecycle-command.ts';
+import {
   CodexDevelopmentAssertControlPlaneBindingV1,
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseCurrentStateSpecV1,
@@ -80,6 +84,31 @@ class LiveObservationFailure extends Error {
   }
 }
 
+export function createWorkSelectionCommandEnvironmentV1(
+  command: 'gh' | 'git',
+  environment: Readonly<NodeJS.ProcessEnv>
+): NodeJS.ProcessEnv {
+  const baseEnvironment = {
+    ...environment,
+    GH_PROMPT_DISABLED: '1',
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_TERMINAL_PROMPT: '0'
+  };
+  return command === 'git'
+    ? createBranchLifecycleGitChildEnvironmentV1(baseEnvironment)
+    : baseEnvironment;
+}
+
+export function createWorkSelectionGitHubRemoteObservationArgsV1(input: Readonly<
+  | { kind: 'exact-default'; remote: string; defaultBranch: string }
+  | { kind: 'branch-inventory'; remote: string }
+>): readonly string[] {
+  const operation = input.kind === 'exact-default'
+    ? ['ls-remote', '--exit-code', input.remote, `refs/heads/${input.defaultBranch}`]
+    : ['ls-remote', '--heads', input.remote];
+  return [...createBranchLifecycleGitHubCredentialArgsV1(), ...operation];
+}
+
 function runDefault(
   command: 'gh' | 'git',
   args: readonly string[],
@@ -94,12 +123,7 @@ function runDefault(
     windowsHide: true,
     timeout: COMMAND_TIMEOUT_MS,
     maxBuffer: COMMAND_MAX_BUFFER,
-    env: {
-      ...process.env,
-      GH_PROMPT_DISABLED: '1',
-      GIT_OPTIONAL_LOCKS: '0',
-      GIT_TERMINAL_PROMPT: '0'
-    }
+    env: createWorkSelectionCommandEnvironmentV1(command, process.env)
   });
   return {
     status: result.status,
@@ -233,7 +257,11 @@ function resolveExactMain(input: {
   const liveLine = decodeUtf8(requireCommand(
     input.run,
     'git',
-    ['ls-remote', '--exit-code', input.remote, `refs/heads/${input.defaultBranch}`],
+    createWorkSelectionGitHubRemoteObservationArgsV1({
+      kind: 'exact-default',
+      remote: input.remote,
+      defaultBranch: input.defaultBranch
+    }),
     input.root,
     'live-default-unresolved'
   ), 'live-default-invalid').trim();
@@ -421,6 +449,17 @@ function parseWorktrees(source: string): Array<{ root: string; branch: string | 
   });
 }
 
+export function selectBranchBoundWorktreesForWorkSelectionV1(
+  worktrees: readonly Readonly<{ root: string; branch: string | null; headSha: string }>[],
+  defaultBranch: string
+): Array<Readonly<{ root: string; branch: string; headSha: string }>> {
+  return worktrees.filter((worktree): worktree is Readonly<{
+    root: string;
+    branch: string;
+    headSha: string;
+  }> => worktree.branch !== null && worktree.branch !== defaultBranch);
+}
+
 function observeCanonicalBranchLifecycle(input: {
   run: CommandRunnerV1;
   root: string;
@@ -433,9 +472,10 @@ function observeCanonicalBranchLifecycle(input: {
     'for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)', 'refs/heads/'
   ], input.root, 'local-candidate-ref-unresolved'), 'local-candidate-ref-invalid-utf8'))
     .filter(({ branch }) => branch !== input.defaultBranch);
-  const remoteResult = input.run('git', [
-    'ls-remote', '--heads', input.remote
-  ], input.root);
+  const remoteResult = input.run('git', createWorkSelectionGitHubRemoteObservationArgsV1({
+    kind: 'branch-inventory',
+    remote: input.remote
+  }), input.root);
   if (remoteResult.status !== 0) {
     throw new LiveObservationFailure('remote-candidate-ref-unresolved', combinedFailureBytes(remoteResult));
   }
@@ -461,7 +501,7 @@ function observeCanonicalBranchLifecycle(input: {
     defaultBranch: input.defaultBranch,
     localRefs: local,
     remoteRefs: remote,
-    worktrees: worktrees.filter(({ branch }) => branch !== input.defaultBranch)
+    worktrees: selectBranchBoundWorktreesForWorkSelectionV1(worktrees, input.defaultBranch)
       .map(({ root, branch, headSha }) => ({
         worktreeRef: rawSha256(normalizePhysicalPath(root)),
         branch,

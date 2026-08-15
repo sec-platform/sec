@@ -155,10 +155,12 @@ test('repository behaviors route to deterministic owners or one bounded Skill', 
   expect(new Set(skillOwners)).toEqual(new Set(SEC_AGENT_SKILL_IDS));
   expect(routes.filter((route) => route.kind === 'deterministic').length).toBeGreaterThan(0);
   expect(SEC_REPOSITORY_BEHAVIOR_IDS.length).toBeGreaterThan(SEC_AGENT_SKILL_IDS.length);
+  expect(SEC_AGENT_SKILL_IDS).toHaveLength(7);
+  expect(SEC_AGENT_SKILL_IDS).not.toContain('sec-task-delegation');
   expect(resolveSecRepositoryBehaviorRoute('task-delegation')).toEqual({
-    kind: 'skill',
-    owner: 'sec-task-delegation',
-    authorityRef: '.agents/skills/sec-task-delegation/SKILL.md'
+    kind: 'deterministic',
+    owner: 'agent-task-capsule',
+    authorityRef: 'platform/shared/agent-task-capsule-contract.ts'
   });
   for (const route of routes) {
     expect(route.owner.length).toBeGreaterThan(0);
@@ -200,8 +202,6 @@ test('skills preserve decisive boundaries without retaining retired documentatio
   expect(sources['sec-heuristic-governance']).toContain('规范化 work identity、owner、current spec');
   expect(sources['sec-heuristic-governance']).toContain('聊天中没有唯一剩余副本');
   expect(sources['sec-architecture-evolution']).toContain('authority first');
-  expect(sources['sec-task-delegation']).toContain('production Task Capsule compiler');
-  expect(sources['sec-task-delegation']).toContain('是否值得委派');
   expect(agentsSource).toContain('document-control-plane.ts status --json');
   expect(sources['sec-failure-recovery']).toContain('输入与failure tail未变时复用失败证据并停止');
   expect(sources['sec-failure-recovery']).toContain('自动从exact new main运行canonical document-control status');
@@ -218,6 +218,7 @@ test('skills preserve decisive boundaries without retaining retired documentatio
     'sec-documentation-governance',
     'sec-impact-and-validation',
     'sec-repository-orientation',
+    'sec-task-delegation',
     'sec-toolchain-and-dependencies',
     'sec-trust-root-bootstrap',
     'sec-work-package-lifecycle'
@@ -288,8 +289,7 @@ test('registered heuristic runtime surfaces resolve at least one Skill', () => {
     kind: 'agent-projection',
     skills: [
       'sec-heuristic-governance',
-      'sec-repository-audit',
-      'sec-task-delegation'
+      'sec-repository-audit'
     ]
   });
   expect(resolveSecRepositoryHeuristicSkills('AGENTS.md')).toEqual(agentsCoverage!.skills);
@@ -368,6 +368,28 @@ test('trust-root changes retain mandatory Risk while ordinary Skill edits remain
     'mandatory-sentinel',
     'ownership-impact'
   ]);
+});
+
+test('agent role profiles retain current authority references without retired numbered paths', async () => {
+  const profileRoot = path.join(REPOSITORY_ROOT, '.codex', 'agents');
+  const profileNames = [
+    'architecture-reviewer.toml',
+    'implementation-worker.toml',
+    'integration-reviewer.toml',
+    'repo-state-auditor.toml',
+    'verification-evidence-reviewer.toml'
+  ];
+  const profiles = await Promise.all(profileNames.map(async (name) => ({
+    name,
+    source: await readFile(path.join(profileRoot, name), 'utf8')
+  })));
+  expect(profiles.find(({ name }) => name === 'architecture-reviewer.toml')?.source)
+    .toContain('docs/authority.json');
+  for (const { source } of profiles) {
+    expect(source).not.toMatch(/docs\/(?:0[0-9]|1[0-9])[-_]/u);
+    expect(source).not.toContain('sec-task-delegation');
+    expect(source).not.toContain('current hosted capability');
+  }
 });
 
 test('external capability ledger binds current package authority without a self-referential main SHA', async () => {

@@ -609,8 +609,8 @@ plan映射到既有唯一owner，并作为可独立main/readback的纵向Work Pa
    zero-or-one Skill selector projection；VerificationSession 也只保存 Capsule 引用，不拥有其内容或 lifecycle；
 2. **Guidance convergence（#275）**：删除默认 memory/full-orientation/旧命令/旧path guidance，
    将已有 deterministic behavior 路由到真实 machine owner，并在 consumer-zero readback 后一次退役
-   冗余 Skill ID/file；当前保留八个 bounded Skill。#205 的 production Task Capsule compiler 完成
-   consumer cutover、canary 与 readback 后，delegation route 才转为 deterministic 并收敛到终态七个；
+   冗余 Skill ID/file；#205 production Task Capsule compiler、#346 issuer-bound consumer与首个真实PRE canary
+   已完成delegation consumer cutover，route由typed Task Capsule/Operation Envelope拥有并收敛到终态七个Skill；
 3. **Candidate / Control transaction**：Git-object materializer、one-parent commit、ref CAS、
    prospective/active control分离、同一worktree/ref generation loop；
 4. **Verification closure**：Requirement tri-state、subject-closure ActionKey、Evidence DAG、heavy
