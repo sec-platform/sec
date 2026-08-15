@@ -50,7 +50,8 @@ import {
   CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2,
   CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2,
   CI_VERIFICATION_SESSION_DISPATCH_TYPE,
-  createCiMainHealthRequestOperationIdV1
+  createCiMainHealthRequestOperationIdV1,
+  matchesCiCompilerWorkflowRunIdentityV1
 } from '../../platform/shared/ci-verification-revision.ts';
 import { createMainHealthLedgerV1 } from '../../platform/shared/main-health-contract.ts';
 import {
@@ -2312,10 +2313,14 @@ async function joinExactPostMergeMainHealthV1(input: Readonly<{
     throw new Error('Canonical MainHealth workflow is not active.');
   }
   const matchingRuns = () => input.github.observeWorkflowRuns(input.repository, input.mainSha)
-    .filter((run) => run.name === 'compiler-pr-validation'
-      && run.displayTitle === expectedTitle
-      && run.workflowPath === '.github/workflows/compiler-pr-validation.yml'
-      && run.event === 'repository_dispatch');
+    .filter((run) => matchesCiCompilerWorkflowRunIdentityV1({
+      workflowPath: run.workflowPath,
+      eventName: run.event,
+      displayTitle: run.displayTitle,
+      headSha: run.headSha,
+      expectedDisplayTitle: expectedTitle,
+      expectedHeadSha: input.mainSha
+    }));
   let matches = matchingRuns();
   if (matches.length > 1) throw new Error('MainHealth operation already has multiple exact workflow runs.');
   if (matches.length === 0) {
@@ -2353,9 +2358,14 @@ async function joinExactPostMergeMainHealthV1(input: Readonly<{
   const run = apiRecord(input.ctx, `/repos/${input.repository}/actions/runs/${joined.id}`,
     'joined MainHealth workflow readback');
   if (String(run.id) !== joined.id || Number(run.workflow_id) !== workflowId
-    || run.name !== 'compiler-pr-validation' || run.display_title !== expectedTitle
-    || run.path !== '.github/workflows/compiler-pr-validation.yml'
-    || run.event !== 'repository_dispatch' || run.head_sha !== input.mainSha
+    || !matchesCiCompilerWorkflowRunIdentityV1({
+      workflowPath: run.path,
+      eventName: run.event,
+      displayTitle: run.display_title,
+      headSha: run.head_sha,
+      expectedDisplayTitle: expectedTitle,
+      expectedHeadSha: input.mainSha
+    })
     || run.status !== 'completed' || run.conclusion !== 'success') {
     throw new Error('Joined MainHealth workflow API readback is not canonical.');
   }
@@ -3349,12 +3359,15 @@ export function assertHostedCompilerInternalProvenanceV2(input: {
     || currentRunAttempt !== 1
     || !Number.isSafeInteger(checkSuiteId) || checkSuiteId < 1
     || !Number.isSafeInteger(workflowId) || workflowId < 1
-    || input.currentRun.event !== 'repository_dispatch'
-    || input.currentRun.path !== '.github/workflows/compiler-pr-validation.yml'
-    || input.currentRun.head_sha !== request.expectedBaseSha
+    || !matchesCiCompilerWorkflowRunIdentityV1({
+      workflowPath: input.currentRun.path,
+      eventName: input.currentRun.event,
+      displayTitle: input.currentRun.display_title,
+      headSha: input.currentRun.head_sha,
+      expectedDisplayTitle: `produce Action ${envelope.proposal.proposedActionKey}`,
+      expectedHeadSha: request.expectedBaseSha
+    })
     || input.currentRun.head_branch !== 'main'
-    || input.currentRun.name !== 'compiler-pr-validation'
-    || input.currentRun.display_title !== `produce Action ${envelope.proposal.proposedActionKey}`
     || String(input.currentRun.repository?.id ?? '') !== repositoryId
     || input.currentRun.repository?.full_name !== repository) {
     throw new Error('Internal Action current workflow run provenance mismatch.');
@@ -3401,12 +3414,16 @@ export function assertHostedCompilerInternalProvenanceV2(input: {
   const parentRequestTitle = `verify session PR #${request.prNumber} session ${request.expectedSessionRevision}`;
   if (String(parentRun.id ?? '') !== parentPlan.parentRunId
     || parentRun.run_attempt !== parentPlan.parentRunAttempt
-    || parentRun.event !== 'repository_dispatch'
+    || !matchesCiCompilerWorkflowRunIdentityV1({
+      workflowPath: parentRun.path,
+      eventName: parentRun.event,
+      displayTitle: parentRun.display_title,
+      headSha: parentRun.head_sha,
+      expectedDisplayTitle: parentRequestTitle,
+      expectedHeadSha: parentPlan.parentWorkflowSha
+    })
     || parentRun.path !== parentPlan.parentWorkflowPath
-    || parentRun.head_sha !== parentPlan.parentWorkflowSha
     || parentRun.head_branch !== 'main'
-    || parentRun.name !== 'compiler-pr-validation'
-    || parentRun.display_title !== parentRequestTitle
     || String(parentRun.repository?.id ?? '') !== repositoryId
     || parentRun.repository?.full_name !== repository) {
     throw new Error('Internal Action parent external Session run provenance mismatch.');
@@ -3452,10 +3469,18 @@ function assertHostedCompilerIdentity(input: {
   }
   const run = apiRecord(ctx, `/repos/${repository}/actions/runs/${runId}`,
     'observe-hosted current run readback');
+  const expectedRunDisplayTitle = dispatch.kind === 'external-session'
+    ? `verify session PR #${request.prNumber} session ${request.expectedSessionRevision}`
+    : `produce Action ${dispatch.envelope.proposal.proposedActionKey}`;
   if (String(run.id ?? '') !== runId || run.run_attempt !== runAttempt
-    || run.event !== 'repository_dispatch'
-    || run.path !== '.github/workflows/compiler-pr-validation.yml'
-    || run.head_sha !== request.expectedBaseSha
+    || !matchesCiCompilerWorkflowRunIdentityV1({
+      workflowPath: run.path,
+      eventName: run.event,
+      displayTitle: run.display_title,
+      headSha: run.head_sha,
+      expectedDisplayTitle: expectedRunDisplayTitle,
+      expectedHeadSha: request.expectedBaseSha
+    })
     || String(run.repository?.id ?? '') !== repositoryId
     || typeof run.actor?.login !== 'string' || typeof run.actor?.node_id !== 'string') {
     throw new Error('observe-hosted current workflow provenance mismatch.');

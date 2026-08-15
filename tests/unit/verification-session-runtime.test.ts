@@ -546,8 +546,8 @@ test('provider recovery artifact binds exact envelope and bundle bytes', () => {
 });
 
 function workflowRun(overrides: Partial<GitHubWorkflowRunObservationV1> = {}): GitHubWorkflowRunObservationV1 {
-  return { id: '10', name: 'compiler-pr-validation',
-    displayTitle: `verify session PR #42 session ${JOIN_SESSION}`,
+  const displayTitle = `verify session PR #42 session ${JOIN_SESSION}`;
+  return { id: '10', name: displayTitle, displayTitle,
     workflowPath: '.github/workflows/compiler-pr-validation.yml', event: 'repository_dispatch',
     status: 'in_progress', conclusion: null, headSha: BASE, runAttempt: 1,
     updatedAt: '2026-08-09T14:00:00.000Z', ...overrides };
@@ -3330,7 +3330,7 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
   const botRecord = { login: bot.login, id: bot.id, node_id: bot.nodeId, type: bot.type };
   const currentRun = { id: 200, run_attempt: 1, workflow_id: 300, check_suite_id: 400,
     event: 'repository_dispatch', path: '.github/workflows/compiler-pr-validation.yml',
-    head_sha: BASE, head_branch: 'main', name: 'compiler-pr-validation',
+    head_sha: BASE, head_branch: 'main', name: `produce Action ${proposedActionKey}`,
     display_title: `produce Action ${proposedActionKey}`, actor: botRecord,
     repository: { id: 123, full_name: 'sec-platform/sec' } };
   const currentWorkflow = { id: 300, path: '.github/workflows/compiler-pr-validation.yml',
@@ -3340,7 +3340,7 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
     app: { id: app.id, node_id: app.nodeId, slug: app.slug } };
   const parentRun = { id: 100, run_attempt: 1, event: 'repository_dispatch',
     path: '.github/workflows/compiler-pr-validation.yml', head_sha: BASE, head_branch: 'main',
-    name: 'compiler-pr-validation',
+    name: `verify session PR #42 session ${JOIN_SESSION}`,
     display_title: `verify session PR #42 session ${JOIN_SESSION}`,
     actor: { login: parentActor.login, id: parentActor.id, node_id: parentActor.nodeId,
       type: parentActor.type }, repository: { id: 123, full_name: 'sec-platform/sec' } };
@@ -3367,6 +3367,8 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
     ['human child sender', { eventSender: parentRun.actor }],
     ['human child run actor', { currentRun: { ...currentRun, actor: parentRun.actor } }],
     ['rerun child attempt', { currentRun: { ...currentRun, run_attempt: 2 } }],
+    ['wrong child workflow path', { currentRun: { ...currentRun, path: '.github/workflows/foreign.yml' } }],
+    ['wrong child display title', { currentRun: { ...currentRun, display_title: 'foreign Action' } }],
     ['wrong child workflow id', { currentWorkflow: { ...currentWorkflow, id: 301 } }],
     ['disabled child workflow', { currentWorkflow: { ...currentWorkflow, state: 'disabled_manually' } }],
     ['wrong child App', { currentCheckSuite: { ...currentCheckSuite,
@@ -3384,6 +3386,8 @@ test('internal Action child binds Actions bot/App and exact parent run/artifact/
       steps: [parentJob.steps[0]!, { ...parentJob.steps[0]!, number: 4 }] }] }],
     ['internal parent run', { parentRun: { ...parentRun,
       display_title: `produce Action ${proposedActionKey}` } }],
+    ['wrong parent workflow path', { parentRun: { ...parentRun,
+      path: '.github/workflows/foreign.yml' } }],
     ['membership drift', { parentPrincipal: { ...parentPrincipal, permission: 'write' as const } }],
     ['noncanonical parent bytes', { parentPlanSource: `${parentPlanSource} ` }]
   ] as const) {
@@ -3417,6 +3421,11 @@ test('Session workflow join uses complete pages and rejects duplicate/conflictin
   expect(evaluateVerificationSessionWorkflowJoinV1(paged, adapterInput))
     .toMatchObject({ status: 'joined', runIds: ['9:1'] });
 
+  const providerPresentationName = new FakeTransport();
+  providerPresentationName.workflowRuns = [[workflowRun({ name: 'mutable provider presentation' })]];
+  expect(evaluateVerificationSessionWorkflowJoinV1(providerPresentationName, adapterInput))
+    .toMatchObject({ status: 'joined', runIds: ['10:1'] });
+
   const duplicate = new FakeTransport();
   duplicate.workflowRuns = [[workflowRun()], [workflowRun({ status: 'waiting' })]];
   expect(() => evaluateVerificationSessionWorkflowJoinV1(duplicate, adapterInput))
@@ -3426,6 +3435,11 @@ test('Session workflow join uses complete pages and rejects duplicate/conflictin
   conflict.workflowRuns = [[workflowRun({ displayTitle:
     `verify session PR #42 session ${JOIN_SESSION} action sha256:${'8'.repeat(64)}` })]];
   expect(() => evaluateVerificationSessionWorkflowJoinV1(conflict, adapterInput))
+    .toThrow(/conflicting run identity/i);
+
+  const wrongWorkflow = new FakeTransport();
+  wrongWorkflow.workflowRuns = [[workflowRun({ workflowPath: '.github/workflows/foreign.yml' })]];
+  expect(() => evaluateVerificationSessionWorkflowJoinV1(wrongWorkflow, adapterInput))
     .toThrow(/conflicting run identity/i);
 
   class IncompleteWorkflowPaginationTransport extends FakeTransport {
@@ -3709,7 +3723,8 @@ if (endpoint.startsWith('/repos/' + state.repository + '/compare/')) out({
 });
 if (endpoint.includes('/actions/runs?head_sha=')) {
   const currentRun = run(200);
-  out([{ workflow_runs: [{ id: 200, name: 'sec-merge-gate',
+  out([{ workflow_runs: [{ id: 200,
+    name: 'integrate compiler session run 100 attempt 1',
     display_title: 'integrate compiler session run 100 attempt 1',
     path: '.github/workflows/sec-merge-gate.yml', event: 'workflow_run',
     status: 'in_progress', conclusion: null, head_sha: state.baseSha,
