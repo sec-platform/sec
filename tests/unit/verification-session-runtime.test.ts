@@ -340,6 +340,31 @@ const JOIN_REQUEST: VerificationSessionHostedRequestV1 = Object.freeze({
   requestOperationId: `sha256:${'4'.repeat(64)}`
 });
 
+test('private gh wakeup dispatcher type-locks canonical stdin as bounded Bun bytes', () => {
+  const githubSource = readFileSync(path.resolve(import.meta.dir,
+    '../../scripts/codex/verification-session-github.ts'), 'utf8');
+  const runner = githubSource.slice(githubSource.indexOf('function runVerificationSessionGh('),
+    githubSource.indexOf('/** Concrete provider transport;'));
+  const dispatchStart = githubSource.lastIndexOf('  dispatchVerificationSession(');
+  const dispatch = githubSource.slice(dispatchStart,
+    githubSource.indexOf('\n  }', dispatchStart) + 4);
+  expect(runner).toContain('input?: Buffer');
+  expect(runner).toContain("encoding: 'buffer'");
+  expect(runner).toContain('input,');
+  expect(dispatch).toContain('const body = Buffer.from(');
+  expect(dispatch).toContain("})}\\n`, 'utf8')");
+
+  const body = Buffer.from(`${encodeVerificationActionDataV2({
+    event_type: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+    client_payload: { payload: JOIN_REQUEST }
+  })}\n`, 'utf8');
+  const probe = spawnSync(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], {
+    encoding: 'buffer', input: body, windowsHide: true, maxBuffer: 1024 * 1024
+  });
+  expect(probe.status).toBe(0);
+  expect(probe.stdout).toEqual(body);
+});
+
 test('hosted integration router separates first effect, merged recovery, and blocking', () => {
   const session = { repository: 'sec-platform/sec', prNumber: 42,
     sessionRevision: JOIN_SESSION, baseSha: BASE, baseTreeSha: BASE,
@@ -565,6 +590,28 @@ function expectTypedProviderSchemaUnsupported(observation: GitHubReviewBarrierOb
   expect(observation.responseDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
 }
 
+let privateGhProxySuiteRoot = '';
+
+function privateGhProxyRoot(): string {
+  if (privateGhProxySuiteRoot !== '') return privateGhProxySuiteRoot;
+  privateGhProxySuiteRoot = mkdtempSync(path.join(tmpdir(), 'sec-private-gh-proxy-'));
+  const source = path.join(privateGhProxySuiteRoot, 'gh-proxy.ts');
+  const output = path.join(privateGhProxySuiteRoot, process.platform === 'win32' ? 'gh.exe' : 'gh');
+  writeFileSync(source, `
+import { pathToFileURL } from 'node:url';
+const runner = process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
+if (!runner) throw new Error('SEC_VERIFICATION_SESSION_TEST_GH_RUNNER is required');
+await import(pathToFileURL(runner).href);
+`, 'utf8');
+  const compiled = spawnSync(process.execPath, [
+    'build', '--compile', source, '--outfile', output
+  ], { encoding: 'utf8', windowsHide: true });
+  if (compiled.status !== 0) {
+    throw new Error(`cannot compile private gh proxy: ${compiled.stderr || compiled.stdout}`);
+  }
+  return privateGhProxySuiteRoot;
+}
+
 function observePrivateGhProviderBarrier(
   mode: 'clear' | 'candidate' | 'permission' | 'trusted-app' | 'review-post-normalization'
     | 'thread-post-normalization' | 'request-post-normalization' | 'issue-post-normalization',
@@ -573,7 +620,6 @@ function observePrivateGhProviderBarrier(
 ) {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-provider-shape-gh-'));
   const runner = path.join(root, 'gh-provider-shape.mjs');
-  const program = process.platform === 'win32' ? path.join(root, 'gh.cmd') : path.join(root, 'gh');
   const candidate = {
     number: 42, state: 'OPEN', isDraft: false, isCrossRepository: false,
     author: { id: 'AUTHOR' }, baseRefName: 'main', baseRefOid: BASE,
@@ -641,14 +687,11 @@ if (endpoint.endsWith('/issues/42/comments?per_page=100')) {
 process.stderr.write('unsupported private provider fixture command: ' + args.join(' '));
 process.exit(1);
 `, 'utf8');
-  if (process.platform === 'win32') {
-    writeFileSync(program, `@echo off\r\n"${process.execPath}" "${runner}" %*\r\n`, 'utf8');
-  } else {
-    writeFileSync(program, `#!/usr/bin/env sh\nexec "${process.execPath}" "${runner}" "$@"\n`, 'utf8');
-    chmodSync(program, 0o755);
-  }
+  const proxyRoot = privateGhProxyRoot();
   const previousPath = process.env.PATH;
-  process.env.PATH = `${root}${path.delimiter}${previousPath ?? ''}`;
+  const previousRunner = process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
+  process.env.PATH = `${proxyRoot}${path.delimiter}${previousPath ?? ''}`;
+  process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER = runner;
   try {
     return createVerificationSessionGitHubClientV1(root).observeReviewBarrier({
       repository: 'sec-platform/sec', prNumber: 42, headSha: HEAD,
@@ -658,6 +701,8 @@ process.exit(1);
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
+    if (previousRunner === undefined) delete process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER;
+    else process.env.SEC_VERIFICATION_SESSION_TEST_GH_RUNNER = previousRunner;
     rmSync(root, { recursive: true, force: true });
   }
 }
@@ -3304,6 +3349,7 @@ if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
 }
 if (args[0] === 'rev-parse' && args[1] === 'refs/remotes/origin/main') out(state.localDefaultSha);
 if (args[0] === 'rev-parse' && args[1] === '--verify') out(state.headSha);
+if (args[0] === 'rev-parse' && args[1] === state.headSha + '^{tree}') out(state.headTreeSha);
 if (args[0] === 'rev-parse' && typeof args[1] === 'string' && args[1].includes(':')) {
   const file = args[1].slice(args[1].indexOf(':') + 1);
   out(state.tcbBlobs[file] || state.runtimeBlob);
@@ -3322,8 +3368,29 @@ if (args[0] === 'for-each-ref') {
   if (state.localPresent) value += state.branch + '\\0' + state.headSha + '\\0\\n';
   out(value);
 }
-if (args[0] === 'ls-remote') {
+if (args[0] === 'ls-remote') fail('plain ls-remote is forbidden');
+if (args[0] === '-c'
+  && args[1] === 'http.extraHeader='
+  && args[2] === '-c'
+  && args[3] === 'http.https://github.com/.extraheader='
+  && args[4] === '-c'
+  && args[5] === 'credential.helper='
+  && args[6] === '-c'
+  && args[7] === 'credential.helper=!gh auth git-credential'
+  && args[8] === 'ls-remote') {
+  const inventoryExpected = ['-c', 'http.extraHeader=', '-c',
+    'http.https://github.com/.extraheader=', '-c', 'credential.helper=', '-c',
+    'credential.helper=!gh auth git-credential', 'ls-remote', '--heads', 'origin'];
+  if (JSON.stringify(args) === JSON.stringify(inventoryExpected)) {
+    let value = state.liveDefaultSha + '\\trefs/heads/main\\n';
+    if (state.remotePresent) value += state.headSha + '\\t' + branchRef + '\\n';
+    out(value);
+  }
   const requested = args[args.length - 1];
+  const expected = ['-c', 'http.extraHeader=', '-c', 'http.https://github.com/.extraheader=',
+    '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
+    'ls-remote', '--exit-code', 'origin', requested];
+  if (JSON.stringify(args) !== JSON.stringify(expected)) fail('non-canonical remote default readback');
   if (requested === 'refs/heads/main') {
     state.liveDefaultReadCount = Number(state.liveDefaultReadCount || 0) + 1;
     if (state.raceAfterRefOnlyFetch === true && Number(state.refOnlyFetchCount || 0) > 0) {
@@ -3332,10 +3399,13 @@ if (args[0] === 'ls-remote') {
     save(state);
     out(state.liveDefaultSha + '\\trefs/heads/main\\n');
   }
-  if (requested === branchRef) out(state.remotePresent ? state.headSha + '\\t' + branchRef + '\\n' : '');
-  let value = state.liveDefaultSha + '\\trefs/heads/main\\n';
-  if (state.remotePresent) value += state.headSha + '\\t' + branchRef + '\\n';
-  out(value);
+  if (requested === branchRef) {
+    state.credentialBoundBranchReadCount = Number(state.credentialBoundBranchReadCount || 0) + 1;
+    save(state);
+    if (state.remotePresent) out(state.headSha + '\\t' + branchRef + '\\n');
+    process.exit(2);
+  }
+  fail('unexpected credential-bound remote ref');
 }
 if (args[0] === 'worktree' && args[1] === 'list') {
   out('worktree ' + state.repositoryRoot + '\\0HEAD ' + state.baseSha + '\\0branch refs/heads/main\\0\\0');
@@ -3343,11 +3413,16 @@ if (args[0] === 'worktree' && args[1] === 'list') {
 if (args[0] === 'config') out('true');
 if (args[0] === 'fetch') out('');
 if (args[0] === '-c'
-  && args[1] === 'credential.helper='
+  && args[1] === 'http.extraHeader='
   && args[2] === '-c'
-  && args[3] === 'credential.helper=!gh auth git-credential'
-  && args[4] === 'fetch') {
-  const expected = ['-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
+  && args[3] === 'http.https://github.com/.extraheader='
+  && args[4] === '-c'
+  && args[5] === 'credential.helper='
+  && args[6] === '-c'
+  && args[7] === 'credential.helper=!gh auth git-credential'
+  && args[8] === 'fetch') {
+  const expected = ['-c', 'http.extraHeader=', '-c', 'http.https://github.com/.extraheader=',
+    '-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
     'fetch', '--no-tags', '--no-recurse-submodules', 'origin',
     '+refs/heads/main:refs/remotes/origin/main'];
   if (JSON.stringify(args) !== JSON.stringify(expected)) fail('non-canonical ref-only fetch');
@@ -3377,10 +3452,14 @@ if (args[0] === 'update-ref' && args[1] === '-d') {
   out('');
 }
 if (args[0] === '-c'
-  && args[1] === 'credential.helper='
+  && args[1] === 'http.extraHeader='
   && args[2] === '-c'
-  && args[3] === 'credential.helper=!gh auth git-credential'
-  && args[4] === 'push'
+  && args[3] === 'http.https://github.com/.extraheader='
+  && args[4] === '-c'
+  && args[5] === 'credential.helper='
+  && args[6] === '-c'
+  && args[7] === 'credential.helper=!gh auth git-credential'
+  && args[8] === 'push'
   && args.includes(':' + branchRef)) {
   state.remoteDeleteCount += 1;
   state.remotePresent = false;
@@ -3493,7 +3572,13 @@ if (endpoint === '/repos/' + state.repository + '/git/commits/' + state.headSha)
 if (endpoint === '/repos/' + state.repository + '/git/commits/' + state.mergeCommitSha) {
   out({ tree: { sha: state.headTreeSha }, message: state.mergeMessage });
 }
-if (endpoint.startsWith('/repos/' + state.repository + '/compare/')) out({ status: 'ahead', behind_by: 0 });
+if (endpoint.startsWith('/repos/' + state.repository + '/compare/')) out({
+  status: state.liveDefaultSha === state.mergeCommitSha ? 'identical' : 'ahead',
+  ahead_by: state.liveDefaultSha === state.mergeCommitSha ? 0 : 1,
+  behind_by: 0,
+  base_commit: { sha: state.mergeCommitSha },
+  merge_base_commit: { sha: state.mergeCommitSha }
+});
 if (endpoint.includes('/actions/runs?head_sha=')) {
   const currentRun = run(200);
   out([{ workflow_runs: [{ id: 200, name: 'sec-merge-gate',
@@ -3679,6 +3764,10 @@ function createCloseoutCliScenario(input: {
   const providerRecoveryRoot = path.join(input.recoveryHarnessRoot, input.name, 'provider');
   const recoveryRoot = path.join(input.recoveryHarnessRoot, input.name, 'rehydrated');
   mkdirSync(path.join(root, 'scripts', 'codex'), { recursive: true });
+  mkdirSync(path.join(root, 'docs', 'governance'), { recursive: true });
+  writeFileSync(path.join(root, 'docs', 'governance', 'external-capability-ledger.yaml'),
+    readFileSync(path.resolve(import.meta.dir,
+      '../../docs/governance/external-capability-ledger.yaml')));
   mkdirSync(commonDir, { recursive: true });
   const statePath = path.join(root, 'provider-state.json');
   const tcbBlobs: Record<string, string> = { ...TCB_CLOSURE_LOCK.moduleBlobs };
@@ -3707,6 +3796,7 @@ function createCloseoutCliScenario(input: {
     racedDefaultSha: '8'.repeat(40),
     liveDefaultReadCount: 0,
     refOnlyFetchCount: 0,
+    credentialBoundBranchReadCount: 0,
     refOnlyFetchFailure: false,
     raceAfterRefOnlyFetch: false,
     headReadValues: [],
@@ -4158,7 +4248,9 @@ function closeoutCliProcessEnvironment(
     GITHUB_RUN_ATTEMPT: String(state.runs['200'].run_attempt),
     GITHUB_ACTOR: String(state.runs['200'].actor.login),
     GITHUB_TRIGGERING_ACTOR: String(state.runs['200'].triggering_actor.login),
-    GITHUB_JOB: 'integrate'
+    GITHUB_JOB: 'integrate',
+    PRE_MERGE_MAIN_SHA: BASE,
+    PLANNED_CURRENT_MAIN_SHA: String(state.liveDefaultSha)
   };
   const inheritedPath = Object.entries(process.env)
     .find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '';
@@ -4265,6 +4357,9 @@ afterAll(() => {
   if (sharedCloseoutCliShimSuiteRoot !== '') {
     rmSync(sharedCloseoutCliShimSuiteRoot, { recursive: true, force: true });
   }
+  if (privateGhProxySuiteRoot !== '') {
+    rmSync(privateGhProxySuiteRoot, { recursive: true, force: true });
+  }
 });
 
 function withCloseoutCliPartition<T>(run: (input: Readonly<{
@@ -4348,18 +4443,67 @@ test('prepared cleanup route invokes the local sequence once for the exact targe
   })).rejects.toThrow('same-host-worktree-closeout-required');
 });
 
+test('trusted remote default reader uses one explicit credential-bound single-ref command', () => {
+  const source = readFileSync(path.resolve(import.meta.dir,
+    '../../scripts/codex/verification-session.ts'), 'utf8');
+  const helperStart = source.indexOf('function synchronizeTrustedRemoteDefaultRefV1(');
+  const helperEnd = source.indexOf('\nconst WORK_PACKAGE_DIRECTORY', helperStart);
+  const helper = source.slice(helperStart, helperEnd);
+  const observerStart = source.indexOf('function observeTrustedRemoteExactRefV1(');
+  const readerStart = source.indexOf('function readTrustedRemoteDefaultRefV1(');
+  const readerEnd = source.indexOf('/** Live production proof.', readerStart);
+  const reader = source.slice(observerStart, readerEnd);
+  const inspector = source.slice(source.indexOf('function inspectTrustedRuntimeV1('), helperStart);
+  expect(helperStart).toBeGreaterThan(0);
+  expect(observerStart).toBeGreaterThan(0);
+  expect(readerStart).toBeGreaterThan(0);
+  expect(source.match(/function observeTrustedRemoteExactRefV1\(/gu)).toHaveLength(1);
+  expect(source.match(/function readTrustedRemoteDefaultRefV1\(/gu)).toHaveLength(1);
+  expect(reader).not.toContain('export function');
+  expect(reader).toContain('...createBranchLifecycleGitHubCredentialArgsV1()');
+  expect(reader).toContain("assertGitBranchName(input.remoteRef.slice(headPrefix.length)");
+  expect(reader).toContain("assertGitBranchName(observedRef.slice(headPrefix.length)");
+  expect(reader).not.toContain('[A-Za-z0-9._\\/-]');
+  expect(reader).toContain("'ls-remote', '--exit-code', input.remote, input.remoteRef");
+  expect(inspector).toContain('readTrustedRemoteDefaultRefV1({');
+  expect(inspector).not.toContain("['ls-remote'");
+  expect(helper).toContain('readTrustedRemoteDefaultRefV1({ ctx: input.ctx, identity, label })');
+  expect(source.match(/'ls-remote', '--exit-code'/gu)).toHaveLength(1);
+  const closeout = source.slice(source.indexOf('function observeExactRemoteCloseoutBranch('),
+    source.indexOf('/**\n * The post-merge MainHealth dispatch/join', source.indexOf('function observeExactRemoteCloseoutBranch(')));
+  expect(closeout).toContain('observeTrustedRemoteExactRefV1({');
+  expect(closeout).not.toContain("['ls-remote'");
+});
+
 closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary merge and merged recovery safely', () => {
   const source = readFileSync(path.resolve(import.meta.dir,
     '../../scripts/codex/verification-session.ts'), 'utf8');
   const helperStart = source.indexOf('function synchronizeTrustedRemoteDefaultRefV1(');
   const helperEnd = source.indexOf('\nconst WORK_PACKAGE_DIRECTORY', helperStart);
   const helper = source.slice(helperStart, helperEnd);
+  const observerStart = source.indexOf('function observeTrustedRemoteExactRefV1(');
+  const readerStart = source.indexOf('function readTrustedRemoteDefaultRefV1(');
+  const readerEnd = source.indexOf('/** Live production proof.', readerStart);
+  const reader = source.slice(observerStart, readerEnd);
+  const inspector = source.slice(source.indexOf('function inspectTrustedRuntimeV1('), helperStart);
   expect(helperStart).toBeGreaterThan(0);
+  expect(observerStart).toBeGreaterThan(0);
+  expect(readerStart).toBeGreaterThan(0);
   expect(source.match(/function synchronizeTrustedRemoteDefaultRefV1\(/gu)).toHaveLength(1);
+  expect(source.match(/function observeTrustedRemoteExactRefV1\(/gu)).toHaveLength(1);
+  expect(source.match(/function readTrustedRemoteDefaultRefV1\(/gu)).toHaveLength(1);
   expect(helper).not.toContain('export function');
-  expect(helper).toContain("'credential.helper=!gh auth git-credential'");
-  expect(helper).toContain("'fetch', '--no-tags', '--no-recurse-submodules', remote");
-  expect(helper).toContain('`+${remoteRef}:${localRef}`');
+  expect(reader).not.toContain('export function');
+  expect(reader).toContain('...createBranchLifecycleGitHubCredentialArgsV1()');
+  expect(reader).toContain("assertGitBranchName(input.remoteRef.slice(headPrefix.length)");
+  expect(reader).toContain("assertGitBranchName(observedRef.slice(headPrefix.length)");
+  expect(reader).not.toContain('[A-Za-z0-9._\\/-]');
+  expect(reader).toContain("'ls-remote', '--exit-code', input.remote, input.remoteRef");
+  expect(inspector).toContain("readTrustedRemoteDefaultRefV1({");
+  expect(inspector).not.toContain("['ls-remote'");
+  expect(helper).toContain("readTrustedRemoteDefaultRefV1({ ctx: input.ctx, identity, label })");
+  expect(helper).toContain("'fetch', '--no-tags', '--no-recurse-submodules', identity.remote");
+  expect(helper).toContain('`+${identity.remoteRef}:${identity.localRef}`');
   expect(helper).toContain('liveBefore !== liveAfter || localAfter !== liveAfter');
   expect(helper).toContain('headAfter !== headBefore');
   expect(helper).not.toContain("'checkout'");
@@ -4386,7 +4530,7 @@ closeoutCliE2eTest('trusted remote default ref synchronization closes ordinary m
       const scenario = createCloseoutCliScenario({ harnessRoot, recoveryHarnessRoot, shimRoot,
         name, fixture });
       const state = readCloseoutCliHarnessState(scenario.statePath);
-      state.currentPhase = 'integration';
+      state.currentPhase = 'closeoutMutation';
       state.localDefaultSha = BASE;
       state.liveDefaultReadCount = 0;
       state.refOnlyFetchCount = 0;
@@ -4465,9 +4609,9 @@ closeoutCliE2eTest('public Session closeout CLI partition A exact delete, publis
     assertCloseoutCliProviderShim(shimRoot, exact);
     const first = runCloseoutCliProcess(shimRoot, exact, 'closeout-mutate-hosted');
     assertCloseoutCliProcessSucceeded('closeout-mutate-hosted', first);
-    expect(readCloseoutCliHarnessState(exact.statePath)).toMatchObject({
-      remoteDeleteCount: 1, remotePresent: false
-    });
+    const firstMutationState = readCloseoutCliHarnessState(exact.statePath);
+    expect(firstMutationState).toMatchObject({ remoteDeleteCount: 1, remotePresent: false });
+    expect(firstMutationState.credentialBoundBranchReadCount).toBeGreaterThan(0);
     expect(JSON.parse(readFileSync(first.output, 'utf8'))).toMatchObject({
       disposition: 'executed', closeoutOperationId: exact.binding.closeoutOperationId
     });
@@ -4508,6 +4652,7 @@ closeoutCliE2eTest('public Session closeout CLI partition B crash recovery perfo
       const crashShimPid = barrierState.crashShimPid as number;
       expect(barrierState).toMatchObject({ remoteDeleteCount: 1, remotePresent: false,
         crashInjected: true, crashShimPid });
+      expect(barrierState.credentialBoundBranchReadCount).toBeGreaterThan(0);
       expect(Number.isInteger(crashed.child.pid) && (crashed.child.pid ?? 0) > 0).toBe(true);
       expect(isProcessAlive(crashShimPid)).toBe(true);
 
@@ -4544,6 +4689,8 @@ closeoutCliE2eTest('public Session closeout CLI partition B crash recovery perfo
         .toMatchObject({ disposition: 'recovered-after-effect-start' });
       crashState = readCloseoutCliHarnessState(crash.statePath);
       expect(crashState.remoteDeleteCount).toBe(1);
+      expect(crashState.credentialBoundBranchReadCount)
+        .toBeGreaterThan(barrierState.credentialBoundBranchReadCount);
       expect(isProcessAlive(crashShimPid)).toBe(false);
       expect(killCount).toBe(1);
       expect(crashed.lifecycle).toMatchObject({

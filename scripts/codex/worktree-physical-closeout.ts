@@ -13,6 +13,7 @@ import {
   relocateRetainedNoFollowDirectoryAcrossParentsV1,
   relocateRetainedNoFollowDirectoryV1,
   replaceDurableCanonicalFileV1,
+  scanNoFollowDirectoryTreeInventoryV1,
   scanNoFollowDirectoryTreeV1,
   type PhysicalDirectoryIdentityV1
 } from '../../platform/shared/physical-no-follow.ts';
@@ -286,13 +287,13 @@ export function observeWorktreePhysicalInventoryV1(targetPathInput: string): Wor
 }
 
 function observeDirectoryPhysicalInventoryV1(target: PhysicalDirectoryIdentityV1): WorktreePhysicalInventoryV1 {
-  const entries: WorktreePhysicalEntryV1[] = scanNoFollowDirectoryTreeV1(target).map((entry) => ({
+  const entries: WorktreePhysicalEntryV1[] = scanNoFollowDirectoryTreeInventoryV1(target).map((entry) => ({
     relativePath: entry.relativePath,
     kind: entry.kind === 'link' ? 'symlink' : entry.kind,
     device: entry.device,
     inode: entry.inode,
     size: entry.size,
-    contentDigest: entry.bytes === null ? null : detailDigestV1({ bytes: Buffer.from(entry.bytes).toString('hex') }),
+    contentDigest: entry.contentDigest,
     linkTarget: entry.linkTarget
   }));
   return createWorktreePhysicalInventoryV1(entries);

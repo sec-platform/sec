@@ -408,6 +408,7 @@ test('exact blob reader and both Evidence producers share one direct execution o
   for (const source of [
     'platform/shared/ci-evidence-contract.ts',
     'platform/shared/ci-hosted-sut-observation-contract.ts',
+    'platform/shared/ci-verification-revision.ts',
     'scripts/codex/ci-orchestration-core.ts',
     'scripts/ci-verification.ts',
     'scripts/codex/exact-git-blob.ts',

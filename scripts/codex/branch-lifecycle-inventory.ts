@@ -9,6 +9,7 @@ import {
 } from './branch-closeout-receipt.ts';
 import {
   createBranchLifecycleGitChildEnvironmentV1,
+  createBranchLifecycleGitHubCredentialArgsV1,
   decodeBranchLifecycleChildErrorV1,
   decodeBranchLifecycleChildStdoutV1
 } from './branch-lifecycle-command.ts';
@@ -229,7 +230,10 @@ function listRemoteBranches(
   repositoryRoot: string,
   remote: string
 ): BranchRefObservation[] {
-  const result = runInventoryCommand(ctx, 'git', ['ls-remote', '--heads', remote], repositoryRoot);
+  const result = runInventoryCommand(ctx, 'git', [
+    ...createBranchLifecycleGitHubCredentialArgsV1(),
+    'ls-remote', '--heads', remote
+  ], repositoryRoot);
   if (result.status !== 0) {
     throw new Error(`remote branch inventory failed: ${decodeBranchLifecycleChildErrorV1(result)}`);
   }

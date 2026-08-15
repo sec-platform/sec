@@ -457,13 +457,21 @@ test('active PR contract has one V2 Session dispatch and no legacy verification 
   expect(source).toContain('--intent anchor-terminal');
   expect(source).not.toContain('working-directory: .tmp/codex/candidate\n        run: bun scripts/ci-verification.ts');
   expect(source).toContain(`${CI_VERIFICATION_SESSION_ARTIFACT_PREFIX}-pr-`);
-  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':sandbox-v4');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).toContain(':sandbox-v5');
+  expect(CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2).not.toContain(':sandbox-v4');
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1).toMatchObject({
-    rootIsolation: 'private-tmpfs-chroot-no-retained-fd',
+    policyRevision: 'sandbox-v5',
+    rootIsolation: 'private-tmpfs-chroot-retained-archive-fd-closed-before-candidate',
     toolClosure: 'private-explicit-runtime-binaries-and-dynamic-libraries-v2',
     network: 'none',
-    inheritedFileDescriptors: 'stdio-only-at-exec',
+    inheritedFileDescriptors: 'stdio-plus-authenticated-archive-fd-until-private-copy',
+    inputMount: 'retained-ordinary-fd-private-tmpfs-authenticated-copy-v2',
     resourceController: 'two-cpu-outer-cgroup-times-wall-aggregate-plus-per-process-prlimit'
+  });
+  expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.archiveValidation).toMatchObject({
+    retainedOrdinaryFileDescriptor: true,
+    privateCopyDigestReadback: true,
+    hostExtraction: false
   });
   expect(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits).toMatchObject({
     aggregateCpuSeconds: 7200,
@@ -634,9 +642,9 @@ test('exact-head workflow review findings install clean TS jobs and grant provid
 
 test('hosted sandbox runtime closure covers private-root mount tools without non-canonical aliases', async () => {
   const source = await readCompilerFile('scripts/ci-verification.ts');
-  const invokedPivotTools = ['mount', 'umount'].filter((tool) =>
-    source.includes(`'${tool} `)
-  );
+  expect(source).toContain("'mount --make-rprivate /'");
+  expect(source).toContain('umount -R "$root"');
+  const invokedPivotTools = ['mount', 'umount'];
   const runtimeBinaries = [...CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.runtimeBinaries];
 
   expect(invokedPivotTools).toEqual(['mount', 'umount']);
@@ -1236,7 +1244,11 @@ test('trusted base candidate root bootstrap checker is disjoint and candidate re
   expect(verificationSource).toContain('CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1');
   expect(verificationSource).toContain("'--mount', '--pid', '--fork', '--kill-child=KILL', '--net'");
   expect(verificationSource).toContain('CodexDevelopmentTrustedBootstrapSutHarnessV1');
-  expect(verificationSource).toContain("'-C', candidateRoot, '.', '-C', baseRoot, 'node_modules'");
+  expect(verificationSource).toContain('CodexDevelopmentMaterializeTrustedBootstrapArchiveV3');
+  expect(verificationSource).toContain('tarfile.open(fileobj=output_stream');
+  expect(verificationSource).toContain('os.readlink("", dir_fd=link_fd)');
+  expect(verificationSource).toContain('HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1');
+  expect(verificationSource).not.toContain("'-C', candidateRoot, '.', '-C', baseRoot, 'node_modules'");
   expect(verificationSource).not.toContain("['-a', '--', baseNodeModules, candidateRoot]");
   expect(verificationSource).toContain('CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1');
   expect(verificationSource).toContain("schema: 'sec-trusted-bootstrap-sut-receipt-v2'");

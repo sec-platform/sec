@@ -424,12 +424,33 @@ Linux capability只在provider/sandbox revision或对应owner发生变化、缓�
 不会重新校准Linux substrate。Playwright也只有browser closure命中且exact revision cache缺失时才下载，缓存命中
 直接复用；不存在“每次运行先等待安装再决定skip”的路径。
 
-`sandbox-v4`把CPU语义写成真实聚合边界：outer SUT cgroup固定2 CPU，unit wall bound固定3600秒且
+`sandbox-v5`保留并延续v4已冻结的CPU聚合边界：outer SUT cgroup固定2 CPU，unit wall bound固定3600秒且
 `--kill-child=KILL`关闭全部descendant，所以整棵进程树最多消费7200 CPU秒；同值`RLIMIT_CPU`只是冗余的
 per-process ceiling，不能被描述为聚合controller。trusted-bootstrap candidate job也必须由exact base checkout中的
 固定CLI创建authenticated archive，并调用同一namespace/chroot command plan；candidate checkout只作数据，不能在
 runner root执行install、script或test。base lock/package驱动的`--ignore-scripts`依赖物化可复用runner私有content cache，
-cache不会挂入candidate chroot，候选也不能写入或读取它。
+cache不会挂入candidate chroot，候选也不能写入或读取它。冷下载只允许一个确定性的收敛例外：第一次安装必须先
+精确分类为Bun tarball extraction失败，才可在同一exact base、lock、runtime、环境和私有cache上原地重试一次，
+让已经落盘的合法package cache完成收敛；lockfile、权限、磁盘、进程或其他错误一律零重试，第二次 extraction失败
+也立即terminal。`attempts=1|2`与恢复分类必须进入trusted-bootstrap SUT物理operation digest，不能靠日志或人工解释
+把失败改写成PASS，也禁止为该恢复清空整个content cache并重复下载全部依赖。
+
+Bun可把exact-base依赖中的嵌套`file:`包实现为指向同一`node_modules`内部的绝对symlink；该host路径不能进入
+可迁移archive，也不能通过放宽absolute-link规则进入sandbox。dependency source始终是只读subject，禁止为了transport
+改写symlink、创建同目录temporary name或用path rename替换安装结果。trusted bootstrap在打包前以retained no-follow
+root/parent/leaf读取完整依赖树，流式冻结每个ordinary file的physical identity、size与canonical content digest；每个
+link的raw target必须由retained link fd上的`readlinkat(fd, "")`读取，不能从parent/name二次解析。archive writer只从这些
+retained directory/link fd读取，并且只在tar header中把lexically仍严格
+位于同一exact `node_modules`根内的absolute link投影为relative link。打包后必须对同一physical root重新做完整快照，
+并把archive中的每个dependency path、kind、link target和logical content digest逐项与打包前快照比较；root、ancestor、
+link或target替换、ABA恢复、断链、外逃、非POSIX、special entry、foreign/missing entry或entry/byte上限均fail closed。
+physical snapshot与archive projection digest共同进入SUT operation identity；archive仍由独立raw inventory验证全archive路径、
+cycle、required inputs和字节边界。package名称、随机安装路径、source mutation或单独两个无逐项对应关系的摘要都不得成为
+例外或transport authority。raw inventory完成后，launcher必须以`O_NOFOLLOW` ordinary-file fd重新读回exact archive digest，
+只把该retained fd继承为固定child fd；namespace不能再次解析host archive pathname。namespace从retained fd把字节复制到
+private tmpfs，复制后和chroot extract前分别重验operation绑定的archive digest，随后关闭全部host fd。pathname替换、rename
+away/restore、同名ABA或in-place写入至多使private copy digest不匹配而terminal，不能让未经验证的dependency bytes进入SUT；
+execution receipt的pre/post input readback也必须来自同一retained fd，而不是恢复后的pathname。
 
 ### 重复缺陷封闭规则
 

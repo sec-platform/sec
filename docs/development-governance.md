@@ -1061,11 +1061,30 @@ selected-parent/name absence readback和parent `fsync`，同inode的其他hardli
 不得导致已授权名字被误报为残留；Windows用`OPEN_REPARSE_POINT`、FileId/final-path fence和handle
 disposition；禁止path-only `unlink`、`rmdir`或`chmod` retry effect。
 
+物理树读取分成两个不可混用的表面：authorization、receipt、lease等canonical control文件仍受固定
+byte上限约束，超过上限即fail closed；worktree inventory对普通文件使用retained no-follow handle/fd、
+固定小chunk与稳定的content digest流式读取，不把任意大leaf整体载入内存。流式digest必须与历史
+`{ bytes: lowerHex }` canonical域byte-identical，并在读取前后重验FileId或dev/inode、size与mutation
+metadata。Windows readonly删除只能在已经授权且仍由同一retained leaf handle证明的对象上使用
+`FileDispositionInfoEx(DELETE|IGNORE_READONLY_ATTRIBUTE)`；不得清除共享inode属性，也不得把path-based
+`chmod`或属性修改重新引入retry路径。provider不具备该handle disposition能力时必须typed fail closed。
+
+大文件能力不扩大删除authority。`node_modules`、browser cache、`.shared-deps`、`.tmp`或任何ignored
+名称都不能由worktree owner自行解释为可删；它们必须先由generated-state/dependency owner产生exact
+classification、retirement与readback receipt，#186只消费settled后的同一physical subject。machine
+roadmap必须把该owner dependency编译进DAG，不能只在Issue prose中要求Agent每次手工清缓存。
+
 branch owner 只消费同一 common-dir、同一 prepare 观察到的 exact target receipts；fresh host rehydrate
 不得继承另一主机的绝对 worktree path，也不得把“当前 runner 没有该路径”解释成外部主机已完成清理。
 同一主机上只要 prepared binding 仍存在、receipt 缺失/非 completed/identity 不符，或 receipt 后 fresh
 inventory 又出现 binding，remote 与 local ref CAS 都在 effect-start marker 前 fail closed；实际 CAS 前
 再读一次 inventory，避免 marker 与 effect 之间的重新注册竞态。
+
+Hosted remote-ref观察与effect不得继承actions/checkout写入的canonical host-level或generic ambient HTTP授权。
+branch lifecycle command owner提供唯一pure argv prefix：先以空值重置generic `http.extraHeader`与canonical
+`http.https://github.com/.extraheader`，再清空ambient credential helpers并只启用`gh auth git-credential`；
+inventory、single-ref readback、ref-only fetch与remote CAS必须全部复用。branch suffix只由canonical
+`assertGitBranchName`解析，不能在consumer另造ASCII子集而拒绝合法Unicode ref。
 跨主机observation只保留host/observation digest，不携带或重放foreign absolute path，也不能由artifact
 成功、当前job状态、raw JSON、locator或self-digest消除。正常收敛要求原host先完成physical closeout，
 再从新物理状态生成不含foreign observation的preparation；已merge的旧recovery仍携带foreign

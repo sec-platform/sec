@@ -1,19 +1,25 @@
 import { expect, test } from 'bun:test';
 import {
+  chmodSync,
+  closeSync,
   existsSync,
   linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
   symlinkSync,
-  writeFileSync
+  truncateSync,
+  writeFileSync,
+  writeSync
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   PhysicalNoFollowError,
   assertSameNoFollowDirectoryIdentityV1,
@@ -26,6 +32,7 @@ import {
   readNoFollowOrdinaryFileV1,
   relocateRetainedNoFollowDirectoryV1,
   replaceDurableCanonicalFileV1,
+  scanNoFollowDirectoryTreeInventoryV1,
   scanNoFollowDirectoryTreeV1
 } from '../../platform/shared/physical-no-follow.ts';
 
@@ -355,6 +362,71 @@ test('tree scan records a child link as an unsafe leaf and never traverses it', 
   }
 });
 
+test('Linux tree inventory reads link bytes from the retained link fd', () => {
+  const source = readFileSync(
+    path.join(import.meta.dir, '../../platform/shared/physical-no-follow.ts'), 'utf8'
+  );
+  const scanStart = source.indexOf('function scanNoFollowDirectoryTreeInternalV1(');
+  const scanEnd = source.indexOf('\nexport function scanNoFollowDirectoryTreeV1(', scanStart);
+  const scan = source.slice(scanStart, scanEnd);
+  expect(source).toContain('function linuxReadRetainedLinkTargetV1(');
+  expect(source).toContain('symbols.readlinkat(');
+  expect(scan).toContain("linuxReadRetainedLinkTargetV1(retained, 'No-follow scan retained link')");
+  expect(scan).not.toContain('readlinkSync(`/proc/self/fd/${directoryFd}/${name}`)');
+  if (process.platform !== 'linux') return;
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    mkdirSync(target);
+    symlinkSync('../external-target', path.join(target, 'relative-link'), 'file');
+    symlinkSync(path.join(root, 'missing-target'), path.join(target, 'absolute-link'), 'file');
+    const entries = new Map(scanNoFollowDirectoryTreeInventoryV1(
+      inspectNoFollowDirectoryChainV1(target, 'retained link inventory target').target
+    ).map((entry) => [entry.relativePath, entry]));
+    expect(entries.get('relative-link')).toMatchObject({
+      kind: 'link', linkTarget: '../external-target'
+    });
+    expect(entries.get('absolute-link')).toMatchObject({
+      kind: 'link', linkTarget: path.join(root, 'missing-target')
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('streaming tree inventory preserves the canonical digest domain beyond the bounded byte reader', () => {
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    mkdirSync(target);
+    const smallBytes = Buffer.from('canonical-small-content\n', 'utf8');
+    writeFileSync(path.join(target, 'small.txt'), smallBytes);
+    const largePath = path.join(target, 'large.bin');
+    const largeSize = 64 * 1024 * 1024 + 4096;
+    writeFileSync(largePath, '');
+    truncateSync(largePath, largeSize);
+    const largeHandle = openSync(largePath, 'r+');
+    try {
+      writeSync(largeHandle, Buffer.from('large-start'), 0, 11, 0);
+      writeSync(largeHandle, Buffer.from('large-end'), 0, 9, largeSize - 9);
+    } finally {
+      closeSync(largeHandle);
+    }
+    const identity = inspectNoFollowDirectoryChainV1(target, 'streaming inventory target').target;
+    expect(() => scanNoFollowDirectoryTreeV1(identity)).toThrow('exceeds the bounded no-follow read size');
+    const first = new Map(scanNoFollowDirectoryTreeInventoryV1(identity).map((entry) => [entry.relativePath, entry]));
+    const second = new Map(scanNoFollowDirectoryTreeInventoryV1(identity).map((entry) => [entry.relativePath, entry]));
+    expect(first.get('small.txt')?.contentDigest).toBe(
+      sha256({ bytes: smallBytes.toString('hex') }) as `sha256:${string}`
+    );
+    expect(first.get('large.bin')).toMatchObject({ kind: 'file', size: largeSize });
+    expect(first.get('large.bin')?.contentDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+    expect(second.get('large.bin')?.contentDigest).toBe(first.get('large.bin')?.contentDigest);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('exclusive durable canonical publication is idempotent and refuses a conflicting existing value', () => {
   const root = fixtureRoot();
   try {
@@ -421,7 +493,12 @@ test('Windows retained-handle deletion removes authorized file directory and rep
     const external = path.join(root, 'external');
     mkdirSync(target);
     mkdirSync(external);
-    writeFileSync(path.join(target, 'authorized-file.txt'), 'only-this-file\n', 'utf8');
+    const authorizedFile = path.join(target, 'authorized-file.txt');
+    const survivingReadonlyLink = path.join(external, 'surviving-readonly-link.txt');
+    writeFileSync(authorizedFile, 'only-this-file\n', 'utf8');
+    linkSync(authorizedFile, survivingReadonlyLink);
+    chmodSync(authorizedFile, 0o444);
+    expect(lstatSync(survivingReadonlyLink).mode & 0o222).toBe(0);
     mkdirSync(path.join(target, 'authorized-directory'));
     symlinkSync(external, path.join(target, 'authorized-link'), 'junction');
     const identity = inspectNoFollowDirectoryChainV1(target, 'retained target').target;
@@ -438,6 +515,15 @@ test('Windows retained-handle deletion removes authorized file directory and rep
       });
       expect(existsSync(path.join(target, name))).toBe(false);
     }
+    expect(readFileSync(survivingReadonlyLink, 'utf8')).toBe('only-this-file\n');
+    expect(lstatSync(survivingReadonlyLink).mode & 0o222).toBe(0);
+    const implementation = readFileSync(
+      path.join(import.meta.dir, '../../platform/shared/physical-no-follow.ts'), 'utf8'
+    );
+    expect(implementation).toContain('const WINDOWS_FILE_DISPOSITION_INFO_EX = 21;');
+    expect(implementation).toContain('WINDOWS_FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE');
+    expect(implementation).not.toContain('windowsNormalizeRetainedReadonlyV1');
+    expect(implementation).not.toContain('const WINDOWS_FILE_DISPOSITION_INFO = 4;');
 
     mkdirSync(path.join(target, 'replacement-parent'));
     writeFileSync(path.join(target, 'replacement-parent', 'retain.txt'), 'old\n', 'utf8');
