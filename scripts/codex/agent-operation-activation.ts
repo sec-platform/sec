@@ -58,6 +58,10 @@ import {
   type SecWorkDecisionReceiptV1
 } from '../../platform/shared/work-selection-live-contract.ts';
 import {
+  assertAgentOperationActivationWorkPackageCensusV1,
+  isCanonicalAgentOperationActivationWorkPackagePathV1
+} from './agent-operation-activation-census.ts';
+import {
   hostedPublisherMatches,
   issueCommentRecord,
   type IssueCommentRecord
@@ -326,6 +330,59 @@ function canonicalBytes(value: unknown): Buffer {
   return Buffer.from(`${JSON.stringify(canonicalJson(value), null, 2)}\n`, 'utf8');
 }
 
+function listWorkPackagePaths(root: string, revision: string): readonly string[] {
+  const bytes = requireCommand('git', [
+    '-c', 'core.quotepath=false', 'ls-tree', '-r', '--name-only', '-z', revision,
+    '--', 'docs/work-packages'
+  ], root, 'activation-scope-conflict');
+  if (bytes.length === 0 || bytes.at(-1) !== 0) {
+    unavailable('activation-scope-conflict', 'candidate-work-package-census-is-empty-or-unterminated');
+  }
+  const paths = decodeUtf8(bytes.subarray(0, -1), 'activation-scope-conflict')
+    .split('\0')
+    .sort(compareCodeUnits);
+  if (paths.some((entry) => !isCanonicalAgentOperationActivationWorkPackagePathV1(entry))
+      || new Set(paths).size !== paths.length) {
+    unavailable('activation-scope-conflict', JSON.stringify(paths));
+  }
+  return Object.freeze(paths);
+}
+
+function preparationWorkPackageDeletions(
+  candidateRoot: string,
+  trustedBase: string,
+  proposalRevision: string,
+  manifestPath: string,
+  manifestBytes: Uint8Array,
+  tracking: string
+): readonly string[] {
+  const defaultPackagePaths = listWorkPackagePaths(candidateRoot, trustedBase);
+  const candidatePackagePaths = listWorkPackagePaths(candidateRoot, proposalRevision);
+  const candidateEntries = candidatePackagePaths.map((packagePath) => ({
+    path: packagePath,
+    candidateBytes: packagePath === manifestPath
+      ? manifestBytes
+      : readGitBlob(candidateRoot, `${proposalRevision}:${packagePath}`).bytes,
+    defaultBytes: gitObjectExists(candidateRoot, `${trustedBase}:${packagePath}`)
+      ? readGitBlob(candidateRoot, `${trustedBase}:${packagePath}`).bytes
+      : null
+  }));
+  return guarded('activation-scope-conflict', () =>
+    assertAgentOperationActivationWorkPackageCensusV1({
+      selectedManifestPath: manifestPath,
+      candidateEntries,
+      defaultPackagePaths,
+      ...(tracking === 'none' && candidatePackagePaths.length > 1
+        ? {
+            roadmapSource: decodeUtf8(
+              readGitBlob(candidateRoot, `${proposalRevision}:docs/roadmap.md`).bytes,
+              'activation-scope-conflict'
+            )
+          }
+        : {})
+    }));
+}
+
 export interface SecOperationAuthorityOwnerObservationV1 {
   readonly id: string;
   readonly ref: string;
@@ -426,6 +483,7 @@ interface CandidateControlSnapshot {
   readonly manifestPath: string;
   readonly manifestRevision: string;
   readonly manifestDigest: `sha256:${string}`;
+  readonly manifestBytes: Uint8Array;
   readonly manifest: CodexDevelopmentWorkPackageManifest;
   readonly rollingTopology: Readonly<{
     activePackageId: string;
@@ -483,6 +541,7 @@ function readCandidateControl(
     manifestPath: pointer.manifest,
     manifestRevision: manifestBlob.oid,
     manifestDigest,
+    manifestBytes,
     manifest,
     rollingTopology: Object.freeze({
       activePackageId: rolling.activePackageId,
@@ -564,28 +623,25 @@ function assertPreparationProposal(
   records: readonly CodexDevelopmentGitChangedRecordV1[],
   manifest: CodexDevelopmentWorkPackageManifest,
   manifestPath: string,
+  manifestBytes: Uint8Array,
   trustedBase: string,
   proposalRevision: string,
   candidateRoot: string
 ): void {
+  const deletedPackagePaths = preparationWorkPackageDeletions(
+    candidateRoot,
+    trustedBase,
+    proposalRevision,
+    manifestPath,
+    manifestBytes,
+    manifest.tracking
+  );
   const allowed = new Set<string>([
     CONTROL_PATHS.pointer,
     CONTROL_PATHS.rollingPlan,
-    manifestPath
+    manifestPath,
+    ...deletedPackagePaths
   ]);
-  try {
-    const basePointer = CodexDevelopmentParseActivePointerV2(decodeUtf8(
-      readGitBlob(candidateRoot, `${trustedBase}:${CONTROL_PATHS.pointer}`).bytes,
-      'activation-scope-conflict'
-    ));
-    allowed.add(basePointer.manifest);
-    if (gitObjectExists(candidateRoot, `${proposalRevision}:${basePointer.manifest}`)) {
-      unavailable('activation-scope-conflict', 'predecessor-manifest-not-retired');
-    }
-  } catch (error) {
-    if (error instanceof SecAgentOperationActivationUnavailableError) throw error;
-    unavailable('activation-scope-conflict', error instanceof Error ? error.message : String(error));
-  }
   const paths = changedPaths(records);
   if (!paths.includes(CONTROL_PATHS.pointer) || !paths.includes(CONTROL_PATHS.rollingPlan)
       || !paths.includes(manifestPath) || paths.length !== allowed.size
@@ -632,6 +688,7 @@ function assertPreparationStillAuthorizesFinal(
     proposalRecords,
     proposalControl.manifest,
     proposalControl.manifestPath,
+    proposalControl.manifestBytes,
     decision.exactMain,
     preparation.proposal.headSha,
     candidateRoot
@@ -1041,7 +1098,7 @@ function produceHosted(input: Readonly<{
   if (request.phase === 'prepare') {
     assertPreparationSelection(control, decision);
     assertPreparationProposal(records, control.manifest, control.manifestPath,
-      request.expectedBaseSha, request.expectedHeadSha, candidateRoot);
+      control.manifestBytes, request.expectedBaseSha, request.expectedHeadSha, candidateRoot);
     const preparation = createSecAgentOperationActivationPreparationV1({
       request,
       repository: decision.repository,
@@ -1286,7 +1343,7 @@ function resolveSecAgentOperationActivationUncheckedV1(
     CodexDevelopmentAssertWorkPackageChangedRecords(control.manifest, records);
     assertPreparationSelection(control, decision);
     assertPreparationProposal(records, control.manifest, control.manifestPath,
-      decision.exactMain, targetCandidate, candidateRoot);
+      control.manifestBytes, decision.exactMain, targetCandidate, candidateRoot);
     const authorityOwners = observeOperationAuthorityOwners(
       candidateRoot, decision.exactMain, targetCandidate, control.manifest, paths
     );

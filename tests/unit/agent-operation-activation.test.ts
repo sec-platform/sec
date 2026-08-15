@@ -18,6 +18,9 @@ import {
   type SecAgentOperationActivationProviderV1,
   type SecAgentOperationActivationRequestV1
 } from '../../platform/shared/agent-operation-activation-contract.ts';
+import {
+  assertAgentOperationActivationWorkPackageCensusV1
+} from '../../scripts/codex/agent-operation-activation-census.ts';
 
 const sha = (character: string): string => character.repeat(40);
 const digest = (character: string): `sha256:${string}` => `sha256:${character.repeat(64)}`;
@@ -100,6 +103,30 @@ function preparationInput(): SecAgentOperationActivationPreparationInputV1 {
   };
 }
 
+function workPackageManifest(packageId: string, tracking: string): Buffer {
+  return Buffer.from(`---
+schema: codex-development-work-package-v1
+id: ${packageId}
+tracking: ${tracking}
+base: "${sha('a')}"
+manifestState: frozen
+requiredProfile: quick
+ciRevision: ci-verification-v19
+tasks:
+  - id: fixture-task
+    owner: development-governance-owner
+    ownedPaths:
+      - docs/work-packages/${packageId}.md
+forbiddenPaths:
+  - platform/compiler/
+acceptance:
+  - exact package census fixture
+tests:
+  - tests/unit/agent-operation-activation.test.ts
+---
+`, 'utf8');
+}
+
 test('hosted PRE is canonical and binds request, provider, and full manifest scope', () => {
   const first = createSecAgentOperationActivationPreparationV1(preparationInput());
   const second = createSecAgentOperationActivationPreparationV1({
@@ -119,6 +146,26 @@ test('hosted PRE is canonical and binds request, provider, and full manifest sco
     ...preparationInput(),
     provider: provider('11', sha('e'))
   })).toThrow(/scope is inconsistent/u);
+});
+
+test('hosted PRE requires every stale default-branch Work Package to be deleted', () => {
+  const selectedPath = 'docs/work-packages/selected-v1.md';
+  const predecessorPath = 'docs/work-packages/predecessor-v1.md';
+  const selectedBytes = workPackageManifest('selected-v1', 'issue-999');
+  const predecessorBytes = workPackageManifest('predecessor-v1', 'issue-998');
+  expect(assertAgentOperationActivationWorkPackageCensusV1({
+    selectedManifestPath: selectedPath,
+    candidateEntries: [{ path: selectedPath, candidateBytes: selectedBytes, defaultBytes: null }],
+    defaultPackagePaths: [predecessorPath]
+  })).toEqual([predecessorPath]);
+  expect(() => assertAgentOperationActivationWorkPackageCensusV1({
+    selectedManifestPath: selectedPath,
+    candidateEntries: [
+      { path: selectedPath, candidateBytes: selectedBytes, defaultBytes: null },
+      { path: predecessorPath, candidateBytes: predecessorBytes, defaultBytes: predecessorBytes }
+    ],
+    defaultPackagePaths: [predecessorPath]
+  })).toThrow(/not activatable/u);
 });
 
 test('FINAL binds a distinct request, exact PRE comment, PR identity, and PRE scope', () => {
@@ -228,7 +275,8 @@ test('public activation CLI derives identity and exposes no local credential wri
   expect(source).toContain('gitTree(candidateRoot, request.expectedHeadSha) !== entries[0]!.headTreeSha');
   expect(source).toContain('PRE-consumer-stable-fact-rederivation-drift');
   expect(source).toContain('FINAL-consumer-whole-value-rederivation-drift');
-  expect(source).toContain('predecessor-manifest-not-retired');
+  expect(source).toContain('preparationWorkPackageDeletions(');
+  expect(source).not.toContain('predecessor-manifest-not-retired');
   expect(source).not.toContain('requireCompletedPublication');
   expect(source).not.toContain('console.error(error instanceof Error');
   expect(source).toContain("new SecAgentOperationActivationUnavailableError(\n          'activation-issuer-unavailable'");
