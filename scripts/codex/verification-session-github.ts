@@ -9,7 +9,8 @@ import path from 'node:path';
 import {
   CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1,
   CI_VERIFICATION_SESSION_ARTIFACT_PREFIX,
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+  matchesCiCompilerWorkflowRunIdentityV1
 } from '../../platform/shared/ci-verification-revision.ts';
 import {
   GITHUB_PULL_REQUEST_CLOSING_QUERY_V1,
@@ -1732,9 +1733,18 @@ class VerificationSessionGitHubAdapter {
     const matching: GitHubWorkflowRunObservationV1[] = [];
     for (const run of this.observeWorkflowRuns(input.repository, input.baseSha)) {
       if (!run.displayTitle.startsWith(sessionPrefix)) continue;
-      if (run.displayTitle !== expectedTitle || run.name !== 'compiler-pr-validation'
-        || run.workflowPath !== '.github/workflows/compiler-pr-validation.yml'
-        || run.event !== 'repository_dispatch' || run.headSha !== input.baseSha) {
+      // GitHub REST exposes the evaluated `run-name` through both `name` and
+      // `display_title`; `name` is presentation metadata, not the workflow
+      // definition identity.  The immutable workflow path, event, exact title,
+      // and exact main SHA form the provider-bound join identity.
+      if (!matchesCiCompilerWorkflowRunIdentityV1({
+        workflowPath: run.workflowPath,
+        eventName: run.event,
+        displayTitle: run.displayTitle,
+        headSha: run.headSha,
+        expectedDisplayTitle: expectedTitle,
+        expectedHeadSha: input.baseSha
+      })) {
         fail('Session workflow inventory contains a conflicting run identity.');
       }
       matching.push(run);

@@ -45,8 +45,8 @@ jobs:
         with:
           script: |
             const run = JSON.parse(process.env.SOURCE_RUN_JSON);
-            if (run.name !== 'compiler-pr-validation' || run.event !== 'repository_dispatch' ||
-                run.status !== 'completed' || run.conclusion !== 'success' ||
+            if (run.event !== 'repository_dispatch' || run.status !== 'completed' ||
+                run.conclusion !== 'success' ||
                 !Number.isSafeInteger(run.id) || !Number.isSafeInteger(run.run_attempt) ||
                 typeof run.actor?.login !== 'string' || typeof run.triggering_actor?.login !== 'string') {
               throw new Error('Only one completed successful compiler repository_dispatch run can enter integration.');

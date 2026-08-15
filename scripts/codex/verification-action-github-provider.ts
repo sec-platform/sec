@@ -12,7 +12,8 @@ import {
   CI_VERIFICATION_ACTION_DISPATCH_TYPE_V2,
   CI_VERIFICATION_ACTION_PARENT_DISPATCH_PLAN_FILE_V2,
   CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2,
-  CI_VERIFICATION_SESSION_DISPATCH_TYPE
+  CI_VERIFICATION_SESSION_DISPATCH_TYPE,
+  matchesCiCompilerWorkflowRunIdentityV1
 } from '../../platform/shared/ci-verification-revision.ts';
 import {
   assertCiVerificationActionProviderEnvelopeMemberV2,
@@ -1264,12 +1265,19 @@ async function authenticateVerificationActionAuthorityV2(
     runId: envelope.parentRunId
   }), 'parent external Session run');
   identityRecord(parentRun.actor, parentPlan.parentActor, 'parent external Session actor');
+  const expectedParentTitle =
+    `verify session PR #${request.prNumber} session ${request.expectedSessionRevision}`;
   if (String(parentRun.id ?? '') !== envelope.parentRunId ||
-      parentRun.run_attempt !== envelope.parentRunAttempt || parentRun.event !== 'repository_dispatch' ||
-      parentRun.path !== envelope.parentWorkflowPath || parentRun.head_sha !== request.expectedBaseSha ||
-      parentRun.head_branch !== 'main' || parentRun.name !== 'compiler-pr-validation' ||
-      parentRun.display_title !==
-        `verify session PR #${request.prNumber} session ${request.expectedSessionRevision}` ||
+      parentRun.run_attempt !== envelope.parentRunAttempt ||
+      !matchesCiCompilerWorkflowRunIdentityV1({
+        workflowPath: parentRun.path,
+        eventName: parentRun.event,
+        displayTitle: parentRun.display_title,
+        headSha: parentRun.head_sha,
+        expectedDisplayTitle: expectedParentTitle,
+        expectedHeadSha: request.expectedBaseSha
+      }) || parentRun.path !== envelope.parentWorkflowPath ||
+      parentRun.head_branch !== 'main' ||
       String(record(parentRun.repository, 'parent run repository').id ?? '') !== repositoryIdText) {
     fail('parent external Session run provenance mismatch.');
   }
@@ -1373,11 +1381,14 @@ async function authenticateVerificationActionAuthorityV2(
   const checkSuiteId = Number(currentRun.check_suite_id);
   const workflowId = Number(currentRun.workflow_id);
   if (String(currentRun.id ?? '') !== runId || currentRun.run_attempt !== 1 ||
-      currentRun.event !== 'repository_dispatch' ||
-      currentRun.path !== '.github/workflows/compiler-pr-validation.yml' ||
-      currentRun.head_sha !== request.expectedBaseSha || currentRun.head_branch !== 'main' ||
-      currentRun.name !== 'compiler-pr-validation' ||
-      currentRun.display_title !== `produce Action ${envelope.proposal.proposedActionKey}` ||
+      !matchesCiCompilerWorkflowRunIdentityV1({
+        workflowPath: currentRun.path,
+        eventName: currentRun.event,
+        displayTitle: currentRun.display_title,
+        headSha: currentRun.head_sha,
+        expectedDisplayTitle: `produce Action ${envelope.proposal.proposedActionKey}`,
+        expectedHeadSha: request.expectedBaseSha
+      }) || currentRun.head_branch !== 'main' ||
       String(record(currentRun.repository, 'current run repository').id ?? '') !== repositoryIdText ||
       !Number.isSafeInteger(checkSuiteId) || checkSuiteId < 1 ||
       !Number.isSafeInteger(workflowId) || workflowId < 1) {

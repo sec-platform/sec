@@ -509,7 +509,14 @@ test('hosted integration workflow delegates one globally serialized live-readbac
   const planScript = String(plan.steps[0]?.with?.script ?? '');
   const externalTerminalTitle = /^verify session PR #([1-9][0-9]*) session (sha256:[0-9a-f]{64})$/u;
   expect(planScript).not.toContain('createCommitStatus');
+  expect(planScript).not.toContain("run.name !== 'compiler-pr-validation'");
   expect(planScript).toContain(externalTerminalTitle.source);
+  const workflowLookupIndex = planScript.indexOf('github.rest.actions.getWorkflow');
+  const workflowPathGuardIndex = planScript.indexOf(
+    "sourceWorkflow.data.path !== '.github/workflows/compiler-pr-validation.yml'"
+  );
+  expect(workflowLookupIndex).toBeGreaterThan(-1);
+  expect(workflowPathGuardIndex).toBeGreaterThan(workflowLookupIndex);
   expect(planScript).toContain('listWorkflowRunArtifacts');
   const expectedArtifactNameIndex = planScript.indexOf('const expectedArtifactName =');
   const exactArtifactFilterIndex = planScript.indexOf(

@@ -6,6 +6,7 @@
  * it is deliberately not represented as a compare-and-swap primitive.
  */
 
+import { matchesCiWorkflowRunIdentityV1 } from '../../platform/shared/ci-verification-revision.ts';
 import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
 import {
   BRANCH_CLOSEOUT_MUTATION_PHASE_STEP_NAME_V1,
@@ -168,9 +169,16 @@ export function selectCanonicalIntegrationRunOwnerV1(input: {
   const exact: GitHubWorkflowRunObservationV1[] = [];
   for (const run of input.runs) {
     if (!run.displayTitle.startsWith(prefix)) continue;
-    if (run.displayTitle !== expectedTitle || run.name !== 'sec-merge-gate'
-      || run.workflowPath !== '.github/workflows/sec-merge-gate.yml'
-      || run.event !== 'workflow_run' || run.headSha !== input.baseSha) {
+    if (!matchesCiWorkflowRunIdentityV1({
+      workflowPath: run.workflowPath,
+      eventName: run.event,
+      displayTitle: run.displayTitle,
+      headSha: run.headSha,
+      expectedWorkflowPath: '.github/workflows/sec-merge-gate.yml',
+      expectedEventName: 'workflow_run',
+      expectedDisplayTitle: expectedTitle,
+      expectedHeadSha: input.baseSha
+    })) {
       throw new Error('Integration workflow inventory contains a conflicting source identity.');
     }
     exact.push(run);
