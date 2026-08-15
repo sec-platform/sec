@@ -6,6 +6,8 @@ import ts from 'typescript';
 import type { DevCommandObservation } from '../../platform/dev-runner/command-runner.ts';
 import * as actualEnvManager from '../../platform/dev-runner/env-manager.ts';
 import {
+  assertFastTestProcessPolicyInventoryV1,
+  assertUniqueFastTestProcessIsolationDefinitionsV1,
   DEFAULT_CONCURRENT_FAST_SHARD_CONCURRENCY,
   DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
   DEFAULT_FAST_TEST_EXCLUDED_FILES,
@@ -14,6 +16,7 @@ import {
   DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS,
   DEFAULT_FAST_TEST_TIMEOUT_MS,
   FAST_TEST_PROCESS_ISOLATION_REGISTRY,
+  FAST_TEST_PROCESS_POLICY_SENTINEL,
   FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
   isDefaultFastTestFile,
   planFastTestProcesses,
@@ -546,11 +549,12 @@ test('fast process isolation AST recognizes executable global hazards without te
   ]);
 });
 
-test('default fast process-global hazards have unique typed isolation and single-file queues', async () => {
+test('complete fast process-global hazards have unique typed isolation and single-file queues', async () => {
   const newlyIsolatedFiles = [
     'tests/contract/document-control-plane-lifecycle.test.ts',
     'tests/contract/repository-audit.test.ts',
     'tests/unit/branch-lifecycle-temp-repo.test.ts',
+    'tests/unit/physical-no-follow.test.ts',
     'tests/unit/verification-action-github-provider.test.ts',
     'tests/unit/verification-action-runner.test.ts',
     'tests/unit/verification-session-runtime.test.ts'
@@ -560,10 +564,11 @@ test('default fast process-global hazards have unique typed isolation and single
     'tests/unit/test-runner.test.ts',
     'tests/unit/command-runner.test.ts'
   ];
-  const defaultFastFiles = getFastTestFilesSync().filter(isDefaultFastTestFile);
+  const completeFastFiles = getFastTestFilesSync();
+  assertFastTestProcessPolicyInventoryV1(completeFastFiles);
   const detectedHazards = new Map<string, ProcessGlobalHazard[]>();
 
-  await Promise.all(defaultFastFiles.map(async (file) => {
+  await Promise.all(completeFastFiles.map(async (file) => {
     const hazards = processGlobalHazards(await fs.readFile(file, 'utf8'), file);
     if (hazards.length > 0) detectedHazards.set(file, hazards);
   }));
@@ -573,10 +578,8 @@ test('default fast process-global hazards have unique typed isolation and single
     expect(hazards.length).toBeGreaterThan(0);
     const entries = FAST_TEST_PROCESS_ISOLATION_REGISTRY.filter((entry) => entry.file === file);
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({
-      resourceClass: 'independent-process',
-      processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS['independent-process']
-    });
+    expect(entries[0]!.processLimit)
+      .toBe(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[entries[0]!.resourceClass]);
   }
   for (const file of newlyIsolatedFiles) {
     expect(FAST_TEST_PROCESS_ISOLATION_REGISTRY.filter((entry) => entry.file === file)).toEqual([
@@ -603,6 +606,34 @@ test('default fast process-global hazards have unique typed isolation and single
   )) {
     expect(plan.resourceQueues[resourceClass]).toEqual([]);
   }
+});
+
+test('fast process policy covers default-excluded files and rejects stale or duplicate identities', () => {
+  const completeFastFiles = getFastTestFilesSync();
+  const excludedFastFile = 'tests/unit/work-package-gate-execution.test.ts';
+  expect(DEFAULT_FAST_TEST_EXCLUDED_FILES).toContain(excludedFastFile);
+  expect(isDefaultFastTestFile(excludedFastFile)).toBe(false);
+  expect(completeFastFiles).toContain(excludedFastFile);
+  expect(processGlobalHazards(
+    "process.env.EXCLUDED_POLICY_SENTINEL = '1';",
+    excludedFastFile
+  )).toEqual([expect.objectContaining({
+    kind: 'process-env-assignment'
+  })]);
+  expect(() => assertFastTestProcessPolicyInventoryV1(completeFastFiles))
+    .not.toThrow();
+
+  const registeredFile = FAST_TEST_PROCESS_ISOLATION_REGISTRY[0]!.file;
+  expect(() => assertFastTestProcessPolicyInventoryV1(
+    completeFastFiles.filter((file) => file !== registeredFile)
+  )).toThrow(`Fast-test process isolation registration is stale: ${registeredFile}`);
+  expect(() => assertFastTestProcessPolicyInventoryV1(
+    completeFastFiles.filter((file) => file !== FAST_TEST_PROCESS_POLICY_SENTINEL)
+  )).toThrow(`Fast-test process policy sentinel is absent: ${FAST_TEST_PROCESS_POLICY_SENTINEL}`);
+
+  const definition = FAST_TEST_PROCESS_ISOLATION_REGISTRY[0]!;
+  expect(() => assertUniqueFastTestProcessIsolationDefinitionsV1([definition, definition]))
+    .toThrow(`Fast-test process isolation registration is duplicated: ${definition.file}`);
 });
 
 test('fast process resource classes uniquely derive limits and isolate production runtime owners', () => {
@@ -2013,13 +2044,47 @@ test.serial('affected plan reports resolved selection without dependency or test
     expect(plan).toMatchObject({
       schema: 'sec-affected-test-plan-v1',
       changedPaths: ['tests/unit/path-containment.test.ts'],
-      selectedFastTests: ['tests/unit/path-containment.test.ts'],
+      owners: ['dev-runner'],
+      selectedFastTests: [
+        'tests/unit/path-containment.test.ts',
+        FAST_TEST_PROCESS_POLICY_SENTINEL
+      ],
       unresolvedPaths: [],
       resolved: true
     });
     expect(testDependencyBootstrapCalls).toBe(0);
     expect(devCommandCalls).toEqual([]);
     expect(devCommandEnvironments).toEqual([]);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test.serial('affected plan applies the same process-policy sentinel to a default-excluded fast test', async () => {
+  changedFiles = ['tests/unit/work-package-gate-execution.test.ts'];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (message?: unknown) => {
+    logs.push(String(message));
+  };
+
+  try {
+    const code = await runAffectedTests(['--plan']);
+    const plan = JSON.parse(logs.join('\n')) as Record<string, unknown>;
+
+    expect(code).toBe(0);
+    expect(plan).toMatchObject({
+      changedPaths: ['tests/unit/work-package-gate-execution.test.ts'],
+      owners: ['dev-runner'],
+      selectedFastTests: [
+        FAST_TEST_PROCESS_POLICY_SENTINEL,
+        'tests/unit/work-package-gate-execution.test.ts'
+      ],
+      unresolvedPaths: [],
+      resolved: true
+    });
+    expect(testDependencyBootstrapCalls).toBe(0);
+    expect(devCommandCalls).toEqual([]);
   } finally {
     console.log = originalLog;
   }
@@ -2041,7 +2106,8 @@ test.serial('deleted test paths remain changed facts without becoming runnable t
     expect(plan).toMatchObject({
       schema: 'sec-affected-test-plan-v1',
       changedPaths: ['tests/integration/project-runtime.test.ts'],
-      selectedFastTests: [],
+      owners: ['dev-runner'],
+      selectedFastTests: [FAST_TEST_PROCESS_POLICY_SENTINEL],
       selectedSlowTests: [],
       unresolvedPaths: [],
       resolved: true
@@ -2068,7 +2134,7 @@ test.serial('resolved affected plan executes without repeating Git discovery', a
   expect(commandCalls).toHaveLength(2);
   expect(fastDependencyBootstrapCalls).toBe(1);
   expect(testDependencyBootstrapCalls).toBe(0);
-  expect(devCommandCalls).toHaveLength(1);
+  expect(devCommandCalls).toHaveLength(2);
 });
 
 test('affected execution does not export an arbitrary-plan runner', () => {
@@ -2150,14 +2216,19 @@ test.serial('affected tests combine changed fast tests with source-owned coverag
   const code = await runAffectedTests();
 
   expect(code).toBe(0);
-  expect(devCommandCalls).toHaveLength(1);
-  expect(devCommandCalls[0]?.command).toBe('bun');
-  expect(devCommandCalls[0]?.args.slice(0, 2)).toEqual(['test', '--concurrent']);
-  expect(devCommandCalls[0]?.args).toContain('tests/contract/usage.test.ts');
-  expect(devCommandCalls[0]?.args).toContain('tests/unit/path-containment.test.ts');
+  expect(devCommandCalls).toHaveLength(2);
+  const concurrentInvocation = devCommandCalls.find((call) => (
+    Array.isArray(call.args) && call.args.includes('tests/unit/path-containment.test.ts')
+  ));
+  expect(concurrentInvocation?.command).toBe('bun');
+  expect(concurrentInvocation?.args.slice(0, 2)).toEqual(['test', '--concurrent']);
+  expect(concurrentInvocation?.args).toContain('tests/contract/usage.test.ts');
+  expect(concurrentInvocation?.args).toContain('tests/unit/path-containment.test.ts');
+  expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)))
+    .toContain(FAST_TEST_PROCESS_POLICY_SENTINEL);
 });
 
-test.serial('affected tests run changed concurrent-safe fast files directly', async () => {
+test.serial('affected tests run changed fast files with the global process-policy sentinel', async () => {
   changedFiles = ['tests/unit/path-containment.test.ts'];
   const logs: string[] = [];
   const originalLog = console.log;
@@ -2169,18 +2240,24 @@ test.serial('affected tests run changed concurrent-safe fast files directly', as
     const code = await runAffectedTests();
 
     expect(code).toBe(0);
-    expect(devCommandCalls).toEqual([
-      {
+    expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
+      FAST_TEST_PROCESS_POLICY_SENTINEL,
+      'tests/unit/path-containment.test.ts'
+    ].sort());
+    expect(devCommandCalls.find((call) => (
+      Array.isArray(call.args) && call.args.includes('tests/unit/path-containment.test.ts')
+    )))
+      .toMatchObject({
         command: 'bun',
-        args: [
-          'test',
-          '--concurrent',
-          'tests/unit/path-containment.test.ts',
-          '--timeout',
-          String(DEFAULT_FAST_TEST_TIMEOUT_MS)
-        ]
-      }
-    ]);
+        args: expect.arrayContaining(['test', '--concurrent', 'tests/unit/path-containment.test.ts'])
+      });
+    expect(devCommandCalls.find((call) => (
+      Array.isArray(call.args) && call.args.includes(FAST_TEST_PROCESS_POLICY_SENTINEL)
+    )))
+      .toMatchObject({
+        command: 'bun',
+        args: ['test', FAST_TEST_PROCESS_POLICY_SENTINEL, '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+      });
   } finally {
     console.log = originalLog;
   }
@@ -2198,6 +2275,21 @@ test.serial('affected tests isolate changed serial fast files', async () => {
       args: ['test', 'tests/unit/test-runner.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
     }
   ]);
+});
+
+test.serial('affected tests select the process-policy sentinel for the MainHealth hazard regression', async () => {
+  changedFiles = ['tests/unit/physical-no-follow.test.ts'];
+
+  const code = await runAffectedTests();
+
+  expect(code).toBe(0);
+  expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
+    FAST_TEST_PROCESS_POLICY_SENTINEL,
+    'tests/unit/physical-no-follow.test.ts'
+  ].sort());
+  expect(devCommandCalls).toHaveLength(2);
+  expect(devCommandCalls.every((call) => call.args[0] === 'test')).toBe(true);
+  expect(devCommandCalls.every((call) => !call.args.includes('--concurrent'))).toBe(true);
 });
 
 test.serial('affected tests treat changed slow files as notice-only quick-lane input', async () => {

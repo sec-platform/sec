@@ -81,6 +81,41 @@ const tree = 'b'.repeat(40);
 const worktree = `sha256:${'c'.repeat(64)}`;
 const supervisorLeaseDigest = `sha256:${'d'.repeat(64)}` as const;
 const emptyDigest: `sha256:${string}` = `sha256:${'e'.repeat(64)}`;
+
+async function prepareSyntheticOwnedRunChild(
+  snapshotRoot: string,
+  namespaceRoot: string,
+  parentNamespace: string,
+  nonce: string,
+  issuerProcessId: number,
+  leaseDigest: `sha256:${string}`
+) {
+  await mkdir(snapshotRoot, { recursive: true });
+  await workPackageGatePrepareRunChildNamespaceForTests(
+    snapshotRoot,
+    path.basename(snapshotRoot)
+  );
+  return workPackageGatePrepareRunChildForTests(
+    namespaceRoot,
+    parentNamespace,
+    nonce,
+    issuerProcessId,
+    leaseDigest
+  );
+}
+
+function syntheticRunChildNamespacePaths(): {
+  readonly snapshotRoot: string;
+  readonly namespaceRoot: string;
+} {
+  const namespace = `gate-${randomUUID().replaceAll('-', '')}-owned`;
+  const snapshotRoot = path.join(repoRoot, '.tmp', namespace);
+  return Object.freeze({
+    snapshotRoot,
+    namespaceRoot: path.join(snapshotRoot, '.tmp', 'test-workspaces', namespace)
+  });
+}
+
 const v4Options: WorkPackageGateOptions = Object.freeze({
   manifestPath: 'docs/work-packages/sm3-r3-actionable-runtime-gate-v4.md',
   selectionManifestPath: 'docs/work-packages/sm3-r1-focused-blocker-repair-v1.md',
@@ -1235,9 +1270,11 @@ test('diagnostic parser is stream-local, raw-byte bounded, and fail closed', () 
 });
 
 test('namespace scanner authorizes only canonical bound owner records and rejects ambiguous files', async () => {
-  const namespaceRoot = path.join(repoRoot, '.tmp', `synthetic-owner-census-${randomUUID()}`);
+  const fixture = syntheticRunChildNamespacePaths();
+  const { namespaceRoot, snapshotRoot } = fixture;
   const parentNamespace = `owner-census-${randomUUID()}`;
-  const runChild = await workPackageGatePrepareRunChildForTests(
+  const runChild = await prepareSyntheticOwnedRunChild(
+    snapshotRoot,
     namespaceRoot,
     parentNamespace,
     'a'.repeat(64),
@@ -1327,13 +1364,15 @@ test('namespace scanner authorizes only canonical bound owner records and reject
     expect(await workPackageGateRemoveOwnedNamespaceForTests(namespaceRoot, runChild)).toBe(true);
     await expect(lstat(namespaceRoot)).rejects.toThrow();
   } finally {
-    await rm(namespaceRoot, { recursive: true, force: true });
+    await rm(snapshotRoot, { recursive: true, force: true });
   }
 });
 
 test('namespace scanner consumes the shared v2 workspace lease inspector for active and terminal states', async () => {
-  const namespaceRoot = path.join(repoRoot, '.tmp', `synthetic-lease-census-${randomUUID()}`);
-  const runChild = await workPackageGatePrepareRunChildForTests(
+  const fixture = syntheticRunChildNamespacePaths();
+  const { namespaceRoot, snapshotRoot } = fixture;
+  const runChild = await prepareSyntheticOwnedRunChild(
+    snapshotRoot,
     namespaceRoot,
     `lease-census-${randomUUID()}`,
     'b'.repeat(64),
@@ -1371,11 +1410,13 @@ test('namespace scanner consumes the shared v2 workspace lease inspector for act
     await expect(workPackageGateNamespaceStructureForTests(namespaceRoot, runChild))
       .rejects.toThrow(/owner record|generation identity|terminal identity/);
   } finally {
-    await rm(namespaceRoot, { recursive: true, force: true });
+    await rm(snapshotRoot, { recursive: true, force: true });
   }
 
-  const recoveryNamespace = path.join(repoRoot, '.tmp', `synthetic-lease-recovery-${randomUUID()}`);
-  const recoveryRunChild = await workPackageGatePrepareRunChildForTests(
+  const recoveryFixture = syntheticRunChildNamespacePaths();
+  const recoveryNamespace = recoveryFixture.namespaceRoot;
+  const recoveryRunChild = await prepareSyntheticOwnedRunChild(
+    recoveryFixture.snapshotRoot,
     recoveryNamespace,
     `lease-recovery-${randomUUID()}`,
     'c'.repeat(64),
@@ -1433,13 +1474,15 @@ test('namespace scanner consumes the shared v2 workspace lease inspector for act
     await expect(workPackageGateNamespaceStructureForTests(recoveryNamespace, recoveryRunChild))
       .rejects.toThrow(/Legacy workspace writer lease|legacy/i);
   } finally {
-    await rm(recoveryNamespace, { recursive: true, force: true });
+    await rm(recoveryFixture.snapshotRoot, { recursive: true, force: true });
   }
 });
 
 test('namespace remover preserves a replacement introduced after its frozen physical census', async () => {
-  const namespaceRoot = path.join(repoRoot, '.tmp', `synthetic-removal-replacement-${randomUUID()}`);
-  const runChild = await workPackageGatePrepareRunChildForTests(
+  const fixture = syntheticRunChildNamespacePaths();
+  const { namespaceRoot, snapshotRoot } = fixture;
+  const runChild = await prepareSyntheticOwnedRunChild(
+    snapshotRoot,
     namespaceRoot,
     `removal-replacement-${randomUUID()}`,
     'd'.repeat(64),
@@ -1463,13 +1506,15 @@ test('namespace remover preserves a replacement introduced after its frozen phys
     expect(await readFile(path.join(runChildRoot, 'replacement-owner.txt'), 'utf8')).toBe('foreign');
     expect((await lstat(displacedRoot)).isDirectory()).toBe(true);
   } finally {
-    await rm(namespaceRoot, { recursive: true, force: true });
+    await rm(snapshotRoot, { recursive: true, force: true });
   }
 });
 
 test('namespace remover preserves a foreign sibling inserted after its frozen physical census', async () => {
-  const namespaceRoot = path.join(repoRoot, '.tmp', `synthetic-removal-insertion-${randomUUID()}`);
-  const runChild = await workPackageGatePrepareRunChildForTests(
+  const fixture = syntheticRunChildNamespacePaths();
+  const { namespaceRoot, snapshotRoot } = fixture;
+  const runChild = await prepareSyntheticOwnedRunChild(
+    snapshotRoot,
     namespaceRoot,
     `removal-insertion-${randomUUID()}`,
     'e'.repeat(64),
@@ -1491,7 +1536,7 @@ test('namespace remover preserves a foreign sibling inserted after its frozen ph
     expect(await readFile(path.join(foreignSibling, 'owner.txt'), 'utf8')).toBe('foreign');
     await expect(lstat(path.join(namespaceRoot, runChild.name))).rejects.toThrow();
   } finally {
-    await rm(namespaceRoot, { recursive: true, force: true });
+    await rm(snapshotRoot, { recursive: true, force: true });
   }
 });
 
