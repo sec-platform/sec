@@ -1,9 +1,11 @@
+import { FAST_TEST_PROCESS_POLICY_SENTINEL } from '../../dev-runner/fast-test-policy.ts';
 import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
 
 const DEV_RUNNER_FAST_TESTS = [
   'tests/contract/dev-runner-contract.test.ts',
   'tests/contract/test-impact.test.ts',
-  'tests/unit/ci-pr-risk-selection.test.ts'
+  'tests/unit/ci-pr-risk-selection.test.ts',
+  FAST_TEST_PROCESS_POLICY_SENTINEL
 ];
 
 const DEV_RUNNER_WORKSPACE_FAST_TESTS = [

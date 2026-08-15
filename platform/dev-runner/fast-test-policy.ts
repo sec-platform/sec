@@ -5,6 +5,7 @@ export const MAX_FAST_TEST_PROCESS_SHARD_SIZE = 16;
 export const MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET = 16;
 export const MAX_FAST_TEST_PROCESS_CONCURRENCY = 8;
 export const DEFAULT_FAST_TEST_TIMEOUT_MS = 180_000;
+export const FAST_TEST_PROCESS_POLICY_SENTINEL = 'tests/unit/test-runner.test.ts';
 
 export const FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER = [
   'independent-process',
@@ -14,6 +15,12 @@ export const FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER = [
 ] as const;
 
 export type FastTestProcessResourceClass = typeof FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER[number];
+
+export interface FastTestProcessIsolationDefinitionV1 {
+  readonly file: string;
+  readonly reason: string;
+  readonly resourceClass: FastTestProcessResourceClass;
+}
 
 export type FastTestResourceClassLimits = Readonly<Record<FastTestProcessResourceClass, number>>;
 
@@ -225,6 +232,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/physical-no-follow.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
     reason: 'module-global-runtime-cache-and-process-lifecycle',
     resourceClass: 'shared-host-runtime'
@@ -284,17 +296,71 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     reason: 'host-profile-probe',
     resourceClass: 'host-profile'
   }
-] as const satisfies readonly {
-  file: string;
-  reason: string;
-  resourceClass: FastTestProcessResourceClass;
-}[];
+] as const satisfies readonly FastTestProcessIsolationDefinitionV1[];
+
+export function assertUniqueFastTestProcessIsolationDefinitionsV1(
+  definitions: readonly FastTestProcessIsolationDefinitionV1[]
+): void {
+  const seen = new Set<string>();
+  const resourceClasses = new Set<string>(FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER);
+  for (const definition of definitions) {
+    if (!/^tests\/.+\.(?:test|spec)\.tsx?$/.test(definition.file)) {
+      throw new Error(`Fast-test process isolation path is invalid: ${definition.file}`);
+    }
+    if (seen.has(definition.file)) {
+      throw new Error(`Fast-test process isolation registration is duplicated: ${definition.file}`);
+    }
+    if (definition.reason.trim().length === 0) {
+      throw new Error(`Fast-test process isolation reason is empty: ${definition.file}`);
+    }
+    if (!resourceClasses.has(definition.resourceClass)) {
+      throw new Error(`Fast-test process isolation resource class is invalid: ${definition.file}`);
+    }
+    seen.add(definition.file);
+  }
+}
+
+assertUniqueFastTestProcessIsolationDefinitionsV1(FAST_TEST_PROCESS_ISOLATION_DEFINITIONS);
 
 export const FAST_TEST_PROCESS_ISOLATION_REGISTRY = FAST_TEST_PROCESS_ISOLATION_DEFINITIONS
   .map((definition) => ({
     ...definition,
     processLimit: DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[definition.resourceClass]
   }));
+
+export function assertFastTestProcessPolicyInventoryV1(
+  currentFastFiles: readonly string[]
+): void {
+  const current = new Set<string>();
+  for (const file of currentFastFiles) {
+    if (current.has(file)) throw new Error(`Current fast-test inventory is duplicated: ${file}`);
+    current.add(file);
+  }
+  if (!current.has(FAST_TEST_PROCESS_POLICY_SENTINEL)) {
+    throw new Error(`Fast-test process policy sentinel is absent: ${FAST_TEST_PROCESS_POLICY_SENTINEL}`);
+  }
+
+  const excluded = new Set<string>();
+  for (const entry of DEFAULT_FAST_TEST_EXCLUSION_REGISTRY) {
+    if (excluded.has(entry.file)) {
+      throw new Error(`Default fast-test exclusion is duplicated: ${entry.file}`);
+    }
+    if (!current.has(entry.file)) {
+      throw new Error(`Default fast-test exclusion is stale: ${entry.file}`);
+    }
+    excluded.add(entry.file);
+  }
+
+  assertUniqueFastTestProcessIsolationDefinitionsV1(FAST_TEST_PROCESS_ISOLATION_DEFINITIONS);
+  for (const entry of FAST_TEST_PROCESS_ISOLATION_REGISTRY) {
+    if (!current.has(entry.file)) {
+      throw new Error(`Fast-test process isolation registration is stale: ${entry.file}`);
+    }
+    if (entry.processLimit !== DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS[entry.resourceClass]) {
+      throw new Error(`Fast-test process isolation limit drifted: ${entry.file}`);
+    }
+  }
+}
 
 export const PROCESS_ISOLATED_FAST_TEST_FILES = FAST_TEST_PROCESS_ISOLATION_REGISTRY.map(({ file }) => file);
 const resourceClassByFastTestFile = new Map<string, FastTestProcessResourceClass>(

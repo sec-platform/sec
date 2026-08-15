@@ -2,18 +2,18 @@
 title: SEC 滚动近期计划
 status: active
 domain: current-control
-last-reviewed: 2026-08-15
+last-reviewed: 2026-08-16
 ---
 
 # SEC 滚动近期计划
 
-本投影由唯一MainHealth repair renderer绑定exact `main@95fb5d1deb773c3f2f7663997455cd06363557be`、tree `69d7e238e98bcfa58c22f11f2f3b227dc009b4ae`、health `sha256:781d13204a0d18bfaea9db0f66d0477259e64c100d88dfdeb30024c08d50f49b`与排序failure fingerprints `sha256:b82d7f2dda9c8d9a770e3d811150f0be97153bd4628930949770bcafca0bb278`。旧epoch说明、caller prose与普通WorkDecision都不能参与本次repair projection；长期DAG、current spec和普通选择权仍归其canonical owner。
+本投影由唯一MainHealth repair renderer绑定exact `main@f58d7395768283f4e032a8f33543d13f69f81ea5`、tree `20c3f6990d137d604568eff4ecdd72a7b919cf35`、health `sha256:f9409f7a840149d52448b64bf565d1ce3d44b99cd8721dd1afb8b243e757c309`与排序failure fingerprints `sha256:d4fc7e3282132ce5554d43771cac3c4ef7b430a7ec16909e9f422b6578988424`。旧epoch说明、caller prose与普通WorkDecision都不能参与本次repair projection；长期DAG、current spec和普通选择权仍归其canonical owner。
 
 ## 当前唯一 Work Package
 
-### default-branch-health-repair-95fb5d1deb773c3f2f7663997455cd06363557be-b8d39784353e7ef1e71ad74c2abad952a0615484e9a3049a8dda13cede6fc504
+### default-branch-health-repair-f58d7395768283f4e032a8f33543d13f69f81ea5-603fa7978e3894ce8f020d52a288d46f6220e7fb232cd39e1123e9044fb23add
 
-Exact degraded-main repair for `main@95fb5d1deb773c3f2f7663997455cd06363557be` and health `sha256:781d13204a0d18bfaea9db0f66d0477259e64c100d88dfdeb30024c08d50f49b`. This temporary projection has no ordinary work-selection authority.
+Exact degraded-main repair for `main@f58d7395768283f4e032a8f33543d13f69f81ea5` and health `sha256:f9409f7a840149d52448b64bf565d1ce3d44b99cd8721dd1afb8b243e757c309`. This temporary projection has no ordinary work-selection authority.
 
 ## 候选 Work Package
 

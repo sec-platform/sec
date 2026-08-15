@@ -61,8 +61,10 @@ import {
   TEST_WORKSPACE_RUN_CHILD_ENV
 } from './env-manager.ts';
 import {
+  assertFastTestProcessPolicyInventoryV1,
   DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
   DEFAULT_FAST_TEST_TIMEOUT_MS,
+  FAST_TEST_PROCESS_POLICY_SENTINEL,
   FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
   isDefaultFastTestFile,
   planFastTestProcesses,
@@ -191,6 +193,7 @@ function fastTestInvocations(
   }
 
   const completeFastFiles = getFastTestFilesSync();
+  assertFastTestProcessPolicyInventoryV1(completeFastFiles);
   const availableFiles = selectors.length === 0 && inventory === 'default'
     ? completeFastFiles.filter(isDefaultFastTestFile)
     : completeFastFiles;
@@ -668,8 +671,10 @@ function affectedTestSelection(
   files: string[],
   transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): AffectedTestSelection {
+  const currentFastFiles = getFastTestFilesSync();
+  assertFastTestProcessPolicyInventoryV1(currentFastFiles);
   const currentTestFiles = new Set([
-    ...getFastTestFilesSync(),
+    ...currentFastFiles,
     ...getSlowTestFilesSync()
   ]);
   const inventory = CodexDevelopmentBuildAffectedTestInventoryV1(
@@ -677,12 +682,21 @@ function affectedTestSelection(
     undefined,
     transition
   );
+  // A changed fast-test source can introduce or remove a process-global
+  // hazard without changing the scheduler itself. Always select the one
+  // executable policy census from the raw Git delta (including a deleted test
+  // that is no longer runnable), while still invoking only current test files.
+  const processPolicySentinels = files.some(isFastTestFile)
+    ? [FAST_TEST_PROCESS_POLICY_SENTINEL]
+    : [];
   return {
     tests: inventory.changedFastTests,
     slowTests: inventory.changedSlowTests,
-    affectedTests: inventory.affectedFastTests,
+    affectedTests: unionTestFiles(inventory.affectedFastTests, processPolicySentinels),
     affectedSlowTests: inventory.affectedSlowTests,
-    affectedOwners: inventory.affectedOwners,
+    affectedOwners: processPolicySentinels.length === 0
+      ? inventory.affectedOwners
+      : uniqueSorted([...inventory.affectedOwners, 'dev-runner']),
     sourceChanged: inventory.sourceChanged,
     selectionResolved: inventory.selectionResolved,
     unresolvedTestFiles: inventory.unresolvedTestFiles
