@@ -354,8 +354,10 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'work-package-gate',
     identity: { kind: 'contract', id: 'work-package-gate' },
+    autoReferenceMode: 'declared-only',
     removedSourceTransitions: RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS,
     sourceFiles: [
+      'scripts/run-work-package-gate.ts',
       'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
       'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
       'docs/evidence/v0-4-semantic-mutation-bounded-isolation-scan-exact-stop-record-2026-07-17.json',

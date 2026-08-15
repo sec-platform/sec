@@ -17,6 +17,7 @@ import {
   TCB_CLOSURE_LOCK,
   TCB_CLOSURE_LOCK_RECEIPT,
   TCB_CLOSURE_TRUST_REVISION,
+  TCB_REVIEWED_EXTERNAL_IMPORTS,
   TCB_REVIEWED_PROCESS_DISPATCHERS,
   TCB_TRUST_ROOT_V3,
   assertTcbClosureLockDataMatchesV2,
@@ -111,6 +112,21 @@ test('TCB candidate root rejects aliases, traversal, and non-regular candidate l
   }
 });
 
+test('TCB closure explicitly models direct OS parent-process identity without opening computed process access', () => {
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-parent-process.ts',
+    'export const issuerProcessId = process.ppid;'
+  )).not.toThrow();
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-parent-process.ts',
+    'export const issuerProcessId = process.parentPid;'
+  )).toThrow('unclassified process member parentPid');
+  expect(() => runtimeRelativeImportsFromSource(
+    'synthetic-parent-process.ts',
+    "export const issuerProcessId = process['ppid'];"
+  )).toThrow('computed process member');
+});
+
 test('TCB closure lock has the correct schema and trust revision', () => {
   expect(TCB_CLOSURE_LOCK.schema).toBe('sec-tcb-closure-lock-v2');
   expect(TCB_CLOSURE_LOCK.trustRevision).toBe(TCB_CLOSURE_TRUST_REVISION);
@@ -131,6 +147,9 @@ test('TCB closure lock binds the reviewed causal module set', () => {
   expect(TCB_CLOSURE_LOCK.moduleCount).toBe(TCB_CLOSURE_LOCK.modules.length);
   expect(TCB_CLOSURE_LOCK.modules).toContain('platform/shared/canonical-primitives.ts');
   expect(new Set(TCB_CLOSURE_LOCK.modules).size).toBe(TCB_CLOSURE_LOCK.moduleCount);
+  expect(TCB_REVIEWED_EXTERNAL_IMPORTS).toContain('platform/dev-runner/env-manager.ts -> node:net');
+  expect(TCB_CLOSURE_LOCK.reviewedExternalImports)
+    .toContain('platform/dev-runner/env-manager.ts -> node:net');
 });
 
 test('TCB closure lock is the sole causal-runtime identity consumed by the trust-root view', () => {

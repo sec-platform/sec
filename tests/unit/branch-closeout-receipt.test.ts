@@ -304,10 +304,33 @@ test('hosted publisher requires the exact non-null Actions bot and App tuple', (
     ...actionsComment(23, 'body'),
     user: { login: 'maintainer', id: 1, node_id: 'U_1', type: 'User' }
   }, 'human comment');
+  const unrelatedAppBot = issueCommentRecord({
+    ...actionsComment(24, 'unrelated review summary', {
+      id: 1144995,
+      nodeId: 'A_kwHOAOQ6Gs4AEXij',
+      slug: 'chatgpt-codex-connector'
+    }),
+    user: {
+      login: 'chatgpt-codex-connector[bot]',
+      id: 199175422,
+      node_id: 'BOT_kgDOC98s_g',
+      type: 'Bot'
+    }
+  }, 'unrelated App bot comment');
   expect(hostedPublisherMatches(exact)).toBe(true);
   expect(hostedPublisherMatches(absentApp)).toBe(false);
   expect(hostedPublisherMatches(wrongApp)).toBe(false);
   expect(hostedPublisherMatches(human)).toBe(false);
+  expect(unrelatedAppBot.author).toBe('chatgpt-codex-connector[bot]');
+  expect(hostedPublisherMatches(unrelatedAppBot)).toBe(false);
+  expect(() => issueCommentRecord({
+    ...actionsComment(25, 'forged bot-shaped user'),
+    user: { login: 'chatgpt-codex-connector[bot]', id: 1, node_id: 'U_1', type: 'User' }
+  }, 'forged bot-shaped user')).toThrow('must be a GitHub login');
+  expect(() => issueCommentRecord({
+    ...actionsComment(26, 'malformed bot login'),
+    user: { login: 'chatgpt_codex[bot]', id: 2, node_id: 'BOT_2', type: 'Bot' }
+  }, 'malformed bot comment')).toThrow('must be a GitHub login');
 });
 
 test('public modules expose no permit, publisher, finalizer, or runner injection authority', async () => {

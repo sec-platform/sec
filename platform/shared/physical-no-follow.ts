@@ -6,6 +6,7 @@ import {
   fstatSync,
   fsyncSync,
   lstatSync,
+  opendirSync,
   openSync,
   readdirSync,
   readFileSync,
@@ -95,7 +96,14 @@ interface InternalNoFollowDirectoryTreeEntryV1 extends NoFollowDirectoryTreeEntr
   readonly contentDigest: `sha256:${string}` | null;
 }
 
-type NoFollowDirectoryTreeFileModeV1 = 'bounded-bytes' | 'streaming-digest';
+type NoFollowDirectoryTreeFileModeV1 = 'bounded-bytes' | 'metadata-only' | 'streaming-digest';
+
+export interface NoFollowDirectoryTreeMetadataOptionsV1 {
+  /** Monotonic `performance.now()` deadline. */
+  readonly deadlineAtMs: number;
+  /** Hard entry ceiling, checked while directory entries are enumerated. */
+  readonly maximumEntries: number;
+}
 
 function codeOf(error: unknown): string | null {
   if (!error || typeof error !== 'object' || !('code' in error)) return null;
@@ -155,6 +163,22 @@ const LINUX_O_NONBLOCK = 0x800;
 const LINUX_AT_FDCWD = -100;
 const LINUX_AT_REMOVEDIR = 0x0200;
 const LINUX_RENAME_NOREPLACE = 1;
+const LINUX_IN_CREATE = 0x0000_0100;
+const LINUX_IN_DELETE = 0x0000_0200;
+const LINUX_IN_MOVED_FROM = 0x0000_0040;
+const LINUX_IN_MOVED_TO = 0x0000_0080;
+const LINUX_IN_DELETE_SELF = 0x0000_0400;
+const LINUX_IN_MOVE_SELF = 0x0000_0800;
+const LINUX_IN_Q_OVERFLOW = 0x0000_4000;
+const LINUX_IN_IGNORED = 0x0000_8000;
+const LINUX_IN_ONLYDIR = 0x0100_0000;
+const LINUX_IN_ISDIR = 0x4000_0000;
+const LINUX_DIRECTORY_CREATE_WATCH_MASK = LINUX_IN_CREATE | LINUX_IN_DELETE |
+  LINUX_IN_MOVED_FROM | LINUX_IN_MOVED_TO | LINUX_IN_DELETE_SELF |
+  LINUX_IN_MOVE_SELF | LINUX_IN_ONLYDIR;
+const LINUX_INOTIFY_EVENT_HEADER_BYTES = 16;
+const LINUX_INOTIFY_READ_BYTES = 64 * 1024;
+const LINUX_INOTIFY_MAX_EVENTS = 1024;
 
 type LinuxLibc = ReturnType<typeof loadLinuxLibc>;
 let linuxLibc: LinuxLibc | undefined;
@@ -175,6 +199,8 @@ function loadLinuxLibc() {
       linkat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
       renameat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr], returns: FFIType.i32 },
       renameat2: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
+      inotify_init1: { args: [FFIType.i32], returns: FFIType.i32 },
+      inotify_add_watch: { args: [FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
       fsync: { args: [FFIType.i32], returns: FFIType.i32 },
       close: { args: [FFIType.i32], returns: FFIType.i32 },
       __errno_location: { args: [], returns: FFIType.ptr }
@@ -309,6 +335,326 @@ function linuxIdentity(fd: number, absolutePath: string): PhysicalDirectoryIdent
   if (!stats.isDirectory()) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${absolutePath} is not an ordinary directory.`);
   const objectId = `linux:${String(stats.dev)}:${String(stats.ino)}:${String(stats.mode)}`;
   return identityFromStats({ absolutePath, finalPath: absolutePath, device: stats.dev, inode: stats.ino, objectId });
+}
+
+interface LinuxDirectoryMutationEventV1 {
+  readonly watchDescriptor: number;
+  readonly mask: number;
+  readonly name: string;
+}
+
+interface LinuxDirectoryCreateWitnessV1 {
+  readonly fd: number;
+  readonly watchDescriptor: number;
+  readonly ancestorEdges: ReadonlyMap<number, string>;
+}
+
+interface LinuxDirectoryCreateTransactionV1 {
+  readonly filesystemRootFd: number;
+  readonly witnessFd: number;
+  currentFd: number;
+  current: PhysicalDirectoryIdentityV1;
+  currentWatchDescriptor: number;
+  readonly ancestorEdges: Map<number, string>;
+}
+
+function linuxOpenDirectoryMutationWitness(label: string): number {
+  const symbols = requireLinuxLibc().symbols;
+  const fd = symbols.inotify_init1(LINUX_O_NONBLOCK | LINUX_O_CLOEXEC);
+  if (fd < 0) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} cannot open the retained Linux mutation witness (errno ${linuxErrno()}).`
+    );
+  }
+  return fd;
+}
+
+function linuxAddDirectoryMutationWatch(witnessFd: number, directoryFd: number, label: string): number {
+  // /proc/self/fd is a kernel-owned spelling of the already-retained
+  // directory, not a second lookup of the caller's lexical path.
+  const watchDescriptor = requireLinuxLibc().symbols.inotify_add_watch(
+    witnessFd,
+    Buffer.from(`/proc/self/fd/${directoryFd}\0`, 'utf8'),
+    LINUX_DIRECTORY_CREATE_WATCH_MASK
+  );
+  if (watchDescriptor < 0) {
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} cannot bind the retained Linux mutation witness (errno ${linuxErrno()}).`
+    );
+  }
+  return watchDescriptor;
+}
+
+function linuxReadDirectoryMutationEvents(
+  witness: LinuxDirectoryCreateWitnessV1,
+  label: string
+): readonly LinuxDirectoryMutationEventV1[] {
+  const events: LinuxDirectoryMutationEventV1[] = [];
+  const buffer = Buffer.allocUnsafe(LINUX_INOTIFY_READ_BYTES);
+  while (true) {
+    let observed: number;
+    try {
+      observed = readSync(witness.fd, buffer, 0, buffer.byteLength, null);
+    } catch (error) {
+      const code = codeOf(error);
+      if (code === 'EAGAIN' || code === 'EWOULDBLOCK') break;
+      throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} mutation witness read failed.`, error);
+    }
+    if (observed === 0) break;
+    let offset = 0;
+    while (offset < observed) {
+      if (observed - offset < LINUX_INOTIFY_EVENT_HEADER_BYTES) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} mutation witness header is truncated.`);
+      }
+      const watchDescriptor = buffer.readInt32LE(offset);
+      const mask = buffer.readUInt32LE(offset + 4);
+      const nameLength = buffer.readUInt32LE(offset + 12);
+      const eventBytes = LINUX_INOTIFY_EVENT_HEADER_BYTES + nameLength;
+      if (nameLength > LINUX_INOTIFY_READ_BYTES || offset + eventBytes > observed) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} mutation witness name is malformed.`);
+      }
+      const rawName = buffer.subarray(
+        offset + LINUX_INOTIFY_EVENT_HEADER_BYTES,
+        offset + eventBytes
+      );
+      const terminator = rawName.indexOf(0);
+      const nameBytes = terminator < 0 ? rawName : rawName.subarray(0, terminator);
+      if (terminator >= 0 && rawName.subarray(terminator).some((value) => value !== 0)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} mutation witness name padding is malformed.`);
+      }
+      const name = nameBytes.toString('utf8');
+      if (!Buffer.from(name, 'utf8').equals(nameBytes)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} mutation witness name is not exact UTF-8.`);
+      }
+      events.push(Object.freeze({ watchDescriptor, mask, name }));
+      if (events.length > LINUX_INOTIFY_MAX_EVENTS) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} mutation witness exceeded its event bound.`);
+      }
+      offset += eventBytes;
+    }
+  }
+  return Object.freeze(events);
+}
+
+function linuxAssertDirectoryCreateWitness(
+  witness: LinuxDirectoryCreateWitnessV1,
+  events: readonly LinuxDirectoryMutationEventV1[],
+  name: string,
+  created: boolean,
+  label: string
+): void {
+  if (events.some((event) => event.mask & (LINUX_IN_Q_OVERFLOW | LINUX_IN_IGNORED))) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} mutation witness was invalidated or overflowed.`);
+  }
+  const relevant: LinuxDirectoryMutationEventV1[] = [];
+  for (const event of events) {
+    const ancestorName = witness.ancestorEdges.get(event.watchDescriptor);
+    if (ancestorName !== undefined) {
+      if (event.name === ancestorName || event.mask & (LINUX_IN_DELETE_SELF | LINUX_IN_MOVE_SELF)) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+          `${label} authorized ancestor edge changed during directory creation.`
+        );
+      }
+      continue;
+    }
+    if (event.watchDescriptor !== witness.watchDescriptor) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} observed an unknown mutation watch.`);
+    }
+    if (event.mask & (LINUX_IN_DELETE_SELF | LINUX_IN_MOVE_SELF)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} parent moved during directory creation.`);
+    }
+    if (event.name === name) relevant.push(event);
+  }
+  if (!created && relevant.length === 0) return;
+  const exactCreateMask = LINUX_IN_CREATE | LINUX_IN_ISDIR;
+  if (created && relevant.length === 1) {
+    const [event] = relevant;
+    if (event.watchDescriptor === witness.watchDescriptor && event.mask === exactCreateMask && event.name === name) {
+      return;
+    }
+  }
+  throw physicalError(
+    'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+    `${label} observed a foreign or replacement namespace mutation during directory creation.`
+  );
+}
+
+function linuxOpenWatchedCanonicalDirectoryChain(
+  expected: PhysicalDirectoryChainV1,
+  label: string
+): LinuxDirectoryCreateTransactionV1 {
+  const rootFd = linuxOpenRoot(label);
+  const witnessFd = linuxOpenDirectoryMutationWitness(label);
+  const ancestorEdges = new Map<number, string>();
+  let currentFd = rootFd;
+  let currentPath = path.parse(expected.target.path).root;
+  try {
+    const segments = expected.target.path.slice(currentPath.length).split('/').filter(Boolean);
+    if (segments.length === 0) {
+      const current = linuxIdentity(rootFd, expected.target.path);
+      if (expected.ancestors.length !== 1 || !sameIdentity(expected.target, current) ||
+        !sameIdentity(expected.ancestors[0]!, current)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} canonical root identity changed.`);
+      }
+      const currentWatchDescriptor = linuxAddDirectoryMutationWatch(witnessFd, rootFd, label);
+      return {
+        filesystemRootFd: rootFd,
+        witnessFd,
+        currentFd: rootFd,
+        current,
+        currentWatchDescriptor,
+        ancestorEdges
+      };
+    }
+    if (expected.ancestors.length !== segments.length) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+        `${label} authorized ancestor chain shape changed.`
+      );
+    }
+    let current: PhysicalDirectoryIdentityV1 | null = null;
+    for (const [index, segment] of segments.entries()) {
+      const ancestorWatchDescriptor = linuxAddDirectoryMutationWatch(witnessFd, currentFd, `${label} ancestor`);
+      ancestorEdges.set(ancestorWatchDescriptor, segment);
+      const nextPath = path.join(currentPath, segment);
+      const nextFd = linuxOpenAt(currentFd, segment, `${label} ancestor`);
+      const next = linuxIdentity(nextFd, nextPath);
+      if (!sameIdentity(expected.ancestors[index]!, next)) {
+        closeSync(nextFd);
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} authorized ancestor identity changed.`);
+      }
+      if (currentFd !== rootFd) closeSync(currentFd);
+      currentFd = nextFd;
+      currentPath = nextPath;
+      current = next;
+    }
+    if (current === null || !sameIdentity(expected.target, current)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} authorized parent identity changed.`);
+    }
+    const currentWatchDescriptor = linuxAddDirectoryMutationWatch(witnessFd, currentFd, label);
+    return {
+      filesystemRootFd: rootFd,
+      witnessFd,
+      currentFd,
+      current,
+      currentWatchDescriptor,
+      ancestorEdges
+    };
+  } catch (error) {
+    if (currentFd !== rootFd) closeSync(currentFd);
+    closeSync(rootFd);
+    closeSync(witnessFd);
+    throw error;
+  }
+}
+
+function linuxCloseDirectoryCreateTransaction(transaction: LinuxDirectoryCreateTransactionV1): void {
+  if (transaction.currentFd !== transaction.filesystemRootFd) closeSync(transaction.currentFd);
+  closeSync(transaction.filesystemRootFd);
+  closeSync(transaction.witnessFd);
+}
+
+function linuxDirectoryCreateTransactionWitness(
+  transaction: LinuxDirectoryCreateTransactionV1
+): LinuxDirectoryCreateWitnessV1 {
+  return Object.freeze({
+    fd: transaction.witnessFd,
+    watchDescriptor: transaction.currentWatchDescriptor,
+    ancestorEdges: transaction.ancestorEdges
+  });
+}
+
+function linuxAdvanceDirectoryCreateTransaction(
+  transaction: LinuxDirectoryCreateTransactionV1,
+  opened: Readonly<{ fd: number; identity: PhysicalDirectoryIdentityV1 }>,
+  label: string
+): void {
+  try {
+    transaction.ancestorEdges.set(
+      transaction.currentWatchDescriptor,
+      path.basename(opened.identity.path)
+    );
+    const nextWatchDescriptor = linuxAddDirectoryMutationWatch(transaction.witnessFd, opened.fd, label);
+    if (transaction.currentFd !== transaction.filesystemRootFd) closeSync(transaction.currentFd);
+    transaction.currentFd = opened.fd;
+    transaction.current = opened.identity;
+    transaction.currentWatchDescriptor = nextWatchDescriptor;
+  } catch (error) {
+    closeSync(opened.fd);
+    throw error;
+  }
+}
+
+function linuxOpenOrCreateDirectoryAt(input: {
+  readonly parentFd: number;
+  readonly parent: PhysicalDirectoryIdentityV1;
+  readonly witness: LinuxDirectoryCreateWitnessV1;
+  readonly name: string;
+  readonly absolutePath: string;
+  readonly allowExisting: boolean;
+  readonly label: string;
+}): Readonly<{ fd: number; created: boolean; identity: PhysicalDirectoryIdentityV1 }> {
+  let childFd: number | null = null;
+  let readbackFd: number | null = null;
+  let created = false;
+  try {
+    linuxAssertDirectoryCreateWitness(
+      input.witness,
+      linuxReadDirectoryMutationEvents(input.witness, input.label),
+      input.name,
+      false,
+      input.label
+    );
+    if (!sameIdentity(input.parent, linuxIdentity(input.parentFd, input.parent.path))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${input.label} parent changed before mkdirat.`);
+    }
+    if (requireLinuxLibc().symbols.mkdirat(
+      input.parentFd,
+      Buffer.from(`${input.name}\0`, 'utf8'),
+      0o700
+    ) === 0) {
+      created = true;
+    } else {
+      const errno = linuxErrno();
+      if (errno !== 17 || !input.allowExisting) {
+        throw physicalError(
+          errno === 17 ? 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED' : 'PHYSICAL_NO_FOLLOW_DURABILITY_FAILED',
+          errno === 17
+            ? `${input.label} name already exists.`
+            : `${input.label} relative mkdirat failed (errno ${errno}).`
+        );
+      }
+    }
+    childFd = linuxOpenAt(input.parentFd, input.name, input.label);
+    const identity = linuxIdentity(childFd, input.absolutePath);
+    if (created && requireLinuxLibc().symbols.fsync(input.parentFd) !== 0) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${input.label} parent fsync failed.`);
+    }
+    readbackFd = linuxOpenAt(input.parentFd, input.name, `${input.label} final readback`);
+    const readbackIdentity = linuxIdentity(readbackFd, input.absolutePath);
+    if (!sameIdentity(identity, readbackIdentity)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${input.label} final identity differs from the retained child.`);
+    }
+    linuxAssertDirectoryCreateWitness(
+      input.witness,
+      linuxReadDirectoryMutationEvents(input.witness, input.label),
+      input.name,
+      created,
+      input.label
+    );
+    if (!sameIdentity(input.parent, linuxIdentity(input.parentFd, input.parent.path))) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${input.label} parent changed during final readback.`);
+    }
+    const result = Object.freeze({ fd: childFd, created, identity });
+    childFd = null;
+    return result;
+  } finally {
+    if (readbackFd !== null) closeSync(readbackFd);
+    if (childFd !== null) closeSync(childFd);
+  }
 }
 
 const WINDOWS_INVALID_HANDLE = 0xffff_ffff_ffff_ffffn;
@@ -601,6 +947,8 @@ function windowsOpenRelativeDirectory(
   );
   if (status < 0) {
     if (disposition === WINDOWS_FILE_CREATE && status === WINDOWS_STATUS_OBJECT_NAME_COLLISION) return null;
+    if (disposition === WINDOWS_FILE_OPEN &&
+      (status === WINDOWS_STATUS_OBJECT_NAME_NOT_FOUND || status === WINDOWS_STATUS_OBJECT_PATH_NOT_FOUND)) return null;
     throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} relative directory NtCreateFile failed (NTSTATUS ${status}).`);
   }
   const handle = handleBuffer.readBigUInt64LE(0);
@@ -817,6 +1165,46 @@ function windowsInventoryRetainedEntry(
         ? Object.freeze({ ...windowsRetainedReparseObservationV1(handle, label), contentDigest: null })
         : Object.freeze({ size: 0, contentDigest: null, linkTarget: null });
     return Object.freeze({ kind, ...identity, ...content, linkTarget: 'linkTarget' in content ? content.linkTarget : null });
+  } finally {
+    closeWindowsHandle(handle);
+  }
+}
+
+function windowsMetadataRetainedEntry(
+  absolutePath: string,
+  label: string
+): Omit<NoFollowDirectoryTreeInventoryEntryV1, 'relativePath'> {
+  const handle = windowsOpenNoFollowLeaf(absolutePath, label, WINDOWS_GENERIC_READ);
+  try {
+    const tag = Buffer.alloc(8);
+    if (requireWindowsKernel32().symbols.GetFileInformationByHandleEx(
+      handle,
+      WINDOWS_FILE_ATTRIBUTE_TAG_INFO,
+      tag,
+      tag.byteLength
+    ) === 0) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} attributes cannot be proven.`);
+    }
+    const attributes = tag.readUInt32LE(0);
+    const kind: NoFollowDirectoryTreeEntryKindV1 = (attributes & WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT) !== 0
+      ? 'link' : (attributes & WINDOWS_FILE_ATTRIBUTE_DIRECTORY) !== 0 ? 'directory' : 'file';
+    const identity = windowsRetainedLeafIdentity(handle, absolutePath, kind, label);
+    const observation = kind === 'file'
+      ? windowsRetainedFileSnapshotV1(handle, label)
+      : kind === 'link'
+        ? windowsRetainedReparseObservationV1(handle, label)
+        : Object.freeze({ size: 0n, linkTarget: null });
+    const rawSize = typeof observation.size === 'bigint' ? observation.size : BigInt(observation.size);
+    if (rawSize < 0n || rawSize > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} size is outside the metadata inventory domain.`);
+    }
+    return Object.freeze({
+      kind,
+      ...identity,
+      size: Number(rawSize),
+      contentDigest: null,
+      linkTarget: 'linkTarget' in observation ? observation.linkTarget : null
+    });
   } finally {
     closeWindowsHandle(handle);
   }
@@ -1175,10 +1563,46 @@ export function assertSameNoFollowDirectoryIdentityV1(
  * reparse directory.  Reparse descendants are represented as link entries so
  * the owning operation may unlink that exact entry but never traverse it.
  */
+function metadataScanNamesV1(
+  directory: string,
+  observedEntries: number,
+  options: Required<NoFollowDirectoryTreeMetadataOptionsV1>
+): readonly string[] {
+  const names: string[] = [];
+  const handle = opendirSync(directory);
+  try {
+    for (;;) {
+      if (performance.now() > options.deadlineAtMs) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow metadata inventory deadline exceeded.');
+      }
+      const entry = handle.readSync();
+      if (entry === null) break;
+      if (observedEntries + names.length >= options.maximumEntries) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'No-follow metadata inventory entry bound exceeded.');
+      }
+      names.push(entry.name);
+    }
+  } finally {
+    handle.closeSync();
+  }
+  return Object.freeze(names.sort((left, right) => left.localeCompare(right)));
+}
+
 function scanNoFollowDirectoryTreeInternalV1(
   root: PhysicalDirectoryIdentityV1,
-  fileMode: NoFollowDirectoryTreeFileModeV1
+  fileMode: NoFollowDirectoryTreeFileModeV1,
+  metadataOptions: Partial<NoFollowDirectoryTreeMetadataOptionsV1> = {}
 ): readonly InternalNoFollowDirectoryTreeEntryV1[] {
+  const boundedMetadata = Object.freeze({
+    deadlineAtMs: metadataOptions.deadlineAtMs ?? Number.POSITIVE_INFINITY,
+    maximumEntries: metadataOptions.maximumEntries ?? 100_000
+  });
+  if (!Number.isFinite(boundedMetadata.deadlineAtMs) && boundedMetadata.deadlineAtMs !== Number.POSITIVE_INFINITY) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow metadata inventory deadline is invalid.');
+  }
+  if (!Number.isSafeInteger(boundedMetadata.maximumEntries) || boundedMetadata.maximumEntries < 1) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow metadata inventory entry bound is invalid.');
+  }
   const target = assertSameNoFollowDirectoryIdentityV1(root, 'No-follow scan root').target;
   const entries: InternalNoFollowDirectoryTreeEntryV1[] = [];
   if (process.platform === 'linux') {
@@ -1197,7 +1621,9 @@ function scanNoFollowDirectoryTreeInternalV1(
         // `/proc/self/fd/<fd>` denotes this already-open directory object; it
         // is only a directory enumeration view.  Every child observation and
         // content read below is relative to `directoryFd`, never this path.
-        const names = readdirSync(`/proc/self/fd/${directoryFd}`).sort((left, right) => left.localeCompare(right));
+        const names = fileMode === 'metadata-only'
+          ? metadataScanNamesV1(`/proc/self/fd/${directoryFd}`, entries.length, boundedMetadata)
+          : readdirSync(`/proc/self/fd/${directoryFd}`).sort((left, right) => left.localeCompare(right));
         for (const name of names) {
           if (name.includes('\0')) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Directory entry contains NUL.');
           const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
@@ -1210,7 +1636,7 @@ function scanNoFollowDirectoryTreeInternalV1(
               })();
             let bytes: Uint8Array | null = null;
             let contentDigest: `sha256:${string}` | null = null;
-            if (kind === 'file') {
+            if (kind === 'file' && fileMode !== 'metadata-only') {
               const readable = linuxOpenReadableLeafAt(directoryFd, name, 'No-follow scan file');
               try {
                 const readableBefore = fstatSync(readable, { bigint: true });
@@ -1257,14 +1683,19 @@ function scanNoFollowDirectoryTreeInternalV1(
       prefix.length === 0 ? target : inspectNoFollowDirectoryChainV1(directory, 'No-follow scan directory').target,
       'No-follow scan directory'
     );
-    for (const name of readdirSync(directory).sort((left, right) => left.localeCompare(right))) {
+    const names = fileMode === 'metadata-only'
+      ? metadataScanNamesV1(directory, entries.length, boundedMetadata)
+      : readdirSync(directory).sort((left, right) => left.localeCompare(right));
+    for (const name of names) {
       if (name.includes('\0')) throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Directory entry contains NUL.');
       const absolute = path.join(directory, name);
       const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
       if (process.platform === 'win32') {
         const scanned = fileMode === 'bounded-bytes'
           ? Object.freeze({ ...windowsScanRetainedEntry(absolute, 'No-follow scan entry'), contentDigest: null })
-          : Object.freeze({ ...windowsInventoryRetainedEntry(absolute, 'No-follow inventory entry'), bytes: null });
+          : fileMode === 'metadata-only'
+            ? Object.freeze({ ...windowsMetadataRetainedEntry(absolute, 'No-follow metadata entry'), bytes: null })
+            : Object.freeze({ ...windowsInventoryRetainedEntry(absolute, 'No-follow inventory entry'), bytes: null });
         entries.push(Object.freeze({ ...scanned, relativePath }));
         if (scanned.kind === 'directory') visit(absolute, relativePath);
         continue;
@@ -1294,6 +1725,13 @@ function scanNoFollowDirectoryTreeInternalV1(
       }
       if (metadata.isFile()) {
         const identity = { device: String(metadata.dev), inode: String(metadata.ino) };
+        if (fileMode === 'metadata-only') {
+          entries.push(Object.freeze({
+            relativePath, kind: 'file', ...identity, size,
+            bytes: null, contentDigest: null, linkTarget: null
+          }));
+          continue;
+        }
         const fd = openSync(
           absolute,
           fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0)
@@ -1364,43 +1802,73 @@ export function scanNoFollowDirectoryTreeInventoryV1(
   })));
 }
 
+/**
+ * Retained metadata-only inventory for destructive convergence.  It never
+ * opens ordinary leaves for content reads, and enumeration is bounded by both
+ * a monotonic deadline and an entry ceiling supplied by the owning operation.
+ */
+export function scanNoFollowDirectoryTreeMetadataV1(
+  root: PhysicalDirectoryIdentityV1,
+  options: NoFollowDirectoryTreeMetadataOptionsV1
+): readonly NoFollowDirectoryTreeInventoryEntryV1[] {
+  return Object.freeze(scanNoFollowDirectoryTreeInternalV1(root, 'metadata-only', options).map((entry) => Object.freeze({
+    relativePath: entry.relativePath,
+    kind: entry.kind,
+    device: entry.device,
+    inode: entry.inode,
+    size: entry.size,
+    contentDigest: null,
+    linkTarget: entry.linkTarget
+  })));
+}
+
 /** Creates only validated leaf components beneath an already-proven directory. */
 export function createNoFollowDirectoryChainV1(
   root: PhysicalDirectoryIdentityV1,
   segments: readonly string[]
 ): PhysicalDirectoryIdentityV1 {
-  let current = assertSameNoFollowDirectoryIdentityV1(root, 'No-follow directory creation root').target;
+  const rootChain = assertSameNoFollowDirectoryIdentityV1(root, 'No-follow directory creation root');
+  let current = rootChain.target;
   for (const segment of segments) {
-    if (!/^[a-z0-9-]+$/u.test(segment)) {
+    if (segment !== '.tmp' && !/^[a-z0-9-]+$/u.test(segment)) {
       throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow directory creation segment is invalid.');
     }
   }
   if (process.platform === 'linux') {
-    const retained = linuxOpenRetainedAbsoluteDirectory(current.path, 'No-follow directory creation root');
-    let currentFd = retained.directoryFd;
+    const transaction = linuxOpenWatchedCanonicalDirectoryChain(
+      rootChain,
+      'No-follow directory creation root'
+    );
     try {
-      if (!sameIdentity(current, linuxIdentity(currentFd, current.path))) {
-        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow directory creation root changed before mkdirat.');
-      }
       for (const segment of segments) {
         const nextPath = path.join(current.path, segment);
-        if (requireLinuxLibc().symbols.mkdirat(currentFd, Buffer.from(`${segment}\0`, 'utf8'), 0o700) !== 0 && linuxErrno() !== 17) {
-          throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `No-follow relative mkdirat failed (errno ${linuxErrno()}).`);
-        }
-        const nextFd = linuxOpenAt(currentFd, segment, 'No-follow directory creation target');
-        if (requireLinuxLibc().symbols.fsync(currentFd) !== 0) {
-          closeSync(nextFd);
-          throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', 'No-follow directory creation parent fsync failed.');
-        }
-        const next = linuxIdentity(nextFd, nextPath);
-        if (currentFd !== retained.filesystemRootFd) closeSync(currentFd);
-        currentFd = nextFd;
-        current = next;
+        const opened = linuxOpenOrCreateDirectoryAt({
+          parentFd: transaction.currentFd,
+          parent: current,
+          witness: linuxDirectoryCreateTransactionWitness(transaction),
+          name: segment,
+          absolutePath: nextPath,
+          allowExisting: true,
+          label: 'No-follow directory creation target'
+        });
+        linuxAdvanceDirectoryCreateTransaction(
+          transaction,
+          opened,
+          'No-follow directory creation target'
+        );
+        current = transaction.current;
       }
+      const witness = linuxDirectoryCreateTransactionWitness(transaction);
+      linuxAssertDirectoryCreateWitness(
+        witness,
+        linuxReadDirectoryMutationEvents(witness, 'No-follow directory creation final readback'),
+        '',
+        false,
+        'No-follow directory creation final readback'
+      );
       return current;
     } finally {
-      if (currentFd !== retained.filesystemRootFd) closeSync(currentFd);
-      closeSync(retained.filesystemRootFd);
+      linuxCloseDirectoryCreateTransaction(transaction);
     }
   }
   if (process.platform === 'win32') {
@@ -1432,6 +1900,149 @@ export function createNoFollowDirectoryChainV1(
     return current;
   }
   throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Retained no-follow directory creation is unavailable on this platform.');
+}
+
+/**
+ * Opens one already-existing ordinary directory relative to a retained parent.
+ * This is deliberately inspect-only: an absent child never becomes a create
+ * effect, which lets a delegated consumer adopt an issuer-created inode
+ * without acquiring directory-creation authority.
+ */
+export function inspectNoFollowDirectoryChildV1(
+  parentInput: PhysicalDirectoryIdentityV1,
+  name: string,
+  label = 'No-follow directory child'
+): PhysicalDirectoryIdentityV1 | null {
+  if (!/^[a-z0-9-]+$/u.test(name)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} name is invalid.`);
+  }
+  const parent = assertSameNoFollowDirectoryIdentityV1(parentInput, `${label} parent`).target;
+  const absolutePath = path.join(parent.path, name);
+  if (process.platform === 'linux') {
+    const retained = linuxOpenRetainedAbsoluteDirectory(parent.path, `${label} parent`);
+    let childFd: number | null = null;
+    try {
+      if (!sameIdentity(parent, linuxIdentity(retained.directoryFd, parent.path))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} parent changed before relative open.`);
+      }
+      try {
+        childFd = linuxOpenAt(retained.directoryFd, name, label);
+      } catch (error) {
+        if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return null;
+        throw error;
+      }
+      const child = linuxIdentity(childFd, absolutePath);
+      if (!sameIdentity(parent, linuxIdentity(retained.directoryFd, parent.path))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} parent changed during relative open.`);
+      }
+      return child;
+    } finally {
+      if (childFd !== null) closeSync(childFd);
+      if (retained.directoryFd !== retained.filesystemRootFd) closeSync(retained.directoryFd);
+      closeSync(retained.filesystemRootFd);
+    }
+  }
+  if (process.platform === 'win32') {
+    const parentHandle = windowsOpenDirectory(parent.path, `${label} parent`, true);
+    let childHandle: bigint | null = null;
+    try {
+      if (!sameIdentity(parent, windowsIdentity(parentHandle, parent.path, `${label} parent`))) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} parent changed before relative open.`);
+      }
+      childHandle = windowsOpenRelativeDirectory(
+        parentHandle,
+        parent,
+        name,
+        absolutePath,
+        WINDOWS_FILE_OPEN,
+        label
+      );
+      return childHandle === null ? null : windowsIdentity(childHandle, absolutePath, label);
+    } finally {
+      if (childHandle !== null) closeWindowsHandle(childHandle);
+      closeWindowsHandle(parentHandle);
+    }
+  }
+  throw physicalError(
+    'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+    'Retained no-follow directory child inspection is unavailable on this platform.'
+  );
+}
+
+/**
+ * Creates exactly one absent ordinary directory relative to a retained parent.
+ * Existing names are never adopted: an EEXIST/name collision is a foreign
+ * effect boundary, not a successful retry.
+ */
+export function createExclusiveNoFollowDirectoryV1(
+  parentInput: PhysicalDirectoryIdentityV1,
+  name: string
+): PhysicalDirectoryIdentityV1 {
+  if (!/^[a-z0-9-]+$/u.test(name)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Exclusive no-follow directory name is invalid.');
+  }
+  const parentChain = assertSameNoFollowDirectoryIdentityV1(
+    parentInput,
+    'Exclusive no-follow directory parent'
+  );
+  const parent = parentChain.target;
+  const absolutePath = path.join(parent.path, name);
+  if (process.platform === 'linux') {
+    const transaction = linuxOpenWatchedCanonicalDirectoryChain(
+      parentChain,
+      'Exclusive no-follow directory parent'
+    );
+    let childFd: number | null = null;
+    try {
+      const opened = linuxOpenOrCreateDirectoryAt({
+        parentFd: transaction.currentFd,
+        parent,
+        witness: linuxDirectoryCreateTransactionWitness(transaction),
+        name,
+        absolutePath,
+        allowExisting: false,
+        label: 'Exclusive no-follow directory'
+      });
+      childFd = opened.fd;
+      return opened.identity;
+    } finally {
+      if (childFd !== null) closeSync(childFd);
+      linuxCloseDirectoryCreateTransaction(transaction);
+    }
+  }
+  if (process.platform === 'win32') {
+    const parentHandle = windowsOpenDirectory(parent.path, 'Exclusive no-follow directory parent', true);
+    let childHandle: bigint | null = null;
+    try {
+      if (!sameIdentity(parent, windowsIdentity(parentHandle, parent.path, 'Exclusive no-follow directory parent'))) {
+        throw physicalError(
+          'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED',
+          'Exclusive no-follow directory parent changed before relative create.'
+        );
+      }
+      childHandle = windowsOpenRelativeDirectory(
+        parentHandle,
+        parent,
+        name,
+        absolutePath,
+        WINDOWS_FILE_CREATE,
+        'Exclusive no-follow directory'
+      );
+      if (childHandle === null) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'Exclusive no-follow directory name already exists.');
+      }
+      const child = windowsIdentity(childHandle, absolutePath, 'Exclusive no-follow directory');
+      windowsFlushRetainedDirectory(parentHandle, parent, 'Exclusive no-follow directory parent');
+      return child;
+    } finally {
+      if (childHandle !== null) closeWindowsHandle(childHandle);
+      closeWindowsHandle(parentHandle);
+    }
+  }
+  throw physicalError(
+    'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+    'Retained exclusive no-follow directory creation is unavailable on this platform.'
+  );
 }
 
 function ensureLeafName(value: string): void {

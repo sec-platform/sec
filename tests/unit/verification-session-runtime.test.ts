@@ -240,6 +240,7 @@ import {
   classifyGitHubGraphQLSchemaFailureV1,
   createVerificationSessionGitHubClientV1,
   evaluateGitHubRepositoryActionsArtifactInventoryV1,
+  evaluateHostedReviewRequestObservationV1,
   evaluatePlatformEnforcementObservationV1,
   evaluateVerificationSessionChangedPathsV1,
   evaluateVerificationSessionReviewObservationV1,
@@ -251,6 +252,8 @@ import {
   parseGitHubReviewThreadPagesV1,
   PROVIDER_SCHEMA_UNSUPPORTED_STATUS,
   SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1,
+  VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1,
+  VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1,
   type GitHubActionsArtifactObservationV1,
   type GitHubAppReviewCommentObservationV1,
   type GitHubCandidateObservationV1,
@@ -441,6 +444,83 @@ test('hosted comment publisher policy is the canonical shared Actions identity',
   expect(SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1).toBe(CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1);
 });
 
+test('hosted Review request producer and consumer bind the exact repository without spread-only fields', () => {
+  const input = {
+    repository: 'sec-platform/sec',
+    sessionRevision: `sha256:${'1'.repeat(64)}` as SessionDigest,
+    operationId: `sha256:${'2'.repeat(64)}` as SessionDigest,
+    prNumber: 42,
+    headSha: HEAD,
+    sourceRunId: '900',
+    sourceRunAttempt: 1,
+    workflowRef: `.github/workflows/compiler-pr-validation.yml@${BASE}`
+  } as const;
+  const transport = new FakeTransport();
+  transport.issueComments = [[]];
+  const produced = evaluateHostedReviewRequestObservationV1(transport, input);
+  expect(produced).toMatchObject({ status: 'absent', commentId: null });
+
+  const legacySameOperation = legacyHostedReviewRequestComment(input, false);
+  const legacySpreadSameOperation = legacyHostedReviewRequestComment(input, true);
+  const legacyOtherOperation = legacyHostedReviewRequestComment({
+    ...input,
+    operationId: `sha256:${'3'.repeat(64)}` as SessionDigest
+  }, false);
+  transport.issueComments = [[
+    actionsIssueComment(legacySameOperation, '101'),
+    actionsIssueComment(legacySpreadSameOperation, '102'),
+    actionsIssueComment(legacyOtherOperation, '103')
+  ]];
+  expect(evaluateHostedReviewRequestObservationV1(transport, input)).toMatchObject({
+    status: 'absent',
+    commentId: null
+  });
+
+  transport.issueComments = [[
+    actionsIssueComment(legacySameOperation, '101'),
+    actionsIssueComment(legacySpreadSameOperation, '102'),
+    actionsIssueComment(legacyOtherOperation, '103'),
+    actionsIssueComment(produced.body, '104')
+  ]];
+  expect(evaluateHostedReviewRequestObservationV1(transport, input)).toMatchObject({
+    status: 'reused',
+    commentId: '104'
+  });
+
+  transport.issueComments = [[]];
+  const foreign = evaluateHostedReviewRequestObservationV1(transport, {
+    ...input,
+    repository: 'foreign/repository'
+  });
+  transport.issueComments = [[actionsIssueComment(foreign.body)]];
+  expect(() => evaluateHostedReviewRequestObservationV1(transport, input))
+    .toThrow('conflicting semantic bytes');
+
+  for (const drifted of [
+    { ...input, prNumber: input.prNumber + 1 },
+    { ...input, headSha: BASE },
+    { ...input, sourceRunId: '901' },
+    { ...input, sourceRunAttempt: 2 },
+    { ...input, workflowRef: `.github/workflows/compiler-pr-validation.yml@${HEAD}` }
+  ]) {
+    transport.issueComments = [[]];
+    const drift = evaluateHostedReviewRequestObservationV1(transport, drifted);
+    transport.issueComments = [[actionsIssueComment(drift.body)]];
+    expect(() => evaluateHostedReviewRequestObservationV1(transport, input))
+      .toThrow('conflicting semantic bytes');
+  }
+
+  const encoded = produced.body.match(/```json\n(?<payload>.+)\n```$/u)?.groups?.payload;
+  if (encoded === undefined) throw new Error('production Review request body did not contain canonical JSON');
+  const extraFieldBody = produced.body.replace(encoded, encodeVerificationActionDataV2({
+    ...(JSON.parse(encoded) as Record<string, unknown>),
+    extraField: 'forbidden'
+  }));
+  transport.issueComments = [[actionsIssueComment(extraFieldBody)]];
+  expect(() => evaluateHostedReviewRequestObservationV1(transport, input))
+    .toThrow('payload keys/schema are invalid');
+});
+
 test('provider recovery artifact binds exact envelope and bundle bytes', () => {
   const artifact = createBranchCloseoutRecoveryArtifactV1({
     repository: 'sec-platform/sec',
@@ -571,6 +651,54 @@ function botIssueComment(body = `Codex Review: Didn't find any major issues. Bra
     performedViaGitHubApp: { id: 1144995, nodeId: 'A_kwHOAOQ6Gs4AEXij',
       slug: 'chatgpt-codex-connector' },
     createdAt: '2026-08-09T14:00:00.000Z', ...overrides };
+}
+
+function legacyHostedReviewRequestComment(input: Readonly<{
+  repository: string;
+  sessionRevision: SessionDigest;
+  operationId: SessionDigest;
+  prNumber: number;
+  headSha: string;
+  sourceRunId: string;
+  sourceRunAttempt: number;
+  workflowRef: string;
+}>, includeSpreadRepository: boolean): string {
+  const requestDigest = `sha256:${createHash('sha256').update(encodeVerificationActionDataV2({
+    sessionRevision: input.sessionRevision,
+    operationId: input.operationId,
+    prNumber: input.prNumber,
+    headSha: input.headSha
+  })).digest('hex')}` as SessionDigest;
+  const payload = {
+    schema: VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1,
+    ...(includeSpreadRepository ? { repository: input.repository } : {}),
+    sessionRevision: input.sessionRevision,
+    operationId: input.operationId,
+    requestDigest,
+    prNumber: input.prNumber,
+    headSha: input.headSha,
+    sourceRunId: input.sourceRunId,
+    sourceRunAttempt: input.sourceRunAttempt,
+    workflowRef: input.workflowRef
+  };
+  const publication = {
+    ...payload,
+    publicationDigest: `sha256:${createHash('sha256')
+      .update(encodeVerificationActionDataV2(payload)).digest('hex')}` as SessionDigest
+  };
+  return `@codex review\n\n${VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1}\n` +
+    `\`\`\`json\n${encodeVerificationActionDataV2(publication)}\n\`\`\``;
+}
+
+function actionsIssueComment(body: string, id = '101'): GitHubIssueCommentObservationV1 {
+  return botIssueComment(body, {
+    id,
+    authorLogin: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.login,
+    authorId: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.id,
+    authorNodeId: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.nodeId,
+    authorType: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.bot.type,
+    performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app
+  });
 }
 
 function observe(transport: FakeTransport) {
