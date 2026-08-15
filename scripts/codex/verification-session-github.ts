@@ -325,8 +325,12 @@ export interface PlatformEnforcementObservationV1 {
 
 export const VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1 =
   'sec-verification-session-review-request-comment-v1' as const;
-export const VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER =
+export const VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V2 =
+  'sec-verification-session-review-request-comment-v2' as const;
+export const VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1 =
   '<!-- sec-verification-session-review-request-v1 -->' as const;
+export const VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER =
+  '<!-- sec-verification-session-review-request-v2 -->' as const;
 
 export const PROVIDER_SCHEMA_UNSUPPORTED_STATUS = 'provider-schema-unsupported' as const;
 
@@ -462,8 +466,9 @@ export function isGitHubProviderSchemaUnsupportedError(
   return error instanceof GitHubProviderSchemaUnsupportedError;
 }
 
-export interface VerificationSessionReviewRequestCommentV1 {
-  schema: typeof VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1;
+export interface VerificationSessionReviewRequestCommentV2 {
+  schema: typeof VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V2;
+  repository: string;
   sessionRevision: SessionDigest;
   operationId: SessionDigest;
   requestDigest: SessionDigest;
@@ -479,16 +484,29 @@ function hash(value: unknown): SessionDigest {
   return `sha256:${createHash('sha256').update(encodeVerificationActionDataV2(value)).digest('hex')}`;
 }
 
-function reviewRequestPayload(input: Omit<VerificationSessionReviewRequestCommentV1,
+function reviewRequestPayload(input: Omit<VerificationSessionReviewRequestCommentV2,
   'schema' | 'requestDigest' | 'publicationDigest'>) {
-  const requestDigest = hash({ sessionRevision: input.sessionRevision, operationId: input.operationId,
+  const requestDigest = hash({ repository: input.repository,
+    sessionRevision: input.sessionRevision, operationId: input.operationId,
     prNumber: input.prNumber, headSha: input.headSha });
-  return { schema: VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1, ...input, requestDigest };
+  return {
+    schema: VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V2,
+    repository: input.repository,
+    sessionRevision: input.sessionRevision,
+    operationId: input.operationId,
+    requestDigest,
+    prNumber: input.prNumber,
+    headSha: input.headSha,
+    sourceRunId: input.sourceRunId,
+    sourceRunAttempt: input.sourceRunAttempt,
+    workflowRef: input.workflowRef
+  };
 }
 
-function createReviewRequestComment(input: Omit<VerificationSessionReviewRequestCommentV1,
-  'schema' | 'requestDigest' | 'publicationDigest'>): VerificationSessionReviewRequestCommentV1 {
-  if (!/^sha256:[0-9a-f]{64}$/u.test(input.sessionRevision)
+function createReviewRequestComment(input: Omit<VerificationSessionReviewRequestCommentV2,
+  'schema' | 'requestDigest' | 'publicationDigest'>): VerificationSessionReviewRequestCommentV2 {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(input.repository)
+    || !/^sha256:[0-9a-f]{64}$/u.test(input.sessionRevision)
     || !/^sha256:[0-9a-f]{64}$/u.test(input.operationId)
     || !Number.isSafeInteger(input.prNumber) || input.prNumber < 1
     || !/^[0-9a-f]{40}$/u.test(input.headSha)
@@ -501,12 +519,12 @@ function createReviewRequestComment(input: Omit<VerificationSessionReviewRequest
   return Object.freeze({ ...payload, publicationDigest: hash(payload) });
 }
 
-function renderReviewRequestComment(value: VerificationSessionReviewRequestCommentV1): string {
+function renderReviewRequestComment(value: VerificationSessionReviewRequestCommentV2): string {
   return `@codex review\n\n${VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER}\n` +
     `\`\`\`json\n${encodeVerificationActionDataV2(value)}\n\`\`\``;
 }
 
-function parseReviewRequestComment(source: string): VerificationSessionReviewRequestCommentV1 | null {
+function parseReviewRequestComment(source: string): VerificationSessionReviewRequestCommentV2 | null {
   if (!source.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER)) return null;
   const prefix = `@codex review\n\n${VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER}\n\`\`\`json\n`;
   const suffix = '\n```';
@@ -514,18 +532,103 @@ function parseReviewRequestComment(source: string): VerificationSessionReviewReq
   const value: unknown = JSON.parse(source.slice(prefix.length, -suffix.length));
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail('hosted Review request payload must be an object.');
   const record = value as Record<string, unknown>;
-  const expected = ['schema', 'sessionRevision', 'operationId', 'requestDigest', 'prNumber', 'headSha',
+  const expected = ['schema', 'repository', 'sessionRevision', 'operationId', 'requestDigest', 'prNumber', 'headSha',
     'sourceRunId', 'sourceRunAttempt', 'workflowRef', 'publicationDigest'].sort();
   if (Object.keys(record).sort().join('\0') !== expected.join('\0')
-    || record.schema !== VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1) {
+    || record.schema !== VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V2) {
     fail('hosted Review request payload keys/schema are invalid.');
   }
-  const rebuilt = createReviewRequestComment({ sessionRevision: record.sessionRevision as SessionDigest,
+  const rebuilt = createReviewRequestComment({ repository: record.repository as string,
+    sessionRevision: record.sessionRevision as SessionDigest,
     operationId: record.operationId as SessionDigest, prNumber: record.prNumber as number,
     headSha: record.headSha as string, sourceRunId: record.sourceRunId as string,
     sourceRunAttempt: record.sourceRunAttempt as number, workflowRef: record.workflowRef as string });
   if (rebuilt.requestDigest !== record.requestDigest || rebuilt.publicationDigest !== record.publicationDigest
     || source !== renderReviewRequestComment(rebuilt)) fail('hosted Review request comment bytes/digest mismatch.');
+  return rebuilt;
+}
+
+interface LegacyVerificationSessionReviewRequestCommentV1 {
+  schema: typeof VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1;
+  repository?: string;
+  sessionRevision: SessionDigest;
+  operationId: SessionDigest;
+  requestDigest: SessionDigest;
+  prNumber: number;
+  headSha: string;
+  sourceRunId: string;
+  sourceRunAttempt: number;
+  workflowRef: string;
+  publicationDigest: SessionDigest;
+}
+
+function renderLegacyReviewRequestComment(value: LegacyVerificationSessionReviewRequestCommentV1): string {
+  return `@codex review\n\n${VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1}\n` +
+    `\`\`\`json\n${encodeVerificationActionDataV2(value)}\n\`\`\``;
+}
+
+/**
+ * V1 is observation-only. The intended shape omitted repository, while the
+ * retired producer accidentally spread repository into its runtime bytes.
+ * Both exact historical shapes are validated here, but neither can be reused
+ * or promoted into current Review authority.
+ */
+function parseLegacyReviewRequestComment(
+  source: string
+): LegacyVerificationSessionReviewRequestCommentV1 | null {
+  if (!source.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1)) return null;
+  const prefix = `@codex review\n\n${VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1}\n\`\`\`json\n`;
+  const suffix = '\n```';
+  if (!source.startsWith(prefix) || !source.endsWith(suffix)) {
+    fail('legacy hosted Review request comment shape is invalid.');
+  }
+  const value: unknown = JSON.parse(source.slice(prefix.length, -suffix.length));
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail('legacy hosted Review request payload must be an object.');
+  }
+  const record = value as Record<string, unknown>;
+  const baseKeys = ['schema', 'sessionRevision', 'operationId', 'requestDigest', 'prNumber', 'headSha',
+    'sourceRunId', 'sourceRunAttempt', 'workflowRef', 'publicationDigest'];
+  const keys = Object.keys(record).sort().join('\0');
+  const intendedKeys = [...baseKeys].sort().join('\0');
+  const spreadKeys = [...baseKeys, 'repository'].sort().join('\0');
+  const hasRepository = keys === spreadKeys;
+  if ((keys !== intendedKeys && !hasRepository)
+    || record.schema !== VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1
+    || (hasRepository
+      && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(
+        record.repository as string
+      ))
+    || !/^sha256:[0-9a-f]{64}$/u.test(record.sessionRevision as string)
+    || !/^sha256:[0-9a-f]{64}$/u.test(record.operationId as string)
+    || !Number.isSafeInteger(record.prNumber) || (record.prNumber as number) < 1
+    || !/^[0-9a-f]{40}$/u.test(record.headSha as string)
+    || !/^[1-9][0-9]*$/u.test(record.sourceRunId as string)
+    || !Number.isSafeInteger(record.sourceRunAttempt) || (record.sourceRunAttempt as number) < 1
+    || !/^\.github\/workflows\/compiler-pr-validation\.yml@[0-9a-f]{40}$/u.test(
+      record.workflowRef as string
+    )) {
+    fail('legacy hosted Review request payload keys/schema/identity are invalid.');
+  }
+  const payload = {
+    schema: VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_SCHEMA_V1,
+    ...(hasRepository ? { repository: record.repository as string } : {}),
+    sessionRevision: record.sessionRevision as SessionDigest,
+    operationId: record.operationId as SessionDigest,
+    requestDigest: hash({ sessionRevision: record.sessionRevision, operationId: record.operationId,
+      prNumber: record.prNumber, headSha: record.headSha }),
+    prNumber: record.prNumber as number,
+    headSha: record.headSha as string,
+    sourceRunId: record.sourceRunId as string,
+    sourceRunAttempt: record.sourceRunAttempt as number,
+    workflowRef: record.workflowRef as string
+  };
+  const rebuilt = Object.freeze({ ...payload, publicationDigest: hash(payload) });
+  if (record.requestDigest !== rebuilt.requestDigest
+    || record.publicationDigest !== rebuilt.publicationDigest
+    || source !== renderLegacyReviewRequestComment(rebuilt)) {
+    fail('legacy hosted Review request comment bytes/digest mismatch.');
+  }
   return rebuilt;
 }
 
@@ -1131,11 +1234,13 @@ function normalizeIssueComments(
     const createdAt = canonicalInstant(comment.createdAt, `issueComments[${index}].createdAt`);
     const normalized = Object.freeze({ id: comment.id, body, authorLogin, authorId: comment.authorId,
       authorNodeId, authorType, performedViaGitHubApp, createdAt });
-    if (body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER)
-      && trustedHostedPublisher(normalized)) {
-      const request = parseReviewRequestComment(body);
-      if (request === null) {
-        fail('trusted hosted Review request marker did not parse.');
+    if (trustedHostedPublisher(normalized)) {
+      if (body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER)) {
+        const request = parseReviewRequestComment(body);
+        if (request === null) fail('trusted hosted Review request marker did not parse.');
+      } else if (body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1)) {
+        const legacy = parseLegacyReviewRequestComment(body);
+        if (legacy === null) fail('trusted legacy hosted Review request marker did not parse.');
       }
     }
     return normalized;
@@ -1866,8 +1971,12 @@ class VerificationSessionGitHubAdapter {
     )).nodes);
     const classify = (comments: readonly GitHubIssueCommentObservationV1[]) => {
       const matching: Array<{ comment: GitHubIssueCommentObservationV1;
-        publication: VerificationSessionReviewRequestCommentV1 }> = [];
+        publication: VerificationSessionReviewRequestCommentV2 }> = [];
       for (const comment of comments) {
+        if (comment.body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1)) {
+          if (trustedHostedPublisher(comment)) parseLegacyReviewRequestComment(comment.body);
+          continue;
+        }
         if (!comment.body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER)) continue;
         if (!trustedHostedPublisher(comment)) continue;
         const publication = parseReviewRequestComment(comment.body);
@@ -1876,7 +1985,8 @@ class VerificationSessionGitHubAdapter {
           && publication.operationId === input.operationId) matching.push({ comment, publication });
       }
       if (matching.length > 1) fail('duplicate hosted Review request comments exist for one operation.');
-      if (matching.length === 1 && matching[0]!.publication.requestDigest !== expected.requestDigest) {
+      if (matching.length === 1
+        && matching[0]!.publication.publicationDigest !== expected.publicationDigest) {
         fail('hosted Review request operation has conflicting semantic bytes.');
       }
       return matching[0] ?? null;
@@ -1950,6 +2060,16 @@ export function evaluateVerificationSessionReviewObservationV1(
   return new VerificationSessionGitHubAdapter(
     transaction as unknown as VerificationSessionGitHubTransport
   ).observeReviewBarrier(input);
+}
+
+/** Pure observation seam for exact hosted Review request producer/consumer round trips. */
+export function evaluateHostedReviewRequestObservationV1(
+  transaction: Pick<VerificationSessionReviewObservationTransactionV1, 'issueCommentPage'>,
+  input: Parameters<VerificationSessionGitHubAdapter['observeHostedReviewRequest']>[0]
+): ReturnType<VerificationSessionGitHubAdapter['observeHostedReviewRequest']> {
+  return new VerificationSessionGitHubAdapter(
+    transaction as unknown as VerificationSessionGitHubTransport
+  ).observeHostedReviewRequest(input);
 }
 
 export interface VerificationSessionWorkflowObservationTransactionV1 {

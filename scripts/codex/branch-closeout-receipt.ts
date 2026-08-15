@@ -916,15 +916,15 @@ export function resolveBranchCloseoutReceiptObservation(input: {
   };
 }
 
-function githubLogin(value: unknown, label: string): string {
-  if (
-    typeof value !== 'string'
-    || (value !== SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1.bot.login
-      && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(value))
-  ) {
+function githubLogin(value: unknown, authorType: string, label: string): string {
+  const login = boundedIdentity(value, label);
+  const ordinaryLogin = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(login);
+  const appBotLogin = authorType === 'Bot'
+    && /^[A-Za-z0-9](?:[A-Za-z0-9-]*)\[bot\]$/u.test(login);
+  if (!ordinaryLogin && !appBotLogin) {
     throw new Error(`${label} must be a GitHub login.`);
   }
-  return value;
+  return login;
 }
 
 export function issueCommentRecord(value: unknown, label: string): IssueCommentRecord {
@@ -943,13 +943,14 @@ export function issueCommentRecord(value: unknown, label: string): IssueCommentR
       slug: boundedIdentity(value.performed_via_github_app.slug, `${label}.app.slug`)
     };
   }
+  const authorType = boundedIdentity(value.user.type, `${label}.user.type`);
   return {
     id: value.id,
     body: value.body,
-    author: githubLogin(value.user.login, `${label}.user.login`),
+    author: githubLogin(value.user.login, authorType, `${label}.user.login`),
     authorId: positiveInteger(value.user.id, `${label}.user.id`),
     authorNodeId: boundedIdentity(value.user.node_id, `${label}.user.node_id`),
-    authorType: boundedIdentity(value.user.type, `${label}.user.type`),
+    authorType,
     authorAssociation: typeof value.author_association === 'string'
       ? value.author_association
       : null,

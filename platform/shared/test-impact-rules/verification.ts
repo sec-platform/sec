@@ -6,6 +6,11 @@ const DEV_RUNNER_FAST_TESTS = [
   'tests/unit/ci-pr-risk-selection.test.ts'
 ];
 
+const DEV_RUNNER_WORKSPACE_FAST_TESTS = [
+  ...DEV_RUNNER_FAST_TESTS,
+  'tests/unit/work-package-gate-execution.test.ts'
+];
+
 const DEV_RUNNER_DEPENDENCY_BOOTSTRAP_FAST_TESTS = [
   'tests/contract/dev-runner-contract.test.ts',
   'tests/contract/test-impact.test.ts',
@@ -57,7 +62,10 @@ const VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS = [
 
 const CI_PR_RISK_FAST_TESTS = [...VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS, 'tests/unit/heavy-verification-gate-lease.test.ts'];
 
-const DEV_RUNNER_ENTRYPOINT_FAST_TESTS = [...DEV_RUNNER_FAST_TESTS, 'tests/unit/heavy-verification-gate-lease.test.ts'];
+const DEV_RUNNER_ENTRYPOINT_FAST_TESTS = [
+  ...DEV_RUNNER_WORKSPACE_FAST_TESTS,
+  'tests/unit/heavy-verification-gate-lease.test.ts'
+];
 
 const VERIFICATION_ACTION_TEST_FIXTURE_FAST_TESTS = [
   'tests/contract/test-impact.test.ts',
@@ -319,14 +327,23 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
     sourceFiles: [
       'platform/dev-runner/check-runner.ts',
       'platform/dev-runner/command-runner.ts',
-      'platform/dev-runner/env-manager.ts',
       'platform/dev-runner/fast-test-policy.ts',
       'platform/dev-runner/import-organizer.ts',
       'platform/dev-runner/test-concurrency-policy.ts',
-      'platform/dev-runner/test-runner.ts',
-      'platform/dev-runner/typecheck-runner.ts'
+      'platform/dev-runner/typecheck-runner.ts',
+      'tests/setup/runtime-deps.setup.ts'
     ],
     fast: DEV_RUNNER_FAST_TESTS,
+    slow: []
+  },
+  {
+    owner: 'dev-runner',
+    identity: { kind: 'architecture-owner', id: 'dev-runner' },
+    sourceFiles: [
+      'platform/dev-runner/env-manager.ts',
+      'platform/dev-runner/test-runner.ts'
+    ],
+    fast: DEV_RUNNER_WORKSPACE_FAST_TESTS,
     slow: []
   },
   {

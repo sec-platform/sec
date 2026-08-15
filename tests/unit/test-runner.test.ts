@@ -20,17 +20,28 @@ import {
   PROCESS_ISOLATED_FAST_TEST_FILES
 } from '../../platform/dev-runner/fast-test-policy.ts';
 import { applyDefaultFastTestConcurrency } from '../../platform/dev-runner/test-concurrency-policy.ts';
+import { compilerRoot } from '../../platform/shared/paths.ts';
+import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
 
 const actualCommandRunner = await import('../../platform/dev-runner/command-runner.ts');
 
 const {
-  cleanStaleTestWorkspaces: actualCleanStaleTestWorkspaces,
-  cleanTestWorkspaces: actualCleanTestWorkspaces,
+  bindTestWorkspaceSupervisorLeaseIssuerProjectionV1,
+  createTestWorkspaceRunChildAssignmentV1,
+  createTestWorkspaceSupervisorLeaseV1,
+  deriveTestWorkspaceRunNamespaceV1,
   getTestWorkspaceTemplateRoot,
   getTestWorkspaceTempRoot,
+  parseTestWorkspaceRunChildAssignmentV1,
   pathEnvKey,
+  prepareTestWorkspaceRunV1,
+  resolveTestWorkspaceRunChild,
   resolveTestWorkspaceNamespace,
-  TEST_WORKSPACE_NAMESPACE_ENV
+  settlePreparedTestWorkspaceRunV1: actualSettlePreparedTestWorkspaceRunV1,
+  testWorkspaceSupervisorLeasePathV1,
+  TEST_WORKSPACE_NAMESPACE_ENV,
+  TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
+  TEST_WORKSPACE_RUN_CHILD_ENV
 } = actualEnvManager;
 
 const commandCalls: { command: string; args: string[]; stdoutMode: 'bytes' | 'text' }[] = [];
@@ -51,7 +62,10 @@ let cleanupFailure: Error | null = null;
 const isolatedFastTestFileSet = new Set<string>(PROCESS_ISOLATED_FAST_TEST_FILES);
 let changedFiles = ['platform/unmapped-source.ts'];
 let materializeTestWorkspace = false;
+let trustedCallerAssignmentFixture: actualEnvManager.TestWorkspaceRunChildAssignmentV1 | null = null;
 let previousTestWorkspaceNamespace: string | undefined;
+let previousTestWorkspaceRunChild: string | undefined;
+let previousTestWorkspaceRunChildAssignment: string | undefined;
 let previousAffectedTestsBase: string | undefined;
 let previousChangedBase: string | undefined;
 let previousConsoleLog: typeof console.log;
@@ -95,16 +109,30 @@ mock.module('../../platform/shared/process.ts', () => ({
 }));
 
 mock.module('../../platform/dev-runner/env-manager.ts', () => ({
-  cleanStaleTestWorkspaces: actualCleanStaleTestWorkspaces,
-  cleanTestWorkspaces: async (env: NodeJS.ProcessEnv) => {
-    if (cleanupFailure) throw cleanupFailure;
-    await actualCleanTestWorkspaces(env);
-  },
+  consumeTestWorkspaceSupervisorChallengeV1: async () => undefined,
+  createTestWorkspaceRunChildAssignmentV1,
+  deriveTestWorkspaceRunNamespaceV1,
   getTestWorkspaceTemplateRoot,
   getTestWorkspaceTempRoot,
+  parseTestWorkspaceRunChildAssignmentV1: (
+    serialized: string | undefined,
+    parentNamespace: string,
+    runChild: string
+  ) => trustedCallerAssignmentFixture !== null && serialized === JSON.stringify(trustedCallerAssignmentFixture) &&
+      trustedCallerAssignmentFixture.name === runChild
+    ? trustedCallerAssignmentFixture
+    : parseTestWorkspaceRunChildAssignmentV1(serialized, parentNamespace, runChild),
   pathEnvKey,
+  prepareTestWorkspaceRunV1,
+  resolveTestWorkspaceRunChild,
   resolveTestWorkspaceNamespace,
-  TEST_WORKSPACE_NAMESPACE_ENV
+  settlePreparedTestWorkspaceRunV1: (token: actualEnvManager.PreparedTestWorkspaceRunV1) => {
+    if (cleanupFailure) throw cleanupFailure;
+    actualSettlePreparedTestWorkspaceRunV1(token);
+  },
+  TEST_WORKSPACE_NAMESPACE_ENV,
+  TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
+  TEST_WORKSPACE_RUN_CHILD_ENV
 }));
 
 mock.module('../../platform/dev-runner/command-runner.ts', () => ({
@@ -313,9 +341,13 @@ beforeEach(() => {
   console.log = () => undefined;
   console.error = () => undefined;
   previousTestWorkspaceNamespace = process.env[TEST_WORKSPACE_NAMESPACE_ENV];
+  previousTestWorkspaceRunChild = process.env[TEST_WORKSPACE_RUN_CHILD_ENV];
+  previousTestWorkspaceRunChildAssignment = process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV];
   previousAffectedTestsBase = process.env.SEC_AFFECTED_TESTS_BASE;
   previousChangedBase = process.env.SEC_CHANGED_BASE;
   delete process.env[TEST_WORKSPACE_NAMESPACE_ENV];
+  delete process.env[TEST_WORKSPACE_RUN_CHILD_ENV];
+  delete process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV];
   delete process.env.SEC_AFFECTED_TESTS_BASE;
   delete process.env.SEC_CHANGED_BASE;
   commandCalls.length = 0;
@@ -334,6 +366,7 @@ beforeEach(() => {
   cleanupFailure = null;
   changedFiles = ['platform/unmapped-source.ts'];
   materializeTestWorkspace = false;
+  trustedCallerAssignmentFixture = null;
   delete process.env.SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK;
 });
 
@@ -344,6 +377,16 @@ afterEach(() => {
     delete process.env[TEST_WORKSPACE_NAMESPACE_ENV];
   } else {
     process.env[TEST_WORKSPACE_NAMESPACE_ENV] = previousTestWorkspaceNamespace;
+  }
+  if (previousTestWorkspaceRunChild === undefined) {
+    delete process.env[TEST_WORKSPACE_RUN_CHILD_ENV];
+  } else {
+    process.env[TEST_WORKSPACE_RUN_CHILD_ENV] = previousTestWorkspaceRunChild;
+  }
+  if (previousTestWorkspaceRunChildAssignment === undefined) {
+    delete process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV];
+  } else {
+    process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV] = previousTestWorkspaceRunChildAssignment;
   }
   if (previousAffectedTestsBase === undefined) {
     delete process.env.SEC_AFFECTED_TESTS_BASE;
@@ -642,7 +685,8 @@ test.serial('targeted concurrent-safe fast tests run only the requested files', 
   expect(devCommandEnvironments[0]?.PLAYWRIGHT_BROWSERS_PATH).toBeUndefined();
   expect(devCommandEnvironments[0]?.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe('1');
   expect(devCommandEnvironments[0]?.SEC_SKIP_RUNTIME_DEPS_SETUP).toBe('1');
-  expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-\d+-[a-z0-9]+-\d+$/u);
+  expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_NAMESPACE).toMatch(/^fast-[0-9a-f]{64}$/u);
+  expect(devCommandEnvironments[0]?.SEC_TEST_WORKSPACE_RUN_CHILD).toBeUndefined();
   expect(devCommandCalls).toEqual([
     {
       command: 'bun',
@@ -720,6 +764,9 @@ test.serial('fast tests preserve options across concurrent and serial invocation
   expect(new Set(devCommandEnvironments.map(
     (env) => env.SEC_TEST_WORKSPACE_NAMESPACE
   )).size).toBe(1);
+  expect(devCommandEnvironments.every(
+    (env) => env.SEC_TEST_WORKSPACE_RUN_CHILD === undefined
+  )).toBe(true);
 });
 
 test.serial('fast tests preserve equals-form timeout overrides without adding the default', async () => {
@@ -1442,17 +1489,305 @@ test.serial('failed fast children leave no run-owned workspace residue', async (
   await expect(fs.access(getTestWorkspaceTempRoot(workspaceEnv))).rejects.toThrow();
 });
 
-test.serial('fast tests preserve an explicit workspace namespace through child execution and cleanup', async () => {
-  const namespace = 'test-runner-explicit-namespace';
-  process.env[TEST_WORKSPACE_NAMESPACE_ENV] = namespace;
+test.serial('fast tests preserve the caller namespace and clean only a unique run-owned child', async () => {
+  const parentNamespace = 'test-runner-explicit-namespace';
+  const parentEnv = { [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace };
+  const parentRoot = getTestWorkspaceTempRoot(parentEnv);
+  const sentinelPath = path.join(parentRoot, 'caller-owned-sentinel.txt');
+  process.env[TEST_WORKSPACE_NAMESPACE_ENV] = parentNamespace;
   materializeTestWorkspace = true;
+  await fs.mkdir(parentRoot, { recursive: true });
+  await fs.writeFile(sentinelPath, 'caller-owned', 'utf8');
 
-  const code = await runFastTests(['tests/unit/path-containment.test.ts']);
-  const workspaceEnv = devCommandEnvironments[0]!;
+  try {
+    const code = await runFastTests(['tests/unit/path-containment.test.ts']);
+    const workspaceEnv = devCommandEnvironments[0]!;
 
-  expect(code).toBe(0);
-  expect(workspaceEnv[TEST_WORKSPACE_NAMESPACE_ENV]).toBe(namespace);
-  await expect(fs.access(getTestWorkspaceTempRoot(workspaceEnv))).rejects.toThrow();
+    expect(code).toBe(0);
+    expect(workspaceEnv[TEST_WORKSPACE_NAMESPACE_ENV]).toBe(parentNamespace);
+    expect(workspaceEnv[TEST_WORKSPACE_RUN_CHILD_ENV]).toMatch(/^fast-[0-9a-f]{64}$/u);
+    expect(path.dirname(getTestWorkspaceTempRoot(workspaceEnv))).toBe(parentRoot);
+    expect(await fs.readFile(sentinelPath, 'utf8')).toBe('caller-owned');
+    await expect(fs.access(getTestWorkspaceTempRoot(workspaceEnv))).rejects.toThrow();
+  } finally {
+    await fs.rm(parentRoot, { recursive: true, force: true });
+  }
+});
+
+test.serial('overlapping fast runs sharing one caller namespace own disjoint cleanup children', async () => {
+  const parentNamespace = 'test-runner-overlapping-parent';
+  const parentEnv = { [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace };
+  const parentRoot = getTestWorkspaceTempRoot(parentEnv);
+  const sentinelPath = path.join(parentRoot, 'caller-owned-sentinel.txt');
+  const firstGate = deferred();
+  const secondGate = deferred();
+  const bothStarted = deferred();
+  let started = 0;
+  const observeStart = (): void => {
+    started += 1;
+    if (started === 2) bothStarted.resolve();
+  };
+  let runs: readonly Promise<number>[] = [];
+  process.env[TEST_WORKSPACE_NAMESPACE_ENV] = parentNamespace;
+  materializeTestWorkspace = true;
+  devCommandSettlements.push(firstGate.promise, secondGate.promise);
+  devCommandStartObservers.push(observeStart, observeStart);
+  await fs.mkdir(parentRoot, { recursive: true });
+  await fs.writeFile(sentinelPath, 'caller-owned', 'utf8');
+
+  try {
+    runs = [
+      runFastTests(['tests/unit/path-containment.test.ts']),
+      runFastTests(['tests/unit/path-containment.test.ts'])
+    ];
+    await bothStarted.promise;
+    const childNamespaces = devCommandEnvironments.map(
+      (env) => env[TEST_WORKSPACE_RUN_CHILD_ENV]
+    );
+    expect(childNamespaces).toHaveLength(2);
+    expect(new Set(childNamespaces).size).toBe(2);
+    expect(childNamespaces.every((value) => /^fast-[0-9a-f]{64}$/u.test(value ?? ''))).toBe(true);
+    expect(devCommandEnvironments.every(
+      (env) => env[TEST_WORKSPACE_NAMESPACE_ENV] === parentNamespace
+    )).toBe(true);
+    expect(devCommandEnvironments.every(
+      (env) => path.dirname(getTestWorkspaceTempRoot(env)) === parentRoot
+    )).toBe(true);
+    expect(await fs.readFile(sentinelPath, 'utf8')).toBe('caller-owned');
+
+    firstGate.resolve();
+    secondGate.resolve();
+    expect(await Promise.all(runs)).toEqual([0, 0]);
+    for (const env of devCommandEnvironments) {
+      await expect(fs.access(getTestWorkspaceTempRoot(env))).rejects.toThrow();
+    }
+    expect(await fs.readFile(sentinelPath, 'utf8')).toBe('caller-owned');
+  } finally {
+    firstGate.resolve();
+    secondGate.resolve();
+    await Promise.allSettled(runs);
+    await fs.rm(parentRoot, { recursive: true, force: true });
+  }
+});
+
+test.serial('fast tests reject an inherited run child instead of escaping its caller cleanup scope', async () => {
+  process.env[TEST_WORKSPACE_NAMESPACE_ENV] = 'test-runner-existing-parent';
+  process.env[TEST_WORKSPACE_RUN_CHILD_ENV] = `fast-${'e'.repeat(64)}`;
+
+  await expect(runFastTests(['tests/unit/path-containment.test.ts']))
+    .rejects.toThrow('runFastTests cannot start beneath an existing run-owned workspace child');
+  expect(devCommandCalls).toEqual([]);
+});
+
+test.serial('fast tests consume one Gate-assigned physical child and scrub the opaque assignment', async () => {
+  const parentNamespace = 'test-runner-gate-assigned-parent';
+  const nonce = 'f'.repeat(64);
+  const supervisorLease = createTestWorkspaceSupervisorLeaseV1({
+    namespace: parentNamespace,
+    runId: 'test-runner-gate-assigned',
+    repositoryRoot: compilerRoot,
+    executionSnapshotRoot: path.join(
+      compilerRoot,
+      '.tmp',
+      'gate-execution-snapshots',
+      parentNamespace
+    ),
+    issuerProcessId: process.ppid,
+    nonce: 'e'.repeat(64)
+  });
+  const supervisorLeasePath = testWorkspaceSupervisorLeasePathV1(parentNamespace);
+  await fs.mkdir(path.dirname(supervisorLeasePath), { recursive: true });
+  await fs.writeFile(supervisorLeasePath, JSON.stringify(supervisorLease), { encoding: 'utf8', flag: 'wx' });
+  const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjectionV1(
+    supervisorLeasePath,
+    parentNamespace,
+    supervisorLease.executionSnapshotRoot
+  );
+  const draft = createTestWorkspaceRunChildAssignmentV1({
+    parentNamespace,
+    issuerProcessId: process.ppid,
+    device: 'draft-device',
+    inode: 'draft-inode',
+    nonce,
+    supervisorLeaseDigest: supervisorLease.leaseDigest,
+    supervisorLeasePath: supervisorBinding.path,
+    supervisorLeaseDevice: supervisorBinding.device,
+    supervisorLeaseInode: supervisorBinding.inode,
+    namespaceDevice: 'draft-namespace-device',
+    namespaceInode: 'draft-namespace-inode'
+  });
+  const parentRoot = getTestWorkspaceTempRoot({ [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace });
+  const runChild = draft.name;
+  const runChildRoot = getTestWorkspaceTempRoot({
+    [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace,
+    [TEST_WORKSPACE_RUN_CHILD_ENV]: runChild
+  });
+  await fs.mkdir(runChildRoot, { recursive: true });
+  const namespaceIdentity = inspectNoFollowDirectoryChainV1(parentRoot).target;
+  const identity = inspectNoFollowDirectoryChainV1(runChildRoot).target;
+  const assignment = createTestWorkspaceRunChildAssignmentV1({
+    parentNamespace,
+    issuerProcessId: process.ppid,
+    device: identity.device,
+    inode: identity.inode,
+    nonce,
+    supervisorLeaseDigest: supervisorLease.leaseDigest,
+    supervisorLeasePath: supervisorBinding.path,
+    supervisorLeaseDevice: supervisorBinding.device,
+    supervisorLeaseInode: supervisorBinding.inode,
+    namespaceDevice: namespaceIdentity.device,
+    namespaceInode: namespaceIdentity.inode
+  });
+  process.env[TEST_WORKSPACE_NAMESPACE_ENV] = parentNamespace;
+  process.env[TEST_WORKSPACE_RUN_CHILD_ENV] = runChild;
+  process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV] = JSON.stringify(assignment);
+  trustedCallerAssignmentFixture = assignment;
+  materializeTestWorkspace = true;
+  try {
+    const code = await runFastTests(['tests/unit/path-containment.test.ts']);
+    const workspaceEnv = devCommandEnvironments[0]!;
+
+    expect(code).toBe(0);
+    expect(workspaceEnv[TEST_WORKSPACE_NAMESPACE_ENV]).toBe(parentNamespace);
+    expect(workspaceEnv[TEST_WORKSPACE_RUN_CHILD_ENV]).toBe(runChild);
+    expect(workspaceEnv[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]).toBeUndefined();
+    await expect(fs.access(getTestWorkspaceTempRoot(workspaceEnv))).rejects.toThrow();
+    await expect(runFastTests(['tests/unit/path-containment.test.ts']))
+      .rejects.toThrow('runFastTests caller assignment authority was already consumed');
+  } finally {
+    await fs.rm(parentRoot, { recursive: true, force: true });
+    await fs.rm(supervisorLeasePath, { force: true });
+  }
+});
+
+test.serial('a nested managed process cannot self-sign a new sibling beneath a live Gate supervisor', async () => {
+  const parentNamespace = `test-runner-cross-process-${process.pid}-${Date.now()}`;
+  const parentRoot = getTestWorkspaceTempRoot({
+    [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace
+  });
+  const fakeRepositoryRoot = await fs.mkdtemp(path.join(compilerRoot, '.tmp', 'forged-gate-root-'));
+  await fs.mkdir(parentRoot, { recursive: true });
+  const source = `
+    import { mkdirSync, writeFileSync } from 'node:fs';
+    import path from 'node:path';
+    import {
+      bindTestWorkspaceSupervisorLeaseIssuerProjectionV1,
+      createTestWorkspaceRunChildAssignmentV1,
+      createTestWorkspaceSupervisorLeaseV1,
+      getTestWorkspaceTempRoot,
+      TEST_WORKSPACE_NAMESPACE_ENV,
+      TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
+      TEST_WORKSPACE_RUN_CHILD_ENV
+    } from './platform/dev-runner/env-manager.ts';
+    import { inspectNoFollowDirectoryChainV1 } from './platform/shared/physical-no-follow.ts';
+    const parentNamespace = process.env[TEST_WORKSPACE_NAMESPACE_ENV];
+    if (!parentNamespace) process.exit(7);
+    const fakeRepositoryRoot = process.env.SEC_TEST_FAKE_GATE_REPOSITORY_ROOT;
+    if (!fakeRepositoryRoot) process.exit(6);
+    const executionSnapshotRoot = path.join(
+      fakeRepositoryRoot,
+      '.tmp',
+      'gate-execution-snapshots',
+      parentNamespace
+    );
+    const supervisorLease = createTestWorkspaceSupervisorLeaseV1({
+      namespace: parentNamespace,
+      runId: 'nested-self-issued',
+      repositoryRoot: fakeRepositoryRoot,
+      executionSnapshotRoot,
+      issuerProcessId: process.pid,
+      nonce: '${'c'.repeat(64)}'
+    });
+    const supervisorLeasePath = path.join(
+      fakeRepositoryRoot,
+      '.tmp',
+      'test-workspaces',
+      '.gate-supervisor-leases',
+      parentNamespace + '.lock'
+    );
+    mkdirSync(path.dirname(supervisorLeasePath), { recursive: true });
+    writeFileSync(supervisorLeasePath, JSON.stringify(supervisorLease), { flag: 'wx' });
+    const supervisorBinding = bindTestWorkspaceSupervisorLeaseIssuerProjectionV1(
+      supervisorLeasePath,
+      parentNamespace,
+      executionSnapshotRoot
+    );
+    const draft = createTestWorkspaceRunChildAssignmentV1({
+      parentNamespace,
+      issuerProcessId: process.pid,
+      device: 'pending-device',
+      inode: 'pending-inode',
+      nonce: '${'b'.repeat(64)}',
+      supervisorLeaseDigest: supervisorLease.leaseDigest,
+      supervisorLeasePath: supervisorBinding.path,
+      supervisorLeaseDevice: supervisorBinding.device,
+      supervisorLeaseInode: supervisorBinding.inode,
+      namespaceDevice: 'pending-namespace-device',
+      namespaceInode: 'pending-namespace-inode'
+    });
+    const siblingEnv = {
+      [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace,
+      [TEST_WORKSPACE_RUN_CHILD_ENV]: draft.name
+    };
+    const sibling = getTestWorkspaceTempRoot(siblingEnv);
+    mkdirSync(sibling);
+    writeFileSync(sibling + '/foreign-owner.txt', 'preserve');
+    const namespaceIdentity = inspectNoFollowDirectoryChainV1(path.dirname(sibling)).target;
+    const identity = inspectNoFollowDirectoryChainV1(sibling).target;
+    const forged = createTestWorkspaceRunChildAssignmentV1({
+      parentNamespace,
+      issuerProcessId: process.pid,
+      device: identity.device,
+      inode: identity.inode,
+      nonce: '${'b'.repeat(64)}',
+      supervisorLeaseDigest: supervisorLease.leaseDigest,
+      supervisorLeasePath: supervisorBinding.path,
+      supervisorLeaseDevice: supervisorBinding.device,
+      supervisorLeaseInode: supervisorBinding.inode,
+      namespaceDevice: namespaceIdentity.device,
+      namespaceInode: namespaceIdentity.inode
+    });
+    const victim = Bun.spawn([process.execPath, '-e', \`
+      import { runFastTests } from './platform/dev-runner/test-runner.ts';
+      try {
+        await runFastTests(['tests/unit/path-containment.test.ts']);
+        process.exit(9);
+      } catch (error) {
+        if (!String(error).includes('Gate execution snapshot binding is invalid')) process.exit(8);
+      }
+    \`], {
+      cwd: process.cwd(),
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        ...process.env,
+        [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace,
+        [TEST_WORKSPACE_RUN_CHILD_ENV]: forged.name,
+        [TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]: JSON.stringify(forged)
+      }
+    });
+    process.exit(await victim.exited);
+  `;
+  try {
+    const child = Bun.spawn([process.execPath, '-e', source], {
+      cwd: compilerRoot,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        ...process.env,
+        [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace,
+        SEC_TEST_FAKE_GATE_REPOSITORY_ROOT: fakeRepositoryRoot,
+        [TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]: undefined
+      }
+    });
+    expect(await child.exited).toBe(0);
+    const siblings = await fs.readdir(parentRoot);
+    expect(siblings).toHaveLength(1);
+    expect(await fs.readFile(path.join(parentRoot, siblings[0]!, 'foreign-owner.txt'), 'utf8')).toBe('preserve');
+  } finally {
+    await fs.rm(parentRoot, { recursive: true, force: true });
+    await fs.rm(fakeRepositoryRoot, { recursive: true, force: true });
+  }
 });
 
 test.serial('final workspace cleanup failure remains visible and nonzero', async () => {

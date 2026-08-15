@@ -1,5 +1,4 @@
 import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
-import { cleanTestWorkspaces } from './dev-runner/env-manager.ts';
 import {
   ciVerificationNormalizedOperationArgvV2,
   resolveCiVerificationDevRunnerTargetV1,
@@ -37,7 +36,7 @@ export async function executeVerifiedCiActionPlanV1(options: {
 }
 
 function usage(): never {
-  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze|clean-test-workspaces> [args...]');
+  console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze> [args...]');
   process.exit(1);
 }
 
@@ -91,11 +90,6 @@ async function main(): Promise<void> {
   const [target, ...args] = process.argv.slice(2);
   if (!target) {
     usage();
-  }
-
-  if (target === 'clean-test-workspaces') {
-    await cleanTestWorkspaces();
-    return;
   }
 
   if (target === 'check:affected') {

@@ -18,21 +18,25 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   PhysicalNoFollowError,
   assertSameNoFollowDirectoryIdentityV1,
+  createExclusiveNoFollowDirectoryV1,
   createNoFollowDirectoryChainV1,
   deleteRetainedNoFollowEntryV1,
   inspectExactNoFollowDirectoryPresenceV1,
   inspectNoFollowDirectoryChainV1,
+  inspectNoFollowDirectoryChildV1,
   inspectNoFollowOrdinaryFileEntryV1,
   publishExclusiveDurableCanonicalFileV1,
   readNoFollowOrdinaryFileV1,
   relocateRetainedNoFollowDirectoryV1,
   replaceDurableCanonicalFileV1,
   scanNoFollowDirectoryTreeInventoryV1,
+  scanNoFollowDirectoryTreeMetadataV1,
   scanNoFollowDirectoryTreeV1
 } from '../../platform/shared/physical-no-follow.ts';
 
@@ -115,6 +119,198 @@ test('same-identity readback rejects replacement rather than accepting same lexi
   }
 });
 
+test('retained child inspection is create-free and exclusive creation never adopts a collision', () => {
+  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+  const root = fixtureRoot();
+  try {
+    const parentPath = path.join(root, 'parent');
+    const displacedParent = path.join(root, 'parent-displaced');
+    mkdirSync(parentPath);
+    const parent = inspectNoFollowDirectoryChainV1(parentPath).target;
+
+    expect(inspectNoFollowDirectoryChildV1(parent, 'child')).toBeNull();
+    expect(existsSync(path.join(parentPath, 'child'))).toBe(false);
+    const child = createExclusiveNoFollowDirectoryV1(parent, 'child');
+    expect(inspectNoFollowDirectoryChildV1(parent, 'child')).toEqual(child);
+    expectPhysicalCode(
+      () => createExclusiveNoFollowDirectoryV1(parent, 'child'),
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+    );
+
+    renameSync(parentPath, displacedParent);
+    mkdirSync(parentPath);
+    expectPhysicalCode(
+      () => createExclusiveNoFollowDirectoryV1(parent, 'replacement-child'),
+      'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+    );
+    expect(existsSync(path.join(parentPath, 'replacement-child'))).toBe(false);
+    expect(existsSync(path.join(displacedParent, 'child'))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Linux directory-create transaction rejects parent, ancestor, and child replacement races', async () => {
+  if (process.platform !== 'linux') return;
+  const root = fixtureRoot();
+  try {
+    const mirrorRoot = path.join(root, 'mirror');
+    const mirrorShared = path.join(mirrorRoot, 'platform', 'shared');
+    mkdirSync(mirrorShared, { recursive: true });
+    const physicalPath = path.resolve(import.meta.dir, '../../platform/shared/physical-no-follow.ts');
+    const canonicalPath = path.resolve(import.meta.dir, '../../platform/shared/canonical-primitives.ts');
+    let source = readFileSync(physicalPath, 'utf8');
+    const importNeedle = '  lstatSync,\n';
+    const transactionNeedle =
+      '): LinuxDirectoryCreateTransactionV1 {\n  const rootFd = linuxOpenRoot(label);\n';
+    const ancestorNeedle =
+      '      const nextFd = linuxOpenAt(currentFd, segment, `${label} ancestor`);\n';
+    const witnessNeedle =
+      '    linuxAssertDirectoryCreateWitness(\n' +
+      '      input.witness,\n' +
+      '      linuxReadDirectoryMutationEvents(input.witness, input.label),\n' +
+      '      input.name,\n' +
+      '      created,\n';
+    expect(source.split(importNeedle).length).toBe(2);
+    expect(source.split(transactionNeedle).length).toBe(2);
+    expect(source.split(ancestorNeedle).length).toBe(2);
+    expect(source.split(witnessNeedle).length).toBe(2);
+    source = source.replace(
+      importNeedle,
+      `${importNeedle}  mkdirSync as linuxRaceMkdirSync,\n  renameSync as linuxRaceRenameSync,\n`
+    ).replace(
+      transactionNeedle,
+      `): LinuxDirectoryCreateTransactionV1 {\n` +
+      `  if (process.env.SEC_PHYSICAL_PARENT_RACE_TARGET === expected.target.path) {\n` +
+      `    const displaced = process.env.SEC_PHYSICAL_PARENT_RACE_DISPLACED;\n` +
+      `    if (displaced === undefined) throw new Error('Missing deterministic Linux parent displacement.');\n` +
+      `    linuxRaceRenameSync(expected.target.path, displaced);\n` +
+      `    linuxRaceMkdirSync(expected.target.path);\n` +
+      `  }\n` +
+      `  const rootFd = linuxOpenRoot(label);\n`
+    ).replace(
+      ancestorNeedle,
+      ancestorNeedle +
+      `      if (process.env.SEC_PHYSICAL_ANCESTOR_RACE_TARGET === nextPath) {\n` +
+      `        const displaced = process.env.SEC_PHYSICAL_ANCESTOR_RACE_DISPLACED;\n` +
+      `        if (displaced === undefined) throw new Error('Missing deterministic Linux ancestor displacement.');\n` +
+      `        linuxRaceRenameSync(nextPath, displaced);\n` +
+      `        linuxRaceMkdirSync(nextPath);\n` +
+      `      }\n`
+    ).replace(
+      witnessNeedle,
+      `    if (process.env.SEC_PHYSICAL_CREATE_RACE_TARGET === input.absolutePath) {\n` +
+      `      const displaced = process.env.SEC_PHYSICAL_CREATE_RACE_DISPLACED;\n` +
+      `      if (displaced === undefined) throw new Error('Missing deterministic Linux race displacement.');\n` +
+      `      linuxRaceRenameSync(input.absolutePath, displaced);\n` +
+      `      linuxRaceMkdirSync(input.absolutePath);\n` +
+      `    }\n` + witnessNeedle
+    );
+    const raceModulePath = path.join(mirrorShared, 'physical-no-follow-race.ts');
+    writeFileSync(raceModulePath, source, 'utf8');
+    writeFileSync(path.join(mirrorShared, 'canonical-primitives.ts'), readFileSync(canonicalPath));
+    const racePhysical = await import(`${pathToFileURL(raceModulePath).href}?race=${Date.now()}`);
+    const expectRaceRejected = (action: () => unknown): void => {
+      try {
+        action();
+      } catch (error) {
+        expect((error as { code?: unknown }).code).toBe('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED');
+        return;
+      }
+      throw new Error('Expected the deterministic Linux create replacement to fail closed.');
+    };
+
+    const exclusiveParentPath = path.join(root, 'exclusive-parent');
+    mkdirSync(exclusiveParentPath);
+    const exclusiveParent = racePhysical.inspectNoFollowDirectoryChainV1(exclusiveParentPath).target;
+    const exclusiveTarget = path.join(exclusiveParentPath, 'child');
+    const exclusiveDisplaced = path.join(exclusiveParentPath, 'child-displaced');
+    process.env.SEC_PHYSICAL_CREATE_RACE_TARGET = exclusiveTarget;
+    process.env.SEC_PHYSICAL_CREATE_RACE_DISPLACED = exclusiveDisplaced;
+    expectRaceRejected(() => racePhysical.createExclusiveNoFollowDirectoryV1(exclusiveParent, 'child'));
+    expect(lstatSync(exclusiveTarget).isDirectory()).toBe(true);
+    expect(lstatSync(exclusiveDisplaced).isDirectory()).toBe(true);
+
+    const chainParentPath = path.join(root, 'chain-parent');
+    mkdirSync(chainParentPath);
+    const chainParent = racePhysical.inspectNoFollowDirectoryChainV1(chainParentPath).target;
+    const chainTarget = path.join(chainParentPath, 'operation-root');
+    const chainDisplaced = path.join(chainParentPath, 'operation-root-displaced');
+    process.env.SEC_PHYSICAL_CREATE_RACE_TARGET = chainTarget;
+    process.env.SEC_PHYSICAL_CREATE_RACE_DISPLACED = chainDisplaced;
+    expectRaceRejected(
+      () => racePhysical.createNoFollowDirectoryChainV1(chainParent, ['operation-root', 'generation-one'])
+    );
+    expect(lstatSync(chainTarget).isDirectory()).toBe(true);
+    expect(lstatSync(chainDisplaced).isDirectory()).toBe(true);
+    expect(existsSync(path.join(chainTarget, 'generation-one'))).toBe(false);
+    expect(existsSync(path.join(chainDisplaced, 'generation-one'))).toBe(false);
+
+    delete process.env.SEC_PHYSICAL_CREATE_RACE_TARGET;
+    delete process.env.SEC_PHYSICAL_CREATE_RACE_DISPLACED;
+    const prewatchExclusiveParent = path.join(root, 'prewatch-exclusive-parent');
+    const prewatchExclusiveDisplaced = path.join(root, 'prewatch-exclusive-parent-displaced');
+    mkdirSync(prewatchExclusiveParent);
+    const prewatchExclusiveIdentity = racePhysical.inspectNoFollowDirectoryChainV1(
+      prewatchExclusiveParent
+    ).target;
+    process.env.SEC_PHYSICAL_PARENT_RACE_TARGET = prewatchExclusiveParent;
+    process.env.SEC_PHYSICAL_PARENT_RACE_DISPLACED = prewatchExclusiveDisplaced;
+    expectRaceRejected(
+      () => racePhysical.createExclusiveNoFollowDirectoryV1(prewatchExclusiveIdentity, 'child')
+    );
+    expect(lstatSync(prewatchExclusiveParent).isDirectory()).toBe(true);
+    expect(lstatSync(prewatchExclusiveDisplaced).isDirectory()).toBe(true);
+    expect(existsSync(path.join(prewatchExclusiveParent, 'child'))).toBe(false);
+    expect(existsSync(path.join(prewatchExclusiveDisplaced, 'child'))).toBe(false);
+
+    delete process.env.SEC_PHYSICAL_PARENT_RACE_TARGET;
+    delete process.env.SEC_PHYSICAL_PARENT_RACE_DISPLACED;
+    const ancestorExclusiveScope = path.join(root, 'ancestor-exclusive-scope');
+    const ancestorExclusiveParent = path.join(ancestorExclusiveScope, 'run', 'parent');
+    const ancestorExclusiveDisplaced = path.join(root, 'ancestor-exclusive-scope-displaced');
+    mkdirSync(ancestorExclusiveParent, { recursive: true });
+    const ancestorExclusiveIdentity = racePhysical.inspectNoFollowDirectoryChainV1(
+      ancestorExclusiveParent
+    ).target;
+    process.env.SEC_PHYSICAL_ANCESTOR_RACE_TARGET = ancestorExclusiveScope;
+    process.env.SEC_PHYSICAL_ANCESTOR_RACE_DISPLACED = ancestorExclusiveDisplaced;
+    expectRaceRejected(
+      () => racePhysical.createExclusiveNoFollowDirectoryV1(ancestorExclusiveIdentity, 'child')
+    );
+    expect(lstatSync(ancestorExclusiveScope).isDirectory()).toBe(true);
+    expect(lstatSync(ancestorExclusiveDisplaced).isDirectory()).toBe(true);
+    expect(existsSync(path.join(ancestorExclusiveScope, 'run', 'parent', 'child'))).toBe(false);
+    expect(existsSync(path.join(ancestorExclusiveDisplaced, 'run', 'parent', 'child'))).toBe(false);
+
+    const ancestorChainScope = path.join(root, 'ancestor-chain-scope');
+    const ancestorChainParent = path.join(ancestorChainScope, 'run', 'parent');
+    const ancestorChainDisplaced = path.join(root, 'ancestor-chain-scope-displaced');
+    mkdirSync(ancestorChainParent, { recursive: true });
+    const ancestorChainIdentity = racePhysical.inspectNoFollowDirectoryChainV1(ancestorChainParent).target;
+    process.env.SEC_PHYSICAL_ANCESTOR_RACE_TARGET = ancestorChainScope;
+    process.env.SEC_PHYSICAL_ANCESTOR_RACE_DISPLACED = ancestorChainDisplaced;
+    expectRaceRejected(
+      () => racePhysical.createNoFollowDirectoryChainV1(
+        ancestorChainIdentity,
+        ['operation-root', 'generation-one']
+      )
+    );
+    expect(lstatSync(ancestorChainScope).isDirectory()).toBe(true);
+    expect(lstatSync(ancestorChainDisplaced).isDirectory()).toBe(true);
+    expect(existsSync(path.join(ancestorChainScope, 'run', 'parent', 'operation-root'))).toBe(false);
+    expect(existsSync(path.join(ancestorChainDisplaced, 'run', 'parent', 'operation-root'))).toBe(false);
+  } finally {
+    delete process.env.SEC_PHYSICAL_CREATE_RACE_TARGET;
+    delete process.env.SEC_PHYSICAL_CREATE_RACE_DISPLACED;
+    delete process.env.SEC_PHYSICAL_PARENT_RACE_TARGET;
+    delete process.env.SEC_PHYSICAL_PARENT_RACE_DISPLACED;
+    delete process.env.SEC_PHYSICAL_ANCESTOR_RACE_TARGET;
+    delete process.env.SEC_PHYSICAL_ANCESTOR_RACE_DISPLACED;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('operation directory creation is retained-parent relative and returns exact created identities', () => {
   const root = fixtureRoot();
   try {
@@ -127,7 +323,7 @@ test('operation directory creation is retained-parent relative and returns exact
     const end = source.indexOf('\nfunction ensureLeafName(', start);
     const implementation = source.slice(start, end);
     expect(implementation).not.toContain('mkdirSync');
-    expect(implementation).toContain('symbols.mkdirat(');
+    expect(implementation).toContain('linuxOpenOrCreateDirectoryAt(');
     expect(implementation).toContain('windowsOpenRelativeDirectory(');
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -422,6 +618,49 @@ test('streaming tree inventory preserves the canonical digest domain beyond the 
     expect(first.get('large.bin')).toMatchObject({ kind: 'file', size: largeSize });
     expect(first.get('large.bin')?.contentDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(second.get('large.bin')?.contentDigest).toBe(first.get('large.bin')?.contentDigest);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('metadata inventory does not read sparse file bytes and enforces entry and deadline bounds', () => {
+  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+  const root = fixtureRoot();
+  try {
+    const target = path.join(root, 'target');
+    mkdirSync(target);
+    const sparse = path.join(target, 'large-sparse.bin');
+    const second = path.join(target, 'second.txt');
+    closeSync(openSync(sparse, 'w'));
+    truncateSync(sparse, 512 * 1024 * 1024);
+    writeFileSync(second, 'small');
+    const identity = inspectNoFollowDirectoryChainV1(target, 'metadata target').target;
+
+    const startedAt = performance.now();
+    const inventory = new Map(scanNoFollowDirectoryTreeMetadataV1(identity, {
+      deadlineAtMs: startedAt + 2_000,
+      maximumEntries: 2
+    }).map((entry) => [entry.relativePath, entry]));
+    expect(inventory.get('large-sparse.bin')).toMatchObject({
+      kind: 'file',
+      size: 512 * 1024 * 1024,
+      contentDigest: null
+    });
+    expect(performance.now() - startedAt).toBeLessThan(2_000);
+    expectPhysicalCode(
+      () => scanNoFollowDirectoryTreeMetadataV1(identity, {
+        deadlineAtMs: performance.now() + 2_000,
+        maximumEntries: 1
+      }),
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
+    );
+    expectPhysicalCode(
+      () => scanNoFollowDirectoryTreeMetadataV1(identity, {
+        deadlineAtMs: performance.now() - 1,
+        maximumEntries: 10
+      }),
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE'
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

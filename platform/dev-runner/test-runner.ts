@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -47,11 +48,17 @@ import {
   ensureTestDependencies
 } from './dependency-bootstrap.ts';
 import {
-  cleanStaleTestWorkspaces,
-  cleanTestWorkspaces,
+  consumeTestWorkspaceSupervisorChallengeV1,
+  deriveTestWorkspaceRunNamespaceV1,
+  parseTestWorkspaceRunChildAssignmentV1,
   pathEnvKey,
+  prepareTestWorkspaceRunV1,
   resolveTestWorkspaceNamespace,
-  TEST_WORKSPACE_NAMESPACE_ENV
+  resolveTestWorkspaceRunChild,
+  settlePreparedTestWorkspaceRunV1,
+  TEST_WORKSPACE_NAMESPACE_ENV,
+  TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
+  TEST_WORKSPACE_RUN_CHILD_ENV
 } from './env-manager.ts';
 import {
   DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
@@ -425,15 +432,44 @@ function pathEnv(
 }
 
 let fastTestRunSequence = 0;
+const fastTestProcessNonce = randomUUID();
+let callerAssignmentClaimed = false;
 
-function fastTestWorkspaceEnv(): NodeJS.ProcessEnv {
-  const configured = resolveTestWorkspaceNamespace();
+async function prepareFastTestWorkspaceRun(): Promise<Readonly<{
+  env: NodeJS.ProcessEnv;
+  cleanup: ReturnType<typeof prepareTestWorkspaceRunV1>;
+}>> {
+  const parentNamespace = resolveTestWorkspaceNamespace();
+  const inheritedRunChild = resolveTestWorkspaceRunChild();
+  const serializedAssignment = process.env[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV];
+  if ((inheritedRunChild === undefined) !== (serializedAssignment === undefined) ||
+    (inheritedRunChild !== undefined && parentNamespace === undefined)) {
+    throw new Error('runFastTests cannot start beneath an existing run-owned workspace child');
+  }
   fastTestRunSequence += 1;
-  return {
-    [TEST_WORKSPACE_NAMESPACE_ENV]: configured ?? (
-      `fast-${process.pid}-${Date.now().toString(36)}-${fastTestRunSequence.toString(36)}`
-    )
+  const callerAssignment = inheritedRunChild === undefined ? null :
+    parseTestWorkspaceRunChildAssignmentV1(serializedAssignment, parentNamespace!, inheritedRunChild);
+  const runChild = callerAssignment?.name ?? deriveTestWorkspaceRunNamespaceV1({
+      parentNamespace,
+      processId: process.pid,
+      processNonce: fastTestProcessNonce,
+      runSequence: fastTestRunSequence
+    });
+  if (callerAssignment !== null) {
+    if (callerAssignmentClaimed) throw new Error('runFastTests caller assignment authority was already consumed');
+    await consumeTestWorkspaceSupervisorChallengeV1(callerAssignment);
+    callerAssignmentClaimed = true;
+  }
+  const env = {
+    [TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace ?? runChild,
+    // Explicit undefined scrubs a poisoned inherited child for ordinary runs.
+    [TEST_WORKSPACE_RUN_CHILD_ENV]: parentNamespace === undefined ? undefined : runChild,
+    [TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]: undefined
   };
+  return Object.freeze({
+    env,
+    cleanup: prepareTestWorkspaceRunV1(env, callerAssignment)
+  });
 }
 
 export const FAST_TEST_FAILURE_RECEIPT_PREFIX = 'SEC_FAST_TEST_FAILURE_RECEIPT ';
@@ -886,12 +922,10 @@ export async function runTests(args: string[] = []): Promise<number> {
 
 export async function runFastTests(args: string[] = []): Promise<number> {
   let exitCode = 1;
-  const workspaceEnv = fastTestWorkspaceEnv();
+  const workspace = await prepareFastTestWorkspaceRun();
+  const workspaceEnv = workspace.env;
   let hasPrimaryFailure = false;
   let primaryFailure: unknown;
-  // One-time stale workspace cleanup before spawning shards, replacing the
-  // previous per-subprocess preload call that caused redundant I/O.
-  try { await cleanStaleTestWorkspaces(); } catch { /* non-critical */ }
   try {
     await withFastTestDependencies(async ({ binPath }) => {
       try {
@@ -921,7 +955,7 @@ export async function runFastTests(args: string[] = []): Promise<number> {
     primaryFailure = error;
   }
   try {
-    await cleanTestWorkspaces(workspaceEnv);
+    settlePreparedTestWorkspaceRunV1(workspace.cleanup);
   } catch (error) {
     console.error(`Fast test workspace cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
     if (!hasPrimaryFailure && exitCode === 0) exitCode = 1;
