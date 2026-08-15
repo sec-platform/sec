@@ -1,6 +1,21 @@
 import { expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  truncateSync,
+  writeFileSync,
+  writeSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -149,6 +164,83 @@ test('real registered worktree reaches registry and physical absence under one d
     rmSync(value.root, { recursive: true, force: true });
   }
 }, 30_000);
+
+test('Windows real closeout streams a large tracked leaf, normalizes readonly, and never traverses a junction', async () => {
+  if (process.platform !== 'win32') return;
+  const value = fixture();
+  const externalJunctionTarget = path.join(value.root, 'junction-external');
+  try {
+    const largeRoot = path.join(value.target, 'tracked-cache');
+    const largePath = path.join(largeRoot, 'browser.bin');
+    const readonlyRoot = path.join(value.target, 'readonly');
+    const readonlyPath = path.join(readonlyRoot, 'nested-object.bin');
+    const junctionPath = path.join(value.target, 'tracked-junction');
+    mkdirSync(largeRoot);
+    mkdirSync(readonlyRoot);
+    mkdirSync(junctionPath);
+    const largeSize = 64 * 1024 * 1024 + 4096;
+    writeFileSync(largePath, '');
+    truncateSync(largePath, largeSize);
+    const largeHandle = openSync(largePath, 'r+');
+    try {
+      writeSync(largeHandle, Buffer.from('browser-cache-start'), 0, 19, 0);
+      writeSync(largeHandle, Buffer.from('browser-cache-end'), 0, 17, largeSize - 17);
+    } finally {
+      closeSync(largeHandle);
+    }
+    writeFileSync(readonlyPath, 'readonly tracked object\n', 'utf8');
+    writeFileSync(path.join(junctionPath, 'external-sentinel.txt'), 'must survive closeout\n', 'utf8');
+    git(value.target, ['add', 'tracked-cache/browser.bin', 'readonly/nested-object.bin', 'tracked-junction/external-sentinel.txt']);
+    git(value.target, ['commit', '-m', 'add physical closeout stress leaves']);
+    value.headSha = git(value.target, ['rev-parse', 'HEAD']);
+    value.treeSha = git(value.target, ['rev-parse', 'HEAD^{tree}']);
+    chmodSync(readonlyPath, 0o444);
+    renameSync(junctionPath, externalJunctionTarget);
+    symlinkSync(externalJunctionTarget, junctionPath, 'junction');
+    expect(git(value.target, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('');
+
+    const prepared = await prepareTrustedWorktreePhysicalCloseoutV1({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest
+    });
+    expect(prepared.authorization.inventory.entries.find((entry) => entry.relativePath === 'tracked-cache/browser.bin')).toMatchObject({
+      kind: 'file', size: largeSize
+    });
+    expect(prepared.authorization.inventory.entries.find((entry) => entry.relativePath === 'tracked-junction')).toMatchObject({
+      kind: 'symlink'
+    });
+    const receipt = await executeWorktreePhysicalCloseoutV1({
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      expectedBranch: value.branch,
+      expectedHeadSha: value.headSha,
+      expectedTreeSha: value.treeSha,
+      expectedRecoveryAuthorityDigest: value.recoveryAuthorityDigest,
+      authorizationPath: prepared.authorization.authorizationPath
+    });
+    expect(receipt.terminal).toBe('completed');
+    expect(assertTrustedCompletedWorktreePhysicalCloseoutV1({
+      token: prepared.token,
+      repositoryRoot: value.repository,
+      targetPath: value.target,
+      branch: value.branch,
+      headSha: value.headSha,
+      treeSha: value.treeSha,
+      recoveryAuthorityDigest: value.recoveryAuthorityDigest
+    }).receiptDigest).toBe(receipt.receiptDigest);
+    expect(readFileSync(path.join(externalJunctionTarget, 'external-sentinel.txt'), 'utf8')).toBe('must survive closeout\n');
+    expect(existsSync(value.target)).toBe(false);
+    expect(gitPath(git(value.repository, ['worktree', 'list', '--porcelain']))).not.toContain(gitPath(value.target));
+  } finally {
+    const externalSentinel = path.join(externalJunctionTarget, 'external-sentinel.txt');
+    if (existsSync(externalSentinel)) chmodSync(externalSentinel, 0o666);
+    rmSync(value.root, { recursive: true, force: true });
+  }
+}, 120_000);
 
 test('first same-branch completed token remains target-valid after a second registered worktree closes', async () => {
   const value = fixture();

@@ -41,7 +41,7 @@ export const CI_VERIFICATION_ACTION_DEPENDENCY_INPUT_PATHS_V2 = Object.freeze([
   'package.json'
 ] as const);
 export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2 =
-  'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0:node-24.19.0:python-3.12.3:unzip-6.00:gh-2.97.0:gh-archive-sha256-a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112:image-sha256-418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f:container-init-v1:bun-1.3.14:action-producer-v2:sandbox-v4' as const;
+  'github-actions:self-hosted:ubuntu-24.04:x64:sec-linux-verification-v1:roles-control-trusted-sut-v1:runner-2.336.0:node-24.19.0:python-3.12.3:unzip-6.00:gh-2.97.0:gh-archive-sha256-a2c9b8497e1f85b1ad0dfcb78b5a622e098801b8e461e459e88e1ee12f018112:image-sha256-418e9f00110157ff610061685f9175a1af6966baa77e6d153eb43bd49893f63f:container-init-v1:bun-1.3.14:action-producer-v2:sandbox-v5' as const;
 
 /**
  * The hosted SUT isolation policy is part of Action identity through
@@ -50,11 +50,11 @@ export const CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2 =
  */
 export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 = Object.freeze({
   schema: 'sec-ci-verification-hosted-sandbox-policy-v1' as const,
-  policyRevision: 'sandbox-v4' as const,
+  policyRevision: 'sandbox-v5' as const,
   runnerImage: 'ubuntu-24.04' as const,
   substrate: 'util-linux-unshare' as const,
   namespaces: Object.freeze(['mount', 'pid', 'network'] as const),
-  rootIsolation: 'private-tmpfs-chroot-no-retained-fd' as const,
+  rootIsolation: 'private-tmpfs-chroot-retained-archive-fd-closed-before-candidate' as const,
   proc: 'new-proc-hidepid-2' as const,
   isolatedUid: 65532 as const,
   isolatedGid: 65532 as const,
@@ -64,13 +64,15 @@ export const CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1 = Object.freeze({
   outerSutContainerCapabilities: Object.freeze([
     'CHOWN', 'SETGID', 'SETPCAP', 'SETUID', 'SYS_ADMIN', 'SYS_CHROOT'
   ] as const),
-  inheritedFileDescriptors: 'stdio-only-at-exec' as const,
-  inputMount: 'read-only-authenticated-canonical-tar-v1' as const,
+  inheritedFileDescriptors: 'stdio-plus-authenticated-archive-fd-until-private-copy' as const,
+  inputMount: 'retained-ordinary-fd-private-tmpfs-authenticated-copy-v2' as const,
   archiveValidation: Object.freeze({
     rejectAbsoluteOrParentPath: true as const,
     rejectDeviceFifoSocket: true as const,
     rejectUnsafeLink: true as const,
     rejectDuplicateOrCaseConflict: true as const,
+    retainedOrdinaryFileDescriptor: true as const,
+    privateCopyDigestReadback: true as const,
     hostExtraction: false as const
   }),
   workspace: 'private-tmpfs-extract-inside-chroot' as const,

@@ -32,6 +32,23 @@ type ChildProcessResultLike = Readonly<{
   stderr: Buffer | string | null | undefined;
 }>;
 
+const BRANCH_LIFECYCLE_GITHUB_CREDENTIAL_ARGS_V1 = Object.freeze([
+  '-c', 'http.extraHeader=',
+  '-c', 'http.https://github.com/.extraheader=',
+  '-c', 'credential.helper=',
+  '-c', 'credential.helper=!gh auth git-credential'
+] as const);
+
+/**
+ * Return the one finite GitHub credential configuration prefix used by every
+ * hosted branch observation and ref effect.  The empty generic and canonical
+ * github.com extraHeader values remove actions/checkout's persisted HTTP
+ * authorization before the explicit gh credential helper is selected.
+ */
+export function createBranchLifecycleGitHubCredentialArgsV1(): readonly string[] {
+  return BRANCH_LIFECYCLE_GITHUB_CREDENTIAL_ARGS_V1;
+}
+
 /**
  * Build the one canonical environment for trusted Git subprocesses.
  *

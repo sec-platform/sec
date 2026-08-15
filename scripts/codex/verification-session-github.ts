@@ -2301,7 +2301,7 @@ function apiFailure(message: string, statusCode?: number): GitHubApiFailure {
 function runVerificationSessionGh(
   repositoryRoot: string,
   args: readonly string[],
-  input?: string
+  input?: Buffer
 ) {
   if (args.some((arg) => arg.includes('\0'))) fail('GitHub observation argument contains NUL.');
   const spawned = spawnSync('gh', [...args], {
@@ -2329,7 +2329,7 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
   private readonly repositoryRoot: string;
   constructor(repositoryRoot = process.cwd()) { this.repositoryRoot = repositoryRoot; }
 
-  private gh(args: readonly string[], label: string, input?: string): string {
+  private gh(args: readonly string[], label: string, input?: Buffer): string {
     const result = runVerificationSessionGh(this.repositoryRoot, args, input);
     if (result.status !== 0) {
       const message = decodeBranchLifecycleChildErrorV1(result);
@@ -2861,10 +2861,10 @@ class GhVerificationSessionTransport implements VerificationSessionGitHubTranspo
   }
 
   dispatchVerificationSession(repository: string, request: VerificationSessionHostedRequestV1): void {
-    const body = `${encodeVerificationActionDataV2({
+    const body = Buffer.from(`${encodeVerificationActionDataV2({
       event_type: CI_VERIFICATION_SESSION_DISPATCH_TYPE,
       client_payload: { payload: request }
-    })}\n`;
+    })}\n`, 'utf8');
     this.gh([
       'api', '--method', 'POST', `/repos/${repository}/dispatches`, '--input', '-'
     ], 'hosted VerificationSession dispatch', body);

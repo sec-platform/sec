@@ -19,7 +19,8 @@ import {
   prepareBranchCloseout
 } from '../../scripts/codex/branch-closeout.ts';
 import {
-  createBranchLifecycleGitChildEnvironmentV1
+  createBranchLifecycleGitChildEnvironmentV1,
+  createBranchLifecycleGitHubCredentialArgsV1
 } from '../../scripts/codex/branch-lifecycle-command.ts';
 import { collectBranchLifecycleInventory } from '../../scripts/codex/branch-lifecycle-inventory.ts';
 
@@ -221,6 +222,7 @@ test('branch lifecycle command module exposes no executable or authentic capabil
   const exports = Object.keys(await import('../../scripts/codex/branch-lifecycle-command.ts')).sort();
   expect(exports).toEqual([
     'createBranchLifecycleGitChildEnvironmentV1',
+    'createBranchLifecycleGitHubCredentialArgsV1',
     'decodeBranchLifecycleChildErrorV1',
     'decodeBranchLifecycleChildStdoutV1'
   ]);
@@ -237,6 +239,26 @@ test('branch lifecycle command module exposes no executable or authentic capabil
   ]) {
     expect(source).not.toContain(symbol);
     expect(exports).not.toContain(symbol);
+  }
+});
+
+test('canonical GitHub credential prefix masks checkout HTTP authorization before gh lookup', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-branch-credential-'));
+  try {
+    git(root, ['init']);
+    git(root, ['config', 'http.https://github.com/.extraheader', 'AUTHORIZATION: ambient-checkout-token']);
+    const observed = spawnSync('git', [
+      ...createBranchLifecycleGitHubCredentialArgsV1(),
+      'config', '--get-urlmatch', 'http.extraheader', 'https://github.com/sec-platform/sec.git'
+    ], {
+      cwd: root,
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    expect(observed.status).toBe(0);
+    expect(String(observed.stdout ?? '')).toBe('\n');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

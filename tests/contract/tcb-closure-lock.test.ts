@@ -303,7 +303,7 @@ test('Hosted archive inventory has one fixed bounded dispatcher shared by every 
     );
     expect(candidate.match(/spawnSync\(/gu)).toHaveLength(1);
     expect(candidate).toContain("    '/usr/bin/python3',");
-    expect(candidate).toContain("    ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V2, archive],");
+    expect(candidate).toContain("    ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V3, archive],");
     expect(candidate).toContain("      encoding: 'utf8',");
     expect(candidate).toContain('      windowsHide: true,');
     expect(candidate).toContain('      maxBuffer: 128 * 1024 * 1024,');
@@ -317,7 +317,7 @@ test('Hosted archive inventory has one fixed bounded dispatcher shared by every 
   for (const [label, hostile] of [
     ['name', dispatcher.replace('inspectHostedActionArchiveMetadataV2', 'inspectHostedActionArchiveMetadataNearNameV2')],
     ['command', dispatcher.replace("'/usr/bin/python3'", "'/usr/local/bin/python3'")],
-    ['script', dispatcher.replace('HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V2', 'HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_NEAR_V2')],
+    ['script', dispatcher.replace('HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V3', 'HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_NEAR_V3')],
     ['archive', dispatcher.replace(', archive],', ", `${archive}.candidate`],")],
     ['cwd', dispatcher.replace("encoding: 'utf8',", "cwd: archive, encoding: 'utf8',")],
     ['environment', dispatcher.replace("{ PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }", 'process.env')],

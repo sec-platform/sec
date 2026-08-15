@@ -126,9 +126,10 @@ import {
   rehydratePreparedBranchCloseoutRecoveryArtifactV1,
   type PreparedBranchCloseoutEnvelope
 } from './branch-closeout.ts';
-import { branchLifecycleDigest } from './branch-lifecycle-audit.ts';
+import { assertGitBranchName, branchLifecycleDigest } from './branch-lifecycle-audit.ts';
 import {
   createBranchLifecycleGitChildEnvironmentV1,
+  createBranchLifecycleGitHubCredentialArgsV1,
   decodeBranchLifecycleChildErrorV1,
   decodeBranchLifecycleChildStdoutV1
 } from './branch-lifecycle-command.ts';
@@ -335,6 +336,97 @@ function requireCommand(
   return decodeBranchLifecycleChildStdoutV1(result);
 }
 
+type TrustedRemoteDefaultIdentityV1 = Readonly<{
+  remote: string;
+  defaultBranch: string;
+  remoteRef: string;
+  localRef: string;
+}>;
+
+type TrustedRemoteExactRefObservationV1 = Readonly<{
+  state: 'present' | 'absent';
+  sha: string | null;
+}>;
+
+function trustedRemoteDefaultIdentityV1(
+  defaultBranch = 'main',
+  remote = 'origin'
+): TrustedRemoteDefaultIdentityV1 {
+  assertGitBranchName(defaultBranch, 'Trusted remote default branch');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(remote)) {
+    throw new Error('Trusted remote default identity is invalid.');
+  }
+  return Object.freeze({
+    remote,
+    defaultBranch,
+    remoteRef: `refs/heads/${defaultBranch}`,
+    localRef: `refs/remotes/${remote}/${defaultBranch}`
+  });
+}
+
+/**
+ * Observe one exact hosted branch ref without depending on actions/checkout
+ * credential persistence or ambient Git credential helpers. GH_TOKEN/gh
+ * ownership stays with the caller environment; this helper fixes only the
+ * finite Git command and exact single-ref response shape.
+ */
+function observeTrustedRemoteExactRefV1(input: {
+  ctx: VerificationSessionScope;
+  remote: string;
+  remoteRef: string;
+  label: string;
+  cwd?: string;
+}): TrustedRemoteExactRefObservationV1 {
+  const headPrefix = 'refs/heads/';
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(input.remote)
+      || !input.remoteRef.startsWith(headPrefix)) {
+    throw new Error('Trusted remote exact-ref identity is invalid.');
+  }
+  assertGitBranchName(input.remoteRef.slice(headPrefix.length), 'Trusted remote exact-ref branch');
+  const result = runVerificationSessionCommand(input.ctx, 'git', [
+    ...createBranchLifecycleGitHubCredentialArgsV1(),
+    'ls-remote', '--exit-code', input.remote, input.remoteRef
+  ], input.cwd);
+  const source = decodeBranchLifecycleChildStdoutV1(result);
+  if (result.status === 2 && source.trim().length === 0) {
+    return Object.freeze({ state: 'absent', sha: null });
+  }
+  if (result.status !== 0) {
+    throw new Error(`${input.label} failed: ${decodeBranchLifecycleChildErrorV1(result)}`);
+  }
+  const lines = source.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  if (lines.length !== 1) {
+    throw new Error('Trusted remote exact-ref readback is incomplete or ambiguous.');
+  }
+  const match = /^([0-9a-f]{40})\t(.+)$/u.exec(lines[0]!);
+  const observedRef = match?.[2] ?? '';
+  if (!observedRef.startsWith(headPrefix)) {
+    throw new Error('Trusted remote exact-ref readback is malformed.');
+  }
+  assertGitBranchName(observedRef.slice(headPrefix.length), 'Trusted remote exact-ref readback branch');
+  if (match === null || observedRef !== input.remoteRef) {
+    throw new Error('Trusted remote exact-ref readback is malformed.');
+  }
+  return Object.freeze({ state: 'present', sha: match[1]! });
+}
+
+function readTrustedRemoteDefaultRefV1(input: {
+  ctx: VerificationSessionScope;
+  identity: TrustedRemoteDefaultIdentityV1;
+  label: string;
+}): string {
+  const observed = observeTrustedRemoteExactRefV1({
+    ctx: input.ctx,
+    remote: input.identity.remote,
+    remoteRef: input.identity.remoteRef,
+    label: input.label
+  });
+  if (observed.state !== 'present' || observed.sha === null) {
+    throw new Error('Trusted remote default readback is absent.');
+  }
+  return observed.sha;
+}
+
 /** Live production proof. The command runner is fixed inside the opaque context. */
 function inspectTrustedRuntimeV1(input: {
   repositoryRoot: string;
@@ -342,14 +434,14 @@ function inspectTrustedRuntimeV1(input: {
   remote?: string;
   candidateHeadSha?: string;
 }): TrustedRuntimeProofV1 {
-  const defaultBranch = input.defaultBranch ?? 'main';
-  const remote = input.remote ?? 'origin';
+  const identity = trustedRemoteDefaultIdentityV1(input.defaultBranch, input.remote);
   const ctx = createVerificationSessionScope({ repositoryRoot: input.repositoryRoot });
   const currentHeadSha = requireCommand(ctx, 'git', ['rev-parse', 'HEAD'], 'HEAD readback');
   const currentBranch = requireCommand(ctx, 'git', ['branch', '--show-current'], 'branch readback');
-  const localDefaultSha = requireCommand(ctx, 'git', ['rev-parse', `refs/remotes/${remote}/${defaultBranch}`], 'local default readback');
-  const remoteLine = requireCommand(ctx, 'git', ['ls-remote', remote, `refs/heads/${defaultBranch}`], 'remote default readback');
-  const remoteDefaultSha = remoteLine.split(/\s+/u)[0] ?? '';
+  const localDefaultSha = requireCommand(ctx, 'git', ['rev-parse', identity.localRef], 'local default readback');
+  const remoteDefaultSha = readTrustedRemoteDefaultRefV1({
+    ctx, identity, label: 'remote default readback'
+  });
   const workingTreeClean = requireCommand(ctx, 'git', [
     'status', '--porcelain=v1', '--untracked-files=all'
   ], 'worktree readback').length === 0;
@@ -392,30 +484,9 @@ function synchronizeTrustedRemoteDefaultRefV1(input: {
   defaultBranch?: string;
   remote?: string;
 }): Readonly<{ defaultSha: string; headSha: string }> {
-  const defaultBranch = input.defaultBranch ?? 'main';
-  const remote = input.remote ?? 'origin';
-  if (!/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/u.test(defaultBranch)
-    || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(remote)) {
-    throw new Error('Trusted remote default synchronization identity is invalid.');
-  }
-  const remoteRef = `refs/heads/${defaultBranch}`;
-  const localRef = `refs/remotes/${remote}/${defaultBranch}`;
+  const identity = trustedRemoteDefaultIdentityV1(input.defaultBranch, input.remote);
   const readLive = (label: string): string => {
-    const source = requireVerificationSessionCommandText(
-      input.ctx,
-      'git',
-      ['ls-remote', '--exit-code', remote, remoteRef],
-      label
-    );
-    const lines = source.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
-    if (lines.length !== 1) {
-      throw new Error('Trusted remote default synchronization readback is incomplete or ambiguous.');
-    }
-    const match = /^([0-9a-f]{40})\t(refs\/heads\/[A-Za-z0-9._\/-]+)$/u.exec(lines[0]!);
-    if (match === null || match[2] !== remoteRef) {
-      throw new Error('Trusted remote default synchronization readback is malformed.');
-    }
-    return match[1]!;
+    return readTrustedRemoteDefaultRefV1({ ctx: input.ctx, identity, label });
   };
 
   const headBefore = requireVerificationSessionCommandText(
@@ -423,10 +494,9 @@ function synchronizeTrustedRemoteDefaultRefV1(input: {
   );
   const liveBefore = readLive('pre-synchronization live default readback');
   const fetched = runVerificationSessionCommand(input.ctx, 'git', [
-    '-c', 'credential.helper=',
-    '-c', 'credential.helper=!gh auth git-credential',
-    'fetch', '--no-tags', '--no-recurse-submodules', remote,
-    `+${remoteRef}:${localRef}`
+    ...createBranchLifecycleGitHubCredentialArgsV1(),
+    'fetch', '--no-tags', '--no-recurse-submodules', identity.remote,
+    `+${identity.remoteRef}:${identity.localRef}`
   ]);
   if (fetched.status !== 0) {
     throw new Error(
@@ -434,7 +504,7 @@ function synchronizeTrustedRemoteDefaultRefV1(input: {
     );
   }
   const localAfter = requireVerificationSessionCommandText(
-    input.ctx, 'git', ['rev-parse', localRef], 'post-synchronization local default readback'
+    input.ctx, 'git', ['rev-parse', identity.localRef], 'post-synchronization local default readback'
   );
   const liveAfter = readLive('post-synchronization live default readback');
   const headAfter = requireVerificationSessionCommandText(
@@ -2207,19 +2277,13 @@ function observeExactRemoteCloseoutBranch(
 ): Readonly<{ state: 'present' | 'absent'; sha: string | null }> {
   const { preparation } = prepared;
   const ref = `refs/heads/${preparation.branch}`;
-  const source = requireVerificationSessionCommandText(ctx, 'git', [
-    'ls-remote', '--heads', preparation.repository.remote, ref
-  ], 'hosted closeout remote branch readback', preparation.repository.root);
-  const lines = source.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
-  if (lines.length === 0) return Object.freeze({ state: 'absent', sha: null });
-  if (lines.length !== 1) {
-    throw new Error('Hosted closeout remote branch readback is duplicated or ambiguous.');
-  }
-  const match = /^([0-9a-f]{40})\t(refs\/heads\/[A-Za-z0-9._\/-]+)$/u.exec(lines[0]!);
-  if (match === null || match[2] !== ref) {
-    throw new Error('Hosted closeout remote branch readback is malformed or targets another ref.');
-  }
-  return Object.freeze({ state: 'present', sha: match[1]! });
+  return observeTrustedRemoteExactRefV1({
+    ctx,
+    remote: preparation.repository.remote,
+    remoteRef: ref,
+    label: 'hosted closeout remote branch readback',
+    cwd: preparation.repository.root
+  });
 }
 
 /**
@@ -2437,8 +2501,7 @@ function deleteHostedRemoteRefCas(
   attempts: BranchCloseoutAttempt[]
 ): BranchCloseoutAttempt {
   const result = runVerificationSessionCommand(ctx, 'git', [
-    '-c', 'credential.helper=',
-    '-c', 'credential.helper=!gh auth git-credential',
+    ...createBranchLifecycleGitHubCredentialArgsV1(),
     'push',
     '--porcelain',
     `--force-with-lease=refs/heads/${preparation.branch}:${preparation.expectedRemoteSha}`,
