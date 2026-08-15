@@ -83,14 +83,12 @@ test('only the hosted Session CLI private boundary contains merge and leased clo
   expect(remoteDeleteStart).toBeGreaterThan(0);
   expect(remoteDeleteEnd).toBeGreaterThan(remoteDeleteStart);
   const remoteDeleteSource = cliSource.slice(remoteDeleteStart, remoteDeleteEnd);
-  const credentialResetIndex = remoteDeleteSource.indexOf("'-c', 'credential.helper='");
-  const credentialHelperIndex = remoteDeleteSource.indexOf(
-    "'-c', 'credential.helper=!gh auth git-credential'"
+  const credentialPrefixIndex = remoteDeleteSource.indexOf(
+    '...createBranchLifecycleGitHubCredentialArgsV1()'
   );
   const pushIndex = remoteDeleteSource.indexOf("'push'");
-  expect(credentialResetIndex).toBeGreaterThan(0);
-  expect(credentialHelperIndex).toBeGreaterThan(credentialResetIndex);
-  expect(pushIndex).toBeGreaterThan(credentialHelperIndex);
+  expect(credentialPrefixIndex).toBeGreaterThan(0);
+  expect(pushIndex).toBeGreaterThan(credentialPrefixIndex);
   expect(remoteDeleteSource).not.toMatch(/\b(?:GH_TOKEN|GITHUB_TOKEN|x-access-token)\b/u);
   expect(remoteDeleteSource).not.toContain("'config'");
   expect((cliSource.match(/--force-with-lease=/gu) ?? [])).toHaveLength(1);

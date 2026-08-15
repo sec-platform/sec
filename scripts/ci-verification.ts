@@ -4,6 +4,7 @@ import {
   closeSync,
   existsSync,
   constants as fsConstants,
+  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -82,6 +83,13 @@ import {
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from '../platform/shared/ci-verification-revision.ts';
 import { compilerRoot } from '../platform/shared/paths.ts';
+import {
+  assertSameNoFollowDirectoryIdentityV1,
+  inspectNoFollowDirectoryChainV1,
+  scanNoFollowDirectoryTreeInventoryV1,
+  type NoFollowDirectoryTreeInventoryEntryV1,
+  type PhysicalDirectoryIdentityV1
+} from '../platform/shared/physical-no-follow.ts';
 import type {
   TcbClosureGeneratedRegionV2,
   TcbClosureLock,
@@ -232,6 +240,9 @@ const CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1 =
   '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__';
 const CI_VERIFICATION_ACTION_SANDBOX_RECEIPT_REF_PREFIX_V1 =
   'sandbox-receipt:';
+const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD_V1 = 3;
+const HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1 =
+  `/proc/self/fd/${HOSTED_SUT_RETAINED_ARCHIVE_CHILD_FD_V1}` as const;
 
 export type CodexDevelopmentHostedSutSandboxCommandPlanV1 = Readonly<{
   schema: typeof CI_VERIFICATION_ACTION_SANDBOX_COMMAND_PLAN_SCHEMA_V1;
@@ -257,7 +268,8 @@ export type CodexDevelopmentHostedSutSandboxProcessObservationV1 =
   }>;
 
 export type CodexDevelopmentHostedSutSandboxProcessV1 = (
-  plan: CodexDevelopmentHostedSutSandboxCommandPlanV1
+  plan: CodexDevelopmentHostedSutSandboxCommandPlanV1,
+  retainedArchive?: CodexDevelopmentRetainedHostedSutArchiveV1
 ) => Promise<CodexDevelopmentHostedSutSandboxProcessObservationV1>;
 
 /** Compatibility type name for the single canonical internal Action proposal. */
@@ -834,6 +846,82 @@ function hostedActionFileDigestV2(filePath: string): VerificationActionKeyDigest
   return `sha256:${hash.digest('hex')}`;
 }
 
+type CodexDevelopmentRetainedHostedSutArchiveV1 = Readonly<{
+  fileDescriptor: number;
+  archiveDigest: VerificationActionKeyDigest;
+  identityDigest: VerificationActionKeyDigest;
+}>;
+
+function retainedHostedSutArchiveObservationV1(fileDescriptor: number): Readonly<{
+  archiveDigest: VerificationActionKeyDigest;
+  identityDigest: VerificationActionKeyDigest;
+}> {
+  const before = fstatSync(fileDescriptor, { bigint: true });
+  if (!before.isFile() || before.size < 0n || before.size > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error('Hosted SUT retained archive is not one bounded ordinary file.');
+  }
+  const hash = createHash('sha256');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let offset = 0;
+  while (offset < Number(before.size)) {
+    const bytes = readSync(
+      fileDescriptor,
+      buffer,
+      0,
+      Math.min(buffer.byteLength, Number(before.size) - offset),
+      offset
+    );
+    if (bytes === 0) throw new Error('Hosted SUT retained archive ended before its retained size.');
+    hash.update(buffer.subarray(0, bytes));
+    offset += bytes;
+  }
+  const after = fstatSync(fileDescriptor, { bigint: true });
+  const identity = (value: typeof before) => Object.freeze({
+    device: value.dev.toString(),
+    inode: value.ino.toString(),
+    mode: value.mode.toString(),
+    size: value.size.toString()
+  });
+  const beforeIdentity = identity(before);
+  const afterIdentity = identity(after);
+  if (encodeVerificationActionDataV2(beforeIdentity) !== encodeVerificationActionDataV2(afterIdentity)) {
+    throw new Error('Hosted SUT retained archive changed while its bytes were observed.');
+  }
+  return Object.freeze({
+    archiveDigest: `sha256:${hash.digest('hex')}`,
+    identityDigest: ciActionDigest(beforeIdentity)
+  });
+}
+
+function retainHostedSutArchiveV1(
+  filePath: string,
+  expectedDigest: VerificationActionKeyDigest
+): CodexDevelopmentRetainedHostedSutArchiveV1 {
+  const noFollow = process.platform === 'linux' ? fsConstants.O_NOFOLLOW : 0;
+  const fileDescriptor = openSync(path.resolve(filePath), fsConstants.O_RDONLY | noFollow);
+  try {
+    const observed = retainedHostedSutArchiveObservationV1(fileDescriptor);
+    if (observed.archiveDigest !== expectedDigest) {
+      throw new Error('Hosted SUT retained archive differs from its authenticated digest.');
+    }
+    return Object.freeze({ fileDescriptor, ...observed });
+  } catch (error) {
+    closeSync(fileDescriptor);
+    throw error;
+  }
+}
+
+function assertRetainedHostedSutArchiveV1(
+  retained: CodexDevelopmentRetainedHostedSutArchiveV1
+): VerificationActionKeyDigest {
+  const observed = retainedHostedSutArchiveObservationV1(retained.fileDescriptor);
+  if (observed.archiveDigest !== retained.archiveDigest ||
+      observed.identityDigest !== retained.identityDigest) {
+    throw new Error('Hosted SUT retained archive changed after authentication.');
+  }
+  return observed.archiveDigest;
+}
+
 /** Verify prepared candidate bytes before the durable start tombstone exists. */
 export function CodexDevelopmentAssertPreparedHostedActionCandidateV2(input: Readonly<{
   resolution: CodexDevelopmentHostedActionResolutionV2;
@@ -969,33 +1057,350 @@ type HostedActionArchiveInventoryEntryV2 = Readonly<{
   linkTarget: string | null;
   size: number;
   mode: number;
+  physicalContentDigest: VerificationActionKeyDigest | null;
   contentDigest: VerificationActionKeyDigest | null;
 }>;
 
-const HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V2 = [
+const HOSTED_ACTION_ARCHIVE_MAX_ENTRIES_V2 = 250_000;
+
+function strictPosixDescendantV1(root: string, candidate: string): boolean {
+  const relative = path.posix.relative(root, candidate);
+  return relative !== '' && relative !== '..' && !relative.startsWith('../') && !path.posix.isAbsolute(relative);
+}
+
+export type CodexDevelopmentHostedDependencyPhysicalSnapshotV1 = Readonly<{
+  schema: 'sec-hosted-dependency-physical-snapshot-v1';
+  root: PhysicalDirectoryIdentityV1;
+  entries: readonly NoFollowDirectoryTreeInventoryEntryV1[];
+}>;
+
+export type CodexDevelopmentHostedDependencyArchiveProjectionV1 = Readonly<{
+  schema: 'sec-hosted-dependency-archive-projection-v1';
+  entriesObserved: number;
+  linksProjected: number;
+  sourceSnapshotDigest: VerificationActionKeyDigest;
+  archiveProjectionDigest: VerificationActionKeyDigest;
+}>;
+
+export function CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(
+  dependencyRoot: string
+): CodexDevelopmentHostedDependencyPhysicalSnapshotV1 {
+  const root = inspectNoFollowDirectoryChainV1(
+    path.resolve(dependencyRoot), 'Hosted dependency physical snapshot root'
+  ).target;
+  const entries = scanNoFollowDirectoryTreeInventoryV1(root);
+  if (entries.length > HOSTED_ACTION_ARCHIVE_MAX_ENTRIES_V2) {
+    throw new Error('Hosted dependency tree exceeds the archive entry bound.');
+  }
+  return Object.freeze({
+    schema: 'sec-hosted-dependency-physical-snapshot-v1',
+    root,
+    entries
+  });
+}
+
+function dependencyArchiveTargetV1(
+  dependencyRoot: string,
+  relativeLinkPath: string,
+  rawTarget: string
+): string {
+  if (!path.posix.isAbsolute(dependencyRoot) || path.posix.normalize(dependencyRoot) !== dependencyRoot ||
+      rawTarget === '' || rawTarget.includes('\0') || rawTarget.includes('\\')) {
+    throw new Error('Hosted dependency symlink target or root is not canonical POSIX material.');
+  }
+  const linkPath = path.posix.join(dependencyRoot, relativeLinkPath);
+  const lexicalTarget = path.posix.isAbsolute(rawTarget)
+    ? path.posix.normalize(rawTarget)
+    : path.posix.resolve(path.posix.dirname(linkPath), rawTarget);
+  if (!strictPosixDescendantV1(dependencyRoot, linkPath) ||
+      !strictPosixDescendantV1(dependencyRoot, lexicalTarget)) {
+    throw new Error('Hosted dependency symlink escapes the exact dependency root.');
+  }
+  if (lexicalTarget === linkPath || strictPosixDescendantV1(lexicalTarget, linkPath)) {
+    throw new Error('Hosted dependency symlink targets itself or an ancestor directory.');
+  }
+  return `node_modules/${path.posix.relative(dependencyRoot, lexicalTarget)}`;
+}
+
+/**
+ * Proves that archive projection was read from one unchanged physical
+ * dependency generation.  The source tree is never rewritten: absolute
+ * in-root links are normalized only in the archive header, then every
+ * dependency archive entry is compared with the retained pre-read snapshot.
+ */
+export function CodexDevelopmentAssertHostedDependencyArchiveProjectionV1(input: Readonly<{
+  before: CodexDevelopmentHostedDependencyPhysicalSnapshotV1;
+  after: CodexDevelopmentHostedDependencyPhysicalSnapshotV1;
+  archiveEntries: readonly HostedActionArchiveInventoryEntryV2[];
+}>): CodexDevelopmentHostedDependencyArchiveProjectionV1 {
+  if (input.before.schema !== 'sec-hosted-dependency-physical-snapshot-v1' ||
+      input.after.schema !== 'sec-hosted-dependency-physical-snapshot-v1' ||
+      JSON.stringify(input.before) !== JSON.stringify(input.after)) {
+    throw new Error('Hosted dependency physical generation changed during archive projection.');
+  }
+  const dependencyRoot = input.before.root.path.split(path.sep).join('/');
+  if (!path.posix.isAbsolute(dependencyRoot) || path.posix.normalize(dependencyRoot) !== dependencyRoot) {
+    throw new Error('Hosted dependency physical root is not one canonical POSIX path.');
+  }
+  const sourceByPath = new Map<string, NoFollowDirectoryTreeInventoryEntryV1>();
+  for (const entry of input.before.entries) {
+    const canonical = canonicalHostedArchivePathV2(entry.relativePath, 'dependency snapshot path', false);
+    if (canonical === null || canonical !== entry.relativePath || sourceByPath.has(canonical)) {
+      throw new Error('Hosted dependency physical snapshot contains a duplicate or noncanonical path.');
+    }
+    sourceByPath.set(canonical, entry);
+  }
+  const archivedDependencies = input.archiveEntries.filter(
+    (entry) => entry.path === 'node_modules' || entry.path.startsWith('node_modules/')
+  );
+  const archiveByPath = new Map(archivedDependencies.map((entry) => [entry.path, entry]));
+  if (archiveByPath.size !== archivedDependencies.length ||
+      archiveByPath.get('node_modules')?.type !== 'directory' ||
+      archivedDependencies.length !== input.before.entries.length + 1) {
+    throw new Error('Hosted dependency archive projection has a missing, duplicate, or foreign entry.');
+  }
+  let linksProjected = 0;
+  for (const [relativePath, source] of sourceByPath) {
+    const archivePath = `node_modules/${relativePath}`;
+    const archived = archiveByPath.get(archivePath);
+    if (archived === undefined) {
+      throw new Error(`Hosted dependency archive omits frozen entry: ${relativePath}.`);
+    }
+    if (source.kind === 'directory') {
+      if (archived.type !== 'directory' || archived.linkTarget !== null ||
+          archived.physicalContentDigest !== null) {
+        throw new Error(`Hosted dependency archive directory differs from frozen entry: ${relativePath}.`);
+      }
+      continue;
+    }
+    if (source.kind === 'file') {
+      if ((archived.type !== 'file' && archived.type !== 'hardlink') ||
+          source.contentDigest === null || archived.physicalContentDigest !== source.contentDigest ||
+          (archived.type === 'file' && archived.size !== source.size)) {
+        throw new Error(`Hosted dependency archive file differs from frozen entry: ${relativePath}.`);
+      }
+      continue;
+    }
+    const expectedTarget = dependencyArchiveTargetV1(
+      dependencyRoot, relativePath, source.linkTarget ?? ''
+    );
+    const targetRelativePath = expectedTarget.slice('node_modules/'.length);
+    if (archived.type !== 'symlink' || archived.linkTarget !== expectedTarget ||
+        archived.physicalContentDigest !== null || !sourceByPath.has(targetRelativePath)) {
+      throw new Error(`Hosted dependency archive link differs from frozen entry: ${relativePath}.`);
+    }
+    linksProjected += 1;
+  }
+  const sourceSnapshotDigest = ciActionDigest(Object.freeze({
+    schema: 'sec-hosted-dependency-physical-generation-v1',
+    root: Object.freeze({
+      device: input.before.root.device,
+      inode: input.before.root.inode,
+      objectId: input.before.root.objectId
+    }),
+    entries: input.before.entries
+  }));
+  const canonicalArchiveProjection = Object.freeze([...archivedDependencies]
+    .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  return Object.freeze({
+    schema: 'sec-hosted-dependency-archive-projection-v1',
+    entriesObserved: input.before.entries.length,
+    linksProjected,
+    sourceSnapshotDigest,
+    archiveProjectionDigest: ciActionDigest(canonicalArchiveProjection)
+  });
+}
+
+const HOSTED_ACTION_ARCHIVE_MATERIALIZER_SCRIPT_V3 = [
+  'import os, posixpath, stat, sys, tarfile',
+  'candidate_root, dependency_root, output_root, output_name = sys.argv[1:5]',
+  'candidate_dev, candidate_ino, dependency_dev, dependency_ino, output_dev, output_ino = sys.argv[5:11]',
+  'max_entries, max_bytes = int(sys.argv[11]), int(sys.argv[12])',
+  'flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)',
+  'candidate_fd = os.open(candidate_root, flags)',
+  'dependency_fd = os.open(dependency_root, flags)',
+  'output_fd = os.open(output_root, flags)',
+  'output_leaf_fd = None',
+  'output_identity = None',
+  'completed = False',
+  'entries = 0',
+  'file_bytes = 0',
+  'seen = {}',
+  'def identity(fd):',
+  '  value = os.fstat(fd)',
+  '  return str(value.st_dev), str(value.st_ino)',
+  'def require_identity(fd, expected_dev, expected_ino, label):',
+  '  if identity(fd) != (expected_dev, expected_ino): raise RuntimeError(label + " identity changed")',
+  'def tar_info(name, value, kind):',
+  '  info = tarfile.TarInfo(name=name)',
+  '  info.uid = 0; info.gid = 0; info.uname = ""; info.gname = ""; info.mtime = 0',
+  '  info.mode = stat.S_IMODE(value.st_mode); info.type = kind; info.size = 0',
+  '  return info',
+  'def same_stat(left, right):',
+  '  return (left.st_dev, left.st_ino, left.st_mode, left.st_size, left.st_mtime_ns, left.st_ctime_ns) == (right.st_dev, right.st_ino, right.st_mode, right.st_size, right.st_mtime_ns, right.st_ctime_ns)',
+  'def normalized_dependency_link(archive_name, raw_target):',
+  '  if "\\x00" in raw_target or "\\\\" in raw_target: raise RuntimeError("dependency link is non-POSIX")',
+  '  root = dependency_root.rstrip("/")',
+  '  if posixpath.isabs(raw_target):',
+  '    normalized = posixpath.normpath(raw_target)',
+  '    if normalized == root or not normalized.startswith(root + "/"): raise RuntimeError("dependency link escapes exact root")',
+  '    target = "node_modules/" + posixpath.relpath(normalized, root)',
+  '  else:',
+  '    target = posixpath.normpath(posixpath.join(posixpath.dirname(archive_name), raw_target))',
+  '    if target == "node_modules" or not target.startswith("node_modules/"): raise RuntimeError("dependency link escapes exact root")',
+  '  if target == archive_name or archive_name.startswith(target.rstrip("/") + "/"): raise RuntimeError("dependency link targets itself or ancestor")',
+  '  return posixpath.relpath(target, posixpath.dirname(archive_name) or ".") if posixpath.isabs(raw_target) else raw_target',
+  'def add_tree(archive, directory_fd, archive_prefix, dependency, top_level):',
+  '  global entries, file_bytes, seen',
+  '  before_directory = os.fstat(directory_fd)',
+  '  for name in sorted(os.listdir(directory_fd)):',
+  '    if top_level and not dependency and name in (".git", "node_modules"): continue',
+  '    if not name or "/" in name or "\\x00" in name: raise RuntimeError("invalid source leaf")',
+  '    entries += 1',
+  '    if entries > max_entries: raise RuntimeError("archive entry bound exceeded")',
+  '    archive_name = archive_prefix + "/" + name if archive_prefix else name',
+  '    observed = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)',
+  '    if stat.S_ISDIR(observed.st_mode):',
+  '      child = os.open(name, flags, dir_fd=directory_fd)',
+  '      try:',
+  '        if not same_stat(observed, os.fstat(child)): raise RuntimeError("directory changed before retained traversal")',
+  '        archive.addfile(tar_info(archive_name, observed, tarfile.DIRTYPE))',
+  '        add_tree(archive, child, archive_name, dependency, False)',
+  '        if not same_stat(observed, os.fstat(child)): raise RuntimeError("directory changed during retained traversal")',
+  '      finally: os.close(child)',
+  '    elif stat.S_ISREG(observed.st_mode):',
+  '      leaf = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0), dir_fd=directory_fd)',
+  '      try:',
+  '        retained = os.fstat(leaf)',
+  '        if not same_stat(observed, retained): raise RuntimeError("file changed before retained read")',
+  '        key = (retained.st_dev, retained.st_ino)',
+  '        if key in seen:',
+  '          info = tar_info(archive_name, retained, tarfile.LNKTYPE); info.linkname = seen[key]',
+  '          archive.addfile(info)',
+  '        else:',
+  '          seen[key] = archive_name',
+  '          file_bytes += retained.st_size',
+  '          if file_bytes > max_bytes: raise RuntimeError("archive file byte bound exceeded")',
+  '          info = tar_info(archive_name, retained, tarfile.REGTYPE); info.size = retained.st_size',
+  '          with os.fdopen(os.dup(leaf), "rb", closefd=True) as stream: archive.addfile(info, stream)',
+  '        if not same_stat(retained, os.fstat(leaf)): raise RuntimeError("file changed during retained read")',
+  '      finally: os.close(leaf)',
+  '    elif stat.S_ISLNK(observed.st_mode):',
+  '      link_fd = os.open(name, os.O_PATH | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0), dir_fd=directory_fd)',
+  '      try:',
+  '        retained = os.fstat(link_fd)',
+  '        if not same_stat(observed, retained): raise RuntimeError("link changed before retained read")',
+  '        raw_target = os.readlink("", dir_fd=link_fd)',
+  '        info = tar_info(archive_name, retained, tarfile.SYMTYPE)',
+  '        info.linkname = normalized_dependency_link(archive_name, raw_target) if dependency else raw_target',
+  '        archive.addfile(info)',
+  '        if not same_stat(retained, os.fstat(link_fd)) or os.readlink("", dir_fd=link_fd) != raw_target: raise RuntimeError("link changed during retained read")',
+  '      finally: os.close(link_fd)',
+  '    else: raise RuntimeError("unsupported source entry")',
+  '  if not same_stat(before_directory, os.fstat(directory_fd)): raise RuntimeError("directory changed during enumeration")',
+  'try:',
+  '  require_identity(candidate_fd, candidate_dev, candidate_ino, "candidate root")',
+  '  require_identity(dependency_fd, dependency_dev, dependency_ino, "dependency root")',
+  '  require_identity(output_fd, output_dev, output_ino, "output root")',
+  '  output_leaf_fd = os.open(output_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0), 0o600, dir_fd=output_fd)',
+  '  output_identity = identity(output_leaf_fd)',
+  '  with os.fdopen(output_leaf_fd, "wb", closefd=True) as output_stream:',
+  '    output_leaf_fd = None',
+  '    with tarfile.open(fileobj=output_stream, mode="w:", format=tarfile.PAX_FORMAT, dereference=False) as archive:',
+  '      seen = {}; add_tree(archive, candidate_fd, "", False, True)',
+  '      dependency_stat = os.fstat(dependency_fd)',
+  '      archive.addfile(tar_info("node_modules", dependency_stat, tarfile.DIRTYPE))',
+  '      entries += 1',
+  '      if entries > max_entries: raise RuntimeError("archive entry bound exceeded")',
+  '      seen = {}; add_tree(archive, dependency_fd, "node_modules", True, True)',
+  '    output_stream.flush(); os.fsync(output_stream.fileno())',
+  '  os.fsync(output_fd)',
+  '  require_identity(candidate_fd, candidate_dev, candidate_ino, "candidate root")',
+  '  require_identity(dependency_fd, dependency_dev, dependency_ino, "dependency root")',
+  '  require_identity(output_fd, output_dev, output_ino, "output root")',
+  '  completed = True',
+  'finally:',
+  '  if output_leaf_fd is not None: os.close(output_leaf_fd)',
+  '  if not completed and output_identity is not None:',
+  '    try:',
+  '      current = os.stat(output_name, dir_fd=output_fd, follow_symlinks=False)',
+  '      if (str(current.st_dev), str(current.st_ino)) == output_identity:',
+  '        os.unlink(output_name, dir_fd=output_fd); os.fsync(output_fd)',
+  '    except FileNotFoundError: pass',
+  '  os.close(output_fd); os.close(dependency_fd); os.close(candidate_fd)'
+].join('\n');
+
+export function CodexDevelopmentMaterializeTrustedBootstrapArchiveV3(input: Readonly<{
+  candidateRoot: string;
+  dependencySnapshot: CodexDevelopmentHostedDependencyPhysicalSnapshotV1;
+  outputDirectory: string;
+}>): string {
+  if (process.platform !== 'linux') {
+    throw new Error('Trusted bootstrap retained archive projection requires the Linux provider.');
+  }
+  const candidateRoot = realpathSync.native(path.resolve(input.candidateRoot));
+  const dependencyRoot = realpathSync.native(path.resolve(input.dependencySnapshot.root.path));
+  const outputDirectory = realpathSync.native(path.resolve(input.outputDirectory));
+  const candidate = inspectNoFollowDirectoryChainV1(
+    candidateRoot, 'Trusted bootstrap archive candidate root'
+  ).target;
+  const dependency = assertSameNoFollowDirectoryIdentityV1(
+    input.dependencySnapshot.root, 'Trusted bootstrap archive dependency root'
+  ).target;
+  const output = inspectNoFollowDirectoryChainV1(
+    outputDirectory, 'Trusted bootstrap archive output root'
+  ).target;
+  if (dependency.path !== dependencyRoot) {
+    throw new Error('Trusted bootstrap archive dependency snapshot root is not canonical.');
+  }
+  const archiveName = 'prepared-candidate.tar';
+  const archivePath = path.resolve(outputDirectory, archiveName);
+  if (existsSync(archivePath)) {
+    throw new Error('Trusted bootstrap prepared candidate archive already exists.');
+  }
+  runHostedMaterializerCommandV2('/usr/bin/python3', [
+    '-c', HOSTED_ACTION_ARCHIVE_MATERIALIZER_SCRIPT_V3,
+    candidate.path, dependency.path, output.path, archiveName,
+    candidate.device, candidate.inode, dependency.device, dependency.inode,
+    output.device, output.inode,
+    String(HOSTED_ACTION_ARCHIVE_MAX_ENTRIES_V2),
+    String(CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes)
+  ], 'Trusted bootstrap retained archive projection');
+  assertSameNoFollowDirectoryIdentityV1(candidate, 'Trusted bootstrap archive candidate root');
+  assertSameNoFollowDirectoryIdentityV1(dependency, 'Trusted bootstrap archive dependency root');
+  assertSameNoFollowDirectoryIdentityV1(output, 'Trusted bootstrap archive output root');
+  const archive = lstatSync(archivePath);
+  if (!archive.isFile() || archive.isSymbolicLink() || realpathSync.native(archivePath) !== archivePath) {
+    throw new Error('Trusted bootstrap retained archive projection did not publish one ordinary output.');
+  }
+  return archivePath;
+}
+
+const HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V3 = [
   'import hashlib, json, sys, tarfile',
   'result=[]',
   'with tarfile.open(sys.argv[1], mode="r:*") as archive:',
   '  for member in archive.getmembers():',
   '    kind = "file" if member.isreg() else "directory" if member.isdir() else "symlink" if member.issym() else "hardlink" if member.islnk() else "unsupported"',
-  '    digest = None',
+  '    digest = None; physical_digest = None',
   '    normalized = member.name[2:] if member.name.startswith("./") else member.name',
-  '    if member.isreg() and normalized in (".sec-trusted-input/candidate.bundle", ".sec-trusted-input/dependency-closure.json"):',
+  '    if member.isreg() or member.islnk():',
   '      stream = archive.extractfile(member)',
-  '      hasher = hashlib.sha256()',
+  '      hasher = hashlib.sha256(); physical_hasher = hashlib.sha256(); physical_hasher.update(b\'{"bytes":"\')',
   '      while True:',
   '        chunk = stream.read(1048576) if stream is not None else b""',
   '        if not chunk: break',
-  '        hasher.update(chunk)',
-  '      digest = "sha256:" + hasher.hexdigest()',
-  '    result.append({"path": member.name, "type": kind, "linkTarget": member.linkname if member.issym() or member.islnk() else None, "size": member.size, "mode": member.mode, "contentDigest": digest})',
+  '        hasher.update(chunk); physical_hasher.update(chunk.hex().encode("ascii"))',
+  '      physical_hasher.update(b\'"}\'); physical_digest = "sha256:" + physical_hasher.hexdigest()',
+  '      if member.isreg() and normalized in (".sec-trusted-input/candidate.bundle", ".sec-trusted-input/dependency-closure.json"): digest = "sha256:" + hasher.hexdigest()',
+  '    result.append({"path": member.name, "type": kind, "linkTarget": member.linkname if member.issym() or member.islnk() else None, "size": member.size, "mode": member.mode, "physicalContentDigest": physical_digest, "contentDigest": digest})',
   'sys.stdout.write(json.dumps(result, ensure_ascii=True, separators=(",", ":"), sort_keys=True))'
 ].join('\n');
 
 function inspectHostedActionArchiveMetadataV2(archive: string, label: string): unknown {
   const inventory = spawnSync(
     '/usr/bin/python3',
-    ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V2, archive],
+    ['-c', HOSTED_ACTION_ARCHIVE_INVENTORY_SCRIPT_V3, archive],
     {
       encoding: 'utf8',
       windowsHide: true,
@@ -1051,7 +1456,7 @@ export function CodexDevelopmentValidateHostedActionArchiveInventoryV2(
   inventoryDigest: VerificationActionKeyDigest;
   totalFileBytes: number;
 }> {
-  if (!Array.isArray(source) || source.length === 0 || source.length > 250_000) {
+  if (!Array.isArray(source) || source.length === 0 || source.length > HOSTED_ACTION_ARCHIVE_MAX_ENTRIES_V2) {
     throw new Error('Hosted Action archive inventory is empty or exceeds its entry bound.');
   }
   const entries: HostedActionArchiveInventoryEntryV2[] = [];
@@ -1059,14 +1464,17 @@ export function CodexDevelopmentValidateHostedActionArchiveInventoryV2(
   const casePaths = new Map<string, string>();
   for (const raw of source) {
     const value = exactObject(raw, [
-      'contentDigest', 'linkTarget', 'mode', 'path', 'size', 'type'
+      'contentDigest', 'linkTarget', 'mode', 'path', 'physicalContentDigest', 'size', 'type'
     ], 'Hosted Action archive entry');
     if (typeof value.path !== 'string' || typeof value.type !== 'string' ||
         !Number.isSafeInteger(value.size) || Number(value.size) < 0 ||
         !Number.isSafeInteger(value.mode) || Number(value.mode) < 0 || Number(value.mode) > 0o7777 ||
         (value.linkTarget !== null && typeof value.linkTarget !== 'string') ||
         (value.contentDigest !== null && (typeof value.contentDigest !== 'string' ||
-          !/^sha256:[0-9a-f]{64}$/u.test(value.contentDigest)))) {
+          !/^sha256:[0-9a-f]{64}$/u.test(value.contentDigest))) ||
+        (value.physicalContentDigest !== null &&
+          (typeof value.physicalContentDigest !== 'string' ||
+            !/^sha256:[0-9a-f]{64}$/u.test(value.physicalContentDigest)))) {
       throw new Error('Hosted Action archive metadata is invalid.');
     }
     if (!['directory', 'file', 'hardlink', 'symlink'].includes(value.type)) {
@@ -1095,8 +1503,10 @@ export function CodexDevelopmentValidateHostedActionArchiveInventoryV2(
     }
     const trustedContentPath = entryPath === '.sec-trusted-input/candidate.bundle' ||
       entryPath === '.sec-trusted-input/dependency-closure.json';
+    const physicalContentEntry = value.type === 'file' || value.type === 'hardlink';
     if ((trustedContentPath && (value.type !== 'file' || value.contentDigest === null)) ||
-        (!trustedContentPath && value.contentDigest !== null)) {
+        (!trustedContentPath && value.contentDigest !== null) ||
+        (physicalContentEntry !== (value.physicalContentDigest !== null))) {
       throw new Error(`Hosted Action archive trusted content digest placement is invalid: ${entryPath}.`);
     }
     entries.push(Object.freeze({
@@ -1105,6 +1515,7 @@ export function CodexDevelopmentValidateHostedActionArchiveInventoryV2(
       linkTarget,
       size: Number(value.size),
       mode: Number(value.mode),
+      physicalContentDigest: value.physicalContentDigest as VerificationActionKeyDigest | null,
       contentDigest: value.contentDigest as VerificationActionKeyDigest | null
     }));
   }
@@ -1114,6 +1525,13 @@ export function CodexDevelopmentValidateHostedActionArchiveInventoryV2(
     const target = byPath.get(entry.linkTarget);
     if (target === undefined || (entry.type === 'hardlink' && target.type !== 'file' && target.type !== 'hardlink')) {
       throw new Error(`Hosted Action archive link target is absent or has the wrong type: ${entry.path}.`);
+    }
+    if (entry.type === 'symlink' &&
+        (entry.path === target.path || entry.path.startsWith(`${target.path}/`))) {
+      throw new Error(`Hosted Action archive symlink targets itself or an ancestor: ${entry.path}.`);
+    }
+    if (entry.type === 'hardlink' && entry.physicalContentDigest !== target.physicalContentDigest) {
+      throw new Error(`Hosted Action archive hardlink content differs from its target: ${entry.path}.`);
     }
     const seen = new Set<string>([entry.path]);
     let cursor: HostedActionArchiveInventoryEntryV2 | undefined = target;
@@ -1135,6 +1553,15 @@ export function CodexDevelopmentValidateHostedActionArchiveInventoryV2(
     inventoryDigest: ciActionDigest(canonicalEntries),
     totalFileBytes
   });
+}
+
+export function CodexDevelopmentInspectHostedActionArchiveInventoryV3(
+  archive: string,
+  label: string = 'Hosted Action archive inventory'
+): ReturnType<typeof CodexDevelopmentValidateHostedActionArchiveInventoryV2> {
+  return CodexDevelopmentValidateHostedActionArchiveInventoryV2(
+    inspectHostedActionArchiveMetadataV2(archive, label)
+  );
 }
 
 export function CodexDevelopmentInspectHostedActionArchiveV2(input: Readonly<{
@@ -1226,6 +1653,46 @@ function runHostedMaterializerCommandV2(
   });
   if (result.status !== 0) {
     throw new Error(`${label} failed: ${String(result.stderr).slice(0, 1024)}`);
+  }
+}
+
+export type CodexDevelopmentDependencyMaterializationRecoveryV1 = Readonly<{
+  attempts: 1 | 2;
+  recoveredFrom: 'none' | 'bun-tarball-extraction';
+}>;
+
+function dependencyMaterializationFailureDiagnosticV1(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 2048);
+}
+
+function isBunTarballExtractionFailureV1(error: unknown): boolean {
+  const diagnostic = dependencyMaterializationFailureDiagnosticV1(error);
+  return diagnostic.includes('error: Fail extracting tarball for "') &&
+    diagnostic.includes('error: Fail extracting tarball from ');
+}
+
+export function CodexDevelopmentRunBoundedDependencyMaterializationV1(
+  runExactMaterialization: () => void
+): CodexDevelopmentDependencyMaterializationRecoveryV1 {
+  try {
+    runExactMaterialization();
+    return Object.freeze({ attempts: 1, recoveredFrom: 'none' as const });
+  } catch (firstError) {
+    if (!isBunTarballExtractionFailureV1(firstError)) throw firstError;
+    try {
+      runExactMaterialization();
+      return Object.freeze({ attempts: 2, recoveredFrom: 'bun-tarball-extraction' as const });
+    } catch (secondError) {
+      const firstDiagnostic = dependencyMaterializationFailureDiagnosticV1(firstError);
+      const secondDiagnostic = dependencyMaterializationFailureDiagnosticV1(secondError);
+      const firstDigest = createHash('sha256').update(firstDiagnostic).digest('hex');
+      const secondDigest = createHash('sha256').update(secondDiagnostic).digest('hex');
+      throw new Error(
+        'Trusted bootstrap exact-base dependency materialization failed after one bounded ' +
+        `Bun tarball-extraction recovery retry: first=sha256:${firstDigest} ` +
+        `second=sha256:${secondDigest}; ${secondDiagnostic}`
+      );
+    }
   }
 }
 
@@ -1329,6 +1796,8 @@ export type CodexDevelopmentPreparedTrustedBootstrapSutInputsV1 = Readonly<{
   authenticatedGitClosureDigest: VerificationActionKeyDigest;
   entryCount: number;
   totalFileBytes: number;
+  dependencyMaterialization: CodexDevelopmentDependencyMaterializationRecoveryV1;
+  dependencyArchiveProjection: CodexDevelopmentHostedDependencyArchiveProjectionV1;
 }>;
 
 export function CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1(input: Readonly<{
@@ -1399,17 +1868,21 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readon
   mkdirSync(materializerEnvironment.BUN_INSTALL_CACHE_DIR!, { recursive: true });
   mkdirSync(materializerEnvironment.HOME!, { recursive: true });
   mkdirSync(materializerEnvironment.TMPDIR!, { recursive: true });
-  runHostedMaterializerCommandV2(
-    realpathSync.native(process.execPath),
-    ['install', '--frozen-lockfile', '--ignore-scripts'],
-    'Trusted bootstrap exact-base dependency materialization',
-    { cwd: baseRoot, env: materializerEnvironment }
-  );
+  const dependencyMaterialization = CodexDevelopmentRunBoundedDependencyMaterializationV1(() => {
+    runHostedMaterializerCommandV2(
+      realpathSync.native(process.execPath),
+      ['install', '--frozen-lockfile', '--ignore-scripts'],
+      'Trusted bootstrap exact-base dependency materialization',
+      { cwd: baseRoot, env: materializerEnvironment }
+    );
+  });
   const baseNodeModules = path.resolve(baseRoot, 'node_modules');
   const candidateNodeModules = path.resolve(candidateRoot, 'node_modules');
   if (!lstatSync(baseNodeModules).isDirectory() || realpathSync.native(baseNodeModules) !== baseNodeModules) {
     throw new Error('Trusted bootstrap exact-base dependency materialization has no ordinary node_modules.');
   }
+  const dependencyPhysicalBefore =
+    CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(baseNodeModules);
   if (existsSync(candidateNodeModules)) {
     throw new Error('Trusted bootstrap candidate node_modules already exists.');
   }
@@ -1450,19 +1923,17 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readon
       '/usr/bin/git', ['-C', candidateRoot, 'bundle', 'verify', gitBundlePath],
       'Trusted bootstrap authenticated candidate Git bundle verification'
     );
-    if (existsSync(preparedCandidateArchive)) {
-      throw new Error('Trusted bootstrap prepared candidate archive already exists.');
+    const materializedArchive = CodexDevelopmentMaterializeTrustedBootstrapArchiveV3({
+      candidateRoot,
+      dependencySnapshot: dependencyPhysicalBefore,
+      outputDirectory
+    });
+    if (materializedArchive !== preparedCandidateArchive) {
+      throw new Error('Trusted bootstrap retained archive projection returned the wrong output identity.');
     }
-    runHostedMaterializerCommandV2('/usr/bin/tar', [
-      '--sort=name', '--mtime=UTC 1970-01-01', '--owner=0', '--group=0', '--numeric-owner',
-      '--exclude=./.git', '--exclude=./node_modules', '-cf', preparedCandidateArchive,
-      '-C', candidateRoot, '.', '-C', baseRoot, 'node_modules'
-    ], 'Trusted bootstrap prepared candidate archive materialization');
-    const validated = CodexDevelopmentValidateHostedActionArchiveInventoryV2(
-      inspectHostedActionArchiveMetadataV2(
-        preparedCandidateArchive,
-        'Trusted bootstrap prepared candidate archive inventory'
-      )
+    const validated = CodexDevelopmentInspectHostedActionArchiveInventoryV3(
+      preparedCandidateArchive,
+      'Trusted bootstrap prepared candidate archive inventory'
     );
     const bundleEntry = validated.entries.find(
       (entry) => entry.path === '.sec-trusted-input/candidate.bundle'
@@ -1476,6 +1947,13 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readon
         dependencyEntry?.type !== 'file' || dependencyEntry.contentDigest !== dependencyClosureDigest) {
       throw new Error('Trusted bootstrap archive lost its authenticated Git or dependency closure.');
     }
+    const dependencyPhysicalAfter =
+      CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(baseNodeModules);
+    const dependencyArchiveProjection = CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+      before: dependencyPhysicalBefore,
+      after: dependencyPhysicalAfter,
+      archiveEntries: validated.entries
+    });
     return Object.freeze({
       preparedCandidateArchive,
       archiveDigest: hostedActionFileDigestV2(preparedCandidateArchive),
@@ -1483,7 +1961,9 @@ export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1(input: Readon
       dependencyClosureDigest,
       authenticatedGitClosureDigest,
       entryCount: validated.entries.length,
-      totalFileBytes: validated.totalFileBytes
+      totalFileBytes: validated.totalFileBytes,
+      dependencyMaterialization,
+      dependencyArchiveProjection
     });
   } finally {
     rmSync(trustedInputDirectory, { recursive: true, force: true });
@@ -1602,16 +2082,17 @@ const HOSTED_SUT_RUNTIME_TOOL_CLOSURE_V2 = Object.freeze([
 ]);
 
 const HOSTED_SUT_CHROOT_EXECUTION_SCRIPT_V1 = [
-  'base_sha="$1"',
-  'head_sha="$2"',
-  'environment_count="$3"',
-  'shift 3',
+  'expected_archive_digest="$1"',
+  'base_sha="$2"',
+  'head_sha="$3"',
+  'environment_count="$4"',
+  'shift 4',
   'environment=()',
   'while [ "$environment_count" -gt 0 ]; do environment+=("$1"); shift; environment_count=$((environment_count-1)); done',
   '[ "$#" -ge 1 ]',
   'mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /proc',
+  '[ "sha256:$(/usr/bin/sha256sum /authenticated-input/prepared-candidate.tar | /usr/bin/cut -d " " -f 1)" = "$expected_archive_digest" ]',
   '/usr/bin/tar --extract --file=/authenticated-input/prepared-candidate.tar --directory=/workspace --no-same-owner --no-same-permissions --delay-directory-restore',
-  'umount /authenticated-input/prepared-candidate.tar',
   'rm -f /authenticated-input/prepared-candidate.tar',
   'rmdir /authenticated-input',
   '[ -f /workspace/.sec-trusted-input/candidate.bundle ]',
@@ -1630,11 +2111,12 @@ const HOSTED_SUT_CHROOT_EXECUTION_SCRIPT_V1 = [
 const HOSTED_SUT_NAMESPACE_SCRIPT_V1 = [
   'unit_name="$1"',
   'candidate_archive="$2"',
-  'bun_host="$3"',
-  'base_sha="$4"',
-  'head_sha="$5"',
-  'environment_count="$6"',
-  'shift 6',
+  'expected_archive_digest="$3"',
+  'bun_host="$4"',
+  'base_sha="$5"',
+  'head_sha="$6"',
+  'environment_count="$7"',
+  'shift 7',
   'environment=()',
   'while [ "$environment_count" -gt 0 ]; do environment+=("$1"); shift; environment_count=$((environment_count-1)); done',
   '[ "$#" -ge 2 ]',
@@ -1648,9 +2130,10 @@ const HOSTED_SUT_NAMESPACE_SCRIPT_V1 = [
   `mount -t tmpfs -o nodev,nosuid,mode=0755,size=${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes} tmpfs "$root"`,
   'mkdir -p "$root/tool/bin" "$root/authenticated-input" "$root/workspace" "$root/tmp" "$root/home/sut" "$root/dev" "$root/proc" "$root/etc"',
   ...HOSTED_SUT_RUNTIME_TOOL_CLOSURE_V2,
-  'touch "$root/authenticated-input/prepared-candidate.tar"',
-  'mount --bind "$candidate_archive" "$root/authenticated-input/prepared-candidate.tar"',
-  'mount -o remount,bind,ro,nosuid,nodev,noexec "$root/authenticated-input/prepared-candidate.tar"',
+  '[ "$candidate_archive" = "/proc/self/fd/3" ]',
+  '/usr/bin/cat -- "$candidate_archive" > "$root/authenticated-input/prepared-candidate.tar"',
+  '[ "sha256:$(/usr/bin/sha256sum "$root/authenticated-input/prepared-candidate.tar" | /usr/bin/cut -d " " -f 1)" = "$expected_archive_digest" ]',
+  '/usr/bin/chmod 0400 "$root/authenticated-input/prepared-candidate.tar"',
   'mount -t tmpfs -o nodev,nosuid,mode=0755,size=' +
     CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.limits.workspaceBytes + ' tmpfs "$root/workspace"',
   'mount -t tmpfs -o nodev,nosuid,noexec,mode=1777,size=268435456 tmpfs "$root/tmp"',
@@ -1666,7 +2149,7 @@ const HOSTED_SUT_NAMESPACE_SCRIPT_V1 = [
   'printf \u0027sut:x:65532:\\n\u0027 > "$root/etc/group"',
   `chown -R ${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedUid}:${CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1.isolatedGid} "$root/workspace" "$root/home/sut" "$root/tmp"`,
   'for fd_path in /proc/self/fd/*; do fd="${fd_path##*/}"; if [ "$fd" -gt 2 ] 2>/dev/null; then eval "exec ${fd}>&-"; fi; done',
-  `/usr/sbin/chroot "$root" /usr/bin/bash -ceu ${shellSingleQuoteV1(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT_V1)} sec-hosted-sut-root "$base_sha" "$head_sha" "\${#environment[@]}" "\${environment[@]}" "$@"`
+  `/usr/sbin/chroot "$root" /usr/bin/bash -ceu ${shellSingleQuoteV1(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT_V1)} sec-hosted-sut-root "$expected_archive_digest" "$base_sha" "$head_sha" "\${#environment[@]}" "\${environment[@]}" "$@"`
 ].join('\n');
 
 const TRUSTED_BOOTSTRAP_SUT_FOCUSED_TESTS_V1 = Object.freeze([
@@ -1926,6 +2409,8 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(
       '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
       '/usr/sbin/chroot', 'mount -t proc', '--no-new-privs', '--bounding-set=-all',
       '/usr/bin/env -i', '/authenticated-input/prepared-candidate.tar',
+      HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1, '/usr/bin/sha256sum',
+      '/usr/bin/cat --', '$candidate_archive',
       'copy_runtime /usr/bin/bash /usr/bin/bash',
       'copy_runtime /usr/bin/tar /usr/bin/tar',
       'runtime-binary-closure'
@@ -1951,7 +2436,7 @@ export function CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(
 
 export function CodexDevelopmentBuildHostedSutSandboxCommandPlanV1(input: Readonly<{
   actionKey: VerificationActionKeyDigest;
-  candidateArchive: string;
+  candidateArchiveDigest: VerificationActionKeyDigest;
   bunExecutable: string;
   baseSha: string;
   headSha: string;
@@ -1960,7 +2445,7 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlanV1(input: Readon
   executionAuthorization: CodexDevelopmentHostedSutExecutionAuthorizationV1;
 }>): CodexDevelopmentHostedSutSandboxCommandPlanV1 {
   if (!/^sha256:[0-9a-f]{64}$/u.test(input.actionKey) || input.normalizedArgv[0] !== 'bun' ||
-      input.normalizedArgv.length < 2 || !path.isAbsolute(input.candidateArchive) ||
+      input.normalizedArgv.length < 2 || !/^sha256:[0-9a-f]{64}$/u.test(input.candidateArchiveDigest) ||
       !path.isAbsolute(input.bunExecutable) || !/^[0-9a-f]{40}$/u.test(input.baseSha) ||
       !/^[0-9a-f]{40}$/u.test(input.headSha)) {
     throw new Error('Hosted SUT sandbox execution input is invalid.');
@@ -2008,7 +2493,8 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlanV1(input: Readon
     argv: [
       '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
       '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT_V1, 'sec-hosted-sut',
-      unitName, input.candidateArchive, input.bunExecutable, input.baseSha, input.headSha,
+      unitName, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1, input.candidateArchiveDigest,
+      input.bunExecutable, input.baseSha, input.headSha,
       String(environment.length),
       ...environment.map(([name, value]) => `${name}=${value}`), ...input.normalizedArgv
     ]
@@ -2019,7 +2505,7 @@ export function CodexDevelopmentBuildHostedSutSandboxCommandPlanV1(input: Readon
 
 export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1(input: Readonly<{
   bootstrapDigest: VerificationActionKeyDigest;
-  candidateArchive: string;
+  candidateArchiveDigest: VerificationActionKeyDigest;
   bunExecutable: string;
   baseSha: string;
   headSha: string;
@@ -2027,7 +2513,8 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1(inp
   unitNonce: string;
 }>): CodexDevelopmentHostedSutSandboxCommandPlanV1 {
   if (!/^sha256:[0-9a-f]{64}$/u.test(input.bootstrapDigest) ||
-      !path.isAbsolute(input.candidateArchive) || !path.isAbsolute(input.bunExecutable) ||
+      !/^sha256:[0-9a-f]{64}$/u.test(input.candidateArchiveDigest) ||
+      !path.isAbsolute(input.bunExecutable) ||
       !/^[0-9a-f]{40}$/u.test(input.baseSha) || !/^[0-9a-f]{40}$/u.test(input.headSha)) {
     throw new Error('Trusted bootstrap SUT sandbox execution input is invalid.');
   }
@@ -2045,7 +2532,8 @@ export function CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1(inp
     argv: [
       '--mount', '--pid', '--fork', '--kill-child=KILL', '--net',
       '/usr/bin/bash', '-ceu', HOSTED_SUT_NAMESPACE_SCRIPT_V1, 'sec-hosted-sut',
-      unitName, input.candidateArchive, input.bunExecutable, input.baseSha, input.headSha,
+      unitName, HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1, input.candidateArchiveDigest,
+      input.bunExecutable, input.baseSha, input.headSha,
       String(environment.length),
       ...environment.map(([name, value]) => `${name}=${value}`),
       'bun', '-e', CodexDevelopmentTrustedBootstrapSutHarnessV1
@@ -2100,15 +2588,29 @@ function hostedSutTeardownCommandPlanV1(input: Readonly<{
 }
 
 function defaultHostedSutSandboxProcessV1(
-  plan: CodexDevelopmentHostedSutSandboxCommandPlanV1
+  plan: CodexDevelopmentHostedSutSandboxCommandPlanV1,
+  retainedArchive?: CodexDevelopmentRetainedHostedSutArchiveV1
 ): Promise<CodexDevelopmentHostedSutSandboxProcessObservationV1> {
+  const consumesArchive = plan.phase === 'execute' || plan.phase === 'bootstrap-execute';
+  if (consumesArchive !== (retainedArchive !== undefined)) {
+    throw new Error('Hosted SUT process has a missing or extraneous retained archive descriptor.');
+  }
+  if (retainedArchive !== undefined) {
+    assertRetainedHostedSutArchiveV1(retainedArchive);
+    if (plan.argv.filter((entry) => entry === HOSTED_SUT_RETAINED_ARCHIVE_CHILD_PATH_V1).length !== 1 ||
+        plan.argv.filter((entry) => entry === retainedArchive.archiveDigest).length !== 1) {
+      throw new Error('Hosted SUT process plan differs from its retained archive binding.');
+    }
+  }
   const outputByteLimit = CI_VERIFICATION_HOSTED_SUT_OUTPUT_BYTE_LIMIT_V1;
   const tailByteLimit = 64 * 1024;
   return new Promise((resolve) => {
     const child = spawn(plan.command, plan.argv, {
       cwd: process.cwd(),
       env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: retainedArchive === undefined
+        ? ['ignore', 'pipe', 'pipe']
+        : ['ignore', 'pipe', 'pipe', retainedArchive.fileDescriptor],
       windowsHide: true
     });
     const streams = {
@@ -2235,6 +2737,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
   const transportDirectory = path.resolve(outputDirectory, '.transport');
   const candidateNodeModules = path.resolve(input.candidateRoot, 'node_modules');
   let prepared: CodexDevelopmentPreparedTrustedBootstrapSutInputsV1 | null = null;
+  let retainedArchive: CodexDevelopmentRetainedHostedSutArchiveV1 | null = null;
   try {
     prepared = CodexDevelopmentPrepareTrustedBootstrapSutInputsV1({
       baseRoot: input.baseRoot,
@@ -2252,6 +2755,8 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
       manifestPath: input.manifestPath,
       archiveDigest: prepared.archiveDigest,
       archiveInventoryDigest: prepared.archiveInventoryDigest,
+      dependencyMaterialization: prepared.dependencyMaterialization,
+      dependencyArchiveProjection: prepared.dependencyArchiveProjection,
       sandboxPolicyDigest: CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1
     }));
     const candidateEnvironment = CodexDevelopmentCandidateProcessEnvironmentV2({}, {
@@ -2271,10 +2776,15 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
       1, capability.diagnostic ?? `sandbox-capability:${capability.state}`
     );
     let teardown = syntheticHostedSutSandboxProcessObservationV1(1, 'sandbox-not-started');
+    let retainedArchiveStable = false;
     if (capability.state === 'supported') {
+      retainedArchive = retainHostedSutArchiveV1(
+        prepared.preparedCandidateArchive,
+        prepared.archiveDigest
+      );
       commandPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1({
         bootstrapDigest,
-        candidateArchive: realpathSync.native(prepared.preparedCandidateArchive),
+        candidateArchiveDigest: retainedArchive.archiveDigest,
         bunExecutable: realpathSync.native(process.execPath),
         baseSha: input.baseSha,
         headSha: input.headSha,
@@ -2282,12 +2792,22 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
         unitNonce: `${process.pid}-${Date.now()}`.slice(0, 32)
       });
       try {
-        execution = await defaultHostedSutSandboxProcessV1(commandPlan);
+        execution = await defaultHostedSutSandboxProcessV1(commandPlan, retainedArchive);
       } finally {
-        teardown = await defaultHostedSutSandboxProcessV1(hostedSutTeardownCommandPlanV1({
-          actionKey: bootstrapDigest,
-          unitName: commandPlan.unitName
-        }));
+        try {
+          teardown = await defaultHostedSutSandboxProcessV1(hostedSutTeardownCommandPlanV1({
+            actionKey: bootstrapDigest,
+            unitName: commandPlan.unitName
+          }));
+        } finally {
+          try {
+            retainedArchiveStable =
+              assertRetainedHostedSutArchiveV1(retainedArchive) === prepared.archiveDigest;
+          } finally {
+            closeSync(retainedArchive.fileDescriptor);
+            retainedArchive = null;
+          }
+        }
       }
     }
     let summary: Record<string, unknown> | null = null;
@@ -2319,7 +2839,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
     writeFileSync(path.resolve(outputDirectory, 'SHA256SUMS'), sumsSource, { encoding: 'utf8', flag: 'wx' });
     const residuePassed = teardown.commandStarted && teardown.code === 0 &&
       teardown.failureTail.includes(`${CI_VERIFICATION_ACTION_SANDBOX_RESIDUE_MARKER_V1}:direct-process-closed`);
-    const archiveStable = hostedActionFileDigestV2(prepared.preparedCandidateArchive) === prepared.archiveDigest;
+    const archiveStable = retainedArchiveStable;
     const summaryIdentityPassed = summary?.schema === 'sec-trusted-bootstrap-sandbox-summary-v1' &&
       summary.baseSha === input.baseSha && summary.headSha === input.headSha &&
       summary.treeSha === input.treeSha && summary.parentSha === input.baseSha;
@@ -2357,6 +2877,7 @@ export async function CodexDevelopmentExecuteTrustedBootstrapSutV1(input: Readon
     }
     return Object.freeze({ status, bootstrapDigest, receiptDigest });
   } finally {
+    if (retainedArchive !== null) closeSync(retainedArchive.fileDescriptor);
     if (prepared !== null && existsSync(prepared.preparedCandidateArchive)) {
       rmSync(prepared.preparedCandidateArchive, { force: true });
     }
@@ -2655,14 +3176,15 @@ export async function CodexDevelopmentExecuteHostedActionSutV2(input: Readonly<{
   }
 
   const candidateArchive = realpathSync.native(path.resolve(input.candidateArchive));
-  const preExecutionArchiveDigest = hostedActionFileDigestV2(candidateArchive);
-  if (!lstatSync(candidateArchive).isFile() ||
-      preExecutionArchiveDigest !== input.archiveInventory.archiveDigest) {
-    throw new Error('Hosted SUT authenticated archive changed after metadata validation.');
-  }
+  const retainedArchive = retainHostedSutArchiveV1(
+    candidateArchive,
+    input.archiveInventory.archiveDigest
+  );
+  const preExecutionArchiveDigest = retainedArchive.archiveDigest;
+  try {
   const commandPlan = CodexDevelopmentBuildHostedSutSandboxCommandPlanV1({
     actionKey,
-    candidateArchive,
+    candidateArchiveDigest: retainedArchive.archiveDigest,
     bunExecutable: realpathSync.native(path.resolve(input.bunExecutable ?? process.execPath)),
     baseSha: normalizedOperation.candidate.baseSha,
     headSha: normalizedOperation.candidate.headSha,
@@ -2682,7 +3204,7 @@ export async function CodexDevelopmentExecuteHostedActionSutV2(input: Readonly<{
         throw new Error('Hosted SUT executor received a substituted normalized operation.');
       }
       try {
-        physical = await runSandboxProcess(commandPlan);
+        physical = await runSandboxProcess(commandPlan, retainedArchive);
         return physical.code;
       } catch (error) {
         executionObservationLost = true;
@@ -2715,7 +3237,10 @@ export async function CodexDevelopmentExecuteHostedActionSutV2(input: Readonly<{
   let postExecutionArchiveDigest: VerificationActionKeyDigest | null = null;
   let archiveReadbackDiagnostic: string | null = null;
   try {
-    postExecutionArchiveDigest = hostedActionFileDigestV2(candidateArchive);
+    postExecutionArchiveDigest = assertRetainedHostedSutArchiveV1(retainedArchive);
+    if (hostedActionFileDigestV2(candidateArchive) !== retainedArchive.archiveDigest) {
+      throw new Error('Hosted SUT archive pathname no longer names the retained authenticated bytes.');
+    }
   } catch (error) {
     archiveReadbackDiagnostic = error instanceof Error ? error.message : String(error);
   }
@@ -2791,6 +3316,9 @@ export async function CodexDevelopmentExecuteHostedActionSutV2(input: Readonly<{
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString()
   });
+  } finally {
+    closeSync(retainedArchive.fileDescriptor);
+  }
 }
 
 export function CodexDevelopmentParseHostedActionRawResultV2(

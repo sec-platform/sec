@@ -1,12 +1,17 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  closeSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
+  readSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -90,11 +95,13 @@ import {
   CodexDevelopmentAssembleHostedActionTerminalV2,
   CodexDevelopmentAssertHostedActionDependencyInputsV1,
   CodexDevelopmentAssertHostedActionParentEventV2,
+  CodexDevelopmentAssertHostedDependencyArchiveProjectionV1,
   CodexDevelopmentAssertHostedSutSandboxCommandPlanV1,
   CodexDevelopmentAssertTrustedBootstrapSutMaterializationCleanV1,
   CodexDevelopmentBuildHostedSutSandboxCommandPlanV1,
   CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1,
   CodexDevelopmentCandidateProcessEnvironmentV2,
+  CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1,
   CodexDevelopmentCiVerificationMain,
   CodexDevelopmentCiVerificationTcbClosureLockCliV1,
   CodexDevelopmentComposeHostedEvidenceV2,
@@ -102,8 +109,11 @@ import {
   CodexDevelopmentExecuteHostedActionSutV2,
   CodexDevelopmentHostedDependencyMaterializerEnvironmentV1,
   CodexDevelopmentHostedSutCapabilityAssertionV1,
+  CodexDevelopmentInspectHostedActionArchiveInventoryV3,
   CodexDevelopmentInspectHostedActionArchiveV2,
+  CodexDevelopmentMaterializeTrustedBootstrapArchiveV3,
   CodexDevelopmentProbeHostedSutSandboxCapabilityV1,
+  CodexDevelopmentRunBoundedDependencyMaterializationV1,
   CodexDevelopmentTrustedBootstrapSutHarnessV1,
   CodexDevelopmentValidateHostedActionArchiveInventoryV2,
   type CodexDevelopmentHostedActionArchiveInventoryV2,
@@ -1613,6 +1623,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
       gitBundleDigest: GIT_CLOSURE
     });
     let executionPlan: Parameters<typeof CodexDevelopmentAssertHostedSutSandboxCommandPlanV1>[0] | null = null;
+    const retainedArchiveBytes: string[] = [];
     const cleanInventory = inventory(cleanArchive);
     const cleanTicket = hostedTicket(resolution, cleanInventory);
     const clean = await CodexDevelopmentExecuteHostedActionSutV2({
@@ -1632,7 +1643,7 @@ test('hosted SUT executes only through the isolated command plan and terminalize
       now: clock(),
       platform: 'linux',
       unitNonce: 'clean',
-      runSandboxProcess: async (plan) => {
+      runSandboxProcess: async (plan, retainedArchive) => {
         if (plan.phase === 'capability-self-test') {
           return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_CAPABILITY_V1__');
         }
@@ -1640,6 +1651,25 @@ test('hosted SUT executes only through the isolated command plan and terminalize
           return sandboxObservation(0, '__SEC_HOSTED_SANDBOX_RESIDUE_EMPTY_V1__:direct-process-closed');
         }
         executionPlan = plan;
+        expect(retainedArchive).toBeDefined();
+        const movedArchive = `${cleanArchive}.retained`;
+        renameSync(cleanArchive, movedArchive);
+        writeFileSync(cleanArchive, 'malicious dependency archive at the authenticated pathname');
+        try {
+          const buffer = Buffer.alloc(256);
+          const bytes = readSync(
+            retainedArchive!.fileDescriptor,
+            buffer,
+            0,
+            buffer.byteLength,
+            0
+          );
+          retainedArchiveBytes.push(buffer.subarray(0, bytes).toString('utf8'));
+          expect(retainedArchive!.archiveDigest).toBe(cleanInventory.archiveDigest);
+        } finally {
+          rmSync(cleanArchive);
+          renameSync(movedArchive, cleanArchive);
+        }
         return sandboxObservation(0, 'candidate output is captured, never echoed');
       }
     });
@@ -1652,6 +1682,8 @@ test('hosted SUT executes only through the isolated command plan and terminalize
       `sandbox-receipt:${clean.sandboxReceipt.receiptDigest}`
     ]);
     expect(executionPlan).not.toBeNull();
+    expect(retainedArchiveBytes).toEqual(['authenticated-clean-archive']);
+    expect(JSON.stringify(executionPlan!.argv)).not.toContain(cleanArchive);
     expect(() => CodexDevelopmentAssertHostedSutSandboxCommandPlanV1(executionPlan!)).not.toThrow();
     expect(executionPlan!.argv.slice(-directBunTestArgv.length)).toEqual(directBunTestArgv);
     expect(cleanTerminal.result.execution?.argv).toEqual(directBunTestArgv);
@@ -1722,7 +1754,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   });
   const plan = CodexDevelopmentBuildHostedSutSandboxCommandPlanV1({
     actionKey: resolution.actionPlan.action.actionKey,
-    candidateArchive: path.resolve('/trusted/prepared-candidate.tar'),
+    candidateArchiveDigest: ticket.preparedCandidateArchiveDigest,
     bunExecutable: path.resolve('/trusted/tool/bun'),
     baseSha: normalizedOperation.candidate.baseSha,
     headSha: normalizedOperation.candidate.headSha,
@@ -1743,6 +1775,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
     'runtime-binary-closure',
     '/authenticated-input/prepared-candidate.tar', '/usr/bin/setpriv', '--no-new-privs',
     '--bounding-set=-all', '/usr/bin/prlimit', '/usr/bin/env -i',
+    '/proc/self/fd/3', '/usr/bin/cat --', '$candidate_archive', '/usr/bin/sha256sum',
     'for fd_path in /proc/self/fd/*', 'git -C /workspace init'
   ]) expect(encoded).toContain(invariant);
   for (const forbidden of [
@@ -1755,7 +1788,7 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   );
   const bootstrapPlan = CodexDevelopmentBuildTrustedBootstrapSutSandboxCommandPlanV1({
     bootstrapDigest: digest('b'),
-    candidateArchive: path.resolve('/trusted/bootstrap-candidate.tar'),
+    candidateArchiveDigest: digest('a'),
     bunExecutable: path.resolve('/trusted/tool/bun'),
     baseSha: normalizedOperation.candidate.baseSha,
     headSha: normalizedOperation.candidate.headSha,
@@ -1772,6 +1805,57 @@ test('sandbox command plan proves cgroup, namespace, private-root, uid, capabili
   expect(bootstrapPlan.physicalCommandProjectionDigest).toBeNull();
   expect(bootstrapPlan.argv.at(-1)).toBe(CodexDevelopmentTrustedBootstrapSutHarnessV1);
   expect(JSON.stringify(bootstrapPlan.argv)).not.toContain('GITHUB_OUTPUT');
+});
+
+test('Linux retained archive descriptor defeats pathname ABA before private sandbox copy', () => {
+  if (process.platform !== 'linux') return;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-sut-retained-archive-'));
+  const archive = path.join(root, 'prepared-candidate.tar');
+  const movedArchive = path.join(root, 'prepared-candidate.authenticated.tar');
+  const privateCopy = path.join(root, 'private-copy.tar');
+  const executionMarker = path.join(root, 'executed');
+  const expectedBytes = 'authenticated dependency archive\n';
+  const maliciousBytes = 'malicious replacement dependency archive\n';
+  let authenticatedFd: number | null = null;
+  let maliciousFd: number | null = null;
+  const copyAndAuthenticate = [
+    '/usr/bin/cat -- /proc/self/fd/3 > "$1"',
+    '[ "sha256:$(/usr/bin/sha256sum "$1" | /usr/bin/cut -d " " -f 1)" = "$2" ]',
+    'printf executed > "$3"'
+  ].join('\n');
+  try {
+    writeFileSync(archive, expectedBytes);
+    authenticatedFd = openSync(archive, 'r');
+    renameSync(archive, movedArchive);
+    writeFileSync(archive, maliciousBytes);
+    const expectedDigest = bytesDigest(expectedBytes);
+    const retained = spawnSync('/usr/bin/bash', [
+      '-ceu', copyAndAuthenticate, 'sec-retained-archive', privateCopy, expectedDigest, executionMarker
+    ], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe', authenticatedFd]
+    });
+    expect(retained.status).toBe(0);
+    expect(readFileSync(privateCopy, 'utf8')).toBe(expectedBytes);
+    expect(readFileSync(executionMarker, 'utf8')).toBe('executed');
+
+    rmSync(privateCopy);
+    rmSync(executionMarker);
+    maliciousFd = openSync(archive, 'r');
+    const substituted = spawnSync('/usr/bin/bash', [
+      '-ceu', copyAndAuthenticate, 'sec-retained-archive', privateCopy, expectedDigest, executionMarker
+    ], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe', maliciousFd]
+    });
+    expect(substituted.status).not.toBe(0);
+    expect(readFileSync(privateCopy, 'utf8')).toBe(maliciousBytes);
+    expect(existsSync(executionMarker)).toBe(false);
+  } finally {
+    if (authenticatedFd !== null) closeSync(authenticatedFd);
+    if (maliciousFd !== null) closeSync(maliciousFd);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('parent event binds the canonical one-key Session request wrapper', () => {
@@ -2039,7 +2123,9 @@ test('raw archive metadata rejects traversal, special files, unsafe links, dupli
     overrides: Readonly<Record<string, unknown>> = {}
   ) => ({
     path: entryPath, type, linkTarget: null, size: type === 'file' ? 1 : 0,
-    mode: type === 'directory' ? 0o755 : 0o644, contentDigest: null, ...overrides
+    mode: type === 'directory' ? 0o755 : 0o644,
+    physicalContentDigest: type === 'file' || type === 'hardlink' ? digest('9') : null,
+    contentDigest: null, ...overrides
   });
   const trusted = [
     entry('package.json'),
@@ -2049,12 +2135,20 @@ test('raw archive metadata rejects traversal, special files, unsafe links, dupli
     })
   ];
   expect(() => CodexDevelopmentValidateHostedActionArchiveInventoryV2(trusted)).not.toThrow();
+  expect(() => CodexDevelopmentValidateHostedActionArchiveInventoryV2([
+    ...trusted,
+    entry('node_modules/gitnexus/vendor/tree-sitter-proto/binding.gyp'),
+    entry('node_modules/gitnexus/node_modules/tree-sitter-proto/binding.gyp', 'symlink', {
+      linkTarget: '../../vendor/tree-sitter-proto/binding.gyp'
+    })
+  ])).not.toThrow();
   const hostile = [
     [entry('/absolute')],
     [entry('../escape')],
     [entry('device', 'character')],
     [entry('pipe', 'fifo')],
     [entry('link', 'symlink', { linkTarget: '../../host' })],
+    [entry('absolute-link', 'symlink', { linkTarget: '/host/secret' })],
     [entry('missing', 'hardlink', { linkTarget: 'absent' })],
     [entry('dup'), entry('dup')],
     [entry('Case'), entry('case')],
@@ -2064,6 +2158,203 @@ test('raw archive metadata rejects traversal, special files, unsafe links, dupli
     expect(() => CodexDevelopmentValidateHostedActionArchiveInventoryV2([
       ...trusted, ...inventory
     ])).toThrow();
+  }
+  expect(() => CodexDevelopmentValidateHostedActionArchiveInventoryV2([
+    ...trusted,
+    entry('loop', 'directory'),
+    entry('loop/child', 'directory'),
+    entry('loop/child/link', 'symlink', { linkTarget: '..' })
+  ])).toThrow(/targets itself or an ancestor/u);
+});
+
+test('trusted bootstrap dependency archive projection is source-read-only and binds one physical generation', () => {
+  const productionSource = readFileSync(path.join(compilerRoot, 'scripts', 'ci-verification.ts'), 'utf8');
+  const prepareStart = productionSource.indexOf(
+    'export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1'
+  );
+  const prepareEnd = productionSource.indexOf(
+    'export function CodexDevelopmentMaterializeHostedActionCandidateV2',
+    prepareStart
+  );
+  const prepareSource = productionSource.slice(prepareStart, prepareEnd);
+  expect(prepareStart).toBeGreaterThanOrEqual(0);
+  expect(prepareEnd).toBeGreaterThan(prepareStart);
+  expect(prepareSource.indexOf('CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(baseNodeModules)'))
+    .toBeGreaterThan(prepareSource.indexOf('CodexDevelopmentRunBoundedDependencyMaterializationV1'));
+  expect(prepareSource.indexOf('CodexDevelopmentMaterializeTrustedBootstrapArchiveV3({'))
+    .toBeGreaterThan(prepareSource.indexOf("'bundle', 'verify'"));
+  expect(prepareSource.indexOf('CodexDevelopmentInspectHostedActionArchiveInventoryV3('))
+    .toBeGreaterThan(prepareSource.indexOf('CodexDevelopmentMaterializeTrustedBootstrapArchiveV3({'));
+  expect(prepareSource.indexOf('CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({'))
+    .toBeGreaterThan(prepareSource.indexOf('CodexDevelopmentInspectHostedActionArchiveInventoryV3('));
+  expect(productionSource).toContain(
+    'dependencyArchiveProjection: prepared.dependencyArchiveProjection'
+  );
+  expect(productionSource).not.toContain('CodexDevelopmentNormalizeHostedDependencySymlinkClosureV1');
+  expect(productionSource).not.toContain('.sec-relocatable-link-');
+  expect(productionSource).toContain('os.O_PATH | os.O_NOFOLLOW');
+  expect(productionSource).toContain('os.readlink("", dir_fd=link_fd)');
+  expect(productionSource).not.toContain('os.readlink(name, dir_fd=directory_fd)');
+
+  const fileDigest = digest('6');
+  const otherDigest = digest('7');
+  const rootIdentity = Object.freeze({
+    schema: 'sec-physical-no-follow-v1' as const,
+    path: '/work/node_modules',
+    finalPath: '/work/node_modules',
+    device: '1', inode: '2', objectId: '1:2'
+  });
+  const entries = Object.freeze([
+    Object.freeze({
+      relativePath: 'pkg', kind: 'directory' as const, device: '1', inode: '3',
+      size: 4096, contentDigest: null, linkTarget: null
+    }),
+    Object.freeze({
+      relativePath: 'pkg/link.txt', kind: 'link' as const, device: '1', inode: '4',
+      size: 40, contentDigest: null, linkTarget: '/work/node_modules/pkg/target.txt'
+    }),
+    Object.freeze({
+      relativePath: 'pkg/other.txt', kind: 'file' as const, device: '1', inode: '5',
+      size: 5, contentDigest: otherDigest, linkTarget: null
+    }),
+    Object.freeze({
+      relativePath: 'pkg/target.txt', kind: 'file' as const, device: '1', inode: '6',
+      size: 3, contentDigest: fileDigest, linkTarget: null
+    })
+  ]);
+  const before = Object.freeze({
+    schema: 'sec-hosted-dependency-physical-snapshot-v1' as const,
+    root: rootIdentity,
+    entries
+  });
+  const archiveEntry = (
+    entryPath: string,
+    type: 'directory' | 'file' | 'symlink',
+    overrides: Readonly<Record<string, unknown>> = {}
+  ) => ({
+    path: entryPath,
+    type,
+    linkTarget: null,
+    size: type === 'file' ? 1 : 0,
+    mode: type === 'directory' ? 0o755 : 0o644,
+    physicalContentDigest: type === 'file' ? digest('9') : null,
+    contentDigest: null,
+    ...overrides
+  });
+  const archiveEntries = CodexDevelopmentValidateHostedActionArchiveInventoryV2([
+    archiveEntry('node_modules', 'directory'),
+    archiveEntry('node_modules/pkg', 'directory'),
+    archiveEntry('node_modules/pkg/link.txt', 'symlink', { linkTarget: 'target.txt' }),
+    archiveEntry('node_modules/pkg/other.txt', 'file', {
+      size: 5, physicalContentDigest: otherDigest
+    }),
+    archiveEntry('node_modules/pkg/target.txt', 'file', {
+      size: 3, physicalContentDigest: fileDigest
+    })
+  ]).entries;
+  expect(CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+    before, after: before, archiveEntries
+  })).toMatchObject({
+    schema: 'sec-hosted-dependency-archive-projection-v1',
+    entriesObserved: 4,
+    linksProjected: 1
+  });
+
+  const changedAfter = (relativePath: string, changes: Readonly<Record<string, unknown>>) =>
+    Object.freeze({
+      ...before,
+      entries: Object.freeze(before.entries.map((entry) => entry.relativePath === relativePath
+        ? Object.freeze({ ...entry, ...changes }) : entry))
+    });
+  for (const after of [
+    Object.freeze({ ...before, root: Object.freeze({ ...before.root, inode: '99' }) }),
+    changedAfter('pkg', { inode: '99' }),
+    changedAfter('pkg/link.txt', { inode: '99' }),
+    changedAfter('pkg/target.txt', { inode: '99' }),
+    changedAfter('pkg/target.txt', { contentDigest: digest('5') })
+  ]) {
+    expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+      before, after, archiveEntries
+    })).toThrow(/physical generation changed/u);
+  }
+  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+    before,
+    after: before,
+    archiveEntries: archiveEntries.map((entry) => entry.path === 'node_modules/pkg/target.txt'
+      ? Object.freeze({ ...entry, physicalContentDigest: digest('5') }) : entry)
+  })).toThrow(/file differs/u);
+  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+    before,
+    after: before,
+    archiveEntries: archiveEntries.map((entry) => entry.path === 'node_modules/pkg/link.txt'
+      ? Object.freeze({ ...entry, linkTarget: 'node_modules/pkg/other.txt' }) : entry)
+  })).toThrow(/link differs/u);
+  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+    before,
+    after: before,
+    archiveEntries: archiveEntries.slice(0, -1)
+  })).toThrow(/missing, duplicate, or foreign/u);
+  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+    before: changedAfter('pkg/link.txt', { linkTarget: '/host/secret' }),
+    after: changedAfter('pkg/link.txt', { linkTarget: '/host/secret' }),
+    archiveEntries
+  })).toThrow(/escapes/u);
+  expect(() => CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+    before: changedAfter('pkg/link.txt', { linkTarget: '/work/node_modules/pkg' }),
+    after: changedAfter('pkg/link.txt', { linkTarget: '/work/node_modules/pkg' }),
+    archiveEntries
+  })).toThrow(/ancestor/u);
+});
+
+test('linux retained bootstrap archive relocates dependency links without mutating source', () => {
+  if (process.platform !== 'linux') return;
+  const root = mkdtempSync(path.join(tmpdir(), 'sec-hosted-dependency-archive-'));
+  const candidateRoot = path.join(root, 'candidate');
+  const dependencyRoot = path.join(root, 'node_modules');
+  const outputDirectory = path.join(root, 'output');
+  const extractedRoot = path.join(root, 'extracted');
+  const retainedSource = path.join(root, 'node_modules-source-moved');
+  const target = path.join(dependencyRoot, 'pkg', 'target.txt');
+  const link = path.join(dependencyRoot, 'pkg', 'link.txt');
+  const collision = path.join(dependencyRoot, 'pkg', '.sec-relocatable-link-collision.tmp');
+  try {
+    mkdirSync(candidateRoot, { recursive: true });
+    mkdirSync(path.dirname(target), { recursive: true });
+    mkdirSync(outputDirectory, { recursive: true });
+    mkdirSync(extractedRoot, { recursive: true });
+    writeFileSync(path.join(candidateRoot, 'package.json'), '{}\n');
+    writeFileSync(target, 'trusted-target\n');
+    writeFileSync(collision, 'foreign-name-preserved\n');
+    symlinkSync(target, link);
+    const before = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(dependencyRoot);
+    const archive = CodexDevelopmentMaterializeTrustedBootstrapArchiveV3({
+      candidateRoot,
+      dependencySnapshot: before,
+      outputDirectory
+    });
+    const inventory = CodexDevelopmentInspectHostedActionArchiveInventoryV3(archive);
+    const after = CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(dependencyRoot);
+    expect(CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({
+      before, after, archiveEntries: inventory.entries
+    }).linksProjected).toBe(1);
+    expect(readlinkSync(link, 'utf8')).toBe(target);
+    expect(readFileSync(collision, 'utf8')).toBe('foreign-name-preserved\n');
+
+    renameSync(dependencyRoot, retainedSource);
+    const extracted = spawnSync('/usr/bin/tar', ['-xf', archive, '-C', extractedRoot], {
+      encoding: 'utf8', windowsHide: true, timeout: 30_000
+    });
+    expect(extracted.status).toBe(0);
+    const extractedLink = path.join(extractedRoot, 'node_modules', 'pkg', 'link.txt');
+    const extractedTarget = path.join(extractedRoot, 'node_modules', 'pkg', 'target.txt');
+    expect(readlinkSync(extractedLink, 'utf8')).toBe('target.txt');
+    expect(realpathSync.native(extractedLink)).toBe(realpathSync.native(extractedTarget));
+    expect(readFileSync(extractedLink, 'utf8')).toBe('trusted-target\n');
+    expect(readFileSync(path.join(
+      extractedRoot, 'node_modules', 'pkg', '.sec-relocatable-link-collision.tmp'
+    ), 'utf8')).toBe('foreign-name-preserved\n');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -2081,15 +2372,16 @@ test('pre-start archive inspection authenticates raw bytes and exact dependency 
   const inventory = [
     ...[...required].map((entryPath) => ({
       path: entryPath, type: 'file', linkTarget: null, size: 1, mode: 0o644,
-      contentDigest: null
+      physicalContentDigest: digest('9'), contentDigest: null
     })),
     {
       path: '.sec-trusted-input/candidate.bundle', type: 'file', linkTarget: null,
-      size: 1, mode: 0o600, contentDigest: gitBundleDigest
+      size: 1, mode: 0o600, physicalContentDigest: digest('9'), contentDigest: gitBundleDigest
     },
     {
       path: '.sec-trusted-input/dependency-closure.json', type: 'file', linkTarget: null,
-      size: 1, mode: 0o600, contentDigest: dependencyClosureDigest
+      size: 1, mode: 0o600, physicalContentDigest: digest('8'),
+      contentDigest: dependencyClosureDigest
     }
   ];
   try {
@@ -2149,6 +2441,35 @@ test('dependency authority is exact-base only and materializer environment canno
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('trusted bootstrap dependency materialization retries only one exact Bun extraction failure', () => {
+  const retryable = new Error(
+    'Trusted bootstrap exact-base dependency materialization failed: ' +
+    'error: Fail extracting tarball for "onnxruntime-node"\n' +
+    'error: Fail extracting tarball from onnxruntime-node'
+  );
+  let recoveredAttempts = 0;
+  expect(CodexDevelopmentRunBoundedDependencyMaterializationV1(() => {
+    recoveredAttempts += 1;
+    if (recoveredAttempts === 1) throw retryable;
+  })).toEqual({ attempts: 2, recoveredFrom: 'bun-tarball-extraction' });
+  expect(recoveredAttempts).toBe(2);
+
+  const terminal = new Error('error: lockfile had changes, but lockfile is frozen');
+  let terminalAttempts = 0;
+  expect(() => CodexDevelopmentRunBoundedDependencyMaterializationV1(() => {
+    terminalAttempts += 1;
+    throw terminal;
+  })).toThrow(terminal);
+  expect(terminalAttempts).toBe(1);
+
+  let repeatedExtractionAttempts = 0;
+  expect(() => CodexDevelopmentRunBoundedDependencyMaterializationV1(() => {
+    repeatedExtractionAttempts += 1;
+    throw retryable;
+  })).toThrow(/after one bounded Bun tarball-extraction recovery retry/u);
+  expect(repeatedExtractionAttempts).toBe(2);
 });
 
 test('canonical terminal artifact derives four physical Result states while raw not-run is impossible', () => {

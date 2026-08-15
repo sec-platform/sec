@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import { projectBranchLifecycleForWorkSelectionV1 } from '../../scripts/codex/branch-lifecycle-audit.ts';
+import { createBranchLifecycleGitHubCredentialArgsV1 } from '../../scripts/codex/branch-lifecycle-command.ts';
 import {
   BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
   auditBranchLifecycle,
@@ -18,6 +21,53 @@ const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
 const RACE_SHA = '3333333333333333333333333333333333333333';
 const WORKTREE_REF = `sha256:${'a'.repeat(64)}` as const;
+
+test('remote branch inventory uses the canonical bounded gh credential helper', () => {
+  const source = readFileSync(path.resolve(import.meta.dir,
+    '../../scripts/codex/branch-lifecycle-inventory.ts'), 'utf8');
+  const start = source.indexOf('function listRemoteBranches(');
+  const end = source.indexOf('\nfunction listWorktrees(', start);
+  const reader = source.slice(start, end);
+  expect(start).toBeGreaterThan(0);
+  expect(createBranchLifecycleGitHubCredentialArgsV1()).toEqual([
+    '-c', 'http.extraHeader=',
+    '-c', 'http.https://github.com/.extraheader=',
+    '-c', 'credential.helper=',
+    '-c', 'credential.helper=!gh auth git-credential'
+  ]);
+  expect(reader).toContain('...createBranchLifecycleGitHubCredentialArgsV1()');
+  expect(reader).toContain("'ls-remote', '--heads', remote");
+  expect(reader).not.toContain("['ls-remote'");
+});
+
+test('canonical Git branch grammar admits Unicode without weakening option-safe rejection', () => {
+  expect(() => createBranchCloseoutPreparation({
+    preparedAt: '2026-08-04T00:01:00.000Z',
+    repository: {
+      root: '/workspace/sec',
+      commonDir: '/workspace/sec/.git',
+      fullName: 'sec-platform/sec',
+      remote: 'origin',
+      defaultBranch: 'main'
+    },
+    branch: 'codex/修复',
+    refState: 'present',
+    expectedHeadSha: HEAD_SHA,
+    expectedRemoteSha: HEAD_SHA,
+    expectedLocalSha: HEAD_SHA,
+    expectedPrHeadSha: null,
+    pullRequestNumber: 42,
+    pullRequestStateAtPreparation: 'open',
+    recovery: {
+      kind: 'bundle',
+      path: '/recovery/sec-unicode.bundle',
+      sha256: `sha256:${'b'.repeat(64)}`,
+      verified: true,
+      verifyOutput: 'verified'
+    },
+    worktreePathsAtPreparation: []
+  })).not.toThrow();
+});
 
 function inventory(overrides: Partial<BranchLifecycleInventory> = {}): BranchLifecycleInventory {
   const base: BranchLifecycleInventory = {

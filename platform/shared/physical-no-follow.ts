@@ -2,6 +2,7 @@ import { dlopen, FFIType, ptr, read } from 'bun:ffi';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
+  constants as fsConstants,
   fstatSync,
   fsyncSync,
   lstatSync,
@@ -72,6 +73,29 @@ export interface NoFollowDirectoryTreeEntryV1 {
   readonly bytes: Uint8Array | null;
   readonly linkTarget: string | null;
 }
+
+/**
+ * Inventory projection for arbitrarily large ordinary leaves.  File bytes are
+ * never retained.  `contentDigest` deliberately preserves the historical
+ * canonical `{ bytes: lowerHex }` digest domain used by worktree closeout, so
+ * an interrupted authorization does not split when a leaf crosses the former
+ * in-memory read limit.
+ */
+export interface NoFollowDirectoryTreeInventoryEntryV1 {
+  readonly relativePath: string;
+  readonly kind: NoFollowDirectoryTreeEntryKindV1;
+  readonly device: string;
+  readonly inode: string;
+  readonly size: number;
+  readonly contentDigest: `sha256:${string}` | null;
+  readonly linkTarget: string | null;
+}
+
+interface InternalNoFollowDirectoryTreeEntryV1 extends NoFollowDirectoryTreeEntryV1 {
+  readonly contentDigest: `sha256:${string}` | null;
+}
+
+type NoFollowDirectoryTreeFileModeV1 = 'bounded-bytes' | 'streaming-digest';
 
 function codeOf(error: unknown): string | null {
   if (!error || typeof error !== 'object' || !('code' in error)) return null;
@@ -145,6 +169,7 @@ function loadLinuxLibc() {
   try {
     return dlopen('libc.so.6', {
       openat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.u32], returns: FFIType.i32 },
+      readlinkat: { args: [FFIType.i32, FFIType.ptr, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
       mkdirat: { args: [FFIType.i32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
       unlinkat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
       linkat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32, FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
@@ -209,6 +234,31 @@ function linuxOpenLeafAt(parentFd: number, component: string, label: string): nu
   return fd;
 }
 
+function linuxReadRetainedLinkTargetV1(linkFd: number, label: string): string {
+  const emptyPath = Buffer.from([0]);
+  for (let capacity = 256; capacity <= 1024 * 1024; capacity *= 2) {
+    const target = Buffer.alloc(capacity);
+    const observed = Number(requireLinuxLibc().symbols.readlinkat(
+      linkFd, emptyPath, target, BigInt(target.byteLength)
+    ));
+    if (!Number.isSafeInteger(observed) || observed < 0) {
+      throw physicalError(
+        'PHYSICAL_NO_FOLLOW_UNSAFE_PATH',
+        `${label} retained readlinkat failed (errno ${linuxErrno()}).`
+      );
+    }
+    if (observed < target.byteLength) {
+      const bytes = target.subarray(0, observed);
+      const value = bytes.toString('utf8');
+      if (value.length === 0 || value.includes('\0') || !Buffer.from(value, 'utf8').equals(bytes)) {
+        throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} target is not exact nonempty UTF-8.`);
+      }
+      return value;
+    }
+  }
+  throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} target exceeds the retained link bound.`);
+}
+
 function linuxOpenRetainedAbsoluteDirectory(absolutePath: string, label: string): { readonly filesystemRootFd: number; readonly directoryFd: number } {
   const filesystemRootFd = linuxOpenRoot(label);
   let directoryFd = filesystemRootFd;
@@ -268,6 +318,8 @@ const WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT = 0x0000_0400;
 const WINDOWS_FILE_FLAG_BACKUP_SEMANTICS = 0x0200_0000;
 const WINDOWS_FILE_FLAG_OPEN_REPARSE_POINT = 0x0020_0000;
 const WINDOWS_FILE_ATTRIBUTE_TAG_INFO = 9;
+const WINDOWS_FILE_BASIC_INFO = 0;
+const WINDOWS_FILE_STANDARD_INFO = 1;
 const WINDOWS_FILE_ID_INFO = 18;
 const WINDOWS_GENERIC_READ = 0x8000_0000;
 const WINDOWS_GENERIC_WRITE = 0x4000_0000;
@@ -280,14 +332,19 @@ const WINDOWS_READ_CONTROL = 0x0002_0000;
 const WINDOWS_DELETE = 0x0001_0000;
 const WINDOWS_FILE_WRITE_ATTRIBUTES = 0x0000_0100;
 const WINDOWS_SHARE_READ_WRITE_DELETE = 0x0000_0007;
-const WINDOWS_FILE_DISPOSITION_INFO = 4;
-const WINDOWS_FILE_DISPOSITION_INFO_EX = 64;
+// FILE_INFO_BY_HANDLE_CLASS::FileDispositionInfoEx.  The native
+// FILE_INFORMATION_CLASS value is 64; SetFileInformationByHandle requires
+// the Win32 enum value 21.
+const WINDOWS_FILE_DISPOSITION_INFO_EX = 21;
 const WINDOWS_FILE_DISPOSITION_FLAG_DELETE = 0x0000_0001;
+const WINDOWS_FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE = 0x0000_0010;
 const WINDOWS_FILE_RENAME_INFO_EX = 22;
 const WINDOWS_FILE_RENAME_INFO = 3;
 const WINDOWS_NT_FILE_RENAME_INFORMATION = 10;
 const WINDOWS_NT_FILE_RENAME_INFORMATION_EX = 65;
 const WINDOWS_FILE_ATTRIBUTE_NORMAL = 0x0000_0080;
+const WINDOWS_FSCTL_GET_REPARSE_POINT = 0x0009_00a8;
+const WINDOWS_MAXIMUM_REPARSE_DATA_BUFFER_SIZE = 16 * 1024;
 const WINDOWS_FILE_CREATE = 2;
 const WINDOWS_FILE_OPEN = 1;
 const WINDOWS_FILE_NON_DIRECTORY_FILE = 0x0000_0040;
@@ -309,6 +366,7 @@ function loadWindowsKernel32() {
       CreateFileW: { args: [FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.u32, FFIType.ptr], returns: FFIType.u64 },
       GetFileInformationByHandleEx: { args: [FFIType.u64, FFIType.u32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
       GetFinalPathNameByHandleW: { args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.u32], returns: FFIType.u32 },
+      DeviceIoControl: { args: [FFIType.u64, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
       SetFileInformationByHandle: { args: [FFIType.u64, FFIType.u32, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
       ReadFile: { args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
       WriteFile: { args: [FFIType.u64, FFIType.ptr, FFIType.u32, FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
@@ -573,8 +631,8 @@ function windowsOpenRelativeNoFollowEntry(
     : kind === 'file' ? WINDOWS_FILE_NON_DIRECTORY_FILE : 0;
   const status = requireWindowsNtdll().symbols.NtCreateFile(
     handleBuffer,
-    WINDOWS_FILE_READ_DATA | WINDOWS_FILE_WRITE_DATA | WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_FILE_READ_EA |
-      WINDOWS_FILE_WRITE_ATTRIBUTES | WINDOWS_DELETE | WINDOWS_READ_CONTROL | WINDOWS_SYNCHRONIZE,
+    WINDOWS_FILE_READ_ATTRIBUTES | WINDOWS_FILE_READ_EA | WINDOWS_FILE_WRITE_ATTRIBUTES |
+      WINDOWS_DELETE | WINDOWS_READ_CONTROL | WINDOWS_SYNCHRONIZE,
     object.objectAttributes,
     ioStatus,
     null,
@@ -687,6 +745,36 @@ function windowsRetainedLeafIdentity(
   return Object.freeze({ device: id.subarray(0, 8).toString('hex'), inode: id.subarray(8).toString('hex') });
 }
 
+function windowsRetainedReparseObservationV1(
+  handle: bigint,
+  label: string
+): Readonly<{ size: number; linkTarget: string }> {
+  const library = requireWindowsKernel32();
+  const output = Buffer.alloc(WINDOWS_MAXIMUM_REPARSE_DATA_BUFFER_SIZE);
+  const returned = Buffer.alloc(4);
+  if (library.symbols.DeviceIoControl(
+    handle,
+    WINDOWS_FSCTL_GET_REPARSE_POINT,
+    null,
+    0,
+    output,
+    output.byteLength,
+    returned,
+    null
+  ) === 0) {
+    const lastError = library.symbols.GetLastError();
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} reparse bytes cannot be proven (Win32 ${lastError}).`);
+  }
+  const size = returned.readUInt32LE(0);
+  if (size < 8 || size > output.byteLength) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} returned malformed reparse bytes.`);
+  }
+  return Object.freeze({
+    size,
+    linkTarget: `windows-reparse-sha256:${createHash('sha256').update(output.subarray(0, size)).digest('hex')}`
+  });
+}
+
 function windowsScanRetainedEntry(absolutePath: string, label: string): NoFollowDirectoryTreeEntryV1 {
   const handle = windowsOpenNoFollowLeaf(absolutePath, label, WINDOWS_GENERIC_READ);
   try {
@@ -699,7 +787,36 @@ function windowsScanRetainedEntry(absolutePath: string, label: string): NoFollow
       ? 'link' : (attributes & WINDOWS_FILE_ATTRIBUTE_DIRECTORY) !== 0 ? 'directory' : 'file';
     const identity = windowsRetainedLeafIdentity(handle, absolutePath, kind, label);
     const bytes = kind === 'file' ? readWindowsRetainedFile(handle, label) : null;
-    return Object.freeze({ relativePath: '', kind, ...identity, size: bytes?.byteLength ?? 0, bytes, linkTarget: null });
+    const reparse = kind === 'link' ? windowsRetainedReparseObservationV1(handle, label) : null;
+    return Object.freeze({
+      relativePath: '', kind, ...identity, size: bytes?.byteLength ?? reparse?.size ?? 0, bytes,
+      linkTarget: reparse?.linkTarget ?? null
+    });
+  } finally {
+    closeWindowsHandle(handle);
+  }
+}
+
+function windowsInventoryRetainedEntry(
+  absolutePath: string,
+  label: string
+): Omit<NoFollowDirectoryTreeInventoryEntryV1, 'relativePath'> {
+  const handle = windowsOpenNoFollowLeaf(absolutePath, label, WINDOWS_GENERIC_READ);
+  try {
+    const tag = Buffer.alloc(8);
+    if (requireWindowsKernel32().symbols.GetFileInformationByHandleEx(handle, WINDOWS_FILE_ATTRIBUTE_TAG_INFO, tag, tag.byteLength) === 0) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} attributes cannot be proven.`);
+    }
+    const attributes = tag.readUInt32LE(0);
+    const kind: NoFollowDirectoryTreeEntryKindV1 = (attributes & WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT) !== 0
+      ? 'link' : (attributes & WINDOWS_FILE_ATTRIBUTE_DIRECTORY) !== 0 ? 'directory' : 'file';
+    const identity = windowsRetainedLeafIdentity(handle, absolutePath, kind, label);
+    const content = kind === 'file'
+      ? digestWindowsRetainedFile(handle, absolutePath, identity, label)
+      : kind === 'link'
+        ? Object.freeze({ ...windowsRetainedReparseObservationV1(handle, label), contentDigest: null })
+        : Object.freeze({ size: 0, contentDigest: null, linkTarget: null });
+    return Object.freeze({ kind, ...identity, ...content, linkTarget: 'linkTarget' in content ? content.linkTarget : null });
   } finally {
     closeWindowsHandle(handle);
   }
@@ -708,15 +825,18 @@ function windowsScanRetainedEntry(absolutePath: string, label: string): NoFollow
 function windowsMarkRetainedLeafForDelete(handle: bigint, label: string): void {
   const library = requireWindowsKernel32();
   const extended = Buffer.alloc(4);
-  extended.writeUInt32LE(WINDOWS_FILE_DISPOSITION_FLAG_DELETE, 0);
-  if (library.symbols.SetFileInformationByHandle(handle, WINDOWS_FILE_DISPOSITION_INFO_EX, extended, extended.byteLength) !== 0) return;
-  // FileDispositionInfo is the documented safe fallback for filesystems that
-  // do not expose FileDispositionInfoEx.  The retained handle has already
-  // proven the object is the authorized final path and FileId.
-  const legacy = Buffer.from([1]);
-  if (library.symbols.SetFileInformationByHandle(handle, WINDOWS_FILE_DISPOSITION_INFO, legacy, legacy.byteLength) === 0) {
+  extended.writeUInt32LE(
+    WINDOWS_FILE_DISPOSITION_FLAG_DELETE | WINDOWS_FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+    0
+  );
+  if (library.symbols.SetFileInformationByHandle(
+    handle, WINDOWS_FILE_DISPOSITION_INFO_EX, extended, extended.byteLength
+  ) === 0) {
     const lastError = library.symbols.GetLastError();
-    throw physicalError('PHYSICAL_NO_FOLLOW_DURABILITY_FAILED', `${label} handle disposition failed (Win32 ${lastError}).`);
+    throw physicalError(
+      'PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE',
+      `${label} requires FileDispositionInfoEx with IGNORE_READONLY_ATTRIBUTE (Win32 ${lastError}).`
+    );
   }
 }
 
@@ -814,6 +934,87 @@ function windowsFlushRetainedDirectory(handle: bigint, expected: PhysicalDirecto
   // after native root-relative rename, then proves final FileId/readback.
 }
 
+function streamCanonicalHexContentDigestV1(
+  readChunk: (chunk: Buffer) => number,
+  expectedSize: bigint,
+  label: string
+): Readonly<{ size: number; contentDigest: `sha256:${string}` }> {
+  if (expectedSize < 0n || expectedSize > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} size is outside the exact inventory number domain.`);
+  }
+  const hash = createHash('sha256');
+  // This is exactly JSON.stringify(canonicalJson({ bytes: lowerHex })).
+  // Keep the framing here so streaming and historical in-memory inventory
+  // generations remain byte-identical.
+  hash.update('{"bytes":"');
+  const chunk = Buffer.alloc(64 * 1024);
+  let total = 0;
+  for (;;) {
+    const count = readChunk(chunk);
+    if (!Number.isInteger(count) || count < 0 || count > chunk.byteLength) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} returned an invalid retained read length.`);
+    }
+    if (count === 0) break;
+    total += count;
+    if (!Number.isSafeInteger(total) || BigInt(total) > expectedSize) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} grew during retained streaming inventory.`);
+    }
+    hash.update(chunk.subarray(0, count).toString('hex'));
+  }
+  if (BigInt(total) !== expectedSize) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} size changed during retained streaming inventory.`);
+  }
+  hash.update('"}');
+  return Object.freeze({ size: total, contentDigest: `sha256:${hash.digest('hex')}` });
+}
+
+function windowsRetainedFileSnapshotV1(
+  handle: bigint,
+  label: string
+): Readonly<{ basic: string; size: bigint }> {
+  const library = requireWindowsKernel32();
+  const basic = Buffer.alloc(40);
+  const standard = Buffer.alloc(24);
+  if (library.symbols.GetFileInformationByHandleEx(handle, WINDOWS_FILE_BASIC_INFO, basic, basic.byteLength) === 0 ||
+      library.symbols.GetFileInformationByHandleEx(handle, WINDOWS_FILE_STANDARD_INFO, standard, standard.byteLength) === 0) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} stable file metadata cannot be proven.`);
+  }
+  // LastAccessTime may advance as a consequence of this retained read and is
+  // not a content mutation fence.  Creation, last-write, change time and
+  // attributes remain stable inputs.
+  const stableBasic = Buffer.concat([basic.subarray(0, 8), basic.subarray(16, 40)]).toString('hex');
+  return Object.freeze({ basic: stableBasic, size: standard.readBigInt64LE(8) });
+}
+
+function digestWindowsRetainedFile(
+  handle: bigint,
+  absolutePath: string,
+  identity: Readonly<{ device: string; inode: string }>,
+  label: string
+): Readonly<{ size: number; contentDigest: `sha256:${string}` }> {
+  const beforeIdentity = windowsRetainedLeafIdentity(handle, absolutePath, 'file', label);
+  if (beforeIdentity.device !== identity.device || beforeIdentity.inode !== identity.inode) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} identity changed before retained streaming inventory.`);
+  }
+  const before = windowsRetainedFileSnapshotV1(handle, label);
+  const library = requireWindowsKernel32();
+  const received = Buffer.alloc(4);
+  const result = streamCanonicalHexContentDigestV1((chunk) => {
+    if (library.symbols.ReadFile(handle, chunk, chunk.byteLength, received, null) === 0) {
+      const lastError = library.symbols.GetLastError();
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `${label} retained streaming read failed (Win32 ${lastError}).`);
+    }
+    return received.readUInt32LE(0);
+  }, before.size, label);
+  const after = windowsRetainedFileSnapshotV1(handle, label);
+  const afterIdentity = windowsRetainedLeafIdentity(handle, absolutePath, 'file', label);
+  if (after.basic !== before.basic || after.size !== before.size ||
+      afterIdentity.device !== identity.device || afterIdentity.inode !== identity.inode) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} changed during retained streaming inventory.`);
+  }
+  return result;
+}
+
 function readWindowsRetainedFile(handle: bigint, label: string): Uint8Array {
   const library = requireWindowsKernel32();
   const chunks: Buffer[] = [];
@@ -856,6 +1057,26 @@ function readLinuxRetainedFile(fd: number, label: string): Uint8Array {
     chunks.push(chunk.subarray(0, count));
   }
   return Buffer.concat(chunks, total);
+}
+
+function digestRetainedOrdinaryFileFdV1(
+  fd: number,
+  expected: Readonly<{ device: string; inode: string }>,
+  label: string
+): Readonly<{ size: number; contentDigest: `sha256:${string}` }> {
+  const before = fstatSync(fd, { bigint: true });
+  if (!before.isFile() || String(before.dev) !== expected.device || String(before.ino) !== expected.inode) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} identity changed before retained streaming inventory.`);
+  }
+  const result = streamCanonicalHexContentDigestV1(
+    (chunk) => readSync(fd, chunk, 0, chunk.byteLength, null), before.size, label
+  );
+  const after = fstatSync(fd, { bigint: true });
+  if (!after.isFile() || after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size ||
+      after.mode !== before.mode || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} changed during retained streaming inventory.`);
+  }
+  return result;
 }
 
 function closeWindowsHandle(handle: bigint): void {
@@ -954,11 +1175,12 @@ export function assertSameNoFollowDirectoryIdentityV1(
  * reparse directory.  Reparse descendants are represented as link entries so
  * the owning operation may unlink that exact entry but never traverse it.
  */
-export function scanNoFollowDirectoryTreeV1(
-  root: PhysicalDirectoryIdentityV1
-): readonly NoFollowDirectoryTreeEntryV1[] {
+function scanNoFollowDirectoryTreeInternalV1(
+  root: PhysicalDirectoryIdentityV1,
+  fileMode: NoFollowDirectoryTreeFileModeV1
+): readonly InternalNoFollowDirectoryTreeEntryV1[] {
   const target = assertSameNoFollowDirectoryIdentityV1(root, 'No-follow scan root').target;
-  const entries: NoFollowDirectoryTreeEntryV1[] = [];
+  const entries: InternalNoFollowDirectoryTreeEntryV1[] = [];
   if (process.platform === 'linux') {
     const filesystemRootFd = linuxOpenRoot('No-follow scan root');
     let retainedRootFd = filesystemRootFd;
@@ -987,6 +1209,7 @@ export function scanNoFollowDirectoryTreeV1(
                 throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `Unsupported no-follow directory entry: ${relativePath}.`);
               })();
             let bytes: Uint8Array | null = null;
+            let contentDigest: `sha256:${string}` | null = null;
             if (kind === 'file') {
               const readable = linuxOpenReadableLeafAt(directoryFd, name, 'No-follow scan file');
               try {
@@ -994,7 +1217,14 @@ export function scanNoFollowDirectoryTreeV1(
                 if (readableBefore.dev !== stat.dev || readableBefore.ino !== stat.ino || !readableBefore.isFile()) {
                   throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow scan file changed before retained read.');
                 }
-                bytes = readFileSync(readable);
+                if (fileMode === 'bounded-bytes') {
+                  bytes = readLinuxRetainedFile(readable, 'No-follow scan file');
+                } else {
+                  const streamed = digestRetainedOrdinaryFileFdV1(
+                    readable, { device: String(stat.dev), inode: String(stat.ino) }, 'No-follow scan file'
+                  );
+                  contentDigest = streamed.contentDigest;
+                }
                 const readableAfter = fstatSync(readable, { bigint: true });
                 if (readableAfter.dev !== stat.dev || readableAfter.ino !== stat.ino || !readableAfter.isFile()) {
                   throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', 'No-follow scan file changed during retained read.');
@@ -1003,7 +1233,10 @@ export function scanNoFollowDirectoryTreeV1(
             }
             entries.push(Object.freeze({
               relativePath, kind, device: String(stat.dev), inode: String(stat.ino), size: Number(stat.size),
-              bytes, linkTarget: kind === 'link' ? readlinkSync(`/proc/self/fd/${directoryFd}/${name}`) : null
+              bytes, contentDigest,
+              linkTarget: kind === 'link'
+                ? linuxReadRetainedLinkTargetV1(retained, 'No-follow scan retained link')
+                : null
             }));
             if (kind === 'directory') visitRetained(retained, relativePath);
           } finally { closeSync(retained); }
@@ -1029,7 +1262,9 @@ export function scanNoFollowDirectoryTreeV1(
       const absolute = path.join(directory, name);
       const relativePath = prefix.length === 0 ? name : `${prefix}/${name}`;
       if (process.platform === 'win32') {
-        const scanned = windowsScanRetainedEntry(absolute, 'No-follow scan entry');
+        const scanned = fileMode === 'bounded-bytes'
+          ? Object.freeze({ ...windowsScanRetainedEntry(absolute, 'No-follow scan entry'), contentDigest: null })
+          : Object.freeze({ ...windowsInventoryRetainedEntry(absolute, 'No-follow inventory entry'), bytes: null });
         entries.push(Object.freeze({ ...scanned, relativePath }));
         if (scanned.kind === 'directory') visit(absolute, relativePath);
         continue;
@@ -1038,7 +1273,7 @@ export function scanNoFollowDirectoryTreeV1(
       const size = Number(metadata.size);
       if (metadata.isSymbolicLink()) {
         const identity = { device: String(metadata.dev), inode: String(metadata.ino) };
-        entries.push(Object.freeze({ relativePath, kind: 'link', ...identity, size, bytes: null, linkTarget: readlinkSync(absolute) }));
+        entries.push(Object.freeze({ relativePath, kind: 'link', ...identity, size, bytes: null, contentDigest: null, linkTarget: readlinkSync(absolute) }));
         continue;
       }
       if (metadata.isDirectory()) {
@@ -1047,19 +1282,42 @@ export function scanNoFollowDirectoryTreeV1(
         } catch (error) {
           if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH') {
             const identity = { device: String(metadata.dev), inode: String(metadata.ino) };
-            entries.push(Object.freeze({ relativePath, kind: 'link', ...identity, size, bytes: null, linkTarget: null }));
+            entries.push(Object.freeze({ relativePath, kind: 'link', ...identity, size, bytes: null, contentDigest: null, linkTarget: null }));
             continue;
           }
           throw error;
         }
         const identity = { device: String(metadata.dev), inode: String(metadata.ino) };
-        entries.push(Object.freeze({ relativePath, kind: 'directory', ...identity, size, bytes: null, linkTarget: null }));
+        entries.push(Object.freeze({ relativePath, kind: 'directory', ...identity, size, bytes: null, contentDigest: null, linkTarget: null }));
         visit(absolute, relativePath);
         continue;
       }
       if (metadata.isFile()) {
         const identity = { device: String(metadata.dev), inode: String(metadata.ino) };
-        entries.push(Object.freeze({ relativePath, kind: 'file', ...identity, size, bytes: readFileSync(absolute), linkTarget: null }));
+        const fd = openSync(
+          absolute,
+          fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0)
+        );
+        try {
+          const retained = fstatSync(fd, { bigint: true });
+          if (!retained.isFile() || String(retained.dev) !== identity.device || String(retained.ino) !== identity.inode) {
+            throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `No-follow scan file changed before retained read: ${relativePath}.`);
+          }
+          if (fileMode === 'bounded-bytes') {
+            entries.push(Object.freeze({
+              relativePath, kind: 'file', ...identity, size,
+              bytes: readLinuxRetainedFile(fd, 'No-follow scan file'), contentDigest: null, linkTarget: null
+            }));
+          } else {
+            const streamed = digestRetainedOrdinaryFileFdV1(fd, identity, 'No-follow scan file');
+            entries.push(Object.freeze({
+              relativePath, kind: 'file', ...identity, size: streamed.size,
+              bytes: null, contentDigest: streamed.contentDigest, linkTarget: null
+            }));
+          }
+        } finally {
+          closeSync(fd);
+        }
         continue;
       }
       throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', `Unsupported no-follow directory entry: ${relativePath}.`);
@@ -1068,6 +1326,42 @@ export function scanNoFollowDirectoryTreeV1(
   visit(target.path, '');
   assertSameNoFollowDirectoryIdentityV1(target, 'No-follow scan root');
   return Object.freeze(entries);
+}
+
+/**
+ * Bounded byte reader for canonical control and recovery trees.  Ordinary
+ * files larger than the fixed read limit fail closed.
+ */
+export function scanNoFollowDirectoryTreeV1(
+  root: PhysicalDirectoryIdentityV1
+): readonly NoFollowDirectoryTreeEntryV1[] {
+  return Object.freeze(scanNoFollowDirectoryTreeInternalV1(root, 'bounded-bytes').map((entry) => Object.freeze({
+    relativePath: entry.relativePath,
+    kind: entry.kind,
+    device: entry.device,
+    inode: entry.inode,
+    size: entry.size,
+    bytes: entry.bytes,
+    linkTarget: entry.linkTarget
+  })));
+}
+
+/**
+ * Bounded-memory physical inventory.  File content is streamed in 64-KiB
+ * chunks through the stable canonical digest domain; bytes are never retained.
+ */
+export function scanNoFollowDirectoryTreeInventoryV1(
+  root: PhysicalDirectoryIdentityV1
+): readonly NoFollowDirectoryTreeInventoryEntryV1[] {
+  return Object.freeze(scanNoFollowDirectoryTreeInternalV1(root, 'streaming-digest').map((entry) => Object.freeze({
+    relativePath: entry.relativePath,
+    kind: entry.kind,
+    device: entry.device,
+    inode: entry.inode,
+    size: entry.size,
+    contentDigest: entry.contentDigest,
+    linkTarget: entry.linkTarget
+  })));
 }
 
 /** Creates only validated leaf components beneath an already-proven directory. */

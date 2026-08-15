@@ -7,20 +7,77 @@ last-reviewed: 2026-08-15
 
 # SEC 滚动近期计划
 
-本投影由唯一MainHealth repair renderer绑定exact `main@2d2b92bbeb06effbdf1da850709e4d162898991e`、tree `18c3dffb4a992e0c78348bd8cc2d46099058e539`、health `sha256:53128af8e039fb7b1add22cde6883185b467d590c877c00702c62ca3452cc6c0`与排序failure fingerprints `sha256:3f059d3831af76dc74ca8c7813d9f47b457b753623a7090488dda2b42e54f946`。旧epoch说明、caller prose与普通WorkDecision都不能参与本次repair projection；长期DAG、current spec和普通选择权仍归其canonical owner。
+本文件是validated WorkDecision的只读投影，不是roadmap、registry、current spec或selection authority。
+任何选择变化都从exact main重新观察；Issue/comment prose、AI评分、wall-clock、caller JSON和本文件自身
+均不能成为输入。receipt只能用于replay；effectful consumer必须调用trusted live adapter重新推导。
+
+```json
+{
+  "active": {
+    "currentSpecRef": "github:issue/186",
+    "currentSpecRevision": "sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a",
+    "decisionStatus": "selected",
+    "packageId": "git-worktree-physical-closeout-v1",
+    "tracking": "issue-186",
+    "workId": "issue-186"
+  },
+  "candidates": [
+    {
+      "currentSpecRef": "github:issue/346",
+      "currentSpecRevision": "sha256:b1b350a7bc0a9cc741fee5d8688580a419ad737c028a383e33153844fee5e729",
+      "decisionStatus": "eligible",
+      "packageId": "operation-read-plan-authority-canary-v1",
+      "tracking": "issue-346",
+      "workId": "issue-346"
+    },
+    {
+      "currentSpecRef": "github:issue/275",
+      "currentSpecRevision": "sha256:b8fc75c138ab7541f5a29736e6abf275f191bce6bb5df26fc1182e8e438b88a4",
+      "decisionStatus": "rejected",
+      "packageId": "delegation-consumer-zero-retirement-v1",
+      "tracking": "issue-275",
+      "workId": "issue-275"
+    },
+    {
+      "currentSpecRef": "github:issue/321",
+      "currentSpecRevision": "sha256:0cce9c5ae5ceb15227d7b89633d8a99b83a94a5dd235a0b8a041536ce4fef332",
+      "decisionStatus": "rejected",
+      "packageId": "candidate-control-transaction-v1",
+      "tracking": "issue-321",
+      "workId": "issue-321-candidate-control"
+    },
+    {
+      "currentSpecRef": "github:issue/312",
+      "currentSpecRevision": "sha256:5ddcc63bf3a8b1b13239b99a00a4e13fd933e54fa1e3c0f976ebe443721e9335",
+      "decisionStatus": "rejected",
+      "packageId": "typescript-7-checker-acceleration-v1",
+      "tracking": "issue-312",
+      "workId": "issue-312"
+    }
+  ],
+  "catalogDigest": "sha256:66e1ae49a02cbec9c9e98446ba1617356f5692503d1ad4e19a5fee05201e5ab1",
+  "decisionDigest": "sha256:399e09c9f1533d975828c552d3bf868e61d8771e38faf7bd4ff3a1e573dec1b2",
+  "exactMain": "7692630133526cbe67659bb4da8673f225ccf5f2",
+  "projectionDigest": "sha256:6cb58b7bd07a2c6b45ebaad5db223e2ab69de1a11aaf3fc566372f96834809d8",
+  "receiptDigest": "sha256:a7a0ea9b0b50b1013332700e3a65a18d7f14a0603b79ee19f0660da861bf97b4",
+  "roadmapRevision": "sha256:d6fdab676cbb8ec7b2b61c1a60d62b0f59fc6c75f79b65ec72b9d823793c54e8",
+  "schema": "sec-work-rolling-projection-v1"
+}
+```
 
 ## 当前唯一 Work Package
 
-### default-branch-health-repair-2d2b92bbeb06effbdf1da850709e4d162898991e-ebcd146113d7f77482d452058181bbded2f25f3c592a64cc64d0fb9c7cc776c9
+### git-worktree-physical-closeout-v1
 
-Exact degraded-main repair for `main@2d2b92bbeb06effbdf1da850709e4d162898991e` and health `sha256:53128af8e039fb7b1add22cde6883185b467d590c877c00702c62ca3452cc6c0`. This temporary projection has no ordinary work-selection authority.
+Work identity `issue-186`; current spec `github:issue/186` at
+`sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a`; decision `sha256:399e09c9f1533d975828c552d3bf868e61d8771e38faf7bd4ff3a1e573dec1b2`.
 
 ## 候选 Work Package
 
-### 1. git-worktree-physical-closeout-v1
+### 1. operation-read-plan-authority-canary-v1
 
-Work identity `issue-186`; current spec `github:issue/186` at
-`sha256:6901ae5183daa5f90511abc9e3aafd9799ce4be5cd36d94efcb3bd5ac2b8283a`; current decision status `rejected`.
+Work identity `issue-346`; current spec `github:issue/346` at
+`sha256:b1b350a7bc0a9cc741fee5d8688580a419ad737c028a383e33153844fee5e729`; current decision status `eligible`.
 
 ### 2. delegation-consumer-zero-retirement-v1
 

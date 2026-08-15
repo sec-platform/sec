@@ -65,11 +65,22 @@ function transitionCatalog(): CatalogObservationV1 {
       humanDecisionRef: null
     },
     {
+      packageId: 'generated-ignored-state-lifecycle-v1',
+      workId: 'issue-271', tracking: 'issue-271', currentSpecRef: 'github:issue/271',
+      ownerRef: 'github:issue/271', kind: 'program', disposition: 'active',
+      priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:generated-state-settlement'],
+      prerequisiteWorkIds: [], orderedAfterWorkIds: ['issue-352'],
+      reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
+      rootCauseRef: 'github:issue/271', scopeClosure: 'closed',
+      exitCriteriaRef: 'github:issue/271#completion', nearTermConsumerRef: 'github:issue/186',
+      humanDecisionRef: null
+    },
+    {
       packageId: 'git-worktree-physical-closeout-v1',
       workId: 'issue-186', tracking: 'issue-186', currentSpecRef: 'github:issue/186',
       ownerRef: 'github:issue/186', kind: 'program', disposition: 'active',
       priorityClass: 'active-critical-path', priorityEvidenceRefs: ['fixture:worktree-closeout'],
-      prerequisiteWorkIds: ['issue-352'], orderedAfterWorkIds: [],
+      prerequisiteWorkIds: ['issue-352', 'issue-271'], orderedAfterWorkIds: [],
       reproductionOrEvidenceFreshness: 'fresh', rootCauseState: 'repeat-root-cause',
       rootCauseRef: 'github:issue/186', scopeClosure: 'closed',
       exitCriteriaRef: 'github:issue/186#completion', nearTermConsumerRef: null,
@@ -280,6 +291,10 @@ describe('work-selection live contract', () => {
         {
           ref: 'work-package:controlled-pr-issue-disposition-single-writer-v1',
           status: 'unsatisfied'
+        },
+        {
+          ref: 'work-package:generated-ignored-state-lifecycle-v1',
+          status: 'unsatisfied'
         }
       ]
     });
@@ -293,28 +308,41 @@ describe('work-selection live contract', () => {
     expect(projection.candidates.map(({ packageId }) => packageId)).not.toContain('execution-wave-v1');
   });
 
-  test('published #352 manifest is consumed once and advances selection to #186', () => {
+  test('published #352 manifest advances to generated-state settlement before final #186 closeout', () => {
     const observation = transitionCatalog();
-    const { catalog } = observation;
     const result = receiptForCatalog(observation, ['issue-346', 'issue-352']);
     expect(result.decision.status).toBe('select-next');
-    expect(result.decision.selectedWorkId).toBe('issue-186');
+    expect(result.decision.selectedWorkId).toBe('issue-271');
     expect(result.input.candidates.find(({ workId }) => workId === 'issue-352'))
       .toMatchObject({ lifecycle: 'already-in-main', blockedReadySuccessorCount: 0 });
+    expect(result.input.candidates.find(({ workId }) => workId === 'issue-271'))
+      .toMatchObject({ readiness: 'ready', blockedReadySuccessorCount: 1 });
     expect(result.input.candidates.find(({ workId }) => workId === 'issue-186'))
-      .toMatchObject({ blockedReadySuccessorCount: 1 });
+      .toMatchObject({ readiness: 'not-ready', blockedReadySuccessorCount: 1 });
     const projection = compileSecWorkRollingProjectionV1(result);
-    expect(projection.active.packageId).toBe('git-worktree-physical-closeout-v1');
+    expect(projection.active.packageId).toBe('generated-ignored-state-lifecycle-v1');
     expect(projection.candidates.map(({ packageId }) => packageId)).not.toContain(
       'operation-read-plan-authority-canary-v1'
     );
     expect(projection.candidates.map(({ packageId }) => packageId)).not.toContain(
       'execution-wave-v1'
     );
-    expect(projection.candidates.map(({ packageId }) => packageId)).toEqual([
-      'delegation-consumer-zero-retirement-v1',
-      'candidate-control-transaction-v1'
-    ]);
+    expect(projection.candidates.map(({ packageId }) => packageId)).toContain(
+      'git-worktree-physical-closeout-v1'
+    );
+  });
+
+  test('generated-state settlement completion makes final #186 closeout ready', () => {
+    const observation = transitionCatalog();
+    const result = receiptForCatalog(observation, ['issue-346', 'issue-352', 'issue-271']);
+    expect(result.decision.status).toBe('select-next');
+    expect(result.decision.selectedWorkId).toBe('issue-186');
+    expect(result.input.candidates.find(({ workId }) => workId === 'issue-271'))
+      .toMatchObject({ lifecycle: 'already-in-main' });
+    expect(result.input.candidates.find(({ workId }) => workId === 'issue-186'))
+      .toMatchObject({ readiness: 'ready', blockedReadySuccessorCount: 1 });
+    const projection = compileSecWorkRollingProjectionV1(result);
+    expect(projection.active.packageId).toBe('git-worktree-physical-closeout-v1');
   });
 
   test('rolling topology remains canonical when the selected draft PR becomes continue-active', () => {
