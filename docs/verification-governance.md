@@ -628,6 +628,41 @@ affected closure，并只把精确旧失败与修复新增影响合并。裸argv
 
 开发循环只运行被当前编辑直接影响的owner-local sentinel；昂贵的Program、物理恢复、Linux或浏览器
 closure必须等candidate source、manifest和生成锁全部冻结后，编译成一个并行frozen union且只执行一次。
+调用方传入的测试workspace namespace只拥有父级containment identity；每次fast执行必须派生唯一、bounded、
+run-owned子namespace，且终态cleanup只能删除该子namespace。重叠、嵌套、恢复或同Gate的其他invocation
+不得复用或删除调用方/兄弟namespace。Gate预建子namespace时必须持有一个live kernel-exclusive supervisor
+generation（Windows Global mutex加命名pipe challenge，或Linux abstract Unix socket challenge），并在任何mkdir
+effect前durable publication完整的nonce、派生名、issuer、原仓库与execution snapshot绑定、canonical外部projection
+path/device/inode与lease binding；effect成功、
+result未发表时只可adopt该exact intent，issuer轮换则先retire旧generation并在下一次create前发表新intent。
+Gate只向该supervisor的直接runner传递一次性assignment；assignment同时绑定nonce派生名、OS parent process、
+supervisor generation、exact namespace与child device/inode和canonical digest。Gate只能以retained snapshot
+parent创建namespace，并对durable preparation绑定的namespace执行handle-relative exclusive child create；runner
+只能inspect/adopt Gate预建的exact namespace与child，缺失、替换或parent ABA必须在零create、零delete状态失败。
+Linux creator必须把从filesystem root到授权parent的完整physical ancestor chain编译成同一个create transaction：
+打开每个下一component前先在当前retained parent建立kernel mutation watch，逐项比对授权device/inode，且全部
+ancestor watches必须一直持有到`mkdirat`、retained child、parent fsync及最终relative same-inode readback结束。
+首个effect前与授权edge相关的event projection必须为空，之后只接受当前parent上exact name的一次
+directory-create事件；无关sibling event不扩大也不撤销authority。任一层
+ancestor或parent的move/delete/recreate、child replacement、watch invalidation
+或queue overflow都不得把replacement签入preparation/assignment。Windows以root-relative create返回的handle作为
+同一effect witness；两种backend都必须把witness异常保留为可恢复residue而不是采用后验pathname identity。
+runner必须先从自身execution snapshot位置反推唯一
+原仓库projection，再向该generation持有的canonical kernel endpoint消费一次challenge，之后才可执行首个workspace
+effect；Gate必须在接受child outcome或持久化successful child evidence前，从同一process-local challenge server
+一次性读回该exact assignment已消费，exit 0不能替代consumption receipt。assignment由runner进程内claim一次并在
+全部managed child环境显式清空。固定公开环境字符串、self-digest
+JSON、caller-selected projection root、另一个进程自己的Set或nested process新建的兄弟目录都不是
+跨进程authority。终态cleanup只消费同进程opaque token与一次冻结、bounded、metadata-only的no-follow物理
+inventory，不得读取ordinary-file内容；entry/deadline exhaustion必须fail closed。Windows/Linux通过retained
+parent/leaf identity删除exact child；普通Darwin authoring只能使用identity-checked scoped rename/remove，
+caller-assigned trusted Gate在没有Darwin retained backend与owning-host Evidence时必须在首个mkdir前typed
+unavailable。Windows与Linux的preparation及mkdir-effect/result窗口必须由父进程真实hard-kill持有kernel
+supervisor的进程，再由fresh supervisor验证stale projection、exact child与foreign sibling的收敛；正常finally、
+人工stale JSON或synthetic throw不能替代该Evidence。scan后
+出现的replacement或foreign sibling必须保留并fail closed，禁止把已检查路径、caller-selected root或recursive
+rm升级为删除authority。lease获取失败必须投影为path-free的固定phase与system code，禁止用
+空details丢失故障阶段，也禁止把宿主路径或原始异常文本写入receipt。
 测试夹具中的production logger必须被捕获并断言，未断言的mock日志不得写入用户终端或伪装成真实
 execution。frozen union之后若发生finding修复，只失效failure invocation与该修复delta新增的impact边；
 不得因命令组织、生成物更新或报告格式变化重新执行输入闭包未变的PASS。
@@ -807,6 +842,9 @@ marker；dependency bootstrap在该marker下即使首次物化依赖也不得递
 - Pure property优先覆盖identity/revision/normalization/serialization、Fact/Binding Delta、Impact、Requirement/Candidate/Decision/Binding、Compatibility rule、state machine、fixed-point、deterministic ordering、tie-break和clean/incremental parity；
 - Property失败要shrink并保存最小反例、seed、producer revision和replay入口；
 - Physical fault遍历prepare/write/fsync/publication/terminal/cleanup/recovery等持久化边界；
+- retained或path-sensitive effect必须先冻结从authority root到effect leaf的完整identity、liveness、effect和readback chain，
+  再一次性枚举watch建立前、每个component打开边界、effect前后及terminal readback的替换窗口；同一根因不得按
+  Reviewer逐次发现的单个leaf/parent/ancestor窗口局部结案，fault corpus必须证明整条chain而不是当前反例；
 - Windows、Linux、macOS、WSL和不同filesystem capability的Evidence不互相替代；
 - Retry只收集flake Evidence；多次中一次绿不能改写失败；
 - Quarantine必须有owner、expiry、替代coverage和退出条件；
@@ -876,6 +914,15 @@ Integration effect owner是provider创建的exact repository/workflow/run/attemp
 只有当前invocation新建并精确读回marker时可以发布authorization receipt并尝试merge；PR仍OPEN时，
 任何existing、expired、reused、ambiguous或conflicting marker都永久BLOCK第二次effect。issue
 comment只是带exact non-null App/source-run provenance的receipt/readback，不能提供唯一性CAS。
+完整comment inventory的actor解析与publisher authority必须分层：观察层接受GitHub普通login及`Bot`类型的
+`<app-slug>[bot]` provider语法，使无关App评论不会阻断inventory；授权层仍须重验冻结的bot login/id/node、
+App id/node/slug、workflow与run provenance。扩大可观察语法不得扩大任何comment的effect authority。
+机器评论producer必须逐字段投影closed schema，禁止把含额外caller字段的对象spread进serialized ledger；
+同一production observation consumer必须用完整publication identity执行producer→publish→parse→reuse round-trip，
+并拒绝repository或任何exact key漂移，不能只测试构造器或依赖TypeScript excess-property检查。
+closed payload新增authority字段必须发布新schema与marker，禁止原地改形。旧Review-request V1只允许由严格
+legacy parser识别已知历史字节并作为只读stale observation跳过，V1 request digest不得参与V2复用或授权；
+V2绑定repository且拒绝extra key，consumer-zero与retirement前不得删除legacy observation边界。
 remote marker成功后到physical merge前不得访问本地journal/cache；public GitHub adapter也只能
 暴露typed observe/ensure transaction，raw comment/review-request/dispatch/merge ports保持私有。
 

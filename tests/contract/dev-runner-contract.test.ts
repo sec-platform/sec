@@ -1457,7 +1457,13 @@ describe('dev-runner contract', () => {
     const concurrencyProjectionSource = await readCompilerFile(
       'platform/dev-runner/test-concurrency-policy.ts'
     );
+    const devRunnerSource = await readCompilerFile('platform/dev-runner.ts');
+    const envManagerSource = await readCompilerFile('platform/dev-runner/env-manager.ts');
     const testRunnerSource = await readCompilerFile('platform/dev-runner/test-runner.ts');
+    const workPackageGateSource = await readCompilerFile('scripts/run-work-package-gate.ts');
+    const workPackageGateExecutionTestSource = await readCompilerFile(
+      'tests/unit/work-package-gate-execution.test.ts'
+    );
 
     expectContainsAll(commandRunnerSource, [
       'child = spawn(command, effectiveArgs',
@@ -1509,6 +1515,131 @@ describe('dev-runner contract', () => {
       'if (!hasPrimaryFailure && exitCode === 0) exitCode = 1',
       'if (hasPrimaryFailure) throw primaryFailure'
     ]);
+    expectContainsAll(envManagerSource, [
+      "export const TEST_WORKSPACE_RUN_CHILD_ENV = 'SEC_TEST_WORKSPACE_RUN_CHILD'",
+      "export const TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV = 'SEC_TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT'",
+      "export const TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_SCHEMA_V1 = 'sec-test-workspace-run-child-assignment-v1'",
+      "export const TEST_WORKSPACE_SUPERVISOR_LEASE_SCHEMA_V1 = 'sec-test-workspace-supervisor-lease-v1'",
+      'export function createTestWorkspaceSupervisorLeaseV1(',
+      'export function testWorkspaceSupervisorLeasePathV1(',
+      'export function testWorkspaceGateSnapshotBindingV1(',
+      'export function bindTestWorkspaceSupervisorLeaseV1(',
+      'const supervisorLease = bindTestWorkspaceSupervisorLeaseV1(',
+      'export async function acquireTestWorkspaceSupervisorChallengeServerV1(',
+      'export async function consumeTestWorkspaceSupervisorChallengeV1(',
+      "domain: 'sec-test-workspace-supervisor-challenge-endpoint-v1'",
+      'state.authorizedDigest !== challenge.challengeDigest || state.consumedDigest !== null || state.closed',
+      'state.authorizedDigest = null',
+      'state.consumedDigest = challenge.challengeDigest',
+      'assertConsumed: (assignment: TestWorkspaceRunChildAssignmentV1)',
+      'state.consumedDigest !== challenge.challengeDigest',
+      'state.consumptionAsserted = true',
+      'canonicalFilesystemPath(leasePath) !== canonicalFilesystemPath(snapshot.supervisorLeasePath)',
+      'export function createTestWorkspaceRunChildAssignmentV1(',
+      'export function parseTestWorkspaceRunChildAssignmentV1(',
+      'candidate.issuerProcessId !== process.ppid',
+      'candidate.issuerProcessId !== supervisorLease.record.issuerProcessId',
+      'candidate.supervisorLeaseDigest !== supervisorLease.record.leaseDigest',
+      'candidate.supervisorLeasePath !== supervisorLease.path',
+      'candidate.supervisorLeaseDevice !== supervisorLease.device',
+      'candidate.supervisorLeaseInode !== supervisorLease.inode',
+      "typeof candidate.namespaceDevice !== 'string'",
+      "typeof candidate.namespaceInode !== 'string'",
+      'inspectNoFollowOrdinaryFileEntryV1(parent, path.basename(resolvedLeasePath))',
+      "domain: 'sec-test-workspace-run-child-assignment-name-v1'",
+      'candidate.assignmentDigest !== rawSha256(JSON.stringify(draft))',
+      "if (!/^fast-[0-9a-f]{64}$/u.test(runChild))",
+      'export function deriveTestWorkspaceRunNamespaceV1(',
+      'parentNamespace: parentNamespace ?? null',
+      "return `fast-${digest}`",
+      'if (runChild && !namespace)',
+      'path.join(root, namespace, runChild)',
+      'const preparedTestWorkspaceRuns = new WeakMap<',
+      'export function testWorkspaceCleanupModeForPlatformV1(',
+      "if (platform === 'darwin' && !callerAssigned) return 'darwin-ordinary'",
+      'export function prepareTestWorkspaceRunV1(',
+      'if (expectedAssignment === null) mkdirSync(parentPath, { recursive: true })',
+      'inspectNoFollowDirectoryChildV1(',
+      'export function settlePreparedTestWorkspaceRunV1(',
+      'scanNoFollowDirectoryTreeMetadataV1(state.target, {',
+      'deadlineAtMs: performance.now() + TEST_WORKSPACE_CLEANUP_SCAN_BUDGET_MS',
+      'deleteRetainedNoFollowEntryV1({'
+    ]);
+    expectContainsNone(envManagerSource, [
+      'SEC_TEST_WORKSPACE_RUN_CHILD_AUTHORITY',
+      "'work-package-gate-v1'",
+      'cleanTestWorkspaces',
+      'cleanStaleTestWorkspaces',
+      'STALE_DIR_THRESHOLD',
+      'STALE_MTIME_MS',
+      'CLEANUP_TTL_MS',
+      '.last-cleanup',
+      '.cleanup-lock',
+      'scanNoFollowDirectoryTreeInventoryV1(state.target)'
+    ]);
+    expectContainsAll(testRunnerSource, [
+      'const fastTestProcessNonce = randomUUID()',
+      'deriveTestWorkspaceRunNamespaceV1({',
+      'parentNamespace,',
+      'processNonce: fastTestProcessNonce',
+      'parseTestWorkspaceRunChildAssignmentV1(',
+      'await consumeTestWorkspaceSupervisorChallengeV1(callerAssignment)',
+      'let callerAssignmentClaimed = false',
+      'if (callerAssignmentClaimed) throw new Error(',
+      '[TEST_WORKSPACE_NAMESPACE_ENV]: parentNamespace ?? runChild',
+      '[TEST_WORKSPACE_RUN_CHILD_ENV]: parentNamespace === undefined ? undefined : runChild',
+      '[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]: undefined',
+      'cleanup: prepareTestWorkspaceRunV1(env, callerAssignment)',
+      'settlePreparedTestWorkspaceRunV1(workspace.cleanup)'
+    ]);
+    expectContainsAll(workPackageGateSource, [
+      'createTestWorkspaceRunChildAssignmentV1({',
+      'createTestWorkspaceSupervisorLeaseV1({',
+      'acquireTestWorkspaceSupervisorChallengeServerV1({',
+      'namespaceLease.authorizeRunChild(runChildAssignment)',
+      'namespaceLease.assertRunChildChallengeConsumed(runChildAssignment)',
+      'executionSnapshotRoot,',
+      'TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV',
+      'readonly runChildPreparation: WorkPackageGateRunChildPreparationV1 | null',
+      'runChildPreparation: finalizeRunChildPreparation(',
+      'supervisorLeasePath: preparation.supervisorLeasePath',
+      'supervisorLeaseDevice: preparation.supervisorLeaseDevice',
+      'supervisorLeaseInode: preparation.supervisorLeaseInode',
+      'namespaceDevice: runChild.namespaceDevice',
+      'namespaceInode: runChild.namespaceInode',
+      'prepareRunChildNamespace(',
+      'createExclusiveNoFollowDirectoryV1(retainedNamespace, name)',
+      'prepareRunChild(',
+      'retireUnconsumedRunChild(',
+      'assertRunChild(namespaceRoot, checkpoint.runChild)',
+      '[TEST_WORKSPACE_RUN_CHILD_ENV]: runChild.name',
+      '[TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]: JSON.stringify(runChildAssignment)',
+      'scanNamespaceStructure(namespaceRoot, deadlineAtMs, runChild)',
+      'assertWorkspaceWithinRunChild(namespaceRoot, workspaceRoot, runChild)',
+      'scanNoFollowDirectoryTreeMetadataV1(namespaceIdentity, {',
+      'deleteRetainedNoFollowEntryV1({'
+    ]);
+    expectContainsAll(workPackageGateExecutionTestSource, [
+      "test('hard-death fixture process'",
+      "test('real supervisor hard death recovers both preparation and mkdir effect/result windows'",
+      'await consumeTestWorkspaceSupervisorChallengeV1(assignment)',
+      'const cleanup = prepareTestWorkspaceRunV1(process.env, assignment)',
+      "spawnSync('taskkill', ['/PID', String(pid), '/T', '/F']",
+      "process.kill(pid, 'SIGKILL')"
+    ]);
+    expectContainsNone(workPackageGateSource, [
+      'SEC_TEST_WORKSPACE_RUN_CHILD_AUTHORITY',
+      "'work-package-gate-v1'",
+      'runChildPreparationAttempted',
+      'scanNoFollowDirectoryTreeInventoryV1(namespaceIdentity)',
+      'rm(namespaceRoot, { recursive: true',
+      'rmdir(namespaceRoot)'
+    ]);
+    expectContainsNone(devRunnerSource, ['clean-test-workspaces', 'cleanTestWorkspaces']);
+    expect(testRunnerSource).not.toContain('[TEST_WORKSPACE_NAMESPACE_ENV]: configured ??');
+    expect(testRunnerSource).not.toContain('cleanStaleTestWorkspaces');
+    expect(envManagerSource.indexOf("if (cleanupMode === 'unavailable')"))
+      .toBeLessThan(envManagerSource.indexOf('mkdirSync(parentPath, { recursive: true })'));
     expectContainsAll(fastTestPolicySource, [
       "file: 'tests/contract/dev-runner-contract.test.ts'",
       "reason: 'finite-program-proof-and-process-contract'",
@@ -1732,10 +1863,18 @@ describe('dev-runner contract', () => {
     expectContainsAll(setupSource, [
       "process.env.SEC_SKIP_RUNTIME_DEPS_SETUP !== '1'",
       'ensureTestDependencies',
-      'process.env.PLAYWRIGHT_BROWSERS_PATH = dependencies.browserCachePath',
-      'await fs.rm(lockPath, { recursive: true, force: true });'
+      'process.env.PLAYWRIGHT_BROWSERS_PATH = dependencies.browserCachePath'
     ]);
-    expectContainsNone(setupSource, ['ensureDevDependencies', 'ensurePlaywrightBrowserCacheReady']);
+    expectContainsNone(setupSource, [
+      'ensureDevDependencies',
+      'ensurePlaywrightBrowserCacheReady',
+      'cleanStaleWorkspaces',
+      'STALE_DIR_THRESHOLD',
+      'STALE_MTIME_MS',
+      'CLEANUP_TTL_MS',
+      '.last-cleanup',
+      '.cleanup-lock'
+    ]);
     expectContainsAll(runtimeVerificationSource, ['materializePlaywrightBrowserCache']);
     expectContainsNone(runtimeVerificationSource, [
       "path.join(projectRoot, 'node_modules', 'playwright', 'cli.js')",

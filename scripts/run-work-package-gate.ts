@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   copyFile,
   lstat,
@@ -25,12 +25,41 @@ import {
   assertSemanticMutationTransactionRoot,
   semanticMutationWorkspaceRootFromTransactionRoot
 } from '../platform/compiler/semantic-mutation/transaction-identity.ts';
+import {
+  TEST_WORKSPACE_NAMESPACE_ENV,
+  TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV,
+  TEST_WORKSPACE_RUN_CHILD_ENV,
+  acquireTestWorkspaceSupervisorChallengeServerV1,
+  bindTestWorkspaceSupervisorLeaseIssuerProjectionV1,
+  createTestWorkspaceRunChildAssignmentV1,
+  createTestWorkspaceSupervisorLeaseV1,
+  deriveAssignedTestWorkspaceRunChildV1,
+  testWorkspaceSupervisorLeasePathV1,
+  type TestWorkspaceRunChildAssignmentV1,
+  type TestWorkspaceSupervisorChallengeServerV1,
+  type TestWorkspaceSupervisorLeaseBindingV1,
+  type TestWorkspaceSupervisorLeaseV1
+} from '../platform/dev-runner/env-manager.ts';
 import { CodexDevelopmentVerificationDigest } from '../platform/shared/ci-evidence-contract.ts';
 import { normalizeNewlines } from '../platform/shared/collections.ts';
 import {
   runObservedCommand,
   type ObservedCommandOutcome
 } from '../platform/shared/observed-process.ts';
+import {
+  createExclusiveNoFollowDirectoryV1,
+  createNoFollowDirectoryChainV1,
+  deleteRetainedNoFollowEntryV1,
+  inspectExactNoFollowDirectoryPresenceV1,
+  inspectNoFollowDirectoryChainV1,
+  inspectNoFollowDirectoryChildV1,
+  inspectNoFollowOrdinaryFileEntryV1,
+  publishExclusiveDurableCanonicalFileV1,
+  scanNoFollowDirectoryTreeMetadataV1,
+  type NoFollowDirectoryTreeEntryV1,
+  type NoFollowDirectoryTreeInventoryEntryV1,
+  type PhysicalDirectoryIdentityV1
+} from '../platform/shared/physical-no-follow.ts';
 import { recoverWindowsAppContainerOwnedTransaction } from '../platform/shared/windows-appcontainer-executor.ts';
 import {
   WORKSPACE_WRITE_LEASE_DIRECTORY_NAME,
@@ -88,6 +117,8 @@ const PROVISIONAL_OWNER_FORMAT_VERSION = 'windows-appcontainer-provisional-owner
 const STAGING_DIRECTORY_NAME = 'workspace';
 const RUNTIME_RELATIVE_PATH = '.sm3r';
 const HOST_BUN_CONFIG_RELATIVE_PATH = '.sm3h';
+const RUN_CHILD_IDENTITY_SCHEMA_V1 = 'work-package-gate-run-child-identity-v1';
+const RUN_CHILD_PREPARATION_SCHEMA_V1 = 'work-package-gate-run-child-preparation-v1';
 const TERMINAL_ORDER_DIRECTORY = 'terminal-order';
 const TERMINAL_SEQUENCE_HEAD_FILE = '.sequence-head.json';
 const R2_EXECUTION_SNAPSHOT_HEAD_SHA = 'f29ecb73ac64aaae23b7989688c4a3ca79593d43';
@@ -141,6 +172,34 @@ export interface WorkPackageGateOptions {
   readonly runDir: string;
 }
 
+export interface WorkPackageGateRunChildIdentityV1 {
+  readonly schema: typeof RUN_CHILD_IDENTITY_SCHEMA_V1;
+  readonly name: string;
+  readonly nonceDigest: `sha256:${string}`;
+  readonly issuerProcessId: number;
+  readonly supervisorLeaseDigest: `sha256:${string}`;
+  readonly namespaceDevice: string;
+  readonly namespaceInode: string;
+  readonly dev: string;
+  readonly ino: string;
+  readonly identityDigest: `sha256:${string}`;
+}
+
+interface WorkPackageGateRunChildPreparationV1 {
+  readonly schema: typeof RUN_CHILD_PREPARATION_SCHEMA_V1;
+  readonly name: string;
+  readonly nonce: string;
+  readonly nonceDigest: `sha256:${string}`;
+  readonly issuerProcessId: number;
+  readonly supervisorLeaseDigest: `sha256:${string}`;
+  readonly supervisorLeasePath: string;
+  readonly supervisorLeaseDevice: string;
+  readonly supervisorLeaseInode: string;
+  readonly namespaceDevice: string;
+  readonly namespaceInode: string;
+  readonly preparationDigest: `sha256:${string}`;
+}
+
 export interface WorkPackageGateDependencies {
   readonly readText: (filePath: string) => Promise<string>;
   readonly readBytes: (filePath: string) => Promise<Uint8Array>;
@@ -166,20 +225,49 @@ export interface WorkPackageGateDependencies {
   readonly census: (
     namespaceRoot: string,
     deadlineAtMs?: number,
-    probeAcl?: boolean
+    probeAcl?: boolean,
+    runChild?: WorkPackageGateRunChildIdentityV1 | null
   ) => Promise<WorkPackageGateResidueCensusV4>;
   readonly sideEffectCensus: (
     stage: 'child' | 'recovery' | 'namespace-removal' | 'snapshot-removal',
     namespaceRoot: string,
     deadlineAtMs?: number,
-    probeAcl?: boolean
+    probeAcl?: boolean,
+    runChild?: WorkPackageGateRunChildIdentityV1 | null
   ) => Promise<WorkPackageGateResidueCensusV4>;
   readonly recoverOwnedNamespace: (
     namespaceRoot: string,
     deadlineAtMs: number,
-    authorization: WorkPackageGateIdentitySetEvidenceV1
+    authorization: WorkPackageGateIdentitySetEvidenceV1,
+    runChild: WorkPackageGateRunChildIdentityV1
   ) => Promise<'not-needed' | 'completed' | 'failed'>;
-  readonly removeNamespace: (namespaceRoot: string, deadlineAtMs: number) => Promise<boolean>;
+  readonly prepareRunChildNamespace: (
+    snapshotRoot: string,
+    namespace: string
+  ) => Promise<PhysicalDirectoryIdentityV1>;
+  readonly prepareRunChild: (
+    namespaceRoot: string,
+    name: string,
+    nonceDigest: `sha256:${string}`,
+    issuerProcessId: number,
+    supervisorLeaseDigest: `sha256:${string}`,
+    namespaceDevice: string,
+    namespaceInode: string,
+    adoptAfterDurableAttempt: boolean
+  ) => Promise<WorkPackageGateRunChildIdentityV1>;
+  readonly assertRunChild: (
+    namespaceRoot: string,
+    runChild: WorkPackageGateRunChildIdentityV1
+  ) => Promise<void>;
+  readonly retireUnconsumedRunChild: (
+    namespaceRoot: string,
+    runChild: WorkPackageGateRunChildIdentityV1
+  ) => Promise<void>;
+  readonly removeNamespace: (
+    namespaceRoot: string,
+    deadlineAtMs: number,
+    runChild: WorkPackageGateRunChildIdentityV1
+  ) => Promise<boolean>;
   readonly prepareExecutionSnapshot: (
     repoRoot: string,
     snapshotRoot: string,
@@ -196,6 +284,8 @@ export interface WorkPackageGateDependencies {
 
 export type WorkPackageGateCrashStageV4 =
   | 'snapshot-preparation-attempted'
+  | 'run-child-preparation-attempted'
+  | 'run-child-prepared'
   | 'child-attempted'
   | 'recovery-attempted'
   | 'namespace-removal-attempted'
@@ -1157,6 +1247,327 @@ function rawJsonSha256(value: unknown): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex')}`;
 }
 
+function workPackageGateRunChildName(
+  parentNamespace: string,
+  nonceDigest: `sha256:${string}`,
+  issuerProcessId: number,
+  supervisorLeaseDigest: `sha256:${string}`
+): string {
+  return deriveAssignedTestWorkspaceRunChildV1({
+    parentNamespace,
+    nonceDigest,
+    issuerProcessId,
+    supervisorLeaseDigest
+  });
+}
+
+function finalizeRunChildPreparation(
+  parentNamespace: string,
+  supervisorLease: TestWorkspaceSupervisorLeaseBindingV1,
+  namespaceIdentity: PhysicalDirectoryIdentityV1,
+  nonce = randomBytes(32).toString('hex')
+): WorkPackageGateRunChildPreparationV1 {
+  if (!/^[0-9a-f]{64}$/u.test(nonce) || supervisorLease.record.namespace !== parentNamespace ||
+    supervisorLease.record.issuerProcessId !== process.pid) {
+    throw new Error('Work Package gate run child preparation issuer is invalid');
+  }
+  const nonceDigest = sha256Text(nonce);
+  const draft = Object.freeze({
+    schema: RUN_CHILD_PREPARATION_SCHEMA_V1,
+    name: workPackageGateRunChildName(
+      parentNamespace,
+      nonceDigest,
+      supervisorLease.record.issuerProcessId,
+      supervisorLease.record.leaseDigest
+    ),
+    nonce,
+    nonceDigest,
+    issuerProcessId: supervisorLease.record.issuerProcessId,
+    supervisorLeaseDigest: supervisorLease.record.leaseDigest,
+    supervisorLeasePath: supervisorLease.path,
+    supervisorLeaseDevice: supervisorLease.device,
+    supervisorLeaseInode: supervisorLease.inode,
+    namespaceDevice: namespaceIdentity.device,
+    namespaceInode: namespaceIdentity.inode
+  });
+  return Object.freeze({ ...draft, preparationDigest: rawJsonSha256(draft) });
+}
+
+function assertRunChildPreparationShape(
+  value: unknown,
+  expectedParentNamespace: string
+): asserts value is WorkPackageGateRunChildPreparationV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !exactObjectKeys(value, [
+    'schema', 'name', 'nonce', 'nonceDigest', 'issuerProcessId', 'supervisorLeaseDigest',
+    'supervisorLeasePath', 'supervisorLeaseDevice', 'supervisorLeaseInode',
+    'namespaceDevice', 'namespaceInode', 'preparationDigest'
+  ])) throw new Error('Work Package gate run child preparation shape is invalid');
+  const record = value as Record<string, unknown>;
+  const draft = {
+    schema: record.schema,
+    name: record.name,
+    nonce: record.nonce,
+    nonceDigest: record.nonceDigest,
+    issuerProcessId: record.issuerProcessId,
+    supervisorLeaseDigest: record.supervisorLeaseDigest,
+    supervisorLeasePath: record.supervisorLeasePath,
+    supervisorLeaseDevice: record.supervisorLeaseDevice,
+    supervisorLeaseInode: record.supervisorLeaseInode,
+    namespaceDevice: record.namespaceDevice,
+    namespaceInode: record.namespaceInode
+  };
+  if (record.schema !== RUN_CHILD_PREPARATION_SCHEMA_V1 ||
+    !/^[0-9a-f]{64}$/u.test(String(record.nonce)) ||
+    record.nonceDigest !== sha256Text(String(record.nonce)) ||
+    !Number.isSafeInteger(record.issuerProcessId) || Number(record.issuerProcessId) < 1 ||
+    !/^sha256:[0-9a-f]{64}$/u.test(String(record.supervisorLeaseDigest)) ||
+    typeof record.supervisorLeasePath !== 'string' || !path.isAbsolute(record.supervisorLeasePath) ||
+    typeof record.supervisorLeaseDevice !== 'string' || record.supervisorLeaseDevice.length === 0 ||
+    typeof record.supervisorLeaseInode !== 'string' || record.supervisorLeaseInode.length === 0 ||
+    typeof record.namespaceDevice !== 'string' || record.namespaceDevice.length === 0 ||
+    typeof record.namespaceInode !== 'string' || record.namespaceInode.length === 0 ||
+    record.name !== workPackageGateRunChildName(
+      expectedParentNamespace,
+      record.nonceDigest as `sha256:${string}`,
+      Number(record.issuerProcessId),
+      record.supervisorLeaseDigest as `sha256:${string}`
+    ) || record.preparationDigest !== rawJsonSha256(draft)) {
+    throw new Error('Work Package gate run child preparation binding is invalid');
+  }
+}
+
+function finalizeRunChildIdentity(
+  name: string,
+  namespaceIdentity: PhysicalDirectoryIdentityV1,
+  identity: PhysicalDirectoryIdentityV1,
+  nonceDigest: `sha256:${string}`,
+  issuerProcessId: number,
+  supervisorLeaseDigest: `sha256:${string}`
+): WorkPackageGateRunChildIdentityV1 {
+  if (!/^fast-[0-9a-f]{64}$/u.test(name) || !/^sha256:[0-9a-f]{64}$/u.test(nonceDigest) ||
+    !/^sha256:[0-9a-f]{64}$/u.test(supervisorLeaseDigest) ||
+    !Number.isSafeInteger(issuerProcessId) || issuerProcessId < 1) {
+    throw new Error('Work Package gate run child identity is invalid');
+  }
+  const draft = Object.freeze({
+    schema: RUN_CHILD_IDENTITY_SCHEMA_V1,
+    name,
+    nonceDigest,
+    issuerProcessId,
+    supervisorLeaseDigest,
+    namespaceDevice: namespaceIdentity.device,
+    namespaceInode: namespaceIdentity.inode,
+    dev: identity.device,
+    ino: identity.inode
+  });
+  return Object.freeze({ ...draft, identityDigest: rawJsonSha256(draft) });
+}
+
+function assertRunChildIdentityShape(
+  value: unknown,
+  expectedParentNamespace?: string
+): asserts value is WorkPackageGateRunChildIdentityV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !exactObjectKeys(value, [
+    'schema', 'name', 'nonceDigest', 'issuerProcessId', 'supervisorLeaseDigest',
+    'namespaceDevice', 'namespaceInode', 'dev', 'ino', 'identityDigest'
+  ])) throw new Error('Work Package gate run child identity shape is invalid');
+  const record = value as Record<string, unknown>;
+  const draft = {
+    schema: record.schema,
+    name: record.name,
+    nonceDigest: record.nonceDigest,
+    issuerProcessId: record.issuerProcessId,
+    supervisorLeaseDigest: record.supervisorLeaseDigest,
+    namespaceDevice: record.namespaceDevice,
+    namespaceInode: record.namespaceInode,
+    dev: record.dev,
+    ino: record.ino
+  };
+  if (record.schema !== RUN_CHILD_IDENTITY_SCHEMA_V1 ||
+    !/^fast-[0-9a-f]{64}$/u.test(String(record.name)) ||
+    !/^sha256:[0-9a-f]{64}$/u.test(String(record.nonceDigest)) ||
+    !/^sha256:[0-9a-f]{64}$/u.test(String(record.supervisorLeaseDigest)) ||
+    !Number.isSafeInteger(record.issuerProcessId) || Number(record.issuerProcessId) < 1 ||
+    typeof record.namespaceDevice !== 'string' || record.namespaceDevice.length === 0 ||
+    typeof record.namespaceInode !== 'string' || record.namespaceInode.length === 0 ||
+    (expectedParentNamespace !== undefined && record.name !== workPackageGateRunChildName(
+      expectedParentNamespace,
+      record.nonceDigest as `sha256:${string}`,
+      Number(record.issuerProcessId),
+      record.supervisorLeaseDigest as `sha256:${string}`
+    )) ||
+    typeof record.dev !== 'string' || record.dev.length === 0 ||
+    typeof record.ino !== 'string' || record.ino.length === 0 ||
+    record.identityDigest !== rawJsonSha256(draft)) {
+    throw new Error('Work Package gate run child identity binding is invalid');
+  }
+}
+
+async function observeRunChildIdentity(
+  namespaceRoot: string,
+  expected: Pick<WorkPackageGateRunChildIdentityV1,
+    'name' | 'nonceDigest' | 'issuerProcessId' | 'supervisorLeaseDigest' |
+    'namespaceDevice' | 'namespaceInode'>
+): Promise<WorkPackageGateRunChildIdentityV1> {
+  const resolvedNamespaceRoot = path.resolve(namespaceRoot);
+  const childRoot = path.join(resolvedNamespaceRoot, expected.name);
+  if (path.dirname(childRoot) !== resolvedNamespaceRoot) {
+    throw new Error('Work Package gate run child escaped its namespace');
+  }
+  const namespaceIdentity = inspectNoFollowDirectoryChainV1(
+    resolvedNamespaceRoot,
+    'Work Package gate run child namespace'
+  ).target;
+  if (namespaceIdentity.device !== expected.namespaceDevice ||
+    namespaceIdentity.inode !== expected.namespaceInode) {
+    throw new Error('Work Package gate run child namespace physical identity changed');
+  }
+  const identity = inspectNoFollowDirectoryChildV1(
+    namespaceIdentity,
+    expected.name,
+    'Work Package gate run child'
+  );
+  if (identity === null) throw new Error('Work Package gate run child is absent');
+  return finalizeRunChildIdentity(
+    expected.name,
+    namespaceIdentity,
+    identity,
+    expected.nonceDigest,
+    expected.issuerProcessId,
+    expected.supervisorLeaseDigest
+  );
+}
+
+async function assertExactRunChild(
+  namespaceRoot: string,
+  expected: WorkPackageGateRunChildIdentityV1
+): Promise<void> {
+  assertRunChildIdentityShape(expected);
+  const observed = await observeRunChildIdentity(namespaceRoot, expected);
+  if (observed.identityDigest !== expected.identityDigest) {
+    throw new Error('Work Package gate run child physical identity changed');
+  }
+}
+
+async function prepareExactRunChildNamespace(
+  snapshotRoot: string,
+  namespace: string
+): Promise<PhysicalDirectoryIdentityV1> {
+  if (!/^gate-[0-9a-f]{32}-owned$/u.test(namespace) || path.basename(path.resolve(snapshotRoot)) !== namespace) {
+    throw new Error('Work Package gate run child namespace binding is invalid');
+  }
+  const snapshotIdentity = inspectNoFollowDirectoryChainV1(
+    path.resolve(snapshotRoot),
+    'Work Package gate execution snapshot'
+  ).target;
+  const namespaceIdentity = createNoFollowDirectoryChainV1(snapshotIdentity, [
+    '.tmp',
+    'test-workspaces',
+    namespace
+  ]);
+  const expectedPath = path.join(path.resolve(snapshotRoot), '.tmp', 'test-workspaces', namespace);
+  if (canonicalFilesystemIdentity(namespaceIdentity.path) !== canonicalFilesystemIdentity(expectedPath)) {
+    throw new Error('Work Package gate run child namespace escaped its execution snapshot');
+  }
+  return namespaceIdentity;
+}
+
+async function prepareExactRunChild(
+  namespaceRoot: string,
+  name: string,
+  nonceDigest: `sha256:${string}`,
+  issuerProcessId: number,
+  supervisorLeaseDigest: `sha256:${string}`,
+  namespaceDevice: string,
+  namespaceInode: string,
+  adoptAfterDurableAttempt: boolean
+): Promise<WorkPackageGateRunChildIdentityV1> {
+  if (!/^fast-[0-9a-f]{64}$/u.test(name)) {
+    throw new Error('Work Package gate run child name is invalid');
+  }
+  const retainedNamespace = inspectNoFollowDirectoryChainV1(
+    path.resolve(namespaceRoot),
+    'Work Package gate run child namespace'
+  ).target;
+  if (retainedNamespace.device !== namespaceDevice || retainedNamespace.inode !== namespaceInode) {
+    throw new Error('Work Package gate run child namespace changed after durable preparation');
+  }
+  const entries = scanNoFollowDirectoryTreeMetadataV1(retainedNamespace, {
+    deadlineAtMs: performance.now() + 10_000,
+    maximumEntries: 2
+  });
+  let childIdentity: PhysicalDirectoryIdentityV1;
+  if (entries.length === 0) {
+    childIdentity = createExclusiveNoFollowDirectoryV1(retainedNamespace, name);
+  } else {
+    const only = entries[0];
+    if (!adoptAfterDurableAttempt || entries.length !== 1 || only?.relativePath !== name ||
+      only.kind !== 'directory') {
+      throw new Error('Work Package gate run child preparation found foreign namespace state');
+    }
+    const observed = inspectNoFollowDirectoryChildV1(
+      retainedNamespace,
+      name,
+      'Work Package gate uncommitted run child'
+    );
+    if (observed === null || observed.device !== only.device || observed.inode !== only.inode) {
+      throw new Error('Work Package gate uncommitted run child identity changed during adoption');
+    }
+    if (scanNoFollowDirectoryTreeMetadataV1(observed, {
+      deadlineAtMs: performance.now() + 10_000,
+      maximumEntries: 1
+    }).length !== 0) {
+      throw new Error('Work Package gate uncommitted run child is not empty');
+    }
+    childIdentity = observed;
+  }
+  return finalizeRunChildIdentity(
+    name,
+    retainedNamespace,
+    childIdentity,
+    nonceDigest,
+    issuerProcessId,
+    supervisorLeaseDigest
+  );
+}
+
+async function retireUnconsumedRunChild(
+  namespaceRoot: string,
+  runChild: WorkPackageGateRunChildIdentityV1
+): Promise<void> {
+  const observed = await scanNamespaceStructure(namespaceRoot, Number.POSITIVE_INFINITY, runChild);
+  if (observed.namespaceIdentity === null ||
+    observed.namespaceIdentity.device !== runChild.namespaceDevice ||
+    observed.namespaceIdentity.inode !== runChild.namespaceInode ||
+    Object.values(observed.counts).some((count) => count !== 0) ||
+    observed.recoveryAuthorityIdentities.length !== 0 ||
+    observed.physicalInventory.some((entry) => entry.relativePath !== runChild.name ||
+      entry.kind !== 'directory' || entry.device !== runChild.dev || entry.inode !== runChild.ino)) {
+    throw new Error('Work Package gate unconsumed run child is not exactly empty');
+  }
+  if (observed.physicalInventory.length === 0) return;
+  if (observed.namespaceIdentity === null || observed.physicalInventory.length !== 1) {
+    throw new Error('Work Package gate unconsumed run child inventory is invalid');
+  }
+  deleteRetainedNoFollowEntryV1({
+    root: observed.namespaceIdentity,
+    relativePath: runChild.name,
+    kind: 'directory',
+    device: runChild.dev,
+    inode: runChild.ino,
+    ancestorDirectories: []
+  });
+}
+
+export function workPackageGateRunChildNameForTests(
+  parentNamespace: string,
+  nonceDigest: `sha256:${string}`,
+  issuerProcessId: number,
+  supervisorLeaseDigest: `sha256:${string}`
+): string {
+  return workPackageGateRunChildName(parentNamespace, nonceDigest, issuerProcessId, supervisorLeaseDigest);
+}
+
 function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value === value.trim();
 }
@@ -1263,18 +1674,35 @@ function ownerKindForName(name: string): RecoveryAuthorityKindV4 | null {
   return null;
 }
 
+function assertWorkspaceWithinRunChild(
+  namespaceRoot: string,
+  workspaceRoot: string,
+  runChild: WorkPackageGateRunChildIdentityV1
+): void {
+  assertRunChildIdentityShape(runChild);
+  const runChildRoot = path.join(path.resolve(namespaceRoot), runChild.name);
+  if (path.dirname(path.resolve(workspaceRoot)) !== runChildRoot) {
+    throw new Error('Work Package gate workspace is outside its exact run child');
+  }
+}
+
 async function bindRecoveryOwnerRecord(
   namespaceRoot: string,
   ownerPath: string,
-  kind: RecoveryAuthorityKindV4
+  kind: RecoveryAuthorityKindV4,
+  runChild?: WorkPackageGateRunChildIdentityV1
 ): Promise<{
   readonly identity: string;
   readonly target: BoundRecoveryTargetV4;
 }> {
   const transactionRoot = path.dirname(ownerPath);
   const workspaceRoot = semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot);
-  if (path.dirname(workspaceRoot) !== path.resolve(namespaceRoot)) {
-    throw new Error('Work Package gate recovery owner is outside a direct namespace workspace');
+  if (runChild === undefined) {
+    if (path.dirname(workspaceRoot) !== path.resolve(namespaceRoot)) {
+      throw new Error('Work Package gate recovery owner is outside a direct protected workspace');
+    }
+  } else {
+    assertWorkspaceWithinRunChild(namespaceRoot, workspaceRoot, runChild);
   }
   await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot);
   const record = await readStableJsonRecord(ownerPath, 4096);
@@ -1322,9 +1750,16 @@ async function bindRecoveryOwnerRecord(
   });
 }
 
-async function assertBoundNativeResult(filePath: string): Promise<void> {
+async function assertBoundNativeResult(
+  filePath: string,
+  namespaceRoot?: string,
+  runChild?: WorkPackageGateRunChildIdentityV1
+): Promise<void> {
   const transactionRoot = path.dirname(filePath);
   const workspaceRoot = semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot);
+  if (namespaceRoot !== undefined && runChild !== undefined) {
+    assertWorkspaceWithinRunChild(namespaceRoot, workspaceRoot, runChild);
+  }
   await assertSemanticMutationTransactionRoot(workspaceRoot, transactionRoot);
   const record = await readStableJsonRecord(filePath, 128);
   if (!exactObjectKeys(record.value, ['exitCode']) ||
@@ -1334,9 +1769,14 @@ async function assertBoundNativeResult(filePath: string): Promise<void> {
 }
 
 async function inspectBoundWorkspaceLease(
-  directory: string
+  directory: string,
+  namespaceRoot?: string,
+  runChild?: WorkPackageGateRunChildIdentityV1
 ): Promise<WorkspaceWriteLeaseInspection> {
   const workspaceRoot = path.resolve(directory, '..', '..');
+  if (namespaceRoot !== undefined && runChild !== undefined) {
+    assertWorkspaceWithinRunChild(namespaceRoot, workspaceRoot, runChild);
+  }
   if (canonicalFilesystemIdentity(directory) !== canonicalFilesystemIdentity(
     path.join(workspaceRoot, '.sec', WORKSPACE_WRITE_LEASE_DIRECTORY_NAME)
   )) {
@@ -1352,9 +1792,12 @@ async function inspectBoundWorkspaceLease(
 
 async function scanNamespaceStructure(
   namespaceRoot: string,
-  deadlineAtMs = Number.POSITIVE_INFINITY
+  deadlineAtMs = Number.POSITIVE_INFINITY,
+  runChild: WorkPackageGateRunChildIdentityV1 | null = null
 ): Promise<{
   readonly namespacePresent: boolean;
+  readonly namespaceIdentity: PhysicalDirectoryIdentityV1 | null;
+  readonly physicalInventory: readonly NoFollowDirectoryTreeInventoryEntryV1[];
   readonly counts: {
     readonly workspaceRoots: number;
     readonly recoveryOwners: number;
@@ -1374,14 +1817,20 @@ async function scanNamespaceStructure(
   };
   const recoveryTargets = new Map<string, BoundRecoveryTargetV4>();
   const recoveryAuthorityIdentities = new Set<string>();
+  if (runChild !== null) assertRunChildIdentityShape(runChild);
   const namespacePresent = await defaultPathExists(namespaceRoot);
+  let namespaceIdentity: PhysicalDirectoryIdentityV1 | null = null;
+  let physicalInventory: readonly NoFollowDirectoryTreeInventoryEntryV1[] = Object.freeze([]);
   if (namespacePresent) {
-    const canonical = await realpath(namespaceRoot);
-    const rootBefore = await lstat(namespaceRoot, { bigint: true });
-    if (!rootBefore.isDirectory() || rootBefore.isSymbolicLink() ||
-      path.resolve(canonical) !== path.resolve(namespaceRoot)) {
-      throw new Error('Work Package gate namespace root is not a physical canonical directory');
-    }
+    namespaceIdentity = inspectNoFollowDirectoryChainV1(
+      namespaceRoot,
+      'Work Package gate namespace root'
+    ).target;
+    const inventoryBefore = scanNoFollowDirectoryTreeMetadataV1(namespaceIdentity, {
+      deadlineAtMs,
+      maximumEntries: 100_000
+    });
+    const inventoryByPath = new Map(inventoryBefore.map((entry) => [entry.relativePath, entry]));
     const visitedIdentities = new Set<string>();
     const ownerKindsByTransaction = new Map<string, Set<RecoveryAuthorityKindV4>>();
     const visit = async (directory: string, depth: number): Promise<void> => {
@@ -1390,18 +1839,32 @@ async function scanNamespaceStructure(
       for (const entry of entries) {
         const child = path.join(directory, entry.name);
         let recurseIntoChild = entry.isDirectory();
-        const identity = await physicalPathIdentity(child, true);
-        if (identity === null) throw new Error('Work Package gate namespace object identity is unavailable');
-        const identityKey = `${identity.dev}:${identity.ino}`;
+        const relativePath = path.relative(namespaceRoot, child).replaceAll('\\', '/');
+        const identity = inventoryByPath.get(relativePath);
+        if (identity === undefined) throw new Error('Work Package gate namespace inventory changed during census');
+        const kindMatches = entry.isDirectory() ? identity.kind === 'directory' :
+          entry.isFile() ? identity.kind === 'file' : entry.isSymbolicLink() && identity.kind === 'link';
+        if (!kindMatches) throw new Error('Work Package gate namespace object kind changed during census');
+        const identityKey = `${identity.device}:${identity.inode}`;
         if (visitedIdentities.has(identityKey)) {
           throw new Error('Work Package gate namespace contains an aliased filesystem object');
         }
         visitedIdentities.add(identityKey);
-        if (depth === 0 && entry.isDirectory() && entry.name !== '.templates') counts.workspaceRoots += 1;
+        if (depth === 0) {
+          if (runChild === null || entry.name !== runChild.name || !entry.isDirectory()) {
+            throw new Error('Work Package gate namespace contains a foreign top-level entry');
+          }
+          if (identity.device !== runChild.dev || identity.inode !== runChild.ino) {
+            throw new Error('Work Package gate run child identity changed during census');
+          }
+        } else if (depth === 1 && !entry.isDirectory()) {
+          throw new Error('Work Package gate run child contains a non-workspace entry');
+        }
         const ownerKind = ownerKindForName(entry.name);
         if (ownerKind !== null) {
+          if (runChild === null) throw new Error('Work Package gate recovery owner has no run child binding');
           if (!entry.isFile()) throw new Error('Work Package gate recovery owner has the wrong object kind');
-          const bound = await bindRecoveryOwnerRecord(namespaceRoot, child, ownerKind);
+          const bound = await bindRecoveryOwnerRecord(namespaceRoot, child, ownerKind, runChild);
           const transactionKinds = ownerKindsByTransaction.get(bound.target.transactionRoot) ?? new Set();
           const samePublicationPair = ownerKind.endsWith('-pending')
             ? ownerKind.slice(0, -'-pending'.length) as RecoveryAuthorityKindV4
@@ -1420,33 +1883,50 @@ async function scanNamespaceStructure(
           if (ownerKind === 'recovery-owner') counts.recoveryOwners += 1;
           else counts.pendingOwners += 1;
         } else if (entry.name === NATIVE_RESULT_FILE) {
+          if (runChild === null) throw new Error('Work Package gate native result has no run child binding');
           if (!entry.isFile()) throw new Error('Work Package gate native result has the wrong object kind');
-          await assertBoundNativeResult(child);
+          await assertBoundNativeResult(child, namespaceRoot, runChild);
           counts.nativeResults += 1;
         } else if (entry.name === WORKSPACE_WRITE_LEASE_DIRECTORY_NAME) {
+          if (runChild === null) throw new Error('Work Package gate writer lease has no run child binding');
           if (!entry.isDirectory()) throw new Error('Work Package gate writer lease has the wrong object kind');
-          const inspection = await inspectBoundWorkspaceLease(child);
+          const inspection = await inspectBoundWorkspaceLease(child, namespaceRoot, runChild);
           recoveryAuthorityIdentities.add(
             `workspace-write-lease:${inspection.state}:${inspection.stateDigest}`
           );
           counts.writerLeases += 1;
           recurseIntoChild = false;
         } else if (entry.name === TERMINAL_RECORD_FILE) {
+          if (runChild === null) throw new Error('Work Package gate terminal record has no run child binding');
           if (!entry.isFile()) throw new Error('Work Package gate terminal record has the wrong object kind');
-          const terminal = await readRejectedSemanticMutationTerminal(path.dirname(child));
+          const transactionRoot = path.dirname(child);
+          assertWorkspaceWithinRunChild(
+            namespaceRoot,
+            semanticMutationWorkspaceRootFromTransactionRoot(transactionRoot),
+            runChild
+          );
+          const terminal = await readRejectedSemanticMutationTerminal(transactionRoot);
           if (terminal === null) throw new Error('Work Package gate terminal record disappeared during census');
         }
         if (recurseIntoChild) await visit(child, depth + 1);
       }
     };
     await visit(namespaceRoot, 0);
-    const rootAfter = await lstat(namespaceRoot, { bigint: true });
-    if (rootBefore.dev !== rootAfter.dev || rootBefore.ino !== rootAfter.ino) {
-      throw new Error('Work Package gate namespace identity changed during census');
+    const inventoryAfter = scanNoFollowDirectoryTreeMetadataV1(namespaceIdentity, {
+      deadlineAtMs,
+      maximumEntries: 100_000
+    });
+    const terminallyEmpty = Object.values(counts).every((count) => count === 0) &&
+      recoveryAuthorityIdentities.size === 0;
+    if (terminallyEmpty && JSON.stringify(inventoryAfter) !== JSON.stringify(inventoryBefore)) {
+      throw new Error('Work Package gate namespace inventory changed during census');
     }
+    physicalInventory = inventoryAfter;
   }
   return Object.freeze({
     namespacePresent,
+    namespaceIdentity,
+    physicalInventory,
     counts: Object.freeze(counts),
     recoveryAuthorityIdentities: Object.freeze([...recoveryAuthorityIdentities].sort()),
     recoveryTargets: Object.freeze([...recoveryTargets.values()].sort((left, right) =>
@@ -1457,11 +1937,12 @@ async function scanNamespaceStructure(
 async function defaultCensus(
   namespaceRoot: string,
   deadlineAtMs = Number.POSITIVE_INFINITY,
-  probeAcl = true
+  probeAcl = true,
+  runChild: WorkPackageGateRunChildIdentityV1 | null = null
 ): Promise<WorkPackageGateResidueCensusV4> {
   let structure: WorkPackageGateResidueCensusV4['structure'];
   try {
-    const scanned = await scanNamespaceStructure(namespaceRoot, deadlineAtMs);
+    const scanned = await scanNamespaceStructure(namespaceRoot, deadlineAtMs, runChild);
     structure = Object.freeze({
       complete: true,
       reason: scanned.namespacePresent ? 'observed' : 'namespace-absent',
@@ -1486,7 +1967,10 @@ async function defaultCensus(
 }
 
 /** Test-only filesystem authority seam for canonical owner and reserved-object vectors. */
-export async function workPackageGateNamespaceStructureForTests(namespaceRoot: string): Promise<{
+export async function workPackageGateNamespaceStructureForTests(
+  namespaceRoot: string,
+  runChild: WorkPackageGateRunChildIdentityV1 | null = null
+): Promise<{
   readonly counts: {
     readonly workspaceRoots: number;
     readonly recoveryOwners: number;
@@ -1496,11 +1980,83 @@ export async function workPackageGateNamespaceStructureForTests(namespaceRoot: s
   };
   readonly recoveryAuthorityIdentities: readonly string[];
 }> {
-  const scanned = await scanNamespaceStructure(path.resolve(namespaceRoot));
+  const resolvedRoot = path.resolve(namespaceRoot);
+  const scanned = await scanNamespaceStructure(resolvedRoot, Number.POSITIVE_INFINITY, runChild);
   return Object.freeze({
     counts: scanned.counts,
     recoveryAuthorityIdentities: scanned.recoveryAuthorityIdentities
   });
+}
+
+export async function workPackageGatePrepareRunChildForTests(
+  namespaceRoot: string,
+  parentNamespace: string,
+  nonce: string,
+  issuerProcessId: number,
+  supervisorLeaseDigest: `sha256:${string}`
+): Promise<WorkPackageGateRunChildIdentityV1> {
+  const nonceDigest = sha256Text(nonce);
+  const namespaceIdentity = inspectNoFollowDirectoryChainV1(
+    path.resolve(namespaceRoot),
+    'Work Package gate test run child namespace'
+  ).target;
+  return prepareExactRunChild(
+    path.resolve(namespaceRoot),
+    workPackageGateRunChildName(parentNamespace, nonceDigest, issuerProcessId, supervisorLeaseDigest),
+    nonceDigest,
+    issuerProcessId,
+    supervisorLeaseDigest,
+    namespaceIdentity.device,
+    namespaceIdentity.inode,
+    false
+  );
+}
+
+/** Test-only direct wrapper for retained execution-snapshot namespace creation. */
+export function workPackageGatePrepareRunChildNamespaceForTests(
+  snapshotRoot: string,
+  namespace: string
+): Promise<PhysicalDirectoryIdentityV1> {
+  return prepareExactRunChildNamespace(path.resolve(snapshotRoot), namespace);
+}
+
+/** Test-only direct wrapper for the production effect/result crash boundary. */
+export async function workPackageGatePrepareExactRunChildForTests(
+  namespaceRoot: string,
+  name: string,
+  nonceDigest: `sha256:${string}`,
+  issuerProcessId: number,
+  supervisorLeaseDigest: `sha256:${string}`,
+  namespaceDevice: string,
+  namespaceInode: string,
+  adoptAfterDurableAttempt: boolean
+): Promise<WorkPackageGateRunChildIdentityV1> {
+  return prepareExactRunChild(
+    path.resolve(namespaceRoot),
+    name,
+    nonceDigest,
+    issuerProcessId,
+    supervisorLeaseDigest,
+    namespaceDevice,
+    namespaceInode,
+    adoptAfterDurableAttempt
+  );
+}
+
+/** Test-only direct wrapper for production retained run-child readback. */
+export function workPackageGateAssertRunChildForTests(
+  namespaceRoot: string,
+  runChild: WorkPackageGateRunChildIdentityV1
+): Promise<void> {
+  return assertExactRunChild(path.resolve(namespaceRoot), runChild);
+}
+
+/** Test-only direct wrapper for production unconsumed-child retirement. */
+export function workPackageGateRetireRunChildForTests(
+  namespaceRoot: string,
+  runChild: WorkPackageGateRunChildIdentityV1
+): Promise<void> {
+  return retireUnconsumedRunChild(path.resolve(namespaceRoot), runChild);
 }
 
 function protectedWorkspaceRelativePath(workspaceRoot: string, relativePath: string): string {
@@ -2018,10 +2574,11 @@ export async function workPackageGateProtectedPathAuthorityForTests(
 async function defaultRecoverOwnedNamespace(
   namespaceRoot: string,
   deadlineAtMs: number,
-  authorization: WorkPackageGateIdentitySetEvidenceV1
+  authorization: WorkPackageGateIdentitySetEvidenceV1,
+  runChild: WorkPackageGateRunChildIdentityV1
 ): Promise<'not-needed' | 'completed' | 'failed'> {
   try {
-    const discovered = await scanNamespaceStructure(namespaceRoot, deadlineAtMs);
+    const discovered = await scanNamespaceStructure(namespaceRoot, deadlineAtMs, runChild);
     const observedAuthorization = identitySetEvidence(discovered.recoveryAuthorityIdentities);
     if (observedAuthorization.count !== authorization.count ||
       observedAuthorization.digest !== authorization.digest) return 'failed';
@@ -2051,7 +2608,7 @@ async function defaultRecoverOwnedNamespace(
         outcome.stdout.observerTruncated || outcome.stderr.observerTruncated ||
         !outcome.termination.treeClosed || performance.now() >= deadlineAtMs) return 'failed';
     }
-    const after = await scanNamespaceStructure(namespaceRoot, deadlineAtMs);
+    const after = await scanNamespaceStructure(namespaceRoot, deadlineAtMs, runChild);
     return after.counts.recoveryOwners === 0 && after.counts.pendingOwners === 0
       ? 'completed'
       : 'failed';
@@ -2081,29 +2638,82 @@ async function runInternalOwnedRecovery(stagingRoot: string, workspaceRoot: stri
   }
 }
 
-async function defaultRemoveNamespace(namespaceRoot: string, deadlineAtMs: number): Promise<boolean> {
-  const removeEntry = async (entryPath: string): Promise<void> => {
-    if (performance.now() > deadlineAtMs) throw new Error('Namespace cleanup deadline exceeded');
-    let metadata;
-    try {
-      metadata = await lstat(entryPath);
-    } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return;
-      throw error;
-    }
-    if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
-      for (const entry of await readdir(entryPath)) await removeEntry(path.join(entryPath, entry));
-      await rmdir(entryPath);
-    } else {
-      await unlink(entryPath);
-    }
-  };
+async function defaultRemoveNamespace(
+  namespaceRoot: string,
+  deadlineAtMs: number,
+  runChild: WorkPackageGateRunChildIdentityV1,
+  beforeFirstEffect?: () => Promise<void>
+): Promise<boolean> {
   try {
-    await removeEntry(namespaceRoot);
-    return !await defaultPathExists(namespaceRoot);
+    const before = await scanNamespaceStructure(namespaceRoot, deadlineAtMs, runChild);
+    if (Object.values(before.counts).some((count) => count !== 0) ||
+      before.recoveryAuthorityIdentities.length !== 0) {
+      throw new Error('Work Package gate namespace is not terminally removable');
+    }
+    if (!before.namespacePresent || before.namespaceIdentity === null) return true;
+    await beforeFirstEffect?.();
+    const directories = new Map(before.physicalInventory
+      .filter((entry) => entry.kind === 'directory')
+      .map((entry) => [entry.relativePath, entry]));
+    for (const entry of [...before.physicalInventory].sort((left, right) => {
+      const depth = (value: string): number => value.split('/').length;
+      return depth(right.relativePath) - depth(left.relativePath) ||
+        right.relativePath.localeCompare(left.relativePath);
+    })) {
+      if (performance.now() > deadlineAtMs) throw new Error('Namespace cleanup deadline exceeded');
+      const components = entry.relativePath.split('/');
+      components.pop();
+      const ancestorDirectories = components.map((_, index) => {
+        const relativePath = components.slice(0, index + 1).join('/');
+        const ancestor = directories.get(relativePath);
+        if (ancestor === undefined) {
+          throw new Error('Work Package gate namespace cleanup ancestor inventory is incomplete');
+        }
+        return Object.freeze({ relativePath, device: ancestor.device, inode: ancestor.inode });
+      });
+      deleteRetainedNoFollowEntryV1({
+        root: before.namespaceIdentity,
+        relativePath: entry.relativePath,
+        kind: entry.kind,
+        device: entry.device,
+        inode: entry.inode,
+        ancestorDirectories
+      });
+    }
+    const parent = inspectNoFollowDirectoryChainV1(
+      path.dirname(namespaceRoot),
+      'Work Package gate namespace parent'
+    ).target;
+    deleteRetainedNoFollowEntryV1({
+      root: parent,
+      relativePath: path.basename(namespaceRoot),
+      kind: 'directory',
+      device: before.namespaceIdentity.device,
+      inode: before.namespaceIdentity.inode,
+      ancestorDirectories: []
+    });
+    return inspectExactNoFollowDirectoryPresenceV1(
+      namespaceRoot,
+      'Work Package gate namespace removal readback'
+    ).state === 'absent';
   } catch {
     return false;
   }
+}
+
+/** Test-only seam for the production identity-bound terminal namespace remover. */
+export async function workPackageGateRemoveOwnedNamespaceForTests(
+  namespaceRoot: string,
+  runChild: WorkPackageGateRunChildIdentityV1,
+  beforeFirstEffect?: () => Promise<void>
+): Promise<boolean> {
+  const resolvedRoot = path.resolve(namespaceRoot);
+  return defaultRemoveNamespace(
+    resolvedRoot,
+    Number.POSITIVE_INFINITY,
+    runChild,
+    beforeFirstEffect
+  );
 }
 
 const DEFAULT_DEPENDENCIES: WorkPackageGateDependencies = {
@@ -2126,9 +2736,13 @@ const DEFAULT_DEPENDENCIES: WorkPackageGateDependencies = {
   worktreeDigest: defaultWorktreeDigest,
   runChild: runObservedCommand,
   census: defaultCensus,
-  sideEffectCensus: (_stage, namespaceRoot, deadlineAtMs, probeAcl) =>
-    defaultCensus(namespaceRoot, deadlineAtMs, probeAcl),
+  sideEffectCensus: (_stage, namespaceRoot, deadlineAtMs, probeAcl, runChild) =>
+    defaultCensus(namespaceRoot, deadlineAtMs, probeAcl, runChild),
   recoverOwnedNamespace: defaultRecoverOwnedNamespace,
+  prepareRunChildNamespace: prepareExactRunChildNamespace,
+  prepareRunChild: prepareExactRunChild,
+  assertRunChild: assertExactRunChild,
+  retireUnconsumedRunChild,
   removeNamespace: defaultRemoveNamespace,
   prepareExecutionSnapshot: defaultPrepareExecutionSnapshot,
   removeExecutionSnapshot: defaultRemoveExecutionSnapshot,
@@ -2371,6 +2985,8 @@ interface WorkPackageGateCheckpointV4 {
   readonly executionSnapshotVerified: boolean;
   readonly selection: WorkPackageGateSelectionV1;
   readonly preflight: WorkPackageGateResidueCensusV4 | null;
+  readonly runChildPreparation: WorkPackageGateRunChildPreparationV1 | null;
+  readonly runChild: WorkPackageGateRunChildIdentityV1 | null;
   readonly childAttempted: boolean;
   readonly child: WorkPackageGateChildEvidenceV1 | null;
   readonly diagnostic: WorkPackageGateDiagnosticV4 | null;
@@ -2606,7 +3222,8 @@ function assertCheckpoint(
   value: unknown,
   expectedRunId: string,
   expectedSelection: WorkPackageGateSelectionV1,
-  expectedAuthority: WorkPackageGateExecutionAuthorityV4
+  expectedAuthority: WorkPackageGateExecutionAuthorityV4,
+  expectedNamespace: string
 ): asserts value is WorkPackageGateCheckpointV4 {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Work Package gate checkpoint must be an object');
@@ -2616,7 +3233,8 @@ function assertCheckpoint(
     'schema', 'runId', 'startedAt', 'authority', 'headSha', 'treeSha', 'worktreeBeforeDigest',
     'executionSnapshotDigest', 'snapshotPreparationAttempted',
     'executionSnapshotPrepared', 'executionSnapshotVerified',
-    'selection', 'preflight', 'childAttempted', 'child', 'diagnostic', 'postChild',
+    'selection', 'preflight', 'runChildPreparation', 'runChild',
+    'childAttempted', 'child', 'diagnostic', 'postChild',
     'recoveryAuthorization', 'recoveryAttempted', 'recovery', 'postRecovery',
     'namespaceRemovalAttempted', 'namespaceRemoved', 'finalCensus',
     'snapshotRemovalAttempted', 'snapshotRemoved', 'terminal', 'journal', 'publication',
@@ -2656,6 +3274,9 @@ function assertCheckpoint(
     checkpointDigest !== CodexDevelopmentVerificationDigest(draft) ||
     (checkpoint.executionSnapshotPrepared && !checkpoint.snapshotPreparationAttempted) ||
     ((checkpoint.child === null) !== (checkpoint.diagnostic === null)) ||
+    (checkpoint.runChild !== null && checkpoint.runChildPreparation === null) ||
+    (checkpoint.runChildPreparation !== null && checkpoint.preflight === null) ||
+    (checkpoint.childAttempted && checkpoint.runChild === null) ||
     (checkpoint.childAttempted && !checkpoint.executionSnapshotPrepared) ||
     (checkpoint.executionSnapshotVerified && !checkpoint.executionSnapshotPrepared) ||
     (checkpoint.childAttempted && checkpoint.preflight === null) ||
@@ -2688,6 +3309,24 @@ function assertCheckpoint(
     throw new Error('Work Package gate checkpoint binding is invalid');
   }
   const candidate = checkpoint as unknown as WorkPackageGateCheckpointV4;
+  if (candidate.runChildPreparation !== null) {
+    assertRunChildPreparationShape(candidate.runChildPreparation, expectedNamespace);
+  }
+  if (candidate.runChild !== null) {
+    assertRunChildIdentityShape(
+      candidate.runChild,
+      expectedNamespace
+    );
+    if (candidate.runChildPreparation === null ||
+      candidate.runChild.name !== candidate.runChildPreparation.name ||
+      candidate.runChild.nonceDigest !== candidate.runChildPreparation.nonceDigest ||
+      candidate.runChild.issuerProcessId !== candidate.runChildPreparation.issuerProcessId ||
+      candidate.runChild.supervisorLeaseDigest !== candidate.runChildPreparation.supervisorLeaseDigest ||
+      candidate.runChild.namespaceDevice !== candidate.runChildPreparation.namespaceDevice ||
+      candidate.runChild.namespaceInode !== candidate.runChildPreparation.namespaceInode) {
+      throw new Error('Work Package gate run child is not bound to its durable preparation');
+    }
+  }
   for (const census of [candidate.preflight, candidate.postChild, candidate.postRecovery, candidate.finalCensus]) {
     if (census !== null) assertWorkPackageGateResidueCensusV4(census);
   }
@@ -2985,7 +3624,7 @@ async function publishInitialCheckpoint(
     await assertSafeCheckpointPublicationDirectory(publicationDirectory);
     if (await defaultPathExists(publicationCheckpoint)) {
       const parsed = JSON.parse(await readFile(publicationCheckpoint, 'utf8')) as unknown;
-      assertCheckpoint(parsed, runId, selection, authority);
+      assertCheckpoint(parsed, runId, selection, authority, namespace);
       expectedPublication = assertInitialCheckpointPublication(parsed, checkpoint);
     } else {
       await rm(publicationDirectory, { recursive: true, force: false });
@@ -2996,14 +3635,14 @@ async function publishInitialCheckpoint(
     await writeWorkPackageGateJsonAtomic(
       publicationCheckpoint,
       checkpoint,
-      (readback) => assertCheckpoint(readback, runId, selection, authority)
+      (readback) => assertCheckpoint(readback, runId, selection, authority, namespace)
     );
   }
   await rename(publicationDirectory, runDir);
   await syncWorkPackageGateDirectory(path.dirname(runDir));
   await syncWorkPackageGateDirectory(publicationParent);
   const readback = JSON.parse(await readFile(path.join(runDir, 'checkpoint.json'), 'utf8')) as unknown;
-  assertCheckpoint(readback, runId, selection, authority);
+  assertCheckpoint(readback, runId, selection, authority, namespace);
   if (JSON.stringify(readback) !== JSON.stringify(expectedPublication)) {
     throw new Error('Work Package gate initial checkpoint publication changed during adoption');
   }
@@ -3051,11 +3690,164 @@ function processLiveness(pid: number): 'alive' | 'dead' | 'unknown' {
   }
 }
 
+interface AcquiredNamespaceLeaseV1 {
+  readonly authority: TestWorkspaceSupervisorLeaseV1;
+  readonly binding: TestWorkspaceSupervisorLeaseBindingV1;
+  readonly authorizeRunChild: (assignment: TestWorkspaceRunChildAssignmentV1) => void;
+  readonly assertRunChildChallengeConsumed: (assignment: TestWorkspaceRunChildAssignmentV1) => void;
+  readonly release: () => Promise<void>;
+}
+
+function parseSupervisorLeaseRecord(value: unknown, namespace: string): TestWorkspaceSupervisorLeaseV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !exactObjectKeys(value, [
+    'schema', 'namespace', 'runId', 'repositoryRoot', 'executionSnapshotRoot',
+    'issuerProcessId', 'nonce', 'leaseDigest'
+  ])) throw new Error('Work Package gate namespace lease owner is invalid');
+  const record = value as Record<string, unknown>;
+  if (record.namespace !== namespace || typeof record.runId !== 'string' ||
+    typeof record.repositoryRoot !== 'string' || typeof record.executionSnapshotRoot !== 'string' ||
+    typeof record.nonce !== 'string' ||
+    !Number.isSafeInteger(record.issuerProcessId)) {
+    throw new Error('Work Package gate namespace lease owner is invalid');
+  }
+  const canonical = createTestWorkspaceSupervisorLeaseV1({
+    namespace,
+    runId: record.runId,
+    repositoryRoot: record.repositoryRoot,
+    executionSnapshotRoot: record.executionSnapshotRoot,
+    issuerProcessId: Number(record.issuerProcessId),
+    nonce: record.nonce
+  });
+  if (JSON.stringify(canonical) !== JSON.stringify(record)) {
+    throw new Error('Work Package gate namespace lease owner is invalid');
+  }
+  return canonical;
+}
+
+function parseSupervisorLeaseBytes(
+  entry: NoFollowDirectoryTreeEntryV1,
+  namespace: string
+): TestWorkspaceSupervisorLeaseV1 {
+  if (entry.bytes === null || entry.bytes.byteLength > 4_096) {
+    throw new Error('Work Package gate namespace lease owner exceeds its byte bound');
+  }
+  try {
+    return parseSupervisorLeaseRecord(
+      JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(entry.bytes)),
+      namespace
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Work Package gate namespace lease owner')) {
+      throw error;
+    }
+    throw new Error('Work Package gate namespace lease owner is malformed');
+  }
+}
+
+function observeSupervisorLease(
+  parent: PhysicalDirectoryIdentityV1,
+  name: string,
+  namespace: string
+): Readonly<{
+  entry: NoFollowDirectoryTreeEntryV1;
+  record: TestWorkspaceSupervisorLeaseV1;
+}> | null {
+  const entry = inspectNoFollowOrdinaryFileEntryV1(parent, name);
+  if (entry === null) return null;
+  return Object.freeze({ entry, record: parseSupervisorLeaseBytes(entry, namespace) });
+}
+
+function deleteObservedSupervisorLease(
+  parent: PhysicalDirectoryIdentityV1,
+  name: string,
+  observed: Readonly<{ entry: NoFollowDirectoryTreeEntryV1; record: TestWorkspaceSupervisorLeaseV1 }>
+): void {
+  deleteRetainedNoFollowEntryV1({
+    root: parent,
+    relativePath: name,
+    kind: 'file',
+    device: observed.entry.device,
+    inode: observed.entry.inode,
+    ancestorDirectories: []
+  });
+}
+
 async function acquireNamespaceLease(
   repoRoot: string,
+  executionSnapshotRoot: string,
   namespace: string,
   runId: string
-): Promise<() => Promise<void>> {
+): Promise<AcquiredNamespaceLeaseV1> {
+  const leasePath = testWorkspaceSupervisorLeasePathV1(namespace);
+  const expectedLeasePath = path.join(repoRoot, '.tmp', 'test-workspaces', '.gate-supervisor-leases', `${namespace}.lock`);
+  if (canonicalFilesystemIdentity(leasePath) !== canonicalFilesystemIdentity(expectedLeasePath)) {
+    throw new Error('Work Package gate namespace lease escaped the exact repository');
+  }
+  const leaseParent = path.dirname(leasePath);
+  await mkdir(leaseParent, { recursive: true });
+  const leaseParentIdentity = inspectNoFollowDirectoryChainV1(
+    leaseParent,
+    'Work Package gate supervisor lease parent'
+  ).target;
+  const leaseName = path.basename(leasePath);
+  const authority = createTestWorkspaceSupervisorLeaseV1({
+    namespace,
+    runId,
+    repositoryRoot: repoRoot,
+    executionSnapshotRoot,
+    issuerProcessId: process.pid,
+    nonce: randomBytes(32).toString('hex')
+  });
+  const owner = JSON.stringify(authority);
+  const publishOwner = (): void => {
+    const publication = publishExclusiveDurableCanonicalFileV1({
+      parent: leaseParentIdentity,
+      name: leaseName,
+      bytes: Buffer.from(owner, 'utf8'),
+      validate: (bytes) => {
+        const parsed = parseSupervisorLeaseRecord(
+          JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)),
+          namespace
+        );
+        if (JSON.stringify(parsed) !== owner) {
+          throw new Error('Work Package gate namespace lease publication changed its owner');
+        }
+      }
+    });
+    if (!publication.created) {
+      throw new Error('Work Package gate namespace lease generation was not exclusively published');
+    }
+  };
+  const releaseOwner = (): void => {
+    const observed = observeSupervisorLease(leaseParentIdentity, leaseName, namespace);
+    if (observed === null) {
+      throw new Error('Work Package gate namespace lease disappeared before release');
+    }
+    if (JSON.stringify(observed.record) !== owner) {
+      throw new Error('Work Package gate namespace lease changed before release');
+    }
+    deleteObservedSupervisorLease(leaseParentIdentity, leaseName, observed);
+  };
+  const bindOwner = (): TestWorkspaceSupervisorLeaseBindingV1 => {
+    const binding = bindTestWorkspaceSupervisorLeaseIssuerProjectionV1(
+      leasePath,
+      namespace,
+      executionSnapshotRoot
+    );
+    if (JSON.stringify(binding.record) !== owner) {
+      throw new Error('Work Package gate namespace lease binding changed after publication');
+    }
+    return binding;
+  };
+  const retireDeadOwner = (): boolean => {
+    const observed = observeSupervisorLease(leaseParentIdentity, leaseName, namespace);
+    if (observed === null) return false;
+    const liveness = processLiveness(observed.record.issuerProcessId);
+    if (liveness === 'alive') throw new Error('Work Package gate namespace already has a live supervisor');
+    if (liveness === 'unknown') throw new Error('Work Package gate namespace supervisor liveness is unknown');
+    deleteObservedSupervisorLease(leaseParentIdentity, leaseName, observed);
+    return true;
+  };
   if (process.platform === 'win32') {
     const kernel32 = await loadGateMutexKernel32();
     const handle = kernel32.symbols.CreateMutexW(
@@ -3072,59 +3864,99 @@ async function acquireNamespaceLease(
       }
       throw new Error('Work Package gate namespace mutex wait failed');
     }
-    let released = false;
-    return async () => {
-      if (released) return;
-      released = true;
-      kernel32.symbols.ReleaseMutex(handle);
-      kernel32.symbols.CloseHandle(handle);
-    };
-  }
-  const leaseParent = path.join(repoRoot, '.tmp', 'test-workspaces', '.gate-supervisor-leases');
-  const leasePath = path.join(leaseParent, `${namespace}.lock`);
-  await mkdir(leaseParent, { recursive: true });
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    let handle: Awaited<ReturnType<typeof open>> | undefined;
+    let binding: TestWorkspaceSupervisorLeaseBindingV1;
+    let challenge: TestWorkspaceSupervisorChallengeServerV1 | null = null;
     try {
-      const owner = JSON.stringify({ runId, pid: process.pid, nonce: randomUUID() });
-      handle = await open(leasePath, 'wx');
-      try {
-        await handle.writeFile(owner, 'utf8');
-        await handle.sync();
-      } finally {
-        await handle.close();
-        handle = undefined;
-      }
-      return async () => {
-        if (await defaultPathExists(leasePath) && await readFile(leasePath, 'utf8') === owner) {
-          await unlink(leasePath);
-        }
-      };
+      challenge = await acquireTestWorkspaceSupervisorChallengeServerV1({
+        executionSnapshotRoot,
+        supervisorLeaseDigest: authority.leaseDigest
+      });
+      retireDeadOwner();
+      publishOwner();
+      binding = bindOwner();
     } catch (error) {
-      await handle?.close();
-      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error;
-      let owner: { readonly runId?: unknown; readonly pid?: unknown; readonly nonce?: unknown } | undefined;
       try {
-        owner = JSON.parse(await readFile(leasePath, 'utf8')) as typeof owner;
-      } catch {
-        throw new Error('Work Package gate namespace lease publication is incomplete');
+        const observed = observeSupervisorLease(leaseParentIdentity, leaseName, namespace);
+        if (observed !== null && JSON.stringify(observed.record) === owner) {
+          deleteObservedSupervisorLease(leaseParentIdentity, leaseName, observed);
+        }
+      } finally {
+        try {
+          await challenge?.close();
+        } finally {
+          kernel32.symbols.ReleaseMutex(handle);
+          kernel32.symbols.CloseHandle(handle);
+        }
       }
-      if (!owner || !exactObjectKeys(owner, ['runId', 'pid', 'nonce']) ||
-        !nonEmptyString(owner.runId) || !Number.isSafeInteger(owner.pid) || Number(owner.pid) <= 0 ||
-        !nonEmptyString(owner.nonce)) {
-        throw new Error('Work Package gate namespace lease owner is invalid');
-      }
-      const liveness = processLiveness(Number(owner.pid));
-      if (liveness === 'alive') {
-        throw new Error('Work Package gate namespace already has a live supervisor');
-      }
-      if (liveness === 'unknown') {
-        throw new Error('Work Package gate namespace supervisor liveness is unknown');
-      }
-      throw new Error('Work Package gate stale namespace lease requires explicit recovery');
+      throw error;
     }
+    let released = false;
+    return Object.freeze({
+      authority,
+      binding,
+      authorizeRunChild: (assignment: TestWorkspaceRunChildAssignmentV1) => challenge!.authorize(assignment),
+      assertRunChildChallengeConsumed: (assignment: TestWorkspaceRunChildAssignmentV1) =>
+        challenge!.assertConsumed(assignment),
+      release: async () => {
+        if (released) return;
+        released = true;
+        try {
+          releaseOwner();
+        } finally {
+          try {
+            await challenge!.close();
+          } finally {
+            kernel32.symbols.ReleaseMutex(handle);
+            kernel32.symbols.CloseHandle(handle);
+          }
+        }
+      }
+    });
   }
-  throw new Error('Work Package gate namespace lease could not be acquired');
+  const challenge = await acquireTestWorkspaceSupervisorChallengeServerV1({
+    executionSnapshotRoot,
+    supervisorLeaseDigest: authority.leaseDigest
+  });
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        retireDeadOwner();
+        publishOwner();
+        const binding = bindOwner();
+        return Object.freeze({
+          authority,
+          binding,
+          authorizeRunChild: (assignment: TestWorkspaceRunChildAssignmentV1) => challenge.authorize(assignment),
+          assertRunChildChallengeConsumed: (assignment: TestWorkspaceRunChildAssignmentV1) =>
+            challenge.assertConsumed(assignment),
+          release: async () => {
+            try {
+              releaseOwner();
+            } finally {
+              await challenge.close();
+            }
+          }
+        });
+      } catch (error) {
+        const observed = observeSupervisorLease(leaseParentIdentity, leaseName, namespace);
+        if (observed !== null) {
+          if (JSON.stringify(observed.record) === owner) {
+            deleteObservedSupervisorLease(leaseParentIdentity, leaseName, observed);
+            throw error;
+          }
+          const liveness = processLiveness(observed.record.issuerProcessId);
+          if (liveness === 'alive') throw new Error('Work Package gate namespace already has a live supervisor');
+          if (liveness === 'unknown') throw new Error('Work Package gate namespace supervisor liveness is unknown');
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error('Work Package gate namespace lease could not be acquired');
+  } catch (error) {
+    await challenge.close();
+    throw error;
+  }
 }
 
 function unknownChildEvidence(childAttempted: boolean): WorkPackageGateChildEvidenceV1 {
@@ -3368,11 +4200,11 @@ export async function runWorkPackageGate(
       throw new Error('Work Package gate run directory is not owned by a checkpoint');
     }
     const parsed = JSON.parse(await dependencies.readText(checkpointPath)) as unknown;
-    assertCheckpoint(parsed, runId, selection, authority);
+    assertCheckpoint(parsed, runId, selection, authority, namespace);
     await assertOwnedRunDirectoryState(runDir, parsed, dependencies.pathExists, dependencies.readBytes);
     checkpointBeforeLease = parsed;
   }
-  const releaseNamespaceLease = await acquireNamespaceLease(repoRoot, namespace, runId);
+  const namespaceLease = await acquireNamespaceLease(repoRoot, snapshotRoot, namespace, runId);
   try {
     let checkpoint: WorkPackageGateCheckpointV4;
     if (checkpointBeforeLease !== null) {
@@ -3380,7 +4212,7 @@ export async function runWorkPackageGate(
         throw new Error('Work Package gate run directory is not owned by a checkpoint');
       }
       const parsedCheckpoint = JSON.parse(await dependencies.readText(checkpointPath)) as unknown;
-      assertCheckpoint(parsedCheckpoint, runId, selection, authority);
+      assertCheckpoint(parsedCheckpoint, runId, selection, authority, namespace);
       if (parsedCheckpoint.checkpointDigest !== checkpointBeforeLease.checkpointDigest) {
         throw new Error('Work Package gate checkpoint changed while acquiring its supervisor lease');
       }
@@ -3412,6 +4244,8 @@ export async function runWorkPackageGate(
         executionSnapshotVerified: false,
         selection,
         preflight: null,
+        runChildPreparation: null,
+        runChild: null,
         childAttempted: false,
         child: null,
         diagnostic: null,
@@ -3448,7 +4282,7 @@ export async function runWorkPackageGate(
       await writeWorkPackageGateJsonAtomic(
         checkpointPath,
         next,
-        (readback) => assertCheckpoint(readback, runId, selection, authority)
+        (readback) => assertCheckpoint(readback, runId, selection, authority, namespace)
       );
     };
     const replaceCheckpoint = async (
@@ -3460,7 +4294,7 @@ export async function runWorkPackageGate(
     };
     const revalidateDurableCheckpoint = async (): Promise<void> => {
       const parsed = JSON.parse(await dependencies.readText(checkpointPath)) as unknown;
-      assertCheckpoint(parsed, runId, selection, authority);
+      assertCheckpoint(parsed, runId, selection, authority, namespace);
       if (parsed.checkpointDigest !== checkpoint.checkpointDigest) {
         throw new Error('Work Package gate durable checkpoint changed before side effect');
       }
@@ -3618,6 +4452,7 @@ export async function runWorkPackageGate(
 
     if (checkpoint.executionSnapshotPrepared && checkpoint.preflight === null) {
       try {
+        await dependencies.prepareRunChildNamespace(snapshotRoot, namespace);
         const preflight = await dependencies.census(namespaceRoot, undefined, true);
         await replaceCheckpoint({ preflight });
       } catch {
@@ -3625,11 +4460,76 @@ export async function runWorkPackageGate(
       }
     }
 
+    if (!checkpoint.childAttempted && checkpoint.child === null &&
+      checkpoint.executionSnapshotPrepared && checkpoint.preflight !== null &&
+      preflightCensusClean(checkpoint.preflight) && checkpoint.runChildPreparation === null) {
+      const namespaceIdentity = await dependencies.prepareRunChildNamespace(snapshotRoot, namespace);
+      await replaceCheckpoint({
+        runChildPreparation: finalizeRunChildPreparation(
+          namespace,
+          namespaceLease.binding,
+          namespaceIdentity
+        )
+      });
+      await dependencies.afterCheckpoint('run-child-preparation-attempted');
+      await revalidateDurableCheckpoint();
+    }
+    const prepareDurablyBoundRunChild = async (): Promise<void> => {
+      const preparation = checkpoint.runChildPreparation;
+      if (preparation === null) throw new Error('Work Package gate run child has no durable preparation');
+      await revalidateExternalAuthority();
+      const runChild = await dependencies.prepareRunChild(
+        namespaceRoot,
+        preparation.name,
+        preparation.nonceDigest,
+        preparation.issuerProcessId,
+        preparation.supervisorLeaseDigest,
+        preparation.namespaceDevice,
+        preparation.namespaceInode,
+        true
+      );
+      assertRunChildIdentityShape(runChild, namespace);
+      if (runChild.name !== preparation.name || runChild.nonceDigest !== preparation.nonceDigest ||
+        runChild.issuerProcessId !== preparation.issuerProcessId ||
+        runChild.supervisorLeaseDigest !== preparation.supervisorLeaseDigest ||
+        runChild.namespaceDevice !== preparation.namespaceDevice ||
+        runChild.namespaceInode !== preparation.namespaceInode) {
+        throw new Error('Work Package gate run child result changed its durable preparation');
+      }
+      await replaceCheckpoint({ runChild });
+      await dependencies.afterCheckpoint('run-child-prepared');
+      await revalidateDurableCheckpoint();
+    };
+    if (!checkpoint.childAttempted && checkpoint.child === null &&
+      checkpoint.runChildPreparation !== null && checkpoint.runChild === null) {
+      await prepareDurablyBoundRunChild();
+    }
+
+    if (!checkpoint.childAttempted && checkpoint.child === null && checkpoint.runChild !== null &&
+      (checkpoint.runChild.issuerProcessId !== process.pid ||
+        checkpoint.runChild.supervisorLeaseDigest !== namespaceLease.authority.leaseDigest)) {
+      await revalidateExternalAuthority();
+      await dependencies.retireUnconsumedRunChild(namespaceRoot, checkpoint.runChild);
+      const namespaceIdentity = await dependencies.prepareRunChildNamespace(snapshotRoot, namespace);
+      await replaceCheckpoint({
+        runChildPreparation: finalizeRunChildPreparation(
+          namespace,
+          namespaceLease.binding,
+          namespaceIdentity
+        ),
+        runChild: null
+      });
+      await dependencies.afterCheckpoint('run-child-preparation-attempted');
+      await revalidateDurableCheckpoint();
+      await prepareDurablyBoundRunChild();
+    }
+
     let launchIdentityStable = false;
     if (!checkpoint.childAttempted && checkpoint.child === null &&
       checkpoint.executionSnapshotPrepared && checkpoint.preflight !== null &&
-      preflightCensusClean(checkpoint.preflight)) {
+      preflightCensusClean(checkpoint.preflight) && checkpoint.runChild !== null) {
       try {
+        await dependencies.assertRunChild(namespaceRoot, checkpoint.runChild);
         launchIdentityStable = dependencies.gitRevision(repoRoot, 'HEAD') === checkpoint.headSha &&
           dependencies.gitRevision(repoRoot, 'HEAD^{tree}') === checkpoint.treeSha &&
           await dependencies.worktreeDigest(repoRoot) === checkpoint.worktreeBeforeDigest &&
@@ -3649,14 +4549,40 @@ export async function runWorkPackageGate(
       let child: WorkPackageGateChildEvidenceV1;
       try {
         await revalidateExternalAuthority();
+        const runChild = checkpoint.runChild;
+        const preparation = checkpoint.runChildPreparation;
+        if (runChild === null || preparation === null) {
+          throw new Error('Work Package gate run child is unavailable before launch');
+        }
+        await dependencies.assertRunChild(namespaceRoot, runChild);
+        const runChildAssignment = createTestWorkspaceRunChildAssignmentV1({
+          parentNamespace: namespace,
+          issuerProcessId: process.pid,
+          device: runChild.dev,
+          inode: runChild.ino,
+          nonce: preparation.nonce,
+          supervisorLeaseDigest: namespaceLease.authority.leaseDigest,
+          supervisorLeasePath: preparation.supervisorLeasePath,
+          supervisorLeaseDevice: preparation.supervisorLeaseDevice,
+          supervisorLeaseInode: preparation.supervisorLeaseInode,
+          namespaceDevice: runChild.namespaceDevice,
+          namespaceInode: runChild.namespaceInode
+        });
+        if (runChildAssignment.name !== runChild.name ||
+          runChildAssignment.nonceDigest !== runChild.nonceDigest ||
+          runChildAssignment.supervisorLeaseDigest !== runChild.supervisorLeaseDigest ||
+          runChildAssignment.namespaceDevice !== runChild.namespaceDevice ||
+          runChildAssignment.namespaceInode !== runChild.namespaceInode) {
+          throw new Error('Work Package gate run child assignment no longer matches its checkpoint');
+        }
         const currentPreflight = await dependencies.sideEffectCensus(
           'child',
           namespaceRoot,
           undefined,
-          true
+          true,
+          runChild
         );
         const launchStillStable = checkpoint.preflight !== null && preflightCensusClean(checkpoint.preflight) &&
-          JSON.stringify(currentPreflight) === JSON.stringify(checkpoint.preflight) &&
           preflightCensusClean(currentPreflight) &&
           dependencies.gitRevision(repoRoot, 'HEAD') === checkpoint.headSha &&
           dependencies.gitRevision(repoRoot, 'HEAD^{tree}') === checkpoint.treeSha &&
@@ -3665,9 +4591,15 @@ export async function runWorkPackageGate(
           dependencies.gitRevision(snapshotRoot, 'HEAD^{tree}') === checkpoint.treeSha &&
           await dependencies.worktreeDigest(snapshotRoot) === checkpoint.executionSnapshotDigest;
         if (!launchStillStable) throw new Error('Work Package gate launch identity changed after durable attempt');
+        namespaceLease.authorizeRunChild(runChildAssignment);
         const outcome = await dependencies.runChild(process.execPath, selection.argv.slice(1), {
           cwd: snapshotRoot,
-          env: { ...process.env, SEC_TEST_WORKSPACE_NAMESPACE: namespace },
+          env: {
+            ...process.env,
+            [TEST_WORKSPACE_NAMESPACE_ENV]: namespace,
+            [TEST_WORKSPACE_RUN_CHILD_ENV]: runChild.name,
+            [TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT_ENV]: JSON.stringify(runChildAssignment)
+          },
           envMode: 'replace',
           maxObservedOutputBytes: DIAGNOSTIC_OBSERVER_LIMIT_BYTES,
           onOutput: (stream, chunk) => collector.observe(stream, chunk),
@@ -3676,6 +4608,7 @@ export async function runWorkPackageGate(
           timeoutMs: options.watchdogMs,
           windowsHide: true
         });
+        namespaceLease.assertRunChildChallengeConsumed(runChildAssignment);
         child = childEvidence(outcome);
       } catch {
         child = unknownChildEvidence(true);
@@ -3711,7 +4644,12 @@ export async function runWorkPackageGate(
       protectedLedgerStable;
     if (canInspectResidue && checkpoint.postChild === null) {
       try {
-        const postChild = await dependencies.census(namespaceRoot, cleanupDeadlineAt, true);
+        const postChild = await dependencies.census(
+          namespaceRoot,
+          cleanupDeadlineAt,
+          true,
+          checkpoint.runChild
+        );
         await replaceCheckpoint({ postChild });
       } catch {
         // Typed census failure is represented by a null stage and fails closed.
@@ -3761,7 +4699,8 @@ export async function runWorkPackageGate(
             'recovery',
             namespaceRoot,
             cleanupDeadlineAt,
-            true
+            true,
+            checkpoint.runChild
           );
           if (checkpoint.postChild === null ||
             JSON.stringify(currentPostChild.structure) !== JSON.stringify(checkpoint.postChild.structure) ||
@@ -3773,7 +4712,8 @@ export async function runWorkPackageGate(
           recovered = await dependencies.recoverOwnedNamespace(
             namespaceRoot,
             cleanupDeadlineAt,
-            authorization
+            authorization,
+            checkpoint.runChild!
           );
         } catch {
           recovered = 'failed';
@@ -3800,7 +4740,12 @@ export async function runWorkPackageGate(
 
     if (canInspectResidue && checkpoint.recovery?.complete && checkpoint.postRecovery === null) {
       try {
-        const postRecovery = await dependencies.census(namespaceRoot, cleanupDeadlineAt, true);
+        const postRecovery = await dependencies.census(
+          namespaceRoot,
+          cleanupDeadlineAt,
+          true,
+          checkpoint.runChild
+        );
         await replaceCheckpoint({ postRecovery });
       } catch {
         // Missing post-recovery proof blocks deletion.
@@ -3821,7 +4766,8 @@ export async function runWorkPackageGate(
           'namespace-removal',
           namespaceRoot,
           cleanupDeadlineAt,
-          true
+          true,
+          checkpoint.runChild
         );
         if (checkpoint.postRecovery === null || checkpoint.preflight === null ||
           JSON.stringify(currentPostRecovery.structure) !==
@@ -3829,7 +4775,11 @@ export async function runWorkPackageGate(
           !structureAllowsDeletion(currentPostRecovery)) {
           throw new Error('Work Package gate deletion census changed after durable attempt');
         }
-        namespaceRemoved = await dependencies.removeNamespace(namespaceRoot, cleanupDeadlineAt);
+        namespaceRemoved = await dependencies.removeNamespace(
+          namespaceRoot,
+          cleanupDeadlineAt,
+          checkpoint.runChild!
+        );
       } catch {
         namespaceRemoved = false;
       }
@@ -3837,7 +4787,12 @@ export async function runWorkPackageGate(
     }
     if (checkpoint.namespaceRemoved && checkpoint.finalCensus === null) {
       try {
-        const finalCensus = await dependencies.census(namespaceRoot, cleanupDeadlineAt, true);
+        const finalCensus = await dependencies.census(
+          namespaceRoot,
+          cleanupDeadlineAt,
+          true,
+          checkpoint.runChild
+        );
         await replaceCheckpoint({ finalCensus });
       } catch {
         // A successful remove without final absence proof remains unknown.
@@ -3876,7 +4831,8 @@ export async function runWorkPackageGate(
           'snapshot-removal',
           namespaceRoot,
           cleanupDeadlineAt,
-          true
+          true,
+          checkpoint.runChild
         );
         const removalIdentityStable = checkpoint.finalCensus !== null && checkpoint.preflight !== null &&
           JSON.stringify(currentFinalCensus) === JSON.stringify(checkpoint.finalCensus) &&
@@ -4031,7 +4987,7 @@ export async function runWorkPackageGate(
     if (!published) throw new Error('Work Package gate publication was not bound');
     return published;
   } finally {
-    await releaseNamespaceLease();
+    await namespaceLease.release();
   }
 }
 

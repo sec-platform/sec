@@ -428,6 +428,12 @@ test('same-host dead stale lease is terminalized while live, foreign, and unknow
       code: 'WORKSPACE-WRITE-LEASE-002'
     });
     await replacement.release();
+    // The simulated crashed process cannot release its authority, but this
+    // in-process handle still owns a heartbeat timer. Exercise the rejected
+    // release so the test does not leak that timer into later test cases.
+    await expect(abandoned.release()).rejects.toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-002'
+    });
   }, 'engineering-compiler-workspace-lease-reclaim-');
 });
 
@@ -696,7 +702,7 @@ test('owner publication durability uncertainty preserves the complete holder for
       now: () => 0,
       createId: ids('durability-unknown'),
       ownerPublicationDirectorySync: async () => {
-        throw new Error('synthetic-root-directory-fsync-failure');
+        throw Object.assign(new Error('synthetic-root-directory-fsync-failure'), { code: 'EIO' });
       }
     });
     let failure: unknown;
@@ -707,6 +713,9 @@ test('owner publication durability uncertainty preserves the complete holder for
     }
     expect(failure).toBeInstanceOf(WorkspaceWriteLeaseError);
     expect((failure as WorkspaceWriteLeaseError).details).toEqual({
+      operation: 'acquire',
+      phase: 'owner-publication',
+      systemCode: 'EIO',
       reason: 'publication-durability-unknown',
       retryable: true
     });
@@ -846,6 +855,9 @@ test('concurrent stale recovery terminalizes one generation without removing its
       code: 'WORKSPACE-WRITE-LEASE-002'
     });
     await winner.value.release();
+    await expect(abandoned.release()).rejects.toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-002'
+    });
 
     const leaseRoot = path.join(workspaceRoot, '.sec', 'workspace-write-lease');
     expect((await readdir(leaseRoot)).filter((entry) => entry.endsWith('.owner.json'))).toHaveLength(2);
@@ -896,10 +908,212 @@ test('native local-state filesystem failures become typed diagnostics without ab
       failure = error;
     }
     expect(failure).toBeInstanceOf(WorkspaceWriteLeaseError);
-    expect(failure).toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-004' });
+    expect(failure).toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-004',
+      details: {
+        operation: 'acquire',
+        phase: 'lease-root-initialization',
+        systemCode: 'EEXIST'
+      }
+    });
     expect(String(failure)).not.toContain(workspaceRoot);
     expect(JSON.stringify(failure)).not.toContain(workspaceRoot);
   }, 'engineering-compiler-workspace-lease-native-failure-');
+});
+
+test('acquisition diagnostics retain a safe phase and system code without raw error text', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const nativeFailure = Object.assign(
+      new Error(`secret native failure at ${workspaceRoot}`),
+      { code: 'EMFILE' }
+    );
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000,
+      staleAfterMs: 20_000,
+      hostname: 'lease-test-host',
+      pid: 100,
+      processNonce: 'process:phase-diagnostic',
+      createId: ids('phase-diagnostic'),
+      now: () => { throw nativeFailure; },
+      processAlive: () => 'alive'
+    });
+
+    let failure: unknown;
+    try {
+      await manager.acquire(workspaceRoot);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(WorkspaceWriteLeaseError);
+    expect(failure).toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-004',
+      details: {
+        operation: 'acquire',
+        phase: 'acquisition-clock',
+        systemCode: 'EMFILE'
+      }
+    });
+    expect(JSON.stringify(failure)).not.toContain(workspaceRoot);
+    expect(JSON.stringify(failure)).not.toContain('secret native failure');
+  }, 'engineering-compiler-workspace-lease-phase-diagnostic-');
+});
+
+test('acquisition system-code projection rejects hostile and unbounded values', async () => {
+  const hostileCodes: readonly unknown[] = [
+    String.raw`D:\secret\workspace\tenant-a`,
+    '/secret/workspace/tenant-a',
+    'x'.repeat(65),
+    'EMFILE\nD:\\secret',
+    '路径',
+    7
+  ];
+  for (const [index, hostileCode] of hostileCodes.entries()) {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const nativeFailure = Object.assign(new Error('fixed safe failure'), { code: hostileCode });
+      const manager = createWorkspaceWriteLeaseManager({
+        heartbeatIntervalMs: 10_000,
+        staleAfterMs: 20_000,
+        hostname: 'lease-test-host',
+        pid: 100,
+        processNonce: `process:hostile-code-${index}`,
+        createId: ids(`hostile-code-${index}`),
+        now: () => { throw nativeFailure; },
+        processAlive: () => 'alive'
+      });
+
+      let failure: unknown;
+      try {
+        await manager.acquire(workspaceRoot);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-004',
+        details: {
+          operation: 'acquire',
+          phase: 'acquisition-clock',
+          systemCode: 'UNKNOWN'
+        }
+      });
+      const projections = [String(failure), JSON.stringify(failure)];
+      expect(projections.join('\n')).not.toContain(workspaceRoot);
+      if (typeof hostileCode === 'string') {
+        expect(projections.join('\n')).not.toContain(hostileCode);
+      }
+    }, `engineering-compiler-workspace-lease-hostile-code-${index}-`);
+  }
+});
+
+test('acquisition callbacks cannot self-issue trusted error messages or details', async () => {
+  for (const scenario of [
+    {
+      name: 'clock',
+      phase: 'acquisition-clock',
+      expectedMessage: 'Workspace writer lease acquisition clock failed',
+      capability: (failure: WorkspaceWriteLeaseError) => ({
+        now: () => { throw failure; },
+        createId: ids('typed-clock')
+      })
+    },
+    {
+      name: 'identity',
+      phase: 'lease-root-initialization',
+      expectedMessage: 'Workspace writer lease root could not be initialized',
+      capability: (failure: WorkspaceWriteLeaseError) => ({
+        now: () => 0,
+        createId: () => { throw failure; }
+      })
+    }
+  ] as const) {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const hostileMessage = `self-issued failure at ${workspaceRoot}`;
+      const failure = new WorkspaceWriteLeaseError(
+        'WORKSPACE-WRITE-LEASE-004',
+        hostileMessage,
+        {
+          leakedPath: workspaceRoot,
+          systemCode: 'EMFILE'
+        }
+      );
+      const manager = createWorkspaceWriteLeaseManager({
+        heartbeatIntervalMs: 10_000,
+        staleAfterMs: 20_000,
+        hostname: 'lease-test-host',
+        pid: 100,
+        processNonce: `process:self-issued-${scenario.name}`,
+        ...scenario.capability(failure),
+        processAlive: () => 'alive'
+      });
+
+      let observed: unknown;
+      try {
+        await manager.acquire(workspaceRoot);
+      } catch (error) {
+        observed = error;
+      }
+      expect(observed).toBeInstanceOf(WorkspaceWriteLeaseError);
+      expect(observed).toMatchObject({
+        code: 'WORKSPACE-WRITE-LEASE-004',
+        message: scenario.expectedMessage,
+        details: {
+          operation: 'acquire',
+          phase: scenario.phase,
+          systemCode: 'EMFILE'
+        }
+      });
+      expect(Object.keys((observed as WorkspaceWriteLeaseError).details).sort()).toEqual([
+        'operation',
+        'phase',
+        'systemCode'
+      ]);
+      const projections = `${String(observed)}\n${JSON.stringify(observed)}`;
+      expect(projections).not.toContain(hostileMessage);
+      expect(projections).not.toContain(workspaceRoot);
+      expect(projections).not.toContain('leakedPath');
+    }, `engineering-compiler-workspace-lease-self-issued-${scenario.name}-`);
+  }
+});
+
+test('acquisition validates identity callback results before serialization', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    let callerSerializationRan = false;
+    const hostileResult = {
+      toJSON: () => {
+        callerSerializationRan = true;
+        throw new Error(`serialize ${workspaceRoot}`);
+      }
+    } as unknown as string;
+    const manager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 10_000,
+      staleAfterMs: 20_000,
+      hostname: 'lease-test-host',
+      pid: 100,
+      processNonce: 'process:invalid-identity-result',
+      now: () => 0,
+      createId: () => hostileResult,
+      processAlive: () => 'alive'
+    });
+
+    let observed: unknown;
+    try {
+      await manager.acquire(workspaceRoot);
+    } catch (error) {
+      observed = error;
+    }
+    expect(callerSerializationRan).toBe(false);
+    expect(observed).toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-004',
+      message: 'Workspace writer lease root could not be initialized',
+      details: {
+        operation: 'acquire',
+        phase: 'lease-root-initialization',
+        systemCode: 'UNKNOWN'
+      }
+    });
+    const projections = `${String(observed)}\n${JSON.stringify(observed)}`;
+    expect(projections).not.toContain(workspaceRoot);
+    expect(projections).not.toContain('serialize');
+  }, 'engineering-compiler-workspace-lease-invalid-identity-result-');
 });
 
 test('generic lease acquisition keeps a missing workspace fail closed with path-free identity details', async () => {
@@ -925,7 +1139,8 @@ test('generic lease acquisition keeps a missing workspace fail closed with path-
       details: {
         operation: 'acquire',
         phase: 'workspace-identity',
-        reason: 'missing'
+        reason: 'missing',
+        systemCode: 'PHYSICAL_NO_FOLLOW_ABSENT'
       }
     });
     expect(String(failure)).not.toContain(workspaceRoot);

@@ -43,6 +43,7 @@ const OWNER_GENERATION_PATTERN = /^([0-9]{16})\.owner\.json$/u;
 const TERMINAL_GENERATION_PATTERN = /^([0-9]{16})\.terminal\.json$/u;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000;
 const DEFAULT_STALE_AFTER_MS = 30_000;
+const MAX_LEASE_ID_LENGTH = 256;
 const PROCESS_NONCE = randomUUID();
 const RETIREMENT_RECOVERY_ACQUIRE_V1 = Symbol('workspace-write-lease-retirement-recovery-acquire-v1');
 type InternalWorkspaceWriteLeaseAcquireOptions = WorkspaceWriteLeaseAcquireOptions & {
@@ -141,8 +142,12 @@ interface PreparedWorkspaceWriteLease {
 
 type ImmutablePublicationOutcome =
   | Readonly<{ state: 'published' }>
-  | Readonly<{ state: 'not-published'; reason: 'target-exists' | 'link-failed' }>
-  | Readonly<{ state: 'durability-unknown' }>;
+  | Readonly<{
+      state: 'not-published';
+      reason: 'target-exists' | 'link-failed';
+      systemCode: string;
+    }>
+  | Readonly<{ state: 'durability-unknown'; systemCode: string }>;
 
 export interface WorkspaceWriteLeaseInspection {
   readonly formatVersion: typeof WORKSPACE_WRITE_LEASE_INSPECTION_VERSION;
@@ -344,7 +349,61 @@ type WorkspaceIdentityFailureReason = 'missing' | 'inaccessible' | 'not-director
 
 function systemErrorCode(error: unknown): string | undefined {
   if (!error || typeof error !== 'object' || !('code' in error)) return undefined;
-  return typeof error.code === 'string' ? error.code.toUpperCase() : undefined;
+  if (typeof error.code !== 'string') return undefined;
+  const normalized = error.code.toUpperCase();
+  return /^[A-Z][A-Z0-9_]{0,63}$/u.test(normalized) ? normalized : undefined;
+}
+
+function acquisitionSystemCode(error: unknown): string | undefined {
+  if (error instanceof WorkspaceWriteLeaseError) {
+    return systemErrorCode({ code: error.details.systemCode });
+  }
+  return systemErrorCode(error);
+}
+
+type WorkspaceWriteLeaseAcquisitionPhase =
+  | 'retirement-fence-observation'
+  | 'lease-root-initialization'
+  | 'lease-inventory'
+  | 'acquisition-clock'
+  | 'owner-preparation'
+  | 'owner-publication'
+  | 'unclassified';
+
+function acquisitionFailure(
+  phase: WorkspaceWriteLeaseAcquisitionPhase,
+  error: unknown,
+  message: string
+): WorkspaceWriteLeaseError {
+  return new WorkspaceWriteLeaseError(
+    'WORKSPACE-WRITE-LEASE-004',
+    message,
+    {
+      operation: 'acquire',
+      phase,
+      systemCode: acquisitionSystemCode(error) ?? 'UNKNOWN'
+    }
+  );
+}
+
+function acquisitionPhaseFailure(
+  phase: WorkspaceWriteLeaseAcquisitionPhase,
+  error: unknown,
+  message: string
+): WorkspaceWriteLeaseError {
+  // Manager callbacks are public capabilities.  A callback can construct this
+  // exported error class, so `instanceof WorkspaceWriteLeaseError` is not an
+  // issuer credential.  Every acquisition callback boundary is projected into
+  // the same closed contract: fixed message, fixed keys, and a bounded native
+  // code.  No callback-owned message or details survive the boundary.
+  if (!(error instanceof WorkspaceWriteLeaseError)) {
+    return acquisitionFailure(phase, error, message);
+  }
+  // Structural protocol and contention errors are created below the callback
+  // boundary and retain their typed semantics.  Capability wrappers above
+  // convert every caller-issued exception to code 004 before it reaches here.
+  if (error.code !== 'WORKSPACE-WRITE-LEASE-004') return error;
+  return acquisitionFailure(phase, error, message);
 }
 
 function workspaceIdentityFailureReason(error: unknown): WorkspaceIdentityFailureReason {
@@ -422,7 +481,10 @@ async function workspaceIdentity(
     const resolved = path.resolve(workspaceRoot);
     let metadata;
     try { metadata = await fs.lstat(resolved, { bigint: true }); } catch (error) {
-      throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-004', 'Workspace lexical identity cannot be inspected on macOS', { reason: workspaceIdentityFailureReason(error) });
+      throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-004', 'Workspace lexical identity cannot be inspected on macOS', {
+        reason: workspaceIdentityFailureReason(error),
+        systemCode: systemErrorCode(error) ?? 'UNKNOWN'
+      });
     }
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
       throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-004', 'Workspace lexical identity is not a real macOS directory', { reason: 'not-directory' });
@@ -444,7 +506,8 @@ async function workspaceIdentity(
   } catch (error) {
     if (error instanceof WorkspaceWriteLeaseError) throw error;
     throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-004', 'Workspace physical identity cannot be proven', {
-      reason: workspaceIdentityFailureReason(error)
+      reason: workspaceIdentityFailureReason(error),
+      systemCode: systemErrorCode(error) ?? 'UNKNOWN'
     });
   }
 }
@@ -629,22 +692,26 @@ async function linkImmutableCandidateNoReplace(
   try {
     await fs.link(candidate, target);
   } catch (error) {
+    const systemCode = systemErrorCode(error) ?? 'UNKNOWN';
     const relationship = await publicationTargetRelationship(candidate, target);
-    if (relationship === 'same') return Object.freeze({ state: 'durability-unknown' });
-    if (relationship === 'unknown') return Object.freeze({ state: 'durability-unknown' });
+    if (relationship === 'same') return Object.freeze({ state: 'durability-unknown', systemCode });
+    if (relationship === 'unknown') return Object.freeze({ state: 'durability-unknown', systemCode });
     if (relationship === 'different' && isExistsError(error)) {
-      return Object.freeze({ state: 'not-published', reason: 'target-exists' });
+      return Object.freeze({ state: 'not-published', reason: 'target-exists', systemCode });
     }
     if (relationship === 'absent') {
-      return Object.freeze({ state: 'not-published', reason: 'link-failed' });
+      return Object.freeze({ state: 'not-published', reason: 'link-failed', systemCode });
     }
-    return Object.freeze({ state: 'durability-unknown' });
+    return Object.freeze({ state: 'durability-unknown', systemCode });
   }
   try {
     await syncTargetDirectory(targetDirectory);
     return Object.freeze({ state: 'published' });
-  } catch {
-    return Object.freeze({ state: 'durability-unknown' });
+  } catch (error) {
+    return Object.freeze({
+      state: 'durability-unknown',
+      systemCode: systemErrorCode(error) ?? 'UNKNOWN'
+    });
   }
 }
 
@@ -670,23 +737,32 @@ async function publishImmutableJsonNoReplace(
     throw new WorkspaceWriteLeaseError(
       'WORKSPACE-WRITE-LEASE-004',
       'Workspace writer lease immutable publication durability is unknown',
-      { reason: 'publication-durability-unknown', retryable: true }
+      {
+        reason: 'publication-durability-unknown',
+        retryable: true,
+        systemCode: outcome.systemCode
+      }
     );
   }
   try {
     await removeImmutableCandidate(candidateDirectory, candidate);
-  } catch {
+  } catch (error) {
     throw new WorkspaceWriteLeaseError(
       'WORKSPACE-WRITE-LEASE-004',
       'Workspace writer lease immutable publication cleanup durability is unknown',
-      { reason: 'publication-cleanup-durability-unknown', retryable: true }
+      {
+        reason: 'publication-cleanup-durability-unknown',
+        retryable: true,
+        systemCode: systemErrorCode(error) ?? 'UNKNOWN'
+      }
     );
   }
   if (outcome.state === 'not-published') {
     if (outcome.reason === 'target-exists') return false;
     throw new WorkspaceWriteLeaseError(
       'WORKSPACE-WRITE-LEASE-004',
-      'Workspace writer lease immutable publication failed before target creation'
+      'Workspace writer lease immutable publication failed before target creation',
+      { systemCode: outcome.systemCode }
     );
   }
   return true;
@@ -1979,9 +2055,38 @@ export function createWorkspaceWriteLeaseManager(
   const hostname = options.hostname ?? os.hostname();
   const pid = options.pid ?? process.pid;
   const processNonce = options.processNonce ?? PROCESS_NONCE;
-  const now = options.now ?? Date.now;
-  const createId = options.createId ?? randomUUID;
-  const processAlive = options.processAlive ?? defaultProcessAlive;
+  const nowCapability = options.now ?? Date.now;
+  const createIdCapability = options.createId ?? randomUUID;
+  const processAliveCapability = options.processAlive ?? defaultProcessAlive;
+  const createId = (): string => {
+    let value: unknown;
+    try {
+      value = createIdCapability();
+    } catch (error) {
+      throw new WorkspaceWriteLeaseError(
+        'WORKSPACE-WRITE-LEASE-004',
+        'Workspace writer lease identity generation failed',
+        { systemCode: acquisitionSystemCode(error) ?? 'UNKNOWN' }
+      );
+    }
+    if (!nonEmpty(value) || value.length > MAX_LEASE_ID_LENGTH) {
+      throw new WorkspaceWriteLeaseError(
+        'WORKSPACE-WRITE-LEASE-004',
+        'Workspace writer lease identity generation returned an invalid value'
+      );
+    }
+    return value;
+  };
+  const processAlive = (observedPid: number): 'alive' | 'dead' | 'unknown' => {
+    try {
+      const observed = processAliveCapability(observedPid);
+      return observed === 'alive' || observed === 'dead' || observed === 'unknown'
+        ? observed
+        : 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  };
   const ownerPublicationDirectorySync =
     options.ownerPublicationDirectorySync ?? fsyncDirectory;
   const controlPlaneTails = new Map<string, Promise<void>>();
@@ -1996,7 +2101,16 @@ export function createWorkspaceWriteLeaseManager(
     throw new Error('Workspace write lease manager options are invalid');
   }
   const currentTime = (): number => {
-    const value = now();
+    let value: number;
+    try {
+      value = nowCapability();
+    } catch (error) {
+      throw new WorkspaceWriteLeaseError(
+        'WORKSPACE-WRITE-LEASE-004',
+        'Workspace writer lease clock observation failed',
+        { systemCode: acquisitionSystemCode(error) ?? 'UNKNOWN' }
+      );
+    }
     if (!safeInteger(value)) {
       throw new WorkspaceWriteLeaseError(
         'WORKSPACE-WRITE-LEASE-004',
@@ -2389,13 +2503,24 @@ export function createWorkspaceWriteLeaseManager(
           {
             operation: 'acquire',
             phase: 'workspace-identity',
-            reason: workspaceIdentityFailureReason(error)
+            reason: workspaceIdentityFailureReason(error),
+            systemCode: acquisitionSystemCode(error) ?? 'UNKNOWN'
           }
         );
       }
     );
-    const fenceParent = inspectNoFollowDirectoryChainV1(retirementFenceParent(workspaceRoot), 'Workspace writer lease fence parent').target;
-    const retirementFenceBytes = readNoFollowOrdinaryFileV1(fenceParent, retirementFenceName(workspaceIdentityDigest));
+    let fenceParent: PhysicalDirectoryIdentityV1;
+    let retirementFenceBytes: Uint8Array | null;
+    try {
+      fenceParent = inspectNoFollowDirectoryChainV1(retirementFenceParent(workspaceRoot), 'Workspace writer lease fence parent').target;
+      retirementFenceBytes = readNoFollowOrdinaryFileV1(fenceParent, retirementFenceName(workspaceIdentityDigest));
+    } catch (error) {
+      throw acquisitionPhaseFailure(
+        'retirement-fence-observation',
+        error,
+        'Workspace writer lease retirement fence could not be observed'
+      );
+    }
     const recoveryReceipt = (acquireOptions as InternalWorkspaceWriteLeaseAcquireOptions)[RETIREMENT_RECOVERY_ACQUIRE_V1];
     if (retirementFenceBytes !== null) {
       let observed: WorkspaceWriteLeaseRetirementReceipt | null = null;
@@ -2406,10 +2531,28 @@ export function createWorkspaceWriteLeaseManager(
         throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease identity is terminally retired');
       }
     }
-    const paths = await ensureRoot(workspaceRoot, executionBoundary);
+    let paths: WorkspaceWriteLeasePaths;
+    try {
+      paths = await ensureRoot(workspaceRoot, executionBoundary);
+    } catch (error) {
+      throw acquisitionPhaseFailure(
+        'lease-root-initialization',
+        error,
+        'Workspace writer lease root could not be initialized'
+      );
+    }
 
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      const inventory = await readInventory(paths.root);
+      let inventory: WorkspaceWriteLeaseInventory;
+      try {
+        inventory = await readInventory(paths.root);
+      } catch (error) {
+        throw acquisitionPhaseFailure(
+          'lease-inventory',
+          error,
+          'Workspace writer lease inventory could not be observed'
+        );
+      }
       if (recoveryReceipt !== undefined && inventory.highestGeneration !== recoveryReceipt.tokenGeneration) {
         throw new WorkspaceWriteLeaseError('WORKSPACE-WRITE-LEASE-003', 'Workspace writer lease retirement recovery generation changed');
       }
@@ -2461,8 +2604,26 @@ export function createWorkspaceWriteLeaseManager(
           'Workspace writer lease generation space is exhausted'
         );
       }
-      const leaseId = createId();
-      const timestamp = currentTime();
+      let leaseId: string;
+      try {
+        leaseId = createId();
+      } catch (error) {
+        throw acquisitionPhaseFailure(
+          'owner-preparation',
+          error,
+          'Workspace writer lease owner preparation failed'
+        );
+      }
+      let timestamp: number;
+      try {
+        timestamp = currentTime();
+      } catch (error) {
+        throw acquisitionPhaseFailure(
+          'acquisition-clock',
+          error,
+          'Workspace writer lease acquisition clock failed'
+        );
+      }
       if (!nonEmpty(leaseId)) {
         throw new WorkspaceWriteLeaseError(
           'WORKSPACE-WRITE-LEASE-004',
@@ -2483,33 +2644,55 @@ export function createWorkspaceWriteLeaseManager(
         );
       } catch (error) {
         if (isExistsError(error)) continue;
-        if (error instanceof WorkspaceWriteLeaseError) throw error;
-        throw new WorkspaceWriteLeaseError(
-          'WORKSPACE-WRITE-LEASE-004',
+        throw acquisitionPhaseFailure(
+          'owner-preparation',
+          error,
           'Workspace writer lease owner preparation failed'
         );
       }
 
-      const ownerPublication = await linkImmutableCandidateNoReplace(
-        prepared.ownerPath,
-        paths.root,
-        generationOwnerPath(paths.root, generation),
-        ownerPublicationDirectorySync
-      );
+      let ownerPublication: ImmutablePublicationOutcome;
+      try {
+        ownerPublication = await linkImmutableCandidateNoReplace(
+          prepared.ownerPath,
+          paths.root,
+          generationOwnerPath(paths.root, generation),
+          ownerPublicationDirectorySync
+        );
+      } catch (error) {
+        throw acquisitionPhaseFailure(
+          'owner-publication',
+          error,
+          'Workspace writer lease owner publication failed'
+        );
+      }
       if (ownerPublication.state === 'not-published') {
         await fs.rm(prepared.holder, { recursive: true, force: true }).catch(() => undefined);
         await fsyncDirectory(paths.holders).catch(() => undefined);
         if (ownerPublication.reason === 'target-exists') continue;
         throw new WorkspaceWriteLeaseError(
           'WORKSPACE-WRITE-LEASE-004',
-          'Workspace writer lease owner publication failed before target creation'
+          'Workspace writer lease owner publication failed before target creation',
+          {
+            operation: 'acquire',
+            phase: 'owner-publication',
+            systemCode: ownerPublication.systemCode,
+            reason: 'publication-not-created',
+            retryable: false
+          }
         );
       }
       if (ownerPublication.state === 'durability-unknown') {
         throw new WorkspaceWriteLeaseError(
           'WORKSPACE-WRITE-LEASE-004',
           'Workspace writer lease owner publication durability is unknown',
-          { reason: 'publication-durability-unknown', retryable: true }
+          {
+            operation: 'acquire',
+            phase: 'owner-publication',
+            systemCode: ownerPublication.systemCode,
+            reason: 'publication-durability-unknown',
+            retryable: true
+          }
         );
       }
 
@@ -2777,8 +2960,9 @@ export function createWorkspaceWriteLeaseManager(
       return await acquireNative(workspaceRoot, acquireOptions);
     } catch (error) {
       if (error instanceof WorkspaceWriteLeaseError) throw error;
-      throw new WorkspaceWriteLeaseError(
-        'WORKSPACE-WRITE-LEASE-004',
+      throw acquisitionFailure(
+        'unclassified',
+        error,
         'Workspace writer lease acquisition failed'
       );
     }

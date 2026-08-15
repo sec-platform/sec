@@ -798,6 +798,7 @@ test('test impact assigns focused governance and frozen work-package ownership',
       : null
   });
   const workPackageEvidenceSources = [
+    'scripts/run-work-package-gate.ts',
     retiredEvidence.path,
     'docs/evidence/v0-4-semantic-mutation-apply-r2-verification.json',
     'docs/evidence/v0-4-semantic-mutation-apply-repair-verification.json',
@@ -905,7 +906,8 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
       'tests/contract/test-impact.test.ts',
       'tests/unit/ci-pr-risk-selection.test.ts',
       'tests/unit/heavy-verification-gate-lease.test.ts',
-      'tests/unit/verification-action-ci-contract.test.ts'
+      'tests/unit/verification-action-ci-contract.test.ts',
+      'tests/unit/work-package-gate-execution.test.ts'
     ],
     slow: [],
     owners: ['auto-reference', 'dev-runner']
@@ -917,7 +919,8 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
     'tests/contract/dev-runner-contract.test.ts',
     'tests/contract/test-impact.test.ts',
     'tests/unit/ci-pr-risk-selection.test.ts',
-    'tests/unit/test-runner.test.ts'
+    'tests/unit/test-runner.test.ts',
+    'tests/unit/work-package-gate-execution.test.ts'
   ]);
   expect(moduleSelection.fast).not.toEqual(expect.arrayContaining([
     'tests/contract/benchmark-budget.test.ts',
@@ -956,6 +959,22 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
   });
   expect(resolveTestOwnership(['platform/dev-runner/dependency-bootstrap.ts'])).toEqual([{
     source: 'platform/dev-runner/dependency-bootstrap.ts',
+    owner: 'dev-runner',
+    identity: { kind: 'architecture-owner', id: 'dev-runner' }
+  }]);
+
+  const runtimePreload = 'tests/setup/runtime-deps.setup.ts';
+  expect(selectTestsForSources([runtimePreload])).toEqual({
+    fast: [
+      'tests/contract/dev-runner-contract.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts'
+    ],
+    slow: [],
+    owners: ['dev-runner']
+  });
+  expect(resolveTestOwnership([runtimePreload])).toEqual([{
+    source: runtimePreload,
     owner: 'dev-runner',
     identity: { kind: 'architecture-owner', id: 'dev-runner' }
   }]);

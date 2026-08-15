@@ -1,23 +1,50 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFile, link, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  copyFile,
+  cp,
+  link,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  rmdir,
+  stat,
+  symlink,
+  unlink,
+  writeFile
+} from 'node:fs/promises';
+import { createConnection } from 'node:net';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 
+import {
+  createTestWorkspaceSupervisorLeaseV1,
+  testWorkspaceSupervisorLeasePathV1
+} from '../../platform/dev-runner/env-manager.ts';
 import { CodexDevelopmentVerificationDigest } from '../../platform/shared/ci-evidence-contract.ts';
 import type { ObservedCommandOutcome } from '../../platform/shared/observed-process.ts';
+import { runObservedCommand } from '../../platform/shared/observed-process.ts';
 import { createWorkspaceWriteLeaseManager } from '../../platform/shared/workspace-write-lease.ts';
 import {
   prepareWorkPackageExecutionSnapshotForTests,
   publishWorkPackageExecutionSnapshotOwnerForTests,
   removeWorkPackageExecutionSnapshotForTests,
   runWorkPackageGate,
+  workPackageGateAssertRunChildForTests,
   workPackageGateAuthorityProbeBudgetForTests,
   workPackageGateCheckpointPublicationDirectoryForTests,
   workPackageGateFailureIndexForTests,
   workPackageGateNamespaceMutexNameForTests,
   workPackageGateNamespaceStructureForTests,
+  workPackageGatePrepareExactRunChildForTests,
+  workPackageGatePrepareRunChildForTests,
+  workPackageGatePrepareRunChildNamespaceForTests,
   workPackageGateProbeOutcomeAcceptedForTests,
   workPackageGateProtectedLedgerDigestForTests,
   workPackageGateProtectedPathAuthorityForTests,
@@ -26,6 +53,8 @@ import {
   workPackageGateReadTextForTests,
   workPackageGateRecoveryRecordAuthorityPathForTests,
   workPackageGateRecoveryRecordEntryPathForTests,
+  workPackageGateRemoveOwnedNamespaceForTests,
+  workPackageGateRetireRunChildForTests,
   workPackageGateTerminalCompletionAuthorityPathsForTests,
   workPackageGateTerminalOrderEntryKindForTests,
   workPackageWorktreeDigestForTests,
@@ -50,6 +79,7 @@ const repoRoot = path.resolve(import.meta.dir, '../..');
 const head = 'a'.repeat(40);
 const tree = 'b'.repeat(40);
 const worktree = `sha256:${'c'.repeat(64)}`;
+const supervisorLeaseDigest = `sha256:${'d'.repeat(64)}` as const;
 const emptyDigest: `sha256:${string}` = `sha256:${'e'.repeat(64)}`;
 const v4Options: WorkPackageGateOptions = Object.freeze({
   manifestPath: 'docs/work-packages/sm3-r3-actionable-runtime-gate-v4.md',
@@ -141,6 +171,37 @@ const syntheticFilesystemIdentityExpectation = Object.freeze({
 test('Windows namespace mutex is global across interactive and service sessions', () => {
   expect(workPackageGateNamespaceMutexNameForTests(v4RunDir))
     .toMatch(/^Global\\sec-work-package-gate-[0-9a-f]{32}-owned$/u);
+});
+
+test('a dead supervisor generation is retained-retired before the replacement run-child intent', async () => {
+  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+  const leasePath = testWorkspaceSupervisorLeasePathV1(syntheticV4Namespace);
+  await expect(lstat(leasePath)).rejects.toThrow();
+  const stale = createTestWorkspaceSupervisorLeaseV1({
+    namespace: syntheticV4Namespace,
+    runId: 'crashed-supervisor',
+    repositoryRoot: repoRoot,
+    executionSnapshotRoot: path.join(
+      repoRoot,
+      '.tmp',
+      'gate-execution-snapshots',
+      syntheticV4Namespace
+    ),
+    issuerProcessId: 2_147_483_647,
+    nonce: 'a'.repeat(64)
+  });
+  await mkdir(path.dirname(leasePath), { recursive: true });
+  await writeFile(leasePath, JSON.stringify(stale), { encoding: 'utf8', flag: 'wx' });
+  const fake = fakeDependencies();
+
+  try {
+    const result = await runWorkPackageGate(v4Options, fake.overrides);
+    expect(result.evidence.status).toBe('passed');
+    expect(fake.counters.child).toBe(1);
+    await expect(lstat(leasePath)).rejects.toThrow();
+  } finally {
+    await rm(leasePath, { force: true });
+  }
 });
 
 test('protected directory snapshot ignores child link-count drift but detects path replacement', async () => {
@@ -806,6 +867,67 @@ interface GateCounters {
   namespaceRemoval: number;
   snapshotRemoval: number;
   snapshotPreparation: number;
+  runChildPreparation: number;
+  runChildRetirement: number;
+  preparedRunChildName: string | null;
+  launchedRunChildName: string | null;
+  launchedRunChildAssignment: string | null;
+}
+
+function supervisorChallengeEndpointForTest(snapshotRoot: string): string {
+  const endpointDigest = rawJsonDigest({
+    domain: 'sec-test-workspace-supervisor-challenge-endpoint-v1',
+    executionSnapshotRoot: canonicalFilesystemIdentityForTests(snapshotRoot)
+  }).slice('sha256:'.length, 'sha256:'.length + 40);
+  return process.platform === 'win32'
+    ? `\\\\.\\pipe\\sec-wpg-${endpointDigest}`
+    : `\0sec-wpg-${endpointDigest}`;
+}
+
+async function consumeAuthorizedChallengeForTest(
+  serializedAssignment: string,
+  snapshotRoot: string
+): Promise<void> {
+  const assignment = JSON.parse(serializedAssignment) as Readonly<Record<string, unknown>>;
+  const draft = Object.freeze({
+    schema: 'sec-test-workspace-supervisor-challenge-v1',
+    name: assignment.name,
+    nonceDigest: assignment.nonceDigest,
+    supervisorLeaseDigest: assignment.supervisorLeaseDigest,
+    assignmentDigest: assignment.assignmentDigest
+  });
+  const challenge = Object.freeze({ ...draft, challengeDigest: rawJsonDigest(draft) });
+  await new Promise<void>((resolve, reject) => {
+    const socket = createConnection(supervisorChallengeEndpointForTest(snapshotRoot));
+    let bytes = Buffer.alloc(0);
+    let settled = false;
+    const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      error === undefined ? resolve() : reject(error);
+    };
+    socket.setTimeout(5_000, () => finish(new Error('test supervisor challenge timed out')));
+    socket.once('connect', () => socket.write(`${JSON.stringify(challenge)}\n`));
+    socket.once('error', (error) => finish(error));
+    socket.on('data', (chunk: Buffer) => {
+      bytes = Buffer.concat([bytes, chunk]);
+      const newline = bytes.indexOf(0x0a);
+      if (newline < 0) return;
+      try {
+        const ack = JSON.parse(bytes.subarray(0, newline).toString('utf8')) as Readonly<Record<string, unknown>>;
+        if (newline !== bytes.byteLength - 1 ||
+          ack.schema !== 'sec-test-workspace-supervisor-challenge-ack-v1' ||
+          ack.challengeDigest !== challenge.challengeDigest) {
+          finish(new Error('test supervisor challenge acknowledgement is invalid'));
+          return;
+        }
+        finish();
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  });
 }
 
 function fakeDependencies(input: {
@@ -814,6 +936,10 @@ function fakeDependencies(input: {
   readonly childOutput?: readonly { readonly stream: 'stdout' | 'stderr'; readonly bytes: Uint8Array }[];
   readonly recovery?: 'not-needed' | 'completed' | 'failed';
   readonly crashStage?: WorkPackageGateCrashStageV4;
+  readonly realRunChild?: boolean;
+  readonly consumeChallenge?: boolean;
+  readonly pauseAtCheckpoint?: Readonly<{ stage: WorkPackageGateCrashStageV4; markerPath: string }>;
+  readonly pauseAfterRunChildEffectPath?: string;
 } = {}): { readonly overrides: Partial<WorkPackageGateDependencies>; readonly counters: GateCounters } {
   const counters: GateCounters = {
     child: 0,
@@ -821,11 +947,19 @@ function fakeDependencies(input: {
     recovery: 0,
     namespaceRemoval: 0,
     snapshotRemoval: 0,
-    snapshotPreparation: 0
+    snapshotPreparation: 0,
+    runChildPreparation: 0,
+    runChildRetirement: 0,
+    preparedRunChildName: null,
+    launchedRunChildName: null,
+    launchedRunChildAssignment: null
   };
-  const censuses = input.censuses ?? [absentCensus, cleanCensus, cleanCensus, absentCensus];
+  const censuses = input.censuses ?? (input.realRunChild
+    ? [absentCensus, absentCensus, absentCensus, absentCensus]
+    : [absentCensus, cleanCensus, cleanCensus, absentCensus]);
   let censusIndex = 0;
   let now = 0;
+  let crashInjected = false;
   const overrides: Partial<WorkPackageGateDependencies> = {
     pathExists: async (filePath) => historicalFrozenTestPaths().has(path.resolve(filePath)) ||
       pathPresent(filePath),
@@ -840,17 +974,125 @@ function fakeDependencies(input: {
     protectedPathAuthority: async () => fakeProtectedPathAuthority,
     gitRevision: (_root, value) => value === 'HEAD' ? head : tree,
     worktreeDigest: async () => worktree,
-    prepareExecutionSnapshot: async () => {
+    prepareRunChildNamespace: async (snapshotRoot, namespace) => {
+      if (input.realRunChild) {
+        return workPackageGatePrepareRunChildNamespaceForTests(snapshotRoot, namespace);
+      }
+      const namespaceRoot = path.join(snapshotRoot, '.tmp', 'test-workspaces', namespace);
+      return Object.freeze({
+        schema: 'sec-physical-no-follow-v1' as const,
+        path: namespaceRoot,
+        finalPath: namespaceRoot,
+        device: 'namespace-device',
+        inode: 'namespace-inode',
+        objectId: 'namespace-object'
+      });
+    },
+    prepareExecutionSnapshot: async (_sourceRoot, snapshotRoot) => {
       counters.snapshotPreparation += 1;
+      if (input.realRunChild) {
+        await mkdir(snapshotRoot, { recursive: true });
+        const snapshotPlatform = path.join(snapshotRoot, 'platform');
+        if (!await pathPresent(snapshotPlatform)) {
+          await cp(path.join(repoRoot, 'platform'), snapshotPlatform, { recursive: true });
+        }
+      }
       return worktree;
     },
     removeExecutionSnapshot: async () => {
       counters.snapshotRemoval += 1;
       return true;
     },
-    runChild: async (_command, _args, options) => {
+    prepareRunChild: async (
+      namespaceRoot,
+      name,
+      nonceDigest,
+      issuerProcessId,
+      boundSupervisorLeaseDigest,
+      namespaceDevice,
+      namespaceInode,
+      adoptAfterDurableAttempt
+    ) => {
+      counters.runChildPreparation += 1;
+      counters.preparedRunChildName = name;
+      if (input.realRunChild) {
+        const result = await workPackageGatePrepareExactRunChildForTests(
+          namespaceRoot,
+          name,
+          nonceDigest,
+          issuerProcessId,
+          boundSupervisorLeaseDigest,
+          namespaceDevice,
+          namespaceInode,
+          adoptAfterDurableAttempt
+        );
+        if (input.pauseAfterRunChildEffectPath !== undefined) {
+          await writeFile(input.pauseAfterRunChildEffectPath, JSON.stringify(result), 'utf8');
+          await new Promise<never>(() => undefined);
+        }
+        return result;
+      }
+      const draft = {
+        schema: 'work-package-gate-run-child-identity-v1' as const,
+        name,
+        nonceDigest,
+        issuerProcessId,
+        supervisorLeaseDigest: boundSupervisorLeaseDigest,
+        namespaceDevice,
+        namespaceInode,
+        dev: '1',
+        ino: '2'
+      };
+      return Object.freeze({ ...draft, identityDigest: rawJsonDigest(draft) });
+    },
+    assertRunChild: input.realRunChild
+      ? workPackageGateAssertRunChildForTests
+      : async () => undefined,
+    retireUnconsumedRunChild: async (namespaceRoot, runChild) => {
+      counters.runChildRetirement += 1;
+      if (input.realRunChild) {
+        await workPackageGateRetireRunChildForTests(namespaceRoot, runChild);
+      }
+    },
+    runChild: async (command, _args, options) => {
       counters.child += 1;
+      const childEnv = options.env ?? {};
+      counters.launchedRunChildName = childEnv.SEC_TEST_WORKSPACE_RUN_CHILD ?? null;
+      counters.launchedRunChildAssignment = childEnv.SEC_TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT ?? null;
       for (const output of input.childOutput ?? []) options.onOutput?.(output.stream, output.bytes);
+      if (input.consumeChallenge !== false && counters.launchedRunChildAssignment !== null) {
+        if (input.realRunChild) {
+          const moduleUrl = pathToFileURL(path.join(
+            options.cwd,
+            'platform',
+            'dev-runner',
+            'env-manager.ts'
+          )).href;
+          const source = `
+            import {
+              consumeTestWorkspaceSupervisorChallengeV1,
+              parseTestWorkspaceRunChildAssignmentV1,
+              prepareTestWorkspaceRunV1,
+              settlePreparedTestWorkspaceRunV1
+            } from ${JSON.stringify(moduleUrl)};
+            const parentNamespace = process.env.SEC_TEST_WORKSPACE_NAMESPACE;
+            const runChild = process.env.SEC_TEST_WORKSPACE_RUN_CHILD;
+            const assignment = parseTestWorkspaceRunChildAssignmentV1(
+              process.env.SEC_TEST_WORKSPACE_RUN_CHILD_ASSIGNMENT,
+              parentNamespace,
+              runChild
+            );
+            await consumeTestWorkspaceSupervisorChallengeV1(assignment);
+            const cleanup = prepareTestWorkspaceRunV1(process.env, assignment);
+            settlePreparedTestWorkspaceRunV1(cleanup);
+          `;
+          return runObservedCommand(command, ['-e', source], options);
+        }
+        await consumeAuthorizedChallengeForTest(
+          counters.launchedRunChildAssignment,
+          options.cwd
+        );
+      }
       return input.child ?? outcome();
     },
     census: async () => {
@@ -872,14 +1114,23 @@ function fakeDependencies(input: {
       counters.recovery += 1;
       return input.recovery ?? 'completed';
     },
-    removeNamespace: async () => {
+    removeNamespace: async (namespaceRoot, _deadlineAtMs, runChild) => {
       counters.namespaceRemoval += 1;
-      return true;
+      return input.realRunChild
+        ? workPackageGateRemoveOwnedNamespaceForTests(namespaceRoot, runChild)
+        : true;
     },
     wallClock: () => new Date('2026-07-14T00:00:00.000Z'),
     monotonicNowMs: () => ++now,
     afterCheckpoint: async (stage) => {
-      if (stage === input.crashStage) throw new Error(`synthetic crash: ${stage}`);
+      if (stage === input.pauseAtCheckpoint?.stage) {
+        await writeFile(input.pauseAtCheckpoint.markerPath, stage, 'utf8');
+        await new Promise<never>(() => undefined);
+      }
+      if (stage === input.crashStage && !crashInjected) {
+        crashInjected = true;
+        throw new Error(`synthetic crash: ${stage}`);
+      }
     }
   };
   return { overrides, counters };
@@ -985,7 +1236,15 @@ test('diagnostic parser is stream-local, raw-byte bounded, and fail closed', () 
 
 test('namespace scanner authorizes only canonical bound owner records and rejects ambiguous files', async () => {
   const namespaceRoot = path.join(repoRoot, '.tmp', `synthetic-owner-census-${randomUUID()}`);
-  const workspaceRoot = path.join(namespaceRoot, 'workspace-a');
+  const parentNamespace = `owner-census-${randomUUID()}`;
+  const runChild = await workPackageGatePrepareRunChildForTests(
+    namespaceRoot,
+    parentNamespace,
+    'a'.repeat(64),
+    process.pid,
+    supervisorLeaseDigest
+  );
+  const workspaceRoot = path.join(namespaceRoot, runChild.name, 'workspace-a');
   const transactionRoot = path.join(
     workspaceRoot,
     '.sec',
@@ -1008,7 +1267,7 @@ test('namespace scanner authorizes only canonical bound owner records and reject
     ] as const) {
       const marker = path.join(transactionRoot, name);
       await writeFile(marker, JSON.stringify(record), 'utf8');
-      const scanned = await workPackageGateNamespaceStructureForTests(namespaceRoot);
+      const scanned = await workPackageGateNamespaceStructureForTests(namespaceRoot, runChild);
       expect(scanned.counts).toMatchObject(expected);
       expect(scanned.recoveryAuthorityIdentities).toHaveLength(1);
       await rm(marker, { force: true });
@@ -1016,15 +1275,57 @@ test('namespace scanner authorizes only canonical bound owner records and reject
 
     const malformed = path.join(transactionRoot, recoveryName);
     await writeFile(malformed, '{}', 'utf8');
-    await expect(workPackageGateNamespaceStructureForTests(namespaceRoot))
+    await expect(workPackageGateNamespaceStructureForTests(namespaceRoot, runChild))
       .rejects.toThrow('owner schema');
     await rm(malformed, { force: true });
 
     const source = path.join(transactionRoot, 'owner-source.json');
     await writeFile(source, JSON.stringify(records.recovery), 'utf8');
     await link(source, malformed);
-    await expect(workPackageGateNamespaceStructureForTests(namespaceRoot))
-      .rejects.toThrow(/identity|regular file/);
+    await expect(workPackageGateNamespaceStructureForTests(namespaceRoot, runChild))
+      .rejects.toThrow(/alias|identity|regular file/);
+    await rm(malformed, { force: true });
+    await rm(source, { force: true });
+
+    const foreignSibling = path.join(namespaceRoot, 'foreign-sibling');
+    await mkdir(foreignSibling);
+    await expect(workPackageGateNamespaceStructureForTests(namespaceRoot, runChild))
+      .rejects.toThrow('foreign top-level entry');
+    await rm(foreignSibling, { recursive: true, force: true });
+
+    const nestedWorkspace = path.join(namespaceRoot, runChild.name, 'extra-layer', 'workspace-b');
+    const nestedTransaction = path.join(
+      nestedWorkspace,
+      '.sec',
+      'semantic-mutation',
+      'v1',
+      'transactions',
+      'b'.repeat(64)
+    );
+    await mkdir(path.join(nestedTransaction, 'workspace'), { recursive: true });
+    const nestedRecords = await ownerRecords(nestedWorkspace, nestedTransaction);
+    await writeFile(
+      path.join(nestedTransaction, recoveryName),
+      JSON.stringify(nestedRecords.recovery),
+      'utf8'
+    );
+    await expect(workPackageGateNamespaceStructureForTests(namespaceRoot, runChild))
+      .rejects.toThrow('outside its exact run child');
+    await rm(path.join(namespaceRoot, runChild.name, 'extra-layer'), { recursive: true, force: true });
+
+    const hostileLink = path.join(namespaceRoot, 'foreign-link');
+    await symlink(
+      path.join(namespaceRoot, runChild.name),
+      hostileLink,
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+    await expect(workPackageGateNamespaceStructureForTests(namespaceRoot, runChild))
+      .rejects.toThrow(/foreign top-level|identity|reparse|ambiguous/);
+    if (process.platform === 'win32') await rmdir(hostileLink);
+    else await unlink(hostileLink);
+
+    expect(await workPackageGateRemoveOwnedNamespaceForTests(namespaceRoot, runChild)).toBe(true);
+    await expect(lstat(namespaceRoot)).rejects.toThrow();
   } finally {
     await rm(namespaceRoot, { recursive: true, force: true });
   }
@@ -1032,7 +1333,14 @@ test('namespace scanner authorizes only canonical bound owner records and reject
 
 test('namespace scanner consumes the shared v2 workspace lease inspector for active and terminal states', async () => {
   const namespaceRoot = path.join(repoRoot, '.tmp', `synthetic-lease-census-${randomUUID()}`);
-  const workspaceRoot = path.join(namespaceRoot, 'workspace-a');
+  const runChild = await workPackageGatePrepareRunChildForTests(
+    namespaceRoot,
+    `lease-census-${randomUUID()}`,
+    'b'.repeat(64),
+    process.pid,
+    supervisorLeaseDigest
+  );
+  const workspaceRoot = path.join(namespaceRoot, runChild.name, 'workspace-a');
   try {
     await mkdir(workspaceRoot, { recursive: true });
     const manager = createWorkspaceWriteLeaseManager({
@@ -1044,13 +1352,13 @@ test('namespace scanner consumes the shared v2 workspace lease inspector for act
       })()
     });
     const active = await manager.acquire(workspaceRoot);
-    const activeCensus = await workPackageGateNamespaceStructureForTests(namespaceRoot);
-    expect(activeCensus.counts).toMatchObject({ workspaceRoots: 1, writerLeases: 1 });
+    const activeCensus = await workPackageGateNamespaceStructureForTests(namespaceRoot, runChild);
+    expect(activeCensus.counts).toMatchObject({ workspaceRoots: 0, writerLeases: 1 });
     expect(activeCensus.recoveryAuthorityIdentities).toHaveLength(1);
     expect(activeCensus.recoveryAuthorityIdentities[0]).toStartWith('workspace-write-lease:active:sha256:');
     await active.release();
 
-    const releasedCensus = await workPackageGateNamespaceStructureForTests(namespaceRoot);
+    const releasedCensus = await workPackageGateNamespaceStructureForTests(namespaceRoot, runChild);
     expect(releasedCensus.counts.writerLeases).toBe(1);
     expect(releasedCensus.recoveryAuthorityIdentities[0])
       .toStartWith('workspace-write-lease:quiescent:sha256:');
@@ -1060,14 +1368,21 @@ test('namespace scanner consumes the shared v2 workspace lease inspector for act
       '{}',
       'utf8'
     );
-    await expect(workPackageGateNamespaceStructureForTests(namespaceRoot))
+    await expect(workPackageGateNamespaceStructureForTests(namespaceRoot, runChild))
       .rejects.toThrow(/owner record|generation identity|terminal identity/);
   } finally {
     await rm(namespaceRoot, { recursive: true, force: true });
   }
 
   const recoveryNamespace = path.join(repoRoot, '.tmp', `synthetic-lease-recovery-${randomUUID()}`);
-  const recoveryWorkspace = path.join(recoveryNamespace, 'workspace-a');
+  const recoveryRunChild = await workPackageGatePrepareRunChildForTests(
+    recoveryNamespace,
+    `lease-recovery-${randomUUID()}`,
+    'c'.repeat(64),
+    process.pid,
+    supervisorLeaseDigest
+  );
+  const recoveryWorkspace = path.join(recoveryNamespace, recoveryRunChild.name, 'workspace-a');
   try {
     await mkdir(recoveryWorkspace, { recursive: true });
     const strandedManager = createWorkspaceWriteLeaseManager({
@@ -1102,7 +1417,10 @@ test('namespace scanner consumes the shared v2 workspace lease inspector for act
     });
     const recovered = await recoveryManager.acquire(recoveryWorkspace);
     await recovered.release();
-    const recoveredCensus = await workPackageGateNamespaceStructureForTests(recoveryNamespace);
+    const recoveredCensus = await workPackageGateNamespaceStructureForTests(
+      recoveryNamespace,
+      recoveryRunChild
+    );
     expect(recoveredCensus.counts.writerLeases).toBe(1);
     expect(recoveredCensus.recoveryAuthorityIdentities[0])
       .toStartWith('workspace-write-lease:quiescent:sha256:');
@@ -1112,10 +1430,68 @@ test('namespace scanner consumes the shared v2 workspace lease inspector for act
       '{}',
       'utf8'
     );
-    await expect(workPackageGateNamespaceStructureForTests(recoveryNamespace))
+    await expect(workPackageGateNamespaceStructureForTests(recoveryNamespace, recoveryRunChild))
       .rejects.toThrow(/Legacy workspace writer lease|legacy/i);
   } finally {
     await rm(recoveryNamespace, { recursive: true, force: true });
+  }
+});
+
+test('namespace remover preserves a replacement introduced after its frozen physical census', async () => {
+  const namespaceRoot = path.join(repoRoot, '.tmp', `synthetic-removal-replacement-${randomUUID()}`);
+  const runChild = await workPackageGatePrepareRunChildForTests(
+    namespaceRoot,
+    `removal-replacement-${randomUUID()}`,
+    'd'.repeat(64),
+    process.pid,
+    supervisorLeaseDigest
+  );
+  const runChildRoot = path.join(namespaceRoot, runChild.name);
+  const displacedRoot = path.join(namespaceRoot, 'displaced-original');
+  try {
+    const removed = await workPackageGateRemoveOwnedNamespaceForTests(
+      namespaceRoot,
+      runChild,
+      async () => {
+        await rename(runChildRoot, displacedRoot);
+        await mkdir(runChildRoot);
+        await writeFile(path.join(runChildRoot, 'replacement-owner.txt'), 'foreign', 'utf8');
+      }
+    );
+
+    expect(removed).toBe(false);
+    expect(await readFile(path.join(runChildRoot, 'replacement-owner.txt'), 'utf8')).toBe('foreign');
+    expect((await lstat(displacedRoot)).isDirectory()).toBe(true);
+  } finally {
+    await rm(namespaceRoot, { recursive: true, force: true });
+  }
+});
+
+test('namespace remover preserves a foreign sibling inserted after its frozen physical census', async () => {
+  const namespaceRoot = path.join(repoRoot, '.tmp', `synthetic-removal-insertion-${randomUUID()}`);
+  const runChild = await workPackageGatePrepareRunChildForTests(
+    namespaceRoot,
+    `removal-insertion-${randomUUID()}`,
+    'e'.repeat(64),
+    process.pid,
+    supervisorLeaseDigest
+  );
+  const foreignSibling = path.join(namespaceRoot, 'foreign-sibling');
+  try {
+    const removed = await workPackageGateRemoveOwnedNamespaceForTests(
+      namespaceRoot,
+      runChild,
+      async () => {
+        await mkdir(foreignSibling);
+        await writeFile(path.join(foreignSibling, 'owner.txt'), 'foreign', 'utf8');
+      }
+    );
+
+    expect(removed).toBe(false);
+    expect(await readFile(path.join(foreignSibling, 'owner.txt'), 'utf8')).toBe('foreign');
+    await expect(lstat(path.join(namespaceRoot, runChild.name))).rejects.toThrow();
+  } finally {
+    await rm(namespaceRoot, { recursive: true, force: true });
   }
 });
 
@@ -1428,8 +1804,22 @@ test('V4 pass evidence is exact, replayable, and never launches a second child',
     child: 1,
     recovery: 0,
     namespaceRemoval: 1,
-    snapshotRemoval: 1
+    snapshotRemoval: 1,
+    runChildPreparation: 1
   });
+  expect(fake.counters.launchedRunChildName).toBe(fake.counters.preparedRunChildName);
+  expect(fake.counters.launchedRunChildAssignment).not.toBeNull();
+  const launchedAssignment = JSON.parse(fake.counters.launchedRunChildAssignment!) as Record<string, unknown>;
+  expect(launchedAssignment).toMatchObject({
+    schema: 'sec-test-workspace-run-child-assignment-v1',
+    name: fake.counters.preparedRunChildName,
+    issuerProcessId: process.pid,
+    device: '1',
+    inode: '2'
+  });
+  expect(launchedAssignment.nonce).toMatch(/^[0-9a-f]{64}$/u);
+  expect(launchedAssignment.nonceDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(launchedAssignment.assignmentDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
   expect(() => assertWorkPackageGateEvidenceV4(first.evidence)).not.toThrow();
   const journalSource = await readFile(path.join(v4RunDir, 'events.jsonl'), 'utf8');
   expect(() => assertWorkPackageGateEvidenceBundleV4({
@@ -1520,6 +1910,246 @@ test('status algebra distinguishes actionable failure, non-actionable exit, and 
     })
   });
   expect((await runWorkPackageGate(v4Options, timedOut.overrides)).evidence.status).toBe('timed-out');
+});
+
+test('durable run-child preparation intent reconciles a dead issuer before any managed child effect', async () => {
+  const fake = fakeDependencies({ crashStage: 'run-child-preparation-attempted' });
+
+  await expect(runWorkPackageGate(v4Options, fake.overrides))
+    .rejects.toThrow('synthetic crash: run-child-preparation-attempted');
+  expect(fake.counters.runChildPreparation).toBe(0);
+  expect(fake.counters.child).toBe(0);
+
+  const resumed = await runWorkPackageGate(v4Options, fake.overrides);
+  expect(resumed.evidence.status).toBe('passed');
+  expect(fake.counters.runChildPreparation).toBe(2);
+  expect(fake.counters.runChildRetirement).toBe(1);
+  expect(fake.counters.child).toBe(1);
+  expect(fake.counters.launchedRunChildName).toBe(fake.counters.preparedRunChildName);
+});
+
+test('run-child mkdir success before result persistence reuses the durable intent then rotates its dead issuer', async () => {
+  const fake = fakeDependencies();
+  const prepare = fake.overrides.prepareRunChild!;
+  const attempts: Array<readonly [string, string, string, number, string, string, string, boolean]> = [];
+  let crashAfterFirstPhysicalEffect = true;
+  const overrides: Partial<WorkPackageGateDependencies> = {
+    ...fake.overrides,
+    prepareRunChild: async (...args) => {
+      const result = await prepare(...args);
+      attempts.push(Object.freeze([...args]) as readonly [string, string, string, number, string, string, string, boolean]);
+      if (crashAfterFirstPhysicalEffect) {
+        crashAfterFirstPhysicalEffect = false;
+        throw new Error('synthetic crash after run-child mkdir before checkpoint result');
+      }
+      return result;
+    }
+  };
+
+  await expect(runWorkPackageGate(v4Options, overrides))
+    .rejects.toThrow('synthetic crash after run-child mkdir before checkpoint result');
+  const interrupted = JSON.parse(await readFile(path.join(v4RunDir, 'checkpoint.json'), 'utf8')) as {
+    readonly runChildPreparation?: unknown;
+    readonly runChild?: unknown;
+  };
+  expect(interrupted.runChildPreparation).not.toBeNull();
+  expect(interrupted.runChild).toBeNull();
+
+  const resumed = await runWorkPackageGate(v4Options, overrides);
+  expect(resumed.evidence.status).toBe('passed');
+  expect(attempts).toHaveLength(3);
+  expect(attempts[1]).toEqual(attempts[0]);
+  expect(attempts[2]![1]).not.toBe(attempts[1]![1]);
+  expect(attempts[2]![4]).not.toBe(attempts[1]![4]);
+  expect(fake.counters.runChildRetirement).toBe(1);
+  expect(fake.counters.child).toBe(1);
+});
+
+test('a zero-exit child that never consumes the live challenge cannot publish terminal PASS', async () => {
+  const fake = fakeDependencies({ consumeChallenge: false });
+  const result = await runWorkPackageGate(v4Options, fake.overrides);
+
+  expect(fake.counters.child).toBe(1);
+  expect(result.evidence.status).not.toBe('passed');
+  expect(result.evidence.child.started).toBe(false);
+});
+
+test('run-child preparation rejects a swapped namespace without creating in the replacement', async () => {
+  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+  const fake = fakeDependencies({ realRunChild: true });
+  const prepare = fake.overrides.prepareRunChild!;
+  const snapshotRoot = path.join(
+    repoRoot,
+    '.tmp',
+    'gate-execution-snapshots',
+    syntheticV4Namespace
+  );
+  const namespaceRoot = path.join(snapshotRoot, '.tmp', 'test-workspaces', syntheticV4Namespace);
+  const displacedNamespace = `${namespaceRoot}-displaced`;
+  let expectedChildName: string | null = null;
+  const overrides: Partial<WorkPackageGateDependencies> = {
+    ...fake.overrides,
+    prepareRunChild: async (...args) => {
+      expectedChildName = args[1];
+      await rename(namespaceRoot, displacedNamespace);
+      await mkdir(namespaceRoot);
+      await writeFile(path.join(namespaceRoot, 'replacement-owner.txt'), 'foreign', 'utf8');
+      return prepare(...args);
+    }
+  };
+
+  try {
+    await expect(runWorkPackageGate(v4Options, overrides))
+      .rejects.toThrow('namespace changed after durable preparation');
+    expect(expectedChildName).not.toBeNull();
+    expect(await readFile(path.join(namespaceRoot, 'replacement-owner.txt'), 'utf8')).toBe('foreign');
+    await expect(lstat(path.join(namespaceRoot, expectedChildName!))).rejects.toThrow();
+    expect((await lstat(displacedNamespace)).isDirectory()).toBe(true);
+  } finally {
+    await rm(snapshotRoot, { recursive: true, force: true });
+  }
+});
+
+test('hard-death fixture process', async () => {
+  const mode = process.env.SEC_GATE_HARD_DEATH_MODE;
+  const markerPath = process.env.SEC_GATE_HARD_DEATH_MARKER;
+  if (mode === undefined && markerPath === undefined) return;
+  if ((mode !== 'preparation' && mode !== 'mkdir-effect') || markerPath === undefined) {
+    throw new Error('hard-death fixture environment is invalid');
+  }
+  const fake = fakeDependencies({
+    realRunChild: true,
+    pauseAtCheckpoint: mode === 'preparation'
+      ? { stage: 'run-child-preparation-attempted', markerPath }
+      : undefined,
+    pauseAfterRunChildEffectPath: mode === 'mkdir-effect' ? markerPath : undefined
+  });
+  await runWorkPackageGate(v4Options, fake.overrides);
+  throw new Error('hard-death fixture unexpectedly completed');
+}, 30_000);
+
+async function waitForHardDeathMarker(markerPath: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await pathPresent(markerPath)) return true;
+    await Bun.sleep(25);
+  }
+  return pathPresent(markerPath);
+}
+
+function hardKillProcessTree(pid: number): void {
+  if (process.platform === 'win32') {
+    const result = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+      encoding: 'utf8',
+      windowsHide: true
+    });
+    if (result.status !== 0) throw new Error(`hard-death fixture taskkill failed: ${result.stderr}`);
+    return;
+  }
+  process.kill(pid, 'SIGKILL');
+}
+
+test('real supervisor hard death recovers both preparation and mkdir effect/result windows', async () => {
+  if (process.platform !== 'win32' && process.platform !== 'linux') return;
+  const testFile = path.join(repoRoot, 'tests', 'unit', 'work-package-gate-execution.test.ts');
+  const snapshotRoot = path.join(
+    repoRoot,
+    '.tmp',
+    'gate-execution-snapshots',
+    syntheticV4Namespace
+  );
+  const foreignSibling = path.join(snapshotRoot, '.tmp', 'test-workspaces', 'foreign-preserve');
+  for (const mode of ['preparation', 'mkdir-effect'] as const) {
+    await cleanV4Publications();
+    await prepareSyntheticProtectedLedger();
+    await prepareCanonicalProtectedPathAuthority();
+    const markerPath = path.join(repoRoot, '.tmp', `gate-hard-death-${mode}-${randomUUID()}.json`);
+    await mkdir(foreignSibling, { recursive: true });
+    await writeFile(path.join(foreignSibling, 'owner.txt'), 'foreign', 'utf8');
+    const child = Bun.spawn([
+      process.execPath,
+      'test',
+      testFile,
+      '--test-name-pattern',
+      '^hard-death fixture process$'
+    ], {
+      cwd: repoRoot,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        ...process.env,
+        SEC_GATE_HARD_DEATH_MODE: mode,
+        SEC_GATE_HARD_DEATH_MARKER: markerPath
+      }
+    });
+    try {
+      if (!await waitForHardDeathMarker(markerPath, 15_000)) {
+        hardKillProcessTree(child.pid);
+        const [stdout, stderr] = await Promise.all([
+          new Response(child.stdout).text(),
+          new Response(child.stderr).text()
+        ]);
+        await child.exited;
+        throw new Error(`hard-death fixture did not reach ${mode}: ${stdout}\n${stderr}`);
+      }
+      hardKillProcessTree(child.pid);
+      await child.exited;
+      const successor = fakeDependencies({ realRunChild: true });
+      const result = await runWorkPackageGate(v4Options, successor.overrides);
+      if (result.evidence.status !== 'passed') {
+        throw new Error(`hard-death successor was not passed: ${JSON.stringify({
+          mode,
+          counters: successor.counters,
+          evidence: result.evidence
+        })}`);
+      }
+      expect(result.evidence.status).toBe('passed');
+      expect(successor.counters.child).toBe(1);
+      expect(successor.counters.runChildRetirement).toBe(1);
+      expect(await readFile(path.join(foreignSibling, 'owner.txt'), 'utf8')).toBe('foreign');
+      await expect(lstat(testWorkspaceSupervisorLeasePathV1(syntheticV4Namespace))).rejects.toThrow();
+    } finally {
+      if (child.exitCode === null) {
+        try { hardKillProcessTree(child.pid); } catch {}
+        await child.exited;
+      }
+      await rm(markerPath, { force: true });
+      await rm(snapshotRoot, { recursive: true, force: true });
+      await cleanV4Publications();
+    }
+  }
+}, 60_000);
+
+test('issuer rotation resumes when the new child effect succeeds before its result checkpoint', async () => {
+  const fake = fakeDependencies({ crashStage: 'run-child-prepared' });
+  const prepare = fake.overrides.prepareRunChild!;
+  const attempts: Array<readonly [string, string, string, number, string, string, string, boolean]> = [];
+  let crashAfterRotatedEffect = true;
+  const overrides: Partial<WorkPackageGateDependencies> = {
+    ...fake.overrides,
+    prepareRunChild: async (...args) => {
+      const result = await prepare(...args);
+      attempts.push(Object.freeze([...args]) as readonly [string, string, string, number, string, string, string, boolean]);
+      if (attempts.length === 2 && crashAfterRotatedEffect) {
+        crashAfterRotatedEffect = false;
+        throw new Error('synthetic crash after rotated run-child mkdir before checkpoint result');
+      }
+      return result;
+    }
+  };
+
+  await expect(runWorkPackageGate(v4Options, overrides)).rejects.toThrow('synthetic crash: run-child-prepared');
+  await expect(runWorkPackageGate(v4Options, overrides))
+    .rejects.toThrow('synthetic crash after rotated run-child mkdir before checkpoint result');
+  const resumed = await runWorkPackageGate(v4Options, overrides);
+
+  expect(resumed.evidence.status).toBe('passed');
+  expect(attempts).toHaveLength(4);
+  expect(attempts[2]).toEqual(attempts[1]);
+  expect(attempts[3]![1]).not.toBe(attempts[2]![1]);
+  expect(attempts[3]![4]).not.toBe(attempts[2]![4]);
+  expect(fake.counters.runChildRetirement).toBe(2);
+  expect(fake.counters.child).toBe(1);
 });
 
 test('unknown-result side-effect attempt bits are never replayed', async () => {
