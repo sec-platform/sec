@@ -263,8 +263,8 @@ Catalog采用一项延迟删除handoff：本轮选中的manifest进入main后仍
 前置重新解释为未完成。catalog最多保存七条近端记录，live adapter只做一次bounded Issue GraphQL和
 既有owner投影，不扫描Issue历史、comment或全backlog。
 
-非catalog recovery package临时插入时也不能破坏该完成事实。`docs:doctor`与`repository-audit`消费同一个
-pure package-census contract；各自从同一个immutable candidate tree读取pointer、manifest、roadmap与
+非catalog recovery package临时插入时也不能破坏该完成事实。hosted PRE issuer、`docs:doctor`与
+`repository-audit`消费同一个pure package-census contract；各自从同一个immutable candidate tree读取pointer、manifest、roadmap与
 package census，不能复制第二套“仅一个manifest”算法。exact tree blob与directory membership必须复用
 同一个已reviewed、只读、参数受限的Git object observer；目录枚举不得为了便利另开process dispatcher或
 由candidate扩写TCB allowlist。只有selected manifest的tracking为`none`时，才可
@@ -272,6 +272,9 @@ package census，不能复制第二套“仅一个manifest”算法。exact tree
 published predecessor。第二个匹配项、非catalog文件、byte drift或普通tracked package下的额外manifest
 全部fail closed。下一ordinary slice必须同时删除recovery manifest、已消费predecessor及对应catalog item；
 Git历史承担审计，不把旧manifest复制到`docs/evidence/**`或另建tombstone。
+PRE proposal的changed-record scope必须精确包含pointer、rolling、selected manifest和census判定应删除的
+全部base manifests；漏删任一旧manifest、修改被允许延迟保留的predecessor或加入额外package时，issuer在
+artifact/comment effect前返回`activation-scope-conflict`，不能靠候选本地测试或后续MainHealth补救。
 
 首次Phase C迁移是唯一bootstrap例外：旧rolling只含两个候选，而旧promotion要求提升后仍至少两个，
 因此不存在可执行的旧transition。本迁移在一个exact candidate中同时安装catalog、adapter、consumer与
