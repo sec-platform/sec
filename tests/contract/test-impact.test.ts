@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { FAST_TEST_PROCESS_POLICY_SENTINEL } from '../../platform/dev-runner/fast-test-policy.ts';
 import {
   CodexDevelopmentCreateTestImpactTransitionObservationV1
 } from '../../platform/shared/ci-git-changed-files.ts';
@@ -906,6 +907,7 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
       'tests/contract/test-impact.test.ts',
       'tests/unit/ci-pr-risk-selection.test.ts',
       'tests/unit/heavy-verification-gate-lease.test.ts',
+      'tests/unit/test-runner.test.ts',
       'tests/unit/verification-action-ci-contract.test.ts',
       'tests/unit/work-package-gate-execution.test.ts'
     ],
@@ -938,10 +940,28 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
     identity: { kind: 'architecture-owner', id: 'dev-runner' }
   }]);
 
+  expect(selectTestsForSources(['platform/dev-runner/fast-test-policy.ts'])).toEqual({
+    fast: [
+      'tests/contract/dev-runner-contract.test.ts',
+      'tests/contract/test-impact.test.ts',
+      'tests/unit/ci-pr-risk-selection.test.ts',
+      'tests/unit/fast-test-concurrency.test.ts',
+      FAST_TEST_PROCESS_POLICY_SENTINEL
+    ],
+    slow: [],
+    owners: ['auto-reference', 'dev-runner']
+  });
+  expect(resolveTestOwnership(['platform/dev-runner/fast-test-policy.ts'])).toEqual([{
+    source: 'platform/dev-runner/fast-test-policy.ts',
+    owner: 'dev-runner',
+    identity: { kind: 'architecture-owner', id: 'dev-runner' }
+  }]);
+
   expect(selectTestsForSources(['platform/dev-runner/typecheck-runner.ts']).fast).toEqual([
     'tests/contract/dev-runner-contract.test.ts',
     'tests/contract/test-impact.test.ts',
-    'tests/unit/ci-pr-risk-selection.test.ts'
+    'tests/unit/ci-pr-risk-selection.test.ts',
+    'tests/unit/test-runner.test.ts'
   ]);
 
   const bootstrapSelection = selectTestsForSources([
@@ -968,7 +988,8 @@ test('dev-runner impact uses explicit lightweight ownership plus direct import s
     fast: [
       'tests/contract/dev-runner-contract.test.ts',
       'tests/contract/test-impact.test.ts',
-      'tests/unit/ci-pr-risk-selection.test.ts'
+      'tests/unit/ci-pr-risk-selection.test.ts',
+      'tests/unit/test-runner.test.ts'
     ],
     slow: [],
     owners: ['dev-runner']
