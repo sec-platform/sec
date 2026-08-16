@@ -532,6 +532,9 @@ manifest且head为当前head祖先的validated PRE世代中选择唯一maximal�
 `observe --candidate-root <path> --request-id <digest>`只join/read back hosted publication。caller不手填base、head、
 manifest、scope、provider或receipt字段，也没有publish/ref-write命令；`produce-hosted`与`publish-hosted`只供固定
 default-branch workflow调用。
+public `request`/`observe`必须从clean exact-default checkout中的adapter启动，candidate只能作为
+`--candidate-root`显式传入；从candidate自身加载同名adapter会把untrusted checkout误作runtime root，必须以
+`head-drift` fail closed，不能靠当前目录约定、alias或caller补填runtime identity继续。
 
 activation producer和最终`skill-applicability` consumer必须同时是
 `platform/shared/ci-trust-root-registry.json`的runtime entrypoint；TCB contract强制producer、Task Capsule、
