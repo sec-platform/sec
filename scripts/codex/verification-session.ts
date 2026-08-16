@@ -4293,8 +4293,46 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       hosted = selectTrustedHostedSessionArtifactV1({ github, repository,
         transports: github.observeActionsArtifacts(repository), request: prepared.request });
     }
+    let effectReviewBarrier: ReturnType<VerificationSessionGitHubClientV1['observeReviewBarrier']> =
+      prepared.reviewBarrier;
+    if (localVerification?.result.status === 'passed') {
+      const effectCandidate = github.observeCandidate(repository, prNumber);
+      const unchangedCandidate = effectCandidate.repository === candidate.repository
+        && effectCandidate.number === candidate.number
+        && effectCandidate.state === 'OPEN'
+        && !effectCandidate.isDraft
+        && !effectCandidate.isCrossRepository
+        && effectCandidate.authorNodeId === candidate.authorNodeId
+        && effectCandidate.baseBranch === candidate.baseBranch
+        && effectCandidate.baseSha === prepared.request.expectedBaseSha
+        && effectCandidate.baseTreeSha === prepared.request.expectedBaseTreeSha
+        && effectCandidate.headBranch === candidate.headBranch
+        && effectCandidate.headSha === prepared.request.expectedHeadSha
+        && effectCandidate.headTreeSha === prepared.request.expectedHeadTreeSha
+        && CodexDevelopmentParseWorkPackageLocator(effectCandidate.body) === prepared.request.manifestPath;
+      if (!unchangedCandidate) {
+        throw new Error('prepare candidate drifted after local quick verification and before Review wake-up.');
+      }
+      effectReviewBarrier = github.observeReviewBarrier({
+        repository,
+        prNumber,
+        headSha: effectCandidate.headSha,
+        excludedPrincipalNodeIds: new Set([effectCandidate.authorNodeId, principal.nodeId])
+      });
+    }
+    if (effectReviewBarrier.status === 'provider-schema-unsupported') {
+      return JSON.stringify({
+        status: 'BLOCKED',
+        sessionRevision: prepared.sessionRevision,
+        reviewProvider: effectReviewBarrier,
+        reviewWakeup: null,
+        dispatchSignalSent: false,
+        workflowJoin: null,
+        localVerification
+      }, null, 2);
+    }
     const reviewWakeup = shouldPublishMaintainerReviewWakeupV1({
-      reviewBarrierStatus: prepared.reviewBarrier.status,
+      reviewBarrierStatus: effectReviewBarrier.status,
       localVerificationStatus: localVerification?.result.status ?? null,
       hostedArtifactPresent: hosted !== null
     })
@@ -4319,10 +4357,12 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       actionPlanDigest: prepared.request.expectedActionPlanDigest,
       baseSha: prepared.request.expectedBaseSha,
       now: now() });
+    const effectReviewBarrierAllowsExecution = effectReviewBarrier.status === 'clear'
+      || effectReviewBarrier.status === 'waiting';
     const localAllowsHostedSignal = localVerification === null
       ? hosted !== null
       : localVerification.result.status === 'passed';
-    const dispatchSignalSent = reviewBarrierAllowsExecution
+    const dispatchSignalSent = effectReviewBarrierAllowsExecution
       && localAllowsHostedSignal && hosted === null && runJoin.status === 'redispatch-eligible';
     if (dispatchSignalSent) {
       // repository_dispatch is deliberately only an at-least-once wake-up
@@ -4335,8 +4375,8 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       });
       github.ensureVerificationSessionWakeup(repository, prepared.request);
     }
-    if (prepared.reviewBarrier.status === 'blocked') return JSON.stringify({ status: 'BLOCKED',
-      sessionRevision: prepared.sessionRevision, reason: prepared.reviewBarrier.reason,
+    if (effectReviewBarrier.status === 'blocked') return JSON.stringify({ status: 'BLOCKED',
+      sessionRevision: prepared.sessionRevision, reason: effectReviewBarrier.reason,
       reviewWakeup, dispatchSignalSent, workflowJoin: runJoin, localVerification: null }, null, 2);
     if (localVerification !== null && localVerification.result.status !== 'passed') {
       return JSON.stringify({
@@ -4354,13 +4394,13 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       }, null, 2);
     }
     return JSON.stringify({
-      status: prepared.reviewBarrier.status === 'clear'
+      status: effectReviewBarrier.status === 'clear'
         ? hosted !== null ? 'HOSTED_VERIFICATION_AVAILABLE' : 'WAITING_HOSTED_VERIFICATION'
         : 'WAITING_REVIEW',
-      sessionRevision: prepared.sessionRevision, reason: prepared.reviewBarrier.status === 'clear'
+      sessionRevision: prepared.sessionRevision, reason: effectReviewBarrier.status === 'clear'
         ? hosted !== null ? 'joined exact remote Session artifact'
           : runJoin.status === 'joined' ? `joined hosted coordinator ${runJoin.reason}` : 'hosted coordinator signaled'
-        : `${prepared.reviewBarrier.reason}; hosted coordinator owns the canonical Review request`,
+        : `${effectReviewBarrier.reason}; hosted coordinator owns the canonical Review request`,
       requestOperationId: prepared.request.requestOperationId,
       reviewWakeup,
       dispatchSignalSent,

@@ -219,12 +219,16 @@ describe('work-selection live contract', () => {
       .every((offset) => offset > 0)).toBeTrue();
     expect(run).toContain("command === 'git'");
     expect(run).toContain('createBranchLifecycleGitChildEnvironmentV1(process.env)');
-    expect(defaultObservation).toContain('...createBranchLifecycleGitHubCredentialArgsV1()');
+    expect(defaultObservation).toContain('createBranchLifecycleGitHubRemoteObservationV1(');
     expect(defaultObservation).toContain(
-      "'ls-remote', '--exit-code', input.remote, `refs/heads/${input.defaultBranch}`"
+      "'ls-remote', '--exit-code', remoteObservation.repositoryUrl,"
     );
-    expect(lifecycleObservation).toContain('...createBranchLifecycleGitHubCredentialArgsV1()');
-    expect(lifecycleObservation).toContain("'ls-remote', '--heads', input.remote");
+    expect(defaultObservation).toContain('remoteObservation.environment');
+    expect(defaultObservation).not.toContain("'ls-remote', '--exit-code', input.remote");
+    expect(lifecycleObservation).toContain('createBranchLifecycleGitHubRemoteObservationV1(');
+    expect(lifecycleObservation).toContain("'ls-remote', '--heads', remoteObservation.repositoryUrl");
+    expect(lifecycleObservation).toContain('remoteObservation.environment');
+    expect(lifecycleObservation).not.toContain("'ls-remote', '--heads', input.remote");
     expect(lifecycleObservation).toContain(
       'worktrees.filter(({ branch }) => branch !== null && branch !== input.defaultBranch)'
     );

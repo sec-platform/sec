@@ -2211,15 +2211,13 @@ class VerificationSessionGitHubAdapter {
       wakeup: VerificationSessionReviewWakeupCommentV1 }> = [];
     for (const comment of comments) {
       if (!comment.body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1)) continue;
+      if (comment.authorType !== 'User' || comment.performedViaGitHubApp !== null) continue;
+      const permission = this.#transport.collaboratorPermission(input.repository, comment.authorLogin);
+      if (permission !== 'admin' && permission !== 'maintain') continue;
       const wakeup = parseReviewWakeupComment(comment.body);
       if (wakeup === null) fail(`Review wake-up comment ${comment.id} marker did not parse.`);
       if (wakeup.publisherLogin !== comment.authorLogin
         || wakeup.publisherNodeId !== comment.authorNodeId) continue;
-      if (comment.authorType !== 'User' || comment.performedViaGitHubApp !== null) {
-        fail('maintainer Review wake-up publisher provenance is invalid.');
-      }
-      const permission = this.#transport.collaboratorPermission(input.repository, comment.authorLogin);
-      if (permission !== 'admin' && permission !== 'maintain') continue;
       if (wakeup.sessionRevision !== input.sessionRevision
         || wakeup.operationId !== input.operationId) continue;
       if (wakeup.repository !== input.repository

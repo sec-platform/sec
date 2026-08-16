@@ -5,7 +5,8 @@ import path from 'node:path';
 import { projectBranchLifecycleForWorkSelectionV1 } from '../../scripts/codex/branch-lifecycle-audit.ts';
 import {
   createBranchLifecycleGitChildEnvironmentV1,
-  createBranchLifecycleGitHubCredentialArgsV1
+  createBranchLifecycleGitHubCredentialArgsV1,
+  createBranchLifecycleGitHubRemoteObservationV1
 } from '../../scripts/codex/branch-lifecycle-command.ts';
 import {
   BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
@@ -87,6 +88,46 @@ test('canonical Git child environment removes ambient askpass and SSH command au
     GIT_OPTIONAL_LOCKS: '0',
     GIT_NO_REPLACE_OBJECTS: '1'
   });
+});
+
+test('GitHub remote observation binds canonical URL and ignores every ambient Git config scope', () => {
+  const hostileEnvironment = {
+    PATH: 'trusted-path',
+    HOME: 'hostile-global-home',
+    GIT_DIR: 'hostile-repository',
+    GIT_CONFIG_GLOBAL: 'hostile-global-config',
+    GIT_CONFIG_SYSTEM: 'hostile-system-config',
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'url.https://attacker.invalid/.insteadOf',
+    GIT_CONFIG_VALUE_0: 'https://github.com/'
+  };
+  const windows = createBranchLifecycleGitHubRemoteObservationV1(
+    'sec-platform/sec', hostileEnvironment, 'win32'
+  );
+  expect(windows.repositoryUrl).toBe('https://github.com/sec-platform/sec.git');
+  expect(windows.argumentsPrefix).toEqual([
+    '--git-dir=NUL',
+    ...createBranchLifecycleGitHubCredentialArgsV1()
+  ]);
+  expect(windows.environment).toMatchObject({
+    PATH: 'trusted-path',
+    HOME: 'hostile-global-home',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: 'NUL',
+    GIT_CONFIG_SYSTEM: 'NUL'
+  });
+  expect(windows.environment.GIT_DIR).toBeUndefined();
+  expect(windows.environment.GIT_CONFIG_COUNT).toBeUndefined();
+  expect(windows.environment.GIT_CONFIG_KEY_0).toBeUndefined();
+
+  const linux = createBranchLifecycleGitHubRemoteObservationV1(
+    'sec-platform/sec', hostileEnvironment, 'linux'
+  );
+  expect(linux.argumentsPrefix[0]).toBe('--git-dir=/dev/null');
+  expect(linux.environment.GIT_CONFIG_GLOBAL).toBe('/dev/null');
+  expect(() => createBranchLifecycleGitHubRemoteObservationV1(
+    '../foreign', hostileEnvironment, 'linux'
+  )).toThrow('bounded owner/name identity');
 });
 
 test('canonical Git branch grammar admits Unicode without weakening option-safe rejection', () => {

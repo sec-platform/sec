@@ -573,6 +573,7 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
     publisherNodeId: 'MAINTAINER_NODE'
   } as const;
   const transport = new FakeTransport();
+  transport.collaboratorPermissions.set('outsider', 'read');
   transport.issueComments = [[]];
   const produced = evaluateMaintainerReviewWakeupObservationV1(transport, input);
   expect(produced).toMatchObject({ status: 'absent', commentId: null });
@@ -583,6 +584,15 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
     id: '200', authorLogin: 'outsider', authorId: 502, authorNodeId: 'OUTSIDER',
     authorType: 'User', performedViaGitHubApp: null
   })]];
+  expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
+    status: 'absent', commentId: null
+  });
+
+  transport.issueComments = [[botIssueComment(
+    `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1}\n{not-json}`,
+    { id: '204', authorLogin: 'outsider', authorId: 502, authorNodeId: 'OUTSIDER',
+      authorType: 'User', performedViaGitHubApp: null }
+  )]];
   expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
     status: 'absent', commentId: null
   });
@@ -624,8 +634,15 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
     authorType: 'Bot',
     performedViaGitHubApp: CI_GITHUB_ACTIONS_IDENTITY_POLICY_V1.app
   })]];
+  expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
+    status: 'absent', commentId: null
+  });
+
+  transport.issueComments = [[maintainerIssueComment(
+    `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1}\n{not-json}`
+  )]];
   expect(() => evaluateMaintainerReviewWakeupObservationV1(transport, input))
-    .toThrow('publisher provenance is invalid');
+    .toThrow('maintainer Review wake-up comment shape is invalid');
 });
 
 test('provider recovery artifact binds exact envelope and bundle bytes', () => {
@@ -676,6 +693,7 @@ class FakeTransport implements VerificationSessionReviewObservationTransactionV1
   reviewRequests = 0;
   dispatches = 0;
   rulesetError: Error & { statusCode?: number } | null = null;
+  collaboratorPermissions = new Map<string, 'admin' | 'maintain' | 'write' | 'triage' | 'read' | 'none'>();
 
   candidate(): GitHubCandidateObservationV1 {
     return {
@@ -704,7 +722,9 @@ class FakeTransport implements VerificationSessionReviewObservationTransactionV1
     return { repository, locator, status: 'resolved', commitSha, treeSha: commitSha,
       responseDigest: `sha256:${'f'.repeat(64)}` };
   }
-  collaboratorPermission(): 'admin' { return 'admin'; }
+  collaboratorPermission(_repository: string, login: string) {
+    return this.collaboratorPermissions.get(login) ?? 'admin';
+  }
   principalByNodeId(_repository: string, nodeId: string) {
     return { login: nodeId === BOT ? 'codex-review-bot' : 'integrator', nodeId,
       permission: 'maintain' as const };
@@ -2894,9 +2914,12 @@ test('public prepare owns one exact detached worktree and completes local DAG be
   );
   const hostedSelection = prepare.indexOf('selectTrustedHostedSessionArtifactV1({');
   const localQuick = prepare.indexOf('await executePreparedLocalQuickDagV2');
+  const effectCandidate = prepare.indexOf('const effectCandidate = github.observeCandidate(');
+  const effectReviewBarrier = prepare.indexOf('effectReviewBarrier = github.observeReviewBarrier({');
   const reviewWakeup = prepare.indexOf('ensureMaintainerReviewWakeupV1(ctx, github');
   const hostedWakeup = prepare.indexOf('github.ensureVerificationSessionWakeup');
-  for (const boundary of [schemaUnsupported, hostedSelection, localQuick, reviewWakeup, hostedWakeup]) {
+  for (const boundary of [schemaUnsupported, hostedSelection, localQuick, effectCandidate,
+    effectReviewBarrier, reviewWakeup, hostedWakeup]) {
     expect(boundary).toBeGreaterThan(-1);
   }
   expect(schemaUnsupported).toBeLessThan(hostedSelection);
@@ -2907,14 +2930,17 @@ test('public prepare owns one exact detached worktree and completes local DAG be
   expect(prepare).toContain('observedAt: prepared.reviewBarrier.observedAt');
   expect(prepare).toContain("const reviewBarrierAllowsExecution = prepared.reviewBarrier.status === 'clear'");
   expect(prepare).toContain("|| prepared.reviewBarrier.status === 'waiting';");
-  expect(prepare).toContain('const dispatchSignalSent = reviewBarrierAllowsExecution');
-  expect(prepare.indexOf('await executePreparedLocalQuickDagV2'))
-    .toBeLessThan(reviewWakeup);
+  expect(prepare).toContain('const dispatchSignalSent = effectReviewBarrierAllowsExecution');
+  expect(localQuick).toBeLessThan(effectCandidate);
+  expect(effectCandidate).toBeLessThan(effectReviewBarrier);
+  expect(effectReviewBarrier).toBeLessThan(reviewWakeup);
+  expect(prepare).toContain('prepare candidate drifted after local quick verification');
+  expect(prepare).toContain('reviewBarrierStatus: effectReviewBarrier.status');
   expect(reviewWakeup)
     .toBeLessThan(prepare.indexOf('github.ensureVerificationSessionWakeup'));
   expect(prepare).toContain('localVerificationStatus: localVerification?.result.status ?? null');
   expect(prepare).toContain('shouldPublishMaintainerReviewWakeupV1({');
-  expect(prepare).toContain('reviewBarrierStatus: prepared.reviewBarrier.status');
+  expect(prepare).not.toContain('reviewBarrierStatus: prepared.reviewBarrier.status');
   expect(prepare).toContain('hostedArtifactPresent: hosted !== null');
   expect(prepare).toContain('reviewWakeup,');
   expect(prepare).toContain("'LOCAL_VERIFICATION_FAILED'");
