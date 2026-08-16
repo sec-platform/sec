@@ -10,6 +10,7 @@ export const CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1 =
   "Codex Review: Didn't find any major issues." as const;
 export const CODEX_CLEAN_REVIEW_CONGRATULATIONS_V1 = Object.freeze([
   'Bravo.',
+  'Delightful!',
   'Swish!',
   'What shall we build next?',
   'You’re on a roll!',

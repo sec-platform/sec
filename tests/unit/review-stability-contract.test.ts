@@ -37,6 +37,7 @@ test('Codex clean Review verdict owns one stable semantic prefix and closed pres
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1}Bravo.`,
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1}  Bravo.`,
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo. `,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Delightful! Finding: P1 unsafe behavior`,
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo.\nFinding`,
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo.\u0000`,
     `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Finding: P1 unsafe behavior`,

@@ -1419,7 +1419,7 @@ function substituteAuthorizationLiveIdentity(
 test('trusted app review binds stable app/node and exact reviewed head', () => {
   const transport = new FakeTransport();
   transport.issueComments = [[botIssueComment(
-    `Codex Review: Didn't find any major issues. Swish!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``
+    `Codex Review: Didn't find any major issues. Delightful!\n\n**Reviewed commit:** \`${HEAD.slice(0, 10)}\``
   )]];
   const result = observe(transport);
   expect(result.status).toBe('clear');
