@@ -2216,8 +2216,11 @@ class VerificationSessionGitHubAdapter {
       if (permission !== 'admin' && permission !== 'maintain') continue;
       const wakeup = parseReviewWakeupComment(comment.body);
       if (wakeup === null) fail(`Review wake-up comment ${comment.id} marker did not parse.`);
-      if (wakeup.publisherLogin !== comment.authorLogin
-        || wakeup.publisherNodeId !== comment.authorNodeId) continue;
+      // GitHub login is a mutable projection: an account rename rewrites the login
+      // observed on an existing comment. The node id is the immutable publisher
+      // identity; current permission is deliberately re-read through the comment's
+      // current login immediately above.
+      if (wakeup.publisherNodeId !== comment.authorNodeId) continue;
       if (wakeup.sessionRevision !== input.sessionRevision
         || wakeup.operationId !== input.operationId) continue;
       if (wakeup.repository !== input.repository
@@ -2313,7 +2316,8 @@ export function evaluateHostedReviewLocatorObservationV1(
 
 /** Pure observation seam for the maintainer-authored Review activation signal. */
 export function evaluateMaintainerReviewWakeupObservationV1(
-  transaction: Pick<VerificationSessionReviewObservationTransactionV1, 'issueCommentPage'>,
+  transaction: Pick<VerificationSessionReviewObservationTransactionV1,
+    'issueCommentPage' | 'collaboratorPermission'>,
   input: Parameters<VerificationSessionGitHubAdapter['observeMaintainerReviewWakeup']>[0]
 ): ReturnType<VerificationSessionGitHubAdapter['observeMaintainerReviewWakeup']> {
   return new VerificationSessionGitHubAdapter(

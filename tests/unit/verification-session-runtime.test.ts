@@ -574,6 +574,17 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
   } as const;
   const transport = new FakeTransport();
   transport.collaboratorPermissions.set('outsider', 'read');
+  transport.collaboratorPermissions.set('renamed-maintainer', 'admin');
+  type WakeupObservationTransaction = Parameters<
+    typeof evaluateMaintainerReviewWakeupObservationV1
+  >[0];
+  const acceptWakeupObservationTransaction = (_transaction: WakeupObservationTransaction): void => undefined;
+  if (false) {
+    // @ts-expect-error collaboratorPermission is an authority-bearing required capability.
+    acceptWakeupObservationTransaction({
+      issueCommentPage: transport.issueCommentPage.bind(transport)
+    });
+  }
   transport.issueComments = [[]];
   const produced = evaluateMaintainerReviewWakeupObservationV1(transport, input);
   expect(produced).toMatchObject({ status: 'absent', commentId: null });
@@ -600,6 +611,13 @@ test('maintainer Review wake-up is exact, user-authored, and at-most-once per se
   transport.issueComments = [[maintainerIssueComment(produced.body)]];
   expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
     status: 'reused', commentId: '201', wakeupDigest: produced.wakeupDigest
+  });
+
+  transport.issueComments = [[maintainerIssueComment(produced.body, '205', {
+    authorLogin: 'renamed-maintainer'
+  })]];
+  expect(evaluateMaintainerReviewWakeupObservationV1(transport, input)).toMatchObject({
+    status: 'reused', commentId: '205', wakeupDigest: produced.wakeupDigest
   });
 
   transport.issueComments = [[]];
