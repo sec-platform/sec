@@ -1096,10 +1096,12 @@ branch lifecycle command owner提供唯一pure argv prefix：先以空值重置g
 `http.https://github.com/.extraheader`，再清空ambient credential helpers并只启用`gh auth git-credential`；
 inventory、single-ref readback、ref-only fetch与remote CAS必须全部复用。branch suffix只由canonical
 `assertGitBranchName`解析，不能在consumer另造ASCII子集而拒绝合法Unicode ref。
-所有受信Git child还必须先经过同一case-insensitive环境normalizer：删除worktree/object/config steering、
-indexed config、askpass以及`GIT_SSH`/`GIT_SSH_COMMAND`等SSH executable override，再显式写入
-non-interactive、no-replace与no-optional-lock值。consumer不得在本地另造较弱env spread；远端WorkSelection
-的default-ref与branch inventory观察同时消费该normalizer和上述唯一credential argv prefix。
+branch lifecycle owner及其WorkSelection consumer的Git child必须先经过同一case-insensitive环境
+normalizer：删除worktree/object/config steering、indexed config、askpass以及`GIT_SSH`/
+`GIT_SSH_COMMAND`等SSH executable override，再显式写入non-interactive、no-replace与
+no-optional-lock值。该consumer不得在本地另造较弱env spread；远端WorkSelection的default-ref与branch
+inventory观察同时消费该normalizer和上述唯一credential argv prefix。本规则不宣称替代其它TCB runtime
+entrypoint各自的dispatcher/environment authority，也不能被用来绕过其独立closure。
 跨主机observation只保留host/observation digest，不携带或重放foreign absolute path，也不能由artifact
 成功、当前job状态、raw JSON、locator或self-digest消除。正常收敛要求原host先完成physical closeout，
 再从新物理状态生成不含foreign observation的preparation；已merge的旧recovery仍携带foreign
