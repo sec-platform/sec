@@ -219,13 +219,27 @@ test('legacy branch-lifecycle finalize CLI is rejected before any ref mutation',
 
 test('branch lifecycle command module exposes no executable or authentic capability mint', async () => {
   const source = readFileSync(path.resolve('scripts/codex/branch-lifecycle-command.ts'), 'utf8');
-  const exports = Object.keys(await import('../../scripts/codex/branch-lifecycle-command.ts')).sort();
+  const commandModule = await import('../../scripts/codex/branch-lifecycle-command.ts');
+  const exports = Object.keys(commandModule).sort();
   expect(exports).toEqual([
     'createBranchLifecycleGitChildEnvironmentV1',
     'createBranchLifecycleGitHubCredentialArgsV1',
+    'createBranchLifecycleGitHubRemoteObservationV1',
     'decodeBranchLifecycleChildErrorV1',
     'decodeBranchLifecycleChildStdoutV1'
   ]);
+  const observation = commandModule.createBranchLifecycleGitHubRemoteObservationV1(
+    'sec-platform/sec',
+    { GIT_DIR: 'forged', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'url.fake.insteadOf' },
+    'linux'
+  );
+  expect(observation.repositoryUrl).toBe('https://github.com/sec-platform/sec.git');
+  expect(observation.argumentsPrefix[0]).toBe('--git-dir=/dev/null');
+  expect(observation.environment.GIT_DIR).toBeUndefined();
+  expect(observation.environment.GIT_CONFIG_COUNT).toBeUndefined();
+  expect(() => commandModule.createBranchLifecycleGitHubRemoteObservationV1(
+    '../sec', {}, 'linux'
+  )).toThrow('bounded owner/name identity');
   for (const executable of ["spawnSync('bun'", "spawnSync('gh'", "spawnSync('git'"]) {
     expect(source).not.toContain(executable);
   }

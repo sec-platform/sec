@@ -28,6 +28,10 @@ import {
 } from '../../platform/shared/work-selection-live-contract.ts';
 import { projectBranchLifecycleForWorkSelectionV1 } from './branch-lifecycle-audit.ts';
 import {
+  createBranchLifecycleGitChildEnvironmentV1,
+  createBranchLifecycleGitHubRemoteObservationV1
+} from './branch-lifecycle-command.ts';
+import {
   CodexDevelopmentAssertControlPlaneBindingV1,
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseCurrentStateSpecV1,
@@ -56,7 +60,8 @@ interface CommandResultV1 {
 type CommandRunnerV1 = (
   command: 'gh' | 'git',
   args: readonly string[],
-  cwd: string
+  cwd: string,
+  environment?: Readonly<NodeJS.ProcessEnv>
 ) => CommandResultV1;
 
 export interface ObserveSecWorkSelectionLiveInputV1 {
@@ -83,7 +88,8 @@ class LiveObservationFailure extends Error {
 function runDefault(
   command: 'gh' | 'git',
   args: readonly string[],
-  cwd: string
+  cwd: string,
+  environment?: Readonly<NodeJS.ProcessEnv>
 ): CommandResultV1 {
   if (args.some((argument) => argument.includes('\0'))) {
     throw new LiveObservationFailure('command-argument-invalid', command);
@@ -94,12 +100,9 @@ function runDefault(
     windowsHide: true,
     timeout: COMMAND_TIMEOUT_MS,
     maxBuffer: COMMAND_MAX_BUFFER,
-    env: {
-      ...process.env,
-      GH_PROMPT_DISABLED: '1',
-      GIT_OPTIONAL_LOCKS: '0',
-      GIT_TERMINAL_PROMPT: '0'
-    }
+    env: environment ?? (command === 'git'
+      ? createBranchLifecycleGitChildEnvironmentV1(process.env)
+      : { ...process.env, GH_PROMPT_DISABLED: '1' })
   });
   return {
     status: result.status,
@@ -119,9 +122,10 @@ function requireCommand(
   command: 'gh' | 'git',
   args: readonly string[],
   cwd: string,
-  reasonCode: string
+  reasonCode: string,
+  environment?: Readonly<NodeJS.ProcessEnv>
 ): Buffer {
-  const result = run(command, args, cwd);
+  const result = run(command, args, cwd, environment);
   if (result.status !== 0) {
     throw new LiveObservationFailure(reasonCode, combinedFailureBytes(result));
   }
@@ -213,6 +217,7 @@ function resolveExactMain(input: {
   run: CommandRunnerV1;
   root: string;
   remote: string;
+  repository: string;
   defaultBranch: string;
   supplied?: string;
 }): string {
@@ -230,12 +235,21 @@ function resolveExactMain(input: {
     }
     return supplied;
   }
+  const remoteObservation = createBranchLifecycleGitHubRemoteObservationV1(
+    input.repository,
+    process.env
+  );
   const liveLine = decodeUtf8(requireCommand(
     input.run,
     'git',
-    ['ls-remote', '--exit-code', input.remote, `refs/heads/${input.defaultBranch}`],
+    [
+      ...remoteObservation.argumentsPrefix,
+      'ls-remote', '--exit-code', remoteObservation.repositoryUrl,
+      `refs/heads/${input.defaultBranch}`
+    ],
     input.root,
-    'live-default-unresolved'
+    'live-default-unresolved',
+    remoteObservation.environment
   ), 'live-default-invalid').trim();
   const live = gitSha(liveLine.split(/\s+/u)[0] ?? '', 'live-default-invalid');
   if (live !== local) {
@@ -425,6 +439,7 @@ function observeCanonicalBranchLifecycle(input: {
   run: CommandRunnerV1;
   root: string;
   remote: string;
+  repository: string;
   defaultBranch: string;
   exactMain: string;
   openPullRequests: ReturnType<typeof parseOpenPullRequestList>;
@@ -433,9 +448,14 @@ function observeCanonicalBranchLifecycle(input: {
     'for-each-ref', '--format=%(refname:lstrip=2)%00%(objectname)', 'refs/heads/'
   ], input.root, 'local-candidate-ref-unresolved'), 'local-candidate-ref-invalid-utf8'))
     .filter(({ branch }) => branch !== input.defaultBranch);
+  const remoteObservation = createBranchLifecycleGitHubRemoteObservationV1(
+    input.repository,
+    process.env
+  );
   const remoteResult = input.run('git', [
-    'ls-remote', '--heads', input.remote
-  ], input.root);
+    ...remoteObservation.argumentsPrefix,
+    'ls-remote', '--heads', remoteObservation.repositoryUrl
+  ], input.root, remoteObservation.environment);
   if (remoteResult.status !== 0) {
     throw new LiveObservationFailure('remote-candidate-ref-unresolved', combinedFailureBytes(remoteResult));
   }
@@ -461,7 +481,7 @@ function observeCanonicalBranchLifecycle(input: {
     defaultBranch: input.defaultBranch,
     localRefs: local,
     remoteRefs: remote,
-    worktrees: worktrees.filter(({ branch }) => branch !== input.defaultBranch)
+    worktrees: worktrees.filter(({ branch }) => branch !== null && branch !== input.defaultBranch)
       .map(({ root, branch, headSha }) => ({
         worktreeRef: rawSha256(normalizePhysicalPath(root)),
         branch,
@@ -661,6 +681,7 @@ export function observeSecWorkSelectionLiveV1(
       run,
       root,
       remote: defaultProjection.state.resolver.remote,
+      repository: defaultProjection.state.resolver.repository,
       defaultBranch: defaultProjection.state.resolver.defaultBranch,
       supplied: input.exactMain
     });
@@ -723,6 +744,7 @@ export function observeSecWorkSelectionLiveV1(
       run,
       root,
       remote: state.resolver.remote,
+      repository: state.resolver.repository,
       defaultBranch: state.resolver.defaultBranch,
       exactMain,
       openPullRequests

@@ -1,5 +1,8 @@
 const BRANCH_LIFECYCLE_GIT_ENVIRONMENT_OVERRIDES_V1 = new Set([
+  'GH_PROMPT_DISABLED',
   'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_ASKPASS',
+  'GIT_ASKPASS_REQUIRE',
   'GIT_CEILING_DIRECTORIES',
   'GIT_COMMON_DIR',
   'GIT_CONFIG_COUNT',
@@ -19,9 +22,13 @@ const BRANCH_LIFECYCLE_GIT_ENVIRONMENT_OVERRIDES_V1 = new Set([
   'GIT_QUARANTINE_PATH',
   'GIT_REPLACE_REF_BASE',
   'GIT_SHALLOW_FILE',
+  'GIT_SSH',
+  'GIT_SSH_COMMAND',
   'GIT_TEMPLATE_DIR',
   'GIT_TERMINAL_PROMPT',
-  'GIT_WORK_TREE'
+  'GIT_WORK_TREE',
+  'SSH_ASKPASS',
+  'SSH_ASKPASS_REQUIRE'
 ]);
 const BRANCH_LIFECYCLE_INDEXED_GIT_CONFIG_OVERRIDE_V1 =
   /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u;
@@ -49,6 +56,43 @@ export function createBranchLifecycleGitHubCredentialArgsV1(): readonly string[]
   return BRANCH_LIFECYCLE_GITHUB_CREDENTIAL_ARGS_V1;
 }
 
+export interface BranchLifecycleGitHubRemoteObservationV1 {
+  readonly repositoryUrl: string;
+  readonly argumentsPrefix: readonly string[];
+  readonly environment: Readonly<NodeJS.ProcessEnv>;
+}
+
+/**
+ * Bind a GitHub remote observation to repository identity, not a mutable local
+ * remote name. The explicit null Git directory prevents local repository
+ * discovery; null global/system config prevents ambient url.insteadOf,
+ * include, credential, or transport policy from redirecting the read.
+ */
+export function createBranchLifecycleGitHubRemoteObservationV1(
+  repository: string,
+  environment: Readonly<NodeJS.ProcessEnv>,
+  platform: NodeJS.Platform = process.platform
+): BranchLifecycleGitHubRemoteObservationV1 {
+  if (repository.length > 201
+    || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u.test(repository)
+    || repository.split('/').some((segment) => segment === '.' || segment === '..')) {
+    throw new Error('GitHub repository must be a bounded owner/name identity.');
+  }
+  const nullConfigPath = platform === 'win32' ? 'NUL' : '/dev/null';
+  const isolatedEnvironment = createBranchLifecycleGitChildEnvironmentV1(environment);
+  isolatedEnvironment.GIT_CONFIG_NOSYSTEM = '1';
+  isolatedEnvironment.GIT_CONFIG_GLOBAL = nullConfigPath;
+  isolatedEnvironment.GIT_CONFIG_SYSTEM = nullConfigPath;
+  return Object.freeze({
+    repositoryUrl: `https://github.com/${repository}.git`,
+    argumentsPrefix: Object.freeze([
+      `--git-dir=${nullConfigPath}`,
+      ...BRANCH_LIFECYCLE_GITHUB_CREDENTIAL_ARGS_V1
+    ]),
+    environment: Object.freeze(isolatedEnvironment)
+  });
+}
+
 /**
  * Build the one canonical environment for trusted Git subprocesses.
  *
@@ -72,6 +116,7 @@ export function createBranchLifecycleGitChildEnvironmentV1(
     retainedNames.add(canonicalName);
     result[name] = value;
   }
+  result.GH_PROMPT_DISABLED = '1';
   result.GIT_TERMINAL_PROMPT = '0';
   result.GIT_OPTIONAL_LOCKS = '0';
   result.GIT_NO_REPLACE_OBJECTS = '1';
