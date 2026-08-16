@@ -203,6 +203,36 @@ function receipt(completedWorkIds?: readonly string[]) {
 }
 
 describe('work-selection live contract', () => {
+  test('hosted Git observations use the canonical credential and branch-worktree boundaries', () => {
+    const source = readFileSync('scripts/codex/work-selection.ts', 'utf8');
+    const runStart = source.indexOf('function runDefault(');
+    const runEnd = source.indexOf('\nfunction combinedFailureBytes(', runStart);
+    const defaultStart = source.indexOf('function resolveExactMain(');
+    const defaultEnd = source.indexOf('\nfunction parseIssueNumber(', defaultStart);
+    const lifecycleStart = source.indexOf('function observeCanonicalBranchLifecycle(');
+    const lifecycleEnd = source.indexOf('\nfunction observeCanonicalControl(', lifecycleStart);
+    const run = source.slice(runStart, runEnd);
+    const defaultObservation = source.slice(defaultStart, defaultEnd);
+    const lifecycleObservation = source.slice(lifecycleStart, lifecycleEnd);
+
+    expect([runStart, runEnd, defaultStart, defaultEnd, lifecycleStart, lifecycleEnd]
+      .every((offset) => offset > 0)).toBeTrue();
+    expect(run).toContain("command === 'git'");
+    expect(run).toContain('createBranchLifecycleGitChildEnvironmentV1(process.env)');
+    expect(defaultObservation).toContain('...createBranchLifecycleGitHubCredentialArgsV1()');
+    expect(defaultObservation).toContain(
+      "'ls-remote', '--exit-code', input.remote, `refs/heads/${input.defaultBranch}`"
+    );
+    expect(lifecycleObservation).toContain('...createBranchLifecycleGitHubCredentialArgsV1()');
+    expect(lifecycleObservation).toContain("'ls-remote', '--heads', input.remote");
+    expect(lifecycleObservation).toContain(
+      'worktrees.filter(({ branch }) => branch !== null && branch !== input.defaultBranch)'
+    );
+    expect(lifecycleObservation).not.toContain(
+      'worktrees.filter(({ branch }) => branch !== input.defaultBranch)'
+    );
+  });
+
   test('canonical roadmap embeds one bounded normalized catalog', () => {
     const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
     expect(catalog.stageRef).toBe('r14-agent-operation');

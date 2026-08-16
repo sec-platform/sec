@@ -263,6 +263,12 @@ Catalog采用一项延迟删除handoff：本轮选中的manifest进入main后仍
 前置重新解释为未完成。catalog最多保存七条近端记录，live adapter只做一次bounded Issue GraphQL和
 既有owner投影，不扫描Issue历史、comment或全backlog。
 
+Work Package manifest只代表一次已经消费的activation slice，不等同于Program Issue整体完成。若一次
+slice进入main后current spec仍明确保留未完成验收或新的依赖边界，下一次handoff删除已消费manifest，
+但保留同一Issue的catalog/current-spec identity；WorkDecision随后从live Issue与当前registry重新判断其
+`open/not-ready/ready`，不得把历史manifest长期当作Program completion tombstone，也不得因删除一次性
+manifest而自动关闭Issue。
+
 非catalog recovery package临时插入时也不能破坏该完成事实。hosted PRE issuer、`docs:doctor`与
 `repository-audit`消费同一个pure package-census contract；各自从同一个immutable candidate tree读取pointer、manifest、roadmap与
 package census，不能复制第二套“仅一个manifest”算法。exact tree blob与directory membership必须复用
@@ -556,9 +562,10 @@ local `git`；其他role、Root-Cause Preflight、外部resource/gate或多任�
 接入前保持fail closed，不以硬编码“available”扩大能力。
 
 issuer所在实现PR只能发布 progress：producer尚未进入trusted main时不能给自身candidate签发有效receipt。
-进入new main后，#275必须成为第一个真实PRE→FINAL candidate canary；#346保持开放，直到至少三个不同真实operation
-证明read/tool-call下降且不遗漏owner/contract facts，并包含一次真实maintainer/user mutation observation。不得
-伪造mutation、用本实现候选冒充canary或因production cutover合并就提前关闭Issue。
+#275完成了第一个真实PRE→FINAL candidate canary；该canary证明issuer-bound读取与授权链，不把
+delegation的收益/隔离判断伪装为pure decision。#346保持开放，直到至少三个不同真实operation证明
+read/tool-call下降且不遗漏owner/contract facts，并包含一次真实maintainer/user mutation observation。不得
+伪造mutation、把同一实现候选重复计为新canary或因production cutover合并就提前关闭Issue。
 
 ### Operation Read Plan（Issue #346）
 
@@ -678,8 +685,8 @@ Evidence reuse和merge legality等机器规则不重复写入 Skill prose；Skil
 分析方法、工具选择、解释、停止和 typed outcome。详细 schema、枚举、命令和平台矩阵
 引用 canonical code或按需 reference，避免长流程连续加载重复正文污染 context。
 
-当前可执行 Skill 集合为八个：七个终态 durable judgement owner，加上一个在 #205 pure
-Task Capsule compiler 与 #346 issuer-bound consumer完成真实cutover前仍不可删除的 transitional owner：
+当前可执行 Skill 集合为八个：七个终态 durable judgement owner，加上一个仍拥有不可纯计算
+delegation收益/隔离判断的 bounded owner：
 
 ```text
 sec-repository-audit
@@ -697,9 +704,10 @@ sec-task-delegation
 selection 由 test-impact/Requirement selector 拥有，documentation 由 authority registry/docs-doctor
 拥有，toolchain 由 runtime dependency
 spec/manifest-lock 拥有，trust transition 由 TCB closure 拥有，CI/merge 由 Integration Transaction
-拥有。delegation 当前仍由 `sec-task-delegation` 拥有不可纯计算的收益/隔离判断；只有 #205 的
-Task Capsule compiler 与独立issuer成为真实production链、完成consumer cutover与canary后，才把该 route
-迁移为 deterministic 并删除第八个 Skill。精确 route 与 canonical ref 只由
+拥有。#205 Task Capsule compiler、独立issuer、consumer cutover与#275 canary已经提供可信结构事实，
+但这些事实只能拒绝越权或重叠，不能决定并行收益是否大于协调成本。delegation 因此仍由
+`sec-task-delegation`拥有；只有真实production decision owner能从可信事实同时产出delegate与
+no-delegation，才迁移该route并删除第八个Skill。精确 route 与 canonical ref 只由
 `SEC_REPOSITORY_BEHAVIOR_ROUTES` 维护；本段只定义边界。
 
 retired Skill ID/file 不保留 alias、stub 或 prose compatibility。新增行为先判断 deterministic 或
@@ -746,7 +754,7 @@ compiler/resolver 或 derived view，不能升格为 state machine。
 | `VerificationSession` 大实现/大测试                  | 唯一 run/event/transition/resume coordinator                   | **retain/split**；不重写、不另建 Session                                                                    | public contract 不变，内部按 pure decision、provider observation、Git/closeout、crash/recovery、hosted partitions 拆分；fast selector永不选择 slow/hosted partition       | 每个 partition 有独立 Action/consumer/test-impact，普通 focused edit 不再触发整文件分钟级测试                                                                    |
 | `check:affected` / selector                          | 把 delta 映射到最小充分验证                                    | **evolve** 为 Requirement/subject closure                                                                   | `Impact → tri-state Requirement → ActionKey → reuse/failure-reuse/join/execute/block`；unknown 保守扩大或 block                                                           | file-name fallback 只处理 unsupported closure；已知 unrelated/fresh Action 不再物理启动                                                                          |
 | `check:full`                                         | release/nightly、selector calibration、unknown-impact backstop | **retain as backstop**，从日常路径退役                                                                      | 不接 pre-commit/pre-push、普通 edit、finding loop；只由明确 profile/trigger 调度                                                                                          | default local/PR fast path 无 consumer，仍有 release/nightly/calibration owner 和预算                                                                            |
-| repository Skill corpus                              | 对需要 Agent 判断的触发、分析、工具选择和停止提供 guidance     | **当前 8、终态 7**：delegation 在 #205 production compiler 切换前保留；deterministic behavior 为 zero-Skill | `SEC_REPOSITORY_BEHAVIOR_ROUTES` 显式区分 `skill` 与 `deterministic`；禁止 path catch-all 制造 guidance                                                                   | 九个已退役 ID/file/consumer/alias 为零；#205 有真实 production consumer、canary 与 consumer-zero readback 后再退役 delegation；其余每个 Skill 有唯一非机器化判断 |
+| repository Skill corpus                              | 对需要 Agent 判断的触发、分析、工具选择和停止提供 guidance     | **当前 8、可证明终态才为 7**：delegation 的收益/隔离判断仍由 bounded Skill 拥有；deterministic behavior 为 zero-Skill | `SEC_REPOSITORY_BEHAVIOR_ROUTES` 显式区分 `skill` 与 `deterministic`；禁止 path catch-all 制造 guidance                                                                   | 九个已退役 ID/file/consumer/alias 为零；未来真实decision owner同时证明delegate/no-delegation且完成consumer-zero后才退役delegation；其余每个Skill有唯一非机器化判断 |
 | v2/v3/v4… candidate worktrees/refs                   | 曾用于 finding 后重建 exact one-parent candidate               | **retire** 为 transport residue                                                                             | 一个 logical run 只保留一个 mutable worktree + 一个 active ref；finding 原地修复、materialize 新 generation、expected-old CAS；旧 generation 留 immutable object/artifact | `FindingSuccessorWorktreeCount = 0`，completed run 的临时 worktree/ref 经 exact inventory/readback 自动清理                                                      |
 
 实施不是“先补完七项，再开始真实开发”，也不是忽略七项继续堆功能。依赖顺序固定为：
@@ -754,10 +762,10 @@ compiler/resolver 或 derived view，不能升格为 state machine。
 ```text
 #205 Task Capsule compiler
 → #346 Operation Read Plan
-→ #275 final delegation route migration + consumer-zero Skill retirement
+→ #275 guidance convergence + PRE/FINAL canary（完成；delegation bounded owner保留）
 → candidate/control materializer and projection cutover
 → VerificationSession/test partitions + affected Requirement closure
-→ consumer-zero retirement and residue cleanup
+→ eligible machine-owned surface retirement and residue cleanup
 ```
 
 每一阶段必须直接减少当前物理放大，并由真实 consumer 接管后再删除旧 surface；禁止建立独立的
@@ -1085,6 +1093,10 @@ branch lifecycle command owner提供唯一pure argv prefix：先以空值重置g
 `http.https://github.com/.extraheader`，再清空ambient credential helpers并只启用`gh auth git-credential`；
 inventory、single-ref readback、ref-only fetch与remote CAS必须全部复用。branch suffix只由canonical
 `assertGitBranchName`解析，不能在consumer另造ASCII子集而拒绝合法Unicode ref。
+所有受信Git child还必须先经过同一case-insensitive环境normalizer：删除worktree/object/config steering、
+indexed config、askpass以及`GIT_SSH`/`GIT_SSH_COMMAND`等SSH executable override，再显式写入
+non-interactive、no-replace与no-optional-lock值。consumer不得在本地另造较弱env spread；远端WorkSelection
+的default-ref与branch inventory观察同时消费该normalizer和上述唯一credential argv prefix。
 跨主机observation只保留host/observation digest，不携带或重放foreign absolute path，也不能由artifact
 成功、当前job状态、raw JSON、locator或self-digest消除。正常收敛要求原host先完成physical closeout，
 再从新物理状态生成不含foreign observation的preparation；已merge的旧recovery仍携带foreign
