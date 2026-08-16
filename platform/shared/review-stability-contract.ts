@@ -6,8 +6,28 @@ import { encodeVerificationActionDataV2 } from './verification-action-contract.t
 
 export const REVIEW_STABILITY_POLICY_SCHEMA_V1 = 'sec-review-stability-policy-v1' as const;
 export const REVIEW_STABILITY_RECEIPT_SCHEMA_V1 = 'sec-review-stability-receipt-v1' as const;
+export const CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1 =
+  "Codex Review: Didn't find any major issues." as const;
+export const CODEX_CLEAN_REVIEW_CONGRATULATION_MAX_CODE_UNITS_V1 = 200 as const;
 export type ReviewStabilityDigest = `sha256:${string}`;
 export type ReviewStabilityStageV1 = 'pre-expensive' | 'pre-merge';
+
+/**
+ * The trusted Codex App owns the clean-verdict semantic prefix. Its bounded
+ * inline congratulation is presentation-only and may vary between provider
+ * releases without changing Review meaning.
+ */
+export function isCodexCleanReviewVerdictV1(firstLine: unknown): boolean {
+  if (typeof firstLine !== 'string') return false;
+  if (firstLine === CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1) return true;
+  const prefix = `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} `;
+  if (!firstLine.startsWith(prefix)) return false;
+  const congratulation = firstLine.slice(prefix.length);
+  return congratulation.length > 0
+    && congratulation.length <= CODEX_CLEAN_REVIEW_CONGRATULATION_MAX_CODE_UNITS_V1
+    && congratulation.trim() === congratulation
+    && !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(congratulation);
+}
 
 export interface ReviewStabilityTrustedAppV1 {
   readonly actorNodeId: string;

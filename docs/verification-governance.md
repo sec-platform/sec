@@ -888,6 +888,12 @@ reviewed commit、完整分页快照和thread/request-change digest；head不变
 human exact-head APPROVED可以成为principal，显示名、PR summary、self-review或未绑定commit
 的COMMENTED状态不能单独授权。
 
+可信Codex App的clean verdict只由稳定语义前缀
+`Codex Review: Didn't find any major issues.`分类；其后可选的单空格分隔、单行、去首尾空白且
+长度受限的祝贺语只属presentation，不进入Review语义。consumer仍须独立验证App stable identity、
+唯一reviewed-commit locator及provider解析得到的exact head/tree；finding标题、近似前缀、控制字符、
+重复或歧义locator、错误App及head/tree漂移全部fail closed，禁止枚举某个当前祝贺词或用重试挑选文案。
+
 `PromotionId` 绑定exact CandidateGenerationRef、candidate tree、ScopeGrant/attestation、Action
 closure/Aggregate、fresh exact-head ReviewReceipt、trust revision与expected live main。content ID
 相同不能复用旧Promotion；任何exact transport、Review facts、Evidence aggregate或live-main变化都
@@ -921,8 +927,12 @@ App id/node/slug、workflow与run provenance。扩大可观察语法不得扩大
 同一production observation consumer必须用完整publication identity执行producer→publish→parse→reuse round-trip，
 并拒绝repository或任何exact key漂移，不能只测试构造器或依赖TypeScript excess-property检查。
 closed payload新增authority字段必须发布新schema与marker，禁止原地改形。旧Review-request V1只允许由严格
-legacy parser识别已知历史字节并作为只读stale observation跳过，V1 request digest不得参与V2复用或授权；
-V2绑定repository且拒绝extra key，consumer-zero与retirement前不得删除legacy observation边界。
+legacy parser识别已知历史字节并作为只读stale observation跳过；旧V2同样只保留严格历史解析，V1/V2
+request digest均不得参与当前复用或授权。当前V3是Actions App发布的repository/session/operation/head/tree/
+run-bound non-triggering locator，不含`@codex review`。唯一触发评论由已认证maintainer侧`prepare`在local quick
+PASS、fresh artifact仍不存在且Review barrier仍waiting时发布或精确复用，绑定同一Session、request operation、
+head与tree；local failure、provider schema block、已有hosted artifact或Actions principal都不得触发。
+wake-up与locator都只是at-least-once signal/audit projection，不能签发Review、Scope、Gate、merge或effect authority。
 remote marker成功后到physical merge前不得访问本地journal/cache；public GitHub adapter也只能
 暴露typed observe/ensure transaction，raw comment/review-request/dispatch/merge ports保持私有。
 

@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 
 import {
+  CODEX_CLEAN_REVIEW_CONGRATULATION_MAX_CODE_UNITS_V1,
+  CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1,
   REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
   REVIEW_STABILITY_POLICY_SCHEMA_V1,
   REVIEW_STABILITY_RECEIPT_SCHEMA_V1,
@@ -10,12 +12,39 @@ import {
   createReviewSnapshotDigestV1,
   createReviewStabilityPolicyV1,
   createReviewStabilityReceiptV1,
+  isCodexCleanReviewVerdictV1,
   parseReviewStabilityPolicyV1,
   parseReviewStabilityReceiptV1,
   renderIndependentReviewTrailerV1,
   type ReviewSnapshotV1,
   type ReviewStabilityReceiptInputV1
 } from '../../platform/shared/review-stability-contract.ts';
+
+test('Codex clean Review verdict owns one stable semantic prefix and bounded inline presentation', () => {
+  for (const value of [
+    CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo.`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Swish!`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} What shall we build next?`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} You’re on a roll!`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Chef’s kiss.`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} 🚀`
+  ]) expect(isCodexCleanReviewVerdictV1(value)).toBe(true);
+
+  for (const value of [
+    null,
+    '### 💡 Codex Review',
+    `Prefix ${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1}`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1}Bravo.`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1}  Bravo.`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo. `,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo.\nFinding`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo.\u0000`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} ${'x'.repeat(
+      CODEX_CLEAN_REVIEW_CONGRATULATION_MAX_CODE_UNITS_V1 + 1
+    )}`
+  ]) expect(isCodexCleanReviewVerdictV1(value)).toBe(false);
+});
 
 const SHA_A = '1'.repeat(40);
 const SHA_B = '2'.repeat(40);

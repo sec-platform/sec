@@ -24,6 +24,7 @@ import type {
 } from '../../platform/shared/review-stability-contract.ts';
 import {
   createReviewSnapshotDigestV1,
+  isCodexCleanReviewVerdictV1,
   REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
   SEC_REVIEW_STABILITY_POLICY_V1
 } from '../../platform/shared/review-stability-contract.ts';
@@ -332,8 +333,27 @@ export const VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1 =
   '<!-- sec-verification-session-review-request-v1 -->' as const;
 export const VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER =
   '<!-- sec-verification-session-review-request-v2 -->' as const;
+export const VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_SCHEMA_V3 =
+  'sec-verification-session-review-locator-comment-v3' as const;
+export const VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER_V3 =
+  '<!-- sec-verification-session-review-locator-v3 -->' as const;
+export const VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_SCHEMA_V1 =
+  'sec-verification-session-review-wakeup-comment-v1' as const;
+export const VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1 =
+  '<!-- sec-verification-session-review-wakeup-v1 -->' as const;
 
 export const PROVIDER_SCHEMA_UNSUPPORTED_STATUS = 'provider-schema-unsupported' as const;
+
+/** Pure signal routing only; returning true never grants Review or mutation authority. */
+export function shouldPublishMaintainerReviewWakeupV1(input: Readonly<{
+  reviewBarrierStatus: 'clear' | 'waiting' | 'blocked' | typeof PROVIDER_SCHEMA_UNSUPPORTED_STATUS;
+  localVerificationStatus: 'passed' | 'failed' | 'blocked' | null;
+  hostedArtifactPresent: boolean;
+}>): boolean {
+  return input.reviewBarrierStatus === 'waiting'
+    && input.localVerificationStatus === 'passed'
+    && !input.hostedArtifactPresent;
+}
 
 /**
  * Typed provider schema drift (Issue #347 section C). Unknown/removed GitHub
@@ -630,6 +650,143 @@ function parseLegacyReviewRequestComment(
     || source !== renderLegacyReviewRequestComment(rebuilt)) {
     fail('legacy hosted Review request comment bytes/digest mismatch.');
   }
+  return rebuilt;
+}
+
+export interface VerificationSessionReviewLocatorCommentV3 {
+  schema: typeof VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_SCHEMA_V3;
+  repository: string;
+  sessionRevision: SessionDigest;
+  operationId: SessionDigest;
+  locatorDigest: SessionDigest;
+  prNumber: number;
+  headSha: string;
+  headTreeSha: string;
+  sourceRunId: string;
+  sourceRunAttempt: number;
+  workflowRef: string;
+  publicationDigest: SessionDigest;
+}
+
+function createReviewLocatorComment(input: Omit<VerificationSessionReviewLocatorCommentV3,
+  'schema' | 'locatorDigest' | 'publicationDigest'>): VerificationSessionReviewLocatorCommentV3 {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(input.repository)
+    || !/^sha256:[0-9a-f]{64}$/u.test(input.sessionRevision)
+    || !/^sha256:[0-9a-f]{64}$/u.test(input.operationId)
+    || !Number.isSafeInteger(input.prNumber) || input.prNumber < 1
+    || !/^[0-9a-f]{40}$/u.test(input.headSha)
+    || !/^[0-9a-f]{40}$/u.test(input.headTreeSha)
+    || !/^[1-9][0-9]*$/u.test(input.sourceRunId)
+    || !Number.isSafeInteger(input.sourceRunAttempt) || input.sourceRunAttempt < 1
+    || !/^\.github\/workflows\/compiler-pr-validation\.yml@[0-9a-f]{40}$/u.test(input.workflowRef)) {
+    fail('hosted Review locator identity is invalid.');
+  }
+  const locatorDigest = hash({ repository: input.repository,
+    sessionRevision: input.sessionRevision, operationId: input.operationId,
+    prNumber: input.prNumber, headSha: input.headSha, headTreeSha: input.headTreeSha });
+  const payload = Object.freeze({ schema: VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_SCHEMA_V3,
+    repository: input.repository, sessionRevision: input.sessionRevision,
+    operationId: input.operationId, locatorDigest, prNumber: input.prNumber,
+    headSha: input.headSha, headTreeSha: input.headTreeSha,
+    sourceRunId: input.sourceRunId, sourceRunAttempt: input.sourceRunAttempt,
+    workflowRef: input.workflowRef });
+  return Object.freeze({ ...payload, publicationDigest: hash(payload) });
+}
+
+function renderReviewLocatorComment(value: VerificationSessionReviewLocatorCommentV3): string {
+  return `${VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER_V3}\n` +
+    `\`\`\`json\n${encodeVerificationActionDataV2(value)}\n\`\`\``;
+}
+
+function parseReviewLocatorComment(source: string): VerificationSessionReviewLocatorCommentV3 | null {
+  if (!source.includes(VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER_V3)) return null;
+  const prefix = `${VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER_V3}\n\`\`\`json\n`;
+  const suffix = '\n```';
+  if (!source.startsWith(prefix) || !source.endsWith(suffix)) fail('hosted Review locator comment shape is invalid.');
+  const value: unknown = JSON.parse(source.slice(prefix.length, -suffix.length));
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('hosted Review locator payload must be an object.');
+  const record = value as Record<string, unknown>;
+  const expected = ['schema', 'repository', 'sessionRevision', 'operationId', 'locatorDigest', 'prNumber',
+    'headSha', 'headTreeSha', 'sourceRunId', 'sourceRunAttempt', 'workflowRef', 'publicationDigest'].sort();
+  if (Object.keys(record).sort().join('\0') !== expected.join('\0')
+    || record.schema !== VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_SCHEMA_V3) {
+    fail('hosted Review locator payload keys/schema are invalid.');
+  }
+  const rebuilt = createReviewLocatorComment({ repository: record.repository as string,
+    sessionRevision: record.sessionRevision as SessionDigest,
+    operationId: record.operationId as SessionDigest, prNumber: record.prNumber as number,
+    headSha: record.headSha as string, headTreeSha: record.headTreeSha as string,
+    sourceRunId: record.sourceRunId as string, sourceRunAttempt: record.sourceRunAttempt as number,
+    workflowRef: record.workflowRef as string });
+  if (rebuilt.locatorDigest !== record.locatorDigest
+    || rebuilt.publicationDigest !== record.publicationDigest
+    || source !== renderReviewLocatorComment(rebuilt)) fail('hosted Review locator comment bytes/digest mismatch.');
+  return rebuilt;
+}
+
+export interface VerificationSessionReviewWakeupCommentV1 {
+  schema: typeof VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_SCHEMA_V1;
+  repository: string;
+  sessionRevision: SessionDigest;
+  operationId: SessionDigest;
+  requestOperationId: SessionDigest;
+  prNumber: number;
+  headSha: string;
+  headTreeSha: string;
+  publisherLogin: string;
+  publisherNodeId: string;
+  wakeupDigest: SessionDigest;
+}
+
+function createReviewWakeupComment(input: Omit<VerificationSessionReviewWakeupCommentV1,
+  'schema' | 'wakeupDigest'>): VerificationSessionReviewWakeupCommentV1 {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(input.repository)
+    || !/^sha256:[0-9a-f]{64}$/u.test(input.sessionRevision)
+    || !/^sha256:[0-9a-f]{64}$/u.test(input.operationId)
+    || !/^sha256:[0-9a-f]{64}$/u.test(input.requestOperationId)
+    || !Number.isSafeInteger(input.prNumber) || input.prNumber < 1
+    || !/^[0-9a-f]{40}$/u.test(input.headSha)
+    || !/^[0-9a-f]{40}$/u.test(input.headTreeSha)
+    || !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/u.test(input.publisherLogin)
+    || input.publisherNodeId.length === 0 || input.publisherNodeId.length > 256
+    || !/^[\x21-\x7e]+$/u.test(input.publisherNodeId)) fail('maintainer Review wake-up identity is invalid.');
+  const payload = Object.freeze({ schema: VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_SCHEMA_V1,
+    repository: input.repository, sessionRevision: input.sessionRevision,
+    operationId: input.operationId, requestOperationId: input.requestOperationId,
+    prNumber: input.prNumber, headSha: input.headSha, headTreeSha: input.headTreeSha,
+    publisherLogin: input.publisherLogin, publisherNodeId: input.publisherNodeId });
+  return Object.freeze({ ...payload, wakeupDigest: hash(payload) });
+}
+
+function renderReviewWakeupComment(value: VerificationSessionReviewWakeupCommentV1): string {
+  return `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1}\n` +
+    `\`\`\`json\n${encodeVerificationActionDataV2(value)}\n\`\`\``;
+}
+
+function parseReviewWakeupComment(source: string): VerificationSessionReviewWakeupCommentV1 | null {
+  if (!source.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1)) return null;
+  const prefix = `@codex review\n\n${VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1}\n\`\`\`json\n`;
+  const suffix = '\n```';
+  if (!source.startsWith(prefix) || !source.endsWith(suffix)) fail('maintainer Review wake-up comment shape is invalid.');
+  const value: unknown = JSON.parse(source.slice(prefix.length, -suffix.length));
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail('maintainer Review wake-up payload must be an object.');
+  const record = value as Record<string, unknown>;
+  const expected = ['schema', 'repository', 'sessionRevision', 'operationId', 'requestOperationId',
+    'prNumber', 'headSha', 'headTreeSha', 'publisherLogin', 'publisherNodeId', 'wakeupDigest'].sort();
+  if (Object.keys(record).sort().join('\0') !== expected.join('\0')
+    || record.schema !== VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_SCHEMA_V1) {
+    fail('maintainer Review wake-up payload keys/schema are invalid.');
+  }
+  const rebuilt = createReviewWakeupComment({ repository: record.repository as string,
+    sessionRevision: record.sessionRevision as SessionDigest,
+    operationId: record.operationId as SessionDigest,
+    requestOperationId: record.requestOperationId as SessionDigest,
+    prNumber: record.prNumber as number, headSha: record.headSha as string,
+    headTreeSha: record.headTreeSha as string,
+    publisherLogin: record.publisherLogin as string,
+    publisherNodeId: record.publisherNodeId as string });
+  if (rebuilt.wakeupDigest !== record.wakeupDigest
+    || source !== renderReviewWakeupComment(rebuilt)) fail('maintainer Review wake-up comment bytes/digest mismatch.');
   return rebuilt;
 }
 
@@ -1236,9 +1393,12 @@ function normalizeIssueComments(
     const normalized = Object.freeze({ id: comment.id, body, authorLogin, authorId: comment.authorId,
       authorNodeId, authorType, performedViaGitHubApp, createdAt });
     if (trustedHostedPublisher(normalized)) {
-      if (body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER)) {
+      if (body.includes(VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER_V3)) {
+        const locator = parseReviewLocatorComment(body);
+        if (locator === null) fail('trusted hosted Review locator marker did not parse.');
+      } else if (body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER)) {
         const request = parseReviewRequestComment(body);
-        if (request === null) fail('trusted hosted Review request marker did not parse.');
+        if (request === null) fail('trusted historical V2 Review request marker did not parse.');
       } else if (body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1)) {
         const legacy = parseLegacyReviewRequestComment(body);
         if (legacy === null) fail('trusted legacy hosted Review request marker did not parse.');
@@ -1283,14 +1443,19 @@ function blockingReviewPrincipals(
 }
 
 function reviewedCommitLocator(body: string): { locator: string; clean: boolean } | null {
-  const labels = [...body.matchAll(/Reviewed commit:/gu)];
+  const normalized = body.replaceAll('\r\n', '\n');
+  const labels = [...normalized.matchAll(/Reviewed commit:/gu)];
   if (labels.length === 0) return null;
-  const matches = [...body.matchAll(/^\*\*Reviewed commit:\*\* `([0-9a-f]+)`\s*$/gmu)];
+  const matches = [...normalized.matchAll(/^\*\*Reviewed commit:\*\* `([0-9a-f]+)`[ \t]*$/gmu)];
   if (labels.length !== 1 || matches.length !== 1) return null;
   const locator = matches[0]![1]!;
   if (locator.length !== 10 && locator.length !== 40) return null;
-  const firstLine = body.split(/\r?\n/u)[0];
-  return { locator, clean: firstLine === "Codex Review: Didn't find any major issues. Bravo." };
+  const firstLine = normalized.split('\n', 1)[0]!;
+  const core = `${firstLine}\n\n**Reviewed commit:** \`${locator}\``;
+  const aboutPrefix = `${core}\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>`;
+  const cleanShape = normalized === core
+    || (normalized.startsWith(aboutPrefix) && normalized.trimEnd().endsWith('</details>'));
+  return { locator, clean: cleanShape && isCodexCleanReviewVerdictV1(firstLine) };
 }
 
 function assertResolution(
@@ -1960,12 +2125,13 @@ class VerificationSessionGitHubAdapter {
     }
   }
 
-  observeHostedReviewRequest(input: {
+  observeHostedReviewLocator(input: {
     repository: string;
     prNumber: number;
     sessionRevision: SessionDigest;
     operationId: SessionDigest;
     headSha: string;
+    headTreeSha: string;
     sourceRunId: string;
     sourceRunAttempt: number;
     workflowRef: string;
@@ -1975,39 +2141,102 @@ class VerificationSessionGitHubAdapter {
     publicationDigest: SessionDigest;
     body: string;
   }> {
-    const expected = createReviewRequestComment(input);
-    const inventory = () => normalizeIssueComments(collectPages('hosted Review request comments', (cursor) => (
+    const expected = createReviewLocatorComment(input);
+    const inventory = () => normalizeIssueComments(collectPages('hosted Review locator comments', (cursor) => (
       this.#transport.issueCommentPage(input.repository, input.prNumber, cursor)
     )).nodes);
     const classify = (comments: readonly GitHubIssueCommentObservationV1[]) => {
       const matching: Array<{ comment: GitHubIssueCommentObservationV1;
-        publication: VerificationSessionReviewRequestCommentV2 }> = [];
+        publication: VerificationSessionReviewLocatorCommentV3 }> = [];
       for (const comment of comments) {
         if (comment.body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER_V1)) {
           if (trustedHostedPublisher(comment)) parseLegacyReviewRequestComment(comment.body);
           continue;
         }
-        if (!comment.body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER)) continue;
+        if (comment.body.includes(VERIFICATION_SESSION_REVIEW_REQUEST_COMMENT_MARKER)) {
+          if (trustedHostedPublisher(comment)) parseReviewRequestComment(comment.body);
+          continue;
+        }
+        if (!comment.body.includes(VERIFICATION_SESSION_REVIEW_LOCATOR_COMMENT_MARKER_V3)) continue;
         if (!trustedHostedPublisher(comment)) continue;
-        const publication = parseReviewRequestComment(comment.body);
-        if (publication === null) fail(`Review request comment ${comment.id} marker did not parse.`);
+        const publication = parseReviewLocatorComment(comment.body);
+        if (publication === null) fail(`Review locator comment ${comment.id} marker did not parse.`);
         if (publication.sessionRevision === input.sessionRevision
           && publication.operationId === input.operationId) matching.push({ comment, publication });
       }
-      if (matching.length > 1) fail('duplicate hosted Review request comments exist for one operation.');
+      if (matching.length > 1) fail('duplicate hosted Review locator comments exist for one operation.');
       if (matching.length === 1
         && matching[0]!.publication.publicationDigest !== expected.publicationDigest) {
-        fail('hosted Review request operation has conflicting semantic bytes.');
+        fail('hosted Review locator operation has conflicting semantic bytes.');
       }
       return matching[0] ?? null;
     };
     const existing = classify(inventory());
-    const body = renderReviewRequestComment(expected);
+    const body = renderReviewLocatorComment(expected);
     return existing === null
       ? Object.freeze({ status: 'absent' as const, commentId: null,
           publicationDigest: expected.publicationDigest, body })
       : Object.freeze({ status: 'reused' as const, commentId: existing.comment.id,
           publicationDigest: existing.publication.publicationDigest, body });
+  }
+
+  observeMaintainerReviewWakeup(input: {
+    repository: string;
+    prNumber: number;
+    sessionRevision: SessionDigest;
+    operationId: SessionDigest;
+    requestOperationId: SessionDigest;
+    headSha: string;
+    headTreeSha: string;
+    publisherLogin: string;
+    publisherNodeId: string;
+  }): Readonly<{
+    status: 'absent' | 'reused';
+    commentId: string | null;
+    wakeupDigest: SessionDigest;
+    body: string;
+  }> {
+    const publisherLogin = boundedText(input.publisherLogin, 'Review wake-up publisherLogin', 256);
+    const publisherNodeId = boundedText(input.publisherNodeId, 'Review wake-up publisherNodeId', 256);
+    const currentPermission = this.#transport.collaboratorPermission(input.repository, publisherLogin);
+    if (currentPermission !== 'admin' && currentPermission !== 'maintain') {
+      fail('Review wake-up publisher lacks current maintain/admin permission.');
+    }
+    const expected = createReviewWakeupComment({ ...input, publisherLogin, publisherNodeId });
+    const comments = normalizeIssueComments(collectPages('maintainer Review wake-up comments', (cursor) => (
+      this.#transport.issueCommentPage(input.repository, input.prNumber, cursor)
+    )).nodes);
+    const matching: Array<{ comment: GitHubIssueCommentObservationV1;
+      wakeup: VerificationSessionReviewWakeupCommentV1 }> = [];
+    for (const comment of comments) {
+      if (!comment.body.includes(VERIFICATION_SESSION_REVIEW_WAKEUP_COMMENT_MARKER_V1)) continue;
+      const wakeup = parseReviewWakeupComment(comment.body);
+      if (wakeup === null) fail(`Review wake-up comment ${comment.id} marker did not parse.`);
+      if (wakeup.publisherLogin !== comment.authorLogin
+        || wakeup.publisherNodeId !== comment.authorNodeId) continue;
+      if (comment.authorType !== 'User' || comment.performedViaGitHubApp !== null) {
+        fail('maintainer Review wake-up publisher provenance is invalid.');
+      }
+      const permission = this.#transport.collaboratorPermission(input.repository, comment.authorLogin);
+      if (permission !== 'admin' && permission !== 'maintain') continue;
+      if (wakeup.sessionRevision !== input.sessionRevision
+        || wakeup.operationId !== input.operationId) continue;
+      if (wakeup.repository !== input.repository
+        || wakeup.requestOperationId !== input.requestOperationId
+        || wakeup.prNumber !== input.prNumber || wakeup.headSha !== input.headSha
+        || wakeup.headTreeSha !== input.headTreeSha) {
+        fail('maintainer Review wake-up operation has conflicting semantic bytes.');
+      }
+      matching.push({ comment, wakeup });
+    }
+    if (matching.length > 1) fail('duplicate maintainer Review wake-up comments exist for one operation.');
+    const existing = matching[0] ?? null;
+    const body = existing === null ? renderReviewWakeupComment(expected) : existing.comment.body;
+    return existing === null
+      ? Object.freeze({ status: 'absent' as const, commentId: null,
+          wakeupDigest: expected.wakeupDigest, body })
+      : Object.freeze({ status: 'reused' as const, commentId: existing.comment.id,
+          wakeupDigest: existing.wakeup.wakeupDigest, body });
   }
 
   ensureVerificationSessionWakeup(repository: string, request: VerificationSessionHostedRequestV1): void {
@@ -2037,7 +2266,8 @@ export type VerificationSessionGitHubClientV1 = Readonly<Pick<
   | 'observeActionsArtifacts'
   | 'downloadArtifactText'
   | 'observePlatformEnforcement'
-  | 'observeHostedReviewRequest'
+  | 'observeHostedReviewLocator'
+  | 'observeMaintainerReviewWakeup'
   | 'ensureVerificationSessionWakeup'
 >>;
 
@@ -2072,14 +2302,24 @@ export function evaluateVerificationSessionReviewObservationV1(
   ).observeReviewBarrier(input);
 }
 
-/** Pure observation seam for exact hosted Review request producer/consumer round trips. */
-export function evaluateHostedReviewRequestObservationV1(
+/** Pure observation seam for exact hosted Review locator producer/consumer round trips. */
+export function evaluateHostedReviewLocatorObservationV1(
   transaction: Pick<VerificationSessionReviewObservationTransactionV1, 'issueCommentPage'>,
-  input: Parameters<VerificationSessionGitHubAdapter['observeHostedReviewRequest']>[0]
-): ReturnType<VerificationSessionGitHubAdapter['observeHostedReviewRequest']> {
+  input: Parameters<VerificationSessionGitHubAdapter['observeHostedReviewLocator']>[0]
+): ReturnType<VerificationSessionGitHubAdapter['observeHostedReviewLocator']> {
   return new VerificationSessionGitHubAdapter(
     transaction as unknown as VerificationSessionGitHubTransport
-  ).observeHostedReviewRequest(input);
+  ).observeHostedReviewLocator(input);
+}
+
+/** Pure observation seam for the maintainer-authored Review activation signal. */
+export function evaluateMaintainerReviewWakeupObservationV1(
+  transaction: Pick<VerificationSessionReviewObservationTransactionV1, 'issueCommentPage'>,
+  input: Parameters<VerificationSessionGitHubAdapter['observeMaintainerReviewWakeup']>[0]
+): ReturnType<VerificationSessionGitHubAdapter['observeMaintainerReviewWakeup']> {
+  return new VerificationSessionGitHubAdapter(
+    transaction as unknown as VerificationSessionGitHubTransport
+  ).observeMaintainerReviewWakeup(input);
 }
 
 export interface VerificationSessionWorkflowObservationTransactionV1 {
