@@ -36,6 +36,7 @@ tasks:
     ownedPaths:
       - scripts/codex/branch-lifecycle-command.ts
       - tests/unit/branch-lifecycle-contract.test.ts
+      - tests/unit/branch-lifecycle-temp-repo.test.ts
   - id: independent-review-stability-provider-boundary
     owner: verification-governance-owner
     ownedPaths:
