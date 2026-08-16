@@ -607,10 +607,11 @@ plan映射到既有唯一owner，并作为可独立main/readback的纵向Work Pa
 1. **Read fast path（#205 → #346）**：#205 独立编译 Task Capsule，#346 只消费其
    ref/digest/revision 并编译 content-addressed ReadKey/ReadPlan、read receipt、invalidation 与
    zero-or-one Skill selector projection；VerificationSession 也只保存 Capsule 引用，不拥有其内容或 lifecycle；
-2. **Guidance convergence（#275）**：删除默认 memory/full-orientation/旧命令/旧path guidance，
+2. **Guidance convergence（#275）— completed**：删除默认 memory/full-orientation/旧命令/旧path guidance，
    将已有 deterministic behavior 路由到真实 machine owner，并在 consumer-zero readback 后一次退役
-   冗余 Skill ID/file；当前保留八个 bounded Skill。#205 的 production Task Capsule compiler 完成
-   consumer cutover、canary 与 readback 后，delegation route 才转为 deterministic 并收敛到终态七个；
+   冗余 Skill ID/file；当前保留八个 bounded Skill。#205 production Task Capsule、issuer-bound Read Plan
+   与真实PRE/FINAL canary只能提供可信结构事实，不能决定并行收益是否大于协调成本；只有未来真实
+   decision owner同时推导delegate与no-delegation并完成consumer-zero，delegation才收敛到终态七个；
 3. **Candidate / Control transaction**：Git-object materializer、one-parent commit、ref CAS、
    prospective/active control分离、同一worktree/ref generation loop；
 4. **Verification closure**：Requirement tri-state、subject-closure ActionKey、Evidence DAG、heavy
@@ -739,7 +740,7 @@ prose、caller JSON或本block之外猜测。
       "disposition": "active",
       "priorityClass": "active-critical-path",
       "priorityEvidenceRefs": ["roadmap:r14/candidate-control"],
-      "prerequisiteWorkIds": ["issue-275"],
+      "prerequisiteWorkIds": [],
       "orderedAfterWorkIds": [],
       "reproductionOrEvidenceFreshness": "fresh",
       "rootCauseState": "repeat-root-cause",
@@ -760,7 +761,7 @@ prose、caller JSON或本block之外猜测。
       "priorityClass": "near-term-acceleration",
       "priorityEvidenceRefs": ["roadmap:r14/read-path-cutover"],
       "prerequisiteWorkIds": ["issue-346"],
-      "orderedAfterWorkIds": ["issue-275"],
+      "orderedAfterWorkIds": [],
       "reproductionOrEvidenceFreshness": "fresh",
       "rootCauseState": "not-repeated",
       "rootCauseRef": "github:issue/312",

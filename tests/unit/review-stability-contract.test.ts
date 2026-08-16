@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
 
 import {
+  CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES_V1,
+  CODEX_CLEAN_REVIEW_CONGRATULATIONS_V1,
+  CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1,
   REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
   REVIEW_STABILITY_POLICY_SCHEMA_V1,
   REVIEW_STABILITY_RECEIPT_SCHEMA_V1,
@@ -10,12 +13,47 @@ import {
   createReviewSnapshotDigestV1,
   createReviewStabilityPolicyV1,
   createReviewStabilityReceiptV1,
+  isCodexCleanReviewAboutBlockV1,
+  isCodexCleanReviewVerdictV1,
   parseReviewStabilityPolicyV1,
   parseReviewStabilityReceiptV1,
   renderIndependentReviewTrailerV1,
   type ReviewSnapshotV1,
   type ReviewStabilityReceiptInputV1
 } from '../../platform/shared/review-stability-contract.ts';
+
+test('Codex clean Review verdict owns one stable semantic prefix and closed presentation grammar', () => {
+  expect(isCodexCleanReviewVerdictV1(CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1)).toBe(true);
+  for (const congratulation of CODEX_CLEAN_REVIEW_CONGRATULATIONS_V1) {
+    expect(isCodexCleanReviewVerdictV1(
+      `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} ${congratulation}`
+    )).toBe(true);
+  }
+
+  for (const value of [
+    null,
+    '### 💡 Codex Review',
+    `Prefix ${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1}`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1}Bravo.`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1}  Bravo.`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo. `,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Delightful! Finding: P1 unsafe behavior`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo.\nFinding`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Bravo.\u0000`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} Finding: P1 unsafe behavior`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} No unsafe behavior here.`,
+    `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} ${'x'.repeat(201)}`
+  ]) expect(isCodexCleanReviewVerdictV1(value)).toBe(false);
+
+  const canonicalAbout = CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES_V1.join('\n\n');
+  expect(isCodexCleanReviewAboutBlockV1(canonicalAbout)).toBe(true);
+  expect(isCodexCleanReviewAboutBlockV1(
+    canonicalAbout.replace('</details>', '### P1 finding\n</details>')
+  )).toBe(false);
+  expect(isCodexCleanReviewAboutBlockV1(
+    canonicalAbout.replace('Reviews are triggered when you', 'Provider help text.')
+  )).toBe(false);
+});
 
 const SHA_A = '1'.repeat(40);
 const SHA_B = '2'.repeat(40);

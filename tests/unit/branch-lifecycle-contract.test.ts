@@ -3,7 +3,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { projectBranchLifecycleForWorkSelectionV1 } from '../../scripts/codex/branch-lifecycle-audit.ts';
-import { createBranchLifecycleGitHubCredentialArgsV1 } from '../../scripts/codex/branch-lifecycle-command.ts';
+import {
+  createBranchLifecycleGitChildEnvironmentV1,
+  createBranchLifecycleGitHubCredentialArgsV1,
+  createBranchLifecycleGitHubRemoteObservationV1
+} from '../../scripts/codex/branch-lifecycle-command.ts';
 import {
   BRANCH_REF_CLOSEOUT_CAPABILITY_V1,
   auditBranchLifecycle,
@@ -38,6 +42,92 @@ test('remote branch inventory uses the canonical bounded gh credential helper', 
   expect(reader).toContain('...createBranchLifecycleGitHubCredentialArgsV1()');
   expect(reader).toContain("'ls-remote', '--heads', remote");
   expect(reader).not.toContain("['ls-remote'");
+});
+
+test('canonical Git child environment removes ambient askpass and SSH command authority', () => {
+  const environment = createBranchLifecycleGitChildEnvironmentV1({
+    Path: 'trusted-path',
+    PATH: 'duplicate-path',
+    HOME: 'trusted-home',
+    gh_prompt_disabled: '0',
+    SSH_AUTH_SOCK: 'trusted-agent-channel',
+    git_askpass: 'forged-git-askpass',
+    GIT_ASKPASS_REQUIRE: 'force',
+    ssh_askpass: 'forged-ssh-askpass',
+    SSH_ASKPASS_REQUIRE: 'force',
+    git_ssh: 'forged-git-ssh',
+    GIT_SSH_COMMAND: 'forged-git-ssh-command',
+    Git_Config_Count: '1',
+    GIT_CONFIG_KEY_0: 'credential.helper',
+    git_config_value_0: 'forged-helper',
+    git_terminal_prompt: '1',
+    GIT_OPTIONAL_LOCKS: '1',
+    git_no_replace_objects: '0'
+  });
+
+  expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'PATH'))
+    .toEqual(['Path']);
+  expect(environment.HOME).toBe('trusted-home');
+  expect(environment.SSH_AUTH_SOCK).toBe('trusted-agent-channel');
+  for (const name of Object.keys(environment)) {
+    expect([
+      'GIT_ASKPASS',
+      'GIT_ASKPASS_REQUIRE',
+      'SSH_ASKPASS',
+      'SSH_ASKPASS_REQUIRE',
+      'GIT_SSH',
+      'GIT_SSH_COMMAND',
+      'GIT_CONFIG_COUNT',
+      'GIT_CONFIG_KEY_0',
+      'GIT_CONFIG_VALUE_0'
+    ]).not.toContain(name.toUpperCase());
+  }
+  expect(environment).toMatchObject({
+    GH_PROMPT_DISABLED: '1',
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_NO_REPLACE_OBJECTS: '1'
+  });
+});
+
+test('GitHub remote observation binds canonical URL and ignores every ambient Git config scope', () => {
+  const hostileEnvironment = {
+    PATH: 'trusted-path',
+    HOME: 'hostile-global-home',
+    GIT_DIR: 'hostile-repository',
+    GIT_CONFIG_GLOBAL: 'hostile-global-config',
+    GIT_CONFIG_SYSTEM: 'hostile-system-config',
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'url.https://attacker.invalid/.insteadOf',
+    GIT_CONFIG_VALUE_0: 'https://github.com/'
+  };
+  const windows = createBranchLifecycleGitHubRemoteObservationV1(
+    'sec-platform/sec', hostileEnvironment, 'win32'
+  );
+  expect(windows.repositoryUrl).toBe('https://github.com/sec-platform/sec.git');
+  expect(windows.argumentsPrefix).toEqual([
+    '--git-dir=NUL',
+    ...createBranchLifecycleGitHubCredentialArgsV1()
+  ]);
+  expect(windows.environment).toMatchObject({
+    PATH: 'trusted-path',
+    HOME: 'hostile-global-home',
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: 'NUL',
+    GIT_CONFIG_SYSTEM: 'NUL'
+  });
+  expect(windows.environment.GIT_DIR).toBeUndefined();
+  expect(windows.environment.GIT_CONFIG_COUNT).toBeUndefined();
+  expect(windows.environment.GIT_CONFIG_KEY_0).toBeUndefined();
+
+  const linux = createBranchLifecycleGitHubRemoteObservationV1(
+    'sec-platform/sec', hostileEnvironment, 'linux'
+  );
+  expect(linux.argumentsPrefix[0]).toBe('--git-dir=/dev/null');
+  expect(linux.environment.GIT_CONFIG_GLOBAL).toBe('/dev/null');
+  expect(() => createBranchLifecycleGitHubRemoteObservationV1(
+    '../foreign', hostileEnvironment, 'linux'
+  )).toThrow('bounded owner/name identity');
 });
 
 test('canonical Git branch grammar admits Unicode without weakening option-safe rejection', () => {

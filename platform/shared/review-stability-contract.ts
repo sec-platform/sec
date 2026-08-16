@@ -6,8 +6,55 @@ import { encodeVerificationActionDataV2 } from './verification-action-contract.t
 
 export const REVIEW_STABILITY_POLICY_SCHEMA_V1 = 'sec-review-stability-policy-v1' as const;
 export const REVIEW_STABILITY_RECEIPT_SCHEMA_V1 = 'sec-review-stability-receipt-v1' as const;
+export const CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1 =
+  "Codex Review: Didn't find any major issues." as const;
+export const CODEX_CLEAN_REVIEW_CONGRATULATIONS_V1 = Object.freeze([
+  'Bravo.',
+  'Delightful!',
+  'Swish!',
+  'What shall we build next?',
+  'You’re on a roll!',
+  'Chef’s kiss.',
+  '🚀'
+] as const);
+export const CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES_V1 = Object.freeze([
+  '<details> <summary>ℹ️ About Codex in GitHub</summary>',
+  '<br/>',
+  '[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you',
+  '- Open a pull request for review',
+  '- Mark a draft as ready',
+  '- Comment "@codex review".',
+  'If Codex has suggestions, it will comment; otherwise it will react with 👍.',
+  'Codex can also answer questions or update the PR. Try commenting "@codex address that feedback".',
+  '</details>'
+] as const);
 export type ReviewStabilityDigest = `sha256:${string}`;
 export type ReviewStabilityStageV1 = 'pre-expensive' | 'pre-merge';
+
+/**
+ * The trusted Codex App owns the clean-verdict semantic prefix. Presentation
+ * text is accepted only from this versioned closed vocabulary: arbitrary
+ * natural language cannot be proved non-finding content and therefore fails
+ * closed until a later trust revision explicitly admits it.
+ */
+export function isCodexCleanReviewVerdictV1(firstLine: unknown): boolean {
+  if (typeof firstLine !== 'string') return false;
+  if (firstLine === CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1) return true;
+  const prefix = `${CODEX_CLEAN_REVIEW_VERDICT_PREFIX_V1} `;
+  if (!firstLine.startsWith(prefix)) return false;
+  const congratulation = firstLine.slice(prefix.length);
+  return CODEX_CLEAN_REVIEW_CONGRATULATIONS_V1.some((candidate) => candidate === congratulation);
+}
+
+/** Closed grammar for the optional provider help block; blank-line layout may vary, semantic lines may not. */
+export function isCodexCleanReviewAboutBlockV1(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const semanticLines = value.replaceAll('\r\n', '\n').split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  return semanticLines.length === CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES_V1.length
+    && semanticLines.every((line, index) => line === CODEX_CLEAN_REVIEW_ABOUT_NONEMPTY_LINES_V1[index]);
+}
 
 export interface ReviewStabilityTrustedAppV1 {
   readonly actorNodeId: string;
