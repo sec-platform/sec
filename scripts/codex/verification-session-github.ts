@@ -24,6 +24,7 @@ import type {
 } from '../../platform/shared/review-stability-contract.ts';
 import {
   createReviewSnapshotDigestV1,
+  isCodexCleanReviewAboutBlockV1,
   isCodexCleanReviewVerdictV1,
   REVIEW_OBSERVER_READ_ONLY_CAPABILITY_RECEIPT_V1,
   SEC_REVIEW_STABILITY_POLICY_V1
@@ -1452,9 +1453,9 @@ function reviewedCommitLocator(body: string): { locator: string; clean: boolean 
   if (locator.length !== 10 && locator.length !== 40) return null;
   const firstLine = normalized.split('\n', 1)[0]!;
   const core = `${firstLine}\n\n**Reviewed commit:** \`${locator}\``;
-  const aboutPrefix = `${core}\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>`;
   const cleanShape = normalized === core
-    || (normalized.startsWith(aboutPrefix) && normalized.trimEnd().endsWith('</details>'));
+    || (normalized.startsWith(`${core}\n\n`)
+      && isCodexCleanReviewAboutBlockV1(normalized.slice(core.length + 2)));
   return { locator, clean: cleanShape && isCodexCleanReviewVerdictV1(firstLine) };
 }
 

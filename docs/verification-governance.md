@@ -889,10 +889,12 @@ human exact-head APPROVED可以成为principal，显示名、PR summary、self-r
 的COMMENTED状态不能单独授权。
 
 可信Codex App的clean verdict只由稳定语义前缀
-`Codex Review: Didn't find any major issues.`分类；其后可选的单空格分隔、单行、去首尾空白且
-长度受限的祝贺语只属presentation，不进入Review语义。consumer仍须独立验证App stable identity、
-唯一reviewed-commit locator及provider解析得到的exact head/tree；finding标题、近似前缀、控制字符、
-重复或歧义locator、错误App及head/tree漂移全部fail closed，禁止枚举某个当前祝贺词或用重试挑选文案。
+`Codex Review: Didn't find any major issues.`分类；其后可选的单行祝贺语与About帮助块都必须命中
+当前trust revision的closed provider-presentation grammar。任意自然语言无法证明不是finding，因此新的
+provider文案只会使Review等待，必须由canonical owner显式升级grammar与negative后才可接纳。consumer仍须
+独立验证App stable identity、唯一reviewed-commit locator及provider解析得到的exact head/tree；同一行或
+About块内的finding、近似前缀、控制字符、重复或歧义locator、错误App及head/tree漂移全部fail closed，
+禁止用重试挑选文案或用开放字符集/长度上限替代闭合语法。
 
 `PromotionId` 绑定exact CandidateGenerationRef、candidate tree、ScopeGrant/attestation、Action
 closure/Aggregate、fresh exact-head ReviewReceipt、trust revision与expected live main。content ID

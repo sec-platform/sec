@@ -1436,15 +1436,27 @@ test('REST clean verdict accepts stable prefix variants only with provider-resol
   providerAbout.issueComments = [[botIssueComment(
     `Codex Review: Didn't find any major issues. What shall we build next?\n\n` +
     `**Reviewed commit:** \`${HEAD.slice(0, 10)}\`\n\n` +
-    '<details> <summary>ℹ️ About Codex in GitHub</summary>\nProvider help text.\n</details>'
+    '<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\n' +
+    '[Your team has set up Codex to review pull requests in this repo]' +
+    '(https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you\n' +
+    '- Open a pull request for review\n- Mark a draft as ready\n- Comment "@codex review".\n\n' +
+    'If Codex has suggestions, it will comment; otherwise it will react with 👍.\n\n' +
+    'Codex can also answer questions or update the PR. Try commenting ' +
+    '"@codex address that feedback".\n</details>'
   )]];
   expect(observe(providerAbout).status).toBe('clear');
 
   for (const body of [
     `Codex Review: Didn't find any major issues. Swish!\n\n` +
       `**Reviewed commit:** \`${HEAD.slice(0, 10)}\`\n\n### P1 finding`,
+    `Codex Review: Didn't find any major issues. Finding: P1 unsafe behavior\n\n` +
+      `**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
     `Codex Review: Didn't find any major issues. Swish!\n\nUnexpected finding text\n\n` +
-      `**Reviewed commit:** \`${HEAD.slice(0, 10)}\``
+      `**Reviewed commit:** \`${HEAD.slice(0, 10)}\``,
+    `Codex Review: Didn't find any major issues. Swish!\n\n` +
+      `**Reviewed commit:** \`${HEAD.slice(0, 10)}\`\n\n` +
+      '<details> <summary>ℹ️ About Codex in GitHub</summary>\n' +
+      '### P1 finding\n</details>'
   ]) {
     const contradictory = new FakeTransport();
     contradictory.issueComments = [[botIssueComment(body)]];
