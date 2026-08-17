@@ -352,13 +352,17 @@ export async function loadManifestById(blockId: string, options: ManifestLoadOpt
         const manifest = mergeVersionedManifest(rootManifest, versionedManifest);
         validateManifest(manifest);
         assertRequestedManifestIdentity(manifest, blockId, manifestPath);
-        if (manifest.version === version) {
-          const versionRoot = path.dirname(manifestPath);
-          const resourceRoots = rootManifest ? [versionRoot, path.dirname(rootPath)] : [versionRoot];
-          const entry = manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
-          manifestCache.set(cacheKey, entry);
-          return entry;
+        if (manifest.version !== version) {
+          throw new CompilerError(
+            'MANIFEST-SCHEMA-022',
+            `Versioned manifest at "${manifestPath}" declares version "${manifest.version}" but was addressed as "${version}"`
+          );
         }
+        const versionRoot = path.dirname(manifestPath);
+        const resourceRoots = rootManifest ? [versionRoot, path.dirname(rootPath)] : [versionRoot];
+        const entry = manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
+        manifestCache.set(cacheKey, entry);
+        return entry;
       }
     }
 
