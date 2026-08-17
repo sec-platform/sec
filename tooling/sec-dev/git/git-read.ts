@@ -28,12 +28,34 @@ export interface GitBlobBatchLimits {
 }
 
 const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
+const GIT_REPOSITORY_REDIRECTION_ENV_KEYS = [
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_COMMON_DIR',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_NAMESPACE',
+  'GIT_CEILING_DIRECTORIES',
+  'GIT_DISCOVERY_ACROSS_FILESYSTEM'
+] as const;
 
 function positiveSafeInteger(value: number, label: string): number {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${label} must be one positive safe integer`);
   }
   return value;
+}
+
+function isolatedGitEnvironment(
+  overrides: Readonly<Record<string, string>> | undefined
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of GIT_REPOSITORY_REDIRECTION_ENV_KEYS) delete env[key];
+  env.GIT_NO_REPLACE_OBJECTS = '1';
+  env.GIT_OPTIONAL_LOCKS = '0';
+  for (const [key, value] of Object.entries(overrides ?? {})) env[key] = value;
+  return env;
 }
 
 export function runGitRead(
@@ -51,7 +73,7 @@ export function runGitRead(
     input: options.input,
     maxBuffer: options.maxBuffer ?? 128 * 1024 * 1024,
     windowsHide: true,
-    env: options.env === undefined ? undefined : { ...process.env, ...options.env }
+    env: isolatedGitEnvironment(options.env)
   });
   return Object.freeze({
     status: result.status,
@@ -287,11 +309,18 @@ export function readBlobEntryBatch(
     expectedSizes.set(entry.objectId, entry.byteSize);
   }
   const expectedBytes = [...expectedSizes.values()].reduce((sum, value) => sum + value, 0);
+  if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 0) {
+    throw new Error('Git blob batch expected byte total exceeds the safe integer range');
+  }
   const overhead = Math.max(1024 * 1024, expectedSizes.size * 256);
+  const maxBuffer = expectedBytes + overhead;
+  if (!Number.isSafeInteger(maxBuffer) || maxBuffer <= 0) {
+    throw new Error('Git blob batch output buffer bound is invalid');
+  }
   const blobs = readBlobBatch(
     repositoryRoot,
     [...expectedSizes.keys()],
-    Math.max(1024 * 1024, expectedBytes + overhead)
+    Math.max(1024 * 1024, maxBuffer)
   );
   for (const [objectId, expectedSize] of expectedSizes) {
     if (blobs.get(objectId)?.byteLength !== expectedSize) {
@@ -334,19 +363,26 @@ function createIsolatedAttributeReader(
     ? path.resolve(gitObjectsPath)
     : path.resolve(repositoryRoot, gitObjectsPath);
   const shadowGitDir = mkdtempSync(path.join(tmpdir(), 'sec-git-attributes-'));
-  mkdirSync(path.join(shadowGitDir, 'refs'), { recursive: true });
-  mkdirSync(path.join(shadowGitDir, 'info'), { recursive: true });
-  writeFileSync(path.join(shadowGitDir, 'HEAD'), 'ref: refs/heads/sec-attribute-source\n', 'utf8');
-  writeFileSync(
-    path.join(shadowGitDir, 'config'),
-    '[core]\n\trepositoryformatversion = 0\n\tbare = true\n',
-    'utf8'
-  );
+  try {
+    mkdirSync(path.join(shadowGitDir, 'refs'), { recursive: true });
+    mkdirSync(path.join(shadowGitDir, 'info'), { recursive: true });
+    writeFileSync(path.join(shadowGitDir, 'HEAD'), 'ref: refs/heads/sec-attribute-source\n', 'utf8');
+    writeFileSync(
+      path.join(shadowGitDir, 'config'),
+      '[core]\n\trepositoryformatversion = 0\n\tbare = true\n',
+      'utf8'
+    );
+  } catch (error) {
+    rmSync(shadowGitDir, { recursive: true, force: true });
+    throw error;
+  }
 
   const env = Object.freeze({
     GIT_DIR: shadowGitDir,
+    GIT_COMMON_DIR: shadowGitDir,
     GIT_OBJECT_DIRECTORY: objectDirectory,
-    GIT_ATTR_NOSYSTEM: '1'
+    GIT_ATTR_NOSYSTEM: '1',
+    GIT_CONFIG_NOSYSTEM: '1'
   });
 
   const read = (paths: readonly string[]): ReadonlyMap<string, GitTextAttributes> => {
