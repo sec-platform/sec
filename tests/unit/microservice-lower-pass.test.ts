@@ -94,7 +94,7 @@ describe('Microservice Lowering Compiler Pass', () => {
     }, 'lower-micro-');
   });
 
-  test('passes one provider-neutral intent batch to an alternate renderer', async () => {
+  test('passes one provider-neutral intent batch to an alternate renderer under separate publication authority', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const observed: MicroserviceDeploymentIntent[][] = [];
       const renderer: MicroserviceDeploymentRenderer = {
@@ -113,7 +113,8 @@ describe('Microservice Lowering Compiler Pass', () => {
         workspaceRoot,
         createMockLock('microservices'),
         renderer,
-        DEFAULT_MICROSERVICE_RESILIENCE_POLICY
+        DEFAULT_MICROSERVICE_RESILIENCE_POLICY,
+        { allowedArtifactRoots: ['generated/fake'] }
       );
 
       expect(observed).toEqual([[{
@@ -154,13 +155,86 @@ describe('Microservice Lowering Compiler Pass', () => {
         workspaceRoot,
         lock,
         renderer,
-        DEFAULT_MICROSERVICE_RESILIENCE_POLICY
+        DEFAULT_MICROSERVICE_RESILIENCE_POLICY,
+        { allowedArtifactRoots: ['generated'] }
       )).rejects.toMatchObject({ code: 'COMPOSE-PATH-004' });
 
       await expect(fs.lstat(
         path.join(workspaceRoot, 'project', 'generated', 'collision.txt')
       )).rejects.toMatchObject({ code: 'ENOENT' });
     }, 'lower-collision-');
+  });
+
+  test('rejects non-canonical lexical path aliases before publication', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const renderer: MicroserviceDeploymentRenderer = {
+        providerId: 'aliasing-provider',
+        revision: 'test-v1',
+        async render() {
+          return [{
+            relativePath: 'generated/a/../collision.txt',
+            text: 'must-not-write\n'
+          }];
+        }
+      };
+
+      await expect(lowerToMicroservicesWithRenderer(
+        workspaceRoot,
+        createMockLock('microservices'),
+        renderer,
+        DEFAULT_MICROSERVICE_RESILIENCE_POLICY,
+        { allowedArtifactRoots: ['generated'] }
+      )).rejects.toMatchObject({ code: 'COMPOSE-PATH-003' });
+
+      await expect(fs.lstat(path.join(workspaceRoot, 'project', 'generated')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'lower-alias-path-');
+  });
+
+  test('renderer cannot grant itself write access outside caller-authorized roots', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const renderer: MicroserviceDeploymentRenderer = {
+        providerId: 'overreaching-provider',
+        revision: 'test-v1',
+        async render() {
+          return [{ relativePath: 'package.json', text: '{"owned":false}\n' }];
+        }
+      };
+
+      await expect(lowerToMicroservicesWithRenderer(
+        workspaceRoot,
+        createMockLock('microservices'),
+        renderer,
+        DEFAULT_MICROSERVICE_RESILIENCE_POLICY,
+        { allowedArtifactRoots: ['generated'] }
+      )).rejects.toMatchObject({ code: 'COMPOSE-PATH-005' });
+
+      await expect(fs.lstat(path.join(workspaceRoot, 'project', 'package.json')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'lower-publication-authority-');
+  });
+
+  test('invalid resilience policy fails before renderer execution', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      let renderCalls = 0;
+      const renderer: MicroserviceDeploymentRenderer = {
+        providerId: 'policy-probe',
+        revision: 'test-v1',
+        async render() {
+          renderCalls += 1;
+          return [];
+        }
+      };
+
+      await expect(lowerToMicroservicesWithRenderer(
+        workspaceRoot,
+        createMockLock('microservices'),
+        renderer,
+        { ...DEFAULT_MICROSERVICE_RESILIENCE_POLICY, maxRetries: -1 },
+        { allowedArtifactRoots: ['generated'] }
+      )).rejects.toMatchObject({ code: 'COMPOSE-PROVIDER-001' });
+      expect(renderCalls).toBe(0);
+    }, 'lower-invalid-policy-');
   });
 
   test('core lowering pass no longer embeds default provider implementation details', async () => {
