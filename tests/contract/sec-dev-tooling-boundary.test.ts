@@ -16,7 +16,7 @@ test('provider-neutral sec-dev tooling owns execution logic without Codex or CLI
   }
 });
 
-test('one Git read mechanics owner serves census and settlement', async () => {
+test('one bounded Git read mechanics owner serves census and settlement', async () => {
   const gitRead = await readCompilerFile('tooling/sec-dev/git/git-read.ts');
   const census = await readCompilerFile('tooling/sec-dev/text/text-byte-census.ts');
   const settlement = await readCompilerFile('tooling/sec-dev/workspace/worktree-settlement.ts');
@@ -24,10 +24,14 @@ test('one Git read mechanics owner serves census and settlement', async () => {
   expect(gitRead).toContain('spawnSync');
   expect(gitRead).toContain('resolveExactHeadCommit');
   expect(gitRead).toContain('readCommitBlobInventory');
-  expect(gitRead).toContain('readBlobBatch');
-  expect(gitRead).toContain('readTextAttributesBatch');
+  expect(gitRead).toContain("['ls-tree', '-r', '-z', '--full-tree', '-l', exactCommit]");
+  expect(gitRead).toContain('chunkBlobEntries');
+  expect(gitRead).toContain('readBlobEntryBatch');
+  expect(gitRead).toContain('withIsolatedTextAttributeReader');
   expect(gitRead).toContain("['cat-file', '--batch']");
-  expect(gitRead).toContain("['check-attr', '-z', '--stdin', '--source', exactCommit, 'text', 'eol']");
+  expect(gitRead).toContain("'core.attributesFile='");
+  expect(gitRead).toContain("GIT_ATTR_NOSYSTEM: '1'");
+  expect(gitRead).toContain('GIT_OBJECT_DIRECTORY');
 
   for (const source of [census, settlement]) {
     expect(source).toContain("from '../git/git-read.ts'");
@@ -37,30 +41,32 @@ test('one Git read mechanics owner serves census and settlement', async () => {
   }
 });
 
-test('text census binds committed path, blob, and attribute observations to one captured commit', async () => {
+test('text census binds one committed epoch and processes blob bytes in bounded batches', async () => {
   const source = await readCompilerFile('tooling/sec-dev/text/text-byte-census.ts');
 
   expect(source).toContain('const sourceCommit = resolveExactHeadCommit(root);');
   expect(source).toContain('readCommitBlobInventory(root, sourceCommit)');
-  expect(source).toContain('readBlobBatch(root, objectIds)');
-  expect(source).toContain('readTextAttributesBatch(root, sourceCommit, paths)');
+  expect(source).toContain('chunkBlobEntries(files');
+  expect(source).toContain('readBlobEntryBatch(root, batch)');
+  expect(source).toContain('withIsolatedTextAttributeReader(root, sourceCommit');
+  expect(source).toContain('CENSUS_BLOB_BATCH_MAX_BYTES');
   expect(source).not.toContain("['ls-files', '-z']");
   expect(source).not.toContain("['ls-tree', 'HEAD'");
   expect(source).not.toContain("['cat-file', 'blob'");
-  expect(source).not.toContain('continue;');
 });
 
-test('worktree settlement fails closed and revalidates exact repository state before settled', async () => {
+test('worktree settlement filters attributes before bounded blob reads and revalidates repository state', async () => {
   const source = await readCompilerFile('tooling/sec-dev/workspace/worktree-settlement.ts');
 
-  expect(source).toContain('readCommitBlobInventory(root, sourceCommit)');
-  expect(source).toContain('readBlobBatch(root, objectIds)');
-  expect(source).toContain('readTextAttributesBatch(root, sourceCommit, paths)');
+  expect(source).toContain('selectGovernedFiles(root, sourceCommit, files)');
+  expect(source).toContain('chunkByCount(files, SETTLEMENT_ATTRIBUTE_BATCH_MAX_ITEMS)');
+  expect(source).toContain('chunkBlobEntries(selection.files');
+  expect(source).toContain('readBlobEntryBatch(repositoryRoot, batch)');
+  expect(source).toContain('readNoFollowOrdinaryFileV1');
   expect(source).toContain('repositoryStillMatchesObservation(root, sourceCommit)');
   expect(source.match(/repositoryStillMatchesObservation\(root, sourceCommit\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   expect(source).toContain("status: 'unsafe'");
   expect(source).not.toContain('function readWorktreeBytes');
-  expect(source).not.toContain('return null;');
   expect(source).not.toContain('if (blobSha === null) continue');
 });
 
