@@ -7,24 +7,12 @@ const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
 const GIT_LFS_POINTER_PREFIX = Buffer.from('version https://git-lfs.github.com/spec/v1\n', 'utf8');
 const RELEASE_GIT_BLOB_BATCH_MAX_BYTES = 64 * 1024 * 1024;
 const RELEASE_GIT_BLOB_BATCH_MAX_ITEMS = 1024;
-
 const AMBIENT_GIT_ENV_KEYS = [
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_INDEX_FILE',
-  'GIT_COMMON_DIR',
-  'GIT_OBJECT_DIRECTORY',
-  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-  'GIT_NAMESPACE',
-  'GIT_CEILING_DIRECTORIES',
-  'GIT_DISCOVERY_ACROSS_FILESYSTEM',
-  'GIT_ATTR_SOURCE',
-  'GIT_GLOB_PATHSPECS',
-  'GIT_NOGLOB_PATHSPECS',
-  'GIT_ICASE_PATHSPECS',
-  'GIT_CONFIG_COUNT',
-  'GIT_CONFIG_GLOBAL',
-  'GIT_CONFIG_SYSTEM'
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR',
+  'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_NAMESPACE',
+  'GIT_CEILING_DIRECTORIES', 'GIT_DISCOVERY_ACROSS_FILESYSTEM', 'GIT_ATTR_SOURCE',
+  'GIT_GLOB_PATHSPECS', 'GIT_NOGLOB_PATHSPECS', 'GIT_ICASE_PATHSPECS',
+  'GIT_CONFIG_COUNT', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM'
 ] as const;
 
 interface ReleaseGitBlobEntryV1 {
@@ -92,21 +80,9 @@ function commandBytes(
   cwd: string,
   executable: string,
   args: readonly string[],
-  options: Readonly<{
-    input?: Buffer;
-    maxBuffer?: number;
-    env?: NodeJS.ProcessEnv;
-    label?: string;
-  }> = {}
+  options: Readonly<{ input?: Buffer; maxBuffer?: number; env?: NodeJS.ProcessEnv; label?: string }> = {}
 ): Buffer {
-  const result = command(
-    cwd,
-    executable,
-    args,
-    options.input,
-    options.maxBuffer,
-    options.env
-  );
+  const result = command(cwd, executable, args, options.input, options.maxBuffer, options.env);
   if (result.error || result.status !== 0) {
     const detail = result.stderr.toString('utf8').trim();
     const label = options.label ?? `${executable} ${args[0] ?? ''}`;
@@ -120,10 +96,7 @@ function gitBytes(
   args: readonly string[],
   options: Readonly<{ input?: Buffer; maxBuffer?: number; label?: string }> = {}
 ): Buffer {
-  return commandBytes(repositoryRoot, 'git', args, {
-    ...options,
-    env: isolatedGitEnvironment()
-  });
+  return commandBytes(repositoryRoot, 'git', args, { ...options, env: isolatedGitEnvironment() });
 }
 
 function exactUtf8(bytes: Buffer, label: string): string {
@@ -160,10 +133,7 @@ function assertTrackedWorktreeMatchesCommit(repositoryRoot: string, sourceCommit
 
 function canonicalReleaseGitPath(value: string): string {
   if (
-    value.length === 0 ||
-    value.startsWith('/') ||
-    value.includes('\\') ||
-    value.includes('\0') ||
+    value.length === 0 || value.startsWith('/') || value.includes('\\') || value.includes('\0') ||
     path.posix.normalize(value) !== value
   ) {
     throw new Error(`Release source Git tree contains a non-canonical path: ${JSON.stringify(value)}`);
@@ -260,11 +230,7 @@ function readBlobBatch(
   const output = gitBytes(
     repositoryRoot,
     ['cat-file', '--batch'],
-    {
-      input: Buffer.from(`${objectIds.join('\n')}\n`, 'ascii'),
-      maxBuffer,
-      label: 'git cat-file release source'
-    }
+    { input: Buffer.from(`${objectIds.join('\n')}\n`, 'ascii'), maxBuffer, label: 'git cat-file release source' }
   );
   const blobs = new Map<string, Buffer>();
   let offset = 0;
@@ -295,11 +261,17 @@ function assertNotLfsPointer(bytes: Buffer, filePath: string): void {
   }
 }
 
-async function ensureOrdinaryParent(root: string, filePath: string): Promise<string> {
+async function ensureOrdinaryParent(
+  lexicalRoot: string,
+  physicalRoot: string,
+  filePath: string
+): Promise<string> {
   const segments = filePath.split('/');
-  let current = root;
+  let current = lexicalRoot;
+  const physicalSegments: string[] = [];
   for (const segment of segments.slice(0, -1)) {
     current = path.join(current, segment);
+    physicalSegments.push(segment);
     try {
       await fs.mkdir(current);
     } catch (error) {
@@ -310,16 +282,22 @@ async function ensureOrdinaryParent(root: string, filePath: string): Promise<str
       throw new Error(`Release source parent is not one ordinary directory: ${filePath}`);
     }
     const real = path.resolve(await fs.realpath(current));
-    if (real !== path.resolve(current)) {
+    const expectedPhysical = path.resolve(physicalRoot, ...physicalSegments);
+    if (real !== expectedPhysical) {
       throw new Error(`Release source parent aliases another physical path: ${filePath}`);
     }
   }
   return current;
 }
 
-async function materializeEntry(root: string, entry: ReleaseGitBlobEntryV1, bytes: Buffer): Promise<void> {
+async function materializeEntry(
+  lexicalRoot: string,
+  physicalRoot: string,
+  entry: ReleaseGitBlobEntryV1,
+  bytes: Buffer
+): Promise<void> {
   assertNotLfsPointer(bytes, entry.path);
-  const parent = await ensureOrdinaryParent(root, entry.path);
+  const parent = await ensureOrdinaryParent(lexicalRoot, physicalRoot, entry.path);
   const target = path.join(parent, path.basename(entry.path));
   try {
     await fs.lstat(target);
@@ -330,7 +308,7 @@ async function materializeEntry(root: string, entry: ReleaseGitBlobEntryV1, byte
 
   const mode = entry.mode === '100755' ? 0o755 : 0o644;
   await fs.writeFile(target, bytes, { flag: 'wx', mode });
-  await fs.chmod(target, mode);
+  if (process.platform !== 'win32') await fs.chmod(target, mode);
   const [metadata, readback, real] = await Promise.all([
     fs.lstat(target),
     fs.readFile(target),
@@ -339,7 +317,8 @@ async function materializeEntry(root: string, entry: ReleaseGitBlobEntryV1, byte
   if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.nlink !== 1) {
     throw new Error(`Release source materialization did not produce one ordinary private file: ${entry.path}`);
   }
-  if (path.resolve(real) !== path.resolve(target)) {
+  const expectedPhysical = path.resolve(physicalRoot, ...entry.path.split('/'));
+  if (path.resolve(real) !== expectedPhysical) {
     throw new Error(`Release source materialization aliases another physical path: ${entry.path}`);
   }
   if (!readback.equals(bytes) || readback.byteLength !== entry.byteSize) {
@@ -367,12 +346,17 @@ export async function materializeExactReleaseGitTreeV1(repositoryRoot: string): 
   const sourceRoot = path.join(stageRoot, 'source');
   try {
     await fs.mkdir(sourceRoot);
+    const sourceMetadata = await fs.lstat(sourceRoot);
+    if (sourceMetadata.isSymbolicLink() || !sourceMetadata.isDirectory()) {
+      throw new Error('Release source root is not one ordinary directory');
+    }
+    const physicalSourceRoot = path.resolve(await fs.realpath(sourceRoot));
     for (const batch of chunkEntries(entries)) {
       const blobs = readBlobBatch(absoluteRepositoryRoot, batch);
       for (const entry of batch) {
         const bytes = blobs.get(entry.objectId);
         if (bytes === undefined) throw new Error(`Release source blob bytes are absent for ${entry.path}`);
-        await materializeEntry(sourceRoot, entry, bytes);
+        await materializeEntry(sourceRoot, physicalSourceRoot, entry, bytes);
       }
     }
     return Object.freeze({
