@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 
-import { rawSha256 } from '../../shared/canonical-primitives.ts';
+import { compareCodeUnits, rawSha256 } from '../../shared/canonical-primitives.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { isFileNotFoundError, pathExists } from '../../shared/fs.ts';
 import type { ResolvedBlock } from '../../shared/lock-types.ts';
@@ -17,7 +17,6 @@ import {
 } from '../../shared/paths.ts';
 import type { BlockManifest, ManifestEntry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
 import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
-import { readYaml } from '../../shared/yaml.ts';
 import { manifestCache, type ManifestCacheKey } from './manifest-cache.ts';
 import { normalizeAndValidateSemanticManifestFields } from './validate-semantic-manifest.ts';
 
@@ -137,6 +136,30 @@ function manifestEntryFromPath(
   };
 }
 
+function assertRequestedManifestIdentity(manifest: BlockManifest, requestedBlockId: string, manifestPath: string): void {
+  if (manifest.id !== requestedBlockId) {
+    throw new CompilerError(
+      'MANIFEST-SCHEMA-011',
+      `Manifest at "${manifestPath}" declares id "${manifest.id}" but was addressed as "${requestedBlockId}"`
+    );
+  }
+}
+
+function assertRegistryDirectoryIdentity(
+  registrySource: ResolvedRegistrySource,
+  directoryName: string,
+  manifest: BlockManifest,
+  manifestPath: string
+): void {
+  const expectedDirectory = blockDirName(manifest.id);
+  if (directoryName !== expectedDirectory) {
+    throw new CompilerError(
+      'MANIFEST-SCHEMA-012',
+      `Registry "${registrySource.id}" manifest "${manifest.id}" must live in directory "${expectedDirectory}", not "${directoryName}" (${manifestPath})`
+    );
+  }
+}
+
 export async function resolveManifestResource(
   entry: ManifestEntry,
   resourcePath: string
@@ -241,6 +264,7 @@ export async function loadManifestById(blockId: string, options: ManifestLoadOpt
         const rootManifest = rootSource ? parseManifestSource(rootSource) : null;
         const manifest = mergeVersionedManifest(rootManifest, versionedManifest);
         validateManifest(manifest);
+        assertRequestedManifestIdentity(manifest, blockId, manifestPath);
         if (manifest.version === version) {
           const versionRoot = path.dirname(manifestPath);
           const resourceRoots = rootManifest ? [versionRoot, path.dirname(rootPath)] : [versionRoot];
@@ -259,6 +283,7 @@ export async function loadManifestById(blockId: string, options: ManifestLoadOpt
 
     const manifest = parseManifestSource(rootSource);
     validateManifest(manifest);
+    assertRequestedManifestIdentity(manifest, blockId, rootPath);
     if (version && manifest.version !== version) continue;
     const entry = manifestEntryFromPath(registrySource, manifest, rootPath);
     manifestCache.set(cacheKey, entry);
@@ -289,7 +314,7 @@ export async function loadManifestForResolvedBlock(
 
 export async function loadAllManifests(options: ManifestLoadOptions = {}): Promise<ManifestEntry[]> {
   const manifests: ManifestEntry[] = [];
-  const seenIds = new Set<string>();
+  const selectedIds = new Set<string>();
   const workspaceRoot = path.resolve(options.workspaceRoot ?? process.cwd());
 
   for (const registrySource of resolveRegistrySources(workspaceRoot, options.registrySources ?? [])) {
@@ -300,15 +325,43 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
       if (isFileNotFoundError(error)) continue;
       throw error;
     }
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
+
+    const directoryEntries = entries
+      .filter((entry) => entry.isDirectory())
+      .sort((left, right) => compareCodeUnits(left.name, right.name));
+    const sourceEntries = await Promise.all(directoryEntries.map(async (entry) => {
       const manifestPath = path.join(registrySource.root, entry.name, 'block.manifest.yaml');
-      const manifest = await readYaml<BlockManifest>(manifestPath);
+      const source = await tryReadManifestSource(manifestPath);
+      if (!source) {
+        throw new CompilerError(
+          'MANIFEST-SCHEMA-013',
+          `Registry "${registrySource.id}" directory "${entry.name}" is missing block.manifest.yaml`
+        );
+      }
+      const manifest = parseManifestSource(source);
       validateManifest(manifest);
-      if (seenIds.has(manifest.id)) continue;
-      seenIds.add(manifest.id);
-      manifests.push(manifestEntryFromPath(registrySource, manifest, manifestPath));
+      assertRegistryDirectoryIdentity(registrySource, entry.name, manifest, manifestPath);
+      return manifestEntryFromPath(registrySource, manifest, manifestPath);
+    }));
+
+    const sourceIds = new Map<string, string>();
+    for (const entry of sourceEntries) {
+      const previousPath = sourceIds.get(entry.manifest.id);
+      if (previousPath) {
+        throw new CompilerError(
+          'MANIFEST-SCHEMA-014',
+          `Registry "${registrySource.id}" declares block "${entry.manifest.id}" more than once: "${previousPath}" and "${entry.manifestPath}"`
+        );
+      }
+      sourceIds.set(entry.manifest.id, entry.manifestPath);
+    }
+
+    for (const entry of sourceEntries) {
+      if (selectedIds.has(entry.manifest.id)) continue;
+      selectedIds.add(entry.manifest.id);
+      manifests.push(entry);
     }
   }
+
   return manifests;
 }
