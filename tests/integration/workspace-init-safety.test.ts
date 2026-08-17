@@ -1,0 +1,52 @@
+import { expect, test } from 'bun:test';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+
+import { initWorkspace } from '../../platform/orchestrator/workspace-orchestrator.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { createWorkspace } from '../testkit/workspace.ts';
+
+test('legacy reset flag remains compatible only on an empty create surface', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-init-empty-reset-');
+  const result = await initWorkspace(workspaceRoot, { reset: true });
+
+  expect(result.planPath).toBe(getWorkspacePaths(workspaceRoot).planPath);
+  expect(await fs.readFile(result.planPath, 'utf8')).toContain('customer-admin');
+  expect(await fs.readFile(result.lockPath, 'utf8')).toContain('customer-admin');
+});
+
+test('init and reset refuse a non-empty foreign root before acquiring deletion authority', async () => {
+  for (const reset of [false, true]) {
+    const workspaceRoot = await createWorkspace(`engineering-compiler-init-foreign-${reset ? 'reset' : 'normal'}-`);
+    const foreignPath = path.join(workspaceRoot, 'foreign.txt');
+    const foreignBytes = Buffer.from('do not overwrite\n', 'utf8');
+    await fs.writeFile(foreignPath, foreignBytes);
+
+    await expect(initWorkspace(workspaceRoot, { reset }))
+      .rejects.toMatchObject({ code: 'WORKSPACE-INIT-001' });
+
+    expect(await fs.readFile(foreignPath)).toEqual(foreignBytes);
+    await expect(fs.lstat(path.join(workspaceRoot, '.sec'))).rejects.toMatchObject({ code: 'ENOENT' });
+  }
+});
+
+test('repeated init cannot overwrite an existing SEC workspace', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-init-repeat-');
+  await initWorkspace(workspaceRoot);
+  const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+  const before = await Promise.all([
+    fs.readFile(planPath),
+    fs.readFile(lockPath),
+    fs.readFile(verificationReportPath)
+  ]);
+
+  await expect(initWorkspace(workspaceRoot))
+    .rejects.toMatchObject({ code: 'WORKSPACE-INIT-001' });
+
+  const after = await Promise.all([
+    fs.readFile(planPath),
+    fs.readFile(lockPath),
+    fs.readFile(verificationReportPath)
+  ]);
+  expect(after).toEqual(before);
+});
