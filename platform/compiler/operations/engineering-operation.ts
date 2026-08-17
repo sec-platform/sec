@@ -1,5 +1,6 @@
 import YAML from 'yaml';
 
+import { CompilerError } from '../../shared/errors.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { AppMode, PlanFile, PlanSlot, SlotKind } from '../../shared/plan-manifest-types.ts';
 import { publishCanonicalWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
@@ -123,7 +124,11 @@ function applyOperation(plan: PlanFile, operation: EngineeringOperation): Engine
 
   const slot = plan.slots.find((entry) => entry.id === operation.slotId);
   if (!slot) {
-    throw new Error(`Engineering operation slot "${operation.slotId}" does not exist in source/app.yaml`);
+    throw new CompilerError(
+      'ENGINEERING-OPERATION-001',
+      `Engineering operation slot "${operation.slotId}" does not exist in source/app.yaml`,
+      { operationId: operation.id, operationKind: operation.kind, slotId: operation.slotId }
+    );
   }
   if (operation.kind === 'set-slot-description') {
     if (slot.description === operation.description) return result(operation, 'skipped', 'slot description already matches');
