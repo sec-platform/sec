@@ -138,39 +138,108 @@ async function writeAndVerifyManifest(
   return assertReleaseArtifactReadback(artifactRoot, 'staged');
 }
 
+function failureText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function restorePreviousAfterCandidateRenameFailure(input: {
+  readonly destinationRoot: string;
+  readonly backupRoot: string;
+  readonly publicationError: unknown;
+}): Promise<never> {
+  try {
+    await fs.rename(input.backupRoot, input.destinationRoot);
+  } catch (restoreError) {
+    throw new Error(
+      `Release artifact publication failed and previous artifact restoration did not converge; ` +
+      `destination=${input.destinationRoot}; previous=${input.backupRoot}; ` +
+      `publication=${failureText(input.publicationError)}; restore=${failureText(restoreError)}`,
+      { cause: restoreError }
+    );
+  }
+  throw input.publicationError;
+}
+
+async function recoverAfterPublishedReadbackFailure(input: {
+  readonly destinationRoot: string;
+  readonly backupRoot: string;
+  readonly movedPrevious: boolean;
+  readonly readbackError: unknown;
+}): Promise<never> {
+  const parent = path.dirname(input.destinationRoot);
+  const failedRoot = path.join(parent, `.sec-release-failed-${randomUUID()}`);
+  try {
+    await fs.rename(input.destinationRoot, failedRoot);
+  } catch (containmentError) {
+    throw new Error(
+      `Published release artifact failed readback and the failed candidate could not be isolated; ` +
+      `candidate=${input.destinationRoot}; previous=${input.movedPrevious ? input.backupRoot : '<none>'}; ` +
+      `readback=${failureText(input.readbackError)}; containment=${failureText(containmentError)}`,
+      { cause: containmentError }
+    );
+  }
+
+  if (input.movedPrevious) {
+    try {
+      await fs.rename(input.backupRoot, input.destinationRoot);
+    } catch (restoreError) {
+      throw new Error(
+        `Published release artifact failed readback and previous artifact restoration did not converge; ` +
+        `failedCandidate=${failedRoot}; previous=${input.backupRoot}; destination=${input.destinationRoot}; ` +
+        `readback=${failureText(input.readbackError)}; restore=${failureText(restoreError)}`,
+        { cause: restoreError }
+      );
+    }
+  }
+  throw input.readbackError;
+}
+
 async function publishAcceptedArtifact(stagedArtifactRoot: string, destinationRoot: string): Promise<void> {
   const parent = path.dirname(destinationRoot);
   const backupRoot = path.join(parent, `.sec-release-previous-${randomUUID()}`);
   let movedPrevious = false;
+
   try {
-    try {
-      await fs.rename(destinationRoot, backupRoot);
-      movedPrevious = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-
-    try {
-      await fs.rename(stagedArtifactRoot, destinationRoot);
-    } catch (error) {
-      if (movedPrevious) await fs.rename(backupRoot, destinationRoot);
-      throw error;
-    }
-
-    try {
-      await assertReleaseArtifactReadback(destinationRoot, 'published');
-    } catch (error) {
-      const failedRoot = path.join(parent, `.sec-release-failed-${randomUUID()}`);
-      await fs.rename(destinationRoot, failedRoot).catch(() => undefined);
-      if (movedPrevious) await fs.rename(backupRoot, destinationRoot).catch(() => undefined);
-      throw error;
-    }
-
-    if (movedPrevious) {
-      await fs.rm(backupRoot, { recursive: true, force: true });
-    }
+    await fs.rename(destinationRoot, backupRoot);
+    movedPrevious = true;
   } catch (error) {
-    throw error;
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+
+  try {
+    await fs.rename(stagedArtifactRoot, destinationRoot);
+  } catch (publicationError) {
+    if (movedPrevious) {
+      return restorePreviousAfterCandidateRenameFailure({
+        destinationRoot,
+        backupRoot,
+        publicationError
+      });
+    }
+    throw publicationError;
+  }
+
+  try {
+    await assertReleaseArtifactReadback(destinationRoot, 'published');
+  } catch (readbackError) {
+    return recoverAfterPublishedReadbackFailure({
+      destinationRoot,
+      backupRoot,
+      movedPrevious,
+      readbackError
+    });
+  }
+
+  if (movedPrevious) {
+    try {
+      await fs.rm(backupRoot, { recursive: true, force: true });
+    } catch (cleanupError) {
+      throw new Error(
+        `Published release artifact is accepted but previous-artifact cleanup failed; ` +
+        `accepted=${destinationRoot}; residue=${backupRoot}; cleanup=${failureText(cleanupError)}`,
+        { cause: cleanupError }
+      );
+    }
   }
 }
 
