@@ -21,6 +21,13 @@ export interface BootstrapSlotSourceResult {
   readonly path: string;
 }
 
+export interface ResolvedAuthorizedSlotSource {
+  readonly task: SlotTask;
+  readonly relativePath: string;
+  readonly targetPath: string;
+  readonly lexicalRoot: string;
+}
+
 function assertSlotId(slotId: string): void {
   if (!SLOT_ID_PATTERN.test(slotId)) {
     throw new CompilerError(
@@ -30,12 +37,22 @@ function assertSlotId(slotId: string): void {
   }
 }
 
-function selectSlotTask(lockTasks: readonly SlotTask[], blockId: string, slotId: string): SlotTask {
-  const matches = lockTasks.filter((task) => task.id === slotId && task.block === blockId);
+function assertBlockId(blockId: string): void {
+  if (blockId.trim().length === 0 || blockId.length > 256 || blockId.includes('\0')) {
+    throw new CompilerError('WORKBENCH-SLOT-001', 'Workbench block id must be one non-empty bounded string');
+  }
+}
+
+function selectSlotTask(lockTasks: readonly SlotTask[], slotId: string, blockId?: string): SlotTask {
+  const matches = lockTasks.filter((task) =>
+    task.id === slotId && (blockId === undefined || task.block === blockId)
+  );
   if (matches.length !== 1) {
     throw new CompilerError(
       'WORKBENCH-SLOT-002',
-      `Workbench bootstrap requires exactly one current Lock slot for "${blockId}:${slotId}"`
+      blockId === undefined
+        ? `Workbench slot "${slotId}" is unavailable or ambiguous in the current Lock`
+        : `Workbench operation requires exactly one current Lock slot for "${blockId}:${slotId}"`
     );
   }
   return matches[0]!;
@@ -82,29 +99,47 @@ async function assertExistingAncestorsAreDirectories(root: string, targetDirecto
   }
 }
 
-async function assertPhysicalSlotBoundary(
+function lexicalSlotRoot(workspaceRoot: string, targetPath: string): string {
+  const { sourceSlotsRoot, legacySourceSlotsRoot } = getWorkspacePaths(workspaceRoot);
+  if (isPathInside(sourceSlotsRoot, targetPath)) return sourceSlotsRoot;
+  if (isPathInside(legacySourceSlotsRoot, targetPath)) return legacySourceSlotsRoot;
+  throw new CompilerError(
+    'WORKBENCH-SLOT-003',
+    'Workbench slot source escaped the configured source-slot roots'
+  );
+}
+
+export async function resolveAuthorizedSlotSource(
   workspaceRoot: string,
-  targetPath: string,
+  slotId: string,
+  blockId?: string
+): Promise<ResolvedAuthorizedSlotSource> {
+  assertSlotId(slotId);
+  if (blockId !== undefined) assertBlockId(blockId);
+
+  const lock = await readLockFile(workspaceRoot);
+  const task = selectSlotTask(lock.slotTasks, slotId, blockId);
+  const relativePath = slotSourceRelativePath(task);
+  const targetPath = path.resolve(workspaceRoot, ...relativePath.split('/'));
+  const lexicalRoot = lexicalSlotRoot(workspaceRoot, targetPath);
+  await assertExistingAncestorsAreDirectories(workspaceRoot, path.dirname(targetPath));
+
+  return Object.freeze({ task, relativePath, targetPath, lexicalRoot });
+}
+
+async function preparePhysicalSlotBoundary(
+  workspaceRoot: string,
+  resolved: ResolvedAuthorizedSlotSource,
   commitFence?: CommitFence
 ): Promise<void> {
-  const { sourceSlotsRoot, legacySourceSlotsRoot } = getWorkspacePaths(workspaceRoot);
-  const lexicalRoot = isPathInside(sourceSlotsRoot, targetPath)
-    ? sourceSlotsRoot
-    : isPathInside(legacySourceSlotsRoot, targetPath)
-      ? legacySourceSlotsRoot
-      : null;
-  if (!lexicalRoot) {
-    throw new CompilerError('WORKBENCH-SLOT-003', 'Workbench slot source escaped the configured source-slot roots');
-  }
-
-  await assertExistingAncestorsAreDirectories(workspaceRoot, path.dirname(targetPath));
-  await ensureDir(lexicalRoot, commitFence);
-  await ensureDir(path.dirname(targetPath), commitFence);
-  await assertExistingAncestorsAreDirectories(workspaceRoot, path.dirname(targetPath));
+  await assertExistingAncestorsAreDirectories(workspaceRoot, path.dirname(resolved.targetPath));
+  await ensureDir(resolved.lexicalRoot, commitFence);
+  await ensureDir(path.dirname(resolved.targetPath), commitFence);
+  await assertExistingAncestorsAreDirectories(workspaceRoot, path.dirname(resolved.targetPath));
 
   const [physicalRoot, physicalParent] = await Promise.all([
-    fs.realpath(lexicalRoot),
-    fs.realpath(path.dirname(targetPath))
+    fs.realpath(resolved.lexicalRoot),
+    fs.realpath(path.dirname(resolved.targetPath))
   ]);
   if (!isPathInside(physicalRoot, physicalParent)) {
     throw new CompilerError('WORKBENCH-SLOT-004', 'Workbench slot source traverses a symbolic-link/reparse boundary');
@@ -191,18 +226,14 @@ export async function bootstrapAuthorizedSlotSource(
   slotId: string,
   commitFence?: CommitFence
 ): Promise<BootstrapSlotSourceResult> {
-  assertSlotId(slotId);
-  if (typeof blockId !== 'string' || blockId.trim().length === 0 || blockId.length > 256) {
-    throw new CompilerError('WORKBENCH-SLOT-001', 'Workbench block id must be one non-empty bounded string');
-  }
+  const resolved = await resolveAuthorizedSlotSource(workspaceRoot, slotId, blockId);
+  await preparePhysicalSlotBoundary(workspaceRoot, resolved, commitFence);
 
-  const lock = await readLockFile(workspaceRoot);
-  const task = selectSlotTask(lock.slotTasks, blockId, slotId);
-  const relativePath = slotSourceRelativePath(task);
-  const targetPath = path.resolve(workspaceRoot, ...relativePath.split('/'));
-  await assertPhysicalSlotBoundary(workspaceRoot, targetPath, commitFence);
-
-  const source = task.mockTemplate ?? genericSlotSource(task);
-  const status = await publishCreateOnly(targetPath, Buffer.from(source, 'utf8'), commitFence);
-  return Object.freeze({ status, path: relativePath });
+  const source = resolved.task.mockTemplate ?? genericSlotSource(resolved.task);
+  const status = await publishCreateOnly(
+    resolved.targetPath,
+    Buffer.from(source, 'utf8'),
+    commitFence
+  );
+  return Object.freeze({ status, path: resolved.relativePath });
 }
