@@ -18,7 +18,7 @@ export function classifyRuntimeEntry(targetPath: string): RuntimeEntryKind | nul
 export class AttributionResolver {
   private blockToVertical = new Map<string, string>();
 
-  public static async create(lock: LockFile, workspaceRoot: string): Promise<AttributionResolver> {
+  public static async create(lock: LockFile, workspaceRoot = process.cwd()): Promise<AttributionResolver> {
     const manifests = new Map<string, BlockManifest>();
     await Promise.all(lock.resolvedBlocks.map(async (block) => {
       try {
@@ -107,12 +107,12 @@ export function detectVerticalFromPath(targetPath: string): string | null {
   return null;
 }
 
-export async function inferRelatedBlocks(lock: LockFile, targetPath: string, workspaceRoot: string): Promise<string[]> {
+export async function inferRelatedBlocks(lock: LockFile, targetPath: string, workspaceRoot = process.cwd()): Promise<string[]> {
   const resolver = await AttributionResolver.create(lock, workspaceRoot);
   return uniqueSorted(resolver.getRelatedBlocks(targetPath, lock));
 }
 
-export async function buildRuntimeAttribution(lock: LockFile, targetPath: string, workspaceRoot: string): Promise<RuntimeAttribution | null> {
+export async function buildRuntimeAttribution(lock: LockFile, targetPath: string, workspaceRoot = process.cwd()): Promise<RuntimeAttribution | null> {
   const kind = classifyRuntimeEntry(targetPath);
   if (!kind) return null;
   const resolver = await AttributionResolver.create(lock, workspaceRoot);
@@ -120,7 +120,7 @@ export async function buildRuntimeAttribution(lock: LockFile, targetPath: string
   return { path: targetPath, kind, ...(vertical ? { vertical } : {}), relatedBlocks: uniqueSorted(resolver.getRelatedBlocks(targetPath, lock)) };
 }
 
-export async function buildRuntimeAttributions(lock: LockFile, targetPaths: string[], workspaceRoot: string): Promise<RuntimeAttribution[]> {
+export async function buildRuntimeAttributions(lock: LockFile, targetPaths: string[], workspaceRoot = process.cwd()): Promise<RuntimeAttribution[]> {
   const resolver = await AttributionResolver.create(lock, workspaceRoot);
   return uniqueSorted(targetPaths).map((targetPath) => {
     const kind = classifyRuntimeEntry(targetPath);
