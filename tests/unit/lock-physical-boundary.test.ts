@@ -2,7 +2,11 @@ import { expect, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { readLockFile, saveLock } from '../../platform/shared/lock-utils.ts';
+import {
+  readLockFile,
+  saveLock,
+  writeLockWithGeneratedPaths
+} from '../../platform/shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { semanticArtifactLock } from '../testkit/semantic-lock.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -61,5 +65,22 @@ test('canonical Lock publication refuses a linked control ancestor', async () =>
     await expect(saveLock(workspaceRoot, lockFixture()))
       .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
     expect(await fs.readdir(externalControl)).toEqual([]);
+  });
+});
+
+test('Lock publication helpers reject an arbitrary existing path even when its parent is ordinary', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const arbitraryRoot = path.join(workspaceRoot, 'ordinary-existing');
+    const arbitraryLockPath = path.join(arbitraryRoot, 'graph.lock.json');
+    await fs.mkdir(arbitraryRoot, { recursive: true });
+
+    await expect(
+      writeLockWithGeneratedPaths(
+        arbitraryLockPath,
+        lockFixture(),
+        ['control/evidence/probe.json']
+      )
+    ).rejects.toThrow('Refusing non-canonical Lock publication path');
+    expect(await fs.readdir(arbitraryRoot)).toEqual([]);
   });
 });
