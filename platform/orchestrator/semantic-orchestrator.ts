@@ -1,8 +1,6 @@
-import {
-  buildEngineeringIR,
-  buildWorkspaceSemanticBundle,
-  loadWorkspaceEngineeringIRBuildInput
-} from '../compiler/index.ts';
+import { buildEngineeringIR } from '../compiler/ir/build-engineering-ir.ts';
+import { loadWorkspaceEngineeringIRBuildInput } from '../compiler/ir/load-workspace-engineering-ir-input.ts';
+import { buildWorkspaceSemanticBundle } from '../compiler/semantic-frontend.ts';
 import type { EngineeringIR } from '../shared/engineering-ir-types.ts';
 import { readLockFile, saveLock } from '../shared/lock-utils.ts';
 import { executePipelineStage } from '../shared/pipeline-kernel.ts';
