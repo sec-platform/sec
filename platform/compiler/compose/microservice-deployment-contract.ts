@@ -22,5 +22,6 @@ export interface RenderedMicroserviceArtifact {
 export interface MicroserviceDeploymentRenderer {
   readonly providerId: string;
   readonly revision: string;
-  render(intent: MicroserviceDeploymentIntent): Promise<readonly RenderedMicroserviceArtifact[]>;
+  /** Bind provider/toolchain observations once for the whole lowering operation. */
+  render(intents: readonly MicroserviceDeploymentIntent[]): Promise<readonly RenderedMicroserviceArtifact[]>;
 }
