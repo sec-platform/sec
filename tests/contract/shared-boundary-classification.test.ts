@@ -22,6 +22,10 @@ async function collectSharedFiles(): Promise<string[]> {
         await visit(absolute);
       } else if (entry.isFile()) {
         files.push(posixPath(path.relative(sharedRoot, absolute)));
+      } else {
+        throw new Error(
+          `platform/shared contains a non-ordinary filesystem entry: ${posixPath(path.relative(sharedRoot, absolute))}`
+        );
       }
     }
   };
@@ -29,7 +33,7 @@ async function collectSharedFiles(): Promise<string[]> {
   return files.sort();
 }
 
-test('every physical platform/shared file has exactly one explicit placement classification', async () => {
+test('every physical platform/shared ordinary file has exactly one explicit placement classification', async () => {
   const physicalPaths = await collectSharedFiles();
   const classifiedPaths = SHARED_BOUNDARY_ENTRIES.map((entry) => entry.path).sort();
 
@@ -41,8 +45,8 @@ test('every physical platform/shared file has exactly one explicit placement cla
   expect(sharedBoundaryClassification('new-unclassified-shared-owner.ts')).toBeNull();
 });
 
-test('the mechanical foundation is an explicit narrow allowlist, not a filename fallback', () => {
-  expect(SHARED_MECHANICAL_FOUNDATION_PATHS).toHaveLength(14);
+test('the mechanical foundation is an explicit narrow allowlist, not a low-level-directory fallback', () => {
+  expect(SHARED_MECHANICAL_FOUNDATION_PATHS).toHaveLength(10);
   expect(SHARED_MECHANICAL_FOUNDATION_PATHS).toEqual([
     'canonical-primitives.ts',
     'cli-output.ts',
@@ -50,26 +54,26 @@ test('the mechanical foundation is an explicit narrow allowlist, not a filename 
     'concurrency.ts',
     'diff-utils.ts',
     'errors.ts',
-    'fs.ts',
     'logger.ts',
     'path-imports.ts',
-    'paths.ts',
-    'platform-command.ts',
-    'process.ts',
     'spinner.ts',
     'yaml.ts'
   ]);
 });
 
-test('known behavior-heavy shared owners remain migration debt instead of being relabeled foundation', () => {
+test('stateful, destructive, workspace, CLI, and verification behavior remains owner-review debt', () => {
   const reviewRequired = new Set<string>(SHARED_DOMAIN_OWNER_REVIEW_REQUIRED_PATHS);
   for (const path of [
     'affected-test-inventory.ts',
     'dependency-environment.ts',
+    'fs.ts',
     'observed-process.ts',
+    'paths.ts',
     'physical-no-follow.ts',
     'pipeline-journal.ts',
     'pipeline-kernel.ts',
+    'platform-command.ts',
+    'process.ts',
     'product-verification-profile.ts',
     'project-runtime.ts',
     'tcb-closure-lock.ts',
