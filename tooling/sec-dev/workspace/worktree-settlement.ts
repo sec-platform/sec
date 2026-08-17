@@ -13,22 +13,36 @@ import {
   type WorktreeSettlementReceipt
 } from '../../../platform/shared/worktree-settlement-contract.ts';
 import {
+  chunkBlobEntries,
+  chunkByCount,
   gitReadBytes,
   gitReadText,
   parseNulUtf8,
-  readBlobBatch,
+  readBlobEntryBatch,
   readCommitBlobInventory,
   readOptionalGitConfig,
-  readTextAttributesBatch,
-  resolveExactHeadCommit
+  resolveExactHeadCommit,
+  withIsolatedTextAttributeReader,
+  type GitTreeBlobEntry
 } from '../git/git-read.ts';
 
 const DEFAULT_REPOSITORY_ROOT = process.cwd();
+const SETTLEMENT_ATTRIBUTE_BATCH_MAX_ITEMS = 2048;
+const SETTLEMENT_BLOB_BATCH_MAX_BYTES = 64 * 1024 * 1024;
+const SETTLEMENT_BLOB_BATCH_MAX_ITEMS = 1024;
+const SETTLEMENT_FIX_BATCH_MAX_ITEMS = 256;
 
 interface PorcelainStatus {
   readonly dirty: number;
   readonly untracked: number;
 }
+
+type GovernedDeclaration = 'lf' | 'crlf';
+
+type GovernedSelection = Readonly<{
+  files: readonly GitTreeBlobEntry[];
+  declarations: ReadonlyMap<string, GovernedDeclaration>;
+}>;
 
 function getPorcelainStatus(repositoryRoot: string): PorcelainStatus {
   const fields = parseNulUtf8(
@@ -56,16 +70,6 @@ function getPorcelainStatus(repositoryRoot: string): PorcelainStatus {
     }
   }
   return Object.freeze({ dirty, untracked });
-}
-
-function declaredLineEnding(input: {
-  textAttr: 'set' | 'unset' | 'unspecified';
-  eolAttr: 'lf' | 'crlf' | 'unspecified';
-}): WorktreeMaterializationEntry['declared'] {
-  if (input.textAttr === 'unset') return 'binary';
-  if (input.textAttr === 'set' && input.eolAttr === 'lf') return 'lf';
-  if (input.textAttr === 'set' && input.eolAttr === 'crlf') return 'crlf';
-  return 'unspecified';
 }
 
 function absoluteGitPath(repositoryRoot: string, gitPath: string): string {
@@ -102,6 +106,73 @@ function readWorktreeOrdinaryBytes(
     throw new Error(`Governed worktree file disappeared during settlement observation: ${gitPath}`);
   }
   return Buffer.from(bytes);
+}
+
+function selectGovernedFiles(
+  repositoryRoot: string,
+  sourceCommit: string,
+  files: readonly GitTreeBlobEntry[]
+): GovernedSelection {
+  const selected: GitTreeBlobEntry[] = [];
+  const declarations = new Map<string, GovernedDeclaration>();
+  withIsolatedTextAttributeReader(repositoryRoot, sourceCommit, (readAttributes) => {
+    for (const batch of chunkByCount(files, SETTLEMENT_ATTRIBUTE_BATCH_MAX_ITEMS)) {
+      const attributes = readAttributes(batch.map((entry) => entry.path));
+      for (const file of batch) {
+        const attrs = attributes.get(file.path);
+        if (attrs === undefined) {
+          throw new Error(`Settlement attribute observation is incomplete for ${file.path}`);
+        }
+        if (attrs.textAttr === 'set' && (attrs.eolAttr === 'lf' || attrs.eolAttr === 'crlf')) {
+          selected.push(file);
+          declarations.set(file.path, attrs.eolAttr);
+        }
+      }
+    }
+  });
+  return Object.freeze({
+    files: Object.freeze(selected),
+    declarations
+  });
+}
+
+function scanGovernedFiles(
+  repositoryRoot: string,
+  selection: GovernedSelection
+): Readonly<{ scanned: number; driftEntries: WorktreeMaterializationEntry[] }> {
+  let scanned = 0;
+  const driftEntries: WorktreeMaterializationEntry[] = [];
+  for (const batch of chunkBlobEntries(selection.files, {
+    maxBytes: SETTLEMENT_BLOB_BATCH_MAX_BYTES,
+    maxItems: SETTLEMENT_BLOB_BATCH_MAX_ITEMS
+  })) {
+    const blobs = readBlobEntryBatch(repositoryRoot, batch);
+    const retainedParents = new Map<string, PhysicalDirectoryIdentityV1>();
+    for (const file of batch) {
+      const declared = selection.declarations.get(file.path);
+      const blobBytes = blobs.get(file.objectId);
+      if (declared === undefined || blobBytes === undefined) {
+        throw new Error(`Settlement governed observation is incomplete for ${file.path}`);
+      }
+      const worktreeBytes = readWorktreeOrdinaryBytes(repositoryRoot, file.path, retainedParents);
+      scanned += 1;
+      const blobLineEnding = detectLineEnding(new Uint8Array(blobBytes));
+      const worktreeLineEnding = detectLineEnding(new Uint8Array(worktreeBytes));
+      if (worktreeLineEnding !== blobLineEnding && (blobLineEnding === 'lf' || blobLineEnding === 'crlf')) {
+        driftEntries.push({
+          path: file.path,
+          declared,
+          blobLineEnding,
+          worktreeLineEnding,
+          lineEndingOnlyDifference: differsOnlyInLineEnding(
+            new Uint8Array(blobBytes),
+            new Uint8Array(worktreeBytes)
+          )
+        });
+      }
+    }
+  }
+  return Object.freeze({ scanned, driftEntries });
 }
 
 async function repositoryStillMatchesObservation(
@@ -165,7 +236,24 @@ export async function runSettlement(
   const gitVersion = gitReadText(root, ['--version'], { maxBuffer: 1024, label: 'git --version' }).trim();
   const coreAutocrlf = readOptionalGitConfig(root, 'core.autocrlf');
   const coreEol = readOptionalGitConfig(root, 'core.eol');
-  const initialStatus = getPorcelainStatus(root);
+  let initialStatus: PorcelainStatus;
+  try {
+    initialStatus = getPorcelainStatus(root);
+  } catch (error) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'unsafe',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha: null,
+      totalFiles: 0,
+      driftEntries: [],
+      untrackedCount: 0,
+      dirtyCount: 0,
+      summary: `Settlement status observation failed closed: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
 
   let sourceCommit: string;
   let files: ReturnType<typeof readCommitBlobInventory>;
@@ -220,13 +308,11 @@ export async function runSettlement(
     });
   }
 
-  const paths = files.map((entry) => entry.path);
-  const objectIds = [...new Set(files.map((entry) => entry.objectId))];
-  let blobs: ReadonlyMap<string, Buffer>;
-  let attributes: ReturnType<typeof readTextAttributesBatch>;
+  let selection: GovernedSelection;
+  let observation: ReturnType<typeof scanGovernedFiles>;
   try {
-    blobs = readBlobBatch(root, objectIds);
-    attributes = readTextAttributesBatch(root, sourceCommit, paths);
+    selection = selectGovernedFiles(root, sourceCommit, files);
+    observation = scanGovernedFiles(root, selection);
   } catch (error) {
     return makeReceipt({
       repositoryRoot: root,
@@ -239,53 +325,7 @@ export async function runSettlement(
       driftEntries: [],
       untrackedCount: 0,
       dirtyCount: 0,
-      summary: `Settlement Git observation failed closed: ${error instanceof Error ? error.message : String(error)}`
-    });
-  }
-
-  let scanned = 0;
-  const driftEntries: WorktreeMaterializationEntry[] = [];
-  const retainedParents = new Map<string, PhysicalDirectoryIdentityV1>();
-  try {
-    for (const file of files) {
-      const attrs = attributes.get(file.path);
-      const blobBytes = blobs.get(file.objectId);
-      if (attrs === undefined || blobBytes === undefined) {
-        throw new Error(`Settlement observation is incomplete for ${file.path}`);
-      }
-      const declared = declaredLineEnding(attrs);
-      if (declared !== 'lf' && declared !== 'crlf') continue;
-
-      const worktreeBytes = readWorktreeOrdinaryBytes(root, file.path, retainedParents);
-      scanned += 1;
-      const blobLineEnding = detectLineEnding(new Uint8Array(blobBytes));
-      const worktreeLineEnding = detectLineEnding(new Uint8Array(worktreeBytes));
-      if (worktreeLineEnding !== blobLineEnding && (blobLineEnding === 'lf' || blobLineEnding === 'crlf')) {
-        driftEntries.push({
-          path: file.path,
-          declared,
-          blobLineEnding,
-          worktreeLineEnding,
-          lineEndingOnlyDifference: differsOnlyInLineEnding(
-            new Uint8Array(blobBytes),
-            new Uint8Array(worktreeBytes)
-          )
-        });
-      }
-    }
-  } catch (error) {
-    return makeReceipt({
-      repositoryRoot: root,
-      status: 'unsafe',
-      gitVersion,
-      coreAutocrlf,
-      coreEol,
-      gitattributesBlobSha,
-      totalFiles: files.length,
-      driftEntries,
-      untrackedCount: 0,
-      dirtyCount: 0,
-      summary: `Settlement physical observation failed closed: ${error instanceof Error ? error.message : String(error)}`
+      summary: `Settlement exact Git/physical observation failed closed: ${error instanceof Error ? error.message : String(error)}`
     });
   }
 
@@ -298,14 +338,14 @@ export async function runSettlement(
       coreEol,
       gitattributesBlobSha,
       totalFiles: files.length,
-      driftEntries,
+      driftEntries: observation.driftEntries,
       untrackedCount: 0,
       dirtyCount: 0,
       summary: 'Repository HEAD/index/worktree changed during settlement observation; retry from a stable state.'
     });
   }
 
-  if (driftEntries.length === 0) {
+  if (observation.driftEntries.length === 0) {
     return makeReceipt({
       repositoryRoot: root,
       status: 'settled',
@@ -317,7 +357,7 @@ export async function runSettlement(
       driftEntries: [],
       untrackedCount: 0,
       dirtyCount: 0,
-      summary: `Worktree settled: clean, ${scanned} governed text file(s) materialize canonical bytes.`
+      summary: `Worktree settled: clean, ${observation.scanned} governed text file(s) materialize canonical bytes.`
     });
   }
 
@@ -330,44 +370,20 @@ export async function runSettlement(
       coreEol,
       gitattributesBlobSha,
       totalFiles: files.length,
-      driftEntries,
+      driftEntries: observation.driftEntries,
       untrackedCount: 0,
       dirtyCount: 0,
-      summary: `Clean working tree but ${driftEntries.length} file(s) materialize non-canonical bytes. Run with --fix to re-checkout governed text.`
+      summary: `Clean working tree but ${observation.driftEntries.length} file(s) materialize non-canonical bytes. Run with --fix to re-checkout governed text.`
     });
   }
 
   try {
-    gitReadBytes(
-      root,
-      ['checkout', '--', ...driftEntries.map((entry) => entry.path)],
-      { maxBuffer: 32 * 1024 * 1024, label: 'git checkout --fix' }
-    );
-  } catch (error) {
-    return makeReceipt({
-      repositoryRoot: root,
-      status: 'unsafe',
-      gitVersion,
-      coreAutocrlf,
-      coreEol,
-      gitattributesBlobSha,
-      totalFiles: files.length,
-      driftEntries,
-      untrackedCount: 0,
-      dirtyCount: 0,
-      summary: `Settlement fix could not re-materialize governed files: ${error instanceof Error ? error.message : String(error)}`
-    });
-  }
-
-  const fixedDrift: WorktreeMaterializationEntry[] = [];
-  try {
-    retainedParents.clear();
-    for (const entry of driftEntries) {
-      const worktreeBytes = readWorktreeOrdinaryBytes(root, entry.path, retainedParents);
-      const newWorktreeLineEnding = detectLineEnding(new Uint8Array(worktreeBytes));
-      if (newWorktreeLineEnding !== entry.blobLineEnding) {
-        fixedDrift.push({ ...entry, worktreeLineEnding: newWorktreeLineEnding });
-      }
+    for (const batch of chunkByCount(observation.driftEntries, SETTLEMENT_FIX_BATCH_MAX_ITEMS)) {
+      gitReadBytes(
+        root,
+        ['checkout', '--', ...batch.map((entry) => entry.path)],
+        { maxBuffer: 32 * 1024 * 1024, label: 'git checkout --fix' }
+      );
     }
   } catch (error) {
     return makeReceipt({
@@ -378,7 +394,53 @@ export async function runSettlement(
       coreEol,
       gitattributesBlobSha,
       totalFiles: files.length,
-      driftEntries,
+      driftEntries: observation.driftEntries,
+      untrackedCount: 0,
+      dirtyCount: 0,
+      summary: `Settlement fix could not re-materialize governed files: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+
+  const byPath = new Map(selection.files.map((entry) => [entry.path, entry] as const));
+  const fixedFiles: GitTreeBlobEntry[] = [];
+  const fixedDeclarations = new Map<string, GovernedDeclaration>();
+  for (const drift of observation.driftEntries) {
+    const file = byPath.get(drift.path);
+    if (file === undefined) {
+      return makeReceipt({
+        repositoryRoot: root,
+        status: 'unsafe',
+        gitVersion,
+        coreAutocrlf,
+        coreEol,
+        gitattributesBlobSha,
+        totalFiles: files.length,
+        driftEntries: observation.driftEntries,
+        untrackedCount: 0,
+        dirtyCount: 0,
+        summary: `Settlement fix lost committed identity for ${drift.path}`
+      });
+    }
+    fixedFiles.push(file);
+    fixedDeclarations.set(drift.path, drift.declared);
+  }
+
+  let fixedObservation: ReturnType<typeof scanGovernedFiles>;
+  try {
+    fixedObservation = scanGovernedFiles(root, Object.freeze({
+      files: Object.freeze(fixedFiles),
+      declarations: fixedDeclarations
+    }));
+  } catch (error) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'unsafe',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries: observation.driftEntries,
       untrackedCount: 0,
       dirtyCount: 0,
       summary: `Settlement fix readback failed closed: ${error instanceof Error ? error.message : String(error)}`
@@ -394,7 +456,7 @@ export async function runSettlement(
       coreEol,
       gitattributesBlobSha,
       totalFiles: files.length,
-      driftEntries: fixedDrift,
+      driftEntries: fixedObservation.driftEntries,
       untrackedCount: 0,
       dirtyCount: 0,
       summary: 'Repository HEAD/index/worktree changed during settlement fix/readback; retry from a stable state.'
@@ -403,17 +465,17 @@ export async function runSettlement(
 
   return makeReceipt({
     repositoryRoot: root,
-    status: fixedDrift.length === 0 ? 'settled' : 'unsafe',
+    status: fixedObservation.driftEntries.length === 0 ? 'settled' : 'unsafe',
     gitVersion,
     coreAutocrlf,
     coreEol,
     gitattributesBlobSha,
     totalFiles: files.length,
-    driftEntries: fixedDrift,
+    driftEntries: fixedObservation.driftEntries,
     untrackedCount: 0,
     dirtyCount: 0,
-    summary: fixedDrift.length === 0
-      ? `Settled after --fix: ${driftEntries.length} file(s) re-materialized to canonical bytes.`
-      : `After --fix, ${fixedDrift.length} file(s) still drift; manual investigation required.`
+    summary: fixedObservation.driftEntries.length === 0
+      ? `Settled after --fix: ${observation.driftEntries.length} file(s) re-materialized to canonical bytes.`
+      : `After --fix, ${fixedObservation.driftEntries.length} file(s) still drift; manual investigation required.`
   });
 }
