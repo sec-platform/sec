@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  loadAllManifests,
   loadManifestById,
   loadManifestForResolvedBlock
 } from '../../platform/compiler/parse/load-manifest.ts';
@@ -17,6 +18,46 @@ afterEach(async () => {
   manifestCache.clear();
   await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
+
+function manifestSource(id: string, version: string): string {
+  return [
+    `id: ${id}`,
+    `version: ${version}`,
+    'kind: capability',
+    'stackProfiles: [next-bun]',
+    'requires: []',
+    'provides: []',
+    'conflicts: []',
+    'installs:',
+    '  - kind: template',
+    '    from: source.ts',
+    '    to: source.ts',
+    'pins: { inputs: [], outputs: [] }',
+    'slots: []',
+    'acceptance: []',
+    'routes: []',
+    'contracts: []',
+    'generators: []',
+    ''
+  ].join('\n');
+}
+
+async function createWorkspaceRegistry(): Promise<{ workspaceRoot: string; registryPath: string; registryRoot: string }> {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-manifest-cache-'));
+  temporaryRoots.push(workspaceRoot);
+  const registryPath = 'registry-cache-fixture';
+  const registryRoot = resolveRegistryRoot(workspaceRoot, 'workspace', registryPath);
+  await fs.mkdir(registryRoot, { recursive: true });
+  return { workspaceRoot, registryPath, registryRoot };
+}
+
+async function writeManifest(registryRoot: string, directoryName: string, source: string): Promise<string> {
+  const manifestDirectory = path.join(registryRoot, directoryName);
+  const manifestPath = path.join(manifestDirectory, 'block.manifest.yaml');
+  await fs.mkdir(manifestDirectory, { recursive: true });
+  await fs.writeFile(manifestPath, source, 'utf8');
+  return manifestPath;
+}
 
 test('repeated manifest loads reuse the exact parsed entry when source bytes are unchanged', async () => {
   manifestCache.clear();
@@ -47,43 +88,61 @@ test('resolved block loads preserve exact registry source identity', async () =>
 });
 
 test('source byte changes invalidate a long-lived manifest cache entry', async () => {
-  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-manifest-cache-'));
-  temporaryRoots.push(workspaceRoot);
-  const registryPath = 'registry-cache-fixture';
-  const registryRoot = resolveRegistryRoot(workspaceRoot, 'workspace', registryPath);
-  const manifestDirectory = path.join(registryRoot, blockDirName('cache/probe'));
-  const manifestPath = path.join(manifestDirectory, 'block.manifest.yaml');
-  await fs.mkdir(manifestDirectory, { recursive: true });
-
-  const manifest = (version: string) => [
-    'id: cache/probe',
-    `version: ${version}`,
-    'kind: capability',
-    'stackProfiles: [next-bun]',
-    'requires: []',
-    'provides: []',
-    'conflicts: []',
-    'installs:',
-    '  - kind: template',
-    '    from: source.ts',
-    '    to: source.ts',
-    'pins: { inputs: [], outputs: [] }',
-    'slots: []',
-    'acceptance: []',
-    'routes: []',
-    'contracts: []',
-    'generators: []',
-    ''
-  ].join('\n');
-
-  await fs.writeFile(manifestPath, manifest('1.0.0'), 'utf8');
+  const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();
+  const manifestPath = await writeManifest(
+    registryRoot,
+    blockDirName('cache/probe'),
+    manifestSource('cache/probe', '1.0.0')
+  );
   const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: registryPath }] as const;
   const first = await loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] });
 
-  await fs.writeFile(manifestPath, manifest('1.0.1'), 'utf8');
+  await fs.writeFile(manifestPath, manifestSource('cache/probe', '1.0.1'), 'utf8');
   const second = await loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] });
 
   expect(first.manifest.version).toBe('1.0.0');
   expect(second.manifest.version).toBe('1.0.1');
   expect(second).not.toBe(first);
+});
+
+test('addressed manifest must declare the exact requested block identity', async () => {
+  const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();
+  await writeManifest(registryRoot, blockDirName('cache/probe'), manifestSource('cache/other', '1.0.0'));
+  const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: registryPath }] as const;
+
+  await expect(loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] }))
+    .rejects.toMatchObject({ code: 'MANIFEST-SCHEMA-011' });
+});
+
+test('registry enumeration rejects manifests whose physical directory cannot be reconstructed from id', async () => {
+  const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();
+  await writeManifest(registryRoot, 'wrong-directory', manifestSource('cache/probe', '1.0.0'));
+  const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: registryPath }] as const;
+
+  await expect(loadAllManifests({ workspaceRoot, registrySources: [...source] }))
+    .rejects.toMatchObject({ code: 'MANIFEST-SCHEMA-012' });
+});
+
+test('ordered registry shadowing is consistent between addressed and enumerated loads', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-manifest-shadow-'));
+  temporaryRoots.push(workspaceRoot);
+  const firstPath = 'registry-first';
+  const secondPath = 'registry-second';
+  const firstRoot = resolveRegistryRoot(workspaceRoot, 'workspace', firstPath);
+  const secondRoot = resolveRegistryRoot(workspaceRoot, 'workspace', secondPath);
+  await writeManifest(firstRoot, blockDirName('cache/probe'), manifestSource('cache/probe', '1.0.0'));
+  await writeManifest(secondRoot, blockDirName('cache/probe'), manifestSource('cache/probe', '2.0.0'));
+  const sources = [
+    { id: 'first', kind: 'private', location: 'workspace', path: firstPath },
+    { id: 'second', kind: 'private', location: 'workspace', path: secondPath }
+  ] as const;
+
+  const addressed = await loadManifestById('cache/probe', { workspaceRoot, registrySources: [...sources] });
+  const enumerated = await loadAllManifests({ workspaceRoot, registrySources: [...sources] });
+
+  expect(addressed.manifest.version).toBe('1.0.0');
+  expect(addressed.registrySourceId).toBe('first');
+  expect(enumerated).toHaveLength(1);
+  expect(enumerated[0]?.manifest.version).toBe('1.0.0');
+  expect(enumerated[0]?.registrySourceId).toBe('first');
 });
