@@ -1,12 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { digest } from '../shared/canonical-primitives.ts';
+import { materializeExactReleaseGitTreeV1 } from './release-git-tree-source.ts';
 
 const RELEASE_BUILD_META_FILE_NAME = '.sec-release-build-metafile.json' as const;
-const GIT_LFS_POINTER_PREFIX = Buffer.from('version https://git-lfs.github.com/spec/v1\n', 'utf8');
 
 export interface FrozenReleaseSourceV1 {
   readonly schema: 'sec-frozen-release-source-v1';
@@ -46,8 +45,8 @@ function command(
   });
   return Object.freeze({
     status: result.status,
-    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? '')),
-    stderr: Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(String(result.stderr ?? '')),
+    stdout: Buffer.isBuffer(result.stdout) ? Buffer.from(result.stdout) : Buffer.from(String(result.stdout ?? '')),
+    stderr: Buffer.isBuffer(result.stderr) ? Buffer.from(result.stderr) : Buffer.from(String(result.stderr ?? '')),
     error: result.error
   });
 }
@@ -67,120 +66,6 @@ function commandBytes(
     });
   }
   return result.stdout;
-}
-
-function gitText(repositoryRoot: string, args: readonly string[]): string {
-  return commandBytes(repositoryRoot, 'git', args, undefined, 16 * 1024 * 1024).toString('utf8').trim();
-}
-
-function assertGitObjectId(value: string, label: string): string {
-  if (!/^[0-9a-f]{40,64}$/u.test(value)) {
-    throw new Error(`${label} is not one exact Git object ID`);
-  }
-  return value;
-}
-
-function assertTrackedWorktreeMatchesCommit(repositoryRoot: string, sourceCommit: string): void {
-  const result = command(
-    repositoryRoot,
-    'git',
-    ['diff', '--quiet', sourceCommit, '--'],
-    undefined,
-    16 * 1024 * 1024
-  );
-  if (result.error) {
-    throw new Error('Release tracked worktree comparison could not start', { cause: result.error });
-  }
-  if (result.status === 1) {
-    throw new Error('Release tracked worktree/index differs from captured source commit');
-  }
-  if (result.status !== 0) {
-    const detail = result.stderr.toString('utf8').trim();
-    throw new Error(`Release tracked worktree comparison failed${detail ? `: ${detail}` : ''}`);
-  }
-}
-
-function assertReleaseGitTreeOrdinary(repositoryRoot: string, sourceCommit: string): void {
-  const output = commandBytes(
-    repositoryRoot,
-    'git',
-    ['ls-tree', '-r', '-z', '--full-tree', sourceCommit],
-    undefined,
-    128 * 1024 * 1024
-  );
-  if (output.byteLength === 0) return;
-  if (output[output.byteLength - 1] !== 0) {
-    throw new Error('Release source Git tree did not return NUL-terminated records');
-  }
-  const payload = output.subarray(0, -1).toString('utf8');
-  if (!Buffer.from(`${payload}\0`, 'utf8').equals(output)) {
-    throw new Error('Release source Git tree contains a non-UTF-8 path');
-  }
-  for (const record of payload.split('\0')) {
-    const separator = record.indexOf('\t');
-    const header = separator < 0 ? '' : record.slice(0, separator);
-    const filePath = separator < 0 ? '' : record.slice(separator + 1);
-    const match = /^([0-7]{6}) ([a-z]+) ([0-9a-f]{40,64})$/u.exec(header);
-    if (!match || filePath.length === 0) {
-      throw new Error('Release source Git tree returned an invalid entry');
-    }
-    const mode = match[1]!;
-    const type = match[2]!;
-    if (type !== 'blob' || (mode !== '100644' && mode !== '100755')) {
-      throw new Error(`Release source tree contains unsupported Git entry ${filePath} (${mode} ${type})`);
-    }
-  }
-}
-
-function materializeExactGitTree(repositoryRoot: string, sourceRoot: string, sourceCommit: string): void {
-  const archive = commandBytes(
-    repositoryRoot,
-    'git',
-    ['archive', '--format=tar', sourceCommit],
-    undefined,
-    512 * 1024 * 1024
-  );
-  commandBytes(
-    repositoryRoot,
-    'tar',
-    ['-xf', '-', '-C', sourceRoot],
-    archive,
-    512 * 1024 * 1024
-  );
-}
-
-async function assertFrozenSourceTree(sourceRoot: string): Promise<void> {
-  async function walk(directory: string, prefix: string): Promise<void> {
-    const entries = await fs.readdir(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-      const absolutePath = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) {
-        throw new Error(`Frozen release source contains a symbolic link: ${relativePath}`);
-      }
-      if (entry.isDirectory()) {
-        await walk(absolutePath, relativePath);
-        continue;
-      }
-      if (!entry.isFile()) {
-        throw new Error(`Frozen release source contains a non-ordinary entry: ${relativePath}`);
-      }
-      const handle = await fs.open(absolutePath, 'r');
-      try {
-        const prefixBytes = Buffer.alloc(GIT_LFS_POINTER_PREFIX.byteLength);
-        const { bytesRead } = await handle.read(prefixBytes, 0, prefixBytes.byteLength, 0);
-        if (
-          bytesRead === GIT_LFS_POINTER_PREFIX.byteLength &&
-          prefixBytes.equals(GIT_LFS_POINTER_PREFIX)
-        ) {
-          throw new Error(`Frozen release source contains a Git LFS pointer: ${relativePath}`);
-        }
-      } finally {
-        await handle.close();
-      }
-    }
-  }
-  await walk(sourceRoot, '');
 }
 
 async function readFrozenPackageConfig(sourceRoot: string): Promise<{
@@ -221,21 +106,34 @@ async function materializeFrozenDependencies(sourceRoot: string): Promise<void> 
   commandBytes(
     sourceRoot,
     process.execPath,
-    ['install', '--frozen-lockfile', '--ignore-scripts'],
+    [
+      'install',
+      '--frozen-lockfile',
+      '--ignore-scripts',
+      '--backend',
+      'copyfile',
+      '--no-progress',
+      '--no-summary'
+    ],
     undefined,
     512 * 1024 * 1024
   );
 
-  const [packageAfter, lockAfter, nodeModules] = await Promise.all([
+  const [packageAfter, lockAfter, nodeModules, nodeModulesReal, sourceReal] = await Promise.all([
     fs.readFile(packagePath),
     fs.readFile(lockPath),
-    fs.lstat(path.join(sourceRoot, 'node_modules'))
+    fs.lstat(path.join(sourceRoot, 'node_modules')),
+    fs.realpath(path.join(sourceRoot, 'node_modules')),
+    fs.realpath(sourceRoot)
   ]);
   if (!packageAfter.equals(packageBefore) || !lockAfter.equals(lockBefore)) {
     throw new Error('Frozen dependency materialization changed package.json or bun.lock');
   }
   if (nodeModules.isSymbolicLink() || !nodeModules.isDirectory()) {
     throw new Error('Frozen dependency materialization did not produce one ordinary node_modules directory');
+  }
+  if (!isPathInside(path.resolve(sourceReal), path.resolve(nodeModulesReal))) {
+    throw new Error('Frozen dependency materialization escaped the frozen source root');
   }
 }
 
@@ -253,13 +151,24 @@ async function assertFrozenBuildInputs(sourceRoot: string, metafilePath: string)
   if (metafile.inputs === undefined || typeof metafile.inputs !== 'object') {
     throw new Error('Release bundle metafile does not contain an input inventory');
   }
+  const physicalSourceRoot = path.resolve(await fs.realpath(sourceRoot));
   for (const inputPath of Object.keys(metafile.inputs)) {
     if (inputPath.startsWith('node:') || inputPath.startsWith('bun:')) continue;
     const absoluteInput = path.isAbsolute(inputPath)
       ? path.resolve(inputPath)
       : path.resolve(sourceRoot, inputPath);
-    if (!isPathInside(sourceRoot, absoluteInput)) {
-      throw new Error(`Release bundle consumed an input outside frozen source: ${inputPath}`);
+    if (!isPathInside(path.resolve(sourceRoot), absoluteInput)) {
+      throw new Error(`Release bundle consumed a lexical input outside frozen source: ${inputPath}`);
+    }
+    const [physicalInput, metadata] = await Promise.all([
+      fs.realpath(absoluteInput),
+      fs.stat(absoluteInput)
+    ]);
+    if (!metadata.isFile()) {
+      throw new Error(`Release bundle input is not one ordinary file: ${inputPath}`);
+    }
+    if (!isPathInside(physicalSourceRoot, path.resolve(physicalInput))) {
+      throw new Error(`Release bundle consumed a physical input outside frozen source: ${inputPath}`);
     }
   }
 }
@@ -278,38 +187,22 @@ function frozenExternalImports(dependencies: readonly string[]): readonly string
 }
 
 export async function prepareFrozenReleaseSourceV1(repositoryRoot: string): Promise<FrozenReleaseSourceV1> {
-  const absoluteRepositoryRoot = path.resolve(repositoryRoot);
-  const sourceCommit = assertGitObjectId(
-    gitText(absoluteRepositoryRoot, ['rev-parse', '--verify', 'HEAD^{commit}']),
-    'Release source Git commit identity'
-  );
-  assertTrackedWorktreeMatchesCommit(absoluteRepositoryRoot, sourceCommit);
-  const sourceTree = assertGitObjectId(
-    gitText(absoluteRepositoryRoot, ['rev-parse', '--verify', `${sourceCommit}^{tree}`]),
-    'Release source Git tree identity'
-  );
-  assertReleaseGitTreeOrdinary(absoluteRepositoryRoot, sourceCommit);
-
-  const stageRoot = await fs.mkdtemp(path.join(tmpdir(), 'sec-release-source-'));
-  const sourceRoot = path.join(stageRoot, 'source');
+  const materialized = await materializeExactReleaseGitTreeV1(repositoryRoot);
   try {
-    await fs.mkdir(sourceRoot);
-    materializeExactGitTree(absoluteRepositoryRoot, sourceRoot, sourceCommit);
-    await assertFrozenSourceTree(sourceRoot);
-    const frozenPackage = await readFrozenPackageConfig(sourceRoot);
-    await materializeFrozenDependencies(sourceRoot);
+    const frozenPackage = await readFrozenPackageConfig(materialized.root);
+    await materializeFrozenDependencies(materialized.root);
     return Object.freeze({
       schema: 'sec-frozen-release-source-v1' as const,
-      root: sourceRoot,
-      sourceCommit,
-      sourceTree,
+      root: materialized.root,
+      sourceCommit: materialized.sourceCommit,
+      sourceTree: materialized.sourceTree,
       packageVersion: frozenPackage.version,
       dependencies: frozenPackage.dependencies,
       dependencyLockDigest: frozenPackage.dependencyLockDigest,
-      stageRoot
+      stageRoot: materialized.stageRoot
     });
   } catch (error) {
-    await fs.rm(stageRoot, { recursive: true, force: true }).catch(() => undefined);
+    await fs.rm(materialized.stageRoot, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
 }
