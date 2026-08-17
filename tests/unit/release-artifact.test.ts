@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { materializeExactReleaseGitTreeV1 } from '../../platform/release/release-git-tree-source.ts';
 import {
   disposeFrozenReleaseSourceV1,
   prepareFrozenReleaseSourceV1
@@ -100,7 +101,58 @@ test('tracked worktree or index drift is rejected against the captured source co
   }
 });
 
-test('release source rejects a Git symlink mode before archive/materialization', async () => {
+test('exact Git source ignores archive export-ignore/export-subst semantics and preserves blob bytes', async () => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-archive-attributes-'));
+  try {
+    await initRepository(repositoryRoot);
+    await fs.writeFile(
+      path.join(repositoryRoot, '.gitattributes'),
+      'tracked.txt export-ignore export-subst\n'
+    );
+    await fs.writeFile(path.join(repositoryRoot, 'tracked.txt'), 'literal $Format:%H$ bytes\n');
+    git(repositoryRoot, ['add', '--all']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'archive-attributes']);
+
+    const materialized = await materializeExactReleaseGitTreeV1(repositoryRoot);
+    try {
+      await expect(fs.readFile(path.join(materialized.root, 'tracked.txt'), 'utf8'))
+        .resolves.toBe('literal $Format:%H$ bytes\n');
+    } finally {
+      await rm(materialized.stageRoot, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('exact Git source disables replacement-object views', async () => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-replace-object-'));
+  try {
+    await initRepository(repositoryRoot);
+    await fs.writeFile(path.join(repositoryRoot, 'tracked.txt'), 'original-committed-bytes\n');
+    git(repositoryRoot, ['add', '--all']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'original']);
+    const originalBlob = git(repositoryRoot, ['rev-parse', 'HEAD:tracked.txt']);
+    const replacementPath = path.join(repositoryRoot, 'replacement.tmp');
+    await fs.writeFile(replacementPath, 'replacement-view-bytes\n');
+    const replacementBlob = git(repositoryRoot, ['hash-object', '-w', 'replacement.tmp']);
+    await fs.rm(replacementPath);
+    git(repositoryRoot, ['replace', originalBlob, replacementBlob]);
+    expect(git(repositoryRoot, ['cat-file', 'blob', originalBlob])).toContain('replacement-view-bytes');
+
+    const materialized = await materializeExactReleaseGitTreeV1(repositoryRoot);
+    try {
+      await expect(fs.readFile(path.join(materialized.root, 'tracked.txt'), 'utf8'))
+        .resolves.toBe('original-committed-bytes\n');
+    } finally {
+      await rm(materialized.stageRoot, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('release source rejects a Git symlink mode before materialization', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-symlink-tree-'));
   try {
     await initRepository(repositoryRoot);
@@ -109,7 +161,7 @@ test('release source rejects a Git symlink mode before archive/materialization',
     git(repositoryRoot, ['update-index', '--add', '--cacheinfo', '120000', blob, 'linked-entry']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'symlink-tree']);
 
-    await expect(prepareFrozenReleaseSourceV1(repositoryRoot))
+    await expect(materializeExactReleaseGitTreeV1(repositoryRoot))
       .rejects.toThrow(/unsupported Git entry linked-entry \(120000 blob\)/u);
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });
@@ -129,17 +181,18 @@ test('release source rejects Git LFS pointer bytes instead of packaging pointer 
     git(repositoryRoot, ['add', '--all']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'lfs-pointer']);
 
-    await expect(prepareFrozenReleaseSourceV1(repositoryRoot))
+    await expect(materializeExactReleaseGitTreeV1(repositoryRoot))
       .rejects.toThrow('Frozen release source contains a Git LFS pointer: asset.bin');
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });
   }
 });
 
-test('release build entrypoint and artifact owner remain thin over frozen source/materialization', async () => {
+test('release build entrypoint and artifact owner remain thin over exact source/materialization', async () => {
   const entrypoint = await readCompilerFile('scripts/build-release.ts');
   const artifactOwner = await readCompilerFile('platform/release/release-artifact.ts');
   const sourceOwner = await readCompilerFile('platform/release/release-source-materialization.ts');
+  const gitOwner = await readCompilerFile('platform/release/release-git-tree-source.ts');
 
   expect(entrypoint).toContain('buildReleaseArtifactV1');
   expect(entrypoint).not.toContain('Bun.build');
@@ -153,18 +206,30 @@ test('release build entrypoint and artifact owner remain thin over frozen source
   expect(artifactOwner).toContain('dependencyLockDigest');
   expect(artifactOwner).toContain('sec-release-artifact-manifest-v1');
   expect(artifactOwner).toContain('release artifact physical file inventory differs from manifest');
+  expect(artifactOwner).toContain('previous artifact restoration did not converge');
+  expect(artifactOwner).toContain('failed candidate could not be isolated');
   expect(artifactOwner).not.toContain('git archive');
-  expect(artifactOwner).not.toContain('install --frozen-lockfile');
 
-  expect(sourceOwner).toContain("['rev-parse', '--verify', 'HEAD^{commit}']");
-  expect(sourceOwner).toContain("['diff', '--quiet', sourceCommit, '--']");
-  expect(sourceOwner).toContain('`${sourceCommit}^{tree}`');
-  expect(sourceOwner).toContain("['ls-tree', '-r', '-z', '--full-tree', sourceCommit]");
-  expect(sourceOwner).toContain("['archive', '--format=tar', sourceCommit]");
-  expect(sourceOwner).not.toContain("['archive', '--format=tar', 'HEAD']");
-  expect(sourceOwner).toContain("['install', '--frozen-lockfile', '--ignore-scripts']");
+  expect(sourceOwner).toContain('materializeExactReleaseGitTreeV1');
+  expect(sourceOwner).toContain("'--frozen-lockfile'");
+  expect(sourceOwner).toContain("'--ignore-scripts'");
+  expect(sourceOwner).toContain("'copyfile'");
   expect(sourceOwner).toContain('Frozen dependency materialization changed package.json or bun.lock');
-  expect(sourceOwner).toContain('Release bundle consumed an input outside frozen source');
-  expect(sourceOwner).toContain('Release source tree contains unsupported Git entry');
-  expect(sourceOwner).toContain('Frozen release source contains a Git LFS pointer');
+  expect(sourceOwner).toContain('Release bundle consumed a physical input outside frozen source');
+  expect(sourceOwner).toContain('fs.realpath(absoluteInput)');
+  expect(sourceOwner).not.toContain('git archive');
+  expect(sourceOwner).not.toContain("['archive'");
+
+  expect(gitOwner).toContain("['rev-parse', '--verify', 'HEAD^{commit}']");
+  expect(gitOwner).toContain("['diff', '--quiet', '--no-ext-diff', '--no-textconv', sourceCommit, '--']");
+  expect(gitOwner).toContain("['ls-tree', '-r', '-z', '--full-tree', '-l', sourceCommit]");
+  expect(gitOwner).toContain("['cat-file', '--batch']");
+  expect(gitOwner).toContain("env.GIT_NO_REPLACE_OBJECTS = '1'");
+  expect(gitOwner).toContain("env.GIT_NO_LAZY_FETCH = '1'");
+  expect(gitOwner).toContain('RELEASE_GIT_BLOB_BATCH_MAX_BYTES');
+  expect(gitOwner).toContain('Release source tree contains unsupported Git entry');
+  expect(gitOwner).toContain('Frozen release source contains a Git LFS pointer');
+  expect(gitOwner).not.toContain('git archive');
+  expect(gitOwner).not.toContain("['archive'");
+  expect(gitOwner).not.toContain("'tar'");
 });
