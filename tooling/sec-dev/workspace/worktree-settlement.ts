@@ -1,6 +1,10 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import {
+  inspectNoFollowDirectoryChainV1,
+  readNoFollowOrdinaryFileV1,
+  type PhysicalDirectoryIdentityV1
+} from '../../../platform/shared/physical-no-follow.ts';
 import {
   WORKTREE_SETTLEMENT_SCHEMA_V1,
   detectLineEnding,
@@ -47,9 +51,7 @@ function getPorcelainStatus(repositoryRoot: string): PorcelainStatus {
     if (x === '?' && y === '?') untracked += 1;
     else dirty += 1;
     if (x === 'R' || x === 'C' || y === 'R' || y === 'C') {
-      if (index >= fields.length) {
-        throw new Error('git status returned an incomplete rename/copy record');
-      }
+      if (index >= fields.length) throw new Error('git status returned an incomplete rename/copy record');
       index += 1;
     }
   }
@@ -64,6 +66,42 @@ function declaredLineEnding(input: {
   if (input.textAttr === 'set' && input.eolAttr === 'lf') return 'lf';
   if (input.textAttr === 'set' && input.eolAttr === 'crlf') return 'crlf';
   return 'unspecified';
+}
+
+function absoluteGitPath(repositoryRoot: string, gitPath: string): string {
+  const absolutePath = path.resolve(repositoryRoot, ...gitPath.split('/'));
+  const relative = path.relative(repositoryRoot, absolutePath);
+  if (
+    relative === '' ||
+    path.isAbsolute(relative) ||
+    relative === '..' ||
+    relative.startsWith(`..${path.sep}`)
+  ) {
+    throw new Error(`Settlement Git path escapes the repository: ${gitPath}`);
+  }
+  return absolutePath;
+}
+
+function readWorktreeOrdinaryBytes(
+  repositoryRoot: string,
+  gitPath: string,
+  parents: Map<string, PhysicalDirectoryIdentityV1>
+): Buffer {
+  const absolutePath = absoluteGitPath(repositoryRoot, gitPath);
+  const parentPath = path.dirname(absolutePath);
+  let parent = parents.get(parentPath);
+  if (parent === undefined) {
+    parent = inspectNoFollowDirectoryChainV1(
+      parentPath,
+      `Worktree settlement parent for ${gitPath}`
+    ).target;
+    parents.set(parentPath, parent);
+  }
+  const bytes = readNoFollowOrdinaryFileV1(parent, path.basename(absolutePath));
+  if (bytes === null) {
+    throw new Error(`Governed worktree file disappeared during settlement observation: ${gitPath}`);
+  }
+  return Buffer.from(bytes);
 }
 
 async function repositoryStillMatchesObservation(
@@ -207,6 +245,7 @@ export async function runSettlement(
 
   let scanned = 0;
   const driftEntries: WorktreeMaterializationEntry[] = [];
+  const retainedParents = new Map<string, PhysicalDirectoryIdentityV1>();
   try {
     for (const file of files) {
       const attrs = attributes.get(file.path);
@@ -217,7 +256,7 @@ export async function runSettlement(
       const declared = declaredLineEnding(attrs);
       if (declared !== 'lf' && declared !== 'crlf') continue;
 
-      const worktreeBytes = await fs.readFile(path.join(root, ...file.path.split('/')));
+      const worktreeBytes = readWorktreeOrdinaryBytes(root, file.path, retainedParents);
       scanned += 1;
       const blobLineEnding = detectLineEnding(new Uint8Array(blobBytes));
       const worktreeLineEnding = detectLineEnding(new Uint8Array(worktreeBytes));
@@ -322,8 +361,9 @@ export async function runSettlement(
 
   const fixedDrift: WorktreeMaterializationEntry[] = [];
   try {
+    retainedParents.clear();
     for (const entry of driftEntries) {
-      const worktreeBytes = await fs.readFile(path.join(root, ...entry.path.split('/')));
+      const worktreeBytes = readWorktreeOrdinaryBytes(root, entry.path, retainedParents);
       const newWorktreeLineEnding = detectLineEnding(new Uint8Array(worktreeBytes));
       if (newWorktreeLineEnding !== entry.blobLineEnding) {
         fixedDrift.push({ ...entry, worktreeLineEnding: newWorktreeLineEnding });
