@@ -32,6 +32,12 @@ test('one bounded Git read mechanics owner serves census and settlement', async 
   expect(gitRead).toContain("'core.attributesFile='");
   expect(gitRead).toContain("GIT_ATTR_NOSYSTEM: '1'");
   expect(gitRead).toContain('GIT_OBJECT_DIRECTORY');
+  expect(gitRead).toContain("env.GIT_NO_REPLACE_OBJECTS = '1'");
+  expect(gitRead).toContain("env.GIT_NO_LAZY_FETCH = '1'");
+  expect(gitRead).toContain("env.GIT_LITERAL_PATHSPECS = '1'");
+  for (const ambient of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY', 'GIT_ATTR_SOURCE', 'GIT_GLOB_PATHSPECS']) {
+    expect(gitRead).toContain(`'${ambient}'`);
+  }
 
   for (const source of [census, settlement]) {
     expect(source).toContain("from '../git/git-read.ts'");
