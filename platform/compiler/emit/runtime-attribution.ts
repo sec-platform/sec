@@ -19,15 +19,19 @@ export class AttributionResolver {
   private blockToVertical = new Map<string, string>();
 
   public static async create(lock: LockFile, workspaceRoot = process.cwd()): Promise<AttributionResolver> {
-    const manifests = new Map<string, BlockManifest>();
-    await Promise.all(lock.resolvedBlocks.map(async (block) => {
+    const loaded = await Promise.all(lock.resolvedBlocks.map(async (block) => {
       try {
         const entry = await loadManifestForResolvedBlock(workspaceRoot, block);
-        manifests.set(block.id, entry.manifest);
+        return [block.id, entry.manifest] as const;
       } catch (error) {
         defaultLogger.warn('Failed to load block manifest for runtime attribution', { blockId: block.id, error });
+        return null;
       }
     }));
+    const manifests = new Map<string, BlockManifest>();
+    for (const entry of loaded) {
+      if (entry) manifests.set(entry[0], entry[1]);
+    }
     return new AttributionResolver(manifests);
   }
 
@@ -121,14 +125,16 @@ export async function buildRuntimeAttribution(lock: LockFile, targetPath: string
 }
 
 export async function buildRuntimeAttributions(lock: LockFile, targetPaths: string[], workspaceRoot = process.cwd()): Promise<RuntimeAttribution[]> {
+  const runtimeTargets = uniqueSorted(targetPaths)
+    .map((targetPath) => ({ targetPath, kind: classifyRuntimeEntry(targetPath) }))
+    .filter((entry): entry is { targetPath: string; kind: RuntimeEntryKind } => entry.kind !== null);
+  if (runtimeTargets.length === 0) return [];
+
   const resolver = await AttributionResolver.create(lock, workspaceRoot);
-  return uniqueSorted(targetPaths).map((targetPath) => {
-    const kind = classifyRuntimeEntry(targetPath);
-    if (!kind) return null;
+  return runtimeTargets.map(({ targetPath, kind }) => {
     const vertical = resolver.detectVertical(targetPath);
     return { path: targetPath, kind, ...(vertical ? { vertical } : {}), relatedBlocks: uniqueSorted(resolver.getRelatedBlocks(targetPath, lock)) };
-  }).filter((entry): entry is RuntimeAttribution => entry !== null)
-    .sort((left, right) => compareCodeUnits(left.path, right.path));
+  }).sort((left, right) => compareCodeUnits(left.path, right.path));
 }
 
 export function buildVerticalSliceAttributions(entries: RuntimeAttribution[]): VerticalSliceAttribution[] {
@@ -136,10 +142,14 @@ export function buildVerticalSliceAttributions(entries: RuntimeAttribution[]): V
   for (const entry of entries) {
     if (!entry.vertical) continue;
     let slice = slices.get(entry.vertical);
-    if (!slice) { slice = { runtimeEntries: new Set<string>(), relatedBlocks: new Set<string>() }; slices.set(entry.vertical, slice); }
+    if (!slice) {
+      slice = { runtimeEntries: new Set<string>(), relatedBlocks: new Set<string>() };
+      slices.set(entry.vertical, slice);
+    }
     slice.runtimeEntries.add(entry.path);
     for (const blockId of entry.relatedBlocks) slice.relatedBlocks.add(blockId);
   }
-  return [...slices.entries()].map(([id, slice]) => ({ id, runtimeEntries: uniqueSorted([...slice.runtimeEntries]), relatedBlocks: uniqueSorted([...slice.relatedBlocks]) }))
+  return [...slices.entries()]
+    .map(([id, slice]) => ({ id, runtimeEntries: uniqueSorted([...slice.runtimeEntries]), relatedBlocks: uniqueSorted([...slice.relatedBlocks]) }))
     .sort((left, right) => compareCodeUnits(left.id, right.id));
 }
