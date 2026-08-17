@@ -58,7 +58,35 @@ function slotSourceRelativePath(task: SlotTask): string {
   return candidate;
 }
 
-async function assertPhysicalSlotBoundary(workspaceRoot: string, targetPath: string): Promise<void> {
+async function assertExistingAncestorsAreDirectories(root: string, targetDirectory: string): Promise<void> {
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(targetDirectory);
+  if (!isPathInside(resolvedRoot, resolvedTarget)) {
+    throw new CompilerError('WORKBENCH-SLOT-004', 'Workbench slot source escaped the workspace root');
+  }
+  const relative = path.relative(resolvedRoot, resolvedTarget);
+  let cursor = resolvedRoot;
+  for (const segment of relative.split(path.sep).filter(Boolean)) {
+    cursor = path.join(cursor, segment);
+    const metadata = await fs.lstat(cursor).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (metadata === null) return;
+    if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+      throw new CompilerError(
+        'WORKBENCH-SLOT-004',
+        `Workbench slot ancestor is not one ordinary directory: ${cursor}`
+      );
+    }
+  }
+}
+
+async function assertPhysicalSlotBoundary(
+  workspaceRoot: string,
+  targetPath: string,
+  commitFence?: CommitFence
+): Promise<void> {
   const { sourceSlotsRoot, legacySourceSlotsRoot } = getWorkspacePaths(workspaceRoot);
   const lexicalRoot = isPathInside(sourceSlotsRoot, targetPath)
     ? sourceSlotsRoot
@@ -69,8 +97,11 @@ async function assertPhysicalSlotBoundary(workspaceRoot: string, targetPath: str
     throw new CompilerError('WORKBENCH-SLOT-003', 'Workbench slot source escaped the configured source-slot roots');
   }
 
-  await ensureDir(lexicalRoot);
-  await ensureDir(path.dirname(targetPath));
+  await assertExistingAncestorsAreDirectories(workspaceRoot, path.dirname(targetPath));
+  await ensureDir(lexicalRoot, commitFence);
+  await ensureDir(path.dirname(targetPath), commitFence);
+  await assertExistingAncestorsAreDirectories(workspaceRoot, path.dirname(targetPath));
+
   const [physicalRoot, physicalParent] = await Promise.all([
     fs.realpath(lexicalRoot),
     fs.realpath(path.dirname(targetPath))
@@ -96,21 +127,27 @@ function genericSlotSource(task: SlotTask): string {
   ].join('\n');
 }
 
+async function existingOrdinaryFile(targetPath: string): Promise<boolean> {
+  const metadata = await fs.lstat(targetPath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (metadata === null) return false;
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
+    throw new CompilerError(
+      'WORKBENCH-SLOT-006',
+      'Existing slot source is not one unaliased ordinary file'
+    );
+  }
+  return true;
+}
+
 async function publishCreateOnly(
   targetPath: string,
   expectedBytes: Buffer,
   commitFence?: CommitFence
 ): Promise<'created' | 'existing'> {
-  const existing = await fs.lstat(targetPath).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  });
-  if (existing) {
-    if (!existing.isFile() || existing.isSymbolicLink()) {
-      throw new CompilerError('WORKBENCH-SLOT-006', 'Existing slot source is not one ordinary file');
-    }
-    return 'existing';
-  }
+  if (await existingOrdinaryFile(targetPath)) return 'existing';
 
   const temporaryPath = path.join(
     path.dirname(targetPath),
@@ -128,7 +165,9 @@ async function publishCreateOnly(
     try {
       await fs.link(temporaryPath, targetPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return 'existing';
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        if (await existingOrdinaryFile(targetPath)) return 'existing';
+      }
       throw error;
     }
 
@@ -161,7 +200,7 @@ export async function bootstrapAuthorizedSlotSource(
   const task = selectSlotTask(lock.slotTasks, blockId, slotId);
   const relativePath = slotSourceRelativePath(task);
   const targetPath = path.resolve(workspaceRoot, ...relativePath.split('/'));
-  await assertPhysicalSlotBoundary(workspaceRoot, targetPath);
+  await assertPhysicalSlotBoundary(workspaceRoot, targetPath, commitFence);
 
   const source = task.mockTemplate ?? genericSlotSource(task);
   const status = await publishCreateOnly(targetPath, Buffer.from(source, 'utf8'), commitFence);
