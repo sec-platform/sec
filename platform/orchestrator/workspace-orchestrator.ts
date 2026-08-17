@@ -126,10 +126,14 @@ export async function initWorkspace(
   if (workspaceWriteLease === undefined) {
     await bootstrapWorkspaceRoot(workspaceRoot);
     await assertNoActiveWorkspaceWriter(workspaceRoot);
+    // No caller authority exists yet. Prove the root is empty before lease
+    // acquisition creates the owned `.sec/workspace-write-lease` namespace.
+    await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, undefined);
   }
-  await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, workspaceWriteLease);
 
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (token) => {
+    // Reentrant tokens are proven by withWorkspaceWriteLease before this
+    // callback. Only now may a supplied-lease path inspect the create surface.
     const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
     const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
     await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, token);
