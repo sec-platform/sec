@@ -36,6 +36,10 @@ import {
   workbenchSseResponse
 } from './workbench-http-support.ts';
 import {
+  createWorkbenchRunNodeStream,
+  type WorkbenchRunNodeProcess
+} from './workbench-run-node-handler.ts';
+import {
   publishWorkbenchMutationEnvelope,
   readWorkbenchJsonArtifact,
   readWorkbenchOrdinaryFile
@@ -87,17 +91,6 @@ interface RouteEntry {
   method: string | null;
   path: string;
   handler: RouteHandler;
-}
-
-interface SubprocessHandle {
-  kill(): void;
-  readonly exited: Promise<number>;
-  readonly stdout: ReadableStream<Uint8Array>;
-  readonly stderr: ReadableStream<Uint8Array>;
-}
-
-function encodeSse(event: string, data: string): Uint8Array {
-  return new TextEncoder().encode(`event: ${event}\ndata: ${data}\n\n`);
 }
 
 function isSafeSlotId(value: unknown): value is string {
@@ -316,90 +309,19 @@ async function commandForNode(context: RouteContext, body: RunNodeBody, log: (me
   return ['bun', 'run', 'sec', 'verify', '--lane', 'fast'];
 }
 
-async function readProcessStream(
-  stream: ReadableStream<Uint8Array>,
-  log: (message: string) => void
-): Promise<void> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let pending = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
-    const lines = pending.split('\n');
-    pending = lines.pop() ?? '';
-    for (const line of lines) if (line.trim()) log(`   ${line.trim()}`);
-    if (done) {
-      if (pending.trim()) log(`   ${pending.trim()}`);
-      return;
-    }
-  }
-}
-
 async function handleRunNodeSse(context: RouteContext, mutex: WorkbenchMutex): Promise<Response> {
   const body = parseRunNodeBody(await readBoundedJson(context.req, 16 * 1024));
   if (!body) return workbenchErrorResponse('Invalid run-node request', 400);
 
-  let activeProcess: SubprocessHandle | null = null;
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const release = await mutex.acquire();
-      const log = (message: string): void => {
-        try {
-          controller.enqueue(encodeSse('log', message));
-        } catch {
-          // Stream already closed.
-        }
-      };
-
-      try {
-        log(`[Runner] Initializing verify worker for ${body.type} "${body.id}"...`);
-        const command = await commandForNode(context, body, log);
-        if (!command) {
-          log('[ERROR] Physical slot handler file does not exist.');
-          controller.enqueue(encodeSse('failure', 'Slot file not found'));
-          return;
-        }
-
-        log(`[Runner] Executing: ${command.join(' ')}`);
-        activeProcess = Bun.spawn(command, {
-          cwd: context.workspaceRoot,
-          stdout: 'pipe',
-          stderr: 'pipe'
-        }) as unknown as SubprocessHandle;
-        await Promise.all([
-          readProcessStream(activeProcess.stdout, log),
-          readProcessStream(activeProcess.stderr, log)
-        ]);
-        const exitCode = await activeProcess.exited;
-        if (exitCode === 0) {
-          log('[Runner] Execution completed successfully!');
-          controller.enqueue(encodeSse('success', 'passed'));
-        } else {
-          log(`[ERROR] Verification exited with non-zero code: ${exitCode}`);
-          controller.enqueue(encodeSse('failure', 'failed'));
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log(`[ERROR] Process execution crashed: ${message}`);
-        try {
-          controller.enqueue(encodeSse('failure', 'crashed'));
-        } catch {
-          // Stream already closed.
-        }
-      } finally {
-        activeProcess = null;
-        release();
-        try {
-          controller.close();
-        } catch {
-          // Stream already closed.
-        }
-      }
-    },
-    cancel() {
-      activeProcess?.kill();
-    }
+  const stream = createWorkbenchRunNodeStream({
+    acquire: () => mutex.acquire(),
+    initialMessage: `[Runner] Initializing verify worker for ${body.type} "${body.id}"...`,
+    resolveCommand: (log) => commandForNode(context, body, log),
+    spawn: (command) => Bun.spawn(command, {
+      cwd: context.workspaceRoot,
+      stdout: 'pipe',
+      stderr: 'pipe'
+    }) as unknown as WorkbenchRunNodeProcess
   });
 
   return workbenchSseResponse(stream);
