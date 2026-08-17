@@ -63,14 +63,25 @@ async function expectLintCode(source: string, code: string): Promise<void> {
   });
 }
 
+async function expectLintPass(source: string): Promise<void> {
+  await withSlotSource(source, async (workspaceRoot, lock) => {
+    await expect(lintSlotCapabilities(workspaceRoot, lock)).resolves.toBeUndefined();
+  });
+}
+
 describe('Custom Slot static capability lint', () => {
   test('allows erased type-only imports for the current pure reference shape', async () => {
-    await withSlotSource(
+    await expectLintPass(
       `import type { CustomerInput } from '../../../project/src/runtime/database.ts';\n` +
-      `export function normalizeCustomerInput(input: CustomerInput) { return String(input); }\n`,
-      async (workspaceRoot, lock) => {
-        await expect(lintSlotCapabilities(workspaceRoot, lock)).resolves.toBeUndefined();
-      }
+      `export function normalizeCustomerInput(input: CustomerInput) { return String(input); }\n`
+    );
+  });
+
+  test('allows inline type-only imports and re-exports', async () => {
+    await expectLintPass(
+      `import { type CustomerInput } from '../../../project/src/runtime/database.ts';\n` +
+      `export { type CustomerInput } from '../../../project/src/runtime/database.ts';\n` +
+      `export function normalizeCustomerInput(input: CustomerInput) { return String(input); }\n`
     );
   });
 
@@ -113,7 +124,7 @@ describe('Custom Slot static capability lint', () => {
     );
   });
 
-  test('fails closed on direct runtime capability roots', async () => {
+  test('fails closed on direct runtime capability roots and references', async () => {
     await expectLintCode(
       `export function run() { return Bun.spawn(['echo', 'x']); }\n`,
       'SLOT-LINT-004'
@@ -125,6 +136,23 @@ describe('Custom Slot static capability lint', () => {
     await expectLintCode(
       `export function run() { return globalThis['process']; }\n`,
       'SLOT-LINT-004'
+    );
+    await expectLintCode(
+      `export function run() { return process; }\n`,
+      'SLOT-LINT-004'
+    );
+    await expectLintCode(
+      `export function run() { const callback = fetch; return callback; }\n`,
+      'SLOT-LINT-004'
+    );
+  });
+
+  test('does not confuse local shadowed identifiers with host capabilities', async () => {
+    await expectLintPass(
+      `const process = { value: 1 };\n` +
+      `const fetch = (value: string) => value;\n` +
+      `const require = (value: string) => ({ value });\n` +
+      `export function run() { return [process.value, fetch('x'), require('y').value]; }\n`
     );
   });
 
