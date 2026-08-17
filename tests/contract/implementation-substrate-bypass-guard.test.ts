@@ -39,6 +39,37 @@ test('new direct dependency without adopted substrate decision is rejected', asy
   expect(issues.some((issue) => issue.code === 'unresolved-direct-dependency')).toBe(true);
 });
 
+test('new direct dependency cannot self-authorize without #193 ownership', async () => {
+  const value = await fixture();
+  const packageJson = JSON.parse(value.packageJsonSource) as Record<string, Record<string, string>>;
+  packageJson.dependencies!['new-wheel'] = '1.0.0';
+  const decisions = [
+    ...value.decisions,
+    {
+      capabilityId: 'new-wheel-capability',
+      requirementRefs: ['github:issue/483'],
+      layer: 'mechanical' as const,
+      decision: 'adopted' as const,
+      substrate: {
+        kind: 'package',
+        id: 'new-wheel',
+        manifestSection: 'dependencies',
+        declaredSpec: '1.0.0'
+      },
+      manualFallback: 'forbidden' as const,
+      adoptionOwner: null,
+      triggerRef: null,
+      authorityRetainedBy: 'fixture'
+    }
+  ];
+  const issues = inspectDevelopmentSubstrateBypassesV1({
+    packageJsonSource: JSON.stringify(packageJson),
+    decisions,
+    sources: new Map()
+  });
+  expect(issues.some((issue) => issue.code === 'unresolved-direct-dependency')).toBe(true);
+});
+
 test('a second upgrade RegExp implementation is rejected', async () => {
   const value = await fixture();
   const issues = inspectDevelopmentSubstrateBypassesV1({
@@ -94,10 +125,27 @@ test('handwritten SBOM generation is rejected outside the selected provider adap
   expect(issues).toContainEqual(expect.objectContaining({ code: 'manual-sbom-generation' }));
 });
 
-test('Syft adapter may validate SBOM fields without becoming the SBOM generator', async () => {
+test('Syft adapter is still blocked while SBOM substrate is only a candidate', async () => {
   const value = await fixture();
   const issues = inspectDevelopmentSubstrateBypassesV1({
     ...value,
+    sources: new Map([
+      [
+        'platform/release/providers/syft-sbom-provider.ts',
+        "export function assertSbom(value: { spdxVersion: string }) { return value.spdxVersion; }"
+      ]
+    ])
+  });
+  expect(issues).toContainEqual(expect.objectContaining({ code: 'manual-sbom-generation' }));
+});
+
+test('exact Syft adapter may validate SBOM fields only after formal adoption', async () => {
+  const value = await fixture();
+  const decisions = value.decisions.map((entry) =>
+    entry.capabilityId === 'sbom-generation' ? { ...entry, decision: 'adopted' as const } : entry);
+  const issues = inspectDevelopmentSubstrateBypassesV1({
+    packageJsonSource: value.packageJsonSource,
+    decisions,
     sources: new Map([
       [
         'platform/release/providers/syft-sbom-provider.ts',
