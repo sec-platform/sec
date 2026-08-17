@@ -21,23 +21,23 @@ function createConcurrencyLimit(concurrency: number) {
   });
 }
 
-// 进程内已创建目录缓存，避免 writeText/writeJson 每次都调用 fs.mkdir。
-// removeDir 会失效相关条目以保持一致性。
-const createdDirs = new Set<string>();
-
+/**
+ * Directory existence is physical state, not process-local cache state.
+ * Recursive mkdir is idempotent; always performing it keeps correctness under
+ * external cleanup, workspace replacement, and long-lived Workbench processes.
+ */
 export async function ensureDir(dirPath: string, commitFence?: CommitFence): Promise<void> {
   await commitFence?.();
-  if (createdDirs.has(dirPath)) return;
   await fs.mkdir(dirPath, { recursive: true });
-  createdDirs.add(dirPath);
 }
 
 export async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await fs.access(targetPath);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isFileNotFoundError(error)) return false;
+    throw error;
   }
 }
 
@@ -51,7 +51,12 @@ export async function readJson<T>(filePath: string): Promise<T> {
 }
 
 export async function readOptionalJson<T>(filePath: string): Promise<T | null> {
-  return (await pathExists(filePath)) ? readJson<T>(filePath) : null;
+  try {
+    return await readJson<T>(filePath);
+  } catch (error) {
+    if (isFileNotFoundError(error)) return null;
+    throw error;
+  }
 }
 
 export function formatJsonFile(value: unknown): string {
@@ -71,13 +76,6 @@ export async function writeJson(
 export async function removeDir(targetPath: string, commitFence?: CommitFence): Promise<void> {
   await commitFence?.();
   await fs.rm(targetPath, { recursive: true, force: true });
-  // 失效缓存：被删除的目录及其子目录不再存在，需从缓存中移除以免 ensureDir 跳过重建。
-  const targetWithSep = targetPath.endsWith(path.sep) ? targetPath : targetPath + path.sep;
-  for (const cached of createdDirs) {
-    if (cached === targetPath || cached.startsWith(targetWithSep)) {
-      createdDirs.delete(cached);
-    }
-  }
 }
 
 export async function copyRecursive(
@@ -88,8 +86,7 @@ export async function copyRecursive(
   const stat = await fs.stat(source);
   if (stat.isDirectory()) {
     await ensureDir(target, commitFence);
-    const entries = await fs.readdir(source);
-    // 并行拷贝目录内各条目（互相独立），用 concurrency limit 控制并发句柄数。
+    const entries = (await fs.readdir(source)).sort();
     const limit = createConcurrencyLimit(8);
     await Promise.all(
       entries.map((entry) =>
@@ -104,9 +101,15 @@ export async function copyRecursive(
 }
 
 export async function listFilesRecursive(rootDir: string): Promise<string[]> {
-  if (!(await pathExists(rootDir))) return [];
+  try {
+    const metadata = await fs.stat(rootDir);
+    if (!metadata.isDirectory()) return [];
+  } catch (error) {
+    if (isFileNotFoundError(error)) return [];
+    throw error;
+  }
   const { globby } = await import('globby');
-  return globby('**/*', { cwd: rootDir, absolute: true, dot: false, onlyFiles: true });
+  return (await globby('**/*', { cwd: rootDir, absolute: true, dot: false, onlyFiles: true })).sort();
 }
 
 export async function readText(filePath: string): Promise<string> {
@@ -117,15 +120,17 @@ export async function writeText(filePath: string, text: string, commitFence?: Co
   await ensureDir(path.dirname(filePath), commitFence);
   await commitFence?.();
   // Copy-on-write: if the file has multiple hard links (e.g. from workspace
-  // template cloning via fs.link), break the link by unlinking before writing
-  // to avoid corrupting the shared template inode.
+  // template cloning via fs.link), break the link before writing so a project
+  // edit cannot mutate the shared template inode. Non-ENOENT stat failures are
+  // real errors and must never be reclassified as "file absent".
   try {
     const existing = await fs.stat(filePath);
     if (existing.nlink > 1) {
       await fs.unlink(filePath);
     }
-  } catch {
-    // File doesn't exist yet — no link to break.
+  } catch (error) {
+    if (!isFileNotFoundError(error)) throw error;
   }
+  await commitFence?.();
   await fs.writeFile(filePath, text, 'utf8');
 }
