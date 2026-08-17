@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { loadManifestById, resolveRegistrySources } from '../../platform/compiler/parse/load-manifest.ts';
-import { validatePlan } from '../../platform/compiler/parse/load-plan.ts';
+import { normalizePlan, validatePlan } from '../../platform/compiler/parse/load-plan.ts';
 import {
   isCanonicalBlockId,
   isCanonicalRegistryVersion
@@ -36,11 +36,21 @@ test('canonical block identity is cross-platform path-safe and injective', () =>
   }
 });
 
-test('canonical registry version is one exact lowercase SemVer-shaped path segment', () => {
-  for (const value of ['0.1.0', '1.2.3', '1.2.3-rc.1', '1.2.3+build.7']) {
+test('canonical registry version is one exact lowercase SemVer path segment', () => {
+  for (const value of ['0.1.0', '1.2.3', '1.2.3-rc.1', '1.2.3+build.7', '1.2.3-alpha.0+build.01']) {
     expect(isCanonicalRegistryVersion(value)).toBe(true);
   }
-  for (const value of ['', '../1.0.0', '1.0', '01.0.0', '1.0.0/next', '1.0.0-RC1']) {
+  for (const value of [
+    '',
+    '../1.0.0',
+    '1.0',
+    '01.0.0',
+    '1.0.0/next',
+    '1.0.0-RC1',
+    '1.0.0-01',
+    '1.0.0-alpha..1',
+    '1.0.0+'
+  ]) {
     expect(isCanonicalRegistryVersion(value)).toBe(false);
   }
 });
@@ -68,6 +78,18 @@ test('direct registry source callers cannot bypass Plan enum and path validation
     location: 'workspace',
     path: '../escape'
   }])).toThrow();
+});
+
+test('Plan raw-shape normalization fails closed before array/property operations', () => {
+  expect(() => normalizePlan({
+    registry: { sources: { id: 'not-an-array' } }
+  } as unknown as PlanFile)).toThrow();
+  expect(() => normalizePlan({
+    registry: { sources: [null] }
+  } as unknown as PlanFile)).toThrow();
+  expect(() => normalizePlan({
+    blocks: { id: 'ticket/basic' }
+  } as unknown as PlanFile)).toThrow();
 });
 
 test('Plan runtime validation rejects values TypeScript unions cannot protect after YAML parsing', () => {
