@@ -52,6 +52,7 @@ test('batch blob and attribute observations bind to one exact commit', async () 
     const commit = resolveExactHeadCommit(root);
     const inventory = readCommitBlobInventory(root, commit);
     expect(inventory.map((entry) => entry.path)).toEqual(['.gitattributes', 'committed.ts']);
+    expect(inventory.every((entry) => Number.isSafeInteger(entry.byteSize) && entry.byteSize >= 0)).toBe(true);
 
     const blobs = readBlobBatch(root, inventory.map((entry) => entry.objectId));
     const committed = inventory.find((entry) => entry.path === 'committed.ts')!;
@@ -59,6 +60,43 @@ test('batch blob and attribute observations bind to one exact commit', async () 
 
     const attributes = readTextAttributesBatch(root, commit, inventory.map((entry) => entry.path));
     expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('committed attribute policy is isolated from .git/info/attributes overrides', async () => {
+  const root = await createRepository('sec-dev-attribute-isolation-');
+  try {
+    await fs.mkdir(path.join(root, '.git', 'info'), { recursive: true });
+    await fs.writeFile(path.join(root, '.git', 'info', 'attributes'), '*.ts -text\n');
+    const commit = resolveExactHeadCommit(root);
+
+    const attributes = readTextAttributesBatch(root, commit, ['committed.ts']);
+    expect(attributes.get('committed.ts')).toEqual({ textAttr: 'set', eolAttr: 'lf' });
+
+    const census = await runCensus(root);
+    expect(census.classificationCounts['canonical-lf']).toBe(1);
+    expect(census.failClosed).toBe(false);
+
+    const settlement = await runSettlement(root);
+    expect(settlement.status).toBe('settled');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('legal custom Git attribute values remain fail-closed policy input instead of parser crashes', async () => {
+  const root = await createRepository('sec-dev-attribute-custom-');
+  try {
+    await fs.writeFile(path.join(root, '.gitattributes'), '*.ts text=auto\n');
+    git(root, ['add', '.gitattributes']);
+    git(root, ['commit', '--quiet', '-m', 'custom-attribute']);
+
+    const report = await runCensus(root);
+    expect(report.classificationCounts.unknown).toBe(1);
+    expect(report.flaggedEntries.find((entry) => entry.path === 'committed.ts')?.anomalies)
+      .toContain('attributes-missing');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -121,7 +159,7 @@ test('tracked governed symlink cannot be followed and reported as settled', asyn
 
     const receipt = await runSettlement(root);
     expect(receipt.status).toBe('unsafe');
-    expect(receipt.summary).toContain('Settlement physical observation failed closed');
+    expect(receipt.summary).toContain('Settlement exact Git/physical observation failed closed');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
