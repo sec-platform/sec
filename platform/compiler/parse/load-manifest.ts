@@ -9,7 +9,7 @@ import {
 } from '../../shared/block-identity.ts';
 import { compareCodeUnits, rawSha256 } from '../../shared/canonical-primitives.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { isFileNotFoundError, pathExists } from '../../shared/fs.ts';
+import { pathExists } from '../../shared/fs.ts';
 import type { ResolvedBlock } from '../../shared/lock-types.ts';
 import {
   blockDirName,
@@ -19,9 +19,15 @@ import {
   resolvePathInside,
   resolveRegistryRoot
 } from '../../shared/paths.ts';
+import {
+  assertSameNoFollowDirectoryIdentityV1,
+  inspectNoFollowDirectoryChainV1,
+  PhysicalNoFollowError
+} from '../../shared/physical-no-follow.ts';
 import type { BlockManifest, ManifestEntry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
 import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
 import { manifestCache, type ManifestCacheKey } from './manifest-cache.ts';
+import { decodeExactAuthorityUtf8, readOptionalAuthorityBytes } from './read-authority-source.ts';
 import { normalizeAndValidateSemanticManifestFields } from './validate-semantic-manifest.ts';
 
 export interface ResolvedRegistrySource {
@@ -56,13 +62,10 @@ interface ManifestSourceBytes {
 }
 
 async function tryReadManifestSource(manifestPath: string): Promise<ManifestSourceBytes | null> {
-  try {
-    const raw = await fs.readFile(manifestPath, 'utf8');
-    return { raw, digest: rawSha256(raw) };
-  } catch (error) {
-    if (isFileNotFoundError(error)) return null;
-    throw error;
-  }
+  const bytes = readOptionalAuthorityBytes(manifestPath, 'Manifest source');
+  if (bytes === null) return null;
+  const raw = decodeExactAuthorityUtf8(bytes, `Manifest source ${path.resolve(manifestPath)}`);
+  return { raw, digest: rawSha256(raw) };
 }
 
 function parseManifestSource(source: ManifestSourceBytes): BlockManifest {
@@ -402,19 +405,25 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
   const workspaceRoot = path.resolve(options.workspaceRoot ?? process.cwd());
 
   for (const registrySource of resolveRegistrySources(workspaceRoot, options.registrySources ?? [])) {
-    let entries: Dirent[] = [];
+    let registryRoot;
     try {
-      entries = await fs.readdir(registrySource.root, { withFileTypes: true });
+      registryRoot = inspectNoFollowDirectoryChainV1(
+        path.resolve(registrySource.root),
+        `Registry ${registrySource.id} root`
+      ).target;
     } catch (error) {
-      if (isFileNotFoundError(error)) continue;
+      if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') continue;
       throw error;
     }
+
+    const entries: Dirent[] = await fs.readdir(registryRoot.path, { withFileTypes: true });
+    assertSameNoFollowDirectoryIdentityV1(registryRoot, `Registry ${registrySource.id} root`);
 
     const directoryEntries = entries
       .filter((entry) => entry.isDirectory())
       .sort((left, right) => compareCodeUnits(left.name, right.name));
     const sourceEntries = await Promise.all(directoryEntries.map(async (entry) => {
-      const manifestPath = path.join(registrySource.root, entry.name, 'block.manifest.yaml');
+      const manifestPath = path.join(registryRoot.path, entry.name, 'block.manifest.yaml');
       const source = await tryReadManifestSource(manifestPath);
       if (!source) {
         throw new CompilerError(
@@ -428,6 +437,7 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
       return manifestEntryFromPath(registrySource, manifest, manifestPath);
     }));
 
+    assertSameNoFollowDirectoryIdentityV1(registryRoot, `Registry ${registrySource.id} root`);
     for (const entry of sourceEntries) {
       if (selectedIds.has(entry.manifest.id)) continue;
       selectedIds.add(entry.manifest.id);
