@@ -2,19 +2,22 @@ type AnyFunction = (...args: never[]) => unknown;
 type LazyFacade<Fn extends AnyFunction> = (
   ...args: Parameters<Fn>
 ) => Promise<Awaited<ReturnType<Fn>>>;
+type FunctionKey<Module extends object> = {
+  [Key in keyof Module]: Module[Key] extends AnyFunction ? Key : never
+}[keyof Module];
 
-function lazyFunction<Module extends object, Key extends keyof Module>(
+function lazyFunction<Module extends object, Key extends FunctionKey<Module>>(
   load: () => Promise<Module>,
   key: Key
-): Module[Key] extends AnyFunction ? LazyFacade<Module[Key]> : never {
-  return (async (...args: unknown[]) => {
-    const module = await load();
+): LazyFacade<Extract<Module[Key], AnyFunction>> {
+  type Fn = Extract<Module[Key], AnyFunction>;
+  return ((...args: Parameters<Fn>) => load().then((module) => {
     const fn = module[key];
     if (typeof fn !== 'function') {
       throw new Error(`Lazy CLI domain export ${String(key)} is not callable`);
     }
-    return Reflect.apply(fn, module, args) as unknown;
-  }) as Module[Key] extends AnyFunction ? LazyFacade<Module[Key]> : never;
+    return Reflect.apply(fn, module, args) as ReturnType<Fn>;
+  })) as LazyFacade<Fn>;
 }
 
 type CompilerModule = typeof import('../compiler/index.ts');
