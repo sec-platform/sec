@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { loadWorkspacePlan } from '../../platform/compiler/parse/load-plan.ts';
+import { resolveWorkspacePlanPath } from '../../platform/shared/paths.ts';
 import { PhysicalNoFollowError } from '../../platform/shared/physical-no-follow.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -60,5 +61,22 @@ test('unsafe canonical Plan ancestry blocks instead of silently falling back to 
       return;
     }
     throw new Error('Expected unsafe canonical Plan ancestry to block legacy fallback.');
+  });
+});
+
+test('a dangling canonical Plan entry keeps canonical precedence over a valid legacy Plan', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const sourceRoot = path.join(workspaceRoot, 'source');
+    const projectRoot = path.join(workspaceRoot, 'project');
+    await fs.mkdir(sourceRoot, { recursive: true });
+    await fs.mkdir(projectRoot, { recursive: true });
+    await fs.writeFile(path.join(projectRoot, 'app.plan.yaml'), planYaml('Legacy'), 'utf8');
+
+    const canonicalPath = path.join(sourceRoot, 'app.yaml');
+    await fs.symlink(path.join(workspaceRoot, 'missing-plan.yaml'), canonicalPath, 'file');
+
+    expect(await resolveWorkspacePlanPath(workspaceRoot)).toBe(canonicalPath);
+    await expect(loadWorkspacePlan(workspaceRoot))
+      .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
   });
 });
