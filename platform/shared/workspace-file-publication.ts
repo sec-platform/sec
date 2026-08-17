@@ -77,3 +77,11 @@ export async function publishCanonicalWorkspaceFileV1(
     }
   });
 }
+
+/**
+ * Transitional compatibility name for the already-landed Workbench consumer.
+ * It is intentionally NOT a generic project-path publisher; callers must obey
+ * the canonical parent vocabulary enforced above.  Remove this alias when the
+ * Workbench import is renamed during its next focused edit.
+ */
+export const publishWorkspaceFileV1 = publishCanonicalWorkspaceFileV1;
