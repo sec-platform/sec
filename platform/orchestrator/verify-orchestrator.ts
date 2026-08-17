@@ -1,7 +1,5 @@
-import {
-  buildAcceptanceCoverage,
-  createSkippedRuntimeLane
-} from '../compiler/index.ts';
+import { buildAcceptanceCoverage } from '../compiler/verify/build-acceptance-coverage.ts';
+import { createSkippedRuntimeLane } from '../compiler/verify/run-runtime-verification.ts';
 import {
   revalidateStagedVerificationProof,
   type StagedVerificationProof
