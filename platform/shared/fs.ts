@@ -43,6 +43,19 @@ async function prepareOrdinaryFileWrite(targetPath: string, commitFence?: Commit
 }
 
 async function ensureOrdinaryDirectory(dirPath: string, commitFence?: CommitFence): Promise<void> {
+  await ensureDir(dirPath, commitFence);
+}
+
+/**
+ * Directory existence is physical state, not process-local cache state.
+ * Recursive mkdir is idempotent; always re-observing the final directory keeps
+ * correctness under external cleanup and long-lived Workbench processes.
+ * This primitive rejects a symbolic-link/non-directory final entry before and
+ * after creation. Callers that need race-free ancestor containment must use the
+ * retained physical-no-follow primitives instead of treating this helper as a
+ * security capability.
+ */
+export async function ensureDir(dirPath: string, commitFence?: CommitFence): Promise<void> {
   const before = await readLstatOrNull(dirPath);
   if (before !== null) {
     if (before.isSymbolicLink() || !before.isDirectory()) {
@@ -50,24 +63,14 @@ async function ensureOrdinaryDirectory(dirPath: string, commitFence?: CommitFenc
     }
     return;
   }
-  await ensureDir(dirPath, commitFence);
+
+  await commitFence?.();
+  await fs.mkdir(dirPath, { recursive: true });
+
   const after = await fs.lstat(dirPath);
   if (after.isSymbolicLink() || !after.isDirectory()) {
     throw new Error(`Directory target changed into a non-ordinary path: ${dirPath}`);
   }
-}
-
-/**
- * Directory existence is physical state, not process-local cache state.
- * Recursive mkdir is idempotent; always performing it keeps correctness under
- * external cleanup, workspace replacement, and long-lived Workbench processes.
- * Callers that require containment against an allowed root must still perform
- * root/ancestor validation; this primitive only guarantees the final directory
- * entry itself is not silently treated as a file write target.
- */
-export async function ensureDir(dirPath: string, commitFence?: CommitFence): Promise<void> {
-  await commitFence?.();
-  await fs.mkdir(dirPath, { recursive: true });
 }
 
 export async function pathExists(targetPath: string): Promise<boolean> {
