@@ -6,7 +6,7 @@ import { loadAllManifests } from '../compiler/parse/load-manifest.ts';
 import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
 import {
   bootstrapAuthorizedSlotSource,
-  resolveAuthorizedSlotSource
+  readAuthorizedSlotSource
 } from '../compiler/workbench/bootstrap-slot-source.ts';
 import { compareCodeUnits } from '../shared/canonical-primitives.ts';
 import { CompilerError } from '../shared/errors.ts';
@@ -118,7 +118,7 @@ function errorStatus(error: unknown): number {
   if (error instanceof SyntaxError) return 400;
   if (error instanceof CompilerError) {
     if (error.code === 'WORKBENCH-SLOT-001') return 400;
-    if (/^WORKBENCH-SLOT-00[2-6]$/u.test(error.code)) return 409;
+    if (/^WORKBENCH-SLOT-00[2-7]$/u.test(error.code)) return 409;
   }
   if (error instanceof Error && error.message.includes('Request body exceeds')) return 413;
   return 500;
@@ -154,6 +154,15 @@ function parseRunNodeBody(value: unknown): RunNodeBody | null {
   return { type: body.type, id: body.id };
 }
 
+function decodeExactUtf8(bytes: Uint8Array): string {
+  const buffer = Buffer.from(bytes);
+  const text = buffer.toString('utf8');
+  if (!Buffer.from(text, 'utf8').equals(buffer)) {
+    throw new CompilerError('WORKBENCH-SLOT-007', 'Workbench slot source is not exact UTF-8');
+  }
+  return text;
+}
+
 async function handleBlocksCatalog(context: RouteContext): Promise<Response> {
   const plan = await loadWorkspacePlan(context.workspaceRoot);
   const entries = await loadAllManifests({
@@ -187,16 +196,9 @@ async function handleSlotCode(context: RouteContext): Promise<Response> {
   const slotId = context.url.searchParams.get('slotId');
   if (!isSafeSlotId(slotId)) return workbenchErrorResponse('Invalid slotId parameter', 400);
 
-  const resolved = await resolveAuthorizedSlotSource(context.workspaceRoot, slotId);
-  const metadata = await fs.lstat(resolved.targetPath).catch((error: NodeJS.ErrnoException) => {
-    if (isFileNotFoundError(error)) return null;
-    throw error;
-  });
-  if (metadata === null) return workbenchJsonResponse({ error: 'Slot code file not found', code: '' }, 404);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
-    return workbenchErrorResponse('Slot code path is not one unaliased ordinary file', 409);
-  }
-  return workbenchJsonResponse({ code: await fs.readFile(resolved.targetPath, 'utf8'), path: resolved.relativePath });
+  const source = await readAuthorizedSlotSource(context.workspaceRoot, slotId);
+  if (source === null) return workbenchJsonResponse({ error: 'Slot code file not found', code: '' }, 404);
+  return workbenchJsonResponse({ code: decodeExactUtf8(source.bytes), path: source.path });
 }
 
 async function handleGraph(context: RouteContext): Promise<Response> {
@@ -253,13 +255,9 @@ async function findBlockTest(workspaceRoot: string, blockId: string): Promise<st
 
 async function commandForNode(context: RouteContext, body: RunNodeBody, log: (message: string) => void): Promise<string[] | null> {
   if (body.type === 'slot') {
-    const resolved = await resolveAuthorizedSlotSource(context.workspaceRoot, body.id);
-    const metadata = await fs.lstat(resolved.targetPath).catch((error: NodeJS.ErrnoException) => {
-      if (isFileNotFoundError(error)) return null;
-      throw error;
-    });
-    if (!metadata?.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) return null;
-    log(`   Found authorized slot implementation: ${resolved.relativePath}.`);
+    const source = await readAuthorizedSlotSource(context.workspaceRoot, body.id);
+    if (source === null) return null;
+    log(`   Found authorized slot implementation: ${source.path}.`);
     return ['bun', 'test', 'tests/unit/validate-slot-security.test.ts'];
   }
 
