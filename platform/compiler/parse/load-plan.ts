@@ -40,6 +40,41 @@ function defaultRegistry(): PlanRegistry {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function assertRawPlanShape(value: unknown): asserts value is Partial<PlanFile> {
+  if (!isRecord(value)) {
+    throw new CompilerError('PLAN-VALIDATION-022', 'Plan root must be one object');
+  }
+  if (value.app !== undefined && !isRecord(value.app)) {
+    throw new CompilerError('PLAN-VALIDATION-022', 'app must be one object');
+  }
+  if (value.registry !== undefined) {
+    if (!isRecord(value.registry)) {
+      throw new CompilerError('PLAN-VALIDATION-009', 'registry must be one object');
+    }
+    if (value.registry.sources !== undefined) {
+      if (!Array.isArray(value.registry.sources)) {
+        throw new CompilerError('PLAN-VALIDATION-009', 'registry.sources must be an array');
+      }
+      if (value.registry.sources.some((source) => !isRecord(source))) {
+        throw new CompilerError('PLAN-VALIDATION-009', 'Every registry source must be one object');
+      }
+    }
+  }
+  for (const [field, code] of [
+    ['blocks', 'PLAN-VALIDATION-004'],
+    ['slots', 'PLAN-VALIDATION-006'],
+    ['acceptance', 'PLAN-VALIDATION-021']
+  ] as const) {
+    if (value[field] !== undefined && !Array.isArray(value[field])) {
+      throw new CompilerError(code, `${field} must be an array`);
+    }
+  }
+}
+
 function normalizeRegistrySource(source: Partial<PlanRegistrySource>): PlanRegistrySource {
   const kind = source.kind ?? 'private';
   const defaultPrivatePath = source.id === 'source-private'
@@ -54,7 +89,8 @@ function normalizeRegistrySource(source: Partial<PlanRegistrySource>): PlanRegis
 }
 
 export function normalizePlan(plan: PlanFile): PlanFile {
-  const normalized = structuredClone((plan ?? {}) as Partial<PlanFile>);
+  assertRawPlanShape(plan as unknown);
+  const normalized = structuredClone(plan as Partial<PlanFile>);
   return {
     app: {
       id: normalized.app?.id ?? '',
@@ -64,7 +100,8 @@ export function normalizePlan(plan: PlanFile): PlanFile {
       mode: normalized.app?.mode ?? 'single-tenant'
     },
     registry: {
-      sources: (normalized.registry?.sources ?? defaultRegistry().sources).map((source) => normalizeRegistrySource(source))
+      sources: (normalized.registry?.sources ?? defaultRegistry().sources)
+        .map((source) => normalizeRegistrySource(source))
     },
     blocks: normalized.blocks ?? [],
     slots: normalized.slots ?? [],
