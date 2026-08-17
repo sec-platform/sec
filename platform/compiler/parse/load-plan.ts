@@ -15,12 +15,8 @@ import {
   privateRegistryRelativePath,
   sourcePrivateRegistryRelativePath
 } from '../../shared/paths.ts';
-import {
-  inspectNoFollowDirectoryChainV1,
-  PhysicalNoFollowError,
-  readNoFollowOrdinaryFileV1
-} from '../../shared/physical-no-follow.ts';
 import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
+import { readOptionalAuthorityBytes } from './read-authority-source.ts';
 
 function defaultRegistry(): PlanRegistry {
   return {
@@ -267,20 +263,8 @@ function decodePlanUtf8(bytes: Uint8Array, planPath: string): string {
 }
 
 function readPlanSourceNoFollow(planPath: string): string | null {
-  const absolutePath = path.resolve(planPath);
-  try {
-    const parent = inspectNoFollowDirectoryChainV1(
-      path.dirname(absolutePath),
-      'Plan parent directory'
-    ).target;
-    const bytes = readNoFollowOrdinaryFileV1(parent, path.basename(absolutePath));
-    return bytes === null ? null : decodePlanUtf8(bytes, absolutePath);
-  } catch (error) {
-    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
-      return null;
-    }
-    throw error;
-  }
+  const bytes = readOptionalAuthorityBytes(planPath, 'Plan');
+  return bytes === null ? null : decodePlanUtf8(bytes, path.resolve(planPath));
 }
 
 function parsePlanSource(raw: string): PlanFile {
