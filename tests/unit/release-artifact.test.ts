@@ -54,7 +54,13 @@ test('release build entrypoint no longer owns live dist mutation or bundling', a
   expect(entrypoint).not.toContain('chmodSync');
 
   expect(owner).toContain("['archive', '--format=tar', 'HEAD']");
-  expect(owner).toContain('.sec-release-stage-');
+  expect(owner).toContain('.sec-release-artifact-stage-');
+  expect(owner).toContain('sec-release-source-');
+  expect(owner).toContain("['install', '--frozen-lockfile', '--ignore-scripts']");
+  expect(owner).toContain('Frozen dependency materialization changed package.json or bun.lock');
+  expect(owner).toContain('Release bundle consumed an input outside frozen source');
+  expect(owner).toContain('dependencyLockDigest');
   expect(owner).toContain('sec-release-artifact-manifest-v1');
-  expect(owner).toContain('Published release artifact readback differs from manifest');
+  expect(owner).toContain('release artifact physical file inventory differs from manifest');
+  expect(owner).not.toContain('Bun.build({');
 });
