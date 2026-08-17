@@ -65,6 +65,26 @@ test('batch blob and attribute observations bind to one exact commit', async () 
   }
 });
 
+test('Git replacement objects cannot substitute committed blob bytes', async () => {
+  const root = await createRepository('sec-dev-git-replace-');
+  try {
+    const commit = resolveExactHeadCommit(root);
+    const committed = readCommitBlobInventory(root, commit)
+      .find((entry) => entry.path === 'committed.ts')!;
+    const replacementPath = path.join(root, 'replacement.tmp');
+    await fs.writeFile(replacementPath, 'export const committed = null;\n');
+    const replacement = git(root, ['hash-object', '-w', 'replacement.tmp']);
+    await fs.rm(replacementPath);
+    git(root, ['replace', committed.objectId, replacement]);
+
+    expect(git(root, ['cat-file', 'blob', committed.objectId])).toContain('committed = null');
+    const blobs = readBlobBatch(root, [committed.objectId]);
+    expect(blobs.get(committed.objectId)?.toString('utf8')).toBe('export const committed = true;\n');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('committed attribute policy is isolated from .git/info/attributes overrides', async () => {
   const root = await createRepository('sec-dev-attribute-isolation-');
   try {
