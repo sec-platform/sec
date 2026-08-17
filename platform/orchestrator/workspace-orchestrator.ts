@@ -29,8 +29,6 @@ function nativeErrorCode(error: unknown): string | undefined {
 async function bootstrapWorkspaceRoot(workspaceRoot: string): Promise<'created' | 'existing'> {
   const absoluteRoot = path.resolve(workspaceRoot);
   try {
-    // The parent must already exist. initWorkspace creates one requested root,
-    // never an implicit ancestor chain.
     await mkdir(absoluteRoot);
     return 'created';
   } catch (error) {
@@ -70,7 +68,6 @@ async function assertNoActiveWorkspaceWriter(workspaceRoot: string): Promise<voi
     if (nativeErrorCode(error) === 'ENOENT') return;
     throw error;
   }
-
   const inspection = await inspectWorkspaceWriteLease(workspaceRoot);
   if (inspection.state === 'active') {
     throw new WorkspaceWriteLeaseError(
@@ -179,11 +176,7 @@ export async function initWorkspace(
   options: { reset?: boolean } = {},
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<{ planPath: string; lockPath: string }> {
-  // `reset` is retained only as an input-compatibility flag for an empty create
-  // surface. It no longer grants recursive deletion authority. Destroy/reset
-  // of an existing workspace belongs to the explicit Workspace Lifecycle owner.
   void options.reset;
-
   if (workspaceWriteLease === undefined) {
     await bootstrapWorkspaceRoot(workspaceRoot);
     await assertNoActiveWorkspaceWriter(workspaceRoot);
@@ -217,10 +210,7 @@ export async function initWorkspace(
       acceptancePlan: DEFAULT_ACCEPTANCE.map((entry) => entry.id),
       passStatus: { ...PASS_STATUS_PENDING }
     }, commitFence);
-    await writeJson(verificationReportPath, {
-      summary: { status: 'pending' }
-    }, commitFence);
-
+    await writeJson(verificationReportPath, { summary: { status: 'pending' } }, commitFence);
     return { planPath, lockPath };
   });
 }
