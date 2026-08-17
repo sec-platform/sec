@@ -7,6 +7,15 @@ import { materializeExactReleaseGitTreeV1 } from './release-git-tree-source.ts';
 
 const RELEASE_BUILD_META_FILE_NAME = '.sec-release-build-metafile.json' as const;
 
+export interface ReleaseBuilderIdentityV1 {
+  readonly schema: 'sec-release-builder-identity-v1';
+  readonly runtime: 'bun';
+  readonly version: string;
+  readonly executableSha256: `sha256:${string}`;
+  readonly platform: NodeJS.Platform;
+  readonly architecture: string;
+}
+
 export interface FrozenReleaseSourceV1 {
   readonly schema: 'sec-frozen-release-source-v1';
   readonly root: string;
@@ -15,6 +24,7 @@ export interface FrozenReleaseSourceV1 {
   readonly packageVersion: string;
   readonly dependencies: readonly string[];
   readonly dependencyLockDigest: `sha256:${string}`;
+  readonly builder: ReleaseBuilderIdentityV1;
   readonly stageRoot: string;
 }
 
@@ -68,7 +78,63 @@ function commandBytes(
   return result.stdout;
 }
 
-async function readFrozenPackageConfig(sourceRoot: string): Promise<{
+async function observeReleaseBuilderIdentityV1(): Promise<ReleaseBuilderIdentityV1> {
+  const executablePath = await fs.realpath(process.execPath);
+  const before = await fs.lstat(executablePath, { bigint: true });
+  if (!before.isFile() || before.isSymbolicLink()) {
+    throw new Error('Release Bun executable must be one physical ordinary file');
+  }
+  const bytes = await fs.readFile(executablePath);
+  const [after, afterPath] = await Promise.all([
+    fs.lstat(executablePath, { bigint: true }),
+    fs.realpath(process.execPath)
+  ]);
+  if (
+    before.dev !== after.dev ||
+    before.ino !== after.ino ||
+    before.mode !== after.mode ||
+    before.size !== after.size ||
+    before.mtimeNs !== after.mtimeNs ||
+    path.resolve(afterPath) !== path.resolve(executablePath)
+  ) {
+    throw new Error('Release Bun executable changed during identity observation');
+  }
+  return Object.freeze({
+    schema: 'sec-release-builder-identity-v1' as const,
+    runtime: 'bun' as const,
+    version: Bun.version,
+    executableSha256: `sha256:${digest(bytes)}` as `sha256:${string}`,
+    platform: process.platform,
+    architecture: process.arch
+  });
+}
+
+function sameBuilderIdentity(
+  left: ReleaseBuilderIdentityV1,
+  right: ReleaseBuilderIdentityV1
+): boolean {
+  return left.schema === right.schema &&
+    left.runtime === right.runtime &&
+    left.version === right.version &&
+    left.executableSha256 === right.executableSha256 &&
+    left.platform === right.platform &&
+    left.architecture === right.architecture;
+}
+
+async function assertBuilderIdentityUnchanged(
+  expected: ReleaseBuilderIdentityV1,
+  phase: string
+): Promise<void> {
+  const current = await observeReleaseBuilderIdentityV1();
+  if (!sameBuilderIdentity(expected, current)) {
+    throw new Error(`Release Bun builder identity changed ${phase}`);
+  }
+}
+
+async function readFrozenPackageConfig(
+  sourceRoot: string,
+  builder: ReleaseBuilderIdentityV1
+): Promise<{
   version: string;
   dependencies: readonly string[];
   dependencyLockDigest: `sha256:${string}`;
@@ -83,9 +149,9 @@ async function readFrozenPackageConfig(sourceRoot: string): Promise<{
   if (typeof raw.version !== 'string' || raw.version.length === 0) {
     throw new Error('Frozen package.json does not contain a valid version');
   }
-  if (raw.packageManager !== `bun@${Bun.version}`) {
+  if (raw.packageManager !== `bun@${builder.version}`) {
     throw new Error(
-      `Release builder bun@${Bun.version} does not match frozen packageManager ${String(raw.packageManager)}`
+      `Release builder bun@${builder.version} does not match frozen packageManager ${String(raw.packageManager)}`
     );
   }
   return Object.freeze({
@@ -95,7 +161,10 @@ async function readFrozenPackageConfig(sourceRoot: string): Promise<{
   });
 }
 
-async function materializeFrozenDependencies(sourceRoot: string): Promise<void> {
+async function materializeFrozenDependencies(
+  sourceRoot: string,
+  builder: ReleaseBuilderIdentityV1
+): Promise<void> {
   const packagePath = path.join(sourceRoot, 'package.json');
   const lockPath = path.join(sourceRoot, 'bun.lock');
   const [packageBefore, lockBefore] = await Promise.all([
@@ -103,6 +172,7 @@ async function materializeFrozenDependencies(sourceRoot: string): Promise<void> 
     fs.readFile(lockPath)
   ]);
 
+  await assertBuilderIdentityUnchanged(builder, 'before dependency materialization');
   commandBytes(
     sourceRoot,
     process.execPath,
@@ -118,6 +188,7 @@ async function materializeFrozenDependencies(sourceRoot: string): Promise<void> 
     undefined,
     512 * 1024 * 1024
   );
+  await assertBuilderIdentityUnchanged(builder, 'during dependency materialization');
 
   const [packageAfter, lockAfter, nodeModules, nodeModulesReal, sourceReal] = await Promise.all([
     fs.readFile(packagePath),
@@ -187,10 +258,12 @@ function frozenExternalImports(dependencies: readonly string[]): readonly string
 }
 
 export async function prepareFrozenReleaseSourceV1(repositoryRoot: string): Promise<FrozenReleaseSourceV1> {
+  const builder = await observeReleaseBuilderIdentityV1();
   const materialized = await materializeExactReleaseGitTreeV1(repositoryRoot);
   try {
-    const frozenPackage = await readFrozenPackageConfig(materialized.root);
-    await materializeFrozenDependencies(materialized.root);
+    await assertBuilderIdentityUnchanged(builder, 'before frozen package observation');
+    const frozenPackage = await readFrozenPackageConfig(materialized.root, builder);
+    await materializeFrozenDependencies(materialized.root, builder);
     return Object.freeze({
       schema: 'sec-frozen-release-source-v1' as const,
       root: materialized.root,
@@ -199,6 +272,7 @@ export async function prepareFrozenReleaseSourceV1(repositoryRoot: string): Prom
       packageVersion: frozenPackage.version,
       dependencies: frozenPackage.dependencies,
       dependencyLockDigest: frozenPackage.dependencyLockDigest,
+      builder,
       stageRoot: materialized.stageRoot
     });
   } catch (error) {
@@ -225,7 +299,9 @@ export async function buildFrozenReleaseBundleV1(
   for (const external of frozenExternalImports(source.dependencies)) {
     args.push('--external', external);
   }
+  await assertBuilderIdentityUnchanged(source.builder, 'before bundle execution');
   commandBytes(source.root, process.execPath, args, undefined, 512 * 1024 * 1024);
+  await assertBuilderIdentityUnchanged(source.builder, 'during bundle execution');
   await assertFrozenBuildInputs(source.root, metafilePath);
 }
 
