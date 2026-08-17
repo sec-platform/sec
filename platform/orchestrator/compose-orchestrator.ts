@@ -1,5 +1,5 @@
 import { composeProject } from '../compiler/compose/compose-project.ts';
-import { loadWorkspacePlan } from '../compiler/index.ts';
+import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
 import { adaptProject } from '../compiler/synthesize/adapt-project.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { pathExists } from '../shared/fs.ts';
