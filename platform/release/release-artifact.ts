@@ -14,6 +14,7 @@ import {
 
 export const RELEASE_ARTIFACT_MANIFEST_RELATIVE_PATH = 'release-artifact-manifest.json' as const;
 const RELEASE_BUILD_META_FILE_NAME = '.sec-release-build-metafile.json' as const;
+const GIT_LFS_POINTER_PREFIX = Buffer.from('version https://git-lfs.github.com/spec/v1\n', 'utf8');
 
 export interface ReleaseArtifactFileV1 {
   readonly path: string;
@@ -115,6 +116,38 @@ function assertReleaseSourceClean(repositoryRoot: string): void {
   }
 }
 
+function assertReleaseGitTreeOrdinary(repositoryRoot: string): void {
+  const output = commandBytes(
+    repositoryRoot,
+    'git',
+    ['ls-tree', '-r', '-z', '--full-tree', 'HEAD'],
+    undefined,
+    128 * 1024 * 1024
+  );
+  if (output.byteLength === 0) return;
+  if (output[output.byteLength - 1] !== 0) {
+    throw new Error('Release source Git tree did not return NUL-terminated records');
+  }
+  const payload = output.subarray(0, -1).toString('utf8');
+  if (!Buffer.from(`${payload}\0`, 'utf8').equals(output)) {
+    throw new Error('Release source Git tree contains a non-UTF-8 path');
+  }
+  for (const record of payload.split('\0')) {
+    const separator = record.indexOf('\t');
+    const header = separator < 0 ? '' : record.slice(0, separator);
+    const filePath = separator < 0 ? '' : record.slice(separator + 1);
+    const match = /^([0-7]{6}) ([a-z]+) ([0-9a-f]{40,64})$/u.exec(header);
+    if (!match || filePath.length === 0) {
+      throw new Error('Release source Git tree returned an invalid entry');
+    }
+    const mode = match[1]!;
+    const type = match[2]!;
+    if (type !== 'blob' || (mode !== '100644' && mode !== '100755')) {
+      throw new Error(`Release source tree contains unsupported Git entry ${filePath} (${mode} ${type})`);
+    }
+  }
+}
+
 function materializeExactGitTree(repositoryRoot: string, sourceRoot: string): void {
   const archive = commandBytes(
     repositoryRoot,
@@ -130,6 +163,40 @@ function materializeExactGitTree(repositoryRoot: string, sourceRoot: string): vo
     archive,
     512 * 1024 * 1024
   );
+}
+
+async function assertFrozenSourceTree(sourceRoot: string): Promise<void> {
+  async function walk(directory: string, prefix: string): Promise<void> {
+    const entries = await fs.readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
+        throw new Error(`Frozen release source contains a symbolic link: ${relativePath}`);
+      }
+      if (entry.isDirectory()) {
+        await walk(absolutePath, relativePath);
+        continue;
+      }
+      if (!entry.isFile()) {
+        throw new Error(`Frozen release source contains a non-ordinary entry: ${relativePath}`);
+      }
+      const handle = await fs.open(absolutePath, 'r');
+      try {
+        const prefixBytes = Buffer.alloc(GIT_LFS_POINTER_PREFIX.byteLength);
+        const { bytesRead } = await handle.read(prefixBytes, 0, prefixBytes.byteLength, 0);
+        if (
+          bytesRead === GIT_LFS_POINTER_PREFIX.byteLength &&
+          prefixBytes.equals(GIT_LFS_POINTER_PREFIX)
+        ) {
+          throw new Error(`Frozen release source contains a Git LFS pointer: ${relativePath}`);
+        }
+      } finally {
+        await handle.close();
+      }
+    }
+  }
+  await walk(sourceRoot, '');
 }
 
 async function readFrozenPackageConfig(sourceRoot: string): Promise<FrozenPackageConfig> {
@@ -310,6 +377,7 @@ export async function buildReleaseArtifactV1(repositoryRoot: string, destination
   const absoluteRepositoryRoot = path.resolve(repositoryRoot);
   const absoluteDestinationRoot = path.resolve(destinationRoot);
   assertReleaseSourceClean(absoluteRepositoryRoot);
+  assertReleaseGitTreeOrdinary(absoluteRepositoryRoot);
   const sourceCommit = gitText(absoluteRepositoryRoot, ['rev-parse', '--verify', 'HEAD^{commit}']);
   const sourceTree = gitText(absoluteRepositoryRoot, ['rev-parse', '--verify', 'HEAD^{tree}']);
   if (!/^[0-9a-f]{40,64}$/u.test(sourceCommit) || !/^[0-9a-f]{40,64}$/u.test(sourceTree)) throw new Error('Release source Git identity is invalid');
@@ -323,6 +391,7 @@ export async function buildReleaseArtifactV1(repositoryRoot: string, destination
 
   try {
     materializeExactGitTree(absoluteRepositoryRoot, sourceRoot);
+    await assertFrozenSourceTree(sourceRoot);
     const frozenPackage = await readFrozenPackageConfig(sourceRoot);
     await materializeFrozenDependencies(sourceRoot);
     await fs.mkdir(stagedArtifactRoot, { recursive: true });
