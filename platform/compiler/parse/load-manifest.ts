@@ -1,7 +1,9 @@
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import YAML from 'yaml';
 
+import { rawSha256 } from '../../shared/canonical-primitives.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import { isFileNotFoundError, pathExists } from '../../shared/fs.ts';
 import type { ResolvedBlock } from '../../shared/lock-types.ts';
@@ -15,8 +17,8 @@ import {
 } from '../../shared/paths.ts';
 import type { BlockManifest, ManifestEntry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
 import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
-import { readOptionalYaml, readYaml } from '../../shared/yaml.ts';
-import { manifestCache } from './manifest-cache.ts';
+import { readYaml } from '../../shared/yaml.ts';
+import { manifestCache, type ManifestCacheKey } from './manifest-cache.ts';
 import { normalizeAndValidateSemanticManifestFields } from './validate-semantic-manifest.ts';
 
 export interface ResolvedRegistrySource {
@@ -45,8 +47,30 @@ function rootManifestPath(registryRoot: string, blockId: string): string {
   return path.join(registryBlockRoot(registryRoot, blockId), 'block.manifest.yaml');
 }
 
-async function tryReadManifest(manifestPath: string): Promise<BlockManifest | null> {
-  return readOptionalYaml<BlockManifest>(manifestPath);
+interface ManifestSourceBytes {
+  readonly raw: string;
+  readonly digest: `sha256:${string}`;
+}
+
+async function tryReadManifestSource(manifestPath: string): Promise<ManifestSourceBytes | null> {
+  try {
+    const raw = await fs.readFile(manifestPath, 'utf8');
+    return { raw, digest: rawSha256(raw) };
+  } catch (error) {
+    if (isFileNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+function parseManifestSource(source: ManifestSourceBytes): BlockManifest {
+  return YAML.parse(source.raw) as BlockManifest;
+}
+
+function mergedManifestSourceDigest(
+  root: ManifestSourceBytes | null,
+  versioned: ManifestSourceBytes
+): `sha256:${string}` {
+  return rawSha256(`root:${root?.digest ?? 'none'}\nversioned:${versioned.digest}`);
 }
 
 function mergeVersionedManifest(rootManifest: BlockManifest | null, versionedManifest: BlockManifest): BlockManifest {
@@ -73,6 +97,25 @@ export function resolveRegistrySources(
     path: posixPath(source.path),
     root: resolveRegistryRoot(workspaceRoot, source.location, source.path)
   }));
+}
+
+function manifestCacheKey(
+  workspaceRoot: string,
+  registrySource: ResolvedRegistrySource,
+  blockId: string,
+  version: string | undefined,
+  sourceDigest: `sha256:${string}`
+): ManifestCacheKey {
+  return {
+    workspaceRoot,
+    registrySourceId: registrySource.id,
+    registryKind: registrySource.kind,
+    registryLocation: registrySource.location,
+    registryPath: registrySource.path,
+    blockId,
+    ...(version === undefined ? {} : { version }),
+    sourceDigest
+  };
 }
 
 function manifestEntryFromPath(
@@ -104,9 +147,7 @@ export async function resolveManifestResource(
     if (!candidate) {
       throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest resource path "${resourcePath}" escapes its resource root`);
     }
-    if (await pathExists(candidate)) {
-      return { root, path: candidate };
-    }
+    if (await pathExists(candidate)) return { root, path: candidate };
   }
   const root = roots[0] ?? entry.manifestRoot;
   const candidate = resolvePathInside(root, resourcePath);
@@ -151,7 +192,6 @@ export function validateManifest(manifest: BlockManifest): asserts manifest is M
   if (!Array.isArray(manifest.installs) || manifest.installs.length === 0) {
     throw new CompilerError('MANIFEST-SCHEMA-003', `Manifest "${manifest.id}" must declare installs`);
   }
-
   for (const install of manifest.installs) {
     if (!install.kind || !install.from || !install.to) {
       throw new CompilerError('MANIFEST-SCHEMA-005', `Manifest "${manifest.id}" install entries require kind/from/to`);
@@ -160,7 +200,6 @@ export function validateManifest(manifest: BlockManifest): asserts manifest is M
       throw new CompilerError('MANIFEST-SCHEMA-006', `Manifest "${manifest.id}" install paths must stay inside their allowed roots`);
     }
   }
-
   for (const slot of manifest.slots) {
     if (!slot.target || !isSafeRelativePath(slot.target)) {
       throw new CompilerError('MANIFEST-SCHEMA-007', `Manifest "${manifest.id}" slot targets must stay inside the project tree`);
@@ -169,13 +208,9 @@ export function validateManifest(manifest: BlockManifest): asserts manifest is M
       throw new CompilerError('MANIFEST-SCHEMA-008', `Manifest "${manifest.id}" slot writableZones must stay inside the project tree`);
     }
   }
-
   for (const portal of manifest.uiPortals) {
-    if (!portal.id) {
-      throw new CompilerError('MANIFEST-SCHEMA-009', `Manifest "${manifest.id}" UI Portals require an id`);
-    }
+    if (!portal.id) throw new CompilerError('MANIFEST-SCHEMA-009', `Manifest "${manifest.id}" UI Portals require an id`);
   }
-
   for (const hook of manifest.uiHooks) {
     if (!hook.targetPortal || !hook.component || !hook.importFrom) {
       throw new CompilerError('MANIFEST-SCHEMA-010', `Manifest "${manifest.id}" UI Hooks require targetPortal/component/importFrom`);
@@ -185,43 +220,48 @@ export function validateManifest(manifest: BlockManifest): asserts manifest is M
 
 export async function loadManifestById(blockId: string, options: ManifestLoadOptions = {}): Promise<ManifestEntry> {
   const version = options.version;
-  const workspaceRoot = options.workspaceRoot;
-
-  const cached = manifestCache.get({ blockId, version, workspaceRoot });
-  if (cached) {
-    return cached;
-  }
-
-  const registrySources = resolveRegistrySources(options.workspaceRoot, options.registrySources ?? []);
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? process.cwd());
+  const registrySources = resolveRegistrySources(workspaceRoot, options.registrySources ?? []);
 
   for (const registrySource of registrySources) {
     const rootPath = rootManifestPath(registrySource.root, blockId);
+    let rootSource: ManifestSourceBytes | null | undefined;
 
     if (version) {
       const manifestPath = versionedManifestPath(registrySource.root, blockId, version);
-      const versionedManifest = await tryReadManifest(manifestPath);
-      if (versionedManifest) {
-        const rootManifest = await tryReadManifest(rootPath);
+      const versionedSource = await tryReadManifestSource(manifestPath);
+      if (versionedSource) {
+        rootSource = await tryReadManifestSource(rootPath);
+        const sourceDigest = mergedManifestSourceDigest(rootSource, versionedSource);
+        const cacheKey = manifestCacheKey(workspaceRoot, registrySource, blockId, version, sourceDigest);
+        const cached = manifestCache.get(cacheKey);
+        if (cached) return cached;
+
+        const versionedManifest = parseManifestSource(versionedSource);
+        const rootManifest = rootSource ? parseManifestSource(rootSource) : null;
         const manifest = mergeVersionedManifest(rootManifest, versionedManifest);
         validateManifest(manifest);
         if (manifest.version === version) {
           const versionRoot = path.dirname(manifestPath);
-          const resourceRoots = rootManifest
-            ? [versionRoot, path.dirname(rootPath)]
-            : [versionRoot];
+          const resourceRoots = rootManifest ? [versionRoot, path.dirname(rootPath)] : [versionRoot];
           const entry = manifestEntryFromPath(registrySource, manifest, manifestPath, resourceRoots);
-          manifestCache.set({ blockId, version, workspaceRoot }, entry);
+          manifestCache.set(cacheKey, entry);
           return entry;
         }
       }
     }
 
-    const manifest = await tryReadManifest(rootPath);
-    if (!manifest) continue;
+    rootSource ??= await tryReadManifestSource(rootPath);
+    if (!rootSource) continue;
+    const cacheKey = manifestCacheKey(workspaceRoot, registrySource, blockId, version, rootSource.digest);
+    const cached = manifestCache.get(cacheKey);
+    if (cached) return cached;
+
+    const manifest = parseManifestSource(rootSource);
     validateManifest(manifest);
     if (version && manifest.version !== version) continue;
     const entry = manifestEntryFromPath(registrySource, manifest, rootPath);
-    manifestCache.set({ blockId, version, workspaceRoot }, entry);
+    manifestCache.set(cacheKey, entry);
     return entry;
   }
 
@@ -250,8 +290,9 @@ export async function loadManifestForResolvedBlock(
 export async function loadAllManifests(options: ManifestLoadOptions = {}): Promise<ManifestEntry[]> {
   const manifests: ManifestEntry[] = [];
   const seenIds = new Set<string>();
+  const workspaceRoot = path.resolve(options.workspaceRoot ?? process.cwd());
 
-  for (const registrySource of resolveRegistrySources(options.workspaceRoot, options.registrySources ?? [])) {
+  for (const registrySource of resolveRegistrySources(workspaceRoot, options.registrySources ?? [])) {
     let entries: Dirent[] = [];
     try {
       entries = await fs.readdir(registrySource.root, { withFileTypes: true });
@@ -259,7 +300,6 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
       if (isFileNotFoundError(error)) continue;
       throw error;
     }
-
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const manifestPath = path.join(registrySource.root, entry.name, 'block.manifest.yaml');
@@ -270,6 +310,5 @@ export async function loadAllManifests(options: ManifestLoadOptions = {}): Promi
       manifests.push(manifestEntryFromPath(registrySource, manifest, manifestPath));
     }
   }
-
   return manifests;
 }
