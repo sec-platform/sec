@@ -28,13 +28,34 @@ function buildDeploymentIntent(
   });
 }
 
+function assertCanonicalRenderedArtifactRelativePath(relativePath: string): void {
+  const normalized = path.posix.normalize(relativePath);
+  if (
+    relativePath.length === 0 ||
+    relativePath.includes('\\') ||
+    path.posix.isAbsolute(relativePath) ||
+    relativePath === '.' ||
+    relativePath.endsWith('/') ||
+    normalized !== relativePath ||
+    normalized === '..' ||
+    normalized.startsWith('../')
+  ) {
+    throw new CompilerError(
+      'COMPOSE-PATH-003',
+      `Microservice deployment renderer returned a non-canonical artifact path: ${relativePath}`,
+      { artifactPath: relativePath, reason: 'non-canonical-relative-path' }
+    );
+  }
+}
+
 function resolveRenderedArtifactPath(projectRoot: string, artifact: RenderedMicroserviceArtifact): string {
+  assertCanonicalRenderedArtifactRelativePath(artifact.relativePath);
   const target = resolvePathInside(projectRoot, artifact.relativePath);
   if (!target) {
     throw new CompilerError(
       'COMPOSE-PATH-003',
       `Microservice deployment renderer returned an unsafe artifact path: ${artifact.relativePath}`,
-      { artifactPath: artifact.relativePath }
+      { artifactPath: artifact.relativePath, reason: 'project-root-escape' }
     );
   }
   return target;
@@ -42,18 +63,27 @@ function resolveRenderedArtifactPath(projectRoot: string, artifact: RenderedMicr
 
 function assertUniqueRenderedArtifactPaths(
   renderer: MicroserviceDeploymentRenderer,
+  projectRoot: string,
   artifacts: readonly RenderedMicroserviceArtifact[]
 ): void {
-  const seen = new Set<string>();
+  const seenTargets = new Map<string, string>();
   for (const artifact of artifacts) {
-    if (seen.has(artifact.relativePath)) {
+    const target = resolveRenderedArtifactPath(projectRoot, artifact);
+    const previous = seenTargets.get(target);
+    if (previous !== undefined) {
       throw new CompilerError(
         'COMPOSE-PATH-004',
-        `Microservice deployment renderer "${renderer.providerId}" produced duplicate artifact path "${artifact.relativePath}"`,
-        { providerId: renderer.providerId, providerRevision: renderer.revision, artifactPath: artifact.relativePath }
+        `Microservice deployment renderer "${renderer.providerId}" produced colliding artifact paths "${previous}" and "${artifact.relativePath}"`,
+        {
+          providerId: renderer.providerId,
+          providerRevision: renderer.revision,
+          artifactPath: artifact.relativePath,
+          previousArtifactPath: previous,
+          target
+        }
       );
     }
-    seen.add(artifact.relativePath);
+    seenTargets.set(target, artifact.relativePath);
   }
 }
 
@@ -83,8 +113,7 @@ export async function lowerToMicroservicesWithRenderer(
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const intents = lock.resolvedBlocks.map((block) => buildDeploymentIntent(block.id, resilience));
   const artifacts = await renderer.render(intents);
-  assertUniqueRenderedArtifactPaths(renderer, artifacts);
-  for (const artifact of artifacts) resolveRenderedArtifactPath(projectRoot, artifact);
+  assertUniqueRenderedArtifactPaths(renderer, projectRoot, artifacts);
   return publishRenderedArtifacts(projectRoot, artifacts, commitFence);
 }
 
