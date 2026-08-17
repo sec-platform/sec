@@ -406,7 +406,8 @@ export async function runSettlement(
   const fixedDeclarations = new Map<string, GovernedDeclaration>();
   for (const drift of observation.driftEntries) {
     const file = byPath.get(drift.path);
-    if (file === undefined) {
+    const declaration = selection.declarations.get(drift.path);
+    if (file === undefined || declaration === undefined) {
       return makeReceipt({
         repositoryRoot: root,
         status: 'unsafe',
@@ -418,11 +419,11 @@ export async function runSettlement(
         driftEntries: observation.driftEntries,
         untrackedCount: 0,
         dirtyCount: 0,
-        summary: `Settlement fix lost committed identity for ${drift.path}`
+        summary: `Settlement fix lost committed identity or declaration for ${drift.path}`
       });
     }
     fixedFiles.push(file);
-    fixedDeclarations.set(drift.path, drift.declared);
+    fixedDeclarations.set(drift.path, declaration);
   }
 
   let fixedObservation: ReturnType<typeof scanGovernedFiles>;
