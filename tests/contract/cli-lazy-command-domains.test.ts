@@ -30,24 +30,49 @@ test('ordinary engineering scripts import exact orchestrator owners instead of t
   expect(referenceCompile).toContain("from '../platform/orchestrator/pipeline-orchestrator.ts'");
 });
 
-test('CLI lazy command domains load on first use and memoize each runtime module', async () => {
+test('CLI lazy command domains memoize exact leaf owners rather than delayed broad barrels', async () => {
   const source = await readCompilerFile('platform/cli/lazy-command-domains.ts');
 
+  expect(source).not.toContain("import('../compiler/index.ts')");
+  expect(source).not.toContain("import('../orchestrator.ts')");
+  expect(source).toContain('memoizedModule');
+  expect(source).toContain('pending ??= load()');
+  expect(source).toContain('Reflect.apply(fn, undefined, args)');
+
   for (const dynamicImport of [
-    "import('../compiler/index.ts')",
-    "import('../orchestrator.ts')",
-    "import('../../scripts/codex/text-byte-census.ts')",
-    "import('../../scripts/codex/worktree-settlement.ts')"
+    "import('../compiler/emit/ci-artifacts.ts')",
+    "import('../compiler/parse/load-manifest.ts')",
+    "import('../compiler/parse/load-plan.ts')",
+    "import('../orchestrator/block-orchestrator.ts')",
+    "import('../orchestrator/compose-orchestrator.ts')",
+    "import('../orchestrator/emit-orchestrator.ts')",
+    "import('../orchestrator/pipeline-orchestrator.ts')",
+    "import('../orchestrator/repair-orchestrator.ts')",
+    "import('../orchestrator/upgrade-orchestrator.ts')",
+    "import('../orchestrator/verify-orchestrator.ts')",
+    "import('../orchestrator/workbench-orchestrator.ts')",
+    "import('../orchestrator/workbench-server-v2.ts')",
+    "import('../orchestrator/workspace-orchestrator.ts')"
   ]) {
     expect(source).toContain(dynamicImport);
   }
-  for (const promiseOwner of [
-    'compilerModulePromise ??=',
-    'orchestratorModulePromise ??=',
-    'textByteCensusModulePromise ??=',
-    'worktreeSettlementModulePromise ??='
+
+  for (const facadeBinding of [
+    "lazyFunction(loadBlockOrchestrator, 'addBlock')",
+    "lazyFunction(loadBlockOrchestrator, 'resolveWorkspace')",
+    "lazyFunction(loadComposeOrchestrator, 'adaptWorkspace')",
+    "lazyFunction(loadComposeOrchestrator, 'composeWorkspace')",
+    "lazyFunction(loadEmitOrchestrator, 'explainWorkspace')",
+    "lazyFunction(loadPipelineOrchestrator, 'compileWorkspace')",
+    "lazyFunction(loadWorkspaceOrchestrator, 'initWorkspace')"
   ]) {
-    expect(source).toContain(promiseOwner);
+    expect(source).toContain(facadeBinding);
   }
-  expect(source).toContain("lazyFunction(loadOrchestratorDomain, 'compileWorkspace')");
+});
+
+test('Codex tooling paths remain temporary compatibility loaders until #481 consumer cutover', async () => {
+  const source = await readCompilerFile('platform/cli/lazy-command-domains.ts');
+  expect(source).toContain("import('../../scripts/codex/text-byte-census.ts')");
+  expect(source).toContain("import('../../scripts/codex/worktree-settlement.ts')");
+  expect(source).toContain('PR #481');
 });
