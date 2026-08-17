@@ -62,13 +62,13 @@ async function initMinimalBunRepository(repositoryRoot: string): Promise<void> {
   git(repositoryRoot, ['commit', '--quiet', '-m', 'initial']);
 }
 
-test('frozen release source ignores dirty worktree bytes and binds one exact commit/tree', async () => {
+test('frozen release source ignores untracked noise and binds one exact commit/tree', async () => {
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-source-'));
   try {
     await initMinimalBunRepository(repositoryRoot);
     const expectedCommit = git(repositoryRoot, ['rev-parse', 'HEAD']);
     const expectedTree = git(repositoryRoot, ['rev-parse', `${expectedCommit}^{tree}`]);
-    await fs.writeFile(path.join(repositoryRoot, 'tracked.txt'), 'dirty-ambient-worktree\n');
+    await fs.writeFile(path.join(repositoryRoot, 'local-note.txt'), 'untracked-noise\n');
 
     const frozen = await prepareFrozenReleaseSourceV1(repositoryRoot);
     try {
@@ -76,10 +76,25 @@ test('frozen release source ignores dirty worktree bytes and binds one exact com
       expect(frozen.sourceTree).toBe(expectedTree);
       await expect(fs.readFile(path.join(frozen.root, 'tracked.txt'), 'utf8'))
         .resolves.toBe('committed\n');
+      await expect(fs.lstat(path.join(frozen.root, 'local-note.txt')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
       expect(frozen.dependencyLockDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
     } finally {
       await disposeFrozenReleaseSourceV1(frozen);
     }
+  } finally {
+    await rm(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test('tracked worktree or index drift is rejected against the captured source commit', async () => {
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-tracked-drift-'));
+  try {
+    await initMinimalBunRepository(repositoryRoot);
+    await fs.writeFile(path.join(repositoryRoot, 'tracked.txt'), 'dirty-tracked-builder-surface\n');
+
+    await expect(prepareFrozenReleaseSourceV1(repositoryRoot))
+      .rejects.toThrow('Release tracked worktree/index differs from captured source commit');
   } finally {
     await rm(repositoryRoot, { recursive: true, force: true });
   }
@@ -142,6 +157,7 @@ test('release build entrypoint and artifact owner remain thin over frozen source
   expect(artifactOwner).not.toContain('install --frozen-lockfile');
 
   expect(sourceOwner).toContain("['rev-parse', '--verify', 'HEAD^{commit}']");
+  expect(sourceOwner).toContain("['diff', '--quiet', sourceCommit, '--']");
   expect(sourceOwner).toContain('`${sourceCommit}^{tree}`');
   expect(sourceOwner).toContain("['ls-tree', '-r', '-z', '--full-tree', sourceCommit]");
   expect(sourceOwner).toContain("['archive', '--format=tar', sourceCommit]");
