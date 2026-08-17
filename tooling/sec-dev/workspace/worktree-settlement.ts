@@ -1,5 +1,4 @@
-import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -7,117 +6,85 @@ import {
   detectLineEnding,
   differsOnlyInLineEnding,
   type WorktreeMaterializationEntry,
-  type WorktreeSettlementReceipt,
-  type WorktreeSettlementStatus
+  type WorktreeSettlementReceipt
 } from '../../../platform/shared/worktree-settlement-contract.ts';
-import { GOVERNED_TEXT_EXTENSIONS } from '../../../platform/shared/text-byte-census-contract.ts';
+import {
+  gitReadBytes,
+  gitReadText,
+  parseNulUtf8,
+  readBlobBatch,
+  readCommitBlobInventory,
+  readOptionalGitConfig,
+  readTextAttributesBatch,
+  resolveExactHeadCommit
+} from '../git/git-read.ts';
 
 const DEFAULT_REPOSITORY_ROOT = process.cwd();
 
-type GitCommandResult = { status: number | null; stdout: Buffer; stderr: Buffer };
-
-function runGit(repositoryRoot: string, args: readonly string[], maxBuffer: number): GitCommandResult {
-  const result = spawnSync('git', [...args], {
-    cwd: repositoryRoot,
-    encoding: 'buffer',
-    maxBuffer,
-    windowsHide: true
-  });
-  return {
-    status: result.status,
-    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? '')),
-    stderr: Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(String(result.stderr ?? ''))
-  };
+interface PorcelainStatus {
+  readonly dirty: number;
+  readonly untracked: number;
 }
 
-function executeGit(repositoryRoot: string, args: readonly string[], maxBuffer: number, label: string): Buffer {
-  const result = runGit(repositoryRoot, args, maxBuffer);
-  if (result.status !== 0) {
-    const stderr = result.stderr.toString('utf8').trim();
-    throw new Error(label + (stderr ? ': ' + stderr : '.'));
-  }
-  return result.stdout;
-}
-
-function getGitVersion(repositoryRoot: string): string {
-  const result = runGit(repositoryRoot, ['--version'], 1024);
-  return result.stdout.toString('utf8').trim();
-}
-
-function getConfig(repositoryRoot: string, key: string): string {
-  const result = runGit(repositoryRoot, ['config', '--get', key], 1024);
-  if (result.status !== 0 || result.stdout.length === 0) return '<unset>';
-  return result.stdout.toString('utf8').trim();
-}
-
-function getPorcelainStatus(repositoryRoot: string): { dirty: number; untracked: number; lines: string[] } {
-  const stdout = executeGit(repositoryRoot, ['status', '--porcelain', '-z'], 16 * 1024 * 1024, 'git status failed');
-  if (stdout.length === 0) return { dirty: 0, untracked: 0, lines: [] };
-  const entries = stdout.toString('binary').split('\0').filter((candidate) => candidate.length > 0);
+function getPorcelainStatus(repositoryRoot: string): PorcelainStatus {
+  const fields = parseNulUtf8(
+    gitReadBytes(
+      repositoryRoot,
+      ['status', '--porcelain=v1', '--untracked-files=all', '-z'],
+      { maxBuffer: 32 * 1024 * 1024, label: 'git status' }
+    ),
+    'git status'
+  );
   let dirty = 0;
   let untracked = 0;
-  for (const entry of entries) {
-    if (entry.charAt(0) === '?') untracked += 1;
+  for (let index = 0; index < fields.length;) {
+    const entry = fields[index++];
+    if (entry === undefined || entry.length < 3 || entry[2] !== ' ') {
+      throw new Error('git status returned an invalid porcelain record');
+    }
+    const x = entry[0]!;
+    const y = entry[1]!;
+    if (x === '?' && y === '?') untracked += 1;
     else dirty += 1;
-  }
-  return { dirty, untracked, lines: entries };
-}
-
-function listTrackedFiles(repositoryRoot: string): string[] {
-  const stdout = executeGit(repositoryRoot, ['ls-files', '-z'], 16 * 1024 * 1024, 'git ls-files failed');
-  if (stdout.length === 0) return [];
-  return stdout.toString('binary').split('\0').filter((candidate) => candidate.length > 0);
-}
-
-function getBlobSha(repositoryRoot: string, filePath: string): string | null {
-  const result = runGit(repositoryRoot, ['ls-tree', 'HEAD', '--', filePath], 1024 * 1024);
-  if (result.status !== 0 || result.stdout.length === 0) return null;
-  const line = result.stdout.toString('utf8').trim();
-  const match = /^([0-7]{6}) ([a-z]+) ([0-9a-f]{40})\t/u.exec(line);
-  if (!match || match[2] !== 'blob') return null;
-  return match[3]!;
-}
-
-function readBlobBytes(repositoryRoot: string, blobSha: string): Buffer {
-  return executeGit(repositoryRoot, ['cat-file', 'blob', blobSha], 64 * 1024 * 1024, 'git cat-file blob failed');
-}
-
-function checkAttributes(repositoryRoot: string, filePath: string): {
-  textAttr: 'set' | 'unset' | 'unspecified';
-  eolAttr: 'lf' | 'crlf' | 'unspecified';
-} {
-  const result = runGit(repositoryRoot, ['check-attr', '-a', '--', filePath], 64 * 1024);
-  if (result.status !== 0) return { textAttr: 'unspecified', eolAttr: 'unspecified' };
-  const lines = result.stdout.toString('utf8').split('\n');
-  let textAttr: 'set' | 'unset' | 'unspecified' = 'unspecified';
-  let eolAttr: 'lf' | 'crlf' | 'unspecified' = 'unspecified';
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    const lastColon = trimmed.lastIndexOf(':');
-    if (lastColon <= 0) continue;
-    const value = trimmed.slice(lastColon + 1).trim();
-    const beforeValue = trimmed.slice(0, lastColon).trim();
-    const secondLastColon = beforeValue.lastIndexOf(':');
-    if (secondLastColon <= 0) continue;
-    const attr = beforeValue.slice(secondLastColon + 1).trim();
-    if (attr === 'text') {
-      if (value === 'set') textAttr = 'set';
-      else if (value === 'unset') textAttr = 'unset';
-    } else if (attr === 'eol') {
-      if (value === 'lf') eolAttr = 'lf';
-      else if (value === 'crlf') eolAttr = 'crlf';
+    if (x === 'R' || x === 'C' || y === 'R' || y === 'C') {
+      if (index >= fields.length) {
+        throw new Error('git status returned an incomplete rename/copy record');
+      }
+      index += 1;
     }
   }
-  return { textAttr, eolAttr };
+  return Object.freeze({ dirty, untracked });
 }
 
-function readWorktreeBytes(repositoryRoot: string, filePath: string): Buffer | null {
+function declaredLineEnding(input: {
+  textAttr: 'set' | 'unset' | 'unspecified';
+  eolAttr: 'lf' | 'crlf' | 'unspecified';
+}): WorktreeMaterializationEntry['declared'] {
+  if (input.textAttr === 'unset') return 'binary';
+  if (input.textAttr === 'set' && input.eolAttr === 'lf') return 'lf';
+  if (input.textAttr === 'set' && input.eolAttr === 'crlf') return 'crlf';
+  return 'unspecified';
+}
+
+async function repositoryStillMatchesObservation(
+  repositoryRoot: string,
+  sourceCommit: string
+): Promise<boolean> {
   try {
-    return readFileSync(path.join(repositoryRoot, ...filePath.split('/')));
+    if (resolveExactHeadCommit(repositoryRoot) !== sourceCommit) return false;
+    const status = getPorcelainStatus(repositoryRoot);
+    return status.dirty === 0 && status.untracked === 0;
   } catch {
-    return null;
+    return false;
   }
+}
+
+function makeReceipt(input: Omit<WorktreeSettlementReceipt, 'schema' | 'generatedAt'>): WorktreeSettlementReceipt {
+  return {
+    schema: WORKTREE_SETTLEMENT_SCHEMA_V1,
+    generatedAt: new Date().toISOString(),
+    ...input
+  };
 }
 
 export function formatWorktreeSettlementReceipt(receipt: WorktreeSettlementReceipt): string {
@@ -157,100 +124,256 @@ export async function runSettlement(
   options: { fix?: boolean } = {}
 ): Promise<WorktreeSettlementReceipt> {
   const root = path.resolve(repositoryRoot);
-  const gitVersion = getGitVersion(root);
-  const coreAutocrlf = getConfig(root, 'core.autocrlf');
-  const coreEol = getConfig(root, 'core.eol');
-  const gitattributesBlobSha = getBlobSha(root, '.gitattributes');
-  const files = listTrackedFiles(root);
-  const porcelain = getPorcelainStatus(root);
+  const gitVersion = gitReadText(root, ['--version'], { maxBuffer: 1024, label: 'git --version' }).trim();
+  const coreAutocrlf = readOptionalGitConfig(root, 'core.autocrlf');
+  const coreEol = readOptionalGitConfig(root, 'core.eol');
+  const initialStatus = getPorcelainStatus(root);
 
-  let status: WorktreeSettlementStatus;
+  let sourceCommit: string;
+  let files: ReturnType<typeof readCommitBlobInventory>;
+  try {
+    sourceCommit = resolveExactHeadCommit(root);
+    files = readCommitBlobInventory(root, sourceCommit);
+  } catch (error) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'unsafe',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha: null,
+      totalFiles: 0,
+      driftEntries: [],
+      untrackedCount: initialStatus.untracked,
+      dirtyCount: initialStatus.dirty,
+      summary: `Settlement observation could not bind one exact HEAD tree: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+
+  const gitattributesBlobSha = files.find((entry) => entry.path === '.gitattributes')?.objectId ?? null;
+  if (initialStatus.dirty > 0) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'dirty',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries: [],
+      untrackedCount: initialStatus.untracked,
+      dirtyCount: initialStatus.dirty,
+      summary: `Working tree has ${initialStatus.dirty} dirty file(s); settlement blocked. Commit or stash before settling.`
+    });
+  }
+  if (initialStatus.untracked > 0) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'untracked',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries: [],
+      untrackedCount: initialStatus.untracked,
+      dirtyCount: initialStatus.dirty,
+      summary: `Working tree has ${initialStatus.untracked} untracked file(s); settlement blocked. Track or remove before settling.`
+    });
+  }
+
+  const paths = files.map((entry) => entry.path);
+  const objectIds = [...new Set(files.map((entry) => entry.objectId))];
+  let blobs: ReadonlyMap<string, Buffer>;
+  let attributes: ReturnType<typeof readTextAttributesBatch>;
+  try {
+    blobs = readBlobBatch(root, objectIds);
+    attributes = readTextAttributesBatch(root, sourceCommit, paths);
+  } catch (error) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'unsafe',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries: [],
+      untrackedCount: 0,
+      dirtyCount: 0,
+      summary: `Settlement Git observation failed closed: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+
+  let scanned = 0;
   const driftEntries: WorktreeMaterializationEntry[] = [];
-  let summary: string;
-
-  if (porcelain.dirty > 0) {
-    status = 'dirty';
-    summary = 'Working tree has ' + porcelain.dirty + ' dirty file(s); settlement blocked. Commit or stash before settling.';
-  } else if (porcelain.untracked > 0) {
-    status = 'untracked';
-    summary = 'Working tree has ' + porcelain.untracked + ' untracked file(s); settlement blocked. Track or remove before settling.';
-  } else {
-    let scanned = 0;
-    for (const filePath of files) {
-      const { textAttr, eolAttr } = checkAttributes(root, filePath);
-      const declared: 'lf' | 'crlf' | 'binary' | 'unspecified' =
-        textAttr === 'unset' ? 'binary' :
-        textAttr === 'set' && eolAttr === 'lf' ? 'lf' :
-        textAttr === 'set' && eolAttr === 'crlf' ? 'crlf' :
-        'unspecified';
+  try {
+    for (const file of files) {
+      const attrs = attributes.get(file.path);
+      const blobBytes = blobs.get(file.objectId);
+      if (attrs === undefined || blobBytes === undefined) {
+        throw new Error(`Settlement observation is incomplete for ${file.path}`);
+      }
+      const declared = declaredLineEnding(attrs);
       if (declared !== 'lf' && declared !== 'crlf') continue;
 
-      const blobSha = getBlobSha(root, filePath);
-      if (blobSha === null) continue;
-      const blobBytes = readBlobBytes(root, blobSha);
-      const worktreeBytes = readWorktreeBytes(root, filePath);
-      if (worktreeBytes === null) continue;
+      const worktreeBytes = await fs.readFile(path.join(root, ...file.path.split('/')));
       scanned += 1;
-
       const blobLineEnding = detectLineEnding(new Uint8Array(blobBytes));
       const worktreeLineEnding = detectLineEnding(new Uint8Array(worktreeBytes));
-      const lineEndingOnlyDifference = differsOnlyInLineEnding(new Uint8Array(blobBytes), new Uint8Array(worktreeBytes));
       if (worktreeLineEnding !== blobLineEnding && (blobLineEnding === 'lf' || blobLineEnding === 'crlf')) {
         driftEntries.push({
-          path: filePath,
+          path: file.path,
           declared,
           blobLineEnding,
           worktreeLineEnding,
-          lineEndingOnlyDifference
+          lineEndingOnlyDifference: differsOnlyInLineEnding(
+            new Uint8Array(blobBytes),
+            new Uint8Array(worktreeBytes)
+          )
         });
       }
     }
-
-    if (driftEntries.length > 0) {
-      status = 'materialization-drift';
-      summary = 'Clean working tree but ' + driftEntries.length + ' file(s) materialize non-canonical bytes. Run with --fix to re-checkout governed text.';
-      if (options.fix) {
-        const driftPaths = driftEntries.map((entry) => entry.path);
-        executeGit(root, ['checkout', '--', ...driftPaths], 16 * 1024 * 1024, 'git checkout --fix failed');
-        const fixedDrift: WorktreeMaterializationEntry[] = [];
-        for (const entry of driftEntries) {
-          const worktreeBytes = readWorktreeBytes(root, entry.path);
-          if (worktreeBytes === null) continue;
-          const newWorktreeLineEnding = detectLineEnding(new Uint8Array(worktreeBytes));
-          if (newWorktreeLineEnding !== entry.blobLineEnding) {
-            fixedDrift.push({ ...entry, worktreeLineEnding: newWorktreeLineEnding });
-          }
-        }
-        if (fixedDrift.length === 0) {
-          status = 'settled';
-          summary = 'Settled after --fix: ' + driftEntries.length + ' file(s) re-materialized to canonical bytes.';
-          driftEntries.length = 0;
-        } else {
-          driftEntries.length = 0;
-          driftEntries.push(...fixedDrift);
-          status = 'unsafe';
-          summary = 'After --fix, ' + fixedDrift.length + ' file(s) still drift; manual investigation required.';
-        }
-      }
-    } else {
-      status = 'settled';
-      summary = 'Worktree settled: clean, ' + scanned + ' governed text file(s) materialize canonical bytes.';
-    }
+  } catch (error) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'unsafe',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries,
+      untrackedCount: 0,
+      dirtyCount: 0,
+      summary: `Settlement physical observation failed closed: ${error instanceof Error ? error.message : String(error)}`
+    });
   }
 
-  return {
-    schema: WORKTREE_SETTLEMENT_SCHEMA_V1,
-    generatedAt: new Date().toISOString(),
+  if (!(await repositoryStillMatchesObservation(root, sourceCommit))) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'unsafe',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries,
+      untrackedCount: 0,
+      dirtyCount: 0,
+      summary: 'Repository HEAD/index/worktree changed during settlement observation; retry from a stable state.'
+    });
+  }
+
+  if (driftEntries.length === 0) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'settled',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries: [],
+      untrackedCount: 0,
+      dirtyCount: 0,
+      summary: `Worktree settled: clean, ${scanned} governed text file(s) materialize canonical bytes.`
+    });
+  }
+
+  if (!options.fix) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'materialization-drift',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries,
+      untrackedCount: 0,
+      dirtyCount: 0,
+      summary: `Clean working tree but ${driftEntries.length} file(s) materialize non-canonical bytes. Run with --fix to re-checkout governed text.`
+    });
+  }
+
+  try {
+    gitReadBytes(
+      root,
+      ['checkout', '--', ...driftEntries.map((entry) => entry.path)],
+      { maxBuffer: 32 * 1024 * 1024, label: 'git checkout --fix' }
+    );
+  } catch (error) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'unsafe',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries,
+      untrackedCount: 0,
+      dirtyCount: 0,
+      summary: `Settlement fix could not re-materialize governed files: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+
+  const fixedDrift: WorktreeMaterializationEntry[] = [];
+  try {
+    for (const entry of driftEntries) {
+      const worktreeBytes = await fs.readFile(path.join(root, ...entry.path.split('/')));
+      const newWorktreeLineEnding = detectLineEnding(new Uint8Array(worktreeBytes));
+      if (newWorktreeLineEnding !== entry.blobLineEnding) {
+        fixedDrift.push({ ...entry, worktreeLineEnding: newWorktreeLineEnding });
+      }
+    }
+  } catch (error) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'unsafe',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries,
+      untrackedCount: 0,
+      dirtyCount: 0,
+      summary: `Settlement fix readback failed closed: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+
+  if (!(await repositoryStillMatchesObservation(root, sourceCommit))) {
+    return makeReceipt({
+      repositoryRoot: root,
+      status: 'unsafe',
+      gitVersion,
+      coreAutocrlf,
+      coreEol,
+      gitattributesBlobSha,
+      totalFiles: files.length,
+      driftEntries: fixedDrift,
+      untrackedCount: 0,
+      dirtyCount: 0,
+      summary: 'Repository HEAD/index/worktree changed during settlement fix/readback; retry from a stable state.'
+    });
+  }
+
+  return makeReceipt({
     repositoryRoot: root,
-    status,
+    status: fixedDrift.length === 0 ? 'settled' : 'unsafe',
     gitVersion,
     coreAutocrlf,
     coreEol,
     gitattributesBlobSha,
     totalFiles: files.length,
-    driftEntries,
-    untrackedCount: porcelain.untracked,
-    dirtyCount: porcelain.dirty,
-    summary
-  };
+    driftEntries: fixedDrift,
+    untrackedCount: 0,
+    dirtyCount: 0,
+    summary: fixedDrift.length === 0
+      ? `Settled after --fix: ${driftEntries.length} file(s) re-materialized to canonical bytes.`
+      : `After --fix, ${fixedDrift.length} file(s) still drift; manual investigation required.`
+  });
 }
