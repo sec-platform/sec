@@ -1,3 +1,7 @@
+import {
+  isCanonicalBlockId,
+  isCanonicalRegistryVersion
+} from '../../shared/block-identity.ts';
 import { SUPPORTED_STACK } from '../../shared/constants.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import {
@@ -88,10 +92,38 @@ export function validatePlan(plan: PlanFile): void {
     );
   }
 
+  if (!['pnpm', 'npm', 'yarn'].includes(plan.app.packageManager)) {
+    throw new CompilerError(
+      'PLAN-VALIDATION-015',
+      `Unsupported packageManager "${String(plan.app.packageManager)}"`
+    );
+  }
+  if (plan.app.mode !== 'single-tenant' && plan.app.mode !== 'multi-tenant') {
+    throw new CompilerError(
+      'PLAN-VALIDATION-016',
+      `Unsupported app mode "${String(plan.app.mode)}"`
+    );
+  }
+
+  if (!Array.isArray(plan.registry?.sources)) {
+    throw new CompilerError('PLAN-VALIDATION-009', 'registry.sources must be an array');
+  }
   const registryIds = new Set<string>();
   for (const source of plan.registry.sources) {
-    if (!source.id || !source.kind || !source.location || !source.path) {
+    if (!source || typeof source !== 'object' || !source.id || !source.kind || !source.location || !source.path) {
       throw new CompilerError('PLAN-VALIDATION-009', 'Every registry source requires id/kind/location/path');
+    }
+    if (source.kind !== 'official' && source.kind !== 'private' && source.kind !== 'community') {
+      throw new CompilerError(
+        'PLAN-VALIDATION-017',
+        `Registry source "${source.id}" has unsupported kind "${String(source.kind)}"`
+      );
+    }
+    if (source.location !== 'compiler' && source.location !== 'workspace') {
+      throw new CompilerError(
+        'PLAN-VALIDATION-018',
+        `Registry source "${source.id}" has unsupported location "${String(source.location)}"`
+      );
     }
     if (registryIds.has(source.id)) {
       throw new CompilerError('PLAN-VALIDATION-010', `Duplicate registry source id "${source.id}"`);
@@ -111,10 +143,22 @@ export function validatePlan(plan: PlanFile): void {
     registryIds.add(source.id);
   }
 
+  if (!Array.isArray(plan.blocks)) {
+    throw new CompilerError('PLAN-VALIDATION-004', 'blocks must be an array');
+  }
   const blockIds = new Set<string>();
   for (const block of plan.blocks) {
-    if (!block?.id) {
-      throw new CompilerError('PLAN-VALIDATION-004', 'Every block entry requires id');
+    if (!block || typeof block !== 'object' || !isCanonicalBlockId(block.id)) {
+      throw new CompilerError(
+        'PLAN-VALIDATION-004',
+        `Every block entry requires one canonical lowercase namespace/name id; received "${String(block?.id)}"`
+      );
+    }
+    if (block.version !== undefined && !isCanonicalRegistryVersion(block.version)) {
+      throw new CompilerError(
+        'PLAN-VALIDATION-019',
+        `Block "${block.id}" has non-canonical version "${String(block.version)}"`
+      );
     }
     if (blockIds.has(block.id)) {
       throw new CompilerError('PLAN-VALIDATION-005', `Duplicate block id "${block.id}"`);
@@ -122,10 +166,25 @@ export function validatePlan(plan: PlanFile): void {
     blockIds.add(block.id);
   }
 
+  if (!Array.isArray(plan.slots)) {
+    throw new CompilerError('PLAN-VALIDATION-006', 'slots must be an array');
+  }
   const slotIds = new Set<string>();
   for (const slot of plan.slots) {
-    if (!slot?.id || !slot?.block || !slot?.kind || !slot?.target || !slot?.symbol) {
+    if (!slot || typeof slot !== 'object' || !slot.id || !slot.block || !slot.kind || !slot.target || !slot.symbol) {
       throw new CompilerError('PLAN-VALIDATION-006', `Slot "${slot?.id ?? '<unknown>'}" is incomplete`);
+    }
+    if (!isCanonicalBlockId(slot.block)) {
+      throw new CompilerError(
+        'PLAN-VALIDATION-006',
+        `Slot "${slot.id}" references a non-canonical block id "${String(slot.block)}"`
+      );
+    }
+    if (slot.kind !== 'adapter' && slot.kind !== 'policy' && slot.kind !== 'ux' && slot.kind !== 'repair') {
+      throw new CompilerError(
+        'PLAN-VALIDATION-020',
+        `Slot "${slot.id}" has unsupported kind "${String(slot.kind)}"`
+      );
     }
     if (slotIds.has(slot.id)) {
       throw new CompilerError('PLAN-VALIDATION-007', `Duplicate slot id "${slot.id}"`);
@@ -144,6 +203,10 @@ export function validatePlan(plan: PlanFile): void {
       throw new CompilerError('PLAN-VALIDATION-013', `Slot "${slot.id}" sourcePath must target source/code/slots/`);
     }
     slotIds.add(slot.id);
+  }
+
+  if (!Array.isArray(plan.acceptance)) {
+    throw new CompilerError('PLAN-VALIDATION-021', 'acceptance must be an array');
   }
 }
 
