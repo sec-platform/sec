@@ -53,6 +53,9 @@ test('release build entrypoint no longer owns live dist mutation or bundling', a
   expect(entrypoint).not.toContain('cpSync');
   expect(entrypoint).not.toContain('chmodSync');
 
+  expect(owner).toContain("['ls-tree', '-r', '-z', '--full-tree', 'HEAD']");
+  expect(owner).toContain('Release source tree contains unsupported Git entry');
+  expect(owner).toContain('Frozen release source contains a Git LFS pointer');
   expect(owner).toContain("['archive', '--format=tar', 'HEAD']");
   expect(owner).toContain('.sec-release-artifact-stage-');
   expect(owner).toContain('sec-release-source-');
