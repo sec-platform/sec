@@ -1,13 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { resolveWorkspace } from '../platform/orchestrator/block-orchestrator.ts';
 import {
   adaptWorkspace,
-  composeWorkspace,
-  initWorkspace,
-  resolveWorkspace,
-  verifyWorkspace
-} from '../platform/orchestrator.ts';
+  composeWorkspace
+} from '../platform/orchestrator/compose-orchestrator.ts';
+import { verifyWorkspace } from '../platform/orchestrator/verify-orchestrator.ts';
+import { initWorkspace } from '../platform/orchestrator/workspace-orchestrator.ts';
 import { compilerRoot } from '../platform/shared/paths.ts';
 
 async function createCiWorkspaceFastRoot(): Promise<string> {
