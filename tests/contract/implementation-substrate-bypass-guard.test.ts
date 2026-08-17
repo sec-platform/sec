@@ -14,7 +14,7 @@ const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 async function fixture() {
   const [registrySource, packageJsonSource] = await Promise.all([
     readFile(
-      path.join(REPOSITORY_ROOT, 'docs/governance/implementation-substrate-resolution.yaml'),
+      path.join(REPOSITORY_ROOT, 'tooling/sec-dev/governance/implementation-substrate-resolution.yaml'),
       'utf8'
     ),
     readFile(path.join(REPOSITORY_ROOT, 'package.json'), 'utf8')
