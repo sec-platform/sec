@@ -1,5 +1,4 @@
 import { serve } from 'bun';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { loadAllManifests } from '../compiler/parse/load-manifest.ts';
@@ -9,9 +8,7 @@ import {
   bootstrapAuthorizedSlotSource,
   readAuthorizedSlotSource
 } from '../compiler/workbench/bootstrap-slot-source.ts';
-import { compareCodeUnits } from '../shared/canonical-primitives.ts';
 import { CompilerError } from '../shared/errors.ts';
-import { isFileNotFoundError } from '../shared/fs.ts';
 import { defaultLogger } from '../shared/logger.ts';
 import {
   controlWorkbenchViewsRelativePath,
@@ -262,49 +259,13 @@ async function handleMutations(context: RouteContext): Promise<Response> {
   });
 }
 
-async function findBlockTest(workspaceRoot: string, blockId: string): Promise<string | null> {
-  const normalizedId = blockId.replace(/[\/\-_]/g, '').toLowerCase();
-  const testsDir = path.join(workspaceRoot, 'tests');
-  const matchedFiles: string[] = [];
-
-  const searchDirectory = async (directory: string): Promise<void> => {
-    const entries = (await fs.readdir(directory, { withFileTypes: true }))
-      .sort((left, right) => compareCodeUnits(left.name, right.name));
-    for (const entry of entries) {
-      const fullPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await searchDirectory(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith('.test.ts')) {
-        const name = entry.name.toLowerCase();
-        if (name.includes(normalizedId) || normalizedId.includes(name.replace('.test.ts', ''))) {
-          matchedFiles.push(fullPath);
-        }
-      }
-    }
-  };
-
-  try {
-    await searchDirectory(testsDir);
-  } catch (error) {
-    if (isFileNotFoundError(error)) return null;
-    throw error;
-  }
-  return matchedFiles.length === 1 ? matchedFiles[0]! : null;
-}
-
 async function commandForNode(context: RouteContext, body: RunNodeBody, log: (message: string) => void): Promise<string[] | null> {
   if (body.type === 'slot') {
     const source = await readAuthorizedSlotSource(context.workspaceRoot, body.id);
     if (source === null) return null;
     log(`   Found authorized slot implementation: ${source.path}.`);
-    return ['bun', 'test', 'tests/unit/validate-slot-security.test.ts'];
-  }
-
-  const matchedFile = await findBlockTest(context.workspaceRoot, body.id);
-  if (matchedFile) {
-    const relativePath = path.relative(context.workspaceRoot, matchedFile);
-    log(`   Matched test suite: ${relativePath}`);
-    return ['bun', 'test', relativePath];
+  } else {
+    log(`   Block-specific Test Impact is not yet bound to Workbench; using canonical fast verification for ${body.id}.`);
   }
   return ['bun', 'run', 'sec', 'verify', '--lane', 'fast'];
 }
