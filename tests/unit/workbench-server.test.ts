@@ -103,7 +103,7 @@ test('workbench server serves same-origin APIs and bounds source writes to curre
       const mockMutations = {
         formatVersion: '1',
         mutations: [
-          { id: 'mut-1', kind: 'add-block', blockId: 'test-block', version: '1.0.0' }
+          { id: 'mut-1', kind: 'add-block', blockId: 'test/block', version: '1.0.0' }
         ]
       };
       const resMutations = await fetch(`${base}/api/mutations`, {
@@ -116,7 +116,7 @@ test('workbench server serves same-origin APIs and bounds source writes to curre
 
       const mutationsPath = path.join(workspaceRoot, 'source/views/mutations/graph-action.json');
       const written = JSON.parse(await fs.readFile(mutationsPath, 'utf8'));
-      expect(written.mutations[0].blockId).toBe('test-block');
+      expect(written.mutations[0].blockId).toBe('test/block');
 
       const crossOriginMutation = await fetch(`${base}/api/mutations`, {
         method: 'POST',
