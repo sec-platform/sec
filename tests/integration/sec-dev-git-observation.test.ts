@@ -103,3 +103,26 @@ test('worktree settlement distinguishes settled, dirty, and untracked without fa
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('tracked governed symlink cannot be followed and reported as settled', async () => {
+  if (process.platform === 'win32') return;
+
+  const root = await mkdtemp(path.join(tmpdir(), 'sec-dev-settlement-link-'));
+  try {
+    git(root, ['init', '--quiet']);
+    git(root, ['config', 'user.email', 'tests@example.com']);
+    git(root, ['config', 'user.name', 'SEC Tests']);
+    git(root, ['config', 'core.autocrlf', 'false']);
+    await fs.writeFile(path.join(root, '.gitattributes'), '*.ts text eol=lf\n');
+    await fs.writeFile(path.join(root, 'target.ts'), 'export const external = true;\n');
+    await fs.symlink('target.ts', path.join(root, 'linked.ts'));
+    git(root, ['add', '--all']);
+    git(root, ['commit', '--quiet', '-m', 'tracked-link']);
+
+    const receipt = await runSettlement(root);
+    expect(receipt.status).toBe('unsafe');
+    expect(receipt.summary).toContain('Settlement physical observation failed closed');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
