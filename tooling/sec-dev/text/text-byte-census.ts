@@ -10,13 +10,16 @@ import {
   type TextByteClassification
 } from '../../../platform/shared/text-byte-census-contract.ts';
 import {
-  readBlobBatch,
+  chunkBlobEntries,
+  readBlobEntryBatch,
   readCommitBlobInventory,
-  readTextAttributesBatch,
-  resolveExactHeadCommit
+  resolveExactHeadCommit,
+  withIsolatedTextAttributeReader
 } from '../git/git-read.ts';
 
 const DEFAULT_REPOSITORY_ROOT = process.cwd();
+const CENSUS_BLOB_BATCH_MAX_BYTES = 64 * 1024 * 1024;
+const CENSUS_BLOB_BATCH_MAX_ITEMS = 1024;
 
 function compareCodeUnits(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -78,43 +81,46 @@ export async function runCensus(repositoryRoot = DEFAULT_REPOSITORY_ROOT): Promi
   const root = path.resolve(repositoryRoot);
   const sourceCommit = resolveExactHeadCommit(root);
   const files = readCommitBlobInventory(root, sourceCommit);
-  const paths = files.map((entry) => entry.path);
-  const objectIds = [...new Set(files.map((entry) => entry.objectId))];
-  const [blobs, attributes] = [
-    readBlobBatch(root, objectIds),
-    readTextAttributesBatch(root, sourceCommit, paths)
-  ];
   const gitattributesBlobSha = files.find((entry) => entry.path === '.gitattributes')?.objectId ?? null;
   const base = createEmptyCensusReport();
   const flaggedEntries: TextByteCensusEntry[] = [];
 
-  for (const file of files) {
-    const bytes = blobs.get(file.objectId);
-    const attrs = attributes.get(file.path);
-    if (bytes === undefined) {
-      throw new Error(`Text byte census did not receive blob bytes for ${file.path}`);
+  withIsolatedTextAttributeReader(root, sourceCommit, (readAttributes) => {
+    for (const batch of chunkBlobEntries(files, {
+      maxBytes: CENSUS_BLOB_BATCH_MAX_BYTES,
+      maxItems: CENSUS_BLOB_BATCH_MAX_ITEMS
+    })) {
+      const blobs = readBlobEntryBatch(root, batch);
+      const attributes = readAttributes(batch.map((entry) => entry.path));
+      for (const file of batch) {
+        const bytes = blobs.get(file.objectId);
+        const attrs = attributes.get(file.path);
+        if (bytes === undefined) {
+          throw new Error(`Text byte census did not receive blob bytes for ${file.path}`);
+        }
+        if (attrs === undefined) {
+          throw new Error(`Text byte census did not receive attributes for ${file.path}`);
+        }
+        const { classification, lineEnding, anomalies } = classifyBlobBytes({
+          path: file.path,
+          bytes: new Uint8Array(bytes),
+          textAttr: attrs.textAttr,
+          eolAttr: attrs.eolAttr
+        });
+        const entry: TextByteCensusEntry = {
+          path: file.path,
+          classification,
+          byteSize: bytes.byteLength,
+          blobSha: file.objectId,
+          lineEnding,
+          anomalies
+        };
+        base.classificationCounts[classification] += 1;
+        for (const anomaly of anomalies) base.anomalyCounts[anomaly] += 1;
+        if (anomalies.length > 0 || classification === 'unknown') flaggedEntries.push(entry);
+      }
     }
-    if (attrs === undefined) {
-      throw new Error(`Text byte census did not receive attributes for ${file.path}`);
-    }
-    const { classification, lineEnding, anomalies } = classifyBlobBytes({
-      path: file.path,
-      bytes: new Uint8Array(bytes),
-      textAttr: attrs.textAttr,
-      eolAttr: attrs.eolAttr
-    });
-    const entry: TextByteCensusEntry = {
-      path: file.path,
-      classification,
-      byteSize: bytes.byteLength,
-      blobSha: file.objectId,
-      lineEnding,
-      anomalies
-    };
-    base.classificationCounts[classification] += 1;
-    for (const anomaly of anomalies) base.anomalyCounts[anomaly] += 1;
-    if (anomalies.length > 0 || classification === 'unknown') flaggedEntries.push(entry);
-  }
+  });
 
   const failClosed = base.classificationCounts.unknown > 0
     || base.anomalyCounts['crlf-in-canonical-lf-blob'] > 0
