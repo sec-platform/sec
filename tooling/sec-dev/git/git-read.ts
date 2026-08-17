@@ -54,6 +54,7 @@ function isolatedGitEnvironment(
   for (const key of GIT_REPOSITORY_REDIRECTION_ENV_KEYS) delete env[key];
   env.GIT_NO_REPLACE_OBJECTS = '1';
   env.GIT_OPTIONAL_LOCKS = '0';
+  env.GIT_LITERAL_PATHSPECS = '1';
   for (const [key, value] of Object.entries(overrides ?? {})) env[key] = value;
   return env;
 }
@@ -229,7 +230,7 @@ export function chunkBlobEntries(
     }
     if (
       current.length > 0 &&
-      (current.length >= maxItems || currentBytes + entry.byteSize > maxBytes)
+      (current.length >= maxItems || entry.byteSize > maxBytes - currentBytes)
     ) {
       flush();
     }
