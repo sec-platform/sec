@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { loadAllManifests } from '../compiler/parse/load-manifest.ts';
 import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
+import { parseViewMutationFile } from '../compiler/workbench/apply-view-mutations.ts';
 import {
   bootstrapAuthorizedSlotSource,
   readAuthorizedSlotSource
@@ -117,6 +118,7 @@ function sameOriginOrNonBrowser(req: Request): boolean {
 function errorStatus(error: unknown): number {
   if (error instanceof SyntaxError) return 400;
   if (error instanceof CompilerError) {
+    if (error.code.startsWith('WORKBENCH-MUTATION-')) return 400;
     if (error.code === 'WORKBENCH-SLOT-001') return 400;
     if (/^WORKBENCH-SLOT-00[2-7]$/u.test(error.code)) return 409;
   }
@@ -210,7 +212,10 @@ async function handleReview(context: RouteContext): Promise<Response> {
 }
 
 async function handleMutations(context: RouteContext): Promise<Response> {
-  const body = await readBoundedJson(context.req, MAX_MUTATION_BODY_BYTES);
+  const body = parseViewMutationFile(
+    await readBoundedJson(context.req, MAX_MUTATION_BODY_BYTES),
+    'source/views/mutations/graph-action.json'
+  );
   return withWorkbenchWriterLease(context, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(context.workspaceRoot, token);
     await ensureDir(context.paths.sourceViewMutationsRoot, commitFence);
