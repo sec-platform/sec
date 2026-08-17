@@ -1,6 +1,5 @@
 import { uniqueSorted } from '../../shared/collections.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
-import { defaultLogger } from '../../shared/logger.ts';
 import type { BlockManifest } from '../../shared/plan-manifest-types.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
@@ -20,18 +19,11 @@ export class AttributionResolver {
 
   public static async create(lock: LockFile, workspaceRoot = process.cwd()): Promise<AttributionResolver> {
     const loaded = await Promise.all(lock.resolvedBlocks.map(async (block) => {
-      try {
-        const entry = await loadManifestForResolvedBlock(workspaceRoot, block);
-        return [block.id, entry.manifest] as const;
-      } catch (error) {
-        defaultLogger.warn('Failed to load block manifest for runtime attribution', { blockId: block.id, error });
-        return null;
-      }
+      const entry = await loadManifestForResolvedBlock(workspaceRoot, block);
+      return [block.id, entry.manifest] as const;
     }));
     const manifests = new Map<string, BlockManifest>();
-    for (const entry of loaded) {
-      if (entry) manifests.set(entry[0], entry[1]);
-    }
+    for (const [blockId, manifest] of loaded) manifests.set(blockId, manifest);
     return new AttributionResolver(manifests);
   }
 
