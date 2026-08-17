@@ -4,6 +4,7 @@ import * as path from 'node:path';
 
 import { PhysicalNoFollowError } from '../../platform/shared/physical-no-follow.ts';
 import {
+  publishWorkbenchMutationEnvelope,
   readWorkbenchJsonArtifact,
   readWorkbenchOrdinaryFile
 } from '../../platform/orchestrator/workbench-safe-file.ts';
@@ -17,7 +18,18 @@ function expectPhysicalRejection(action: () => unknown): void {
     expect((error as PhysicalNoFollowError).code).toBe('PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
     return;
   }
-  throw new Error('Expected Workbench read boundary to reject a link-following path.');
+  throw new Error('Expected Workbench physical boundary to reject a link-following path.');
+}
+
+async function expectAsyncPhysicalRejection(action: () => Promise<unknown>): Promise<void> {
+  try {
+    await action();
+  } catch (error) {
+    expect(error).toBeInstanceOf(PhysicalNoFollowError);
+    expect((error as PhysicalNoFollowError).code).toBe('PHYSICAL_NO_FOLLOW_UNSAFE_PATH');
+    return;
+  }
+  throw new Error('Expected Workbench physical publication to reject a link-following path.');
 }
 
 test('workbench artifact reads require ordinary no-follow parents and leaves', async () => {
@@ -43,5 +55,38 @@ test('workbench artifact reads require ordinary no-follow parents and leaves', a
     expectPhysicalRejection(() =>
       readWorkbenchOrdinaryFile(path.join(linkedDirectory, 'secret.json'), 'linked fixture')
     );
+  });
+});
+
+test('workbench mutation publication retains the workspace path and refuses a linked source ancestor', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const envelope = {
+      formatVersion: '1',
+      mutations: [{ id: 'm1', kind: 'set-app-name', value: 'Retained Name' }]
+    };
+    let fenceCalls = 0;
+    const fence = async (): Promise<void> => {
+      fenceCalls += 1;
+    };
+
+    await publishWorkbenchMutationEnvelope(workspaceRoot, envelope, fence);
+    const mutationPath = path.join(workspaceRoot, 'source', 'views', 'mutations', 'graph-action.json');
+    expect(JSON.parse(await fs.readFile(mutationPath, 'utf8'))).toEqual(envelope);
+    expect(fenceCalls).toBeGreaterThanOrEqual(3);
+
+    const retainedSource = path.join(workspaceRoot, 'source-retained');
+    const externalSource = path.join(workspaceRoot, 'external-source');
+    await fs.rename(path.join(workspaceRoot, 'source'), retainedSource);
+    await fs.mkdir(externalSource, { recursive: true });
+    await fs.symlink(
+      externalSource,
+      path.join(workspaceRoot, 'source'),
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+
+    await expectAsyncPhysicalRejection(() =>
+      publishWorkbenchMutationEnvelope(workspaceRoot, envelope, fence)
+    );
+    expect(await fs.readdir(externalSource)).toEqual([]);
   });
 });
