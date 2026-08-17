@@ -25,3 +25,12 @@ export interface MicroserviceDeploymentRenderer {
   /** Bind provider/toolchain observations once for the whole lowering operation. */
   render(intents: readonly MicroserviceDeploymentIntent[]): Promise<readonly RenderedMicroserviceArtifact[]>;
 }
+
+/**
+ * Publication authority is supplied independently from the renderer. A
+ * provider may propose artifact bytes only inside these pre-authorized roots;
+ * it cannot expand its own write surface by returning a different path.
+ */
+export interface MicroserviceDeploymentPublicationPolicy {
+  readonly allowedArtifactRoots: readonly string[];
+}
