@@ -54,6 +54,12 @@ const EFFECTFUL_GLOBAL_CONSTRUCTORS = new Set([
   'Worker'
 ]);
 
+const UNPROVEN_GLOBAL_IDENTIFIERS = new Set([
+  ...UNRESOLVED_CAPABILITY_ROOTS,
+  ...EFFECTFUL_GLOBAL_FUNCTIONS,
+  ...EFFECTFUL_GLOBAL_CONSTRUCTORS
+]);
+
 interface ActiveSlotSource {
   readonly path: string;
   readonly bytes: Uint8Array;
@@ -210,10 +216,17 @@ function validateImports(sourceFile: SourceFile, relativeName: string): void {
   }
 }
 
+function hasLocalDeclaration(sourceFile: SourceFile, identifier: Node): boolean {
+  const symbol = identifier.getSymbol();
+  if (!symbol) return false;
+  const sourcePath = sourceFile.getFilePath();
+  return symbol.getDeclarations().some((declaration) => declaration.getSourceFile().getFilePath() === sourcePath);
+}
+
 function validateRequireCalls(sourceFile: SourceFile, relativeName: string): void {
   for (const callExpr of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const expression = callExpr.getExpression();
-    if (!Node.isIdentifier(expression) || expression.getText() !== 'require') continue;
+    if (!Node.isIdentifier(expression) || expression.getText() !== 'require' || hasLocalDeclaration(sourceFile, expression)) continue;
     const firstArg = callExpr.getArguments()[0];
     const stringValue = firstArg ? extractStringLiteralValue(firstArg) : null;
     if (stringValue === null) {
@@ -266,13 +279,6 @@ function validateDynamicImports(sourceFile: SourceFile, relativeName: string): v
   }
 }
 
-function hasLocalDeclaration(sourceFile: SourceFile, identifier: Node): boolean {
-  const symbol = identifier.getSymbol();
-  if (!symbol) return false;
-  const sourcePath = sourceFile.getFilePath();
-  return symbol.getDeclarations().some((declaration) => declaration.getSourceFile().getFilePath() === sourcePath);
-}
-
 function validateEffectfulGlobals(sourceFile: SourceFile, relativeName: string): void {
   for (const callExpr of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const expression = callExpr.getExpression();
@@ -308,12 +314,12 @@ function validateEffectfulGlobals(sourceFile: SourceFile, relativeName: string):
   }
 
   for (const identifier of sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
-    const root = identifier.getText();
-    if (!UNRESOLVED_CAPABILITY_ROOTS.has(root) || hasLocalDeclaration(sourceFile, identifier)) continue;
+    const name = identifier.getText();
+    if (!UNPROVEN_GLOBAL_IDENTIFIERS.has(name) || hasLocalDeclaration(sourceFile, identifier)) continue;
     throw lintFailure(
       'SLOT-LINT-004',
-      `Runtime capability root "${root}" is not authorized in Custom Slot file "${relativeName}".`,
-      { source: relativeName, capability: root, reason: 'runtime-capability-root' }
+      `Runtime capability identifier "${name}" is not authorized in Custom Slot file "${relativeName}".`,
+      { source: relativeName, capability: name, reason: 'runtime-capability-identifier' }
     );
   }
 
