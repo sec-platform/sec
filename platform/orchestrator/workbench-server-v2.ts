@@ -17,6 +17,7 @@ import {
   controlWorkbenchViewsRelativePath,
   getWorkspacePaths
 } from '../shared/paths.ts';
+import { PhysicalNoFollowError } from '../shared/physical-no-follow.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease,
@@ -34,6 +35,10 @@ import {
   WorkbenchMutex,
   workbenchSseResponse
 } from './workbench-http-support.ts';
+import {
+  readWorkbenchJsonArtifact,
+  readWorkbenchOrdinaryFile
+} from './workbench-safe-file.ts';
 
 const SLOT_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const NODE_ID_PATTERN = /^[A-Za-z0-9_.\/-]+$/u;
@@ -117,6 +122,14 @@ function sameOriginOrNonBrowser(req: Request): boolean {
 
 function errorStatus(error: unknown): number {
   if (error instanceof SyntaxError) return 400;
+  if (error instanceof PhysicalNoFollowError) {
+    if (error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return 404;
+    if (
+      error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' ||
+      error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+    ) return 409;
+    return 500;
+  }
   if (error instanceof CompilerError) {
     if (error.code.startsWith('WORKBENCH-MUTATION-')) return 400;
     if (error.code === 'WORKBENCH-SLOT-001') return 400;
@@ -204,11 +217,17 @@ async function handleSlotCode(context: RouteContext): Promise<Response> {
 }
 
 async function handleGraph(context: RouteContext): Promise<Response> {
-  return workbenchJsonResponse(JSON.parse(await fs.readFile(context.paths.explainGraphPath, 'utf8')));
+  const graph = readWorkbenchJsonArtifact<unknown>(context.paths.explainGraphPath, 'Workbench ExplainGraph');
+  return graph === null
+    ? workbenchErrorResponse('ExplainGraph artifact not found', 404)
+    : workbenchJsonResponse(graph);
 }
 
 async function handleReview(context: RouteContext): Promise<Response> {
-  return workbenchJsonResponse(JSON.parse(await fs.readFile(context.paths.reviewSummaryPath, 'utf8')));
+  const review = readWorkbenchJsonArtifact<unknown>(context.paths.reviewSummaryPath, 'Workbench ReviewSummary');
+  return review === null
+    ? workbenchErrorResponse('ReviewSummary artifact not found', 404)
+    : workbenchJsonResponse(review);
 }
 
 async function handleMutations(context: RouteContext): Promise<Response> {
@@ -384,22 +403,35 @@ async function serveStaticFile(viewsDir: string, reqPath: string, startTime: num
   }
 
   try {
-    const fileContent = await fs.readFile(targetFilePath);
+    const fileContent = readWorkbenchOrdinaryFile(targetFilePath, `Workbench static file ${relative}`);
+    if (fileContent === null) {
+      logWorkbenchHttp('GET', reqPath, 404, 'Not Found', Date.now() - startTime, WORKBENCH_COLORS.yellow);
+      return new Response('Not Found', {
+        status: 404,
+        headers: new Headers(WORKBENCH_SECURITY_HEADERS)
+      });
+    }
     const headers = new Headers(WORKBENCH_SECURITY_HEADERS);
     headers.set('Content-Type', CONTENT_TYPES[path.extname(filePath)] ?? 'text/html');
     headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     logWorkbenchHttp('GET', reqPath, 200, 'OK', Date.now() - startTime, WORKBENCH_COLORS.green);
     return new Response(fileContent, { headers });
   } catch (error) {
-    if (!isFileNotFoundError(error)) {
-      logWorkbenchHttp('GET', reqPath, 500, 'Internal Error', Date.now() - startTime, WORKBENCH_COLORS.red);
-      return workbenchErrorResponse(error instanceof Error ? error.message : String(error), 500);
+    if (
+      error instanceof PhysicalNoFollowError &&
+      (
+        error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' ||
+        error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+      )
+    ) {
+      logWorkbenchHttp('GET', reqPath, 403, 'Forbidden', Date.now() - startTime, WORKBENCH_COLORS.red);
+      return new Response('Forbidden', {
+        status: 403,
+        headers: new Headers(WORKBENCH_SECURITY_HEADERS)
+      });
     }
-    logWorkbenchHttp('GET', reqPath, 404, 'Not Found', Date.now() - startTime, WORKBENCH_COLORS.yellow);
-    return new Response('Not Found', {
-      status: 404,
-      headers: new Headers(WORKBENCH_SECURITY_HEADERS)
-    });
+    logWorkbenchHttp('GET', reqPath, 500, 'Internal Error', Date.now() - startTime, WORKBENCH_COLORS.red);
+    return workbenchErrorResponse(error instanceof Error ? error.message : String(error), 500);
   }
 }
 
