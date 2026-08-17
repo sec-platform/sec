@@ -1,3 +1,6 @@
+import path from 'node:path';
+import YAML from 'yaml';
+
 import {
   isCanonicalBlockId,
   isCanonicalRegistryVersion
@@ -5,15 +8,19 @@ import {
 import { SUPPORTED_STACK } from '../../shared/constants.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import {
+  getWorkspacePaths,
   isSafeRelativePath,
   officialRegistryRelativePath,
   posixPath,
   privateRegistryRelativePath,
-  resolveWorkspacePlanPath,
   sourcePrivateRegistryRelativePath
 } from '../../shared/paths.ts';
+import {
+  inspectNoFollowDirectoryChainV1,
+  PhysicalNoFollowError,
+  readNoFollowOrdinaryFileV1
+} from '../../shared/physical-no-follow.ts';
 import type { PlanFile, PlanRegistry, PlanRegistrySource } from '../../shared/plan-manifest-types.ts';
-import { readYaml } from '../../shared/yaml.ts';
 
 function defaultRegistry(): PlanRegistry {
   return {
@@ -247,12 +254,61 @@ export function validatePlan(plan: PlanFile): void {
   }
 }
 
-export async function loadPlan(planPath: string): Promise<PlanFile> {
-  const plan = normalizePlan(await readYaml<PlanFile>(planPath));
+function decodePlanUtf8(bytes: Uint8Array, planPath: string): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new CompilerError(
+      'PLAN-VALIDATION-023',
+      `Plan at "${planPath}" is not exact UTF-8`,
+      { cause: error instanceof Error ? error.message : String(error) }
+    );
+  }
+}
+
+function readPlanSourceNoFollow(planPath: string): string | null {
+  const absolutePath = path.resolve(planPath);
+  try {
+    const parent = inspectNoFollowDirectoryChainV1(
+      path.dirname(absolutePath),
+      'Plan parent directory'
+    ).target;
+    const bytes = readNoFollowOrdinaryFileV1(parent, path.basename(absolutePath));
+    return bytes === null ? null : decodePlanUtf8(bytes, absolutePath);
+  } catch (error) {
+    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function parsePlanSource(raw: string): PlanFile {
+  const plan = normalizePlan(YAML.parse(raw) as PlanFile);
   validatePlan(plan);
   return plan;
 }
 
+function missingPlanError(planPath: string): NodeJS.ErrnoException {
+  const error = new Error(`Plan file not found: ${path.resolve(planPath)}`) as NodeJS.ErrnoException;
+  error.code = 'ENOENT';
+  error.path = path.resolve(planPath);
+  return error;
+}
+
+export async function loadPlan(planPath: string): Promise<PlanFile> {
+  const raw = readPlanSourceNoFollow(planPath);
+  if (raw === null) throw missingPlanError(planPath);
+  return parsePlanSource(raw);
+}
+
 export async function loadWorkspacePlan(workspaceRoot: string): Promise<PlanFile> {
-  return loadPlan(await resolveWorkspacePlanPath(workspaceRoot));
+  const { planPath, legacyPlanPath } = getWorkspacePaths(workspaceRoot);
+  const canonicalRaw = readPlanSourceNoFollow(planPath);
+  if (canonicalRaw !== null) return parsePlanSource(canonicalRaw);
+
+  const legacyRaw = readPlanSourceNoFollow(legacyPlanPath);
+  if (legacyRaw !== null) return parsePlanSource(legacyRaw);
+
+  throw missingPlanError(planPath);
 }
