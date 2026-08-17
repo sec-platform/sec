@@ -39,13 +39,13 @@ function executeGit(repositoryRoot: string, args: readonly string[], maxBuffer: 
   return result.stdout;
 }
 
-function getGitVersion(): string {
-  const result = runGit(process.cwd(), ['--version'], 1024);
+function getGitVersion(repositoryRoot: string): string {
+  const result = runGit(repositoryRoot, ['--version'], 1024);
   return result.stdout.toString('utf8').trim();
 }
 
-function getConfig(key: string): string {
-  const result = runGit(process.cwd(), ['config', '--get', key], 1024);
+function getConfig(repositoryRoot: string, key: string): string {
+  const result = runGit(repositoryRoot, ['config', '--get', key], 1024);
   if (result.status !== 0 || result.stdout.length === 0) return '<unset>';
   return result.stdout.toString('utf8').trim();
 }
@@ -157,9 +157,9 @@ export async function runSettlement(
   options: { fix?: boolean } = {}
 ): Promise<WorktreeSettlementReceipt> {
   const root = path.resolve(repositoryRoot);
-  const gitVersion = getGitVersion();
-  const coreAutocrlf = getConfig('core.autocrlf');
-  const coreEol = getConfig('core.eol');
+  const gitVersion = getGitVersion(root);
+  const coreAutocrlf = getConfig(root, 'core.autocrlf');
+  const coreEol = getConfig(root, 'core.eol');
   const gitattributesBlobSha = getBlobSha(root, '.gitattributes');
   const files = listTrackedFiles(root);
   const porcelain = getPorcelainStatus(root);
