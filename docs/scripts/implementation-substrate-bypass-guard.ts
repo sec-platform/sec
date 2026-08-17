@@ -39,9 +39,9 @@ const BASELINE_DIRECT_PACKAGES = new Set([
 ]);
 
 const LEGACY_UPGRADE_REGEX_PATH = 'platform/upgrade/upgrade-workspace.ts';
+const SYFT_SBOM_PROVIDER_PATH = 'platform/release/providers/syft-sbom-provider.ts';
 const MANUAL_SIGNING_PATTERN = /\b(?:createSign|generateKeyPair|generateKeyPairSync|createPrivateKey|privateEncrypt|crypto\.sign)\s*\(/gu;
 const MANUAL_SBOM_PATTERN = /(?:["']spdxVersion["']\s*:|\bspdxVersion\s*:|["']bomFormat["']\s*:|\bbomFormat\s*:)/gu;
-const ALLOWED_SBOM_PROVIDER_PREFIX = 'platform/release/providers/syft-';
 
 export interface DevelopmentSubstrateBypassIssueV1 {
   readonly code:
@@ -68,9 +68,17 @@ function adoptedPackageIds(decisions: readonly DevelopmentSubstrateDecisionV1[])
   return new Set(
     decisions
       .filter((entry) => entry.substrate.kind === 'package'
-        && (entry.decision === 'adopted' || entry.decision === 'sec-owned'))
+        && (entry.decision === 'adopted' || entry.decision === 'sec-owned')
+        && entry.adoptionOwner === 'github:issue/193')
       .map((entry) => entry.substrate.id)
   );
+}
+
+function isCapabilityAdopted(
+  decisions: readonly DevelopmentSubstrateDecisionV1[],
+  capabilityId: string
+): boolean {
+  return decisions.some((entry) => entry.capabilityId === capabilityId && entry.decision === 'adopted');
 }
 
 function countMatches(source: string, pattern: RegExp): number {
@@ -93,11 +101,12 @@ export function inspectDevelopmentSubstrateBypassesV1(input: {
       issues.push({
         code: 'unresolved-direct-dependency',
         path: 'package.json',
-        message: `direct dependency ${packageName} has no adopted implementation substrate decision`
+        message: `direct dependency ${packageName} has no #193-owned adopted implementation substrate decision`
       });
     }
   }
 
+  const syftSbomProviderAdopted = isCapabilityAdopted(input.decisions, 'sbom-generation');
   for (const [repositoryPath, source] of input.sources) {
     if (repositoryPath.startsWith('platform/upgrade/') && repositoryPath.endsWith('.ts')) {
       const count = countMatches(source, /\bnew\s+RegExp\s*\(/gu);
@@ -119,12 +128,13 @@ export function inspectDevelopmentSubstrateBypassesV1(input: {
           message: 'release signing/attestation must use an adopted provider; handwritten signing crypto is forbidden'
         });
       }
-      if (!repositoryPath.startsWith(ALLOWED_SBOM_PROVIDER_PREFIX)
-          && countMatches(source, MANUAL_SBOM_PATTERN) > 0) {
+      const sbomFieldsPresent = countMatches(source, MANUAL_SBOM_PATTERN) > 0;
+      const adoptedSyftAdapter = repositoryPath === SYFT_SBOM_PROVIDER_PATH && syftSbomProviderAdopted;
+      if (sbomFieldsPresent && !adoptedSyftAdapter) {
         issues.push({
           code: 'manual-sbom-generation',
           path: repositoryPath,
-          message: 'SBOM bytes must come from the adopted Syft provider; handwritten SPDX/CycloneDX generation is forbidden'
+          message: 'SBOM fields cannot be authored before the Syft substrate is formally adopted; after adoption only the exact Syft adapter may validate/provider-project them'
         });
       }
     }
