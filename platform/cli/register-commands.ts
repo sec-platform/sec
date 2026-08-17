@@ -1,8 +1,4 @@
 import type { Command } from 'commander';
-import { runCensus } from '../../scripts/codex/text-byte-census.ts';
-import { runSettlement } from '../../scripts/codex/worktree-settlement.ts';
-import { buildCiArtifactManifest, loadManifestById, loadWorkspacePlan } from '../compiler/index.ts';
-import { adaptWorkspace, addBlock, applyWorkbenchMutations, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, startWorkbenchServer, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from '../orchestrator.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import {
   buildBenchmarkTaskSuiteContract,
@@ -101,6 +97,26 @@ import {
   type InstallManifestEntry,
   type PostgresContract
 } from './formatters.ts';
+import {
+  adaptWorkspace,
+  addBlock,
+  applyWorkbenchMutations,
+  buildCiArtifactManifest,
+  composeWorkspace,
+  explainWorkspace,
+  initWorkspace,
+  loadManifestById,
+  loadWorkspacePlan,
+  lockWorkspace,
+  repairWorkspace,
+  resolveWorkspace,
+  runCensus,
+  runSettlement,
+  startWorkbenchServer,
+  upgradeWorkspace,
+  verifyWorkspace,
+  writeWorkspaceArtifacts
+} from './lazy-command-domains.ts';
 
 type JsonOpts = { json: boolean; compact: boolean };
 
