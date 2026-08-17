@@ -1,8 +1,12 @@
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
+type CompileWorkspaceOperation = typeof compileWorkspace;
+
 export interface CompileStreamContext {
   workspaceRoot: string;
   acquire: () => Promise<() => void>;
+  /** Mechanical execution seam for focused cancellation tests; production uses compileWorkspace. */
+  compile?: CompileWorkspaceOperation;
 }
 
 const WORKBENCH_COMPILE_HEARTBEAT_MS = 5_000;
@@ -42,7 +46,8 @@ export function createWorkbenchCompileStream(context: CompileStreamContext): Rea
 
       try {
         log('Starting canonical compilation pipeline...');
-        const result = await compileWorkspace(context.workspaceRoot, {
+        const execute = context.compile ?? compileWorkspace;
+        const result = await execute(context.workspaceRoot, {
           source: 'workbench',
           applyWorkbenchMutations: true,
           verificationLane: 'all',
