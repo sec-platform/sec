@@ -57,6 +57,7 @@ export const loadWorkspacePlan = lazyFunction(loadCompilerDomain, 'loadWorkspace
 export const adaptWorkspace = lazyFunction(loadOrchestratorDomain, 'adaptWorkspace');
 export const addBlock = lazyFunction(loadOrchestratorDomain, 'addBlock');
 export const applyWorkbenchMutations = lazyFunction(loadOrchestratorDomain, 'applyWorkbenchMutations');
+export const compileWorkspace = lazyFunction(loadOrchestratorDomain, 'compileWorkspace');
 export const composeWorkspace = lazyFunction(loadOrchestratorDomain, 'composeWorkspace');
 export const explainWorkspace = lazyFunction(loadOrchestratorDomain, 'explainWorkspace');
 export const initWorkspace = lazyFunction(loadOrchestratorDomain, 'initWorkspace');
