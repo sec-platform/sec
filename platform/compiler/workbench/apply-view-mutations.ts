@@ -1,5 +1,5 @@
 import path from 'node:path';
-import YAML from 'yaml';
+
 import {
   isCanonicalBlockId,
   isCanonicalRegistryVersion
@@ -18,42 +18,19 @@ import {
   PhysicalNoFollowError,
   scanNoFollowDirectoryTreeV1
 } from '../../shared/physical-no-follow.ts';
-import type { AppMode, PlanFile, PlanSlot, SlotKind } from '../../shared/plan-manifest-types.ts';
+import type { AppMode, SlotKind } from '../../shared/plan-manifest-types.ts';
 import { publishCanonicalWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
-import { loadPlan, validatePlan } from '../parse/load-plan.ts';
+import {
+  applyEngineeringOperations,
+  type EngineeringOperation,
+  type EngineeringOperationKind
+} from '../operations/engineering-operation.ts';
 
-export type ViewMutationKind =
-  | 'set-app-name'
-  | 'set-app-mode'
-  | 'add-acceptance'
-  | 'set-slot-description'
-  | 'set-slot-source-path'
-  | 'add-block'
-  | 'remove-block'
-  | 'bind-slot'
-  | 'unbind-slot';
-
-export type ViewMutation =
-  | { id: string; kind: 'set-app-name'; value: string }
-  | { id: string; kind: 'set-app-mode'; value: AppMode }
-  | { id: string; kind: 'add-acceptance'; acceptanceId: string }
-  | { id: string; kind: 'set-slot-description'; slotId: string; description: string }
-  | { id: string; kind: 'set-slot-source-path'; slotId: string; sourcePath: string }
-  | { id: string; kind: 'add-block'; blockId: string; version: string }
-  | { id: string; kind: 'remove-block'; blockId: string }
-  | {
-      id: string;
-      kind: 'bind-slot';
-      slotId: string;
-      block: string;
-      slotKind: SlotKind;
-      target: string;
-      sourcePath: string;
-      symbol: string;
-      description?: string;
-    }
-  | { id: string; kind: 'unbind-slot'; slotId: string };
+/** Compatibility transport name; canonical semantics live in EngineeringOperation. */
+export type ViewMutationKind = EngineeringOperationKind;
+/** Compatibility transport name; canonical semantics live in EngineeringOperation. */
+export type ViewMutation = EngineeringOperation;
 
 export interface ViewMutationFile {
   formatVersion: '1';
@@ -220,96 +197,6 @@ export function parseViewMutationFile(raw: unknown, sourcePath: string): ViewMut
   return { formatVersion: '1', mutations: raw.mutations.map((mutation) => parseMutation(mutation, sourcePath)) };
 }
 
-function result(
-  mutation: ViewMutation,
-  sourcePath: string,
-  status: ViewMutationResult['status'],
-  detail: string
-): ViewMutationResult {
-  return { id: mutation.id, kind: mutation.kind, sourcePath, status, targetPath: 'source/app.yaml', detail };
-}
-
-function applyMutation(plan: PlanFile, mutation: ViewMutation, sourcePath: string): ViewMutationResult {
-  if (mutation.kind === 'set-app-name') {
-    if (plan.app.name === mutation.value) return result(mutation, sourcePath, 'skipped', 'app name already matches');
-    plan.app.name = mutation.value;
-    return result(mutation, sourcePath, 'applied', `set app.name to ${mutation.value}`);
-  }
-  if (mutation.kind === 'set-app-mode') {
-    if (plan.app.mode === mutation.value) return result(mutation, sourcePath, 'skipped', 'app mode already matches');
-    plan.app.mode = mutation.value;
-    return result(mutation, sourcePath, 'applied', `set app.mode to ${mutation.value}`);
-  }
-  if (mutation.kind === 'add-acceptance') {
-    if (plan.acceptance.some((entry) => entry.id === mutation.acceptanceId)) {
-      return result(mutation, sourcePath, 'skipped', 'acceptance already exists');
-    }
-    plan.acceptance.push({ id: mutation.acceptanceId });
-    return result(mutation, sourcePath, 'applied', `added acceptance ${mutation.acceptanceId}`);
-  }
-  if (mutation.kind === 'add-block') {
-    if (plan.blocks.some((block) => block.id === mutation.blockId)) {
-      return result(mutation, sourcePath, 'skipped', `block ${mutation.blockId} already installed`);
-    }
-    plan.blocks.push({ id: mutation.blockId, version: mutation.version });
-    return result(mutation, sourcePath, 'applied', `installed block ${mutation.blockId}@${mutation.version}`);
-  }
-  if (mutation.kind === 'remove-block') {
-    if (!plan.blocks.some((block) => block.id === mutation.blockId)) {
-      return result(mutation, sourcePath, 'skipped', `block ${mutation.blockId} not installed`);
-    }
-    plan.blocks = plan.blocks.filter((block) => block.id !== mutation.blockId);
-    plan.slots = plan.slots.filter((slot) => slot.block !== mutation.blockId);
-    return result(mutation, sourcePath, 'applied', `removed block ${mutation.blockId} and its slots`);
-  }
-  if (mutation.kind === 'bind-slot') {
-    const existingIndex = plan.slots.findIndex((slot) => slot.id === mutation.slotId);
-    const newSlot: PlanSlot = {
-      id: mutation.slotId,
-      block: mutation.block,
-      kind: mutation.slotKind,
-      target: mutation.target,
-      sourcePath: mutation.sourcePath,
-      symbol: mutation.symbol,
-      description: mutation.description ?? ''
-    };
-    if (existingIndex !== -1) {
-      const existing = plan.slots[existingIndex]!;
-      const matches = existing.block === newSlot.block
-        && existing.kind === newSlot.kind
-        && existing.target === newSlot.target
-        && existing.sourcePath === newSlot.sourcePath
-        && existing.symbol === newSlot.symbol
-        && existing.description === newSlot.description;
-      if (matches) return result(mutation, sourcePath, 'skipped', `slot ${mutation.slotId} already bound with same config`);
-      plan.slots[existingIndex] = newSlot;
-      return result(mutation, sourcePath, 'applied', `updated slot ${mutation.slotId} binding`);
-    }
-    plan.slots.push(newSlot);
-    return result(mutation, sourcePath, 'applied', `bound slot ${mutation.slotId} to ${mutation.block}`);
-  }
-  if (mutation.kind === 'unbind-slot') {
-    if (!plan.slots.some((slot) => slot.id === mutation.slotId)) {
-      return result(mutation, sourcePath, 'skipped', `slot ${mutation.slotId} not bound`);
-    }
-    plan.slots = plan.slots.filter((slot) => slot.id !== mutation.slotId);
-    return result(mutation, sourcePath, 'applied', `unbound slot ${mutation.slotId}`);
-  }
-
-  const slot = plan.slots.find((entry) => entry.id === mutation.slotId);
-  if (!slot) {
-    throw new CompilerError('WORKBENCH-MUTATION-006', `Slot "${mutation.slotId}" does not exist in source/app.yaml`);
-  }
-  if (mutation.kind === 'set-slot-description') {
-    if (slot.description === mutation.description) return result(mutation, sourcePath, 'skipped', 'slot description already matches');
-    slot.description = mutation.description;
-    return result(mutation, sourcePath, 'applied', `set ${mutation.slotId}.description`);
-  }
-  if (slot.sourcePath === mutation.sourcePath) return result(mutation, sourcePath, 'skipped', 'slot sourcePath already matches');
-  slot.sourcePath = mutation.sourcePath;
-  return result(mutation, sourcePath, 'applied', `set ${mutation.slotId}.sourcePath to ${mutation.sourcePath}`);
-}
-
 function decodeMutationUtf8(bytes: Uint8Array, sourcePath: string): string {
   if (bytes.byteLength > MAX_VIEW_MUTATION_FILE_BYTES) {
     throw new CompilerError(
@@ -371,13 +258,24 @@ export async function applyViewMutations(
   workspaceRoot: string,
   commitFence: ViewMutationCommitFence
 ): Promise<ViewMutationReport> {
-  const { planPath, viewMutationReportPath } = getWorkspacePaths(workspaceRoot);
-  const plan = await loadPlan(planPath);
+  const { viewMutationReportPath } = getWorkspacePaths(workspaceRoot);
   const mutationFiles = loadMutationFiles(workspaceRoot);
-  const mutations = mutationFiles.flatMap((entry) =>
+  const mutationEntries = mutationFiles.flatMap((entry) =>
     entry.file.mutations.map((mutation) => ({ mutation, sourcePath: entry.sourcePath }))
   );
-  const results = mutations.map((entry) => applyMutation(plan, entry.mutation, entry.sourcePath));
+  const operationResults = await applyEngineeringOperations(
+    workspaceRoot,
+    mutationEntries.map((entry) => entry.mutation),
+    commitFence
+  );
+  const results: ViewMutationResult[] = operationResults.map((entry, index) => ({
+    id: entry.id,
+    kind: entry.kind,
+    sourcePath: mutationEntries[index]!.sourcePath,
+    status: entry.status,
+    targetPath: 'source/app.yaml',
+    detail: entry.detail
+  }));
   const appliedCount = countMatching(results, (entry) => entry.status === 'applied');
   const report: ViewMutationReport = {
     formatVersion: '1',
@@ -391,16 +289,6 @@ export async function applyViewMutations(
     mutations: results
   };
 
-  if (appliedCount > 0) {
-    validatePlan(plan);
-    await publishCanonicalWorkspaceFileV1({
-      workspaceRoot,
-      targetPath: planPath,
-      bytes: Buffer.from(YAML.stringify(plan, { indent: 2 }), 'utf8'),
-      label: 'Workbench Plan mutation',
-      commitFence
-    });
-  }
   await publishCanonicalWorkspaceFileV1({
     workspaceRoot,
     targetPath: viewMutationReportPath,
