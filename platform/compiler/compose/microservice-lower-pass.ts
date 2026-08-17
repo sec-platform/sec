@@ -11,8 +11,7 @@ import type {
   MicroserviceResiliencePolicy,
   RenderedMicroserviceArtifact
 } from './microservice-deployment-contract.ts';
-import { DEFAULT_MICROSERVICE_RESILIENCE_POLICY } from './microservice-deployment-policy.ts';
-import { nextBunDockerMicroserviceRenderer } from './microservice-next-bun-docker-adapter.ts';
+import { defaultMicroserviceDeploymentBinding } from './microservice-deployment-provider.ts';
 
 const MICROSERVICE_RENDER_CONCURRENCY = 8;
 
@@ -95,20 +94,21 @@ export async function lowerToMicroservicesWithRenderer(
 }
 
 /**
- * Current default microservice lowering entrypoint. Provider-private Next/Bun/
- * Docker generation lives behind the renderer; the pass only owns neutral
- * intent construction and generic compose publication.
+ * Current compatibility entrypoint. Provider selection/default policy live in
+ * the binding owner; this pass only constructs neutral intent and publishes the
+ * renderer's bounded artifact set through the existing compose write boundary.
  */
 export async function lowerToMicroservices(
   workspaceRoot: string,
   lock: LockFile,
   commitFence?: CommitFence
 ): Promise<string[]> {
+  const binding = defaultMicroserviceDeploymentBinding();
   return lowerToMicroservicesWithRenderer(
     workspaceRoot,
     lock,
-    nextBunDockerMicroserviceRenderer,
-    DEFAULT_MICROSERVICE_RESILIENCE_POLICY,
+    binding.renderer,
+    binding.resilience,
     commitFence
   );
 }
