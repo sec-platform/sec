@@ -16,6 +16,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
   expectErrorProtocolSelfConsistent(contract);
   expect(formatted).toContain('Error protocol active');
   expect(formatted).toContain('Example upgrade-conflict-error; code=UPGRADE-CONFLICT-001');
+  expect(formatted).toContain('Example slot-capability-lint-error; code=SLOT-LINT-005');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
@@ -30,6 +31,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
       CI_ARTIFACT_FILES.upgradeDiagnostics,
       CI_ARTIFACT_FILES.upgradePlan,
       CI_ARTIFACT_FILES.viewMutationReport,
+      'source/code/slots',
       'source/views/mutations'
     ].sort(),
     examples: expect.arrayContaining([
@@ -82,6 +84,15 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         })
       }),
       expect.objectContaining({
+        id: 'slot-capability-lint-error',
+        output: expect.objectContaining({
+          recoverable: true,
+          issueType: 'slot',
+          suggestedActions: ['review-slot-capabilities', 'remove-unproven-runtime-effects'],
+          artifactPaths: ['source/code/slots']
+        })
+      }),
+      expect.objectContaining({
         id: 'workbench-mutation-error',
         output: expect.objectContaining({
           recoverable: true,
@@ -111,6 +122,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         `Artifact path list: ${contract.artifactPaths.join(', ')}`,
         'Example repair-plan-error; code=REPAIR-BLOCKED-001',
         'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016',
+        'Example slot-capability-lint-error; code=SLOT-LINT-005',
         'Example workbench-mutation-error; code=WORKBENCH-MUTATION-002',
         'Example drift-error; code=ERROR-DRIFT-001'
       ],
