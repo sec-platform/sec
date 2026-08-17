@@ -89,6 +89,11 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
     message: 'Override "manual-auth-session-hotfix" conflicts with upgrade of "auth/basic-session"'
   },
   {
+    id: 'engineering-operation-error',
+    code: 'ENGINEERING-OPERATION-001',
+    message: 'Engineering operation slot "missing-slot" does not exist in source/app.yaml'
+  },
+  {
     id: 'workbench-mutation-error',
     code: 'WORKBENCH-MUTATION-002',
     message: 'rename.sourcePath must stay under source/code/slots/**'
