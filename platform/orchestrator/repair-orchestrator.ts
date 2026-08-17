@@ -1,9 +1,10 @@
+import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
 import {
+  applyRepairPlan,
   buildRepairPlan,
-  loadWorkspacePlan,
-  previewRepairPlan
-} from '../compiler/index.ts';
-import { applyRepairPlan, writeRepairPlan } from '../compiler/repair/build-repair-plan.ts';
+  previewRepairPlan,
+  writeRepairPlan
+} from '../compiler/repair/build-repair-plan.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { readJson } from '../shared/fs.ts';
 import { assertPassStatus, readLockFile, saveLock } from '../shared/lock-utils.ts';
