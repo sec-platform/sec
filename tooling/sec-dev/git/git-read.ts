@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export interface GitReadResult {
@@ -10,6 +13,7 @@ export interface GitReadResult {
 export interface GitTreeBlobEntry {
   readonly mode: string;
   readonly objectId: string;
+  readonly byteSize: number;
   readonly path: string;
 }
 
@@ -18,19 +22,36 @@ export interface GitTextAttributes {
   readonly eolAttr: 'lf' | 'crlf' | 'unspecified';
 }
 
+export interface GitBlobBatchLimits {
+  readonly maxBytes: number;
+  readonly maxItems: number;
+}
+
 const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
+
+function positiveSafeInteger(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be one positive safe integer`);
+  }
+  return value;
+}
 
 export function runGitRead(
   repositoryRoot: string,
   args: readonly string[],
-  options: Readonly<{ input?: Buffer; maxBuffer?: number }> = {}
+  options: Readonly<{
+    input?: Buffer;
+    maxBuffer?: number;
+    env?: Readonly<Record<string, string>>;
+  }> = {}
 ): GitReadResult {
   const result = spawnSync('git', [...args], {
     cwd: repositoryRoot,
     encoding: 'buffer',
     input: options.input,
     maxBuffer: options.maxBuffer ?? 128 * 1024 * 1024,
-    windowsHide: true
+    windowsHide: true,
+    env: options.env === undefined ? undefined : { ...process.env, ...options.env }
   });
   return Object.freeze({
     status: result.status,
@@ -47,7 +68,12 @@ export function runGitRead(
 export function gitReadBytes(
   repositoryRoot: string,
   args: readonly string[],
-  options: Readonly<{ input?: Buffer; maxBuffer?: number; label?: string }> = {}
+  options: Readonly<{
+    input?: Buffer;
+    maxBuffer?: number;
+    label?: string;
+    env?: Readonly<Record<string, string>>;
+  }> = {}
 ): Buffer {
   const result = runGitRead(repositoryRoot, args, options);
   if (result.error || result.status !== 0) {
@@ -71,7 +97,12 @@ export function decodeExactUtf8(bytes: Buffer, label: string): string {
 export function gitReadText(
   repositoryRoot: string,
   args: readonly string[],
-  options: Readonly<{ input?: Buffer; maxBuffer?: number; label?: string }> = {}
+  options: Readonly<{
+    input?: Buffer;
+    maxBuffer?: number;
+    label?: string;
+    env?: Readonly<Record<string, string>>;
+  }> = {}
 ): string {
   return decodeExactUtf8(gitReadBytes(repositoryRoot, args, options), options.label ?? 'Git output');
 }
@@ -115,7 +146,7 @@ export function readCommitBlobInventory(
   const fields = parseNulUtf8(
     gitReadBytes(
       repositoryRoot,
-      ['ls-tree', '-r', '-z', '--full-tree', exactCommit],
+      ['ls-tree', '-r', '-z', '--full-tree', '-l', exactCommit],
       { maxBuffer: 128 * 1024 * 1024, label: 'git ls-tree' }
     ),
     'git ls-tree'
@@ -125,38 +156,96 @@ export function readCommitBlobInventory(
     const separator = field.indexOf('\t');
     const header = separator < 0 ? '' : field.slice(0, separator);
     const filePath = separator < 0 ? '' : field.slice(separator + 1);
-    const match = /^([0-7]{6}) ([a-z]+) ([0-9a-f]{40}(?:[0-9a-f]{24})?)$/u.exec(header);
+    const match = /^([0-7]{6}) ([a-z]+) ([0-9a-f]{40}(?:[0-9a-f]{24})?) +([0-9]+|-)$/u.exec(header);
     if (!match || filePath.length === 0) {
       throw new Error('git ls-tree returned an invalid record');
     }
     if (match[2] !== 'blob') continue;
+    const byteSize = Number(match[4]);
+    if (!Number.isSafeInteger(byteSize) || byteSize < 0) {
+      throw new Error(`git ls-tree returned an invalid blob size for ${filePath}`);
+    }
     entries.push(Object.freeze({
       mode: match[1]!,
       objectId: match[3]!,
+      byteSize,
       path: filePath
     }));
   }
   return Object.freeze(entries);
 }
 
+export function chunkByCount<Value>(values: readonly Value[], maxItems: number): readonly (readonly Value[])[] {
+  const limit = positiveSafeInteger(maxItems, 'Git observation batch item limit');
+  const batches: Value[][] = [];
+  for (let index = 0; index < values.length; index += limit) {
+    batches.push(values.slice(index, index + limit));
+  }
+  return Object.freeze(batches.map((batch) => Object.freeze(batch)));
+}
+
+export function chunkBlobEntries(
+  entries: readonly GitTreeBlobEntry[],
+  limits: GitBlobBatchLimits
+): readonly (readonly GitTreeBlobEntry[])[] {
+  const maxBytes = positiveSafeInteger(limits.maxBytes, 'Git blob batch byte limit');
+  const maxItems = positiveSafeInteger(limits.maxItems, 'Git blob batch item limit');
+  const batches: GitTreeBlobEntry[][] = [];
+  let current: GitTreeBlobEntry[] = [];
+  let currentBytes = 0;
+
+  const flush = (): void => {
+    if (current.length === 0) return;
+    batches.push(current);
+    current = [];
+    currentBytes = 0;
+  };
+
+  for (const entry of entries) {
+    if (!Number.isSafeInteger(entry.byteSize) || entry.byteSize < 0) {
+      throw new Error(`Git blob inventory contains an invalid byte size for ${entry.path}`);
+    }
+    if (
+      current.length > 0 &&
+      (current.length >= maxItems || currentBytes + entry.byteSize > maxBytes)
+    ) {
+      flush();
+    }
+    current.push(entry);
+    currentBytes += entry.byteSize;
+    if (current.length >= maxItems || currentBytes >= maxBytes) flush();
+  }
+  flush();
+  return Object.freeze(batches.map((batch) => Object.freeze(batch)));
+}
+
 export function readBlobBatch(
   repositoryRoot: string,
-  objectIds: readonly string[]
+  objectIds: readonly string[],
+  maxBuffer = 512 * 1024 * 1024
 ): ReadonlyMap<string, Buffer> {
   if (objectIds.length === 0) return new Map();
-  for (const objectId of objectIds) assertGitObjectId(objectId, 'Git blob object ID');
+  const uniqueIds: string[] = [];
+  const seen = new Set<string>();
+  for (const objectId of objectIds) {
+    assertGitObjectId(objectId, 'Git blob object ID');
+    if (!seen.has(objectId)) {
+      seen.add(objectId);
+      uniqueIds.push(objectId);
+    }
+  }
   const output = gitReadBytes(
     repositoryRoot,
     ['cat-file', '--batch'],
     {
-      input: Buffer.from(`${objectIds.join('\n')}\n`, 'ascii'),
-      maxBuffer: 512 * 1024 * 1024,
+      input: Buffer.from(`${uniqueIds.join('\n')}\n`, 'ascii'),
+      maxBuffer,
       label: 'git cat-file --batch'
     }
   );
   const blobs = new Map<string, Buffer>();
   let offset = 0;
-  for (const requestedId of objectIds) {
+  for (const requestedId of uniqueIds) {
     const headerEnd = output.indexOf(0x0a, offset);
     if (headerEnd < 0) {
       throw new Error(`git cat-file --batch returned an incomplete header for ${requestedId}`);
@@ -184,17 +273,143 @@ export function readBlobBatch(
   return blobs;
 }
 
+export function readBlobEntryBatch(
+  repositoryRoot: string,
+  entries: readonly GitTreeBlobEntry[]
+): ReadonlyMap<string, Buffer> {
+  if (entries.length === 0) return new Map();
+  const expectedSizes = new Map<string, number>();
+  for (const entry of entries) {
+    const prior = expectedSizes.get(entry.objectId);
+    if (prior !== undefined && prior !== entry.byteSize) {
+      throw new Error(`Git blob ${entry.objectId} has inconsistent inventory sizes`);
+    }
+    expectedSizes.set(entry.objectId, entry.byteSize);
+  }
+  const expectedBytes = [...expectedSizes.values()].reduce((sum, value) => sum + value, 0);
+  const overhead = Math.max(1024 * 1024, expectedSizes.size * 256);
+  const blobs = readBlobBatch(
+    repositoryRoot,
+    [...expectedSizes.keys()],
+    Math.max(1024 * 1024, expectedBytes + overhead)
+  );
+  for (const [objectId, expectedSize] of expectedSizes) {
+    if (blobs.get(objectId)?.byteLength !== expectedSize) {
+      throw new Error(`Git blob ${objectId} readback size differs from ls-tree inventory`);
+    }
+  }
+  return blobs;
+}
+
 function parseTextAttribute(value: string): GitTextAttributes['textAttr'] {
   if (value === 'set') return 'set';
   if (value === 'unset') return 'unset';
-  if (value === 'unspecified') return 'unspecified';
-  throw new Error(`git check-attr returned unsupported text value "${value}"`);
+  return 'unspecified';
 }
 
 function parseEolAttribute(value: string): GitTextAttributes['eolAttr'] {
   if (value === 'lf' || value === 'crlf') return value;
-  if (value === 'unspecified') return 'unspecified';
-  throw new Error(`git check-attr returned unsupported eol value "${value}"`);
+  return 'unspecified';
+}
+
+interface IsolatedAttributeReader {
+  readonly read: (paths: readonly string[]) => ReadonlyMap<string, GitTextAttributes>;
+  readonly dispose: () => void;
+}
+
+function createIsolatedAttributeReader(
+  repositoryRoot: string,
+  sourceCommit: string
+): IsolatedAttributeReader {
+  const exactCommit = assertGitObjectId(sourceCommit, 'Attribute source commit');
+  const gitObjectsPath = gitReadText(
+    repositoryRoot,
+    ['rev-parse', '--git-path', 'objects'],
+    { maxBuffer: 1024 * 1024, label: 'git object directory' }
+  ).trim();
+  if (gitObjectsPath.length === 0) {
+    throw new Error('Git object directory could not be resolved');
+  }
+  const objectDirectory = path.isAbsolute(gitObjectsPath)
+    ? path.resolve(gitObjectsPath)
+    : path.resolve(repositoryRoot, gitObjectsPath);
+  const shadowGitDir = mkdtempSync(path.join(tmpdir(), 'sec-git-attributes-'));
+  mkdirSync(path.join(shadowGitDir, 'refs'), { recursive: true });
+  mkdirSync(path.join(shadowGitDir, 'info'), { recursive: true });
+  writeFileSync(path.join(shadowGitDir, 'HEAD'), 'ref: refs/heads/sec-attribute-source\n', 'utf8');
+  writeFileSync(
+    path.join(shadowGitDir, 'config'),
+    '[core]\n\trepositoryformatversion = 0\n\tbare = true\n',
+    'utf8'
+  );
+
+  const env = Object.freeze({
+    GIT_DIR: shadowGitDir,
+    GIT_OBJECT_DIRECTORY: objectDirectory,
+    GIT_ATTR_NOSYSTEM: '1'
+  });
+
+  const read = (paths: readonly string[]): ReadonlyMap<string, GitTextAttributes> => {
+    if (paths.length === 0) return new Map();
+    for (const filePath of paths) {
+      if (filePath.length === 0 || filePath.includes('\0')) {
+        throw new Error('Attribute input contains an invalid path');
+      }
+    }
+    const input = Buffer.from(`${paths.join('\0')}\0`, 'utf8');
+    const fields = parseNulUtf8(
+      gitReadBytes(
+        repositoryRoot,
+        ['-c', 'core.attributesFile=', 'check-attr', '-z', '--stdin', '--source', exactCommit, 'text', 'eol'],
+        {
+          input,
+          maxBuffer: Math.max(1024 * 1024, input.byteLength * 8 + 1024 * 1024),
+          label: 'git check-attr',
+          env
+        }
+      ),
+      'git check-attr'
+    );
+    if (fields.length !== paths.length * 6) {
+      throw new Error('git check-attr returned an unexpected attribute record count');
+    }
+    const attributes = new Map<string, GitTextAttributes>();
+    for (let index = 0; index < fields.length; index += 6) {
+      const expectedPath = paths[index / 6]!;
+      const pathA = fields[index]!;
+      const attrA = fields[index + 1]!;
+      const valueA = fields[index + 2]!;
+      const pathB = fields[index + 3]!;
+      const attrB = fields[index + 4]!;
+      const valueB = fields[index + 5]!;
+      if (pathA !== expectedPath || pathB !== expectedPath || attrA !== 'text' || attrB !== 'eol') {
+        throw new Error(`git check-attr returned an unexpected record order for ${expectedPath}`);
+      }
+      attributes.set(expectedPath, Object.freeze({
+        textAttr: parseTextAttribute(valueA),
+        eolAttr: parseEolAttribute(valueB)
+      }));
+    }
+    return attributes;
+  };
+
+  return Object.freeze({
+    read,
+    dispose: () => rmSync(shadowGitDir, { recursive: true, force: true })
+  });
+}
+
+export function withIsolatedTextAttributeReader<Value>(
+  repositoryRoot: string,
+  sourceCommit: string,
+  execute: (readBatch: (paths: readonly string[]) => ReadonlyMap<string, GitTextAttributes>) => Value
+): Value {
+  const reader = createIsolatedAttributeReader(repositoryRoot, sourceCommit);
+  try {
+    return execute(reader.read);
+  } finally {
+    reader.dispose();
+  }
 }
 
 export function readTextAttributesBatch(
@@ -202,43 +417,7 @@ export function readTextAttributesBatch(
   sourceCommit: string,
   paths: readonly string[]
 ): ReadonlyMap<string, GitTextAttributes> {
-  if (paths.length === 0) return new Map();
-  const exactCommit = assertGitObjectId(sourceCommit, 'Attribute source commit');
-  for (const filePath of paths) {
-    if (filePath.length === 0 || filePath.includes('\0')) {
-      throw new Error('Attribute input contains an invalid path');
-    }
-  }
-  const input = Buffer.from(`${paths.join('\0')}\0`, 'utf8');
-  const fields = parseNulUtf8(
-    gitReadBytes(
-      repositoryRoot,
-      ['check-attr', '-z', '--stdin', '--source', exactCommit, 'text', 'eol'],
-      { input, maxBuffer: 128 * 1024 * 1024, label: 'git check-attr' }
-    ),
-    'git check-attr'
-  );
-  if (fields.length !== paths.length * 6) {
-    throw new Error('git check-attr returned an unexpected attribute record count');
-  }
-  const attributes = new Map<string, GitTextAttributes>();
-  for (let index = 0; index < fields.length; index += 6) {
-    const expectedPath = paths[index / 6]!;
-    const pathA = fields[index]!;
-    const attrA = fields[index + 1]!;
-    const valueA = fields[index + 2]!;
-    const pathB = fields[index + 3]!;
-    const attrB = fields[index + 4]!;
-    const valueB = fields[index + 5]!;
-    if (pathA !== expectedPath || pathB !== expectedPath || attrA !== 'text' || attrB !== 'eol') {
-      throw new Error(`git check-attr returned an unexpected record order for ${expectedPath}`);
-    }
-    attributes.set(expectedPath, Object.freeze({
-      textAttr: parseTextAttribute(valueA),
-      eolAttr: parseEolAttribute(valueB)
-    }));
-  }
-  return attributes;
+  return withIsolatedTextAttributeReader(repositoryRoot, sourceCommit, (readBatch) => readBatch(paths));
 }
 
 export function readOptionalGitConfig(repositoryRoot: string, key: string): string {
