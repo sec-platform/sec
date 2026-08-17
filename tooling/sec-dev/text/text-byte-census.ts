@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 import {
@@ -10,86 +9,17 @@ import {
   type TextByteCensusReport,
   type TextByteClassification
 } from '../../../platform/shared/text-byte-census-contract.ts';
+import {
+  readBlobBatch,
+  readCommitBlobInventory,
+  readTextAttributesBatch,
+  resolveExactHeadCommit
+} from '../git/git-read.ts';
 
 const DEFAULT_REPOSITORY_ROOT = process.cwd();
 
-type GitCommandResult = { status: number | null; stdout: Buffer; stderr: Buffer };
-
-function runGit(repositoryRoot: string, args: readonly string[], maxBuffer: number): GitCommandResult {
-  const result = spawnSync('git', [...args], {
-    cwd: repositoryRoot,
-    encoding: 'buffer',
-    maxBuffer,
-    windowsHide: true
-  });
-  return {
-    status: result.status,
-    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? '')),
-    stderr: Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(String(result.stderr ?? ''))
-  };
-}
-
-function executeGit(repositoryRoot: string, args: readonly string[], maxBuffer: number, label: string): Buffer {
-  const result = runGit(repositoryRoot, args, maxBuffer);
-  if (result.status !== 0) {
-    const stderr = result.stderr.toString('utf8').trim();
-    throw new Error(label + (stderr ? ': ' + stderr : '.'));
-  }
-  return result.stdout;
-}
-
-function listTrackedFiles(repositoryRoot: string): string[] {
-  const stdout = executeGit(repositoryRoot, ['ls-files', '-z'], 16 * 1024 * 1024, 'git ls-files failed');
-  if (stdout.length === 0) return [];
-  return stdout.toString('binary').split('\0').filter((candidate) => candidate.length > 0);
-}
-
-function getBlobSha(repositoryRoot: string, filePath: string): string | null {
-  const result = runGit(repositoryRoot, ['ls-tree', 'HEAD', '--', filePath], 1024 * 1024);
-  if (result.status !== 0 || result.stdout.length === 0) return null;
-  const line = result.stdout.toString('utf8').trim();
-  const match = /^([0-7]{6}) ([a-z]+) ([0-9a-f]{40})\t/u.exec(line);
-  if (!match || match[2] !== 'blob') return null;
-  return match[3]!;
-}
-
-function readBlobBytes(repositoryRoot: string, blobSha: string): Buffer {
-  return executeGit(repositoryRoot, ['cat-file', 'blob', blobSha], 64 * 1024 * 1024, 'git cat-file blob failed');
-}
-
-function checkAttributes(repositoryRoot: string, filePath: string): {
-  textAttr: 'set' | 'unset' | 'unspecified';
-  eolAttr: 'lf' | 'crlf' | 'unspecified';
-} {
-  const result = runGit(repositoryRoot, ['check-attr', '-a', '--', filePath], 64 * 1024);
-  if (result.status !== 0) return { textAttr: 'unspecified', eolAttr: 'unspecified' };
-
-  const lines = result.stdout.toString('utf8').split('\n');
-  let textAttr: 'set' | 'unset' | 'unspecified' = 'unspecified';
-  let eolAttr: 'lf' | 'crlf' | 'unspecified' = 'unspecified';
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue;
-    const lastColon = trimmed.lastIndexOf(':');
-    if (lastColon <= 0) continue;
-    const value = trimmed.slice(lastColon + 1).trim();
-    const beforeValue = trimmed.slice(0, lastColon).trim();
-    const secondLastColon = beforeValue.lastIndexOf(':');
-    if (secondLastColon <= 0) continue;
-    const attr = beforeValue.slice(secondLastColon + 1).trim();
-    if (attr === 'text') {
-      if (value === 'set') textAttr = 'set';
-      else if (value === 'unset') textAttr = 'unset';
-    } else if (attr === 'eol') {
-      if (value === 'lf') eolAttr = 'lf';
-      else if (value === 'crlf') eolAttr = 'crlf';
-    }
-  }
-  return { textAttr, eolAttr };
-}
-
-function getGitattributesBlobSha(repositoryRoot: string): string | null {
-  return getBlobSha(repositoryRoot, '.gitattributes');
+function compareCodeUnits(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 export function formatTextByteCensusReport(report: TextByteCensusReport): string {
@@ -146,27 +76,38 @@ export function formatTextByteCensusReport(report: TextByteCensusReport): string
 
 export async function runCensus(repositoryRoot = DEFAULT_REPOSITORY_ROOT): Promise<TextByteCensusReport> {
   const root = path.resolve(repositoryRoot);
-  const files = listTrackedFiles(root);
-  const gitattributesBlobSha = getGitattributesBlobSha(root);
+  const sourceCommit = resolveExactHeadCommit(root);
+  const files = readCommitBlobInventory(root, sourceCommit);
+  const paths = files.map((entry) => entry.path);
+  const objectIds = [...new Set(files.map((entry) => entry.objectId))];
+  const [blobs, attributes] = [
+    readBlobBatch(root, objectIds),
+    readTextAttributesBatch(root, sourceCommit, paths)
+  ];
+  const gitattributesBlobSha = files.find((entry) => entry.path === '.gitattributes')?.objectId ?? null;
   const base = createEmptyCensusReport();
   const flaggedEntries: TextByteCensusEntry[] = [];
 
-  for (const filePath of files) {
-    const blobSha = getBlobSha(root, filePath);
-    if (blobSha === null) continue;
-    const bytes = readBlobBytes(root, blobSha);
-    const { textAttr, eolAttr } = checkAttributes(root, filePath);
+  for (const file of files) {
+    const bytes = blobs.get(file.objectId);
+    const attrs = attributes.get(file.path);
+    if (bytes === undefined) {
+      throw new Error(`Text byte census did not receive blob bytes for ${file.path}`);
+    }
+    if (attrs === undefined) {
+      throw new Error(`Text byte census did not receive attributes for ${file.path}`);
+    }
     const { classification, lineEnding, anomalies } = classifyBlobBytes({
-      path: filePath,
+      path: file.path,
       bytes: new Uint8Array(bytes),
-      textAttr,
-      eolAttr
+      textAttr: attrs.textAttr,
+      eolAttr: attrs.eolAttr
     });
     const entry: TextByteCensusEntry = {
-      path: filePath,
+      path: file.path,
       classification,
-      byteSize: bytes.length,
-      blobSha,
+      byteSize: bytes.byteLength,
+      blobSha: file.objectId,
       lineEnding,
       anomalies
     };
@@ -180,7 +121,7 @@ export async function runCensus(repositoryRoot = DEFAULT_REPOSITORY_ROOT): Promi
     || base.anomalyCounts['mixed-endings'] > 0
     || base.anomalyCounts['unknown-encoding'] > 0
     || base.anomalyCounts['attributes-missing'] > 0;
-  flaggedEntries.sort((left, right) => left.path.localeCompare(right.path));
+  flaggedEntries.sort((left, right) => compareCodeUnits(left.path, right.path));
 
   return {
     schema: TEXT_BYTE_CENSUS_SCHEMA_V1,
