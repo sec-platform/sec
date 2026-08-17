@@ -4,6 +4,7 @@ import * as path from 'node:path';
 
 import { initWorkspace } from '../../platform/orchestrator/workspace-orchestrator.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { acquireWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
 test('legacy reset flag remains compatible only on an empty create surface', async () => {
@@ -49,4 +50,16 @@ test('repeated init cannot overwrite an existing SEC workspace', async () => {
     fs.readFile(verificationReportPath)
   ]);
   expect(after).toEqual(before);
+});
+
+test('active writer contention remains a lease error instead of being relabeled as lifecycle conflict', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-init-active-writer-');
+  await initWorkspace(workspaceRoot);
+  const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+  try {
+    await expect(initWorkspace(workspaceRoot, { reset: true }))
+      .rejects.toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-001' });
+  } finally {
+    await lease.release();
+  }
 });
