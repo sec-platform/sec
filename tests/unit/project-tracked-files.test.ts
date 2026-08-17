@@ -1,19 +1,28 @@
 import { expect, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { listTrackedProjectPaths } from '../../platform/shared/project-tracked-files.ts';
 import { runCommand } from '../../platform/shared/process.ts';
-import { withTempWorkspace } from '../testkit/workspace.ts';
+
+async function withIsolatedTempDirectory<T>(callback: (root: string) => Promise<T>): Promise<T> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-tracked-project-'));
+  try {
+    return await callback(root);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+}
 
 test('tracked project observation returns null only for an actual non-repository workspace', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
+  await withIsolatedTempDirectory(async (workspaceRoot) => {
     expect(await listTrackedProjectPaths(workspaceRoot)).toBeNull();
   });
 });
 
 test('tracked project observation returns the exact Git-indexed project paths', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
+  await withIsolatedTempDirectory(async (workspaceRoot) => {
     const init = await runCommand('git', ['init', '--quiet'], { cwd: workspaceRoot });
     expect(init.code).toBe(0);
 
@@ -28,7 +37,7 @@ test('tracked project observation returns the exact Git-indexed project paths', 
 });
 
 test('tracked project observation propagates a corrupt Git index instead of treating it as untracked', async () => {
-  await withTempWorkspace(async (workspaceRoot) => {
+  await withIsolatedTempDirectory(async (workspaceRoot) => {
     const init = await runCommand('git', ['init', '--quiet'], { cwd: workspaceRoot });
     expect(init.code).toBe(0);
     await fs.writeFile(path.join(workspaceRoot, '.git', 'index'), 'not-a-git-index', 'utf8');
