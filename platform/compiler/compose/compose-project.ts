@@ -10,11 +10,15 @@ import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import type { PipelineSemanticContext } from '../../shared/pipeline-types.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
 import { CodeBuilder } from '../codegen/code-builder.ts';
-import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { lowerSemanticTasks } from '../semantic-lowering.ts';
 import { applyOverrides } from './apply-overrides.ts';
 import { formatOutputFiles } from './format-output-files.ts';
 import { applyPrefixSandboxing } from './frontend-stitching.ts';
+import {
+  GENERATED_ROUTES_ARTIFACT_PATH,
+  planGeneratedRoutesArtifactV1,
+  publishGeneratedRoutesArtifactV1
+} from './generated-routes-artifact.ts';
 import { generateRuntimeHostScaffold } from './generate-runtime-host.ts';
 import { installOpaqueModules } from './install-opaque-modules.ts';
 import { defaultInstallRegistry } from './install-strategies.ts';
@@ -23,36 +27,6 @@ import { mergePrismaTemplate } from './merge-prisma-template.ts';
 import { mergeTailwindTheme } from './merge-tailwind-theme.ts';
 import { lowerToMicroservices } from './microservice-lower-pass.ts';
 import { setProjectReadOnlyLock } from './project-readonly-lock.ts';
-
-async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<string> {
-  const routeEntries = await Promise.all(
-    lock.resolvedBlocks.map(async (block) => {
-      const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
-      return manifestEntry.manifest.routes.map(
-        (route) => `{ blockId: '${block.id}', path: '${route.path}', file: '${route.file}' }`
-      );
-    })
-  );
-
-  const builder = new CodeBuilder('generated/routes.ts')
-    .addInterface(
-      'GeneratedRoute',
-      [
-        { name: 'blockId', type: 'string' },
-        { name: 'path', type: 'string' },
-        { name: 'file', type: 'string' }
-      ],
-      true
-    )
-    .addVariable({
-      name: 'routes',
-      type: 'GeneratedRoute[]',
-      isExported: true,
-      initializer: `[\n${routeEntries.flat().map(entry => `  ${entry}`).join(',\n')}\n]`
-    });
-
-  return builder.getText();
-}
 
 function renderSlotSkeleton(task: SlotTask): string {
   if (task.mockTemplate) {
@@ -125,7 +99,7 @@ export async function composeProject(
   options?: { lockFiles?: boolean; commitFence?: CommitFence; signal?: AbortSignal }
 ): Promise<LockFile> {
   const commitFence = options?.commitFence;
-  const { projectRoot, generatedDir, blockUsageMapPath, installManifestPath } = getWorkspacePaths(workspaceRoot);
+  const { projectRoot, blockUsageMapPath, installManifestPath } = getWorkspacePaths(workspaceRoot);
 
   await setProjectReadOnlyLock(projectRoot, true, [], commitFence);
   await ensureProjectBase(workspaceRoot, commitFence);
@@ -145,15 +119,14 @@ export async function composeProject(
     status: 'installed' as const
   }));
 
-  const [routesContent] = await Promise.all([
-    renderRouteGraph(workspaceRoot, lock),
-    ensureDir(generatedDir, commitFence),
+  const [routesPlan] = await Promise.all([
+    planGeneratedRoutesArtifactV1(workspaceRoot, lock),
     ensureDir(path.dirname(blockUsageMapPath), commitFence),
     ensureDir(path.dirname(installManifestPath), commitFence)
   ]);
 
   await Promise.all([
-    writeText(path.join(generatedDir, 'routes.ts'), routesContent, commitFence),
+    publishGeneratedRoutesArtifactV1(workspaceRoot, routesPlan, commitFence),
     writeJson(blockUsageMapPath, {
       blocks: lock.resolvedBlocks.map((block) => ({
         id: block.id,
@@ -184,7 +157,7 @@ export async function composeProject(
   const initialGeneratedPaths = [
     ...semanticGeneratedPaths,
     ...runtimeScaffoldPaths,
-    'generated/routes.ts',
+    GENERATED_ROUTES_ARTIFACT_PATH,
     CI_ARTIFACT_FILES.blockUsageMap,
     CI_ARTIFACT_FILES.installManifest,
     ...opaqueGeneratedPaths,
