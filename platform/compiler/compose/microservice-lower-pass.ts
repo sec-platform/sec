@@ -13,7 +13,7 @@ import type {
 } from './microservice-deployment-contract.ts';
 import { defaultMicroserviceDeploymentBinding } from './microservice-deployment-provider.ts';
 
-const MICROSERVICE_RENDER_CONCURRENCY = 8;
+const MICROSERVICE_PUBLICATION_CONCURRENCY = 8;
 
 function buildDeploymentIntent(
   blockId: string,
@@ -62,7 +62,7 @@ async function publishRenderedArtifacts(
   artifacts: readonly RenderedMicroserviceArtifact[],
   commitFence?: CommitFence
 ): Promise<string[]> {
-  const limit = createConcurrencyLimit(MICROSERVICE_RENDER_CONCURRENCY);
+  const limit = createConcurrencyLimit(MICROSERVICE_PUBLICATION_CONCURRENCY);
   await Promise.all(artifacts.map((artifact) => limit(async () => {
     const target = resolveRenderedArtifactPath(projectRoot, artifact);
     await ensureDir(path.dirname(target), commitFence);
@@ -81,13 +81,8 @@ export async function lowerToMicroservicesWithRenderer(
   if (lock.app.target !== 'microservices') return [];
 
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
-  const limit = createConcurrencyLimit(MICROSERVICE_RENDER_CONCURRENCY);
-  const renderedByBlock = await Promise.all(
-    lock.resolvedBlocks.map((block) => limit(() => renderer.render(
-      buildDeploymentIntent(block.id, resilience)
-    )))
-  );
-  const artifacts = renderedByBlock.flat();
+  const intents = lock.resolvedBlocks.map((block) => buildDeploymentIntent(block.id, resilience));
+  const artifacts = await renderer.render(intents);
   assertUniqueRenderedArtifactPaths(renderer, artifacts);
   for (const artifact of artifacts) resolveRenderedArtifactPath(projectRoot, artifact);
   return publishRenderedArtifacts(projectRoot, artifacts, commitFence);
