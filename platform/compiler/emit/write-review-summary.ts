@@ -28,11 +28,11 @@ import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
 import {
-  buildRuntimeAttribution,
   buildRuntimeAttributions,
   buildVerticalSliceAttributions,
   classifyRuntimeEntry,
-  detectVerticalFromPath
+  detectVerticalFromPath,
+  type RuntimeAttribution
 } from './runtime-attribution.ts';
 
 function failurePointKey(point: ReviewFailurePoint): string {
@@ -128,12 +128,16 @@ function addVerificationFailurePoint(points: ReviewFailurePoint[], spec: Verific
   }
 }
 
-async function mapOverrideTarget(lock: LockFile, target: string): Promise<Pick<ReviewRegressionRisk, 'blockId' | 'slotId'>> {
+function mapOverrideTarget(
+  lock: LockFile,
+  target: string,
+  runtimeEntryByPath: ReadonlyMap<string, RuntimeAttribution>
+): Pick<ReviewRegressionRisk, 'blockId' | 'slotId'> {
   const slotTask = lock.slotTasks.find((task) => task.target === target);
   if (slotTask) return { blockId: slotTask.block, slotId: slotTask.id };
   const installStep = lock.installPlan.find((step) => step.to === target);
   if (installStep) return { blockId: installStep.blockId };
-  const runtimeEntry = await buildRuntimeAttribution(lock, target);
+  const runtimeEntry = runtimeEntryByPath.get(target);
   if (runtimeEntry?.relatedBlocks.length) {
     const verticalBlock = runtimeEntry.vertical ? `${runtimeEntry.vertical}/basic` : null;
     return { blockId: verticalBlock && runtimeEntry.relatedBlocks.includes(verticalBlock) ? verticalBlock : runtimeEntry.relatedBlocks[0] };
@@ -432,6 +436,15 @@ export async function buildReviewSummary(
 ): Promise<ReviewSummary> {
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
   const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } = await readReviewGovernanceReports(workspaceRoot);
+  const attributionTargets = uniqueSorted([
+    ...provenance.artifacts.map((artifact) => artifact.path),
+    ...overrideManifest.overrides.map((override) => override.target)
+  ]);
+  const allRuntimeEntries = await buildRuntimeAttributions(lock, attributionTargets, workspaceRoot);
+  const runtimeEntryByPath = new Map(allRuntimeEntries.map((entry) => [entry.path, entry] as const));
+  const provenancePaths = new Set(provenance.artifacts.map((artifact) => artifact.path));
+  const runtimeEntries = allRuntimeEntries.filter((entry) => provenancePaths.has(entry.path));
+
   const coverageSummary = buildCoverageSummary(coverage);
   const provenanceSummary = buildProvenanceSummary(provenance);
   const policySummary = policyReport ? buildReviewPolicySummary(policyReport) : undefined;
@@ -468,7 +481,11 @@ export async function buildReviewSummary(
   }
 
   for (const override of overrideManifest.overrides) {
-    addRegressionRisk(regressionRisks, { kind: 'override-active', message: `Override active: ${override.id} -> ${override.target}`, ...await mapOverrideTarget(lock, override.target) });
+    addRegressionRisk(regressionRisks, {
+      kind: 'override-active',
+      message: `Override active: ${override.id} -> ${override.target}`,
+      ...mapOverrideTarget(lock, override.target, runtimeEntryByPath)
+    });
     for (const conflict of override.conflictsWith) {
       addConflictHint(conflictHints, { kind: 'override-conflict', relatedId: conflict, message: `Override ${override.id} conflicts with ${conflict}` });
     }
@@ -515,8 +532,6 @@ export async function buildReviewSummary(
     }
   }
 
-  const runtimeEntries = await buildRuntimeAttributions(lock, provenance.artifacts.map((a) => a.path));
-  const runtimeEntryByPath = new Map(runtimeEntries.map((e) => [e.path, e]));
   const changeSources = provenance.artifacts.map((artifact) => {
     const runtimeEntry = runtimeEntryByPath.get(artifact.path);
     return {
