@@ -80,6 +80,26 @@ function assertGitObjectId(value: string, label: string): string {
   return value;
 }
 
+function assertTrackedWorktreeMatchesCommit(repositoryRoot: string, sourceCommit: string): void {
+  const result = command(
+    repositoryRoot,
+    'git',
+    ['diff', '--quiet', sourceCommit, '--'],
+    undefined,
+    16 * 1024 * 1024
+  );
+  if (result.error) {
+    throw new Error('Release tracked worktree comparison could not start', { cause: result.error });
+  }
+  if (result.status === 1) {
+    throw new Error('Release tracked worktree/index differs from captured source commit');
+  }
+  if (result.status !== 0) {
+    const detail = result.stderr.toString('utf8').trim();
+    throw new Error(`Release tracked worktree comparison failed${detail ? `: ${detail}` : ''}`);
+  }
+}
+
 function assertReleaseGitTreeOrdinary(repositoryRoot: string, sourceCommit: string): void {
   const output = commandBytes(
     repositoryRoot,
@@ -263,6 +283,7 @@ export async function prepareFrozenReleaseSourceV1(repositoryRoot: string): Prom
     gitText(absoluteRepositoryRoot, ['rev-parse', '--verify', 'HEAD^{commit}']),
     'Release source Git commit identity'
   );
+  assertTrackedWorktreeMatchesCommit(absoluteRepositoryRoot, sourceCommit);
   const sourceTree = assertGitObjectId(
     gitText(absoluteRepositoryRoot, ['rev-parse', '--verify', `${sourceCommit}^{tree}`]),
     'Release source Git tree identity'
