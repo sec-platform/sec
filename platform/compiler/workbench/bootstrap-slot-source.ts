@@ -1,11 +1,16 @@
-import { randomUUID } from 'node:crypto';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { CompilerError } from '../../shared/errors.ts';
-import { ensureDir, type CommitFence } from '../../shared/fs.ts';
+import type { CommitFence } from '../../shared/fs.ts';
 import { readLockFile } from '../../shared/lock-utils.ts';
 import type { SlotTask } from '../../shared/lock-types.ts';
+import {
+  createNoFollowDirectoryChainV1,
+  inspectNoFollowDirectoryChainV1,
+  PhysicalNoFollowError,
+  publishExclusiveDurableCanonicalFileV1,
+  readNoFollowOrdinaryFileV1
+} from '../../shared/physical-no-follow.ts';
 import {
   getWorkspacePaths,
   isPathInside,
@@ -15,6 +20,7 @@ import {
 
 const SLOT_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const TYPESCRIPT_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/u;
+const NO_FOLLOW_CREATABLE_DIRECTORY_SEGMENT = /^[a-z0-9-]+$/u;
 
 export interface BootstrapSlotSourceResult {
   readonly status: 'created' | 'existing';
@@ -26,6 +32,11 @@ export interface ResolvedAuthorizedSlotSource {
   readonly relativePath: string;
   readonly targetPath: string;
   readonly lexicalRoot: string;
+}
+
+export interface ReadAuthorizedSlotSourceResult {
+  readonly path: string;
+  readonly bytes: Uint8Array;
 }
 
 function assertSlotId(slotId: string): void {
@@ -75,30 +86,6 @@ function slotSourceRelativePath(task: SlotTask): string {
   return candidate;
 }
 
-async function assertExistingAncestorsAreDirectories(root: string, targetDirectory: string): Promise<void> {
-  const resolvedRoot = path.resolve(root);
-  const resolvedTarget = path.resolve(targetDirectory);
-  if (!isPathInside(resolvedRoot, resolvedTarget)) {
-    throw new CompilerError('WORKBENCH-SLOT-004', 'Workbench slot source escaped the workspace root');
-  }
-  const relative = path.relative(resolvedRoot, resolvedTarget);
-  let cursor = resolvedRoot;
-  for (const segment of relative.split(path.sep).filter(Boolean)) {
-    cursor = path.join(cursor, segment);
-    const metadata = await fs.lstat(cursor).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return null;
-      throw error;
-    });
-    if (metadata === null) return;
-    if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
-      throw new CompilerError(
-        'WORKBENCH-SLOT-004',
-        `Workbench slot ancestor is not one ordinary directory: ${cursor}`
-      );
-    }
-  }
-}
-
 function lexicalSlotRoot(workspaceRoot: string, targetPath: string): string {
   const { sourceSlotsRoot, legacySourceSlotsRoot } = getWorkspacePaths(workspaceRoot);
   if (isPathInside(sourceSlotsRoot, targetPath)) return sourceSlotsRoot;
@@ -106,6 +93,13 @@ function lexicalSlotRoot(workspaceRoot: string, targetPath: string): string {
   throw new CompilerError(
     'WORKBENCH-SLOT-003',
     'Workbench slot source escaped the configured source-slot roots'
+  );
+}
+
+function workbenchPhysicalError(message: string, error: unknown): CompilerError {
+  return new CompilerError(
+    'WORKBENCH-SLOT-004',
+    `${message}${error instanceof Error ? `: ${error.message}` : ''}`
   );
 }
 
@@ -122,27 +116,72 @@ export async function resolveAuthorizedSlotSource(
   const relativePath = slotSourceRelativePath(task);
   const targetPath = path.resolve(workspaceRoot, ...relativePath.split('/'));
   const lexicalRoot = lexicalSlotRoot(workspaceRoot, targetPath);
-  await assertExistingAncestorsAreDirectories(workspaceRoot, path.dirname(targetPath));
 
   return Object.freeze({ task, relativePath, targetPath, lexicalRoot });
 }
 
-async function preparePhysicalSlotBoundary(
-  workspaceRoot: string,
-  resolved: ResolvedAuthorizedSlotSource,
-  commitFence?: CommitFence
-): Promise<void> {
-  await assertExistingAncestorsAreDirectories(workspaceRoot, path.dirname(resolved.targetPath));
-  await ensureDir(resolved.lexicalRoot, commitFence);
-  await ensureDir(path.dirname(resolved.targetPath), commitFence);
-  await assertExistingAncestorsAreDirectories(workspaceRoot, path.dirname(resolved.targetPath));
+function existingSlotParent(resolved: ResolvedAuthorizedSlotSource) {
+  try {
+    return inspectNoFollowDirectoryChainV1(
+      path.dirname(resolved.targetPath),
+      'Workbench slot source parent'
+    ).target;
+  } catch (error) {
+    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
+      return null;
+    }
+    throw workbenchPhysicalError('Workbench slot source parent cannot be proven no-follow', error);
+  }
+}
 
-  const [physicalRoot, physicalParent] = await Promise.all([
-    fs.realpath(resolved.lexicalRoot),
-    fs.realpath(path.dirname(resolved.targetPath))
-  ]);
-  if (!isPathInside(physicalRoot, physicalParent)) {
-    throw new CompilerError('WORKBENCH-SLOT-004', 'Workbench slot source traverses a symbolic-link/reparse boundary');
+function createSlotParent(workspaceRoot: string, resolved: ResolvedAuthorizedSlotSource) {
+  const workspacePath = path.resolve(workspaceRoot);
+  const parentPath = path.dirname(resolved.targetPath);
+  const relative = path.relative(workspacePath, parentPath);
+  if (relative === '' || path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) {
+    throw new CompilerError('WORKBENCH-SLOT-004', 'Workbench slot source parent escaped the workspace root');
+  }
+  const segments = relative.split(path.sep).filter(Boolean);
+  if (segments.some((segment) => !NO_FOLLOW_CREATABLE_DIRECTORY_SEGMENT.test(segment))) {
+    throw new CompilerError(
+      'WORKBENCH-SLOT-004',
+      'Workbench cannot safely create a missing slot-source directory whose segment is outside the retained no-follow directory contract'
+    );
+  }
+
+  try {
+    const workspace = inspectNoFollowDirectoryChainV1(
+      workspacePath,
+      'Workbench workspace root'
+    ).target;
+    return createNoFollowDirectoryChainV1(workspace, segments);
+  } catch (error) {
+    throw workbenchPhysicalError('Workbench slot source parent creation failed closed', error);
+  }
+}
+
+function slotParent(workspaceRoot: string, resolved: ResolvedAuthorizedSlotSource, create: boolean) {
+  const existing = existingSlotParent(resolved);
+  if (existing !== null) return existing;
+  if (!create) return null;
+  return createSlotParent(workspaceRoot, resolved);
+}
+
+export async function readAuthorizedSlotSource(
+  workspaceRoot: string,
+  slotId: string,
+  blockId?: string
+): Promise<ReadAuthorizedSlotSourceResult | null> {
+  const resolved = await resolveAuthorizedSlotSource(workspaceRoot, slotId, blockId);
+  const parent = slotParent(workspaceRoot, resolved, false);
+  if (parent === null) return null;
+  try {
+    const bytes = readNoFollowOrdinaryFileV1(parent, path.basename(resolved.targetPath));
+    return bytes === null
+      ? null
+      : Object.freeze({ path: resolved.relativePath, bytes });
+  } catch (error) {
+    throw workbenchPhysicalError('Workbench slot source cannot be read as one retained ordinary file', error);
   }
 }
 
@@ -162,64 +201,6 @@ function genericSlotSource(task: SlotTask): string {
   ].join('\n');
 }
 
-async function existingOrdinaryFile(targetPath: string): Promise<boolean> {
-  const metadata = await fs.lstat(targetPath).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === 'ENOENT') return null;
-    throw error;
-  });
-  if (metadata === null) return false;
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
-    throw new CompilerError(
-      'WORKBENCH-SLOT-006',
-      'Existing slot source is not one unaliased ordinary file'
-    );
-  }
-  return true;
-}
-
-async function publishCreateOnly(
-  targetPath: string,
-  expectedBytes: Buffer,
-  commitFence?: CommitFence
-): Promise<'created' | 'existing'> {
-  if (await existingOrdinaryFile(targetPath)) return 'existing';
-
-  const temporaryPath = path.join(
-    path.dirname(targetPath),
-    `.${path.basename(targetPath)}.bootstrap-${randomUUID()}.tmp`
-  );
-  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
-  try {
-    handle = await fs.open(temporaryPath, 'wx', 0o600);
-    await handle.writeFile(expectedBytes);
-    await handle.sync();
-    await handle.close();
-    handle = null;
-
-    await commitFence?.();
-    try {
-      await fs.link(temporaryPath, targetPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-        if (await existingOrdinaryFile(targetPath)) return 'existing';
-      }
-      throw error;
-    }
-
-    const readback = await fs.readFile(targetPath);
-    if (!readback.equals(expectedBytes)) {
-      throw new CompilerError(
-        'WORKBENCH-SLOT-007',
-        'Published slot source could not be read back as the exact planned bytes'
-      );
-    }
-    return 'created';
-  } finally {
-    if (handle) await handle.close().catch(() => undefined);
-    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
-  }
-}
-
 export async function bootstrapAuthorizedSlotSource(
   workspaceRoot: string,
   blockId: string,
@@ -227,13 +208,41 @@ export async function bootstrapAuthorizedSlotSource(
   commitFence?: CommitFence
 ): Promise<BootstrapSlotSourceResult> {
   const resolved = await resolveAuthorizedSlotSource(workspaceRoot, slotId, blockId);
-  await preparePhysicalSlotBoundary(workspaceRoot, resolved, commitFence);
+  await commitFence?.();
+  const parent = slotParent(workspaceRoot, resolved, true);
+  if (parent === null) {
+    throw new CompilerError('WORKBENCH-SLOT-004', 'Workbench slot source parent is unavailable');
+  }
+  const leaf = path.basename(resolved.targetPath);
+
+  try {
+    const existing = readNoFollowOrdinaryFileV1(parent, leaf);
+    if (existing !== null) {
+      return Object.freeze({ status: 'existing', path: resolved.relativePath });
+    }
+  } catch (error) {
+    throw workbenchPhysicalError('Existing Workbench slot source is not one retained ordinary file', error);
+  }
 
   const source = resolved.task.mockTemplate ?? genericSlotSource(resolved.task);
-  const status = await publishCreateOnly(
-    resolved.targetPath,
-    Buffer.from(source, 'utf8'),
-    commitFence
-  );
-  return Object.freeze({ status, path: resolved.relativePath });
+  const expected = Buffer.from(source, 'utf8');
+  await commitFence?.();
+  try {
+    const published = publishExclusiveDurableCanonicalFileV1({
+      parent,
+      name: leaf,
+      bytes: expected,
+      validate: (bytes) => {
+        if (!Buffer.from(bytes).equals(expected)) {
+          throw new Error('Workbench bootstrap bytes changed during retained publication');
+        }
+      }
+    });
+    return Object.freeze({
+      status: published.created ? 'created' : 'existing',
+      path: resolved.relativePath
+    });
+  } catch (error) {
+    throw workbenchPhysicalError('Workbench slot source publication failed closed', error);
+  }
 }
