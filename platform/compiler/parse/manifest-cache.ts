@@ -12,15 +12,21 @@ export interface ManifestCacheKey {
   readonly sourceDigest: `sha256:${string}`;
 }
 
+interface ManifestCacheRecord {
+  readonly sourceDigest: `sha256:${string}`;
+  readonly entry: ManifestEntry;
+}
+
 /**
  * In-process parse/validation cache only. It is never an authority source.
- * The key binds both logical registry identity and exact observed source bytes,
- * so a long-lived process cannot reuse a parsed manifest after its source changes.
+ * One logical manifest locator owns at most one cache record; exact observed
+ * source bytes decide whether that record is reusable. New source bytes replace
+ * the old record instead of retaining an unbounded history of stale revisions.
  */
 class ManifestCache {
-  private readonly entries = new Map<string, ManifestEntry>();
+  private readonly records = new Map<string, ManifestCacheRecord>();
 
-  private cacheKey(key: ManifestCacheKey): string {
+  private locatorKey(key: ManifestCacheKey): string {
     return JSON.stringify([
       key.workspaceRoot,
       key.registrySourceId,
@@ -28,13 +34,13 @@ class ManifestCache {
       key.registryLocation,
       key.registryPath,
       key.blockId,
-      key.version ?? null,
-      key.sourceDigest
+      key.version ?? null
     ]);
   }
 
   get(key: ManifestCacheKey): ManifestEntry | undefined {
-    return this.entries.get(this.cacheKey(key));
+    const record = this.records.get(this.locatorKey(key));
+    return record?.sourceDigest === key.sourceDigest ? record.entry : undefined;
   }
 
   set(key: ManifestCacheKey, entry: ManifestEntry): void {
@@ -48,11 +54,14 @@ class ManifestCache {
     ) {
       throw new Error('Manifest cache entry does not match its causal registry identity.');
     }
-    this.entries.set(this.cacheKey(key), entry);
+    this.records.set(this.locatorKey(key), Object.freeze({
+      sourceDigest: key.sourceDigest,
+      entry
+    }));
   }
 
   clear(): void {
-    this.entries.clear();
+    this.records.clear();
   }
 }
 
