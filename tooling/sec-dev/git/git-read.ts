@@ -28,7 +28,7 @@ export interface GitBlobBatchLimits {
 }
 
 const GIT_OBJECT_ID_PATTERN = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
-const GIT_REPOSITORY_REDIRECTION_ENV_KEYS = [
+const AMBIENT_GIT_ENV_KEYS = [
   'GIT_DIR',
   'GIT_WORK_TREE',
   'GIT_INDEX_FILE',
@@ -37,7 +37,11 @@ const GIT_REPOSITORY_REDIRECTION_ENV_KEYS = [
   'GIT_ALTERNATE_OBJECT_DIRECTORIES',
   'GIT_NAMESPACE',
   'GIT_CEILING_DIRECTORIES',
-  'GIT_DISCOVERY_ACROSS_FILESYSTEM'
+  'GIT_DISCOVERY_ACROSS_FILESYSTEM',
+  'GIT_ATTR_SOURCE',
+  'GIT_GLOB_PATHSPECS',
+  'GIT_NOGLOB_PATHSPECS',
+  'GIT_ICASE_PATHSPECS'
 ] as const;
 
 function positiveSafeInteger(value: number, label: string): number {
@@ -51,8 +55,9 @@ function isolatedGitEnvironment(
   overrides: Readonly<Record<string, string>> | undefined
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of GIT_REPOSITORY_REDIRECTION_ENV_KEYS) delete env[key];
+  for (const key of AMBIENT_GIT_ENV_KEYS) delete env[key];
   env.GIT_NO_REPLACE_OBJECTS = '1';
+  env.GIT_NO_LAZY_FETCH = '1';
   env.GIT_OPTIONAL_LOCKS = '0';
   env.GIT_LITERAL_PATHSPECS = '1';
   for (const [key, value] of Object.entries(overrides ?? {})) env[key] = value;
