@@ -35,13 +35,13 @@ import {
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
+import { lintSlotCapabilities } from './slot-capability-lint.ts';
 import {
   consumeStagedVerificationProof,
   revalidateStagedVerificationProof,
   type StagedVerificationProof
 } from './staged-verification-proof.ts';
 import { typecheckProject } from './typecheck-project.ts';
-import { validateSlotSecurity } from './validate-slot-security.ts';
 
 interface SuiteModule {
   runSuite?: () => Promise<void> | void;
@@ -323,7 +323,7 @@ export async function verifyProject(
 
   await emitVerifyBoundary(options, 'verify-preflight');
   await checkProjectBeforeVerify(workspaceRoot);
-  await validateSlotSecurity(workspaceRoot, lock);
+  await lintSlotCapabilities(workspaceRoot, lock);
   if (options.isolated) {
     await ensureProjectDependencies(projectRoot, {
       beforeCommit: options.beforeCommit,
