@@ -66,11 +66,24 @@ export async function readLockFile(workspaceRoot: string): Promise<LockFile> {
   throw missingLockError(lockPath);
 }
 
+function canonicalWorkspaceRootForLockPath(lockPath: string): string {
+  const absolutePath = path.resolve(lockPath);
+  const stateRoot = path.dirname(absolutePath);
+  const controlRoot = path.dirname(stateRoot);
+  const workspaceRoot = path.dirname(controlRoot);
+  const expectedLockPath = path.resolve(getWorkspacePaths(workspaceRoot).lockPath);
+  if (absolutePath !== expectedLockPath) {
+    throw new Error(`Refusing non-canonical Lock publication path: ${absolutePath}`);
+  }
+  return workspaceRoot;
+}
+
 async function retainedLockParent(
   lockPath: string,
   commitFence?: CommitFence
 ): Promise<PhysicalDirectoryIdentityV1> {
   const absolutePath = path.resolve(lockPath);
+  const workspaceRoot = canonicalWorkspaceRootForLockPath(absolutePath);
   const parentPath = path.dirname(absolutePath);
   try {
     return inspectNoFollowDirectoryChainV1(parentPath, 'Lock parent directory').target;
@@ -80,15 +93,6 @@ async function retainedLockParent(
     }
   }
 
-  if (
-    path.basename(absolutePath) !== 'graph.lock.json' ||
-    path.basename(parentPath) !== 'state' ||
-    path.basename(path.dirname(parentPath)) !== 'control'
-  ) {
-    throw new Error(`Cannot create a non-canonical Lock parent for "${absolutePath}"`);
-  }
-
-  const workspaceRoot = path.dirname(path.dirname(parentPath));
   const workspace = inspectNoFollowDirectoryChainV1(workspaceRoot, 'Lock workspace root').target;
   await commitFence?.();
   return createNoFollowDirectoryChainV1(workspace, ['control', 'state']);
@@ -104,7 +108,7 @@ async function publishLockAtPath(
   await commitFence?.();
   replaceDurableCanonicalFileV1({
     parent,
-    name: path.basename(lockPath),
+    name: 'graph.lock.json',
     bytes,
     validate: (current) => {
       if (!Buffer.from(current).equals(bytes)) {
