@@ -31,3 +31,10 @@ test('default provider selection is isolated in one compatibility binding owner'
   expect(source).toContain('DEFAULT_MICROSERVICE_RESILIENCE_POLICY');
   expect(source).toContain('defaultMicroserviceDeploymentBinding');
 });
+
+test('default adapter observes canonical Bun runtime version once for the whole intent batch', async () => {
+  const source = await readCompilerFile('platform/compiler/compose/microservice-next-bun-docker-adapter.ts');
+  expect(source.match(/loadCanonicalBunRuntimeVersion\(\)/g)).toHaveLength(1);
+  expect(source).toContain('renderNextBunDockerArtifacts');
+  expect(source).toContain('intents.flatMap');
+});
