@@ -21,10 +21,49 @@ function createConcurrencyLimit(concurrency: number) {
   });
 }
 
+async function readLstatOrNull(targetPath: string): Promise<Awaited<ReturnType<typeof fs.lstat>> | null> {
+  try {
+    return await fs.lstat(targetPath);
+  } catch (error) {
+    if (isFileNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+async function prepareOrdinaryFileWrite(targetPath: string, commitFence?: CommitFence): Promise<void> {
+  const metadata = await readLstatOrNull(targetPath);
+  if (metadata === null) return;
+  if (metadata.isSymbolicLink() || !metadata.isFile()) {
+    throw new Error(`Refusing to write through non-ordinary target: ${targetPath}`);
+  }
+  if (metadata.nlink > 1) {
+    await commitFence?.();
+    await fs.unlink(targetPath);
+  }
+}
+
+async function ensureOrdinaryDirectory(dirPath: string, commitFence?: CommitFence): Promise<void> {
+  const before = await readLstatOrNull(dirPath);
+  if (before !== null) {
+    if (before.isSymbolicLink() || !before.isDirectory()) {
+      throw new Error(`Refusing to use non-ordinary directory target: ${dirPath}`);
+    }
+    return;
+  }
+  await ensureDir(dirPath, commitFence);
+  const after = await fs.lstat(dirPath);
+  if (after.isSymbolicLink() || !after.isDirectory()) {
+    throw new Error(`Directory target changed into a non-ordinary path: ${dirPath}`);
+  }
+}
+
 /**
  * Directory existence is physical state, not process-local cache state.
  * Recursive mkdir is idempotent; always performing it keeps correctness under
  * external cleanup, workspace replacement, and long-lived Workbench processes.
+ * Callers that require containment against an allowed root must still perform
+ * root/ancestor validation; this primitive only guarantees the final directory
+ * entry itself is not silently treated as a file write target.
  */
 export async function ensureDir(dirPath: string, commitFence?: CommitFence): Promise<void> {
   await commitFence?.();
@@ -69,6 +108,7 @@ export async function writeJson(
   commitFence?: CommitFence
 ): Promise<void> {
   await ensureDir(path.dirname(filePath), commitFence);
+  await prepareOrdinaryFileWrite(filePath, commitFence);
   await commitFence?.();
   await fs.writeFile(filePath, formatJsonFile(value), 'utf8');
 }
@@ -83,9 +123,12 @@ export async function copyRecursive(
   target: string,
   commitFence?: CommitFence
 ): Promise<void> {
-  const stat = await fs.stat(source);
-  if (stat.isDirectory()) {
-    await ensureDir(target, commitFence);
+  const sourceMetadata = await fs.lstat(source);
+  if (sourceMetadata.isSymbolicLink()) {
+    throw new Error(`Refusing to copy symbolic-link source: ${source}`);
+  }
+  if (sourceMetadata.isDirectory()) {
+    await ensureOrdinaryDirectory(target, commitFence);
     const entries = (await fs.readdir(source)).sort();
     const limit = createConcurrencyLimit(8);
     await Promise.all(
@@ -95,21 +138,34 @@ export async function copyRecursive(
     );
     return;
   }
+  if (!sourceMetadata.isFile()) {
+    throw new Error(`Refusing to copy non-ordinary source: ${source}`);
+  }
   await ensureDir(path.dirname(target), commitFence);
+  await prepareOrdinaryFileWrite(target, commitFence);
   await commitFence?.();
   await fs.copyFile(source, target);
 }
 
 export async function listFilesRecursive(rootDir: string): Promise<string[]> {
   try {
-    const metadata = await fs.stat(rootDir);
+    const metadata = await fs.lstat(rootDir);
+    if (metadata.isSymbolicLink()) {
+      throw new Error(`Refusing to enumerate symbolic-link root: ${rootDir}`);
+    }
     if (!metadata.isDirectory()) return [];
   } catch (error) {
     if (isFileNotFoundError(error)) return [];
     throw error;
   }
   const { globby } = await import('globby');
-  return (await globby('**/*', { cwd: rootDir, absolute: true, dot: false, onlyFiles: true })).sort();
+  return (await globby('**/*', {
+    cwd: rootDir,
+    absolute: true,
+    dot: false,
+    onlyFiles: true,
+    followSymbolicLinks: false
+  })).sort();
 }
 
 export async function readText(filePath: string): Promise<string> {
@@ -118,19 +174,7 @@ export async function readText(filePath: string): Promise<string> {
 
 export async function writeText(filePath: string, text: string, commitFence?: CommitFence): Promise<void> {
   await ensureDir(path.dirname(filePath), commitFence);
-  await commitFence?.();
-  // Copy-on-write: if the file has multiple hard links (e.g. from workspace
-  // template cloning via fs.link), break the link before writing so a project
-  // edit cannot mutate the shared template inode. Non-ENOENT stat failures are
-  // real errors and must never be reclassified as "file absent".
-  try {
-    const existing = await fs.stat(filePath);
-    if (existing.nlink > 1) {
-      await fs.unlink(filePath);
-    }
-  } catch (error) {
-    if (!isFileNotFoundError(error)) throw error;
-  }
+  await prepareOrdinaryFileWrite(filePath, commitFence);
   await commitFence?.();
   await fs.writeFile(filePath, text, 'utf8');
 }
