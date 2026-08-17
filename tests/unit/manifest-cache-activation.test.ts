@@ -1,4 +1,8 @@
-import { expect, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import {
   loadManifestById,
   loadManifestForResolvedBlock
@@ -6,64 +10,78 @@ import {
 import { manifestCache } from '../../platform/compiler/parse/manifest-cache.ts';
 
 const BLOCK_ID = 'ticket/basic';
+const temporaryRoots: string[] = [];
 
-test('loadManifestById populates manifestCache after reading from disk', async () => {
+afterEach(async () => {
   manifestCache.clear();
-
-  const entry = await loadManifestById(BLOCK_ID);
-
-  const cached = manifestCache.get({ blockId: BLOCK_ID });
-  expect(cached).toBeDefined();
-  expect(cached).toBe(entry);
+  await Promise.all(temporaryRoots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
-test('loadManifestById checks manifestCache before disk', async () => {
+test('repeated manifest loads reuse the exact parsed entry when source bytes are unchanged', async () => {
   manifestCache.clear();
-
-  // First call reads from disk and populates the cache
   const first = await loadManifestById(BLOCK_ID);
-  expect(manifestCache.get({ blockId: BLOCK_ID })).toBe(first);
-
-  // Second call must return the cached entry (same object reference).
-  // If it re-read from disk, a new ManifestEntry object would be created.
   const second = await loadManifestById(BLOCK_ID);
   expect(second).toBe(first);
 });
 
-test('calling loadManifestById twice for the same block only reads disk once', async () => {
-  manifestCache.clear();
-
-  const first = await loadManifestById(BLOCK_ID);
-  const second = await loadManifestById(BLOCK_ID);
-
-  // Same reference proves the second call was served from cache, not re-read from disk
-  expect(second).toBe(first);
-});
-
-test('loadManifestForResolvedBlock populates manifestCache after reading', async () => {
-  manifestCache.clear();
-
-  // Discover the real version + registry info from the root manifest
-  const entry = await loadManifestById(BLOCK_ID);
+test('resolved block loads preserve exact registry source identity', async () => {
+  const discovered = await loadManifestById(BLOCK_ID);
   const block = {
-    id: entry.manifest.id,
-    version: entry.manifest.version,
-    registrySourceId: entry.registrySourceId,
-    registryKind: entry.registryKind,
-    registryLocation: entry.registryLocation,
-    registryPath: entry.registryPath
+    id: discovered.manifest.id,
+    version: discovered.manifest.version,
+    registrySourceId: discovered.registrySourceId,
+    registryKind: discovered.registryKind,
+    registryLocation: discovered.registryLocation,
+    registryPath: discovered.registryPath
   };
 
   manifestCache.clear();
+  const first = await loadManifestForResolvedBlock(process.cwd(), block);
+  const second = await loadManifestForResolvedBlock(process.cwd(), block);
+  expect(second).toBe(first);
+  expect(second.registrySourceId).toBe(block.registrySourceId);
+  expect(second.registryKind).toBe(block.registryKind);
+  expect(second.registryLocation).toBe(block.registryLocation);
+  expect(second.registryPath).toBe(block.registryPath);
+});
 
-  const workspaceRoot = process.cwd();
-  const loaded = await loadManifestForResolvedBlock(workspaceRoot, block);
+test('source byte changes invalidate a long-lived manifest cache entry', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-manifest-cache-'));
+  temporaryRoots.push(workspaceRoot);
+  const registryPath = 'registry-cache-fixture';
+  const manifestDirectory = path.join(workspaceRoot, registryPath, 'cache__probe');
+  const manifestPath = path.join(manifestDirectory, 'block.manifest.yaml');
+  await fs.mkdir(manifestDirectory, { recursive: true });
 
-  const cached = manifestCache.get({
-    blockId: BLOCK_ID,
-    version: entry.manifest.version,
-    workspaceRoot
-  });
-  expect(cached).toBeDefined();
-  expect(cached).toBe(loaded);
+  const manifest = (version: string) => [
+    'id: cache/probe',
+    `version: ${version}`,
+    'kind: capability',
+    'stackProfiles: [next-bun]',
+    'requires: []',
+    'provides: []',
+    'conflicts: []',
+    'installs:',
+    '  - kind: template',
+    '    from: source.ts',
+    '    to: source.ts',
+    'pins: { inputs: [], outputs: [] }',
+    'slots: []',
+    'acceptance: []',
+    'routes: []',
+    'contracts: []',
+    'generators: []',
+    ''
+  ].join('\n');
+
+  await fs.writeFile(manifestPath, manifest('1.0.0'), 'utf8');
+  const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: registryPath }] as const;
+  const first = await loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] });
+
+  await fs.writeFile(manifestPath, manifest('1.0.1'), 'utf8');
+  const second = await loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] });
+
+  expect(first.manifest.version).toBe('1.0.0');
+  expect(second.manifest.version).toBe('1.0.1');
+  expect(second).not.toBe(first);
 });
