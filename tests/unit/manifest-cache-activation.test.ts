@@ -8,6 +8,7 @@ import {
   loadManifestForResolvedBlock
 } from '../../platform/compiler/parse/load-manifest.ts';
 import { manifestCache } from '../../platform/compiler/parse/manifest-cache.ts';
+import { blockDirName, resolveRegistryRoot } from '../../platform/shared/paths.ts';
 
 const BLOCK_ID = 'ticket/basic';
 const temporaryRoots: string[] = [];
@@ -49,7 +50,8 @@ test('source byte changes invalidate a long-lived manifest cache entry', async (
   const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-manifest-cache-'));
   temporaryRoots.push(workspaceRoot);
   const registryPath = 'registry-cache-fixture';
-  const manifestDirectory = path.join(workspaceRoot, registryPath, 'cache__probe');
+  const registryRoot = resolveRegistryRoot(workspaceRoot, 'workspace', registryPath);
+  const manifestDirectory = path.join(registryRoot, blockDirName('cache/probe'));
   const manifestPath = path.join(manifestDirectory, 'block.manifest.yaml');
   await fs.mkdir(manifestDirectory, { recursive: true });
 
