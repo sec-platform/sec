@@ -1,9 +1,12 @@
 import path from 'node:path';
 
+import { formatJsonFile, type CommitFence } from '../shared/fs.ts';
 import {
+  createNoFollowDirectoryChainV1,
   inspectNoFollowDirectoryChainV1,
   PhysicalNoFollowError,
-  readNoFollowOrdinaryFileV1
+  readNoFollowOrdinaryFileV1,
+  replaceDurableCanonicalFileV1
 } from '../shared/physical-no-follow.ts';
 
 export function readWorkbenchOrdinaryFile(
@@ -36,4 +39,36 @@ export function readWorkbenchJsonArtifact<T>(filePath: string, label: string): T
   const bytes = readWorkbenchOrdinaryFile(filePath, label);
   if (bytes === null) return null;
   return JSON.parse(decodeExactWorkbenchUtf8(bytes, label)) as T;
+}
+
+export async function publishWorkbenchMutationEnvelope(
+  workspaceRoot: string,
+  value: unknown,
+  commitFence: CommitFence
+): Promise<void> {
+  const workspacePath = path.resolve(workspaceRoot);
+  await commitFence();
+  const workspace = inspectNoFollowDirectoryChainV1(
+    workspacePath,
+    'Workbench workspace root'
+  ).target;
+
+  await commitFence();
+  const mutationRoot = createNoFollowDirectoryChainV1(
+    workspace,
+    ['source', 'views', 'mutations']
+  );
+  const bytes = Buffer.from(formatJsonFile(value), 'utf8');
+
+  await commitFence();
+  replaceDurableCanonicalFileV1({
+    parent: mutationRoot,
+    name: 'graph-action.json',
+    bytes,
+    validate: (current) => {
+      if (!Buffer.from(current).equals(bytes)) {
+        throw new Error('Workbench mutation envelope readback differs from canonical bytes');
+      }
+    }
+  });
 }
