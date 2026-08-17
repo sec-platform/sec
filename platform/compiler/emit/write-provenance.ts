@@ -9,13 +9,14 @@ import {
 } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { readOptionalJson, writeJson, type CommitFence } from '../../shared/fs.ts';
+import { formatJsonFile, readOptionalJson, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { calculateCanonicalProjectFileHash } from '../../shared/project-file-hash.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
+import { publishCanonicalWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 
@@ -237,7 +238,13 @@ export async function writeProvenance(
     [CI_ARTIFACT_FILES.provenance],
     async () => {
       const provenance = await buildProvenance(workspaceRoot, lock);
-      await writeJson(provenancePath, provenance, commitFence);
+      await publishCanonicalWorkspaceFileV1({
+        workspaceRoot,
+        targetPath: provenancePath,
+        bytes: Buffer.from(formatJsonFile(provenance), 'utf8'),
+        label: 'Provenance projection',
+        commitFence
+      });
       return provenance;
     },
     commitFence
