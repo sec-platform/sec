@@ -7,6 +7,7 @@ import type { LockFile } from '../../shared/lock-types.ts';
 import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import type {
   MicroserviceDeploymentIntent,
+  MicroserviceDeploymentPublicationPolicy,
   MicroserviceDeploymentRenderer,
   MicroserviceResiliencePolicy,
   RenderedMicroserviceArtifact
@@ -28,28 +29,92 @@ function buildDeploymentIntent(
   });
 }
 
-function assertCanonicalRenderedArtifactRelativePath(relativePath: string): void {
-  const normalized = path.posix.normalize(relativePath);
-  if (
-    relativePath.length === 0 ||
-    relativePath.includes('\\') ||
-    path.posix.isAbsolute(relativePath) ||
-    relativePath === '.' ||
-    relativePath.endsWith('/') ||
-    normalized !== relativePath ||
-    normalized === '..' ||
-    normalized.startsWith('../')
-  ) {
+function isCanonicalPosixRelativePath(value: string): boolean {
+  const normalized = path.posix.normalize(value);
+  return value.length > 0 &&
+    !value.includes('\\') &&
+    !path.posix.isAbsolute(value) &&
+    value !== '.' &&
+    !value.endsWith('/') &&
+    normalized === value &&
+    normalized !== '..' &&
+    !normalized.startsWith('../');
+}
+
+function assertResiliencePolicy(policy: MicroserviceResiliencePolicy): void {
+  const valid =
+    Number.isSafeInteger(policy.failureThreshold) && policy.failureThreshold > 0 &&
+    Number.isFinite(policy.cooldownPeriodMs) && policy.cooldownPeriodMs >= 0 &&
+    Number.isFinite(policy.timeoutMs) && policy.timeoutMs > 0 &&
+    Number.isFinite(policy.initialRetryDelayMs) && policy.initialRetryDelayMs >= 0 &&
+    Number.isSafeInteger(policy.maxRetries) && policy.maxRetries >= 0;
+  if (!valid) {
     throw new CompilerError(
-      'COMPOSE-PATH-003',
-      `Microservice deployment renderer returned a non-canonical artifact path: ${relativePath}`,
-      { artifactPath: relativePath, reason: 'non-canonical-relative-path' }
+      'COMPOSE-PROVIDER-001',
+      'Microservice resilience policy is invalid',
+      { policy }
     );
   }
 }
 
-function resolveRenderedArtifactPath(projectRoot: string, artifact: RenderedMicroserviceArtifact): string {
-  assertCanonicalRenderedArtifactRelativePath(artifact.relativePath);
+function canonicalPublicationRoots(
+  policy: MicroserviceDeploymentPublicationPolicy
+): readonly string[] {
+  if (policy.allowedArtifactRoots.length === 0) {
+    throw new CompilerError(
+      'COMPOSE-PATH-005',
+      'Microservice deployment publication policy must authorize at least one artifact root'
+    );
+  }
+  const roots: string[] = [];
+  const seen = new Set<string>();
+  for (const root of policy.allowedArtifactRoots) {
+    if (!isCanonicalPosixRelativePath(root)) {
+      throw new CompilerError(
+        'COMPOSE-PATH-005',
+        `Microservice deployment publication root is not one canonical relative path: ${root}`,
+        { root }
+      );
+    }
+    if (seen.has(root)) {
+      throw new CompilerError(
+        'COMPOSE-PATH-005',
+        `Microservice deployment publication root is duplicated: ${root}`,
+        { root }
+      );
+    }
+    seen.add(root);
+    roots.push(root);
+  }
+  return Object.freeze(roots);
+}
+
+function assertArtifactAuthorized(
+  relativePath: string,
+  allowedRoots: readonly string[]
+): void {
+  if (!allowedRoots.some((root) => relativePath.startsWith(`${root}/`))) {
+    throw new CompilerError(
+      'COMPOSE-PATH-005',
+      `Microservice deployment renderer is not authorized to publish artifact path: ${relativePath}`,
+      { artifactPath: relativePath, allowedRoots }
+    );
+  }
+}
+
+function resolveRenderedArtifactPath(
+  projectRoot: string,
+  artifact: RenderedMicroserviceArtifact,
+  allowedRoots: readonly string[]
+): string {
+  if (!isCanonicalPosixRelativePath(artifact.relativePath)) {
+    throw new CompilerError(
+      'COMPOSE-PATH-003',
+      `Microservice deployment renderer returned a non-canonical artifact path: ${artifact.relativePath}`,
+      { artifactPath: artifact.relativePath, reason: 'non-canonical-relative-path' }
+    );
+  }
+  assertArtifactAuthorized(artifact.relativePath, allowedRoots);
   const target = resolvePathInside(projectRoot, artifact.relativePath);
   if (!target) {
     throw new CompilerError(
@@ -64,11 +129,12 @@ function resolveRenderedArtifactPath(projectRoot: string, artifact: RenderedMicr
 function assertUniqueRenderedArtifactPaths(
   renderer: MicroserviceDeploymentRenderer,
   projectRoot: string,
-  artifacts: readonly RenderedMicroserviceArtifact[]
+  artifacts: readonly RenderedMicroserviceArtifact[],
+  allowedRoots: readonly string[]
 ): void {
   const seenTargets = new Map<string, string>();
   for (const artifact of artifacts) {
-    const target = resolveRenderedArtifactPath(projectRoot, artifact);
+    const target = resolveRenderedArtifactPath(projectRoot, artifact, allowedRoots);
     const previous = seenTargets.get(target);
     if (previous !== undefined) {
       throw new CompilerError(
@@ -90,11 +156,12 @@ function assertUniqueRenderedArtifactPaths(
 async function publishRenderedArtifacts(
   projectRoot: string,
   artifacts: readonly RenderedMicroserviceArtifact[],
+  allowedRoots: readonly string[],
   commitFence?: CommitFence
 ): Promise<string[]> {
   const limit = createConcurrencyLimit(MICROSERVICE_PUBLICATION_CONCURRENCY);
   await Promise.all(artifacts.map((artifact) => limit(async () => {
-    const target = resolveRenderedArtifactPath(projectRoot, artifact);
+    const target = resolveRenderedArtifactPath(projectRoot, artifact, allowedRoots);
     await ensureDir(path.dirname(target), commitFence);
     await writeText(target, artifact.text, commitFence);
   })));
@@ -106,15 +173,18 @@ export async function lowerToMicroservicesWithRenderer(
   lock: LockFile,
   renderer: MicroserviceDeploymentRenderer,
   resilience: MicroserviceResiliencePolicy,
+  publication: MicroserviceDeploymentPublicationPolicy,
   commitFence?: CommitFence
 ): Promise<string[]> {
   if (lock.app.target !== 'microservices') return [];
 
+  assertResiliencePolicy(resilience);
+  const allowedRoots = canonicalPublicationRoots(publication);
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const intents = lock.resolvedBlocks.map((block) => buildDeploymentIntent(block.id, resilience));
   const artifacts = await renderer.render(intents);
-  assertUniqueRenderedArtifactPaths(renderer, projectRoot, artifacts);
-  return publishRenderedArtifacts(projectRoot, artifacts, commitFence);
+  assertUniqueRenderedArtifactPaths(renderer, projectRoot, artifacts, allowedRoots);
+  return publishRenderedArtifacts(projectRoot, artifacts, allowedRoots, commitFence);
 }
 
 /**
@@ -133,6 +203,7 @@ export async function lowerToMicroservices(
     lock,
     binding.renderer,
     binding.resilience,
+    binding.publication,
     commitFence
   );
 }
