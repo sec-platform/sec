@@ -4,8 +4,7 @@ import path from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
 
-const REGISTRY_PATH = 'docs/governance/implementation-substrate-resolution.yaml';
-
+const REGISTRY_PATH = 'tooling/sec-dev/governance/implementation-substrate-resolution.yaml';
 const DECISIONS = new Set([
   'adopted',
   'selected-candidate',
@@ -74,7 +73,7 @@ export interface DevelopmentSubstrateDecisionV1 {
   readonly authorityRetainedBy: string;
 }
 
-function record(value: unknown, label: string): Record<string, unknown> {
+function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`${label} must be an object.`);
   }
@@ -89,69 +88,70 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[], 
   }
 }
 
-function nonEmptyString(value: unknown, label: string): string {
-  if (typeof value !== 'string' || value.trim() !== value || value.length === 0) {
+function text(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
     throw new Error(`${label} must be a non-empty trimmed string.`);
   }
   return value;
 }
 
-function nullableString(value: unknown, label: string): string | null {
-  if (value === null) return null;
-  return nonEmptyString(value, label);
+function nullableText(value: unknown, label: string): string | null {
+  return value === null ? null : text(value, label);
 }
 
-function canonicalRef(value: unknown, label: string): string {
-  const ref = nonEmptyString(value, label);
+function machineRef(value: unknown, label: string): string {
+  const ref = text(value, label);
   if (!/^(?:github:(?:issue|pr)\/[1-9][0-9]*|github-capability:[a-z0-9][a-z0-9-]*|release-consumer:[a-z0-9][a-z0-9-]*)$/u.test(ref)) {
     throw new Error(`${label} is not a supported machine reference.`);
   }
   return ref;
 }
 
-function packageSection(
+function packageSpec(
   packageJson: Record<string, unknown>,
   section: string,
   packageName: string
 ): unknown {
-  const sectionValue = record(packageJson[section], `package.json.${section}`);
-  return sectionValue[packageName];
+  return asRecord(packageJson[section], `package.json.${section}`)[packageName];
 }
 
 function validatePackageBinding(
-  decision: DevelopmentSubstrateDecisionV1,
+  value: DevelopmentSubstrateDecisionV1,
   packageJson: Record<string, unknown>
 ): void {
-  if (decision.substrate.kind !== 'package') {
-    if (decision.substrate.manifestSection !== null || decision.substrate.declaredSpec !== null) {
-      throw new Error(`${decision.capabilityId} non-package substrate cannot claim package manifest fields.`);
+  if (value.substrate.kind !== 'package') {
+    if (value.substrate.manifestSection !== null || value.substrate.declaredSpec !== null) {
+      throw new Error(`${value.capabilityId} non-package substrate cannot claim package manifest fields.`);
     }
     return;
   }
 
-  const section = decision.substrate.manifestSection;
+  if (value.adoptionOwner !== 'github:issue/193') {
+    throw new Error(`${value.capabilityId} package substrate must bind the #193 package/lock adoption owner.`);
+  }
+  const section = value.substrate.manifestSection;
   if (typeof section !== 'string' || !MANIFEST_SECTIONS.has(section)) {
-    throw new Error(`${decision.capabilityId} package substrate needs a supported manifestSection.`);
+    throw new Error(`${value.capabilityId} package substrate needs a supported manifestSection.`);
   }
-  const declaredSpec = String(decision.substrate.declaredSpec ?? '');
+  const declaredSpec = String(value.substrate.declaredSpec ?? '');
   if (declaredSpec.length === 0) {
-    throw new Error(`${decision.capabilityId} package substrate needs declaredSpec.`);
+    throw new Error(`${value.capabilityId} package substrate needs declaredSpec.`);
   }
-  const actual = packageSection(packageJson, section, decision.substrate.id);
+  const actual = packageSpec(packageJson, section, value.substrate.id);
   if (actual !== declaredSpec) {
     throw new Error(
-      `${decision.capabilityId} package binding ${section}.${decision.substrate.id} `
+      `${value.capabilityId} package binding ${section}.${value.substrate.id} `
       + `must match package.json (${String(actual)} !== ${declaredSpec}).`
     );
   }
 }
 
-function validateDecision(
+function parseDecision(
   raw: unknown,
   index: number,
   packageJson: Record<string, unknown>
 ): DevelopmentSubstrateDecisionV1 {
-  const value = record(raw, `decision[${index}]`);
+  const value = asRecord(raw, `decision[${index}]`);
   exactKeys(value, [
     'capabilityId',
     'requirementRefs',
@@ -164,47 +164,43 @@ function validateDecision(
     'authorityRetainedBy'
   ], `decision[${index}]`);
 
-  const capabilityId = nonEmptyString(value.capabilityId, `decision[${index}].capabilityId`);
+  const capabilityId = text(value.capabilityId, `decision[${index}].capabilityId`);
   if (!/^[a-z0-9][a-z0-9-]*$/u.test(capabilityId)) {
     throw new Error(`${capabilityId} capabilityId must be canonical kebab-case.`);
   }
-
   if (!Array.isArray(value.requirementRefs) || value.requirementRefs.length === 0) {
     throw new Error(`${capabilityId} must bind at least one requirementRef.`);
   }
   const requirementRefs = value.requirementRefs.map((entry, refIndex) =>
-    canonicalRef(entry, `${capabilityId}.requirementRefs[${refIndex}]`));
+    machineRef(entry, `${capabilityId}.requirementRefs[${refIndex}]`));
   if (new Set(requirementRefs).size !== requirementRefs.length) {
     throw new Error(`${capabilityId} requirementRefs must be unique.`);
   }
 
-  const layer = nonEmptyString(value.layer, `${capabilityId}.layer`);
+  const layer = text(value.layer, `${capabilityId}.layer`);
   if (!LAYERS.has(layer)) throw new Error(`${capabilityId} layer ${layer} is unsupported.`);
-
-  const decision = nonEmptyString(value.decision, `${capabilityId}.decision`);
+  const decision = text(value.decision, `${capabilityId}.decision`);
   if (!DECISIONS.has(decision)) throw new Error(`${capabilityId} decision ${decision} is unsupported.`);
 
-  const substrateRaw = record(value.substrate, `${capabilityId}.substrate`);
-  exactKeys(substrateRaw, ['kind', 'id', 'manifestSection', 'declaredSpec'], `${capabilityId}.substrate`);
-  const kind = nonEmptyString(substrateRaw.kind, `${capabilityId}.substrate.kind`);
+  const substrateValue = asRecord(value.substrate, `${capabilityId}.substrate`);
+  exactKeys(substrateValue, ['kind', 'id', 'manifestSection', 'declaredSpec'], `${capabilityId}.substrate`);
+  const kind = text(substrateValue.kind, `${capabilityId}.substrate.kind`);
   if (!SUBSTRATE_KINDS.has(kind)) throw new Error(`${capabilityId} substrate kind ${kind} is unsupported.`);
-  const substrateId = nonEmptyString(substrateRaw.id, `${capabilityId}.substrate.id`);
-  const manifestSection = nullableString(substrateRaw.manifestSection, `${capabilityId}.substrate.manifestSection`);
-  const declaredSpec = substrateRaw.declaredSpec;
+  const substrateId = text(substrateValue.id, `${capabilityId}.substrate.id`);
+  const manifestSection = nullableText(substrateValue.manifestSection, `${capabilityId}.substrate.manifestSection`);
+  const declaredSpec = substrateValue.declaredSpec;
   if (declaredSpec !== null && typeof declaredSpec !== 'string' && typeof declaredSpec !== 'number') {
     throw new Error(`${capabilityId}.substrate.declaredSpec must be string, number or null.`);
   }
 
-  const manualFallback = nonEmptyString(value.manualFallback, `${capabilityId}.manualFallback`);
+  const manualFallback = text(value.manualFallback, `${capabilityId}.manualFallback`);
   if (manualFallback !== 'forbidden' && manualFallback !== 'semantic-only') {
     throw new Error(`${capabilityId} manualFallback ${manualFallback} is unsupported.`);
   }
-
-  const adoptionOwner = nullableString(value.adoptionOwner, `${capabilityId}.adoptionOwner`);
-  if (adoptionOwner !== null) canonicalRef(adoptionOwner, `${capabilityId}.adoptionOwner`);
-  const triggerRef = nullableString(value.triggerRef, `${capabilityId}.triggerRef`);
-  if (triggerRef !== null) canonicalRef(triggerRef, `${capabilityId}.triggerRef`);
-  const authorityRetainedBy = nonEmptyString(value.authorityRetainedBy, `${capabilityId}.authorityRetainedBy`);
+  const adoptionOwner = nullableText(value.adoptionOwner, `${capabilityId}.adoptionOwner`);
+  if (adoptionOwner !== null) machineRef(adoptionOwner, `${capabilityId}.adoptionOwner`);
+  const triggerRef = nullableText(value.triggerRef, `${capabilityId}.triggerRef`);
+  if (triggerRef !== null) machineRef(triggerRef, `${capabilityId}.triggerRef`);
 
   const typed = {
     capabilityId,
@@ -215,7 +211,7 @@ function validateDecision(
     manualFallback: manualFallback as DevelopmentSubstrateDecisionV1['manualFallback'],
     adoptionOwner,
     triggerRef,
-    authorityRetainedBy
+    authorityRetainedBy: text(value.authorityRetainedBy, `${capabilityId}.authorityRetainedBy`)
   } satisfies DevelopmentSubstrateDecisionV1;
 
   if (typed.decision === 'sec-owned') {
@@ -232,18 +228,13 @@ function validateDecision(
   if (typed.decision === 'adopted' && typed.substrate.kind === 'candidate') {
     throw new Error(`${capabilityId} candidate substrate cannot be projected as adopted.`);
   }
-  if (
-    (typed.decision === 'selected-candidate' || typed.decision === 'deferred')
-    && typed.substrate.kind === 'candidate'
-    && typed.adoptionOwner === null
-  ) {
+  if ((typed.decision === 'selected-candidate' || typed.decision === 'deferred')
+      && typed.substrate.kind === 'candidate'
+      && typed.adoptionOwner === null) {
     throw new Error(`${capabilityId} candidate substrate must bind an adoption owner.`);
   }
   if (typed.decision === 'conditional' && typed.triggerRef === null) {
     throw new Error(`${capabilityId} conditional substrate must bind its availability trigger.`);
-  }
-  if (typed.decision === 'unsupported' && typed.manualFallback !== 'forbidden') {
-    throw new Error(`${capabilityId} unsupported capability cannot gain a manual fallback.`);
   }
   if (PERFORMANCE_GATED_IDS.has(capabilityId) && typed.triggerRef !== 'github:issue/316') {
     throw new Error(`${capabilityId} must remain gated by Performance Truth #316.`);
@@ -260,7 +251,7 @@ export function parseDevelopmentSubstrateResolutionV1(
   registrySource: string,
   packageJsonSource: string
 ): DevelopmentSubstrateResolutionV1 {
-  const parsed = record(parseYaml(registrySource), 'Implementation substrate registry');
+  const parsed = asRecord(parseYaml(registrySource), 'Implementation substrate registry');
   exactKeys(parsed, ['schema', 'status', 'binding', 'policy', 'decisions'], 'Implementation substrate registry');
   if (parsed.schema !== 'sec-development-substrate-resolution-v1') {
     throw new Error('Implementation substrate registry schema must be sec-development-substrate-resolution-v1.');
@@ -269,7 +260,7 @@ export function parseDevelopmentSubstrateResolutionV1(
     throw new Error('Implementation substrate registry status must be candidate or adopted.');
   }
 
-  const binding = record(parsed.binding, 'Implementation substrate registry.binding');
+  const binding = asRecord(parsed.binding, 'Implementation substrate registry.binding');
   exactKeys(binding, [
     'repository',
     'baseMain',
@@ -280,22 +271,19 @@ export function parseDevelopmentSubstrateResolutionV1(
     'performanceTruthOwner',
     'externalProviderCatalog'
   ], 'Implementation substrate registry.binding');
-  if (binding.repository !== 'sec-platform/sec') {
-    throw new Error('Implementation substrate registry must bind sec-platform/sec.');
-  }
-  if (typeof binding.baseMain !== 'string' || !/^[0-9a-f]{40}$/u.test(binding.baseMain)) {
-    throw new Error('Implementation substrate registry baseMain must be an exact Git SHA-1 commit id.');
-  }
-  if (binding.decisionOwner !== 'github:issue/483'
+  if (binding.repository !== 'sec-platform/sec'
+      || typeof binding.baseMain !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(binding.baseMain)
+      || binding.decisionOwner !== 'github:issue/483'
       || binding.dependencyAdoptionOwner !== 'github:issue/193'
       || binding.productImplementationResolutionOwner !== 'github:issue/307'
       || binding.maturityOwner !== 'github:issue/314'
       || binding.performanceTruthOwner !== 'github:issue/316'
       || binding.externalProviderCatalog !== 'docs/governance/external-capability-ledger.yaml') {
-    throw new Error('Implementation substrate registry owner bindings are invalid.');
+    throw new Error('Implementation substrate registry binding is invalid.');
   }
 
-  const policy = record(parsed.policy, 'Implementation substrate registry.policy');
+  const policy = asRecord(parsed.policy, 'Implementation substrate registry.policy');
   exactKeys(policy, [
     'defaultManualFallback',
     'candidateIsNotAdopted',
@@ -318,8 +306,8 @@ export function parseDevelopmentSubstrateResolutionV1(
   if (!Array.isArray(parsed.decisions) || parsed.decisions.length === 0) {
     throw new Error('Implementation substrate registry decisions must be non-empty.');
   }
-  const packageJson = record(JSON.parse(packageJsonSource), 'package.json');
-  const decisions = parsed.decisions.map((entry, index) => validateDecision(entry, index, packageJson));
+  const packageJson = asRecord(JSON.parse(packageJsonSource), 'package.json');
+  const decisions = parsed.decisions.map((entry, index) => parseDecision(entry, index, packageJson));
   const ids = decisions.map((entry) => entry.capabilityId);
   if (new Set(ids).size !== ids.length) {
     throw new Error('Implementation substrate registry capabilityId values must be unique.');
