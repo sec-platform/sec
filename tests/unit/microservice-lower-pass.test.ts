@@ -57,18 +57,14 @@ describe('Microservice Lowering Compiler Pass', () => {
 
   test('silently skips when target is not microservices', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const lock = createMockLock('monolith');
-
-      const results = await lowerToMicroservices(workspaceRoot, lock);
+      const results = await lowerToMicroservices(workspaceRoot, createMockLock('monolith'));
       expect(results).toEqual([]);
     }, 'lower-skip-');
   });
 
   test('successfully lowers blocks into the existing default RPC, client, and Docker outputs', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const lock = createMockLock('microservices');
-
-      const results = await lowerToMicroservices(workspaceRoot, lock);
+      const results = await lowerToMicroservices(workspaceRoot, createMockLock('microservices'));
 
       expect(results).toContain('app/api/rpc/ticket.basic/route.ts');
       expect(results).toContain('src/rpc-clients/ticket.basic-client.ts');
@@ -77,10 +73,11 @@ describe('Microservice Lowering Compiler Pass', () => {
       const rpcPath = path.join(workspaceRoot, 'project', 'app', 'api', 'rpc', 'ticket.basic', 'route.ts');
       const clientPath = path.join(workspaceRoot, 'project', 'src', 'rpc-clients', 'ticket.basic-client.ts');
       const dockerPath = path.join(workspaceRoot, 'project', 'docker', 'ticket.basic', 'Dockerfile');
-
-      const rpcContent = await fs.readFile(rpcPath, 'utf8');
-      const clientContent = await fs.readFile(clientPath, 'utf8');
-      const dockerContent = await fs.readFile(dockerPath, 'utf8');
+      const [rpcContent, clientContent, dockerContent] = await Promise.all([
+        fs.readFile(rpcPath, 'utf8'),
+        fs.readFile(clientPath, 'utf8'),
+        fs.readFile(dockerPath, 'utf8')
+      ]);
 
       expect(rpcContent).toContain('@generated-rpc-gateway');
       expect(rpcContent).toContain('import * as service from');
@@ -97,18 +94,18 @@ describe('Microservice Lowering Compiler Pass', () => {
     }, 'lower-micro-');
   });
 
-  test('passes a provider-neutral intent to an alternate renderer', async () => {
+  test('passes one provider-neutral intent batch to an alternate renderer', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const observed: MicroserviceDeploymentIntent[] = [];
+      const observed: MicroserviceDeploymentIntent[][] = [];
       const renderer: MicroserviceDeploymentRenderer = {
         providerId: 'fake-runtime',
         revision: 'test-v1',
-        async render(intent) {
-          observed.push(intent);
-          return [{
+        async render(intents) {
+          observed.push([...intents]);
+          return intents.map((intent) => ({
             relativePath: `generated/fake/${intent.blockId.replace('/', '-')}.txt`,
             text: `${intent.transport}:${intent.requestMethod}:${intent.packaging}\n`
-          }];
+          }));
         }
       };
 
@@ -119,13 +116,13 @@ describe('Microservice Lowering Compiler Pass', () => {
         DEFAULT_MICROSERVICE_RESILIENCE_POLICY
       );
 
-      expect(observed).toEqual([{
+      expect(observed).toEqual([[{
         blockId: 'ticket/basic',
         transport: 'json-rpc',
         requestMethod: 'POST',
         packaging: 'isolated-service',
         resilience: DEFAULT_MICROSERVICE_RESILIENCE_POLICY
-      }]);
+      }]]);
       expect(results).toEqual(['generated/fake/ticket-basic.txt']);
       await expect(fs.readFile(
         path.join(workspaceRoot, 'project', 'generated', 'fake', 'ticket-basic.txt'),
@@ -145,8 +142,11 @@ describe('Microservice Lowering Compiler Pass', () => {
       const renderer: MicroserviceDeploymentRenderer = {
         providerId: 'colliding-provider',
         revision: 'test-v1',
-        async render() {
-          return [{ relativePath: 'generated/collision.txt', text: 'must-not-write\n' }];
+        async render(intents) {
+          return intents.map(() => ({
+            relativePath: 'generated/collision.txt',
+            text: 'must-not-write\n'
+          }));
         }
       };
 
