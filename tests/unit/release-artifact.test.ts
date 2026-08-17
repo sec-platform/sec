@@ -35,6 +35,7 @@ async function initRepository(repositoryRoot: string): Promise<void> {
 
 async function initMinimalBunRepository(repositoryRoot: string): Promise<void> {
   await initRepository(repositoryRoot);
+  await fs.writeFile(path.join(repositoryRoot, '.gitignore'), 'node_modules/\n');
   await fs.mkdir(path.join(repositoryRoot, 'vendor', 'fixture-dependency'), { recursive: true });
   await fs.writeFile(path.join(repositoryRoot, 'vendor', 'fixture-dependency', 'package.json'), `${JSON.stringify({
     name: 'fixture-dependency',
