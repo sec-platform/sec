@@ -6,6 +6,21 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('workbench server serves same-origin APIs and bounds source writes to current Lock slots', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
+    const sourceDir = path.join(workspaceRoot, 'source');
+    await fs.mkdir(sourceDir, { recursive: true });
+    await fs.writeFile(path.join(sourceDir, 'app.yaml'), [
+      'app:',
+      '  id: workbench-test',
+      '  name: Workbench Test',
+      '  stack: nextjs-ts-prisma-sqlite',
+      '  packageManager: npm',
+      '  mode: single-tenant',
+      'blocks: []',
+      'slots: []',
+      'acceptance: []',
+      ''
+    ].join('\n'), 'utf8');
+
     const viewsDir = path.join(workspaceRoot, 'control/workbench/views');
     await fs.mkdir(viewsDir, { recursive: true });
     await fs.writeFile(path.join(viewsDir, 'overview-view.html'), '<html>Overview</html>', 'utf8');
@@ -18,17 +33,54 @@ test('workbench server serves same-origin APIs and bounds source writes to curre
     const stateDir = path.join(workspaceRoot, 'control/state');
     await fs.mkdir(stateDir, { recursive: true });
     await fs.writeFile(path.join(stateDir, 'graph.lock.json'), JSON.stringify({
-      slotTasks: [{
-        id: 'test_resolver_slot',
-        block: 'test/block',
-        target: 'custom/test_resolver_slot.ts',
-        symbol: 'handleTestResolverSlot',
-        kind: 'adapter',
-        status: 'pending',
-        writableZones: ['custom/'],
-        provenanceHints: { generator: null, verifiedBy: [] }
-      }]
+      slotTasks: [
+        {
+          id: 'test_resolver_slot',
+          block: 'test/block',
+          target: 'custom/test_resolver_slot.ts',
+          symbol: 'handleTestResolverSlot',
+          kind: 'adapter',
+          status: 'pending',
+          writableZones: ['custom/'],
+          provenanceHints: { generator: null, verifiedBy: [] }
+        },
+        {
+          id: 'explicit_slot',
+          block: 'test/explicit',
+          target: 'custom/explicit_slot.ts',
+          sourcePath: 'source/code/slots/nested/explicit_slot.ts',
+          symbol: 'handleExplicitSlot',
+          kind: 'adapter',
+          status: 'pending',
+          writableZones: ['source/code/slots/nested/explicit_slot.ts', 'custom/'],
+          provenanceHints: { generator: null, verifiedBy: [] }
+        },
+        {
+          id: 'ambiguous_slot',
+          block: 'test/one',
+          target: 'custom/one.ts',
+          symbol: 'handleOne',
+          kind: 'adapter',
+          status: 'pending',
+          writableZones: ['custom/'],
+          provenanceHints: { generator: null, verifiedBy: [] }
+        },
+        {
+          id: 'ambiguous_slot',
+          block: 'test/two',
+          target: 'custom/two.ts',
+          symbol: 'handleTwo',
+          kind: 'adapter',
+          status: 'pending',
+          writableZones: ['custom/'],
+          provenanceHints: { generator: null, verifiedBy: [] }
+        }
+      ]
     }), 'utf8');
+
+    const explicitPath = path.join(workspaceRoot, 'source/code/slots/nested/explicit_slot.ts');
+    await fs.mkdir(path.dirname(explicitPath), { recursive: true });
+    await fs.writeFile(explicitPath, '// explicit source\n', 'utf8');
 
     const server = await startWorkbenchServer(workspaceRoot, 0);
     expect(server).toBeDefined();
@@ -98,6 +150,15 @@ test('workbench server serves same-origin APIs and bounds source writes to curre
       expect(matchedBlock).toBeDefined();
       expect(matchedBlock!.version).toBe('0.1.0');
 
+      const explicitSource = await fetch(`${base}/api/slot-code?slotId=explicit_slot`);
+      expect(explicitSource.status).toBe(200);
+      const explicitPayload = await explicitSource.json() as { code: string; path: string };
+      expect(explicitPayload.code).toBe('// explicit source\n');
+      expect(explicitPayload.path).toBe('source/code/slots/nested/explicit_slot.ts');
+
+      const ambiguousSource = await fetch(`${base}/api/slot-code?slotId=ambiguous_slot`);
+      expect(ambiguousSource.status).toBe(409);
+
       const resBootstrap = await fetch(`${base}/api/bootstrap-slot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -135,7 +196,7 @@ test('workbench server serves same-origin APIs and bounds source writes to curre
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slotId: 'other_slot', block: 'test/block' })
       });
-      expect(unauthorizedBootstrap.status).toBe(500);
+      expect(unauthorizedBootstrap.status).toBe(409);
       expect(await fs.stat(path.join(workspaceRoot, 'source/code/slots/other_slot.ts')).then(() => true).catch(() => false)).toBe(false);
 
       const resOptions = await fetch(`${base}/api/graph`, { method: 'OPTIONS' });
