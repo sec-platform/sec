@@ -1,0 +1,100 @@
+import { expect, test } from 'bun:test';
+
+import { loadManifestById, resolveRegistrySources } from '../../platform/compiler/parse/load-manifest.ts';
+import { validatePlan } from '../../platform/compiler/parse/load-plan.ts';
+import {
+  isCanonicalBlockId,
+  isCanonicalRegistryVersion
+} from '../../platform/shared/block-identity.ts';
+import { SUPPORTED_STACK } from '../../platform/shared/constants.ts';
+import type { PlanFile } from '../../platform/shared/plan-manifest-types.ts';
+
+test('canonical block identity is cross-platform path-safe and injective', () => {
+  for (const value of [
+    'ticket/basic',
+    'auth/basic-session',
+    'agent/executor',
+    'namespace/deep_block-v2'
+  ]) {
+    expect(isCanonicalBlockId(value)).toBe(true);
+  }
+
+  for (const value of [
+    '',
+    'single',
+    '../escape',
+    '..\\escape/block',
+    'ticket/../escape',
+    'Ticket/basic',
+    'ticket/Basic',
+    'ticket/basic.v2',
+    'ticket//basic',
+    'con/basic',
+    'namespace/con'
+  ]) {
+    expect(isCanonicalBlockId(value)).toBe(false);
+  }
+});
+
+test('canonical registry version is one exact lowercase SemVer-shaped path segment', () => {
+  for (const value of ['0.1.0', '1.2.3', '1.2.3-rc.1', '1.2.3+build.7']) {
+    expect(isCanonicalRegistryVersion(value)).toBe(true);
+  }
+  for (const value of ['', '../1.0.0', '1.0', '01.0.0', '1.0.0/next', '1.0.0-RC1']) {
+    expect(isCanonicalRegistryVersion(value)).toBe(false);
+  }
+});
+
+test('manifest loader rejects unsafe locator bytes before registry filesystem resolution', async () => {
+  await expect(loadManifestById('..\\escape/block', { workspaceRoot: '/path/that/need/not/exist' }))
+    .rejects.toMatchObject({ code: 'MANIFEST-SCHEMA-015' });
+  await expect(loadManifestById('ticket/basic', {
+    workspaceRoot: '/path/that/need/not/exist',
+    version: '../1.0.0'
+  })).rejects.toMatchObject({ code: 'MANIFEST-SCHEMA-015' });
+});
+
+test('direct registry source callers cannot bypass Plan enum and path validation', () => {
+  expect(() => resolveRegistrySources('/tmp/workspace', [{
+    id: 'bad',
+    kind: 'private',
+    location: 'compiler',
+    path: 'platform/registry/private'
+  }])).toThrow();
+
+  expect(() => resolveRegistrySources('/tmp/workspace', [{
+    id: 'bad',
+    kind: 'private',
+    location: 'workspace',
+    path: '../escape'
+  }])).toThrow();
+});
+
+test('Plan runtime validation rejects values TypeScript unions cannot protect after YAML parsing', () => {
+  const base = {
+    app: {
+      id: 'app',
+      name: 'App',
+      stack: SUPPORTED_STACK,
+      packageManager: 'npm',
+      mode: 'single-tenant'
+    },
+    registry: { sources: [] },
+    blocks: [{ id: 'ticket/basic', version: '1.0.0' }],
+    slots: [],
+    acceptance: []
+  } satisfies PlanFile;
+
+  expect(() => validatePlan({
+    ...base,
+    app: { ...base.app, packageManager: 'unknown' }
+  } as unknown as PlanFile)).toThrow();
+  expect(() => validatePlan({
+    ...base,
+    blocks: [{ id: '..\\escape/block' }]
+  } as unknown as PlanFile)).toThrow();
+  expect(() => validatePlan({
+    ...base,
+    blocks: [{ id: 'ticket/basic', version: '../1.0.0' }]
+  } as unknown as PlanFile)).toThrow();
+});
