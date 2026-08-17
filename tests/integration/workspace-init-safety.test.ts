@@ -4,7 +4,10 @@ import * as path from 'node:path';
 
 import { initWorkspace } from '../../platform/orchestrator/workspace-orchestrator.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import { acquireWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
+import {
+  acquireWorkspaceWriteLease,
+  WorkspaceWriteLeaseError
+} from '../../platform/shared/workspace-write-lease.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
 test('legacy reset flag remains compatible only on an empty create surface', async () => {
@@ -62,4 +65,27 @@ test('active writer contention remains a lease error instead of being relabeled 
   } finally {
     await lease.release();
   }
+});
+
+test('supplied lease authority is proven before the workspace create surface is inspected', async () => {
+  const workspaceRoot = await createWorkspace('engineering-compiler-init-released-token-');
+  const lease = await acquireWorkspaceWriteLease(workspaceRoot);
+  const releasedToken = lease.token;
+  await lease.release();
+
+  const foreignPath = path.join(workspaceRoot, 'foreign.txt');
+  const foreignBytes = Buffer.from('foreign-state\n', 'utf8');
+  await fs.writeFile(foreignPath, foreignBytes);
+
+  let failure: unknown;
+  try {
+    await initWorkspace(workspaceRoot, {}, releasedToken);
+  } catch (error) {
+    failure = error;
+  }
+
+  expect(failure).toBeInstanceOf(WorkspaceWriteLeaseError);
+  expect((failure as WorkspaceWriteLeaseError).code).toMatch(/^WORKSPACE-WRITE-LEASE-/u);
+  expect((failure as WorkspaceWriteLeaseError).code).not.toBe('WORKSPACE-INIT-001');
+  expect(await fs.readFile(foreignPath)).toEqual(foreignBytes);
 });
