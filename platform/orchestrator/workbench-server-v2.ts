@@ -11,7 +11,7 @@ import {
 } from '../compiler/workbench/bootstrap-slot-source.ts';
 import { compareCodeUnits } from '../shared/canonical-primitives.ts';
 import { CompilerError } from '../shared/errors.ts';
-import { ensureDir, isFileNotFoundError, writeJson } from '../shared/fs.ts';
+import { isFileNotFoundError } from '../shared/fs.ts';
 import { defaultLogger } from '../shared/logger.ts';
 import {
   controlWorkbenchViewsRelativePath,
@@ -36,6 +36,7 @@ import {
   workbenchSseResponse
 } from './workbench-http-support.ts';
 import {
+  publishWorkbenchMutationEnvelope,
   readWorkbenchJsonArtifact,
   readWorkbenchOrdinaryFile
 } from './workbench-safe-file.ts';
@@ -142,14 +143,40 @@ function errorStatus(error: unknown): number {
 async function readBoundedJson(req: Request, maxBytes: number): Promise<unknown> {
   const declaredLength = req.headers.get('content-length');
   if (declaredLength !== null) {
-    const length = Number.parseInt(declaredLength, 10);
+    const length = Number(declaredLength);
     if (!Number.isSafeInteger(length) || length < 0 || length > maxBytes) {
       throw new Error(`Request body exceeds the ${maxBytes}-byte Workbench limit`);
     }
   }
-  const text = await req.text();
-  if (Buffer.byteLength(text, 'utf8') > maxBytes) {
-    throw new Error(`Request body exceeds the ${maxBytes}-byte Workbench limit`);
+
+  if (req.body === null) return JSON.parse('') as unknown;
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel(`Request body exceeds the ${maxBytes}-byte Workbench limit`);
+        throw new Error(`Request body exceeds the ${maxBytes}-byte Workbench limit`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = Buffer.concat(
+    chunks.map((chunk) => Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)),
+    totalBytes
+  );
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new SyntaxError(`Workbench request body must be exact UTF-8: ${error instanceof Error ? error.message : String(error)}`);
   }
   return JSON.parse(text) as unknown;
 }
@@ -237,12 +264,7 @@ async function handleMutations(context: RouteContext): Promise<Response> {
   );
   return withWorkbenchWriterLease(context, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(context.workspaceRoot, token);
-    await ensureDir(context.paths.sourceViewMutationsRoot, commitFence);
-    await writeJson(
-      path.join(context.paths.sourceViewMutationsRoot, 'graph-action.json'),
-      body,
-      commitFence
-    );
+    await publishWorkbenchMutationEnvelope(context.workspaceRoot, body, commitFence);
     return workbenchJsonResponse({ status: 'success' });
   });
 }
