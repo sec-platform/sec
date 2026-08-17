@@ -153,6 +153,7 @@ test('exact Git source disables replacement-object views', async () => {
 });
 
 test('release source rejects a Git symlink mode before materialization', async () => {
+  if (process.platform === 'win32') return;
   const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'sec-release-symlink-tree-'));
   try {
     await initRepository(repositoryRoot);
@@ -160,6 +161,7 @@ test('release source rejects a Git symlink mode before materialization', async (
     const blob = git(repositoryRoot, ['hash-object', '-w', 'link-target.txt']);
     git(repositoryRoot, ['update-index', '--add', '--cacheinfo', '120000', blob, 'linked-entry']);
     git(repositoryRoot, ['commit', '--quiet', '-m', 'symlink-tree']);
+    await fs.symlink('target.txt', path.join(repositoryRoot, 'linked-entry'));
 
     await expect(materializeExactReleaseGitTreeV1(repositoryRoot))
       .rejects.toThrow(/unsupported Git entry linked-entry \(120000 blob\)/u);
@@ -208,6 +210,9 @@ test('release build entrypoint and artifact owner remain thin over exact source/
   expect(artifactOwner).toContain('release artifact physical file inventory differs from manifest');
   expect(artifactOwner).toContain('previous artifact restoration did not converge');
   expect(artifactOwner).toContain('failed candidate could not be isolated');
+  expect(artifactOwner).toContain('inspectNoFollowDirectoryChainV1');
+  expect(artifactOwner).toContain('assertSameNoFollowDirectoryIdentityV1');
+  expect(artifactOwner).not.toContain('fs.mkdir(destinationParent');
   expect(artifactOwner).not.toContain('git archive');
 
   expect(sourceOwner).toContain('materializeExactReleaseGitTreeV1');
@@ -227,6 +232,7 @@ test('release build entrypoint and artifact owner remain thin over exact source/
   expect(gitOwner).toContain("env.GIT_NO_REPLACE_OBJECTS = '1'");
   expect(gitOwner).toContain("env.GIT_NO_LAZY_FETCH = '1'");
   expect(gitOwner).toContain('RELEASE_GIT_BLOB_BATCH_MAX_BYTES');
+  expect(gitOwner).toContain('physicalSourceRoot');
   expect(gitOwner).toContain('Release source tree contains unsupported Git entry');
   expect(gitOwner).toContain('Frozen release source contains a Git LFS pointer');
   expect(gitOwner).not.toContain('git archive');
