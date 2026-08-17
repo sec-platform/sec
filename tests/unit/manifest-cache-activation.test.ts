@@ -146,3 +146,34 @@ test('ordered registry shadowing is consistent between addressed and enumerated 
   expect(enumerated[0]?.manifest.version).toBe('1.0.0');
   expect(enumerated[0]?.registrySourceId).toBe('first');
 });
+
+test('addressed manifest reads reject a linked block directory', async () => {
+  const { workspaceRoot, registryPath, registryRoot } = await createWorkspaceRegistry();
+  const externalBlockRoot = path.join(workspaceRoot, 'external-block');
+  await writeManifest(workspaceRoot, 'external-block', manifestSource('cache/probe', '1.0.0'));
+  await fs.symlink(
+    externalBlockRoot,
+    path.join(registryRoot, blockDirName('cache/probe')),
+    process.platform === 'win32' ? 'junction' : 'dir'
+  );
+  const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: registryPath }] as const;
+
+  await expect(loadManifestById('cache/probe', { workspaceRoot, registrySources: [...source] }))
+    .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
+});
+
+test('registry enumeration rejects a linked registry root instead of traversing it', async () => {
+  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-manifest-linked-root-'));
+  temporaryRoots.push(workspaceRoot);
+  const externalRegistryRoot = path.join(workspaceRoot, 'external-registry');
+  await writeManifest(externalRegistryRoot, blockDirName('cache/probe'), manifestSource('cache/probe', '1.0.0'));
+  await fs.symlink(
+    externalRegistryRoot,
+    path.join(workspaceRoot, 'registry-link'),
+    process.platform === 'win32' ? 'junction' : 'dir'
+  );
+  const source = [{ id: 'fixture', kind: 'private', location: 'workspace', path: 'registry-link' }] as const;
+
+  await expect(loadAllManifests({ workspaceRoot, registrySources: [...source] }))
+    .rejects.toMatchObject({ code: 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' });
+});
