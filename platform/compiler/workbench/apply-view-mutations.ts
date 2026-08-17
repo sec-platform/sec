@@ -1,11 +1,12 @@
 import path from 'node:path';
+import YAML from 'yaml';
 import {
   isCanonicalBlockId,
   isCanonicalRegistryVersion
 } from '../../shared/block-identity.ts';
 import { countMatching } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { ensureDir, listFilesRecursive, pathExists, readJson, writeJson } from '../../shared/fs.ts';
+import { formatJsonFile, listFilesRecursive, pathEntryExists, readJson } from '../../shared/fs.ts';
 import {
   getWorkspacePaths,
   isSafeRelativePath,
@@ -13,7 +14,7 @@ import {
   workspaceRelativePath
 } from '../../shared/paths.ts';
 import type { AppMode, PlanFile, PlanSlot, SlotKind } from '../../shared/plan-manifest-types.ts';
-import { writeYaml } from '../../shared/yaml.ts';
+import { publishWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { loadPlan, validatePlan } from '../parse/load-plan.ts';
 
@@ -305,7 +306,7 @@ function applyMutation(plan: PlanFile, mutation: ViewMutation, sourcePath: strin
 
 async function loadMutationFiles(workspaceRoot: string): Promise<Array<{ sourcePath: string; file: ViewMutationFile }>> {
   const { sourceViewMutationsRoot } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(sourceViewMutationsRoot))) return [];
+  if (!(await pathEntryExists(sourceViewMutationsRoot))) return [];
   const files = (await listFilesRecursive(sourceViewMutationsRoot))
     .filter((file) => file.endsWith('.json'))
     .sort((left, right) => compareCodeUnits(left, right));
@@ -321,8 +322,7 @@ export async function applyViewMutations(
   workspaceRoot: string,
   commitFence: ViewMutationCommitFence
 ): Promise<ViewMutationReport> {
-  const { planPath, viewMutationReportPath, sourceViewMutationsRoot } = getWorkspacePaths(workspaceRoot);
-  await ensureDir(sourceViewMutationsRoot, commitFence);
+  const { planPath, viewMutationReportPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
   const mutationFiles = await loadMutationFiles(workspaceRoot);
   const mutations = mutationFiles.flatMap((entry) =>
@@ -344,8 +344,20 @@ export async function applyViewMutations(
 
   if (appliedCount > 0) {
     validatePlan(plan);
-    await writeYaml(planPath, plan, commitFence);
+    await publishWorkspaceFileV1({
+      workspaceRoot,
+      targetPath: planPath,
+      bytes: Buffer.from(YAML.stringify(plan, { indent: 2 }), 'utf8'),
+      label: 'Workbench Plan mutation',
+      commitFence
+    });
   }
-  await writeJson(viewMutationReportPath, report, commitFence);
+  await publishWorkspaceFileV1({
+    workspaceRoot,
+    targetPath: viewMutationReportPath,
+    bytes: Buffer.from(formatJsonFile(report), 'utf8'),
+    label: 'Workbench mutation report',
+    commitFence
+  });
   return report;
 }
