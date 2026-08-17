@@ -1,0 +1,916 @@
+schema: sec-development-substrate-resolution-v1
+status: candidate
+binding:
+  repository: sec-platform/sec
+  baseMain: 702a33f8b8ff93b972b183367b027afc9477a7fe
+  decisionOwner: github:issue/483
+  dependencyAdoptionOwner: github:issue/193
+  productImplementationResolutionOwner: github:issue/307
+  maturityOwner: github:issue/314
+  performanceTruthOwner: github:issue/316
+  externalProviderCatalog: docs/governance/external-capability-ledger.yaml
+policy:
+  defaultManualFallback: forbidden
+  candidateIsNotAdopted: true
+  unavailableProviderCannotFallbackToManual: true
+  externalEvidenceCannotBecomeSemanticAuthority: true
+  newDependencyRequiresPackageWriter: true
+  performanceDrivenAdoptionRequiresEvidence: true
+  cryptoAndAttestationManualImplementationForbidden: true
+
+decisions:
+  - capabilityId: git-object-observation
+    requirementRefs: [github:pr/481, github:issue/296, github:issue/301]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: command
+      id: git-cli
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: exact Git epoch, ambient isolation, readback and fail-closed policy
+
+  - capabilityId: content-digest-sha256
+    requirementRefs: [github:issue/179, github:issue/194, github:issue/296, github:issue/300, github:issue/301]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: builtin
+      id: node:crypto-sha256
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: canonical input closure and domain-specific digest identity
+
+  - capabilityId: faster-noncryptographic-digest
+    requirementRefs: [github:issue/316]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: candidate
+      id: blake3-or-xxhash-unselected
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/316
+    authorityRetainedBy: canonical digest protocol and equivalence proof
+
+  - capabilityId: yaml-parsing
+    requirementRefs: [github:issue/296, github:issue/299, github:issue/307]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: yaml
+      manifestSection: dependencies
+      declaredSpec: 2.8.3
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: domain schema, validation and canonical semantics
+
+  - capabilityId: runtime-schema-validation
+    requirementRefs: [github:issue/299, github:issue/307]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: zod
+      manifestSection: dependencies
+      declaredSpec: ^4.4.1
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: domain invariants and semantic validation
+
+  - capabilityId: typescript-program-analysis
+    requirementRefs: [github:pr/477, github:issue/188, github:issue/312]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: ts-morph
+      manifestSection: devDependencies
+      declaredSpec: 28.0.0
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: Source Program adoption, capability policy and validated semantic projection
+
+  - capabilityId: typescript-cli-typecheck-current
+    requirementRefs: [github:issue/312]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: typescript
+      manifestSection: devDependencies
+      declaredSpec: 6.0.3
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: TypeCheck Provider revision and Verification result truth
+
+  - capabilityId: typescript-7-native-typecheck
+    requirementRefs: [github:issue/312, github:issue/316]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: candidate
+      id: typescript-7-native-cli
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/312
+    authorityRetainedBy: differential parity, provider identity and Verification result truth
+
+  - capabilityId: import-dependency-architecture-rules
+    requirementRefs: [github:pr/478, github:pr/479, github:issue/188]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: script-tool
+      id: dependency-cruiser
+      manifestSection: null
+      declaredSpec: 17.3.10
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: semantic ownership classification and non-import relationships
+
+  - capabilityId: unused-code-and-dependency-census
+    requirementRefs: [github:issue/193]
+    layer: mechanical
+    decision: selected-candidate
+    substrate:
+      kind: candidate
+      id: knip
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/193
+    authorityRetainedBy: removal authority, consumer completeness and retirement decision
+
+  - capabilityId: duplicate-code-census
+    requirementRefs: [github:issue/193]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: script-tool
+      id: jscpd
+      manifestSection: null
+      declaredSpec: 4.0.9
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: duplicate disposition and refactor authority
+
+  - capabilityId: external-code-graph-context
+    requirementRefs: [github:issue/188, github:issue/193]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: gitnexus
+      manifestSection: devDependencies
+      declaredSpec: 1.6.3
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: Engineering IR, Impact and deletion authority remain canonical SEC facts
+
+  - capabilityId: textual-diff
+    requirementRefs: [github:issue/262, github:issue/298]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: diff
+      manifestSection: dependencies
+      declaredSpec: ^9.0.0
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: semantic delta and Compatibility decision
+
+  - capabilityId: lexical-path-operations
+    requirementRefs: [github:issue/296, github:issue/300, github:issue/303]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: builtin
+      id: node:path-and-string-normalize
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: canonical path grammar, physical identity and host equivalence policy
+
+  - capabilityId: glob-and-lexical-inventory
+    requirementRefs: [github:issue/296, github:issue/300]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: globby
+      manifestSection: dependencies
+      declaredSpec: ^16.2.0
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: physical containment, ownership and no-follow proof
+
+  - capabilityId: temporary-root-creation
+    requirementRefs: [github:issue/190, github:issue/301]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: builtin
+      id: node:fs-mkdtemp-plus-os-tmpdir
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: resource ownership, identity, lifecycle and cleanup receipt
+
+  - capabilityId: ordinary-process-spawn
+    requirementRefs: [github:issue/179, github:issue/190, github:issue/301]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: builtin
+      id: bun-spawn-or-node-child-process
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: observed-process identity, environment, timeout and result mapping
+
+  - capabilityId: process-wrapper-execa
+    requirementRefs: [github:issue/190, github:issue/316]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: candidate
+      id: execa
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/316
+    authorityRetainedBy: process identity, resource ownership and result truth
+
+  - capabilityId: bounded-async-fanout
+    requirementRefs: [github:issue/190, github:issue/316]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: p-limit
+      manifestSection: dependencies
+      declaredSpec: ^7.3.0
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: global CPU, IO, memory, process and browser resource budgets
+
+  - capabilityId: physical-no-follow-identity
+    requirementRefs: [github:issue/190, github:issue/296, github:issue/300, github:issue/303]
+    layer: sec-semantic
+    decision: sec-owned
+    substrate:
+      kind: host-api
+      id: node-bun-filesystem-plus-os-file-identity
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: semantic-only
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: retained parent capability, race detection, object kind and readback protocol
+
+  - capabilityId: workspace-writer-lease
+    requirementRefs: [github:pr/476, github:issue/303]
+    layer: sec-semantic
+    decision: sec-owned
+    substrate:
+      kind: host-api
+      id: filesystem-and-os-locking-primitives
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: semantic-only
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: workspace identity, lease token, epoch and effect authorization
+
+  - capabilityId: multi-artifact-publication-transaction
+    requirementRefs: [github:issue/300, github:issue/301]
+    layer: sec-semantic
+    decision: sec-owned
+    substrate:
+      kind: host-api
+      id: filesystem-rename-fsync-and-readback-primitives
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: semantic-only
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: desired tree, owner collision, CAS, journal, recovery and accepted terminal
+
+  - capabilityId: process-tree-settlement
+    requirementRefs: [github:issue/190]
+    layer: sec-semantic
+    decision: sec-owned
+    substrate:
+      kind: host-api
+      id: windows-job-object-or-posix-process-group
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: semantic-only
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: ResourceLease, termination, cleanup and settlement receipt
+
+  - capabilityId: browser-execution
+    requirementRefs: [github:issue/188, github:issue/190]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: '@playwright/test'
+      manifestSection: devDependencies
+      declaredSpec: 1.59.1
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: applicability selection, resource identity and Verification result
+
+  - capabilityId: generic-test-containers
+    requirementRefs: [github:issue/190]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: candidate
+      id: testcontainers
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/190
+    authorityRetainedBy: fixture identity, resource lease and settlement
+
+  - capabilityId: http-mocking
+    requirementRefs: [github:issue/190]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: candidate
+      id: msw
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/190
+    authorityRetainedBy: test oracle, applicability and Verification result
+
+  - capabilityId: cli-command-parsing
+    requirementRefs: [github:pr/475]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: commander
+      manifestSection: dependencies
+      declaredSpec: ^14.0.3
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: command semantics and operation capability
+
+  - capabilityId: lazy-command-domain-loading
+    requirementRefs: [github:pr/475]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: builtin
+      id: javascript-dynamic-import-plus-memoized-promise
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: domain boundaries and command-to-owner mapping
+
+  - capabilityId: text-template-rendering
+    requirementRefs: [github:pr/480, github:issue/300]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: ejs
+      manifestSection: dependencies
+      declaredSpec: ^5.0.2
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: target semantics, provider binding and artifact ownership
+
+  - capabilityId: identifier-case-conversion
+    requirementRefs: [github:issue/307]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: change-case
+      manifestSection: dependencies
+      declaredSpec: ^5.4.4
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: naming policy and semantic identity
+
+  - capabilityId: semver-operations
+    requirementRefs: [github:issue/262, github:issue/299, github:issue/329]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: semver
+      manifestSection: dependencies
+      declaredSpec: ^7.7.4
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: Compatibility and VersionDecision authority
+
+  - capabilityId: source-formatting
+    requirementRefs: [github:issue/300]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: prettier
+      manifestSection: devDependencies
+      declaredSpec: ^3.8.3
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: formatter applicability; semantic identity cannot rely on formatting side effects
+
+  - capabilityId: frozen-dependency-install
+    requirementRefs: [github:issue/193, github:issue/301, github:pr/482]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: toolchain
+      id: bun-install-frozen-lockfile-ignore-scripts
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: dependency closure, trust and build input identity
+
+  - capabilityId: javascript-bundling
+    requirementRefs: [github:issue/301, github:pr/482]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: toolchain
+      id: bun-build-with-metafile
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: ReleaseBuildPlan, input closure and artifact manifest
+
+  - capabilityId: npm-compatible-package-tarball
+    requirementRefs: [github:issue/301, github:issue/329]
+    layer: mechanical
+    decision: selected-candidate
+    substrate:
+      kind: toolchain
+      id: bun-pm-pack-ignore-scripts
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/301
+    triggerRef: github:issue/301
+    authorityRetainedBy: explicit package surface, inventory and accepted artifact readback
+
+  - capabilityId: persistent-content-addressed-byte-store
+    requirementRefs: [github:issue/179, github:issue/194, github:issue/316]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: candidate
+      id: cacache
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/316
+    authorityRetainedBy: ActionKey, compiler node key, freshness, invalidation and cache policy
+
+  - capabilityId: compiler-incremental-graph
+    requirementRefs: [github:issue/194]
+    layer: sec-semantic
+    decision: sec-owned
+    substrate:
+      kind: sec-owner
+      id: compiler-incremental-graph-v1
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: semantic-only
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: compiler node identity, invalidation, clean parity and cancellation
+
+  - capabilityId: verification-impact-selection
+    requirementRefs: [github:issue/188]
+    layer: sec-semantic
+    decision: sec-owned
+    substrate:
+      kind: sec-owner
+      id: semantic-test-impact-graph-v2-consuming-typescript-source-program
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: semantic-only
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: required, not-applicable and unresolved selection truth
+
+  - capabilityId: evidence-action-journal
+    requirementRefs: [github:issue/179]
+    layer: sec-semantic
+    decision: sec-owned
+    substrate:
+      kind: host-api
+      id: append-recovery-storage-over-replaceable-byte-store
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: semantic-only
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: ActionKey, producer trust, freshness, reuse and invalidation
+
+  - capabilityId: structured-json-patch
+    requirementRefs: [github:issue/298]
+    layer: mechanical
+    decision: selected-candidate
+    substrate:
+      kind: candidate
+      id: fast-json-patch-rfc6902
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/298
+    authorityRetainedBy: allowed path, expected prior digest, result digest, operation authority and transaction
+
+  - capabilityId: untrusted-regex-migration
+    requirementRefs: [github:issue/298]
+    layer: mechanical
+    decision: selected-candidate
+    substrate:
+      kind: candidate
+      id: re2-wasm-after-platform-evidence
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/298
+    authorityRetainedBy: syntax policy, resource limits, expected match count and result digest
+
+  - capabilityId: literal-text-migration
+    requirementRefs: [github:issue/298]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: builtin
+      id: javascript-bounded-literal-string-operations
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: expected digest, bounded match count and transactional publication
+
+  - capabilityId: database-schema-migration
+    requirementRefs: [github:issue/298, github:issue/307]
+    layer: sec-semantic
+    decision: unsupported
+    substrate:
+      kind: target-provider
+      id: selected-target-native-migration-provider
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/307
+    triggerRef: github:issue/298
+    authorityRetainedBy: Compatibility, Migration, Effect, Permission and Verification
+
+  - capabilityId: arbitrary-generated-migration-job
+    requirementRefs: [github:issue/298]
+    layer: sec-semantic
+    decision: unsupported
+    substrate:
+      kind: target-provider
+      id: explicit-effect-and-permission-provider-required
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/307
+    triggerRef: github:issue/298
+    authorityRetainedBy: execution capability, effect mediation and Verification
+
+  - capabilityId: property-based-generation
+    requirementRefs: [github:issue/180]
+    layer: mechanical
+    decision: selected-candidate
+    substrate:
+      kind: candidate
+      id: fast-check
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/180
+    authorityRetainedBy: property oracle, contract revision, seed, counterexample and result truth
+
+  - capabilityId: mutation-testing
+    requirementRefs: [github:issue/180]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: candidate
+      id: strykerjs
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/180
+    authorityRetainedBy: semantic oracle, mutation applicability and Verification result
+
+  - capabilityId: slot-capability-static-analysis
+    requirementRefs: [github:pr/477]
+    layer: sec-semantic
+    decision: sec-owned
+    substrate:
+      kind: package
+      id: ts-morph
+      manifestSection: devDependencies
+      declaredSpec: 28.0.0
+    manualFallback: semantic-only
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: capability and effect policy; static lint is not runtime security proof
+
+  - capabilityId: dependency-vulnerability-scan
+    requirementRefs: [github:issue/193, github:issue/301]
+    layer: mechanical
+    decision: selected-candidate
+    substrate:
+      kind: external-cli
+      id: osv-scanner-v2
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/301
+    authorityRetainedBy: vulnerability policy, exception, Release eligibility and Evidence freshness
+
+  - capabilityId: dependency-pr-review
+    requirementRefs: [github:issue/193]
+    layer: mechanical
+    decision: conditional
+    substrate:
+      kind: github-capability
+      id: dependency-review-action-v4
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github-capability:private-repository-code-security
+    authorityRetainedBy: dependency adoption and removal authority
+
+  - capabilityId: code-security-analysis
+    requirementRefs: [github:pr/477, github:issue/193]
+    layer: mechanical
+    decision: conditional
+    substrate:
+      kind: github-capability
+      id: codeql-javascript-typescript
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github-capability:private-repository-code-security
+    authorityRetainedBy: SEC capability, effect and Verification truth
+
+  - capabilityId: release-source-materialization
+    requirementRefs: [github:issue/301, github:pr/482]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: command
+      id: git-cli-exact-tree-archive
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: ReleaseBuildPlan, source identity and frozen input closure
+
+  - capabilityId: sbom-generation
+    requirementRefs: [github:issue/301, github:issue/329]
+    layer: mechanical
+    decision: selected-candidate
+    substrate:
+      kind: external-cli
+      id: syft
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/301
+    authorityRetainedBy: artifact subject identity, provider revision, validation and Release Evidence
+
+  - capabilityId: canonical-sbom-format
+    requirementRefs: [github:issue/301, github:issue/329]
+    layer: mechanical
+    decision: selected-candidate
+    substrate:
+      kind: standard
+      id: spdx-2.3-json
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/301
+    triggerRef: github:issue/301
+    authorityRetainedBy: subject binding and semantic validation; raw SBOM byte reproducibility is not assumed
+
+  - capabilityId: artifact-build-provenance
+    requirementRefs: [github:issue/301, github:issue/329]
+    layer: mechanical
+    decision: conditional
+    substrate:
+      kind: github-capability
+      id: actions-attest-v4
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/329
+    triggerRef: github-capability:private-repository-enterprise-cloud-artifact-attestations
+    authorityRetainedBy: trusted workflow identity, exact subject digest, ReleaseDecision and attestation verification
+
+  - capabilityId: portable-artifact-signing-fallback
+    requirementRefs: [github:issue/329]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: candidate
+      id: sigstore-cosign
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: github:issue/329
+    authorityRetainedBy: trust policy, identity, subject binding and ReleaseDecision
+
+  - capabilityId: npm-publication-authentication
+    requirementRefs: [github:issue/329]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: external-service
+      id: npm-trusted-publishing-oidc
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/329
+    triggerRef: release-consumer:public-npm-distribution
+    authorityRetainedBy: ReleaseDecision, publication plan and transport readback
+
+  - capabilityId: npm-provenance-from-private-source-repository
+    requirementRefs: [github:issue/329]
+    layer: mechanical
+    decision: unsupported
+    substrate:
+      kind: external-service
+      id: npm-provenance-private-repository-unsupported
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: Release Evidence must use an independently supported provenance route
+
+  - capabilityId: release-version-decision
+    requirementRefs: [github:issue/329]
+    layer: sec-semantic
+    decision: sec-owned
+    substrate:
+      kind: package
+      id: semver
+      manifestSection: dependencies
+      declaredSpec: ^7.7.4
+    manualFallback: semantic-only
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: ReleaseChangeSet, VersionDecision and ReleaseDecision
+
+  - capabilityId: release-projection-framework
+    requirementRefs: [github:issue/329]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: candidate
+      id: changesets-release-please-semantic-release-unselected
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: release-consumer:automated-release-projection
+    authorityRetainedBy: ReleaseChangeSet and VersionDecision
+
+  - capabilityId: secure-update-repository
+    requirementRefs: [github:issue/329]
+    layer: mechanical
+    decision: deferred
+    substrate:
+      kind: candidate
+      id: tuf
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: release-consumer:automatic-client-update-repository
+    authorityRetainedBy: future update-security owner and Support policy
+
+  - capabilityId: current-web-target
+    requirementRefs: [github:pr/480, github:issue/307]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: package
+      id: next
+      manifestSection: dependencies
+      declaredSpec: 16.2.4
+    manualFallback: forbidden
+    adoptionOwner: github:issue/193
+    triggerRef: null
+    authorityRetainedBy: Target Profile, ImplementationBinding and generated artifact ownership
+
+  - capabilityId: current-runtime-toolchain
+    requirementRefs: [github:pr/480, github:issue/301]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: toolchain
+      id: bun
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: Host/Toolchain support and provider revision
+
+  - capabilityId: current-container-packaging
+    requirementRefs: [github:pr/480, github:issue/307]
+    layer: mechanical
+    decision: adopted
+    substrate:
+      kind: command
+      id: docker-provider
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: forbidden
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: Target Profile, publication policy and Support Evidence
+
+  - capabilityId: provider-neutral-implementation-selection
+    requirementRefs: [github:issue/307, github:pr/480]
+    layer: sec-semantic
+    decision: sec-owned
+    substrate:
+      kind: sec-owner
+      id: implementation-resolution-kernel
+      manifestSection: null
+      declaredSpec: null
+    manualFallback: semantic-only
+    adoptionOwner: null
+    triggerRef: null
+    authorityRetainedBy: Requirement, Eligibility, Decision and frozen ImplementationBinding
