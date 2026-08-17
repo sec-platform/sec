@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
@@ -18,17 +18,16 @@ import {
   type ImportTransformTransactionTestHooksV1
 } from './import-transform-transaction.ts';
 
-// Inline sync config cache for tsconfig.json parsing.
-// Inlined here to avoid expanding the TCB runtime closure with config-cache.ts.
-const tsconfigCache = new Map<string, { signature: string; value: { config?: unknown; error?: ts.Diagnostic } }>();
+// Inline sync parse cache. Exact config bytes are the reuse identity; metadata
+// is not correctness evidence because mtime/size can collide across rewrites.
+const tsconfigCache = new Map<string, { digest: `sha256:${string}`; value: { config?: unknown; error?: ts.Diagnostic } }>();
 function cachedParseConfigFile(configPath: string): { config?: unknown; error?: ts.Diagnostic } {
-  const stat = statSync(configPath);
-  const signature = `${configPath}:${stat.mtimeMs}:${stat.size}`;
-  const existing = tsconfigCache.get(configPath);
-  if (existing !== undefined && existing.signature === signature) return existing.value;
   const text = readFileSync(configPath, 'utf8');
+  const digest = rawSha256(text);
+  const existing = tsconfigCache.get(configPath);
+  if (existing !== undefined && existing.digest === digest) return existing.value;
   const value = ts.parseConfigFileTextToJson(configPath, text);
-  tsconfigCache.set(configPath, { signature, value });
+  tsconfigCache.set(configPath, { digest, value });
   return value;
 }
 
@@ -345,8 +344,6 @@ function typeScriptTargetsFromPorcelain(bytes: Buffer, source: string): readonly
     const y = entry[1]!;
     const filePath = entry.slice(3);
 
-    // Rename/copy entries are followed by an extra NUL-separated original path
-    // field that must be consumed to keep field alignment.
     if (x === 'R' || x === 'C' || y === 'R' || y === 'C') {
       if (index < fields.length) index++;
     }
@@ -453,14 +450,10 @@ export function workingTreeTypeScriptTargets(
   const resolvedBase = resolveCandidateImportBase(projectRoot, candidateBase, env);
   const targets = new Set<string>();
 
-  // Committed candidate delta is one NUL-delimited, read-only Git query.
   for (const target of changedTypeScriptFiles(projectRoot, resolvedBase, env)) {
     targets.add(target);
   }
 
-  // Working tree changes: staged, unstaged, and untracked (single porcelain
-  // call replaces the former --cached, working-tree, and ls-files --others
-  // calls, deriving all working-tree targets in one pass).
   for (const target of typeScriptTargetsFromPorcelain(
     gitBytes(projectRoot, ['status', '--porcelain=v1', '--untracked-files=all', '-z'], undefined, pureGitReadEnvironment(env)),
     'git status --porcelain=v1'
@@ -498,7 +491,6 @@ function selectStagedEntries(
 ): readonly StagedIndexEntry[] {
   const unresolved = entries.find((entry) => entry.stage !== 0 && isTypeScriptPath(entry.path));
   if (unresolved) {
-    // Typed partial-stage fail-closed: no stash/restore, no index mutation.
     throw new CompilerError(
       'IMPORT-PARTIAL-STAGE-CONFLICT',
       `Cannot organize unresolved TypeScript index stages: ${unresolved.path}`,
@@ -738,8 +730,6 @@ async function publishStagedIndex(
     lock = null;
     await fs.rename(lockPath, indexPath);
     published = true;
-  } catch (error) {
-    throw error;
   } finally {
     if (lock !== null) await lock.close().catch(() => undefined);
     await fs.rm(alternateLockPath, { force: true }).catch(() => undefined);
@@ -766,8 +756,6 @@ async function computeStagedImportUpdates(
   const targetPaths = stagedTypeScriptTargets(projectRoot, candidateBase);
   const indexEntries = readIndexEntries(projectRoot);
   if (targetPaths.length === 0) {
-    // Typed partial-stage fail-closed even when no staged diff targets are
-    // selected: unresolved TypeScript stages are never silently bypassed.
     const unresolved = indexEntries.find((entry) => entry.stage !== 0 && isTypeScriptPath(entry.path));
     if (unresolved) {
       throw new CompilerError(
@@ -850,10 +838,6 @@ function disposeStagedComputation(computation: StagedImportComputationV1): Promi
     : fs.rm(computation.context.snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
 }
 
-/**
- * Freeze = identity seal for staged/candidate snapshots. Pure compare only:
- * zero source writes, zero index writes, zero rename/chmod/mtime publication.
- */
 export async function runStagedImportCheck(
   projectRoot = compilerRoot,
   testHooks: StagedImportOrganizerTestHooks = {},
@@ -1030,10 +1014,6 @@ export async function compileImportOperationPlanV1(
   return (await compileImportOperationExecutionV1(options, projectRoot, env)).plan;
 }
 
-/**
- * imports:check — pure compare over the working-tree selector. Zero source
- * writes, zero index writes, zero rename/chmod/mtime publication.
- */
 export async function runImportCheck(
   options: ImportOperationOptionsV1 = {},
   projectRoot = compilerRoot,
@@ -1047,14 +1027,6 @@ export async function runImportCheck(
       status: 'needs-import-transform' as const, files: plan.writePaths });
 }
 
-/**
- * imports:apply — explicit authoring operation over one immutable working-tree
- * selector; the only ordinary source-writing import operation. The complete
- * plan write set is published under the canonical workspace writer lease with
- * supported-writer preimage CAS, durable recovery material, rollback, and
- * exact readback. Every supported SEC writer participates in that lease.
- * A true NOOP publishes zero source/index/rename/chmod/mtime changes.
- */
 export async function runImportApply(
   options: ImportOperationOptionsV1 & {
     transactionTestHooks?: ImportTransformTransactionTestHooksV1;
