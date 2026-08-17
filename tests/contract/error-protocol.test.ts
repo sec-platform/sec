@@ -30,6 +30,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
       CI_ARTIFACT_FILES.upgradeDiagnostics,
       CI_ARTIFACT_FILES.upgradePlan,
       CI_ARTIFACT_FILES.viewMutationReport,
+      'source/app.yaml',
       'source/views/mutations'
     ].sort(),
     examples: expect.arrayContaining([
@@ -82,6 +83,16 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         })
       }),
       expect.objectContaining({
+        id: 'engineering-operation-error',
+        output: expect.objectContaining({
+          code: 'ENGINEERING-OPERATION-001',
+          recoverable: true,
+          issueType: 'spec',
+          suggestedActions: ['inspect-engineering-operation', 'fix-operation-target', 'retry-operation'],
+          artifactPaths: ['source/app.yaml']
+        })
+      }),
+      expect.objectContaining({
         id: 'workbench-mutation-error',
         output: expect.objectContaining({
           recoverable: true,
@@ -111,6 +122,7 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         `Artifact path list: ${contract.artifactPaths.join(', ')}`,
         'Example repair-plan-error; code=REPAIR-BLOCKED-001',
         'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016',
+        'Example engineering-operation-error; code=ENGINEERING-OPERATION-001',
         'Example workbench-mutation-error; code=WORKBENCH-MUTATION-002',
         'Example drift-error; code=ERROR-DRIFT-001'
       ],
