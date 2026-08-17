@@ -20,7 +20,7 @@ import type {
   VerificationReport
 } from './types.ts';
 
-export type ProjectOverviewStatusValue = 'passed' | 'attention' | 'failed' | 'skipped' | 'unknown';
+export type ProjectOverviewStatusValue = 'passed' | 'attention' | 'failed' | 'not-run' | 'unknown';
 export type ProjectOverviewQualityStatus = ProjectOverviewStatusValue | 'unavailable';
 export type ProjectOverviewViewId = 'overview' | 'source' | 'slot-rule' | 'graph' | 'review';
 
@@ -117,13 +117,21 @@ export const PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS: Record<ToolEvidenceRep
   'semantic-pattern': 'control/evidence/semantic-pattern-report.json'
 };
 
+/**
+ * Public overview status deliberately does not expose the ambiguous legacy
+ * execution word "skipped". Until a producer supplies a richer reason such as
+ * unsupported/invalidated, legacy skipped means only that no PASS/FAIL proof
+ * was executed and is projected as not-run.
+ */
 function normalizeStatus(value: string | undefined): ProjectOverviewStatusValue {
   switch (value) {
     case 'passed':
     case 'attention':
     case 'failed':
-    case 'skipped':
+    case 'not-run':
       return value;
+    case 'skipped':
+      return 'not-run';
     default:
       return 'unknown';
   }
@@ -133,7 +141,7 @@ function combineOverallStatus(values: readonly ProjectOverviewStatusValue[]): Pr
   if (values.includes('failed')) return 'failed';
   if (values.includes('attention')) return 'attention';
   if (values.includes('passed')) return 'passed';
-  if (values.includes('skipped')) return 'skipped';
+  if (values.includes('not-run')) return 'not-run';
   return 'unknown';
 }
 
@@ -165,9 +173,7 @@ function pushPriorityReason(
   targetPath: string | undefined,
   reason: string
 ): void {
-  if (!targetPath) {
-    return;
-  }
+  if (!targetPath) return;
   const reasons = priorityByPath.get(targetPath) ?? new Set<string>();
   reasons.add(reason);
   priorityByPath.set(targetPath, reasons);
