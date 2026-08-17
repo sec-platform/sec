@@ -14,8 +14,26 @@ export function classifyRuntimeEntry(targetPath: string): RuntimeEntryKind | nul
   return null;
 }
 
+function capabilityNamespace(capability: string): string | null {
+  const [namespace, name, ...rest] = capability.split('/');
+  if (!namespace || !name || rest.length > 0) return null;
+  return namespace;
+}
+
+function manifestVertical(manifest: BlockManifest): string | null {
+  const namespaces = uniqueSorted(
+    (manifest.provides ?? [])
+      .map(capabilityNamespace)
+      .filter((value): value is string => value !== null)
+  );
+  return namespaces.length === 1 ? namespaces[0]! : null;
+}
+
 export class AttributionResolver {
-  private blockToVertical = new Map<string, string>();
+  private readonly manifests: ReadonlyMap<string, BlockManifest>;
+  private readonly blockToVertical = new Map<string, string>();
+  private readonly providersByCapability = new Map<string, string[]>();
+  private readonly ownersByTarget = new Map<string, string[]>();
 
   public static async create(lock: LockFile, workspaceRoot = process.cwd()): Promise<AttributionResolver> {
     const loaded = await Promise.all(lock.resolvedBlocks.map(async (block) => {
@@ -24,88 +42,77 @@ export class AttributionResolver {
     }));
     const manifests = new Map<string, BlockManifest>();
     for (const [blockId, manifest] of loaded) manifests.set(blockId, manifest);
-    return new AttributionResolver(manifests);
+    return new AttributionResolver(lock, manifests);
   }
 
-  private constructor(manifests: Map<string, BlockManifest>) {
+  private constructor(lock: LockFile, manifests: ReadonlyMap<string, BlockManifest>) {
+    this.manifests = manifests;
     for (const [blockId, manifest] of manifests.entries()) {
-      if (!manifest.routes || manifest.routes.length === 0) continue;
-      const cleanPath = manifest.routes[0]!.path.replace(/^\//, '').split('/')[0]!;
-      let vertical = cleanPath;
-      if (cleanPath.startsWith('ticket')) vertical = 'ticket';
-      else if (cleanPath.startsWith('customer')) vertical = 'customer';
-      this.blockToVertical.set(blockId, vertical);
+      const vertical = manifestVertical(manifest);
+      if (vertical) this.blockToVertical.set(blockId, vertical);
+      for (const capability of manifest.provides ?? []) {
+        this.providersByCapability.set(
+          capability,
+          uniqueSorted([...(this.providersByCapability.get(capability) ?? []), blockId])
+        );
+      }
     }
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const [blockId, manifest] of manifests.entries()) {
-        if (this.blockToVertical.has(blockId)) continue;
-        for (const requirement of manifest.requires ?? []) {
-          const vertical = this.findVerticalForRequire(requirement, this.blockToVertical);
-          if (!vertical) continue;
-          this.blockToVertical.set(blockId, vertical);
-          changed = true;
-          break;
+    for (const step of lock.installPlan) {
+      this.ownersByTarget.set(
+        step.to,
+        uniqueSorted([...(this.ownersByTarget.get(step.to) ?? []), step.blockId])
+      );
+    }
+  }
+
+  private exactOwners(targetPath: string): string[] {
+    return this.ownersByTarget.get(targetPath) ?? [];
+  }
+
+  private relatedClosure(owners: readonly string[]): string[] {
+    const related = new Set<string>(owners);
+    const queue = [...owners];
+    while (queue.length > 0) {
+      const blockId = queue.shift()!;
+      const manifest = this.manifests.get(blockId);
+      if (!manifest) continue;
+      for (const requirement of manifest.requires ?? []) {
+        for (const provider of this.providersByCapability.get(requirement) ?? []) {
+          if (related.has(provider)) continue;
+          related.add(provider);
+          queue.push(provider);
         }
       }
     }
-  }
-
-  private findVerticalForRequire(requirement: string, mapping: Map<string, string>): string | null {
-    if (mapping.has(requirement)) return mapping.get(requirement)!;
-    for (const [blockId, vertical] of mapping.entries()) {
-      const namespace = blockId.split('/')[0]!;
-      if (requirement.startsWith(`${namespace}/`)) return vertical;
-    }
-    return null;
+    return uniqueSorted([...related]);
   }
 
   public detectVertical(targetPath: string): string | null {
-    const pathLower = targetPath.toLowerCase();
-    for (const [blockId, vertical] of this.blockToVertical.entries()) {
-      const namespace = blockId.split('/')[0]!;
-      if (pathLower.includes(namespace)) return vertical;
-    }
-    if (pathLower.startsWith('app/')) {
-      const segment = pathLower.split('/')[1];
-      if (segment?.startsWith('ticket')) return 'ticket';
-      if (segment?.startsWith('customer')) return 'customer';
-      if (segment) for (const [blockId, vertical] of this.blockToVertical.entries()) {
-        if (segment.includes(blockId.split('/')[0]!)) return vertical;
-      }
-    }
-    if (pathLower.includes('ticket') || pathLower.includes('worklog')) return 'ticket';
-    if (pathLower.includes('customer')) return 'customer';
-    return null;
+    const ownerVerticals = uniqueSorted(
+      this.exactOwners(targetPath)
+        .map((blockId) => this.blockToVertical.get(blockId))
+        .filter((value): value is string => value !== undefined)
+    );
+    return ownerVerticals.length === 1 ? ownerVerticals[0]! : null;
   }
 
-  public getRelatedBlocks(targetPath: string, lock: LockFile): string[] {
-    const vertical = this.detectVertical(targetPath);
-    const related = new Set<string>();
-    for (const block of lock.resolvedBlocks) {
-      const blockVertical = this.blockToVertical.get(block.id) ?? this.detectVertical(block.id);
-      if (vertical && blockVertical === vertical) related.add(block.id);
-      if (targetPath.includes('/export') && block.id.startsWith('export/')) related.add(block.id);
-      if (targetPath.includes('/summary') && block.id.includes('summary')) {
-        const summaryVertical = this.detectVertical(block.id);
-        if (!vertical || summaryVertical === vertical) related.add(block.id);
-      }
-    }
-    return [...related];
+  public getRelatedBlocks(targetPath: string): string[] {
+    return this.relatedClosure(this.exactOwners(targetPath));
   }
 }
 
-export function detectVerticalFromPath(targetPath: string): string | null {
-  const pathLower = targetPath.toLowerCase();
-  if (pathLower.includes('ticket') || pathLower.includes('worklog')) return 'ticket';
-  if (pathLower.includes('customer')) return 'customer';
+/**
+ * Legacy path-only vertical inference is intentionally retired. A lexical path
+ * or error message is not engineering provenance; callers need a Lock/Manifest
+ * attribution context or must preserve the result as unknown.
+ */
+export function detectVerticalFromPath(_targetPath: string): string | null {
   return null;
 }
 
 export async function inferRelatedBlocks(lock: LockFile, targetPath: string, workspaceRoot = process.cwd()): Promise<string[]> {
   const resolver = await AttributionResolver.create(lock, workspaceRoot);
-  return uniqueSorted(resolver.getRelatedBlocks(targetPath, lock));
+  return resolver.getRelatedBlocks(targetPath);
 }
 
 export async function buildRuntimeAttribution(lock: LockFile, targetPath: string, workspaceRoot = process.cwd()): Promise<RuntimeAttribution | null> {
@@ -113,7 +120,12 @@ export async function buildRuntimeAttribution(lock: LockFile, targetPath: string
   if (!kind) return null;
   const resolver = await AttributionResolver.create(lock, workspaceRoot);
   const vertical = resolver.detectVertical(targetPath);
-  return { path: targetPath, kind, ...(vertical ? { vertical } : {}), relatedBlocks: uniqueSorted(resolver.getRelatedBlocks(targetPath, lock)) };
+  return {
+    path: targetPath,
+    kind,
+    ...(vertical ? { vertical } : {}),
+    relatedBlocks: resolver.getRelatedBlocks(targetPath)
+  };
 }
 
 export async function buildRuntimeAttributions(lock: LockFile, targetPaths: string[], workspaceRoot = process.cwd()): Promise<RuntimeAttribution[]> {
@@ -125,7 +137,12 @@ export async function buildRuntimeAttributions(lock: LockFile, targetPaths: stri
   const resolver = await AttributionResolver.create(lock, workspaceRoot);
   return runtimeTargets.map(({ targetPath, kind }) => {
     const vertical = resolver.detectVertical(targetPath);
-    return { path: targetPath, kind, ...(vertical ? { vertical } : {}), relatedBlocks: uniqueSorted(resolver.getRelatedBlocks(targetPath, lock)) };
+    return {
+      path: targetPath,
+      kind,
+      ...(vertical ? { vertical } : {}),
+      relatedBlocks: resolver.getRelatedBlocks(targetPath)
+    };
   }).sort((left, right) => compareCodeUnits(left.path, right.path));
 }
 
