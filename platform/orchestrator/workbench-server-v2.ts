@@ -1,17 +1,17 @@
 import { serve } from 'bun';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import YAML from 'yaml';
 
+import { bootstrapAuthorizedSlotSource } from '../compiler/workbench/bootstrap-slot-source.ts';
+import { loadAllManifests } from '../compiler/parse/load-manifest.ts';
+import { compareCodeUnits } from '../shared/canonical-primitives.ts';
 import { ensureDir, pathExists, writeJson } from '../shared/fs.ts';
 import { defaultLogger } from '../shared/logger.ts';
 import {
   controlWorkbenchViewsRelativePath,
   getWorkspacePaths,
-  posixPath,
   sourceSlotsRelativePath
 } from '../shared/paths.ts';
-import { compilerRuntimeResources } from '../shared/runtime-layout.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease,
@@ -30,13 +30,18 @@ import {
   workbenchSseResponse
 } from './workbench-http-support.ts';
 
+const SLOT_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const NODE_ID_PATTERN = /^[A-Za-z0-9_.\/-]+$/u;
+const MAX_NODE_ID_LENGTH = 256;
+const MAX_MUTATION_BODY_BYTES = 1024 * 1024;
+
 interface BootstrapSlotBody {
   slotId: string;
-  block?: string;
+  block: string;
 }
 
 interface RunNodeBody {
-  type: string;
+  type: 'slot' | 'block';
   id: string;
 }
 
@@ -83,69 +88,89 @@ function encodeSse(event: string, data: string): Uint8Array {
   return new TextEncoder().encode(`event: ${event}\ndata: ${data}\n\n`);
 }
 
-async function handleBlocksCatalog(_context: RouteContext): Promise<Response> {
-  const registryDir = compilerRuntimeResources.officialRegistry;
-  const entries = await fs.readdir(registryDir, { withFileTypes: true });
-  const catalog: unknown[] = [];
+function isSafeSlotId(value: unknown): value is string {
+  return typeof value === 'string' && SLOT_ID_PATTERN.test(value);
+}
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const manifestPath = path.join(registryDir, entry.name, 'block.manifest.yaml');
-    const exists = await pathExists(manifestPath);
-    if (!exists) continue;
-    catalog.push(YAML.parse(await fs.readFile(manifestPath, 'utf8')));
+function isSafeNodeId(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= MAX_NODE_ID_LENGTH
+    && NODE_ID_PATTERN.test(value)
+    && !value.includes('..');
+}
+
+function sameOriginOrNonBrowser(req: Request): boolean {
+  const origin = req.headers.get('origin');
+  return origin === null || origin === new URL(req.url).origin;
+}
+
+async function readBoundedJson(req: Request, maxBytes: number): Promise<unknown> {
+  const declaredLength = req.headers.get('content-length');
+  if (declaredLength !== null) {
+    const length = Number.parseInt(declaredLength, 10);
+    if (!Number.isSafeInteger(length) || length < 0 || length > maxBytes) {
+      throw new Error(`Request body exceeds the ${maxBytes}-byte Workbench limit`);
+    }
   }
+  const text = await req.text();
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+    throw new Error(`Request body exceeds the ${maxBytes}-byte Workbench limit`);
+  }
+  return JSON.parse(text) as unknown;
+}
 
-  return workbenchJsonResponse(catalog);
+function parseBootstrapSlotBody(value: unknown): BootstrapSlotBody | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (!isSafeSlotId(body.slotId) || !isSafeNodeId(body.block)) return null;
+  return { slotId: body.slotId, block: body.block };
+}
+
+function parseRunNodeBody(value: unknown): RunNodeBody | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if ((body.type !== 'slot' && body.type !== 'block') || !isSafeNodeId(body.id)) return null;
+  if (body.type === 'slot' && !isSafeSlotId(body.id)) return null;
+  return { type: body.type, id: body.id };
+}
+
+async function handleBlocksCatalog(context: RouteContext): Promise<Response> {
+  const entries = await loadAllManifests({ workspaceRoot: context.workspaceRoot });
+  return workbenchJsonResponse(entries.map((entry) => entry.manifest));
 }
 
 async function handleBootstrapSlot(context: RouteContext): Promise<Response> {
-  const { slotId, block } = await context.req.json() as BootstrapSlotBody;
-  if (!slotId) return workbenchErrorResponse('Missing slotId', 400);
+  const body = parseBootstrapSlotBody(await readBoundedJson(context.req, 16 * 1024));
+  if (!body) return workbenchErrorResponse('Invalid slotId or block identity', 400);
 
   return withWorkbenchWriterLease(context, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(context.workspaceRoot, token);
-    const slotsDir = path.join(context.workspaceRoot, sourceSlotsRelativePath);
-    await commitFence();
-    await ensureDir(slotsDir);
-    const targetPath = path.join(slotsDir, `${slotId}.ts`);
-    const exists = await pathExists(targetPath);
-
-    if (!exists) {
-      const rawCamel = slotId.replace(/_([a-z])/g, (_, character: string) => character.toUpperCase());
-      const symbolName = rawCamel.charAt(0).toUpperCase() + rawCamel.slice(1);
-      await commitFence();
-      await fs.writeFile(targetPath, `/**
- * SpecEngineer Auto-Bootstrapped Slot Handler
- * Slot ID: ${slotId}
- * Associated Block: ${block || 'none'}
- */
-
-export async function handle${symbolName}(input: unknown): Promise<unknown> {
-  console.log("[Slot Handler ${slotId}] Received input:", input);
-  return {
-    status: "success",
-    timestamp: new Date().toISOString(),
-    processed: true
-  };
-}
-`, 'utf8');
-    }
-
+    const result = await bootstrapAuthorizedSlotSource(
+      context.workspaceRoot,
+      body.block,
+      body.slotId,
+      commitFence
+    );
     return workbenchJsonResponse({
       status: 'success',
-      path: posixPath(`${sourceSlotsRelativePath}/${slotId}.ts`)
+      disposition: result.status,
+      path: result.path
     });
   });
 }
 
 async function handleSlotCode(context: RouteContext): Promise<Response> {
   const slotId = context.url.searchParams.get('slotId');
-  if (!slotId) return workbenchErrorResponse('Missing slotId parameter', 400);
+  if (!isSafeSlotId(slotId)) return workbenchErrorResponse('Invalid slotId parameter', 400);
 
   const targetPath = path.join(context.workspaceRoot, sourceSlotsRelativePath, `${slotId}.ts`);
   const exists = await pathExists(targetPath);
   if (!exists) return workbenchJsonResponse({ error: 'Slot code file not found', code: '' }, 404);
+  const metadata = await fs.lstat(targetPath);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) {
+    return workbenchErrorResponse('Slot code path is not one ordinary file', 409);
+  }
   return workbenchJsonResponse({ code: await fs.readFile(targetPath, 'utf8') });
 }
 
@@ -158,11 +183,10 @@ async function handleReview(context: RouteContext): Promise<Response> {
 }
 
 async function handleMutations(context: RouteContext): Promise<Response> {
-  const body = await context.req.json();
+  const body = await readBoundedJson(context.req, MAX_MUTATION_BODY_BYTES);
   return withWorkbenchWriterLease(context, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(context.workspaceRoot, token);
-    await commitFence();
-    await ensureDir(context.paths.sourceViewMutationsRoot);
+    await ensureDir(context.paths.sourceViewMutationsRoot, commitFence);
     await writeJson(
       path.join(context.paths.sourceViewMutationsRoot, 'graph-action.json'),
       body,
@@ -175,18 +199,19 @@ async function handleMutations(context: RouteContext): Promise<Response> {
 async function findBlockTest(workspaceRoot: string, blockId: string): Promise<string | null> {
   const normalizedId = blockId.replace(/[\/\-_]/g, '').toLowerCase();
   const testsDir = path.join(workspaceRoot, 'tests');
-  let matchedFile: string | null = null;
+  const matchedFiles: string[] = [];
 
   const searchDirectory = async (directory: string): Promise<void> => {
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-      if (matchedFile) return;
+    const entries = (await fs.readdir(directory, { withFileTypes: true }))
+      .sort((left, right) => compareCodeUnits(left.name, right.name));
+    for (const entry of entries) {
       const fullPath = path.join(directory, entry.name);
       if (entry.isDirectory()) {
         await searchDirectory(fullPath);
       } else if (entry.isFile() && entry.name.endsWith('.test.ts')) {
         const name = entry.name.toLowerCase();
         if (name.includes(normalizedId) || normalizedId.includes(name.replace('.test.ts', ''))) {
-          matchedFile = fullPath;
+          matchedFiles.push(fullPath);
         }
       }
     }
@@ -197,27 +222,24 @@ async function findBlockTest(workspaceRoot: string, blockId: string): Promise<st
   } catch {
     return null;
   }
-  return matchedFile;
+  return matchedFiles.length === 1 ? matchedFiles[0]! : null;
 }
 
 async function commandForNode(context: RouteContext, body: RunNodeBody, log: (message: string) => void): Promise<string[] | null> {
   if (body.type === 'slot') {
     const slotFile = path.join(context.workspaceRoot, sourceSlotsRelativePath, `${body.id}.ts`);
-    const exists = await pathExists(slotFile);
-    if (!exists) return null;
-    log(`   Found slot implementation file.`);
+    const metadata = await fs.lstat(slotFile).catch(() => null);
+    if (!metadata?.isFile() || metadata.isSymbolicLink()) return null;
+    log('   Found slot implementation file.');
     return ['bun', 'test', 'tests/unit/validate-slot-security.test.ts'];
   }
 
-  if (body.type === 'block') {
-    const matchedFile = await findBlockTest(context.workspaceRoot, body.id);
-    if (matchedFile) {
-      const relativePath = path.relative(context.workspaceRoot, matchedFile);
-      log(`   Matched test suite: ${relativePath}`);
-      return ['bun', 'test', relativePath];
-    }
+  const matchedFile = await findBlockTest(context.workspaceRoot, body.id);
+  if (matchedFile) {
+    const relativePath = path.relative(context.workspaceRoot, matchedFile);
+    log(`   Matched test suite: ${relativePath}`);
+    return ['bun', 'test', relativePath];
   }
-
   return ['bun', 'run', 'sec', 'verify', '--lane', 'fast'];
 }
 
@@ -227,21 +249,28 @@ async function readProcessStream(
 ): Promise<void> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
+  let pending = '';
   while (true) {
     const { done, value } = await reader.read();
-    if (done) return;
-    for (const line of decoder.decode(value).split('\n')) {
-      if (line.trim()) log(`   ${line.trim()}`);
+    pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
+    const lines = pending.split('\n');
+    pending = lines.pop() ?? '';
+    for (const line of lines) if (line.trim()) log(`   ${line.trim()}`);
+    if (done) {
+      if (pending.trim()) log(`   ${pending.trim()}`);
+      return;
     }
   }
 }
 
 async function handleRunNodeSse(context: RouteContext, mutex: WorkbenchMutex): Promise<Response> {
-  const body = await context.req.json() as RunNodeBody;
+  const body = parseRunNodeBody(await readBoundedJson(context.req, 16 * 1024));
+  if (!body) return workbenchErrorResponse('Invalid run-node request', 400);
+
+  let activeProcess: SubprocessHandle | null = null;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const release = await mutex.acquire();
-      let activeProcess: SubprocessHandle | null = null;
       const log = (message: string): void => {
         try {
           controller.enqueue(encodeSse('log', message));
@@ -286,7 +315,7 @@ async function handleRunNodeSse(context: RouteContext, mutex: WorkbenchMutex): P
           // Stream already closed.
         }
       } finally {
-        void activeProcess;
+        activeProcess = null;
         release();
         try {
           controller.close();
@@ -294,6 +323,9 @@ async function handleRunNodeSse(context: RouteContext, mutex: WorkbenchMutex): P
           // Stream already closed.
         }
       }
+    },
+    cancel() {
+      activeProcess?.kill();
     }
   });
 
@@ -376,12 +408,18 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
   ];
 
   const server = serve({
+    hostname: '127.0.0.1',
     port,
     async fetch(req) {
       const startTime = Date.now();
       const url = new URL(req.url);
       const reqPath = url.pathname;
       const method = req.method;
+
+      if (!sameOriginOrNonBrowser(req)) {
+        logWorkbenchHttp(method, reqPath, 403, 'Forbidden', Date.now() - startTime, WORKBENCH_COLORS.red);
+        return workbenchErrorResponse('Cross-origin Workbench requests are forbidden', 403);
+      }
 
       if (method === 'OPTIONS') {
         const response = new Response(null, {
@@ -411,7 +449,11 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
       }
 
       if (reqPath === '/api/run-node' && method === 'POST') {
-        return handleRunNodeSse(context, mutex);
+        try {
+          return await handleRunNodeSse(context, mutex);
+        } catch (error) {
+          return workbenchErrorResponse(error instanceof Error ? error.message : String(error), 400);
+        }
       }
 
       for (const route of routes) {
@@ -426,7 +468,7 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
 
   const actualPort = server.port ?? port;
   defaultLogger.info('Workbench server listening', {
-    url: `http://localhost:${actualPort}`,
+    url: `http://127.0.0.1:${actualPort}`,
     viewsDir
   });
   logWorkbenchMutex(`Workbench server serving ${viewsDir}`);
