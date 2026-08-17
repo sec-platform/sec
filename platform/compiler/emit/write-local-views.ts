@@ -132,9 +132,9 @@ function buildOverviewNextAction(overview: ProjectOverview): string {
       return 'Inspect priority review files and missing artifacts, then rerun verification for handoff readiness.';
     case 'passed':
       return 'Use the linked workbench views for AI handoff or deeper source and graph inspection.';
-    case 'skipped':
-      return 'Complete skipped governance steps before handing the workspace to review or AI repair.';
-    default:
+    case 'not-run':
+      return 'Complete required governance steps before handing the workspace to review or AI repair.';
+    case 'unknown':
       return 'Refresh governance artifacts, then reopen this overview to rebuild the workbench state.';
   }
 }
