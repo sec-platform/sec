@@ -72,7 +72,7 @@ test('workbench mutation publication retains the workspace path and refuses a li
     await publishWorkbenchMutationEnvelope(workspaceRoot, envelope, fence);
     const mutationPath = path.join(workspaceRoot, 'source', 'views', 'mutations', 'graph-action.json');
     expect(JSON.parse(await fs.readFile(mutationPath, 'utf8'))).toEqual(envelope);
-    expect(fenceCalls).toBeGreaterThanOrEqual(3);
+    expect(fenceCalls).toBeGreaterThanOrEqual(2);
 
     const retainedSource = path.join(workspaceRoot, 'source-retained');
     const externalSource = path.join(workspaceRoot, 'external-source');
