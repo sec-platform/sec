@@ -7,7 +7,7 @@ import {
   replaceDurableCanonicalFileV1
 } from './physical-no-follow.ts';
 
-export interface WorkspaceFilePublicationInput {
+export interface CanonicalWorkspaceFilePublicationInput {
   readonly workspaceRoot: string;
   readonly targetPath: string;
   readonly bytes: Uint8Array;
@@ -15,7 +15,7 @@ export interface WorkspaceFilePublicationInput {
   readonly commitFence?: CommitFence;
 }
 
-function workspaceRelativeSegments(workspaceRoot: string, targetPath: string): string[] {
+function canonicalWorkspaceRelativeSegments(workspaceRoot: string, targetPath: string): string[] {
   const root = path.resolve(workspaceRoot);
   const target = path.resolve(targetPath);
   const relative = path.relative(root, target);
@@ -25,25 +25,34 @@ function workspaceRelativeSegments(workspaceRoot: string, targetPath: string): s
     relative === '..' ||
     relative.startsWith(`..${path.sep}`)
   ) {
-    throw new Error(`Workspace publication target "${targetPath}" must be one file inside "${root}"`);
+    throw new Error(`Canonical workspace publication target "${targetPath}" must be one file inside "${root}"`);
   }
   const segments = relative.split(path.sep);
   if (segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')) {
-    throw new Error(`Workspace publication target "${targetPath}" has a non-canonical path component`);
+    throw new Error(`Canonical workspace publication target "${targetPath}" has an invalid path component`);
+  }
+  for (const segment of segments.slice(0, -1)) {
+    if (segment !== '.tmp' && !/^[a-z0-9-]+$/u.test(segment)) {
+      throw new Error(
+        `Canonical workspace publication parent "${segment}" is outside the retained canonical-directory vocabulary`
+      );
+    }
   }
   return segments;
 }
 
 /**
- * Pure physical publication primitive for already-authorized workspace writes.
- * It does not decide whether a caller is allowed to mutate the target.  It only
- * preserves the workspace physical identity, refuses link-following ancestors,
- * creates missing parent directories through retained handles, atomically
- * replaces the ordinary leaf, and verifies exact byte readback.
+ * Physical publisher for already-authorized canonical workspace control/source
+ * files whose parent directory names are in the retained canonical vocabulary.
+ * It deliberately does NOT cover arbitrary project/slot paths.  Those require
+ * a broader path-identity capability rather than weakening the canonical
+ * directory primitive used by control/recovery state.
  */
-export async function publishWorkspaceFileV1(input: WorkspaceFilePublicationInput): Promise<void> {
+export async function publishCanonicalWorkspaceFileV1(
+  input: CanonicalWorkspaceFilePublicationInput
+): Promise<void> {
   const rootPath = path.resolve(input.workspaceRoot);
-  const segments = workspaceRelativeSegments(rootPath, input.targetPath);
+  const segments = canonicalWorkspaceRelativeSegments(rootPath, input.targetPath);
   const leafName = segments.at(-1)!;
   const parentSegments = segments.slice(0, -1);
   const workspace = inspectNoFollowDirectoryChainV1(
