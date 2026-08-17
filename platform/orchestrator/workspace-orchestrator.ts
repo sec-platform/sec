@@ -13,7 +13,9 @@ import type { PlanFile } from '../shared/plan-manifest-types.ts';
 import { ensureProjectBase } from '../shared/project-base.ts';
 import {
   assertWorkspaceWriteLease,
+  inspectWorkspaceWriteLease,
   withWorkspaceWriteLease,
+  WORKSPACE_WRITE_LEASE_DIRECTORY_NAME,
   WorkspaceWriteLeaseError,
   type WorkspaceWriteLeaseToken
 } from '../shared/workspace-write-lease.ts';
@@ -59,6 +61,26 @@ async function bootstrapWorkspaceRoot(workspaceRoot: string): Promise<'created' 
   }
 }
 
+async function assertNoActiveWorkspaceWriter(workspaceRoot: string): Promise<void> {
+  const leaseRoot = path.join(workspaceRoot, '.sec', WORKSPACE_WRITE_LEASE_DIRECTORY_NAME);
+  try {
+    const metadata = await lstat(leaseRoot);
+    if (metadata.isSymbolicLink() || !metadata.isDirectory()) return;
+  } catch (error) {
+    if (nativeErrorCode(error) === 'ENOENT') return;
+    throw error;
+  }
+
+  const inspection = await inspectWorkspaceWriteLease(workspaceRoot);
+  if (inspection.state === 'active') {
+    throw new WorkspaceWriteLeaseError(
+      'WORKSPACE-WRITE-LEASE-001',
+      'Workspace writer lease already held',
+      { operation: 'initialize', phase: 'pre-create-inspection' }
+    );
+  }
+}
+
 async function assertWorkspaceCreateSurfaceEmpty(
   workspaceRoot: string,
   suppliedLease: WorkspaceWriteLeaseToken | undefined
@@ -91,7 +113,7 @@ async function assertWorkspaceCreateSurfaceEmpty(
   const localStateEntries = await readdir(path.join(workspaceRoot, '.sec'), { withFileTypes: true });
   if (
     localStateEntries.length !== 1 ||
-    localStateEntries[0]?.name !== 'workspace-write-lease'
+    localStateEntries[0]?.name !== WORKSPACE_WRITE_LEASE_DIRECTORY_NAME
   ) {
     throw new CompilerError(
       'WORKSPACE-INIT-001',
@@ -164,6 +186,7 @@ export async function initWorkspace(
 
   if (workspaceWriteLease === undefined) {
     await bootstrapWorkspaceRoot(workspaceRoot);
+    await assertNoActiveWorkspaceWriter(workspaceRoot);
   }
   await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, workspaceWriteLease);
 
