@@ -1,9 +1,9 @@
-import { mkdir, readdir } from 'node:fs/promises';
+import { lstat, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
-import { defaultLimit } from '../shared/concurrency.ts';
 import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from '../shared/constants.ts';
-import { pathExists, removeDir, writeJson } from '../shared/fs.ts';
+import { CompilerError } from '../shared/errors.ts';
+import { writeJson } from '../shared/fs.ts';
 import {
   getWorkspacePaths,
   officialRegistryRelativePath,
@@ -19,32 +19,31 @@ import {
 } from '../shared/workspace-write-lease.ts';
 import { writeYaml } from '../shared/yaml.ts';
 
-async function resetLocalStatePreservingWriterLease(
-  localStateRoot: string,
-  commitFence: () => Promise<void>
-): Promise<void> {
-  if (!(await pathExists(localStateRoot))) return;
-  const entries = await readdir(localStateRoot);
-  await Promise.all(entries
-    .filter((entry) => entry !== 'workspace-write-lease')
-    .map((entry) => defaultLimit(async () => {
-      await removeDir(path.join(localStateRoot, entry), commitFence);
-    })));
-}
-
 function nativeErrorCode(error: unknown): string | undefined {
   if (!error || typeof error !== 'object' || !('code' in error)) return undefined;
   return typeof error.code === 'string' ? error.code.toUpperCase() : undefined;
 }
 
-async function bootstrapWorkspaceRoot(workspaceRoot: string): Promise<void> {
+async function bootstrapWorkspaceRoot(workspaceRoot: string): Promise<'created' | 'existing'> {
+  const absoluteRoot = path.resolve(workspaceRoot);
   try {
     // The parent must already exist. initWorkspace creates one requested root,
     // never an implicit ancestor chain.
-    await mkdir(path.resolve(workspaceRoot));
+    await mkdir(absoluteRoot);
+    return 'created';
   } catch (error) {
     const code = nativeErrorCode(error);
-    if (code === 'EEXIST') return;
+    if (code === 'EEXIST') {
+      const metadata = await lstat(absoluteRoot);
+      if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+        throw new WorkspaceWriteLeaseError(
+          'WORKSPACE-WRITE-LEASE-004',
+          'Workspace root is not one physical directory',
+          { operation: 'initialize', phase: 'workspace-root-bootstrap', reason: 'not-directory' }
+        );
+      }
+      return 'existing';
+    }
     const reason = code === 'ENOENT'
       ? 'missing-parent'
       : code === 'ENOTDIR'
@@ -56,6 +55,48 @@ async function bootstrapWorkspaceRoot(workspaceRoot: string): Promise<void> {
       'WORKSPACE-WRITE-LEASE-004',
       'Workspace root could not be initialized',
       { operation: 'initialize', phase: 'workspace-root-bootstrap', reason }
+    );
+  }
+}
+
+async function assertWorkspaceCreateSurfaceEmpty(
+  workspaceRoot: string,
+  suppliedLease: WorkspaceWriteLeaseToken | undefined
+): Promise<void> {
+  const entries = await readdir(workspaceRoot, { withFileTypes: true });
+  if (suppliedLease === undefined) {
+    if (entries.length === 0) return;
+    throw new CompilerError(
+      'WORKSPACE-INIT-001',
+      'Workspace initialization requires an empty root; existing content must be adopted or managed by an explicit lifecycle operation',
+      { entries: entries.map((entry) => entry.name).sort() }
+    );
+  }
+
+  const localStateEntry = entries.find((entry) => entry.name === '.sec');
+  const unexpectedRootEntries = entries.filter((entry) => entry.name !== '.sec');
+  if (
+    unexpectedRootEntries.length > 0 ||
+    localStateEntry === undefined ||
+    localStateEntry.isSymbolicLink() ||
+    !localStateEntry.isDirectory()
+  ) {
+    throw new CompilerError(
+      'WORKSPACE-INIT-001',
+      'Workspace initialization with an existing writer lease requires an otherwise empty root',
+      { entries: entries.map((entry) => entry.name).sort() }
+    );
+  }
+
+  const localStateEntries = await readdir(path.join(workspaceRoot, '.sec'), { withFileTypes: true });
+  if (
+    localStateEntries.length !== 1 ||
+    localStateEntries[0]?.name !== 'workspace-write-lease'
+  ) {
+    throw new CompilerError(
+      'WORKSPACE-INIT-001',
+      'Workspace initialization cannot overwrite existing local/control state',
+      { localStateEntries: localStateEntries.map((entry) => entry.name).sort() }
     );
   }
 }
@@ -116,22 +157,19 @@ export async function initWorkspace(
   options: { reset?: boolean } = {},
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<{ planPath: string; lockPath: string }> {
-  // A supplied token must be validated before any side effect. Only an
-  // independent initializer is allowed to create the one requested root.
-  if (workspaceWriteLease === undefined) await bootstrapWorkspaceRoot(workspaceRoot);
+  // `reset` is retained only as an input-compatibility flag for an empty create
+  // surface. It no longer grants recursive deletion authority. Destroy/reset
+  // of an existing workspace belongs to the explicit Workspace Lifecycle owner.
+  void options.reset;
+
+  if (workspaceWriteLease === undefined) {
+    await bootstrapWorkspaceRoot(workspaceRoot);
+  }
+  await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, workspaceWriteLease);
+
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
-    const { projectRoot, developerSourceRoot, controlRoot, localStateRoot, planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-    if (options.reset) {
-      await commitFence();
-      await Promise.all([projectRoot, developerSourceRoot, controlRoot].map(async (targetRoot) => defaultLimit(async () => {
-        if (await pathExists(targetRoot)) {
-          await removeDir(targetRoot, commitFence);
-        }
-      })));
-      await commitFence();
-      await resetLocalStatePreservingWriterLease(localStateRoot, commitFence);
-    }
+    const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
 
     await ensureProjectBase(workspaceRoot, commitFence);
     await writeYaml(planPath, defaultPlan(), commitFence);
