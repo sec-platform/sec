@@ -1,15 +1,12 @@
 import { lstat, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
+
+import { buildReferenceWorkspacePlan } from '../reference/reference-workspace-template.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
-import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from '../shared/constants.ts';
+import { PASS_STATUS_PENDING } from '../shared/constants.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { writeJson } from '../shared/fs.ts';
-import {
-  getWorkspacePaths,
-  officialRegistryRelativePath,
-  posixPath
-} from '../shared/paths.ts';
-import type { PlanFile } from '../shared/plan-manifest-types.ts';
+import { getWorkspacePaths } from '../shared/paths.ts';
 import { ensureProjectBase } from '../shared/project-base.ts';
 import {
   assertWorkspaceWriteLease,
@@ -120,57 +117,6 @@ async function assertWorkspaceCreateSurfaceEmpty(
   }
 }
 
-function defaultPlan(): PlanFile {
-  return {
-    app: {
-      id: 'customer-admin',
-      name: 'customer-admin',
-      stack: SUPPORTED_STACK,
-      packageManager: 'pnpm',
-      mode: 'single-tenant'
-    },
-    registry: {
-      sources: [
-        {
-          id: 'official',
-          kind: 'official',
-          location: 'compiler',
-          path: posixPath(officialRegistryRelativePath)
-        },
-        {
-          id: 'source-private',
-          kind: 'private',
-          location: 'workspace',
-          path: 'source/blocks/private'
-        },
-        {
-          id: 'private',
-          kind: 'private',
-          location: 'workspace',
-          path: 'platform/registry/private'
-        }
-      ]
-    },
-    blocks: [
-      { id: 'auth/basic-session', version: '0.1.0' },
-      { id: 'tenant/basic-workspace', version: '0.1.0' },
-      { id: 'entity/customer-basic', version: '0.1.0' }
-    ],
-    slots: [
-      {
-        id: 'customer_normalizer',
-        block: 'entity/customer-basic',
-        kind: 'adapter',
-        target: 'custom/customer_normalizer.ts',
-        sourcePath: 'source/code/slots/customer_normalizer.ts',
-        symbol: 'normalizeCustomerInput',
-        description: 'Name required; email lowercased; phone digits only; company defaults to Unknown.'
-      }
-    ],
-    acceptance: [...DEFAULT_ACCEPTANCE]
-  };
-}
-
 export async function initWorkspace(
   workspaceRoot = process.cwd(),
   options: { reset?: boolean } = {},
@@ -188,15 +134,17 @@ export async function initWorkspace(
     const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
     await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, token);
 
+    const plan = buildReferenceWorkspacePlan();
     await ensureProjectBase(workspaceRoot, commitFence);
-    await writeYaml(planPath, defaultPlan(), commitFence);
+    await writeYaml(planPath, plan, commitFence);
     await writeJson(lockPath, {
       formatVersion: '1',
       app: {
-        id: 'customer-admin',
-        name: 'customer-admin',
-        stack: SUPPORTED_STACK,
-        mode: 'single-tenant'
+        id: plan.app.id,
+        name: plan.app.name,
+        stack: plan.app.stack,
+        mode: plan.app.mode,
+        ...(plan.app.target ? { target: plan.app.target } : {})
       },
       resolvedBlocks: [],
       resolvedCapabilities: [],
@@ -208,7 +156,7 @@ export async function initWorkspace(
         CI_ARTIFACT_FILES.installManifest,
         CI_ARTIFACT_FILES.verificationReport
       ],
-      acceptancePlan: DEFAULT_ACCEPTANCE.map((entry) => entry.id),
+      acceptancePlan: plan.acceptance.map((entry) => entry.id),
       passStatus: { ...PASS_STATUS_PENDING }
     }, commitFence);
     await writeJson(verificationReportPath, { summary: { status: 'pending' } }, commitFence);
