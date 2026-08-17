@@ -174,6 +174,36 @@ function manifestMaterial(input: Omit<ReleaseArtifactManifestV1, 'contentDigest'
   return Object.freeze({ ...input });
 }
 
+function manifestMaterialFromReadback(readback: ReleaseArtifactManifestV1) {
+  return manifestMaterial({
+    schema: readback.schema,
+    packageVersion: readback.packageVersion,
+    sourceCommit: readback.sourceCommit,
+    sourceTree: readback.sourceTree,
+    builder: readback.builder,
+    files: readback.files
+  });
+}
+
+async function assertReleaseArtifactReadback(
+  artifactRoot: string,
+  label: 'staged' | 'published'
+): Promise<ReleaseArtifactManifestV1> {
+  const manifestPath = path.join(artifactRoot, RELEASE_ARTIFACT_MANIFEST_RELATIVE_PATH);
+  const readback = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as ReleaseArtifactManifestV1;
+  if (readback.schema !== 'sec-release-artifact-manifest-v1') {
+    throw new Error(`${label} release artifact manifest schema is invalid`);
+  }
+  if (sha256(manifestMaterialFromReadback(readback)) !== readback.contentDigest) {
+    throw new Error(`${label} release artifact manifest readback digest is invalid`);
+  }
+  const physicalFiles = await listArtifactFiles(artifactRoot);
+  if (sha256(physicalFiles) !== sha256(readback.files)) {
+    throw new Error(`${label} release artifact physical file inventory differs from manifest`);
+  }
+  return readback;
+}
+
 async function writeAndVerifyManifest(
   artifactRoot: string,
   input: Omit<ReleaseArtifactManifestV1, 'files' | 'contentDigest'>
@@ -187,23 +217,7 @@ async function writeAndVerifyManifest(
   const manifestPath = path.join(artifactRoot, RELEASE_ARTIFACT_MANIFEST_RELATIVE_PATH);
   const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   await fs.writeFile(manifestPath, bytes, { flag: 'wx' });
-
-  const readback = JSON.parse(await fs.readFile(manifestPath, 'utf8')) as ReleaseArtifactManifestV1;
-  if (sha256(manifestMaterial({
-    schema: readback.schema,
-    packageVersion: readback.packageVersion,
-    sourceCommit: readback.sourceCommit,
-    sourceTree: readback.sourceTree,
-    builder: readback.builder,
-    files: readback.files
-  })) !== readback.contentDigest) {
-    throw new Error('Release artifact manifest readback digest is invalid');
-  }
-  const physicalFiles = await listArtifactFiles(artifactRoot);
-  if (sha256(physicalFiles) !== sha256(readback.files)) {
-    throw new Error('Release artifact physical file inventory differs from manifest');
-  }
-  return manifest;
+  return assertReleaseArtifactReadback(artifactRoot, 'staged');
 }
 
 async function publishAcceptedArtifact(stagedArtifactRoot: string, destinationRoot: string): Promise<void> {
@@ -226,14 +240,7 @@ async function publishAcceptedArtifact(stagedArtifactRoot: string, destinationRo
     }
 
     try {
-      const manifest = JSON.parse(await fs.readFile(
-        path.join(destinationRoot, RELEASE_ARTIFACT_MANIFEST_RELATIVE_PATH),
-        'utf8'
-      )) as ReleaseArtifactManifestV1;
-      const physicalFiles = await listArtifactFiles(destinationRoot);
-      if (sha256(physicalFiles) !== sha256(manifest.files)) {
-        throw new Error('Published release artifact readback differs from manifest');
-      }
+      await assertReleaseArtifactReadback(destinationRoot, 'published');
     } catch (error) {
       const failedRoot = path.join(parent, `.sec-release-failed-${randomUUID()}`);
       await fs.rename(destinationRoot, failedRoot).catch(() => undefined);
