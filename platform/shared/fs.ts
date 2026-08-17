@@ -73,6 +73,18 @@ export async function ensureDir(dirPath: string, commitFence?: CommitFence): Pro
   }
 }
 
+/**
+ * Reports whether a directory entry exists without dereferencing the final
+ * symbolic link. Use this for authority/fallback selection, where a dangling
+ * canonical entry must still prevent a legacy path from silently taking over.
+ * This does not make a subsequent read no-follow; security-sensitive readers
+ * must retain and validate their own physical path capability.
+ */
+export async function pathEntryExists(targetPath: string): Promise<boolean> {
+  return (await readLstatOrNull(targetPath)) !== null;
+}
+
+/** Reports whether the target is reachable through normal filesystem lookup. */
 export async function pathExists(targetPath: string): Promise<boolean> {
   try {
     await fs.access(targetPath);
