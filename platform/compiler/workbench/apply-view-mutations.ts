@@ -6,15 +6,20 @@ import {
 } from '../../shared/block-identity.ts';
 import { countMatching } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { formatJsonFile, listFilesRecursive, pathEntryExists, readJson } from '../../shared/fs.ts';
+import { formatJsonFile } from '../../shared/fs.ts';
 import {
   getWorkspacePaths,
   isSafeRelativePath,
   posixPath,
   workspaceRelativePath
 } from '../../shared/paths.ts';
+import {
+  inspectNoFollowDirectoryChainV1,
+  PhysicalNoFollowError,
+  scanNoFollowDirectoryTreeV1
+} from '../../shared/physical-no-follow.ts';
 import type { AppMode, PlanFile, PlanSlot, SlotKind } from '../../shared/plan-manifest-types.ts';
-import { publishWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
+import { publishCanonicalWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { loadPlan, validatePlan } from '../parse/load-plan.ts';
 
@@ -80,6 +85,7 @@ export type ViewMutationCommitFence = () => Promise<void>;
 
 const SUPPORTED_APP_MODES = new Set<AppMode>(['single-tenant', 'multi-tenant']);
 const SUPPORTED_SLOT_KINDS = new Set<SlotKind>(['adapter', 'policy', 'ux', 'repair']);
+const MAX_VIEW_MUTATION_FILE_BYTES = 1024 * 1024;
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -304,18 +310,61 @@ function applyMutation(plan: PlanFile, mutation: ViewMutation, sourcePath: strin
   return result(mutation, sourcePath, 'applied', `set ${mutation.slotId}.sourcePath to ${mutation.sourcePath}`);
 }
 
-async function loadMutationFiles(workspaceRoot: string): Promise<Array<{ sourcePath: string; file: ViewMutationFile }>> {
-  const { sourceViewMutationsRoot } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathEntryExists(sourceViewMutationsRoot))) return [];
-  const files = (await listFilesRecursive(sourceViewMutationsRoot))
-    .filter((file) => file.endsWith('.json'))
-    .sort((left, right) => compareCodeUnits(left, right));
-  const loaded: Array<{ sourcePath: string; file: ViewMutationFile }> = [];
-  for (const file of files) {
-    const sourcePath = workspaceRelativePath(workspaceRoot, file);
-    loaded.push({ sourcePath, file: parseViewMutationFile(await readJson<unknown>(file), sourcePath) });
+function decodeMutationUtf8(bytes: Uint8Array, sourcePath: string): string {
+  if (bytes.byteLength > MAX_VIEW_MUTATION_FILE_BYTES) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-012',
+      `${sourcePath} exceeds the ${MAX_VIEW_MUTATION_FILE_BYTES}-byte Workbench mutation limit`
+    );
   }
-  return loaded;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-013',
+      `${sourcePath} is not exact UTF-8`,
+      { cause: error instanceof Error ? error.message : String(error) }
+    );
+  }
+}
+
+function loadMutationFiles(workspaceRoot: string): Array<{ sourcePath: string; file: ViewMutationFile }> {
+  const { sourceViewMutationsRoot } = getWorkspacePaths(workspaceRoot);
+  let mutationRoot;
+  try {
+    mutationRoot = inspectNoFollowDirectoryChainV1(
+      path.resolve(sourceViewMutationsRoot),
+      'Workbench mutation source root'
+    ).target;
+  } catch (error) {
+    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return [];
+    throw error;
+  }
+
+  const entries = scanNoFollowDirectoryTreeV1(mutationRoot);
+  const linkedEntry = entries.find((entry) => entry.kind === 'link');
+  if (linkedEntry) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-011',
+      `Workbench mutation source tree contains a link entry "${linkedEntry.relativePath}"`
+    );
+  }
+
+  return entries
+    .filter((entry) => entry.kind === 'file' && entry.relativePath.endsWith('.json'))
+    .sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath))
+    .map((entry) => {
+      if (entry.bytes === null) {
+        throw new CompilerError(
+          'WORKBENCH-MUTATION-011',
+          `Workbench mutation source "${entry.relativePath}" is not an ordinary readable file`
+        );
+      }
+      const absolutePath = path.join(sourceViewMutationsRoot, entry.relativePath);
+      const sourcePath = workspaceRelativePath(workspaceRoot, absolutePath);
+      const raw = decodeMutationUtf8(entry.bytes, sourcePath);
+      return { sourcePath, file: parseViewMutationFile(JSON.parse(raw) as unknown, sourcePath) };
+    });
 }
 
 export async function applyViewMutations(
@@ -324,7 +373,7 @@ export async function applyViewMutations(
 ): Promise<ViewMutationReport> {
   const { planPath, viewMutationReportPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
-  const mutationFiles = await loadMutationFiles(workspaceRoot);
+  const mutationFiles = loadMutationFiles(workspaceRoot);
   const mutations = mutationFiles.flatMap((entry) =>
     entry.file.mutations.map((mutation) => ({ mutation, sourcePath: entry.sourcePath }))
   );
@@ -344,7 +393,7 @@ export async function applyViewMutations(
 
   if (appliedCount > 0) {
     validatePlan(plan);
-    await publishWorkspaceFileV1({
+    await publishCanonicalWorkspaceFileV1({
       workspaceRoot,
       targetPath: planPath,
       bytes: Buffer.from(YAML.stringify(plan, { indent: 2 }), 'utf8'),
@@ -352,7 +401,7 @@ export async function applyViewMutations(
       commitFence
     });
   }
-  await publishWorkspaceFileV1({
+  await publishCanonicalWorkspaceFileV1({
     workspaceRoot,
     targetPath: viewMutationReportPath,
     bytes: Buffer.from(formatJsonFile(report), 'utf8'),
