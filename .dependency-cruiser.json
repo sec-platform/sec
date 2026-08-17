@@ -2,21 +2,42 @@
   "forbidden": [
     {
       "name": "shared-no-reverse-deps",
-      "comment": "shared/ 不得反向依赖 compiler/, cli/, orchestrator/, dev-runner/, upgrade/",
+      "comment": "shared/ 是最低产品基础层，不得反向依赖 compiler/, cli/, orchestrator/, dev-runner/, upgrade/",
       "severity": "error",
       "from": { "path": "^platform/shared/" },
       "to": { "path": "^platform/(compiler|cli|orchestrator|dev-runner|upgrade)/" }
     },
     {
+      "name": "compiler-no-upward-entrypoint-deps",
+      "comment": "compiler/ 不得依赖 CLI、Orchestrator 或 DevRunner 入口层；编排只能向下调用 compiler，而不能形成反向控制边。",
+      "severity": "error",
+      "from": { "path": "^platform/compiler/" },
+      "to": { "path": "^platform/(cli|orchestrator|dev-runner)(/|\\.ts$)" }
+    },
+    {
+      "name": "orchestrator-no-cli-or-dev-runner",
+      "comment": "orchestrator/ 是产品编排层，不得依赖 CLI 表示层或开发期 DevRunner。",
+      "severity": "error",
+      "from": { "path": "^platform/orchestrator/" },
+      "to": { "path": "^platform/(cli|dev-runner)(/|\\.ts$)" }
+    },
+    {
+      "name": "product-no-codex-control-plane",
+      "comment": "产品 platform/ 不得依赖 scripts/codex 开发控制面；Development Control Plane 只能作为外部消费者/适配器。",
+      "severity": "error",
+      "from": { "path": "^platform/" },
+      "to": { "path": "^scripts/codex/" }
+    },
+    {
       "name": "no-circular",
-      "comment": "禁止循环依赖",
+      "comment": "platform 产品图禁止循环依赖。",
       "severity": "error",
       "from": { "path": "^platform/" },
       "to": { "circular": true }
     },
     {
       "name": "no-registry-to-compiler",
-      "comment": "registry/ 是纯数据，不得依赖 compiler/",
+      "comment": "registry/ 是声明式资源，不得反向依赖 compiler/ 实现。",
       "severity": "error",
       "from": { "path": "^platform/registry/" },
       "to": { "path": "^platform/compiler/" }
