@@ -37,7 +37,7 @@ const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [
   { prefix: 'COMPOSE-PRISMA-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-prisma-schema', 'fix-prisma-template'], artifactPaths: [] },
   { prefix: 'COMPOSE-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-compose', 'inspect-install-manifest'], artifactPaths: [CI_ARTIFACT_FILES.installManifest] },
   { prefix: 'SLOT-WRITE-', recoverable: true, issueType: 'slot', suggestedActions: ['run-platform-compose', 'retry-platform-adapt'], artifactPaths: [] },
-  { prefix: 'SLOT-SECURITY-', recoverable: false, issueType: 'slot', suggestedActions: ['review-slot-code', 'remove-forbidden-imports', 'inspect-slot-security-report'], artifactPaths: ['source/code/slots'] },
+  { prefix: 'SLOT-LINT-', recoverable: true, issueType: 'slot', suggestedActions: ['review-slot-capabilities', 'remove-unproven-runtime-effects'], artifactPaths: ['source/code/slots'] },
   { prefix: 'SLOT-', recoverable: true, issueType: 'slot', suggestedActions: ['inspect-slot-tasks', 'run-platform-adapt'], artifactPaths: [] },
   { prefix: 'OVERRIDE-SCHEMA-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-override-manifest', 'inspect-override-rules'], artifactPaths: ['source/patches/override-manifest.yaml'] },
   { prefix: 'OVERRIDE-APPLY-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-override-source', 'inspect-override-manifest'], artifactPaths: ['source/patches/override-manifest.yaml'] },
