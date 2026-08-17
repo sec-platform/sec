@@ -12,8 +12,8 @@ import type { LockFile } from '../../shared/lock-types.ts';
 import { resolvePathInside } from '../../shared/paths.ts';
 import {
   inspectNoFollowDirectoryChainV1,
-  inspectNoFollowOrdinaryFileEntryV1,
-  PhysicalNoFollowError
+  PhysicalNoFollowError,
+  readNoFollowOrdinaryFileV1
 } from '../../shared/physical-no-follow.ts';
 
 const KNOWN_HOST_RUNTIME_MODULES = new Set([
@@ -54,6 +54,11 @@ const EFFECTFUL_GLOBAL_CONSTRUCTORS = new Set([
   'Worker'
 ]);
 
+interface ActiveSlotSource {
+  readonly path: string;
+  readonly bytes: Uint8Array;
+}
+
 function normalizedRuntimeModule(specifier: string): string {
   return specifier.startsWith('node:') ? specifier.slice('node:'.length) : specifier;
 }
@@ -84,7 +89,7 @@ function activeSlotTasks(lock: LockFile) {
   return lock.slotTasks.filter((task) => task.status === 'filled' || task.status === 'verified');
 }
 
-function inspectActiveSlotSource(workspaceRoot: string, task: LockFile['slotTasks'][number]): string {
+function inspectActiveSlotSource(workspaceRoot: string, task: LockFile['slotTasks'][number]): ActiveSlotSource {
   if (!task.sourcePath) {
     throw lintFailure(
       'SLOT-LINT-001',
@@ -105,15 +110,15 @@ function inspectActiveSlotSource(workspaceRoot: string, task: LockFile['slotTask
       path.dirname(fullPath),
       `Custom Slot ${task.id} source parent`
     ).target;
-    const leaf = inspectNoFollowOrdinaryFileEntryV1(parent, path.basename(fullPath));
-    if (leaf === null || leaf.kind !== 'file') {
+    const bytes = readNoFollowOrdinaryFileV1(parent, path.basename(fullPath));
+    if (bytes === null) {
       throw lintFailure(
         'SLOT-LINT-001',
         `Active Custom Slot "${task.id}" source is missing or is not one ordinary file.`,
         { slotId: task.id, sourcePath: task.sourcePath, reason: 'non-ordinary-source-file' }
       );
     }
-    return fullPath;
+    return Object.freeze({ path: fullPath, bytes });
   } catch (error) {
     if (error instanceof CompilerError) throw error;
     if (error instanceof PhysicalNoFollowError) {
@@ -127,11 +132,23 @@ function inspectActiveSlotSource(workspaceRoot: string, task: LockFile['slotTask
   }
 }
 
-function collectActiveSlotFiles(workspaceRoot: string, lock: LockFile): string[] {
+function collectActiveSlotSources(workspaceRoot: string, lock: LockFile): ActiveSlotSource[] {
   return activeSlotTasks(lock).map((task) => inspectActiveSlotSource(workspaceRoot, task));
 }
 
-function createAnalysisProject(files: string[]): Project {
+function decodeSlotSource(source: ActiveSlotSource): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(source.bytes);
+  } catch (error) {
+    throw lintFailure(
+      'SLOT-LINT-001',
+      `Custom Slot source "${source.path}" is not exact UTF-8.`,
+      { source: source.path, reason: 'invalid-utf8', cause: error instanceof Error ? error.message : String(error) }
+    );
+  }
+}
+
+function createAnalysisProject(sources: readonly ActiveSlotSource[]): Project {
   const project = new Project({
     skipLoadingLibFiles: true,
     skipAddingFilesFromTsConfig: true,
@@ -141,17 +158,17 @@ function createAnalysisProject(files: string[]): Project {
       noEmit: true
     }
   });
-  for (const file of files) project.addSourceFileAtPath(file);
+  for (const source of sources) {
+    project.createSourceFile(source.path, decodeSlotSource(source), { overwrite: true });
+  }
   return project;
 }
 
 function importIsErasedTypeOnly(importDecl: ImportDeclaration): boolean {
-  const clause = importDecl.compilerNode.importClause;
-  if (!clause) return false;
-  if (clause.isTypeOnly) return true;
-  const bindings = clause.namedBindings;
-  if (!bindings || bindings.kind !== SyntaxKind.NamedImports) return false;
-  return bindings.elements.length > 0 && bindings.elements.every((element) => element.isTypeOnly);
+  if (importDecl.isTypeOnly()) return true;
+  if (importDecl.getDefaultImport() || importDecl.getNamespaceImport()) return false;
+  const namedImports = importDecl.getNamedImports();
+  return namedImports.length > 0 && namedImports.every((specifier) => specifier.isTypeOnly());
 }
 
 function validateImports(sourceFile: SourceFile, relativeName: string): void {
@@ -182,7 +199,7 @@ function validateImports(sourceFile: SourceFile, relativeName: string): void {
 
   for (const exportDecl of sourceFile.getExportDeclarations()) {
     const moduleSpecifier = exportDecl.getModuleSpecifierValue();
-    if (moduleSpecifier === undefined || exportDecl.compilerNode.isTypeOnly) continue;
+    if (moduleSpecifier === undefined || exportDecl.isTypeOnly()) continue;
     throw lintFailure(
       'SLOT-LINT-005',
       `Runtime re-export "${moduleSpecifier}" in Custom Slot file "${relativeName}" has no explicit capability/transitive-effect proof.`,
@@ -258,16 +275,24 @@ function validateEffectfulGlobals(sourceFile: SourceFile, relativeName: string):
     );
   }
 
-  for (const kind of [SyntaxKind.PropertyAccessExpression, SyntaxKind.ElementAccessExpression] as const) {
-    for (const access of sourceFile.getDescendantsOfKind(kind)) {
-      const root = access.getExpression().getText();
-      if (!UNRESOLVED_CAPABILITY_ROOTS.has(root)) continue;
-      throw lintFailure(
-        'SLOT-LINT-004',
-        `Runtime capability root "${root}" is not authorized in Custom Slot file "${relativeName}".`,
-        { source: relativeName, capability: root, reason: 'runtime-capability-root' }
-      );
-    }
+  for (const access of sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+    const root = access.getExpression().getText();
+    if (!UNRESOLVED_CAPABILITY_ROOTS.has(root)) continue;
+    throw lintFailure(
+      'SLOT-LINT-004',
+      `Runtime capability root "${root}" is not authorized in Custom Slot file "${relativeName}".`,
+      { source: relativeName, capability: root, reason: 'runtime-capability-root' }
+    );
+  }
+
+  for (const access of sourceFile.getDescendantsOfKind(SyntaxKind.ElementAccessExpression)) {
+    const root = access.getExpression().getText();
+    if (!UNRESOLVED_CAPABILITY_ROOTS.has(root)) continue;
+    throw lintFailure(
+      'SLOT-LINT-004',
+      `Runtime capability root "${root}" is not authorized in Custom Slot file "${relativeName}".`,
+      { source: relativeName, capability: root, reason: 'runtime-capability-root' }
+    );
   }
 
   for (const newExpr of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
@@ -282,15 +307,16 @@ function validateEffectfulGlobals(sourceFile: SourceFile, relativeName: string):
 }
 
 /**
- * Static authoring lint only. Passing this lint means the inspected source did
- * not expose an unproven runtime capability under this finite AST policy. It
- * never proves sandboxing, transitive dependency safety, runtime isolation, or
- * physical security; those require an explicit capability/effect provider.
+ * Static authoring lint only. Passing this lint means the exact retained source
+ * bytes did not expose an unproven runtime capability under this finite AST
+ * policy. It never proves sandboxing, transitive dependency safety, runtime
+ * isolation, or physical security; those require an explicit capability/effect
+ * provider and runtime evidence.
  */
 export async function lintSlotCapabilities(workspaceRoot: string, lock: LockFile): Promise<void> {
-  const activeSlotFiles = collectActiveSlotFiles(workspaceRoot, lock);
-  if (activeSlotFiles.length === 0) return;
-  const project = createAnalysisProject(activeSlotFiles);
+  const activeSlotSources = collectActiveSlotSources(workspaceRoot, lock);
+  if (activeSlotSources.length === 0) return;
+  const project = createAnalysisProject(activeSlotSources);
   for (const sourceFile of project.getSourceFiles()) {
     const relativeName = path.relative(workspaceRoot, sourceFile.getFilePath());
     validateImports(sourceFile, relativeName);
