@@ -8,7 +8,6 @@ export interface MicroserviceResiliencePolicy {
 
 export interface MicroserviceDeploymentIntent {
   readonly blockId: string;
-  readonly installedModuleRelativePath: string;
   readonly transport: 'json-rpc';
   readonly requestMethod: 'POST';
   readonly packaging: 'isolated-service';
