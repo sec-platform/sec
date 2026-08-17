@@ -16,9 +16,15 @@ function git(cwd: string, args: string[]): void {
 test('worktree settlement reads Git configuration from the requested repository root', async () => {
   const repositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-settlement-root-'));
   try {
-    git(repositoryRoot, ['init']);
+    git(repositoryRoot, ['init', '--quiet']);
+    git(repositoryRoot, ['config', 'user.email', 'tests@example.com']);
+    git(repositoryRoot, ['config', 'user.name', 'SEC Tests']);
     git(repositoryRoot, ['config', 'core.autocrlf', 'input']);
     git(repositoryRoot, ['config', 'core.eol', 'lf']);
+    await fs.writeFile(path.join(repositoryRoot, '.gitattributes'), '*.ts text eol=lf\n');
+    await fs.writeFile(path.join(repositoryRoot, 'fixture.ts'), 'export const fixture = true;\n');
+    git(repositoryRoot, ['add', '--all']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'fixture']);
 
     const receipt = await runSettlement(repositoryRoot);
 
