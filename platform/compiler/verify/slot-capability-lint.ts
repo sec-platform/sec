@@ -200,6 +200,8 @@ function validateImports(sourceFile: SourceFile, relativeName: string): void {
   for (const exportDecl of sourceFile.getExportDeclarations()) {
     const moduleSpecifier = exportDecl.getModuleSpecifierValue();
     if (moduleSpecifier === undefined || exportDecl.isTypeOnly()) continue;
+    const namedExports = exportDecl.getNamedExports();
+    if (namedExports.length > 0 && namedExports.every((specifier) => specifier.compilerNode.isTypeOnly)) continue;
     throw lintFailure(
       'SLOT-LINT-005',
       `Runtime re-export "${moduleSpecifier}" in Custom Slot file "${relativeName}" has no explicit capability/transitive-effect proof.`,
@@ -264,10 +266,18 @@ function validateDynamicImports(sourceFile: SourceFile, relativeName: string): v
   }
 }
 
+function hasLocalDeclaration(sourceFile: SourceFile, identifier: Node): boolean {
+  const symbol = identifier.getSymbol();
+  if (!symbol) return false;
+  const sourcePath = sourceFile.getFilePath();
+  return symbol.getDeclarations().some((declaration) => declaration.getSourceFile().getFilePath() === sourcePath);
+}
+
 function validateEffectfulGlobals(sourceFile: SourceFile, relativeName: string): void {
   for (const callExpr of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const expression = callExpr.getExpression();
     if (!Node.isIdentifier(expression) || !EFFECTFUL_GLOBAL_FUNCTIONS.has(expression.getText())) continue;
+    if (hasLocalDeclaration(sourceFile, expression)) continue;
     throw lintFailure(
       'SLOT-LINT-004',
       `Effectful global function "${expression.getText()}()" is not authorized in Custom Slot file "${relativeName}".`,
@@ -276,8 +286,9 @@ function validateEffectfulGlobals(sourceFile: SourceFile, relativeName: string):
   }
 
   for (const access of sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
-    const root = access.getExpression().getText();
-    if (!UNRESOLVED_CAPABILITY_ROOTS.has(root)) continue;
+    const expression = access.getExpression();
+    const root = expression.getText();
+    if (!UNRESOLVED_CAPABILITY_ROOTS.has(root) || hasLocalDeclaration(sourceFile, expression)) continue;
     throw lintFailure(
       'SLOT-LINT-004',
       `Runtime capability root "${root}" is not authorized in Custom Slot file "${relativeName}".`,
@@ -286,8 +297,19 @@ function validateEffectfulGlobals(sourceFile: SourceFile, relativeName: string):
   }
 
   for (const access of sourceFile.getDescendantsOfKind(SyntaxKind.ElementAccessExpression)) {
-    const root = access.getExpression().getText();
-    if (!UNRESOLVED_CAPABILITY_ROOTS.has(root)) continue;
+    const expression = access.getExpression();
+    const root = expression.getText();
+    if (!UNRESOLVED_CAPABILITY_ROOTS.has(root) || hasLocalDeclaration(sourceFile, expression)) continue;
+    throw lintFailure(
+      'SLOT-LINT-004',
+      `Runtime capability root "${root}" is not authorized in Custom Slot file "${relativeName}".`,
+      { source: relativeName, capability: root, reason: 'runtime-capability-root' }
+    );
+  }
+
+  for (const identifier of sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
+    const root = identifier.getText();
+    if (!UNRESOLVED_CAPABILITY_ROOTS.has(root) || hasLocalDeclaration(sourceFile, identifier)) continue;
     throw lintFailure(
       'SLOT-LINT-004',
       `Runtime capability root "${root}" is not authorized in Custom Slot file "${relativeName}".`,
@@ -298,6 +320,7 @@ function validateEffectfulGlobals(sourceFile: SourceFile, relativeName: string):
   for (const newExpr of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
     const expression = newExpr.getExpression();
     if (!Node.isIdentifier(expression) || !EFFECTFUL_GLOBAL_CONSTRUCTORS.has(expression.getText())) continue;
+    if (hasLocalDeclaration(sourceFile, expression)) continue;
     throw lintFailure(
       'SLOT-LINT-004',
       `Effectful global constructor "${expression.getText()}" is not authorized in Custom Slot file "${relativeName}".`,
