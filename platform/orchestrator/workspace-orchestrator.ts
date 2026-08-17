@@ -186,6 +186,7 @@ export async function initWorkspace(
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
     const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+    await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, token);
 
     await ensureProjectBase(workspaceRoot, commitFence);
     await writeYaml(planPath, defaultPlan(), commitFence);
