@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
+import { readCompilerFile, readCompilerPackageJson } from '../helpers/compiler-fixtures.ts';
 
 test('provider-neutral sec-dev tooling owns execution logic without Codex or CLI activation', async () => {
   for (const file of [
@@ -12,6 +12,16 @@ test('provider-neutral sec-dev tooling owns execution logic without Codex or CLI
     expect(source).not.toContain('import.meta.main');
     expect(source).not.toContain('process.argv');
     expect(source).not.toContain('#!/usr/bin/env bun');
+  }
+});
+
+test('ordinary package scripts invoke provider-neutral tooling directly', async () => {
+  const pkg = await readCompilerPackageJson();
+  expect(pkg.scripts['text:census']).toBe('bun tooling/sec-dev/text/text-byte-census.ts --json');
+  expect(pkg.scripts['environment:settle']).toBe('bun tooling/sec-dev/workspace/worktree-settlement.ts');
+  expect(pkg.scripts['environment:settle:fix']).toBe('bun tooling/sec-dev/workspace/worktree-settlement.ts --fix');
+  for (const name of ['text:census', 'environment:settle', 'environment:settle:fix']) {
+    expect(pkg.scripts[name]).not.toContain('scripts/codex/');
   }
 });
 
