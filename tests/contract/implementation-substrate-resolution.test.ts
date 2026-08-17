@@ -12,7 +12,7 @@ import {
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const REGISTRY_PATH = path.join(
   REPOSITORY_ROOT,
-  'docs/governance/implementation-substrate-resolution.yaml'
+  'tooling/sec-dev/governance/implementation-substrate-resolution.yaml'
 );
 const PACKAGE_JSON_PATH = path.join(REPOSITORY_ROOT, 'package.json');
 
@@ -87,6 +87,14 @@ test('adopted package cannot name a dependency absent from package.json', async 
   substrate(decisionById(value, 'yaml-parsing')).id = 'sec-homegrown-yaml-parser';
   expect(() => parseDevelopmentSubstrateResolutionV1(stringifyYaml(value), packageJson))
     .toThrow(/must match package\.json/u);
+});
+
+test('package substrate cannot bypass the #193 package writer', async () => {
+  const { registry, packageJson } = await sources();
+  const value = fixture(registry);
+  decisionById(value, 'yaml-parsing').adoptionOwner = null;
+  expect(() => parseDevelopmentSubstrateResolutionV1(stringifyYaml(value), packageJson))
+    .toThrow(/must bind the #193 package\/lock adoption owner/u);
 });
 
 test('sec-owned semantics cannot hide an unadopted mechanical candidate', async () => {
