@@ -2,15 +2,19 @@ import { serve } from 'bun';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { bootstrapAuthorizedSlotSource } from '../compiler/workbench/bootstrap-slot-source.ts';
 import { loadAllManifests } from '../compiler/parse/load-manifest.ts';
+import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
+import {
+  bootstrapAuthorizedSlotSource,
+  resolveAuthorizedSlotSource
+} from '../compiler/workbench/bootstrap-slot-source.ts';
 import { compareCodeUnits } from '../shared/canonical-primitives.ts';
-import { ensureDir, pathExists, writeJson } from '../shared/fs.ts';
+import { CompilerError } from '../shared/errors.ts';
+import { ensureDir, isFileNotFoundError, writeJson } from '../shared/fs.ts';
 import { defaultLogger } from '../shared/logger.ts';
 import {
   controlWorkbenchViewsRelativePath,
-  getWorkspacePaths,
-  sourceSlotsRelativePath
+  getWorkspacePaths
 } from '../shared/paths.ts';
 import {
   assertWorkspaceWriteLease,
@@ -34,6 +38,7 @@ const SLOT_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const NODE_ID_PATTERN = /^[A-Za-z0-9_.\/-]+$/u;
 const MAX_NODE_ID_LENGTH = 256;
 const MAX_MUTATION_BODY_BYTES = 1024 * 1024;
+const WORKBENCH_HOSTNAMES = new Set(['127.0.0.1', 'localhost']);
 
 interface BootstrapSlotBody {
   slotId: string;
@@ -100,9 +105,23 @@ function isSafeNodeId(value: unknown): value is string {
     && !value.includes('..');
 }
 
+function isCanonicalWorkbenchHost(url: URL): boolean {
+  return WORKBENCH_HOSTNAMES.has(url.hostname);
+}
+
 function sameOriginOrNonBrowser(req: Request): boolean {
   const origin = req.headers.get('origin');
   return origin === null || origin === new URL(req.url).origin;
+}
+
+function errorStatus(error: unknown): number {
+  if (error instanceof SyntaxError) return 400;
+  if (error instanceof CompilerError) {
+    if (error.code === 'WORKBENCH-SLOT-001') return 400;
+    if (/^WORKBENCH-SLOT-00[2-6]$/u.test(error.code)) return 409;
+  }
+  if (error instanceof Error && error.message.includes('Request body exceeds')) return 413;
+  return 500;
 }
 
 async function readBoundedJson(req: Request, maxBytes: number): Promise<unknown> {
@@ -136,7 +155,11 @@ function parseRunNodeBody(value: unknown): RunNodeBody | null {
 }
 
 async function handleBlocksCatalog(context: RouteContext): Promise<Response> {
-  const entries = await loadAllManifests({ workspaceRoot: context.workspaceRoot });
+  const plan = await loadWorkspacePlan(context.workspaceRoot);
+  const entries = await loadAllManifests({
+    workspaceRoot: context.workspaceRoot,
+    registrySources: plan.registry.sources
+  });
   return workbenchJsonResponse(entries.map((entry) => entry.manifest));
 }
 
@@ -164,14 +187,16 @@ async function handleSlotCode(context: RouteContext): Promise<Response> {
   const slotId = context.url.searchParams.get('slotId');
   if (!isSafeSlotId(slotId)) return workbenchErrorResponse('Invalid slotId parameter', 400);
 
-  const targetPath = path.join(context.workspaceRoot, sourceSlotsRelativePath, `${slotId}.ts`);
-  const exists = await pathExists(targetPath);
-  if (!exists) return workbenchJsonResponse({ error: 'Slot code file not found', code: '' }, 404);
-  const metadata = await fs.lstat(targetPath);
-  if (!metadata.isFile() || metadata.isSymbolicLink()) {
-    return workbenchErrorResponse('Slot code path is not one ordinary file', 409);
+  const resolved = await resolveAuthorizedSlotSource(context.workspaceRoot, slotId);
+  const metadata = await fs.lstat(resolved.targetPath).catch((error: NodeJS.ErrnoException) => {
+    if (isFileNotFoundError(error)) return null;
+    throw error;
+  });
+  if (metadata === null) return workbenchJsonResponse({ error: 'Slot code file not found', code: '' }, 404);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) {
+    return workbenchErrorResponse('Slot code path is not one unaliased ordinary file', 409);
   }
-  return workbenchJsonResponse({ code: await fs.readFile(targetPath, 'utf8') });
+  return workbenchJsonResponse({ code: await fs.readFile(resolved.targetPath, 'utf8'), path: resolved.relativePath });
 }
 
 async function handleGraph(context: RouteContext): Promise<Response> {
@@ -219,18 +244,22 @@ async function findBlockTest(workspaceRoot: string, blockId: string): Promise<st
 
   try {
     await searchDirectory(testsDir);
-  } catch {
-    return null;
+  } catch (error) {
+    if (isFileNotFoundError(error)) return null;
+    throw error;
   }
   return matchedFiles.length === 1 ? matchedFiles[0]! : null;
 }
 
 async function commandForNode(context: RouteContext, body: RunNodeBody, log: (message: string) => void): Promise<string[] | null> {
   if (body.type === 'slot') {
-    const slotFile = path.join(context.workspaceRoot, sourceSlotsRelativePath, `${body.id}.ts`);
-    const metadata = await fs.lstat(slotFile).catch(() => null);
-    if (!metadata?.isFile() || metadata.isSymbolicLink()) return null;
-    log('   Found slot implementation file.');
+    const resolved = await resolveAuthorizedSlotSource(context.workspaceRoot, body.id);
+    const metadata = await fs.lstat(resolved.targetPath).catch((error: NodeJS.ErrnoException) => {
+      if (isFileNotFoundError(error)) return null;
+      throw error;
+    });
+    if (!metadata?.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) return null;
+    log(`   Found authorized slot implementation: ${resolved.relativePath}.`);
     return ['bun', 'test', 'tests/unit/validate-slot-security.test.ts'];
   }
 
@@ -358,7 +387,11 @@ async function serveStaticFile(viewsDir: string, reqPath: string, startTime: num
     headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     logWorkbenchHttp('GET', reqPath, 200, 'OK', Date.now() - startTime, WORKBENCH_COLORS.green);
     return new Response(fileContent, { headers });
-  } catch {
+  } catch (error) {
+    if (!isFileNotFoundError(error)) {
+      logWorkbenchHttp('GET', reqPath, 500, 'Internal Error', Date.now() - startTime, WORKBENCH_COLORS.red);
+      return workbenchErrorResponse(error instanceof Error ? error.message : String(error), 500);
+    }
     logWorkbenchHttp('GET', reqPath, 404, 'Not Found', Date.now() - startTime, WORKBENCH_COLORS.yellow);
     return new Response('Not Found', {
       status: 404,
@@ -387,9 +420,17 @@ function wrapHandler(handler: RouteHandler): RouteHandler {
       );
       return response;
     } catch (error) {
+      const status = errorStatus(error);
       const message = error instanceof Error ? error.message : String(error);
-      logWorkbenchHttp(context.method, context.reqPath, 500, 'Internal Error', Date.now() - context.startTime, WORKBENCH_COLORS.red);
-      return workbenchErrorResponse(message, 500);
+      logWorkbenchHttp(
+        context.method,
+        context.reqPath,
+        status,
+        status >= 500 ? 'Internal Error' : 'Rejected',
+        Date.now() - context.startTime,
+        status >= 500 ? WORKBENCH_COLORS.red : WORKBENCH_COLORS.yellow
+      );
+      return workbenchErrorResponse(message, status);
     }
   };
 }
@@ -416,6 +457,10 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
       const reqPath = url.pathname;
       const method = req.method;
 
+      if (!isCanonicalWorkbenchHost(url)) {
+        logWorkbenchHttp(method, reqPath, 421, 'Misdirected Request', Date.now() - startTime, WORKBENCH_COLORS.red);
+        return workbenchErrorResponse('Workbench only accepts canonical loopback Host names', 421);
+      }
       if (!sameOriginOrNonBrowser(req)) {
         logWorkbenchHttp(method, reqPath, 403, 'Forbidden', Date.now() - startTime, WORKBENCH_COLORS.red);
         return workbenchErrorResponse('Cross-origin Workbench requests are forbidden', 403);
@@ -452,7 +497,10 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
         try {
           return await handleRunNodeSse(context, mutex);
         } catch (error) {
-          return workbenchErrorResponse(error instanceof Error ? error.message : String(error), 400);
+          return workbenchErrorResponse(
+            error instanceof Error ? error.message : String(error),
+            errorStatus(error)
+          );
         }
       }
 
