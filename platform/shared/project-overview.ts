@@ -140,9 +140,9 @@ function normalizeStatus(value: string | undefined): ProjectOverviewStatusValue 
 function combineOverallStatus(values: readonly ProjectOverviewStatusValue[]): ProjectOverviewStatusValue {
   if (values.includes('failed')) return 'failed';
   if (values.includes('attention')) return 'attention';
-  if (values.includes('passed')) return 'passed';
+  if (values.includes('unknown')) return 'unknown';
   if (values.includes('not-run')) return 'not-run';
-  return 'unknown';
+  return 'passed';
 }
 
 function buildWorkspaceSummary(workspaceRoot: string): ProjectOverviewWorkspace {
