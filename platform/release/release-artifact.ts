@@ -5,6 +5,11 @@ import { pathToFileURL } from 'node:url';
 
 import { digest, sha256 } from '../shared/canonical-primitives.ts';
 import {
+  assertSameNoFollowDirectoryIdentityV1,
+  inspectNoFollowDirectoryChainV1,
+  type PhysicalDirectoryIdentityV1
+} from '../shared/physical-no-follow.ts';
+import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
   RELEASE_ENTRYPOINT_RELATIVE_PATH,
   resolveCompilerRuntimeLayout
@@ -44,7 +49,35 @@ export interface ReleaseArtifactBuildReceiptV1 {
   readonly fileCount: number;
 }
 
+function assertPublicationParent(parent: PhysicalDirectoryIdentityV1): PhysicalDirectoryIdentityV1 {
+  return assertSameNoFollowDirectoryIdentityV1(
+    parent,
+    'Release artifact publication parent'
+  ).target;
+}
+
+async function assertDestinationAdmissible(
+  destinationRoot: string,
+  parent: PhysicalDirectoryIdentityV1
+): Promise<void> {
+  assertPublicationParent(parent);
+  try {
+    const metadata = await fs.lstat(destinationRoot);
+    if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+      throw new Error('Existing release artifact destination is not one ordinary directory');
+    }
+    inspectNoFollowDirectoryChainV1(destinationRoot, 'Existing release artifact destination');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  assertPublicationParent(parent);
+}
+
 async function listArtifactFiles(root: string): Promise<ReleaseArtifactFileV1[]> {
+  const rootMetadata = await fs.lstat(root);
+  if (rootMetadata.isSymbolicLink() || !rootMetadata.isDirectory()) {
+    throw new Error('Release artifact root is not one ordinary directory');
+  }
   const files: ReleaseArtifactFileV1[] = [];
 
   async function walk(directory: string, prefix: string): Promise<void> {
@@ -145,10 +178,13 @@ function failureText(error: unknown): string {
 async function restorePreviousAfterCandidateRenameFailure(input: {
   readonly destinationRoot: string;
   readonly backupRoot: string;
+  readonly parent: PhysicalDirectoryIdentityV1;
   readonly publicationError: unknown;
 }): Promise<never> {
   try {
+    assertPublicationParent(input.parent);
     await fs.rename(input.backupRoot, input.destinationRoot);
+    assertPublicationParent(input.parent);
   } catch (restoreError) {
     throw new Error(
       `Release artifact publication failed and previous artifact restoration did not converge; ` +
@@ -163,13 +199,15 @@ async function restorePreviousAfterCandidateRenameFailure(input: {
 async function recoverAfterPublishedReadbackFailure(input: {
   readonly destinationRoot: string;
   readonly backupRoot: string;
+  readonly parent: PhysicalDirectoryIdentityV1;
   readonly movedPrevious: boolean;
   readonly readbackError: unknown;
 }): Promise<never> {
-  const parent = path.dirname(input.destinationRoot);
-  const failedRoot = path.join(parent, `.sec-release-failed-${randomUUID()}`);
+  const failedRoot = path.join(input.parent.path, `.sec-release-failed-${randomUUID()}`);
   try {
+    assertPublicationParent(input.parent);
     await fs.rename(input.destinationRoot, failedRoot);
+    assertPublicationParent(input.parent);
   } catch (containmentError) {
     throw new Error(
       `Published release artifact failed readback and the failed candidate could not be isolated; ` +
@@ -181,7 +219,9 @@ async function recoverAfterPublishedReadbackFailure(input: {
 
   if (input.movedPrevious) {
     try {
+      assertPublicationParent(input.parent);
       await fs.rename(input.backupRoot, input.destinationRoot);
+      assertPublicationParent(input.parent);
     } catch (restoreError) {
       throw new Error(
         `Published release artifact failed readback and previous artifact restoration did not converge; ` +
@@ -194,25 +234,37 @@ async function recoverAfterPublishedReadbackFailure(input: {
   throw input.readbackError;
 }
 
-async function publishAcceptedArtifact(stagedArtifactRoot: string, destinationRoot: string): Promise<void> {
-  const parent = path.dirname(destinationRoot);
-  const backupRoot = path.join(parent, `.sec-release-previous-${randomUUID()}`);
+async function publishAcceptedArtifact(
+  stagedArtifactRoot: string,
+  destinationRoot: string,
+  parent: PhysicalDirectoryIdentityV1
+): Promise<void> {
+  assertPublicationParent(parent);
+  if (path.dirname(destinationRoot) !== parent.path) {
+    throw new Error('Release artifact destination is not a direct child of its retained publication parent');
+  }
+  const backupRoot = path.join(parent.path, `.sec-release-previous-${randomUUID()}`);
   let movedPrevious = false;
 
   try {
+    assertPublicationParent(parent);
     await fs.rename(destinationRoot, backupRoot);
     movedPrevious = true;
+    assertPublicationParent(parent);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
 
   try {
+    assertPublicationParent(parent);
     await fs.rename(stagedArtifactRoot, destinationRoot);
+    assertPublicationParent(parent);
   } catch (publicationError) {
     if (movedPrevious) {
       return restorePreviousAfterCandidateRenameFailure({
         destinationRoot,
         backupRoot,
+        parent,
         publicationError
       });
     }
@@ -221,10 +273,12 @@ async function publishAcceptedArtifact(stagedArtifactRoot: string, destinationRo
 
   try {
     await assertReleaseArtifactReadback(destinationRoot, 'published');
+    assertPublicationParent(parent);
   } catch (readbackError) {
     return recoverAfterPublishedReadbackFailure({
       destinationRoot,
       backupRoot,
+      parent,
       movedPrevious,
       readbackError
     });
@@ -232,7 +286,9 @@ async function publishAcceptedArtifact(stagedArtifactRoot: string, destinationRo
 
   if (movedPrevious) {
     try {
+      assertPublicationParent(parent);
       await fs.rm(backupRoot, { recursive: true, force: true });
+      assertPublicationParent(parent);
     } catch (cleanupError) {
       throw new Error(
         `Published release artifact is accepted but previous-artifact cleanup failed; ` +
@@ -248,13 +304,24 @@ export async function buildReleaseArtifactV1(
   destinationRoot: string
 ): Promise<ReleaseArtifactBuildReceiptV1> {
   const absoluteDestinationRoot = path.resolve(destinationRoot);
-  const destinationParent = path.dirname(absoluteDestinationRoot);
-  await fs.mkdir(destinationParent, { recursive: true });
+  const destinationParentPath = path.dirname(absoluteDestinationRoot);
+  const destinationParent = inspectNoFollowDirectoryChainV1(
+    destinationParentPath,
+    'Release artifact destination parent'
+  ).target;
+  if (destinationParent.path !== destinationParentPath) {
+    throw new Error('Release artifact destination parent changed lexical identity during retention');
+  }
+  await assertDestinationAdmissible(absoluteDestinationRoot, destinationParent);
 
   const source = await prepareFrozenReleaseSourceV1(repositoryRoot);
   let artifactStageRoot: string | null = null;
   try {
-    artifactStageRoot = await fs.mkdtemp(path.join(destinationParent, '.sec-release-artifact-stage-'));
+    assertPublicationParent(destinationParent);
+    artifactStageRoot = await fs.mkdtemp(path.join(destinationParent.path, '.sec-release-artifact-stage-'));
+    inspectNoFollowDirectoryChainV1(artifactStageRoot, 'Release artifact staging root');
+    assertPublicationParent(destinationParent);
+
     const stageRuntimeLayout = resolveCompilerRuntimeLayout(pathToFileURL(path.join(
       artifactStageRoot,
       RELEASE_ENTRYPOINT_RELATIVE_PATH
@@ -291,7 +358,7 @@ export async function buildReleaseArtifactV1(
       builder: `bun@${Bun.version}`
     });
 
-    await publishAcceptedArtifact(stagedArtifactRoot, absoluteDestinationRoot);
+    await publishAcceptedArtifact(stagedArtifactRoot, absoluteDestinationRoot, destinationParent);
     return Object.freeze({
       schema: 'sec-release-artifact-build-receipt-v1' as const,
       sourceCommit: source.sourceCommit,
