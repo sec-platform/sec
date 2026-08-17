@@ -102,11 +102,11 @@ function buildCallRpcBody(
   throw new Error(\`[RPC Error - ${intent.blockId}] Call failed after \${maxRetries + 1} attempts. Last error: \${lastError.message}\`);`;
 }
 
-async function renderNextBunDockerArtifacts(
-  intent: MicroserviceDeploymentIntent
-): Promise<readonly RenderedMicroserviceArtifact[]> {
+function renderIntent(
+  intent: MicroserviceDeploymentIntent,
+  bunRuntimeVersion: string
+): readonly RenderedMicroserviceArtifact[] {
   const dirName = blockDirName(intent.blockId);
-  const bunRuntimeVersion = await loadCanonicalBunRuntimeVersion();
   const rpcRouteRelativePath = `app/api/rpc/${dirName}/route.ts`;
   const clientRelativePath = `src/rpc-clients/${dirName}-client.ts`;
   const dockerRelativePath = `docker/${dirName}/Dockerfile`;
@@ -211,6 +211,13 @@ CMD ["bun", "run", "dev"]
     Object.freeze({ relativePath: clientRelativePath, text: clientBuilder.getText() }),
     Object.freeze({ relativePath: dockerRelativePath, text: dockerfileContent })
   ]);
+}
+
+async function renderNextBunDockerArtifacts(
+  intents: readonly MicroserviceDeploymentIntent[]
+): Promise<readonly RenderedMicroserviceArtifact[]> {
+  const bunRuntimeVersion = await loadCanonicalBunRuntimeVersion();
+  return Object.freeze(intents.flatMap((intent) => renderIntent(intent, bunRuntimeVersion)));
 }
 
 export const nextBunDockerMicroserviceRenderer: MicroserviceDeploymentRenderer = Object.freeze({
