@@ -4,7 +4,7 @@ import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { countLineDiff } from '../../shared/diff-utils.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { writeJson, type CommitFence } from '../../shared/fs.ts';
+import { ensureDir, writeJson, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { rebaseRelativeImports } from '../../shared/path-imports.ts';
@@ -18,7 +18,6 @@ import type {
   RepairTaskPreview
 } from '../../shared/repair-types.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
-import { publishWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
 import { buildTaskEnvelope } from '../synthesize/build-task-envelope.ts';
 import { synthesizeSlotSource } from '../synthesize/mock-slot-synthesizer.ts';
@@ -342,28 +341,17 @@ export async function applyRepairPlan(
     throw new CompilerError('REPAIR-BLOCKED-003', 'No repairable failure points found for current repair plan');
   }
 
-  for (const { repairTask, targetPath, slotTask, source } of writeTasks) {
-    await publishWorkspaceFileV1({
-      workspaceRoot,
-      targetPath,
-      bytes: Buffer.from(source, 'utf8'),
-      label: `Repair task ${repairTask.taskId}`,
-      commitFence
-    });
+  for (const { targetPath, slotTask, source } of writeTasks) {
+    await commitFence?.();
+    await ensureDir(path.dirname(targetPath));
+    await commitFence?.();
+    await fs.writeFile(targetPath, source, 'utf8');
     if (slotTask.sourcePath) {
       const runtimeTargetPath = resolveWorkspaceArtifactPath(workspaceRoot, slotTask.target);
-      const runtimeSource = rebaseRelativeImports(
-        source,
-        slotTask.sourcePath,
-        toProjectRuntimePath(slotTask.target)
-      );
-      await publishWorkspaceFileV1({
-        workspaceRoot,
-        targetPath: runtimeTargetPath,
-        bytes: Buffer.from(runtimeSource, 'utf8'),
-        label: `Repair task ${repairTask.taskId} runtime target`,
-        commitFence
-      });
+      await commitFence?.();
+      await ensureDir(path.dirname(runtimeTargetPath));
+      await commitFence?.();
+      await fs.writeFile(runtimeTargetPath, rebaseRelativeImports(source, slotTask.sourcePath, toProjectRuntimePath(slotTask.target)), 'utf8');
     }
     slotTask.status = 'filled';
   }
