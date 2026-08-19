@@ -1,0 +1,104 @@
+{
+  "schema": "sec-public-documentation-projection-v1",
+  "locale": "zh-CN",
+  "pages": [
+    {
+      "id": "architecture",
+      "path": "public-docs/architecture.md",
+      "kind": "learning-projection",
+      "audiences": ["architect", "beginner", "developer", "user"],
+      "canonicalRefs": ["docs/system-architecture.md"]
+    },
+    {
+      "id": "concepts",
+      "path": "public-docs/concepts.md",
+      "kind": "concept-guide",
+      "audiences": ["beginner", "developer", "user"],
+      "canonicalRefs": ["docs/capability-and-block-model.md", "docs/compiler-target-ir.md", "docs/semantic-model.md", "docs/system-architecture.md", "docs/verification-governance.md"]
+    },
+    {
+      "id": "contributing",
+      "path": "public-docs/contributing.md",
+      "kind": "contributor-guide",
+      "audiences": ["contributor", "developer"],
+      "canonicalRefs": ["docs/development-governance.md", "docs/verification-governance.md"]
+    },
+    {
+      "id": "contract",
+      "path": "public-docs/CONTRACT.md",
+      "kind": "projection-contract",
+      "audiences": ["architect", "contributor", "developer"],
+      "canonicalRefs": ["docs/authority.json", "docs/development-governance.md", "docs/system-architecture.md"]
+    },
+    {
+      "id": "decisions-and-evidence",
+      "path": "public-docs/decisions-and-evidence.md",
+      "kind": "rationale-guide",
+      "audiences": ["architect", "developer", "researcher"],
+      "canonicalRefs": ["docs/roadmap.md", "docs/system-architecture.md", "docs/verification-governance.md"]
+    },
+    {
+      "id": "glossary",
+      "path": "public-docs/glossary.md",
+      "kind": "glossary",
+      "audiences": ["architect", "beginner", "developer", "researcher", "user"],
+      "canonicalRefs": ["docs/capability-and-block-model.md", "docs/compiler-target-ir.md", "docs/semantic-model.md", "docs/system-architecture.md", "docs/verification-governance.md"]
+    },
+    {
+      "id": "guides",
+      "path": "public-docs/guides.md",
+      "kind": "task-guide",
+      "audiences": ["developer", "operator", "user"],
+      "canonicalRefs": ["docs/brownfield-import.md", "docs/capability-and-block-model.md", "docs/change-management.md", "docs/compiler-target-ir.md", "docs/external-provider-policy.md", "docs/runtime-and-distribution.md", "docs/semantic-mutation.md", "docs/verification-governance.md", "docs/workbench-and-ai-operations.md"]
+    },
+    {
+      "id": "learn",
+      "path": "public-docs/learn.md",
+      "kind": "learning-path",
+      "audiences": ["architect", "beginner", "developer", "user"],
+      "canonicalRefs": ["docs/brownfield-import.md", "docs/capability-and-block-model.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/runtime-and-distribution.md", "docs/semantic-model.md", "docs/verification-governance.md", "docs/workbench-and-ai-operations.md"]
+    },
+    {
+      "id": "principles",
+      "path": "public-docs/principles.md",
+      "kind": "principle-projection",
+      "audiences": ["architect", "developer", "researcher", "user"],
+      "canonicalRefs": ["docs/change-management.md", "docs/compiler-target-ir.md", "docs/development-governance.md", "docs/external-provider-policy.md", "docs/roadmap.md", "docs/semantic-model.md", "docs/semantic-mutation.md", "docs/system-architecture.md", "docs/verification-governance.md", "docs/workbench-and-ai-operations.md"]
+    },
+    {
+      "id": "quickstart",
+      "path": "public-docs/quickstart.md",
+      "kind": "tutorial",
+      "audiences": ["beginner", "developer", "user"],
+      "canonicalRefs": ["docs/product.md", "docs/runtime-and-distribution.md", "docs/verification-governance.md"]
+    },
+    {
+      "id": "readme",
+      "path": "public-docs/README.md",
+      "kind": "navigation",
+      "audiences": ["architect", "beginner", "contributor", "developer", "operator", "researcher", "user"],
+      "canonicalRefs": ["docs/product.md", "docs/system-architecture.md"]
+    },
+    {
+      "id": "reference",
+      "path": "public-docs/reference.md",
+      "kind": "reference-index",
+      "audiences": ["developer", "operator", "user"],
+      "canonicalRefs": ["docs/authority.json", "docs/runtime-and-distribution.md", "docs/verification-governance.md"]
+    },
+    {
+      "id": "start-here",
+      "path": "public-docs/start-here.md",
+      "kind": "introduction",
+      "audiences": ["beginner", "user"],
+      "canonicalRefs": ["docs/product.md", "docs/system-architecture.md", "docs/workbench-and-ai-operations.md"]
+    },
+    {
+      "id": "troubleshooting",
+      "path": "public-docs/troubleshooting.md",
+      "kind": "troubleshooting",
+      "audiences": ["developer", "operator", "user"],
+      "canonicalRefs": ["docs/change-management.md", "docs/runtime-and-distribution.md", "docs/verification-governance.md"]
+    }
+  ]
+}
