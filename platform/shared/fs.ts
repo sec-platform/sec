@@ -3,41 +3,77 @@ import path from 'node:path';
 
 export type CommitFence = () => Promise<void>;
 
-// Minimal inline concurrency limiter for parallel copyRecursive.
-// Inlined here to avoid expanding the TCB runtime closure with concurrency.ts.
-function createConcurrencyLimit(concurrency: number) {
-  const queue: Array<() => void> = [];
-  let active = 0;
-  const next = (): void => {
-    if (active >= concurrency || queue.length === 0) return;
-    active += 1;
-    const run = queue.shift()!;
-    run();
-  };
-  return <T>(task: () => Promise<T>): Promise<T> => new Promise<T>((resolve, reject) => {
-    const exec = (): void => { task().then(resolve, reject).finally(() => { active -= 1; next(); }); };
-    if (active < concurrency) { active += 1; exec(); }
-    else queue.push(exec);
-  });
+async function readLstatOrNull(targetPath: string): Promise<Awaited<ReturnType<typeof fs.lstat>> | null> {
+  try {
+    return await fs.lstat(targetPath);
+  } catch (error) {
+    if (isFileNotFoundError(error)) return null;
+    throw error;
+  }
 }
 
-// 进程内已创建目录缓存，避免 writeText/writeJson 每次都调用 fs.mkdir。
-// removeDir 会失效相关条目以保持一致性。
-const createdDirs = new Set<string>();
+async function prepareOrdinaryFileWrite(targetPath: string, commitFence?: CommitFence): Promise<void> {
+  const metadata = await readLstatOrNull(targetPath);
+  if (metadata === null) return;
+  if (metadata.isSymbolicLink() || !metadata.isFile()) {
+    throw new Error(`Refusing to write through non-ordinary target: ${targetPath}`);
+  }
+  if (metadata.nlink > 1) {
+    await commitFence?.();
+    await fs.unlink(targetPath);
+  }
+}
 
+async function ensureOrdinaryDirectory(dirPath: string, commitFence?: CommitFence): Promise<void> {
+  await ensureDir(dirPath, commitFence);
+}
+
+/**
+ * Directory existence is physical state, not process-local cache state.
+ * Recursive mkdir is idempotent; always re-observing the final directory keeps
+ * correctness under external cleanup and long-lived Workbench processes.
+ * This primitive rejects a symbolic-link/non-directory final entry before and
+ * after creation. Callers that need race-free ancestor containment must use the
+ * retained physical-no-follow primitives instead of treating this helper as a
+ * security capability.
+ */
 export async function ensureDir(dirPath: string, commitFence?: CommitFence): Promise<void> {
+  const before = await readLstatOrNull(dirPath);
+  if (before !== null) {
+    if (before.isSymbolicLink() || !before.isDirectory()) {
+      throw new Error(`Refusing to use non-ordinary directory target: ${dirPath}`);
+    }
+    return;
+  }
+
   await commitFence?.();
-  if (createdDirs.has(dirPath)) return;
   await fs.mkdir(dirPath, { recursive: true });
-  createdDirs.add(dirPath);
+
+  const after = await fs.lstat(dirPath);
+  if (after.isSymbolicLink() || !after.isDirectory()) {
+    throw new Error(`Directory target changed into a non-ordinary path: ${dirPath}`);
+  }
 }
 
+/**
+ * Reports whether a directory entry exists without dereferencing the final
+ * symbolic link. Use this for authority/fallback selection, where a dangling
+ * canonical entry must still prevent a legacy path from silently taking over.
+ * This does not make a subsequent read no-follow; security-sensitive readers
+ * must retain and validate their own physical path capability.
+ */
+export async function pathEntryExists(targetPath: string): Promise<boolean> {
+  return (await readLstatOrNull(targetPath)) !== null;
+}
+
+/** Reports whether the target is reachable through normal filesystem lookup. */
 export async function pathExists(targetPath: string): Promise<boolean> {
   try {
-    await fs.access(targetPath);
+    await fs.stat(targetPath);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isFileNotFoundError(error)) return false;
+    throw error;
   }
 }
 
@@ -51,11 +87,27 @@ export async function readJson<T>(filePath: string): Promise<T> {
 }
 
 export async function readOptionalJson<T>(filePath: string): Promise<T | null> {
-  return (await pathExists(filePath)) ? readJson<T>(filePath) : null;
+  try {
+    return await readJson<T>(filePath);
+  } catch (error) {
+    if (isFileNotFoundError(error)) return null;
+    throw error;
+  }
 }
 
 export function formatJsonFile(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+export async function writeBuffer(
+  filePath: string,
+  bytes: Uint8Array,
+  commitFence?: CommitFence
+): Promise<void> {
+  await ensureDir(path.dirname(filePath), commitFence);
+  await prepareOrdinaryFileWrite(filePath, commitFence);
+  await commitFence?.();
+  await fs.writeFile(filePath, bytes);
 }
 
 export async function writeJson(
@@ -63,21 +115,12 @@ export async function writeJson(
   value: unknown,
   commitFence?: CommitFence
 ): Promise<void> {
-  await ensureDir(path.dirname(filePath), commitFence);
-  await commitFence?.();
-  await fs.writeFile(filePath, formatJsonFile(value), 'utf8');
+  await writeBuffer(filePath, Buffer.from(formatJsonFile(value), 'utf8'), commitFence);
 }
 
 export async function removeDir(targetPath: string, commitFence?: CommitFence): Promise<void> {
   await commitFence?.();
   await fs.rm(targetPath, { recursive: true, force: true });
-  // 失效缓存：被删除的目录及其子目录不再存在，需从缓存中移除以免 ensureDir 跳过重建。
-  const targetWithSep = targetPath.endsWith(path.sep) ? targetPath : targetPath + path.sep;
-  for (const cached of createdDirs) {
-    if (cached === targetPath || cached.startsWith(targetWithSep)) {
-      createdDirs.delete(cached);
-    }
-  }
 }
 
 export async function copyRecursive(
@@ -85,11 +128,14 @@ export async function copyRecursive(
   target: string,
   commitFence?: CommitFence
 ): Promise<void> {
-  const stat = await fs.stat(source);
-  if (stat.isDirectory()) {
-    await ensureDir(target, commitFence);
-    const entries = await fs.readdir(source);
-    // 并行拷贝目录内各条目（互相独立），用 concurrency limit 控制并发句柄数。
+  const sourceMetadata = await fs.lstat(source);
+  if (sourceMetadata.isSymbolicLink()) {
+    throw new Error(`Refusing to copy symbolic-link source: ${source}`);
+  }
+  if (sourceMetadata.isDirectory()) {
+    await ensureOrdinaryDirectory(target, commitFence);
+    const entries = (await fs.readdir(source)).sort();
+    const { createConcurrencyLimit } = await import('./concurrency.ts');
     const limit = createConcurrencyLimit(8);
     await Promise.all(
       entries.map((entry) =>
@@ -98,15 +144,34 @@ export async function copyRecursive(
     );
     return;
   }
+  if (!sourceMetadata.isFile()) {
+    throw new Error(`Refusing to copy non-ordinary source: ${source}`);
+  }
   await ensureDir(path.dirname(target), commitFence);
+  await prepareOrdinaryFileWrite(target, commitFence);
   await commitFence?.();
   await fs.copyFile(source, target);
 }
 
 export async function listFilesRecursive(rootDir: string): Promise<string[]> {
-  if (!(await pathExists(rootDir))) return [];
+  try {
+    const metadata = await fs.lstat(rootDir);
+    if (metadata.isSymbolicLink()) {
+      throw new Error(`Refusing to enumerate symbolic-link root: ${rootDir}`);
+    }
+    if (!metadata.isDirectory()) return [];
+  } catch (error) {
+    if (isFileNotFoundError(error)) return [];
+    throw error;
+  }
   const { globby } = await import('globby');
-  return globby('**/*', { cwd: rootDir, absolute: true, dot: false, onlyFiles: true });
+  return (await globby('**/*', {
+    cwd: rootDir,
+    absolute: true,
+    dot: false,
+    onlyFiles: true,
+    followSymbolicLinks: false
+  })).sort();
 }
 
 export async function readText(filePath: string): Promise<string> {
@@ -114,18 +179,5 @@ export async function readText(filePath: string): Promise<string> {
 }
 
 export async function writeText(filePath: string, text: string, commitFence?: CommitFence): Promise<void> {
-  await ensureDir(path.dirname(filePath), commitFence);
-  await commitFence?.();
-  // Copy-on-write: if the file has multiple hard links (e.g. from workspace
-  // template cloning via fs.link), break the link by unlinking before writing
-  // to avoid corrupting the shared template inode.
-  try {
-    const existing = await fs.stat(filePath);
-    if (existing.nlink > 1) {
-      await fs.unlink(filePath);
-    }
-  } catch {
-    // File doesn't exist yet — no link to break.
-  }
-  await fs.writeFile(filePath, text, 'utf8');
+  await writeBuffer(filePath, Buffer.from(text, 'utf8'), commitFence);
 }

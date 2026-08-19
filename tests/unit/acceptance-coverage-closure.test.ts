@@ -3,8 +3,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { buildAcceptanceCoverage } from '../../platform/compiler/verify/build-acceptance-coverage.ts';
-import { writeJson } from '../../platform/shared/fs.ts';
-import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import type {
   BlockManifest,
   FastVerificationLaneReport,
@@ -13,7 +11,11 @@ import type {
   VerificationReport
 } from '../../platform/shared/types.ts';
 import { readYaml, writeYaml } from '../../platform/shared/yaml.ts';
-import { emptyVerificationLogs } from '../helpers/verification-fixtures.ts';
+import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
+import {
+  emptyVerificationLogs,
+  writeCanonicalVerificationArtifactSetFixture
+} from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function manifest(acceptance: BlockManifest['acceptance']): BlockManifest {
@@ -154,6 +156,29 @@ test('acceptance targets cannot reference unknown resolved block or slot identit
   });
 });
 
+test('acceptance dependency cycles are invalid proof graphs rather than uncovered results', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    await writeManifest(workspaceRoot, [
+      {
+        id: 'acceptance_a',
+        dependsOn: ['acceptance_b'],
+        covers: { blocks: ['source/block'] }
+      },
+      {
+        id: 'acceptance_b',
+        dependsOn: ['acceptance_a'],
+        covers: { blocks: ['source/block'] }
+      }
+    ]);
+    await expect(buildAcceptanceCoverage(
+      workspaceRoot,
+      lock(['acceptance_a', 'acceptance_b']),
+      runtime(),
+      fast([])
+    )).rejects.toThrow('Acceptance dependency cycle detected');
+  });
+});
+
 test('coverage readback restores fast acceptance from the matching canonical report', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeManifest(workspaceRoot, [{
@@ -162,14 +187,27 @@ test('coverage readback restores fast acceptance from the matching canonical rep
     }]);
     const fastLane = fast(['customer-flow.test.ts']);
     const runtimeLane = runtime();
-    const report = {
+    const report = buildPassingReviewReport({
       fast: fastLane,
       runtime: runtimeLane
-    } as VerificationReport;
-    await fs.mkdir(path.dirname(getWorkspacePaths(workspaceRoot).verificationReportPath), {
-      recursive: true
     });
-    await writeJson(getWorkspacePaths(workspaceRoot).verificationReportPath, report);
+    await writeCanonicalVerificationArtifactSetFixture(workspaceRoot, report, {
+      policyReport: fastLane.policyReport,
+      acceptanceCoverage: {
+        formatVersion: '1',
+        status: 'passed',
+        acceptancePassed: ['user_can_create_customer'],
+        blocks: [{
+          id: 'source/block',
+          declaredAcceptance: ['user_can_create_customer'],
+          coveredBy: ['user_can_create_customer'],
+          uncovered: false
+        }],
+        slots: [],
+        uncoveredBlocks: [],
+        uncoveredSlots: []
+      }
+    });
 
     const coverage = await buildAcceptanceCoverage(
       workspaceRoot,

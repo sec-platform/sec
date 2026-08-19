@@ -279,8 +279,8 @@ function ordinaryDataDescriptor(
   if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
     throw new Error(`${label} must be an ordinary own data field.`);
   }
-  if (!descriptor.enumerable || !descriptor.configurable || !descriptor.writable) {
-    throw new Error(`${label} must be an enumerable, configurable, writable own data field.`);
+  if (!descriptor.enumerable) {
+    throw new Error(`${label} must be an enumerable own data field.`);
   }
   return descriptor as OrdinaryDataDescriptor;
 }
@@ -311,9 +311,9 @@ function snapshotStrictVerificationData(
       }
       const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length');
       if (!lengthDescriptor || !Object.prototype.hasOwnProperty.call(lengthDescriptor, 'value') ||
-        lengthDescriptor.enumerable || lengthDescriptor.configurable || !lengthDescriptor.writable ||
+        lengthDescriptor.enumerable || lengthDescriptor.configurable ||
         !Number.isSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0) {
-        throw new Error(`${label}.length must be the canonical writable array length field.`);
+        throw new Error(`${label}.length must be the canonical array length field.`);
       }
       const length = lengthDescriptor.value as number;
       if (ownKeys.length !== length + 1) {

@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import type { LockFile } from '../../shared/lock-types.ts';
 import { readLockFile } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, posixPath } from '../../shared/paths.ts';
 import type { ManifestEntry } from '../../shared/plan-manifest-types.ts';
@@ -24,6 +25,8 @@ export interface WorkspaceEngineeringIRBuildInput {
   engineeringIRInput: BuildEngineeringIRInput;
   generatorDeclarations: SemanticGeneratorDeclaration[];
   semanticContractSources: SemanticMutationLoadedSourceCandidateV1[];
+  /** Exact in-memory Lock object consumed to derive this build input. */
+  sourceLock: LockFile;
 }
 
 export async function loadWorkspaceEngineeringIRBuildInput(
@@ -31,20 +34,27 @@ export async function loadWorkspaceEngineeringIRBuildInput(
 ): Promise<WorkspaceEngineeringIRBuildInput> {
   const { planPath } = getWorkspacePaths(workspaceRoot);
   const plan = await loadPlan(planPath);
-  const lock = await readLockFile(workspaceRoot);
+  const lock = readLockFile(workspaceRoot);
   const manifestEntries = await Promise.all(
     lock.resolvedBlocks.map((block) => loadManifestForResolvedBlock(workspaceRoot, block))
   );
-  const [registryContractGroups, authoringContractSources, policyDeclarations] = await Promise.all([
-    Promise.all(
-      manifestEntries.map((entry) => loadSemanticContractsForManifestEntry(entry))
-    ),
-    loadAuthoringSemanticContractSources(
-      workspaceRoot,
-      new Set(lock.resolvedBlocks.map((block) => block.id))
-    ),
-    loadPolicyDeclarations(workspaceRoot)
+
+  // Start only genuinely asynchronous reads before the synchronous retained
+  // Policy observation. Promise-wrapping the Policy loader would not create
+  // filesystem concurrency and would misrepresent the execution model.
+  const registryContractGroupsPromise = Promise.all(
+    manifestEntries.map((entry) => loadSemanticContractsForManifestEntry(entry))
+  );
+  const authoringContractSourcesPromise = loadAuthoringSemanticContractSources(
+    workspaceRoot,
+    new Set(lock.resolvedBlocks.map((block) => block.id))
+  );
+  const policyDeclarations = loadPolicyDeclarations(workspaceRoot);
+  const [registryContractGroups, authoringContractSources] = await Promise.all([
+    registryContractGroupsPromise,
+    authoringContractSourcesPromise
   ]);
+
   const registryContractSources = registryContractGroups.flatMap((contracts, index) => {
     const entry = manifestEntries[index]!;
     const sourceKind = entry.registryLocation === 'compiler' ? 'compiler-registry' : 'workspace-registry';
@@ -83,6 +93,7 @@ export async function loadWorkspaceEngineeringIRBuildInput(
         registryLocation: entry.registryLocation,
         registryPath: entry.registryPath
       }))
-    )
+    ),
+    sourceLock: lock
   };
 }

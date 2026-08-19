@@ -2,7 +2,7 @@
 title: 稳定交付路线
 status: active
 domain: roadmap
-last-reviewed: 2026-08-11
+last-reviewed: 2026-08-21
 ---
 
 # 稳定交付路线
@@ -593,6 +593,8 @@ typed refs。Evidence、freshness、health、maturity与next-transition projecti
 - delta-aware Review input与fresh full exact-head receipt；
 - ProspectiveCandidateControl与ActiveMainControl分离；
 - Tier 0 transition root、Tier 1 evolvable TCB与Tier 2 product分层；
+- provider publication从live repository observation绑定default branch，并在effect后拒绝branch identity漂移；
+- 所有跨平台并行写入计划在首个effect前消费唯一portable collision identity，物理filesystem authority继续拥有no-follow与FileId/inode readback；
 - generated TCB lock在push前纯检查，hook执行与hook安装隔离；old-main仅对成对substitution lock漂移
   产生typed manual-bootstrap Evidence，任何结构漂移继续hard fail；
 - Context compression/restart从authority重算同一next transition；
@@ -643,6 +645,13 @@ workflow与trust transition仍按single-writer集成。每个切片必须同时�
 prose、caller JSON或本block之外猜测。
 依赖必须只指向block中更早的work，因而block自身是acyclic ordered window；successor count和
 `roadmapDirect`从该结构及其位于canonical roadmap这一事实推导，不持久化第二份derived truth。
+
+Rolling plan不再允许“标题是一份topology、JSON保留另一份旧receipt”的双写。普通WorkDecision、
+committed-candidate replan与MainHealth repair先编译为一个closed typed machine projection，再由一个
+全文renderer原子生成frontmatter、机器块、active/candidate标题和说明。committed replan只绑定sole-parent
+exact HEAD/tree及source manifest/pointer/rolling raw bytes digest，不复制嵌套projection digest或旧prose。
+branch namespace不参与authority；
+transport只按non-default branch、exact base/head、remote ref与可选worktree identity绑定。
 
 <!-- sec-work-selection-roadmap-catalog-v1:begin -->
 ```json
@@ -711,22 +720,22 @@ prose、caller JSON或本block之外猜测。
       "humanDecisionRef": null
     },
     {
-      "packageId": "delegation-consumer-zero-retirement-v1",
-      "workId": "issue-275",
-      "tracking": "issue-275",
-      "currentSpecRef": "github:issue/275",
-      "ownerRef": "github:issue/275",
+      "packageId": "sec-static-convergence-v1",
+      "workId": "issue-311",
+      "tracking": "issue-311",
+      "currentSpecRef": "github:issue/311",
+      "ownerRef": "github:issue/311",
       "kind": "program",
       "disposition": "active",
       "priorityClass": "active-critical-path",
-      "priorityEvidenceRefs": ["roadmap:r14/guidance-convergence"],
+      "priorityEvidenceRefs": ["roadmap:r14/static-convergence"],
       "prerequisiteWorkIds": ["issue-186"],
       "orderedAfterWorkIds": [],
       "reproductionOrEvidenceFreshness": "fresh",
       "rootCauseState": "repeat-root-cause",
-      "rootCauseRef": "github:issue/275",
+      "rootCauseRef": "github:issue/311",
       "scopeClosure": "closed",
-      "exitCriteriaRef": "github:issue/275#completion",
+      "exitCriteriaRef": "github:issue/311#acceptance",
       "nearTermConsumerRef": null,
       "humanDecisionRef": null
     },

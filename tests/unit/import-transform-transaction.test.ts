@@ -10,29 +10,6 @@ async function withWorkspace(run: (root: string) => Promise<void>): Promise<void
   try { await run(root); } finally { await rm(root, { recursive: true, force: true }); }
 }
 
-test('directory durability permits only the canonical Windows unsupported-fsync capability fallback', async () => {
-  const source = await Bun.file(path.resolve(import.meta.dir,
-    '../../platform/dev-runner/import-transform-transaction.ts')).text();
-  const syncDirectory = source.slice(source.indexOf('async function syncDirectory'),
-    source.indexOf('async function replaceDurable'));
-  expect(syncDirectory).toContain("process.platform !== 'win32'");
-  expect(syncDirectory).toContain("['EINVAL', 'EPERM', 'EACCES', 'EBADF']");
-  expect(syncDirectory).toContain('await handle.sync()');
-  expect(syncDirectory).toContain('throw error;');
-});
-
-test('transaction recovery keeps physical rollback primary and rejects alias ancestors before publication', async () => {
-  const source = await Bun.file(path.resolve(import.meta.dir,
-    '../../platform/dev-runner/import-transform-transaction.ts')).text();
-  const chain = source.slice(source.indexOf('async function assertOrdinaryContainedTargetChain'),
-    source.indexOf('async function writeDurable'));
-  expect(chain).toContain('metadata.isSymbolicLink()');
-  expect(chain).toContain('samePhysicalPath(await fs.realpath(current), current)');
-  expect(source).toContain('function validateJournalTransition');
-  expect(source).toContain('Import transform publication reason drifted during recovery.');
-  expect(source).toContain('Import transform rolled-back journal entry retains outstanding files.');
-});
-
 test('journal faults preserve physical rollback priority and ancestor aliases publish zero outside bytes', async () => {
   const outside = await mkdtemp(path.join(tmpdir(), 'sec-import-outside-'));
   try {
@@ -115,6 +92,8 @@ test('a crash after durable publication and before published progress is reconci
     const replacement = Buffer.from('a1\n');
     const { digest } = await import('../../platform/shared/canonical-primitives.ts');
     const stem = digest('a.ts');
+    await chmod(path.join(root, 'a.ts'), 0o644);
+    const targetMode = (await stat(path.join(root, 'a.ts'))).mode & 0o777;
     await Promise.all([
       writeFile(path.join(transactionRoot, `${stem}.preimage`), expected),
       writeFile(path.join(transactionRoot, `${stem}.replacement`), replacement),
@@ -123,7 +102,7 @@ test('a crash after durable publication and before published progress is reconci
         writes: [{ relativePath: 'a.ts',
           preimageCandidateRelativePath: 'a.ts.imports-transform-crash-before-progress.preimage.candidate',
           replacementCandidateRelativePath: 'a.ts.imports-transform-crash-before-progress.replacement.candidate',
-          expectedDigest: digest(expected), replacementDigest: digest(replacement), mode: 0o644 }]
+          expectedDigest: digest(expected), replacementDigest: digest(replacement), mode: targetMode }]
       })}\n`),
       writeFile(path.join(transactionRoot, 'journal.jsonl'), `${JSON.stringify({
         formatVersion: 'sec-import-transform-journal-entry-v2', transactionId: 'crash-before-progress', state: 'prepared',
@@ -135,7 +114,6 @@ test('a crash after durable publication and before published progress is reconci
         published: [], outstanding: [], publicationReasonCode: null, recoveryReasonCode: null
       })}\n`)
     ]);
-    await chmod(path.join(root, 'a.ts'), 0o644);
     const outcome = await publishImportTransformTransactionV1(root, [
       { relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }
     ]);
@@ -163,7 +141,11 @@ test('only an exact binding-owned candidate residue is removed during recovery',
       await Promise.all([
         writeFile(target, expected),
         writeFile(path.join(root, 'b.ts'), 'b0\n'),
-        writeFile(candidate, candidateBytes),
+        writeFile(candidate, candidateBytes)
+      ]);
+      await Promise.all([chmod(target, 0o644), chmod(candidate, 0o644)]);
+      const targetMode = (await stat(target)).mode & 0o777;
+      await Promise.all([
         writeFile(path.join(transactionRoot, `${stem}.preimage`), expected),
         writeFile(path.join(transactionRoot, `${stem}.replacement`), replacement),
         writeFile(path.join(transactionRoot, 'binding.json'), `${JSON.stringify({
@@ -171,7 +153,7 @@ test('only an exact binding-owned candidate residue is removed during recovery',
           writes: [{ relativePath: 'a.ts',
             preimageCandidateRelativePath: `a.ts.imports-transform-${transactionId}.preimage.candidate`,
             replacementCandidateRelativePath: `a.ts.imports-transform-${transactionId}.replacement.candidate`,
-            expectedDigest: digest(expected), replacementDigest: digest(replacement), mode: 0o644 }]
+            expectedDigest: digest(expected), replacementDigest: digest(replacement), mode: targetMode }]
         })}\n`),
         writeFile(path.join(transactionRoot, 'journal.jsonl'), `${JSON.stringify({
           formatVersion: 'sec-import-transform-journal-entry-v2', transactionId, state: 'prepared',
@@ -179,7 +161,6 @@ test('only an exact binding-owned candidate residue is removed during recovery',
           published: [], outstanding: [], publicationReasonCode: null, recoveryReasonCode: null
         })}\n`)
       ]);
-      await Promise.all([chmod(target, 0o644), chmod(candidate, 0o644)]);
       result = await publishImportTransformTransactionV1(root, [{
         relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n')
       }]);
@@ -237,22 +218,12 @@ test('post-rename ambiguity journals exactly one conservative in-flight publicat
   });
 });
 
-test('candidate mode is applied before durable sync and pre-rename faults publish zero bytes', async () => {
-  const source = await Bun.file(path.resolve(import.meta.dir,
-    '../../platform/dev-runner/import-transform-transaction.ts')).text();
-  const replaceDurable = source.slice(source.indexOf('async function replaceDurable'),
-    source.indexOf('async function appendJournal'));
-  expect(replaceDurable.indexOf('await handle.chmod(mode);'))
-    .toBeLessThan(replaceDurable.indexOf('await handle.sync();'));
-  expect(replaceDurable.indexOf('await handle.sync();'))
-    .toBeLessThan(replaceDurable.indexOf('await handle.close();'));
-  expect(replaceDurable.indexOf('await handle.close();'))
-    .toBeLessThan(replaceDurable.indexOf('await fs.rename(candidatePath, filePath);'));
-
+test('pre-rename durability faults preserve original bytes and mode', async () => {
   await withWorkspace(async (root) => {
     const target = path.join(root, 'a.ts');
     await writeFile(target, 'a0\n');
     await chmod(target, 0o600);
+    const originalMode = (await stat(target)).mode & 0o777;
     let temporaryPath = '';
     const outcome = await publishImportTransformTransactionV1(root, [
       { relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') }
@@ -266,7 +237,7 @@ test('candidate mode is applied before durable sync and pre-rename faults publis
     if (outcome.status !== 'rolled-back') throw new Error('expected rolled-back outcome');
     expect(outcome.reasonCode).toBe('publication-failed');
     expect(await readFile(target, 'utf8')).toBe('a0\n');
-    expect((await stat(target)).mode & 0o777).toBe(0o600);
+    expect((await stat(target)).mode & 0o777).toBe(originalMode);
     expect(temporaryPath).not.toBe('');
     expect(await readdir(root)).not.toContain(path.basename(temporaryPath));
   });
@@ -277,11 +248,12 @@ test('candidate publication restores the captured target mode despite creation d
     const target = path.join(root, 'a.ts');
     await writeFile(target, 'a0\n');
     await chmod(target, 0o755);
+    const originalMode = (await stat(target)).mode & 0o777;
     const outcome = await publishImportTransformTransactionV1(root, [
       { relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') }
     ]);
     expect(outcome.status).toBe('accepted');
-    expect((await stat(target)).mode & 0o777).toBe(0o755);
+    expect((await stat(target)).mode & 0o777).toBe(originalMode);
   });
 });
 
@@ -322,16 +294,20 @@ test('mode drift is a preimage conflict before a transform can restore a stale m
     const target = path.join(root, 'a.ts');
     await writeFile(target, 'a0\n');
     await chmod(target, 0o600);
+    let concurrentMode = 0;
     const outcome = await publishImportTransformTransactionV1(root, [
       { relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') }
     ], {
-      beforePublish: async () => { await chmod(target, 0o400); }
+      beforePublish: async () => {
+        await chmod(target, 0o400);
+        concurrentMode = (await stat(target)).mode & 0o777;
+      }
     });
     expect(outcome.status).toBe('rolled-back');
     if (outcome.status !== 'rolled-back') throw new Error('expected rolled-back outcome');
     expect(outcome.reasonCode).toBe('preimage-conflict');
     expect(await readFile(target, 'utf8')).toBe('a0\n');
-    expect((await stat(target)).mode & 0o777).toBe(0o400);
+    expect((await stat(target)).mode & 0o777).toBe(concurrentMode);
   });
 });
 
@@ -363,6 +339,7 @@ test('rollback preserves a concurrent mode change even when replacement bytes st
     await writeFile(target, 'a0\n');
     await writeFile(path.join(root, 'b.ts'), 'b0\n');
     await chmod(target, 0o600);
+    let concurrentMode = 0;
     const outcome = await publishImportTransformTransactionV1(root, [
       { relativePath: 'a.ts', expectedBytes: Buffer.from('a0\n'), replacementBytes: Buffer.from('a1\n') },
       { relativePath: 'b.ts', expectedBytes: Buffer.from('b0\n'), replacementBytes: Buffer.from('b1\n') }
@@ -370,13 +347,16 @@ test('rollback preserves a concurrent mode change even when replacement bytes st
       afterPublish: async (_file, index) => {
         if (index === 0) await writeFile(path.join(root, 'b.ts'), 'external\n');
       },
-      beforeRollback: async () => { await chmod(target, 0o400); }
+      beforeRollback: async () => {
+        await chmod(target, 0o400);
+        concurrentMode = (await stat(target)).mode & 0o777;
+      }
     });
     expect(outcome.status).toBe('recovery-required');
     if (outcome.status !== 'recovery-required') throw new Error('expected recovery-required outcome');
     expect(outcome.reasonCode).toBe('rollback-conflict');
     expect(await readFile(target, 'utf8')).toBe('a1\n');
-    expect((await stat(target)).mode & 0o777).toBe(0o400);
+    expect((await stat(target)).mode & 0o777).toBe(concurrentMode);
   });
 });
 

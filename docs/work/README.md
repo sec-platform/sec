@@ -2,7 +2,7 @@
 title: 动态工程控制面
 status: active
 domain: current-control
-last-reviewed: 2026-08-12
+last-reviewed: 2026-08-21
 ---
 
 # 动态工程控制面
@@ -19,7 +19,11 @@ AI评分或新增计划文件重建下一步。Phase C writer切换前，人工r
 `id + tracking`与`select-next`一致的generated projection；receipt文件本身没有写authority，投影不一致
 返回`reconcile`/`unresolved`。normalized近端记录只内嵌在canonical `docs/roadmap.md`，不得另建计划或
 registry文件。选中manifest保留到下一decision消费，下一纵切片再删除旧manifest和已消费catalog item。
-effectful freeze必须运行clean trusted-main脚本，并用`--workspace`显式指向物理隔离的`codex/*`候选；
+effectful freeze必须运行clean trusted-main脚本，并用`--workspace`显式指向物理隔离、attached到非default
+branch的候选；branch前缀只是locator命名习惯，不参与authority判断。rolling-plan的WorkDecision、
+committed-candidate replan与MainHealth repair由同一typed projection union和全文renderer生成；
+标题、prose、JSON与digest不能分开维护；committed replan只消费exact HEAD/tree与source control raw
+bytes digest，不复制旧projection digest或旧prose；
 直接运行候选修改过的控制脚本不能给候选授权。
 
 当前 Git、PR、CI、Review 和 resolver 状态在运行时生成，不写入稳定架构文档。

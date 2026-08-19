@@ -14,10 +14,16 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import {
+  readCompilerTypeScriptMutationFixture
+} from '../helpers/compiler-fixtures.ts';
+import { readTypeScriptHostileMutationNode } from '../helpers/typescript-hostile-mutation.ts';
+
+import {
   TCB_CLOSURE_LOCK,
   TCB_CLOSURE_LOCK_RECEIPT,
   TCB_CLOSURE_TRUST_REVISION,
   TCB_REVIEWED_EXTERNAL_IMPORTS,
+  TCB_REVIEWED_NETWORK_DISPATCHERS,
   TCB_REVIEWED_PROCESS_DISPATCHERS,
   TCB_TRUST_ROOT_V3,
   assertTcbClosureLockDataMatchesV2,
@@ -34,6 +40,7 @@ import {
   verifyTcbClosureLock
 } from '../../platform/shared/tcb-closure-lock.ts';
 import { SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3 } from '../../platform/shared/tcb-trust-root-contract.ts';
+import { readRepositoryModuleGraphV1 } from '../../platform/shared/test-impact-contract.ts';
 
 test('TCB candidate root exclusively drives closure discovery and hashing', () => {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'sec-tcb-candidate-root-')));
@@ -133,13 +140,7 @@ test('TCB closure lock has the correct schema and trust revision', () => {
   expect(TCB_CLOSURE_LOCK.trustRevision).toMatch(/^sha256:[0-9a-f]{64}$/u);
 });
 
-test('V2 closure generation has no base-revision compatibility export or pseudo-binding', () => {
-  const source = readFileSync(
-    path.resolve(import.meta.dir, '../../platform/shared/tcb-closure-lock.ts'),
-    'utf8'
-  );
-  expect(source).not.toContain('generateTcbClosureLockForRevision');
-  expect(source).not.toContain('trustedBaseRevision');
+test('V2 closure generation binds the canonical trust revision', () => {
   expect(generateTcbClosureLockV2().trustRevision).toBe(TCB_CLOSURE_TRUST_REVISION);
 });
 
@@ -265,7 +266,7 @@ test('TCB generated region renderer, parser and planner are canonical and preser
   }
 });
 
-test('Action provider preflight binds the exact eight dispatchers and rejects near-name or ordinal expansion', () => {
+test('Action provider preflight binds the exact eight dispatchers and the canonical action executor', async () => {
   const actionDispatchers = [...TCB_REVIEWED_PROCESS_DISPATCHERS].filter((identity) =>
     identity.startsWith('scripts/ci-verification.ts::') ||
     identity.startsWith('scripts/codex/verification-action-github-provider.ts::')
@@ -281,26 +282,75 @@ test('Action provider preflight binds the exact eight dispatchers and rejects ne
     'scripts/codex/verification-action-github-provider.ts::function-declaration:runProcessText::spawnSync#1'
   ].sort());
 
-  const repositoryPath = 'platform/dev-runner.ts';
-  const canonicalSource = 'export function executeVerifiedCiActionPlanV1(){ Bun.spawn({cmd:["bun"],cwd:"."}); }';
+  const repositoryPath = 'platform/dev-runner/verification-action-executor.ts';
+  const canonicalSource = await readCompilerTypeScriptMutationFixture(repositoryPath, 'hostile-mutation');
+  const dispatcher = readTypeScriptHostileMutationNode(
+    canonicalSource,
+    'executeVerifiedCiActionPlanV1',
+    'hostile-mutation'
+  );
+  const assertDispatcher = (candidate: string): void => {
+    expect(candidate).toContain('export async function executeVerifiedCiActionPlanV1(options: {');
+    expect(candidate.match(/Bun\.spawn\(/gu)).toHaveLength(1);
+    expect(candidate).toContain('const [, ...args] = ciVerificationNormalizedOperationArgvV2(operation);');
+    expect(candidate).toContain('const argv = [process.execPath, ...args];');
+    expect(candidate).toContain('const child = Bun.spawn(argv, {');
+    expect(candidate).toContain('cwd: options.repositoryRoot');
+    expect(candidate).toContain("stdin: 'inherit'");
+    expect(candidate).toContain("stdout: 'inherit'");
+    expect(candidate).toContain("stderr: 'inherit'");
+    expect(candidate).toContain('env: options.environment ?? process.env');
+    expect(candidate).not.toContain('shell:');
+  };
+  assertDispatcher(dispatcher);
+  for (const [label, hostile] of [
+    ['name', dispatcher.replace('executeVerifiedCiActionPlanV1', 'executeVerifiedCiActionPlanNearNameV1')],
+    ['normalized-argv', dispatcher.replace('ciVerificationNormalizedOperationArgvV2(operation)', '[]')],
+    ['binary', dispatcher.replace('[process.execPath, ...args]', "['bun', ...args]")],
+    ['spawn-argv', dispatcher.replace('Bun.spawn(argv, {', 'Bun.spawn(args, {')],
+    ['cwd', dispatcher.replace('cwd: options.repositoryRoot', "cwd: `${options.repositoryRoot}/nested`")],
+    ['stdin', dispatcher.replace("stdin: 'inherit'", "stdin: 'ignore'")],
+    ['stdout', dispatcher.replace("stdout: 'inherit'", "stdout: 'pipe'")],
+    ['stderr', dispatcher.replace("stderr: 'inherit'", "stderr: 'pipe'")],
+    ['environment', dispatcher.replace('env: options.environment ?? process.env', 'env: process.env')],
+    ['shell', dispatcher.replace("stdin: 'inherit',", "shell: true,\n    stdin: 'inherit',")],
+    ['ordinal', dispatcher.replace(
+      'const child = Bun.spawn(argv, {',
+      "Bun.spawn([process.execPath, '--version']);\n  const child = Bun.spawn(argv, {"
+    )]
+  ] as const) {
+    expect(hostile, `${label} mutation must alter the canonical dispatcher`).not.toBe(dispatcher);
+    let rejected = false;
+    try { assertDispatcher(hostile); } catch { rejected = true; }
+    if (!rejected) throw new Error(`Verification Action executor mutation was not rejected: ${label}`);
+  }
   const observed = new Set<string>();
   expect(() => runtimeRelativeImportsFromSource(
     repositoryPath, canonicalSource, observed, new Set(), new Set()
   )).not.toThrow();
   expect([...observed]).toEqual([
-    'platform/dev-runner.ts::function-declaration:executeVerifiedCiActionPlanV1::Bun.spawn#1'
+    'platform/dev-runner/verification-action-executor.ts::function-declaration:executeVerifiedCiActionPlanV1::Bun.spawn#1'
   ]);
   for (const hostileSource of [
-    canonicalSource.replace('executeVerifiedCiActionPlanV1', 'executeVerifiedCiActionPlanVl'),
-    canonicalSource.replace(' }', ' Bun.spawn({cmd:["bun","--forged"],cwd:"../"}); }')
+    canonicalSource.replace('executeVerifiedCiActionPlanV1', 'executeVerifiedCiActionPlanNearNameV1'),
+    canonicalSource.replace(
+      '  const child = Bun.spawn(argv, {',
+      "  Bun.spawn([process.execPath, '--version']);\n  const child = Bun.spawn(argv, {"
+    )
   ]) {
+    expect(hostileSource).not.toBe(canonicalSource);
     expect(() => runtimeRelativeImportsFromSource(
       repositoryPath, hostileSource, new Set(), new Set(), new Set()
     )).toThrow('unreviewed process dispatcher');
   }
   const digest = (source: string) => createHash('sha256').update(source).digest('hex');
-  expect(digest(canonicalSource.replace('["bun"]', '["bun","--forged"]'))).not.toBe(digest(canonicalSource));
-  expect(digest(canonicalSource.replace('cwd:"."', 'cwd:"../"'))).not.toBe(digest(canonicalSource));
+  for (const hostile of [
+    canonicalSource.replace('[process.execPath, ...args]', "['bun', ...args]"),
+    canonicalSource.replace('cwd: options.repositoryRoot', "cwd: `${options.repositoryRoot}/nested`")
+  ]) {
+    expect(hostile).not.toBe(canonicalSource);
+    expect(digest(hostile)).not.toBe(digest(canonicalSource));
+  }
 });
 
 test('Hosted archive inventory has one fixed bounded dispatcher shared by every trusted materializer', async () => {
@@ -308,14 +358,15 @@ test('Hosted archive inventory has one fixed bounded dispatcher shared by every 
   const identity =
     'scripts/ci-verification.ts::function-declaration:inspectHostedActionArchiveMetadataV2::spawnSync#1';
   expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(true);
-  const source = (await Bun.file(
-    new URL('../../scripts/ci-verification.ts', import.meta.url)
-  ).text()).replace(/\r\n/gu, '\n');
-  const start = source.indexOf('function inspectHostedActionArchiveMetadataV2(');
-  const end = source.indexOf('\nfunction canonicalHostedArchivePathV2(', start);
-  expect(start).toBeGreaterThanOrEqual(0);
-  expect(end).toBeGreaterThan(start);
-  const dispatcher = source.slice(start, end);
+  const source = await readCompilerTypeScriptMutationFixture(
+    'scripts/ci-verification.ts',
+    'hostile-mutation'
+  );
+  const dispatcher = readTypeScriptHostileMutationNode(
+    source,
+    'inspectHostedActionArchiveMetadataV2',
+    'hostile-mutation'
+  );
   const assertDispatcher = (candidate: string): void => {
     expect(candidate).toContain(
       'function inspectHostedActionArchiveMetadataV2(archive: string, label: string): unknown {'
@@ -358,124 +409,95 @@ test('Hosted archive inventory has one fixed bounded dispatcher shared by every 
     .toEqual([identity]);
 });
 
-test('verification-action runner dispatcher binds exact local Git observations and rejects semantic drift', async () => {
-  const repositoryPath = 'scripts/codex/verification-action-runner.ts';
-  const dispatcherIdentity =
-    'scripts/codex/verification-action-runner.ts::function-declaration:inspectLocalRepository>const-arrow:git::spawnSync#1';
-  expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(dispatcherIdentity)).toBe(true);
+test('verification-action runner receives a narrow repository capability and cannot dispatch processes', async () => {
+  const repositoryPath = 'tooling/sec-dev/verification-action-runner.ts';
+  expect([...TCB_REVIEWED_PROCESS_DISPATCHERS].filter((identity) => (
+    identity.startsWith(`${repositoryPath}::`)
+  ))).toEqual([]);
 
-  const canonicalSource = [
+  const moduleReferences = readRepositoryModuleGraphV1().references
+    .filter((reference) => reference.from === repositoryPath)
+    .map((reference) => reference.specifier);
+  expect(moduleReferences).not.toContain('node:child_process');
+  expect(moduleReferences).not.toContain('./branch-lifecycle-command.ts');
+
+  const exactSource = await readCompilerTypeScriptMutationFixture(repositoryPath, 'tcb-analysis');
+  const observed = new Set<string>();
+  runtimeRelativeImportsFromSource(repositoryPath, exactSource, observed, new Set(), new Set());
+  expect([...observed].filter((identity) => identity.startsWith(`${repositoryPath}::`))).toEqual([]);
+
+  const unauthorizedDispatcher = [
     "import { spawnSync } from 'node:child_process';",
-    'function inspectLocalRepository(repositoryRoot: string) {',
-    '  const git = (...args: string[]): string => {',
-    "    const result = spawnSync('git', ['-C', repositoryRoot, ...args], { encoding: 'utf8', windowsHide: true, env: createBranchLifecycleGitChildEnvironmentV1(process.env) });",
-    '    return result.stdout.trim();',
-    '  };',
-    '  return {',
-    "    headSha: git('rev-parse', 'HEAD'),",
-    "    headTreeSha: git('rev-parse', 'HEAD^{tree}'),",
-    "    trackedClean: git('status', '--porcelain=v1', '--untracked-files=all') === '',",
-    "    gitCommonDirectory: git('rev-parse', '--path-format=absolute', '--git-common-dir')",
-    '  };',
+    "export function unauthorizedProcessCapability() { return spawnSync('git', ['status']); }"
+  ].join('\n');
+  expect(() => runtimeRelativeImportsFromSource(
+    repositoryPath,
+    unauthorizedDispatcher,
+    new Set(),
+    new Set(),
+    new Set()
+  )).toThrow('unreviewed process dispatcher');
+});
+
+test('TCB network effects require one direct canonical owner and reject aliases or identity drift', () => {
+  const repositoryPath = 'scripts/codex/integration-authorization-status-github.ts';
+  const identity =
+    `${repositoryPath}::function-declaration:dispatchGitHubApiRequestV1::globalThis.fetch#1`;
+  const canonical = [
+    'export function dispatchGitHubApiRequestV1(input: string | URL, init?: RequestInit) {',
+    '  return globalThis.fetch(input, { ...init, redirect: \'error\' });',
     '}'
   ].join('\n');
-  const observed = new Set<string>();
+  const observedNetwork = new Set<string>();
   expect(() => runtimeRelativeImportsFromSource(
-    repositoryPath, canonicalSource, observed, new Set(), new Set()
+    repositoryPath,
+    canonical,
+    new Set(),
+    new Set(),
+    new Set(),
+    observedNetwork
   )).not.toThrow();
-  expect([...observed]).toEqual([dispatcherIdentity]);
+  expect(observedNetwork).toEqual(new Set([identity]));
+  expect(TCB_REVIEWED_NETWORK_DISPATCHERS).toEqual(new Set([identity]));
 
-  const astHostileSources = [
-    canonicalSource.replace('function inspectLocalRepository(', 'function inspectLocalRepositories('),
-    canonicalSource.replace('const git =', 'const gitNearName ='),
-    canonicalSource.replace(
-      '    return result.stdout.trim();',
-      "    spawnSync('git', ['status']);\n    return result.stdout.trim();"
+  const hostileSources = [
+    canonical.replace('dispatchGitHubApiRequestV1', 'dispatchGitHubApiRequestNearNameV1'),
+    canonical.replace('globalThis.fetch', 'fetch'),
+    canonical.replace(
+      "  return globalThis.fetch(input, { ...init, redirect: 'error' });",
+      "  const dispatcher = globalThis.fetch; return dispatcher(input, init);"
     ),
-    canonicalSource.replace(
-      "    const result = spawnSync('git', ['-C', repositoryRoot, ...args], { encoding: 'utf8', windowsHide: true, env: createBranchLifecycleGitChildEnvironmentV1(process.env) });",
-      [
-        '    const nestedGit = () =>',
-        "      spawnSync('git', ['-C', repositoryRoot, ...args], { encoding: 'utf8', windowsHide: true, env: createBranchLifecycleGitChildEnvironmentV1(process.env) });",
-        '    const result = nestedGit();'
-      ].join('\n')
+    canonical.replace('globalThis.fetch', "globalThis['fetch']"),
+    canonical.replace(
+      "  return globalThis.fetch(input, { ...init, redirect: 'error' });",
+      "  globalThis.fetch(input, init); return globalThis.fetch(input, init);"
     )
   ];
-  for (const hostileSource of astHostileSources) {
-    expect(hostileSource).not.toBe(canonicalSource);
+  for (const hostile of hostileSources) {
+    expect(hostile).not.toBe(canonical);
     expect(() => runtimeRelativeImportsFromSource(
-      repositoryPath, hostileSource, new Set(), new Set(), new Set()
-    )).toThrow('unreviewed process dispatcher');
-  }
-
-  const runnerSource = (await Bun.file(
-    new URL('../../scripts/codex/verification-action-runner.ts', import.meta.url)
-  ).text()).replace(/\r\n/gu, '\n');
-  const inspectStart = runnerSource.indexOf('function inspectLocalRepository(');
-  const inspectEnd = runnerSource.indexOf('\nfunction resolveDependency(', inspectStart);
-  expect(inspectStart).toBeGreaterThanOrEqual(0);
-  expect(inspectEnd).toBeGreaterThan(inspectStart);
-  const inspectSource = runnerSource.slice(inspectStart, inspectEnd);
-  expect(inspectSource.match(/spawnSync\(/gu)).toHaveLength(1);
-  expect(inspectSource).toContain("spawnSync('git', ['-C', repositoryRoot, ...args], {");
-  expect(inspectSource).toContain("encoding: 'utf8'");
-  expect(inspectSource).toContain('windowsHide: true');
-  expect(inspectSource).toContain('env: createBranchLifecycleGitChildEnvironmentV1(process.env)');
-  expect(inspectSource).not.toContain('cwd:');
-  expect(inspectSource).not.toContain('shell:');
-  expect(inspectSource).not.toContain('input:');
-  for (const observation of [
-    "git('rev-parse', 'HEAD')",
-    "git('rev-parse', 'HEAD^{tree}')",
-    "git('status', '--porcelain=v1', '--untracked-files=all')",
-    "git('rev-parse', '--path-format=absolute', '--git-common-dir')"
-  ]) {
-    expect(inspectSource).toContain(observation);
-  }
-
-  const digest = (source: string) => createHash('sha256').update(source).digest('hex');
-  for (const hostileSource of [
-    inspectSource.replace('inspectLocalRepository', 'inspectLocalRepositories'),
-    inspectSource.replace('const git =', 'const gitNearName ='),
-    inspectSource.replace("spawnSync('git'", "spawnSync('git-near-name'"),
-    inspectSource.replace("['-C', repositoryRoot, ...args]", '[repositoryRoot, ...args]'),
-    inspectSource.replace("['-C', repositoryRoot, ...args]", "['-C', repositoryRoot + '/nested', ...args]"),
-    inspectSource.replace("git('rev-parse', 'HEAD')", "git('rev-parse', 'HEAD~1')"),
-    inspectSource.replace("git('rev-parse', 'HEAD^{tree}')", "git('rev-parse', 'HEAD')"),
-    inspectSource.replace(
-      "git('status', '--porcelain=v1', '--untracked-files=all')",
-      "git('status', '--porcelain=v2', '--untracked-files=no')"
-    ),
-    inspectSource.replace(
-      "git('rev-parse', '--path-format=absolute', '--git-common-dir')",
-      "git('rev-parse', '--git-dir')"
-    ),
-    inspectSource.replace("encoding: 'utf8',", "cwd: repositoryRoot, encoding: 'utf8',"),
-    inspectSource.replace(
-      'createBranchLifecycleGitChildEnvironmentV1(process.env)',
-      'process.env'
-    ),
-    inspectSource.replace('windowsHide: true', 'windowsHide: true, shell: true'),
-    inspectSource.replace('windowsHide: true', "windowsHide: true, input: ''"),
-    inspectSource.replace("encoding: 'utf8'", "encoding: 'buffer'"),
-    inspectSource.replace('windowsHide: true', 'windowsHide: false')
-  ]) {
-    expect(hostileSource).not.toBe(inspectSource);
-    expect(digest(hostileSource)).not.toBe(digest(inspectSource));
+      repositoryPath,
+      hostile,
+      new Set(),
+      new Set(),
+      new Set(),
+      new Set()
+    )).toThrow(/network dispatcher|computed globalThis member/u);
   }
 });
 
 test('worktree physical closeout introduces no dispatcher and constrains the canonical shared process owner', async () => {
   const identity = 'scripts/codex/worktree-physical-closeout.ts::function-declaration:runRepositoryGit::spawnSync#1';
   expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(false);
-  const source = (await Bun.file(
-    new URL('../../scripts/codex/worktree-physical-closeout.ts', import.meta.url)
-  ).text()).replace(/\r\n/gu, '\n');
-  const start = source.indexOf('async function runRepositoryGit(');
-  const end = source.indexOf('\nasync function requireRepositoryGit(', start);
-  expect(start).toBeGreaterThanOrEqual(0);
-  expect(end).toBeGreaterThan(start);
-  const dispatcher = source.slice(start, end);
+  const source = await readCompilerTypeScriptMutationFixture(
+    'scripts/codex/worktree-physical-closeout.ts',
+    'hostile-mutation'
+  );
+  const dispatcher = readTypeScriptHostileMutationNode(
+    source,
+    'runRepositoryGit',
+    'hostile-mutation'
+  );
   const assertDispatcher = (candidate: string): void => {
     expect(candidate).toContain('async function runRepositoryGit(repositoryRoot: string, args: readonly string[]): Promise<CommandResult> {');
     expect(candidate.match(/runCommandBytes\(/gu)).toHaveLength(1);
@@ -516,14 +538,11 @@ test('local Actions runner dispatcher binds executable domain, cwd, environment,
   const identity =
     'scripts/codex/local-github-actions-runner.ts::function-declaration:runCommand::spawn#1';
   expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(true);
-  const source = (await Bun.file(
-    new URL('../../scripts/codex/local-github-actions-runner.ts', import.meta.url)
-  ).text()).replace(/\r\n/gu, '\n');
-  const start = source.indexOf('async function runCommand(');
-  const end = source.indexOf('\nasync function resolveRepositoryContext(', start);
-  expect(start).toBeGreaterThanOrEqual(0);
-  expect(end).toBeGreaterThan(start);
-  const dispatcher = source.slice(start, end);
+  const source = await readCompilerTypeScriptMutationFixture(
+    'scripts/codex/local-github-actions-runner.ts',
+    'hostile-mutation'
+  );
+  const dispatcher = readTypeScriptHostileMutationNode(source, 'runCommand', 'hostile-mutation');
   const assertDispatcher = (candidate: string): void => {
     expect(candidate).toContain('async function runCommand(\n');
     expect(candidate).toContain("  command: 'docker' | 'gh' | 'git',\n");
@@ -639,24 +658,25 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
     }
   }
 
-  const docsDoctorSource = (await Bun.file(
-    new URL('../../docs/scripts/docs-doctor.ts', import.meta.url)
-  ).text()).replace(/\r\n/gu, '\n');
-  const captureStart = docsDoctorSource.indexOf('function captureDocsDoctorIndexTree(');
-  const captureEnd = docsDoctorSource.indexOf('\nexport function readCapturedGitTreeBlob(', captureStart);
-  expect(captureStart).toBeGreaterThanOrEqual(0);
-  expect(captureEnd).toBeGreaterThan(captureStart);
-  const captureSource = docsDoctorSource.slice(captureStart, captureEnd);
+  const docsDoctorSource = await readCompilerTypeScriptMutationFixture(
+    'docs/scripts/docs-doctor.ts',
+    'hostile-mutation'
+  );
+  const captureSource = readTypeScriptHostileMutationNode(
+    docsDoctorSource,
+    'captureDocsDoctorIndexTree',
+    'hostile-mutation'
+  );
   expect(captureSource.match(/spawnSync\(/gu)).toHaveLength(1);
   expect(captureSource).toContain("spawnSync('git', ['write-tree'], {");
   expect(captureSource).toContain('cwd: repositoryRoot');
   expect(captureSource).not.toContain('env:');
 
-  const resolveStart = docsDoctorSource.indexOf('function resolveChangedDocumentPathsSince(');
-  const resolveEnd = docsDoctorSource.indexOf('\nfunction captureDocsDoctorIndexTree(', resolveStart);
-  expect(resolveStart).toBeGreaterThanOrEqual(0);
-  expect(resolveEnd).toBeGreaterThan(resolveStart);
-  const resolveSource = docsDoctorSource.slice(resolveStart, resolveEnd);
+  const resolveSource = readTypeScriptHostileMutationNode(
+    docsDoctorSource,
+    'resolveChangedDocumentPathsSince',
+    'hostile-mutation'
+  );
   expect(resolveSource.match(/spawnSync\(/gu)).toHaveLength(1);
   expect(resolveSource).toContain("spawnSync(\n    'git',\n    ['diff', '--name-only', `${sinceRef}..HEAD`]");
   expect(resolveSource).toContain('cwd: repositoryRoot');
@@ -664,22 +684,22 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   expect(resolveSource).toContain('windowsHide: true');
   expect(resolveSource).not.toContain('env:');
 
-  const parserStart = docsDoctorSource.indexOf('export function parseCapturedGitTreeBlobFrameV1(');
-  const parserEnd = docsDoctorSource.indexOf('\nexport function readCapturedGitTreeBlob(', parserStart);
-  expect(parserStart).toBeGreaterThanOrEqual(0);
-  expect(parserEnd).toBeGreaterThan(parserStart);
-  const parserSource = docsDoctorSource.slice(parserStart, parserEnd);
+  const parserSource = readTypeScriptHostileMutationNode(
+    docsDoctorSource,
+    'parseCapturedGitTreeBlobFrameV1',
+    'hostile-mutation'
+  );
   expect(parserSource).toContain('/^([0-9a-f]{40}) blob ([1-9][0-9]*|0)$/u.exec(header)');
   expect(parserSource).toContain('bodyEnd + 1 !== frame.length');
   expect(parserSource).toContain('frame[bodyEnd] !== 0x0a');
   expect(parserSource).toContain('return frame.subarray(bodyStart, bodyEnd);');
   expect(parserSource).not.toContain('spawnSync(');
 
-  const readerStart = docsDoctorSource.indexOf('export function readCapturedGitTreeBlob(');
-  const readerEnd = docsDoctorSource.indexOf('\nfunction listCapturedWorkPackagePaths(', readerStart);
-  expect(readerStart).toBeGreaterThanOrEqual(0);
-  expect(readerEnd).toBeGreaterThan(readerStart);
-  const readerSource = docsDoctorSource.slice(readerStart, readerEnd);
+  const readerSource = readTypeScriptHostileMutationNode(
+    docsDoctorSource,
+    'readCapturedGitTreeBlob',
+    'hostile-mutation'
+  );
   expect(readerSource.match(/spawnSync\(/gu)).toHaveLength(1);
   expect(readerSource).toContain("refs\\/remotes\\/[A-Za-z0-9._-]+\\/[A-Za-z0-9._\\/-]+");
   expect(readerSource).toContain('CodexDevelopmentIsCanonicalRepositoryPathV1(repositoryPath)');
@@ -699,10 +719,11 @@ test('docs-doctor index-tree preflight binds every exact read-only dispatcher an
   expect(readerSource).not.toContain('shell:');
   expect(readerSource).not.toContain("['show'");
 
-  const censusStart = readerEnd;
-  const censusEnd = docsDoctorSource.indexOf('\nif (import.meta.main)', censusStart);
-  expect(censusEnd).toBeGreaterThan(censusStart);
-  const censusSource = docsDoctorSource.slice(censusStart, censusEnd);
+  const censusSource = readTypeScriptHostileMutationNode(
+    docsDoctorSource,
+    'listCapturedWorkPackagePaths',
+    'hostile-mutation'
+  );
   expect(censusSource).not.toContain('spawnSync(');
   expect(censusSource).toContain(
     "readCapturedGitTreeBlob(repositoryRoot, treeSha, packageRoot, 'direct-entry-names')"
@@ -765,6 +786,12 @@ test('live process dispatcher allowlist exactly matches the frozen lock', () => 
   );
 });
 
+test('live network dispatcher allowlist exactly matches the frozen lock', () => {
+  expect([...TCB_REVIEWED_NETWORK_DISPATCHERS].sort()).toEqual(
+    [...(TCB_CLOSURE_LOCK.reviewedNetworkDispatchers ?? [])].sort()
+  );
+});
+
 test('Read Plan manifest reuse retires both duplicate Git process dispatchers', () => {
   const retired = [
     'scripts/codex/operation-read-plan.ts::function-declaration:gitBytesOutput::spawnSync#1',
@@ -774,12 +801,7 @@ test('Read Plan manifest reuse retires both duplicate Git process dispatchers', 
     expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(identity)).toBe(false);
     expect(TCB_CLOSURE_LOCK.reviewedProcessDispatchers).not.toContain(identity);
   }
-  const source = readFileSync(
-    path.resolve(import.meta.dir, '../../scripts/codex/operation-read-plan.ts'),
-    'utf8'
-  );
-  expect(source).not.toContain("from 'node:child_process'");
-  expect(source).not.toContain('spawnSync(');
+  expect(() => generateTcbClosureLockV2()).not.toThrow();
 });
 
 test.serial('TCB generation rejects a stale reviewed dispatcher authorization', () => {
@@ -795,6 +817,21 @@ test.serial('TCB generation rejects a stale reviewed dispatcher authorization', 
     TCB_REVIEWED_PROCESS_DISPATCHERS.delete(stale);
   }
   expect(TCB_REVIEWED_PROCESS_DISPATCHERS.has(stale)).toBe(false);
+});
+
+test.serial('TCB generation rejects a stale reviewed network dispatcher authorization', () => {
+  const stale =
+    'scripts/codex/integration-authorization-status-github.ts::function-declaration:retiredNetwork::globalThis.fetch#1';
+  expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(stale)).toBe(false);
+  TCB_REVIEWED_NETWORK_DISPATCHERS.add(stale);
+  try {
+    expect(() => generateTcbClosureLockV2()).toThrow(
+      'TCB reviewed network dispatcher allowlist must exactly equal the live causal dispatcher census.'
+    );
+  } finally {
+    TCB_REVIEWED_NETWORK_DISPATCHERS.delete(stale);
+  }
+  expect(TCB_REVIEWED_NETWORK_DISPATCHERS.has(stale)).toBe(false);
 });
 
 test('computeTcbClosureLock produces a closure digest that matches the frozen lock', () => {
@@ -952,5 +989,19 @@ test('adding an unauthorized process dispatcher causes the lock to break', () =>
   expect(verification.status).toBe('failed');
   expect(verification.failures).toEqual(expect.arrayContaining([
     expect.stringContaining('process dispatcher addition: unexpected')
+  ]));
+});
+
+test('adding an unauthorized network dispatcher causes the lock to break', () => {
+  const closure = trustedRuntimeClosure();
+  const verification = verifyTcbClosureLock({
+    ...closure,
+    reviewedNetworkDispatchers: new Set(closure.reviewedNetworkDispatchers).add(
+      'platform/shared/untrusted.ts::function-declaration:untrustedFetch::globalThis.fetch#1'
+    )
+  });
+  expect(verification.status).toBe('failed');
+  expect(verification.failures).toEqual(expect.arrayContaining([
+    expect.stringContaining('network dispatcher addition: unexpected')
   ]));
 });

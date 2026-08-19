@@ -1,4 +1,6 @@
+import { rmSync } from 'node:fs';
 import fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -6,6 +8,18 @@ import { ensureTestDependencies } from '../../platform/dev-runner/dependency-boo
 
 async function configureTestTempRoot(): Promise<void> {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  if (process.env.SEC_STATE_HOME === undefined && process.env.SEC_CACHE_HOME === undefined) {
+    const hostTempRoot = path.resolve(tmpdir());
+    const runtimeRoot = await fs.mkdtemp(path.join(hostTempRoot, 'sec-test-runtime-'));
+    process.env.SEC_STATE_HOME = path.join(runtimeRoot, 'state');
+    process.env.SEC_CACHE_HOME = path.join(runtimeRoot, 'cache');
+    process.once('exit', () => {
+      const resolved = path.resolve(runtimeRoot);
+      if (path.dirname(resolved) === hostTempRoot && path.basename(resolved).startsWith('sec-test-runtime-')) {
+        try { rmSync(resolved, { recursive: true, force: true }); } catch { /* best-effort exact temp cleanup */ }
+      }
+    });
+  }
   const tempRoot = path.join(repoRoot, '.tmp', 'test-workspaces');
   await fs.mkdir(tempRoot, { recursive: true });
   process.env.TMPDIR = tempRoot;

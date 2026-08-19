@@ -93,13 +93,16 @@ async function readEntryStatus(targetPath: string): Promise<DependencyEntryStatu
     };
   }
 
-  const target = await safeRealpath(targetPath);
+  const [target, entryCount] = await Promise.all([
+    safeRealpath(targetPath),
+    stat.isDirectory() ? shallowEntryCount(targetPath) : Promise.resolve(undefined)
+  ]);
   return {
     path: targetPath,
     exists: true,
     kind: stat.isSymbolicLink() ? 'link' : 'physical',
     sizeBytes: stat.size,
-    entryCount: stat.isDirectory() ? await shallowEntryCount(targetPath) : undefined,
+    entryCount,
     target
   };
 }
@@ -217,27 +220,17 @@ async function externalNodeRuntimeDoctorCheck(
 }
 
 function dependencyDoctorCheck(status: DependencyEnvironmentStatus): DoctorCheck {
-  if (status.mode === 'warm-project') {
-    return {
-      id: 'runtime-dependencies',
-      status: 'ok',
-      message: 'Runtime dependencies are warm and project dependencies use the shared cache.'
-    };
-  }
-
-  if (status.mode === 'dirty' || status.mode === 'stale') {
-    return {
-      id: 'runtime-dependencies',
-      status: 'warn',
-      message: `Runtime dependencies are ${status.mode}; run ${status.recommendedAction}.`
-    };
-  }
-
-  return {
-    id: 'runtime-dependencies',
-    status: 'warn',
-    message: `Runtime dependencies are ${status.mode}; run ${status.recommendedAction}.`
-  };
+  return status.mode === 'warm-project'
+    ? {
+        id: 'runtime-dependencies',
+        status: 'ok',
+        message: 'Runtime dependencies are warm and project dependencies use the shared cache.'
+      }
+    : {
+        id: 'runtime-dependencies',
+        status: 'warn',
+        message: `Runtime dependencies are ${status.mode}; run ${status.recommendedAction}.`
+      };
 }
 
 async function executableCheck(id: string, executableName: string, optional: boolean): Promise<DoctorCheck> {
@@ -271,8 +264,8 @@ export async function getDependencyEnvironmentStatus(
 ): Promise<DependencyEnvironmentStatus> {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   const sharedRoot = options.sharedDepsRoot ?? defaultSharedDepsRoot();
-  const runtimeSpec = await loadRuntimeDependencySpec();
-  const [rootNodeModules, sharedNodeModules, projectNodeModules, bunCache, sharedStamp, projectStamp] = await Promise.all([
+  const [runtimeSpec, rootNodeModules, sharedNodeModules, projectNodeModules, bunCache, sharedStamp, projectStamp] = await Promise.all([
+    loadRuntimeDependencySpec(),
     readEntryStatus(path.join(compilerRoot, 'node_modules')),
     readEntryStatus(path.join(sharedRoot, 'node_modules')),
     readEntryStatus(path.join(projectRoot, 'node_modules')),
@@ -308,24 +301,39 @@ export async function getDoctorReport(
   options: DependencyEnvironmentOptions = {}
 ): Promise<DoctorReport> {
   const paths = getWorkspacePaths(workspaceRoot);
-  const dependencies = await getDependencyEnvironmentStatus(workspaceRoot, options);
-  const workspacePlanPath = await resolveWorkspacePlanPath(workspaceRoot);
-  const workspacePlanExists = await pathExists(workspacePlanPath);
+  const workspacePlanExists = resolveWorkspacePlanPath(workspaceRoot).then((workspacePlanPath) =>
+    pathExists(workspacePlanPath)
+  );
+  const [
+    dependencies,
+    planExists,
+    nodeRuntimeCheck,
+    bunCheck,
+    rootsCheck,
+    projectPackageExists
+  ] = await Promise.all([
+    getDependencyEnvironmentStatus(workspaceRoot, options),
+    workspacePlanExists,
+    externalNodeRuntimeDoctorCheck(options.nodeRuntime),
+    executableCheck('bun', 'bun', true),
+    workspaceRootsDoctorCheck(paths),
+    pathExists(paths.projectPackagePath)
+  ]);
   const checks: DoctorCheck[] = [
-    await externalNodeRuntimeDoctorCheck(options.nodeRuntime),
-    await executableCheck('bun', 'bun', true),
-    await workspaceRootsDoctorCheck(paths),
+    nodeRuntimeCheck,
+    bunCheck,
+    rootsCheck,
     {
       id: 'workspace-plan',
-      status: workspacePlanExists ? 'ok' : 'warn',
-      message: workspacePlanExists
+      status: planExists ? 'ok' : 'warn',
+      message: planExists
         ? 'Workspace plan exists.'
         : 'Workspace plan is missing; run platform init before product development.'
     },
     {
       id: 'project-package',
-      status: (await pathExists(paths.projectPackagePath)) ? 'ok' : 'warn',
-      message: (await pathExists(paths.projectPackagePath))
+      status: projectPackageExists ? 'ok' : 'warn',
+      message: projectPackageExists
         ? 'Project package manifest exists.'
         : 'Project package manifest is missing; run platform compose or platform verify when runtime checks are needed.'
     },

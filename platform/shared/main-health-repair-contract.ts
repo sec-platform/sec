@@ -1,6 +1,6 @@
 import { deepFreeze, sha256 } from './canonical-primitives.ts';
 import {
-  resolveMainHealthLaneV1,
+  resolveRepairMainHealthLaneV1,
   type MainHealthDigest,
   type MainHealthLedgerV1
 } from './main-health-contract.ts';
@@ -72,9 +72,8 @@ export function compileMainHealthRepairDecisionV1(input: Readonly<{
   expectedTrustRevision: string;
 }>): MainHealthRepairDecisionV1 {
   const observationDigest = sha256(input.ledger) as MainHealthDigest;
-  const lane = resolveMainHealthLaneV1({
+  const lane = resolveRepairMainHealthLaneV1({
     ledger: input.ledger,
-    lane: 'repair',
     now: input.now,
     expectedRepository: input.expectedRepository,
     expectedDefaultBranch: input.expectedDefaultBranch,

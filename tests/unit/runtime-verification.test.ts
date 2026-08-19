@@ -163,14 +163,17 @@ async function runThroughShell(
   });
 }
 
-async function captureFailure(execute: () => Promise<unknown>): Promise<NodeJS.ErrnoException> {
+async function captureFailure(
+  execute: () => Promise<unknown>,
+  boundary = 'production operation'
+): Promise<NodeJS.ErrnoException> {
   try {
     await execute();
   } catch (error) {
     expect(error).toBeInstanceOf(Error);
     return error as NodeJS.ErrnoException;
   }
-  throw new Error('Expected the real production operation to fail');
+  throw new Error(`Expected the real ${boundary} to fail`);
 }
 
 function failureContract(error: NodeJS.ErrnoException) {
@@ -1190,19 +1193,27 @@ test('isolated runtime pre-command telemetry preserves each real failure boundar
             const runtimeTestsRoot = path.join(projectRoot, 'tests', 'runtime');
             const unitRoot = path.join(runtimeTestsRoot, 'unit');
             const acceptanceRoot = path.join(runtimeTestsRoot, 'acceptance');
-            await mkdir(unitRoot, { recursive: true });
+            const outsideAcceptanceRoot = path.join(root, 'outside-acceptance');
+            await Promise.all([
+              mkdir(unitRoot, { recursive: true }),
+              mkdir(outsideAcceptanceRoot, { recursive: true })
+            ]);
             await writeFile(path.join(unitRoot, 'ordered.test.ts'), 'export {};\n', 'utf8');
-            await writeFile(acceptanceRoot, 'occupied', 'utf8');
+            await symlink(
+              outsideAcceptanceRoot,
+              acceptanceRoot,
+              process.platform === 'win32' ? 'junction' : 'dir'
+            );
             return captureFailure(async () => {
               await listFilesRecursive(unitRoot);
               await listFilesRecursive(acceptanceRoot);
-            });
+            }, phase);
           }
           case 'runtime-dependency-validation':
             return captureFailure(() => ensureProjectDependencies(projectRoot, {
               installMode: 'prebound-only',
               skipSharedDepsWarmup: true
-            }));
+            }), phase);
           case 'runtime-process-environment-materialize': {
             await writeCompleteRuntimeDependencyClosure(projectRoot);
             const isolatedRuntimeRoot = path.join(stagingRoot, '.isolated-process', 'runtime');
@@ -1211,14 +1222,14 @@ test('isolated runtime pre-command telemetry preserves each real failure boundar
             return captureFailure(async () => {
               await ensureIsolatedProcessDirectories(isolatedRuntimeRoot);
               await writeText(isolatedConfigPath, '# isolated runtime\n');
-            });
+            }, phase);
           }
           case 'runtime-staging-tree-validation': {
             await writeCompleteRuntimeDependencyClosure(projectRoot);
             const firstPath = path.join(stagingRoot, '00-hardlink-a');
             await writeFile(firstPath, 'shared bytes', 'utf8');
             await link(firstPath, path.join(stagingRoot, '00-hardlink-b'));
-            return captureFailure(() => assertIsolatedStagingTree(stagingRoot));
+            return captureFailure(() => assertIsolatedStagingTree(stagingRoot), phase);
           }
         }
       })();
@@ -1232,7 +1243,7 @@ test('isolated runtime pre-command telemetry preserves each real failure boundar
           isolated: true,
           stagingWorkspaceRoot: stagingRoot
         }
-      ));
+      ), phase);
       expect(failureContract(producerFailure)).toEqual(failureContract(directFailure));
 
       const telemetry = await readSemanticMutationIsolatedPhaseTelemetry(stagingRoot);

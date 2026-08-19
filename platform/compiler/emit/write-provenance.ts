@@ -9,13 +9,16 @@ import {
 } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { readOptionalJson, writeJson, type CommitFence } from '../../shared/fs.ts';
+import { formatJsonFile, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import { calculateCanonicalProjectFileHash } from '../../shared/project-file-hash.ts';
+import { validateProvenanceFileV1 } from '../../shared/provenance-authority.ts';
 import type { ProvenanceArtifact, ProvenanceFile } from '../../shared/provenance-types.ts';
+import { readOptionalCanonicalVerificationArtifactSetV1 } from '../../shared/verification-artifact-authority.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
+import { publishCanonicalWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 
@@ -99,13 +102,12 @@ function inferGeneratedByPass(targetPath: string): string {
 }
 
 function passedVerificationPaths(report: VerificationReport | null): string[] {
-  if (!report || report.summary.status !== 'passed') {
-    return [];
-  }
-
+  if (!report || report.summary.status !== 'passed') return [];
+  const canonicalTestPath = (file: string, lane: 'unit' | 'acceptance'): string =>
+    file.startsWith('tests/') ? file : `tests/${lane}/${file}`;
   return uniqueSorted([
-    ...report.unit.passed.map((file) => `tests/unit/${file}`),
-    ...report.acceptance.passed.map((file) => `tests/acceptance/${file}`),
+    ...report.unit.passed.map((file) => canonicalTestPath(file, 'unit')),
+    ...report.acceptance.passed.map((file) => canonicalTestPath(file, 'acceptance')),
     ...report.runtime.unit.passed,
     ...report.runtime.acceptance.passed
   ]);
@@ -114,30 +116,33 @@ function passedVerificationPaths(report: VerificationReport | null): string[] {
 function buildBlockVerificationMap(lock: LockFile, report: VerificationReport | null): Map<string, string[]> {
   const installedTestBlocks = new Map<string, string>();
   for (const step of lock.installPlan) {
-    if (step.to.startsWith('tests/')) {
-      installedTestBlocks.set(step.to, step.blockId);
-    }
+    if (step.to.startsWith('tests/')) installedTestBlocks.set(step.to, step.blockId);
   }
 
-  const byBlock = new Map<string, string[]>();
+  const pendingByBlock = new Map<string, Set<string>>();
   for (const testPath of passedVerificationPaths(report)) {
     const blockId = installedTestBlocks.get(testPath);
-    if (!blockId) {
-      continue;
-    }
-    byBlock.set(blockId, uniqueSorted([...(byBlock.get(blockId) ?? []), testPath]));
+    if (!blockId) continue;
+    const paths = pendingByBlock.get(blockId) ?? new Set<string>();
+    paths.add(testPath);
+    pendingByBlock.set(blockId, paths);
   }
-  return byBlock;
+  return new Map([...pendingByBlock].map(([blockId, testPaths]) => [
+    blockId,
+    uniqueSorted([...testPaths])
+  ]));
 }
 
-async function readVerificationReport(workspaceRoot: string): Promise<VerificationReport | null> {
-  const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
-  return readOptionalJson<VerificationReport>(verificationReportPath);
+function readVerificationReport(workspaceRoot: string): VerificationReport | null {
+  return readOptionalCanonicalVerificationArtifactSetV1(
+    workspaceRoot,
+    'Provenance Verification artifact set'
+  )?.verificationReport ?? null;
 }
 
 export async function buildProvenance(workspaceRoot: string, lock: LockFile): Promise<ProvenanceFile> {
   const artifacts = new Map<string, ProvenanceArtifact>();
-  const blockVerificationMap = buildBlockVerificationMap(lock, await readVerificationReport(workspaceRoot));
+  const blockVerificationMap = buildBlockVerificationMap(lock, readVerificationReport(workspaceRoot));
 
   for (const step of lock.installPlan) {
     artifacts.set(step.to, {
@@ -174,9 +179,7 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
   }
 
   for (const task of lock.slotTasks) {
-    if (task.sourcePath) {
-      artifacts.set(task.sourcePath, buildSlotArtifact(task, task.sourcePath));
-    }
+    if (task.sourcePath) artifacts.set(task.sourcePath, buildSlotArtifact(task, task.sourcePath));
     artifacts.set(task.target, buildSlotArtifact(task, task.target));
   }
 
@@ -207,22 +210,18 @@ export async function buildProvenance(workspaceRoot: string, lock: LockFile): Pr
 
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
   for (const [artifactPath, artifact] of artifacts.entries()) {
-    if (provenanceProjectionArtifacts.has(artifactPath)) {
-      continue;
-    }
+    if (provenanceProjectionArtifacts.has(artifactPath)) continue;
     const absolutePath = artifactPath.startsWith('source/') || artifactPath.startsWith('control/')
       ? path.join(workspaceRoot, artifactPath)
       : path.join(projectRoot, artifactPath);
-    const hash = await calculateCanonicalProjectFileHash(absolutePath);
-    if (hash) {
-      artifact.hash = hash;
-    }
+    const hash = calculateCanonicalProjectFileHash(absolutePath);
+    if (hash) artifact.hash = hash;
   }
 
-  return {
+  return validateProvenanceFileV1({
     formatVersion: '1',
     artifacts: [...artifacts.values()].sort((left, right) => compareCodeUnits(left.path, right.path))
-  };
+  });
 }
 
 export async function writeProvenance(
@@ -237,7 +236,13 @@ export async function writeProvenance(
     [CI_ARTIFACT_FILES.provenance],
     async () => {
       const provenance = await buildProvenance(workspaceRoot, lock);
-      await writeJson(provenancePath, provenance, commitFence);
+      await publishCanonicalWorkspaceFileV1({
+        workspaceRoot,
+        targetPath: provenancePath,
+        bytes: Buffer.from(formatJsonFile(provenance), 'utf8'),
+        label: 'Provenance projection',
+        commitFence
+      });
       return provenance;
     },
     commitFence

@@ -2,20 +2,21 @@ import { expect, test } from 'bun:test';
 
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
+import { buildReviewPolicySummary } from '../../platform/shared/review-policy.ts';
 import type { PolicyReport } from '../../platform/shared/types.ts';
 import {
   buildPassingReviewReport,
   buildReviewSummaryInTempWorkspace
 } from '../helpers/review-fixtures.ts';
 
-test('review summary surfaces policy governance summary', async () => {
+test('review summary surfaces semantically assured policy governance failure', async () => {
   const violation: PolicyReport['violations'][number] = {
     id: 'tenant-scope-required',
     severity: 'error',
     appliesTo: ['entity/customer-basic'],
     rule: 'tenant_context_must_flow_to_query',
     files: ['src/installed/entity/customer-service.ts'],
-    message: 'Entity customer queries must derive tenant context.',
+    message: 'Entity customer queries violate the canonical tenant data-flow policy.',
     sourceScope: 'official',
     sourcePath: 'platform/policies/official/policy.spec.yaml'
   };
@@ -40,14 +41,14 @@ test('review summary surfaces policy governance summary', async () => {
           policyIds: ['tenant-scope-required']
         }
       ],
-      violations: []
+      violations: [violation]
     },
     project: {
       policies: ['project-only'],
       sources: [
         {
           path: 'project/policies/custom.spec.yaml',
-          policyIds: ['project-only', 'tenant-scope-required']
+          policyIds: ['project-only']
         }
       ],
       violations: []
@@ -68,7 +69,15 @@ test('review summary surfaces policy governance summary', async () => {
         }
       ]
     },
-    violations: [violation]
+    violations: [violation],
+    diagnostics: [],
+    evaluation: {
+      providerId: 'semantic-policy-test-provider',
+      providerRevision: 'semantic-policy-test-provider-v1',
+      assurance: 'semantic',
+      requiredSemanticPredicates: ['FLOWS_TO'],
+      unsupportedSemanticPredicates: []
+    }
   };
 
   const summary = await buildReviewSummaryInTempWorkspace(
@@ -88,6 +97,9 @@ test('review summary surfaces policy governance summary', async () => {
 
   expect(summary.policySummary).toMatchObject({
     status: 'failed',
+    sourceReportStatus: 'failed',
+    assurance: 'semantic',
+    diagnosticCount: 0,
     officialPolicyCount: 1,
     projectPolicyCount: 1,
     mergedPolicyCount: 2,
@@ -100,4 +112,57 @@ test('review summary surfaces policy governance summary', async () => {
   expect(summary.policySummary?.sourceSummaries).toHaveLength(2);
   expect(summary.policySummary?.mergedSummaries).toHaveLength(2);
   expect(summary.policySummary?.violationSummaries).toHaveLength(1);
+});
+
+test('review projects source-structure policy evidence as attention rather than passed', () => {
+  const report: PolicyReport = {
+    status: 'passed',
+    official: {
+      policies: ['tenant-scope-required'],
+      sources: [{
+        path: 'platform/policies/official/policy.spec.yaml',
+        policyIds: ['tenant-scope-required']
+      }],
+      violations: []
+    },
+    project: { policies: [], sources: [], violations: [] },
+    merged: {
+      policies: [{
+        id: 'tenant-scope-required',
+        sourceScope: 'official',
+        sourcePath: 'platform/policies/official/policy.spec.yaml',
+        targets: ['src/installed/entity/customer-service.ts']
+      }]
+    },
+    violations: [],
+    diagnostics: [{
+      id: 'tenant-scope-required',
+      severity: 'error',
+      appliesTo: ['entity/customer-basic'],
+      rule: 'tenant_context_must_flow_to_query',
+      files: ['src/installed/entity/customer-service.ts'],
+      message: 'Source structure is advisory only.',
+      sourceScope: 'official',
+      sourcePath: 'platform/policies/official/policy.spec.yaml',
+      evidenceClass: 'source-structure'
+    }],
+    evaluation: {
+      providerId: 'sec-policy-source-structure',
+      providerRevision: 'tenant-context-structure-v1',
+      assurance: 'source-structure',
+      requiredSemanticPredicates: ['FLOWS_TO'],
+      unsupportedSemanticPredicates: ['FLOWS_TO']
+    }
+  };
+
+  expect(buildReviewPolicySummary(report)).toMatchObject({
+    status: 'attention',
+    sourceReportStatus: 'passed',
+    assurance: 'source-structure',
+    evaluatorProviderId: 'sec-policy-source-structure',
+    evaluatorProviderRevision: 'tenant-context-structure-v1',
+    unsupportedSemanticPredicates: ['FLOWS_TO'],
+    diagnosticCount: 1,
+    violationCount: 0
+  });
 });

@@ -20,7 +20,7 @@ import { uniqueSorted } from './collections.ts';
 import {
   slowTestSuiteFiles
 } from './test-budget-contract.ts';
-import type { CodexDevelopmentTestImpactSourceProviderV1 } from './test-impact-contract.ts';
+import type { CodexDevelopmentTestImpactSourceProviderV2 } from './test-impact-contract.ts';
 
 function requiredBlobs(
   currentHead: string,
@@ -44,7 +44,7 @@ export function CodexDevelopmentBuildVerificationScopeInventoryV1(options: {
   baseHead: string;
   changedRecords: readonly CodexDevelopmentGitChangedRecordV1[];
   gitBlob: (ref: string, file: string) => CodexDevelopmentExactGitBlobV1 | null;
-  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProviderV1;
+  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProviderV2;
 }): CodexDevelopmentVerificationScopeInventoryV1 {
   if (options.profile !== 'quick') {
     throw new Error('Evidence composition policy revision V1 supports Quick only.');

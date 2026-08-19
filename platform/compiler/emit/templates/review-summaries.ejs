@@ -46,7 +46,12 @@
 <section class="card">
   <h2>Policy Summary</h2>
   <%- metricTable([
-    ['Status', ps.status],
+    ['Review Status', ps.status],
+    ['Source Report Status', ps.sourceReportStatus],
+    ['Assurance', ps.assurance],
+    ['Evaluator', ps.evaluatorProviderId ? `${ps.evaluatorProviderId}@${ps.evaluatorProviderRevision ?? 'unknown'}` : 'unknown'],
+    ['Unsupported Semantic Predicates', ps.unsupportedSemanticPredicates.join(', ') || 'none'],
+    ['Diagnostics', String(ps.diagnosticCount)],
     ['Official Policies', String(ps.officialPolicyCount)],
     ['Project Policies', String(ps.projectPolicyCount)],
     ['Merged Policies', String(ps.mergedPolicyCount)],

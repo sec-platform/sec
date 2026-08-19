@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
 
 import {
   composeWorkspace,
@@ -9,6 +10,7 @@ import {
   mintIsolatedVerificationCapability
 } from '../../platform/orchestrator/isolated-verification-capability.ts';
 import { readLockFile } from '../../platform/shared/lock-utils.ts';
+import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import {
   commitPipelineTransaction,
   readPipelineJournal,
@@ -19,6 +21,10 @@ import {
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 const staleRevision = `sha256:${'0'.repeat(64)}`;
+
+async function preparePipelineJournalParent(workspaceRoot: string): Promise<void> {
+  await fs.mkdir(getWorkspacePaths(workspaceRoot).localStateRoot, { recursive: true });
+}
 
 test('isolated Verification capability is opaque and bound to one exact workspace root', () => {
   const workspaceRoot = 'D:\\contract-workspaces\\isolated-a';
@@ -71,6 +77,7 @@ test('blocked stage is persisted as blocked instead of a pass execution failure'
 
 test('new transaction marks an abandoned running transaction as interrupted', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
+    await preparePipelineJournalParent(workspaceRoot);
     const commitFence = async (): Promise<void> => undefined;
     const firstTransactionId = await startPipelineTransaction(workspaceRoot, 'api', ['resolve'], commitFence);
     await recordPipelinePassStart(workspaceRoot, firstTransactionId, 'resolve', commitFence);
@@ -99,6 +106,7 @@ test('new transaction marks an abandoned running transaction as interrupted', as
 
 test('reference transaction identity is stable and names the current journal execution', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
+    await preparePipelineJournalParent(workspaceRoot);
     const commitFence = async (): Promise<void> => undefined;
     const firstTransactionId = await startPipelineTransaction(workspaceRoot, 'reference', ['resolve'], commitFence);
     await commitPipelineTransaction(workspaceRoot, firstTransactionId, commitFence);

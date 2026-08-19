@@ -1,8 +1,6 @@
 import { CompilerError } from './errors.ts';
-import { pathExists, readJson } from './fs.ts';
 import type { LockFile, PassState } from './lock-types.ts';
-import { saveLock } from './lock-utils.ts';
-import { resolveWorkspaceLockPath } from './paths.ts';
+import { readLockFile, saveLock } from './lock-utils.ts';
 import {
   commitPipelineTransaction,
   failPipelineTransaction,
@@ -12,7 +10,10 @@ import {
   recordPipelinePassSuccess,
   startPipelineTransaction
 } from './pipeline-journal.ts';
-import { getPipelineStageDefinition } from './pipeline-pass-registry.ts';
+import {
+  getPipelineStageDefinition,
+  pipelinePassFromLegacyErrorCode
+} from './pipeline-pass-registry.ts';
 import type {
   PassId,
   PipelineEventHandler,
@@ -21,7 +22,7 @@ import type {
   PipelineStageId
 } from './pipeline-types.ts';
 import {
-  assertWorkspaceWriteLease,
+  createWorkspaceWriteCommitFence,
   withWorkspaceWriteLease,
   type WorkspaceWriteLeaseToken
 } from './workspace-write-lease.ts';
@@ -41,10 +42,13 @@ function normalizeFailure(error: unknown): { code: string; message: string } {
   return { code: 'UNEXPECTED', message: String(error) };
 }
 
-async function readExistingLock(workspaceRoot: string): Promise<LockFile | null> {
-  const lockPath = await resolveWorkspaceLockPath(workspaceRoot);
-  if (!(await pathExists(lockPath))) return null;
-  return readJson<LockFile>(lockPath);
+function readExistingLock(workspaceRoot: string): LockFile | null {
+  try {
+    return readLockFile(workspaceRoot);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
 }
 
 function invalidatedState(passId: PassId): PassState {
@@ -69,41 +73,17 @@ function assertStageRequirements(lock: LockFile | null, stageId: PipelineStageId
 }
 
 function beginStageState(lock: LockFile, ownedPasses: readonly PassId[], invalidates: readonly PassId[]): void {
-  for (const passId of invalidates) {
-    lock.passStatus[passId] = invalidatedState(passId);
-  }
-  for (const passId of ownedPasses) {
-    lock.passStatus[passId] = 'running';
-  }
+  for (const passId of invalidates) lock.passStatus[passId] = invalidatedState(passId);
+  for (const passId of ownedPasses) lock.passStatus[passId] = 'running';
 }
 
 function blockStageState(lock: LockFile, ownedPasses: readonly PassId[], invalidates: readonly PassId[]): void {
-  for (const passId of ownedPasses) {
-    lock.passStatus[passId] = 'blocked';
-  }
-  for (const passId of invalidates) {
-    lock.passStatus[passId] = 'blocked';
-  }
+  for (const passId of ownedPasses) lock.passStatus[passId] = 'blocked';
+  for (const passId of invalidates) lock.passStatus[passId] = 'blocked';
 }
 
 function completeStageState(lock: LockFile, ownedPasses: readonly PassId[]): void {
-  for (const passId of ownedPasses) {
-    lock.passStatus[passId] = 'succeeded';
-  }
-}
-
-function passFromErrorCode(code: string, fallback: PassId): PassId {
-  if (code.startsWith('PARSE-') || code.startsWith('MANIFEST-') || code.startsWith('PLAN-')) return 'parse';
-  if (code.startsWith('ALIGN-')) return 'align';
-  if (code.startsWith('RESOLVE-')) return 'resolve';
-  if (code.startsWith('IR-') || code.startsWith('CONTRACT-SEMANTIC-')) return 'build-ir';
-  if (code.startsWith('COMPOSE-')) return 'compose';
-  if (code.startsWith('SLOT-') || code.startsWith('ADAPT-')) return 'adapt';
-  if (code.startsWith('VERIFY-') || code.startsWith('ERROR-DRIFT-')) return 'verify';
-  if (code.startsWith('REPAIR-')) return 'repair';
-  if (code.startsWith('LOCK-')) return 'lock';
-  if (code.startsWith('EXPLAIN-') || code.startsWith('EMIT-')) return 'emit';
-  return fallback;
+  for (const passId of ownedPasses) lock.passStatus[passId] = 'succeeded';
 }
 
 function failStageState(
@@ -113,7 +93,7 @@ function failStageState(
   invalidates: readonly PassId[],
   errorCode: string
 ): void {
-  const inferredPass = passFromErrorCode(errorCode, primaryPass);
+  const inferredPass = pipelinePassFromLegacyErrorCode(errorCode, primaryPass);
   const failurePass = ownedPasses.includes(inferredPass) ? inferredPass : primaryPass;
   const failureIndex = ownedPasses.indexOf(failurePass);
 
@@ -121,9 +101,7 @@ function failStageState(
     const passId = ownedPasses[index]!;
     lock.passStatus[passId] = index < failureIndex ? 'succeeded' : index === failureIndex ? 'failed' : 'blocked';
   }
-  for (const passId of invalidates) {
-    lock.passStatus[passId] = 'blocked';
-  }
+  for (const passId of invalidates) lock.passStatus[passId] = 'blocked';
 }
 
 async function executeStageWithContext<T>(
@@ -135,7 +113,7 @@ async function executeStageWithContext<T>(
   options: StageExecutionOptions<T>
 ): Promise<T> {
   const definition = getPipelineStageDefinition(stageId);
-  const previousLock = await readExistingLock(workspaceRoot);
+  const previousLock = readExistingLock(workspaceRoot);
 
   try {
     assertStageRequirements(previousLock, stageId, definition.requires);
@@ -177,7 +155,7 @@ async function executeStageWithContext<T>(
     const result = await execute(context);
     const lock = options.extractLock
       ? await options.extractLock(result)
-      : await readExistingLock(workspaceRoot);
+      : readExistingLock(workspaceRoot);
     if (lock && !options.preserveOwnedPassStates) {
       completeStageState(lock, definition.ownedPasses);
       await commitFence();
@@ -194,7 +172,7 @@ async function executeStageWithContext<T>(
     return result;
   } catch (error) {
     const failure = normalizeFailure(error);
-    const lock = await readExistingLock(workspaceRoot);
+    const lock = readExistingLock(workspaceRoot);
     if (lock) {
       failStageState(
         lock,
@@ -229,7 +207,7 @@ export async function withPipelineTransaction<T>(
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<T> {
   return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (lease) => {
-    const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, lease);
+    const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, lease);
     await commitFence();
     const transactionId = await startPipelineTransaction(
       workspaceRoot,
@@ -274,7 +252,7 @@ export async function executePipelineStage<T>(
   options: StageExecutionOptions<T> = {}
 ): Promise<T> {
   if (context) {
-    const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, context.workspaceWriteLease);
+    const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, context.workspaceWriteLease);
     await commitFence();
     return executeStageWithContext(workspaceRoot, stageId, context, execute, commitFence, options);
   }
@@ -284,7 +262,7 @@ export async function executePipelineStage<T>(
       stageId,
       transaction,
       execute,
-      () => assertWorkspaceWriteLease(workspaceRoot, transaction.workspaceWriteLease),
+      createWorkspaceWriteCommitFence(workspaceRoot, transaction.workspaceWriteLease),
       options
     )
   );

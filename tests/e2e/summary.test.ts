@@ -215,7 +215,7 @@ test('buildReviewSummary adds failed verification targets as structured failure 
     message: 'Block entity/customer-basic has no runtime acceptance coverage'
   });
 }, 180000);
-test('buildReviewSummary groups ticket runtime entries into explicit vertical attribution', async () => {
+test('buildReviewSummary attributes runtime entries only from explicit ownership and capability edges', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-review-ticket-attribution-');
   const { lock, provenance, coverage, report } = buildReviewInputs({
     lock: {
@@ -316,8 +316,7 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       {
         path: 'app/api/tickets/summary/export/route.ts',
         kind: 'api',
-        vertical: 'ticket',
-        relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+        relatedBlocks: []
       }
     ])
   );
@@ -325,11 +324,10 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
     {
       id: 'ticket',
       runtimeEntries: [
-        'app/api/tickets/summary/export/route.ts',
         'app/api/tickets/summary/route.ts',
         'app/tickets/page.tsx'
       ],
-      relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+      relatedBlocks: ['reporting/ticket-summary', 'ticket/basic']
     }
   ]);
   expect(summary.installImpacts).toEqual([
@@ -338,7 +336,7 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       actionKinds: ['copy'],
       sourceRoots: ['export.csv-basic'],
       targetPaths: ['app/api/tickets/export/route.ts'],
-      verticals: ['ticket'],
+      verticals: [],
       runtimeEntries: ['app/api/tickets/export/route.ts']
     },
     {
@@ -349,7 +347,7 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
         'app/api/tickets/summary/route.ts',
         'src/installed/reporting/ticket-summary.ts'
       ],
-      verticals: ['ticket'],
+      verticals: [],
       runtimeEntries: ['app/api/tickets/summary/route.ts']
     },
     {
@@ -357,7 +355,7 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       actionKinds: ['copy'],
       sourceRoots: ['ticket.basic'],
       targetPaths: ['app/tickets/page.tsx'],
-      verticals: ['ticket'],
+      verticals: [],
       runtimeEntries: ['app/tickets/page.tsx']
     }
   ]);
@@ -367,7 +365,7 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
     actionKindCount: 1,
     sourceRootCount: 3,
     targetPathCount: 4,
-    verticalCount: 1,
+    verticalCount: 0,
     runtimeEntryCount: 3,
     groupCount: 1,
     blocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic'],
@@ -379,7 +377,7 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
       'app/tickets/page.tsx',
       'src/installed/reporting/ticket-summary.ts'
     ],
-    verticals: ['ticket'],
+    verticals: [],
     runtimeEntries: [
       'app/api/tickets/export/route.ts',
       'app/api/tickets/summary/route.ts',
@@ -387,7 +385,7 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
     ],
     groupSummaries: [
       {
-        vertical: 'ticket',
+        vertical: 'none',
         blockCount: 3,
         actionKindCount: 1,
         runtimeEntryCount: 3,
@@ -413,8 +411,7 @@ test('buildReviewSummary groups ticket runtime entries into explicit vertical at
     originType: 'generated',
     originId: 'app/api/tickets/summary/export/route.ts',
     runtimeKind: 'api',
-    vertical: 'ticket',
-    relatedBlocks: ['export/csv-basic', 'reporting/ticket-summary', 'ticket/basic']
+    relatedBlocks: []
   });
 }, 180000);
 

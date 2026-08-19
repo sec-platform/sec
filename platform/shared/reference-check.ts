@@ -6,7 +6,8 @@ import { runCommand } from './process.ts';
 import {
   REFERENCE_TRACKED_DIFF_ARGS,
   REFERENCE_UNTRACKED_SCAN_ARGS,
-  scanReferenceDrift
+  scanReferenceDrift,
+  type ReferenceGitCommandRunner
 } from './reference-drift-scan.ts';
 
 export type ReferenceCheckStatus = 'clean' | 'drifted' | 'refresh-failed' | 'diff-failed';
@@ -40,6 +41,7 @@ function commandText(args: readonly string[]): string {
 export async function buildReferenceCheckReport(options: {
   root?: string;
   commandRunner?: ReferenceCommandRunner;
+  gitCommandRunner?: ReferenceGitCommandRunner;
 } = {}): Promise<ReferenceCheckReport> {
   const root = options.root ?? compilerRoot;
   const commandRunner = options.commandRunner ?? runCommand;
@@ -48,7 +50,7 @@ export async function buildReferenceCheckReport(options: {
     cwd: root
   });
   const drift = refreshResult.code === 0
-    ? await scanReferenceDrift(root, commandRunner)
+    ? await scanReferenceDrift(root, options.gitCommandRunner)
     : {
         exitCode: -1,
         trackedExitCode: -1,

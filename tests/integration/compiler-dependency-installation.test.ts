@@ -81,6 +81,15 @@ describe('compiler dependency installation', () => {
       expect(first.map(({ source }) => source).sort()).toEqual(['existing', 'installed']);
       expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('existing');
 
+      const packagePath = path.join(tempRoot, 'package.json');
+      const packageManifest = JSON.parse(await fs.readFile(packagePath, 'utf8')) as Record<string, unknown>;
+      await fs.writeFile(packagePath, `${JSON.stringify({
+        ...packageManifest,
+        scripts: { diagnostics: 'bun ./scripts/diagnostics.ts' }
+      })}\n`, 'utf8');
+      expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('existing');
+      expect(installCalls).toBe(1);
+
       await fs.writeFile(path.join(tempRoot, 'bun.lock'), 'lock-v2\n', 'utf8');
       expect((await ensureCompilerDepsReady(options, tempRoot)).source).toBe('installed');
       expect(installCalls).toBe(2);
@@ -98,17 +107,21 @@ describe('compiler dependency installation', () => {
       for (const stagingRoot of stagingRoots) {
         await expect(fs.stat(stagingRoot)).rejects.toMatchObject({ code: 'ENOENT' });
       }
-      expect(await readJson(path.join(
+      const binding = await readJson<Record<string, unknown>>(path.join(
         tempRoot,
         'node_modules',
-        '.sec-compiler-deps-binding-v3.json'
-      ))).toMatchObject({
+        '.sec-compiler-deps-binding-v4.json'
+      ));
+      expect(binding).toMatchObject({
         bunExecutablePath: expect.any(String),
         bunExecutableSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
         bunVersion: process.versions.bun,
         declaredBunVersion: process.versions.bun,
-        formatVersion: 'compiler-deps-binding-v3'
+        dependencyManifestSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        formatVersion: 'compiler-deps-binding-v4'
       });
+      expect(binding).not.toHaveProperty('packageManifestSha256');
+      expect(binding).not.toHaveProperty('packageSourceSha256');
     }, 'engineering-compiler-dev-deps-');
   });
 
@@ -147,7 +160,7 @@ describe('compiler dependency installation', () => {
       const baseOptions = { commandRunner };
       await ensureCompilerDepsReady(baseOptions, tempRoot);
       const entryPath = path.join(tempRoot, 'node_modules', 'typescript', 'lib', 'typescript.js');
-      const bindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding-v3.json');
+      const bindingPath = path.join(tempRoot, 'node_modules', '.sec-compiler-deps-binding-v4.json');
       const originalEntry = await fs.readFile(entryPath);
       const originalBinding = await fs.readFile(bindingPath);
 

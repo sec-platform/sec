@@ -1,11 +1,14 @@
-import { FAST_TEST_PROCESS_POLICY_SENTINEL } from '../../dev-runner/fast-test-policy.ts';
+import {
+  DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE,
+  FAST_TEST_PROCESS_POLICY_TEST_FILE
+} from '../test-budget-contract.ts';
 import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
 
 const DEV_RUNNER_FAST_TESTS = [
   'tests/contract/dev-runner-contract.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/ci-pr-risk-selection.test.ts',
-  FAST_TEST_PROCESS_POLICY_SENTINEL
+  FAST_TEST_PROCESS_POLICY_TEST_FILE
 ];
 
 const DEV_RUNNER_WORKSPACE_FAST_TESTS = [
@@ -25,7 +28,6 @@ const IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS = ['tests/unit/import-transform-tr
 const MAIN_HEALTH_FAST_TESTS = [
   'tests/contract/ci-contract.test.ts',
   'tests/contract/default-branch-revision-health.test.ts',
-  'tests/contract/document-control-plane-lifecycle.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
@@ -69,9 +71,38 @@ const DEV_RUNNER_ENTRYPOINT_FAST_TESTS = [
   'tests/unit/heavy-verification-gate-lease.test.ts'
 ];
 
+const VERIFICATION_ACTION_EXECUTOR_FAST_TESTS = [
+  'tests/contract/tcb-closure-lock.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/verification-action-ci-contract.test.ts'
+];
+
 const VERIFICATION_ACTION_TEST_FIXTURE_FAST_TESTS = [
   'tests/contract/test-impact.test.ts',
   'tests/unit/verification-action-github-provider.test.ts'
+];
+
+const VERIFICATION_ACTION_RUNTIME_FAST_TESTS = [
+  'tests/contract/tcb-closure-lock.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/contract/verification-action-tooling-boundary.test.ts',
+  'tests/unit/verification-action-journal.test.ts',
+  'tests/unit/verification-action-runner.test.ts',
+  'tests/unit/verification-session-runtime.test.ts'
+];
+
+const TRUSTED_RUNTIME_CLOSEOUT_FAST_TESTS = [
+  'tests/contract/sec-merge-gate.test.ts',
+  'tests/contract/tcb-closure-lock.test.ts',
+  'tests/contract/test-impact.test.ts',
+  'tests/unit/integration-authorization-status-github.test.ts',
+  'tests/unit/integration-platform-policy.test.ts',
+  'tests/unit/local-github-actions-runner.test.ts',
+  'tests/unit/main-health-provider-neutral.test.ts',
+  'tests/unit/tcb-trust-root-contract.test.ts',
+  'tests/unit/trusted-runtime-container.test.ts',
+  'tests/unit/trusted-runtime-merge-gate-adapter.test.ts',
+  'tests/unit/verification-session-runtime.test.ts'
 ];
 
 export const TRUSTED_VERIFIER_TCB_FAST_TESTS = [
@@ -91,7 +122,6 @@ const GIT_CHANGED_FILE_OBSERVATION_FAST_TESTS = [...TRUSTED_VERIFIER_TCB_FAST_TE
 
 const VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS = [
   'tests/contract/ci-contract.test.ts',
-  'tests/contract/document-control-plane-lifecycle.test.ts',
   'tests/contract/sec-merge-gate.test.ts',
   'tests/contract/tcb-closure-lock.test.ts',
   'tests/contract/test-impact.test.ts',
@@ -119,7 +149,10 @@ const WORKTREE_PHYSICAL_CLOSEOUT_FAST_TESTS = [
   'tests/contract/test-impact.test.ts',
   'tests/unit/branch-lifecycle-contract.test.ts',
   'tests/unit/physical-no-follow.test.ts',
-  'tests/unit/worktree-physical-closeout-contract.test.ts',
+  'tests/unit/worktree-physical-closeout-contract.test.ts'
+];
+
+const WORKTREE_PHYSICAL_CLOSEOUT_SLOW_TESTS = [
   'tests/unit/worktree-physical-closeout-crash-recovery.test.ts',
   'tests/unit/worktree-physical-closeout-temp-repo.test.ts'
 ];
@@ -134,9 +167,7 @@ const WORKSPACE_WRITE_LEASE_FAST_TESTS = [
   'tests/contract/semantic-mutation-apply-contract.test.ts',
   'tests/integration/pipeline-workspace-write-lease.test.ts',
   'tests/unit/semantic-mutation-isolated-child-fence.test.ts',
-  'tests/unit/workspace-write-lease.test.ts',
-  'tests/unit/worktree-physical-closeout-crash-recovery.test.ts',
-  'tests/unit/worktree-physical-closeout-temp-repo.test.ts'
+  'tests/unit/workspace-write-lease.test.ts'
 ];
 
 const VERIFICATION_TRUTH_FAST_TESTS = [
@@ -154,44 +185,39 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
   {
     owner: 'workspace-write-lease',
     identity: { kind: 'architecture-owner', id: 'workspace-write-lease' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: ['platform/shared/workspace-write-lease.ts'],
-    fast: WORKSPACE_WRITE_LEASE_FAST_TESTS,
-    slow: []
+    supplementalFast: WORKSPACE_WRITE_LEASE_FAST_TESTS,
+    supplementalSlow: WORKTREE_PHYSICAL_CLOSEOUT_SLOW_TESTS
   },
   {
     owner: 'git-worktree-physical-closeout',
     identity: { kind: 'architecture-owner', id: 'git-worktree-physical-closeout' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/physical-no-follow.ts',
       'scripts/codex/worktree-physical-closeout-contract.ts',
       'scripts/codex/worktree-physical-closeout.ts',
       'tests/unit/worktree-physical-closeout-crash-fixture.ts'
     ],
-    fast: WORKTREE_PHYSICAL_CLOSEOUT_FAST_TESTS,
-    slow: []
+    supplementalFast: WORKTREE_PHYSICAL_CLOSEOUT_FAST_TESTS,
+    supplementalSlow: WORKTREE_PHYSICAL_CLOSEOUT_SLOW_TESTS
   },
   {
     owner: 'git-changed-file-observation',
     identity: { kind: 'architecture-owner', id: 'git-changed-file-observation' },
-    autoReferenceMode: 'include',
     sourceFiles: ['platform/shared/ci-git-changed-files.ts'],
-    fast: GIT_CHANGED_FILE_OBSERVATION_FAST_TESTS,
-    slow: []
+    supplementalFast: GIT_CHANGED_FILE_OBSERVATION_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'import-transform-transaction',
     identity: { kind: 'architecture-owner', id: 'import-transform-transaction' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: ['platform/dev-runner/import-transform-transaction.ts'],
-    fast: IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS,
-    slow: ['tests/e2e/import-organizer-staged.test.ts', 'tests/e2e/import-organizer-worktree-isolation.test.ts']
+    supplementalFast: IMPORT_TRANSFORM_TRANSACTION_FAST_TESTS,
+    supplementalSlow: ['tests/e2e/import-organizer-staged.test.ts', 'tests/e2e/import-organizer-worktree-isolation.test.ts']
   },
   {
     owner: 'main-health',
     identity: { kind: 'architecture-owner', id: 'main-health' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/default-branch-revision-health.ts',
       'platform/shared/main-health-contract.ts',
@@ -199,8 +225,8 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/main-health-observation.ts',
       'scripts/codex/main-health-repair.ts'
     ],
-    fast: MAIN_HEALTH_FAST_TESTS,
-    slow: []
+    supplementalFast: MAIN_HEALTH_FAST_TESTS,
+    supplementalSlow: [DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE]
   },
   {
     owner: 'verification-session-branch-closeout-authority',
@@ -208,7 +234,6 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       kind: 'architecture-owner',
       id: 'verification-session-branch-closeout-authority'
     },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/verification-session-contract.ts',
       'scripts/codex/branch-closeout-contract.ts',
@@ -224,8 +249,11 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/verification-candidate-tree.ts',
       'scripts/codex/verification-session-runtime.ts'
     ],
-    fast: VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS,
-    slow: ['tests/e2e/verification-session-closeout-cli.test.ts']
+    supplementalFast: VERIFICATION_SESSION_BRANCH_CLOSEOUT_FAST_TESTS,
+    supplementalSlow: [
+      DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE,
+      'tests/e2e/verification-session-closeout-cli.test.ts'
+    ]
   },
   {
     owner: 'verification-session-branch-closeout-authority',
@@ -233,7 +261,6 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       kind: 'architecture-owner',
       id: 'verification-session-branch-closeout-authority'
     },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'scripts/codex/sec-merge-bootstrap-contract.ts',
       'scripts/codex/sec-merge-bootstrap-runtime.ts',
@@ -242,13 +269,27 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/verification-session-github.ts',
       'scripts/codex/verification-session.ts'
     ],
-    fast: VERIFICATION_SESSION_SOURCE_LOCK_FAST_TESTS,
-    slow: ['tests/e2e/verification-session-closeout-cli.test.ts']
+    supplementalFast: VERIFICATION_SESSION_SOURCE_LOCK_FAST_TESTS,
+    supplementalSlow: [
+      DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE,
+      'tests/e2e/verification-session-closeout-cli.test.ts'
+    ]
+  },
+  {
+    owner: 'trusted-runtime-closeout',
+    identity: { kind: 'architecture-owner', id: 'trusted-runtime-closeout' },
+    sourceFiles: [
+      'platform/shared/integration-platform-policy.ts',
+      'scripts/codex/trusted-runtime-closeout.ts',
+      'scripts/codex/trusted-runtime-container.ts',
+      'scripts/codex/trusted-runtime.Dockerfile'
+    ],
+    supplementalFast: TRUSTED_RUNTIME_CLOSEOUT_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'trusted-verifier-tcb',
     identity: { kind: 'architecture-owner', id: 'trusted-verifier-tcb' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       '.github/workflows/compiler-pr-validation.yml',
       '.github/workflows/compiler-release-validation.yml',
@@ -260,13 +301,12 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/local-github-actions-runner.ts',
       'scripts/codex/merge-gate.ts'
     ],
-    fast: TRUSTED_VERIFIER_TCB_FAST_TESTS,
-    slow: []
+    supplementalFast: TRUSTED_VERIFIER_TCB_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'verification-evidence-producers',
     identity: { kind: 'architecture-owner', id: 'verification-evidence-producers' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/ci-evidence-contract.ts',
       'platform/shared/ci-hosted-sut-observation-contract.ts',
@@ -276,52 +316,58 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'scripts/codex/exact-git-blob.ts',
       'scripts/codex/verification-action-github-provider.ts'
     ],
-    fast: VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
-    slow: []
+    supplementalFast: VERIFICATION_EVIDENCE_PRODUCER_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'verification-evidence-producers',
     identity: { kind: 'architecture-owner', id: 'verification-evidence-producers' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: ['scripts/ci-pr-risk.ts'],
-    fast: CI_PR_RISK_FAST_TESTS,
-    slow: []
+    supplementalFast: CI_PR_RISK_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'verification-action-test-fixture',
     identity: { kind: 'architecture-owner', id: 'verification-action-test-fixture' },
-    autoReferenceMode: 'include',
     sourceFiles: ['tests/helpers/verification-action-fixtures.ts'],
-    fast: VERIFICATION_ACTION_TEST_FIXTURE_FAST_TESTS,
-    slow: []
+    supplementalFast: VERIFICATION_ACTION_TEST_FIXTURE_FAST_TESTS,
+    supplementalSlow: []
+  },
+  {
+    owner: 'verification-action-runtime',
+    identity: { kind: 'architecture-owner', id: 'verification-action-runtime' },
+    sourceFiles: [
+      'tooling/sec-dev/verification-action-journal.ts',
+      'tooling/sec-dev/verification-action-runner.ts'
+    ],
+    supplementalFast: VERIFICATION_ACTION_RUNTIME_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'verification-truth',
     identity: { kind: 'architecture-owner', id: 'verification-truth' },
-    autoReferenceMode: 'include',
     sourceFiles: [
       'platform/compiler/verify/build-acceptance-coverage.ts',
       'platform/shared/acceptance-proof-contract.ts',
       'platform/shared/product-verification-claim-plan.ts',
       'platform/shared/verification-artifact-contract.ts'
     ],
-    fast: VERIFICATION_TRUTH_FAST_TESTS,
-    slow: []
+    supplementalFast: VERIFICATION_TRUTH_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'affected-test-selection',
     identity: { kind: 'architecture-owner', id: 'affected-test-selection' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: ['platform/shared/affected-test-inventory.ts', 'platform/shared/verification-scope-inventory.ts'],
-    fast: AFFECTED_TEST_SELECTION_FAST_TESTS,
-    slow: []
+    supplementalFast: AFFECTED_TEST_SELECTION_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'dev-runner',
     identity: { kind: 'architecture-owner', id: 'dev-runner' },
     sourceFiles: ['platform/dev-runner/dependency-bootstrap.ts'],
-    fast: DEV_RUNNER_DEPENDENCY_BOOTSTRAP_FAST_TESTS,
-    slow: []
+    supplementalFast: DEV_RUNNER_DEPENDENCY_BOOTSTRAP_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'dev-runner',
@@ -335,8 +381,8 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/typecheck-runner.ts',
       'tests/setup/runtime-deps.setup.ts'
     ],
-    fast: DEV_RUNNER_FAST_TESTS,
-    slow: []
+    supplementalFast: DEV_RUNNER_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'dev-runner',
@@ -345,22 +391,28 @@ export const verificationTestOwnershipDeclarations: TestOwnershipDeclaration[] =
       'platform/dev-runner/env-manager.ts',
       'platform/dev-runner/test-runner.ts'
     ],
-    fast: DEV_RUNNER_WORKSPACE_FAST_TESTS,
-    slow: []
+    supplementalFast: DEV_RUNNER_WORKSPACE_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'dev-runner',
     identity: { kind: 'architecture-owner', id: 'dev-runner' },
     sourceFiles: ['platform/dev-runner.ts'],
-    fast: DEV_RUNNER_ENTRYPOINT_FAST_TESTS,
-    slow: []
+    supplementalFast: DEV_RUNNER_ENTRYPOINT_FAST_TESTS,
+    supplementalSlow: []
+  },
+  {
+    owner: 'dev-runner',
+    identity: { kind: 'architecture-owner', id: 'dev-runner' },
+    sourceFiles: ['platform/dev-runner/verification-action-executor.ts'],
+    supplementalFast: VERIFICATION_ACTION_EXECUTOR_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'heavy-verification-gate',
     identity: { kind: 'architecture-owner', id: 'heavy-verification-gate' },
-    autoReferenceMode: 'include',
     sourceFiles: ['platform/shared/heavy-verification-gate-lease.ts'],
-    fast: HEAVY_VERIFICATION_GATE_FAST_TESTS,
-    slow: []
+    supplementalFast: HEAVY_VERIFICATION_GATE_FAST_TESTS,
+    supplementalSlow: []
   }
 ];

@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { PhysicalNoFollowError } from '../../platform/shared/physical-no-follow.ts';
 import {
   calculateCanonicalProjectFileHash,
   calculateProjectFileHash
@@ -28,5 +29,33 @@ test('canonical provenance hashes normalize UTF-8 line endings without weakening
     expect(await calculateCanonicalProjectFileHash(binaryAPath)).not.toBe(
       await calculateCanonicalProjectFileHash(binaryBPath)
     );
+  });
+});
+
+test('project hashing maps only physical absence to undefined', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    expect(await calculateProjectFileHash(path.join(workspaceRoot, 'missing.txt'))).toBeUndefined();
+    expect(await calculateCanonicalProjectFileHash(path.join(workspaceRoot, 'missing.txt'))).toBeUndefined();
+
+    const directory = path.join(workspaceRoot, 'directory');
+    await fs.mkdir(directory);
+    expect(() => calculateProjectFileHash(directory)).toThrow(PhysicalNoFollowError);
+  });
+});
+
+test('project hashing rejects a linked ancestor instead of hashing bytes outside the physical project path', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const externalRoot = path.join(workspaceRoot, 'external');
+    const linkedRoot = path.join(workspaceRoot, 'linked');
+    await fs.mkdir(externalRoot);
+    await fs.writeFile(path.join(externalRoot, 'artifact.txt'), 'outside\n', 'utf8');
+    await fs.symlink(
+      externalRoot,
+      linkedRoot,
+      process.platform === 'win32' ? 'junction' : 'dir'
+    );
+
+    expect(() => calculateProjectFileHash(path.join(linkedRoot, 'artifact.txt')))
+      .toThrow(PhysicalNoFollowError);
   });
 });

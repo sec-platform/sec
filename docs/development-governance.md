@@ -2,7 +2,7 @@
 title: 自主开发治理
 status: stable
 domain: development-governance
-last-reviewed: 2026-08-11
+last-reviewed: 2026-08-21
 ---
 
 # 自主开发治理
@@ -150,7 +150,9 @@ Catalog JSON边界使用duplicate-aware、bounded、depth-limited parser；任�
 `consistent`：MainHealth必须由exact-main check observation经canonical MainHealth ledger和fresh lane
 resolver产生；candidate/PR/ref/worktree与closeout必须由#313 branch-lifecycle owner的bounded projection
 产生；该projection只排除canonical default branch，任何其他命名空间的ref或非默认worktree都属于
-必须解释的transport/residue，不能因不使用`codex/*`前缀而漏检。pointer、rolling与active manifest必须
+必须解释的transport/residue。branch name只是locator，不是credential：合法性逐项绑定default base、PR head、
+remote ref、可选local ref与worktree identity，不能因前缀授予authority，也不能因不使用某个前缀而漏检。
+pointer、rolling与active manifest必须
 由document-control binding owner逐项核对。任一owner输入
 缺失、过期、locked、身份不符或无法解析时只能`unresolved`。
 OPEN PR只有在`baseRefName`等于canonical default branch、`baseRefOid`等于exact live main，且head
@@ -170,7 +172,8 @@ pure fast path，但fast path身份是exact `(package id, tracking)` tuple：同
 repository object/index/journal/control effect前拒绝，不能把tracking替换伪装成同包replan。
 
 Effectful `freeze`的控制代码必须来自clean protected `main`，其HEAD等于canonical local-default投影；
-候选只能作为显式`--workspace`目标，且必须是物理不同的`codex/*` worktree。live adapter从唯一remote
+候选只能作为显式`--workspace`目标，且必须是物理不同、attached到非default branch的worktree；branch
+namespace不参与授权。live adapter从唯一remote
 HEAD symbolic projection定位default ref，再读取exact-main current-state；不得先读取候选HEAD来决定
 repository/remote/default branch。required projection规则由pure freeze contract再次强制，CLI wiring不是
 唯一门禁。roadmap catalog不保存可从依赖图推导的successor count或`roadmapDirect` bit：两者由compiler
@@ -791,7 +794,7 @@ A0不替Worker修改同一owner seam，也不把所有发现塞进一个巨型im
 
 ### Worker
 
-Worker只在 frozen Envelope 和 owned seam内实现，不自授权跨 owner、扩大路径、降低 Verification、触发 hosted Gate或合并。发现 root assumption、owner、scope或architecture不成立时停止并返回 Reconciliation Delta，不在局部代码继续堆例外。
+Worker只在 frozen Envelope 和 owned seam内实现，不自授权跨 owner、扩大路径、降低 Verification、触发 trusted-provider Gate或合并。发现 root assumption、owner、scope或architecture不成立时停止并返回 Reconciliation Delta，不在局部代码继续堆例外。
 
 引入或自研通用能力时，Worker必须引用已冻结的capability census/Provider decision；不得临时安装工具改变candidate环境，不得把库私有模型泄漏进Core，也不得在没有migration的情况下新增长期双实现。
 
@@ -864,7 +867,9 @@ freeze 才是 terminal generation；此后语义或 scope 变化创建新 genera
 
 第一次candidate commit之后的replacement仍使用同一worktree/ref和同一manifest path。Freeze只接受
 `HEAD`以then-live default为sole parent，且该immutable HEAD中的current-state bytes、pointer、rolling plan、
-manifest path/digest/base仍精确绑定同一个active且未进入default的package；新projection保持
+manifest path/package/tracking/base仍精确绑定同一个active且未进入default的package；pointer或rolling中由
+compiler派生的manifest digest允许作为本次replan要修复的stale projection，但它们的完整原始bytes仍由source
+revision绑定且不能改变selection identity；新projection保持
 `ACTIVATED_INDEX_PENDING_COMMIT`并由amend物化新exact generation。stacked/divergent head、不同package、
 authority bytes漂移或已进入default的manifest一律拒绝。旧head上的Review/Evidence自动失效，不迁移。
 “未进入default”按manifest path判断：live default上该path存在任意blob即表示该package lifecycle已发布；
@@ -876,14 +881,52 @@ index bytes包含可由Git刷新且不改变tree的stat cache，只能用于同�
 让相同entries/tree变成永久不可恢复。journal recovery必须识别并retire已terminal/superseded operation
 的exact residue；人工删除 recovery 文件不是正常协议。
 
-Rolling plan的事实/prose refresh也只能作为freeze transaction的requested projection进入index，禁止
-先手工stage。Compiler先从immutable PRE确定性promotion，再要求requested projection的active ID与有序
-candidate IDs逐项相同；只有非选择内容可更新。任何选择、顺序、增删漂移都拒绝，pointer始终由compiler
-从manifest digest渲染。由此动态事实可更新，但不能借rolling prose绕过WorkDecision/selection owner。
+Rolling plan的事实/prose refresh也只能由freeze transaction的typed projection进入index，禁止
+先手工stage。其machine model是一个closed typed union：ordinary WorkDecision、committed-candidate replan、
+MainHealth repair。三种来源都先规范化为同一个`active + ordered candidates`拓扑，再由同一个全文renderer
+同时生成frontmatter、JSON、标题与说明；projection digest只证明规范化内容完整性，不能代替来源authority。
+任何writer都不得对整文件做字符串切片后保留旧machine block，也不得分别修改标题、prose、字段或digest。
+Committed replan只消费sole-parent exact HEAD/tree及该generation的manifest、pointer、rolling原始bytes digest；
+旧projection内部digest不再复制为第二份authority。Compiler从这些immutable bytes读取既有有序拓扑，结合新
+manifest生成整份NEXT，并要求任何requested bytes与唯一renderer逐字相等。只有来源authority允许的transition
+可改变拓扑。pointer始终由compiler从manifest digest渲染。由此动态事实可更新，但不能借rolling prose绕过
+WorkDecision/selection owner。
+同一document-control compiler也唯一拥有committed-candidate projection的过期判定：machine projection必须
+精确绑定live main/tree以及active package、tracking、manifest path；其active manifest digest与当前manifest
+不同时本身就是refresh输入，不能作为拒绝唯一generator的循环前置条件；再以authority `sourceTree`到当前
+candidate tree的NUL-safe Git delta证明变化只包含manifest、active pointer和rolling plan三个projection target。
+任一业务/架构路径变化、缺失/非committed projection或无法读取source tree都强制生成新projection；只剩这三个
+compiler输出的delta才是收敛NOOP。Resolver与freeze不得各自再定义另一套manifest/head/tree新鲜度规则。
+document-control的全部Git子进程（包括blob、index、tree、ref与remote observation）统一消费
+`platform/shared/git-read-environment.ts`的isolated read environment；cwd/argv与resolver显式生成的
+scratch index/object/alternate overrides是唯一可进入的repository selection输入。宿主进程继承的
+object directory、alternate、replace ref、Git config、prompt/askpass与SSH变量必须被清除，且caller
+不能覆盖no-replace、no-lazy-fetch、no-prompt与null global/system config约束。Resolver不得再维护
+局部环境变量清单或直接展开`process.env`，从而避免同一exact object出现第二种Git观察面。
+GitHub remote的live default ref由同一GitHub observation owner通过`gh api graphql`读取并在effect前后
+双读；不得为了让隔离后的`git ls-remote`重新获得权限而恢复global credential helper、askpass/SSH
+override或把token拼进argv/environment。只有明确不是GitHub URL的本地/fixture remote才使用隔离后的
+`git ls-remote`，两条transport最终都只返回同一个严格Git object id语义。
 这里的immutable PRE只能来自exact HEAD/trusted generation；mutable index中的pointer/rolling必须等于该
 原像，或是pointer仍由compiler为同一indexed manifest精确渲染、rolling的active与有序candidate topology
-仍由immutable PRE唯一推导的prior projection。已批准的非选择prose bytes可以跨replan保留，但index bytes
-永远不能成为自己的选择authority。
+仍由immutable PRE唯一推导、且整份rolling bytes通过当前canonical parser/renderer回读的prior projection。
+旧prose、旧machine block和mutable index bytes都不能跨replan自我授权或被原样保留。
+
+测试影响同样按owner seam分区：rolling projection、GitHub observation、manifest与普通active document变化
+只选择pure fast projection contracts；只有document-control transaction/effect实现变化才选择完整Git/index/
+crash-recovery slow matrix。不能因为一个文件历史上同时包含pure compiler与transaction tests，就把所有
+roadmap或WorkDecision编辑机械升级为分钟级恢复验证。
+
+```mermaid
+flowchart LR
+  W["WorkDecision receipt"] --> N["Normalized rolling topology"]
+  C["Exact HEAD/tree + raw control digests"] --> N
+  H["MainHealth repair decision"] --> N
+  N --> D["Digest-bound machine projection"]
+  D --> R["Single whole-document renderer"]
+  R --> F["Trusted-main freeze CAS"]
+  F --> P["Pointer + rolling + manifest readback"]
+```
 
 Document Control recovery 的身份与物理安全固定分层：恢复namespace只绑定
 `operationId + logicalTargetKey`，其中key是closed set
@@ -907,6 +950,14 @@ cache、rename相同bytes或为NOOP制造journal之外的副作用。新operatio
 raw-byte observation、显式CAS publication与紧邻readback；scratch解释无论成功或失败，都必须在传播结果或
 错误之前完成真实index的byte+identity readback。任何真实index/object publication必须是代码中
 可枚举的显式effect，observer不得借Git的stat-cache refresh污染自己的PRE observation。
+
+所有 provider-neutral GitHub publication 在 effect 前后都从 repository observation解析default branch，
+要求PR base ref、base SHA与该分支同一subject，并把首次default-branch identity带到effect后的readback；
+`main`只是当前仓库事实，不能硬编码为Provider合同。所有可能物化到Windows、Linux或macOS的逻辑写入计划
+则先消费`platform/shared/logical-path-identity.ts`的唯一portable collision key，对大小写与Unicode case
+别名作保守去重，再进入任何并行writer。该lexical key只负责跨平台计划唯一性；retained no-follow
+filesystem authority仍负责实际containment、symlink/reparse、existing-entry与FileId/inode identity，二者不得
+互相替代或各自复制一份路径规则。
 
 ```mermaid
 stateDiagram-v2
@@ -1004,7 +1055,7 @@ Branch是演进路线，不是等待机械合并的功能包。并行正式结�
 
 Squash merge后按最终tree、contracts和行为结果判断内容是否进入 `main`，不能仅用commit ancestry或ahead/behind判断遗漏。
 
-Git branch承载代码演进；GitHub Actions的workflow_dispatch/matrix/job/artifact承载测试参数和Evidence。禁止长期创建一次性远端测试分支。
+Git branch承载代码演进；trusted provider的ActionKey operation与durable artifact承载测试参数和Evidence，GitHub Actions只是其中一个可替换transport。禁止长期创建一次性远端测试分支。
 
 Issue completion intent 只能来自 machine-owned `IssueDisposition` 或 validated closeout receipt。
 任意 PR title/body/comment 中的自然语言都不是 lifecycle state；PR renderer 必须拒绝 GitHub lexical
@@ -1113,15 +1164,17 @@ branch/ref、recovery root、dependency link 和 residue，并读回 zero residu
 可能时，唯一合法终态是 typed blocked receipt，绑定 owner、exact target、reason、retained state 与
 可重试条件。无 receipt 的目录、无限期 recovery ref 或 `v2/v3/...` quarantine 永远不算完成。
 
-PR Ready只表示允许进入Review调度，不表示可以启动expensive hosted Gate或required Evidence已通过。Head/base/tree/manifest/authorized scope/profile/trust变化总会使绑定旧 exact subject 的Review、Session revision与merge authorization失效；Action/Evidence仅在其canonical subject closure、contract、environment或trust input变化时失效，trusted resolver必须为新 generation 重算reuse。即使head不变，Review policy、REQUEST_CHANGES或blocking thread变化也会使Review与merge authorization失效。
+PR Ready只表示允许进入Review调度，不表示可以启动expensive trusted-provider Gate或required Evidence已通过。Head/base/tree/manifest/authorized scope/profile/trust变化总会使绑定旧 exact subject 的Review、Session revision与merge authorization失效；Action/Evidence仅在其canonical subject closure、contract、environment或trust input变化时失效，trusted resolver必须为新 generation 重算reuse。即使head不变，Review policy、REQUEST_CHANGES或blocking thread变化也会使Review与merge authorization失效。
 
 ## Impact 与验证选择
 
 修改公共contract、canonical authority、state owner、pipeline、runtime boundary、Provider/Adapter、Implementation Resolution或未知影响前，先消费统一Impact和test/Gate selector；当前能力不足时降级到 exact imports、public API、runtime entry、owner、consumer、dependency closure和test-impact census。不得临时安装工具改变candidate环境。
 
-开发中先运行当前 failing/focused sentinel；candidate稳定后运行由变化类型和Impact选择的local closure；Frozen后由A0触发required hosted Gate。不是每个Work Package固定全跑同一套重门禁。
+开发中先运行当前 failing/focused sentinel；candidate稳定后运行由变化类型和Impact选择的local closure；Frozen后由A0触发required trusted-provider Gate。不是每个Work Package固定全跑同一套重门禁，GitHub Actions也不拥有“trusted provider”的唯一实现。
 
 相同未失效 Gate identity复用；输入和failure fingerprint未变时不重复确定性失败。无法证明不受影响不是“无需测试”。
+
+候选冻结 DAG 必须把所有 source normalizer（包括 canonical import transform）排在任何 content-addressed generated lock、blob/digest inventory 和 Evidence 之前；生成物之后只允许 read-only check。若 normalizer 仍报告 delta，生成阶段不得启动。这样一次源码归一化只触发一次下游重算，不允许用“先生成、再格式化、再生成”的命令顺序制造自我失效。
 
 相对于当前受支持的 dependency/Impact model，系统必须执行最小充分 closure：known
 not-applicable 全部跳过，fresh terminal PASS/FAIL 全部复用，authenticated in-flight 只 join，
@@ -1135,6 +1188,46 @@ ActiveRefAmplification = active candidate refs / active logical runs = 1.0
 FindingSuccessorWorktreeCount = 0
 physicalStartsPerActionKey <= 1
 ```
+
+### 无 Actions 额度时的 canonical closeout
+
+`bun run sec:closeout -- --pr <number>` 直接消费同一 VerificationSession、ActionKey、Review、MainHealth、MergeGate 与 terminal status contracts，不经过 GitHub Actions dispatch、artifact upload 或 self-hosted runner registration。它从 clean exact live `main` 启动固定 OCI image，在联网依赖安装结束后物理断开全部 container network，再以 candidate 作为 data 执行 base-owned verifier。Docker capability必须先由唯一 endpoint owner解析为本机 `npipe://` 或 `unix://` transport，并把 context、endpoint、daemon、OS与architecture写入Action/receipt/cache identity；`tcp://` remote endpoint、context漂移或daemon漂移一律不能伪装成local trusted runtime。同一ActionKey的physical start先持有repository-scoped operation mutation lease；每次container attempt再使用collision-free retained identity并绑定operation/repository/base/head/endpoint/image/host/pid/nonce labels。只有两次Docker identity读回一致且同宿主owner进程已死亡时才能回收；live、foreign、unknown或malformed资源全部保留并阻断同一ActionKey，不能被唯一名称绕过形成第二次physical start。closeout的所有host侧Git命令与bundle producer共用canonical isolated Git child environment，不继承global/system config、template、prompt、askpass/SSH、replace-object或optional-lock authority。所有可复用Session/Action/Gate/status receipt位于repository-scoped仓库外 SEC Runtime State；repository tree、GitHub state与disposable cache仍是不同 authority domain。
+
+Merge effect之前必须重新观察完整candidate identity、platform projection以及由PR title/body和provider closing references共同编译的同一`IssueDisposition` plan；任一digest漂移都停止effect。Merge请求无论返回成功、错误或响应丢失，随后都以PR exact head/tree、merge markers、durable Session/Gate/status bytes和remote main tree作物理判定：已精确merge则继续，仍OPEN且provider明确失败才返回失败，readback不可得则进入可重入的ambiguous状态。重试从merge commit中的content-addressed locators读取repository-scoped canonical artifacts，不重新执行业务验证；在任何next-main health或closeout effect前复用唯一post-merge Issue reconciliation，发现unexpected close只返回maintainer action boundary。
+
+MainHealth 的昂贵四门禁（imports、typecheck、docs doctor、fast inventory）按 exact main SHA/tree、固定 image 与 plan digest最多执行一次。若本次 full candidate Evidence 已覆盖同一四门禁，exact-head squash 后的新 `main` tree必须等于 candidate tree，并由 merge/status/Gate/container receipts组成 carry-forward receipt；下一次工作直接复用，不在新任务开头机械重跑。
+
+```mermaid
+flowchart LR
+  M[exact main] --> MH{cached MainHealth?}
+  MH -- no --> HM[one isolated main run]
+  MH -- yes --> S[VerificationSession]
+  HM --> S
+  H[exact candidate] --> AK[RequiredClosure ∩ MissingOrStale]
+  AK --> S
+  S --> V[disconnected local trusted runtime]
+  V --> G[semantic MergeGate]
+  R[independent exact-head Review] --> G
+  G --> P[GitHub terminal status readback]
+  P --> C[head-SHA CAS squash]
+  C --> N[remote main SHA/tree readback]
+  N --> CF[next-main health carry-forward]
+```
+
+当前 private/free GitHub plan若稳定返回 ruleset/branch-protection feature unavailable，canonical integration-platform policy允许 maintainer-rooted exact-head CAS profile继续，但必须把该 observation digest写入authorization并永久声明`claimsNoBypassEnforcement=false`；transport unknown、事实漂移或错误声称no-bypass仍然阻断。未来取得ruleset/App能力时只增强这一policy owner，不复制第二套Gate。
+
+TCB 内的网络 Effect 与进程 Effect 同样采用“handwritten reviewed identity + live causal census + generated lock projection”。生产 GitHub REST 只能经过 `dispatchGitHubApiRequestV1`：它在 Effect 前把目标限制为无 URL 凭据、无 fragment、无 redirect 的 `https://api.github.com`。TCB 使用 TypeScript symbol binding 区分局部同名变量与真正的全局 `fetch`，只接受该唯一 owner 内直接 `globalThis.fetch(...)`；裸调用、别名、computed/optional member、owner/ordinal 漂移和已死亡 allowlist 条目全部在 lock generation 前拒绝。调用者测试注入 capability，不复制网络实现或源码句子。
+
+### 文件 Effect 的统一提交协议
+
+文件型 state、generated output 与 release publication 统一遵循 `observe -> plan -> final fence -> identity-bound publish -> readback -> cleanup`，不能把“路径仍存在”当成 owner 或 CAS。具体约束如下：
+
+- 短期 mutation lease 持久化 schema、host、pid、process nonce、token 与 expiry；竞争者只能在两次相同 physical identity/bytes 观察且 owner 已被证明死亡时回收，live、remote 或 liveness unknown 一律保持 contended。release 时必须再次匹配自己的 exact token。
+- directory publication 在同一 destination-scoped physical mutation lease 内保留 source、previous 与 published directory 的 no-follow physical identity，并以确定性 backup namespace 加 destination/manifest readback表达可重启恢复状态；隔离失败 candidate、恢复 previous 或处理并发 publisher 时都通过 no-replace identity-bound relocation，旧 publisher不得按字符串路径搬走新 publisher 已成功读回的 artifact。
+- generated module 先在唯一 sibling staging root 完整 materialize 并比较 streaming content inventory，再 no-replace 发布。已存在且与 source snapshot byte-equivalent 的 target 是幂等成功；不同 target 在没有 generated-state ownership proof 时禁止覆盖。一次失败留下的 private stage 可清理，不能留下半复制 live target。
+- 一个逻辑变换集合必须在第一次 live write 前完成全部 parse/AST/grammar 规划；任何 unsupported input 都使写集合保持为空。每个最终 write fence重新验证它实际引用的 source snapshot，包括 source root 从 absent 到 present、root replacement、增删文件、inode/size/content digest变化；“第一次检查过”不能授权后续 write或report。
+
+这些约束由 reusable physical/CAS primitives 与行为/fault tests证明；测试不得逐句镜像实现，也不得用 sleep、固定行号或路径字符串假装并发语义。
 
 ## Failure、重试与 Proof Reset
 

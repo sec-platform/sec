@@ -9,25 +9,28 @@ import {
 } from '../../platform/shared/reference-check.ts';
 import {
   REFERENCE_TRACKED_DIFF_ARGS,
-  REFERENCE_UNTRACKED_SCAN_ARGS
+  REFERENCE_UNTRACKED_SCAN_ARGS,
+  scanReferenceDrift
 } from '../../platform/shared/reference-drift-scan.ts';
+
+function bytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
 
 test('CLI exposes reference drift check as text and JSON contracts', async () => {
   const report = await buildReferenceCheckReport({
     root: compilerRoot,
-    commandRunner: async (command, args) => {
-      if (command === 'git') {
-        if (args[0] === 'diff') {
-          expect(args).toEqual(REFERENCE_TRACKED_DIFF_ARGS);
-          return { code: 1, stdout: `source/app.yaml\n${CI_ARTIFACT_FILES.reviewSummary}\n`, stderr: '' };
-        }
-
-        expect(args).toEqual(REFERENCE_UNTRACKED_SCAN_ARGS);
-        return { code: 0, stdout: '', stderr: '' };
-      }
-
+    commandRunner: async (_command, args) => {
       expect(args).toEqual(['run', 'reference:refresh']);
       return { code: 0, stdout: '', stderr: '' };
+    },
+    gitCommandRunner: async (_command, args) => {
+      if (args[0] === 'diff') {
+        expect(args).toEqual(REFERENCE_TRACKED_DIFF_ARGS);
+        return { code: 1, stdout: bytes(`source/app.yaml\0${CI_ARTIFACT_FILES.reviewSummary}\0`), stderr: '' };
+      }
+      expect(args).toEqual(REFERENCE_UNTRACKED_SCAN_ARGS);
+      return { code: 0, stdout: new Uint8Array(), stderr: '' };
     }
   });
 
@@ -36,7 +39,7 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
   expect(formatReferenceCheck(report)).toContain('Command: bun run sec -- reference check --json');
   expect(formatReferenceCheck(report)).toContain('Runner command: bun run reference:check');
   expect(formatReferenceCheck(report)).toContain(
-    'Commands: refresh=bun run reference:refresh; diff=git diff --name-only --exit-code -- source project control; untracked=git ls-files --others --exclude-standard -- source project control'
+    'Commands: refresh=bun run reference:refresh; diff=git diff --name-only --exit-code -z -- source project control; untracked=git ls-files -z --others --exclude-standard -- source project control'
   );
   expect(formatReferenceCheck(report)).toContain(
     `Changed paths: ${CI_ARTIFACT_FILES.reviewSummary}, source/app.yaml`
@@ -51,10 +54,10 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     runnerCommand: 'bun run reference:check',
     refreshCommand: 'bun run reference:refresh',
     refreshExitCode: 0,
-    diffCommand: 'git diff --name-only --exit-code -- source project control',
+    diffCommand: 'git diff --name-only --exit-code -z -- source project control',
     diffExitCode: 1,
     trackedDiffExitCode: 1,
-    untrackedScanCommand: 'git ls-files --others --exclude-standard -- source project control',
+    untrackedScanCommand: 'git ls-files -z --others --exclude-standard -- source project control',
     untrackedScanExitCode: 0,
     changedPathCount: 2,
     changedPaths: [CI_ARTIFACT_FILES.reviewSummary, 'source/app.yaml'],
@@ -78,10 +81,12 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
 
   const diffFailedReport = await buildReferenceCheckReport({
     root: compilerRoot,
-    commandRunner: async (command) =>
-      command === 'git'
-        ? { code: 128, stdout: '', stderr: 'diff failed' }
-        : { code: 0, stdout: '', stderr: '' }
+    commandRunner: async () => ({ code: 0, stdout: '', stderr: '' }),
+    gitCommandRunner: async () => ({
+      code: 128,
+      stdout: bytes('diagnostic output without path authority'),
+      stderr: 'diff failed'
+    })
   });
   expect(diffFailedReport).toMatchObject({
     status: 'diff-failed',
@@ -91,7 +96,29 @@ test('CLI exposes reference drift check as text and JSON contracts', async () =>
     trackedDiffExitCode: 128,
     untrackedScanExitCode: -1,
     changedPathCount: 0,
+    changedPaths: [],
     recommendedAction: 'inspect-git-diff-command'
   });
   expect(() => assertReferenceCheckClean(diffFailedReport)).toThrow('reference diff command failed');
+});
+
+test('reference drift preserves newline-containing Git paths as one NUL-delimited identity', async () => {
+  const changedPath = 'source/line\nbreak.ts';
+  const scan = await scanReferenceDrift('/unused', async (_command, args) => {
+    if (args[0] === 'diff') {
+      return { code: 1, stdout: bytes(`${changedPath}\0`), stderr: '' };
+    }
+    return { code: 0, stdout: new Uint8Array(), stderr: '' };
+  });
+
+  expect(scan.exitCode).toBe(1);
+  expect(scan.changedPaths).toEqual([changedPath]);
+});
+
+test('reference drift rejects non-UTF-8 Git path bytes instead of normalizing replacement characters', async () => {
+  await expect(scanReferenceDrift('/unused', async () => ({
+    code: 1,
+    stdout: new Uint8Array([0xff, 0]),
+    stderr: ''
+  }))).rejects.toThrow('non-UTF-8 path record');
 });

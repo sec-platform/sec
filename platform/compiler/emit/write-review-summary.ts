@@ -1,4 +1,3 @@
-import { groupBy } from 'lodash-es';
 import type { AcceptanceCoverageEntry, AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { countMatching, summarizeCounts, uniqueSorted } from '../../shared/collections.ts';
@@ -28,11 +27,11 @@ import { loadOverrideManifest } from '../parse/load-override-manifest.ts';
 import { readReviewArtifactSummary } from './read-review-artifact-summary.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
 import {
-  buildRuntimeAttribution,
   buildRuntimeAttributions,
   buildVerticalSliceAttributions,
   classifyRuntimeEntry,
-  detectVerticalFromPath
+  detectVerticalFromPath,
+  type RuntimeAttribution
 } from './runtime-attribution.ts';
 
 function failurePointKey(point: ReviewFailurePoint): string {
@@ -89,22 +88,20 @@ export function buildSemanticViewSummary(lock: LockFile): ReviewSemanticViewSumm
   };
 }
 
-function addUnique<T>(values: T[], value: T, key: (value: T) => string): void {
+function addUnique<T>(values: Map<string, T>, value: T, key: (value: T) => string): void {
   const valueKey = key(value);
-  if (!values.some((entry) => key(entry) === valueKey)) {
-    values.push(value);
-  }
+  if (!values.has(valueKey)) values.set(valueKey, value);
 }
 
-function addFailurePoint(points: ReviewFailurePoint[], point: ReviewFailurePoint): void {
+function addFailurePoint(points: Map<string, ReviewFailurePoint>, point: ReviewFailurePoint): void {
   addUnique(points, point, failurePointKey);
 }
 
-function addRegressionRisk(risks: ReviewRegressionRisk[], risk: ReviewRegressionRisk): void {
+function addRegressionRisk(risks: Map<string, ReviewRegressionRisk>, risk: ReviewRegressionRisk): void {
   addUnique(risks, risk, regressionRiskKey);
 }
 
-function addConflictHint(hints: ReviewConflictHint[], hint: ReviewConflictHint): void {
+function addConflictHint(hints: Map<string, ReviewConflictHint>, hint: ReviewConflictHint): void {
   addUnique(hints, hint, conflictHintKey);
 }
 
@@ -118,7 +115,7 @@ type VerificationFailurePointSpec = {
   targetMessage?: string;
 };
 
-function addVerificationFailurePoint(points: ReviewFailurePoint[], spec: VerificationFailurePointSpec): void {
+function addVerificationFailurePoint(points: Map<string, ReviewFailurePoint>, spec: VerificationFailurePointSpec): void {
   if (spec.status !== 'failed') return;
   addFailurePoint(points, { lane: spec.lane, kind: spec.kind, message: spec.summaryMessage, artifactPath: spec.artifactPath });
   if (spec.targetMessage) {
@@ -128,15 +125,61 @@ function addVerificationFailurePoint(points: ReviewFailurePoint[], spec: Verific
   }
 }
 
-async function mapOverrideTarget(lock: LockFile, target: string): Promise<Pick<ReviewRegressionRisk, 'blockId' | 'slotId'>> {
-  const slotTask = lock.slotTasks.find((task) => task.target === target);
-  if (slotTask) return { blockId: slotTask.block, slotId: slotTask.id };
-  const installStep = lock.installPlan.find((step) => step.to === target);
-  if (installStep) return { blockId: installStep.blockId };
-  const runtimeEntry = await buildRuntimeAttribution(lock, target);
+type ReviewTargetIdentity = Readonly<{ blockId: string; slotId?: string }>;
+
+interface ReviewTargetIndex {
+  readonly slotByTarget: ReadonlyMap<string, ReviewTargetIdentity | null>;
+  readonly installByTarget: ReadonlyMap<string, ReviewTargetIdentity | null>;
+  readonly runtimeEntryByPath: ReadonlyMap<string, RuntimeAttribution>;
+}
+
+function addUniqueTargetIdentity(
+  index: Map<string, ReviewTargetIdentity | null>,
+  target: string,
+  identity: ReviewTargetIdentity
+): void {
+  const existing = index.get(target);
+  if (existing === undefined && !index.has(target)) {
+    index.set(target, identity);
+    return;
+  }
+  if (existing === null || existing === undefined
+    || existing.blockId !== identity.blockId || existing.slotId !== identity.slotId) {
+    index.set(target, null);
+  }
+}
+
+function buildReviewTargetIndex(
+  lock: LockFile,
+  runtimeEntryByPath: ReadonlyMap<string, RuntimeAttribution>
+): ReviewTargetIndex {
+  const slotByTarget = new Map<string, ReviewTargetIdentity | null>();
+  const installByTarget = new Map<string, ReviewTargetIdentity | null>();
+  for (const task of lock.slotTasks) {
+    addUniqueTargetIdentity(slotByTarget, task.target, { blockId: task.block, slotId: task.id });
+  }
+  for (const step of lock.installPlan) {
+    addUniqueTargetIdentity(installByTarget, step.to, { blockId: step.blockId });
+  }
+  return { slotByTarget, installByTarget, runtimeEntryByPath };
+}
+
+function mapOverrideTarget(
+  target: string,
+  index: ReviewTargetIndex
+): Pick<ReviewRegressionRisk, 'blockId' | 'slotId'> {
+  const slotIdentity = index.slotByTarget.get(target);
+  if (slotIdentity) return slotIdentity;
+  const installIdentity = index.installByTarget.get(target);
+  if (installIdentity) return installIdentity;
+  const runtimeEntry = index.runtimeEntryByPath.get(target);
   if (runtimeEntry?.relatedBlocks.length) {
     const verticalBlock = runtimeEntry.vertical ? `${runtimeEntry.vertical}/basic` : null;
-    return { blockId: verticalBlock && runtimeEntry.relatedBlocks.includes(verticalBlock) ? verticalBlock : runtimeEntry.relatedBlocks[0] };
+    return {
+      blockId: verticalBlock && runtimeEntry.relatedBlocks.includes(verticalBlock)
+        ? verticalBlock
+        : runtimeEntry.relatedBlocks[0]
+    };
   }
   return {};
 }
@@ -165,9 +208,15 @@ function buildPathGroupSummaries<T, K extends string, S>(
   buildSummary: (group: K, values: readonly T[]) => S,
   sortKey: (summary: S) => string
 ): S[] {
-  const groups = groupBy([...values], key);
-  return Object.entries(groups)
-    .map(([group, groupValues]) => buildSummary(group as K, groupValues))
+  const groups = new Map<K, T[]>();
+  for (const value of values) {
+    const group = key(value);
+    const groupValues = groups.get(group) ?? [];
+    groupValues.push(value);
+    groups.set(group, groupValues);
+  }
+  return [...groups]
+    .map(([group, groupValues]) => buildSummary(group, groupValues))
     .sort((left, right) => compareCodeUnits(sortKey(left), sortKey(right)));
 }
 
@@ -368,22 +417,47 @@ function formatUpgradeDiagnosticsFailureMessage(diagnostics: UpgradeDiagnostics)
   return [`Upgrade blocked at ${diagnostics.failedCheck}:`, diagnostics.errorCode, `${diagnostics.message}${attributionSuffix}`].join(' ');
 }
 
+interface InstallImpactAccumulator {
+  readonly blockId: string;
+  readonly actionKinds: Set<string>;
+  readonly sourceRoots: Set<string>;
+  readonly targetPaths: Set<string>;
+  readonly verticals: Set<string>;
+  readonly runtimeEntries: Set<string>;
+}
+
 function buildInstallImpacts(lock: LockFile): ReviewInstallImpact[] {
-  const impacts = new Map<string, ReviewInstallImpact>();
+  const impacts = new Map<string, InstallImpactAccumulator>();
   for (const step of lock.installPlan) {
     let impact = impacts.get(step.blockId);
     if (!impact) {
-      impact = { blockId: step.blockId, actionKinds: [], sourceRoots: [], targetPaths: [], verticals: [], runtimeEntries: [] };
+      impact = {
+        blockId: step.blockId,
+        actionKinds: new Set<string>(),
+        sourceRoots: new Set<string>(),
+        targetPaths: new Set<string>(),
+        verticals: new Set<string>(),
+        runtimeEntries: new Set<string>()
+      };
       impacts.set(step.blockId, impact);
     }
-    impact.actionKinds = uniqueSorted([...impact.actionKinds, step.action]);
-    impact.sourceRoots = uniqueSorted([...impact.sourceRoots, step.sourceRoot]);
-    impact.targetPaths = uniqueSorted([...impact.targetPaths, step.to]);
+    impact.actionKinds.add(step.action);
+    impact.sourceRoots.add(step.sourceRoot);
+    impact.targetPaths.add(step.to);
     const vertical = detectVerticalFromPath(step.to) ?? detectVerticalFromPath(step.blockId);
-    if (vertical) impact.verticals = uniqueSorted([...impact.verticals, vertical]);
-    if (classifyRuntimeEntry(step.to)) impact.runtimeEntries = uniqueSorted([...impact.runtimeEntries, step.to]);
+    if (vertical) impact.verticals.add(vertical);
+    if (classifyRuntimeEntry(step.to)) impact.runtimeEntries.add(step.to);
   }
-  return [...impacts.values()].sort((left, right) => compareCodeUnits(left.blockId, right.blockId));
+  return [...impacts.values()]
+    .map((impact) => ({
+      blockId: impact.blockId,
+      actionKinds: uniqueSorted([...impact.actionKinds]),
+      sourceRoots: uniqueSorted([...impact.sourceRoots]),
+      targetPaths: uniqueSorted([...impact.targetPaths]),
+      verticals: uniqueSorted([...impact.verticals]),
+      runtimeEntries: uniqueSorted([...impact.runtimeEntries])
+    }))
+    .sort((left, right) => compareCodeUnits(left.blockId, right.blockId));
 }
 
 function buildInstallImpactSummary(installImpacts: ReviewInstallImpact[]): ReviewSummary['installImpactSummary'] {
@@ -395,24 +469,46 @@ function buildInstallImpactSummary(installImpacts: ReviewInstallImpact[]): Revie
   const verticals = flatField('verticals');
   const runtimeEntries = flatField('runtimeEntries');
 
-  const groupMap = new Map<string, { blocks: string[]; actionKinds: string[]; runtimeEntries: string[]; targetPaths: string[] }>();
+  const groupMap = new Map<string, {
+    blocks: Set<string>;
+    actionKinds: Set<string>;
+    runtimeEntries: Set<string>;
+    targetPaths: Set<string>;
+  }>();
   for (const impact of installImpacts) {
     for (const vertical of impact.verticals.length > 0 ? impact.verticals : ['none']) {
-      const group = groupMap.get(vertical) ?? { blocks: [], actionKinds: [], runtimeEntries: [], targetPaths: [] };
-      group.blocks = uniqueSorted([...group.blocks, impact.blockId]);
-      group.actionKinds = uniqueSorted([...group.actionKinds, ...impact.actionKinds]);
-      group.runtimeEntries = uniqueSorted([...group.runtimeEntries, ...impact.runtimeEntries]);
-      group.targetPaths = uniqueSorted([...group.targetPaths, ...impact.targetPaths]);
+      const group = groupMap.get(vertical) ?? {
+        blocks: new Set<string>(),
+        actionKinds: new Set<string>(),
+        runtimeEntries: new Set<string>(),
+        targetPaths: new Set<string>()
+      };
+      group.blocks.add(impact.blockId);
+      for (const actionKind of impact.actionKinds) group.actionKinds.add(actionKind);
+      for (const runtimeEntry of impact.runtimeEntries) group.runtimeEntries.add(runtimeEntry);
+      for (const targetPath of impact.targetPaths) group.targetPaths.add(targetPath);
       groupMap.set(vertical, group);
     }
   }
 
   const groupSummaries = [...groupMap.entries()]
-    .map(([vertical, group]) => ({
-      vertical, blockCount: group.blocks.length, actionKindCount: group.actionKinds.length,
-      runtimeEntryCount: group.runtimeEntries.length, targetPathCount: group.targetPaths.length,
-      blocks: group.blocks, actionKinds: group.actionKinds, runtimeEntries: group.runtimeEntries, targetPaths: group.targetPaths
-    }))
+    .map(([vertical, group]) => {
+      const groupBlocks = uniqueSorted([...group.blocks]);
+      const groupActionKinds = uniqueSorted([...group.actionKinds]);
+      const groupRuntimeEntries = uniqueSorted([...group.runtimeEntries]);
+      const groupTargetPaths = uniqueSorted([...group.targetPaths]);
+      return {
+        vertical,
+        blockCount: groupBlocks.length,
+        actionKindCount: groupActionKinds.length,
+        runtimeEntryCount: groupRuntimeEntries.length,
+        targetPathCount: groupTargetPaths.length,
+        blocks: groupBlocks,
+        actionKinds: groupActionKinds,
+        runtimeEntries: groupRuntimeEntries,
+        targetPaths: groupTargetPaths
+      };
+    })
     .sort((left, right) => compareCodeUnits(left.vertical, right.vertical));
 
   return {
@@ -431,15 +527,25 @@ export async function buildReviewSummary(
   coverage: AcceptanceCoverageReport
 ): Promise<ReviewSummary> {
   const overrideManifest = await loadOverrideManifest(workspaceRoot);
-  const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } = await readReviewGovernanceReports(workspaceRoot);
+  const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } = readReviewGovernanceReports(workspaceRoot);
+  const attributionTargets = uniqueSorted([
+    ...provenance.artifacts.map((artifact) => artifact.path),
+    ...overrideManifest.overrides.map((override) => override.target)
+  ]);
+  const allRuntimeEntries = await buildRuntimeAttributions(lock, attributionTargets, workspaceRoot);
+  const runtimeEntryByPath = new Map(allRuntimeEntries.map((entry) => [entry.path, entry] as const));
+  const reviewTargetIndex = buildReviewTargetIndex(lock, runtimeEntryByPath);
+  const provenancePaths = new Set(provenance.artifacts.map((artifact) => artifact.path));
+  const runtimeEntries = allRuntimeEntries.filter((entry) => provenancePaths.has(entry.path));
+
   const coverageSummary = buildCoverageSummary(coverage);
   const provenanceSummary = buildProvenanceSummary(provenance);
   const policySummary = policyReport ? buildReviewPolicySummary(policyReport) : undefined;
   const repairSummary = repairPlan ? buildRepairSummary(repairPlan) : undefined;
   const upgradeSummary = buildReviewUpgradeSummary(upgradePlan, upgradeDiagnostics);
-  const failurePoints: ReviewFailurePoint[] = [];
-  const regressionRisks: ReviewRegressionRisk[] = [];
-  const conflictHints: ReviewConflictHint[] = [];
+  const failurePoints = new Map<string, ReviewFailurePoint>();
+  const regressionRisks = new Map<string, ReviewRegressionRisk>();
+  const conflictHints = new Map<string, ReviewConflictHint>();
 
   if (report.summary.failedLanes.length > 0) {
     addFailurePoint(failurePoints, { lane: 'all', kind: 'summary', message: `Verification failed in lanes: ${report.summary.failedLanes.join(', ')}`, artifactPath: CI_ARTIFACT_FILES.verificationReport });
@@ -468,7 +574,11 @@ export async function buildReviewSummary(
   }
 
   for (const override of overrideManifest.overrides) {
-    addRegressionRisk(regressionRisks, { kind: 'override-active', message: `Override active: ${override.id} -> ${override.target}`, ...await mapOverrideTarget(lock, override.target) });
+    addRegressionRisk(regressionRisks, {
+      kind: 'override-active',
+      message: `Override active: ${override.id} -> ${override.target}`,
+      ...mapOverrideTarget(override.target, reviewTargetIndex)
+    });
     for (const conflict of override.conflictsWith) {
       addConflictHint(conflictHints, { kind: 'override-conflict', relatedId: conflict, message: `Override ${override.id} conflicts with ${conflict}` });
     }
@@ -515,8 +625,6 @@ export async function buildReviewSummary(
     }
   }
 
-  const runtimeEntries = await buildRuntimeAttributions(lock, provenance.artifacts.map((a) => a.path));
-  const runtimeEntryByPath = new Map(runtimeEntries.map((e) => [e.path, e]));
   const changeSources = provenance.artifacts.map((artifact) => {
     const runtimeEntry = runtimeEntryByPath.get(artifact.path);
     return {
@@ -527,14 +635,14 @@ export async function buildReviewSummary(
       ...(runtimeEntry ? { runtimeKind: runtimeEntry.kind, ...(runtimeEntry.vertical ? { vertical: runtimeEntry.vertical } : {}), relatedBlocks: runtimeEntry.relatedBlocks } : {})
     };
   });
-  const artifactSummary = await readReviewArtifactSummary(workspaceRoot);
+  const artifactSummary = readReviewArtifactSummary(workspaceRoot);
   const installImpacts = buildInstallImpacts(lock);
   const installImpactSummary = buildInstallImpactSummary(installImpacts);
   const impactedBlocks = uniqueSorted(lock.resolvedBlocks.map((b) => b.id));
   const impactedSlots = uniqueSorted(lock.slotTasks.map((t) => t.id));
-  const sortedFailurePoints = [...failurePoints].sort(compareFailurePoints);
-  const sortedRegressionRisks = [...regressionRisks].sort(compareRegressionRisks);
-  const sortedConflictHints = [...conflictHints].sort(compareConflictHints);
+  const sortedFailurePoints = [...failurePoints.values()].sort(compareFailurePoints);
+  const sortedRegressionRisks = [...regressionRisks.values()].sort(compareRegressionRisks);
+  const sortedConflictHints = [...conflictHints.values()].sort(compareConflictHints);
   const semanticViewSummary = buildSemanticViewSummary(lock);
 
   return {

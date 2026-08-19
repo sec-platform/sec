@@ -35,7 +35,7 @@ function diagnosticTree(root: string, depth = 0): string[] {
 test('real child death after durable acquisition fence but before terminal lets a fresh process converge without upgrading the opaque token', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-closeout-crash-')); const remote = path.join(root, 'remote.git'); const repository = path.join(root, 'repository'); const target = path.join(root, 'candidate');
   try {
-    git(root, ['init', '--bare', remote]); git(root, ['init', '-b', 'main', repository]); git(repository, ['config', 'user.name', 'SEC']); git(repository, ['config', 'user.email', 'sec@example.invalid']);
+    git(root, ['init', '--bare', remote]); git(root, ['init', '-b', 'main', repository]); git(repository, ['config', 'user.name', 'SEC']); git(repository, ['config', 'user.email', 'sec@example.invalid']); git(repository, ['config', 'core.autocrlf', 'false']);
     writeFileSync(path.join(repository, 'a.txt'), 'a\n'); git(repository, ['add', '.']); git(repository, ['commit', '-m', 'base']); git(repository, ['remote', 'add', 'origin', remote]); git(repository, ['push', '-u', 'origin', 'main']); git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']); git(repository, ['remote', 'set-head', 'origin', 'main']);
     const branch = 'codex/crash'; git(repository, ['branch', branch]); git(repository, ['worktree', 'add', target, branch]);
     // A few hundred entries leave a real retained-cleanup interval after the

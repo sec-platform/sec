@@ -22,7 +22,6 @@ export type TestOwnershipIdentity =
 export type TestOwnershipDeclaration = {
   owner: string;
   identity: TestOwnershipIdentity;
-  autoReferenceMode?: 'include' | 'declared-only';
   sourceFiles?: readonly string[];
   excludedSourceFiles?: readonly string[];
   sourcePrefixes?: readonly string[];
@@ -33,21 +32,11 @@ export type TestOwnershipDeclaration = {
     baseMode: '100644' | '100755';
     baseBlobSha: string;
   }>[];
-  fast: readonly string[];
-  slow: readonly string[];
+  /** Behavior/physical evidence that cannot be inferred from module imports. */
+  supplementalFast: readonly string[];
+  /** Slow behavior/physical evidence that cannot be inferred from module imports. */
+  supplementalSlow: readonly string[];
 };
-
-export function resolveTestOwnershipAutoReferenceMode(
-  declarations: readonly TestOwnershipDeclaration[]
-): 'include' | 'declared-only' {
-  const modes = [...new Set(declarations.map((declaration) => (
-    declaration.autoReferenceMode ?? 'include'
-  )))];
-  if (modes.length > 1) {
-    throw new Error('Test ownership declarations contain conflicting auto-reference modes.');
-  }
-  return modes[0] ?? 'include';
-}
 
 export type ResolvedTestOwnership = {
   source: string;

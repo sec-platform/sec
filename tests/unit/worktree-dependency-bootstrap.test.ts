@@ -1,43 +1,31 @@
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-
 import { expect, test } from 'bun:test';
 
-const repoRoot = path.resolve(import.meta.dir, '../..');
-const bootstrapEntry = path.join(repoRoot, 'platform', 'dev-runner.ts');
+import { readRepositoryModuleGraphV1 } from '../../platform/shared/test-impact-contract.ts';
 
-function moduleSpecifiers(source: string): readonly string[] {
-  const runtimeStaticImport = /(?:^|\n)\s*import\s+(?!type\b)(?:[^;]*?\sfrom\s*)?(['"])([^'"]+)\1\s*;/gu;
-  const runtimeStaticExport = /(?:^|\n)\s*export\s+(?!type\b)[^;]*?\sfrom\s*(['"])([^'"]+)\1\s*;/gu;
-  return Object.freeze([
-    ...source.matchAll(runtimeStaticImport),
-    ...source.matchAll(runtimeStaticExport)
-  ]
-    .map((match) => match[2] as string));
-}
+const bootstrapEntry = 'platform/dev-runner.ts';
 
-test('worktree dependency bootstrap entry has no preinstalled package dependency', async () => {
+test('worktree dependency bootstrap static closure has no preinstalled package dependency', () => {
+  const graph = readRepositoryModuleGraphV1();
   const pending = [bootstrapEntry];
   const visited = new Set<string>();
   const externalImports: string[] = [];
 
   while (pending.length > 0) {
-    const filePath = path.resolve(pending.pop() as string);
+    const filePath = pending.pop() as string;
     if (visited.has(filePath)) continue;
     visited.add(filePath);
-    const source = await readFile(filePath, 'utf8');
-    for (const specifier of moduleSpecifiers(source)) {
-      if (specifier.startsWith('node:') || specifier.startsWith('bun:')) continue;
-      if (!specifier.startsWith('.')) {
-        externalImports.push(`${path.relative(repoRoot, filePath)} -> ${specifier}`);
+    for (const reference of graph.references.filter((entry) => entry.from === filePath)) {
+      if (reference.kind !== 'static') continue;
+      if (reference.specifier.startsWith('node:') || reference.specifier.startsWith('bun:')) continue;
+      if (reference.resolvedTarget === null) {
+        externalImports.push(`${filePath} -> ${reference.specifier}`);
         continue;
       }
-      pending.push(path.resolve(path.dirname(filePath), specifier));
+      pending.push(reference.resolvedTarget);
     }
   }
 
   expect(externalImports).toEqual([]);
-  expect([...visited].map((filePath) => path.relative(repoRoot, filePath))).toContain(
-    path.join('platform', 'shared', 'project-runtime.ts')
-  );
+  expect([...visited]).toContain('platform/shared/project-runtime.ts');
+  expect([...visited]).not.toContain('platform/shared/concurrency.ts');
 });

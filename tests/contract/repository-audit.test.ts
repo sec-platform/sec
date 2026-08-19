@@ -217,6 +217,7 @@ test('Nexus EPR binding table is 29 unique records with bound/blocked evidence',
 
 test('information lifecycle current-tree classification is a closed 13-class census', () => {
   expect(classifyInformationLifecyclePath('docs/README.md')).toBe('generated-projection');
+  expect(classifyInformationLifecyclePath('public-docs/start-here.md')).toBe('generated-projection');
   expect(classifyInformationLifecyclePath('docs/authority.json')).toBe('stable-authority');
   expect(classifyInformationLifecyclePath('docs/semantic-model.md')).toBe('stable-authority');
   expect(classifyInformationLifecyclePath('docs/work/rolling-plan.md')).toBe('machine-control');
@@ -224,6 +225,7 @@ test('information lifecycle current-tree classification is a closed 13-class cen
   expect(classifyInformationLifecyclePath('platform/shared/workspace-write-lease.ts')).toBe('product-contract');
   expect(classifyInformationLifecyclePath('platform/compiler/semantic-mutation/transaction-identity.ts')).toBe('product-source');
   expect(classifyInformationLifecyclePath('scripts/codex/repository-audit.ts')).toBe('repository-tooling');
+  expect(classifyInformationLifecyclePath('tooling/sec-dev/verification-action-runner.ts')).toBe('repository-tooling');
   expect(classifyInformationLifecyclePath('tests/fixtures/policy.md')).toBe('test-fixture');
   expect(classifyInformationLifecyclePath('tests/contract/repository-audit.test.ts')).toBe('repository-tooling');
   expect(classifyInformationLifecyclePath('AGENTS.md')).toBe('stable-authority');
@@ -476,6 +478,10 @@ test('heuristic candidate extraction ignores historical authority but exposes hi
     'platform/example.ts',
     '// Codex Agent must stop when the canonical owner is unresolved.'
   )).toHaveLength(1);
+  expect(extractHeuristicBehaviorCandidates(
+    '.dependency-cruiser.json',
+    '"comment": "platform/ 不得依赖 scripts/codex 开发控制面。"'
+  )).toEqual([]);
 });
 
 test('heuristic context propagation is bounded by paragraph, code, heading, fence, and comment boundaries', () => {

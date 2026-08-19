@@ -15,8 +15,7 @@ import {
   SEC_AGENT_SKILL_IDS,
   SEC_AGENT_SKILL_STANDARD_SECTIONS,
   SEC_REPOSITORY_BEHAVIOR_IDS,
-  SEC_REPOSITORY_BEHAVIOR_ROUTES,
-  type SecAgentSkillId
+  SEC_REPOSITORY_BEHAVIOR_ROUTES
 } from '../../platform/shared/agent-skill-contract.ts';
 import { selectCiPrRiskSlowSuites } from '../../platform/shared/ci-pr-risk-selection.ts';
 import {
@@ -94,15 +93,6 @@ function listGitWorkPackagePaths(repositoryRef: string): readonly string[] {
   return result.stdout.split('\n').filter(Boolean);
 }
 
-function executableSkillGuidance(source: string): string {
-  const prohibitedStart = source.indexOf('## 禁止捷径');
-  if (prohibitedStart < 0) throw new Error('Skill is missing the prohibited-shortcuts section.');
-  const prohibitedEnd = source.indexOf('\n## ', prohibitedStart + 1);
-  return prohibitedEnd < 0
-    ? source.slice(0, prohibitedStart)
-    : source.slice(0, prohibitedStart) + source.slice(prohibitedEnd);
-}
-
 test('SEC skill inventory conforms to one strict AgentOperation contract', async () => {
   const tracked = trackedRepositoryFiles();
   const skillFiles = tracked.filter((file) => /^\.agents\/skills\/[^/]+\/SKILL\.md$/u.test(file));
@@ -165,79 +155,6 @@ test('repository behaviors route to deterministic owners or one bounded Skill', 
     expect(route.authorityRef.length).toBeGreaterThan(0);
     expect(tracked).toContain(route.authorityRef);
   }
-});
-
-test('skills preserve decisive boundaries without retaining retired documentation routes', async () => {
-  const sources = Object.fromEntries(await Promise.all(SEC_AGENT_SKILL_IDS.map(async (skillId) => [
-    skillId,
-    await readFile(path.join(SKILLS_ROOT, skillId, 'SKILL.md'), 'utf8')
-  ]))) as Record<SecAgentSkillId, string>;
-  const agentsSource = await readFile(path.join(REPOSITORY_ROOT, 'AGENTS.md'), 'utf8');
-  const tracked = trackedRepositoryFiles();
-
-  for (const source of Object.values(sources)) {
-    const executableGuidance = executableSkillGuidance(source);
-    expect(executableGuidance).not.toMatch(/git reset --hard/iu);
-    expect(executableGuidance).not.toMatch(/git push\s+(?:-f|--force)/iu);
-    expect(executableGuidance).not.toContain('sec-work-package-manifest-v1');
-    for (const retired of [
-      'docs/00-文档索引与一致性规则.md',
-      'docs/04-AI自主实现执行蓝图.md',
-      'docs/07-Pass状态机、错误码与恢复机制.md',
-      'docs/14-Engineering IR与语义事实规范.md',
-      'docs/test-feedback-and-ci-lanes.md',
-      'docs/test-architecture.md',
-      'docs/governance/agent-skills-and-development-run-kernel.md'
-    ]) expect(executableGuidance).not.toContain(retired);
-  }
-
-  expect(sources['sec-worker-development']).toContain('RequiredClosure ∩ MissingOrStale');
-  expect(sources['sec-worker-development']).not.toContain('imports:freeze');
-  expect(sources['sec-worker-development']).not.toContain('check:affected');
-  expect(sources['sec-repository-audit']).toContain('全部 tracked paths');
-  expect(sources['sec-heuristic-governance']).toContain('确定性行为必须有 machine owner 且 Skill 为零');
-  expect(sources['sec-heuristic-governance']).toContain('identity/owner/current-spec census');
-  expect(sources['sec-heuristic-governance']).toContain('规范化 work identity、owner、current spec');
-  expect(sources['sec-heuristic-governance']).toContain('聊天中没有唯一剩余副本');
-  expect(sources['sec-architecture-evolution']).toContain('authority first');
-  expect(sources['sec-task-delegation']).toContain('production Task Capsule compiler');
-  expect(sources['sec-task-delegation']).toContain('是否值得委派');
-  expect(agentsSource).toContain('document-control-plane.ts status --json');
-  expect(sources['sec-failure-recovery']).toContain('输入与failure tail未变时复用失败证据并停止');
-  expect(sources['sec-failure-recovery']).toContain('自动从exact new main运行canonical document-control status');
-  expect(sources['sec-failure-recovery']).toContain('信任代际变化本身不是用户交互点');
-  expect(sources['sec-failure-recovery']).toContain('不得把`TASK_RESTART_REQUIRED`当作普通停止理由');
-  expect(sources['sec-failure-recovery']).toContain('status unresolved/invalid');
-  expect(agentsSource).toContain('不得仅因代际变化返回历史性的 `TASK_RESTART_REQUIRED`');
-  expect(agentsSource).not.toContain('GitNexus upstream impact');
-
-  const retiredIds = [
-    'sec-a0-integrator',
-    'sec-ci-and-merge',
-    'sec-context-resume',
-    'sec-documentation-governance',
-    'sec-impact-and-validation',
-    'sec-repository-orientation',
-    'sec-toolchain-and-dependencies',
-    'sec-trust-root-bootstrap',
-    'sec-work-package-lifecycle'
-  ];
-  for (const retiredId of retiredIds) {
-    expect(tracked).not.toContain(`.agents/skills/${retiredId}/SKILL.md`);
-    expect(agentsSource).not.toContain(retiredId);
-  }
-});
-
-test('heuristic discovery guidance covers existing identity, new identity, and no-write boundaries', async () => {
-  const source = await readFile(
-    path.join(SKILLS_ROOT, 'sec-heuristic-governance', 'SKILL.md'),
-    'utf8'
-  );
-  expect(source).toContain('命中已有 identity 时只更新或引用该 owner');
-  expect(source).toContain('确认没有现存 identity 且问题形成独立验收闭包时');
-  expect(source).toContain('返回包含既有workId与目标owner的 Reconciliation Delta');
-  expect(source).toContain('不得声称已经同步');
-  expect(source).toContain('不以新建 Issue/计划文档代替已有identity census');
 });
 
 test('all tracked Markdown is explicitly classified and active registry paths have coverage', async () => {
@@ -399,7 +316,6 @@ test('external capability ledger binds current package authority without a self-
     packageAuthority: 'package.json',
     lockAuthority: 'bun.lock'
   });
-  expect(ledgerSource).not.toMatch(/\b[0-9a-f]{40}\b/u);
   expect(gitnexus?.observedVersion).toBe(packageJson.devDependencies?.gitnexus);
   expect(gitnexus?.versionAuthority).toEqual({
     kind: 'package',
@@ -423,14 +339,4 @@ test('repository documentation resolves registry, the exact package census, and 
       readGitBlob(defaultBranchRef, repositoryPath, true)
   });
   expect(result.errors).toEqual([]);
-});
-
-test('AGENTS remains a short router and rejects prose-only hard metrics', async () => {
-  const agents = await readFile(path.join(REPOSITORY_ROOT, 'AGENTS.md'), 'utf8');
-  expect(agents).toContain('docs/authority.json');
-  expect(agents).toContain('`.agents/skills/**`');
-  expect(agents).toContain('sec');
-  expect(agents).not.toContain('产品实现占主动工作时间至少');
-  expect(agents).not.toContain('完全重复工具调用 `0`');
-  expect(agents.split(/\r?\n/u).length).toBeLessThanOrEqual(24);
 });

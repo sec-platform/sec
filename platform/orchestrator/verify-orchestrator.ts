@@ -1,20 +1,18 @@
-import {
-  buildAcceptanceCoverage,
-  createSkippedRuntimeLane
-} from '../compiler/index.ts';
+import { buildAcceptanceCoverage } from '../compiler/verify/build-acceptance-coverage.ts';
+import { runPolicyGate } from '../compiler/verify/run-policy-gate.ts';
+import { createSkippedRuntimeLane } from '../compiler/verify/run-runtime-verification.ts';
 import {
   revalidateStagedVerificationProof,
   type StagedVerificationProof
 } from '../compiler/verify/staged-verification-proof.ts';
+import { publishVerificationArtifactSetV1 } from '../compiler/verify/verification-artifact-publication.ts';
 import {
   assertStagedVerificationLiveContext,
   buildBlockedClaimSummary,
   verifyProject
 } from '../compiler/verify/verify-project.ts';
-import { writePolicySnapshot } from '../compiler/verify/write-policy-snapshot.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { formatCompilerFailure } from '../shared/errors.ts';
-import { writeJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import { addGeneratedPaths, readLockFile } from '../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../shared/paths.ts';
@@ -58,7 +56,7 @@ async function writeBlockedVerificationSnapshot(
   failure: unknown,
   beforeCommit: () => Promise<void>
 ): Promise<void> {
-  const policyReport = await writePolicySnapshot(workspaceRoot, beforeCommit);
+  const policyReport = runPolicyGate(workspaceRoot);
   const runtime = createSkippedRuntimeLane();
   const message = formatCompilerFailure(failure);
   const fast: VerificationReport['fast'] = {
@@ -86,12 +84,6 @@ async function writeBlockedVerificationSnapshot(
     },
     logs: { stdout: fast.logs.stdout, stderr: message }
   };
-  const {
-    acceptanceCoveragePath,
-    lockPath,
-    runtimeReportPath,
-    verificationReportPath
-  } = getWorkspacePaths(workspaceRoot);
   const coverage = await buildAcceptanceCoverage(workspaceRoot, lock, runtime, fast);
 
   addGeneratedPaths(lock, [
@@ -102,13 +94,17 @@ async function writeBlockedVerificationSnapshot(
   ]);
   lock.passStatus.verify = 'failed';
 
-  await beforeCommit();
-  await Promise.all([
-    writeJson(verificationReportPath, report, beforeCommit),
-    writeJson(runtimeReportPath, runtime, beforeCommit),
-    writeJson(acceptanceCoveragePath, coverage, beforeCommit),
-    writeJson(lockPath, lock, beforeCommit)
-  ]);
+  await publishVerificationArtifactSetV1({
+    workspaceRoot,
+    lock,
+    artifacts: {
+      verificationReport: report,
+      runtimeReport: runtime,
+      policyReport,
+      acceptanceCoverage: coverage
+    },
+    commitFence: beforeCommit
+  });
 }
 
 async function verifyWorkspaceCore(
@@ -116,7 +112,7 @@ async function verifyWorkspaceCore(
   options: VerifyWorkspaceOptions,
   context: PipelineExecutionContext
 ): Promise<{ lock: LockFile; report: VerificationReport }> {
-  const lock = await readLockFile(workspaceRoot);
+  const lock = readLockFile(workspaceRoot);
   const lane = options.lane ?? 'all';
   const isolated = options.isolatedVerificationCapability !== undefined;
   if (isolated) {

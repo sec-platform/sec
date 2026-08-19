@@ -19,6 +19,7 @@ import {
   buildRepairTask
 } from '../helpers/repair-fixtures.ts';
 import { buildPassingReviewReport } from '../helpers/review-fixtures.ts';
+import { writeCanonicalVerificationArtifactSetFixture } from '../helpers/verification-fixtures.ts';
 import { expectCliText, runCliInProcess as runCli } from '../testkit/cli.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
@@ -61,12 +62,11 @@ async function writeRepairFixture(
   fixtureLock: LockFile = lock(),
   source = 'export function normalizeCustomerInput(input: unknown): unknown { return input; }\n'
 ): Promise<void> {
-  const { planPath, lockPath, verificationReportPath, projectRoot } = getWorkspacePaths(workspaceRoot);
+  const { planPath, lockPath, projectRoot } = getWorkspacePaths(workspaceRoot);
   await fs.mkdir(path.join(projectRoot, 'custom'), { recursive: true });
-  await fs.mkdir(path.dirname(verificationReportPath), { recursive: true });
   await writeYaml(planPath, plan());
   await writeJson(lockPath, fixtureLock);
-  await writeJson(verificationReportPath, failedUnitReport());
+  await writeCanonicalVerificationArtifactSetFixture(workspaceRoot, failedUnitReport());
   await fs.writeFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), source, 'utf8');
 }
 
@@ -106,16 +106,19 @@ test('repair writes only slot-scoped source and requires verification rerun', as
   });
 });
 
-test('repair dry-run writes a pending plan without touching source or verification status', async () => {
+test('repair dry-run returns a pending preview without mutating source, Lock, or control artifacts', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeRepairFixture(workspaceRoot);
 
-    const { lock: plannedLock, repairPlan } = await repairWorkspace(workspaceRoot, { dryRun: true });
     const { lockPath, repairPlanPath, projectRoot } = getWorkspacePaths(workspaceRoot);
-    const writtenSource = await fs.readFile(path.join(projectRoot, 'custom', 'customer_normalizer.ts'), 'utf8');
-    const persistedLock = await readJson<LockFile>(lockPath);
-    const persistedRepairPlan = await readJson<RepairPlan>(repairPlanPath);
+    const lockBefore = await fs.readFile(lockPath);
+    const sourcePath = path.join(projectRoot, 'custom', 'customer_normalizer.ts');
+    const sourceBefore = await fs.readFile(sourcePath);
 
+    const { lock: plannedLock, repairPlan } = await repairWorkspace(workspaceRoot, { dryRun: true });
+
+    const lockAfter = await fs.readFile(lockPath);
+    const sourceAfter = await fs.readFile(sourcePath);
     expect(repairPlan.status).toBe('pending');
     expect(repairPlan.requiresVerification).toBe(false);
     expect(repairPlan.tasks[0].category).toBe('slot-rewrite');
@@ -126,12 +129,12 @@ test('repair dry-run writes a pending plan without touching source or verificati
     expect(repairPlan.tasks[0].preview?.afterLines).toBeGreaterThan(1);
     expect(repairPlan.tasks[0].preview?.addedLines).toBeGreaterThan(0);
     expect(plannedLock.passStatus.verify).toBe('failed');
-    expect(writtenSource).toBe('export function normalizeCustomerInput(input: unknown): unknown { return input; }\n');
-    expect(persistedLock.passStatus.verify).toBe('failed');
-    expect(persistedLock.passStatus.repair).toBe('pending');
-    expect(persistedLock.slotTasks[0].status).toBe('failed');
-    expect(persistedLock.generatedPaths).toContain(CI_ARTIFACT_FILES.repairPlan);
-    expect(persistedRepairPlan).toEqual(repairPlan);
+    expect(Buffer.from(lockAfter).equals(Buffer.from(lockBefore))).toBe(true);
+    expect(Buffer.from(sourceAfter).equals(Buffer.from(sourceBefore))).toBe(true);
+    expect(plannedLock.passStatus.repair).toBe('pending');
+    expect(plannedLock.slotTasks[0].status).toBe('failed');
+    expect(plannedLock.generatedPaths).not.toContain(CI_ARTIFACT_FILES.repairPlan);
+    await expect(fs.lstat(repairPlanPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 

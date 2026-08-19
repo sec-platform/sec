@@ -20,7 +20,7 @@ function provenanceFor(artifactPath: string): ProvenanceFile {
       generatedByPass: 'compose',
       verifiedBy: [],
       overrideStatus: 'none',
-      hash: 'historical-hash'
+      hash: '0'.repeat(64)
     }]
   };
 }

@@ -1,8 +1,7 @@
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 
 import {
+  HOSTED_INTEGRATION_PHASE_JOB_NAMES_V1,
   HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1,
   assertHostedIntegrationPhaseOwnershipV1,
   type HostedIntegrationPhaseV1
@@ -14,17 +13,6 @@ import type {
 import { parseGitHubWorkflowJobsForAttemptV1 } from '../../scripts/codex/verification-session-github.ts';
 
 const WORKFLOW_SHA = '1111111111111111111111111111111111111111';
-
-test('authorization publication module is observation-only and exports no physical issuer', () => {
-  const source = readFileSync(path.resolve(import.meta.dir,
-    '../../scripts/codex/integration-authorization-publication.ts'), 'utf8');
-  expect(source).toContain('export function observeIntegrationAuthorizationOperationPublicationsV1');
-  expect(source).toContain('export function renderIntegrationAuthorizationOperationPublicationComment');
-  expect(source).not.toContain('export interface IntegrationAuthorizationOperationPublicationResultV1');
-  expect(source).not.toContain('export function publishAndReadBackIntegrationAuthorizationOperationV1');
-  expect(source).not.toContain('runBranchCommand(');
-  expect(source).not.toContain("'-X', 'POST'");
-});
 
 function step(input: Partial<GitHubWorkflowJobStepObservationV1> & { name: string; number: number }) {
   return Object.freeze({
@@ -54,10 +42,10 @@ function job(input: {
     completedAt: current ? null : '2026-08-09T00:01:00.000Z'
   });
   return Object.freeze({
-    id: String(1000 + input.attempt),
+    id: String(1000 + input.attempt + (input.phase === 'recoveryPreparation' ? 100 : 0)),
     runId: '900',
     runAttempt: input.attempt,
-    name: 'integrate',
+    name: HOSTED_INTEGRATION_PHASE_JOB_NAMES_V1[input.phase],
     status: current ? 'in_progress' : 'completed',
     conclusion: current ? null : 'success',
     headSha: WORKFLOW_SHA,
@@ -76,7 +64,7 @@ function observe(input: {
     attempts: input.attempts,
     runId: '900',
     currentRunAttempt: input.currentAttempt,
-    currentJobName: 'integrate',
+    currentJobName: HOSTED_INTEGRATION_PHASE_JOB_NAMES_V1[input.phase],
     workflowSha: WORKFLOW_SHA,
     phase: input.phase
   });
@@ -99,6 +87,23 @@ test('provider phase owner requires the exact current in-progress named step', (
     .toThrow('not provider-confirmed in progress');
 });
 
+test('authorization recovery preparation belongs to the read-only authorize job', () => {
+  const phase = 'recoveryPreparation' as const;
+  const ownership = observe({ phase, currentAttempt: 1,
+    attempts: [{ runAttempt: 1, jobs: [job({ attempt: 1, phase, current: true })] }] });
+  expect(ownership.jobName).toBe('authorize');
+  expect(ownership.stepName).toBe(HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1.recoveryPreparation);
+
+  expect(() => assertHostedIntegrationPhaseOwnershipV1({
+    attempts: [{ runAttempt: 1, jobs: [job({ attempt: 1, phase, current: true })] }],
+    runId: '900',
+    currentRunAttempt: 1,
+    currentJobName: 'integrate',
+    workflowSha: WORKFLOW_SHA,
+    phase
+  })).toThrow('phase identity is invalid');
+});
+
 test('prior started integration phase is a durable ambiguous-effect tombstone', () => {
   const phase = 'integration' as const;
   const ownership = observe({ phase, currentAttempt: 2, attempts: [
@@ -108,7 +113,7 @@ test('prior started integration phase is a durable ambiguous-effect tombstone', 
   expect(ownership.priorAttemptStarted).toBe(true);
 });
 
-test('a different prior hosted effect phase also blocks OPEN first-effect routing', () => {
+test('a different prior hosted effect phase across authorize and integrate jobs blocks rerun', () => {
   const priorRecovery = job({ attempt: 1, phase: 'recoveryPreparation', phaseStarted: true });
   const ownership = observe({ phase: 'integration', currentAttempt: 2, attempts: [
     { runAttempt: 1, jobs: [priorRecovery] },

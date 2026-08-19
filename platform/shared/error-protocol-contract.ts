@@ -30,7 +30,7 @@ export type ErrorProtocolContract = {
 const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = [
   {
     id: 'usage-error',
-    code: 'UNEXPECTED',
+    code: 'CLI-USAGE-001',
     message: 'Usage: platform verify [--lane fast|runtime|all] [--json [--compact]]'
   },
   {
@@ -87,6 +87,16 @@ const protocolExamples: Array<ErrorProtocolExample['input'] & { id: string }> = 
     id: 'upgrade-conflict-error',
     code: 'UPGRADE-CONFLICT-001',
     message: 'Override "manual-auth-session-hotfix" conflicts with upgrade of "auth/basic-session"'
+  },
+  {
+    id: 'slot-capability-lint-error',
+    code: 'SLOT-LINT-005',
+    message: 'Runtime import "change-case" has no explicit capability/transitive-effect proof'
+  },
+  {
+    id: 'engineering-operation-error',
+    code: 'ENGINEERING-OPERATION-001',
+    message: 'Engineering operation slot "missing-slot" does not exist in source/app.yaml'
   },
   {
     id: 'workbench-mutation-error',

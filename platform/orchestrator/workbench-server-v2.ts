@@ -1,17 +1,21 @@
 import { serve } from 'bun';
-import fs from 'node:fs/promises';
 import path from 'node:path';
-import YAML from 'yaml';
 
-import { ensureDir, pathExists, writeJson } from '../shared/fs.ts';
+import { loadAllManifests } from '../compiler/parse/load-manifest.ts';
+import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
+import { parseViewMutationFile } from '../compiler/workbench/apply-view-mutations.ts';
+import {
+  bootstrapAuthorizedSlotSource,
+  readAuthorizedSlotSource
+} from '../compiler/workbench/bootstrap-slot-source.ts';
+import { CompilerError } from '../shared/errors.ts';
 import { defaultLogger } from '../shared/logger.ts';
 import {
   controlWorkbenchViewsRelativePath,
-  getWorkspacePaths,
-  posixPath,
-  sourceSlotsRelativePath
+  getWorkspacePaths
 } from '../shared/paths.ts';
-import { compilerRuntimeResources } from '../shared/runtime-layout.ts';
+import { PhysicalNoFollowError } from '../shared/physical-no-follow.ts';
+import { compilerCliEntrypoint } from '../shared/runtime-layout.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease,
@@ -29,14 +33,29 @@ import {
   WorkbenchMutex,
   workbenchSseResponse
 } from './workbench-http-support.ts';
+import {
+  createWorkbenchRunNodeStream,
+  type WorkbenchRunNodeProcess
+} from './workbench-run-node-handler.ts';
+import {
+  publishWorkbenchMutationEnvelope,
+  readWorkbenchJsonArtifact,
+  readWorkbenchOrdinaryFile
+} from './workbench-safe-file.ts';
+
+const SLOT_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const NODE_ID_PATTERN = /^[A-Za-z0-9_.\/-]+$/u;
+const MAX_NODE_ID_LENGTH = 256;
+const MAX_MUTATION_BODY_BYTES = 1024 * 1024;
+const WORKBENCH_HOSTNAMES = new Set(['127.0.0.1', 'localhost']);
 
 interface BootstrapSlotBody {
   slotId: string;
-  block?: string;
+  block: string;
 }
 
 interface RunNodeBody {
-  type: string;
+  type: 'slot' | 'block';
   id: string;
 }
 
@@ -72,229 +91,199 @@ interface RouteEntry {
   handler: RouteHandler;
 }
 
-interface SubprocessHandle {
-  kill(): void;
-  readonly exited: Promise<number>;
-  readonly stdout: ReadableStream<Uint8Array>;
-  readonly stderr: ReadableStream<Uint8Array>;
+function isSafeSlotId(value: unknown): value is string {
+  return typeof value === 'string' && SLOT_ID_PATTERN.test(value);
 }
 
-function encodeSse(event: string, data: string): Uint8Array {
-  return new TextEncoder().encode(`event: ${event}\ndata: ${data}\n\n`);
+function isSafeNodeId(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= MAX_NODE_ID_LENGTH
+    && NODE_ID_PATTERN.test(value)
+    && !value.includes('..');
 }
 
-async function handleBlocksCatalog(_context: RouteContext): Promise<Response> {
-  const registryDir = compilerRuntimeResources.officialRegistry;
-  const entries = await fs.readdir(registryDir, { withFileTypes: true });
-  const catalog: unknown[] = [];
+function isCanonicalWorkbenchHost(url: URL): boolean {
+  return WORKBENCH_HOSTNAMES.has(url.hostname);
+}
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const manifestPath = path.join(registryDir, entry.name, 'block.manifest.yaml');
-    const exists = await pathExists(manifestPath);
-    if (!exists) continue;
-    catalog.push(YAML.parse(await fs.readFile(manifestPath, 'utf8')));
+function sameOriginOrNonBrowser(req: Request): boolean {
+  const origin = req.headers.get('origin');
+  return origin === null || origin === new URL(req.url).origin;
+}
+
+function errorStatus(error: unknown): number {
+  if (error instanceof SyntaxError) return 400;
+  if (error instanceof PhysicalNoFollowError) {
+    if (error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') return 404;
+    if (
+      error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' ||
+      error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+    ) return 409;
+    return 500;
+  }
+  if (error instanceof CompilerError) {
+    if (error.code.startsWith('WORKBENCH-MUTATION-')) return 400;
+    if (error.code === 'WORKBENCH-SLOT-001') return 400;
+    if (/^WORKBENCH-SLOT-00[2-7]$/u.test(error.code)) return 409;
+  }
+  if (error instanceof Error && error.message.includes('Request body exceeds')) return 413;
+  return 500;
+}
+
+async function readBoundedJson(req: Request, maxBytes: number): Promise<unknown> {
+  const declaredLength = req.headers.get('content-length');
+  if (declaredLength !== null) {
+    const length = Number(declaredLength);
+    if (!Number.isSafeInteger(length) || length < 0 || length > maxBytes) {
+      throw new Error(`Request body exceeds the ${maxBytes}-byte Workbench limit`);
+    }
   }
 
-  return workbenchJsonResponse(catalog);
+  if (req.body === null) return JSON.parse('') as unknown;
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel(`Request body exceeds the ${maxBytes}-byte Workbench limit`);
+        throw new Error(`Request body exceeds the ${maxBytes}-byte Workbench limit`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = Buffer.concat(
+    chunks.map((chunk) => Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)),
+    totalBytes
+  );
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new SyntaxError(`Workbench request body must be exact UTF-8: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return JSON.parse(text) as unknown;
+}
+
+function parseBootstrapSlotBody(value: unknown): BootstrapSlotBody | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (!isSafeSlotId(body.slotId) || !isSafeNodeId(body.block)) return null;
+  return { slotId: body.slotId, block: body.block };
+}
+
+function parseRunNodeBody(value: unknown): RunNodeBody | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if ((body.type !== 'slot' && body.type !== 'block') || !isSafeNodeId(body.id)) return null;
+  if (body.type === 'slot' && !isSafeSlotId(body.id)) return null;
+  return { type: body.type, id: body.id };
+}
+
+function decodeExactUtf8(bytes: Uint8Array): string {
+  const buffer = Buffer.from(bytes);
+  const text = buffer.toString('utf8');
+  if (!Buffer.from(text, 'utf8').equals(buffer)) {
+    throw new CompilerError('WORKBENCH-SLOT-007', 'Workbench slot source is not exact UTF-8');
+  }
+  return text;
+}
+
+async function handleBlocksCatalog(context: RouteContext): Promise<Response> {
+  const plan = await loadWorkspacePlan(context.workspaceRoot);
+  const entries = await loadAllManifests({
+    workspaceRoot: context.workspaceRoot,
+    registrySources: plan.registry.sources
+  });
+  return workbenchJsonResponse(entries.map((entry) => entry.manifest));
 }
 
 async function handleBootstrapSlot(context: RouteContext): Promise<Response> {
-  const { slotId, block } = await context.req.json() as BootstrapSlotBody;
-  if (!slotId) return workbenchErrorResponse('Missing slotId', 400);
+  const body = parseBootstrapSlotBody(await readBoundedJson(context.req, 16 * 1024));
+  if (!body) return workbenchErrorResponse('Invalid slotId or block identity', 400);
 
   return withWorkbenchWriterLease(context, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(context.workspaceRoot, token);
-    const slotsDir = path.join(context.workspaceRoot, sourceSlotsRelativePath);
-    await commitFence();
-    await ensureDir(slotsDir);
-    const targetPath = path.join(slotsDir, `${slotId}.ts`);
-    const exists = await pathExists(targetPath);
-
-    if (!exists) {
-      const rawCamel = slotId.replace(/_([a-z])/g, (_, character: string) => character.toUpperCase());
-      const symbolName = rawCamel.charAt(0).toUpperCase() + rawCamel.slice(1);
-      await commitFence();
-      await fs.writeFile(targetPath, `/**
- * SpecEngineer Auto-Bootstrapped Slot Handler
- * Slot ID: ${slotId}
- * Associated Block: ${block || 'none'}
- */
-
-export async function handle${symbolName}(input: unknown): Promise<unknown> {
-  console.log("[Slot Handler ${slotId}] Received input:", input);
-  return {
-    status: "success",
-    timestamp: new Date().toISOString(),
-    processed: true
-  };
-}
-`, 'utf8');
-    }
-
+    const result = await bootstrapAuthorizedSlotSource(
+      context.workspaceRoot,
+      body.block,
+      body.slotId,
+      commitFence
+    );
     return workbenchJsonResponse({
       status: 'success',
-      path: posixPath(`${sourceSlotsRelativePath}/${slotId}.ts`)
+      disposition: result.status,
+      path: result.path
     });
   });
 }
 
 async function handleSlotCode(context: RouteContext): Promise<Response> {
   const slotId = context.url.searchParams.get('slotId');
-  if (!slotId) return workbenchErrorResponse('Missing slotId parameter', 400);
+  if (!isSafeSlotId(slotId)) return workbenchErrorResponse('Invalid slotId parameter', 400);
 
-  const targetPath = path.join(context.workspaceRoot, sourceSlotsRelativePath, `${slotId}.ts`);
-  const exists = await pathExists(targetPath);
-  if (!exists) return workbenchJsonResponse({ error: 'Slot code file not found', code: '' }, 404);
-  return workbenchJsonResponse({ code: await fs.readFile(targetPath, 'utf8') });
+  const source = await readAuthorizedSlotSource(context.workspaceRoot, slotId);
+  if (source === null) return workbenchJsonResponse({ error: 'Slot code file not found', code: '' }, 404);
+  return workbenchJsonResponse({ code: decodeExactUtf8(source.bytes), path: source.path });
 }
 
 async function handleGraph(context: RouteContext): Promise<Response> {
-  return workbenchJsonResponse(JSON.parse(await fs.readFile(context.paths.explainGraphPath, 'utf8')));
+  const graph = readWorkbenchJsonArtifact<unknown>(context.paths.explainGraphPath, 'Workbench ExplainGraph');
+  return graph === null
+    ? workbenchErrorResponse('ExplainGraph artifact not found', 404)
+    : workbenchJsonResponse(graph);
 }
 
 async function handleReview(context: RouteContext): Promise<Response> {
-  return workbenchJsonResponse(JSON.parse(await fs.readFile(context.paths.reviewSummaryPath, 'utf8')));
+  const review = readWorkbenchJsonArtifact<unknown>(context.paths.reviewSummaryPath, 'Workbench ReviewSummary');
+  return review === null
+    ? workbenchErrorResponse('ReviewSummary artifact not found', 404)
+    : workbenchJsonResponse(review);
 }
 
 async function handleMutations(context: RouteContext): Promise<Response> {
-  const body = await context.req.json();
+  const body = parseViewMutationFile(
+    await readBoundedJson(context.req, MAX_MUTATION_BODY_BYTES),
+    'source/views/mutations/graph-action.json'
+  );
   return withWorkbenchWriterLease(context, async (token) => {
     const commitFence = () => assertWorkspaceWriteLease(context.workspaceRoot, token);
-    await commitFence();
-    await ensureDir(context.paths.sourceViewMutationsRoot);
-    await writeJson(
-      path.join(context.paths.sourceViewMutationsRoot, 'graph-action.json'),
-      body,
-      commitFence
-    );
+    await publishWorkbenchMutationEnvelope(context.workspaceRoot, body, commitFence);
     return workbenchJsonResponse({ status: 'success' });
   });
 }
 
-async function findBlockTest(workspaceRoot: string, blockId: string): Promise<string | null> {
-  const normalizedId = blockId.replace(/[\/\-_]/g, '').toLowerCase();
-  const testsDir = path.join(workspaceRoot, 'tests');
-  let matchedFile: string | null = null;
-
-  const searchDirectory = async (directory: string): Promise<void> => {
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-      if (matchedFile) return;
-      const fullPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await searchDirectory(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith('.test.ts')) {
-        const name = entry.name.toLowerCase();
-        if (name.includes(normalizedId) || normalizedId.includes(name.replace('.test.ts', ''))) {
-          matchedFile = fullPath;
-        }
-      }
-    }
-  };
-
-  try {
-    await searchDirectory(testsDir);
-  } catch {
-    return null;
-  }
-  return matchedFile;
-}
-
 async function commandForNode(context: RouteContext, body: RunNodeBody, log: (message: string) => void): Promise<string[] | null> {
   if (body.type === 'slot') {
-    const slotFile = path.join(context.workspaceRoot, sourceSlotsRelativePath, `${body.id}.ts`);
-    const exists = await pathExists(slotFile);
-    if (!exists) return null;
-    log(`   Found slot implementation file.`);
-    return ['bun', 'test', 'tests/unit/validate-slot-security.test.ts'];
+    const source = await readAuthorizedSlotSource(context.workspaceRoot, body.id);
+    if (source === null) return null;
+    log(`   Found authorized slot implementation: ${source.path}.`);
+  } else {
+    log(`   Block-specific Test Impact is not yet bound to Workbench; using canonical fast verification for ${body.id}.`);
   }
-
-  if (body.type === 'block') {
-    const matchedFile = await findBlockTest(context.workspaceRoot, body.id);
-    if (matchedFile) {
-      const relativePath = path.relative(context.workspaceRoot, matchedFile);
-      log(`   Matched test suite: ${relativePath}`);
-      return ['bun', 'test', relativePath];
-    }
-  }
-
-  return ['bun', 'run', 'sec', 'verify', '--lane', 'fast'];
-}
-
-async function readProcessStream(
-  stream: ReadableStream<Uint8Array>,
-  log: (message: string) => void
-): Promise<void> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) return;
-    for (const line of decoder.decode(value).split('\n')) {
-      if (line.trim()) log(`   ${line.trim()}`);
-    }
-  }
+  return [process.execPath, compilerCliEntrypoint, 'verify', '--lane', 'fast'];
 }
 
 async function handleRunNodeSse(context: RouteContext, mutex: WorkbenchMutex): Promise<Response> {
-  const body = await context.req.json() as RunNodeBody;
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const release = await mutex.acquire();
-      let activeProcess: SubprocessHandle | null = null;
-      const log = (message: string): void => {
-        try {
-          controller.enqueue(encodeSse('log', message));
-        } catch {
-          // Stream already closed.
-        }
-      };
+  const body = parseRunNodeBody(await readBoundedJson(context.req, 16 * 1024));
+  if (!body) return workbenchErrorResponse('Invalid run-node request', 400);
 
-      try {
-        log(`[Runner] Initializing verify worker for ${body.type} "${body.id}"...`);
-        const command = await commandForNode(context, body, log);
-        if (!command) {
-          log('[ERROR] Physical slot handler file does not exist.');
-          controller.enqueue(encodeSse('failure', 'Slot file not found'));
-          return;
-        }
-
-        log(`[Runner] Executing: ${command.join(' ')}`);
-        activeProcess = Bun.spawn(command, {
-          cwd: context.workspaceRoot,
-          stdout: 'pipe',
-          stderr: 'pipe'
-        }) as unknown as SubprocessHandle;
-        await Promise.all([
-          readProcessStream(activeProcess.stdout, log),
-          readProcessStream(activeProcess.stderr, log)
-        ]);
-        const exitCode = await activeProcess.exited;
-        if (exitCode === 0) {
-          log('[Runner] Execution completed successfully!');
-          controller.enqueue(encodeSse('success', 'passed'));
-        } else {
-          log(`[ERROR] Verification exited with non-zero code: ${exitCode}`);
-          controller.enqueue(encodeSse('failure', 'failed'));
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        log(`[ERROR] Process execution crashed: ${message}`);
-        try {
-          controller.enqueue(encodeSse('failure', 'crashed'));
-        } catch {
-          // Stream already closed.
-        }
-      } finally {
-        void activeProcess;
-        release();
-        try {
-          controller.close();
-        } catch {
-          // Stream already closed.
-        }
-      }
-    }
+  const stream = createWorkbenchRunNodeStream({
+    acquire: () => mutex.acquire(),
+    initialMessage: `[Runner] Initializing verify worker for ${body.type} "${body.id}"...`,
+    resolveCommand: (log) => commandForNode(context, body, log),
+    spawn: (command) => Bun.spawn(command, {
+      cwd: context.workspaceRoot,
+      stdout: 'pipe',
+      stderr: 'pipe'
+    }) as unknown as WorkbenchRunNodeProcess
   });
 
   return workbenchSseResponse(stream);
@@ -320,18 +309,35 @@ async function serveStaticFile(viewsDir: string, reqPath: string, startTime: num
   }
 
   try {
-    const fileContent = await fs.readFile(targetFilePath);
+    const fileContent = readWorkbenchOrdinaryFile(targetFilePath, `Workbench static file ${relative}`);
+    if (fileContent === null) {
+      logWorkbenchHttp('GET', reqPath, 404, 'Not Found', Date.now() - startTime, WORKBENCH_COLORS.yellow);
+      return new Response('Not Found', {
+        status: 404,
+        headers: new Headers(WORKBENCH_SECURITY_HEADERS)
+      });
+    }
     const headers = new Headers(WORKBENCH_SECURITY_HEADERS);
     headers.set('Content-Type', CONTENT_TYPES[path.extname(filePath)] ?? 'text/html');
     headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     logWorkbenchHttp('GET', reqPath, 200, 'OK', Date.now() - startTime, WORKBENCH_COLORS.green);
     return new Response(fileContent, { headers });
-  } catch {
-    logWorkbenchHttp('GET', reqPath, 404, 'Not Found', Date.now() - startTime, WORKBENCH_COLORS.yellow);
-    return new Response('Not Found', {
-      status: 404,
-      headers: new Headers(WORKBENCH_SECURITY_HEADERS)
-    });
+  } catch (error) {
+    if (
+      error instanceof PhysicalNoFollowError &&
+      (
+        error.code === 'PHYSICAL_NO_FOLLOW_UNSAFE_PATH' ||
+        error.code === 'PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED'
+      )
+    ) {
+      logWorkbenchHttp('GET', reqPath, 403, 'Forbidden', Date.now() - startTime, WORKBENCH_COLORS.red);
+      return new Response('Forbidden', {
+        status: 403,
+        headers: new Headers(WORKBENCH_SECURITY_HEADERS)
+      });
+    }
+    logWorkbenchHttp('GET', reqPath, 500, 'Internal Error', Date.now() - startTime, WORKBENCH_COLORS.red);
+    return workbenchErrorResponse(error instanceof Error ? error.message : String(error), 500);
   }
 }
 
@@ -355,9 +361,17 @@ function wrapHandler(handler: RouteHandler): RouteHandler {
       );
       return response;
     } catch (error) {
+      const status = errorStatus(error);
       const message = error instanceof Error ? error.message : String(error);
-      logWorkbenchHttp(context.method, context.reqPath, 500, 'Internal Error', Date.now() - context.startTime, WORKBENCH_COLORS.red);
-      return workbenchErrorResponse(message, 500);
+      logWorkbenchHttp(
+        context.method,
+        context.reqPath,
+        status,
+        status >= 500 ? 'Internal Error' : 'Rejected',
+        Date.now() - context.startTime,
+        status >= 500 ? WORKBENCH_COLORS.red : WORKBENCH_COLORS.yellow
+      );
+      return workbenchErrorResponse(message, status);
     }
   };
 }
@@ -376,12 +390,22 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
   ];
 
   const server = serve({
+    hostname: '127.0.0.1',
     port,
     async fetch(req) {
       const startTime = Date.now();
       const url = new URL(req.url);
       const reqPath = url.pathname;
       const method = req.method;
+
+      if (!isCanonicalWorkbenchHost(url)) {
+        logWorkbenchHttp(method, reqPath, 421, 'Misdirected Request', Date.now() - startTime, WORKBENCH_COLORS.red);
+        return workbenchErrorResponse('Workbench only accepts canonical loopback Host names', 421);
+      }
+      if (!sameOriginOrNonBrowser(req)) {
+        logWorkbenchHttp(method, reqPath, 403, 'Forbidden', Date.now() - startTime, WORKBENCH_COLORS.red);
+        return workbenchErrorResponse('Cross-origin Workbench requests are forbidden', 403);
+      }
 
       if (method === 'OPTIONS') {
         const response = new Response(null, {
@@ -411,7 +435,14 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
       }
 
       if (reqPath === '/api/run-node' && method === 'POST') {
-        return handleRunNodeSse(context, mutex);
+        try {
+          return await handleRunNodeSse(context, mutex);
+        } catch (error) {
+          return workbenchErrorResponse(
+            error instanceof Error ? error.message : String(error),
+            errorStatus(error)
+          );
+        }
       }
 
       for (const route of routes) {
@@ -426,7 +457,7 @@ export async function startWorkbenchServer(workspaceRoot: string, port: number):
 
   const actualPort = server.port ?? port;
   defaultLogger.info('Workbench server listening', {
-    url: `http://localhost:${actualPort}`,
+    url: `http://127.0.0.1:${actualPort}`,
     viewsDir
   });
   logWorkbenchMutex(`Workbench server serving ${viewsDir}`);

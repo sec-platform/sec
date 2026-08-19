@@ -1,8 +1,12 @@
 import { compileWorkspace } from './pipeline-orchestrator.ts';
 
+type CompileWorkspaceOperation = typeof compileWorkspace;
+
 export interface CompileStreamContext {
   workspaceRoot: string;
   acquire: () => Promise<() => void>;
+  /** Mechanical execution seam for focused cancellation tests; production uses compileWorkspace. */
+  compile?: CompileWorkspaceOperation;
 }
 
 const WORKBENCH_COMPILE_HEARTBEAT_MS = 5_000;
@@ -12,14 +16,8 @@ function encodeSse(event: string, data: string): Uint8Array {
 }
 
 export function createWorkbenchCompileStream(context: CompileStreamContext): ReadableStream<Uint8Array> {
-  let release: (() => void) | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
-  let released = false;
-  const releaseOnce = (): void => {
-    if (released) return;
-    released = true;
-    release?.();
-  };
+  let cancelled = false;
   const stopHeartbeat = (): void => {
     if (!heartbeat) return;
     clearInterval(heartbeat);
@@ -28,12 +26,19 @@ export function createWorkbenchCompileStream(context: CompileStreamContext): Rea
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
-      release = await context.acquire();
+      const release = await context.acquire();
+      if (cancelled) {
+        release();
+        return;
+      }
+
       const emit = (event: string, data: string): void => {
+        if (cancelled) return;
         try {
           controller.enqueue(encodeSse(event, data));
         } catch {
-          // Stream already closed.
+          cancelled = true;
+          stopHeartbeat();
         }
       };
       const log = (message: string): void => emit('log', message);
@@ -41,7 +46,8 @@ export function createWorkbenchCompileStream(context: CompileStreamContext): Rea
 
       try {
         log('Starting canonical compilation pipeline...');
-        const result = await compileWorkspace(context.workspaceRoot, {
+        const execute = context.compile ?? compileWorkspace;
+        const result = await execute(context.workspaceRoot, {
           source: 'workbench',
           applyWorkbenchMutations: true,
           verificationLane: 'all',
@@ -55,17 +61,26 @@ export function createWorkbenchCompileStream(context: CompileStreamContext): Rea
         emit('failure', message);
       } finally {
         stopHeartbeat();
-        releaseOnce();
-        try {
-          controller.close();
-        } catch {
-          // Stream already closed.
+        // Client cancellation only ends the subscription. compileWorkspace has
+        // no caller AbortSignal contract, so the Workbench execution mutex must
+        // remain held until the real pipeline operation settles.
+        release();
+        if (!cancelled) {
+          try {
+            controller.close();
+          } catch {
+            // Stream already closed.
+          }
         }
       }
     },
     cancel() {
+      cancelled = true;
       stopHeartbeat();
-      releaseOnce();
+      // Do not release the mutex here. If execution has started, release would
+      // falsely advertise terminal state while compileWorkspace is still live.
+      // If cancellation happened while waiting, start() releases immediately
+      // after acquisition without starting compilation.
     }
   });
 }

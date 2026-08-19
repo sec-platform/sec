@@ -1,18 +1,32 @@
+import path from 'node:path';
+
+import YAML from 'yaml';
+import { z } from 'zod';
+
+import { isCanonicalBlockId } from '../../shared/block-identity.ts';
+import { canonicalEquals } from '../../shared/canonical-primitives.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
-import { listFilesRecursive, pathExists } from '../../shared/fs.ts';
 import {
   getWorkspacePaths,
   officialPoliciesRelativePath,
   posixPath,
   relativePosixPath
 } from '../../shared/paths.ts';
+import {
+  inspectExactNoFollowDirectoryPresenceV1,
+  scanNoFollowDirectoryTreeMetadataV1
+} from '../../shared/physical-no-follow.ts';
+import { isCanonicalPolicyId } from '../../shared/policy-identity.ts';
 import type {
   PolicyRule,
   PolicySourceFileReport,
   PolicySourceScope,
   PolicySpec
 } from '../../shared/policy-types.ts';
-import { readYaml } from '../../shared/yaml.ts';
+import {
+  decodeExactUtf8V1,
+  readOptionalRetainedOrdinaryFileV1
+} from '../../shared/retained-file-read.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 
 export interface LoadedPolicyDefinition {
@@ -35,11 +49,64 @@ export interface LoadedPolicyDeclarations {
   policyIds: string[];
 }
 
-function normalizePolicies(spec: PolicySpec | null | undefined): PolicySpec {
-  return {
-    policies: spec?.policies ?? []
-  };
+export const POLICY_SOURCE_INVENTORY_MAX_ENTRIES = 4096;
+export const POLICY_SOURCE_INVENTORY_TIMEOUT_MS = 5000;
+const POLICY_RULE = 'tenant_context_must_flow_to_query' as const;
+
+const policyRuleSchema = z.object({
+  id: z.string().refine(isCanonicalPolicyId, 'Policy id must be one canonical lowercase token'),
+  severity: z.enum(['info', 'warn', 'error', 'blocker']),
+  appliesTo: z.array(z.string()).min(1),
+  rule: z.literal(POLICY_RULE)
+}).strict().superRefine((policy, context) => {
+  for (let index = 0; index < policy.appliesTo.length; index += 1) {
+    const blockId = policy.appliesTo[index]!;
+    if (!isCanonicalBlockId(blockId)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['appliesTo', index],
+        message: 'Policy appliesTo entries must be canonical Block IDs'
+      });
+    }
+  }
+  if (!canonicalEquals(policy.appliesTo, uniqueSorted(policy.appliesTo))) {
+    context.addIssue({
+      code: 'custom',
+      path: ['appliesTo'],
+      message: 'Policy appliesTo entries must be unique and canonically ordered'
+    });
+  }
+});
+
+function canonicalPolicyValue(policy: z.output<typeof policyRuleSchema>): string {
+  return JSON.stringify({
+    id: policy.id,
+    severity: policy.severity,
+    appliesTo: policy.appliesTo,
+    rule: policy.rule
+  });
 }
+
+const policySpecSchema = z.object({
+  policies: z.array(policyRuleSchema)
+}).strict().superRefine((spec, context) => {
+  // Canonical-equal duplicate declarations carry no additional semantics; only
+  // conflicting duplicates (same id with a differing canonical value) are rejected.
+  const seen = new Map<string, string>();
+  for (let index = 0; index < spec.policies.length; index += 1) {
+    const policy = spec.policies[index]!;
+    const canonical = canonicalPolicyValue(policy);
+    const previous = seen.get(policy.id);
+    if (previous !== undefined && previous !== canonical) {
+      context.addIssue({
+        code: 'custom',
+        path: ['policies', index, 'id'],
+        message: `Conflicting duplicate policy id in one source: ${policy.id}`
+      });
+    }
+    seen.set(policy.id, canonical);
+  }
+});
 
 function withinScopePath(
   scope: PolicySourceScope,
@@ -58,21 +125,62 @@ function isPolicySpecPath(filePath: string): boolean {
   return normalized.endsWith('.yaml') || normalized.endsWith('.yml');
 }
 
-async function loadPolicyScope(
+function inventoryPolicyFiles(rootPath: string): string[] {
+  const presence = inspectExactNoFollowDirectoryPresenceV1(rootPath, 'Policy source root');
+  if (presence.state === 'absent') return [];
+
+  const entries = scanNoFollowDirectoryTreeMetadataV1(presence.directory.target, {
+    deadlineAtMs: performance.now() + POLICY_SOURCE_INVENTORY_TIMEOUT_MS,
+    maximumEntries: POLICY_SOURCE_INVENTORY_MAX_ENTRIES
+  });
+  const linked = entries.find((entry) => entry.kind === 'link');
+  if (linked) {
+    throw new Error(`Policy source inventory contains an unsupported link/reparse entry: ${linked.relativePath}`);
+  }
+
+  return entries
+    .filter((entry) => entry.kind === 'file' && isPolicySpecPath(entry.relativePath))
+    .map((entry) => path.join(rootPath, ...entry.relativePath.split('/')))
+    .sort((left, right) => compareCodeUnits(posixPath(left), posixPath(right)));
+}
+
+function readPolicySpec(filePath: string, normalizedPath: string): PolicySpec {
+  const bytes = readOptionalRetainedOrdinaryFileV1(filePath, `Policy source ${normalizedPath}`);
+  if (bytes === null) {
+    throw new Error(`Policy source disappeared after inventory: ${normalizedPath}`);
+  }
+  const source = decodeExactUtf8V1(bytes, `Policy source ${normalizedPath}`);
+  let parsed: unknown;
+  try {
+    parsed = YAML.parse(source) as unknown;
+  } catch (error) {
+    throw new Error(`Policy source is not valid YAML: ${normalizedPath}`, { cause: error });
+  }
+  const result = policySpecSchema.safeParse(parsed);
+  if (!result.success) {
+    const details = result.error.issues
+      .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
+      .join('; ');
+    throw new Error(`Policy source violates the exact schema: ${normalizedPath}: ${details}`);
+  }
+
+  return {
+    policies: [...new Map(result.data.policies.map((policy) => [policy.id, policy])).values()]
+      .map((policy) => ({
+        id: policy.id,
+        severity: policy.severity,
+        appliesTo: [...policy.appliesTo],
+        rule: policy.rule
+      }))
+  };
+}
+
+function loadPolicyScope(
   scope: PolicySourceScope,
   rootPath: string,
   sourcePrefix?: string
-): Promise<LoadedPolicyScope> {
-  if (!(await pathExists(rootPath))) {
-    return {
-      policies: [],
-      sources: [],
-      definitions: []
-    };
-  }
-
-  const files = (await listFilesRecursive(rootPath))
-    .filter((filePath) => isPolicySpecPath(filePath))
+): LoadedPolicyScope {
+  const files = inventoryPolicyFiles(rootPath)
     .map((filePath) => ({
       absolutePath: filePath,
       normalizedPath: withinScopePath(scope, rootPath, filePath, sourcePrefix)
@@ -84,22 +192,15 @@ async function loadPolicyScope(
   const definitions: LoadedPolicyDefinition[] = [];
 
   for (const file of files) {
-    const spec = normalizePolicies(await readYaml<PolicySpec>(file.absolutePath));
+    const spec = readPolicySpec(file.absolutePath, file.normalizedPath);
     const policyIds = uniqueSorted(spec.policies.map((policy) => policy.id));
 
     for (const policy of spec.policies) {
       declaredPolicyIds.add(policy.id);
-      definitions.push({
-        policy,
-        sourceScope: scope,
-        sourcePath: file.normalizedPath
-      });
+      definitions.push({ policy, sourceScope: scope, sourcePath: file.normalizedPath });
     }
 
-    sources.push({
-      path: file.normalizedPath,
-      policyIds
-    });
+    sources.push({ path: file.normalizedPath, policyIds });
   }
 
   return {
@@ -109,11 +210,13 @@ async function loadPolicyScope(
   };
 }
 
-function mergePolicyScopes(scopes: readonly LoadedPolicyScope[]): LoadedPolicyScope {
+function mergePolicyScopes(scopesLowToHighPrecedence: readonly LoadedPolicyScope[]): LoadedPolicyScope {
   return {
-    policies: uniqueSorted(scopes.flatMap((scope) => scope.policies)),
-    sources: scopes.flatMap((scope) => scope.sources).sort((left, right) => compareCodeUnits(left.path, right.path)),
-    definitions: scopes.flatMap((scope) => scope.definitions)
+    policies: uniqueSorted(scopesLowToHighPrecedence.flatMap((scope) => scope.policies)),
+    sources: scopesLowToHighPrecedence
+      .flatMap((scope) => scope.sources)
+      .sort((left, right) => compareCodeUnits(left.path, right.path)),
+    definitions: scopesLowToHighPrecedence.flatMap((scope) => scope.definitions)
   };
 }
 
@@ -122,26 +225,26 @@ function mergePolicies(
   project: LoadedPolicyScope
 ): Map<string, LoadedPolicyDefinition> {
   const merged = new Map<string, LoadedPolicyDefinition>();
-
   for (const definition of [...official.definitions, ...project.definitions]) {
     merged.set(definition.policy.id, definition);
   }
-
   return merged;
 }
 
-export async function loadPolicyDeclarations(workspaceRoot: string): Promise<LoadedPolicyDeclarations> {
+/** Retained Policy source observation is synchronous; callers must not fake I/O fanout with Promise wrappers. */
+export function loadPolicyDeclarations(workspaceRoot: string): LoadedPolicyDeclarations {
   const {
     officialPoliciesRoot,
     projectPoliciesRoot,
     sourcePoliciesRoot,
     legacySourcePoliciesRoot
   } = getWorkspacePaths(workspaceRoot);
-  const official = await loadPolicyScope('official', officialPoliciesRoot);
+  const official = loadPolicyScope('official', officialPoliciesRoot);
+
   const project = mergePolicyScopes([
-    await loadPolicyScope('project', projectPoliciesRoot, 'project/policies'),
-    await loadPolicyScope('project', sourcePoliciesRoot, 'source/model/policies'),
-    await loadPolicyScope('project', legacySourcePoliciesRoot, 'project/source/policies')
+    loadPolicyScope('project', legacySourcePoliciesRoot, 'project/source/policies'),
+    loadPolicyScope('project', projectPoliciesRoot, 'project/policies'),
+    loadPolicyScope('project', sourcePoliciesRoot, 'source/model/policies')
   ]);
   const definitions = mergePolicies(official, project);
   const policies = [...definitions.values()]

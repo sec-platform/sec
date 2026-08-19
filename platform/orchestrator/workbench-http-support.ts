@@ -32,20 +32,24 @@ export const WORKBENCH_COLORS = {
   reset: '\x1b[0m'
 } as const;
 
+/**
+ * Workbench is same-origin and loopback-only. CORS headers are deliberately
+ * absent: a random web origin must not be granted browser access to local
+ * source mutation or process-execution endpoints.
+ */
 export const WORKBENCH_SECURITY_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
-  'Referrer-Policy': 'strict-origin-when-cross-origin'
+  'Referrer-Policy': 'no-referrer',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Cross-Origin-Opener-Policy': 'same-origin'
 };
 
 const SSE_HEADERS: Record<string, string> = {
+  ...WORKBENCH_SECURITY_HEADERS,
   'Content-Type': 'text/event-stream',
   'Cache-Control': 'no-cache',
-  Connection: 'keep-alive',
-  'Access-Control-Allow-Origin': '*'
+  Connection: 'keep-alive'
 };
 
 export function logWorkbenchMutex(message: string): void {

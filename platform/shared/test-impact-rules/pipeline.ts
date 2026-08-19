@@ -3,18 +3,16 @@ import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
 export const pipelineTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'windows-browser-launch-path',
-    identity: { kind: 'architecture-owner', id: 'windows-browser-launch-path' },
-    autoReferenceMode: 'declared-only',
-    sourceFiles: [
+    identity: { kind: 'architecture-owner', id: 'windows-browser-launch-path' },    sourceFiles: [
       'platform/compiler/verify/windows-browser-launch-path.ts'
     ],
-    fast: [
+    supplementalFast: [
       'tests/contract/test-architecture.test.ts',
       'tests/contract/test-impact.test.ts',
       'tests/unit/runtime-verification.test.ts',
       'tests/unit/windows-browser-launch-path.test.ts'
     ],
-    slow: [
+    supplementalSlow: [
       'tests/e2e/runtime-host.test.ts'
     ]
   },
@@ -28,14 +26,14 @@ export const pipelineTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'platform/shared/pipeline-kernel.ts',
       'platform/shared/pipeline-semantic-context.ts'
     ],
-    fast: [
+    supplementalFast: [
       'tests/unit/pipeline-pass-registry.test.ts',
       'tests/integration/pipeline-kernel.test.ts',
       'tests/integration/semantic-pipeline-spine.test.ts',
       'tests/integration/pipeline-workspace-write-lease.test.ts',
       'tests/contract/test-impact.test.ts'
     ],
-    slow: [
+    supplementalSlow: [
       'tests/e2e/pipeline.test.ts',
       'tests/e2e/end-to-end.test.ts'
     ]
@@ -54,7 +52,7 @@ export const pipelineTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'platform/orchestrator/repair-orchestrator.ts',
       'platform/orchestrator/workspace-orchestrator.ts'
     ],
-    fast: [
+    supplementalFast: [
       'tests/integration/pipeline-kernel.test.ts',
       'tests/integration/semantic-pipeline-spine.test.ts',
       'tests/integration/pipeline-workspace-write-lease.test.ts',
@@ -62,7 +60,7 @@ export const pipelineTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'tests/unit/runtime-verification.test.ts',
       'tests/contract/semantic-mutation-apply-contract.test.ts'
     ],
-    slow: [
+    supplementalSlow: [
       'tests/e2e/pipeline.test.ts',
       'tests/e2e/end-to-end.test.ts'
     ]
@@ -76,12 +74,12 @@ export const pipelineTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'platform/orchestrator/workbench-orchestrator.ts',
       'platform/orchestrator/workbench-server-v2.ts'
     ],
-    fast: [
+    supplementalFast: [
       'tests/unit/workbench-server.test.ts',
       'tests/integration/workbench-pipeline.test.ts',
       'tests/integration/workbench-writer-lease.test.ts'
     ],
-    slow: []
+    supplementalSlow: []
   },
   {
     owner: 'upgrade-pipeline',
@@ -90,11 +88,11 @@ export const pipelineTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'platform/orchestrator/upgrade-orchestrator.ts',
       'platform/upgrade/upgrade-workspace.ts'
     ],
-    fast: [
+    supplementalFast: [
       'tests/integration/upgrade-pipeline-kernel.test.ts',
       'tests/unit/upgrade-summary.test.ts'
     ],
-    slow: [
+    supplementalSlow: [
       'tests/e2e/upgrade.test.ts',
       'tests/e2e/dry-run-plan.test.ts'
     ]

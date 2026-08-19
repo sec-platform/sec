@@ -1,4 +1,5 @@
 import path from 'node:path';
+import YAML from 'yaml';
 
 import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
@@ -19,9 +20,8 @@ import {
   type SemanticContractState,
   type SemanticContractTransition
 } from '../../shared/semantic-contract-types.ts';
-import { readYaml } from '../../shared/yaml.ts';
 import { compareCodeUnits, stableById } from '../ir/ir-canonical-primitives.ts';
-import { resolveManifestResource } from './load-manifest.ts';
+import { readManifestResourceFileUtf8 } from './read-manifest-resource.ts';
 
 function assertId(value: string | undefined, context: string): asserts value is string {
   if (!value?.trim()) {
@@ -326,11 +326,17 @@ export async function loadSemanticContractsForManifestEntry(entry: ManifestEntry
     }
     seenPaths.add(reference.path);
 
-    const { path: absolutePath } = await resolveManifestResource(entry, reference.path);
-    const contract = normalizeSemanticContract(await readYaml<SemanticContract>(absolutePath));
+    const source = readManifestResourceFileUtf8(entry, reference.path);
+    if (source === null) {
+      throw new CompilerError(
+        'CONTRACT-SEMANTIC-015',
+        `Manifest "${entry.manifest.id}" contract resource "${reference.path}" is absent`
+      );
+    }
+    const contract = normalizeSemanticContract(YAML.parse(source.raw) as SemanticContract);
     loaded.push({
       blockId: entry.manifest.id,
-      contractPath: stableContractPath(entry, absolutePath),
+      contractPath: stableContractPath(entry, source.path),
       contract
     });
   }

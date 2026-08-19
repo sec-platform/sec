@@ -156,6 +156,7 @@ export type SecMarkdownSurfaceKind =
   | 'evidence'
   | 'historical'
   | 'verification-fixture'
+  | 'public-projection'
   | 'repository-content';
 
 export type SecMarkdownSkillCoverage = {
@@ -228,6 +229,11 @@ export function resolveSecMarkdownSkillCoverage(path: string): SecMarkdownSkillC
   if (/^docs\/(?:archive|superpowers)\//u.test(path)
     || /^docs\/scripts\/SEC_docs_v5_replacement\//u.test(path)) {
     return { kind: 'historical', skills: [] };
+  }
+  if (/^public-docs\/[^/]+\.md$/u.test(path)) {
+    // Public documentation is a zh-CN projection bound to canonical sources by
+    // public-docs/manifest.json; it holds no authority and routes no Skill.
+    return { kind: 'public-projection', skills: [] };
   }
   if (!/^docs\//u.test(path)) return null;
 

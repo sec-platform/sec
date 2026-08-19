@@ -1,9 +1,19 @@
-import { expect, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
 import {
   buildCiVerificationActionPlanClosureV1,
   CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2,
@@ -19,20 +29,44 @@ import {
 import {
   createBranchLifecycleGitChildEnvironmentV1
 } from '../../scripts/codex/branch-lifecycle-command.ts';
+import { createRuntimeStateJournalFileSystemV1 } from '../../tooling/sec-dev/runtime-state-journal-filesystem.ts';
+import { resolveSecWorkspaceRuntimeRootsV1 } from '../../tooling/sec-dev/runtime-state.ts';
 import {
-  appendVerificationActionJournalEventV2,
-  readVerificationActionJournalV2
-} from '../../scripts/codex/verification-action-journal.ts';
+  appendVerificationActionJournalEventV2 as appendJournalEvent,
+  readVerificationActionJournalV2 as readJournal
+} from '../../tooling/sec-dev/verification-action-journal.ts';
 import {
   executeLocalVerificationActionDagV2,
   VerificationActionRunnerV2
-} from '../../scripts/codex/verification-action-runner.ts';
+} from '../../tooling/sec-dev/verification-action-runner.ts';
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}` as const;
 const BASE_SHA = '1'.repeat(40);
 const BASE_TREE_SHA = '2'.repeat(40);
 const HEAD_SHA = '3'.repeat(40);
 const HEAD_TREE_SHA = '4'.repeat(40);
+const PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS = 30_000;
+
+function journalFs(repositoryRoot: string) {
+  const root = resolveSecWorkspaceRuntimeRootsV1({ repositoryRoot }).workspaceStateRoot;
+  return createRuntimeStateJournalFileSystemV1(
+    inspectNoFollowDirectoryChainV1(root, 'VerificationAction runner test journal root').target
+  );
+}
+
+function readVerificationActionJournalV2(
+  repositoryRoot: string,
+  actionKey: Parameters<typeof readJournal>[1]
+) {
+  return readJournal(journalFs(repositoryRoot), actionKey);
+}
+
+function appendVerificationActionJournalEventV2(
+  input: Omit<Parameters<typeof appendJournalEvent>[0], 'fs'> & { repositoryRoot: string }
+) {
+  const { repositoryRoot, ...event } = input;
+  return appendJournalEvent({ ...event, fs: journalFs(repositoryRoot) });
+}
 
 function createAction(
   kind: string,
@@ -118,8 +152,19 @@ function cheapPlan(key: ReturnType<typeof preflightAction>) {
   });
 }
 
+const runtimeRoots = new Set<string>();
+
+afterEach(() => {
+  for (const runtimeRoot of runtimeRoots) rmSync(runtimeRoot, { recursive: true, force: true });
+  runtimeRoots.clear();
+});
+
 function root(): string {
-  return mkdtempSync(path.join(tmpdir(), 'sec-action-runner-v2-'));
+  const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'sec-action-runner-v2-'));
+  const workspaceStateRoot = resolveSecWorkspaceRuntimeRootsV1({ repositoryRoot }).workspaceStateRoot;
+  mkdirSync(workspaceStateRoot, { recursive: true });
+  runtimeRoots.add(workspaceStateRoot);
+  return repositoryRoot;
 }
 
 function git(cwd: string, args: readonly string[]): string {
@@ -128,6 +173,30 @@ function git(cwd: string, args: readonly string[]): string {
     throw new Error(`git ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
   }
   return (result.stdout ?? '').trim();
+}
+
+function inspectRepository(repositoryRoot: string) {
+  const read = (args: readonly string[]) => {
+    const result = spawnSync('git', args, {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      env: createBranchLifecycleGitChildEnvironmentV1(process.env),
+      windowsHide: true
+    });
+    if (result.status !== 0) throw new Error(String(result.stderr || result.stdout));
+    return String(result.stdout).trim();
+  };
+  return {
+    headSha: read(['rev-parse', 'HEAD']),
+    headTreeSha: read(['rev-parse', 'HEAD^{tree}']),
+    trackedClean:
+      read(['diff', '--name-only', '--ignore-cr-at-eol']) === ''
+      && read(['diff', '--cached', '--name-only', '--ignore-cr-at-eol']) === ''
+      && read(['ls-files', '--others', '--exclude-standard']) === '',
+    gitCommonDirectory: realpathSync.native(read([
+      'rev-parse', '--path-format=absolute', '--git-common-dir'
+    ]))
+  };
 }
 
 test('concurrent callers in different execution domains join one physical executor invocation', async () => {
@@ -171,7 +240,7 @@ test('concurrent callers in different execution domains join one physical execut
     rmSync(repositoryRoot, { recursive: true, force: true });
     rmSync(secondRepositoryRoot, { recursive: true, force: true });
   }
-});
+}, PHYSICAL_RUNTIME_AUTHORITY_TEST_TIMEOUT_MS);
 
 test('missing execution plan fails closed before any physical execution', async () => {
   const repositoryRoot = root();
@@ -544,17 +613,20 @@ test('input invalidation discards an in-flight physical result', async () => {
     const runner = new VerificationActionRunnerV2();
     const key = action('invalidated-action');
     let release!: () => void;
+    let markStarted!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
     const running = runner.execute({
       repositoryRoot,
       action: key,
       plan: runnablePlan(key, repositoryRoot),
       executor: async () => {
+        markStarted();
         await held;
         return { status: 'passed' as const, reasonCode: 'executed-success' as const, resultDigest: null };
       }
     });
-    await Promise.resolve();
+    await started;
     const invalidated = runner.invalidateIfDependent({
       repositoryRoot,
       action: key,
@@ -785,6 +857,7 @@ test('local quick DAG binds the intended detached worktree under hostile ambient
         candidateRoot,
         actionPlanClosure: fixture.closure,
         executionEnvironment: fixture.environment,
+        inspectRepository,
         executeNormalizedOperation: () => 0
       });
       expect(result.status).toBe('passed');
@@ -794,6 +867,7 @@ test('local quick DAG binds the intended detached worktree under hostile ambient
         candidateRoot,
         actionPlanClosure: fixture.closure,
         executionEnvironment: fixture.environment,
+        inspectRepository,
         executeNormalizedOperation: () => 0
       })).rejects.toThrow('exact clean candidate head and tree');
       for (const [indexPath, before] of [

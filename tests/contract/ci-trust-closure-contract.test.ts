@@ -1,0 +1,341 @@
+import { expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
+import { parse as parseYaml } from 'yaml';
+
+import {
+  assertCiExpectedHead,
+  buildCiContract,
+  buildCiFullGatePlan,
+  buildCiQuickGatePlan,
+  CI_MAIN_HEALTH_COMMANDS,
+  CI_MAIN_HEALTH_JOB_ID,
+  CI_MAIN_HEALTH_JOB_NAME,
+  CI_MAIN_HEALTH_STEP_ORDER,
+  CodexDevelopmentBuildVerificationPlanV1
+} from '../../platform/shared/ci-contract.ts';
+import {
+  CI_MAIN_HEALTH_POLICY_DIGEST_V1,
+  CI_MAIN_HEALTH_POLICY_V1,
+  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_DIGEST_V1,
+  CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1,
+  createCiMainHealthRequestOperationIdV1
+} from '../../platform/shared/ci-verification-revision.ts';
+import { TCB_TRUST_ROOT_V3 } from '../../platform/shared/tcb-closure-lock.ts';
+import { matchSecTrustedBootstrapPathV3 } from '../../platform/shared/tcb-trust-root-contract.ts';
+import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
+
+type WorkflowStep = Readonly<{
+  name: string;
+  id?: string;
+  if?: string;
+  uses?: string;
+  run?: string;
+  'working-directory'?: string;
+  env?: Readonly<Record<string, string | number>>;
+  with?: Readonly<Record<string, unknown>>;
+}>;
+
+type Workflow = Readonly<{
+  on: Readonly<{
+    push?: Readonly<{ branches?: readonly string[] }>;
+    repository_dispatch?: Readonly<{ types?: readonly string[] }>;
+    workflow_run?: Readonly<{ workflows?: readonly string[]; types?: readonly string[] }>;
+  }>;
+  env?: Readonly<Record<string, string | number>>;
+  permissions?: Readonly<Record<string, string>>;
+  concurrency?: Readonly<{ group?: string; 'cancel-in-progress'?: boolean; queue?: string }>;
+  jobs: Readonly<Record<string, Readonly<{
+    name?: string;
+    if?: string;
+    'runs-on'?: string | readonly string[];
+    'timeout-minutes'?: number;
+    needs?: string | readonly string[];
+    outputs?: Readonly<Record<string, string>>;
+    env?: Readonly<Record<string, string | number>>;
+    permissions?: Readonly<Record<string, string>>;
+    concurrency?: Readonly<{ group?: string; 'cancel-in-progress'?: boolean; queue?: string }>;
+    steps: readonly WorkflowStep[];
+  }>>>;
+}>;
+
+function step(workflow: Workflow, job: string, name: string): WorkflowStep {
+  const found = workflow.jobs[job]?.steps.find((candidate) => candidate.name === name);
+  if (!found) throw new Error(`Missing workflow step ${job}/${name}.`);
+  return found;
+}
+
+test('Quick and Full plan topology remains deterministic behind the Action normalizer', () => {
+  expect(buildCiQuickGatePlan({ includeImports: true, includeDocs: true, includeRisk: true }).map(({ id }) => id))
+    .toEqual(['imports', 'docs-doctor', 'typecheck', 'affected-tests', 'impact-risk']);
+  expect(buildCiFullGatePlan().map(({ id }) => id)).toEqual([
+    'imports', 'typecheck', 'docs-doctor', 'affected-tests', 'full-fast', 'test-budget', 'contract-freeze',
+    'all-slow-risk', 'benchmark-task-suite', 'deps-warmup', 'resolve', 'compose', 'adapt', 'verify-all',
+    'lock', 'explain', 'reference-check'
+  ]);
+  expect(CodexDevelopmentBuildVerificationPlanV1('full', [], undefined).gates.map(({ id }) => id))
+    .not.toContain('docs-doctor');
+  expect(CodexDevelopmentBuildVerificationPlanV1('full', null, undefined).gates.map(({ id }) => id))
+    .toContain('docs-doctor');
+  expect(() => assertCiExpectedHead('head-a', undefined)).toThrow('requires an exact expected head SHA');
+  expect(() => assertCiExpectedHead('head-a', 'head-b')).toThrow('expected head-b, actual head-a');
+  expect(() => assertCiExpectedHead('head-a', 'head-a')).not.toThrow();
+});
+
+test('exact-main health policy binds one stable GitHub Actions app and terminal context', async () => {
+  expect(CI_MAIN_HEALTH_POLICY_V1).toEqual({
+    schema: 'sec-ci-main-health-policy-v6',
+    policyRevision: 'sec-ci-main-health-policy-v6',
+    context: 'sec/main-health',
+    app: { id: 15368, nodeId: 'MDM6QXBwMTUzNjg=', slug: 'github-actions' },
+    producer: {
+      identity: 'platform/shared/default-branch-revision-health.ts',
+      sourceTransport: 'github-api',
+      workflowPath: '.github/workflows/compiler-pr-validation.yml',
+      workflowRefFormat: '.github/workflows/compiler-pr-validation.yml@<exact-main-sha>',
+      eventNames: ['repository_dispatch'],
+      runTitleFormats: {
+        repositoryDispatch: 'SEC main health <exact-main-sha> operation <request-operation-id>',
+        requestOperationId: 'sha256:<64-lowercase-hex>',
+        requestSchema: 'sec-produce-main-health-request-v1',
+        requestOperationIdentity: 'sha256-json-exact-main-v1'
+      },
+      branch: 'main'
+    },
+    terminal: {
+      status: 'completed',
+      conclusion: 'success',
+      recognizedConclusions: [
+        'success', 'failure', 'cancelled', 'skipped', 'timed_out',
+        'action_required', 'neutral', 'stale', 'startup_failure'
+      ]
+    },
+    convergence: {
+      eventCardinality: 'at-most-one-per-allowed-event',
+      terminalOutcomeIdentity: 'status-conclusion',
+      failureFingerprintIdentity: 'policy-context-head-status-conclusion',
+      sourceDigestIdentity: 'policy-and-canonical-matching-subset',
+      ambiguousDisposition: 'locked'
+    },
+    degraded: {
+      owner: 'ci-verification-maintainer',
+      repairIdentityPolicy: 'exact-main-tree-failure-v1',
+      allowedLanes: ['repair']
+    },
+    locked: { allowedLanes: [] }
+  });
+  expect(createCiMainHealthRequestOperationIdV1('93dde9e44bbcffdd7fa1d6be726df1725947f6e2'))
+    .toBe('sha256:1062f573e4a315b308f46c6abd9a82815fdaa97a3b2171f0cb8b806467473a78');
+  expect(CI_MAIN_HEALTH_POLICY_DIGEST_V1).toMatch(/^sha256:[0-9a-f]{64}$/);
+  expect(CI_MAIN_HEALTH_JOB_ID).toBe('main-health');
+  expect(CI_MAIN_HEALTH_JOB_NAME).toBe('sec/main-health');
+  expect(CI_MAIN_HEALTH_STEP_ORDER).toHaveLength(9);
+  expect(CI_MAIN_HEALTH_COMMANDS).toEqual([
+    'bun install --frozen-lockfile',
+    'bun run imports:check',
+    'bun run typecheck',
+    'bun run docs:doctor',
+    'bun run test:fast'
+  ]);
+  const contract = buildCiContract();
+  expect(contract.mainHealthContext).toBe(CI_MAIN_HEALTH_JOB_NAME);
+  expect(contract.mainHealthPolicyDigest).toBe(CI_MAIN_HEALTH_POLICY_DIGEST_V1);
+  expect(contract.mainHealthStepOrder).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
+  expect(contract.mainHealthCommands).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
+  const workflow = parseYaml(await readCompilerFile('.github/workflows/compiler-pr-validation.yml')) as Workflow;
+  const job = workflow.jobs[CI_MAIN_HEALTH_JOB_ID]!;
+  expect(job.name).toBe(CI_MAIN_HEALTH_JOB_NAME);
+  expect(job.if).toBe("${{ github.event_name == 'repository_dispatch' && github.event.action == 'sec-produce-main-health-v1' }}");
+  expect(job.concurrency).toEqual({
+    group: 'sec-main-health-${{ github.event.client_payload.payload.mainSha }}',
+    'cancel-in-progress': false,
+    queue: 'max'
+  });
+  expect(job.steps.map((step) => step.name)).toEqual([...CI_MAIN_HEALTH_STEP_ORDER]);
+  expect(job.steps.map((step) => step.id)).toEqual([
+    undefined, 'checkout-main', 'setup-bun', 'cache-bun', 'install', 'imports-check', 'typecheck',
+    'docs-doctor', 'test-fast'
+  ]);
+  expect(job.steps.filter((step) => step.run).map((step) => step.run)).toEqual([...CI_MAIN_HEALTH_COMMANDS]);
+  expect((workflow.on as Record<string, unknown>).push).toBeUndefined();
+  expect(job.steps[0]?.if).toBe("${{ github.event_name == 'repository_dispatch' }}");
+  expect(job.steps[1]?.with).toMatchObject({
+    ref: '${{ github.event.client_payload.payload.mainSha }}',
+    'persist-credentials': false
+  });
+  expect(job.steps[2]?.with).toMatchObject({ 'bun-version-file': '.bun-version' });
+  expect(job.steps[3]?.uses).toBe('actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830');
+});
+
+
+test('trusted base candidate root bootstrap checker is disjoint and candidate remains data', async () => {
+  const source = await readCompilerFile('.github/workflows/sec-trusted-bootstrap.yml');
+  const workflow = parseYaml(source) as Workflow;
+  expect(workflow.jobs.resolve?.outputs).toMatchObject({
+    base: '${{ steps.resolve.outputs.base }}',
+    'base-tree': '${{ steps.resolve.outputs.base-tree }}',
+    head: '${{ steps.resolve.outputs.head }}',
+    tree: '${{ steps.resolve.outputs.tree }}',
+    manifest: '${{ steps.resolve.outputs.manifest }}',
+    'registry-digest': '${{ steps.resolve.outputs.registry-digest }}',
+    'bun-version': '${{ steps.resolve.outputs.bun-version }}'
+  });
+  expect(workflow.jobs['checker-pre']?.needs).toBe('resolve');
+  expect(workflow.jobs['candidate-sut']?.needs).toEqual(['resolve', 'checker-pre']);
+  expect(workflow.jobs['checker-post']?.needs).toEqual(['resolve', 'checker-pre', 'candidate-sut']);
+  expect(workflow.jobs['checker-post']?.if).toBe("${{ always() && needs.resolve.result == 'success' }}");
+  expect(workflow.jobs['checker-post']?.if).not.toContain('needs.checker-pre.result');
+  const preTrustedCheckout = step(workflow, 'checker-pre', 'Checkout exact trusted base checker');
+  const preCandidateCheckout = step(workflow, 'checker-pre', 'Checkout exact candidate as data');
+  expect(preTrustedCheckout.with).toMatchObject({
+    ref: '${{ needs.resolve.outputs.base }}',
+    path: 'trusted-base',
+    'fetch-depth': 1,
+    'persist-credentials': false
+  });
+  expect(preCandidateCheckout.with).toMatchObject({
+    ref: '${{ needs.resolve.outputs.head }}',
+    path: 'candidate-data',
+    'fetch-depth': 2,
+    'persist-credentials': false
+  });
+  const preSteps = workflow.jobs['checker-pre']?.steps ?? [];
+  expect(preSteps.map((step) => step.name)).toEqual([
+    'Checkout exact trusted base checker',
+    'Checkout exact candidate as data',
+    'Preflight exact trusted-base checkout',
+    'Setup trusted-base Bun runtime',
+    'Install trusted-base checker dependencies without lifecycle scripts',
+    'Produce trusted-base PRE candidate-root receipt',
+    'Upload bounded checker PRE artifact'
+  ]);
+  const preflight = step(workflow, 'checker-pre', 'Preflight exact trusted-base checkout');
+  expect(preflight.env).toEqual({
+    TRUSTED_BASE_ROOT: '${{ github.workspace }}/trusted-base',
+    SEC_BOOTSTRAP_BASE: '${{ needs.resolve.outputs.base }}',
+    SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}'
+  });
+  const pre = step(workflow, 'checker-pre', 'Produce trusted-base PRE candidate-root receipt');
+  expect(pre.env).toMatchObject({
+    BOOTSTRAP_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}',
+    SEC_BOOTSTRAP_BASE: '${{ needs.resolve.outputs.base }}',
+    SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}'
+  });
+  const r2ChangedPaths = [
+    '.github/workflows/sec-trusted-bootstrap.yml',
+    'docs/work-packages/trusted-bootstrap-base-first-repair-v1.md',
+    'docs/work-packages/verification-action-kernel-finalization-v1.md',
+    'docs/work/active-work-package.md',
+    'docs/work/rolling-plan.md',
+    'platform/shared/tcb-closure-lock.ts',
+    'tests/contract/ci-contract.test.ts',
+    'tests/contract/documentation-authority.test.ts',
+    'tests/contract/tcb-closure-lock.test.ts'
+  ];
+  expect(r2ChangedPaths
+    .filter((repositoryPath) =>
+      matchSecTrustedBootstrapPathV3(repositoryPath, TCB_TRUST_ROOT_V3) !== null
+    )
+    .sort()).toEqual([
+    '.github/workflows/sec-trusted-bootstrap.yml',
+    'platform/shared/tcb-closure-lock.ts'
+  ]);
+  const sutSteps = workflow.jobs['candidate-sut']?.steps ?? [];
+  expect(sutSteps.some((step) => step.name === 'Checkout exact trusted base checker')).toBe(false);
+  expect(sutSteps.some((step) => step.uses?.includes('download-artifact'))).toBe(false);
+  expect(step(workflow, 'candidate-sut', 'Checkout exact trusted base sandbox owner').with)
+    .toMatchObject({
+      ref: '${{ needs.resolve.outputs.base }}',
+      'fetch-depth': 0,
+      'persist-credentials': false
+    });
+  expect(step(workflow, 'candidate-sut', 'Checkout exact candidate SUT only').with)
+    .toMatchObject({ path: 'candidate-sut', 'persist-credentials': false });
+  expect(step(workflow, 'candidate-sut', 'Restore exact-base dependency download cache').with)
+    .toMatchObject({
+      path: '/tmp/sec-hosted-dependency-home/.bun/install/cache',
+      key: "${{ runner.os }}-trusted-bootstrap-bun-${{ hashFiles('bun.lock') }}"
+    });
+  expect(step(workflow, 'candidate-sut', 'Run candidate SUT through trusted private sandbox').env)
+    .toMatchObject({
+      SUT_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}'
+    });
+  expect(sutSteps.some((candidate) =>
+    candidate.name === 'Install candidate SUT dependencies without lifecycle scripts')).toBe(false);
+  const postSteps = workflow.jobs['checker-post']?.steps ?? [];
+  expect(postSteps.map((step) => step.name)).toEqual([
+    'Initialize fail-closed final evidence envelope',
+    'Checkout exact trusted base reducer',
+    'Checkout exact candidate as POST data',
+    'Preflight exact trusted-base checkout',
+    'Setup trusted-base Bun runtime for reducer',
+    'Install trusted-base reducer dependencies without lifecycle scripts',
+    'Download bounded checker PRE artifact',
+    'Download bounded candidate SUT artifact',
+    'Recompute POST and reduce exact bootstrap evidence',
+    'Upload final canonical trusted bootstrap evidence'
+  ]);
+  const postPreflight = step(workflow, 'checker-post', 'Preflight exact trusted-base checkout');
+  expect(postPreflight.env).toEqual(preflight.env);
+  const initialize = step(workflow, 'checker-post', 'Initialize fail-closed final evidence envelope');
+  expect(initialize.env).toMatchObject({
+    FINAL_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}',
+    SEC_BOOTSTRAP_BASE: '${{ needs.resolve.outputs.base }}',
+    SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}',
+    SEC_BOOTSTRAP_HEAD: '${{ needs.resolve.outputs.head }}',
+    SEC_BOOTSTRAP_TREE: '${{ needs.resolve.outputs.tree }}',
+    SEC_BOOTSTRAP_RUN_ID: '${{ github.run_id }}',
+    SEC_BOOTSTRAP_RUN_ATTEMPT: '${{ github.run_attempt }}'
+  });
+  expect(postSteps.some((step) => step.name === 'Install candidate SUT dependencies without lifecycle scripts'))
+    .toBe(false);
+  const post = step(workflow, 'checker-post', 'Recompute POST and reduce exact bootstrap evidence');
+  expect(post.env).toMatchObject({
+    BOOTSTRAP_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}',
+    SUT_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}',
+    FINAL_EVIDENCE_ROOT: '${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}',
+    SEC_BOOTSTRAP_BASE_TREE: '${{ needs.resolve.outputs.base-tree }}',
+    SEC_BOOTSTRAP_RUN_ID: '${{ github.run_id }}',
+    SEC_BOOTSTRAP_RUN_ATTEMPT: '${{ github.run_attempt }}'
+  });
+  const preArtifactName = 'sec-trusted-bootstrap-pre-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}';
+  const sutArtifactName = 'sec-trusted-bootstrap-sut-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}';
+  const preArtifactRoot = '${{ runner.temp }}/sec-trusted-bootstrap-pre-${{ github.run_id }}-${{ github.run_attempt }}';
+  const sutArtifactRoot = '${{ runner.temp }}/sec-trusted-bootstrap-sut-${{ github.run_id }}-${{ github.run_attempt }}';
+  const finalArtifactRoot = '${{ runner.temp }}/sec-trusted-bootstrap-final-${{ github.run_id }}-${{ github.run_attempt }}';
+  const preUpload = step(workflow, 'checker-pre', 'Upload bounded checker PRE artifact');
+  const preDownload = step(workflow, 'checker-post', 'Download bounded checker PRE artifact');
+  const sutUpload = step(workflow, 'candidate-sut', 'Upload bounded candidate SUT artifact');
+  const sutDownload = step(workflow, 'checker-post', 'Download bounded candidate SUT artifact');
+  expect(preUpload.with?.name).toBe(preArtifactName);
+  expect(preDownload.with?.name).toBe(preArtifactName);
+  expect(sutUpload.with?.name).toBe(sutArtifactName);
+  expect(sutDownload.with?.name).toBe(sutArtifactName);
+  expect(preUpload.with?.path).toBe(preArtifactRoot);
+  expect(preDownload.with?.path).toBe(preArtifactRoot);
+  expect(sutDownload.with?.path).toBe(sutArtifactRoot);
+  const sutUploadPath = sutUpload.with?.path;
+  if (typeof sutUploadPath !== 'string') {
+    throw new Error('trusted bootstrap SUT artifact path must be one string.');
+  }
+  expect(sutUploadPath.split('\n').filter(Boolean).every((path) => path.startsWith(`${sutArtifactRoot}/`)))
+    .toBe(true);
+  const finalUpload = step(workflow, 'checker-post', 'Upload final canonical trusted bootstrap evidence');
+  expect(finalUpload.if).toBe('always()');
+  expect(finalUpload.with?.['if-no-files-found']).toBe('error');
+  const finalUploadPath = finalUpload.with?.path;
+  if (typeof finalUploadPath !== 'string') {
+    throw new Error('trusted bootstrap final artifact path must be one string.');
+  }
+  expect(finalUploadPath.split('\n')).toEqual([
+    `${finalArtifactRoot}/final-envelope.json`,
+    `${finalArtifactRoot}/SHA256SUMS`,
+    `${finalArtifactRoot}/environment.txt`,
+    `${finalArtifactRoot}/post-receipt.json`,
+    `${finalArtifactRoot}/pre-receipt.json`,
+    `${finalArtifactRoot}/sut-diagnostic.json`,
+    ''
+  ]);
+  expect(finalUpload.with?.name).toBe(
+    'sec-trusted-bootstrap-v1-pr-${{ needs.resolve.outputs.pull-request }}-base-${{ needs.resolve.outputs.base }}-head-${{ needs.resolve.outputs.head }}-run-${{ github.run_id }}-attempt-${{ github.run_attempt }}'
+  );
+});

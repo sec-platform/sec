@@ -19,7 +19,7 @@ import {
   CodexDevelopmentWorkPackageManifestDigest
 } from '../../scripts/codex/work-package-contract.ts';
 import { expectContainsAll, expectContainsNone } from '../helpers/assertion-helpers.ts';
-import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
+import { readCompilerFile, readCompilerTextFile } from '../helpers/compiler-fixtures.ts';
 
 describe('canonical documentation authority', () => {
   test('operation owner closure derives explicit source owners and changed document projections', async () => {
@@ -260,7 +260,7 @@ describe('canonical documentation authority', () => {
     const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
     const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
     const selectedManifestId = path.posix.basename(pointer.manifest, '.md');
-    const manifestSource = await readCompilerFile(pointer.manifest);
+    const manifestSource = await readCompilerTextFile(pointer.manifest);
     const manifest = CodexDevelopmentParseWorkPackageManifest(
       manifestSource,
       pointer.manifest
@@ -394,16 +394,17 @@ describe('canonical documentation authority', () => {
     expectContainsAll(readme, [
       'Engineering Workspace Compiler',
       'Canonical 工程事实',
+      '[面向所有人的中文文档](public-docs/README.md)',
       '[产品与边界](docs/product.md)',
       '[系统架构](docs/system-architecture.md)',
       '[语义模型](docs/semantic-model.md)',
       '[编译与目标 IR](docs/compiler-target-ir.md)',
-      '[文档导航](docs/README.md)',
+      '[Canonical 文档导航](docs/README.md)',
       '[仓库开发入口](AGENTS.md)',
       'document control plane',
       'RequiredClosure ∩ MissingOrStale'
     ]);
-    expect(readme.match(/^\d+\. /gmu)).toHaveLength(5);
+    expect(readme.match(/^\d+\. /gmu)).toHaveLength(6);
     expect(readme).not.toContain('bun run sec -- <command>');
     expect(readme).not.toContain('demo:closed-loop');
     expect(readme).not.toMatch(/\b[0-9a-f]{40}\b/u);

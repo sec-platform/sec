@@ -69,6 +69,54 @@ test('exact Git blob reader binds raw LF bytes despite a CRLF checkout', () => {
   }
 });
 
+test('exact Git blob reader ignores replacement-object views', () => {
+  const repositoryRoot = initializeRepository();
+  try {
+    writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'original-bytes\n', 'utf8');
+    git(repositoryRoot, ['add', 'fixture.txt']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'original']);
+    const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    const originalBlob = git(repositoryRoot, ['rev-parse', `${commitSha}:fixture.txt`]);
+    const replacementBlob = git(repositoryRoot, ['hash-object', '-w', '--stdin'], {
+      input: 'replacement-object-view\n'
+    });
+    git(repositoryRoot, ['replace', originalBlob, replacementBlob]);
+    expect(git(repositoryRoot, ['cat-file', 'blob', originalBlob])).toContain('replacement-object-view');
+
+    const result = CodexDevelopmentReadExactGitBlobV1({
+      repositoryRoot,
+      commitSha,
+      repositoryPath: 'fixture.txt'
+    });
+    expect(new TextDecoder().decode(result.bytes)).toBe('original-bytes\n');
+  } finally {
+    rmSync(repositoryRoot, { force: true, recursive: true });
+  }
+});
+
+test('exact Git blob reader ignores ambient repository redirection', () => {
+  const repositoryRoot = initializeRepository();
+  const previousGitDir = process.env.GIT_DIR;
+  try {
+    writeFileSync(path.join(repositoryRoot, 'fixture.txt'), 'repository-subject\n', 'utf8');
+    git(repositoryRoot, ['add', 'fixture.txt']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'subject']);
+    const commitSha = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    process.env.GIT_DIR = path.join(repositoryRoot, 'nonexistent-ambient.git');
+
+    const result = CodexDevelopmentReadExactGitBlobV1({
+      repositoryRoot,
+      commitSha,
+      repositoryPath: 'fixture.txt'
+    });
+    expect(new TextDecoder().decode(result.bytes)).toBe('repository-subject\n');
+  } finally {
+    if (previousGitDir === undefined) delete process.env.GIT_DIR;
+    else process.env.GIT_DIR = previousGitDir;
+    rmSync(repositoryRoot, { force: true, recursive: true });
+  }
+});
+
 test('exact Git blob reader rejects invalid, missing, nonordinary, and oversized paths', () => {
   const repositoryRoot = initializeRepository();
   try {

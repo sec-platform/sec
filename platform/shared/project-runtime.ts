@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { FileHandle } from 'node:fs/promises';
 import fs from 'node:fs/promises';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { loadCanonicalBunRuntimeVersion } from './bun-runtime-version.ts';
 import {
@@ -53,7 +54,7 @@ import {
 
 export interface RuntimeDepsStamp {
   binding: Readonly<RuntimeDependencyMaterializationBinding>;
-  formatVersion: 'runtime-deps-stamp-v2';
+  formatVersion: 'runtime-deps-stamp-v3';
   manifestHash: string;
   packageManager: 'bun';
   installedAt: string;
@@ -99,17 +100,17 @@ interface CompilerDepsBinding {
   readonly bunExecutableSha256: string;
   readonly bunVersion: string;
   readonly declaredBunVersion: string;
-  readonly formatVersion: 'compiler-deps-binding-v3';
+  readonly dependencyManifestSha256: string;
+  readonly formatVersion: 'compiler-deps-binding-v4';
   readonly installConfigSha256: string | null;
   readonly lockSha256: string;
   readonly manifestHash: string;
-  readonly packageManifestSha256: string;
   readonly packages: readonly CompilerDependencyPackageBinding[];
   readonly platform: NodeJS.Platform;
   readonly runtimeMaterialization: Readonly<RuntimeDependencyMaterializationBinding> | null;
 }
 
-const COMPILER_DEPS_BINDING_FILE = '.sec-compiler-deps-binding-v3.json' as const;
+const COMPILER_DEPS_BINDING_FILE = '.sec-compiler-deps-binding-v4.json' as const;
 
 export interface RuntimeDependencyInstallOptions {
   beforeCommit?: CommitFence;
@@ -238,11 +239,12 @@ interface CompilerDependencyIdentity {
   bunExecutableSha256: string;
   bunVersion: string;
   declaredBunVersion: string;
+  dependencyManifestSha256: string;
   installConfigSha256: string | null;
   lockSha256: string;
   manifestHash: string;
   packageNames: string[];
-  packageManifestSha256: string;
+  packageSourceSha256: string;
   packageVersions: Record<string, string>;
   platform: NodeJS.Platform;
 }
@@ -254,6 +256,36 @@ type RuntimeExecutableIdentity = Readonly<{
 }>;
 
 let runtimeExecutableIdentityCache: RuntimeExecutableIdentity | null = null;
+
+type CompilerDependencyManifestAuthority = Readonly<{
+  declaredBunVersion: string;
+  dependencies: Record<string, string>;
+  dependencyManifestSha256: string;
+  devDependencies: Record<string, string>;
+}>;
+
+function compilerDependencyManifestAuthority(
+  packageJsonBytes: Uint8Array
+): CompilerDependencyManifestAuthority {
+  const packageJson = JSON.parse(Buffer.from(packageJsonBytes).toString('utf8')) as
+    RootPackageJson & { packageManager?: string };
+  const packageManagerMatch = /^bun@([^\s]+)$/u.exec(packageJson.packageManager ?? '');
+  if (!packageManagerMatch) {
+    throw new CompilerError('IMPORT-AUTHORITY-001', 'Root packageManager must pin one Bun version exactly');
+  }
+  const dependencies = sortedRecord(packageJson.dependencies);
+  const devDependencies = sortedRecord(packageJson.devDependencies);
+  return Object.freeze({
+    declaredBunVersion: packageManagerMatch[1]!,
+    dependencies,
+    dependencyManifestSha256: digest(JSON.stringify({
+      dependencies,
+      devDependencies,
+      packageManager: packageJson.packageManager
+    })),
+    devDependencies
+  });
+}
 
 async function currentRuntimeExecutableIdentity(refresh = false): Promise<RuntimeExecutableIdentity> {
   const executablePath = await fs.realpath(process.execPath);
@@ -298,19 +330,13 @@ async function compilerDependencyIdentity(root: string): Promise<CompilerDepende
     }),
     currentRuntimeExecutableIdentity()
   ]);
-  const packageJson = JSON.parse(packageJsonBytes.toString('utf8')) as
-    RootPackageJson & { packageManager?: string };
-  const dependencies = sortedRecord(packageJson.dependencies);
-  const devDependencies = sortedRecord(packageJson.devDependencies);
+  const manifestAuthority = compilerDependencyManifestAuthority(packageJsonBytes);
+  const { dependencies, devDependencies } = manifestAuthority;
   const canonicalBunVersion = await loadCanonicalBunRuntimeVersion(root);
-  const packageManagerMatch = /^bun@([^\s]+)$/u.exec(packageJson.packageManager ?? '');
-  if (!packageManagerMatch) {
-    throw new CompilerError('IMPORT-AUTHORITY-001', 'Root packageManager must pin one Bun version exactly');
-  }
   const runtime = {
     architecture: process.arch,
     bunVersion: process.versions.bun ?? 'unknown',
-    declaredBunVersion: packageManagerMatch[1]!,
+    declaredBunVersion: manifestAuthority.declaredBunVersion,
     platform: process.platform
   };
   if (runtime.bunVersion === 'unknown') {
@@ -324,20 +350,18 @@ async function compilerDependencyIdentity(root: string): Promise<CompilerDepende
   }
   const packageVersions = { ...dependencies, ...devDependencies };
   const lockSha256 = digest(lockfileBytes);
-  const packageManifestSha256 = digest(packageJsonBytes);
   const installConfigSha256 = installConfigBytes === null ? null : digest(installConfigBytes);
   return {
     ...runtime,
     bunExecutablePath: runtimeExecutable.path,
     bunExecutableSha256: runtimeExecutable.sha256,
+    dependencyManifestSha256: manifestAuthority.dependencyManifestSha256,
     installConfigSha256,
     lockSha256,
     manifestHash: digest(JSON.stringify({
-      dependencies,
-      devDependencies,
+      dependencyManifestSha256: manifestAuthority.dependencyManifestSha256,
       installConfigSha256,
       lockSha256,
-      packageManifestSha256,
       runtime: {
         ...runtime,
         bunExecutablePath: runtimeExecutable.path,
@@ -345,7 +369,7 @@ async function compilerDependencyIdentity(root: string): Promise<CompilerDepende
       }
     })),
     packageNames: sortedKeys(packageVersions),
-    packageManifestSha256,
+    packageSourceSha256: digest(packageJsonBytes),
     packageVersions
   };
 }
@@ -460,16 +484,16 @@ async function compilerDependencyGenerationBinding(
   identity: CompilerDependencyIdentity
 ): Promise<Readonly<CompilerDepsBinding> | null> {
   const binding = await readJson<CompilerDepsBinding>(bindingPath).catch(() => null);
-  if (binding === null || binding.formatVersion !== 'compiler-deps-binding-v3' ||
+  if (binding === null || binding.formatVersion !== 'compiler-deps-binding-v4' ||
     binding.architecture !== identity.architecture ||
     binding.bunExecutablePath !== identity.bunExecutablePath ||
     binding.bunExecutableSha256 !== identity.bunExecutableSha256 ||
     binding.bunVersion !== identity.bunVersion ||
     binding.declaredBunVersion !== identity.declaredBunVersion ||
+    binding.dependencyManifestSha256 !== identity.dependencyManifestSha256 ||
     binding.installConfigSha256 !== identity.installConfigSha256 ||
     binding.lockSha256 !== identity.lockSha256 ||
     binding.manifestHash !== identity.manifestHash ||
-    binding.packageManifestSha256 !== identity.packageManifestSha256 ||
     binding.platform !== identity.platform) return null;
   const packages = await compilerDependencyPackageBindings(nodeModulesPath, identity).catch(() => null);
   if (packages === null || !canonicalEquals(binding.packages, packages)) return null;
@@ -485,11 +509,11 @@ async function compilerDependencyGenerationBinding(
     bunExecutableSha256: identity.bunExecutableSha256,
     bunVersion: identity.bunVersion,
     declaredBunVersion: identity.declaredBunVersion,
-    formatVersion: 'compiler-deps-binding-v3',
+    dependencyManifestSha256: identity.dependencyManifestSha256,
+    formatVersion: 'compiler-deps-binding-v4',
     installConfigSha256: identity.installConfigSha256,
     lockSha256: identity.lockSha256,
     manifestHash: identity.manifestHash,
-    packageManifestSha256: identity.packageManifestSha256,
     packages,
     platform: identity.platform,
     runtimeMaterialization
@@ -518,9 +542,9 @@ async function compilerRuntimeMaterializationBinding(
       canonicalBunVersion: identity.bunVersion,
       compilerGenerationRevision: identity.manifestHash,
       declaredBunVersion: identity.declaredBunVersion,
+      dependencyManifestSha256: identity.dependencyManifestSha256,
       installConfigSha256: identity.installConfigSha256,
       lockSha256: identity.lockSha256,
-      packageManifestSha256: identity.packageManifestSha256,
       platform: identity.platform
     }
   });
@@ -717,7 +741,7 @@ async function observeRuntimeDependencyMaterializationBinding(input: Readonly<{
 }>): Promise<Readonly<RuntimeDependencyMaterializationBinding>> {
   const [
     lockfileBytes,
-    packageManifestBytes,
+    packageJsonBytes,
     installConfigBytes,
     canonicalBunVersion,
     runtimeExecutable
@@ -731,8 +755,10 @@ async function observeRuntimeDependencyMaterializationBinding(input: Readonly<{
     loadCanonicalBunRuntimeVersion(input.root),
     currentRuntimeExecutableIdentity()
   ]);
+  const dependencyManifest = compilerDependencyManifestAuthority(packageJsonBytes);
   if (digest(lockfileBytes) !== input.toolchain.lockSha256 ||
-    digest(packageManifestBytes) !== input.toolchain.packageManifestSha256 ||
+    dependencyManifest.dependencyManifestSha256 !== input.toolchain.dependencyManifestSha256 ||
+    dependencyManifest.declaredBunVersion !== input.toolchain.declaredBunVersion ||
     (installConfigBytes === null ? null : digest(installConfigBytes)) !== input.toolchain.installConfigSha256 ||
     runtimeExecutable.path !== input.toolchain.bunExecutablePath ||
     runtimeExecutable.sha256 !== input.toolchain.bunExecutableSha256 ||
@@ -1001,7 +1027,7 @@ export async function readRuntimeDepsStamp(stampPath: string): Promise<RuntimeDe
     const value = JSON.parse(stampText) as unknown;
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const stamp = value as Partial<RuntimeDepsStamp>;
-    if (stamp.formatVersion !== 'runtime-deps-stamp-v2' ||
+    if (stamp.formatVersion !== 'runtime-deps-stamp-v3' ||
       stamp.packageManager !== 'bun' ||
       typeof stamp.manifestHash !== 'string' ||
       typeof stamp.installedAt !== 'string' ||
@@ -1017,7 +1043,7 @@ export async function readRuntimeDepsStamp(stampPath: string): Promise<RuntimeDe
     });
     const canonical: RuntimeDepsStamp = {
       binding,
-      formatVersion: 'runtime-deps-stamp-v2',
+      formatVersion: 'runtime-deps-stamp-v3',
       installedAt: stamp.installedAt,
       manifestHash: stamp.manifestHash,
       packageManager: 'bun'
@@ -1035,12 +1061,12 @@ export async function writeRuntimeDepsStamp(
 ): Promise<void> {
   const canonical: RuntimeDepsStamp = {
     binding: stamp.binding,
-    formatVersion: 'runtime-deps-stamp-v2',
+    formatVersion: 'runtime-deps-stamp-v3',
     installedAt: stamp.installedAt,
     manifestHash: stamp.manifestHash,
     packageManager: 'bun'
   };
-  if (stamp.formatVersion !== 'runtime-deps-stamp-v2' ||
+  if (stamp.formatVersion !== 'runtime-deps-stamp-v3' ||
     stamp.packageManager !== 'bun' ||
     stamp.binding.manifestHash !== stamp.manifestHash ||
     !isRuntimeDependencyMaterializationBinding(stamp.binding) ||
@@ -1205,43 +1231,129 @@ async function assertNoSharedDependencyAuthorityResidue(sharedDepsRoot: string):
   }
 }
 
-async function copyRuntimePackageTree(
-  source: string,
-  target: string,
-  commitFence?: CommitFence
+type PhysicalTreeCopyRoot = Readonly<{ source: string; target: string }>;
+type PhysicalTreeEntryIdentity = Readonly<{
+  dev: string;
+  ino: string;
+  mode: string;
+  mtimeNs: string;
+  size: string;
+}>;
+type PhysicalTreeDirectorySnapshot = Readonly<
+  PhysicalTreeCopyRoot & { identity: PhysicalTreeEntryIdentity; names: readonly string[] }
+>;
+type PhysicalTreeFileSnapshot = Readonly<PhysicalTreeCopyRoot & { identity: PhysicalTreeEntryIdentity }>;
+
+function physicalTreeEntryIdentity(
+  metadata: Awaited<ReturnType<typeof fs.lstat>>
+): PhysicalTreeEntryIdentity {
+  const value = metadata as unknown as {
+    dev: bigint;
+    ino: bigint;
+    mode: bigint;
+    mtimeNs: bigint;
+    size: bigint;
+  };
+  return Object.freeze({
+    dev: String(value.dev),
+    ino: String(value.ino),
+    mode: String(value.mode),
+    mtimeNs: String(value.mtimeNs),
+    size: String(value.size)
+  });
+}
+
+function samePhysicalTreeEntryIdentity(
+  left: PhysicalTreeEntryIdentity,
+  right: PhysicalTreeEntryIdentity
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino && left.mode === right.mode &&
+    left.mtimeNs === right.mtimeNs && left.size === right.size;
+}
+
+async function settleBoundedPhysicalTreeTasks(
+  tasks: readonly (() => Promise<void>)[]
 ): Promise<void> {
-  const visit = async (sourceDirectory: string, targetDirectory: string): Promise<void> => {
-    const before = await fs.lstat(sourceDirectory, { bigint: true });
-    if (!before.isDirectory() || before.isSymbolicLink()) {
-      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency source contains a reparse entry');
-    }
-    await ensureDir(targetDirectory, commitFence);
-    const names = (await fs.readdir(sourceDirectory)).sort(compareCodeUnits);
+  const { createConcurrencyLimit } = await import('./concurrency.ts');
+  const limit = createConcurrencyLimit(Math.max(1, Math.min(availableParallelism(), 16)));
+  const settled = await Promise.allSettled(tasks.map((task) => limit(task)));
+  const rejected = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (rejected !== undefined) throw rejected.reason;
+}
+
+async function copyPhysicalTrees(input: Readonly<{
+  commitFence?: CommitFence;
+  invalidSource: (detail: 'changed' | 'reparse' | 'special') => Error;
+  roots: readonly PhysicalTreeCopyRoot[];
+  skipNestedNodeModules?: boolean;
+}>): Promise<void> {
+  const directories: PhysicalTreeDirectorySnapshot[] = [];
+  const files: PhysicalTreeFileSnapshot[] = [];
+  const visit = async (root: PhysicalTreeCopyRoot): Promise<void> => {
+    const metadata = await fs.lstat(root.source, { bigint: true });
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw input.invalidSource('reparse');
+    const names = (await fs.readdir(root.source)).sort(compareCodeUnits);
+    directories.push(Object.freeze({
+      ...root,
+      identity: physicalTreeEntryIdentity(metadata),
+      names: Object.freeze(names)
+    }));
     for (const name of names) {
-      if (name === 'node_modules') continue;
-      const sourceChild = path.join(sourceDirectory, name);
-      const targetChild = path.join(targetDirectory, name);
-      const metadata = await fs.lstat(sourceChild);
-      if (metadata.isSymbolicLink()) {
-        throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency source contains a reparse entry');
-      }
-      if (metadata.isDirectory()) {
-        await visit(sourceChild, targetChild);
-      } else if (metadata.isFile()) {
-        await commitFence?.();
-        await fs.copyFile(sourceChild, targetChild);
+      if (input.skipNestedNodeModules === true && name === 'node_modules') continue;
+      const child = {
+        source: path.join(root.source, name),
+        target: path.join(root.target, name)
+      };
+      const childMetadata = await fs.lstat(child.source, { bigint: true });
+      if (childMetadata.isSymbolicLink()) throw input.invalidSource('reparse');
+      if (childMetadata.isDirectory()) {
+        await visit(child);
+      } else if (childMetadata.isFile()) {
+        files.push(Object.freeze({
+          ...child,
+          identity: physicalTreeEntryIdentity(childMetadata)
+        }));
       } else {
-        throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency source contains a special entry');
+        throw input.invalidSource('special');
       }
-    }
-    const after = await fs.lstat(sourceDirectory, { bigint: true });
-    const namesAfter = (await fs.readdir(sourceDirectory)).sort(compareCodeUnits);
-    if (before.dev !== after.dev || before.ino !== after.ino || before.mode !== after.mode ||
-      JSON.stringify(namesAfter) !== JSON.stringify(names)) {
-      throw new CompilerError('RUNTIME-DEPS-002', 'Runtime dependency source changed during projection');
     }
   };
-  await visit(source, target);
+
+  for (const root of input.roots) await visit(root);
+  await settleBoundedPhysicalTreeTasks(directories.map((directory) => async () => {
+    await ensureDir(directory.target, input.commitFence);
+    const target = await fs.lstat(directory.target);
+    if (!target.isDirectory() || target.isSymbolicLink()) throw input.invalidSource('reparse');
+  }));
+  await settleBoundedPhysicalTreeTasks(files.map((file) => async () => {
+    await input.commitFence?.();
+    const before = await fs.lstat(file.source, { bigint: true });
+    if (!before.isFile() || before.isSymbolicLink() ||
+      !samePhysicalTreeEntryIdentity(file.identity, physicalTreeEntryIdentity(before))) {
+      throw input.invalidSource('changed');
+    }
+    await fs.copyFile(file.source, file.target);
+    const [after, target] = await Promise.all([
+      fs.lstat(file.source, { bigint: true }),
+      fs.lstat(file.target, { bigint: true })
+    ]);
+    if (!after.isFile() || after.isSymbolicLink() || !target.isFile() || target.isSymbolicLink() ||
+      !samePhysicalTreeEntryIdentity(file.identity, physicalTreeEntryIdentity(after)) ||
+      after.size !== target.size) {
+      throw input.invalidSource('changed');
+    }
+  }));
+  await settleBoundedPhysicalTreeTasks(directories.map((directory) => async () => {
+    const [after, namesAfter] = await Promise.all([
+      fs.lstat(directory.source, { bigint: true }),
+      fs.readdir(directory.source).then((names) => names.sort(compareCodeUnits))
+    ]);
+    if (!after.isDirectory() || after.isSymbolicLink() ||
+      !samePhysicalTreeEntryIdentity(directory.identity, physicalTreeEntryIdentity(after)) ||
+      JSON.stringify(namesAfter) !== JSON.stringify(directory.names)) {
+      throw input.invalidSource('changed');
+    }
+  }));
 }
 
 async function stageRuntimeDependencyProjection(input: Readonly<{
@@ -1255,13 +1367,20 @@ async function stageRuntimeDependencyProjection(input: Readonly<{
   const nodeModulesPath = path.join(stagingRoot, 'node_modules');
   try {
     await ensureDir(nodeModulesPath, input.commitFence);
-    for (const packageIdentity of input.binding.packages) {
-      await copyRuntimePackageTree(
-        path.join(input.sourceNodeModulesPath, ...packageIdentity.relativePath.split('/')),
-        path.join(nodeModulesPath, ...packageIdentity.relativePath.split('/')),
-        input.commitFence
-      );
-    }
+    await copyPhysicalTrees({
+      commitFence: input.commitFence,
+      invalidSource: (detail) => new CompilerError(
+        'RUNTIME-DEPS-002',
+        detail === 'changed'
+          ? 'Runtime dependency source changed during projection'
+          : `Runtime dependency source contains a ${detail} entry`
+      ),
+      roots: input.binding.packages.map((packageIdentity) => ({
+        source: path.join(input.sourceNodeModulesPath, ...packageIdentity.relativePath.split('/')),
+        target: path.join(nodeModulesPath, ...packageIdentity.relativePath.split('/'))
+      })),
+      skipNestedNodeModules: true
+    });
     return { nodeModulesPath, root: stagingRoot };
   } catch (error) {
     await fs.rm(stagingRoot, { force: true, recursive: true }).catch(() => undefined);
@@ -1403,7 +1522,11 @@ async function reclaimOrphanInstallLock(lockPath: string): Promise<boolean> {
     try {
       reclaimHandle = await fs.open(reclaimPath, 'wx');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST' ||
+          (process.platform === 'win32' && (code === 'EACCES' || code === 'EPERM'))) {
+        return false;
+      }
       throw error;
     }
 
@@ -1428,6 +1551,20 @@ async function reclaimOrphanInstallLock(lockPath: string): Promise<boolean> {
   }
 }
 
+async function reclaimLockIsActive(reclaimPath: string): Promise<boolean> {
+  try {
+    await fs.lstat(reclaimPath);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return false;
+    if (process.platform === 'win32' && (code === 'EACCES' || code === 'EPERM')) {
+      return true;
+    }
+    throw error;
+  }
+}
+
 async function withInstallLock<T>(
   lockPath: string,
   options: RuntimeDependencyInstallOptions,
@@ -1445,7 +1582,7 @@ async function withInstallLock<T>(
     let handle: FileHandle | null = null;
 
     try {
-      if (await pathExists(`${lockPath}.reclaim`)) {
+      if (await reclaimLockIsActive(`${lockPath}.reclaim`)) {
         await sleep(pollIntervalMs);
         continue;
       }
@@ -2094,30 +2231,6 @@ export async function ensurePlaywrightBrowserCacheReady(
   });
 }
 
-async function copyPhysicalDependencyTree(
-  source: string,
-  target: string,
-  commitFence?: CommitFence
-): Promise<void> {
-  const metadata = await fs.lstat(source);
-  if (metadata.isSymbolicLink()) {
-    throw new CompilerError('RUNTIME-DEPS-004', 'Preinstalled dependency tree contains a reparse entry');
-  }
-  if (metadata.isDirectory()) {
-    await ensureDir(target, commitFence);
-    const entries = await fs.readdir(source);
-    for (const name of entries.sort((left, right) => compareCodeUnits(left, right))) {
-      await copyPhysicalDependencyTree(path.join(source, name), path.join(target, name), commitFence);
-    }
-    return;
-  }
-  if (!metadata.isFile()) {
-    throw new CompilerError('RUNTIME-DEPS-004', 'Preinstalled dependency tree contains a special entry');
-  }
-  await commitFence?.();
-  await fs.copyFile(source, target);
-}
-
 async function materializeIsolatedNodeModules(
   source: string,
   target: string,
@@ -2125,7 +2238,16 @@ async function materializeIsolatedNodeModules(
 ): Promise<void> {
   await commitFence?.();
   await fs.rm(target, { recursive: true, force: true });
-  await copyPhysicalDependencyTree(source, target, commitFence);
+  await copyPhysicalTrees({
+    commitFence,
+    invalidSource: (detail) => new CompilerError(
+      'RUNTIME-DEPS-004',
+      detail === 'changed'
+        ? 'Preinstalled dependency tree changed during materialization'
+        : `Preinstalled dependency tree contains a ${detail} entry`
+    ),
+    roots: [{ source, target }]
+  });
 }
 
 async function dependencyBridgeTargets(
@@ -2190,9 +2312,9 @@ async function stageCompilerDependencyGeneration(
       fs.readFile(stagedPackagePath),
       fs.readFile(stagedLockPath)
     ]);
-    if (digest(sourcePackageBytes) !== identity.packageManifestSha256 ||
+    if (digest(sourcePackageBytes) !== identity.packageSourceSha256 ||
       digest(sourceLockBytes) !== identity.lockSha256 ||
-      digest(stagedPackageBytes) !== identity.packageManifestSha256 ||
+      digest(stagedPackageBytes) !== identity.packageSourceSha256 ||
       digest(stagedLockBytes) !== identity.lockSha256) {
       throw new CompilerError('IMPORT-AUTHORITY-001', 'Compiler dependency inputs changed before staging');
     }
@@ -2228,11 +2350,11 @@ async function stageCompilerDependencyGeneration(
       bunExecutableSha256: identity.bunExecutableSha256,
       bunVersion: identity.bunVersion,
       declaredBunVersion: identity.declaredBunVersion,
-      formatVersion: 'compiler-deps-binding-v3',
+      dependencyManifestSha256: identity.dependencyManifestSha256,
+      formatVersion: 'compiler-deps-binding-v4',
       installConfigSha256: identity.installConfigSha256,
       lockSha256: identity.lockSha256,
       manifestHash: identity.manifestHash,
-      packageManifestSha256: identity.packageManifestSha256,
       packages,
       platform: identity.platform,
       runtimeMaterialization
@@ -2571,7 +2693,7 @@ export async function ensureSharedDepsReady(
     });
     await writeRuntimeDepsStamp(sharedStampPath, {
       binding,
-      formatVersion: 'runtime-deps-stamp-v2',
+      formatVersion: 'runtime-deps-stamp-v3',
       manifestHash: runtimeSpec.manifestHash,
       packageManager: 'bun',
       installedAt: (options.now ?? (() => new Date().toISOString()))()
@@ -2685,6 +2807,10 @@ export async function ensureProjectDependencies(
     return;
   }
 
+  // Minimal workspace templates intentionally defer the project scaffold; the
+  // dependency bridge is still a physical surface this operation owns, so its
+  // parent directory must exist before materialization.
+  await ensureDir(projectRoot, options.beforeCommit);
   if (await pathExists(nodeModulesPath)) {
     await options.beforeCommit?.();
     await fs.rm(nodeModulesPath, { recursive: true, force: true });
@@ -2702,7 +2828,7 @@ export async function ensureProjectDependencies(
     }
     await writeRuntimeDepsStamp(stampPath, {
       binding,
-      formatVersion: 'runtime-deps-stamp-v2',
+      formatVersion: 'runtime-deps-stamp-v3',
       manifestHash: runtimeSpec.manifestHash,
       packageManager: 'bun',
       installedAt: (options.now ?? (() => new Date().toISOString()))()
@@ -2717,7 +2843,7 @@ export async function ensureProjectDependencies(
   }
   await writeRuntimeDepsStamp(stampPath, {
     binding,
-    formatVersion: 'runtime-deps-stamp-v2',
+    formatVersion: 'runtime-deps-stamp-v3',
     manifestHash: runtimeSpec.manifestHash,
     packageManager: 'bun',
     installedAt: (options.now ?? (() => new Date().toISOString()))()

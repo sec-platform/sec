@@ -6,7 +6,8 @@ import {
   createMainHealthRepairWorkPackagePathV1,
   createMainHealthRevisionV1,
   parseMainHealthLedgerV1,
-  resolveMainHealthLaneV1,
+  resolveOrdinaryMainHealthLaneV1,
+  resolveRepairMainHealthLaneV1,
   type MainHealthLedgerInputV1,
   type MainHealthSemanticInputV1
 } from '../../platform/shared/main-health-contract.ts';
@@ -86,9 +87,8 @@ test('healthy live exact-main ledger round-trips and exact expiry is allowed', (
   const ledger = createMainHealthLedgerV1(healthyInput());
   expect(ledger.schema).toBe(MAIN_HEALTH_LEDGER_SCHEMA_V1);
   expect(parseMainHealthLedgerV1(JSON.stringify(ledger))).toEqual(ledger);
-  const exact = resolveMainHealthLaneV1({
+  const exact = resolveOrdinaryMainHealthLaneV1({
     ledger,
-    lane: 'ordinary',
     now: ledger.expiresAt,
     expectedRepository: ledger.repository,
     expectedDefaultBranch: ledger.defaultBranch,
@@ -100,8 +100,8 @@ test('healthy live exact-main ledger round-trips and exact expiry is allowed', (
     status: 'healthy', allowed: true,
     observationValidity: 'valid', reasonCode: 'lane-eligible'
   });
-  expect(resolveMainHealthLaneV1({
-    ledger, lane: 'ordinary', now: '2026-08-09T01:00:00.001Z',
+  expect(resolveOrdinaryMainHealthLaneV1({
+    ledger, now: '2026-08-09T01:00:00.001Z',
     expectedRepository: ledger.repository, expectedDefaultBranch: ledger.defaultBranch,
     expectedMainSha: ledger.mainSha, expectedMainTreeSha: ledger.mainTreeSha,
     expectedTrustRevision: ledger.trustRevision
@@ -115,7 +115,6 @@ test('MainHealth live main/tree/trust/lane drift locks fail closed', () => {
   const ledger = createMainHealthLedgerV1(healthyInput());
   const base = {
     ledger,
-    lane: 'ordinary' as const,
     now: '2026-08-09T00:30:00.000Z',
     expectedRepository: 'sec-platform/sec',
     expectedDefaultBranch: 'main',
@@ -128,19 +127,20 @@ test('MainHealth live main/tree/trust/lane drift locks fail closed', () => {
     { ...base, expectedDefaultBranch: 'trunk' },
     { ...base, expectedMainSha: SHA_B },
     { ...base, expectedMainTreeSha: TREE_B },
-    { ...base, expectedTrustRevision: SHA_B },
-    { ...base, lane: 'repair' as const }
+    { ...base, expectedTrustRevision: SHA_B }
   ];
   for (const candidate of cases) {
-    const result = resolveMainHealthLaneV1(candidate);
+    const result = resolveOrdinaryMainHealthLaneV1(candidate);
     expect(result).toMatchObject({ status: 'locked', allowed: false });
-    expect(result.observationValidity).toBe(candidate.lane === 'repair' ? 'valid' : 'invalid');
-    expect(result.reasonCode).toBe(candidate.lane === 'repair'
-      ? 'lane-ineligible'
-      : 'ledger-identity-drift');
+    expect(result.observationValidity).toBe('invalid');
+    expect(result.reasonCode).toBe('ledger-identity-drift');
   }
+  expect(resolveRepairMainHealthLaneV1(base)).toMatchObject({
+    status: 'locked', allowed: false,
+    observationValidity: 'valid', reasonCode: 'lane-ineligible'
+  });
   for (const unknown of [null, { schema: 'unknown' }, { ...ledger, extra: true }]) {
-    expect(resolveMainHealthLaneV1({ ...base, ledger: unknown })).toMatchObject({
+    expect(resolveOrdinaryMainHealthLaneV1({ ...base, ledger: unknown })).toMatchObject({
       status: 'locked', allowed: false,
       observationValidity: 'invalid', reasonCode: 'invalid-ledger'
     });
@@ -151,7 +151,6 @@ test('valid degraded lane denial is distinct from expired or identity-drifted ob
   const ledger = createMainHealthLedgerV1(degradedInput());
   const input = {
     ledger,
-    lane: 'ordinary' as const,
     now: '2026-08-09T00:30:00.000Z',
     expectedRepository: ledger.repository,
     expectedDefaultBranch: ledger.defaultBranch,
@@ -159,17 +158,17 @@ test('valid degraded lane denial is distinct from expired or identity-drifted ob
     expectedMainTreeSha: ledger.mainTreeSha,
     expectedTrustRevision: ledger.trustRevision
   };
-  expect(resolveMainHealthLaneV1(input)).toMatchObject({
+  expect(resolveOrdinaryMainHealthLaneV1(input)).toMatchObject({
     status: 'locked', allowed: false,
     observationValidity: 'valid', reasonCode: 'lane-ineligible'
   });
-  expect(resolveMainHealthLaneV1({
+  expect(resolveOrdinaryMainHealthLaneV1({
     ...input, now: '2026-08-09T01:00:00.001Z'
   })).toMatchObject({
     status: 'locked', allowed: false,
     observationValidity: 'invalid', reasonCode: 'ledger-expired'
   });
-  expect(resolveMainHealthLaneV1({
+  expect(resolveOrdinaryMainHealthLaneV1({
     ...input, expectedMainSha: SHA_B
   })).toMatchObject({
     status: 'locked', allowed: false,

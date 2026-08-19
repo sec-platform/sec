@@ -305,6 +305,11 @@ test('aggregate assertion accepts the current aggregate writer output', () => {
 test('strict verification-data boundary accepts JSON data and rejects executable or exotic views', () => {
   const jsonData = JSON.parse('{"alpha":1,"nested":["value",null,true]}') as unknown;
   expect(CodexDevelopmentSnapshotVerificationDataV1(jsonData)).toEqual(jsonData);
+  const frozenData = Object.freeze({
+    alpha: 1,
+    nested: Object.freeze(['value', null, true])
+  });
+  expect(CodexDevelopmentSnapshotVerificationDataV1(frozenData)).toEqual(jsonData);
   expect(CodexDevelopmentVerificationDataEqualV1(
     { alpha: 1, nested: ['value', null, true] },
     { nested: ['value', null, true], alpha: 1 }

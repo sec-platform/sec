@@ -1,4 +1,5 @@
 import { compareCodeUnits, isPlainObject } from './canonical-primitives.ts';
+import { portableLogicalPathCollisionKeyV1 } from './logical-path-identity.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
 
 export const DOCUMENT_AUTHORITY_REGISTRY_SCHEMA =
@@ -143,7 +144,7 @@ function registryDocumentPath(value: unknown, label: string): string {
 }
 
 function pathIdentity(repositoryPath: string): string {
-  return repositoryPath.toLowerCase();
+  return portableLogicalPathCollisionKeyV1(repositoryPath, 'Documentation repository path');
 }
 
 function parseProposalLifecycle(

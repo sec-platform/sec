@@ -88,11 +88,11 @@ async function ensureEnvironmentDirectories(environment: NodeJS.ProcessEnv): Pro
   }
 }
 
-test('compose refreshes runtime host scaffold for an existing workspace baseline', async () => {
+test('compose refreshes runtime host scaffold for an existing reference workspace baseline', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-compose-refresh-');
   const projectRoot = path.join(workspaceRoot, 'project');
 
-  await initWorkspace(workspaceRoot, { reset: true });
+  await initWorkspace(workspaceRoot, { reset: true, template: 'reference-customer' });
   await fs.writeFile(
     path.join(projectRoot, 'package.json'),
     JSON.stringify(

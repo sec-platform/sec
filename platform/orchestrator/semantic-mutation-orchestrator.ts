@@ -1,10 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
-import {
-  executeSemanticMutationVerification,
-  planSemanticMutationVerificationCapabilities
-} from '../compiler/index.ts';
 import { buildWorkspaceSemanticBundle } from '../compiler/semantic-frontend.ts';
 import {
   atomicPublishSemanticMutationSource,
@@ -56,6 +52,10 @@ import {
   SemanticMutationIsolatedVerificationUnavailableError,
   type SemanticMutationIsolatedVerificationFailure
 } from '../compiler/verify/semantic-mutation-isolated-verification-failure.ts';
+import {
+  executeSemanticMutationVerification,
+  planSemanticMutationVerificationCapabilities
+} from '../compiler/verify/semantic-mutation-verification-adapter.ts';
 import {
   assertStagedVerificationProofBinding,
   issueStagedVerificationProof,

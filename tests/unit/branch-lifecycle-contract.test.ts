@@ -1,6 +1,4 @@
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 
 import { projectBranchLifecycleForWorkSelectionV1 } from '../../scripts/codex/branch-lifecycle-audit.ts';
 import {
@@ -20,28 +18,18 @@ import {
   type BranchCloseoutPreparation,
   type BranchLifecycleInventory
 } from '../../scripts/codex/branch-lifecycle-contract.ts';
-
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const HEAD_SHA = '2222222222222222222222222222222222222222';
 const RACE_SHA = '3333333333333333333333333333333333333333';
 const WORKTREE_REF = `sha256:${'a'.repeat(64)}` as const;
 
-test('remote branch inventory uses the canonical bounded gh credential helper', () => {
-  const source = readFileSync(path.resolve(import.meta.dir,
-    '../../scripts/codex/branch-lifecycle-inventory.ts'), 'utf8');
-  const start = source.indexOf('function listRemoteBranches(');
-  const end = source.indexOf('\nfunction listWorktrees(', start);
-  const reader = source.slice(start, end);
-  expect(start).toBeGreaterThan(0);
+test('canonical bounded GitHub credential helper is deterministic', () => {
   expect(createBranchLifecycleGitHubCredentialArgsV1()).toEqual([
     '-c', 'http.extraHeader=',
     '-c', 'http.https://github.com/.extraheader=',
     '-c', 'credential.helper=',
     '-c', 'credential.helper=!gh auth git-credential'
   ]);
-  expect(reader).toContain('...createBranchLifecycleGitHubCredentialArgsV1()');
-  expect(reader).toContain("'ls-remote', '--heads', remote");
-  expect(reader).not.toContain("['ls-remote'");
 });
 
 test('canonical Git child environment removes ambient askpass and SSH command authority', () => {
@@ -325,6 +313,47 @@ test('bounded selection lifecycle rejects a pull request targeting another branc
     prospectiveTransport: null
   });
   expect(projection.activeLegality).toBe('invalid');
+});
+
+test('bounded selection lifecycle binds transport identity without treating a branch prefix as authority', () => {
+  const projection = projectBranchLifecycleForWorkSelectionV1({
+    exactMain: MAIN_SHA,
+    defaultBranch: 'main',
+    localRefs: [],
+    remoteRefs: [{ branch: 'integration/legacy', sha: HEAD_SHA }],
+    worktrees: [],
+    openPullRequests: [{
+      number: 42,
+      headBranch: 'integration/legacy',
+      headSha: HEAD_SHA,
+      baseBranch: 'main',
+      baseSha: MAIN_SHA
+    }],
+    prospectiveTransport: null
+  });
+  expect(projection).toMatchObject({
+    activeState: 'incomplete',
+    activeBranch: 'integration/legacy',
+    activeHeadSha: HEAD_SHA,
+    activeLegality: 'legal',
+    closeoutState: 'none'
+  });
+});
+
+test('bounded selection lifecycle rejects the default branch as a prospective transport', () => {
+  expect(() => projectBranchLifecycleForWorkSelectionV1({
+    exactMain: MAIN_SHA,
+    defaultBranch: 'main',
+    localRefs: [{ branch: 'main', sha: MAIN_SHA }],
+    remoteRefs: [],
+    worktrees: [{ worktreeRef: WORKTREE_REF, branch: 'main', headSha: MAIN_SHA }],
+    openPullRequests: [],
+    prospectiveTransport: {
+      branch: 'main',
+      headSha: MAIN_SHA,
+      worktreeRef: WORKTREE_REF
+    }
+  })).toThrow('cannot reuse the canonical default branch');
 });
 
 test('bounded selection lifecycle rejects a self-asserted prospective transport', () => {

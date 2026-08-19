@@ -11,7 +11,7 @@ import {
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 
 export async function prepareTicketSemanticRuntime(workspaceRoot: string) {
-  await initWorkspace(workspaceRoot, { reset: true });
+  await initWorkspace(workspaceRoot, { reset: true, template: 'reference-customer' });
   await addBlock(workspaceRoot, 'ticket/basic');
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
   const compilation = await compileWorkspace(workspaceRoot, { from: 'semantic', through: 'compose' });

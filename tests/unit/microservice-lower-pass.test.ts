@@ -1,8 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { lowerToMicroservices } from '../../platform/compiler/compose/microservice-lower-pass.ts';
+
+import type {
+  MicroserviceDeploymentIntent,
+  MicroserviceDeploymentRenderer
+} from '../../platform/compiler/compose/microservice-deployment-contract.ts';
+import { DEFAULT_MICROSERVICE_RESILIENCE_POLICY } from '../../platform/compiler/compose/microservice-deployment-policy.ts';
+import {
+  lowerToMicroservices,
+  lowerToMicroservicesWithRenderer
+} from '../../platform/compiler/compose/microservice-lower-pass.ts';
 import type { LockFile } from '../../platform/shared/lock-types.ts';
+import { readCompilerFile } from '../helpers/compiler-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 describe('Microservice Lowering Compiler Pass', () => {
@@ -47,32 +57,27 @@ describe('Microservice Lowering Compiler Pass', () => {
 
   test('silently skips when target is not microservices', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const lock = createMockLock('monolith');
-
-      const results = await lowerToMicroservices(workspaceRoot, lock);
+      const results = await lowerToMicroservices(workspaceRoot, createMockLock('monolith'));
       expect(results).toEqual([]);
     }, 'lower-skip-');
   });
 
-  test('successfully lowers blocks into RPC Gateways, Clients, and Dockerfiles', async () => {
+  test('successfully lowers blocks into the existing default RPC, client, and Docker outputs', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
-      const lock = createMockLock('microservices');
+      const results = await lowerToMicroservices(workspaceRoot, createMockLock('microservices'));
 
-      const results = await lowerToMicroservices(workspaceRoot, lock);
-
-      // 验证返回的文件路径集合
       expect(results).toContain('app/api/rpc/ticket.basic/route.ts');
       expect(results).toContain('src/rpc-clients/ticket.basic-client.ts');
       expect(results).toContain('docker/ticket.basic/Dockerfile');
 
-      // 验证物理文件确实存在且包含期望的生成签名
       const rpcPath = path.join(workspaceRoot, 'project', 'app', 'api', 'rpc', 'ticket.basic', 'route.ts');
       const clientPath = path.join(workspaceRoot, 'project', 'src', 'rpc-clients', 'ticket.basic-client.ts');
       const dockerPath = path.join(workspaceRoot, 'project', 'docker', 'ticket.basic', 'Dockerfile');
-
-      const rpcContent = await fs.readFile(rpcPath, 'utf8');
-      const clientContent = await fs.readFile(clientPath, 'utf8');
-      const dockerContent = await fs.readFile(dockerPath, 'utf8');
+      const [rpcContent, clientContent, dockerContent] = await Promise.all([
+        fs.readFile(rpcPath, 'utf8'),
+        fs.readFile(clientPath, 'utf8'),
+        fs.readFile(dockerPath, 'utf8')
+      ]);
 
       expect(rpcContent).toContain('@generated-rpc-gateway');
       expect(rpcContent).toContain('import * as service from');
@@ -88,4 +93,179 @@ describe('Microservice Lowering Compiler Pass', () => {
       expect(dockerContent).toContain('FROM bun:1.3.14-alpine');
     }, 'lower-micro-');
   });
+
+  test('passes one provider-neutral intent batch to an alternate renderer under separate publication authority', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const observed: MicroserviceDeploymentIntent[][] = [];
+      const renderer: MicroserviceDeploymentRenderer = {
+        providerId: 'fake-runtime',
+        revision: 'test-v1',
+        async render(intents) {
+          observed.push([...intents]);
+          return intents.map((intent) => ({
+            relativePath: `generated/fake/${intent.blockId.replace('/', '-')}.txt`,
+            text: `${intent.transport}:${intent.requestMethod}:${intent.packaging}\n`
+          }));
+        }
+      };
+
+      const results = await lowerToMicroservicesWithRenderer(
+        workspaceRoot,
+        createMockLock('microservices'),
+        renderer,
+        DEFAULT_MICROSERVICE_RESILIENCE_POLICY,
+        { allowedArtifactRoots: ['generated/fake'] }
+      );
+
+      expect(observed).toEqual([[{
+        blockId: 'ticket/basic',
+        transport: 'json-rpc',
+        requestMethod: 'POST',
+        packaging: 'isolated-service',
+        resilience: DEFAULT_MICROSERVICE_RESILIENCE_POLICY
+      }]]);
+      expect(results).toEqual(['generated/fake/ticket-basic.txt']);
+      await expect(fs.readFile(
+        path.join(workspaceRoot, 'project', 'generated', 'fake', 'ticket-basic.txt'),
+        'utf8'
+      )).resolves.toBe('json-rpc:POST:isolated-service\n');
+    }, 'lower-fake-provider-');
+  });
+
+  test('rejects duplicate renderer targets before any publication', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const lock = createMockLock('microservices');
+      lock.resolvedBlocks.push({
+        ...lock.resolvedBlocks[0]!,
+        id: 'customer/basic',
+        installOrder: 2
+      });
+      const renderer: MicroserviceDeploymentRenderer = {
+        providerId: 'colliding-provider',
+        revision: 'test-v1',
+        async render(intents) {
+          return intents.map(() => ({
+            relativePath: 'generated/collision.txt',
+            text: 'must-not-write\n'
+          }));
+        }
+      };
+
+      await expect(lowerToMicroservicesWithRenderer(
+        workspaceRoot,
+        lock,
+        renderer,
+        DEFAULT_MICROSERVICE_RESILIENCE_POLICY,
+        { allowedArtifactRoots: ['generated'] }
+      )).rejects.toMatchObject({ code: 'COMPOSE-PATH-004' });
+
+      await expect(fs.lstat(
+        path.join(workspaceRoot, 'project', 'generated', 'collision.txt')
+      )).rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'lower-collision-');
+  });
+
+  test('rejects portable case-alias targets before parallel publication', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const lock = createMockLock('microservices');
+      lock.resolvedBlocks.push({
+        ...lock.resolvedBlocks[0]!,
+        id: 'customer/basic',
+        installOrder: 2
+      });
+      const renderer: MicroserviceDeploymentRenderer = {
+        providerId: 'case-aliasing-provider',
+        revision: 'test-v1',
+        async render() {
+          return [
+            { relativePath: 'generated/Foo.ts', text: 'first\n' },
+            { relativePath: 'generated/foo.ts', text: 'second\n' }
+          ];
+        }
+      };
+
+      await expect(lowerToMicroservicesWithRenderer(
+        workspaceRoot,
+        lock,
+        renderer,
+        DEFAULT_MICROSERVICE_RESILIENCE_POLICY,
+        { allowedArtifactRoots: ['generated'] }
+      )).rejects.toMatchObject({ code: 'COMPOSE-PATH-004' });
+
+      await expect(fs.lstat(path.join(workspaceRoot, 'project', 'generated')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'lower-portable-case-alias-');
+  });
+
+  test('rejects non-canonical lexical path aliases before publication', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const renderer: MicroserviceDeploymentRenderer = {
+        providerId: 'aliasing-provider',
+        revision: 'test-v1',
+        async render() {
+          return [{
+            relativePath: 'generated/a/../collision.txt',
+            text: 'must-not-write\n'
+          }];
+        }
+      };
+
+      await expect(lowerToMicroservicesWithRenderer(
+        workspaceRoot,
+        createMockLock('microservices'),
+        renderer,
+        DEFAULT_MICROSERVICE_RESILIENCE_POLICY,
+        { allowedArtifactRoots: ['generated'] }
+      )).rejects.toMatchObject({ code: 'COMPOSE-PATH-003' });
+
+      await expect(fs.lstat(path.join(workspaceRoot, 'project', 'generated')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'lower-alias-path-');
+  });
+
+  test('renderer cannot grant itself write access outside caller-authorized roots', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const renderer: MicroserviceDeploymentRenderer = {
+        providerId: 'overreaching-provider',
+        revision: 'test-v1',
+        async render() {
+          return [{ relativePath: 'package.json', text: '{"owned":false}\n' }];
+        }
+      };
+
+      await expect(lowerToMicroservicesWithRenderer(
+        workspaceRoot,
+        createMockLock('microservices'),
+        renderer,
+        DEFAULT_MICROSERVICE_RESILIENCE_POLICY,
+        { allowedArtifactRoots: ['generated'] }
+      )).rejects.toMatchObject({ code: 'COMPOSE-PATH-005' });
+
+      await expect(fs.lstat(path.join(workspaceRoot, 'project', 'package.json')))
+        .rejects.toMatchObject({ code: 'ENOENT' });
+    }, 'lower-publication-authority-');
+  });
+
+  test('invalid resilience policy fails before renderer execution', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      let renderCalls = 0;
+      const renderer: MicroserviceDeploymentRenderer = {
+        providerId: 'policy-probe',
+        revision: 'test-v1',
+        async render() {
+          renderCalls += 1;
+          return [];
+        }
+      };
+
+      await expect(lowerToMicroservicesWithRenderer(
+        workspaceRoot,
+        createMockLock('microservices'),
+        renderer,
+        { ...DEFAULT_MICROSERVICE_RESILIENCE_POLICY, maxRetries: -1 },
+        { allowedArtifactRoots: ['generated'] }
+      )).rejects.toMatchObject({ code: 'COMPOSE-PROVIDER-001' });
+      expect(renderCalls).toBe(0);
+    }, 'lower-invalid-policy-');
+});
 });

@@ -27,6 +27,7 @@ import { buildContractFreezeRunnerInvocations, type ContractFreezeTarget } from 
 import { compilerRoot, posixPath } from '../shared/paths.ts';
 import { runCommandBytes } from '../shared/process.ts';
 import {
+  FAST_TEST_PROCESS_POLICY_TEST_FILE,
   getFastTestFilesSync,
   getSlowTestFilesSync,
   isFastTestFile,
@@ -63,8 +64,6 @@ import {
 import {
   assertFastTestProcessPolicyInventoryV1,
   DEFAULT_FAST_TEST_CONCURRENCY_BUDGET,
-  DEFAULT_FAST_TEST_TIMEOUT_MS,
-  FAST_TEST_PROCESS_POLICY_SENTINEL,
   FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
   isDefaultFastTestFile,
   planFastTestProcesses,
@@ -73,6 +72,7 @@ import {
   type FastTestResourceClassLimits
 } from './fast-test-policy.ts';
 import { explicitFastTestMaxConcurrency } from './test-concurrency-policy.ts';
+import { withDefaultTestTimeout } from './test-execution-policy.ts';
 
 const BUN_TEST_OPTIONS_WITH_VALUE = new Set([
   '--timeout',
@@ -153,13 +153,7 @@ function selectMatchingTestFiles(availableFiles: string[], selectors: string[], 
 }
 
 function fastTestArgs(files: string[], options: string[], concurrent: boolean): string[] {
-  const effectiveOptions = options.some((option) => (
-    option === '--timeout' || option.startsWith('--timeout=')
-  ))
-    ? options
-    : [...options, '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)];
-
-  return ['test', ...(concurrent ? ['--concurrent'] : []), ...files, ...effectiveOptions];
+  return ['test', ...(concurrent ? ['--concurrent'] : []), ...files, ...withDefaultTestTimeout(options)];
 }
 
 export type FastTestInvocationQueue = 'concurrent-shard' | FastTestProcessResourceClass;
@@ -292,7 +286,14 @@ function slowTestArgSelection(args: string[]): SlowTestArgSelection {
   }
 
   const label = suiteId ? `slow suite ${suiteId}` : 'slow';
-  return { kind: 'run', args: ['test', ...selectMatchingTestFiles(availableFiles, selectors, label), ...options] };
+  return {
+    kind: 'run',
+    args: [
+      'test',
+      ...selectMatchingTestFiles(availableFiles, selectors, label),
+      ...withDefaultTestTimeout(options)
+    ]
+  };
 }
 
 function fullTestInvocations(): string[][] {
@@ -664,7 +665,7 @@ interface AffectedTestSelection {
   readonly affectedOwners: readonly string[];
   readonly sourceChanged: boolean;
   readonly selectionResolved: boolean;
-  readonly unresolvedTestFiles: readonly string[];
+  readonly unresolvedModuleFiles: readonly string[];
 }
 
 function affectedTestSelection(
@@ -687,7 +688,7 @@ function affectedTestSelection(
   // executable policy census from the raw Git delta (including a deleted test
   // that is no longer runnable), while still invoking only current test files.
   const processPolicySentinels = files.some(isFastTestFile)
-    ? [FAST_TEST_PROCESS_POLICY_SENTINEL]
+    ? [FAST_TEST_PROCESS_POLICY_TEST_FILE]
     : [];
   return {
     tests: inventory.changedFastTests,
@@ -699,7 +700,7 @@ function affectedTestSelection(
       : uniqueSorted([...inventory.affectedOwners, 'dev-runner']),
     sourceChanged: inventory.sourceChanged,
     selectionResolved: inventory.selectionResolved,
-    unresolvedTestFiles: inventory.unresolvedTestFiles
+    unresolvedModuleFiles: inventory.unresolvedModuleFiles
   };
 }
 
@@ -767,7 +768,7 @@ function affectedTestPlan(
     ownershipResolved,
     sourceChanged: selection.sourceChanged,
     selectionResolved: selection.selectionResolved,
-    unresolvedTestFiles: selection.unresolvedTestFiles,
+    unresolvedModuleFiles: selection.unresolvedModuleFiles,
     selectedFastTestCount: selectedFastTests.length,
     broadFallbackEnabled: allowFullFastFallback()
   });
@@ -819,7 +820,7 @@ function freezeAffectedTestPlan(plan: AffectedTestPlanV1): AffectedTestPlanV1 {
       affectedOwners: Object.freeze([...plan.selectionResolved.affectedOwners]),
       sourceChanged: plan.selectionResolved.sourceChanged,
       selectionResolved: plan.selectionResolved.selectionResolved,
-      unresolvedTestFiles: Object.freeze([...plan.selectionResolved.unresolvedTestFiles])
+      unresolvedModuleFiles: Object.freeze([...plan.selectionResolved.unresolvedModuleFiles])
     }),
     verificationResult: Object.freeze({ ...plan.verificationResult })
   });

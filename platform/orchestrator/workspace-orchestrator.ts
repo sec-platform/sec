@@ -1,35 +1,30 @@
-import { mkdir, readdir } from 'node:fs/promises';
+import { lstat, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
+
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
-import { defaultLimit } from '../shared/concurrency.ts';
-import { DEFAULT_ACCEPTANCE, PASS_STATUS_PENDING, SUPPORTED_STACK } from '../shared/constants.ts';
-import { pathExists, removeDir, writeJson } from '../shared/fs.ts';
-import {
-  getWorkspacePaths,
-  officialRegistryRelativePath,
-  posixPath
-} from '../shared/paths.ts';
-import type { PlanFile } from '../shared/plan-manifest-types.ts';
-import { ensureProjectBase } from '../shared/project-base.ts';
+import { PASS_STATUS_PENDING } from '../shared/constants.ts';
+import { CompilerError } from '../shared/errors.ts';
+import { writeJson } from '../shared/fs.ts';
+import { getWorkspacePaths } from '../shared/paths.ts';
 import {
   assertWorkspaceWriteLease,
   withWorkspaceWriteLease,
+  WORKSPACE_WRITE_LEASE_DIRECTORY_NAME,
   WorkspaceWriteLeaseError,
   type WorkspaceWriteLeaseToken
 } from '../shared/workspace-write-lease.ts';
 import { writeYaml } from '../shared/yaml.ts';
+import {
+  buildWorkspaceCreatePlan,
+  materializeWorkspaceCreateTemplate,
+  type WorkspaceCreateTemplate
+} from './workspace-create-template.ts';
 
-async function resetLocalStatePreservingWriterLease(
-  localStateRoot: string,
-  commitFence: () => Promise<void>
-): Promise<void> {
-  if (!(await pathExists(localStateRoot))) return;
-  const entries = await readdir(localStateRoot);
-  await Promise.all(entries
-    .filter((entry) => entry !== 'workspace-write-lease')
-    .map((entry) => defaultLimit(async () => {
-      await removeDir(path.join(localStateRoot, entry), commitFence);
-    })));
+export interface WorkspaceInitOptions {
+  /** Historical compatibility input. It grants no deletion/reset authority. */
+  readonly reset?: boolean;
+  /** Explicit creation template. Ordinary init defaults to the minimal template. */
+  readonly template?: WorkspaceCreateTemplate;
 }
 
 function nativeErrorCode(error: unknown): string | undefined {
@@ -37,14 +32,34 @@ function nativeErrorCode(error: unknown): string | undefined {
   return typeof error.code === 'string' ? error.code.toUpperCase() : undefined;
 }
 
-async function bootstrapWorkspaceRoot(workspaceRoot: string): Promise<void> {
+function resolveCreateTemplate(value: unknown): WorkspaceCreateTemplate {
+  if (value === undefined) return 'minimal';
+  if (value === 'minimal' || value === 'reference-customer') return value;
+  throw new CompilerError(
+    'WORKSPACE-INIT-002',
+    `Unsupported workspace create template "${String(value)}"`,
+    { supportedTemplates: ['minimal', 'reference-customer'] }
+  );
+}
+
+async function bootstrapWorkspaceRoot(workspaceRoot: string): Promise<'created' | 'existing'> {
+  const absoluteRoot = path.resolve(workspaceRoot);
   try {
-    // The parent must already exist. initWorkspace creates one requested root,
-    // never an implicit ancestor chain.
-    await mkdir(path.resolve(workspaceRoot));
+    await mkdir(absoluteRoot);
+    return 'created';
   } catch (error) {
     const code = nativeErrorCode(error);
-    if (code === 'EEXIST') return;
+    if (code === 'EEXIST') {
+      const metadata = await lstat(absoluteRoot);
+      if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+        throw new WorkspaceWriteLeaseError(
+          'WORKSPACE-WRITE-LEASE-004',
+          'Workspace root is not one physical directory',
+          { operation: 'initialize', phase: 'workspace-root-bootstrap', reason: 'not-directory' }
+        );
+      }
+      return 'existing';
+    }
     const reason = code === 'ENOENT'
       ? 'missing-parent'
       : code === 'ENOTDIR'
@@ -60,106 +75,123 @@ async function bootstrapWorkspaceRoot(workspaceRoot: string): Promise<void> {
   }
 }
 
-function defaultPlan(): PlanFile {
-  return {
-    app: {
-      id: 'customer-admin',
-      name: 'customer-admin',
-      stack: SUPPORTED_STACK,
-      packageManager: 'pnpm',
-      mode: 'single-tenant'
-    },
-    registry: {
-      sources: [
-        {
-          id: 'official',
-          kind: 'official',
-          location: 'compiler',
-          path: posixPath(officialRegistryRelativePath)
-        },
-        {
-          id: 'source-private',
-          kind: 'private',
-          location: 'workspace',
-          path: 'source/blocks/private'
-        },
-        {
-          id: 'private',
-          kind: 'private',
-          location: 'workspace',
-          path: 'platform/registry/private'
-        }
-      ]
-    },
-    blocks: [
-      { id: 'auth/basic-session', version: '0.1.0' },
-      { id: 'tenant/basic-workspace', version: '0.1.0' },
-      { id: 'entity/customer-basic', version: '0.1.0' }
-    ],
-    slots: [
-      {
-        id: 'customer_normalizer',
-        block: 'entity/customer-basic',
-        kind: 'adapter',
-        target: 'custom/customer_normalizer.ts',
-        sourcePath: 'source/code/slots/customer_normalizer.ts',
-        symbol: 'normalizeCustomerInput',
-        description: 'Name required; email lowercased; phone digits only; company defaults to Unknown.'
+async function assertWorkspaceCreateSurfaceEmpty(
+  workspaceRoot: string,
+  suppliedLease: WorkspaceWriteLeaseToken | undefined
+): Promise<void> {
+  const entries = await readdir(workspaceRoot, { withFileTypes: true });
+  if (suppliedLease === undefined) {
+    if (entries.length === 0) return;
+    const localStateEntry = entries.length === 1 && entries[0]?.name === '.sec'
+      ? entries[0]
+      : undefined;
+    if (localStateEntry !== undefined && !localStateEntry.isSymbolicLink()
+        && localStateEntry.isDirectory()) {
+      const localStateEntries = await readdir(path.join(workspaceRoot, '.sec'), {
+        withFileTypes: true
+      });
+      const leaseEntry = localStateEntries.length === 1
+        && localStateEntries[0]?.name === WORKSPACE_WRITE_LEASE_DIRECTORY_NAME
+        ? localStateEntries[0]
+        : undefined;
+      if (leaseEntry !== undefined && !leaseEntry.isSymbolicLink()
+          && leaseEntry.isDirectory()) {
+        // The canonical acquisition path is the only owner allowed to decide
+        // whether this namespace is live, stale/dead, or malformed.  A raw
+        // preflight inspection must not strand its verified recovery lane.
+        return;
       }
-    ],
-    acceptance: [...DEFAULT_ACCEPTANCE]
-  };
+    }
+    throw new CompilerError(
+      'WORKSPACE-INIT-001',
+      'Workspace initialization requires an empty root; existing content must be adopted or managed by an explicit lifecycle operation',
+      { entries: entries.map((entry) => entry.name).sort() }
+    );
+  }
+
+  const localStateEntry = entries.find((entry) => entry.name === '.sec');
+  const unexpectedRootEntries = entries.filter((entry) => entry.name !== '.sec');
+  if (
+    unexpectedRootEntries.length > 0 ||
+    localStateEntry === undefined ||
+    localStateEntry.isSymbolicLink() ||
+    !localStateEntry.isDirectory()
+  ) {
+    throw new CompilerError(
+      'WORKSPACE-INIT-001',
+      'Workspace initialization with an existing writer lease requires an otherwise empty root',
+      { entries: entries.map((entry) => entry.name).sort() }
+    );
+  }
+
+  const localStateEntries = await readdir(path.join(workspaceRoot, '.sec'), { withFileTypes: true });
+  if (
+    localStateEntries.length !== 1 ||
+    localStateEntries[0]?.name !== WORKSPACE_WRITE_LEASE_DIRECTORY_NAME
+  ) {
+    throw new CompilerError(
+      'WORKSPACE-INIT-001',
+      'Workspace initialization cannot overwrite existing local/control state',
+      { localStateEntries: localStateEntries.map((entry) => entry.name).sort() }
+    );
+  }
+}
+
+function initialGeneratedPaths(template: WorkspaceCreateTemplate): string[] {
+  if (template === 'reference-customer') {
+    return [
+      'generated/routes.ts',
+      CI_ARTIFACT_FILES.blockUsageMap,
+      CI_ARTIFACT_FILES.installManifest,
+      CI_ARTIFACT_FILES.verificationReport
+    ];
+  }
+  return [CI_ARTIFACT_FILES.verificationReport];
 }
 
 export async function initWorkspace(
   workspaceRoot = process.cwd(),
-  options: { reset?: boolean } = {},
+  options: WorkspaceInitOptions = {},
   workspaceWriteLease?: WorkspaceWriteLeaseToken
 ): Promise<{ planPath: string; lockPath: string }> {
-  // A supplied token must be validated before any side effect. Only an
-  // independent initializer is allowed to create the one requested root.
-  if (workspaceWriteLease === undefined) await bootstrapWorkspaceRoot(workspaceRoot);
-  return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (token) => {
-    const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
-    const { projectRoot, developerSourceRoot, controlRoot, localStateRoot, planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
-    if (options.reset) {
-      await commitFence();
-      await Promise.all([projectRoot, developerSourceRoot, controlRoot].map(async (targetRoot) => defaultLimit(async () => {
-        if (await pathExists(targetRoot)) {
-          await removeDir(targetRoot, commitFence);
-        }
-      })));
-      await commitFence();
-      await resetLocalStatePreservingWriterLease(localStateRoot, commitFence);
-    }
+  // `reset` is retained only as an input-compatibility token. It intentionally
+  // does not authorize deletion and is valid only on the same empty create surface.
+  void options.reset;
+  const template = resolveCreateTemplate(options.template);
+  if (workspaceWriteLease === undefined) {
+    await bootstrapWorkspaceRoot(workspaceRoot);
+    // No caller authority exists yet. Admit only an empty root or the exact
+    // canonical lease namespace; acquisition below owns live/stale recovery.
+    await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, undefined);
+  }
 
-    await ensureProjectBase(workspaceRoot, commitFence);
-    await writeYaml(planPath, defaultPlan(), commitFence);
+  return withWorkspaceWriteLease(workspaceRoot, workspaceWriteLease, async (token) => {
+    // Reentrant tokens are proven by withWorkspaceWriteLease before this
+    // callback. Only now may a supplied-lease path inspect the create surface.
+    const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, token);
+    const { planPath, lockPath, verificationReportPath } = getWorkspacePaths(workspaceRoot);
+    await assertWorkspaceCreateSurfaceEmpty(workspaceRoot, token);
+
+    const plan = buildWorkspaceCreatePlan(template);
+    await materializeWorkspaceCreateTemplate(workspaceRoot, template, commitFence);
+    await writeYaml(planPath, plan, commitFence);
     await writeJson(lockPath, {
       formatVersion: '1',
       app: {
-        id: 'customer-admin',
-        name: 'customer-admin',
-        stack: SUPPORTED_STACK,
-        mode: 'single-tenant'
+        id: plan.app.id,
+        name: plan.app.name,
+        stack: plan.app.stack,
+        mode: plan.app.mode
       },
       resolvedBlocks: [],
       resolvedCapabilities: [],
       installPlan: [],
       slotTasks: [],
-      generatedPaths: [
-        'generated/routes.ts',
-        CI_ARTIFACT_FILES.blockUsageMap,
-        CI_ARTIFACT_FILES.installManifest,
-        CI_ARTIFACT_FILES.verificationReport
-      ],
-      acceptancePlan: DEFAULT_ACCEPTANCE.map((entry) => entry.id),
+      generatedPaths: initialGeneratedPaths(template),
+      acceptancePlan: plan.acceptance.map((entry) => entry.id),
       passStatus: { ...PASS_STATUS_PENDING }
     }, commitFence);
-    await writeJson(verificationReportPath, {
-      summary: { status: 'pending' }
-    }, commitFence);
-
+    await writeJson(verificationReportPath, { summary: { status: 'pending' } }, commitFence);
     return { planPath, lockPath };
   });
 }

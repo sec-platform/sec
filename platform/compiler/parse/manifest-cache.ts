@@ -1,55 +1,83 @@
 import type { ManifestEntry } from '../../shared/plan-manifest-types.ts';
-import { loadAllManifests } from './load-manifest.ts';
+import type { RegistryKind, RegistryLocation } from '../../shared/registry-types.ts';
 
-interface CacheKey {
-  blockId: string;
-  version?: string;
-  workspaceRoot?: string;
+export interface ManifestCacheKey {
+  readonly workspaceRoot: string;
+  readonly registrySourceId: string;
+  readonly registryKind: RegistryKind;
+  readonly registryLocation: RegistryLocation;
+  readonly registryPath: string;
+  readonly blockId: string;
+  readonly version?: string;
+  readonly sourceDigest: `sha256:${string}`;
 }
 
+interface ManifestCacheRecord {
+  readonly sourceDigest: `sha256:${string}`;
+  readonly entry: ManifestEntry;
+}
+
+function deepFreezeSnapshot<Value>(value: Value, seen = new WeakSet<object>()): Value {
+  if (value === null || typeof value !== 'object') return value;
+  const object = value as object;
+  if (seen.has(object)) return value;
+  seen.add(object);
+  for (const key of Reflect.ownKeys(object)) {
+    deepFreezeSnapshot((object as Record<PropertyKey, unknown>)[key], seen);
+  }
+  return Object.freeze(value);
+}
+
+/**
+ * In-process parse/validation cache only. It is never an authority source.
+ * One logical manifest locator owns at most one cache record; exact observed
+ * source bytes decide whether that record is reusable. New source bytes replace
+ * the old record instead of retaining an unbounded history of stale revisions.
+ *
+ * Cached entries are deeply frozen before publication. A consumer therefore
+ * cannot mutate a shared parsed Manifest and make later reads observe bytes
+ * that never existed in the bound authority source.
+ */
 class ManifestCache {
-  private entries = new Map<string, ManifestEntry>();
-  private allEntriesCache: ManifestEntry[] | null = null;
-  private allEntriesKey: string | null = null;
+  private readonly records = new Map<string, ManifestCacheRecord>();
 
-  private cacheKey(key: CacheKey): string {
-    return `${key.workspaceRoot ?? '__default__'}::${key.blockId}@${key.version ?? 'latest'}`;
+  private locatorKey(key: ManifestCacheKey): string {
+    return JSON.stringify([
+      key.workspaceRoot,
+      key.registrySourceId,
+      key.registryKind,
+      key.registryLocation,
+      key.registryPath,
+      key.blockId,
+      key.version ?? null
+    ]);
   }
 
-  /**
-   * 纯缓存查询：仅检查内存 Map，不触发磁盘读取。
-   * 命中返回 ManifestEntry，未命中返回 undefined。
-   * 调用方（如 loadManifestById）负责在磁盘读取后调用 set() 回填缓存。
-   */
-  get(key: CacheKey): ManifestEntry | undefined {
-    return this.entries.get(this.cacheKey(key));
+  get(key: ManifestCacheKey): ManifestEntry | undefined {
+    const record = this.records.get(this.locatorKey(key));
+    return record?.sourceDigest === key.sourceDigest ? record.entry : undefined;
   }
 
-  /**
-   * 回填缓存。loadManifestById 在磁盘读取成功后调用此方法，
-   * 使后续相同 blockId+version 的查询直接命中缓存。
-   */
-  set(key: CacheKey, entry: ManifestEntry): void {
-    this.entries.set(this.cacheKey(key), entry);
-  }
-
-  async getAll(options: { workspaceRoot?: string } = {}): Promise<ManifestEntry[]> {
-    const cacheKey = options.workspaceRoot ?? '__default__';
-    if (this.allEntriesCache && this.allEntriesKey === cacheKey) {
-      return this.allEntriesCache;
+  set(key: ManifestCacheKey, entry: ManifestEntry): void {
+    if (
+      entry.manifest.id !== key.blockId ||
+      (key.version !== undefined && entry.manifest.version !== key.version) ||
+      entry.registrySourceId !== key.registrySourceId ||
+      entry.registryKind !== key.registryKind ||
+      entry.registryLocation !== key.registryLocation ||
+      entry.registryPath !== key.registryPath
+    ) {
+      throw new Error('Manifest cache entry does not match its causal registry identity.');
     }
-    this.allEntriesCache = await loadAllManifests({ workspaceRoot: options.workspaceRoot });
-    this.allEntriesKey = cacheKey;
-    for (const entry of this.allEntriesCache) {
-      this.set({ blockId: entry.manifest.id, version: entry.manifest.version, workspaceRoot: options.workspaceRoot }, entry);
-    }
-    return this.allEntriesCache;
+    const snapshot = deepFreezeSnapshot(entry);
+    this.records.set(this.locatorKey(key), Object.freeze({
+      sourceDigest: key.sourceDigest,
+      entry: snapshot
+    }));
   }
 
   clear(): void {
-    this.entries.clear();
-    this.allEntriesCache = null;
-    this.allEntriesKey = null;
+    this.records.clear();
   }
 }
 

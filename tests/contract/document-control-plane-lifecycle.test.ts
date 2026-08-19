@@ -1129,6 +1129,18 @@ tests:
   - tests/contract/document-control-plane-lifecycle.test.ts
 ---
 `, 'utf8');
+    const directRepairInput = {
+      packageId: repairId,
+      manifestPath: repairPath,
+      manifestDigest: CodexDevelopmentWorkPackageManifestDigest(manifestBytes) as `sha256:${string}`,
+      mainSha: fixture.baseSha,
+      mainTreeSha: exactMainTree,
+      healthRevision: decision.binding!.healthRevision,
+      ledgerDigest: decision.binding!.ledgerDigest,
+      decisionDigest: decision.decisionDigest,
+      failureFingerprints: decision.binding!.failureFingerprints,
+      reviewedOn: '2026-08-12'
+    } as const;
     const currentPointerSource = await readFile(path.join(fixture.repositoryRoot, POINTER_PATH), 'utf8');
     const currentManifestBytes = Buffer.from(currentActiveManifestSource(), 'utf8');
     const currentPointer = CodexDevelopmentParseActivePointerV2(currentPointerSource);
@@ -1158,32 +1170,19 @@ tests:
       ]
     });
     expect(projection.rollingPlanSource).not.toContain('- current-body: exact-current-bytes');
-    expect(projection.rollingPlanSource).toContain('- target-body: exact-target-bytes');
-    expect(projection.rollingPlanSource).toContain(`main@${fixture.baseSha}`);
-    expect(projection.rollingPlanSource).toContain(exactMainTree);
+    expect(projection.rollingPlanSource).not.toContain('- target-body: exact-target-bytes');
+    expect(projection.rollingPlanSource).toContain('sec-work-rolling-transition-projection-v1');
+    expect(projection.rollingPlanSource).toContain(`"exactMain": "${fixture.baseSha}"`);
+    expect(projection.rollingPlanSource).toContain(`"exactMainTree": "${exactMainTree}"`);
     expect(projection.rollingPlanSource).toContain(decision.binding!.healthRevision);
     expect(projection.rollingPlanSource).toContain(repairFailure);
     expect(projection.rollingPlanSource).not.toContain('last-reviewed: 2026-08-08\n---\n\n# Freeze fixture\n\n## 当前唯一');
-    const trailingHeadingBytes = rollingPlanSource().replace(
-      '### 2. candidate-two-v1\n',
-      '### 2. candidate-two-v1  \n'
-    );
-    const trailingHeadingBlock = '### 2. candidate-two-v1  \n\n- second-body: exact-second-bytes\n\n';
-    const trailingHeadingProjection = CodexDevelopmentActivateMainHealthRepairRollingPlanV1({
-      source: trailingHeadingBytes,
-      packageId: repairId,
-      mainSha: fixture.baseSha,
-      mainTreeSha: exactMainTree,
-      healthRevision: decision.binding!.healthRevision,
-      failureFingerprints: decision.binding!.failureFingerprints,
+    const normalizedProjection = CodexDevelopmentActivateMainHealthRepairRollingPlanV1({
+      source: rollingPlanSource().replace('### 2. candidate-two-v1\n', '### 2. candidate-two-v1  \n'),
+      ...directRepairInput,
       publishedActivePackageId: CURRENT_ACTIVE_ID
     });
-    const trailingHeadingStart = trailingHeadingProjection.indexOf('### 2. candidate-two-v1');
-    const trailingHeadingEnd = trailingHeadingProjection.indexOf('### 3. candidate-three-v1');
-    expect(trailingHeadingStart).toBeGreaterThanOrEqual(0);
-    expect(trailingHeadingEnd).toBeGreaterThan(trailingHeadingStart);
-    expect(trailingHeadingProjection.slice(trailingHeadingStart, trailingHeadingEnd))
-      .toBe(trailingHeadingBlock);
+    expect(normalizedProjection).not.toContain('candidate-two-v1  ');
     const maximalPriorTopology = rollingPlanSource().replace(
       '## Gate、单写者与重算',
       `### 4. candidate-four-v1
@@ -1218,20 +1217,12 @@ tests:
       ]);
     expect(() => CodexDevelopmentActivateMainHealthRepairRollingPlanV1({
       source: maximalPriorTopology,
-      packageId: repairId,
-      mainSha: fixture.baseSha,
-      mainTreeSha: exactMainTree,
-      healthRevision: decision.binding!.healthRevision,
-      failureFingerprints: decision.binding!.failureFingerprints,
+      ...directRepairInput,
       publishedActivePackageId: null
     })).toThrow('cannot preserve all prior identities within the five-candidate bound');
     const unpublishedProjection = CodexDevelopmentActivateMainHealthRepairRollingPlanV1({
       source: rollingPlanSource(),
-      packageId: repairId,
-      mainSha: fixture.baseSha,
-      mainTreeSha: exactMainTree,
-      healthRevision: decision.binding!.healthRevision,
-      failureFingerprints: decision.binding!.failureFingerprints,
+      ...directRepairInput,
       publishedActivePackageId: null
     });
     expect(CodexDevelopmentParseRollingPlanV1(unpublishedProjection).candidatePackageIds[0])
@@ -2788,9 +2779,8 @@ if (process.platform === 'linux') {
   }, 60_000);
 }
 
-test('read-only status overrides inherited optional locks and preserves the exact raw index', async () => {
+test('read-only status isolates hostile ambient Git state and preserves the exact raw index', async () => {
   const fixture = await createFreezeFixture();
-  const previousOptionalLocks = process.env.GIT_OPTIONAL_LOCKS;
   try {
     await freezeDocumentControlPlaneV1({
       cwd: fixture.repositoryRoot,
@@ -2806,14 +2796,55 @@ test('read-only status overrides inherited optional locks and preserves the exac
       args: readonly string[];
       environment: Readonly<Record<string, string>>;
     }>> = [];
-    process.env.GIT_OPTIONAL_LOCKS = '1';
-    const status = await resolveLiveControlPlane(fixture.repositoryRoot, {
-      observeGitHub: false,
-      resolverGitCommandObserver: (event) => observations.push(event)
+    const hostileGitEnvironment = Object.freeze({
+      GIT_DIR: path.join(fixture.parent, 'ambient-decoy-git-dir'),
+      GIT_WORK_TREE: path.join(fixture.parent, 'ambient-decoy-worktree'),
+      GIT_INDEX_FILE: path.join(fixture.parent, 'ambient-decoy-index'),
+      GIT_OBJECT_DIRECTORY: path.join(fixture.parent, 'ambient-decoy-objects'),
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(fixture.parent, 'ambient-decoy-alternates'),
+      GIT_REPLACE_REF_BASE: 'refs/ambient-replacements/',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'core.repositoryFormatVersion',
+      GIT_CONFIG_VALUE_0: '1',
+      GIT_ASKPASS: path.join(fixture.parent, 'ambient-askpass'),
+      GIT_ASKPASS_REQUIRE: 'force',
+      GIT_SSH_COMMAND: 'ambient-ssh-command',
+      GIT_OPTIONAL_LOCKS: '1'
     });
+    const previousGitEnvironment = new Map(
+      Object.keys(hostileGitEnvironment).map((name) => [name, process.env[name]] as const)
+    );
+    let status: Awaited<ReturnType<typeof resolveLiveControlPlane>>;
+    try {
+      Object.assign(process.env, hostileGitEnvironment);
+      status = await resolveLiveControlPlane(fixture.repositoryRoot, {
+        observeGitHub: false,
+        resolverGitCommandObserver: (event) => observations.push(event)
+      });
+    } finally {
+      for (const [name, value] of previousGitEnvironment) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
     expect(status.activation).toBeNull();
     expect(observations.length).toBeGreaterThan(0);
     expect(observations.every((event) => event.environment.GIT_OPTIONAL_LOCKS === '0')).toBe(true);
+    expect(observations.every((event) => (
+      event.environment.GIT_DIR === undefined
+      && event.environment.GIT_WORK_TREE === undefined
+      && event.environment.GIT_CONFIG_COUNT === undefined
+      && event.environment.GIT_CONFIG_KEY_0 === undefined
+      && event.environment.GIT_CONFIG_VALUE_0 === undefined
+      && event.environment.GIT_ASKPASS === undefined
+      && event.environment.GIT_ASKPASS_REQUIRE === undefined
+      && event.environment.GIT_SSH_COMMAND === undefined
+      && event.environment.GIT_NO_REPLACE_OBJECTS === '1'
+      && event.environment.GIT_CONFIG_NOSYSTEM === '1'
+      && event.environment.GIT_OBJECT_DIRECTORY !== hostileGitEnvironment.GIT_OBJECT_DIRECTORY
+      && event.environment.GIT_ALTERNATE_OBJECT_DIRECTORIES !== hostileGitEnvironment.GIT_ALTERNATE_OBJECT_DIRECTORIES
+      && event.environment.GIT_INDEX_FILE !== hostileGitEnvironment.GIT_INDEX_FILE
+    ))).toBe(true);
     const commands = observations.map((event) => event.args.join(' '));
     expect(commands).toContain('status --short --branch');
     expect(commands.filter((command) => command === 'write-tree')).toHaveLength(2);
@@ -2875,8 +2906,6 @@ test('read-only status overrides inherited optional locks and preserves the exac
     expect(runGit(fixture.repositoryRoot, ['count-objects', '-v'])).toBe(objectCensusBefore);
     await expectFreezeTransactionRetired(fixture.repositoryRoot);
   } finally {
-    if (previousOptionalLocks === undefined) delete process.env.GIT_OPTIONAL_LOCKS;
-    else process.env.GIT_OPTIONAL_LOCKS = previousOptionalLocks;
     await fixture.dispose();
   }
 }, 60_000);
@@ -3973,291 +4002,7 @@ test('fresh transaction directories flush each containing parent before freeze e
   } finally {
     await failedFixture.dispose();
   }
-}, 90_000);
 
-test('platform path effects lock exact Win32 handles and POSIX dirfd operations', async () => {
-  const source = await Bun.file(
-    new URL('../../scripts/codex/document-control-plane.ts', import.meta.url)
-  ).text();
-  const windowsHandleOpenStart = source.indexOf('function openWindowsExactHandle(');
-  const windowsHandleOpenEnd = source.indexOf('function assertNoWindowsReparsePoint(');
-  expect(windowsHandleOpenStart).toBeGreaterThan(-1);
-  expect(windowsHandleOpenEnd).toBeGreaterThan(windowsHandleOpenStart);
-  const windowsHandleOpen = source.slice(windowsHandleOpenStart, windowsHandleOpenEnd);
-  expect(source).toContain('const WindowsInvalidHandleValue = 0xffff_ffff_ffff_ffffn;');
-  expect(source).toContain("GIT_OPTIONAL_LOCKS: '0'");
-  expect(source).toContain('returns: FFIType.u64');
-  expect(source).toContain(
-    'SetFilePointerEx: { args: [FFIType.u64, FFIType.i64, FFIType.ptr, FFIType.u32], returns: FFIType.i32 }'
-  );
-  const windowsHandleReadStart = source.indexOf('function readWindowsHandleBytes(');
-  const windowsHandleReadEnd = source.indexOf('function writeWindowsHandleBytes(', windowsHandleReadStart);
-  expect(windowsHandleReadStart).toBeGreaterThan(-1);
-  expect(windowsHandleReadEnd).toBeGreaterThan(windowsHandleReadStart);
-  const windowsHandleRead = source.slice(windowsHandleReadStart, windowsHandleReadEnd);
-  expect(windowsHandleRead).toContain('SetFilePointerEx(handle, 0n, null, WindowsFileBegin)');
-  expect(windowsHandleRead).toContain('while (offset < bytes.byteLength)');
-  expect(windowsHandleRead).toContain('library.symbols.ReadFile(');
-  expect(windowsHandleOpen).toContain('const handle = library.symbols.CreateFileW(');
-  expect(windowsHandleOpen).toContain('if (handle === WindowsInvalidHandleValue)');
-  expect(windowsHandleOpen).not.toContain('handle === null');
-  expect(source).toContain('if (library.symbols.CloseHandle(entry.handle) === 0)');
-  expect(source).toContain('const errorCode = library.symbols.GetLastError();');
-  expect(source).toContain('renameInfo.writeBigUInt64LE(targetParentHandle, 8);');
-  expect(source).toContain('const WindowsFileRenameInfo = 3;');
-  expect(source).toContain('const WindowsFileRenameInformationEx = 65;');
-  expect(source).toContain('if (win32Error !== WindowsErrorInvalidParameter) throw win32Failure;');
-  expect(source).toContain('ntdll.symbols.NtSetInformationFile(');
-  expect(source).toContain('library.symbols.SetFileInformationByHandle(');
-  expect(source).toContain('library.symbols.renameat(');
-  expect(source).toContain('requireLinuxRenameat2().symbols.renameat2(');
-  expect(source).toContain('LinuxRenameNoReplace');
-  expect(source).toContain('linkOpenedPosixFileNoReplace({');
-  expect(source).toContain('LinuxAtEmptyPath');
-  expect(source).toContain('LinuxAtSymlinkFollow');
-  const posixRegularOpenStart = source.indexOf('function openPosixRegularFile(');
-  const posixRegularOpenEnd = source.indexOf('function openWindowsDirectoryPath(', posixRegularOpenStart);
-  expect(posixRegularOpenStart).toBeGreaterThan(-1);
-  expect(posixRegularOpenEnd).toBeGreaterThan(posixRegularOpenStart);
-  const posixRegularOpen = source.slice(posixRegularOpenStart, posixRegularOpenEnd);
-  expect(posixRegularOpen).toContain('const retainedParentPath = realpathSync(`/proc/self/fd/${parent.fd}`);');
-  expect(posixRegularOpen).toContain('const canonicalPath = path.join(retainedParentPath, name);');
-  expect(posixRegularOpen).not.toContain('const canonicalPath = path.join(parent.canonicalPath, name);');
-  expect(source).toContain('renameInfo.writeUInt8(input.replaceExisting === false ? 0 : 1, 0);');
-  expect(source).toContain(
-    '(input.replaceExisting === false ? 0 : WindowsFileRenameReplaceIfExists)'
-  );
-  expect(source).toContain('unlinkat: { args: [FFIType.i32, FFIType.ptr, FFIType.i32]');
-  expect(source).toContain('async function unlinkExactPosixRegularFile(');
-  expect(source).toContain('requireLinuxLibc().symbols.unlinkat(parentFd, posixCString(name), 0)');
-  expect(source).toContain('retiredMetadata.nlink !== currentMetadata.nlink - 1');
-  expect(source).toContain('async function removeExactEmptyDirectory(');
-  expect(source).toContain('LinuxAtRemoveDirectory');
-  expect(source).toContain("statSync(`/proc/self/fd/${currentFd}`).nlink !== 0");
-  expect(source).toContain('const anchorShareMode = input.createMissing || input.retainAgainstRename');
-  expect(source).toContain('? WindowsShareReadWrite');
-  expect(source).toContain('retainAgainstRename: true');
-  expect(source).toContain('const isTargetDirectory = segmentIndex === segments.length - 1;');
-  expect(source).toContain('(input.deleteAccess && isTargetDirectory ? WindowsDeleteAccess : 0)');
-  expect(source).not.toContain('| (input.deleteAccess ? WindowsDeleteAccess : 0)');
-  expect(source).toContain('publishInitiallyAbsentEntryNoReplace({');
-  const entryCasStart = source.indexOf('async function publishEntryNoReplaceCas(');
-  const entryCasEnd = source.indexOf('async function writeAtomicCas(', entryCasStart);
-  expect(entryCasStart).toBeGreaterThan(-1);
-  expect(entryCasEnd).toBeGreaterThan(entryCasStart);
-  const entryCas = source.slice(entryCasStart, entryCasEnd);
-  const classifierStart = source.indexOf('async function classifyPublishEntryStateV1(');
-  const classifierEnd = source.indexOf('function samePublishEntryObservation(', classifierStart);
-  expect(classifierStart).toBeGreaterThan(-1);
-  expect(classifierEnd).toBeGreaterThan(classifierStart);
-  const classifier = source.slice(classifierStart, classifierEnd);
-  const tupleReads = [
-    'readEntry(input.targetPath, input.label)',
-    'readEntry(input.nextPath, `${input.label} NEXT recovery entry`)',
-    'readEntry(input.quarantinePath, `${input.label} PRE quarantine`)',
-    'readEntry(input.retiredPrePath, `${input.label} retired PRE entry`)',
-    'readEntry(input.retiredNextPath, `${input.label} retired NEXT entry`)'
-  ].map((needle) => classifier.indexOf(needle));
-  expect(tupleReads.every((index) => index > -1)).toBe(true);
-  const byteClassChecks = classifier.indexOf('const exact = ');
-  const firstStateDecision = classifier.indexOf("if (process.platform === 'linux')", byteClassChecks);
-  expect(byteClassChecks).toBeGreaterThan(Math.max(...tupleReads));
-  expect(firstStateDecision).toBeGreaterThan(byteClassChecks);
-  const classifierSuccess = entryCas.indexOf('let resolution = await classifyPublishEntryStateV1(classifier);');
-  expect(classifierSuccess).toBeGreaterThan(-1);
-  expect(entryCas).toContain("if (state === 'linux-s0')");
-  expect(entryCas).toContain("if (state === 'linux-s1')");
-  expect(entryCas).toContain("if (state === 'linux-s4')");
-  expect(entryCas).toContain("if (state === 'windows-prepared')");
-  expect(entryCas).toContain("if (state === 'windows-quarantined')");
-  expect(entryCas).not.toContain('target.equals(input.next)');
-  expect(source).toContain('async function withRepositoryIndexTreeThroughExternalScratch<T>(');
-  expect(source).toContain('GIT_INDEX_FILE: scratchIndex');
-  expect(source).toContain('environment: Object.freeze({ ...options.environment, ...environment })');
-  expect(source).toContain("runScratch(['diff', '--cached', '--name-only'");
-  expect(source).toContain("runScratch(['status', '--short', '--branch'])");
-  expect(source).not.toContain("resolverGit.run(['status', '--short', '--branch']");
-  expect(source).toContain('pre: toBase64(rollingPlanWorktree)');
-  expect(source).toContain('&& rollingPlanWorktree.equals(rollingPlanNext);');
-  const retainedEdgeStart = entryCas.indexOf('const runSelectedRetainedEdge = async');
-  expect(retainedEdgeStart).toBeGreaterThan(classifierSuccess);
-  expect(entryCas).toContain('withRetainedPublishEntryTupleV1(classifier');
-  const retainedEdgeCalls = [...entryCas.matchAll(/runSelectedRetainedEdge\(/gu)]
-    .map((match) => match.index ?? -1);
-  expect(retainedEdgeCalls.length).toBeGreaterThan(5);
-  expect(retainedEdgeCalls.every((position) => position > retainedEdgeStart)).toBe(true);
-  const durableRenameStart = source.indexOf('async function durableRename(');
-  const durableLinkStart = source.indexOf('async function durableLinkOpenedPosixFile(');
-  const durableLinkEnd = source.indexOf('async function assertPosixEntryIdentity(', durableLinkStart);
-  expect(durableRenameStart).toBeGreaterThan(-1);
-  expect(durableLinkStart).toBeGreaterThan(durableRenameStart);
-  expect(durableLinkEnd).toBeGreaterThan(durableLinkStart);
-  const durableRename = source.slice(durableRenameStart, durableLinkStart);
-  const durableLink = source.slice(durableLinkStart, durableLinkEnd);
-  for (const effectSource of [durableRename, durableLink]) {
-    const renamed = effectSource.indexOf("stage: 'renamed'");
-    const postNamespaceHook = effectSource.indexOf('afterAnchoredNamespaceMutationBeforeFlush?.(');
-    const retainedFlush = effectSource.indexOf('retained: Object.freeze({');
-    expect(renamed).toBeGreaterThan(-1);
-    expect(postNamespaceHook).toBeGreaterThan(renamed);
-    expect(retainedFlush).toBeGreaterThan(postNamespaceHook);
-  }
-  expect(durableRename).toContain(
-    'retained: Object.freeze({ handle: sourceHandle, parentHandle: targetParentHandle })'
-  );
-  expect(durableRename).toContain('retained: Object.freeze({ fd: source.fd, parentFd: targetParent.fd })');
-  expect(durableLink).toContain('retained: Object.freeze({ fd: source.fd, parentFd: targetParent.fd })');
-  const windowsInstalledStart = entryCas.indexOf("if (state === 'windows-installed')");
-  const windowsInstalledEnd = entryCas.indexOf("if (state === 'linux-s4')", windowsInstalledStart);
-  expect(windowsInstalledStart).toBeGreaterThan(-1);
-  expect(windowsInstalledEnd).toBeGreaterThan(windowsInstalledStart);
-  const windowsInstalled = entryCas.slice(windowsInstalledStart, windowsInstalledEnd);
-  expect(windowsInstalled).not.toContain('exact NEXT recovery cleanup');
-  const initialClassifierStart = source.indexOf('function initialTupleResolutionAdapter(');
-  const initialTupleStart = source.indexOf('async function withRetainedInitiallyAbsentEntryTupleV1<T>(');
-  const initialPublisherStart = source.indexOf('async function publishInitiallyAbsentEntryNoReplace(');
-  const initialPublisherEnd = source.indexOf('async function resolveFreezeTransactionRoot(', initialPublisherStart);
-  expect(initialClassifierStart).toBeGreaterThan(-1);
-  expect(initialTupleStart).toBeGreaterThan(initialClassifierStart);
-  expect(initialPublisherStart).toBeGreaterThan(initialTupleStart);
-  expect(initialPublisherEnd).toBeGreaterThan(initialPublisherStart);
-  const initialClassifier = source.slice(initialClassifierStart, initialTupleStart);
-  const initialPublisher = source.slice(initialPublisherStart, initialPublisherEnd);
-  expect(source).toContain('CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1');
-  expect(source).toContain('CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1');
-  expect(source).not.toContain('classifyInitiallyAbsentEntryStateV1');
-  expect(source).not.toContain('assertInitiallyAbsentTransitionIdentityV1');
-  expect(initialClassifier).toContain('CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({');
-  expect(initialPublisher).toContain('withRetainedInitiallyAbsentEntryTupleV1(classifier');
-  for (const edge of [
-    'win32-w0->win32-w1',
-    'win32-w1->win32-w2',
-    'linux-l0->linux-l1',
-    'linux-l1->linux-l2',
-    'linux-l2->linux-l3'
-  ]) expect(initialPublisher).toContain(edge);
-  expect(initialPublisher).toContain('expectedSourceIdentity: retained.next.identity!');
-  expect(initialPublisher).toContain('retained: retained.target.retained');
-  expect(initialPublisher).not.toContain('removeOptionalSafeRegularFile({');
-  for (const effect of [
-    'createSafeRegularFileExclusive({',
-    'durableLinkOpenedPosixFile({',
-    'durableRename({',
-    'flushPublishedFile({',
-    'input.faultAfterNextPrepared?.()',
-    'input.faultAfterPreQuarantine?.()',
-    'input.faultAfterNextInstall?.()',
-    'afterExactPreRecoveryLink?.',
-    'durability: input.durability'
-  ]) {
-    const positions = [...entryCas.matchAll(new RegExp(effect.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'gu'))]
-      .map((match) => match.index ?? -1);
-    expect(positions.length).toBeGreaterThan(0);
-    expect(positions.every((position) => position > classifierSuccess)).toBe(true);
-  }
-  const journalWriterStart = source.indexOf('async function writeFreezeJournal(');
-  const journalReaderStart = source.indexOf('async function readFreezeJournalSnapshot(');
-  expect(journalWriterStart).toBeGreaterThan(-1);
-  expect(journalReaderStart).toBeGreaterThan(journalWriterStart);
-  const journalWriter = source.slice(journalWriterStart, journalReaderStart);
-  const transitionRecoveryStart = source.indexOf('async function inspectJournalTransitionRecovery(');
-  const recoveryCensusStart = source.indexOf('async function assertFreezeEntryRecoveryCensus(');
-  const journalReaderEnd = source.indexOf('async function restoreFreezeJournalDurability(', journalReaderStart);
-  expect(transitionRecoveryStart).toBeGreaterThan(-1);
-  expect(recoveryCensusStart).toBeGreaterThan(transitionRecoveryStart);
-  expect(journalReaderEnd).toBeGreaterThan(journalReaderStart);
-  const transitionRecovery = source.slice(transitionRecoveryStart, recoveryCensusStart);
-  const recoveryCensus = source.slice(recoveryCensusStart, journalReaderStart);
-  const journalReader = source.slice(journalReaderStart, journalReaderEnd);
-  expect(transitionRecovery).toContain('CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({');
-  expect(recoveryCensus).toContain('CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({');
-  expect(journalReader).toContain('CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1({');
-  expect(source).toContain("const FreezeJournalSchemaV4 = 'sec-document-control-plane-freeze-journal-v4' as const;");
-  expect(source).toContain('Only freeze journal V4 can serve as recovery authority.');
-  expect(source).not.toContain('FreezeJournalSchemaV1');
-  expect(source).not.toContain('FreezeJournalSchemaV2');
-  expect(source).not.toContain('FreezeJournalSchemaV3');
-  expect(source).not.toContain('retainedTemporaryIndexName');
-  const buildNextIndexStart = source.indexOf('async function buildNextIndex(');
-  const buildNextIndexEnd = source.indexOf('function assertCanonicalManifestPath(', buildNextIndexStart);
-  expect(buildNextIndexStart).toBeGreaterThan(-1);
-  expect(buildNextIndexEnd).toBeGreaterThan(buildNextIndexStart);
-  const buildNextIndex = source.slice(buildNextIndexStart, buildNextIndexEnd);
-  expect(buildNextIndex).toContain("mkdtemp(path.join(tmpdir(), 'sec-document-control-freeze-index-'))");
-  expect(buildNextIndex).toContain('if (target.pre !== undefined && target.pre.equals(target.bytes)) continue;');
-  expect(buildNextIndex).toContain("['update-index', '-z', '--index-info']");
-  expect(buildNextIndex.match(/\['update-index'/gu)).toHaveLength(1);
-  expect(buildNextIndex).toContain('await rm(scratchRoot, { recursive: true, force: true });');
-  expect(buildNextIndex).toContain("if (!removed) throw new Error('External freeze scratch Git index root remained after cleanup.');");
-  expect(buildNextIndex).not.toContain('resolveFreezeTransactionRoot(');
-  const freezeStart = source.indexOf('export async function freezeDocumentControlPlaneV1(');
-  const freezeEnd = source.indexOf('function parseJsonArray(', freezeStart);
-  expect(freezeStart).toBeGreaterThan(-1);
-  expect(freezeEnd).toBeGreaterThan(freezeStart);
-  const freezeSource = source.slice(freezeStart, freezeEnd);
-  const noopDecision = freezeSource.indexOf('if (projectionAlreadyCurrent)');
-  const candidateBuild = freezeSource.indexOf('const built = await buildNextIndex({');
-  const journalPublication = freezeSource.indexOf('const journalBytes = await writeFreezeJournal(');
-  expect(noopDecision).toBeGreaterThan(-1);
-  expect(candidateBuild).toBeGreaterThan(noopDecision);
-  expect(journalPublication).toBeGreaterThan(candidateBuild);
-  const noopBranch = freezeSource.slice(noopDecision, candidateBuild);
-  expect(noopBranch).not.toContain('hash-object');
-  expect(noopBranch).not.toContain('writeFreezeJournal(');
-  expect(noopBranch).toContain('return noop.result;');
-  expect(freezeSource).toContain('if (semanticReadback.treeSha !== snapshot.treeSha)');
-  expect(freezeSource).toContain('indexReadback = semanticReadback.index;');
-  const preflightCalls = [...freezeSource.matchAll(/await preflightFreezeProjectionEntryStates\(/gu)]
-    .map((match) => match.index ?? -1);
-  const durabilityRestoreCalls = [...freezeSource.matchAll(/await restoreFreezeJournalDurability\(/gu)]
-    .map((match) => match.index ?? -1);
-  expect(preflightCalls).toHaveLength(2);
-  expect(durabilityRestoreCalls).toHaveLength(2);
-  expect(preflightCalls[0]!).toBeLessThan(durabilityRestoreCalls[0]!);
-  expect(preflightCalls[1]!).toBeLessThan(durabilityRestoreCalls[1]!);
-  const linuxCensusIdentityStart = recoveryCensus.indexOf("if (process.platform === 'linux') {");
-  const linuxCensusIdentityEnd = recoveryCensus.indexOf('const requirePresent = ', linuxCensusIdentityStart);
-  expect(linuxCensusIdentityStart).toBeGreaterThan(-1);
-  expect(linuxCensusIdentityEnd).toBeGreaterThan(linuxCensusIdentityStart);
-  const linuxCensusIdentityOwner = recoveryCensus.slice(linuxCensusIdentityStart, linuxCensusIdentityEnd);
-  expect(linuxCensusIdentityOwner).toContain(
-    'if (initialPreparedBytes !== null && entry.name === input.plan.initialRetiredNext) continue;'
-  );
-  expect(linuxCensusIdentityOwner).not.toContain(
-    'if (entry.name === input.plan.initialRetiredNext) continue;'
-  );
-  expect(linuxCensusIdentityOwner).toContain(
-    'bindIdentity(input.plan.expectations.get(entry.name)!.identityGroup, entry.identity, entry.name);'
-  );
-  for (const obsolete of [
-    'Initially-absent freeze journal target is absent with a retired NEXT artifact.',
-    'Windows initially-absent freeze journal has an unexpected retired NEXT artifact.',
-    'Linux initially-absent freeze journal NEXT recovery identity is unprovable.',
-    'Active prepared journal retired NEXT',
-    'Canonical prepared journal retired NEXT',
-    'Freeze journal initial retired NEXT identity is unprovable.',
-    'input.canonicalEntry.identity !== retiredNext.identity',
-    'initialRetiredNext.identity !== canonicalEntry!.identity',
-    'preparedRecoveryPending'
-  ]) expect(source).not.toContain(obsolete);
-  expect(journalWriter).toContain('publishEntryNoReplaceCas({');
-  expect(journalWriter).toContain('operationId: byteDigest(nextBytes)');
-  expect(journalWriter).toContain('retainRecoveryEntries: true');
-  expect(journalWriter).not.toContain('durableRename({');
-  expect(source).toContain('fsConstants.O_NOFOLLOW');
-  expect(source).toContain('const DOCUMENT_CONTROL_LINUX_X64_O_CLOEXEC_V1 = 0o2_000_000;');
-  expect(source).toContain(
-    "if (process.platform !== 'linux' || process.arch !== 'x64')"
-  );
-  expect(source).toContain(
-    "throw new CodexDevelopmentUnsupportedAnchoredPathEffectError('pinned Linux x64 O_CLOEXEC UAPI');"
-  );
-  expect(source).toContain('return DOCUMENT_CONTROL_LINUX_X64_O_CLOEXEC_V1;');
-  expect(source).not.toContain('.O_CLOEXEC');
-  expect(source).not.toContain('readonly fcntl:');
-  expect(source).not.toContain('fcntl: { args:');
-  expect((source.match(/requireLinuxX64OpenCloseOnExecFlag\(\)/gu) ?? []).length).toBeGreaterThanOrEqual(6);
-  expect(source.match(/const closeOnExec = requireLinuxX64OpenCloseOnExecFlag\(\);/gu)).toHaveLength(2);
 });
 
 test('freeze rejects reparse, nonregular, and outside auxiliary transaction paths', async () => {

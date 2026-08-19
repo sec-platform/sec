@@ -1,13 +1,12 @@
 import path from 'node:path';
+
 import { CompilerError } from '../../shared/errors.ts';
-import { pathExists, readText, writeText, type CommitFence } from '../../shared/fs.ts';
+import { writeText, type CommitFence } from '../../shared/fs.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import {
-  buildIsolatedProcessEnvironment,
-  ensureIsolatedProcessDirectories,
-  ISOLATED_VERIFICATION_ENV_KEY,
-  runCommand
-} from '../../shared/process.ts';
+  decodeExactUtf8V1,
+  readOptionalRetainedOrdinaryFileV1
+} from '../../shared/retained-file-read.ts';
 
 export interface PrismaBlock {
   type: string;
@@ -15,9 +14,50 @@ export interface PrismaBlock {
   content: string;
 }
 
+function prismaParseError(message: string): never {
+  throw new CompilerError('COMPOSE-PRISMA-002', message);
+}
+
+function braceDelta(line: string): number {
+  let delta = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]!;
+    const next = line[index + 1];
+    if (!quoted && char === '/' && next === '/') break;
+    if (quoted) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        quoted = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      quoted = true;
+      continue;
+    }
+    if (char === '{') delta += 1;
+    if (char === '}') delta -= 1;
+  }
+  return delta;
+}
+
+function assertUniqueBlocks(blocks: readonly PrismaBlock[], label: string): void {
+  const seen = new Set<string>();
+  for (const block of blocks) {
+    const key = `${block.type}:${block.name}`;
+    if (seen.has(key)) prismaParseError(`${label} declares duplicate Prisma block ${key}`);
+    seen.add(key);
+  }
+}
+
 export function parsePrismaSchema(content: string): { blocks: PrismaBlock[]; headerTrivia: string } {
   const blocks: PrismaBlock[] = [];
-  const lines = content.split('\n');
+  const lines = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
   let currentBlock: { type: string; name: string; lines: string[] } | null = null;
   let braceCount = 0;
   const headerLines: string[] = [];
@@ -25,261 +65,216 @@ export function parsePrismaSchema(content: string): { blocks: PrismaBlock[]; hea
   for (const line of lines) {
     const trimmed = line.trim();
     if (!currentBlock) {
-      const match = trimmed.match(/^(model|enum|datasource|generator|type)\s+([A-Za-z0-9_.-]+)\s*\{/);
+      const match = /^(model|enum|datasource|generator|type)\s+([A-Za-z][A-Za-z0-9_]*)\s*\{/u.exec(trimmed);
       if (match) {
         currentBlock = {
-          type: match[1],
-          name: match[2],
+          type: match[1]!,
+          name: match[2]!,
           lines: [line]
         };
-        braceCount = 1;
+        braceCount = braceDelta(line);
+        if (braceCount <= 0) {
+          blocks.push({ type: currentBlock.type, name: currentBlock.name, content: line });
+          currentBlock = null;
+          braceCount = 0;
+        }
       } else {
+        if (trimmed.length > 0 && !trimmed.startsWith('//')) {
+          prismaParseError(`Unsupported top-level Prisma syntax: ${trimmed}`);
+        }
         headerLines.push(line);
       }
-    } else {
-      currentBlock.lines.push(line);
-      if (trimmed.includes('{')) {
-        braceCount += (trimmed.match(/\{/g) || []).length;
-      }
-      if (trimmed.includes('}')) {
-        braceCount -= (trimmed.match(/\}/g) || []).length;
-      }
-      if (braceCount <= 0) {
-        blocks.push({
-          type: currentBlock.type,
-          name: currentBlock.name,
-          content: currentBlock.lines.join('\n')
-        });
-        currentBlock = null;
-      }
+      continue;
+    }
+
+    currentBlock.lines.push(line);
+    braceCount += braceDelta(line);
+    if (braceCount < 0) prismaParseError(`Prisma block ${currentBlock.type}:${currentBlock.name} closes unexpectedly`);
+    if (braceCount === 0) {
+      blocks.push({
+        type: currentBlock.type,
+        name: currentBlock.name,
+        content: currentBlock.lines.join('\n')
+      });
+      currentBlock = null;
     }
   }
+
+  if (currentBlock !== null) {
+    prismaParseError(`Prisma block ${currentBlock.type}:${currentBlock.name} is not closed`);
+  }
+  assertUniqueBlocks(blocks, 'Schema');
   return { blocks, headerTrivia: headerLines.join('\n') };
 }
 
-function mergeModels(existingContent: string, templateContent: string): string {
-  const getLines = (c: string) => {
-    const firstBrace = c.indexOf('{');
-    const lastBrace = c.lastIndexOf('}');
-    if (firstBrace === -1 || lastBrace === -1) return [];
-    return c.substring(firstBrace + 1, lastBrace).split('\n');
-  };
+function bodyLines(content: string): string[] {
+  const firstBrace = content.indexOf('{');
+  const lastBrace = content.lastIndexOf('}');
+  if (firstBrace === -1 || lastBrace <= firstBrace) {
+    prismaParseError('Prisma block has no valid body');
+  }
+  return content.slice(firstBrace + 1, lastBrace).split('\n');
+}
 
-  const existingLines = getLines(existingContent);
-  const templateLines = getLines(templateContent);
+function normalizedBlock(content: string): string {
+  return content
+    .replaceAll('\r\n', '\n')
+    .replaceAll('\r', '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('\n');
+}
 
-  const fields = new Map<string, string>(); // fieldName -> line
+function mergeModelLike(existingContent: string, templateContent: string, blockLabel: string): string {
+  const existingLines = bodyLines(existingContent);
+  const templateLines = bodyLines(templateContent);
+  const fields = new Map<string, string>();
+  const fieldOrder: string[] = [];
   const blockAttributes = new Set<string>();
   const commentsAndOthers: string[] = [];
 
-  const processLines = (lines: string[], isTemplate: boolean) => {
+  const consume = (lines: readonly string[], source: 'existing' | 'template'): void => {
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed === '') continue;
-      if (trimmed.startsWith('//') || trimmed.startsWith('/*')) {
-        if (!isTemplate) commentsAndOthers.push(line);
+      if (trimmed.startsWith('//')) {
+        if (source === 'existing') commentsAndOthers.push(line);
         continue;
       }
       if (trimmed.startsWith('@@')) {
         blockAttributes.add(trimmed);
         continue;
       }
-      const match = trimmed.match(/^([A-Za-z0-9_]+)\s+/);
-      if (match) {
-        const fieldName = match[1];
-        if (!isTemplate || !fields.has(fieldName)) {
-          fields.set(fieldName, line);
+      const match = /^([A-Za-z][A-Za-z0-9_]*)\s+/u.exec(trimmed);
+      if (!match) {
+        if (source === 'existing') {
+          commentsAndOthers.push(line);
+          continue;
         }
-      } else {
-        if (!isTemplate) commentsAndOthers.push(line);
+        prismaParseError(`${blockLabel} contains unsupported template syntax: ${trimmed}`);
+      }
+      const fieldName = match[1]!;
+      const previous = fields.get(fieldName);
+      if (previous === undefined) {
+        fields.set(fieldName, line);
+        fieldOrder.push(fieldName);
+        continue;
+      }
+      if (previous.trim() !== trimmed) {
+        prismaParseError(`${blockLabel} field "${fieldName}" conflicts with the existing schema`);
       }
     }
   };
 
-  processLines(existingLines, false);
-  processLines(templateLines, true);
+  consume(existingLines, 'existing');
+  consume(templateLines, 'template');
 
-  const bodyParts: string[] = [];
-  if (commentsAndOthers.length > 0) {
-    bodyParts.push(...commentsAndOthers);
-  }
-  for (const [_, fieldLine] of fields) {
-    bodyParts.push(fieldLine);
-  }
-  for (const attr of blockAttributes) {
-    bodyParts.push(`  ${attr}`);
-  }
-
-  const firstBrace = existingContent.indexOf('{');
-  const header = existingContent.substring(0, firstBrace + 1);
+  const bodyParts = [
+    ...commentsAndOthers,
+    ...fieldOrder.map((field) => fields.get(field)!),
+    ...[...blockAttributes].sort().map((attribute) => `  ${attribute}`)
+  ];
+  const header = existingContent.slice(0, existingContent.indexOf('{') + 1);
   return `${header}\n${bodyParts.join('\n')}\n}`;
 }
 
-function mergeEnums(existingContent: string, templateContent: string): string {
-  const getLines = (c: string) => {
-    const firstBrace = c.indexOf('{');
-    const lastBrace = c.lastIndexOf('}');
-    if (firstBrace === -1 || lastBrace === -1) return [];
-    return c.substring(firstBrace + 1, lastBrace).split('\n');
-  };
-
-  const existingLines = getLines(existingContent);
-  const templateLines = getLines(templateContent);
-
-  const values = new Set<string>();
+function mergeEnums(existingContent: string, templateContent: string, blockLabel: string): string {
+  const values = new Map<string, string>();
+  const order: string[] = [];
   const comments: string[] = [];
 
-  const processLines = (lines: string[], isTemplate: boolean) => {
+  const consume = (lines: readonly string[], source: 'existing' | 'template'): void => {
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed === '') continue;
-      if (trimmed.startsWith('//') || trimmed.startsWith('/*')) {
-        if (!isTemplate) comments.push(line);
+      if (trimmed.startsWith('//')) {
+        if (source === 'existing') comments.push(line);
         continue;
       }
-      const match = trimmed.match(/^([A-Za-z0-9_]+)/);
-      if (match) {
-        values.add(trimmed);
+      const match = /^([A-Za-z][A-Za-z0-9_]*)\b/u.exec(trimmed);
+      if (!match) prismaParseError(`${blockLabel} contains unsupported enum syntax: ${trimmed}`);
+      const valueName = match[1]!;
+      const previous = values.get(valueName);
+      if (previous === undefined) {
+        values.set(valueName, trimmed);
+        order.push(valueName);
+        continue;
+      }
+      if (previous !== trimmed) {
+        prismaParseError(`${blockLabel} enum value "${valueName}" conflicts with the existing schema`);
       }
     }
   };
 
-  processLines(existingLines, false);
-  processLines(templateLines, true);
-
-  const bodyParts = [...comments, ...Array.from(values).map(v => `  ${v}`)];
-  const firstBrace = existingContent.indexOf('{');
-  const header = existingContent.substring(0, firstBrace + 1);
-  return `${header}\n${bodyParts.join('\n')}\n}`;
+  consume(bodyLines(existingContent), 'existing');
+  consume(bodyLines(templateContent), 'template');
+  const header = existingContent.slice(0, existingContent.indexOf('{') + 1);
+  return `${header}\n${[...comments, ...order.map((value) => `  ${values.get(value)!}`)].join('\n')}\n}`;
 }
 
 export function mergePrismaSchemas(existingContent: string, templateContent: string): string {
   const existing = parsePrismaSchema(existingContent);
   const template = parsePrismaSchema(templateContent);
+  assertUniqueBlocks(existing.blocks, 'Existing schema');
+  assertUniqueBlocks(template.blocks, 'Template schema');
 
   const blockMap = new Map<string, PrismaBlock>();
-  const mergedList: PrismaBlock[] = [];
+  const mergedList = existing.blocks.map((block) => ({ ...block }));
+  for (const block of mergedList) blockMap.set(`${block.type}:${block.name}`, block);
 
-  for (const block of existing.blocks) {
-    const key = `${block.type}:${block.name}`;
-    blockMap.set(key, block);
-    mergedList.push(block);
-  }
-
-  for (const block of template.blocks) {
-    const key = `${block.type}:${block.name}`;
+  for (const templateBlock of template.blocks) {
+    const key = `${templateBlock.type}:${templateBlock.name}`;
     const existingBlock = blockMap.get(key);
     if (!existingBlock) {
-      mergedList.push(block);
-    } else {
-      if (block.type === 'model') {
-        existingBlock.content = mergeModels(existingBlock.content, block.content);
-      } else if (block.type === 'enum') {
-        existingBlock.content = mergeEnums(existingBlock.content, block.content);
-      }
-      // generator or datasource from template is ignored
+      const added = { ...templateBlock };
+      mergedList.push(added);
+      blockMap.set(key, added);
+      continue;
+    }
+
+    if (templateBlock.type === 'model' || templateBlock.type === 'type') {
+      existingBlock.content = mergeModelLike(existingBlock.content, templateBlock.content, key);
+      continue;
+    }
+    if (templateBlock.type === 'enum') {
+      existingBlock.content = mergeEnums(existingBlock.content, templateBlock.content, key);
+      continue;
+    }
+    if (normalizedBlock(existingBlock.content) !== normalizedBlock(templateBlock.content)) {
+      prismaParseError(`${key} conflicts with the existing schema; Compose cannot choose a winner by source order`);
     }
   }
 
   const header = existing.headerTrivia.trim();
-  const blocksContent = mergedList.map(b => b.content).join('\n\n');
-  return (header ? header + '\n\n' : '') + blocksContent + '\n';
+  const blocksContent = mergedList.map((block) => block.content).join('\n\n');
+  return `${header ? `${header}\n\n` : ''}${blocksContent}${blocksContent ? '\n' : ''}`;
 }
 
-function sqliteDatabasePath(schemaPath: string, schemaContent: string): string | null {
-  const datasource = parsePrismaSchema(schemaContent).blocks.find((block) => block.type === 'datasource');
-  if (!datasource) return null;
-
-  const provider = /^\s*provider\s*=\s*"([^"]+)"/m.exec(datasource.content)?.[1];
-  const url = /^\s*url\s*=\s*"([^"]+)"/m.exec(datasource.content)?.[1];
-  if (provider !== 'sqlite' || !url?.startsWith('file:')) return null;
-
-  const databasePath = decodeURIComponent(url.slice('file:'.length).split('?', 1)[0]);
-  if (!databasePath) return null;
-  return path.isAbsolute(databasePath)
-    ? databasePath
-    : path.resolve(path.dirname(schemaPath), databasePath);
+function readOptionalPrismaText(filePath: string, label: string): string | null {
+  const bytes = readOptionalRetainedOrdinaryFileV1(filePath, label);
+  return bytes === null ? null : decodeExactUtf8V1(bytes, label);
 }
 
-async function ensureSqliteDatabaseFile(
-  schemaPath: string,
-  schemaContent: string,
-  commitFence?: CommitFence
-): Promise<void> {
-  const databasePath = sqliteDatabasePath(schemaPath, schemaContent);
-  if (databasePath && !(await pathExists(databasePath))) {
-    await writeText(databasePath, '', commitFence);
-  }
-}
-
+/**
+ * Compose owns deterministic Prisma schema materialization only. Applying the
+ * schema to a live database is an external, potentially destructive effect and
+ * requires its own explicit Operation/provider authority; it must never be
+ * hidden behind compilation or any data-loss-accepting database push flag.
+ */
 export async function mergePrismaTemplate(
   workspaceRoot: string,
   projectRoot: string,
-  options: {
-    readonly commitFence?: CommitFence;
-    readonly signal?: AbortSignal;
-  } = {}
+  commitFence?: CommitFence
 ): Promise<void> {
-  const commitFence = options.commitFence;
   const { developerSourceRoot } = getWorkspacePaths(workspaceRoot);
   const templatePath = path.join(developerSourceRoot, 'schema', 'db.prisma.template');
   const targetPath = path.join(projectRoot, 'prisma', 'schema.prisma');
+  const templateContent = readOptionalPrismaText(templatePath, 'Prisma schema template');
+  if (templateContent === null) return;
 
-  if (!(await pathExists(templatePath))) {
-    return;
-  }
-
-  const templateContent = await readText(templatePath);
-  const existingContent = (await pathExists(targetPath)) ? await readText(targetPath) : '';
-
+  const existingContent = readOptionalPrismaText(targetPath, 'Prisma schema target') ?? '';
   const mergedContent = mergePrismaSchemas(existingContent, templateContent);
+  if (mergedContent === existingContent) return;
   await writeText(targetPath, mergedContent, commitFence);
-
-  // Prisma 6's Windows schema engine can fail without diagnostics while creating
-  // a missing SQLite file. Pre-creating the empty file preserves db push semantics.
-  await ensureSqliteDatabaseFile(targetPath, mergedContent, commitFence);
-
-  const isolated = process.env[ISOLATED_VERIFICATION_ENV_KEY] === '1';
-  const isolatedWritableRoot = path.join(workspaceRoot, '.isolated-process', 'prisma');
-  const isolatedConfigPath = path.join(isolatedWritableRoot, 'bunfig.toml');
-  if (isolated) {
-    await commitFence?.();
-    await ensureIsolatedProcessDirectories(isolatedWritableRoot, commitFence);
-    await writeText(isolatedConfigPath, '# isolated runtime\n', commitFence);
-  }
-  await commitFence?.();
-  const result = await runCommand(
-    isolated ? process.execPath : 'bunx',
-    isolated
-      ? [
-          '--no-env-file',
-          `--config=${isolatedConfigPath}`,
-          'x',
-          '--no-install',
-          'prisma@6',
-          'db',
-          'push',
-          '--accept-data-loss'
-        ]
-      : ['prisma@6', 'db', 'push', '--accept-data-loss'],
-    {
-      beforeSpawn: commitFence,
-      cwd: projectRoot,
-      signal: options.signal,
-      ...(isolated ? {
-        env: buildIsolatedProcessEnvironment(isolatedWritableRoot, {
-          [ISOLATED_VERIFICATION_ENV_KEY]: '1'
-        }),
-        envMode: 'replace' as const
-      } : {})
-    }
-  );
-
-  if (result.code !== 0) {
-    throw new CompilerError(
-      'COMPOSE-PRISMA-001',
-      `Failed to push merged Prisma schema to database: ${result.stderr}`,
-      { result }
-    );
-  }
 }

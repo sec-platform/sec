@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
-import { executeVerifiedCiActionPlanV1 } from '../../platform/dev-runner.ts';
+import { executeVerifiedCiActionPlanV1 } from '../../platform/dev-runner/verification-action-executor.ts';
 import { buildCiFullGatePlan, buildCiQuickGatePlan } from '../../platform/shared/ci-verification-plan.ts';
 import {
   assertCiVerificationActionPlanClosureEqualV1,

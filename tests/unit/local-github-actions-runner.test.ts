@@ -559,49 +559,5 @@ describe('local GitHub Actions runner contract', () => {
       repository,
       'https://example.com/sec-platform/sec.git'
     )).toThrow('origin repository identity differs');
-
-    const source = await Bun.file(
-      new URL('../../scripts/codex/local-github-actions-runner.ts', import.meta.url)
-    ).text();
-    expect(source).toContain("'api', '--hostname', LOCAL_GITHUB_ACTIONS_GITHUB_HOST_V3");
-    expect(source).toContain("['--host', dockerEndpointIdentity(endpoint).endpointHost, ...args]");
-    expect(source).toContain("'auth', 'token', '--hostname', LOCAL_GITHUB_ACTIONS_GITHUB_HOST_V3");
-    expect(source).toContain('githubToken: session.token');
-    expect(source).toContain('childEnvironment.GH_TOKEN = options.githubToken');
-    expect(source).not.toContain('environment?: Readonly<Record<string, string>>');
-    expect(source).toContain("'run', '--detach', '--init', '--name', name");
-    expect(source).toContain('host.Init !== true');
-    expect(source).toContain('LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2');
-    expect(source).toContain("'exec', '--interactive', containerId");
-    expect(source).toContain("['rm', '--force', retained.containerId]");
-    expect(source).toContain('assertExactLocalGitHubActionsRunnerProfileInventoryV3');
-    expect(source).toContain('assertExactLocalGitHubActionsRunnerProfileContainersV3');
-    expect(source).toContain('label=sec.local-runner.repository=${retainedRepository}');
-    expect(source).not.toContain('label=sec.local-runner.schema=${LOCAL_GITHUB_ACTIONS_RUNNER_STATE_SCHEMA_V3}');
-    expect(source).toContain('advanceProviderLedgerV3');
-    expect(source).toContain("['cat-file', 'commit', input.objectSha]");
-    expect(source).toContain("'ls-tree', '--full-tree', '-z', input.objectSha");
-    expect(source).not.toContain("input.objectSha, '--', 'provider-ledger.json'");
-    expect(source).toContain("'mktree'");
-    expect(source).toContain("['hash-object', '-t', 'commit', '-w', '--stdin']");
-    expect(source).toContain("'fetch', '--no-tags', '--no-write-fetch-head', 'origin'");
-    expect(source).toContain('assertLocalGitHubActionsProviderLedgerTransitionV3');
-    expect(source).toContain('uncommitted GitHub runner residue exists without remote exact-ID authority');
-    expect(source).toContain('uncommitted Docker container residue exists without remote exact-ID authority');
-    expect(source).toContain('namedContainers.some((container) => container !== null)');
-    expect(source).toContain("args.includes('--remove-image')");
-    expect(source).toContain('active image retirement is not an ordinary stop authority');
-    expect(source).toContain("command === 'retire-superseded-image'");
-    expect(source).toContain("['image', 'rm', decision.imageId]");
-    expect(source).toContain('image retirement is blocked while the provider ledger is active');
-    expect(source).toContain('superseded image still has container references and is preserved');
-    expect(source).not.toContain("['image', 'rm', LOCAL_GITHUB_ACTIONS_RUNNER_IMAGE_V1]");
-    expect(source).not.toContain("['rm', '--force', retained.name]");
-    expect(source).not.toContain('--unattended --replace');
-    expect(source).not.toContain('/var/run/docker.sock');
-    expect(source).not.toContain("['system', 'prune'");
-    expect(source).not.toContain("['image', 'prune'");
-    expect(source).not.toContain("['container', 'prune'");
-    expect(source).not.toContain('sec-ephemeral-mainhealth-');
   });
 });

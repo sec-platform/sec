@@ -1,0 +1,100 @@
+import { expect, test } from 'bun:test';
+
+import { validateOverrideManifest } from '../../platform/compiler/parse/load-override-manifest.ts';
+import {
+  assertCanonicalPortableLogicalPathV1,
+  isCanonicalPortableLogicalPathPrefixV1,
+  isCanonicalPortableLogicalPathV1,
+  portableLogicalPathCollisionKeyV1
+} from '../../platform/shared/logical-path-identity.ts';
+
+test('portable logical paths accept canonical project-relative POSIX spellings', () => {
+  expect(isCanonicalPortableLogicalPathV1('src/installed/entity/customer-service.ts')).toBe(true);
+  expect(isCanonicalPortableLogicalPathV1('.next/cache/data.json')).toBe(true);
+  expect(assertCanonicalPortableLogicalPathV1('tests/acceptance/customer-flow.test.ts')).toBe(
+    'tests/acceptance/customer-flow.test.ts'
+  );
+});
+
+test('portable logical directory prefixes preserve an explicit trailing slash', () => {
+  expect(isCanonicalPortableLogicalPathPrefixV1('custom/')).toBe(true);
+  expect(isCanonicalPortableLogicalPathPrefixV1('src/installed/')).toBe(true);
+  expect(isCanonicalPortableLogicalPathPrefixV1('custom')).toBe(false);
+  expect(isCanonicalPortableLogicalPathPrefixV1('custom//')).toBe(false);
+  expect(isCanonicalPortableLogicalPathPrefixV1('../custom/')).toBe(false);
+  expect(isCanonicalPortableLogicalPathPrefixV1('src\\installed\\')).toBe(false);
+});
+
+test('portable logical paths reject traversal, alternate separators and noncanonical components', () => {
+  for (const candidate of [
+    '../secret',
+    'src/../secret',
+    'src\\secret.ts',
+    '/absolute/path',
+    'C:/absolute/path',
+    'src//double.ts',
+    'src/./same.ts',
+    'src/trailing./file.ts',
+    'src/trailing /file.ts'
+  ]) {
+    expect(isCanonicalPortableLogicalPathV1(candidate)).toBe(false);
+  }
+});
+
+test('portable logical paths reject Windows device aliases and illegal components', () => {
+  for (const candidate of [
+    'src/con',
+    'src/CON.txt',
+    'src/com1.json',
+    'src/lpt9.log',
+    'src/a:b.ts',
+    'src/a?.ts',
+    'src/a*.ts'
+  ]) {
+    expect(isCanonicalPortableLogicalPathV1(candidate)).toBe(false);
+  }
+});
+
+test('portable logical path identity requires NFC rather than silently normalizing identity', () => {
+  const decomposed = `source/${'e\u0301'}.ts`;
+  const composed = decomposed.normalize('NFC');
+  expect(decomposed).not.toBe(composed);
+  expect(isCanonicalPortableLogicalPathV1(decomposed)).toBe(false);
+  expect(isCanonicalPortableLogicalPathV1(composed)).toBe(true);
+});
+
+test('portable publication collision keys conservatively collapse host case aliases', () => {
+  expect(portableLogicalPathCollisionKeyV1('generated/Foo.ts')).toBe(
+    portableLogicalPathCollisionKeyV1('generated/foo.ts')
+  );
+  expect(portableLogicalPathCollisionKeyV1('generated/Straße.ts')).toBe(
+    portableLogicalPathCollisionKeyV1('generated/STRASSE.ts')
+  );
+  expect(() => portableLogicalPathCollisionKeyV1('generated/../escape.ts'))
+    .toThrow('not one canonical portable logical path');
+});
+
+test('override ownership uses the canonical portable target identity', () => {
+  expect(() => validateOverrideManifest({
+    overrides: [
+      {
+        id: 'first',
+        entry: 'patches/first.patch',
+        target: 'src/Foo.ts',
+        reason: 'first owner',
+        source: 'manual',
+        appliesAfter: ['adapt'],
+        conflictsWith: []
+      },
+      {
+        id: 'second',
+        entry: 'patches/second.patch',
+        target: 'src/foo.ts',
+        reason: 'portable alias',
+        source: 'manual',
+        appliesAfter: ['adapt'],
+        conflictsWith: []
+      }
+    ]
+  })).toThrow('multiple adapt owners');
+});

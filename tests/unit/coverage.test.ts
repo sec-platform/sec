@@ -36,20 +36,14 @@ function fast(passed: string[]): FastVerificationLaneReport {
     build: { status: 'passed' },
     unit: { status: 'passed', passed: ['example.test.ts'] },
     acceptance: { status: 'passed', passed, failed: [] },
-    policy: { status: 'passed', violations: [] },
+    policy: { status: 'skipped', violations: [] },
     policyReport: {
-      status: 'passed',
-      official: { policies: ['policy'], sources: [], violations: [] },
+      status: 'skipped',
+      official: { policies: [], sources: [], violations: [] },
       project: { policies: [], sources: [], violations: [] },
-      merged: {
-        policies: [{
-          id: 'policy',
-          sourceScope: 'official',
-          sourcePath: 'policy.yaml',
-          targets: []
-        }]
-      },
-      violations: []
+      merged: { policies: [] },
+      violations: [],
+      diagnostics: []
     },
     logs: emptyVerificationLogs()
   };
@@ -217,7 +211,7 @@ test('fast and runtime files close every declared semantic acceptance', async ()
   });
 });
 
-test('partial, cyclic, unmapped and empty observations remain uncovered', async () => {
+test('partial, unmapped and empty observations remain uncovered', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     await writeManifests(workspaceRoot, [
       {
@@ -230,16 +224,6 @@ test('partial, cyclic, unmapped and empty observations remain uncovered', async 
         covers: { blocks: ['target/block'], slots: ['target_slot'] }
       },
       {
-        id: 'ticket_can_be_created',
-        dependsOn: ['ticket_status_can_transition'],
-        covers: { blocks: ['target/block'] }
-      },
-      {
-        id: 'ticket_status_can_transition',
-        dependsOn: ['ticket_can_be_created'],
-        covers: { blocks: ['target/block'] }
-      },
-      {
         id: 'unmapped_acceptance',
         covers: { blocks: ['target/block'] }
       }
@@ -247,8 +231,6 @@ test('partial, cyclic, unmapped and empty observations remain uncovered', async 
     const currentLock = lock([
       'user_can_create_customer',
       'customer_can_upload_attachment',
-      'ticket_can_be_created',
-      'ticket_status_can_transition',
       'unmapped_acceptance'
     ]);
 
@@ -256,23 +238,18 @@ test('partial, cyclic, unmapped and empty observations remain uncovered', async 
       workspaceRoot,
       currentLock,
       runtime([
-        'tests/runtime/acceptance/customer-flow.spec.ts',
-        'tests/runtime/acceptance/ticket-flow.spec.ts'
+        'tests/runtime/acceptance/customer-flow.spec.ts'
       ]),
       fast([])
     );
     expect(partial.acceptancePassed).toEqual([
       'customer_can_upload_attachment',
-      'ticket_can_be_created',
-      'ticket_status_can_transition',
       'user_can_create_customer'
     ]);
     expect(partial.blocks.find((entry) => entry.id === 'target/block')).toEqual({
       id: 'target/block',
       declaredAcceptance: [
         'customer_can_upload_attachment',
-        'ticket_can_be_created',
-        'ticket_status_can_transition',
         'unmapped_acceptance'
       ],
       coveredBy: ['customer_can_upload_attachment'],

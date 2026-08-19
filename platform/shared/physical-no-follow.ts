@@ -1822,18 +1822,12 @@ export function scanNoFollowDirectoryTreeMetadataV1(
   })));
 }
 
-/** Creates only validated leaf components beneath an already-proven directory. */
-export function createNoFollowDirectoryChainV1(
+function createNoFollowDirectoryChainInternalV1(
   root: PhysicalDirectoryIdentityV1,
   segments: readonly string[]
 ): PhysicalDirectoryIdentityV1 {
   const rootChain = assertSameNoFollowDirectoryIdentityV1(root, 'No-follow directory creation root');
   let current = rootChain.target;
-  for (const segment of segments) {
-    if (segment !== '.tmp' && !/^[a-z0-9-]+$/u.test(segment)) {
-      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow directory creation segment is invalid.');
-    }
-  }
   if (process.platform === 'linux') {
     const transaction = linuxOpenWatchedCanonicalDirectoryChain(
       rootChain,
@@ -1900,6 +1894,46 @@ export function createNoFollowDirectoryChainV1(
     return current;
   }
   throw physicalError('PHYSICAL_NO_FOLLOW_CAPABILITY_UNAVAILABLE', 'Retained no-follow directory creation is unavailable on this platform.');
+}
+
+/** Creates only canonical SEC namespace components beneath an already-proven directory. */
+export function createNoFollowDirectoryChainV1(
+  root: PhysicalDirectoryIdentityV1,
+  segments: readonly string[]
+): PhysicalDirectoryIdentityV1 {
+  for (const segment of segments) {
+    if (segment !== '.tmp' && !/^[a-z0-9-]+$/u.test(segment)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'No-follow directory creation segment is invalid.');
+    }
+  }
+  return createNoFollowDirectoryChainInternalV1(root, segments);
+}
+
+function ensureOrdinaryDirectorySegmentV1(segment: string): void {
+  if (typeof segment !== 'string' || segment.length === 0 || segment.length > 255
+    || segment === '.' || segment === '..' || /[\\/\0]/u.test(segment)) {
+    throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Ordinary no-follow directory segment is invalid.');
+  }
+  if (process.platform === 'win32') {
+    const base = segment.split('.')[0]!.toLocaleUpperCase('en-US');
+    if (/[:<>"|?*]/u.test(segment) || /[ .]$/u.test(segment)
+      || /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/u.test(base)) {
+      throw physicalError('PHYSICAL_NO_FOLLOW_UNSAFE_PATH', 'Ordinary no-follow directory segment is invalid on Windows.');
+    }
+  }
+}
+
+/**
+ * Materializes ordinary host path components without following aliases. This
+ * is the path-allocation primitive for external runtime roots whose existing
+ * parent names are not SEC-controlled lowercase namespace identifiers.
+ */
+export function createNoFollowOrdinaryDirectoryChainV1(
+  root: PhysicalDirectoryIdentityV1,
+  segments: readonly string[]
+): PhysicalDirectoryIdentityV1 {
+  for (const segment of segments) ensureOrdinaryDirectorySegmentV1(segment);
+  return createNoFollowDirectoryChainInternalV1(root, segments);
 }
 
 /**

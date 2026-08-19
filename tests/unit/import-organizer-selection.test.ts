@@ -62,20 +62,10 @@ describe('import organizer selection', () => {
       moduleDeclaration,
       target
     ].sort());
+
   });
 
-  test('candidate is the code default and the ambient changed-only switch is retired', async () => {
-    const source = await Bun.file(path.resolve(import.meta.dir,
-      '../../platform/dev-runner/import-organizer.ts')).text();
-    const compiler = source.slice(source.indexOf('async function compileImportOperationExecutionV1'),
-      source.indexOf('/**\n * imports:check'));
-    expect(compiler).toContain("const scope = options.scope ?? 'candidate'");
-    expect(compiler).toContain("scope === 'all'");
-    expect(source).not.toContain('SEC_IMPORTS_CHANGED_ONLY');
-    expect(source).not.toContain('selectChangedImportsOnly');
-  });
-
-  test('candidate and full scopes compile different immutable exact plans', async () => {
+test('candidate and full scopes compile different immutable exact plans', async () => {
     const repoRoot = await mkdtemp(path.join(tmpdir(), 'sec-import-base-'));
     try {
       const git = (args: readonly string[]): string => {

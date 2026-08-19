@@ -1,4 +1,4 @@
-import { compileWorkspace } from '../platform/orchestrator.ts';
+import { compileWorkspace } from '../platform/orchestrator/pipeline-orchestrator.ts';
 
 try {
   await compileWorkspace(process.cwd(), {
