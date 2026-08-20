@@ -6756,7 +6756,15 @@ export async function resolveLiveControlPlane(
         'Default-branch tree'
       )
     : undefined;
-  if (rollingMachine !== null && localDefaultSha !== undefined && mainTree !== undefined) {
+  // A rolling projection binds the default revision only while its manifest is
+  // prospective. Once the exact manifest blob is published on default, the
+  // projection is immutable transition history; requiring it to bind the
+  // post-merge commit would make every successful publication self-lock the
+  // resolver before it can reorient on the new main.
+  if (activeWorkPackage.state === 'active'
+      && rollingMachine !== null
+      && localDefaultSha !== undefined
+      && mainTree !== undefined) {
     CodexDevelopmentAssertRollingMachineBaseBindingV1({
       projection: rollingMachine,
       exactMain: localDefaultSha,

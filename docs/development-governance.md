@@ -897,6 +897,11 @@ WorkDecision/selection owner。
 candidate tree的NUL-safe Git delta证明变化只包含manifest、active pointer和rolling plan三个projection target。
 任一业务/架构路径变化、缺失/非committed projection或无法读取source tree都强制生成新projection；只剩这三个
 compiler输出的delta才是收敛NOOP。Resolver与freeze不得各自再定义另一套manifest/head/tree新鲜度规则。
+projection对exact main/tree的绑定只约束manifest尚未进入default的prospective active阶段。只要resolver从
+fresh default读取到与pointer digest完全相同的manifest blob，该projection就成为不可变transition history；
+此时不得再要求它绑定包含自身的post-merge commit，否则每次成功发布都会在new main上自锁status并阻断
+reorientation。published状态必须返回typed `none/matching-default-blob`；digest不一致、default不可用或观察竞争
+仍分别保持`invalid`/`unresolved`，不能借历史化放宽。
 document-control的全部Git子进程（包括blob、index、tree、ref与remote observation）统一消费
 `platform/shared/git-read-environment.ts`的isolated read environment；cwd/argv与resolver显式生成的
 scratch index/object/alternate overrides是唯一可进入的repository selection输入。宿主进程继承的
