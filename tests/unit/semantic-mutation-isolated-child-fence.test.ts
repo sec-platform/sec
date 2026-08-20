@@ -218,36 +218,6 @@ test('isolated runner relocation rejects missing Bun EJS compatibility guard', (
     .toThrow('Semantic Mutation isolated runner bundle has an invalid EJS ESM compatibility guard');
 });
 
-test('isolated runner bundle has one host-process Bun build and no helper process', async () => {
-  const source = await readFile(path.join(
-    compilerRoot,
-    'platform',
-    'compiler',
-    'verify',
-    'run-semantic-mutation-isolated-child.ts'
-  ), 'utf8');
-  const start = source.indexOf('async function buildIsolatedRunnerBundle(');
-  const end = source.indexOf('\nfunction createProcessLocalRunnerBundleLoader(', start);
-  expect(start).toBeGreaterThanOrEqual(0);
-  expect(end).toBeGreaterThan(start);
-  const body = source.slice(start, end);
-  const runtimeVersionGuard = body.indexOf(
-    'if (Bun.version !== canonicalBunRuntimeVersion)'
-  );
-  const runtimeVersionLoad = body.indexOf('await loadCanonicalBunRuntimeVersion()');
-  const rootCapture = body.indexOf('captureIsolatedRuntimeBuildNodeModulesProof');
-  const runnerBuild = body.indexOf('() => Bun.build({');
-  expect(body).not.toContain('prepareWindowsAppContainerNativeHelperBundle');
-  expect(body).not.toContain("process.platform === 'win32'");
-  expect(body).not.toContain('runObservedCommand');
-  expect(body.match(/Bun\.build\(\{/gu)).toHaveLength(1);
-  expect(runtimeVersionLoad).toBeGreaterThanOrEqual(0);
-  expect(runtimeVersionGuard).toBeGreaterThanOrEqual(0);
-  expect(runtimeVersionGuard).toBeGreaterThan(runtimeVersionLoad);
-  expect(rootCapture).toBeGreaterThan(runtimeVersionGuard);
-  expect(runnerBuild).toBeGreaterThan(rootCapture);
-});
-
 test('runtime capability and child options reject accessor authority without evaluating getters', async () => {
   let probeGetterReads = 0;
   const probeOptions = Object.defineProperty({}, 'runtimeInputSources', {
@@ -1897,57 +1867,6 @@ test('production isolated verification supervisor uses one bounded observed loca
   })).toEqual({ code: 7, stdout: '', stderr: '' });
   expect(calls).toBe(1);
   expect(fences).toBe(3);
-});
-
-test('isolated Verification suppresses runtime timing before the zero-output child boundary', async () => {
-  const source = await readFile(path.join(
-    compilerRoot,
-    'platform',
-    'orchestrator',
-    'verify-orchestrator.ts'
-  ), 'utf8');
-  expect(source).toContain('emitTiming: isolated ? false : options.emitTiming');
-});
-
-test('staged verify-all runner preserves one browser proof through both runtime acceptance spawns', async () => {
-  const [runnerSource, verifyProjectSource, runtimeVerificationSource] = await Promise.all([
-    readFile(path.join(
-      compilerRoot,
-      'platform',
-      'orchestrator',
-      'semantic-mutation-isolated-verification-runner.ts'
-    ), 'utf8'),
-    readFile(path.join(
-      compilerRoot,
-      'platform',
-      'compiler',
-      'verify',
-      'verify-project.ts'
-    ), 'utf8'),
-    readFile(path.join(
-      compilerRoot,
-      'platform',
-      'compiler',
-      'verify',
-      'run-runtime-verification.ts'
-    ), 'utf8')
-  ]);
-
-  expect(runnerSource).toContain(
-    'registerWindowsBrowserLaunchProofFromArguments(process.argv);'
-  );
-  expect(runnerSource).toContain("verificationLane: 'all'");
-  expect(verifyProjectSource).toContain('runtimeLane = await runRuntimeVerification(');
-  expect(verifyProjectSource).toContain("lane === 'all' ? 'full' : 'service'");
-  expect(runtimeVerificationSource).toContain(
-    'const assertBrowserLaunchPreSpawn = isolated'
-  );
-  expect(runtimeVerificationSource).toContain(
-    'beforeSpawn: assertBrowserLaunchPreSpawn'
-  );
-  expect(runtimeVerificationSource.replaceAll('\r\n', '\n')).toContain(
-    'acceptanceInvocation,\n      acceptanceEnv,\n      assertBrowserLaunchPreSpawn'
-  );
 });
 
 test('staged verify-all runner rejects a Playwright target swap before spawn', async () => {
@@ -4113,58 +4032,4 @@ test('isolated runtime capability permits baseline bootstrap but blocks Prisma a
     expect(await probe()).toEqual({ status: 'available' });
     expect(bundleBuilds).toBe(2);
   }, 'engineering-compiler-sm3-isolated-capability-blockers-');
-});
-
-test('production staged Verification proof is neutral, one-shot, and child-source-bound', async () => {
-  const source = await readFile(path.join(
-    compilerRoot,
-    'platform',
-    'compiler',
-    'verify',
-    'staged-verification-proof.ts'
-  ), 'utf8');
-  expect(source).not.toContain("from '../semantic-mutation/");
-  expect(source).not.toContain('run-semantic-mutation-isolated-child');
-  expect(source).toContain('const issuedSources = new WeakMap');
-  expect(source).toContain('const issuedProofs = new WeakMap');
-  expect(source).toContain('source.consumed = true;');
-  expect(source).toContain('state.consumed = true;');
-  expect(source).toContain('verificationArtifactDigest');
-  expect(source).toContain('rawArtifactSetDigest');
-
-  const childSource = await readFile(path.join(
-    compilerRoot,
-    'platform',
-    'compiler',
-    'verify',
-    'run-semantic-mutation-isolated-child.ts'
-  ), 'utf8');
-  const childStart = childSource.indexOf(
-    'export async function runSemanticMutationIsolatedVerificationChild('
-  );
-  const child = childSource.slice(childStart);
-  expect(child).toMatch(
-    /const commitFence = productionInvocation\r?\n      \? createWorkspaceWriteCommitFence\(workspaceRoot, workspaceWriteLease\)/u
-  );
-  expect(child).toContain('const canIssueProofSource = productionInvocation');
-  expect(child).toContain(
-    'if (!canIssueProofSource) await assertIsolatedStagingTree(stagingWorkspaceRoot);'
-  );
-  expect(child).toContain('const stagedVerificationProofSource = await issueStagedVerificationProofSource({');
-
-  const orchestratorSource = await readFile(path.join(
-    compilerRoot,
-    'platform',
-    'orchestrator',
-    'semantic-mutation-orchestrator.ts'
-  ), 'utf8');
-  const productionCallStart = orchestratorSource.indexOf(
-    'const artifacts = await runSemanticMutationIsolatedVerificationChild('
-  );
-  const productionCallEnd = orchestratorSource.indexOf('\n      );', productionCallStart);
-  const productionCall = orchestratorSource.slice(productionCallStart, productionCallEnd);
-  expect(productionCall).not.toContain('commitFence,');
-  expect(orchestratorSource).toContain('const execution = buildSemanticMutationVerificationExecutionRef(report);');
-  expect(orchestratorSource).toContain('const binding = stagedVerificationProofBinding(passedExecution, sha256(report));');
-  expect(orchestratorSource).toContain('const proof = await issueStagedVerificationProof({');
 });

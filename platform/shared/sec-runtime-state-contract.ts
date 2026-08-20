@@ -1,0 +1,220 @@
+import path from 'node:path';
+
+import { sha256 } from './canonical-primitives.ts';
+
+export const SEC_RUNTIME_STATE_LAYOUT_SCHEMA_V1 = 'sec-runtime-state-layout-v1' as const;
+export const SEC_RUNTIME_STATE_POLICY_V1 = Object.freeze({
+  schema: 'sec-runtime-state-policy-v1',
+  repositoryTreeOwnsRuntimeState: false,
+  durableStateUnderRepositoryTree: false,
+  contentAddressedContinuationObjects: true,
+  stateAndCacheSeparated: true,
+  workspaceStateUsesPhysicalWorkspaceIdentity: true
+});
+
+export type SecRuntimePlatformV1 = 'win32' | 'linux' | 'darwin';
+
+export type SecRuntimeStateEnvironmentV1 = Readonly<{
+  SEC_STATE_HOME?: string;
+  SEC_CACHE_HOME?: string;
+  LOCALAPPDATA?: string;
+  XDG_STATE_HOME?: string;
+  XDG_CACHE_HOME?: string;
+  HOME?: string;
+}>;
+
+export interface SecRuntimeRootsV1 {
+  readonly stateRoot: string;
+  readonly cacheRoot: string;
+  readonly workspaceLocatorRoot: string;
+  readonly workspaceStateRoot: string;
+  readonly workspaceLocatorKey: `sha256:${string}`;
+}
+
+export interface SecWorkspacePhysicalIdentityV1 {
+  readonly device: string;
+  readonly inode: string;
+  readonly objectId: string;
+}
+
+export interface SecRuntimeStateLayoutV1 {
+  readonly schema: typeof SEC_RUNTIME_STATE_LAYOUT_SCHEMA_V1;
+  readonly stateRoot: string;
+  readonly cacheRoot: string;
+  readonly repositoryKey: `sha256:${string}`;
+  readonly workspaceKey: `sha256:${string}`;
+  readonly workspaceLocatorKey: `sha256:${string}`;
+  readonly repositoryStateRoot: string;
+  readonly workspaceStateRoot: string;
+  readonly continuationObjectRoot: string;
+  readonly continuationPointerPath: string;
+  readonly verificationSessionJournalRoot: string;
+  readonly verificationActionJournalRoot: string;
+}
+
+function fail(message: string): never {
+  throw new Error(`SEC runtime state ${message}`);
+}
+
+function digest(value: unknown): `sha256:${string}` {
+  return sha256(value) as `sha256:${string}`;
+}
+
+function boundedText(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 4096
+      || value.includes('\0') || value.trim() !== value) {
+    fail(`${label} must be bounded non-empty text.`);
+  }
+  return value;
+}
+
+function repository(value: unknown): string {
+  const result = boundedText(value, 'repository');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u.test(result)) {
+    fail('repository must be owner/name.');
+  }
+  return result;
+}
+
+function flavor(platform: SecRuntimePlatformV1): typeof path.win32 | typeof path.posix {
+  return platform === 'win32' ? path.win32 : path.posix;
+}
+
+function requireAbsolute(value: string, platform: SecRuntimePlatformV1, label: string): string {
+  const api = flavor(platform);
+  if (!api.isAbsolute(value)) fail(`${label} must be absolute.`);
+  return api.normalize(value);
+}
+
+function defaultStateRoot(platform: SecRuntimePlatformV1, env: SecRuntimeStateEnvironmentV1): string {
+  const api = flavor(platform);
+  if (env.SEC_STATE_HOME !== undefined) return requireAbsolute(env.SEC_STATE_HOME, platform, 'SEC_STATE_HOME');
+  if (platform === 'win32') {
+    if (env.LOCALAPPDATA === undefined) fail('LOCALAPPDATA is required on Windows when SEC_STATE_HOME is unset.');
+    return api.join(requireAbsolute(env.LOCALAPPDATA, platform, 'LOCALAPPDATA'), 'SEC', 'state');
+  }
+  if (env.XDG_STATE_HOME !== undefined) {
+    return api.join(requireAbsolute(env.XDG_STATE_HOME, platform, 'XDG_STATE_HOME'), 'sec');
+  }
+  if (env.HOME === undefined) fail('HOME is required when SEC_STATE_HOME and XDG_STATE_HOME are unset.');
+  const home = requireAbsolute(env.HOME, platform, 'HOME');
+  return platform === 'darwin'
+    ? api.join(home, 'Library', 'Application Support', 'SEC', 'state')
+    : api.join(home, '.local', 'state', 'sec');
+}
+
+function defaultCacheRoot(platform: SecRuntimePlatformV1, env: SecRuntimeStateEnvironmentV1): string {
+  const api = flavor(platform);
+  if (env.SEC_CACHE_HOME !== undefined) return requireAbsolute(env.SEC_CACHE_HOME, platform, 'SEC_CACHE_HOME');
+  if (platform === 'win32') {
+    if (env.LOCALAPPDATA === undefined) fail('LOCALAPPDATA is required on Windows when SEC_CACHE_HOME is unset.');
+    return api.join(requireAbsolute(env.LOCALAPPDATA, platform, 'LOCALAPPDATA'), 'SEC', 'cache');
+  }
+  if (env.XDG_CACHE_HOME !== undefined) {
+    return api.join(requireAbsolute(env.XDG_CACHE_HOME, platform, 'XDG_CACHE_HOME'), 'sec');
+  }
+  if (env.HOME === undefined) fail('HOME is required when SEC_CACHE_HOME and XDG_CACHE_HOME are unset.');
+  const home = requireAbsolute(env.HOME, platform, 'HOME');
+  return platform === 'darwin'
+    ? api.join(home, 'Library', 'Caches', 'SEC')
+    : api.join(home, '.cache', 'sec');
+}
+
+function workspacePhysicalIdentity(
+  value: SecWorkspacePhysicalIdentityV1
+): SecWorkspacePhysicalIdentityV1 {
+  const result = Object.freeze({
+    device: boundedText(value.device, 'workspace physical device'),
+    inode: boundedText(value.inode, 'workspace physical inode'),
+    objectId: boundedText(value.objectId, 'workspace physical objectId')
+  });
+  return result;
+}
+
+function isSameOrInside(candidate: string, parent: string, platform: SecRuntimePlatformV1): boolean {
+  const api = flavor(platform);
+  const left = platform === 'win32' ? api.normalize(candidate).toLowerCase() : api.normalize(candidate);
+  const right = platform === 'win32' ? api.normalize(parent).toLowerCase() : api.normalize(parent);
+  const relative = api.relative(right, left);
+  return relative === '' || (!relative.startsWith(`..${api.sep}`) && relative !== '..' && !api.isAbsolute(relative));
+}
+
+export function createSecWorkspaceLocatorKeyV1(input: Readonly<{
+  workspacePhysicalIdentity: SecWorkspacePhysicalIdentityV1;
+}>): `sha256:${string}` {
+  return digest(Object.freeze({
+    schema: 'sec-workspace-locator-key-v1',
+    workspacePhysicalIdentity: workspacePhysicalIdentity(input.workspacePhysicalIdentity)
+  }));
+}
+
+export function resolveSecRuntimeRootsV1(input: Readonly<{
+  platform: SecRuntimePlatformV1;
+  environment: SecRuntimeStateEnvironmentV1;
+  repositoryRoot: string;
+  workspacePhysicalIdentity: SecWorkspacePhysicalIdentityV1;
+}>): SecRuntimeRootsV1 {
+  const repositoryRoot = requireAbsolute(input.repositoryRoot, input.platform, 'repositoryRoot');
+  const stateRoot = defaultStateRoot(input.platform, input.environment);
+  const cacheRoot = defaultCacheRoot(input.platform, input.environment);
+  if (isSameOrInside(stateRoot, repositoryRoot, input.platform)) {
+    fail('durable state root must remain outside the repository worktree.');
+  }
+  if (isSameOrInside(cacheRoot, repositoryRoot, input.platform)) {
+    fail('cache root must remain outside the repository worktree.');
+  }
+  if (isSameOrInside(stateRoot, cacheRoot, input.platform)
+      || isSameOrInside(cacheRoot, stateRoot, input.platform)) {
+    fail('durable state and disposable cache roots must be physically disjoint.');
+  }
+  const api = flavor(input.platform);
+  const workspaceLocatorKey = createSecWorkspaceLocatorKeyV1({
+    workspacePhysicalIdentity: input.workspacePhysicalIdentity
+  });
+  return Object.freeze({
+    stateRoot,
+    cacheRoot,
+    workspaceLocatorRoot: api.join(stateRoot, 'workspace-locators', 'v1'),
+    workspaceStateRoot: api.join(stateRoot, 'workspaces', 'v1', workspaceLocatorKey.slice(7)),
+    workspaceLocatorKey
+  });
+}
+
+export function resolveSecRuntimeStateLayoutV1(input: Readonly<{
+  platform: SecRuntimePlatformV1;
+  environment: SecRuntimeStateEnvironmentV1;
+  repository: string;
+  repositoryRoot: string;
+  workspacePhysicalIdentity: SecWorkspacePhysicalIdentityV1;
+}>): SecRuntimeStateLayoutV1 {
+  const repositoryIdentity = repository(input.repository);
+  const repositoryRoot = requireAbsolute(input.repositoryRoot, input.platform, 'repositoryRoot');
+  const roots = resolveSecRuntimeRootsV1({
+    platform: input.platform,
+    environment: input.environment,
+    repositoryRoot,
+    workspacePhysicalIdentity: input.workspacePhysicalIdentity
+  });
+  const api = flavor(input.platform);
+  const repositoryKey = digest(Object.freeze({ schema: 'sec-repository-runtime-key-v1', repository: repositoryIdentity }));
+  const workspaceKey = digest(Object.freeze({
+    schema: 'sec-workspace-runtime-key-v1',
+    repository: repositoryIdentity,
+    workspacePhysicalIdentity: workspacePhysicalIdentity(input.workspacePhysicalIdentity)
+  }));
+  const repositoryStateRoot = api.join(roots.stateRoot, 'repositories', repositoryKey.slice(7));
+  return Object.freeze({
+    schema: SEC_RUNTIME_STATE_LAYOUT_SCHEMA_V1,
+    stateRoot: roots.stateRoot,
+    cacheRoot: roots.cacheRoot,
+    repositoryKey,
+    workspaceKey,
+    workspaceLocatorKey: roots.workspaceLocatorKey,
+    repositoryStateRoot,
+    workspaceStateRoot: roots.workspaceStateRoot,
+    continuationObjectRoot: api.join(repositoryStateRoot, 'objects', 'continuation-v1'),
+    continuationPointerPath: api.join(roots.workspaceStateRoot, 'active-continuation-v1.json'),
+    verificationSessionJournalRoot: api.join(roots.workspaceStateRoot, 'verification-sessions', 'v2'),
+    verificationActionJournalRoot: api.join(roots.workspaceStateRoot, 'verification-actions', 'v2')
+  });
+}

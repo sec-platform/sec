@@ -2,23 +2,12 @@
  * Durable, disposable run journal for VerificationSession V2.
  *
  * Journal entries are operational recovery facts, never verification Evidence.
- * A side-effect claim is permanent: after an ambiguous crash the operator must
- * reconcile the external observation instead of repeating the mutation.
+ * Durable bytes live in the canonical SEC runtime-state root, never in the
+ * repository tree. A side-effect claim is permanent: after an ambiguous crash
+ * the operator must reconcile the external observation instead of repeating the mutation.
  */
 
 import { createHash } from 'node:crypto';
-import {
-  appendFileSync,
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  statSync,
-  unlinkSync,
-  writeFileSync
-} from 'node:fs';
 import path from 'node:path';
 
 export const VERIFICATION_SESSION_JOURNAL_EVENT_SCHEMA_V1 =
@@ -26,7 +15,7 @@ export const VERIFICATION_SESSION_JOURNAL_EVENT_SCHEMA_V1 =
 export const VERIFICATION_SESSION_OPERATION_CLAIM_SCHEMA_V1 =
   'sec-verification-session-operation-claim-v1' as const;
 export const VERIFICATION_SESSION_JOURNAL_DIRECTORY =
-  '.tmp/codex/verification-sessions/v2' as const;
+  'verification-sessions/v2' as const;
 
 export const VERIFICATION_SESSION_STAGES = [
   'frozen',
@@ -80,12 +69,11 @@ export interface VerificationSessionJournalReadbackV1 {
 }
 
 export interface VerificationSessionJournalFileSystem {
+  readonly rootPath: string;
   exists(filePath: string): boolean;
   readText(filePath: string): string;
   ensureDirectory(directoryPath: string): void;
-  /** Compare current byte length and append under one exclusive fsync lock. */
-  appendFsyncCas(filePath: string, expectedBytes: number, text: string): boolean;
-  /** Create one durable immutable file. False means the exact path exists. */
+  appendFsyncCas(filePath: string, expectedText: string, text: string): boolean;
   createExclusiveFsync(filePath: string, text: string): boolean;
 }
 
@@ -138,10 +126,13 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[], 
   }
 }
 
-function sessionPath(repositoryRoot: string, sessionRevision: `sha256:${string}`): string {
+function sessionPath(
+  fs: VerificationSessionJournalFileSystem,
+  sessionRevision: `sha256:${string}`
+): string {
   assertDigest(sessionRevision, 'sessionRevision');
   return path.join(
-    repositoryRoot,
+    fs.rootPath,
     VERIFICATION_SESSION_JOURNAL_DIRECTORY,
     sessionRevision.slice(7),
     'journal.jsonl'
@@ -149,12 +140,16 @@ function sessionPath(repositoryRoot: string, sessionRevision: `sha256:${string}`
 }
 
 function claimPath(
-  repositoryRoot: string,
+  fs: VerificationSessionJournalFileSystem,
   sessionRevision: `sha256:${string}`,
   operationId: `sha256:${string}`
 ): string {
   assertDigest(operationId, 'operationId');
-  return path.join(path.dirname(sessionPath(repositoryRoot, sessionRevision)), 'claims', `${operationId.slice(7)}.json`);
+  return path.join(
+    path.dirname(sessionPath(fs, sessionRevision)),
+    'claims',
+    `${operationId.slice(7)}.json`
+  );
 }
 
 function parseEvent(
@@ -180,9 +175,7 @@ function parseEvent(
   const targetStage = assertStage(value.targetStage);
   const targetIndex = VERIFICATION_SESSION_STAGES.indexOf(targetStage);
   const kind = assertKind(value.kind);
-  if (targetIndex > completedStageIndex + 1) {
-    throw new Error(`Session journal event ${sequence} skips a required stage.`);
-  }
+  if (targetIndex > completedStageIndex + 1) throw new Error(`Session journal event ${sequence} skips a required stage.`);
   if (kind === 'completed' && targetIndex !== completedStageIndex + 1) {
     throw new Error(`Session journal event ${sequence} cannot complete an old or non-adjacent stage.`);
   }
@@ -206,68 +199,43 @@ function parseEvent(
     previousDigest
   } satisfies Omit<VerificationSessionJournalEventV1, 'eventDigest'>;
   const expectedDigest = digest(withoutDigest);
-  if (value.eventDigest !== expectedDigest) {
-    throw new Error(`Session journal event ${sequence} digest mismatch.`);
-  }
+  if (value.eventDigest !== expectedDigest) throw new Error(`Session journal event ${sequence} digest mismatch.`);
   return Object.freeze({ ...withoutDigest, eventDigest: expectedDigest });
 }
 
-export const nodeVerificationSessionJournalFs: VerificationSessionJournalFileSystem = {
-  exists: existsSync,
-  readText: (filePath) => readFileSync(filePath, 'utf8'),
-  ensureDirectory: (directoryPath) => mkdirSync(directoryPath, { recursive: true }),
-  appendFsyncCas(filePath, expectedBytes, text) {
-    const lockPath = `${filePath}.lock`;
-    let lock: number;
-    try {
-      lock = openSync(lockPath, 'wx');
-    } catch (error) {
-      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : null;
-      if (code === 'EEXIST') return false;
-      throw error;
-    }
-    try {
-      const actualBytes = existsSync(filePath) ? statSync(filePath).size : 0;
-      if (actualBytes !== expectedBytes) return false;
-      const handle = openSync(filePath, 'a');
-      try {
-        appendFileSync(handle, text, 'utf8');
-        fsyncSync(handle);
-      } finally {
-        closeSync(handle);
-      }
+export function createEphemeralVerificationSessionJournalFsV1(
+  rootPath: string
+): VerificationSessionJournalFileSystem {
+  const files = new Map<string, string>();
+  return Object.freeze({
+    rootPath: path.resolve(rootPath),
+    exists: (filePath: string) => files.has(filePath),
+    readText(filePath: string): string {
+      const text = files.get(filePath);
+      if (text === undefined) throw new Error(`ephemeral Session journal is absent: ${filePath}`);
+      return text;
+    },
+    ensureDirectory: () => undefined,
+    appendFsyncCas(filePath: string, expectedText: string, text: string): boolean {
+      const current = files.get(filePath) ?? '';
+      if (current !== expectedText) return false;
+      files.set(filePath, `${current}${text}`);
       return true;
-    } finally {
-      closeSync(lock);
-      unlinkSync(lockPath);
+    },
+    createExclusiveFsync(filePath: string, text: string): boolean {
+      if (files.has(filePath)) return false;
+      files.set(filePath, text);
+      return true;
     }
-  },
-  createExclusiveFsync(filePath, text) {
-    let handle: number;
-    try {
-      handle = openSync(filePath, 'wx');
-    } catch (error) {
-      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : null;
-      if (code === 'EEXIST') return false;
-      throw error;
-    }
-    try {
-      writeFileSync(handle, text, 'utf8');
-      fsyncSync(handle);
-    } finally {
-      closeSync(handle);
-    }
-    return true;
-  }
-};
+  });
+}
 
 export function readVerificationSessionJournalV1(input: {
-  repositoryRoot: string;
   sessionRevision: `sha256:${string}`;
-  fs?: VerificationSessionJournalFileSystem;
+  fs: VerificationSessionJournalFileSystem;
 }): VerificationSessionJournalReadbackV1 {
-  const fs = input.fs ?? nodeVerificationSessionJournalFs;
-  const filePath = sessionPath(input.repositoryRoot, input.sessionRevision);
+  const fs = input.fs;
+  const filePath = sessionPath(fs, input.sessionRevision);
   if (!fs.exists(filePath)) {
     return { filePath, events: Object.freeze([]), completedStage: null, completedStageIndex: -1, latestEvent: null };
   }
@@ -281,9 +249,7 @@ export function readVerificationSessionJournalV1(input: {
   const lines = source.slice(0, -1).split('\n');
   for (let index = 0; index < lines.length; index += 1) {
     let candidate: unknown;
-    try {
-      candidate = JSON.parse(lines[index]!);
-    } catch (error) {
+    try { candidate = JSON.parse(lines[index]!); } catch (error) {
       throw new Error(`VerificationSession journal event ${index + 1} is invalid JSON.`, { cause: error });
     }
     const event = parseEvent(candidate, input.sessionRevision, index + 1, previous, completedStageIndex);
@@ -301,7 +267,6 @@ export function readVerificationSessionJournalV1(input: {
 }
 
 export function appendVerificationSessionJournalEventV1(input: {
-  repositoryRoot: string;
   sessionRevision: `sha256:${string}`;
   targetStage: VerificationSessionStage;
   kind: VerificationSessionJournalEventKind;
@@ -309,9 +274,9 @@ export function appendVerificationSessionJournalEventV1(input: {
   receiptDigest?: `sha256:${string}` | null;
   recordedAt?: string;
   note?: string | null;
-  fs?: VerificationSessionJournalFileSystem;
+  fs: VerificationSessionJournalFileSystem;
 }): VerificationSessionJournalEventV1 {
-  const fs = input.fs ?? nodeVerificationSessionJournalFs;
+  const fs = input.fs;
   const current = readVerificationSessionJournalV1(input);
   const previous = current.latestEvent;
   const withoutDigest = {
@@ -327,23 +292,14 @@ export function appendVerificationSessionJournalEventV1(input: {
     previousDigest: previous?.eventDigest ?? null
   } satisfies Omit<VerificationSessionJournalEventV1, 'eventDigest'>;
   const event = Object.freeze({ ...withoutDigest, eventDigest: digest(withoutDigest) });
-  // Validate the proposed transition through the same read path used later.
   parseEvent(event, input.sessionRevision, event.sequence, previous, current.completedStageIndex);
   fs.ensureDirectory(path.dirname(current.filePath));
   const existing = fs.exists(current.filePath) ? fs.readText(current.filePath) : '';
-  const appended = fs.appendFsyncCas(
-    current.filePath,
-    Buffer.byteLength(existing),
-    `${JSON.stringify(event)}\n`
-  );
-  if (!appended) {
-    throw new Error('VerificationSession journal changed concurrently; resume from fresh readback.');
-  }
+  const appended = fs.appendFsyncCas(current.filePath, existing, `${JSON.stringify(event)}\n`);
+  if (!appended) throw new Error('VerificationSession journal changed concurrently; resume from fresh readback.');
   const readback = readVerificationSessionJournalV1(input);
   const persisted = readback.events.at(-1);
-  if (persisted?.eventDigest !== event.eventDigest) {
-    throw new Error('VerificationSession journal append readback mismatch.');
-  }
+  if (persisted?.eventDigest !== event.eventDigest) throw new Error('VerificationSession journal append readback mismatch.');
   return persisted;
 }
 
@@ -361,14 +317,13 @@ export function createVerificationSessionOperationId(input: {
 }
 
 export function claimVerificationSessionOperationV1(input: {
-  repositoryRoot: string;
   sessionRevision: `sha256:${string}`;
   operationId: `sha256:${string}`;
   operationKind: string;
   claimedAt?: string;
-  fs?: VerificationSessionJournalFileSystem;
+  fs: VerificationSessionJournalFileSystem;
 }): { claimed: boolean; claim: VerificationSessionOperationClaimV1 } {
-  const fs = input.fs ?? nodeVerificationSessionJournalFs;
+  const fs = input.fs;
   if (!/^[a-z][a-z0-9-]{1,63}$/u.test(input.operationKind)) {
     throw new Error('operationKind must be a bounded lowercase identifier.');
   }
@@ -382,25 +337,19 @@ export function claimVerificationSessionOperationV1(input: {
   assertDigest(input.sessionRevision, 'sessionRevision');
   assertDigest(input.operationId, 'operationId');
   const claim = Object.freeze({ ...withoutDigest, claimDigest: digest(withoutDigest) });
-  const filePath = claimPath(input.repositoryRoot, input.sessionRevision, input.operationId);
+  const filePath = claimPath(fs, input.sessionRevision, input.operationId);
   fs.ensureDirectory(path.dirname(filePath));
-  if (fs.createExclusiveFsync(filePath, `${JSON.stringify(claim)}\n`)) {
-    return { claimed: true, claim };
-  }
+  if (fs.createExclusiveFsync(filePath, `${JSON.stringify(claim)}\n`)) return { claimed: true, claim };
   const existing = parseVerificationSessionOperationClaimV1(fs.readText(filePath));
-  if (
-    existing.sessionRevision !== input.sessionRevision
-    || existing.operationId !== input.operationId
-    || existing.operationKind !== input.operationKind
-  ) {
+  if (existing.sessionRevision !== input.sessionRevision
+      || existing.operationId !== input.operationId
+      || existing.operationKind !== input.operationKind) {
     throw new Error('VerificationSession operation claim identity conflict.');
   }
   return { claimed: false, claim: existing };
 }
 
-export function parseVerificationSessionOperationClaimV1(
-  source: string
-): VerificationSessionOperationClaimV1 {
+export function parseVerificationSessionOperationClaimV1(source: string): VerificationSessionOperationClaimV1 {
   if (!source.endsWith('\n')) throw new Error('VerificationSession operation claim is partial.');
   const candidate: unknown = JSON.parse(source.slice(0, -1));
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {

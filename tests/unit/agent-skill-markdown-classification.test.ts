@@ -14,3 +14,17 @@ test('unknown root and docs-external Markdown fail closed', () => {
     expect(resolveSecMarkdownSkillCoverage(path)).toBeNull();
   }
 });
+
+test('public documentation pages classify as projection without Skill authority', () => {
+  for (const path of [
+    'public-docs/CONTRACT.md',
+    'public-docs/README.md',
+    'public-docs/principles.md'
+  ]) {
+    expect(resolveSecMarkdownSkillCoverage(path)).toEqual({
+      kind: 'public-projection',
+      skills: []
+    });
+  }
+  expect(resolveSecMarkdownSkillCoverage('public-docs/nested/unregistered.md')).toBeNull();
+});

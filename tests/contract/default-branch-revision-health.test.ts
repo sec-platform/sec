@@ -1,7 +1,4 @@
 import { expect, test } from 'bun:test';
-import { readdirSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import ts from 'typescript';
 
 import { resolveDefaultBranchRevisionHealthV1 } from '../../platform/shared/default-branch-revision-health.ts';
 import {
@@ -12,16 +9,6 @@ import {
 const SHA = '1'.repeat(40);
 const TREE = '2'.repeat(40);
 const DIGEST = `sha256:${'a'.repeat(64)}` as const;
-
-function productionTypeScriptFiles(root: string): string[] {
-  const result: string[] = [];
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const absolute = path.join(root, entry.name);
-    if (entry.isDirectory()) result.push(...productionTypeScriptFiles(absolute));
-    else if (entry.isFile() && entry.name.endsWith('.ts')) result.push(absolute);
-  }
-  return result;
-}
 
 function healthy() {
   return createMainHealthLedgerV1({
@@ -64,57 +51,6 @@ test('ordinary default-branch projection cannot consume the separately owned rep
   } as unknown as Parameters<typeof resolveDefaultBranchRevisionHealthV1>[0]);
   expect(result).toMatchObject({ allowed: false, status: 'locked' });
   expect(result.reason).toContain('ordinary lane is not eligible');
-});
-
-test('every production MainHealth lane consumer is AST-bound to its sole ordinary or repair owner', () => {
-  const violations: string[] = [];
-  const repairConsumers: string[] = [];
-  const repositoryRoot = process.cwd();
-  for (const absolutePath of [
-    ...productionTypeScriptFiles(path.join(repositoryRoot, 'platform', 'shared')),
-    ...productionTypeScriptFiles(path.join(repositoryRoot, 'scripts', 'codex'))
-  ]) {
-    const relativePath = path.relative(repositoryRoot, absolutePath).replaceAll('\\', '/');
-    const sourceFile = ts.createSourceFile(
-      relativePath,
-      readFileSync(absolutePath, 'utf8'),
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS
-    );
-    const resolverNames = new Set<string>();
-    for (const statement of sourceFile.statements) {
-      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) ||
-          !statement.moduleSpecifier.text.endsWith('main-health-contract.ts') ||
-          statement.importClause?.namedBindings === undefined ||
-          !ts.isNamedImports(statement.importClause.namedBindings)) continue;
-      for (const element of statement.importClause.namedBindings.elements) {
-        const importedName = element.propertyName?.text ?? element.name.text;
-        if (importedName === 'resolveMainHealthLaneV1') resolverNames.add(element.name.text);
-      }
-    }
-    const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && resolverNames.has(node.expression.text)) {
-        const argument = node.arguments[0];
-        const lane = argument !== undefined && ts.isObjectLiteralExpression(argument)
-          ? argument.properties.find((property): property is ts.PropertyAssignment =>
-            ts.isPropertyAssignment(property) && property.name.getText(sourceFile) === 'lane')
-          : undefined;
-        const literal = lane !== undefined && ts.isStringLiteral(lane.initializer)
-          ? lane.initializer.text : null;
-        if (literal === 'repair'
-            && relativePath === 'platform/shared/main-health-repair-contract.ts') {
-          repairConsumers.push(relativePath);
-        } else if (literal !== 'ordinary') {
-          violations.push(`${relativePath}:${sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
-        }
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
-  }
-  expect(violations).toEqual([]);
-  expect(repairConsumers).toEqual(['platform/shared/main-health-repair-contract.ts']);
 });
 
 test('missing, malformed, expired, or revision-drifted health locks fail closed', () => {

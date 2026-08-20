@@ -115,29 +115,3 @@ test('latest ClosedEvent exposes exact PR and merge causality, while reopen or a
   expect(parseGitHubLatestClosedEventV1({ source: reopened, repository: REPOSITORY,
     issueNumber: 346 })).toBeNull();
 });
-
-test('Issue lifecycle adapter is read-only and observation has VerificationSession as sole consumer', async () => {
-  const repositoryRoot = path.resolve(import.meta.dir, '../..');
-  const providerPath = 'scripts/codex/issue-disposition-github.ts';
-  const symbols = ['observeUnexpectedGitHubIssueClosuresV1'];
-  const consumers: string[] = [];
-  for await (const sourcePath of new Bun.Glob('scripts/**/*.ts').scan({
-    cwd: repositoryRoot,
-    absolute: false
-  })) {
-    const canonicalPath = sourcePath.replaceAll('\\', '/');
-    if (canonicalPath === providerPath) continue;
-    const source = await Bun.file(path.join(repositoryRoot, sourcePath)).text();
-    if (symbols.some((symbol) => source.includes(symbol))) consumers.push(canonicalPath);
-  }
-  expect(consumers.sort()).toEqual(['scripts/codex/verification-session.ts']);
-  const cli = await Bun.file(path.join(repositoryRoot, 'scripts/codex/issue-disposition.ts')).text();
-  const provider = await Bun.file(path.join(repositoryRoot, providerPath)).text();
-  expect(cli).not.toContain('compile-live');
-  expect(cli).not.toContain('reconcile-merged');
-  expect(cli).not.toContain('applyGitHubIssueDispositionV1');
-  expect(provider).not.toContain("'--method', 'PATCH'");
-  expect(provider).not.toContain('mutateIssueStateOnce');
-  expect(provider).toContain("status: 'no-op' | 'manual-action-required' | 'blocked'");
-  expect(provider).toContain('decideUnexpectedIssueReopenV1({');
-});

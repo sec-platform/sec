@@ -1,9 +1,9 @@
 /**
  * SEC Canonical Text Byte Census Contract (Issue #209 Phase A).
  *
- * Defines the classification, anomaly, and report types used by
- * scripts/codex/text-byte-census.ts to scan tracked Git blobs and
- * classify each according to the .gitattributes policy.
+ * Defines the classification, anomaly, and report types used by the canonical
+ * SEC development text census to scan one captured committed Git tree and
+ * classify each blob according to that tree's .gitattributes policy.
  *
  * Git blob bytes are the tracked source identity. Worktree materialization
  * is a separate concern handled by worktree-settlement-contract.ts.
@@ -71,7 +71,7 @@ export interface TextByteCensusEntry {
   classification: TextByteClassification;
   /** Blob byte size. */
   byteSize: number;
-  /** Git blob SHA (40-hex). */
+  /** Full Git blob object ID: 40-hex SHA-1 or 64-hex SHA-256. */
   blobSha: string;
   /** Observed line-ending shape. */
   lineEnding: TextByteLineEnding;
@@ -88,7 +88,7 @@ export interface TextByteCensusReport {
   generatedAt: string;
   /** Absolute normalized repository root. */
   repositoryRoot: string;
-  /** .gitattributes blob SHA at census time. */
+  /** Full .gitattributes Git blob object ID at census time. */
   gitattributesBlobSha: string | null;
   /** Total tracked files scanned. */
   totalFiles: number;

@@ -1,3 +1,4 @@
+import { compareCodeUnits } from '../../platform/shared/canonical-primitives.ts';
 import {
   auditBranchLifecycle as auditBranchLifecycleCore
 } from './branch-lifecycle-audit.ts';
@@ -149,10 +150,10 @@ export function auditBranchLifecycle(
   const core = auditBranchLifecycleCore(inventory, dispositions);
   const receipts = receiptFindings(inventory);
   const findings = [...core.findings, ...receipts.findings].sort((left, right) =>
-    left.severity.localeCompare(right.severity)
-    || (left.branch ?? '').localeCompare(right.branch ?? '')
-    || left.code.localeCompare(right.code)
-    || left.message.localeCompare(right.message)
+    compareCodeUnits(left.severity, right.severity)
+    || compareCodeUnits(left.branch ?? '', right.branch ?? '')
+    || compareCodeUnits(left.code, right.code)
+    || compareCodeUnits(left.message, right.message)
   );
   const hasError = findings.some(({ severity }) => severity === 'error');
   const status = receipts.unknown || core.status === 'blocked'

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { rawSha256, sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   createMainHealthLedgerV1,
-  resolveMainHealthLaneV1
+  resolveOrdinaryMainHealthLaneV1
 } from '../../platform/shared/main-health-contract.ts';
 import { parseVerificationRegistryProjectionV1 } from '../../platform/shared/verification-session-contract.ts';
 import type {
@@ -37,6 +37,7 @@ import {
   CodexDevelopmentParseCurrentStateSpecV1,
   CodexDevelopmentParseRollingPlanV1
 } from './document-control-plane-contract.ts';
+import { buildGitHubDefaultBranchOpenPullRequestsArgsV1 } from './document-control-plane-github-observation.ts';
 import { createObservedMainHealthInputV1 } from './main-health-observation.ts';
 import { createVerificationSessionGitHubClientV1 } from './verification-session-github.ts';
 import {
@@ -340,13 +341,15 @@ function observeOpenPullRequests(input: {
   run: CommandRunnerV1;
   root: string;
   repository: string;
+  defaultBranch: string;
 }) {
-  const bytes = requireCommand(input.run, 'gh', [
-    // Two is a complete decision boundary: zero and one are exact; two means
-    // multiple and is rejected without needing an unbounded inventory.
-    'pr', 'list', '--repo', input.repository, '--state', 'open', '--limit', '2', '--json',
-    'number,headRefName,headRefOid,baseRefName,baseRefOid,body'
-  ], input.root, 'open-pr-provider-unavailable');
+  const bytes = requireCommand(
+    input.run,
+    'gh',
+    buildGitHubDefaultBranchOpenPullRequestsArgsV1(input.repository, input.defaultBranch),
+    input.root,
+    'open-pr-provider-unavailable'
+  );
   try {
     return parseOpenPullRequestList(decodeUtf8(bytes, 'open-pr-response-invalid-utf8'));
   } catch {
@@ -533,9 +536,8 @@ function observeCanonicalMainHealth(input: {
     sourceRef: `github-check-runs:${input.repository}@${input.exactMain}`,
     checks
   }));
-  const decision = resolveMainHealthLaneV1({
+  const decision = resolveOrdinaryMainHealthLaneV1({
     ledger,
-    lane: 'ordinary',
     now: observedAt,
     expectedRepository: input.repository,
     expectedDefaultBranch: input.defaultBranch,
@@ -718,7 +720,8 @@ export function observeSecWorkSelectionLiveV1(
     const openPullRequests = observeOpenPullRequests({
       run,
       root,
-      repository: state.resolver.repository
+      repository: state.resolver.repository,
+      defaultBranch: state.resolver.defaultBranch
     });
     if (openPullRequests.length > 1) {
       throw new LiveObservationFailure(

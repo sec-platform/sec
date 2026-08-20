@@ -8,7 +8,8 @@ import {
   __resetTestImpactCachesForTesting,
   flushPersistentTestImpactCache,
   hasTestImpactForFile,
-  selectTestsForSources
+  selectTestsForSources,
+  TEST_IMPACT_CACHE_IDENTITY_V1
 } from '../../platform/shared/test-impact-contract.ts';
 
 const CACHE_FILE = path.join(compilerRoot, '.tmp', 'test-impact-cache.json');
@@ -21,17 +22,11 @@ type TestImpactCacheEnvelope = {
   contractRevision: string;
   entries: Record<string, {
     sourceDigest: string;
-    specifiers: string[];
+    imports: Array<{ kind: 'static' | 'dynamic'; specifier: string }>;
     mtimeMs: number;
     size: number;
   }>;
 };
-
-const EXPECTED_SCHEMA = 'sec-test-impact-cache-v2';
-const EXPECTED_PARSER_RUNTIME = 'bun-transpiler-tsx-v1';
-const EXPECTED_PARSER_OPTIONS_DIGEST = `sha256:${createHash('sha256')
-  .update(JSON.stringify({ loader: 'tsx' })).digest('hex')}`;
-const EXPECTED_CONTRACT_REVISION = 'test-impact-contract-v1';
 
 function removeCacheFile(): void {
   try { fs.rmSync(CACHE_FILE, { force: true }); } catch { /* absent */ }
@@ -48,7 +43,7 @@ function computeDigest(bytes: Uint8Array): string {
 // Serial because these tests manipulate the shared .tmp/test-impact-cache.json
 // file and reset process-internal caches. Concurrent manipulation would race.
 describe('test-impact persistent cache (Issue #206 cache identity)', () => {
-  test.serial('persists specifiers in an envelope keyed on sourceDigest', () => {
+  test.serial('persists typed module imports in an envelope keyed on sourceDigest', () => {
     __resetTestImpactCachesForTesting();
     removeCacheFile();
 
@@ -57,14 +52,17 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
 
     expect(fs.existsSync(CACHE_FILE)).toBe(true);
     const envelope = readCacheEnvelope();
-    expect(envelope.schema).toBe(EXPECTED_SCHEMA);
-    expect(envelope.parserRuntimeIdentity).toBe(EXPECTED_PARSER_RUNTIME);
-    expect(envelope.parserOptionsDigest).toBe(EXPECTED_PARSER_OPTIONS_DIGEST);
-    expect(envelope.contractRevision).toBe(EXPECTED_CONTRACT_REVISION);
+    expect(envelope.schema).toBe(TEST_IMPACT_CACHE_IDENTITY_V1.schema);
+    expect(envelope.parserRuntimeIdentity).toBe(TEST_IMPACT_CACHE_IDENTITY_V1.parserRuntimeIdentity);
+    expect(envelope.parserOptionsDigest).toBe(TEST_IMPACT_CACHE_IDENTITY_V1.parserOptionsDigest);
+    expect(envelope.contractRevision).toBe(TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision);
     expect(Object.keys(envelope.entries).length).toBeGreaterThan(0);
     for (const entry of Object.values(envelope.entries)) {
       expect(entry.sourceDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
-      expect(Array.isArray(entry.specifiers)).toBe(true);
+      expect(Array.isArray(entry.imports)).toBe(true);
+      expect(entry.imports.every((item) => (
+        (item.kind === 'static' || item.kind === 'dynamic') && typeof item.specifier === 'string'
+      ))).toBe(true);
       expect(typeof entry.mtimeMs).toBe('number');
       expect(typeof entry.size).toBe('number');
     }
@@ -103,14 +101,14 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
 
     // Write a fake envelope with CORRECT mtime/size but WRONG sourceDigest.
     const fakeEnvelope: TestImpactCacheEnvelope = {
-      schema: EXPECTED_SCHEMA,
-      parserRuntimeIdentity: EXPECTED_PARSER_RUNTIME,
-      parserOptionsDigest: EXPECTED_PARSER_OPTIONS_DIGEST,
-      contractRevision: EXPECTED_CONTRACT_REVISION,
+      schema: TEST_IMPACT_CACHE_IDENTITY_V1.schema,
+      parserRuntimeIdentity: TEST_IMPACT_CACHE_IDENTITY_V1.parserRuntimeIdentity,
+      parserOptionsDigest: TEST_IMPACT_CACHE_IDENTITY_V1.parserOptionsDigest,
+      contractRevision: TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision,
       entries: {
         [realTestFile]: {
           sourceDigest: `sha256:${'0'.repeat(64)}`,
-          specifiers: ['./fake-import'],
+          imports: [{ kind: 'static', specifier: './fake-import' }],
           mtimeMs: realStat.mtimeMs,
           size: realStat.size
         }
@@ -126,7 +124,7 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
     const entry = envelope.entries[realTestFile];
     expect(entry).toBeDefined();
     expect(entry.sourceDigest).toBe(realDigest);
-    expect(entry.specifiers).not.toContain('./fake-import');
+    expect(entry.imports.map((item) => item.specifier)).not.toContain('./fake-import');
   });
 
   test.serial('envelope schema revision mismatch discards entire cache', () => {
@@ -136,13 +134,13 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
     const realTestFile = 'tests/unit/runtime-dependency-spec.test.ts';
     const fakeEnvelope: TestImpactCacheEnvelope = {
       schema: 'sec-test-impact-cache-LEGACY',
-      parserRuntimeIdentity: EXPECTED_PARSER_RUNTIME,
-      parserOptionsDigest: EXPECTED_PARSER_OPTIONS_DIGEST,
-      contractRevision: EXPECTED_CONTRACT_REVISION,
+      parserRuntimeIdentity: TEST_IMPACT_CACHE_IDENTITY_V1.parserRuntimeIdentity,
+      parserOptionsDigest: TEST_IMPACT_CACHE_IDENTITY_V1.parserOptionsDigest,
+      contractRevision: TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision,
       entries: {
         [realTestFile]: {
           sourceDigest: `sha256:${'0'.repeat(64)}`,
-          specifiers: ['./legacy-import'],
+          imports: [{ kind: 'static', specifier: './legacy-import' }],
           mtimeMs: 0,
           size: 0
         }
@@ -160,12 +158,12 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
       flushPersistentTestImpactCache();
 
       // The legacy envelope must be discarded; the new envelope has the
-      // current schema and the real test file's real specifiers.
+      // current schema and the real test file's real compiler-observed imports.
       const envelope = readCacheEnvelope();
-      expect(envelope.schema).toBe(EXPECTED_SCHEMA);
+      expect(envelope.schema).toBe(TEST_IMPACT_CACHE_IDENTITY_V1.schema);
       const entry = envelope.entries[realTestFile];
       expect(entry).toBeDefined();
-      expect(entry.specifiers).not.toContain('./legacy-import');
+      expect(entry.imports.map((item) => item.specifier)).not.toContain('./legacy-import');
       expect(warnings.some((w) => w.includes('revision mismatch'))).toBe(true);
     } finally {
       console.warn = originalWarn;
@@ -177,10 +175,10 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
     removeCacheFile();
 
     const fakeEnvelope: TestImpactCacheEnvelope = {
-      schema: EXPECTED_SCHEMA,
+      schema: TEST_IMPACT_CACHE_IDENTITY_V1.schema,
       parserRuntimeIdentity: 'bun-transpiler-tsx-LEGACY',
-      parserOptionsDigest: EXPECTED_PARSER_OPTIONS_DIGEST,
-      contractRevision: EXPECTED_CONTRACT_REVISION,
+      parserOptionsDigest: TEST_IMPACT_CACHE_IDENTITY_V1.parserOptionsDigest,
+      contractRevision: TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision,
       entries: {}
     };
     fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
@@ -216,7 +214,7 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
       expect(warnings.some((w) => w.includes('corrupt'))).toBe(true);
       // After rebuild the cache file must be valid JSON with the current envelope.
       const envelope = readCacheEnvelope();
-      expect(envelope.schema).toBe(EXPECTED_SCHEMA);
+      expect(envelope.schema).toBe(TEST_IMPACT_CACHE_IDENTITY_V1.schema);
     } finally {
       console.warn = originalWarn;
     }
@@ -239,7 +237,7 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
 
       expect(warnings.some((w) => w.includes('unknown shape'))).toBe(true);
       const envelope = readCacheEnvelope();
-      expect(envelope.schema).toBe(EXPECTED_SCHEMA);
+      expect(envelope.schema).toBe(TEST_IMPACT_CACHE_IDENTITY_V1.schema);
     } finally {
       console.warn = originalWarn;
     }
@@ -275,20 +273,20 @@ describe('test-impact persistent cache (Issue #206 cache identity)', () => {
 
     // Envelope with one valid entry and one invalid entry (missing sourceDigest).
     const fakeEnvelope = {
-      schema: EXPECTED_SCHEMA,
-      parserRuntimeIdentity: EXPECTED_PARSER_RUNTIME,
-      parserOptionsDigest: EXPECTED_PARSER_OPTIONS_DIGEST,
-      contractRevision: EXPECTED_CONTRACT_REVISION,
+      schema: TEST_IMPACT_CACHE_IDENTITY_V1.schema,
+      parserRuntimeIdentity: TEST_IMPACT_CACHE_IDENTITY_V1.parserRuntimeIdentity,
+      parserOptionsDigest: TEST_IMPACT_CACHE_IDENTITY_V1.parserOptionsDigest,
+      contractRevision: TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision,
       entries: {
         [goodTestFile]: {
           sourceDigest: goodDigest,
-          specifiers: [],
+          imports: [],
           mtimeMs: goodStat.mtimeMs,
           size: goodStat.size
         },
         'tests/unit/bad-entry.test.ts': {
           // missing sourceDigest — invalid
-          specifiers: [],
+          imports: [],
           mtimeMs: 0,
           size: 0
         }
@@ -316,7 +314,7 @@ describe('hasTestImpactForFile (reverse-import-map backed)', () => {
     expect(hasTestImpactForFile('platform/shared/test-impact-contract.ts')).toBe(true);
   });
 
-  test('returns true for source files referenced by tests (auto-reference)', () => {
+  test('returns true for source files referenced by tests (module-graph)', () => {
     expect(hasTestImpactForFile('platform/shared/collections.ts')).toBe(true);
   });
 

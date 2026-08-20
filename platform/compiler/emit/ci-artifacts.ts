@@ -1,3 +1,4 @@
+import { validateCiArtifactManifestV1 } from '../../shared/ci-artifact-authority.ts';
 import {
   buildCiArtifactUploadGroups,
   CI_ARTIFACT_MANIFEST_PATH,
@@ -8,7 +9,6 @@ import {
   ciArtifactUploadName,
   countCiArtifactMissingReasons,
   countCiArtifactMissingReasonTypes,
-  emptyCiArtifactManifest,
   fixedCiArtifactPaths,
   isCiContractArtifactPath,
   normalizeCiArtifactPath,
@@ -21,10 +21,12 @@ import type {
 } from '../../shared/ci-artifact-types.ts';
 import { countMatching } from '../../shared/collections.ts';
 import type { ExplainGraph } from '../../shared/explain-types.ts';
-import { pathExists, readJson, writeJson, type CommitFence } from '../../shared/fs.ts';
+import { formatJsonFile, pathExists, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { readLockFile, writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath } from '../../shared/paths.ts';
+import { readOptionalRetainedJsonV1 } from '../../shared/retained-file-read.ts';
+import { publishCanonicalWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { semanticViewArtifactsAreCurrent } from './semantic-view-artifact-contract.ts';
 import { writeProvenance } from './write-provenance.ts';
@@ -36,37 +38,48 @@ interface GeneratedPathResult {
 }
 
 function uniqueSortedMissing(entries: CiArtifactMissingEntry[]): CiArtifactMissingEntry[] {
-  const entriesByPath = new Map(entries.map((entry) => [
-    normalizeCiArtifactPath(entry.path),
-    { ...entry, path: normalizeCiArtifactPath(entry.path) }
-  ]));
+  const entriesByPath = new Map<string, CiArtifactMissingEntry>();
+  for (const entry of entries) {
+    const canonicalPath = normalizeCiArtifactPath(entry.path);
+    const candidate = { ...entry, path: canonicalPath };
+    const previous = entriesByPath.get(canonicalPath);
+    if (previous && (previous.reason !== candidate.reason || previous.declaredBy !== candidate.declaredBy)) {
+      throw new Error(`CI artifact missing-state conflict for ${canonicalPath}`);
+    }
+    entriesByPath.set(canonicalPath, candidate);
+  }
   return [...entriesByPath.values()].sort((left, right) => compareCodeUnits(left.path, right.path));
 }
 
-async function readGeneratedPaths(workspaceRoot: string): Promise<GeneratedPathResult> {
+function readGeneratedPaths(workspaceRoot: string): GeneratedPathResult {
   try {
-    const lock = await readLockFile(workspaceRoot);
+    const lock = readLockFile(workspaceRoot);
     return { paths: lock.generatedPaths, lockExists: true, lock };
-  } catch {
-    return { paths: [], lockExists: false, lock: null };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return { paths: [], lockExists: false, lock: null };
+    }
+    throw error;
   }
 }
 
-async function semanticEmitArtifactsAreCurrent(workspaceRoot: string, lock: LockFile): Promise<boolean> {
+function semanticEmitArtifactsAreCurrent(workspaceRoot: string, lock: LockFile): boolean {
   if (lock.passStatus.lock !== 'succeeded' || lock.passStatus.emit !== 'succeeded') return false;
   const { explainGraphPath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(explainGraphPath))) return false;
-  try {
-    return semanticViewArtifactsAreCurrent(lock, await readJson<ExplainGraph>(explainGraphPath));
-  } catch {
-    return false;
-  }
+  const explainGraph = readOptionalRetainedJsonV1<ExplainGraph>(
+    explainGraphPath,
+    'CI Artifact Explain Graph'
+  );
+  return explainGraph !== null && semanticViewArtifactsAreCurrent(lock, explainGraph);
 }
 
-export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
-  const generatedPathResult = await readGeneratedPaths(workspaceRoot);
+async function buildCiArtifactManifestWithPlannedPaths(
+  workspaceRoot: string,
+  plannedPaths: ReadonlySet<string>
+): Promise<CiArtifactManifest> {
+  const generatedPathResult = readGeneratedPaths(workspaceRoot);
   const semanticEmitArtifactsCurrent = generatedPathResult.lock
-    ? await semanticEmitArtifactsAreCurrent(workspaceRoot, generatedPathResult.lock)
+    ? semanticEmitArtifactsAreCurrent(workspaceRoot, generatedPathResult.lock)
     : false;
   const staleSemanticArtifacts = !semanticEmitArtifactsCurrent
     ? new Set(CI_EMIT_ARTIFACT_PATHS.map(normalizeCiArtifactPath))
@@ -86,9 +99,9 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
   const viewArtifacts = new Set(CI_ARTIFACT_PATHS.view.map(normalizeCiArtifactPath));
 
   for (const artifactPath of artifacts) {
-    const exists = artifactPath.endsWith('/**')
+    const exists = plannedPaths.has(artifactPath) || (artifactPath.endsWith('/**')
       ? await pathExists(resolveWorkspaceArtifactPath(workspaceRoot, artifactPath.slice(0, -3)))
-      : await pathExists(resolveWorkspaceArtifactPath(workspaceRoot, artifactPath));
+      : await pathExists(resolveWorkspaceArtifactPath(workspaceRoot, artifactPath)));
     if (generatedPathResult.lockExists && requiredGovernanceArtifacts.has(artifactPath) && !exists) {
       missing.push({
         path: artifactPath,
@@ -108,14 +121,12 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
         declaredBy: 'graph.lock.json'
       });
     }
-    if (!exists) {
-      continue;
-    }
+    if (!exists) continue;
     entries.push({
       path: artifactPath,
       kind: ciArtifactKindForPath(artifactPath),
       uploadName: ciArtifactUploadName(artifactPath),
-      exists
+      exists: true
     });
   }
 
@@ -125,7 +136,7 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     .filter(isCiContractArtifactPath));
   const uploadGroups = buildCiArtifactUploadGroups(entries);
   const missingReasonCounts = countCiArtifactMissingReasons(sortedMissing);
-  return {
+  return validateCiArtifactManifestV1({
     formatVersion: '1',
     root: 'workspace',
     summary: {
@@ -144,7 +155,13 @@ export async function buildCiArtifactManifest(workspaceRoot = process.cwd()): Pr
     artifacts: entries,
     uploadGroups,
     missing: sortedMissing
-  };
+  });
+}
+
+/** Pure inventory observation: callers cannot self-authorize absent artifacts
+ * by claiming that they intend to publish them later. */
+export function buildCiArtifactManifest(workspaceRoot = process.cwd()): Promise<CiArtifactManifest> {
+  return buildCiArtifactManifestWithPlannedPaths(workspaceRoot, new Set());
 }
 
 export async function writeCiArtifactManifest(
@@ -152,11 +169,19 @@ export async function writeCiArtifactManifest(
   commitFence?: CommitFence
 ): Promise<CiArtifactManifest> {
   const { ciArtifactsPath, lockPath } = getWorkspacePaths(workspaceRoot);
-  const lock = await readLockFile(workspaceRoot);
+  const lock = readLockFile(workspaceRoot);
   await writeLockWithGeneratedPaths(lockPath, lock, [CI_ARTIFACT_MANIFEST_PATH], commitFence);
-  await writeJson(ciArtifactsPath, emptyCiArtifactManifest(), commitFence);
-  const manifest = await buildCiArtifactManifest(workspaceRoot);
-  await writeJson(ciArtifactsPath, manifest, commitFence);
+  const manifest = await buildCiArtifactManifestWithPlannedPaths(
+    workspaceRoot,
+    new Set([CI_ARTIFACT_MANIFEST_PATH])
+  );
+  await publishCanonicalWorkspaceFileV1({
+    workspaceRoot,
+    targetPath: ciArtifactsPath,
+    bytes: Buffer.from(formatJsonFile(manifest), 'utf8'),
+    label: 'CI artifact manifest',
+    commitFence
+  });
   await writeProvenance(workspaceRoot, lock, commitFence);
   return manifest;
 }

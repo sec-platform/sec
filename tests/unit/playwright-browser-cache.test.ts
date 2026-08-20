@@ -512,11 +512,12 @@ describe('Playwright browser cache materialization', () => {
               );
             }
           },
-          commandRunner: async (_command, args) => {
+          commandRunner: async (_command, args, options) => {
             if (isNodeAuthorityProbe(args)) return nodeAuthorityResult(nodeExecutablePath);
             if (isPlaywrightRegistryProbe(args)) {
               return { code: 0, stdout: browserExecutablePath, stderr: '' };
             }
+            await options?.beforeSpawn?.();
             installCalls += 1;
             await fs.writeFile(path.join(outsideRoot, 'unexpected-browser-write'), 'escaped\n', 'utf8');
             return { code: 0, stdout: 'unexpected install', stderr: '' };

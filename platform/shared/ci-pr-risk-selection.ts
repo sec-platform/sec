@@ -12,7 +12,7 @@ import {
 import {
   hasTestImpactForFile,
   isTestImpactSourceFile,
-  type CodexDevelopmentTestImpactSourceProviderV1
+  type CodexDevelopmentTestImpactSourceProviderV2
 } from './test-impact-contract.ts';
 
 export type CiPrRiskSlowSuiteSelection = {
@@ -67,7 +67,7 @@ function suitesForSlowTests(slowTests: string[]): string[] {
 
 export function selectCiPrRiskSlowSuites(
   files: string[] | null,
-  provider?: CodexDevelopmentTestImpactSourceProviderV1,
+  provider?: CodexDevelopmentTestImpactSourceProviderV2,
   transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): CiPrRiskSlowSuiteSelection {
   if (!files) {

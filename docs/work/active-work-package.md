@@ -1,7 +1,7 @@
 ---
 schema: sec-active-work-package-pointer-v2
 status: conditional
-last-reviewed: 2026-08-16
+last-reviewed: 2026-08-21
 ---
 
 # 当前唯一 Active Work Package
@@ -10,8 +10,8 @@ last-reviewed: 2026-08-16
 selectionMode: exact-manifest-not-on-default-branch-v1
 defaultBranchRef: refs/remotes/origin/main
 defaultRefFreshness: live-platform-match-required
-manifest: docs/work-packages/delegation-consumer-zero-retirement-v1.md
-manifestDigest: sha256:8237c9ed0b2b6c08297ee1ce5b228d3d32123a7794cc5c7cf8cceb0cc0541258
+manifest: docs/work-packages/sec-static-convergence-v1.md
+manifestDigest: sha256:55dcfd798b91e2f0a7c65af1ba7f432f2a9df639c62240db7189a71946cfac4f
 digestBytes: git-blob
 unavailableDefaultRef: unresolved
 matchingDefaultBlob: none

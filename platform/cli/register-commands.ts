@@ -1,8 +1,4 @@
 import type { Command } from 'commander';
-import { runCensus } from '../../scripts/codex/text-byte-census.ts';
-import { runSettlement } from '../../scripts/codex/worktree-settlement.ts';
-import { buildCiArtifactManifest, loadManifestById, loadWorkspacePlan } from '../compiler/index.ts';
-import { adaptWorkspace, addBlock, applyWorkbenchMutations, composeWorkspace, explainWorkspace, initWorkspace, lockWorkspace, repairWorkspace, resolveWorkspace, startWorkbenchServer, upgradeWorkspace, verifyWorkspace, writeWorkspaceArtifacts } from '../orchestrator.ts';
 import type { AcceptanceCoverageReport } from '../shared/acceptance-types.ts';
 import {
   buildBenchmarkTaskSuiteContract,
@@ -25,43 +21,22 @@ import {
 } from '../shared/contract-freeze-contract.ts';
 import type { DependencyCleanOptions } from '../shared/dependency-environment.ts';
 import {
-  cleanDependencyEnvironment,
-  formatDependencyEnvironmentStatus,
-  formatDoctorReport,
-  getDependencyEnvironmentStatus,
-  getDoctorReport,
-  relinkProjectDependencies,
-  warmupDependencyEnvironment
-} from '../shared/dependency-environment.ts';
-import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../shared/error-protocol-contract.ts';
+import { CompilerError } from '../shared/errors.ts';
 import { pathExists, readJson } from '../shared/fs.ts';
 import type { LockFile } from '../shared/lock-types.ts';
 import { getWorkspacePaths, resolveWorkspaceLockPath, resolveWorkspaceProvenancePath } from '../shared/paths.ts';
 import { platformCommand } from '../shared/platform-command.ts';
 import type { PolicyReport } from '../shared/policy-types.ts';
 import type { ProjectOverview } from '../shared/project-overview.ts';
-import {
-  buildProjectOverviewFromWorkspace,
-  formatProjectOverview
-} from '../shared/project-overview.ts';
 import type { ProvenanceFile } from '../shared/provenance-types.ts';
-import {
-  assertReferenceCheckClean,
-  buildReferenceCheckReport,
-  formatReferenceCheck
-} from '../shared/reference-check.ts';
 import type { RepairPlan } from '../shared/repair-types.ts';
 import { buildE2eMatrix } from '../shared/review-matrix.ts';
 import { buildReviewPolicySummary } from '../shared/review-policy.ts';
 import type { ReviewSummary } from '../shared/review-types.ts';
 import { withSpinner } from '../shared/spinner.ts';
-import {
-  buildTestBudgetContract,
-  formatTestBudgetContract
-} from '../shared/test-budget-contract.ts';
 import type { TextByteCensusReport, TextByteClassification } from '../shared/text-byte-census-contract.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../shared/upgrade-types.ts';
 import type { RuntimeVerificationLaneReport, VerificationLane, VerificationReport } from '../shared/verification-types.ts';
@@ -101,8 +76,49 @@ import {
   type InstallManifestEntry,
   type PostgresContract
 } from './formatters.ts';
+import {
+  adaptWorkspace,
+  addBlock,
+  applyWorkbenchMutations,
+  buildCiArtifactManifest,
+  composeWorkspace,
+  explainWorkspace,
+  initWorkspace,
+  loadDependencyEnvironmentDomain,
+  loadManifestById,
+  loadProjectOverviewDomain,
+  loadReferenceCheckDomain,
+  loadTestBudgetDomain,
+  loadWorkspacePlan,
+  lockWorkspace,
+  repairWorkspace,
+  resolveWorkspace,
+  runCensus,
+  runSettlement,
+  startWorkbenchServer,
+  upgradeWorkspace,
+  verifyWorkspace,
+  writeWorkspaceArtifacts
+} from './lazy-command-domains.ts';
 
 type JsonOpts = { json: boolean; compact: boolean };
+
+type DependencyEnvironmentModule = typeof import('../shared/dependency-environment.ts');
+
+export type DependencyEnvironmentCommandDomain = Pick<
+  DependencyEnvironmentModule,
+  | 'cleanDependencyEnvironment'
+  | 'formatDependencyEnvironmentStatus'
+  | 'formatDoctorReport'
+  | 'getDependencyEnvironmentStatus'
+  | 'getDoctorReport'
+  | 'relinkProjectDependencies'
+  | 'warmupDependencyEnvironment'
+>;
+
+export type CliCommandDomainLoaders = Readonly<{
+  loadDependencyEnvironmentDomain?: () => Promise<DependencyEnvironmentCommandDomain>;
+}>;
 
 function jsonOpts(opts: Record<string, unknown>): JsonOpts {
   return { json: !!opts.json, compact: !!opts.compact };
@@ -119,9 +135,13 @@ function commandPath(cmd: Command): string {
   return names.reverse().join(' ');
 }
 
+function usageError(message: string): CompilerError {
+  return new CompilerError('CLI-USAGE-001', message);
+}
+
 function assertJsonFlags(opts: Record<string, unknown>, cmd: Command): void {
   if (opts.compact && !opts.json) {
-    throw new Error(`Usage: ${commandPath(cmd)} [--json [--compact]]`);
+    throw usageError(`Usage: ${commandPath(cmd)} [--json [--compact]]`);
   }
 }
 
@@ -294,7 +314,12 @@ async function buildDemoChecklist(workspaceRoot: string): Promise<DemoChecklist>
   };
 }
 
-export function registerCommands(program: Command): void {
+export function registerCommands(
+  program: Command,
+  domainLoaders: CliCommandDomainLoaders = {}
+): void {
+  const loadDependencyEnvironment = domainLoaders.loadDependencyEnvironmentDomain
+    ?? loadDependencyEnvironmentDomain;
   program.command('init')
     .description('Initialize project workspace')
     .option('--reset', 'Reset workspace')
@@ -345,7 +370,7 @@ export function registerCommands(program: Command): void {
     .action(async (opts: Record<string, unknown>) => {
       const lane = opts.lane as VerificationLane;
       if (lane !== 'fast' && lane !== 'runtime' && lane !== 'all') {
-        throw new Error('Lane must be fast, runtime, or all');
+        throw usageError('Lane must be fast, runtime, or all');
       }
       const output = jsonOpts(opts);
       const { report } = await runWithOptionalSpinner('Running verification', output, () => verifyWorkspace(process.cwd(), { lane, emitTiming: !output.json }));
@@ -396,7 +421,7 @@ export function registerCommands(program: Command): void {
         await printRequiredJson<UpgradeDiagnostics>(upgradeDiagnosticsPath, 'Upgrade diagnostics not found; run platform upgrade <block-id> <target-version> --dry-run first', output, formatUpgradeDiagnostics);
         return;
       }
-      if (args.length < 2) throw new Error('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]');
+      if (args.length < 2) throw usageError('Usage: platform upgrade <block-id> <target-version> [--dry-run] [--json [--compact]]');
       const [blockId, targetVersion] = args;
       const { upgradePlan } = await runWithOptionalSpinner(
         opts.dryRun ? 'Previewing upgrade' : 'Running upgrade',
@@ -482,22 +507,26 @@ export function registerCommands(program: Command): void {
     .description('Check environment readiness')
     .action(async (opts: Record<string, unknown>) => {
       const output = jsonOpts(opts);
-      const report = await getDoctorReport(process.cwd());
-      printJsonOrText(report, output, formatDoctorReport);
+      const domain = await loadDependencyEnvironment();
+      const report = await domain.getDoctorReport(process.cwd());
+      printJsonOrText(report, output, domain.formatDoctorReport);
     });
 
   const deps = program.command('deps').description('Dependency management');
   addJsonFlags(deps.command('status')).action(async (opts: Record<string, unknown>) => {
-    const status = await getDependencyEnvironmentStatus(process.cwd());
-    printJsonOrText(status, jsonOpts(opts), formatDependencyEnvironmentStatus);
+    const domain = await loadDependencyEnvironment();
+    const status = await domain.getDependencyEnvironmentStatus(process.cwd());
+    printJsonOrText(status, jsonOpts(opts), domain.formatDependencyEnvironmentStatus);
   });
   addJsonFlags(deps.command('warmup')).action(async (opts: Record<string, unknown>) => {
-    const status = await warmupDependencyEnvironment(process.cwd());
-    printJsonOrText(status, jsonOpts(opts), formatDependencyEnvironmentStatus);
+    const domain = await loadDependencyEnvironment();
+    const status = await domain.warmupDependencyEnvironment(process.cwd());
+    printJsonOrText(status, jsonOpts(opts), domain.formatDependencyEnvironmentStatus);
   });
   addJsonFlags(deps.command('relink')).action(async (opts: Record<string, unknown>) => {
-    const status = await relinkProjectDependencies(process.cwd());
-    printJsonOrText(status, jsonOpts(opts), formatDependencyEnvironmentStatus);
+    const domain = await loadDependencyEnvironment();
+    const status = await domain.relinkProjectDependencies(process.cwd());
+    printJsonOrText(status, jsonOpts(opts), domain.formatDependencyEnvironmentStatus);
   });
   deps.command('clean')
     .option('--project', 'Clean project deps')
@@ -507,18 +536,20 @@ export function registerCommands(program: Command): void {
     .option('--force', 'Force clean')
     .action(async (opts: Record<string, unknown>) => {
       const options = opts as DependencyCleanOptions;
-      if (options.all && !options.force) throw new Error('Usage: platform deps clean --all --force');
-      if (!options.all && options.force) throw new Error('Usage: platform deps clean --all --force');
-      const removed = await cleanDependencyEnvironment(process.cwd(), options);
+      if (options.all && !options.force) throw usageError('Usage: platform deps clean --all --force');
+      if (!options.all && options.force) throw usageError('Usage: platform deps clean --all --force');
+      const domain = await loadDependencyEnvironment();
+      const removed = await domain.cleanDependencyEnvironment(process.cwd(), options);
       console.log(`Cleaned ${removed.length} dependency paths`);
     });
 
   const referenceCmd = program.command('reference').description('Reference workspace operations');
   addJsonFlags(referenceCmd.command('check')).action(async (opts: Record<string, unknown>) => {
     const output = jsonOpts(opts);
-    const report = await buildReferenceCheckReport();
-    printJsonOrText(report, output, formatReferenceCheck);
-    assertReferenceCheckClean(report);
+    const domain = await loadReferenceCheckDomain();
+    const report = await domain.buildReferenceCheckReport();
+    printJsonOrText(report, output, domain.formatReferenceCheck);
+    domain.assertReferenceCheckClean(report);
   });
 
   addJsonFlags(modeCommand(program.command('benchmark'))).action(async (opts: Record<string, unknown>) => {
@@ -528,7 +559,8 @@ export function registerCommands(program: Command): void {
 
   addJsonFlags(modeCommand(program.command('test'))).action(async (opts: Record<string, unknown>) => {
     const output = jsonOpts(opts);
-    printJsonOrText(await buildTestBudgetContract(), output, formatTestBudgetContract);
+    const domain = await loadTestBudgetDomain();
+    printJsonOrText(await domain.buildTestBudgetContract(), output, domain.formatTestBudgetContract);
   });
 
   addJsonFlags(modeCommand(program.command('policy')))
@@ -616,12 +648,13 @@ export function registerCommands(program: Command): void {
     .description('Project overview')
     .action(async (opts: Record<string, unknown>) => {
       const output = jsonOpts(opts);
+      const domain = await loadProjectOverviewDomain();
       const overview = await runWithOptionalSpinner(
         'Building project overview',
         output,
-        () => buildProjectOverviewFromWorkspace(process.cwd())
+        async () => domain.buildProjectOverviewFromWorkspace(process.cwd())
       );
-      printJsonOrText<ProjectOverview>(overview, output, formatProjectOverview);
+      printJsonOrText<ProjectOverview>(overview, output, domain.formatProjectOverview);
     });
 
   addJsonFlags(modeCommand(program.command('contract')))
@@ -641,7 +674,7 @@ export function registerCommands(program: Command): void {
         printJsonOrText(buildErrorProtocolContract(), output, formatErrorProtocolContract);
         return;
       }
-      throw new Error('Usage: platform contract <freeze|errors|ci> [--json [--compact]]');
+      throw usageError('Usage: platform contract <freeze|errors|ci> [--json [--compact]]');
     });
 
   addJsonFlags(modeCommand(program.command('install'))).action(async (opts: Record<string, unknown>) => {
@@ -659,10 +692,23 @@ export function registerCommands(program: Command): void {
   const textCmd = program.command('text').description('Text byte policy inspection');
   addJsonFlags(textCmd.command('census'))
     .description('Scan tracked Git blobs and classify by .gitattributes policy')
+    .option('--fail-on <threshold>', 'Exit non-zero for any fail-closed result or one classification')
     .action(async (opts: Record<string, unknown>) => {
       const output = jsonOpts(opts);
+      const failOn = opts.failOn as string | undefined;
+      const classifications: readonly TextByteClassification[] = [
+        'canonical-lf', 'explicit-crlf', 'binary', 'preserve-external', 'unknown'
+      ];
+      if (failOn !== undefined && failOn !== 'any'
+        && !classifications.includes(failOn as TextByteClassification)) {
+        throw usageError(`Text census --fail-on must be any or one of: ${classifications.join(', ')}`);
+      }
       const report = await runWithOptionalSpinner('Scanning text bytes', output, () => runCensus(process.cwd()));
       printJsonOrText(report, output, formatTextCensusReport);
+      const failed = failOn === 'any'
+        ? report.failClosed
+        : failOn !== undefined && report.classificationCounts[failOn as TextByteClassification] > 0;
+      if (failed) throw new Error(`Text census --fail-on ${failOn} threshold matched.`);
     });
 
   const envCmd = program.command('environment').description('Environment settlement inspection');

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -6,7 +7,7 @@ import { compilerRoot } from '../../platform/shared/paths.ts';
 
 const compilerFileCache = new Map<string, string>();
 
-export async function readCompilerFile(relativePath: string): Promise<string> {
+async function readCompilerText(relativePath: string): Promise<string> {
   const cached = compilerFileCache.get(relativePath);
   if (cached !== undefined) return cached;
 
@@ -14,6 +15,50 @@ export async function readCompilerFile(relativePath: string): Promise<string> {
   const content = await fs.readFile(absolutePath, 'utf8');
   compilerFileCache.set(relativePath, content);
   return content;
+}
+
+function readCompilerTextSync(relativePath: string): string {
+  const cached = compilerFileCache.get(relativePath);
+  if (cached !== undefined) return cached;
+  const content = readFileSync(path.join(compilerRoot, relativePath), 'utf8');
+  compilerFileCache.set(relativePath, content);
+  return content;
+}
+
+export async function readCompilerFile(relativePath: string): Promise<string> {
+  if (/\.(?:ts|tsx)$/u.test(relativePath)) {
+    throw new Error(
+      `Production TypeScript is not a text fixture; use an explicit hostile-mutation, TCB-analysis, or transpile-input capability: ${relativePath}`
+    );
+  }
+  return readCompilerText(relativePath);
+}
+
+export async function readCompilerTextFile(relativePath: string): Promise<string> {
+  if (/\.(?:ts|tsx)$/u.test(relativePath)) {
+    throw new Error(`TypeScript implementation source requires a parsed view or explicit mutation fixture: ${relativePath}`);
+  }
+  return readCompilerText(relativePath);
+}
+
+export async function readCompilerTypeScriptMutationFixture(
+  relativePath: `${string}.ts` | `${string}.tsx`,
+  purpose: 'hostile-mutation' | 'tcb-analysis' | 'transpile-input'
+): Promise<string> {
+  if (purpose !== 'hostile-mutation' && purpose !== 'tcb-analysis' && purpose !== 'transpile-input') {
+    throw new Error('TypeScript mutation fixture purpose is invalid.');
+  }
+  return readCompilerText(relativePath);
+}
+
+export function readCompilerTypeScriptMutationFixtureSync(
+  relativePath: `${string}.ts` | `${string}.tsx`,
+  purpose: 'hostile-mutation' | 'tcb-analysis' | 'transpile-input'
+): string {
+  if (purpose !== 'hostile-mutation' && purpose !== 'tcb-analysis' && purpose !== 'transpile-input') {
+    throw new Error('TypeScript mutation fixture purpose is invalid.');
+  }
+  return readCompilerTextSync(relativePath);
 }
 
 interface CompilerPackage {

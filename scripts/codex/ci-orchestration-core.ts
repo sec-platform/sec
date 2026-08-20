@@ -10,6 +10,7 @@ import {
   type CodexDevelopmentTestImpactTransitionObservationV1
 } from '../../platform/shared/ci-git-changed-files.ts';
 import { uniqueSorted } from '../../platform/shared/collections.ts';
+import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
 import { CodexDevelopmentReadExactGitBlobEntryV1 } from './exact-git-blob.ts';
 
 export const CODEX_DEVELOPMENT_FAILURE_TAIL_CHARACTER_LIMIT_V1 = 24_000;
@@ -38,7 +39,8 @@ export function CodexDevelopmentDefaultGitRevisionV1(
 ): string | null {
   const result = spawnSync('git', ['rev-parse', ref], {
     cwd: repositoryRoot,
-    encoding: 'utf8'
+    encoding: 'utf8',
+    env: isolatedGitReadEnvironment()
   });
   return result.status === 0 ? result.stdout.trim() : null;
 }
@@ -47,13 +49,16 @@ export function CodexDevelopmentDefaultTrackedTreeIsCleanV1(repositoryRoot: stri
   const result = spawnSync('git', [
     '-c',
     'core.quotepath=false',
+    '-c',
+    'core.autocrlf=true',
     'status',
     '--porcelain=v1',
     '--untracked-files=normal',
     '--ignored=no'
   ], {
     cwd: repositoryRoot,
-    encoding: 'utf8'
+    encoding: 'utf8',
+    env: isolatedGitReadEnvironment()
   });
   return result.status === 0 && result.stdout.length === 0;
 }
@@ -75,7 +80,8 @@ export function CodexDevelopmentDefaultChangedPathsV1(
       || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(headSha)) return null;
   const result = spawnSync('git', gitChangedFileDiffArgs(baseSha, headSha), {
     cwd: repositoryRoot,
-    encoding: 'buffer'
+    encoding: 'buffer',
+    env: isolatedGitReadEnvironment()
   });
   if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
   try {

@@ -77,7 +77,16 @@ export async function withSlotUpgradeDryRunFixture<T>(
 ): Promise<T> {
   const context = await prepareSlotUpgradeDryRunFixture(options);
   try {
-    return await callback(context);
+    const result = await callback(context);
+    try {
+      await fs.lstat(context.paths.upgradeDiagnosticsPath);
+      throw new Error('Upgrade dry-run published a diagnostics artifact');
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+        throw error;
+      }
+    }
+    return result;
   } finally {
     await fs.rm(context.workspaceRoot, { recursive: true, force: true });
   }
@@ -114,7 +123,7 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
         symbol: 'normalizeCustomer',
         inputType: 'CustomerInputV1',
         outputType: 'CustomerRecordInput',
-        writableZones: ['custom/customer_normalizer.ts']
+        writableZones: ['custom/']
       }
     ],
     acceptance: [],
@@ -142,7 +151,7 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
         symbol: 'normalizeCustomer',
         inputType: 'CustomerInputV2',
         outputType: 'CustomerRecordInput',
-        writableZones: ['custom/customer_normalizer.ts']
+        writableZones: ['custom/']
       }
     ],
     upgrade: {
@@ -167,7 +176,7 @@ export async function writeSlotUpgradeFixture(workspaceRoot: string): Promise<vo
     slotId: 'customer_normalizer',
     inputType: 'CustomerInputV2',
     outputType: 'CustomerRecordInput',
-    writableZones: ['custom/customer_normalizer.ts']
+    writableZones: ['custom/']
   });
 
   const lock: LockFile = {

@@ -4,11 +4,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
+  compilerCliEntrypoint,
   compilerRuntimeLayout,
   RELEASE_ENTRYPOINT_RELATIVE_PATH,
   RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH,
+  resolveCompilerCliEntrypoint,
   resolveCompilerRuntimeLayout,
   resolveCompilerRuntimeResources,
+  SOURCE_CLI_ENTRYPOINT_RELATIVE_PATH,
   SOURCE_RUNTIME_MODULE_RELATIVE_PATH
 } from '../../platform/shared/runtime-layout.ts';
 
@@ -27,6 +30,9 @@ describe('compiler runtime layout', () => {
       runtimeAssetRoot: packageRoot
     });
     expect(Object.isFrozen(layout)).toBe(true);
+    expect(resolveCompilerCliEntrypoint(layout)).toBe(
+      path.join(packageRoot, SOURCE_CLI_ENTRYPOINT_RELATIVE_PATH)
+    );
     expect(resolveCompilerRuntimeResources(layout)).toEqual({
       composeTemplates: path.join(
         packageRoot,
@@ -60,6 +66,7 @@ describe('compiler runtime layout', () => {
       repositorySourceRoot: null,
       runtimeAssetRoot: path.join(packageRoot, RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH)
     });
+    expect(resolveCompilerCliEntrypoint(layout)).toBe(modulePath);
     const runtimeAssetRoot = path.join(packageRoot, RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH);
     expect(resolveCompilerRuntimeResources(layout)).toEqual({
       composeTemplates: path.join(
@@ -101,5 +108,8 @@ describe('compiler runtime layout', () => {
     expect(compilerRuntimeLayout.packageRoot).toBe(packageRoot);
     expect(compilerRuntimeLayout.runtimeAssetRoot).toBe(packageRoot);
     expect(compilerRuntimeLayout.repositorySourceRoot).toBe(packageRoot);
+    expect(compilerCliEntrypoint).toBe(
+      path.join(packageRoot, SOURCE_CLI_ENTRYPOINT_RELATIVE_PATH)
+    );
   });
 });

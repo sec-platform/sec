@@ -75,6 +75,13 @@ export const HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1 = Object.freeze({
   closeoutPublication: 'Publish exact branch closeout receipt'
 } as const);
 
+export const HOSTED_INTEGRATION_PHASE_JOB_NAMES_V1 = Object.freeze({
+  recoveryPreparation: 'authorize',
+  integration: 'integrate',
+  closeoutMutation: 'integrate',
+  closeoutPublication: 'integrate'
+} as const);
+
 export type HostedIntegrationPhaseV1 = keyof typeof HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1;
 
 export interface HostedIntegrationPhaseOwnershipV1 {
@@ -216,9 +223,22 @@ function stepStarted(step: GitHubWorkflowJobStepObservationV1): boolean {
   return true;
 }
 
+function assertHostedIntegrationJobIdentityV1(input: {
+  job: GitHubWorkflowJobObservationV1;
+  runId: string;
+  runAttempt: number;
+  workflowSha: string;
+}): void {
+  if (input.job.runId !== input.runId || input.job.runAttempt !== input.runAttempt
+    || input.job.headSha !== input.workflowSha || !/^[1-9][0-9]*$/u.test(input.job.id)) {
+    throw new Error('Hosted integration job provider identity drifted.');
+  }
+}
+
 /**
- * Provider-backed phase linearization. The workflow job/step record is only an
- * effect-start tombstone; it never grants merge or closeout authorization.
+ * Provider-backed phase linearization. Authorization preparation and physical
+ * integration are separate capability jobs. The workflow job/step record is
+ * only an effect-start tombstone; it never grants merge or closeout authority.
  */
 export function assertHostedIntegrationPhaseOwnershipV1(input: {
   attempts: readonly Readonly<{
@@ -231,9 +251,10 @@ export function assertHostedIntegrationPhaseOwnershipV1(input: {
   workflowSha: string;
   phase: HostedIntegrationPhaseV1;
 }): HostedIntegrationPhaseOwnershipV1 {
+  const expectedJobName = HOSTED_INTEGRATION_PHASE_JOB_NAMES_V1[input.phase];
   if (!/^[1-9][0-9]*$/u.test(input.runId)
     || !Number.isSafeInteger(input.currentRunAttempt) || input.currentRunAttempt < 1
-    || input.currentRunAttempt > 1000 || input.currentJobName !== 'integrate'
+    || input.currentRunAttempt > 1000 || input.currentJobName !== expectedJobName
     || !/^[0-9a-f]{40}$/u.test(input.workflowSha)) {
     throw new Error('Hosted integration phase identity is invalid.');
   }
@@ -244,33 +265,50 @@ export function assertHostedIntegrationPhaseOwnershipV1(input: {
   const priorEffectPhases = new Set<HostedIntegrationPhaseV1>();
   const hostedIntegrationPhases: readonly HostedIntegrationPhaseV1[] =
     Object.keys(HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1) as HostedIntegrationPhaseV1[];
+  const canonicalJobNames = Object.freeze([...new Set(
+    Object.values(HOSTED_INTEGRATION_PHASE_JOB_NAMES_V1)
+  )]);
+
   for (const attempt of input.attempts) {
     if (!Number.isSafeInteger(attempt.runAttempt) || attempt.runAttempt < 1
       || attempt.runAttempt > input.currentRunAttempt || attemptIds.has(attempt.runAttempt)) {
       throw new Error('Hosted integration phase attempt inventory is incomplete or duplicated.');
     }
     attemptIds.add(attempt.runAttempt);
-    const jobs = attempt.jobs.filter((job) => job.name === input.currentJobName);
-    if (jobs.length > 1) throw new Error('Hosted integration attempt has duplicate canonical jobs.');
-    const job = jobs[0];
-    if (job === undefined) continue;
-    if (job.runId !== input.runId || job.runAttempt !== attempt.runAttempt
-      || job.headSha !== input.workflowSha || !/^[1-9][0-9]*$/u.test(job.id)) {
-      throw new Error('Hosted integration job provider identity drifted.');
+
+    const jobsByName = new Map<string, GitHubWorkflowJobObservationV1>();
+    for (const jobName of canonicalJobNames) {
+      const matching = attempt.jobs.filter((job) => job.name === jobName);
+      if (matching.length > 1) throw new Error('Hosted integration attempt has duplicate canonical jobs.');
+      const job = matching[0];
+      if (job !== undefined) {
+        assertHostedIntegrationJobIdentityV1({
+          job,
+          runId: input.runId,
+          runAttempt: attempt.runAttempt,
+          workflowSha: input.workflowSha
+        });
+        jobsByName.set(jobName, job);
+      }
     }
-    const steps = job.steps.filter((step) => step.name === stepName);
+
+    const job = jobsByName.get(expectedJobName);
+    const steps = job?.steps.filter((step) => step.name === stepName) ?? [];
     if (steps.length > 1) throw new Error('Hosted integration job has duplicate canonical phase steps.');
     const phaseStep = steps[0];
     if (attempt.runAttempt === input.currentRunAttempt) {
-      if (job.status !== 'in_progress' || job.conclusion !== null || phaseStep === undefined
-        || phaseStep.status !== 'in_progress' || !stepStarted(phaseStep)) {
+      if (job === undefined || job.status !== 'in_progress' || job.conclusion !== null
+        || phaseStep === undefined || phaseStep.status !== 'in_progress' || !stepStarted(phaseStep)) {
         throw new Error('Current hosted integration phase is not provider-confirmed in progress.');
       }
       currentJob = job;
       currentStep = phaseStep;
     } else {
       for (const priorPhase of hostedIntegrationPhases) {
-        const priorPhaseSteps = job.steps.filter((step) => (
+        const priorJobName = HOSTED_INTEGRATION_PHASE_JOB_NAMES_V1[priorPhase];
+        const priorJob = jobsByName.get(priorJobName);
+        if (priorJob === undefined) continue;
+        const priorPhaseSteps = priorJob.steps.filter((step) => (
           step.name === HOSTED_INTEGRATION_PHASE_STEP_NAMES_V1[priorPhase]
         ));
         if (priorPhaseSteps.length > 1) {

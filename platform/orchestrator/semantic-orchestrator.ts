@@ -1,10 +1,9 @@
-import {
-  buildEngineeringIR,
-  buildWorkspaceSemanticBundle,
-  loadWorkspaceEngineeringIRBuildInput
-} from '../compiler/index.ts';
+import { buildEngineeringIR } from '../compiler/ir/build-engineering-ir.ts';
+import { loadWorkspaceEngineeringIRBuildInput } from '../compiler/ir/load-workspace-engineering-ir-input.ts';
+import { buildWorkspaceSemanticBundle } from '../compiler/semantic-frontend.ts';
 import type { EngineeringIR } from '../shared/engineering-ir-types.ts';
-import { readLockFile, saveLock } from '../shared/lock-utils.ts';
+import type { LockFile } from '../shared/lock-types.ts';
+import { saveLock } from '../shared/lock-utils.ts';
 import { executePipelineStage } from '../shared/pipeline-kernel.ts';
 import { bindPipelineSemanticContext } from '../shared/pipeline-semantic-context.ts';
 import type {
@@ -22,19 +21,26 @@ export async function runWorkspaceSemanticFrontend(
   workspaceRoot: string,
   context: PipelineExecutionContext
 ): Promise<PipelineSemanticContext> {
+  let publishedLock: LockFile | undefined;
   return executePipelineStage(
     workspaceRoot,
     'semantic',
     context,
     async (stageContext) => {
       const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, stageContext.workspaceWriteLease);
-      // 合并为单次读-改-写：读取 lock 一次，在内存中清理字段、构建 semantic bundle、
-      // 回填字段后一次性写入，避免原来 clear → save → read → fill → save 的两次磁盘往返。
-      const lock = await readLockFile(workspaceRoot);
+      const {
+        snapshot,
+        generatorPlan,
+        semanticViews,
+        sourceLock: lock
+      } = await buildWorkspaceSemanticBundle(workspaceRoot);
+
+      // Mutate exactly the Lock object that participated in semantic-input
+      // derivation. Reopening live Lock here would mix two physical revisions
+      // before #296 can bind the whole read set into one Workspace Observation.
       delete lock.semanticLoweringTasks;
       delete lock.semanticViews;
 
-      const { snapshot, generatorPlan, semanticViews } = await buildWorkspaceSemanticBundle(workspaceRoot);
       const semanticContext = bindPipelineSemanticContext(stageContext, snapshot, generatorPlan, semanticViews);
       lock.semanticLoweringTasks = generatorPlan.tasks.map((task) => ({
         ...structuredClone(task),
@@ -42,8 +48,16 @@ export async function runWorkspaceSemanticFrontend(
       }));
       lock.semanticViews = structuredClone(semanticViews);
       await saveLock(workspaceRoot, lock, commitFence);
+      publishedLock = lock;
       return semanticContext;
     },
-    { extractLock: () => readLockFile(workspaceRoot) }
+    {
+      extractLock: () => {
+        if (!publishedLock) {
+          throw new Error('Semantic stage completed without one published Lock');
+        }
+        return publishedLock;
+      }
+    }
   );
 }

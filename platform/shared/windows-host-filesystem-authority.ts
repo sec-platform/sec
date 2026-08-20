@@ -52,7 +52,9 @@ if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::Re
 }
 $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
 if ($env:SEC_WINDOWS_HOST_DIRECTORY_PROOF_MODE -eq 'harden') {
-  $hardened = Get-Acl -LiteralPath $item.FullName
+  # Build a fresh owner/DACL descriptor. Reusing Get-Acl can carry a SACL into
+  # Set-Acl and spuriously require SeSecurityPrivilege on the second process.
+  $hardened = [Security.AccessControl.DirectorySecurity]::new()
   $hardened.SetAccessRuleProtection($true, $false)
   $hardened.SetOwner($currentSid)
   $rule = [Security.AccessControl.FileSystemAccessRule]::new(
@@ -308,6 +310,47 @@ export async function acquireWindowsBrowserLaunchHostAuthority(): Promise<
     allocationSurfacePath: tmpdir(),
     removeDirectory: rmdir
   });
+}
+
+/**
+ * Hardens one caller-owned, already-existing physical directory and returns a
+ * revalidatable owner/DACL authority. Unlike the browser-launch allocator this
+ * function never owns or removes the directory.
+ */
+export async function hardenExistingWindowsHostDirectoryAuthorityV1(
+  directoryPath: string,
+  options: Readonly<{ knownNew?: boolean }> = {}
+): Promise<WindowsHostDirectoryAuthority> {
+  if (process.platform !== 'win32') {
+    throw new Error('Windows existing host directory authority is Windows-only');
+  }
+  const created = await physicalWindowsDirectory(directoryPath);
+  let initialAcl: WindowsHostDirectoryAclProof;
+  if (options.knownNew === true) {
+    // A no-follow caller that just created this physical object knows inherited
+    // permissions have not yet been hardened. Go directly to the one harden +
+    // proof process instead of paying for a predictably failing probe process.
+    initialAcl = await probeWindowsDirectoryAcl(created.rootPath, 'harden');
+  } else {
+    try {
+      // The common cross-process path is already private. Prove it without an
+      // unnecessary Set-Acl effect; only an insecure existing root enters hardening.
+      initialAcl = await probeWindowsDirectoryAcl(created.rootPath, 'prove');
+    } catch {
+      initialAcl = await probeWindowsDirectoryAcl(created.rootPath, 'harden');
+    }
+  }
+  const hardened = await physicalWindowsDirectory(created.rootPath);
+  if (!sameDirectoryIdentity(hardened.identity, created.identity)) {
+    throw new Error('Windows existing host directory changed during ACL hardening');
+  }
+  return proveWindowsHostDirectoryAuthority(
+    hardened.rootPath,
+    async (targetPath) => probeWindowsDirectoryAcl(targetPath, 'prove'),
+    initialAcl,
+    async () => undefined,
+    hardened.identity
+  );
 }
 
 async function acquireWindowsBrowserLaunchHostAuthorityWithOptions(

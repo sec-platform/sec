@@ -1,6 +1,5 @@
 import type { Command } from 'commander';
 
-import { compileWorkspace } from '../orchestrator.ts';
 import { CompilerError } from '../shared/errors.ts';
 import { readPipelineJournal } from '../shared/pipeline-journal.ts';
 import {
@@ -9,6 +8,7 @@ import {
 } from '../shared/pipeline-types.ts';
 import type { VerificationLane } from '../shared/verification-types.ts';
 import { formatJson, printJsonOrText } from './format-utils.ts';
+import { compileWorkspace } from './lazy-command-domains.ts';
 
 function pipelineStage(value: string | undefined, option: string): PipelineStageId | undefined {
   if (value === undefined) return undefined;

@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { pathExists } from './fs.ts';
+import { encodeCanonicalBlockPhysicalKeyV1 } from './block-identity.ts';
+import { pathEntryExists } from './fs.ts';
 import {
   COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS,
   compilerRuntimeLayout,
@@ -176,10 +177,10 @@ export function workspaceRelativePath(workspaceRoot: string, targetPath: string)
 }
 
 async function resolveCanonicalOrLegacyPath(canonicalPath: string, legacyPath: string): Promise<string> {
-  if (await pathExists(canonicalPath)) {
+  if (await pathEntryExists(canonicalPath)) {
     return canonicalPath;
   }
-  return (await pathExists(legacyPath)) ? legacyPath : canonicalPath;
+  return (await pathEntryExists(legacyPath)) ? legacyPath : canonicalPath;
 }
 
 export async function resolveWorkspacePlanPath(workspaceRoot = process.cwd()): Promise<string> {
@@ -232,7 +233,7 @@ export function toProjectRuntimePath(runtimeTarget: string): string {
 }
 
 export function blockDirName(blockId: string): string {
-  return blockId.replaceAll('/', '.');
+  return encodeCanonicalBlockPhysicalKeyV1(blockId);
 }
 
 export function blockRoot(blockId: string): string {

@@ -10,51 +10,52 @@ describe('mergeTailwindTheme', () => {
   test('returns empty if extend json and custom css do not exist', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const { projectRoot } = getWorkspacePaths(workspaceRoot);
-      const result = await mergeTailwindTheme(workspaceRoot, projectRoot);
-      expect(result).toEqual([]);
+      expect(await mergeTailwindTheme(workspaceRoot, projectRoot)).toEqual([]);
     });
   });
 
-  test('successfully merges tailwind config and appends css', async () => {
+  test('merges deterministic config and replaces one managed CSS section idempotently', async () => {
     await withTempWorkspace(async (workspaceRoot) => {
       const { projectRoot, sourceCodeRoot } = getWorkspacePaths(workspaceRoot);
-
-      // Create theme files
       const themeDir = path.join(sourceCodeRoot, 'assets', 'theme');
       await fs.mkdir(themeDir, { recursive: true });
-
-      const extendJson = {
-        colors: {
-          brand: '#1d6f5f',
-          nested: {
-            deep: 'blue'
-          }
-        }
-      };
-      await writeJson(path.join(themeDir, 'tailwind.config.extend.json'), extendJson);
+      await writeJson(path.join(themeDir, 'tailwind.config.extend.json'), {
+        colors: { brand: '#1d6f5f', nested: { deep: 'blue' } }
+      });
       await writeText(path.join(themeDir, 'globals.css'), '.custom-class { color: red; }');
 
-      // Create base project files
       const targetCssPath = path.join(projectRoot, 'app', 'globals.css');
       await writeText(targetCssPath, 'body { margin: 0; }');
 
-      const result = await mergeTailwindTheme(workspaceRoot, projectRoot);
+      const first = await mergeTailwindTheme(workspaceRoot, projectRoot);
+      expect(first).toContain('tailwind.config.ts');
+      expect(first).toContain('app/globals.css');
+      const firstCss = await readText(targetCssPath);
+      const firstConfig = await readText(path.join(projectRoot, 'tailwind.config.ts'));
+      expect(firstConfig).toContain('"brand": "#1d6f5f"');
+      expect(firstConfig).toContain('"deep": "blue"');
+      expect(firstCss.match(/SEC BEGIN source\/assets\/theme\/globals\.css/g)).toHaveLength(1);
 
-      expect(result).toContain('tailwind.config.ts');
-      expect(result).toContain('app/globals.css');
+      await mergeTailwindTheme(workspaceRoot, projectRoot);
+      expect(await readText(targetCssPath)).toBe(firstCss);
+      expect(await readText(path.join(projectRoot, 'tailwind.config.ts'))).toBe(firstConfig);
+      expect(await pathExists(path.join(projectRoot, 'tailwind.config.ts'))).toBe(true);
+    });
+  });
 
-      // Check tailwind.config.ts merge
-      const configPath = path.join(projectRoot, 'tailwind.config.ts');
-      expect(await pathExists(configPath)).toBe(true);
+  test('refuses to replace dynamic theme or extend expressions with structural JSON', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      const { projectRoot, sourceCodeRoot } = getWorkspacePaths(workspaceRoot);
+      const themeDir = path.join(sourceCodeRoot, 'assets', 'theme');
+      await fs.mkdir(themeDir, { recursive: true });
+      await writeJson(path.join(themeDir, 'tailwind.config.extend.json'), { colors: { brand: 'red' } });
+      await writeText(path.join(projectRoot, 'tailwind.config.ts'), `
+const sharedTheme = getTheme();
+const config = { theme: sharedTheme };
+export default config;
+`);
 
-      const configText = await readText(configPath);
-      expect(configText).toContain('"brand": "#1d6f5f"');
-      expect(configText).toContain('"deep": "blue"');
-
-      // Check CSS append
-      const cssText = await readText(targetCssPath);
-      expect(cssText).toContain('body { margin: 0; }');
-      expect(cssText).toContain('.custom-class { color: red; }');
+      await expect(mergeTailwindTheme(workspaceRoot, projectRoot)).rejects.toThrow(/dynamic\/non-object/);
     });
   });
 });

@@ -30,6 +30,8 @@ export const SEC_WORK_DECISION_RECEIPT_SCHEMA_V1 =
   'sec-work-decision-receipt-v1' as const;
 export const SEC_WORK_ROLLING_PROJECTION_SCHEMA_V1 =
   'sec-work-rolling-projection-v1' as const;
+export const SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA_V1 =
+  'sec-work-rolling-transition-projection-v1' as const;
 export const SEC_WORK_SELECTION_LIVE_RESULT_SCHEMA_V1 =
   'sec-work-selection-live-result-v1' as const;
 export const SEC_WORK_SELECTION_LIVE_ISSUER_V1 =
@@ -133,6 +135,55 @@ export interface SecWorkRollingProjectionV1 {
   readonly projectionDigest: SecWorkDigestV1;
 }
 
+export type SecWorkRollingTransitionAuthorityV1 = Readonly<
+  | {
+    kind: 'committed-candidate-replan';
+    sourceHead: string;
+    sourceTree: string;
+    sourceManifestDigest: SecWorkDigestV1;
+    sourcePointerRevision: SecWorkDigestV1;
+    sourceRollingRevision: SecWorkDigestV1;
+  }
+  | {
+    kind: 'main-health-repair';
+    decisionDigest: SecWorkDigestV1;
+    healthRevision: SecWorkDigestV1;
+    ledgerDigest: SecWorkDigestV1;
+    failureFingerprints: readonly SecWorkDigestV1[];
+    publishedActivePackageId: string | null;
+  }
+>;
+
+export interface SecWorkRollingTransitionActiveV1 {
+  readonly packageId: string;
+  readonly tracking: string;
+  readonly manifestPath: string;
+  readonly manifestDigest: SecWorkDigestV1;
+}
+
+/**
+ * Digest-bound topology for a transition that is not an ordinary WorkDecision.
+ *
+ * The authority union is deliberately explicit: a candidate replan may only
+ * preserve an already-active package generation, while a MainHealth repair is
+ * bound to its repair decision. The digest proves byte/model integrity; the
+ * effectful document-control owner still proves the referenced Git or health
+ * authority before publishing these bytes.
+ */
+export interface SecWorkRollingTransitionProjectionV1 {
+  readonly schema: typeof SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA_V1;
+  readonly exactMain: string;
+  readonly exactMainTree: string;
+  readonly authority: SecWorkRollingTransitionAuthorityV1;
+  readonly active: SecWorkRollingTransitionActiveV1;
+  readonly candidates: readonly string[];
+  readonly projectionDigest: SecWorkDigestV1;
+}
+
+export type SecWorkRollingMachineProjectionV1 =
+  | SecWorkRollingProjectionV1
+  | SecWorkRollingTransitionProjectionV1;
+
 export interface SecWorkRollingTopologyV1 {
   readonly activePackageId: string;
   readonly candidatePackageIds: readonly string[];
@@ -164,6 +215,29 @@ const CATALOG_ITEM_KEYS = [
   'orderedAfterWorkIds',
   'reproductionOrEvidenceFreshness', 'rootCauseState', 'rootCauseRef',
   'scopeClosure', 'exitCriteriaRef', 'nearTermConsumerRef', 'humanDecisionRef'
+] as const;
+const ROLLING_PROJECTION_KEYS = [
+  'schema', 'exactMain', 'roadmapRevision', 'catalogDigest', 'receiptDigest',
+  'decisionDigest', 'active', 'candidates', 'projectionDigest'
+] as const;
+const ROLLING_PROJECTION_ITEM_KEYS = [
+  'packageId', 'workId', 'tracking', 'currentSpecRef', 'currentSpecRevision',
+  'decisionStatus'
+] as const;
+const ROLLING_TRANSITION_PROJECTION_KEYS = [
+  'schema', 'exactMain', 'exactMainTree', 'authority', 'active', 'candidates',
+  'projectionDigest'
+] as const;
+const ROLLING_TRANSITION_ACTIVE_KEYS = [
+  'packageId', 'tracking', 'manifestPath', 'manifestDigest'
+] as const;
+const CANDIDATE_REPLAN_AUTHORITY_KEYS = [
+  'kind', 'sourceHead', 'sourceTree', 'sourceManifestDigest',
+  'sourcePointerRevision', 'sourceRollingRevision'
+] as const;
+const MAIN_HEALTH_REPAIR_AUTHORITY_KEYS = [
+  'kind', 'decisionDigest', 'healthRevision', 'ledgerDigest',
+  'failureFingerprints', 'publishedActivePackageId'
 ] as const;
 
 function fail(message: string): never {
@@ -366,16 +440,16 @@ function normalizeCatalog(value: unknown): SecRoadmapWorkCatalogV1 {
   });
 }
 
-function parseDuplicateAwareJson(source: string): unknown {
+function parseDuplicateAwareJson(source: string, label = 'roadmap catalog'): unknown {
   if (source.length === 0 || source.length > 256 * 1024) {
-    fail('roadmap catalog JSON must be non-empty and bounded to 256 KiB.');
+    fail(`${label} JSON must be non-empty and bounded to 256 KiB.`);
   }
   let cursor = 0;
   let depth = 0;
   const whitespace = () => {
     while (cursor < source.length && /[\u0009\u000a\u000d\u0020]/u.test(source[cursor]!)) cursor += 1;
   };
-  const syntax = (message: string): never => fail(`roadmap catalog JSON is invalid at offset ${cursor}: ${message}.`);
+  const syntax = (message: string): never => fail(`${label} JSON is invalid at offset ${cursor}: ${message}.`);
   const parseString = (): string => {
     if (source[cursor] !== '"') return syntax('expected string');
     const start = cursor;
@@ -432,7 +506,7 @@ function parseDuplicateAwareJson(source: string): unknown {
       while (cursor < source.length) {
         whitespace();
         const key = parseString();
-        if (keys.has(key)) fail(`roadmap catalog JSON object contains duplicate key ${JSON.stringify(key)}.`);
+        if (keys.has(key)) fail(`${label} JSON object contains duplicate key ${JSON.stringify(key)}.`);
         keys.add(key);
         whitespace();
         if (source[cursor] !== ':') return syntax('expected colon after object key');
@@ -505,6 +579,250 @@ export function parseSecRoadmapWorkCatalogV1(source: string): SecRoadmapWorkCata
   const match = /^\r?\n```json\r?\n([\s\S]*?)\r?\n```\r?\n$/u.exec(between);
   if (match === null) fail('roadmap catalog markers must enclose exactly one JSON code block.');
   return normalizeCatalog(parseDuplicateAwareJson(match[1]!));
+}
+
+function normalizeRollingProjectionItem(
+  value: unknown,
+  label: string,
+  active: boolean
+): SecWorkRollingProjectionItemV1 {
+  const item = record(value, label);
+  exactKeys(item, ROLLING_PROJECTION_ITEM_KEYS, label);
+  return deepFreeze({
+    packageId: packageId(item.packageId, `${label}.packageId`),
+    workId: token(item.workId, `${label}.workId`),
+    tracking: token(item.tracking, `${label}.tracking`),
+    currentSpecRef: text(item.currentSpecRef, `${label}.currentSpecRef`),
+    currentSpecRevision: digest(item.currentSpecRevision, `${label}.currentSpecRevision`),
+    decisionStatus: active
+      ? enumeration(item.decisionStatus, ['selected'] as const, `${label}.decisionStatus`)
+      : enumeration(
+          item.decisionStatus,
+          ['eligible', 'rejected', 'unresolved', 'human-required'] as const,
+          `${label}.decisionStatus`
+        )
+  });
+}
+
+/**
+ * Parses the generated machine projection embedded in the rolling-plan
+ * document. The projection is self-authenticating with respect to its exact
+ * normalized fields; selection authority still belongs to the bound receipt
+ * and the live Work Selection adapter.
+ */
+function normalizeSecWorkRollingProjectionV1(
+  raw: Record<string, unknown>
+): SecWorkRollingProjectionV1 {
+  exactKeys(raw, ROLLING_PROJECTION_KEYS, 'rolling projection');
+  if (raw.schema !== SEC_WORK_ROLLING_PROJECTION_SCHEMA_V1) {
+    fail(`rolling projection.schema must be ${SEC_WORK_ROLLING_PROJECTION_SCHEMA_V1}.`);
+  }
+  if (!Array.isArray(raw.candidates) || raw.candidates.length < 2 || raw.candidates.length > 5) {
+    fail('rolling projection.candidates must contain two to five items.');
+  }
+  const active = normalizeRollingProjectionItem(raw.active, 'rolling projection.active', true);
+  const candidates = raw.candidates.map((item, index) => normalizeRollingProjectionItem(
+    item,
+    `rolling projection.candidates[${index}]`,
+    false
+  ));
+  const allItems = [active, ...candidates];
+  for (const [field, values] of [
+    ['packageId', allItems.map((item) => item.packageId)],
+    ['workId', allItems.map((item) => item.workId)],
+    ['tracking', allItems.map((item) => item.tracking)],
+    ['currentSpecRef', allItems.map((item) => item.currentSpecRef)]
+  ] as const) {
+    if (new Set(values).size !== values.length) {
+      fail(`rolling projection contains duplicate ${field}.`);
+    }
+  }
+  const withoutDigest = deepFreeze({
+    schema: SEC_WORK_ROLLING_PROJECTION_SCHEMA_V1,
+    exactMain: gitSha(raw.exactMain, 'rolling projection.exactMain'),
+    roadmapRevision: digest(raw.roadmapRevision, 'rolling projection.roadmapRevision'),
+    catalogDigest: digest(raw.catalogDigest, 'rolling projection.catalogDigest'),
+    receiptDigest: digest(raw.receiptDigest, 'rolling projection.receiptDigest'),
+    decisionDigest: digest(raw.decisionDigest, 'rolling projection.decisionDigest'),
+    active,
+    candidates
+  });
+  const projectionDigest = digest(raw.projectionDigest, 'rolling projection.projectionDigest');
+  if (projectionDigest !== sha256(withoutDigest)) {
+    fail('rolling projection.projectionDigest does not bind the normalized projection.');
+  }
+  return deepFreeze({ ...withoutDigest, projectionDigest });
+}
+
+function orderedPackageIds(value: unknown, label: string): readonly string[] {
+  if (!Array.isArray(value) || value.length < 2 || value.length > 5) {
+    fail(`${label} must contain two to five package ids.`);
+  }
+  const result = value.map((entry, index) => packageId(entry, `${label}[${index}]`));
+  if (new Set(result).size !== result.length) fail(`${label} contains a duplicate package id.`);
+  return deepFreeze(result);
+}
+
+function normalizeTransitionAuthority(
+  value: unknown
+): SecWorkRollingTransitionAuthorityV1 {
+  const authority = record(value, 'rolling transition authority');
+  if (authority.kind === 'committed-candidate-replan') {
+    exactKeys(authority, CANDIDATE_REPLAN_AUTHORITY_KEYS, 'rolling transition authority');
+    return deepFreeze({
+      kind: 'committed-candidate-replan' as const,
+      sourceHead: gitSha(authority.sourceHead, 'rolling transition authority.sourceHead'),
+      sourceTree: gitSha(authority.sourceTree, 'rolling transition authority.sourceTree'),
+      sourceManifestDigest: digest(
+        authority.sourceManifestDigest,
+        'rolling transition authority.sourceManifestDigest'
+      ),
+      sourcePointerRevision: digest(
+        authority.sourcePointerRevision,
+        'rolling transition authority.sourcePointerRevision'
+      ),
+      sourceRollingRevision: digest(
+        authority.sourceRollingRevision,
+        'rolling transition authority.sourceRollingRevision'
+      )
+    });
+  }
+  if (authority.kind === 'main-health-repair') {
+    exactKeys(authority, MAIN_HEALTH_REPAIR_AUTHORITY_KEYS, 'rolling transition authority');
+    if (!Array.isArray(authority.failureFingerprints)
+        || authority.failureFingerprints.length === 0) {
+      fail('rolling transition authority.failureFingerprints must be non-empty.');
+    }
+    const failureFingerprints = authority.failureFingerprints.map((entry, index) => digest(
+      entry,
+      `rolling transition authority.failureFingerprints[${index}]`
+    )).sort(compareCodeUnits);
+    if (new Set(failureFingerprints).size !== failureFingerprints.length) {
+      fail('rolling transition authority.failureFingerprints contains a duplicate.');
+    }
+    return deepFreeze({
+      kind: 'main-health-repair' as const,
+      decisionDigest: digest(authority.decisionDigest, 'rolling transition authority.decisionDigest'),
+      healthRevision: digest(authority.healthRevision, 'rolling transition authority.healthRevision'),
+      ledgerDigest: digest(authority.ledgerDigest, 'rolling transition authority.ledgerDigest'),
+      failureFingerprints,
+      publishedActivePackageId: authority.publishedActivePackageId === null
+        ? null
+        : packageId(
+            authority.publishedActivePackageId,
+            'rolling transition authority.publishedActivePackageId'
+          )
+    });
+  }
+  return fail('rolling transition authority.kind is unsupported.');
+}
+
+function normalizeTransitionActive(value: unknown): SecWorkRollingTransitionActiveV1 {
+  const active = record(value, 'rolling transition active');
+  exactKeys(active, ROLLING_TRANSITION_ACTIVE_KEYS, 'rolling transition active');
+  const parsedPackageId = packageId(active.packageId, 'rolling transition active.packageId');
+  const manifestPath = text(active.manifestPath, 'rolling transition active.manifestPath');
+  if (manifestPath !== `docs/work-packages/${parsedPackageId}.md`) {
+    fail('rolling transition active.manifestPath must equal the active package identity.');
+  }
+  return deepFreeze({
+    packageId: parsedPackageId,
+    tracking: token(active.tracking, 'rolling transition active.tracking'),
+    manifestPath,
+    manifestDigest: digest(active.manifestDigest, 'rolling transition active.manifestDigest')
+  });
+}
+
+function normalizeSecWorkRollingTransitionProjectionV1(
+  raw: Record<string, unknown>
+): SecWorkRollingTransitionProjectionV1 {
+  exactKeys(raw, ROLLING_TRANSITION_PROJECTION_KEYS, 'rolling transition projection');
+  if (raw.schema !== SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA_V1) {
+    fail(
+      `rolling transition projection.schema must be ${SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA_V1}.`
+    );
+  }
+  const authority = normalizeTransitionAuthority(raw.authority);
+  const active = normalizeTransitionActive(raw.active);
+  const candidates = orderedPackageIds(raw.candidates, 'rolling transition projection.candidates');
+  if (candidates.includes(active.packageId)) {
+    fail('rolling transition active package cannot also be a candidate.');
+  }
+  if (authority.kind === 'main-health-repair' && active.tracking !== 'none') {
+    fail('MainHealth repair rolling transition must use tracking none.');
+  }
+  const withoutDigest = deepFreeze({
+    schema: SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA_V1,
+    exactMain: gitSha(raw.exactMain, 'rolling transition projection.exactMain'),
+    exactMainTree: gitSha(raw.exactMainTree, 'rolling transition projection.exactMainTree'),
+    authority,
+    active,
+    candidates
+  });
+  const projectionDigest = digest(
+    raw.projectionDigest,
+    'rolling transition projection.projectionDigest'
+  );
+  if (projectionDigest !== sha256(withoutDigest)) {
+    fail('rolling transition projection.projectionDigest does not bind the normalized projection.');
+  }
+  return deepFreeze({ ...withoutDigest, projectionDigest });
+}
+
+export function compileSecWorkRollingTransitionProjectionV1(input: Readonly<{
+  exactMain: string;
+  exactMainTree: string;
+  authority: SecWorkRollingTransitionAuthorityV1;
+  active: SecWorkRollingTransitionActiveV1;
+  candidates: readonly string[];
+}>): SecWorkRollingTransitionProjectionV1 {
+  const semantic = {
+    schema: SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA_V1,
+    exactMain: input.exactMain,
+    exactMainTree: input.exactMainTree,
+    authority: input.authority,
+    active: input.active,
+    candidates: input.candidates
+  };
+  return normalizeSecWorkRollingTransitionProjectionV1({
+    ...semantic,
+    projectionDigest: sha256(semantic)
+  });
+}
+
+export function parseSecWorkRollingMachineProjectionV1(
+  source: string
+): SecWorkRollingMachineProjectionV1 {
+  const raw = record(parseDuplicateAwareJson(source, 'rolling projection'), 'rolling projection');
+  if (raw.schema === SEC_WORK_ROLLING_PROJECTION_SCHEMA_V1) {
+    return normalizeSecWorkRollingProjectionV1(raw);
+  }
+  if (raw.schema === SEC_WORK_ROLLING_TRANSITION_PROJECTION_SCHEMA_V1) {
+    return normalizeSecWorkRollingTransitionProjectionV1(raw);
+  }
+  return fail('rolling projection.schema is unsupported.');
+}
+
+export function parseSecWorkRollingProjectionV1(source: string): SecWorkRollingProjectionV1 {
+  const projection = parseSecWorkRollingMachineProjectionV1(source);
+  if (projection.schema !== SEC_WORK_ROLLING_PROJECTION_SCHEMA_V1) {
+    return fail(`rolling projection.schema must be ${SEC_WORK_ROLLING_PROJECTION_SCHEMA_V1}.`);
+  }
+  return projection;
+}
+
+export function rollingTopologyFromMachineProjectionV1(
+  projection: SecWorkRollingMachineProjectionV1
+): SecWorkRollingTopologyV1 {
+  return projection.schema === SEC_WORK_ROLLING_PROJECTION_SCHEMA_V1
+    ? deepFreeze({
+        activePackageId: projection.active.packageId,
+        candidatePackageIds: projection.candidates.map(({ packageId: id }) => id)
+      })
+    : deepFreeze({
+        activePackageId: projection.active.packageId,
+        candidatePackageIds: [...projection.candidates]
+      });
 }
 
 function normalizeCurrentSpecObservation(
@@ -960,21 +1278,29 @@ export function compileSecWorkRollingProjectionV1(
   });
 }
 
-export function renderSecWorkRollingPlanV1(input: {
-  receipt: SecWorkDecisionReceiptV1;
-  reviewedOn: string;
-}): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/u.test(input.reviewedOn)
-      || new Date(`${input.reviewedOn}T00:00:00.000Z`).toISOString().slice(0, 10) !== input.reviewedOn) {
+function assertRollingReviewedOn(reviewedOn: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(reviewedOn)
+      || new Date(`${reviewedOn}T00:00:00.000Z`).toISOString().slice(0, 10) !== reviewedOn) {
     fail('rolling projection reviewedOn must be one real ISO calendar date.');
   }
-  const projection = compileSecWorkRollingProjectionV1(input.receipt);
-  const machine = JSON.stringify(canonicalJson(projection), null, 2);
-  const candidateSections = projection.candidates.map((candidate, index) => `### ${index + 1}. ${candidate.packageId}
+}
 
-Work identity \`${candidate.workId}\`; current spec \`${candidate.currentSpecRef}\` at
-\`${candidate.currentSpecRevision}\`; current decision status \`${candidate.decisionStatus}\`.
-`).join('\n');
+function renderRollingPlanDocumentV1(input: Readonly<{
+  reviewedOn: string;
+  projection: SecWorkRollingMachineProjectionV1;
+  introduction: string;
+  activeDescription: string;
+  candidateDescriptions: readonly string[];
+}>): string {
+  assertRollingReviewedOn(input.reviewedOn);
+  const topology = rollingTopologyFromMachineProjectionV1(input.projection);
+  if (input.candidateDescriptions.length !== topology.candidatePackageIds.length) {
+    fail('rolling projection candidate descriptions must equal the machine topology.');
+  }
+  const machine = JSON.stringify(canonicalJson(input.projection), null, 2);
+  const candidateSections = topology.candidatePackageIds.map((candidate, index) => (
+    `### ${index + 1}. ${candidate}\n\n${input.candidateDescriptions[index]!}\n`
+  )).join('\n');
   return `---
 title: SEC 滚动近期计划
 status: active
@@ -984,9 +1310,7 @@ last-reviewed: ${input.reviewedOn}
 
 # SEC 滚动近期计划
 
-本文件是validated WorkDecision的只读投影，不是roadmap、registry、current spec或selection authority。
-任何选择变化都从exact main重新观察；Issue/comment prose、AI评分、wall-clock、caller JSON和本文件自身
-均不能成为输入。receipt只能用于replay；effectful consumer必须调用trusted live adapter重新推导。
+${input.introduction}
 
 \`\`\`json
 ${machine}
@@ -994,10 +1318,9 @@ ${machine}
 
 ## 当前唯一 Work Package
 
-### ${projection.active.packageId}
+### ${topology.activePackageId}
 
-Work identity \`${projection.active.workId}\`; current spec \`${projection.active.currentSpecRef}\` at
-\`${projection.active.currentSpecRevision}\`; decision \`${projection.decisionDigest}\`.
+${input.activeDescription}
 
 ## 候选 Work Package
 
@@ -1006,13 +1329,64 @@ ${candidateSections}
 
 1. exact main、roadmap/catalog、registry/lifecycle/conflict或current-spec revision漂移；
 2. active/tracking/package与decision不一致，或候选少于二、多于五、重复、手工重排、增删；
-3. WorkDecision不是select-next，或任何required fact为unknown/unresolved；
+3. WorkDecision或显式transition authority不再与当前projection逐项相等；
 4. independent Review之后head/tree/base/manifest或本projection bytes改变。
 
 ## 加速验收
 
 只执行delta直接拥有的最小验证；同一input/failure复用结果，不运行无因果consumer的全工程Gate。
 `;
+}
+
+export function renderSecWorkRollingPlanV1(input: {
+  receipt: SecWorkDecisionReceiptV1;
+  reviewedOn: string;
+}): string {
+  const projection = compileSecWorkRollingProjectionV1(input.receipt);
+  const machine = JSON.stringify(canonicalJson(projection), null, 2);
+  if (machine.length === 0) fail('rolling selection projection serialization failed.');
+  return renderRollingPlanDocumentV1({
+    reviewedOn: input.reviewedOn,
+    projection,
+    introduction: '本文件是validated WorkDecision的只读投影，不是roadmap、registry、current spec或selection '
+      + 'authority。\n任何选择变化都从exact main重新观察；Issue/comment prose、AI评分、wall-clock、caller JSON'
+      + '和本文件自身\n均不能成为输入。receipt只能用于replay；effectful consumer必须调用trusted live adapter重新推导。',
+    activeDescription: `Work identity \`${projection.active.workId}\`; current spec `
+      + `\`${projection.active.currentSpecRef}\` at\n\`${projection.active.currentSpecRevision}\`; decision `
+      + `\`${projection.decisionDigest}\`.`,
+    candidateDescriptions: projection.candidates.map((candidate) => (
+      `Work identity \`${candidate.workId}\`; current spec \`${candidate.currentSpecRef}\` at\n`
+      + `\`${candidate.currentSpecRevision}\`; current decision status \`${candidate.decisionStatus}\`.`
+    ))
+  });
+}
+
+export function renderSecWorkRollingTransitionPlanV1(input: Readonly<{
+  projection: SecWorkRollingTransitionProjectionV1;
+  reviewedOn: string;
+}>): string {
+  const projection = normalizeSecWorkRollingTransitionProjectionV1(
+    input.projection as unknown as Record<string, unknown>
+  );
+  const authorityDigest = sha256(projection.authority);
+  const activeDescription = projection.authority.kind === 'committed-candidate-replan'
+    ? `Existing active package replan bound to exact source head `
+      + `\`${projection.authority.sourceHead}\`, source tree \`${projection.authority.sourceTree}\`, `
+      + `manifest \`${projection.active.manifestDigest}\`, and authority \`${authorityDigest}\`.`
+    : `Exact MainHealth repair bound to decision \`${projection.authority.decisionDigest}\`, health `
+      + `\`${projection.authority.healthRevision}\`, manifest \`${projection.active.manifestDigest}\`, `
+      + `and authority \`${authorityDigest}\`.`;
+  return renderRollingPlanDocumentV1({
+    reviewedOn: input.reviewedOn,
+    projection,
+    introduction: '本文件由唯一rolling projection compiler生成。普通选择与非普通transition使用同一机器拓扑和'
+      + '同一全文renderer；digest只证明规范化内容完整性，effectful owner仍必须在发布前重验其WorkDecision、'
+      + 'committed-candidate或MainHealth authority。禁止单独修改标题、prose、JSON字段或digest。',
+    activeDescription,
+    candidateDescriptions: projection.candidates.map(() => (
+      `Retained ordered candidate from transition authority \`${authorityDigest}\`.`
+    ))
+  });
 }
 
 function liveResultDigest(value: unknown): SecWorkDigestV1 {

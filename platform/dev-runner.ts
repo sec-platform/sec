@@ -1,39 +1,4 @@
 import { ensureDevDependencies } from './dev-runner/dependency-bootstrap.ts';
-import {
-  ciVerificationNormalizedOperationArgvV2,
-  resolveCiVerificationDevRunnerTargetV1,
-  type CiVerificationActionPlanClosureV1,
-  type CiVerificationNormalizedOperationV2
-} from './shared/verification-action-ci-contract.ts';
-import type { VerificationActionPlanV2 } from './shared/verification-action-contract.ts';
-
-export async function executeVerifiedCiActionPlanV1(options: {
-  readonly plan: VerificationActionPlanV2;
-  readonly authorizedClosure: CiVerificationActionPlanClosureV1;
-  readonly repositoryRoot?: string;
-  readonly environment?: NodeJS.ProcessEnv;
-  readonly executeNormalizedOperation?: (
-    operation: CiVerificationNormalizedOperationV2
-  ) => Promise<number> | number;
-}): Promise<number> {
-  const operation = resolveCiVerificationDevRunnerTargetV1(options);
-  if (options.executeNormalizedOperation !== undefined) {
-    return options.executeNormalizedOperation(operation);
-  }
-  const [, ...args] = ciVerificationNormalizedOperationArgvV2(operation);
-  const argv = [process.execPath, ...args];
-  const child = Bun.spawn(
-    argv,
-    {
-      cwd: options.repositoryRoot,
-      stdin: 'inherit',
-      stdout: 'inherit',
-      stderr: 'inherit',
-      env: options.environment ?? process.env
-    }
-  );
-  return child.exited;
-}
 
 function usage(): never {
   console.error('Usage: bun ./platform/dev-runner.ts <deps:ensure|typecheck|check:fast|check:affected [--plan]|test|test:affected|test:fast|test:slow|test:full|contract-freeze|imports:check [--all|--candidate-base <sha>] [--remove-unused]|imports:apply [--all|--candidate-base <sha>] [--remove-unused]|imports:apply --staged [--candidate-base <sha>]|imports:freeze> [args...]');
@@ -46,6 +11,16 @@ type ParsedImportOperationArgs = Readonly<{
   intent: 'sort-and-combine' | 'remove-unused';
   staged: boolean;
 }>;
+
+async function runRepositoryZeroWriteCommand(
+  commandId: string,
+  operation: () => Promise<number>
+): Promise<number> {
+  const { runRepositoryZeroWriteOperationV1 } = await import(
+    './dev-runner/repository-mutation-fence.ts'
+  );
+  return runRepositoryZeroWriteOperationV1(commandId, operation);
+}
 
 function parseImportOperationArgs(
   args: readonly string[],
@@ -95,39 +70,45 @@ async function main(): Promise<void> {
   if (target === 'check:affected') {
     if (args.length > 0 && (args.length !== 1 || args[0] !== '--plan')) usage();
     const { runLocalAffectedCheck } = await import('./dev-runner/check-runner.ts');
-    process.exitCode = await runLocalAffectedCheck(args, {
-      prepareCompilerNodeModulesPath: async () => {
-        const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
-        return dependencies.nodeModulesPath;
-      }
-    });
+    process.exitCode = await runRepositoryZeroWriteCommand('check:affected', () =>
+      runLocalAffectedCheck(args, {
+        prepareCompilerNodeModulesPath: async () => {
+          const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
+          return dependencies.nodeModulesPath;
+        }
+      }));
     return;
   }
 
   if (target === 'check:fast') {
     if (args.length > 0) usage();
     const { runFastCheck } = await import('./dev-runner/check-runner.ts');
-    process.exitCode = await runFastCheck({
-      prepareCompilerNodeModulesPath: async () => {
-        const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
-        return dependencies.nodeModulesPath;
-      }
-    });
+    process.exitCode = await runRepositoryZeroWriteCommand('check:fast', () =>
+      runFastCheck({
+        prepareCompilerNodeModulesPath: async () => {
+          const dependencies = await ensureDevDependencies({ hookPolicy: 'if-installed' });
+          return dependencies.nodeModulesPath;
+        }
+      }));
     return;
   }
 
   if (target === 'test:affected') {
     const { runAffectedTests } = await import('./dev-runner/test-runner.ts');
     if (args.length === 1 && args[0] === '--plan') {
-      process.exitCode = await runAffectedTests(args);
+      process.exitCode = await runRepositoryZeroWriteCommand(
+        'test:affected',
+        () => runAffectedTests(args)
+      );
       return;
     }
     const { withHeavyVerificationGateLease } = await import('./shared/heavy-verification-gate-lease.ts');
-    process.exitCode = await withHeavyVerificationGateLease(
-      'test:affected',
-      () => runAffectedTests(args),
-      { namespace: 'test:affected', waitTimeoutMs: 5000 }
-    );
+    process.exitCode = await runRepositoryZeroWriteCommand('test:affected', () =>
+      withHeavyVerificationGateLease(
+        'test:affected',
+        () => runAffectedTests(args),
+        { namespace: 'test:affected', waitTimeoutMs: 5000 }
+      ));
     return;
   }
 
@@ -223,15 +204,17 @@ async function main(): Promise<void> {
     runSlowTests,
     runTests
   } = await import('./dev-runner/test-runner.ts');
-  process.exitCode = target === 'contract-freeze'
-    ? await runContractFreeze()
-    : target === 'test'
-      ? await runTests(args)
-      : target === 'test:fast'
-          ? await runFastTests(args)
-          : target === 'test:slow'
-            ? await runSlowTests(args)
-            : usage();
+  process.exitCode = await runRepositoryZeroWriteCommand(target, () => (
+    target === 'contract-freeze'
+      ? runContractFreeze()
+      : target === 'test'
+        ? runTests(args)
+        : target === 'test:fast'
+            ? runFastTests(args)
+            : target === 'test:slow'
+              ? runSlowTests(args)
+              : usage()
+  ));
 }
 
 if (import.meta.main) await main();

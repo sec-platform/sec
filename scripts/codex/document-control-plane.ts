@@ -12,22 +12,28 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { digest, sha256 } from '../../platform/shared/canonical-primitives.ts';
+import { digest, rawSha256, sha256 } from '../../platform/shared/canonical-primitives.ts';
+import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
 import { withWorkspaceWriteLease } from '../../platform/shared/workspace-write-lease.ts';
 import {
   CodexDevelopmentAssertControlPlaneBindingV1,
   CodexDevelopmentAssertInitiallyAbsentEntryTransitionV1,
   CodexDevelopmentAssertPriorFreezeProjectionV1,
+  CodexDevelopmentAssertRollingMachineBaseBindingV1,
   CodexDevelopmentClassifyInitiallyAbsentEntryTupleV1,
   CodexDevelopmentClassifyTerminalRetirementPrefixV1,
   CodexDevelopmentCreateFreezeProjectionV1,
   CodexDevelopmentDocumentControlRecoveryEntryStemV1,
   CodexDevelopmentParseActivePointerV2,
   CodexDevelopmentParseCurrentStateSpecV1,
+  CodexDevelopmentParseRollingMachineProjectionV1,
+  CodexDevelopmentParseRollingPlanHeadingsV1,
   CodexDevelopmentParseRollingPlanV1,
+  CodexDevelopmentRequiresCommittedCandidateProjectionRefreshV1,
   CodexDevelopmentResolveActiveWorkPackageV1,
   CodexDevelopmentResolveWorkSelectionProjectionModeV1,
   type CodexDevelopmentActiveWorkPackageResolution,
+  type CodexDevelopmentCommittedCandidateReplanAuthorityV1,
   type CodexDevelopmentDefaultRefState,
   type CodexDevelopmentDocumentControlRecoveryTargetKeyV1,
   type CodexDevelopmentInitiallyAbsentTupleEdgeV1,
@@ -37,6 +43,22 @@ import {
   type CodexDevelopmentMainHealthRepairProjectionV1,
   type CodexDevelopmentWorkSelectionProjectionV1
 } from './document-control-plane-contract.ts';
+import {
+  buildGitHubDefaultBranchRefArgsV1,
+  buildGitHubOpenInventoryCountsArgsV1,
+  buildGitHubOpenIssuesArgsV1,
+  buildGitHubOpenPullRequestReviewThreadsArgsV1,
+  buildGitHubOpenPullRequestsArgsV1,
+  buildGitHubPullRequestReviewThreadsArgsV1,
+  parseExactGitHubNumberedInventoryV1,
+  parseGitHubDefaultBranchRefV1,
+  parseGitHubOpenInventoryCountsV1,
+  parseGitHubOpenPullRequestReviewThreadPagesV1,
+  parseGitHubPullRequestReviewThreadPagesV1,
+  parseGitHubRepositoryIdentityFromRemoteUrlV1,
+  replaceIncompleteGitHubReviewThreadsV1,
+  type GitHubReviewThreadConnectionV1
+} from './document-control-plane-github-observation.ts';
 import { observeMainHealthRepairDecisionV1 } from './main-health-repair.ts';
 import {
   CodexDevelopmentParseWorkPackageManifest,
@@ -2460,6 +2482,15 @@ function assertRecord(value: unknown, label: string): asserts value is Record<st
 }
 
 function run(command: string, args: string[], cwd: string, options: CommandOptions = {}): CommandResult {
+  const environment = command === 'git'
+    ? isolatedGitReadEnvironment(options.environment)
+    : {
+        ...process.env,
+        ...options.environment,
+        GH_PROMPT_DISABLED: '1',
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_OPTIONAL_LOCKS: '0'
+      };
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
@@ -2467,13 +2498,7 @@ function run(command: string, args: string[], cwd: string, options: CommandOptio
     windowsHide: true,
     timeout: ExternalCommandTimeoutMs,
     maxBuffer: ExternalCommandMaxBufferBytes,
-    env: {
-      ...process.env,
-      ...options.environment,
-      GH_PROMPT_DISABLED: '1',
-      GIT_TERMINAL_PROMPT: '0',
-      GIT_OPTIONAL_LOCKS: '0'
-    }
+    env: environment
   });
   return {
     code: result.status ?? 1,
@@ -2507,12 +2532,7 @@ function readGitBlob(
     windowsHide: true,
     timeout: ExternalCommandTimeoutMs,
     maxBuffer: ExternalCommandMaxBufferBytes,
-    env: {
-      ...process.env,
-      ...environment,
-      GIT_TERMINAL_PROMPT: '0',
-      GIT_OPTIONAL_LOCKS: '0'
-    }
+    env: isolatedGitReadEnvironment(environment)
   });
   return result.status === 0 ? result.stdout : undefined;
 }
@@ -2534,10 +2554,7 @@ function createReadOnlyResolverGit(
     args: readonly string[],
     environment: Readonly<Record<string, string>> | undefined
   ): Readonly<Record<string, string>> => {
-    const forced = Object.freeze({
-      ...environment,
-      GIT_OPTIONAL_LOCKS: '0'
-    });
+    const forced = Object.freeze(isolatedGitReadEnvironment(environment));
     observer?.(Object.freeze({ args: Object.freeze([...args]), environment: forced }));
     return forced;
   };
@@ -2556,11 +2573,7 @@ function createReadOnlyResolverGit(
         windowsHide: true,
         timeout: ExternalCommandTimeoutMs,
         maxBuffer: ExternalCommandMaxBufferBytes,
-        env: {
-          ...process.env,
-          ...childEnvironment(args, options.environment),
-          GIT_TERMINAL_PROMPT: '0'
-        }
+        env: childEnvironment(args, options.environment)
       });
       return result.status === 0 ? result.stdout : undefined;
     }
@@ -2585,6 +2598,23 @@ function parseNulList(source: string): string[] {
   if (source.length === 0) return [];
   if (!source.endsWith('\0')) throw new Error('Git NUL-delimited path output is truncated.');
   return source.slice(0, -1).split('\0');
+}
+
+function observeCommittedCandidateProjectionSourceTreeDeltaV1(input: Readonly<{
+  repositoryRoot: string;
+  currentTree: string;
+  rollingPlanSource: string;
+}>): readonly string[] | null {
+  const projection = CodexDevelopmentParseRollingMachineProjectionV1(input.rollingPlanSource);
+  if (projection?.schema !== 'sec-work-rolling-transition-projection-v1'
+      || projection.authority.kind !== 'committed-candidate-replan') {
+    return null;
+  }
+  const observation = run('git', [
+    'diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-only', '-z',
+    projection.authority.sourceTree, input.currentTree, '--'
+  ], input.repositoryRoot);
+  return observation.code === 0 ? Object.freeze(parseNulList(observation.stdout)) : null;
 }
 
 interface AnchoredIndexSnapshotV1 {
@@ -5168,8 +5198,9 @@ function assertCommittedCandidateReplanAuthorityV1(input: {
   repositoryRoot: string;
   headSha: string;
   trustedDefaultSha: string;
+  trustedDefaultTree: string;
   manifestPath: string;
-}): void {
+}): CodexDevelopmentCommittedCandidateReplanAuthorityV1 {
   const ancestry = requireCommand(
     run('git', ['rev-list', '--parents', '-n', '1', input.headSha], input.repositoryRoot),
     'Committed candidate ancestry'
@@ -5195,17 +5226,22 @@ function assertCommittedCandidateReplanAuthorityV1(input: {
   const spec = CodexDevelopmentParseCurrentStateSpecV1(
     decodeUtf8(candidateState, 'Committed candidate current-state')
   );
-  const pointer = CodexDevelopmentParseActivePointerV2(decodeUtf8(requireGitBlob(
+  const pointerBytes = requireGitBlob(
     input.repositoryRoot,
     `${input.headSha}:${ActivePointerPath}`,
     'Committed candidate active pointer'
-  ), 'Committed candidate active pointer'));
+  );
+  const pointerSource = decodeUtf8(pointerBytes, 'Committed candidate active pointer');
+  const pointer = CodexDevelopmentParseActivePointerV2(pointerSource);
   CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer });
-  const rolling = CodexDevelopmentParseRollingPlanV1(decodeUtf8(requireGitBlob(
+  const rollingBytes = requireGitBlob(
     input.repositoryRoot,
     `${input.headSha}:${RollingPlanPath}`,
     'Committed candidate rolling plan'
-  ), 'Committed candidate rolling plan'));
+  );
+  const rollingSource = decodeUtf8(rollingBytes, 'Committed candidate rolling plan');
+  const rolling = CodexDevelopmentParseRollingPlanHeadingsV1(rollingSource);
+  const rollingMachine = CodexDevelopmentParseRollingMachineProjectionV1(rollingSource);
   const manifestBytes = requireGitBlob(
     input.repositoryRoot,
     `${input.headSha}:${input.manifestPath}`,
@@ -5222,6 +5258,23 @@ function assertCommittedCandidateReplanAuthorityV1(input: {
       'Committed candidate replan requires the exact active pointer, rolling plan, manifest path, and base binding.'
     );
   }
+  if (CodexDevelopmentResolveWorkSelectionProjectionModeV1(spec) === 'required-v1'
+      && rollingMachine === null) {
+    throw new Error('Committed candidate replan requires the prior machine projection identity.');
+  }
+  if (rollingMachine !== null) {
+    CodexDevelopmentAssertRollingMachineBaseBindingV1({
+      projection: rollingMachine,
+      exactMain: input.trustedDefaultSha,
+      exactMainTree: input.trustedDefaultTree
+    });
+    if (rollingMachine.active.packageId !== manifest.id
+        || rollingMachine.active.tracking !== manifest.tracking
+        || (rollingMachine.schema === 'sec-work-rolling-transition-projection-v1'
+          && rollingMachine.active.manifestPath !== input.manifestPath)) {
+      throw new Error('Committed candidate replan cannot replace package, tracking, or manifest identity.');
+    }
+  }
   const defaultManifestBlob = readGitBlob(
     input.repositoryRoot,
     `${input.trustedDefaultSha}:${input.manifestPath}`
@@ -5229,15 +5282,23 @@ function assertCommittedCandidateReplanAuthorityV1(input: {
   if (defaultManifestBlob !== undefined) {
     throw new Error('Committed candidate replan rejects a Work Package path already present on the live default.');
   }
-  const resolution = CodexDevelopmentResolveActiveWorkPackageV1({
-    pointer,
-    candidateManifestBlob: manifestBytes,
-    defaultManifestBlob: null,
-    defaultRefState: 'fresh'
+  const sourceTree = shaValue(
+    requireCommand(
+      run('git', ['rev-parse', `${input.headSha}^{tree}`], input.repositoryRoot),
+      'Committed candidate tree'
+    ),
+    'Committed candidate tree'
+  );
+  return Object.freeze({
+    kind: 'committed-candidate-replan',
+    sourceHead: input.headSha,
+    sourceTree,
+    sourceManifestDigest: CodexDevelopmentWorkPackageManifestDigest(
+      manifestBytes
+    ) as `sha256:${string}`,
+    sourcePointerRevision: rawSha256(pointerSource),
+    sourceRollingRevision: rawSha256(rollingSource)
   });
-  if (resolution.state !== 'active') {
-    throw new Error('Committed candidate replan requires one exact active unpublished Work Package binding.');
-  }
 }
 
 async function assertInitialFreezeObservationFence(input: {
@@ -5889,18 +5950,19 @@ export async function freezeDocumentControlPlaneV1(input: {
       requireCommand(run('git', ['rev-parse', '--verify', spec.resolver.defaultRef], repositoryRoot), 'Local default ref'),
       'Local default ref'
     );
-    if (headSha !== localDefaultSha) {
-      assertCommittedCandidateReplanAuthorityV1({
-        repositoryRoot,
-        headSha,
-        trustedDefaultSha: localDefaultSha,
-        manifestPath: input.manifestPath
-      });
-    }
     const baseTreeSha = shaValue(
       requireCommand(run('git', ['rev-parse', `${localDefaultSha}^{tree}`], repositoryRoot), 'Base tree'),
       'Base tree'
     );
+    const committedCandidateReplanAuthority = headSha === localDefaultSha
+      ? undefined
+      : assertCommittedCandidateReplanAuthorityV1({
+        repositoryRoot,
+        headSha,
+        trustedDefaultSha: localDefaultSha,
+        trustedDefaultTree: baseTreeSha,
+        manifestPath: input.manifestPath
+      });
     const defaultStateBytes = requireGitBlob(
       repositoryRoot,
       `${localDefaultSha}:${CurrentStatePath}`,
@@ -5944,7 +6006,10 @@ export async function freezeDocumentControlPlaneV1(input: {
     ), 'Immutable candidate rolling plan');
     const immutablePointer = CodexDevelopmentParseActivePointerV2(immutablePointerSource);
     CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer: immutablePointer });
-    const immutableRolling = CodexDevelopmentParseRollingPlanV1(immutableRollingPlanSource);
+    const immutableRolling = committedCandidateReplanAuthority !== undefined
+        && workSelectionProjectionMode === 'required-v1'
+      ? CodexDevelopmentParseRollingPlanHeadingsV1(immutableRollingPlanSource)
+      : CodexDevelopmentParseRollingPlanV1(immutableRollingPlanSource);
     if (immutableRolling.activePackageId !== path.posix.basename(immutablePointer.manifest, '.md')) {
       throw new Error('Immutable HEAD pointer and rolling plan do not bind one selection baseline.');
     }
@@ -5965,7 +6030,11 @@ export async function freezeDocumentControlPlaneV1(input: {
       defaultManifestBlob: currentDefaultManifestBlob,
       defaultRefState: 'fresh'
     });
-    if (currentResolution.state === 'invalid' || currentResolution.state === 'unresolved') {
+    const repairableCommittedCandidateDigestDrift = committedCandidateReplanAuthority !== undefined
+      && currentResolution.state === 'invalid'
+      && currentResolution.reason === 'candidate-digest-mismatch';
+    if (currentResolution.state === 'unresolved'
+        || (currentResolution.state === 'invalid' && !repairableCommittedCandidateDigestDrift)) {
       throw new Error('Current active Work Package control plane is not resolvable before freeze.');
     }
 
@@ -6028,6 +6097,29 @@ export async function freezeDocumentControlPlaneV1(input: {
       decodeUtf8(manifestBytes, 'Work Package manifest'),
       input.manifestPath
     );
+    const targetManifestDigest = CodexDevelopmentWorkPackageManifestDigest(
+      manifestBytes
+    ) as `sha256:${string}`;
+    const committedCandidateProjectionRefreshRequired = workSelectionProjectionMode === 'required-v1'
+      && committedCandidateReplanAuthority !== undefined
+      && targetManifest.id === immutableRolling.activePackageId
+      && CodexDevelopmentRequiresCommittedCandidateProjectionRefreshV1({
+        projection: CodexDevelopmentParseRollingMachineProjectionV1(immutableRollingPlanSource),
+        exactMain: localDefaultSha,
+        exactMainTree: baseTreeSha,
+        active: {
+          packageId: targetManifest.id,
+          tracking: targetManifest.tracking,
+          manifestPath: input.manifestPath,
+          manifestDigest: targetManifestDigest
+        },
+        sourceTreeDeltaPaths: observeCommittedCandidateProjectionSourceTreeDeltaV1({
+          repositoryRoot,
+          currentTree: committedCandidateReplanAuthority.sourceTree,
+          rollingPlanSource: immutableRollingPlanSource
+        }),
+        permittedProjectionDeltaPaths: targetSet
+      });
     let workSelectionProjection: CodexDevelopmentWorkSelectionProjectionV1 | undefined;
     let mainHealthRepairProjection: CodexDevelopmentMainHealthRepairProjectionV1 | undefined;
     if (targetManifest.id !== immutableRolling.activePackageId
@@ -6036,8 +6128,8 @@ export async function freezeDocumentControlPlaneV1(input: {
         run('git', ['branch', '--show-current'], repositoryRoot),
         'WorkDecision candidate branch'
       );
-      if (!candidateBranch.startsWith('codex/')) {
-        throw new Error('A new WorkDecision-selected package requires one codex candidate branch.');
+      if (candidateBranch.length === 0 || candidateBranch === spec.resolver.defaultBranch) {
+        throw new Error('A new WorkDecision-selected package requires one non-default candidate branch.');
       }
       const repairDecision = observeMainHealthRepairDecisionV1({
         repositoryRoot,
@@ -6101,6 +6193,21 @@ export async function freezeDocumentControlPlaneV1(input: {
       requestedRollingPlanSource,
       workSelectionProjection,
       mainHealthRepairProjection,
+      committedCandidateReplanProjection: workSelectionProjectionMode === 'required-v1'
+        && committedCandidateReplanAuthority !== undefined
+        && targetManifest.id === immutableRolling.activePackageId
+        && (
+          committedCandidateProjectionRefreshRequired
+          ||
+          CodexDevelopmentWorkPackageManifestDigest(manifestBytes)
+            !== immutablePointer.manifestDigest
+          || (
+            requestedRollingPlanSource !== undefined
+            && requestedRollingPlanSource !== immutableRollingPlanSource
+          )
+        )
+        ? committedCandidateReplanAuthority
+        : undefined,
       manifestPath: input.manifestPath,
       manifestBytes,
       baseSha: localDefaultSha,
@@ -6147,15 +6254,16 @@ export async function freezeDocumentControlPlaneV1(input: {
       indexReadback = semanticReadback.index;
     }
     const indexPre = Buffer.from(indexReadback.bytes);
-    const liveDefaultLine = requireCommand(run(
-      'git',
-      ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
-      repositoryRoot
-    ), 'Pre-publication live default admission');
-    const liveDefaultSha = shaValue(
-      liveDefaultLine.split(/\s+/u)[0],
-      'Pre-publication live default admission'
-    );
+    const liveDefaultSha = observeLiveDefaultShaV1({
+      repositoryRoot,
+      repository: spec.resolver.repository,
+      remote: spec.resolver.remote,
+      defaultBranch: spec.resolver.defaultBranch,
+      resolverGit: createReadOnlyResolverGit()
+    });
+    if (liveDefaultSha === undefined) {
+      throw new Error('Pre-publication live default admission is unavailable.');
+    }
     if (liveDefaultSha !== localDefaultSha) {
       throw new Error('Live default ref is stale before repository object publication; freeze fails closed.');
     }
@@ -6281,51 +6389,153 @@ export async function freezeDocumentControlPlaneV1(input: {
   });
 }
 
-function parseJsonArray(source: string, label: string): unknown[] {
-  const parsed: unknown = JSON.parse(source);
-  if (!Array.isArray(parsed)) throw new Error(`${label} must return a JSON array.`);
-  return parsed;
+function unresolvedGitHubObservation(reason: string): Readonly<{
+  status: 'unresolved';
+  reason: string;
+}> {
+  return Object.freeze({ status: 'unresolved', reason });
 }
 
-function parseReviewThreads(source: string): unknown[] {
-  const parsed: unknown = JSON.parse(source);
-  assertRecord(parsed, 'gh review-thread response');
-  assertRecord(parsed.data, 'gh review-thread response.data');
-  assertRecord(parsed.data.repository, 'gh review-thread response.data.repository');
-  assertRecord(
-    parsed.data.repository.pullRequests,
-    'gh review-thread response.data.repository.pullRequests'
+function githubCommandFailure(label: string, result: CommandResult): string | null {
+  if (result.code === 0) return null;
+  return `${label} failed: ${result.stderr.trim() || `exit ${result.code}`}`;
+}
+
+function observeLiveDefaultShaV1(input: Readonly<{
+  repositoryRoot: string;
+  repository: string;
+  remote: string;
+  defaultBranch: string;
+  resolverGit: ReadOnlyResolverGitV1;
+}>): string | undefined {
+  const remoteUrl = input.resolverGit.run(
+    ['remote', 'get-url', input.remote],
+    input.repositoryRoot
   );
-  const connection = parsed.data.repository.pullRequests;
-  if (!Array.isArray(connection.nodes)) {
-    throw new Error('gh review-thread response nodes must be an array.');
-  }
-  assertRecord(connection.pageInfo, 'gh review-thread response.pageInfo');
-  if (connection.pageInfo.hasNextPage === true) {
-    throw new Error('gh review-thread response exceeded the bounded first page.');
-  }
-  for (const pullRequest of connection.nodes) {
-    assertRecord(pullRequest, 'gh review-thread pull request');
-    assertRecord(pullRequest.reviewThreads, 'gh review-thread pull request.reviewThreads');
-    const reviewThreads = pullRequest.reviewThreads;
-    if (!Array.isArray(reviewThreads.nodes)) {
-      throw new Error('gh review-thread pull request nodes must be an array.');
+  if (remoteUrl.code !== 0) return undefined;
+  const githubRepository = parseGitHubRepositoryIdentityFromRemoteUrlV1(remoteUrl.stdout);
+  if (githubRepository !== null) {
+    if (githubRepository.toLowerCase() !== input.repository.toLowerCase()) return undefined;
+    const result = run(
+      'gh',
+      buildGitHubDefaultBranchRefArgsV1(input.repository, input.defaultBranch),
+      input.repositoryRoot
+    );
+    if (result.code !== 0) return undefined;
+    try {
+      return parseGitHubDefaultBranchRefV1(result.stdout);
+    } catch {
+      return undefined;
     }
-    assertRecord(reviewThreads.pageInfo, 'gh review-thread pull request.pageInfo');
+  }
+  return optionalLiveDefaultSha(input.resolverGit.run(
+    ['ls-remote', '--exit-code', input.remote, `refs/heads/${input.defaultBranch}`],
+    input.repositoryRoot
+  ), 'Live default ref');
+}
+
+function observeGitHubControlFactsV1(
+  repositoryRoot: string,
+  repository: string
+): Readonly<Record<string, unknown>> {
+  const countBeforeResult = run(
+    'gh',
+    buildGitHubOpenInventoryCountsArgsV1(repository),
+    repositoryRoot
+  );
+  const countBeforeFailure = githubCommandFailure('GitHub open inventory count', countBeforeResult);
+  if (countBeforeFailure !== null) return unresolvedGitHubObservation(countBeforeFailure);
+
+  try {
+    const counts = parseGitHubOpenInventoryCountsV1(countBeforeResult.stdout);
+    const pullRequestsResult = run(
+      'gh',
+      buildGitHubOpenPullRequestsArgsV1(repository, counts.pullRequests),
+      repositoryRoot
+    );
+    const issuesResult = run(
+      'gh',
+      buildGitHubOpenIssuesArgsV1(repository, counts.issues),
+      repositoryRoot
+    );
+    const reviewThreadsResult = run(
+      'gh',
+      buildGitHubOpenPullRequestReviewThreadsArgsV1(repository),
+      repositoryRoot
+    );
+    const commandFailure = [
+      githubCommandFailure('GitHub open pull request inventory', pullRequestsResult),
+      githubCommandFailure('GitHub open issue inventory', issuesResult),
+      githubCommandFailure('GitHub review-thread inventory', reviewThreadsResult)
+    ].filter((reason): reason is string => reason !== null).join(' | ');
+    if (commandFailure.length > 0) return unresolvedGitHubObservation(commandFailure);
+
+    const openPullRequests = parseExactGitHubNumberedInventoryV1(
+      pullRequestsResult.stdout,
+      'open pull request inventory',
+      counts.pullRequests
+    );
+    const openIssues = parseExactGitHubNumberedInventoryV1(
+      issuesResult.stdout,
+      'open issue inventory',
+      counts.issues
+    );
+    const pullRequestNumbers = openPullRequests.map((pullRequest) => pullRequest.number as number);
+    const reviewThreadInventory = parseGitHubOpenPullRequestReviewThreadPagesV1(
+      reviewThreadsResult.stdout,
+      pullRequestNumbers
+    );
+    const replacements = new Map<number, GitHubReviewThreadConnectionV1>();
+    for (const pullRequestNumber of reviewThreadInventory.incompletePullRequestNumbers) {
+      const result = run(
+        'gh',
+        buildGitHubPullRequestReviewThreadsArgsV1(repository, pullRequestNumber),
+        repositoryRoot
+      );
+      const failure = githubCommandFailure(
+        `GitHub pull request ${pullRequestNumber} review-thread pagination`,
+        result
+      );
+      if (failure !== null) return unresolvedGitHubObservation(failure);
+      replacements.set(
+        pullRequestNumber,
+        parseGitHubPullRequestReviewThreadPagesV1(result.stdout, pullRequestNumber)
+      );
+    }
+    const reviewThreads = replaceIncompleteGitHubReviewThreadsV1(
+      reviewThreadInventory,
+      replacements
+    );
+
+    const countAfterResult = run(
+      'gh',
+      buildGitHubOpenInventoryCountsArgsV1(repository),
+      repositoryRoot
+    );
+    const countAfterFailure = githubCommandFailure(
+      'GitHub open inventory count readback',
+      countAfterResult
+    );
+    if (countAfterFailure !== null) return unresolvedGitHubObservation(countAfterFailure);
+    const countReadback = parseGitHubOpenInventoryCountsV1(countAfterResult.stdout);
     if (
-      reviewThreads.pageInfo.hasNextPage === true
-      || reviewThreads.totalCount !== reviewThreads.nodes.length
+      countReadback.pullRequests !== counts.pullRequests
+      || countReadback.issues !== counts.issues
     ) {
-      throw new Error('gh review-thread pull request exceeded the bounded first page.');
+      return unresolvedGitHubObservation(
+        'GitHub open inventory count changed during the observation fence.'
+      );
     }
-    for (const thread of reviewThreads.nodes) {
-      assertRecord(thread, 'gh review thread');
-      if (typeof thread.isResolved !== 'boolean') {
-        throw new Error('gh review thread.isResolved must be a boolean.');
-      }
-    }
+
+    return Object.freeze({
+      status: 'resolved',
+      openPullRequests,
+      openIssues,
+      reviewThreads
+    });
+  } catch (error) {
+    return unresolvedGitHubObservation(error instanceof Error ? error.message : String(error));
   }
-  return connection.nodes;
 }
 
 async function resolveActivationBlockedStatus(input: {
@@ -6341,14 +6551,14 @@ async function resolveActivationBlockedStatus(input: {
     ['rev-parse', '--verify', spec.resolver.defaultRef],
     input.repositoryRoot
   );
-  const remoteLineResult = input.resolverGit.run(
-    ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
-    input.repositoryRoot
-  );
   const localDefaultSha = localDefaultShaResult.code === 0 ? localDefaultShaResult.stdout.trim() : undefined;
-  const liveDefaultSha = remoteLineResult.code === 0
-    ? remoteLineResult.stdout.trim().split(/\s+/u)[0]
-    : undefined;
+  const liveDefaultSha = observeLiveDefaultShaV1({
+    repositoryRoot: input.repositoryRoot,
+    repository: spec.resolver.repository,
+    remote: spec.resolver.remote,
+    defaultBranch: spec.resolver.defaultBranch,
+    resolverGit: input.resolverGit
+  });
   const defaultRefState: CodexDevelopmentDefaultRefState = localDefaultSha === undefined || liveDefaultSha === undefined
     ? 'unavailable'
     : localDefaultSha === liveDefaultSha ? 'fresh' : 'stale';
@@ -6483,18 +6693,30 @@ export async function resolveLiveControlPlane(
   const spec = CodexDevelopmentParseCurrentStateSpecV1(snapshot.stateSource);
   const pointer = CodexDevelopmentParseActivePointerV2(snapshot.pointerSource);
   const rollingPlan = CodexDevelopmentParseRollingPlanV1(snapshot.rollingPlanSource);
+  const rollingMachine = CodexDevelopmentParseRollingMachineProjectionV1(snapshot.rollingPlanSource);
   CodexDevelopmentAssertControlPlaneBindingV1({ spec, pointer });
   if (rollingPlan.activePackageId !== path.posix.basename(pointer.manifest, '.md')) {
     throw new Error('Immutable index pointer and rolling plan select different Work Packages.');
   }
+  if (CodexDevelopmentResolveWorkSelectionProjectionModeV1(spec) === 'required-v1'
+      && rollingMachine === null) {
+    throw new Error('Required rolling projection is absent.');
+  }
+  if (rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1'
+      && (rollingMachine.active.manifestPath !== pointer.manifest
+        || rollingMachine.active.manifestDigest !== pointer.manifestDigest)) {
+    throw new Error('Rolling transition projection does not bind the exact active pointer manifest.');
+  }
 
   const localDefaultShaResult = resolverGit.run(['rev-parse', '--verify', spec.resolver.defaultRef], repositoryRoot);
-  const remoteLineResult = resolverGit.run(
-    ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
-    repositoryRoot
-  );
   const localDefaultSha = optionalCommandSha(localDefaultShaResult, 'Local default ref');
-  const liveDefaultSha = optionalLiveDefaultSha(remoteLineResult, 'Live default ref');
+  const liveDefaultSha = observeLiveDefaultShaV1({
+    repositoryRoot,
+    repository: spec.resolver.repository,
+    remote: spec.resolver.remote,
+    defaultBranch: spec.resolver.defaultBranch,
+    resolverGit
+  });
   const defaultRefState: CodexDevelopmentDefaultRefState = (
     localDefaultSha === undefined || liveDefaultSha === undefined
       ? 'unavailable'
@@ -6504,6 +6726,16 @@ export async function resolveLiveControlPlane(
   );
 
   const candidateManifestBlob = snapshot.candidateManifestBlob;
+  if (rollingMachine?.schema === 'sec-work-rolling-transition-projection-v1') {
+    const candidateManifest = CodexDevelopmentParseWorkPackageManifest(
+      decodeUtf8(candidateManifestBlob, 'Rolling transition active manifest'),
+      pointer.manifest
+    );
+    if (candidateManifest.id !== rollingMachine.active.packageId
+        || candidateManifest.tracking !== rollingMachine.active.tracking) {
+      throw new Error('Rolling transition projection does not bind the exact active manifest identity.');
+    }
+  }
   const defaultManifestBlob = defaultRefState === 'fresh'
     ? resolverGit.readBlob(repositoryRoot, `${localDefaultSha}:${pointer.manifest}`) ?? null
     : null;
@@ -6524,6 +6756,13 @@ export async function resolveLiveControlPlane(
         'Default-branch tree'
       )
     : undefined;
+  if (rollingMachine !== null && localDefaultSha !== undefined && mainTree !== undefined) {
+    CodexDevelopmentAssertRollingMachineBaseBindingV1({
+      projection: rollingMachine,
+      exactMain: localDefaultSha,
+      exactMainTree: mainTree
+    });
+  }
   const headSha = shaValue(
     requireCommand(resolverGit.run(['rev-parse', 'HEAD'], repositoryRoot), 'candidate head resolution'),
     'Candidate HEAD'
@@ -6543,69 +6782,9 @@ export async function resolveLiveControlPlane(
     : undefined;
   const worktreeStatus = snapshot.worktreeStatus;
   const observeGitHub = options.observeGitHub !== false;
-  const pullRequestsResult = observeGitHub ? run('gh', [
-    'pr',
-    'list',
-    '--repo',
-    spec.resolver.repository,
-    '--state',
-    'open',
-    '--limit',
-    '100',
-    '--json',
-    'number,title,isDraft,headRefOid,baseRefOid,mergeStateStatus,reviewDecision,reviewRequests,latestReviews,reviews,comments,statusCheckRollup'
-  ], repositoryRoot) : { code: 1, stdout: '', stderr: 'GitHub observation skipped while activation is nonterminal' };
-  const issuesResult = observeGitHub ? run('gh', [
-    'issue',
-    'list',
-    '--repo',
-    spec.resolver.repository,
-    '--state',
-    'open',
-    '--limit',
-    '100',
-    '--json',
-    'number,title'
-  ], repositoryRoot) : { code: 1, stdout: '', stderr: 'GitHub observation skipped while activation is nonterminal' };
-  const [repositoryOwner, repositoryName] = spec.resolver.repository.split('/');
-  const reviewThreadsResult = observeGitHub && repositoryOwner && repositoryName
-    ? run('gh', [
-        'api',
-        'graphql',
-        '-f',
-        `query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){pullRequests(first:100,states:OPEN,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{number reviewThreads(first:100){totalCount nodes{isResolved}pageInfo{hasNextPage}}}pageInfo{hasNextPage}}}}`,
-        '-F',
-        `owner=${repositoryOwner}`,
-        '-F',
-        `name=${repositoryName}`
-      ], repositoryRoot)
-    : { code: 1, stdout: '', stderr: 'repository must be owner/name' };
-  const githubState = (
-    pullRequestsResult.code === 0
-    && issuesResult.code === 0
-    && reviewThreadsResult.code === 0
-  )
-    ? (() => {
-        const openPullRequests = parseJsonArray(pullRequestsResult.stdout, 'gh pr list');
-        const openIssues = parseJsonArray(issuesResult.stdout, 'gh issue list');
-        if (openPullRequests.length >= 100 || openIssues.length >= 100) {
-          throw new Error('GitHub PR/Issue facts reached the bounded query limit.');
-        }
-        return {
-          status: 'resolved',
-          openPullRequests,
-          openIssues,
-          reviewThreads: parseReviewThreads(reviewThreadsResult.stdout)
-        };
-      })()
-    : {
-        status: 'unresolved',
-        reason: [
-          pullRequestsResult.code === 0 ? undefined : pullRequestsResult.stderr.trim(),
-          issuesResult.code === 0 ? undefined : issuesResult.stderr.trim(),
-          reviewThreadsResult.code === 0 ? undefined : reviewThreadsResult.stderr.trim()
-        ].filter(Boolean).join(' | ')
-  };
+  const githubState = observeGitHub
+    ? observeGitHubControlFactsV1(repositoryRoot, spec.resolver.repository)
+    : unresolvedGitHubObservation('GitHub observation skipped while activation is nonterminal');
 
   await options.beforeObservationReadback?.();
   let indexTreeReadback: string | null = null;
@@ -6622,13 +6801,15 @@ export async function resolveLiveControlPlane(
     ['rev-parse', '--verify', spec.resolver.defaultRef],
     repositoryRoot
   );
-  const liveDefaultReadbackResult = resolverGit.run(
-    ['ls-remote', '--exit-code', spec.resolver.remote, `refs/heads/${spec.resolver.defaultBranch}`],
-    repositoryRoot
-  );
   const headShaReadback = optionalCommandSha(headReadbackResult, 'Candidate HEAD readback');
   const localDefaultShaReadback = optionalCommandSha(localDefaultReadbackResult, 'Local default ref readback');
-  const liveDefaultShaReadback = optionalLiveDefaultSha(liveDefaultReadbackResult, 'Live default ref readback');
+  const liveDefaultShaReadback = observeLiveDefaultShaV1({
+    repositoryRoot,
+    repository: spec.resolver.repository,
+    remote: spec.resolver.remote,
+    defaultBranch: spec.resolver.defaultBranch,
+    resolverGit
+  });
   // The journal is the seqlock: activation publishes it before any index/worktree
   // effect, so this read must be the final volatile observation in the fence.
   const activationJournalReadbackSnapshot = await readFreezeJournalSnapshot(
@@ -6793,9 +6974,10 @@ async function main(): Promise<void> {
       'Document-control candidate branch'
     );
     if (physicalKey(candidateRoot) === physicalKey(executionRoot)
-        || !candidateBranch.startsWith('codex/')) {
+        || candidateBranch.length === 0
+        || candidateBranch === executionSpec.resolver.defaultBranch) {
       throw new Error(
-        'Document-control freeze target must be one distinct isolated codex candidate worktree.'
+        'Document-control freeze target must be one distinct isolated non-default candidate worktree.'
       );
     }
     const result = await freezeDocumentControlPlaneV1({

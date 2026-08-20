@@ -1,13 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { resolveWorkspace } from '../platform/orchestrator/block-orchestrator.ts';
 import {
   adaptWorkspace,
-  composeWorkspace,
-  initWorkspace,
-  resolveWorkspace,
-  verifyWorkspace
-} from '../platform/orchestrator.ts';
+  composeWorkspace
+} from '../platform/orchestrator/compose-orchestrator.ts';
+import { verifyWorkspace } from '../platform/orchestrator/verify-orchestrator.ts';
+import { initWorkspace } from '../platform/orchestrator/workspace-orchestrator.ts';
 import { compilerRoot } from '../platform/shared/paths.ts';
 
 async function createCiWorkspaceFastRoot(): Promise<string> {
@@ -25,8 +25,11 @@ export async function runCiWorkspaceFast(workspaceRoot?: string): Promise<number
   const shouldCleanup = workspaceRoot === undefined;
 
   if (workspaceRoot === undefined) {
-    console.log('CI workspace fast: init temp workspace');
-    await initWorkspace(ownedWorkspaceRoot, { reset: true });
+    console.log('CI workspace fast: init explicit reference workspace');
+    await initWorkspace(ownedWorkspaceRoot, {
+      reset: true,
+      template: 'reference-customer'
+    });
   }
 
   try {

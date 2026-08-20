@@ -1,3 +1,8 @@
+/**
+ * Durable failed-child outcome publication for isolated Semantic Mutation
+ * verification. The final outcome is tiny canonical evidence; a failed
+ * publication must also preserve cleanup truth for its owned pending path.
+ */
 import { open, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -145,6 +150,10 @@ async function fsyncDirectory(directory: string): Promise<void> {
   }
 }
 
+async function cleanupOwnedPendingPath(pendingPath: string): Promise<void> {
+  await rm(pendingPath, { force: true });
+}
+
 export async function publishSemanticMutationIsolatedChildOutcome(
   stagingWorkspaceRoot: string,
   value: SemanticMutationIsolatedChildOutcomeV1
@@ -153,6 +162,7 @@ export async function publishSemanticMutationIsolatedChildOutcome(
   const finalPath = semanticMutationIsolatedChildOutcomePath(stagingWorkspaceRoot);
   const pendingPath = semanticMutationIsolatedChildOutcomePendingPath(stagingWorkspaceRoot);
   let pendingOwned = false;
+  let primaryFailure: unknown = null;
   try {
     const handle = await open(pendingPath, 'wx', 0o600);
     pendingOwned = true;
@@ -165,7 +175,25 @@ export async function publishSemanticMutationIsolatedChildOutcome(
     await rename(pendingPath, finalPath);
     pendingOwned = false;
     await fsyncDirectory(path.dirname(finalPath));
-  } finally {
-    if (pendingOwned) await rm(pendingPath, { force: true }).catch(() => undefined);
+  } catch (error) {
+    primaryFailure = error;
   }
+
+  let cleanupFailure: unknown = null;
+  if (pendingOwned) {
+    try {
+      await cleanupOwnedPendingPath(pendingPath);
+    } catch (error) {
+      cleanupFailure = error;
+    }
+  }
+
+  if (primaryFailure !== null && cleanupFailure !== null) {
+    throw new AggregateError(
+      [primaryFailure, cleanupFailure],
+      `Semantic Mutation isolated child outcome publication failed and pending cleanup did not converge: ${pendingPath}`
+    );
+  }
+  if (primaryFailure !== null) throw primaryFailure;
+  if (cleanupFailure !== null) throw cleanupFailure;
 }

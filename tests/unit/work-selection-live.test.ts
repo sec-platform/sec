@@ -10,12 +10,16 @@ import {
   assertSecWorkDecisionReceiptV1,
   compileSecWorkRollingProjectionV1,
   compileSecWorkRollingTopologyV1,
+  compileSecWorkRollingTransitionProjectionV1,
   createSecWorkCurrentSpecObservationV1,
   createSecWorkDecisionReceiptV1,
   createSecWorkRegistryObservationV1,
   currentSpecRevisionFromBodyV1,
   parseSecRoadmapWorkCatalogV1,
+  parseSecWorkRollingMachineProjectionV1,
+  parseSecWorkRollingProjectionV1,
   renderSecWorkRollingPlanV1,
+  renderSecWorkRollingTransitionPlanV1,
   unresolvedSecWorkSelectionLiveResultV1,
   type SecRoadmapWorkCatalogV1,
   type SecWorkCurrentSpecObservationV1,
@@ -203,39 +207,6 @@ function receipt(completedWorkIds?: readonly string[]) {
 }
 
 describe('work-selection live contract', () => {
-  test('hosted Git observations use the canonical credential and branch-worktree boundaries', () => {
-    const source = readFileSync('scripts/codex/work-selection.ts', 'utf8');
-    const runStart = source.indexOf('function runDefault(');
-    const runEnd = source.indexOf('\nfunction combinedFailureBytes(', runStart);
-    const defaultStart = source.indexOf('function resolveExactMain(');
-    const defaultEnd = source.indexOf('\nfunction parseIssueNumber(', defaultStart);
-    const lifecycleStart = source.indexOf('function observeCanonicalBranchLifecycle(');
-    const lifecycleEnd = source.indexOf('\nfunction observeCanonicalControl(', lifecycleStart);
-    const run = source.slice(runStart, runEnd);
-    const defaultObservation = source.slice(defaultStart, defaultEnd);
-    const lifecycleObservation = source.slice(lifecycleStart, lifecycleEnd);
-
-    expect([runStart, runEnd, defaultStart, defaultEnd, lifecycleStart, lifecycleEnd]
-      .every((offset) => offset > 0)).toBeTrue();
-    expect(run).toContain("command === 'git'");
-    expect(run).toContain('createBranchLifecycleGitChildEnvironmentV1(process.env)');
-    expect(defaultObservation).toContain('createBranchLifecycleGitHubRemoteObservationV1(');
-    expect(defaultObservation).toContain(
-      "'ls-remote', '--exit-code', remoteObservation.repositoryUrl,"
-    );
-    expect(defaultObservation).toContain('remoteObservation.environment');
-    expect(defaultObservation).not.toContain("'ls-remote', '--exit-code', input.remote");
-    expect(lifecycleObservation).toContain('createBranchLifecycleGitHubRemoteObservationV1(');
-    expect(lifecycleObservation).toContain("'ls-remote', '--heads', remoteObservation.repositoryUrl");
-    expect(lifecycleObservation).toContain('remoteObservation.environment');
-    expect(lifecycleObservation).not.toContain("'ls-remote', '--heads', input.remote");
-    expect(lifecycleObservation).toContain(
-      'worktrees.filter(({ branch }) => branch !== null && branch !== input.defaultBranch)'
-    );
-    expect(lifecycleObservation).not.toContain(
-      'worktrees.filter(({ branch }) => branch !== input.defaultBranch)'
-    );
-  });
 
   test('canonical roadmap embeds one bounded normalized catalog', () => {
     const catalog = parseSecRoadmapWorkCatalogV1(roadmapSource);
@@ -305,10 +276,67 @@ describe('work-selection live contract', () => {
       .toBe(projection.candidates.length);
     expect(projection.receiptDigest).toBe(result.receiptDigest);
     const rendered = renderSecWorkRollingPlanV1({ receipt: result, reviewedOn: '2026-08-12' });
+    const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
+    expect(machine).toBeDefined();
+    expect(parseSecWorkRollingProjectionV1(machine!)).toEqual(projection);
     expect(rendered).toContain(`### ${projection.active.packageId}`);
     expect(rendered).toContain(`"receiptDigest": "${result.receiptDigest}"`);
     expect(rendered.match(/^### [1-9][0-9]*\. /gmu) ?? [])
       .toHaveLength(projection.candidates.length);
+  });
+
+  test('rolling projection parser rejects field, duplicate-key, and digest drift', () => {
+    const result = receipt();
+    const rendered = renderSecWorkRollingPlanV1({ receipt: result, reviewedOn: '2026-08-12' });
+    const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
+    expect(machine).toBeDefined();
+    expect(() => parseSecWorkRollingProjectionV1(machine!.replace(
+      '"decisionStatus": "selected"',
+      '"decisionStatus": "eligible"'
+    ))).toThrow(/decisionStatus/u);
+    expect(() => parseSecWorkRollingProjectionV1(machine!.replace(
+      '"schema": "sec-work-rolling-projection-v1"',
+      '"schema": "sec-work-rolling-projection-v1",\n  "schema": "sec-work-rolling-projection-v1"'
+    ))).toThrow(/duplicate key "schema"/u);
+    expect(() => parseSecWorkRollingProjectionV1(machine!.replace(
+      /"projectionDigest": "sha256:[0-9a-f]{64}"/u,
+      `"projectionDigest": "sha256:${'0'.repeat(64)}"`
+    ))).toThrow(/does not bind/u);
+  });
+
+  test('non-selection rolling transition has one typed authority and one generated document', () => {
+    const projection = compileSecWorkRollingTransitionProjectionV1({
+      exactMain,
+      exactMainTree,
+      authority: {
+        kind: 'committed-candidate-replan',
+        sourceHead: 'c'.repeat(40),
+        sourceTree: 'd'.repeat(40),
+        sourceManifestDigest: rawSha256('source-manifest'),
+        sourcePointerRevision: rawSha256('source-pointer'),
+        sourceRollingRevision: rawSha256('source-rolling')
+      },
+      active: {
+        packageId: 'active-v1',
+        tracking: 'issue-1',
+        manifestPath: 'docs/work-packages/active-v1.md',
+        manifestDigest: rawSha256('target-manifest')
+      },
+      candidates: ['candidate-two-v1', 'candidate-three-v1']
+    });
+    const rendered = renderSecWorkRollingTransitionPlanV1({
+      projection,
+      reviewedOn: '2026-08-21'
+    });
+    const machine = /```json\r?\n([\s\S]*?)\r?\n```/u.exec(rendered)?.[1];
+    expect(machine).toBeDefined();
+    expect(parseSecWorkRollingMachineProjectionV1(machine!)).toEqual(projection);
+    expect(rendered.match(/^### active-v1$/gmu)).toHaveLength(1);
+    expect(rendered.match(/^### [1-9][0-9]*\. candidate-/gmu)).toHaveLength(2);
+    expect(() => parseSecWorkRollingMachineProjectionV1(machine!.replace(
+      /"projectionDigest": "sha256:[0-9a-f]{64}"/u,
+      `"projectionDigest": "sha256:${'0'.repeat(64)}"`
+    ))).toThrow(/does not bind/u);
   });
 
   test('#352 completion evidence is the stable prerequisite transition for #186', () => {

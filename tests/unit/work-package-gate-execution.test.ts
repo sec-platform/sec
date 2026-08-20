@@ -23,6 +23,8 @@ import { pathToFileURL } from 'node:url';
 
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 
+import { expectExactFileCopy } from '../testkit/contracts.ts';
+
 import {
   createTestWorkspaceSupervisorLeaseV1,
   testWorkspaceSupervisorLeasePathV1
@@ -457,8 +459,10 @@ test('execution snapshot materializes the exact dirty tree in a detached worktre
       revision('HEAD^{tree}'),
       expectedDigest
     )).toBe(expectedDigest);
-    expect(await readFile(path.join(snapshotRoot, 'scripts', 'run-work-package-gate.ts'), 'utf8'))
-      .toBe(await readFile(path.join(repoRoot, 'scripts', 'run-work-package-gate.ts'), 'utf8'));
+    await expectExactFileCopy(
+      path.join(snapshotRoot, 'scripts', 'run-work-package-gate.ts'),
+      path.join(repoRoot, 'scripts', 'run-work-package-gate.ts')
+    );
   } finally {
     expect(await removeWorkPackageExecutionSnapshotForTests(repoRoot, snapshotRoot)).toBe(true);
   }

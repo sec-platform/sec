@@ -1,15 +1,65 @@
 import { expect, test } from 'bun:test';
+import fs from 'node:fs/promises';
 
 import { buildProvenance } from '../../platform/compiler/emit/write-provenance.ts';
 import { CI_ARTIFACT_FILES } from '../../platform/shared/ci-artifact-contract.ts';
 import { writeJson } from '../../platform/shared/fs.ts';
 import { getWorkspacePaths } from '../../platform/shared/paths.ts';
-import type { LockFile } from '../../platform/shared/types.ts';
+import { buildExpectedProductVerificationClaimSummary } from '../../platform/shared/product-verification-profile.ts';
+import type { LockFile, PolicyReport, VerificationReport } from '../../platform/shared/types.ts';
 import { buildOfficialCopyInstallStep } from '../helpers/lock-fixtures.ts';
-import { buildPassingReviewReport, buildRuntimeVerificationReport } from '../helpers/review-fixtures.ts';
+import {
+  buildPassingReviewCoverage,
+  buildPassingReviewReport,
+  buildRuntimeVerificationReport
+} from '../helpers/review-fixtures.ts';
+import { writeCanonicalVerificationArtifactSetFixture } from '../helpers/verification-fixtures.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
-test('buildProvenance sorts and deduplicates slot verification hints', async () => {
+const ACCEPTANCE_ID = 'user_can_create_customer';
+const ACCEPTANCE_TEST = 'tests/acceptance/customer-flow.test.ts';
+const BLOCK_ID = 'entity/customer-basic';
+
+function skippedPolicyReport(): PolicyReport {
+  return {
+    status: 'skipped',
+    official: { policies: [], sources: [], violations: [] },
+    project: { policies: [], sources: [], violations: [] },
+    merged: { policies: [] },
+    violations: [],
+    diagnostics: []
+  };
+}
+
+async function writeCanonicalPassingVerificationArtifacts(
+  workspaceRoot: string,
+  report: VerificationReport
+): Promise<VerificationReport> {
+  const policyReport = skippedPolicyReport();
+  const acceptanceCoverage = buildPassingReviewCoverage({
+    acceptancePassed: [ACCEPTANCE_ID],
+    blocks: [{
+      id: BLOCK_ID,
+      declaredAcceptance: [ACCEPTANCE_ID],
+      coveredBy: [ACCEPTANCE_ID],
+      uncovered: false
+    }]
+  });
+  const fast = {
+    ...report.fast,
+    status: 'passed' as const,
+    policy: { status: 'skipped' as const, violations: [] },
+    policyReport
+  };
+  const verificationReport = await writeCanonicalVerificationArtifactSetFixture(workspaceRoot, {
+    ...report,
+    policy: { status: 'skipped', violations: [] },
+    fast,
+  }, { policyReport, acceptanceCoverage });
+  return verificationReport;
+}
+
+test('buildProvenance consumes only a complete canonical Verification artifact set', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
     const lock: LockFile = {
       formatVersion: '1',
@@ -24,14 +74,14 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       installPlan: [
         buildOfficialCopyInstallStep({
           stepId: 'copy_customer_runtime_test',
-          blockId: 'entity/customer-basic',
+          blockId: BLOCK_ID,
           sourceRoot: 'platform/registry/official/entity.customer-basic/files',
           from: 'files/tests/unit/customer-runtime.test.ts',
           to: 'tests/unit/customer-runtime.test.ts'
         }),
         buildOfficialCopyInstallStep({
           stepId: 'copy_customer_service',
-          blockId: 'entity/customer-basic',
+          blockId: BLOCK_ID,
           sourceRoot: 'platform/registry/official/entity.customer-basic/files',
           from: 'files/src/installed/entity/customer-service.ts',
           to: 'src/installed/entity/customer-service.ts'
@@ -40,7 +90,7 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       slotTasks: [
         {
           id: 'customer_normalizer',
-          block: 'entity/customer-basic',
+          block: BLOCK_ID,
           target: 'custom/customer_normalizer.ts',
           symbol: 'normalizeCustomerInput',
           kind: 'adapter',
@@ -75,18 +125,22 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       }
     };
 
-    const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
     const report = buildPassingReviewReport({
-      unit: { status: 'passed', passed: ['customer-runtime.test.ts'] },
+      unit: { status: 'passed', passed: ['tests/unit/customer-runtime.test.ts'] },
+      acceptance: { status: 'passed', passed: [ACCEPTANCE_TEST], failed: [] },
       fast: {
-        unit: { status: 'passed', passed: ['customer-runtime.test.ts'] }
+        status: 'passed',
+        unit: { status: 'passed', passed: ['tests/unit/customer-runtime.test.ts'] },
+        acceptance: { status: 'passed', passed: [ACCEPTANCE_TEST], failed: [] }
       },
-      runtime: buildRuntimeVerificationReport(),
-      summary: {
-        requestedLane: 'all'
-      }
+      runtime: buildRuntimeVerificationReport({
+        build: { passed: ['next build'] },
+        unit: { passed: ['tests/runtime/unit/customer-runtime.test.ts'] },
+        acceptance: { passed: ['tests/runtime/acceptance/customer-flow.spec.ts'] }
+      }),
+      summary: { requestedLane: 'all' }
     });
-    await writeJson(verificationReportPath, report);
+    const verificationReport = await writeCanonicalPassingVerificationArtifacts(workspaceRoot, report);
 
     const provenance = await buildProvenance(workspaceRoot, lock);
 
@@ -105,15 +159,19 @@ test('buildProvenance sorts and deduplicates slot verification hints', async () 
       ['tests/unit/customer-runtime.test.ts', 'compose']
     ]);
 
-    await writeJson(verificationReportPath, {
-      ...report,
-      summary: {
-        ...report.summary,
-        status: 'failed'
-      }
-    });
-    const failedProvenance = await buildProvenance(workspaceRoot, lock);
-    expect(failedProvenance.artifacts.find((artifact) => artifact.path === 'src/installed/entity/customer-service.ts')).toMatchObject({
+    const paths = getWorkspacePaths(workspaceRoot);
+    await Promise.all([
+      fs.rm(paths.runtimeReportPath),
+      fs.rm(paths.policyReportPath),
+      fs.rm(paths.acceptanceCoveragePath)
+    ]);
+    await writeJson(paths.verificationReportPath, verificationReport);
+    await expect(buildProvenance(workspaceRoot, lock))
+      .rejects.toThrow('Provenance Verification artifact set is partially published');
+
+    await fs.rm(paths.verificationReportPath);
+    const unverifiedProvenance = await buildProvenance(workspaceRoot, lock);
+    expect(unverifiedProvenance.artifacts.find((artifact) => artifact.path === 'src/installed/entity/customer-service.ts')).toMatchObject({
       verifiedBy: []
     });
   });

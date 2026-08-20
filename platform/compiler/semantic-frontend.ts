@@ -1,4 +1,5 @@
 import type { ValidatedEngineeringIRSnapshot } from '../shared/engineering-ir-types.ts';
+import type { LockFile } from '../shared/lock-types.ts';
 import type { SemanticGeneratorPlan } from '../shared/semantic-generator-types.ts';
 import type { SemanticMutationLoadedSourceCandidateV1 } from '../shared/semantic-mutation-types.ts';
 import type { SemanticViewSet } from '../shared/semantic-view-types.ts';
@@ -12,19 +13,25 @@ export interface WorkspaceSemanticBundle {
   generatorPlan: SemanticGeneratorPlan;
   semanticViews: SemanticViewSet;
   semanticContractSources: readonly SemanticMutationLoadedSourceCandidateV1[];
+  /** Exact Lock object used by the authoritative semantic-input loader. */
+  sourceLock: LockFile;
 }
 
 export async function buildWorkspaceSemanticBundle(
   workspaceRoot: string
 ): Promise<WorkspaceSemanticBundle> {
-  const { engineeringIRInput, generatorDeclarations, semanticContractSources } = await loadWorkspaceEngineeringIRBuildInput(
-    workspaceRoot
-  );
+  const {
+    engineeringIRInput,
+    generatorDeclarations,
+    semanticContractSources,
+    sourceLock
+  } = await loadWorkspaceEngineeringIRBuildInput(workspaceRoot);
   const snapshot = buildValidatedEngineeringIR(engineeringIRInput);
   return {
     snapshot,
     generatorPlan: buildSemanticGeneratorPlan(snapshot, generatorDeclarations),
     semanticViews: buildSemanticViewSet(snapshot),
-    semanticContractSources
+    semanticContractSources,
+    sourceLock
   };
 }

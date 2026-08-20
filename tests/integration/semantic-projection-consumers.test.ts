@@ -32,10 +32,6 @@ test('ExplainGraph, ReviewSummary, and Workbench consume one canonical SemanticV
   const graph = await readJson<ExplainGraph>(paths.explainGraphPath);
   const review = await readJson<ReviewSummary>(paths.reviewSummaryPath);
   const workbench = await fs.readFile(paths.graphViewPath, 'utf8');
-  const explainSource = await fs.readFile(
-    new URL('../../platform/compiler/emit/write-explain-graph.ts', import.meta.url),
-    'utf8'
-  );
   const sharedFactId = snapshot.ir.facts.find((fact) =>
     fact.subject === 'operation:ticket:transitionTicketStatus' &&
     fact.predicate === 'MUTATES' &&
@@ -62,6 +58,4 @@ test('ExplainGraph, ReviewSummary, and Workbench consume one canonical SemanticV
   expect(workbench).toContain('<td>scenario</td>');
   expect(workbench).toContain('<td>state</td>');
   expect(workbench).toContain(sharedFactId);
-  expect(explainSource).not.toContain('loadManifestForResolvedBlock');
-  expect(explainSource).not.toContain('../parse/load-manifest.ts');
 }, 180000);

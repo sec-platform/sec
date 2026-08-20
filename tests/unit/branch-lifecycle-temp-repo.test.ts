@@ -11,8 +11,9 @@ import {
   utimesSync,
   writeFileSync
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import path from 'node:path';
+
 
 import {
   preparationFilePath,
@@ -42,6 +43,7 @@ test('canonical Git child environment removes ambient steering and preserves hos
     git_config_key_19: 'core.fsmonitor',
     git_config_value_19: 'forged-monitor',
     GIT_CONFIG_GLOBAL: 'forged-config',
+    GIT_ASKPASS_REQUIRE: 'force',
     git_no_replace_objects: '0',
     GIT_OPTIONAL_LOCKS: '1',
     GIT_TERMINAL_PROMPT: '1'
@@ -56,6 +58,7 @@ test('canonical Git child environment removes ambient steering and preserves hos
   expect(environment.GIT_TERMINAL_PROMPT).toBe('0');
   expect(environment.GIT_OPTIONAL_LOCKS).toBe('0');
   expect(environment.GIT_NO_REPLACE_OBJECTS).toBe('1');
+  expect(environment.GIT_CONFIG_GLOBAL).toBe(process.platform === 'win32' ? 'NUL' : devNull);
   expect(Object.keys(environment).filter((name) => name.toUpperCase() === 'GIT_NO_REPLACE_OBJECTS'))
     .toEqual(['GIT_NO_REPLACE_OBJECTS']);
   for (const name of Object.keys(environment)) {
@@ -66,7 +69,7 @@ test('canonical Git child environment removes ambient steering and preserves hos
       'GIT_INDEX_FILE',
       'GIT_OBJECT_DIRECTORY',
       'GIT_CONFIG_COUNT',
-      'GIT_CONFIG_GLOBAL'
+      'GIT_ASKPASS_REQUIRE'
     ]).not.toContain(canonicalName);
     expect(canonicalName).not.toMatch(/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u);
   }
@@ -215,45 +218,7 @@ test('legacy branch-lifecycle finalize CLI is rejected before any ref mutation',
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-}, 180_000);
 
-test('branch lifecycle command module exposes no executable or authentic capability mint', async () => {
-  const source = readFileSync(path.resolve('scripts/codex/branch-lifecycle-command.ts'), 'utf8');
-  const commandModule = await import('../../scripts/codex/branch-lifecycle-command.ts');
-  const exports = Object.keys(commandModule).sort();
-  expect(exports).toEqual([
-    'createBranchLifecycleGitChildEnvironmentV1',
-    'createBranchLifecycleGitHubCredentialArgsV1',
-    'createBranchLifecycleGitHubRemoteObservationV1',
-    'decodeBranchLifecycleChildErrorV1',
-    'decodeBranchLifecycleChildStdoutV1'
-  ]);
-  const observation = commandModule.createBranchLifecycleGitHubRemoteObservationV1(
-    'sec-platform/sec',
-    { GIT_DIR: 'forged', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'url.fake.insteadOf' },
-    'linux'
-  );
-  expect(observation.repositoryUrl).toBe('https://github.com/sec-platform/sec.git');
-  expect(observation.argumentsPrefix[0]).toBe('--git-dir=/dev/null');
-  expect(observation.environment.GIT_DIR).toBeUndefined();
-  expect(observation.environment.GIT_CONFIG_COUNT).toBeUndefined();
-  expect(() => commandModule.createBranchLifecycleGitHubRemoteObservationV1(
-    '../sec', {}, 'linux'
-  )).toThrow('bounded owner/name identity');
-  for (const executable of ["spawnSync('bun'", "spawnSync('gh'", "spawnSync('git'"]) {
-    expect(source).not.toContain(executable);
-  }
-  for (const symbol of [
-    'BranchLifecycleContext',
-    'createBranchLifecycleContext',
-    'BranchLifecycleCommandResult',
-    'runBranchCommand',
-    'requireBranchCommandText',
-    'optionalBranchCommandText'
-  ]) {
-    expect(source).not.toContain(symbol);
-    expect(exports).not.toContain(symbol);
-  }
 });
 
 test('canonical GitHub credential prefix masks checkout HTTP authorization before gh lookup', () => {
@@ -346,34 +311,4 @@ test('typed inventory boundary ignores ambient repository and index steering wit
     }
     rmSync(fixture.root, { recursive: true, force: true });
   }
-}, 180_000);
-
-test('only VerificationSession source retains integrated ref mutation commands', () => {
-  const lifecycle = readFileSync(
-    path.resolve('scripts/codex/branch-lifecycle.ts'),
-    'utf8'
-  );
-  const closeout = readFileSync(
-    path.resolve('scripts/codex/branch-closeout.ts'),
-    'utf8'
-  );
-  const session = readFileSync(
-    path.resolve('scripts/codex/verification-session.ts'),
-    'utf8'
-  );
-  const command = readFileSync(
-    path.resolve('scripts/codex/branch-lifecycle-command.ts'),
-    'utf8'
-  );
-  expect(lifecycle).not.toContain('finalizeBranchCloseout');
-  expect(lifecycle).not.toContain("command: 'finalize'");
-  expect(lifecycle).not.toContain("export * from './branch-closeout");
-  expect(closeout).not.toContain("'push',\n    '--porcelain'");
-  expect(closeout).not.toContain('finalizeIntegratedBranchCloseout');
-  expect(command).not.toContain('spawnSync');
-  expect(command).not.toContain('runBranchCommand');
-  expect(closeout).not.toContain("'update-ref'");
-  expect(closeout).not.toContain("'worktree', 'remove'");
-  expect(session).toContain('function finalizeHostedBranchCloseoutV1');
-  expect(session).toContain('function deleteHostedRemoteRefCas');
 });

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { mergePrismaSchemas, parsePrismaSchema } from '../../platform/compiler/compose/merge-prisma-template.ts';
 
-test('parsePrismaSchema parses models, enums, datasources, and generators', () => {
+test('parsePrismaSchema parses supported block kinds', () => {
   const schema = `
 // Global comment
 datasource db {
@@ -16,7 +16,6 @@ generator client {
 model User {
   id    Int    @id @default(autoincrement())
   email String @unique
-  name  String?
 }
 
 enum Role {
@@ -26,29 +25,15 @@ enum Role {
 `;
 
   const parsed = parsePrismaSchema(schema);
-  expect(parsed.blocks).toHaveLength(4);
-  expect(parsed.blocks[0]).toEqual({
-    type: 'datasource',
-    name: 'db',
-    content: `datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
-}`
-  });
-  expect(parsed.blocks[1]).toEqual({
-    type: 'generator',
-    name: 'client',
-    content: `generator client {
-  provider = "prisma-client-js"
-}`
-  });
-  expect(parsed.blocks[2].type).toBe('model');
-  expect(parsed.blocks[2].name).toBe('User');
-  expect(parsed.blocks[3].type).toBe('enum');
-  expect(parsed.blocks[3].name).toBe('Role');
+  expect(parsed.blocks.map((block) => `${block.type}:${block.name}`)).toEqual([
+    'datasource:db',
+    'generator:client',
+    'model:User',
+    'enum:Role'
+  ]);
 });
 
-test('mergePrismaSchemas merges model fields and block attributes', () => {
+test('mergePrismaSchemas adds non-conflicting model fields and attributes', () => {
   const existing = `
 datasource db {
   provider = "sqlite"
@@ -63,11 +48,11 @@ model User {
 
   const template = `
 datasource db {
-  provider = "postgres"
+  provider = "sqlite"
 }
 
 model User {
-  email String
+  email String @unique
   phone String @unique
   role  String @default("USER")
   @@index([phone])
@@ -79,39 +64,63 @@ model Post {
 `;
 
   const merged = mergePrismaSchemas(existing, template);
-  expect(merged).toContain('model User {');
-  expect(merged).toContain('id    Int    @id');
   expect(merged).toContain('email String @unique');
   expect(merged).toContain('phone String @unique');
   expect(merged).toContain('role  String @default("USER")');
   expect(merged).toContain('@@index([email])');
   expect(merged).toContain('@@index([phone])');
-
-  // Should contain Post from template
   expect(merged).toContain('model Post {');
-
-  // Generator/datasource should keep the existing one
-  expect(merged).toContain('provider = "sqlite"');
-  expect(merged).not.toContain('provider = "postgres"');
 });
 
-test('mergePrismaSchemas merges enum values', () => {
-  const existing = `
+test('mergePrismaSchemas merges enum values deterministically', () => {
+  const merged = mergePrismaSchemas(`
 enum Role {
   USER
 }
-`;
-
-  const template = `
+`, `
 enum Role {
   ADMIN
   MODERATOR
 }
-`;
-
-  const merged = mergePrismaSchemas(existing, template);
-  expect(merged).toContain('enum Role {');
+`);
   expect(merged).toContain('USER');
   expect(merged).toContain('ADMIN');
   expect(merged).toContain('MODERATOR');
+});
+
+test('mergePrismaSchemas rejects same-identity semantic conflicts instead of choosing by order', () => {
+  expect(() => mergePrismaSchemas(`
+datasource db {
+  provider = "sqlite"
+}
+`, `
+datasource db {
+  provider = "postgresql"
+}
+`)).toThrow(/conflicts with the existing schema/);
+
+  expect(() => mergePrismaSchemas(`
+model User {
+  email String @unique
+}
+`, `
+model User {
+  email String
+}
+`)).toThrow(/field "email" conflicts/);
+
+  expect(() => mergePrismaSchemas(`
+enum Role {
+  USER @map("user")
+}
+`, `
+enum Role {
+  USER @map("member")
+}
+`)).toThrow(/enum value "USER" conflicts/);
+});
+
+test('parsePrismaSchema rejects incomplete or duplicate blocks', () => {
+  expect(() => parsePrismaSchema('model User {\n  id Int @id\n')).toThrow(/is not closed/);
+  expect(() => parsePrismaSchema('model User {\n}\nmodel User {\n}\n')).toThrow(/duplicate Prisma block/);
 });

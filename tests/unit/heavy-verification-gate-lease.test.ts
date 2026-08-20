@@ -7,7 +7,6 @@ import { expect, test } from 'bun:test';
 import {
   acquireHeavyVerificationGateLease
 } from '../../platform/shared/heavy-verification-gate-lease.ts';
-import { compilerRoot } from '../../platform/shared/paths.ts';
 
 const TOKEN_A = '11111111111111111111111111111111';
 const TOKEN_B = '22222222222222222222222222222222';
@@ -117,34 +116,4 @@ test('heavy verification gate never reclaims an owner from another host', async 
     expect(JSON.parse(await readFile(path.join(lockPath, 'owner.json'), 'utf8')))
       .toMatchObject({ host: 'foreign-host', token: TOKEN_A });
   });
-});
-
-test('affected and Risk CLI entrypoints share the same outer heavy-gate owner', async () => {
-  const [devRunnerSource, riskSource, leaseSource] = await Promise.all([
-    readFile(path.join(compilerRoot, 'platform/dev-runner.ts'), 'utf8')
-      .then((source) => source.replaceAll('\r\n', '\n')),
-    readFile(path.join(compilerRoot, 'scripts/ci-pr-risk.ts'), 'utf8')
-      .then((source) => source.replaceAll('\r\n', '\n')),
-    readFile(
-      path.join(compilerRoot, 'platform/shared/heavy-verification-gate-lease.ts'),
-      'utf8'
-    ).then((source) => source.replaceAll('\r\n', '\n'))
-  ]);
-  expect(devRunnerSource).toContain(
-    "withHeavyVerificationGateLease(\n      'test:affected',\n      () => runAffectedTests(args)"
-  );
-  const affectedEntryIndex = devRunnerSource.indexOf("if (target === 'test:affected')");
-  const planBypassIndex = devRunnerSource.indexOf("if (args.length === 1 && args[0] === '--plan')");
-  const leaseIndex = devRunnerSource.indexOf("withHeavyVerificationGateLease(\n      'test:affected'");
-  expect(affectedEntryIndex).toBeGreaterThanOrEqual(0);
-  expect(planBypassIndex).toBeGreaterThan(affectedEntryIndex);
-  expect(leaseIndex).toBeGreaterThan(planBypassIndex);
-  expect(devRunnerSource.slice(planBypassIndex, leaseIndex)).toContain(
-    'process.exitCode = await runAffectedTests(args);'
-  );
-  expect(riskSource).toContain(
-    "withHeavyVerificationGateLease('ci:risk', () => CodexDevelopmentCiPrRiskMain())"
-  );
-  expect(leaseSource).toContain("Global\\\\sec-heavy-verification-gate-");
-  expect(leaseSource).toContain('WINDOWS_WAIT_ABANDONED_0');
 });

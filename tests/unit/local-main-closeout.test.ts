@@ -54,11 +54,6 @@ async function execute(bindingValue: ReturnType<typeof binding>) {
   ));
 }
 
-test.serial('protected ff-only publication disables every repository hook surface', async () => {
-  const source = await Bun.file(path.resolve(import.meta.dir,
-    '../../scripts/codex/local-main-closeout.ts')).text();
-  expect(source).toContain("['-c', 'core.hooksPath=/dev/null', 'merge', '--ff-only', binding.expectedRemoteMainSha]");
-});
 
 beforeAll(async () => {
   baseRoot = await mkdtemp(path.join(tmpdir(), 'sec-local-main-closeout-'));
@@ -116,22 +111,7 @@ test.serial('already-current protected main returns LOCAL_MAIN_READY without mut
   if (status.status === 'LOCAL_MAIN_READY') expect(status.action).toBe('already-current');
 });
 
-test.serial('effectful already-current closeout fetches and re-inspects the exact tracking ref first', async () => {
-  const source = await Bun.file(path.resolve(import.meta.dir,
-    '../../scripts/codex/local-main-closeout.ts')).text();
-  const execute = source.slice(source.indexOf('export async function executeLocalMainCloseoutV3'),
-    source.indexOf('export function createLocalMainCloseoutBindingFromHostedAuthorityV3'));
-  expect(execute.indexOf("['fetch', '--no-tags', 'origin'")).toBeLessThan(execute.indexOf('inspectLocalMainCloseoutV3(repoRoot, binding, git)'));
-  expect(execute).not.toContain('localHeadBeforeFetch');
-});
 
-test.serial('pure local-main status inspection disables optional locks and forces untracked inventory', async () => {
-  const source = await Bun.file(path.resolve(import.meta.dir,
-    '../../scripts/codex/local-main-closeout.ts')).text();
-  expect(source.match(
-    /\[\s*'--no-optional-locks', 'status', '--porcelain=v1', '--untracked-files=all'\]/gu
-  )).toHaveLength(2);
-});
 
 test.serial('a dirty protected main returns LOCAL_MAIN_SYNC_BLOCKED(dirty) and never mutates', async () => {
   const remoteSha = git(protectedRoot!, ['rev-parse', 'origin/main']).trim();

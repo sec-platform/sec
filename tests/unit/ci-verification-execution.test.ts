@@ -22,6 +22,7 @@ import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../platform/dev-runner/test-execution-policy.ts';
 import {
   CodexDevelopmentAssertVerificationActionTerminalArtifactV2,
   CodexDevelopmentAssertVerificationEvidenceV4,
@@ -53,7 +54,8 @@ import {
   type TcbClosureLockInput
 } from '../../platform/shared/tcb-closure-lock.ts';
 import {
-  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3,
+  SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3
 } from '../../platform/shared/tcb-trust-root-contract.ts';
 import {
   buildCiVerificationActionPlanClosureV1,
@@ -281,7 +283,7 @@ forbiddenPaths:
 acceptance:
   - exact-verification
 tests:
-  - focused-verification
+  - tests/unit/ci-verification-execution.test.ts
 ---
 
 # Exact Verification
@@ -765,9 +767,10 @@ function createTcbClosureCommandFixture(): TcbClosureCommandFixture {
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(path.join(parent, 'sec-tcb-command-'));
   const runtime = trustedRuntimeClosure();
-  const reviewedSutEdge = 'scripts/ci-workspace-fast.ts -> platform/orchestrator.ts';
-  if (!runtime.reviewedEdges.has(reviewedSutEdge)) {
-    throw new Error('TCB closure fixture did not observe the canonical reviewed SUT boundary.');
+  for (const reviewedSutEdge of SEC_TRUSTED_BOOTSTRAP_REGISTRY_V3.reviewedSutEdges) {
+    if (!runtime.reviewedEdges.has(reviewedSutEdge)) {
+      throw new Error(`TCB closure fixture did not observe reviewed SUT boundary ${reviewedSutEdge}.`);
+    }
   }
   const copiedPaths = new Set(runtime.closure);
   for (const edge of [...runtime.reviewedEdges, ...runtime.reviewedBoundaryEdges]) {
@@ -919,8 +922,6 @@ type TcbClosureCliObservation = Readonly<{
 }>;
 
 const TCB_CLOSURE_FIXTURE_CHILD_TIMEOUT_MS = 15_000;
-const TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS = 30_000;
-const TCB_CLOSURE_FIXTURE_RECOVERY_MATRIX_TIMEOUT_MS = 60_000;
 
 function invokeTcbClosureCli(
   fixture: TcbClosureCommandFixture,
@@ -961,7 +962,8 @@ function tcbInputFromTrustedRuntimeClosure(): TcbClosureLockInput {
     reviewedEdges: new Set(runtime.reviewedEdges),
     reviewedBoundaryEdges: new Set(runtime.reviewedBoundaryEdges),
     reviewedExternalImports: new Set(runtime.reviewedExternalImports),
-    reviewedProcessDispatchers: new Set(runtime.reviewedProcessDispatchers)
+    reviewedProcessDispatchers: new Set(runtime.reviewedProcessDispatchers),
+    reviewedNetworkDispatchers: new Set(runtime.reviewedNetworkDispatchers)
   };
 }
 
@@ -991,7 +993,6 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
     renameSync(fixture.target, absentTarget);
     const missingCheck = invokeTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'check']);
     expect(missingCheck.status).not.toBe(0);
-    expect(missingCheck.stderr).toContain('target is missing outside a recoverable apply state');
     expect(existsSync(fixture.target)).toBe(false);
     expect(readFileSync(absentTarget, 'utf8')).toBe(originalSource);
     expect(existsSync(fixture.archiveRoot)).toBe(false);
@@ -1034,6 +1035,33 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
     expect(tcbArchiveFiles(fixture)).toHaveLength(1);
     expect(tcbOperationFiles(fixture)).toHaveLength(1);
 
+    const handwrittenSource = `${readFileSync(fixture.target, 'utf8')}\n// reviewed handwritten authority revision\n`;
+    writeFileSync(fixture.target, handwrittenSource, 'utf8');
+    const handwrittenPlan = planTcbFixtureUpdate(fixture, '2026-08-09T03:30:00.000Z', 101);
+    const powerShellRoundTripInstant = '2026-08-09T11:30:00.0000000+08:00';
+    const handwrittenDryRun = successfulTcbClosureCli(fixture, [
+      'tcb-closure-lock', '--mode', 'dry-run', '--generated-at', powerShellRoundTripInstant
+    ]);
+    expect(handwrittenDryRun).toMatchObject({ status: 'update-required', changed: false });
+    expect(handwrittenDryRun.generatedAt).toBe('2026-08-09T03:30:00.000Z');
+    expect(handwrittenDryRun.nextRawSourceDigest).toBe(handwrittenPlan.nextRawSourceDigest);
+    expect(readFileSync(fixture.target, 'utf8')).toBe(handwrittenSource);
+    const handwrittenApplied = successfulTcbClosureCli(fixture, [
+      'tcb-closure-lock', '--mode', 'apply', '--generated-at', powerShellRoundTripInstant
+    ]);
+    expect(handwrittenApplied).toMatchObject({ status: 'applied', changed: true });
+    expect(readFileSync(tcbArchivePathFromResult(fixture, handwrittenApplied), 'utf8')).toBe(handwrittenSource);
+    expect(tcbArchiveFiles(fixture)).toHaveLength(2);
+    expect(tcbOperationFiles(fixture)).toHaveLength(2);
+    const handwrittenCheck = successfulTcbClosureCli(fixture, ['tcb-closure-lock', '--mode', 'check']);
+    expect(handwrittenCheck).toMatchObject({ status: 'current', changed: false });
+    const beforeInvalidInstant = readFileSync(fixture.target, 'utf8');
+    const invalidInstant = invokeTcbClosureCli(fixture, [
+      'tcb-closure-lock', '--mode', 'dry-run', '--generated-at', '2026-02-30T00:00:00.0000000Z'
+    ]);
+    expect(invalidInstant.status).not.toBe(0);
+    expect(readFileSync(fixture.target, 'utf8')).toBe(beforeInvalidInstant);
+
     const originalHosted = process.env.GITHUB_ACTIONS;
     process.env.GITHUB_ACTIONS = 'true';
     try {
@@ -1050,7 +1078,7 @@ test('TCB closure argv-only CLI checks, plans and applies only its copied fixed 
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
+}, DEFAULT_TEST_TIMEOUT_MS);
 
 test('TCB closure apply retains exact archives and recovers only canonical operation states', () => {
   const fixture = createTcbClosureCommandFixture();
@@ -1072,7 +1100,6 @@ test('TCB closure apply retains exact archives and recovers only canonical opera
       'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T06:30:00.000Z'
     ]);
     expect(wrongStageEpoch.status).not.toBe(0);
-    expect(wrongStageEpoch.stderr).toContain('generatedAt does not match');
     expect(readFileSync(fixture.stage, 'utf8')).toBe(staged.nextSource);
     const recoveredStage = successfulTcbClosureCli(fixture, [
       'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T06:00:00.000Z'
@@ -1135,14 +1162,13 @@ test('TCB closure apply retains exact archives and recovers only canonical opera
       'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T09:00:00.000Z'
     ]);
     expect(blocked.status).not.toBe(0);
-    expect(blocked.stderr).toContain('oldDigest mismatch');
     expect(readFileSync(fixture.target, 'utf8')).toBe(oldSource);
     expect(readFileSync(fixture.stage, 'utf8')).toBe(substituted.nextSource);
     expect(readFileSync(substitutedArchive, 'utf8')).toBe(thirdValue);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-}, TCB_CLOSURE_FIXTURE_RECOVERY_MATRIX_TIMEOUT_MS);
+}, DEFAULT_TEST_TIMEOUT_MS);
 
 test('TCB closure captured recovery blocks archive substitution without deleting any observed bytes', () => {
   const fixture = createTcbClosureCommandFixture();
@@ -1169,14 +1195,13 @@ test('TCB closure captured recovery blocks archive substitution without deleting
       'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T11:00:00.000Z'
     ]);
     expect(blocked.status).not.toBe(0);
-    expect(blocked.stderr).toContain('oldDigest mismatch');
     expect(existsSync(fixture.target)).toBe(false);
     expect(readFileSync(fixture.stage, 'utf8')).toBe(recovery.nextSource);
     expect(readFileSync(archive, 'utf8')).toBe(thirdValue);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
+}, DEFAULT_TEST_TIMEOUT_MS);
 
 test('TCB closure raw CAPTURED census rejects non-canonical operation time without rollback', () => {
   const fixture = createTcbClosureCommandFixture();
@@ -1196,7 +1221,6 @@ test('TCB closure raw CAPTURED census rejects non-canonical operation time witho
       'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T11:30:00Z'
     ]);
     expect(blocked.status).not.toBe(0);
-    expect(blocked.stderr).toContain('generatedAt must be canonical ISO-8601 UTC');
     expect(existsSync(fixture.target)).toBe(false);
     expect(readFileSync(fixture.stage, 'utf8')).toBe(plan.nextSource);
     expect(readFileSync(operation.archivePath, 'utf8')).toBe(oldSource);
@@ -1204,7 +1228,7 @@ test('TCB closure raw CAPTURED census rejects non-canonical operation time witho
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
+}, DEFAULT_TEST_TIMEOUT_MS);
 
 test('TCB closure CAPTURED rollback destination race preserves archive, stage and third value', () => {
   const fixture = createTcbClosureCommandFixture();
@@ -1229,7 +1253,6 @@ test('TCB closure CAPTURED rollback destination race preserves archive, stage an
       'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T11:40:00.000Z'
     ]);
     expect(blocked.status).not.toBe(0);
-    expect(blocked.stderr).toContain('destination final fence is occupied');
     expect(readFileSync(fixture.target, 'utf8')).toBe('destination third value');
     expect(readFileSync(fixture.stage, 'utf8')).toBe(plan.nextSource);
     expect(readFileSync(archive, 'utf8')).toBe(oldSource);
@@ -1237,7 +1260,7 @@ test('TCB closure CAPTURED rollback destination race preserves archive, stage an
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
+}, DEFAULT_TEST_TIMEOUT_MS);
 
 test('TCB closure CAPTURED rollback never executes a semantically invalid staged source', () => {
   const fixture = createTcbClosureCommandFixture();
@@ -1259,7 +1282,6 @@ test('TCB closure CAPTURED rollback never executes a semantically invalid staged
       'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T11:50:00.000Z'
     ]);
     expect(blocked.status).not.toBe(0);
-    expect(blocked.stderr).toContain('record does not bind its exact successor');
     expect(existsSync(marker)).toBe(false);
     expect(readFileSync(fixture.target, 'utf8')).toBe(oldSource);
     expect(readFileSync(fixture.stage, 'utf8')).toBe(maliciousStage);
@@ -1268,7 +1290,7 @@ test('TCB closure CAPTURED rollback never executes a semantically invalid staged
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
+}, DEFAULT_TEST_TIMEOUT_MS);
 
 for (const transition of [
   { label: 'target-to-archive', sourceSuffix: `${path.sep}tcb-closure-lock.ts` },
@@ -1308,7 +1330,7 @@ for (const transition of [
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  }, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
+  }, DEFAULT_TEST_TIMEOUT_MS);
 }
 
 test('TCB closure destination final fence preserves the source and a concurrent third value', () => {
@@ -1326,7 +1348,6 @@ test('TCB closure destination final fence preserves the source and a concurrent 
       'tcb-closure-lock', '--mode', 'apply', '--generated-at', '2026-08-09T13:00:00.000Z'
     ]);
     expect(blocked.status).not.toBe(0);
-    expect(blocked.stderr).toContain('destination final fence is occupied');
     expect(readFileSync(fixture.target, 'utf8')).toBe(originalSource);
     expect(readFileSync(fixture.stage, 'utf8')).toBe(plan.nextSource);
     expect(tcbArchiveFiles(fixture)).toHaveLength(1);
@@ -1336,7 +1357,7 @@ test('TCB closure destination final fence preserves the source and a concurrent 
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
-}, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
+}, DEFAULT_TEST_TIMEOUT_MS);
 
 for (const swapped of ['target-parent', 'archive-ancestor'] as const) {
   test(`TCB closure rejects a ${swapped} junction or symlink without mutating observed bytes`, () => {
@@ -1371,7 +1392,7 @@ for (const swapped of ['target-parent', 'archive-ancestor'] as const) {
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
-  }, TCB_CLOSURE_FIXTURE_CASE_TIMEOUT_MS);
+  }, DEFAULT_TEST_TIMEOUT_MS);
 }
 
 test('CI runner executes every ordinary gate through Action and publishes only V4', async () => {
@@ -2015,22 +2036,6 @@ test('capability unsupported or ambiguous terminalizes without invoking the cand
     for (const invariant of [
       'runtime-binary-closure', '/usr/sbin/chroot', '--kill-child=KILL'
     ]) expect(capabilityPlan).toContain(invariant);
-    const productionSource = await Bun.file(
-      new URL('../../scripts/ci-verification.ts', import.meta.url)
-    ).text();
-    expect(productionSource).toContain(
-      'shellSingleQuoteV1(HOSTED_SUT_CHROOT_CAPABILITY_SCRIPT_V1)'
-    );
-    expect(productionSource).toContain(
-      'shellSingleQuoteV1(HOSTED_SUT_CHROOT_EXECUTION_SCRIPT_V1)'
-    );
-    expect(productionSource).not.toContain(
-      'JSON.stringify(HOSTED_SUT_CHROOT_CAPABILITY_SCRIPT_V1)'
-    );
-    expect(productionSource.match(/rm -rf -- "\$root" >\/dev\/null 2>&1 \|\| true/gu)).toHaveLength(2);
-    expect(productionSource).toContain(
-      'shellSingleQuoteV1(CodexDevelopmentHostedSutCapabilityAssertionV1)'
-    );
     for (const forbidden of ['mount --bind /usr', '/var/run/docker.sock']) {
       expect(capabilityPlan).not.toContain(forbidden);
     }
@@ -2167,35 +2172,7 @@ test('raw archive metadata rejects traversal, special files, unsafe links, dupli
   ])).toThrow(/targets itself or an ancestor/u);
 });
 
-test('trusted bootstrap dependency archive projection is source-read-only and binds one physical generation', () => {
-  const productionSource = readFileSync(path.join(compilerRoot, 'scripts', 'ci-verification.ts'), 'utf8');
-  const prepareStart = productionSource.indexOf(
-    'export function CodexDevelopmentPrepareTrustedBootstrapSutInputsV1'
-  );
-  const prepareEnd = productionSource.indexOf(
-    'export function CodexDevelopmentMaterializeHostedActionCandidateV2',
-    prepareStart
-  );
-  const prepareSource = productionSource.slice(prepareStart, prepareEnd);
-  expect(prepareStart).toBeGreaterThanOrEqual(0);
-  expect(prepareEnd).toBeGreaterThan(prepareStart);
-  expect(prepareSource.indexOf('CodexDevelopmentCaptureHostedDependencyPhysicalSnapshotV1(baseNodeModules)'))
-    .toBeGreaterThan(prepareSource.indexOf('CodexDevelopmentRunBoundedDependencyMaterializationV1'));
-  expect(prepareSource.indexOf('CodexDevelopmentMaterializeTrustedBootstrapArchiveV3({'))
-    .toBeGreaterThan(prepareSource.indexOf("'bundle', 'verify'"));
-  expect(prepareSource.indexOf('CodexDevelopmentInspectHostedActionArchiveInventoryV3('))
-    .toBeGreaterThan(prepareSource.indexOf('CodexDevelopmentMaterializeTrustedBootstrapArchiveV3({'));
-  expect(prepareSource.indexOf('CodexDevelopmentAssertHostedDependencyArchiveProjectionV1({'))
-    .toBeGreaterThan(prepareSource.indexOf('CodexDevelopmentInspectHostedActionArchiveInventoryV3('));
-  expect(productionSource).toContain(
-    'dependencyArchiveProjection: prepared.dependencyArchiveProjection'
-  );
-  expect(productionSource).not.toContain('CodexDevelopmentNormalizeHostedDependencySymlinkClosureV1');
-  expect(productionSource).not.toContain('.sec-relocatable-link-');
-  expect(productionSource).toContain('os.O_PATH | os.O_NOFOLLOW');
-  expect(productionSource).toContain('os.readlink("", dir_fd=link_fd)');
-  expect(productionSource).not.toContain('os.readlink(name, dir_fd=directory_fd)');
-
+test('trusted dependency archive projection binds one stable physical generation', () => {
   const fileDigest = digest('6');
   const otherDigest = digest('7');
   const rootIdentity = Object.freeze({

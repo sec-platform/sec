@@ -1,3 +1,4 @@
+import { DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE } from '../test-budget-contract.ts';
 import type { TestOwnershipDeclaration } from '../test-ownership-contract.ts';
 import { TRUSTED_VERIFIER_TCB_FAST_TESTS } from './verification.ts';
 
@@ -18,7 +19,6 @@ const DOCUMENTATION_CORPUS_FAST_TESTS = [
 const DOCUMENTATION_AUTHORITY_FAST_TESTS = [
   'tests/contract/agent-skills.test.ts',
   'tests/contract/ci-lanes.test.ts',
-  'tests/contract/document-control-plane-lifecycle.test.ts',
   'tests/contract/documentation-authority.test.ts',
   ...DOCUMENTATION_CORPUS_FAST_TESTS,
   'tests/contract/docs-doctor-ledgers.test.ts',
@@ -47,13 +47,17 @@ const AGENT_GOVERNANCE_FAST_TESTS = [
 ];
 
 const WORK_PACKAGE_CONTRACT_FAST_TESTS = [
-  'tests/contract/document-control-plane-lifecycle.test.ts',
   'tests/contract/documentation-authority.test.ts',
   'tests/contract/docs-doctor.test.ts',
   'tests/contract/operation-read-plan.test.ts',
   'tests/contract/test-impact.test.ts',
   'tests/unit/agent-operation-activation.test.ts',
   'tests/unit/codex-work-package-contract.test.ts'
+];
+
+const DOCUMENT_CONTROL_PROJECTION_FAST_TESTS = [
+  'tests/unit/document-control-plane-projection.test.ts',
+  'tests/unit/document-control-plane-github-observation.test.ts'
 ];
 
 const AGENT_SKILL_AUTHORING_FAST_TESTS = [
@@ -74,7 +78,6 @@ const ISSUE_DISPOSITION_FAST_TESTS = [
 const FROZEN_WORK_PACKAGE_FAST_TESTS = [
   'tests/contract/agent-skills.test.ts',
   'tests/contract/ci-lanes.test.ts',
-  'tests/contract/document-control-plane-lifecycle.test.ts',
   'tests/contract/documentation-authority.test.ts',
   'tests/contract/docs-doctor.test.ts',
   'tests/contract/test-impact.test.ts',
@@ -162,61 +165,74 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
   {
     owner: 'issue-disposition',
     identity: { kind: 'contract', id: 'issue-disposition' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/issue-disposition-contract.ts',
       'scripts/codex/issue-disposition-github.ts',
       'scripts/codex/issue-disposition.ts'
     ],
-    fast: ISSUE_DISPOSITION_FAST_TESTS,
-    slow: []
+    supplementalFast: ISSUE_DISPOSITION_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'work-selection',
     identity: { kind: 'contract', id: 'work-selection' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/work-selection-contract.ts',
       'platform/shared/work-selection-live-contract.ts',
       'scripts/codex/work-selection.ts'
     ],
-    fast: [
+    supplementalFast: [
       'tests/unit/agent-operation-activation.test.ts',
-      'tests/contract/document-control-plane-lifecycle.test.ts',
       'tests/contract/docs-doctor.test.ts',
       'tests/unit/branch-lifecycle-contract.test.ts',
+      ...DOCUMENT_CONTROL_PROJECTION_FAST_TESTS,
       'tests/unit/verification-candidate-tree.test.ts',
       'tests/unit/work-selection-contract.test.ts',
       'tests/unit/work-selection-live.test.ts',
       'tests/contract/test-impact.test.ts'
     ],
-    slow: []
+    supplementalSlow: []
+  },
+  {
+    owner: 'document-control-plane-projection',
+    identity: { kind: 'contract', id: 'document-control-plane-projection' },
+    sourceFiles: [
+      'scripts/codex/document-control-plane-contract.ts',
+      'scripts/codex/document-control-plane-github-observation.ts'
+    ],
+    supplementalFast: DOCUMENT_CONTROL_PROJECTION_FAST_TESTS,
+    supplementalSlow: []
+  },
+  {
+    owner: 'document-control-plane-transaction',
+    identity: { kind: 'contract', id: 'document-control-plane-transaction' },
+    sourceFiles: ['scripts/codex/document-control-plane.ts'],
+    supplementalFast: DOCUMENT_CONTROL_PROJECTION_FAST_TESTS,
+    supplementalSlow: [DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE]
   },
   {
     owner: 'agent-operation-activation',
     identity: { kind: 'contract', id: 'agent-operation-activation' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/agent-operation-activation-contract.ts',
       'scripts/codex/agent-operation-activation-census.ts',
       'scripts/codex/agent-operation-activation.ts'
     ],
-    fast: [
+    supplementalFast: [
       ...TRUSTED_VERIFIER_TCB_FAST_TESTS,
       'tests/contract/operation-read-plan.test.ts',
       'tests/contract/skill-applicability.test.ts'
     ],
-    slow: []
+    supplementalSlow: []
   },
   {
     owner: 'agent-task-capsule',
     identity: { kind: 'contract', id: 'agent-task-capsule' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/agent-task-capsule-contract.ts',
       'scripts/codex/task-capsule.ts'
     ],
-    fast: [
+    supplementalFast: [
       'tests/unit/agent-task-capsule.test.ts',
       'tests/unit/agent-operation-read-plan.test.ts',
       'tests/contract/operation-read-plan.test.ts',
@@ -224,23 +240,33 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'tests/contract/test-impact.test.ts',
       'tests/unit/skill-applicability-decision.test.ts'
     ],
-    slow: []
+    supplementalSlow: []
   },
   {
     owner: 'agent-operation-read-plan',
     identity: { kind: 'contract', id: 'agent-operation-read-plan' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'platform/shared/agent-operation-read-plan-contract.ts',
       'scripts/codex/operation-read-plan.ts'
     ],
-    fast: [
+    supplementalFast: [
       'tests/unit/agent-operation-read-plan.test.ts',
       'tests/contract/operation-read-plan.test.ts',
       'tests/contract/skill-applicability.test.ts',
       'tests/contract/test-impact.test.ts'
     ],
-    slow: []
+    supplementalSlow: []
+  },
+  {
+    owner: 'agent-operation-read-plan',
+    identity: { kind: 'contract', id: 'agent-operation-read-plan' },
+    sourceFiles: ['scripts/codex/skill-applicability.ts'],
+    supplementalFast: [
+      ...TRUSTED_VERIFIER_TCB_FAST_TESTS,
+      'tests/contract/operation-read-plan.test.ts',
+      'tests/contract/skill-applicability.test.ts'
+    ],
+    supplementalSlow: []
   },
   {
     owner: 'managed-git-hooks',
@@ -249,44 +275,40 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'scripts/install-git-hooks.ts'
     ],
     sourcePrefixes: ['.githooks/'],
-    fast: [
+    supplementalFast: [
       'tests/unit/install-git-hooks.test.ts',
       'tests/contract/test-impact.test.ts'
     ],
-    slow: ['tests/e2e/install-git-hooks.test.ts']
+    supplementalSlow: ['tests/e2e/install-git-hooks.test.ts']
   },
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.authority,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.authority },
-    autoReferenceMode: 'declared-only',
     sourceKinds: ['active-documentation'],
-    fast: DOCUMENTATION_AUTHORITY_FAST_TESTS,
-    slow: []
+    supplementalFast: [...DOCUMENTATION_AUTHORITY_FAST_TESTS, ...DOCUMENT_CONTROL_PROJECTION_FAST_TESTS],
+    supplementalSlow: []
   },
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.authority,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.authority },
-    autoReferenceMode: 'declared-only',
     sourceFiles: DOCUMENTATION_AUTHORITY_TOMBSTONE_FILES,
-    fast: ['tests/contract/documentation-authority.test.ts'],
-    slow: []
+    supplementalFast: ['tests/contract/documentation-authority.test.ts'],
+    supplementalSlow: []
   },
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.historical,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.historical },
-    autoReferenceMode: 'declared-only',
     sourcePrefixes: [
       'docs/archive/',
       'docs/superpowers/',
       'tests/fixtures/documentation-history/'
     ],
-    fast: HISTORICAL_DOCUMENTATION_FAST_TESTS,
-    slow: []
+    supplementalFast: HISTORICAL_DOCUMENTATION_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.evidence,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.evidence },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'docs/evidence/2026-07-26-development-throughput-audit.md',
       'docs/evidence/2026-08-03-constraint-thoughts-execution-plan.md',
@@ -294,21 +316,19 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'docs/evidence/2026-08-04-full-architecture-asset-audit.md'
     ],
     sourcePrefixes: ['docs/evidence/documentation/'],
-    fast: NON_ACTIVE_DOCUMENTATION_FAST_TESTS,
-    slow: []
+    supplementalFast: NON_ACTIVE_DOCUMENTATION_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'agent-skill-authoring',
     identity: { kind: 'contract', id: 'agent-skill-authoring' },
-    autoReferenceMode: 'declared-only',
     sourcePrefixes: ['.agents/skills/'],
-    fast: AGENT_SKILL_AUTHORING_FAST_TESTS,
-    slow: []
+    supplementalFast: AGENT_SKILL_AUTHORING_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'agent-governance',
     identity: { kind: 'architecture-owner', id: 'agent-governance' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: [
       'AGENTS.md',
       '.codex/agents/implementation-worker.toml',
@@ -323,38 +343,34 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'scripts/codex/repository-audit.ts',
       'scripts/discover-all.ts'
     ],
-    fast: AGENT_GOVERNANCE_FAST_TESTS,
-    slow: []
+    supplementalFast: AGENT_GOVERNANCE_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'work-package-contract',
     identity: { kind: 'contract', id: 'work-package-contract' },
-    autoReferenceMode: 'declared-only',
     sourceFiles: ['scripts/codex/work-package-contract.ts'],
-    fast: WORK_PACKAGE_CONTRACT_FAST_TESTS,
-    slow: []
+    supplementalFast: [...WORK_PACKAGE_CONTRACT_FAST_TESTS, ...DOCUMENT_CONTROL_PROJECTION_FAST_TESTS],
+    supplementalSlow: []
   },
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.frozenWorkPackage,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.frozenWorkPackage },
-    autoReferenceMode: 'declared-only',
     sourceFiles: FROZEN_WORK_PACKAGE_TOMBSTONE_FILES,
-    fast: ['tests/contract/documentation-authority.test.ts'],
-    slow: []
+    supplementalFast: ['tests/contract/documentation-authority.test.ts'],
+    supplementalSlow: []
   },
   {
     owner: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.frozenWorkPackage,
     identity: { kind: 'contract', id: DOCUMENTATION_LIFECYCLE_TEST_OWNERS.frozenWorkPackage },
-    autoReferenceMode: 'declared-only',
     excludedSourceFiles: FROZEN_WORK_PACKAGE_TOMBSTONE_FILES,
     sourcePrefixes: ['docs/work-packages/'],
-    fast: FROZEN_WORK_PACKAGE_FAST_TESTS,
-    slow: []
+    supplementalFast: [...FROZEN_WORK_PACKAGE_FAST_TESTS, ...DOCUMENT_CONTROL_PROJECTION_FAST_TESTS],
+    supplementalSlow: []
   },
   {
     owner: 'work-package-gate',
     identity: { kind: 'contract', id: 'work-package-gate' },
-    autoReferenceMode: 'declared-only',
     removedSourceTransitions: RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS,
     sourceFiles: [
       'scripts/run-work-package-gate.ts',
@@ -369,8 +385,8 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'docs/evidence/v0-4-semantic-mutation-restored-runtime-input-exact-result-loss-record-2026-07-18.json'
     ],
     sourcePrefixes: ['tests/fixtures/work-package-gate-manifests/'],
-    fast: WORK_PACKAGE_EVIDENCE_FAST_TESTS,
-    slow: []
+    supplementalFast: WORK_PACKAGE_EVIDENCE_FAST_TESTS,
+    supplementalSlow: []
   },
   {
     owner: 'work-package-gate',
@@ -382,7 +398,7 @@ export const governanceTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       'tests/fixtures/work-package-gate-retained-recovery/terminal-order/000000000002.json',
       'tests/fixtures/work-package-gate-retained-recovery/terminal-order/.sequence-head.json'
     ],
-    fast: WORK_PACKAGE_FIXTURE_FAST_TESTS,
-    slow: []
+    supplementalFast: WORK_PACKAGE_FIXTURE_FAST_TESTS,
+    supplementalSlow: []
   }
 ];

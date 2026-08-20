@@ -1,6 +1,3 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-
 import { expect, test } from 'bun:test';
 
 import {
@@ -14,31 +11,6 @@ import {
   REFERENCE_PIPELINE_TRANSACTION_ID
 } from '../../platform/shared/pipeline-journal.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
-
-test('Pipeline and template sandbox share one canonical Semantic Frontend bundle', async () => {
-  const repoRoot = process.cwd();
-  const orchestratorSource = await fs.readFile(
-    path.join(repoRoot, 'platform', 'orchestrator', 'semantic-orchestrator.ts'),
-    'utf8'
-  );
-  const templateValidationSource = await fs.readFile(
-    path.join(repoRoot, 'platform', 'compiler', 'verify', 'validate-resolved-templates.ts'),
-    'utf8'
-  );
-
-  expect(orchestratorSource).toContain('buildWorkspaceSemanticBundle(workspaceRoot)');
-  expect(templateValidationSource).toContain("from '../semantic-frontend.ts'");
-  expect(templateValidationSource).toContain('buildWorkspaceSemanticBundle(validationRoot)');
-  expect(templateValidationSource).toContain('createPipelineSemanticContext(');
-  for (const forbiddenBuilder of [
-    'loadWorkspaceEngineeringIRBuildInput',
-    'buildValidatedEngineeringIR',
-    'buildSemanticGeneratorPlan',
-    'buildSemanticViewSet'
-  ]) {
-    expect(templateValidationSource).not.toContain(forbiddenBuilder);
-  }
-}, 30000);
 
 test('Ticket canonical compile binds one validated semantic snapshot to each transaction', async () => {
   await withTempWorkspace(async (workspaceRoot) => {

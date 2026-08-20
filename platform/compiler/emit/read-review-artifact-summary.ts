@@ -1,14 +1,14 @@
-import type { CiArtifactManifest } from '../../shared/ci-artifact-types.ts';
-import { readOptionalJson } from '../../shared/fs.ts';
+import { readOptionalCiArtifactManifestV1 } from '../../shared/ci-artifact-authority.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
 import type { ReviewSummary } from '../../shared/review-types.ts';
 
-export async function readReviewArtifactSummary(workspaceRoot: string): Promise<ReviewSummary['artifactSummary']> {
+export function readReviewArtifactSummary(workspaceRoot: string): ReviewSummary['artifactSummary'] {
   const { ciArtifactsPath } = getWorkspacePaths(workspaceRoot);
-  const manifest = await readOptionalJson<CiArtifactManifest>(ciArtifactsPath);
-  if (!manifest) {
-    return undefined;
-  }
+  const manifest = readOptionalCiArtifactManifestV1(
+    ciArtifactsPath,
+    'Review CI artifact manifest'
+  );
+  if (!manifest) return undefined;
   return {
     ...manifest.summary,
     ...(manifest.uploadGroups.length > 0 ? { uploadGroups: manifest.uploadGroups } : {}),

@@ -1,278 +1,205 @@
 import path from 'node:path';
-import { loadCanonicalBunRuntimeVersion } from '../../shared/bun-runtime-version.ts';
+
 import { createConcurrencyLimit } from '../../shared/concurrency.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import { ensureDir, writeText, type CommitFence } from '../../shared/fs.ts';
-import type { LockFile, ResolvedBlock } from '../../shared/lock-types.ts';
-import { blockDirName, getWorkspacePaths } from '../../shared/paths.ts';
-import { CodeBuilder } from '../codegen/code-builder.ts';
+import type { LockFile } from '../../shared/lock-types.ts';
+import {
+  isCanonicalPortableLogicalPathV1,
+  portableLogicalPathCollisionKeyV1
+} from '../../shared/logical-path-identity.ts';
+import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
+import type {
+  MicroserviceDeploymentIntent,
+  MicroserviceDeploymentPublicationPolicy,
+  MicroserviceDeploymentRenderer,
+  MicroserviceResiliencePolicy,
+  RenderedMicroserviceArtifact
+} from './microservice-deployment-contract.ts';
+import { defaultMicroserviceDeploymentBinding } from './microservice-deployment-provider.ts';
+
+const MICROSERVICE_PUBLICATION_CONCURRENCY = 8;
+
+function buildDeploymentIntent(
+  blockId: string,
+  resilience: MicroserviceResiliencePolicy
+): MicroserviceDeploymentIntent {
+  return Object.freeze({
+    blockId,
+    transport: 'json-rpc',
+    requestMethod: 'POST',
+    packaging: 'isolated-service',
+    resilience
+  });
+}
+
+function assertResiliencePolicy(policy: MicroserviceResiliencePolicy): void {
+  const valid =
+    Number.isSafeInteger(policy.failureThreshold) && policy.failureThreshold > 0 &&
+    Number.isFinite(policy.cooldownPeriodMs) && policy.cooldownPeriodMs >= 0 &&
+    Number.isFinite(policy.timeoutMs) && policy.timeoutMs > 0 &&
+    Number.isFinite(policy.initialRetryDelayMs) && policy.initialRetryDelayMs >= 0 &&
+    Number.isSafeInteger(policy.maxRetries) && policy.maxRetries >= 0;
+  if (!valid) {
+    throw new CompilerError(
+      'COMPOSE-PROVIDER-001',
+      'Microservice resilience policy is invalid',
+      { policy }
+    );
+  }
+}
+
+function canonicalPublicationRoots(
+  policy: MicroserviceDeploymentPublicationPolicy
+): readonly string[] {
+  if (policy.allowedArtifactRoots.length === 0) {
+    throw new CompilerError(
+      'COMPOSE-PATH-005',
+      'Microservice deployment publication policy must authorize at least one artifact root'
+    );
+  }
+  const roots: string[] = [];
+  const seen = new Map<string, string>();
+  for (const root of policy.allowedArtifactRoots) {
+    if (!isCanonicalPortableLogicalPathV1(root)) {
+      throw new CompilerError(
+        'COMPOSE-PATH-005',
+        `Microservice deployment publication root is not one canonical relative path: ${root}`,
+        { root }
+      );
+    }
+    const identity = portableLogicalPathCollisionKeyV1(root);
+    const previous = seen.get(identity);
+    if (previous !== undefined) {
+      throw new CompilerError(
+        'COMPOSE-PATH-005',
+        `Microservice deployment publication root aliases another portable path: ${root}`,
+        { root, previousRoot: previous }
+      );
+    }
+    seen.set(identity, root);
+    roots.push(root);
+  }
+  return Object.freeze(roots);
+}
+
+function assertArtifactAuthorized(
+  relativePath: string,
+  allowedRoots: readonly string[]
+): void {
+  if (!allowedRoots.some((root) => relativePath.startsWith(`${root}/`))) {
+    throw new CompilerError(
+      'COMPOSE-PATH-005',
+      `Microservice deployment renderer is not authorized to publish artifact path: ${relativePath}`,
+      { artifactPath: relativePath, allowedRoots }
+    );
+  }
+}
+
+function resolveRenderedArtifactPath(
+  projectRoot: string,
+  artifact: RenderedMicroserviceArtifact,
+  allowedRoots: readonly string[]
+): string {
+  if (!isCanonicalPortableLogicalPathV1(artifact.relativePath)) {
+    throw new CompilerError(
+      'COMPOSE-PATH-003',
+      `Microservice deployment renderer returned a non-canonical artifact path: ${artifact.relativePath}`,
+      { artifactPath: artifact.relativePath, reason: 'non-canonical-relative-path' }
+    );
+  }
+  assertArtifactAuthorized(artifact.relativePath, allowedRoots);
+  const target = resolvePathInside(projectRoot, artifact.relativePath);
+  if (!target) {
+    throw new CompilerError(
+      'COMPOSE-PATH-003',
+      `Microservice deployment renderer returned an unsafe artifact path: ${artifact.relativePath}`,
+      { artifactPath: artifact.relativePath, reason: 'project-root-escape' }
+    );
+  }
+  return target;
+}
+
+function assertUniqueRenderedArtifactPaths(
+  renderer: MicroserviceDeploymentRenderer,
+  projectRoot: string,
+  artifacts: readonly RenderedMicroserviceArtifact[],
+  allowedRoots: readonly string[]
+): void {
+  const seenTargets = new Map<string, Readonly<{ relativePath: string; target: string }>>();
+  for (const artifact of artifacts) {
+    const target = resolveRenderedArtifactPath(projectRoot, artifact, allowedRoots);
+    const identity = portableLogicalPathCollisionKeyV1(artifact.relativePath);
+    const previous = seenTargets.get(identity);
+    if (previous !== undefined) {
+      throw new CompilerError(
+        'COMPOSE-PATH-004',
+        `Microservice deployment renderer "${renderer.providerId}" produced colliding artifact paths "${previous.relativePath}" and "${artifact.relativePath}"`,
+        {
+          providerId: renderer.providerId,
+          providerRevision: renderer.revision,
+          artifactPath: artifact.relativePath,
+          previousArtifactPath: previous.relativePath,
+          target,
+          previousTarget: previous.target
+        }
+      );
+    }
+    seenTargets.set(identity, Object.freeze({ relativePath: artifact.relativePath, target }));
+  }
+}
+
+async function publishRenderedArtifacts(
+  projectRoot: string,
+  artifacts: readonly RenderedMicroserviceArtifact[],
+  allowedRoots: readonly string[],
+  commitFence?: CommitFence
+): Promise<string[]> {
+  const limit = createConcurrencyLimit(MICROSERVICE_PUBLICATION_CONCURRENCY);
+  await Promise.all(artifacts.map((artifact) => limit(async () => {
+    const target = resolveRenderedArtifactPath(projectRoot, artifact, allowedRoots);
+    await ensureDir(path.dirname(target), commitFence);
+    await writeText(target, artifact.text, commitFence);
+  })));
+  return artifacts.map((artifact) => artifact.relativePath);
+}
+
+export async function lowerToMicroservicesWithRenderer(
+  workspaceRoot: string,
+  lock: LockFile,
+  renderer: MicroserviceDeploymentRenderer,
+  resilience: MicroserviceResiliencePolicy,
+  publication: MicroserviceDeploymentPublicationPolicy,
+  commitFence?: CommitFence
+): Promise<string[]> {
+  if (lock.app.target !== 'microservices') return [];
+
+  assertResiliencePolicy(resilience);
+  const allowedRoots = canonicalPublicationRoots(publication);
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const intents = lock.resolvedBlocks.map((block) => buildDeploymentIntent(block.id, resilience));
+  const artifacts = await renderer.render(intents);
+  assertUniqueRenderedArtifactPaths(renderer, projectRoot, artifacts, allowedRoots);
+  return publishRenderedArtifacts(projectRoot, artifacts, allowedRoots, commitFence);
+}
 
 /**
- * 微服务降级编译器 Pass (Microservice Lowering Pass)
- * 在编译发布期，自动将模块化单体降级拆分为分布式的 RPC API 网关与独立的微服务 Docker 容器包
- *
- * 生成代码采用 LLVM IRBuilder 风格的 CodeBuilder 程序化构造，避免大段模板字符串拼接。
+ * Current compatibility entrypoint. Provider selection/default policy live in
+ * the binding owner; this pass only constructs neutral intent and publishes the
+ * renderer's bounded artifact set through the existing compose write boundary.
  */
 export async function lowerToMicroservices(
   workspaceRoot: string,
   lock: LockFile,
   commitFence?: CommitFence
 ): Promise<string[]> {
-  // 如果编译目标不是微服务，则静默跳过
-  if (lock.app.target !== 'microservices') {
-    return [];
-  }
-
-  const { projectRoot } = getWorkspacePaths(workspaceRoot);
-  const bunRuntimeVersion = await loadCanonicalBunRuntimeVersion();
-
-  // 各 block 的 RPC Gateway / Client / Dockerfile 生成互相独立，可并行执行。
-  // 使用 createConcurrencyLimit 限制并发文件写入数量，避免同时打开过多文件句柄。
-  const limit = createConcurrencyLimit(8);
-  const blockGeneratedPaths = await Promise.all(
-    lock.resolvedBlocks.map((block) =>
-      limit(() => lowerBlock(block, projectRoot, bunRuntimeVersion, commitFence))
-    )
+  const binding = defaultMicroserviceDeploymentBinding();
+  return lowerToMicroservicesWithRenderer(
+    workspaceRoot,
+    lock,
+    binding.renderer,
+    binding.resilience,
+    binding.publication,
+    commitFence
   );
-  return blockGeneratedPaths.flat();
-}
-
-async function lowerBlock(
-  block: ResolvedBlock,
-  projectRoot: string,
-  bunRuntimeVersion: string,
-  commitFence?: CommitFence
-): Promise<string[]> {
-  const dirName = blockDirName(block.id);
-  const generatedPaths: string[] = [];
-
-  // 1. 生成高内聚的反射型 JSON-RPC Route Gateway (Next.js API Route)
-  const rpcRouteDir = path.join(projectRoot, 'app', 'api', 'rpc', dirName);
-  const rpcRouteFile = path.join(rpcRouteDir, 'route.ts');
-
-  await ensureDir(rpcRouteDir, commitFence);
-
-  // 使用 CodeBuilder 程序化构造 RPC Gateway，类似 LLVM IRBuilder 的 SSA 构造方式。
-  // 顶层声明（import / type alias / const / function）通过 Structure API 构造为 AST，
-  // 函数体内部用语句文本（ts-morph 会解析为 AST 节点，语法错误立即抛出）。
-  const rpcRouteBuilder = new CodeBuilder(`app/api/rpc/${dirName}/route.ts`)
-    .addFileComment(`@generated-rpc-gateway block-id:${block.id}`)
-    .addImport({ moduleSpecifier: 'next/server', namedImports: ['NextResponse'] })
-    .addImport({
-      moduleSpecifier: `../../../../src/installed/${dirName}/index.ts`,
-      namespaceImport: 'service'
-    })
-    .addTypeAlias('RpcHandler', '(...args: unknown[]) => unknown | Promise<unknown>')
-    .addVariable({
-      name: 'handlers',
-      initializer: 'service as unknown as Record<string, RpcHandler>'
-    })
-    .addFunction({
-      name: 'POST',
-      isAsync: true,
-      isExported: true,
-      parameters: [{ name: 'request', type: 'Request' }],
-      body: buildRpcRouteBody(block.id)
-    });
-
-  await writeText(rpcRouteFile, rpcRouteBuilder.getText(), commitFence);
-  generatedPaths.push(`app/api/rpc/${dirName}/route.ts`);
-
-  // 2. 生成 RPC 客户端代理桩 (RPC Client Proxies)，注入熔断重试韧性机制
-  const clientDir = path.join(projectRoot, 'src', 'rpc-clients');
-  const clientFile = path.join(clientDir, `${dirName}-client.ts`);
-
-  await ensureDir(clientDir, commitFence);
-
-  // 使用 CodeBuilder 程序化构造 RPC Client。
-  // CircuitBreaker 类的属性与方法通过 Structure API 构造为 AST 节点，
-  // 方法体与 callRpc 函数体用语句文本（ts-morph 解析为 AST 节点，语法错误立即抛出）。
-  const envVarName = `SERVICE_HOST_${dirName.toUpperCase().replace(/\./g, '_')}`;
-  const rpcClientBuilder = new CodeBuilder(`src/rpc-clients/${dirName}-client.ts`)
-    .addFileComment(`@generated-rpc-client block-id:${block.id}`)
-    .addClass({
-      name: 'CircuitBreaker',
-      properties: [
-        { name: 'state', type: "'CLOSED' | 'OPEN' | 'HALF_OPEN'", initializer: "'CLOSED'", scope: 'private' },
-        { name: 'failureThreshold', initializer: '3', scope: 'private' },
-        { name: 'cooldownPeriodMs', initializer: '5000', scope: 'private' },
-        { name: 'failureCount', initializer: '0', scope: 'private' },
-        { name: 'lastStateChanged', initializer: '0', scope: 'private' }
-      ],
-      methods: [
-        {
-          name: 'checkCall',
-          scope: 'public',
-          returnType: 'void',
-          body: buildCheckCallBody(block.id)
-        },
-        {
-          name: 'recordSuccess',
-          scope: 'public',
-          returnType: 'void',
-          body: 'this.failureCount = 0;\nthis.state = "CLOSED";'
-        },
-        {
-          name: 'recordFailure',
-          scope: 'public',
-          returnType: 'void',
-          body: 'this.failureCount++;\nif (this.state === "HALF_OPEN" || this.failureCount >= this.failureThreshold) {\n  this.state = "OPEN";\n  this.lastStateChanged = Date.now();\n}'
-        }
-      ]
-    })
-    .addVariable({ name: 'breaker', initializer: 'new CircuitBreaker()' })
-    .addFunction({
-      name: 'delay',
-      isAsync: true,
-      parameters: [{ name: 'ms', type: 'number' }],
-      returnType: 'Promise<void>',
-      body: 'return new Promise(resolve => setTimeout(resolve, ms));'
-    })
-    .addFunction({
-      name: 'callRpc',
-      isAsync: true,
-      isExported: true,
-      parameters: [
-        { name: 'method', type: 'string' },
-        { name: 'params', type: 'any[]' },
-        { name: 'options', type: '{ fallback?: any; timeoutMs?: number }', isOptional: true }
-      ],
-      returnType: 'Promise<any>',
-      body: buildCallRpcBody(block.id, dirName, envVarName)
-    });
-
-  await writeText(clientFile, rpcClientBuilder.getText(), commitFence);
-  generatedPaths.push(`src/rpc-clients/${dirName}-client.ts`);
-
-  // 3. 生成物理隔离部署的 Dockerfile 容器定义 (Containerization)
-  const dockerDir = path.join(projectRoot, 'docker', dirName);
-  const dockerFile = path.join(dockerDir, 'Dockerfile');
-
-  await ensureDir(dockerDir, commitFence);
-
-  const dockerfileContent = `# @generated-dockerfile block-id:${block.id}
-FROM bun:${bunRuntimeVersion}-alpine
-
-WORKDIR /app
-
-# 物理载入公共共享依赖
-COPY package.json bun.lock ./
-RUN bun install
-
-# 复制微服务拆分后的代码
-COPY . .
-
-# 动态设定微服务环境变量
-ENV PORT=3000
-ENV NODE_ENV=production
-
-EXPOSE 3000
-
-CMD ["bun", "run", "dev"]
-`;
-  await writeText(dockerFile, dockerfileContent, commitFence);
-  generatedPaths.push(`docker/${dirName}/Dockerfile`);
-
-  return generatedPaths;
-}
-
-/**
- * 构造 RPC Gateway 的 POST 函数体语句。
- * 类似 LLVM IRBuilder 构造指令序列：函数体内部用语句文本（ts-morph 会解析为 AST 节点）。
- * blockId 在构造期被插值进字符串；${method} 等模板字面量保留在生成代码中。
- */
-function buildRpcRouteBody(blockId: string): string {
-  return `try {
-    const { method, params } = await request.json();
-    const handler = handlers[method];
-    if (typeof handler !== 'function') {
-      return NextResponse.json(
-        { error: \`Method "\${method}" not found in block service "${blockId}"\` },
-        { status: 404 }
-      );
-    }
-    const result = await handler(...(params || []));
-    return NextResponse.json({ result });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Internal RPC execution error';
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
-  }`;
-}
-
-/**
- * 构造 CircuitBreaker.checkCall 方法体。
- */
-function buildCheckCallBody(blockId: string): string {
-  return `const now = Date.now();
-    if (this.state === 'OPEN') {
-      if (now - this.lastStateChanged > this.cooldownPeriodMs) {
-        this.state = 'HALF_OPEN';
-        this.lastStateChanged = now;
-      } else {
-        throw new Error('[Circuit Breaker] Service "${blockId}" is currently offline (Circuit Breaker OPEN). Fast-failing.');
-      }
-    }`;
-}
-
-/**
- * 构造 callRpc 函数体，注入熔断、超时、指数退避重试与降级 fallback。
- * blockId 与 dirName 在构造期被插值；${host}、${response.status} 等模板字面量保留在生成代码中。
- */
-function buildCallRpcBody(blockId: string, dirName: string, envVarName: string): string {
-  return `const host = process.env["${envVarName}"] || '';
-  const timeout = options?.timeoutMs ?? 5000;
-
-  try {
-    breaker.checkCall();
-  } catch (err: any) {
-    if (options && 'fallback' in options) {
-      return options.fallback;
-    }
-    throw err;
-  }
-
-  let lastError: any;
-  let currentDelay = 100;
-  const maxRetries = 3;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), timeout);
-
-      const response = await fetch(\`\${host}/api/rpc/${dirName}\`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method, params }),
-        signal: controller.signal
-      });
-      clearTimeout(id);
-
-      if (!response.ok) {
-        throw new Error(\`HTTP status \${response.status}\`);
-      }
-
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      breaker.recordSuccess();
-      return data.result;
-    } catch (err: any) {
-      lastError = err;
-      if (attempt < maxRetries) {
-        await delay(currentDelay);
-        currentDelay *= 2;
-      }
-    }
-  }
-
-  breaker.recordFailure();
-  if (options && 'fallback' in options) {
-    return options.fallback;
-  }
-  throw new Error(\`[RPC Error - ${blockId}] Call failed after \${maxRetries + 1} attempts. Last error: \${lastError.message}\`);`;
 }

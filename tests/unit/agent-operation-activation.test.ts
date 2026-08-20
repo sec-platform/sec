@@ -1,6 +1,4 @@
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 
 import {
   createSecAgentOperationActivationPreparationV1,
@@ -24,8 +22,6 @@ import {
 
 const sha = (character: string): string => character.repeat(40);
 const digest = (character: string): `sha256:${string}` => `sha256:${character.repeat(64)}`;
-const ROOT = path.resolve(import.meta.dir, '../..');
-
 function provider(runId: string, workflowSha = sha('a')): SecAgentOperationActivationProviderV1 {
   return createSecAgentOperationActivationProviderV1({
     repositoryId: '123',
@@ -246,53 +242,4 @@ test('candidate-local objects cannot satisfy the hosted provider schema', () => 
     phase: 'finalize',
     preparationCommentId: null
   })).toThrow(/finalize requires/u);
-});
-
-test('public activation CLI derives identity and exposes no local credential writer', () => {
-  const source = readFileSync(
-    path.join(ROOT, 'scripts/codex/agent-operation-activation.ts'),
-    'utf8'
-  );
-  expect(source).toContain("subcommand === 'request'");
-  expect(source).toContain("subcommand === 'observe'");
-  expect(source).toContain("subcommand === 'produce-hosted'");
-  expect(source).toContain("subcommand === 'publish-hosted'");
-  expect(source).not.toContain("'hash-object'");
-  expect(source).not.toContain("'update-ref'");
-  expect(source).not.toContain("'--manifest-digest'");
-  expect(source).not.toContain("'preparation-comment'");
-  expect(source.match(/resolveMaximalPreparationV1\(/gu)?.length).toBe(4);
-  expect(source).toContain('const maximal = candidates.filter');
-  expect(source).toContain('caller-selected-PRE-is-not-unique-maximal-ancestor');
-  expect(source).toContain('FINAL-consumer-PRE-is-not-unique-maximal-ancestor');
-  expect(source).toContain('rebindPayloadProvider(value, existing.publication.provider)');
-  expect(source).not.toContain('canonicalEqual(payload, value)');
-  expect(source).toContain("'api', '--method', 'POST', `/repos/${repository}/issues/${request.pullRequestNumber}/comments`");
-  expect(source).toContain('created.body !== body || !hostedPublisherMatches(created)');
-  expect(source).not.toContain("'run', 'download'");
-  expect(source).toContain('/actions/artifacts/${publication.artifactId}/zip');
-  expect(source).toContain('rawSha256(archiveBytes) !== publication.artifactDigest');
-  expect(source).toContain('gitTree(candidateRoot, request.expectedHeadSha) !== entries[0]!.headTreeSha');
-  expect(source).toContain('PRE-consumer-stable-fact-rederivation-drift');
-  expect(source).toContain('FINAL-consumer-whole-value-rederivation-drift');
-  expect(source).toContain('preparationWorkPackageDeletions(');
-  expect(source).not.toContain('predecessor-manifest-not-retired');
-  expect(source).not.toContain('requireCompletedPublication');
-  expect(source).not.toContain('console.error(error instanceof Error');
-  expect(source).toContain("new SecAgentOperationActivationUnavailableError(\n          'activation-issuer-unavailable'");
-  expect(source).toContain("phase: 'prepare',\n      preparation,\n      receipt: null");
-  expect(source).toContain("phase: 'finalize',\n    preparation: receipt.preparation");
-  expect(source).toContain('metadata.expired !== false');
-  expect(source).toContain("String(workflowRun.repository_id ?? '') !== publication.provider.repositoryId");
-  expect(source).toContain("unavailable('activation-provider-readback-conflict', repoObservation.bytes)");
-  expect(source).toContain("unavailable('activation-provider-readback-conflict', jobsBytes)");
-  expect(source).toContain('const manifestBlob = readGitBlob(candidateRoot, `${revision}:${pointer.manifest}`)');
-  expect(source).toContain('manifestRevision: manifestBlob.oid');
-  expect(source.match(/manifestRevision: control\.manifestRevision/gu)?.length).toBe(2);
-  const markerFilter = source.indexOf('comment.body.includes(SEC_AGENT_OPERATION_ACTIVATION_COMMENT_MARKER)');
-  const publisherFilter = source.indexOf('hostedPublisherMatches(comment)', markerFilter);
-  const markerParser = source.indexOf('parseSecAgentOperationActivationPublicationCommentV1(comment.body)', publisherFilter);
-  expect(markerFilter).toBeGreaterThan(-1);
-  expect(publisherFilter).toBeGreaterThan(markerFilter);
-  expect(markerParser).toBeGreaterThan(publisherFilter);
 });

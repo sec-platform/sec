@@ -8,8 +8,8 @@ import {
   sortedKeys
 } from './canonical-primitives.ts';
 import { CompilerError } from './errors.ts';
-import { readJson } from './fs.ts';
 import { compilerRoot } from './paths.ts';
+import { readOptionalRetainedJsonV1 } from './retained-file-read.ts';
 
 export interface RootPackageJson {
   dependencies?: Record<string, string>;
@@ -31,7 +31,7 @@ export interface RuntimePackageManifest {
 }
 
 export const RUNTIME_DEPENDENCY_MATERIALIZATION_FORMAT =
-  'sec-runtime-dependency-materialization-v1' as const;
+  'sec-runtime-dependency-materialization-v2' as const;
 
 export type RuntimeDependencyResolutionEdgeKind = 'dependency' | 'optional' | 'peer';
 
@@ -57,9 +57,9 @@ export interface RuntimeDependencyToolchainBinding {
   readonly canonicalBunVersion: string;
   readonly compilerGenerationRevision: string;
   readonly declaredBunVersion: string;
+  readonly dependencyManifestSha256: string;
   readonly installConfigSha256: string | null;
   readonly lockSha256: string;
-  readonly packageManifestSha256: string;
   readonly platform: string;
 }
 
@@ -213,14 +213,14 @@ function canonicalRuntimeToolchainBinding(
       'Runtime dependency compiler generation revision'
     ),
     declaredBunVersion,
+    dependencyManifestSha256: canonicalDigest(
+      input.dependencyManifestSha256,
+      'Runtime dependency manifest authority digest'
+    ),
     installConfigSha256: input.installConfigSha256 === null
       ? null
       : canonicalDigest(input.installConfigSha256, 'Runtime dependency install config digest'),
     lockSha256: canonicalDigest(input.lockSha256, 'Runtime dependency lock digest'),
-    packageManifestSha256: canonicalDigest(
-      input.packageManifestSha256,
-      'Runtime dependency package manifest digest'
-    ),
     platform: canonicalNonEmpty(input.platform, 'Runtime dependency platform')
   });
 }
@@ -515,10 +515,24 @@ export function isRuntimeDepsPreboundBinding(
     record.manifestHash === expectedManifestHash;
 }
 
-export async function loadRuntimeDependencySpec(
+/**
+ * Runtime dependency selection is synchronous because the canonical package
+ * manifest is observed through the synchronous retained no-follow reader. Do
+ * not wrap this API in Promise fanout and claim filesystem parallelism.
+ */
+export function loadRuntimeDependencySpec(
   packageJsonPath = path.join(compilerRoot, 'package.json')
-): Promise<RuntimeDependencySpec> {
-  const rootPackage = await readJson<RootPackageJson>(packageJsonPath);
+): RuntimeDependencySpec {
+  const rootPackage = readOptionalRetainedJsonV1<RootPackageJson>(
+    packageJsonPath,
+    'Runtime dependency root package manifest'
+  );
+  if (rootPackage === null) {
+    throw new CompilerError(
+      'RUNTIME-DEPS-000',
+      `Root package.json is missing: ${packageJsonPath}`
+    );
+  }
   return buildRuntimeDependencySpec(rootPackage);
 }
 

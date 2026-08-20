@@ -1,324 +1,414 @@
 import { expect, test } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import ts from 'typescript';
 
 import { posixPath } from '../../platform/shared/paths.ts';
+import { isTestFile } from '../../platform/shared/test-budget-contract.ts';
 import {
-  getSlowTestSuitesSync,
-  isFastTestFile
-} from '../../platform/shared/test-budget-contract.ts';
+  isTestImpactSourceFile,
+  readRepositoryModuleGraphV1
+} from '../../platform/shared/test-impact-contract.ts';
+import { gitReadBytes, parseNulUtf8 } from '../../tooling/sec-dev/git/git-read.ts';
 
 const repoRoot = process.cwd();
-const canonicalTestkitFiles = [
-  'tests/testkit/cli.ts',
-  'tests/testkit/contracts.ts',
-  'tests/testkit/workspace.ts'
-];
-const legacyAliasFiles = [
-  ['tests', 'helpers', 'cli-helpers.ts'].join('/'),
-  ['tests', 'helpers', 'workspace-fixtures.ts'].join('/'),
-  ['tests', 'helpers', 'scenario.ts'].join('/')
-];
-const legacyImportSpecifiers = [
-  ['..', 'helpers', 'cli-helpers.ts'].join('/'),
-  ['..', 'helpers', 'workspace-fixtures.ts'].join('/'),
-  ['.', 'workspace-fixtures.ts'].join('/')
-];
-const canonicalPackageTestScripts = ['test', 'test:affected', 'test:fast', 'test:slow', 'test:full'];
-const forbiddenPackageTestAliases = [
-  'test:changed',
-  'test:all',
-  'test:quick',
-  'test:ci',
-  'test:smoke',
-  'test:runtime-full',
-  'test:workspace',
-  'test:watch',
-  'test:coverage',
-  'check:changed',
-  'check:lite',
-  'check:pr'
-];
-const activeDocsWithIntentionalForbiddenExamples = new Set([
-  'docs/test-architecture.md'
-]);
-const forbiddenActiveDocFragments = [
-  "from 'vitest'",
-  'from "vitest"',
-  'tests/overview/',
-  'tests/cli/',
-  'tests/pipeline/',
-  'tests/helpers/cli-helpers.ts',
-  'tests/helpers/workspace-fixtures.ts',
-  'fast/runtime/all 三 lane',
-  'PR/push → fast lane，schedule/manual → all lane',
-  '`imports:check` 在 typecheck 之后检查 TypeScript import baseline',
-  'changed slow test files require explicit slow verification',
-  'future `scenario()` helpers',
-  'slow-suite matrix: upgrade, runtime, pipeline, repair, registry, explain, other',
-  'Recommended package script shape',
-  '"test:affected": "bun ./platform/dev-runner.ts test:affected"'
-];
 
-async function pathExists(relativePath: string): Promise<boolean> {
-  try {
-    await fs.access(path.join(repoRoot, relativePath));
-    return true;
-  } catch {
-    return false;
-  }
+function callIdentity(expression: ts.LeftHandSideExpression): string | null {
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (!ts.isPropertyAccessExpression(expression)) return null;
+  const owner = callIdentity(expression.expression);
+  return owner === null ? null : `${owner}.${expression.name.text}`;
 }
 
-async function listFiles(relativeRoot: string, extension: string): Promise<string[]> {
-  const root = path.join(repoRoot, relativeRoot);
-  const files: string[] = [];
-
-  async function visit(directory: string): Promise<void> {
-    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-      const entryPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        await visit(entryPath);
-      } else if (entry.name.endsWith(extension)) {
-        files.push(posixPath(path.relative(repoRoot, entryPath)));
-      }
-    }
-  }
-
-  await visit(root);
-  return files.sort((left, right) => left.localeCompare(right));
+function callRootIdentifier(expression: ts.LeftHandSideExpression): string | null {
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isPropertyAccessExpression(expression)) return callRootIdentifier(expression.expression);
+  if (ts.isCallExpression(expression)) return callRootIdentifier(expression.expression);
+  return null;
 }
 
-async function listTypeScriptFiles(relativeRoot: string): Promise<string[]> {
-  return listFiles(relativeRoot, '.ts');
+function rawTextReadPath(node: ts.CallExpression): ts.Expression | null {
+  const callee = callIdentity(node.expression);
+  if (callee !== null && (
+    callee === 'readFile'
+    || callee === 'readFileSync'
+    || callee === 'readCompilerFile'
+    || callee === 'readCompilerTextFile'
+    || callee.endsWith('.readFile')
+    || callee.endsWith('.readFileSync')
+  )) {
+    return node.arguments[0] ?? null;
+  }
+  if (
+    ts.isPropertyAccessExpression(node.expression)
+    && node.expression.name.text === 'text'
+    && ts.isCallExpression(node.expression.expression)
+    && callIdentity(node.expression.expression.expression) === 'Bun.file'
+  ) {
+    return node.expression.expression.arguments[0] ?? null;
+  }
+  return null;
 }
 
-async function listMarkdownFiles(relativeRoot: string): Promise<string[]> {
-  return listFiles(relativeRoot, '.md');
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (
+    ts.isAwaitExpression(current)
+    || ts.isParenthesizedExpression(current)
+    || ts.isAsExpression(current)
+    || ts.isTypeAssertionExpression(current)
+    || ts.isNonNullExpression(current)
+  ) current = current.expression;
+  return current;
 }
 
-test('test architecture exposes only canonical testkit primitives', async () => {
-  await expect(Promise.all(canonicalTestkitFiles.map(pathExists))).resolves.toEqual([true, true, true]);
-  await expect(Promise.all(legacyAliasFiles.map(pathExists))).resolves.toEqual([false, false, false]);
-});
-
-test('production runtime acceptance is owned by the registered slow runtime-host suite', async () => {
-  const fastRuntimeFiles = [
-    'tests/integration/compiler-dependency-installation.test.ts',
-    'tests/integration/project-base.test.ts',
-    'tests/integration/project-dependency-runtime.test.ts'
-  ];
-  const slowRuntimeFile = 'tests/e2e/runtime-host.test.ts';
-  const [fastSources, slowSource] = await Promise.all([
-    Promise.all(fastRuntimeFiles.map((file) => fs.readFile(path.join(repoRoot, file), 'utf8'))),
-    fs.readFile(path.join(repoRoot, slowRuntimeFile), 'utf8')
-  ]);
-  const runtimeHostSuite = getSlowTestSuitesSync().find((suite) => suite.id === 'e2e-runtime-host');
-
-  expect(fastRuntimeFiles.every(isFastTestFile)).toBe(true);
-  expect(isFastTestFile(slowRuntimeFile)).toBe(false);
-  expect(runtimeHostSuite?.files).toEqual([slowRuntimeFile]);
-  expect(fastSources.join('\n')).not.toContain('withIsolatedRuntimeAcceptanceServer');
-  expect(fastSources.join('\n')).not.toContain('isolated runtime acceptance launches generated Next');
-  expect(slowSource).toContain('withIsolatedRuntimeAcceptanceServer');
-  expect(slowSource).toContain('isolated runtime acceptance launches generated Next');
-});
-
-test('testkit primitives do not depend on helper-layer fixtures', async () => {
-  const offenders: string[] = [];
-
-  for (const file of canonicalTestkitFiles) {
-    const source = await fs.readFile(path.join(repoRoot, file), 'utf8');
-    if (source.includes("'../helpers/") || source.includes('"../helpers/')) {
-      offenders.push(file);
+function containsEmbeddedExecutableProjection(node: ts.Node): boolean {
+  let found = false;
+  const visit = (candidate: ts.Node): void => {
+    if (found) return;
+    if (
+      ts.isPropertyAccessExpression(candidate)
+      && (candidate.name.text === 'run' || candidate.name.text === 'script')
+    ) {
+      found = true;
+      return;
     }
-  }
-
-  expect(offenders).toEqual([]);
-});
-
-test('test sources do not import legacy test helper aliases', async () => {
-  const offenders: string[] = [];
-
-  for (const file of await listTypeScriptFiles('tests')) {
-    if (file === 'tests/contract/test-architecture.test.ts') {
-      continue;
+    if (
+      ts.isBindingElement(candidate)
+      && ts.isIdentifier(candidate.name)
+      && (candidate.name.text === 'run' || candidate.name.text === 'script')
+    ) {
+      found = true;
+      return;
     }
-    const source = await fs.readFile(path.join(repoRoot, file), 'utf8');
-    for (const specifier of legacyImportSpecifiers) {
-      if (source.includes(`'${specifier}'`) || source.includes(`"${specifier}"`)) {
-        offenders.push(`${file} -> ${specifier}`);
-      }
-    }
-  }
-
-  expect(offenders).toEqual([]);
-});
-
-test('root package exposes only canonical test entry scripts', async () => {
-  const packageJson = JSON.parse(await fs.readFile(path.join(repoRoot, 'package.json'), 'utf8')) as {
-    scripts: Record<string, string>;
+    ts.forEachChild(candidate, visit);
   };
-
-  expect(Object.keys(packageJson.scripts).filter((name) => name === 'test' || name.startsWith('test:')).sort()).toEqual([
-    ...canonicalPackageTestScripts,
-    'test:benchmark-contract',
-    'test:budget',
-    'test:contract-freeze'
-  ].sort());
-  for (const scriptName of forbiddenPackageTestAliases) {
-    expect(packageJson.scripts[scriptName]).toBeUndefined();
-  }
-});
-
-test('active docs do not reintroduce legacy test architecture examples', async () => {
-  const offenders: string[] = [];
-
-  for (const file of await listMarkdownFiles('docs')) {
-    if (file.startsWith('docs/archive/') || activeDocsWithIntentionalForbiddenExamples.has(file)) {
-      continue;
-    }
-    const source = await fs.readFile(path.join(repoRoot, file), 'utf8');
-    for (const fragment of forbiddenActiveDocFragments) {
-      if (source.includes(fragment)) {
-        offenders.push(`${file} -> ${fragment}`);
-      }
-    }
-  }
-
-  expect(offenders).toEqual([]);
-});
-
-/**
- * LLVM 风格代码生成契约：compose 层生成 TS 源码必须经 CodeBuilder 程序化构造，
- * 不允许大段模板字符串拼接（类似 LLVM IRBuilder 的设计约束）。
- *
- * 受约束文件：platform/compiler/compose/ 下所有调用 writeText 写 .ts/.tsx 文件的模块。
- * 当前覆盖：microservice-lower-pass.ts、compose-project.ts。
- * 若新增 compose 模块需要生成 TS 源码，必须 import CodeBuilder。
- */
-const codegenComposeFiles = [
-  'platform/compiler/compose/microservice-lower-pass.ts',
-  'platform/compiler/compose/compose-project.ts'
-];
-const codegenBuilderImport = '../codegen/code-builder.ts';
-
-test('compose-layer TS codegen uses CodeBuilder instead of template string concatenation', async () => {
-  const offenders: string[] = [];
-
-  for (const file of codegenComposeFiles) {
-    const source = await fs.readFile(path.join(repoRoot, file), 'utf8');
-    if (!source.includes(`from '${codegenBuilderImport}'`) && !source.includes(`from "${codegenBuilderImport}"`)) {
-      offenders.push(`${file} missing import of CodeBuilder from ${codegenBuilderImport}`);
-    }
-    // 禁止大段模板字符串生成 TS 代码的模式：const xxxContent = `// @generated
-    // 这类模式表明仍在用模板字符串拼接而非 CodeBuilder
-    const templateCodegenPattern = /const\s+\w+Content\s*=\s*`\/\/\s*@generated/;
-    if (templateCodegenPattern.test(source)) {
-      offenders.push(`${file} still uses template string concatenation for @generated TS code`);
-    }
-  }
-
-  expect(offenders).toEqual([]);
-});
-
-test('isolated Verification evidence does not depend back on its child runner', async () => {
-  const evidenceSource = await fs.readFile(
-    path.join(
-      repoRoot,
-      'platform/compiler/verify/semantic-mutation-isolated-verification-evidence.ts'
-    ),
-    'utf8'
-  );
-  expect(evidenceSource).not.toContain("from './run-semantic-mutation-isolated-child.ts'");
-});
-
-/**
- * 编译器门面契约：read-only API 通过 platform/compiler/index.ts 暴露；具有副作用的运行时
- * 不得进入 public facade，只能由拥有对应 pipeline stage 的 production owner 直接导入 canonical
- * internal module。除下列精确 owner -> side-effect/runtime module pair 外，platform/ 仍不得导入编译器子目录。
- */
-const compilerInternalSubdirs = ['align', 'codegen', 'compose', 'emit', 'parse', 'repair', 'resolve', 'synthesize', 'verify', 'workbench'];
-const compilerInternalOwnerImportAllowlist: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  'platform/orchestrator/compose-orchestrator.ts': Object.freeze([
-    '../compiler/compose/compose-project.ts',
-    '../compiler/synthesize/adapt-project.ts'
-  ]),
-  'platform/orchestrator/emit-orchestrator.ts': Object.freeze([
-    '../compiler/emit/ci-artifacts.ts',
-    '../compiler/emit/lock-project.ts',
-    '../compiler/emit/write-explain-graph.ts',
-    '../compiler/emit/write-local-views.ts',
-    '../compiler/emit/write-review-summary.ts'
-  ]),
-  'platform/orchestrator/repair-orchestrator.ts': Object.freeze([
-    '../compiler/repair/build-repair-plan.ts'
-  ]),
-  'platform/orchestrator/semantic-mutation-orchestrator.ts': Object.freeze([
-    '../compiler/verify/run-semantic-mutation-isolated-child.ts',
-    '../compiler/verify/semantic-mutation-isolated-verification-evidence.ts',
-    '../compiler/verify/semantic-mutation-isolated-verification-failure.ts',
-    '../compiler/verify/staged-verification-proof.ts'
-  ]),
-  'platform/orchestrator/semantic-mutation-isolated-verification-runner.ts': Object.freeze([
-    '../compiler/verify/windows-browser-launch-path.ts'
-  ]),
-  'platform/orchestrator/verify-orchestrator.ts': Object.freeze([
-    '../compiler/verify/staged-verification-proof.ts',
-    '../compiler/verify/verify-project.ts',
-    '../compiler/verify/write-policy-snapshot.ts'
-  ]),
-  'platform/orchestrator/workbench-orchestrator.ts': Object.freeze([
-    '../compiler/workbench/apply-view-mutations.ts'
-  ]),
-  'platform/upgrade/upgrade-workspace.ts': Object.freeze([
-    '../compiler/emit/write-provenance.ts'
-  ])
-});
-const compilerInternalImportPattern = new RegExp(
-  `from\\s+['"](?<specifier>\\.\\./compiler/(?:${compilerInternalSubdirs.join('|')})/[^'"]+)['"]`,
-  'g'
-);
-
-function compilerInternalImportIsAllowed(file: string, specifier: string): boolean {
-  return compilerInternalOwnerImportAllowlist[file]?.includes(specifier) ?? false;
+  visit(node);
+  return found;
 }
 
-test('platform modules import compiler APIs through the facade or an exact owner-scoped runtime boundary', async () => {
-  const offenders: string[] = [];
-  const observedAllowedPairs: string[] = [];
-  const allPlatformFiles = await listTypeScriptFiles('platform');
+function containsIdentifier(node: ts.Node, identifier: string): boolean {
+  let found = false;
+  const visit = (candidate: ts.Node): void => {
+    if (found) return;
+    if (ts.isIdentifier(candidate) && candidate.text === identifier) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(candidate, visit);
+  };
+  visit(node);
+  return found;
+}
 
-  for (const file of allPlatformFiles) {
-    // 跳过编译器自身（包括 facade 和内部子目录）
-    if (file.startsWith('platform/compiler/')) continue;
-    // 跳过测试文件（测试可以直接导入内部模块做白盒测试）
-    if (file.startsWith('tests/')) continue;
+function expressionIsTextProjection(
+  expression: ts.Expression,
+  taintedIdentifiers: ReadonlySet<string>,
+  workflowDocumentRead: boolean,
+  governedTextReaders: ReadonlySet<ts.CallExpression>
+): boolean {
+  const current = unwrapExpression(expression);
+  if (ts.isIdentifier(current)) return taintedIdentifiers.has(current.text);
+  if (ts.isCallExpression(current)) {
+    if (governedTextReaders.has(current)) return true;
+    const callee = callIdentity(current.expression);
+    if (callee === 'String' && current.arguments[0] !== undefined) {
+      return expressionIsTextProjection(
+        current.arguments[0], taintedIdentifiers, workflowDocumentRead, governedTextReaders
+      );
+    }
+    if (ts.isPropertyAccessExpression(current.expression)) {
+      const receiver = current.expression.expression;
+      if (expressionIsTextProjection(
+        receiver, taintedIdentifiers, workflowDocumentRead, governedTextReaders
+      )) return true;
+    }
+    return workflowDocumentRead && containsEmbeddedExecutableProjection(current);
+  }
+  if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
+    if (workflowDocumentRead && containsEmbeddedExecutableProjection(current)) return true;
+    return expressionIsTextProjection(
+      current.expression, taintedIdentifiers, workflowDocumentRead, governedTextReaders
+    );
+  }
+  if (ts.isBinaryExpression(current)) {
+    return expressionIsTextProjection(
+      current.left, taintedIdentifiers, workflowDocumentRead, governedTextReaders
+    ) || expressionIsTextProjection(
+      current.right, taintedIdentifiers, workflowDocumentRead, governedTextReaders
+    );
+  }
+  if (ts.isConditionalExpression(current)) {
+    return expressionIsTextProjection(
+      current.whenTrue, taintedIdentifiers, workflowDocumentRead, governedTextReaders
+    ) || expressionIsTextProjection(
+      current.whenFalse, taintedIdentifiers, workflowDocumentRead, governedTextReaders
+    );
+  }
+  if (ts.isTemplateExpression(current)) {
+    return current.templateSpans.some((span) => (
+      expressionIsTextProjection(
+        span.expression, taintedIdentifiers, workflowDocumentRead, governedTextReaders
+      )
+    ));
+  }
+  return workflowDocumentRead && containsEmbeddedExecutableProjection(current);
+}
 
-    const source = await fs.readFile(path.join(repoRoot, file), 'utf8');
-    for (const match of source.matchAll(compilerInternalImportPattern)) {
-      const specifier = match.groups?.specifier;
-      if (!specifier) throw new Error(`Compiler internal import capture failed for ${file}`);
-      const line = source.slice(0, match.index ?? 0).split('\n').length;
-      const pair = `${file} -> ${specifier}`;
-      if (compilerInternalImportIsAllowed(file, specifier)) {
-        observedAllowedPairs.push(pair);
-      } else {
-        offenders.push(`${file}:${line} -> ${specifier}`);
-      }
+function arrayProjectionInitializers(expression: ts.Expression): readonly ts.Expression[] | null {
+  const current = unwrapExpression(expression);
+  if (ts.isArrayLiteralExpression(current)) return current.elements;
+  if (
+    ts.isCallExpression(current)
+    && callIdentity(current.expression) === 'Promise.all'
+    && current.arguments[0] !== undefined
+  ) {
+    const argument = unwrapExpression(current.arguments[0]);
+    if (ts.isArrayLiteralExpression(argument)) return argument.elements;
+  }
+  return null;
+}
+
+function expectAssertionActual(node: ts.CallExpression): ts.Expression | null {
+  if (!ts.isPropertyAccessExpression(node.expression)) return null;
+  if (node.expression.name.text !== 'toContain' && node.expression.name.text !== 'toMatch') return null;
+  let target: ts.Expression = node.expression.expression;
+  while (ts.isPropertyAccessExpression(target)) target = target.expression;
+  if (!ts.isCallExpression(target) || callIdentity(target.expression) !== 'expect') return null;
+  return target.arguments[0] ?? null;
+}
+
+function constantInitializers(parsed: ts.SourceFile): ReadonlyMap<string, ts.Expression> {
+  const values = new Map<string, ts.Expression>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
+      values.set(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return values;
+}
+
+function staticString(
+  expression: ts.Expression,
+  testFile: string,
+  constants: ReadonlyMap<string, ts.Expression>,
+  resolving: ReadonlySet<string> = new Set()
+): string | null {
+  if (ts.isStringLiteralLike(expression)) return expression.text;
+  if (ts.isIdentifier(expression)) {
+    const initializer = constants.get(expression.text);
+    if (initializer === undefined || resolving.has(expression.text)) return null;
+    return staticString(initializer, testFile, constants, new Set([...resolving, expression.text]));
+  }
+  if (ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
+  if (ts.isTemplateExpression(expression)) {
+    let value = expression.head.text;
+    for (const span of expression.templateSpans) {
+      const replacement = staticString(span.expression, testFile, constants, resolving);
+      if (replacement === null) return null;
+      value += replacement + span.literal.text;
+    }
+    return value;
+  }
+  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = staticString(expression.left, testFile, constants, resolving);
+    const right = staticString(expression.right, testFile, constants, resolving);
+    return left === null || right === null ? null : left + right;
+  }
+  if (ts.isCallExpression(expression)) {
+    const callee = callIdentity(expression.expression);
+    if (callee === 'process.cwd' && expression.arguments.length === 0) return repoRoot;
+    if ((callee === 'path.join' || callee === 'path.resolve') && expression.arguments.length > 0) {
+      const values = expression.arguments.map((argument) => staticString(argument, testFile, constants, resolving));
+      if (values.some((value) => value === null)) return null;
+      const concrete = values as string[];
+      return callee === 'path.resolve' ? path.resolve(...concrete) : path.join(...concrete);
     }
   }
+  if (
+    ts.isPropertyAccessExpression(expression)
+    && ts.isMetaProperty(expression.expression)
+    && expression.expression.keywordToken === ts.SyntaxKind.ImportKeyword
+  ) {
+    const absoluteTestFile = path.join(repoRoot, testFile);
+    if (expression.name.text === 'dir') return path.dirname(absoluteTestFile);
+    if (expression.name.text === 'url') return pathToFileURL(absoluteTestFile).href;
+  }
+  if (ts.isNewExpression(expression) && callIdentity(expression.expression) === 'URL') {
+    const [relativeExpression, baseExpression] = expression.arguments ?? [];
+    if (relativeExpression === undefined || baseExpression === undefined) return null;
+    const relative = staticString(relativeExpression, testFile, constants, resolving);
+    const base = staticString(baseExpression, testFile, constants, resolving);
+    if (relative === null || base === null) return null;
+    try {
+      const resolved = new URL(relative, base);
+      return resolved.protocol === 'file:' ? fileURLToPath(resolved) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 
-  expect(offenders).toEqual([]);
-  const expectedAllowedPairs = Object.entries(compilerInternalOwnerImportAllowlist)
-    .flatMap(([file, specifiers]) => specifiers.map((specifier) => `${file} -> ${specifier}`))
-    .sort();
-  expect(observedAllowedPairs.sort()).toEqual(expectedAllowedPairs);
-  expect(compilerInternalImportIsAllowed(
-    'platform/orchestrator/unknown-owner.ts',
-    '../compiler/emit/write-provenance.ts'
-  )).toBe(false);
-  expect(compilerInternalImportIsAllowed(
-    'platform/orchestrator/emit-orchestrator.ts',
-    '../compiler/emit/unknown-writer.ts'
-  )).toBe(false);
+function repositoryPath(value: string): string | null {
+  const absolute = path.isAbsolute(value) ? path.resolve(value) : path.resolve(repoRoot, value);
+  const relative = posixPath(path.relative(repoRoot, absolute));
+  return relative === '..' || relative.startsWith('../') ? null : relative;
+}
+
+function trackedPaths(): readonly string[] {
+  return parseNulUtf8(
+    gitReadBytes(repoRoot, ['ls-files', '-z', '--'], {
+      maxBuffer: 64 * 1024 * 1024,
+      label: 'test architecture tracked-path inventory'
+    }),
+    'test architecture tracked-path inventory'
+  );
+}
+
+async function readCandidateTestSource(repositoryPath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(path.join(repoRoot, repositoryPath), 'utf8');
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      // git ls-files describes the index while the candidate worktree may
+      // intentionally delete a tracked test before staging. There are no
+      // candidate bytes to inspect in that state.
+      return null;
+    }
+    throw error;
+  }
+}
+
+test('test modules contain scenarios and do not inspect tracked module source text', async () => {
+  const tracked = new Set(trackedPaths());
+  const moduleFiles = new Set(readRepositoryModuleGraphV1().files.filter((file) => (
+    tracked.has(file)
+    && !file.startsWith('tests/')
+    && isTestImpactSourceFile(file)
+  )));
+  const emptyModules: string[] = [];
+  const implementationReaders: string[] = [];
+  const textualSourceAssertions: string[] = [];
+
+  for (const file of [...tracked].filter(isTestFile).sort((left, right) => left.localeCompare(right))) {
+    const source = await readCandidateTestSource(file);
+    if (source === null) continue;
+    const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const constants = constantInitializers(parsed);
+    const declarations: ts.VariableDeclaration[] = [];
+    const governedTextReaders = new Set<ts.CallExpression>();
+    let workflowDocumentRead = false;
+    const collect = (node: ts.Node): void => {
+      if (ts.isVariableDeclaration(node)) declarations.push(node);
+      if (ts.isCallExpression(node)) {
+        const pathExpression = rawTextReadPath(node);
+        if (pathExpression !== null) {
+          const staticValue = staticString(pathExpression, file, constants);
+          const target = staticValue === null ? null : repositoryPath(staticValue);
+          if (target !== null && /^\.github\/workflows\/[^/]+\.ya?ml$/u.test(target)) {
+            workflowDocumentRead = true;
+          }
+          if (
+            (target !== null && /^(?:AGENTS\.md|\.agents\/skills\/.+\/SKILL\.md|\.github\/workflows\/[^/]+\.ya?ml)$/u.test(target))
+            || (target === null && containsIdentifier(pathExpression, 'SKILLS_ROOT'))
+          ) governedTextReaders.add(node);
+        }
+      }
+      ts.forEachChild(node, collect);
+    };
+    collect(parsed);
+    const taintedIdentifiers = new Set<string>();
+    for (let pass = 0; pass <= declarations.length; pass += 1) {
+      let changed = false;
+      for (const declaration of declarations) {
+        if (declaration.initializer === undefined) continue;
+        if (ts.isIdentifier(declaration.name)) {
+          if (
+            !taintedIdentifiers.has(declaration.name.text)
+            && expressionIsTextProjection(
+              declaration.initializer,
+              taintedIdentifiers,
+              workflowDocumentRead,
+              governedTextReaders
+            )
+          ) {
+            taintedIdentifiers.add(declaration.name.text);
+            changed = true;
+          }
+          continue;
+        }
+        if (!ts.isArrayBindingPattern(declaration.name)) continue;
+        const initializers = arrayProjectionInitializers(declaration.initializer);
+        if (initializers === null) continue;
+        declaration.name.elements.forEach((element, index) => {
+          if (
+            !ts.isOmittedExpression(element)
+            && ts.isIdentifier(element.name)
+            && initializers[index] !== undefined
+            && !taintedIdentifiers.has(element.name.text)
+            && expressionIsTextProjection(
+              initializers[index]!,
+              taintedIdentifiers,
+              workflowDocumentRead,
+              governedTextReaders
+            )
+          ) {
+            taintedIdentifiers.add(element.name.text);
+            changed = true;
+          }
+        });
+      }
+      if (!changed) break;
+    }
+    let scenarioCount = 0;
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const root = callRootIdentifier(node.expression);
+        if (root === 'test' || root === 'it') scenarioCount += 1;
+        const pathExpression = rawTextReadPath(node);
+        if (pathExpression !== null) {
+          const staticValue = staticString(pathExpression, file, constants);
+          const target = staticValue === null ? null : repositoryPath(staticValue);
+          if (target !== null && moduleFiles.has(target)) {
+            const line = parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1;
+            implementationReaders.push(`${file}:${line}->${target}`);
+          }
+        }
+        const assertionActual = expectAssertionActual(node);
+        const textualMethodReceiver = ts.isPropertyAccessExpression(node.expression)
+          && ['includes', 'indexOf', 'match', 'matchAll', 'search'].includes(node.expression.name.text)
+          ? node.expression.expression
+          : null;
+        const regexTestArgument = ts.isPropertyAccessExpression(node.expression)
+          && node.expression.name.text === 'test'
+          ? node.arguments[0] ?? null
+          : null;
+        if (
+          (assertionActual !== null && expressionIsTextProjection(
+            assertionActual, taintedIdentifiers, workflowDocumentRead, governedTextReaders
+          ))
+          || (textualMethodReceiver !== null && expressionIsTextProjection(
+            textualMethodReceiver, taintedIdentifiers, workflowDocumentRead, governedTextReaders
+          ))
+          || (regexTestArgument !== null && expressionIsTextProjection(
+            regexTestArgument, taintedIdentifiers, workflowDocumentRead, governedTextReaders
+          ))
+        ) {
+          const line = parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1;
+          textualSourceAssertions.push(`${file}:${line}`);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(parsed);
+    if (scenarioCount === 0) emptyModules.push(file);
+  }
+
+  expect(emptyModules).toEqual([]);
+  expect(implementationReaders).toEqual([]);
+  expect(textualSourceAssertions).toEqual([]);
 });

@@ -60,6 +60,7 @@ function fixture() {
   git(root, ['init', '-b', 'main', repository]);
   git(repository, ['config', 'user.name', 'SEC Test']);
   git(repository, ['config', 'user.email', 'sec-test@example.invalid']);
+  git(repository, ['config', 'core.autocrlf', 'false']);
   writeFileSync(path.join(repository, 'tracked.txt'), 'main\n', 'utf8');
   git(repository, ['add', 'tracked.txt']);
   git(repository, ['commit', '-m', 'main']);

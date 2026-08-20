@@ -21,6 +21,9 @@ import type {
 const INPUT_REVISION = `sha256:${'1'.repeat(64)}`;
 const SEMANTIC_REVISION = `sha256:${'2'.repeat(64)}`;
 const ACCEPTANCE_ID = 'user_can_create_customer';
+const BLOCK_ID = 'entity/customer-basic';
+const SLOT_ID = 'customer_slot';
+const POLICY_SOURCE = 'platform/policies/official/tenant.yaml';
 
 type PolicyStatus = 'passed' | 'failed' | 'skipped';
 
@@ -93,7 +96,7 @@ function policyReport(status: 'passed' | 'skipped' = 'passed') {
     status,
     official: {
       policies: hasPolicy ? ['tenant-policy'] : [],
-      sources: hasPolicy ? [{ path: 'policies/tenant.yaml', policyIds: ['tenant-policy'] }] : [],
+      sources: hasPolicy ? [{ path: POLICY_SOURCE, policyIds: ['tenant-policy'] }] : [],
       violations: [] as ReturnType<typeof blockingViolation>[]
     },
     project: {
@@ -105,11 +108,21 @@ function policyReport(status: 'passed' | 'skipped' = 'passed') {
       policies: hasPolicy ? [{
         id: 'tenant-policy',
         sourceScope: 'official' as const,
-        sourcePath: 'policies/tenant.yaml',
+        sourcePath: POLICY_SOURCE,
         targets: ['src/customer.ts']
       }] : []
     },
-    violations: [] as ReturnType<typeof blockingViolation>[]
+    violations: [] as ReturnType<typeof blockingViolation>[],
+    diagnostics: [],
+    ...(hasPolicy ? {
+      evaluation: {
+        providerId: 'fixture-semantic-policy-provider',
+        providerRevision: '1',
+        assurance: 'semantic' as const,
+        requiredSemanticPredicates: ['FLOWS_TO'],
+        unsupportedSemanticPredicates: []
+      }
+    } : {})
   };
 }
 
@@ -117,12 +130,12 @@ function blockingViolation() {
   return {
     id: 'tenant-policy',
     severity: 'blocker' as const,
-    appliesTo: ['customer-service'],
-    rule: 'tenant_context_must_flow_to_query',
+    appliesTo: [BLOCK_ID],
+    rule: 'tenant_context_must_flow_to_query' as const,
     files: ['src/customer.ts'],
     message: 'Tenant context is missing.',
     sourceScope: 'official' as const,
-    sourcePath: 'policies/tenant.yaml'
+    sourcePath: POLICY_SOURCE
   };
 }
 
@@ -133,19 +146,19 @@ function coverage(status: 'passed' | 'failed') {
     status,
     acceptancePassed: complete ? [ACCEPTANCE_ID] : [],
     blocks: [{
-      id: 'block',
+      id: BLOCK_ID,
       declaredAcceptance: [ACCEPTANCE_ID],
       coveredBy: complete ? [ACCEPTANCE_ID] : [],
       uncovered: !complete
     }],
     slots: [{
-      id: 'slot',
+      id: SLOT_ID,
       declaredAcceptance: [ACCEPTANCE_ID],
       coveredBy: complete ? [ACCEPTANCE_ID] : [],
       uncovered: !complete
     }],
-    uncoveredBlocks: complete ? [] : ['block'],
-    uncoveredSlots: complete ? [] : ['slot']
+    uncoveredBlocks: complete ? [] : [BLOCK_ID],
+    uncoveredSlots: complete ? [] : [SLOT_ID]
   };
 }
 

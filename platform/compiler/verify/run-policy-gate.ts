@@ -1,15 +1,20 @@
-import path from 'node:path';
-
 import { uniqueSorted } from '../../shared/collections.ts';
-import { pathExists, readOptionalJson, readText } from '../../shared/fs.ts';
+import { CompilerError } from '../../shared/errors.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
-import { getWorkspacePaths, resolveWorkspaceLockPath } from '../../shared/paths.ts';
+import { readLockFile } from '../../shared/lock-utils.ts';
+import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
+import { validatePolicyReportV1 } from '../../shared/policy-report-authority.ts';
 import type {
   MergedPolicyReportEntry,
+  PolicyDiagnostic,
   PolicyReport,
   PolicyRule,
   PolicyViolation
 } from '../../shared/policy-types.ts';
+import {
+  decodeExactUtf8V1,
+  readOptionalRetainedOrdinaryFileV1
+} from '../../shared/retained-file-read.ts';
 import {
   CodexDevelopmentBuildVerificationGateResultV1,
   type VerificationGateResultV1
@@ -29,19 +34,20 @@ const POLICY_GATE_OWNER = 'product-verify-project';
 const POLICY_GATE_REQUIREMENT_KEY = 'product-verification';
 const POLICY_SUBJECT_REVISION = '0000000000000000000000000000000000000000';
 const POLICY_INPUT_DIGEST = `sha256:${'0'.repeat(64)}`;
+const POLICY_STRUCTURAL_PROVIDER_ID = 'sec-policy-source-structure';
+const POLICY_STRUCTURAL_PROVIDER_REVISION = 'tenant-context-structure-v1';
+const POLICY_TENANT_REQUIRED_SEMANTIC_PREDICATES = Object.freeze(['FLOWS_TO'] as const);
 
-/**
- * Build a `VerificationGateResultV1` for the policy lane. `skipped` (no policies
- * declared) maps to `not-run` with `not-applicable` applicability, NOT silently
- * passed. `passed`/`failed` map directly via the unified status vocabulary.
- *
- * Issue #176 Slice 2: the policy gate emits an explicit applicability instead
- * of the legacy ambiguous `skipped` status.
- */
+function supportsSemanticPolicyPass(report: PolicyReport): boolean {
+  return report.evaluation?.assurance === 'semantic'
+    && report.evaluation.unsupportedSemanticPredicates.length === 0;
+}
+
 export function buildPolicyClaimGate(
-  policyReport: PolicyReport,
+  input: PolicyReport,
   _requestedLane: VerificationLane
 ): VerificationGateResultV1 {
+  const policyReport = validatePolicyReportV1(input);
   const claims = [POLICY_CLAIM_ID];
 
   if (policyReport.status === 'skipped') {
@@ -62,7 +68,29 @@ export function buildPolicyClaimGate(
       execution: null,
       evidenceRefs: [],
       invalidationRules: [],
-      diagnostic: 'No policies declared; policy gate is not-applicable.'
+      diagnostic: 'No applicable policies declared for resolved project targets.'
+    });
+  }
+
+  if (!supportsSemanticPolicyPass(policyReport)) {
+    return CodexDevelopmentBuildVerificationGateResultV1({
+      gateId: POLICY_GATE_ID,
+      gateRevision: POLICY_GATE_REVISION,
+      owner: POLICY_GATE_OWNER,
+      requirementKey: POLICY_GATE_REQUIREMENT_KEY,
+      subjectRevision: POLICY_SUBJECT_REVISION,
+      inputDigest: POLICY_INPUT_DIGEST,
+      applicability: 'required',
+      status: 'unsupported',
+      disposition: 'not-executed',
+      reasonCode: 'capability-unsupported',
+      requiredForClaims: claims,
+      supportedClaims: [],
+      environment: null,
+      execution: null,
+      evidenceRefs: [],
+      invalidationRules: ['policy-semantic-evaluator-or-ir-predicate-change'],
+      diagnostic: 'Canonical semantic Policy proof is unavailable because the current evaluator supplies only source-structure diagnostics and required Engineering IR predicates are unsupported.'
     });
   }
 
@@ -104,9 +132,15 @@ export function buildPolicyClaimGate(
   });
 }
 
+function targetFilesForPolicy(lock: LockFile, policy: PolicyRule): string[] {
+  return uniqueSorted(lock.installPlan
+    .filter((step) => policy.appliesTo.includes(step.blockId) && isPolicyCheckableInstall(step))
+    .map((step) => step.to));
+}
+
 function buildMergedPolicyEntries(
   definitions: ReadonlyMap<string, LoadedPolicyDefinition>,
-  lock: LockFile | null
+  lock: LockFile
 ): MergedPolicyReportEntry[] {
   return [...definitions.values()]
     .map((definition) => ({
@@ -118,24 +152,15 @@ function buildMergedPolicyEntries(
     .sort((left, right) => compareCodeUnits(left.id, right.id));
 }
 
-function targetFilesForPolicy(lock: LockFile | null, policy: PolicyRule): string[] {
-  const installPlan = lock?.installPlan ?? [];
-  const copyTargets = installPlan
-    .filter((step) => policy.appliesTo.includes(step.blockId) && isPolicyCheckableInstall(step))
-    .map((step) => step.to);
-
-  return copyTargets.length > 0 ? uniqueSorted(copyTargets) : ['src/installed/entity/customer-service.ts'];
-}
-
 function isPolicyCheckableInstall(step: InstallPlanStep): boolean {
   return step.action === 'copy' && step.to.startsWith('src/') && step.to.endsWith('.ts');
 }
 
-function evaluateTenantScopeRule(
+function evaluateTenantScopeStructure(
   source: string,
   filePath: string,
   definition: LoadedPolicyDefinition
-): PolicyViolation | null {
+): PolicyDiagnostic | null {
   const hasCurrentTenant = source.includes('currentTenant(session)');
   const tenantIdComparisonPattern = new RegExp(
     [
@@ -145,84 +170,114 @@ function evaluateTenantScopeRule(
   );
   const hasTenantFilter = tenantIdComparisonPattern.test(source);
 
-  if (hasCurrentTenant && hasTenantFilter) {
-    return null;
-  }
-
+  if (hasCurrentTenant && hasTenantFilter) return null;
   return {
     id: definition.policy.id,
     severity: definition.policy.severity,
     appliesTo: definition.policy.appliesTo,
     rule: definition.policy.rule,
     files: [filePath],
-    message: 'Tenant-scoped queries must derive tenant context and filter by tenantId.',
+    message: 'Source structure does not match the current tenant-context heuristic; semantic data-flow proof is unavailable.',
     sourceScope: definition.sourceScope,
-    sourcePath: definition.sourcePath
+    sourcePath: definition.sourcePath,
+    evidenceClass: 'source-structure'
   };
+}
+
+function comparePolicyObservation(left: PolicyDiagnostic, right: PolicyDiagnostic): number {
+  return compareCodeUnits(
+    `${left.id}:${left.sourceScope}:${left.sourcePath}:${left.files.join(',')}:${left.message}`,
+    `${right.id}:${right.sourceScope}:${right.sourcePath}:${right.files.join(',')}:${right.message}`
+  );
 }
 
 function buildPolicyReport(
   official: LoadedPolicyScope,
   project: LoadedPolicyScope,
   mergedPolicies: ReadonlyMap<string, LoadedPolicyDefinition>,
-  lock: LockFile | null,
-  violations: PolicyViolation[]
+  lock: LockFile,
+  violations: PolicyViolation[],
+  diagnostics: PolicyDiagnostic[]
 ): PolicyReport {
   const officialViolations = violations.filter((violation) => violation.sourceScope === 'official');
   const projectViolations = violations.filter((violation) => violation.sourceScope === 'project');
+  const mergedEntries = buildMergedPolicyEntries(mergedPolicies, lock);
+  const applicable = mergedEntries.some((entry) => entry.targets.length > 0);
   const shouldFail = violations.some((violation) => violation.severity === 'error' || violation.severity === 'blocker');
-  const status =
-    mergedPolicies.size === 0 ? 'skipped' : shouldFail ? 'failed' : 'passed';
+  const status = !applicable ? 'skipped' : shouldFail ? 'failed' : 'passed';
 
-  return {
+  return validatePolicyReportV1({
     status,
-    official: {
-      policies: official.policies,
-      sources: official.sources,
-      violations: officialViolations
-    },
-    project: {
-      policies: project.policies,
-      sources: project.sources,
-      violations: projectViolations
-    },
-    merged: {
-      policies: buildMergedPolicyEntries(mergedPolicies, lock)
-    },
-    violations
-  };
+    official: { policies: official.policies, sources: official.sources, violations: officialViolations },
+    project: { policies: project.policies, sources: project.sources, violations: projectViolations },
+    merged: { policies: mergedEntries },
+    violations,
+    diagnostics,
+    evaluation: {
+      providerId: POLICY_STRUCTURAL_PROVIDER_ID,
+      providerRevision: POLICY_STRUCTURAL_PROVIDER_REVISION,
+      assurance: 'source-structure',
+      requiredSemanticPredicates: [...POLICY_TENANT_REQUIRED_SEMANTIC_PREDICATES],
+      unsupportedSemanticPredicates: [...POLICY_TENANT_REQUIRED_SEMANTIC_PREDICATES]
+    }
+  });
 }
 
-export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport> {
+function readPolicyTarget(projectRoot: string, targetFile: string): string {
+  const absolutePath = resolvePathInside(projectRoot, targetFile);
+  if (absolutePath === null) {
+    throw new CompilerError('VERIFY-POLICY-002', `Policy target path escapes the project root: ${targetFile}`);
+  }
+  const bytes = readOptionalRetainedOrdinaryFileV1(absolutePath, `Policy target ${targetFile}`);
+  if (bytes === null) {
+    throw new CompilerError('VERIFY-POLICY-003', `Applicable policy target is missing: ${targetFile}`);
+  }
+  try {
+    return decodeExactUtf8V1(bytes, `Policy target ${targetFile}`);
+  } catch (error) {
+    throw new CompilerError(
+      'VERIFY-POLICY-004',
+      `Applicable policy target is not exact UTF-8: ${targetFile}`,
+      { cause: error instanceof Error ? error.message : String(error) }
+    );
+  }
+}
+
+export function runPolicyGate(workspaceRoot: string): PolicyReport {
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
-  const {
-    official,
-    project,
-    definitions: mergedPolicies
-  } = await loadPolicyDeclarations(workspaceRoot);
+  const { official, project, definitions: mergedPolicies } = loadPolicyDeclarations(workspaceRoot);
 
   if (mergedPolicies.size === 0) {
-    return buildPolicyReport(official, project, mergedPolicies, null, []);
+    return validatePolicyReportV1({
+      status: 'skipped',
+      official: { policies: official.policies, sources: official.sources, violations: [] },
+      project: { policies: project.policies, sources: project.sources, violations: [] },
+      merged: { policies: [] },
+      violations: [],
+      diagnostics: []
+    });
   }
 
-  const violations: PolicyViolation[] = [];
-  const readableLockPath = await resolveWorkspaceLockPath(workspaceRoot);
-  const lock = await readOptionalJson<LockFile>(readableLockPath);
+  let lock: LockFile;
+  try {
+    lock = readLockFile(workspaceRoot);
+  } catch (error) {
+    throw new CompilerError(
+      'VERIFY-POLICY-001',
+      'Policy applicability cannot be resolved without one readable canonical Lock',
+      { cause: error instanceof Error ? error.message : String(error) }
+    );
+  }
 
+  const diagnostics: PolicyDiagnostic[] = [];
   for (const definition of mergedPolicies.values()) {
-    if (definition.policy.rule !== 'tenant_context_must_flow_to_query') {
-      continue;
-    }
-
     for (const targetFile of targetFilesForPolicy(lock, definition.policy)) {
-      const absolutePath = path.join(projectRoot, targetFile);
-      if (!(await pathExists(absolutePath))) {
-        continue;
-      }
-      const violation = evaluateTenantScopeRule(await readText(absolutePath), targetFile, definition);
-      if (violation) {
-        violations.push(violation);
-      }
+      const diagnostic = evaluateTenantScopeStructure(
+        readPolicyTarget(projectRoot, targetFile),
+        targetFile,
+        definition
+      );
+      if (diagnostic) diagnostics.push(diagnostic);
     }
   }
 
@@ -231,11 +286,7 @@ export async function runPolicyGate(workspaceRoot: string): Promise<PolicyReport
     project,
     mergedPolicies,
     lock,
-    violations.sort((left, right) =>
-      compareCodeUnits(
-        `${left.id}:${left.sourceScope}:${left.sourcePath}:${left.files.join(',')}:${left.message}`,
-        `${right.id}:${right.sourceScope}:${right.sourcePath}:${right.files.join(',')}:${right.message}`
-      )
-    )
+    [],
+    diagnostics.sort(comparePolicyObservation)
   );
 }

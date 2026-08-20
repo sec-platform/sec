@@ -147,7 +147,7 @@ async function prepareWorkspacePipeline(
   options: WorkspacePipelineFixtureOptions,
   target: WorkspaceTemplateKind
 ): Promise<void> {
-  await initWorkspace(workspaceRoot, { reset: true });
+  await initWorkspace(workspaceRoot, { reset: true, template: 'reference-customer' });
   const pipelineTarget = templatePipelineTarget(target);
   if (!pipelineTarget) return;
 

@@ -16,10 +16,10 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { installPrivateBannerBlock } from '../helpers/private-registry-fixtures.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
-test('workspace private registry blocks resolve, compose, and verify through the normal pipeline', async () => {
+test('workspace private registry blocks resolve, compose, and verify through an explicit reference host', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-private-registry-');
 
-  await initWorkspace(workspaceRoot, { reset: true });
+  await initWorkspace(workspaceRoot, { reset: true, template: 'reference-customer' });
   await installPrivateBannerBlock(workspaceRoot);
   await addBlock(workspaceRoot, 'private/banner-basic');
 

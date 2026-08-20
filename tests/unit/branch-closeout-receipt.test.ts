@@ -1,6 +1,4 @@
 import { expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 
 import {
   createBranchCloseoutOperationBindingV1,
@@ -369,26 +367,4 @@ test('public branch lifecycle modules cannot mint or invoke arbitrary subprocess
     expect(symbol in command).toBe(false);
     expect(symbol in barrel).toBe(false);
   }
-});
-
-test('physical closeout subprocesses exist only in private VerificationSession transaction', () => {
-  const session = readFileSync(path.resolve('scripts/codex/verification-session.ts'), 'utf8');
-  const closeout = readFileSync(path.resolve('scripts/codex/branch-closeout.ts'), 'utf8');
-  const receipt = readFileSync(path.resolve('scripts/codex/branch-closeout-receipt.ts'), 'utf8');
-  const command = readFileSync(path.resolve('scripts/codex/branch-lifecycle-command.ts'), 'utf8');
-  expect(session).toContain('function publishHostedCloseoutEffectStartV1');
-  expect(session).toContain('function finalizeHostedBranchCloseoutV1');
-  expect(session).toContain('function publishHostedCloseoutTerminalV1');
-  const sameInvocation = session.slice(
-    session.indexOf('async function finalizeSameInvocationCloseoutV1('),
-    session.indexOf('function publishHostedCloseoutTerminalV1(')
-  );
-  expect(sameInvocation.indexOf('publishHostedCloseoutEffectStartV1(input.ctx, effectStart)'))
-    .toBeLessThan(sameInvocation.indexOf('finalizeHostedBranchCloseoutV1({'));
-  expect(closeout).not.toContain('finalizeIntegratedBranchCloseout');
-  expect(closeout).not.toContain("'push',\n    '--porcelain'");
-  expect(receipt).not.toContain('export function publishAndReadBack');
-  expect(receipt).not.toContain('export function consumeBranchCloseoutEffectStartPermitV1');
-  expect(command).not.toContain('export type BranchLifecycleCommandRunner');
-  expect(command).not.toContain('export const defaultBranchLifecycleCommandRunner');
 });

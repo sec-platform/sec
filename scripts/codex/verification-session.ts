@@ -31,6 +31,7 @@ import {
   createIssueAcceptanceIdV1,
   createIssueDispositionPlanV1,
   parseGitHubClosingKeywordOccurrencesV1,
+  type IssueDispositionDigestV1,
   type IssueDispositionPlanV1,
   type IssueDispositionV1
 } from '../../platform/shared/issue-disposition-contract.ts';
@@ -83,6 +84,13 @@ import {
   type VerificationRegistryEntryV1,
   type VerificationSessionV2
 } from '../../platform/shared/verification-session-contract.ts';
+import { acquireSecRuntimeJournalAuthorityV1 } from '../../tooling/sec-dev/runtime-state-authority.ts';
+import { createRuntimeStateJournalFileSystemV1 } from '../../tooling/sec-dev/runtime-state-journal-filesystem.ts';
+import { resolveSecWorkspaceRuntimeRootsV1 } from '../../tooling/sec-dev/runtime-state-paths.ts';
+import {
+  executeLocalVerificationActionDagV2,
+  type LocalVerificationActionDagResultV2
+} from '../../tooling/sec-dev/verification-action-runner.ts';
 import {
   BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME_V1,
   authorizeBranchCloseout,
@@ -166,12 +174,9 @@ import {
 import { createObservedMainHealthInputV1 } from './main-health-observation.ts';
 import {
   CodexDevelopmentEvaluateMergeGateV2,
+  CodexDevelopmentParseMergeGateResultV2,
   assertCanonicalMergeMessageV1
 } from './merge-gate.ts';
-import {
-  executeLocalVerificationActionDagV2,
-  type LocalVerificationActionDagResultV2
-} from './verification-action-runner.ts';
 import { loadVerificationProviderCapabilityLedgerV1 } from './verification-provider-capability-ledger.ts';
 import {
   SEC_HOSTED_COMMENT_PUBLISHER_POLICY_V1,
@@ -185,6 +190,7 @@ import {
 } from './verification-session-github.ts';
 import {
   appendVerificationSessionJournalEventV1,
+  createEphemeralVerificationSessionJournalFsV1,
   createVerificationSessionOperationId,
   readVerificationSessionJournalV1,
   type VerificationSessionJournalFileSystem
@@ -245,7 +251,7 @@ function createVerificationSessionScope(input: VerificationSessionScope): Verifi
   return Object.freeze({ ...input });
 }
 
-function observeVerificationSessionChangedSelectionV1(input: {
+export function observeVerificationSessionChangedSelectionV1(input: {
   repositoryRoot: string;
   repository: string;
   prNumber: number;
@@ -537,7 +543,7 @@ function blobDigest(
   return CodexDevelopmentWorkPackageManifestDigest(result.stdout) as `sha256:${string}`;
 }
 
-function observeVerificationSessionActionDependencyBlobsV2(input: {
+export function observeVerificationSessionActionDependencyBlobsV2(input: {
   github: VerificationSessionGitHubClientV1;
   repository: string;
   baseSha: string;
@@ -732,30 +738,6 @@ function writeDurable(filePath: string, value: unknown): void {
   }
 }
 
-function createEphemeralVerificationSessionJournalFs(): VerificationSessionJournalFileSystem {
-  const files = new Map<string, string>();
-  return Object.freeze({
-    exists: (filePath: string) => files.has(filePath),
-    readText(filePath: string): string {
-      const text = files.get(filePath);
-      if (text === undefined) throw new Error(`ephemeral Session journal is absent: ${filePath}`);
-      return text;
-    },
-    ensureDirectory: () => undefined,
-    appendFsyncCas(filePath: string, expectedBytes: number, text: string): boolean {
-      const current = files.get(filePath) ?? '';
-      if (Buffer.byteLength(current, 'utf8') !== expectedBytes) return false;
-      files.set(filePath, `${current}${text}`);
-      return true;
-    },
-    createExclusiveFsync(filePath: string, text: string): boolean {
-      if (files.has(filePath)) return false;
-      files.set(filePath, text);
-      return true;
-    }
-  });
-}
-
 function writeCanonicalDurable(filePath: string, value: unknown): void {
   const target = path.resolve(filePath);
   const temporary = `${target}.tmp-${process.pid}`;
@@ -923,6 +905,33 @@ function commonGitDirectory(ctx: VerificationSessionScope, repositoryRoot: strin
   const source = gitText(ctx, repositoryRoot,
     ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'Git common directory readback');
   return exactRealPath(source, 'Git common directory');
+}
+
+function inspectLocalVerificationActionRepositoryWithScopeV2(
+  ctx: VerificationSessionScope,
+  repositoryRoot: string
+) {
+  const read = (args: readonly string[], label: string): string => (
+    gitText(ctx, repositoryRoot, args, label)
+  );
+  return Object.freeze({
+    headSha: read(['rev-parse', 'HEAD'], 'local VerificationAction HEAD readback'),
+    headTreeSha: read(['rev-parse', 'HEAD^{tree}'], 'local VerificationAction tree readback'),
+    trackedClean:
+      read(
+        ['diff', '--name-only', '--ignore-cr-at-eol'],
+        'local VerificationAction unstaged tracked-state readback'
+      ) === ''
+      && read(
+        ['diff', '--cached', '--name-only', '--ignore-cr-at-eol'],
+        'local VerificationAction staged tracked-state readback'
+      ) === ''
+      && read(
+        ['ls-files', '--others', '--exclude-standard'],
+        'local VerificationAction untracked-state readback'
+      ) === '',
+    gitCommonDirectory: commonGitDirectory(ctx, repositoryRoot)
+  });
 }
 
 function worktreeRegistration(ctx: VerificationSessionScope, authorityRoot: string, candidateRoot: string):
@@ -1121,7 +1130,10 @@ async function executePreparedLocalQuickDagV2(input: {
     candidateRoot: lease.owner.candidateRoot,
     actionPlanClosure: input.actionPlanClosure,
     executionEnvironment: input.executionEnvironment,
-    environment: input.environment
+    environment: input.environment,
+    inspectRepository: (repositoryRoot) => (
+      inspectLocalVerificationActionRepositoryWithScopeV2(input.ctx, repositoryRoot)
+    )
   });
   if (result.status === 'blocked') {
     return Object.freeze({ result, worktreeDisposition: 'retained-blocked' });
@@ -1186,6 +1198,33 @@ function branchCloseoutRecoveryArtifactName(input: {
   }
   return `sec-branch-closeout-recovery-v1-pr-${input.prNumber}`
     + `-session-${input.sessionRevision.slice(7)}-run-${input.runId}-attempt-${input.runAttempt}`;
+}
+
+const HOSTED_INTEGRATION_PREFLIGHT_RESULT_FILE_V2 =
+  'integration-preflight-result-v2.json' as const;
+
+function hostedIntegrationPreflightResultPath(repositoryRoot: string): string {
+  return path.join(repositoryRoot, '.tmp', 'codex', HOSTED_INTEGRATION_PREFLIGHT_RESULT_FILE_V2);
+}
+
+function assertHostedIntegrationPreflightStillControlsV2(input: Readonly<{
+  frozen: ReturnType<typeof CodexDevelopmentParseMergeGateResultV2>;
+  fresh: ReturnType<typeof CodexDevelopmentEvaluateMergeGateV2>;
+}>): void {
+  const stableFields = [
+    'consumptionOperationId', 'repository', 'prNumber', 'sessionRevision',
+    'baseSha', 'baseTreeSha', 'headSha', 'headTreeSha', 'manifestDigest',
+    'scopeAuthorizationRevision', 'scopeAuthorizationReceiptDigest',
+    'actionClosureDigest', 'evidenceDigest', 'trustRevision', 'rulesetDigest'
+  ] as const;
+  for (const field of stableFields) {
+    if (input.frozen.authorization[field] !== input.fresh.authorization[field]) {
+      throw new Error(`integrate-hosted frozen preflight ${field} drifted before effect.`);
+    }
+  }
+  if (input.frozen.authorization.expiresAt <= new Date().toISOString()) {
+    throw new Error('integrate-hosted frozen preflight expired before effect.');
+  }
 }
 
 function appendTrustedGitHubOutput(
@@ -1512,6 +1551,50 @@ function exactCommitMarker(message: string, name: string): string {
   return matches[0]!.slice(prefix.length);
 }
 
+/**
+ * Reads one exact merge marker without giving callers a second parser or
+ * substring-based fallback.  Recovery paths use the committed marker only as
+ * a locator and must still revalidate the referenced canonical artifacts.
+ */
+export function readExactCommitMarkerV1(message: string, name: string): string {
+  return exactCommitMarker(message, name);
+}
+
+/**
+ * Canonical provider observation for an IssueDisposition plan.  The PR
+ * candidate and the provider's closing-reference projection are deliberately
+ * two observations; neither may be used alone at the merge fence.
+ */
+export function observeExactIssueDispositionPlanV1(input: Readonly<{
+  github: VerificationSessionGitHubClientV1;
+  repository: string;
+  candidate: GitHubCandidateObservationV1;
+  manifestPath: string;
+  manifestDigest: IssueDispositionDigestV1;
+  tracking: ReturnType<typeof CodexDevelopmentParseWorkPackageManifest>['tracking'];
+}>): IssueDispositionPlanV1 {
+  const closingFacts = input.github.observePullRequestClosingFacts(
+    input.repository,
+    input.candidate.number
+  );
+  if (closingFacts.state !== input.candidate.state
+      || closingFacts.title !== input.candidate.title
+      || closingFacts.body !== input.candidate.body
+      || closingFacts.mergeCommitSha !== input.candidate.mergeCommitSha) {
+    throw new Error('IssueDisposition PR prose or provider closing references drifted across observation owners.');
+  }
+  return createIssueDispositionPlanV1({
+    repository: input.repository,
+    prNumber: input.candidate.number,
+    manifestPath: input.manifestPath,
+    manifestDigest: input.manifestDigest,
+    tracking: input.tracking,
+    title: input.candidate.title,
+    body: input.candidate.body,
+    linkedClosingIssues: closingFacts.closingIssues
+  });
+}
+
 const ISSUE_DISPOSITION_COMMIT_MARKERS_V1 = Object.freeze([
   'Issue-Disposition-Plan',
   'Issue-Disposition-Mode',
@@ -1536,7 +1619,7 @@ function issueDispositionCommitMarkerStateV1(message: string): 'complete' | 'leg
  * effect.  This remains read-only: a non-no-op result is deliberately a
  * maintainer boundary, never an optimistic closeout permit.
  */
-function observePostMergeIssueReconciliationV1(input: Readonly<{
+export function observePostMergeIssueReconciliationV1(input: Readonly<{
   repository: string;
   prNumber: number;
   candidate: GitHubCandidateObservationV1;
@@ -2222,15 +2305,14 @@ function observeHostedTrackingIssueDispositionV1(input: Readonly<{
     throw new Error('IssueDisposition exact merged manifest bytes differ from the Session.');
   }
   const manifest = CodexDevelopmentParseWorkPackageManifest(manifestSource, session.manifestPath);
-  const closingFacts = github.observePullRequestClosingFacts(repository, session.prNumber);
-  if (closingFacts.state !== candidate.state || closingFacts.title !== candidate.title
-    || closingFacts.body !== candidate.body || closingFacts.mergeCommitSha !== candidate.mergeCommitSha) {
-    throw new Error('IssueDisposition closeout PR prose or provider closing references drifted.');
-  }
-  const plan = createIssueDispositionPlanV1({ repository, prNumber: session.prNumber,
-    manifestPath: session.manifestPath, manifestDigest: session.manifestDigest,
-    tracking: manifest.tracking, title: candidate.title, body: candidate.body,
-    linkedClosingIssues: closingFacts.closingIssues });
+  const plan = observeExactIssueDispositionPlanV1({
+    github,
+    repository,
+    candidate,
+    manifestPath: session.manifestPath,
+    manifestDigest: session.manifestDigest,
+    tracking: manifest.tracking
+  });
   if (plan.mode !== mode || plan.trackingIssueNumber !== trackingIssueNumber
     || plan.titleBodyDigest !== exactCommitMarker(candidate.mergeCommitMessage,
       'Issue-Disposition-Prose')
@@ -3570,15 +3652,14 @@ function evaluateFreshHostedIntegration(input: {
     manifestSource,
     artifact.session.manifestPath
   );
-  const closingFacts = github.observePullRequestClosingFacts(repository, artifact.session.prNumber);
-  if (closingFacts.state !== candidate.state || closingFacts.title !== candidate.title
-    || closingFacts.body !== candidate.body || closingFacts.mergeCommitSha !== candidate.mergeCommitSha) {
-    throw new Error('Hosted integration PR prose or closing references drifted across observation owners.');
-  }
-  const issueDispositionPlan = createIssueDispositionPlanV1({ repository,
-    prNumber: artifact.session.prNumber, manifestPath: artifact.session.manifestPath,
-    manifestDigest: artifact.session.manifestDigest, tracking: manifest.tracking,
-    title: candidate.title, body: candidate.body, linkedClosingIssues: closingFacts.closingIssues });
+  const issueDispositionPlan = observeExactIssueDispositionPlanV1({
+    github,
+    repository,
+    candidate,
+    manifestPath: artifact.session.manifestPath,
+    manifestDigest: artifact.session.manifestDigest,
+    tracking: manifest.tracking
+  });
   const integrationPrincipalNodeId = provenance.actorNodeId;
   const barrier = github.observeReviewBarrier({ repository, prNumber: artifact.session.prNumber,
     headSha: artifact.session.headSha,
@@ -4105,6 +4186,20 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   const environment = process.env;
   const now = () => new Date().toISOString();
   const ctx = createVerificationSessionScope({ repositoryRoot });
+  let runtimeJournalFs: VerificationSessionJournalFileSystem | null = null;
+  if (new Set(['prepare', 'resume', 'status', 'status-offline', 'integrate-hosted']).has(command)) {
+    const authority = await acquireSecRuntimeJournalAuthorityV1({ repositoryRoot, environment });
+    const roots = resolveSecWorkspaceRuntimeRootsV1({ repositoryRoot, environment });
+    runtimeJournalFs = createRuntimeStateJournalFileSystemV1(
+      authority.directory(roots.workspaceStateRoot)
+    );
+  }
+  const durableJournalFs = (): VerificationSessionJournalFileSystem => {
+    if (runtimeJournalFs === null) {
+      throw new Error(`${command} did not acquire the canonical Runtime State journal authority.`);
+    }
+    return runtimeJournalFs;
+  };
   const githubAdapter = () => createVerificationSessionGitHubClientV1(repositoryRoot);
   const event = () => githubEvent(environment);
   if (command === 'local-main-closeout') {
@@ -4254,11 +4349,14 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }
     const reviewBarrierAllowsExecution = prepared.reviewBarrier.status === 'clear'
       || prepared.reviewBarrier.status === 'waiting';
-    const journal = readVerificationSessionJournalV1({ repositoryRoot,
-      sessionRevision: prepared.sessionRevision });
-    if (journal.completedStageIndex < 0) appendVerificationSessionJournalEventV1({ repositoryRoot,
+    const journalFs = durableJournalFs();
+    const journal = readVerificationSessionJournalV1({
+      sessionRevision: prepared.sessionRevision,
+      fs: journalFs
+    });
+    if (journal.completedStageIndex < 0) appendVerificationSessionJournalEventV1({
       sessionRevision: prepared.sessionRevision, targetStage: 'frozen', kind: 'completed',
-      receiptDigest: prepared.sessionRevision, operationId: null });
+      receiptDigest: prepared.sessionRevision, operationId: null, fs: journalFs });
     let hosted = selectTrustedHostedSessionArtifactV1({ github, repository,
       transports: github.observeActionsArtifacts(repository), request: prepared.request });
     const localExecutionEnvironment = createCiVerificationLocalExecutionEnvironmentV2({
@@ -4421,7 +4519,10 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
   }
   if (command === 'status-offline') {
     const session = parseVerificationSessionV2(readFileSync(path.resolve(required(args, '--session-file')), 'utf8'));
-    const journal = readVerificationSessionJournalV1({ repositoryRoot, sessionRevision: session.sessionRevision });
+    const journal = readVerificationSessionJournalV1({
+      sessionRevision: session.sessionRevision,
+      fs: durableJournalFs()
+    });
     return JSON.stringify({ mode: 'offline-projection', session, journal }, null, 2);
   }
   if (command === 'status') {
@@ -4725,6 +4826,10 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
     }
     const preflight = evaluateFreshHostedIntegration({ github, repository, hosted, candidate,
       provenance: identity.provenance, observedAt: now() });
+    writeDurable(
+      hostedIntegrationPreflightResultPath(ctx.repositoryRoot),
+      preflight.result
+    );
     const prepared = prepareMergedPullRequestCloseout(ctx, { number: artifact.session.prNumber,
       headBranch: candidate.headBranch, headSha: artifact.session.headSha });
     const recovery = materializeBranchCloseoutRecoveryArtifact({ outputPath, repository,
@@ -4806,9 +4911,21 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       const evaluation = evaluateFreshHostedIntegration({ github, repository, hosted, candidate,
         provenance: hostedProvenance, observedAt: integrationNow });
       issueDispositionPlan = evaluation.issueDispositionPlan;
-      const freshlyEvaluated = evaluation.result;
-      if (freshlyEvaluated.authorization.consumptionOperationId !== expectedConsumptionOperationId) {
-        throw new Error('Fresh merge-gate evaluation changed the stable consumption operation identity.');
+      const frozenPreflight = CodexDevelopmentParseMergeGateResultV2(readFileSync(
+        hostedIntegrationPreflightResultPath(ctx.repositoryRoot),
+        'utf8'
+      ));
+      const expectedPreflightDigest = environment.EXPECTED_PREFLIGHT_RESULT_DIGEST;
+      if (expectedPreflightDigest === undefined
+        || frozenPreflight.resultDigest !== expectedPreflightDigest) {
+        throw new Error('integrate-hosted downloaded preflight digest differs from the terminal status binding.');
+      }
+      assertHostedIntegrationPreflightStillControlsV2({
+        frozen: frozenPreflight,
+        fresh: evaluation.result
+      });
+      if (frozenPreflight.authorization.consumptionOperationId !== expectedConsumptionOperationId) {
+        throw new Error('Frozen merge-gate preflight changed the stable consumption operation identity.');
       }
       const recovery = loadProviderBranchCloseoutRecoveryArtifact({ ctx, github, repository,
         session: artifact.session, runId: hostedProvenance.runId,
@@ -4817,7 +4934,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
       originalHostPrepared = loadOriginalHostPreparedCloseoutV1({ ctx,
         outputPath: required(args, '--output'), providerRecovery: recovery });
       const publication = createIntegrationAuthorizationOperationPublicationV1({
-        result: freshlyEvaluated, closeoutPreparation: recovery.remotePrepared,
+        result: frozenPreflight, closeoutPreparation: recovery.remotePrepared,
         recoveryArtifact: { artifactId: recovery.metadata.artifactId,
           artifactName: recovery.metadata.artifactName,
           artifactFileName: BRANCH_CLOSEOUT_RECOVERY_ARTIFACT_FILE_NAME_V1,
@@ -4912,10 +5029,10 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         ).digest('hex')}` as const };
       }
     };
-    const reduce = (journalFs?: VerificationSessionJournalFileSystem) => resumeVerificationSessionV2({ repositoryRoot,
+    const reduce = (journalFs: VerificationSessionJournalFileSystem) => resumeVerificationSessionV2({ repositoryRoot,
       session: artifact.session, scopeAuthorization: artifact.scopeAuthorization, changedPaths,
       integrationPrincipalNodeId: authorizationResult.provenance.actorNodeId, github, external, journalFs });
-    let result = reduce(createEphemeralVerificationSessionJournalFs());
+    let result = reduce(createEphemeralVerificationSessionJournalFsV1(durableJournalFs().rootPath));
     let issueReconciliation: Readonly<Record<string, unknown>> = Object.freeze({
       status: 'not-observed', results: Object.freeze([])
     });
@@ -4956,30 +5073,22 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         || candidate.headSha !== artifact.session.headSha || candidate.headTreeSha !== artifact.session.headTreeSha) {
         throw new Error('integrate-hosted candidate drifted immediately before physical merge.');
       }
-      const fresh = reduce(createEphemeralVerificationSessionJournalFs());
+      const fresh = reduce(createEphemeralVerificationSessionJournalFsV1(durableJournalFs().rootPath));
       if (fresh.status !== 'READY_TO_INTEGRATE'
         || fresh.operationId !== authorizationResult.authorization.consumptionOperationId) {
         throw new Error(`integrate-hosted effect guard changed before merge: ${fresh.status} ${fresh.reason}`);
       }
-      const immediateClosingFacts = github.observePullRequestClosingFacts(
+      const immediatePlan = observeExactIssueDispositionPlanV1({
+        github,
         repository,
-        artifact.session.prNumber
-      );
-      if (immediateClosingFacts.state !== candidate.state
-        || immediateClosingFacts.title !== candidate.title
-        || immediateClosingFacts.body !== candidate.body
-        || immediateClosingFacts.mergeCommitSha !== candidate.mergeCommitSha) {
-        throw new Error('integrate-hosted closing-reference observation drifted immediately before merge.');
-      }
-      const immediatePlan = createIssueDispositionPlanV1({ repository,
-        prNumber: artifact.session.prNumber, manifestPath: artifact.session.manifestPath,
+        candidate,
+        manifestPath: artifact.session.manifestPath,
         manifestDigest: artifact.session.manifestDigest,
         tracking: CodexDevelopmentParseWorkPackageManifest(
           github.readBlobText(repository, artifact.session.headSha, artifact.session.manifestPath),
           artifact.session.manifestPath
-        ).tracking,
-        title: candidate.title, body: candidate.body,
-        linkedClosingIssues: immediateClosingFacts.closingIssues });
+        ).tracking
+      });
       if (issueDispositionPlan === null
         || immediatePlan.planDigest !== issueDispositionPlan.planDigest) {
         throw new Error('integrate-hosted Issue disposition plan drifted immediately before merge.');
@@ -5070,7 +5179,7 @@ export async function verificationSessionCli(argv: string[]): Promise<string> {
         authorizationCommentId: selected.commentId, recovery: selectedRecovery,
         provenance: hostedProvenance, phase: hostedIdentity.phase,
         worktreeCleanupTokens, now });
-      result = reduce();
+      result = reduce(durableJournalFs());
     }
     const mergedProjectionCandidate = github.observeCandidate(repository, artifact.session.prNumber);
     if (issueReconciliation.status === 'not-observed') {

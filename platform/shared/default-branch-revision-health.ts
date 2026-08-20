@@ -6,7 +6,7 @@
  */
 
 import {
-  resolveMainHealthLaneV1,
+  resolveOrdinaryMainHealthLaneV1,
   type MainHealthLaneDecisionV1
 } from './main-health-contract.ts';
 
@@ -23,11 +23,8 @@ export interface DefaultBranchRevisionHealthInputV1 {
 export function resolveDefaultBranchRevisionHealthV1(
   input: DefaultBranchRevisionHealthInputV1
 ): MainHealthLaneDecisionV1 {
-  return resolveMainHealthLaneV1({
+  return resolveOrdinaryMainHealthLaneV1({
     ledger: input.ledger,
-    // This production projection is intentionally ordinary-only. Repair is a
-    // semantic MainHealth state until a later frozen package owns its executor.
-    lane: 'ordinary',
     now: input.now,
     expectedRepository: input.repository,
     expectedDefaultBranch: input.defaultBranch,

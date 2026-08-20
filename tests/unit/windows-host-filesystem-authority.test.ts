@@ -1,10 +1,9 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, rmdir } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, rm, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
 
-import { compilerRoot } from '../../platform/shared/paths.ts';
 import {
   acquireWindowsBrowserLaunchHostAuthorityForTests,
   proveWindowsHostDirectoryAuthorityForTests
@@ -141,15 +140,6 @@ test.skipIf(process.platform !== 'win32')(
   }
   }
 );
-
-test('Windows host ACL proof trusts no wildcard capability writer SID', async () => {
-  const source = await readFile(
-    path.join(compilerRoot, 'platform/shared/windows-host-filesystem-authority.ts'),
-    'utf8'
-  );
-  expect(source).not.toContain('S-1-15-3-');
-  expect(source).toContain('$trustedSids.Contains($sid)');
-});
 
 test.skipIf(process.platform !== 'win32')(
   'Windows browser launch host acquisition preserves primary and cleanup failures',

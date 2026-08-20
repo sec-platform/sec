@@ -4,10 +4,10 @@ import path from 'node:path';
 import semver from 'semver';
 import { writeProvenance } from '../compiler/emit/write-provenance.ts';
 import {
-  loadManifestById,
-  loadOverrideManifest,
-  loadWorkspacePlan
-} from '../compiler/index.ts';
+  loadManifestById
+} from '../compiler/parse/load-manifest.ts';
+import { loadOverrideManifest } from '../compiler/parse/load-override-manifest.ts';
+import { loadWorkspacePlan } from '../compiler/parse/load-plan.ts';
 import { compileWorkspace } from '../orchestrator/pipeline-orchestrator.ts';
 import { CI_ARTIFACT_FILES } from '../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../shared/collections.ts';
@@ -1682,6 +1682,30 @@ async function planWorkspaceUpgrade(options: UpgradePlanningOptions): Promise<Pl
   };
 }
 
+/**
+ * Computes an Upgrade preview from retained workspace inputs without acquiring
+ * write authority or publishing diagnostics, plans, provenance, or Lock state.
+ */
+export async function planUpgradeWorkspace(
+  workspaceRoot: string,
+  blockId: string,
+  targetVersion: string
+): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: UpgradePlan }> {
+  const { projectRoot } = getWorkspacePaths(workspaceRoot);
+  const plan = await loadWorkspacePlan(workspaceRoot);
+  const currentBlock = plan.blocks.find((block) => block.id === blockId);
+  const plannedUpgrade = await planWorkspaceUpgrade({
+    blockId,
+    currentBlock,
+    plan,
+    projectRoot,
+    targetVersion,
+    workspaceRoot
+  });
+  const lock = await readLockFile(workspaceRoot);
+  return { plan, lock, upgradePlan: plannedUpgrade.upgradePlan };
+}
+
 function isEmptyDiagnosticsDetails(details: unknown): boolean {
   if (details === undefined || details === null) {
     return true;
@@ -1999,8 +2023,7 @@ export async function runUpgradeWorkspaceWithLease(
   workspaceRoot: string,
   blockId: string,
   targetVersion: string,
-  workspaceWriteLease: WorkspaceWriteLeaseToken,
-  options: { dryRun?: boolean } = {}
+  workspaceWriteLease: WorkspaceWriteLeaseToken
 ): Promise<{ plan: PlanFile; lock: LockFile; upgradePlan: UpgradePlan }> {
   const commitFence = () => assertWorkspaceWriteLease(workspaceRoot, workspaceWriteLease);
   await commitFence();
@@ -2035,18 +2058,6 @@ export async function runUpgradeWorkspaceWithLease(
   }
 
   const { upgradePlan } = plannedUpgrade;
-
-  if (options.dryRun) {
-    const lock = await readLockFile(workspaceRoot);
-    await writeJson(upgradePlanPath, upgradePlan, commitFence);
-    await recordUpgradeGeneratedArtifact(
-      workspaceRoot,
-      lock,
-      CI_ARTIFACT_FILES.upgradePlan,
-      commitFence
-    );
-    return { plan, lock, upgradePlan };
-  }
 
   const planSnapshot = await snapshotTextFile(planPath);
   const lockSnapshot = await snapshotTextFile(lockPath);

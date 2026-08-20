@@ -39,7 +39,7 @@ describe('affected test selection batch optimization', () => {
   });
 
   test('selectCiPrRiskSlowSuites resolves when all files have known impact', () => {
-    // Mix of fallback-matched and auto-referenced files.
+    // Mix of fallback-matched and module-graph-derived files.
     const result = selectCiPrRiskSlowSuites([
       'platform/shared/test-impact-contract.ts',
       'platform/shared/ci-pr-risk-selection.ts'

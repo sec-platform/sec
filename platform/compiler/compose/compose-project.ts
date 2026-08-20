@@ -3,61 +3,35 @@ import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { defaultLimit } from '../../shared/concurrency.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { ensureDir, pathExists, writeJson, writeText, type CommitFence } from '../../shared/fs.ts';
+import { ensureDir, writeJson, type CommitFence } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile, SlotTask } from '../../shared/lock-types.ts';
 import { addGeneratedPaths, saveLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths, resolvePathInside } from '../../shared/paths.ts';
 import type { PipelineSemanticContext } from '../../shared/pipeline-types.ts';
 import { ensureProjectBase } from '../../shared/project-base.ts';
+import { checkProjectWriteBoundary } from '../../shared/project-write-boundary.ts';
+import { readOptionalRetainedOrdinaryFileV1 } from '../../shared/retained-file-read.ts';
+import { publishExclusiveCanonicalWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
 import { CodeBuilder } from '../codegen/code-builder.ts';
-import { loadManifestForResolvedBlock } from '../parse/load-manifest.ts';
 import { lowerSemanticTasks } from '../semantic-lowering.ts';
 import { applyOverrides } from './apply-overrides.ts';
 import { formatOutputFiles } from './format-output-files.ts';
 import { applyPrefixSandboxing } from './frontend-stitching.ts';
 import { generateRuntimeHostScaffold } from './generate-runtime-host.ts';
+import {
+  GENERATED_ROUTES_ARTIFACT_PATH,
+  planGeneratedRoutesArtifactV1,
+  publishGeneratedRoutesArtifactV1
+} from './generated-routes-artifact.ts';
 import { installOpaqueModules } from './install-opaque-modules.ts';
 import { defaultInstallRegistry } from './install-strategies.ts';
 import { mapCustomRoutes } from './map-custom-routes.ts';
 import { mergePrismaTemplate } from './merge-prisma-template.ts';
 import { mergeTailwindTheme } from './merge-tailwind-theme.ts';
 import { lowerToMicroservices } from './microservice-lower-pass.ts';
-import { setProjectReadOnlyLock } from './project-readonly-lock.ts';
-
-async function renderRouteGraph(workspaceRoot: string, lock: LockFile): Promise<string> {
-  const routeEntries = await Promise.all(
-    lock.resolvedBlocks.map(async (block) => {
-      const manifestEntry = await loadManifestForResolvedBlock(workspaceRoot, block);
-      return manifestEntry.manifest.routes.map(
-        (route) => `{ blockId: '${block.id}', path: '${route.path}', file: '${route.file}' }`
-      );
-    })
-  );
-
-  const builder = new CodeBuilder('generated/routes.ts')
-    .addInterface(
-      'GeneratedRoute',
-      [
-        { name: 'blockId', type: 'string' },
-        { name: 'path', type: 'string' },
-        { name: 'file', type: 'string' }
-      ],
-      true
-    )
-    .addVariable({
-      name: 'routes',
-      type: 'GeneratedRoute[]',
-      isExported: true,
-      initializer: `[\n${routeEntries.flat().map(entry => `  ${entry}`).join(',\n')}\n]`
-    });
-
-  return builder.getText();
-}
 
 function renderSlotSkeleton(task: SlotTask): string {
-  if (task.mockTemplate) {
-    return task.mockTemplate;
-  }
+  if (task.mockTemplate) return task.mockTemplate;
 
   const builder = new CodeBuilder(task.target)
     .addFileComment(`@generated slot-id:${task.id} block:${task.block}`);
@@ -79,23 +53,17 @@ function renderSlotSkeleton(task: SlotTask): string {
     }
 
     for (const [src, types] of imports) {
-      builder.addImport({
-        moduleSpecifier: src,
-        namedImports: Array.from(types),
-        isTypeOnly: true
-      });
+      builder.addImport({ moduleSpecifier: src, namedImports: Array.from(types), isTypeOnly: true });
     }
-
     for (const exp of task.exports) {
       builder.addFunction({
         name: exp.symbol,
         isExported: true,
-        parameters: exp.params.map(p => ({ name: p.name, type: p.type })),
+        parameters: exp.params.map((p) => ({ name: p.name, type: p.type })),
         returnType: exp.outputType,
         body: "throw new Error('Not implemented');"
       });
     }
-
     return builder.getText();
   }
 
@@ -106,7 +74,6 @@ function renderSlotSkeleton(task: SlotTask): string {
       isTypeOnly: true
     });
   }
-
   builder.addFunction({
     name: task.symbol,
     isExported: true,
@@ -114,28 +81,53 @@ function renderSlotSkeleton(task: SlotTask): string {
     returnType: task.outputType ?? 'unknown',
     body: "throw new Error('Not implemented');"
   });
-
   return builder.getText();
+}
+
+async function ensureSlotSkeleton(
+  workspaceRoot: string,
+  projectRoot: string,
+  task: SlotTask,
+  commitFence?: CommitFence
+): Promise<void> {
+  const targetPath = resolvePathInside(projectRoot, task.target);
+  if (!targetPath) {
+    throw new CompilerError('COMPOSE-PATH-003', `Slot target "${task.target}" escapes project root`);
+  }
+  const existing = readOptionalRetainedOrdinaryFileV1(
+    targetPath,
+    `Compose Slot target ${task.block}:${task.id}`
+  );
+  if (existing === null) {
+    await publishExclusiveCanonicalWorkspaceFileV1({
+      workspaceRoot,
+      targetPath,
+      bytes: Buffer.from(renderSlotSkeleton(task), 'utf8'),
+      label: `Compose Slot skeleton ${task.block}:${task.id}`,
+      commitFence
+    });
+  }
+  task.status = 'generated';
 }
 
 export async function composeProject(
   workspaceRoot: string,
   lock: LockFile,
   semanticContext: PipelineSemanticContext,
-  options?: { lockFiles?: boolean; commitFence?: CommitFence; signal?: AbortSignal }
+  options?: { commitFence?: CommitFence; signal?: AbortSignal }
 ): Promise<LockFile> {
   const commitFence = options?.commitFence;
-  const { projectRoot, generatedDir, blockUsageMapPath, installManifestPath } = getWorkspacePaths(workspaceRoot);
+  const { projectRoot, blockUsageMapPath, installManifestPath } = getWorkspacePaths(workspaceRoot);
 
-  await setProjectReadOnlyLock(projectRoot, true, [], commitFence);
+  // ProjectBaseline/Provenance own write admission. Flipping OS writable bits is
+  // neither authorization nor a race-proof protection mechanism and therefore
+  // does not belong on the compilation path.
+  await checkProjectWriteBoundary(workspaceRoot);
   await ensureProjectBase(workspaceRoot, commitFence);
 
   const installContext = { workspaceRoot, projectRoot, lock, commitFence };
   await defaultInstallRegistry.executeAll(lock.installPlan, installContext);
-  await mergePrismaTemplate(workspaceRoot, projectRoot, {
-    commitFence,
-    signal: options?.signal
-  });
+  await mergePrismaTemplate(workspaceRoot, projectRoot, commitFence);
   const opaqueGeneratedPaths = await installOpaqueModules(workspaceRoot, projectRoot, { commitFence });
   const tailwindGeneratedPaths = await mergeTailwindTheme(workspaceRoot, projectRoot, commitFence);
   const customRoutesGeneratedPaths = await mapCustomRoutes(workspaceRoot, projectRoot, commitFence);
@@ -145,34 +137,23 @@ export async function composeProject(
     status: 'installed' as const
   }));
 
-  const [routesContent] = await Promise.all([
-    renderRouteGraph(workspaceRoot, lock),
-    ensureDir(generatedDir, commitFence),
+  const [routesPlan] = await Promise.all([
+    planGeneratedRoutesArtifactV1(workspaceRoot, lock),
     ensureDir(path.dirname(blockUsageMapPath), commitFence),
     ensureDir(path.dirname(installManifestPath), commitFence)
   ]);
 
   await Promise.all([
-    writeText(path.join(generatedDir, 'routes.ts'), routesContent, commitFence),
+    publishGeneratedRoutesArtifactV1(workspaceRoot, routesPlan, commitFence),
     writeJson(blockUsageMapPath, {
-      blocks: lock.resolvedBlocks.map((block) => ({
-        id: block.id,
-        installOrder: block.installOrder
-      }))
+      blocks: lock.resolvedBlocks.map((block) => ({ id: block.id, installOrder: block.installOrder }))
     }, commitFence)
   ]);
 
   await Promise.all(
-    lock.slotTasks.map((task) => defaultLimit(async () => {
-      const targetPath = resolvePathInside(projectRoot, task.target);
-      if (!targetPath) {
-        throw new CompilerError('SLOT-SECURITY-001', `Slot target "${task.target}" escapes project root`);
-      }
-      if (!(await pathExists(targetPath))) {
-        await writeText(targetPath, renderSlotSkeleton(task), commitFence);
-      }
-      task.status = 'generated';
-    }))
+    lock.slotTasks.map((task) => defaultLimit(() =>
+      ensureSlotSkeleton(workspaceRoot, projectRoot, task, commitFence)
+    ))
   );
 
   const semanticLowering = await lowerSemanticTasks(workspaceRoot, semanticContext, commitFence);
@@ -184,7 +165,7 @@ export async function composeProject(
   const initialGeneratedPaths = [
     ...semanticGeneratedPaths,
     ...runtimeScaffoldPaths,
-    'generated/routes.ts',
+    GENERATED_ROUTES_ARTIFACT_PATH,
     CI_ARTIFACT_FILES.blockUsageMap,
     CI_ARTIFACT_FILES.installManifest,
     ...opaqueGeneratedPaths,
@@ -192,23 +173,13 @@ export async function composeProject(
     ...customRoutesGeneratedPaths,
     ...microservicePaths
   ];
-  const sandboxedPaths = await applyPrefixSandboxing(projectRoot, initialGeneratedPaths, undefined, commitFence);
+  const sandboxedPaths = await applyPrefixSandboxing(projectRoot, initialGeneratedPaths, commitFence);
 
-  addGeneratedPaths(lock, [
-    ...initialGeneratedPaths,
-    ...sandboxedPaths
-  ]);
-
+  addGeneratedPaths(lock, [...initialGeneratedPaths, ...sandboxedPaths]);
   await applyOverrides(workspaceRoot, 'compose', commitFence);
   await formatOutputFiles(projectRoot, lock.generatedPaths, commitFence);
   await writeJson(installManifestPath, installManifest, commitFence);
   lock.passStatus.compose = 'succeeded';
-
-  if (options?.lockFiles) {
-    const slotTargets = lock.slotTasks.map((task) => task.target);
-    await setProjectReadOnlyLock(projectRoot, false, slotTargets, commitFence);
-  }
-
   await saveLock(workspaceRoot, lock, commitFence);
   return lock;
 }

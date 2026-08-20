@@ -41,7 +41,8 @@ const REQUIRED_STATIC_EXACT_PATHS = [
   '.bun-version',
   SEC_TRUSTED_BOOTSTRAP_REGISTRY_PATH_V3,
   'platform/shared/tcb-closure-lock.ts',
-  'scripts/codex/branch-lifecycle.ts'
+  'scripts/codex/branch-lifecycle.ts',
+  'scripts/codex/trusted-runtime.Dockerfile'
 ] as const;
 
 const REQUIRED_REVIEWED_BOUNDARY_EDGES = [
@@ -59,6 +60,7 @@ const REQUIRED_PRIVILEGED_RUNTIME_SURFACES = [
   'platform/shared/ci-evidence-contract.ts',
   'platform/shared/ci-verification-revision.ts',
   'platform/shared/integration-authorization-contract.ts',
+  'platform/shared/integration-platform-policy.ts',
   'platform/shared/main-health-contract.ts',
   'platform/shared/review-stability-contract.ts',
   'platform/shared/scope-authorization-contract.ts',
@@ -80,15 +82,19 @@ const REQUIRED_PRIVILEGED_RUNTIME_SURFACES = [
   'scripts/codex/operation-read-plan.ts',
   'scripts/codex/skill-applicability.ts',
   'scripts/codex/task-capsule.ts',
+  'scripts/codex/trusted-runtime-closeout.ts',
+  'scripts/codex/trusted-runtime-container.ts',
   'scripts/codex/verification-action-github-provider.ts',
-  'scripts/codex/verification-action-journal.ts',
-  'scripts/codex/verification-action-runner.ts',
   'scripts/codex/verification-session-github.ts',
   'scripts/codex/verification-session-runtime.ts',
   'scripts/codex/verification-session.ts',
   'scripts/codex/worktree-physical-closeout-contract.ts',
   'scripts/codex/worktree-physical-closeout.ts',
-  'scripts/codex/work-selection.ts'
+  'scripts/codex/work-selection.ts',
+  'tooling/sec-dev/runtime-state-authority.ts',
+  'tooling/sec-dev/runtime-state-journal-filesystem.ts',
+  'tooling/sec-dev/verification-action-journal.ts',
+  'tooling/sec-dev/verification-action-runner.ts'
 ] as const;
 
 function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {

@@ -230,7 +230,14 @@ export interface ReviewPolicyViolationSummary {
 }
 
 export interface ReviewPolicySummary {
-  status: 'passed' | 'failed' | 'skipped';
+  /** Review projection: unsupported/unknown assurance is attention, never passed. */
+  status: 'passed' | 'attention' | 'failed' | 'skipped';
+  sourceReportStatus: 'passed' | 'failed' | 'skipped';
+  assurance: 'source-structure' | 'semantic' | 'unknown';
+  evaluatorProviderId: string | null;
+  evaluatorProviderRevision: string | null;
+  unsupportedSemanticPredicates: string[];
+  diagnosticCount: number;
   officialPolicyCount: number;
   projectPolicyCount: number;
   mergedPolicyCount: number;

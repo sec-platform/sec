@@ -359,6 +359,10 @@ function dockerEndpointIdentity(input: DockerEndpointIdentityV3): DockerEndpoint
   });
 }
 
+export function parseDockerEndpointIdentityV3(value: unknown): DockerEndpointIdentityV3 {
+  return dockerEndpointIdentity(value as DockerEndpointIdentityV3);
+}
+
 function githubEndpointIdentity(input: GitHubEndpointIdentityV3): GitHubEndpointIdentityV3 {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) {
     fail('GitHub endpoint identity is invalid');
@@ -635,6 +639,13 @@ function dockerCommandArgs(endpoint: DockerEndpointIdentityV3, args: readonly st
   return Object.freeze(['--host', dockerEndpointIdentity(endpoint).endpointHost, ...args]);
 }
 
+export function dockerEndpointCommandArgsV3(
+  endpoint: DockerEndpointIdentityV3,
+  args: readonly string[]
+): readonly string[] {
+  return dockerCommandArgs(endpoint, args);
+}
+
 async function runDockerCommand(
   endpoint: DockerEndpointIdentityV3,
   args: readonly string[],
@@ -685,7 +696,7 @@ export async function observeDockerEndpointIdentityV3(cwd: string): Promise<Dock
   });
 }
 
-async function assertDockerEndpointIdentityV3(
+export async function assertDockerEndpointIdentityV3(
   expected: DockerEndpointIdentityV3,
   cwd: string
 ): Promise<DockerEndpointIdentityV3> {
@@ -1389,6 +1400,23 @@ async function ensureImage(cwd: string, endpoint: DockerEndpointIdentityV3): Pro
     if (present === null) fail('runner image build has no exact readback');
   }
   assertLocalGitHubActionsRunnerImageIdentityV1(present);
+}
+
+/**
+ * Cold-cache toolchain bootstrap only. This does not register a runner,
+ * contact the Actions service, create provider state, or consume Actions
+ * minutes; provider-neutral trusted runtimes reuse the already pinned image
+ * layers as an immutable Linux toolchain base.
+ */
+export async function ensureLocalGitHubActionsRunnerToolchainImageV1(
+  cwd: string
+): Promise<typeof LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2> {
+  const endpoint = await observeDockerEndpointIdentityV3(cwd);
+  await ensureImage(cwd, endpoint);
+  const present = await inspectImage(cwd, endpoint);
+  if (present === null) fail('toolchain image bootstrap has no exact readback');
+  assertLocalGitHubActionsRunnerImageIdentityV1(present);
+  return LOCAL_GITHUB_ACTIONS_RUNNER_EXPECTED_IMAGE_ID_V2;
 }
 
 function providerResourceState(value: unknown): LocalGitHubActionsProviderResourceStateV3 {

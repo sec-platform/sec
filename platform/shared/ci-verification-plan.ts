@@ -4,7 +4,7 @@ import { selectCiPrRiskSlowSuites } from './ci-pr-risk-selection.ts';
 import { CI_VERIFICATION_COMPOSITION_CONTRACT_REVISION } from './ci-verification-revision.ts';
 import { uniqueSorted } from './collections.ts';
 import { CodexDevelopmentIsCanonicalRepositoryPathV1 } from './repository-path-contract.ts';
-import type { CodexDevelopmentTestImpactSourceProviderV1 } from './test-impact-contract.ts';
+import type { CodexDevelopmentTestImpactSourceProviderV2 } from './test-impact-contract.ts';
 import { DOCUMENTATION_LIFECYCLE_TEST_OWNERS } from './test-impact-rules/governance.ts';
 
 export const CI_VERIFICATION_CONTRACT_REVISION = 'ci-verification-v19' as const;
@@ -114,7 +114,7 @@ function hasDocumentationLifecycleChange(owners: readonly string[]): boolean {
 export function CodexDevelopmentBuildVerificationPlanV1(
   profile: CodexDevelopmentVerificationPlanProfileV1,
   rawChangedFiles: readonly string[] | null,
-  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProviderV1,
+  testImpactSourceProvider?: CodexDevelopmentTestImpactSourceProviderV2,
   transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): CodexDevelopmentVerificationPlanV1 {
   const changedFiles = rawChangedFiles === null ? null : CodexDevelopmentCanonicalChangedFilesV1(rawChangedFiles);

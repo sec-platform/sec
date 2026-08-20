@@ -1,10 +1,11 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
+import { canonicalEquals } from '../../shared/canonical-primitives.ts';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { CompilerError, formatCompilerFailure } from '../../shared/errors.ts';
-import { listFilesRecursive, writeJson } from '../../shared/fs.ts';
+import { listFilesRecursive } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { addGeneratedPaths, assertPassStatus } from '../../shared/lock-utils.ts';
 import type { Logger } from '../../shared/logger.ts';
@@ -35,13 +36,14 @@ import {
 import { buildAcceptanceCoverage } from './build-acceptance-coverage.ts';
 import { runPolicyGate } from './run-policy-gate.ts';
 import { createSkippedRuntimeLane, runRuntimeVerification } from './run-runtime-verification.ts';
+import { lintSlotCapabilities } from './slot-capability-lint.ts';
 import {
   consumeStagedVerificationProof,
   revalidateStagedVerificationProof,
   type StagedVerificationProof
 } from './staged-verification-proof.ts';
 import { typecheckProject } from './typecheck-project.ts';
-import { validateSlotSecurity } from './validate-slot-security.ts';
+import { publishVerificationArtifactSetV1 } from './verification-artifact-publication.ts';
 
 interface SuiteModule {
   runSuite?: () => Promise<void> | void;
@@ -101,7 +103,8 @@ function createSkippedPolicyReport(): PolicyReport {
     official: { policies: [], sources: [], violations: [] },
     project: { policies: [], sources: [], violations: [] },
     merged: { policies: [] },
-    violations: []
+    violations: [],
+    diagnostics: []
   };
 }
 
@@ -185,7 +188,7 @@ async function runFastVerification(
     return { lane, failure: error };
   }
 
-  const policyReport = await runPolicyGate(workspaceRoot);
+  const policyReport = runPolicyGate(workspaceRoot);
   lane.policyReport = policyReport;
   lane.policy = { status: policyReport.status, violations: policyReport.violations };
   lane.logs.stdout = [
@@ -283,17 +286,16 @@ export async function assertStagedVerificationLiveContext(
     'verificationReport' | 'runtimeReport' | 'policyReport' | 'acceptanceCoverage'
   >
 ): Promise<void> {
-  const [policyReport, acceptanceCoverage] = await Promise.all([
-    runPolicyGate(workspaceRoot),
-    buildAcceptanceCoverage(
-      workspaceRoot,
-      lock,
-      artifacts.runtimeReport,
-      artifacts.verificationReport.fast
-    )
-  ]);
-  if (JSON.stringify(policyReport) !== JSON.stringify(artifacts.policyReport) ||
-    JSON.stringify(acceptanceCoverage) !== JSON.stringify(artifacts.acceptanceCoverage)) {
+  const acceptanceCoveragePromise = buildAcceptanceCoverage(
+    workspaceRoot,
+    lock,
+    artifacts.runtimeReport,
+    artifacts.verificationReport.fast
+  );
+  const policyReport = runPolicyGate(workspaceRoot);
+  const acceptanceCoverage = await acceptanceCoveragePromise;
+  if (!canonicalEquals(policyReport, artifacts.policyReport) ||
+      !canonicalEquals(acceptanceCoverage, artifacts.acceptanceCoverage)) {
     throw new Error('Live Verification policy or acceptance context changed after staged proof');
   }
 }
@@ -306,13 +308,6 @@ export async function verifyProject(
 ): Promise<VerificationReport> {
   const logger = options.logger ?? defaultLogger;
   const { projectRoot } = getWorkspacePaths(workspaceRoot);
-  const {
-    acceptanceCoveragePath,
-    lockPath,
-    policyReportPath,
-    runtimeReportPath,
-    verificationReportPath
-  } = getWorkspacePaths(workspaceRoot);
 
   assertPassStatus(
     lock,
@@ -323,7 +318,7 @@ export async function verifyProject(
 
   await emitVerifyBoundary(options, 'verify-preflight');
   await checkProjectBeforeVerify(workspaceRoot);
-  await validateSlotSecurity(workspaceRoot, lock);
+  await lintSlotCapabilities(workspaceRoot, lock);
   if (options.isolated) {
     await ensureProjectDependencies(projectRoot, {
       beforeCommit: options.beforeCommit,
@@ -351,17 +346,16 @@ export async function verifyProject(
     updateVerifyPassState(lock, artifacts.verificationReport);
     updateVerifiedSlotTasks(lock, artifacts.verificationReport);
     await emitVerifyBoundary(options, 'verify-artifact-publish');
-    await Promise.all([
-      writeJson(verificationReportPath, artifacts.verificationReport, options.beforeCommit),
-      writeJson(runtimeReportPath, artifacts.runtimeReport, options.beforeCommit),
-      writeJson(policyReportPath, artifacts.policyReport, options.beforeCommit),
-      writeJson(acceptanceCoveragePath, artifacts.acceptanceCoverage, options.beforeCommit),
-      writeJson(lockPath, lock, options.beforeCommit)
-    ]);
+    const published = await publishVerificationArtifactSetV1({
+      workspaceRoot,
+      lock,
+      artifacts,
+      commitFence: options.beforeCommit
+    });
     await revalidateStagedVerificationProof(projectRoot, lock, options.stagedVerificationProof);
     await assertStagedVerificationLiveContext(workspaceRoot, lock, artifacts);
     await options.beforeCommit?.();
-    return artifacts.verificationReport;
+    return published.verificationReport;
   }
 
   const fastResult = lane === 'runtime'
@@ -419,13 +413,17 @@ export async function verifyProject(
 
   if (summary.status === 'passed') await emitVerifyBoundary(options, 'verify-artifact-publish');
   await options.beforeCommit?.();
-  await Promise.all([
-    writeJson(verificationReportPath, report, options.beforeCommit),
-    writeJson(runtimeReportPath, runtimeLane, options.beforeCommit),
-    writeJson(policyReportPath, policyReport, options.beforeCommit),
-    writeJson(acceptanceCoveragePath, coverage, options.beforeCommit),
-    writeJson(lockPath, lock, options.beforeCommit)
-  ]);
+  const published = await publishVerificationArtifactSetV1({
+    workspaceRoot,
+    lock,
+    artifacts: {
+      verificationReport: report,
+      runtimeReport: runtimeLane,
+      policyReport,
+      acceptanceCoverage: coverage
+    },
+    commitFence: options.beforeCommit
+  });
 
   if (summary.status === 'failed') {
     if (runtimeLane.acceptance?.status === 'failed') {
@@ -437,9 +435,11 @@ export async function verifyProject(
         stderr: runtimeLane.logs?.stderr?.slice(0, 3000)
       });
     }
-    console.error('VERIFY-ACCEPTANCE-003 full report:', JSON.stringify(report, null, 2));
-    throw new CompilerError('VERIFY-ACCEPTANCE-003', 'Project verification failed', { verificationReport: report });
+    console.error('VERIFY-ACCEPTANCE-003 full report:', JSON.stringify(published.verificationReport, null, 2));
+    throw new CompilerError('VERIFY-ACCEPTANCE-003', 'Project verification failed', {
+      verificationReport: published.verificationReport
+    });
   }
 
-  return report;
+  return published.verificationReport;
 }

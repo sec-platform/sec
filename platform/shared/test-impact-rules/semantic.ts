@@ -88,10 +88,8 @@ const SEMANTIC_MUTATION_RUNNER_BUILD_FAST_TESTS = [
 ];
 
 const PROJECT_RUNTIME_AUTHORITY_FAST_TESTS = [
-  "tests/contract/project-runtime-contract.test.ts",
   "tests/contract/test-impact.test.ts",
   "tests/integration/compiler-dependency-installation.test.ts",
-  "tests/integration/project-dependency-runtime.test.ts",
   "tests/unit/dependency-environment.test.ts",
   "tests/unit/playwright-browser-cache.test.ts",
   "tests/unit/runtime-verification.test.ts",
@@ -101,7 +99,6 @@ const PROJECT_RUNTIME_AUTHORITY_FAST_TESTS = [
 const RUNTIME_DEPENDENCY_SPEC_FAST_TESTS = [
   "tests/contract/test-impact.test.ts",
   "tests/integration/project-base.test.ts",
-  "tests/integration/project-dependency-runtime.test.ts",
   "tests/unit/playwright-browser-cache.test.ts",
   "tests/unit/runtime-dependency-spec.test.ts",
   "tests/unit/runtime-verification.test.ts",
@@ -111,6 +108,10 @@ const RUNTIME_DEPENDENCY_SPEC_FAST_TESTS = [
 const PROJECT_BASE_FAST_TESTS = [
   "tests/contract/test-impact.test.ts",
   "tests/integration/project-base.test.ts",
+];
+
+const SHARED_RUNTIME_DEPENDENCY_SLOW_TESTS = [
+  "tests/e2e/runtime-host.test.ts",
   "tests/integration/project-dependency-runtime.test.ts",
 ];
 
@@ -145,8 +146,8 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
     owner: "observed-process-lifecycle",
     identity: { kind: "architecture-owner", id: "observed-process-lifecycle" },
     sourceFiles: ["platform/shared/observed-process.ts"],
-    fast: OBSERVED_PROCESS_LIFECYCLE_FAST_TESTS,
-    slow: [],
+    supplementalFast: OBSERVED_PROCESS_LIFECYCLE_FAST_TESTS,
+    supplementalSlow: [],
   },
   {
     owner: "windows-appcontainer-hardening",
@@ -156,8 +157,8 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/shared/windows-appcontainer-executor.ts",
       "platform/shared/windows-appcontainer-native-helper.ts",
     ],
-    fast: WINDOWS_APPCONTAINER_HARDENING_FAST_TESTS,
-    slow: WINDOWS_APPCONTAINER_HARDENING_SLOW_TESTS,
+    supplementalFast: WINDOWS_APPCONTAINER_HARDENING_FAST_TESTS,
+    supplementalSlow: WINDOWS_APPCONTAINER_HARDENING_SLOW_TESTS,
   },
   {
     owner: "semantic-mutation",
@@ -167,48 +168,43 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/compiler/verify/semantic-mutation-runner-build-protocol.ts",
       "platform/compiler/verify/semantic-mutation-runner-build-settlement.ts",
     ],
-    fast: SEMANTIC_MUTATION_RUNNER_BUILD_FAST_TESTS,
-    slow: ["tests/e2e/verification.test.ts"],
+    supplementalFast: SEMANTIC_MUTATION_RUNNER_BUILD_FAST_TESTS,
+    supplementalSlow: ["tests/e2e/verification.test.ts"],
   },
   {
     owner: "project-runtime-authority",
     identity: { kind: "architecture-owner", id: "project-runtime-authority" },
-    autoReferenceMode: "declared-only",
     sourceFiles: ["platform/shared/project-runtime.ts"],
-    fast: PROJECT_RUNTIME_AUTHORITY_FAST_TESTS,
-    slow: ["tests/e2e/runtime-host.test.ts"],
+    supplementalFast: PROJECT_RUNTIME_AUTHORITY_FAST_TESTS,
+    supplementalSlow: SHARED_RUNTIME_DEPENDENCY_SLOW_TESTS,
   },
   {
     owner: "runtime-dependency-spec",
     identity: { kind: "architecture-owner", id: "runtime-dependency-spec" },
-    autoReferenceMode: "declared-only",
     sourceFiles: ["platform/shared/runtime-dependency-spec.ts"],
-    fast: RUNTIME_DEPENDENCY_SPEC_FAST_TESTS,
-    slow: ["tests/e2e/runtime-host.test.ts"],
+    supplementalFast: RUNTIME_DEPENDENCY_SPEC_FAST_TESTS,
+    supplementalSlow: SHARED_RUNTIME_DEPENDENCY_SLOW_TESTS,
   },
   {
     owner: "project-base",
     identity: { kind: "architecture-owner", id: "project-base" },
-    autoReferenceMode: "declared-only",
     sourceFiles: ["platform/shared/project-base.ts"],
-    fast: PROJECT_BASE_FAST_TESTS,
-    slow: ["tests/e2e/runtime-host.test.ts"],
+    supplementalFast: PROJECT_BASE_FAST_TESTS,
+    supplementalSlow: SHARED_RUNTIME_DEPENDENCY_SLOW_TESTS,
   },
   {
     owner: "task-envelope",
     identity: { kind: "contract", id: "task-envelope" },
-    autoReferenceMode: "declared-only",
     sourceFiles: [
       "platform/compiler/synthesize/build-task-envelope.ts",
       "platform/shared/task-envelope-types.ts",
     ],
-    fast: TASK_ENVELOPE_FAST_TESTS,
-    slow: ["tests/e2e/repair.test.ts"],
+    supplementalFast: TASK_ENVELOPE_FAST_TESTS,
+    supplementalSlow: ["tests/e2e/repair.test.ts"],
   },
   {
     owner: "semantic-mutation",
     identity: { kind: "architecture-owner", id: "semantic-mutation" },
-    autoReferenceMode: "declared-only",
     sourceFiles: [
       "platform/shared/semantic-mutation-types.ts",
       "platform/shared/semantic-mutation-transaction-types.ts",
@@ -228,8 +224,8 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/orchestrator/semantic-mutation-orchestrator.ts"
     ],
     sourcePrefixes: ["platform/compiler/semantic-mutation/"],
-    fast: SEMANTIC_MUTATION_FAST_TESTS,
-    slow: [
+    supplementalFast: SEMANTIC_MUTATION_FAST_TESTS,
+    supplementalSlow: [
       "tests/e2e/end-to-end.test.ts",
       "tests/e2e/graph.test.ts",
       "tests/e2e/local-views.test.ts",
@@ -246,8 +242,8 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/compiler/semantic-impact/propagation-rules.ts",
       "platform/compiler/semantic-impact/build-impact-propagation.ts",
     ],
-    fast: IMPACT_PROPAGATION_FAST_TESTS,
-    slow: [],
+    supplementalFast: IMPACT_PROPAGATION_FAST_TESTS,
+    supplementalSlow: [],
   },
   {
     owner: "fact-delta",
@@ -256,15 +252,15 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/compiler/ir/build-fact-delta.ts",
       "platform/shared/engineering-ir/delta-types.ts",
     ],
-    fast: FACT_DELTA_FAST_TESTS,
-    slow: [],
+    supplementalFast: FACT_DELTA_FAST_TESTS,
+    supplementalSlow: [],
   },
   {
     owner: "semantic-ir",
     identity: { kind: "architecture-owner", id: "semantic-ir" },
     sourcePrefixes: ["platform/compiler/ir/"],
-    fast: SEMANTIC_IR_FAST_TESTS,
-    slow: [],
+    supplementalFast: SEMANTIC_IR_FAST_TESTS,
+    supplementalSlow: [],
   },
   {
     owner: "semantic-ir",
@@ -282,23 +278,23 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/shared/semantic-contract-types.ts"
     ],
     sourcePrefixes: ["platform/shared/engineering-ir/"],
-    fast: SEMANTIC_IR_FAST_TESTS,
-    slow: ["tests/e2e/semantic-runtime-contract.test.ts"],
+    supplementalFast: SEMANTIC_IR_FAST_TESTS,
+    supplementalSlow: ["tests/e2e/semantic-runtime-contract.test.ts"],
   },
   {
     owner: "policy-declarations",
     identity: { kind: "architecture-owner", id: "policy-declarations" },
     sourceFiles: ["platform/compiler/parse/load-policy-declarations.ts"],
-    fast: SEMANTIC_IR_FAST_TESTS,
-    slow: ["tests/e2e/policy.test.ts"],
+    supplementalFast: SEMANTIC_IR_FAST_TESTS,
+    supplementalSlow: ["tests/e2e/policy.test.ts"],
   },
   {
     owner: "semantic-projection",
     identity: { kind: "architecture-owner", id: "semantic-projection" },
     sourceFiles: ["platform/shared/semantic-view-types.ts"],
     sourcePrefixes: ["platform/compiler/projection/"],
-    fast: SEMANTIC_PROJECTION_FAST_TESTS,
-    slow: [],
+    supplementalFast: SEMANTIC_PROJECTION_FAST_TESTS,
+    supplementalSlow: [],
   },
   {
     owner: "semantic-lowering",
@@ -310,46 +306,46 @@ export const semanticTestOwnershipDeclarations: TestOwnershipDeclaration[] = [
       "platform/compiler/state-transition-plan.ts",
       "platform/shared/semantic-generator-types.ts"
     ],
-    fast: SEMANTIC_LOWERING_FAST_TESTS,
-    slow: ["tests/e2e/semantic-runtime-contract.test.ts"],
+    supplementalFast: SEMANTIC_LOWERING_FAST_TESTS,
+    supplementalSlow: ["tests/e2e/semantic-runtime-contract.test.ts"],
   },
   {
     owner: "semantic-contract",
     identity: { kind: "architecture-owner", id: "semantic-contract" },
     sourceKinds: ["semantic-contract"],
-    fast: SEMANTIC_IR_FAST_TESTS,
-    slow: ["tests/e2e/semantic-runtime-contract.test.ts"]
+    supplementalFast: SEMANTIC_IR_FAST_TESTS,
+    supplementalSlow: ["tests/e2e/semantic-runtime-contract.test.ts"]
   },
   {
     owner: "ticket-core",
     identity: { kind: "contract", id: "ticket-core" },
     sourceFiles: ["platform/registry/official/ticket.basic/contracts/ticket.yaml"],
-    fast: [...new Set([
+    supplementalFast: [...new Set([
       ...SEMANTIC_IR_FAST_TESTS,
       ...SEMANTIC_PROJECTION_FAST_TESTS,
       ...SEMANTIC_LOWERING_FAST_TESTS
     ])],
-    slow: ["tests/e2e/semantic-runtime-contract.test.ts"]
+    supplementalSlow: ["tests/e2e/semantic-runtime-contract.test.ts"]
   },
   {
     owner: "tenant-core",
     identity: { kind: "contract", id: "tenant-core" },
     sourceFiles: ["platform/registry/official/tenant.basic-workspace/contracts/tenant.yaml"],
-    fast: SEMANTIC_IR_FAST_TESTS,
-    slow: ["tests/e2e/semantic-runtime-contract.test.ts"]
+    supplementalFast: SEMANTIC_IR_FAST_TESTS,
+    supplementalSlow: ["tests/e2e/semantic-runtime-contract.test.ts"]
   },
   {
     owner: "registry-manifest",
     identity: { kind: "architecture-owner", id: "registry-manifest" },
     sourceKinds: ["manifest"],
-    fast: ["tests/unit/path-containment.test.ts"],
-    slow: ["tests/e2e/registry.test.ts"]
+    supplementalFast: ["tests/unit/path-containment.test.ts"],
+    supplementalSlow: ["tests/e2e/registry.test.ts"]
   },
   {
     owner: "source-model",
     identity: { kind: "architecture-owner", id: "source-model" },
     sourceKinds: ["source-model"],
-    fast: SEMANTIC_IR_FAST_TESTS,
-    slow: ["tests/e2e/semantic-runtime-contract.test.ts"]
+    supplementalFast: SEMANTIC_IR_FAST_TESTS,
+    supplementalSlow: ["tests/e2e/semantic-runtime-contract.test.ts"]
   }
 ];

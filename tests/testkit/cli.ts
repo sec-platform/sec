@@ -2,7 +2,10 @@ import { expect } from 'bun:test';
 import { Command } from 'commander';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { registerCommands } from '../../platform/cli/register-commands.ts';
+import {
+  registerCommands,
+  type CliCommandDomainLoaders
+} from '../../platform/cli/register-commands.ts';
 import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import type { CompilerErrorDetails } from '../../platform/shared/errors.ts';
 
@@ -21,6 +24,7 @@ function expectContainsAll(source: string, fragments: readonly string[]): void {
 }
 
 export type CliResult = { code: number; stdout: string; stderr: string };
+export type CliRunOptions = Readonly<{ domainLoaders?: CliCommandDomainLoaders }>;
 
 type CliContext = { stdoutChunks: string[]; stderrChunks: string[]; cwd: string };
 
@@ -72,7 +76,10 @@ function runWithCliContext<T>(context: CliContext, fn: () => Promise<T>): Promis
   return cliContext.run(context, fn);
 }
 
-function createProgram(output: { stdoutChunks: string[]; stderrChunks: string[] }): Command {
+function createProgram(
+  output: { stdoutChunks: string[]; stderrChunks: string[] },
+  options: CliRunOptions
+): Command {
   const program = new Command();
   program.exitOverride();
   program.configureOutput({
@@ -81,7 +88,7 @@ function createProgram(output: { stdoutChunks: string[]; stderrChunks: string[] 
   });
   program.name('platform');
   program.allowUnknownOption(false);
-  registerCommands(program);
+  registerCommands(program, options.domainLoaders ?? {});
   program.action(() => {
     program.help();
   });
@@ -207,13 +214,17 @@ function isUnknownRootCommand(program: Command | undefined, args: string[]): boo
     && !program?.commands.some((command) => command.name() === commandName);
 }
 
-export async function runCliInProcess(workspaceRoot: string, args: string[]): Promise<CliResult> {
+export async function runCliInProcess(
+  workspaceRoot: string,
+  args: string[],
+  options: CliRunOptions = {}
+): Promise<CliResult> {
   const context: CliContext = { stdoutChunks: [], stderrChunks: [], cwd: workspaceRoot };
 
   return runWithCliContext(context, async () => {
     let program: Command | undefined;
     try {
-      program = createProgram(context);
+      program = createProgram(context, options);
       await program.parseAsync(args, { from: 'user' });
       return { code: 0, stdout: context.stdoutChunks.join(''), stderr: context.stderrChunks.join('') };
     } catch (error: unknown) {

@@ -5,6 +5,7 @@ import type {
   CodexDevelopmentExactGitBlobBytesV1,
   CodexDevelopmentExactGitBlobV1
 } from '../../platform/shared/ci-evidence-reuse-contract.ts';
+import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
 
 export const CodexDevelopmentExactGitBlobMaxBytesV1 = 16 * 1024 * 1024;
 
@@ -45,6 +46,7 @@ function runGit(
   const result = spawnSync('git', [...args], {
     cwd: repositoryRoot,
     encoding: 'buffer',
+    env: isolatedGitReadEnvironment(),
     maxBuffer,
     windowsHide: true
   });

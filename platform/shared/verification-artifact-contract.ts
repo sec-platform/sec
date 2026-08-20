@@ -1,5 +1,9 @@
+import { validateAcceptanceCoverageReportV1 } from './acceptance-coverage-authority.ts';
 import { acceptanceIdsProvenByVerificationReportsV1 } from './acceptance-proof-contract.ts';
 import type { AcceptanceCoverageReport } from './acceptance-types.ts';
+import { canonicalEquals } from './canonical-primitives.ts';
+import { uniqueSorted } from './collections.ts';
+import { validatePolicyReportV1 } from './policy-report-authority.ts';
 import type { PolicyReport } from './policy-types.ts';
 import {
   buildBlockedProductVerificationClaimSummary,
@@ -42,12 +46,14 @@ function exactKeys(value: unknown, expected: readonly string[]): value is Record
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const actual = Object.keys(value).sort();
   const canonicalExpected = [...expected].sort();
-  return actual.length === canonicalExpected.length &&
-    actual.every((key, index) => key === canonicalExpected[index]);
+  return actual.length === canonicalExpected.length && actual.every((key, index) => key === canonicalExpected[index]);
 }
 
-function exactStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+function exactCanonicalStringArray(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
+    return false;
+  }
+  return canonicalEquals(value, uniqueSorted(value as string[]));
 }
 
 function exactVerificationStatus(value: unknown): value is VerificationStatus {
@@ -59,64 +65,47 @@ function exactLogs(value: unknown): boolean {
     typeof value.stdout === 'string' && typeof value.stderr === 'string';
 }
 
-function exactPolicySource(value: unknown): boolean {
-  return exactKeys(value, ['path', 'policyIds']) &&
-    typeof value.path === 'string' && exactStringArray(value.policyIds);
+function validatedPolicyReport(value: unknown): PolicyReport | null {
+  try {
+    return validatePolicyReportV1(value);
+  } catch {
+    return null;
+  }
 }
 
-function exactPolicyViolation(value: unknown): boolean {
-  return exactKeys(value, [
-    'id', 'severity', 'appliesTo', 'rule', 'files', 'message', 'sourceScope', 'sourcePath'
-  ]) && typeof value.id === 'string' &&
-    (value.severity === 'info' || value.severity === 'warn' ||
-      value.severity === 'error' || value.severity === 'blocker') &&
-    exactStringArray(value.appliesTo) && typeof value.rule === 'string' &&
-    exactStringArray(value.files) && typeof value.message === 'string' &&
-    (value.sourceScope === 'official' || value.sourceScope === 'project') &&
-    typeof value.sourcePath === 'string';
-}
-
-function exactPolicyScope(value: unknown): boolean {
-  return exactKeys(value, ['policies', 'sources', 'violations']) &&
-    exactStringArray(value.policies) && Array.isArray(value.sources) &&
-    value.sources.every(exactPolicySource) && Array.isArray(value.violations) &&
-    value.violations.every(exactPolicyViolation);
-}
-
-function exactMergedPolicy(value: unknown): boolean {
-  return exactKeys(value, ['id', 'sourceScope', 'sourcePath', 'targets']) &&
-    typeof value.id === 'string' &&
-    (value.sourceScope === 'official' || value.sourceScope === 'project') &&
-    typeof value.sourcePath === 'string' && exactStringArray(value.targets);
-}
-
-function exactPolicyReport(value: unknown): value is PolicyReport {
-  return exactKeys(value, ['status', 'official', 'project', 'merged', 'violations']) &&
-    exactVerificationStatus(value.status) && exactPolicyScope(value.official) &&
-    exactPolicyScope(value.project) && exactKeys(value.merged, ['policies']) &&
-    Array.isArray(value.merged.policies) && value.merged.policies.every(exactMergedPolicy) &&
-    Array.isArray(value.violations) && value.violations.every(exactPolicyViolation);
+function validatedAcceptanceCoverage(value: unknown): AcceptanceCoverageReport | null {
+  try {
+    return validateAcceptanceCoverageReportV1(value);
+  } catch {
+    return null;
+  }
 }
 
 function exactFastVerificationReport(value: unknown): value is FastVerificationLaneReport {
-  return exactKeys(value, [
-    'status', 'build', 'unit', 'acceptance', 'policy', 'policyReport', 'logs'
-  ]) && exactVerificationStatus(value.status) &&
-    exactKeys(value.build, ['status']) && exactVerificationStatus(value.build.status) &&
-    exactKeys(value.unit, ['status', 'passed']) && exactVerificationStatus(value.unit.status) &&
-    exactStringArray(value.unit.passed) &&
-    exactKeys(value.acceptance, ['status', 'passed', 'failed']) &&
-    exactVerificationStatus(value.acceptance.status) &&
-    exactStringArray(value.acceptance.passed) && exactStringArray(value.acceptance.failed) &&
-    exactKeys(value.policy, ['status', 'violations']) && exactVerificationStatus(value.policy.status) &&
-    Array.isArray(value.policy.violations) && value.policy.violations.every(exactPolicyViolation) &&
-    exactPolicyReport(value.policyReport) && exactLogs(value.logs);
+  if (!exactKeys(value, ['status', 'build', 'unit', 'acceptance', 'policy', 'policyReport', 'logs']) ||
+      !exactVerificationStatus(value.status) ||
+      !exactKeys(value.build, ['status']) || !exactVerificationStatus(value.build.status) ||
+      !exactKeys(value.unit, ['status', 'passed']) || !exactVerificationStatus(value.unit.status) ||
+      !exactCanonicalStringArray(value.unit.passed) ||
+      !exactKeys(value.acceptance, ['status', 'passed', 'failed']) ||
+      !exactVerificationStatus(value.acceptance.status) ||
+      !exactCanonicalStringArray(value.acceptance.passed) || !exactCanonicalStringArray(value.acceptance.failed) ||
+      !exactKeys(value.policy, ['status', 'violations']) ||
+      !exactVerificationStatus(value.policy.status) || !Array.isArray(value.policy.violations) ||
+      !exactLogs(value.logs)) {
+    return false;
+  }
+  const policyReport = validatedPolicyReport(value.policyReport);
+  return policyReport !== null && CodexDevelopmentVerificationDataEqualV1(value.policy, {
+    status: policyReport.status,
+    violations: structuredClone(policyReport.violations)
+  });
 }
 
 function exactVerificationStep(value: unknown): boolean {
   return exactKeys(value, ['status', 'passed', 'failed', 'command']) &&
-    exactVerificationStatus(value.status) && exactStringArray(value.passed) &&
-    exactStringArray(value.failed) && (value.command === null || typeof value.command === 'string');
+    exactVerificationStatus(value.status) && exactCanonicalStringArray(value.passed) &&
+    exactCanonicalStringArray(value.failed) && (value.command === null || typeof value.command === 'string');
 }
 
 function exactRuntimeVerificationReport(value: unknown): value is RuntimeVerificationLaneReport {
@@ -125,9 +114,7 @@ function exactRuntimeVerificationReport(value: unknown): value is RuntimeVerific
     exactVerificationStep(value.unit) && exactVerificationStep(value.acceptance) && exactLogs(value.logs);
 }
 
-function blockedPhysicalProfile(
-  report: Pick<VerificationReport, 'fast' | 'runtime' | 'summary'>
-): boolean {
+function blockedPhysicalProfile(report: Pick<VerificationReport, 'fast' | 'runtime' | 'summary'>): boolean {
   return report.summary.status === 'failed' &&
     report.summary.failedLanes.length === 1 && report.summary.failedLanes[0] === 'fast' &&
     report.fast.status === 'failed' && report.fast.build.status === 'skipped' &&
@@ -144,9 +131,7 @@ function exactVerificationClaimSummary(
   acceptanceCoverage: AcceptanceCoverageReport,
   blocked: boolean
 ): value is VerificationClaimSummary {
-  if (!exactKeys(value, ['overall', 'gates']) || !Array.isArray(value.gates)) {
-    return false;
-  }
+  if (!exactKeys(value, ['overall', 'gates']) || !Array.isArray(value.gates)) return false;
   const expected = blocked
     ? buildBlockedProductVerificationClaimSummary(requestedLane)
     : buildExpectedProductVerificationClaimSummary(
@@ -164,37 +149,31 @@ function exactVerificationReport(
   value: unknown,
   acceptanceCoverage: AcceptanceCoverageReport
 ): value is VerificationReport {
-  if (!exactKeys(value, [
-    'build', 'unit', 'acceptance', 'policy', 'fast', 'runtime', 'summary', 'logs'
-  ]) || !exactFastVerificationReport(value.fast) ||
-    !exactRuntimeVerificationReport(value.runtime) || !exactLogs(value.logs)) {
+  if (!exactKeys(value, ['build', 'unit', 'acceptance', 'policy', 'fast', 'runtime', 'summary', 'logs']) ||
+      !exactFastVerificationReport(value.fast) || !exactRuntimeVerificationReport(value.runtime) || !exactLogs(value.logs)) {
     return false;
   }
+  const policyReport = validatedPolicyReport(value.fast.policyReport);
+  if (policyReport === null) return false;
 
   const rawSummary = value.summary;
-  if (!rawSummary || typeof rawSummary !== 'object' || Array.isArray(rawSummary)) {
-    return false;
-  }
+  if (!rawSummary || typeof rawSummary !== 'object' || Array.isArray(rawSummary)) return false;
   const summary = rawSummary as Record<string, unknown>;
-  const summaryHasClaim = exactKeys(summary, [
-    'status', 'requestedLane', 'failedLanes', 'claimSummary'
-  ]);
-  const summaryIsLegacy = exactKeys(summary, [
-    'status', 'requestedLane', 'failedLanes'
-  ]);
+  const summaryHasClaim = exactKeys(summary, ['status', 'requestedLane', 'failedLanes', 'claimSummary']);
+  const summaryIsLegacy = exactKeys(summary, ['status', 'requestedLane', 'failedLanes']);
   if ((!summaryHasClaim && !summaryIsLegacy) ||
-    (summary.status !== 'passed' && summary.status !== 'failed') ||
-    summary.requestedLane !== 'all' || !Array.isArray(summary.failedLanes) ||
-    !summary.failedLanes.every((lane) => lane === 'fast' || lane === 'runtime') ||
-    (summaryHasClaim && !exactVerificationClaimSummary(
-      summary.claimSummary,
-      summary.requestedLane,
-      value.fast,
-      value.runtime,
-      value.fast.policyReport as PolicyReport,
-      acceptanceCoverage,
-      blockedPhysicalProfile(value as unknown as VerificationReport)
-    ))) {
+      (summary.status !== 'passed' && summary.status !== 'failed') ||
+      summary.requestedLane !== 'all' || !Array.isArray(summary.failedLanes) ||
+      !summary.failedLanes.every((lane) => lane === 'fast' || lane === 'runtime') ||
+      (summaryHasClaim && !exactVerificationClaimSummary(
+        summary.claimSummary,
+        summary.requestedLane,
+        value.fast,
+        value.runtime,
+        policyReport,
+        acceptanceCoverage,
+        blockedPhysicalProfile(value as unknown as VerificationReport)
+      ))) {
     return false;
   }
 
@@ -227,61 +206,25 @@ function exactCurrentCanonicalVerificationReport(
     (value as VerificationReport).summary.claimSummary !== undefined;
 }
 
-function exactCoverageEntry(value: unknown, accepted: ReadonlySet<string>): boolean {
-  if (!exactKeys(value, ['id', 'declaredAcceptance', 'coveredBy', 'uncovered']) ||
-    typeof value.id !== 'string' || !exactStringArray(value.declaredAcceptance) ||
-    !exactStringArray(value.coveredBy) || typeof value.uncovered !== 'boolean') {
-    return false;
-  }
-  const declared = value.declaredAcceptance as string[];
-  const coveredBy = value.coveredBy as string[];
-  return coveredBy.every((id) => declared.includes(id) && accepted.has(id)) &&
-    value.uncovered === (declared.length === 0 || coveredBy.length !== declared.length);
-}
-
 function exactAcceptanceCoverage(
   value: unknown,
   fast: FastVerificationLaneReport,
   runtime: RuntimeVerificationLaneReport
 ): value is AcceptanceCoverageReport {
-  if (!exactKeys(value, [
-    'formatVersion', 'status', 'acceptancePassed', 'blocks', 'slots',
-    'uncoveredBlocks', 'uncoveredSlots'
-  ]) || value.formatVersion !== '1' || !exactVerificationStatus(value.status) ||
-    !exactStringArray(value.acceptancePassed) || !Array.isArray(value.blocks) ||
-    !Array.isArray(value.slots) || !exactStringArray(value.uncoveredBlocks) ||
-    !exactStringArray(value.uncoveredSlots)) {
-    return false;
-  }
-  const report = value as unknown as AcceptanceCoverageReport;
+  const report = validatedAcceptanceCoverage(value);
+  if (report === null) return false;
   const declaredAcceptance = [...new Set([
     ...report.blocks.flatMap((entry) => entry.declaredAcceptance),
     ...report.slots.flatMap((entry) => entry.declaredAcceptance)
   ])].sort();
-  const expectedAccepted = acceptanceIdsProvenByVerificationReportsV1(
-    fast,
-    runtime,
-    declaredAcceptance
-  );
-  if (!CodexDevelopmentVerificationDataEqualV1(report.acceptancePassed, expectedAccepted)) {
-    return false;
-  }
+  const expectedAccepted = acceptanceIdsProvenByVerificationReportsV1(fast, runtime, declaredAcceptance);
   const accepted = new Set(report.acceptancePassed);
-  if (!report.blocks.every((entry) => exactCoverageEntry(entry, accepted)) ||
-    !report.slots.every((entry) => exactCoverageEntry(entry, accepted))) {
-    return false;
-  }
-  if (new Set(report.blocks.map((entry) => entry.id)).size !== report.blocks.length ||
-    new Set(report.slots.map((entry) => entry.id)).size !== report.slots.length) {
-    return false;
-  }
   return CodexDevelopmentVerificationDataEqualV1(
-    report.uncoveredBlocks,
-    report.blocks.filter((entry) => entry.uncovered).map((entry) => entry.id)
-  ) && CodexDevelopmentVerificationDataEqualV1(
-    report.uncoveredSlots,
-    report.slots.filter((entry) => entry.uncovered).map((entry) => entry.id)
-  );
+    structuredClone(report.acceptancePassed),
+    expectedAccepted
+  ) &&
+    report.blocks.every((entry) => entry.coveredBy.every((id) => accepted.has(id))) &&
+    report.slots.every((entry) => entry.coveredBy.every((id) => accepted.has(id)));
 }
 
 export function isCanonicalVerificationArtifactSet(
@@ -289,35 +232,38 @@ export function isCanonicalVerificationArtifactSet(
 ): input is CanonicalVerificationArtifactSet {
   let candidate: VerificationArtifactSet;
   try {
-    const snapshot = CodexDevelopmentSnapshotVerificationDataV1(
-      input,
-      'verification artifact set'
-    );
+    const snapshot = CodexDevelopmentSnapshotVerificationDataV1(input, 'verification artifact set');
     if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return false;
     candidate = snapshot as unknown as VerificationArtifactSet;
   } catch {
     return false;
   }
-  if (!exactCurrentCanonicalVerificationReport(
-    candidate.verificationReport,
-    candidate.acceptanceCoverage as AcceptanceCoverageReport
-  ) ||
-    !exactRuntimeVerificationReport(candidate.runtimeReport) ||
-    !exactPolicyReport(candidate.policyReport) ||
-    !exactAcceptanceCoverage(
-      candidate.acceptanceCoverage,
-      candidate.verificationReport.fast,
-      candidate.verificationReport.runtime
-    )) {
+
+  const acceptanceCoverage = validatedAcceptanceCoverage(candidate.acceptanceCoverage);
+  const policyReport = validatedPolicyReport(candidate.policyReport);
+  if (acceptanceCoverage === null || policyReport === null ||
+      !exactCurrentCanonicalVerificationReport(candidate.verificationReport, acceptanceCoverage) ||
+      !exactRuntimeVerificationReport(candidate.runtimeReport) ||
+      !exactAcceptanceCoverage(
+        candidate.acceptanceCoverage,
+        candidate.verificationReport.fast,
+        candidate.verificationReport.runtime
+      )) {
     return false;
   }
-  const report = candidate.verificationReport;
-  return CodexDevelopmentVerificationDataEqualV1(report.runtime, candidate.runtimeReport) &&
-    CodexDevelopmentVerificationDataEqualV1(report.fast.policyReport, candidate.policyReport) &&
-    CodexDevelopmentVerificationDataEqualV1(report.policy, {
-      status: candidate.policyReport.status,
-      violations: candidate.policyReport.violations
-    }) && candidate.acceptanceCoverage.status === candidate.runtimeReport.status;
+
+  const reportPolicy = validatedPolicyReport(candidate.verificationReport.fast.policyReport);
+  return reportPolicy !== null &&
+    CodexDevelopmentVerificationDataEqualV1(candidate.verificationReport.runtime, candidate.runtimeReport) &&
+    CodexDevelopmentVerificationDataEqualV1(
+      structuredClone(reportPolicy),
+      structuredClone(policyReport)
+    ) &&
+    CodexDevelopmentVerificationDataEqualV1(candidate.verificationReport.policy, {
+      status: policyReport.status,
+      violations: structuredClone(policyReport.violations)
+    }) &&
+    acceptanceCoverage.status === candidate.runtimeReport.status;
 }
 
 export function assertCanonicalVerificationArtifactSet(
