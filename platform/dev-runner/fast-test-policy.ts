@@ -1,11 +1,11 @@
 import { availableParallelism } from 'node:os';
 
+import { FAST_TEST_PROCESS_POLICY_TEST_FILE } from '../shared/test-budget-contract.ts';
+
 export const DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE = 16;
 export const MAX_FAST_TEST_PROCESS_SHARD_SIZE = 16;
 export const MAX_FAST_TEST_GLOBAL_RESOURCE_BUDGET = 16;
 export const MAX_FAST_TEST_PROCESS_CONCURRENCY = 8;
-export const DEFAULT_FAST_TEST_TIMEOUT_MS = 180_000;
-export const FAST_TEST_PROCESS_POLICY_SENTINEL = 'tests/unit/test-runner.test.ts';
 
 export const FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER = [
   'independent-process',
@@ -142,11 +142,6 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
-    file: 'tests/contract/document-control-plane-lifecycle.test.ts',
-    reason: 'process-global-environment',
-    resourceClass: 'independent-process'
-  },
-  {
     file: 'tests/contract/repository-audit.test.ts',
     reason: 'process-global-environment',
     resourceClass: 'independent-process'
@@ -222,6 +217,11 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     resourceClass: 'independent-process'
   },
   {
+    file: 'tests/unit/ci-orchestration-git-isolation.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
     file: 'tests/unit/ci-verification-execution.test.ts',
     reason: 'copied-tcb-cli-and-child-process-recovery',
     resourceClass: 'independent-process'
@@ -229,6 +229,16 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
   {
     file: 'tests/unit/project-overview.test.ts',
     reason: 'workspace-overview',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/exact-git-blob.test.ts',
+    reason: 'process-global-environment',
+    resourceClass: 'independent-process'
+  },
+  {
+    file: 'tests/unit/manifest-cache-activation.test.ts',
+    reason: 'module-global-manifest-cache',
     resourceClass: 'independent-process'
   },
   {
@@ -275,6 +285,16 @@ const FAST_TEST_PROCESS_ISOLATION_DEFINITIONS = [
     file: 'tests/unit/windows-appcontainer-host-tool-lifecycle.test.ts',
     reason: 'production-host-and-runtime-lifecycle',
     resourceClass: 'shared-host-runtime'
+  },
+  {
+    file: 'tests/unit/workbench-server.test.ts',
+    reason: 'workspace-server',
+    resourceClass: 'shared-host-runtime'
+  },
+  {
+    file: 'tests/unit/workspace-write-lease.test.ts',
+    reason: 'workspace-lease-process-state',
+    resourceClass: 'independent-process'
   },
   {
     file: 'tests/unit/work-package-gate-contract.test.ts',
@@ -336,8 +356,8 @@ export function assertFastTestProcessPolicyInventoryV1(
     if (current.has(file)) throw new Error(`Current fast-test inventory is duplicated: ${file}`);
     current.add(file);
   }
-  if (!current.has(FAST_TEST_PROCESS_POLICY_SENTINEL)) {
-    throw new Error(`Fast-test process policy sentinel is absent: ${FAST_TEST_PROCESS_POLICY_SENTINEL}`);
+  if (!current.has(FAST_TEST_PROCESS_POLICY_TEST_FILE)) {
+    throw new Error(`Fast-test process policy test is absent: ${FAST_TEST_PROCESS_POLICY_TEST_FILE}`);
   }
 
   const excluded = new Set<string>();

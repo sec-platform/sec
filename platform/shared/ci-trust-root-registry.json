@@ -12,6 +12,7 @@
     "platform/shared/ci-trust-root-registry.json",
     "platform/shared/tcb-closure-lock.ts",
     "scripts/codex/branch-lifecycle.ts",
+    "scripts/codex/trusted-runtime.Dockerfile",
     "tsconfig.json"
   ],
   "staticDirectoryPaths": [
@@ -52,12 +53,18 @@
     "scripts/codex/local-github-actions-runner.ts",
     "scripts/codex/merge-gate.ts",
     "scripts/codex/skill-applicability.ts",
+    "scripts/codex/trusted-runtime-closeout.ts",
     "scripts/codex/verification-session.ts",
     "scripts/codex/work-package-contract.ts",
     "scripts/codex/worktree-physical-closeout.ts",
     "tests/setup/runtime-deps.setup.ts"
   ],
-  "reviewedSutEdges": ["scripts/ci-workspace-fast.ts -> platform/orchestrator.ts"],
+  "reviewedSutEdges": [
+    "scripts/ci-workspace-fast.ts -> platform/orchestrator/block-orchestrator.ts",
+    "scripts/ci-workspace-fast.ts -> platform/orchestrator/compose-orchestrator.ts",
+    "scripts/ci-workspace-fast.ts -> platform/orchestrator/verify-orchestrator.ts",
+    "scripts/ci-workspace-fast.ts -> platform/orchestrator/workspace-orchestrator.ts"
+  ],
   "reviewedBoundaryEdges": [
     "scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts",
     "scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts"

@@ -119,6 +119,33 @@ export const PIPELINE_STAGE_DEFINITIONS: Record<PipelineStageId, PipelineStageDe
   }
 };
 
+/**
+ * Transitional compatibility adapter for domain error codes that predate a
+ * typed `originPass` failure facet. Pipeline orchestration is the sole owner
+ * of this mapping; callers must not duplicate prefix inference. Retire this
+ * table when #471-style typed failure identity is carried by every producer.
+ */
+const LEGACY_PIPELINE_FAILURE_FAMILIES: readonly Readonly<{
+  passId: PassId;
+  prefixes: readonly string[];
+}>[] = Object.freeze([
+  { passId: 'parse', prefixes: ['PARSE-', 'MANIFEST-', 'PLAN-'] },
+  { passId: 'align', prefixes: ['ALIGN-'] },
+  { passId: 'resolve', prefixes: ['RESOLVE-'] },
+  { passId: 'build-ir', prefixes: ['IR-', 'CONTRACT-SEMANTIC-'] },
+  { passId: 'compose', prefixes: ['COMPOSE-'] },
+  { passId: 'adapt', prefixes: ['SLOT-', 'ADAPT-'] },
+  { passId: 'verify', prefixes: ['VERIFY-', 'ERROR-DRIFT-'] },
+  { passId: 'repair', prefixes: ['REPAIR-'] },
+  { passId: 'lock', prefixes: ['LOCK-'] },
+  { passId: 'emit', prefixes: ['EXPLAIN-', 'EMIT-'] }
+]);
+
+export function pipelinePassFromLegacyErrorCode(code: string, fallback: PassId): PassId {
+  return LEGACY_PIPELINE_FAILURE_FAMILIES.find((family) =>
+    family.prefixes.some((prefix) => code.startsWith(prefix)))?.passId ?? fallback;
+}
+
 export function getPipelineStageDefinition(stageId: PipelineStageId): PipelineStageDefinition {
   return PIPELINE_STAGE_DEFINITIONS[stageId];
 }

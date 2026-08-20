@@ -1,10 +1,6 @@
 import path from 'node:path';
 
 import {
-  assertIsolatedStagingTree,
-  isSemanticMutationStagingWorkspace
-} from '../compiler/index.ts';
-import {
   buildSemanticMutationIsolatedChildOutcome,
   publishSemanticMutationIsolatedChildOutcome,
   type SemanticMutationIsolatedChildFailureStage,
@@ -18,6 +14,8 @@ import {
 import {
   withSemanticMutationIsolatedPhaseTelemetry
 } from '../compiler/semantic-mutation/isolated-verification-phase-telemetry.ts';
+import { assertIsolatedStagingTree } from '../compiler/verify/assert-isolated-staging-tree.ts';
+import { isSemanticMutationStagingWorkspace } from '../compiler/verify/semantic-mutation-staging-boundary.ts';
 import {
   registerWindowsBrowserLaunchProofFromArguments
 } from '../compiler/verify/windows-browser-launch-path.ts';

@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -231,27 +230,4 @@ test('Skill CLI requires an explicit candidate root before live authority observ
   ]);
   expect(selected.status).not.toBe(0);
   expect(selected.stderr).toContain('--candidate-root <path> is required');
-});
-
-test('production Read Plan reuses the activation manifest blob observation without a second Git read', () => {
-  const activationSource = readFileSync(
-    path.join(REPOSITORY_ROOT, 'scripts/codex/agent-operation-activation.ts'),
-    'utf8'
-  );
-  const capsuleSource = readFileSync(
-    path.join(REPOSITORY_ROOT, 'scripts/codex/task-capsule.ts'),
-    'utf8'
-  );
-  const readPlanSource = readFileSync(
-    path.join(REPOSITORY_ROOT, 'scripts/codex/operation-read-plan.ts'),
-    'utf8'
-  );
-
-  expect(activationSource).toContain('manifestRevision: manifestBlob.oid');
-  expect(capsuleSource).toContain('manifestRevision: activation.manifestRevision');
-  expect(readPlanSource).toContain('revision: observation.manifestRevision');
-  expect(readPlanSource).toContain('contentDigest: observation.manifestDigest');
-  expect(readPlanSource).not.toContain('function requireBlobObservation');
-  expect(readPlanSource).not.toContain("['rev-parse', '--verify', `${revision}:${repositoryPath}`]");
-  expect(readPlanSource).not.toContain("['cat-file', 'blob', value]");
 });

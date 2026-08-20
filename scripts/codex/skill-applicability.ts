@@ -16,6 +16,7 @@ import {
   isSecSkillQuarantinePath
 } from '../../platform/shared/agent-skill-contract.ts';
 import { canonicalJson } from '../../platform/shared/canonical-primitives.ts';
+import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
 import { resolveProspectiveWorkerOperationV1 } from './operation-read-plan.ts';
 import {
   SecTaskCapsuleProjectionUnavailableError,
@@ -28,7 +29,12 @@ function fail(message: string): never {
 }
 
 function gitOutput(cwd: string, args: string[]): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+  const result = spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    windowsHide: true,
+    env: isolatedGitReadEnvironment()
+  });
   return { status: result.status ?? -1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 

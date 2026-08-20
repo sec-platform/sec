@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
@@ -18,17 +18,16 @@ import {
   type ImportTransformTransactionTestHooksV1
 } from './import-transform-transaction.ts';
 
-// Inline sync config cache for tsconfig.json parsing.
-// Inlined here to avoid expanding the TCB runtime closure with config-cache.ts.
-const tsconfigCache = new Map<string, { signature: string; value: { config?: unknown; error?: ts.Diagnostic } }>();
+// Inline sync parse cache. Exact config bytes are the reuse identity; metadata
+// is not correctness evidence because mtime/size can collide across rewrites.
+const tsconfigCache = new Map<string, { digest: `sha256:${string}`; value: { config?: unknown; error?: ts.Diagnostic } }>();
 function cachedParseConfigFile(configPath: string): { config?: unknown; error?: ts.Diagnostic } {
-  const stat = statSync(configPath);
-  const signature = `${configPath}:${stat.mtimeMs}:${stat.size}`;
-  const existing = tsconfigCache.get(configPath);
-  if (existing !== undefined && existing.signature === signature) return existing.value;
   const text = readFileSync(configPath, 'utf8');
+  const digest = rawSha256(text);
+  const existing = tsconfigCache.get(configPath);
+  if (existing !== undefined && existing.digest === digest) return existing.value;
   const value = ts.parseConfigFileTextToJson(configPath, text);
-  tsconfigCache.set(configPath, { signature, value });
+  tsconfigCache.set(configPath, { digest, value });
   return value;
 }
 
@@ -345,8 +344,6 @@ function typeScriptTargetsFromPorcelain(bytes: Buffer, source: string): readonly
     const y = entry[1]!;
     const filePath = entry.slice(3);
 
-    // Rename/copy entries are followed by an extra NUL-separated original path
-    // field that must be consumed to keep field alignment.
     if (x === 'R' || x === 'C' || y === 'R' || y === 'C') {
       if (index < fields.length) index++;
     }
@@ -453,14 +450,10 @@ export function workingTreeTypeScriptTargets(
   const resolvedBase = resolveCandidateImportBase(projectRoot, candidateBase, env);
   const targets = new Set<string>();
 
-  // Committed candidate delta is one NUL-delimited, read-only Git query.
   for (const target of changedTypeScriptFiles(projectRoot, resolvedBase, env)) {
     targets.add(target);
   }
 
-  // Working tree changes: staged, unstaged, and untracked (single porcelain
-  // call replaces the former --cached, working-tree, and ls-files --others
-  // calls, deriving all working-tree targets in one pass).
   for (const target of typeScriptTargetsFromPorcelain(
     gitBytes(projectRoot, ['status', '--porcelain=v1', '--untracked-files=all', '-z'], undefined, pureGitReadEnvironment(env)),
     'git status --porcelain=v1'
@@ -498,7 +491,6 @@ function selectStagedEntries(
 ): readonly StagedIndexEntry[] {
   const unresolved = entries.find((entry) => entry.stage !== 0 && isTypeScriptPath(entry.path));
   if (unresolved) {
-    // Typed partial-stage fail-closed: no stash/restore, no index mutation.
     throw new CompilerError(
       'IMPORT-PARTIAL-STAGE-CONFLICT',
       `Cannot organize unresolved TypeScript index stages: ${unresolved.path}`,
@@ -527,14 +519,14 @@ function selectStagedEntries(
   return Object.freeze(selected);
 }
 
-function absoluteStagedPath(projectRoot: string, gitPath: string): string {
+function absoluteRepositoryPath(projectRoot: string, gitPath: string): string {
   if (gitPath.length === 0 || gitPath.includes('\\') || path.posix.isAbsolute(gitPath)) {
-    throw new Error(`TypeScript staged path is invalid: ${gitPath}`);
+    throw new Error(`TypeScript repository path is invalid: ${gitPath}`);
   }
   const absolute = path.resolve(projectRoot, ...gitPath.split('/'));
   const relative = path.relative(projectRoot, absolute);
   if (relative === '' || path.isAbsolute(relative) || relative === '..' || relative.startsWith(`..${path.sep}`)) {
-    throw new Error(`TypeScript staged path escaped the repository: ${gitPath}`);
+    throw new Error(`TypeScript repository path escaped the repository: ${gitPath}`);
   }
   return absolute;
 }
@@ -553,21 +545,46 @@ async function materializeCandidateIndex(projectRoot: string): Promise<string> {
   }
 }
 
-function workingTreeMatchesIndex(projectRoot: string): boolean {
-  return gitBytes(
-    projectRoot,
-    ['diff', '--name-status', '-z', '--']
-  ).byteLength === 0 && gitBytes(
-    projectRoot,
-    ['ls-files', '--others', '--exclude-standard', '-z', '--']
-  ).byteLength === 0;
+function gitIndexPath(projectRoot: string): string {
+  const configured = gitText(projectRoot, ['rev-parse', '--git-path', 'index']).trim();
+  if (configured.length === 0) throw new Error('Git index path is unavailable');
+  return path.isAbsolute(configured)
+    ? path.resolve(configured)
+    : path.resolve(projectRoot, configured);
+}
+
+async function workingTreeMatchesIndex(projectRoot: string): Promise<boolean> {
+  const indexPath = gitIndexPath(projectRoot);
+  const observationIndexPath = `${indexPath}.imports-observation-${process.pid}-${randomUUID()}`;
+  const observationLockPath = `${observationIndexPath}.lock`;
+  await fs.copyFile(indexPath, observationIndexPath);
+  const environment = {
+    ...pureGitReadEnvironment(process.env),
+    GIT_INDEX_FILE: observationIndexPath
+  };
+  try {
+    return gitBytes(
+      projectRoot,
+      ['diff', '--name-status', '-z', '--'],
+      undefined,
+      environment
+    ).byteLength === 0 && gitBytes(
+      projectRoot,
+      ['ls-files', '--others', '--exclude-standard', '-z', '--'],
+      undefined,
+      environment
+    ).byteLength === 0;
+  } finally {
+    await fs.rm(observationLockPath, { force: true });
+    await fs.rm(observationIndexPath, { force: true });
+  }
 }
 
 async function candidateContext(
   projectRoot: string,
   testHooks: StagedImportOrganizerTestHooks
 ): Promise<{ readonly root: string; readonly snapshotRoot: string | null; readonly mode: 'working-tree' | 'snapshot' }> {
-  if (workingTreeMatchesIndex(projectRoot)) {
+  if (await workingTreeMatchesIndex(projectRoot)) {
     await testHooks.candidateContext?.('working-tree');
     return Object.freeze({
       root: projectRoot,
@@ -654,6 +671,57 @@ function createImportService(
   return ts.createLanguageService(host);
 }
 
+type ImportSourceSnapshotV1 = Readonly<{
+  relativePath: string;
+  absolutePath: string;
+  bytes: Buffer;
+  text: string;
+}>;
+
+type NormalizedImportSnapshotV1 = Readonly<{
+  source: ImportSourceSnapshotV1;
+  replacementBytes: Buffer;
+}>;
+
+/**
+ * The only semantic import-normalization kernel. Snapshot adapters may read
+ * bytes from the worktree or Git index, but both must submit the same shape to
+ * this function. TypeScript remains the sole ordering/combining provider.
+ */
+function normalizeImportSnapshotsV1(
+  config: ts.ParsedCommandLine,
+  projectRoot: string,
+  sources: readonly ImportSourceSnapshotV1[],
+  intent: ImportTransformIntentV1 = 'sort-and-combine'
+): readonly NormalizedImportSnapshotV1[] {
+  const ordered = [...sources].sort((left, right) => (
+    left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0
+  ));
+  if (new Set(ordered.map((source) => source.relativePath)).size !== ordered.length) {
+    throw new Error('Import normalization received duplicate repository paths');
+  }
+  const serviceFiles = new Map<string, { version: number; content: string }>(
+    ordered.map((source) => [source.absolutePath, { version: 0, content: source.text }])
+  );
+  const service = createImportService(
+    config,
+    projectRoot,
+    importServiceRootFileNames(config, ordered.map((source) => source.absolutePath)),
+    serviceFiles
+  );
+  try {
+    return Object.freeze(ordered.map((source) => Object.freeze({
+      source,
+      replacementBytes: Buffer.from(
+        organizeImportsInSource(service, source.absolutePath, source.text, intent),
+        'utf8'
+      )
+    })));
+  } finally {
+    service.dispose();
+  }
+}
+
 function assertIndexUnchanged(
   projectRoot: string,
   targetPaths: readonly string[],
@@ -678,11 +746,7 @@ async function publishStagedIndex(
   testHooks: StagedImportOrganizerTestHooks,
   candidateBase: string | undefined
 ): Promise<void> {
-  const configuredIndexPath = gitText(projectRoot, ['rev-parse', '--git-path', 'index']).trim();
-  if (configuredIndexPath.length === 0) throw new Error('Git index path is unavailable');
-  const indexPath = path.isAbsolute(configuredIndexPath)
-    ? path.resolve(configuredIndexPath)
-    : path.resolve(projectRoot, configuredIndexPath);
+  const indexPath = gitIndexPath(projectRoot);
   const lockPath = `${indexPath}.lock`;
   const alternateIndexPath = `${indexPath}.imports-staged-${process.pid}-${randomUUID()}`;
   const alternateLockPath = `${alternateIndexPath}.lock`;
@@ -738,8 +802,6 @@ async function publishStagedIndex(
     lock = null;
     await fs.rename(lockPath, indexPath);
     published = true;
-  } catch (error) {
-    throw error;
   } finally {
     if (lock !== null) await lock.close().catch(() => undefined);
     await fs.rm(alternateLockPath, { force: true }).catch(() => undefined);
@@ -754,7 +816,6 @@ type StagedImportComputationV1 = Readonly<{
   selectedEntries: readonly StagedIndexEntry[];
   updates: readonly StagedImportUpdate[];
   context: Readonly<{ root: string; snapshotRoot: string | null; mode: 'working-tree' | 'snapshot' }>;
-  service: ts.LanguageService;
 }>;
 
 async function computeStagedImportUpdates(
@@ -766,8 +827,6 @@ async function computeStagedImportUpdates(
   const targetPaths = stagedTypeScriptTargets(projectRoot, candidateBase);
   const indexEntries = readIndexEntries(projectRoot);
   if (targetPaths.length === 0) {
-    // Typed partial-stage fail-closed even when no staged diff targets are
-    // selected: unresolved TypeScript stages are never silently bypassed.
     const unresolved = indexEntries.find((entry) => entry.stage !== 0 && isTypeScriptPath(entry.path));
     if (unresolved) {
       throw new CompilerError(
@@ -788,54 +847,48 @@ async function computeStagedImportUpdates(
     })
     : await candidateContext(projectRoot, testHooks);
   const contextRoot = context.root;
-  const config = loadProjectConfig(contextRoot);
-  const stagedFiles = new Map<string, { version: number; content: string }>();
-  const originals = new Map<string, Buffer>();
-  const blobs = readStagedBlobs(projectRoot, selectedEntries);
-  for (const entry of selectedEntries) {
-    const absolutePath = absoluteStagedPath(contextRoot, entry.path);
-    const bytes = blobs.get(entry.path);
-    if (!bytes) throw new Error(`TypeScript staged blob was not batch-loaded: ${entry.path}`);
-    originals.set(entry.path, bytes);
-    stagedFiles.set(absolutePath, {
-      version: 0,
-      content: decodeTypeScriptBlob(bytes, entry.path)
-    });
-  }
-  const projectFileNames = importServiceRootFileNames(config, [...stagedFiles.keys()]);
-  const service = createImportService(config, contextRoot, projectFileNames, stagedFiles);
   try {
+    const config = loadProjectConfig(contextRoot);
+    const blobs = readStagedBlobs(projectRoot, selectedEntries);
+    const sources = selectedEntries.map((entry): ImportSourceSnapshotV1 => {
+      const bytes = blobs.get(entry.path);
+      if (!bytes) throw new Error(`TypeScript staged blob was not batch-loaded: ${entry.path}`);
+      return Object.freeze({
+        relativePath: entry.path,
+        absolutePath: absoluteRepositoryPath(contextRoot, entry.path),
+        bytes,
+        text: decodeTypeScriptBlob(bytes, entry.path)
+      });
+    });
+    const normalized = normalizeImportSnapshotsV1(config, contextRoot, sources);
     const updates: StagedImportUpdate[] = [];
-    for (const entry of selectedEntries) {
-      const absolutePath = absoluteStagedPath(contextRoot, entry.path);
-      const file = stagedFiles.get(absolutePath);
-      const originalBytes = originals.get(entry.path);
-      if (!file || !originalBytes) {
-        throw new Error(`TypeScript staged blob was not loaded: ${entry.path}`);
+    for (let index = 0; index < selectedEntries.length; index += 1) {
+      const entry = selectedEntries[index]!;
+      const result = normalized[index]!;
+      if (result.source.relativePath !== entry.path) {
+        throw new Error('Import normalization changed canonical staged path order');
       }
-      const normalized = organizeImportsInSource(service, absolutePath, file.content);
-      const normalizedBytes = Buffer.from(normalized, 'utf8');
-      if (normalizedBytes.equals(originalBytes)) continue;
+      if (result.replacementBytes.equals(result.source.bytes)) continue;
       testHooks.beforeHash?.(entry.path);
-      const normalizedObjectId = gitText(projectRoot, ['hash-object', '--stdin'], normalizedBytes).trim();
+      const normalizedObjectId = gitText(projectRoot, ['hash-object', '--stdin'], result.replacementBytes).trim();
       if (!/^[0-9a-f]{40,64}$/u.test(normalizedObjectId)) {
         throw new Error(`git hash-object returned an invalid object ID for ${entry.path}`);
       }
       updates.push(Object.freeze({
         entry,
-        normalizedBytes,
+        normalizedBytes: result.replacementBytes,
         normalizedObjectId
       }));
     }
 
-    if (candidateBase !== undefined && context.mode === 'working-tree' && !workingTreeMatchesIndex(projectRoot)) {
+    if (candidateBase !== undefined && context.mode === 'working-tree'
+        && !await workingTreeMatchesIndex(projectRoot)) {
       throw new Error('Working tree or untracked paths changed while organizing candidate imports');
     }
 
     return Object.freeze({ candidateBase, targetPaths, selectedEntries,
-      updates: Object.freeze(updates), context, service });
+      updates: Object.freeze(updates), context });
   } catch (error) {
-    service.dispose();
     if (context.snapshotRoot !== null) {
       await fs.rm(context.snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
     }
@@ -844,16 +897,11 @@ async function computeStagedImportUpdates(
 }
 
 function disposeStagedComputation(computation: StagedImportComputationV1): Promise<void> {
-  computation.service.dispose();
   return computation.context.snapshotRoot === null
     ? Promise.resolve()
     : fs.rm(computation.context.snapshotRoot, { recursive: true, force: true }).catch(() => undefined);
 }
 
-/**
- * Freeze = identity seal for staged/candidate snapshots. Pure compare only:
- * zero source writes, zero index writes, zero rename/chmod/mtime publication.
- */
 export async function runStagedImportCheck(
   projectRoot = compilerRoot,
   testHooks: StagedImportOrganizerTestHooks = {},
@@ -945,81 +993,82 @@ async function compileImportOperationExecutionV1(
     ? resolveCandidateImportBase(projectRoot, options.candidateBase, env)
     : null;
   const selectedPaths = scope === 'candidate'
-    ? new Set(workingTreeTypeScriptTargets(projectRoot, candidateBase!, env))
+    ? workingTreeTypeScriptTargets(projectRoot, candidateBase!, env)
     : null;
-  const selected = Object.freeze(config.fileNames
-    .filter((fileName) => selectedPaths === null
-      || selectedPaths.has(relativePosixPath(projectRoot, fileName)))
+  // Git owns the candidate surface. A changed TypeScript module can be a
+  // transitive program node without being a tsconfig root (tooling is the
+  // canonical example), so filtering candidate paths through config.fileNames
+  // would make working-tree check/apply disagree with staged freeze. tsconfig
+  // still owns compiler options and declaration roots; it cannot shrink the
+  // exact Git-selected candidate.
+  const selectedCandidates = Object.freeze((selectedPaths === null
+    ? [...config.fileNames]
+    : selectedPaths.map((gitPath) => absoluteRepositoryPath(projectRoot, gitPath)))
     .sort((left, right) => {
       const leftPath = relativePosixPath(projectRoot, left);
       const rightPath = relativePosixPath(projectRoot, right);
       return leftPath < rightPath ? -1 : leftPath > rightPath ? 1 : 0;
     }));
 
-  const sourceEntries = await Promise.all(selected.map(async (fileName) => {
-    const bytes = await fs.readFile(fileName);
+  const sources = (await Promise.all(selectedCandidates.map(async (fileName): Promise<ImportSourceSnapshotV1 | null> => {
+    let bytes: Buffer;
+    try {
+      bytes = await fs.readFile(fileName);
+    } catch (error) {
+      // A path changed earlier in the branch may be deleted in the current
+      // working candidate. Deletion has no import bytes to normalize.
+      if (scope === 'candidate' && (error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
     const text = bytes.toString('utf8');
     if (!Buffer.from(text, 'utf8').equals(bytes)) {
       throw new Error(`Import target is not exact UTF-8: ${relativePosixPath(projectRoot, fileName)}`);
     }
-    return [fileName, Object.freeze({ bytes, text })] as const;
-  }));
-  const sources = new Map<string, { bytes: Buffer; text: string }>(sourceEntries);
-
-  const serviceFiles = new Map<string, { version: number; content: string }>(
-    [...sources].map(([fileName, source]) => [fileName, { version: 0, content: source.text }])
-  );
-  const service = createImportService(
-    config,
-    projectRoot,
-    importServiceRootFileNames(config, selected),
-    serviceFiles
-  );
-  try {
-    const targets: Array<ImportOperationPlanV1['targets'][number]> = [];
-    const writes: Array<CompiledImportOperationPlanV1['writes'][number]> = [];
-    for (const fileName of selected) {
-      const source = sources.get(fileName)!;
-      const replacementText = organizeImportsInSource(service, fileName, source.text, intent);
-      const replacementBytes = Buffer.from(replacementText, 'utf8');
-      const relativePath = relativePosixPath(projectRoot, fileName);
-      const changed = !replacementBytes.equals(source.bytes);
-      targets.push(Object.freeze({
-        relativePath,
-        preimageDigest: rawSha256(source.bytes),
-        replacementDigest: rawSha256(replacementBytes),
-        changed
+    return Object.freeze({
+      relativePath: relativePosixPath(projectRoot, fileName),
+      absolutePath: fileName,
+      bytes,
+      text
+    });
+  }))).filter((source): source is ImportSourceSnapshotV1 => source !== null);
+  const normalized = normalizeImportSnapshotsV1(config, projectRoot, sources, intent);
+  const targets: Array<ImportOperationPlanV1['targets'][number]> = [];
+  const writes: Array<CompiledImportOperationPlanV1['writes'][number]> = [];
+  for (const result of normalized) {
+    const changed = !result.replacementBytes.equals(result.source.bytes);
+    targets.push(Object.freeze({
+      relativePath: result.source.relativePath,
+      preimageDigest: rawSha256(result.source.bytes),
+      replacementDigest: rawSha256(result.replacementBytes),
+      changed
+    }));
+    if (changed) {
+      writes.push(Object.freeze({
+        relativePath: result.source.relativePath,
+        expectedBytes: result.source.bytes,
+        replacementBytes: result.replacementBytes
       }));
-      if (changed) {
-        writes.push(Object.freeze({
-          relativePath,
-          expectedBytes: source.bytes,
-          replacementBytes
-        }));
-      }
     }
-
-    const projectConfigDigest = sha256({
-      rawProjectConfig: JSON.parse(JSON.stringify(config.raw ?? {})) as unknown
-    }) as `sha256:${string}`;
-    const identity = Object.freeze({
-      schema: 'sec-import-operation-plan-v1' as const,
-      intent,
-      scope,
-      candidateBase,
-      providerRevision: `typescript@${ts.version}`,
-      projectConfigDigest,
-      targets: Object.freeze(targets),
-      writePaths: Object.freeze(writes.map((write) => write.relativePath))
-    });
-    const plan = Object.freeze({
-      ...identity,
-      planDigest: sha256(identity) as `sha256:${string}`
-    });
-    return Object.freeze({ plan, writes: Object.freeze(writes) });
-  } finally {
-    service.dispose();
   }
+
+  const projectConfigDigest = sha256({
+    rawProjectConfig: JSON.parse(JSON.stringify(config.raw ?? {})) as unknown
+  }) as `sha256:${string}`;
+  const identity = Object.freeze({
+    schema: 'sec-import-operation-plan-v1' as const,
+    intent,
+    scope,
+    candidateBase,
+    providerRevision: `typescript@${ts.version}`,
+    projectConfigDigest,
+    targets: Object.freeze(targets),
+    writePaths: Object.freeze(writes.map((write) => write.relativePath))
+  });
+  const plan = Object.freeze({
+    ...identity,
+    planDigest: sha256(identity) as `sha256:${string}`
+  });
+  return Object.freeze({ plan, writes: Object.freeze(writes) });
 }
 
 export async function compileImportOperationPlanV1(
@@ -1030,10 +1079,6 @@ export async function compileImportOperationPlanV1(
   return (await compileImportOperationExecutionV1(options, projectRoot, env)).plan;
 }
 
-/**
- * imports:check — pure compare over the working-tree selector. Zero source
- * writes, zero index writes, zero rename/chmod/mtime publication.
- */
 export async function runImportCheck(
   options: ImportOperationOptionsV1 = {},
   projectRoot = compilerRoot,
@@ -1047,14 +1092,6 @@ export async function runImportCheck(
       status: 'needs-import-transform' as const, files: plan.writePaths });
 }
 
-/**
- * imports:apply — explicit authoring operation over one immutable working-tree
- * selector; the only ordinary source-writing import operation. The complete
- * plan write set is published under the canonical workspace writer lease with
- * supported-writer preimage CAS, durable recovery material, rollback, and
- * exact readback. Every supported SEC writer participates in that lease.
- * A true NOOP publishes zero source/index/rename/chmod/mtime changes.
- */
 export async function runImportApply(
   options: ImportOperationOptionsV1 & {
     transactionTestHooks?: ImportTransformTransactionTestHooksV1;

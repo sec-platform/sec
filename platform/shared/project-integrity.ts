@@ -1,24 +1,37 @@
 import { CompilerError } from './errors.ts';
-import { pathExists, readJson } from './fs.ts';
 import { getWorkspacePaths } from './paths.ts';
+import { PhysicalNoFollowError } from './physical-no-follow.ts';
 import { assertProjectBaseline, readProjectBaseline } from './project-baseline.ts';
 import {
   inspectProvenanceArtifacts,
   protectedProvenanceArtifact
 } from './project-provenance-inspection.ts';
 import { listTrackedProjectPaths } from './project-tracked-files.ts';
+import { readOptionalProvenanceFileV1 } from './provenance-authority.ts';
 import type { ProvenanceFile } from './provenance-types.ts';
+
+function readOptionalProvenanceNoFollow(provenancePath: string): ProvenanceFile | null {
+  try {
+    return readOptionalProvenanceFileV1(provenancePath, 'Canonical provenance');
+  } catch (error) {
+    if (error instanceof PhysicalNoFollowError) throw error;
+    throw new CompilerError(
+      'ERROR-DRIFT-001',
+      `Canonical provenance cannot be decoded or validated: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
 
 async function verifyPreviousProvenance(
   workspaceRoot: string,
   options: { strictMissing: boolean }
 ): Promise<boolean> {
   const { projectRoot, provenancePath } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(provenancePath))) return false;
+  const provenance = readOptionalProvenanceNoFollow(provenancePath);
+  if (provenance === null) return false;
 
-  const provenance = await readJson<ProvenanceFile>(provenancePath);
   const trackedProjectPaths = options.strictMissing ? null : await listTrackedProjectPaths(workspaceRoot);
-  const inspected = await inspectProvenanceArtifacts(
+  const inspected = inspectProvenanceArtifacts(
     projectRoot,
     provenance.artifacts.filter(protectedProvenanceArtifact)
   );
@@ -45,18 +58,21 @@ async function verifyPreviousProvenance(
 }
 
 export async function checkProjectBeforeCompile(workspaceRoot: string): Promise<void> {
-  const baseline = await readProjectBaseline(workspaceRoot);
+  const baseline = readProjectBaseline(workspaceRoot);
   if (baseline) {
-    await assertProjectBaseline(workspaceRoot, baseline);
+    assertProjectBaseline(workspaceRoot, baseline);
     return;
   }
   await verifyPreviousProvenance(workspaceRoot, { strictMissing: false });
 }
 
-export async function checkProjectBeforeVerify(workspaceRoot: string): Promise<void> {
-  const baseline = await readProjectBaseline(workspaceRoot);
+export async function checkProjectBeforeVerify(
+  workspaceRoot: string,
+  expectedArtifactPaths?: readonly string[]
+): Promise<void> {
+  const baseline = readProjectBaseline(workspaceRoot);
   if (baseline) {
-    await assertProjectBaseline(workspaceRoot, baseline);
+    assertProjectBaseline(workspaceRoot, baseline, { expectedArtifactPaths });
     return;
   }
   await verifyPreviousProvenance(workspaceRoot, { strictMissing: false });

@@ -14,17 +14,17 @@ import {
   DEFAULT_FAST_TEST_MAX_CONCURRENCY,
   DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE,
   DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS,
-  DEFAULT_FAST_TEST_TIMEOUT_MS,
   FAST_TEST_PROCESS_ISOLATION_REGISTRY,
-  FAST_TEST_PROCESS_POLICY_SENTINEL,
   FAST_TEST_PROCESS_RESOURCE_CLASS_ORDER,
   isDefaultFastTestFile,
   planFastTestProcesses,
   PROCESS_ISOLATED_FAST_TEST_FILES
 } from '../../platform/dev-runner/fast-test-policy.ts';
 import { applyDefaultFastTestConcurrency } from '../../platform/dev-runner/test-concurrency-policy.ts';
+import { DEFAULT_TEST_TIMEOUT_MS } from '../../platform/dev-runner/test-execution-policy.ts';
 import { compilerRoot } from '../../platform/shared/paths.ts';
 import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-no-follow.ts';
+import { FAST_TEST_PROCESS_POLICY_TEST_FILE } from '../../platform/shared/test-budget-contract.ts';
 
 const actualCommandRunner = await import('../../platform/dev-runner/command-runner.ts');
 
@@ -551,9 +551,10 @@ test('fast process isolation AST recognizes executable global hazards without te
 
 test('complete fast process-global hazards have unique typed isolation and single-file queues', async () => {
   const newlyIsolatedFiles = [
-    'tests/contract/document-control-plane-lifecycle.test.ts',
     'tests/contract/repository-audit.test.ts',
     'tests/unit/branch-lifecycle-temp-repo.test.ts',
+    'tests/unit/ci-orchestration-git-isolation.test.ts',
+    'tests/unit/exact-git-blob.test.ts',
     'tests/unit/physical-no-follow.test.ts',
     'tests/unit/verification-action-github-provider.test.ts',
     'tests/unit/verification-action-runner.test.ts',
@@ -628,8 +629,8 @@ test('fast process policy covers default-excluded files and rejects stale or dup
     completeFastFiles.filter((file) => file !== registeredFile)
   )).toThrow(`Fast-test process isolation registration is stale: ${registeredFile}`);
   expect(() => assertFastTestProcessPolicyInventoryV1(
-    completeFastFiles.filter((file) => file !== FAST_TEST_PROCESS_POLICY_SENTINEL)
-  )).toThrow(`Fast-test process policy sentinel is absent: ${FAST_TEST_PROCESS_POLICY_SENTINEL}`);
+    completeFastFiles.filter((file) => file !== FAST_TEST_PROCESS_POLICY_TEST_FILE)
+  )).toThrow(`Fast-test process policy test is absent: ${FAST_TEST_PROCESS_POLICY_TEST_FILE}`);
 
   const definition = FAST_TEST_PROCESS_ISOLATION_REGISTRY[0]!;
   expect(() => assertUniqueFastTestProcessIsolationDefinitionsV1([definition, definition]))
@@ -685,8 +686,8 @@ test('fast process resource classes uniquely derive limits and isolate productio
   expect(resourcePlan.resourceLimits).toEqual(DEFAULT_FAST_TEST_RESOURCE_CLASS_LIMITS);
 });
 
-test('fast tests use one bounded default timeout policy', () => {
-  expect(DEFAULT_FAST_TEST_TIMEOUT_MS).toBe(180_000);
+test('all canonical test lanes use one bounded default timeout policy', () => {
+  expect(DEFAULT_TEST_TIMEOUT_MS).toBe(180_000);
 });
 
 test('default fast inventory excludes deterministic deep acceptance while complete inventory retains it', () => {
@@ -726,7 +727,7 @@ test.serial('targeted concurrent-safe fast tests run only the requested files', 
         '--concurrent',
         'tests/unit/path-containment.test.ts',
         '--timeout',
-        String(DEFAULT_FAST_TEST_TIMEOUT_MS)
+        String(DEFAULT_TEST_TIMEOUT_MS)
       ]
     }
   ]);
@@ -1446,9 +1447,8 @@ test.serial('resource-class failure stops every later class', async () => {
   }
 });
 
-test.serial('temp-root runtime tests run before deterministic resource-class owners', async () => {
+test.serial('deterministic resource-class owners run in class order', async () => {
   const code = await runFastTests([
-    'tests/integration/project-dependency-runtime.test.ts',
     'tests/integration/pipeline-kernel.test.ts',
     'tests/integration/ticket-pipeline.test.ts',
     'tests/integration/workbench-writer-lease.test.ts'
@@ -1458,21 +1458,11 @@ test.serial('temp-root runtime tests run before deterministic resource-class own
   expect(devCommandCalls).toEqual([
     {
       command: 'bun',
-      args: [
-        'test',
-        '--concurrent',
-        'tests/integration/project-dependency-runtime.test.ts',
-        '--timeout',
-        String(DEFAULT_FAST_TEST_TIMEOUT_MS)
-      ]
+      args: ['test', 'tests/integration/pipeline-kernel.test.ts', '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
     },
     {
       command: 'bun',
-      args: ['test', 'tests/integration/pipeline-kernel.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
-    },
-    {
-      command: 'bun',
-      args: ['test', 'tests/integration/ticket-pipeline.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+      args: ['test', 'tests/integration/ticket-pipeline.test.ts', '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
     },
     {
       command: 'bun',
@@ -1480,7 +1470,7 @@ test.serial('temp-root runtime tests run before deterministic resource-class own
         'test',
         'tests/integration/workbench-writer-lease.test.ts',
         '--timeout',
-        String(DEFAULT_FAST_TEST_TIMEOUT_MS)
+        String(DEFAULT_TEST_TIMEOUT_MS)
       ]
     }
   ]);
@@ -1964,14 +1954,24 @@ test.serial('fast tests reject explicit slow file selectors', async () => {
   }
 });
 
-test.serial('slow suite selector expands to the registered suite files', async () => {
+test.serial('slow suite selector applies the shared default timeout', async () => {
   const suiteFiles = slowTestSuiteFiles('e2e-pipeline');
-  const code = await runSlowTests(['--suite', 'e2e-pipeline', '--timeout', '180000']);
+  const code = await runSlowTests(['--suite', 'e2e-pipeline']);
 
   expect(code).toBe(0);
   expect(suiteFiles.length).toBeGreaterThan(0);
   expect(devCommandCalls).toEqual([
-    { command: 'bun', args: ['test', ...suiteFiles, '--timeout', '180000'] }
+    { command: 'bun', args: ['test', ...suiteFiles, '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)] }
+  ]);
+});
+
+test.serial('slow suite selector preserves an explicit timeout override', async () => {
+  const suiteFiles = slowTestSuiteFiles('e2e-pipeline');
+  const code = await runSlowTests(['--suite', 'e2e-pipeline', '--timeout=240000']);
+
+  expect(code).toBe(0);
+  expect(devCommandCalls).toEqual([
+    { command: 'bun', args: ['test', ...suiteFiles, '--timeout=240000'] }
   ]);
 });
 
@@ -2047,7 +2047,7 @@ test.serial('affected plan reports resolved selection without dependency or test
       owners: ['dev-runner'],
       selectedFastTests: [
         'tests/unit/path-containment.test.ts',
-        FAST_TEST_PROCESS_POLICY_SENTINEL
+        FAST_TEST_PROCESS_POLICY_TEST_FILE
       ],
       unresolvedPaths: [],
       resolved: true
@@ -2077,7 +2077,7 @@ test.serial('affected plan applies the same process-policy sentinel to a default
       changedPaths: ['tests/unit/work-package-gate-execution.test.ts'],
       owners: ['dev-runner'],
       selectedFastTests: [
-        FAST_TEST_PROCESS_POLICY_SENTINEL,
+        FAST_TEST_PROCESS_POLICY_TEST_FILE,
         'tests/unit/work-package-gate-execution.test.ts'
       ],
       unresolvedPaths: [],
@@ -2107,7 +2107,7 @@ test.serial('deleted test paths remain changed facts without becoming runnable t
       schema: 'sec-affected-test-plan-v1',
       changedPaths: ['tests/integration/project-runtime.test.ts'],
       owners: ['dev-runner'],
-      selectedFastTests: [FAST_TEST_PROCESS_POLICY_SENTINEL],
+      selectedFastTests: [FAST_TEST_PROCESS_POLICY_TEST_FILE],
       selectedSlowTests: [],
       unresolvedPaths: [],
       resolved: true
@@ -2225,7 +2225,7 @@ test.serial('affected tests combine changed fast tests with source-owned coverag
   expect(concurrentInvocation?.args).toContain('tests/contract/usage.test.ts');
   expect(concurrentInvocation?.args).toContain('tests/unit/path-containment.test.ts');
   expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)))
-    .toContain(FAST_TEST_PROCESS_POLICY_SENTINEL);
+    .toContain(FAST_TEST_PROCESS_POLICY_TEST_FILE);
 });
 
 test.serial('affected tests run changed fast files with the global process-policy sentinel', async () => {
@@ -2241,7 +2241,7 @@ test.serial('affected tests run changed fast files with the global process-polic
 
     expect(code).toBe(0);
     expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
-      FAST_TEST_PROCESS_POLICY_SENTINEL,
+      FAST_TEST_PROCESS_POLICY_TEST_FILE,
       'tests/unit/path-containment.test.ts'
     ].sort());
     expect(devCommandCalls.find((call) => (
@@ -2252,11 +2252,11 @@ test.serial('affected tests run changed fast files with the global process-polic
         args: expect.arrayContaining(['test', '--concurrent', 'tests/unit/path-containment.test.ts'])
       });
     expect(devCommandCalls.find((call) => (
-      Array.isArray(call.args) && call.args.includes(FAST_TEST_PROCESS_POLICY_SENTINEL)
+      Array.isArray(call.args) && call.args.includes(FAST_TEST_PROCESS_POLICY_TEST_FILE)
     )))
       .toMatchObject({
         command: 'bun',
-        args: ['test', FAST_TEST_PROCESS_POLICY_SENTINEL, '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+        args: ['test', FAST_TEST_PROCESS_POLICY_TEST_FILE, '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
       });
   } finally {
     console.log = originalLog;
@@ -2272,7 +2272,7 @@ test.serial('affected tests isolate changed serial fast files', async () => {
   expect(devCommandCalls).toEqual([
     {
       command: 'bun',
-      args: ['test', 'tests/unit/test-runner.test.ts', '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+      args: ['test', 'tests/unit/test-runner.test.ts', '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
     }
   ]);
 });
@@ -2284,7 +2284,7 @@ test.serial('affected tests select the process-policy sentinel for the MainHealt
 
   expect(code).toBe(0);
   expect(devCommandCalls.flatMap((call) => invocationTestFiles(call.args)).sort()).toEqual([
-    FAST_TEST_PROCESS_POLICY_SENTINEL,
+    FAST_TEST_PROCESS_POLICY_TEST_FILE,
     'tests/unit/physical-no-follow.test.ts'
   ].sort());
   expect(devCommandCalls).toHaveLength(2);
@@ -2339,12 +2339,12 @@ test.serial('affected tests allow broad fast-suite fallback when explicitly enab
       invocationTestFiles(args).length <= DEFAULT_FAST_TEST_PROCESS_SHARD_SIZE
     ))).toBe(true);
     expect(concurrentCalls.every(({ args }) => (
-      args.slice(-2).join(' ') === `--timeout ${DEFAULT_FAST_TEST_TIMEOUT_MS}`
+      args.slice(-2).join(' ') === `--timeout ${DEFAULT_TEST_TIMEOUT_MS}`
     ))).toBe(true);
     for (const file of PROCESS_ISOLATED_FAST_TEST_FILES.filter(isDefaultFastTestFile)) {
       expect(devCommandCalls).toContainEqual({
         command: 'bun',
-        args: ['test', file, '--timeout', String(DEFAULT_FAST_TEST_TIMEOUT_MS)]
+        args: ['test', file, '--timeout', String(DEFAULT_TEST_TIMEOUT_MS)]
       });
     }
     const invokedFiles = devCommandCalls.flatMap(({ args }) => invocationTestFiles(args));

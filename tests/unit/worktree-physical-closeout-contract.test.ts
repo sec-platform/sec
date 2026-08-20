@@ -1,6 +1,5 @@
-import { readFileSync } from 'node:fs';
-
 import { expect, test } from 'bun:test';
+
 
 import {
   assertStableWorktreePhysicalWorkingStateV1,
@@ -102,16 +101,6 @@ test('working-state readback drift is a pure pre-effect rejection ordered before
     digest: clean,
     blocker: null
   })).not.toThrow();
-
-  const engine = readFileSync('scripts/codex/worktree-physical-closeout.ts', 'utf8');
-  const readback = engine.indexOf('const workingReadback = await observeWorkingState(');
-  const stableFence = engine.indexOf('assertStableWorktreePhysicalWorkingStateV1(working.digest, workingReadback);', readback);
-  const recoveryEffect = engine.indexOf('const recoveryRoot = createNoFollowDirectoryChainV1(', readback);
-  const authorizationEffect = engine.indexOf("persistCanonical(recoveryRoot, 'authorization.json', authorization);", readback);
-  expect(readback).toBeGreaterThanOrEqual(0);
-  expect(stableFence).toBeGreaterThan(readback);
-  expect(recoveryEffect).toBeGreaterThan(stableFence);
-  expect(authorizationEffect).toBeGreaterThan(recoveryEffect);
 });
 
 test('strict porcelain-z parser accepts canonical records and retains provider flags', () => {

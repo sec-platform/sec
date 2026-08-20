@@ -57,13 +57,17 @@ const TEST_FILE_GLOBS = [
   'tests/**/*.spec.tsx'
 ];
 
+export const DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE =
+  'tests/contract/document-control-plane-lifecycle.test.ts';
+export const FAST_TEST_PROCESS_POLICY_TEST_FILE = 'tests/unit/test-runner.test.ts';
+
 function e2eTestFile(name: string): string {
   return `tests/e2e/${name}.test.ts`;
 }
 
-function slowFileSuite(
+function slowPathSuite(
   id: string,
-  fileName: string,
+  file: string,
   owner: string,
   timeoutMs = 180_000,
   options: {
@@ -79,13 +83,55 @@ function slowFileSuite(
     parallelSafe: options.parallelSafe ?? false,
     resourceClass: options.resourceClass ?? 'standard',
     prRiskBaseline: options.prRiskBaseline ?? false,
-    files: [e2eTestFile(fileName)]
+    files: [file]
   };
+}
+
+function slowFileSuite(
+  id: string,
+  fileName: string,
+  owner: string,
+  timeoutMs = 180_000,
+  options: {
+    parallelSafe?: boolean;
+    resourceClass?: SlowTestResourceClass;
+    prRiskBaseline?: boolean;
+  } = {}
+): SlowTestSuiteDefinition {
+  return slowPathSuite(id, e2eTestFile(fileName), owner, timeoutMs, options);
 }
 
 // Slow e2e suites are file-granular by default so CI can shard them with the
 // highest useful parallelism while PR risk gates run only the impacted files.
 const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
+  slowPathSuite(
+    'integration-shared-runtime-dependencies',
+    'tests/integration/project-dependency-runtime.test.ts',
+    'shared-runtime-dependency-integration',
+    300_000,
+    { parallelSafe: true, resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'contract-document-control-plane-lifecycle',
+    DOCUMENT_CONTROL_PLANE_LIFECYCLE_TEST_FILE,
+    'document-control-plane-lifecycle',
+    1_200_000,
+    { parallelSafe: true, resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'unit-worktree-closeout-crash-recovery',
+    'tests/unit/worktree-physical-closeout-crash-recovery.test.ts',
+    'git-worktree-physical-closeout',
+    180_000,
+    { parallelSafe: true, resourceClass: 'runtime-heavy' }
+  ),
+  slowPathSuite(
+    'unit-worktree-closeout-temp-repo',
+    'tests/unit/worktree-physical-closeout-temp-repo.test.ts',
+    'git-worktree-physical-closeout',
+    180_000,
+    { parallelSafe: true, resourceClass: 'runtime-heavy' }
+  ),
   slowFileSuite('e2e-artifacts', 'artifacts', 'compiler-artifacts-e2e', 120_000, {
     parallelSafe: true,
     resourceClass: 'runtime-heavy',
@@ -161,6 +207,10 @@ const slowTestSuiteDefinitions: SlowTestSuiteDefinition[] = [
   }),
   slowFileSuite('e2e-workspace', 'workspace', 'compiler-workspace-e2e', 120_000, { parallelSafe: true, prRiskBaseline: true })
 ];
+
+const explicitSlowTestFiles = new Set(
+  slowTestSuiteDefinitions.flatMap((suite) => suite.files)
+);
 
 function scanTestFilesSync(): string[] {
   const files = new Set<string>();
@@ -246,15 +296,9 @@ export class TestBudgetCache {
 
     const unmatched = slowFiles.filter((file) => !assigned.has(file));
     if (unmatched.length > 0) {
-      suites.push({
-        id: 'other',
-        owner: 'unmapped-slow-e2e',
-        timeoutMs: 120_000,
-        parallelSafe: false,
-        resourceClass: 'standard',
-        prRiskBaseline: false,
-        files: unmatched
-      });
+      throw new Error(
+        `Slow test files require one explicit suite owner: ${unmatched.join(', ')}`
+      );
     }
 
     return suites;
@@ -320,7 +364,7 @@ export function isTestFile(file: string): boolean {
 }
 
 export function isSlowTestFile(file: string): boolean {
-  return /^tests\/e2e\/.+\.(test|spec)\.tsx?$/.test(file);
+  return explicitSlowTestFiles.has(file) || /^tests\/e2e\/.+\.(test|spec)\.tsx?$/.test(file);
 }
 
 export function isFastTestFile(file: string): boolean {

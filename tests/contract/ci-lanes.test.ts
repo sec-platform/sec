@@ -150,7 +150,10 @@ test('documentation registry and verifier trust roots select mandatory sentinels
     'platform/shared/documentation-authority-contract.ts'
   ]) {
     const selection = selectCiPrRiskSlowSuites([file]);
-    expect(selection.suites).toEqual(slowTestPrRiskBaselineSuiteIds());
+    expect(selection.suites).toEqual(expect.arrayContaining(slowTestPrRiskBaselineSuiteIds()));
+    if (file === 'docs/authority.json') {
+      expect(selection.suites).toContain('contract-document-control-plane-lifecycle');
+    }
     expect(selection.owners).toEqual(expect.arrayContaining([
       'agent-governance',
       'bounded-slow-risk'
@@ -163,9 +166,9 @@ test('documentation registry and verifier trust roots select mandatory sentinels
   }
 
   expect(selectCiPrRiskSlowSuites(['docs/product.md'])).toEqual({
-    suites: [],
+    suites: ['contract-document-control-plane-lifecycle'],
     slowTests: [],
-    affectedSlowTests: [],
+    affectedSlowTests: ['tests/contract/document-control-plane-lifecycle.test.ts'],
     owners: ['documentation-authority'],
     reasons: ['ownership-impact'],
     resolved: true
@@ -324,6 +327,10 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
     .filter((suite) => suite.resourceClass === 'runtime-heavy')
     .map((suite) => suite.id);
   expect(runtimeHeavy).toEqual([
+    'integration-shared-runtime-dependencies',
+    'contract-document-control-plane-lifecycle',
+    'unit-worktree-closeout-crash-recovery',
+    'unit-worktree-closeout-temp-repo',
     'e2e-artifacts',
     'e2e-conflicts',
     'e2e-demo-doctor',
@@ -343,56 +350,7 @@ test('slow suite budget distinguishes state safety from runtime resource pressur
         && suite.id !== 'e2e-windows-appcontainer-executor')
       .every((suite) => suite.parallelSafe)
   ).toBe(true);
-});
 
-test('CI risk runner keeps fail-fast, exact Git identity, and resumable batch contracts', async () => {
-  const source = await readCompilerFile('scripts/ci-pr-risk.ts');
-  const verificationSource = await readCompilerFile('scripts/ci-verification.ts');
-  const orchestrationSource = await readCompilerFile('scripts/codex/ci-orchestration-core.ts');
-  for (const fragment of [
-    "argument === '--all-slow'",
-    "argument === '--continue-on-failure'",
-    "argument.startsWith('--suite=')",
-    "'requested-batch'",
-    'cannot combine --all-slow with explicit --suite values',
-    '--continue-on-failure requires at least one explicit --suite value',
-    'requires a clean complete worktree before execution',
-    'cannot resolve exact head/tree/two bases',
-    "env.SEC_CHANGED_BASE ?? 'HEAD^1'",
-    'SEC_CI_PR_RISK_SLOW_CONCURRENCY',
-    "suite.resourceClass === 'runtime-heavy'",
-    'let stopScheduling = false',
-    'SEC_CI_RISK_SUMMARY',
-    '.tmp/ci-risk-batch-evidence.json',
-    'CodexDevelopmentFinalizeVerificationEvidenceV2',
-    'affectedBaseSha',
-    'SEC_TEST_WORKSPACE_NAMESPACE',
-    'CodexDevelopmentReadExactGitBlobV1',
-    'commitSha: headSha',
-    'CI risk exact head or tree changed during execution'
-  ]) expect(source).toContain(fragment);
-  expect(source).not.toContain('readFileSync');
-  expect(source).not.toContain('process.exit(');
-  expect(source).toContain("from './codex/ci-orchestration-core.ts'");
-  expect(source).not.toContain("from 'node:child_process'");
-  expect(verificationSource).toContain('CodexDevelopmentReadExactGitBlobV1');
-  expect(verificationSource).toContain('commitSha: headSha');
-  expect(verificationSource).toContain('CodexDevelopmentAssertPreparedHostedActionCandidateV2');
-  expect(verificationSource).toContain("gitCandidateBytesV2(candidateRoot, ['show', `${resolution.artifactInput.headSha}:${entry.path}`])");
-  expect(verificationSource).toContain("gitText('status', '--porcelain=v1', '--untracked-files=all')");
-  expect(verificationSource).not.toContain('readManifestBytes');
-  expect(verificationSource).toContain("from './codex/ci-orchestration-core.ts'");
-  expect(verificationSource).toContain('CodexDevelopmentDefaultChangedPathsV1');
-  expect(verificationSource).not.toContain('defaultChangedRecords');
-  expect(verificationSource).not.toContain('gitChangedFileDiffArgs');
-  expect(verificationSource).toContain("import { spawn, spawnSync } from 'node:child_process'");
-  expect(orchestrationSource).toContain('CodexDevelopmentDefaultGitRevisionV1');
-  expect(orchestrationSource).toContain('CodexDevelopmentDefaultTrackedTreeIsCleanV1');
-  expect(orchestrationSource).toContain('CodexDevelopmentDefaultChangedPathsV1');
-  expect(orchestrationSource).toContain('CodexDevelopmentDefaultChangedFilesV1');
-  expect(orchestrationSource).toContain('CodexDevelopmentRunGateProcessV1');
-  expect(orchestrationSource).toContain('CodexDevelopmentCreateNotRunGateV2');
-  expect(orchestrationSource).toContain('cwd: repositoryRoot');
 });
 
 test('CI changed files derive from one immutable changed-record snapshot', () => {

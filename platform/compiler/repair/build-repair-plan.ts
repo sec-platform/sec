@@ -1,12 +1,12 @@
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { CI_ARTIFACT_FILES } from '../../shared/ci-artifact-contract.ts';
 import { uniqueSorted } from '../../shared/collections.ts';
 import { countLineDiff } from '../../shared/diff-utils.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { ensureDir, writeJson, type CommitFence } from '../../shared/fs.ts';
+import { writeJson, writeText, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeLockWithGeneratedPaths } from '../../shared/lock-utils.ts';
+import { portableLogicalPathCollisionKeyV1 } from '../../shared/logical-path-identity.ts';
 import { rebaseRelativeImports } from '../../shared/path-imports.ts';
 import { getWorkspacePaths, resolveWorkspaceArtifactPath, toProjectRuntimePath } from '../../shared/paths.ts';
 import type { PlanFile } from '../../shared/plan-manifest-types.ts';
@@ -17,6 +17,10 @@ import type {
   RepairTask,
   RepairTaskPreview
 } from '../../shared/repair-types.ts';
+import {
+  decodeExactUtf8V1,
+  readOptionalRetainedOrdinaryFileV1
+} from '../../shared/retained-file-read.ts';
 import type { VerificationReport } from '../../shared/verification-types.ts';
 import { writeProvenance } from '../emit/write-provenance.ts';
 import { buildTaskEnvelope } from '../synthesize/build-task-envelope.ts';
@@ -81,7 +85,7 @@ function prepareRepairWriteTasks(
   repairPlan: RepairPlan
 ): PreparedRepairWriteTask[] {
   const { workspaceRoot: root } = getWorkspacePaths(workspaceRoot);
-  return repairPlan.tasks
+  const prepared = repairPlan.tasks
     .filter((task) => task.failurePoints.some((point) => point.repairable))
     .map((repairTask) => {
       if (!repairTask.allowedPaths.includes(repairTask.targetFile)) {
@@ -98,6 +102,27 @@ function prepareRepairWriteTasks(
       }
       return { repairTask, targetPath, slotTask, source: synthesizeSlotSource(envelope) };
     });
+
+  const ownerByTarget = new Map<string, Readonly<{ taskId: string; targetFile: string }>>();
+  for (const task of prepared) {
+    const identity = portableLogicalPathCollisionKeyV1(task.repairTask.targetFile, 'Repair target');
+    const previousOwner = ownerByTarget.get(identity);
+    if (previousOwner !== undefined && (
+      previousOwner.taskId !== task.repairTask.taskId
+      || previousOwner.targetFile !== task.repairTask.targetFile
+    )) {
+      throw new CompilerError(
+        'REPAIR-SCOPE-005',
+        `Repair target "${task.repairTask.targetFile}" has multiple repair owners`,
+        { taskIds: [previousOwner.taskId, task.repairTask.taskId].sort() }
+      );
+    }
+    ownerByTarget.set(identity, Object.freeze({
+      taskId: task.repairTask.taskId,
+      targetFile: task.repairTask.targetFile
+    }));
+  }
+  return prepared;
 }
 
 function buildFailurePoints(report: VerificationReport): RepairFailurePoint[] {
@@ -314,9 +339,17 @@ export function buildRepairPlan(plan: PlanFile, lock: LockFile, report: Verifica
   };
 }
 
+function readRepairPreviewTarget(targetPath: string, targetFile: string): string {
+  const bytes = readOptionalRetainedOrdinaryFileV1(
+    targetPath,
+    `Repair preview target ${targetFile}`
+  );
+  return bytes === null ? '' : decodeExactUtf8V1(bytes, `Repair preview target ${targetFile}`);
+}
+
 export async function previewRepairPlan(workspaceRoot: string, plan: PlanFile, lock: LockFile, repairPlan: RepairPlan): Promise<void> {
   for (const { repairTask, targetPath, source } of prepareRepairWriteTasks(workspaceRoot, plan, lock, repairPlan)) {
-    const before = await fs.readFile(targetPath, 'utf8').catch(() => '');
+    const before = readRepairPreviewTarget(targetPath, repairTask.targetFile);
     const { addedLines, removedLines } = countChangedLines(before, source);
     repairTask.preview = {
       beforeLines: countLines(before),
@@ -342,16 +375,14 @@ export async function applyRepairPlan(
   }
 
   for (const { targetPath, slotTask, source } of writeTasks) {
-    await commitFence?.();
-    await ensureDir(path.dirname(targetPath));
-    await commitFence?.();
-    await fs.writeFile(targetPath, source, 'utf8');
+    await writeText(targetPath, source, commitFence);
     if (slotTask.sourcePath) {
       const runtimeTargetPath = resolveWorkspaceArtifactPath(workspaceRoot, slotTask.target);
-      await commitFence?.();
-      await ensureDir(path.dirname(runtimeTargetPath));
-      await commitFence?.();
-      await fs.writeFile(runtimeTargetPath, rebaseRelativeImports(source, slotTask.sourcePath, toProjectRuntimePath(slotTask.target)), 'utf8');
+      await writeText(
+        runtimeTargetPath,
+        rebaseRelativeImports(source, slotTask.sourcePath, toProjectRuntimePath(slotTask.target)),
+        commitFence
+      );
     }
     slotTask.status = 'filled';
   }

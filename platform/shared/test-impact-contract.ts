@@ -13,7 +13,6 @@ import {
   classifyTestImpactSource,
   matchesTestOwnershipDeclaration,
   resolveDeclaredTestOwnership,
-  resolveTestOwnershipAutoReferenceMode,
   type ResolvedTestOwnership,
   type TestOwnershipDeclaration
 } from './test-ownership-contract.ts';
@@ -21,7 +20,25 @@ import {
 export { classifyTestImpactSource } from './test-ownership-contract.ts';
 
 const compilerRoot = path.resolve(import.meta.dir, '../..');
-const testImportTranspiler = new Bun.Transpiler({ loader: 'tsx' });
+const moduleImportTranspilers = Object.freeze({
+  ts: new Bun.Transpiler({ loader: 'ts' }),
+  tsx: new Bun.Transpiler({ loader: 'tsx' })
+});
+const TRANSITIVE_MODULE_ROOTS = [
+  'docs/scripts',
+  'platform',
+  'scripts',
+  'tests',
+  'tooling'
+] as const;
+const NON_RUNTIME_TYPESCRIPT_ROOTS = [
+  /^platform\/registry\/official\/[^/]+\/(?:versions\/[^/]+\/)?files(?:\/|$)/u,
+  /^tests\/fixtures(?:\/|$)/u
+] as const;
+
+function isRepositoryRuntimeModulePath(relativePath: string): boolean {
+  return !NON_RUNTIME_TYPESCRIPT_ROOTS.some((pattern) => pattern.test(relativePath));
+}
 
 export type TestImpactRule = {
   sourcePattern: RegExp;
@@ -80,7 +97,6 @@ export const testImpactFallbackRules: TestImpactRule[] = [
       'tests/contract/benchmark-budget.test.ts',
       'tests/contract/ci-contract.test.ts',
       'tests/contract/ci-lanes.test.ts',
-      'tests/contract/slow-suite-resource-budget.test.ts',
       'tests/unit/test-runner.test.ts'
     ],
     slow: []
@@ -98,10 +114,9 @@ export const testImpactFallbackRules: TestImpactRule[] = [
       'tests/contract/benchmark-budget.test.ts',
       'tests/contract/repository-runtime.test.ts',
       'tests/integration/compiler-dependency-installation.test.ts',
-      'tests/integration/project-base.test.ts',
-      'tests/integration/project-dependency-runtime.test.ts'
+      'tests/integration/project-base.test.ts'
     ],
-    slow: []
+    slow: ['tests/integration/project-dependency-runtime.test.ts']
   },
   {
     owner: 'repository-lockfile-contract',
@@ -208,7 +223,20 @@ function importCandidates(testFile: string, specifier: string): string[] {
   }
 
   const base = normalizeRepoPath(path.join(path.dirname(testFile), specifier));
-  const ext = path.extname(base);
+  const ext = path.posix.extname(base);
+  if (/^\.(?:[cm]?tsx?)$/u.test(ext)) {
+    return [base];
+  }
+  if (/^\.(?:[cm]?jsx?)$/u.test(ext)) {
+    const stem = base.slice(0, -ext.length);
+    return uniqueSorted([
+      base,
+      `${stem}.ts`,
+      `${stem}.tsx`,
+      `${stem}.mts`,
+      `${stem}.cts`
+    ]);
+  }
   if (ext) {
     return [base];
   }
@@ -216,39 +244,98 @@ function importCandidates(testFile: string, specifier: string): string[] {
   return [
     `${base}.ts`,
     `${base}.tsx`,
+    `${base}.mts`,
+    `${base}.cts`,
     `${base}.js`,
     `${base}.jsx`,
+    `${base}.mjs`,
+    `${base}.cjs`,
     normalizeRepoPath(path.join(base, 'index.ts')),
-    normalizeRepoPath(path.join(base, 'index.tsx'))
+    normalizeRepoPath(path.join(base, 'index.tsx')),
+    normalizeRepoPath(path.join(base, 'index.mts')),
+    normalizeRepoPath(path.join(base, 'index.cts'))
   ];
 }
 
-function importSpecifiers(source: string, testFile: string): string[] {
+function requiresLocalModuleResolution(specifier: string): boolean {
+  if (!specifier.startsWith('.')) return false;
+  const extension = path.posix.extname(specifier);
+  return extension === '' || /^\.(?:[cm]?[jt]sx?)$/u.test(extension);
+}
+
+export type RepositoryModuleImportKindV1 = 'static' | 'dynamic';
+
+export type RepositoryModuleImportV1 = Readonly<{
+  kind: RepositoryModuleImportKindV1;
+  specifier: string;
+}>;
+
+function moduleImports(source: string, testFile: string): RepositoryModuleImportV1[] {
   try {
-    return uniqueSorted(testImportTranspiler.scanImports(source)
+    const moduleSource = source.replace(/^#![^\r\n]*(?:\r?\n|$)/u, '');
+    const transpiler = /\.tsx$/u.test(testFile)
+      ? moduleImportTranspilers.tsx
+      : moduleImportTranspilers.ts;
+    const imports = transpiler.scanImports(moduleSource)
       .filter((entry) => entry.kind === 'import-statement' || entry.kind === 'dynamic-import')
-      .map((entry) => entry.path));
+      .map((entry) => Object.freeze({
+        kind: entry.kind === 'import-statement' ? 'static' as const : 'dynamic' as const,
+        specifier: entry.path
+      }));
+    const unique = new Map(imports.map((entry) => [
+      `${entry.kind}\0${entry.specifier}`,
+      entry
+    ]));
+    return [...unique.values()].sort((left, right) => (
+      left.specifier.localeCompare(right.specifier) || left.kind.localeCompare(right.kind)
+    ));
   } catch (error) {
     throw new Error(`Test impact source is not parseable TS/TSX: ${testFile}.`, { cause: error });
   }
 }
 
-export type CodexDevelopmentTestImpactSourceProviderV1 = {
+export type CodexDevelopmentTestImpactSourceProviderV2 = {
+  moduleFiles: readonly string[];
   testFiles: readonly string[];
-  readTestSource: (testFile: string) => string | null;
+  readModuleSource: (moduleFile: string) => string | null;
 };
 
-function readTestSource(testFile: string): string | null {
+function readRepositoryModuleSource(moduleFile: string): string | null {
   try {
-    return fs.readFileSync(path.join(compilerRoot, testFile), 'utf8');
+    return fs.readFileSync(path.join(compilerRoot, moduleFile), 'utf8');
   } catch {
     return null;
   }
 }
 
-// --- Persistent test import specifiers cache (Issue #206 cache identity) ---
+let repositoryModuleFilesCache: readonly string[] | null = null;
+
+function repositoryModuleFilesSync(): readonly string[] {
+  if (repositoryModuleFilesCache !== null) return repositoryModuleFilesCache;
+  const files = new Set(getTestFilesSync());
+  const visit = (relativeDirectory: string): void => {
+    const absoluteDirectory = path.join(compilerRoot, relativeDirectory);
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(absoluteDirectory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const relativePath = normalizeRepoPath(path.join(relativeDirectory, entry.name));
+      if (!isRepositoryRuntimeModulePath(relativePath)) continue;
+      if (entry.isDirectory()) visit(relativePath);
+      else if (entry.isFile() && /\.[cm]?tsx?$/u.test(entry.name)) files.add(relativePath);
+    }
+  };
+  for (const root of TRANSITIVE_MODULE_ROOTS) visit(root);
+  repositoryModuleFilesCache = Object.freeze(uniqueSorted([...files]));
+  return repositoryModuleFilesCache;
+}
+
+// --- Persistent repository module-import cache (Issue #206 cache identity) ---
 //
-// Cache identity is (testFile, sourceDigest) inside an envelope that binds
+// Cache identity is (moduleFile, sourceDigest) inside an envelope that binds
 // parserRuntimeIdentity, parserOptionsDigest, contractRevision and cacheSchema
 // revision. mtimeMs/size are kept only as an optional fast-path hint; the
 // sourceDigest is the single source of truth and is always recomputed on read.
@@ -258,37 +345,49 @@ function readTestSource(testFile: string): string | null {
 // cache atomically. Corrupt or unknown-schema caches are rejected with an
 // observable stderr warning (not silently empty).
 
-const TEST_IMPACT_CACHE_SCHEMA_REVISION = 'sec-test-impact-cache-v2' as const;
-const TEST_IMPACT_PARSER_RUNTIME_IDENTITY = 'bun-transpiler-tsx-v1' as const;
-const TEST_IMPACT_PARSER_OPTIONS_DIGEST = rawSha256(JSON.stringify({ loader: 'tsx' }));
-const TEST_IMPACT_CONTRACT_REVISION = 'test-impact-contract-v1' as const;
+export const TEST_IMPACT_CACHE_IDENTITY_V1 = Object.freeze({
+  schema: 'sec-test-impact-cache-v4',
+  parserRuntimeIdentity: 'bun-transpiler-ts-tsx-v3-import-kind',
+  parserOptionsDigest: rawSha256(JSON.stringify({
+    loaders: ['ts', 'tsx'],
+    importKinds: ['import-statement', 'dynamic-import']
+  })),
+  contractRevision: 'test-impact-contract-v4-typed-module-graph'
+} as const);
 
-type TestImportSpecifiersCacheEntry = {
+type TestModuleImportsCacheEntry = {
   sourceDigest: `sha256:${string}`;
-  specifiers: string[];
+  imports: RepositoryModuleImportV1[];
   mtimeMs: number;
   size: number;
 };
 
 type TestImpactCacheEnvelope = {
-  schema: typeof TEST_IMPACT_CACHE_SCHEMA_REVISION;
-  parserRuntimeIdentity: typeof TEST_IMPACT_PARSER_RUNTIME_IDENTITY;
-  parserOptionsDigest: typeof TEST_IMPACT_PARSER_OPTIONS_DIGEST;
-  contractRevision: typeof TEST_IMPACT_CONTRACT_REVISION;
-  entries: Record<string, TestImportSpecifiersCacheEntry>;
+  schema: typeof TEST_IMPACT_CACHE_IDENTITY_V1.schema;
+  parserRuntimeIdentity: typeof TEST_IMPACT_CACHE_IDENTITY_V1.parserRuntimeIdentity;
+  parserOptionsDigest: typeof TEST_IMPACT_CACHE_IDENTITY_V1.parserOptionsDigest;
+  contractRevision: typeof TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision;
+  entries: Record<string, TestModuleImportsCacheEntry>;
 };
 
 const TEST_IMPACT_CACHE_FILE = path.join(compilerRoot, '.tmp', 'test-impact-cache.json');
 
-const testImportSpecifiersCache = new Map<string, TestImportSpecifiersCacheEntry>();
+const testModuleImportsCache = new Map<string, TestModuleImportsCacheEntry>();
 let persistentCacheLoaded = false;
 let persistentCacheDirty = false;
 
-function isCacheEntry(value: unknown): value is TestImportSpecifiersCacheEntry {
+function isModuleImport(value: unknown): value is RepositoryModuleImportV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  return (entry.kind === 'static' || entry.kind === 'dynamic')
+    && typeof entry.specifier === 'string';
+}
+
+function isCacheEntry(value: unknown): value is TestModuleImportsCacheEntry {
   if (!value || typeof value !== 'object') return false;
   const entry = value as Record<string, unknown>;
   return typeof entry.sourceDigest === 'string' && /^sha256:[0-9a-f]{64}$/u.test(entry.sourceDigest)
-    && Array.isArray(entry.specifiers) && entry.specifiers.every((s) => typeof s === 'string')
+    && Array.isArray(entry.imports) && entry.imports.every(isModuleImport)
     && typeof entry.mtimeMs === 'number' && typeof entry.size === 'number';
 }
 
@@ -314,10 +413,10 @@ function loadPersistentTestImpactCache(): void {
   }
   const envelope = parsed as Record<string, unknown>;
   if (
-    envelope.schema !== TEST_IMPACT_CACHE_SCHEMA_REVISION
-    || envelope.parserRuntimeIdentity !== TEST_IMPACT_PARSER_RUNTIME_IDENTITY
-    || envelope.parserOptionsDigest !== TEST_IMPACT_PARSER_OPTIONS_DIGEST
-    || envelope.contractRevision !== TEST_IMPACT_CONTRACT_REVISION
+    envelope.schema !== TEST_IMPACT_CACHE_IDENTITY_V1.schema
+    || envelope.parserRuntimeIdentity !== TEST_IMPACT_CACHE_IDENTITY_V1.parserRuntimeIdentity
+    || envelope.parserOptionsDigest !== TEST_IMPACT_CACHE_IDENTITY_V1.parserOptionsDigest
+    || envelope.contractRevision !== TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision
   ) {
     // Schema/parser/contract revision mismatch — discard entire cache atomically.
     console.warn(`[test-impact] Cache envelope revision mismatch; rebuilding.`);
@@ -334,8 +433,8 @@ function loadPersistentTestImpactCache(): void {
       continue;
     }
     // Don't overwrite a fresh in-process entry with a persisted one.
-    if (!testImportSpecifiersCache.has(testFile)) {
-      testImportSpecifiersCache.set(testFile, entry);
+    if (!testModuleImportsCache.has(testFile)) {
+      testModuleImportsCache.set(testFile, entry);
     }
   }
 }
@@ -349,13 +448,13 @@ export function flushPersistentTestImpactCache(): void {
   persistentCacheDirty = false;
   try {
     const envelope: TestImpactCacheEnvelope = {
-      schema: TEST_IMPACT_CACHE_SCHEMA_REVISION,
-      parserRuntimeIdentity: TEST_IMPACT_PARSER_RUNTIME_IDENTITY,
-      parserOptionsDigest: TEST_IMPACT_PARSER_OPTIONS_DIGEST,
-      contractRevision: TEST_IMPACT_CONTRACT_REVISION,
+      schema: TEST_IMPACT_CACHE_IDENTITY_V1.schema,
+      parserRuntimeIdentity: TEST_IMPACT_CACHE_IDENTITY_V1.parserRuntimeIdentity,
+      parserOptionsDigest: TEST_IMPACT_CACHE_IDENTITY_V1.parserOptionsDigest,
+      contractRevision: TEST_IMPACT_CACHE_IDENTITY_V1.contractRevision,
       entries: {}
     };
-    for (const [testFile, entry] of testImportSpecifiersCache) {
+    for (const [testFile, entry] of testModuleImportsCache) {
       envelope.entries[testFile] = entry;
     }
     const dir = path.dirname(TEST_IMPACT_CACHE_FILE);
@@ -368,30 +467,30 @@ export function flushPersistentTestImpactCache(): void {
   }
 }
 
-/** Result of reading a test file's import specifiers. */
-export type ReadTestImportSpecifiersResult =
-  | { kind: 'resolved'; specifiers: string[] }
+/** Result of reading one repository module's compiler-observed imports. */
+export type ReadModuleImportsResult =
+  | { kind: 'resolved'; imports: RepositoryModuleImportV1[] }
   | { kind: 'unresolved'; reason: 'stat-failed' | 'read-failed' };
 
 function computeSourceDigest(bytes: Uint8Array): `sha256:${string}` {
   return rawSha256(bytes);
 }
 
-function readTestImportSpecifiers(
-  testFile: string,
-  provider?: CodexDevelopmentTestImpactSourceProviderV1
-): ReadTestImportSpecifiersResult {
+function readModuleImports(
+  moduleFile: string,
+  provider?: CodexDevelopmentTestImpactSourceProviderV2
+): ReadModuleImportsResult {
   if (provider) {
-    const source = provider.readTestSource(testFile);
+    const source = provider.readModuleSource(moduleFile);
     if (source === null) return { kind: 'unresolved', reason: 'read-failed' };
     try {
-      return { kind: 'resolved', specifiers: importSpecifiers(source, testFile) };
+      return { kind: 'resolved', imports: moduleImports(source, moduleFile) };
     } catch {
       return { kind: 'unresolved', reason: 'read-failed' };
     }
   }
 
-  const filePath = path.join(compilerRoot, testFile);
+  const filePath = path.join(compilerRoot, moduleFile);
   let stat: fs.Stats;
   try {
     stat = fs.statSync(filePath);
@@ -412,104 +511,159 @@ function readTestImportSpecifiers(
   }
   const sourceDigest = computeSourceDigest(new Uint8Array(bytes));
 
-  const cached = testImportSpecifiersCache.get(testFile);
+  const cached = testModuleImportsCache.get(moduleFile);
   if (cached && cached.sourceDigest === sourceDigest) {
     // Update mtime/size hints in the cache if they drifted (same content, different mtime).
     if (cached.mtimeMs !== stat.mtimeMs || cached.size !== stat.size) {
-      testImportSpecifiersCache.set(testFile, {
+      testModuleImportsCache.set(moduleFile, {
         ...cached,
         mtimeMs: stat.mtimeMs,
         size: stat.size
       });
       schedulePersistentTestImpactCacheSave();
     }
-    return { kind: 'resolved', specifiers: cached.specifiers };
+    return { kind: 'resolved', imports: cached.imports };
   }
 
   loadPersistentTestImpactCache();
-  const persisted = testImportSpecifiersCache.get(testFile);
+  const persisted = testModuleImportsCache.get(moduleFile);
   if (persisted && persisted.sourceDigest === sourceDigest) {
     // Update mtime/size hints.
     if (persisted.mtimeMs !== stat.mtimeMs || persisted.size !== stat.size) {
-      testImportSpecifiersCache.set(testFile, {
+      testModuleImportsCache.set(moduleFile, {
         ...persisted,
         mtimeMs: stat.mtimeMs,
         size: stat.size
       });
       schedulePersistentTestImpactCacheSave();
     }
-    return { kind: 'resolved', specifiers: persisted.specifiers };
+    return { kind: 'resolved', imports: persisted.imports };
   }
 
   // Digest mismatch (content changed) or no cache entry — re-transpile.
   const source = bytes.toString('utf8');
-  let specifiers: string[];
+  let imports: RepositoryModuleImportV1[];
   try {
-    specifiers = importSpecifiers(source, testFile);
+    imports = moduleImports(source, moduleFile);
   } catch {
     return { kind: 'unresolved', reason: 'read-failed' };
   }
-  testImportSpecifiersCache.set(testFile, {
+  testModuleImportsCache.set(moduleFile, {
     sourceDigest,
-    specifiers,
+    imports,
     mtimeMs: stat.mtimeMs,
     size: stat.size
   });
   schedulePersistentTestImpactCacheSave();
-  return { kind: 'resolved', specifiers };
+  return { kind: 'resolved', imports };
 }
 
-// --- Reverse-import-map ---
-// Built once per process (default mode) by scanning all test files' imports,
-// producing Map<sourceFile, testFiles[]>. Reduces testsReferencingSources from
-// O(changed × tests) to O(tests) one-time build + O(changed) lookups.
-// In provider mode the map is built fresh (not cached) because the provider's
-// test file set may differ from the real repo.
+// --- Transitive reverse-import graph ---
+// Built once per process (default mode) by scanning production modules, test
+// helpers, and test entrypoints. A changed leaf walks the reverse graph until
+// it reaches test consumers, so public-facade coverage needs no handwritten
+// leaf-to-test mirror. Source-digest import caches keep rebuilds bounded.
+// In provider mode the map is built fresh (not cached) because a test fixture's
+// synthetic module set may differ from the real repository.
 //
-// Issue #206: the map also collects `unresolvedTestFiles` — test files whose
-// import specifiers could not be read (stat/read/parse failure). These surface
-// as a selection trust boundary: when sourceChanged && unresolvedTestFiles > 0,
+// The map also collects `unresolvedModuleFiles` — modules whose imports could
+// not be read or whose local TypeScript/JavaScript target does not exist. These
+// surface as a selection trust boundary: when sourceChanged && unresolvedModuleFiles > 0,
 // the affected-test inventory reports selectionResolved=false so the runner
 // can fail closed instead of silently treating the empty closure as "no impact".
 
+export type RepositoryModuleReferenceV1 = Readonly<{
+  from: string;
+  kind: RepositoryModuleImportKindV1;
+  specifier: string;
+  candidateTargets: readonly string[];
+  resolvedTarget: string | null;
+}>;
+
+export type RepositoryModuleGraphV1 = Readonly<{
+  files: readonly string[];
+  references: readonly RepositoryModuleReferenceV1[];
+  directConsumers: (modulePath: string) => readonly string[];
+  directDependencies: (modulePath: string) => readonly string[];
+}>;
+
 type ReverseImportMap = {
   map: Map<string, string[]>;
-  unresolvedTestFiles: string[];
+  unresolvedModuleFiles: string[];
+  graph: RepositoryModuleGraphV1;
 };
 
 let reverseImportMapCache: ReverseImportMap | null = null;
 
 function buildReverseImportMap(
-  provider?: CodexDevelopmentTestImpactSourceProviderV1
+  provider?: CodexDevelopmentTestImpactSourceProviderV2
 ): ReverseImportMap {
   if (!provider && reverseImportMapCache) return reverseImportMapCache;
 
   const map = new Map<string, string[]>();
-  const unresolvedTestFiles: string[] = [];
-  const testFiles = provider?.testFiles ?? getTestFilesSync();
-  for (const testFile of testFiles) {
-    const result = readTestImportSpecifiers(testFile, provider);
+  const unresolvedModuleFiles: string[] = [];
+  const moduleFiles = provider?.moduleFiles ?? repositoryModuleFilesSync();
+  const moduleFileSet = new Set(moduleFiles.map(normalizeRepoPath));
+  const references: RepositoryModuleReferenceV1[] = [];
+  for (const moduleFile of moduleFiles) {
+    const result = readModuleImports(moduleFile, provider);
     if (result.kind === 'unresolved') {
-      // Do NOT reduce the closure: record the unresolved test file so the
-      // selection trust boundary can fail closed. We still include the test
-      // file as a key with an empty import list so it isn't lost, but the
-      // unresolved signal propagates via unresolvedTestFiles.
-      unresolvedTestFiles.push(testFile);
+      // Do NOT reduce the closure: any unreadable module can hide a path to a
+      // test consumer, so selection must fail closed rather than treating an
+      // incomplete graph as "no impact".
+      unresolvedModuleFiles.push(moduleFile);
       continue;
     }
-    for (const specifier of result.specifiers) {
-      for (const candidate of importCandidates(testFile, specifier)) {
+    for (const moduleImport of result.imports) {
+      const { kind, specifier } = moduleImport;
+      const candidates = importCandidates(moduleFile, specifier);
+      const resolvedTarget = candidates.find((candidate) => moduleFileSet.has(candidate)) ?? null;
+      references.push(Object.freeze({
+        from: moduleFile,
+        kind,
+        specifier,
+        candidateTargets: Object.freeze([...candidates]),
+        resolvedTarget
+      }));
+      if (resolvedTarget === null && requiresLocalModuleResolution(specifier)) {
+        unresolvedModuleFiles.push(normalizeRepoPath(moduleFile));
+      }
+      if (candidates.length === 0) continue;
+      // Index every deterministic candidate, not only the currently existing
+      // target. That preserves impact for a removed module while the surviving
+      // importer still names it; ambiguity is conservatively over-selected.
+      for (const candidate of candidates) {
         const existing = map.get(candidate);
         if (existing) {
-          if (!existing.includes(testFile)) existing.push(testFile);
+          if (!existing.includes(moduleFile)) existing.push(moduleFile);
         } else {
-          map.set(candidate, [testFile]);
+          map.set(candidate, [moduleFile]);
         }
       }
     }
   }
 
-  const built: ReverseImportMap = { map, unresolvedTestFiles };
+  for (const consumers of map.values()) consumers.sort((left, right) => left.localeCompare(right));
+  references.sort((left, right) => (
+    left.from.localeCompare(right.from)
+    || left.specifier.localeCompare(right.specifier)
+    || left.kind.localeCompare(right.kind)
+  ));
+  const frozenFiles = Object.freeze(uniqueSorted(moduleFiles.map(normalizeRepoPath)));
+  const frozenReferences = Object.freeze([...references]);
+  const graph: RepositoryModuleGraphV1 = Object.freeze({
+    files: frozenFiles,
+    references: frozenReferences,
+    directConsumers: (modulePath) => Object.freeze([
+      ...(map.get(normalizeRepoPath(modulePath)) ?? [])
+    ]),
+    directDependencies: (modulePath) => Object.freeze(uniqueSorted(
+      frozenReferences
+        .filter((reference) => reference.from === normalizeRepoPath(modulePath))
+        .flatMap((reference) => reference.resolvedTarget === null ? [] : [reference.resolvedTarget])
+    ))
+  });
+  const built: ReverseImportMap = { map, unresolvedModuleFiles, graph };
   if (!provider) {
     reverseImportMapCache = built;
     // Flush the persistent cache after a full scan so it survives across
@@ -527,27 +681,28 @@ function buildReverseImportMap(
  *
  * This does NOT invalidate the persistent on-disk import-specifier cache
  * (which is keyed on sourceDigest and self-validating); it only clears the
- * in-process reverse map that aggregates specifiers across all test files.
+ * in-process reverse map that aggregates compiler-observed imports across all modules.
  */
 export function invalidateReverseImportMap(): void {
   reverseImportMapCache = null;
+  repositoryModuleFilesCache = null;
 }
 
 /**
  * Resolution trust boundary for an affected-test selection.
  *
- * `selectionResolved` is false when any test file's import specifiers could
- * not be read (stat/read/parse failure). In that case the reverse-import-map
+ * `selectionResolved` is false when any repository module's imports could not
+ * be read or a local code target could not be resolved. In that case the reverse-import-map
  * closure is incomplete and an empty `selectedFastTests` must NOT be treated
  * as "no impact" — the runner fails closed with `invalidated/selection-unresolved`.
  */
 export type TestImpactSelectionResolution = {
   selectionResolved: boolean;
-  unresolvedTestFiles: string[];
+  unresolvedModuleFiles: string[];
 };
 
 /**
- * Resolve the selection trust boundary for the current test file set.
+ * Resolve the selection trust boundary for the current repository module set.
  *
  * This is separated from `selectTestsForSources` so that callers that only
  * need the { fast, slow, owners } selection shape (e.g. existing contract
@@ -555,25 +710,43 @@ export type TestImpactSelectionResolution = {
  * the unresolved signal to drive fail-closed behaviour.
  */
 export function resolveTestImpactSelectionTrustBoundary(
-  provider?: CodexDevelopmentTestImpactSourceProviderV1
+  provider?: CodexDevelopmentTestImpactSourceProviderV2
 ): TestImpactSelectionResolution {
-  const { unresolvedTestFiles } = buildReverseImportMap(provider);
+  const { unresolvedModuleFiles } = buildReverseImportMap(provider);
   return {
-    selectionResolved: unresolvedTestFiles.length === 0,
-    unresolvedTestFiles: uniqueSorted(unresolvedTestFiles)
+    selectionResolved: unresolvedModuleFiles.length === 0,
+    unresolvedModuleFiles: uniqueSorted(unresolvedModuleFiles)
   };
 }
 
-function testsReferencingSources(
+/**
+ * Canonical compiler-observed repository module graph used by impact
+ * selection and architecture constraints. Consumers must not build a second
+ * parser or path-resolution inventory for the same facts.
+ */
+export function readRepositoryModuleGraphV1(): RepositoryModuleGraphV1 {
+  return buildReverseImportMap().graph;
+}
+
+export function deriveTestsForSourcesV1(
   files: string[],
-  provider?: CodexDevelopmentTestImpactSourceProviderV1
+  provider?: CodexDevelopmentTestImpactSourceProviderV2
 ): string[] {
   const { map } = buildReverseImportMap(provider);
+  const testFiles = new Set((provider?.testFiles ?? getTestFilesSync()).map(normalizeRepoPath));
   const matchedTests = new Set<string>();
-  for (const sourceFile of files.map(normalizeRepoPath)) {
-    const tests = map.get(sourceFile);
-    if (tests) {
-      for (const testFile of tests) matchedTests.add(testFile);
+  const visited = new Set<string>();
+  const queue = files.map(normalizeRepoPath);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    for (const consumer of map.get(current) ?? []) {
+      if (testFiles.has(consumer)) {
+        matchedTests.add(consumer);
+      } else if (!visited.has(consumer)) {
+        queue.push(consumer);
+      }
     }
   }
   return uniqueSorted([...matchedTests]);
@@ -581,12 +754,12 @@ function testsReferencingSources(
 
 /**
  * Returns true if the file maps to any test impact (ownership declaration,
- * fallback rule, or auto-referenced test). Used by ci-pr-risk-selection to
+ * fallback rule, or module-graph-derived test). Used by ci-pr-risk-selection to
  * avoid per-file CodexDevelopmentBuildAffectedTestInventoryV1 recomputation.
  */
 export function hasTestImpactForFile(
   file: string,
-  provider?: CodexDevelopmentTestImpactSourceProviderV1,
+  provider?: CodexDevelopmentTestImpactSourceProviderV2,
   transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): boolean {
   const declarations = testOwnershipDeclarations.filter((declaration) => (
@@ -594,13 +767,14 @@ export function hasTestImpactForFile(
   ));
   if (declarations.length > 0) return true;
   if (testImpactFallbackRules.some((rule) => rule.sourcePattern.test(file))) return true;
-  return testsReferencingSources([file], provider).length > 0;
+  return deriveTestsForSourcesV1([file], provider).length > 0;
 }
 
 /** @internal Reset all caches — for tests verifying persistence across processes. */
 export function __resetTestImpactCachesForTesting(): void {
-  testImportSpecifiersCache.clear();
+  testModuleImportsCache.clear();
   reverseImportMapCache = null;
+  repositoryModuleFilesCache = null;
   persistentCacheLoaded = false;
   persistentCacheDirty = false;
 }
@@ -614,7 +788,7 @@ export function resolveTestOwnership(
 
 export function selectTestsForSources(
   files: string[],
-  provider?: CodexDevelopmentTestImpactSourceProviderV1,
+  provider?: CodexDevelopmentTestImpactSourceProviderV2,
   transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): TestImpactSelection {
   const fast = new Set<string>();
@@ -625,18 +799,16 @@ export function selectTestsForSources(
     const declarations = testOwnershipDeclarations.filter((declaration) => (
       matchesTestOwnershipDeclaration(declaration, file, transition)
     ));
-    if (resolveTestOwnershipAutoReferenceMode(declarations) === 'include') {
-      const referencedTests = testsReferencingSources([file], provider);
-      if (referencedTests.length > 0) {
-        owners.add('auto-reference');
-        addAll(fast, referencedTests.filter(isFastTestFile));
-        addAll(slow, referencedTests.filter(isSlowTestFile));
-      }
+    const referencedTests = deriveTestsForSourcesV1([file], provider);
+    if (referencedTests.length > 0) {
+      owners.add('module-graph');
+      addAll(fast, referencedTests.filter(isFastTestFile));
+      addAll(slow, referencedTests.filter(isSlowTestFile));
     }
     for (const declaration of declarations) {
       owners.add(declaration.owner);
-      addAll(fast, [...declaration.fast]);
-      addAll(slow, [...declaration.slow]);
+      addAll(fast, [...declaration.supplementalFast]);
+      addAll(slow, [...declaration.supplementalSlow]);
     }
 
     if (declarations.length === 0) {

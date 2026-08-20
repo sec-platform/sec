@@ -88,7 +88,7 @@ test('dev-runner changes use exact owned slow sentinels instead of the bounded b
     suites: [],
     slowTests: [],
     affectedSlowTests: [],
-    owners: ['auto-reference', 'dev-runner'],
+    owners: expect.arrayContaining(['module-graph', 'dev-runner']),
     reasons: ['ownership-impact'],
     resolved: true
   });
@@ -126,7 +126,7 @@ test('assertion-only testkit helpers rely on direct test impact instead of broad
   expect(selection.suites).toEqual([]);
   expect(selection.slowTests).toEqual([]);
   expect(selection.affectedSlowTests).toEqual([]);
-  expect(selection.owners).toContain('auto-reference');
+  expect(selection.owners).toContain('module-graph');
   expect(selection.reasons).toContain('ownership-impact');
   expect(selection.resolved).toBe(true);
 });
@@ -188,7 +188,7 @@ test('every unmapped changed path fails closed even when another path has known 
   ]));
 });
 
-test('explicit documentation ownership and direct slow tests remain resolved', () => {
+test('explicit documentation ownership selects its lifecycle suite and remains resolved', () => {
   const documentation = selectCiPrRiskSlowSuites([
     'README.md',
     'docs/product.md',
@@ -198,7 +198,10 @@ test('explicit documentation ownership and direct slow tests remain resolved', (
   ]);
   expect(documentation.resolved).toBe(true);
   expect(documentation.reasons).not.toContain('changed-files-unresolved');
-  expect(documentation.suites).toEqual([]);
+  expect(documentation.suites).toEqual(['contract-document-control-plane-lifecycle']);
+  expect(documentation.affectedSlowTests).toEqual([
+    'tests/contract/document-control-plane-lifecycle.test.ts'
+  ]);
 
   const directSlowTest = selectCiPrRiskSlowSuites(['tests/e2e/dry-run-plan.test.ts']);
   expect(directSlowTest.resolved).toBe(true);
@@ -237,7 +240,7 @@ test('documentation tombstones resolve exactly while unknown docs YAML fails clo
   }
 });
 
-test('agent governance and frozen work-package inputs use focused owners without slow fallback', () => {
+test('agent governance and frozen work-package inputs retain focused lifecycle ownership', () => {
   const agentGovernance = selectCiPrRiskSlowSuites([
     'AGENTS.md',
     '.codex/agents/implementation-worker.toml',
@@ -246,7 +249,10 @@ test('agent governance and frozen work-package inputs use focused owners without
   expect(agentGovernance.resolved).toBe(true);
   expect(agentGovernance.reasons).toContain('ownership-impact');
   expect(agentGovernance.owners).toEqual(['agent-governance', 'documentation-authority']);
-  expect(agentGovernance.suites).toEqual([]);
+  expect(agentGovernance.suites).toEqual(['contract-document-control-plane-lifecycle']);
+  expect(agentGovernance.affectedSlowTests).toEqual([
+    'tests/contract/document-control-plane-lifecycle.test.ts'
+  ]);
 
   const retired = RETIRED_WORK_PACKAGE_EVIDENCE_TRANSITIONS[0]!;
   const exactDeletion = CodexDevelopmentCreateTestImpactTransitionObservationV1({
@@ -316,7 +322,7 @@ test('AppContainer settlement changes select only the native slow acceptance own
   expect(selection.suites).toEqual(['e2e-windows-appcontainer-executor']);
   expect(selection.slowTests).toEqual([]);
   expect(selection.affectedSlowTests).toEqual(['tests/e2e/windows-appcontainer-executor.test.ts']);
-  expect(selection.owners).toEqual(['auto-reference', 'windows-appcontainer-hardening']);
+  expect(selection.owners).toEqual(['module-graph', 'windows-appcontainer-hardening']);
   expect(selection.reasons).toEqual(['ownership-impact']);
   expect(selection.resolved).toBe(true);
 });

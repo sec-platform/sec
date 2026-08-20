@@ -186,9 +186,6 @@ export function projectBranchLifecycleForWorkSelectionV1(input: Readonly<{
       throw new Error(`openPullRequests[${index}].number must be positive.`);
     }
     assertGitBranchName(pullRequest.headBranch, `openPullRequests[${index}].headBranch`);
-    if (!pullRequest.headBranch.startsWith('codex/')) {
-      throw new Error(`openPullRequests[${index}] must use one codex transport branch.`);
-    }
     assertGitSha(pullRequest.headSha, `openPullRequests[${index}].headSha`);
     assertGitBranchName(pullRequest.baseBranch, `openPullRequests[${index}].baseBranch`);
     assertGitSha(pullRequest.baseSha, `openPullRequests[${index}].baseSha`);
@@ -198,8 +195,8 @@ export function projectBranchLifecycleForWorkSelectionV1(input: Readonly<{
     ? null
     : (() => {
         assertGitBranchName(input.prospectiveTransport.branch, 'prospectiveTransport.branch');
-        if (!input.prospectiveTransport.branch.startsWith('codex/')) {
-          throw new Error('Prospective transport must use one codex branch.');
+        if (input.prospectiveTransport.branch === input.defaultBranch) {
+          throw new Error('Prospective transport cannot reuse the canonical default branch.');
         }
         assertGitSha(input.prospectiveTransport.headSha, 'prospectiveTransport.headSha');
         const worktreeRef = selectionDigest(
@@ -217,7 +214,8 @@ export function projectBranchLifecycleForWorkSelectionV1(input: Readonly<{
     const local = localRefs.find(({ branch }) => branch === active.headBranch);
     const remote = remoteRefs.find(({ branch }) => branch === active.headBranch);
     const boundWorktrees = worktrees.filter(({ branch }) => branch === active.headBranch);
-    activeLegality = active.baseBranch === input.defaultBranch
+    activeLegality = active.headBranch !== input.defaultBranch
+      && active.baseBranch === input.defaultBranch
       && active.baseSha === input.exactMain
       && remote?.sha === active.headSha
       && (local === undefined || local.sha === active.headSha)

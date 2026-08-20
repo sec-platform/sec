@@ -9,6 +9,10 @@ import { failPipelineTransaction, startPipelineTransaction } from '../../platfor
 import { writeProjectBaseline } from '../../platform/shared/project-baseline.ts';
 import { checkProjectWriteBoundary } from '../../platform/shared/project-write-boundary.ts';
 import type { UpgradePlan } from '../../platform/shared/upgrade-types.ts';
+import {
+  createWorkspaceWriteCommitFence,
+  withWorkspaceWriteLease
+} from '../../platform/shared/workspace-write-lease.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
 
 function lockFor(paths: string[]): LockFile {
@@ -64,29 +68,32 @@ test('active upgrade transaction authorizes only declared project impacts', asyn
     await writeProjectBaseline(workspaceRoot, lockFor([allowedPath, deniedPath]));
     await writeJson(upgradePlanPath, plannedUpgrade([allowedPath]));
 
-    const transactionId = await startPipelineTransaction(
-      workspaceRoot,
-      'upgrade',
-      ['resolve', 'compose'],
-      async () => undefined
-    );
-    try {
-      await writeText(allowedAbsolute, 'export const allowed = 2;\n');
-      await checkProjectWriteBoundary(workspaceRoot);
-
-      await writeText(deniedAbsolute, 'export const denied = 2;\n');
-      await expect(checkProjectWriteBoundary(workspaceRoot)).rejects.toMatchObject({
-        code: 'ERROR-DRIFT-001',
-        details: { path: deniedPath }
-      });
-    } finally {
-      await failPipelineTransaction(
+    await withWorkspaceWriteLease(workspaceRoot, undefined, async (token) => {
+      const commitFence = createWorkspaceWriteCommitFence(workspaceRoot, token);
+      const transactionId = await startPipelineTransaction(
         workspaceRoot,
-        transactionId,
-        'TEST-END',
-        'test transaction closed',
-        async () => undefined
+        'upgrade',
+        ['resolve', 'compose'],
+        commitFence
       );
-    }
+      try {
+        await writeText(allowedAbsolute, 'export const allowed = 2;\n');
+        await checkProjectWriteBoundary(workspaceRoot);
+
+        await writeText(deniedAbsolute, 'export const denied = 2;\n');
+        await expect(checkProjectWriteBoundary(workspaceRoot)).rejects.toMatchObject({
+          code: 'ERROR-DRIFT-001',
+          details: { path: deniedPath }
+        });
+      } finally {
+        await failPipelineTransaction(
+          workspaceRoot,
+          transactionId,
+          'TEST-END',
+          'test transaction closed',
+          commitFence
+        );
+      }
+    });
   }, 'engineering-compiler-upgrade-write-boundary-');
 });

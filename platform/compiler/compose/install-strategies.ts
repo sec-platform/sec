@@ -1,9 +1,14 @@
 import { normalizeNewlines } from '../../shared/collections.ts';
 import { defaultLimit } from '../../shared/concurrency.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { copyRecursive, pathExists, readText, writeText, type CommitFence } from '../../shared/fs.ts';
+import { copyRecursive, writeText, type CommitFence } from '../../shared/fs.ts';
 import type { InstallPlanStep, LockFile } from '../../shared/lock-types.ts';
-import { posixPath, resolvePathInside, resolveRegistryRoot } from '../../shared/paths.ts';
+import { assertCanonicalPortableLogicalPathV1 } from '../../shared/logical-path-identity.ts';
+import { resolvePathInside, resolveRegistryRoot } from '../../shared/paths.ts';
+import {
+  decodeExactUtf8V1,
+  readOptionalRetainedOrdinaryFileV1
+} from '../../shared/retained-file-read.ts';
 
 export interface InstallContext {
   workspaceRoot: string;
@@ -28,12 +33,38 @@ function resolveSourcePath(step: InstallPlanStep, context: InstallContext): stri
   return sourcePath;
 }
 
+function canonicalInstallTarget(step: InstallPlanStep): string {
+  try {
+    return assertCanonicalPortableLogicalPathV1(step.to, 'Install target path');
+  } catch (error) {
+    throw new CompilerError(
+      'COMPOSE-PATH-004',
+      `Install target path "${step.to}" is not one canonical portable logical path`,
+      { cause: error instanceof Error ? error.message : String(error) }
+    );
+  }
+}
+
 function resolveTargetPath(step: InstallPlanStep, context: InstallContext): string {
-  const targetPath = resolvePathInside(context.projectRoot, step.to);
+  const target = canonicalInstallTarget(step);
+  const targetPath = resolvePathInside(context.projectRoot, target);
   if (!targetPath) {
     throw new CompilerError('COMPOSE-PATH-004', `Install target path "${step.to}" escapes project root`);
   }
   return targetPath;
+}
+
+function readRequiredRetainedText(filePath: string, label: string): string {
+  const bytes = readOptionalRetainedOrdinaryFileV1(filePath, label);
+  if (bytes === null) {
+    throw new CompilerError('COMPOSE-PATH-003', `${label} is missing`);
+  }
+  return decodeExactUtf8V1(bytes, label);
+}
+
+function readOptionalRetainedText(filePath: string, label: string): string {
+  const bytes = readOptionalRetainedOrdinaryFileV1(filePath, label);
+  return bytes === null ? '' : decodeExactUtf8V1(bytes, label);
 }
 
 export class CopyInstallStrategy implements InstallStrategy {
@@ -60,8 +91,8 @@ export class MergePrismaInstallStrategy implements InstallStrategy {
   async execute(step: InstallPlanStep, context: InstallContext): Promise<void> {
     const sourcePath = resolveSourcePath(step, context);
     const targetPath = resolveTargetPath(step, context);
-    const source = await readText(sourcePath);
-    const existing = (await pathExists(targetPath)) ? await readText(targetPath) : '';
+    const source = readRequiredRetainedText(sourcePath, `Install source ${step.blockId}:${step.from}`);
+    const existing = readOptionalRetainedText(targetPath, `Install merge target ${step.to}`);
     const trimmed = source.trim();
     if (normalizeNewlines(existing).includes(normalizeNewlines(trimmed))) {
       return;
@@ -74,7 +105,7 @@ export class MergePrismaInstallStrategy implements InstallStrategy {
 function groupInstallStepsByTarget(steps: readonly InstallPlanStep[]): InstallPlanStep[][] {
   const groups = new Map<string, InstallPlanStep[]>();
   for (const step of steps) {
-    const target = posixPath(step.to);
+    const target = canonicalInstallTarget(step);
     const group = groups.get(target);
     if (group) {
       group.push(step);

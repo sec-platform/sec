@@ -20,6 +20,7 @@ type ErrorProtocolRule = {
 };
 
 const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [
+  { prefix: 'CLI-USAGE-', recoverable: true, issueType: 'usage', suggestedActions: ['retry-with-supported-arguments'], artifactPaths: [] },
   { prefix: 'PIPELINE-USAGE-', recoverable: true, issueType: 'usage', suggestedActions: ['retry-with-supported-pipeline-arguments'], artifactPaths: [] },
   { prefix: 'PIPELINE-BLOCKED-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-pipeline-journal', 'run-required-upstream-stage', 'retry-pipeline'], artifactPaths: [] },
   { prefix: 'PIPELINE-INTERRUPTED-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-pipeline-journal', 'retry-pipeline'], artifactPaths: [] },
@@ -37,7 +38,7 @@ const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [
   { prefix: 'COMPOSE-PRISMA-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-prisma-schema', 'fix-prisma-template'], artifactPaths: [] },
   { prefix: 'COMPOSE-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-compose', 'inspect-install-manifest'], artifactPaths: [CI_ARTIFACT_FILES.installManifest] },
   { prefix: 'SLOT-WRITE-', recoverable: true, issueType: 'slot', suggestedActions: ['run-platform-compose', 'retry-platform-adapt'], artifactPaths: [] },
-  { prefix: 'SLOT-SECURITY-', recoverable: false, issueType: 'slot', suggestedActions: ['review-slot-code', 'remove-forbidden-imports', 'inspect-slot-security-report'], artifactPaths: ['source/code/slots'] },
+  { prefix: 'SLOT-LINT-', recoverable: true, issueType: 'slot', suggestedActions: ['review-slot-capabilities', 'remove-unproven-runtime-effects'], artifactPaths: ['source/code/slots'] },
   { prefix: 'SLOT-', recoverable: true, issueType: 'slot', suggestedActions: ['inspect-slot-tasks', 'run-platform-adapt'], artifactPaths: [] },
   { prefix: 'OVERRIDE-SCHEMA-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-override-manifest', 'inspect-override-rules'], artifactPaths: ['source/patches/override-manifest.yaml'] },
   { prefix: 'OVERRIDE-APPLY-', recoverable: true, issueType: 'spec', suggestedActions: ['fix-override-source', 'inspect-override-manifest'], artifactPaths: ['source/patches/override-manifest.yaml'] },
@@ -51,6 +52,7 @@ const ERROR_PROTOCOL_RULES: ErrorProtocolRule[] = [
   { prefix: 'UPGRADE-BLOCKED-', recoverable: true, issueType: 'composition', suggestedActions: ['choose-compatible-upgrade-target', 'run-platform-upgrade-dry-run'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics] },
   { prefix: 'UPGRADE-MIGRATION-', recoverable: true, issueType: 'composition', suggestedActions: ['inspect-upgrade-diagnostics', 'fix-upgrade-migration'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan] },
   { prefix: 'UPGRADE-', recoverable: true, issueType: 'composition', suggestedActions: ['run-platform-upgrade-dry-run', 'inspect-upgrade-diagnostics'], artifactPaths: [CI_ARTIFACT_FILES.upgradeDiagnostics, CI_ARTIFACT_FILES.upgradePlan] },
+  { prefix: 'ENGINEERING-OPERATION-', recoverable: true, issueType: 'spec', suggestedActions: ['inspect-engineering-operation', 'fix-operation-target', 'retry-operation'], artifactPaths: ['source/app.yaml'] },
   { prefix: 'WORKBENCH-MUTATION-', recoverable: true, issueType: 'spec', suggestedActions: ['inspect-workbench-mutations', 'run-platform-workbench-mutations-apply'], artifactPaths: ['source/views/mutations', CI_ARTIFACT_FILES.viewMutationReport] },
   { prefix: 'ERROR-DRIFT-', recoverable: false, issueType: 'spec', suggestedActions: ['run-platform-compose', 'run-platform-adapt', 'revert-local-project-changes'], artifactPaths: [CI_ARTIFACT_FILES.provenance] },
   { prefix: 'IMPORT-AUTHORITY-', recoverable: true, issueType: 'usage', suggestedActions: ['install-canonical-bun-version', 'align-packageManager-field', 'verify-bunfig-toolchain-profile'], artifactPaths: [] }
@@ -63,10 +65,6 @@ export function buildErrorProtocol(error: {
 }): ErrorProtocol {
   const code = error.code ?? 'UNEXPECTED';
   const message = error.message ?? 'Unexpected failure';
-
-  if (message.startsWith('Usage: platform')) {
-    return { code, message, recoverable: true, issueType: 'usage', suggestedActions: ['retry-with-supported-arguments'], artifactPaths: [] };
-  }
 
   if (code === 'UNEXPECTED') {
     return { code, message, recoverable: false, issueType: 'kernel', suggestedActions: ['inspect-cli-stack', 'collect-error-output'], artifactPaths: [] };

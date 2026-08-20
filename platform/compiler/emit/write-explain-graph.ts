@@ -1,3 +1,4 @@
+import { readOptionalAcceptanceCoverageReportV1 } from '../../shared/acceptance-coverage-authority.ts';
 import type { AcceptanceCoverageReport } from '../../shared/acceptance-types.ts';
 import {
   CI_ARTIFACT_FILES,
@@ -5,7 +6,7 @@ import {
 } from '../../shared/ci-artifact-contract.ts';
 import { CompilerError } from '../../shared/errors.ts';
 import type { ExplainEdgeType, ExplainGraph, ExplainGraphEdge, ExplainGraphNode, ExplainNodeType } from '../../shared/explain-types.ts';
-import { pathExists, readJson, writeJson, writeText, type CommitFence } from '../../shared/fs.ts';
+import { formatJsonFile, type CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { writeGeneratedArtifactWithLock } from '../../shared/lock-utils.ts';
 import { getWorkspacePaths } from '../../shared/paths.ts';
@@ -14,49 +15,56 @@ import type { ProvenanceFile } from '../../shared/provenance-types.ts';
 import type { RepairPlan } from '../../shared/repair-types.ts';
 import type { SemanticViewSet, ViewReference } from '../../shared/semantic-view-types.ts';
 import type { UpgradeDiagnostics, UpgradePlan } from '../../shared/upgrade-types.ts';
+import { publishCanonicalWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
 import { readReviewGovernanceReports } from './read-review-governance-reports.ts';
-import { buildRuntimeAttribution } from './runtime-attribution.ts';
+import { buildRuntimeAttributions } from './runtime-attribution.ts';
 import { requireLockSemanticViews } from './semantic-view-artifact-contract.ts';
 import { buildProvenance, writeProvenance } from './write-provenance.ts';
 
+function viewReferenceKey(reference: ViewReference): string {
+  return `${reference.kind}:${reference.ref}`;
+}
+
+function mergeViewReferences(
+  target: Map<string, ViewReference>,
+  references: readonly ViewReference[]
+): void {
+  for (const reference of references) target.set(viewReferenceKey(reference), reference);
+}
+
+function sortedViewReferences(references: ReadonlyMap<string, ViewReference>): ViewReference[] {
+  return [...references.values()].sort((left, right) =>
+    compareCodeUnits(viewReferenceKey(left), viewReferenceKey(right)));
+}
+
 class GraphBuilder {
-  private readonly nodeSet = new Set<string>();
-  private readonly edgeSet = new Set<string>();
-  private readonly nodes: ExplainGraphNode[] = [];
-  private readonly edges: ExplainGraphEdge[] = [];
+  private readonly nodes = new Map<string, ExplainGraphNode>();
+  private readonly edges = new Map<string, ExplainGraphEdge>();
+  private readonly nodeReferences = new Map<string, Map<string, ViewReference>>();
+  private readonly edgeReferences = new Map<string, Map<string, ViewReference>>();
 
   node(id: string, type: ExplainNodeType, label: string, references: readonly ViewReference[] = []): this {
-    if (!this.nodeSet.has(id)) {
-      this.nodeSet.add(id);
-      const normalizedReferences = uniqueViewReferences(references);
-      this.nodes.push({
-        id,
-        type,
-        label,
-        ...(normalizedReferences.length > 0 ? { references: normalizedReferences } : {})
-      });
-    } else if (references.length > 0) {
-      const node = this.nodes.find((candidate) => candidate.id === id)!;
-      node.references = uniqueViewReferences([...(node.references ?? []), ...references]);
+    if (!this.nodes.has(id)) {
+      this.nodes.set(id, { id, type, label });
+    }
+    if (references.length > 0) {
+      const merged = this.nodeReferences.get(id) ?? new Map<string, ViewReference>();
+      mergeViewReferences(merged, references);
+      this.nodeReferences.set(id, merged);
     }
     return this;
   }
 
   edge(from: string, to: string, type: ExplainEdgeType, references: readonly ViewReference[] = []): this {
     const key = `${from}:${type}:${to}`;
-    if (!this.edgeSet.has(key)) {
-      this.edgeSet.add(key);
-      const normalizedReferences = uniqueViewReferences(references);
-      this.edges.push({
-        from,
-        to,
-        type,
-        ...(normalizedReferences.length > 0 ? { references: normalizedReferences } : {})
-      });
-    } else if (references.length > 0) {
-      const edge = this.edges.find((candidate) => `${candidate.from}:${candidate.type}:${candidate.to}` === key)!;
-      edge.references = uniqueViewReferences([...(edge.references ?? []), ...references]);
+    if (!this.edges.has(key)) {
+      this.edges.set(key, { from, to, type });
+    }
+    if (references.length > 0) {
+      const merged = this.edgeReferences.get(key) ?? new Map<string, ViewReference>();
+      mergeViewReferences(merged, references);
+      this.edgeReferences.set(key, merged);
     }
     return this;
   }
@@ -68,20 +76,27 @@ class GraphBuilder {
   }
 
   build(semanticViews: SemanticViewSet, overlays: ExplainGraph['overlays']): ExplainGraph {
+    const nodes = [...this.nodes].map(([id, node]) => {
+      const references = this.nodeReferences.get(id);
+      return references && references.size > 0
+        ? { ...node, references: sortedViewReferences(references) }
+        : node;
+    }).sort((left, right) => compareCodeUnits(left.id, right.id));
+    const edges = [...this.edges].map(([key, edge]) => {
+      const references = this.edgeReferences.get(key);
+      return references && references.size > 0
+        ? { ...edge, references: sortedViewReferences(references) }
+        : edge;
+    }).sort((left, right) =>
+      compareCodeUnits(`${left.from}:${left.type}:${left.to}`, `${right.from}:${right.type}:${right.to}`));
+
     return {
       semanticViews,
-      nodes: this.nodes.sort((a, b) => compareCodeUnits(a.id, b.id)),
-      edges: this.edges.sort((a, b) => compareCodeUnits(`${a.from}:${a.type}:${a.to}`, `${b.from}:${b.type}:${b.to}`)),
+      nodes,
+      edges,
       overlays
     };
   }
-}
-
-function uniqueViewReferences(references: readonly ViewReference[]): ViewReference[] {
-  const byId = new Map(references.map((reference) => [`${reference.kind}:${reference.ref}`, reference]));
-  return [...byId.values()].sort((left, right) =>
-    compareCodeUnits(`${left.kind}:${left.ref}`, `${right.kind}:${right.ref}`)
-  );
 }
 
 function explainEdgeType(relation: string): ExplainEdgeType {
@@ -89,22 +104,42 @@ function explainEdgeType(relation: string): ExplainEdgeType {
 }
 
 function legacyPinId(entityId: string): string | null {
-  const match = /^port:([^:]+):(input|output):(.+)$/.exec(entityId);
+  const match = /^port:([^:]+):(input|output):(.+)$/u.exec(entityId);
   return match ? `pin:${match[1]}:${match[2]}:${match[3]}` : null;
 }
 
 function legacyPinEdgeType(relation: string, targetId: string): ExplainEdgeType {
-  if (relation === 'REQUIRES' && legacyPinId(targetId)) {
-    return 'depends_on';
-  }
+  if (relation === 'REQUIRES' && legacyPinId(targetId)) return 'depends_on';
   return explainEdgeType(relation);
 }
 
-function canonicalSlotId(lock: LockFile, slotId: string, blockId?: string): string {
-  const task = lock.slotTasks.find((candidate) =>
-    candidate.id === slotId && (!blockId || candidate.block === blockId)
-  );
-  return task ? `slot:${task.block}:${task.id}` : `slot:${slotId}`;
+interface SlotIdentityIndex {
+  readonly byBlockAndId: ReadonlyMap<string, string>;
+  readonly byId: ReadonlyMap<string, string>;
+}
+
+function slotIdentityKey(blockId: string, slotId: string): string {
+  return `${blockId}\u0000${slotId}`;
+}
+
+function buildSlotIdentityIndex(lock: LockFile): SlotIdentityIndex {
+  const byBlockAndId = new Map<string, string>();
+  const byId = new Map<string, string>();
+  for (const task of lock.slotTasks) {
+    const canonical = `slot:${task.block}:${task.id}`;
+    const exactKey = slotIdentityKey(task.block, task.id);
+    if (!byBlockAndId.has(exactKey)) byBlockAndId.set(exactKey, canonical);
+    if (!byId.has(task.id)) byId.set(task.id, canonical);
+  }
+  return { byBlockAndId, byId };
+}
+
+function canonicalSlotId(index: SlotIdentityIndex, slotId: string, blockId?: string): string {
+  if (blockId) {
+    const exact = index.byBlockAndId.get(slotIdentityKey(blockId, slotId));
+    if (exact) return exact;
+  }
+  return index.byId.get(slotId) ?? `slot:${slotId}`;
 }
 
 function addSemanticProjection(g: GraphBuilder, semanticViews: SemanticViewSet): void {
@@ -112,9 +147,7 @@ function addSemanticProjection(g: GraphBuilder, semanticViews: SemanticViewSet):
     for (const node of view.nodes) {
       g.node(node.id, node.entityKind, node.label, node.references);
       const pinId = legacyPinId(node.id);
-      if (node.entityKind === 'port' && pinId) {
-        g.node(pinId, 'pin', node.label, node.references);
-      }
+      if (node.entityKind === 'port' && pinId) g.node(pinId, 'pin', node.label, node.references);
     }
     for (const edge of view.edges) {
       if (edge.target) {
@@ -122,12 +155,7 @@ function addSemanticProjection(g: GraphBuilder, semanticViews: SemanticViewSet):
         const legacySource = legacyPinId(edge.source);
         const legacyTarget = legacyPinId(edge.target);
         if (legacySource || legacyTarget) {
-          g.edge(
-            legacySource ?? edge.source,
-            legacyTarget ?? edge.target,
-            legacyPinEdgeType(edge.relation, edge.target),
-            edge.references
-          );
+          g.edge(legacySource ?? edge.source, legacyTarget ?? edge.target, legacyPinEdgeType(edge.relation, edge.target), edge.references);
         }
         continue;
       }
@@ -160,47 +188,43 @@ export async function buildExplainGraph(
   const g = new GraphBuilder();
   const semanticViews = requireLockSemanticViews(lock);
   const appId = `app:${lock.app.id}`;
+  const slotIdentityIndex = buildSlotIdentityIndex(lock);
 
   addSemanticProjection(g, semanticViews);
   g.node(appId, 'app', lock.app.name);
 
   for (const task of lock.slotTasks) {
-    const slotId = canonicalSlotId(lock, task.id, task.block);
+    const slotId = canonicalSlotId(slotIdentityIndex, task.id, task.block);
     const sourcePath = task.sourcePath ?? task.target;
     const sourceFileId = `file:${sourcePath}`;
     g.node(slotId, 'slot', task.id);
     g.node(sourceFileId, 'file', sourcePath);
     g.edge(slotId, sourceFileId, 'writes_to');
-    if (task.sourcePath) {
-      g.link(sourceFileId, `file:${task.target}`, 'connects_to', 'file', task.target);
-    }
+    if (task.sourcePath) g.link(sourceFileId, `file:${task.target}`, 'connects_to', 'file', task.target);
   }
+
+  const runtimeAttributions = new Map(
+    (await buildRuntimeAttributions(lock, provenance.artifacts.map((artifact) => artifact.path), workspaceRoot))
+      .map((attribution) => [attribution.path, attribution] as const)
+  );
 
   for (const artifact of provenance.artifacts) {
     const fileId = `file:${artifact.path}`;
     g.node(fileId, 'file', artifact.path);
-
-    const originId =
-      artifact.originType === 'slot' ? canonicalSlotId(lock, artifact.originId, artifact.sourceBlock) :
-      artifact.originType === 'block' ? `block:${artifact.originId}` :
-      artifact.originType === 'override' ? `override:${artifact.originId}` :
-      appId;
-
-    if (artifact.originType === 'override') {
-      g.node(originId, 'override', artifact.originId);
-    }
+    const originId = artifact.originType === 'slot'
+      ? canonicalSlotId(slotIdentityIndex, artifact.originId, artifact.sourceBlock)
+      : artifact.originType === 'block' ? `block:${artifact.originId}`
+      : artifact.originType === 'override' ? `override:${artifact.originId}`
+      : appId;
+    if (artifact.originType === 'override') g.node(originId, 'override', artifact.originId);
     g.edge(fileId, originId, 'originates_from');
 
-    const attribution = await buildRuntimeAttribution(lock, artifact.path);
-    if (attribution) {
-      for (const blockId of attribution.relatedBlocks) {
-        g.edge(`block:${blockId}`, fileId, 'writes_to');
-      }
-    }
+    const attribution = runtimeAttributions.get(artifact.path);
+    if (attribution) for (const blockId of attribution.relatedBlocks) g.edge(`block:${blockId}`, fileId, 'writes_to');
   }
 
   if (policyReport) {
-    const blockIds = new Set(lock.resolvedBlocks.map((b) => b.id));
+    const blockIds = new Set(lock.resolvedBlocks.map((block) => block.id));
     for (const policy of policyReport.merged.policies) {
       const policyId = `policy:${policy.id}`;
       g.node(policyId, 'policy', policy.id);
@@ -224,24 +248,24 @@ export async function buildExplainGraph(
     g.node(`block:${upgradePlan.blockId}`, 'block', upgradePlan.blockId);
     g.node(upgradeId, 'upgrade', `${upgradePlan.blockId} ${upgradePlan.fromVersion} -> ${upgradePlan.toVersion}`);
     g.edge(upgradeId, `block:${upgradePlan.blockId}`, 'connects_to');
-
-    for (const check of upgradePlan.preflightChecks) {
-      g.link(upgradeId, `${upgradeId}:preflight:${check.id}`, 'depends_on', 'upgrade', check.id);
-    }
-    for (const impact of upgradePlan.impacts) {
-      g.link(upgradeId, `file:${impact}`, 'writes_to', 'file', impact);
-    }
+    for (const check of upgradePlan.preflightChecks) g.link(upgradeId, `${upgradeId}:preflight:${check.id}`, 'depends_on', 'upgrade', check.id);
+    for (const impact of upgradePlan.impacts) g.link(upgradeId, `file:${impact}`, 'writes_to', 'file', impact);
     for (const migration of upgradePlan.migrationSummaries) {
-      const migId = `${upgradeId}:migration:${migration.id}`;
-      const verifId = migration.requiresVerification ? 'upgrade-verification:required' : 'upgrade-verification:skipped';
-      g.node(migId, 'upgrade', migration.id);
-      g.node(verifId, 'upgrade', migration.requiresVerification ? 'verification required' : 'verification skipped');
-      g.link(migId, `file:${migration.target}`, 'writes_to', 'file', migration.target);
-      g.edge(upgradeId, migId, 'depends_on');
-      g.edge(migId, verifId, 'depends_on');
-
+      const migrationId = `${upgradeId}:migration:${migration.id}`;
+      const verificationId = migration.requiresVerification
+        ? 'upgrade-verification:required'
+        : 'upgrade-verification:skipped';
+      g.node(migrationId, 'upgrade', migration.id);
+      g.node(
+        verificationId,
+        'upgrade',
+        migration.requiresVerification ? 'verification required' : 'verification skipped'
+      );
+      g.link(migrationId, `file:${migration.target}`, 'writes_to', 'file', migration.target);
+      g.edge(upgradeId, migrationId, 'depends_on');
+      g.edge(migrationId, verificationId, 'depends_on');
       if (migration.kind === 'slot-contract-update' && migration.slotId) {
-        const slotId = canonicalSlotId(lock, migration.slotId, upgradePlan.blockId);
+        const slotId = canonicalSlotId(slotIdentityIndex, migration.slotId, upgradePlan.blockId);
         g.node(slotId, 'slot', migration.slotId);
         g.edge(`block:${upgradePlan.blockId}`, slotId, 'connects_to');
         g.edge(slotId, `file:${migration.target}`, 'writes_to');
@@ -250,27 +274,24 @@ export async function buildExplainGraph(
   }
 
   if (upgradeDiagnostics) {
-    const diagId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}:diagnostics`;
+    const diagnosticsId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}:diagnostics`;
     const planId = `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}`;
     g.node(`block:${upgradeDiagnostics.blockId}`, 'block', upgradeDiagnostics.blockId);
-    g.node(diagId, 'upgrade', upgradeDiagnostics.errorCode);
-    g.edge(diagId, upgradePlan ? planId : `block:${upgradeDiagnostics.blockId}`, 'connects_to');
-    g.link(diagId, `${planId}:preflight:${upgradeDiagnostics.failedCheck}`, 'connects_to', 'upgrade', upgradeDiagnostics.failedCheck);
-
+    g.node(diagnosticsId, 'upgrade', upgradeDiagnostics.errorCode);
+    g.edge(diagnosticsId, upgradePlan ? planId : `block:${upgradeDiagnostics.blockId}`, 'connects_to');
+    g.link(diagnosticsId, `${planId}:preflight:${upgradeDiagnostics.failedCheck}`, 'connects_to', 'upgrade', upgradeDiagnostics.failedCheck);
     const migrationId = readUpgradeDiagnosticsString(upgradeDiagnostics, 'migrationId');
-    if (upgradePlan && migrationId) {
-      g.edge(diagId, `${planId}:migration:${migrationId}`, 'connects_to');
-    }
-
+    if (upgradePlan && migrationId) g.edge(diagnosticsId, `${planId}:migration:${migrationId}`, 'connects_to');
     const entry = readUpgradeDiagnosticsString(upgradeDiagnostics, 'entry');
-    if (entry) {
-      g.link(diagId, `file:${entry}`, 'connects_to', 'file', entry);
-    }
-
+    if (entry) g.link(diagnosticsId, `file:${entry}`, 'connects_to', 'file', entry);
     const rollbackStatus = readUpgradeDiagnosticsString(upgradeDiagnostics, 'rollbackStatus');
-    if (rollbackStatus) {
-      g.link(diagId, `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}:rollback:${rollbackStatus}`, 'connects_to', 'upgrade', `rollback ${rollbackStatus}`);
-    }
+    if (rollbackStatus) g.link(
+      diagnosticsId,
+      `upgrade:${upgradeDiagnostics.blockId}:${upgradeDiagnostics.targetVersion}:rollback:${rollbackStatus}`,
+      'connects_to',
+      'upgrade',
+      `rollback ${rollbackStatus}`
+    );
   }
 
   if (repairPlan) {
@@ -279,7 +300,13 @@ export async function buildExplainGraph(
       const category = task.category ?? 'slot-rewrite';
       g.node(repairId, 'repair', task.taskId);
       g.link(repairId, `repair-category:${category}`, 'depends_on', 'repair', category);
-      g.link(repairId, canonicalSlotId(lock, task.sourceSlotId, task.targetBlock), 'connects_to', 'slot', task.sourceSlotId);
+      g.link(
+        repairId,
+        canonicalSlotId(slotIdentityIndex, task.sourceSlotId, task.targetBlock),
+        'connects_to',
+        'slot',
+        task.sourceSlotId
+      );
       g.link(repairId, `file:${task.targetFile}`, 'writes_to', 'file', task.targetFile);
     }
   }
@@ -287,22 +314,26 @@ export async function buildExplainGraph(
   for (const acceptanceId of lock.acceptancePlan) {
     g.node(`acceptance:${acceptanceId}`, 'acceptance', acceptanceId);
   }
-  for (const blockCov of coverage.blocks) {
-    for (const accId of blockCov.coveredBy) {
-      g.edge(`block:${blockCov.id}`, `acceptance:${accId}`, 'verified_by');
+  for (const blockCoverage of coverage.blocks) {
+    for (const acceptanceId of blockCoverage.coveredBy) {
+      g.edge(`block:${blockCoverage.id}`, `acceptance:${acceptanceId}`, 'verified_by');
     }
   }
-  for (const slotCov of coverage.slots) {
-    for (const accId of slotCov.coveredBy) {
-      g.edge(canonicalSlotId(lock, slotCov.id), `acceptance:${accId}`, 'verified_by');
+  for (const slotCoverage of coverage.slots) {
+    for (const acceptanceId of slotCoverage.coveredBy) {
+      g.edge(
+        canonicalSlotId(slotIdentityIndex, slotCoverage.id),
+        `acceptance:${acceptanceId}`,
+        'verified_by'
+      );
     }
   }
 
   return g.build(semanticViews, {
     provenance: provenance.artifacts,
     coverage: {
-      blocks: coverage.blocks.map((e) => ({ id: e.id, coveredBy: [...e.coveredBy] })),
-      slots: coverage.slots.map((e) => ({ id: e.id, coveredBy: [...e.coveredBy] }))
+      blocks: coverage.blocks.map((entry) => ({ id: entry.id, coveredBy: [...entry.coveredBy] })),
+      slots: coverage.slots.map((entry) => ({ id: entry.id, coveredBy: [...entry.coveredBy] }))
     }
   });
 }
@@ -315,7 +346,7 @@ function buildMermaidNodeIds(graph: ExplainGraph): Map<string, string> {
   const ids = new Map<string, string>();
   const used = new Set<string>();
   for (const node of graph.nodes) {
-    const base = node.id.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'node';
+    const base = node.id.replace(/[^A-Za-z0-9]+/gu, '_').replace(/^_+|_+$/gu, '') || 'node';
     let candidate = base;
     let suffix = 2;
     while (used.has(candidate)) {
@@ -332,8 +363,7 @@ export function renderExplainGraphMermaid(graph: ExplainGraph): string {
   const nodeIds = buildMermaidNodeIds(graph);
   const lines = ['flowchart TD'];
   for (const node of graph.nodes) {
-    const label = escapeProjectionLabel(`${node.label} (${node.type})`);
-    lines.push(`  ${nodeIds.get(node.id)}["${label}"]`);
+    lines.push(`  ${nodeIds.get(node.id)}["${escapeProjectionLabel(`${node.label} (${node.type})`)}"]`);
   }
   for (const edge of graph.edges) {
     lines.push(`  ${nodeIds.get(edge.from)} -- ${edge.type} --> ${nodeIds.get(edge.to)}`);
@@ -344,17 +374,29 @@ export function renderExplainGraphMermaid(graph: ExplainGraph): string {
 export function renderExplainGraphDot(graph: ExplainGraph): string {
   const lines = ['digraph ExplainGraph {'];
   for (const node of graph.nodes) {
-    const id = escapeProjectionLabel(node.id);
-    const label = escapeProjectionLabel(`${node.label} (${node.type})`);
-    lines.push(`  "${id}" [label="${label}"];`);
+    lines.push(`  "${escapeProjectionLabel(node.id)}" [label="${escapeProjectionLabel(`${node.label} (${node.type})`)}"];`);
   }
   for (const edge of graph.edges) {
-    const from = escapeProjectionLabel(edge.from);
-    const to = escapeProjectionLabel(edge.to);
-    lines.push(`  "${from}" -> "${to}" [label="${edge.type}"];`);
+    lines.push(`  "${escapeProjectionLabel(edge.from)}" -> "${escapeProjectionLabel(edge.to)}" [label="${edge.type}"];`);
   }
   lines.push('}');
   return `${lines.join('\n')}\n`;
+}
+
+async function publishGraphArtifact(
+  workspaceRoot: string,
+  targetPath: string,
+  bytes: Uint8Array,
+  label: string,
+  commitFence?: CommitFence
+): Promise<void> {
+  await publishCanonicalWorkspaceFileV1({
+    workspaceRoot,
+    targetPath,
+    bytes,
+    label,
+    commitFence
+  });
 }
 
 export async function writeExplainGraph(
@@ -375,20 +417,50 @@ export async function writeExplainGraph(
     lock,
     CI_EXPLAIN_GRAPH_ARTIFACT_PATHS,
     async () => {
-      if (!(await pathExists(acceptanceCoveragePath))) {
+      const coverage = readOptionalAcceptanceCoverageReportV1(
+        acceptanceCoveragePath,
+        'Explain Acceptance coverage'
+      );
+      if (coverage === null) {
         throw new CompilerError('EXPLAIN-BLOCKED-002', 'acceptance-coverage.json is missing');
       }
-      const coverage = await readJson<AcceptanceCoverageReport>(acceptanceCoveragePath);
-      const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } = await readReviewGovernanceReports(workspaceRoot);
-      const nextProvenance = provenance.artifacts.some((a) => a.path === CI_ARTIFACT_FILES.explainGraph)
+      const { policyReport, repairPlan, upgradePlan, upgradeDiagnostics } =
+        readReviewGovernanceReports(workspaceRoot);
+      const nextProvenance = provenance.artifacts.some((artifact) =>
+        artifact.path === CI_ARTIFACT_FILES.explainGraph)
         ? provenance
         : await buildProvenance(workspaceRoot, lock);
       const nextGraph = await buildExplainGraph(
-        workspaceRoot, lock, nextProvenance, coverage, policyReport, upgradePlan, repairPlan, upgradeDiagnostics
+        workspaceRoot,
+        lock,
+        nextProvenance,
+        coverage,
+        policyReport,
+        upgradePlan,
+        repairPlan,
+        upgradeDiagnostics
       );
-      await writeJson(explainGraphPath, nextGraph, commitFence);
-      await writeText(explainGraphMermaidPath, renderExplainGraphMermaid(nextGraph), commitFence);
-      await writeText(explainGraphDotPath, renderExplainGraphDot(nextGraph), commitFence);
+      await publishGraphArtifact(
+        workspaceRoot,
+        explainGraphPath,
+        Buffer.from(formatJsonFile(nextGraph), 'utf8'),
+        'Explain Graph JSON',
+        commitFence
+      );
+      await publishGraphArtifact(
+        workspaceRoot,
+        explainGraphMermaidPath,
+        Buffer.from(renderExplainGraphMermaid(nextGraph), 'utf8'),
+        'Explain Graph Mermaid',
+        commitFence
+      );
+      await publishGraphArtifact(
+        workspaceRoot,
+        explainGraphDotPath,
+        Buffer.from(renderExplainGraphDot(nextGraph), 'utf8'),
+        'Explain Graph DOT',
+        commitFence
+      );
       return nextGraph;
     },
     commitFence

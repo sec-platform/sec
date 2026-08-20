@@ -20,7 +20,7 @@ import { getWorkspacePaths } from '../../platform/shared/paths.ts';
 import { expectGraphEdge, expectGraphNode, expectNoGraphEdge } from '../helpers/graph-assertions.ts';
 import { createWorkspace } from '../testkit/workspace.ts';
 
-test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
+test('v0.1 reference pipeline runs end to end in a temporary workspace', async () => {
   const workspaceRoot = await createWorkspace('engineering-compiler-');
   const {
     acceptanceCoveragePath,
@@ -34,7 +34,7 @@ test('v0.1 pipeline runs end to end in a temporary workspace', async () => {
     reviewViewPath
   } = getWorkspacePaths(workspaceRoot);
 
-  await initWorkspace(workspaceRoot, { reset: true });
+  await initWorkspace(workspaceRoot, { reset: true, template: 'reference-customer' });
   const { lock: resolvedLock } = await resolveWorkspace(workspaceRoot);
   expect(resolvedLock.resolvedBlocks.length).toBe(3);
   expect(resolvedLock.slotTasks.length).toBe(1);

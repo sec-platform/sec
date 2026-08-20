@@ -1,4 +1,5 @@
 import { expect } from 'bun:test';
+import { readFile } from 'node:fs/promises';
 
 import type { BenchmarkTaskSuiteContract } from '../../platform/shared/benchmark-contract.ts';
 import { compareCodeUnits } from '../../platform/shared/canonical-primitives.ts';
@@ -121,4 +122,13 @@ export function expectErrorProtocolSelfConsistent(contract: ErrorProtocolContrac
   expectSortedUnique(contract.issueTypes);
   expectSortedUnique(contract.artifactPaths);
   expect(new Set(contract.examples.flatMap((example) => example.output.suggestedActions)).size).toBe(contract.suggestedActionCount);
+}
+
+/**
+ * Verifies a physical snapshot/copy without exposing repository source text to
+ * the caller. The capability is deliberately narrower than returning bytes.
+ */
+export async function expectExactFileCopy(actualPath: string, expectedPath: string): Promise<void> {
+  const [actual, expected] = await Promise.all([readFile(actualPath), readFile(expectedPath)]);
+  expect(actual).toEqual(expected);
 }

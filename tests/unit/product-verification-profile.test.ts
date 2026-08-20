@@ -23,14 +23,17 @@ function emptyPolicyReport(): PolicyReport {
   };
 }
 
-function shadowedPolicyReport(targets: string[] = ['src/customer.ts']): PolicyReport {
+function shadowedPolicyReport(
+  targets: string[] = ['src/customer.ts'],
+  assurance: 'source-structure' | 'semantic' = 'semantic'
+): PolicyReport {
   return {
-    status: 'passed',
+    status: targets.length === 0 ? 'skipped' : 'passed',
     official: {
       policies: ['tenant-policy'],
       sources: [
-        { path: 'policies/a.yaml', policyIds: ['tenant-policy'] },
-        { path: 'policies/b.yaml', policyIds: ['tenant-policy'] }
+        { path: 'platform/policies/official/a.yaml', policyIds: ['tenant-policy'] },
+        { path: 'platform/policies/official/b.yaml', policyIds: ['tenant-policy'] }
       ],
       violations: []
     },
@@ -47,7 +50,15 @@ function shadowedPolicyReport(targets: string[] = ['src/customer.ts']): PolicyRe
         targets
       }]
     },
-    violations: []
+    violations: [],
+    diagnostics: [],
+    evaluation: {
+      providerId: assurance === 'semantic' ? 'fixture-semantic-policy-provider' : 'fixture-source-structure-provider',
+      providerRevision: '1',
+      assurance,
+      requiredSemanticPredicates: ['FLOWS_TO'],
+      unsupportedSemanticPredicates: assurance === 'semantic' ? [] : ['FLOWS_TO']
+    }
   };
 }
 
@@ -116,18 +127,28 @@ test('no-policy writer profile omits the not-applicable policy claim', () => {
   expect(summary.overall.overallStatus).toBe('passed');
 });
 
-test('policy shadow declarations preserve the loader last-wins source identity', () => {
+test('policy shadow declarations preserve explicit project precedence with semantic assurance', () => {
   const gate = buildExpectedProductPolicyGate(shadowedPolicyReport());
   expect(gate.status).toBe('passed');
   expect(gate.supportedClaims).toEqual([PRODUCT_POLICY_CLAIM_ID]);
 });
 
-test('policy merged entries require the winning source and nonempty targets', () => {
+test('source-structure policy success cannot authorize a semantic policy claim', () => {
+  const gate = buildExpectedProductPolicyGate(shadowedPolicyReport(['src/customer.ts'], 'source-structure'));
+  expect(gate.status).toBe('unsupported');
+  expect(gate.reasonCode).toBe('capability-unsupported');
+  expect(gate.supportedClaims).toEqual([]);
+});
+
+test('policy merged entries require the canonical winning source; no applicable target is not-applicable', () => {
   const wrongWinner = shadowedPolicyReport();
   wrongWinner.merged.policies[0]!.sourceScope = 'official';
-  wrongWinner.merged.policies[0]!.sourcePath = 'policies/b.yaml';
+  wrongWinner.merged.policies[0]!.sourcePath = 'platform/policies/official/b.yaml';
   expect(buildExpectedProductPolicyGate(wrongWinner).status).toBe('invalidated');
-  expect(buildExpectedProductPolicyGate(shadowedPolicyReport([])).status).toBe('invalidated');
+
+  const noTarget = buildExpectedProductPolicyGate(shadowedPolicyReport([]));
+  expect(noTarget.status).toBe('not-run');
+  expect(noTarget.reasonCode).toBe('not-applicable');
 });
 
 test('a passed fast lane cannot retain failed acceptance inventory', () => {

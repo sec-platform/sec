@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 import type { CommitFence } from './fs.ts';
 
@@ -195,6 +196,8 @@ async function runCommandCapture(
     let stdout = '';
     const stdoutChunks: Buffer[] = [];
     let stderr = '';
+    const stdoutDecoder = stdoutMode === 'text' ? new StringDecoder('utf8') : null;
+    const stderrDecoder = new StringDecoder('utf8');
     let stdoutBytes = 0;
     let stderrBytes = 0;
 
@@ -244,7 +247,7 @@ async function runCommandCapture(
       if (stdoutMode === 'bytes') {
         stdoutChunks.push(bytes);
       } else {
-        stdout += bytes.toString();
+        stdout += stdoutDecoder!.write(bytes);
       }
     });
     child.stderr.on('data', (chunk) => {
@@ -255,7 +258,7 @@ async function runCommandCapture(
         return;
       }
       stderrBytes += bytes.byteLength;
-      stderr += bytes.toString();
+      stderr += stderrDecoder.write(bytes);
     });
     child.on('error', (error) => {
       if (!terminating) settleReject(error);
@@ -264,6 +267,7 @@ async function runCommandCapture(
       if (settled || terminating) return;
       settled = true;
       cleanup();
+      stderr += stderrDecoder.end();
       if (stdoutMode === 'bytes') {
         resolve({
           code: code ?? 1,
@@ -271,6 +275,7 @@ async function runCommandCapture(
           stderr
         });
       } else {
+        stdout += stdoutDecoder!.end();
         resolve({
           code: code ?? 1,
           stdout,

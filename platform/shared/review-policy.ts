@@ -1,5 +1,6 @@
 import { compareCodeUnits } from './canonical-primitives.ts';
 import { uniqueSorted } from './collections.ts';
+import { validatePolicyReportV1 } from './policy-report-authority.ts';
 import type { PolicyReport } from './policy-types.ts';
 import type { ReviewPolicySourceSummary, ReviewPolicySummary, ReviewPolicyViolationSummary } from './review-types.ts';
 
@@ -11,7 +12,20 @@ function policyViolationSummaryKey(summary: ReviewPolicyViolationSummary): strin
   return `${summary.id}:${summary.rule}:${summary.message}`;
 }
 
-export function buildReviewPolicySummary(policyReport: PolicyReport): ReviewPolicySummary {
+function reviewPolicyStatus(policyReport: PolicyReport): ReviewPolicySummary['status'] {
+  if (policyReport.status === 'skipped') return 'skipped';
+  const evaluation = policyReport.evaluation;
+  if (
+    evaluation?.assurance !== 'semantic'
+    || evaluation.unsupportedSemanticPredicates.length > 0
+  ) {
+    return 'attention';
+  }
+  return policyReport.status;
+}
+
+export function buildReviewPolicySummary(input: PolicyReport): ReviewPolicySummary {
+  const policyReport = validatePolicyReportV1(input);
   const sourceSummaries = [
     ...policyReport.official.sources.map((source) => ({
       scope: 'official' as const,
@@ -31,9 +45,16 @@ export function buildReviewPolicySummary(policyReport: PolicyReport): ReviewPoli
     },
     {}
   );
+  const evaluation = policyReport.evaluation;
 
   return {
-    status: policyReport.status,
+    status: reviewPolicyStatus(policyReport),
+    sourceReportStatus: policyReport.status,
+    assurance: evaluation?.assurance ?? 'unknown',
+    evaluatorProviderId: evaluation?.providerId ?? null,
+    evaluatorProviderRevision: evaluation?.providerRevision ?? null,
+    unsupportedSemanticPredicates: uniqueSorted(evaluation?.unsupportedSemanticPredicates ?? []),
+    diagnosticCount: policyReport.diagnostics?.length ?? 0,
     officialPolicyCount: policyReport.official.policies.length,
     projectPolicyCount: policyReport.project.policies.length,
     mergedPolicyCount: policyReport.merged.policies.length,

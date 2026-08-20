@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -12,10 +13,14 @@ import {
 } from '../../platform/shared/verification-action-ci-contract.ts';
 import { CodexDevelopmentExecuteCiActionClosureV1 } from '../../scripts/ci-verification.ts';
 
-const digest = (value: string): `sha256:${string}` => `sha256:${value.repeat(64).slice(0, 64)}`;
-const candidate: CiVerificationActionCandidateV1 = {
+const digest = (value: string): `sha256:${string}` => (
+  `sha256:${createHash('sha256').update(value).digest('hex')}`
+);
+
+function candidateFor(testIdentity: string): CiVerificationActionCandidateV1 {
+  return {
   baseSha: '1'.repeat(40), baseTreeSha: '2'.repeat(40), headSha: '3'.repeat(40), headTreeSha: '4'.repeat(40),
-  manifestPath: 'docs/work-packages/composition-v2.md', manifestDigest: digest('a'),
+  manifestPath: 'docs/work-packages/composition-v2.md', manifestDigest: digest(`manifest:${testIdentity}`),
   scopeAuthorizationRevision: digest('b'), profile: 'quick',
   toolchainRevision: 'bun@1.3.14', providerRevision: 'github-actions@trusted-default',
   contractRevision: 'ci-verification-v19', requiredBlobs: [
@@ -25,7 +30,10 @@ const candidate: CiVerificationActionCandidateV1 = {
     { path: 'package.json', digest: digest('f') },
     { path: 'tests/fixture.ts', digest: digest('1') }
   ]
-};
+  };
+}
+
+const candidate = candidateFor('successful-composition');
 const gates: readonly CiVerificationProducerGateV1[] = [
   {
     id: 'composition-scope-a', phase: 'quick',
@@ -79,12 +87,13 @@ test('composition gates execute through the same Action runner and preserve prod
 test('composition failure remains failed and later Action is canonical not-run', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'sec-ci-composition-fail-'));
   try {
-    const plan = buildCiVerificationActionPlanClosureV1({ candidate, gates });
+    const failureCandidate = candidateFor('failed-composition');
+    const plan = buildCiVerificationActionPlanClosureV1({ candidate: failureCandidate, gates });
     const result = await CodexDevelopmentExecuteCiActionClosureV1({
       repositoryRoot: root,
       actionPlan: plan,
       gates: gates.map((gate) => ({ gate, env: {} })),
-      headSha: candidate.headSha,
+      headSha: failureCandidate.headSha,
       now: clock(),
       runGate: async () => ({ code: 7, rawOutputDigest: digest('9'), failureTail: 'sentinel' })
     });

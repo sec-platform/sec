@@ -1,12 +1,17 @@
 /**
  * Provider capability resolution (Issue #347 section A).
  *
- * Writer / reviewer / hosted-verification providers are separate
+ * Writer / reviewer / verification-executor providers are separate
  * capabilities. Availability is resolved into normalized state before any
  * expensive integration stage; raw quota/billing/upsell prose (#244-untrusted
  * diagnostic) never enters prompt/control/evidence truth — only a bounded
  * reasonCode and a content digest are retained. A provider already known
  * unavailable in the same availability epoch must not be retried.
+ *
+ * `hosted-verification` is the retained V1 role name for an independently
+ * provisioned verification executor. It is not an assertion that GitHub
+ * Actions owns the role: both the Actions adapter and an independent trusted
+ * SEC runtime can satisfy it through distinct capability identities.
  */
 
 import { createHash } from 'node:crypto';
@@ -25,13 +30,15 @@ export type VerificationProviderCapabilityIdV1 =
   | 'github-writer'
   | 'codex-review'
   | 'deepseek-independent-review'
-  | 'github-actions-hosted-verification';
+  | 'github-actions-hosted-verification'
+  | 'trusted-runtime-verification';
 
 export type VerificationProviderIdV1 =
   | 'github-api'
   | 'codex-code-review'
   | 'deepseek-independent-execution'
-  | 'github-actions';
+  | 'github-actions'
+  | 'sec-trusted-runtime';
 
 export const VERIFICATION_CAPABILITY_PROVIDER_V1: Readonly<Record<
   VerificationProviderCapabilityIdV1,
@@ -40,7 +47,8 @@ export const VERIFICATION_CAPABILITY_PROVIDER_V1: Readonly<Record<
   'github-writer': 'github-api',
   'codex-review': 'codex-code-review',
   'deepseek-independent-review': 'deepseek-independent-execution',
-  'github-actions-hosted-verification': 'github-actions'
+  'github-actions-hosted-verification': 'github-actions',
+  'trusted-runtime-verification': 'sec-trusted-runtime'
 });
 
 export interface VerificationProviderCapabilityV1 {
@@ -102,13 +110,19 @@ function hash(value: unknown): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(encodeVerificationActionDataV2(value)).digest('hex')}`;
 }
 
+function expectedRole(capability: VerificationProviderCapabilityIdV1): VerificationProviderRoleV1 {
+  if (capability === 'github-writer') return 'writer';
+  if (capability === 'codex-review' || capability === 'deepseek-independent-review') return 'reviewer';
+  return 'hosted-verification';
+}
+
 export function createVerificationProviderCapabilityV1(
   input: VerificationProviderCapabilityInputV1
 ): VerificationProviderCapabilityV1 {
   const capability = text(input.capability, 'capability');
   if (![
     'github-writer', 'codex-review', 'deepseek-independent-review',
-    'github-actions-hosted-verification'
+    'github-actions-hosted-verification', 'trusted-runtime-verification'
   ].includes(capability)) fail('capability identity is unknown.');
   const role = text(input.role, 'role');
   if (role !== 'writer' && role !== 'reviewer' && role !== 'hosted-verification') {
@@ -130,6 +144,9 @@ export function createVerificationProviderCapabilityV1(
   const capabilityId = capability as VerificationProviderCapabilityIdV1;
   if (VERIFICATION_CAPABILITY_PROVIDER_V1[capabilityId] !== provider) {
     fail(`capability ${capability} must use provider ${VERIFICATION_CAPABILITY_PROVIDER_V1[capabilityId]}.`);
+  }
+  if (role !== expectedRole(capabilityId)) {
+    fail(`capability ${capability} must use role ${expectedRole(capabilityId)}.`);
   }
   const observedAt = instant(input.observedAt, 'observedAt');
   // YAML and callers project only routing/negative-circuit-breaker state.
@@ -171,15 +188,9 @@ export function createVerificationProviderAvailabilityEpochV1(input: {
   }
   const capabilities = Object.freeze(input.capabilities.map((entry) =>
     createVerificationProviderCapabilityV1(entry)));
-  const expectedRoles: Readonly<Record<VerificationProviderCapabilityIdV1, VerificationProviderRoleV1>> = {
-    'github-writer': 'writer',
-    'codex-review': 'reviewer',
-    'deepseek-independent-review': 'reviewer',
-    'github-actions-hosted-verification': 'hosted-verification'
-  };
   for (const capability of capabilities) {
-    if (capability.role !== expectedRoles[capability.capability]) {
-      fail(`capability ${capability.capability} must use role ${expectedRoles[capability.capability]}.`);
+    if (capability.role !== expectedRole(capability.capability)) {
+      fail(`capability ${capability.capability} must use role ${expectedRole(capability.capability)}.`);
     }
     if (capability.observedAt < observedAt || capability.observedAt >= expiresAt) {
       fail(`capability ${capability.capability} observation must fall within the availability epoch.`);
@@ -242,9 +253,7 @@ export function resolveProviderAvailabilityV1(
     return Object.freeze({
       schema: VERIFICATION_PROVIDER_CAPABILITY_SCHEMA_V1,
       capability,
-      role: capability === 'github-writer' ? 'writer'
-        : capability === 'github-actions-hosted-verification' ? 'hosted-verification'
-          : 'reviewer',
+      role: expectedRole(capability),
       provider: VERIFICATION_CAPABILITY_PROVIDER_V1[capability],
       availability: 'unknown',
       reasonCode: 'provider-unregistered',

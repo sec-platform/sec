@@ -18,7 +18,7 @@ function baseInput(overrides: Partial<AffectedSelectionClassificationInput> = {}
     ownershipResolved: true,
     sourceChanged: true,
     selectionResolved: true,
-    unresolvedTestFiles: [],
+    unresolvedModuleFiles: [],
     selectedFastTestCount: 0,
     broadFallbackEnabled: false,
     ...overrides
@@ -36,7 +36,7 @@ function makePlan(
   const hasFastTests = boundary === 'applicable-with-tests' || boundary === 'broad-fallback';
   // `resolved` tracks OWNERSHIP resolution, not selection resolution.
   // unresolved-git and unresolved-ownership have unresolved ownership.
-  // unresolved-selection and unresolved-test-source have ownership resolved
+  // unresolved-selection and unresolved-module-graph have ownership resolved
   // but selection unresolved — resolved=true, failClosed=true.
   const ownershipUnresolved = boundary === 'unresolved-git' || boundary === 'unresolved-ownership';
   return Object.freeze({
@@ -60,7 +60,7 @@ function makePlan(
       affectedOwners: [],
       sourceChanged: boundary !== 'applicable-no-tests',
       selectionResolved: true,
-      unresolvedTestFiles: []
+      unresolvedModuleFiles: []
     }),
     selectionTrustBoundary: boundary,
     verificationResult,
@@ -101,16 +101,16 @@ describe('affected-selection-trust-boundary contract (Issue #206)', () => {
     expect(isAffectedSelectionFailClosed(boundary)).toBe(true);
   });
 
-  // 3. source read/stat failure → unresolved-test-source
-  test('test source read failure surfaces as unresolved-test-source', () => {
+  // 3. module read/target failure → unresolved-module-graph
+  test('module graph resolution failure surfaces as unresolved-module-graph', () => {
     const boundary = classifyAffectedSelectionTrustBoundary(baseInput({
       sourceChanged: true,
       selectedFastTestCount: 0,
       broadFallbackEnabled: false,
       selectionResolved: false,
-      unresolvedTestFiles: ['tests/unit/missing.test.ts']
+      unresolvedModuleFiles: ['platform/shared/missing.ts']
     }));
-    expect(boundary).toBe('unresolved-test-source');
+    expect(boundary).toBe('unresolved-module-graph');
     expect(isAffectedSelectionFailClosed(boundary)).toBe(true);
   });
 
@@ -188,7 +188,7 @@ describe('affected-selection-trust-boundary contract (Issue #206)', () => {
 
   // 9. check-runner includes test:affected gate for fail-closed boundaries
   test('check-runner includes test:affected gate when boundary is fail-closed', () => {
-    for (const boundary of ['unresolved-selection', 'unresolved-test-source'] as const) {
+    for (const boundary of ['unresolved-selection', 'unresolved-module-graph'] as const) {
       const plan = makePlan(boundary);
       const checkPlan = buildLocalAffectedCheckPlan(plan);
       expect(checkPlan.gates.some((g) => g.id === 'test:affected')).toBe(true);
@@ -210,7 +210,7 @@ describe('affected-selection-trust-boundary projection invariants (Issue #206)',
     'applicable-no-tests',
     'applicable-with-tests',
     'unresolved-selection',
-    'unresolved-test-source',
+    'unresolved-module-graph',
     'broad-fallback',
     'unresolved-ownership',
     'unresolved-git'
@@ -232,7 +232,7 @@ describe('affected-selection-trust-boundary projection invariants (Issue #206)',
       'unresolved-git',
       'unresolved-ownership',
       'unresolved-selection',
-      'unresolved-test-source'
+      'unresolved-module-graph'
     ];
     for (const boundary of failClosed) {
       const result = projectAffectedSelectionToVerificationGateResult(

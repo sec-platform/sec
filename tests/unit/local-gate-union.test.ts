@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import { readFile } from 'node:fs/promises';
 
 import {
   buildLocalAffectedCheckPlan,
@@ -11,7 +10,6 @@ import {
   defaultAffectedSelectionProjectionContext,
   projectAffectedSelectionToVerificationGateResult
 } from '../../platform/shared/affected-test-inventory.ts';
-import { compilerRoot } from '../../platform/shared/paths.ts';
 
 function affectedPlan(
   changedPaths: string[],
@@ -25,7 +23,7 @@ function affectedPlan(
     ownershipResolved,
     sourceChanged,
     selectionResolved: true,
-    unresolvedTestFiles: [],
+    unresolvedModuleFiles: [],
     selectedFastTestCount: selectedFastTests.length,
     broadFallbackEnabled: false
   });
@@ -48,7 +46,7 @@ function affectedPlan(
       affectedOwners: [],
       sourceChanged,
       selectionResolved: true,
-      unresolvedTestFiles: []
+      unresolvedModuleFiles: []
     },
     selectionTrustBoundary: boundary,
     verificationResult: projectAffectedSelectionToVerificationGateResult(
@@ -118,22 +116,4 @@ test('local affected plan preserves unresolved authority and selects no invented
   expect(plan.resolved).toBe(false);
   expect(plan.gates).toEqual([]);
   expect(plan.affectedPlan.unresolvedPaths).toEqual(['assets/unowned.bin']);
-});
-
-test('check affected plan bypasses dependency bootstrap and formal execution path', async () => {
-  const source = (await readFile(`${compilerRoot}/platform/dev-runner.ts`, 'utf8')).replaceAll('\r\n', '\n');
-  const planEntry = source.indexOf("if (target === 'check:affected')");
-  const nextEntry = source.indexOf("if (target === 'test:affected')", planEntry + 1);
-  const dependencyBootstrap = source.indexOf('const dependencies = await ensureDevDependencies({');
-  const branch = source.slice(planEntry, nextEntry);
-
-  expect(planEntry).toBeGreaterThanOrEqual(0);
-  expect(nextEntry).toBeGreaterThan(planEntry);
-  expect(dependencyBootstrap).toBeGreaterThan(planEntry);
-  expect(branch).toContain(
-    'process.exitCode = await runLocalAffectedCheck(args, {'
-  );
-  expect(branch).toContain('prepareCompilerNodeModulesPath: async () => {');
-  expect(branch).toContain('return;');
-  expect(source.indexOf("if (target === 'check:affected')", planEntry + 1)).toBe(-1);
 });

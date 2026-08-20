@@ -35,7 +35,8 @@ test('plan validation rejects registry paths that traverse outside their base ro
       acceptance: []
     });
 
-    await expect(loadPlan(planPath)).rejects.toMatchObject({ code: 'PLAN-VALIDATION-012' });
+    expect(() => loadPlan(planPath))
+      .toThrow(expect.objectContaining({ code: 'PLAN-VALIDATION-012' }));
   }, 'engineering-compiler-path-plan-registry-');
 });
 
@@ -66,7 +67,8 @@ test('plan validation rejects slot targets that traverse outside custom', async 
       acceptance: []
     });
 
-    await expect(loadPlan(planPath)).rejects.toMatchObject({ code: 'PLAN-VALIDATION-008' });
+    expect(() => loadPlan(planPath))
+      .toThrow(expect.objectContaining({ code: 'PLAN-VALIDATION-008' }));
   }, 'engineering-compiler-path-plan-slot-');
 });
 

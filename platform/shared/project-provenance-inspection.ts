@@ -1,6 +1,4 @@
-import { createConcurrencyLimit } from './concurrency.ts';
-import { pathExists } from './fs.ts';
-import { posixPath, resolvePathInside } from './paths.ts';
+import { resolvePathInside } from './paths.ts';
 import { calculateCanonicalProjectFileHash } from './project-file-hash.ts';
 import type { ProvenanceArtifact } from './provenance-types.ts';
 
@@ -11,8 +9,10 @@ export type ProvenanceArtifactInspection = {
   currentHash: string | undefined;
 };
 
+/** Caller must pass artifacts from validateProvenanceFileV1; no identity
+ * normalization is allowed at this protection decision boundary. */
 export function protectedProvenanceArtifact(artifact: ProvenanceArtifact): boolean {
-  const artifactPath = posixPath(artifact.path);
+  const artifactPath = artifact.path;
   return (
     !artifactPath.startsWith('source/') &&
     !artifactPath.startsWith('control/') &&
@@ -23,20 +23,31 @@ export function protectedProvenanceArtifact(artifact: ProvenanceArtifact): boole
   );
 }
 
-export async function inspectProvenanceArtifacts(
+/**
+ * Retained project hashing is currently synchronous. Keep this inspection
+ * synchronous as well instead of routing synchronous reads through p-limit /
+ * Promise.all, which cannot create physical I/O concurrency and only adds task
+ * allocation and scheduling overhead.
+ */
+export function inspectProvenanceArtifacts(
   projectRoot: string,
   artifacts: readonly ProvenanceArtifact[]
-): Promise<ProvenanceArtifactInspection[]> {
-  const limit = createConcurrencyLimit();
-  return Promise.all(artifacts.map((artifact) => limit(async () => {
-    const artifactPath = posixPath(artifact.path);
+): ProvenanceArtifactInspection[] {
+  return artifacts.map((artifact) => {
+    const artifactPath = artifact.path;
     const absolutePath = resolvePathInside(projectRoot, artifactPath);
-    if (!absolutePath || !(await pathExists(absolutePath))) {
+    if (!absolutePath) {
       return { artifact, artifactPath, exists: false, currentHash: undefined };
     }
-    const currentHash = artifact.hash
-      ? await calculateCanonicalProjectFileHash(absolutePath)
-      : undefined;
-    return { artifact, artifactPath, exists: true, currentHash };
-  })));
+    const observedHash = calculateCanonicalProjectFileHash(absolutePath);
+    if (observedHash === undefined) {
+      return { artifact, artifactPath, exists: false, currentHash: undefined };
+    }
+    return {
+      artifact,
+      artifactPath,
+      exists: true,
+      currentHash: artifact.hash ? observedHash : undefined
+    };
+  });
 }

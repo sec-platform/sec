@@ -20,7 +20,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 
-import { executeVerifiedCiActionPlanV1 } from '../platform/dev-runner.ts';
+import { executeVerifiedCiActionPlanV1 } from '../platform/dev-runner/verification-action-executor.ts';
 import {
   aggregateV4Status,
   CodexDevelopmentAssertVerificationActionTerminalArtifactV2,
@@ -82,6 +82,7 @@ import {
   CI_VERIFICATION_HOSTED_SANDBOX_POLICY_V1,
   CI_VERIFICATION_SESSION_DISPATCH_TYPE
 } from '../platform/shared/ci-verification-revision.ts';
+import { canonicalizeIsoInstantInputV1 } from '../platform/shared/iso-instant-input.ts';
 import { compilerRoot } from '../platform/shared/paths.ts';
 import {
   assertSameNoFollowDirectoryIdentityV1,
@@ -116,6 +117,7 @@ import {
   type CiVerificationActionPlanClosureV1,
   type CiVerificationActionProposalV2,
   type CiVerificationActionProviderEnvelopeV2,
+  type CiVerificationExecutionEnvironmentV2,
   type CiVerificationProducerGateV1
 } from '../platform/shared/verification-action-ci-contract.ts';
 import {
@@ -157,6 +159,15 @@ import {
   withWorkspaceWriteLease
 } from '../platform/shared/workspace-write-lease.ts';
 import {
+  writeVerificationActionStartMarkerV2Atomic,
+  writeVerificationActionTerminalStatusAnchorV2Atomic
+} from '../tooling/sec-dev/verification-action-journal.ts';
+import {
+  createVerificationActionRunnerV2,
+  type VerificationActionRunnerV2,
+  type VerificationActionRunOutcomeV2
+} from '../tooling/sec-dev/verification-action-runner.ts';
+import {
   CodexDevelopmentChangedFilesFromRecordsV1,
   CodexDevelopmentCreateNotRunGateV2,
   CodexDevelopmentDefaultChangedPathsV1,
@@ -174,15 +185,6 @@ import {
   ensureVerificationActionGitHubProviderTransactionV2,
   type VerificationActionGitHubProviderSnapshotV2
 } from './codex/verification-action-github-provider.ts';
-import {
-  writeVerificationActionStartMarkerV2Atomic,
-  writeVerificationActionTerminalStatusAnchorV2Atomic
-} from './codex/verification-action-journal.ts';
-import {
-  createVerificationActionRunnerV2,
-  type VerificationActionRunnerV2,
-  type VerificationActionRunOutcomeV2
-} from './codex/verification-action-runner.ts';
 import {
   parseVerificationSessionHostedRequestV1,
   VERIFICATION_SESSION_HOSTED_ENVELOPE_SCHEMA_V1,
@@ -203,14 +205,19 @@ export {
 } from '../platform/shared/ci-hosted-sut-observation-contract.ts';
 
 const VERIFICATION_EVIDENCE_PATH = '.tmp/ci-verification-evidence.json';
-const FORMAL_HOSTED_ENV_KEYS = Object.freeze([
+const FORMAL_VERIFICATION_ENV_KEYS = Object.freeze([
   'SEC_SESSION_REVISION', 'SEC_SESSION_PROPOSAL_DIGEST', 'SEC_SCOPE_AUTHORIZATION_REVISION',
   'SEC_SCOPE_AUTHORIZATION_DIGEST',
   'SEC_REVIEW_RECEIPT_DIGEST', 'SEC_MAIN_HEALTH_REVISION', 'SEC_MAIN_HEALTH_DIGEST', 'SEC_TRUST_REVISION',
   'SEC_BASE_TREE_SHA', 'SEC_ACTION_PLAN_DIGEST', 'SEC_REQUIRED_BLOB_CLOSURE_JSON',
-  'SEC_EXECUTION_ENVIRONMENT_REVISION',
+  'SEC_EXECUTION_ENVIRONMENT_REVISION'
+] as const);
+const FORMAL_HOSTED_ONLY_ENV_KEYS = Object.freeze([
   'SEC_TRUSTED_WORKFLOW_REF', 'GITHUB_WORKFLOW_SHA', 'SEC_WORKFLOW_ACTOR_NODE_ID',
   'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT'
+] as const);
+const FORMAL_TRUSTED_RUNTIME_ONLY_ENV_KEYS = Object.freeze([
+  'SEC_TRUSTED_RUNTIME_EXECUTION_ID', 'SEC_TRUSTED_RUNTIME_ACTOR_NODE_ID'
 ] as const);
 const INVALIDATION_RULES = [
   'exact head SHA or tree SHA changes',
@@ -3928,7 +3935,8 @@ export async function CodexDevelopmentExecuteCiActionClosureV1(options: {
   return Object.freeze({ actionPlan, gates: Object.freeze(evidence), failed });
 }
 
-function formalHostedBinding(env: NodeJS.ProcessEnv): Readonly<{
+function formalVerificationBinding(env: NodeJS.ProcessEnv): Readonly<{
+  mode: 'github-actions' | 'trusted-runtime';
   sessionRevision: string;
   sessionProposalDigest: `sha256:${string}`;
   scopeAuthorizationRevision: `sha256:${string}`;
@@ -3939,12 +3947,24 @@ function formalHostedBinding(env: NodeJS.ProcessEnv): Readonly<{
   trustRevision: string;
   baseTreeSha: string;
   actionPlanDigest: `sha256:${string}`;
-  executionEnvironmentRevision: string;
+  executionEnvironment: CiVerificationExecutionEnvironmentV2;
   requiredBlobs: readonly { path: string; digest: `sha256:${string}` }[];
 }> | null {
-  if (env.SEC_FORMAL_HOSTED_MODE !== '1') return null;
-  for (const key of FORMAL_HOSTED_ENV_KEYS) {
-    if (env[key] === undefined || env[key] === '') throw new Error(`Formal hosted verification requires ${key}.`);
+  const hosted = env.SEC_FORMAL_HOSTED_MODE === '1';
+  const trustedRuntime = env.SEC_FORMAL_TRUSTED_RUNTIME_MODE === '1';
+  if (!hosted && !trustedRuntime) return null;
+  if (hosted === trustedRuntime) {
+    throw new Error('Formal verification requires exactly one provider mode.');
+  }
+  const mode = hosted ? 'github-actions' : 'trusted-runtime';
+  const requiredKeys = [
+    ...FORMAL_VERIFICATION_ENV_KEYS,
+    ...(hosted ? FORMAL_HOSTED_ONLY_ENV_KEYS : FORMAL_TRUSTED_RUNTIME_ONLY_ENV_KEYS)
+  ];
+  for (const key of requiredKeys) {
+    if (env[key] === undefined || env[key] === '') {
+      throw new Error(`Formal ${mode} verification requires ${key}.`);
+    }
   }
   const sha = (value: string, label: string): string => {
     if (!/^[0-9a-f]{40}$/u.test(value)) throw new Error(`${label} must be a lowercase Git SHA.`);
@@ -3964,19 +3984,30 @@ function formalHostedBinding(env: NodeJS.ProcessEnv): Readonly<{
   const requiredBlobs = parsed.map((entry, index) => {
     if (entry === null || typeof entry !== 'object' || Array.isArray(entry) ||
         Object.keys(entry).sort().join(',') !== 'digest,path') {
-      throw new Error(`Formal hosted requiredBlobs[${index}] is invalid.`);
+      throw new Error(`Formal ${mode} requiredBlobs[${index}] is invalid.`);
     }
     const candidate = entry as Record<string, unknown>;
     if (typeof candidate.path !== 'string' || candidate.path.length === 0 || candidate.path.includes('\\') ||
         candidate.path.startsWith('/') || candidate.path.startsWith('../')) {
-      throw new Error(`Formal hosted requiredBlobs[${index}].path is invalid.`);
+      throw new Error(`Formal ${mode} requiredBlobs[${index}].path is invalid.`);
     }
     return Object.freeze({
       path: candidate.path,
       digest: digest(String(candidate.digest), `requiredBlobs[${index}].digest`)
     });
   });
+  const executionEnvironment = hosted
+    ? CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2
+    : createCiVerificationLocalExecutionEnvironmentV2({
+        os: process.platform,
+        arch: process.arch,
+        bunVersion: Bun.version
+      });
+  if (env.SEC_EXECUTION_ENVIRONMENT_REVISION !== executionEnvironment.executionEnvironmentRevision) {
+    throw new Error(`Formal ${mode} verification execution environment revision is not canonical.`);
+  }
   return Object.freeze({
+    mode,
     sessionRevision: env.SEC_SESSION_REVISION!,
     sessionProposalDigest: digest(env.SEC_SESSION_PROPOSAL_DIGEST!, 'SEC_SESSION_PROPOSAL_DIGEST'),
     scopeAuthorizationRevision: digest(env.SEC_SCOPE_AUTHORIZATION_REVISION!, 'SEC_SCOPE_AUTHORIZATION_REVISION'),
@@ -3987,12 +4018,7 @@ function formalHostedBinding(env: NodeJS.ProcessEnv): Readonly<{
     trustRevision: sha(env.SEC_TRUST_REVISION!, 'SEC_TRUST_REVISION'),
     baseTreeSha: sha(env.SEC_BASE_TREE_SHA!, 'SEC_BASE_TREE_SHA'),
     actionPlanDigest: digest(env.SEC_ACTION_PLAN_DIGEST!, 'SEC_ACTION_PLAN_DIGEST'),
-    executionEnvironmentRevision: (() => {
-      if (env.SEC_EXECUTION_ENVIRONMENT_REVISION !== CI_VERIFICATION_HOSTED_PROVIDER_REVISION_V2) {
-        throw new Error('Formal hosted verification execution environment revision is not canonical.');
-      }
-      return env.SEC_EXECUTION_ENVIRONMENT_REVISION;
-    })(),
+    executionEnvironment,
     requiredBlobs: Object.freeze(requiredBlobs)
   });
 }
@@ -4131,7 +4157,7 @@ export async function CodexDevelopmentCiVerificationMain(
   let actionPlan: CiVerificationActionPlanClosureV1 | null = null;
   let actionCandidate: CiVerificationActionCandidateV1 | null = null;
   let actionGates: readonly CodexDevelopmentVerificationGateEvidenceV4[] = [];
-  let formalBinding: ReturnType<typeof formalHostedBinding> = null;
+  let formalBinding: ReturnType<typeof formalVerificationBinding> = null;
   let failure: CodexDevelopmentVerificationEvidenceV2['failure'] = null;
   let exitCode = 0;
   let stage = 'argv';
@@ -4176,7 +4202,7 @@ export async function CodexDevelopmentCiVerificationMain(
     if (binding.manifestPath !== null && prBaseSha !== affectedBaseSha) {
       throw new Error('Frozen verification requires the exact affected base to equal the current PR base.');
     }
-    formalBinding = formalHostedBinding(env);
+    formalBinding = formalVerificationBinding(env);
     let rawChangedFiles: string[] | null;
     let transitionObservation: CodexDevelopmentTestImpactTransitionObservationV1 | undefined;
     let injectedChangedRecords: CodexDevelopmentGitChangedRecordV1[] | null | undefined;
@@ -4247,7 +4273,7 @@ export async function CodexDevelopmentCiVerificationMain(
       CodexDevelopmentVerificationDigest(value) as `sha256:${string}`
     );
     const executionEnvironment = formalBinding !== null
-      ? CI_VERIFICATION_HOSTED_EXECUTION_ENVIRONMENT_V2
+      ? formalBinding.executionEnvironment
       : createCiVerificationLocalExecutionEnvironmentV2({
           os: process.platform,
           arch: process.arch,
@@ -4423,19 +4449,29 @@ export async function CodexDevelopmentCiVerificationMain(
         manifestPath: actionCandidate.manifestPath,
         manifestDigest: actionCandidate.manifestDigest,
         producer: CodexDevelopmentCreateVerificationEvidenceProducerV4({
-          sourceTransport: env.GITHUB_ACTIONS === 'true' ? 'github-actions' : 'local-dev-runner',
-          workflowPath: env.GITHUB_ACTIONS === 'true'
+          sourceTransport: formalBinding?.mode === 'github-actions' ? 'github-actions' : 'local-dev-runner',
+          workflowPath: formalBinding?.mode === 'github-actions'
             ? '.github/workflows/compiler-pr-validation.yml'
-            : 'platform/dev-runner.ts',
-          workflowRef: env.GITHUB_ACTIONS === 'true'
+            : formalBinding?.mode === 'trusted-runtime'
+              ? 'scripts/ci-verification.ts'
+              : 'platform/dev-runner.ts',
+          workflowRef: formalBinding?.mode === 'github-actions'
             ? (env.SEC_TRUSTED_WORKFLOW_REF ?? '')
-            : `platform/dev-runner.ts@${actionCandidate.baseSha}`,
-          workflowSha: env.GITHUB_ACTIONS === 'true'
+            : `${formalBinding?.mode === 'trusted-runtime'
+              ? 'scripts/ci-verification.ts'
+              : 'platform/dev-runner.ts'}@${actionCandidate.baseSha}`,
+          workflowSha: formalBinding?.mode === 'github-actions'
             ? (env.GITHUB_WORKFLOW_SHA ?? '')
             : actionCandidate.baseSha,
-          runId: env.GITHUB_RUN_ID ?? 'local-run',
-          runAttempt: Number(env.GITHUB_RUN_ATTEMPT ?? '1'),
-          actorNodeId: env.SEC_WORKFLOW_ACTOR_NODE_ID ?? 'local-dev-runner'
+          runId: formalBinding?.mode === 'trusted-runtime'
+            ? env.SEC_TRUSTED_RUNTIME_EXECUTION_ID!
+            : env.GITHUB_RUN_ID ?? 'local-run',
+          runAttempt: formalBinding?.mode === 'trusted-runtime'
+            ? 1
+            : Number(env.GITHUB_RUN_ATTEMPT ?? '1'),
+          actorNodeId: formalBinding?.mode === 'trusted-runtime'
+            ? env.SEC_TRUSTED_RUNTIME_ACTOR_NODE_ID!
+            : env.SEC_WORKFLOW_ACTOR_NODE_ID ?? 'local-dev-runner'
         }),
         actionPlan,
         status,
@@ -5747,31 +5783,7 @@ function readTcbClosureArchiveRawDataV1(
     }
     sourcesByDigest.set(digest, candidate);
   }
-  for (const record of rawRecords) {
-    const candidate = sourcesByDigest.get(record.nextRawSourceDigest);
-    if (candidate === undefined) {
-      if (record.archivePresent || stageSource !== null || pending[0]?.operationKey !== record.operationKey) {
-        throw new Error(`TCB closure operation ${record.operationKey} recorded successor bytes are absent.`);
-      }
-      continue;
-    }
-    if (tcbClosureRawSourceDigestV1(candidate.source) !== record.nextRawSourceDigest) {
-      throw new Error(`TCB closure operation ${record.operationKey} nextDigest mismatch.`);
-    }
-  }
   const records = rawRecords;
-  const recordsByOldDigest = new Map<string, TcbClosureArchiveRecordV1>();
-  const predecessorCounts = new Map<string, number>();
-  for (const record of records) {
-    if (recordsByOldDigest.has(record.oldRawSourceDigest)) {
-      throw new Error(`TCB closure archive census found a fork at ${record.oldRawSourceDigest}.`);
-    }
-    recordsByOldDigest.set(record.oldRawSourceDigest, record);
-    predecessorCounts.set(record.nextRawSourceDigest, (predecessorCounts.get(record.nextRawSourceDigest) ?? 0) + 1);
-    if ((predecessorCounts.get(record.nextRawSourceDigest) ?? 0) > 1) {
-      throw new Error(`TCB closure archive census found multiple predecessors for ${record.nextRawSourceDigest}.`);
-    }
-  }
   const terminalSource = stageSource ?? targetSource;
   if (terminalSource === null) {
     if (records.length > 0) throw new Error('TCB closure archive census has no target or staged terminal source.');
@@ -5784,31 +5796,17 @@ function readTcbClosureArchiveRawDataV1(
     });
   }
   const terminalDigest = tcbClosureRawSourceDigestV1(terminalSource);
-  const latest = pending[0] ?? records.find((record) => record.nextRawSourceDigest === terminalDigest) ?? null;
-  if (records.length > 0 && latest === null) {
-    throw new Error('TCB closure archive history does not terminate at the exact target or staged source.');
-  }
-  const roots = records.filter((record) => !predecessorCounts.has(record.oldRawSourceDigest));
-  if (records.length > 0 && roots.length !== 1) {
-    throw new Error('TCB closure archive history must be one acyclic chain.');
-  }
-  if (roots.length === 1) {
-    const visited = new Set<string>();
-    let cursor: TcbClosureArchiveRecordV1 | undefined = roots[0];
-    while (cursor !== undefined) {
-      if (visited.has(cursor.oldRawSourceDigest)) {
-        throw new Error('TCB closure archive history contains a cycle.');
-      }
-      visited.add(cursor.oldRawSourceDigest);
-      cursor = recordsByOldDigest.get(cursor.nextRawSourceDigest);
-    }
-    if (visited.size !== records.length) {
-      throw new Error('TCB closure archive history contains a disconnected record.');
-    }
+  const exactTerminalRecords = records.filter((record) => record.nextRawSourceDigest === terminalDigest);
+  if (exactTerminalRecords.length > 1) {
+    throw new Error('TCB closure archive census found multiple exact terminal successors.');
   }
   return Object.freeze({
     records: Object.freeze(records),
-    latest,
+    // Raw source identity is sufficient for interrupted PREPARED/CAPTURED
+    // recovery. Completed history is ordered semantically below because legal
+    // handwritten edits outside the generated region intentionally change the
+    // whole-file digest without changing the installed generated successor.
+    latest: pending[0] ?? exactTerminalRecords[0] ?? null,
     sourcesByDigest,
     targetSource,
     stageSource
@@ -5820,30 +5818,105 @@ function tcbClosureArchiveCensusV1(
   raw: TcbClosureArchiveRawDataV1,
   runtime: TcbClosureRuntimeV1
 ): TcbClosureArchiveCensusV1 {
-  for (const record of raw.records) {
-    runtime.parseTcbClosureGeneratedRegionV2(record.oldSource);
-    const candidate = raw.sourcesByDigest.get(record.nextRawSourceDigest);
-    if (candidate === undefined) {
-      if (record.archivePresent || raw.stageSource !== null || raw.latest?.operationKey !== record.operationKey) {
-        throw new Error(`TCB closure operation ${record.operationKey} recorded successor bytes are absent.`);
-      }
-      continue;
+  const projectionSources = [
+    ...raw.records.map((record) => Object.freeze({ source: record.oldSource, label: record.relativePath })),
+    ...(raw.targetSource === null ? [] : [Object.freeze({
+      source: raw.targetSource,
+      label: CI_TCB_CLOSURE_LOCK_TARGET_V1
+    })]),
+    ...(raw.stageSource === null ? [] : [Object.freeze({
+      source: raw.stageSource,
+      label: 'TCB closure lock stage'
+    })])
+  ].map((candidate) => Object.freeze({
+    ...candidate,
+    parsed: runtime.parseTcbClosureGeneratedRegionV2(candidate.source)
+  }));
+  const transitions = raw.records.map((record) => {
+    const exactCandidate = raw.sourcesByDigest.get(record.nextRawSourceDigest) ?? null;
+    const candidates = exactCandidate === null
+      ? projectionSources
+      : [Object.freeze({
+          ...exactCandidate,
+          parsed: runtime.parseTcbClosureGeneratedRegionV2(exactCandidate.source)
+        })];
+    const matches = new Map<string, TcbClosureLockSourcePlanV2>();
+    for (const candidate of candidates) {
+      if (candidate.parsed.receipt.generatedAt !== record.generatedAt) continue;
+      const transition = runtime.planTcbClosureLockSourceV2({
+        source: record.oldSource,
+        nextLock: candidate.parsed.lock,
+        generatedAt: record.generatedAt
+      });
+      if (
+        transition.status !== 'update-required'
+        || transition.oldRawSourceDigest !== record.oldRawSourceDigest
+        || transition.nextRawSourceDigest !== record.nextRawSourceDigest
+        || runtime.parseTcbClosureGeneratedRegionV2(transition.nextSource).rawRegion
+          !== candidate.parsed.rawRegion
+      ) continue;
+      if (exactCandidate !== null && transition.nextSource !== exactCandidate.source) continue;
+      matches.set(transition.nextSource, transition);
     }
-    const parsedNext = runtime.parseTcbClosureGeneratedRegionV2(candidate.source);
-    const transition = runtime.planTcbClosureLockSourceV2({
-      source: record.oldSource,
-      nextLock: parsedNext.lock,
-      generatedAt: record.generatedAt
+    if (matches.size !== 1) {
+      throw new Error(`TCB closure operation ${record.operationKey} record does not bind one exact generated successor.`);
+    }
+    const transition = [...matches.values()][0]!;
+    if (tcbClosureArchiveOperationV1(paths, transition, record.oldSource).operationKey !== record.operationKey) {
+      throw new Error(`TCB closure operation ${record.operationKey} record does not bind its exact successor.`);
+    }
+    return Object.freeze({
+      record,
+      oldRegion: runtime.parseTcbClosureGeneratedRegionV2(record.oldSource).rawRegion,
+      nextRegion: runtime.parseTcbClosureGeneratedRegionV2(transition.nextSource).rawRegion
     });
-    if (
-      transition.status !== 'update-required'
-      || transition.nextSource !== candidate.source
-      || transition.oldRawSourceDigest !== record.oldRawSourceDigest
-      || transition.nextRawSourceDigest !== record.nextRawSourceDigest
-      || tcbClosureArchiveOperationV1(paths, transition, record.oldSource).operationKey !== record.operationKey
-    ) throw new Error(`TCB closure operation ${record.operationKey} record does not bind its exact successor.`);
+  });
+  const transitionsByOldRegion = new Map<string, (typeof transitions)[number]>();
+  const predecessorCounts = new Map<string, number>();
+  for (const transition of transitions) {
+    if (transitionsByOldRegion.has(transition.oldRegion)) {
+      throw new Error('TCB closure archive census found a generated-state fork.');
+    }
+    transitionsByOldRegion.set(transition.oldRegion, transition);
+    predecessorCounts.set(transition.nextRegion, (predecessorCounts.get(transition.nextRegion) ?? 0) + 1);
+    if ((predecessorCounts.get(transition.nextRegion) ?? 0) > 1) {
+      throw new Error('TCB closure archive census found multiple generated-state predecessors.');
+    }
   }
-  return Object.freeze({ records: raw.records, latest: raw.latest });
+  const roots = transitions.filter((transition) => !predecessorCounts.has(transition.oldRegion));
+  const leaves = transitions.filter((transition) => !transitionsByOldRegion.has(transition.nextRegion));
+  if (transitions.length > 0 && (roots.length !== 1 || leaves.length !== 1)) {
+    throw new Error('TCB closure archive history must be one acyclic generated-state chain.');
+  }
+  if (roots.length === 1) {
+    const visited = new Set<string>();
+    let cursor: (typeof transitions)[number] | undefined = roots[0];
+    while (cursor !== undefined) {
+      if (visited.has(cursor.oldRegion)) {
+        throw new Error('TCB closure archive generated-state history contains a cycle.');
+      }
+      visited.add(cursor.oldRegion);
+      cursor = transitionsByOldRegion.get(cursor.nextRegion);
+    }
+    if (visited.size !== transitions.length) {
+      throw new Error('TCB closure archive generated-state history contains a disconnected record.');
+    }
+  }
+  const terminalSource = raw.stageSource ?? raw.targetSource;
+  if (terminalSource === null) {
+    if (transitions.length > 0) throw new Error('TCB closure archive census has no generated-state terminal source.');
+    return Object.freeze({ records: raw.records, latest: null });
+  }
+  const terminalRegion = runtime.parseTcbClosureGeneratedRegionV2(terminalSource).rawRegion;
+  const latest = leaves[0]?.record ?? null;
+  if (latest !== null && leaves[0]!.nextRegion !== terminalRegion) {
+    throw new Error('TCB closure archive history does not terminate at the installed generated region.');
+  }
+  const pending = raw.records.filter((record) => !record.archivePresent);
+  if (pending.length === 1 && pending[0]!.operationKey !== latest?.operationKey) {
+    throw new Error('TCB closure PREPARED operation is not the generated-state terminal record.');
+  }
+  return Object.freeze({ records: raw.records, latest });
 }
 
 function assertTcbClosureArchiveCensusUnchangedV1(
@@ -6251,12 +6324,15 @@ export async function CodexDevelopmentCiVerificationTcbClosureLockCliV1(
   if (!isCheck && !isPlannedWrite) {
     throw new Error(
       'Usage: bun scripts/ci-verification.ts tcb-closure-lock --mode check | '
-      + '--mode dry-run|apply --generated-at <canonical-iso-utc>'
+      + '--mode dry-run|apply --generated-at <iso-8601-instant>'
     );
   }
+  const generatedAt = isCheck
+    ? null
+    : canonicalizeIsoInstantInputV1(argv[4]!, 'TCB closure lock --generated-at');
   const result = await executeTcbClosureLockCommandV1(
     mode as CodexDevelopmentTcbClosureLockModeV1,
-    isCheck ? null : argv[4]!
+    generatedAt
   );
   return JSON.stringify(result);
 }

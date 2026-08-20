@@ -37,7 +37,7 @@ import {
 } from './ci-verification-revision.ts';
 import {
   parseMainHealthLedgerV1,
-  resolveMainHealthLaneV1,
+  resolveOrdinaryMainHealthLaneV1,
   type MainHealthLedgerV1
 } from './main-health-contract.ts';
 import {
@@ -1366,9 +1366,8 @@ export function CodexDevelopmentAssertVerificationSessionArtifactCurrentV2(
     expectedReviewRevision: review.reviewRevision,
     now
   });
-  const health = resolveMainHealthLaneV1({
+  const health = resolveOrdinaryMainHealthLaneV1({
     ledger: mainHealth,
-    lane: 'ordinary',
     now,
     expectedRepository: session.repository,
     expectedDefaultBranch: 'main',

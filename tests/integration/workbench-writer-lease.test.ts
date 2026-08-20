@@ -54,7 +54,7 @@ test('POST /api/mutations returns writer-busy without writing while the workspac
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           formatVersion: '1',
-          mutations: [{ id: 'busy-mutation', kind: 'add-block', blockId: 'test-block', version: '1.0.0' }]
+          mutations: [{ id: 'busy-mutation', kind: 'add-block', blockId: 'test/block', version: '1.0.0' }]
         })
       });
 

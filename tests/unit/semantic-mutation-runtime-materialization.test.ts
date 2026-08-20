@@ -241,28 +241,3 @@ test('runtime launch proof rejects byte, shape, link, reparse, and post-hash ide
     await rm(root, { recursive: true, force: true });
   }
 });
-
-test('disposable runtime does no data fsync and keeps structural and launch byte proofs separate', async () => {
-  const source = await readFile(path.resolve(
-    import.meta.dir,
-    '../../platform/compiler/verify/semantic-mutation-isolated-runtime-plan.ts'
-  ), 'utf8');
-  const materializeStart = source.indexOf(
-    'export async function materializeSemanticMutationIsolatedRuntime'
-  );
-  const launchStart = source.indexOf(
-    'export async function assertSemanticMutationIsolatedRuntimeLaunchManifest'
-  );
-  expect(materializeStart).toBeGreaterThanOrEqual(0);
-  expect(launchStart).toBeGreaterThan(materializeStart);
-
-  const materializeBody = source.slice(materializeStart, launchStart);
-  const launchBody = source.slice(launchStart);
-  expect(source).not.toContain('.sync(');
-  expect(materializeBody).toContain('const structure = await exactDestinationStructure(plan, inspector);');
-  expect(materializeBody).toContain('assertExactDestinationStructure(plan, structure);');
-  expect(materializeBody).not.toContain('assertExactDestinationManifest(plan, inspector)');
-  expect(launchBody).toContain('await assertExactDestinationManifest(plan, inspector);');
-  expect(source).toContain('const afterHashStructure = await exactDestinationStructure(plan, inspector);');
-  expect(source).toContain('!sameIdentity(file.identity, before.identity)');
-});

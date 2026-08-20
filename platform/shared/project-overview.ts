@@ -1,12 +1,14 @@
 import path from 'node:path';
 
 import { compareCodeUnits } from './canonical-primitives.ts';
+import { readOptionalCiArtifactManifestV1 } from './ci-artifact-authority.ts';
 import { CI_ARTIFACT_FILES } from './ci-artifact-contract.ts';
 import { CONTRACT_FORMAT_VERSION } from './constants.ts';
 import { CompilerError } from './errors.ts';
-import { pathExists, readJson, readOptionalJson } from './fs.ts';
 import { getWorkspacePaths, relativePosixPath } from './paths.ts';
 import { platformCommand } from './platform-command.ts';
+import { readOptionalProvenanceFileV1 } from './provenance-authority.ts';
+import { readOptionalRetainedJsonV1 } from './retained-file-read.ts';
 import { TOOL_EVIDENCE_REPORT_KINDS, type ToolEvidenceReport, type ToolEvidenceReportKind } from './tool-evidence-contract.ts';
 import type {
   AcceptanceCoverageReport,
@@ -19,8 +21,9 @@ import type {
   ReviewSummary,
   VerificationReport
 } from './types.ts';
+import { readOptionalCanonicalVerificationArtifactSetV1 } from './verification-artifact-authority.ts';
 
-export type ProjectOverviewStatusValue = 'passed' | 'attention' | 'failed' | 'skipped' | 'unknown';
+export type ProjectOverviewStatusValue = 'passed' | 'attention' | 'failed' | 'not-run' | 'unknown';
 export type ProjectOverviewQualityStatus = ProjectOverviewStatusValue | 'unavailable';
 export type ProjectOverviewViewId = 'overview' | 'source' | 'slot-rule' | 'graph' | 'review';
 
@@ -122,19 +125,32 @@ function normalizeStatus(value: string | undefined): ProjectOverviewStatusValue 
     case 'passed':
     case 'attention':
     case 'failed':
-    case 'skipped':
+    case 'not-run':
       return value;
+    case 'skipped':
+      return 'not-run';
     default:
       return 'unknown';
   }
 }
 
+function normalizePolicyStatus(policy: PolicyReport): ProjectOverviewStatusValue {
+  const status = normalizeStatus(policy.status);
+  if (status === 'passed' && (
+    policy.evaluation?.assurance !== 'semantic' ||
+    policy.evaluation.unsupportedSemanticPredicates.length > 0
+  )) {
+    return 'unknown';
+  }
+  return status;
+}
+
 function combineOverallStatus(values: readonly ProjectOverviewStatusValue[]): ProjectOverviewStatusValue {
   if (values.includes('failed')) return 'failed';
   if (values.includes('attention')) return 'attention';
-  if (values.includes('passed')) return 'passed';
-  if (values.includes('skipped')) return 'skipped';
-  return 'unknown';
+  if (values.includes('unknown')) return 'unknown';
+  if (values.includes('not-run')) return 'not-run';
+  return 'passed';
 }
 
 function buildWorkspaceSummary(workspaceRoot: string): ProjectOverviewWorkspace {
@@ -165,9 +181,7 @@ function pushPriorityReason(
   targetPath: string | undefined,
   reason: string
 ): void {
-  if (!targetPath) {
-    return;
-  }
+  if (!targetPath) return;
   const reasons = priorityByPath.get(targetPath) ?? new Set<string>();
   reasons.add(reason);
   priorityByPath.set(targetPath, reasons);
@@ -185,19 +199,15 @@ function isPseudoPriorityPath(value: string): boolean {
 
 function buildPriorityReviewFiles(reviewSummary: ReviewSummary): ProjectOverviewPriorityFile[] {
   const priorityByPath = new Map<string, Set<string>>();
-
   for (const artifactPath of reviewSummary.provenanceSummary?.unverifiedArtifacts ?? []) {
     pushPriorityReason(priorityByPath, artifactPath, 'unverified provenance');
   }
-
   for (const artifact of reviewSummary.artifactSummary?.missing ?? []) {
     pushPriorityReason(priorityByPath, artifact.path, `missing artifact: ${artifact.reason}`);
   }
-
   for (const risk of reviewSummary.regressionRisks) {
     pushPriorityReason(priorityByPath, regressionRiskPath(risk) ?? undefined, `regression risk: ${risk.kind}`);
   }
-
   return Array.from(priorityByPath.entries())
     .sort(([left], [right]) => compareCodeUnits(left, right))
     .map(([priorityPath, reasons]) => ({
@@ -218,7 +228,6 @@ function buildQualityReport(kind: ToolEvidenceReportKind, reportsByKind: Map<Too
       rawReportPaths: [PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS[kind]]
     };
   }
-
   return {
     kind,
     available: true,
@@ -233,10 +242,7 @@ function buildQuality(toolEvidenceReports: readonly ToolEvidenceReport[] = []): 
   const reportsByKind = new Map<ToolEvidenceReportKind, ToolEvidenceReport>(
     toolEvidenceReports.map((report) => [report.kind, report])
   );
-
-  return {
-    reports: TOOL_EVIDENCE_REPORT_KINDS.map((kind) => buildQualityReport(kind, reportsByKind))
-  };
+  return { reports: TOOL_EVIDENCE_REPORT_KINDS.map((kind) => buildQualityReport(kind, reportsByKind)) };
 }
 
 function countPolicyErrors(policy: PolicyReport): number {
@@ -245,7 +251,7 @@ function countPolicyErrors(policy: PolicyReport): number {
 
 export function buildProjectOverview(input: BuildProjectOverviewInput): ProjectOverview {
   const verification = normalizeStatus(input.verification.summary.status);
-  const policy = normalizeStatus(input.policy.status);
+  const policy = normalizePolicyStatus(input.policy);
   const coverage = normalizeStatus(input.acceptanceCoverage.status);
   const artifacts = normalizeStatus(
     input.artifactManifest?.summary.artifactStatus
@@ -259,14 +265,7 @@ export function buildProjectOverview(input: BuildProjectOverviewInput): ProjectO
     formatVersion: CONTRACT_FORMAT_VERSION,
     generatedAt: input.generatedAt ?? new Date().toISOString(),
     workspace: buildWorkspaceSummary(input.workspaceRoot),
-    status: {
-      overall,
-      verification,
-      policy,
-      coverage,
-      artifacts,
-      reviewChain
-    },
+    status: { overall, verification, policy, coverage, artifacts, reviewChain },
     navigation: buildNavigation(),
     aiContext: {
       appName: input.lock.app.name,
@@ -290,52 +289,84 @@ export function buildProjectOverview(input: BuildProjectOverviewInput): ProjectO
   };
 }
 
-async function readRequiredArtifact<T>(filePath: string, label: string): Promise<T> {
-  if (!(await pathExists(filePath))) {
+function readRequiredArtifact<T>(filePath: string, label: string): T {
+  const value = readOptionalRetainedJsonV1<T>(filePath, label);
+  if (value === null) {
     throw new CompilerError(
       'EXPLAIN-BLOCKED-004',
       `${label} is missing; run the refresh chain, then ${platformCommand('explain')}`
     );
   }
-  return readJson<T>(filePath);
+  return value;
 }
 
-export async function buildProjectOverviewFromWorkspace(workspaceRoot = process.cwd()): Promise<ProjectOverview> {
+function requiredArtifactError(label: string, reason: string): CompilerError {
+  return new CompilerError(
+    'EXPLAIN-BLOCKED-004',
+    `${label} ${reason}; run the refresh chain, then ${platformCommand('explain')}`
+  );
+}
+
+function readRequiredProvenance(filePath: string, label: string): ProvenanceFile {
+  try {
+    const value = readOptionalProvenanceFileV1(filePath, label);
+    if (value === null) throw requiredArtifactError(label, 'is missing');
+    return value;
+  } catch (error) {
+    if (error instanceof CompilerError) throw error;
+    throw requiredArtifactError(label, `is malformed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function readRequiredVerificationArtifacts(workspaceRoot: string) {
+  try {
+    const artifacts = readOptionalCanonicalVerificationArtifactSetV1(
+      workspaceRoot,
+      'Project Overview Verification artifact set'
+    );
+    if (artifacts === null) throw requiredArtifactError('Verification artifact set', 'is missing');
+    return artifacts;
+  } catch (error) {
+    if (error instanceof CompilerError) throw error;
+    throw requiredArtifactError(
+      'Verification artifact set',
+      `is malformed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+export function buildProjectOverviewFromWorkspace(workspaceRoot = process.cwd()): ProjectOverview {
   const paths = getWorkspacePaths(workspaceRoot);
-  const [
-    lock,
-    explainGraph,
-    provenance,
-    verification,
-    acceptanceCoverage,
-    policy,
-    reviewSummary,
-    artifactManifest,
-    codeQuality,
-    architectureBoundary,
-    semanticPattern
-  ] = await Promise.all([
-    readRequiredArtifact<LockFile>(paths.lockPath, 'Lock file'),
-    readRequiredArtifact<ExplainGraph>(paths.explainGraphPath, 'Explain graph'),
-    readRequiredArtifact<ProvenanceFile>(paths.provenancePath, 'Provenance report'),
-    readRequiredArtifact<VerificationReport>(paths.verificationReportPath, 'Verification report'),
-    readRequiredArtifact<AcceptanceCoverageReport>(paths.acceptanceCoveragePath, 'Acceptance coverage report'),
-    readRequiredArtifact<PolicyReport>(paths.policyReportPath, 'Policy report'),
-    readRequiredArtifact<ReviewSummary>(paths.reviewSummaryPath, 'Review summary'),
-    readOptionalJson<CiArtifactManifest>(paths.ciArtifactsPath),
-    readOptionalJson<ToolEvidenceReport>(path.join(paths.workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['code-quality'])),
-    readOptionalJson<ToolEvidenceReport>(path.join(paths.workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['architecture-boundary'])),
-    readOptionalJson<ToolEvidenceReport>(path.join(paths.workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['semantic-pattern']))
-  ]);
+  const lock = readRequiredArtifact<LockFile>(paths.lockPath, 'Lock file');
+  const explainGraph = readRequiredArtifact<ExplainGraph>(paths.explainGraphPath, 'Explain graph');
+  const provenance = readRequiredProvenance(paths.provenancePath, 'Provenance report');
+  const verificationArtifacts = readRequiredVerificationArtifacts(paths.workspaceRoot);
+  const reviewSummary = readRequiredArtifact<ReviewSummary>(paths.reviewSummaryPath, 'Review summary');
+  const artifactManifest = readOptionalCiArtifactManifestV1(
+    paths.ciArtifactsPath,
+    'CI Artifact manifest'
+  );
+  const codeQuality = readOptionalRetainedJsonV1<ToolEvidenceReport>(
+    path.join(paths.workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['code-quality']),
+    'Code quality report'
+  );
+  const architectureBoundary = readOptionalRetainedJsonV1<ToolEvidenceReport>(
+    path.join(paths.workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['architecture-boundary']),
+    'Architecture boundary report'
+  );
+  const semanticPattern = readOptionalRetainedJsonV1<ToolEvidenceReport>(
+    path.join(paths.workspaceRoot, PROJECT_OVERVIEW_OPTIONAL_TOOL_REPORT_PATHS['semantic-pattern']),
+    'Semantic pattern report'
+  );
 
   return buildProjectOverview({
     workspaceRoot: paths.workspaceRoot,
     lock,
     explainGraph,
     provenance,
-    verification,
-    acceptanceCoverage,
-    policy,
+    verification: verificationArtifacts.verificationReport,
+    acceptanceCoverage: verificationArtifacts.acceptanceCoverage,
+    policy: verificationArtifacts.policyReport,
     reviewSummary,
     artifactManifest,
     toolEvidenceReports: [codeQuality, architectureBoundary, semanticPattern].filter(

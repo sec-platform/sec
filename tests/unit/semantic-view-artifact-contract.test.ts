@@ -233,12 +233,8 @@ test('artifact selection fails closed when a corrupt Lock leaves stale emit file
     await fs.writeFile(paths.explainGraphPath, '{"semantic":"stale"}\n', 'utf8');
     await fs.writeFile(paths.graphViewPath, '<!doctype html><title>stale</title>\n', 'utf8');
 
-    const manifest = await buildCiArtifactManifest(workspaceRoot);
-
-    expect(manifest.artifacts.some((artifact) => CI_EMIT_ARTIFACT_PATHS.includes(artifact.path))).toBe(false);
-    expect(manifest.uploadGroups.flatMap((group) => group.paths).some((artifactPath) =>
-      CI_EMIT_ARTIFACT_PATHS.includes(artifactPath)
-    )).toBe(false);
-    expect(manifest.missing).toEqual([]);
+    expect(() => buildCiArtifactManifest(workspaceRoot)).toThrow(SyntaxError);
+    expect(await fs.readFile(paths.explainGraphPath, 'utf8')).toBe('{"semantic":"stale"}\n');
+    expect(await fs.readFile(paths.graphViewPath, 'utf8')).toBe('<!doctype html><title>stale</title>\n');
   }, 'engineering-compiler-semantic-artifact-corrupt-lock-');
 });

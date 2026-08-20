@@ -1,79 +1,40 @@
 import path from 'node:path';
+
+import {
+  isCanonicalBlockId,
+  isCanonicalRegistryVersion
+} from '../../shared/block-identity.ts';
+import { rawSha256 } from '../../shared/canonical-primitives.ts';
 import { countMatching } from '../../shared/collections.ts';
 import { CompilerError } from '../../shared/errors.ts';
-import { ensureDir, listFilesRecursive, pathExists, readJson, writeJson } from '../../shared/fs.ts';
-import { getWorkspacePaths, posixPath, workspaceRelativePath } from '../../shared/paths.ts';
-import type { AppMode, PlanFile, PlanSlot, SlotKind } from '../../shared/plan-manifest-types.ts';
-import { writeYaml } from '../../shared/yaml.ts';
+import { formatJsonFile } from '../../shared/fs.ts';
+import {
+  getWorkspacePaths,
+  isSafeRelativePath,
+  posixPath,
+  workspaceRelativePath
+} from '../../shared/paths.ts';
+import {
+  inspectNoFollowDirectoryChainV1,
+  inspectNoFollowOrdinaryFileEntryV1,
+  PhysicalNoFollowError,
+  scanNoFollowDirectoryTreeMetadataV1,
+  type NoFollowDirectoryTreeInventoryEntryV1,
+  type PhysicalDirectoryIdentityV1
+} from '../../shared/physical-no-follow.ts';
+import type { AppMode, SlotKind } from '../../shared/plan-manifest-types.ts';
+import { publishCanonicalWorkspaceFileV1 } from '../../shared/workspace-file-publication.ts';
 import { compareCodeUnits } from '../ir/ir-canonical-primitives.ts';
-import { loadPlan } from '../parse/load-plan.ts';
+import {
+  applyEngineeringOperations,
+  type EngineeringOperation,
+  type EngineeringOperationKind
+} from '../operations/engineering-operation.ts';
 
-export type ViewMutationKind =
-  | 'set-app-name'
-  | 'set-app-mode'
-  | 'add-acceptance'
-  | 'set-slot-description'
-  | 'set-slot-source-path'
-  | 'add-block'
-  | 'remove-block'
-  | 'bind-slot'
-  | 'unbind-slot';
-
-export type ViewMutation =
-  | {
-      id: string;
-      kind: 'set-app-name';
-      value: string;
-    }
-  | {
-      id: string;
-      kind: 'set-app-mode';
-      value: AppMode;
-    }
-  | {
-      id: string;
-      kind: 'add-acceptance';
-      acceptanceId: string;
-    }
-  | {
-      id: string;
-      kind: 'set-slot-description';
-      slotId: string;
-      description: string;
-    }
-  | {
-      id: string;
-      kind: 'set-slot-source-path';
-      slotId: string;
-      sourcePath: string;
-    }
-  | {
-      id: string;
-      kind: 'add-block';
-      blockId: string;
-      version: string;
-    }
-  | {
-      id: string;
-      kind: 'remove-block';
-      blockId: string;
-    }
-  | {
-      id: string;
-      kind: 'bind-slot';
-      slotId: string;
-      block: string;
-      slotKind: string;
-      target: string;
-      sourcePath: string;
-      symbol: string;
-      description?: string;
-    }
-  | {
-      id: string;
-      kind: 'unbind-slot';
-      slotId: string;
-    };
+/** Compatibility transport name; canonical semantics live in EngineeringOperation. */
+export type ViewMutationKind = EngineeringOperationKind;
+/** Compatibility transport name; canonical semantics live in EngineeringOperation. */
+export type ViewMutation = EngineeringOperation;
 
 export interface ViewMutationFile {
   formatVersion: '1';
@@ -104,6 +65,29 @@ export interface ViewMutationReport {
 export type ViewMutationCommitFence = () => Promise<void>;
 
 const SUPPORTED_APP_MODES = new Set<AppMode>(['single-tenant', 'multi-tenant']);
+const SUPPORTED_SLOT_KINDS = new Set<SlotKind>(['adapter', 'policy', 'ux', 'repair']);
+const MAX_VIEW_MUTATION_FILE_BYTES = 1024 * 1024;
+// One mutation file can already carry an arbitrary mutation array. Limiting the
+// flat queue to 64 files keeps aggregate raw envelope bytes at or below the
+// existing 64-MiB no-follow read domain while preserving batch authoring.
+const MAX_VIEW_MUTATION_FILES = 64;
+const MAX_VIEW_MUTATION_TOTAL_BYTES = MAX_VIEW_MUTATION_FILE_BYTES * MAX_VIEW_MUTATION_FILES;
+const VIEW_MUTATION_SCAN_BUDGET_MS = 10_000;
+
+type MutationSourceSnapshot = Readonly<{
+  relativePath: string;
+  sourcePath: string;
+  file: ViewMutationFile;
+  device: string;
+  inode: string;
+  size: number;
+  contentDigest: `sha256:${string}`;
+}>;
+
+type LoadedMutationSources = Readonly<{
+  root: PhysicalDirectoryIdentityV1 | null;
+  files: readonly MutationSourceSnapshot[];
+}>;
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -116,6 +100,38 @@ function assertNonEmptyString(value: unknown, label: string): string {
     throw new CompilerError('WORKBENCH-MUTATION-001', `${label} must be a non-empty string`);
   }
   return value.trim();
+}
+
+function assertCanonicalBlockId(value: unknown, label: string): string {
+  const blockId = assertNonEmptyString(value, label);
+  if (!isCanonicalBlockId(blockId)) {
+    throw new CompilerError('WORKBENCH-MUTATION-007', `${label} must be one canonical block id`);
+  }
+  return blockId;
+}
+
+function assertCanonicalVersion(value: unknown, label: string): string {
+  const version = assertNonEmptyString(value, label);
+  if (!isCanonicalRegistryVersion(version)) {
+    throw new CompilerError('WORKBENCH-MUTATION-008', `${label} must be one canonical registry version`);
+  }
+  return version;
+}
+
+function assertSlotKind(value: unknown, label: string): SlotKind {
+  const slotKind = assertNonEmptyString(value, label);
+  if (!SUPPORTED_SLOT_KINDS.has(slotKind as SlotKind)) {
+    throw new CompilerError('WORKBENCH-MUTATION-009', `${label} must be adapter, policy, ux, or repair`);
+  }
+  return slotKind as SlotKind;
+}
+
+function assertSlotTarget(value: unknown, label: string): string {
+  const target = posixPath(assertNonEmptyString(value, label));
+  if (!isSafeRelativePath(target) || !target.startsWith('custom/')) {
+    throw new CompilerError('WORKBENCH-MUTATION-010', `${label} must stay under custom/**`);
+  }
+  return target;
 }
 
 function assertSlotSourcePath(value: unknown, label: string): string {
@@ -138,9 +154,7 @@ function parseMutation(raw: unknown, sourcePath: string): ViewMutation {
   const id = assertNonEmptyString(raw.id, `Mutation id in ${sourcePath}`);
   const kind = assertNonEmptyString(raw.kind, `Mutation kind in ${sourcePath}`);
 
-  if (kind === 'set-app-name') {
-    return { id, kind, value: assertNonEmptyString(raw.value, `${id}.value`) };
-  }
+  if (kind === 'set-app-name') return { id, kind, value: assertNonEmptyString(raw.value, `${id}.value`) };
   if (kind === 'set-app-mode') {
     const value = assertNonEmptyString(raw.value, `${id}.value`);
     if (!SUPPORTED_APP_MODES.has(value as AppMode)) {
@@ -171,42 +185,33 @@ function parseMutation(raw: unknown, sourcePath: string): ViewMutation {
     return {
       id,
       kind,
-      blockId: assertNonEmptyString(raw.blockId, `${id}.blockId`),
-      version: assertNonEmptyString(raw.version, `${id}.version`)
+      blockId: assertCanonicalBlockId(raw.blockId, `${id}.blockId`),
+      version: assertCanonicalVersion(raw.version, `${id}.version`)
     };
   }
   if (kind === 'remove-block') {
-    return {
-      id,
-      kind,
-      blockId: assertNonEmptyString(raw.blockId, `${id}.blockId`)
-    };
+    return { id, kind, blockId: assertCanonicalBlockId(raw.blockId, `${id}.blockId`) };
   }
   if (kind === 'bind-slot') {
     return {
       id,
       kind,
       slotId: assertNonEmptyString(raw.slotId, `${id}.slotId`),
-      block: assertNonEmptyString(raw.block, `${id}.block`),
-      slotKind: assertNonEmptyString(raw.slotKind, `${id}.slotKind`),
-      target: assertNonEmptyString(raw.target, `${id}.target`),
-      sourcePath: assertNonEmptyString(raw.sourcePath, `${id}.sourcePath`),
+      block: assertCanonicalBlockId(raw.block, `${id}.block`),
+      slotKind: assertSlotKind(raw.slotKind, `${id}.slotKind`),
+      target: assertSlotTarget(raw.target, `${id}.target`),
+      sourcePath: assertSlotSourcePath(raw.sourcePath, `${id}.sourcePath`),
       symbol: assertNonEmptyString(raw.symbol, `${id}.symbol`),
       description: typeof raw.description === 'string' ? raw.description : undefined
     };
   }
   if (kind === 'unbind-slot') {
-    return {
-      id,
-      kind,
-      slotId: assertNonEmptyString(raw.slotId, `${id}.slotId`)
-    };
+    return { id, kind, slotId: assertNonEmptyString(raw.slotId, `${id}.slotId`) };
   }
-
   throw new CompilerError('WORKBENCH-MUTATION-004', `Unsupported Workbench mutation kind "${kind}"`);
 }
 
-function parseMutationFile(raw: unknown, sourcePath: string): ViewMutationFile {
+export function parseViewMutationFile(raw: unknown, sourcePath: string): ViewMutationFile {
   assertObject(raw, sourcePath);
   if (raw.formatVersion !== '1') {
     throw new CompilerError('WORKBENCH-MUTATION-005', `${sourcePath} must use formatVersion "1"`);
@@ -214,169 +219,202 @@ function parseMutationFile(raw: unknown, sourcePath: string): ViewMutationFile {
   if (!Array.isArray(raw.mutations)) {
     throw new CompilerError('WORKBENCH-MUTATION-001', `${sourcePath}.mutations must be an array`);
   }
-  return {
-    formatVersion: '1',
-    mutations: raw.mutations.map((mutation) => parseMutation(mutation, sourcePath))
-  };
+  return { formatVersion: '1', mutations: raw.mutations.map((mutation) => parseMutation(mutation, sourcePath)) };
 }
 
-function result(
-  mutation: ViewMutation,
-  sourcePath: string,
-  status: ViewMutationResult['status'],
-  detail: string
-): ViewMutationResult {
-  return {
-    id: mutation.id,
-    kind: mutation.kind,
+function decodeMutationUtf8(bytes: Uint8Array, sourcePath: string): string {
+  if (bytes.byteLength > MAX_VIEW_MUTATION_FILE_BYTES) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-012',
+      `${sourcePath} exceeds the ${MAX_VIEW_MUTATION_FILE_BYTES}-byte Workbench mutation limit`
+    );
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-013',
+      `${sourcePath} is not exact UTF-8`,
+      { cause: error instanceof Error ? error.message : String(error) }
+    );
+  }
+}
+
+function mutationMetadata(root: PhysicalDirectoryIdentityV1): readonly NoFollowDirectoryTreeInventoryEntryV1[] {
+  return scanNoFollowDirectoryTreeMetadataV1(root, {
+    deadlineAtMs: performance.now() + VIEW_MUTATION_SCAN_BUDGET_MS,
+    maximumEntries: MAX_VIEW_MUTATION_FILES
+  });
+}
+
+function assertFlatJsonMutationEntry(entry: NoFollowDirectoryTreeInventoryEntryV1): void {
+  if (entry.kind === 'link') {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-011',
+      `Workbench mutation source tree contains a link entry "${entry.relativePath}"`
+    );
+  }
+  if (entry.kind !== 'file' || entry.relativePath.includes('/') || !entry.relativePath.endsWith('.json')) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-011',
+      `Workbench mutation source tree contains a non-canonical entry "${entry.relativePath}"`
+    );
+  }
+  if (entry.size > MAX_VIEW_MUTATION_FILE_BYTES) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-012',
+      `source/views/mutations/${entry.relativePath} exceeds the ${MAX_VIEW_MUTATION_FILE_BYTES}-byte Workbench mutation limit`
+    );
+  }
+}
+
+function sameMutationMetadata(
+  left: NoFollowDirectoryTreeInventoryEntryV1,
+  right: Pick<MutationSourceSnapshot, 'relativePath' | 'device' | 'inode' | 'size'>
+): boolean {
+  return left.kind === 'file' &&
+    left.relativePath === right.relativePath &&
+    left.device === right.device &&
+    left.inode === right.inode &&
+    left.size === right.size;
+}
+
+function readMutationSnapshot(
+  workspaceRoot: string,
+  sourceViewMutationsRoot: string,
+  mutationRoot: PhysicalDirectoryIdentityV1,
+  metadata: NoFollowDirectoryTreeInventoryEntryV1
+): MutationSourceSnapshot {
+  assertFlatJsonMutationEntry(metadata);
+  const current = inspectNoFollowOrdinaryFileEntryV1(mutationRoot, metadata.relativePath);
+  if (current === null || current.bytes === null || !sameMutationMetadata(metadata, current)) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-011',
+      `Workbench mutation source "${metadata.relativePath}" changed between inventory and retained read`
+    );
+  }
+  const absolutePath = path.join(sourceViewMutationsRoot, metadata.relativePath);
+  const sourcePath = workspaceRelativePath(workspaceRoot, absolutePath);
+  const raw = decodeMutationUtf8(current.bytes, sourcePath);
+  return Object.freeze({
+    relativePath: metadata.relativePath,
     sourcePath,
-    status,
-    targetPath: 'source/app.yaml',
-    detail
-  };
+    file: parseViewMutationFile(JSON.parse(raw) as unknown, sourcePath),
+    device: current.device,
+    inode: current.inode,
+    size: current.size,
+    contentDigest: rawSha256(current.bytes)
+  });
 }
 
-function applyMutation(plan: PlanFile, mutation: ViewMutation, sourcePath: string): ViewMutationResult {
-  if (mutation.kind === 'set-app-name') {
-    if (plan.app.name === mutation.value) {
-      return result(mutation, sourcePath, 'skipped', 'app name already matches');
-    }
-    plan.app.name = mutation.value;
-    return result(mutation, sourcePath, 'applied', `set app.name to ${mutation.value}`);
+function assertMutationSourcesCurrent(
+  workspaceRoot: string,
+  expected: LoadedMutationSources
+): void {
+  const observed = loadMutationFiles(workspaceRoot);
+  if ((expected.root === null) !== (observed.root === null)) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-011',
+      'Workbench mutation source set changed after planning'
+    );
   }
-
-  if (mutation.kind === 'set-app-mode') {
-    if (plan.app.mode === mutation.value) {
-      return result(mutation, sourcePath, 'skipped', 'app mode already matches');
-    }
-    plan.app.mode = mutation.value;
-    return result(mutation, sourcePath, 'applied', `set app.mode to ${mutation.value}`);
+  if (
+    expected.root !== null && observed.root !== null &&
+    (
+      expected.root.device !== observed.root.device ||
+      expected.root.inode !== observed.root.inode ||
+      expected.root.objectId !== observed.root.objectId
+    )
+  ) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-011',
+      'Workbench mutation source root changed after planning'
+    );
   }
-
-  if (mutation.kind === 'add-acceptance') {
-    if (plan.acceptance.some((entry) => entry.id === mutation.acceptanceId)) {
-      return result(mutation, sourcePath, 'skipped', 'acceptance already exists');
-    }
-    plan.acceptance.push({ id: mutation.acceptanceId });
-    return result(mutation, sourcePath, 'applied', `added acceptance ${mutation.acceptanceId}`);
+  if (expected.files.length !== observed.files.length) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-011',
+      'Workbench mutation source set changed after planning'
+    );
   }
-
-  if (mutation.kind === 'add-block') {
-    if (!plan.blocks) {
-      plan.blocks = [];
-    }
-    if (plan.blocks.some((b) => b.id === mutation.blockId)) {
-      return result(mutation, sourcePath, 'skipped', `block ${mutation.blockId} already installed`);
-    }
-    plan.blocks.push({ id: mutation.blockId, version: mutation.version });
-    return result(mutation, sourcePath, 'applied', `installed block ${mutation.blockId}@${mutation.version}`);
-  }
-
-  if (mutation.kind === 'remove-block') {
-    if (!plan.blocks || !plan.blocks.some((b) => b.id === mutation.blockId)) {
-      return result(mutation, sourcePath, 'skipped', `block ${mutation.blockId} not installed`);
-    }
-    plan.blocks = plan.blocks.filter((b) => b.id !== mutation.blockId);
-    // 级联清除该 block 的所有 slots
-    if (plan.slots) {
-      plan.slots = plan.slots.filter((s) => s.block !== mutation.blockId);
-    }
-    return result(mutation, sourcePath, 'applied', `removed block ${mutation.blockId} and its slots`);
-  }
-
-  if (mutation.kind === 'bind-slot') {
-    if (!plan.slots) {
-      plan.slots = [];
-    }
-    const existingIndex = plan.slots.findIndex((s) => s.id === mutation.slotId);
-    const newSlot: PlanSlot = {
-      id: mutation.slotId,
-      block: mutation.block,
-      kind: mutation.slotKind as SlotKind,
-      target: mutation.target,
-      sourcePath: mutation.sourcePath,
-      symbol: mutation.symbol,
-      description: mutation.description ?? ''
-    };
-
-    if (existingIndex !== -1) {
-      const existing = plan.slots[existingIndex];
-      const matches =
-        existing.block === newSlot.block &&
-        existing.kind === newSlot.kind &&
-        existing.target === newSlot.target &&
-        existing.sourcePath === newSlot.sourcePath &&
-        existing.symbol === newSlot.symbol &&
-        existing.description === newSlot.description;
-
-      if (matches) {
-        return result(mutation, sourcePath, 'skipped', `slot ${mutation.slotId} already bound with same config`);
-      }
-      plan.slots[existingIndex] = newSlot;
-      return result(mutation, sourcePath, 'applied', `updated slot ${mutation.slotId} binding`);
-    } else {
-      plan.slots.push(newSlot);
-      return result(mutation, sourcePath, 'applied', `bound slot ${mutation.slotId} to ${mutation.block}`);
+  for (let index = 0; index < expected.files.length; index += 1) {
+    const expectedFile = expected.files[index]!;
+    const observedFile = observed.files[index]!;
+    if (
+      expectedFile.relativePath !== observedFile.relativePath ||
+      expectedFile.sourcePath !== observedFile.sourcePath ||
+      expectedFile.device !== observedFile.device ||
+      expectedFile.inode !== observedFile.inode ||
+      expectedFile.size !== observedFile.size ||
+      expectedFile.contentDigest !== observedFile.contentDigest
+    ) {
+      throw new CompilerError(
+        'WORKBENCH-MUTATION-011',
+        `Workbench mutation source "${expectedFile.relativePath}" changed after planning`
+      );
     }
   }
-
-  if (mutation.kind === 'unbind-slot') {
-    if (!plan.slots || !plan.slots.some((s) => s.id === mutation.slotId)) {
-      return result(mutation, sourcePath, 'skipped', `slot ${mutation.slotId} not bound`);
-    }
-    plan.slots = plan.slots.filter((s) => s.id !== mutation.slotId);
-    return result(mutation, sourcePath, 'applied', `unbound slot ${mutation.slotId}`);
-  }
-
-  const slot = plan.slots?.find((entry) => entry.id === mutation.slotId);
-  if (!slot) {
-    throw new CompilerError('WORKBENCH-MUTATION-006', `Slot "${mutation.slotId}" does not exist in source/app.yaml`);
-  }
-
-  if (mutation.kind === 'set-slot-description') {
-    if (slot.description === mutation.description) {
-      return result(mutation, sourcePath, 'skipped', 'slot description already matches');
-    }
-    slot.description = mutation.description;
-    return result(mutation, sourcePath, 'applied', `set ${mutation.slotId}.description`);
-  }
-
-  if (slot.sourcePath === mutation.sourcePath) {
-    return result(mutation, sourcePath, 'skipped', 'slot sourcePath already matches');
-  }
-  slot.sourcePath = mutation.sourcePath;
-  return result(mutation, sourcePath, 'applied', `set ${mutation.slotId}.sourcePath to ${mutation.sourcePath}`);
 }
 
-async function loadMutationFiles(workspaceRoot: string): Promise<Array<{ sourcePath: string; file: ViewMutationFile }>> {
+function loadMutationFiles(workspaceRoot: string): LoadedMutationSources {
   const { sourceViewMutationsRoot } = getWorkspacePaths(workspaceRoot);
-  if (!(await pathExists(sourceViewMutationsRoot))) {
-    return [];
+  let mutationRoot: PhysicalDirectoryIdentityV1;
+  try {
+    mutationRoot = inspectNoFollowDirectoryChainV1(
+      path.resolve(sourceViewMutationsRoot),
+      'Workbench mutation source root'
+    ).target;
+  } catch (error) {
+    if (error instanceof PhysicalNoFollowError && error.code === 'PHYSICAL_NO_FOLLOW_ABSENT') {
+      return Object.freeze({ root: null, files: Object.freeze([]) });
+    }
+    throw error;
   }
 
-  const files = (await listFilesRecursive(sourceViewMutationsRoot))
-    .filter((file) => file.endsWith('.json'))
-    .sort((left, right) => compareCodeUnits(left, right));
-  const loaded: Array<{ sourcePath: string; file: ViewMutationFile }> = [];
-  for (const file of files) {
-    const sourcePath = workspaceRelativePath(workspaceRoot, file);
-    loaded.push({ sourcePath, file: parseMutationFile(await readJson<unknown>(file), sourcePath) });
+  const entries = [...mutationMetadata(mutationRoot)]
+    .sort((left, right) => compareCodeUnits(left.relativePath, right.relativePath));
+  for (const entry of entries) assertFlatJsonMutationEntry(entry);
+  const totalBytes = entries.reduce((sum, entry) => sum + entry.size, 0);
+  if (!Number.isSafeInteger(totalBytes) || totalBytes > MAX_VIEW_MUTATION_TOTAL_BYTES) {
+    throw new CompilerError(
+      'WORKBENCH-MUTATION-012',
+      `Workbench mutation source bytes exceed the ${MAX_VIEW_MUTATION_TOTAL_BYTES}-byte aggregate limit`
+    );
   }
-  return loaded;
+
+  const files = entries.map((entry) =>
+    readMutationSnapshot(workspaceRoot, sourceViewMutationsRoot, mutationRoot, entry)
+  );
+  return Object.freeze({ root: mutationRoot, files: Object.freeze(files) });
 }
 
 export async function applyViewMutations(
   workspaceRoot: string,
   commitFence: ViewMutationCommitFence
 ): Promise<ViewMutationReport> {
-  const { planPath, viewMutationReportPath, sourceViewMutationsRoot } = getWorkspacePaths(workspaceRoot);
-  await ensureDir(sourceViewMutationsRoot, commitFence);
-  const plan = await loadPlan(planPath);
-  const mutationFiles = await loadMutationFiles(workspaceRoot);
-  const mutations = mutationFiles.flatMap((entry) =>
+  const { viewMutationReportPath } = getWorkspacePaths(workspaceRoot);
+  const mutationSources = loadMutationFiles(workspaceRoot);
+  const mutationFiles = mutationSources.files;
+  const mutationEntries = mutationFiles.flatMap((entry) =>
     entry.file.mutations.map((mutation) => ({ mutation, sourcePath: entry.sourcePath }))
   );
-  const results = mutations.map((entry) => applyMutation(plan, entry.mutation, entry.sourcePath));
+  const operationCommitFence = async (): Promise<void> => {
+    await commitFence();
+    assertMutationSourcesCurrent(workspaceRoot, mutationSources);
+  };
+  const operationResults = await applyEngineeringOperations(
+    workspaceRoot,
+    mutationEntries.map((entry) => entry.mutation),
+    operationCommitFence
+  );
+  const results: ViewMutationResult[] = operationResults.map((entry, index) => ({
+    id: entry.id,
+    kind: entry.kind,
+    sourcePath: mutationEntries[index]!.sourcePath,
+    status: entry.status,
+    targetPath: 'source/app.yaml',
+    detail: entry.detail
+  }));
   const appliedCount = countMatching(results, (entry) => entry.status === 'applied');
   const report: ViewMutationReport = {
     formatVersion: '1',
@@ -390,9 +428,12 @@ export async function applyViewMutations(
     mutations: results
   };
 
-  if (appliedCount > 0) {
-    await writeYaml(planPath, plan, commitFence);
-  }
-  await writeJson(viewMutationReportPath, report, commitFence);
+  await publishCanonicalWorkspaceFileV1({
+    workspaceRoot,
+    targetPath: viewMutationReportPath,
+    bytes: Buffer.from(formatJsonFile(report), 'utf8'),
+    label: 'Workbench mutation report',
+    commitFence: operationCommitFence
+  });
   return report;
 }

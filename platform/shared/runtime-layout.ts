@@ -8,6 +8,11 @@ export const SOURCE_RUNTIME_MODULE_RELATIVE_PATH = path.join(
   'shared',
   'runtime-layout.ts'
 );
+export const SOURCE_CLI_ENTRYPOINT_RELATIVE_PATH = path.join(
+  'platform',
+  'cli',
+  'index.ts'
+);
 export const RELEASE_ENTRYPOINT_RELATIVE_PATH = path.join('dist', 'index.js');
 export const RELEASE_RUNTIME_ASSET_ROOT_RELATIVE_PATH = 'dist';
 export const COMPILER_RUNTIME_RESOURCE_RELATIVE_PATHS = Object.freeze({
@@ -74,6 +79,20 @@ export function resolveCompilerRuntimeResources(
   );
 }
 
+/**
+ * Resolves the CLI that belongs to the already-loaded SEC runtime. Callers
+ * must execute this absolute entrypoint directly instead of using `bun run`
+ * package-script discovery, which can walk into an unrelated parent package
+ * and silently change the workspace being operated on.
+ */
+export function resolveCompilerCliEntrypoint(
+  layout: Pick<CompilerRuntimeLayout, 'executableModulePath' | 'mode' | 'packageRoot'>
+): string {
+  return layout.mode === 'source'
+    ? path.join(layout.packageRoot, SOURCE_CLI_ENTRYPOINT_RELATIVE_PATH)
+    : layout.executableModulePath;
+}
+
 export function resolveCompilerRuntimeLayout(
   executableModuleUrl: string
 ): Readonly<CompilerRuntimeLayout> {
@@ -131,4 +150,5 @@ export function resolveCompilerRuntimeLayout(
 }
 
 export const compilerRuntimeLayout = resolveCompilerRuntimeLayout(import.meta.url);
+export const compilerCliEntrypoint = resolveCompilerCliEntrypoint(compilerRuntimeLayout);
 export const compilerRuntimeResources = resolveCompilerRuntimeResources(compilerRuntimeLayout);

@@ -29,4 +29,14 @@ return "hello "+name;
       expect(formattedCode).toContain('export function hello(name: string) {');
     });
   });
+
+  test('rejects portable path aliases before formatter configuration or writes', async () => {
+    await withTempWorkspace(async (workspaceRoot) => {
+      await expect(formatOutputFiles(workspaceRoot, [
+        'generated/Foo.ts',
+        'generated/foo.ts'
+      ])).rejects.toMatchObject({ code: 'COMPOSE-PATH-004' });
+      expect(await pathExists(path.join(workspaceRoot, 'generated'))).toBe(false);
+    });
+  });
 });

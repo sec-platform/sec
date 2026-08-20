@@ -1,6 +1,6 @@
 import type { AcceptanceCoverageReport } from './acceptance-types.ts';
-import { canonicalEquals, compareCodeUnits } from './canonical-primitives.ts';
-import type { PolicyReport, PolicyViolation } from './policy-types.ts';
+import { validatePolicyReportV1 } from './policy-report-authority.ts';
+import type { PolicyReport } from './policy-types.ts';
 import {
   CodexDevelopmentAggregateVerificationClaimsV1,
   CodexDevelopmentBuildVerificationGateResultV1,
@@ -50,8 +50,6 @@ export const PRODUCT_VERIFICATION_CLAIM_IDS = Object.freeze([
 ] as const);
 
 export type ProductVerificationRuntimeMode = 'service' | 'full';
-type PolicyScopeName = 'official' | 'project';
-type PolicyDeclaration = { readonly scope: PolicyScopeName; readonly path: string };
 
 function productEnvironment(): VerificationGateEnvironmentV1 {
   return {
@@ -151,101 +149,17 @@ function buildInvalidGate(
   });
 }
 
-function canonicalViolation(violation: PolicyViolation): string {
-  return JSON.stringify([
-    violation.id,
-    violation.severity,
-    [...violation.appliesTo].sort(),
-    violation.rule,
-    [...violation.files].sort(),
-    violation.message,
-    violation.sourceScope,
-    violation.sourcePath
-  ]);
-}
-
-function canonicalViolationInventory(violations: readonly PolicyViolation[]): string[] {
-  return violations.map(canonicalViolation).sort();
-}
-
-function localeSortedUnique(values: readonly string[]): boolean {
-  if (new Set(values).size !== values.length) return false;
-  const sorted = [...values].sort((left, right) => compareCodeUnits(left, right));
-  return sorted.every((value, index) => value === values[index]);
-}
-
-function sameStringSet(values: readonly string[], expected: ReadonlySet<string>): boolean {
-  return values.length === expected.size && values.every((value) => expected.has(value));
-}
-
-function policyClosureIsValid(report: PolicyReport): boolean {
-  const winningDeclaration = new Map<string, PolicyDeclaration>();
-
-  for (const [scopeName, scope] of [
-    ['official', report.official],
-    ['project', report.project]
-  ] as const) {
-    if (!localeSortedUnique(scope.policies)) return false;
-    const sourcePaths = scope.sources.map((source) => source.path);
-    if (!localeSortedUnique(sourcePaths)) return false;
-
-    const declaredIds = new Set<string>();
-    for (const source of scope.sources) {
-      if (!localeSortedUnique(source.policyIds)) return false;
-      for (const policyId of source.policyIds) {
-        declaredIds.add(policyId);
-        winningDeclaration.set(policyId, { scope: scopeName, path: source.path });
-      }
-    }
-    if (!sameStringSet(scope.policies, declaredIds)) return false;
-    if (scope.violations.some((violation) => violation.sourceScope !== scopeName)) return false;
+function canonicalPolicyReport(report: PolicyReport): PolicyReport | null {
+  try {
+    return validatePolicyReportV1(report);
+  } catch {
+    return null;
   }
-
-  const mergedIds = report.merged.policies.map((policy) => policy.id);
-  if (!localeSortedUnique(mergedIds) || mergedIds.length !== winningDeclaration.size) return false;
-  for (const merged of report.merged.policies) {
-    const winner = winningDeclaration.get(merged.id);
-    if (
-      !winner
-      || winner.scope !== merged.sourceScope
-      || winner.path !== merged.sourcePath
-      || !localeSortedUnique(merged.targets)
-      || merged.targets.length === 0
-    ) return false;
-  }
-
-  for (const violation of report.violations) {
-    const winner = winningDeclaration.get(violation.id);
-    if (
-      !winner
-      || winner.scope !== violation.sourceScope
-      || winner.path !== violation.sourcePath
-    ) return false;
-  }
-
-  const scoped = canonicalViolationInventory([
-    ...report.official.violations,
-    ...report.project.violations
-  ]);
-  const topLevel = canonicalViolationInventory(report.violations);
-  return canonicalEquals(scoped, topLevel);
 }
 
-function policyInventoryIsEmpty(report: PolicyReport): boolean {
-  return report.official.policies.length === 0 &&
-    report.official.sources.every((source) => source.policyIds.length === 0) &&
-    report.project.policies.length === 0 &&
-    report.project.sources.every((source) => source.policyIds.length === 0) &&
-    report.merged.policies.length === 0 &&
-    report.official.violations.length === 0 &&
-    report.project.violations.length === 0 &&
-    report.violations.length === 0;
-}
-
-function hasBlockingPolicyViolation(report: PolicyReport): boolean {
-  return report.violations.some((violation) =>
-    violation.severity === 'error' || violation.severity === 'blocker'
-  );
+function policyReportSupportsSemanticPass(report: PolicyReport): boolean {
+  return report.evaluation?.assurance === 'semantic'
+    && report.evaluation.unsupportedSemanticPredicates.length === 0;
 }
 
 function nonblankInventory(values: readonly string[]): boolean {
@@ -364,17 +278,17 @@ export function buildExpectedProductRuntimeGate(
   );
 }
 
-export function buildExpectedProductPolicyGate(report: PolicyReport): VerificationGateResultV1 {
-  if (!policyClosureIsValid(report)) {
+export function buildExpectedProductPolicyGate(input: PolicyReport): VerificationGateResultV1 {
+  const report = canonicalPolicyReport(input);
+  if (report === null) {
     return buildInvalidGate(
       PRODUCT_POLICY_GATE_ID,
       PRODUCT_POLICY_CLAIM_ID,
-      'Policy declarations, shadow precedence, merged entries and violations do not close.',
+      'Policy report does not satisfy the canonical Policy artifact authority.',
       'policy-declaration-or-violation-change'
     );
   }
-  const empty = policyInventoryIsEmpty(report);
-  if (report.status === 'skipped' && empty) {
+  if (report.status === 'skipped') {
     return CodexDevelopmentBuildVerificationGateResultV1({
       gateId: PRODUCT_POLICY_GATE_ID,
       gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
@@ -392,22 +306,29 @@ export function buildExpectedProductPolicyGate(report: PolicyReport): Verificati
       execution: null,
       evidenceRefs: [],
       invalidationRules: [],
-      diagnostic: 'No policy declaration exists; policy gate is not-applicable.'
+      diagnostic: 'No applicable Policy target exists for the current resolved project.'
     });
   }
-  const blocking = hasBlockingPolicyViolation(report);
-  const consistent = report.status === 'failed'
-    ? !empty && blocking
-    : report.status === 'passed'
-      ? !empty && !blocking
-      : false;
-  if (!consistent) {
-    return buildInvalidGate(
-      PRODUCT_POLICY_GATE_ID,
-      PRODUCT_POLICY_CLAIM_ID,
-      'Policy status contradicts the closed declaration and violation inventory.',
-      'policy-status-change'
-    );
+  if (report.status === 'passed' && !policyReportSupportsSemanticPass(report)) {
+    return CodexDevelopmentBuildVerificationGateResultV1({
+      gateId: PRODUCT_POLICY_GATE_ID,
+      gateRevision: PRODUCT_VERIFICATION_PROFILE_REVISION,
+      owner: PRODUCT_VERIFICATION_OWNER,
+      requirementKey: PRODUCT_VERIFICATION_REQUIREMENT_KEY,
+      subjectRevision: PRODUCT_VERIFICATION_SUBJECT_REVISION,
+      inputDigest: PRODUCT_VERIFICATION_INPUT_DIGEST,
+      applicability: 'required',
+      status: 'unsupported',
+      disposition: 'not-executed',
+      reasonCode: 'capability-unsupported',
+      requiredForClaims: [PRODUCT_POLICY_CLAIM_ID],
+      supportedClaims: [],
+      environment: null,
+      execution: null,
+      evidenceRefs: [],
+      invalidationRules: ['policy-semantic-evaluator-or-ir-predicate-change'],
+      diagnostic: 'Policy source-structure checks passed, but canonical semantic policy proof is unavailable because required Engineering IR predicates are unsupported.'
+    });
   }
   const passed = report.status === 'passed';
   return CodexDevelopmentBuildVerificationGateResultV1({
@@ -479,6 +400,7 @@ export function buildExpectedProductVerificationClaimSummary(
   policyReport: PolicyReport,
   acceptanceCoverage: AcceptanceCoverageReport | null = null
 ): VerificationClaimSummary {
+  const canonicalPolicy = canonicalPolicyReport(policyReport);
   const gates = [
     buildExpectedProductFastGate(fast, lane),
     buildExpectedProductRuntimeGate(
@@ -490,9 +412,7 @@ export function buildExpectedProductVerificationClaimSummary(
     ),
     buildExpectedProductPolicyGate(policyReport)
   ];
-  const includePolicyClaim = !(
-    policyReport.status === 'skipped' && policyInventoryIsEmpty(policyReport)
-  );
+  const includePolicyClaim = canonicalPolicy === null || canonicalPolicy.status !== 'skipped';
   return {
     gates,
     overall: CodexDevelopmentAggregateVerificationClaimsV1({

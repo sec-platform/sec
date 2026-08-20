@@ -386,6 +386,13 @@ export function CodexDevelopmentParseWorkPackageManifestV1(
 
   const acceptance = stringArray(raw.acceptance, 'Work Package manifest acceptance');
   const tests = stringArray(raw.tests, 'Work Package manifest tests');
+  tests.forEach((testPath, index) => {
+    const label = `Work Package manifest tests[${index}]`;
+    assertOwnershipPath(testPath, label);
+    if (!/^tests\/(?:[^/]+\/)*[^/]+\.test\.ts$/u.test(testPath)) {
+      throw new Error(`${label} must name one canonical tests/**/*.test.ts module.`);
+    }
+  });
   const authorityRefs = raw.authorityRefs === undefined
     ? undefined
     : stableIdArray(raw.authorityRefs, 'Work Package manifest authorityRefs');

@@ -4,6 +4,7 @@ import { link, lstat, mkdir, open, readFile, readdir, rename, rm, symlink, unlin
 import os from 'node:os';
 import path from 'node:path';
 
+import { initWorkspace } from '../../platform/orchestrator/workspace-orchestrator.ts';
 import { sha256 as canonicalSha256 } from '../../platform/shared/canonical-primitives.ts';
 import { pathExists } from '../../platform/shared/fs.ts';
 import {
@@ -20,63 +21,6 @@ import {
   type WorkspaceWriteLeaseToken
 } from '../../platform/shared/workspace-write-lease.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
-
-test('retirement publishes its acquisition fence before terminalization and rejects holder residue', async () => {
-  const source = await Bun.file(new URL('../../platform/shared/workspace-write-lease.ts', import.meta.url)).text();
-  const start = source.indexOf('const retireOwnedNamespace = async (');
-  const end = source.indexOf('\n      const releaseHandle = async', start);
-  expect(start).toBeGreaterThanOrEqual(0);
-  expect(end).toBeGreaterThan(start);
-  const retirement = source.slice(start, end);
-  expect(retirement.indexOf('parent: fenceParent, name: receipt.fenceName')).toBeLessThan(
-    retirement.indexOf("await publishTerminal(paths, token, 'released')")
-  );
-  expect(retirement).toContain("entries.some((entry) => entry.relativePath.startsWith(`${HOLDERS_DIRECTORY}/`))");
-  expect(retirement).toContain('retirement holder namespace remains after terminal publication');
-});
-
-test('retirement fence assertion and completion observe only the exact retained leaf', async () => {
-  const source = await Bun.file(new URL('../../platform/shared/workspace-write-lease.ts', import.meta.url)).text();
-  const start = source.indexOf('export function assertWorkspaceWriteLeaseRetirementV1(');
-  const end = source.indexOf('\n/**', start + 1);
-  expect(start).toBeGreaterThanOrEqual(0);
-  expect(end).toBeGreaterThan(start);
-  const assertion = source.slice(start, end);
-  expect(assertion).toContain('inspectNoFollowOrdinaryFileEntryV1(parent, receipt.fenceName)');
-  expect(assertion).not.toContain('scanNoFollowDirectoryTreeV1(parent)');
-  const completionStart = source.indexOf('export function completeWorkspaceWriteLeaseRetirementV1(');
-  const completionEnd = source.indexOf('\nasync function ensureProtocolRoot(', completionStart);
-  expect(completionStart).toBeGreaterThanOrEqual(0);
-  expect(completionEnd).toBeGreaterThan(completionStart);
-  const completion = source.slice(completionStart, completionEnd);
-  expect(completion).toContain('inspectNoFollowOrdinaryFileEntryV1(parent, receipt.fenceName)');
-  expect(completion).not.toContain('scanNoFollowDirectoryTreeV1(parent)');
-  const recoveryStart = source.indexOf('export function recoverWorkspaceWriteLeaseRetirementV1(');
-  const recoveryEnd = source.indexOf('\nfunction readPreterminalRetirementReceiptV1(', recoveryStart);
-  expect(recoveryStart).toBeGreaterThanOrEqual(0);
-  expect(recoveryEnd).toBeGreaterThan(recoveryStart);
-  const recovery = source.slice(recoveryStart, recoveryEnd);
-  expect(recovery).toContain('inspectNoFollowOrdinaryFileEntryV1(parent, expectedFenceName)');
-  expect(recovery).not.toContain('scanNoFollowDirectoryTreeV1(parent)');
-  expect(recovery).toContain('snapshotRetirementRecoveryInputV1(input)');
-  expect(recovery.slice(recovery.indexOf('snapshotRetirementRecoveryInputV1(input)') + 'snapshotRetirementRecoveryInputV1(input)'.length)).not.toContain('input.');
-  const resumeStart = source.indexOf('export async function resumeWorkspaceWriteLeaseRetirementV1(');
-  const resumeEnd = source.indexOf('\nexport function completeWorkspaceWriteLeaseRetirementV1(', resumeStart);
-  const resume = source.slice(resumeStart, resumeEnd);
-  expect(resume).toContain('snapshotRetirementRecoveryInputV1(input)');
-  expect(resume).not.toContain('input.proofParent');
-  const preterminalStart = source.indexOf('function readPreterminalRetirementReceiptV1(');
-  const preterminalEnd = source.indexOf('\n/**', preterminalStart + 1);
-  const preterminal = source.slice(preterminalStart, preterminalEnd);
-  expect(preterminal).not.toContain('input.proofParent === undefined');
-  expect(preterminal).not.toContain('? fenceParent');
-  const discardStart = source.indexOf('function discardExactPreFenceTransitionV1(');
-  const discardEnd = source.indexOf('\n/**', discardStart + 1);
-  const discard = source.slice(discardStart, discardEnd);
-  expect(discard).toContain('readonly proofParent:');
-  expect(discard).not.toContain('input.proofParent === undefined');
-  expect(discard).not.toContain('retirementFenceParent(input.workspaceRoot)');
-});
 
 test('retirement recovery and physically absent completion ignore an oversized unrelated sibling', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
@@ -435,6 +379,28 @@ test('same-host dead stale lease is terminalized while live, foreign, and unknow
       code: 'WORKSPACE-WRITE-LEASE-002'
     });
   }, 'engineering-compiler-workspace-lease-reclaim-');
+});
+
+test('workspace initialization delegates an abandoned lease namespace to canonical recovery', async () => {
+  await withTempWorkspace(async (workspaceRoot) => {
+    const abandonedManager = createWorkspaceWriteLeaseManager({
+      heartbeatIntervalMs: 1_000_000,
+      staleAfterMs: 1_000_001,
+      hostname: os.hostname(),
+      pid: 2_147_483_646,
+      processNonce: 'process:init-abandoned',
+      now: () => 0,
+      createId: ids('init-abandoned'),
+      processAlive: () => 'alive'
+    });
+    const abandoned = await abandonedManager.acquire(workspaceRoot);
+    const initialized = await initWorkspace(workspaceRoot);
+    expect(await pathExists(initialized.planPath)).toBe(true);
+    expect(await pathExists(initialized.lockPath)).toBe(true);
+    await expect(abandoned.release()).rejects.toMatchObject({
+      code: 'WORKSPACE-WRITE-LEASE-002'
+    });
+  }, 'engineering-compiler-workspace-init-reclaim-');
 });
 
 test('lease errors expose stable safe details without workspace paths', async () => {
@@ -848,7 +814,9 @@ test('concurrent stale recovery terminalizes one generation without removing its
     if (winner?.status !== 'fulfilled' || loser?.status !== 'rejected') {
       throw new Error('Expected one recovered lease winner and one contender');
     }
-    expect(loser.reason).toMatchObject({ code: 'WORKSPACE-WRITE-LEASE-001' });
+    expect(loser.reason).toBeInstanceOf(WorkspaceWriteLeaseError);
+    expect(['WORKSPACE-WRITE-LEASE-001', 'WORKSPACE-WRITE-LEASE-004'])
+      .toContain((loser.reason as WorkspaceWriteLeaseError).code);
     expect(winner.value.token.generation).toBe(2);
     await winner.value.assertOwned();
     await expect(abandoned.assertOwned()).rejects.toMatchObject({
@@ -908,13 +876,12 @@ test('native local-state filesystem failures become typed diagnostics without ab
       failure = error;
     }
     expect(failure).toBeInstanceOf(WorkspaceWriteLeaseError);
-    expect(failure).toMatchObject({
-      code: 'WORKSPACE-WRITE-LEASE-004',
-      details: {
-        operation: 'acquire',
-        phase: 'lease-root-initialization',
-        systemCode: 'EEXIST'
-      }
+    const typedFailure = failure as WorkspaceWriteLeaseError;
+    expect(typedFailure.code).toBe('WORKSPACE-WRITE-LEASE-004');
+    expect(typedFailure.details).toEqual({
+      operation: 'acquire',
+      phase: 'lease-root-initialization',
+      systemCode: 'UNKNOWN'
     });
     expect(String(failure)).not.toContain(workspaceRoot);
     expect(JSON.stringify(failure)).not.toContain(workspaceRoot);

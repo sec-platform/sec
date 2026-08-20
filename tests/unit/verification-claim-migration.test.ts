@@ -15,36 +15,51 @@ import type {
   RuntimeVerificationLaneReport
 } from '../../platform/shared/verification-types.ts';
 
+const POLICY_ID = 'policy';
+const POLICY_SOURCE = 'platform/policies/official/policy.yaml';
+const POLICY_BLOCK = 'auth/basic-session';
+const POLICY_TARGET = 'src/target.ts';
+
 function policy(status: 'passed' | 'failed' | 'skipped'): PolicyReport {
   const declared = status !== 'skipped';
   const blocking = status === 'failed';
   const violation = {
-    id: 'policy',
+    id: POLICY_ID,
     severity: 'error' as const,
-    appliesTo: ['target'],
-    rule: 'rule',
-    files: ['target.ts'],
+    appliesTo: [POLICY_BLOCK],
+    rule: 'tenant_context_must_flow_to_query' as const,
+    files: [POLICY_TARGET],
     message: 'blocked',
     sourceScope: 'official' as const,
-    sourcePath: 'policy.yaml'
+    sourcePath: POLICY_SOURCE
   };
   return {
     status,
     official: {
-      policies: declared ? ['policy'] : [],
-      sources: declared ? [{ path: 'policy.yaml', policyIds: ['policy'] }] : [],
+      policies: declared ? [POLICY_ID] : [],
+      sources: declared ? [{ path: POLICY_SOURCE, policyIds: [POLICY_ID] }] : [],
       violations: blocking ? [violation] : []
     },
     project: { policies: [], sources: [], violations: [] },
     merged: {
       policies: declared ? [{
-        id: 'policy',
+        id: POLICY_ID,
         sourceScope: 'official',
-        sourcePath: 'policy.yaml',
-        targets: ['target.ts']
+        sourcePath: POLICY_SOURCE,
+        targets: [POLICY_TARGET]
       }] : []
     },
-    violations: blocking ? [violation] : []
+    violations: blocking ? [violation] : [],
+    diagnostics: [],
+    ...(declared ? {
+      evaluation: {
+        providerId: 'fixture-semantic-policy-provider',
+        providerRevision: '1',
+        assurance: 'semantic' as const,
+        requiredSemanticPredicates: ['FLOWS_TO'],
+        unsupportedSemanticPredicates: []
+      }
+    } : {})
   };
 }
 

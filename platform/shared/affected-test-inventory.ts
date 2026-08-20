@@ -5,7 +5,7 @@ import {
   isTestImpactSourceFile,
   resolveTestImpactSelectionTrustBoundary,
   selectTestsForSources,
-  type CodexDevelopmentTestImpactSourceProviderV1
+  type CodexDevelopmentTestImpactSourceProviderV2
 } from './test-impact-contract.ts';
 import type { VerificationGateResultV1 } from './verification-result-contract.ts';
 
@@ -20,18 +20,18 @@ export type CodexDevelopmentAffectedTestInventoryV1 = {
   sourceChanged: boolean;
   /**
    * Whether the reverse-import-map closure used to compute `affectedFastTests`
-   * was fully resolved. False when any test file's import specifiers could not
-   * be read (stat/read/parse failure), meaning the affected closure may be
+   * was fully resolved. False when a repository module could not be read or a
+   * local code import could not be resolved, meaning the affected closure may be
    * incomplete. When `sourceChanged && !selectionResolved`, callers MUST fail
    * closed instead of treating an empty `selectedFastTests` as "no impact".
    */
   selectionResolved: boolean;
   /**
-   * Test files whose import specifiers could not be read. Always empty when
+   * Repository modules whose import graph could not be resolved. Always empty when
    * `selectionResolved` is true. Surfaced for diagnostics and projection to
    * the unified verification result model.
    */
-  unresolvedTestFiles: string[];
+  unresolvedModuleFiles: string[];
 };
 
 export function CodexDevelopmentAffectedInventoryInputsV1(
@@ -45,7 +45,7 @@ export function CodexDevelopmentAffectedInventoryInputsV1(
 
 export function CodexDevelopmentBuildAffectedTestInventoryV1(
   files: readonly string[],
-  provider?: CodexDevelopmentTestImpactSourceProviderV1,
+  provider?: CodexDevelopmentTestImpactSourceProviderV2,
   transition?: CodexDevelopmentTestImpactTransitionObservationV1
 ): CodexDevelopmentAffectedTestInventoryV1 {
   const changedFastTests = uniqueSorted(files.filter(isFastTestFile));
@@ -69,7 +69,7 @@ export function CodexDevelopmentBuildAffectedTestInventoryV1(
     affectedOwners: uniqueSorted(impact.owners),
     sourceChanged: impactSourceFiles.length > 0,
     selectionResolved: resolution.selectionResolved,
-    unresolvedTestFiles: resolution.unresolvedTestFiles
+    unresolvedModuleFiles: resolution.unresolvedModuleFiles
   };
 }
 
@@ -82,7 +82,7 @@ export function CodexDevelopmentBuildAffectedTestInventoryV1(
 //
 // The core problem this solves: `test-runner.ts` used to return exit 0 when
 // `sourceChanged=true && selectedFastTests=[]` even when the empty closure was
-// caused by an unresolved selection (test file read/stat failure, git discovery
+  // caused by an unresolved selection (module read/stat failure, git discovery
 // failure, or unmapped ownership). That silently treated "could not determine
 // impact" as "no impact" — a false-green.
 //
@@ -108,10 +108,10 @@ const AFFECTED_SELECTION_VERIFICATION_GATE_RESULT_SCHEMA = 'sec-verification-gat
  * - `unresolved-ownership`: ci-pr-risk selection found changed paths that map
  *   to no ownership declaration, fallback rule, or reverse-import edge.
  * - `unresolved-selection`: sourceChanged but the reverse-import-map closure
- *   is incomplete for a reason NOT attributable to a specific test file read
+ *   is incomplete for a reason NOT attributable to a specific module read
  *   failure (defensive — should not normally occur).
- * - `unresolved-test-source`: sourceChanged and at least one test file's
- *   import specifiers could not be read (stat/read/parse failure). The
+ * - `unresolved-module-graph`: sourceChanged and at least one repository module's
+ *   source could not be read or a local code target could not be resolved. The
  *   affected closure may be incomplete; an empty selection is NOT proof of
  *   "no impact".
  * - `broad-fallback`: SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1 triggered a
@@ -126,7 +126,7 @@ export type AffectedSelectionTrustBoundary =
   | 'applicable-no-tests'
   | 'applicable-with-tests'
   | 'unresolved-selection'
-  | 'unresolved-test-source'
+  | 'unresolved-module-graph'
   | 'broad-fallback'
   | 'unresolved-ownership'
   | 'unresolved-git';
@@ -145,8 +145,8 @@ export interface AffectedSelectionClassificationInput {
   sourceChanged: boolean;
   /** inventory.selectionResolved — reverse-import-map closure is complete. */
   selectionResolved: boolean;
-  /** inventory.unresolvedTestFiles — test files whose imports could not be read. */
-  unresolvedTestFiles: readonly string[];
+  /** inventory.unresolvedModuleFiles — modules whose import graph could not be resolved. */
+  unresolvedModuleFiles: readonly string[];
   /** Number of selected fast tests (changed + affected). */
   selectedFastTestCount: number;
   /** SEC_AFFECTED_TESTS_FULL_FAST_FALLBACK=1. */
@@ -164,8 +164,8 @@ export interface AffectedSelectionClassificationInput {
  * 3. sourceChanged + empty closure + no fallback → fail closed. In PR quick
  *    lane, an empty closure for a source change is a risk signal: either test
  *    coverage is missing, or the selector failed silently. The runner must
- *    NOT treat this as "no impact". When test-source read failures are
- *    present, report `unresolved-test-source` for diagnostics; otherwise
+ *    NOT treat this as "no impact". When module-source read failures are
+ *    present, report `unresolved-module-graph` for diagnostics; otherwise
  *    `unresolved-selection`.
  * 4. broad fallback explicitly enabled for source change with empty closure.
  * 5. fast tests selected → applicable-with-tests.
@@ -182,8 +182,8 @@ export function classifyAffectedSelectionTrustBoundary(
   if (input.sourceChanged
     && input.selectedFastTestCount === 0
     && !input.broadFallbackEnabled) {
-    return input.unresolvedTestFiles.length > 0
-      ? 'unresolved-test-source'
+    return input.unresolvedModuleFiles.length > 0
+      ? 'unresolved-module-graph'
       : 'unresolved-selection';
   }
   // Broad fallback explicitly enabled for source change with empty closure.
@@ -210,7 +210,7 @@ export interface AffectedSelectionProjectionContext {
   diagnostic: string | null;
 }
 
-const AFFECTED_SELECTION_GATE_REVISION = 'affected-selection-trust-boundary-v1' as const;
+const AFFECTED_SELECTION_GATE_REVISION = 'affected-selection-trust-boundary-v3-resolved-module-graph' as const;
 const AFFECTED_SELECTION_REQUIREMENT_KEY = 'issue-206-affected-selection-trust-boundary' as const;
 const AFFECTED_SELECTION_OWNER = 'affected-selection-worker' as const;
 const AFFECTED_SELECTION_GATE_ID = 'test:affected' as const;
@@ -277,7 +277,7 @@ export function projectAffectedSelectionToVerificationGateResult(
     invalidationRules: [
       'source-changed',
       'selection-unresolved',
-      'test-source-read-failure',
+      'module-graph-resolution-failure',
       'ownership-unresolved',
       'git-discovery-failure'
     ],
@@ -290,7 +290,7 @@ export function projectAffectedSelectionToVerificationGateResult(
     case 'unresolved-git':
     case 'unresolved-ownership':
     case 'unresolved-selection':
-    case 'unresolved-test-source':
+    case 'unresolved-module-graph':
       return {
         ...base,
         applicability: 'unresolved',
@@ -337,5 +337,5 @@ export function isAffectedSelectionFailClosed(
   return boundary === 'unresolved-git'
     || boundary === 'unresolved-ownership'
     || boundary === 'unresolved-selection'
-    || boundary === 'unresolved-test-source';
+    || boundary === 'unresolved-module-graph';
 }

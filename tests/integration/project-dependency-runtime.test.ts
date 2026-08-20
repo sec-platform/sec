@@ -70,7 +70,7 @@ describe('shared runtime dependency projection', () => {
       expect(ready[0]!.binding.packages.length).toBeGreaterThan(RUNTIME_DEPENDENCY_PACKAGE_NAMES.length);
       const stampPath = path.join(sharedDepsRoot, 'runtime-deps.stamp.json');
       expect(await readRuntimeDepsStamp(stampPath)).toMatchObject({
-        formatVersion: 'runtime-deps-stamp-v2',
+        formatVersion: 'runtime-deps-stamp-v3',
         packageManager: 'bun'
       });
       const stamp = JSON.parse(await fs.readFile(stampPath, 'utf8')) as Record<string, unknown>;

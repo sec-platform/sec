@@ -101,7 +101,8 @@ test('public documentation pages have one H1 and no broken relative Markdown lin
   const manifest = await loadManifest();
   for (const page of manifest.pages) {
     const source = await readFile(path.join(REPOSITORY_ROOT, page.path), 'utf8');
-    expect(source.split('\n').filter((line) => /^#\s+\S/u.test(line))).toHaveLength(1);
+    const h1Headings = source.split('\n').filter((line) => /^#\s+\S/u.test(line));
+    expect(h1Headings).toHaveLength(page.kind === 'principle-projection' ? 11 : 1);
     for (const target of internalMarkdownTargets(source)) {
       const resolved = path.resolve(path.dirname(path.join(REPOSITORY_ROOT, page.path)), target);
       expect(resolved.startsWith(path.join(REPOSITORY_ROOT, 'public-docs'))).toBe(true);

@@ -328,9 +328,24 @@ async function fsyncDirectory(directory: string): Promise<void> {
   }
 }
 
+async function failWithProgressPendingCleanup(
+  pendingPath: string,
+  primaryError: unknown
+): Promise<never> {
+  try {
+    await rm(pendingPath, { force: true });
+  } catch (cleanupError) {
+    throw new AggregateError(
+      [primaryError, cleanupError],
+      'Semantic Mutation isolated progress publication failed and pending cleanup also failed'
+    );
+  }
+  throw primaryError;
+}
+
 export class SemanticMutationIsolatedProgressPublicationError extends Error {
-  constructor() {
-    super('Semantic Mutation isolated progress publication failed');
+  constructor(cause?: unknown) {
+    super('Semantic Mutation isolated progress publication failed', { cause });
     this.name = 'SemanticMutationIsolatedProgressPublicationError';
   }
 }
@@ -364,12 +379,13 @@ export async function publishSemanticMutationIsolatedProgressCheckpoint(
       await rename(pendingPath, finalPath);
       pendingOwned = false;
       await fsyncDirectory(path.dirname(finalPath));
-    } finally {
-      if (pendingOwned) await rm(pendingPath, { force: true }).catch(() => undefined);
+    } catch (error) {
+      if (pendingOwned) await failWithProgressPendingCleanup(pendingPath, error);
+      throw error;
     }
   } catch (error) {
     if (error instanceof SemanticMutationIsolatedProgressPublicationError) throw error;
-    throw new SemanticMutationIsolatedProgressPublicationError();
+    throw new SemanticMutationIsolatedProgressPublicationError(error);
   }
 }
 
@@ -495,7 +511,9 @@ export function semanticMutationIsolatedStagedLoaderBytes(
     "      if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'EACCES', 'EBADF'].includes(code)) throw error;",
     '    } finally { await directoryHandle?.close(); }',
     '  } catch {',
-    '    if (pendingOwned) await rm(pendingPath, { force: true }).catch(() => undefined);',
+    '    if (pendingOwned) {',
+    '      try { await rm(pendingPath, { force: true }); } catch { throw progressPublicationFailure; }',
+    '    }',
     '    throw progressPublicationFailure;',
     '  }',
     '}',
@@ -561,7 +579,9 @@ export function semanticMutationIsolatedBootstrapBytes(): Uint8Array {
     "    if (process.platform !== 'win32' || !['EINVAL', 'EPERM', 'EACCES', 'EBADF'].includes(code)) throw error;",
     '  } finally { await directoryHandle?.close(); }',
     '} catch {',
-    '  if (pendingOwned) await rm(pendingPath, { force: true }).catch(() => undefined);',
+    '  if (pendingOwned) {',
+    `    try { await rm(pendingPath, { force: true }); } catch { process.exitCode = ${SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.progressPublicationFailure}; }`,
+    '  }',
     `  process.exitCode = ${SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.progressPublicationFailure};`,
     '}',
     `if (process.exitCode !== ${SEMANTIC_MUTATION_ISOLATED_EXIT_CODES.progressPublicationFailure}) {`,

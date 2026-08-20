@@ -39,7 +39,12 @@ test('canonical trust-root registry is structurally strict and separates static 
   expect(parsed.runtimeEntrypoints).toContain('scripts/codex/verification-session.ts');
   expect(parsed.runtimeEntrypoints).not.toContain('scripts/codex/sec-merge-bootstrap.ts');
   expect(TCB_TRUST_ROOT_V3.causalRuntimePaths.some((entry) => entry.includes('sec-merge-bootstrap'))).toBe(false);
-  expect(parsed.reviewedSutEdges).toEqual(['scripts/ci-workspace-fast.ts -> platform/orchestrator.ts']);
+  expect(parsed.reviewedSutEdges).toEqual([
+    'scripts/ci-workspace-fast.ts -> platform/orchestrator/block-orchestrator.ts',
+    'scripts/ci-workspace-fast.ts -> platform/orchestrator/compose-orchestrator.ts',
+    'scripts/ci-workspace-fast.ts -> platform/orchestrator/verify-orchestrator.ts',
+    'scripts/ci-workspace-fast.ts -> platform/orchestrator/workspace-orchestrator.ts'
+  ]);
   expect(parsed.reviewedBoundaryEdges).toEqual([
     'scripts/ci-verification.ts -> platform/shared/tcb-closure-lock.ts',
     'scripts/codex/verification-session.ts -> platform/shared/tcb-closure-lock.ts'

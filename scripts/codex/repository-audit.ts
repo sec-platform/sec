@@ -17,7 +17,11 @@ import {
   type SecAgentSkillId,
   type SecRepositorySurfaceKind
 } from '../../platform/shared/agent-skill-contract.ts';
-import { CodexDevelopmentClassifyWorkPackageCensusV1 } from './document-control-plane-contract.ts';
+import {
+  CodexDevelopmentClassifyWorkPackageCensusV1,
+  CodexDevelopmentParseActivePointerV2,
+  CodexDevelopmentParseRollingPlanV1
+} from './document-control-plane-contract.ts';
 
 const DEFAULT_REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const MAX_TEXT_FILE_BYTES = 2_000_000;
@@ -25,7 +29,7 @@ const GIT_BATCH_BYTE_BUDGET = 16 * 1024 * 1024;
 const GIT_BATCH_OUTPUT_OVERHEAD = 2 * 1024 * 1024;
 const HEURISTIC_MARKER = /(?:必须|不得|禁止|只允许|仅当|只有|需要|应当|优先|默认|触发|停止|回退|重算|fail[- ]?closed|DO NOT MERGE|reload_if|gate_owner|\bmust\b|\bshould\b|\bnever\b|\bdo\s+not\b)/iu;
 const AGENT_CONTEXT_MARKER = /(?:\bAgent\b|\bCodex\b|\bWork\s+Package\b|\bTask\s+Envelope\b|\bSkill\b|\bReview\b|\bCI\b|\bGate\b|\bmerge\b|\bbranch\b|\btool\b|工具|文档|验证|仓库|上下文|恢复|分派|权限|\bowner\b|\bauthority\b)/iu;
-const STRONG_AGENT_CONTEXT_MARKER = /(?:\bAgent\b|\bCodex\b)/iu;
+const STRONG_AGENT_CONTEXT_MARKER = /(?<![/\\])\b(?:Agent|Codex)\b/iu;
 const NAVIGATION_AGENT_HEADING_MARKER = /(?:\bAgent\b|\bCodex\b)/iu;
 const NAVIGATION_AGENT_DIRECTIVE_MARKER = /(?:(?:\bAgent\b|\bCodex\b)[^。；\n]{0,48}(?:必须|不得|禁止|只允许|仅当|只有|需要|应当|优先|默认|触发|停止|回退|\bmust\b|\bshould\b|\bnever\b|\bdo\s+not\b)|(?:必须|不得|禁止|只允许|仅当|只有|需要|应当|\bmust\b|\bshould\b|\bnever\b|\bdo\s+not\b)[^。；\n]{0,48}(?:\bAgent\b|\bCodex\b)|\b(?:Agent|Codex)\s+(?:rules?|instructions?)\b)/iu;
 const NON_AUTHORITY_BEHAVIOR_PATH = /^(?:docs\/(?:archive|evidence|superpowers)\/)|(?:^|\/)[^/]+\.min\.(?:css|js)$/iu;
@@ -1404,13 +1408,13 @@ export const NEXUS_EPR_BINDINGS_V1: readonly NexusEprBindingRecord[] = Object.fr
     eprId: 'EPR-024',
     requirement: '性能优化不牺牲正确性：不跳过 identity/READY/validation；每项优化有可重现指标与日期/范围/环境。',
     secOwner: ['docs/roadmap.md'],
-    mechanism: ['platform/shared/test-budget-contract.ts', 'tests/contract/benchmark-budget.test.ts', 'tests/contract/slow-suite-resource-budget.test.ts'],
+    mechanism: ['platform/shared/test-budget-contract.ts', 'tests/contract/benchmark-budget.test.ts'],
     affectedIrEntities: ['verification.environment', 'verification.result'],
     positiveAcceptance: 'test budget 合同限制慢套件资源。',
     negativeAcceptance: '超预算/无证据优化被拒绝。',
     failureAcceptance: 'budget 违反使 CI 失败。',
     historicalRegression: '2d7187f4:docs/archive/authority-v5/governance/nexus-absorption-and-conformance.md 第 28 节',
-    applicableGate: 'benchmark-budget + slow-suite tests',
+    applicableGate: 'test-budget contract + benchmark-budget',
     binding: 'bound',
     blockingEvidence: null
   }),
@@ -1496,6 +1500,8 @@ export function classifyInformationLifecyclePath(repositoryPath: string): Inform
   if (/^docs\/scripts\//u.test(repositoryPath)) return 'repository-tooling';
   if (repositoryPath === 'docs/README.md') return 'generated-projection';
   if (/^docs\//u.test(repositoryPath)) return 'stable-authority';
+  if (/^public-docs\//u.test(repositoryPath)) return 'generated-projection';
+  if (/^tooling\/sec-dev\//u.test(repositoryPath)) return 'repository-tooling';
   if (/^platform\/compiler\//u.test(repositoryPath)) return 'product-source';
   if (/^platform\/shared\//u.test(repositoryPath)) return 'product-contract';
   if (/^platform\/cli\//u.test(repositoryPath)) return 'product-source';
@@ -2223,21 +2229,6 @@ export function projectRepositorySourceGovernance(
     candidates: Object.freeze([...candidates]),
     blockingFindings: Object.freeze([...blockingFindings])
   });
-}
-
-function parseActiveManifest(pointer: string): string | null {
-  return /^\s*manifest:\s*(\S+)\s*$/mu.exec(pointer)?.[1] ?? null;
-}
-
-function parseManifestDigest(pointer: string): string | null {
-  return /^\s*manifestDigest:\s*sha256:([a-f0-9]{64})\s*$/mu.exec(pointer)?.[1] ?? null;
-}
-
-function currentRollingPackage(rollingPlan: string): string | null {
-  const currentSection = /## 当前唯一 Work Package\s+([\s\S]*?)(?:\n## |\s*$)/u.exec(rollingPlan)?.[1];
-  return currentSection
-    ? /^###\s+([^\s]+)\s*$/mu.exec(currentSection)?.[1] ?? null
-    : null;
 }
 
 interface DeletedBlobGitFact {
@@ -3216,14 +3207,29 @@ async function auditControlPlane(
     unknowns.push('docs/work control plane is not readable as text at the audited revision');
     return { pointerManifestOnDefault: false };
   }
-  const manifestPath = parseActiveManifest(pointer);
-  const expectedDigest = parseManifestDigest(pointer);
-  const rollingPackage = currentRollingPackage(rollingPlan);
-  if (!manifestPath || !expectedDigest) {
+  let manifestPath: string;
+  let expectedDigest: string;
+  try {
+    const parsedPointer = CodexDevelopmentParseActivePointerV2(pointer);
+    manifestPath = parsedPointer.manifest;
+    expectedDigest = parsedPointer.manifestDigest.slice('sha256:'.length);
+  } catch (error) {
     pushFinding(findings, {
       code: 'control-plane-pointer-invalid',
-      message: 'active Work Package pointer does not expose one canonical manifest path and sha256 digest',
+      message: error instanceof Error ? error.message : String(error),
       path: pointerPath,
+      severity: 'critical'
+    });
+    return { pointerManifestOnDefault: false };
+  }
+  let rollingPackage: string;
+  try {
+    rollingPackage = CodexDevelopmentParseRollingPlanV1(rollingPlan).activePackageId;
+  } catch (error) {
+    pushFinding(findings, {
+      code: 'control-plane-rolling-invalid',
+      message: error instanceof Error ? error.message : String(error),
+      path: rollingPath,
       severity: 'critical'
     });
     return { pointerManifestOnDefault: false };

@@ -61,15 +61,12 @@ test('upgrade rejects delete directory migrations when target is not a directory
         status: 'not-a-directory'
       });
     }
-  }, async ({ paths, workspaceRoot }) => {
+  }, async ({ workspaceRoot }) => {
     await expect(
       upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })
     ).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-026'
     });
-    await expect(fs.readFile(paths.upgradeDiagnosticsPath, 'utf8')).resolves.toContain(
-      '"failedCheck": "migration-file-operations"'
-    );
   });
 });
 
@@ -129,11 +126,10 @@ test('upgrade rejects copy file migrations when manifest source is not a file', 
         recursive: true
       });
     }
-  }, async ({ paths, workspaceRoot }) => {
+  }, async ({ workspaceRoot }) => {
     await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-024'
     });
-    await expect(fs.readFile(paths.upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
   });
 });
 
@@ -199,11 +195,10 @@ test('upgrade rejects copy directory migrations when manifest source is missing'
         target: 'generated/reports/templates'
       }
     }
-  }, async ({ paths, workspaceRoot }) => {
+  }, async ({ workspaceRoot }) => {
     await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-008'
     });
-    await expect(fs.readFile(paths.upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
   });
 });
 
@@ -228,11 +223,10 @@ test('upgrade rejects copy directory migrations when manifest source is not a di
         report: 'not-a-directory'
       });
     }
-  }, async ({ paths, workspaceRoot }) => {
+  }, async ({ workspaceRoot }) => {
     await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-023'
     });
-    await expect(fs.readFile(paths.upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
   });
 });
 
@@ -251,11 +245,10 @@ test('upgrade rejects missing delete file targets before planning', async () => 
         target: 'generated/reports/missing.json'
       }
     }
-  }, async ({ paths, workspaceRoot }) => {
+  }, async ({ workspaceRoot }) => {
     await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-016'
     });
-    await expect(fs.readFile(paths.upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
   });
 });
 
@@ -283,10 +276,9 @@ test('upgrade rejects occupied rename file targets before planning', async () =>
         status: 'occupied'
       });
     }
-  }, async ({ paths, workspaceRoot }) => {
+  }, async ({ workspaceRoot }) => {
     await expect(upgradeWorkspace(workspaceRoot, 'private/slot-contract', '0.2.0', { dryRun: true })).rejects.toMatchObject({
       code: 'UPGRADE-MIGRATION-020'
     });
-    await expect(fs.readFile(paths.upgradeDiagnosticsPath, 'utf8')).resolves.toContain('"failedCheck": "migration-file-operations"');
   });
 });

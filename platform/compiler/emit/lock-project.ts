@@ -1,9 +1,8 @@
 import { CompilerError } from '../../shared/errors.ts';
-import { readJson, type CommitFence } from '../../shared/fs.ts';
+import type { CommitFence } from '../../shared/fs.ts';
 import type { LockFile } from '../../shared/lock-types.ts';
 import { assertPassStatus, saveLock } from '../../shared/lock-utils.ts';
-import { getWorkspacePaths } from '../../shared/paths.ts';
-import type { VerificationReport } from '../../shared/verification-types.ts';
+import { readOptionalCanonicalVerificationArtifactSetV1 } from '../../shared/verification-artifact-authority.ts';
 import { writeProvenance } from './write-provenance.ts';
 
 export async function lockProject(
@@ -11,11 +10,16 @@ export async function lockProject(
   lock: LockFile,
   commitFence?: CommitFence
 ): Promise<LockFile> {
-  const { verificationReportPath } = getWorkspacePaths(workspaceRoot);
-
   assertPassStatus(lock, 'verify', 'succeeded', new CompilerError('LOCK-BLOCKED-001', 'verify must succeed before lock'));
 
-  const report = await readJson<VerificationReport>(verificationReportPath);
+  const artifacts = readOptionalCanonicalVerificationArtifactSetV1(
+    workspaceRoot,
+    'Lock Verification artifact set'
+  );
+  if (artifacts === null) {
+    throw new CompilerError('LOCK-BLOCKED-002', 'lock requires the canonical Verification artifact set to exist');
+  }
+  const report = artifacts.verificationReport;
   if (report.summary.requestedLane !== 'all' || report.summary.status !== 'passed') {
     throw new CompilerError('LOCK-BLOCKED-002', 'lock requires a passing verify --lane all result');
   }

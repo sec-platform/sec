@@ -231,16 +231,19 @@ export interface MainHealthLaneDecisionV1 {
   readonly ledger: MainHealthLedgerV1 | null;
 }
 
-export function resolveMainHealthLaneV1(input: {
+export interface MainHealthLaneObservationInputV1 {
   readonly ledger: unknown;
-  readonly lane: MainHealthLaneV1;
   readonly now: string;
   readonly expectedRepository: string;
   readonly expectedDefaultBranch: string;
   readonly expectedMainSha: string;
   readonly expectedMainTreeSha: string;
   readonly expectedTrustRevision: string;
-}): MainHealthLaneDecisionV1 {
+}
+
+function resolveMainHealthLaneV1(
+  input: MainHealthLaneObservationInputV1 & Readonly<{ lane: MainHealthLaneV1 }>
+): MainHealthLaneDecisionV1 {
   let ledger: MainHealthLedgerV1;
   try {
     ledger = typeof input.ledger === 'string'
@@ -279,4 +282,16 @@ export function resolveMainHealthLaneV1(input: {
       : `${input.lane} lane is not eligible under the live ledger`,
     ledger
   });
+}
+
+export function resolveOrdinaryMainHealthLaneV1(
+  input: MainHealthLaneObservationInputV1
+): MainHealthLaneDecisionV1 {
+  return resolveMainHealthLaneV1({ ...input, lane: 'ordinary' });
+}
+
+export function resolveRepairMainHealthLaneV1(
+  input: MainHealthLaneObservationInputV1
+): MainHealthLaneDecisionV1 {
+  return resolveMainHealthLaneV1({ ...input, lane: 'repair' });
 }

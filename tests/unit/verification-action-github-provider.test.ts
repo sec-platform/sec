@@ -473,18 +473,6 @@ function authority(
 afterAll(() => rmSync(EVENT_ROOT, { recursive: true, force: true }));
 
 describe('VerificationAction GitHub provider authenticated transaction', () => {
-  test('exports one semantic function and no raw transport, resolution, reader, or publisher capability', () => {
-    expect(Object.keys(provider)).toEqual(['ensureVerificationActionGitHubProviderTransactionV2']);
-    const source = readFileSync(path.resolve(
-      import.meta.dir,
-      '../../scripts/codex/verification-action-github-provider.ts'
-    ), 'utf8');
-    expect(source).not.toMatch(/export\s+(?:class|interface)\s+/u);
-    expect(source).not.toMatch(/export\s+(?:async\s+)?function\s+(?:read|publish|create)/u);
-    expect(source).not.toMatch(/export\s+(?:class|interface|type)\s+.*Transport/u);
-    expect(source).not.toMatch(/export\s+type\s+VerificationActionGitHubProviderResolutionV2/u);
-  });
-
   test('exact parent artifact, closure member, current bot run, and marker chain posts once', async () => {
     fakeGh = new FakeGh().withMarker();
     const result = await ensureTransaction({
@@ -899,17 +887,6 @@ describe('VerificationAction GitHub provider authenticated transaction', () => {
         .rejects.toThrow();
       expect(fakeGh.createCalls).toBe(0);
     }
-
-    const source = readFileSync(path.resolve(import.meta.dir,
-      '../../scripts/codex/verification-action-github-provider.ts'), 'utf8');
-    const artifactReader = source.slice(source.indexOf('async function readVerificationActionArtifactObservationV2'),
-      source.indexOf('type VerificationActionGitHubProviderResolutionV2'));
-    expect(artifactReader).toContain('readVerificationActionExactAttemptOriginV2');
-    expect(artifactReader).not.toContain('transport.getWorkflowRun(');
-    expect(source).toContain('/attempts/${input.runAttempt}');
-    expect(source.match(/producingOrigin: \(payload\) => payload\.producer/gu)).toHaveLength(2);
-    expect(source).toContain('producingOrigin: (payload) => payload.anchorPublisherOrigin');
-    expect(source).not.toContain('producingOrigin: (payload) => payload.terminalAssemblerOrigin');
   });
 
   test('substituted parent artifact, closure, and non-member envelope fail before POST', async () => {

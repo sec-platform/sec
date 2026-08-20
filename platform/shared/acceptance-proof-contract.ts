@@ -1,6 +1,6 @@
 import { canonicalEquals } from './canonical-primitives.ts';
 import { uniqueSorted } from './collections.ts';
-import { isSafeRelativePath, posixPath } from './paths.ts';
+import { assertCanonicalPortableLogicalPathV1 } from './logical-path-identity.ts';
 import type {
   FastVerificationLaneReport,
   RuntimeVerificationLaneReport
@@ -66,14 +66,9 @@ export const ACCEPTANCE_PROOF_BINDINGS_V1 = Object.freeze([
 ] as const);
 
 function canonicalTestPath(value: string): string {
-  const normalized = posixPath(value);
-  if (
-    normalized !== value
-    || !isSafeRelativePath(value)
-    || !value.startsWith('tests/')
-    || !/\.(test|spec)\.tsx?$/u.test(value)
-  ) {
-    throw new Error(`Acceptance proof path is not canonical: ${value}`);
+  assertCanonicalPortableLogicalPathV1(value, 'Acceptance proof path');
+  if (!value.startsWith('tests/') || !/\.(test|spec)\.tsx?$/u.test(value)) {
+    throw new Error(`Acceptance proof path is outside the canonical test domain: ${value}`);
   }
   return value;
 }

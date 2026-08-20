@@ -65,9 +65,9 @@ function materializationBinding(
       canonicalBunVersion: '1.3.14',
       compilerGenerationRevision: 'e'.repeat(64),
       declaredBunVersion: '1.3.14',
+      dependencyManifestSha256: '1'.repeat(64),
       installConfigSha256: '9'.repeat(64),
       lockSha256: 'f'.repeat(64),
-      packageManifestSha256: '1'.repeat(64),
       platform: 'win32',
       ...overrides
     }

@@ -1,0 +1,38 @@
+import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+import { runSettlement } from '../../tooling/sec-dev/workspace/worktree-settlement.ts';
+
+function git(cwd: string, args: string[]): void {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || `git ${args.join(' ')} failed`);
+  }
+}
+
+test('worktree settlement reads Git configuration from the requested repository root', async () => {
+  const repositoryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-settlement-root-'));
+  try {
+    git(repositoryRoot, ['init', '--quiet']);
+    git(repositoryRoot, ['config', 'user.email', 'tests@example.com']);
+    git(repositoryRoot, ['config', 'user.name', 'SEC Tests']);
+    git(repositoryRoot, ['config', 'core.autocrlf', 'input']);
+    git(repositoryRoot, ['config', 'core.eol', 'lf']);
+    await fs.writeFile(path.join(repositoryRoot, '.gitattributes'), '*.ts text eol=lf\n');
+    await fs.writeFile(path.join(repositoryRoot, 'fixture.ts'), 'export const fixture = true;\n');
+    git(repositoryRoot, ['add', '--all']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'fixture']);
+
+    const receipt = await runSettlement(repositoryRoot);
+
+    expect(receipt.repositoryRoot).toBe(path.resolve(repositoryRoot));
+    expect(receipt.coreAutocrlf).toBe('input');
+    expect(receipt.coreEol).toBe('lf');
+    expect(receipt.status).toBe('settled');
+  } finally {
+    await fs.rm(repositoryRoot, { recursive: true, force: true });
+  }
+});

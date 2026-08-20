@@ -22,7 +22,7 @@ import { withTempWorkspace } from '../testkit/workspace.ts';
 
 test('buildProjectOverviewFromWorkspace reports missing required artifacts with recovery command', async () => {
   await withTempWorkspace(async (workspaceRoot) => {
-    await expect(buildProjectOverviewFromWorkspace(workspaceRoot)).rejects.toThrow(
+    expect(() => buildProjectOverviewFromWorkspace(workspaceRoot)).toThrow(
       'run the refresh chain, then bun run sec -- explain'
     );
   });
@@ -224,7 +224,14 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     official: { policies: [], sources: [], violations: [] },
     project: { policies: [], sources: [], violations: [] },
     merged: { policies: [] },
-    violations: []
+    violations: [],
+    evaluation: {
+      providerId: 'semantic-policy-test-provider',
+      providerRevision: 'semantic-policy-test-provider-v1',
+      assurance: 'semantic',
+      requiredSemanticPredicates: ['FLOWS_TO'],
+      unsupportedSemanticPredicates: []
+    }
   };
 
   const reviewSummary: ReviewSummary = {
@@ -328,6 +335,12 @@ test('buildProjectOverview summarizes shared project status and review prioritie
     },
     policySummary: {
       status: 'passed',
+      sourceReportStatus: 'passed',
+      assurance: 'semantic',
+      evaluatorProviderId: 'semantic-policy-test-provider',
+      evaluatorProviderRevision: 'semantic-policy-test-provider-v1',
+      unsupportedSemanticPredicates: [],
+      diagnosticCount: 0,
       officialPolicyCount: 0,
       projectPolicyCount: 0,
       mergedPolicyCount: 0,

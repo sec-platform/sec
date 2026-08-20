@@ -23,6 +23,7 @@ function git(
   const result = spawnSync('git', [...args], {
     cwd: repoRoot,
     encoding: options.bytes ? 'buffer' : 'utf8',
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
     input: options.input,
     windowsHide: true
   });
@@ -91,6 +92,8 @@ async function createRepositoryTemplate(
     ]);
     git(repoRoot, ['add', '--all']);
     git(repoRoot, ['commit', '--quiet', '-m', 'initial']);
+    const head = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', head]);
     ownershipTransferred = true;
     return repoRoot;
   } finally {
@@ -350,6 +353,63 @@ test.concurrent('candidate apply normalizes the complete committed, staged, unst
   });
 });
 
+test.concurrent('working apply and staged freeze normalize identical Git-selected roots outside tsconfig', async () => {
+  await withRepository(async (repoRoot) => {
+    const toolingRoot = path.join(repoRoot, 'tooling');
+    const includedRoot = path.join(repoRoot, 'included');
+    const fixturePath = path.join(toolingRoot, 'fixture.ts');
+    await Promise.all([
+      mkdir(toolingRoot, { recursive: true }),
+      mkdir(includedRoot, { recursive: true })
+    ]);
+    await Promise.all([
+      writeFile(path.join(repoRoot, 'tsconfig.json'), `${JSON.stringify({
+        compilerOptions: {
+          allowImportingTsExtensions: true,
+          module: 'ESNext',
+          moduleResolution: 'Bundler',
+          noEmit: true,
+          target: 'ES2022'
+        },
+        include: ['included/**/*.ts']
+      }, null, 2)}\n`, 'utf8'),
+      writeFile(path.join(toolingRoot, 'values.ts'), 'export const alpha = 1; export const beta = 2;\n', 'utf8'),
+      writeFile(fixturePath, source('sorted'), 'utf8'),
+      writeFile(path.join(includedRoot, 'consumer.ts'), "export { answer } from '../tooling/fixture.ts';\n", 'utf8')
+    ]);
+    git(repoRoot, ['add', '--all']);
+    git(repoRoot, ['commit', '--quiet', '--no-verify', '-m', 'transitive tooling root']);
+    const candidateBase = String(git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    git(repoRoot, ['update-ref', 'refs/remotes/origin/main', candidateBase]);
+
+    const noncanonical = `${source('unsorted')}export const candidateChange = answer;\n`;
+    await writeFile(fixturePath, noncanonical, 'utf8');
+    expect(await runImportCheck({}, repoRoot, {})).toEqual({
+      schema: 'sec-import-check-outcome-v1',
+      status: 'needs-import-transform',
+      files: ['tooling/fixture.ts']
+    });
+    const applied = await runImportApply({}, repoRoot, {});
+    expect(applied.status).toBe('accepted');
+    expect(applied.files).toEqual(['tooling/fixture.ts']);
+    const canonicalWorkingBytes = await readFile(fixturePath);
+    expect(canonicalWorkingBytes).toEqual(Buffer.from(
+      `${source('sorted')}export const candidateChange = answer;\n`
+    ));
+
+    await writeFile(fixturePath, noncanonical, 'utf8');
+    git(repoRoot, ['add', 'tooling/fixture.ts']);
+    expect(await runCandidateImportCheck(repoRoot, {}, {})).toEqual({
+      schema: 'sec-import-check-outcome-v1',
+      status: 'needs-import-transform',
+      files: ['tooling/fixture.ts']
+    });
+    expect(await runCandidateImportOrganizer(repoRoot, {}, {})).toBe(0);
+    expect(await stagedBytes(repoRoot, 'tooling/fixture.ts')).toEqual(canonicalWorkingBytes);
+    expect(await readFile(fixturePath)).toEqual(Buffer.from(noncanonical));
+  });
+});
+
 test.concurrent('candidate apply rejects an inexact candidate base before changing source', async () => {
   await withRepository(async (repoRoot) => {
     const fixturePath = path.join(repoRoot, 'fixture.ts');
@@ -411,8 +471,8 @@ test.concurrent('freeze seals identity by pure compare and never publishes to th
     const firstFreeze = await runCandidateImportCheck(repoRoot, {}, {});
     expect(firstFreeze.status).toBe('needs-import-transform');
     expect(firstFreeze.files).toEqual(['fixture.ts']);
-    expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(beforeIndex);
     expect(await readFile(rawIndexPath)).toEqual(beforeRawIndex);
+    expect(git(repoRoot, ['ls-files', '--stage', '-z'], { bytes: true })).toEqual(beforeIndex);
     expect(git(repoRoot, ['count-objects', '-v'])).toBe(beforeObjects);
 
     expect(await runCandidateImportOrganizer(repoRoot, {}, {})).toBe(0);

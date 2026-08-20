@@ -63,24 +63,48 @@ async function fsyncDirectory(
   }
 }
 
+async function failWithOwnedTemporaryCleanup(
+  filePath: string,
+  commitFence: SemanticMutationCommitFence,
+  primaryError: unknown
+): Promise<never> {
+  try {
+    await commitFence();
+    await rm(filePath, { force: true });
+  } catch (cleanupError) {
+    throw new AggregateError(
+      [primaryError, cleanupError],
+      'Semantic Mutation temporary publication failed and cleanup also failed'
+    );
+  }
+  throw primaryError;
+}
+
 async function writeDurableFile(
   filePath: string,
   bytes: Uint8Array,
   mode: number,
   commitFence: SemanticMutationCommitFence
 ): Promise<void> {
-  await commitFence();
-  const handle = await open(filePath, 'wx', mode);
+  let created = false;
   try {
     await commitFence();
-    await handle.writeFile(bytes);
+    const handle = await open(filePath, 'wx', mode);
+    created = true;
+    try {
+      await commitFence();
+      await handle.writeFile(bytes);
+      await commitFence();
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     await commitFence();
-    await handle.sync();
-  } finally {
-    await handle.close();
+    await chmod(filePath, mode);
+  } catch (error) {
+    if (created) await failWithOwnedTemporaryCleanup(filePath, commitFence, error);
+    throw error;
   }
-  await commitFence();
-  await chmod(filePath, mode);
 }
 
 async function publishDurableArtifact(
@@ -91,14 +115,17 @@ async function publishDurableArtifact(
 ): Promise<void> {
   const directory = path.dirname(targetPath);
   const temporary = path.join(directory, `.artifact-${randomUUID()}.tmp`);
+  let temporaryOwned = false;
   try {
     await writeDurableFile(temporary, bytes, mode, commitFence);
+    temporaryOwned = true;
     await commitFence();
     await rename(temporary, targetPath);
+    temporaryOwned = false;
     await fsyncDirectory(directory, commitFence);
-  } finally {
-    await commitFence();
-    await rm(temporary, { force: true }).catch(() => undefined);
+  } catch (error) {
+    if (temporaryOwned) await failWithOwnedTemporaryCleanup(temporary, commitFence, error);
+    throw error;
   }
 }
 
@@ -123,6 +150,7 @@ type AtomicPublishFailurePhase =
   | 'post-readback';
 
 function sanitizedErrorCode(error: unknown): string {
+  if (error instanceof AggregateError) return 'CLEANUP_FAILURE';
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   if (typeof code === 'string' && /^[A-Z0-9_]{1,64}$/u.test(code)) return code;
   if (typeof code === 'number' && Number.isSafeInteger(code) && code >= 0) return `EXIT_${code}`;
@@ -308,18 +336,45 @@ export async function atomicPublishSemanticMutationSource(
     await commitFence();
     await applySemanticMutationWindowsFileAttributes(publishTemp, manifest.windowsFileAttributes);
   } catch (error) {
-    throw publishFailure('attribute-apply', error, plan.relativePath);
+    await failWithOwnedTemporaryCleanup(
+      publishTemp,
+      commitFence,
+      publishFailure('attribute-apply', error, plan.relativePath)
+    );
   }
-  const finalBefore = await readSemanticMutationSource(workspaceRoot, transactionRoot, plan.relativePath);
+  let finalBefore: Awaited<ReturnType<typeof readSemanticMutationSource>>;
+  try {
+    finalBefore = await readSemanticMutationSource(workspaceRoot, transactionRoot, plan.relativePath);
+  } catch (error) {
+    await failWithOwnedTemporaryCleanup(
+      publishTemp,
+      commitFence,
+      publishFailure('post-readback', error, plan.relativePath)
+    );
+    throw error;
+  }
   if (semanticMutationByteDigest(finalBefore.bytes) !== plan.beforeByteDigest ||
     !canonicalEquals(finalBefore.windowsFileAttributes, manifest.windowsFileAttributes)) {
-    throw contractError('SEMANTIC-MUTATION-007', 'cas', 'Live source changed during final publish CAS', plan.relativePath);
+    await failWithOwnedTemporaryCleanup(
+      publishTemp,
+      commitFence,
+      contractError(
+        'SEMANTIC-MUTATION-007',
+        'cas',
+        'Live source changed during final publish CAS',
+        plan.relativePath
+      )
+    );
   }
-  await commitFence();
   try {
+    await commitFence();
     await operations.rename(publishTemp, target);
   } catch (error) {
-    throw publishFailure('atomic-replace', error, plan.relativePath);
+    await failWithOwnedTemporaryCleanup(
+      publishTemp,
+      commitFence,
+      publishFailure('atomic-replace', error, plan.relativePath)
+    );
   }
   try {
     await fsyncDirectory(path.dirname(target), commitFence);
@@ -378,26 +433,53 @@ export async function atomicRestoreSemanticMutationSource(
   await assertSameDevice(target, transactionRoot, plan.relativePath);
   const restoreTemp = path.join(transactionRoot, `.restore-${randomUUID()}.tmp`);
   await writeDurableFile(restoreTemp, backup, manifest.fileMode, commitFence);
-  await commitFence();
-  await applySemanticMutationWindowsFileAttributes(restoreTemp, manifest.windowsFileAttributes);
-  await commitFence();
-  const finalCommitted = await readSemanticMutationSource(
-    workspaceRoot,
-    transactionRoot,
-    plan.relativePath
-  );
-  if (semanticMutationByteDigest(finalCommitted.bytes) !== plan.stagedByteDigest ||
-    !canonicalEquals(finalCommitted.windowsFileAttributes, manifest.windowsFileAttributes)) {
-    throw contractError(
-      'SEMANTIC-MUTATION-012',
-      'rollback',
-      'Rollback CAS refused to overwrite source bytes not committed by this transaction',
+  try {
+    await commitFence();
+    await applySemanticMutationWindowsFileAttributes(restoreTemp, manifest.windowsFileAttributes);
+  } catch (error) {
+    await failWithOwnedTemporaryCleanup(restoreTemp, commitFence, error);
+  }
+  let finalCommitted: Awaited<ReturnType<typeof readSemanticMutationSource>>;
+  try {
+    await commitFence();
+    finalCommitted = await readSemanticMutationSource(
+      workspaceRoot,
+      transactionRoot,
       plan.relativePath
     );
+  } catch (error) {
+    await failWithOwnedTemporaryCleanup(restoreTemp, commitFence, error);
+    throw error;
   }
-  await commitFence();
+  if (semanticMutationByteDigest(finalCommitted.bytes) !== plan.stagedByteDigest ||
+    !canonicalEquals(finalCommitted.windowsFileAttributes, manifest.windowsFileAttributes)) {
+    await failWithOwnedTemporaryCleanup(
+      restoreTemp,
+      commitFence,
+      contractError(
+        'SEMANTIC-MUTATION-012',
+        'rollback',
+        'Rollback CAS refused to overwrite source bytes not committed by this transaction',
+        plan.relativePath
+      )
+    );
+  }
   try {
+    await commitFence();
     await operations.rename(restoreTemp, target);
+  } catch (error) {
+    await failWithOwnedTemporaryCleanup(
+      restoreTemp,
+      commitFence,
+      contractError(
+        'SEMANTIC-MUTATION-012',
+        'rollback',
+        `Atomic source restore failed${(error as NodeJS.ErrnoException).code ? ` (${(error as NodeJS.ErrnoException).code})` : ''}`,
+        plan.relativePath
+      )
+    );
+  }
+  try {
     await fsyncDirectory(path.dirname(target), commitFence);
   } catch (error) {
     throw contractError(

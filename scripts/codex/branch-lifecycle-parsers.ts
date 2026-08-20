@@ -1,3 +1,4 @@
+import { compareCodeUnits } from '../../platform/shared/canonical-primitives.ts';
 import {
   BRANCH_CLOSEOUT_RECEIPT_COMMENT_MARKER
 } from './branch-closeout-receipt.ts';
@@ -11,7 +12,7 @@ import {
 } from './branch-lifecycle-contract.ts';
 
 function stableSortRefs(entries: BranchRefObservation[]): BranchRefObservation[] {
-  return entries.sort((left, right) => left.branch.localeCompare(right.branch));
+  return entries.sort((left, right) => compareCodeUnits(left.branch, right.branch));
 }
 
 function stableSortPullRequests(

@@ -1,11 +1,11 @@
 import { expect } from 'bun:test';
+import fs from 'node:fs/promises';
 
 import { upgradeWorkspace } from '../../platform/orchestrator.ts';
-import { readJson } from '../../platform/shared/fs.ts';
 
 type UpgradeDiagnosticsSnapshot = {
   failedCheck: string;
-  errorCode: string;
+  errorCode?: string;
   details?: unknown;
 };
 
@@ -13,10 +13,6 @@ type UpgradeFailureOptions = {
   blockId?: string;
   targetVersion?: string;
 };
-
-export async function readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath: string): Promise<UpgradeDiagnosticsSnapshot> {
-  return readJson<UpgradeDiagnosticsSnapshot>(upgradeDiagnosticsPath);
-}
 
 export async function expectUpgradeDryRunFailure(
   workspaceRoot: string,
@@ -34,9 +30,27 @@ export async function expectUpgradeDryRunFailureWithDiagnostics(
   workspaceRoot: string,
   upgradeDiagnosticsPath: string,
   expectedError: object,
-  expectedDiagnostics: object,
+  expectedDiagnostics: UpgradeDiagnosticsSnapshot,
   options: UpgradeFailureOptions = {}
 ): Promise<void> {
-  await expectUpgradeDryRunFailure(workspaceRoot, expectedError, options);
-  await expect(readUpgradeDiagnosticsSnapshot(upgradeDiagnosticsPath)).resolves.toMatchObject(expectedDiagnostics);
+  let failure: unknown;
+  try {
+    await upgradeWorkspace(
+      workspaceRoot,
+      options.blockId ?? 'private/slot-contract',
+      options.targetVersion ?? '0.2.0',
+      { dryRun: true }
+    );
+  } catch (error) {
+    failure = error;
+  }
+
+  expect(failure).toMatchObject(expectedError);
+  if (expectedDiagnostics.errorCode) {
+    expect(failure).toMatchObject({ code: expectedDiagnostics.errorCode });
+  }
+  if (expectedDiagnostics.details && typeof expectedDiagnostics.details === 'object') {
+    expect(failure).toMatchObject({ details: expectedDiagnostics.details });
+  }
+  await expect(fs.lstat(upgradeDiagnosticsPath)).rejects.toMatchObject({ code: 'ENOENT' });
 }

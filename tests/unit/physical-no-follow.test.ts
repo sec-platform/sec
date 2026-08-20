@@ -20,6 +20,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import {
+  readCompilerTypeScriptMutationFixtureSync
+} from '../helpers/compiler-fixtures.ts';
+
 import { sha256 } from '../../platform/shared/canonical-primitives.ts';
 import {
   PhysicalNoFollowError,
@@ -157,9 +161,10 @@ test('Linux directory-create transaction rejects parent, ancestor, and child rep
     const mirrorRoot = path.join(root, 'mirror');
     const mirrorShared = path.join(mirrorRoot, 'platform', 'shared');
     mkdirSync(mirrorShared, { recursive: true });
-    const physicalPath = path.resolve(import.meta.dir, '../../platform/shared/physical-no-follow.ts');
-    const canonicalPath = path.resolve(import.meta.dir, '../../platform/shared/canonical-primitives.ts');
-    let source = readFileSync(physicalPath, 'utf8');
+    let source = readCompilerTypeScriptMutationFixtureSync(
+      'platform/shared/physical-no-follow.ts',
+      'hostile-mutation'
+    );
     const importNeedle = '  lstatSync,\n';
     const transactionNeedle =
       '): LinuxDirectoryCreateTransactionV1 {\n  const rootFd = linuxOpenRoot(label);\n';
@@ -208,7 +213,14 @@ test('Linux directory-create transaction rejects parent, ancestor, and child rep
     );
     const raceModulePath = path.join(mirrorShared, 'physical-no-follow-race.ts');
     writeFileSync(raceModulePath, source, 'utf8');
-    writeFileSync(path.join(mirrorShared, 'canonical-primitives.ts'), readFileSync(canonicalPath));
+    writeFileSync(
+      path.join(mirrorShared, 'canonical-primitives.ts'),
+      readCompilerTypeScriptMutationFixtureSync(
+        'platform/shared/canonical-primitives.ts',
+        'hostile-mutation'
+      ),
+      'utf8'
+    );
     const racePhysical = await import(`${pathToFileURL(raceModulePath).href}?race=${Date.now()}`);
     const expectRaceRejected = (action: () => unknown): void => {
       try {
@@ -318,13 +330,6 @@ test('operation directory creation is retained-parent relative and returns exact
     const created = createNoFollowDirectoryChainV1(retained, ['operation-root', 'generation-one']);
     expect(created.path).toBe(path.join(root, 'operation-root', 'generation-one'));
     expect(inspectNoFollowDirectoryChainV1(created.path, 'created directory').target.inode).toBe(created.inode);
-    const source = readFileSync(path.join(import.meta.dir, '../../platform/shared/physical-no-follow.ts'), 'utf8');
-    const start = source.indexOf('export function createNoFollowDirectoryChainV1(');
-    const end = source.indexOf('\nfunction ensureLeafName(', start);
-    const implementation = source.slice(start, end);
-    expect(implementation).not.toContain('mkdirSync');
-    expect(implementation).toContain('linuxOpenOrCreateDirectoryAt(');
-    expect(implementation).toContain('windowsOpenRelativeDirectory(');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -419,26 +424,6 @@ test('exact ordinary leaf identity follows the retained physical file rather tha
   }
 });
 
-test('exact ordinary leaf observation is retained-parent relative on both native backends', async () => {
-  const source = await Bun.file(new URL('../../platform/shared/physical-no-follow.ts', import.meta.url)).text();
-  const start = source.indexOf('export function inspectNoFollowOrdinaryFileEntryV1(');
-  const end = source.indexOf('\n/** Reads one ordinary leaf file', start);
-  expect(start).toBeGreaterThanOrEqual(0);
-  expect(end).toBeGreaterThan(start);
-  const implementation = source.slice(start, end);
-  expect(implementation).toContain('windowsOpenRelativeLeaf(');
-  expect(implementation).not.toContain("windowsOpenNoFollowLeaf(target, 'No-follow file'");
-  expect(implementation).toContain('sameIdentity(checked, linuxIdentity(parentFd, checked.path))');
-  expect(implementation).toContain("readLinuxRetainedFile(leafFd, 'No-follow file')");
-  expect(implementation.indexOf('linuxIdentity(parentFd, checked.path)')).toBeLessThan(
-    implementation.indexOf("linuxOpenReadableLeafAt(parentFd, name, 'No-follow file')")
-  );
-  const linuxOpenStart = source.indexOf('function linuxOpenReadableLeafAt(');
-  const linuxOpenEnd = source.indexOf('\n}', linuxOpenStart);
-  const linuxOpen = source.slice(linuxOpenStart, linuxOpenEnd);
-  expect(linuxOpen).toContain('LINUX_O_NONBLOCK');
-});
-
 test('Linux exact ordinary leaf rejects a FIFO without a blocking open', async () => {
   if (process.platform !== 'linux') return;
   const root = fixtureRoot();
@@ -483,12 +468,6 @@ test('retained directory relocation makes the original path absent and rejects a
     mkdirSync(target);
     writeFileSync(path.join(target, 'keep.txt'), 'bound-to-target\n', 'utf8');
     const original = inspectNoFollowDirectoryChainV1(target, 'relocation source').target;
-    const implementation = readFileSync(path.join(import.meta.dir, '../../platform/shared/physical-no-follow.ts'), 'utf8');
-    if (process.platform === 'win32') {
-      expect(implementation).toContain('NtSetInformationFile');
-      expect(implementation).toContain('writeBigUInt64LE(targetParentHandle, 8)');
-      expect(implementation).toContain('ensureLeafName(destinationLeafName)');
-    }
     const moved = relocateRetainedNoFollowDirectoryV1({ directory: original, tombstoneName: 'target-tombstone' });
     expect(existsSync(target)).toBe(false);
     expect(readFileSync(path.join(moved.path, 'keep.txt'), 'utf8')).toBe('bound-to-target\n');
@@ -503,12 +482,7 @@ test('retained directory relocation makes the original path absent and rejects a
   }
 });
 
-test('Linux relocation uses retained-parent renameat2 no-replace capability (actual on Linux, static contract elsewhere)', () => {
-  const source = readFileSync(path.join(import.meta.dir, '../../platform/shared/physical-no-follow.ts'), 'utf8');
-  expect(source).toContain('renameat2:');
-  expect(source).toContain('symbols.renameat2(');
-  expect(source).toContain('LINUX_RENAME_NOREPLACE');
-  if (process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'linux')('Linux relocation preserves the retained identity without replacement', () => {
   const root = fixtureRoot();
   try {
     const target = path.join(root, 'renameat-target');
@@ -520,26 +494,6 @@ test('Linux relocation uses retained-parent renameat2 no-replace capability (act
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-});
-
-test('Linux retained-parent publication creates a writable exclusive candidate', async () => {
-  const source = await Bun.file(new URL('../../platform/shared/physical-no-follow.ts', import.meta.url)).text();
-  const candidateStart = source.indexOf('function linuxCreateCandidateAt(');
-  const candidateEnd = source.indexOf('\nexport function publishExclusiveDurableCanonicalFileV1', candidateStart + 1);
-  expect(candidateStart).toBeGreaterThanOrEqual(0);
-  expect(candidateEnd).toBeGreaterThan(candidateStart);
-  const candidate = source.slice(candidateStart, candidateEnd);
-  expect(candidate).toContain('LINUX_O_WRONLY | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC | LINUX_O_CREAT | LINUX_O_EXCL');
-  expect(candidate).not.toContain('LINUX_O_RDONLY | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC | LINUX_O_CREAT');
-  expect(candidate).toContain('writeFileSync(fd, expected)');
-  const publicationStart = source.indexOf("if (process.platform === 'linux') {", candidateEnd);
-  const publicationEnd = source.indexOf("if (process.platform !== 'win32')", publicationStart);
-  const publication = source.slice(publicationStart, publicationEnd);
-  expect(publication).toContain('Exclusive durable publication candidate cleanup failed');
-  expect(publication).toContain('Exclusive durable publication candidate cleanup fsync failed');
-  expect(publication).toContain('renameat2(');
-  expect(publication).toContain('LINUX_RENAME_NOREPLACE');
-  expect(publication).not.toContain('symbols.linkat(');
 });
 
 test('tree scan records a child link as an unsafe leaf and never traverses it', () => {
@@ -558,18 +512,7 @@ test('tree scan records a child link as an unsafe leaf and never traverses it', 
   }
 });
 
-test('Linux tree inventory reads link bytes from the retained link fd', () => {
-  const source = readFileSync(
-    path.join(import.meta.dir, '../../platform/shared/physical-no-follow.ts'), 'utf8'
-  );
-  const scanStart = source.indexOf('function scanNoFollowDirectoryTreeInternalV1(');
-  const scanEnd = source.indexOf('\nexport function scanNoFollowDirectoryTreeV1(', scanStart);
-  const scan = source.slice(scanStart, scanEnd);
-  expect(source).toContain('function linuxReadRetainedLinkTargetV1(');
-  expect(source).toContain('symbols.readlinkat(');
-  expect(scan).toContain("linuxReadRetainedLinkTargetV1(retained, 'No-follow scan retained link')");
-  expect(scan).not.toContain('readlinkSync(`/proc/self/fd/${directoryFd}/${name}`)');
-  if (process.platform !== 'linux') return;
+test.skipIf(process.platform !== 'linux')('Linux tree inventory returns exact retained-link targets', () => {
   const root = fixtureRoot();
   try {
     const target = path.join(root, 'target');
@@ -712,13 +655,6 @@ test('durable canonical replacement uses retained-parent publication and exact f
     replaceDurableCanonicalFileV1({ parent, name: 'latest.json', bytes: first, validate });
     const replaced = replaceDurableCanonicalFileV1({ parent, name: 'latest.json', bytes: second, validate });
     expect(readFileSync(replaced.path)).toEqual(second);
-    if (process.platform === 'win32') {
-      const implementation = readFileSync(path.join(import.meta.dir, '../../platform/shared/physical-no-follow.ts'), 'utf8');
-      expect(implementation).toContain('NtCreateFile');
-      expect(implementation).toContain('windowsRenameRetainedOrdinaryFile');
-      expect(implementation).toContain('writeBigUInt64LE(targetParentHandle, 8)');
-      expect(implementation).not.toContain('MoveFileExW');
-    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -756,14 +692,6 @@ test('Windows retained-handle deletion removes authorized file directory and rep
     }
     expect(readFileSync(survivingReadonlyLink, 'utf8')).toBe('only-this-file\n');
     expect(lstatSync(survivingReadonlyLink).mode & 0o222).toBe(0);
-    const implementation = readFileSync(
-      path.join(import.meta.dir, '../../platform/shared/physical-no-follow.ts'), 'utf8'
-    );
-    expect(implementation).toContain('const WINDOWS_FILE_DISPOSITION_INFO_EX = 21;');
-    expect(implementation).toContain('WINDOWS_FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE');
-    expect(implementation).not.toContain('windowsNormalizeRetainedReadonlyV1');
-    expect(implementation).not.toContain('const WINDOWS_FILE_DISPOSITION_INFO = 4;');
-
     mkdirSync(path.join(target, 'replacement-parent'));
     writeFileSync(path.join(target, 'replacement-parent', 'retain.txt'), 'old\n', 'utf8');
     const original = inspectNoFollowDirectoryChainV1(path.join(target, 'replacement-parent'), 'original parent').target;

@@ -5,6 +5,7 @@ import {
   buildErrorProtocolContract,
   formatErrorProtocolContract
 } from '../../platform/shared/error-protocol-contract.ts';
+import { buildErrorProtocol } from '../../platform/shared/error-protocol.ts';
 import { expectCliVariants } from '../testkit/cli.ts';
 import { expectErrorProtocolSelfConsistent } from '../testkit/contracts.ts';
 import { withTempWorkspace } from '../testkit/workspace.ts';
@@ -16,6 +17,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
   expectErrorProtocolSelfConsistent(contract);
   expect(formatted).toContain('Error protocol active');
   expect(formatted).toContain('Example upgrade-conflict-error; code=UPGRADE-CONFLICT-001');
+  expect(formatted).toContain('Example slot-capability-lint-error; code=SLOT-LINT-005');
+  expect(formatted).toContain('Example engineering-operation-error; code=ENGINEERING-OPERATION-001');
   expect(JSON.stringify(contract)).not.toContain('\n');
   expect(contract).toMatchObject({
     formatVersion: '1',
@@ -30,12 +33,16 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
       CI_ARTIFACT_FILES.upgradeDiagnostics,
       CI_ARTIFACT_FILES.upgradePlan,
       CI_ARTIFACT_FILES.viewMutationReport,
+      'source/app.yaml',
+      'source/code/slots',
       'source/views/mutations'
     ].sort(),
     examples: expect.arrayContaining([
       expect.objectContaining({
         id: 'usage-error',
+        input: expect.objectContaining({ code: 'CLI-USAGE-001' }),
         output: expect.objectContaining({
+          code: 'CLI-USAGE-001',
           recoverable: true,
           issueType: 'usage',
           suggestedActions: ['retry-with-supported-arguments']
@@ -82,6 +89,26 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         })
       }),
       expect.objectContaining({
+        id: 'slot-capability-lint-error',
+        output: expect.objectContaining({
+          code: 'SLOT-LINT-005',
+          recoverable: true,
+          issueType: 'slot',
+          suggestedActions: ['review-slot-capabilities', 'remove-unproven-runtime-effects'],
+          artifactPaths: ['source/code/slots']
+        })
+      }),
+      expect.objectContaining({
+        id: 'engineering-operation-error',
+        output: expect.objectContaining({
+          code: 'ENGINEERING-OPERATION-001',
+          recoverable: true,
+          issueType: 'spec',
+          suggestedActions: ['inspect-engineering-operation', 'fix-operation-target', 'retry-operation'],
+          artifactPaths: ['source/app.yaml']
+        })
+      }),
+      expect.objectContaining({
         id: 'workbench-mutation-error',
         output: expect.objectContaining({
           recoverable: true,
@@ -111,6 +138,8 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
         `Artifact path list: ${contract.artifactPaths.join(', ')}`,
         'Example repair-plan-error; code=REPAIR-BLOCKED-001',
         'Example upgrade-rollback-error; code=UPGRADE-MIGRATION-016',
+        'Example slot-capability-lint-error; code=SLOT-LINT-005',
+        'Example engineering-operation-error; code=ENGINEERING-OPERATION-001',
         'Example workbench-mutation-error; code=WORKBENCH-MUTATION-002',
         'Example drift-error; code=ERROR-DRIFT-001'
       ],
@@ -129,4 +158,20 @@ test('CLI exposes error protocol as text and JSON contracts', async () => {
       }
     });
   });
+});
+
+test('diagnostic message text cannot grant CLI usage control-flow semantics', () => {
+  const messageOnly = buildErrorProtocol({
+    message: 'Usage: platform verify [--lane fast|runtime|all]'
+  });
+  expect(messageOnly.code).toBe('UNEXPECTED');
+  expect(messageOnly.issueType).toBe('kernel');
+  expect(messageOnly.recoverable).toBe(false);
+
+  const typed = buildErrorProtocol({
+    code: 'CLI-USAGE-001',
+    message: 'Usage: platform verify [--lane fast|runtime|all]'
+  });
+  expect(typed.issueType).toBe('usage');
+  expect(typed.recoverable).toBe(true);
 });
