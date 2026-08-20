@@ -857,6 +857,68 @@ test('real Git lifecycle resolves missing path to active and published blob to n
   }
 }, 30_000);
 
+test('status resolves a published rolling projection as history after its exact manifest reaches default', async () => {
+  const fixture = await createFreezeFixture();
+  try {
+    const manifestBytes = await readFile(path.join(
+      fixture.repositoryRoot,
+      ...FREEZE_TARGET_PATH.split('/')
+    ));
+    const exactMainTree = runGit(fixture.repositoryRoot, ['rev-parse', `${fixture.baseSha}^{tree}`]);
+    const currentPointerSource = await readFile(
+      path.join(fixture.repositoryRoot, POINTER_PATH),
+      'utf8'
+    );
+    const projection = CodexDevelopmentCreateFreezeProjectionV1({
+      spec: CodexDevelopmentParseCurrentStateSpecV1(currentStateSource('origin', true)),
+      currentPointerSource,
+      currentRollingPlanSource: rollingPlanSource(),
+      currentManifestBytes: Buffer.from(currentActiveManifestSource(), 'utf8'),
+      workSelectionProjection: {
+        receipt: workSelectionReceiptFixture({ exactMain: fixture.baseSha, exactMainTree })
+      },
+      manifestPath: FREEZE_TARGET_PATH,
+      manifestBytes,
+      baseSha: fixture.baseSha,
+      baseTreeSha: exactMainTree,
+      reviewedOn: '2026-08-21'
+    });
+    await writeFile(
+      path.join(fixture.repositoryRoot, CURRENT_STATE_PATH),
+      currentStateSource('origin', true),
+      'utf8'
+    );
+    await writeFile(
+      path.join(fixture.repositoryRoot, POINTER_PATH),
+      projection.pointerSource,
+      'utf8'
+    );
+    await writeFile(
+      path.join(fixture.repositoryRoot, 'docs/work/rolling-plan.md'),
+      projection.rollingPlanSource,
+      'utf8'
+    );
+    runGit(fixture.repositoryRoot, ['add', '.']);
+    runGit(fixture.repositoryRoot, ['commit', '--quiet', '-m', 'publish exact projection']);
+    runGit(fixture.repositoryRoot, ['push', '--quiet', 'origin', 'main']);
+    const publishedSha = runGit(fixture.repositoryRoot, ['rev-parse', 'HEAD']);
+    expect(publishedSha).not.toBe(fixture.baseSha);
+
+    const status = await resolveLiveControlPlane(fixture.repositoryRoot, { observeGitHub: false });
+    expect(status.repository).toMatchObject({
+      localDefaultSha: publishedSha,
+      liveDefaultSha: publishedSha,
+      defaultRefState: 'fresh'
+    });
+    expect(status.activeWorkPackage).toEqual({
+      state: 'none',
+      reason: 'matching-default-blob'
+    });
+  } finally {
+    await fixture.dispose();
+  }
+}, 30_000);
+
 test('freeze projection promotes one unique candidate without rewriting candidate bodies', async () => {
   const fixture = await createFreezeFixture();
   try {
