@@ -87,6 +87,11 @@ export interface TrustedRuntimeMainHealthBaselineObservationV2 {
 
 const TRUSTED_RUNTIME_MUTABLE_ROOT_V1 = '/sec-runtime' as const;
 const TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1 = '/candidate.bundle' as const;
+export const TRUSTED_RUNTIME_TEST_TMPFS_TARGET_V1 = '/tmp' as const;
+export const TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1 =
+  `${TRUSTED_RUNTIME_TEST_TMPFS_TARGET_V1}:rw,exec,nosuid,nodev,size=2g` as const;
+export const TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC_V1 =
+  `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}:rw,noexec,nosuid,nodev,size=10g,mode=0711,uid=1000,gid=1000` as const;
 const TRUSTED_RUNTIME_TRUSTED_TREE_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/trusted`;
 const TRUSTED_RUNTIME_WORKSPACE_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/workspace`;
 const TRUSTED_RUNTIME_OUTPUT_V1 = `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}/output`;
@@ -559,6 +564,8 @@ export interface TrustedRuntimeContainerIdentityV1 {
   readonly labels: Readonly<Record<string, string>>;
   readonly readOnlyRootfs: true;
   readonly readOnlyCandidateBundle: true;
+  readonly executableTestTmpfs: true;
+  readonly nonExecutableMutableTmpfs: true;
   readonly dependencyCacheVolumeName: string | null;
 }
 
@@ -586,7 +593,39 @@ function localProcessLiveness(pid: number): 'alive' | 'dead' | 'unknown' {
   }
 }
 
-function parseContainerIdentityV1(source: string): TrustedRuntimeContainerIdentityV1 {
+function assertCanonicalTmpfsV1(hostConfig: Readonly<Record<string, unknown>>): void {
+  const tmpfs = hostConfig.Tmpfs;
+  if (tmpfs === null || typeof tmpfs !== 'object' || Array.isArray(tmpfs)) {
+    fail('Docker tmpfs policy is invalid');
+  }
+  const expected: Readonly<Record<string, string>> = Object.freeze({
+    [TRUSTED_RUNTIME_TEST_TMPFS_TARGET_V1]:
+      TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1.slice(TRUSTED_RUNTIME_TEST_TMPFS_TARGET_V1.length + 1),
+    [TRUSTED_RUNTIME_MUTABLE_ROOT_V1]:
+      TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC_V1.slice(TRUSTED_RUNTIME_MUTABLE_ROOT_V1.length + 1)
+  });
+  const observed = tmpfs as Record<string, unknown>;
+  const expectedTargets = Object.keys(expected).sort();
+  const observedTargets = Object.keys(observed).sort();
+  if (observedTargets.length !== expectedTargets.length
+      || observedTargets.some((target, index) => target !== expectedTargets[index])) {
+    fail('Docker tmpfs targets differ from the canonical policy');
+  }
+  for (const target of expectedTargets) {
+    if (typeof observed[target] !== 'string') fail(`Docker tmpfs ${target} options are invalid`);
+    const observedOptions = observed[target].split(',');
+    const expectedOptions = expected[target]!.split(',');
+    if (new Set(observedOptions).size !== observedOptions.length
+        || observedOptions.length !== expectedOptions.length
+        || observedOptions.some((option) => !expectedOptions.includes(option))) {
+      fail(`Docker tmpfs ${target} options differ from the canonical policy`);
+    }
+  }
+}
+
+export function parseTrustedRuntimeContainerIdentityV1(
+  source: string
+): TrustedRuntimeContainerIdentityV1 {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source) as unknown;
@@ -610,6 +649,7 @@ function parseContainerIdentityV1(source: string): TrustedRuntimeContainerIdenti
       || !Array.isArray(mounts)) {
     fail('Docker container identity is invalid');
   }
+  assertCanonicalTmpfsV1(hostConfig as Record<string, unknown>);
   const candidateBundleMounts = mounts.filter((entry) => entry !== null
     && typeof entry === 'object'
     && !Array.isArray(entry)
@@ -653,6 +693,8 @@ function parseContainerIdentityV1(source: string): TrustedRuntimeContainerIdenti
     labels: Object.freeze(labels),
     readOnlyRootfs: true,
     readOnlyCandidateBundle: true,
+    executableTestTmpfs: true,
+    nonExecutableMutableTmpfs: true,
     dependencyCacheVolumeName
   });
 }
@@ -664,6 +706,8 @@ function sameContainerIdentityV1(
   return left.id === right.id && left.imageId === right.imageId && left.name === right.name
     && left.readOnlyRootfs === right.readOnlyRootfs
     && left.readOnlyCandidateBundle === right.readOnlyCandidateBundle
+    && left.executableTestTmpfs === right.executableTestTmpfs
+    && left.nonExecutableMutableTmpfs === right.nonExecutableMutableTmpfs
     && left.dependencyCacheVolumeName === right.dependencyCacheVolumeName
     && encodeVerificationActionDataV2(left.labels) === encodeVerificationActionDataV2(right.labels);
 }
@@ -712,6 +756,8 @@ export function authorizeTrustedRuntimeContainerRecoveryV1(input: Readonly<{
       || input.first.imageId !== input.expected.imageId
       || input.first.readOnlyRootfs !== true
       || input.first.readOnlyCandidateBundle !== true
+      || input.first.executableTestTmpfs !== true
+      || input.first.nonExecutableMutableTmpfs !== true
       || input.first.dependencyCacheVolumeName !== input.expected.dependencyCacheVolumeName
       || ownerNonce === undefined
       || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(ownerNonce)
@@ -735,7 +781,7 @@ async function inspectContainerIdentityV1(
   dockerEndpoint: DockerEndpointIdentityV3,
   container: string
 ): Promise<TrustedRuntimeContainerIdentityV1> {
-  return parseContainerIdentityV1(await command(
+  return parseTrustedRuntimeContainerIdentityV1(await command(
     'docker',
     ['container', 'inspect', container],
     repositoryRoot,
@@ -1447,8 +1493,8 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
         '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
         '--read-only',
         '--pids-limit', '1024', '--cpus', '8', '--memory', '12g',
-        '--tmpfs', '/tmp:rw,nosuid,nodev,size=2g',
-        '--tmpfs', `${TRUSTED_RUNTIME_MUTABLE_ROOT_V1}:rw,nosuid,nodev,size=10g,mode=0711,uid=1000,gid=1000`,
+        '--tmpfs', TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1,
+        '--tmpfs', TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC_V1,
         '--mount', `type=bind,source=${path.resolve(bundle)},target=${TRUSTED_RUNTIME_CANDIDATE_BUNDLE_V1},readonly`,
         ...(dependencyCacheVolume === null ? [] : [
           '--mount', `type=volume,source=${dependencyCacheVolume.spec.name},target=${TRUSTED_RUNTIME_DEPENDENCY_CACHE_CONTAINER_PATH_V1}`
@@ -1470,6 +1516,8 @@ async function withTrustedRuntimeWorkspaceV1<T>(input: Readonly<{
           || createdIdentity.imageId !== image.imageId
           || createdIdentity.readOnlyRootfs !== true
           || createdIdentity.readOnlyCandidateBundle !== true
+          || createdIdentity.executableTestTmpfs !== true
+          || createdIdentity.nonExecutableMutableTmpfs !== true
           || createdIdentity.dependencyCacheVolumeName
             !== (dependencyCacheVolume?.spec.name ?? null)
           || encodeVerificationActionDataV2(createdIdentity.labels)

@@ -8,8 +8,10 @@ import {
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
   TRUSTED_RUNTIME_MAIN_HEALTH_ACTIONS_V2,
   TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+  TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC_V1,
   TRUSTED_RUNTIME_STATE_ENVIRONMENT_DIGEST_V1,
   TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1,
+  TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1,
   assertTrustedRuntimeContainerImageV1,
   assertTrustedRuntimeDependencyCacheVolumeV1,
   assertTrustedRuntimeMainHealthCarryForwardBaselineV2,
@@ -22,6 +24,7 @@ import {
   createTrustedRuntimeMainHealthBaselineObservationV2,
   createTrustedRuntimeMainHealthGatePlansV1,
   createTrustedRuntimeMainHealthReceiptV2,
+  parseTrustedRuntimeContainerIdentityV1,
   parseTrustedRuntimeMainHealthAffectedPlanV1,
   parseTrustedRuntimeMainHealthReceiptV2,
   renderTrustedRuntimeCommandFailureDetailV1
@@ -54,6 +57,39 @@ function imageInspect(overrides: Record<string, unknown> = {}): string {
 }
 
 describe('provider-neutral trusted runtime container', () => {
+  test('admits only the canonical executable test tmpfs and non-executable runtime state', () => {
+    const container = {
+      Id: '4'.repeat(64),
+      Image: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
+      Name: '/sec-trusted-runtime-example',
+      Config: { Labels: {} },
+      HostConfig: {
+        ReadonlyRootfs: true,
+        Tmpfs: {
+          '/tmp': TRUSTED_RUNTIME_TEST_TMPFS_SPEC_V1.slice('/tmp:'.length),
+          '/sec-runtime': TRUSTED_RUNTIME_MUTABLE_TMPFS_SPEC_V1.slice('/sec-runtime:'.length)
+        }
+      },
+      Mounts: [{ Destination: '/candidate.bundle', Type: 'bind', RW: false }]
+    };
+    expect(parseTrustedRuntimeContainerIdentityV1(JSON.stringify([container])))
+      .toMatchObject({ executableTestTmpfs: true, nonExecutableMutableTmpfs: true });
+    expect(() => parseTrustedRuntimeContainerIdentityV1(JSON.stringify([{
+      ...container,
+      HostConfig: {
+        ...container.HostConfig,
+        Tmpfs: { ...container.HostConfig.Tmpfs, '/tmp': 'rw,noexec,nosuid,nodev,size=2g' }
+      }
+    }]))).toThrow('/tmp options differ');
+    expect(() => parseTrustedRuntimeContainerIdentityV1(JSON.stringify([{
+      ...container,
+      HostConfig: {
+        ...container.HostConfig,
+        Tmpfs: { ...container.HostConfig.Tmpfs, '/foreign': 'rw' }
+      }
+    }]))).toThrow('targets differ');
+  });
+
   test('projects one writable sibling state/cache authority into every trusted runtime command', () => {
     expect(TRUSTED_RUNTIME_STATE_ENVIRONMENT_V1).toEqual({
       SEC_STATE_HOME: '/sec-runtime/output/state',
@@ -186,6 +222,8 @@ describe('provider-neutral trusted runtime container', () => {
       name: `sec-trusted-runtime-${operationKey}-${ownerNonce}`,
       readOnlyRootfs: true as const,
       readOnlyCandidateBundle: true as const,
+      executableTestTmpfs: true as const,
+      nonExecutableMutableTmpfs: true as const,
       dependencyCacheVolumeName: null,
       labels: Object.freeze({
         ...imageLabels,
