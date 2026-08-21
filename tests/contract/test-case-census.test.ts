@@ -7,7 +7,6 @@ import {
 import { secTest } from '../testkit/responsibility.ts';
 
 const SEC_TEST_IMPORT = "import { secTest } from '../testkit/responsibility.ts';";
-const BUN_TEST_IMPORT = "import { describe, it, test } from 'bun:test';";
 const DECLARED_CASE = `
 secTest({
   testId: 'verification.test-census.fixture',
@@ -130,8 +129,9 @@ secTest({
     'verification.alias.named',
     'verification.alias.namespace'
   ]);
-  expect(census.unresolved.map(({ reasonCode }) => reasonCode))
-    .toEqual(['raw-bun-test-without-responsibility', 'raw-bun-test-without-responsibility']);
+  expect(census.unresolved.every(({ reasonCodes }) => (
+    reasonCodes.length === 1 && reasonCodes[0] === 'raw-bun-test-without-responsibility'
+  ))).toBe(true);
 });
 
 secTest({
@@ -147,7 +147,7 @@ secTest({
     failureMeaningCode: 'legacy-test-silently-missing'
   }],
   retirementCondition: { kind: 'persistent-invariant' }
-}, 'raw Bun tests and dynamic titles remain visible as unresolved', () => {
+}, 'raw Bun tests and dynamic titles retain every unresolved reason', () => {
   const census = compileTestCaseCensusV1([{
     sourcePath: 'tests/unit/legacy-fixture.test.ts',
     sourceText: `
@@ -160,9 +160,12 @@ secTest({
 
   expect(census.caseCount).toBe(2);
   expect(census.resolvedCount).toBe(0);
-  expect(census.unresolved.map(({ reasonCode }) => reasonCode).sort()).toEqual([
-    'dynamic-test-title',
-    'raw-bun-test-without-responsibility'
+  expect(census.unresolved.map(({ title, reasonCodes }) => ({ title, reasonCodes }))).toEqual([
+    { title: 'legacy static', reasonCodes: ['raw-bun-test-without-responsibility'] },
+    {
+      title: null,
+      reasonCodes: ['dynamic-test-title', 'raw-bun-test-without-responsibility']
+    }
   ]);
 });
 
@@ -197,7 +200,8 @@ secTest({
   expect(observations[0]).toMatchObject({
     suitePath: ['outer', 'inner'],
     title: 'declared fixture case',
-    resolution: 'resolved'
+    resolution: 'resolved',
+    reasonCodes: []
   });
 });
 
@@ -214,7 +218,7 @@ secTest({
     failureMeaningCode: 'dynamic-test-family-silently-collapsed'
   }],
   retirementCondition: { kind: 'persistent-invariant' }
-}, 'parameterized and dynamic suite families fail closed to unresolved', () => {
+}, 'parameterized and dynamic suite families retain structural and responsibility gaps', () => {
   const census = compileTestCaseCensusV1([{
     sourcePath: 'tests/unit/dynamic-family.test.ts',
     sourceText: `
@@ -228,10 +232,10 @@ secTest({
   }]);
 
   expect(census.caseCount).toBe(2);
-  expect(census.unresolved.map(({ reasonCode }) => reasonCode).sort()).toEqual([
-    'dynamic-suite-family',
-    'parameterized-family-unresolved'
-  ]);
+  expect(census.unresolved.map(({ reasonCodes }) => reasonCodes)).toEqual(expect.arrayContaining([
+    ['parameterized-family-unresolved', 'raw-bun-test-without-responsibility'],
+    ['dynamic-suite-family', 'raw-bun-test-without-responsibility']
+  ]));
 });
 
 secTest({
@@ -247,20 +251,67 @@ secTest({
     failureMeaningCode: 'duplicate-test-locator-accepted'
   }],
   retirementCondition: { kind: 'persistent-invariant' }
-}, 'duplicate executable locators stay visible and fail closed to unresolved', () => {
+}, 'duplicate executable locators stay visible without truncating the census', () => {
   const census = compileTestCaseCensusV1([{
     sourcePath: 'tests/unit/duplicate.test.ts',
     sourceText: `
-      import { test } from 'bun:test';
-      test('same', () => {});
-      test('same', () => {});
+      ${SEC_TEST_IMPORT}
+      secTest({
+        testId: 'verification.duplicate.first', owner: 'test-responsibility',
+        layer: 'contract', role: 'primary', lifecycle: 'active',
+        obligations: [{ kind: 'contract', id: 'duplicate-first', owner: 'test-responsibility', failureMeaningCode: 'duplicate-first-failed' }],
+        retirementCondition: { kind: 'persistent-invariant' }
+      }, 'same', () => {});
+      secTest({
+        testId: 'verification.duplicate.second', owner: 'test-responsibility',
+        layer: 'contract', role: 'primary', lifecycle: 'active',
+        obligations: [{ kind: 'contract', id: 'duplicate-second', owner: 'test-responsibility', failureMeaningCode: 'duplicate-second-failed' }],
+        retirementCondition: { kind: 'persistent-invariant' }
+      }, 'same', () => {});
     `
   }]);
   expect(census.caseCount).toBe(2);
   expect(census.duplicateLocatorCount).toBe(1);
   expect(census.resolvedCount).toBe(0);
   expect(census.unresolved).toHaveLength(2);
-  expect(census.unresolved.every(({ reasonCode }) => reasonCode === 'duplicate-test-locator')).toBe(true);
+  expect(census.unresolved.every(({ reasonCodes }) => (
+    reasonCodes.includes('duplicate-test-locator')
+  ))).toBe(true);
+});
+
+secTest({
+  testId: 'verification.test-census.duplicate-test-id',
+  owner: 'test-responsibility',
+  layer: 'contract',
+  role: 'primary',
+  lifecycle: 'active',
+  obligations: [{
+    kind: 'contract',
+    id: 'test-case-census-duplicate-test-id',
+    owner: 'test-responsibility',
+    failureMeaningCode: 'duplicate-stable-test-id-accepted'
+  }],
+  retirementCondition: { kind: 'persistent-invariant' }
+}, 'duplicate stable test ids remain visible and unresolved', () => {
+  const source = (title: string, sourceId: string): string => `
+    ${SEC_TEST_IMPORT}
+    secTest({
+      testId: 'verification.duplicate.stable-id', owner: 'test-responsibility',
+      layer: 'contract', role: 'primary', lifecycle: 'active',
+      obligations: [{ kind: 'contract', id: '${sourceId}', owner: 'test-responsibility', failureMeaningCode: '${sourceId}-failed' }],
+      retirementCondition: { kind: 'persistent-invariant' }
+    }, '${title}', () => {});
+  `;
+  const census = compileTestCaseCensusV1([
+    { sourcePath: 'tests/contract/duplicate-id-a.test.ts', sourceText: source('first', 'duplicate-id-a') },
+    { sourcePath: 'tests/contract/duplicate-id-b.test.ts', sourceText: source('second', 'duplicate-id-b') }
+  ]);
+  expect(census.duplicateTestIdCount).toBe(1);
+  expect(census.resolvedCount).toBe(0);
+  expect(census.unresolved).toHaveLength(2);
+  expect(census.unresolved.every(({ reasonCodes }) => (
+    reasonCodes.includes('duplicate-test-id')
+  ))).toBe(true);
 });
 
 secTest({
@@ -298,7 +349,7 @@ secTest({
   }]);
 
   expect(census.resolvedCount).toBe(0);
-  expect(census.unresolved[0]?.reasonCode).toBe('physical-locator-in-responsibility');
+  expect(census.unresolved[0]?.reasonCodes).toContain('physical-locator-in-responsibility');
 });
 
 secTest({
