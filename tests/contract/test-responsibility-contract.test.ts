@@ -137,29 +137,95 @@ test('diagnostic proofs cannot masquerade as ordinary required proof', () => {
   expect(normalized[0]?.role).toBe('diagnostic');
 });
 
-test('replacement proof is the single canonical supersedence relation and is acyclic', () => {
-  const first = declaration({
-    testId: 'verification.proof.first',
+test('replacement proof has one direction and can only target active proof', () => {
+  const retiring = declaration({
+    testId: 'verification.proof.retiring',
     lifecycle: 'retiring',
     retirementCondition: {
       kind: 'replacement-proof',
-      replacementTestIds: ['verification.proof.second'],
-      coverageRef: 'evidence:replacement-first'
+      replacementTestIds: ['verification.proof.replacement'],
+      coverageRef: 'evidence:replacement'
     }
   });
-  const second = declaration({
-    testId: 'verification.proof.second',
-    sourcePath: 'tests/contract/verification-result.test.ts',
-    lifecycle: 'retiring',
-    retirementCondition: {
-      kind: 'replacement-proof',
-      replacementTestIds: ['verification.proof.first'],
-      coverageRef: 'evidence:replacement-second'
-    }
+  const replacement = declaration({
+    testId: 'verification.proof.replacement',
+    sourcePath: 'tests/contract/verification-result.test.ts'
   });
 
-  expect(() => normalizeTestResponsibilityDeclarations([first, second]))
-    .toThrow('test replacement cycle');
+  const normalized = normalizeTestResponsibilityDeclarations([retiring, replacement]);
+  expect(normalized.find((entry) => entry.testId === retiring.testId)?.retirementCondition)
+    .toEqual({
+      kind: 'replacement-proof',
+      replacementTestIds: ['verification.proof.replacement'],
+      coverageRef: 'evidence:replacement'
+    });
+
+  expect(() => normalizeTestResponsibilityDeclarations([
+    retiring,
+    { ...replacement, lifecycle: 'retiring', retirementCondition: { kind: 'owner-retirement', owner: 'verification-governance' } }
+  ])).toThrow('replacement verification.proof.replacement must be active');
+});
+
+test('replacement proof must preserve every canonical obligation identity', () => {
+  const retiring = declaration({
+    testId: 'verification.proof.retiring',
+    lifecycle: 'retiring',
+    obligations: [
+      {
+        kind: 'contract',
+        id: 'test-responsibility',
+        owner: 'verification-governance',
+        failureMeaningCode: 'test-responsibility-invalid'
+      },
+      {
+        kind: 'verification-requirement',
+        id: 'proof-retirement-safe',
+        owner: 'verification-governance',
+        failureMeaningCode: 'proof-retirement-unresolved'
+      }
+    ],
+    retirementCondition: {
+      kind: 'replacement-proof',
+      replacementTestIds: ['verification.proof.replacement'],
+      coverageRef: 'evidence:replacement'
+    }
+  });
+  const incomplete = declaration({
+    testId: 'verification.proof.replacement',
+    sourcePath: 'tests/contract/verification-result.test.ts'
+  });
+
+  expect(() => normalizeTestResponsibilityDeclarations([retiring, incomplete]))
+    .toThrow('replacement proof does not cover obligations');
+
+  const complete = declaration({
+    ...incomplete,
+    obligations: retiring.obligations.map((obligation) => ({
+      ...obligation,
+      failureMeaningCode: `${obligation.failureMeaningCode}-replacement`
+    }))
+  });
+  expect(() => normalizeTestResponsibilityDeclarations([retiring, complete])).not.toThrow();
+});
+
+test('calibration proof cannot replace an ordinary product or contract obligation', () => {
+  const retiring = declaration({
+    testId: 'verification.proof.retiring',
+    lifecycle: 'retiring',
+    retirementCondition: {
+      kind: 'replacement-proof',
+      replacementTestIds: ['verification.proof.calibration'],
+      coverageRef: 'evidence:replacement'
+    }
+  });
+  const calibration = declaration({
+    testId: 'verification.proof.calibration',
+    sourcePath: 'tests/contract/verification-result.test.ts',
+    role: 'calibration'
+  });
+
+  expect(() => normalizeTestResponsibilityDeclarations([retiring, calibration]))
+    .toThrow('replacement proof does not cover obligations');
 });
 
 test('replacement retirement cannot silently point to self or an unknown proof', () => {
