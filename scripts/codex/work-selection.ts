@@ -438,6 +438,36 @@ function parseWorktrees(source: string): Array<{ root: string; branch: string | 
   });
 }
 
+export function isWorkSelectionProspectiveTransportV1(input: Readonly<{
+  currentBranch: string;
+  currentHead: string;
+  defaultBranch: string;
+  exactMain: string;
+}>): boolean {
+  return input.currentBranch.length > 0
+    && input.currentBranch !== input.defaultBranch
+    && input.currentHead === input.exactMain;
+}
+
+export function isExactWorkSelectionActiveIdentityV1(input: Readonly<{
+  activeState: 'none' | 'incomplete' | 'complete' | 'unresolved';
+  activeBranch: string | null;
+  activeHeadSha: string | null;
+  activeLegality: 'legal' | 'invalid' | 'unresolved' | 'not-applicable';
+  pullRequestHeadBranch: string;
+  pullRequestHeadSha: string;
+  registryHeadSha: string | null;
+  registryBaseSha: string | null;
+  pullRequestBaseSha: string;
+}>): boolean {
+  return input.activeState === 'incomplete'
+    && input.activeBranch === input.pullRequestHeadBranch
+    && input.activeHeadSha === input.pullRequestHeadSha
+    && input.activeLegality === 'legal'
+    && input.registryHeadSha === input.pullRequestHeadSha
+    && input.registryBaseSha === input.pullRequestBaseSha;
+}
+
 function observeCanonicalBranchLifecycle(input: {
   run: CommandRunnerV1;
   root: string;
@@ -475,7 +505,12 @@ function observeCanonicalBranchLifecycle(input: {
     'rev-parse', 'HEAD'
   ], input.root, 'current-candidate-head-unresolved'), 'current-candidate-head-invalid-utf8'),
   'current-candidate-head-invalid');
-  const currentTransportBranch = currentBranch.startsWith('codex/') && currentHead === input.exactMain
+  const currentTransportBranch = isWorkSelectionProspectiveTransportV1({
+    currentBranch,
+    currentHead,
+    defaultBranch: input.defaultBranch,
+    exactMain: input.exactMain
+  })
     ? currentBranch
     : null;
   const currentWorktreeRef = rawSha256(normalizePhysicalPath(input.root));
@@ -625,13 +660,17 @@ function currentLifecycle(input: {
     }) as SecWorkDigestV1;
     if (input.openPullRequests.length === 1 && entry !== undefined && item !== undefined) {
       const pullRequest = input.openPullRequests[0]!;
-      const exactActiveIdentity = pullRequest.headBranch.startsWith('codex/')
-        && input.branchLifecycle.activeState === 'incomplete'
-        && input.branchLifecycle.activeBranch === pullRequest.headBranch
-        && input.branchLifecycle.activeHeadSha === pullRequest.headSha
-        && input.branchLifecycle.activeLegality === 'legal'
-        && entry.headSha === pullRequest.headSha
-        && entry.baseSha === pullRequest.baseSha;
+      const exactActiveIdentity = isExactWorkSelectionActiveIdentityV1({
+        activeState: input.branchLifecycle.activeState,
+        activeBranch: input.branchLifecycle.activeBranch,
+        activeHeadSha: input.branchLifecycle.activeHeadSha,
+        activeLegality: input.branchLifecycle.activeLegality,
+        pullRequestHeadBranch: pullRequest.headBranch,
+        pullRequestHeadSha: pullRequest.headSha,
+        registryHeadSha: entry.headSha,
+        registryBaseSha: entry.baseSha,
+        pullRequestBaseSha: pullRequest.baseSha
+      });
       return {
         activeWorkId: item.workId,
         activeRef,
