@@ -49,8 +49,8 @@ import {
   isCanonicalWorkspaceWriteCommitFence,
   type WorkspaceWriteLeaseToken
 } from '../../shared/workspace-write-lease.ts';
-import { loadWorkspacePlan } from '../parse/load-plan.ts';
 import { cloneAndDeepFreeze, rawSha256 } from '../ir/ir-canonical-primitives.ts';
+import { loadWorkspacePlan } from '../parse/load-plan.ts';
 import {
   buildWorkspaceSemanticBundle,
 } from '../semantic-frontend.ts';
