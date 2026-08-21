@@ -8,6 +8,7 @@ import {
   gitChangedFileDiffArgs,
   gitPathBlobArgs,
   gitUntrackedFileArgs,
+  gitWorkingTreeStatusArgs,
   parseGitChangedFileOutput,
   parseGitPathBlobOutput,
   parseGitUntrackedFileOutput
@@ -41,6 +42,17 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     '--diff-filter=ACDMRTUXB',
     'HEAD'
   ]);
+  expect(gitChangedFileDiffArgs('main', null)).toEqual([
+    '-c',
+    'core.quotepath=false',
+    'diff',
+    '--name-status',
+    '-z',
+    '--find-renames',
+    '--find-copies',
+    '--diff-filter=ACDMRTUXB',
+    'main'
+  ]);
   expect(gitUntrackedFileArgs()).toEqual([
     '-c',
     'core.quotepath=false',
@@ -48,6 +60,14 @@ test('Git changed-file commands disable quotePath for tracked and untracked path
     '--others',
     '--exclude-standard',
     '-z'
+  ]);
+  expect(gitWorkingTreeStatusArgs()).toEqual([
+    '-c',
+    'core.quotepath=false',
+    'status',
+    '--porcelain=v1',
+    '-z',
+    '--untracked-files=all'
   ]);
 });
 

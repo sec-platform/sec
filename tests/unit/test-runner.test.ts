@@ -103,6 +103,10 @@ const processCommand = (
     return { code: 0, stdout: stdout(''), stderr: '' };
   }
 
+  if (command === 'git' && args.includes('status')) {
+    return { code: 0, stdout: stdout(''), stderr: '' };
+  }
+
   return { code: 1, stdout: stdout(''), stderr: `Unexpected command: ${command} ${args.join(' ')}` };
 };
 
@@ -2127,11 +2131,11 @@ test.serial('resolved affected plan executes without repeating Git discovery', a
   expect(Object.isFrozen(execution)).toBe(true);
   expect(Object.isFrozen(execution!.plan)).toBe(true);
   expect(Object.isFrozen(execution!.plan.selectedFastTests)).toBe(true);
-  expect(commandCalls).toHaveLength(2);
+  expect(commandCalls).toHaveLength(3);
   const code = await execution!.run();
 
   expect(code).toBe(0);
-  expect(commandCalls).toHaveLength(2);
+  expect(commandCalls).toHaveLength(3);
   expect(fastDependencyBootstrapCalls).toBe(1);
   expect(testDependencyBootstrapCalls).toBe(0);
   expect(devCommandCalls).toHaveLength(2);
@@ -2186,7 +2190,7 @@ test.serial('affected-test Git discovery requests byte-preserving stdout through
   const code = await runAffectedTests();
 
   expect(code).toBe(0);
-  expect(commandCalls).toHaveLength(2);
+  expect(commandCalls).toHaveLength(3);
   expect(commandCalls.every((call) => call.command === 'git' && call.stdoutMode === 'bytes')).toBe(true);
   expect(commandCalls.some((call) => call.args.includes('diff'))).toBe(true);
   expect(commandCalls.some((call) => call.args.includes('ls-files'))).toBe(true);

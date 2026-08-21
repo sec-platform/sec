@@ -78,6 +78,7 @@ import {
   gitChangedFileDiffArgs,
   gitPathBlobArgs,
   gitUntrackedFileArgs,
+  gitWorkingTreeStatusArgs,
   parseGitChangedRecordsOutput
 } from '../shared/ci-git-changed-files.ts';
 import { uniqueSorted } from '../shared/collections.ts';
@@ -100,13 +101,14 @@ ${input.gitChangedOwnerPrefix ?? 'async function'} gitChangedFiles(): Promise<vo
       ]);
   const baseSha = baseRevision?.code === 0 ? exactRevision(baseRevision.stdout) : null;
   const headSha = headRevision?.code === 0 ? exactRevision(headRevision.stdout) : null;
-  const [tracked, untracked] = await Promise.all([
+  const [tracked, untracked, worktreeStatus] = await Promise.all([
     runCommandBytes(
       'git',
-      gitChangedFileDiffArgs(${input.diffArguments ?? "baseSha ?? undefined, headSha ?? 'HEAD'"}),
+      gitChangedFileDiffArgs(${input.diffArguments ?? "baseSha ?? 'HEAD', null"}),
       { cwd: compilerRoot }
     ),
-    runCommandBytes('git', gitUntrackedFileArgs(), { cwd: compilerRoot })
+    runCommandBytes('git', gitUntrackedFileArgs(), { cwd: compilerRoot }),
+    runCommandBytes('git', gitWorkingTreeStatusArgs(), { cwd: compilerRoot })
   ]);
   const records = parseGitChangedRecordsOutput(tracked.stdout);
   const removedPaths = uniqueSorted(records
@@ -122,6 +124,7 @@ ${input.gitChangedOwnerPrefix ?? 'async function'} gitChangedFiles(): Promise<vo
     }
   }
   void untracked;
+  void worktreeStatus;
   ${input.gitChangedExtra ?? ''}
 }
 export async function scheduleBoundedFastTestInvocations<T>(
@@ -222,6 +225,7 @@ function createVirtualScenario(input: ScenarioCatalogInput): DevRunnerAuthorityS
 export function gitChangedFileDiffArgs(..._args: unknown[]): string[] { return []; }
 export function gitPathBlobArgs(..._args: unknown[]): string[] { return []; }
 export function gitUntrackedFileArgs(): string[] { return []; }
+export function gitWorkingTreeStatusArgs(): string[] { return []; }
 export function parseGitChangedRecordsOutput(_stdout: Uint8Array): Array<{
   status: string;
   path: string;

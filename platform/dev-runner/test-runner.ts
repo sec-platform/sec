@@ -16,6 +16,7 @@ import {
   gitChangedFileDiffArgs,
   gitPathBlobArgs,
   gitUntrackedFileArgs,
+  gitWorkingTreeStatusArgs,
   parseGitChangedRecordsOutput,
   parseGitPathBlobOutput,
   parseGitUntrackedFileOutput,
@@ -337,11 +338,12 @@ async function gitChangedFiles(): Promise<GitChangedFilesResult | null> {
   const baseSha = baseRevision?.code === 0 ? exactRevision(baseRevision.stdout) : null;
   const headSha = headRevision?.code === 0 ? exactRevision(headRevision.stdout) : null;
   if (baseRef !== undefined && (baseSha === null || headSha === null)) return null;
-  const [tracked, untracked] = await Promise.all([
-    runCommandBytes('git', gitChangedFileDiffArgs(baseSha ?? undefined, headSha ?? 'HEAD'), { cwd: compilerRoot }),
-    runCommandBytes('git', gitUntrackedFileArgs(), { cwd: compilerRoot })
+  const [tracked, untracked, worktreeStatus] = await Promise.all([
+    runCommandBytes('git', gitChangedFileDiffArgs(baseSha ?? 'HEAD', null), { cwd: compilerRoot }),
+    runCommandBytes('git', gitUntrackedFileArgs(), { cwd: compilerRoot }),
+    runCommandBytes('git', gitWorkingTreeStatusArgs(), { cwd: compilerRoot })
   ]);
-  if (tracked.code !== 0 || untracked.code !== 0) {
+  if (tracked.code !== 0 || untracked.code !== 0 || worktreeStatus.code !== 0) {
     return null;
   }
   try {
@@ -352,7 +354,9 @@ async function gitChangedFiles(): Promise<GitChangedFilesResult | null> {
       )),
       ...parseGitUntrackedFileOutput(untracked.stdout)
     ]);
-    if (baseSha === null || headSha === null) return { files };
+    if (baseSha === null || headSha === null || worktreeStatus.stdout.byteLength > 0) {
+      return { files };
+    }
     const removedPaths = uniqueSorted(records
       .filter((record) => record.status === 'removed')
       .map((record) => record.path));

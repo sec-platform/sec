@@ -411,6 +411,31 @@ test('retained child-process directory reads the authorized inode after lexical 
   }
 });
 
+test('Windows retained child-process boundary blocks relocation above its pinned parent', () => {
+  if (process.platform !== 'win32') return;
+  const root = fixtureRoot();
+  try {
+    const ancestor = path.join(root, 'ancestor');
+    const parent = path.join(ancestor, 'parent');
+    const target = path.join(parent, 'target');
+    const displaced = path.join(root, 'ancestor-displaced');
+    mkdirSync(target, { recursive: true });
+    const capability = retainNoFollowDirectoryForChildProcessV1(
+      inspectNoFollowDirectoryChainV1(target, 'retained descendant boundary'),
+      3,
+      'retained descendant boundary'
+    );
+    try {
+      expect(() => renameSync(ancestor, displaced)).toThrow();
+      capability.assertCurrent();
+    } finally {
+      capability.dispose();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('retained child-process file reads the observed inode after leaf replacement', () => {
   const root = fixtureRoot();
   try {

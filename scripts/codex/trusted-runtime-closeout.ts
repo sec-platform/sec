@@ -41,16 +41,18 @@ import {
 } from './merge-gate.ts';
 import {
   createTrustedRuntimeHostCommandEnvironmentV1,
-  createTrustedRuntimeMainHealthReceiptV1,
+  createTrustedRuntimeMainHealthBaselineObservationV2,
+  createTrustedRuntimeMainHealthReceiptV2,
   executeTrustedRuntimeContainerVerificationV1,
-  executeTrustedRuntimeMainHealthV1,
+  executeTrustedRuntimeMainHealthV2,
   executeTrustedRuntimeWorkspaceCanaryV1,
   parseTrustedRuntimeContainerReceiptV1,
-  parseTrustedRuntimeMainHealthReceiptV1,
+  parseTrustedRuntimeMainHealthReceiptV2,
   TRUSTED_RUNTIME_CONTAINER_EXECUTION_ENVIRONMENT_V1,
-  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
+  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+  trustedRuntimeMainHealthCarryForwardBaselineMatchesV2,
   type TrustedRuntimeContainerReceiptV1,
-  type TrustedRuntimeMainHealthReceiptV1
+  type TrustedRuntimeMainHealthReceiptV2
 } from './trusted-runtime-container.ts';
 import {
   createVerificationSessionGitHubClientV1,
@@ -310,15 +312,15 @@ function readCanonical<T>(input: Readonly<{
   return value;
 }
 
-export async function ensureTrustedRuntimeMainHealthReceiptV1(input: Readonly<{
+export async function ensureTrustedRuntimeMainHealthReceiptV2(input: Readonly<{
   repositoryRoot: string;
   repository: string;
   mainSha: string;
   mainTreeSha: string;
   runtimeStateEnvironment?: NodeJS.ProcessEnv;
-  execute?: typeof executeTrustedRuntimeMainHealthV1;
+  execute?: typeof executeTrustedRuntimeMainHealthV2;
 }>): Promise<Readonly<{
-  receipt: TrustedRuntimeMainHealthReceiptV1;
+  receipt: TrustedRuntimeMainHealthReceiptV2;
   reused: boolean;
   authority: SecRuntimeStatePhysicalAuthorityV1;
   directory: PhysicalDirectoryIdentityV1;
@@ -343,12 +345,12 @@ export async function ensureTrustedRuntimeMainHealthReceiptV1(input: Readonly<{
     requiredDirectories: [mainHealthRoot]
   });
   const directory = authority.directory(mainHealthRoot);
-  const ensured = await ensureTrustedRuntimeMainHealthReceiptInDirectoryV1({
+  const ensured = await ensureTrustedRuntimeMainHealthReceiptInDirectoryV2({
     directory,
     repository: input.repository,
     mainSha: input.mainSha,
     mainTreeSha: input.mainTreeSha,
-    execute: async () => await (input.execute ?? executeTrustedRuntimeMainHealthV1)({
+    execute: async () => await (input.execute ?? executeTrustedRuntimeMainHealthV2)({
       repositoryRoot,
       repository: input.repository,
       mainSha: input.mainSha,
@@ -359,35 +361,35 @@ export async function ensureTrustedRuntimeMainHealthReceiptV1(input: Readonly<{
   return Object.freeze({ ...ensured, authority, directory });
 }
 
-export async function ensureTrustedRuntimeMainHealthReceiptInDirectoryV1(input: Readonly<{
+export async function ensureTrustedRuntimeMainHealthReceiptInDirectoryV2(input: Readonly<{
   directory: PhysicalDirectoryIdentityV1;
   repository: string;
   mainSha: string;
   mainTreeSha: string;
-  execute: () => Promise<TrustedRuntimeMainHealthReceiptV1>;
+  execute: () => Promise<TrustedRuntimeMainHealthReceiptV2>;
 }>): Promise<Readonly<{
-  receipt: TrustedRuntimeMainHealthReceiptV1;
+  receipt: TrustedRuntimeMainHealthReceiptV2;
   reused: boolean;
 }>> {
   const mainSha = gitSha(input.mainSha, 'MainHealth mainSha');
   const mainTreeSha = gitSha(input.mainTreeSha, 'MainHealth mainTreeSha');
   const name = `main-${mainSha}.json`;
   const existing = readNoFollowOrdinaryFileV1(input.directory, name);
-  let receipt: TrustedRuntimeMainHealthReceiptV1;
+  let receipt: TrustedRuntimeMainHealthReceiptV2;
   let reused: boolean;
   if (existing === null) {
     receipt = publishCanonical({
       parent: input.directory,
       name,
       value: await input.execute(),
-      parse: (bytes) => parseTrustedRuntimeMainHealthReceiptV1(
+      parse: (bytes) => parseTrustedRuntimeMainHealthReceiptV2(
         Buffer.from(bytes).toString('utf8')
       )
     });
     reused = false;
   } else {
     const source = Buffer.from(existing).toString('utf8');
-    receipt = parseTrustedRuntimeMainHealthReceiptV1(source);
+    receipt = parseTrustedRuntimeMainHealthReceiptV2(source);
     if (source !== `${encodeVerificationActionDataV2(receipt)}\n`) {
       fail('durable local MainHealth receipt bytes are not canonical');
     }
@@ -401,7 +403,7 @@ export async function ensureTrustedRuntimeMainHealthReceiptInDirectoryV1(input: 
   return Object.freeze({ receipt, reused });
 }
 
-export async function ensureCurrentTrustedRuntimeMainHealthV1(input: Readonly<{
+export async function ensureCurrentTrustedRuntimeMainHealthV2(input: Readonly<{
   repositoryRoot: string;
   repository: string;
 }>): Promise<Readonly<{
@@ -427,7 +429,7 @@ export async function ensureCurrentTrustedRuntimeMainHealthV1(input: Readonly<{
       || liveDefaultSha !== headSha) {
     fail('standalone MainHealth must execute from the clean exact default-branch worktree');
   }
-  const ensured = await ensureTrustedRuntimeMainHealthReceiptV1({
+  const ensured = await ensureTrustedRuntimeMainHealthReceiptV2({
     repositoryRoot,
     repository: input.repository,
     mainSha: headSha,
@@ -650,11 +652,23 @@ async function finalizeMergedTrustedRuntimeV1(input: Readonly<{
       || remoteMainTree !== candidate.mergeCommitTreeSha) {
     fail('remote main tree does not equal the verified candidate tree');
   }
-  const requiredMainHealthActions = ['imports', 'typecheck', 'docs-doctor', 'full-fast'] as const;
+  const mergedParentLine = await tool('git', [
+    'rev-list', '--parents', '-n', '1', 'refs/remotes/origin/main'
+  ], input.repositoryRoot);
+  const mergedParentSha = mergedParentLine.split(' ')[1] ?? '';
+  const mergedBaseline = createTrustedRuntimeMainHealthBaselineObservationV2({
+    mainSha: candidate.mergeCommitSha,
+    mainTreeSha: candidate.mergeCommitTreeSha,
+    parentLine: mergedParentLine,
+    parentTreeSha: await tool('git', [
+      'rev-parse', `${mergedParentSha}^{tree}`
+    ], input.repositoryRoot)
+  });
+  const requiredMainHealthActions = ['imports', 'typecheck', 'docs-doctor', 'affected-tests'] as const;
   if (artifact.evidence.profile !== 'full' || artifact.evidence.status !== 'passed') {
     fail('new-main health transition requires full passing candidate Evidence');
   }
-  const commandResultDigests = requiredMainHealthActions.map((gateId) => {
+  const carriedActionKeys = requiredMainHealthActions.map((gateId) => {
     const matching = artifact.evidence.gates.filter(({ action }) =>
       action.operation.identity === gateId);
     if (matching.length !== 1 || matching[0]!.result.status !== 'passed') {
@@ -662,34 +676,57 @@ async function finalizeMergedTrustedRuntimeV1(input: Readonly<{
     }
     return matching[0]!.action.actionKey as Digest;
   });
-  const nextMainHealth = createTrustedRuntimeMainHealthReceiptV1({
-    origin: 'verified-candidate-transition',
-    repository: input.repository,
-    mainSha: candidate.mergeCommitSha,
-    mainTreeSha: candidate.mergeCommitTreeSha,
-    executionId: actionBundle.containerReceipt.executionId,
-    imageId: actionBundle.containerReceipt.imageId,
-    dockerEndpoint: actionBundle.containerReceipt.dockerEndpoint,
-    networkIsolatedBeforeExecution: true,
-    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
-    commandResultDigests,
-    transition: {
-      candidateHeadSha: candidate.headSha,
-      candidateHeadTreeSha: candidate.headTreeSha,
-      sessionRevision: artifact.session.sessionRevision as Digest,
-      verificationEvidenceDigest: artifact.evidence.evidenceDigest as Digest,
-      containerReceiptDigest: actionBundle.containerReceipt.receiptDigest,
-      mergeGateResultDigest: gateReadback.resultDigest,
-      statusPublicationDigest: statusReadback.publicationDigest
-    },
-    observedAt: new Date().toISOString()
-  });
+  const carryForwardAllowed = trustedRuntimeMainHealthCarryForwardBaselineMatchesV2(
+    mergedBaseline,
+    { baselineSha: candidate.baseSha, baselineTreeSha: candidate.baseTreeSha }
+  );
+  const nextMainHealth = carryForwardAllowed
+    ? createTrustedRuntimeMainHealthReceiptV2({
+        origin: 'verified-candidate-transition',
+        repository: input.repository,
+        mainSha: candidate.mergeCommitSha,
+        mainTreeSha: candidate.mergeCommitTreeSha,
+        baselineSha: mergedBaseline.baselineSha,
+        baselineTreeSha: mergedBaseline.baselineTreeSha,
+        baselineObservationDigest: mergedBaseline.observationDigest,
+        executionId: actionBundle.containerReceipt.executionId,
+        imageId: actionBundle.containerReceipt.imageId,
+        dockerEndpoint: actionBundle.containerReceipt.dockerEndpoint,
+        networkIsolatedBeforeExecution: true,
+        planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+        actionResults: [Object.freeze({
+          actionId: 'affected-closure',
+          resultDigest: hash(Object.freeze({
+            schema: 'sec-trusted-runtime-main-health-carry-forward-v2',
+            baselineObservationDigest: mergedBaseline.observationDigest,
+            mainSha: candidate.mergeCommitSha,
+            mainTreeSha: candidate.mergeCommitTreeSha,
+            carriedActionKeys
+          }))
+        })],
+        transition: {
+          candidateHeadSha: candidate.headSha,
+          candidateHeadTreeSha: candidate.headTreeSha,
+          sessionRevision: artifact.session.sessionRevision as Digest,
+          verificationEvidenceDigest: artifact.evidence.evidenceDigest as Digest,
+          containerReceiptDigest: actionBundle.containerReceipt.receiptDigest,
+          mergeGateResultDigest: gateReadback.resultDigest,
+          statusPublicationDigest: statusReadback.publicationDigest
+        },
+        observedAt: new Date().toISOString()
+      })
+    : await executeTrustedRuntimeMainHealthV2({
+        repositoryRoot: input.repositoryRoot,
+        repository: input.repository,
+        mainSha: candidate.mergeCommitSha,
+        mainTreeSha: candidate.mergeCommitTreeSha
+      });
   await input.mainHealthAuthority.assertCurrent();
   const nextMainHealthReadback = publishCanonical({
     parent: input.mainHealthDirectory,
     name: `main-${candidate.mergeCommitSha}.json`,
     value: nextMainHealth,
-    parse: (bytes) => parseTrustedRuntimeMainHealthReceiptV1(
+    parse: (bytes) => parseTrustedRuntimeMainHealthReceiptV2(
       Buffer.from(bytes).toString('utf8')
     )
   });
@@ -842,7 +879,7 @@ export async function closeoutWithTrustedRuntimeV1(input: Readonly<{
     'trusted-main-health',
     'v1'
   );
-  const ensuredMainHealth = await ensureTrustedRuntimeMainHealthReceiptV1({
+  const ensuredMainHealth = await ensureTrustedRuntimeMainHealthReceiptV2({
     repositoryRoot,
     repository: input.repository,
     mainSha: candidate.baseSha,
@@ -1164,7 +1201,7 @@ export async function closeoutWithTrustedRuntimeV1(input: Readonly<{
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const result = args.mode === 'main-health'
-    ? await ensureCurrentTrustedRuntimeMainHealthV1({
+    ? await ensureCurrentTrustedRuntimeMainHealthV2({
         repositoryRoot: process.cwd(),
         repository: args.repository
       })

@@ -63,9 +63,11 @@ export interface PhysicalDirectoryChainV1 {
  * A directory retained for a bounded child-process read lifecycle. On Linux
  * the child receives the already-open directory as one explicit stdio file
  * descriptor and addresses that object through `/proc/self/fd`. On Windows
- * every lexical ancestor is held without delete sharing, so the child path
- * cannot be redirected through a rename, junction, or replacement while the
- * capability is live.
+ * every lexical ancestor is retained and identity-checked; the target and its
+ * direct parent are additionally held without delete sharing. Windows blocks
+ * ancestor relocation while those descendant boundary handles are live, but
+ * ordinary shared ancestor handles remain compatible with the process cwd,
+ * Git watchers, and other read-only repository users.
  */
 export interface RetainedNoFollowChildProcessDirectoryV1 {
   readonly childPath: string;
@@ -1722,10 +1724,17 @@ export function retainNoFollowDirectoryForChildProcessV1(
     const handles: bigint[] = [];
     let disposed = false;
     try {
+      const pinnedBoundaryStart = Math.max(0, paths.length - 2);
       for (const [index, current] of paths.entries()) {
-        const handle = windowsOpenPinnedReadDirectory(current, label);
+        const currentLabel = `${label} ancestor[${index}] ${current}`;
+        const handle = index >= pinnedBoundaryStart
+          ? windowsOpenPinnedReadDirectory(current, currentLabel)
+          : windowsOpenDirectory(current, currentLabel);
         handles.push(handle);
-        if (!sameIdentity(expected.ancestors[index]!, windowsIdentity(handle, current, label))) {
+        if (!sameIdentity(
+          expected.ancestors[index]!,
+          windowsIdentity(handle, current, currentLabel)
+        )) {
           throw physicalError('PHYSICAL_NO_FOLLOW_IDENTITY_CHANGED', `${label} ancestor identity changed.`);
         }
       }

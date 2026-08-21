@@ -13,12 +13,13 @@ import { inspectNoFollowDirectoryChainV1 } from '../../platform/shared/physical-
 import { selectTestsForSources } from '../../platform/shared/test-impact-contract.ts';
 import { encodeVerificationActionDataV2 } from '../../platform/shared/verification-action-contract.ts';
 import {
-  ensureTrustedRuntimeMainHealthReceiptInDirectoryV1
+  ensureTrustedRuntimeMainHealthReceiptInDirectoryV2
 } from '../../scripts/codex/trusted-runtime-closeout.ts';
 import {
-  createTrustedRuntimeMainHealthReceiptV1,
+  createTrustedRuntimeMainHealthBaselineObservationV2,
+  createTrustedRuntimeMainHealthReceiptV2,
   TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
-  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1
+  TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2
 } from '../../scripts/codex/trusted-runtime-container.ts';
 import {
   observeCanonicalWorkSelectionMainHealthV1,
@@ -29,6 +30,14 @@ import { resolveSecRuntimeStateForRepositoryV1 } from '../../tooling/sec-dev/run
 
 const MAIN = '1'.repeat(40);
 const TREE = '2'.repeat(40);
+const BASELINE = '7'.repeat(40);
+const BASELINE_TREE = '8'.repeat(40);
+const BASELINE_OBSERVATION = createTrustedRuntimeMainHealthBaselineObservationV2({
+  mainSha: MAIN,
+  mainTreeSha: TREE,
+  parentLine: `${MAIN} ${BASELINE}`,
+  parentTreeSha: BASELINE_TREE
+});
 const NOW = '2026-08-21T10:05:00.000Z';
 const OBSERVED = '2026-08-21T10:00:00.000Z';
 const EXPIRES = '2026-08-21T10:10:00.000Z';
@@ -206,11 +215,14 @@ test('production observer consumes only the exact canonical local receipt path',
     });
     const healthRoot = path.join(layout.repositoryStateRoot, 'trusted-main-health', 'v1');
     mkdirSync(healthRoot, { recursive: true });
-    const receipt = createTrustedRuntimeMainHealthReceiptV1({
+    const receipt = createTrustedRuntimeMainHealthReceiptV2({
       origin: 'physical-main',
       repository: 'sec-platform/sec',
       mainSha: MAIN,
       mainTreeSha: TREE,
+      baselineSha: BASELINE,
+      baselineTreeSha: BASELINE_TREE,
+      baselineObservationDigest: BASELINE_OBSERVATION.observationDigest,
       executionId: 'trusted-main-health-work-selection',
       imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
       dockerEndpoint: Object.freeze({
@@ -224,12 +236,9 @@ test('production observer consumes only the exact canonical local receipt path',
         architecture: 'x86_64' as const
       }),
       networkIsolatedBeforeExecution: true,
-      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
-      commandResultDigests: [
-        `sha256:${'3'.repeat(64)}`,
-        `sha256:${'4'.repeat(64)}`,
-        `sha256:${'5'.repeat(64)}`,
-        `sha256:${'6'.repeat(64)}`
+      planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+      actionResults: [
+        { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
       ],
       transition: null,
       observedAt: OBSERVED
@@ -296,11 +305,14 @@ test('canonical MainHealth publisher executes an exact main once and reuses its 
     SEC_CACHE_HOME: cacheHome
   };
   let executions = 0;
-  const receipt = createTrustedRuntimeMainHealthReceiptV1({
+  const receipt = createTrustedRuntimeMainHealthReceiptV2({
     origin: 'physical-main',
     repository: 'sec-platform/sec',
     mainSha: MAIN,
     mainTreeSha: TREE,
+    baselineSha: BASELINE,
+    baselineTreeSha: BASELINE_TREE,
+    baselineObservationDigest: BASELINE_OBSERVATION.observationDigest,
     executionId: 'trusted-main-health-publisher',
     imageId: TRUSTED_RUNTIME_CONTAINER_IMAGE_ID_V1,
     dockerEndpoint: Object.freeze({
@@ -314,12 +326,9 @@ test('canonical MainHealth publisher executes an exact main once and reuses its 
       architecture: 'x86_64' as const
     }),
     networkIsolatedBeforeExecution: true,
-    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V1,
-    commandResultDigests: [
-      `sha256:${'3'.repeat(64)}`,
-      `sha256:${'4'.repeat(64)}`,
-      `sha256:${'5'.repeat(64)}`,
-      `sha256:${'6'.repeat(64)}`
+    planDigest: TRUSTED_RUNTIME_MAIN_HEALTH_PLAN_DIGEST_V2,
+    actionResults: [
+      { actionId: 'affected-closure', resultDigest: `sha256:${'3'.repeat(64)}` }
     ],
     transition: null,
     observedAt: OBSERVED
@@ -336,7 +345,7 @@ test('canonical MainHealth publisher executes an exact main once and reuses its 
       healthRoot,
       'MainHealth publisher test directory'
     ).target;
-    const first = await ensureTrustedRuntimeMainHealthReceiptInDirectoryV1({
+    const first = await ensureTrustedRuntimeMainHealthReceiptInDirectoryV2({
       directory,
       repository: 'sec-platform/sec',
       mainSha: MAIN,
@@ -349,7 +358,7 @@ test('canonical MainHealth publisher executes an exact main once and reuses its 
     expect(first.reused).toBe(false);
     expect(first.receipt).toEqual(receipt);
 
-    const second = await ensureTrustedRuntimeMainHealthReceiptInDirectoryV1({
+    const second = await ensureTrustedRuntimeMainHealthReceiptInDirectoryV2({
       directory,
       repository: 'sec-platform/sec',
       mainSha: MAIN,
@@ -361,7 +370,7 @@ test('canonical MainHealth publisher executes an exact main once and reuses its 
     expect(second.reused).toBe(true);
     expect(second.receipt).toEqual(receipt);
     expect(executions).toBe(1);
-    await expect(ensureTrustedRuntimeMainHealthReceiptInDirectoryV1({
+    await expect(ensureTrustedRuntimeMainHealthReceiptInDirectoryV2({
       directory,
       repository: 'sec-platform/sec',
       mainSha: '../foreign-receipt',
