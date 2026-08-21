@@ -3,7 +3,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { SEC_AGENT_SKILL_IDS } from '../../platform/shared/agent-skill-contract.ts';
 import {
   compileSecTaskCapsuleV1,
   parseSecTaskCapsuleV1,
@@ -119,11 +118,19 @@ export async function resolveTrustedWorkerTaskCapsuleV1(
   const writePaths = activation.manifest.tasks
     .flatMap(({ ownedPaths }) => ownedPaths)
     .sort(compareCodeUnits);
+  // Production activation V1 is intentionally worker/implement-only. Keep the
+  // candidate guidance set minimal and make its exact path part of read scope
+  // without reading the body before applicability.
+  const skillCandidateIds = ['sec-worker-development'] as const;
+  const skillCandidatePaths = skillCandidateIds.map(
+    (skillId) => `.agents/skills/${skillId}/SKILL.md`
+  );
   const readPaths = [...new Set([
     'AGENTS.md',
     'docs/authority.json',
     activation.manifestPath,
     ...activation.authorityOwners.map(({ ref }) => ref),
+    ...skillCandidatePaths,
     ...writePaths
   ])].sort(compareCodeUnits);
   const verificationObligations = activation.manifest.tests.map((testPath, index) => Object.freeze({
@@ -156,7 +163,7 @@ export async function resolveTrustedWorkerTaskCapsuleV1(
         changedPaths: activation.changedPaths
       },
       verificationObligations,
-      skillCandidateIds: SEC_AGENT_SKILL_IDS
+      skillCandidateIds
     }
   });
   return Object.freeze({

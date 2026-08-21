@@ -1,58 +1,43 @@
 ---
 name: sec-architecture-evolution
-description: 用于 SEC canonical authority、公共合同、identity/revision、状态所有权、pipeline、错误恢复或跨 owner 架构需要设计、重算或迁移时，先冻结机制与不变量再进入实现；不用于 authority 已冻结后的普通 Worker 纵切片。
+description: 在机器事实已闭合但仍存在多个真实架构、owner、状态或迁移方案时，裁决唯一长期结构与反转条件；不执行确定性控制面或普通实现。
 ---
 
 # sec-architecture-evolution
 
-## 触发
-- 用户要求重新设计、全面优化、修复根架构，或现有实现暴露第二 writer/loader/revision/pipeline、状态所有权不清、恢复不可闭合等系统问题。
-- 需要修改 active canonical authority、公共类型/Schema、identity/revision算法、跨域接口、状态机、错误协议或迁移边界。
-- `sec-repository-audit`、重复 failure或独立 Review证明问题不能在单一 frozen owner seam内解决。
+本 Skill 仅在 trusted applicability 选中后加载；只消费 Operation Read Plan 已准入事实，`effectAuthority=none`。
 
-## 不触发
-- authority、public contract和migration已经冻结，只需在 Task Envelope 内实现、修复或重构。
-- 只做文档生命周期、格式或链接维护。
+## 适用边界
+- 适用：同一真实问题仍有两个以上可行架构/owner/状态模型，或新 Evidence 证明当前对象边界、身份、恢复/迁移模型存在根冲突。
+- 不适用：canonical owner、public contract 与 migration 已冻结，只剩普通实现；orientation、WorkDecision、impact、Gate、bootstrap、resume 等已有机器 owner 可唯一决定。
 
-## 输入
-- latest exact main、长期 Goal和阶段出口、`docs/authority.json`解析出的领域owner、当前代码/types/tests、consumer/impact图、状态与写 owner、失败/恢复证据、兼容和迁移约束。
+## 已准入输入
+- 仅使用当前 Read Plan 给出的 Goal/invariant、canonical owner facts、consumer/impact、反证 Evidence、兼容与迁移约束。
+- 缺决定性事实返回 unresolved frontier，不自行扩读全仓、Memory、历史 PR/Issue 或第二 Skill。
 
-## 权限与路径
-- 只在 frozen Work Package 声明的 canonical authority、公共contract/types、contract tests与迁移说明范围内设计和修改。
-- 未冻结设计前默认只读产品实现；不得边改核心代码边反向发明 authority。
+## 判断职责
+1. 从产品 Goal 与不可绕过不变量重建对象、身份、状态 owner、接口、生命周期、确定性和恢复边界。
+2. 比较最强竞争方案的正确性、可恢复性、兼容、并发/崩溃、长期演进成本与第二事实源风险。
+3. 选择唯一 owner 与迁移方向，并明确被吸收/退役表面、rollback、反转条件和决定性未知。
+4. Evidence 无法区分方案时只提出最小决定性实验，不凭偏好制造结论。
 
-## 允许工具与操作
-- repository audit、first-principles mechanism reconstruction、impact/dependency分析、代码/测试/历史Evidence读取、有限 spike、authority与contract test编辑。
+## 判断输出
+- `architectureDecision`：chosen owner/mechanism、被拒方案及原因、invariants、consumer impact、migration/retirement、rollback、reversal conditions 与 unresolved evidence。
+- 该输出不是实现、Verification 或 adoption。
 
-## 前置门禁
-- 受信 control-plane snapshot 已解析；跨仓/广泛变化先完成 `sec-repository-audit` 或等价的全量影响证据。
-- 当前 canonical owner、消费者、写权限、迁移起点和完成定义明确；未知项必须显式。
+## 停止与回退
+- 唯一选择和迁移边界足以交给确定性 owner/Worker 时停止。
+- 新 Evidence 改变根假设时整体回退重算，不在旧方案末尾追加例外。
 
-## 执行
-1. 从用户 Goal 和不可绕过约束重建对象边界、状态、身份、数据所有权、写权限、接口、生命周期、失败/恢复与确定性要求，不从现有易改代码反推降低目标。
-2. 建立当前机制链和最强竞争方案，主动攻击反向因果、共同原因、兼容破坏、并发/崩溃、极端输入、第二事实源和不可逆迁移风险。
-3. 选择唯一 canonical owner，明确哪些旧 owner/adapter/pipeline被吸收、迁移或退役；禁止平行长期双写。
-4. authority first：先更新唯一领域owner和稳定合同，再定义公共类型/Schema、negative/compatibility/property tests、迁移与rollback/recovery计划。
-5. 将实现拆成依赖明确的最小纵向 Work Package；proof/spike只产生Evidence，成立后提炼为 feat/refactor/fix，不直接合并实验噪声。
-6. 每个候选方案给出适用边界、失效/反转条件、未知和决定性证据；证据推翻根假设时返回上游重算而不是追加例外。
-7. authority与contract冻结后交给A0/Worker执行；实现结果必须回读并统一修正代码、测试、文档和迁移面。
+## 禁止
+- 不先改实现再反推 authority；不创建第二 writer/pipeline/revision/state owner。
+- 不把 spike、示例通过、PR/Issue prose 或局部测试写成架构完成。
+- 不因“可能相关”自行扩大读取闭包或加载另一 Skill。
 
-## 完成证据
-- 唯一 owner、机制与状态图、public contract/invariants、consumer/impact、替代方案裁决、迁移/退役、negative/compatibility/recovery tests和分阶段实现闭包。
-- 明确区分设计已冻结、实现已进入main、验证已通过和现实能力已闭合；不得互相冒充。
-
-## 停止与恢复
-- 架构选择、owner、contract、迁移和验收已冻结，可安全交付独立Work Package；或返回决定性unknown/blocker。
-- 新 evidence 改变对象边界、owner或第一性约束时整套受影响模型回退重算。
-
-## 禁止捷径
-- 不先改实现再补文档，不用新术语包装旧问题，不创建第二pipeline/loader/writer/revision算法。
-- 不把 spike、示例通过、PR body或局部测试写成架构完成。
-- 不为兼容无限保留旧路径；每条迁移必须有退出和删除条件。
-
-## 权威
+## 语义权威（非自动读取）
+以下只声明优先级；是否读取仍由当前 Read Plan 决定：
 - `docs/authority.json`
 - `docs/product.md`
 - `docs/roadmap.md`
 - `docs/system-architecture.md`
-- 当前变更对应的唯一领域文档和代码合同
+- 当前变更对应的唯一 canonical domain owner

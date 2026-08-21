@@ -20,6 +20,8 @@ import {
 
 const REPOSITORY_ROOT = path.resolve(import.meta.dir, '../..');
 const digest = (character: string): SecDigestV1 => `sha256:${character.repeat(64)}`;
+const WORKER_SKILL_PATH = '.agents/skills/sec-worker-development/SKILL.md';
+const WORKER_SKILL_REF_ID = 'skill-guidance-sec-worker-development';
 
 function capsule(planningContext: SecTaskCapsulePlanningContextV1): SecOperationReadPlanInputV1['taskCapsule'] {
   return compileSecTaskCapsuleV1({
@@ -61,9 +63,9 @@ function input(): SecOperationReadPlanInputV1 {
         revision: 'owner-revision-v1'
       }],
       scopeProposal: {
-        readPaths: ['docs/development-governance.md'],
+        readPaths: ['docs/development-governance.md', WORKER_SKILL_PATH],
         writePaths: ['platform/shared/'],
-        forbiddenPaths: ['.agents/skills/'],
+        forbiddenPaths: [],
         availableCapabilities: ['git'],
         authorizedResources: [],
         authorizedGates: [],
@@ -83,7 +85,14 @@ function input(): SecOperationReadPlanInputV1 {
       revision: 'owner-revision-v1',
       reasonCode: 'canonical-operation-owner'
     }],
-    conditionalRefs: [],
+    conditionalRefs: [{
+      id: WORKER_SKILL_REF_ID,
+      ref: WORKER_SKILL_PATH,
+      owner: 'sec-worker-development',
+      revision: head,
+      reasonCode: 'post-applicability-guidance',
+      frontierId: 'skill-guidance-applicability'
+    }],
     forbiddenSources: [
       'assistant-memory',
       'chat-history',
@@ -93,7 +102,11 @@ function input(): SecOperationReadPlanInputV1 {
       'unrelated-issue-census'
     ],
     maxSkillBodies: 1,
-    unresolvedFrontier: [],
+    unresolvedFrontier: [{
+      id: 'skill-guidance-applicability',
+      reasonCode: 'post-applicability-guidance',
+      allowedRefIds: [WORKER_SKILL_REF_ID]
+    }],
     readReceipts: [],
     invalidationInputs: []
   };
@@ -112,10 +125,25 @@ function run(script: string, args: readonly string[]): {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-test('pure compiler and verify CLI produce one content-bound Read Plan without claiming live authority', () => {
+test('pure compiler binds Skill guidance as conditional Read Plan input without pre-reading the body', () => {
   const plan = compileSecOperationReadPlanV1(input()) as SecOperationReadPlanV1;
   expect(plan.requiredRefs.map((reference) => reference.id)).toEqual(['development-governance']);
+  expect(plan.conditionalRefs).toEqual([{
+    id: WORKER_SKILL_REF_ID,
+    ref: WORKER_SKILL_PATH,
+    owner: 'sec-worker-development',
+    revision: plan.taskCapsule.planningContext.trustedRevision,
+    reasonCode: 'post-applicability-guidance',
+    frontierId: 'skill-guidance-applicability'
+  }]);
+  expect(plan.unresolvedFrontier).toEqual([{
+    id: 'skill-guidance-applicability',
+    reasonCode: 'post-applicability-guidance',
+    allowedRefIds: [WORKER_SKILL_REF_ID]
+  }]);
+  expect(plan.taskCapsule.planningContext.scopeProposal.readPaths).toContain(WORKER_SKILL_PATH);
   expect(plan.preApplicabilitySkillBodiesRead).toBe(0);
+  expect(plan.maxSkillBodies).toBe(1);
 
   const verified = run('scripts/codex/operation-read-plan.ts', [
     'verify', '--plan', JSON.stringify(plan)

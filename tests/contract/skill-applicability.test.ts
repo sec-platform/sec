@@ -180,15 +180,17 @@ test('multiple surviving metadata candidates resolve ambiguous before any body r
   expect(decision.selectedSkillId).toBeNull();
 });
 
-test('Skill write surface beyond frozen scope resolves conflict', () => {
+test('Operation write/forbidden scope does not become Skill effect authority', () => {
   const decision = evaluatePlan(planInput({
     role: 'a0',
     operationKind: 'design',
     candidates: ['sec-architecture-evolution'],
+    writePaths: ['platform/shared/'],
     forbiddenPaths: ['docs/']
   }));
-  expect(decision.status).toBe('conflict');
-  expect(decision.reasonCodes).toContain('conflict-write-path');
+  expect(decision.status).toBe('applicable');
+  expect(decision.selectedSkillId).toBe('sec-architecture-evolution');
+  expect(decision.scopeConflicts).toEqual([]);
 });
 
 test('candidate quarantine revisions are derived from exact Git objects', () => {

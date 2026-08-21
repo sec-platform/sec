@@ -1,62 +1,42 @@
 ---
 name: sec-repository-audit
-description: 用于用户要求全面分析 SEC 仓库、重大架构变更前、重复系统性缺陷或 authority/code/test/CI 漂移时，对 exact revision 执行全量 tracked-path census、行为与约束审计并给出证据化优化；不用于普通叶节点开发或用抽样搜索冒充全仓覆盖。
+description: 在确定性 exact-tree census 已提供完整覆盖事实后，对跨模块/owner/验证/恢复表面做开放式因果审计与遗漏轴判断；不负责普通 orientation 或用模型阅读代替全仓 census。
 ---
 
 # sec-repository-audit
 
-## 触发
-- 用户明确要求全面、极致或全仓库分析、审计和优化。
-- 重大架构/合同演进前，或同类问题重复出现并怀疑共享抽象、状态所有权、验证架构或治理合同失效。
-- active authority、实现、测试、CI、控制面、外部能力或仓库结构出现冲突、漂移或无法解释的空洞。
+本 Skill 仅在 trusted applicability 选中后加载；只消费 Operation Read Plan 已准入事实，`effectAuthority=none`。
 
-## 不触发
-- frozen Task Envelope 内已证明为局部叶节点的普通实现、修复或重构。
-- 只需建立 latest main/PR/Issue/CI/Review 最小事实快照；该行为由受信 control-plane resolver 确定性完成。
+## 适用边界
+- 适用：用户要求真正系统级审计且 deterministic audit owner 已提供 exact tracked-path census/分类/owner/entrypoint/unknown 基线；或重复系统缺陷需要开放式因果解释。
+- 不适用：只需 main/PR/Issue/CI/Review snapshot；frozen leaf implementation已有明确 owner/scope；deterministic census 尚未完成。
 
-## 输入
-- exact repository/default/head/tree identity、clean index/worktree、全部 tracked paths、open PR/Issue、CI/Review、active pointer与manifest。
-- `docs/authority.json`、模块/入口/公共合同、状态与写 owner、依赖/工具链、测试/CI/Gate、外部能力账本和历史边界。
+## 已准入输入
+- 仅使用 Read Plan 给出的 exact revision census、tracked-path classification、authority/owner/entrypoint graph、known findings/unknowns、test/physical Evidence 与产品 Goal。
+- 需要新增证据时输出 explicit frontier，不把搜索命中、README、Memory、旧报告或所有 Issue 当输入。
 
-## 权限与路径
-- 默认只读全部 tracked repository、Git/GitHub事实和批准的外部只读分析结果。
-- 只有 frozen Work Package 明确拥有时，才写审计脚本、Skill/coverage合同、控制面或绑定 exact revision 的机器报告；不直接修改产品 owner seam。
+## 判断职责
+1. 从 census 建立对象、状态/写 owner、入口、生命周期、数据/控制流、failure/recovery 与 publication 的因果模型。
+2. 寻找第二 writer/loader/revision/pipeline、隐式状态、孤儿 consumer、重复规则、错误成功声明、不可恢复路径和测试证明空洞。
+3. 为每个 finding 给出机制、影响半径、最强替代解释、决定性 Evidence 与反转条件。
+4. 区分 leaf/shared-contract/architecture/heuristic/provider/verification-data-quality 问题，只路由相应 owner，不把所有 finding 塞进一个实现包。
 
-## 允许工具与操作
-- exact-tree/raw-blob census、`scripts/codex/repository-audit.ts`、精确 Git/GitHub读取、受信 documentation/impact/static analysis 和已批准外部只读 Evidence。
-- 按 tracked-path census 下钻 authority、types、tests、source、runtime、workflow和配置；允许生成 JSON 审计结果，不生成第二事实源式叙述文档。
+## 判断输出
+- `auditJudgement`：exact census ref、覆盖边界、finding/unknown ledger、root-cause clusters、owner routing、优先依据和下一证据/工作闭包。
+- “未发现”必须绑定检测机制和已覆盖轴。
 
-## 前置门禁
-- 受信 document-control-plane snapshot 已解析 latest default branch、exact revision、GitHub facts和active control plane。
-- 仓库可完整读取；任何路径、submodule、生成输入或外部 authority 不可访问时必须记录 unknown，禁止假定已覆盖。
+## 停止与回退
+- 决定性轴已覆盖且继续攻击不再产生新的高影响解释时停止。
+- exact main/authority/census 变化使旧审计 stale；从新 deterministic census 重算。
 
-## 执行
-1. 先冻结 clean HEAD/tree，再从该 exact tree 与 raw blobs 对全部 tracked paths 做一次 census；checkout/index 内容不得混入报告。分类为产品实现、验证、配置、活动权威、历史/Evidence、Agent投影或启发式运行面；不得以搜索命中、目录抽样或固定文件清单代替全仓覆盖。
-2. 建立对象、入口、接口、状态/写 owner、生命周期、依赖、数据流、控制流、错误/恢复和发布链；区分确定性合同与需要 Agent 判断触发/选择/回退/停止的启发式行为。
-3. 对齐长期 Goal、阶段 DAG、registry owner、当前代码、测试、CI/Gate、PR/Issue/Review和真实产物；冲突时追踪唯一 canonical owner，不以文档或代码任一方自动胜出。
-4. 主动寻找第二 writer/loader/revision/pipeline、隐式状态、循环依赖、孤儿入口、重复规则、宽泛 catch-all、无消费者配置、过期当前事实、弱测试、错误成功声明和不可恢复路径。
-5. 对每项 finding 绑定 exact path/line/symbol、机制、影响、证据、最强反例、未知和反转条件，并区分事实、机制推导、现实推断和候选优化。
-6. 将 Agent 启发式缺口交给 `sec-heuristic-governance`，跨 owner 架构缺口交给 `sec-architecture-evolution`，产品实现交给受信 work selector/Work Package owner；全仓审计本身不扩张为无限修改包。
-7. 保留每个行为候选的 path/line/text/deterministic-or-Skill route ledger；unowned候选与unknown在默认执行中fail closed。只有显式diagnostic模式可以保留unknown而不作为Evidence退出失败。
-8. 输出按严重度、控制半径、不可逆风险、依赖顺序和修复收益排序的机器可读报告及有限候选闭包。
+## 禁止
+- 不用 `rg`/代码搜索/单图/抽样目录冒充全仓覆盖。
+- 不把审计报告提升为产品/架构 authority，不把全部 findings 合并成巨型 PR。
+- 不自行预读全 Skill corpus、所有文档或所有 Issue 来建立“熟悉度”。
 
-## 完成证据
-- exact clean head/tree、tracked-path总数与分类计数、活动 authority/heuristic coverage、完整行为候选、模块/owner/入口覆盖、finding与unknown ledger、优化候选及其证据链。
-- `unclassified=0`、所有未覆盖/冲突均显式列出；“没有发现”必须同时说明检测机制和覆盖边界。
-
-## 停止与恢复
-- 全部 tracked paths已分类，决定性 authority/owner/入口/状态/验证面已覆盖，攻击轮不再产生新的决定性轴；或准确返回不可访问边界和unknown。
-- repository/default/authority发生变化时旧报告立即失效，从新 exact revision重跑；不得在旧审计末尾追加例外维持旧模型。
-
-## 禁止捷径
-- 不以 `rg`、GitHub Search、单一代码图、README、PR body、历史报告或少量代表文件宣称全仓分析。
-- 不把审计报告提升为产品/架构 authority，不把所有发现塞进一个巨型实现包。
-- 不把确定性算法、类型字段和产品事实机械复制为 Skill；只抽取真实启发式行为。
-- 不把dirty checkout、index或只含候选计数的摘要标记为exact-revision Evidence。
-
-## 权威
-- `AGENTS.md`
+## 语义权威（非自动读取）
+以下只声明优先级；是否读取仍由当前 Read Plan 决定：
 - `docs/authority.json`
 - `docs/development-governance.md`
-- `platform/shared/agent-skill-contract.ts`
 - `scripts/codex/repository-audit.ts`
+- 当前 finding 对应的 canonical domain owner

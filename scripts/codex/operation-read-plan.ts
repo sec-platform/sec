@@ -95,12 +95,28 @@ export async function resolveProspectiveWorkerOperationV1(
     reasonCode: reference.reasonCode,
     contentDigest: sources.find(({ id }) => id === reference.id)!.contentDigest
   })));
+  const skillGuidanceRefs = Object.freeze(
+    observation.taskCapsule.planningContext.skillCandidateIds.map((skillId) => Object.freeze({
+      id: `skill-guidance-${skillId}`,
+      ref: `.agents/skills/${skillId}/SKILL.md`,
+      owner: skillId,
+      reasonCode: 'post-applicability-guidance',
+      revision: observation.trustedRevision,
+      frontierId: 'skill-guidance-applicability'
+    }))
+  );
   const readClosure: SecCompiledReadClosureV1 = Object.freeze({
     requiredRefs,
-    conditionalRefs: Object.freeze([]),
+    conditionalRefs: skillGuidanceRefs,
     forbiddenSources: SEC_OPERATION_MANDATORY_FORBIDDEN_SOURCES,
-    maxSkillBodies: 1,
-    unresolvedFrontier: Object.freeze([]),
+    maxSkillBodies: skillGuidanceRefs.length === 0 ? 0 : 1,
+    unresolvedFrontier: skillGuidanceRefs.length === 0
+      ? Object.freeze([])
+      : Object.freeze([Object.freeze({
+          id: 'skill-guidance-applicability',
+          reasonCode: 'post-applicability-guidance',
+          allowedRefIds: Object.freeze(skillGuidanceRefs.map(({ id }) => id))
+        })]),
     readReceipts,
     invalidationInputs: Object.freeze([
       Object.freeze({

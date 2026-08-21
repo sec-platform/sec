@@ -13,8 +13,15 @@ import {
 } from '../../platform/shared/agent-operation-read-plan-contract.ts';
 import {
   evaluateSecSkillApplicabilityV1,
-  isSecSkillQuarantinePath
+  isSecSkillQuarantinePath,
+  type SecSkillApplicabilityDecisionV1
 } from '../../platform/shared/agent-skill-contract.ts';
+import {
+  createSecSkillGuidanceProjectionV1,
+  createSecSkillGuidanceV1,
+  secSkillRepositoryPathV1,
+  type SecSkillGuidanceV1
+} from '../../platform/shared/agent-skill-runtime-contract.ts';
 import { canonicalJson } from '../../platform/shared/canonical-primitives.ts';
 import { isolatedGitReadEnvironment } from '../../platform/shared/git-read-environment.ts';
 import { resolveProspectiveWorkerOperationV1 } from './operation-read-plan.ts';
@@ -28,27 +35,56 @@ function fail(message: string): never {
   process.exit(2);
 }
 
-function gitOutput(cwd: string, args: string[]): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync('git', args, {
+interface GitResultV1 {
+  readonly status: number;
+  readonly stdout: Buffer;
+  readonly stderr: Buffer;
+}
+
+function gitBytes(cwd: string, args: readonly string[]): GitResultV1 {
+  const result = spawnSync('git', [...args], {
     cwd,
-    encoding: 'utf8',
+    encoding: 'buffer',
     windowsHide: true,
     env: isolatedGitReadEnvironment()
   });
-  return { status: result.status ?? -1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+  return Object.freeze({
+    status: result.status ?? -1,
+    stdout: Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(String(result.stdout ?? '')),
+    stderr: Buffer.isBuffer(result.stderr) ? result.stderr : Buffer.from(String(result.stderr ?? result.error?.message ?? ''))
+  });
 }
 
-function requireGitOutput(cwd: string, args: string[], label: string): string {
-  const result = gitOutput(cwd, args);
-  if (result.status !== 0) fail(`${label}: ${result.stderr.trim()}`);
-  return result.stdout.trim();
+function requireGitBytes(cwd: string, args: readonly string[], label: string): Buffer {
+  const result = gitBytes(cwd, args);
+  if (result.status !== 0) {
+    throw new Error(`${label}: ${result.stderr.toString('utf8').trim()}`);
+  }
+  return result.stdout;
+}
+
+function requireGitOutput(cwd: string, args: readonly string[], label: string): string {
+  return requireGitBytes(cwd, args, label).toString('utf8').trim();
 }
 
 function blobRevision(cwd: string, revision: string, repositoryPath: string): string | null {
-  const result = gitOutput(cwd, ['rev-parse', '--verify', `${revision}:${repositoryPath}`]);
+  const result = gitBytes(cwd, ['rev-parse', '--verify', `${revision}:${repositoryPath}`]);
   if (result.status !== 0) return null;
-  const sha = result.stdout.trim();
+  const sha = result.stdout.toString('utf8').trim();
   return /^[0-9a-f]{40,64}$/u.test(sha) ? sha : null;
+}
+
+function decodeExactUtf8(bytes: Buffer, label: string): string {
+  let source: string;
+  try {
+    source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (error) {
+    throw new Error(`${label} is not strict UTF-8.`, { cause: error });
+  }
+  if (!Buffer.from(source, 'utf8').equals(bytes)) {
+    throw new Error(`${label} is not exact UTF-8.`);
+  }
+  return source;
 }
 
 async function readJsonArgument(raw: string, cwd: string): Promise<unknown> {
@@ -67,11 +103,82 @@ async function readJsonArgument(raw: string, cwd: string): Promise<unknown> {
   }
 }
 
+function admittedSkillGuidanceRef(
+  plan: SecOperationReadPlanV1,
+  decision: SecSkillApplicabilityDecisionV1
+) {
+  if (decision.status !== 'applicable' || decision.selectedSkillId === null) return null;
+  const repositoryPath = secSkillRepositoryPathV1(decision.selectedSkillId);
+  const matches = plan.conditionalRefs.filter((reference) => (
+    reference.ref === repositoryPath
+    && reference.owner === decision.selectedSkillId
+    && reference.revision === decision.trustedRevision
+    && reference.reasonCode === 'post-applicability-guidance'
+    && reference.frontierId === 'skill-guidance-applicability'
+  ));
+  if (matches.length !== 1) {
+    throw new Error('selected Skill guidance is not exactly admitted by the Operation Read Plan.');
+  }
+  const reference = matches[0]!;
+  const frontier = plan.unresolvedFrontier.find(({ id }) => id === reference.frontierId);
+  if (frontier === undefined || !frontier.allowedRefIds.includes(reference.id)) {
+    throw new Error('selected Skill guidance is not bound by the admitted Read Plan frontier.');
+  }
+  return reference;
+}
+
+/**
+ * Reads zero or one exact trusted Skill body after the pure applicability
+ * decision. Non-applicable/ambiguous/stale/conflict/unresolved decisions return
+ * null before any Skill Git object is touched. Applicable guidance must be one
+ * exact conditional ref already admitted by the Operation Read Plan.
+ */
+export function readTrustedSecSkillGuidanceV1(input: Readonly<{
+  repositoryRoot: string;
+  plan: SecOperationReadPlanV1;
+  decision: SecSkillApplicabilityDecisionV1;
+}>): SecSkillGuidanceV1 | null {
+  if (input.decision.status !== 'applicable' || input.decision.selectedSkillId === null) {
+    return null;
+  }
+  if (input.plan.maxSkillBodies !== 1 || input.plan.preApplicabilitySkillBodiesRead !== 0) {
+    throw new Error('trusted Skill guidance requires one post-applicability body budget and zero prior body reads.');
+  }
+  const admitted = admittedSkillGuidanceRef(input.plan, input.decision);
+  if (admitted === null) throw new Error('applicable Skill has no admitted guidance ref.');
+  const repositoryPath = secSkillRepositoryPathV1(input.decision.selectedSkillId);
+  const blob = requireGitOutput(
+    input.repositoryRoot,
+    ['rev-parse', '--verify', `${input.decision.trustedRevision}:${repositoryPath}`],
+    'trusted Skill blob resolution'
+  );
+  const source = decodeExactUtf8(requireGitBytes(
+    input.repositoryRoot,
+    ['show', `${input.decision.trustedRevision}:${repositoryPath}`],
+    'trusted Skill body read'
+  ), 'trusted Skill body');
+  return createSecSkillGuidanceV1({
+    decision: input.decision,
+    readPlanDigest: input.plan.readPlanDigest,
+    readPlanRefId: admitted.id,
+    repositoryPath,
+    blobRevision: blob,
+    source
+  });
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const options: { readPlan?: string; candidateRoot?: string } = {};
+  const options: { readPlan?: string; candidateRoot?: string; includeGuidance: boolean } = {
+    includeGuidance: false
+  };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!;
+    if (argument === '--include-guidance') {
+      if (options.includeGuidance) fail('duplicate argument: --include-guidance');
+      options.includeGuidance = true;
+      continue;
+    }
     if (argument !== '--read-plan' && argument !== '--candidate-root') fail(`unknown argument: ${argument}`);
     const value = args[index + 1];
     if (value === undefined || value.startsWith('--')) fail(`${argument} requires a value.`);
@@ -118,7 +225,19 @@ async function main(): Promise<void> {
     trustedSkillRevisions,
     candidateSkillRevisions
   });
-  process.stdout.write(`${JSON.stringify(decision, null, 2)}\n`);
+  if (!options.includeGuidance) {
+    process.stdout.write(`${JSON.stringify(decision, null, 2)}\n`);
+    return;
+  }
+  const guidance = readTrustedSecSkillGuidanceV1({
+    repositoryRoot: observation.candidateRoot,
+    plan,
+    decision
+  });
+  process.stdout.write(`${JSON.stringify(createSecSkillGuidanceProjectionV1({
+    decision,
+    guidance
+  }), null, 2)}\n`);
 }
 
 if (import.meta.main) {

@@ -1,57 +1,40 @@
 ---
 name: sec-task-delegation
-description: 用于判断 frozen Work Package 是否值得拆成互不重叠的角色任务，并约束 Worker、Reviewer 与 A0 的责任边界；不用于单一纵切片或同一 authority 的并发写入。
+description: 当机器已证明多个 seam 权限/路径/资源真正独立后，判断并行收益是否大于协调与上下文成本；不负责 scope 切分、Agent 启动或递归分派。
 ---
 
 # sec-task-delegation
 
-## 触发
-- frozen Work Package 存在两个以上真正独立、并行收益大于协调成本的 seam，或必须隔离独立 Reviewer。
+本 Skill 仅在 trusted applicability 选中后加载；只消费 Operation Read Plan 已准入事实，`effectAuthority=none`。
 
-## 不触发
-- 单一纵向切片由当前 writer 直接完成更快。
-- 候选角色共享 canonical writer、owned path、前置结果或外部 effect，无法形成物理独立闭包。
-- 只是希望“多看一眼”或扩大探索面，没有可交付的独立结果。
+## 适用边界
+- 适用：frozen work 已由 deterministic owner 证明有两个以上权限/write surface/resource/dependency 均独立的候选 seam，但是否值得并行仍需判断；或需要判断独立 Reviewer 的额外成本/收益。
+- 不适用：seam 共享 canonical writer/authority/前置结果/external Effect，或 disjointness 尚未由机器证明。
 
-## 输入
-- exact base 与 frozen Work Package ref/digest。
-- 当前用户授权、角色候选、owned/forbidden path closure、依赖、资源冲突、停止条件和独立性要求。
-- 若 production Task Capsule compiler 已可用，消费其 typed output；不得从 prose 重建竞争 Capsule。
+## 已准入输入
+- 仅使用 Read Plan 给出的 exact work identity、machine-proven seam/owner/path/resource/dependency facts、bounded outcomes、当前 executor/provider 条件和 independence 要求。
+- 不自行读源码重新发明 seam，也不从 prose 重建 Task Capsule。
 
-## 权限与路径
-- 委派只能保持或收窄当前 Work Package 与用户授权，不能新增写入路径、外部 effect、merge 或发布权限。
-- 主线程保留最新用户授权、canonical writer、架构裁决、集成与最终验证责任。
+## 判断职责
+1. 比较可并行 wall-clock 收益与上下文复制、协调、集成、复核和失败恢复成本。
+2. 优先保持单 writer；只有净收益明确且隔离降低风险时选择 delegate。
+3. delegate 时给出最少角色数、每个 bounded outcome 与 integration order，不扩大权限。
+4. Reviewer independence 是独立机器约束，不能用“另一个 Agent”自动证明。
 
-## 允许工具与操作
-- 形成 bounded role projection、owner/path disjoint proof、启动已授权的独立 Agent，以及消费角色完成结果。
-- 在 #205 的 production Task Capsule compiler 完成切换前，本 Skill 只拥有“是否值得委派”的判断，不签发第二份 canonical Capsule 状态。
+## 判断输出
+- `delegationJudgement`：`delegate | no-delegation`、seam refs、收益/成本因素、role outcomes、integration order 与反转条件。
 
-## 前置门禁
-- repository resolver 与 frozen Work Package 均有效。
-- 每个角色都有单一 owner、可独立收口的结果和明确的依赖边界；否则保持单 writer。
+## 停止与回退
+- 判断可交给 deterministic launcher/capsule owner时停止。
+- owner重叠、依赖/provider能力变化使原收益假设失效时重新判断。
 
-## 执行
-1. 先比较并行节省与协调、上下文、冲突和复核成本；收益不明确时不委派。
-2. 每个角色只接收一个 bounded outcome，并继承同一 exact base 与更窄权限。
-3. 同一 canonical type、revision、builder、pipeline order 或 authority 段落保持单写者。
-4. Worker 不 merge、不触发 hosted Gate、不递归扩权；Reviewer 保持 read-only，只返回 exact path、symbol 与 invariant。
-5. 主线程只集成与 frozen package 一致的结果；冲突或越界结果 fail-closed。
+## 禁止
+- 不同一文件/authority多写者，不递归分派，不为 finding 创建 successor worktree。
+- 不通过轮询维持“并行正在进行”的虚假进度。
+- 不把 Agent 输出当自动 merge/Review/Gate authority。
 
-## 完成证据
-- role projection、owner/path disjoint proof、角色结果与 Reconciliation Delta。
-- 若没有实际并行收益，`no-delegation` 是合法且优先的结果。
-
-## 停止与恢复
-- 出现 owner 重叠、依赖未闭合、授权不明或独立性不成立时停止委派并返回 typed blocker。
-- 角色完成、明确 blocker 或用户改变优先级后停止；不以轮询维持虚假进度。
-
-## 禁止捷径
-- 禁止同一文件或 authority 的多个写者。
-- 禁止递归分派、主动轮询、为 finding 创建 successor worktree，或把 Agent 输出当作自动 merge 授权。
-- 禁止在真实 production Task Capsule compiler 和 consumer cutover 之前仅凭目标架构删除本 Skill。
-
-## 权威
-- `AGENTS.md`
+## 语义权威（非自动读取）
+以下只声明优先级；是否读取仍由当前 Read Plan 决定：
 - `docs/development-governance.md`
-- `platform/shared/agent-skill-contract.ts`
-- `.codex/agents/`
+- 当前 Task Capsule / conflict / resource machine owner
+- 当前 Review independence owner（若适用）

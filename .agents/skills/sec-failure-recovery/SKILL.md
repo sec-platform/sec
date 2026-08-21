@@ -1,56 +1,40 @@
 ---
 name: sec-failure-recovery
-description: 用于测试、Gate、Review、candidate、进程或控制面失败后分类根因、最小重跑、proof reset和设计回退；不用于无分类重复尝试。
+description: 当确定性 failure owner 仍不能唯一解释根因时，裁决 root-cause class、owner 与下一类恢复动作；不直接执行 recovery、proof reset 或状态迁移。
 ---
 
 # sec-failure-recovery
 
-## 触发
-- focused/Gate失败、Review changes、candidate invalidation、capsule损坏、remote stale或基础设施故障。
+本 Skill 仅在 trusted applicability 选中后加载；只消费 Operation Read Plan 已准入事实，`effectAuthority=none`。
 
-## 不触发
-- 结果尚未完成或只是单次性能离群。
+## 适用边界
+- 适用：exact failure/input/epoch/cleanup 已由机器 owner绑定，但根因仍有多个可信解释；或同类失败重复，需要判断 leaf、shared contract、architecture、provider/environment 或 external blocker。
+- 不适用：failure fingerprint 已映射到唯一 remediation/next transition；只是等待已知 in-flight Action、结果尚未完成或单次性能离群。
 
-## 输入
-- failure tail、exact identity、old/current trust epoch、mutation/prompt epoch、root-cause cluster、cleanup evidence。
+## 已准入输入
+- 仅使用 Read Plan 给出的 exact failure/fingerprint、failure tail、old/current epoch、input delta、owner/invariant、cleanup/settlement 与 causal Evidence。
+- 不搜索 Memory、dangling objects、历史 PR/Issue、所有日志或第二 Skill；缺 Evidence 返回 `evidence-needed`。
 
-## 权限与路径
-- 只处理失败证据、最小delta和恢复状态；不扩大产品scope。
+## 判断职责
+1. 建立最少竞争解释：产品实现、合同/owner、Review/scope、environment/provider、stale identity、external mutation 或 unknown。
+2. 用已准入 Evidence 排除解释，优先共同原因而不是再次 leaf patch。
+3. 裁决下一类动作：`reuse-failure | minimal-rerun-after-causal-change | proof-reset-request | architecture-recalculation | external-blocker | unresolved`。
+4. 指出失效的旧 Evidence/epoch；真正 reset/recovery/rebind 交回其机器 owner。
 
-## 允许工具与操作
-- failure tail读取、root-cause分类、最小sentinel、capsule recovery、proof reset。
+## 判断输出
+- `failureJudgement`：rootCauseClass、owner/invariant、被排除解释、invalidated Evidence、nextActionClass、决定性未知与反转条件。
 
-## 前置门禁
-- exact failure identity、cleanup状态和输入变更已知。
+## 停止与回退
+- root cause 与下一类机器动作已唯一时停止。
+- Evidence不足返回 bounded unresolved；输入未变化时不得建议重复尝试。
 
-## 执行
-1. 分类为产品、合同、Review、用户scope、authority、环境瞬态、基础设施、stale remote或unknown。
-2. 只重跑被delta失效的最小sentinel；环境瞬态只有在锁owner结束、cache修复、network恢复等具体因果输入变化后才允许现有primitive定义的受限重试，输入与failure tail未变时复用失败证据并停止该执行路径，不停止仍有其他合法下一动作的长期任务。
-3. transient failure不生成新candidate；用户scope变化先reconcile。
-4. 重复同根因 frozen invalidation 请求 failure owner 签发 typed proof-reset decision，不由 Skill 发明状态。
-5. proof reset后再次同类失败返回架构重算所需的 root-cause evidence，不继续补丁循环。
-6. capsule/chain损坏从最后合法generation恢复；无合法generation则fail closed。
-7. merge或其他trust-root mutation完成exact new-main readback后，立即封存旧epoch，丢弃其effect grant、Review、Evidence和缓存control facts；不得把旧receipt带入下一代。
-8. 如果当前用户授权仍覆盖任务，自动从exact new main运行canonical document-control status，重载`AGENTS.md`、selected manifest与authority closure，取得新operation epoch并继续`RequiredClosure ∩ MissingOrStale`。信任代际变化本身不是用户交互点，也不能输出`TASK_RESTART_REQUIRED`作为常规终态。
-9. 只有canonical status为`unresolved/invalid`、缺少外部authority、独立Review不可用、下一步需要用户选择或出现其他typed外部阻塞时，才把控制权返回用户；这些条件之外不得自主结束仍有合法下一动作的任务。
+## 禁止
+- 不因失败删测试、降 assertion、扩 timeout、反复 rerun 或新建 candidate。
+- 不默认恢复用户/maintainer 已改变的状态，不用 `git fsck`/dangling-object resurrection 代替 authority。
+- 不把 Skill judgement 写成 recovery Effect receipt。
 
-## 完成证据
-- failure class、root-cause cluster、invalidated Evidence、owner/invariant/next action。
-
-## 停止与恢复
-- 根因、owner、invariant、下一动作和失效Evidence明确。
-- 瞬态仅在因果输入变化后受限重试；重复根因交给 deterministic failure/proof-reset owner。
-- old epoch必须终止，但长期任务默认自动跨epoch恢复；“终止旧授权”与“终止用户任务”是两个不同状态。
-- 正向：new-main readback完整且status resolved时自动重新定向并继续。
-- 负向：不得复用old-epoch authority/Evidence，也不得把`TASK_RESTART_REQUIRED`当作普通停止理由。
-- 边界：status unresolved/invalid、外部authority或独立Review不可得、或必须用户裁决时才停止并报告typed blocker。
-
-## 禁止捷径
-- 不硬重置或删除未审计工作。
-- 不把所有失败累计成同一candidate次数。
-
-## 权威
-- `AGENTS.md`
+## 语义权威（非自动读取）
+以下只声明优先级；是否读取仍由当前 Read Plan 决定：
 - `docs/development-governance.md`
 - `docs/verification-governance.md`
-- `docs/semantic-mutation.md`
+- 当前 failure 对应的 canonical owner / Result / recovery contract

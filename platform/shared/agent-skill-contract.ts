@@ -131,18 +131,19 @@ export const SEC_REPOSITORY_BEHAVIOR_ROUTES = Object.freeze({
   'worker-development': skillRoute('sec-worker-development')
 } satisfies Record<SecRepositoryBehaviorId, SecRepositoryBehaviorRoute>);
 
+/**
+ * Skill body V2 keeps only the information an irreducible judgement needs.
+ * Permission, tools and deterministic prerequisite/state transitions belong to
+ * machine owners and are intentionally not sections in Skill prose.
+ */
 export const SEC_AGENT_SKILL_STANDARD_SECTIONS = [
-  '## 触发',
-  '## 不触发',
-  '## 输入',
-  '## 权限与路径',
-  '## 允许工具与操作',
-  '## 前置门禁',
-  '## 执行',
-  '## 完成证据',
-  '## 停止与恢复',
-  '## 禁止捷径',
-  '## 权威'
+  '## 适用边界',
+  '## 已准入输入',
+  '## 判断职责',
+  '## 判断输出',
+  '## 停止与回退',
+  '## 禁止',
+  '## 语义权威（非自动读取）'
 ] as const;
 
 export type SecMarkdownSurfaceKind =
@@ -341,6 +342,7 @@ export function resolveSecRepositoryHeuristicSkills(path: string): SecAgentSkill
     return skills('sec-external-capability-governance', 'sec-repository-audit');
   }
   if (path === 'platform/shared/agent-skill-contract.ts'
+    || path === 'platform/shared/agent-skill-runtime-contract.ts'
     || path === 'platform/shared/agent-operation-read-plan-contract.ts') {
     return skills('sec-architecture-evolution', 'sec-heuristic-governance', 'sec-repository-audit');
   }
@@ -414,8 +416,10 @@ export function isSecAgentSkillId(value: unknown): value is SecAgentSkillId {
 }
 
 /**
- * Minimal machine metadata extracted from the real Skill registry. Prose
- * triggers remain agent guidance; only this table drives the machine decision.
+ * Minimal machine metadata for irreducible judgement selection. A Skill body
+ * has no tool, resource, gate or write authority; those belong to the current
+ * operation and deterministic owners. Only role, operation kind and lifecycle
+ * participate in Skill applicability.
  */
 export interface SecAgentSkillMetadataV1 {
   readonly id: SecAgentSkillId;
@@ -433,17 +437,17 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
     id: 'sec-architecture-evolution',
     roles: ['a0', 'auditor', 'maintainer'],
     operationKinds: ['design'],
-    requiredCapabilities: ['git', 'github'],
+    requiredCapabilities: [],
     requiredResources: [],
     requiredGates: [],
-    writeSurface: ['docs/'],
+    writeSurface: [],
     supersededBy: null
   },
   'sec-exact-head-review': {
     id: 'sec-exact-head-review',
     roles: ['reviewer'],
     operationKinds: ['review'],
-    requiredCapabilities: ['git', 'github'],
+    requiredCapabilities: [],
     requiredResources: [],
     requiredGates: [],
     writeSurface: [],
@@ -453,17 +457,17 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
     id: 'sec-external-capability-governance',
     roles: ['a0', 'maintainer'],
     operationKinds: ['govern'],
-    requiredCapabilities: ['git', 'github'],
+    requiredCapabilities: [],
     requiredResources: [],
     requiredGates: [],
-    writeSurface: ['docs/governance/external-capability-ledger.yaml'],
+    writeSurface: [],
     supersededBy: null
   },
   'sec-failure-recovery': {
     id: 'sec-failure-recovery',
     roles: ['a0', 'worker', 'maintainer'],
     operationKinds: ['diagnose'],
-    requiredCapabilities: ['git', 'github'],
+    requiredCapabilities: [],
     requiredResources: [],
     requiredGates: [],
     writeSurface: [],
@@ -473,17 +477,17 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
     id: 'sec-heuristic-governance',
     roles: ['a0', 'auditor', 'maintainer'],
     operationKinds: ['govern', 'design'],
-    requiredCapabilities: ['git'],
+    requiredCapabilities: [],
     requiredResources: [],
     requiredGates: [],
-    writeSurface: ['.agents/skills/', 'platform/shared/agent-skill-contract.ts', 'AGENTS.md'],
+    writeSurface: [],
     supersededBy: null
   },
   'sec-repository-audit': {
     id: 'sec-repository-audit',
     roles: ['auditor'],
     operationKinds: ['audit'],
-    requiredCapabilities: ['git', 'github'],
+    requiredCapabilities: [],
     requiredResources: [],
     requiredGates: [],
     writeSurface: [],
@@ -493,7 +497,7 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
     id: 'sec-task-delegation',
     roles: ['a0'],
     operationKinds: ['govern', 'orient'],
-    requiredCapabilities: ['git'],
+    requiredCapabilities: [],
     requiredResources: [],
     requiredGates: [],
     writeSurface: [],
@@ -503,7 +507,7 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
     id: 'sec-worker-development',
     roles: ['worker'],
     operationKinds: ['implement'],
-    requiredCapabilities: ['git'],
+    requiredCapabilities: [],
     requiredResources: [],
     requiredGates: [],
     writeSurface: [],
@@ -512,16 +516,18 @@ export const SEC_AGENT_SKILL_METADATA_V1 = {
 } as const satisfies Record<SecAgentSkillId, SecAgentSkillMetadataV1>;
 
 /**
- * Candidate-quarantine surfaces: when a candidate changes these paths, the
- * applicability decision and any Review guidance bind the trusted base/main
- * revision; candidate bytes are only SUT differences and can never self-authorize.
+ * Candidate-quarantine surfaces: when a candidate changes guidance/runtime
+ * paths, applicability and Review guidance bind the trusted base/main revision;
+ * candidate bytes are only SUT differences and can never self-authorize.
  */
 export const SEC_SKILL_QUARANTINE_PATHS = [
   'AGENTS.md',
   '.agents/',
+  '.codex/agents/',
   'platform/shared/agent-operation-activation-contract.ts',
   'platform/shared/agent-operation-read-plan-contract.ts',
   'platform/shared/agent-skill-contract.ts',
+  'platform/shared/agent-skill-runtime-contract.ts',
   'platform/shared/agent-task-capsule-contract.ts',
   'scripts/codex/agent-operation-activation.ts',
   'scripts/codex/operation-read-plan.ts',
